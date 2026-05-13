@@ -11,26 +11,35 @@ import scalascript.ast.*
     case "parse"               => parseCommand(args.tail.toList)
     case "check"               => checkCommand(args.tail.toList)
     case "run"                 => runCommand(args.tail.toList)
+    case "serve"               => serveCommand(args.tail.toList)
     case "help" | "--help" | "-h" => printUsage()
     case _                     => runCommand(args.toList)
 
 def printUsage(): Unit =
   println("""
-    |ScalaScript Compiler (ssc)
+    |ScalaScript (ssc)
     |
     |Usage: ssc <command> [options] <files...>
     |
     |Commands:
     |  run     Execute .ssc files  (default)
+    |  serve   Start HTTP server serving .ssc files as web pages
     |  parse   Parse .ssc files and print AST
     |  check   Type-check .ssc files
     |  help    Show this help message
     |
     |Examples:
+    |  ssc examples/hello.ssc
+    |  ssc serve 8080
+    |  ssc serve 8080 examples/
     |  ssc run  examples/hello.ssc
-    |  ssc check examples/typed-data.ssc
-    |  ssc parse examples/typed-data.ssc
+    |  ssc parse examples/typeclass.ssc
     |""".stripMargin)
+
+def serveCommand(args: List[String]): Unit =
+  val port = args.headOption.flatMap(_.toIntOption).getOrElse(8080)
+  val dir  = args.drop(1).headOption.getOrElse(".")
+  scalascript.server.WebServer.start(port, dir, System.out)
 
 def parseCommand(args: List[String]): Unit =
   if args.isEmpty then { println("Error: No files specified"); System.exit(1) }

@@ -48,6 +48,14 @@ class Interpreter(out: java.io.PrintStream = System.out):
       case List(Value.BoolV(false), msg)  => throw InterpretError(s"Requirement failed: ${Value.show(msg)}")
       case _                              => Value.UnitV
     }
+    native("serve") {
+      case List(Value.IntV(port)) =>
+        scalascript.server.WebServer.start(port.toInt, ".", out); Value.UnitV
+      case List(Value.IntV(port), Value.StringV(dir)) =>
+        scalascript.server.WebServer.start(port.toInt, dir, out); Value.UnitV
+      case _ => throw InterpretError("serve(port) or serve(port, dir)")
+    }
+
     native("Some")  { case List(v) => Value.OptionV(Some(v)); case _ => throw InterpretError("Some takes 1 arg") }
     native("List")  { args => Value.ListV(args) }
     native("Map") { args =>
