@@ -544,8 +544,27 @@ class Interpreter(out: java.io.PrintStream = System.out):
       // ── Generic ──────────────────────────────────────────────────
       case (v, "toString", Nil)  => Value.StringV(Value.show(v))
       case (v, "apply",    fargs) => callValue(v, fargs, env)
+      // ── Extension method via given: "hello".show → Show[String].show("hello")
       case _ =>
-        throw InterpretError(s"No method '$name' on ${recv.getClass.getSimpleName}(${Value.show(recv)})")
+        extensionDispatch(recv, name, args, env)
+          .getOrElse(throw InterpretError(s"No method '$name' on ${recv.getClass.getSimpleName}(${Value.show(recv)})"))
+
+  private def extensionDispatch(recv: Value, method: String, args: List[Value], env: Env): Option[Value] =
+    val typeName = recv match
+      case _: Value.IntV        => "Int"
+      case _: Value.DoubleV     => "Double"
+      case _: Value.StringV     => "String"
+      case _: Value.BoolV       => "Boolean"
+      case _: Value.ListV       => "List"
+      case _: Value.OptionV     => "Option"
+      case _: Value.MapV        => "Map"
+      case Value.InstanceV(t,_) => t
+      case _                    => "Any"
+    globals.values.collectFirst {
+      case Value.InstanceV(name, fields)
+        if name.endsWith(s"[$typeName]") && fields.contains(method) =>
+        callValue(fields(method), recv :: args, env)
+    }
 
   // ─── Pattern matching ────────────────────────────────────────────
 
