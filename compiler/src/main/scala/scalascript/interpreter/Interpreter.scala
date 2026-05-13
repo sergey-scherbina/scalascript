@@ -11,9 +11,10 @@ import scala.meta.*
  *  - Each scala/ssc code block is executed eagerly (defs bind, exprs run).
  *  - After all sections, `main()` is auto-called if defined and not already invoked.
  */
-class Interpreter:
+class Interpreter(out: java.io.PrintStream = System.out):
   private val globals = mutable.Map.empty[String, Value]
   private var mainCalled = false
+  private var placeholderIdx = 0
 
   // ─── Public API ──────────────────────────────────────────────────
 
@@ -32,8 +33,8 @@ class Interpreter:
     def native(name: String)(f: List[Value] => Value): Unit =
       globals(name) = Value.NativeFnV(name, f)
 
-    native("println") { args => println(args.map(Value.show).mkString(" ")); Value.UnitV }
-    native("print")   { args => print(args.map(Value.show).mkString(" "));   Value.UnitV }
+    native("println") { args => out.println(args.map(Value.show).mkString(" ")); Value.UnitV }
+    native("print")   { args => out.print(args.map(Value.show).mkString(" "));   Value.UnitV }
     native("assert") {
       case List(Value.BoolV(true))             => Value.UnitV
       case List(Value.BoolV(false))            => throw InterpretError("Assertion failed")
@@ -46,21 +47,26 @@ class Interpreter:
       case List(Value.BoolV(false), msg)  => throw InterpretError(s"Requirement failed: ${Value.show(msg)}")
       case _                              => Value.UnitV
     }
-    native("Some")  { case List(v) => Value.OptionV(Some(v)) }
+    native("Some")  { case List(v) => Value.OptionV(Some(v)); case _ => throw InterpretError("Some takes 1 arg") }
     native("List")  { args => Value.ListV(args) }
-    native("Map")   { args => Value.InstanceV("Map", Map.empty) }   // stub
+    native("Map") { args =>
+      val entries = args.collect { case Value.TupleV(List(k, v)) => k -> v }.toMap
+      Value.MapV(entries)
+    }
     globals("None") = Value.OptionV(None)
 
-    // math pseudo-module
     native("math.sqrt")  { case List(Value.DoubleV(d)) => Value.DoubleV(math.sqrt(d))
-                           case List(Value.IntV(n))    => Value.DoubleV(math.sqrt(n.toDouble)) }
+                           case List(Value.IntV(n))    => Value.DoubleV(math.sqrt(n.toDouble))
+                           case _ => Value.UnitV }
     native("math.abs")   { case List(Value.DoubleV(d)) => Value.DoubleV(math.abs(d))
-                           case List(Value.IntV(n))    => Value.IntV(math.abs(n)) }
+                           case List(Value.IntV(n))    => Value.IntV(math.abs(n))
+                           case _ => Value.UnitV }
     native("math.pow")   { case List(Value.DoubleV(a), Value.DoubleV(b)) => Value.DoubleV(math.pow(a, b))
-                           case List(Value.IntV(a), Value.DoubleV(b))    => Value.DoubleV(math.pow(a.toDouble, b)) }
-    native("math.floor") { case List(Value.DoubleV(d)) => Value.DoubleV(math.floor(d)) }
-    native("math.ceil")  { case List(Value.DoubleV(d)) => Value.DoubleV(math.ceil(d)) }
-    native("math.round") { case List(Value.DoubleV(d)) => Value.IntV(math.round(d)) }
+                           case List(Value.IntV(a), Value.DoubleV(b))    => Value.DoubleV(math.pow(a.toDouble, b))
+                           case _ => Value.UnitV }
+    native("math.floor") { case List(Value.DoubleV(d)) => Value.DoubleV(math.floor(d)); case _ => Value.UnitV }
+    native("math.ceil")  { case List(Value.DoubleV(d)) => Value.DoubleV(math.ceil(d));  case _ => Value.UnitV }
+    native("math.round") { case List(Value.DoubleV(d)) => Value.IntV(math.round(d));    case _ => Value.UnitV }
     globals("math.Pi")   = Value.DoubleV(math.Pi)
     globals("math.E")    = Value.DoubleV(math.E)
 
@@ -76,8 +82,10 @@ class Interpreter:
 
   private def execBlock(node: ScalaNode): Unit =
     ScalaNode.fold(node) {
-      case Source(stats) => stats.foreach(s => execStat(s, globals))
-      case other         => throw InterpretError(s"Expected Source, got ${other.productPrefix}")
+      case Source(stats)     => stats.foreach(s => execStat(s, globals))
+      case Term.Block(stats) => stats.foreach(s => execStat(s, globals))
+      case t: Term           => eval(t, globals.toMap); ()
+      case other             => throw InterpretError(s"Expected Source/Block, got ${other.productPrefix}")
     }
 
   // ─── Statement execution ─────────────────────────────────────────
@@ -90,17 +98,16 @@ class Interpreter:
       env(n.value) = eval(rhs, env.toMap)
 
     case d: Defn.Def =>
-      // paramClauseGroups is the Scala 3 API in scalameta 4.8+
       val params = d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values).map(_.name.value)
       env(d.name.value) = Value.FunV(params, d.body, env.toMap)
-      if d.name.value == "main" && params.isEmpty then mainCalled = false // reset so auto-call works
+      if d.name.value == "main" && params.isEmpty then mainCalled = false
 
     case d: Defn.Object =>
-      // register object name as a unit instance (fields populated by members)
-      env(d.name.value) = Value.InstanceV(d.name.value, Map.empty)
+      val members = mutable.Map.empty[String, Value]
+      d.templ.stats.foreach(s => execStat(s, members))
+      env(d.name.value) = Value.InstanceV(d.name.value, members.toMap)
 
     case d: Defn.Class =>
-      // register a constructor native function
       val params = d.ctor.paramClauses.flatMap(_.values)
       val paramNames = params.map(_.name.value)
       val typeName = d.name.value
@@ -108,15 +115,31 @@ class Interpreter:
         args => Value.InstanceV(typeName, paramNames.zip(args).toMap)
       )
 
+    case d: Defn.Enum =>
+      val enumName = d.name.value
+      val caseFields = mutable.Map.empty[String, Value]
+      d.templ.stats.foreach {
+        case ec: Defn.EnumCase =>
+          val caseName = ec.name.value
+          val paramNames = ec.ctor.paramClauses.flatMap(_.values).map(_.name.value)
+          val v: Value =
+            if paramNames.isEmpty then Value.InstanceV(caseName, Map.empty)
+            else Value.NativeFnV(caseName, args => Value.InstanceV(caseName, paramNames.zip(args).toMap))
+          env(caseName) = v
+          caseFields(caseName) = v
+        case _ => ()
+      }
+      // Enum companion object for qualified access (Color.Red)
+      env(enumName) = Value.InstanceV(enumName, caseFields.toMap)
+
     case t: Term =>
       val result = eval(t, env.toMap)
-      // if main() was called explicitly, mark it so we don't double-call
       t match
         case Term.Apply(Term.Name("main"), _) => mainCalled = true
         case _                                => ()
-      result
+      result: @annotation.nowarn("msg=Discarded")
 
-    case _ => () // type aliases, imports, etc.
+    case _ => () // type aliases, imports, exports, etc.
 
   // ─── Expression evaluation ───────────────────────────────────────
 
@@ -153,7 +176,7 @@ class Interpreter:
       val argVs = args.map(eval(_, env))
       infix(lhsV, op.value, argVs, env)
 
-    // Field / method selection: a.b
+    // Field / method selection: a.b  (no-arg call)
     case Term.Select(qual, name) =>
       val qualV = eval(qual, env)
       dispatch(qualV, name.value, Nil, env)
@@ -171,7 +194,7 @@ class Interpreter:
     case t: Term.If =>
       if eval(t.cond, env).asInstanceOf[Value.BoolV].v then eval(t.thenp, env) else eval(t.elsep, env)
 
-    // String interpolation s"... ${expr} ..."
+    // String interpolation s"..." / f"..."
     case Term.Interpolate(Term.Name(prefix), parts, args) if prefix == "s" || prefix == "f" =>
       val sb = StringBuilder()
       for i <- parts.indices do
@@ -179,14 +202,22 @@ class Interpreter:
         if i < args.length then sb ++= Value.show(eval(args(i).asInstanceOf[Term], env))
       Value.StringV(sb.toString)
 
-    // Anonymous function with _ placeholders: _.method or _ + 1 etc.
-    case Term.AnonymousFunction(body) =>
-      Value.NativeFnV("anon", args =>
-        eval(body.asInstanceOf[Term], env + ("_$0" -> args.headOption.getOrElse(Value.UnitV))))
+    // Anonymous function with _ placeholders: _.field, _ + 1, _ + _, etc.
+    case t: Term.AnonymousFunction =>
+      val arity = t.body.collect { case _: Term.Placeholder => () }.length.max(1)
+      Value.NativeFnV("anon", args => {
+        val saved = placeholderIdx
+        placeholderIdx = 0
+        val phEnv = env ++ args.zipWithIndex.map { (v, i) => s"_$$${i}" -> v }
+        try eval(t.body, phEnv)
+        finally placeholderIdx = saved
+      })
 
-    // Placeholder _ in anonymous function context
-    case Term.Placeholder() =>
-      env.getOrElse("_$0", throw InterpretError("Unexpected _"))
+    // _ placeholder — numbered left-to-right via mutable counter
+    case _: Term.Placeholder =>
+      val i = placeholderIdx
+      placeholderIdx += 1
+      env.getOrElse(s"_$$${i}", throw InterpretError("Unexpected _"))
 
     // Lambda  x => body  or  (x, y) => body
     case Term.Function(params, body) =>
@@ -221,27 +252,25 @@ class Interpreter:
     // return expr  (non-local via exception)
     case Term.Return(expr) => throw ReturnSignal(eval(expr, env))
 
-    // var assignment
+    // var/field assignment
     case Term.Assign(Term.Name(name), rhs) =>
-      val v = eval(rhs, env)
-      if env.contains(name) then throw InterpretError("Cannot assign to immutable val")
-      globals(name) = v
-      Value.UnitV
+      globals(name) = eval(rhs, env); Value.UnitV
 
     case other => throw InterpretError(s"Cannot eval: ${other.productPrefix}")
 
-  // ─── Dispatch ────────────────────────────────────────────────────
+  // ─── Call helpers ─────────────────────────────────────────────────
 
   private def callValue(fn: Value, args: List[Value], env: Env): Value = fn match
-    case f: Value.FunV     => callFun(f, args)
+    case f: Value.FunV      => callFun(f, args)
     case f: Value.NativeFnV => f.f(args)
-    // Partial application: fn.apply
     case _ => throw InterpretError(s"Not callable: ${Value.show(fn)}")
 
   private def callFun(f: Value.FunV, args: List[Value]): Value =
     val callEnv = globals.toMap ++ f.closure ++ f.params.zip(args).toMap
     try eval(f.body, callEnv)
     catch case r: ReturnSignal => r.value
+
+  // ─── Infix operators ──────────────────────────────────────────────
 
   private def infix(lhs: Value, op: String, args: List[Value], env: Env): Value =
     val rhs = args.headOption.getOrElse(Value.UnitV)
@@ -270,13 +299,18 @@ class Interpreter:
       case (Value.IntV(a),    ">=", Value.IntV(b))    => Value.BoolV(a >= b)
       case (Value.DoubleV(a), "<",  Value.DoubleV(b)) => Value.BoolV(a < b)
       case (Value.DoubleV(a), ">",  Value.DoubleV(b)) => Value.BoolV(a > b)
+      case (Value.DoubleV(a), "<=", Value.DoubleV(b)) => Value.BoolV(a <= b)
+      case (Value.DoubleV(a), ">=", Value.DoubleV(b)) => Value.BoolV(a >= b)
       case (Value.BoolV(a),   "&&", Value.BoolV(b))   => Value.BoolV(a && b)
       case (Value.BoolV(a),   "||", Value.BoolV(b))   => Value.BoolV(a || b)
       case (v, "::",  Value.ListV(ls))                 => Value.ListV(v :: ls)
       case (Value.ListV(a), "++", Value.ListV(b))      => Value.ListV(a ++ b)
       case (Value.ListV(a), ":::", Value.ListV(b))     => Value.ListV(a ++ b)
-      // Fallback: treat as method call on lhs
+      case (k, "->", v)                                => Value.TupleV(List(k, v))
+      // Fallback: method call on lhs
       case _ => dispatch(lhs, op, args, env)
+
+  // ─── Dispatch ─────────────────────────────────────────────────────
 
   private def dispatch(recv: Value, name: String, args: List[Value], env: Env): Value =
     (recv, name, args) match
@@ -366,11 +400,13 @@ class Interpreter:
       case (Value.ListV(ls), "max",        Nil)  =>
         ls.maxBy { case Value.IntV(n) => n.toDouble; case Value.DoubleV(d) => d; case _ => 0.0 }
       case (Value.ListV(ls), "foldLeft",   List(init)) =>
-        // foldLeft is curried: list.foldLeft(init)(f) → two Term.Apply nodes
-        Value.NativeFnV("foldLeft", {
-          case List(f) => ls.foldLeft(init)((acc, item) => callValue(f, List(acc, item), env))
-          case _       => throw InterpretError("foldLeft expects one function argument")
-        })
+        Value.NativeFnV("foldLeft",
+          { case List(f) => ls.foldLeft(init)((acc, item) => callValue(f, List(acc, item), env))
+            case _       => throw InterpretError("foldLeft expects one function argument") })
+      case (Value.ListV(ls), "foldRight",  List(init)) =>
+        Value.NativeFnV("foldRight",
+          { case List(f) => ls.foldRight(init)((item, acc) => callValue(f, List(item, acc), env))
+            case _       => throw InterpretError("foldRight expects one function argument") })
       case (Value.ListV(ls), "reduceLeft", List(f)) =>
         ls.reduceLeft((a, b) => callValue(f, List(a, b), env))
       case (Value.ListV(ls), "flatten",    Nil) =>
@@ -379,6 +415,38 @@ class Interpreter:
         Value.ListV(ls.sliding(n.toInt).map(Value.ListV(_)).toList)
       case (Value.ListV(ls), "grouped",    List(Value.IntV(n))) =>
         Value.ListV(ls.grouped(n.toInt).map(Value.ListV(_)).toList)
+      case (Value.ListV(ls), "appended",   List(v)) => Value.ListV(ls :+ v)
+      case (Value.ListV(ls), "prepended",  List(v)) => Value.ListV(v +: ls)
+      // ── Map ─────────────────────────────────────────────────────
+      case (Value.MapV(m), "size",       Nil)     => Value.IntV(m.size.toLong)
+      case (Value.MapV(m), "isEmpty",    Nil)     => Value.BoolV(m.isEmpty)
+      case (Value.MapV(m), "nonEmpty",   Nil)     => Value.BoolV(m.nonEmpty)
+      case (Value.MapV(m), "keys",       Nil)     => Value.ListV(m.keys.toList)
+      case (Value.MapV(m), "values",     Nil)     => Value.ListV(m.values.toList)
+      case (Value.MapV(m), "toList",     Nil)     => Value.ListV(m.toList.map { (k, v) => Value.TupleV(List(k, v)) })
+      case (Value.MapV(m), "contains",   List(k)) => Value.BoolV(m.contains(k))
+      case (Value.MapV(m), "get",        List(k)) => Value.OptionV(m.get(k))
+      case (Value.MapV(m), "apply",      List(k)) =>
+        m.getOrElse(k, throw InterpretError(s"Key not found: ${Value.show(k)}"))
+      case (Value.MapV(m), "getOrElse",  List(k, d)) => m.getOrElse(k, d)
+      case (Value.MapV(m), "updated",    List(k, v)) => Value.MapV(m + (k -> v))
+      case (Value.MapV(m), "removed",    List(k))    => Value.MapV(m - k)
+      case (Value.MapV(m), "map",        List(f)) =>
+        Value.MapV(m.map { (k, v) =>
+          callValue(f, List(Value.TupleV(List(k, v))), env) match
+            case Value.TupleV(List(nk, nv)) => nk -> nv
+            case other => other -> Value.UnitV
+        })
+      case (Value.MapV(m), "filter",     List(f)) =>
+        Value.MapV(m.filter { (k, v) =>
+          callValue(f, List(Value.TupleV(List(k, v))), env).asInstanceOf[Value.BoolV].v })
+      case (Value.MapV(m), "foreach",    List(f)) =>
+        m.foreach { (k, v) => callValue(f, List(Value.TupleV(List(k, v))), env) }; Value.UnitV
+      case (Value.MapV(m), "mkString",   Nil)  => Value.StringV(Value.show(Value.MapV(m)))
+      // String-key access shorthand: map.key
+      case (Value.MapV(m), key, Nil) =>
+        m.getOrElse(Value.StringV(key),
+          throw InterpretError(s"No key '$key' in map"))
       // ── Option ──────────────────────────────────────────────────
       case (Value.OptionV(Some(v)), "get",        Nil) => v
       case (Value.OptionV(opt),     "isDefined",  Nil) => Value.BoolV(opt.isDefined)
@@ -407,6 +475,10 @@ class Interpreter:
       case (Value.IntV(n),    "toInt",     Nil) => Value.IntV(n)
       case (Value.IntV(n),    "abs",       Nil) => Value.IntV(math.abs(n))
       case (Value.IntV(n),    "toString",  Nil) => Value.StringV(n.toString)
+      case (Value.IntV(n),    "to",        List(Value.IntV(m))) =>
+        Value.ListV((n to m).map(Value.IntV(_)).toList)
+      case (Value.IntV(n),    "until",     List(Value.IntV(m))) =>
+        Value.ListV((n until m).map(Value.IntV(_)).toList)
       case (Value.DoubleV(d), "toInt",     Nil) => Value.IntV(d.toLong)
       case (Value.DoubleV(d), "toLong",    Nil) => Value.IntV(d.toLong)
       case (Value.DoubleV(d), "abs",       Nil) => Value.DoubleV(math.abs(d))
@@ -419,20 +491,23 @@ class Interpreter:
       case (Value.TupleV(es), "_2", Nil) => es(1)
       case (Value.TupleV(es), "_3", Nil) => es(2)
       case (Value.TupleV(es), "_4", Nil) => es(3)
-      // ── Instance (case class) field access ───────────────────────
-      case (Value.InstanceV(_, fields), name, Nil) =>
-        fields.getOrElse(name, throw InterpretError(s"No field '$name'"))
-      // ── Generic toString ─────────────────────────────────────────
-      case (v, "toString", Nil) => Value.StringV(Value.show(v))
-      case (v, "apply",    args) => callValue(v, args, env)
+      // ── Instance (case class / enum case) field access ───────────
+      case (Value.InstanceV(_, fields), fname, Nil) =>
+        fields.getOrElse(fname, throw InterpretError(s"No field '$fname'"))
+      // ── Enum companion call (Color.RGB(1,2,3)) ───────────────────
+      case (Value.InstanceV(_, fields), fname, fargs) if fields.contains(fname) =>
+        callValue(fields(fname), fargs, env)
+      // ── Generic ──────────────────────────────────────────────────
+      case (v, "toString", Nil)  => Value.StringV(Value.show(v))
+      case (v, "apply",    fargs) => callValue(v, fargs, env)
       case _ =>
         throw InterpretError(s"No method '$name' on ${recv.getClass.getSimpleName}(${Value.show(recv)})")
 
   // ─── Pattern matching ────────────────────────────────────────────
 
   private def matchPat(pat: Pat, scrutinee: Value, env: Env): Option[Env] = pat match
-    case Pat.Wildcard()     => Some(env)
-    case Pat.Var(name)      => Some(env + (name.value -> scrutinee))
+    case Pat.Wildcard()  => Some(env)
+    case Pat.Var(name)   => Some(env + (name.value -> scrutinee))
     case lit: Lit =>
       val litV: Value = lit match
         case Lit.Int(v)     => Value.IntV(v.toLong)
@@ -451,7 +526,10 @@ class Interpreter:
           }
         case _ => None
     case Pat.Extract(fn, args) =>
-      val typeName = fn match { case Term.Name(n) => n; case _ => return None }
+      val typeName = fn match
+        case Term.Name(n)           => n
+        case Term.Select(_, Term.Name(n)) => n   // qualified: Color.RGB(...)
+        case _ => return None
       scrutinee match
         case Value.InstanceV(t, fields) if t == typeName =>
           val fieldVals = fields.values.toList
@@ -460,10 +538,15 @@ class Interpreter:
             acc.flatMap(e => matchPat(pe._1, pe._2, e))
           }
         case _ => None
-    case Pat.Typed(inner, _)  => matchPat(inner, scrutinee, env)
+    case Pat.Typed(inner, _)       => matchPat(inner, scrutinee, env)
     case Pat.Alternative(lhs, rhs) =>
       List(lhs, rhs).iterator.flatMap(p => matchPat(p, scrutinee, env)).nextOption()
+    // Enum / singleton references: `case Red =>` or `case Color.Red =>`
+    case t: Term.Name =>
+      env.get(t.value).flatMap(v => Option.when(v == scrutinee)(env))
+    case Term.Select(_, Term.Name(n)) =>
+      env.get(n).flatMap(v => Option.when(v == scrutinee)(env))
     case _ => None
 
 object Interpreter:
-  def run(module: Module): Unit = Interpreter().run(module)
+  def run(module: Module, out: java.io.PrintStream = System.out): Unit = Interpreter(out).run(module)

@@ -152,7 +152,12 @@ object Parser:
     given Dialect = dialects.Scala3
     code.parse[Source] match
       case Parsed.Success(tree) => Some(ScalaNode(tree))
-      case _: Parsed.Error      => None
+      case _: Parsed.Error      =>
+        // Script mode: code may contain top-level expressions.
+        // Wrap in a block so scalameta accepts arbitrary statement sequences.
+        s"{\n$code\n}".parse[Term] match
+          case Parsed.Success(tree) => Some(ScalaNode(tree))
+          case _: Parsed.Error      => None
 
   // ─── Text extraction from CommonMark nodes ────────────────────────
 

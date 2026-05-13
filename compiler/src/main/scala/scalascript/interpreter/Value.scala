@@ -12,15 +12,13 @@ enum Value:
   case CharV(v: Char)
   case UnitV
   case NullV
-  /** Scala closure: parameter names, body tree, captured environment. */
   case FunV(params: List[String], body: Term, closure: Env)
-  /** Built-in function. */
   case NativeFnV(name: String, f: List[Value] => Value)
-  /** Case class / object instance. */
   case InstanceV(typeName: String, fields: Map[String, Value])
   case ListV(items: List[Value])
   case OptionV(inner: Option[Value])
   case TupleV(elems: List[Value])
+  case MapV(entries: Map[Value, Value])
 
 object Value:
   def show(v: Value): String = v match
@@ -35,6 +33,9 @@ object Value:
     case OptionV(None)        => "None"
     case OptionV(Some(v))     => s"Some(${show(v)})"
     case TupleV(elems)        => elems.map(show).mkString("(", ", ", ")")
+    case MapV(m)              =>
+      if m.isEmpty then "Map()"
+      else m.map { case (k, v) => s"${show(k)} -> ${show(v)}" }.mkString("Map(", ", ", ")")
     case InstanceV(t, fields) =>
       if fields.isEmpty then t
       else fields.values.map(show).mkString(s"$t(", ", ", ")")
