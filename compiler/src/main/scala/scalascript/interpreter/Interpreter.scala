@@ -135,9 +135,10 @@ class Interpreter(out: java.io.PrintStream = System.out):
     case _: Defn.Trait => () // trait is erased — only the given instances matter
 
     case d: Defn.Given =>
-      // given Printable[Int] with ... → env("Printable[Int]") = InstanceV(...)
+      // given int: Show[Int] with ... → env("Show[Int]") = InstanceV(...); env("int") = same
+      // given Show[Int] with ...      → env("Show[Int]") = InstanceV(...)
       d.templ.inits.headOption.foreach { init =>
-        val key = init.tpe match
+        val typeKey = init.tpe match
           case n: Type.Name  => n.value
           case ta: Type.Apply =>
             val tc  = ta.tpe match { case n: Type.Name => n.value; case _ => return }
@@ -149,7 +150,10 @@ class Interpreter(out: java.io.PrintStream = System.out):
         val members = mutable.Map.from(globals)
         d.templ.stats.foreach(s => execStat(s, members))
         val implNames = d.templ.stats.collect { case dd: Defn.Def => dd.name.value }.toSet
-        env(key) = Value.InstanceV(key, members.view.filterKeys(implNames.contains).toMap)
+        val instance  = Value.InstanceV(typeKey, members.view.filterKeys(implNames.contains).toMap)
+        env(typeKey) = instance
+        val explicitName = d.name.value
+        if explicitName.nonEmpty then env(explicitName) = instance
       }
 
     case _: Decl.Def => () // abstract method declaration — no body
