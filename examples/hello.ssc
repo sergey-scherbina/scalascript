@@ -1,0 +1,28 @@
+---
+name: hello
+version: 1.0.0
+description: A minimal ScalaScript example
+main: main
+---
+
+# Hello World
+
+The simplest possible ScalaScript program.
+
+## Greeting Function
+
+```scala
+def greet(name: String): String =
+  s"Hello, ${name}!"
+```
+
+## Main Entry Point
+
+```scala
+def main(): Unit =
+  println(greet("World"))
+```
+
+## Output
+
+When run, this program outputs: `${greet("World")}`

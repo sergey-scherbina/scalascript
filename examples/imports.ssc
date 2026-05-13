@@ -1,0 +1,118 @@
+---
+name: imports-example
+version: 1.0.0
+description: Demonstrates the ScalaScript module system
+dependencies:
+  std/collections: ^1.0.0
+  std/math: ^1.0.0
+exports:
+  - calculateStats
+  - Point
+  - distance
+---
+
+# Imports Example
+
+This example demonstrates how ScalaScript handles imports and module references.
+
+## Importing Modules
+
+Import an entire module and use qualified access:
+
+[math](std/math)
+
+Using math functions: `${math.sqrt(16)}` equals 4.
+
+## Importing Specific Items
+
+Import specific items from a module:
+
+[List, Map, Set](std/collections)
+
+Now we can use List, Map, and Set directly.
+
+## Aliased Imports
+
+Import with an alias to avoid naming conflicts:
+
+[m => std/math](std/math)
+
+Using aliased import: `${m.Pi}` is approximately 3.14159.
+
+## Internal References
+
+### Point Definition
+
+```scala
+case class Point(x: Double, y: Double)
+```
+
+### Distance Calculation
+
+Uses [Point](#Point) defined above:
+
+```scala
+def distance(p1: Point, p2: Point): Double =
+  val dx = p2.x - p1.x
+  val dy = p2.y - p1.y
+  math.sqrt(dx * dx + dy * dy)
+```
+
+## Using Imported Collections
+
+```scala
+def calculateStats(numbers: List[Double]): Map[String, Double] =
+  val sum = numbers.foldLeft(0.0)(_ + _)
+  val count = numbers.length.toDouble
+  val mean = sum / count
+  val variance = numbers.map(x => math.pow(x - mean, 2)).foldLeft(0.0)(_ + _) / count
+
+  Map(
+    "sum" -> sum,
+    "mean" -> mean,
+    "variance" -> variance,
+    "stddev" -> math.sqrt(variance)
+  )
+```
+
+## Example Calculations
+
+```scala
+val points = List(
+  Point(0, 0),
+  Point(3, 4),
+  Point(6, 8)
+)
+
+val distances = points.sliding(2).map {
+  case List(p1, p2) => distance(p1, p2)
+}.toList
+```
+
+Distance from origin to (3,4): `${distance(Point(0, 0), Point(3, 4))}`
+
+## Re-exporting
+
+This module re-exports some items for convenience:
+
+```scala
+// Re-export Point and distance for users of this module
+export Point
+export distance
+```
+
+## Conditional Imports
+
+<!-- Future feature -->
+<!--
+```scala
+import std/platform
+
+if platform.isJVM then
+  import std/jvm/files
+else if platform.isJS then
+  import std/js/fetch
+```
+-->
+
+Conditional imports are a future feature.

@@ -1,0 +1,42 @@
+# Build outputs
+target/
+out/
+dist/
+build/
+
+# IDE
+.idea/
+.vscode/
+*.iml
+.project
+.classpath
+.settings/
+
+# Scala
+*.class
+*.log
+.bloop/
+.metals/
+.bsp/
+project/target/
+project/project/
+
+# Node (for JS backend tooling)
+node_modules/
+npm-debug.log
+yarn-error.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Temporary files
+*.swp
+*.swo
+*~
+.cache/
+
+# ScalaScript compiled artifacts
+*.ssc.js
+*.ssc.class
+.scalascript/

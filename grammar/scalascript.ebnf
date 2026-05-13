@@ -1,0 +1,241 @@
+(* ScalaScript Grammar - EBNF *)
+(* Version: 0.1.0-draft *)
+
+(* ============================================ *)
+(* Top-Level Structure                          *)
+(* ============================================ *)
+
+SourceFile      = [ FrontMatter ] , MarkdownBody ;
+
+FrontMatter     = "---" , NEWLINE , YamlContent , "---" , NEWLINE ;
+
+YamlContent     = { YamlLine } ;
+
+MarkdownBody    = { MarkdownElement } ;
+
+(* ============================================ *)
+(* Markdown Elements                            *)
+(* ============================================ *)
+
+MarkdownElement = Heading
+                | CodeBlock
+                | Paragraph
+                | List
+                | Link
+                | HtmlComment
+                | BlankLine ;
+
+Heading         = HeadingMarker , SPACE , HeadingText , NEWLINE ;
+HeadingMarker   = "#" | "##" | "###" | "####" | "#####" | "######" ;
+HeadingText     = { CHARACTER - NEWLINE } ;
+
+CodeBlock       = FencedCodeBlock ;
+FencedCodeBlock = CodeFence , [ LanguageTag ] , NEWLINE , CodeContent , CodeFence , NEWLINE ;
+CodeFence       = "```" | "~~~" ;
+LanguageTag     = "scala" | "ssc" | "json" | "yaml" | IDENTIFIER ;
+CodeContent     = { CodeLine } ;
+CodeLine        = { CHARACTER - CodeFence } , NEWLINE ;
+
+Paragraph       = ParagraphLine , { ParagraphLine } , BlankLine ;
+ParagraphLine   = InlineContent , NEWLINE ;
+
+InlineContent   = { InlineElement } ;
+InlineElement   = PlainText | InlineCode | Interpolation | InlineLink ;
+
+PlainText       = { CHARACTER - ( "`" | "[" | NEWLINE ) } ;
+InlineCode      = "`" , { CHARACTER - "`" } , "`" ;
+Interpolation   = "`${" , Expression , "}`" ;
+
+Link            = "[" , LinkText , "]" , "(" , LinkTarget , ")" ;
+InlineLink      = Link ;
+LinkText        = { CHARACTER - "]" } ;
+LinkTarget      = ModulePath , [ "#" , Identifier ] ;
+ModulePath      = Identifier , { "/" , Identifier } ;
+
+List            = UnorderedList | OrderedList ;
+UnorderedList   = { UnorderedItem } ;
+UnorderedItem   = ( "-" | "*" | "+" ) , SPACE , ListContent , NEWLINE ;
+OrderedList     = { OrderedItem } ;
+OrderedItem     = DIGIT , { DIGIT } , "." , SPACE , ListContent , NEWLINE ;
+ListContent     = InlineContent ;
+
+HtmlComment     = "<!--" , { CHARACTER - "-->" } , "-->" ;
+
+BlankLine       = { SPACE | TAB } , NEWLINE ;
+
+(* ============================================ *)
+(* Scala-Style Expressions                      *)
+(* ============================================ *)
+
+Expression      = IfExpr
+                | MatchExpr
+                | ForExpr
+                | WhileExpr
+                | TryExpr
+                | LambdaExpr
+                | InfixExpr ;
+
+(* Definitions *)
+Definition      = ValDef | VarDef | DefDef | TypeDef | EnumDef | ClassDef | ObjectDef | TraitDef ;
+
+ValDef          = "val" , Identifier , [ ":" , Type ] , "=" , Expression ;
+VarDef          = "var" , Identifier , [ ":" , Type ] , "=" , Expression ;
+DefDef          = "def" , Identifier , [ TypeParams ] , [ ParamClauses ] , [ ":" , Type ] , "=" , Expression ;
+TypeDef         = "type" , Identifier , [ TypeParams ] , "=" , Type ;
+
+EnumDef         = "enum" , Identifier , [ TypeParams ] , [ Extends ] , ":" , NEWLINE , INDENT , { EnumCase } , DEDENT ;
+EnumCase        = "case" , Identifier , [ ParamClause ] ;
+
+ClassDef        = [ "case" ] , "class" , Identifier , [ TypeParams ] , [ ParamClause ] , [ Extends ] , [ ClassBody ] ;
+ObjectDef       = [ "case" ] , "object" , Identifier , [ Extends ] , [ ClassBody ] ;
+TraitDef        = "trait" , Identifier , [ TypeParams ] , [ Extends ] , [ ClassBody ] ;
+
+Extends         = "extends" , Type , { "with" , Type } ;
+ClassBody       = ":" , NEWLINE , INDENT , { Definition | Expression } , DEDENT ;
+
+(* Parameters *)
+TypeParams      = "[" , TypeParam , { "," , TypeParam } , "]" ;
+TypeParam       = [ Variance ] , Identifier , [ TypeBounds ] ;
+Variance        = "+" | "-" ;
+TypeBounds      = [ ">:" , Type ] , [ "<:" , Type ] ;
+
+ParamClauses    = { ParamClause } ;
+ParamClause     = "(" , [ Params ] , ")" ;
+Params          = Param , { "," , Param } ;
+Param           = [ "val" | "var" ] , Identifier , ":" , Type , [ "=" , Expression ] ;
+
+(* Control Flow *)
+IfExpr          = "if" , Expression , "then" , Expression , [ "else" , Expression ] ;
+
+MatchExpr       = Expression , "match" , NEWLINE , INDENT , { CaseClause } , DEDENT ;
+CaseClause      = "case" , Pattern , [ Guard ] , "=>" , Expression , NEWLINE ;
+Guard           = "if" , Expression ;
+
+ForExpr         = "for" , Enumerators , "yield" , Expression
+                | "for" , Enumerators , "do" , Expression ;
+Enumerators     = Enumerator , { ( ";" | NEWLINE ) , Enumerator } ;
+Enumerator      = Generator | ValDef | Guard ;
+Generator       = Pattern , "<-" , Expression ;
+
+WhileExpr       = "while" , Expression , "do" , Expression ;
+
+TryExpr         = "try" , Expression , [ "catch" , CatchClause ] , [ "finally" , Expression ] ;
+CatchClause     = "case" , Pattern , "=>" , Expression ;
+
+LambdaExpr      = LambdaParams , "=>" , Expression ;
+LambdaParams    = Identifier
+                | "(" , [ Params ] , ")"
+                | "(" , Identifier , { "," , Identifier } , ")" ;
+
+(* Operators and Precedence *)
+InfixExpr       = PrefixExpr , { Operator , PrefixExpr } ;
+PrefixExpr      = [ PrefixOp ] , PostfixExpr ;
+PrefixOp        = "-" | "+" | "!" | "~" ;
+PostfixExpr     = SimpleExpr , { PostfixOp } ;
+PostfixOp       = Identifier ;
+
+SimpleExpr      = Literal
+                | Path
+                | "(" , [ Expressions ] , ")"
+                | BlockExpr
+                | NewExpr
+                | SimpleExpr , "." , Identifier
+                | SimpleExpr , TypeArgs
+                | SimpleExpr , ArgumentExprs ;
+
+BlockExpr       = "{" , Block , "}" ;
+Block           = { Definition | Expression , [ ";" | NEWLINE ] } ;
+
+NewExpr         = "new" , Type , [ ArgumentExprs ] ;
+
+Expressions     = Expression , { "," , Expression } ;
+ArgumentExprs   = "(" , [ Expressions ] , ")" ;
+TypeArgs        = "[" , Type , { "," , Type } , "]" ;
+
+Path            = Identifier , { "." , Identifier } ;
+
+(* Patterns *)
+Pattern         = TypedPattern | ConstructorPattern | TuplePattern | LiteralPattern | WildcardPattern | BindingPattern ;
+TypedPattern    = Identifier , ":" , Type ;
+ConstructorPattern = Identifier , [ "(" , Patterns , ")" ] ;
+TuplePattern    = "(" , Pattern , { "," , Pattern } , ")" ;
+LiteralPattern  = Literal ;
+WildcardPattern = "_" ;
+BindingPattern  = Identifier , "@" , Pattern ;
+Patterns        = Pattern , { "," , Pattern } ;
+
+(* ============================================ *)
+(* Types                                        *)
+(* ============================================ *)
+
+Type            = FunctionType | InfixType ;
+
+FunctionType    = InfixType , "=>" , Type
+                | "(" , [ Types ] , ")" , "=>" , Type ;
+
+InfixType       = SimpleType , { Identifier , SimpleType } ;
+
+SimpleType      = Path , [ TypeArgs ]
+                | "(" , Types , ")"
+                | Literal ;
+
+Types           = Type , { "," , Type } ;
+
+(* ============================================ *)
+(* Literals                                     *)
+(* ============================================ *)
+
+Literal         = IntLiteral
+                | LongLiteral
+                | DoubleLiteral
+                | StringLiteral
+                | CharLiteral
+                | BooleanLiteral
+                | UnitLiteral
+                | NullLiteral ;
+
+IntLiteral      = DecimalNumber | HexNumber ;
+DecimalNumber   = DIGIT , { DIGIT } ;
+HexNumber       = "0x" , HEXDIGIT , { HEXDIGIT } ;
+LongLiteral     = IntLiteral , ( "L" | "l" ) ;
+DoubleLiteral   = DIGIT , { DIGIT } , "." , DIGIT , { DIGIT } , [ Exponent ]
+                | DIGIT , { DIGIT } , Exponent ;
+Exponent        = ( "e" | "E" ) , [ "+" | "-" ] , DIGIT , { DIGIT } ;
+
+StringLiteral   = '"' , { StringChar } , '"'
+                | '"""' , { CHARACTER } , '"""' ;
+StringChar      = CHARACTER - ( '"' | "\\" | NEWLINE )
+                | EscapeSequence ;
+EscapeSequence  = "\\" , ( "n" | "r" | "t" | "\\" | '"' | "'" | "u" , HEXDIGIT , HEXDIGIT , HEXDIGIT , HEXDIGIT ) ;
+
+CharLiteral     = "'" , ( CHARACTER - ( "'" | "\\" ) | EscapeSequence ) , "'" ;
+
+BooleanLiteral  = "true" | "false" ;
+UnitLiteral     = "(" , ")" ;
+NullLiteral     = "null" ;
+
+(* ============================================ *)
+(* Lexical Elements                             *)
+(* ============================================ *)
+
+Identifier      = LETTER , { LETTER | DIGIT | "_" } | OperatorId ;
+OperatorId      = { OperatorChar } ;
+OperatorChar    = "+" | "-" | "*" | "/" | "%" | "&" | "|" | "^" | "<" | ">" | "=" | "!" | "?" | ":" | "~" ;
+
+Operator        = Identifier ;
+
+(* ============================================ *)
+(* Character Classes                            *)
+(* ============================================ *)
+
+LETTER          = "A" | ... | "Z" | "a" | ... | "z" | "_" | "$" | UnicodeLetters ;
+DIGIT           = "0" | ... | "9" ;
+HEXDIGIT        = DIGIT | "A" | ... | "F" | "a" | ... | "f" ;
+SPACE           = " " ;
+TAB             = "\t" ;
+NEWLINE         = "\n" | "\r\n" ;
+CHARACTER       = ? any Unicode character ? ;
+
+(* Indentation-sensitive tokens *)
+INDENT          = ? increase in indentation level ? ;
+DEDENT          = ? decrease in indentation level ? ;

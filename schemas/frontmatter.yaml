@@ -1,0 +1,186 @@
+# JSON Schema for ScalaScript Front-Matter (YAML format)
+# Validates the module manifest at the start of .ssc files
+$schema: "https://json-schema.org/draft/2020-12/schema"
+$id: "https://scalascript.dev/schemas/frontmatter.yaml"
+title: ScalaScript Module Manifest
+description: YAML front-matter schema for .ssc files
+type: object
+
+properties:
+  name:
+    type: string
+    description: Module name (used for imports)
+    pattern: "^[a-z][a-z0-9-]*$"
+    examples:
+      - "my-module"
+      - "collections"
+
+  version:
+    type: string
+    description: Semantic version of the module
+    pattern: "^\\d+\\.\\d+\\.\\d+(-[a-zA-Z0-9.]+)?(\\+[a-zA-Z0-9.]+)?$"
+    examples:
+      - "1.0.0"
+      - "0.1.0-alpha"
+      - "2.0.0+build.123"
+
+  description:
+    type: string
+    description: Short description of the module
+
+  author:
+    oneOf:
+      - type: string
+      - type: object
+        properties:
+          name:
+            type: string
+          email:
+            type: string
+            format: email
+          url:
+            type: string
+            format: uri
+        required:
+          - name
+
+  license:
+    type: string
+    description: SPDX license identifier
+    examples:
+      - "Apache-2.0"
+      - "MIT"
+      - "GPL-3.0-only"
+
+  repository:
+    type: string
+    format: uri
+    description: URL to source repository
+
+  dependencies:
+    type: object
+    description: Module dependencies with version constraints
+    additionalProperties:
+      type: string
+      description: Version constraint (semver range)
+    examples:
+      - std/collections: "^1.0.0"
+      - my-lib: ">=2.0.0 <3.0.0"
+
+  devDependencies:
+    type: object
+    description: Development-only dependencies
+    additionalProperties:
+      type: string
+
+  exports:
+    type: array
+    description: Explicitly exported names (if omitted, all top-level names are public)
+    items:
+      type: string
+      pattern: "^[A-Za-z_][A-Za-z0-9_]*$"
+    uniqueItems: true
+    examples:
+      - - "MyClass"
+        - "myFunction"
+        - "MyType"
+
+  private:
+    type: array
+    description: Names to keep private even if at top scope
+    items:
+      type: string
+      pattern: "^[A-Za-z_][A-Za-z0-9_]*$"
+    uniqueItems: true
+
+  targets:
+    type: array
+    description: Supported compilation targets
+    items:
+      type: string
+      enum:
+        - jvm
+        - js
+        - wasm
+        - native
+    uniqueItems: true
+    default:
+      - jvm
+      - js
+
+  scala:
+    type: object
+    description: Scala/JVM-specific configuration
+    properties:
+      version:
+        type: string
+        description: Minimum Scala version required
+        pattern: "^3\\.\\d+\\.\\d+$"
+        default: "3.3.0"
+      jvmTarget:
+        type: string
+        enum: ["11", "17", "21"]
+        default: "17"
+      options:
+        type: array
+        items:
+          type: string
+        description: Additional compiler options
+
+  js:
+    type: object
+    description: JavaScript-specific configuration
+    properties:
+      moduleType:
+        type: string
+        enum:
+          - esm
+          - commonjs
+          - umd
+        default: esm
+      target:
+        type: string
+        enum:
+          - es5
+          - es2015
+          - es2020
+          - esnext
+        default: es2020
+
+  main:
+    type: string
+    description: Entry point function for executable modules
+    pattern: "^[A-Za-z_][A-Za-z0-9_.]*$"
+    examples:
+      - "main"
+      - "App.run"
+
+  keywords:
+    type: array
+    items:
+      type: string
+    description: Keywords for discoverability
+
+required: []
+
+additionalProperties: false
+
+examples:
+  - name: hello
+    version: 1.0.0
+    description: A simple hello world module
+    exports:
+      - greet
+      - farewell
+
+  - name: my-library
+    version: 0.5.0
+    author:
+      name: Jane Doe
+      email: jane@example.com
+    license: Apache-2.0
+    dependencies:
+      std/collections: "^1.0.0"
+    targets:
+      - jvm
+      - js

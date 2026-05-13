@@ -1,0 +1,132 @@
+---
+name: typed-data
+version: 1.0.0
+description: Demonstrates the ScalaScript type system
+exports:
+  - Person
+  - Color
+  - JsonValue
+  - processPerson
+---
+
+# Typed Data
+
+This example demonstrates ScalaScript's type system features.
+
+## Basic Types
+
+```scala
+val anInt: Int = 42
+val aDouble: Double = 3.14159
+val aString: String = "hello"
+val aBool: Boolean = true
+val aChar: Char = 'x'
+```
+
+## Case Classes
+
+Case classes are immutable data containers with auto-generated methods.
+
+```scala
+case class Person(
+  name: String,
+  age: Int,
+  email: Option[String] = None
+)
+```
+
+Usage:
+
+```scala
+val alice = Person("Alice", 30, Some("alice@example.com"))
+val bob = Person("Bob", 25)
+```
+
+## Enums (ADTs)
+
+Algebraic data types via enum:
+
+```scala
+enum Color:
+  case Red
+  case Green
+  case Blue
+  case RGB(r: Int, g: Int, b: Int)
+```
+
+## Recursive Types
+
+```scala
+enum JsonValue:
+  case JsonNull
+  case JsonBool(value: Boolean)
+  case JsonNum(value: Double)
+  case JsonStr(value: String)
+  case JsonArr(items: List[JsonValue])
+  case JsonObj(fields: Map[String, JsonValue])
+```
+
+## Generic Types
+
+```scala
+case class Box[A](value: A)
+
+def map[A, B](box: Box[A], f: A => B): Box[B] =
+  Box(f(box.value))
+```
+
+## Type Aliases
+
+```scala
+type Name = String
+type Age = Int
+type PersonMap = Map[Name, Person]
+```
+
+## Function Types
+
+```scala
+val increment: Int => Int = x => x + 1
+
+val add: (Int, Int) => Int = (a, b) => a + b
+
+val compose: (Int => Int, Int => Int) => Int => Int =
+  (f, g) => x => f(g(x))
+```
+
+## Pattern Matching with Types
+
+```scala
+def processPerson(p: Person): String = p match
+  case Person(name, age, Some(email)) =>
+    s"$name ($age) - $email"
+  case Person(name, age, None) =>
+    s"$name ($age) - no email"
+```
+
+## Union Types
+
+```scala
+type StringOrInt = String | Int
+
+def describe(value: StringOrInt): String = value match
+  case s: String => s"String: $s"
+  case n: Int => s"Int: $n"
+```
+
+## Example Usage
+
+Creating and manipulating typed data:
+
+```scala
+val people: List[Person] = List(
+  Person("Alice", 30, Some("alice@example.com")),
+  Person("Bob", 25, None),
+  Person("Charlie", 35, Some("charlie@example.com"))
+)
+
+val names: List[String] = people.map(_.name)
+val adults: List[Person] = people.filter(_.age >= 30)
+```
+
+The adults are: `${adults.map(_.name).mkString(", ")}`
