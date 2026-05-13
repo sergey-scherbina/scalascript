@@ -1,0 +1,101 @@
+---
+name: typeclass
+version: 1.0.0
+description: Typeclass algebra in ScalaScript — trait, given, summon
+---
+
+# Typeclass Algebra
+
+ScalaScript supports Scala 3 typeclass patterns: `trait`, `given`, and `summon`.
+
+## Defining a Typeclass
+
+A `trait` defines the algebra — a set of operations abstract over a type:
+
+```scala
+trait Show[A]:
+  def show(x: A): String
+```
+
+## Providing Instances
+
+`given` binds a concrete implementation to a specific type.
+A named `given` is also accessible directly by name:
+
+```scala
+given int: Show[Int] with
+  def show(x: Int): String = "Int(" + x.toString + ")"
+
+given bool: Show[Boolean] with
+  def show(x: Boolean): String = if x then "yes" else "no"
+
+given str: Show[String] with
+  def show(x: String): String = x
+```
+
+## Using Instances
+
+Access by name or retrieve with `summon`:
+
+```scala
+println(int.show(42))
+println(bool.show(true))
+println(summon[Show[String]].show("hello"))
+```
+
+## Equality Typeclass
+
+```scala
+trait Eq[A]:
+  def eql(a: A, b: A): Boolean
+
+given eqInt: Eq[Int] with
+  def eql(a: Int, b: Int): Boolean = a == b
+
+given eqStr: Eq[String] with
+  def eql(a: String, b: String): Boolean = a == b
+
+println(eqInt.eql(1, 1))
+println(eqInt.eql(1, 2))
+println(eqStr.eql("hi", "hi"))
+```
+
+## Ordering Typeclass
+
+```scala
+trait Ord[A]:
+  def compare(a: A, b: A): Int
+  def lt(a: A, b: A): Boolean = compare(a, b) < 0
+  def gt(a: A, b: A): Boolean = compare(a, b) > 0
+
+given ord: Ord[Int] with
+  def compare(a: Int, b: Int): Int =
+    if a < b then -1 else if a > b then 1 else 0
+  def lt(a: Int, b: Int): Boolean = compare(a, b) < 0
+  def gt(a: Int, b: Int): Boolean = compare(a, b) > 0
+
+println(ord.lt(3, 7))
+println(ord.gt(5, 2))
+```
+
+## Monoid Typeclass
+
+```scala
+trait Monoid[A]:
+  def empty: A
+  def combine(a: A, b: A): A
+
+given intSum: Monoid[Int] with
+  def empty: Int = 0
+  def combine(a: Int, b: Int): Int = a + b
+
+given strConcat: Monoid[String] with
+  def empty: String = ""
+  def combine(a: String, b: String): String = a + b
+
+def fold[A](xs: List[A], m: Monoid[A]): A =
+  xs.foldLeft(m.empty)(m.combine)
+
+println(fold(List(1, 2, 3, 4, 5), intSum))
+println(fold(List("hello", ", ", "world"), strConcat))
+```

@@ -1,0 +1,2 @@
+#!/usr/bin/env ssc
+serve(8080, "examples")

@@ -1,0 +1,32 @@
+---
+name: index
+description: ScalaScript — the meta-web
+---
+
+# ScalaScript
+
+A language where documents *are* programs — Markdown + Scala 3.
+
+## What is this?
+
+Each `.ssc` file is a self-contained unit: prose, code, and execution in one place.
+You are reading a live page generated from `index.ssc`.
+
+## Quick demo
+
+```scala
+val lang   = "ScalaScript"
+val version = "0.1"
+
+println(s"$lang $version is running!")
+
+val nums = for n <- List(1, 2, 3, 4, 5) yield n * n
+println(s"Squares: ${nums.mkString(", ")}")
+```
+
+## Pages
+
+- [Hello World](/hello)
+- [Data Types](/data-types)
+- [Typeclasses](/typeclass)
+- [Extensions](/extensions)
