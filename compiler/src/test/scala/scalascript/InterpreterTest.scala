@@ -297,3 +297,20 @@ def main(): Unit =
       println(ord.gt(5, 3))
     """) shouldBe "true\ntrue"
   }
+
+  test("named given — direct access by name") {
+    captured("""
+      trait Show[A]:
+        def show(x: A): String
+
+      given int: Show[Int] with
+        def show(x: Int): String = "Int(" + x.toString + ")"
+
+      given bool: Show[Boolean] with
+        def show(x: Boolean): String = if x then "yes" else "no"
+
+      println(int.show(42))
+      println(bool.show(true))
+      println(summon[Show[Int]].show(7))
+    """) shouldBe "Int(42)\nyes\nInt(7)"
+  }
