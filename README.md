@@ -12,7 +12,7 @@ ScalaScript (`.ssc`) is a language where **Markdown is syntax, not decoration**:
 - **YAML front-matter** is the module manifest
 - **Inside code regions**: Scala-flavored syntax and type system
 
-```ssc
+````ssc
 ---
 name: hello
 version: 0.1.0
@@ -30,7 +30,7 @@ def greet(name: String): String =
 ```
 
 Usage: `${greet("World")}`
-```
+````
 
 ## Design Principles
 
