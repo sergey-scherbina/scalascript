@@ -1,0 +1,105 @@
+---
+name: extensions
+version: 1.0.0
+description: Extension methods, for comprehensions, while loops, tuple destructuring
+---
+
+# Extensions and Control Flow
+
+ScalaScript supports Scala 3 extension methods, for comprehensions, while loops,
+and tuple destructuring.
+
+## Extension Methods
+
+`extension` adds new methods to existing types without modifying them:
+
+```scala
+extension (s: String)
+  def shout: String = s.toUpperCase + "!"
+  def whisper: String = s.toLowerCase
+
+println("hello".shout)
+println("WORLD".whisper)
+```
+
+Extension on numeric types:
+
+```scala
+extension (n: Int)
+  def squared: Int = n * n
+  def times(f: Int => Int): Int = f(n)
+
+println(5.squared)
+println(3.times(x => x * 10))
+```
+
+Extension on collections:
+
+```scala
+extension (xs: List[Int])
+  def second: Int = xs.tail.head
+  def average: Double = xs.sum.toDouble / xs.length
+
+println(List(10, 20, 30).second)
+println(List(1, 2, 3, 4, 5).average)
+```
+
+## For Comprehensions
+
+`for ... yield` produces a new collection:
+
+```scala
+val doubled = for x <- List(1, 2, 3, 4, 5) yield x * 2
+println(doubled.mkString(", "))
+```
+
+With a guard to filter:
+
+```scala
+val evens = for x <- List(1, 2, 3, 4, 5) if x % 2 == 0 yield x
+println(evens.mkString(", "))
+```
+
+Nested generators produce the cartesian product:
+
+```scala
+val pairs = for
+  x <- List(1, 2, 3)
+  y <- List("a", "b")
+yield s"${x}${y}"
+println(pairs.mkString(", "))
+```
+
+`for ... do` iterates for side effects:
+
+```scala
+var total = 0
+for x <- List(10, 20, 30) do total = total + x
+println(total)
+```
+
+## While Loops
+
+```scala
+var i = 1
+var product = 1
+while i <= 5 do
+  product = product * i
+  i = i + 1
+println(product)
+```
+
+## Tuple Destructuring
+
+```scala
+val (x, y) = (3, 4)
+println(x)
+println(y)
+```
+
+Destructuring in for:
+
+```scala
+val coords = List((0, 0), (1, 2), (3, 4))
+for (px, py) <- coords do println(s"point: ${px}, ${py}")
+```

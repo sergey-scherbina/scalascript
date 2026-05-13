@@ -13,6 +13,7 @@ import scala.meta.*
  */
 class Interpreter(out: java.io.PrintStream = System.out):
   private val globals      = mutable.Map.empty[String, Value]
+  private val extensions   = mutable.Map.empty[(String, String), Value.FunV]
   private var mainCalled   = false
   private var placeholderIdx = 0
 
@@ -91,8 +92,15 @@ class Interpreter(out: java.io.PrintStream = System.out):
   // ─── Statement execution ─────────────────────────────────────────
 
   private def execStat(stat: Stat, env: mutable.Map[String, Value]): Unit = stat match
-    case Defn.Val(_, List(Pat.Var(n)), _, rhs) =>
-      env(n.value) = eval(rhs, env.toMap)
+    case Defn.Val(_, pats, _, rhs) =>
+      val rhsVal = eval(rhs, env.toMap)
+      pats match
+        case List(Pat.Var(n)) => env(n.value) = rhsVal
+        case List(pat) =>
+          matchPat(pat, rhsVal, env.toMap) match
+            case Some(patEnv) => patEnv.foreach { (k, v) => env(k) = v }
+            case None         => throw InterpretError(s"Val pattern match failed")
+        case _ => ()
 
     case Defn.Var(_, List(Pat.Var(n)), _, Some(rhs)) =>
       env(n.value) = eval(rhs, env.toMap)
@@ -158,6 +166,24 @@ class Interpreter(out: java.io.PrintStream = System.out):
 
     case _: Decl.Def => () // abstract method declaration — no body
 
+    case d: Defn.ExtensionGroup =>
+      d.paramClauseGroup.foreach { pcg =>
+        pcg.paramClauses.headOption.flatMap(_.values.headOption).foreach { recvParam =>
+          val recvName = recvParam.name.value
+          val recvTypeName = recvParam.decltpe match
+            case Some(Type.Name(n))   => n
+            case Some(ta: Type.Apply) => ta.tpe match { case Type.Name(n) => n; case _ => "Any" }
+            case _                    => "Any"
+          def registerDef(defn: Defn.Def): Unit =
+            val methodParams = defn.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values).map(_.name.value)
+            extensions((recvTypeName, defn.name.value)) = Value.FunV(recvName :: methodParams, defn.body, env.toMap)
+          d.body match
+            case defn: Defn.Def    => registerDef(defn)
+            case Term.Block(stats) => stats.foreach { case defn: Defn.Def => registerDef(defn); case _ => () }
+            case _                 => ()
+        }
+      }
+
     case t: Term =>
       val result = eval(t, env.toMap)
       t match
@@ -211,9 +237,12 @@ class Interpreter(out: java.io.PrintStream = System.out):
     case Term.Block(stats) =>
       val local = mutable.Map.from(env)
       var result: Value = Value.UnitV
-      for s <- stats do s match
-        case t: Term => result = eval(t, local.toMap)
-        case stat    => execStat(stat, local)
+      for s <- stats do
+        // Re-read globals into local so mutations from prior statements are visible
+        local.keys.foreach { k => globals.get(k).foreach(local(k) = _) }
+        s match
+          case t: Term => result = eval(t, local.toMap)
+          case stat    => execStat(stat, local)
       result
 
     // if/then/else
@@ -275,6 +304,21 @@ class Interpreter(out: java.io.PrintStream = System.out):
           case f: Value.FunV      => callFun(f, args)
           case _ => throw InterpretError(s"$typeName is not a constructor")
 
+    // for x <- xs yield f(x)
+    case t: Term.ForYield =>
+      evalForYield(t.enumsBlock.enums, t.body, env)
+
+    // for x <- xs do f(x)
+    case t: Term.For =>
+      evalForDo(t.enumsBlock.enums, t.body, Map.empty)
+      Value.UnitV
+
+    // while cond do body  — refresh env from globals each iteration so mutations are visible
+    case t: Term.While =>
+      def freshEnv = env.map { (k, v) => k -> globals.getOrElse(k, v) }
+      while eval(t.expr, freshEnv).asInstanceOf[Value.BoolV].v do eval(t.body, freshEnv)
+      Value.UnitV
+
     // return expr  (non-local via exception)
     case Term.Return(expr) => throw ReturnSignal(eval(expr, env))
 
@@ -330,6 +374,8 @@ class Interpreter(out: java.io.PrintStream = System.out):
       case (Value.DoubleV(a), "*",  Value.IntV(b))    => Value.DoubleV(a * b)
       case (Value.IntV(a),    "-",  Value.DoubleV(b)) => Value.DoubleV(a - b)
       case (Value.DoubleV(a), "-",  Value.IntV(b))    => Value.DoubleV(a - b)
+      case (Value.IntV(a),    "/",  Value.DoubleV(b)) => Value.DoubleV(a / b)
+      case (Value.DoubleV(a), "/",  Value.IntV(b))    => Value.DoubleV(a / b)
       case (Value.StringV(a), "+",  b)                => Value.StringV(a + Value.show(b))
       case (a, "==",  b) => Value.BoolV(a == b)
       case (a, "!=",  b) => Value.BoolV(a != b)
@@ -560,10 +606,15 @@ class Interpreter(out: java.io.PrintStream = System.out):
       case _: Value.MapV        => "Map"
       case Value.InstanceV(t,_) => t
       case _                    => "Any"
-    globals.values.collectFirst {
-      case Value.InstanceV(name, fields)
-        if name.endsWith(s"[$typeName]") && fields.contains(method) =>
-        callValue(fields(method), recv :: args, env)
+    // explicit extension methods take priority, then given-based extension
+    extensions.get((typeName, method)).map { fn =>
+      callValue(fn, recv :: args, env)
+    }.orElse {
+      globals.values.collectFirst {
+        case Value.InstanceV(name, fields)
+          if name.endsWith(s"[$typeName]") && fields.contains(method) =>
+          callValue(fields(method), recv :: args, env)
+      }
     }
 
   // ─── Pattern matching ────────────────────────────────────────────
@@ -610,6 +661,72 @@ class Interpreter(out: java.io.PrintStream = System.out):
     case Term.Select(_, Term.Name(n)) =>
       env.get(n).flatMap(v => Option.when(v == scrutinee)(env))
     case _ => None
+
+  // ─── For comprehension helpers ────────────────────────────────────
+
+  private def evalCollection(v: Value): List[Value] = v match
+    case Value.ListV(ls)        => ls
+    case Value.OptionV(Some(v)) => List(v)
+    case Value.OptionV(None)    => Nil
+    case _ => throw InterpretError(s"Cannot iterate over ${Value.show(v)}")
+
+  private def patVarNames(pat: Pat): Set[String] = pat match
+    case Pat.Var(n)           => Set(n.value)
+    case Pat.Wildcard()       => Set.empty
+    case Pat.Tuple(pats)      => pats.flatMap(patVarNames).toSet
+    case Pat.Extract(_, args) => args.flatMap(patVarNames).toSet
+    case Pat.Typed(inner, _)  => patVarNames(inner)
+    case _                    => Set.empty
+
+  private def evalForYield(enums: List[Enumerator], body: Term, env: Env): Value =
+    enums match
+      case Nil =>
+        eval(body, env)
+      case Enumerator.Generator(pat, rhs) :: rest =>
+        val items = evalCollection(eval(rhs, env))
+        val results = items.flatMap { item =>
+          matchPat(pat, item, env).toList.flatMap { patEnv =>
+            val inner = evalForYield(rest, body, patEnv)
+            rest match
+              case Nil => List(inner)  // last enumerator: include result as-is
+              case _   => inner match  // more enumerators (guard/gen): flatten one level
+                case Value.ListV(ls) => ls
+                case v               => List(v)
+          }
+        }
+        Value.ListV(results)
+      case Enumerator.Guard(cond) :: rest =>
+        if eval(cond, env).asInstanceOf[Value.BoolV].v then evalForYield(rest, body, env)
+        else Value.ListV(Nil)
+      case Enumerator.Val(pat, rhs) :: rest =>
+        val v = eval(rhs, env)
+        matchPat(pat, v, env).fold(Value.ListV(Nil))(evalForYield(rest, body, _))
+      case _ :: rest => evalForYield(rest, body, env)
+
+  // evalForDo keeps loop vars separate from globals so that assignments
+  // to outer vars (globals) are visible across iterations
+  private def evalForDo(enums: List[Enumerator], body: Term, loopVars: Env): Unit =
+    val env = globals.toMap ++ loopVars
+    enums match
+      case Nil => eval(body, env); ()
+      case Enumerator.Generator(pat, rhs) :: rest =>
+        evalCollection(eval(rhs, env)).foreach { item =>
+          matchPat(pat, item, env) match
+            case Some(patEnv) =>
+              val newVars = patVarNames(pat).map(k => k -> patEnv(k)).toMap
+              evalForDo(rest, body, loopVars ++ newVars)
+            case None => ()
+        }
+      case Enumerator.Guard(cond) :: rest =>
+        if eval(cond, env).asInstanceOf[Value.BoolV].v then evalForDo(rest, body, loopVars)
+      case Enumerator.Val(pat, rhs) :: rest =>
+        val v = eval(rhs, env)
+        matchPat(pat, v, env) match
+          case Some(patEnv) =>
+            val newVars = patVarNames(pat).map(k => k -> patEnv(k)).toMap
+            evalForDo(rest, body, loopVars ++ newVars)
+          case None => ()
+      case _ :: rest => evalForDo(rest, body, loopVars)
 
 object Interpreter:
   def run(module: Module, out: java.io.PrintStream = System.out): Unit = Interpreter(out).run(module)

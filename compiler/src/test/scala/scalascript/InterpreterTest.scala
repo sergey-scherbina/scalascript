@@ -314,3 +314,104 @@ def main(): Unit =
       println(summon[Show[Int]].show(7))
     """) shouldBe "Int(42)\nyes\nInt(7)"
   }
+
+  // ── Extension methods ────────────────────────────────────────────
+
+  test("extension method on String") {
+    captured("""
+      extension (s: String)
+        def shout: String = s.toUpperCase + "!"
+      println("hello".shout)
+    """) shouldBe "HELLO!"
+  }
+
+  test("extension method with argument") {
+    captured("""
+      extension (n: Int)
+        def times(f: Int => Int): Int = f(n)
+      println(5.times(x => x * 2))
+    """) shouldBe "10"
+  }
+
+  test("extension method on List") {
+    captured("""
+      extension (xs: List[Int])
+        def second: Int = xs.tail.head
+      println(List(10, 20, 30).second)
+    """) shouldBe "20"
+  }
+
+  test("multiple extension methods in one block") {
+    captured("""
+      extension (s: String)
+        def shout: String = s.toUpperCase
+        def whisper: String = s.toLowerCase
+      println("Hello".shout)
+      println("Hello".whisper)
+    """) shouldBe "HELLO\nhello"
+  }
+
+  // ── For comprehensions ───────────────────────────────────────────
+
+  test("for-yield simple") {
+    captured("""
+      val xs = for x <- List(1, 2, 3) yield x * 2
+      println(xs.mkString(", "))
+    """) shouldBe "2, 4, 6"
+  }
+
+  test("for-yield with guard") {
+    captured("""
+      val evens = for x <- List(1, 2, 3, 4, 5) if x % 2 == 0 yield x
+      println(evens.mkString(", "))
+    """) shouldBe "2, 4"
+  }
+
+  test("for-yield nested generators") {
+    captured("""
+      val pairs = for
+        x <- List(1, 2)
+        y <- List("a", "b")
+      yield s"${x}${y}"
+      println(pairs.mkString(", "))
+    """) shouldBe "1a, 1b, 2a, 2b"
+  }
+
+  test("for-do foreach") {
+    captured("""
+      var sum = 0
+      for x <- List(1, 2, 3, 4, 5) do sum = sum + x
+      println(sum)
+    """) shouldBe "15"
+  }
+
+  // ── Tuple destructuring ──────────────────────────────────────────
+
+  test("val tuple destructuring") {
+    captured("""
+      val (a, b) = (10, 20)
+      println(a)
+      println(b)
+    """) shouldBe "10\n20"
+  }
+
+  test("val tuple destructuring in for") {
+    captured("""
+      val pairs = List((1, "one"), (2, "two"), (3, "three"))
+      for (n, s) <- pairs do println(s"${n}=${s}")
+    """) shouldBe "1=one\n2=two\n3=three"
+  }
+
+  // ── While loop ───────────────────────────────────────────────────
+
+  test("while loop") {
+    captured("""
+      var i = 0
+      var sum = 0
+      while i < 5 do
+        sum = sum + i
+        i = i + 1
+      println(sum)
+    """) shouldBe "10"
+  }
+
