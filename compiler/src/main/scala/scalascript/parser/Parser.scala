@@ -1,67 +1,56 @@
 package scalascript.parser
 
 import scalascript.ast.*
-import scalascript.lexer.{Token, TokenKind, Lexer}
+import org.commonmark.node.{
+  Node            as CmNode,
+  Document        as CmDocument,
+  Heading         as CmHeading,
+  Paragraph       as CmParagraph,
+  FencedCodeBlock as CmFenced,
+  BulletList      as CmBulletList,
+  OrderedList     as CmOrderedList,
+  ListItem        as CmListItem,
+  Link            as CmLink,
+  Text            as CmText,
+  Code            as CmCode,
+}
+import org.commonmark.parser.{Parser as CmParser}
 import org.yaml.snakeyaml.Yaml
+import scala.collection.mutable.{ListBuffer, Stack}
 import scala.jdk.CollectionConverters.*
-import scala.collection.mutable.ListBuffer
 
-class Parser(tokens: List[Token]):
-  private var pos: Int = 0
+object Parser:
+  private val mdParser  = CmParser.builder().build()
+  private val snakeYaml = Yaml()
 
-  private def current: Token = tokens(pos)
-  private def peek(offset: Int = 0): Token =
-    val idx = pos + offset
-    if idx < tokens.length then tokens(idx) else tokens.last
+  def parse(source: String): Module =
+    val (fmOpt, body) = splitFrontMatter(source)
+    val doc = mdParser.parse(body).asInstanceOf[CmDocument]
+    Module(fmOpt.map(parseManifest), extractSections(doc))
 
-  private def isAtEnd: Boolean = current.kind == TokenKind.EOF
+  def parseFile(path: os.Path): Module = parse(os.read(path))
 
-  private def advance(): Token =
-    val tok = current
-    if !isAtEnd then pos += 1
-    tok
+  // ─── Front-matter ────────────────────────────────────────────────
 
-  private def check(kind: TokenKind): Boolean =
-    !isAtEnd && current.kind == kind
+  private def splitFrontMatter(src: String): (Option[String], String) =
+    if !src.startsWith("---") then return (None, src)
+    val nl = src.indexOf('\n')
+    if nl < 0 then return (None, src)
+    val rest = src.substring(nl + 1)
+    val end  = rest.indexOf("\n---")
+    if end < 0 then return (None, src)
+    (Some(rest.substring(0, end)), rest.substring(end + 4).dropWhile(_ == '\n'))
 
-  private def checkAny(kinds: TokenKind*): Boolean =
-    kinds.exists(check)
-
-  private def consume(kind: TokenKind, msg: String): Token =
-    if check(kind) then advance()
-    else throw ParseError(s"$msg, got ${current.kind} at ${current.span.start}")
-
-  private def consumeIf(kind: TokenKind): Option[Token] =
-    if check(kind) then Some(advance()) else None
-
-  private def skipNewlines(): Unit =
-    while check(TokenKind.Newline) do advance()
-
-  def parse(): Module =
-    val manifest = parseManifest()
-    skipNewlines()
-    val sections = parseSections(0)
-    Module(manifest, sections)
-
-  private def parseManifest(): Option[Manifest] =
-    if !check(TokenKind.FrontMatterStart) then return None
-
-    advance() // consume ---
-    val content = if check(TokenKind.FrontMatterContent) then advance().text else ""
-    consumeIf(TokenKind.FrontMatterEnd)
-    skipNewlines()
-
-    val yaml = Yaml()
-    val raw = Option(yaml.load[java.util.Map[String, Any]](content))
-      .map(_.asScala.toMap)
-      .getOrElse(Map.empty)
-
-    Some(Manifest(
-      name = raw.get("name").collect { case s: String => s },
-      version = raw.get("version").collect { case s: String => s },
-      description = raw.get("description").collect { case s: String => s },
+  private def parseManifest(yaml: String): Manifest =
+    val raw = Option(snakeYaml.load[java.util.Map[String, Any]](yaml))
+      .map(_.asScala.toMap).getOrElse(Map.empty)
+    Manifest(
+      name         = raw.get("name").collect { case s: String => s },
+      version      = raw.get("version").collect { case s: String => s },
+      description  = raw.get("description").collect { case s: String => s },
       dependencies = raw.get("dependencies").collect {
-        case m: java.util.Map[?, ?] => m.asScala.map { case (k, v) => k.toString -> v.toString }.toMap
+        case m: java.util.Map[?, ?] =>
+          m.asScala.map { case (k, v) => k.toString -> v.toString }.toMap
       }.getOrElse(Map.empty),
       exports = raw.get("exports").collect {
         case l: java.util.List[?] => l.asScala.map(_.toString).toList
@@ -70,193 +59,113 @@ class Parser(tokens: List[Token]):
         case l: java.util.List[?] => l.asScala.map(_.toString).toList
       }.getOrElse(Nil),
       raw = raw
-    ))
+    )
 
-  private def parseSections(minLevel: Int): List[Section] =
-    val sections = ListBuffer[Section]()
+  // ─── Section extraction from the flat CommonMark tree ────────────
+  //
+  // CommonMark produces a flat sequence of block nodes; headings are siblings,
+  // not parents, of the content that follows them.  We use a mutable stack to
+  // fold that flat sequence into our nested Section tree.
 
-    while !isAtEnd do
-      current.kind match
-        case TokenKind.Heading(level) if level > minLevel =>
-          sections += parseSection(level)
-        case TokenKind.Heading(level) if level <= minLevel =>
-          return sections.toList
-        case _ =>
-          // Skip non-section content at top level
-          if minLevel == 0 then
-            parseContent() // discard top-level content outside sections
-          else
-            return sections.toList
+  private case class Frame(
+    level: Int,
+    heading: Heading,
+    content: ListBuffer[Content],
+    subsections: ListBuffer[Section]
+  )
 
-    sections.toList
+  private def extractSections(doc: CmDocument): List[Section] =
+    val roots = ListBuffer[Section]()
+    val stack = Stack[Frame]()
 
-  private def parseSection(level: Int): Section =
-    val headingToken = advance()
-    val headingLevel = headingToken.kind match
-      case TokenKind.Heading(l) => l
-      case _ => 1
+    // Pop all frames whose level >= toLevel and wire them into their parents.
+    def flush(toLevel: Int): Unit =
+      while stack.nonEmpty && stack.top.level >= toLevel do
+        val f = stack.pop()
+        val s = Section(f.heading, f.content.toList, f.subsections.toList)
+        if stack.nonEmpty then stack.top.subsections += s else roots += s
 
-    // Collect heading text
-    val textParts = ListBuffer[String]()
-    while !isAtEnd && !check(TokenKind.Newline) do
-      textParts += advance().text
+    var node = doc.getFirstChild
+    while node != null do
+      node match
+        case h: CmHeading =>
+          flush(h.getLevel)
+          stack.push(Frame(
+            level      = h.getLevel,
+            heading    = Heading(h.getLevel, textOf(h)),
+            content    = ListBuffer.empty,
+            subsections = ListBuffer.empty
+          ))
+        case other =>
+          toContent(other).foreach { c =>
+            if stack.nonEmpty then stack.top.content += c
+          }
+      node = node.getNext
 
-    val heading = Heading(headingLevel, textParts.mkString.trim, Some(headingToken.span))
-    skipNewlines()
+    flush(0)
+    roots.toList
 
-    // Parse content until next heading of same or higher level
-    val content = ListBuffer[Content]()
-    while !isAtEnd && !current.kind.isInstanceOf[TokenKind.Heading] do
-      parseContent().foreach(content += _)
+  // ─── Node → Content ──────────────────────────────────────────────
 
-    // Parse subsections
-    val subsections = parseSections(level)
+  private def toContent(node: CmNode): Option[Content] = node match
+    case f: CmFenced =>
+      val lang = Option(f.getInfo).map(_.trim.takeWhile(!_.isWhitespace)).getOrElse("").toLowerCase
+      val src  = Option(f.getLiteral).getOrElse("")
+      val tree = if lang == "scala" || lang == "ssc" then parseScala(src) else None
+      Some(Content.CodeBlock(lang, src, tree))
 
-    Section(heading, content.toList, subsections, Some(headingToken.span))
+    case p: CmParagraph =>
+      asImport(p).orElse {
+        val text = textOf(p)
+        if text.nonEmpty then Some(Content.Prose(text)) else None
+      }
 
-  private def parseContent(): Option[Content] =
-    skipNewlines()
-    if isAtEnd then return None
+    case l: CmBulletList  => Some(Content.DataList(listItems(l), ordered = false))
+    case l: CmOrderedList => Some(Content.DataList(listItems(l), ordered = true))
+    case _                => None
 
-    current.kind match
-      case TokenKind.CodeLang | TokenKind.CodeFenceStart =>
-        Some(parseCodeBlock())
+  private def asImport(para: CmParagraph): Option[Content.Import] =
+    val child = para.getFirstChild
+    if child == null || child.getNext != null then return None
+    child match
+      case link: CmLink =>
+        val path     = link.getDestination
+        val bindings = textOf(link).split(",").map(_.trim).filter(_.nonEmpty)
+          .map(b => ImportBinding(b, None)).toList
+        if path.nonEmpty && bindings.nonEmpty then Some(Content.Import(path, bindings)) else None
+      case _ => None
 
-      case TokenKind.LinkStart =>
-        Some(parseImport())
+  private def listItems(list: CmNode): List[ListItem] =
+    val buf = ListBuffer[ListItem]()
+    var item = list.getFirstChild
+    while item != null do
+      item match
+        case li: CmListItem => buf += ListItem(textOf(li), Nil)
+        case _              => ()
+      item = item.getNext
+    buf.toList
 
-      case TokenKind.ListMarker | TokenKind.OrderedListMarker =>
-        Some(parseList())
+  // ─── Scala parsing via scalameta ─────────────────────────────────
 
-      case TokenKind.Text | TokenKind.InlineCode | TokenKind.InterpolationStart =>
-        Some(parseProse())
+  private def parseScala(code: String): Option[ScalaNode] =
+    import scala.meta.*
+    given Dialect = dialects.Scala3
+    code.parse[Source] match
+      case Parsed.Success(tree) => Some(ScalaNode(tree))
+      case _: Parsed.Error      => None
 
-      case TokenKind.HtmlCommentContent =>
-        advance() // skip comments
-        None
+  // ─── Text extraction from CommonMark nodes ────────────────────────
 
-      case TokenKind.Newline =>
-        advance()
-        None
-
-      case _ =>
-        advance() // skip unknown
-        None
-
-  private def parseCodeBlock(): Content.CodeBlock =
-    val start = current.span
-
-    val lang = current.kind match
-      case TokenKind.CodeLang =>
-        val l = advance().text
-        skipNewlines()
-        l
-      case TokenKind.CodeFenceStart =>
-        advance()
-        skipNewlines()
-        "scala"
-      case _ => "scala"
-
-    // Collect code content
-    val code = StringBuilder()
-    while !isAtEnd && !check(TokenKind.CodeFenceEnd) do
-      val tok = advance()
-      code ++= tok.text
-      if tok.kind == TokenKind.Newline then () // already included
-
-    consumeIf(TokenKind.CodeFenceEnd)
-    skipNewlines()
-
-    val codeStr = code.toString.trim
-    val statements = if lang == "scala" || lang == "ssc" then
-      parseScalaCode(codeStr)
-    else
-      Nil
-
-    Content.CodeBlock(lang, codeStr, statements, Some(start))
-
-  private def parseImport(): Content.Import =
-    val start = current.span
-    consume(TokenKind.LinkStart, "Expected [")
-
-    // Parse binding names
-    val names = ListBuffer[String]()
-    while !isAtEnd && !check(TokenKind.LinkEnd) do
-      val tok = advance()
-      if tok.kind == TokenKind.Text || tok.kind == TokenKind.Identifier then
-        tok.text.split(",").map(_.trim).filter(_.nonEmpty).foreach(names += _)
-
-    consume(TokenKind.LinkEnd, "Expected ]")
-    consume(TokenKind.LinkTargetStart, "Expected (")
-
-    // Parse path
-    val pathParts = ListBuffer[String]()
-    while !isAtEnd && !check(TokenKind.LinkTargetEnd) do
-      pathParts += advance().text
-
-    consume(TokenKind.LinkTargetEnd, "Expected )")
-    skipNewlines()
-
-    val path = pathParts.mkString.trim
-    val bindings = names.map(n => ImportBinding(n, None)).toList
-
-    Content.Import(path, bindings, Some(start))
-
-  private def parseList(): Content.DataList =
-    val start = current.span
-    val ordered = check(TokenKind.OrderedListMarker)
-    val items = ListBuffer[ListItem]()
-
-    while check(TokenKind.ListMarker) || check(TokenKind.OrderedListMarker) do
-      advance() // consume marker
-      val content = StringBuilder()
-      while !isAtEnd && !check(TokenKind.Newline) && !check(TokenKind.ListMarker) && !check(TokenKind.OrderedListMarker) do
-        content ++= advance().text
-      items += ListItem(content.toString.trim, Nil)
-      skipNewlines()
-
-    Content.DataList(items.toList, ordered, Some(start))
-
-  private def parseProse(): Content.Prose =
-    val start = current.span
-    val text = StringBuilder()
-    val interpolations = ListBuffer[Interpolation]()
-
-    while !isAtEnd && !check(TokenKind.Newline) && !current.kind.isInstanceOf[TokenKind.Heading] do
-      current.kind match
-        case TokenKind.InterpolationStart =>
-          advance()
-          // TODO: parse expression
-          while !isAtEnd && !check(TokenKind.RBrace) do
-            text ++= advance().text
-          consumeIf(TokenKind.RBrace)
-          consumeIf(TokenKind.InlineCode) // closing `
-
-        case TokenKind.InlineCode =>
-          text ++= "`"
-          text ++= advance().text
-          text ++= "`"
-
-        case _ =>
-          text ++= advance().text
-
-    skipNewlines()
-    Content.Prose(text.toString.trim, interpolations.toList, Some(start))
-
-  // ============================================
-  // Scala Code Parser
-  // ============================================
-
-  private def parseScalaCode(code: String): List[Statement] =
-    val scalaParser = ScalaExprParser(code)
-    scalaParser.parseStatements()
-
-class ParseError(msg: String) extends Exception(msg)
-
-object Parser:
-  def parse(source: String): Module =
-    val tokens = Lexer.tokenize(source)
-    Parser(tokens).parse()
-
-  def parseFile(path: os.Path): Module =
-    parse(os.read(path))
+  private def textOf(node: CmNode): String =
+    val buf = StringBuilder()
+    def walk(n: CmNode): Unit =
+      n match
+        case t: CmText => buf ++= t.getLiteral
+        case c: CmCode => buf ++= "`" ++= c.getLiteral ++= "`"
+        case _         => ()
+      var child = n.getFirstChild
+      while child != null do
+        walk(child)
+        child = child.getNext
+    walk(node)
+    buf.toString.trim
