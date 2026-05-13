@@ -73,4 +73,4 @@ See [AGENTS.md](AGENTS.md) for project roadmap and design decisions.
 
 ## Author
 
-Shcherbyna Sergiy Victorovych
+Sergiy (Victorovych) Shcherbyna <sergey.scherbina@gmail.com>
