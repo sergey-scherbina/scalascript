@@ -12,8 +12,10 @@ import scala.meta.*
  *  - After all sections, `main()` is auto-called if defined and not already invoked.
  */
 class Interpreter(out: java.io.PrintStream = System.out):
-  private val globals = mutable.Map.empty[String, Value]
-  private var mainCalled = false
+  private val globals      = mutable.Map.empty[String, Value]
+  // givenTable(typeclassName)(concreteTypeArg) = instance InstanceV
+  private val givenTable   = mutable.Map.empty[String, mutable.Map[String, Value]]
+  private var mainCalled   = false
   private var placeholderIdx = 0
 
   // ─── Public API ──────────────────────────────────────────────────
@@ -131,6 +133,28 @@ class Interpreter(out: java.io.PrintStream = System.out):
       }
       // Enum companion object for qualified access (Color.Red)
       env(enumName) = Value.InstanceV(enumName, caseFields.toMap)
+
+    case d: Defn.Trait =>
+      // Register the typeclass name as a dispatcher in scope
+      env(d.name.value) = Value.TypeclassV(d.name.value)
+
+    case d: Defn.Given =>
+      // Extract the parent type: e.g. `given Printable[Int] with` → tcName="Printable", typeArg="Int"
+      d.templ.inits.headOption.foreach { init =>
+        val (tcName, typeArg) = extractTCTypeArg(init.tpe).getOrElse(return)
+        // Collect method implementations in a local env seeded with globals
+        val members = mutable.Map.from(globals)
+        d.templ.stats.foreach(s => execStat(s, members))
+        // Keep only the methods declared in this given body
+        val implNames = d.templ.stats.collect { case dd: Defn.Def => dd.name.value }.toSet
+        val instance = Value.InstanceV(
+          s"$tcName[$typeArg]",
+          members.view.filterKeys(implNames.contains).toMap
+        )
+        givenTable.getOrElseUpdate(tcName, mutable.Map.empty)(typeArg) = instance
+      }
+
+    case _: Decl.Def => () // abstract method declaration — no body
 
     case t: Term =>
       val result = eval(t, env.toMap)
@@ -255,6 +279,16 @@ class Interpreter(out: java.io.PrintStream = System.out):
     // var/field assignment
     case Term.Assign(Term.Name(name), rhs) =>
       globals(name) = eval(rhs, env); Value.UnitV
+
+    // summon[TC[T]] — retrieve a given instance from the table
+    case t: Term.ApplyType =>
+      (t.fun, t.argClause.values) match
+        case (Term.Name("summon"), List(typeArg)) =>
+          val (tcName, typeArgName) = extractTCTypeArg(typeArg)
+            .getOrElse(throw InterpretError(s"summon: unsupported type"))
+          givenTable.get(tcName).flatMap(_.get(typeArgName))
+            .getOrElse(throw InterpretError(s"No given $tcName[$typeArgName]"))
+        case _ => eval(t.fun, env)  // other type applications — erase type args
 
     case other => throw InterpretError(s"Cannot eval: ${other.productPrefix}")
 
@@ -491,6 +525,12 @@ class Interpreter(out: java.io.PrintStream = System.out):
       case (Value.TupleV(es), "_2", Nil) => es(1)
       case (Value.TupleV(es), "_3", Nil) => es(2)
       case (Value.TupleV(es), "_4", Nil) => es(3)
+      // ── Typeclass dynamic dispatch (Printable.show(42)) ──────────
+      case (Value.TypeclassV(tcName), method, args) =>
+        val concreteType = args.headOption.map(inferValueType).getOrElse("_")
+        val instance = givenTable.get(tcName).flatMap(_.get(concreteType))
+          .getOrElse(throw InterpretError(s"No given $tcName[$concreteType]"))
+        dispatch(instance, method, args, env)
       // ── Instance (case class / enum case) field access ───────────
       case (Value.InstanceV(_, fields), fname, Nil) =>
         fields.getOrElse(fname, throw InterpretError(s"No field '$fname'"))
@@ -502,6 +542,32 @@ class Interpreter(out: java.io.PrintStream = System.out):
       case (v, "apply",    fargs) => callValue(v, fargs, env)
       case _ =>
         throw InterpretError(s"No method '$name' on ${recv.getClass.getSimpleName}(${Value.show(recv)})")
+
+  // Extract (typeclass, typeArg) from Type.Apply / Type.Name using field accessors
+  // (Type.Apply unapply is deprecated in scalameta 4.17.0)
+  private def extractTCTypeArg(tpe: Tree): Option[(String, String)] = tpe match
+    case n: Type.Name => Some((n.value, "_"))
+    case ta: Type.Apply =>
+      ta.tpe match
+        case n: Type.Name =>
+          val typeArg = ta.argClause.values match
+            case List(an: Type.Name) => an.value
+            case _                   => "_"
+          Some((n.value, typeArg))
+        case _ => None
+    case _ => None
+
+  private def inferValueType(v: Value): String = v match
+    case _: Value.IntV        => "Int"
+    case _: Value.DoubleV     => "Double"
+    case _: Value.StringV     => "String"
+    case _: Value.BoolV       => "Boolean"
+    case _: Value.CharV       => "Char"
+    case _: Value.ListV       => "List"
+    case _: Value.OptionV     => "Option"
+    case _: Value.MapV        => "Map"
+    case Value.InstanceV(t,_) => t
+    case _                    => "Any"
 
   // ─── Pattern matching ────────────────────────────────────────────
 

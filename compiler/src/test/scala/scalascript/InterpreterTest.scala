@@ -249,3 +249,50 @@ def main(): Unit =
     ps.flush()
     buf.toString.trim shouldBe "Hello, World!"
   }
+
+  // ── Typeclass algebra ────────────────────────────────────────────
+
+  test("trait and given — dispatch via typeclass name") {
+    captured("""
+      trait Printable[F]:
+        def show(x: F): String
+
+      given Printable[Int] with
+        def show(x: Int): String = x.toString
+
+      given Printable[String] with
+        def show(x: String): String = s"'$x'"
+
+      println(Printable.show(42))
+      println(Printable.show("hello"))
+    """) shouldBe "42\n'hello'"
+  }
+
+  test("summon retrieves a given instance") {
+    captured("""
+      trait Eq[A]:
+        def eql(a: A, b: A): Boolean
+
+      given Eq[Int] with
+        def eql(a: Int, b: Int): Boolean = a == b
+
+      val inst = summon[Eq[Int]]
+      println(inst.eql(1, 1))
+      println(inst.eql(1, 2))
+    """) shouldBe "true\nfalse"
+  }
+
+  test("given instance with multiple methods") {
+    captured("""
+      trait Ordered[A]:
+        def lt(a: A, b: A): Boolean
+        def gt(a: A, b: A): Boolean
+
+      given Ordered[Int] with
+        def lt(a: Int, b: Int): Boolean = a < b
+        def gt(a: Int, b: Int): Boolean = a > b
+
+      println(Ordered.lt(1, 2))
+      println(Ordered.gt(5, 3))
+    """) shouldBe "true\ntrue"
+  }
