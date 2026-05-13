@@ -4,6 +4,12 @@ out/
 dist/
 build/
 
+# Scala CLI
+.scala-build/
+
+# Claude Code
+.claude/
+
 # IDE
 .idea/
 .vscode/
