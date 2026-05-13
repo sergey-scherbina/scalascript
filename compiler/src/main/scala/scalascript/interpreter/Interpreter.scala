@@ -124,8 +124,8 @@ class Interpreter:
     // Literals
     case Lit.Int(v)     => Value.IntV(v.toLong)
     case Lit.Long(v)    => Value.IntV(v)
-    case Lit.Double(v)  => Value.DoubleV(v)
-    case Lit.Float(v)   => Value.DoubleV(v.toDouble)
+    case Lit.Double(v)  => Value.DoubleV(v.toString.toDouble)
+    case Lit.Float(v)   => Value.DoubleV(v.toString.toDouble)
     case Lit.String(v)  => Value.StringV(v)
     case Lit.Boolean(v) => Value.BoolV(v)
     case Lit.Char(v)    => Value.CharV(v)
@@ -137,11 +137,15 @@ class Interpreter:
       env.getOrElse(name, globals.getOrElse(name,
         throw InterpretError(s"Undefined: $name")))
 
-    // Function application (scalameta 4.6+ uses argClause)
+    // Function application: detect obj.method(args) and dispatch directly
     case app: Term.Apply =>
-      val fnVal  = eval(app.fun, env)
       val argVals = app.argClause.values.map(eval(_, env))
-      callValue(fnVal, argVals, env)
+      app.fun match
+        case Term.Select(qual, Term.Name(method)) =>
+          val qualV = eval(qual, env)
+          dispatch(qualV, method, argVals, env)
+        case fun =>
+          callValue(eval(fun, env), argVals, env)
 
     // Infix operators: a op b
     case Term.ApplyInfix(lhs, op, _, args) =>
@@ -164,8 +168,8 @@ class Interpreter:
       result
 
     // if/then/else
-    case Term.If(cond, thenp, elsep, _) =>
-      if eval(cond, env).asInstanceOf[Value.BoolV].v then eval(thenp, env) else eval(elsep, env)
+    case t: Term.If =>
+      if eval(t.cond, env).asInstanceOf[Value.BoolV].v then eval(t.thenp, env) else eval(t.elsep, env)
 
     // String interpolation s"... ${expr} ..."
     case Term.Interpolate(Term.Name(prefix), parts, args) if prefix == "s" || prefix == "f" =>
@@ -175,14 +179,23 @@ class Interpreter:
         if i < args.length then sb ++= Value.show(eval(args(i).asInstanceOf[Term], env))
       Value.StringV(sb.toString)
 
+    // Anonymous function with _ placeholders: _.method or _ + 1 etc.
+    case Term.AnonymousFunction(body) =>
+      Value.NativeFnV("anon", args =>
+        eval(body.asInstanceOf[Term], env + ("_$0" -> args.headOption.getOrElse(Value.UnitV))))
+
+    // Placeholder _ in anonymous function context
+    case Term.Placeholder() =>
+      env.getOrElse("_$0", throw InterpretError("Unexpected _"))
+
     // Lambda  x => body  or  (x, y) => body
     case Term.Function(params, body) =>
       Value.FunV(params.map(_.name.value), body, env)
 
     // Match / pattern match
-    case Term.Match(scrutinee, cases, _) =>
-      val scrutV = eval(scrutinee, env)
-      cases.iterator
+    case t: Term.Match =>
+      val scrutV = eval(t.expr, env)
+      t.cases.iterator
         .flatMap { c =>
           matchPat(c.pat, scrutV, env).flatMap { patEnv =>
             val ok = c.cond.forall(g => eval(g, patEnv).asInstanceOf[Value.BoolV].v)
@@ -420,13 +433,13 @@ class Interpreter:
   private def matchPat(pat: Pat, scrutinee: Value, env: Env): Option[Env] = pat match
     case Pat.Wildcard()     => Some(env)
     case Pat.Var(name)      => Some(env + (name.value -> scrutinee))
-    case Pat.Lit(lit) =>
+    case lit: Lit =>
       val litV: Value = lit match
         case Lit.Int(v)     => Value.IntV(v.toLong)
         case Lit.Long(v)    => Value.IntV(v)
         case Lit.String(v)  => Value.StringV(v)
         case Lit.Boolean(v) => Value.BoolV(v)
-        case Lit.Double(v)  => Value.DoubleV(v)
+        case Lit.Double(v)  => Value.DoubleV(v.toString.toDouble)
         case Lit.Null()     => Value.NullV
         case _              => Value.NullV
       Option.when(litV == scrutinee)(env)
@@ -448,8 +461,8 @@ class Interpreter:
           }
         case _ => None
     case Pat.Typed(inner, _)  => matchPat(inner, scrutinee, env)
-    case Pat.Alternative(pats) =>
-      pats.iterator.flatMap(p => matchPat(p, scrutinee, env)).nextOption()
+    case Pat.Alternative(lhs, rhs) =>
+      List(lhs, rhs).iterator.flatMap(p => matchPat(p, scrutinee, env)).nextOption()
     case _ => None
 
 object Interpreter:
