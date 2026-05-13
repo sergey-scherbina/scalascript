@@ -532,8 +532,12 @@ class Interpreter(out: java.io.PrintStream = System.out):
       case (Value.TupleV(es), "_3", Nil) => es(2)
       case (Value.TupleV(es), "_4", Nil) => es(3)
       // ── Instance (case class / enum case) field access ───────────
+      // No-arg defs (def empty: Int = 0) are called automatically on access
       case (Value.InstanceV(_, fields), fname, Nil) =>
-        fields.getOrElse(fname, throw InterpretError(s"No field '$fname'"))
+        fields.get(fname) match
+          case Some(f: Value.FunV) if f.params.isEmpty => callFun(f, Nil)
+          case Some(v)                                  => v
+          case None                                     => throw InterpretError(s"No field '$fname'")
       // ── Enum companion call (Color.RGB(1,2,3)) ───────────────────
       case (Value.InstanceV(_, fields), fname, fargs) if fields.contains(fname) =>
         callValue(fields(fname), fargs, env)

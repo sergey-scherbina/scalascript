@@ -1,0 +1,105 @@
+---
+name: data-types
+version: 1.0.0
+description: Algebraic data types — case class, enum, Map, Option
+---
+
+# Data Types
+
+ScalaScript supports algebraic data types: case classes, enums, Map, and Option.
+
+## Case Classes
+
+```scala
+case class Point(x: Double, y: Double)
+case class Person(name: String, age: Int)
+```
+
+## Enum — Simple Cases
+
+```scala
+enum Color:
+  case Red
+  case Green
+  case Blue
+
+def toHex(c: Color): String = c match
+  case Red   => "#ff0000"
+  case Green => "#00ff00"
+  case Blue  => "#0000ff"
+
+println(toHex(Red))
+println(toHex(Blue))
+```
+
+## Enum — Parameterised Cases
+
+```scala
+enum Shape:
+  case Circle(radius: Double)
+  case Rect(width: Double, height: Double)
+  case Triangle(base: Double, height: Double)
+
+def area(s: Shape): Double = s match
+  case Circle(r)      => 3.14159 * r * r
+  case Rect(w, h)     => w * h
+  case Triangle(b, h) => 0.5 * b * h
+
+println(area(Circle(5.0)))
+println(area(Rect(3.0, 4.0)))
+println(area(Triangle(6.0, 8.0)))
+```
+
+## Pattern Matching with Guards
+
+```scala
+def classify(n: Int): String = n match
+  case x if x < 0  => "negative"
+  case 0            => "zero"
+  case x if x < 10 => "small"
+  case _            => "large"
+
+println(classify(-3))
+println(classify(0))
+println(classify(7))
+println(classify(42))
+```
+
+## Map
+
+```scala
+val scores = Map("Alice" -> 95, "Bob" -> 87, "Carol" -> 92)
+
+println(scores.get("Alice").getOrElse(0))
+println(scores.get("Dave").isDefined)
+println(scores.size)
+```
+
+## Option
+
+```scala
+def safeDivide(a: Int, b: Int): Option[Int] =
+  if b == 0 then None else Some(a / b)
+
+println(safeDivide(10, 2).getOrElse(-1))
+println(safeDivide(10, 0).getOrElse(-1))
+```
+
+## Combining Everything
+
+```scala
+case class Student(name: String, grade: Int)
+
+val students = List(
+  Student("Alice", 90),
+  Student("Bob", 72),
+  Student("Carol", 85),
+  Student("Dave", 68)
+)
+
+val passing = students.filter(s => s.grade >= 75)
+val names   = passing.map(s => s.name)
+
+println(names.mkString(", "))
+println(students.map(s => s.grade).foldLeft(0)(_ + _) / students.length)
+```
