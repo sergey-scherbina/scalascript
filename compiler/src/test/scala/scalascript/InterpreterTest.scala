@@ -252,7 +252,7 @@ def main(): Unit =
 
   // ── Typeclass algebra ────────────────────────────────────────────
 
-  test("trait and given — dispatch via typeclass name") {
+  test("given instance — summon and call") {
     captured("""
       trait Printable[F]:
         def show(x: F): String
@@ -263,8 +263,8 @@ def main(): Unit =
       given Printable[String] with
         def show(x: String): String = s"'$x'"
 
-      println(Printable.show(42))
-      println(Printable.show("hello"))
+      println(summon[Printable[Int]].show(42))
+      println(summon[Printable[String]].show("hello"))
     """) shouldBe "42\n'hello'"
   }
 
@@ -292,7 +292,8 @@ def main(): Unit =
         def lt(a: Int, b: Int): Boolean = a < b
         def gt(a: Int, b: Int): Boolean = a > b
 
-      println(Ordered.lt(1, 2))
-      println(Ordered.gt(5, 3))
+      val ord = summon[Ordered[Int]]
+      println(ord.lt(1, 2))
+      println(ord.gt(5, 3))
     """) shouldBe "true\ntrue"
   }

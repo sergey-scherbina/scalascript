@@ -19,7 +19,6 @@ enum Value:
   case OptionV(inner: Option[Value])
   case TupleV(elems: List[Value])
   case MapV(entries: Map[Value, Value])
-  case TypeclassV(name: String)
 
 object Value:
   def show(v: Value): String = v match
@@ -42,7 +41,6 @@ object Value:
       else fields.values.map(show).mkString(s"$t(", ", ", ")")
     case FunV(ps, _, _)       => s"<function(${ps.length})>"
     case NativeFnV(name, _)   => s"<native:$name>"
-    case TypeclassV(name)     => s"<typeclass:$name>"
 
 class InterpretError(msg: String) extends RuntimeException(msg)
 private[interpreter] class ReturnSignal(val value: Value) extends Exception
