@@ -8,6 +8,10 @@ opaque type ScalaNode = scala.meta.Tree
 object ScalaNode:
   def apply(tree: scala.meta.Tree): ScalaNode = tree
 
+  /** Escape hatch for components that need direct scalameta access (e.g. interpreter).
+   *  Prefer ASTNode[ScalaNode] for structural traversal. */
+  def fold[A](n: ScalaNode)(f: scala.meta.Tree => A): A = f(n)
+
   given ASTNode[ScalaNode] with
     def kind(n: ScalaNode): String              = n.productPrefix
     def children(n: ScalaNode): List[ScalaNode] = n.children.toList

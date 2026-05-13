@@ -2,6 +2,7 @@ package scalascript.cli
 
 import scalascript.parser.Parser
 import scalascript.typer.Typer
+import scalascript.interpreter.Interpreter
 import scalascript.ast.*
 
 @main def ssc(args: String*): Unit =
@@ -9,8 +10,9 @@ import scalascript.ast.*
   args.head match
     case "parse"               => parseCommand(args.tail.toList)
     case "check"               => checkCommand(args.tail.toList)
+    case "run"                 => runCommand(args.tail.toList)
     case "help" | "--help" | "-h" => printUsage()
-    case _                     => checkCommand(args.toList)
+    case _                     => runCommand(args.toList)
 
 def printUsage(): Unit =
   println("""
@@ -19,12 +21,14 @@ def printUsage(): Unit =
     |Usage: ssc <command> [options] <files...>
     |
     |Commands:
+    |  run     Execute .ssc files  (default)
     |  parse   Parse .ssc files and print AST
     |  check   Type-check .ssc files
     |  help    Show this help message
     |
     |Examples:
-    |  ssc check examples/hello.ssc
+    |  ssc run  examples/hello.ssc
+    |  ssc check examples/typed-data.ssc
     |  ssc parse examples/typed-data.ssc
     |""".stripMargin)
 
@@ -37,6 +41,17 @@ def parseCommand(args: List[String]): Unit =
       println(s"=== Parsing: $file ===")
       try   printModule(Parser.parse(os.read(path)))
       catch case e: Exception => println(s"Parse error: ${e.getMessage}")
+
+def runCommand(args: List[String]): Unit =
+  if args.isEmpty then { println("Error: No files specified"); System.exit(1) }
+  for file <- args do
+    val path = os.Path(file, os.pwd)
+    if !os.exists(path) then { println(s"Error: File not found: $file"); System.exit(1) }
+    else
+      try   Interpreter.run(Parser.parse(os.read(path)))
+      catch case e: Exception =>
+        System.err.println(s"Runtime error: ${e.getMessage}")
+        System.exit(1)
 
 def checkCommand(args: List[String]): Unit =
   if args.isEmpty then { println("Error: No files specified"); System.exit(1) }
