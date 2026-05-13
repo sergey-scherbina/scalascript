@@ -24,11 +24,20 @@ object Parser:
   private val snakeYaml = Yaml()
 
   def parse(source: String): Module =
-    val (fmOpt, body) = splitFrontMatter(source)
-    val doc = mdParser.parse(body).asInstanceOf[CmDocument]
+    // Strip shebang line so files can be self-executing: #!/usr/bin/env ssc
+    val noShebang = if source.startsWith("#!") then source.dropWhile(_ != '\n').drop(1) else source
+    val (fmOpt, body) = splitFrontMatter(noShebang)
+    // Pure-Scala script (no Markdown headings or fences): wrap in a synthetic section
+    val mdSrc = if isPureScala(body) then s"# Script\n\n```scala\n${body.trim}\n```\n" else body
+    val doc = mdParser.parse(mdSrc).asInstanceOf[CmDocument]
     Module(fmOpt.map(parseManifest), extractSections(doc))
 
   def parseFile(path: os.Path): Module = parse(os.read(path))
+
+  // A source is "pure Scala" when it has no Markdown headings (# ...) or fences (```).
+  // After shebang stripping, this reliably distinguishes plain scripts from .ssc documents.
+  private def isPureScala(src: String): Boolean =
+    !src.linesIterator.exists(l => l.startsWith("#") || l.startsWith("```"))
 
   // ─── Front-matter ────────────────────────────────────────────────
 

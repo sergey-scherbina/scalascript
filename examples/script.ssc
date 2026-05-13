@@ -1,0 +1,23 @@
+#!/usr/bin/env ssc
+// Self-executing ScalaScript — chmod +x then ./script.ssc
+
+val name = "ScalaScript"
+
+def greet(who: String): String = s"Hello, $who! Welcome to $name."
+
+println(greet("World"))
+println(greet("Meta-Web"))
+
+val nums = List(1, 2, 3, 4, 5)
+val evens = for n <- nums if n % 2 == 0 yield n
+println(s"Evens: ${evens.mkString(", ")}")
+
+extension (n: Int)
+  def stars: String = "*" * n
+
+println(5.stars)
+
+def fib(n: Int): Int =
+  if n <= 1 then n else fib(n - 1) + fib(n - 2)
+
+println(s"fib(10) = ${fib(10)}")

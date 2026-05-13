@@ -377,6 +377,7 @@ class Interpreter(out: java.io.PrintStream = System.out):
       case (Value.IntV(a),    "/",  Value.DoubleV(b)) => Value.DoubleV(a / b)
       case (Value.DoubleV(a), "/",  Value.IntV(b))    => Value.DoubleV(a / b)
       case (Value.StringV(a), "+",  b)                => Value.StringV(a + Value.show(b))
+      case (Value.StringV(a), "*",  Value.IntV(n))   => Value.StringV(a * n.toInt)
       case (a, "==",  b) => Value.BoolV(a == b)
       case (a, "!=",  b) => Value.BoolV(a != b)
       case (Value.IntV(a),    "<",  Value.IntV(b))    => Value.BoolV(a < b)
