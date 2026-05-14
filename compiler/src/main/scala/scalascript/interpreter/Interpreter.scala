@@ -110,7 +110,7 @@ class Interpreter(out: java.io.PrintStream = System.out):
             case None         => throw InterpretError(s"Val pattern match failed")
         case _ => ()
 
-    case Defn.Var(_, List(Pat.Var(n)), _, Some(rhs)) =>
+    case Defn.Var.After_4_7_2(_, List(Pat.Var(n)), _, rhs) =>
       env(n.value) = eval(rhs, env.toMap)
 
     case d: Defn.Def =>
@@ -120,7 +120,7 @@ class Interpreter(out: java.io.PrintStream = System.out):
 
     case d: Defn.Object =>
       val members = mutable.Map.empty[String, Value]
-      d.templ.stats.foreach(s => execStat(s, members))
+      d.templ.body.stats.foreach(s => execStat(s, members))
       env(d.name.value) = Value.InstanceV(d.name.value, members.toMap)
 
     case d: Defn.Class =>
@@ -134,7 +134,7 @@ class Interpreter(out: java.io.PrintStream = System.out):
     case d: Defn.Enum =>
       val enumName = d.name.value
       val caseFields = mutable.Map.empty[String, Value]
-      d.templ.stats.foreach {
+      d.templ.body.stats.foreach {
         case ec: Defn.EnumCase =>
           val caseName = ec.name.value
           val paramNames = ec.ctor.paramClauses.flatMap(_.values).map(_.name.value)
@@ -154,22 +154,25 @@ class Interpreter(out: java.io.PrintStream = System.out):
       // given int: Show[Int] with ... → env("Show[Int]") = InstanceV(...); env("int") = same
       // given Show[Int] with ...      → env("Show[Int]") = InstanceV(...)
       d.templ.inits.headOption.foreach { init =>
-        val typeKey = init.tpe match
-          case n: Type.Name  => n.value
+        val typeKeyOpt: Option[String] = init.tpe match
+          case n: Type.Name  => Some(n.value)
           case ta: Type.Apply =>
-            val tc  = ta.tpe match { case n: Type.Name => n.value; case _ => return }
-            val arg = ta.argClause.values match
-              case List(n: Type.Name) => n.value
-              case _                  => "_"
-            s"$tc[$arg]"
-          case _ => return
-        val members = mutable.Map.from(globals)
-        d.templ.stats.foreach(s => execStat(s, members))
-        val implNames = d.templ.stats.collect { case dd: Defn.Def => dd.name.value }.toSet
-        val instance  = Value.InstanceV(typeKey, members.view.filterKeys(implNames.contains).toMap)
-        env(typeKey) = instance
-        val explicitName = d.name.value
-        if explicitName.nonEmpty then env(explicitName) = instance
+            (ta.tpe match { case n: Type.Name => Some(n.value); case _ => None }).map { tc =>
+              val arg = ta.argClause.values match
+                case List(n: Type.Name) => n.value
+                case _                  => "_"
+              s"$tc[$arg]"
+            }
+          case _ => None
+        typeKeyOpt.foreach { typeKey =>
+          val members = mutable.Map.from(globals)
+          d.templ.body.stats.foreach(s => execStat(s, members))
+          val implNames = d.templ.body.stats.collect { case dd: Defn.Def => dd.name.value }.toSet
+          val instance  = Value.InstanceV(typeKey, members.view.filterKeys(implNames.contains).toMap)
+          env(typeKey) = instance
+          val explicitName = d.name.value
+          if explicitName.nonEmpty then env(explicitName) = instance
+        }
       }
 
     case _: Decl.Def => () // abstract method declaration — no body
@@ -195,7 +198,7 @@ class Interpreter(out: java.io.PrintStream = System.out):
     case t: Term =>
       val result = eval(t, env.toMap)
       t match
-        case Term.Apply(Term.Name("main"), _) => mainCalled = true
+        case Term.Apply.After_4_6_0(Term.Name("main"), _) => mainCalled = true
         case _                                => ()
       result: @annotation.nowarn("msg=Discarded")
 
@@ -231,9 +234,9 @@ class Interpreter(out: java.io.PrintStream = System.out):
           callValue(eval(fun, env), argVals, env)
 
     // Infix operators: a op b
-    case Term.ApplyInfix(lhs, op, _, args) =>
+    case Term.ApplyInfix.After_4_6_0(lhs, op, _, argClause) =>
       val lhsV = eval(lhs, env)
-      val argVs = args.map(eval(_, env))
+      val argVs = argClause.values.map(eval(_, env))
       infix(lhsV, op.value, argVs, env)
 
     // Field / method selection: a.b  (no-arg call)
@@ -267,7 +270,6 @@ class Interpreter(out: java.io.PrintStream = System.out):
 
     // Anonymous function with _ placeholders: _.field, _ + 1, _ + _, etc.
     case t: Term.AnonymousFunction =>
-      val arity = t.body.collect { case _: Term.Placeholder => () }.length.max(1)
       Value.NativeFnV("anon", args => {
         val saved = placeholderIdx
         placeholderIdx = 0
@@ -283,13 +285,13 @@ class Interpreter(out: java.io.PrintStream = System.out):
       env.getOrElse(s"_$$${i}", throw InterpretError("Unexpected _"))
 
     // Lambda  x => body  or  (x, y) => body
-    case Term.Function(params, body) =>
-      Value.FunV(params.map(_.name.value), body, env)
+    case Term.Function.After_4_6_0(paramClause, body) =>
+      Value.FunV(paramClause.values.map(_.name.value), body, env)
 
     // Match / pattern match
     case t: Term.Match =>
       val scrutV = eval(t.expr, env)
-      t.cases.iterator
+      t.casesBlock.cases.iterator
         .flatMap { c =>
           matchPat(c.pat, scrutV, env).flatMap { patEnv =>
             val ok = c.cond.forall(g => eval(g, patEnv).asInstanceOf[Value.BoolV].v)
@@ -303,9 +305,9 @@ class Interpreter(out: java.io.PrintStream = System.out):
     case Term.Tuple(elems) => Value.TupleV(elems.map(eval(_, env)))
 
     // new ClassName(args)
-    case Term.New(Init(tpe, _, argss)) =>
+    case Term.New(Init.After_4_6_0(tpe, _, argClauses)) =>
       val typeName = tpe match { case Type.Name(n) => n; case _ => "?" }
-      val args = argss.flatMap(_.values).map(eval(_, env))
+      val args = argClauses.toList.flatMap(_.values).map(eval(_, env))
       env.getOrElse(typeName, globals.getOrElse(typeName,
         throw InterpretError(s"Unknown constructor: $typeName"))) match
           case c: Value.NativeFnV => c.f(args)
@@ -318,7 +320,7 @@ class Interpreter(out: java.io.PrintStream = System.out):
 
     // for x <- xs do f(x)
     case t: Term.For =>
-      evalForDo(t.enumsBlock.enums, t.body, Map.empty)
+      evalForDo(t.enumsBlock.enums, t.body, env, Map.empty)
       Value.UnitV
 
     // while cond do body  — refresh env from globals each iteration so mutations are visible
@@ -352,7 +354,7 @@ class Interpreter(out: java.io.PrintStream = System.out):
 
   // ─── Call helpers ─────────────────────────────────────────────────
 
-  private def callValue(fn: Value, args: List[Value], env: Env): Value = fn match
+  private def callValue(fn: Value, args: List[Value], @annotation.unused env: Env): Value = fn match
     case f: Value.FunV      => callFun(f, args)
     case f: Value.NativeFnV => f.f(args)
     case _ => throw InterpretError(s"Not callable: ${Value.show(fn)}")
@@ -648,19 +650,22 @@ class Interpreter(out: java.io.PrintStream = System.out):
             acc.flatMap(e => matchPat(pe._1, pe._2, e))
           }
         case _ => None
-    case Pat.Extract(fn, args) =>
-      val typeName = fn match
-        case Term.Name(n)           => n
-        case Term.Select(_, Term.Name(n)) => n   // qualified: Color.RGB(...)
-        case _ => return None
-      scrutinee match
-        case Value.InstanceV(t, fields) if t == typeName =>
-          val fieldVals = fields.values.toList
-          if args.length != fieldVals.length then None
-          else args.zip(fieldVals).foldLeft(Option(env)) { (acc, pe) =>
-            acc.flatMap(e => matchPat(pe._1, pe._2, e))
-          }
-        case _ => None
+    case Pat.Extract.After_4_6_0(fn, argClause) =>
+      val typeNameOpt = fn match
+        case Term.Name(n)                 => Some(n)
+        case Term.Select(_, Term.Name(n)) => Some(n)
+        case _                            => None
+      typeNameOpt.flatMap { typeName =>
+        val args = argClause.values
+        scrutinee match
+          case Value.InstanceV(t, fields) if t == typeName =>
+            val fieldVals = fields.values.toList
+            if args.length != fieldVals.length then None
+            else args.zip(fieldVals).foldLeft(Option(env)) { (acc, pe) =>
+              acc.flatMap(e => matchPat(pe._1, pe._2, e))
+            }
+          case _ => None
+      }
     case Pat.Typed(inner, _)       => matchPat(inner, scrutinee, env)
     case Pat.Alternative(lhs, rhs) =>
       List(lhs, rhs).iterator.flatMap(p => matchPat(p, scrutinee, env)).nextOption()
@@ -683,7 +688,7 @@ class Interpreter(out: java.io.PrintStream = System.out):
     case Pat.Var(n)           => Set(n.value)
     case Pat.Wildcard()       => Set.empty
     case Pat.Tuple(pats)      => pats.flatMap(patVarNames).toSet
-    case Pat.Extract(_, args) => args.flatMap(patVarNames).toSet
+    case Pat.Extract.After_4_6_0(_, argClause) => argClause.values.flatMap(patVarNames).toSet
     case Pat.Typed(inner, _)  => patVarNames(inner)
     case _                    => Set.empty
 
@@ -713,9 +718,10 @@ class Interpreter(out: java.io.PrintStream = System.out):
       case _ :: rest => evalForYield(rest, body, env)
 
   // evalForDo keeps loop vars separate from globals so that assignments
-  // to outer vars (globals) are visible across iterations
-  private def evalForDo(enums: List[Enumerator], body: Term, loopVars: Env): Unit =
-    val env = globals.toMap ++ loopVars
+  // to outer vars (globals) are visible across iterations.
+  // outerEnv carries function parameters and other non-global bindings.
+  private def evalForDo(enums: List[Enumerator], body: Term, outerEnv: Env, loopVars: Env): Unit =
+    val env = outerEnv ++ globals.toMap ++ loopVars
     enums match
       case Nil => eval(body, env); ()
       case Enumerator.Generator(pat, rhs) :: rest =>
@@ -723,19 +729,19 @@ class Interpreter(out: java.io.PrintStream = System.out):
           matchPat(pat, item, env) match
             case Some(patEnv) =>
               val newVars = patVarNames(pat).map(k => k -> patEnv(k)).toMap
-              evalForDo(rest, body, loopVars ++ newVars)
+              evalForDo(rest, body, outerEnv, loopVars ++ newVars)
             case None => ()
         }
       case Enumerator.Guard(cond) :: rest =>
-        if eval(cond, env).asInstanceOf[Value.BoolV].v then evalForDo(rest, body, loopVars)
+        if eval(cond, env).asInstanceOf[Value.BoolV].v then evalForDo(rest, body, outerEnv, loopVars)
       case Enumerator.Val(pat, rhs) :: rest =>
         val v = eval(rhs, env)
         matchPat(pat, v, env) match
           case Some(patEnv) =>
             val newVars = patVarNames(pat).map(k => k -> patEnv(k)).toMap
-            evalForDo(rest, body, loopVars ++ newVars)
+            evalForDo(rest, body, outerEnv, loopVars ++ newVars)
           case None => ()
-      case _ :: rest => evalForDo(rest, body, loopVars)
+      case _ :: rest => evalForDo(rest, body, outerEnv, loopVars)
 
 object Interpreter:
   def run(module: Module, out: java.io.PrintStream = System.out): Unit = Interpreter(out).run(module)
