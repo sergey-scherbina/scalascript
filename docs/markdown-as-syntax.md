@@ -31,7 +31,7 @@ Basic arithmetic operations.
 ```
 
 **AST Mapping:**
-```
+```text
 Heading(level=1, text="Math") → Scope(name="Math", parent=root)
 Heading(level=2, text="Arithmetic") → Scope(name="Arithmetic", parent=Math)
 ```
@@ -90,7 +90,7 @@ def factorial(n: Int): Int =
 | `yaml` | YAML data literal |
 
 **AST Mapping:**
-```
+```text
 FencedCodeBlock(lang="scala", content="...") → CodeUnit(lang=Scala, ast=...)
 ```
 
@@ -162,7 +162,7 @@ exports:
 ```
 
 **AST Mapping:**
-```
+```text
 FrontMatter(yaml="...") → ModuleManifest(
   name: "my-module",
   version: SemVer(1, 0, 0),
@@ -242,7 +242,7 @@ A 3x4 rectangle has area `${area(Rectangle(3, 4))}`.
 ````
 
 **AST Structure:**
-```
+```text
 Module(name="geometry", version="1.0.0")
 ├── Import(path="std/math", binding="math")
 ├── Scope(name="Shapes")

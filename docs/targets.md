@@ -29,7 +29,7 @@ The JVM backend generates Scala 3 code that runs via Scala-CLI. This provides:
 
 ### Translation Model
 
-```
+```text
 .ssc source → Typed IR → Scala 3 source → JVM bytecode
 ```
 
@@ -94,7 +94,7 @@ The JS backend generates ES modules that run in browsers or Node.js. Key feature
 
 ### Translation Model
 
-```
+```text
 .ssc source → Typed IR → JavaScript (ESM)
 ```
 
@@ -209,7 +209,7 @@ Backends may differ in:
 
 The conformance suite (M4) defines tests that all backends must pass:
 
-```
+```text
 conformance/
 ├── arithmetic/
 │   ├── int-ops.ssc
