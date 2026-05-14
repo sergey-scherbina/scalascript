@@ -1,0 +1,21 @@
+---
+name: conformance-option
+version: 1.0.0
+---
+
+# Option
+
+```scala
+val some: Option[Int] = Some(42)
+val none: Option[Int] = None
+println(some.isDefined)
+println(none.isDefined)
+println(some.isEmpty)
+println(none.isEmpty)
+println(some.getOrElse(0))
+println(none.getOrElse(99))
+println(some.map(_ * 2).getOrElse(0))
+println(none.map(_ * 2).getOrElse(0))
+val xs = List(Some(1), None, Some(3), None, Some(5))
+println(xs.filter(_.isDefined).map(_.getOrElse(0)).mkString(", "))
+```

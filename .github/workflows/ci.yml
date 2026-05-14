@@ -48,3 +48,24 @@ jobs:
           test -f examples/typed-data.ssc
           test -f examples/imports.ssc
           echo "All example files present"
+
+  conformance:
+    name: Conformance Suite
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Setup Scala CLI
+        uses: VirtusLab/scala-cli-setup@v1
+        with:
+          power: true
+
+      - name: Run conformance tests
+        run: scala-cli conformance/run.sc

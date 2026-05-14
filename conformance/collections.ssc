@@ -1,0 +1,28 @@
+---
+name: conformance-collections
+version: 1.0.0
+---
+
+# Collections
+
+```scala
+val xs = List(1, 2, 3, 4, 5)
+println(xs.length)
+println(xs.head)
+println(xs.last)
+println(xs.sum)
+println(xs.min)
+println(xs.max)
+println(xs.reverse.mkString(", "))
+println(xs.map(_ * 2).mkString(", "))
+println(xs.filter(_ % 2 == 0).mkString(", "))
+println(xs.foldLeft(0)(_ + _))
+println(xs.exists(_ > 4))
+println(xs.forall(_ > 0))
+println(xs.take(3).mkString(", "))
+println(xs.drop(2).mkString(", "))
+println(xs.contains(3))
+println(xs.indexOf(3))
+val ys = List(6, 7, 8)
+println((xs ++ ys).length)
+```

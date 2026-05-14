@@ -1,0 +1,29 @@
+---
+name: conformance-pattern-matching
+version: 1.0.0
+---
+
+# Pattern Matching
+
+```scala
+def describe(x: Int): String = x match
+  case 0 => "zero"
+  case 1 => "one"
+  case n if n < 0 => "negative"
+  case _ => "many"
+
+println(describe(0))
+println(describe(1))
+println(describe(-5))
+println(describe(42))
+
+def optionMsg(o: Option[String]): String = o match
+  case Some(s) => s"Got: $s"
+  case None    => "Nothing"
+
+println(optionMsg(Some("hello")))
+println(optionMsg(None))
+
+val pairs = List((1, "a"), (2, "b"), (3, "c"))
+pairs.foreach { case (n, s) => println(s"$n -> $s") }
+```

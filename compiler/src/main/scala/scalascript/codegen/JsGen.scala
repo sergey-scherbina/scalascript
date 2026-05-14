@@ -255,6 +255,8 @@ class JsGen:
   private var mainCalled = false
   // Stack of placeholder counters: each AnonymousFunction pushes 0, Placeholder increments top
   private var phCounters: List[Int] = Nil
+  // Names of variables known to hold integer values (for integer division detection)
+  private val intVars = scala.collection.mutable.Set[String]()
 
   private def freshTmp(): String =
     tmpIdx += 1
@@ -311,6 +313,7 @@ class JsGen:
     case Defn.Val(_, pats, _, rhs) =>
       pats match
         case List(Pat.Var(n)) =>
+          if isIntExpr(rhs) then intVars += n.value
           line(s"const ${n.value} = ${genExpr(rhs)};")
         case List(pat) =>
           // Tuple/pattern destructuring
@@ -320,6 +323,7 @@ class JsGen:
           line(s"/* multi-pat val */")
 
     case Defn.Var.After_4_7_2(_, List(Pat.Var(n)), _, rhs) =>
+      if isIntExpr(rhs) then intVars += n.value
       line(s"let ${n.value} = ${genExpr(rhs)};")
 
     case d: Defn.Def =>
@@ -707,6 +711,8 @@ class JsGen:
         case "until" =>
           // n until m → array [n, n+1, ..., m-1]
           s"_dispatch($lhsJs, 'until', [$rhsJs])"
+        case "/" if isIntExpr(lhs) && args.headOption.exists(isIntExpr) =>
+          s"Math.trunc($lhsJs / $rhsJs)"
         case other => s"($lhsJs $other $rhsJs)"
 
     case other =>
@@ -863,10 +869,13 @@ class JsGen:
 
     // Enum singleton reference: case Red => or case Color.Red =>
     case t: Term.Name =>
-      (s"($scrutVar === ${t.value} || ($scrutVar && $scrutVar._type === '${t.value}'))", Nil)
+      t.value match
+        case "None" => (s"($scrutVar && $scrutVar._type === '_None')", Nil)
+        case n      => (s"($scrutVar === $n || ($scrutVar && $scrutVar._type === '$n'))", Nil)
 
     case Term.Select(_, Term.Name(n)) =>
-      (s"($scrutVar === $n || ($scrutVar && $scrutVar._type === '$n'))", Nil)
+      if n == "None" then (s"($scrutVar && $scrutVar._type === '_None')", Nil)
+      else (s"($scrutVar === $n || ($scrutVar && $scrutVar._type === '$n'))", Nil)
 
     case _ =>
       ("true", Nil)
@@ -956,4 +965,17 @@ class JsGen:
     case "Some"    => "_Some"
     case "None"    => "_None"
     case other     => other
+
+  /** Returns true if the term is provably integer-valued (no decimal arithmetic). */
+  private def isIntExpr(t: Term): Boolean = t match
+    case _: Lit.Int | _: Lit.Long                 => true
+    case _: Lit.Double | _: Lit.Float              => false
+    case Term.Name(n)                              => intVars.contains(n)
+    case Term.Apply.After_4_6_0(Term.Select(_, Term.Name("toInt" | "toLong")), _) => true
+    case Term.Apply.After_4_6_0(Term.Select(_, Term.Name("toDouble" | "toFloat")), _) => false
+    case Term.ApplyInfix.After_4_6_0(l, Term.Name(op), _, argClause)
+        if Set("+", "-", "*", "/", "%").contains(op) =>
+      argClause.values.headOption.exists(r => isIntExpr(l) && isIntExpr(r))
+    case Term.Name("math") => false
+    case _                 => false
 

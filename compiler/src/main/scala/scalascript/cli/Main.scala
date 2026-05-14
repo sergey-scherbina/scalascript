@@ -3,6 +3,7 @@ package scalascript.cli
 import scalascript.parser.Parser
 import scalascript.typer.Typer
 import scalascript.interpreter.Interpreter
+import scalascript.codegen.{JsGen, JsRuntime}
 import scalascript.ast.*
 
 @main def ssc(args: String*): Unit =
@@ -11,6 +12,7 @@ import scalascript.ast.*
     case "parse"               => parseCommand(args.tail.toList)
     case "check"               => checkCommand(args.tail.toList)
     case "run"                 => runCommand(args.tail.toList)
+    case "emit-js"             => emitJsCommand(args.tail.toList)
     case "serve"               => serveCommand(args.tail.toList)
     case "help" | "--help" | "-h" => printUsage()
     case _                     => runCommand(args.toList)
@@ -22,14 +24,16 @@ def printUsage(): Unit =
     |Usage: ssc <command> [options] <files...>
     |
     |Commands:
-    |  run     Execute .ssc files  (default)
-    |  serve   Start HTTP server serving .ssc files as web pages
-    |  parse   Parse .ssc files and print AST
-    |  check   Type-check .ssc files
-    |  help    Show this help message
+    |  run      Execute .ssc files  (default)
+    |  emit-js  Transpile .ssc to JavaScript and print to stdout
+    |  serve    Start HTTP server serving .ssc files as web pages
+    |  parse    Parse .ssc files and print AST
+    |  check    Type-check .ssc files
+    |  help     Show this help message
     |
     |Examples:
     |  ssc examples/hello.ssc
+    |  ssc emit-js examples/hello.ssc | node
     |  ssc serve 8080
     |  ssc serve 8080 examples/
     |  ssc run  examples/hello.ssc
@@ -60,6 +64,23 @@ def runCommand(args: List[String]): Unit =
       try   Interpreter.run(Parser.parse(os.read(path)))
       catch case e: Exception =>
         System.err.println(s"Runtime error: ${e.getMessage}")
+        System.exit(1)
+
+def emitJsCommand(args: List[String]): Unit =
+  if args.isEmpty then { println("Error: No files specified"); System.exit(1) }
+  for file <- args do
+    val path = os.Path(file, os.pwd)
+    if !os.exists(path) then { println(s"Error: File not found: $file"); System.exit(1) }
+    else
+      try
+        val module = Parser.parse(os.read(path))
+        val body   = JsGen.generate(module)
+        // Emit a self-contained Node.js-runnable script
+        println(JsRuntime)
+        println(body)
+        println("""console.log(_output.join("\n"));""")
+      catch case e: Exception =>
+        System.err.println(s"JS generation error: ${e.getMessage}")
         System.exit(1)
 
 def checkCommand(args: List[String]): Unit =
