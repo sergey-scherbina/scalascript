@@ -1,8 +1,0 @@
-#!/usr/bin/env bash
-# ssc — ScalaScript interpreter (development launcher)
-# Runs the compiler from source via scala-cli.
-# For a faster installed binary: scripts/install.sh
-set -euo pipefail
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-COMPILER="$(dirname "$SCRIPT_DIR")/compiler"
-exec scala-cli run "$COMPILER" -- "$@"

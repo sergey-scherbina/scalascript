@@ -4,6 +4,9 @@ out/
 dist/
 build/
 
+# Compiled ssc binary (build artifact — run scripts/install.sh to produce)
+bin/ssc
+
 # Scala CLI
 .scala-build/
 
