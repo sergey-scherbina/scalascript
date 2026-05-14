@@ -617,3 +617,58 @@ def main(): Unit =
     module.sections.head.heading.text shouldBe "Script"
   }
 
+  // ── md interpolator ──────────────────────────────────────────────
+
+  test("md interpolator strips indentation") {
+    captured(
+      "val name = \"Alice\"\n" +
+      "val result = md\"\"\"\n  Hello $name\n  World\n\"\"\"\nprintln(result)"
+    ) shouldBe "Hello Alice\nWorld"
+  }
+
+  test("md interpolator trims leading and trailing blank lines") {
+    captured(
+      "val s = md\"\"\"\n\n  line1\n  line2\n\n\"\"\"\nprintln(s)"
+    ) shouldBe "line1\nline2"
+  }
+
+  // ── auto-output of last expression ──────────────────────────────
+
+  test("auto-output prints last non-unit expression") {
+    captured("1 + 1") shouldBe "2"
+  }
+
+  test("auto-output prints string expression") {
+    captured(""""hello".toUpperCase""") shouldBe "HELLO"
+  }
+
+  test("auto-output skips unit result") {
+    captured("println(42)") shouldBe "42"
+  }
+
+  test("auto-output skips last def binding") {
+    captured("def foo(x: Int): Int = x\nprintln(foo(3))") shouldBe "3"
+  }
+
+  // ── doc builder ──────────────────────────────────────────────────
+
+  test("doc assembles parts with newlines") {
+    captured("""render(doc("line1", "line2", "line3"))""") shouldBe "line1\nline2\nline3"
+  }
+
+  test("doc nested inside doc") {
+    captured("""
+      val inner = doc("  a", "  b")
+      render(doc("header:", inner))
+    """) shouldBe "header:\n  a\n  b"
+  }
+
+  // ── partial function (case lambda) ──────────────────────────────
+
+  test("partial function in map") {
+    captured("""
+      val pairs = List((1, "a"), (2, "b"))
+      println(pairs.map { case (n, s) => s"$n:$s" }.mkString(", "))
+    """) shouldBe "1:a, 2:b"
+  }
+

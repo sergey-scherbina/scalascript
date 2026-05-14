@@ -56,6 +56,17 @@ class Interpreter(out: java.io.PrintStream = System.out):
       case _ => throw InterpretError("serve(port) or serve(port, dir)")
     }
 
+    // doc(...) builds a DocV; render(...) prints it
+    native("doc")    { args => Value.DocV(args) }
+    native("render") { args =>
+      val text = args match
+        case List(Value.DocV(parts)) => parts.map(Value.show).mkString("\n")
+        case List(v)                 => Value.show(v)
+        case vs                      => vs.map(Value.show).mkString("\n")
+      out.println(text)
+      Value.UnitV
+    }
+
     native("Some")  { case List(v) => Value.OptionV(Some(v)); case _ => throw InterpretError("Some takes 1 arg") }
     native("List")  { args => Value.ListV(args) }
     native("Map") { args =>
@@ -100,17 +111,22 @@ class Interpreter(out: java.io.PrintStream = System.out):
     }
     section.subsections.foreach(runSection)
 
+  private def execBlockStats(stats: List[Stat]): Unit =
+    stats.zipWithIndex.foreach { (s, i) =>
+      execStat(s, globals, printResult = i == stats.length - 1)
+    }
+
   private def execBlock(node: ScalaNode): Unit =
     ScalaNode.fold(node) {
-      case Source(stats)     => stats.foreach(s => execStat(s, globals))
-      case Term.Block(stats) => stats.foreach(s => execStat(s, globals))
+      case Source(stats)     => execBlockStats(stats)
+      case Term.Block(stats) => execBlockStats(stats)
       case t: Term           => eval(t, globals.toMap); ()
       case other             => throw InterpretError(s"Expected Source/Block, got ${other.productPrefix}")
     }
 
   // ─── Statement execution ─────────────────────────────────────────
 
-  private def execStat(stat: Stat, env: mutable.Map[String, Value]): Unit = stat match
+  private def execStat(stat: Stat, env: mutable.Map[String, Value], printResult: Boolean = false): Unit = stat match
     case Defn.Val(_, pats, _, rhs) =>
       val rhsVal = eval(rhs, env.toMap)
       pats match
@@ -212,7 +228,8 @@ class Interpreter(out: java.io.PrintStream = System.out):
       t match
         case Term.Apply.After_4_6_0(Term.Name("main"), _) => mainCalled = true
         case _                                => ()
-      result: @annotation.nowarn("msg=Discarded")
+      if printResult then autoOutput(result)
+      else result: @annotation.nowarn("msg=Discarded")
 
     case _ => () // type aliases, imports, exports, etc.
 
@@ -272,13 +289,14 @@ class Interpreter(out: java.io.PrintStream = System.out):
     case t: Term.If =>
       if eval(t.cond, env).asInstanceOf[Value.BoolV].v then eval(t.thenp, env) else eval(t.elsep, env)
 
-    // String interpolation s"..." / f"..."
-    case Term.Interpolate(Term.Name(prefix), parts, args) if prefix == "s" || prefix == "f" =>
+    // String interpolation s"..." / f"..." / md"..."
+    case Term.Interpolate(Term.Name(prefix), parts, args) if prefix == "s" || prefix == "f" || prefix == "md" =>
       val sb = StringBuilder()
       for i <- parts.indices do
         sb ++= parts(i).asInstanceOf[Lit.String].value
         if i < args.length then sb ++= Value.show(eval(args(i).asInstanceOf[Term], env))
-      Value.StringV(sb.toString)
+      val raw = sb.toString
+      Value.StringV(if prefix == "md" then stripIndent(raw) else raw)
 
     // Anonymous function with _ placeholders: _.field, _ + 1, _ + _, etc.
     case t: Term.AnonymousFunction =>
@@ -299,6 +317,23 @@ class Interpreter(out: java.io.PrintStream = System.out):
     // Lambda  x => body  or  (x, y) => body
     case Term.Function.After_4_6_0(paramClause, body) =>
       Value.FunV(paramClause.values.map(_.name.value), body, env)
+
+    // Partial function  { case pat => body; ... }  — e.g. xs.map { case (k, v) => ... }
+    case Term.PartialFunction(cases) =>
+      Value.NativeFnV("partial", args => {
+        val arg = args match
+          case List(v) => v
+          case vs      => Value.TupleV(vs)
+        cases.iterator
+          .flatMap { c =>
+            matchPat(c.pat, arg, env).flatMap { patEnv =>
+              val ok = c.cond.forall(g => eval(g, patEnv).asInstanceOf[Value.BoolV].v)
+              Option.when(ok)(eval(c.body, patEnv))
+            }
+          }
+          .nextOption()
+          .getOrElse(throw InterpretError(s"Partial function match failure: ${Value.show(arg)}"))
+      })
 
     // Match / pattern match
     case t: Term.Match =>
@@ -759,6 +794,18 @@ class Interpreter(out: java.io.PrintStream = System.out):
             evalForDo(rest, body, outerEnv, loopVars ++ newVars)
           case None => ()
       case _ :: rest => evalForDo(rest, body, outerEnv, loopVars)
+
+  private def autoOutput(v: Value): Unit = v match
+    case Value.UnitV => ()
+    case _           => out.println(Value.show(v))
+
+  private def stripIndent(s: String): String =
+    val lines = s.split('\n').toList
+    val body  = lines.dropWhile(_.isBlank).reverse.dropWhile(_.isBlank).reverse
+    if body.isEmpty then ""
+    else
+      val minIndent = body.filter(_.exists(_ != ' ')).map(_.takeWhile(_ == ' ').length).minOption.getOrElse(0)
+      body.map(l => if l.isBlank then "" else l.drop(minIndent)).mkString("\n")
 
 object Interpreter:
   def run(module: Module, out: java.io.PrintStream = System.out): Unit = Interpreter(out).run(module)

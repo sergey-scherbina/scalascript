@@ -1,0 +1,81 @@
+---
+name: content
+version: 1.0.0
+description: Content generation — md interpolator, auto-output, doc builder
+---
+
+# Content Generation
+
+ScalaScript provides three levels of content generation beyond `println`.
+
+## A — `md` String Interpolator
+
+`md"..."` strips common leading indentation from multi-line strings,
+making it easy to embed clean multi-line text inside indented code:
+
+```scala
+val name = "Alice"
+val age  = 30
+
+val bio = md"""
+  Name : $name
+  Age  : $age
+  Role : Engineer
+"""
+
+println(bio)
+```
+
+## B — Auto-output of Last Expression
+
+The **last expression** in a top-level code block is automatically
+printed if it is not `Unit` — no `println` needed:
+
+```scala
+1 + 1
+```
+
+```scala
+val xs = List(1, 2, 3, 4, 5)
+xs.map(x => x * x)
+```
+
+```scala
+"hello".toUpperCase + "!"
+```
+
+## C — `doc(...)` / `render(...)`
+
+`doc(...)` assembles a structured document from parts — strings, other
+docs, or any value. `render(...)` outputs the assembled result.
+
+Build a table of values:
+
+```scala
+def table(title: String, rows: List[String]) =
+  doc(s"=== $title ===", rows.mkString("\n"))
+
+render(doc(
+  table("Fruits",  List("  Apple", "  Banana", "  Cherry")),
+  table("Numbers", List("  one", "  two", "  three"))
+))
+```
+
+## Combining All Three
+
+`md` for clean formatting, `doc` for structure, auto-output for quick inspection:
+
+```scala
+val lang     = "ScalaScript"
+val features = List("md interpolator", "auto-output", "doc builder")
+
+val summary = md"""
+  Language : $lang
+  Features : ${features.length}
+"""
+
+render(doc(
+  summary,
+  features.zipWithIndex.map { case (f, i) => s"  ${i + 1}. $f" }.mkString("\n")
+))
+```

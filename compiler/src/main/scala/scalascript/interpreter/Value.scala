@@ -19,6 +19,7 @@ enum Value:
   case OptionV(inner: Option[Value])
   case TupleV(elems: List[Value])
   case MapV(entries: Map[Value, Value])
+  case DocV(parts: List[Value])
 
 object Value:
   def show(v: Value): String = v match
@@ -41,6 +42,7 @@ object Value:
       else fields.values.map(show).mkString(s"$t(", ", ", ")")
     case FunV(ps, _, _, _)    => s"<function(${ps.length})>"
     case NativeFnV(name, _)   => s"<native:$name>"
+    case DocV(parts)          => parts.map(show).mkString("\n")
 
 class InterpretError(msg: String) extends RuntimeException(msg)
 private[interpreter] class ReturnSignal(val value: Value) extends Exception
