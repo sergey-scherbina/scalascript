@@ -46,30 +46,41 @@ bin/sscc examples/hello.ssc
 ./bin/http.ssc
 ```
 
-## Language Features
+## What Works
 
-| Feature | Example |
-|---------|---------|
+All three backends (JVM interpreter, JS transpiler, Scala 3 compiler) support:
+
+| Feature | Syntax |
+|---------|--------|
+| Values and variables | `val x = 42`, `var n = 0` |
+| Functions | `def f(x: Int): Int = x * 2` |
+| Lambdas and closures | `val double = (x: Int) => x * 2` |
+| Higher-order functions | `xs.map(double)`, `xs.filter(_ > 0)` |
 | Case classes | `case class Point(x: Double, y: Double)` |
-| Sealed traits / enums | `enum Color { case Red, Green, Blue }` |
-| Pattern matching | `x match { case Circle(r) => math.Pi * r * r }` |
-| Typeclasses | `trait Show[A]`, `given`, `summon[Show[Int]]` |
-| Extension methods | `extension (n: Int) def squared: Int = n * n` |
+| Enums / sealed traits | `enum Color { case Red; case Green; case Blue }` |
+| Recursive ADTs | `enum Tree { case Leaf(v: Int); case Branch(l: Tree, r: Tree) }` |
+| Pattern matching | `x match { case Some(n) => n; case None => 0 }` |
 | For comprehensions | `for x <- xs if x > 0 yield x * x` |
+| While loops | `while n > 0 do { ... }` |
 | Collections | `List`, `Map`, `Option` with full method dispatch |
-| Built-in math | `math.sqrt`, `math.Pi`, `math.pow`, … |
-| String interpolation | `s"Hello, $name"`, `md"""…"""` |
-| `md` interpolator | Strips common indentation from multi-line strings |
-| Auto-output | Last non-Unit expression in a block is printed automatically |
-| `doc` / `render` | Structured document builder for rich output |
+| Tuples | `val t = (1, "hello"); t._1` |
+| String interpolation | `` s"Hello, $name" `` |
+| Math | `math.sqrt`, `math.abs`, `math.pow`, `math.Pi`, … |
+| Extension methods | `extension (n: Int) def squared: Int = n * n` |
+| Typeclasses | `trait Show[A]`, `given`, `summon[Show[Int]]` |
+| Recursion | factorial, Fibonacci, tree traversal |
+
+JVM interpreter only: `md` interpolator, `doc`/`render`, `serve`.
 
 ## Examples
 
 | File | Description |
 |------|-------------|
-| [hello.ssc](examples/hello.ssc) | Minimal example |
+| [hello.ssc](examples/hello.ssc) | Minimal "Hello, World!" |
 | [script.ssc](examples/script.ssc) | Functions, loops, Fibonacci |
 | [data-types.ssc](examples/data-types.ssc) | Case classes, sealed traits, enums, pattern matching |
+| [functional.ssc](examples/functional.ssc) | Lambdas, closures, HOF, composition, pipelines |
+| [enums.ssc](examples/enums.ssc) | Simple and parameterised enums, recursive ADTs |
 | [extensions.ssc](examples/extensions.ssc) | Extension methods, for comprehensions, while, recursion |
 | [imports.ssc](examples/imports.ssc) | Math, geometry, statistics |
 | [typeclass.ssc](examples/typeclass.ssc) | Show, Eq, Ord, Monoid, Functor via `given`/`summon` |

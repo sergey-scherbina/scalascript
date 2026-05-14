@@ -19,6 +19,8 @@ val examples = Seq(
   "data-types.ssc",
   "extensions.ssc",
   "imports.ssc",
+  "functional.ssc",
+  "enums.ssc",
   "typeclass.ssc",
   "typed-data.ssc",
   "content.ssc",

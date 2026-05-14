@@ -1,0 +1,96 @@
+---
+name: enums
+version: 1.0.0
+---
+
+# Enums and ADTs
+
+Scala 3 enums are the preferred way to model algebraic data types.
+
+## Simple Enum
+
+```scala
+enum Direction:
+  case North
+  case South
+  case East
+  case West
+
+def opposite(d: Direction): Direction = d match
+  case North => South
+  case South => North
+  case East  => West
+  case West  => East
+
+val dirs = List(North, South, East, West)
+dirs.foreach(d => println(s"${d} -> ${opposite(d)}"))
+```
+
+## Enum with Parameters
+
+```scala
+enum Shape:
+  case Circle(radius: Double)
+  case Rectangle(width: Double, height: Double)
+  case Triangle(base: Double, height: Double)
+
+def area(s: Shape): Double = s match
+  case Circle(r)       => math.Pi * r * r
+  case Rectangle(w, h) => w * h
+  case Triangle(b, h)  => 0.5 * b * h
+
+def describe(s: Shape): String = s match
+  case Circle(r)       => s"circle(r=${r})"
+  case Rectangle(w, h) => s"rect(${w}x${h})"
+  case Triangle(b, h)  => s"tri(b=${b}, h=${h})"
+
+val shapes = List(
+  Circle(5.0),
+  Rectangle(4.0, 6.0),
+  Triangle(3.0, 8.0)
+)
+
+shapes.foreach { s =>
+  println(s"${describe(s)}: area = ${math.round(area(s) * 100.0) / 100.0}")
+}
+```
+
+## Option as an Enum
+
+```scala
+def safeDivide(a: Int, b: Int): Option[Int] =
+  if b == 0 then None else Some(a / b)
+
+val pairs = List((10, 2), (7, 0), (9, 3), (5, 0), (8, 4))
+pairs.foreach { case (a, b) =>
+  safeDivide(a, b) match
+    case Some(result) => println(s"$a / $b = $result")
+    case None         => println(s"$a / $b = undefined")
+}
+```
+
+## Recursive ADT
+
+```scala
+enum Tree:
+  case Leaf(value: Int)
+  case Branch(left: Tree, right: Tree)
+
+def treeSum(t: Tree): Int = t match
+  case Leaf(v)      => v
+  case Branch(l, r) => treeSum(l) + treeSum(r)
+
+def maxInt(a: Int, b: Int): Int = if a > b then a else b
+
+def depth(t: Tree): Int = t match
+  case Leaf(_)      => 1
+  case Branch(l, r) => 1 + maxInt(depth(l), depth(r))
+
+val tree = Branch(
+  Branch(Leaf(1), Leaf(2)),
+  Branch(Leaf(3), Branch(Leaf(4), Leaf(5)))
+)
+
+println(treeSum(tree))
+println(depth(tree))
+```
