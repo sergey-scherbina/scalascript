@@ -1,3 +1,4 @@
+#!/usr/bin/env ssc
 ---
 name: data-types
 version: 1.0.0

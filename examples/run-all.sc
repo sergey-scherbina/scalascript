@@ -8,7 +8,9 @@
 val dir: os.Path =
   args.filterNot(_ == "--").headOption match
     case Some(p) => os.Path(p, os.pwd)
-    case None    => os.pwd / "examples"
+    case None    =>
+      val candidate = os.pwd / "examples"
+      if os.isDir(candidate) then candidate else os.pwd
 
 val sscBin = dir / os.up / "bin" / "ssc"
 

@@ -1,3 +1,4 @@
+#!/usr/bin/env ssc
 ---
 name: typed-data
 version: 1.0.0

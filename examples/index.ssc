@@ -1,3 +1,4 @@
+#!/usr/bin/env ssc
 ---
 name: index
 description: ScalaScript — the meta-web
