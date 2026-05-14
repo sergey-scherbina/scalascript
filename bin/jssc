@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# jssc — ScalaScript JS runner: transpiles .ssc → JS and runs via Node.js
+# Usage: jssc file.ssc [file2.ssc ...]
+set -euo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+COMPILER="$(dirname "$SCRIPT_DIR")/compiler"
+scala-cli run "$COMPILER" -- emit-js "$@" | node
