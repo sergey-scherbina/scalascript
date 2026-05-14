@@ -1,9 +1,9 @@
 //> using scala 3.8.3
 //> using toolkit default
-//> using dep org.yaml:snakeyaml:2.2
-//> using dep com.lihaoyi::pprint:0.9.0
+//> using dep org.yaml:snakeyaml:2.6
+//> using dep com.lihaoyi::pprint:0.9.6
 //> using dep org.scalameta::scalameta:4.17.0
-//> using dep org.commonmark:commonmark:0.22.0
+//> using dep org.commonmark:commonmark:0.28.0
 
 //> using option -Wunused:all
 //> using option -deprecation
