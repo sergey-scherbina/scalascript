@@ -4,7 +4,7 @@ This document describes the ScalaScript compiler pipeline and internal architect
 
 ## Pipeline Overview
 
-```
+```text
 ┌─────────────┐     ┌─────────────┐     ┌─────────────┐     ┌─────────────┐     ┌─────────────┐
 │   Source    │────▶│   Lexer/    │────▶│   Parser    │────▶│   Typer     │────▶│  Backend    │
 │   (.ssc)    │     │   Scanner   │     │             │     │             │     │             │
@@ -180,7 +180,7 @@ trait Backend:
 
 Scopes form a tree structure mirroring the heading hierarchy:
 
-```
+```text
 ModuleScope (root)
 ├── imports: [std/math → math]
 ├── symbols: [Circle, Rectangle, area]
@@ -282,7 +282,7 @@ Via Language Server Protocol (LSP) in future milestones.
 
 ## Directory Structure (Implementation)
 
-```
+```text
 compiler/
 ├── lexer/
 │   ├── Scanner.scala

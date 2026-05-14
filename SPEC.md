@@ -33,7 +33,7 @@ A ScalaScript file consists of:
 1. **Optional YAML front-matter** (module manifest)
 2. **Markdown body** with embedded code regions
 
-```
+```text
 [front-matter]
 [markdown-body]
 ```
@@ -322,7 +322,7 @@ def require(cond: Boolean, msg: String): Unit
 
 ## Appendix A: Reserved Words
 
-```
+```text
 abstract case catch class def do else enum
 extends false final finally for given if
 implicit import lazy match new null object
