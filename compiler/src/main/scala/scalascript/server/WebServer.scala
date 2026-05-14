@@ -2,6 +2,7 @@ package scalascript.server
 
 import scalascript.parser.Parser
 import scalascript.interpreter.Interpreter
+import scalascript.codegen.{JsGen, JsRuntime}
 import com.sun.net.httpserver.{HttpServer as JHttpServer, HttpExchange}
 import org.commonmark.parser.{Parser as CmParser}
 import org.commonmark.renderer.html.HtmlRenderer
@@ -61,12 +62,29 @@ object WebServer:
     val body   = stripFrontMatter(clean)
     val mdHtml = htmlRender.render(mdParser.parse(body))
 
-    // 2. Run all Scala blocks, capture combined output
+    // 2. Run all Scala blocks server-side, capture combined output
     val output = captureRun(module)
-    val outHtml = if output.isEmpty then ""
-      else s"""<section class="output"><h3>Output</h3><pre>${esc(output)}</pre></section>"""
+    val serverOutHtml = if output.isEmpty then ""
+      else s"""<section class="output server-out"><h3>Server output</h3><pre>${esc(output)}</pre></section>"""
 
-    page(title, mdHtml + outHtml)
+    // 3. Generate JS for browser-side execution
+    val generatedJs = try JsGen.generate(module) catch case e: Exception => s"/* JsGen error: ${e.getMessage} */"
+    val browserPanel =
+      s"""<section class="output browser-out">
+<h3>Browser output</h3>
+<pre id="browser-output">Running...</pre>
+</section>
+<script>
+try {
+${JsRuntime}
+${generatedJs}
+  document.getElementById('browser-output').textContent = _output.join('\\n') || '(no output)';
+} catch(e) {
+  document.getElementById('browser-output').textContent = 'Error: ' + e.message;
+}
+</script>"""
+
+    page(title, mdHtml + serverOutHtml + browserPanel)
 
   private def captureRun(module: scalascript.ast.Module): String =
     val buf = java.io.ByteArrayOutputStream()
@@ -104,6 +122,8 @@ object WebServer:
   section.output{margin-top:1.5rem;border-top:2px solid var(--accent);padding-top:1rem}
   section.output h3{color:var(--accent);font-size:.9rem;text-transform:uppercase;
                     letter-spacing:.05em;margin-bottom:.5rem}
+  section.browser-out{border-top-color:#2e7d32}
+  section.browser-out h3{color:#2e7d32}
   a{color:var(--accent)}
   nav{margin-bottom:2rem;font-size:.85rem;opacity:.6}
 </style>
