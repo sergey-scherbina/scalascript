@@ -1,0 +1,88 @@
+---
+name: functional
+version: 1.0.0
+---
+
+# Functional Programming
+
+ScalaScript supports first-class functions, closures, and higher-order
+combinators out of the box.
+
+## Functions as Values
+
+```scala
+val double = (x: Int) => x * 2
+val square = (x: Int) => x * x
+val negate = (x: Int) => 0 - x
+
+val xs = List(1, 2, 3, 4, 5)
+println(xs.map(double).mkString(", "))
+println(xs.map(square).mkString(", "))
+println(xs.map(negate).mkString(", "))
+```
+
+## Higher-Order Functions
+
+```scala
+def applyTwice(f: Int => Int, x: Int): Int = f(f(x))
+def compose(f: Int => Int, g: Int => Int): Int => Int = x => f(g(x))
+
+println(applyTwice(double, 3))
+println(applyTwice(square, 2))
+
+val doubleSquare = compose(double, square)
+val squareDouble = compose(square, double)
+println(doubleSquare(3))
+println(squareDouble(3))
+```
+
+## Closures
+
+Functions capture variables from their enclosing scope.
+
+```scala
+def multiplier(factor: Int): Int => Int = x => x * factor
+
+val triple = multiplier(3)
+val times10 = multiplier(10)
+
+println(triple(7))
+println(times10(7))
+println(xs.map(triple).mkString(", "))
+```
+
+## Partial Application via Closures
+
+```scala
+def adder(a: Int): Int => Int = b => a + b
+
+val add5   = adder(5)
+val add100 = adder(100)
+
+println(xs.map(add5).mkString(", "))
+println(xs.map(add100).mkString(", "))
+```
+
+## Pipeline with Combinators
+
+```scala
+val result = List(1, 2, 3, 4, 5, 6, 7, 8, 9, 10)
+  .filter(_ % 2 == 0)
+  .map(square)
+  .map(double)
+
+println(result.mkString(", "))
+println(result.sum)
+```
+
+## Accumulating with foldLeft
+
+```scala
+def runningTotals(xs: List[Int]): List[Int] =
+  xs.foldLeft(List[Int]()) { (acc, x) =>
+    val prev = if acc.isEmpty then 0 else acc.last
+    acc ++ List(prev + x)
+  }
+
+println(runningTotals(List(1, 2, 3, 4, 5)).mkString(", "))
+```
