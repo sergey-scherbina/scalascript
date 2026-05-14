@@ -9,7 +9,7 @@ lazy val compiler = project
     libraryDependencies ++= Seq(
       "org.yaml"         %  "snakeyaml"  % "2.6",
       "com.lihaoyi"      %% "os-lib"     % "0.11.4",
-      "com.lihaoyi"      %% "upickle"    % "4.1.0",
+      "com.lihaoyi"      %% "upickle"    % "4.4.2",
       "com.lihaoyi"      %% "pprint"     % "0.9.6",
       "org.scalameta"    %% "scalameta"  % "4.17.0",
       "org.commonmark"   %  "commonmark" % "0.28.0",
