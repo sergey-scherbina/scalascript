@@ -664,6 +664,10 @@ class Interpreter(out: java.io.PrintStream = System.out):
             else args.zip(fieldVals).foldLeft(Option(env)) { (acc, pe) =>
               acc.flatMap(e => matchPat(pe._1, pe._2, e))
             }
+          case Value.OptionV(Some(v)) if typeName == "Some" && args.length == 1 =>
+            matchPat(args.head, v, env)
+          case Value.OptionV(None) if typeName == "None" && args.isEmpty =>
+            Some(env)
           case _ => None
       }
     case Pat.Typed(inner, _)       => matchPat(inner, scrutinee, env)

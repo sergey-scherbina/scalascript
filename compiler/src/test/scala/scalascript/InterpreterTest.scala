@@ -188,6 +188,17 @@ class InterpreterTest extends AnyFunSuite with Matchers:
     """) shouldBe "Hello, adult Alice\nHello, young Bob"
   }
 
+  test("nested Some pattern in case class") {
+    captured("""
+      case class Person(name: String, email: Option[String])
+      def show(p: Person): String = p match
+        case Person(n, Some(e)) => s"$n <$e>"
+        case Person(n, None)    => s"$n (no email)"
+      println(show(Person("Alice", Some("alice@example.com"))))
+      println(show(Person("Bob", None)))
+    """) shouldBe "Alice <alice@example.com>\nBob (no email)"
+  }
+
   // ── Enum ────────────────────────────────────────────────────────
 
   test("enum simple cases") {

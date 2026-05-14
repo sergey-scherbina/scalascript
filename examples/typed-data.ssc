@@ -127,6 +127,25 @@ val people: List[Person] = List(
 
 val names: List[String] = people.map(_.name)
 val adults: List[Person] = people.filter(_.age >= 30)
-```
 
-The adults are: `${adults.map(_.name).mkString(", ")}`
+println("=== People ===")
+people.map(processPerson).foreach(println)
+
+println("=== Adults ===")
+println(adults.map(p => p.name).mkString(", "))
+
+println("=== Colors ===")
+val colors = List(Red, Green, Blue, RGB(255, 128, 0))
+colors.foreach(c => c match
+  case RGB(r, g, b) => println(s"RGB($r, $g, $b)")
+  case Red          => println("Red")
+  case Green        => println("Green")
+  case Blue         => println("Blue")
+)
+
+println("=== Functions ===")
+val double: Int => Int = x => x * 2
+val addOne: Int => Int = x => x + 1
+println(double(21))
+println(addOne(41))
+```
