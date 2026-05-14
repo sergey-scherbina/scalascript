@@ -1,0 +1,23 @@
+---
+name: conformance-tuples
+version: 1.0.0
+---
+
+# Tuples
+
+```scala
+val t2 = (1, "hello")
+println(t2._1)
+println(t2._2)
+
+val t3 = (3.14, true, "world")
+println(t3._1)
+println(t3._2)
+println(t3._3)
+
+val pairs = List((1, "one"), (2, "two"), (3, "three"))
+pairs.foreach { case (n, s) => println(s"$n=$s") }
+
+val swapped = pairs.map { case (n, s) => (s, n) }
+swapped.foreach { case (s, n) => println(s"$s:$n") }
+```

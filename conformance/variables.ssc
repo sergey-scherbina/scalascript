@@ -1,0 +1,30 @@
+---
+name: conformance-variables
+version: 1.0.0
+---
+
+# Variables and While Loops
+
+```scala
+var x = 0
+var sum = 0
+while x < 5 do
+  x = x + 1
+  sum = sum + x
+println(x)
+println(sum)
+
+var acc = 1
+var i = 1
+while i <= 6 do
+  acc = acc * i
+  i = i + 1
+println(acc)
+
+var count = 10
+var result = 0
+while count > 0 do
+  result = result + count
+  count = count - 1
+println(result)
+```

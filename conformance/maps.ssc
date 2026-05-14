@@ -1,0 +1,20 @@
+---
+name: conformance-maps
+version: 1.0.0
+---
+
+# Maps
+
+```scala
+val m = Map("a" -> 1, "b" -> 2, "c" -> 3)
+println(m.size)
+println(m.getOrElse("a", 0))
+println(m.contains("b"))
+println(m.contains("z"))
+println(m.getOrElse("c", 0))
+println(m.getOrElse("z", 0))
+val keys = m.keys.toList.sorted
+println(keys.mkString(", "))
+val vals = m.values.toList.sorted
+println(vals.mkString(", "))
+```
