@@ -1,0 +1,21 @@
+---
+name: conformance-strings
+version: 1.0.0
+---
+
+# Strings
+
+```scala
+val s = "Hello, World!"
+println(s.length)
+println(s.toUpperCase)
+println(s.toLowerCase)
+println(s.contains("World"))
+println(s.startsWith("Hello"))
+println(s.endsWith("!"))
+println(s.replace("World", "Scala"))
+val name = "ScalaScript"
+println(s"Language: $name")
+println(s.take(5))
+println(s.drop(7))
+```

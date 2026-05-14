@@ -1,0 +1,24 @@
+---
+name: conformance-for-comprehensions
+version: 1.0.0
+---
+
+# For Comprehensions
+
+```scala
+val xs = List(1, 2, 3, 4, 5)
+
+val squares = for x <- xs yield x * x
+println(squares.mkString(", "))
+
+val evens = for x <- xs if x % 2 == 0 yield x
+println(evens.mkString(", "))
+
+val pairs = for
+  x <- List(1, 2, 3)
+  y <- List(10, 20)
+yield x * y
+println(pairs.mkString(", "))
+
+for x <- xs if x > 3 do println(x)
+```
