@@ -69,3 +69,24 @@ jobs:
 
       - name: Run conformance tests
         run: scala-cli conformance/run.sc
+
+  scala3:
+    name: Scala 3 Compiler Backend
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Scala CLI
+        uses: VirtusLab/scala-cli-setup@v1
+        with:
+          power: true
+
+      - name: Compile and run hello.ssc via Scala 3
+        run: |
+          out=$(scala-cli run compiler -- compile examples/hello.ssc 2>/dev/null)
+          [ "$out" = "Hello, World!" ] && echo "OK: $out" || (echo "FAIL: got '$out'"; exit 1)
+
+      - name: Compile and run script.ssc via Scala 3
+        run: scala-cli run compiler -- compile examples/script.ssc 2>/dev/null
