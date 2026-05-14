@@ -15,6 +15,7 @@ import scalascript.ast.*
     case "emit-js"             => emitJsCommand(args.tail.toList)
     case "emit-scala"          => emitScalaCommand(args.tail.toList)
     case "compile"             => compileCommand(args.tail.toList)
+    case "package"             => packageCommand(args.tail.toList)
     case "serve"               => serveCommand(args.tail.toList)
     case "help" | "--help" | "-h" => printUsage()
     case _                     => runCommand(args.toList)
@@ -26,22 +27,34 @@ def printUsage(): Unit =
     |Usage: ssc <command> [options] <files...>
     |
     |Commands:
-    |  run          Execute .ssc via tree-walking interpreter  (default)
-    |  compile      Compile .ssc to JVM via Scala 3 / scala-cli
-    |  emit-scala   Print generated Scala 3 script to stdout
-    |  emit-js      Transpile .ssc to JavaScript and print to stdout
-    |  serve        Start HTTP server serving .ssc files as web pages
-    |  parse        Parse .ssc files and print AST
-    |  check        Type-check .ssc files
-    |  help         Show this help message
+    |  run                    Execute .ssc via tree-walking interpreter (default)
+    |  compile                Compile and run .ssc on JVM via scala-cli
+    |  package [flags] <f>    Package .ssc via scala-cli package (see flags below)
+    |  emit-scala             Print generated Scala 3 script to stdout
+    |  emit-js                Transpile .ssc to JavaScript and print to stdout
+    |  serve                  Start HTTP server serving .ssc files as web pages
+    |  parse                  Parse .ssc files and print AST
+    |  check                  Type-check .ssc files
+    |  help                   Show this help message
+    |
+    |Package flags (passed through to scala-cli package):
+    |  --assembly             Fat JAR with all dependencies bundled
+    |  --standalone           Self-contained binary (like the ssc binary itself)
+    |  --native               GraalVM native image (requires native-image)
+    |  -o, --output <path>    Output file (default: input filename without .ssc)
+    |  --force, -f            Overwrite existing output
+    |  (any other scala-cli package flag is forwarded as-is)
     |
     |Examples:
     |  ssc examples/hello.ssc
     |  ssc compile examples/hello.ssc
+    |  ssc package examples/hello.ssc
+    |  ssc package --assembly examples/hello.ssc
+    |  ssc package --assembly -o hello.jar examples/hello.ssc
+    |  ssc package --standalone -o hello examples/hello.ssc
     |  ssc emit-scala examples/hello.ssc
     |  ssc emit-js examples/hello.ssc | node
     |  ssc serve 8080
-    |  ssc run  examples/hello.ssc
     |  ssc parse examples/typeclass.ssc
     |""".stripMargin)
 
@@ -120,6 +133,39 @@ def compileCommand(args: List[String]): Unit =
           os.remove(tmp)
       catch case e: Exception =>
         System.err.println(s"Compile error: ${e.getMessage}")
+        System.exit(1)
+
+def packageCommand(args: List[String]): Unit =
+  // Separate the .ssc input file from scala-cli flags
+  val (sscFiles, scalaCliFlags) = args.partition(_.endsWith(".ssc"))
+  if sscFiles.isEmpty then
+    System.err.println("Error: No .ssc file specified")
+    System.err.println("Usage: ssc package [scala-cli-package-flags] <file.ssc>")
+    System.exit(1)
+  for file <- sscFiles do
+    val path = os.Path(file, os.pwd)
+    if !os.exists(path) then { System.err.println(s"Error: File not found: $file"); System.exit(1) }
+    else
+      try
+        val module = Parser.parse(os.read(path))
+        val script = JvmGen.generate(module)
+        val tmp    = os.temp(script, suffix = ".sc")
+        try
+          // Default output name: same as input file without .ssc extension
+          val hasOutput = scalaCliFlags.exists(f => f == "-o" || f == "--output")
+          val outputFlags =
+            if hasOutput then Nil
+            else List("--output", path.last.stripSuffix(".ssc"))
+          val result = os.proc(
+            "scala-cli", "package", tmp,
+            outputFlags,
+            scalaCliFlags
+          ).call(stdout = os.Inherit, stderr = os.Inherit, cwd = os.pwd, check = false)
+          if result.exitCode != 0 then System.exit(result.exitCode)
+        finally
+          os.remove(tmp)
+      catch case e: Exception =>
+        System.err.println(s"Package error: ${e.getMessage}")
         System.exit(1)
 
 def checkCommand(args: List[String]): Unit =
