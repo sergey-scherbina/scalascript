@@ -24,14 +24,20 @@ Hello, World!
 
 ## Quick Start
 
-**Requirements:** [scala-cli](https://scala-cli.virtuslab.org)
+**Requirements:** [scala-cli](https://scala-cli.virtuslab.org) · [Node.js](https://nodejs.org) (for JS backend)
 
 ```bash
 git clone https://github.com/sergey-scherbina/scalascript
 cd scalascript
 
-# Run an example
+# Interpreter (tree-walking, no compilation step)
 bin/ssc examples/hello.ssc
+
+# Transpile to JavaScript and run via Node.js
+bin/jssc examples/hello.ssc
+
+# Compile to JVM bytecode and run via Scala 3 / scala-cli
+bin/sscc examples/hello.ssc
 
 # Run all examples
 ./examples/run-all.sc
@@ -76,11 +82,37 @@ Run them all at once:
 ./examples/run-all.sc
 ```
 
+## Backends
+
+ScalaScript supports three execution backends:
+
+| Command | Backend | How it works |
+|---------|---------|--------------|
+| `bin/ssc file.ssc` | Interpreter | Tree-walking interpreter — instant startup, no compilation |
+| `bin/jssc file.ssc` | JavaScript | Transpiles `.ssc` → JS, runs via Node.js |
+| `bin/sscc file.ssc` | JVM / Scala 3 | Generates a `.sc` script and compiles via scala-cli |
+
+The `ssc-js` script is a lower-level tool for the JS backend:
+
+```bash
+# Print generated JavaScript to stdout (useful for debugging)
+bin/ssc-js examples/hello.ssc
+
+# Transpile and run in one step (same as jssc)
+bin/ssc-js --run examples/hello.ssc
+
+# Pipe to Node.js manually
+bin/ssc-js examples/hello.ssc | node
+```
+
 ## Project Layout
 
 ```text
 bin/
-  ssc          # interpreter launcher (scala-cli dev mode)
+  ssc          # interpreter launcher (tree-walking, no compilation step)
+  jssc         # JS runner: transpiles .ssc → JS and runs via Node.js
+  sscc         # JVM runner: compiles .ssc → Scala 3 → JVM via scala-cli
+  ssc-js       # JS transpiler: emit JS to stdout, or --run to execute
   http.ssc     # HTTP server for examples browser
 
 compiler/
@@ -88,8 +120,12 @@ compiler/
     parser/      # Markdown + YAML + Scala parser
     ast/         # AST types
     interpreter/ # Tree-walking interpreter
+    codegen/     # Code generators (JsGen → JavaScript, JvmGen → Scala 3)
     cli/         # Command-line entry point
     server/      # Built-in HTTP server
+
+conformance/     # Cross-backend conformance test suite
+  expected/      # Canonical expected outputs
 
 examples/        # Runnable .ssc files
   run-all.sc     # Runs all examples in order
@@ -112,6 +148,8 @@ After installation:
 
 ```bash
 ssc examples/hello.ssc
+jssc examples/hello.ssc
+sscc examples/hello.ssc
 ```
 
 ## Design Principles
