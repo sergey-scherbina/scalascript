@@ -15,11 +15,13 @@ and tuple destructuring.
 
 ```scala
 extension (s: String)
-  def shout: String = s.toUpperCase + "!"
+  def shout: String   = s.toUpperCase + "!"
   def whisper: String = s.toLowerCase
+  def repeat(n: Int): String = s * n
 
 println("hello".shout)
 println("WORLD".whisper)
+println("ha".repeat(3))
 ```
 
 Extension on numeric types:
@@ -29,19 +31,20 @@ extension (n: Int)
   def squared: Int = n * n
   def times(f: Int => Int): Int = f(n)
 
-println(5.squared)
-println(3.times(x => x * 10))
+println(s"5 squared    = ${5.squared}")
+println(s"3.times(*10) = ${3.times(x => x * 10)}")
 ```
 
 Extension on collections:
 
 ```scala
 extension (xs: List[Int])
-  def second: Int = xs.tail.head
+  def second: Int     = xs.tail.head
   def average: Double = xs.sum.toDouble / xs.length
 
-println(List(10, 20, 30).second)
-println(List(1, 2, 3, 4, 5).average)
+val nums = List(10, 20, 30, 40, 50)
+println(s"second  = ${nums.second}")
+println(s"average = ${nums.average}")
 ```
 
 ## For Comprehensions
@@ -49,15 +52,15 @@ println(List(1, 2, 3, 4, 5).average)
 `for ... yield` produces a new collection:
 
 ```scala
-val doubled = for x <- List(1, 2, 3, 4, 5) yield x * 2
-println(doubled.mkString(", "))
+val squares = for x <- (1 to 5).toList yield x * x
+println(s"squares  : ${squares.mkString(", ")}")
 ```
 
 With a guard to filter:
 
 ```scala
-val evens = for x <- List(1, 2, 3, 4, 5) if x % 2 == 0 yield x
-println(evens.mkString(", "))
+val evens = for x <- (1 to 10).toList if x % 2 == 0 yield x
+println(s"evens    : ${evens.mkString(", ")}")
 ```
 
 Nested generators produce the cartesian product:
@@ -67,15 +70,15 @@ val pairs = for
   x <- List(1, 2, 3)
   y <- List("a", "b")
 yield s"${x}${y}"
-println(pairs.mkString(", "))
+println(s"pairs    : ${pairs.mkString(", ")}")
 ```
 
 `for ... do` iterates for side effects:
 
 ```scala
 var total = 0
-for x <- List(10, 20, 30) do total = total + x
-println(total)
+for x <- (1 to 100).toList do total = total + x
+println(s"sum 1..100 = $total")
 ```
 
 ## While Loops
@@ -83,23 +86,36 @@ println(total)
 ```scala
 var i = 1
 var product = 1
-while i <= 5 do
+while i <= 10 do
   product = product * i
   i = i + 1
-println(product)
+println(s"10! = $product")
+```
+
+## Fibonacci with Recursion
+
+```scala
+def fibonacci(n: Int): List[Int] =
+  def go(a: Int, b: Int, count: Int): List[Int] =
+    if count <= 0 then List()
+    else a :: go(b, a + b, count - 1)
+  go(0, 1, n)
+
+println(s"fib(10) = ${fibonacci(10).mkString(", ")}")
 ```
 
 ## Tuple Destructuring
 
 ```scala
-val (x, y) = (3, 4)
-println(x)
-println(y)
+val (minVal, maxVal) = (List(3, 1, 4, 1, 5, 9).min, List(3, 1, 4, 1, 5, 9).max)
+println(s"min = $minVal, max = $maxVal")
 ```
 
-Destructuring in for:
+Destructuring in for — zip two lists and process pairs:
 
 ```scala
-val coords = List((0, 0), (1, 2), (3, 4))
-for (px, py) <- coords do println(s"point: ${px}, ${py}")
+val names  = List("Alice", "Bob", "Carol")
+val grades = List(90, 75, 88)
+for (name, grade) <- names.zip(grades) do
+  println(s"  $name: $grade")
 ```

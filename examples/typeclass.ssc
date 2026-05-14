@@ -8,42 +8,30 @@ description: Typeclass algebra in ScalaScript — trait, given, summon
 
 ScalaScript supports Scala 3 typeclass patterns: `trait`, `given`, and `summon`.
 
-## Defining a Typeclass
+## Show — Pretty Printing
 
-A `trait` defines the algebra — a set of operations abstract over a type:
+A `trait` defines the algebra. `given` binds a concrete implementation:
 
 ```scala
 trait Show[A]:
   def show(x: A): String
-```
 
-## Providing Instances
+given intShow: Show[Int] with
+  def show(x: Int): String = s"Int($x)"
 
-`given` binds a concrete implementation to a specific type.
-A named `given` is also accessible directly by name:
-
-```scala
-given int: Show[Int] with
-  def show(x: Int): String = "Int(" + x.toString + ")"
-
-given bool: Show[Boolean] with
+given boolShow: Show[Boolean] with
   def show(x: Boolean): String = if x then "yes" else "no"
 
-given str: Show[String] with
-  def show(x: String): String = x
+given strShow: Show[String] with
+  def show(x: String): String = s"'$x'"
+
+println(s"Int    : ${intShow.show(42)}")
+println(s"Bool   : ${boolShow.show(true)}")
+println(s"String : ${strShow.show("hello")}")
+println(s"summon : ${summon[Show[Int]].show(99)}")
 ```
 
-## Using Instances
-
-Access by name or retrieve with `summon`:
-
-```scala
-println(int.show(42))
-println(bool.show(true))
-println(summon[Show[String]].show("hello"))
-```
-
-## Equality Typeclass
+## Eq — Equality
 
 ```scala
 trait Eq[A]:
@@ -55,30 +43,40 @@ given eqInt: Eq[Int] with
 given eqStr: Eq[String] with
   def eql(a: String, b: String): Boolean = a == b
 
-println(eqInt.eql(1, 1))
-println(eqInt.eql(1, 2))
-println(eqStr.eql("hi", "hi"))
+println(s"1 == 1  : ${eqInt.eql(1, 1)}")
+println(s"1 == 2  : ${eqInt.eql(1, 2)}")
+println(s"hi == hi: ${eqStr.eql("hi", "hi")}")
+println(s"hi == ho: ${eqStr.eql("hi", "ho")}")
 ```
 
-## Ordering Typeclass
+## Ord — Ordering
 
 ```scala
 trait Ord[A]:
   def compare(a: A, b: A): Int
-  def lt(a: A, b: A): Boolean = compare(a, b) < 0
-  def gt(a: A, b: A): Boolean = compare(a, b) > 0
+  def lt(a: A, b: A): Boolean
+  def gt(a: A, b: A): Boolean
+  def min(a: A, b: A): A
+  def max(a: A, b: A): A
 
-given ord: Ord[Int] with
-  def compare(a: Int, b: Int): Int =
-    if a < b then -1 else if a > b then 1 else 0
-  def lt(a: Int, b: Int): Boolean = compare(a, b) < 0
-  def gt(a: Int, b: Int): Boolean = compare(a, b) > 0
+given ordInt: Ord[Int] with
+  def compare(a: Int, b: Int): Int = if a < b then -1 else if a > b then 1 else 0
+  def lt(a: Int, b: Int): Boolean  = a < b
+  def gt(a: Int, b: Int): Boolean  = a > b
+  def min(a: Int, b: Int): Int     = if a < b then a else b
+  def max(a: Int, b: Int): Int     = if a > b then a else b
 
-println(ord.lt(3, 7))
-println(ord.gt(5, 2))
+println(s"3 < 7   : ${ordInt.lt(3, 7)}")
+println(s"5 > 2   : ${ordInt.gt(5, 2)}")
+println(s"min(3,7): ${ordInt.min(3, 7)}")
+println(s"max(3,7): ${ordInt.max(3, 7)}")
+
+val xs = List(5, 2, 8, 1, 9, 3)
+val sorted = xs.sortBy(x => x)
+println(s"sorted  : ${sorted.mkString(", ")}")
 ```
 
-## Monoid Typeclass
+## Monoid — Combining Values
 
 ```scala
 trait Monoid[A]:
@@ -96,6 +94,26 @@ given strConcat: Monoid[String] with
 def fold[A](xs: List[A], m: Monoid[A]): A =
   xs.foldLeft(m.empty)(m.combine)
 
-println(fold(List(1, 2, 3, 4, 5), intSum))
-println(fold(List("hello", ", ", "world"), strConcat))
+def repeat[A](value: A, n: Int, m: Monoid[A]): A =
+  if n <= 0 then m.empty else m.combine(value, repeat(value, n - 1, m))
+
+println(s"sum    : ${fold(List(1, 2, 3, 4, 5), intSum)}")
+println(s"concat : ${fold(List("hello", ", ", "world", "!"), strConcat)}")
+println(s"repeat : ${repeat("ab", 4, strConcat)}")
+```
+
+## Functor — Mapping Over Structure
+
+```scala
+trait Functor[F]:
+  def fmap(fa: List[Int], f: Int => Int): List[Int]
+
+given listFunctor: Functor[List[Int]] with
+  def fmap(fa: List[Int], f: Int => Int): List[Int] = fa.map(f)
+
+val doubled = listFunctor.fmap(List(1, 2, 3, 4, 5), x => x * 2)
+val squared = listFunctor.fmap(List(1, 2, 3, 4, 5), x => x * x)
+
+println(s"doubled: ${doubled.mkString(", ")}")
+println(s"squared: ${squared.mkString(", ")}")
 ```

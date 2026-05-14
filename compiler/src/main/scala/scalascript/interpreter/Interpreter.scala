@@ -78,6 +78,17 @@ class Interpreter(out: java.io.PrintStream = System.out):
     native("math.round") { case List(Value.DoubleV(d)) => Value.IntV(math.round(d));    case _ => Value.UnitV }
     globals("math.Pi")   = Value.DoubleV(math.Pi)
     globals("math.E")    = Value.DoubleV(math.E)
+    // math as an object so `math.sqrt(x)` works via field dispatch
+    globals("math") = Value.InstanceV("math", Map(
+      "sqrt"  -> globals("math.sqrt"),
+      "abs"   -> globals("math.abs"),
+      "pow"   -> globals("math.pow"),
+      "floor" -> globals("math.floor"),
+      "ceil"  -> globals("math.ceil"),
+      "round" -> globals("math.round"),
+      "Pi"    -> globals("math.Pi"),
+      "E"     -> globals("math.E")
+    ))
 
   // ─── Section / block execution ───────────────────────────────────
 
@@ -115,7 +126,8 @@ class Interpreter(out: java.io.PrintStream = System.out):
 
     case d: Defn.Def =>
       val params = d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values).map(_.name.value)
-      env(d.name.value) = Value.FunV(params, d.body, env.toMap)
+      val fn: Value.FunV = Value.FunV(params, d.body, env.toMap, d.name.value)
+      env(d.name.value) = fn
       if d.name.value == "main" && params.isEmpty then mainCalled = false
 
     case d: Defn.Object =>
@@ -360,7 +372,8 @@ class Interpreter(out: java.io.PrintStream = System.out):
     case _ => throw InterpretError(s"Not callable: ${Value.show(fn)}")
 
   private def callFun(f: Value.FunV, args: List[Value]): Value =
-    val callEnv = globals.toMap ++ f.closure ++ f.params.zip(args).toMap
+    val selfEntry = if f.name.nonEmpty then Map(f.name -> f) else Map.empty
+    val callEnv = globals.toMap ++ f.closure ++ selfEntry ++ f.params.zip(args).toMap
     try eval(f.body, callEnv)
     catch case r: ReturnSignal => r.value
 
