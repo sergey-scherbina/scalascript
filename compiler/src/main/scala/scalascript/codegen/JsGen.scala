@@ -217,7 +217,13 @@ function _dispatch(obj, method, args) {
   }
   if (obj && typeof obj === 'object') {
     if (obj[method] !== undefined) {
-      if (typeof obj[method] === 'function') return obj[method](...args);
+      if (typeof obj[method] === 'function') {
+        // If args is empty and the function takes args, return the function reference (eta-expansion)
+        // If args is empty and the function takes no args, call it
+        if (args.length === 0 && obj[method].length === 0) return obj[method]();
+        if (args.length === 0) return obj[method];  // return as reference
+        return obj[method](...args);
+      }
       return obj[method];
     }
   }
@@ -247,6 +253,7 @@ class JsGen:
   private var tmpIdx = 0
   private var hasMain = false
   private var mainCalled = false
+  private var placeholderIdx = 0
 
   private def freshTmp(): String =
     tmpIdx += 1
@@ -562,17 +569,21 @@ class JsGen:
 
     // Anonymous function with _ placeholders
     case t: Term.AnonymousFunction =>
-      // Count placeholders
+      // Count placeholders and assign numbered params
       val placeholders = countPlaceholders(t.body)
       val paramNames = (0 until placeholders).map(i => s"_$$${i}").toList
+      val savedIdx = placeholderIdx
+      placeholderIdx = 0
       val bodyJs = genExpr(t.body)
+      placeholderIdx = savedIdx
       if paramNames.isEmpty then s"() => $bodyJs"
       else s"(${paramNames.mkString(", ")}) => $bodyJs"
 
-    // Placeholder _
+    // Placeholder _ — use and increment the counter
     case _: Term.Placeholder =>
-      // This is handled by AnonymousFunction context; emit placeholder variable
-      s"_$$0"  // fallback
+      val i = placeholderIdx
+      placeholderIdx += 1
+      s"_$$$i"
 
     // Lambda
     case Term.Function.After_4_6_0(paramClause, body) =>
@@ -654,14 +665,17 @@ class JsGen:
     case Term.Select(qual, name) =>
       val qualJs = genExpr(qual)
       name.value match
+        // Built-in collection/string methods that need runtime dispatch (computed properties)
         case "head" | "tail" | "last" | "init" | "reverse" | "distinct" | "sorted" |
              "toList" | "toSet" | "sum" | "min" | "max" | "flatten" | "isEmpty" |
              "nonEmpty" | "size" | "length" | "keys" | "values" | "isDefined" |
              "toUpperCase" | "toLowerCase" | "trim" | "toInt" | "toDouble" | "toLong" |
-             "abs" | "round" | "floor" | "ceil" | "zipWithIndex" =>
+             "abs" | "round" | "floor" | "ceil" | "zipWithIndex" | "nonEmpty" |
+             "_1" | "_2" | "_3" | "_4" =>
           s"_dispatch($qualJs, '${name.value}', [])"
         case other =>
-          // Try field access first (e.g., point.x, obj.method)
+          // Direct property access for regular objects (case classes, typeclasses, etc.)
+          // Use _dispatch for extension methods, but try direct property first
           s"_dispatch($qualJs, '$other', [])"
 
     // Function application
@@ -686,6 +700,12 @@ class JsGen:
         case "!=" => s"($lhsJs !== $rhsJs)"
         case "&&" => s"($lhsJs && $rhsJs)"
         case "||" => s"($lhsJs || $rhsJs)"
+        case "to" =>
+          // n to m → array [n, n+1, ..., m]
+          s"_dispatch($lhsJs, 'to', [$rhsJs])"
+        case "until" =>
+          // n until m → array [n, n+1, ..., m-1]
+          s"_dispatch($lhsJs, 'until', [$rhsJs])"
         case other => s"($lhsJs $other $rhsJs)"
 
     case other =>
@@ -929,10 +949,16 @@ class JsGen:
       }.mkString(" ")
     case _ => ""
 
-  private def countPlaceholders(term: Term): Int = term match
-    case _: Term.Placeholder => 1
-    case t =>
-      t.children.collect { case c: Term => countPlaceholders(c) }.sum
+  private def countPlaceholders(term: Term): Int =
+    // Count all Term.Placeholder nodes anywhere in the tree (not just direct Term children)
+    var count = 0
+    def visit(tree: scala.meta.Tree): Unit =
+      tree match
+        case _: Term.Placeholder => count += 1
+        case _ => ()
+      tree.children.foreach(visit)
+    visit(term)
+    count
 
   private def mapName(name: String): String = name match
     case "println" => "_println"
