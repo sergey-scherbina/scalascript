@@ -253,7 +253,8 @@ class JsGen:
   private var tmpIdx = 0
   private var hasMain = false
   private var mainCalled = false
-  private var placeholderIdx = 0
+  // Stack of placeholder counters: each AnonymousFunction pushes 0, Placeholder increments top
+  private var phCounters: List[Int] = Nil
 
   private def freshTmp(): String =
     tmpIdx += 1
@@ -567,22 +568,22 @@ class JsGen:
       sb2.append("`")
       sb2.toString
 
-    // Anonymous function with _ placeholders
+    // Anonymous function with _ placeholders — stack-based param counting
     case t: Term.AnonymousFunction =>
-      // Count placeholders and assign numbered params
-      val placeholders = countPlaceholders(t.body)
-      val paramNames = (0 until placeholders).map(i => s"_$$${i}").toList
-      val savedIdx = placeholderIdx
-      placeholderIdx = 0
+      phCounters = 0 :: phCounters          // push fresh counter
       val bodyJs = genExpr(t.body)
-      placeholderIdx = savedIdx
-      if paramNames.isEmpty then s"() => $bodyJs"
-      else s"(${paramNames.mkString(", ")}) => $bodyJs"
+      val count  = phCounters.head
+      phCounters = phCounters.tail           // pop
+      val params = (0 until count).map(i => s"_$$${i}")
+      if params.isEmpty then s"() => $bodyJs"
+      else s"(${params.mkString(", ")}) => $bodyJs"
 
-    // Placeholder _ — use and increment the counter
+    // Placeholder _ — increment top counter and return indexed name
     case _: Term.Placeholder =>
-      val i = placeholderIdx
-      placeholderIdx += 1
+      val i = phCounters.headOption.getOrElse(0)
+      phCounters = phCounters match
+        case h :: t => (h + 1) :: t
+        case Nil    => Nil
       s"_$$$i"
 
     // Lambda
@@ -948,17 +949,6 @@ class JsGen:
           case _ => ""
       }.mkString(" ")
     case _ => ""
-
-  private def countPlaceholders(term: Term): Int =
-    // Count all Term.Placeholder nodes anywhere in the tree (not just direct Term children)
-    var count = 0
-    def visit(tree: scala.meta.Tree): Unit =
-      tree match
-        case _: Term.Placeholder => count += 1
-        case _ => ()
-      tree.children.foreach(visit)
-    visit(term)
-    count
 
   private def mapName(name: String): String = name match
     case "println" => "_println"
