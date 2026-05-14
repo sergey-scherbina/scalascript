@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# ssc — ScalaScript interpreter (dev launcher via scala-cli)
+# Usage: ssc [command] [files...]
+set -euo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+COMPILER="$(dirname "$SCRIPT_DIR")/compiler"
+exec scala-cli run "$COMPILER" -- "$@"

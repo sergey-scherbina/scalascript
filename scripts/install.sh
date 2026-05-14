@@ -6,7 +6,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(dirname "$SCRIPT_DIR")"
 COMPILER="$ROOT/compiler"
-DEST="${1:-$ROOT/bin/ssc}"
+DEST="${1:-$HOME/.local/bin/ssc}"
 BIN_DIR="$(cd "$(dirname "$DEST")" 2>/dev/null && pwd || echo "$(dirname "$DEST")")"
 
 mkdir -p "$BIN_DIR"
