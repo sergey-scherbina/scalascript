@@ -1,0 +1,27 @@
+---
+name: conformance-higher-order-functions
+version: 1.0.0
+---
+
+# Higher-Order Functions
+
+```scala
+def apply(f: Int => Int, x: Int): Int = f(x)
+def compose(f: Int => Int, g: Int => Int): Int => Int = x => f(g(x))
+
+val double = (x: Int) => x * 2
+val inc    = (x: Int) => x + 1
+
+println(apply(double, 5))
+println(apply(inc, 5))
+
+val doubleInc = compose(double, inc)
+val incDouble = compose(inc, double)
+println(doubleInc(3))
+println(incDouble(3))
+
+val xs = List(1, 2, 3, 4, 5)
+println(xs.map(double).mkString(", "))
+println(xs.flatMap(x => List(x, x * x)).mkString(", "))
+println(xs.map(_ + 1).filter(_ % 2 == 0).mkString(", "))
+```

@@ -82,6 +82,31 @@ Run them all at once:
 ./examples/run-all.sc
 ```
 
+## Conformance Suite
+
+Cross-backend tests that verify JVM interpreter and JS transpiler produce identical output.
+Run with:
+
+```bash
+scala-cli conformance/run.sc
+```
+
+| Test | What it covers |
+|------|----------------|
+| arithmetic | Integer and floating-point ops, `math.*` |
+| strings | String methods and interpolation |
+| collections | `List` — map, filter, fold, take, drop, … |
+| option | `Option` — `map`, `getOrElse`, `filter`, … |
+| pattern-matching | Literals, guards, `Option`, tuple patterns |
+| case-classes | Case class construction, field access, pattern matching |
+| for-comprehensions | `yield`, guards, nested generators, `do` |
+| higher-order-functions | Lambdas, `compose`, `flatMap`, eta-expansion |
+| recursion | Factorial and Fibonacci |
+| sealed-traits | ADT hierarchy with `sealed trait` + `case class` |
+| variables | `var` mutation and `while` loops |
+| tuples | Tuple construction, `_1`/`_2`/`_3`, destructuring |
+| maps | `Map` — `size`, `getOrElse`, `contains`, `keys`, `values` |
+
 ## Backends
 
 ScalaScript supports three execution backends:

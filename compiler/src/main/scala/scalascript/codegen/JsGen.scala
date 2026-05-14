@@ -976,6 +976,5 @@ class JsGen:
     case Term.ApplyInfix.After_4_6_0(l, Term.Name(op), _, argClause)
         if Set("+", "-", "*", "/", "%").contains(op) =>
       argClause.values.headOption.exists(r => isIntExpr(l) && isIntExpr(r))
-    case Term.Name("math") => false
-    case _                 => false
+    case _ => false
 

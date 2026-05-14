@@ -1,0 +1,33 @@
+---
+name: conformance-sealed-traits
+version: 1.0.0
+---
+
+# Sealed Traits
+
+```scala
+sealed trait Shape
+case class Circle(radius: Double) extends Shape
+case class Rectangle(width: Double, height: Double) extends Shape
+case class Triangle(base: Double, height: Double) extends Shape
+
+def shapeType(s: Shape): String = s match
+  case Circle(_)       => "circle"
+  case Rectangle(_, _) => "rect"
+  case Triangle(_, _)  => "tri"
+
+def area(s: Shape): Double = s match
+  case Circle(r)       => math.Pi * r * r
+  case Rectangle(w, h) => w * h
+  case Triangle(b, h)  => 0.5 * b * h
+
+val c = Circle(1.0)
+val r = Rectangle(3.0, 4.0)
+val t = Triangle(6.0, 4.0)
+val shapes: List[Shape] = List(c, r, t)
+
+shapes.foreach(s => println(shapeType(s)))
+println(math.round(area(c) * 100.0) / 100.0)
+println(area(r))
+println(area(t))
+```
