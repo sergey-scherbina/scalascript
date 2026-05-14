@@ -64,13 +64,14 @@ All three backends (JVM interpreter, JS transpiler, Scala 3 compiler) support:
 | While loops | `while n > 0 do { ... }` |
 | Collections | `List`, `Map`, `Option` with full method dispatch |
 | Tuples | `val t = (1, "hello"); t._1` |
-| String interpolation | `` s"Hello, $name" `` |
+| String interpolation | `` s"Hello, $name" ``, `` md"..." `` (strips indent) |
 | Math | `math.sqrt`, `math.abs`, `math.pow`, `math.Pi`, … |
 | Extension methods | `extension (n: Int) def squared: Int = n * n` |
 | Typeclasses | `trait Show[A]`, `given`, `summon[Show[Int]]` |
 | Recursion | factorial, Fibonacci, tree traversal |
+| Content helpers | `doc(...)` / `render(...)` structured output |
 
-JVM interpreter only: `md` interpolator, `doc`/`render`, `serve`.
+JVM interpreter only: `serve` (requires a running interpreter at request time).
 
 ## Examples
 
