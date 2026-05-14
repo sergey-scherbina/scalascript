@@ -24,7 +24,7 @@ Hello, World!
 
 ## Quick Start
 
-**Requirements:** [scala-cli](https://scala-cli.virtuslab.org) · [Node.js](https://nodejs.org) (for JS backend)
+**Requirements:** [scala-cli](https://scala-cli.virtuslab.org) · [Node.js](https://nodejs.org) (for JS backend) · [sbt](https://www.scala-sbt.org) (optional, for library use)
 
 ```bash
 git clone https://github.com/sergey-scherbina/scalascript
@@ -167,6 +167,10 @@ conformance/     # Cross-backend conformance test suite
 examples/        # Runnable .ssc files
   run-all.sc     # Runs all examples in order
 
+build.sbt        # sbt build — use scalascript as a library
+project/
+  build.properties
+
 docs/            # Architecture, spec, design docs
 scripts/         # setup.sh (install scala-cli), install.sh (build binary)
 ```
@@ -187,6 +191,29 @@ After installation:
 ssc examples/hello.ssc
 jssc examples/hello.ssc
 sscc examples/hello.ssc
+```
+
+## Library Usage (sbt)
+
+ScalaScript can be used as a Scala 3 library via sbt:
+
+```bash
+sbt compiler/compile   # compile
+sbt compiler/test      # run tests
+sbt compiler/package   # produce a JAR
+```
+
+The public API surface:
+
+```scala
+import scalascript.parser.Parser
+import scalascript.interpreter.Interpreter
+import scalascript.codegen.{JsGen, JvmGen}
+
+val module = Parser.parse(source)            // parse a .ssc file
+Interpreter.run(module)                      // interpret
+val js    = JsGen.generate(module)           // emit JavaScript
+val scala = JvmGen.generate(module)          // emit Scala 3 script
 ```
 
 ## Design Principles
