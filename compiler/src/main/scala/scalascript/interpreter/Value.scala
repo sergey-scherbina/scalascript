@@ -12,7 +12,7 @@ enum Value:
   case CharV(v: Char)
   case UnitV
   case NullV
-  case FunV(params: List[String], body: Term, closure: Env)
+  case FunV(params: List[String], body: Term, closure: Env, name: String = "")
   case NativeFnV(name: String, f: List[Value] => Value)
   case InstanceV(typeName: String, fields: Map[String, Value])
   case ListV(items: List[Value])
@@ -39,7 +39,7 @@ object Value:
     case InstanceV(t, fields) =>
       if fields.isEmpty then t
       else fields.values.map(show).mkString(s"$t(", ", ", ")")
-    case FunV(ps, _, _)       => s"<function(${ps.length})>"
+    case FunV(ps, _, _, _)    => s"<function(${ps.length})>"
     case NativeFnV(name, _)   => s"<native:$name>"
 
 class InterpretError(msg: String) extends RuntimeException(msg)

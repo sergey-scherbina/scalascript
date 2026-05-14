@@ -1,55 +1,38 @@
 ---
 name: imports-example
 version: 1.0.0
-description: Demonstrates the ScalaScript module system
-dependencies:
-  std/collections: ^1.0.0
-  std/math: ^1.0.0
+description: Math, geometry and statistics in ScalaScript
 exports:
-  - calculateStats
   - Point
   - distance
+  - calculateStats
 ---
 
-# Imports Example
+# Math and Geometry
 
-This example demonstrates how ScalaScript handles imports and module references.
+This example demonstrates built-in math functions, geometry helpers,
+and descriptive statistics.
 
-## Importing Modules
+## Built-in Math
 
-Import an entire module and use qualified access:
+ScalaScript exposes the standard math library:
 
-[math](std/math)
+```scala
+println(s"sqrt(2)    = ${math.sqrt(2)}")
+println(s"Pi         = ${math.Pi}")
+println(s"pow(2, 10) = ${math.pow(2.0, 10.0)}")
+println(s"abs(-42)   = ${math.abs(-42)}")
+```
 
-Using math functions: `${math.sqrt(16)}` equals 4.
+## Geometry
 
-## Importing Specific Items
-
-Import specific items from a module:
-
-[List, Map, Set](std/collections)
-
-Now we can use List, Map, and Set directly.
-
-## Aliased Imports
-
-Import with an alias to avoid naming conflicts:
-
-[m => std/math](std/math)
-
-Using aliased import: `${m.Pi}` is approximately 3.14159.
-
-## Internal References
-
-### Point Definition
+### Point
 
 ```scala
 case class Point(x: Double, y: Double)
 ```
 
-### Distance Calculation
-
-Uses [Point](#Point) defined above:
+### Distance
 
 ```scala
 def distance(p1: Point, p2: Point): Double =
@@ -58,61 +41,47 @@ def distance(p1: Point, p2: Point): Double =
   math.sqrt(dx * dx + dy * dy)
 ```
 
-## Using Imported Collections
+### Polygon Perimeter
+
+```scala
+def perimeter(pts: List[Point]): Double =
+  val pairs = pts.zip(pts.tail.appended(pts.head))
+  pairs.map(p => distance(p._1, p._2)).foldLeft(0.0)(_ + _)
+
+val triangle = List(Point(0, 0), Point(3, 0), Point(0, 4))
+val square   = List(Point(0,0), Point(2,0), Point(2,2), Point(0,2))
+
+println(s"distance (0,0)-(3,4) = ${distance(Point(0,0), Point(3,4))}")
+println(s"triangle perimeter   = ${perimeter(triangle)}")
+println(s"square perimeter     = ${perimeter(square)}")
+```
+
+## Statistics
 
 ```scala
 def calculateStats(numbers: List[Double]): Map[String, Double] =
-  val sum = numbers.foldLeft(0.0)(_ + _)
-  val count = numbers.length.toDouble
-  val mean = sum / count
-  val variance = numbers.map(x => math.pow(x - mean, 2)).foldLeft(0.0)(_ + _) / count
-
+  val n    = numbers.length.toDouble
+  val sum  = numbers.foldLeft(0.0)(_ + _)
+  val mean = sum / n
+  val variance = numbers.map(x =>
+    val d = x - mean
+    d * d
+  ).foldLeft(0.0)(_ + _) / n
   Map(
-    "sum" -> sum,
-    "mean" -> mean,
-    "variance" -> variance,
-    "stddev" -> math.sqrt(variance)
+    "sum"    -> sum,
+    "mean"   -> mean,
+    "stddev" -> math.sqrt(variance),
+    "min"    -> numbers.foldLeft(numbers.head)((a, b) => if a < b then a else b),
+    "max"    -> numbers.foldLeft(numbers.head)((a, b) => if a > b then a else b)
   )
+
+val data = List(4.0, 7.0, 13.0, 2.0, 1.0, 8.0, 5.0, 10.0)
+val stats = calculateStats(data)
+
+println(s"data   : ${data.map(x => x.toInt.toString).mkString(", ")}")
+println(s"sum    : ${stats.get("sum").getOrElse(0.0)}")
+println(s"mean   : ${stats.get("mean").getOrElse(0.0)}")
+println(s"stddev : ${stats.get("stddev").getOrElse(0.0)}")
+println(s"min    : ${stats.get("min").getOrElse(0.0)}")
+println(s"max    : ${stats.get("max").getOrElse(0.0)}")
 ```
-
-## Example Calculations
-
-```scala
-val points = List(
-  Point(0, 0),
-  Point(3, 4),
-  Point(6, 8)
-)
-
-val distances = points.sliding(2).map {
-  case List(p1, p2) => distance(p1, p2)
-}.toList
-```
-
-Distance from origin to (3,4): `${distance(Point(0, 0), Point(3, 4))}`
-
-## Re-exporting
-
-This module re-exports some items for convenience:
-
-```scala
-// Re-export Point and distance for users of this module
-export Point
-export distance
-```
-
-## Conditional Imports
-
-<!-- Future feature -->
-<!--
-```scala
-import std/platform
-
-if platform.isJVM then
-  import std/jvm/files
-else if platform.isJS then
-  import std/js/fetch
-```
--->
-
-Conditional imports are a future feature.
