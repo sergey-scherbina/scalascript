@@ -18,7 +18,7 @@ println(greet("World"))
 ```
 ````
 
-```
+```text
 Hello, World!
 ```
 
@@ -78,7 +78,7 @@ Run them all at once:
 
 ## Project Layout
 
-```
+```text
 bin/
   ssc          # interpreter launcher (scala-cli dev mode)
   http.ssc     # HTTP server for examples browser
