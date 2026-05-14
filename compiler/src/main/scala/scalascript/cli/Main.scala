@@ -157,7 +157,7 @@ def packageCommand(args: List[String]): Unit =
             if hasOutput then Nil
             else List("--output", path.last.stripSuffix(".ssc"))
           val result = os.proc(
-            "scala-cli", "package", tmp,
+            "scala-cli", "--power", "package", tmp,
             outputFlags,
             scalaCliFlags
           ).call(stdout = os.Inherit, stderr = os.Inherit, cwd = os.pwd, check = false)
