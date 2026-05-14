@@ -60,6 +60,27 @@ const math = {
 
 function assert(cond, msg) { if (!cond) throw new Error(msg != null ? _show(msg) : 'Assertion failed'); }
 
+function _md(s) {
+  const lines = s.split('\n');
+  let start = 0, end = lines.length;
+  while (start < end && lines[start].trim() === '') start++;
+  while (end > start && lines[end-1].trim() === '') end--;
+  const body = lines.slice(start, end);
+  if (!body.length) return '';
+  const indent = Math.min(...body.filter(l => l.trim() !== '').map(l => l.match(/^(\s*)/)[1].length));
+  return body.map(l => l.slice(indent)).join('\n');
+}
+
+function doc(...args) { return {_type: '_Doc', parts: args}; }
+function render(...args) {
+  function toStr(v) {
+    if (v && v._type === '_Doc') return v.parts.map(toStr).join('\n');
+    return _show(v);
+  }
+  const parts = args.length === 1 && args[0] && args[0]._type === '_Doc' ? args[0].parts : args;
+  _println(parts.map(toStr).join('\n'));
+}
+
 function List(...args) { return args; }
 
 function _Map(...pairs) {
@@ -570,7 +591,8 @@ class JsGen:
           val arg = args(i).asInstanceOf[Term]
           sb2.append("${_show(").append(genExpr(arg)).append(")}")
       sb2.append("`")
-      sb2.toString
+      val templateLiteral = sb2.toString
+      if prefix == "md" then s"_md($templateLiteral)" else templateLiteral
 
     // Anonymous function with _ placeholders — stack-based param counting
     case t: Term.AnonymousFunction =>

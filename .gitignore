@@ -4,8 +4,9 @@ out/
 dist/
 build/
 
-# Compiled ssc binary (build artifact — run scripts/install.sh to produce)
-bin/ssc
+# Compiled native ssc binary — produced by scripts/install.sh --native
+# The shell-script dev launcher bin/ssc is tracked in git.
+bin/ssc-native
 
 # Scala CLI
 .scala-build/
