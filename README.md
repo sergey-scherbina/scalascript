@@ -33,6 +33,9 @@ cd scalascript
 # Interpreter (tree-walking, no compilation step)
 bin/ssc examples/hello.ssc
 
+# Watch mode — re-run on every file change
+bin/ssc watch examples/hello.ssc
+
 # Transpile to JavaScript and run via Node.js
 bin/jssc examples/hello.ssc
 
