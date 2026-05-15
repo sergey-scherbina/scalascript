@@ -166,7 +166,7 @@ def emitScalaCommand(args: List[String]): Unit =
     val path = os.Path(file, os.pwd)
     if !os.exists(path) then { println(s"Error: File not found: $file"); System.exit(1) }
     else
-      try   println(JvmGen.generate(Parser.parse(os.read(path))))
+      try   println(JvmGen.generate(Parser.parse(os.read(path)), Some(path / os.up)))
       catch case e: Exception =>
         System.err.println(s"Scala generation error: ${e.getMessage}")
         System.exit(1)
@@ -179,7 +179,7 @@ def compileCommand(args: List[String]): Unit =
     else
       try
         val module = Parser.parse(os.read(path))
-        val script = JvmGen.generate(module)
+        val script = JvmGen.generate(module, Some(path / os.up))
         val tmp    = os.temp(script, suffix = ".sc", deleteOnExit = true)
         try
           val result = os.proc("scala-cli", "run", tmp).call(
@@ -207,7 +207,7 @@ def packageCommand(args: List[String]): Unit =
     else
       try
         val module = Parser.parse(os.read(path))
-        val script = JvmGen.generate(module)
+        val script = JvmGen.generate(module, Some(path / os.up))
         val tmp    = os.temp(script, suffix = ".sc")
         try
           // Default output name: same as input file without .ssc extension

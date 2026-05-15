@@ -16,10 +16,12 @@ import scala.meta.*
  */
 object JvmGen:
 
-  def generate(module: Module): String =
-    JvmGen().genModule(module)
+  def generate(module: Module, baseDir: Option[os.Path] = None): String =
+    JvmGen(baseDir).genModule(module)
 
-class JvmGen:
+  private case class Block(node: ScalaNode, src: String)
+
+class JvmGen(baseDir: Option[os.Path] = None):
   // Effect operations declared in the module, keyed as "Eff.op".
   private val effectOps     = mutable.Set.empty[String]
   // Functions whose body transitively performs effects; their bodies are
@@ -28,6 +30,9 @@ class JvmGen:
   // funName → full set of clique members (including self) for every function
   // that participates in a mutually-recursive tail-call SCC of size ≥ 2.
   private val mutualGroups  = mutable.Map.empty[String, Set[String]]
+  // Resolved paths of files already inlined via Content.Import, so a diamond
+  // import doesn't emit the same definitions twice.
+  private val importedFiles = mutable.Set.empty[String]
 
   // ─── Module entry ─────────────────────────────────────────────────
 
@@ -61,16 +66,38 @@ class JvmGen:
 
     sb.toString.stripTrailing() + "\n"
 
-  private case class Block(node: ScalaNode, src: String)
-
-  private def collectBlocks(sections: List[Section]): List[Block] =
+  private def collectBlocks(sections: List[Section]): List[JvmGen.Block] =
     sections.flatMap { s =>
-      val own = s.content.collect {
+      val own = s.content.flatMap {
         case cb: Content.CodeBlock if Lang.isParseable(cb.lang) =>
-          cb.tree.map(t => Block(t, cb.source))
-      }.flatten
+          cb.tree.map(t => JvmGen.Block(t, cb.source)).toList
+        case imp: Content.Import =>
+          inlineImport(imp.path)
+        case _ => Nil
+      }
       own ++ collectBlocks(s.subsections)
     }
+
+  /** Resolve a `[name](./path.ssc)` Markdown import: parse the referenced
+   *  file and return its code blocks, transitively following its own imports.
+   *  Each path is inlined at most once per JvmGen run. */
+  private def inlineImport(path: String): List[JvmGen.Block] =
+    import scalascript.parser.Parser
+    val resolved = baseDir match
+      case Some(dir) => dir / os.RelPath(path)
+      case None      => os.Path(path, os.pwd)
+    val key = resolved.toString
+    if importedFiles.contains(key) then Nil
+    else if !os.exists(resolved) then
+      throw new RuntimeException(s"Import not found: $path")
+    else
+      importedFiles += key
+      val importedModule = Parser.parse(os.read(resolved))
+      // Use a nested JvmGen for transitive imports so relative paths resolve
+      // against the imported file's directory.
+      val nested = new JvmGen(Some(resolved / os.up))
+      nested.importedFiles ++= importedFiles
+      nested.collectBlocks(importedModule.sections)
 
   // ─── Effect analysis ──────────────────────────────────────────────
 
@@ -246,19 +273,32 @@ class JvmGen:
 
   // ─── Block emission ───────────────────────────────────────────────
 
-  private def emitBlock(block: Block): String =
+  private def emitBlock(block: JvmGen.Block): String =
     // If the block has no effects content and no functions in a mutual
-    // tail-recursion clique, the original source compiles as-is.
-    if !blockNeedsRewrite(block.node) then block.src
-    else
-      val out = StringBuilder()
-      ScalaNode.fold(block.node) {
-        case Source(stats)     => emitStats(stats, out)
-        case Term.Block(stats) => emitStats(stats, out)
-        case t: Term           => out.append(emitExpr(t)).append("\n")
-        case _                 => ()
-      }
-      out.toString
+    // tail-recursion clique, the original source compiles as-is — modulo a
+    // pass that routes `.mkString(...)` through `_show` so a List[Double]
+    // joined into a string strips trailing ".0" the same way the
+    // interpreter and JS backends do.
+    val rewritten =
+      if !blockNeedsRewrite(block.node) then block.src
+      else
+        val out = StringBuilder()
+        ScalaNode.fold(block.node) {
+          case Source(stats)     => emitStats(stats, out)
+          case Term.Block(stats) => emitStats(stats, out)
+          case t: Term           => out.append(emitExpr(t)).append("\n")
+          case _                 => ()
+        }
+        out.toString
+    routeMkStringThroughShow(rewritten)
+
+  /** Replace `expr.mkString(...)` with `expr.map(_show).mkString(...)` so a
+   *  collection joined into a string formats whole-number Doubles as scripts
+   *  expect (`4` rather than `4.0`). `_show` is identity for non-Doubles. */
+  private def routeMkStringThroughShow(src: String): String =
+    if src.contains(".mkString(") then
+      src.replaceAll("""\.mkString\(""", ".map(_show).mkString(")
+    else src
 
   private def blockNeedsRewrite(node: ScalaNode): Boolean =
     blockUsesEffects(node) || blockUsesMutualTco(node)
@@ -828,6 +868,17 @@ class JvmGen:
 
   private val preamble: String =
     """|
+       |// ── Show / println override (scripting-style Double formatting) ────────
+       |// Mirrors the interpreter / JS backends: a Double whose value is an
+       |// integer renders without the trailing ".0" (e.g. 4.0 → "4").
+       |def _show(v: Any): String = v match
+       |  case d: Double => if d == d.toLong.toDouble then d.toLong.toString else d.toString
+       |  case s: String => s
+       |  case null      => "null"
+       |  case other     => other.toString
+       |
+       |def println(v: Any): Unit = scala.Predef.println(_show(v))
+       |
        |extension (sc: StringContext)
        |  def md(args: Any*): String =
        |    val s = sc.s(args*)
