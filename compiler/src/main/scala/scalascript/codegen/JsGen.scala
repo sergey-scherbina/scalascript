@@ -285,42 +285,112 @@ function _trampoline(fn, ...args) {
 }
 function _tailCall(fn, ...args) { return {_isTailCall: true, fn, args}; }
 
-// ── Algebraic effects runtime ───────────────────────────────────────────────
-const _handlerStack = [];
-let _nextFrameId = 0;
+// ── Algebraic effects runtime (Free Monad, trampolined) ────────────────────
+//
+// Trampolined Free Monad in the sense of Bjarnason 2012 — three shapes:
+//
+//   plain JS value     — doubles as Pure(value); no wrapper needed
+//   _Perform           — { eff, op, args }; the rest of the computation
+//                        lives in an outer _FlatMap
+//   _FlatMap           — { sub, k }; explicit bind node
+//
+// `_bind(c, f)` is O(1): it just wraps in _FlatMap, never inspects. Stepping
+// happens in `_run` / `_handle.interp` via a while-loop that right-associates
+// `_FlatMap(_FlatMap(c, g), f)` → `_FlatMap(c, x => _FlatMap(g(x), f))`. The
+// loop processes arbitrarily deep bind chains in O(1) JS stack.
+//
+// Handler semantics: each handled Perform is dispatched to its case with a
+// real `resume` closure that invokes the captured continuation. resume may
+// be called multiple times (multi-shot) — each call interprets a fresh
+// branch. Side effects in the body run exactly once.
 
-function _perform(eff, op, args) {
-  for (let i = _handlerStack.length - 1; i >= 0; i--) {
-    const ctx = _handlerStack[i];
-    if (ctx.handledOps.has(eff + '.' + op)) {
-      const idx = ctx.performCount++;
-      if (idx in ctx.injections) return ctx.injections[idx];
-      throw { _isEffect: true, eff, op, args, idx, frameId: ctx.frameId };
-    }
-  }
-  throw new Error('Unhandled effect: ' + eff + '.' + op + ' (no handler in scope)');
+class _Perform {
+  constructor(eff, op, args) { this.eff = eff; this.op = op; this.args = args; }
+}
+class _FlatMap {
+  constructor(sub, k) { this.sub = sub; this.k = k; }
 }
 
-function _handle(body, handledOps, handlers, injections) {
-  injections = injections || {};
-  const frameId = _nextFrameId++;
-  const ctx = { frameId, handledOps: new Set(handledOps), injections, performCount: 0 };
-  _handlerStack.push(ctx);
-  try {
-    const r = body();
-    _handlerStack.pop();
-    return r;
-  } catch(e) {
-    _handlerStack.pop();
-    if (e && e._isEffect && e.frameId === frameId) {
-      const key = e.eff + '.' + e.op;
-      if (key in handlers) {
-        const resume = (v) => _handle(body, handledOps, handlers, {...injections, [e.idx]: v});
-        return handlers[key]([...e.args, resume]);
+function _isFree(c) {
+  return c !== null && typeof c === 'object' && (c instanceof _Perform || c instanceof _FlatMap);
+}
+
+// O(1) — never inspects, just wraps.
+function _bind(c, f) { return new _FlatMap(c, f); }
+
+function _perform(eff, op, args) { return new _Perform(eff, op, args); }
+
+// Top-level runner — errors on any unhandled Perform.
+function _run(c) {
+  let current = c;
+  while (true) {
+    if (current instanceof _Perform) {
+      throw new Error('Unhandled effect: ' + current.eff + '.' + current.op + ' (no handler in scope)');
+    }
+    if (current instanceof _FlatMap) {
+      const sub = current.sub;
+      if (sub instanceof _FlatMap) {
+        // Right-associate: FlatMap(FlatMap(c2, g), f) → FlatMap(c2, x => FlatMap(g(x), f))
+        const sub2 = sub.sub;
+        const g    = sub.k;
+        const f    = current.k;
+        current = new _FlatMap(sub2, (x) => new _FlatMap(g(x), f));
+      } else if (sub instanceof _Perform) {
+        throw new Error('Unhandled effect: ' + sub.eff + '.' + sub.op + ' (no handler in scope)');
+      } else {
+        // Pure: step into the continuation
+        current = current.k(sub);
+      }
+    } else {
+      return current;  // plain value (Pure)
+    }
+  }
+}
+
+function _handle(bodyFn, handledOps, handlers) {
+  const handled = new Set(handledOps);
+  function interp(initial) {
+    let current = initial;
+    while (true) {
+      if (current instanceof _Perform) {
+        const key = current.eff + '.' + current.op;
+        if (handled.has(key) && handlers[key]) {
+          // bare Perform: no rest — resume returns the injected value as Pure
+          const resume = (v) => v;
+          current = handlers[key]([...current.args, resume]);
+        } else {
+          return current;  // propagate
+        }
+      } else if (current instanceof _FlatMap) {
+        const sub = current.sub;
+        if (sub instanceof _FlatMap) {
+          const sub2 = sub.sub;
+          const g    = sub.k;
+          const f    = current.k;
+          current = new _FlatMap(sub2, (x) => new _FlatMap(g(x), f));
+        } else if (sub instanceof _Perform) {
+          const key = sub.eff + '.' + sub.op;
+          const f   = current.k;
+          if (handled.has(key) && handlers[key]) {
+            // Handled — resume runs the captured continuation through interp
+            // so multi-shot branches produce values the case body can compose.
+            const resume = (v) => interp(f(v));
+            current = handlers[key]([...sub.args, resume]);
+          } else {
+            // Unhandled — propagate, but re-enter this handler's interp on
+            // resume so nested Performs handled here still get dispatched.
+            return new _FlatMap(sub, (v) => interp(f(v)));
+          }
+        } else {
+          // Pure
+          current = current.k(sub);
+        }
+      } else {
+        return current;  // plain value (Pure)
       }
     }
-    throw e;
   }
+  return interp(bodyFn());
 }
 """
 
@@ -338,6 +408,11 @@ class JsGen(baseDir: Option[os.Path] = None):
   private val intVars = scala.collection.mutable.Set[String]()
   // fname → set of all group members (populated by analyzeMutualRecursion before emit)
   private var mutualGroups: Map[String, Set[String]] = Map.empty
+  // Effect operations declared in the module, as "Eff.op" strings.
+  private val effectOps: scala.collection.mutable.Set[String] = scala.collection.mutable.Set.empty
+  // Functions that transitively perform effects — emitted in CPS form so callers
+  // get a Free value (Pure plain value or Perform node) and can compose them.
+  private val effectfulFuns: scala.collection.mutable.Set[String] = scala.collection.mutable.Set.empty
 
   private def freshTmp(): String =
     tmpIdx += 1
@@ -430,11 +505,95 @@ class JsGen(baseDir: Option[os.Path] = None):
   def genModule(module: Module): String =
     sb.clear()
     analyzeMutualRecursion(module)
+    analyzeEffects(module)
     module.sections.foreach(genSection)
     // Auto-call main() if defined and not already called
     if hasMain && !mainCalled then
       line("if (typeof main === 'function') { main(); }")
     sb.toString
+
+  // ─── Effect analysis ─────────────────────────────────────────────
+  //
+  // Walks the module to:
+  //   (1) collect effect operation names: `effect Eff: def op(...) = __effectOp__`
+  //       contributes the string "Eff.op" to effectOps.
+  //   (2) determine the set of functions that may transitively perform effects.
+  //       A function is effectful if its body calls an effect op or another
+  //       effectful function. Iterate to a fixed point.
+  //
+  // Effectful functions are emitted in CPS form (returning a Free value).
+  // Pure functions stay direct — plain values double as Pure(value), so they
+  // compose with the Free Monad runtime without any wrapping.
+
+  private def analyzeEffects(module: Module): Unit =
+    effectOps.clear()
+    effectfulFuns.clear()
+
+    val funBodies = mutable.Map[String, Term]()
+
+    def collectFromStats(stats: List[Stat]): Unit = stats.foreach {
+      case d: Defn.Object =>
+        d.templ.body.stats.foreach {
+          case dd: Defn.Def if isEffectOpDef(dd.body) =>
+            effectOps += s"${d.name.value}.${dd.name.value}"
+          case _ => ()
+        }
+      case d: Defn.Def => funBodies(d.name.value) = d.body
+      case _           => ()
+    }
+
+    def scan(section: Section): Unit =
+      section.content.foreach {
+        case cb: Content.CodeBlock if Lang.isScalaScript(cb.lang) =>
+          cb.tree.foreach { node =>
+            ScalaNode.fold(node) {
+              case Source(stats)     => collectFromStats(stats)
+              case Term.Block(stats) => collectFromStats(stats)
+              case _                 => ()
+            }
+          }
+        case _ => ()
+      }
+      section.subsections.foreach(scan)
+    module.sections.foreach(scan)
+
+    /** Collect all `name` (function names) and `Eff.op` (effect op refs) referenced
+     *  in a tree. We only care about Term.Apply heads (call sites). */
+    def callees(tree: scala.meta.Tree): Set[String] = tree match
+      case Term.Apply.After_4_6_0(Term.Name(n), argClause) =>
+        Set(n) ++ argClause.values.flatMap(callees).toSet
+      case Term.Apply.After_4_6_0(Term.Select(Term.Name(qual), Term.Name(method)), argClause) =>
+        Set(s"$qual.$method") ++ argClause.values.flatMap(callees).toSet
+      case Term.Apply.After_4_6_0(fun, argClause) =>
+        callees(fun) ++ argClause.values.flatMap(callees).toSet
+      case Term.Select(Term.Name(qual), Term.Name(method)) =>
+        Set(s"$qual.$method")
+      case other =>
+        other.children.flatMap(callees).toSet
+
+    // Iterate to fixed point
+    var changed = true
+    while changed do
+      changed = false
+      funBodies.foreach { (fname, body) =>
+        if !effectfulFuns.contains(fname) then
+          val calls = callees(body)
+          val isEff = calls.exists(c => effectOps.contains(c) || effectfulFuns.contains(c))
+          if isEff then
+            effectfulFuns += fname
+            changed = true
+          end if
+        end if
+      }
+    end while
+
+  /** True if `Eff.op` is a declared effect operation. */
+  private def isEffectOpRef(eff: String, op: String): Boolean =
+    effectOps.contains(s"$eff.$op")
+
+  /** True if `name` resolves to an effectful function. */
+  private def isEffectfulFun(name: String): Boolean =
+    effectfulFuns.contains(name)
 
   private[codegen] def genSection(section: Section): Unit =
     section.content.foreach {
@@ -518,8 +677,15 @@ class JsGen(baseDir: Option[os.Path] = None):
       val fname   = d.name.value
       val paramsStr = params.mkString(", ")
       if fname == "main" && params.isEmpty then hasMain = true
+      // Effectful function: body emitted in CPS form, returns Free value.
+      if isEffectfulFun(fname) then
+        d.body match
+          case Term.Block(stats) =>
+            line(s"function $fname($paramsStr) { return ${genCpsBlockAsIife(stats)}; }")
+          case expr =>
+            line(s"function $fname($paramsStr) { return ${genCpsExpr(expr)}; }")
       // Mutual recursion group → _impl + trampoline wrapper
-      if mutualGroups.contains(fname) && params.nonEmpty then
+      else if mutualGroups.contains(fname) && params.nonEmpty then
         genMutualTcoFun(d, fname, params)
       // Self-TCO: emit a while-loop trampoline when all self-calls are in tail position
       else if params.nonEmpty && fname.nonEmpty && !hasNonTailSelfCall(d.body, fname, tailPos = true) then
@@ -873,6 +1039,10 @@ class JsGen(baseDir: Option[os.Path] = None):
             case _              => "_"
           }
           val paramsStr = s"[${paramNames.mkString(", ")}]"
+          // Handler case bodies stay direct: they receive `resume` (a plain
+          // function returning the value of the resumed branch) and compose it
+          // with regular JS. Effects inside case bodies are uncommon and would
+          // need their own handle.
           val bodyJs = c.body match
             case Term.Block(stats) =>
               val stmts = stats.dropRight(1).map {
@@ -889,7 +1059,9 @@ class JsGen(baseDir: Option[os.Path] = None):
           Some(s"'$eff.$op': $bodyJs")
         case _ => None
     }
-    val bodyThunk = s"() => ${genExpr(body)}"
+    // The handle body is always emitted in CPS form so that effect ops build
+    // a Free tree which _handle can interpret.
+    val bodyThunk = s"() => ${genCpsExpr(body)}"
     s"_handle($bodyThunk, [${handledOps.mkString(", ")}], {${handlerEntries.mkString(", ")}})"
 
   /** Generate a JS expression string for a scalameta Term. */
@@ -1149,6 +1321,287 @@ class JsGen(baseDir: Option[os.Path] = None):
       case fun =>
         val funJs = genExpr(fun)
         s"$funJs(${argVals.mkString(", ")})"
+
+  // ─── CPS codegen for effectful contexts ──────────────────────────
+  //
+  // Inside a handle body (or the body of an effectful function), expressions
+  // are emitted in CPS form: every operation that may depend on a Free value
+  // is threaded through `_bind`. Plain JS values double as Pure(value), so
+  // pure sub-expressions don't pay any wrapping overhead.
+  //
+  // genCpsExpr(t) returns a JS expression that evaluates to a Free value:
+  // either a plain JS value (Pure) or a {_tag:'Perform', eff, op, args, k} node.
+
+  /** Whether `t` is a syntactically simple value reference: no sub-computation,
+   *  guaranteed not to be a Perform. Used to avoid pointless `_bind` chains. */
+  private def isSimpleCpsExpr(t: Term): Boolean = t match
+    case _: Lit                                  => true
+    case _: Term.Placeholder                     => true
+    case Term.Name(n) if !isEffectfulFun(n)      => true
+    case _                                       => false
+
+  /** Bind a list of CPS sub-expressions; pass their resulting plain values to k.
+   *  Simple sub-expressions are inlined without a bind. */
+  private def bindArgsCps(args: List[Term])(k: List[String] => String): String =
+    def loop(remaining: List[Term], acc: List[String]): String = remaining match
+      case Nil       => k(acc.reverse)
+      case t :: rest =>
+        if isSimpleCpsExpr(t) then loop(rest, genExpr(t) :: acc)
+        else
+          val v = freshTmp()
+          s"_bind(${genCpsExpr(t)}, $v => ${loop(rest, v :: acc)})"
+    loop(args, Nil)
+
+  /** Generate a JS expression in CPS form. */
+  private def genCpsExpr(term: Term): String = term match
+    // Literals / names — pure values pass straight through
+    case _: Lit              => genExpr(term)
+    case _: Term.Placeholder => genExpr(term)
+    case Term.Name(_)        => genExpr(term)
+
+    // Block — chain stats through _bind
+    case Term.Block(stats) => genCpsBlockAsIife(stats)
+
+    // If — bind cond, then branch (each branch is CPS)
+    case t: Term.If =>
+      val thenJs = genCpsExpr(t.thenp)
+      val elseJs = t.elsep match
+        case Lit.Unit() => "undefined"
+        case e          => genCpsExpr(e)
+      if isSimpleCpsExpr(t.cond) then s"(${genExpr(t.cond)} ? ($thenJs) : ($elseJs))"
+      else
+        val tmp = freshTmp()
+        s"_bind(${genCpsExpr(t.cond)}, $tmp => $tmp ? ($thenJs) : ($elseJs))"
+
+    // String interpolation — bind args
+    case Term.Interpolate(Term.Name(prefix), parts, args)
+        if prefix == "s" || prefix == "f" || prefix == "md" =>
+      bindArgsCps(args.map(_.asInstanceOf[Term])) { vs =>
+        val sb2 = StringBuilder()
+        sb2.append("`")
+        for i <- parts.indices do
+          val part = parts(i).asInstanceOf[Lit.String].value
+          sb2.append(part.replace("`", "\\`").replace("\\", "\\\\").replace("$", "\\$"))
+          if i < args.length then sb2.append("${_show(").append(vs(i)).append(")}")
+        sb2.append("`")
+        val templateLiteral = sb2.toString
+        if prefix == "md" then s"_md($templateLiteral)" else templateLiteral
+      }
+
+    // Tuple
+    case Term.Tuple(elems) =>
+      bindArgsCps(elems) { vs =>
+        val tmp = freshTmp()
+        s"(() => { const $tmp = [${vs.mkString(", ")}]; $tmp._isTuple = true; return $tmp; })()"
+      }
+
+    // Lambda — CPS body
+    case Term.Function.After_4_6_0(paramClause, body) =>
+      val params = paramClause.values.map(_.name.value)
+      val paramsStr = if params.length == 1 then params.head else s"(${params.mkString(", ")})"
+      body match
+        case Term.Block(stats) => s"$paramsStr => ${genCpsBlockAsIife(stats)}"
+        case expr              => s"$paramsStr => ${genCpsExpr(expr)}"
+
+    // Anonymous function with placeholders — body is CPS
+    case t: Term.AnonymousFunction =>
+      phCounters = 0 :: phCounters
+      val bodyJs = genCpsExpr(t.body)
+      val count  = phCounters.head
+      phCounters = phCounters.tail
+      val params = (0 until count).map(i => s"_$$${i}")
+      if params.isEmpty then s"() => $bodyJs"
+      else s"(${params.mkString(", ")}) => $bodyJs"
+
+    // Nested handle inside CPS body — returns Free that we treat like any value
+    case Term.Apply.After_4_6_0(
+      Term.Apply.After_4_6_0(Term.Name("handle"), bodyArgClause),
+      pfArgClause
+    ) if bodyArgClause.values.size == 1 =>
+      pfArgClause.values match
+        case List(pf: Term.PartialFunction) =>
+          genHandleForm(bodyArgClause.values.head.asInstanceOf[Term], pf.cases)
+        case _ => "/* invalid handle */ undefined"
+
+    // Apply — function or method call
+    case app: Term.Apply =>
+      genCpsApply(app)
+
+    // Infix — bind both sides, then apply op
+    case Term.ApplyInfix.After_4_6_0(lhs, op, _, argClause) =>
+      val rhs = argClause.values.head
+      bindArgsCps(List(lhs, rhs)) { case List(vl, vr) =>
+        op.value match
+          case "::"           => s"[$vl, ...$vr]"
+          case "++" | ":::"   => s"[...$vl, ...$vr]"
+          case "->"           =>
+            val tmp = freshTmp()
+            s"(() => { const $tmp = [$vl, $vr]; $tmp._isTuple = true; return $tmp; })()"
+          case "*"            => s"(typeof $vl === 'string' ? $vl.repeat($vr) : $vl * $vr)"
+          case "=="           => s"($vl === $vr)"
+          case "!="           => s"($vl !== $vr)"
+          case "&&"           => s"($vl && $vr)"
+          case "||"           => s"($vl || $vr)"
+          case "to"           => s"_dispatch($vl, 'to', [$vr])"
+          case "until"        => s"_dispatch($vl, 'until', [$vr])"
+          case "/" if isIntExpr(lhs) && isIntExpr(rhs) => s"Math.trunc($vl / $vr)"
+          case other          => s"($vl $other $vr)"
+        case _ => "/* infix arity mismatch */"
+      }
+
+    // Select — bind qual, dispatch
+    case Term.Select(qual, name) =>
+      bindArgsCps(List(qual)) { case List(q) =>
+        s"_dispatch($q, '${name.value}', [])"
+        case _ => "/* select arity */"
+      }
+
+    // Match — bind scrutinee, then dispatch cases
+    case t: Term.Match =>
+      val scrutVar = freshTmp()
+      val casesJs = t.casesBlock.cases.map(c => genCpsCase(scrutVar, c)).mkString(" else ")
+      bindArgsCps(List(t.expr)) { case List(sv) =>
+        s"(($scrutVar => { $casesJs else { throw new Error('Match failure: ' + _show($scrutVar)); } })($sv))"
+        case _ => "/* match arity */"
+      }
+
+    // For-yield in CPS — fall back: the rhs collections / generators don't typically
+    // perform effects, so direct codegen with bind on result suffices for now.
+    case t: Term.ForYield => genForYield(t.enumsBlock.enums, t.body)
+    case t: Term.For      => genForDo(t.enumsBlock.enums, t.body)
+
+    // While — CPS not really meaningful (side-effecting loop). Fall back.
+    case t: Term.While    => genExpr(t)
+
+    // Return
+    case Term.Return(expr) => genCpsExpr(expr)
+
+    // Default: try direct codegen (covers values, partial functions, etc.)
+    case other => genExpr(other)
+
+  /** Call site in CPS mode: bind args, then call. Handles effect ops specially. */
+  private def genCpsApply(app: Term.Apply): String =
+    val args = app.argClause.values
+    app.fun match
+      // Effect op: Eff.op(args) → _bind args then _perform
+      case Term.Select(Term.Name(eff), Term.Name(op)) if isEffectOpRef(eff, op) =>
+        bindArgsCps(args) { vs =>
+          s"_perform('$eff', '$op', [${vs.mkString(", ")}])"
+        }
+
+      // println / print: stringify and call
+      case Term.Name("println") =>
+        bindArgsCps(args) { vs =>
+          val callArgs = vs.map(v => s"_show($v)").mkString(", ")
+          s"_println($callArgs)"
+        }
+      case Term.Name("print") =>
+        bindArgsCps(args) { vs =>
+          val callArgs = vs.map(v => s"_show($v)").mkString(", ")
+          s"_print($callArgs)"
+        }
+
+      // Builtin constructors
+      case Term.Name("Map") =>
+        bindArgsCps(args) { vs => s"_Map(${vs.mkString(", ")})" }
+      case Term.Name("List") =>
+        bindArgsCps(args) { vs => s"[${vs.mkString(", ")}]" }
+      case Term.Name("Some") | Term.Name("_Some") =>
+        bindArgsCps(args) { vs => s"_Some(${vs.mkString(", ")})" }
+      case Term.Name("assert") =>
+        bindArgsCps(args) { vs => s"assert(${vs.mkString(", ")})" }
+
+      // foldLeft curried: bind qual + init + f
+      case Term.Apply.After_4_6_0(Term.Select(qual, Term.Name("foldLeft")), initArgClause) =>
+        bindArgsCps(qual :: initArgClause.values ++ args) { vs =>
+          val q = vs.head; val init = vs(1); val f = vs(2)
+          s"${q}.reduce($f, $init)"
+        }
+
+      // foldRight curried
+      case Term.Apply.After_4_6_0(Term.Select(qual, Term.Name("foldRight")), initArgClause) =>
+        bindArgsCps(qual :: initArgClause.values ++ args) { vs =>
+          val q = vs.head; val init = vs(1); val f = vs(2)
+          s"(($q).reduceRight((acc, x) => ($f)(x, acc), $init))"
+        }
+
+      // Method call: obj.method(args) → _dispatch
+      case Term.Select(qual, Term.Name(method)) =>
+        bindArgsCps(qual :: args) { vs =>
+          s"_dispatch(${vs.head}, '$method', [${vs.tail.mkString(", ")}])"
+        }
+
+      // Regular function call: bind args, then call (function value itself is simple)
+      case fun =>
+        if isSimpleCpsExpr(fun) then
+          bindArgsCps(args) { vs =>
+            s"${genExpr(fun)}(${vs.mkString(", ")})"
+          }
+        else
+          bindArgsCps(fun :: args) { vs =>
+            s"${vs.head}(${vs.tail.mkString(", ")})"
+          }
+
+  /** Block as IIFE in CPS form — chains statements through _bind. */
+  private def genCpsBlockAsIife(stats: List[Stat]): String =
+    if stats.isEmpty then "undefined"
+    else
+      def build(remaining: List[Stat]): String = remaining match
+        case Nil => "undefined"
+        case List(s) =>
+          s match
+            case t: Term => genCpsExpr(t)
+            case Defn.Val(_, List(Pat.Var(n)), _, rhs) =>
+              // Last statement is a binding — block evaluates to undefined.
+              // Still bind it so its effects (if any) run.
+              s"_bind(${genCpsExpr(rhs)}, ${n.value} => undefined)"
+            case Defn.Var.After_4_7_2(_, List(Pat.Var(n)), _, rhs) =>
+              s"_bind(${genCpsExpr(rhs)}, ${n.value} => undefined)"
+            case stat =>
+              s"(() => { ${genStatInline(stat)} return undefined; })()"
+        case s :: rest =>
+          s match
+            case Defn.Val(_, List(Pat.Var(n)), _, rhs) =>
+              s"_bind(${genCpsExpr(rhs)}, ${n.value} => ${build(rest)})"
+            case Defn.Val(_, List(pat), _, rhs) =>
+              val patJs = genPatDestructure(pat)
+              val tmp = freshTmp()
+              s"_bind(${genCpsExpr(rhs)}, $tmp => { const $patJs = $tmp; return ${build(rest)}; })"
+            case Defn.Var.After_4_7_2(_, List(Pat.Var(n)), _, rhs) =>
+              // For simplicity, treat var like val in CPS context.
+              s"_bind(${genCpsExpr(rhs)}, ${n.value} => ${build(rest)})"
+            case d: Defn.Def =>
+              // Function definition in block — emit as nested function declaration
+              val fnJs = genCpsInlineFn(d)
+              s"((${d.name.value}) => ${build(rest)})($fnJs)"
+            case t: Term =>
+              if isSimpleCpsExpr(t) then s"(${genExpr(t)}, ${build(rest)})"
+              else s"_bind(${genCpsExpr(t)}, _ => ${build(rest)})"
+            case stat =>
+              s"(() => { ${genStatInline(stat)} return ${build(rest)}; })()"
+      build(stats)
+
+  /** Emit a function definition as an inline function value in CPS form. */
+  private def genCpsInlineFn(d: Defn.Def): String =
+    val params = d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values).map(_.name.value)
+    val paramsStr = params.mkString(", ")
+    d.body match
+      case Term.Block(stats) => s"(${paramsStr}) => ${genCpsBlockAsIife(stats)}"
+      case expr              => s"(${paramsStr}) => ${genCpsExpr(expr)}"
+
+  /** CPS case generator — like genCase but the body is CPS. */
+  private def genCpsCase(scrutVar: String, c: Case): String =
+    val (cond, bindings) = genPattern(scrutVar, c.pat)
+    val bindingStmts = bindings.map { case (name, expr) => s"const $name = $expr;" }.mkString(" ")
+    val bodyJs = genCpsExpr(c.body)
+    c.cond match
+      case Some(guard) =>
+        val guardExpr = genExpr(guard)
+        val condStr = if cond == "true" then s"($guardExpr)" else s"($cond) && ($guardExpr)"
+        s"if ($condStr) { $bindingStmts return $bodyJs; }"
+      case None =>
+        val condStr = if cond == "true" then "true" else s"($cond)"
+        s"if ($condStr) { $bindingStmts return $bodyJs; }"
 
   private def genCase(scrutVar: String, c: Case): String =
     val (cond, bindings) = genPattern(scrutVar, c.pat)

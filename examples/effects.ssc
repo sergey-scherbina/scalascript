@@ -101,17 +101,27 @@ println(r1)   // 5
 println(r2)   // -1
 ```
 
-## Replay and Purity
+## Free Monad Semantics
 
-ScalaScript implements effects via **replay-based continuations**: every
-`resume(v)` re-runs the handler body with the new value injected at the point
-where the effect was performed.  Previous effect calls whose values are already
-known are answered immediately from an injection map — no actual effect fires.
+ScalaScript effects are implemented as a **Free Monad**: the interpreter (and
+the JS backend) build a lazy computation tree
+
+    Pure(v)                          // done; the result is v
+    Perform(eff, op, args, k)        // suspended at an effect; k continues with the injected value
+
+Effect ops produce `Perform` nodes.  A `handle` walks the tree: each handled
+`Perform` is dispatched to its case with a real `resume` closure that invokes
+the captured continuation `k`.
 
 This means:
-- Pure computations between effect calls are replayed, which is fine.
-- Side effects placed **inside handler cases** happen exactly once.
-- Side effects placed **in the body** between two effect calls will repeat.
+- **Side effects in the body run exactly once**, regardless of how many times
+  the handler resumes.  `resume(v)` calls the saved continuation — no replay.
+- **Multi-shot** is natural: the handler simply calls `resume` more than once
+  (as in `opts.flatMap(opt => resume(opt))`), and each call interprets a fresh
+  branch of the tree.
+- **Pure computations are not re-executed** on resume — only the suspended
+  continuation `k` runs.
 
-Design tip: put all observable side effects in handler cases, not in the
-effectful body.
+The interpreter's `eval` returns `Computation` and threads it through every
+operation; the JS backend CPS-transforms effectful function bodies so that
+they build the same Free tree at runtime.
