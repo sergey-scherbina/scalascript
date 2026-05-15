@@ -46,3 +46,4 @@ object Value:
 
 class InterpretError(msg: String) extends RuntimeException(msg)
 private[interpreter] class ReturnSignal(val value: Value) extends Exception
+private[interpreter] class TailCall(val args: List[Value]) extends Throwable(null, null, true, false)
