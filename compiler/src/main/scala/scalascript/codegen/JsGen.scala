@@ -382,17 +382,34 @@ class JsGen(baseDir: Option[os.Path] = None):
 
     case d: Defn.Def =>
       val params = d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values).map(_.name.value)
+      val fname   = d.name.value
       val paramsStr = params.mkString(", ")
-      if d.name.value == "main" && params.isEmpty then hasMain = true
-      d.body match
-        case Term.Block(bodyStats) =>
-          line(s"function ${d.name.value}($paramsStr) {")
-          indent += 1
-          genFunctionBody(bodyStats)
-          indent -= 1
-          line("}")
-        case expr =>
-          line(s"function ${d.name.value}($paramsStr) { return ${genExpr(expr)}; }")
+      if fname == "main" && params.isEmpty then hasMain = true
+      // Emit a while-loop trampoline when all self-calls are in tail position
+      if params.nonEmpty && fname.nonEmpty && !hasNonTailSelfCall(d.body, fname, tailPos = true) then
+        // Formals are _p shadow-names so we can declare mutable let params inside
+        val formals  = params.map(p => s"_$p").mkString(", ")
+        val letDecls = "let " + params.map(p => s"$p = _$p").mkString(", ")
+        line(s"function $fname($formals) {")
+        indent += 1
+        line(s"$letDecls;")
+        line("while(true) {")
+        indent += 1
+        genTcoBody(d.body, fname, params)
+        indent -= 1
+        line("}")
+        indent -= 1
+        line("}")
+      else
+        d.body match
+          case Term.Block(bodyStats) =>
+            line(s"function $fname($paramsStr) {")
+            indent += 1
+            genFunctionBody(bodyStats)
+            indent -= 1
+            line("}")
+          case expr =>
+            line(s"function $fname($paramsStr) { return ${genExpr(expr)}; }")
 
     case d: Defn.Class =>
       // case class → constructor function returning plain object
@@ -514,6 +531,68 @@ class JsGen(baseDir: Option[os.Path] = None):
         s"($paramsStr) => $bodyJs"
       case expr =>
         s"($paramsStr) => ${genExpr(expr)}"
+
+  // ─── TCO helpers ─────────────────────────────────────────────────
+
+  // Emits statements for the body of a TCO while-loop.
+  // Tail calls to fname become parameter reassignment + continue.
+  // All other expressions become return statements.
+  private def genTcoBody(term: Term, fname: String, params: List[String]): Unit = term match
+    case Term.Apply.After_4_6_0(Term.Name(`fname`), argClause) =>
+      val newArgs = argClause.values.map(v => genExpr(v.asInstanceOf[Term]))
+      if params.length == 1 then
+        line(s"${params(0)} = ${newArgs(0)};")
+      else
+        line(s"[${params.mkString(", ")}] = [${newArgs.mkString(", ")}];")
+      line("continue;")
+    case t: Term.If =>
+      line(s"if (${genExpr(t.cond)}) {")
+      indent += 1; genTcoBody(t.thenp, fname, params); indent -= 1
+      line("} else {")
+      indent += 1; genTcoBody(t.elsep, fname, params); indent -= 1
+      line("}")
+    case Term.Block(stats) =>
+      stats.dropRight(1).foreach {
+        case t: Term => line(genExpr(t) + ";")
+        case s       => genStat(s)
+      }
+      stats.lastOption.foreach {
+        case t: Term => genTcoBody(t, fname, params)
+        case _       => ()
+      }
+    case other =>
+      line(s"return ${genExpr(other)};")
+
+  // Returns true if term contains a call to fname NOT in tail position.
+  private def hasNonTailSelfCall(term: Term, fname: String, tailPos: Boolean): Boolean =
+    import scala.meta.*
+    term match
+      case Term.Apply.After_4_6_0(Term.Name(`fname`), argClause) =>
+        if tailPos then argClause.values.collect { case t: Term => t }
+                                        .exists(hasNonTailSelfCall(_, fname, tailPos = false))
+        else true
+      case t: Term.If =>
+        hasNonTailSelfCall(t.cond,  fname, tailPos = false) ||
+        hasNonTailSelfCall(t.thenp, fname, tailPos = tailPos) ||
+        hasNonTailSelfCall(t.elsep, fname, tailPos = tailPos)
+      case Term.Block(stats) =>
+        stats.dropRight(1).exists {
+          case t: Term => hasNonTailSelfCall(t, fname, tailPos = false)
+          case _       => false
+        } || stats.lastOption.exists {
+          case t: Term => hasNonTailSelfCall(t, fname, tailPos = tailPos)
+          case _       => false
+        }
+      case t: Term.Match =>
+        hasNonTailSelfCall(t.expr, fname, tailPos = false) ||
+        t.casesBlock.cases.exists(c => hasNonTailSelfCall(c.body, fname, tailPos = tailPos))
+      case other =>
+        anywhereContainsSelfCall(other, fname)
+
+  private def anywhereContainsSelfCall(tree: scala.meta.Tree, fname: String): Boolean =
+    tree match
+      case Term.Apply.After_4_6_0(Term.Name(`fname`), _) => true
+      case t => t.children.exists(anywhereContainsSelfCall(_, fname))
 
   private def genFunctionBody(stats: List[Stat]): Unit =
     if stats.isEmpty then

@@ -13,6 +13,6 @@ def sum(n: Long, acc: Long): Long =
 def countdown(n: Int): Int =
   if n <= 0 then 0 else countdown(n - 1)
 
-println(sum(3000, 0))
-println(countdown(3000))
+println(sum(100000, 0))
+println(countdown(100000))
 ```
