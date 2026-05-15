@@ -131,15 +131,18 @@ function _dispatch(obj, method, args) {
       case 'max': return Math.max(...obj);
       case 'sorted': return [...obj].sort((a,b)=>a<b?-1:a>b?1:0);
       case 'flatten': return obj.flat();
-      case 'map': return obj.map(args[0]);
-      case 'flatMap': return obj.flatMap(args[0]);
-      case 'filter': return obj.filter(args[0]);
+      // Native JS Array.{map,filter,forEach,...} pass (value, index, array)
+      // to the callback. Scala callers expect a single-arg lambda — and a
+      // bare `println` reference is variadic — so wrap to discard the extras.
+      case 'map': return obj.map(x => args[0](x));
+      case 'flatMap': return obj.flatMap(x => args[0](x));
+      case 'filter': return obj.filter(x => args[0](x));
       case 'filterNot': return obj.filter(x => !args[0](x));
-      case 'foreach': case 'forEach': obj.forEach(args[0]); return undefined;
-      case 'exists': return obj.some(args[0]);
-      case 'forall': return obj.every(args[0]);
-      case 'find': { const r = obj.find(args[0]); return r !== undefined ? _Some(r) : _None; }
-      case 'count': return obj.filter(args[0]).length;
+      case 'foreach': case 'forEach': obj.forEach(x => args[0](x)); return undefined;
+      case 'exists': return obj.some(x => args[0](x));
+      case 'forall': return obj.every(x => args[0](x));
+      case 'find': { const r = obj.find(x => args[0](x)); return r !== undefined ? _Some(r) : _None; }
+      case 'count': return obj.filter(x => args[0](x)).length;
       case 'take': return obj.slice(0, args[0]);
       case 'drop': return obj.slice(args[0]);
       case 'takeRight': return obj.slice(-args[0]);
@@ -1885,6 +1888,16 @@ class JsGen(baseDir: Option[os.Path] = None):
     case Term.Name(n)                              => intVars.contains(n)
     case Term.Apply.After_4_6_0(Term.Select(_, Term.Name("toInt" | "toLong")), _) => true
     case Term.Apply.After_4_6_0(Term.Select(_, Term.Name("toDouble" | "toFloat")), _) => false
+    // Collection / String methods that always return an Int regardless of the
+    // element type — both the field-access (`xs.length`) and the apply
+    // (`xs.indexOf(x)`) forms.
+    case Term.Select(_, Term.Name("length" | "size")) => true
+    case Term.Apply.After_4_6_0(Term.Select(_, Term.Name("length" | "size" | "indexOf" | "lastIndexOf" | "count")), _) => true
+    // `xs.foldLeft(init)(_ + _)` returns whatever `init` is — Int when the
+    // seed literal is Int.
+    case Term.Apply.After_4_6_0(
+        Term.Apply.After_4_6_0(Term.Select(_, Term.Name("foldLeft" | "foldRight" | "fold")), initClause),
+        _) => initClause.values.headOption.exists(isIntExpr)
     case Term.ApplyInfix.After_4_6_0(l, Term.Name(op), _, argClause)
         if Set("+", "-", "*", "/", "%").contains(op) =>
       argClause.values.headOption.exists(r => isIntExpr(l) && isIntExpr(r))
