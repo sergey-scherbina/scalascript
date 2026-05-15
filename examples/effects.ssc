@@ -1,0 +1,117 @@
+#!/usr/bin/env ssc
+---
+name: effects
+version: 1.0.0
+description: Algebraic effects with handlers
+---
+
+# Algebraic Effects and Handlers
+
+ScalaScript supports algebraic effects — a way to write effectful code as pure
+functions and supply the actual behaviour in separate handler blocks.  Effects
+compose naturally and handlers can be swapped without touching the business logic.
+
+## Effect Declarations
+
+An `effect` block declares an abstract capability.  Each method becomes an
+operation that suspends execution until a handler provides a value.
+
+```scala
+effect Console:
+  def writeLine(s: String): Unit
+  def readLine(): String
+
+effect Choose:
+  def pick(opts: List[Int]): Int
+
+effect Fail:
+  def raise(msg: String): Int
+```
+
+## One-Shot Handlers — Routing Console I/O
+
+A `handle(body) { case ... }` expression runs `body` and intercepts every
+effect operation.  When the body calls `Console.readLine()` the handler
+supplies a value via `resume`, which continues the body with that value.
+
+```scala
+def greet(): String =
+  val name = Console.readLine()
+  Console.writeLine(s"Hello, $name!")
+  name
+
+// Wire up pure test doubles — no real I/O
+val result = handle(greet()) {
+  case Console.readLine(resume)       => resume("World")
+  case Console.writeLine(msg, resume) => println(msg); resume(())
+}
+println(result)   // World
+```
+
+## Collecting Output
+
+Handlers can accumulate values instead of printing them.
+
+```scala
+def program(): Unit =
+  Console.writeLine("first")
+  Console.writeLine("second")
+  Console.writeLine("third")
+
+val lines = handle { program(); List() } {
+  case Console.writeLine(msg, resume) => msg :: resume(())
+}
+
+println(lines)   // List(first, second, third)
+```
+
+## Multi-Shot Handlers — Nondeterminism
+
+A handler may call `resume` more than once, exploring all branches.
+
+```scala
+val all = handle {
+  val x = Choose.pick(List(1, 2, 3))
+  val y = Choose.pick(List(10, 20))
+  x + y
+} {
+  case Choose.pick(opts, resume) => opts.flatMap(opt => resume(opt))
+}
+
+println(all)   // List(11, 21, 12, 22, 13, 23)
+```
+
+## Exception-Like Early Return
+
+A handler may ignore `resume` to cut the computation short.
+
+```scala
+def safeDiv(a: Int, b: Int): Int =
+  if b == 0 then Fail.raise("division by zero")
+  else a / b
+
+val r1 = handle(safeDiv(10, 2)) {
+  case Fail.raise(msg, resume) => -1
+}
+val r2 = handle(safeDiv(10, 0)) {
+  case Fail.raise(msg, resume) => -1
+}
+
+println(r1)   // 5
+println(r2)   // -1
+```
+
+## Replay and Purity
+
+ScalaScript implements effects via **replay-based continuations**: every
+`resume(v)` re-runs the handler body with the new value injected at the point
+where the effect was performed.  Previous effect calls whose values are already
+known are answered immediately from an injection map — no actual effect fires.
+
+This means:
+- Pure computations between effect calls are replayed, which is fine.
+- Side effects placed **inside handler cases** happen exactly once.
+- Side effects placed **in the body** between two effect calls will repeat.
+
+Design tip: put all observable side effects in handler cases, not in the
+effectful body.

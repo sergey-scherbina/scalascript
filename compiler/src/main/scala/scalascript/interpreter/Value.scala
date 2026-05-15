@@ -48,3 +48,10 @@ class InterpretError(msg: String) extends RuntimeException(msg)
 private[interpreter] class ReturnSignal(val value: Value) extends Exception
 private[interpreter] class TailCall(val args: List[Value]) extends Throwable(null, null, true, false)
 private[interpreter] class MutualTailCall(val f: Value.FunV, val args: List[Value]) extends Throwable(null, null, true, false)
+private[interpreter] class PerformSignal(
+  val effectName: String,
+  val opName: String,
+  val args: List[Value],
+  val performIdx: Int,
+  val handlerFrameId: Int
+) extends Throwable(null, null, true, false)

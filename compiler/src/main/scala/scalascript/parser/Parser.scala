@@ -156,15 +156,48 @@ object Parser:
 
   // ─── Scala parsing via scalameta ─────────────────────────────────
 
+  // Preprocess `effect Name:` declarations into `object Name { def op(...) = __effectOp__ }`.
+  private def preprocessEffects(code: String): String =
+    val effectLine = """^(\s*)effect\s+(\w+)(?:\s+extends\s+\S+)?\s*:""".r
+    val lines = code.linesIterator.toArray
+    if !lines.exists(l => effectLine.findFirstIn(l).isDefined) then return code
+    val result = new StringBuilder()
+    var i = 0
+    while i < lines.length do
+      val line = lines(i)
+      effectLine.findFirstMatchIn(line) match
+        case Some(m) =>
+          val baseIndent = m.group(1).length
+          val effectName = m.group(2)
+          result.append(m.group(1)).append("object ").append(effectName).append(" {\n")
+          i += 1
+          while i < lines.length && {
+            val l = lines(i)
+            l.isBlank || (l.nonEmpty && l.indexWhere(_ != ' ') > baseIndent)
+          } do
+            val bodyLine = lines(i)
+            val processed =
+              if bodyLine.trim.startsWith("def ") && !bodyLine.contains("=")
+              then bodyLine.stripTrailing + " = __effectOp__"
+              else bodyLine
+            result.append(processed).append("\n")
+            i += 1
+          result.append(m.group(1)).append("}\n")
+        case None =>
+          result.append(line).append("\n")
+          i += 1
+    result.toString
+
   private def parseScala(code: String): Option[ScalaNode] =
     import scala.meta.*
     given Dialect = dialects.Scala3
-    code.parse[Source] match
+    val processed = preprocessEffects(code)
+    processed.parse[Source] match
       case Parsed.Success(tree) => Some(ScalaNode(tree))
       case _: Parsed.Error      =>
         // Script mode: code may contain top-level expressions.
         // Wrap in a block so scalameta accepts arbitrary statement sequences.
-        s"{\n$code\n}".parse[Term] match
+        s"{\n$processed\n}".parse[Term] match
           case Parsed.Success(tree) => Some(ScalaNode(tree))
           case _: Parsed.Error      => None
 

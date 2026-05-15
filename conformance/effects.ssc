@@ -1,0 +1,51 @@
+#!/usr/bin/env ssc
+---
+name: effects
+description: Algebraic effects with handlers — Console and Choose
+---
+
+# Effects
+
+```scala
+effect Console:
+  def writeLine(s: String): Unit
+  def readLine(): String
+
+effect Choose:
+  def pick(opts: List[Int]): Int
+
+// One-shot: Console routing
+def greet(): String =
+  val name = Console.readLine()
+  Console.writeLine(s"Hello, $name!")
+  name
+
+val r1 = handle(greet()) {
+  case Console.readLine(resume)       => resume("Alice")
+  case Console.writeLine(msg, resume) => resume(())
+}
+println(r1)
+
+// Multi-shot: nondeterminism
+val r2 = handle {
+  val x = Choose.pick(List(1, 2, 3))
+  val y = Choose.pick(List(10, 20))
+  x + y
+} {
+  case Choose.pick(opts, resume) => opts.flatMap(opt => resume(opt))
+}
+println(r2)
+
+// Early return (exception-like)
+effect Fail:
+  def raise(msg: String): Int
+
+val r3 = handle {
+  val x = 10
+  val y = Fail.raise("oops")
+  x + y
+} {
+  case Fail.raise(msg, resume) => -1
+}
+println(r3)
+```
