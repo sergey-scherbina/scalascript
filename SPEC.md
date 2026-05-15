@@ -314,9 +314,10 @@ bind-chain depth (Bjarnason 2012). `resume(v)` invokes the captured Scala
 continuation directly, so side effects in the handler body run exactly once;
 multi-shot handlers interpret each `resume` branch independently.
 
-Supported on the **JVM interpreter** and the **JS transpiler** (the JS backend
-CPS-transforms function bodies flagged as effectful so they build the same
-Free tree at runtime). Scala 3 / JVM bytecode backend planned.
+Supported on all three backends — the **JVM interpreter**, the **JS transpiler**,
+and the **JVM backend** (`ssc compile`, via JvmGen): each emits the same Free
+Monad runtime and CPS-transforms function bodies flagged as effectful so they
+build the same Free tree at runtime.
 
 ### 7.3 Interop
 
