@@ -103,7 +103,7 @@ Supported language tags:
 
 | Tag | Language | Description |
 |-----|----------|-------------|
-| `scalascript` | ScalaScript | Full ScalaScript dialect: effects/handlers, TCO, content helpers, module imports. Executed by the interpreter, transpiled by the JS backend, compiled by the JVM backend. |
+| `scalascript` | ScalaScript | Full ScalaScript dialect: effects/handlers, tail-call optimisation, content helpers, module imports. Executed by the interpreter, transpiled by the JS backend, compiled by the JVM backend. See §7.4 for per-backend TCO support. |
 | `ssc` | ScalaScript | Legacy alias for `scalascript`. |
 | `scala` | Standard Scala 3 | No ScalaScript-specific extensions. Executed by the interpreter and JVM backend as standard Scala 3. The JS backend compiles these blocks via Scala.js (`scala-cli --js`). |
 
@@ -212,11 +212,15 @@ true                // Boolean
 ### 5.2 Definitions
 
 ```scalascript
-val x: Int = 42           // immutable value
-var y: Int = 0            // mutable variable
-def f(x: Int): Int = x+1  // function
-type Alias = List[Int]    // type alias
+val x: Int = 42                       // immutable value
+var y: Int = 0                        // mutable variable
+def f(x: Int): Int = x+1              // function
+def g(x: Int, step: Int = 1): Int = x + step  // default parameter
+type Alias = List[Int]                // type alias
 ```
+
+Default parameters are supported across the interpreter, type checker, and
+JS transpiler. The JVM backend inherits Scala 3's native support.
 
 ### 5.3 Control Flow
 
@@ -324,6 +328,24 @@ build the same Free tree at runtime.
 Backends define interop mechanisms:
 - JVM: Java interop via Scala semantics
 - JS: JavaScript interop via facade types
+
+### 7.4 Tail-Call Optimisation
+
+ScalaScript guarantees stack-safe execution of tail-recursive calls without
+requiring an `@tailrec` annotation. Both **self-recursive** tail calls
+(a function calling itself in tail position) and **mutual** tail calls
+(two or more functions that call each other in tail position) are supported.
+
+Per-backend status:
+
+| Backend            | Self-TCO | Mutual TCO | Mechanism |
+|--------------------|----------|------------|-----------|
+| JVM interpreter    | ✅       | ✅         | Trampoline catching `TailCall` / `MutualTailCall` signals thrown from native-function shims that shadow the recursive name(s). |
+| JS transpiler      | ✅       | ✅         | JsGen rewrites tail-position calls into a `while`-loop reassignment of the parameter vector; mutual cliques pivot through a `_tailCall` sentinel and a top-level `_trampoline`. |
+| JVM backend (`ssc compile`) | ✅ | ✅ | Self-TCO inherits Scala 3's native optimisation. Mutual cliques are detected via SCC analysis of tail-position calls; each clique member is rewritten to an `_f_impl` body that returns a `_TailCall` thunk for friend-calls and reassigns parameters for self-calls, driven by a top-level `_trampoline`. |
+
+`@tailrec` is not required and is not part of the surface syntax; the
+guarantee above is provided automatically wherever the backend supports it.
 
 ## 8. Standard Library
 

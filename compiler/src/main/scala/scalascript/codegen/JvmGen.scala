@@ -25,11 +25,15 @@ class JvmGen:
   // Functions whose body transitively performs effects; their bodies are
   // emitted in CPS form.
   private val effectfulFuns = mutable.Set.empty[String]
+  // funName → full set of clique members (including self) for every function
+  // that participates in a mutually-recursive tail-call SCC of size ≥ 2.
+  private val mutualGroups  = mutable.Map.empty[String, Set[String]]
 
   // ─── Module entry ─────────────────────────────────────────────────
 
   def genModule(module: Module): String =
     analyzeEffects(module)
+    analyzeMutualRecursion(module)
     val sb = StringBuilder()
 
     // //> using directives from YAML front-matter
@@ -40,7 +44,8 @@ class JvmGen:
     }
 
     sb.append(preamble)
-    if effectOps.nonEmpty then sb.append(effectsRuntime)
+    if effectOps.nonEmpty    then sb.append(effectsRuntime)
+    if mutualGroups.nonEmpty then sb.append(mutualTcoRuntime)
 
     val blocks = collectBlocks(module.sections)
     blocks.foreach { block =>
@@ -133,12 +138,118 @@ class JvmGen:
 
   private def isEffectfulFun(name: String): Boolean = effectfulFuns.contains(name)
 
+  // ─── Mutual-recursion analysis ────────────────────────────────────
+  //
+  // Build a graph of tail-position calls between non-effectful, single-clause
+  // functions (multi-clause and effectful functions are out of scope — the
+  // CPS path already trampolines effects, and curried tail recursion is rare
+  // enough that we skip it).  Compute SCCs; any SCC of size ≥ 2 is a mutual
+  // tail-recursion clique that the emitter will trampoline.
+
+  private def analyzeMutualRecursion(module: Module): Unit =
+    mutualGroups.clear()
+    val callGraph = mutable.Map[String, Set[String]]()
+
+    def collectFuncs(stats: List[Stat]): Unit = stats.foreach {
+      case d: Defn.Def
+          if !isEffectfulFun(d.name.value)
+          && !hasInterParamDefault(d)
+          && isSingleClauseDef(d) =>
+        callGraph(d.name.value) =
+          tailCallTargets(d.body, d.name.value, tailPos = true)
+      case _ => ()
+    }
+
+    def scan(section: Section): Unit =
+      section.content.foreach {
+        case cb: Content.CodeBlock if Lang.isParseable(cb.lang) =>
+          cb.tree.foreach { node =>
+            ScalaNode.fold(node) {
+              case Source(stats)     => collectFuncs(stats)
+              case Term.Block(stats) => collectFuncs(stats)
+              case _                 => ()
+            }
+          }
+        case _ => ()
+      }
+      section.subsections.foreach(scan)
+    module.sections.foreach(scan)
+
+    val funcNames = callGraph.keySet.toSet
+    val sccs = findSCCs(callGraph.toMap, funcNames)
+    sccs.filter(_.size > 1).foreach { scc =>
+      scc.foreach { name => mutualGroups(name) = scc }
+    }
+
+  private def isSingleClauseDef(d: Defn.Def): Boolean =
+    d.paramClauseGroups.size == 1 &&
+    d.paramClauseGroups.head.paramClauses.size == 1
+
+  /** Names of functions called in tail position inside `tree`, excluding
+   *  `selfName` (self-recursion is handled by the while-loop reassignment
+   *  inside _impl, not by a graph edge). */
+  private def tailCallTargets(
+      tree:     scala.meta.Tree,
+      selfName: String,
+      tailPos:  Boolean
+  ): Set[String] =
+    tree match
+      case Term.Apply.After_4_6_0(Term.Name(n), argClause) =>
+        if tailPos && n != selfName then Set(n)
+        else argClause.values.flatMap(a => tailCallTargets(a, selfName, false)).toSet
+      case t: Term.If =>
+        tailCallTargets(t.cond,  selfName, false) ++
+        tailCallTargets(t.thenp, selfName, tailPos) ++
+        tailCallTargets(t.elsep, selfName, tailPos)
+      case Term.Block(stats) =>
+        stats.dropRight(1).flatMap(s => tailCallTargets(s, selfName, false)).toSet ++
+        stats.lastOption.map(s => tailCallTargets(s, selfName, tailPos)).getOrElse(Set.empty)
+      case t: Term.Match =>
+        tailCallTargets(t.expr, selfName, false) ++
+        t.casesBlock.cases.flatMap(c => tailCallTargets(c.body, selfName, tailPos)).toSet
+      case other =>
+        other.children.flatMap(c => tailCallTargets(c, selfName, false)).toSet
+
+  /** Tarjan's algorithm — returns the SCCs of the directed graph. */
+  private def findSCCs(
+      graph: Map[String, Set[String]],
+      names: Set[String]
+  ): List[Set[String]] =
+    var idx = 0
+    val stack   = mutable.Stack[String]()
+    val onStk   = mutable.Set[String]()
+    val nodeIdx = mutable.Map[String, Int]()
+    val low     = mutable.Map[String, Int]()
+    val result  = mutable.ListBuffer[Set[String]]()
+
+    def connect(v: String): Unit =
+      nodeIdx(v) = idx; low(v) = idx; idx += 1
+      stack.push(v); onStk += v
+      for w <- graph.getOrElse(v, Set.empty) if names.contains(w) do
+        if !nodeIdx.contains(w) then
+          connect(w)
+          low(v) = low(v) min low(w)
+        else if onStk.contains(w) then
+          low(v) = low(v) min nodeIdx(w)
+      if low(v) == nodeIdx(v) then
+        val scc = mutable.Set[String]()
+        var w = ""
+        while { w = stack.pop(); onStk -= w; scc += w; w != v } do ()
+        result += scc.toSet
+
+    for v <- names do
+      if !nodeIdx.contains(v) then connect(v)
+    result.toList
+
+  private def isInMutualClique(name: String): Boolean =
+    mutualGroups.contains(name)
+
   // ─── Block emission ───────────────────────────────────────────────
 
   private def emitBlock(block: Block): String =
-    // If the block has no effects-related content and no effectful functions
-    // defined inside it, the original source compiles as-is.
-    if !blockUsesEffects(block.node) then block.src
+    // If the block has no effects content and no functions in a mutual
+    // tail-recursion clique, the original source compiles as-is.
+    if !blockNeedsRewrite(block.node) then block.src
     else
       val out = StringBuilder()
       ScalaNode.fold(block.node) {
@@ -148,6 +259,24 @@ class JvmGen:
         case _                 => ()
       }
       out.toString
+
+  private def blockNeedsRewrite(node: ScalaNode): Boolean =
+    blockUsesEffects(node) || blockUsesMutualTco(node)
+
+  private def blockUsesMutualTco(node: ScalaNode): Boolean =
+    var found = false
+    ScalaNode.fold(node) {
+      case Source(stats)     => if statsUseMutualTco(stats) then found = true
+      case Term.Block(stats) => if statsUseMutualTco(stats) then found = true
+      case _                 => ()
+    }
+    found
+
+  private def statsUseMutualTco(stats: List[Stat]): Boolean =
+    stats.exists {
+      case d: Defn.Def => isInMutualClique(d.name.value)
+      case _           => false
+    }
 
   /** True if any effect declaration, handle call, effectful function defn, or
    *  effect-op reference appears within `node`. */
@@ -268,6 +397,11 @@ class JvmGen:
     case d: Defn.Def if hasInterParamDefault(d) =>
       emitDefWithOverloads(d)
 
+    // Function in a mutual tail-recursion clique: emit a trampolined _impl
+    // plus a thin public wrapper.
+    case d: Defn.Def if isInMutualClique(d.name.value) =>
+      emitMutualTcoFun(d)
+
     case t: Term => emitExpr(t)
 
     // Everything else: emit as-is via scalameta's printer.
@@ -301,6 +435,122 @@ class JvmGen:
       }
 
     (baseDef +: overloads).mkString("\n")
+
+  // ─── Mutual-TCO emission ──────────────────────────────────────────
+  //
+  // For each function f in an SCC of size ≥ 2 we emit:
+  //   def _f_impl(_p1: T1, _p2: T2): Any =
+  //     var p1: T1 = _p1; var p2: T2 = _p2
+  //     while true do
+  //       <transformed body — self-calls reassign vars and fall through;
+  //        friend-calls return a new _TailCall thunk; other expressions
+  //        return their value.>
+  //     throw new RuntimeException("unreachable")
+  //
+  //   def f(p1: T1, p2: T2): R =
+  //     _trampoline(() => _f_impl(p1, p2)).asInstanceOf[R]
+
+  private def emitMutualTcoFun(d: Defn.Def): String =
+    val fname   = d.name.value
+    val params  = d.paramClauseGroups.head.paramClauses.head.values
+    val friends = mutualGroups(fname) - fname
+
+    def typeOf(p: Term.Param): String =
+      p.decltpe.map(_.syntax).getOrElse("Any")
+
+    val paramNames  = params.map(_.name.value)
+    val implName    = s"_${fname}_impl"
+
+    val implParams = params.map(p => s"_${p.name.value}: ${typeOf(p)}").mkString(", ")
+    val varDecls   = params.map(p =>
+      s"  var ${p.name.value}: ${typeOf(p)} = _${p.name.value}"
+    ).mkString("\n")
+
+    val bodyOut = StringBuilder()
+    emitMutualTcoBody(d.body, fname, paramNames, friends, indent = 2, bodyOut)
+
+    val impl =
+      s"""def $implName($implParams): Any =
+         |$varDecls
+         |  while true do
+         |${bodyOut.toString.stripTrailing}
+         |  throw new RuntimeException("unreachable")""".stripMargin
+
+    val wrapperRet = d.decltpe.map(t => s": ${t.syntax}").getOrElse("")
+    val cast       = d.decltpe.map(t => s".asInstanceOf[${t.syntax}]").getOrElse("")
+    val wrapperSig = params.map(p => s"${p.name.value}: ${typeOf(p)}").mkString(", ")
+    val wrapperArgs = paramNames.mkString(", ")
+    val wrapper    =
+      s"def $fname($wrapperSig)$wrapperRet = _trampoline(() => $implName($wrapperArgs))$cast"
+
+    s"$impl\n$wrapper"
+
+  /** Recursively emit the body of `_f_impl` as Scala statements. Every leaf
+   *  is either a self-call (reassign vars, let the while-loop iterate),
+   *  a friend-call (return a _TailCall thunk), or any other expression
+   *  (returned as the trampoline's final value). */
+  private def emitMutualTcoBody(
+      term:    Term,
+      fname:   String,
+      params:  List[String],
+      friends: Set[String],
+      indent:  Int,
+      out:     StringBuilder
+  ): Unit =
+    val pad = "  " * indent
+    term match
+      // Self-tail-call: reassign params via temporaries, then fall through so
+      // the enclosing while-loop iterates with the new arguments.
+      case Term.Apply.After_4_6_0(Term.Name(`fname`), argClause) =>
+        val args = argClause.values.map(_.syntax)
+        val tmps = params.map(p => s"_new_$p")
+        out.append(pad).append("{\n")
+        tmps.zip(args).foreach { (t, a) =>
+          out.append(pad).append("  val ").append(t).append(" = ").append(a).append("\n")
+        }
+        params.zip(tmps).foreach { (p, t) =>
+          out.append(pad).append("  ").append(p).append(" = ").append(t).append("\n")
+        }
+        out.append(pad).append("}\n")
+
+      // Friend-tail-call: hand the next step to the trampoline.
+      case Term.Apply.After_4_6_0(Term.Name(n), argClause) if friends.contains(n) =>
+        val args = argClause.values.map(_.syntax).mkString(", ")
+        out.append(pad).append(s"return new _TailCall(() => _${n}_impl($args))\n")
+
+      // Conditional in tail position: recurse into both branches.
+      case t: Term.If =>
+        out.append(pad).append(s"if ${t.cond.syntax} then\n")
+        emitMutualTcoBody(t.thenp, fname, params, friends, indent + 1, out)
+        out.append(pad).append("else\n")
+        emitMutualTcoBody(t.elsep, fname, params, friends, indent + 1, out)
+
+      // Match in tail position: recurse into each case body.
+      case t: Term.Match =>
+        out.append(pad).append(s"${t.expr.syntax} match\n")
+        t.casesBlock.cases.foreach { c =>
+          val guard = c.cond.map(g => s" if ${g.syntax}").getOrElse("")
+          out.append(pad).append(s"  case ${c.pat.syntax}$guard =>\n")
+          emitMutualTcoBody(c.body, fname, params, friends, indent + 2, out)
+        }
+
+      // Block: emit non-final stats verbatim, recurse into the tail expression.
+      case Term.Block(stats) =>
+        stats.dropRight(1).foreach { s =>
+          out.append(pad).append(s.syntax).append("\n")
+        }
+        stats.lastOption match
+          case Some(t: Term) =>
+            emitMutualTcoBody(t, fname, params, friends, indent, out)
+          case Some(s) =>
+            out.append(pad).append(s.syntax).append("\n")
+            out.append(pad).append("return ()\n")
+          case None =>
+            out.append(pad).append("return ()\n")
+
+      // Anything else in tail position: this is the final value.
+      case other =>
+        out.append(pad).append(s"return ${other.syntax}\n")
 
   // ─── Expression emission ──────────────────────────────────────────
 
@@ -514,7 +764,6 @@ class JvmGen:
       bindArgsCps(List(qual)) { case List(q) => s"$q.${name.value}"; case _ => "/* select */" }
 
     case t: Term.Match =>
-      val tmp = freshTmp()
       bindArgsCps(List(t.expr)) { case List(sv) =>
         val arms = t.casesBlock.cases.map { c =>
           val guard = c.cond.map(g => s" if ${g.syntax}").getOrElse("")
@@ -599,6 +848,21 @@ class JvmGen:
        |    if args.length == 1 && args(0).isInstanceOf[_Doc] then toStr(args(0).asInstanceOf[_Doc])
        |    else args.map(toStr).mkString("\n")
        |  println(text)
+       |
+       |""".stripMargin
+
+  /** Trampoline runtime for mutual tail-recursion. Each mutually-recursive
+   *  function is rewritten to a `_f_impl` that may either return a value or a
+   *  `_TailCall` thunk; `_trampoline` drives the thunk chain in a flat loop. */
+  private val mutualTcoRuntime: String =
+    """|
+       |// ── Mutual tail-call trampoline ────────────────────────────────────────
+       |final class _TailCall(val k: () => Any)
+       |def _trampoline(start: () => Any): Any =
+       |  var r: Any = start()
+       |  while r.isInstanceOf[_TailCall] do
+       |    r = r.asInstanceOf[_TailCall].k()
+       |  r
        |
        |""".stripMargin
 
