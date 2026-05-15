@@ -726,6 +726,13 @@ class JvmGen(baseDir: Option[os.Path] = None):
       val q  = emitCaseBody(qual)
       val fn = argClause.values.map(emitCaseBody).mkString(", ")
       s"_anyFlatMap($q, $fn)"
+    // `x :: xs` where both operands are Any-typed (typical inside handler
+    // bodies, since `_args(i)` and `resume(...)` are both Any). Cast the RHS
+    // so Scala 3 type-checks the List cons.
+    case Term.ApplyInfix.After_4_6_0(lhs, Term.Name("::"), _, argClause) =>
+      val l = emitCaseBody(lhs)
+      val r = emitCaseBody(argClause.values.head)
+      s"($l :: $r.asInstanceOf[List[Any]])"
     case Term.Apply.After_4_6_0(fun, argClause) =>
       val f = emitCaseBody(fun)
       val a = argClause.values.map(emitCaseBody).mkString(", ")
