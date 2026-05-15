@@ -241,6 +241,7 @@ function _dispatch(obj, method, args) {
     }
   }
   if (obj && typeof obj === 'object') {
+    if (method === 'toString') return _show(obj);
     if (obj[method] !== undefined) {
       if (typeof obj[method] === 'function') {
         // If args is empty and the function takes args, return the function reference (eta-expansion)
