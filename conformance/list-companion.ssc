@@ -1,0 +1,20 @@
+---
+name: conformance-list-companion
+version: 1.0.0
+---
+
+# List Companion
+
+```scala
+val filled = List.fill(4)(0)
+println(filled.mkString(", "))
+
+val indexed = List.tabulate(5)(i => i * i)
+println(indexed.mkString(", "))
+
+val ranged = List.range(1, 6)
+println(ranged.mkString(", "))
+
+val stepped = List.range(0, 10, 3)
+println(stepped.mkString(", "))
+```
