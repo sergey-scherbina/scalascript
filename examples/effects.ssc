@@ -16,7 +16,7 @@ compose naturally and handlers can be swapped without touching the business logi
 An `effect` block declares an abstract capability.  Each method becomes an
 operation that suspends execution until a handler provides a value.
 
-```scala
+```scalascript
 effect Console:
   def writeLine(s: String): Unit
   def readLine(): String
@@ -34,7 +34,7 @@ A `handle(body) { case ... }` expression runs `body` and intercepts every
 effect operation.  When the body calls `Console.readLine()` the handler
 supplies a value via `resume`, which continues the body with that value.
 
-```scala
+```scalascript
 def greet(): String =
   val name = Console.readLine()
   Console.writeLine(s"Hello, $name!")
@@ -52,7 +52,7 @@ println(result)   // World
 
 Handlers can accumulate values instead of printing them.
 
-```scala
+```scalascript
 def program(): Unit =
   Console.writeLine("first")
   Console.writeLine("second")
@@ -69,7 +69,7 @@ println(lines)   // List(first, second, third)
 
 A handler may call `resume` more than once, exploring all branches.
 
-```scala
+```scalascript
 val all = handle {
   val x = Choose.pick(List(1, 2, 3))
   val y = Choose.pick(List(10, 20))
@@ -85,7 +85,7 @@ println(all)   // List(11, 21, 12, 22, 13, 23)
 
 A handler may ignore `resume` to cut the computation short.
 
-```scala
+```scalascript
 def safeDiv(a: Int, b: Int): Int =
   if b == 0 then Fail.raise("division by zero")
   else a / b

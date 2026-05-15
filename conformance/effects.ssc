@@ -6,7 +6,7 @@ description: Algebraic effects with handlers — Console and Choose
 
 # Effects
 
-```scala
+```scalascript
 effect Console:
   def writeLine(s: String): Unit
   def readLine(): String
