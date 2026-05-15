@@ -275,6 +275,15 @@ function _registerExt(method, fn) {
   if (!_extensions[method]) _extensions[method] = [];
   _extensions[method].push(fn);
 }
+
+function _trampoline(fn, ...args) {
+  let r = fn(...args);
+  while (typeof r === 'object' && r !== null && r._isTailCall === true) {
+    r = r.fn(...r.args);
+  }
+  return r;
+}
+function _tailCall(fn, ...args) { return {_isTailCall: true, fn, args}; }
 """
 
 class JsGen(baseDir: Option[os.Path] = None):
@@ -289,6 +298,8 @@ class JsGen(baseDir: Option[os.Path] = None):
   private var phCounters: List[Int] = Nil
   // Names of variables known to hold integer values (for integer division detection)
   private val intVars = scala.collection.mutable.Set[String]()
+  // fname → set of all group members (populated by analyzeMutualRecursion before emit)
+  private var mutualGroups: Map[String, Set[String]] = Map.empty
 
   private def freshTmp(): String =
     tmpIdx += 1
@@ -297,8 +308,90 @@ class JsGen(baseDir: Option[os.Path] = None):
   private def line(s: String): Unit =
     sb.append("  " * indent).append(s).append("\n")
 
+  // ─── Mutual recursion analysis ───────────────────────────────────
+
+  private def analyzeMutualRecursion(module: Module): Unit =
+    val funcs = mutable.Map[String, Set[String]]()
+
+    def collectFuncs(stats: List[Stat]): Unit = stats.foreach {
+      case d: Defn.Def if d.paramClauseGroups.nonEmpty =>
+        funcs(d.name.value) = tailCallTargets(d.body, d.name.value, tailPos = true)
+      case _ => ()
+    }
+
+    def scanSection(section: Section): Unit =
+      section.content.foreach {
+        case cb: Content.CodeBlock if cb.lang == "scala" || cb.lang == "ssc" =>
+          cb.tree.foreach { node =>
+            ScalaNode.fold(node) {
+              case Source(stats)     => collectFuncs(stats)
+              case Term.Block(stats) => collectFuncs(stats)
+              case _                 => ()
+            }
+          }
+        case _ => ()
+      }
+      section.subsections.foreach(scanSection)
+
+    module.sections.foreach(scanSection)
+
+    val funcNames = funcs.keySet.toSet
+    val sccs = findSCCs(funcs.toMap, funcNames)
+    mutualGroups = sccs.filter(_.size > 1).foldLeft(Map.empty[String, Set[String]]) { (acc, scc) =>
+      acc ++ scc.map(name => name -> scc)
+    }
+
+  private def findSCCs(graph: Map[String, Set[String]], names: Set[String]): List[Set[String]] =
+    var idx = 0
+    val stack  = mutable.Stack[String]()
+    val onStk  = mutable.Set[String]()
+    val nodeIdx = mutable.Map[String, Int]()
+    val low     = mutable.Map[String, Int]()
+    val result  = mutable.ListBuffer[Set[String]]()
+
+    def connect(v: String): Unit =
+      nodeIdx(v) = idx; low(v) = idx; idx += 1
+      stack.push(v); onStk += v
+      for w <- graph.getOrElse(v, Set.empty) if names.contains(w) do
+        if !nodeIdx.contains(w) then
+          connect(w)
+          low(v) = low(v) min low(w)
+        else if onStk.contains(w) then
+          low(v) = low(v) min nodeIdx(w)
+      if low(v) == nodeIdx(v) then
+        val scc = mutable.Set[String]()
+        var w = ""
+        while { w = stack.pop(); onStk -= w; scc += w; w != v } do ()
+        result += scc.toSet
+
+    for v <- names do
+      if !nodeIdx.contains(v) then connect(v)
+    result.toList
+
+  // Returns names of functions called in tail position (excludes selfName).
+  private def tailCallTargets(tree: scala.meta.Tree, selfName: String, tailPos: Boolean): Set[String] =
+    tree match
+      case Term.Apply.After_4_6_0(Term.Name(n), argClause) =>
+        if tailPos && n != selfName then Set(n)
+        else argClause.values.flatMap(a => tailCallTargets(a, selfName, false)).toSet
+      case t: Term.If =>
+        tailCallTargets(t.cond,  selfName, false) ++
+        tailCallTargets(t.thenp, selfName, tailPos) ++
+        tailCallTargets(t.elsep, selfName, tailPos)
+      case Term.Block(stats) =>
+        stats.dropRight(1).flatMap(s => tailCallTargets(s, selfName, false)).toSet ++
+        stats.lastOption.map(s => tailCallTargets(s, selfName, tailPos)).getOrElse(Set.empty)
+      case t: Term.Match =>
+        tailCallTargets(t.expr, selfName, false) ++
+        t.casesBlock.cases.flatMap(c => tailCallTargets(c.body, selfName, tailPos)).toSet
+      case other =>
+        other.children.flatMap(c => tailCallTargets(c, selfName, false)).toSet
+
+  // ─── Module entry ─────────────────────────────────────────────────
+
   def genModule(module: Module): String =
     sb.clear()
+    analyzeMutualRecursion(module)
     module.sections.foreach(genSection)
     // Auto-call main() if defined and not already called
     if hasMain && !mainCalled then
@@ -385,8 +478,11 @@ class JsGen(baseDir: Option[os.Path] = None):
       val fname   = d.name.value
       val paramsStr = params.mkString(", ")
       if fname == "main" && params.isEmpty then hasMain = true
-      // Emit a while-loop trampoline when all self-calls are in tail position
-      if params.nonEmpty && fname.nonEmpty && !hasNonTailSelfCall(d.body, fname, tailPos = true) then
+      // Mutual recursion group → _impl + trampoline wrapper
+      if mutualGroups.contains(fname) && params.nonEmpty then
+        genMutualTcoFun(d, fname, params)
+      // Self-TCO: emit a while-loop trampoline when all self-calls are in tail position
+      else if params.nonEmpty && fname.nonEmpty && !hasNonTailSelfCall(d.body, fname, tailPos = true) then
         // Formals are _p shadow-names so we can declare mutable let params inside
         val formals  = params.map(p => s"_$p").mkString(", ")
         val letDecls = "let " + params.map(p => s"$p = _$p").mkString(", ")
@@ -532,7 +628,58 @@ class JsGen(baseDir: Option[os.Path] = None):
       case expr =>
         s"($paramsStr) => ${genExpr(expr)}"
 
-  // ─── TCO helpers ─────────────────────────────────────────────────
+  // ─── Mutual TCO helpers ──────────────────────────────────────────
+
+  // Emits _fname_impl (while-loop + _tailCall for mutual calls) and the public wrapper.
+  private def genMutualTcoFun(d: Defn.Def, fname: String, params: List[String]): Unit =
+    val implName = s"_${fname}_impl"
+    val friends  = mutualGroups(fname) - fname
+    val formals  = params.map(p => s"_$p").mkString(", ")
+    val letDecls = "let " + params.map(p => s"$p = _$p").mkString(", ")
+    line(s"function $implName($formals) {")
+    indent += 1
+    line(s"$letDecls;")
+    line("while(true) {")
+    indent += 1
+    genMutualTcoBody(d.body, fname, params, friends)
+    indent -= 1
+    line("}")
+    indent -= 1
+    line("}")
+    // Public wrapper that starts the trampoline
+    val wrapArgs = params.map(p => s"_$p").mkString(", ")
+    line(s"function $fname($formals) { return _trampoline($implName, $wrapArgs); }")
+
+  // Like genTcoBody but mutual tail calls return _tailCall thunks.
+  private def genMutualTcoBody(term: Term, fname: String, params: List[String], friends: Set[String]): Unit =
+    term match
+      case Term.Apply.After_4_6_0(Term.Name(`fname`), argClause) =>
+        val newArgs = argClause.values.map(v => genExpr(v.asInstanceOf[Term]))
+        if params.length == 1 then line(s"${params(0)} = ${newArgs(0)};")
+        else line(s"[${params.mkString(", ")}] = [${newArgs.mkString(", ")}];")
+        line("continue;")
+      case Term.Apply.After_4_6_0(Term.Name(n), argClause) if friends.contains(n) =>
+        val newArgs = argClause.values.map(v => genExpr(v.asInstanceOf[Term]))
+        line(s"return _tailCall(_${n}_impl, ${newArgs.mkString(", ")});")
+      case t: Term.If =>
+        line(s"if (${genExpr(t.cond)}) {")
+        indent += 1; genMutualTcoBody(t.thenp, fname, params, friends); indent -= 1
+        line("} else {")
+        indent += 1; genMutualTcoBody(t.elsep, fname, params, friends); indent -= 1
+        line("}")
+      case Term.Block(stats) =>
+        stats.dropRight(1).foreach {
+          case t: Term => line(genExpr(t) + ";")
+          case s       => genStat(s)
+        }
+        stats.lastOption.foreach {
+          case t: Term => genMutualTcoBody(t, fname, params, friends)
+          case _       => ()
+        }
+      case other =>
+        line(s"return ${genExpr(other)};")
+
+  // ─── Self-TCO helpers ─────────────────────────────────────────────
 
   // Emits statements for the body of a TCO while-loop.
   // Tail calls to fname become parameter reassignment + continue.

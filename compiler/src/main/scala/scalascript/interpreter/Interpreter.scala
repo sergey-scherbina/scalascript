@@ -477,21 +477,56 @@ class Interpreter(out: java.io.PrintStream = System.out, baseDir: Option[os.Path
 
   private def callFun(f: Value.FunV, args: List[Value]): Value =
     val selfEntry = if f.name.nonEmpty then Map(f.name -> f) else Map.empty
-    // Use a trampoline loop when all self-calls are in tail position
     if f.name.nonEmpty && !hasNonTailSelfCall(f.body, f.name, tailPos = true) then
-      val tcoEntry = Map(f.name -> Value.NativeFnV(f.name, a => throw TailCall(a)))
+      var currentFun  = f
       var currentArgs = args
       while true do
-        val callEnv = globals.toMap ++ f.closure ++ tcoEntry ++ f.params.zip(currentArgs).toMap
+        val targets = tailCallTargets(currentFun.body, currentFun.name, tailPos = true)
+        val mutualEntries: Map[String, Value] = targets.flatMap { name =>
+          (globals.get(name) orElse currentFun.closure.get(name)).collect {
+            case fn: Value.FunV =>
+              name -> (Value.NativeFnV(name, a => throw new MutualTailCall(fn, a)): Value)
+          }
+        }.toMap
+        val selfTco = Map(currentFun.name -> (Value.NativeFnV(currentFun.name, a => throw new TailCall(a)): Value))
+        val callEnv = globals.toMap ++ currentFun.closure ++ selfTco ++ mutualEntries ++
+                      currentFun.params.zip(currentArgs).toMap
         try
-          return try eval(f.body, callEnv) catch case r: ReturnSignal => r.value
+          return try eval(currentFun.body, callEnv) catch case r: ReturnSignal => r.value
         catch
           case tc: TailCall => currentArgs = tc.args
+          case mc: MutualTailCall =>
+            val next = mc.f
+            // Only continue in the flat trampoline if the next function is also fully tail-recursive
+            if next.name.nonEmpty && !hasNonTailSelfCall(next.body, next.name, tailPos = true) then
+              currentFun  = next
+              currentArgs = mc.args
+            else
+              return callFun(next, mc.args)
       throw InterpretError("unreachable")
     else
       val callEnv = globals.toMap ++ f.closure ++ selfEntry ++ f.params.zip(args).toMap
       try eval(f.body, callEnv)
       catch case r: ReturnSignal => r.value
+
+  // Returns names of functions called in tail position in term (excluding selfName).
+  private def tailCallTargets(tree: scala.meta.Tree, selfName: String, tailPos: Boolean): Set[String] =
+    tree match
+      case Term.Apply.After_4_6_0(Term.Name(n), argClause) =>
+        if tailPos && n != selfName then Set(n)
+        else argClause.values.flatMap(a => tailCallTargets(a, selfName, false)).toSet
+      case t: Term.If =>
+        tailCallTargets(t.cond,  selfName, false) ++
+        tailCallTargets(t.thenp, selfName, tailPos) ++
+        tailCallTargets(t.elsep, selfName, tailPos)
+      case Term.Block(stats) =>
+        stats.dropRight(1).flatMap(s => tailCallTargets(s, selfName, false)).toSet ++
+        stats.lastOption.map(s => tailCallTargets(s, selfName, tailPos)).getOrElse(Set.empty)
+      case t: Term.Match =>
+        tailCallTargets(t.expr, selfName, false) ++
+        t.casesBlock.cases.flatMap(c => tailCallTargets(c.body, selfName, tailPos)).toSet
+      case other =>
+        other.children.flatMap(c => tailCallTargets(c, selfName, false)).toSet
 
   // Returns true if term has a self-call to fname NOT in tail position.
   private def hasNonTailSelfCall(term: Term, fname: String, tailPos: Boolean): Boolean =
