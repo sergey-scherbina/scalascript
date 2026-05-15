@@ -81,7 +81,11 @@ function render(...args) {
   _println(parts.map(toStr).join('\n'));
 }
 
-function List(...args) { return args; }
+function List(...args) { return [...args]; }
+List.fill     = (n) => (elem) => Array.from({length: n}, () => elem);
+List.tabulate = (n) => (f)    => Array.from({length: n}, (_, i) => f(i));
+List.range    = (from, until, step=1) => { const r=[]; for(let i=from;i<until;i+=step) r.push(i); return r; };
+List.empty    = [];
 
 function _Map(...pairs) {
   const m = new Map();
@@ -247,6 +251,12 @@ function _dispatch(obj, method, args) {
       }
       return obj[method];
     }
+  }
+  // Function-object dispatch: for companion objects (List.fill, etc.)
+  if (typeof obj === 'function' && obj[method] !== undefined) {
+    const val = obj[method];
+    if (typeof val === 'function') return args.length ? val(...args) : val;
+    return val;
   }
   // Extension method fallback: look up _ext_<paramName>_<method>
   // We try to find registered extension functions by method name

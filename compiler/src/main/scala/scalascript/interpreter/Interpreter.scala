@@ -69,6 +69,30 @@ class Interpreter(out: java.io.PrintStream = System.out):
 
     native("Some")  { case List(v) => Value.OptionV(Some(v)); case _ => throw InterpretError("Some takes 1 arg") }
     native("List")  { args => Value.ListV(args) }
+    // List companion object — fill/tabulate are curried (List.fill(n)(elem))
+    globals("List.fill") = Value.NativeFnV("List.fill", {
+      case List(Value.IntV(n)) =>
+        Value.NativeFnV("List.fill.n", { case List(elem) => Value.ListV(List.fill(n.toInt)(elem)); case _ => throw InterpretError("List.fill(n)(elem)") })
+      case _ => throw InterpretError("List.fill(n)(elem)")
+    })
+    globals("List.tabulate") = Value.NativeFnV("List.tabulate", {
+      case List(Value.IntV(n)) =>
+        Value.NativeFnV("List.tabulate.n", { case List(f) => Value.ListV((0 until n.toInt).map(i => callValue(f, List(Value.IntV(i)), globals)).toList); case _ => throw InterpretError("List.tabulate(n)(f)") })
+      case _ => throw InterpretError("List.tabulate(n)(f)")
+    })
+    globals("List.range") = Value.NativeFnV("List.range", {
+      case List(Value.IntV(from), Value.IntV(until)) => Value.ListV((from.toInt until until.toInt).map(i => Value.IntV(i)).toList)
+      case List(Value.IntV(from), Value.IntV(until), Value.IntV(step)) => Value.ListV((from.toInt until until.toInt by step.toInt).map(i => Value.IntV(i)).toList)
+      case _ => throw InterpretError("List.range(from, until[, step])")
+    })
+    val listNative = globals("List")
+    globals("List") = Value.InstanceV("List", Map(
+      "fill"     -> globals("List.fill"),
+      "tabulate" -> globals("List.tabulate"),
+      "range"    -> globals("List.range"),
+      "empty"    -> Value.ListV(Nil),
+      "apply"    -> listNative
+    ))
     native("Map") { args =>
       val entries = args.collect { case Value.TupleV(List(k, v)) => k -> v }.toMap
       Value.MapV(entries)
@@ -404,6 +428,10 @@ class Interpreter(out: java.io.PrintStream = System.out):
   private def callValue(fn: Value, args: List[Value], @annotation.unused env: Env): Value = fn match
     case f: Value.FunV      => callFun(f, args)
     case f: Value.NativeFnV => f.f(args)
+    case Value.InstanceV(_, fields) =>
+      fields.get("apply") match
+        case Some(f) => callValue(f, args, env)
+        case None    => throw InterpretError(s"Instance is not callable")
     case _ => throw InterpretError(s"Not callable: ${Value.show(fn)}")
 
   private def callFun(f: Value.FunV, args: List[Value]): Value =
