@@ -4,8 +4,12 @@ out/
 dist/
 build/
 
-# Compiled native ssc binary — produced by scripts/install.sh --native
-# The shell-script dev launcher bin/ssc is tracked in git.
+# Standalone ssc launcher — built locally via `scripts/install.sh bin/ssc`.
+# Not tracked in git: it's a multi-MB self-contained launcher and any local
+# rebuild would churn the repo. CI rebuilds it on demand; the conformance
+# runner falls back to `scala-cli run compiler` when it's absent.
+bin/ssc
+# Native ssc binary — produced by scripts/install.sh --native
 bin/ssc-native
 
 # Scala CLI

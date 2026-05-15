@@ -37,6 +37,12 @@ Hello, World!
 git clone https://github.com/sergey-scherbina/scalascript
 cd scalascript
 
+# Build the standalone ssc launcher (one-time, ~30s).  bin/ssc is not
+# tracked in git — see scripts/install.sh.  The other bin/ wrappers
+# (bin/sscc, bin/jssc, bin/ssc-js) call scala-cli directly and need no
+# build step.
+./scripts/install.sh bin/ssc
+
 # Interpreter (tree-walking, no compilation step)
 bin/ssc examples/hello.ssc
 
