@@ -36,7 +36,7 @@ object JsGen:
 
 /** JS runtime preamble embedded in every generated page. */
 val JsRuntime: String = """
-const _output = [];
+let _output = [];
 function _println(...args) { _output.push(args.map(_show).join(' ')); }
 function _print(...args) { const s = args.map(_show).join(''); _output.push(s); }
 
