@@ -292,13 +292,26 @@ class JvmGen(baseDir: Option[os.Path] = None):
         out.toString
     routeMkStringThroughShow(rewritten)
 
-  /** Replace `expr.mkString(...)` with `expr.map(_show).mkString(...)` so a
-   *  collection joined into a string formats whole-number Doubles as scripts
-   *  expect (`4` rather than `4.0`). `_show` is identity for non-Doubles. */
+  /** Route emitted code through `_show` for the cases where Scala 3's
+   *  default Any.toString would print a whole-number Double as "4.0":
+   *
+   *    - `expr.mkString(...)`  →  `expr.map(_show).mkString(...)`
+   *    - `s"... $x ..."`       →  `sx"... $x ..."`  (sx is defined in preamble)
+   *
+   *  `_show` is identity for non-Doubles, so other element types are
+   *  unaffected. The patterns are conservative enough not to match inside
+   *  identifiers (e.g. `bytes"..."` is not rewritten because `\bs"` requires
+   *  a word boundary immediately before the `s`). */
   private def routeMkStringThroughShow(src: String): String =
-    if src.contains(".mkString(") then
-      src.replaceAll("""\.mkString\(""", ".map(_show).mkString(")
-    else src
+    var out = src
+    if out.contains(".mkString(") then
+      out = out.replaceAll("""\.mkString\(""", ".map(_show).mkString(")
+    if out.contains("s\"") || out.contains("s\"\"\"") then
+      // Negative lookbehind for `$` or word char so we don't rewrite the `s`
+      // in `$s"..."` (the trailing variable reference inside an s-interp) or
+      // in user identifiers like `bytes"..."`.
+      out = out.replaceAll("""(?<![$\w])s("{1,3})""", "sx$1")
+    out
 
   private def blockNeedsRewrite(node: ScalaNode): Boolean =
     blockUsesEffects(node) || blockUsesMutualTco(node)
@@ -878,6 +891,12 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |  case other     => other.toString
        |
        |def println(v: Any): Unit = scala.Predef.println(_show(v))
+       |
+       |// `sx` is like `s` but routes each interpolated value through `_show`,
+       |// so a whole-number Double interpolated into a string drops its ".0".
+       |// Code-block emission rewrites `s"..."` to `sx"..."` for the same reason.
+       |extension (sc: StringContext)
+       |  def sx(args: Any*): String = sc.s(args.map(_show)*)
        |
        |extension (sc: StringContext)
        |  def md(args: Any*): String =
