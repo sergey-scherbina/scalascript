@@ -47,6 +47,34 @@ object ScalaJsBackend:
 
   // ─── Compile to JS ─────────────────────────────────────────────
 
+  /** Compile a raw Scala source string to a self-contained Node.js script.
+   *  Used by the segmented V2 path to compile individual scala segments.
+   */
+  def compileSourceToJs(source: String, baseDir: Option[os.Path] = None): String =
+    if source.isBlank then return ""
+    val tmp = os.temp(source, suffix = ".sc", deleteOnExit = true)
+    val out = os.temp(suffix = ".js", deleteOnExit = true)
+    try
+      val result = os.proc(
+        "scala-cli", "--power", "package",
+        "--js",
+        "--force",
+        "-o", out.toString,
+        tmp
+      ).call(
+        cwd    = baseDir.getOrElse(os.pwd),
+        check  = false,
+        stderr = os.Pipe
+      )
+      if result.exitCode != 0 then
+        throw RuntimeException(
+          s"Scala.js compilation failed (exit ${result.exitCode}):\n${result.err.text()}"
+        )
+      if os.exists(out) then os.read(out) else ""
+    finally
+      if os.exists(tmp) then os.remove(tmp)
+      if os.exists(out) then os.remove(out)
+
   /** Compile all `scala` blocks to a self-contained Node.js script using
    *  `scala-cli package --js`.  Returns the full JS source as a String.
    *  Throws RuntimeException on compilation failure.

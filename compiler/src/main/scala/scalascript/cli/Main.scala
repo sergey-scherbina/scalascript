@@ -144,17 +144,18 @@ def emitJsCommand(args: List[String]): Unit =
     if !os.exists(path) then { println(s"Error: File not found: $file"); System.exit(1) }
     else
       try
-        val module = Parser.parse(os.read(path))
-        // scala blocks → Scala.js compiled bundle
-        if ScalaJsBackend.hasBlocks(module) then
-          val scalaJs = ScalaJsBackend.compileToJs(module, baseDir)
-          if scalaJs.nonEmpty then println(scalaJs)
-        // scalascript blocks → our custom transpiler
-        if JsGen.hasBlocks(module) then
-          val body = JsGen.generate(module, baseDir = baseDir)
-          println(JsRuntime)
-          println(body)
-          println("""console.log(_output.join("\n"));""")
+        val module   = Parser.parse(os.read(path))
+        val segments = JsGen.generateSegmented(module, baseDir)
+        val hasSSBlocks = segments.exists(_.isInstanceOf[JsGen.Segment.ScalaScriptJs])
+        if hasSSBlocks then println(JsRuntime)
+        for seg <- segments do seg match
+          case JsGen.Segment.ScalaScriptJs(code) =>
+            println(code)
+            // Flush the ScalaScript output buffer before the next Scala.js segment runs
+            println("""process.stdout.write(_output.join('\n') + (_output.length ? '\n' : '')); _output = [];""")
+          case JsGen.Segment.ScalaSource(src) =>
+            val bundle = ScalaJsBackend.compileSourceToJs(src, baseDir)
+            if bundle.nonEmpty then println(bundle)
       catch case e: Exception =>
         System.err.println(s"JS generation error: ${e.getMessage}")
         System.exit(1)
