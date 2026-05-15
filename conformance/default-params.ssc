@@ -1,0 +1,31 @@
+#!/usr/bin/env ssc
+---
+name: default-params-conformance
+version: 1.0.0
+---
+
+# Default Parameters
+
+```scalascript
+def greet(name: String = "World", excited: Boolean = false): String =
+  if excited then s"Hello, $name!" else s"Hello, $name"
+
+def shift(x: Int, by: Int = x + 1): Int = x + by
+
+case class Box(width: Int = 10, height: Int = 20)
+
+enum Shape:
+  case Circle(radius: Int = 1)
+  case Square(side: Int = 2)
+
+println(greet())
+println(greet("Sergiy"))
+println(greet("Sergiy", true))
+println(shift(10))
+println(shift(10, 5))
+val b = Box()
+println(s"${b.width}x${b.height}")
+println(Box(5).height)
+println(Circle().radius)
+println(Square(7).side)
+```

@@ -228,8 +228,10 @@ class Interpreter(out: java.io.PrintStream = System.out, baseDir: Option[os.Path
       env(n.value) = Computation.run(eval(rhs, env.toMap))
 
     case d: Defn.Def =>
-      val params = d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values).map(_.name.value)
-      val fn: Value.FunV = Value.FunV(params, d.body, env.toMap, d.name.value)
+      val paramVals = d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values).toList
+      val params    = paramVals.map(_.name.value)
+      val defaults  = paramVals.map(_.default)
+      val fn: Value.FunV = Value.FunV(params, d.body, env.toMap, d.name.value, defaults)
       env(d.name.value) = fn
       if d.name.value == "main" && params.isEmpty then mainCalled = false
 
@@ -249,12 +251,15 @@ class Interpreter(out: java.io.PrintStream = System.out, baseDir: Option[os.Path
       env(objectName) = Value.InstanceV(objectName, members.toMap)
 
     case d: Defn.Class =>
-      val params = d.ctor.paramClauses.flatMap(_.values)
-      val paramNames = params.map(_.name.value)
+      val params = d.ctor.paramClauses.flatMap(_.values).toList
+      val paramNames    = params.map(_.name.value)
+      val paramDefaults = params.map(_.default)
       val typeName = d.name.value
-      env(typeName) = Value.NativeFnV(typeName,
-        args => Pure(Value.InstanceV(typeName, paramNames.zip(args).toMap))
-      )
+      val ctorEnv = env.toMap
+      env(typeName) = Value.NativeFnV(typeName, args => {
+        val filled = applyDefaults(paramNames, paramDefaults, args, ctorEnv)
+        Pure(Value.InstanceV(typeName, paramNames.zip(filled).toMap))
+      })
       // Methods defined inside the class body are stored in a separate
       // type-keyed registry; dispatch on an InstanceV consults it and re-binds
       // each method's closure with the instance's data fields so the body can
@@ -262,8 +267,10 @@ class Interpreter(out: java.io.PrintStream = System.out, baseDir: Option[os.Path
       val classEnv = env.toMap
       val methodPairs: List[(String, Value.FunV)] = d.templ.body.stats.collect {
         case dd: Defn.Def =>
-          val mparams = dd.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values).map(_.name.value)
-          (dd.name.value, Value.FunV(mparams, dd.body, classEnv, dd.name.value))
+          val mparamVals = dd.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values).toList
+          val mparams    = mparamVals.map(_.name.value)
+          val mdefaults  = mparamVals.map(_.default)
+          (dd.name.value, Value.FunV(mparams, dd.body, classEnv, dd.name.value, mdefaults))
       }
       val methodDefs: Map[String, Value.FunV] = methodPairs.toMap
       if methodDefs.nonEmpty then typeMethods(typeName) = methodDefs
@@ -271,13 +278,19 @@ class Interpreter(out: java.io.PrintStream = System.out, baseDir: Option[os.Path
     case d: Defn.Enum =>
       val enumName = d.name.value
       val caseFields = mutable.Map.empty[String, Value]
+      val ctorEnv = env.toMap
       d.templ.body.stats.foreach {
         case ec: Defn.EnumCase =>
           val caseName = ec.name.value
-          val paramNames = ec.ctor.paramClauses.flatMap(_.values).map(_.name.value)
+          val ecParams      = ec.ctor.paramClauses.flatMap(_.values).toList
+          val paramNames    = ecParams.map(_.name.value)
+          val paramDefaults = ecParams.map(_.default)
           val v: Value =
             if paramNames.isEmpty then Value.InstanceV(caseName, Map.empty)
-            else Value.NativeFnV(caseName, args => Pure(Value.InstanceV(caseName, paramNames.zip(args).toMap)))
+            else Value.NativeFnV(caseName, args => {
+              val filled = applyDefaults(paramNames, paramDefaults, args, ctorEnv)
+              Pure(Value.InstanceV(caseName, paramNames.zip(filled).toMap))
+            })
           env(caseName) = v
           caseFields(caseName) = v
         case _ => ()
@@ -320,8 +333,12 @@ class Interpreter(out: java.io.PrintStream = System.out, baseDir: Option[os.Path
             case Some(ta: Type.Apply) => ta.tpe match { case Type.Name(n) => n; case _ => "Any" }
             case _                    => "Any"
           def registerDef(defn: Defn.Def): Unit =
-            val methodParams = defn.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values).map(_.name.value)
-            extensions((recvTypeName, defn.name.value)) = Value.FunV(recvName :: methodParams, defn.body, env.toMap)
+            val mparamVals   = defn.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values).toList
+            val methodParams = mparamVals.map(_.name.value)
+            // Receiver param has no default; method params keep theirs.
+            val methodDefaults: List[Option[Term]] = None :: mparamVals.map(_.default)
+            extensions((recvTypeName, defn.name.value)) =
+              Value.FunV(recvName :: methodParams, defn.body, env.toMap, "", methodDefaults)
           d.body match
             case defn: Defn.Def    => registerDef(defn)
             case Term.Block(stats) => stats.foreach { case defn: Defn.Def => registerDef(defn); case _ => () }
@@ -599,6 +616,8 @@ class Interpreter(out: java.io.PrintStream = System.out, baseDir: Option[os.Path
 
   private def callFun(f: Value.FunV, args: List[Value]): Computation =
     val selfEntry = if f.name.nonEmpty then Map(f.name -> f) else Map.empty
+    val baseEnv   = globals.toMap ++ f.closure ++ selfEntry
+    val effArgs   = applyDefaults(f.params, f.defaults, args, baseEnv)
     val tailTargets =
       if f.name.nonEmpty then tailCallTargets(f.body, f.name, tailPos = true)
       else Set.empty[String]
@@ -608,11 +627,38 @@ class Interpreter(out: java.io.PrintStream = System.out, baseDir: Option[os.Path
     }
     val noNonTailSelf = f.name.nonEmpty && !hasNonTailSelfCall(f.body, f.name, tailPos = true)
     if noNonTailSelf && (isSelfTailRec || hasMutualTail) then
-      tcoTrampoline(f, args, null)
+      tcoTrampoline(f, effArgs, null)
     else
-      val callEnv = globals.toMap ++ f.closure ++ selfEntry ++ f.params.zip(args).toMap
+      val callEnv = baseEnv ++ f.params.zip(effArgs).toMap
       try runUntilSuspension(eval(f.body, callEnv))
       catch case r: ReturnSignal => Pure(r.value)
+
+  /** Extend `args` with default values for any missing trailing parameters.
+   *  Each default is evaluated in `baseEnv` augmented with the bindings of all
+   *  parameters to its left (provided ones plus already-filled defaults), so
+   *  defaults like `def f(x: Int, y: Int = x + 1)` see `x` correctly. */
+  private def applyDefaults(
+    params:   List[String],
+    defaults: List[Option[Term]],
+    args:     List[Value],
+    baseEnv:  Env
+  ): List[Value] =
+    if args.length >= params.length then args
+    else
+      val provided = args
+      var env = baseEnv ++ params.zip(provided).toMap
+      val filled = (provided.length until params.length).map { i =>
+        val pname      = params(i)
+        val defaultOpt = defaults.lift(i).flatten
+        defaultOpt match
+          case Some(defaultTerm) =>
+            val v = Computation.run(eval(defaultTerm, env))
+            env = env + (pname -> v)
+            v
+          case None =>
+            located(s"missing argument for parameter '$pname'")
+      }.toList
+      provided ++ filled
 
   /** TCO trampoline that survives effect suspensions.
    *

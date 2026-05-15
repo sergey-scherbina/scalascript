@@ -12,7 +12,19 @@ enum Value:
   case CharV(v: Char)
   case UnitV
   case NullV
-  case FunV(params: List[String], body: Term, closure: Env, name: String = "")
+  /** A closure. `defaults(i)` is the default-value expression for parameter
+   *  `params(i)`, or `None` if the parameter is required. The list may be
+   *  shorter than `params` (in which case missing tail entries are treated
+   *  as `None`). Defaults are evaluated lazily at call time, in an env that
+   *  includes the closure plus all parameters bound to the left.
+   */
+  case FunV(
+    params: List[String],
+    body: Term,
+    closure: Env,
+    name: String = "",
+    defaults: List[Option[Term]] = Nil
+  )
   /** Native function: must return a Computation. Pure built-ins return Pure(v); higher-order
    *  built-ins (map, filter, …) flatMap user callbacks to propagate effects. */
   case NativeFnV(name: String, f: List[Value] => Computation)
@@ -42,7 +54,7 @@ object Value:
     case InstanceV(t, fields) =>
       if fields.isEmpty then t
       else fields.values.map(show).mkString(s"$t(", ", ", ")")
-    case FunV(ps, _, _, _)    => s"<function(${ps.length})>"
+    case FunV(ps, _, _, _, _) => s"<function(${ps.length})>"
     case NativeFnV(name, _)   => s"<native:$name>"
     case DocV(parts)          => parts.map(show).mkString("\n")
 

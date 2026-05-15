@@ -1,0 +1,57 @@
+#!/usr/bin/env ssc
+---
+name: default-params
+version: 1.0.0
+description: Default parameter values on defs, classes, and enum cases
+main: main
+---
+
+# Default Parameters
+
+ScalaScript supports default parameter values everywhere a parameter list
+is declared: top-level `def`s, methods inside `class`/`case class` bodies,
+class constructor parameters, and `enum case` parameters. A default
+expression may reference any earlier parameter or any name in the
+enclosing scope.
+
+## Functions with defaults
+
+```scalascript
+def greet(name: String = "World", excited: Boolean = false): String =
+  if excited then s"Hello, $name!" else s"Hello, $name"
+```
+
+## Defaults that reference earlier parameters
+
+```scalascript
+def shift(x: Int, by: Int = x + 1): Int = x + by
+```
+
+## Case classes with default fields
+
+```scalascript
+case class Box(width: Int = 10, height: Int = 20)
+```
+
+## Enum cases with defaults
+
+```scalascript
+enum Shape:
+  case Circle(radius: Int = 1)
+  case Square(side: Int = 2)
+```
+
+## Main
+
+```scalascript
+def main(): Unit =
+  println(greet())
+  println(greet("Sergiy"))
+  println(greet("Sergiy", true))
+  println(shift(10))
+  println(shift(10, 5))
+  val b = Box()
+  println(s"${b.width}x${b.height}")
+  println(Circle().radius)
+  println(Square(7).side)
+```

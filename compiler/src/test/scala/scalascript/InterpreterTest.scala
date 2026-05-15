@@ -838,3 +838,92 @@ def main(): Unit =
     """) shouldBe "1000"
   }
 
+  // ── Default parameters ──────────────────────────────────────────
+
+  test("def — all defaults, called with no args") {
+    captured("""
+      def greet(name: String = "World", excited: Boolean = false): String =
+        if excited then s"Hello, $name!" else s"Hello, $name"
+      println(greet())
+      println(greet("Sergiy"))
+      println(greet("Sergiy", true))
+    """) shouldBe "Hello, World\nHello, Sergiy\nHello, Sergiy!"
+  }
+
+  test("def — default references a previous parameter") {
+    captured("""
+      def shift(x: Int, by: Int = x + 1): Int = x + by
+      println(shift(10))
+      println(shift(10, 5))
+    """) shouldBe "21\n15"
+  }
+
+  test("def — default uses outer val from closure") {
+    captured("""
+      val base = 100
+      def offset(by: Int = base): Int = by * 2
+      println(offset())
+      println(offset(3))
+    """) shouldBe "200\n6"
+  }
+
+  test("case class — default field values") {
+    captured("""
+      case class Box(width: Int = 10, height: Int = 20)
+      val b1 = Box()
+      val b2 = Box(5)
+      val b3 = Box(5, 7)
+      println(s"${b1.width}x${b1.height}")
+      println(s"${b2.width}x${b2.height}")
+      println(s"${b3.width}x${b3.height}")
+    """) shouldBe "10x20\n5x20\n5x7"
+  }
+
+  test("class with default ctor params and method") {
+    captured("""
+      class Counter(start: Int = 0):
+        def show(): Int = start * 2
+      val c = Counter()
+      println(c.show())
+    """) shouldBe "0"
+  }
+
+  test("class method default parameter") {
+    captured("""
+      class Greeter:
+        def greet(name: String = "World"): String = s"Hi $name"
+      val g = Greeter()
+      println(g.greet())
+      println(g.greet("Anna"))
+    """) shouldBe "Hi World\nHi Anna"
+  }
+
+  test("enum case — default parameters") {
+    captured("""
+      enum Shape:
+        case Circle(radius: Int = 1)
+        case Square(side: Int = 2)
+      println(Circle().radius)
+      println(Square().side)
+      println(Circle(7).radius)
+    """) shouldBe "1\n2\n7"
+  }
+
+  test("recursive function with default seed") {
+    captured("""
+      def sumTo(n: Int, acc: Int = 0): Int =
+        if n == 0 then acc else sumTo(n - 1, acc + n)
+      println(sumTo(10))
+    """) shouldBe "55"
+  }
+
+  test("missing required argument raises error") {
+    val ex = intercept[InterpretError] {
+      captured("""
+        def f(x: Int, y: Int = 10): Int = x + y
+        println(f())
+      """)
+    }
+    ex.getMessage should include ("missing argument")
+  }
+
