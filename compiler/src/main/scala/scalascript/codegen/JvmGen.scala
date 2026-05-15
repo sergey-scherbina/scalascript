@@ -168,9 +168,11 @@ class JvmGen:
           case dd: Defn.Def => isEffectOpDef(dd.body)
           case _            => false
         }
-      case d: Defn.Def => isEffectfulFun(d.name.value) || termUsesEffects(d.body)
-      case t: Term     => termUsesEffects(t)
-      case _           => false
+      case d: Defn.Def =>
+        isEffectfulFun(d.name.value) || termUsesEffects(d.body) || hasInterParamDefault(d)
+      case _: Defn.Enum => true
+      case t: Term      => termUsesEffects(t)
+      case _            => false
     }
 
   private def termUsesEffects(t: Term): Boolean = t match
@@ -180,6 +182,33 @@ class JvmGen:
     case _ => t.children.exists {
       case tt: Term => termUsesEffects(tt)
       case _        => false
+    }
+
+  // ─── Default-param helpers ────────────────────────────────────────
+  //
+  // ScalaScript allows a default expression to reference earlier parameters
+  // in the same clause:    def shift(x: Int, by: Int = x + 1): Int = x + by
+  // Scala 3 forbids this. We emit a set of overloads that materialise the
+  // defaults at call sites where they're visible.
+
+  private def hasInterParamDefault(d: Defn.Def): Boolean =
+    d.paramClauseGroups.exists { group =>
+      group.paramClauses.exists { clause =>
+        val params = clause.values
+        params.zipWithIndex.exists { case (p, i) =>
+          p.default.exists { dflt =>
+            val earlier = params.take(i).map(_.name.value).toSet
+            earlier.nonEmpty && referencesAny(dflt, earlier)
+          }
+        }
+      }
+    }
+
+  private def referencesAny(term: Term, names: Set[String]): Boolean = term match
+    case Term.Name(n) if names(n) => true
+    case _ => term.children.exists {
+      case t: Term => referencesAny(t, names)
+      case _       => false
     }
 
   // ─── Statement emission ───────────────────────────────────────────
@@ -227,10 +256,51 @@ class JvmGen:
       val tpeStr = tpe.map(t => s": ${t.syntax}").getOrElse("")
       s"${modStr}var $patsStr$tpeStr = ${emitExpr(rhs)}"
 
+    // Enum — emit as-is plus `import EnumName.*` so unqualified case names
+    // (`Circle()` rather than `Shape.Circle()`) resolve at use sites, matching
+    // ScalaScript interpreter / JS-backend semantics.
+    case d: Defn.Enum =>
+      s"${d.syntax}\nimport ${d.name.value}.*"
+
+    // Function with a default that references an earlier parameter in the
+    // same clause — generate the base def plus one overload per dropped
+    // trailing arg, so each call-site arity is reachable.
+    case d: Defn.Def if hasInterParamDefault(d) =>
+      emitDefWithOverloads(d)
+
     case t: Term => emitExpr(t)
 
     // Everything else: emit as-is via scalameta's printer.
     case other => other.syntax
+
+  private def emitDefWithOverloads(d: Defn.Def): String =
+    val groups = d.paramClauseGroups
+    // Only handle the single-clause case; multi-clause defs already let Scala 3
+    // see earlier params in defaults, so the as-is printer is fine.
+    if groups.size != 1 || groups.head.paramClauses.size != 1 then return d.syntax
+
+    val params  = groups.head.paramClauses.head.values
+    val name    = d.name.value
+    val retType = d.decltpe.map(t => s": ${t.syntax}").getOrElse("")
+
+    def sigFor(ps: List[Term.Param]): String =
+      ps.map { p =>
+        p.decltpe.map(t => s"${p.name.value}: ${t.syntax}").getOrElse(s"${p.name.value}: Any")
+      }.mkString(", ")
+
+    val baseDef = s"def $name(${sigFor(params)})$retType = ${d.body.syntax}"
+
+    val firstDefault = params.indexWhere(_.default.isDefined)
+    val overloads =
+      if firstDefault < 0 then Nil
+      else (firstDefault until params.length).map { takeN =>
+        val taken   = params.take(takeN)
+        val missing = params.drop(takeN)
+        val args    = taken.map(_.name.value) ++ missing.map(_.default.get.syntax)
+        s"def $name(${sigFor(taken)})$retType = $name(${args.mkString(", ")})"
+      }
+
+    (baseDef +: overloads).mkString("\n")
 
   // ─── Expression emission ──────────────────────────────────────────
 
