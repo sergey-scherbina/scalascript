@@ -12,14 +12,14 @@ The simplest possible ScalaScript program.
 
 ## Greeting Function
 
-```scala
+```scalascript
 def greet(name: String): String =
   s"Hello, ${name}!"
 ```
 
 ## Main Entry Point
 
-```scala
+```scalascript
 def main(): Unit =
   println(greet("World"))
 ```

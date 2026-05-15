@@ -14,7 +14,7 @@ ScalaScript provides three levels of content generation beyond `println`.
 `md"..."` strips common leading indentation from multi-line strings,
 making it easy to embed clean multi-line text inside indented code:
 
-```scala
+```scalascript
 val name = "Alice"
 val age  = 30
 
@@ -32,16 +32,16 @@ println(bio)
 The **last expression** in a top-level code block is automatically
 printed if it is not `Unit` — no `println` needed:
 
-```scala
+```scalascript
 1 + 1
 ```
 
-```scala
+```scalascript
 val xs = List(1, 2, 3, 4, 5)
 xs.map(x => x * x)
 ```
 
-```scala
+```scalascript
 "hello".toUpperCase + "!"
 ```
 
@@ -52,7 +52,7 @@ docs, or any value. `render(...)` outputs the assembled result.
 
 Build a table of values:
 
-```scala
+```scalascript
 def table(title: String, rows: List[String]) =
   doc(s"=== $title ===", rows.mkString("\n"))
 
@@ -66,7 +66,7 @@ render(doc(
 
 `md` for clean formatting, `doc` for structure, auto-output for quick inspection:
 
-```scala
+```scalascript
 val lang     = "ScalaScript"
 val features = List("md interpolator", "auto-output", "doc builder")
 

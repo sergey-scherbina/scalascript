@@ -259,7 +259,7 @@ def printSection(s: Section, indent: Int): Unit =
     case Content.CodeBlock(lang, src, tree, _) =>
       val lines  = src.linesIterator.length
       val status = tree.map(_ => "parsed").getOrElse(
-        if lang == "scala" || lang == "ssc" then "PARSE ERROR" else "untyped"
+        if Lang.isParseable(lang) then "PARSE ERROR" else "untyped"
       )
       println(s"$prefix  [code:$lang  $lines lines  $status]")
     case Content.Import(path, bindings, _) =>

@@ -5,7 +5,7 @@ version: 1.0.0
 
 # Higher-Order Functions
 
-```scala
+```scalascript
 def apply(f: Int => Int, x: Int): Int = f(x)
 def compose(f: Int => Int, g: Int => Int): Int => Int = x => f(g(x))
 

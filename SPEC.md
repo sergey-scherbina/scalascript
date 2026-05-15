@@ -90,18 +90,30 @@ Markdown links serve as imports and cross-references:
 
 ### 3.3 Fenced Code Blocks → Typed Expressions
 
-Code blocks with language tag are typed expression units:
+Code blocks carry a language annotation that determines how they are
+processed by each backend.
 
 ````markdown
-```scala
+```scalascript
 def add(x: Int, y: Int): Int = x + y
 ```
 ````
 
 Supported language tags:
-- `scala` — Scala-style expressions (primary)
-- `ssc` — ScalaScript (allows nested markdown)
-- `json`, `yaml` — Data literals
+
+| Tag | Language | Description |
+|-----|----------|-------------|
+| `scalascript` | ScalaScript | Full ScalaScript dialect: effects/handlers, TCO, content helpers, module imports. Executed by the interpreter, transpiled by the JS backend, compiled by the JVM backend. |
+| `ssc` | ScalaScript | Legacy alias for `scalascript`. |
+| `scala` | Standard Scala 3 | No ScalaScript-specific extensions. Executed by the interpreter and JVM backend as standard Scala 3. The JS backend will eventually compile these via Scala.js; currently skipped with a comment. |
+
+A `.ssc` document may freely mix `scala` and `scalascript` blocks.
+Definitions in `scala` blocks are visible to subsequent `scalascript` blocks
+(and vice versa) within the same file because they share the interpreter
+environment.
+
+Other tags (`json`, `yaml`, `text`, etc.) are treated as inert prose by all
+backends.
 
 ### 3.4 Inline Interpolation
 
@@ -139,7 +151,7 @@ May be typed as `List[String]` in context.
 
 ### 4.2 Compound Types
 
-```scala
+```scalascript
 // Tuples
 (Int, String)
 (1, "hello")
@@ -156,7 +168,7 @@ Option[A]
 
 ### 4.3 Algebraic Data Types
 
-```scala
+```scalascript
 enum Color:
   case Red, Green, Blue
 
@@ -169,7 +181,7 @@ enum Option[+A]:
 
 Types are inferred where possible:
 
-```scala
+```scalascript
 val x = 42          // x: Int
 val f = (x: Int) => x + 1  // f: Int => Int
 ```
@@ -189,7 +201,7 @@ Explicit annotations required for:
 
 ### 5.1 Literals
 
-```scala
+```scalascript
 42                  // Int
 3.14                // Double
 "hello"             // String
@@ -199,7 +211,7 @@ true                // Boolean
 
 ### 5.2 Definitions
 
-```scala
+```scalascript
 val x: Int = 42           // immutable value
 var y: Int = 0            // mutable variable
 def f(x: Int): Int = x+1  // function
@@ -208,7 +220,7 @@ type Alias = List[Int]    // type alias
 
 ### 5.3 Control Flow
 
-```scala
+```scalascript
 if condition then expr1 else expr2
 
 expr match
@@ -222,7 +234,7 @@ while condition do expr
 
 ### 5.4 Pattern Matching
 
-```scala
+```scalascript
 x match
   case 0 => "zero"
   case n if n > 0 => "positive"
@@ -291,10 +303,12 @@ Or selective import:
 
 ### 7.2 Effects
 
-[OPEN] Effect system design TBD. Options:
-- Pure by default with explicit effect markers
-- IO monad style
-- Capabilities
+ScalaScript supports algebraic effects and handlers — a structured mechanism
+for defining, performing, and intercepting side effects without monads.
+Effects are defined as named interfaces; handlers intercept them and can
+resume the continuation, abort, or transform the result.
+
+Currently supported in the JVM interpreter. JS and Scala 3 backends planned.
 
 ### 7.3 Interop
 
@@ -314,7 +328,7 @@ Backends define interop mechanisms:
 
 ### 8.2 Core Functions
 
-```scala
+```scalascript
 def println(x: Any): Unit
 def assert(cond: Boolean, msg: String): Unit
 def require(cond: Boolean, msg: String): Unit

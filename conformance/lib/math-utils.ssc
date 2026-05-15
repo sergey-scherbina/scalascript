@@ -9,7 +9,7 @@ exports:
 
 # Math Utilities
 
-```scala
+```scalascript
 def square(n: Int): Int = n * n
 def cube(n: Int): Int = n * n * n
 def factorial(n: Int): Int =

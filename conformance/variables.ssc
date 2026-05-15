@@ -5,7 +5,7 @@ version: 1.0.0
 
 # Variables and While Loops
 
-```scala
+```scalascript
 var x = 0
 var sum = 0
 while x < 5 do

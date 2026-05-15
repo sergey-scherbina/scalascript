@@ -13,7 +13,7 @@ ScalaScript supports Scala 3 typeclass patterns: `trait`, `given`, and `summon`.
 
 A `trait` defines the algebra. `given` binds a concrete implementation:
 
-```scala
+```scalascript
 trait Show[A]:
   def show(x: A): String
 
@@ -34,7 +34,7 @@ println(s"summon : ${summon[Show[Int]].show(99)}")
 
 ## Eq — Equality
 
-```scala
+```scalascript
 trait Eq[A]:
   def eql(a: A, b: A): Boolean
 
@@ -52,7 +52,7 @@ println(s"hi == ho: ${eqStr.eql("hi", "ho")}")
 
 ## Ord — Ordering
 
-```scala
+```scalascript
 trait Ord[A]:
   def compare(a: A, b: A): Int
   def lt(a: A, b: A): Boolean
@@ -79,7 +79,7 @@ println(s"sorted  : ${sorted.mkString(", ")}")
 
 ## Monoid — Combining Values
 
-```scala
+```scalascript
 trait Monoid[A]:
   def empty: A
   def combine(a: A, b: A): A
@@ -105,7 +105,7 @@ println(s"repeat : ${repeat("ab", 4, strConcat)}")
 
 ## Functor — Mapping Over Structure
 
-```scala
+```scalascript
 trait Functor[F]:
   def fmap(fa: List[Int], f: Int => Int): List[Int]
 

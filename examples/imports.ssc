@@ -18,7 +18,7 @@ and descriptive statistics.
 
 ScalaScript exposes the standard math library:
 
-```scala
+```scalascript
 println(s"sqrt(2)    = ${math.sqrt(2)}")
 println(s"Pi         = ${math.Pi}")
 println(s"pow(2, 10) = ${math.pow(2.0, 10.0)}")
@@ -29,13 +29,13 @@ println(s"abs(-42)   = ${math.abs(-42)}")
 
 ### Point
 
-```scala
+```scalascript
 case class Point(x: Double, y: Double)
 ```
 
 ### Distance
 
-```scala
+```scalascript
 def distance(p1: Point, p2: Point): Double =
   val dx = p2.x - p1.x
   val dy = p2.y - p1.y
@@ -44,7 +44,7 @@ def distance(p1: Point, p2: Point): Double =
 
 ### Polygon Perimeter
 
-```scala
+```scalascript
 def perimeter(pts: List[Point]): Double =
   val pairs = pts.zip(pts.tail.appended(pts.head))
   pairs.map(p => distance(p._1, p._2)).foldLeft(0.0)(_ + _)
@@ -59,7 +59,7 @@ println(s"square perimeter     = ${perimeter(square)}")
 
 ## Statistics
 
-```scala
+```scalascript
 def calculateStats(numbers: List[Double]): Map[String, Double] =
   val n    = numbers.length.toDouble
   val sum  = numbers.foldLeft(0.0)(_ + _)

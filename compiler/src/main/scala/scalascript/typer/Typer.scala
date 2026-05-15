@@ -48,7 +48,7 @@ class Typer:
   private def typeCheckContent(content: Content, scope: Scope): Option[TypedDef] =
     content match
       case cb: Content.CodeBlock =>
-        val isScala = cb.lang == "scala" || cb.lang == "ssc"
+        val isScala = Lang.isParseable(cb.lang)
         if isScala && cb.tree.isEmpty then
           errors += TypeError(s"Failed to parse ${cb.lang} code block", None)
           Some(TypedDef.CodeBlock(cb.lang, parsed = false, Nil))

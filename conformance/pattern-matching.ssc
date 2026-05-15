@@ -5,7 +5,7 @@ version: 1.0.0
 
 # Pattern Matching
 
-```scala
+```scalascript
 def describe(x: Int): String = x match
   case 0 => "zero"
   case 1 => "one"

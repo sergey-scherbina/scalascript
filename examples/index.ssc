@@ -15,7 +15,7 @@ You are reading a live page generated from `index.ssc`.
 
 ## Quick demo
 
-```scala
+```scalascript
 val lang   = "ScalaScript"
 val version = "0.1"
 

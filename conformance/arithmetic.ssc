@@ -5,7 +5,7 @@ version: 1.0.0
 
 # Arithmetic
 
-```scala
+```scalascript
 val a = 10
 val b = 3
 println(a + b)

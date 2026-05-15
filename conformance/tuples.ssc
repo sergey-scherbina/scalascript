@@ -5,7 +5,7 @@ version: 1.0.0
 
 # Tuples
 
-```scala
+```scalascript
 val t2 = (1, "hello")
 println(t2._1)
 println(t2._2)

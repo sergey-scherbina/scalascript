@@ -5,7 +5,7 @@ version: 1.0.0
 
 # List Companion
 
-```scala
+```scalascript
 val filled = List.fill(4)(0)
 println(filled.mkString(", "))
 

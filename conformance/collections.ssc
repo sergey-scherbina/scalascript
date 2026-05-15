@@ -5,7 +5,7 @@ version: 1.0.0
 
 # Collections
 
-```scala
+```scalascript
 val xs = List(1, 2, 3, 4, 5)
 println(xs.length)
 println(xs.head)

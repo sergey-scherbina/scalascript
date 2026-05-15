@@ -120,7 +120,7 @@ object Parser:
     case f: CmFenced =>
       val lang = Option(f.getInfo).map(_.trim.takeWhile(!_.isWhitespace)).getOrElse("").toLowerCase
       val src  = Option(f.getLiteral).getOrElse("")
-      val tree = if lang == "scala" || lang == "ssc" then parseScala(src) else None
+      val tree = if Lang.isParseable(lang) then parseScala(src) else None
       Some(Content.CodeBlock(lang, src, tree))
 
     case p: CmParagraph =>

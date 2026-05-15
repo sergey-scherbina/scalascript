@@ -11,7 +11,7 @@ ScalaScript supports algebraic data types: case classes, enums, Map, and Option.
 
 ## Case Classes
 
-```scala
+```scalascript
 case class Point(x: Double, y: Double)
 case class Person(name: String, age: Int)
 
@@ -22,7 +22,7 @@ println(s"Person : ${Person("Alice", 30).name}, age ${Person("Alice", 30).age}")
 
 ## Enum — Simple Cases
 
-```scala
+```scalascript
 enum Color:
   case Red
   case Green
@@ -40,7 +40,7 @@ println(s"Blue  = ${toHex(Blue)}")
 
 ## Enum — Parameterised Cases
 
-```scala
+```scalascript
 enum Shape:
   case Circle(radius: Double)
   case Rect(width: Double, height: Double)
@@ -62,7 +62,7 @@ shapes.foreach(s => println(s"area(${label(s)}) = ${area(s)}"))
 
 ## Pattern Matching with Guards
 
-```scala
+```scalascript
 def classify(n: Int): String = n match
   case x if x < 0  => "negative"
   case 0            => "zero"
@@ -74,7 +74,7 @@ List(-3, 0, 7, 42).foreach(n => println(s"classify($n) = ${classify(n)}"))
 
 ## Map
 
-```scala
+```scalascript
 val scores = Map("Alice" -> 95, "Bob" -> 87, "Carol" -> 92)
 
 println(s"Alice's score : ${scores.get("Alice").getOrElse(0)}")
@@ -84,7 +84,7 @@ println(s"Total students: ${scores.size}")
 
 ## Option
 
-```scala
+```scalascript
 def safeDivide(a: Int, b: Int): Option[Int] =
   if b == 0 then None else Some(a / b)
 
@@ -94,7 +94,7 @@ println(s"10 / 0 = ${safeDivide(10, 0).map(n => n.toString).getOrElse("undefined
 
 ## Combining Everything
 
-```scala
+```scalascript
 case class Student(name: String, grade: Int)
 
 val students = List(

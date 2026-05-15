@@ -5,7 +5,7 @@ version: 1.0.0
 
 # Maps
 
-```scala
+```scalascript
 val m = Map("a" -> 1, "b" -> 2, "c" -> 3)
 println(m.size)
 println(m.getOrElse("a", 0))

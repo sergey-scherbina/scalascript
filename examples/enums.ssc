@@ -10,7 +10,7 @@ Scala 3 enums are the preferred way to model algebraic data types.
 
 ## Simple Enum
 
-```scala
+```scalascript
 enum Direction:
   case North
   case South
@@ -29,7 +29,7 @@ dirs.foreach(d => println(s"${d} -> ${opposite(d)}"))
 
 ## Enum with Parameters
 
-```scala
+```scalascript
 enum Shape:
   case Circle(radius: Double)
   case Rectangle(width: Double, height: Double)
@@ -58,7 +58,7 @@ shapes.foreach { s =>
 
 ## Option as an Enum
 
-```scala
+```scalascript
 def safeDivide(a: Int, b: Int): Option[Int] =
   if b == 0 then None else Some(a / b)
 
@@ -72,7 +72,7 @@ pairs.foreach { case (a, b) =>
 
 ## Recursive ADT
 
-```scala
+```scalascript
 enum Tree:
   case Leaf(value: Int)
   case Branch(left: Tree, right: Tree)

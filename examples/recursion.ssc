@@ -14,7 +14,7 @@ constant stack space — no `@tailrec` annotation required.
 These functions are not tail-recursive: each call leaves a pending computation
 on the stack, so they work for small inputs only.
 
-```scala
+```scalascript
 def factorial(n: Int): Int =
   if n <= 1 then 1 else n * factorial(n - 1)
 
@@ -30,7 +30,7 @@ println(fib(12))
 When every recursive call is in tail position the runtime replaces it with a
 loop, allowing arbitrarily deep recursion without stack overflow.
 
-```scala
+```scalascript
 // sum 1..n using an accumulator — tail position in both branches
 def sum(n: Long, acc: Long): Long =
   if n <= 0 then acc else sum(n - 1, acc + n)
@@ -54,7 +54,7 @@ Functions that call each other in tail position are also optimised: ScalaScript
 detects the mutually-recursive group and routes all tail calls through a single
 trampoline, keeping the stack flat.
 
-```scala
+```scalascript
 def isEven(n: Int): Boolean =
   if n == 0 then true else isOdd(n - 1)
 
@@ -73,7 +73,7 @@ The Collatz conjecture: starting from any positive integer, repeatedly applying
 `n / 2` (even) or `3n + 1` (odd) eventually reaches 1.  A tail-recursive
 accumulator counts the steps.
 
-```scala
+```scalascript
 def collatzSteps(n: Long, steps: Int): Int =
   if n == 1 then steps
   else if n % 2 == 0 then collatzSteps(n / 2, steps + 1)
@@ -90,7 +90,7 @@ println(s"Longest Collatz sequence up to 1000: starts at $bestN, $bestSteps step
 
 ## Three-Function Mutual Recursion
 
-```scala
+```scalascript
 def ping(n: Int): String =
   if n == 0 then "ping" else pong(n - 1)
 

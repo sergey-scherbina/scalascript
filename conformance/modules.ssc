@@ -9,7 +9,7 @@ Import specific bindings from a library file:
 
 [square, cube, factorial](./lib/math-utils.ssc)
 
-```scala
+```scalascript
 println(square(5))
 println(cube(3))
 println(factorial(6))

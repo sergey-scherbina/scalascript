@@ -16,7 +16,7 @@ This example demonstrates ScalaScript's type system features.
 
 ## Basic Types
 
-```scala
+```scalascript
 val anInt: Int = 42
 val aDouble: Double = 3.14159
 val aString: String = "hello"
@@ -28,7 +28,7 @@ val aChar: Char = 'x'
 
 Case classes are immutable data containers with auto-generated methods.
 
-```scala
+```scalascript
 case class Person(
   name: String,
   age: Int,
@@ -38,7 +38,7 @@ case class Person(
 
 Usage:
 
-```scala
+```scalascript
 val alice = Person("Alice", 30, Some("alice@example.com"))
 val bob = Person("Bob", 25)
 ```
@@ -47,7 +47,7 @@ val bob = Person("Bob", 25)
 
 Algebraic data types via enum:
 
-```scala
+```scalascript
 enum Color:
   case Red
   case Green
@@ -57,7 +57,7 @@ enum Color:
 
 ## Recursive Types
 
-```scala
+```scalascript
 enum JsonValue:
   case JsonNull
   case JsonBool(value: Boolean)
@@ -69,7 +69,7 @@ enum JsonValue:
 
 ## Generic Types
 
-```scala
+```scalascript
 case class Box[A](value: A)
 
 def map[A, B](box: Box[A], f: A => B): Box[B] =
@@ -78,7 +78,7 @@ def map[A, B](box: Box[A], f: A => B): Box[B] =
 
 ## Type Aliases
 
-```scala
+```scalascript
 type Name = String
 type Age = Int
 type PersonMap = Map[Name, Person]
@@ -86,7 +86,7 @@ type PersonMap = Map[Name, Person]
 
 ## Function Types
 
-```scala
+```scalascript
 val increment: Int => Int = x => x + 1
 
 val add: (Int, Int) => Int = (a, b) => a + b
@@ -97,7 +97,7 @@ val compose: (Int => Int, Int => Int) => Int => Int =
 
 ## Pattern Matching with Types
 
-```scala
+```scalascript
 def processPerson(p: Person): String = p match
   case Person(name, age, Some(email)) =>
     s"$name ($age) - $email"
@@ -107,7 +107,7 @@ def processPerson(p: Person): String = p match
 
 ## Union Types
 
-```scala
+```scalascript
 type StringOrInt = String | Int
 
 def describe(value: StringOrInt): String = value match
@@ -119,7 +119,7 @@ def describe(value: StringOrInt): String = value match
 
 Creating and manipulating typed data:
 
-```scala
+```scalascript
 val people: List[Person] = List(
   Person("Alice", 30, Some("alice@example.com")),
   Person("Bob", 25, None),

@@ -14,7 +14,7 @@ and tuple destructuring.
 
 `extension` adds new methods to existing types without modifying them:
 
-```scala
+```scalascript
 extension (s: String)
   def shout: String   = s.toUpperCase + "!"
   def whisper: String = s.toLowerCase
@@ -27,7 +27,7 @@ println("ha".repeat(3))
 
 Extension on numeric types:
 
-```scala
+```scalascript
 extension (n: Int)
   def squared: Int = n * n
   def times(f: Int => Int): Int = f(n)
@@ -38,7 +38,7 @@ println(s"3.times(*10) = ${3.times(x => x * 10)}")
 
 Extension on collections:
 
-```scala
+```scalascript
 extension (xs: List[Int])
   def second: Int     = xs.tail.head
   def average: Double = xs.sum.toDouble / xs.length
@@ -52,21 +52,21 @@ println(s"average = ${nums.average}")
 
 `for ... yield` produces a new collection:
 
-```scala
+```scalascript
 val squares = for x <- (1 to 5).toList yield x * x
 println(s"squares  : ${squares.mkString(", ")}")
 ```
 
 With a guard to filter:
 
-```scala
+```scalascript
 val evens = for x <- (1 to 10).toList if x % 2 == 0 yield x
 println(s"evens    : ${evens.mkString(", ")}")
 ```
 
 Nested generators produce the cartesian product:
 
-```scala
+```scalascript
 val pairs = for
   x <- List(1, 2, 3)
   y <- List("a", "b")
@@ -76,7 +76,7 @@ println(s"pairs    : ${pairs.mkString(", ")}")
 
 `for ... do` iterates for side effects:
 
-```scala
+```scalascript
 var total = 0
 for x <- (1 to 100).toList do total = total + x
 println(s"sum 1..100 = $total")
@@ -84,7 +84,7 @@ println(s"sum 1..100 = $total")
 
 ## While Loops
 
-```scala
+```scalascript
 var i = 1
 var product = 1
 while i <= 10 do
@@ -95,7 +95,7 @@ println(s"10! = $product")
 
 ## Fibonacci with Recursion
 
-```scala
+```scalascript
 def fibonacci(n: Int): List[Int] =
   def go(a: Int, b: Int, count: Int): List[Int] =
     if count <= 0 then List()
@@ -107,14 +107,14 @@ println(s"fib(10) = ${fibonacci(10).mkString(", ")}")
 
 ## Tuple Destructuring
 
-```scala
+```scalascript
 val (minVal, maxVal) = (List(3, 1, 4, 1, 5, 9).min, List(3, 1, 4, 1, 5, 9).max)
 println(s"min = $minVal, max = $maxVal")
 ```
 
 Destructuring in for — zip two lists and process pairs:
 
-```scala
+```scalascript
 val names  = List("Alice", "Bob", "Carol")
 val grades = List(90, 75, 88)
 for (name, grade) <- names.zip(grades) do

@@ -359,7 +359,7 @@ class JsGen(baseDir: Option[os.Path] = None):
 
     def scanSection(section: Section): Unit =
       section.content.foreach {
-        case cb: Content.CodeBlock if cb.lang == "scala" || cb.lang == "ssc" =>
+        case cb: Content.CodeBlock if Lang.isScalaScript(cb.lang) =>
           cb.tree.foreach { node =>
             ScalaNode.fold(node) {
               case Source(stats)     => collectFuncs(stats)
@@ -438,8 +438,10 @@ class JsGen(baseDir: Option[os.Path] = None):
 
   private[codegen] def genSection(section: Section): Unit =
     section.content.foreach {
-      case cb: Content.CodeBlock if cb.lang == "scala" || cb.lang == "ssc" =>
+      case cb: Content.CodeBlock if Lang.isScalaScript(cb.lang) =>
         cb.tree.foreach(genScalaNode)
+      case cb: Content.CodeBlock if Lang.isStandardScala(cb.lang) =>
+        line(s"/* scala: standard Scala 3 block — compile via Scala.js for JS execution */")
       case imp: Content.Import =>
         genImport(imp)
       case _ => ()
@@ -458,7 +460,7 @@ class JsGen(baseDir: Option[os.Path] = None):
       // Emit only the definitions from the imported module (suppress top-level output)
       childModule.sections.foreach { section =>
         section.content.foreach {
-          case cb: Content.CodeBlock if cb.lang == "scala" || cb.lang == "ssc" =>
+          case cb: Content.CodeBlock if Lang.isScalaScript(cb.lang) =>
             cb.tree.foreach(childGen.genScalaNode)
           case _ => ()
         }

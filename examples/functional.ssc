@@ -11,7 +11,7 @@ combinators out of the box.
 
 ## Functions as Values
 
-```scala
+```scalascript
 val double = (x: Int) => x * 2
 val square = (x: Int) => x * x
 val negate = (x: Int) => 0 - x
@@ -24,7 +24,7 @@ println(xs.map(negate).mkString(", "))
 
 ## Higher-Order Functions
 
-```scala
+```scalascript
 def applyTwice(f: Int => Int, x: Int): Int = f(f(x))
 def compose(f: Int => Int, g: Int => Int): Int => Int = x => f(g(x))
 
@@ -41,7 +41,7 @@ println(squareDouble(3))
 
 Functions capture variables from their enclosing scope.
 
-```scala
+```scalascript
 def multiplier(factor: Int): Int => Int = x => x * factor
 
 val triple = multiplier(3)
@@ -54,7 +54,7 @@ println(xs.map(triple).mkString(", "))
 
 ## Partial Application via Closures
 
-```scala
+```scalascript
 def adder(a: Int): Int => Int = b => a + b
 
 val add5   = adder(5)
@@ -66,7 +66,7 @@ println(xs.map(add100).mkString(", "))
 
 ## Pipeline with Combinators
 
-```scala
+```scalascript
 val result = List(1, 2, 3, 4, 5, 6, 7, 8, 9, 10)
   .filter(_ % 2 == 0)
   .map(square)
@@ -78,7 +78,7 @@ println(result.sum)
 
 ## Accumulating with foldLeft
 
-```scala
+```scalascript
 def runningTotals(xs: List[Int]): List[Int] =
   xs.foldLeft(List[Int]()) { (acc, x) =>
     val prev = if acc.isEmpty then 0 else acc.last

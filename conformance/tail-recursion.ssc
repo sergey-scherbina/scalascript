@@ -6,7 +6,7 @@ description: Tail-call optimisation — deep recursion without stack overflow
 
 # Tail Recursion
 
-```scala
+```scalascript
 def sum(n: Long, acc: Long): Long =
   if n <= 0 then acc else sum(n - 1, acc + n)
 

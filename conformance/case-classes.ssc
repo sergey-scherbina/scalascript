@@ -5,7 +5,7 @@ version: 1.0.0
 
 # Case Classes
 
-```scala
+```scalascript
 case class Point(x: Double, y: Double)
 case class Circle(center: Point, radius: Double)
 case class Rect(topLeft: Point, width: Double, height: Double)

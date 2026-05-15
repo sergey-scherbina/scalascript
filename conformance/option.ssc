@@ -5,7 +5,7 @@ version: 1.0.0
 
 # Option
 
-```scala
+```scalascript
 val some: Option[Int] = Some(42)
 val none: Option[Int] = None
 println(some.isDefined)

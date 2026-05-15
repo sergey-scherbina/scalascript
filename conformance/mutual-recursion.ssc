@@ -6,7 +6,7 @@ description: Mutual tail-call optimisation — isEven/isOdd without stack overfl
 
 # Mutual Recursion
 
-```scala
+```scalascript
 def isEven(n: Int): Boolean =
   if n == 0 then true else isOdd(n - 1)
 

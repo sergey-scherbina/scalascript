@@ -71,7 +71,7 @@ object JvmGen:
     sections.flatMap { s =>
       val own = s.content.collect {
         case Content.CodeBlock(lang, src, _, _)
-            if lang == "scala" || lang == "ssc" => src
+            if Lang.isParseable(lang) => src
       }
       own ++ collectBlocks(s.subsections)
     }

@@ -5,7 +5,7 @@ version: 1.0.0
 
 # Strings
 
-```scala
+```scalascript
 val s = "Hello, World!"
 println(s.length)
 println(s.toUpperCase)

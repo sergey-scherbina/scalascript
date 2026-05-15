@@ -149,7 +149,7 @@ class Interpreter(out: java.io.PrintStream = System.out, baseDir: Option[os.Path
 
   private def runSection(section: Section): Unit =
     section.content.foreach {
-      case cb: Content.CodeBlock if cb.lang == "scala" || cb.lang == "ssc" =>
+      case cb: Content.CodeBlock if Lang.isParseable(cb.lang) =>
         cb.tree.foreach(execBlock)
       case imp: Content.Import =>
         runImport(imp)

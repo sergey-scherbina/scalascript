@@ -1,0 +1,76 @@
+#!/usr/bin/env ssc
+---
+name: lang-split
+version: 1.0.0
+description: Demonstrates the distinction between `scala` and `scalascript` code blocks.
+---
+
+# Language Block Types
+
+`.ssc` files support two code block languages:
+
+- **`scalascript`** — the ScalaScript dialect.  Interpreted by `ssc`, transpiled to
+  JavaScript by the JS backend, and compiled by the JVM backend.  Unlocks all
+  ScalaScript extensions: algebraic effects/handlers, tail-call optimisation,
+  `doc`/`render` content helpers, and module imports.
+
+- **`scala`** — standard Scala 3.  Included as-is by the JVM backend; the JS
+  backend will eventually compile these blocks via Scala.js.  The interpreter
+  runs them using its Scala 3 subset.
+
+The two langs can coexist in the same document and share no namespace (each is a
+separate compilation unit).
+
+# Standard Scala 3 Block
+
+This block contains only standard Scala 3 — no ScalaScript extensions.
+It is annotated as `scala`.
+
+```scala
+// Standard Scala 3: case classes, pattern matching, higher-order functions
+case class Point(x: Double, y: Double):
+  def distanceTo(other: Point): Double =
+    math.sqrt(math.pow(x - other.x, 2) + math.pow(y - other.y, 2))
+
+val origin = Point(0, 0)
+val p      = Point(3, 4)
+println(s"Distance: ${origin.distanceTo(p)}")
+
+val numbers = List(1, 2, 3, 4, 5)
+val evens   = numbers.filter(_ % 2 == 0)
+println(s"Evens: ${evens.mkString(", ")}")
+```
+
+# ScalaScript Block
+
+This block uses ScalaScript-specific features and is annotated as `scalascript`.
+It can use effects, handlers, content helpers, and ScalaScript's extended library.
+
+```scalascript
+// ScalaScript: tail-call-optimised recursion (no @tailrec needed)
+def sum(n: Long, acc: Long = 0L): Long =
+  if n <= 0 then acc else sum(n - 1, acc + n)
+
+println(s"sum(100000) = ${sum(100000)}")
+
+// ScalaScript: List companion extensions
+val grid = List.tabulate(3)(i => List.tabulate(3)(j => i * 3 + j + 1))
+grid.foreach(row => println(row.mkString(" ")))
+```
+
+# Mixed Document
+
+A document can freely mix `scala` and `scalascript` sections.
+Standard library definitions in `scala` blocks are visible to the interpreter
+just like `scalascript` ones, since both target the same Scala 3 runtime.
+
+```scala
+def isPrime(n: Int): Boolean =
+  n > 1 && (2 to math.sqrt(n).toInt).forall(n % _ != 0)
+```
+
+```scalascript
+// Uses isPrime defined in the scala block above
+val primes = List.range(2, 30).filter(isPrime)
+println(s"Primes up to 30: ${primes.mkString(", ")}")
+```

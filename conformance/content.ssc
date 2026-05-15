@@ -5,7 +5,7 @@ version: 1.0.0
 
 # Content Helpers
 
-```scala
+```scalascript
 val name = "World"
 val greeting = md"""
   Hello, $name!
@@ -14,7 +14,7 @@ val greeting = md"""
 println(greeting)
 ```
 
-```scala
+```scalascript
 def section(title: String, items: List[String]) =
   doc(s"[$title]", items.mkString("\n"))
 

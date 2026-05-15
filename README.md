@@ -4,6 +4,13 @@ A language where **Markdown is syntax, not decoration** — `.ssc` files are
 executable documents combining YAML front-matter, Markdown prose, and
 Scala 3 code blocks.
 
+`.ssc` files support two code-block languages:
+
+| Annotation | Language | Backends |
+|------------|----------|----------|
+| ` ```scalascript` | ScalaScript dialect — effects, handlers, content helpers, TCO | interpreter · JS transpiler · JVM |
+| ` ```scala` | Standard Scala 3 — no ScalaScript extensions | interpreter · JVM (Scala.js planned for JS) |
+
 ````ssc
 ---
 name: hello
@@ -12,7 +19,7 @@ version: 1.0.0
 
 # Hello World
 
-```scala
+```scalascript
 def greet(name: String): String = s"Hello, $name!"
 println(greet("World"))
 ```
@@ -54,7 +61,9 @@ bin/sscc examples/hello.ssc
 
 ## What Works
 
-All three backends (JVM interpreter, JS transpiler, Scala 3 compiler) support:
+All three backends support `scalascript` blocks.  `scala` blocks (standard
+Scala 3) are supported by the interpreter and JVM backend; Scala.js support for
+the JS backend is planned.
 
 | Feature | Syntax |
 |---------|--------|
@@ -97,6 +106,7 @@ JVM interpreter only: `serve` (requires a running interpreter at request time).
 | [content.ssc](examples/content.ssc) | `md` interpolator, auto-output, `doc`/`render` |
 | [recursion.ssc](examples/recursion.ssc) | Self-TCO, mutual TCO, Collatz — deep recursion without overflow |
 | [effects.ssc](examples/effects.ssc) | Algebraic effects — Console routing, nondeterminism, early return |
+| [lang-split.ssc](examples/lang-split.ssc) | `scala` vs `scalascript` block annotations side by side |
 
 Run them all at once:
 
