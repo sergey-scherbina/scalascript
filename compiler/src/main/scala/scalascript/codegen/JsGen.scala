@@ -11,8 +11,8 @@ import scala.collection.mutable
 object JsGen:
 
   /** Generate JS source for all code blocks in a module. */
-  def generate(module: Module): String =
-    val gen = new JsGen()
+  def generate(module: Module, baseDir: Option[os.Path] = None): String =
+    val gen = new JsGen(baseDir)
     gen.genModule(module)
 
 /** JS runtime preamble embedded in every generated page. */
@@ -277,10 +277,10 @@ function _registerExt(method, fn) {
 }
 """
 
-class JsGen:
+class JsGen(baseDir: Option[os.Path] = None):
   import scala.meta.*
 
-  private val sb = StringBuilder()
+  private[codegen] val sb = StringBuilder()
   private var indent = 0
   private var tmpIdx = 0
   private var hasMain = false
@@ -305,15 +305,37 @@ class JsGen:
       line("if (typeof main === 'function') { main(); }")
     sb.toString
 
-  private def genSection(section: Section): Unit =
+  private[codegen] def genSection(section: Section): Unit =
     section.content.foreach {
       case cb: Content.CodeBlock if cb.lang == "scala" || cb.lang == "ssc" =>
         cb.tree.foreach(genScalaNode)
+      case imp: Content.Import =>
+        genImport(imp)
       case _ => ()
     }
     section.subsections.foreach(genSection)
 
-  private def genScalaNode(node: ScalaNode): Unit =
+  private def genImport(imp: Content.Import): Unit =
+    import scalascript.parser.Parser
+    val resolvedPath = baseDir match
+      case Some(dir) => dir / os.RelPath(imp.path)
+      case None      => os.Path(imp.path, os.pwd)
+    if os.exists(resolvedPath) then
+      val childDir = resolvedPath / os.up
+      val childModule = Parser.parse(os.read(resolvedPath))
+      val childGen = new JsGen(Some(childDir))
+      // Emit only the definitions from the imported module (suppress top-level output)
+      childModule.sections.foreach { section =>
+        section.content.foreach {
+          case cb: Content.CodeBlock if cb.lang == "scala" || cb.lang == "ssc" =>
+            cb.tree.foreach(childGen.genScalaNode)
+          case _ => ()
+        }
+        section.subsections.foreach(childGen.genSection)
+      }
+      sb.append(childGen.sb)
+
+  private[codegen] def genScalaNode(node: ScalaNode): Unit =
     ScalaNode.fold(node) {
       case Source(stats) => genBlockStats(stats, topLevel = true)
       case t: Term.Block => genBlockStats(t.stats, topLevel = true)

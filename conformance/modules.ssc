@@ -1,0 +1,16 @@
+#!/usr/bin/env ssc
+---
+name: modules
+---
+
+# Modules
+
+Import specific bindings from a library file:
+
+[square, cube, factorial](./lib/math-utils.ssc)
+
+```scala
+println(square(5))
+println(cube(3))
+println(factorial(6))
+```

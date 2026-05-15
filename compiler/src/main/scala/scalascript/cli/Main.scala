@@ -83,7 +83,7 @@ def runCommand(args: List[String]): Unit =
     val path = os.Path(file, os.pwd)
     if !os.exists(path) then { println(s"Error: File not found: $file"); System.exit(1) }
     else
-      try   Interpreter.run(Parser.parse(os.read(path)))
+      try   Interpreter.run(Parser.parse(os.read(path)), baseDir = Some(path / os.up))
       catch case e: Exception =>
         System.err.println(s"Runtime error: ${e.getMessage}")
         System.exit(1)
@@ -119,7 +119,7 @@ def watchCommand(args: List[String]): Unit =
   val dir     = absPath.getParent
 
   def runOnce(): Unit =
-    try   Interpreter.run(Parser.parse(os.read(os.Path(absPath))))
+    try   Interpreter.run(Parser.parse(os.read(os.Path(absPath))), baseDir = Some(os.Path(absPath.getParent)))
     catch case e: Exception => System.err.println(s"Error: ${e.getMessage}")
 
   runOnce()
@@ -144,7 +144,7 @@ def emitJsCommand(args: List[String]): Unit =
     else
       try
         val module = Parser.parse(os.read(path))
-        val body   = JsGen.generate(module)
+        val body   = JsGen.generate(module, baseDir = Some(path / os.up))
         // Emit a self-contained Node.js-runnable script
         println(JsRuntime)
         println(body)
