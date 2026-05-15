@@ -882,10 +882,8 @@ class JsGen(baseDir: Option[os.Path] = None):
     case _ => () // type aliases etc.
 
   private def genExtensionDef(recvName: String, defn: Defn.Def): Unit =
-    val mparamVals   = defn.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values)
-    val methodParams = mparamVals.map(_.name.value)
-    val allParams = recvName :: methodParams
-    val paramsStr = (recvName :: mparamVals.map(formalWithDefault)).mkString(", ")
+    val mparamVals = defn.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values)
+    val paramsStr  = (recvName :: mparamVals.map(formalWithDefault)).mkString(", ")
     val fnName = s"_ext_${recvName}_${defn.name.value}"
     defn.body match
       case Term.Block(bodyStats) =>

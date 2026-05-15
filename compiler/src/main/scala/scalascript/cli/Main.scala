@@ -88,7 +88,7 @@ def runCommand(args: List[String]): Unit =
         System.err.println(s"Runtime error: ${e.getMessage}")
         System.exit(1)
 
-def replCommand(args: List[String]): Unit =
+def replCommand(@annotation.unused args: List[String]): Unit =
   import scala.io.StdIn
   val interp = Interpreter()
   interp.run(Parser.parse("# REPL\n"))   // initialise builtins, no code runs

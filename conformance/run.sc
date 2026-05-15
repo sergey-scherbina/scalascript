@@ -3,8 +3,10 @@
 
 // Conformance test runner for ScalaScript.
 // For each .ssc file in conformance/ it:
-//   1. Runs via JVM interpreter and compares against expected/*.txt
-//   2. Transpiles to JS, runs via Node.js and compares against expected/*.txt
+//   1. Runs via the JVM interpreter   (INT label)
+//   2. Transpiles to JS, runs via Node (JS  label)
+//   3. Generates Scala 3 source and compiles+runs via scala-cli (JVM label)
+// All three outputs are compared against the same expected/*.txt.
 // Usage: scala-cli conformance/run.sc [conformance-dir]
 //   conformance-dir defaults to the directory of this script
 
@@ -60,9 +62,9 @@ for test <- tests do
     println(s"$name:")
     val expected = os.read(expectedFile).stripTrailing()
 
-    // JVM
-    val jvmOut = run(ssc(test.toString))
-    val jvmOk  = check("JVM", jvmOut, expected)
+    // Interpreter
+    val intOut = run(ssc(test.toString))
+    val intOk  = check("INT", intOut, expected)
 
     // JS via Node.js
     val jsSource = run(ssc("emit-js", test.toString))
@@ -73,7 +75,11 @@ for test <- tests do
     ).out.text().stripTrailing()
     val jsOk = check("JS ", jsOut, expected)
 
-    if jvmOk && jsOk then passed += 1 else failed += 1
+    // JVM via JvmGen + scala-cli compile
+    val jvmOut = run(ssc("compile", test.toString))
+    val jvmOk  = check("JVM", jvmOut, expected)
+
+    if intOk && jsOk && jvmOk then passed += 1 else failed += 1
 
 println(s"\n$sep")
 println(s"Results: $passed passed, $failed failed out of ${passed + failed} tests")

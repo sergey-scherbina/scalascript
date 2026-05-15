@@ -186,7 +186,7 @@ class Typer:
 
     case Term.Apply.After_4_6_0(fun, argClause) =>
       inferType(fun, scope) match
-        case fnTpe @ SType.Function(paramTypes, retType) =>
+        case SType.Function(paramTypes, retType) =>
           val args = argClause.values
           // Only check arity for non-variadic functions.
           // Variadic: represented as single SType.Any param in our prelude.

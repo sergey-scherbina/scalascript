@@ -701,8 +701,8 @@ class Interpreter(out: java.io.PrintStream = System.out, baseDir: Option[os.Path
         current = eval(curFun.body, callEnv)
       try
         // Inner step loop — re-associate FlatMaps and step Pure short-circuits.
-        var stepping = true
-        while stepping do
+        // Exits via `return` inside the match; the condition stays `true`.
+        while true do
           current match
             case Pure(_)              => return current
             case Perform(_, _, _)     => return current
