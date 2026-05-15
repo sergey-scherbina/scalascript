@@ -3,7 +3,7 @@ package scalascript.cli
 import scalascript.parser.Parser
 import scalascript.typer.Typer
 import scalascript.interpreter.Interpreter
-import scalascript.codegen.{JsGen, JsRuntime, JvmGen}
+import scalascript.codegen.{JsGen, JsRuntime, JvmGen, ScalaJsBackend}
 import scalascript.ast.*
 
 @main def ssc(args: String*): Unit =
@@ -139,16 +139,22 @@ def watchCommand(args: List[String]): Unit =
 def emitJsCommand(args: List[String]): Unit =
   if args.isEmpty then { println("Error: No files specified"); System.exit(1) }
   for file <- args do
-    val path = os.Path(file, os.pwd)
+    val path    = os.Path(file, os.pwd)
+    val baseDir = Some(path / os.up)
     if !os.exists(path) then { println(s"Error: File not found: $file"); System.exit(1) }
     else
       try
         val module = Parser.parse(os.read(path))
-        val body   = JsGen.generate(module, baseDir = Some(path / os.up))
-        // Emit a self-contained Node.js-runnable script
-        println(JsRuntime)
-        println(body)
-        println("""console.log(_output.join("\n"));""")
+        // scala blocks → Scala.js compiled bundle
+        if ScalaJsBackend.hasBlocks(module) then
+          val scalaJs = ScalaJsBackend.compileToJs(module, baseDir)
+          if scalaJs.nonEmpty then println(scalaJs)
+        // scalascript blocks → our custom transpiler
+        if JsGen.hasBlocks(module) then
+          val body = JsGen.generate(module, baseDir = baseDir)
+          println(JsRuntime)
+          println(body)
+          println("""console.log(_output.join("\n"));""")
       catch case e: Exception =>
         System.err.println(s"JS generation error: ${e.getMessage}")
         System.exit(1)

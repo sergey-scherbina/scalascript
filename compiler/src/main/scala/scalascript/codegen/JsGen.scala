@@ -10,10 +10,20 @@ import scala.collection.mutable
  */
 object JsGen:
 
-  /** Generate JS source for all code blocks in a module. */
+  /** Generate JS source for all scalascript code blocks in a module. */
   def generate(module: Module, baseDir: Option[os.Path] = None): String =
     val gen = new JsGen(baseDir)
     gen.genModule(module)
+
+  /** True if the module contains at least one scalascript block. */
+  def hasBlocks(module: Module): Boolean =
+    module.sections.exists(sectionHas)
+
+  private def sectionHas(s: Section): Boolean =
+    s.content.exists {
+      case cb: Content.CodeBlock => Lang.isScalaScript(cb.lang)
+      case _                     => false
+    } || s.subsections.exists(sectionHas)
 
 /** JS runtime preamble embedded in every generated page. */
 val JsRuntime: String = """
