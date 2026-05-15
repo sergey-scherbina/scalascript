@@ -807,5 +807,11 @@ class Interpreter(out: java.io.PrintStream = System.out):
       val minIndent = body.filter(_.exists(_ != ' ')).map(_.takeWhile(_ == ' ').length).minOption.getOrElse(0)
       body.map(l => if l.isBlank then "" else l.drop(minIndent)).mkString("\n")
 
+  def runSnippet(code: String): Unit =
+    import scalascript.parser.Parser
+    val src    = s"# Snippet\n\n```scala\n$code\n```\n"
+    val module = Parser.parse(src)
+    module.sections.foreach(runSection)
+
 object Interpreter:
   def run(module: Module, out: java.io.PrintStream = System.out): Unit = Interpreter(out).run(module)
