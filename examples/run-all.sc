@@ -1,6 +1,5 @@
 #!/usr/bin/env scala-cli
 //> using toolkit latest
-//> using javaOpt --sun-misc-unsafe-memory-access=allow
 
 // Runs all ScalaScript examples in order and prints their output.
 // Usage: scala-cli examples/run-all.sc [examples-dir]
