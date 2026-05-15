@@ -308,7 +308,15 @@ for defining, performing, and intercepting side effects without monads.
 Effects are defined as named interfaces; handlers intercept them and can
 resume the continuation, abort, or transform the result.
 
-Currently supported in the JVM interpreter. JS and Scala 3 backends planned.
+Implementation: a **trampolined Free Monad** (`Pure | Perform | FlatMap`) with
+constant-time `flatMap` and a right-associating step loop — stack-safe in
+bind-chain depth (Bjarnason 2012). `resume(v)` invokes the captured Scala
+continuation directly, so side effects in the handler body run exactly once;
+multi-shot handlers interpret each `resume` branch independently.
+
+Supported on the **JVM interpreter** and the **JS transpiler** (the JS backend
+CPS-transforms function bodies flagged as effectful so they build the same
+Free tree at runtime). Scala 3 / JVM bytecode backend planned.
 
 ### 7.3 Interop
 
