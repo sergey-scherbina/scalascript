@@ -15,6 +15,12 @@ val dir: os.Path =
 
 val expectedDir = dir / "expected"
 val sscBin      = dir / os.up / "bin" / "ssc"
+val compiler    = dir / os.up / "compiler"
+
+// Use the pre-built binary when available, fall back to scala-cli run in CI
+def ssc(args: String*): os.proc =
+  if os.exists(sscBin) then os.proc(sscBin.toString +: args.toSeq)
+  else os.proc(Seq("scala-cli", "run", compiler.toString, "--") ++ args.toSeq)
 
 val tests = os.list(dir)
   .filter(_.ext == "ssc")
@@ -24,8 +30,8 @@ val sep = "-" * 50
 var passed = 0
 var failed = 0
 
-def run(cmd: os.Shellable*): String =
-  os.proc(cmd*).call(stderr = os.Pipe, check = false).out.text().stripTrailing()
+def run(cmd: os.proc): String =
+  cmd.call(stderr = os.Pipe, check = false).out.text().stripTrailing()
 
 def check(label: String, got: String, expected: String): Boolean =
   if got == expected then
@@ -55,11 +61,11 @@ for test <- tests do
     val expected = os.read(expectedFile).stripTrailing()
 
     // JVM
-    val jvmOut = run(sscBin, test)
+    val jvmOut = run(ssc(test.toString))
     val jvmOk  = check("JVM", jvmOut, expected)
 
     // JS via Node.js
-    val jsSource = run(sscBin, "emit-js", test)
+    val jsSource = run(ssc("emit-js", test.toString))
     val jsOut = os.proc("node").call(
       stdin  = jsSource,
       stderr = os.Pipe,
