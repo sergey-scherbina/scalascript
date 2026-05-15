@@ -1,5 +1,5 @@
 #!/usr/bin/env scala-cli
-//> using dep com.lihaoyi::os-lib:0.11.4
+//> using toolkit latest
 
 // Conformance test runner for ScalaScript.
 // For each .ssc file in conformance/ it:

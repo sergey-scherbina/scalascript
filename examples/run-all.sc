@@ -1,5 +1,5 @@
 #!/usr/bin/env scala-cli
-//> using dep com.lihaoyi::os-lib:0.11.4
+//> using toolkit latest
 
 // Runs all ScalaScript examples in order and prints their output.
 // Usage: scala-cli examples/run-all.sc [examples-dir]
