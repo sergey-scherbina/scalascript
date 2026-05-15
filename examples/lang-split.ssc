@@ -14,12 +14,16 @@ description: Demonstrates the distinction between `scala` and `scalascript` code
   ScalaScript extensions: algebraic effects/handlers, tail-call optimisation,
   `doc`/`render` content helpers, and module imports.
 
-- **`scala`** — standard Scala 3.  Included as-is by the JVM backend; the JS
-  backend will eventually compile these blocks via Scala.js.  The interpreter
-  runs them using its Scala 3 subset.
+- **`scala`** — standard Scala 3.  Included as-is by the JVM backend, compiled
+  to JavaScript by the JS backend via Scala.js (`scala-cli --js`), and run by
+  the interpreter using its Scala 3 subset.
 
-The two langs can coexist in the same document and share no namespace (each is a
-separate compilation unit).
+The two langs may coexist in the same document.  Cross-block name visibility
+depends on the backend: the **interpreter** and the **JVM backend** evaluate
+both kinds in a single shared environment, so a `def` in a `scala` block is
+visible to subsequent `scalascript` blocks and vice versa.  The **JS backend**
+compiles each kind through a different pipeline (`scala` → Scala.js, `scalascript`
+→ JsGen) and the two pipelines do not share JavaScript scope at runtime.
 
 # Standard Scala 3 Block
 
@@ -60,17 +64,13 @@ grid.foreach(row => println(row.mkString(" ")))
 
 # Mixed Document
 
-A document can freely mix `scala` and `scalascript` sections.
-Standard library definitions in `scala` blocks are visible to the interpreter
-just like `scalascript` ones, since both target the same Scala 3 runtime.
+A document can freely mix `scala` and `scalascript` sections; each kind is
+independently dispatched by the backend without any required ordering.
 
 ```scala
+// Standalone scala-3 block — works on every backend in isolation.
 def isPrime(n: Int): Boolean =
   n > 1 && (2 to math.sqrt(n).toInt).forall(n % _ != 0)
-```
-
-```scalascript
-// Uses isPrime defined in the scala block above
 val primes = List.range(2, 30).filter(isPrime)
 println(s"Primes up to 30: ${primes.mkString(", ")}")
 ```

@@ -91,6 +91,8 @@ compiles them via Scala.js.
 | Recursion | factorial, Fibonacci, tree traversal |
 | Tail-call optimisation | self-TCO and mutual TCO — no `@tailrec` required |
 | Algebraic effects | `effect E:`, `handle(body) { case E.op(arg, resume) => ... }` |
+| Default parameters | `def f(x: Int, step: Int = 1)`, also on class/enum constructors |
+| Module imports | `[name](./lib.ssc)` markdown links bring definitions into scope |
 | Content helpers | `doc(...)` / `render(...)` structured output |
 
 JVM interpreter only: `serve` (requires a running interpreter at request time).
@@ -100,6 +102,7 @@ JVM interpreter only: `serve` (requires a running interpreter at request time).
 | File | Description |
 |------|-------------|
 | [hello.ssc](examples/hello.ssc) | Minimal "Hello, World!" |
+| [index.ssc](examples/index.ssc) | Landing page for the `serve` examples browser |
 | [script.ssc](examples/script.ssc) | Functions, loops, Fibonacci |
 | [data-types.ssc](examples/data-types.ssc) | Case classes, sealed traits, enums, pattern matching |
 | [functional.ssc](examples/functional.ssc) | Lambdas, closures, HOF, composition, pipelines |
@@ -111,7 +114,9 @@ JVM interpreter only: `serve` (requires a running interpreter at request time).
 | [content.ssc](examples/content.ssc) | `md` interpolator, auto-output, `doc`/`render` |
 | [recursion.ssc](examples/recursion.ssc) | Self-TCO, mutual TCO, Collatz — deep recursion without overflow |
 | [effects.ssc](examples/effects.ssc) | Algebraic effects — Console routing, nondeterminism, early return |
+| [default-params.ssc](examples/default-params.ssc) | Default parameter values on defs, classes, and enum cases |
 | [lang-split.ssc](examples/lang-split.ssc) | `scala` vs `scalascript` block annotations side by side |
+| [scala-js-demo.ssc](examples/scala-js-demo.ssc) | Pure `scala` 3 document — JS via Scala.js, JVM via scala-cli (outside interpreter subset) |
 
 Run them all at once:
 
