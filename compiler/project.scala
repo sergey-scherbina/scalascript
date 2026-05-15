@@ -1,6 +1,5 @@
 //> using scala 3.8.3
 //> using toolkit latest
-//> using javaOpt --sun-misc-unsafe-memory-access=allow
 //> using dep org.yaml:snakeyaml:2.6
 //> using dep com.lihaoyi::pprint:0.9.6
 //> using dep org.scalameta::scalameta:4.17.0

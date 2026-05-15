@@ -1,6 +1,5 @@
 #!/usr/bin/env scala-cli
 //> using toolkit latest
-//> using javaOpt --sun-misc-unsafe-memory-access=allow
 
 // Conformance test runner for ScalaScript.
 // For each .ssc file in conformance/ it:
