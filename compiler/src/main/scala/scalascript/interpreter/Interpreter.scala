@@ -16,6 +16,17 @@ class Interpreter(out: java.io.PrintStream = System.out):
   private val extensions   = mutable.Map.empty[(String, String), Value.FunV]
   private var mainCalled   = false
   private var placeholderIdx = 0
+  private var currentSpan: Option[(Int, Int)] = None
+
+  private def posPrefix: String = currentSpan match
+    case Some((line, col)) => s"[line ${line + 1}, col ${col + 1}] "
+    case None              => ""
+
+  private def located(msg: String): Nothing = throw InterpretError(s"$posPrefix$msg")
+
+  private def trackPos(tree: scala.meta.Tree): Unit =
+    val p = tree.pos
+    if !p.isEmpty then currentSpan = Some((p.startLine, p.startColumn))
 
   // ─── Public API ──────────────────────────────────────────────────
 
@@ -145,12 +156,14 @@ class Interpreter(out: java.io.PrintStream = System.out):
       case Source(stats)     => execBlockStats(stats)
       case Term.Block(stats) => execBlockStats(stats)
       case t: Term           => eval(t, globals.toMap); ()
-      case other             => throw InterpretError(s"Expected Source/Block, got ${other.productPrefix}")
+      case other             => located(s"Expected Source/Block, got ${other.productPrefix}")
     }
 
   // ─── Statement execution ─────────────────────────────────────────
 
-  private def execStat(stat: Stat, env: mutable.Map[String, Value], printResult: Boolean = false): Unit = stat match
+  private def execStat(stat: Stat, env: mutable.Map[String, Value], printResult: Boolean = false): Unit =
+    trackPos(stat)
+    stat match
     case Defn.Val(_, pats, _, rhs) =>
       val rhsVal = eval(rhs, env.toMap)
       pats match
@@ -158,7 +171,7 @@ class Interpreter(out: java.io.PrintStream = System.out):
         case List(pat) =>
           matchPat(pat, rhsVal, env.toMap) match
             case Some(patEnv) => patEnv.foreach { (k, v) => env(k) = v }
-            case None         => throw InterpretError(s"Val pattern match failed")
+            case None         => located(s"Val pattern match failed")
         case _ => ()
 
     case Defn.Var.After_4_7_2(_, List(Pat.Var(n)), _, rhs) =>
@@ -259,7 +272,9 @@ class Interpreter(out: java.io.PrintStream = System.out):
 
   // ─── Expression evaluation ───────────────────────────────────────
 
-  private def eval(term: Term, env: Env): Value = term match
+  private def eval(term: Term, env: Env): Value =
+    trackPos(term)
+    term match
     // Literals
     case Lit.Int(v)     => Value.IntV(v.toLong)
     case Lit.Long(v)    => Value.IntV(v)
@@ -274,7 +289,7 @@ class Interpreter(out: java.io.PrintStream = System.out):
     // Name lookup: local env first, then globals
     case Term.Name(name) =>
       env.getOrElse(name, globals.getOrElse(name,
-        throw InterpretError(s"Undefined: $name")))
+        located(s"Undefined: $name")))
 
     // Function application: detect obj.method(args) and dispatch directly
     case app: Term.Apply =>
@@ -336,7 +351,7 @@ class Interpreter(out: java.io.PrintStream = System.out):
     case _: Term.Placeholder =>
       val i = placeholderIdx
       placeholderIdx += 1
-      env.getOrElse(s"_$$${i}", throw InterpretError("Unexpected _"))
+      env.getOrElse(s"_$$${i}", located("Unexpected _"))
 
     // Lambda  x => body  or  (x, y) => body
     case Term.Function.After_4_6_0(paramClause, body) =>
@@ -356,7 +371,7 @@ class Interpreter(out: java.io.PrintStream = System.out):
             }
           }
           .nextOption()
-          .getOrElse(throw InterpretError(s"Partial function match failure: ${Value.show(arg)}"))
+          .getOrElse(located(s"Partial function match failure: ${Value.show(arg)}"))
       })
 
     // Match / pattern match
@@ -370,7 +385,7 @@ class Interpreter(out: java.io.PrintStream = System.out):
           }
         }
         .nextOption()
-        .getOrElse(throw InterpretError(s"Match failure: ${Value.show(scrutV)}"))
+        .getOrElse(located(s"Match failure: ${Value.show(scrutV)}"))
 
     // Tuple  (a, b, ...)
     case Term.Tuple(elems) => Value.TupleV(elems.map(eval(_, env)))
@@ -380,10 +395,10 @@ class Interpreter(out: java.io.PrintStream = System.out):
       val typeName = tpe match { case Type.Name(n) => n; case _ => "?" }
       val args = argClauses.toList.flatMap(_.values).map(eval(_, env))
       env.getOrElse(typeName, globals.getOrElse(typeName,
-        throw InterpretError(s"Unknown constructor: $typeName"))) match
+        located(s"Unknown constructor: $typeName"))) match
           case c: Value.NativeFnV => c.f(args)
           case f: Value.FunV      => callFun(f, args)
-          case _ => throw InterpretError(s"$typeName is not a constructor")
+          case _ => located(s"$typeName is not a constructor")
 
     // for x <- xs yield f(x)
     case t: Term.ForYield =>
@@ -414,14 +429,14 @@ class Interpreter(out: java.io.PrintStream = System.out):
           val key = typeArg match
             case n: Type.Name  => n.value
             case ta: Type.Apply =>
-              val tc  = ta.tpe match { case n: Type.Name => n.value; case _ => throw InterpretError("summon: bad type") }
+              val tc  = ta.tpe match { case n: Type.Name => n.value; case _ => located("summon: bad type") }
               val arg = ta.argClause.values match { case List(n: Type.Name) => n.value; case _ => "_" }
               s"$tc[$arg]"
-            case _ => throw InterpretError("summon: unsupported type")
-          env.getOrElse(key, throw InterpretError(s"No given for $key"))
+            case _ => located("summon: unsupported type")
+          env.getOrElse(key, located(s"No given for $key"))
         case _ => eval(t.fun, env)  // other type applications — erase type args
 
-    case other => throw InterpretError(s"Cannot eval: ${other.productPrefix}")
+    case other => located(s"Cannot eval: ${other.productPrefix}")
 
   // ─── Call helpers ─────────────────────────────────────────────────
 
@@ -431,8 +446,8 @@ class Interpreter(out: java.io.PrintStream = System.out):
     case Value.InstanceV(_, fields) =>
       fields.get("apply") match
         case Some(f) => callValue(f, args, env)
-        case None    => throw InterpretError(s"Instance is not callable")
-    case _ => throw InterpretError(s"Not callable: ${Value.show(fn)}")
+        case None    => located(s"Instance is not callable")
+    case _ => located(s"Not callable: ${Value.show(fn)}")
 
   private def callFun(f: Value.FunV, args: List[Value]): Value =
     val selfEntry = if f.name.nonEmpty then Map(f.name -> f) else Map.empty
