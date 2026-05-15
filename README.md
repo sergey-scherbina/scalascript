@@ -9,7 +9,7 @@ Scala 3 code blocks.
 | Annotation | Language | Backends |
 |------------|----------|----------|
 | ` ```scalascript` | ScalaScript dialect — effects, handlers, content helpers, TCO | interpreter · JS transpiler · JVM |
-| ` ```scala` | Standard Scala 3 — no ScalaScript extensions | interpreter · JVM (Scala.js planned for JS) |
+| ` ```scala` | Standard Scala 3 — no ScalaScript extensions | interpreter · **Scala.js** (JS) · JVM |
 
 ````ssc
 ---
@@ -62,8 +62,8 @@ bin/sscc examples/hello.ssc
 ## What Works
 
 All three backends support `scalascript` blocks.  `scala` blocks (standard
-Scala 3) are supported by the interpreter and JVM backend; Scala.js support for
-the JS backend is planned.
+Scala 3) are supported by the interpreter and JVM backend; the JS backend
+compiles them via Scala.js.
 
 | Feature | Syntax |
 |---------|--------|
@@ -151,13 +151,23 @@ ScalaScript supports three execution backends:
 | Command | Backend | How it works |
 |---------|---------|--------------|
 | `bin/ssc file.ssc` | Interpreter | Tree-walking interpreter — instant startup, no compilation |
-| `bin/jssc file.ssc` | JavaScript | Transpiles `.ssc` → JS, runs via Node.js |
+| `bin/jssc file.ssc` | JavaScript | `scalascript` blocks → custom JS transpiler; `scala` blocks → **Scala.js** via scala-cli |
 | `bin/sscc file.ssc` | JVM / Scala 3 | Generates a `.sc` script and compiles via scala-cli |
+
+The JavaScript backend handles two block types differently:
+
+- **`scalascript` blocks** — transpiled by our custom JS transpiler (`JsGen`), which supports
+  ScalaScript-specific features (effects, content helpers, TCO, imports).
+- **`scala` blocks** — compiled by Scala.js via `scala-cli --js`, giving full Scala 3 fidelity
+  (standard library, type system, no custom runtime limitations).
+
+When a `.ssc` file contains both, the Scala.js-compiled section runs first, followed by
+the ScalaScript transpiled section.
 
 The `ssc-js` script is a lower-level tool for the JS backend:
 
 ```bash
-# Print generated JavaScript to stdout (useful for debugging)
+# Emit combined JS to stdout (Scala.js bundle + ScalaScript runtime)
 bin/ssc-js examples/hello.ssc
 
 # Transpile and run in one step (same as jssc)

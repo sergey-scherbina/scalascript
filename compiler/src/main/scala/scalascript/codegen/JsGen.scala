@@ -10,10 +10,29 @@ import scala.collection.mutable
  */
 object JsGen:
 
-  /** Generate JS source for all code blocks in a module. */
+  enum Segment:
+    case ScalaScriptJs(code: String)
+    case ScalaSource(source: String)
+
+  /** Generate JS source for all scalascript code blocks in a module. */
   def generate(module: Module, baseDir: Option[os.Path] = None): String =
     val gen = new JsGen(baseDir)
     gen.genModule(module)
+
+  /** Generate segments in document order, preserving scala/scalascript interleaving. */
+  def generateSegmented(module: Module, baseDir: Option[os.Path] = None): List[Segment] =
+    val gen = new JsGen(baseDir)
+    gen.genModuleSegmented(module)
+
+  /** True if the module contains at least one scalascript block. */
+  def hasBlocks(module: Module): Boolean =
+    module.sections.exists(sectionHas)
+
+  private def sectionHas(s: Section): Boolean =
+    s.content.exists {
+      case cb: Content.CodeBlock => Lang.isScalaScript(cb.lang)
+      case _                     => false
+    } || s.subsections.exists(sectionHas)
 
 /** JS runtime preamble embedded in every generated page. */
 val JsRuntime: String = """
@@ -594,6 +613,51 @@ class JsGen(baseDir: Option[os.Path] = None):
   /** True if `name` resolves to an effectful function. */
   private def isEffectfulFun(name: String): Boolean =
     effectfulFuns.contains(name)
+
+  /** Walk the module in document order, grouping consecutive same-type blocks into
+   *  Segment values.  ScalaScript blocks are transpiled to JS; scala blocks are
+   *  collected as raw Scala source for later Scala.js compilation.
+   */
+  def genModuleSegmented(module: Module): List[JsGen.Segment] =
+    sb.clear()
+    analyzeMutualRecursion(module)
+    analyzeEffects(module)
+    val result    = mutable.ListBuffer[JsGen.Segment]()
+    val scalaBuf  = mutable.ListBuffer[String]()
+    var ssStart   = 0
+
+    def flushSS(): Unit =
+      val code = sb.substring(ssStart)
+      if code.trim.nonEmpty then result += JsGen.Segment.ScalaScriptJs(code)
+      ssStart = sb.length
+
+    def flushScala(): Unit =
+      if scalaBuf.nonEmpty then
+        result += JsGen.Segment.ScalaSource(scalaBuf.mkString("\n\n"))
+        scalaBuf.clear()
+
+    def walkSection(s: Section): Unit =
+      s.content.foreach {
+        case cb: Content.CodeBlock if Lang.isScalaScript(cb.lang) =>
+          flushScala()
+          cb.tree.foreach(genScalaNode)
+        case Content.CodeBlock(lang, src, _, _) if Lang.isStandardScala(lang) =>
+          flushSS()
+          scalaBuf += src.stripTrailing()
+        case imp: Content.Import =>
+          flushScala()
+          genImport(imp)
+        case _ => ()
+      }
+      s.subsections.foreach(walkSection)
+
+    module.sections.foreach(walkSection)
+    flushScala()
+    if hasMain && !mainCalled then
+      sb.append("if (typeof main === 'function') { main(); }\n")
+    val finalCode = sb.substring(ssStart)
+    if finalCode.trim.nonEmpty then result += JsGen.Segment.ScalaScriptJs(finalCode)
+    result.toList
 
   private[codegen] def genSection(section: Section): Unit =
     section.content.foreach {

@@ -105,7 +105,7 @@ Supported language tags:
 |-----|----------|-------------|
 | `scalascript` | ScalaScript | Full ScalaScript dialect: effects/handlers, TCO, content helpers, module imports. Executed by the interpreter, transpiled by the JS backend, compiled by the JVM backend. |
 | `ssc` | ScalaScript | Legacy alias for `scalascript`. |
-| `scala` | Standard Scala 3 | No ScalaScript-specific extensions. Executed by the interpreter and JVM backend as standard Scala 3. The JS backend will eventually compile these via Scala.js; currently skipped with a comment. |
+| `scala` | Standard Scala 3 | No ScalaScript-specific extensions. Executed by the interpreter and JVM backend as standard Scala 3. The JS backend compiles these blocks via Scala.js (`scala-cli --js`). |
 
 A `.ssc` document may freely mix `scala` and `scalascript` blocks.
 Definitions in `scala` blocks are visible to subsequent `scalascript` blocks

@@ -1,0 +1,76 @@
+#!/usr/bin/env ssc
+---
+name: scala-js-demo
+version: 1.0.0
+description: Demonstrates standard Scala 3 blocks compiled via Scala.js for the JS backend.
+---
+
+# Scala.js Demo
+
+This file contains only standard `scala` blocks.  When executed via:
+
+- `bin/ssc` (interpreter) — runs directly using the tree-walking interpreter
+- `bin/jssc` (JS backend) — compiled by Scala.js via `scala-cli --js`
+- `bin/sscc` (JVM backend) — compiled to JVM bytecode via scala-cli
+
+No ScalaScript extensions are used; this is plain Scala 3.
+
+# Collections and Higher-Order Functions
+
+Standard Scala 3 collections — no ScalaScript runtime required.
+
+```scala
+val numbers = List(1, 2, 3, 4, 5, 6, 7, 8, 9, 10)
+
+val evens  = numbers.filter(_ % 2 == 0)
+val squares = evens.map(n => n * n)
+println(s"Even squares: ${squares.mkString(", ")}")
+
+val sum = numbers.foldLeft(0)(_ + _)
+println(s"Sum 1..10 = $sum")
+```
+
+# Pattern Matching and ADTs
+
+```scala
+enum Shape:
+  case Circle(radius: Double)
+  case Rectangle(w: Double, h: Double)
+  case Triangle(base: Double, height: Double)
+
+def area(s: Shape): Double = s match
+  case Shape.Circle(r)       => math.Pi * r * r
+  case Shape.Rectangle(w, h) => w * h
+  case Shape.Triangle(b, h)  => 0.5 * b * h
+
+val shapes = List(
+  Shape.Circle(3.0),
+  Shape.Rectangle(4.0, 5.0),
+  Shape.Triangle(6.0, 8.0)
+)
+
+shapes.foreach { s =>
+  println(f"${s.toString.takeWhile(_ != '(')}%-12s area = ${area(s)}%.2f")
+}
+```
+
+# Recursive Algorithms
+
+Standard Scala 3 recursion (no ScalaScript TCO annotation needed for reasonable depths).
+
+```scala
+def mergeSort(xs: List[Int]): List[Int] =
+  if xs.length <= 1 then xs
+  else
+    val (left, right) = xs.splitAt(xs.length / 2)
+    def merge(a: List[Int], b: List[Int]): List[Int] =
+      (a, b) match
+        case (Nil, _)                       => b
+        case (_, Nil)                       => a
+        case (ah :: at, bh :: _) if ah <= bh => ah :: merge(at, b)
+        case (_, bh :: bt)                  => bh :: merge(a, bt)
+    merge(mergeSort(left), mergeSort(right))
+
+val unsorted = List(5, 2, 8, 1, 9, 3, 7, 4, 6)
+println(s"Sorted: ${mergeSort(unsorted).mkString(", ")}")
+```
