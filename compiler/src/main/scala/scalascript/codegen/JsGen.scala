@@ -284,6 +284,44 @@ function _trampoline(fn, ...args) {
   return r;
 }
 function _tailCall(fn, ...args) { return {_isTailCall: true, fn, args}; }
+
+// ── Algebraic effects runtime ───────────────────────────────────────────────
+const _handlerStack = [];
+let _nextFrameId = 0;
+
+function _perform(eff, op, args) {
+  for (let i = _handlerStack.length - 1; i >= 0; i--) {
+    const ctx = _handlerStack[i];
+    if (ctx.handledOps.has(eff + '.' + op)) {
+      const idx = ctx.performCount++;
+      if (idx in ctx.injections) return ctx.injections[idx];
+      throw { _isEffect: true, eff, op, args, idx, frameId: ctx.frameId };
+    }
+  }
+  throw new Error('Unhandled effect: ' + eff + '.' + op + ' (no handler in scope)');
+}
+
+function _handle(body, handledOps, handlers, injections) {
+  injections = injections || {};
+  const frameId = _nextFrameId++;
+  const ctx = { frameId, handledOps: new Set(handledOps), injections, performCount: 0 };
+  _handlerStack.push(ctx);
+  try {
+    const r = body();
+    _handlerStack.pop();
+    return r;
+  } catch(e) {
+    _handlerStack.pop();
+    if (e && e._isEffect && e.frameId === frameId) {
+      const key = e.eff + '.' + e.op;
+      if (key in handlers) {
+        const resume = (v) => _handle(body, handledOps, handlers, {...injections, [e.idx]: v});
+        return handlers[key]([...e.args, resume]);
+      }
+    }
+    throw e;
+  }
+}
 """
 
 class JsGen(baseDir: Option[os.Path] = None):
@@ -516,11 +554,19 @@ class JsGen(baseDir: Option[os.Path] = None):
       line(s"function $typeName($paramsStr) { return {_type: '$typeName', $fields}; }")
 
     case d: Defn.Object =>
+      val objectName = d.name.value
       val members = mutable.ArrayBuffer.empty[String]
-      d.templ.body.stats.foreach { s =>
-        members += genObjectMember(s)
+      d.templ.body.stats.foreach {
+        case dd: Defn.Def if isEffectOpDef(dd.body) =>
+          val opName = dd.name.value
+          val params = dd.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values).map(_.name.value)
+          val paramsStr = params.mkString(", ")
+          val argsArr = if params.isEmpty then "[]" else s"[$paramsStr]"
+          members += s"$opName: ($paramsStr) => _perform('$objectName', '$opName', $argsArr)"
+        case s =>
+          members += genObjectMember(s)
       }
-      line(s"const ${d.name.value} = {${members.mkString(", ")}};")
+      line(s"const $objectName = {${members.mkString(", ")}};")
 
     case d: Defn.Enum =>
       d.templ.body.stats.foreach {
@@ -806,6 +852,44 @@ class JsGen(baseDir: Option[os.Path] = None):
     case Pat.Wildcard() => "_"
     case _ => "_"
 
+  private def isEffectOpDef(body: Term): Boolean = body match
+    case Term.Name("__effectOp__") => true
+    case _                         => false
+
+  private def genHandleForm(body: Term, cases: List[Case]): String =
+    val handledOps = cases.flatMap { c =>
+      c.pat match
+        case Pat.Extract.After_4_6_0(Term.Select(Term.Name(eff), Term.Name(op)), _) => Some(s"'$eff.$op'")
+        case _ => None
+    }
+    val handlerEntries = cases.flatMap { c =>
+      c.pat match
+        case Pat.Extract.After_4_6_0(Term.Select(Term.Name(eff), Term.Name(op)), argClause) =>
+          val paramNames = argClause.values.map {
+            case Pat.Var(n)     => n.value
+            case Pat.Wildcard() => "_"
+            case _              => "_"
+          }
+          val paramsStr = s"[${paramNames.mkString(", ")}]"
+          val bodyJs = c.body match
+            case Term.Block(stats) =>
+              val stmts = stats.dropRight(1).map {
+                case t: Term => genExpr(t) + ";"
+                case s       => genStatInline(s)
+              }.mkString(" ")
+              val last = stats.lastOption.map {
+                case t: Term => s"return ${genExpr(t)};"
+                case _       => ""
+              }.getOrElse("")
+              s"($paramsStr) => { $stmts $last }"
+            case expr =>
+              s"($paramsStr) => ${genExpr(expr)}"
+          Some(s"'$eff.$op': $bodyJs")
+        case _ => None
+    }
+    val bodyThunk = s"() => ${genExpr(body)}"
+    s"_handle($bodyThunk, [${handledOps.mkString(", ")}], {${handlerEntries.mkString(", ")}})"
+
   /** Generate a JS expression string for a scalameta Term. */
   def genExpr(term: Term): String = term match
     // Literals
@@ -963,6 +1047,16 @@ class JsGen(baseDir: Option[os.Path] = None):
           // Direct property access for regular objects (case classes, typeclasses, etc.)
           // Use _dispatch for extension methods, but try direct property first
           s"_dispatch($qualJs, '$other', [])"
+
+    // Special form: handle(body) { case Eff.op(args, resume) => ... }
+    case Term.Apply.After_4_6_0(
+      Term.Apply.After_4_6_0(Term.Name("handle"), bodyArgClause),
+      pfArgClause
+    ) if bodyArgClause.values.size == 1 =>
+      pfArgClause.values match
+        case List(pf: Term.PartialFunction) =>
+          genHandleForm(bodyArgClause.values.head.asInstanceOf[Term], pf.cases)
+        case _ => s"/* invalid handle */ undefined"
 
     // Function application
     case app: Term.Apply =>
