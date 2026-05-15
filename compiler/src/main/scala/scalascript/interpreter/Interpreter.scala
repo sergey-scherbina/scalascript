@@ -517,13 +517,13 @@ class Interpreter(out: java.io.PrintStream = System.out, baseDir: Option[os.Path
         hasNonTailSelfCall(t.expr, fname, tailPos = false) ||
         t.casesBlock.cases.exists(c => hasNonTailSelfCall(c.body, fname, tailPos = tailPos))
       case other =>
-        other.children.exists { case c: Term => anywhereContainsSelfCall(c, fname); case _ => false }
+        anywhereContainsSelfCall(other, fname)
 
-  private def anywhereContainsSelfCall(term: Term, fname: String): Boolean =
+  private def anywhereContainsSelfCall(tree: scala.meta.Tree, fname: String): Boolean =
     import scala.meta.*
-    term match
+    tree match
       case Term.Apply.After_4_6_0(Term.Name(`fname`), _) => true
-      case t => t.children.exists { case c: Term => anywhereContainsSelfCall(c, fname); case _ => false }
+      case t => t.children.exists(anywhereContainsSelfCall(_, fname))
 
   // ─── Infix operators ──────────────────────────────────────────────
 
