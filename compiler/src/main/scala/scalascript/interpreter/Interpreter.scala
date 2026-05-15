@@ -11,7 +11,7 @@ import scala.meta.*
  *  - Each scala/ssc code block is executed eagerly (defs bind, exprs run).
  *  - After all sections, `main()` is auto-called if defined and not already invoked.
  */
-class Interpreter(out: java.io.PrintStream = System.out):
+class Interpreter(out: java.io.PrintStream = System.out, baseDir: Option[os.Path] = None):
   private val globals      = mutable.Map.empty[String, Value]
   private val extensions   = mutable.Map.empty[(String, String), Value.FunV]
   private var mainCalled   = false
@@ -140,15 +140,37 @@ class Interpreter(out: java.io.PrintStream = System.out):
       "E"     -> globals("math.E")
     ))
 
+  def exportedGlobals: Map[String, Value] = globals.toMap
+
   // ─── Section / block execution ───────────────────────────────────
 
   private def runSection(section: Section): Unit =
     section.content.foreach {
       case cb: Content.CodeBlock if cb.lang == "scala" || cb.lang == "ssc" =>
         cb.tree.foreach(execBlock)
+      case imp: Content.Import =>
+        runImport(imp)
       case _ => ()
     }
     section.subsections.foreach(runSection)
+
+  private def runImport(imp: Content.Import): Unit =
+    import scalascript.parser.Parser
+    val resolvedPath = baseDir match
+      case Some(dir) => dir / os.RelPath(imp.path)
+      case None      => os.Path(imp.path, os.pwd)
+    if !os.exists(resolvedPath) then
+      throw InterpretError(s"Import not found: ${imp.path}")
+    val childDir = resolvedPath / os.up
+    val child    = Interpreter(out, Some(childDir))
+    child.run(Parser.parse(os.read(resolvedPath)))
+    val exported = child.exportedGlobals
+    for binding <- imp.bindings do
+      val sourceName = binding.name
+      val targetName = binding.alias.getOrElse(binding.name)
+      exported.get(sourceName) match
+        case Some(v) => globals(targetName) = v
+        case None    => throw InterpretError(s"'$sourceName' not found in ${imp.path}")
 
   private def execBlockStats(stats: List[Stat]): Unit =
     stats.zipWithIndex.foreach { (s, i) =>
@@ -905,4 +927,5 @@ class Interpreter(out: java.io.PrintStream = System.out):
     module.sections.foreach(runSection)
 
 object Interpreter:
-  def run(module: Module, out: java.io.PrintStream = System.out): Unit = Interpreter(out).run(module)
+  def run(module: Module, out: java.io.PrintStream = System.out, baseDir: Option[os.Path] = None): Unit =
+    Interpreter(out, baseDir).run(module)

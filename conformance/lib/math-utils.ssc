@@ -1,0 +1,17 @@
+#!/usr/bin/env ssc
+---
+name: math-utils
+exports:
+  - square
+  - cube
+  - factorial
+---
+
+# Math Utilities
+
+```scala
+def square(n: Int): Int = n * n
+def cube(n: Int): Int = n * n * n
+def factorial(n: Int): Int =
+  if n <= 1 then 1 else n * factorial(n - 1)
+```
