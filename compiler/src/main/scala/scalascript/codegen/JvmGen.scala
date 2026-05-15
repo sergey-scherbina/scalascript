@@ -274,23 +274,29 @@ class JvmGen(baseDir: Option[os.Path] = None):
   // ─── Block emission ───────────────────────────────────────────────
 
   private def emitBlock(block: JvmGen.Block): String =
-    // If the block has no effects content and no functions in a mutual
-    // tail-recursion clique, the original source compiles as-is — modulo a
-    // pass that routes `.mkString(...)` through `_show` so a List[Double]
-    // joined into a string strips trailing ".0" the same way the
+    // If the block has no effects content, no mutual-TCO clique, and no
+    // last-expression auto-output, the original source compiles as-is —
+    // modulo a pass that routes `.mkString(...)` and `s"..."` through
+    // `_show` so whole-number Doubles strip trailing ".0" the way the
     // interpreter and JS backends do.
     val rewritten =
       if !blockNeedsRewrite(block.node) then block.src
       else
         val out = StringBuilder()
         ScalaNode.fold(block.node) {
-          case Source(stats)     => emitStats(stats, out)
-          case Term.Block(stats) => emitStats(stats, out)
-          case t: Term           => out.append(emitExpr(t)).append("\n")
+          case Source(stats)     => emitStats(stats, out, isTopLevel = true)
+          case Term.Block(stats) => emitStats(stats, out, isTopLevel = true)
+          case t: Term           => out.append(wrapAutoOutput(emitExpr(t))).append("\n")
           case _                 => ()
         }
         out.toString
     routeMkStringThroughShow(rewritten)
+
+  /** Wrap a top-level expression so its non-Unit, non-null result is
+   *  printed — mirrors interpreter `autoOutput` and JsGen's `_auto` block.
+   *  Goes through the overridden `println` so Doubles strip ".0". */
+  private def wrapAutoOutput(expr: String): String =
+    s"{ val _auto: Any = $expr; if _auto != () && _auto != null then println(_auto) }"
 
   /** Route emitted code through `_show` for the cases where Scala 3's
    *  default Any.toString would print a whole-number Double as "4.0":
@@ -314,7 +320,17 @@ class JvmGen(baseDir: Option[os.Path] = None):
     out
 
   private def blockNeedsRewrite(node: ScalaNode): Boolean =
-    blockUsesEffects(node) || blockUsesMutualTco(node)
+    blockUsesEffects(node) || blockUsesMutualTco(node) || blockHasAutoOutputTerm(node)
+
+  /** True if the top-level node ends with a bare expression — that's the
+   *  trigger to take the walking emit path and inject the auto-output wrap. */
+  private def blockHasAutoOutputTerm(node: ScalaNode): Boolean =
+    ScalaNode.fold(node) {
+      case Source(stats)     => stats.lastOption.exists(_.isInstanceOf[Term])
+      case Term.Block(stats) => stats.lastOption.exists(_.isInstanceOf[Term])
+      case _: Term           => true
+      case _                 => false
+    }
 
   private def blockUsesMutualTco(node: ScalaNode): Boolean =
     var found = false
@@ -395,8 +411,15 @@ class JvmGen(baseDir: Option[os.Path] = None):
 
   // ─── Statement emission ───────────────────────────────────────────
 
-  private def emitStats(stats: List[Stat], out: StringBuilder): Unit =
-    stats.foreach { s => out.append(emitStat(s)).append("\n") }
+  private def emitStats(stats: List[Stat], out: StringBuilder, isTopLevel: Boolean = false): Unit =
+    stats.zipWithIndex.foreach { (s, i) =>
+      val isLast = i == stats.length - 1
+      val rendered = emitStat(s)
+      val text = s match
+        case _: Term if isLast && isTopLevel => wrapAutoOutput(rendered)
+        case _                               => rendered
+      out.append(text).append("\n")
+    }
 
   private def emitStat(stat: Stat): String = stat match
     // Effect declaration: `effect Console: def writeLine(s): Unit; def readLine(): String`
