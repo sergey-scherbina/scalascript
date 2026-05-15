@@ -26,6 +26,7 @@ val examples = Seq(
   "typeclass.ssc",
   "typed-data.ssc",
   "content.ssc",
+  "recursion.ssc",
 )
 
 val sep = "-" * 60

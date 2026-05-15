@@ -672,3 +672,76 @@ def main(): Unit =
     """) shouldBe "1:a, 2:b"
   }
 
+  // ── Tail-call optimisation ───────────────────────────────────────
+
+  test("self-TCO — sum with accumulator, depth 100 000") {
+    captured("""
+      def sum(n: Long, acc: Long): Long =
+        if n <= 0 then acc else sum(n - 1, acc + n)
+      println(sum(100000, 0))
+    """) shouldBe "5000050000"
+  }
+
+  test("self-TCO — countdown, depth 100 000") {
+    captured("""
+      def countdown(n: Int): Int =
+        if n <= 0 then 0 else countdown(n - 1)
+      println(countdown(100000))
+    """) shouldBe "0"
+  }
+
+  test("self-TCO — reverse list with accumulator") {
+    captured("""
+      def rev(xs: List[Int], acc: List[Int]): List[Int] =
+        if xs.isEmpty then acc else rev(xs.tail, xs.head :: acc)
+      println(rev(List(1, 2, 3, 4, 5), List()).mkString(", "))
+    """) shouldBe "5, 4, 3, 2, 1"
+  }
+
+  test("self-TCO — non-tail-recursive factorial still works") {
+    captured("""
+      def factorial(n: Int): Int =
+        if n <= 1 then 1 else n * factorial(n - 1)
+      println(factorial(10))
+    """) shouldBe "3628800"
+  }
+
+  // ── Mutual tail-call optimisation ───────────────────────────────
+
+  test("mutual-TCO — isEven / isOdd, depth 100 000") {
+    captured("""
+      def isEven(n: Int): Boolean =
+        if n == 0 then true else isOdd(n - 1)
+      def isOdd(n: Int): Boolean =
+        if n == 0 then false else isEven(n - 1)
+      println(isEven(100000))
+      println(isOdd(100000))
+      println(isEven(0))
+      println(isOdd(1))
+    """) shouldBe "true\nfalse\ntrue\ntrue"
+  }
+
+  test("mutual-TCO — three-way ping-pong") {
+    captured("""
+      def ping(n: Int): String =
+        if n == 0 then "ping" else pong(n - 1)
+      def pong(n: Int): String =
+        if n == 0 then "pong" else pang(n - 1)
+      def pang(n: Int): String =
+        if n == 0 then "pang" else ping(n - 1)
+      println(ping(99999))
+      println(ping(99998))
+      println(ping(99997))
+    """) shouldBe "ping\npang\npong"
+  }
+
+  test("mutual-TCO — accumulator-style even sum / odd sum") {
+    captured("""
+      def evenSum(n: Int, acc: Int): Int =
+        if n == 0 then acc else oddSum(n - 1, acc + n)
+      def oddSum(n: Int, acc: Int): Int =
+        if n == 0 then acc else evenSum(n - 1, acc)
+      println(evenSum(100, 0))
+    """) shouldBe "2550"
+  }
+

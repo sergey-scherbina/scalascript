@@ -1,0 +1,106 @@
+#!/usr/bin/env ssc
+---
+name: recursion
+version: 1.0.0
+---
+
+# Recursion and Tail-Call Optimisation
+
+ScalaScript automatically optimises tail-recursive functions so they run in
+constant stack space — no `@tailrec` annotation required.
+
+## Classical Recursion
+
+These functions are not tail-recursive: each call leaves a pending computation
+on the stack, so they work for small inputs only.
+
+```scala
+def factorial(n: Int): Int =
+  if n <= 1 then 1 else n * factorial(n - 1)
+
+def fib(n: Int): Int =
+  if n <= 1 then n else fib(n - 1) + fib(n - 2)
+
+println(factorial(10))
+println(fib(12))
+```
+
+## Self-Tail Recursion
+
+When every recursive call is in tail position the runtime replaces it with a
+loop, allowing arbitrarily deep recursion without stack overflow.
+
+```scala
+// sum 1..n using an accumulator — tail position in both branches
+def sum(n: Long, acc: Long): Long =
+  if n <= 0 then acc else sum(n - 1, acc + n)
+
+// countdown — single-argument tail call
+def countdown(n: Int): Int =
+  if n <= 0 then 0 else countdown(n - 1)
+
+// length via accumulator
+def length(xs: List[Int], acc: Int): Int =
+  if xs.isEmpty then acc else length(xs.tail, acc + 1)
+
+println(sum(100000, 0))        // 5000050000 — would stack-overflow without TCO
+println(countdown(100000))     // 0
+println(length((1 to 10000).toList, 0))  // 10000
+```
+
+## Mutual Tail Recursion
+
+Functions that call each other in tail position are also optimised: ScalaScript
+detects the mutually-recursive group and routes all tail calls through a single
+trampoline, keeping the stack flat.
+
+```scala
+def isEven(n: Int): Boolean =
+  if n == 0 then true else isOdd(n - 1)
+
+def isOdd(n: Int): Boolean =
+  if n == 0 then false else isEven(n - 1)
+
+println(isEven(100000))   // true   — 100 000 alternating calls, no overflow
+println(isOdd(100001))    // true
+println(isEven(3))        // false
+println(isOdd(4))         // false
+```
+
+## Practical Example — Collatz Sequence
+
+The Collatz conjecture: starting from any positive integer, repeatedly applying
+`n / 2` (even) or `3n + 1` (odd) eventually reaches 1.  A tail-recursive
+accumulator counts the steps.
+
+```scala
+def collatzSteps(n: Long, steps: Int): Int =
+  if n == 1 then steps
+  else if n % 2 == 0 then collatzSteps(n / 2, steps + 1)
+  else collatzSteps(n * 3 + 1, steps + 1)
+
+// Find the starting number up to 1000 with the most steps
+val (bestN, bestSteps) = (1 to 1000).foldLeft((1, 0)) { (best, n) =>
+  val s = collatzSteps(n, 0)
+  if s > best._2 then (n, s) else best
+}
+
+println(s"Longest Collatz sequence up to 1000: starts at $bestN, $bestSteps steps")
+```
+
+## Three-Function Mutual Recursion
+
+```scala
+def ping(n: Int): String =
+  if n == 0 then "ping" else pong(n - 1)
+
+def pong(n: Int): String =
+  if n == 0 then "pong" else pang(n - 1)
+
+def pang(n: Int): String =
+  if n == 0 then "pang" else ping(n - 1)
+
+println(ping(99999))   // ping  (99999 mod 3 == 0)
+println(ping(99998))   // pang  (99998 mod 3 == 2)
+println(ping(99997))   // pong  (99997 mod 3 == 1)
+```
