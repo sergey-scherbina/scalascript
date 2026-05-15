@@ -75,6 +75,7 @@ All three backends (JVM interpreter, JS transpiler, Scala 3 compiler) support:
 | Extension methods | `extension (n: Int) def squared: Int = n * n` |
 | Typeclasses | `trait Show[A]`, `given`, `summon[Show[Int]]` |
 | Recursion | factorial, Fibonacci, tree traversal |
+| Tail-call optimisation | self-TCO and mutual TCO — no `@tailrec` required |
 | Content helpers | `doc(...)` / `render(...)` structured output |
 
 JVM interpreter only: `serve` (requires a running interpreter at request time).
@@ -93,6 +94,7 @@ JVM interpreter only: `serve` (requires a running interpreter at request time).
 | [typeclass.ssc](examples/typeclass.ssc) | Show, Eq, Ord, Monoid, Functor via `given`/`summon` |
 | [typed-data.ssc](examples/typed-data.ssc) | Data pipelines, Option, enums |
 | [content.ssc](examples/content.ssc) | `md` interpolator, auto-output, `doc`/`render` |
+| [recursion.ssc](examples/recursion.ssc) | Self-TCO, mutual TCO, Collatz — deep recursion without overflow |
 
 Run them all at once:
 
@@ -120,10 +122,14 @@ scala-cli conformance/run.sc
 | for-comprehensions | `yield`, guards, nested generators, `do` |
 | higher-order-functions | Lambdas, `compose`, `flatMap`, eta-expansion |
 | recursion | Factorial and Fibonacci |
+| tail-recursion | Self-TCO at depth 100 000 — `sum`, `countdown` |
+| mutual-recursion | Mutual TCO — `isEven`/`isOdd` at depth 100 000 |
 | sealed-traits | ADT hierarchy with `sealed trait` + `case class` |
 | variables | `var` mutation and `while` loops |
 | tuples | Tuple construction, `_1`/`_2`/`_3`, destructuring |
 | maps | `Map` — `size`, `getOrElse`, `contains`, `keys`, `values` |
+| list-companion | `List.fill`, `List.tabulate`, `List.range` |
+| modules | `[name](./path.ssc)` imports — bind definitions from another file |
 
 ## Backends
 
