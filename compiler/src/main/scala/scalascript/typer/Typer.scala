@@ -108,11 +108,12 @@ class Typer:
 
     // def name(params...): T = body
     case d: Defn.Def =>
-      val paramSTypes = d.paramClauseGroups
+      val allParamVals = d.paramClauseGroups
         .flatMap(_.paramClauses)
         .flatMap(_.values)
-        .map(p => p.decltpe.map(typeAnnotToSType).getOrElse(SType.Any))
         .toList
+      val paramSTypes = allParamVals
+        .map(p => p.decltpe.map(typeAnnotToSType).getOrElse(SType.Any))
       val retType = d.decltpe.map(typeAnnotToSType).getOrElse(SType.Any)
       val fnType  = SType.Function(paramSTypes, retType)
       scope.define(Symbol(d.name.value, fnType, SymbolKind.Def))
@@ -190,12 +191,14 @@ class Typer:
           // Only check arity for non-variadic functions.
           // Variadic: represented as single SType.Any param in our prelude.
           val isVariadic = paramTypes == List(SType.Any)
-          if !isVariadic && paramTypes.nonEmpty && args.length != paramTypes.length then
+          // Underflow is permitted — trailing parameters may have defaults that
+          // the lightweight typer does not track. Only flag overflow.
+          if !isVariadic && paramTypes.nonEmpty && args.length > paramTypes.length then
             errors += TypeError(
               s"Wrong number of arguments: expected ${paramTypes.length}, got ${args.length}",
               posToSpan(argClause.pos)
             )
-          // Check argument types for known-param functions
+          // Check argument types for known-param functions (only those provided).
           if !isVariadic then
             args.zip(paramTypes).foreach { (arg, expected) =>
               val actual = inferType(arg, scope)

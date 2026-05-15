@@ -1,0 +1,25 @@
+#!/usr/bin/env ssc
+---
+name: default-params-conformance
+version: 1.0.0
+---
+
+# Default Parameters
+
+```scalascript
+def greet(name: String = "World", excited: Boolean = false): String =
+  if excited then s"Hello, $name!" else s"Hello, $name"
+
+def scaled(x: Int, factor: Int = 2): Int = x * factor
+
+case class Box(width: Int = 10, height: Int = 20)
+
+println(greet())
+println(greet("Sergiy"))
+println(greet("Sergiy", true))
+println(scaled(7))
+println(scaled(7, 3))
+val b = Box()
+println(s"${b.width}x${b.height}")
+println(Box(5).height)
+```

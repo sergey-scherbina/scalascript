@@ -737,9 +737,11 @@ class JsGen(baseDir: Option[os.Path] = None):
       line(s"let ${n.value} = ${genExpr(rhs)};")
 
     case d: Defn.Def =>
-      val params = d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values).map(_.name.value)
+      val paramVals = d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values)
+      val params    = paramVals.map(_.name.value)
+      val hasDefaults = paramVals.exists(_.default.isDefined)
       val fname   = d.name.value
-      val paramsStr = params.mkString(", ")
+      val paramsStr = paramListWithDefaults(paramVals)
       if fname == "main" && params.isEmpty then hasMain = true
       // Effectful function: body emitted in CPS form, returns Free value.
       if isEffectfulFun(fname) then
@@ -748,11 +750,15 @@ class JsGen(baseDir: Option[os.Path] = None):
             line(s"function $fname($paramsStr) { return ${genCpsBlockAsIife(stats)}; }")
           case expr =>
             line(s"function $fname($paramsStr) { return ${genCpsExpr(expr)}; }")
-      // Mutual recursion group → _impl + trampoline wrapper
-      else if mutualGroups.contains(fname) && params.nonEmpty then
+      // Mutual recursion group → _impl + trampoline wrapper.
+      // Defaults disable the TCO/mutual-TCO shadowing path since the _p shadow
+      // names would shadow the original parameter names referenced in default
+      // expressions; defaults are uncommon in tight recursive loops anyway.
+      else if mutualGroups.contains(fname) && params.nonEmpty && !hasDefaults then
         genMutualTcoFun(d, fname, params)
       // Self-TCO: emit a while-loop trampoline when all self-calls are in tail position
-      else if params.nonEmpty && fname.nonEmpty && !hasNonTailSelfCall(d.body, fname, tailPos = true) then
+      else if params.nonEmpty && fname.nonEmpty && !hasDefaults &&
+              !hasNonTailSelfCall(d.body, fname, tailPos = true) then
         // Formals are _p shadow-names so we can declare mutable let params inside
         val formals  = params.map(p => s"_$p").mkString(", ")
         val letDecls = "let " + params.map(p => s"$p = _$p").mkString(", ")
@@ -779,9 +785,10 @@ class JsGen(baseDir: Option[os.Path] = None):
 
     case d: Defn.Class =>
       // case class → constructor function returning plain object
-      val params = d.ctor.paramClauses.flatMap(_.values).map(_.name.value)
+      val paramVals = d.ctor.paramClauses.flatMap(_.values)
+      val params = paramVals.map(_.name.value)
       val typeName = d.name.value
-      val paramsStr = params.mkString(", ")
+      val paramsStr = paramListWithDefaults(paramVals)
       val fields = params.map(p => s"$p: $p").mkString(", ")
       line(s"function $typeName($paramsStr) { return {_type: '$typeName', $fields}; }")
 
@@ -791,9 +798,10 @@ class JsGen(baseDir: Option[os.Path] = None):
       d.templ.body.stats.foreach {
         case dd: Defn.Def if isEffectOpDef(dd.body) =>
           val opName = dd.name.value
-          val params = dd.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values).map(_.name.value)
-          val paramsStr = params.mkString(", ")
-          val argsArr = if params.isEmpty then "[]" else s"[$paramsStr]"
+          val paramVals = dd.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values)
+          val params    = paramVals.map(_.name.value)
+          val paramsStr = paramListWithDefaults(paramVals)
+          val argsArr = if params.isEmpty then "[]" else s"[${params.mkString(", ")}]"
           members += s"$opName: ($paramsStr) => _perform('$objectName', '$opName', $argsArr)"
         case s =>
           members += genObjectMember(s)
@@ -804,11 +812,12 @@ class JsGen(baseDir: Option[os.Path] = None):
       d.templ.body.stats.foreach {
         case ec: Defn.EnumCase =>
           val caseName = ec.name.value
-          val params = ec.ctor.paramClauses.flatMap(_.values).map(_.name.value)
+          val paramVals = ec.ctor.paramClauses.flatMap(_.values)
+          val params = paramVals.map(_.name.value)
           if params.isEmpty then
             line(s"const $caseName = {_type: '$caseName'};")
           else
-            val paramsStr = params.mkString(", ")
+            val paramsStr = paramListWithDefaults(paramVals)
             val fields = params.map(p => s"$p: $p").mkString(", ")
             line(s"function $caseName($paramsStr) { return {_type: '$caseName', $fields}; }")
         case _ => ()
@@ -873,9 +882,10 @@ class JsGen(baseDir: Option[os.Path] = None):
     case _ => () // type aliases etc.
 
   private def genExtensionDef(recvName: String, defn: Defn.Def): Unit =
-    val methodParams = defn.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values).map(_.name.value)
+    val mparamVals   = defn.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values)
+    val methodParams = mparamVals.map(_.name.value)
     val allParams = recvName :: methodParams
-    val paramsStr = allParams.mkString(", ")
+    val paramsStr = (recvName :: mparamVals.map(formalWithDefault)).mkString(", ")
     val fnName = s"_ext_${recvName}_${defn.name.value}"
     defn.body match
       case Term.Block(bodyStats) =>
@@ -897,14 +907,24 @@ class JsGen(baseDir: Option[os.Path] = None):
     case _ => ""
 
   private def genDefAsMethod(dd: Defn.Def): String =
-    val params = dd.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values).map(_.name.value)
-    val paramsStr = params.mkString(", ")
+    val paramVals = dd.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values)
+    val paramsStr = paramListWithDefaults(paramVals)
     dd.body match
       case Term.Block(bodyStats) =>
         val bodyJs = genBlockAsIife(bodyStats)
         s"($paramsStr) => $bodyJs"
       case expr =>
         s"($paramsStr) => ${genExpr(expr)}"
+
+  /** Render a comma-separated formal parameter list with `= <expr>` for any
+   *  parameter that has a default value. Used everywhere we emit a JS function
+   *  signature from a scalameta `Term.Param` list. */
+  private def paramListWithDefaults(paramVals: Seq[Term.Param]): String =
+    paramVals.map(formalWithDefault).mkString(", ")
+
+  private def formalWithDefault(p: Term.Param): String = p.default match
+    case Some(d) => s"${p.name.value} = ${genExpr(d)}"
+    case None    => p.name.value
 
   // ─── Mutual TCO helpers ──────────────────────────────────────────
 
