@@ -90,3 +90,23 @@ jobs:
 
       - name: Compile and run script.ssc via Scala 3
         run: scala-cli run compiler -- compile examples/script.ssc 2>/dev/null
+
+  sbt:
+    name: sbt — compile and test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Setup sbt
+        uses: sbt/setup-sbt@v1
+
+      - name: Compile and test via sbt
+        run: sbt compiler/compile compiler/test

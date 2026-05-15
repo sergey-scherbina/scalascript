@@ -1,0 +1,22 @@
+---
+name: conformance-content
+version: 1.0.0
+---
+
+# Content Helpers
+
+```scala
+val name = "World"
+val greeting = md"""
+  Hello, $name!
+  Welcome to ScalaScript.
+"""
+println(greeting)
+```
+
+```scala
+def section(title: String, items: List[String]) =
+  doc(s"[$title]", items.mkString("\n"))
+
+render(section("Items", List("one", "two", "three")))
+```

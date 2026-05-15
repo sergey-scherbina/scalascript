@@ -12,6 +12,8 @@ import scalascript.ast.*
     case "parse"               => parseCommand(args.tail.toList)
     case "check"               => checkCommand(args.tail.toList)
     case "run"                 => runCommand(args.tail.toList)
+    case "watch"               => watchCommand(args.tail.toList)
+    case "repl"                => replCommand(args.tail.toList)
     case "emit-js"             => emitJsCommand(args.tail.toList)
     case "emit-scala"          => emitScalaCommand(args.tail.toList)
     case "compile"             => compileCommand(args.tail.toList)
@@ -28,6 +30,8 @@ def printUsage(): Unit =
     |
     |Commands:
     |  run                    Execute .ssc via tree-walking interpreter (default)
+    |  watch                  Run .ssc and re-run on every file change
+    |  repl                   Start interactive REPL (blank line runs, :quit exits)
     |  compile                Compile and run .ssc on JVM via scala-cli
     |  package [flags] <f>    Package .ssc via scala-cli package (see flags below)
     |  emit-scala             Print generated Scala 3 script to stdout
@@ -83,6 +87,54 @@ def runCommand(args: List[String]): Unit =
       catch case e: Exception =>
         System.err.println(s"Runtime error: ${e.getMessage}")
         System.exit(1)
+
+def replCommand(args: List[String]): Unit =
+  import scala.io.StdIn
+  val interp = Interpreter()
+  interp.run(Parser.parse("# REPL\n"))   // initialise builtins, no code runs
+  System.err.println("ScalaScript REPL  (blank line to run, :quit to exit)")
+  var running = true
+  while running do
+    Option(StdIn.readLine("ssc> ")) match
+      case None                          => running = false
+      case Some(":quit" | ":q" | ":exit") => running = false
+      case Some(first) =>
+        val lines = scala.collection.mutable.ArrayBuffer(first)
+        var more = true
+        while more do
+          Option(StdIn.readLine("   | ")) match
+            case None | Some("") => more = false
+            case Some(next)      => lines += next
+        val code = lines.mkString("\n").trim
+        if code.nonEmpty then
+          try   interp.runSnippet(code)
+          catch case e: Exception => System.err.println(s"Error: ${e.getMessage}")
+
+def watchCommand(args: List[String]): Unit =
+  import java.nio.file.{FileSystems, Paths, StandardWatchEventKinds}
+  import scala.jdk.CollectionConverters.*
+  if args.isEmpty then { println("Error: No file specified"); System.exit(1) }
+  val file    = args.head
+  val absPath = Paths.get(file).toAbsolutePath.normalize
+  val dir     = absPath.getParent
+
+  def runOnce(): Unit =
+    try   Interpreter.run(Parser.parse(os.read(os.Path(absPath))))
+    catch case e: Exception => System.err.println(s"Error: ${e.getMessage}")
+
+  runOnce()
+  val watcher = FileSystems.getDefault.newWatchService()
+  dir.register(watcher, StandardWatchEventKinds.ENTRY_MODIFY)
+  System.err.println(s"Watching ${absPath.getFileName}... (Ctrl+C to stop)")
+  while true do
+    val key     = watcher.take()
+    val changed = key.pollEvents().asScala.exists { ev =>
+      ev.context().asInstanceOf[java.nio.file.Path].getFileName == absPath.getFileName
+    }
+    if changed then
+      System.err.println(s"\n--- ${absPath.getFileName} ---")
+      runOnce()
+    key.reset()
 
 def emitJsCommand(args: List[String]): Unit =
   if args.isEmpty then { println("Error: No files specified"); System.exit(1) }
