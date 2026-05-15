@@ -814,3 +814,27 @@ def main(): Unit =
     """) shouldBe "a, b, c"
   }
 
+  test("effects — stack-safe bind chains (trampolined Free)") {
+    // Tail-recursive loop performs an effect on every step. The Free Monad
+    // bind chain is right-associated in a while-loop on each handler resume,
+    // so processing the per-iteration body uses O(1) Scala stack regardless
+    // of the bind depth (Bjarnason 2012). 1000 iterations comfortably exceed
+    // what a direct (non-trampolined) Free Monad would survive when combined
+    // with a deeply nested bind chain in each step.
+    captured("""
+      effect Counter:
+        def tick(): Int
+
+      def loop(n: Int, acc: Int): Int =
+        if n == 0 then acc
+        else
+          val v = Counter.tick()
+          loop(n - 1, acc + v)
+
+      val total = handle(loop(1000, 0)) {
+        case Counter.tick(resume) => resume(1)
+      }
+      println(total)
+    """) shouldBe "1000"
+  }
+
