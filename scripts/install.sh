@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build ssc as a self-contained binary
+# Build ssc as a self-contained binary and stage the repo-local launchers.
 # Requires scala-cli with --power mode.
 set -euo pipefail
 
@@ -16,6 +16,24 @@ scala-cli --power package "$COMPILER" --standalone --output "$DEST" -f
 chmod +x "$DEST"
 echo "Installed: $DEST"
 echo "Test: $DEST examples/hello.ssc"
+echo ""
+
+# Stage the repo-local bin/ with launcher symlinks. The launchers shell out
+# to scala-cli using paths relative to the repo, so they only work when
+# invoked from inside this checkout.
+mkdir -p "$ROOT/bin"
+for launcher in "$ROOT"/scripts/launchers/*; do
+    name="$(basename "$launcher")"
+    ln -sf "../scripts/launchers/$name" "$ROOT/bin/$name"
+done
+# Also expose the freshly built ssc inside the repo's bin/ so the wrappers
+# and conformance runner can pick it up. Skip when DEST already *is* the
+# repo's bin/ssc — that file is the build output itself.
+DEST_ABS="$(cd "$(dirname "$DEST")" && pwd)/$(basename "$DEST")"
+if [ "$DEST_ABS" != "$ROOT/bin/ssc" ]; then
+    ln -sf "$DEST_ABS" "$ROOT/bin/ssc"
+fi
+echo "Wired repo-local bin/ launchers (symlinks to scripts/launchers/*)."
 echo ""
 
 # Determine shell config file
