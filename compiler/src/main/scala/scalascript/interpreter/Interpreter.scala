@@ -77,7 +77,7 @@ class Interpreter(out: java.io.PrintStream = System.out):
     })
     globals("List.tabulate") = Value.NativeFnV("List.tabulate", {
       case List(Value.IntV(n)) =>
-        Value.NativeFnV("List.tabulate.n", { case List(f) => Value.ListV((0 until n.toInt).map(i => callValue(f, List(Value.IntV(i)), globals)).toList); case _ => throw InterpretError("List.tabulate(n)(f)") })
+        Value.NativeFnV("List.tabulate.n", { case List(f) => Value.ListV((0 until n.toInt).map(i => callValue(f, List(Value.IntV(i)), Map.empty)).toList); case _ => throw InterpretError("List.tabulate(n)(f)") })
       case _ => throw InterpretError("List.tabulate(n)(f)")
     })
     globals("List.range") = Value.NativeFnV("List.range", {
