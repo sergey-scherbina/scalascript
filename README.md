@@ -76,6 +76,7 @@ All three backends (JVM interpreter, JS transpiler, Scala 3 compiler) support:
 | Typeclasses | `trait Show[A]`, `given`, `summon[Show[Int]]` |
 | Recursion | factorial, Fibonacci, tree traversal |
 | Tail-call optimisation | self-TCO and mutual TCO — no `@tailrec` required |
+| Algebraic effects | `effect E:`, `handle(body) { case E.op(arg, resume) => ... }` |
 | Content helpers | `doc(...)` / `render(...)` structured output |
 
 JVM interpreter only: `serve` (requires a running interpreter at request time).
@@ -95,6 +96,7 @@ JVM interpreter only: `serve` (requires a running interpreter at request time).
 | [typed-data.ssc](examples/typed-data.ssc) | Data pipelines, Option, enums |
 | [content.ssc](examples/content.ssc) | `md` interpolator, auto-output, `doc`/`render` |
 | [recursion.ssc](examples/recursion.ssc) | Self-TCO, mutual TCO, Collatz — deep recursion without overflow |
+| [effects.ssc](examples/effects.ssc) | Algebraic effects — Console routing, nondeterminism, early return |
 
 Run them all at once:
 
@@ -130,6 +132,7 @@ scala-cli conformance/run.sc
 | maps | `Map` — `size`, `getOrElse`, `contains`, `keys`, `values` |
 | list-companion | `List.fill`, `List.tabulate`, `List.range` |
 | modules | `[name](./path.ssc)` imports — bind definitions from another file |
+| effects | Algebraic effects: Console routing, Choose nondeterminism, Fail early-return |
 
 ## Backends
 

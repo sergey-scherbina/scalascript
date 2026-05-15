@@ -16,6 +16,9 @@ class Interpreter(out: java.io.PrintStream = System.out, baseDir: Option[os.Path
   private val extensions   = mutable.Map.empty[(String, String), Value.FunV]
   private var mainCalled   = false
   private var placeholderIdx = 0
+  private var nextFrameId    = 0
+  // Each entry is pushed by evalHandle, popped when done/signalled
+  private var handleStack: List[HandleContext] = Nil
   // Tracks the last known source position for error messages (1-based line, 0-based column)
   private var currentSpan: Option[(Int, Int)] = None
 
@@ -210,9 +213,26 @@ class Interpreter(out: java.io.PrintStream = System.out, baseDir: Option[os.Path
       if d.name.value == "main" && params.isEmpty then mainCalled = false
 
     case d: Defn.Object =>
+      val objectName = d.name.value
       val members = mutable.Map.empty[String, Value]
-      d.templ.body.stats.foreach(s => execStat(s, members))
-      env(d.name.value) = Value.InstanceV(d.name.value, members.toMap)
+      d.templ.body.stats.foreach {
+        case dd: Defn.Def if isEffectOpDef(dd.body) =>
+          val effName = objectName
+          val opName  = dd.name.value
+          members(opName) = Value.NativeFnV(s"$effName.$opName", args => {
+            handleStack.find(ctx => ctx.handledOps.contains((effName, opName))) match
+              case Some(ctx) =>
+                val idx = ctx.performCount
+                ctx.performCount += 1
+                ctx.injections.get(idx) match
+                  case Some(v) => v
+                  case None    => throw new PerformSignal(effName, opName, args, idx, ctx.frameId)
+              case None =>
+                throw InterpretError(s"Unhandled effect: $effName.$opName (no handler in scope)")
+          })
+        case s => execStat(s, members)
+      }
+      env(objectName) = Value.InstanceV(objectName, members.toMap)
 
     case d: Defn.Class =>
       val params = d.ctor.paramClauses.flatMap(_.values)
@@ -316,6 +336,16 @@ class Interpreter(out: java.io.PrintStream = System.out, baseDir: Option[os.Path
     case Term.Name(name) =>
       env.getOrElse(name, globals.getOrElse(name,
         located(s"Undefined: $name")))
+
+    // Special form: handle(body) { case Eff.op(args, resume) => ... }
+    case Term.Apply.After_4_6_0(
+      Term.Apply.After_4_6_0(Term.Name("handle"), bodyArgClause),
+      pfArgClause
+    ) if bodyArgClause.values.size == 1 =>
+      pfArgClause.values match
+        case List(pf: Term.PartialFunction) =>
+          evalHandle(bodyArgClause.values.head.asInstanceOf[Term], pf.cases, env, Map.empty)
+        case _ => located("handle expects a partial function { case Eff.op(args, resume) => ... }")
 
     // Function application: detect obj.method(args) and dispatch directly
     case app: Term.Apply =>
@@ -560,6 +590,66 @@ class Interpreter(out: java.io.PrintStream = System.out, baseDir: Option[os.Path
       case Term.Apply.After_4_6_0(Term.Name(`fname`), _) => true
       case t => t.children.exists(anywhereContainsSelfCall(_, fname))
 
+  // ─── Algebraic effects ───────────────────────────────────────────
+
+  private def isEffectOpDef(body: Term): Boolean = body match
+    case Term.Name("__effectOp__") => true
+    case _                         => false
+
+  // Per-handle-invocation context sitting on handleStack.
+  // injections is immutable; performCount is mutated only within this run.
+  private case class HandleContext(
+    frameId: Int,
+    handledOps: Set[(String, String)],
+    injections: Map[Int, Value],
+    var performCount: Int
+  )
+
+  private def evalHandle(body: Term, cases: List[Case], closureEnv: Env, injections: Map[Int, Value]): Value =
+    val frameId = nextFrameId; nextFrameId += 1
+    val handledOps: Set[(String, String)] = cases.flatMap { c =>
+      c.pat match
+        case Pat.Extract.After_4_6_0(Term.Select(Term.Name(eff), Term.Name(op)), _) => Some((eff, op))
+        case _ => None
+    }.toSet
+    val ctx = HandleContext(frameId, handledOps, injections, 0)
+    handleStack = ctx :: handleStack
+    try
+      val result = eval(body, closureEnv)
+      handleStack = handleStack.tail
+      result
+    catch
+      case sig: PerformSignal if sig.handlerFrameId == frameId =>
+        handleStack = handleStack.tail
+        cases.iterator.flatMap { c =>
+          c.pat match
+            case Pat.Extract.After_4_6_0(Term.Select(Term.Name(eff), Term.Name(op)), argClause)
+              if eff == sig.effectName && op == sig.opName =>
+              val patArgs   = argClause.values
+              val argPats   = patArgs.dropRight(1).map(_.asInstanceOf[Pat])
+              val resumePat = patArgs.lastOption
+              argPats.zip(sig.args).foldLeft(Option(closureEnv): Option[Env]) {
+                case (Some(e), (pat, v)) => matchPat(pat.asInstanceOf[Pat], v, e)
+                case (None, _)           => None
+              }.flatMap { argEnv =>
+                val resumeFn = Value.NativeFnV("resume", args => {
+                  val v = args match
+                    case List(v) => v; case Nil => Value.UnitV; case vs => Value.TupleV(vs)
+                  evalHandle(body, cases, closureEnv, injections + (sig.performIdx -> v))
+                })
+                val finalEnv = resumePat match
+                  case Some(pv: Pat.Var) => argEnv + (pv.name.value -> resumeFn)
+                  case _                 => argEnv
+                val ok = c.cond.forall(g => eval(g, finalEnv).asInstanceOf[Value.BoolV].v)
+                Option.when(ok)(eval(c.body, finalEnv))
+              }
+            case _ => None
+        }.nextOption()
+         .getOrElse(throw InterpretError(s"Unhandled effect: ${sig.effectName}.${sig.opName}"))
+      case e: Throwable =>
+        handleStack = handleStack.tail
+        throw e
+
   // ─── Infix operators ──────────────────────────────────────────────
 
   private def infix(lhs: Value, op: String, args: List[Value], env: Env): Value =
@@ -785,12 +875,13 @@ class Interpreter(out: java.io.PrintStream = System.out, baseDir: Option[os.Path
       case (Value.TupleV(es), "_3", Nil) => es(2)
       case (Value.TupleV(es), "_4", Nil) => es(3)
       // ── Instance (case class / enum case) field access ───────────
-      // No-arg defs (def empty: Int = 0) are called automatically on access
+      // No-arg defs and no-arg native fns are called automatically on access
       case (Value.InstanceV(_, fields), fname, Nil) =>
         fields.get(fname) match
-          case Some(f: Value.FunV) if f.params.isEmpty => callFun(f, Nil)
-          case Some(v)                                  => v
-          case None                                     => located(s"No field '$fname'")
+          case Some(f: Value.FunV)    if f.params.isEmpty => callFun(f, Nil)
+          case Some(f: Value.NativeFnV)                   => f.f(Nil)
+          case Some(v)                                     => v
+          case None                                        => located(s"No field '$fname'")
       // ── Enum companion call (Color.RGB(1,2,3)) ───────────────────
       case (Value.InstanceV(_, fields), fname, fargs) if fields.contains(fname) =>
         callValue(fields(fname), fargs, env)

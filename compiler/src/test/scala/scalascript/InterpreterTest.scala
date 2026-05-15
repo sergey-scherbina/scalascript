@@ -745,3 +745,72 @@ def main(): Unit =
     """) shouldBe "2550"
   }
 
+  // ── Algebraic effects ────────────────────────────────────────────
+
+  test("effects — Console one-shot routing") {
+    captured("""
+      effect Console:
+        def writeLine(s: String): Unit
+        def readLine(): String
+
+      def greet(): String =
+        val name = Console.readLine()
+        Console.writeLine(s"Hello, $name!")
+        name
+
+      val r = handle(greet()) {
+        case Console.readLine(resume)       => resume("Alice")
+        case Console.writeLine(msg, resume) => println(msg); resume(())
+      }
+      println(r)
+    """) shouldBe "Hello, Alice!\nAlice"
+  }
+
+  test("effects — Choose multi-shot nondeterminism") {
+    captured("""
+      effect Choose:
+        def pick(opts: List[Int]): Int
+
+      val r = handle {
+        val x = Choose.pick(List(1, 2, 3))
+        val y = Choose.pick(List(10, 20))
+        x + y
+      } {
+        case Choose.pick(opts, resume) => opts.flatMap(opt => resume(opt))
+      }
+      println(r)
+    """) shouldBe "List(11, 21, 12, 22, 13, 23)"
+  }
+
+  test("effects — Fail early return") {
+    captured("""
+      effect Fail:
+        def raise(msg: String): Int
+
+      def safeDiv(a: Int, b: Int): Int =
+        if b == 0 then Fail.raise("division by zero")
+        else a / b
+
+      println(handle(safeDiv(10, 2)) { case Fail.raise(msg, resume) => -1 })
+      println(handle(safeDiv(10, 0)) { case Fail.raise(msg, resume) => -1 })
+    """) shouldBe "5\n-1"
+  }
+
+  test("effects — collect output into list") {
+    captured("""
+      effect Console:
+        def writeLine(s: String): Unit
+        def readLine(): String
+
+      def program(): Unit =
+        Console.writeLine("a")
+        Console.writeLine("b")
+        Console.writeLine("c")
+
+      val lines = handle { program(); List() } {
+        case Console.writeLine(msg, resume) => msg :: resume(())
+      }
+      println(lines.mkString(", "))
+    """) shouldBe "a, b, c"
+  }
+
