@@ -80,7 +80,11 @@ jobs:
           power: true
 
       - name: Run conformance tests
-        run: scala-cli conformance/run.sc
+        run: |
+          # Use the up-to-date compiler sources rather than the
+          # checked-in launcher (which may lag behind ssc/scala-cli changes).
+          rm -f bin/ssc
+          scala-cli conformance/run.sc
 
   scala3:
     name: Scala 3 Compiler Backend
