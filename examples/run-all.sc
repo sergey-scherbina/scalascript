@@ -28,6 +28,7 @@ val examples = Seq(
   "content.ssc",
   "recursion.ssc",
   "effects.ssc",
+  "lang-split.ssc",
 )
 
 val sep = "-" * 60

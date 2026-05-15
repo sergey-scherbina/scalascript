@@ -21,6 +21,10 @@ import Computation.{Pure, Perform, FlatMap}
 class Interpreter(out: java.io.PrintStream = System.out, baseDir: Option[os.Path] = None):
   private val globals      = mutable.Map.empty[String, Value]
   private val extensions   = mutable.Map.empty[(String, String), Value.FunV]
+  // Methods declared inside a `class` / `case class` body, keyed by type name.
+  // Stored separately from instance fields so `show` and pattern matching see
+  // only data fields.
+  private val typeMethods  = mutable.Map.empty[String, Map[String, Value.FunV]]
   private var mainCalled   = false
   private var placeholderIdx = 0
   // Tracks the last known source position for error messages (1-based line, 0-based column)
@@ -139,7 +143,9 @@ class Interpreter(out: java.io.PrintStream = System.out, baseDir: Option[os.Path
                             case List(Value.IntV(n))    => Value.IntV(math.abs(n))
                             case _ => Value.UnitV }
     nativeP("math.pow")   { case List(Value.DoubleV(a), Value.DoubleV(b)) => Value.DoubleV(math.pow(a, b))
-                            case List(Value.IntV(a), Value.DoubleV(b))    => Value.DoubleV(math.pow(a.toDouble, b))
+                            case List(Value.IntV(a),    Value.DoubleV(b)) => Value.DoubleV(math.pow(a.toDouble, b))
+                            case List(Value.DoubleV(a), Value.IntV(b))    => Value.DoubleV(math.pow(a, b.toDouble))
+                            case List(Value.IntV(a),    Value.IntV(b))    => Value.DoubleV(math.pow(a.toDouble, b.toDouble))
                             case _ => Value.UnitV }
     nativeP("math.floor") { case List(Value.DoubleV(d)) => Value.DoubleV(math.floor(d)); case _ => Value.UnitV }
     nativeP("math.ceil")  { case List(Value.DoubleV(d)) => Value.DoubleV(math.ceil(d));  case _ => Value.UnitV }
@@ -249,6 +255,18 @@ class Interpreter(out: java.io.PrintStream = System.out, baseDir: Option[os.Path
       env(typeName) = Value.NativeFnV(typeName,
         args => Pure(Value.InstanceV(typeName, paramNames.zip(args).toMap))
       )
+      // Methods defined inside the class body are stored in a separate
+      // type-keyed registry; dispatch on an InstanceV consults it and re-binds
+      // each method's closure with the instance's data fields so the body can
+      // refer to them by name (`x`, `y` in `def distanceTo(other) = ...x...`).
+      val classEnv = env.toMap
+      val methodPairs: List[(String, Value.FunV)] = d.templ.body.stats.collect {
+        case dd: Defn.Def =>
+          val mparams = dd.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values).map(_.name.value)
+          (dd.name.value, Value.FunV(mparams, dd.body, classEnv, dd.name.value))
+      }
+      val methodDefs: Map[String, Value.FunV] = methodPairs.toMap
+      if methodDefs.nonEmpty then typeMethods(typeName) = methodDefs
 
     case d: Defn.Enum =>
       val enumName = d.name.value
@@ -1156,6 +1174,13 @@ class Interpreter(out: java.io.PrintStream = System.out, baseDir: Option[os.Path
       case (Value.TupleV(es), "_2", Nil) => Pure(es(1))
       case (Value.TupleV(es), "_3", Nil) => Pure(es(2))
       case (Value.TupleV(es), "_4", Nil) => Pure(es(3))
+      // ── Class method (declared inside `class`/`case class` body) ──
+      case (Value.InstanceV(typeName, fields), fname, fargs)
+        if typeMethods.get(typeName).exists(_.contains(fname)) =>
+        val fn = typeMethods(typeName)(fname)
+        // Re-bind the method's closure with this instance's data fields so the
+        // body can refer to them by name (`x`, `y`, …).
+        callFun(fn.copy(closure = fn.closure ++ fields), fargs)
       // ── Instance (case class / enum case) field access ───────────
       // No-arg defs and no-arg native fns are called automatically on access
       case (Value.InstanceV(_, fields), fname, Nil) =>

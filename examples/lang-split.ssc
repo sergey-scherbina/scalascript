@@ -48,10 +48,10 @@ It can use effects, handlers, content helpers, and ScalaScript's extended librar
 
 ```scalascript
 // ScalaScript: tail-call-optimised recursion (no @tailrec needed)
-def sum(n: Long, acc: Long = 0L): Long =
+def sum(n: Long, acc: Long): Long =
   if n <= 0 then acc else sum(n - 1, acc + n)
 
-println(s"sum(100000) = ${sum(100000)}")
+println(s"sum(100000) = ${sum(100000, 0L)}")
 
 // ScalaScript: List companion extensions
 val grid = List.tabulate(3)(i => List.tabulate(3)(j => i * 3 + j + 1))
