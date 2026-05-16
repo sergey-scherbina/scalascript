@@ -55,22 +55,6 @@ Move the REST primitives off "JVM interpreter only".
 
 Known bugs and rough edges that need a separate pass.
 
-- **[JS] `_output` const reassignment bug.**  Running `jssc examples/hello.ssc`
-  prints the right output, then crashes with
-  `TypeError: Assignment to constant variable.` at `_output = []`.
-  JsGen runtime declares `_output` as `const`; the generated script
-  reassigns it.  Either switch to `let` or replace the reassignment with
-  `.length = 0`.
-- **[JS] `typed-data.ssc` output diverges from the interpreter.**  JS
-  prints extra trailing iterables on the same line; interpreter prints a
-  clean per-line form.  Likely the same `(value, index, array)` callback
-  drift the recent `_isIntTyped` fix uncovered, but for `foreach` /
-  `mkString` interactions.  Reproduce and fix.
-- **[JVM] effects handler case bodies with `::`.**  Compiling
-  `examples/effects.ssc` via `ssc compile` fails with
-  `value :: is not a member of Any` at the rewritten handler body — JvmGen
-  emits the RHS of `msg :: resume(())` without recovering its `List` type.
-  Cast or rewrite the cons-target in the handler path.
 - **Interpreter — collection ergonomics.**  During the rest-api example
   we hit several missing operations.  Add support in
   `Interpreter` (`infix` table / method dispatch):

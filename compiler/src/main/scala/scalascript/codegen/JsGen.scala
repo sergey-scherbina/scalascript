@@ -135,6 +135,11 @@ function _dispatch(obj, method, args) {
       case 'init': return obj.slice(0,-1);
       case 'length': case 'size': return obj.length;
       case 'indices': return Array.from({length: obj.length}, (_, i) => i);
+      case 'apply': {
+        const i = args[0];
+        if (i < 0 || i >= obj.length) throw new Error('index ' + i + ' out of bounds for list of length ' + obj.length);
+        return obj[i];
+      }
       case 'isEmpty': return obj.length === 0;
       case 'nonEmpty': return obj.length > 0;
       case 'reverse': return [...obj].reverse();
@@ -193,6 +198,9 @@ function _dispatch(obj, method, args) {
       case 'get': return obj.has(args[0]) ? _Some(obj.get(args[0])) : _None;
       case 'getOrElse': return obj.has(args[0]) ? obj.get(args[0]) : args[1];
       case 'contains': return obj.has(args[0]);
+      case 'apply':
+        if (!obj.has(args[0])) throw new Error('key not found: ' + _show(args[0]));
+        return obj.get(args[0]);
       case 'keys': return [...obj.keys()];
       case 'values': return [...obj.values()];
       case 'size': return obj.size;
