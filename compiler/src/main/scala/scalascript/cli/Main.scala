@@ -22,6 +22,7 @@ import scalascript.ast.*
     case "serve"               => serveCommand(args.tail.toList)
     case "render"              => renderCommand(args.tail.toList)
     case "build"               => buildCommand(args.tail.toList)
+    case "bundle"              => bundleCommand(args.tail.toList)
     case "help" | "--help" | "-h" => printUsage()
     case _                     => runCommand(args.toList)
 
@@ -40,6 +41,10 @@ def printUsage(): Unit =
     |                         literal GET routes become files under <out-dir>
     |                         (default `dist/`); `/` → index.html, `/about` →
     |                         about.html.  Files without GET routes are skipped.
+    |  bundle                  Pack one or more .ssc files + their transitive .ssc
+    |                         imports into a .sscpkg zip archive.  External imports
+    |                         (above the entry directory) are flattened into
+    |                         `_external/` with path references rewritten.
     |  run                    Execute .ssc via tree-walking interpreter (default)
     |  watch                  Run .ssc and re-run on every file change
     |  repl                   Start interactive REPL (blank line runs, :quit exits)
@@ -278,6 +283,198 @@ private def outPathFor(outDir: os.Path, urlPath: String): os.Path =
     val segs = clean.split('/').toIndexedSeq
     val withExt = segs.init :+ (segs.last + ".html")
     outDir / os.SubPath(withExt.mkString("/"))
+
+/** `ssc bundle <file.ssc> [<file.ssc>...] [-o name.sscpkg]` — packs
+ *  one or more `.ssc` entry files together with every transitively-
+ *  imported `.ssc` into a zip archive (`.sscpkg`).  A consumer
+ *  unzips and uses the entries with relative imports.
+ *
+ *  Archive layout:
+ *    bundle.yaml                 metadata: entries, transitives, name/version
+ *    <entry>.ssc                 each entry at the archive root
+ *    <relative paths>/...        every imported file under its
+ *                                 path relative to the bundle root
+ *    _external/<basename>        files that lived ABOVE the bundle
+ *                                 root in the source tree — flattened
+ *                                 here; references inside the bundle
+ *                                 are rewritten so the archive is
+ *                                 self-contained.
+ *
+ *  The bundle root is the common parent directory of every entry's
+ *  parent.  Inside-root files keep their relative path; outside-root
+ *  files get flattened.
+ */
+def bundleCommand(args: List[String]): Unit =
+  import scalascript.parser.Parser
+  import java.util.zip.{ZipOutputStream, ZipEntry}
+
+  // ─── Argument parsing ─────────────────────────────────────────
+  var output: Option[String] = None
+  val files = scala.collection.mutable.ArrayBuffer.empty[String]
+  val it = args.iterator
+  while it.hasNext do
+    it.next() match
+      case "-o" | "--output" if it.hasNext => output = Some(it.next())
+      case f => files += f
+  if files.isEmpty then
+    System.err.println("Usage: ssc bundle <file.ssc> [<file.ssc>...] [-o name.sscpkg]")
+    System.exit(1)
+
+  val entryPaths = files.toList.map { f =>
+    val p = os.Path(f, os.pwd)
+    if !os.exists(p) then
+      System.err.println(s"Error: $f not found"); System.exit(1)
+    if p.ext != "ssc" then
+      System.err.println(s"Error: $f is not a .ssc file"); System.exit(1)
+    p
+  }
+
+  // Bundle root: the common parent directory of every entry's parent.
+  // Single entry → its parent dir.  Two entries in the same folder →
+  // that folder.  Two entries in sibling folders → their common parent.
+  val bundleRoot = commonAncestor(entryPaths.map(_ / os.up))
+
+  // ─── Transitive walk ──────────────────────────────────────────
+  // archivePath[abs] = path the file gets under inside the zip.
+  // externalNames    = basenames already taken under `_external/`.
+  val archivePath    = scala.collection.mutable.LinkedHashMap.empty[os.Path, String]
+  val externalNames  = scala.collection.mutable.Set.empty[String]
+
+  def assignPath(abs: os.Path): String =
+    if archivePath.contains(abs) then archivePath(abs)
+    else if abs.startsWith(bundleRoot) then
+      val p = abs.relativeTo(bundleRoot).toString
+      archivePath(abs) = p; p
+    else
+      var name = abs.last
+      var n    = 1
+      while externalNames.contains(name) do
+        name = abs.last.stripSuffix(".ssc") + "_" + n + ".ssc"
+        n   += 1
+      externalNames += name
+      val p = s"_external/$name"
+      archivePath(abs) = p; p
+
+  def visit(file: os.Path): Unit =
+    if archivePath.contains(file) then return
+    val _ = assignPath(file)
+    val module = Parser.parse(os.read(file))
+    val imports = scala.collection.mutable.ArrayBuffer.empty[scalascript.ast.Content.Import]
+    def gatherImports(secs: List[scalascript.ast.Section]): Unit =
+      secs.foreach { s =>
+        s.content.foreach {
+          case imp: scalascript.ast.Content.Import => imports += imp
+          case _ => ()
+        }
+        gatherImports(s.subsections)
+      }
+    gatherImports(module.sections)
+    imports.foreach { imp =>
+      val resolved = (file / os.up) / os.RelPath(imp.path)
+      if os.exists(resolved) then visit(resolved)
+      else System.err.println(s"  [warn] import ${imp.path} from ${file.last} — not found, skipped")
+    }
+
+  entryPaths.foreach(visit)
+
+  // ─── Rewrite import paths to match the new archive layout ─────
+  //
+  // For every `.ssc` we packed: re-scan its imports.  If the resolved
+  // target's archive path doesn't match the original source path the
+  // import wrote, splice the new one into the file content before
+  // writing it to the zip.  We rewrite via a `](old)→](new)` Markdown
+  // edit so it's localised to the link destination.
+  def rewriteImports(file: os.Path): String =
+    val raw = os.read(file)
+    val module = Parser.parse(raw)
+    val imports = scala.collection.mutable.ArrayBuffer.empty[scalascript.ast.Content.Import]
+    def gather(secs: List[scalascript.ast.Section]): Unit =
+      secs.foreach { s =>
+        s.content.foreach {
+          case imp: scalascript.ast.Content.Import => imports += imp
+          case _ => ()
+        }
+        gather(s.subsections)
+      }
+    gather(module.sections)
+    var out = raw
+    imports.foreach { imp =>
+      val resolved = (file / os.up) / os.RelPath(imp.path)
+      if archivePath.contains(resolved) then
+        val targetArchive = archivePath(resolved)
+        val ownArchive    = archivePath(file)
+        // Relative path FROM the importing file's own archive dir
+        // TO the imported file's archive location.
+        val ownDir = if ownArchive.contains('/') then ownArchive.substring(0, ownArchive.lastIndexOf('/')) else ""
+        val rel    = relativeArchivePath(ownDir, targetArchive)
+        if rel != imp.path then
+          // Markdown link: `](OLD)` → `](NEW)`.  Quote the regex.
+          val pat = java.util.regex.Pattern.quote("](" + imp.path + ")")
+          out = out.replaceAll(pat, java.util.regex.Matcher.quoteReplacement("](" + rel + ")"))
+    }
+    out
+
+  // ─── Write the zip ────────────────────────────────────────────
+  val outName =
+    output.getOrElse(
+      if entryPaths.length == 1 then entryPaths.head.last.stripSuffix(".ssc") + ".sscpkg"
+      else "bundle.sscpkg"
+    )
+  val outPath = os.Path(outName, os.pwd)
+  os.makeDir.all(outPath / os.up)
+
+  val zip = new ZipOutputStream(new java.io.FileOutputStream(outPath.toIO))
+  try
+    // bundle.yaml manifest
+    val manifest = new StringBuilder
+    manifest.append("# ScalaScript bundle manifest\n")
+    manifest.append("entries:\n")
+    entryPaths.foreach { e => manifest.append(s"  - ${archivePath(e)}\n") }
+    manifest.append("transitive:\n")
+    archivePath.values.toList.sorted.foreach { p => manifest.append(s"  - $p\n") }
+    zip.putNextEntry(new ZipEntry("bundle.yaml"))
+    zip.write(manifest.toString.getBytes("UTF-8"))
+    zip.closeEntry()
+    // .ssc files
+    archivePath.toList.sortBy(_._2).foreach { case (file, archive) =>
+      zip.putNextEntry(new ZipEntry(archive))
+      zip.write(rewriteImports(file).getBytes("UTF-8"))
+      zip.closeEntry()
+    }
+  finally zip.close()
+
+  val entryList = entryPaths.map(archivePath).mkString(", ")
+  val external  = archivePath.values.count(_.startsWith("_external/"))
+  println(s"$outName  (${archivePath.size} files, $external external) — entries: $entryList")
+
+/** Common-ancestor directory of a non-empty list of paths.
+ *  Same as `paths.head`'s parents, narrowed to whichever still
+ *  starts every other path. */
+private def commonAncestor(paths: List[os.Path]): os.Path =
+  paths match
+    case Nil          => os.pwd
+    case List(single) => single
+    case _ =>
+      val segs = paths.map(_.segments.toList)
+      val zipped = segs.transpose
+      val shared = zipped.takeWhile(s => s.distinct.length == 1).map(_.head)
+      os.root / os.SubPath(shared.mkString("/"))
+
+/** Path of `target` (archive-relative, e.g. `components/card.ssc`)
+ *  expressed RELATIVELY to `fromDir` (also archive-relative, e.g.
+ *  `blog`).  Yields the right `./..` form for re-writing
+ *  Markdown-import paths into a self-contained archive. */
+private def relativeArchivePath(fromDir: String, target: String): String =
+  val from = if fromDir.isEmpty then Array.empty[String] else fromDir.split('/')
+  val to   = target.split('/')
+  var i = 0
+  while i < from.length && i < to.length && from(i) == to(i) do i += 1
+  val ups   = "../" * (from.length - i)
+  val downs = to.drop(i).mkString("/")
+  val rel   = ups + downs
+  // Markdown import path is the destination of a link; "./" prefix is
+  // optional but matches what the user typically writes for siblings.
+  if rel.startsWith("../") || rel.contains("/") then rel else "./" + rel
 
 def parseCommand(args: List[String]): Unit =
   if args.isEmpty then { println("Error: No files specified"); System.exit(1) }

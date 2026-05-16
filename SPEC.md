@@ -989,6 +989,28 @@ The REST primitives are available on all three backends:
   recursive too and also walks into `components/` (a component
   module may sit next to its icon).  Only the tooling / build-output
   dirs above are skipped.
+- **Bundle** (`ssc bundle <file.ssc> [<file.ssc>…] [-o name.sscpkg]`) —
+  packs one or more `.ssc` entry files together with every transitively-
+  imported `.ssc` into a zip archive (`.sscpkg`).  A consumer unzips
+  and uses the entries with relative imports — no network, no registry.
+
+  Archive layout:
+  ```text
+  bundle.yaml                  manifest: entries + transitive list
+  <entry-1>.ssc                each entry at the archive root
+  <entry-2>.ssc
+  <relative paths>/...         every imported file under its
+                               path relative to the bundle root
+  _external/<basename>         files that lived ABOVE the bundle
+                               root in the source tree — flattened
+                               here; import paths inside the bundle
+                               are rewritten so the archive is
+                               self-contained.
+  ```
+
+  The bundle root is the common parent directory of every entry's
+  parent.  Default output name is `<entry>.sscpkg` for a single entry,
+  `bundle.sscpkg` for multiple entries.
 
 ### 8.4 Components
 

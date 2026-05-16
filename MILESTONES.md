@@ -20,33 +20,14 @@ useful in isolation and unblocks the next.
    immediate payoff — unblocks naming conflicts between any two
    libraries that export the same identifier.  ~2–3 hours.
 
-2. **`ssc bundle <file.ssc> [<file.ssc>…] [-o name.sscpkg]`.**  Walks
-   transitive `.ssc` imports starting from every argument file, packs
-   them into a zip with layout
-       bundle.yaml          (entries[], name, version, transitive list)
-       <entry-1>.ssc        (at the archive root)
-       <entry-2>.ssc        (at the archive root)
-       <relative paths>/…   (imported files, paths kept)
-   Supports multiple entry files in one call so a library can ship
-   `card.ssc`, `button.ssc`, `alert.ssc` as a single archive without
-   needing an aggregator module.  Single-entry usage is the common
-   case (`bundle.yaml.entries = [card.ssc]`).
-
-   Imports above the entry directory (`../foo.ssc`) are flattened
-   into a synthetic `_external/<basename>` slot in the archive and
-   path references rewritten — the bundle stays self-contained no
-   matter how the original tree is structured.  No network, no
-   registry; distribution by attaching `.sscpkg` to a GitHub release
-   / S3 / email.  Consumer unzips and imports relatively.  ~3 hours.
-
-3. **URL imports.**  `[Card](https://raw.githubusercontent.com/u/r/v1.0/card.ssc)`
+2. **URL imports.**  `[Card](https://raw.githubusercontent.com/u/r/v1.0/card.ssc)`
    resolves to a local cache at `~/.cache/ssc/<host>/<path>` (first
    fetch downloads; subsequent reads hit cache; pin by tag/sha for
    reproducibility).  Deno-style: no central registry needed, but
    real distribution becomes a one-liner.  Add a `--no-network`
    flag for sandboxed builds.  ~1–2 days.
 
-4. **Cross-backend `dependencies:` resolver.**  Today the manifest's
+3. **Cross-backend `dependencies:` resolver.**  Today the manifest's
    `dependencies:` only flows to scala-cli on the JVM target.
    Extend it to:
      - JSON (`{"foo": "1.2.0", "bar": "https://..."}`) — either
@@ -56,19 +37,19 @@ useful in isolation and unblocks the next.
        bare-name imports (`[Card](foo://card.ssc)`) to the resolved
        path.
    Decouples the URL from every call site — pin once in the manifest,
-   import by short name everywhere.  ~1 day on top of (3).
+   import by short name everywhere.  ~1 day on top of (2).
 
-5. **`package` keyword** *(optional)*.  `package org.example.ui` at
+4. **`package` keyword** *(optional)*.  `package org.example.ui` at
    the top of a scalascript block puts its declarations under that
    dotted path so two libraries can each export `Card` without
-   collision in the global namespace.  Mostly cosmetic once (1)/(3)
+   collision in the global namespace.  Mostly cosmetic once (1)/(2)
    are in place — alias parsing already solves the collision case
    for callers, and URL/dep resolution provides the uniqueness — but
    `package`-prefixed imports map cleanly to a future registry.
    Parser + 3 backends (`object org.example.ui.Card { … }` emit).
    ~1–2 days.  Defer until a concrete clash motivates it.
 
-6. **Registry** *(future)*.  Central index (`registry.scalascript.io`)
+5. **Registry** *(future)*.  Central index (`registry.scalascript.io`)
    with semver resolution, lock file (`ssc.lock`), publish/yank
    workflow.  Weeks of work; only worth opening once the surface
    above is well-trodden.  Out of scope for v0.7.
