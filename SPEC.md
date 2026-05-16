@@ -750,6 +750,16 @@ The REST primitives are available on all three backends:
   `console.log`.  The Node-only static-asset helpers stay in the
   bundle as dead code — they're lazily loaded inside the original
   `serve(port)`, which is shadowed by the browser override.
+- **Static rendering** (`ssc render <file> [path]`) — runs the
+  interpreter in *headless mode*: `serve(port)` becomes a no-op so the
+  HTTP listener never binds, but `route(...)` calls (and front-matter
+  `routes:` entries) still register their handlers in the route table.
+  After section evaluation, the requested GET handler is invoked with
+  a synthetic empty-headers / empty-body `Request`; the response body
+  is printed to stdout.  Useful for generating static HTML from a
+  server-style `.ssc` page without booting a server.  The output is
+  byte-identical to `curl http://…/<path>` against the same file
+  served under `ssc <file>`.
 
 ### 8.4 Components
 

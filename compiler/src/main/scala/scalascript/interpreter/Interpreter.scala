@@ -18,7 +18,15 @@ import Computation.{Pure, Perform, FlatMap}
  *  continuation directly — no replay; side effects in body run exactly once;
  *  multi-shot works by calling the continuation multiple times.
  */
-class Interpreter(out: java.io.PrintStream = System.out, baseDir: Option[os.Path] = None):
+class Interpreter(
+    out:      java.io.PrintStream = System.out,
+    baseDir:  Option[os.Path]     = None,
+    /** When true, `serve(port)` is a no-op: routes still register, but
+     *  the HTTP server doesn't bind a port or block on `Thread.join`.
+     *  Used by `ssc render` for static-site generation — the route
+     *  table is filled in, then handlers are invoked off-band with
+     *  synthetic requests. */
+    headless: Boolean              = false):
   private val globals      = mutable.Map.empty[String, Value]
   private val extensions   = mutable.Map.empty[(String, String), Value.FunV]
   // Methods declared inside a `class` / `case class` body, keyed by type name.
@@ -174,9 +182,11 @@ class Interpreter(out: java.io.PrintStream = System.out, baseDir: Option[os.Path
     }
     nativeP("serve") {
       case List(Value.IntV(port)) =>
-        scalascript.server.WebServer.start(port.toInt, ".", out); Value.UnitV
+        if !headless then scalascript.server.WebServer.start(port.toInt, ".", out)
+        Value.UnitV
       case List(Value.IntV(port), Value.StringV(dir)) =>
-        scalascript.server.WebServer.start(port.toInt, dir, out); Value.UnitV
+        if !headless then scalascript.server.WebServer.start(port.toInt, dir, out)
+        Value.UnitV
       case _ => throw InterpretError("serve(port) or serve(port, dir)")
     }
 

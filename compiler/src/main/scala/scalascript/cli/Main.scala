@@ -20,6 +20,7 @@ import scalascript.ast.*
     case "compile"             => compileCommand(args.tail.toList)
     case "package"             => packageCommand(args.tail.toList)
     case "serve"               => serveCommand(args.tail.toList)
+    case "render"              => renderCommand(args.tail.toList)
     case "help" | "--help" | "-h" => printUsage()
     case _                     => runCommand(args.toList)
 
@@ -30,6 +31,10 @@ def printUsage(): Unit =
     |Usage: ssc <command> [options] <files...>
     |
     |Commands:
+    |  render                 Render .ssc as static HTML — runs file in
+    |                         headless mode (serve() is a no-op), then
+    |                         invokes the registered handler for a path
+    |                         (default `/`) and prints the response body.
     |  run                    Execute .ssc via tree-walking interpreter (default)
     |  watch                  Run .ssc and re-run on every file change
     |  repl                   Start interactive REPL (blank line runs, :quit exits)
@@ -69,6 +74,78 @@ def serveCommand(args: List[String]): Unit =
   val port = args.headOption.flatMap(_.toIntOption).getOrElse(8080)
   val dir  = args.drop(1).headOption.getOrElse(".")
   scalascript.server.WebServer.start(port, dir, System.out)
+
+/** `ssc render <file> [path]` — runs the .ssc file in headless mode
+ *  (skipping the blocking `serve(port)` call), then invokes the
+ *  registered GET handler for `path` (default `/`) with a synthetic
+ *  request and prints the response body to stdout.  Useful for
+ *  generating static HTML from a server-style `.ssc` page without
+ *  booting an HTTP listener. */
+def renderCommand(args: List[String]): Unit =
+  import scalascript.interpreter.{Interpreter, Value}
+  import scalascript.server.Routes
+  if args.isEmpty then
+    System.err.println("Usage: ssc render <file.ssc> [path]")
+    System.exit(1)
+  val file = args.head
+  val path = args.drop(1).headOption.getOrElse("/")
+  val absPath = os.Path(file, os.pwd)
+  if !os.exists(absPath) then
+    System.err.println(s"Error: File not found: $file"); System.exit(1)
+  // Clear any leftover state from a previous render in the same process.
+  Routes.clear()
+  // A null PrintStream eats `println(...)` output from setup code so it
+  // doesn't pollute the rendered HTML on stdout.
+  val nullOut = java.io.PrintStream(java.io.OutputStream.nullOutputStream)
+  val interp  = Interpreter(out = nullOut, baseDir = Some(absPath / os.up), headless = true)
+  try interp.run(scalascript.parser.Parser.parse(os.read(absPath)))
+  catch case e: Exception =>
+    System.err.println(s"Error running ${file}: ${e.getMessage}")
+    System.exit(1)
+  Routes.matchRequest("GET", path) match
+    case Some((entry, params)) =>
+      val req = syntheticRequest("GET", path, params)
+      val result = entry.interpreter.invoke(entry.handler, List(req))
+      System.out.print(extractResponseBody(result))
+    case None =>
+      System.err.println(s"No GET route registered for $path in $file")
+      System.exit(1)
+
+/** Build a minimal `Request` instance for a static render.  Headers /
+ *  cookies / session / files are all empty — handlers that need them
+ *  can't be statically rendered without more elaborate plumbing. */
+private def syntheticRequest(
+    method: String,
+    path:   String,
+    params: Map[String, String]
+): scalascript.interpreter.Value =
+  import scalascript.interpreter.Value
+  Value.InstanceV("Request", Map(
+    "method"      -> Value.StringV(method),
+    "path"        -> Value.StringV(path),
+    "params"      -> Value.MapV(params.map((k, v) => Value.StringV(k) -> Value.StringV(v))),
+    "query"       -> Value.MapV(Map.empty),
+    "headers"     -> Value.MapV(Map.empty),
+    "body"        -> Value.StringV(""),
+    "form"        -> Value.MapV(Map.empty),
+    "files"       -> Value.MapV(Map.empty),
+    "session"     -> Value.MapV(Map.empty),
+    "bearerToken" -> Value.OptionV(None),
+    "jwtClaims"   -> Value.OptionV(None),
+    "basicAuth"   -> Value.OptionV(None)
+  ))
+
+private def extractResponseBody(v: scalascript.interpreter.Value): String =
+  import scalascript.interpreter.Value
+  v match
+    case Value.InstanceV("Response", fields) =>
+      fields.get("body") match
+        case Some(Value.StringV(s)) => s
+        case Some(other)            => Value.show(other)
+        case None                   => ""
+    case Value.StringV(s) => s
+    case Value.UnitV      => ""
+    case other            => Value.show(other)
 
 def parseCommand(args: List[String]): Unit =
   if args.isEmpty then { println("Error: No files specified"); System.exit(1) }
