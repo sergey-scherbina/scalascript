@@ -49,6 +49,13 @@ class Interpreter(out: java.io.PrintStream = System.out, baseDir: Option[os.Path
   private val tcoCache: java.util.IdentityHashMap[Value.FunV, TcoInfo] =
     java.util.IdentityHashMap()
 
+  /** Intern table from `Lit` AST nodes to the `Computation` they evaluate
+   *  to. The parsed AST is reused across all evaluations, so for hot
+   *  loop literals (`0`, `1`, `2`, …) this saves a fresh `Pure(IntV(...))`
+   *  allocation on every visit. */
+  private val litCache: java.util.IdentityHashMap[Lit, Computation] =
+    java.util.IdentityHashMap()
+
   private def tcoInfoFor(f: Value.FunV): TcoInfo =
     val cached = tcoCache.get(f)
     if cached != null then cached
@@ -538,16 +545,27 @@ class Interpreter(out: java.io.PrintStream = System.out, baseDir: Option[os.Path
   private def eval(term: Term, env: Env): Computation =
     trackPos(term)
     term match
-    // Literals
-    case Lit.Int(v)     => Pure(Value.IntV(v.toLong))
-    case Lit.Long(v)    => Pure(Value.IntV(v))
-    case Lit.Double(v)  => Pure(Value.DoubleV(v.toString.toDouble))
-    case Lit.Float(v)   => Pure(Value.DoubleV(v.toString.toDouble))
-    case Lit.String(v)  => Pure(Value.StringV(v))
-    case Lit.Boolean(v) => Pure(Value.BoolV(v))
-    case Lit.Char(v)    => Pure(Value.CharV(v))
-    case Lit.Unit()     => Pure(Value.UnitV)
-    case Lit.Null()     => Pure(Value.NullV)
+    // Literals — interned by Lit identity so a hot loop reuses the same
+    // `Pure(Value)` instance instead of reallocating on every eval. The
+    // parser produces a stable AST; each `Lit.Int(1)` etc. is the same
+    // Scala object across all visits.
+    case lit: Lit =>
+      val cached = litCache.get(lit)
+      if cached != null then cached
+      else
+        val c = lit match
+          case Lit.Int(v)     => Pure(Value.IntV(v.toLong))
+          case Lit.Long(v)    => Pure(Value.IntV(v))
+          case Lit.Double(v)  => Pure(Value.DoubleV(v.toString.toDouble))
+          case Lit.Float(v)   => Pure(Value.DoubleV(v.toString.toDouble))
+          case Lit.String(v)  => Pure(Value.StringV(v))
+          case Lit.Boolean(v) => Pure(Value.BoolV(v))
+          case Lit.Char(v)    => Pure(Value.CharV(v))
+          case Lit.Unit()     => Pure(Value.UnitV)
+          case Lit.Null()     => Pure(Value.NullV)
+          case _              => Pure(Value.NullV)
+        litCache.put(lit, c)
+        c
 
     // Name lookup: local env first, then globals
     case Term.Name(name) =>
