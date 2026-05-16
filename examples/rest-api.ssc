@@ -14,16 +14,12 @@ the JSON endpoints.
 ```scalascript
 var todos: List[String] = List("Buy milk", "Walk the dog", "Write spec")
 
-def jsonArray(items: List[String]): String =
-  val quoted = items.map(s => "\"" + s.replace("\"", "\\\"") + "\"")
-  "[" + quoted.mkString(",") + "]"
-
 // ───────────────────────────────────────────────────────────────
 //  JSON API
 // ───────────────────────────────────────────────────────────────
 
 route("GET", "/api/todos") { req =>
-  Response.json(jsonArray(todos))
+  Response.json(todos)
 }
 
 route("POST", "/api/todos") { req =>
