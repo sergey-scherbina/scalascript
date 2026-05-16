@@ -1796,7 +1796,13 @@ class JvmGen(baseDir: Option[os.Path] = None):
    *  `ssc` / `ssc compile`.  `serve(port)` blocks the calling thread; the
    *  default executor is single-threaded so handler bodies see no concurrency
    *  unless the user supplies their own synchronisation. */
-  private val serveRuntime: String =
+  /** Server-side runtime (routes, sessions, JWT, OAuth, WS, …).  Split
+   *  into two `String` halves because the combined source exceeds the
+   *  JVM's 64 KB string-literal limit — the natural seam is right
+   *  before the WS-specific section. */
+  private val serveRuntime: String = serveRuntimePart1 + serveRuntimePart2
+
+  private val serveRuntimePart1: String =
     """|
        |// ── REST routing + serve(port) ─────────────────────────────────────────
        |case class UploadedFile(
@@ -2614,7 +2620,10 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |    try Option(java.nio.file.Files.probeContentType(java.nio.file.Paths.get(name)))
        |    catch case _: Throwable => None
        |  }.getOrElse("application/octet-stream")
-       |
+       |""".stripMargin
+
+  private val serveRuntimePart2: String =
+    """|
        |// ── WebSocket support (RFC 6455) ───────────────────────────────────────
        |//
        |// Asymmetric design vs the interpreter: the interpreter runs an NIO
