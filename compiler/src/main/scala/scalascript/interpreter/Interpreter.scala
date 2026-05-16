@@ -27,21 +27,45 @@ class Interpreter(out: java.io.PrintStream = System.out, baseDir: Option[os.Path
   private val typeMethods  = mutable.Map.empty[String, Map[String, Value.FunV]]
   private var mainCalled   = false
   private var placeholderIdx = 0
-  // Tracks the last known source position for error messages (1-based line, 0-based column)
+  // Tracks the last known source position for error messages (0-based line, 0-based column).
   private var currentSpan: Option[(Int, Int)] = None
+  // Source of the code block currently being executed — used to print the
+  // offending line under the error message with a caret.
+  private var currentSource: String = ""
+  // When the parser falls back to wrapping the block in `{ ... }` to accept
+  // top-level expressions, every scalameta position is shifted down by one
+  // line. `lineOffset` compensates so error messages report the user's line.
+  private var lineOffset: Int = 0
 
   /** Format a position prefix like "[line 5, col 3] " or "" if unknown. */
   private def posPrefix: String = currentSpan match
     case Some((line, col)) => s"[line ${line + 1}, col ${col + 1}] "
     case None              => ""
 
-  /** Prefix `msg` with position info and throw InterpretError. */
-  private def located(msg: String): Nothing = throw InterpretError(s"$posPrefix$msg")
+  /** Render the source line at `currentSpan` with a caret underneath, or
+   *  empty string if no position / source is known. Two-line output, indented
+   *  so it lines up cleanly under the error message. */
+  private def sourceContext: String = currentSpan match
+    case Some((line, col)) if currentSource.nonEmpty =>
+      val lines = currentSource.split("\n", -1)
+      if line < 0 || line >= lines.length then ""
+      else
+        val src    = lines(line).stripTrailing
+        val gutter = s"${line + 1}"
+        val pad    = " " * gutter.length
+        val caret  = " " * col.max(0).min(src.length) + "^"
+        s"\n  $gutter | $src\n  $pad | $caret"
+    case _ => ""
+
+  /** Prefix `msg` with position info and throw InterpretError with source
+   *  context appended underneath. */
+  private def located(msg: String): Nothing =
+    throw InterpretError(s"$posPrefix$msg$sourceContext")
 
   /** Update currentSpan from a scalameta tree's position (no-op if position is empty). */
   private def trackPos(tree: scala.meta.Tree): Unit =
     val p = tree.pos
-    if !p.isEmpty then currentSpan = Some((p.startLine, p.startColumn))
+    if !p.isEmpty then currentSpan = Some((p.startLine - lineOffset, p.startColumn))
 
   // ─── Public API ──────────────────────────────────────────────────
 
@@ -171,6 +195,17 @@ class Interpreter(out: java.io.PrintStream = System.out, baseDir: Option[os.Path
   private def runSection(section: Section): Unit =
     section.content.foreach {
       case cb: Content.CodeBlock if Lang.isParseable(cb.lang) =>
+        currentSource = cb.source
+        // The parser falls back to wrapping the block in `{\n...\n}` when
+        // scalameta's Source parser rejects the script (e.g. top-level
+        // expressions). Detect that by tree shape and offset position lines
+        // so error messages quote the user's line numbers, not the wrapper's.
+        lineOffset = cb.tree match
+          case Some(t) => ScalaNode.fold(t) {
+            case _: Term.Block => 1
+            case _             => 0
+          }
+          case None => 0
         cb.tree.foreach(execBlock)
       case imp: Content.Import =>
         runImport(imp)
