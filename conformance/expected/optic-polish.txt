@@ -1,0 +1,7 @@
+Point(1, 20, 3)
+Point(10, 20, 30)
+Point(10, 2, 99)
+Lens(_.x)
+Optional(_.point.some.y)
+Traversal(_.points.each.z)
+Prism[?, Circle]

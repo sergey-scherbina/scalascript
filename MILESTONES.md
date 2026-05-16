@@ -65,6 +65,44 @@ useful in isolation and unblocks the next.
    workflow.  Weeks of work; only worth opening once the surface
    above is well-trodden.  Out of scope for v0.7.
 
+## v0.6 — Optics (Lens / Prism / Optional / Traversal) — landed
+
+Full optic hierarchy built around `Focus[T](_.path)` and `Prism[Sum, Var]`,
+landed in four PRs.  All four backends (interp / JS / JVM) share the same
+surface and produce identical output for `println` on instances and optics.
+
+- **Case-class `.copy(field = v, ...)` and `Focus[T](_.a.b.c)` → Lens.**
+  Initial version: named-only copy plus path-Lens construction.  Lowering:
+  Lens runtime in interpreter (`InstanceV("Lens", …)`), JS runtime helper
+  `_makeLens`, JVM preamble `case class Lens[S, A]` with literal emission.
+  (PR #17)
+
+- **`Prism[Sum, Variant]` → sum-type optic.**  `getOption` / `set` /
+  `modify` / `reverseGet` / `andThen`.  Drive-by fix: JVM `_show` walks
+  `Option` / `Map` / `List` / `Tuple` / `Product` recursively so render
+  of `Some(Circle(5.0))` matches interpreter / JS.  (PR #18)
+
+- **Optional via `.some` in the Focus path.**  `Focus[T](_.maybe.some.field)`
+  produces `Optional[T, A]` with no-op `set` / `modify` on missing layers.
+  Cross-optic `andThen` lifts Lens to Optional when composed.  JS runtime
+  preamble split across two triple-quoted parts (combined size now exceeds
+  the JVM's 64KB string-literal limit).  (PR #19)
+
+- **Traversal via `.each` in the Focus path.**  `Focus[T](_.items.each.field)`
+  → `Traversal[T, A]` with `getAll` / `modify` / `set` / `andThen`.
+  Any optic composed with a Traversal becomes a Traversal.  Universal
+  cross-type `andThen` overloads on `Lens` / `Optional` / `Traversal`.
+  (PR #20)
+
+- **Optic polish.**  Positional `.copy(...)` args (followable by named
+  overrides — matches Scala 3); `_show(optic)` renders the source-like
+  path (`Lens(_.a.b)`, `Optional(_.x.some.y)`, `Traversal(_.items.each.x)`,
+  `Prism[?, Circle]`) on all three backends — replaces the previous
+  `<function>` mess.
+
+Conformance: 27 tests across INT / JS / JVM, 81 PASS results.  Examples /
+SPEC §5.5 / README "What Works" updated as each stage landed.
+
 ## v0.5 — Interpreter performance (Tier 1) — landed
 
 Closed in a series of small commits on the

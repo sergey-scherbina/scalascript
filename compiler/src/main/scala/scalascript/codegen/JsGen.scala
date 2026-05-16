@@ -1308,8 +1308,21 @@ function _show(v) {
   if (v && v._type === '_Some') return 'Some(' + _show(v.value) + ')';
   if (v && v._type === '_None') return 'None';
   if (v && v._type === '_Raw')  return v.html;
+  if (v && v._type === 'Lens' && v._path) {
+    return 'Lens(_.' + v._path.join('.') + ')';
+  }
+  if (v && (v._type === 'Optional' || v._type === 'Traversal') && v._steps) {
+    const parts = v._steps.map(s => s === '__some__' ? 'some' : s === '__each__' ? 'each' : s);
+    return v._type + '(_.' + parts.join('.') + ')';
+  }
+  if (v && v._type === 'Prism' && v._variant) {
+    return 'Prism[?, ' + v._variant + ']';
+  }
   if (v && v._type) {
-    const fields = Object.entries(v).filter(([k]) => k !== '_type');
+    // Hide internal optic helpers (`get`, `set`, …) by skipping any value
+    // whose type indicates it's an optic but no `_path`/`_steps` survived.
+    const fields = Object.entries(v).filter(([k]) =>
+      k !== '_type' && k !== '_path' && k !== '_steps' && k !== '_variant');
     if (!fields.length) return v._type;
     return v._type + '(' + fields.map(([,vv]) => _show(vv)).join(', ') + ')';
   }
@@ -1362,6 +1375,23 @@ function _Map(...pairs) {
   const m = new Map();
   pairs.forEach(p => m.set(p[0], p[1]));
   return m;
+}
+
+// ── `.copy(...)` helper — fills positional args against the object's
+// own key order, then applies named overrides on top. Case-class
+// instances emit `{_type, a, b, …}` whose Object.keys order matches
+// the declared field order in V8 / modern Node.
+function _copy(obj, positional, named) {
+  const result = { ...obj, ...named };
+  if (positional.length === 0) return result;
+  const keys = Object.keys(obj).filter(k => k !== '_type');
+  let posIdx = 0;
+  for (const k of keys) {
+    if (posIdx >= positional.length) break;
+    if (k in named) continue;
+    result[k] = positional[posIdx++];
+  }
+  return result;
 }
 
 // ── Lens runtime — get/set/modify/andThen over a static field path ────
@@ -3301,13 +3331,22 @@ class JsGen(baseDir: Option[os.Path] = None):
 
   private def genCopy(qual: Term, args: List[Term]): String =
     val qualJs = genExpr(qual)
-    val pairs  = args.collect {
+    val positional = args.collect {
+      case t if !t.isInstanceOf[Term.Assign] => genExpr(t)
+    }
+    val named = args.collect {
       case Term.Assign(Term.Name(field), rhs) => s"$field: ${genExpr(rhs)}"
     }
-    if pairs.length != args.length then
-      s"(()=>{ throw new Error('.copy(...) requires named arguments — e.g. p.copy(x = 5)'); })()"
+    if positional.isEmpty then
+      // All-named — emit a plain spread for clarity / speed.
+      if named.isEmpty then s"({...$qualJs})"
+      else s"({...$qualJs, ${named.mkString(", ")}})"
     else
-      s"({...$qualJs, ${pairs.mkString(", ")}})"
+      // Mixed or all-positional — route through the `_copy` runtime helper,
+      // which uses the object's own key order to map positionals to fields.
+      val posArr = s"[${positional.mkString(", ")}]"
+      val namedObj = if named.isEmpty then "{}" else s"{${named.mkString(", ")}}"
+      s"_copy($qualJs, $posArr, $namedObj)"
 
   private def genFocus(args: List[Term]): String = args match
     case List(lambda) =>

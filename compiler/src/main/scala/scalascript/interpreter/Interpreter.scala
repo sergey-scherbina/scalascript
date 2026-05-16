@@ -33,6 +33,10 @@ class Interpreter(
   // Stored separately from instance fields so `show` and pattern matching see
   // only data fields.
   private val typeMethods  = mutable.Map.empty[String, Map[String, Value.FunV]]
+  // Field declaration order per type — needed for positional `.copy(...)`
+  // since `InstanceV.fields` is an unordered Map for instances with more
+  // than four fields.
+  private val typeFieldOrder = mutable.Map.empty[String, List[String]]
   private var mainCalled   = false
   private var placeholderIdx = 0
   // Tracks the last known source position for error messages (0-based line, 0-based column).
@@ -1053,6 +1057,7 @@ class Interpreter(
       val paramDefaults = params.map(_.default)
       val typeName = d.name.value
       val ctorEnv = env.toMap
+      typeFieldOrder(typeName) = paramNames
       env(typeName) = Value.NativeFnV(typeName, args => {
         val filled = applyDefaults(paramNames, paramDefaults, args, ctorEnv)
         Pure(Value.InstanceV(typeName, paramNames.zip(filled).toMap))
@@ -1082,6 +1087,7 @@ class Interpreter(
           val ecParams      = ec.ctor.paramClauses.flatMap(_.values).toList
           val paramNames    = ecParams.map(_.name.value)
           val paramDefaults = ecParams.map(_.default)
+          if paramNames.nonEmpty then typeFieldOrder(caseName) = paramNames
           val v: Value =
             if paramNames.isEmpty then Value.InstanceV(caseName, Map.empty)
             else Value.NativeFnV(caseName, args => {
@@ -1475,37 +1481,50 @@ class Interpreter(
     case EachStep
 
   /** `recv.copy(field = value, ...)` — produce a new InstanceV with the
-   *  named fields overridden. Positional args aren't supported because
-   *  `InstanceV.fields` is an unordered `Map` that doesn't preserve
-   *  declaration order beyond four fields. */
+   *  named fields overridden. Mixing named and positional args is allowed:
+   *  positionals fill the parameter list left-to-right, then named overrides
+   *  apply on top. Field order comes from `typeFieldOrder`, populated when
+   *  the case class / enum case was registered. */
   private def evalCopy(qual: Term, args: List[Term], env: Env): Computation =
     val qualC = eval(qual, env)
-    // Separate named (Term.Assign) from positional; capture the assign RHS
-    // BEFORE eval so it never goes through the var-assignment path.
-    val namedPairs: List[(String, Computation)] = args.collect {
-      case Term.Assign(Term.Name(field), rhs) => (field, eval(rhs, env))
-    }
-    val positional: List[Term] = args.filterNot {
+    // Walk args once, preserving order. Positional Computations are kept
+    // in order; named ones are tagged with their field name. RHS is
+    // evaluated BEFORE eval would see Term.Assign (which is also the
+    // var-assignment node), so the name doesn't leak into globals.
+    // Scala 3 disallows positional after named — mirror that here.
+    val firstNamed = args.indexWhere {
       case Term.Assign(_: Term.Name, _) => true
       case _                            => false
     }
-    if positional.nonEmpty then
-      located(".copy(...) requires named arguments — e.g. p.copy(x = 5)")
-    else
-      val (names, comps) = namedPairs.unzip
-      FlatMap(qualC, qualV =>
-        threadValues(comps) { newVals =>
-          val updates = names.zip(newVals).toMap
-          qualV match
-            case Value.InstanceV(typeName, fields) =>
-              val unknown = updates.keySet -- fields.keySet
-              if unknown.nonEmpty then
-                located(s".copy: unknown field(s) on $typeName: ${unknown.mkString(", ")}")
+    if firstNamed >= 0 && args.drop(firstNamed).exists {
+      case Term.Assign(_: Term.Name, _) => false
+      case _                            => true
+    } then located(".copy: positional argument after named argument is not allowed")
+    val tagged: List[(Option[String], Computation)] = args.map {
+      case Term.Assign(Term.Name(field), rhs) => (Some(field), eval(rhs, env))
+      case other                              => (None,        eval(other, env))
+    }
+    val (tags, comps) = tagged.unzip
+    FlatMap(qualC, qualV =>
+      threadValues(comps) { newVals =>
+        qualV match
+          case Value.InstanceV(typeName, fields) =>
+            val order = typeFieldOrder.getOrElse(typeName, fields.keys.toList)
+            val named = tags.zip(newVals).collect { case (Some(n), v) => n -> v }.toMap
+            val positionals = tags.zip(newVals).collect { case (None, v) => v }
+            val firstFreeFields = order.filterNot(named.contains).take(positionals.length)
+            if positionals.length > firstFreeFields.length then
+              located(s".copy: $typeName takes ${order.length} fields, got ${tags.length}")
+            else
+              val unknownNamed = named.keySet -- fields.keySet
+              if unknownNamed.nonEmpty then
+                located(s".copy: unknown field(s) on $typeName: ${unknownNamed.mkString(", ")}")
               else
-                Pure(Value.InstanceV(typeName, fields ++ updates))
-            case other =>
-              located(s".copy: not a case-class instance: ${Value.show(other)}")
-        })
+                val fromPositions = firstFreeFields.zip(positionals).toMap
+                Pure(Value.InstanceV(typeName, fields ++ fromPositions ++ named))
+          case other =>
+            located(s".copy: not a case-class instance: ${Value.show(other)}")
+      })
 
   private def isFocusName(t: Term): Boolean = t match
     case Term.Name("Focus") => true

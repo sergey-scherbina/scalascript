@@ -844,7 +844,8 @@ class JvmGen(baseDir: Option[os.Path] = None):
       case List(outerType, variantType) =>
         val outer   = outerType.syntax
         val variant = variantType.syntax
-        s"Prism[$outer, $variant]((s: $outer) => s match { case _v: $variant => Some(_v); case _ => None }, (a: $variant) => a)"
+        val label   = s"Prism[?, $variant]"
+        s"""Prism[$outer, $variant]((s: $outer) => s match { case _v: $variant => Some(_v); case _ => None }, (a: $variant) => a, "$label")"""
       case _ =>
         "??? /* Prism expects two type arguments: Prism[Outer, Variant] */"
 
@@ -901,6 +902,16 @@ class JvmGen(baseDir: Option[os.Path] = None):
       case _                                     => None
     loop(body, Nil)
 
+  /** Render an optic path back into its source-like form for use in the
+   *  optic's `toString` label (e.g. `Lens(_.a.b)`, `Optional(_.x.some.y)`). */
+  private def pathLabel(prefix: String, steps: List[FocusStep]): String =
+    val parts = steps.map {
+      case FocusStep.Field(n)   => n
+      case FocusStep.SomeUnwrap => "some"
+      case FocusStep.EachStep   => "each"
+    }
+    s"""$prefix(_.${parts.mkString(".")})"""
+
   /** Emit a Lens literal whose setter walks `path` and rebuilds nested copies. */
   private def buildLensLiteral(tpe: String, path: List[String]): String =
     val getter = s"(s: $tpe) => s.${path.mkString(".")}"
@@ -913,7 +924,8 @@ class JvmGen(baseDir: Option[os.Path] = None):
       case head :: rest      => s"$prefix.copy($head = ${buildSet(s"$prefix.$head", rest)})"
       case Nil               => "v"
     val setter = s"(s: $tpe, v) => ${buildSet("s", path)}"
-    s"Lens($getter, $setter)"
+    val label  = pathLabel("Lens", path.map(FocusStep.Field(_)))
+    s"""Lens($getter, $setter, "$label")"""
 
   /** Emit an Optional literal for a path containing `.some` steps. Get/set
    *  thread the value through `Option.flatMap` / `Option.map` and rebuild
@@ -922,7 +934,8 @@ class JvmGen(baseDir: Option[os.Path] = None):
   private def buildOptionalLiteral(tpe: String, steps: List[FocusStep]): String =
     val getter = s"(s: $tpe) => ${emitOpticGet(steps, "s", 0)}"
     val setter = s"(s: $tpe, v) => ${emitOpticSet(steps, "s", "v", 0)}"
-    s"Optional($getter, $setter)"
+    val label  = pathLabel("Optional", steps)
+    s"""Optional($getter, $setter, "$label")"""
 
   /** Build the `getOption` expression. Splits on the first SomeUnwrap; if
    *  more SomeUnwraps follow we use `flatMap`, otherwise `map`. Field-only
@@ -966,7 +979,8 @@ class JvmGen(baseDir: Option[os.Path] = None):
   private def buildTraversalLiteral(tpe: String, steps: List[FocusStep]): String =
     val toListExpr = s"(s: $tpe) => ${emitTraversalGet(steps, "s", 0)}"
     val modifyExpr = s"(s: $tpe, _f) => ${emitTraversalModify(steps, "s", "_f", 0)}"
-    s"Traversal($toListExpr, $modifyExpr)"
+    val label      = pathLabel("Traversal", steps)
+    s"""Traversal($toListExpr, $modifyExpr, "$label")"""
 
   /** Build the `toList` expression. Splits on the first `.some` or `.each`
    *  step; subsequent `.some` / `.each` chain via `List.flatMap`. */
@@ -1374,6 +1388,12 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |  case t: scala.Tuple =>
        |    "(" + t.productIterator.map(_show).mkString(", ") + ")"
        |  case xs: List[?] => xs.map(_show).mkString("List(", ", ", ")")
+       |  // Optics carry a printable label as their last field; route through
+       |  // toString so callers see `Lens(_.a.b)` instead of the function refs.
+       |  case l: Lens[?, ?]      => l.toString
+       |  case o: Optional[?, ?]  => o.toString
+       |  case t: Traversal[?, ?] => t.toString
+       |  case p: Prism[?, ?]     => p.toString
        |  case p: Product if p.productArity > 0 =>
        |    p.productPrefix + "(" + p.productIterator.map(_show).mkString(", ") + ")"
        |  case p: Product => p.productPrefix
@@ -1558,7 +1578,8 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |def nanoTime(): Long = java.lang.System.nanoTime()
        |
        |// ── Lens runtime — pure-functional optic over case-class field paths ──
-       |case class Lens[S, A](get: S => A, set: (S, A) => S):
+       |case class Lens[S, A](get: S => A, set: (S, A) => S, _label: String = ""):
+       |  override def toString: String = if _label.isEmpty then "Lens" else _label
        |  def modify(s: S, f: A => A): S = set(s, f(get(s)))
        |  def andThen[B](other: Lens[A, B]): Lens[S, B] =
        |    Lens(s => other.get(get(s)), (s, b) => set(s, other.set(get(s), b)))
@@ -1571,7 +1592,8 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |    )
        |
        |// ── Prism runtime — sum-type optic, conditional get / set / modify ────
-       |case class Prism[S, A](getOption: S => Option[A], reverseGet: A => S):
+       |case class Prism[S, A](getOption: S => Option[A], reverseGet: A => S, _label: String = ""):
+       |  override def toString: String = if _label.isEmpty then "Prism" else _label
        |  def set(s: S, a: A): S = getOption(s) match
        |    case Some(_) => reverseGet(a)
        |    case None    => s
@@ -1585,7 +1607,8 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |    )
        |
        |// ── Optional runtime — partial optic over a path with `.some` ─────
-       |case class Optional[S, A](getOption: S => Option[A], set: (S, A) => S):
+       |case class Optional[S, A](getOption: S => Option[A], set: (S, A) => S, _label: String = ""):
+       |  override def toString: String = if _label.isEmpty then "Optional" else _label
        |  def modify(s: S, f: A => A): S = getOption(s) match
        |    case Some(a) => set(s, f(a))
        |    case None    => s
@@ -1612,7 +1635,8 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |    )
        |
        |// ── Traversal runtime — multi-foci optic for `.each` paths ────────
-       |case class Traversal[S, A](toList: S => List[A], modifyF: (S, A => A) => S):
+       |case class Traversal[S, A](toList: S => List[A], modifyF: (S, A => A) => S, _label: String = ""):
+       |  override def toString: String = if _label.isEmpty then "Traversal" else _label
        |  def getAll(s: S): List[A] = toList(s)
        |  def modify(s: S, f: A => A): S = modifyF(s, f)
        |  def set(s: S, a: A): S = modifyF(s, _ => a)
