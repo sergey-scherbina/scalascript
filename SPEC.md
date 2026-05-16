@@ -509,6 +509,42 @@ header `alg`, and tokens whose `exp` claim (Unix seconds) is in the
 past or not parseable as an integer.  Other claims (`nbf`, `iss`,
 `aud`, …) are passed through verbatim — callers can enforce them.
 
+#### Server-side session store
+
+By default sessions are *stateless* — the signed cookie carries the
+whole payload.  That's enough for small (<4KB) data and saves the
+server any per-user state.  Three cases want server-side storage
+instead:
+
+  - **Large payloads.** Browsers cap cookies at ~4KB; a long list of
+    permissions or a JWT bundle overflows.
+  - **Instant revocation.** A stolen stateless cookie keeps working
+    until its expiry; a server-side store can drop the entry on logout
+    and the cookie's bytes become useless.
+  - **Sensitive data.** Signed cookies are tamper-proof but readable
+    by anyone with the bytes.  Keep secrets server-side.
+
+Flip the switch with a single top-level call:
+
+```scalascript
+useSessionStore()                  // 30-minute idle TTL by default
+useSessionStore(ttlSeconds = 600)  // 10-minute idle
+```
+
+After that, `withSession(payload)` stashes the payload in a process-
+local map keyed by a random SSID, and the cookie carries only
+`session=<b64url({"_ssid": "..."})>.<sig>`.  `req.session` transparently
+dereferences the SSID, so existing handlers don't change.  TTL is
+*idle* — each `req.session` access refreshes the entry's
+last-access timestamp; a 30-min-TTL session that's hit every minute
+lives forever.  `clearSession()` deletes both the cookie and the
+server-side entry.
+
+Implementation: lazy TTL sweep on every 256th access (no background
+thread).  The default in-memory backend is per-process — for
+multi-process deployments swap it for a `Storage`-backed store once
+that effect lands.
+
 #### Response
 
 ```scalascript

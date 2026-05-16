@@ -99,6 +99,7 @@ compiles them via Scala.js.
 | Browser SPA target | `ssc emit-spa file.ssc > spa.html` — same `route()` source runs as a single-page app |
 | Sessions + CSRF | `req.session`, `Response.html(...).withSession(Map(...))`, `csrfToken()` / `csrfValid(req)` |
 | JWT bearer tokens | `jwtSign(Map(...))`, `jwtVerify(token)`, `req.bearerToken`, `req.jwtClaims` (HS256) |
+| Server-side sessions | `useSessionStore(ttlSeconds)` — opt-in, cookie carries an SSID, payload lives in process |
 
 ## Examples
 
