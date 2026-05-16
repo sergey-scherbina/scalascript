@@ -333,6 +333,30 @@ function _buildSetCookie(map) {
   return 'session=' + _packSession(map) + '; ' + base;
 }
 
+// ── CSRF helpers ──────────────────────────────────────────────────────
+// `csrfToken()` returns a fresh url-safe random string; the caller stashes
+// it under "csrf" in the session and renders it in their form. `csrfValid`
+// checks form `csrf` / `X-CSRF-Token` header against session.
+function csrfToken() {
+  const crypto = require('crypto');
+  return _b64urlEnc(crypto.randomBytes(24));
+}
+function csrfValid(req) {
+  if (!req) return false;
+  const session = req.session instanceof Map ? req.session : new Map();
+  const expected = session.get('csrf') || '';
+  const form     = req.form instanceof Map ? req.form : new Map();
+  let supplied = form.get('csrf');
+  if (!supplied && req.headers instanceof Map) {
+    for (const [k, v] of req.headers) if (k.toLowerCase() === 'x-csrf-token') { supplied = v; break; }
+  }
+  supplied = supplied || '';
+  if (!expected || !supplied || expected.length !== supplied.length) return false;
+  let diff = 0;
+  for (let i = 0; i < expected.length; i++) diff |= expected.charCodeAt(i) ^ supplied.charCodeAt(i);
+  return diff === 0;
+}
+
 // JSON-encode anything: strings pass through as raw JSON (so hand-built
 // JSON strings keep working); other values get structural emission with
 // proper escaping. Mirrors `toJson` in the interpreter.

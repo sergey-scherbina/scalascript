@@ -478,6 +478,37 @@ class Interpreter(out: java.io.PrintStream = System.out, baseDir: Option[os.Path
       "status"   -> globals("Response.status")
     ))
 
+    // ── CSRF helpers ─────────────────────────────────────────────────
+    // `csrfToken()` returns a fresh url-safe random string; the caller
+    // is expected to stash it under "csrf" in the session and render it
+    // in their form.  `csrfValid(req)` checks the form's `csrf` field or
+    // the `X-CSRF-Token` header against the session's stored value.
+    nativeP("csrfToken") { _ =>
+      val bytes = new Array[Byte](24)
+      java.security.SecureRandom().nextBytes(bytes)
+      Value.StringV(java.util.Base64.getUrlEncoder.withoutPadding.encodeToString(bytes))
+    }
+    nativeP("csrfValid") {
+      case List(Value.InstanceV("Request", fields)) =>
+        def asMap(v: Option[Value]): Map[String, String] = v match
+          case Some(Value.MapV(m)) =>
+            m.collect { case (Value.StringV(k), Value.StringV(s)) => k -> s }.toMap
+          case _ => Map.empty
+        val form    = asMap(fields.get("form"))
+        val headers = asMap(fields.get("headers"))
+        val session = asMap(fields.get("session"))
+        val expected = session.getOrElse("csrf", "")
+        val supplied = form.get("csrf")
+          .orElse(headers.collectFirst { case (k, v) if k.equalsIgnoreCase("X-CSRF-Token") => v })
+          .getOrElse("")
+        val ok =
+          if expected.isEmpty || supplied.isEmpty then false
+          else java.security.MessageDigest.isEqual(
+            expected.getBytes("UTF-8"), supplied.getBytes("UTF-8"))
+        Value.BoolV(ok)
+      case _ => throw InterpretError("csrfValid(req)")
+    }
+
     // route(method, path)(handler) — registers a handler in the global table.
     // Path syntax: literal segments + `:name` captures (e.g. /users/:id).
     nativeP("route") {
@@ -1057,6 +1088,19 @@ class Interpreter(out: java.io.PrintStream = System.out, baseDir: Option[os.Path
             case _ => located("summon: unsupported type")
           Pure(env.getOrElse(key, globals.getOrElse(key, located(s"No given for $key"))))
         case _ => eval(t.fun, env)  // other type applications — erase type args
+
+    // Prefix unary operators: `!x`, `-x`, `+x`, `~x`.
+    case t: Term.ApplyUnary =>
+      eval(t.arg, env).flatMap { v =>
+        (t.op.value, v) match
+          case ("!", Value.BoolV(b))   => Pure(Value.BoolV(!b))
+          case ("-", Value.IntV(n))    => Pure(Value.IntV(-n))
+          case ("-", Value.DoubleV(d)) => Pure(Value.DoubleV(-d))
+          case ("+", n: Value.IntV)    => Pure(n)
+          case ("+", d: Value.DoubleV) => Pure(d)
+          case ("~", Value.IntV(n))    => Pure(Value.IntV(~n))
+          case (op, other)             => located(s"Cannot apply unary $op to ${Value.show(other)}")
+      }
 
     case other => located(s"Cannot eval: ${other.productPrefix}")
 

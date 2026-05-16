@@ -1383,6 +1383,25 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |  if payload.isEmpty then s"session=; $base; Max-Age=0"
        |  else s"session=${_packSession(payload)}; $base"
        |
+       |// ── CSRF helpers ────────────────────────────────────────────────
+       |// `csrfToken()` returns a url-safe random token; the caller stashes
+       |// it under "csrf" in the session and renders it in their form.
+       |// `csrfValid(req)` checks form `csrf` / `X-CSRF-Token` header.
+       |def csrfToken(): String =
+       |  val bytes = new Array[Byte](24)
+       |  java.security.SecureRandom().nextBytes(bytes)
+       |  _b64urlEnc(bytes)
+       |def csrfValid(req: Request): Boolean =
+       |  val expected = req.session.getOrElse("csrf", "")
+       |  val supplied = req.form.get("csrf")
+       |    .orElse(req.headers.collectFirst {
+       |      case (k, v) if k.equalsIgnoreCase("X-CSRF-Token") => v
+       |    })
+       |    .getOrElse("")
+       |  if expected.isEmpty || supplied.isEmpty || expected.length != supplied.length then false
+       |  else java.security.MessageDigest.isEqual(
+       |    expected.getBytes("UTF-8"), supplied.getBytes("UTF-8"))
+       |
        |// JSON-encode anything: strings pass through as raw JSON (so hand-
        |// built JSON strings keep working); other values get structural
        |// emission with proper escaping.
