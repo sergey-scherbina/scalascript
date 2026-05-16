@@ -46,10 +46,6 @@ The JVM and JS backends now ship their own `serveRuntime` / `route` runtime
   `List`, `Map`, primitives — covering the same value space `Value.show`
   handles.  Probably a third-party lib (`upickle` or `circe`) on the JVM
   and a hand-rolled emitter for JS.
-- **Cross-backend smoke harness.**  Add a script under `bench/` (or a new
-  `e2e/`) that starts the same `rest-api.ssc` through each backend in
-  turn, hits it with `curl`, and diffs the responses — guards against
-  drift between the three serve runtimes.
 
 ## v0.4 — Stability & polish
 

@@ -139,6 +139,16 @@ scala-cli bench/run.sc
 See [`bench/README.md`](bench/README.md) for the workload list, methodology,
 and a sample results table.
 
+## End-to-end smoke
+
+`e2e/rest-smoke.sc` boots `examples/rest-api.ssc` through each of the three
+backends in turn and diffs their HTTP responses — guards against drift between
+the interpreter / JVM / JS serve runtimes.
+
+```bash
+scala-cli e2e/rest-smoke.sc
+```
+
 ## Conformance Suite
 
 Cross-backend tests that verify JVM interpreter and JS transpiler produce identical output.
