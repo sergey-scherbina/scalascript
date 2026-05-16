@@ -11,6 +11,16 @@ component pack, REST middleware, layout kit — without vendoring its
 files into their own tree.  The steps are ordered so each one is
 useful in isolation and unblocks the next.
 
+0. **Recursive `ssc build`.**  Today the build walker only renders
+   top-level `.ssc` files in `src-dir`; subdirectories are recursed
+   only for the asset pipeline.  Real SSG layouts (`pages/index.ssc`,
+   `pages/blog/post.ssc`, `pages/admin/users.ssc`) need the page
+   walker to recurse too, skipping the conventional non-page folders
+   (`components/`, `target/`, `node_modules/`, `dist/`, `out/`,
+   `.scala-build/`, dot-prefixed entries).  Lays the groundwork for a
+   library to ship its own example/demo site alongside the components.
+   ~1–2 hours.
+
 1. **Import-alias parsing.**  `[Card as MyCard](./card.ssc)` /
    `[render, css as styles](./card.ssc)`.  The AST already carries
    `ImportBinding.alias: Option[String]`, but `Parser.asImport` always
@@ -20,16 +30,24 @@ useful in isolation and unblocks the next.
    immediate payoff — unblocks naming conflicts between any two
    libraries that export the same identifier.  ~2–3 hours.
 
-2. **`ssc bundle <file.ssc> [-o name.sscpkg]`.**  Walks transitive
-   `.ssc` imports starting from `<file>`, packs them into a zip with
-   layout
-       bundle.yaml          (entry, name, version, transitive list)
-       <entry>.ssc          (at the archive root)
+2. **`ssc bundle <file.ssc> [<file.ssc>…] [-o name.sscpkg]`.**  Walks
+   transitive `.ssc` imports starting from every argument file, packs
+   them into a zip with layout
+       bundle.yaml          (entries[], name, version, transitive list)
+       <entry-1>.ssc        (at the archive root)
+       <entry-2>.ssc        (at the archive root)
        <relative paths>/…   (imported files, paths kept)
-   Refuses imports above the entry directory (`../foo.ssc`) so authors
-   keep impls self-contained.  No network, no registry — distribution
-   by attaching `.sscpkg` to a GitHub release / S3 / email.  Consumer
-   unzips and imports relatively.  ~2–3 hours.
+   Supports multiple entry files in one call so a library can ship
+   `card.ssc`, `button.ssc`, `alert.ssc` as a single archive without
+   needing an aggregator module.  Single-entry usage is the common
+   case (`bundle.yaml.entries = [card.ssc]`).
+
+   Imports above the entry directory (`../foo.ssc`) are flattened
+   into a synthetic `_external/<basename>` slot in the archive and
+   path references rewritten — the bundle stays self-contained no
+   matter how the original tree is structured.  No network, no
+   registry; distribution by attaching `.sscpkg` to a GitHub release
+   / S3 / email.  Consumer unzips and imports relatively.  ~3 hours.
 
 3. **URL imports.**  `[Card](https://raw.githubusercontent.com/u/r/v1.0/card.ssc)`
    resolves to a local cache at `~/.cache/ssc/<host>/<path>` (first
