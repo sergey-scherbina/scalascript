@@ -97,6 +97,7 @@ compiles them via Scala.js.
 | HTML / CSS interpolators | `html"..."` (auto-escaping) and `css"..."` with `${expr}` |
 | REST primitives | `route(method, path)(handler)` + `Request`/`Response` + `serve(port)` |
 | Browser SPA target | `ssc emit-spa file.ssc > spa.html` — same `route()` source runs as a single-page app |
+| Sessions + CSRF | `req.session`, `Response.html(...).withSession(Map(...))`, `csrfToken()` / `csrfValid(req)` |
 
 ## Examples
 
@@ -120,6 +121,7 @@ compiles them via Scala.js.
 | [scala-js-demo.ssc](examples/scala-js-demo.ssc) | Pure `scala` 3 document — runs on all three backends with byte-identical output |
 | [rest-api.ssc](examples/rest-api.ssc) | Tiny in-memory REST API — `route()`, `html"..."`, `serve()` |
 | [spa-demo.ssc](examples/spa-demo.ssc) | Same `route()` / `serve()` source, browser SPA via `ssc emit-spa` |
+| [auth-demo.ssc](examples/auth-demo.ssc) | Login / logout with signed cookie sessions + CSRF tokens |
 
 Run them all at once:
 

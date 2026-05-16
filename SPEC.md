@@ -416,6 +416,64 @@ skipped); for any other content type it is `Map.empty` and the handler
 can still read the raw `body`.  A dedicated file-upload API is not yet
 exposed.
 
+`session: Map[String, String]` is populated from the incoming `Cookie:`
+header — see *Sessions* below.
+
+#### Sessions
+
+ScalaScript ships HMAC-SHA256-signed cookie sessions on every server
+runtime.  The wire format is identical across all three backends:
+
+```text
+session=<b64url(json(payload))>.<b64url(hmac_sha256(b64url_json))>
+        ; Path=/; HttpOnly; SameSite=Lax        (Max-Age=0 when clearing)
+```
+
+The signing secret comes from the `SSC_SESSION_SECRET` environment
+variable.  If unset, the runtime generates a per-process random key
+and logs a one-line warning on stderr — sessions then don't survive a
+process restart (fine for dev; surface for prod).
+
+```scalascript
+// Read — req.session is a Map[String, String] decoded from the cookie,
+// or empty if the cookie was absent / tampered with.
+val userId: Option[String] = req.session.get("user")
+
+// Write — withSession attaches a setSession field; the runtime emits
+// the signed Set-Cookie when the response goes out.
+Response.html(body).withSession(Map("user" -> "alice"))
+
+// Clear — clearSession() emits Set-Cookie with Max-Age=0.
+Response.redirect("/").clearSession()
+```
+
+#### CSRF helpers
+
+`csrfToken()` returns a fresh url-safe random string; the caller is
+expected to stash it under `"csrf"` in the session and render it as a
+hidden form field.  `csrfValid(req)` checks the request's `csrf` form
+field (or the `X-CSRF-Token` header) against the session's stored
+value, using constant-time comparison.  Both helpers are available on
+all three backends.
+
+```scalascript
+route("GET", "/login") { req =>
+  val token = req.session.getOrElse("csrf", csrfToken())
+  Response.html(html"""<form method="POST">
+    <input type="hidden" name="csrf" value="${token}">
+    ...
+  </form>""").withSession(req.session.updated("csrf", token))
+}
+
+route("POST", "/login") { req =>
+  if !csrfValid(req) then Response.status(403, "CSRF check failed")
+  else { ... }
+}
+```
+
+See [examples/auth-demo.ssc](examples/auth-demo.ssc) for the full
+login / logout flow.
+
 #### Response
 
 ```scalascript
