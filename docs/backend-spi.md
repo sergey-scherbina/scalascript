@@ -190,6 +190,12 @@ re-derive lives here as explicit nodes.
 
 `scalascript-ir` provides JSON codecs (upickle, already a dep).
 
+**Serialisation is only used at process boundaries.** In-process
+plugins receive the `NormalizedModule` as an ordinary Scala object by
+reference — no copying, no encoding. Out-of-process plugins (§12.2)
+get JSON over stdio. The codecs are the contract between the two
+worlds.
+
 Round-trip is part of CI:
 `Parser → Typer → Normalize → toJson → fromJson` must equal the
 in-memory `NormalizedModule`. This is the contract between in-proc and
