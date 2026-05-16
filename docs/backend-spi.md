@@ -59,6 +59,29 @@ plan delivers them.
 
 ## 4. Target architecture
 
+The SPI exposes **two orthogonal extension axes**:
+
+- **Source language** (`SourceLanguage` trait — §9): a dialect the
+  compiler can read inside fence blocks. Parses, type-checks, and
+  lowers to IR. Examples: `scala`, `sql`, `python`, `wat`, `html`.
+- **Target output** (`Backend` trait — §4.3): consumes IR and emits
+  an artifact. Examples: Scala source, JavaScript, WASM bytecode, an
+  SPA bundle, in-process execution.
+
+A plugin can register as one role, the other, or both. The two
+registries are populated independently (see §12 Discovery). They
+meet only in `core`, which feeds IR from source-language compilers
+into the chosen target backend.
+
+How the four current plugins map onto the new shape:
+
+| Plugin        | SourceLanguage role         | Backend role                  |
+|---------------|-----------------------------|-------------------------------|
+| `jvm`         | `scala` (verbatim embed)    | Scala-source target           |
+| `js`          | (`js`, planned)             | JavaScript-source target      |
+| `scalajs`     | `scala` (via scalameta)     | SPA target (HTML + JS)        |
+| `interpreter` | `scala` (as SS subset)      | Execution target              |
+
 ### 4.1 sbt module layout
 
 ```
@@ -103,7 +126,7 @@ trait Backend:
   def spiVersion: String                      // semver of SPI this plugin was built against
   def capabilities: Capabilities
   def intrinsics: Map[QualifiedName, IntrinsicImpl]   // §8 — platform-native operations
-  def codeBlockLanguages: Set[String]                 // §9 — fence tags handled natively
+  def acceptedSources: Set[String]                 // §9 — canonical source-language names this target can emit
 
   /** One-shot compilation. */
   def compile(ir: ir.NormalizedModule, opts: BackendOptions): CompileResult
@@ -494,12 +517,18 @@ plugins to bring **their own** dialect — a `wasm` plugin accepting
 `wat`, a `dotnet` plugin accepting `csharp`, a `sql` plugin accepting
 `sql`, etc. — fence-tag handling has to live in the SPI.
 
+This section covers the **source-language** axis of the SPI (see §4
+intro). It is orthogonal to the **target-output** axis (`Backend`,
+§4.3): a `SourceLanguage` plugin produces IR that any target consumes,
+and a target backend emits its artifact regardless of which source
+languages contributed to the IR.
+
 ### Mechanism
 
-A plugin can implement `Backend`, `BlockCompiler`, or both:
+A plugin can implement `Backend`, `SourceLanguage`, or both:
 
 ```scala
-trait BlockCompiler:
+trait SourceLanguage:
   /** Fence tags this compiler accepts: "scala", "sql", "rust", ... */
   def languages: Set[String]
 
@@ -527,18 +556,18 @@ case class BlockArtifact(
 ```
 
 `scalascript` blocks are the language proper and are always handled by
-core's parser/typer — never by the `BlockCompiler` mechanism.
+core's parser/typer — never by the `SourceLanguage` mechanism.
 
 ### Reserved names and mandatory support
 
 - **Reserved.** The canonical name `scalascript` and its alias `ssc`
   are reserved by core. A plugin that declares either in its
-  `codeBlockLanguages` or `BlockCompiler.languages` fails to register
+  `acceptedSources` or `SourceLanguage.languages` fails to register
   with a clear error. Prevents accidental shadowing of the base
   language.
 - **Mandatory.** Every program is built on `scalascript`/`ssc`
   blocks; core's parser/typer always processes them, regardless of
-  the active backend. A backend's `codeBlockLanguages` lists
+  the active backend. A backend's `acceptedSources` lists
   *additional* languages it natively understands; it can legitimately
   be `Set.empty` (a pure code generator with no foreign-language
   embedding).
@@ -549,7 +578,7 @@ Some fence tags have multiple accepted spellings — `scalascript` ↔
 `ssc`, `javascript` ↔ `js`, `csharp` ↔ `cs`, `webassembly` ↔
 `wasm`/`wat`. Core maintains a **canonical-name table** and normalises
 every fence tag to its canonical form *before* any lookup against
-`codeBlockLanguages` or `BlockCompiler.languages`. A plugin therefore
+`acceptedSources` or `SourceLanguage.languages`. A plugin therefore
 declares only the canonical name (e.g. `Set("scalascript")`, not
 `Set("scalascript", "ssc")`).
 
@@ -567,7 +596,7 @@ Initial canonical table:
 | `scala`       | —             |
 
 Plugins extend the table by listing aliases in `plugin.yaml`
-(out-of-process) or returning them from `Backend` / `BlockCompiler`
+(out-of-process) or returning them from `Backend` / `SourceLanguage`
 (in-process):
 
 ```yaml
@@ -580,20 +609,20 @@ aliases:
 For each foreign block, core asks:
 
 1. Does the active **target backend** declare this language in its
-   `codeBlockLanguages` set? If yes, the backend handles it natively
+   `acceptedSources` set? If yes, the backend handles it natively
    — the raw source is preserved in the IR as an `EmbeddedBlock` for
    the backend to emit during `compile()`.
-2. Otherwise, is there a registered `BlockCompiler` for this
+2. Otherwise, is there a registered `SourceLanguage` for this
    language? If yes, invoke it; the resulting `BlockArtifact.irNode`
    replaces the block in the IR before the target backend sees it.
 3. Otherwise, `Diagnostic.UnknownBlockLanguage(language, available)`.
 
-If multiple block compilers claim the same language, the user picks
+If multiple source-language plugins claim the same language, the user picks
 explicitly: `--block-handler scala=scalajs` overrides the default
 order (declared-by-target → first-registered).
 
 **Worked example.** `jvm` is the active target and natively handles
-`scala`; `scalajs` is *also* registered as a `BlockCompiler` for
+`scala`; `scalajs` is *also* registered as a `SourceLanguage` for
 `scala`. By rule (1) the `jvm` backend wins — `scala` blocks are
 embedded as raw Scala source in the generated `.scala` file. To force
 delegation to `scalajs` (so the same blocks become JS), the user
@@ -606,17 +635,17 @@ though the target backend would have claimed the language natively.
 |--------------|-----------------------------------------------|---------------------------------|
 | `scalascript`| core (always)                                 | NormalizedModule                |
 | `scala`      | `jvm` plugin natively (target = `jvm`)        | embedded in generated Scala     |
-| `scala`      | `scalajs` plugin as `BlockCompiler` (target = `js`) | JS, woven into js output |
+| `scala`      | `scalajs` plugin as `SourceLanguage` (target = `js`) | JS, woven into js output |
 | `js`         | `js` plugin natively                          | embedded in generated JS        |
 | `wat`        | future `wasm` plugin natively                 | embedded in WASM module         |
 | `csharp`     | future `dotnet` plugin natively               | embedded in generated C#        |
-| `sql`        | future `sql` plugin as block compiler         | typed query AST in IR           |
+| `sql`        | future `sql` `SourceLanguage` plugin          | typed query AST in IR           |
 | `python`     | future `python` plugin natively               | embedded Python                 |
 
 ### Capabilities vs fence-tag support
 
 Fence-tag language support is **not** mirrored in §11 `Feature` flags.
-`codeBlockLanguages` (per Backend) and `BlockCompiler.languages` are
+`acceptedSources` (per Backend) and `SourceLanguage.languages` are
 the single source of truth: if a tag isn't listed there (after alias
 normalisation), core emits `Diagnostic.UnknownBlockLanguage`; if it
 is, the block compiles. A `Feature.ScalaBlocks` / `Feature.SqlBlocks`
@@ -664,7 +693,7 @@ rest of the document.
 ### Decisions (locked)
 
 - **Exports are declared by the plugin**, not by user-side annotation
-  in the markdown. The `BlockCompiler` introspects its source and
+  in the markdown. The `SourceLanguage` introspects its source and
   reports what it exposes; no `{exports="..."}` markup, no
   `-- exports:` comments to maintain.
 - **Visibility is global within the module.** A symbol or ID exposed
@@ -676,7 +705,7 @@ rest of the document.
 ### Tier 1 — by exported symbol (default)
 
 Blocks that define top-level names contribute them to the module's
-global scope via the `BlockCompiler`:
+global scope via the `SourceLanguage`:
 
 ```scala
 case class SymbolExport(
@@ -738,7 +767,7 @@ def isOdd(n: Int): Boolean  = if n == 0 then false else isEven(n - 1)
 ​```
 ```
 
-The `BlockCompiler` exposes two stages (signatures + compileBlock,
+The `SourceLanguage` exposes two stages (signatures + compileBlock,
 shown in §9). Core orchestrates: first gather signatures across every
 block in the document; then re-walk and compile bodies against the
 complete scope. Same shape as let-rec in any modern language.
@@ -885,7 +914,7 @@ Each phase is one PR. Tests stay green at every step.
 - Add sbt subprojects: `backend-spi`, `ir`, `core`, `cli`, four backend
   modules.
 - Move existing sources into `core` (no semantic changes).
-- Define `Backend` and `BlockCompiler` traits plus `CompileResult`,
+- Define `Backend` and `SourceLanguage` traits plus `CompileResult`,
   `Capabilities`, `BackendOptions`, `IntrinsicImpl`, `BlockArtifact`,
   `SymbolExport` in `backend-spi` (stubs are fine).
 - `cli/Main.scala` still calls concrete backends directly — registry
@@ -928,19 +957,19 @@ Each phase is one PR. Tests stay green at every step.
   `Backend` implementation in its own subproject with a
   `META-INF/services` file. `ScalaJsBackend` is a top-level plugin
   (target id `scalajs-spa`); it additionally implements
-  `BlockCompiler` so the `js` plugin can delegate `scala` blocks to
+  `SourceLanguage` so the `js` plugin can delegate `scala` blocks to
   it when configured.
 - `Interpreter` implements `InteractiveBackend` (its `Session` wraps
   the existing `run` / `invoke` API; the existing `runSnippet` becomes
   `feed`).
 - `core` adds `BackendRegistry` (ServiceLoader-based discovery), with
-  separate registries for `Backend` and `BlockCompiler` plugins.
+  separate registries for `Backend` and `SourceLanguage` plugins.
 - Hard-coded HTTP/web handling (route / serve / Request / Response)
   is extracted: signatures move to `std/http.ssc` in the prelude with
   `extern` markers; each plugin exposes its platform code through
   `Backend.intrinsics` (§8).
-- Each plugin declares its `codeBlockLanguages`: `jvm` → `{"scala"}`,
-  `js` → `{"js"}`, `scalajs` as `BlockCompiler` → `{"scala"}`.
+- Each plugin declares its `acceptedSources`: `jvm` → `{"scala"}`,
+  `js` → `{"js"}`, `scalajs` as `SourceLanguage` → `{"scala"}`.
 - Block-export pipeline (§10) wired into the typer: signature
   collection across all foreign blocks first, then per-block
   compilation with the full module scope visible. Cycle support
@@ -1020,9 +1049,9 @@ Specifically:
   platform-native output where it matters.
 - **`ScalaJsBackend` role** → separate top-level plugin
   (target = `scalajs-spa`); additionally registered as a
-  `BlockCompiler` for `scala` blocks when the `js` target opts in.
+  `SourceLanguage` for `scala` blocks when the `js` target opts in.
 - **Block references across languages** → two-tier (§10): exports
-  declared by the `BlockCompiler` (no user-side annotation), global
+  declared by the `SourceLanguage` (no user-side annotation), global
   module-wide visibility, cycles allowed via two-pass typing. Tier 1
   symbol-level + Tier 2 Pandoc-style `{#id}` for opaque blocks.
 - **IR / SPI versioning policy** → plain semver, one version number
@@ -1039,7 +1068,7 @@ Specifically:
       only new `extern` signatures in the prelude plus per-backend
       intrinsic entries — no `core` change.
 - [ ] Adding a new fenced-block language (e.g. `python`, `sql`)
-      requires only a new plugin implementing `BlockCompiler` and/or
+      requires only a new plugin implementing `SourceLanguage` and/or
       `Backend` — no `core` change.
 - [ ] HTTP handling is no longer hard-coded in any code generator;
       `std.http` ships as a prelude package, runtime lives in each
