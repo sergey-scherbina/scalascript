@@ -17,12 +17,19 @@ object Lang:
   val Scala       = "scala"
   val ScalaScript = "scalascript"
   val Ssc         = "ssc"          // legacy alias for scalascript
+  val Html        = "html"
+  val Css         = "css"
 
   def isScalaScript(lang: String): Boolean =
     lang == ScalaScript || lang == Ssc
 
   def isStandardScala(lang: String): Boolean =
     lang == Scala
+
+  /** True for blocks whose body is a `String` value with `${expr}`
+   *  interpolation (html, css). Not parsed by scalameta. */
+  def isStringBlock(lang: String): Boolean =
+    lang == Html || lang == Css
 
   /** True for any lang whose blocks are parsed by scalameta. */
   def isParseable(lang: String): Boolean =
@@ -33,4 +40,6 @@ object Lang:
     case Scala       => "Scala 3"
     case ScalaScript => "ScalaScript"
     case Ssc         => "ScalaScript"
+    case Html        => "HTML"
+    case Css         => "CSS"
     case other       => other

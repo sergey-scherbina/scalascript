@@ -365,6 +365,73 @@ def assert(cond: Boolean, msg: String): Unit
 def require(cond: Boolean, msg: String): Unit
 ```
 
+### 8.3 Web primitives
+
+ScalaScript provides a minimal REST/web layer for the JVM interpreter's
+`serve` mode.  The same `.ssc` document declares the routes and starts the
+server; handlers execute in the interpreter session that registered them, so
+they see the document's top-level mutable state directly.
+
+```scalascript
+def route(method: String, path: String)(handler: Request => Response): Unit
+def serve(port: Int): Unit
+```
+
+Path syntax: literal segments separated by `/`, with `:name` captures
+extracted into `Request.params`.  Example: `route("GET", "/users/:id") { req =>
+  Response.text(req.params.get("id").get) }`.
+
+#### Request
+
+```scalascript
+case class Request(
+  method:  String,
+  path:    String,
+  params:  Map[String, String],   // path captures (e.g. :id)
+  query:   Map[String, String],   // ?k=v
+  headers: Map[String, String],
+  body:    String
+)
+```
+
+#### Response
+
+```scalascript
+case class Response(
+  status:  Int = 200,
+  headers: Map[String, String] = Map.empty,
+  body:    String = ""
+)
+object Response:
+  def html(body: String): Response
+  def text(body: String): Response
+  def json(body: String): Response
+  def redirect(url: String): Response
+  def notFound(body: String = "Not Found"): Response
+  def status(code: Int, body: String = ""): Response
+```
+
+A handler may return a `Response`, a `String` (becomes a 200 text response),
+or `Unit` (becomes a 204).
+
+#### HTML / CSS string interpolators
+
+Inside any code block, `html"..."` and `css"..."` produce `String` values
+with `${expr}` interpolation.  In `html"..."`, interpolated values are
+HTML-escaped unless they were produced by `raw(s)`.
+
+```scalascript
+val safe = html"<p>hello ${userInput}</p>"        // userInput escaped
+val outer = html"<div>${raw(safe)}</div>"          // safe passed through
+```
+
+#### Backends
+
+The REST primitives are currently exposed in the **JVM interpreter** only.
+Compiling a route-using `.ssc` file via the JVM or JS backend (`ssc compile`,
+`ssc emit-js`) leaves the calls unresolved — those backends do not bundle a
+server.
+
 ## Appendix A: Reserved Words
 
 ```text
