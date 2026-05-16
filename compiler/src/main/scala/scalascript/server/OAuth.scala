@@ -33,8 +33,10 @@ object OAuth:
 
   /** Preset provider configs.  Each entry's `authorizeUrl` is missing
    *  query params (built in `authorizeUrl`); `tokenUrl` is hit as-is
-   *  with form-encoded body. */
-  val providers: Map[String, Map[String, String]] = Map(
+   *  with form-encoded body.  User-registered providers via
+   *  [[registerProvider]] are layered on top — they can override
+   *  individual fields or introduce wholly new providers. */
+  private val builtin: Map[String, Map[String, String]] = Map(
     "google" -> Map(
       "authorizeUrl" -> "https://accounts.google.com/o/oauth2/v2/auth",
       "tokenUrl"     -> "https://oauth2.googleapis.com/token",
@@ -48,6 +50,21 @@ object OAuth:
       "defaultScope" -> "user:email",
     ),
   )
+
+  /** Runtime-registered providers — merged on top of `builtin`.  Each
+   *  call replaces / overrides any prior entry under the same name. */
+  private val custom: java.util.concurrent.ConcurrentHashMap[String, Map[String, String]] =
+    java.util.concurrent.ConcurrentHashMap[String, Map[String, String]]()
+
+  /** Register a new OAuth provider (or override fields of a built-in).
+   *  Required keys: `authorizeUrl`, `tokenUrl`.  Optional: `userinfoUrl`
+   *  (`oauthUserinfo` returns None if absent) and `defaultScope`. */
+  def registerProvider(name: String, config: Map[String, String]): Unit =
+    custom.put(name, config)
+
+  /** All known providers — builtins layered under any runtime override. */
+  def providers: Map[String, Map[String, String]] =
+    builtin ++ scala.jdk.CollectionConverters.MapHasAsScala(custom).asScala.toMap
 
   private def cfg(provider: String, override_ : Map[String, String]): Map[String, String] =
     providers.getOrElse(provider, Map.empty) ++ override_
@@ -111,6 +128,43 @@ object OAuth:
         .timeout(java.time.Duration.ofSeconds(30))
         .header("Content-Type", "application/x-www-form-urlencoded")
         .header("Accept", "application/json")
+        .POST(HttpRequest.BodyPublishers.ofString(body))
+        .build()
+      val resp = client.send(req, HttpResponse.BodyHandlers.ofString())
+      if resp.statusCode() < 200 || resp.statusCode() >= 300 then None
+      else parseTokenResponse(resp.body(), resp.headers().firstValue("content-type").orElse(""))
+    catch case _: Throwable => None
+
+  /** Refresh-token grant: trade a long-lived refresh token for a fresh
+   *  access token.  Returns the parsed token response just like
+   *  `exchangeCode`; providers typically include a new `access_token`,
+   *  `expires_in`, and sometimes a rotated `refresh_token`. */
+  def refreshToken(
+      provider:     String,
+      refreshToken: String,
+      clientId:     String,
+      clientSecret: String,
+      providerCfg:  Map[String, String] = Map.empty
+  ): Option[Map[String, String]] =
+    val c        = cfg(provider, providerCfg)
+    val tokenUrl = c.getOrElse("tokenUrl",
+      throw IllegalArgumentException(s"unknown OAuth provider: $provider"))
+    val form = Map(
+      "grant_type"    -> "refresh_token",
+      "refresh_token" -> refreshToken,
+      "client_id"     -> clientId,
+      "client_secret" -> clientSecret,
+    )
+    val body = form.iterator.map((k, v) => s"${urlEnc(k)}=${urlEnc(v)}").mkString("&")
+    try
+      val client = HttpClient.newBuilder()
+        .connectTimeout(java.time.Duration.ofSeconds(10))
+        .build()
+      val req = HttpRequest.newBuilder()
+        .uri(URI.create(tokenUrl))
+        .timeout(java.time.Duration.ofSeconds(30))
+        .header("Content-Type", "application/x-www-form-urlencoded")
+        .header("Accept",        "application/json")
         .POST(HttpRequest.BodyPublishers.ofString(body))
         .build()
       val resp = client.send(req, HttpResponse.BodyHandlers.ofString())

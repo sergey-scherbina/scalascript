@@ -600,6 +600,42 @@ function oauthExchangeCode(provider, code, clientId, clientSecret, redirectUri) 
     return _Some(m);
   } catch (e) { return _None; }
 }
+function oauthRegisterProvider(name, cfg) {
+  const out = {};
+  if (cfg instanceof Map) cfg.forEach((v, k) => out[String(k)] = String(v));
+  else for (const [k, v] of Object.entries(cfg || {})) out[String(k)] = String(v);
+  _oauthProviders[name] = { ..._oauthProviders[name], ...out };
+}
+function oauthRefreshToken(provider, refreshToken, clientId, clientSecret) {
+  const cfg = _oauthProviders[provider];
+  if (!cfg) return _None;
+  const params = new URLSearchParams();
+  params.set('grant_type',    'refresh_token');
+  params.set('refresh_token', refreshToken);
+  params.set('client_id',     clientId);
+  params.set('client_secret', clientSecret);
+  try {
+    const { execFileSync } = require('child_process');
+    const out = execFileSync('curl', [
+      '-sS', '--fail-with-body',
+      '-H', 'Content-Type: application/x-www-form-urlencoded',
+      '-H', 'Accept: application/json',
+      '-X', 'POST',
+      '--data', params.toString(),
+      cfg.tokenUrl,
+    ], { encoding: 'utf-8', timeout: 30000 });
+    let obj;
+    if (out.trim().startsWith('{')) obj = JSON.parse(out);
+    else {
+      const parsed = new URLSearchParams(out);
+      obj = {};
+      for (const [k, v] of parsed) obj[k] = v;
+    }
+    const m = new Map();
+    for (const [k, v] of Object.entries(obj)) m.set(k, String(v));
+    return _Some(m);
+  } catch (e) { return _None; }
+}
 function oauthUserinfo(provider, accessToken) {
   const cfg = _oauthProviders[provider];
   if (!cfg || !cfg.userinfoUrl) return _None;

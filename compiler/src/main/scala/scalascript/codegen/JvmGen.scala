@@ -1612,24 +1612,31 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |// ── OAuth2 helpers ────────────────────────────────────────────
        |// Same surface as scalascript.server.OAuth: pure URL builder +
        |// blocking token exchange via java.net.http.HttpClient.
-       |private val _oauthProviders: Map[String, Map[String, String]] = Map(
-       |  "google" -> Map(
-       |    "authorizeUrl" -> "https://accounts.google.com/o/oauth2/v2/auth",
-       |    "tokenUrl"     -> "https://oauth2.googleapis.com/token",
-       |    "userinfoUrl"  -> "https://www.googleapis.com/oauth2/v3/userinfo",
-       |    "defaultScope" -> "openid email profile",
-       |  ),
-       |  "github" -> Map(
-       |    "authorizeUrl" -> "https://github.com/login/oauth/authorize",
-       |    "tokenUrl"     -> "https://github.com/login/oauth/access_token",
-       |    "userinfoUrl"  -> "https://api.github.com/user",
-       |    "defaultScope" -> "user:email",
-       |  ),
+       |// Builtin presets + a mutable registry for user-supplied providers.
+       |private val _oauthProviders = new java.util.concurrent.ConcurrentHashMap[String, Map[String, String]](
+       |  java.util.Map.of(
+       |    "google", Map(
+       |      "authorizeUrl" -> "https://accounts.google.com/o/oauth2/v2/auth",
+       |      "tokenUrl"     -> "https://oauth2.googleapis.com/token",
+       |      "userinfoUrl"  -> "https://www.googleapis.com/oauth2/v3/userinfo",
+       |      "defaultScope" -> "openid email profile",
+       |    ),
+       |    "github", Map(
+       |      "authorizeUrl" -> "https://github.com/login/oauth/authorize",
+       |      "tokenUrl"     -> "https://github.com/login/oauth/access_token",
+       |      "userinfoUrl"  -> "https://api.github.com/user",
+       |      "defaultScope" -> "user:email",
+       |    ),
+       |  )
        |)
+       |private def _oauthCfg(provider: String): Option[Map[String, String]] =
+       |  Option(_oauthProviders.get(provider))
+       |def oauthRegisterProvider(name: String, cfg: Map[String, String]): Unit =
+       |  _oauthProviders.put(name, _oauthCfg(name).getOrElse(Map.empty) ++ cfg)
        |private def _oauthEnc(s: String): String =
        |  java.net.URLEncoder.encode(s, "UTF-8")
        |def oauthAuthorizeUrl(provider: String, clientId: String, redirectUri: String, state: String, scope: String = ""): String =
-       |  val cfg = _oauthProviders.getOrElse(provider, throw IllegalArgumentException(s"unknown OAuth provider: $provider"))
+       |  val cfg = _oauthCfg(provider).getOrElse(throw IllegalArgumentException(s"unknown OAuth provider: $provider"))
        |  val eff = if scope.nonEmpty then scope else cfg.getOrElse("defaultScope", "")
        |  val base = cfg("authorizeUrl")
        |  val params = scala.collection.mutable.LinkedHashMap[String, String]()
@@ -1712,7 +1719,7 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |      Some(out.toMap)
        |    catch case _: Throwable => None
        |def oauthUserinfo(provider: String, accessToken: String): Option[Map[String, String]] =
-       |  _oauthProviders.get(provider).flatMap(_.get("userinfoUrl")).flatMap { url =>
+       |  _oauthCfg(provider).flatMap(_.get("userinfoUrl")).flatMap { url =>
        |    try
        |      val client = java.net.http.HttpClient.newBuilder()
        |        .connectTimeout(java.time.Duration.ofSeconds(10)).build()
@@ -1730,7 +1737,7 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |  }
        |
        |def oauthExchangeCode(provider: String, code: String, clientId: String, clientSecret: String, redirectUri: String): Option[Map[String, String]] =
-       |  _oauthProviders.get(provider).flatMap { cfg =>
+       |  _oauthCfg(provider).flatMap { cfg =>
        |    val tokenUrl = cfg("tokenUrl")
        |    val form = Map(
        |      "grant_type"    -> "authorization_code",
@@ -1756,6 +1763,44 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |        val ct   = resp.headers().firstValue("content-type").orElse("").toLowerCase
        |        if ct.contains("application/json") || text.trim.startsWith("{") then
        |          _sessionJsonDec(text)
+       |        else
+       |          Some(text.split('&').iterator.flatMap { pair =>
+       |            val i = pair.indexOf('=')
+       |            if i < 0 then None
+       |            else Some(
+       |              java.net.URLDecoder.decode(pair.substring(0, i), "UTF-8") ->
+       |              java.net.URLDecoder.decode(pair.substring(i + 1), "UTF-8"))
+       |          }.toMap)
+       |    catch case _: Throwable => None
+       |  }
+       |
+       |// `oauthRefreshToken(provider, refresh, clientId, clientSecret)` —
+       |// trade a long-lived refresh token for a fresh access token.
+       |def oauthRefreshToken(provider: String, refresh: String, clientId: String, clientSecret: String): Option[Map[String, String]] =
+       |  _oauthCfg(provider).flatMap { cfg =>
+       |    val tokenUrl = cfg("tokenUrl")
+       |    val form = Map(
+       |      "grant_type"    -> "refresh_token",
+       |      "refresh_token" -> refresh,
+       |      "client_id"     -> clientId,
+       |      "client_secret" -> clientSecret,
+       |    )
+       |    val body = form.iterator.map((k, v) => _oauthEnc(k) + "=" + _oauthEnc(v)).mkString("&")
+       |    try
+       |      val client = java.net.http.HttpClient.newBuilder().connectTimeout(java.time.Duration.ofSeconds(10)).build()
+       |      val req = java.net.http.HttpRequest.newBuilder()
+       |        .uri(java.net.URI.create(tokenUrl))
+       |        .timeout(java.time.Duration.ofSeconds(30))
+       |        .header("Content-Type", "application/x-www-form-urlencoded")
+       |        .header("Accept", "application/json")
+       |        .POST(java.net.http.HttpRequest.BodyPublishers.ofString(body))
+       |        .build()
+       |      val resp = client.send(req, java.net.http.HttpResponse.BodyHandlers.ofString())
+       |      if resp.statusCode() < 200 || resp.statusCode() >= 300 then None
+       |      else
+       |        val text = resp.body()
+       |        val ct   = resp.headers().firstValue("content-type").orElse("").toLowerCase
+       |        if ct.contains("application/json") || text.trim.startsWith("{") then _oauthJsonFlat(text)
        |        else
        |          Some(text.split('&').iterator.flatMap { pair =>
        |            val i = pair.indexOf('=')

@@ -665,6 +665,29 @@ class Interpreter(
           case None => Value.OptionV(None)
       case _ => throw InterpretError("oauthUserinfo(provider, accessToken)")
     }
+    // `oauthRefreshToken(provider, refresh, clientId, clientSecret)` —
+    // refresh-grant flow.  Returns the new token response or None.
+    nativeP("oauthRefreshToken") {
+      case List(Value.StringV(prov), Value.StringV(refresh),
+                Value.StringV(cid),  Value.StringV(csec)) =>
+        scalascript.server.OAuth.refreshToken(prov, refresh, cid, csec) match
+          case Some(m) =>
+            Value.OptionV(Some(Value.MapV(m.map((k, v) => Value.StringV(k) -> Value.StringV(v)))))
+          case None => Value.OptionV(None)
+      case _ => throw InterpretError(
+        "oauthRefreshToken(provider, refreshToken, clientId, clientSecret)")
+    }
+    // `oauthRegisterProvider(name, Map("authorizeUrl" -> ..., ...))` —
+    // adds (or overrides) a provider config at runtime.  Required keys:
+    // `authorizeUrl`, `tokenUrl`.  Optional: `userinfoUrl`, `defaultScope`.
+    nativeP("oauthRegisterProvider") {
+      case List(Value.StringV(name), Value.MapV(m)) =>
+        val cfg = m.collect { case (Value.StringV(k), Value.StringV(v)) => k -> v }.toMap
+        scalascript.server.OAuth.registerProvider(name, cfg)
+        Value.UnitV
+      case _ => throw InterpretError(
+        "oauthRegisterProvider(name, Map[String, String])")
+    }
 
     // route(method, path)(handler) — registers a handler in the global table.
     // Path syntax: literal segments + `:name` captures (e.g. /users/:id).
