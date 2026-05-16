@@ -2190,17 +2190,25 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |//
        |// Asymmetric design vs the interpreter: the interpreter runs an NIO
        |// selector loop in front of the JDK `HttpServer`; here we use a
-       |// blocking-IO proxy (one thread per connection).  The user-facing
-       |// `onWebSocket(path) { ws => … }` API is identical, so .ssc code is
-       |// portable.  NIO migration on this side will land together with the
-       |// HTTP NIO rewrite.
+       |// blocking-IO proxy with **one virtual thread per connection**
+       |// (Project Loom, JDK 21+).  A parked virtual thread on a slow read
+       |// costs ~few KB of heap rather than a 1 MB platform-thread stack,
+       |// so the scale ceiling is now file descriptors, not threads.
+       |// The user-facing `onWebSocket(path) { ws => … }` API is identical
+       |// to the interpreter, so .ssc code is portable.  Full NIO migration
+       |// will land alongside the HTTP NIO rewrite.
        |//
        |// Threading: user callbacks (`onWebSocket` body, `onMessage`,
-       |// `onClose`) all dispatch through `_serverExecutor`, the same
-       |// single-thread executor `serve` hands to the internal HttpServer.
+       |// `onClose`) all dispatch through `_serverExecutor`, a single-
+       |// platform-thread executor that also backs the internal HttpServer.
        |// That way mutations to top-level `var`s from HTTP handlers and WS
        |// callbacks are serial — no cross-handler races even though every
-       |// WS read-loop runs on its own pool thread.
+       |// WS read-loop runs on its own virtual thread.
+       |//
+       |// `synchronized` on the WebSocket write path is avoided in favour of
+       |// `ReentrantLock`: on JDK 21 a `synchronized` block pins the carrier
+       |// thread of any virtual thread that enters it.  (Pinning was removed
+       |// in JDK 24; we keep the lock for portability.)
        |
        |private val _serverExecutor: java.util.concurrent.ExecutorService =
        |  java.util.concurrent.Executors.newSingleThreadExecutor()
@@ -2208,29 +2216,44 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |class WebSocket(private val socket: java.net.Socket):
        |  import java.io.{BufferedInputStream, OutputStream}
        |  import java.nio.charset.StandardCharsets
+       |  import java.util.concurrent.locks.ReentrantLock
        |  @volatile private var onMessageCb: String => Unit = null
        |  @volatile private var onCloseCb:   () => Unit     = null
        |  @volatile private var closing:     Boolean        = false
        |  private val out: OutputStream                     = socket.getOutputStream
+       |  // Frame writes must be serialised so text/close/pong don't interleave
+       |  // on the wire.  Use ReentrantLock instead of `synchronized` — on JDK
+       |  // 21 a `synchronized` block pins the carrier thread of any virtual
+       |  // thread that enters it, which would defeat Loom for slow clients.
+       |  // (Pinning was lifted in JDK 24; we keep the lock for portability.)
+       |  private val writeLock = ReentrantLock()
        |
-       |  def send(s: String): Unit = synchronized {
-       |    if !closing && !socket.isClosed then
-       |      out.write(_wsEncodeText(s))
-       |      out.flush()
-       |  }
+       |  def send(s: String): Unit =
+       |    writeLock.lock()
+       |    try
+       |      if !closing && !socket.isClosed then
+       |        out.write(_wsEncodeText(s))
+       |        out.flush()
+       |    finally writeLock.unlock()
        |
-       |  def close(code: Int = 1000, reason: String = ""): Unit = synchronized {
-       |    if !closing && !socket.isClosed then
-       |      closing = true
-       |      out.write(_wsEncodeClose(code, reason))
-       |      out.flush()
-       |      try socket.close() catch case _: Throwable => ()
+       |  def close(code: Int = 1000, reason: String = ""): Unit =
+       |    writeLock.lock()
+       |    val fireOnClose =
+       |      try
+       |        if closing || socket.isClosed then false
+       |        else
+       |          closing = true
+       |          out.write(_wsEncodeClose(code, reason))
+       |          out.flush()
+       |          try socket.close() catch case _: Throwable => ()
+       |          true
+       |      finally writeLock.unlock()
+       |    if fireOnClose then
        |      val cb = onCloseCb; onCloseCb = null
        |      if cb != null then _serverExecutor.execute { () =>
        |        try cb() catch case e: Throwable =>
        |          System.err.println(s"WS close handler: ${e.getMessage}")
        |      }
-       |  }
        |
        |  def onMessage(cb: String => Unit): Unit = onMessageCb = cb
        |  def onClose(cb: () => Unit): Unit       = onCloseCb   = cb
@@ -2258,7 +2281,10 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |            case (fr, consumed) =>
        |              offset += consumed
        |              fr.opcode match
-       |                case 0x9 => synchronized { out.write(_wsEncodePong(fr.payload)); out.flush() }
+       |                case 0x9 =>
+       |                  writeLock.lock()
+       |                  try { out.write(_wsEncodePong(fr.payload)); out.flush() }
+       |                  finally writeLock.unlock()
        |                case 0xA => ()
        |                case 0x8 =>
        |                  val status =
@@ -2446,10 +2472,8 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |    val bin  = java.io.BufferedInputStream(back.getInputStream)
        |    val bout = back.getOutputStream
        |    bout.write(head); bout.flush()
-       |    val pump1 = Thread(() => _pump(cin, bout, back, client), "ws-proxy-pump-c2b")
-       |    val pump2 = Thread(() => _pump(bin, cout, client, back), "ws-proxy-pump-b2c")
-       |    pump1.setDaemon(true); pump2.setDaemon(true)
-       |    pump1.start(); pump2.start()
+       |    val pump1 = Thread.ofVirtual().name("ws-proxy-pump-c2b").start(() => _pump(cin, bout, back, client))
+       |    val pump2 = Thread.ofVirtual().name("ws-proxy-pump-b2c").start(() => _pump(bin, cout, client, back))
        |    pump1.join(); pump2.join()
        |
        |private def _pump(in: java.io.InputStream, out: java.io.OutputStream, a: java.net.Socket, b: java.net.Socket): Unit =
@@ -2476,12 +2500,16 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |  internal.setExecutor(_serverExecutor)
        |  internal.start()
        |  val internalPort = internal.getAddress.getPort
-       |  // Public-facing blocking proxy: one accept loop, one thread per
-       |  // connection.  WS connections hold their thread for the lifetime
-       |  // of the session; HTTP connections spawn two pump threads.
+       |  // Public-facing blocking proxy: one accept loop, one virtual
+       |  // thread per connection.  Virtual threads cost ~few KB of heap
+       |  // each (vs ~1 MB for platform threads), so an idle WebSocket
+       |  // holding its read-loop thread is essentially free — scale
+       |  // ceiling is now file descriptors, not thread stacks.  HTTP
+       |  // forwarding spawns two more virtual threads per request, also
+       |  // cheap.
        |  val pub = java.net.ServerSocket(port)
        |  println(s"Listening on http://localhost:$port/  (proxy → 127.0.0.1:$internalPort)")
-       |  val pool = java.util.concurrent.Executors.newCachedThreadPool()
+       |  val pool = java.util.concurrent.Executors.newVirtualThreadPerTaskExecutor()
        |  Thread(() => {
        |    while !pub.isClosed do
        |      try
