@@ -4,6 +4,41 @@ Tracks work that is **not yet done**. As things land, move them out of here
 (into git history) rather than ticking checkboxes — the file should always
 read forward.
 
+## v0.6 — Auth / sessions / cookies
+
+Building blocks for authenticated `.ssc` web apps.  Each step is its own
+commit on `feature/auth-sessions`; they're ordered foundation-first so
+later items can lean on the earlier ones.
+
+1. **Signed cookie sessions.**  HMAC-signed cookie carrying a JSON
+   payload; `req.session("k")` reads, `Response.html(...).withSession(m)`
+   writes.  Stateless on the server, works on INT/JVM/Node runtimes.
+   Bedrock for everything that follows.
+2. **CSRF token middleware.**  Auto-generated per-session token,
+   double-submit cookie strategy.  `Request` exposes `csrfToken`;
+   POST/PUT/DELETE handlers refuse mismatched tokens.  Pairs with
+   cookie sessions but useful independently.
+3. **Login / logout example** (`examples/auth-demo.ssc`).  Tiny site
+   with a login form, password check (against a hard-coded `Map[String,
+   String]`), session-gated `/profile`, logout button.  Drives the
+   `req.session` / `withSession` / CSRF APIs end-to-end and gives
+   `e2e/auth-smoke.sc` something to exercise.
+4. **JWT bearer-token auth.**  `Authorization: Bearer <jws>` with HS256
+   signing.  `req.auth: Option[Claims]`, `Response.json(...).withJwt(...)`.
+   Stateless API alternative to cookie sessions — natural fit for the
+   browser-SPA target where the same `.ssc` can serve API + UI.
+5. **Server-side session store.**  Opt-in `SessionStore` abstraction
+   (in-memory by default) so callers who need instant revocation or
+   payloads >4KB can swap cookie-resident state for an SSID lookup.
+   Plays nicely with the upcoming `Storage` effect.
+6. **HTTP Basic auth helper.**  `req.basicAuth: Option[(String, String)]`
+   + a `requireBasicAuth(realm)` route guard.  Low priority — useful
+   for dev / internal endpoints, not for product-facing flows.
+7. **OAuth2 / OIDC** (Google + GitHub).  Authorization-code flow with
+   provider-specific config; `oauthClient(provider, ...).authorizeUrl()`,
+   callback handler, token exchange.  Last in the order because it
+   needs an HTTP client and per-provider quirks.
+
 ## v0.5 — Interpreter performance (Tier 1) — landed
 
 Closed in a series of small commits on the
@@ -59,9 +94,6 @@ view so they shape near-term decisions.
   `scalascript` for logic, `html` for view, `css` for style, optional
   front-matter route declarations.  Plays well with v0.2 heading-bound
   blocks.
-- **Auth / sessions / cookies.**  Session middleware, cookie helpers on
-  `Request` / `Response`.  Probably needs a `before` / `after` hook
-  primitive next to `route(...)`.
 - **WebSocket support.**  `ws("/path") { conn => ... }` upgrade primitive,
   bidirectional `Frame` type.
 - **Persistence.**  At minimum a `Storage` effect (key-value, JSON-backed)
