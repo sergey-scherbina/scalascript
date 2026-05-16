@@ -21,15 +21,33 @@ val jsscBin  = root / "bin" / "jssc"
 val ssccBin  = root / "bin" / "sscc"
 val compiler = root / "compiler"
 
-// bin/ssc is the pre-built launcher (gitignored); jssc / sscc are shell
-// wrappers around `scala-cli run compiler -- emit-js/compile`. Fall back to
-// the scala-cli path when a launcher isn't present (CI checkout).
-def sscProc(file: os.Path): os.proc =
-  if os.exists(sscBin) then os.proc(sscBin.toString, file.toString)
-  else os.proc("scala-cli", "run", compiler.toString, "--", file.toString)
+case class Run(out: String, code: Int, err: String)
 
-def jsscProc(file: os.Path): os.proc = os.proc(jsscBin.toString, file.toString)
-def ssccProc(file: os.Path): os.proc = os.proc(ssccBin.toString, file.toString)
+def runProc(p: os.proc): Run =
+  val r = p.call(stderr = os.Pipe, check = false)
+  Run(r.out.text().stripTrailing(), r.exitCode, r.err.text())
+
+// `bin/` is gitignored — it's the developer's local launcher cache built by
+// scripts/install.sh. In CI it doesn't exist, so fall back to invoking the
+// compiler module directly via scala-cli.
+def runInt(file: os.Path): Run =
+  if os.exists(sscBin) then runProc(os.proc(sscBin.toString, file.toString))
+  else runProc(os.proc("scala-cli", "run", compiler.toString, "--", file.toString))
+
+def runJvm(file: os.Path): Run =
+  if os.exists(ssccBin) then runProc(os.proc(ssccBin.toString, file.toString))
+  else runProc(os.proc("scala-cli", "run", compiler.toString, "--", "compile", file.toString))
+
+def runJs(file: os.Path): Run =
+  if os.exists(jsscBin) then runProc(os.proc(jsscBin.toString, file.toString))
+  else
+    // Emulate `scala-cli run compiler -- emit-js <file> | node`.
+    val emit = os.proc("scala-cli", "run", compiler.toString, "--", "emit-js", file.toString)
+      .call(stderr = os.Pipe, check = false)
+    if emit.exitCode != 0 then Run("", emit.exitCode, emit.err.text())
+    else
+      val nodeRes = os.proc("node").call(stdin = emit.out.text(), stderr = os.Pipe, check = false)
+      Run(nodeRes.out.text().stripTrailing(), nodeRes.exitCode, nodeRes.err.text())
 
 val examples = Seq(
   "hello.ssc",
@@ -59,12 +77,6 @@ def banner(name: String): Unit =
   println(s"  $name")
   println(sep)
 
-case class Run(out: String, code: Int, err: String)
-
-def runProc(p: os.proc): Run =
-  val r = p.call(stderr = os.Pipe, check = false)
-  Run(r.out.text().stripTrailing(), r.exitCode, r.err.text())
-
 case class Mismatch(example: String, backend: String, expected: String, actual: String)
 val mismatches = scala.collection.mutable.ArrayBuffer.empty[Mismatch]
 val errors     = scala.collection.mutable.ArrayBuffer.empty[(String, String, String)]
@@ -73,9 +85,9 @@ examples.foreach { name =>
   banner(name)
   val file = dir / name
 
-  val int = runProc(sscProc(file))
-  val js  = runProc(jsscProc(file))
-  val jvm = runProc(ssccProc(file))
+  val int = runInt(file)
+  val js  = runJs(file)
+  val jvm = runJvm(file)
 
   // Visual output — interpreter is canonical for display.
   println(int.out)
