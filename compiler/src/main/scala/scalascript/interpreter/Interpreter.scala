@@ -590,8 +590,10 @@ class Interpreter(out: java.io.PrintStream = System.out, baseDir: Option[os.Path
       val paramVals = d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values).toList
       val params    = paramVals.map(_.name.value)
       val defaults  = paramVals.map(_.default)
-      // See Term.Function above for why we drop globals from the capture.
-      val capturedEnv = env.toMap -- globals.keys
+      // See Term.Function above for why we drop only globals-shadowed keys.
+      val capturedEnv = env.iterator.collect {
+        case (k, v) if !globals.get(k).contains(v) => k -> v
+      }.toMap
       val fn: Value.FunV = Value.FunV(params, d.body, capturedEnv, d.name.value, defaults)
       env(d.name.value) = fn
       if d.name.value == "main" && params.isEmpty then mainCalled = false
@@ -857,10 +859,16 @@ class Interpreter(out: java.io.PrintStream = System.out, baseDir: Option[os.Path
 
     // Lambda  x => body  or  (x, y) => body
     case Term.Function.After_4_6_0(paramClause, body) =>
-      // Capture only true locals — keys that aren't shadowed by mutable
-      // module-level state in `globals`.  Otherwise a `var` reassigned after
-      // the lambda is built would still read its capture-time snapshot.
-      Pure(Value.FunV(paramClause.values.map(_.name.value), body, env -- globals.keys))
+      // Drop only the keys whose env value still matches the live globals —
+      // those are top-level bindings that the lambda should re-read from
+      // `globals` at call time (so a `var` reassigned later is visible).
+      // Genuine closure captures (outer def params, block-local vals) have
+      // a different value in env than in globals and must be kept; otherwise
+      // a param like `a` for `def adder(a)` is stripped because globals also
+      // hold the `<a>` HTML tag under that name, and the inner `b => a + b`
+      // would resolve `a` to the tag instead of the captured Int.
+      val closure = env.filter { case (k, v) => !globals.get(k).contains(v) }
+      Pure(Value.FunV(paramClause.values.map(_.name.value), body, closure))
 
     // Partial function  { case pat => body; ... }  — e.g. xs.map { case (k, v) => ... }
     case Term.PartialFunction(cases) =>
@@ -978,11 +986,22 @@ class Interpreter(out: java.io.PrintStream = System.out, baseDir: Option[os.Path
    *  val/var declarations are threaded as Computation so effects in their rhs work. */
   private def evalBlock(stats: List[Stat], env: Env): Computation =
     val local = mutable.Map.from(env)
+    // Keys whose value in `env` differs from the current `globals` snapshot —
+    // these are local overrides (lambda params, outer-block locals) that the
+    // refresh-from-globals loop below must NOT clobber.  Without this guard a
+    // lambda param like `p` (which also exists in globals as the `<p>` HTML
+    // tag) would be overwritten by the global between statements.
+    val localOverrides: collection.Set[String] =
+      local.iterator.collect {
+        case (k, v) if !globals.get(k).contains(v) => k
+      }.toSet
     def step(remaining: List[Stat], lastVal: Value): Computation = remaining match
       case Nil => Pure(lastVal)
       case s :: rest =>
         // Re-read globals into local so mutations from prior statements are visible
-        local.keys.foreach { k => globals.get(k).foreach(local(k) = _) }
+        local.keys.foreach { k =>
+          if !localOverrides.contains(k) then globals.get(k).foreach(local(k) = _)
+        }
         s match
           case Defn.Val(_, pats, _, rhs) =>
             eval(rhs, local.toMap).flatMap { rhsVal =>
@@ -1151,8 +1170,22 @@ class Interpreter(out: java.io.PrintStream = System.out, baseDir: Option[os.Path
               case Perform(eff, op, a)   =>
                 val funSnapshot  = curFun
                 val argsSnapshot = curArgs
-                return FlatMap(Perform(eff, op, a),
-                  v => tcoTrampoline(funSnapshot, argsSnapshot, k(v)))
+                // Compute `k(v)` lazily inside a try so a TailCall thrown by
+                // a tail-recursive self-call in `k`'s body re-enters the
+                // trampoline rather than escaping. Without this the resume
+                // continuation evaluates `k(v)` eagerly as a strict argument
+                // to tcoTrampoline and any TailCall it throws falls through
+                // both the outer trampoline's try (already exited) and the
+                // re-entry's try (not yet armed).
+                return FlatMap(Perform(eff, op, a), v =>
+                  try tcoTrampoline(funSnapshot, argsSnapshot, k(v))
+                  catch
+                    case tc: TailCall       => tcoTrampoline(funSnapshot, tc.args, null)
+                    case mc: MutualTailCall =>
+                      val next = mc.f
+                      if next.name.nonEmpty && tcoInfoFor(next).noNonTailSelf then
+                        tcoTrampoline(next, mc.args, null)
+                      else callFun(next, mc.args))
               case FlatMap(sub2, g)      =>
                 current = FlatMap(sub2, x => FlatMap(g(x), k))
       catch
