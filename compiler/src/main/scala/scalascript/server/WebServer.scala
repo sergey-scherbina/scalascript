@@ -69,13 +69,23 @@ object WebServer:
         else Some(Value.StringV(e.getKey) -> Value.StringV(e.getValue.get(0)))
       }.toMap
     val body = scala.io.Source.fromInputStream(ex.getRequestBody, "UTF-8").mkString
+    val contentType = headers.collectFirst {
+      case (Value.StringV(k), Value.StringV(v)) if k.equalsIgnoreCase("Content-Type") => v
+    }.getOrElse("")
+    // Eagerly parse application/x-www-form-urlencoded so `req.form("name")`
+    // works without the handler having to know the encoding.  Other bodies
+    // surface as an empty map; handlers can still read the raw `req.body`.
+    val form: Map[String, String] =
+      if contentType.toLowerCase.startsWith("application/x-www-form-urlencoded")
+      then parseQuery(body) else Map.empty
     val req = Value.InstanceV("Request", Map(
       "method"  -> Value.StringV(ex.getRequestMethod),
       "path"    -> Value.StringV(ex.getRequestURI.getPath),
       "params"  -> Value.MapV(params.map((k, v) => Value.StringV(k) -> Value.StringV(v))),
       "query"   -> Value.MapV(query.map((k, v) => Value.StringV(k) -> Value.StringV(v))),
       "headers" -> Value.MapV(headers),
-      "body"    -> Value.StringV(body)
+      "body"    -> Value.StringV(body),
+      "form"    -> Value.MapV(form.map((k, v) => Value.StringV(k) -> Value.StringV(v)))
     ))
     val result = entry.interpreter.invoke(entry.handler, List(req))
     writeResponse(result, ex)

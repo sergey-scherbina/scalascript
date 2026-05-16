@@ -1029,7 +1029,8 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |  params:  Map[String, String],
        |  query:   Map[String, String],
        |  headers: Map[String, String],
-       |  body:    String
+       |  body:    String,
+       |  form:    Map[String, String] = Map.empty
        |)
        |
        |case class Response(
@@ -1102,8 +1103,14 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |          else Some(e.getKey -> e.getValue.get(0))
        |        }.toMap
        |        val body = scala.io.Source.fromInputStream(ex.getRequestBody, "UTF-8").mkString
+       |        val ct   = headers.collectFirst {
+       |          case (k, v) if k.equalsIgnoreCase("Content-Type") => v
+       |        }.getOrElse("")
+       |        val form =
+       |          if ct.toLowerCase.startsWith("application/x-www-form-urlencoded")
+       |          then _parseQuery(body) else Map.empty[String, String]
        |        val req  = Request(method, path, params,
-       |          _parseQuery(ex.getRequestURI.getRawQuery), headers, body)
+       |          _parseQuery(ex.getRequestURI.getRawQuery), headers, body, form)
        |        _writeResponse(ex, r.handler(req))
        |      case None =>
        |        val msg = s"Not Found: $path".getBytes("UTF-8")

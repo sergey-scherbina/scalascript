@@ -390,9 +390,15 @@ case class Request(
   params:  Map[String, String],   // path captures (e.g. :id)
   query:   Map[String, String],   // ?k=v
   headers: Map[String, String],
-  body:    String
+  body:    String,
+  form:    Map[String, String]    // application/x-www-form-urlencoded body
 )
 ```
+
+`form` is eagerly parsed from `body` when the request's `Content-Type`
+starts with `application/x-www-form-urlencoded`; for any other content
+type it is `Map.empty` and the handler can still read the raw `body`.
+`multipart/form-data` is not yet covered.
 
 #### Response
 

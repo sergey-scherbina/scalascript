@@ -111,6 +111,13 @@ function _mkRequest(req, params, body) {
   const u = new URL(req.url, 'http://localhost');
   const query = new Map();
   u.searchParams.forEach((v, k) => query.set(k, v));
+  // Eagerly parse application/x-www-form-urlencoded so `req.form("name")`
+  // works without the handler having to know the encoding.
+  const form = new Map();
+  const ct = (headers.get('content-type') || headers.get('Content-Type') || '').toLowerCase();
+  if (ct.startsWith('application/x-www-form-urlencoded')) {
+    new URLSearchParams(body).forEach((v, k) => form.set(k, v));
+  }
   return {
     _type:   'Request',
     method:  req.method,
@@ -119,6 +126,7 @@ function _mkRequest(req, params, body) {
     query,
     headers,
     body,
+    form,
   };
 }
 
@@ -405,6 +413,10 @@ function _dispatch(obj, method, args) {
         if (args.length === 0) return obj[method];  // return as reference
         return obj[method](...args);
       }
+      // A value field with args is a chained call: `req.form("k")` parses as
+      // Apply(Select(req, form), "k") which lands here as
+      // _dispatch(req, 'form', ["k"]).  Get the field, then `apply` the args.
+      if (args.length > 0) return _dispatch(obj[method], 'apply', args);
       return obj[method];
     }
   }

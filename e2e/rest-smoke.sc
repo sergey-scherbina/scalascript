@@ -40,13 +40,19 @@ val backends = List(
 
 case class Hit(status: Int, body: String)
 
-def request(method: String, path: String, body: Option[String] = None): Hit =
+def request(
+    method:      String,
+    path:        String,
+    body:        Option[String]  = None,
+    contentType: Option[String]  = None
+): Hit =
   val c = URI.create(s"$base$path").toURL.openConnection.asInstanceOf[HttpURLConnection]
   c.setRequestMethod(method)
   c.setConnectTimeout(2000)
   c.setReadTimeout(2000)
   body.foreach { b =>
     c.setDoOutput(true)
+    contentType.foreach(c.setRequestProperty("Content-Type", _))
     val bytes = b.getBytes("UTF-8")
     c.getOutputStream.write(bytes)
     c.getOutputStream.close()
@@ -65,11 +71,14 @@ def request(method: String, path: String, body: Option[String] = None): Hit =
 case class Step(name: String, run: () => Hit, normaliser: String => String = identity)
 
 val steps = List(
-  Step("GET /api/todos (initial)",      () => request("GET",    "/api/todos")),
-  Step("POST /api/todos",               () => request("POST",   "/api/todos", Some("Buy bread"))),
-  Step("GET /api/todos (after POST)",   () => request("GET",    "/api/todos")),
-  Step("DELETE /api/todos/0",           () => request("DELETE", "/api/todos/0")),
-  Step("GET /api/todos (after DELETE)", () => request("GET",    "/api/todos")),
+  Step("GET /api/todos (initial)",       () => request("GET",    "/api/todos")),
+  Step("POST /api/todos (raw body)",     () => request("POST",   "/api/todos", Some("Buy bread"))),
+  Step("GET /api/todos (after POST)",    () => request("GET",    "/api/todos")),
+  Step("POST /api/todos (form)",         () => request("POST",   "/api/todos",
+    Some("item=Mail+letter"), Some("application/x-www-form-urlencoded"))),
+  Step("GET /api/todos (after form POST)", () => request("GET",  "/api/todos")),
+  Step("DELETE /api/todos/0",            () => request("DELETE", "/api/todos/0")),
+  Step("GET /api/todos (after DELETE)",  () => request("GET",    "/api/todos")),
   // Whitespace differs between backends' HTML interpolation so just sanity-check
   // markers rather than do exact diff.
   Step(

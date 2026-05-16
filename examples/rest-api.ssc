@@ -27,8 +27,10 @@ route("GET", "/api/todos") { req =>
 }
 
 route("POST", "/api/todos") { req =>
-  todos = todos :+ req.body
-  Response.status(201, req.body)
+  // Accept either a form post (`item=Buy bread`) or a plain text body.
+  val item = if req.form.contains("item") then req.form("item") else req.body
+  todos = todos :+ item
+  Response.status(201, item)
 }
 
 route("DELETE", "/api/todos/:id") { req =>
@@ -53,8 +55,8 @@ route("GET", "/") { req =>
 <body>
   <h1>Todos (${todos.length})</h1>
   <ul>${raw(items)}</ul>
-  <form method="POST" action="/api/todos" enctype="text/plain">
-    <input name="body" placeholder="New todo" required>
+  <form method="POST" action="/api/todos">
+    <input name="item" placeholder="New todo" required>
     <button type="submit">Add</button>
   </form>
 </body></html>""")

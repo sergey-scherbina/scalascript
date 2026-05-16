@@ -20,10 +20,9 @@ without reaching for raw string concatenation.
   h1("Hi"))`) returning HTML-tree values that convert to `String` on output.
   Minimum core: ~30 most common tags, ~20 attributes, sane escaping, splice
   interop with `html"..."` templates.
-- **Form-data / multipart parsing in `Request`.**  Currently `Request.body`
-  is the raw String; only `enctype="text/plain"` round-trips cleanly.  Need
-  `application/x-www-form-urlencoded` and `multipart/form-data` parsers
-  exposed as `req.form: Map[String, String]`.
+- **Multipart form parsing.**  `req.form` now covers
+  `application/x-www-form-urlencoded` on all three backends; add a
+  parser for `multipart/form-data` so file uploads round-trip too.
 - **Static file serving.**  When `serve` falls through to the file-rendering
   path, also serve plain assets (`.css`, `.js`, `.png`, …) from the root
   directory with proper Content-Type sniffing.
