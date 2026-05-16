@@ -1510,8 +1510,18 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |    .find(_.startsWith("session="))
        |    .map(p => _unpackSession(p.substring("session=".length)))
        |    .getOrElse(Map.empty)
+       |// Cookie security config — secure flag + SameSite policy, set
+       |// via the top-level `cookieConfig(secure, sameSite)` call.
+       |@volatile private var _cookieSecure: Boolean = false
+       |@volatile private var _cookieSameSite: String = "Lax"
+       |def cookieConfig(secure: Boolean, sameSite: String = "Lax"): Unit =
+       |  _cookieSecure = secure
+       |  _cookieSameSite = sameSite match
+       |    case s @ ("Strict" | "Lax" | "None") => s
+       |    case _                               => "Lax"
        |private def _buildSetCookie(payload: Map[String, String]): String =
-       |  val base = "Path=/; HttpOnly; SameSite=Lax"
+       |  val base = s"Path=/; HttpOnly; SameSite=${_cookieSameSite}" +
+       |    (if _cookieSecure then "; Secure" else "")
        |  if payload.isEmpty then s"session=; $base; Max-Age=0"
        |  else s"session=${_packSession(payload)}; $base"
        |

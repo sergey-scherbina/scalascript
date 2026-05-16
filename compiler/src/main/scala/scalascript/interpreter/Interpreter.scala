@@ -591,6 +591,20 @@ class Interpreter(
       case _ => throw InterpretError("csrfValid(req)")
     }
 
+    // ── Cookie security config ───────────────────────────────────────
+    // `cookieConfig(secure = true, sameSite = "Strict")` — production
+    // hardening for the session cookie.  Defaults are HttpOnly +
+    // SameSite=Lax, no Secure (so localhost http works in dev).
+    nativeP("cookieConfig") {
+      case List(Value.BoolV(secure)) =>
+        scalascript.server.SessionCookie.setCookieConfig(secure, scalascript.server.SessionCookie.cookieSameSite)
+        Value.UnitV
+      case List(Value.BoolV(secure), Value.StringV(sameSite)) =>
+        scalascript.server.SessionCookie.setCookieConfig(secure, sameSite)
+        Value.UnitV
+      case _ => throw InterpretError("cookieConfig(secure: Boolean[, sameSite: String])")
+    }
+
     // ── Server-side session store opt-in ─────────────────────────────
     // After `useSessionStore()` is called, withSession/clearSession and
     // req.session indirect through scalascript.server.SessionStore (an

@@ -415,8 +415,18 @@ function _parseCookieSession(headerValue) {
   if (!pair) return new Map();
   return _unpackSession(pair.substring('session='.length));
 }
+// Cookie security config — secure flag + SameSite policy, set via
+// the top-level cookieConfig(secure, sameSite) call.  Production
+// HTTPS deployments should flip secure=true.
+let _cookieSecure   = false;
+let _cookieSameSite = 'Lax';
+function cookieConfig(secure, sameSite) {
+  _cookieSecure = !!secure;
+  if (typeof sameSite === 'string' && (sameSite === 'Strict' || sameSite === 'Lax' || sameSite === 'None'))
+    _cookieSameSite = sameSite;
+}
 function _buildSetCookie(map) {
-  const base = 'Path=/; HttpOnly; SameSite=Lax';
+  const base = 'Path=/; HttpOnly; SameSite=' + _cookieSameSite + (_cookieSecure ? '; Secure' : '');
   if (!map || (map instanceof Map ? map.size === 0 : Object.keys(map).length === 0))
     return 'session=; ' + base + '; Max-Age=0';
   return 'session=' + _packSession(map) + '; ' + base;

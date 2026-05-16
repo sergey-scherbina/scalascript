@@ -26,6 +26,21 @@ object SessionCookie:
   private val b64Enc = Base64.getUrlEncoder.withoutPadding
   private val b64Dec = Base64.getUrlDecoder
 
+  // ── Cookie security config ─────────────────────────────────────────
+  // Defaults are safe-but-permissive for local development: HttpOnly,
+  // SameSite=Lax, no Secure (so localhost http works).  Production
+  // deployments behind HTTPS should call cookieConfig(secure=true) and
+  // may want sameSite="Strict" to block cross-site request linking.
+  @volatile private var _secure   = false
+  @volatile private var _sameSite = "Lax"
+  def setCookieConfig(secure: Boolean, sameSite: String): Unit =
+    _secure = secure
+    _sameSite = sameSite match
+      case s @ ("Strict" | "Lax" | "None") => s
+      case _                               => "Lax"
+  def cookieSecure:   Boolean = _secure
+  def cookieSameSite: String  = _sameSite
+
   /** Lazily resolved per-process secret. */
   private lazy val secret: Array[Byte] = sys.env.get("SSC_SESSION_SECRET") match
     case Some(s) if s.nonEmpty => s.getBytes("UTF-8")
@@ -145,8 +160,11 @@ object SessionCookie:
     sessionPair.flatMap(pair => unpack(pair.substring("session=".length)))
 
   /** Build a `Set-Cookie` header value for a session payload.
-   *  Empty payload → cookie cleared (Max-Age=0). */
-  def toSetCookie(payload: Map[String, String], secureFlag: Boolean): String =
-    val base = "Path=/; HttpOnly; SameSite=Lax" + (if secureFlag then "; Secure" else "")
-    if payload.isEmpty then s"session=; $base; Max-Age=0"
-    else s"session=${pack(payload)}; $base"
+   *  Empty payload → cookie cleared (Max-Age=0).  The `secureFlag`
+   *  argument is preserved for back-compat but the live cookie config
+   *  set via [[setCookieConfig]] takes precedence when called. */
+  def toSetCookie(payload: Map[String, String], secureFlag: Boolean = false): String =
+    val secure   = secureFlag || _secure
+    val attrs    = s"Path=/; HttpOnly; SameSite=$_sameSite" + (if secure then "; Secure" else "")
+    if payload.isEmpty then s"session=; $attrs; Max-Age=0"
+    else s"session=${pack(payload)}; $attrs"
