@@ -106,3 +106,35 @@ The opposite (small fix, no risk of collision, one or two commits) is
 fine to do directly on `main` as before; the worktree pattern is for
 multi-step refactors where intermediate commits aren't worth shipping
 individually.
+
+## Iteration discipline: land every closed iteration on `main`
+
+When working through a multi-iteration plan (a milestone broken into
+sprints, a refactor split into steps, a list of bugfixes), **merge
+each iteration into `main` as soon as it is verifiably done** rather
+than batching them into a single end-of-plan push.
+
+Concretely, for each iteration:
+
+1. Implement + commit on the local working branch (or on `main`
+   directly for small fixes).
+2. Run the full check suite (`sbt compile`, `sbt test`, conformance
+   if touched, examples if touched) and verify any new tests cover
+   the change.
+3. Update `MILESTONES.md` — strike the closed iteration so the
+   document keeps reading forward.
+4. `git fetch origin main`; if `origin/main` has moved, rebase the
+   local branch onto it and re-run the check suite on the rebased
+   tip.
+5. Push to `origin/main` (fast-forward or merge commit, depending on
+   the work).
+
+Why: each iteration is a self-contained piece of value; landing it
+immediately means CI runs against it, future iterations build on
+the rebased tip rather than a stale local branch, and the user can
+review one iteration at a time instead of a wall of commits at the
+end.
+
+The exceptions are the worktree pattern above (intermediate steps
+that aren't useful in isolation) and explicit user instruction
+("squash the whole sprint into one commit before pushing", etc.).
