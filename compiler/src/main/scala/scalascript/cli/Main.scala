@@ -3,7 +3,7 @@ package scalascript.cli
 import scalascript.parser.Parser
 import scalascript.typer.Typer
 import scalascript.interpreter.Interpreter
-import scalascript.codegen.{JsGen, JsRuntime, JvmGen, ScalaJsBackend}
+import scalascript.codegen.{JsGen, JsRuntime, JsRuntimeBrowserPatch, JvmGen, ScalaJsBackend}
 import scalascript.ast.*
 
 @main def ssc(args: String*): Unit =
@@ -15,6 +15,7 @@ import scalascript.ast.*
     case "watch"               => watchCommand(args.tail.toList)
     case "repl"                => replCommand(args.tail.toList)
     case "emit-js"             => emitJsCommand(args.tail.toList)
+    case "emit-spa"            => emitSpaCommand(args.tail.toList)
     case "emit-scala"          => emitScalaCommand(args.tail.toList)
     case "compile"             => compileCommand(args.tail.toList)
     case "package"             => packageCommand(args.tail.toList)
@@ -35,7 +36,8 @@ def printUsage(): Unit =
     |  compile                Compile and run .ssc on JVM via scala-cli
     |  package [flags] <f>    Package .ssc via scala-cli package (see flags below)
     |  emit-scala             Print generated Scala 3 script to stdout
-    |  emit-js                Transpile .ssc to JavaScript and print to stdout
+    |  emit-js                Transpile .ssc to JavaScript (Node server) and print to stdout
+    |  emit-spa               Wrap .ssc as a browser SPA (HTML + embedded JS) and print to stdout
     |  serve                  Start HTTP server serving .ssc files as web pages
     |  parse                  Parse .ssc files and print AST
     |  check                  Type-check .ssc files
@@ -58,6 +60,7 @@ def printUsage(): Unit =
     |  ssc package --standalone -o hello examples/hello.ssc
     |  ssc emit-scala examples/hello.ssc
     |  ssc emit-js examples/hello.ssc | node
+    |  ssc emit-spa examples/spa-demo.ssc > spa.html  # open spa.html in a browser
     |  ssc serve 8080
     |  ssc parse examples/typeclass.ssc
     |""".stripMargin)
@@ -158,6 +161,43 @@ def emitJsCommand(args: List[String]): Unit =
             if bundle.nonEmpty then println(bundle)
       catch case e: Exception =>
         System.err.println(s"JS generation error: ${e.getMessage}")
+        System.exit(1)
+
+def emitSpaCommand(args: List[String]): Unit =
+  if args.isEmpty then { println("Error: No files specified"); System.exit(1) }
+  for file <- args do
+    val path    = os.Path(file, os.pwd)
+    val baseDir = Some(path / os.up)
+    if !os.exists(path) then { println(s"Error: File not found: $file"); System.exit(1) }
+    else
+      try
+        val module   = Parser.parse(os.read(path))
+        val segments = JsGen.generateSegmented(module, baseDir)
+        val title    = module.manifest.flatMap(_.name).getOrElse(path.last.stripSuffix(".ssc"))
+        // Concatenate user JS — same segment loop as emit-js but no
+        // process.stdout flushes (browser-only output goes to console).
+        val userJs = segments.collect {
+          case JsGen.Segment.ScalaScriptJs(code) => code
+          case JsGen.Segment.ScalaSource(src)    =>
+            ScalaJsBackend.compileSourceToJs(src, baseDir)
+        }.filter(_.nonEmpty).mkString("\n")
+        println(s"""<!doctype html>
+                   |<html lang="en">
+                   |<head>
+                   |  <meta charset="utf-8">
+                   |  <meta name="viewport" content="width=device-width, initial-scale=1">
+                   |  <title>$title</title>
+                   |</head>
+                   |<body>
+                   |<script>
+                   |$JsRuntime
+                   |$JsRuntimeBrowserPatch
+                   |$userJs
+                   |</script>
+                   |</body>
+                   |</html>""".stripMargin)
+      catch case e: Exception =>
+        System.err.println(s"SPA generation error: ${e.getMessage}")
         System.exit(1)
 
 def emitScalaCommand(args: List[String]): Unit =

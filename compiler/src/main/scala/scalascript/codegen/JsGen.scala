@@ -726,6 +726,99 @@ function _handle(bodyFn, handledOps, handlers) {
 }
 """
 
+/** Browser-SPA overlay loaded AFTER `JsRuntime` so its `serve(...)` /
+ *  `console.log`-based output flush replace the Node-target versions.
+ *  The Node-only helpers (`_serveStatic`, `_contentTypeFor`, `require('http')`)
+ *  are never invoked, so they sit as dead code without crashing the page. */
+val JsRuntimeBrowserPatch: String = """
+// ── Browser SPA overlay ──────────────────────────────────────────────────
+// Replaces serve(port) with a popstate/link-click dispatcher.  Same
+// route(method, path)(handler) surface as the Node target; same Response
+// shape; same _routes / _matchPath / _mkRequest reused unchanged.
+
+function _spaFlush() {
+  if (_output.length) {
+    for (const line of _output) console.log(line);
+    _output = [];
+  }
+}
+
+function _spaRender(response) {
+  if (!response) { _spaFlush(); return; }
+  const status  = response.status ?? 200;
+  const headers = response.headers instanceof Map ? response.headers : new Map();
+  const ct      = (headers.get('Content-Type') || headers.get('content-type') || '').toLowerCase();
+  if (status >= 300 && status < 400) {
+    const loc = headers.get('Location') || headers.get('location');
+    if (loc) { _spaNavigate(loc, true); return; }
+  }
+  const body = response.body ?? '';
+  if (ct.startsWith('text/html')) {
+    // Replace just the body so <head>/<title>/<script> stay intact across
+    // navigations — the SPA runtime itself lives in the original <script>.
+    document.body.innerHTML = body;
+  } else if (ct.startsWith('application/json')) {
+    document.body.innerHTML = '<pre>' + body.replace(/&/g, '&amp;').replace(/</g, '&lt;') + '</pre>';
+  } else {
+    document.body.textContent = body;
+  }
+  _spaFlush();
+}
+
+function _spaDispatch(method, pathname, body) {
+  const segs = pathname.split('/').filter(s => s.length > 0);
+  for (const r of _routes) {
+    if (r.method !== method) continue;
+    const params = _matchPath(r.pattern, segs);
+    if (params == null) continue;
+    const request = {
+      _type: 'Request',
+      method,
+      path:    pathname,
+      params,
+      query:   new Map(),
+      headers: new Map(),
+      body:    body || '',
+      form:    new Map(),
+    };
+    try { _spaRender(r.handler(request)); }
+    catch (e) {
+      document.body.textContent = 'SPA route error: ' + (e && e.message ? e.message : e);
+      _spaFlush();
+    }
+    return true;
+  }
+  document.body.textContent = 'Not Found: ' + pathname;
+  _spaFlush();
+  return false;
+}
+
+function _spaNavigate(pathname, replace) {
+  if (replace) history.replaceState({}, '', pathname);
+  else         history.pushState({}, '', pathname);
+  _spaDispatch('GET', pathname);
+}
+
+// In browser there's no port to bind.  `serve(...)` hooks link clicks +
+// popstate and dispatches the initial location so the page renders.
+function serve(/* ignored */) {
+  document.addEventListener('click', e => {
+    const a = e.target && e.target.closest && e.target.closest('a');
+    if (!a) return;
+    const href = a.getAttribute('href');
+    if (!href) return;
+    // External / fragment / protocol-relative — let the browser handle.
+    if (/^(https?:)?\/\//.test(href) || href.startsWith('#') || href.startsWith('mailto:')) return;
+    e.preventDefault();
+    _spaNavigate(href, false);
+  });
+  window.addEventListener('popstate', () => {
+    _spaDispatch('GET', location.pathname || '/');
+  });
+  _spaDispatch('GET', location.pathname || '/');
+}
+"""
+
 class JsGen(baseDir: Option[os.Path] = None):
   import scala.meta.*
 

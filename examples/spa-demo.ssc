@@ -1,0 +1,37 @@
+---
+name: spa-demo
+version: 1.0.0
+description: Minimal browser-side SPA demo — same route() / serve() surface as the Node target.
+---
+
+# Tiny SPA
+
+Three pages cross-linked by plain `<a>` tags.  The same `route()` /
+`serve()` source compiles to either a Node HTTP server (`ssc emit-js |
+node`) or a browser-rendered single-page app (`ssc emit-spa > spa.html
+&& open spa.html`).
+
+```scalascript
+def layout(title: String, body: String): String =
+  html"""<nav>
+  <a href="/">Home</a> ·
+  <a href="/about">About</a> ·
+  <a href="/contact">Contact</a>
+</nav>
+<h1>${title}</h1>
+${raw(body)}"""
+
+route("GET", "/") { req =>
+  Response.html(layout("Home", html"<p>Welcome to the ScalaScript SPA demo.</p>"))
+}
+
+route("GET", "/about") { req =>
+  Response.html(layout("About", html"<p>One <code>.ssc</code> file, two backends.</p>"))
+}
+
+route("GET", "/contact") { req =>
+  Response.html(layout("Contact", html"<p>Open an issue on GitHub.</p>"))
+}
+
+serve(8765)
+```
