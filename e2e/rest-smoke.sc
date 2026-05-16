@@ -11,15 +11,25 @@
 
 import java.net.{URI, HttpURLConnection}
 
-val root        = os.pwd
-val example     = root / "examples" / "rest-api.ssc"
-val sscBin      = root / "bin" / "ssc"
-val launcherDir =
-  if os.isDir(root / "bin") then root / "bin"
-  else root / "scripts" / "launchers"
-val jsscBin     = launcherDir / "jssc"
-val ssccBin     = launcherDir / "sscc"
-val compiler    = root / "compiler"
+val root     = os.pwd
+val example  = root / "examples" / "rest-api.ssc"
+val binDir   = root / "bin"
+val compiler = root / "compiler"
+
+// Prefer the installed bin/ launchers when present (faster cold-start —
+// they shell out to a pre-built binary or cached scala-cli compile).
+// Fall back to `scala-cli run compiler -- <subcommand>` so the harness
+// also works in fresh checkouts and git worktrees where bin/ is absent.
+def cmdFor(subcommand: String, launcher: String, postPipe: String = ""): List[String] =
+  val bin = binDir / launcher
+  if os.exists(bin) then List(bin.toString, example.toString)
+  else
+    // Fallback: run the compiler directly via scala-cli. For the JS backend
+    // we additionally pipe emit-js output through node, mirroring what
+    // bin/jssc does in a single shell command.
+    val core = s"scala-cli run ${compiler.toString} -- $subcommand ${example.toString}"
+    val full = if postPipe.isEmpty then core else s"$core | $postPipe"
+    List("bash", "-c", full)
 
 val port = 8765
 val base = s"http://localhost:$port"
@@ -27,13 +37,9 @@ val base = s"http://localhost:$port"
 case class Backend(label: String, cmd: List[String])
 
 val backends = List(
-  Backend(
-    "ssc-int",
-    if os.exists(sscBin) then List(sscBin.toString, example.toString)
-    else List("scala-cli", "run", compiler.toString, "--", example.toString)
-  ),
-  Backend("ssc-jvm", List(ssccBin.toString, example.toString)),
-  Backend("ssc-js",  List(jsscBin.toString, example.toString)),
+  Backend("ssc-int", cmdFor("run",     "ssc")),
+  Backend("ssc-jvm", cmdFor("compile", "sscc")),
+  Backend("ssc-js",  cmdFor("emit-js", "jssc", postPipe = "node")),
 )
 
 // ─── HTTP client ───────────────────────────────────────────────────────

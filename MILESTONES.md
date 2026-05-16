@@ -38,10 +38,11 @@ The JVM and JS backends now ship their own `serveRuntime` / `route` runtime
   encoders on all three backends (INT/JS/JVM) serialise `List`, `Map`,
   `Option`, primitives, case classes and tuples to byte-identical JSON.
   Bare `String` bodies still pass through verbatim for back-compat.
-- **Cross-backend smoke harness.**  Add a script under `bench/` (or a new
-  `e2e/`) that starts the same `rest-api.ssc` through each backend in
-  turn, hits it with `curl`, and diffs the responses — guards against
-  drift between the three serve runtimes.
+- ~~**Cross-backend smoke harness.**~~  *Landed* as `e2e/rest-smoke.sc`.
+  Boots `examples/rest-api.ssc` through each backend in turn, runs a
+  fixed sequence of HTTP requests, and diffs `(status, body)` across
+  INT/JS/JVM. Works both from an installed `bin/` and from a fresh
+  worktree (falls back to `scala-cli run compiler` when bin/ is absent).
 
 ## v0.4 — Stability & polish
 
