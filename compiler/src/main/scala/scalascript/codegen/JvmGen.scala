@@ -2195,11 +2195,15 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |// portable.  NIO migration on this side will land together with the
        |// HTTP NIO rewrite.
        |//
-       |// `serve(port)` below stops binding the JDK HttpServer directly: it
-       |// starts the HttpServer on a loopback ephemeral port and a public
-       |// blocking proxy that sniffs the request head and either upgrades to
-       |// WebSocket (handshake + frame loop in-place) or forwards bytes both
-       |// ways to the internal HttpServer (REST + static files unchanged).
+       |// Threading: user callbacks (`onWebSocket` body, `onMessage`,
+       |// `onClose`) all dispatch through `_serverExecutor`, the same
+       |// single-thread executor `serve` hands to the internal HttpServer.
+       |// That way mutations to top-level `var`s from HTTP handlers and WS
+       |// callbacks are serial — no cross-handler races even though every
+       |// WS read-loop runs on its own pool thread.
+       |
+       |private val _serverExecutor: java.util.concurrent.ExecutorService =
+       |  java.util.concurrent.Executors.newSingleThreadExecutor()
        |
        |class WebSocket(private val socket: java.net.Socket):
        |  import java.io.{BufferedInputStream, OutputStream}
@@ -2222,7 +2226,10 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |      out.flush()
        |      try socket.close() catch case _: Throwable => ()
        |      val cb = onCloseCb; onCloseCb = null
-       |      if cb != null then try cb() catch case _: Throwable => ()
+       |      if cb != null then _serverExecutor.execute { () =>
+       |        try cb() catch case e: Throwable =>
+       |          System.err.println(s"WS close handler: ${e.getMessage}")
+       |      }
        |  }
        |
        |  def onMessage(cb: String => Unit): Unit = onMessageCb = cb
@@ -2265,9 +2272,16 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |                    if fr.opcode == 0x1
        |                    then new String(fr.payload, StandardCharsets.UTF_8)
        |                    else new String(fr.payload, "ISO-8859-1")
-       |                  val cb = onMessageCb
-       |                  if cb != null then try cb(msg) catch case e: Throwable =>
-       |                    System.err.println(s"WS message handler: ${e.getMessage}")
+       |                  // Always queue — `onMessageCb` may not be set yet
+       |                  // when the read-loop sees the first frame (the
+       |                  // user's `onWebSocket` block also runs on the
+       |                  // executor, FIFO).  Reading the callback inside
+       |                  // the task ensures it's the up-to-date one.
+       |                  _serverExecutor.execute { () =>
+       |                    val cb = onMessageCb
+       |                    if cb != null then try cb(msg) catch case e: Throwable =>
+       |                      System.err.println(s"WS message handler: ${e.getMessage}")
+       |                  }
        |                case _   => close(1003, ""); return
        |        if offset > 0 then
        |          System.arraycopy(buf, offset, buf, 0, len - offset)
@@ -2276,7 +2290,10 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |    finally
        |      try socket.close() catch case _: Throwable => ()
        |      val cb = onCloseCb; onCloseCb = null
-       |      if cb != null then try cb() catch case _: Throwable => ()
+       |      if cb != null then _serverExecutor.execute { () =>
+       |        try cb() catch case e: Throwable =>
+       |          System.err.println(s"WS close handler: ${e.getMessage}")
+       |      }
        |
        |private final case class _WsRoute(pattern: List[_Seg], handler: WebSocket => Unit)
        |private val _wsRoutes = scala.collection.mutable.ArrayBuffer.empty[_WsRoute]
@@ -2410,8 +2427,17 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |          s"Sec-WebSocket-Accept: $accept\r\n\r\n"
        |        cout.write(resp.getBytes("US-ASCII")); cout.flush()
        |        val ws = WebSocket(client)
-       |        try r.handler(ws) catch case e: Throwable =>
-       |          System.err.println(s"WS upgrade handler: ${e.getMessage}")
+       |        // Run the user's `onWebSocket` block on the shared single-
+       |        // thread executor so any state it touches (top-level `var`s,
+       |        // route registry, etc.) is serial with HTTP handlers and
+       |        // later `onMessage` / `onClose` callbacks.
+       |        _serverExecutor.execute { () =>
+       |          try r.handler(ws) catch case e: Throwable =>
+       |            System.err.println(s"WS upgrade handler: ${e.getMessage}")
+       |        }
+       |        // Read-loop stays on this thread (cached pool) so a slow
+       |        // socket can't block the executor; only the dispatched
+       |        // callbacks above go through the single-thread queue.
        |        ws._runReadLoop()
        |  else
        |    // Plain HTTP — open a backend socket to the internal HttpServer
@@ -2440,12 +2466,14 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |
        |def serve(port: Int): Unit =
        |  // Internal HttpServer on a loopback ephemeral port — REST + static
-       |  // files keep flowing through it as before, single-threaded.
-       |  val executor = java.util.concurrent.Executors.newSingleThreadExecutor()
+       |  // files keep flowing through it as before, single-threaded.  The
+       |  // same `_serverExecutor` backs WS callbacks so all handler bodies
+       |  // serialise on one thread regardless of which protocol triggered
+       |  // them.
        |  val internal = com.sun.net.httpserver.HttpServer.create(
        |    java.net.InetSocketAddress("127.0.0.1", 0), 0)
        |  internal.createContext("/", _handle)
-       |  internal.setExecutor(executor)
+       |  internal.setExecutor(_serverExecutor)
        |  internal.start()
        |  val internalPort = internal.getAddress.getPort
        |  // Public-facing blocking proxy: one accept loop, one thread per
