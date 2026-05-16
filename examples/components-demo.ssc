@@ -1,7 +1,7 @@
 #!/usr/bin/env ssc
 ---
 name: components-demo
-description: Page that imports four components (Page + Button + Card + Alert) and composes them.
+description: Page that imports five components and composes them — Counter brings inline JS via collectJs.
 routes:
   - method: GET
     path: /
@@ -10,11 +10,13 @@ routes:
 
 # Components demo
 
-Four co-located components, each `.ssc` file owning its HTML, CSS, and
-any logic.  `Page` provides the doctype + head + body scaffolding so
-each route only assembles its content.  `Card` and `Alert` deliberately
-share the bare class names `.title` / `.body`; their `scope(...)`
-instances keep them isolated.
+Five co-located components, each `.ssc` file owning its HTML, CSS,
+any logic, and (for Counter) inline JS.  `Page` provides the doctype
++ head + body scaffolding so each route only assembles its content.
+`Card` and `Alert` deliberately share the bare class names `.title` /
+`.body`; their `scope(...)` instances keep them isolated.  `Counter`
+demonstrates the `val js` convention — `collectJs(...)` aggregates
+every component's `js` into a single page-level `<script>`.
 
 [Page](./components/page.ssc)
 
@@ -23,6 +25,8 @@ instances keep them isolated.
 [Card](./components/card.ssc)
 
 [Alert](./components/alert.ssc)
+
+[Counter](./components/counter.ssc)
 
 ```scalascript
 def home(req: Request): Response =
@@ -43,20 +47,30 @@ def home(req: Request): Response =
     ${raw(Button.render("Delete", "danger"))}
   """
 
+  val counters = html"""
+    ${raw(Counter.render(0))}
+    ${raw(Counter.render(10))}
+  """
+
+  // `collectCss(...)` reaches into each argument's `css` field;
+  // `collectJs(...)` does the same for `js`.  Order is the call order,
+  // deterministic across backends.
+  val styles  = collectCss(Page, Button, Card, Alert, Counter)
+  val scripts = collectJs(Counter)
+
   val body = html"""
     <h1>Components demo</h1>
-    <p>Four ScalaScript components, composed on one page.  Card and Alert
+    <p>Five ScalaScript components, composed on one page.  Card and Alert
        share <code>.title</code> / <code>.body</code>; <code>scope(...)</code>
-       keeps them isolated.</p>
+       keeps them isolated.  Counter wires its click handler via
+       <code>val js</code> aggregated through <code>collectJs(...)</code>.</p>
     ${raw(cards)}
     ${raw(alerts)}
     <div class="row">${raw(buttons)}</div>
+    <p>Counters (client-side):</p>
+    <div class="row">${raw(counters)}</div>
+    <script>${raw(scripts)}</script>
   """
-
-  // Aggregate every imported component's CSS into one string for the
-  // page-level <style>.  `collectCss(...)` reaches into each argument's
-  // `css` field; ordering is the call order, deterministic across backends.
-  val styles = collectCss(Page, Button, Card, Alert)
 
   Response.html(Page.render("Components demo", body, styles))
 

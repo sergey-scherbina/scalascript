@@ -1,0 +1,44 @@
+#!/usr/bin/env ssc
+---
+name: counter
+description: Click-counter — co-located CSS + render + JS handler.
+---
+
+# Counter
+
+A button that increments its label on click.  The click handler lives
+on the component itself via `val js: String`; a page-level
+`collectJs(Counter, ...)` aggregates every imported component's `js`
+into a single `<script>`.  Symmetric with `val css` / `collectCss`.
+
+```scalascript
+object Counter:
+  private val sc = scope("Counter")
+  private val rootCls   = sc.cls("root")
+  private val labelCls  = sc.cls("label")
+  private val buttonCls = sc.cls("button")
+
+  val css: String = sc.css("""
+    .root   { display: inline-flex; align-items: center; gap: .5em;
+              padding: .25em .5em; border: 1px solid #e5e7eb;
+              border-radius: 4px; background: #fff; }
+    .label  { font-variant-numeric: tabular-nums; min-width: 2ch;
+              text-align: right; font-weight: 600; }
+    .button { padding: .25em .7em; border-radius: 4px; border: 0;
+              background: #2563eb; color: #fff; cursor: pointer; }
+  """)
+
+  val js: String = s"""
+document.querySelectorAll('.$rootCls').forEach(root => {
+  const label = root.querySelector('.$labelCls');
+  const btn   = root.querySelector('.$buttonCls');
+  let count = parseInt(label.textContent, 10) || 0;
+  btn.addEventListener('click', () => { count++; label.textContent = String(count); });
+});"""
+
+  def render(initial: Int = 0): String =
+    html"""<div class="${rootCls}">
+      <span class="${labelCls}">${initial}</span>
+      <button class="${buttonCls}">+1</button>
+    </div>"""
+```

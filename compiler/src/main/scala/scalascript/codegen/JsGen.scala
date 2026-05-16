@@ -77,6 +77,15 @@ function collectCss(...parts) {
     .join('\n');
 }
 
+// `collectJs(comp1, comp2, ...)` — same shape as collectCss, only it
+// reads each argument's `js` field for stitching into a page <script>.
+function collectJs(...parts) {
+  return parts
+    .map(p => (p && typeof p.js === 'string') ? p.js : '')
+    .filter(s => s.length > 0)
+    .join('\n');
+}
+
 // `scope("Card")` returns a small object with two helpers used by
 // component-style .ssc files to suffix class names so two components
 // can both use bare class names like `.title` without conflict.

@@ -918,6 +918,26 @@ Why this shape:
   ordinary objects can be mixed in.  Identical output on all three
   backends.
 
+- **JS aggregation via `collectJs(...)`.**  Symmetric with `collectCss`:
+  reads each argument's `js` field and concatenates them.  A component
+  that needs a sprinkle of client-side interactivity can co-locate the
+  handler:
+
+  ```scalascript
+  object Counter:
+    private val sc = scope("Counter")
+    val css: String = sc.css(""".root { … } .button { … }""")
+    val js:  String = s"""
+      document.querySelectorAll('.${sc.cls("root")}').forEach(root => {
+        const btn = root.querySelector('.${sc.cls("button")}');
+        btn.addEventListener('click', () => /* … */);
+      });
+    """
+    def render(...): String = html"""<div class="${sc.cls("root")}">…</div>"""
+  ```
+
+  Pages then write `<script>${raw(collectJs(Counter, …))}</script>`.
+
 - **Class scoping via `scope(name)`.**  Two components can both write
   bare class names like `.title` without conflict if each runs its
   CSS through a per-component scope:

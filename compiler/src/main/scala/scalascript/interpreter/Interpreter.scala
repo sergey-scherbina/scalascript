@@ -310,6 +310,18 @@ class Interpreter(
       Value.StringV(parts.mkString("\n"))
     }
 
+    // `collectJs(comp1, comp2, ...)` — same shape as collectCss, only it
+    // reads each argument's `js` field.  Pages stitch the result into
+    // a single page-level <script> tag.
+    nativeP("collectJs") { args =>
+      val parts = args.flatMap {
+        case Value.InstanceV(_, fields) =>
+          fields.get("js").collect { case Value.StringV(s) => s }
+        case _ => None
+      }
+      Value.StringV(parts.mkString("\n"))
+    }
+
     // `scope("Card")` returns a small object with two helpers used by
     // component-style .ssc files to suffix class names (see SPEC §8.4):
     //

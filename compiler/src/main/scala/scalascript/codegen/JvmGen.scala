@@ -1264,6 +1264,18 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |    catch case _: Throwable => None
        |  }.mkString("\n")
        |
+       |/** `collectJs(comp1, comp2, ...)` — same shape as `collectCss`,
+       | *  reads each argument's `val js: String` for a page <script>. */
+       |def collectJs(parts: Any*): String =
+       |  parts.flatMap { part =>
+       |    try
+       |      val m = part.getClass.getMethod("js")
+       |      m.invoke(part) match
+       |        case s: String => Some(s)
+       |        case _         => None
+       |    catch case _: Throwable => None
+       |  }.mkString("\n")
+       |
        |/** `scope("Card")` — class-name suffix helper for component-style
        | *  .ssc files (see SPEC §8.4).
        | *
