@@ -1206,6 +1206,23 @@ function _composeLens(a, b) {
   return { _type: 'Lens', get, set, modify, andThen };
 }
 
+// ── Prism runtime — sum-type optic, conditional get / set / modify ────
+function _makePrism(variant) {
+  const matches = (s) => s != null && s._type === variant;
+  const getOption  = (s) => matches(s) ? _Some(s) : _None;
+  const reverseGet = (v) => v;
+  const set        = (s, v) => matches(s) ? v : s;
+  const modify     = (s, f) => matches(s) ? f(s) : s;
+  const andThen    = (other) => {
+    if (other && other._type === 'Prism' && other._variant) {
+      // Prism-Prism: dynamic typeName check collapses to the inner variant.
+      return _makePrism(other._variant);
+    }
+    throw new Error('Prism.andThen(other): only Prism-Prism composition supported in this stage');
+  };
+  return { _type: 'Prism', _variant: variant, getOption, reverseGet, set, modify, andThen };
+}
+
 function _dispatch(obj, method, args) {
   if (Array.isArray(obj)) {
     switch(method) {
@@ -2616,6 +2633,11 @@ class JsGen(baseDir: Option[os.Path] = None):
               s"${tc}_${arg}"
             case _ => "undefined"
           key
+        case (Term.Name("Prism"), List(_, variantType)) =>
+          val variantName = variantType match
+            case n: Type.Name => n.value
+            case _            => return "(()=>{ throw new Error('Prism[Outer, Variant]: Variant must be a simple type name'); })()"
+          s"_makePrism('$variantName')"
         case _ => genExpr(t.fun)
 
     // Field/method selection without arguments

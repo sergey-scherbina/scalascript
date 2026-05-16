@@ -92,6 +92,7 @@ compiles them via Scala.js.
 | Tail-call optimisation | self-TCO and mutual TCO — no `@tailrec` required |
 | Case-class `.copy` | `p.copy(field = newValue, ...)` |
 | Lenses | `Focus[T](_.a.b)` → `Lens` with `get` / `set` / `modify` / `andThen` |
+| Prisms | `Prism[Sum, Variant]` → `getOption` / `set` / `modify` / `reverseGet` |
 | Algebraic effects | `effect E:`, `handle(body) { case E.op(arg, resume) => ... }` |
 | Default parameters | `def f(x: Int, step: Int = 1)`, also on class/enum constructors |
 | Module imports | `[name](./lib.ssc)` markdown links bring definitions into scope |
@@ -190,6 +191,7 @@ scala-cli conformance/run.sc
 | modules | `[name](./path.ssc)` imports — bind definitions from another file |
 | effects | Algebraic effects: Console routing, Choose nondeterminism, Fail early-return |
 | lenses | `.copy(field = v)` and `Focus[T](_.a.b)` — get / set / modify / andThen |
+| prisms | `Prism[Sum, Variant]` — getOption / set / modify on enum / sealed-trait cases |
 
 ## Backends
 

@@ -67,3 +67,26 @@ val streetOfP  = addrLens.andThen(streetLens)
 println(streetOfP.get(alice))                       // Main St
 println(streetOfP.set(alice, "Broadway").address.street) // Broadway
 ```
+
+## Prisms — focus on a sum-type variant
+
+`Prism[Outer, Variant]` focuses on a single case of an `enum` or sealed
+hierarchy. Unlike a `Lens`, the focus may not exist — `getOption`
+returns `None` when the value isn't the named variant, and `set` /
+`modify` are no-ops in that case.
+
+```scalascript
+enum Shape:
+  case Circle(radius: Int)
+  case Rect(width: Int, height: Int)
+
+val circlePrism = Prism[Shape, Circle]
+
+val c: Shape = Circle(5)
+val r: Shape = Rect(3, 4)
+
+println(circlePrism.getOption(c))                          // Some(Circle(5))
+println(circlePrism.getOption(r))                          // None
+println(circlePrism.modify(c, x => Circle(x.radius * 2)))  // Circle(10)
+println(circlePrism.modify(r, x => Circle(x.radius * 2)))  // Rect(3, 4)
+```
