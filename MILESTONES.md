@@ -10,18 +10,14 @@ Building blocks for authenticated `.ssc` web apps.  Signed cookie sessions,
 CSRF helpers, and a login/logout example have landed; remaining items are
 ordered so each can lean on the earlier ones.
 
-1. **JWT bearer-token auth.**  `Authorization: Bearer <jws>` with HS256
-   signing.  `req.auth: Option[Claims]`, `Response.json(...).withJwt(...)`.
-   Stateless API alternative to cookie sessions — natural fit for the
-   browser-SPA target where the same `.ssc` can serve API + UI.
-2. **Server-side session store.**  Opt-in `SessionStore` abstraction
+1. **Server-side session store.**  Opt-in `SessionStore` abstraction
    (in-memory by default) so callers who need instant revocation or
    payloads >4KB can swap cookie-resident state for an SSID lookup.
    Plays nicely with the upcoming `Storage` effect.
-3. **HTTP Basic auth helper.**  `req.basicAuth: Option[(String, String)]`
+2. **HTTP Basic auth helper.**  `req.basicAuth: Option[(String, String)]`
    + a `requireBasicAuth(realm)` route guard.  Low priority — useful
    for dev / internal endpoints, not for product-facing flows.
-4. **OAuth2 / OIDC** (Google + GitHub).  Authorization-code flow with
+3. **OAuth2 / OIDC** (Google + GitHub).  Authorization-code flow with
    provider-specific config; `oauthClient(provider, ...).authorizeUrl()`,
    callback handler, token exchange.  Last in the order because it
    needs an HTTP client and per-provider quirks.

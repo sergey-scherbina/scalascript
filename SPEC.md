@@ -474,6 +474,41 @@ route("POST", "/login") { req =>
 See [examples/auth-demo.ssc](examples/auth-demo.ssc) for the full
 login / logout flow.
 
+#### JWT bearer-token auth
+
+For stateless APIs — natural fit for the browser-SPA target where the
+same `.ssc` serves both UI and JSON endpoints — ScalaScript ships
+HS256 JWTs (RFC 7519):
+
+```text
+<b64url(header)>.<b64url(payload)>.<b64url(hmac_sha256(h_b64.p_b64))>
+                       header = {"alg":"HS256","typ":"JWT"}
+                       payload = JSON of a Map[String, String]
+```
+
+Secret resolution: `SSC_JWT_SECRET` is preferred; `SSC_SESSION_SECRET`
+is used as a fallback so a small deployment only needs one env var.
+
+```scalascript
+// Sign — payload is any Map[String, String].  Caller sets `exp` etc.
+val token = jwtSign(Map("sub" -> "alice", "role" -> "admin"))
+
+// Verify — returns None on missing/tampered/expired tokens.
+jwtVerify(token) match
+  case Some(claims) => ...
+  case None         => ...
+
+// Inside a route handler, the Authorization: Bearer <token> header is
+// pre-parsed for convenience:
+req.bearerToken           // Option[String]
+req.jwtClaims             // Option[Map[String, String]] (verified)
+```
+
+`jwtVerify` rejects malformed tokens, signature mismatches, non-HS256
+header `alg`, and tokens whose `exp` claim (Unix seconds) is in the
+past or not parseable as an integer.  Other claims (`nbf`, `iss`,
+`aud`, …) are passed through verbatim — callers can enforce them.
+
 #### Response
 
 ```scalascript
