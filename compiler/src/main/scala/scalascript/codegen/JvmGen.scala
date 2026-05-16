@@ -37,8 +37,11 @@ class JvmGen(baseDir: Option[os.Path] = None):
   // ─── Module entry ─────────────────────────────────────────────────
 
   def genModule(module: Module): String =
-    analyzeEffects(module)
-    analyzeMutualRecursion(module)
+    // Collect blocks first — including those pulled in by `[..](./x.ssc)`
+    // imports — so the effect / mutual-TCO analysis sees the full picture.
+    val blocks = collectBlocks(module.sections)
+    analyzeEffects(blocks)
+    analyzeMutualRecursion(blocks)
     val sb = StringBuilder()
 
     // //> using directives from YAML front-matter
@@ -52,7 +55,6 @@ class JvmGen(baseDir: Option[os.Path] = None):
     if effectOps.nonEmpty    then sb.append(effectsRuntime)
     if mutualGroups.nonEmpty then sb.append(mutualTcoRuntime)
 
-    val blocks = collectBlocks(module.sections)
     blocks.foreach { block =>
       sb.append(emitBlock(block).stripTrailing())
       sb.append("\n\n")
@@ -101,7 +103,7 @@ class JvmGen(baseDir: Option[os.Path] = None):
 
   // ─── Effect analysis ──────────────────────────────────────────────
 
-  private def analyzeEffects(module: Module): Unit =
+  private def analyzeEffects(blocks: List[JvmGen.Block]): Unit =
     effectOps.clear()
     effectfulFuns.clear()
 
@@ -118,20 +120,13 @@ class JvmGen(baseDir: Option[os.Path] = None):
       case _           => ()
     }
 
-    def scan(section: Section): Unit =
-      section.content.foreach {
-        case cb: Content.CodeBlock if Lang.isParseable(cb.lang) =>
-          cb.tree.foreach { node =>
-            ScalaNode.fold(node) {
-              case Source(stats)     => collectFromStats(stats)
-              case Term.Block(stats) => collectFromStats(stats)
-              case _                 => ()
-            }
-          }
-        case _ => ()
+    blocks.foreach { block =>
+      ScalaNode.fold(block.node) {
+        case Source(stats)     => collectFromStats(stats)
+        case Term.Block(stats) => collectFromStats(stats)
+        case _                 => ()
       }
-      section.subsections.foreach(scan)
-    module.sections.foreach(scan)
+    }
 
     def callees(tree: scala.meta.Tree): Set[String] = tree match
       case Term.Apply.After_4_6_0(Term.Name(n), argClause) =>
@@ -173,7 +168,7 @@ class JvmGen(baseDir: Option[os.Path] = None):
   // enough that we skip it).  Compute SCCs; any SCC of size ≥ 2 is a mutual
   // tail-recursion clique that the emitter will trampoline.
 
-  private def analyzeMutualRecursion(module: Module): Unit =
+  private def analyzeMutualRecursion(blocks: List[JvmGen.Block]): Unit =
     mutualGroups.clear()
     val callGraph = mutable.Map[String, Set[String]]()
 
@@ -187,20 +182,13 @@ class JvmGen(baseDir: Option[os.Path] = None):
       case _ => ()
     }
 
-    def scan(section: Section): Unit =
-      section.content.foreach {
-        case cb: Content.CodeBlock if Lang.isParseable(cb.lang) =>
-          cb.tree.foreach { node =>
-            ScalaNode.fold(node) {
-              case Source(stats)     => collectFuncs(stats)
-              case Term.Block(stats) => collectFuncs(stats)
-              case _                 => ()
-            }
-          }
-        case _ => ()
+    blocks.foreach { block =>
+      ScalaNode.fold(block.node) {
+        case Source(stats)     => collectFuncs(stats)
+        case Term.Block(stats) => collectFuncs(stats)
+        case _                 => ()
       }
-      section.subsections.foreach(scan)
-    module.sections.foreach(scan)
+    }
 
     val funcNames = callGraph.keySet.toSet
     val sccs = findSCCs(callGraph.toMap, funcNames)
