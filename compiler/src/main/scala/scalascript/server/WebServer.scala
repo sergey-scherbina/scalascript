@@ -112,6 +112,11 @@ object WebServer:
     val session: Map[String, String] =
       if cookieHeader.isEmpty then Map.empty
       else SessionCookie.fromHeader(cookieHeader).getOrElse(Map.empty)
+    val authHeader = headers.collectFirst {
+      case (Value.StringV(k), Value.StringV(v)) if k.equalsIgnoreCase("Authorization") => v
+    }.getOrElse("")
+    val bearer  = Jwt.fromAuthHeader(authHeader)
+    val claims  = bearer.flatMap(Jwt.verify)
     val req = Value.InstanceV("Request", Map(
       "method"  -> Value.StringV(ex.getRequestMethod),
       "path"    -> Value.StringV(ex.getRequestURI.getPath),
@@ -121,7 +126,12 @@ object WebServer:
       "body"    -> Value.StringV(body),
       "form"    -> Value.MapV(form.map((k, v) => Value.StringV(k) -> Value.StringV(v))),
       "files"   -> Value.MapV(files.map((k, v) => Value.StringV(k) -> v)),
-      "session" -> Value.MapV(session.map((k, v) => Value.StringV(k) -> Value.StringV(v)))
+      "session" -> Value.MapV(session.map((k, v) => Value.StringV(k) -> Value.StringV(v))),
+      "bearerToken" -> bearer.map(t => Value.OptionV(Some(Value.StringV(t))))
+        .getOrElse(Value.OptionV(None)),
+      "jwtClaims"   -> claims.map(c =>
+          Value.OptionV(Some(Value.MapV(c.map((k, v) => Value.StringV(k) -> Value.StringV(v))))))
+        .getOrElse(Value.OptionV(None))
     ))
     val result = entry.interpreter.invoke(entry.handler, List(req))
     writeResponse(result, ex)

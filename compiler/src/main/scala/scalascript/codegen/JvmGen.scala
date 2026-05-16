@@ -1290,15 +1290,17 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |)
        |
        |case class Request(
-       |  method:  String,
-       |  path:    String,
-       |  params:  Map[String, String],
-       |  query:   Map[String, String],
-       |  headers: Map[String, String],
-       |  body:    String,
-       |  form:    Map[String, String]         = Map.empty,
-       |  files:   Map[String, UploadedFile]   = Map.empty,
-       |  session: Map[String, String]         = Map.empty
+       |  method:      String,
+       |  path:        String,
+       |  params:      Map[String, String],
+       |  query:       Map[String, String],
+       |  headers:     Map[String, String],
+       |  body:        String,
+       |  form:        Map[String, String]         = Map.empty,
+       |  files:       Map[String, UploadedFile]   = Map.empty,
+       |  session:     Map[String, String]         = Map.empty,
+       |  bearerToken: Option[String]              = None,
+       |  jwtClaims:   Option[Map[String, String]] = None
        |)
        |
        |case class Response(
@@ -1421,6 +1423,58 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |  val base = "Path=/; HttpOnly; SameSite=Lax"
        |  if payload.isEmpty then s"session=; $base; Max-Age=0"
        |  else s"session=${_packSession(payload)}; $base"
+       |
+       |// ── JWT (HS256) ─────────────────────────────────────────────────
+       |// Same wire format as scalascript.server.Jwt and the JsGen Node
+       |// runtime: header `{"alg":"HS256","typ":"JWT"}`, payload = JSON of
+       |// a Map[String, String], sig = HMAC-SHA256(header_b64.payload_b64).
+       |// Secret: SSC_JWT_SECRET preferred, SSC_SESSION_SECRET as fallback.
+       |private lazy val _jwtSecret: Array[Byte] =
+       |  sys.env.get("SSC_JWT_SECRET").filter(_.nonEmpty)
+       |    .orElse(sys.env.get("SSC_SESSION_SECRET").filter(_.nonEmpty)) match
+       |    case Some(s) => s.getBytes("UTF-8")
+       |    case None    =>
+       |      val bytes = new Array[Byte](32)
+       |      java.security.SecureRandom().nextBytes(bytes)
+       |      System.err.println("[ssc] SSC_JWT_SECRET / SSC_SESSION_SECRET not set; JWTs signed with a process-local random key.")
+       |      bytes
+       |private def _hmacSha256Jwt(payload: Array[Byte]): Array[Byte] =
+       |  val mac = javax.crypto.Mac.getInstance("HmacSHA256")
+       |  mac.init(javax.crypto.spec.SecretKeySpec(_jwtSecret, "HmacSHA256"))
+       |  mac.doFinal(payload)
+       |private val _jwtHeaderB64 = _b64urlEnc("{\"alg\":\"HS256\",\"typ\":\"JWT\"}".getBytes("UTF-8"))
+       |def jwtSign(claims: Map[String, String]): String =
+       |  val payloadB64 = _b64urlEnc(_sessionJsonEnc(claims).getBytes("UTF-8"))
+       |  val sig        = _b64urlEnc(_hmacSha256Jwt((_jwtHeaderB64 + "." + payloadB64).getBytes("UTF-8")))
+       |  s"${_jwtHeaderB64}.$payloadB64.$sig"
+       |def jwtVerify(token: String): Option[Map[String, String]] =
+       |  val parts = token.split('.')
+       |  if parts.length != 3 then None
+       |  else
+       |    val h = parts(0); val p = parts(1); val s = parts(2)
+       |    try
+       |      val expected = _b64urlEnc(_hmacSha256Jwt((h + "." + p).getBytes("UTF-8")))
+       |      if !java.security.MessageDigest.isEqual(
+       |          expected.getBytes("UTF-8"), s.getBytes("UTF-8")) then None
+       |      else
+       |        val header = String(_b64urlDec(h), "UTF-8")
+       |        if !header.contains("\"alg\":\"HS256\"") then None
+       |        else _sessionJsonDec(String(_b64urlDec(p), "UTF-8")) match
+       |          case None => None
+       |          case Some(claims) =>
+       |            claims.get("exp") match
+       |              case Some(expStr) =>
+       |                val now = java.lang.System.currentTimeMillis() / 1000L
+       |                try
+       |                  val exp = expStr.toLong
+       |                  if exp < now then None else Some(claims)
+       |                catch case _: Throwable => None
+       |              case None => Some(claims)
+       |    catch case _: Throwable => None
+       |private def _bearerFromAuth(h: String): Option[String] =
+       |  val t = Option(h).map(_.trim).getOrElse("")
+       |  if t.length < 7 || !t.substring(0, 7).equalsIgnoreCase("Bearer ") then None
+       |  else Some(t.substring(7).trim)
        |
        |// ── CSRF helpers ────────────────────────────────────────────────
        |// `csrfToken()` returns a url-safe random token; the caller stashes
@@ -1620,8 +1674,14 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |          case (k, v) if k.equalsIgnoreCase("Cookie") => v
        |        }.getOrElse("")
        |        val session = _parseCookieSession(cookieHeader)
+       |        val authHeader = headers.collectFirst {
+       |          case (k, v) if k.equalsIgnoreCase("Authorization") => v
+       |        }.getOrElse("")
+       |        val bearer = _bearerFromAuth(authHeader)
+       |        val claims = bearer.flatMap(jwtVerify)
        |        val req  = Request(method, path, params,
-       |          _parseQuery(ex.getRequestURI.getRawQuery), headers, body, form, files, session)
+       |          _parseQuery(ex.getRequestURI.getRawQuery), headers, body,
+       |          form, files, session, bearer, claims)
        |        _writeResponse(ex, r.handler(req))
        |      case None =>
        |        // Fall through to a static file under the current directory

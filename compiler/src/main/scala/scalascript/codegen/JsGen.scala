@@ -229,6 +229,11 @@ function _mkRequest(req, params, bodyBuf) {
   // Parse signed session cookie if present.
   const cookieHeader = headers.get('cookie') || headers.get('Cookie') || '';
   const session = _parseCookieSession(cookieHeader);
+  // Parse Authorization: Bearer <jwt> if present.
+  const authHeader = headers.get('authorization') || headers.get('Authorization') || '';
+  const bearerStr  = _bearerFromAuth(authHeader);
+  const bearerToken = bearerStr ? _Some(bearerStr) : _None;
+  const claims      = bearerStr ? jwtVerify(bearerStr) : _None;
   return {
     _type:   'Request',
     method:  req.method,
@@ -240,6 +245,8 @@ function _mkRequest(req, params, bodyBuf) {
     form,
     files,
     session,
+    bearerToken,
+    jwtClaims: claims,
   };
 }
 
@@ -361,6 +368,82 @@ function _buildSetCookie(map) {
   if (!map || (map instanceof Map ? map.size === 0 : Object.keys(map).length === 0))
     return 'session=; ' + base + '; Max-Age=0';
   return 'session=' + _packSession(map) + '; ' + base;
+}
+
+// ── JWT (HS256) ────────────────────────────────────────────────────────
+// Compact HS256 JWTs that match scalascript.server.Jwt byte-for-byte
+// (header `{"alg":"HS256","typ":"JWT"}`, payload = JSON of a
+// Map[String,String], signature over header.payload).  Secret picks up
+// SSC_JWT_SECRET first, then falls back to SSC_SESSION_SECRET so a tiny
+// deployment only needs one env var.
+
+let _jwtSecretCache = null;
+function _jwtSecret() {
+  if (_jwtSecretCache !== null) return _jwtSecretCache;
+  const env = (typeof process !== 'undefined' && process.env) ? process.env : {};
+  const s = env.SSC_JWT_SECRET || env.SSC_SESSION_SECRET || '';
+  if (s.length > 0) {
+    _jwtSecretCache = Buffer.from(s, 'utf-8');
+  } else {
+    const crypto = require('crypto');
+    _jwtSecretCache = crypto.randomBytes(32);
+    if (typeof console !== 'undefined') console.error('[ssc] SSC_JWT_SECRET / SSC_SESSION_SECRET not set; JWTs signed with a process-local random key.');
+  }
+  return _jwtSecretCache;
+}
+function _hmacSha256Jwt(body) {
+  const crypto = require('crypto');
+  return crypto.createHmac('sha256', _jwtSecret()).update(body).digest();
+}
+// Lazy: avoid touching the Node-only Buffer at module-load time so the
+// SPA bundle (no Buffer in the browser) can include this runtime as dead
+// code without crashing on import.
+let _jwtHeaderB64Cache = null;
+function _jwtHeaderB64() {
+  if (_jwtHeaderB64Cache !== null) return _jwtHeaderB64Cache;
+  _jwtHeaderB64Cache = _b64urlEnc(Buffer.from('{"alg":"HS256","typ":"JWT"}', 'utf-8'));
+  return _jwtHeaderB64Cache;
+}
+function jwtSign(claims) {
+  // Accept either a Map or a plain object/case-class with string values.
+  let m;
+  if (claims instanceof Map) m = claims;
+  else { m = new Map(); for (const [k, v] of Object.entries(claims || {})) m.set(String(k), String(v)); }
+  const payloadB64 = _b64urlEnc(Buffer.from(_sessionJson(m), 'utf-8'));
+  const headerB64  = _jwtHeaderB64();
+  const sig        = _b64urlEnc(_hmacSha256Jwt(headerB64 + '.' + payloadB64));
+  return headerB64 + '.' + payloadB64 + '.' + sig;
+}
+function jwtVerify(token) {
+  if (typeof token !== 'string') return _None;
+  const parts = token.split('.');
+  if (parts.length !== 3) return _None;
+  const [h, p, s] = parts;
+  try {
+    const expected = _b64urlEnc(_hmacSha256Jwt(h + '.' + p));
+    if (expected.length !== s.length) return _None;
+    let diff = 0;
+    for (let i = 0; i < expected.length; i++) diff |= expected.charCodeAt(i) ^ s.charCodeAt(i);
+    if (diff !== 0) return _None;
+    const headerJson = _b64urlDec(h).toString('utf-8');
+    if (!headerJson.includes('"alg":"HS256"')) return _None;
+    const claims = JSON.parse(_b64urlDec(p).toString('utf-8'));
+    // exp (Unix seconds) check, if present.
+    if (claims.exp !== undefined) {
+      const now = Math.floor(Date.now() / 1000);
+      const exp = parseInt(claims.exp, 10);
+      if (!Number.isFinite(exp) || exp < now) return _None;
+    }
+    const out = new Map();
+    for (const [k, v] of Object.entries(claims)) if (typeof v === 'string') out.set(k, v);
+    return _Some(out);
+  } catch (e) { return _None; }
+}
+function _bearerFromAuth(h) {
+  const t = (h || '').trim();
+  if (t.length < 7) return '';
+  if (t.substring(0, 7).toLowerCase() !== 'bearer ') return '';
+  return t.substring(7).trim();
 }
 
 // ── CSRF helpers ──────────────────────────────────────────────────────

@@ -557,6 +557,28 @@ class Interpreter(out: java.io.PrintStream = System.out, baseDir: Option[os.Path
       case _ => throw InterpretError("csrfValid(req)")
     }
 
+    // ── JWT helpers ──────────────────────────────────────────────────
+    // `jwtSign(Map(...))` returns a compact HS256 JWT.
+    // `jwtVerify(token)` returns `Some(claims)` if the signature checks
+    // out and any `exp` claim is not in the past, otherwise `None`.
+    nativeP("jwtSign") {
+      case List(Value.MapV(m)) =>
+        val claims = m.collect {
+          case (Value.StringV(k), Value.StringV(v)) => k -> v
+          case (Value.StringV(k), other)            => k -> Value.show(other)
+        }.toMap
+        Value.StringV(scalascript.server.Jwt.sign(claims))
+      case _ => throw InterpretError("jwtSign(Map[String, String])")
+    }
+    nativeP("jwtVerify") {
+      case List(Value.StringV(token)) =>
+        scalascript.server.Jwt.verify(token) match
+          case Some(claims) =>
+            Value.OptionV(Some(Value.MapV(claims.map((k, v) => Value.StringV(k) -> Value.StringV(v)))))
+          case None => Value.OptionV(None)
+      case _ => throw InterpretError("jwtVerify(token: String)")
+    }
+
     // route(method, path)(handler) — registers a handler in the global table.
     // Path syntax: literal segments + `:name` captures (e.g. /users/:id).
     nativeP("route") {
