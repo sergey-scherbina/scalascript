@@ -2681,12 +2681,12 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |class WebSocket(private val socket: java.net.Socket, val request: Request):
        |  import java.io.{BufferedInputStream, ByteArrayOutputStream, OutputStream}
        |  import java.nio.charset.StandardCharsets
-       |  import java.util.concurrent.locks.ReentrantLock
+       |  import java.util.concurrent.{LinkedBlockingQueue, TimeUnit}
        |  import java.util.concurrent.atomic.AtomicReference
        |  @volatile private var onMessageCb: String => Unit = null
        |  // AtomicReference so close-fires-once is enforced by a CAS,
        |  // not by a best-effort `var = null` read/write race between
-       |  // `close()` and the read-loop's `finally`.
+       |  // the writer-VT's finally and any caller-side `close()`.
        |  private val onCloseCb = AtomicReference[() => Unit](null)
        |  @volatile private var closing:     Boolean        = false
        |  // Fragmented-message reassembly (RFC 6455 §5.4): the first frame
@@ -2698,39 +2698,70 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |  private var fragOpcode: Int = -1
        |  private val fragBuf     = ByteArrayOutputStream()
        |  private val out: OutputStream                     = socket.getOutputStream
-       |  // Frame writes must be serialised so text/close/pong don't interleave
-       |  // on the wire.  Use ReentrantLock instead of `synchronized` — on JDK
-       |  // 21 a `synchronized` block pins the carrier thread of any virtual
-       |  // thread that enters it, which would defeat Loom for slow clients.
-       |  // (Pinning was lifted in JDK 24; we keep the lock for portability.)
-       |  private val writeLock = ReentrantLock()
        |
-       |  def send(s: String): Unit =
-       |    writeLock.lock()
+       |  // Outbound write queue: every `send` / `close` / `pong` parks a
+       |  // ready-encoded frame here and returns immediately.  A dedicated
+       |  // writer virtual thread drains the queue and writes to the
+       |  // socket — so a broadcast `clients.foreach { _.send(msg) }`
+       |  // never blocks on the slowest peer.  The queue is bounded
+       |  // (`MaxOutQDepth` frames): if a peer can't keep up the offers
+       |  // start returning false, and we force-close.
+       |  private val MaxOutQDepth = 1024
+       |  private val outQ: LinkedBlockingQueue[Array[Byte]] = LinkedBlockingQueue(MaxOutQDepth)
+       |  // Reference-identity sentinel for "drain and exit".  A zero-
+       |  // length payload is distinguishable by `eq` (we never enqueue
+       |  // an actual zero-length frame; the encoder always emits at
+       |  // least 2 bytes of header).
+       |  private val SENTINEL: Array[Byte] = new Array[Byte](0)
+       |  // Writer virtual thread — cheap with Loom (~few KB stack).
+       |  private val writerThread: Thread =
+       |    Thread.ofVirtual().name("ws-writer").start(() => _writeLoop())
+       |
+       |  private def _writeLoop(): Unit =
        |    try
-       |      if !closing && !socket.isClosed then
-       |        out.write(_wsEncodeText(s))
-       |        out.flush()
-       |    finally writeLock.unlock()
-       |
-       |  def close(code: Int = 1000, reason: String = ""): Unit =
-       |    writeLock.lock()
-       |    val fireOnClose =
-       |      try
-       |        if closing || socket.isClosed then false
+       |      var done = false
+       |      while !done do
+       |        val bytes = outQ.take()
+       |        if bytes eq SENTINEL then done = true
        |        else
-       |          closing = true
-       |          out.write(_wsEncodeClose(code, reason))
+       |          // out.write is the only blocking op here, and we own
+       |          // its only caller — no lock needed.  A slow peer parks
+       |          // this VT (cheap); other connections' writers are
+       |          // unaffected.
+       |          out.write(bytes)
        |          out.flush()
-       |          try socket.close() catch case _: Throwable => ()
-       |          true
-       |      finally writeLock.unlock()
-       |    if fireOnClose then
+       |    catch case _: Throwable => () // socket closed mid-write etc.
+       |    finally
+       |      try socket.close() catch case _: Throwable => ()
        |      val cb = onCloseCb.getAndSet(null)
        |      if cb != null then _serverExecutor.execute { () =>
        |        try cb() catch case e: Throwable =>
        |          System.err.println(s"WS close handler: ${e.getMessage}")
        |      }
+       |
+       |  /** Force the writer loop to exit promptly when the queue can't
+       |   *  drain.  Used by `send`-overflow and by the read-loop when EOF
+       |   *  arrives.  Idempotent. */
+       |  private def _forceShutdown(): Unit =
+       |    if !closing then closing = true
+       |    // Closing the socket breaks both `out.write` (in writer) and
+       |    // `in.read` (in read-loop) with an IOException — both fall
+       |    // into their `catch / finally` clauses and tidy up.
+       |    try socket.close() catch case _: Throwable => ()
+       |
+       |  def send(s: String): Unit =
+       |    if closing then return
+       |    if !outQ.offer(_wsEncodeText(s)) then _forceShutdown()
+       |
+       |  def close(code: Int = 1000, reason: String = ""): Unit =
+       |    if closing then return
+       |    closing = true
+       |    // Best-effort: enqueue the close frame, then a sentinel so
+       |    // the writer drains and exits cleanly.  If the queue is full
+       |    // (slow peer), fall through to a hard socket close — the
+       |    // writer's finally handles onClose dispatch either way.
+       |    val queued = outQ.offer(_wsEncodeClose(code, reason)) && outQ.offer(SENTINEL)
+       |    if !queued then _forceShutdown()
        |
        |  def onMessage(cb: String => Unit): Unit = onMessageCb = cb
        |  def onClose(cb: () => Unit): Unit       = onCloseCb.set(cb)
@@ -2759,9 +2790,11 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |              offset += consumed
        |              fr.opcode match
        |                case 0x9 =>
-       |                  writeLock.lock()
-       |                  try { out.write(_wsEncodePong(fr.payload)); out.flush() }
-       |                  finally writeLock.unlock()
+       |                  // Drop the pong if the write queue is full — peer
+       |                  // is too slow to keep up with the data flow we're
+       |                  // trying to send them anyway; the next ping will
+       |                  // time out and the writer will force-close.
+       |                  outQ.offer(_wsEncodePong(fr.payload))
        |                case 0xA => ()
        |                case 0x8 =>
        |                  val status =
@@ -2796,12 +2829,14 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |          len -= offset
        |    catch case _: Throwable => ()
        |    finally
-       |      try socket.close() catch case _: Throwable => ()
-       |      val cb = onCloseCb.getAndSet(null)
-       |      if cb != null then _serverExecutor.execute { () =>
-       |        try cb() catch case e: Throwable =>
-       |          System.err.println(s"WS close handler: ${e.getMessage}")
-       |      }
+       |      // Tell the writer to drain and exit; its `finally` does the
+       |      // actual `socket.close()` + onClose dispatch.  If the
+       |      // sentinel can't be queued (full backlog) we force-close
+       |      // the socket so the writer's blocking `out.write` throws
+       |      // and runs its cleanup.
+       |      closing = true
+       |      if !outQ.offer(SENTINEL) then
+       |        try socket.close() catch case _: Throwable => ()
        |
        |  /** Hand a fully-reassembled text/binary payload to the user
        |   *  `onMessage` callback via the shared executor.  Queued

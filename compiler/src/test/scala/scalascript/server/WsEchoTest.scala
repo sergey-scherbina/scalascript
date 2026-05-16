@@ -20,6 +20,7 @@ import scala.concurrent.duration.*
 class WsEchoTest extends AnyFunSuite with Matchers:
 
   test("echo round-trip — onWebSocket → handshake → send → onMessage → reply") {
+    WsTestLock.synchronized {
     WsRoutes.clear()
 
     // 1.  Register the echo handler via the interpreter — same code path
@@ -112,6 +113,7 @@ onWebSocket("/echo") { ws =>
       internal.stop(0)
       executor.shutdownNow()
       WsRoutes.clear()
+    }
   }
 
   /** Read one CRLF-terminated line directly from the InputStream so

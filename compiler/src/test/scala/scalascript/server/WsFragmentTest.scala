@@ -18,8 +18,7 @@ import scala.concurrent.duration.*
 class WsFragmentTest extends AnyFunSuite with Matchers:
 
   test("fragmented client message — opcode=text FIN=0 + continuation FIN=1") {
-    // Distinct path from `WsEchoTest` because `WsRoutes` is a process-
-    // global table and ScalaTest may run suites in parallel.
+    WsTestLock.synchronized {
     WsRoutes.clear()
     val script = """# Test
 ```scala
@@ -86,6 +85,7 @@ onWebSocket("/frag") { ws =>
       internal.stop(0)
       executor.shutdownNow()
       WsRoutes.clear()
+    }
   }
 
   private def readLine(in: java.io.InputStream): String =

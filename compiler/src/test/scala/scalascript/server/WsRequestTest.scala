@@ -19,6 +19,7 @@ import scala.concurrent.duration.*
 class WsRequestTest extends AnyFunSuite with Matchers:
 
   test("ws.request — headers, params, query reach the handler") {
+    WsTestLock.synchronized {
     WsRoutes.clear()
     val script = """# Test
 ```scala
@@ -83,6 +84,7 @@ onWebSocket("/room/:room") { ws =>
       internal.stop(0)
       executor.shutdownNow()
       WsRoutes.clear()
+    }
   }
 
   private def readLine(in: java.io.InputStream): String =

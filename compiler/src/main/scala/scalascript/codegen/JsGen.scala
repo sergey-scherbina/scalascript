@@ -1154,7 +1154,17 @@ function _wsMakeWebSocket(socket, request) {
   const ws = {
     _type: 'WebSocket',
     send: (s) => {
-      if (!closing && !socket.destroyed) socket.write(_wsEncodeText(s));
+      if (closing || socket.destroyed) return;
+      // Backpressure: `socket.write` is async — Node will buffer the
+      // bytes internally and return `false` when the kernel's send
+      // buffer is full.  If we keep ignoring that signal, a slow
+      // peer lets Node's per-socket queue grow without bound.  Past
+      // a 4 MB backlog, drop the connection.
+      const ok = socket.write(_wsEncodeText(s));
+      if (!ok && socket.writableLength > 4 * 1024 * 1024) {
+        closing = true;
+        try { socket.destroy(); } catch (_) {}
+      }
     },
     close: (code, reason) => {
       if (!closing && !socket.destroyed) {
