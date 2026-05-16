@@ -1,0 +1,3 @@
+<div class="hero" id="main"><h1>Welcome</h1><p>intro <em>text</em></p><ul><li>apple</li><li>banana</li><li>cherry</li></ul><hr><a href="https://example.com">link</a><img src="logo.png" alt="Logo"></div>
+<div title="1 &lt; 2 &amp; &quot;q&quot;">ok</div>
+<nav><a href="/">home</a><a href="/docs">docs</a></nav>

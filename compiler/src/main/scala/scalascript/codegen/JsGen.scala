@@ -66,6 +66,77 @@ function _html_interp(v) {
   return _htmlEscape(_show(v));
 }
 
+// ── Typed HTML DSL — `div(attr.cls := "hero", h1("hi"))` ───────────────
+function _attr(key, value) { return { _type: 'Attr', name: key.name, value: _show(value) }; }
+function _attrKey(name)    { return { _type: 'AttrKey', name }; }
+
+const attr = {
+  cls:         _attrKey('class'),
+  id:          _attrKey('id'),
+  href:        _attrKey('href'),
+  src:         _attrKey('src'),
+  alt:         _attrKey('alt'),
+  name:        _attrKey('name'),
+  title:       _attrKey('title'),
+  style:       _attrKey('style'),
+  type_:       _attrKey('type'),
+  value_:      _attrKey('value'),
+  placeholder: _attrKey('placeholder'),
+  method_:     _attrKey('method'),
+  action:      _attrKey('action'),
+  target:      _attrKey('target'),
+  rel:         _attrKey('rel'),
+  for_:        _attrKey('for'),
+  role:        _attrKey('role'),
+  colspan:     _attrKey('colspan'),
+  rowspan:     _attrKey('rowspan'),
+  disabled:    _attrKey('disabled'),
+};
+
+function _renderChild(v) {
+  if (v && v._type === '_Raw') return v.html;
+  if (Array.isArray(v))        return v.map(_renderChild).join('');
+  return _htmlEscape(_show(v));
+}
+
+function _renderTag(name, args, voidTag) {
+  const attrs    = new Map();
+  const children = [];
+  function handle(v) {
+    if (v && v._type === 'Attr')   { attrs.set(v.name, v.value); return; }
+    if (Array.isArray(v))          { v.forEach(handle); return; }
+    children.push(_renderChild(v));
+  }
+  args.forEach(handle);
+  let attrStr = '';
+  for (const [k, v] of attrs) attrStr += ` ${k}="${_htmlEscape(v)}"`;
+  if (voidTag) return { _type: '_Raw', html: `<${name}${attrStr}>` };
+  return { _type: '_Raw', html: `<${name}${attrStr}>${children.join('')}</${name}>` };
+}
+
+const _containerTags = [
+  'html','head','body','title','style','script','main',
+  'section','header','footer','nav','article','aside',
+  'div','span','p','a','em','strong','small','code','pre',
+  'h1','h2','h3','h4','h5','h6',
+  'ul','ol','li','dl','dt','dd',
+  'table','thead','tbody','tfoot','tr','td','th',
+  'form','button','label','select','option','textarea',
+  'figure','figcaption','blockquote',
+];
+const _voidTags = ['br','hr','img','input','link','meta'];
+
+const __tagBindings = {};
+_containerTags.forEach(t => { __tagBindings[t] = (...args) => _renderTag(t, args, false); });
+_voidTags     .forEach(t => { __tagBindings[t] = (...args) => _renderTag(t, args, true);  });
+// Promote to top-level globals so user code can call `div(...)` directly.
+// Skip names the user has already bound (function declarations at the script
+// top level are hoisted to globalThis before this preamble runs) so a
+// `def section(...)` in user code still wins over the `section` tag.
+for (const [k, v] of Object.entries(__tagBindings)) {
+  if (globalThis[k] === undefined) globalThis[k] = v;
+}
+
 // Wall-clock for benchmarks — matches ScalaScript's `nanoTime()` primitive.
 // Date.now() is millisecond-resolution, so we multiply to keep a single
 // nanosecond-scale return type across backends.
@@ -233,6 +304,7 @@ function _show(v) {
   }
   if (v && v._type === '_Some') return 'Some(' + _show(v.value) + ')';
   if (v && v._type === '_None') return 'None';
+  if (v && v._type === '_Raw')  return v.html;
   if (v && v._type) {
     const fields = Object.entries(v).filter(([k]) => k !== '_type');
     if (!fields.length) return v._type;
@@ -1598,6 +1670,8 @@ class JsGen(baseDir: Option[os.Path] = None):
         case ":+" => s"[...($lhsJs), ${genExpr(args.head)}]"
         case "+:" => s"[${genExpr(lhs)}, ...(${genExpr(args.head)})]"
         case "++" | ":::" => s"[...($lhsJs), ...(${genExpr(args.head)})]"
+        // HTML DSL: `attr.cls := "hero"` builds an Attr object.
+        case ":=" => s"_attr($lhsJs, $rhsJs)"
         case "->" =>
           val tmp = freshTmp()
           s"(() => { const $tmp = [$lhsJs, $rhsJs]; $tmp._isTuple = true; return $tmp; })()"

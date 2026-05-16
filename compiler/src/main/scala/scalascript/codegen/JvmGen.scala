@@ -56,6 +56,7 @@ class JvmGen(baseDir: Option[os.Path] = None):
     }
 
     sb.append(preamble)
+    sb.append(htmlDslTagBindings(collectUserTopNames(blocks)))
     if effectOps.nonEmpty    then sb.append(effectsRuntime)
     if mutualGroups.nonEmpty then sb.append(mutualTcoRuntime)
     if blocksUseRoutes(blocks) then sb.append(serveRuntime)
@@ -997,6 +998,62 @@ class JvmGen(baseDir: Option[os.Path] = None):
 
   // ─── Preamble + runtime ───────────────────────────────────────────
 
+  // HTML DSL tag names. Tags collide with top-level user `val`/`def`/`object`
+  // names (Scala can't shadow within the same scope), so we filter the list
+  // against `userTopNames` before emission — mirroring the JS preamble's
+  // `if (globalThis[k] === undefined)` guard for the same reason.
+  private val containerTagNames: List[String] = List(
+    "html","head","body","title","style","script","main",
+    "section","header","footer","nav","article","aside",
+    "div","span","p","a","em","strong","small","code","pre",
+    "h1","h2","h3","h4","h5","h6",
+    "ul","ol","li","dl","dt","dd",
+    "table","thead","tbody","tfoot","tr","td","th",
+    "form","button","label","select","option","textarea",
+    "figure","figcaption","blockquote"
+  )
+  private val voidTagNames: List[String] = List(
+    "br","hr","img","input","link","meta"
+  )
+
+  private def htmlDslTagBindings(userTopNames: Set[String]): String =
+    val sb = StringBuilder()
+    sb.append("\n// Tag value bindings (skipped where the user binds the same name)\n")
+    containerTagNames.filterNot(userTopNames.contains).foreach { t =>
+      sb.append(s"""val $t = _Tag("$t")\n""")
+    }
+    voidTagNames.filterNot(userTopNames.contains).foreach { t =>
+      sb.append(s"""val $t = _Tag("$t", voidTag = true)\n""")
+    }
+    sb.append("\n")
+    sb.toString
+
+  /** Collect top-level identifiers defined in the user's parsed blocks
+   *  (val, def, object, class, enum, trait, type, given). Local bindings
+   *  inside function bodies don't reach this set — they shadow at their
+   *  own scope and don't conflict with module-level tag vals. */
+  private def collectUserTopNames(blocks: List[JvmGen.Block]): Set[String] =
+    val names = mutable.Set.empty[String]
+    def fromStats(stats: List[Stat]): Unit = stats.foreach {
+      case d: Defn.Val => d.pats.foreach { case Pat.Var(n) => names += n.value; case _ => () }
+      case Defn.Var.After_4_7_2(_, pats, _, _) => pats.foreach { case Pat.Var(n) => names += n.value; case _ => () }
+      case d: Defn.Def    => names += d.name.value
+      case d: Defn.Object => names += d.name.value
+      case d: Defn.Class  => names += d.name.value
+      case d: Defn.Trait  => names += d.name.value
+      case d: Defn.Enum   => names += d.name.value
+      case d: Defn.Type   => names += d.name.value
+      case d: Defn.Given  => names += d.name.value
+      case _ => ()
+    }
+    blocks.foreach { block =>
+      block.node match
+        case Source(stats)     => fromStats(stats)
+        case Term.Block(stats) => fromStats(stats)
+        case _                 => ()
+    }
+    names.toSet
+
   private val preamble: String =
     """|
        |// ── Show / println override (scripting-style Double formatting) ────────
@@ -1006,6 +1063,9 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |  case d: Double => if d == d.toLong.toDouble then d.toLong.toString else d.toString
        |  case s: String => s
        |  case null      => "null"
+       |  // _Raw HTML nodes (from `raw(...)`, html"...", or DSL tag fns) render
+       |  // as their inner string so `println(div(...))` prints the markup.
+       |  case r: _Raw   => r.html
        |  // Render a Range like a List so xs.indices and similar lazy
        |  // iterables match the interpreter / JS output ("List(0, 1, 2)").
        |  case r: scala.collection.immutable.Range => r.toList.map(_show).mkString("List(", ", ", ")")
@@ -1069,6 +1129,60 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |    sb.toString
        |
        |  def css(args: Any*): String = sc.s(args.map(_show)*)
+       |
+       |// ── Typed HTML DSL — `div(attr.cls := "hero", h1("hi"))` ───────────────
+       |case class _AttrKey(name: String):
+       |  def := (value: Any): _Attr = _Attr(name, _show(value))
+       |case class _Attr(name: String, value: String)
+       |
+       |object attr:
+       |  val cls         = _AttrKey("class")
+       |  val id          = _AttrKey("id")
+       |  val href        = _AttrKey("href")
+       |  val src         = _AttrKey("src")
+       |  val alt         = _AttrKey("alt")
+       |  val name        = _AttrKey("name")
+       |  val title       = _AttrKey("title")
+       |  val style       = _AttrKey("style")
+       |  val type_       = _AttrKey("type")
+       |  val value_      = _AttrKey("value")
+       |  val placeholder = _AttrKey("placeholder")
+       |  val method_     = _AttrKey("method")
+       |  val action      = _AttrKey("action")
+       |  val target      = _AttrKey("target")
+       |  val rel         = _AttrKey("rel")
+       |  val for_        = _AttrKey("for")
+       |  val role        = _AttrKey("role")
+       |  val colspan     = _AttrKey("colspan")
+       |  val rowspan     = _AttrKey("rowspan")
+       |  val disabled    = _AttrKey("disabled")
+       |
+       |private def _renderChild(v: Any): String = v match
+       |  case r: _Raw         => r.html
+       |  case xs: Iterable[_] => xs.map(_renderChild).mkString
+       |  case other           => _htmlEscape(_show(other))
+       |
+       |private def _renderTag(name: String, args: Seq[Any], voidTag: Boolean = false): _Raw =
+       |  val attrs    = scala.collection.mutable.LinkedHashMap.empty[String, String]
+       |  val children = StringBuilder()
+       |  def handle(v: Any): Unit = v match
+       |    case a: _Attr        => attrs(a.name) = a.value
+       |    case xs: Iterable[_] => xs.foreach(handle)
+       |    case other           => children ++= _renderChild(other)
+       |  args.foreach(handle)
+       |  val attrStr =
+       |    if attrs.isEmpty then ""
+       |    else attrs.map((k, v) => " " + k + "=\"" + _htmlEscape(v) + "\"").mkString
+       |  if voidTag then _Raw("<" + name + attrStr + ">")
+       |  else            _Raw("<" + name + attrStr + ">" + children.toString + "</" + name + ">")
+       |
+       |// Each tag is a value, not a def, so `items.map(li)` works.  The class
+       |// extends `Any => _Raw` so it eta-expands to a Function1; an additional
+       |// `apply(args: Any*)` overload preserves the multi-arg `div(a, b, c)`
+       |// call syntax that the DSL needs.
+       |class _Tag(name: String, voidTag: Boolean = false) extends (Any => _Raw):
+       |  override def apply(arg: Any): _Raw = _renderTag(name, Seq(arg), voidTag)
+       |  def apply(args: Any*): _Raw       = _renderTag(name, args, voidTag)
        |
        |case class _Doc(parts: Seq[Any])
        |def doc(args: Any*): _Doc = _Doc(args.toSeq)

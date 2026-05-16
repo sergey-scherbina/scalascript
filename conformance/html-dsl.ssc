@@ -1,0 +1,35 @@
+---
+name: conformance-html-dsl
+version: 1.0.0
+---
+
+# Typed HTML DSL
+
+```scalascript
+val items = List("apple", "banana", "cherry")
+
+val page = div(attr.cls := "hero",
+  attr.id := "main",
+  h1("Welcome"),
+  p("intro ", em("text")),
+  ul(items.map(li)),
+  hr(),
+  a(attr.href := "https://example.com", "link"),
+  img(attr.src := "logo.png", attr.alt := "Logo")
+)
+println(page)
+```
+
+```scalascript
+// `:=` builds an Attr; html-escapes the value
+val danger = div(attr.title := "1 < 2 & \"q\"", "ok")
+println(danger)
+```
+
+```scalascript
+// Nested children mix tags, strings, and Lists transparently
+val nav_ = nav(
+  List(("home","/"), ("docs","/docs")).map((t, h) => a(attr.href := h, t))
+)
+println(nav_)
+```
