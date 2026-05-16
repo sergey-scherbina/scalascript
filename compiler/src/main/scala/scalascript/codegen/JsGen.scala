@@ -426,6 +426,83 @@ function _parseCookieSession(headerValue) {
   if (!pair) return new Map();
   return _unpackSession(pair.substring('session='.length));
 }
+// ── TOTP / 2FA (RFC 6238) ─────────────────────────────────────────────
+// Compatible with Google Authenticator etc: HMAC-SHA1, 30-second step,
+// 6-digit code, base32 secret.
+const _totpAlphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+function _base32Encode(buf) {
+  let out = '', bits = 0, val = 0;
+  for (let i = 0; i < buf.length; i++) {
+    val = (val << 8) | buf[i];
+    bits += 8;
+    while (bits >= 5) { bits -= 5; out += _totpAlphabet[(val >>> bits) & 0x1f]; }
+  }
+  if (bits > 0) out += _totpAlphabet[(val << (5 - bits)) & 0x1f];
+  return out;
+}
+function _base32Decode(s) {
+  const clean = String(s).toUpperCase().replace(/[= ]/g, '');
+  const out = [];
+  let bits = 0, val = 0;
+  for (const c of clean) {
+    const v = _totpAlphabet.indexOf(c);
+    if (v < 0) continue;
+    val = (val << 5) | v;
+    bits += 5;
+    if (bits >= 8) { bits -= 8; out.push((val >>> bits) & 0xff); }
+  }
+  return Buffer.from(out);
+}
+function totpSecret() {
+  const crypto = require('crypto');
+  return _base32Encode(crypto.randomBytes(20));
+}
+function totpUri(secret, account, issuer) {
+  const labelIssuer = (issuer && issuer.length > 0) ? issuer + ':' : '';
+  const label = encodeURIComponent(labelIssuer + account).replace(/\+/g, '%20');
+  const params = [
+    'secret=' + encodeURIComponent(secret),
+    'algorithm=SHA1',
+    'digits=6',
+    'period=30',
+  ];
+  if (issuer && issuer.length > 0) params.push('issuer=' + encodeURIComponent(issuer));
+  return 'otpauth://totp/' + label + '?' + params.join('&');
+}
+function _totpCodeAt(secret, counter) {
+  const key = _base32Decode(secret);
+  const buf = Buffer.alloc(8);
+  const hi  = Math.floor(counter / 0x100000000);
+  buf.writeUInt32BE(hi >>> 0, 0);
+  buf.writeUInt32BE((counter >>> 0) >>> 0, 4);
+  const crypto = require('crypto');
+  const h   = crypto.createHmac('sha1', key).update(buf).digest();
+  const off = h[h.length - 1] & 0x0f;
+  const bin = ((h[off]     & 0x7f) << 24) |
+              ((h[off + 1] & 0xff) << 16) |
+              ((h[off + 2] & 0xff) <<  8) |
+               (h[off + 3] & 0xff);
+  return (bin % 1000000).toString().padStart(6, '0');
+}
+function totpCode(secret) {
+  return _totpCodeAt(secret, Math.floor(Date.now() / 1000 / 30));
+}
+function totpValid(secret, code, skew) {
+  const sk = (typeof skew === 'number') ? skew : 1;
+  if (typeof code !== 'string' || code.length !== 6 || !/^\d+$/.test(code)) return false;
+  const now = Math.floor(Date.now() / 1000 / 30);
+  let ok = false;
+  for (let i = -sk; i <= sk; i++) {
+    const c = _totpCodeAt(secret, now + i);
+    if (c.length === code.length) {
+      let diff = 0;
+      for (let j = 0; j < c.length; j++) diff |= c.charCodeAt(j) ^ code.charCodeAt(j);
+      if (diff === 0) ok = true;
+    }
+  }
+  return ok;
+}
+
 // ── Password hashing (PBKDF2-HMAC-SHA256) ─────────────────────────────
 // Same algorithm + encoded format as scalascript.server.Password so
 // a hash minted on one backend verifies on another.  Default 200k iter.

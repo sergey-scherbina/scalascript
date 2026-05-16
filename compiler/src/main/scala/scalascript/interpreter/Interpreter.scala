@@ -603,6 +603,34 @@ class Interpreter(
       case _ => throw InterpretError("csrfValid(req)")
     }
 
+    // ── TOTP / 2FA (RFC 6238) ────────────────────────────────────────
+    // `totpSecret()` mints a base32 secret to share with the user's
+    // authenticator app via QR (`totpUri`); `totpCode(secret)` is the
+    // current 6-digit code; `totpValid(secret, code)` checks input
+    // with ±1 step clock-skew tolerance.
+    nativeP("totpSecret") { _ =>
+      Value.StringV(scalascript.server.Totp.secret())
+    }
+    nativeP("totpUri") {
+      case List(Value.StringV(s), Value.StringV(account)) =>
+        Value.StringV(scalascript.server.Totp.uri(s, account))
+      case List(Value.StringV(s), Value.StringV(account), Value.StringV(issuer)) =>
+        Value.StringV(scalascript.server.Totp.uri(s, account, issuer))
+      case _ => throw InterpretError("totpUri(secret, account[, issuer])")
+    }
+    nativeP("totpCode") {
+      case List(Value.StringV(s)) =>
+        Value.StringV(scalascript.server.Totp.code(s))
+      case _ => throw InterpretError("totpCode(secret)")
+    }
+    nativeP("totpValid") {
+      case List(Value.StringV(s), Value.StringV(code)) =>
+        Value.BoolV(scalascript.server.Totp.valid(s, code))
+      case List(Value.StringV(s), Value.StringV(code), Value.IntV(skew)) =>
+        Value.BoolV(scalascript.server.Totp.valid(s, code, skew.toInt))
+      case _ => throw InterpretError("totpValid(secret, code[, skew])")
+    }
+
     // ── Password hashing (PBKDF2-HMAC-SHA256) ────────────────────────
     // `hashPassword(pass)` returns `pbkdf2$iter=N$<b64_salt>$<b64_hash>`;
     // `verifyPassword(pass, enc)` checks it with constant-time compare.

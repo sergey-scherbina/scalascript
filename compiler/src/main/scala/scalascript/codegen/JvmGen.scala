@@ -1485,6 +1485,95 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |  val v = java.lang.System.getenv(key)
        |  if v == null || v.isEmpty then defaultVal else v
        |
+       |// ── TOTP / 2FA (RFC 6238) ─────────────────────────────────────
+       |// HMAC-SHA1, 30-second step, 6-digit code, base32 secret —
+       |// compatible with Google Authenticator etc.
+       |private val _totpAlphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567"
+       |private val _totpDecodeTable: Array[Int] =
+       |  val t = Array.fill(128)(-1)
+       |  _totpAlphabet.zipWithIndex.foreach((c, i) => t(c.toInt) = i)
+       |  t
+       |private def _base32Encode(bytes: Array[Byte]): String =
+       |  val sb = StringBuilder()
+       |  var buf = 0L
+       |  var bits = 0
+       |  for b <- bytes do
+       |    buf = (buf << 8) | (b & 0xffL)
+       |    bits += 8
+       |    while bits >= 5 do
+       |      bits -= 5
+       |      sb.append(_totpAlphabet.charAt(((buf >> bits) & 0x1f).toInt))
+       |  if bits > 0 then sb.append(_totpAlphabet.charAt(((buf << (5 - bits)) & 0x1f).toInt))
+       |  sb.toString
+       |private def _base32Decode(s: String): Array[Byte] =
+       |  val clean = s.toUpperCase.filter(c => c != '=' && c != ' ')
+       |  val out   = scala.collection.mutable.ArrayBuffer.empty[Byte]
+       |  var buf   = 0L
+       |  var bits  = 0
+       |  for c <- clean do
+       |    val v = if c.toInt < 128 then _totpDecodeTable(c.toInt) else -1
+       |    if v >= 0 then
+       |      buf = (buf << 5) | v.toLong
+       |      bits += 5
+       |      if bits >= 8 then
+       |        bits -= 8
+       |        out += ((buf >> bits) & 0xff).toByte
+       |  out.toArray
+       |def totpSecret(): String =
+       |  val bytes = new Array[Byte](20)
+       |  java.security.SecureRandom().nextBytes(bytes)
+       |  _base32Encode(bytes)
+       |def totpUri(secret: String, account: String, issuer: String = ""): String =
+       |  val labelIssuer = if issuer.isEmpty then "" else issuer + ":"
+       |  val label = java.net.URLEncoder.encode(labelIssuer + account, "UTF-8").replace("+", "%20")
+       |  val params = scala.collection.mutable.LinkedHashMap[String, String]()
+       |  params("secret")    = secret
+       |  params("algorithm") = "SHA1"
+       |  params("digits")    = "6"
+       |  params("period")    = "30"
+       |  if issuer.nonEmpty then params("issuer") = issuer
+       |  val qs = params.iterator.map((k, v) =>
+       |    java.net.URLEncoder.encode(k, "UTF-8") + "=" + java.net.URLEncoder.encode(v, "UTF-8")
+       |  ).mkString("&")
+       |  s"otpauth://totp/$label?$qs"
+       |private def _totpCodeAt(secret: String, counter: Long): String =
+       |  val key = _base32Decode(secret)
+       |  val buf = new Array[Byte](8)
+       |  var c = counter
+       |  var i = 7
+       |  while i >= 0 do
+       |    buf(i) = (c & 0xff).toByte
+       |    c >>>= 8
+       |    i -= 1
+       |  val mac = javax.crypto.Mac.getInstance("HmacSHA1")
+       |  mac.init(javax.crypto.spec.SecretKeySpec(key, "HmacSHA1"))
+       |  val h = mac.doFinal(buf)
+       |  val off = h(h.length - 1) & 0x0f
+       |  val bin = ((h(off)     & 0x7f) << 24) |
+       |            ((h(off + 1) & 0xff) << 16) |
+       |            ((h(off + 2) & 0xff) <<  8) |
+       |             (h(off + 3) & 0xff)
+       |  f"${bin % 1000000}%06d"
+       |def totpCode(secret: String): String =
+       |  _totpCodeAt(secret, java.lang.System.currentTimeMillis() / 1000L / 30L)
+       |def totpValid(secret: String, code: String, skew: Int = 1): Boolean =
+       |  if code == null || code.length != 6 || !code.forall(_.isDigit) then false
+       |  else
+       |    val now = java.lang.System.currentTimeMillis() / 1000L / 30L
+       |    var i = -skew
+       |    var ok = false
+       |    while i <= skew do
+       |      val expected = _totpCodeAt(secret, now + i)
+       |      if expected.length == code.length then
+       |        var diff = 0
+       |        var j = 0
+       |        while j < expected.length do
+       |          diff |= expected.charAt(j) ^ code.charAt(j)
+       |          j += 1
+       |        if diff == 0 then ok = true
+       |      i += 1
+       |    ok
+       |
        |// ── Password hashing (PBKDF2-HMAC-SHA256) ──────────────────────
        |// Same algorithm + encoded format as scalascript.server.Password
        |// so a hash minted on one backend verifies on another.  Lives in
