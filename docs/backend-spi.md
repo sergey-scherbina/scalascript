@@ -188,22 +188,32 @@ re-derive lives here as explicit nodes.
 
 ### 5.3 Serialisation
 
-`scalascript-ir` provides JSON codecs (upickle, already a dep).
+`scalascript-ir` provides upickle codecs that read/write the same case
+classes in either of two wire formats:
+
+- **JSON** — newline-delimited, human-readable, trivial to dump for
+  debugging.
+- **MsgPack** — length-prefixed binary, ~3–5× smaller and ~2× faster
+  to parse on large modules. Same upickle derivation, no separate
+  type machinery.
 
 **Serialisation is only used at process boundaries.** In-process
 plugins receive the `NormalizedModule` as an ordinary Scala object by
 reference — no copying, no encoding. Out-of-process plugins (§12.2)
-get JSON over stdio. The codecs are the contract between the two
-worlds.
+pick their wire format declaratively in `plugin.yaml`; the choice is
+the plugin author's, not core's. The codecs are the contract between
+the two worlds.
 
-Round-trip is part of CI:
-`Parser → Typer → Normalize → toJson → fromJson` must equal the
+Round-trip is part of CI for **both** formats:
+`Parser → Typer → Normalize → toBytes → fromBytes` must equal the
 in-memory `NormalizedModule`. This is the contract between in-proc and
 out-of-proc plugins — break it and out-of-proc backends silently
 diverge.
 
-JSON schema is committed at `schemas/ir.json`. Each `NormalizedModule`
-carries the single SPI/IR version number (§13).
+JSON schema is committed at `schemas/ir.json` for cross-language
+plugin authors (a MsgPack-conformant message has the same field
+shape). Each `NormalizedModule` carries the single SPI/IR version
+number (§13).
 
 ## 6. Effect normalisation (the big migration)
 
@@ -746,7 +756,7 @@ entries for misses.
   id: wasm
   displayName: WebAssembly (via wasm-tools)
   spiVersion: "0.1.0"
-  protocol: jsonrpc-stdio    # only protocol initially
+  protocol: stdio-json       # or stdio-msgpack — plugin chooses
   executable: ./bin/sscbackend-wasm
   args: ["--quiet"]
   capabilities:
@@ -754,8 +764,13 @@ entries for misses.
     outputs:  [WasmBytecode]
   ```
 
-- Core spawns the executable, exchanges newline-delimited JSON-RPC
-  messages over stdin/stdout. Three methods initially:
+- Two protocols, identical message semantics, different framing
+  (selected by `protocol` in `plugin.yaml`):
+  - `stdio-json` — newline-delimited JSON, one message per line.
+  - `stdio-msgpack` — 4-byte big-endian length prefix + MsgPack
+    payload per message.
+- Core spawns the executable and exchanges framed messages over
+  stdin/stdout. Three methods initially:
   - `describe()` → `Capabilities` (sanity-checked against `plugin.yaml`)
   - `compile(ir, opts)` → `CompileResult`
   - `shutdown()`
@@ -957,7 +972,7 @@ Specifically:
       native templating later without SPI breakage.
 - [ ] Existing test suite (`InterpreterTest`) green.
 - [ ] New tests:
-  - IR JSON round-trip
+  - IR round-trip in both JSON and MsgPack
   - capability check rejects program with unsupported feature
   - capability check rejects program calling missing intrinsic
   - capability check rejects program with unknown block language
