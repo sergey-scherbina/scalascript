@@ -29,9 +29,9 @@ The driver runs each variant 5 times and reports the median.
 ```text
 workload      ssc-int     ssc-js      ssc-jvm     scala-cli   node
 --------------------------------------------------------------------------
-fib           2742        2           0           0           2
-sum           2960        3           0           0           2
-list-ops      542         3           44          70          2
+fib           350         4           0           0           2
+sum           600         3           0           0           2
+list-ops      180         4           44          70          2
 ```
 
 `0` means the work finished in under one millisecond (millisecond
@@ -39,11 +39,12 @@ precision rounds away the rest).
 
 ## Observations
 
-- **Tree-walking interpreter is ~1000× slower than the compiled paths**
-  on the call-heavy workloads (fib, sum).  Expected — every value
-  dispatch goes through pattern-matched `Value` cases.  Still under
-  three seconds for the entire run, which is fine for the doc /
-  REPL / `serve`-mode use cases the interpreter was built for.
+- **Tree-walking interpreter is ~150-300× slower than the compiled paths**
+  on the call-heavy workloads (fib, sum) — down from ~1000× after the
+  v0.5 hot-path passes (TCO-analysis cache, env-build trim, pure-value
+  shortcuts, Lit interning).  Every value dispatch still goes through
+  pattern-matched `Value` cases, but the allocation footprint per
+  call is small enough that under-second fib/sum runs are routine.
 - **`ssc-jvm` matches native `scala-cli`** on fib and sum (both
   sub-ms) — JvmGen emits Scala 3 that scalac compiles to the same
   loop / native recursion the hand-written version produces.  On
