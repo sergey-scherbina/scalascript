@@ -264,6 +264,46 @@ case Some(x) => x
 case head :: tail => head
 ```
 
+### 5.5 Functional Updates and Lenses
+
+Case classes carry an auto-generated `copy` method that returns a new
+instance with selected fields overridden. Only named arguments are
+accepted:
+
+```scalascript
+case class Address(street: String, city: String)
+case class Person(name: String, age: Int, address: Address)
+
+val alice = Person("Alice", 30, Address("Main St", "Boston"))
+val older = alice.copy(age = 31)            // overrides one field
+val moved = alice.copy(address = alice.address.copy(city = "NYC"))
+```
+
+`Focus[T](_.field.subfield)` is a built-in lens constructor. It takes a
+type argument `T` and a lambda whose body is a chain of field selects;
+the result is a `Lens` value with `get`, `set`, `modify`, and `andThen`:
+
+```scalascript
+val ageLens  = Focus[Person](_.age)
+val cityLens = Focus[Person](_.address.city)
+
+ageLens.get(alice)                  // 30
+ageLens.set(alice, 99)              // Person(Alice, 99, ...)
+ageLens.modify(alice, _ + 10)       // Person(Alice, 40, ...)
+cityLens.set(alice, "Paris")        // address.city updated; rest preserved
+
+// Composition
+val composed = Focus[Person](_.address).andThen(Focus[Address](_.street))
+composed.set(alice, "Broadway")     // Person(Alice, 30, Address(Broadway, Boston))
+```
+
+Lenses are pure values — `set` and `modify` never mutate the input.
+All three backends share the same semantics; the JVM backend lowers
+`Focus[T](_.a.b)` to a literal `Lens((s: T) => s.a.b, (s, v) =>
+s.copy(a = s.a.copy(b = v)))`, the JS backend emits a runtime
+`_makeLens([...path])`, and the interpreter builds a path-keyed
+`InstanceV("Lens", ...)`.
+
 ## 6. Module System
 
 ### 6.1 Module Identity

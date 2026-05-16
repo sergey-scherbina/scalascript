@@ -90,6 +90,8 @@ compiles them via Scala.js.
 | Typeclasses | `trait Show[A]`, `given`, `summon[Show[Int]]` |
 | Recursion | factorial, Fibonacci, tree traversal |
 | Tail-call optimisation | self-TCO and mutual TCO — no `@tailrec` required |
+| Case-class `.copy` | `p.copy(field = newValue, ...)` |
+| Lenses | `Focus[T](_.a.b)` → `Lens` with `get` / `set` / `modify` / `andThen` |
 | Algebraic effects | `effect E:`, `handle(body) { case E.op(arg, resume) => ... }` |
 | Default parameters | `def f(x: Int, step: Int = 1)`, also on class/enum constructors |
 | Module imports | `[name](./lib.ssc)` markdown links bring definitions into scope |
@@ -120,6 +122,7 @@ compiles them via Scala.js.
 | [content.ssc](examples/content.ssc) | `md` interpolator, auto-output, `doc`/`render` |
 | [recursion.ssc](examples/recursion.ssc) | Self-TCO, mutual TCO, Collatz — deep recursion without overflow |
 | [effects.ssc](examples/effects.ssc) | Algebraic effects — Console routing, nondeterminism, early return |
+| [lenses.ssc](examples/lenses.ssc) | `.copy(field = v)`, `Focus[T](_.a.b)`, `get` / `set` / `modify` / `andThen` |
 | [default-params.ssc](examples/default-params.ssc) | Default parameter values on defs, classes, and enum cases |
 | [lang-split.ssc](examples/lang-split.ssc) | `scala` vs `scalascript` block annotations side by side |
 | [scala-js-demo.ssc](examples/scala-js-demo.ssc) | Pure `scala` 3 document — runs on all three backends with byte-identical output |
@@ -184,6 +187,7 @@ scala-cli conformance/run.sc
 | list-companion | `List.fill`, `List.tabulate`, `List.range` |
 | modules | `[name](./path.ssc)` imports — bind definitions from another file |
 | effects | Algebraic effects: Console routing, Choose nondeterminism, Fail early-return |
+| lenses | `.copy(field = v)` and `Focus[T](_.a.b)` — get / set / modify / andThen |
 
 ## Backends
 

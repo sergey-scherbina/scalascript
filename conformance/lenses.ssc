@@ -1,0 +1,52 @@
+---
+name: conformance-lenses
+version: 1.0.0
+---
+
+# Lenses
+
+```scalascript
+case class Address(street: String, city: String)
+case class Person(name: String, age: Int, address: Address)
+
+val alice = Person("Alice", 30, Address("Main St", "Boston"))
+
+// .copy with a single named field
+val older = alice.copy(age = 31)
+println(older.age)
+println(older.name)
+
+// .copy with multiple named fields
+val multi = alice.copy(name = "Bob", age = 40)
+println(multi.name)
+println(multi.age)
+println(multi.address.city)
+
+// Manual nested .copy
+val moved = alice.copy(address = alice.address.copy(city = "NYC"))
+println(moved.address.city)
+println(moved.address.street)
+
+// Focus — get / set / modify on a top-level field
+val ageLens = Focus[Person](_.age)
+println(ageLens.get(alice))
+println(ageLens.set(alice, 99).age)
+println(ageLens.modify(alice, a => a + 10).age)
+
+// Focus into a nested path
+val cityLens = Focus[Person](_.address.city)
+println(cityLens.get(alice))
+val toParis = cityLens.set(alice, "Paris")
+println(toParis.address.city)
+println(toParis.address.street)
+println(toParis.name)
+
+// andThen composition
+val addrLens   = Focus[Person](_.address)
+val streetLens = Focus[Address](_.street)
+val composed   = addrLens.andThen(streetLens)
+println(composed.get(alice))
+val renamed = composed.set(alice, "Broadway")
+println(renamed.address.street)
+println(renamed.address.city)
+```

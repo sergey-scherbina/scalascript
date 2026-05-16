@@ -486,6 +486,18 @@ class JvmGen(baseDir: Option[os.Path] = None):
       case _        => false
     }
 
+  /** True if the term needs codegen rewriting (effect machinery,
+   *  Focus → Lens expansion) rather than verbatim Scala source emission. */
+  private def termNeedsCustomEmit(t: Term): Boolean =
+    termUsesEffects(t) || termContainsFocus(t)
+
+  private def termContainsFocus(t: Term): Boolean = t match
+    case app: Term.Apply if isFocusApp(app) => true
+    case _ => t.children.exists {
+      case tt: Term => termContainsFocus(tt)
+      case _        => false
+    }
+
   // ─── Default-param helpers ────────────────────────────────────────
   //
   // ScalaScript allows a default expression to reference earlier parameters
@@ -552,13 +564,13 @@ class JvmGen(baseDir: Option[os.Path] = None):
 
     // val/var with effect-using rhs: transform rhs via emitExpr, which routes
     // `handle(...)` to its CPS rewrite.
-    case Defn.Val(mods, pats, tpe, rhs) if termUsesEffects(rhs) =>
+    case Defn.Val(mods, pats, tpe, rhs) if termNeedsCustomEmit(rhs) =>
       val mod = mods.map(_.syntax).mkString(" ")
       val modStr = if mod.isEmpty then "" else mod + " "
       val patsStr = pats.map(_.syntax).mkString(", ")
       val tpeStr = tpe.map(t => s": ${t.syntax}").getOrElse("")
       s"${modStr}val $patsStr$tpeStr = ${emitExpr(rhs)}"
-    case Defn.Var.After_4_7_2(mods, pats, tpe, rhs: Term) if termUsesEffects(rhs) =>
+    case Defn.Var.After_4_7_2(mods, pats, tpe, rhs: Term) if termNeedsCustomEmit(rhs) =>
       val mod = mods.map(_.syntax).mkString(" ")
       val modStr = if mod.isEmpty then "" else mod + " "
       val patsStr = pats.map(_.syntax).mkString(", ")
@@ -747,11 +759,75 @@ class JvmGen(baseDir: Option[os.Path] = None):
           emitHandleForm(bodyArgClause.values.head.asInstanceOf[Term], pf.cases)
         case _ => "??? /* invalid handle */"
 
-    // If the term has nested effect content, recursively process it.
-    case _ if termUsesEffects(term) => emitExprDeep(term)
+    // Focus[T](_.a.b) / Focus(_.a.b) — lower to a Lens(get, set) literal.
+    // The lambda body's field-access chain becomes nested get + nested copy.
+    case app: Term.Apply if isFocusApp(app) =>
+      emitFocus(app)
+
+    // If the term has nested effect or Focus content, walk children.
+    case _ if termNeedsCustomEmit(term) => emitExprDeep(term)
 
     // Otherwise emit Scala source as-is.
     case other => other.syntax
+
+  private def isFocusApp(app: Term.Apply): Boolean = app.fun match
+    case Term.Name("Focus")                                => true
+    case ta: Term.ApplyType                                =>
+      ta.fun match { case Term.Name("Focus") => true; case _ => false }
+    case _                                                 => false
+
+  /** Lower `Focus[T](_.a.b)` to `Lens[T, _]((s: T) => s.a.b, (s: T, v) =>
+   *  s.copy(a = s.a.copy(b = v)))`. `T` is taken from `Focus[T]` if present;
+   *  otherwise the lambda's explicit param type is used; otherwise we emit
+   *  an unannotated form (and rely on Scala 3 inference, which usually
+   *  needs an outer type ascription to succeed). */
+  private def emitFocus(app: Term.Apply): String =
+    val typeArg: Option[String] = app.fun match
+      case ta: Term.ApplyType =>
+        ta.argClause.values.headOption.map(_.syntax)
+      case _ => None
+    app.argClause.values match
+      case List(lambda) =>
+        val pathAndExplicitTpe: Option[(List[String], Option[String])] = lambda match
+          case Term.AnonymousFunction(body) =>
+            extractFieldPath(body, _.isInstanceOf[Term.Placeholder]).map(_ -> None)
+          case Term.Function.After_4_6_0(paramClause, body) =>
+            paramClause.values.headOption.flatMap { p =>
+              extractFieldPath(body, {
+                case Term.Name(n) => n == p.name.value
+                case _            => false
+              }).map(_ -> p.decltpe.map(_.syntax))
+            }
+          case _ => None
+        pathAndExplicitTpe match
+          case Some((path, explicitTpe)) if path.nonEmpty =>
+            val tpe = typeArg.orElse(explicitTpe).getOrElse("Any")
+            buildLensLiteral(tpe, path)
+          case _ =>
+            "??? /* Focus: expected a field-access lambda like _.field.subfield */"
+      case _ =>
+        "??? /* Focus expects exactly one lambda argument */"
+
+  private def extractFieldPath(body: Term, isBase: Term => Boolean): Option[List[String]] =
+    def loop(t: Term, acc: List[String]): Option[List[String]] = t match
+      case Term.Select(qual, name) => loop(qual, name.value :: acc)
+      case other if isBase(other)  => Some(acc)
+      case _                       => None
+    loop(body, Nil)
+
+  /** Emit a Lens literal whose setter walks `path` and rebuilds nested copies. */
+  private def buildLensLiteral(tpe: String, path: List[String]): String =
+    val getter = s"(s: $tpe) => s.${path.mkString(".")}"
+    // Build the nested copy from outside in:
+    //   path = [a]            =>  s.copy(a = v)
+    //   path = [a, b]         =>  s.copy(a = s.a.copy(b = v))
+    //   path = [a, b, c]      =>  s.copy(a = s.a.copy(b = s.a.b.copy(c = v)))
+    def buildSet(prefix: String, remaining: List[String]): String = remaining match
+      case last :: Nil       => s"$prefix.copy($last = v)"
+      case head :: rest      => s"$prefix.copy($head = ${buildSet(s"$prefix.$head", rest)})"
+      case Nil               => "v"
+    val setter = s"(s: $tpe, v) => ${buildSet("s", path)}"
+    s"Lens($getter, $setter)"
 
   /** Emit a term that contains effect-related content, walking children. */
   private def emitExprDeep(term: Term): String = term match
@@ -767,6 +843,8 @@ class JvmGen(baseDir: Option[os.Path] = None):
       app.fun match
         case Term.Apply.After_4_6_0(Term.Name("handle"), _) =>
           emitExpr(app)  // re-route to handle path
+        case _ if isFocusApp(app) =>
+          emitFocus(app)
         case Term.Select(qual, Term.Name(m)) =>
           val q = emitExpr(qual)
           val args = app.argClause.values.map(emitExpr).mkString(", ")
@@ -1251,6 +1329,12 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |
        |// Wall-clock for benchmarks — matches ScalaScript's `nanoTime()` primitive.
        |def nanoTime(): Long = java.lang.System.nanoTime()
+       |
+       |// ── Lens runtime — pure-functional optic over case-class field paths ──
+       |case class Lens[S, A](get: S => A, set: (S, A) => S):
+       |  def modify(s: S, f: A => A): S = set(s, f(get(s)))
+       |  def andThen[B](other: Lens[A, B]): Lens[S, B] =
+       |    Lens(s => other.get(get(s)), (s, b) => set(s, other.set(get(s), b)))
        |
        |""".stripMargin
 

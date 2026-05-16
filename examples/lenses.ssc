@@ -1,0 +1,69 @@
+#!/usr/bin/env ssc
+---
+name: lenses
+version: 1.0.0
+description: Functional updates with .copy and Focus[T](_.path) lenses
+---
+
+# Lenses — Functional Updates
+
+Immutable case classes get `.copy(field = value)` automatically, and the
+`Focus[T](_.field.subfield)` macro builds a composable Lens so you can
+read, write, or modify a nested field without hand-writing chains of
+`.copy(...)`.
+
+## .copy
+
+Override one or more named fields; everything else is preserved.
+
+```scalascript
+case class Address(street: String, city: String)
+case class Person(name: String, age: Int, address: Address)
+
+val alice = Person("Alice", 30, Address("Main St", "Boston"))
+
+val older   = alice.copy(age = 31)
+val renamed = alice.copy(name = "Bob", age = 40)
+
+println(s"older   : ${older.name}, ${older.age}")
+println(s"renamed : ${renamed.name}, ${renamed.age}, ${renamed.address.city}")
+```
+
+## Focus — read / write / modify
+
+`Focus[T](_.path)` returns a `Lens` with `get`, `set`, and `modify`.
+
+```scalascript
+val ageLens = Focus[Person](_.age)
+
+println(ageLens.get(alice))                     // 30
+println(ageLens.set(alice, 99).age)             // 99
+println(ageLens.modify(alice, a => a + 10).age) // 40
+```
+
+## Focus into nested fields
+
+The lens walks the path on `set` and rebuilds copies along the way — no
+hand-rolled `alice.copy(address = alice.address.copy(...))` needed.
+
+```scalascript
+val cityLens = Focus[Person](_.address.city)
+
+println(cityLens.get(alice))             // Boston
+val toParis = cityLens.set(alice, "Paris")
+println(toParis.address.city)            // Paris
+println(toParis.address.street)          // Main St (untouched)
+```
+
+## Composition with andThen
+
+Two lenses chain into one:
+
+```scalascript
+val addrLens   = Focus[Person](_.address)
+val streetLens = Focus[Address](_.street)
+val streetOfP  = addrLens.andThen(streetLens)
+
+println(streetOfP.get(alice))                       // Main St
+println(streetOfP.set(alice, "Broadway").address.street) // Broadway
+```
