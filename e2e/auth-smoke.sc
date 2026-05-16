@@ -3,18 +3,13 @@
 
 // Cross-backend auth smoke harness.
 //
-// Boots examples/auth-demo.ssc on http://localhost:8776 through each
+// Boots examples/auth-demo.ssc on http://localhost:8769 through each
 // of the three backends in turn (interpreter, JVM, JS), drives the
 // full sign-in / sign-out flow with manual cookie tracking, and
 // asserts every backend produces the same status + key markers at
 // each step.  Covers: signed cookie sessions (cookie set + read +
 // cleared), CSRF state (token in form + checked on POST), redirect
 // after login, session-gated /profile.
-//
-// Note: ssc-int currently depends on the WsProxy NIO public-port
-// loop landed in the recent WebSocket commit — it doesn't yet
-// forward plain HTTP cleanly, so the int leg is marked "expected
-// broken upstream" until that's fixed.
 
 import java.net.{URI, HttpURLConnection, CookieManager, CookiePolicy, HttpCookie}
 import scala.jdk.CollectionConverters.*
@@ -39,10 +34,7 @@ val base = s"http://localhost:$port"
 case class Backend(label: String, cmd: List[String], expectedBroken: Boolean = false)
 
 val backends = List(
-  // ssc-int is currently broken by an upstream WsProxy regression that
-  // mangles plain HTTP forwarding through the public port.  Run it
-  // anyway so we'll notice when it's fixed.
-  Backend("ssc-int", cmdFor("run",     "ssc"),                       expectedBroken = true),
+  Backend("ssc-int", cmdFor("run",     "ssc")),
   Backend("ssc-jvm", cmdFor("compile", "sscc")),
   Backend("ssc-js",  cmdFor("emit-js", "jssc", postPipe = "node")),
 )

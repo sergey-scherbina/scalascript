@@ -89,12 +89,28 @@ final class WsProxy(
           if !key.isValid then ()
           else if key.isAcceptable then onAccept(key)
           else
-            if key.isReadable then onRead(key)
+            if key.isConnectable then onConnect(key)
+            if key.isValid && key.isReadable then onRead(key)
             if key.isValid && key.isWritable then onWrite(key)
       catch case e: Throwable =>
         log.println(s"ws-proxy error: ${e.getMessage}")
     try serverCh.close() catch case _: Throwable => ()
     try selector.close() catch case _: Throwable => ()
+
+  /** Finish a non-blocking connect on a backend socket and switch its
+   *  interestOps to OP_READ | OP_WRITE so the next pass can drain the
+   *  already-queued request bytes and start reading the response.
+   *  The OS connect on loopback is usually instantaneous but on macOS
+   *  `SocketChannel.connect()` returns false (async) far more often
+   *  than the documentation hints. */
+  private def onConnect(key: SelectionKey): Unit =
+    val conn = key.attachment.asInstanceOf[Conn]
+    try
+      conn.ch.finishConnect()
+      key.interestOps((SelectionKey.OP_READ | SelectionKey.OP_WRITE)
+        & ~SelectionKey.OP_CONNECT)
+    catch case _: java.io.IOException =>
+      closeChain(key)
 
   private def onAccept(key: SelectionKey): Unit =
     val server = key.channel.asInstanceOf[ServerSocketChannel]

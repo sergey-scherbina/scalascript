@@ -1824,7 +1824,10 @@ class JvmGen(baseDir: Option[os.Path] = None):
    *  into two `String` halves because the combined source exceeds the
    *  JVM's 64 KB string-literal limit — the natural seam is right
    *  before the WS-specific section. */
-  private val serveRuntime: String = serveRuntimePart1 + serveRuntimePart2
+  // `lazy` to break the forward-reference to the two halves declared
+  // below — a plain `val` initialises in source order, so both halves
+  // are still null when this line runs and the emit gets garbage.
+  private lazy val serveRuntime: String = serveRuntimePart1 + serveRuntimePart2
 
   private val serveRuntimePart1: String =
     """|
@@ -2987,8 +2990,21 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |    val bin  = java.io.BufferedInputStream(back.getInputStream)
        |    val bout = back.getOutputStream
        |    bout.write(head); bout.flush()
-       |    val pump1 = Thread.ofVirtual().name("ws-proxy-pump-c2b").start(() => _pump(cin, bout, back, client))
-       |    val pump2 = Thread.ofVirtual().name("ws-proxy-pump-b2c").start(() => _pump(bin, cout, client, back))
+       |    // Virtual threads (Loom) on JDK 21+; plain Threads as a
+       |    // fallback so the emit also compiles on Java 17.
+       |    def _spawn(name: String, body: () => Unit): Thread =
+       |      try
+       |        val cls    = Class.forName("java.lang.Thread$Builder$OfVirtual")
+       |        val of     = classOf[Thread].getMethod("ofVirtual").invoke(null)
+       |        val named  = cls.getMethod("name", classOf[String]).invoke(of, name)
+       |        cls.getMethod("start", classOf[Runnable])
+       |          .invoke(named, (() => body()): Runnable).asInstanceOf[Thread]
+       |      catch case _: Throwable =>
+       |        val t = Thread(() => body(), name)
+       |        t.start()
+       |        t
+       |    val pump1 = _spawn("ws-proxy-pump-c2b", () => _pump(cin, bout, back, client))
+       |    val pump2 = _spawn("ws-proxy-pump-b2c", () => _pump(bin, cout, client, back))
        |    pump1.join(); pump2.join()
        |
        |private def _pump(in: java.io.InputStream, out: java.io.OutputStream, a: java.net.Socket, b: java.net.Socket): Unit =
@@ -3024,7 +3040,18 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |  // cheap.
        |  val pub = java.net.ServerSocket(port)
        |  println(s"Listening on http://localhost:$port/  (proxy → 127.0.0.1:$internalPort)")
-       |  val pool = java.util.concurrent.Executors.newVirtualThreadPerTaskExecutor()
+       |  // Virtual threads (Loom) are the natural fit here — cheap, one
+       |  // per connection.  Fall back to a cached thread pool on JVMs
+       |  // older than 21 so the emit keeps working when the user's
+       |  // scala-cli picks a Java 17 JDK.  Reflection lookup avoids
+       |  // a compile-time dependency on the JDK 21 method.
+       |  val pool: java.util.concurrent.ExecutorService =
+       |    try
+       |      classOf[java.util.concurrent.Executors]
+       |        .getMethod("newVirtualThreadPerTaskExecutor")
+       |        .invoke(null).asInstanceOf[java.util.concurrent.ExecutorService]
+       |    catch case _: Throwable =>
+       |      java.util.concurrent.Executors.newCachedThreadPool()
        |  Thread(() => {
        |    while !pub.isClosed do
        |      try
