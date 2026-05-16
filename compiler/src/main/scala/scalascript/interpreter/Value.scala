@@ -5,56 +5,95 @@ import scala.meta.Term
 type Env = Map[String, Value]
 
 /** A `Map[String, Value]` specialised for the interpreter's call-env hot
- *  path: a small parallel-arrays "frame" of local bindings (params and
- *  self-ref) sitting on top of a `parent` map (closure captures).
+ *  path: a small "frame" of local bindings (params and self-ref) sitting
+ *  on top of a `parent` map (closure captures). Three variants:
  *
- *  Lookup walks `slots` linearly and falls through to `parent` on miss —
- *  for N ≤ 4 this beats `HashMap.get` and dodges the per-call HashMap
- *  allocation when we just append a couple of params to a closure.
+ *  - `FrameMap1` — one slot, two direct fields (single allocation; the
+ *    typical 1-arg lambda / 1-param function case).
+ *  - `FrameMap2` — two slots, four direct fields (two-param case).
+ *  - `FrameMapN` — three-or-more, parallel arrays.
  *
- *  Mutation ops (`updated`, `removed`, `iterator`, …) fall back to
- *  flattening into a real Map; they're rare in eval. */
-final class FrameMap(
-  private val slots:  Array[String],
-  private val vals: Array[Value],
-  private val parent: Map[String, Value]
-) extends scala.collection.immutable.AbstractMap[String, Value]:
+ *  Lookup is `name == slot ? value : parent.get(name)` — for one or two
+ *  bindings this beats `HashMap.get`'s hash + bucket walk and avoids the
+ *  HashMap2/3 allocation `closure.updated(name, value)` would do.
+ *
+ *  Mutation ops (`updated`, `removed`, `iterator`) flatten to an ordinary
+ *  Map; they're rare in eval. */
+sealed abstract class FrameMap
+    extends scala.collection.immutable.AbstractMap[String, Value]:
+  protected def parentMap: Map[String, Value]
+  protected def flat: Map[String, Value]
+  override def updated[V1 >: Value](key: String, value: V1): Map[String, V1] =
+    flat.updated(key, value)
+  override def removed(key: String): Map[String, Value] =
+    flat.removed(key)
 
+final class FrameMap1(n1: String, v1: Value, parent: Map[String, Value])
+    extends FrameMap:
+  override protected def parentMap: Map[String, Value] = parent
+  override def get(key: String): Option[Value] =
+    if key == n1 then Some(v1) else parent.get(key)
+  override def getOrElse[V1 >: Value](key: String, default: => V1): V1 =
+    if key == n1 then v1 else parent.getOrElse(key, default)
+  override def contains(key: String): Boolean =
+    key == n1 || parent.contains(key)
+  override def iterator: Iterator[(String, Value)] =
+    Iterator.single(n1 -> v1) ++ parent.iterator.filterNot(_._1 == n1)
+  override protected def flat: Map[String, Value] =
+    parent.updated(n1, v1)
+
+final class FrameMap2(
+  n1: String, v1: Value,
+  n2: String, v2: Value,
+  parent: Map[String, Value]
+) extends FrameMap:
+  override protected def parentMap: Map[String, Value] = parent
+  override def get(key: String): Option[Value] =
+    if key == n1 then Some(v1)
+    else if key == n2 then Some(v2)
+    else parent.get(key)
+  override def getOrElse[V1 >: Value](key: String, default: => V1): V1 =
+    if key == n1 then v1
+    else if key == n2 then v2
+    else parent.getOrElse(key, default)
+  override def contains(key: String): Boolean =
+    key == n1 || key == n2 || parent.contains(key)
+  override def iterator: Iterator[(String, Value)] =
+    Iterator(n1 -> v1, n2 -> v2) ++ parent.iterator.filterNot { case (k, _) =>
+      k == n1 || k == n2
+    }
+  override protected def flat: Map[String, Value] =
+    parent.updated(n1, v1).updated(n2, v2)
+
+final class FrameMapN(
+  slots: Array[String],
+  vals:  Array[Value],
+  parent: Map[String, Value]
+) extends FrameMap:
+  override protected def parentMap: Map[String, Value] = parent
   override def get(key: String): Option[Value] =
     var i = 0
     while i < slots.length do
       if slots(i) == key then return Some(vals(i))
       i += 1
     parent.get(key)
-
   override def getOrElse[V1 >: Value](key: String, default: => V1): V1 =
     var i = 0
     while i < slots.length do
       if slots(i) == key then return vals(i)
       i += 1
     parent.getOrElse(key, default)
-
   override def contains(key: String): Boolean =
     var i = 0
     while i < slots.length do
       if slots(i) == key then return true
       i += 1
     parent.contains(key)
-
   override def iterator: Iterator[(String, Value)] =
     val localKeys = slots.toSet
     slots.iterator.zip(vals.iterator) ++
       parent.iterator.filterNot { case (k, _) => localKeys.contains(k) }
-
-  override def updated[V1 >: Value](key: String, value: V1): Map[String, V1] =
-    // Rare path — flatten and updated through the resulting Map.
-    flat.updated(key, value)
-
-  override def removed(key: String): Map[String, Value] =
-    flat.removed(key)
-
-  /** Materialise to an ordinary Map for fallback paths. */
-  private def flat: Map[String, Value] =
+  override protected def flat: Map[String, Value] =
     val b = Map.newBuilder[String, Value]
     parent.foreach(kv => b += kv)
     var i = 0
@@ -64,16 +103,12 @@ final class FrameMap(
     b.result()
 
 object FrameMap:
-  /** Build a frame with one slot. */
   def one(name: String, value: Value, parent: Map[String, Value]): FrameMap =
-    new FrameMap(Array(name), Array(value), parent)
-
-  /** Build a frame with two slots. */
+    new FrameMap1(name, value, parent)
   def two(n1: String, v1: Value, n2: String, v2: Value, parent: Map[String, Value]): FrameMap =
-    new FrameMap(Array(n1, n2), Array(v1, v2), parent)
-
+    new FrameMap2(n1, v1, n2, v2, parent)
   def of(names: Array[String], vals: Array[Value], parent: Map[String, Value]): FrameMap =
-    new FrameMap(names, vals, parent)
+    new FrameMapN(names, vals, parent)
 
 enum Value:
   case IntV(v: Long)
