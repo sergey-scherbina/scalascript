@@ -11,16 +11,6 @@ component pack, REST middleware, layout kit — without vendoring its
 files into their own tree.  The steps are ordered so each one is
 useful in isolation and unblocks the next.
 
-0. **Recursive `ssc build`.**  Today the build walker only renders
-   top-level `.ssc` files in `src-dir`; subdirectories are recursed
-   only for the asset pipeline.  Real SSG layouts (`pages/index.ssc`,
-   `pages/blog/post.ssc`, `pages/admin/users.ssc`) need the page
-   walker to recurse too, skipping the conventional non-page folders
-   (`components/`, `target/`, `node_modules/`, `dist/`, `out/`,
-   `.scala-build/`, dot-prefixed entries).  Lays the groundwork for a
-   library to ship its own example/demo site alongside the components.
-   ~1–2 hours.
-
 1. **Import-alias parsing.**  `[Card as MyCard](./card.ssc)` /
    `[render, css as styles](./card.ssc)`.  The AST already carries
    `ImportBinding.alias: Option[String]`, but `Parser.asImport` always

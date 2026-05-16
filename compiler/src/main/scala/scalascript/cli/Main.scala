@@ -180,7 +180,24 @@ def buildCommand(args: List[String]): Unit =
     System.err.println(s"Error: $srcArg is not a directory"); System.exit(1)
   os.makeDir.all(outDir)
 
-  val files = os.list(srcDir).filter(p => os.isFile(p) && p.ext == "ssc").sorted
+  // Directories that hold non-page `.ssc` content (imported modules,
+  // tooling output, caches) — recursed for assets but never walked for
+  // page rendering.  `components` is the convention for module imports;
+  // the others are standard build / tool dirs.
+  val skipDirs = Set("components", "target", "node_modules", "dist", "out", ".scala-build")
+  def isSkipped(p: os.Path): Boolean =
+    skipDirs.contains(p.last) || p.last.startsWith(".")
+
+  // Recursive walk for `.ssc` files; subdirectories are walked into
+  // *unless* they're in the skip set, so a layout like
+  //     src/pages/index.ssc
+  //     src/pages/blog/post.ssc
+  //     src/components/card.ssc       (skipped — non-page)
+  // produces  dist/pages/index.html and dist/pages/blog/post.html
+  // (component module is imported by the pages, not rendered).
+  val files = os.walk(srcDir, skip = isSkipped)
+    .filter(p => os.isFile(p) && p.ext == "ssc")
+    .sorted
 
   var rendered = 0
   var skipped  = 0
@@ -191,13 +208,16 @@ def buildCommand(args: List[String]): Unit =
   val written = scala.collection.mutable.Map.empty[String, String]
 
   for file <- files do
+    // Display path is relative to srcDir so nested page files stay
+    // legible (`pages/blog/post.ssc` rather than just `post.ssc`).
+    val srcRel = file.relativeTo(srcDir).toString
     Routes.clear()
     val nullOut = java.io.PrintStream(java.io.OutputStream.nullOutputStream)
     val interp  = Interpreter(out = nullOut, baseDir = Some(file / os.up), headless = true)
     val ok =
       try { interp.run(scalascript.parser.Parser.parse(os.read(file))); true }
       catch case e: Exception =>
-        System.err.println(s"  [fail] ${file.last}: ${e.getMessage}")
+        System.err.println(s"  [fail] $srcRel: ${e.getMessage}")
         failed += 1
         false
     if ok then
@@ -216,20 +236,20 @@ def buildCommand(args: List[String]): Unit =
           val key = out.toString
           written.get(key).foreach { prior =>
             System.err.println(
-              s"  [warn] $key overwritten by ${file.last} ${entry.path} (was ${prior})"
+              s"  [warn] $key overwritten by $srcRel ${entry.path} (was ${prior})"
             )
           }
           os.write.over(out, body)
-          written(key) = s"${file.last} ${entry.path}"
-          println(s"  ${file.last} ${entry.path} → ${displayPath(out)}")
+          written(key) = s"$srcRel ${entry.path}"
+          println(s"  $srcRel ${entry.path} → ${displayPath(out)}")
           rendered += 1
 
   // Asset pipeline: mirror every non-.ssc file under `src-dir` into
   // `out-dir`, preserving relative paths.  Walks recursively so
-  // subdirectory assets (icons under `components/`, fonts under
-  // `assets/`, etc.) make it to the build.  Anything starting with `.`
-  // or under a `target/` / `node_modules/` / `dist/` folder is skipped —
-  // those are build output / tooling caches.
+  // subdirectory assets (icons under `assets/`, fonts under `fonts/`,
+  // etc.) make it to the build.  `components/` IS walked here — a
+  // component module may sit next to its icon — even though the page
+  // walker skips it.  Tooling / build-output dirs are skipped.
   val assetSkipDirs = Set("target", "node_modules", "dist", "out", ".scala-build")
   var copied = 0
   os.walk(srcDir, skip = p => assetSkipDirs.contains(p.last) || p.last.startsWith(".")).foreach { p =>
