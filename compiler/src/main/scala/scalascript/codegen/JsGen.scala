@@ -1785,6 +1785,118 @@ function _handle(bodyFn, handledOps, handlers) {
 
 val JsRuntime: String = JsRuntimePart1 + JsRuntimePart2
 
+/** Built-in `Async` effect runtime — concatenated onto `JsRuntime`.
+ *  Lives in its own val because together with the rest of the runtime
+ *  it overflows the JVM's 65 535-byte string-literal limit.  Same
+ *  semantics as the interpreter and JvmGen: `delay` blocks via
+ *  Atomics on Node, thunks passed to `async` / `parallel` run
+ *  synchronously, results come back in declared order. */
+val JsRuntimeAsync: String = """
+
+// ── Async — built-in effect on top of the Free Monad ───────────────────────
+//
+// `Async.delay(ms)`, `Async.async(thunk)`, `Async.await(fut)`, and
+// `Async.parallel(thunks)` produce `_Perform("Async", op, args)` nodes,
+// indistinguishable from user-declared effect ops.  `_runAsync(bodyFn)`
+// is the default handler — single-threaded so output is deterministic
+// and byte-identical to the interpreter and JVM backends.  On Node
+// `delay(ms)` blocks via `Atomics.wait` on a SharedArrayBuffer flag (no
+// child process, no async coloring of caller code).  In the browser
+// (no SharedArrayBuffer without crossOriginIsolation) we fall back to
+// `Date.now()` spin, which is fine for the small delays used in demos.
+const Async = {
+  delay:    (ms)     => _perform('Async', 'delay',    [ms]),
+  async:    (thunk)  => _perform('Async', 'async',    [thunk]),
+  await:    (fut)    => _perform('Async', 'await',    [fut]),
+  parallel: (thunks) => _perform('Async', 'parallel', [thunks]),
+};
+function Future(value) { return { _type: 'Future', value }; }
+
+function _asyncSleep(ms) {
+  if (!(ms > 0)) return;
+  if (typeof SharedArrayBuffer !== 'undefined' && typeof Atomics !== 'undefined') {
+    try {
+      const sab = new SharedArrayBuffer(4);
+      Atomics.wait(new Int32Array(sab), 0, 0, ms);
+      return;
+    } catch (_) { /* not allowed in main thread of some envs — fall through */ }
+  }
+  // Last-resort spin (browser without isolation, etc.).  Tight but
+  // accurate enough for the small ms values typical in demos.
+  const end = Date.now() + ms;
+  while (Date.now() < end) { /* spin */ }
+}
+
+function _asyncDispatch(op, args, resume) {
+  switch (op) {
+    case 'delay': {
+      const ms = args[0];
+      if (typeof ms !== 'number') throw new Error('Async.delay(ms: Int)');
+      _asyncSleep(ms);
+      return resume(undefined);
+    }
+    case 'async': {
+      const thunk = args[0];
+      if (typeof thunk !== 'function') throw new Error('Async.async(thunk)');
+      const v = _runAsyncInner(thunk());
+      return resume(Future(v));
+    }
+    case 'await': {
+      const fut = args[0];
+      if (!fut || fut._type !== 'Future') throw new Error('Async.await(future)');
+      return resume(fut.value);
+    }
+    case 'parallel': {
+      const thunks = args[0];
+      if (!Array.isArray(thunks)) throw new Error('Async.parallel(thunks: List[() => A])');
+      const out = [];
+      for (const t of thunks) {
+        if (typeof t !== 'function') throw new Error('Async.parallel(thunks: List[() => A])');
+        out.push(_runAsyncInner(t()));
+      }
+      return resume(out);
+    }
+    default:
+      throw new Error('Unknown Async operation: ' + op);
+  }
+}
+
+// Drive a Computation to a plain value, dispatching `Async.*` ops along
+// the way.  Non-Async Performs propagate outward — useful for nested
+// handlers (`runAsync` inside `handle`, or vice versa).
+function _runAsyncInner(initial) {
+  let current = initial;
+  while (true) {
+    if (current instanceof _Perform) {
+      if (current.eff === 'Async') {
+        current = _asyncDispatch(current.op, current.args, (v) => v);
+      } else {
+        return current;  // propagate
+      }
+    } else if (current instanceof _FlatMap) {
+      const sub = current.sub;
+      if (sub instanceof _FlatMap) {
+        const sub2 = sub.sub, g = sub.k, f = current.k;
+        current = new _FlatMap(sub2, (x) => new _FlatMap(g(x), f));
+      } else if (sub instanceof _Perform) {
+        const f = current.k;
+        if (sub.eff === 'Async') {
+          current = _asyncDispatch(sub.op, sub.args, (v) => _runAsyncInner(f(v)));
+        } else {
+          return new _FlatMap(sub, (v) => _runAsyncInner(f(v)));
+        }
+      } else {
+        current = current.k(sub);
+      }
+    } else {
+      return current;  // plain value
+    }
+  }
+}
+
+function _runAsync(bodyFn) { return _runAsyncInner(bodyFn()); }
+"""
+
 /** Browser-SPA overlay loaded AFTER `JsRuntime` so its `serve(...)` /
  *  `console.log`-based output flush replace the Node-target versions.
  *  The Node-only helpers (`_serveStatic`, `_contentTypeFor`, `require('http')`)
@@ -2037,6 +2149,14 @@ class JsGen(baseDir: Option[os.Path] = None):
   private def analyzeEffects(module: Module): Unit =
     effectOps.clear()
     effectfulFuns.clear()
+
+    // Built-in `Async` effect — operations always available without
+    // requiring the user to declare `effect Async:` themselves.  Lets
+    // call sites like `Async.delay(...)` be rewritten to `_perform(...)`
+    // and functions that transitively call them get CPS-emitted.
+    effectOps ++= Set(
+      "Async.delay", "Async.async", "Async.await", "Async.parallel"
+    )
 
     val funBodies = mutable.Map[String, Term]()
 
@@ -2909,6 +3029,13 @@ class JsGen(baseDir: Option[os.Path] = None):
           genHandleForm(bodyArgClause.values.head.asInstanceOf[Term], pf.cases)
         case _ => s"/* invalid handle */ undefined"
 
+    // Special form: runAsync(body) — built-in Async-effect driver.  Body
+    // is CPS-emitted so Async.* ops build a Free tree; `_runAsync`
+    // walks it and dispatches each op against the default handler.
+    case Term.Apply.After_4_6_0(Term.Name("runAsync"), bodyArgClause)
+        if bodyArgClause.values.size == 1 =>
+      s"_runAsync(() => ${genCpsExpr(bodyArgClause.values.head.asInstanceOf[Term])})"
+
     // Function application
     case app: Term.Apply =>
       genApply(app)
@@ -2929,8 +3056,10 @@ class JsGen(baseDir: Option[os.Path] = None):
           val tmp = freshTmp()
           s"(() => { const $tmp = [$lhsJs, $rhsJs]; $tmp._isTuple = true; return $tmp; })()"
         case "*" =>
-          // Could be string * n or numeric
-          s"(typeof $lhsJs === 'string' ? $lhsJs.repeat($rhsJs) : $lhsJs * $rhsJs)"
+          // Could be string * n or numeric.  Wrap `lhsJs` in parens so a
+          // bare number literal (`1 * 1`) doesn't trip JS's number-then-`.`
+          // parse rule on the string-repeat fallback branch.
+          s"(typeof ($lhsJs) === 'string' ? ($lhsJs).repeat($rhsJs) : ($lhsJs) * ($rhsJs))"
         case "==" => s"($lhsJs === $rhsJs)"
         case "!=" => s"($lhsJs !== $rhsJs)"
         case "&&" => s"($lhsJs && $rhsJs)"
@@ -3190,6 +3319,11 @@ class JsGen(baseDir: Option[os.Path] = None):
           genHandleForm(bodyArgClause.values.head.asInstanceOf[Term], pf.cases)
         case _ => "/* invalid handle */ undefined"
 
+    // Nested runAsync inside CPS body
+    case Term.Apply.After_4_6_0(Term.Name("runAsync"), bodyArgClause)
+        if bodyArgClause.values.size == 1 =>
+      s"_runAsync(() => ${genCpsExpr(bodyArgClause.values.head.asInstanceOf[Term])})"
+
     // Apply — function or method call
     case app: Term.Apply =>
       genCpsApply(app)
@@ -3206,7 +3340,7 @@ class JsGen(baseDir: Option[os.Path] = None):
           case "->"           =>
             val tmp = freshTmp()
             s"(() => { const $tmp = [$vl, $vr]; $tmp._isTuple = true; return $tmp; })()"
-          case "*"            => s"(typeof $vl === 'string' ? $vl.repeat($vr) : $vl * $vr)"
+          case "*"            => s"(typeof ($vl) === 'string' ? ($vl).repeat($vr) : ($vl) * ($vr))"
           case "=="           => s"($vl === $vr)"
           case "!="           => s"($vl !== $vr)"
           case "&&"           => s"($vl && $vr)"

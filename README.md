@@ -96,6 +96,7 @@ compiles them via Scala.js.
 | Optionals | `Focus[T](_.maybe.some.field)` → `Optional` for paths through `Option` fields |
 | Traversals | `Focus[T](_.items.each.field)` → `Traversal` — multi-foci `getAll` / `modify` / `set` |
 | Algebraic effects | `effect E:`, `handle(body) { case E.op(arg, resume) => ... }` |
+| Built-in `Async` effect | `runAsync { Async.async(...) ; Async.await(...) ; Async.parallel(...) ; Async.delay(ms) }` |
 | Default parameters | `def f(x: Int, step: Int = 1)`, also on class/enum constructors |
 | Module imports | `[name](./lib.ssc)` markdown links bring definitions into scope |
 | Content helpers | `doc(...)` / `render(...)` structured output |
@@ -126,6 +127,7 @@ compiles them via Scala.js.
 | [content.ssc](examples/content.ssc) | `md` interpolator, auto-output, `doc`/`render` |
 | [recursion.ssc](examples/recursion.ssc) | Self-TCO, mutual TCO, Collatz — deep recursion without overflow |
 | [effects.ssc](examples/effects.ssc) | Algebraic effects — Console routing, nondeterminism, early return |
+| [async-demo.ssc](examples/async-demo.ssc) | Built-in `Async` effect — `runAsync`, `async`, `await`, `parallel`, `delay` |
 | [lenses.ssc](examples/lenses.ssc) | `.copy(field = v)`, `Focus[T](_.a.b)`, `get` / `set` / `modify` / `andThen` |
 | [default-params.ssc](examples/default-params.ssc) | Default parameter values on defs, classes, and enum cases |
 | [lang-split.ssc](examples/lang-split.ssc) | `scala` vs `scalascript` block annotations side by side |
@@ -192,6 +194,7 @@ scala-cli conformance/run.sc
 | list-companion | `List.fill`, `List.tabulate`, `List.range` |
 | modules | `[name](./path.ssc)` imports — bind definitions from another file |
 | effects | Algebraic effects: Console routing, Choose nondeterminism, Fail early-return |
+| async | Built-in `Async` effect — `runAsync` drives `async` / `await` / `parallel` / `delay` |
 | lenses | `.copy(field = v)` and `Focus[T](_.a.b)` — get / set / modify / andThen |
 | prisms | `Prism[Sum, Variant]` — getOption / set / modify on enum / sealed-trait cases |
 | optional | `Focus[T](_.maybe.some.field)` — Optional optic with getOption / set / modify / andThen |

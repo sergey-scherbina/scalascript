@@ -805,6 +805,32 @@ class Interpreter(
       case _ => throw InterpretError("onWebSocket(path) { ws => … }")
     }
 
+    // ── Async: built-in effect for async-style code ──────────────────
+    //
+    // Four operations — each produces a Perform node; `runAsync(body)`
+    // is the default handler.  See `evalRunAsync` / `asyncDispatch`
+    // below.  The model is single-threaded: thunks passed to
+    // `async` / `parallel` execute immediately on the calling thread
+    // (so output is deterministic and identical across all three
+    // backends).  Real concurrency on the JVM is a handler-swap away.
+    globals("Async") = Value.InstanceV("Async", Map(
+      "delay"    -> Value.NativeFnV("Async.delay",
+        args => Perform("Async", "delay", args)),
+      "async"    -> Value.NativeFnV("Async.async",
+        args => Perform("Async", "async", args)),
+      "await"    -> Value.NativeFnV("Async.await",
+        args => Perform("Async", "await", args)),
+      "parallel" -> Value.NativeFnV("Async.parallel",
+        args => Perform("Async", "parallel", args)),
+    ))
+    // `Future(v)` — wrap a value in a Future cell.  Used by handlers
+    // to materialise the result of an `async` thunk; users normally
+    // only construct Futures via `Async.async(...)`.
+    globals("Future") = Value.NativeFnV("Future", {
+      case List(v) => Pure(Value.InstanceV("Future", Map("value" -> v)))
+      case _       => throw InterpretError("Future(value)")
+    })
+
   /** Invoke an interpreter Value (closure or native fn) from outside —
    *  used by WebServer to call route handlers in response to HTTP requests. */
   def invoke(fn: Value, args: List[Value]): Value =
@@ -1144,6 +1170,13 @@ class Interpreter(
         case List(pf: Term.PartialFunction) =>
           evalHandle(bodyArgClause.values.head.asInstanceOf[Term], pf.cases, env)
         case _ => located("handle expects a partial function { case Eff.op(args, resume) => ... }")
+
+    // Special form: runAsync(body) — default Async handler.  The body is
+    // a by-name expression; we evaluate it lazily so its effects compose
+    // into the Computation tree before the driver walks them.
+    case Term.Apply.After_4_6_0(Term.Name("runAsync"), bodyArgClause)
+        if bodyArgClause.values.size == 1 =>
+      asyncInterp(eval(bodyArgClause.values.head, env))
 
     // Function application: detect obj.method(args) and dispatch directly.
     // All sub-terms are evaluated eagerly here; the FlatMap chain composes
@@ -2260,6 +2293,71 @@ class Interpreter(
       throw InterpretError("unreachable")
 
     interp(eval(body, env))
+
+  /** Driver for the built-in `Async` effect — same Free-Monad walk as
+   *  `evalHandle` but with a fixed dispatch table for `Async.*` ops
+   *  (delay / async / await / parallel).  Non-Async Performs propagate
+   *  outward so an enclosing `handle` can pick them up.  Single-threaded
+   *  semantics: a thunk passed to `async` / `parallel` runs immediately
+   *  on the calling thread, so the resulting output is deterministic
+   *  and identical to the JS / JvmGen backends. */
+  private def asyncInterp(initial: Computation): Computation =
+    var current: Computation = initial
+    while true do
+      current match
+        case Pure(_) => return current
+        case Perform("Async", op, args) =>
+          // Bare Perform — no continuation; dispatch with identity resume.
+          current = asyncDispatch(op, args, v => Pure(v))
+        case Perform(_, _, _) => return current  // unhandled, propagate
+        case FlatMap(sub, f) => sub match
+          case Pure(v) =>
+            current = f(v)
+          case FlatMap(sub2, g) =>
+            current = FlatMap(sub2, x => FlatMap(g(x), f))
+          case Perform("Async", op, args) =>
+            current = asyncDispatch(op, args, v => asyncInterp(f(v)))
+          case Perform(_, _, _) =>
+            return FlatMap(sub, v => asyncInterp(f(v)))
+    throw InterpretError("unreachable")
+
+  private def asyncDispatch(
+    op:     String,
+    args:   List[Value],
+    resume: Value => Computation
+  ): Computation = op match
+    case "delay" => args match
+      case List(Value.IntV(ms)) =>
+        if ms > 0 then Thread.sleep(ms)
+        resume(Value.UnitV)
+      case _ => throw InterpretError("Async.delay(ms: Int)")
+    case "async" => args match
+      case List(thunk) =>
+        asyncInterp(callValue(thunk, Nil, Map.empty)) match
+          case Pure(v) =>
+            resume(Value.InstanceV("Future", Map("value" -> v)))
+          case _ => throw InterpretError(
+            "Async.async thunk leaked an unhandled non-Async effect")
+      case _ => throw InterpretError("Async.async(thunk)")
+    case "await" => args match
+      case List(Value.InstanceV("Future", fields)) =>
+        resume(fields.getOrElse("value", Value.UnitV))
+      case _ => throw InterpretError("Async.await(future)")
+    case "parallel" => args match
+      case List(Value.ListV(thunks)) =>
+        // Single-threaded: run each thunk through this driver, in declared
+        // order, collect results.  A real-concurrent backend can swap this
+        // for an executor without changing observable output (results are
+        // returned in input order regardless of completion order).
+        val results = thunks.map { t =>
+          asyncInterp(callValue(t, Nil, Map.empty)) match
+            case Pure(v) => v
+            case _ => throw InterpretError(
+              "Async.parallel thunk leaked an unhandled non-Async effect")
+        }
+        resume(Value.ListV(results))
+      case _ => throw InterpretError("Async.parallel(thunks: List[() => A])")
+    case _ => throw InterpretError(s"Unknown Async operation: $op")
 
   // ─── Infix operators ──────────────────────────────────────────────
 

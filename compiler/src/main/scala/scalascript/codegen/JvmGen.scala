@@ -207,6 +207,16 @@ class JvmGen(baseDir: Option[os.Path] = None):
     effectOps.clear()
     effectfulFuns.clear()
 
+    // Built-in `Async` effect — pre-populate `effectOps` so call sites
+    // like `Async.delay(...)` are CPS-rewritten exactly like user-declared
+    // ops, but only when the module actually mentions `Async.` or
+    // `runAsync(...)`.  Skipping the registration when absent keeps the
+    // emitted Scala lean for non-async modules.
+    if blocksUseAsync(blocks) then
+      effectOps ++= Set(
+        "Async.delay", "Async.async", "Async.await", "Async.parallel"
+      )
+
     val funBodies = mutable.Map[String, Term]()
 
     def collectFromStats(stats: List[Stat]): Unit = stats.foreach {
@@ -272,6 +282,24 @@ class JvmGen(baseDir: Option[os.Path] = None):
         if !found then tree.collect {
           case Term.Apply.After_4_6_0(Term.Name("route"),        _) => found = true
           case Term.Apply.After_4_6_0(Term.Name("onWebSocket"),  _) => found = true
+        }
+      }
+      found
+    }
+
+  /** True if any block references the built-in `Async` effect — either
+   *  via `runAsync(...)` or via a `Async.{delay,async,await,parallel}`
+   *  call.  Used to gate registration of the four Async op names in
+   *  `effectOps` (and therefore the emission of the effects runtime). */
+  private def blocksUseAsync(blocks: List[JvmGen.Block]): Boolean =
+    val asyncOps = Set("delay", "async", "await", "parallel")
+    blocks.exists { b =>
+      var found = false
+      ScalaNode.fold(b.node) { tree =>
+        if !found then tree.collect {
+          case Term.Apply.After_4_6_0(Term.Name("runAsync"), _) => found = true
+          case Term.Select(Term.Name("Async"), Term.Name(op))
+              if asyncOps(op) => found = true
         }
       }
       found
@@ -480,6 +508,7 @@ class JvmGen(baseDir: Option[os.Path] = None):
 
   private def termUsesEffects(t: Term): Boolean = t match
     case Term.Apply.After_4_6_0(Term.Apply.After_4_6_0(Term.Name("handle"), _), _) => true
+    case Term.Apply.After_4_6_0(Term.Name("runAsync"), _)                         => true
     case Term.Select(Term.Name(eff), Term.Name(op)) if isEffectOpRef(eff, op)     => true
     case Term.Apply.After_4_6_0(Term.Name(n), _) if isEffectfulFun(n)             => true
     case _ => t.children.exists {
@@ -771,6 +800,13 @@ class JvmGen(baseDir: Option[os.Path] = None):
         case List(pf: Term.PartialFunction) =>
           emitHandleForm(bodyArgClause.values.head.asInstanceOf[Term], pf.cases)
         case _ => "??? /* invalid handle */"
+
+    // runAsync(body) — built-in Async-effect driver.  Body is CPS-emitted
+    // so Async.* ops build a Free tree that `_runAsync` walks against the
+    // default handler.
+    case Term.Apply.After_4_6_0(Term.Name("runAsync"), bodyArgClause)
+        if bodyArgClause.values.size == 1 =>
+      s"_runAsync(() => ${emitCpsExpr(bodyArgClause.values.head.asInstanceOf[Term])})"
 
     // Focus[T](_.a.b) / Focus(_.a.b) — lower to a Lens(get, set) literal.
     // The lambda body's field-access chain becomes nested get + nested copy.
@@ -1142,6 +1178,12 @@ class JvmGen(baseDir: Option[os.Path] = None):
         case List(pf: Term.PartialFunction) =>
           emitHandleForm(bodyArgClause.values.head.asInstanceOf[Term], pf.cases)
         case _ => "??? /* invalid handle */"
+
+    // Nested runAsync inside CPS body — drive the inner Free tree to a
+    // plain value, then continue the outer continuation with it.
+    case Term.Apply.After_4_6_0(Term.Name("runAsync"), bodyArgClause)
+        if bodyArgClause.values.size == 1 =>
+      s"_runAsync(() => ${emitCpsExpr(bodyArgClause.values.head.asInstanceOf[Term])})"
 
     case app: Term.Apply => emitCpsApply(app)
 
@@ -2947,5 +2989,63 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |  case (">=", x: Long,   y: Long)   => x >= y
        |  case (">=", x: Double, y: Double) => x >= y
        |  case _ => sys.error(s"Cannot $op on $a, $b")
+       |
+       |// ── Built-in `Async` effect + default `runAsync` handler ────────────────
+       |//
+       |// Same single-threaded semantics as the interpreter and JS Node target:
+       |// thunks passed to `async` / `parallel` execute immediately (so output
+       |// is byte-identical across all three backends), `delay` blocks the
+       |// calling thread via Thread.sleep, `await` unwraps the cached value.
+       |// Real-thread parallelism is a future handler swap away.
+       |
+       |object Async:
+       |  def delay(ms: Int): Any           = _perform("Async", "delay",    ms)
+       |  def async(thunk: () => Any): Any  = _perform("Async", "async",    thunk)
+       |  def await(fut: Any): Any          = _perform("Async", "await",    fut)
+       |  def parallel(thunks: List[() => Any]): Any =
+       |    _perform("Async", "parallel", thunks)
+       |
+       |case class Future(value: Any)
+       |
+       |def _runAsync(bodyThunk: () => Any): Any =
+       |  def dispatch(op: String, args: List[Any], resume: Any => Any): Any = op match
+       |    case "delay" =>
+       |      val ms = args(0).asInstanceOf[Int]
+       |      if ms > 0 then Thread.sleep(ms.toLong)
+       |      resume(())
+       |    case "async" =>
+       |      val thunk = args(0).asInstanceOf[() => Any]
+       |      resume(Future(interp(thunk())))
+       |    case "await" =>
+       |      val fut = args(0).asInstanceOf[Future]
+       |      resume(fut.value)
+       |    case "parallel" =>
+       |      val thunks = args(0).asInstanceOf[List[() => Any]]
+       |      resume(thunks.map(t => interp(t())))
+       |    case _ => sys.error("Unknown Async operation: " + op)
+       |  def interp(initial: Any): Any =
+       |    var current: Any = initial
+       |    while true do
+       |      current match
+       |        case _Perform("Async", op, args) =>
+       |          val resume: Any => Any = (v: Any) => v
+       |          current = dispatch(op, args, resume)
+       |        case _Perform(_, _, _) => return current
+       |        case _FlatMap(sub, f) => sub match
+       |          case _Perform("Async", op, args) =>
+       |            val fn = f.asInstanceOf[Any => Any]
+       |            val resume: Any => Any = (v: Any) => interp(fn(v))
+       |            current = dispatch(op, args, resume)
+       |          case _Perform(_, _, _) =>
+       |            val fn = f.asInstanceOf[Any => Any]
+       |            return _FlatMap(sub, (v: Any) => interp(fn(v)))
+       |          case _FlatMap(s2, g) =>
+       |            current = _FlatMap(s2,
+       |              (x: Any) => _FlatMap(g.asInstanceOf[Any => Any](x), f))
+       |          case v =>
+       |            current = f.asInstanceOf[Any => Any](v)
+       |        case v => return v
+       |    throw new RuntimeException("unreachable")
+       |  interp(bodyThunk())
        |
        |""".stripMargin

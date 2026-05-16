@@ -1,0 +1,48 @@
+#!/usr/bin/env ssc
+---
+name: async
+description: Built-in Async effect — delay / async / await / parallel via runAsync
+---
+
+# Async
+
+```scalascript
+// Sequential await
+val r1 = runAsync {
+  val a = Async.async(() => 1)
+  val b = Async.async(() => 2)
+  Async.await(a) + Async.await(b)
+}
+println(r1)
+
+// parallel keeps declared order
+val r2 = runAsync {
+  Async.parallel(List(() => 10, () => 20, () => 30))
+}
+println(r2)
+
+// delay is wall-clock; output is deterministic
+runAsync {
+  Async.delay(1)
+  println("after-delay")
+}
+
+// async + await + arithmetic compose
+val r3 = runAsync {
+  val a = Async.async(() => 6)
+  val b = Async.async(() => 7)
+  val sum = Async.await(a) + Async.await(b)
+  Async.await(Async.async(() => sum * 2))
+}
+println(r3)
+
+// Nested runAsync: inner driver completes before outer continues.
+val r4 = runAsync {
+  val inner = runAsync {
+    val f = Async.async(() => 7)
+    Async.await(f) + 3
+  }
+  inner
+}
+println(r4)
+```

@@ -3,7 +3,7 @@ package scalascript.cli
 import scalascript.parser.Parser
 import scalascript.typer.Typer
 import scalascript.interpreter.Interpreter
-import scalascript.codegen.{JsGen, JsRuntime, JsRuntimeBrowserPatch, JvmGen, ScalaJsBackend}
+import scalascript.codegen.{JsGen, JsRuntime, JsRuntimeAsync, JsRuntimeBrowserPatch, JvmGen, ScalaJsBackend}
 import scalascript.ast.*
 
 @main def ssc(args: String*): Unit =
@@ -339,7 +339,7 @@ def emitJsCommand(args: List[String]): Unit =
         val module   = Parser.parse(os.read(path))
         val segments = JsGen.generateSegmented(module, baseDir)
         val hasSSBlocks = segments.exists(_.isInstanceOf[JsGen.Segment.ScalaScriptJs])
-        if hasSSBlocks then println(JsRuntime)
+        if hasSSBlocks then { println(JsRuntime); println(JsRuntimeAsync) }
         for seg <- segments do seg match
           case JsGen.Segment.ScalaScriptJs(code) =>
             println(code)
@@ -380,6 +380,7 @@ def emitSpaCommand(args: List[String]): Unit =
                    |<body>
                    |<script>
                    |$JsRuntime
+                   |$JsRuntimeAsync
                    |$JsRuntimeBrowserPatch
                    |$userJs
                    |</script>

@@ -474,6 +474,43 @@ and the **JVM backend** (`ssc compile`, via JvmGen): each emits the same Free
 Monad runtime and CPS-transforms function bodies flagged as effectful so they
 build the same Free tree at runtime.
 
+#### 7.2.1 Async — built-in effect
+
+The `Async` effect is pre-registered on all three backends — no `effect Async:`
+declaration is needed.  Four operations and a default handler `runAsync(body)`
+drive deterministic, single-threaded async-style code:
+
+```scalascript
+runAsync {
+  val a = Async.async(() => 1)
+  val b = Async.async(() => 2)
+  Async.await(a) + Async.await(b)               // 3
+}
+```
+
+| Operation                          | Effect                                    |
+|------------------------------------|-------------------------------------------|
+| `Async.delay(ms: Int): Unit`       | pause the calling thread for `ms` milliseconds |
+| `Async.async(thunk: () => A): Future[A]` | execute `thunk`, wrap the result in a `Future` |
+| `Async.await(fut: Future[A]): A`   | extract the value carried by a `Future`   |
+| `Async.parallel(thunks: List[() => A]): List[A]` | run each thunk, collect results in declared order |
+
+`runAsync` walks the same Free tree any other handler would, dispatching
+`Async.*` `Perform` nodes against its built-in handler.  Non-Async
+`Perform` nodes propagate outward so `runAsync` composes with `handle(...)`
+in either order.
+
+Semantics are deliberately single-threaded so observable output is
+byte-identical across the interpreter, JS Node, and `ssc compile` backends
+— a thunk passed to `async` runs immediately on the calling thread, and
+`parallel` runs its thunks sequentially in declared order.  The exact
+contract a user writes against (`await` produces values, `parallel`
+preserves declared order) is the same one a real-thread / Promise-based
+handler upholds, so swapping the handler later doesn't change observable
+output for code that didn't rely on timing.  `delay` uses `Thread.sleep`
+on the JVM and `Atomics.wait` on Node so it costs wall-clock time
+without coloring the surrounding code as async.
+
 ### 7.3 Interop
 
 Backends define interop mechanisms:

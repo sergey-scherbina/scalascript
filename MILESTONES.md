@@ -55,10 +55,14 @@ already covers throughput.
 Larger features that aren't on the critical path but are worth keeping in
 view so they shape near-term decisions.
 
-- **WebSocket support.**  `ws("/path") { conn => ... }` upgrade primitive,
-  bidirectional `Frame` type.
 - **Persistence.**  At minimum a `Storage` effect (key-value, JSON-backed)
   so REST demos can outlive a process restart without dragging in JDBC.
+- **Real-thread `Async` handler.**  The built-in `Async` effect ships with a
+  single-threaded `runAsync` handler so observable output is byte-identical
+  across all three backends.  A drop-in alternative — `runAsyncParallel` on
+  the JVM using `ExecutorService` / `CompletableFuture`, on Node using
+  `worker_threads` — would give real concurrency for `async` / `parallel`
+  without touching user code.
 - **Hot reload in `serve` mode.**  Reparse and re-register routes when a
   `.ssc` file changes on disk; today the server pins them at start.
 - **REPL: web-aware mode.**  `bin/ssc repl` that lets you mount routes
