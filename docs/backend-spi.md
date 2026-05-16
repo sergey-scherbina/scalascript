@@ -393,7 +393,7 @@ same `String`-producing code as the `jvm` backend; no special
 treatment.
 
 This is the resolution shape for `html"…"` / `css"…"` / `md"…"`
-interpolators (see §15 Resolved): the interpolator builds a typed
+interpolators (see §16 Resolved): the interpolator builds a typed
 `Html` / `Css` / `Md` value in the prelude (parsing and escaping done
 once in core), and rendering goes through the optional intrinsic.
 Backends with native templating (browser DOM/VDOM, .NET Razor,
@@ -487,9 +487,14 @@ trait BlockCompiler:
   /** Fence tags this compiler accepts: "scala", "sql", "rust", ... */
   def languages: Set[String]
 
-  /** Parse + type-check + lower a foreign-language block in isolation,
-   *  with read-only access to the enclosing module's symbol scope.
-   *  Result is woven into the surrounding NormalizedModule. */
+  /** Pass 1: report symbols this block contributes to the module
+   *  scope (§10). Bodies are NOT type-checked here. Enables forward
+   *  and cyclic references between blocks. */
+  def signatures(language: String, source: String, span: Span)
+    : Either[List[Diagnostic], List[SymbolExport]]
+
+  /** Pass 2: type-check + lower against the now-complete module
+   *  scope. Result is woven into the surrounding NormalizedModule. */
   def compileBlock(
     language: String,
     source: String,
@@ -500,6 +505,7 @@ trait BlockCompiler:
 
 case class BlockArtifact(
   irNode:    NormalizedNode,        // injected into NormalizedModule
+  exports:   List[SymbolExport],    // symbols this block contributes globally (§10)
   artifacts: List[FileArtifact]     // any side-files the block produces
 )
 ```
@@ -543,7 +549,7 @@ These are *string-interpolator* macros, not fenced code blocks. They
 stay part of the language proper, lowered in core during normalisation
 (like Scala 3 interpolators). They are not in scope for the
 `BlockCompiler` mechanism. This resolves the corresponding open
-question from §15.
+question from §16.
 
 ### Why this matters
 
@@ -553,7 +559,117 @@ to embed becomes a special case in core. With it, the plugin-author
 surface stays small (one interface, one fence-tag set) and the
 language can grow horizontally as the ecosystem adds backends.
 
-## 10. Capabilities
+## 10. Block references and identity
+
+How does a `scala` block call a function defined in a `scalascript`
+block? How does a `scalascript` block reference an HTML template
+declared in an `html` block? §9 gave plugins the right to *parse*
+foreign-language code; this section makes the results visible to the
+rest of the document.
+
+### Decisions (locked)
+
+- **Exports are declared by the plugin**, not by user-side annotation
+  in the markdown. The `BlockCompiler` introspects its source and
+  reports what it exposes; no `{exports="..."}` markup, no
+  `-- exports:` comments to maintain.
+- **Visibility is global within the module.** A symbol or ID exposed
+  by any block is visible to every other block. Heading hierarchy
+  affects documentation only, not name resolution.
+- **Cycles allowed.** Forward and mutual references work the same as
+  for ordinary `def`s.
+
+### Tier 1 — by exported symbol (default)
+
+Blocks that define top-level names contribute them to the module's
+global scope via the `BlockCompiler`:
+
+```scala
+case class SymbolExport(
+  name:   String,
+  tpe:    ir.SType,            // mapped into core's type system
+  span:   Span,
+  origin: QualifiedName        // for diagnostics, e.g. "py:my-module.foo"
+)
+```
+
+Example:
+
+```markdown
+## Data
+​```sql
+SELECT * FROM users WHERE active = true;
+​```
+(the SQL plugin reports: `usersQuery: Query[User]`)
+
+## Render
+​```scalascript
+val rows = usersQuery.run()    // visible globally
+​```
+```
+
+### Tier 2 — by block ID
+
+For blocks that don't define names (HTML template, CSS rule set, JSON
+fixture, opaque artifact), use Pandoc-style fence attributes:
+
+```markdown
+​```html {#login-form}
+<form action="/login"> ... </form>
+​```
+
+​```scalascript
+def page = include("#login-form")
+// or via ordinary markdown link:
+val link = "see [the login form](#login-form)"
+​```
+```
+
+`{#id}` is markdown-level metadata, parsed by core and stored as a
+property of the `EmbeddedBlock` IR node. The prelude function
+`include` resolves the ID at IR-link time. A block can carry both
+exports and an ID — they're orthogonal.
+
+### Cycles: two-pass typing
+
+Mutual recursion across blocks requires the typer to learn all
+signatures before checking any body:
+
+```markdown
+​```scalascript
+def isEven(n: Int): Boolean = if n == 0 then true else isOdd(n - 1)
+​```
+​```scalascript
+def isOdd(n: Int): Boolean  = if n == 0 then false else isEven(n - 1)
+​```
+```
+
+The `BlockCompiler` exposes two stages (signatures + compileBlock,
+shown in §9). Core orchestrates: first gather signatures across every
+block in the document; then re-walk and compile bodies against the
+complete scope. Same shape as let-rec in any modern language.
+
+### Collisions
+
+Two blocks exposing the same name →
+`Diagnostic.DuplicateExport(name, sites)`. Users disambiguate by
+renaming or, in a future minor addition, by an `{exports.prefix="…"}`
+attribute that qualifies the names. Wait until the first user
+complaint before implementing.
+
+### Not in scope (v1)
+
+- **Parameterised components (MDX-style).** A future extension on
+  Tier 2 — block IDs that take arguments — is feasible but not part
+  of this design.
+- **Cross-module block references.** Module-level imports (§5)
+  already handle symbols across files; block-ID references across
+  files need a new resolver. Defer until use-case appears.
+- **CSS-style selectors over blocks.** Excluded — heading hierarchy +
+  IDs is a complete addressing scheme; selectors would re-invent
+  symbol resolution.
+
+## 11. Capabilities
 
 Backends MUST declare their capabilities. Core MUST validate before
 invoking `compile`.
@@ -601,9 +717,9 @@ Validation pass: `core/validate/CapabilityCheck.scala` walks the
 `backend.capabilities.features`, and produces `Diagnostic.Unsupported`
 entries for misses.
 
-## 11. Discovery and loading
+## 12. Discovery and loading
 
-### 11.1 In-process (JVM plugins)
+### 12.1 In-process (JVM plugins)
 
 - `META-INF/services/scalascript.backend.spi.Backend` lists the plugin's
   `Backend` implementation classes. Standard `ServiceLoader`.
@@ -616,7 +732,7 @@ entries for misses.
   the SPI classloader only — plugins cannot see each other's
   dependencies (avoids version conflicts).
 
-### 11.2 Out-of-process plugins
+### 12.2 Out-of-process plugins
 
 - Plugin distribution is a directory with a `plugin.yaml`:
 
@@ -645,7 +761,7 @@ A subprocess backend whose `executable` is a JVM jar is allowed (we just
 spawn `java -jar ...`); that gives plugin authors a path to total
 isolation from core's classpath if they need it.
 
-## 12. SPI versioning
+## 13. SPI versioning
 
 - SPI uses **semver**.
 - Each plugin declares `spiVersion`. The loader rejects plugins outside
@@ -654,7 +770,7 @@ isolation from core's classpath if they need it.
 - `scalascript-backend-spi` is published independently of `core` (same
   group / different artifact / independent version).
 
-## 13. Migration plan (8 phases)
+## 14. Migration plan (8 phases)
 
 Each phase is one PR. Tests stay green at every step.
 
@@ -664,8 +780,8 @@ Each phase is one PR. Tests stay green at every step.
   modules.
 - Move existing sources into `core` (no semantic changes).
 - Define `Backend` and `BlockCompiler` traits plus `CompileResult`,
-  `Capabilities`, `BackendOptions`, `IntrinsicImpl`, `BlockArtifact`
-  in `backend-spi` (stubs are fine).
+  `Capabilities`, `BackendOptions`, `IntrinsicImpl`, `BlockArtifact`,
+  `SymbolExport` in `backend-spi` (stubs are fine).
 - `cli/Main.scala` still calls concrete backends directly — registry
   comes in Phase 5. Output: nothing visible changes, but the build is
   modular.
@@ -694,7 +810,7 @@ Each phase is one PR. Tests stay green at every step.
 
 ### Phase 4 — Capabilities + validation  (S, ~0.5d)
 
-- Define `Feature` / `OutputKind` enums as in §10.
+- Define `Feature` / `OutputKind` enums as in §11.
 - Tag the four existing backends with their actual capability sets.
 - Add `CapabilityCheck` walker; wire it into the pipeline before
   `compile()`.
@@ -719,6 +835,10 @@ Each phase is one PR. Tests stay green at every step.
   `Backend.intrinsics` (§8).
 - Each plugin declares its `codeBlockLanguages`: `jvm` → `{"scala"}`,
   `js` → `{"js"}`, `scalajs` as `BlockCompiler` → `{"scala"}`.
+- Block-export pipeline (§10) wired into the typer: signature
+  collection across all foreign blocks first, then per-block
+  compilation with the full module scope visible. Cycle support
+  validated by a cross-block mutual-recursion test.
 - `cli/Main.scala`, `server/WebServer.scala`, `server/Routes.scala`
   switch to looking up backends by id from the registry. No direct
   imports of `JvmGen`/`JsGen`/`Interpreter` outside their plugin
@@ -753,7 +873,7 @@ Each phase is one PR. Tests stay green at every step.
 
 **Total:** ~6–9 working days.
 
-## 14. What this enables (future)
+## 15. What this enables (future)
 
 For each future backend, the work fits this template:
 
@@ -775,7 +895,7 @@ Specifically:
 - **.NET**: in-process JVM plugin emitting C# source + invoking
   `dotnet` CLI; or subprocess plugin in pure C# using Roslyn.
 
-## 15. Open questions
+## 16. Open questions
 
 - **IR stability vs. language evolution.** Adding a language feature
   often needs a new IR node. We bump the IR schema version every time.
@@ -786,10 +906,6 @@ Specifically:
   want any sandboxing for third-party plugins, or document this and
   rely on the user knowing what they install? (Initial recommendation:
   document; revisit if we ever ship a plugin marketplace.)
-- **Referencing code blocks across languages.** How (and whether) to
-  give individual blocks explicit IDs so other blocks — possibly in
-  another language — can reference them. Open; see chat / forthcoming
-  §10 if accepted.
 
 ### Resolved (logged for the record)
 
@@ -804,8 +920,12 @@ Specifically:
 - **`ScalaJsBackend` role** → separate top-level plugin
   (target = `scalajs-spa`); additionally registered as a
   `BlockCompiler` for `scala` blocks when the `js` target opts in.
+- **Block references across languages** → two-tier (§10): exports
+  declared by the `BlockCompiler` (no user-side annotation), global
+  module-wide visibility, cycles allowed via two-pass typing. Tier 1
+  symbol-level + Tier 2 Pandoc-style `{#id}` for opaque blocks.
 
-## 16. Definition of done
+## 17. Definition of done
 
 - [ ] All eight phases merged.
 - [ ] `cli/Main.scala`, `server/*.scala` contain zero direct references
@@ -830,6 +950,9 @@ Specifically:
   - capability check rejects program with unsupported feature
   - capability check rejects program calling missing intrinsic
   - capability check rejects program with unknown block language
+  - cross-block reference: scalascript ↔ foreign-language mutual
+    recursion compiles and runs
+  - duplicate-export collision reported with both source sites
   - subprocess plugin smoke test
   - plugin discovery from `--plugin-dir`
 - [ ] `docs/architecture.md` rewritten to match.
