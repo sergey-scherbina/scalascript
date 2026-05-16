@@ -1040,6 +1040,10 @@ function _contentTypeFor(name) {
 // `net.Socket` writes for frames.  No `ws` npm dependency.
 
 const _WS_MAGIC = '258EAFA5-E914-47DA-95CA-C5AB0DC85B11';
+// Hard cap on a single frame's payload (16 MB) — without it a hostile
+// client could announce a multi-gigabyte payload and force us to
+// allocate that much up front.
+const _WS_MAX_FRAME_BYTES = 16 * 1024 * 1024;
 
 function _wsAcceptKey(clientKey) {
   const crypto = require('crypto');
@@ -1069,7 +1073,7 @@ function _wsParseFrame(buf, offset) {
   } else {
     if (avail < 10) return null;
     const big = buf.readBigUInt64BE(offset + 2);
-    if (big > BigInt(0x7fffffff)) throw new Error('frame too large');
+    if (big > BigInt(_WS_MAX_FRAME_BYTES)) throw new Error('frame too large');
     payloadLen = Number(big);
     hdrLen = 10;
   }
@@ -1197,6 +1201,10 @@ function _wsMakeWebSocket(socket) {
 // `onWebSocket` block.  No matching route → 404 + close.
 function _wsHandleUpgrade(req, socket) {
   try {
+    // TCP keepalive lets the OS detect peers that vanished without
+    // sending FIN.  Without it a dead WS holds its socket FD for
+    // ~2 h before the TCP stack notices.
+    socket.setKeepAlive(true);
     const u = new URL(req.url, 'http://localhost');
     const segs = u.pathname.split('/').filter(s => s.length > 0);
     for (const r of _wsRoutes) {

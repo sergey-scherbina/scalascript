@@ -101,6 +101,11 @@ final class WsProxy(
     if client != null then
       client.configureBlocking(false)
       client.setOption(StandardSocketOptions.TCP_NODELAY, java.lang.Boolean.TRUE)
+      // TCP keepalive: lets the OS detect peers that vanished without
+      // sending FIN (yanked cables, dropped mobile sessions).  Without it
+      // a dead WS connection sits in the parser indefinitely, holding its
+      // file descriptor until ~2 h.
+      client.setOption(StandardSocketOptions.SO_KEEPALIVE, java.lang.Boolean.TRUE)
       val clientKey = client.register(selector, SelectionKey.OP_READ)
       clientKey.attach(Conn(clientKey, client))
 

@@ -2760,6 +2760,10 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |// ── Framing ──────────────────────────────────────────────────────────
        |
        |private val _WS_MAGIC = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
+       |// Hard cap on a single frame's payload (16 MB) — protects against a
+       |// hostile peer announcing a multi-GB payload that we'd otherwise
+       |// try to allocate up front.
+       |private val _WsMaxFrameBytes: Int = 16 * 1024 * 1024
        |
        |def _wsAcceptKey(clientKey: String): String =
        |  val md = java.security.MessageDigest.getInstance("SHA-1")
@@ -2791,7 +2795,7 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |      hdrLen += 8
        |      var v = 0L; var i = 0
        |      while i < 8 do { v = (v << 8) | (buf(offset + 2 + i) & 0xFF).toLong; i += 1 }
-       |      if v > Int.MaxValue.toLong then throw RuntimeException("WS frame too large")
+       |      if v > _WsMaxFrameBytes.toLong then throw RuntimeException(s"WS frame too large: $v bytes (max $_WsMaxFrameBytes)")
        |      v.toInt
        |  val maskLen = if masked then 4 else 0
        |  val total   = hdrLen + maskLen + payloadLen
@@ -2848,6 +2852,10 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |  sb.toArray
        |
        |private def _proxyConnection(client: java.net.Socket, internalPort: Int): Unit =
+       |  // TCP keepalive lets the OS detect peers that vanished without
+       |  // FIN (yanked cables, dropped mobile sessions).  Without it a
+       |  // dead WS holds its FD for ~2 h before the TCP stack notices.
+       |  try client.setKeepAlive(true) catch case _: Throwable => ()
        |  val cin  = java.io.BufferedInputStream(client.getInputStream)
        |  val cout = client.getOutputStream
        |  val head = _readHttpHead(cin)
