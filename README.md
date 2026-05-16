@@ -127,6 +127,18 @@ Run them all at once:
 ./examples/run-all.sc
 ```
 
+## Benchmarks
+
+Cross-backend micro-benchmarks (fib, tail-recursive sum, list ops) comparing
+ScalaScript's three backends against hand-written Scala 3 and JavaScript:
+
+```bash
+scala-cli bench/run.sc
+```
+
+See [`bench/README.md`](bench/README.md) for the workload list, methodology,
+and a sample results table.
+
 ## Conformance Suite
 
 Cross-backend tests that verify JVM interpreter and JS transpiler produce identical output.

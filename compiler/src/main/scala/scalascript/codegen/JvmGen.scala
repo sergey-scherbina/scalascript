@@ -906,6 +906,9 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |  case d: Double => if d == d.toLong.toDouble then d.toLong.toString else d.toString
        |  case s: String => s
        |  case null      => "null"
+       |  // Render a Range like a List so xs.indices and similar lazy
+       |  // iterables match the interpreter / JS output ("List(0, 1, 2)").
+       |  case r: scala.collection.immutable.Range => r.toList.map(_show).mkString("List(", ", ", ")")
        |  case other     => other.toString
        |
        |def println(v: Any): Unit = scala.Predef.println(_show(v))
@@ -936,6 +939,9 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |    if args.length == 1 && args(0).isInstanceOf[_Doc] then toStr(args(0).asInstanceOf[_Doc])
        |    else args.map(toStr).mkString("\n")
        |  println(text)
+       |
+       |// Wall-clock for benchmarks — matches ScalaScript's `nanoTime()` primitive.
+       |def nanoTime(): Long = java.lang.System.nanoTime()
        |
        |""".stripMargin
 
