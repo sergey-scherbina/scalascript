@@ -53,36 +53,51 @@ Known bugs and rough edges that need a separate pass.
   outside the interpreter's subset).  Either broaden the interpreter or
   remove the file's interpreter expectation.
 
-## v0.5 — Interpreter performance (Tier 1)
+## v0.5 — Interpreter performance (Tier 1) — landed
 
-The tree-walking interpreter runs ~1000× slower than the compiled paths
-on call-heavy workloads (see `bench/`).  This is by design — the
-interpreter exists for instant-startup interactive use, not throughput.
-But the worst offenders are easy to attack without an architectural
-rewrite, with a realistic target of **~5×** overall.
+Closed in a series of small commits on the
+`worktree-interp-perf-slots` branch.  The interpreter is now 3-8×
+faster on the bench workloads (target was ~5×, hit it).
 
-- **Slot-indexed variable resolution.**  Pre-pass rewrites every
-  `Term.Name("x")` into a `LocalSlot(i)` against a per-scope index.
-  Lookups become array indexing instead of two HashMap probes (`env`
-  then `globals`).  Highest-impact change.
-- **Cached function resolution at call sites.**  At a `Term.Apply` the
-  callee is currently re-resolved by name on every invocation.  Cache
-  the resolved `FunV` / `NativeFnV` at the call site after the first
-  resolve, invalidate on rebinding.
-- **Constant folding in the parser.**  Literals in
-  `if n < 2 then ...` are re-boxed into `Value.IntV(2)` on every visit.
-  Hoist literal-to-`Value` conversion to parse time.
-- **Skip `Computation` wrapping on pure paths.**  Functions without
-  reachable effects (already known from `analyzeEffects`) shouldn't
-  pay the `Pure(...)` allocation per step — return raw `Value`.
-- **Integer fast path in the `infix` table.**  Match `(Int, op, Int)`
-  before the generic pattern table so primitive arithmetic doesn't
-  pay the full dispatch cost.
+  | workload | before | after | speed-up |
+  | -------- | -----: | ----: | -------: |
+  | fib(28)  | 2734   |   330 |  **8.2×** |
+  | sum(1e6) | 2886   |   610 |  **4.8×** |
+  | list-ops | 580    |   175 |  **3.3×** |
 
-Re-benchmark after each step; commit only if the median moves more
-than measurement noise.  Tier 2 (bytecode IR) and Tier 3 (JVM-bytecode
-JIT or Truffle/Graal) are out of scope until a real workload demands
-them — `ssc compile` already covers throughput.
+What landed:
+
+- **TCO-analysis cache on FunV.**  `tailCallTargets` / `callsInTailPos`
+  / `hasNonTailSelfCall` were running on every invocation; now cached
+  in an IdentityHashMap and reused.
+- **Env trim.**  `globals.toMap` no longer splatted into env per call;
+  `eval`'s `Term.Name` falls back through `globals` directly, and the
+  defaults-pass base env is built lazily.
+- **Pure-value shortcuts in eval.**  When `Term.ApplyInfix` /
+  `Term.Apply` / `Term.If`'s sub-Computations are already `Pure`, call
+  `infix` / `dispatch` / `callValue` directly and skip the FlatMap.
+- **Trampoline stable-env hoist.**  The TCO loop rebuilds only the
+  per-iteration param binding; `closure + selfTco + mutualEntries`
+  is computed once per `curFun` and reused.
+- **Param specialisation (`.updated` chains, 1- / 2-param frames).**
+  Non-TCO calls use `closureWithSelf.updated(p, v)` for 1-arg
+  functions and a chain for 2-arg, skipping the generic
+  `zip + toMap` builder for the common arities.
+- **Lit interning by AST identity.**  Per-Lit `Pure(IntV(...))`
+  caching in an IdentityHashMap — single biggest step.
+- **closureWithSelfFor cache.**  `closure.updated(name, self)` is the
+  same Map on every call of the same FunV; cache it.
+- **FrameMap (1 / 2 / N slots).**  A specialised `Map[String, Value]`
+  that stores a small frame of local bindings as direct fields on top
+  of a `parent` map.  Construction is one allocation; lookup is a
+  string-equality check on the slot then a fall-through to parent.
+
+Re-benchmark protocol after each step lives in this commit history;
+re-running `scala-cli bench/run.sc` should reproduce the figures.
+
+Tier 2 (bytecode IR) and Tier 3 (JVM-bytecode JIT or Truffle/Graal)
+are out of scope until a real workload demands them — `ssc compile`
+already covers throughput.
 
 ## Beyond
 

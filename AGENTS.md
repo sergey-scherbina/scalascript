@@ -70,3 +70,39 @@ ScalaScript is a meta-programming / specification language with extension `.ssc`
 3. **Human and machine readable.** Source must be pleasant for humans and trivially parseable for machines. Markdown gives both.
 4. **No AI at runtime or compile time.** The language stands on its own.
 5. **Each problem keeps its own dialect.** ScalaScript’s value is not replacing every language but providing a common spec/translation layer between them.
+
+## Long-running task strategy (worktree-isolated work)
+
+When a task is large enough to span many commits or risks colliding with
+parallel work on `main`, use this pattern:
+
+1. **Enter a worktree on a dedicated branch** — `EnterWorktree(name)` puts
+   the session in `.claude/worktrees/<name>/` on a fresh branch off
+   `origin/main`. All edits, compiles, and benchmarks happen there;
+   `main` keeps moving independently and the worktree branch can be
+   rebased / cherry-picked when the user is ready.
+2. **Short iterations, commit often.** Each meaningful change — a fast
+   path, a cache, a refactor — is its own commit on the worktree branch
+   with bench / conformance / examples numbers in the message. Easy to
+   revert a single step if it regresses something.
+3. **Do NOT push every commit to `main` during the run.** Keep the work
+   on the worktree branch only. Push to origin only when the whole
+   feature is finished and validated end-to-end, to avoid littering
+   `main` history with intermediate steps and to avoid CI churn.
+4. **Watch `main` for parallel edits.** Periodically `git fetch origin`
+   and `git log origin/main` (or `gh run list`) — if the user lands
+   commits that touch the same files (e.g. `Interpreter.scala`),
+   rebase the worktree branch onto the new `origin/main` rather than
+   building on a stale base.
+5. **Final integration.** When the work is done: rebase the worktree
+   branch onto current `origin/main`, run the full check suite (sbt
+   compile, conformance, examples/run-all, bench), then either fast-
+   forward `main` or open a single merge commit. Push once.
+6. **Cleanup.** After the merge lands, exit the worktree
+   (`ExitWorktree(action: "remove")` or via the CLI) — keep main's
+   working tree free of stale worktrees.
+
+The opposite (small fix, no risk of collision, one or two commits) is
+fine to do directly on `main` as before; the worktree pattern is for
+multi-step refactors where intermediate commits aren't worth shipping
+individually.
