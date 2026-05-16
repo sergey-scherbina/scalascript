@@ -23,14 +23,38 @@ object WebServer:
   private val htmlRender = HtmlRenderer.builder().build()
 
   def start(port: Int, root: String, log: java.io.PrintStream): Unit =
-    val server = JHttpServer.create(InetSocketAddress(port), 0)
-    server.createContext("/", handle(root, log, _))
-    // Explicit single-thread executor: the interpreter's globals / call-stack
+    // Explicit single-thread executor shared between the HTTP handlers
+    // (via JDK HttpServer) and the WebSocket app callbacks (via WsProxy
+    // → WsConnection.dispatch).  The interpreter's globals / call-stack
     // / position tracker are not thread-safe, so handler bodies must run
-    // serially. JvmGen's `serveRuntime` does the same for compiled output.
-    server.setExecutor(java.util.concurrent.Executors.newSingleThreadExecutor())
-    server.start()
+    // serially regardless of which protocol triggered them.  JvmGen's
+    // `serveRuntime` does the same for compiled output.
+    val executor = java.util.concurrent.Executors.newSingleThreadExecutor()
+
+    // Internal HttpServer on a loopback ephemeral port.  Anything that
+    // isn't a `Upgrade: websocket` request reaches it through the NIO
+    // proxy below — REST handlers and `.ssc` page rendering keep
+    // working exactly as before.
+    val internalAddr = InetSocketAddress("127.0.0.1", 0)
+    val internal     = JHttpServer.create(internalAddr, 0)
+    internal.createContext("/", handle(root, log, _))
+    internal.setExecutor(executor)
+    internal.start()
+    val internalPort = internal.getAddress.getPort
+
+    // Public-facing port: NIO proxy.  Sniffs the request head, hands WS
+    // upgrades off to `WsRoutes` and forwards everything else to the
+    // internal HttpServer.
+    val proxy = WsProxy(
+      publicPort   = port,
+      internalAddr = InetSocketAddress("127.0.0.1", internalPort),
+      wsExecutor   = executor,
+      log          = log
+    )
+    proxy.start()
+
     log.println(s"ScalaScript web · http://localhost:$port/  (root: $root)")
+    log.println(s"  (NIO proxy → internal HttpServer on 127.0.0.1:$internalPort)")
     log.println("Ctrl+C to stop.")
     Thread.currentThread().join()
 
