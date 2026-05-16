@@ -37,6 +37,32 @@ class Interpreter(out: java.io.PrintStream = System.out, baseDir: Option[os.Path
   // line. `lineOffset` compensates so error messages report the user's line.
   private var lineOffset: Int = 0
 
+  /** Per-FunV cache of the TCO classification — three full body walks
+   *  (`tailCallTargets`, `callsInTailPos`, `hasNonTailSelfCall`) used to
+   *  cost a tail-recursive call up-front on every invocation. The body is
+   *  immutable per FunV, so the result is too. Keyed by FunV identity. */
+  private case class TcoInfo(
+    tailTargets:   Set[String],
+    isSelfTailRec: Boolean,
+    noNonTailSelf: Boolean
+  )
+  private val tcoCache: java.util.IdentityHashMap[Value.FunV, TcoInfo] =
+    java.util.IdentityHashMap()
+
+  private def tcoInfoFor(f: Value.FunV): TcoInfo =
+    val cached = tcoCache.get(f)
+    if cached != null then cached
+    else
+      val info =
+        if f.name.isEmpty then TcoInfo(Set.empty, false, false)
+        else
+          val targets = tailCallTargets(f.body, f.name, tailPos = true)
+          val selfTR  = callsInTailPos(f.body, f.name)
+          val noNTS   = !hasNonTailSelfCall(f.body, f.name, tailPos = true)
+          TcoInfo(targets, selfTR, noNTS)
+      tcoCache.put(f, info)
+      info
+
   /** Format a position prefix like "[line 5, col 3] " or "" if unknown. */
   private def posPrefix: String = currentSpan match
     case Some((line, col)) => s"[line ${line + 1}, col ${col + 1}] "
@@ -787,15 +813,11 @@ class Interpreter(out: java.io.PrintStream = System.out, baseDir: Option[os.Path
         elems
       case _ => args
     val effArgs   = applyDefaults(f.params, f.defaults, tupledArgs, baseEnv)
-    val tailTargets =
-      if f.name.nonEmpty then tailCallTargets(f.body, f.name, tailPos = true)
-      else Set.empty[String]
-    val isSelfTailRec = f.name.nonEmpty && callsInTailPos(f.body, f.name)
-    val hasMutualTail = tailTargets.exists { n =>
+    val info      = tcoInfoFor(f)
+    val hasMutualTail = info.tailTargets.nonEmpty && info.tailTargets.exists { n =>
       (globals.get(n) orElse f.closure.get(n)).exists(_.isInstanceOf[Value.FunV])
     }
-    val noNonTailSelf = f.name.nonEmpty && !hasNonTailSelfCall(f.body, f.name, tailPos = true)
-    if noNonTailSelf && (isSelfTailRec || hasMutualTail) then
+    if info.noNonTailSelf && (info.isSelfTailRec || hasMutualTail) then
       tcoTrampoline(f, effArgs, null)
     else
       val callEnv = baseEnv ++ f.params.zip(effArgs).toMap
@@ -856,7 +878,7 @@ class Interpreter(out: java.io.PrintStream = System.out, baseDir: Option[os.Path
     var current: Computation = initialComp
     while true do
       if current == null then
-        val targets = tailCallTargets(curFun.body, curFun.name, tailPos = true)
+        val targets = tcoInfoFor(curFun).tailTargets
         val mutualEntries: Map[String, Value] = targets.flatMap { name =>
           (globals.get(name) orElse curFun.closure.get(name)).collect {
             case fn: Value.FunV =>
@@ -891,7 +913,7 @@ class Interpreter(out: java.io.PrintStream = System.out, baseDir: Option[os.Path
           current = null
         case mc: MutualTailCall =>
           val next = mc.f
-          if next.name.nonEmpty && !hasNonTailSelfCall(next.body, next.name, tailPos = true) then
+          if next.name.nonEmpty && tcoInfoFor(next).noNonTailSelf then
             curFun  = next
             curArgs = mc.args
             current = null
