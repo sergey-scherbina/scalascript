@@ -196,6 +196,9 @@ function _mkRequest(req, params, bodyBuf) {
   } else if (ct.startsWith('multipart/form-data')) {
     _parseMultipart(ctOrig, bodyLatin1, form, files);
   }
+  // Parse signed session cookie if present.
+  const cookieHeader = headers.get('cookie') || headers.get('Cookie') || '';
+  const session = _parseCookieSession(cookieHeader);
   return {
     _type:   'Request',
     method:  req.method,
@@ -206,6 +209,7 @@ function _mkRequest(req, params, bodyBuf) {
     body,
     form,
     files,
+    session,
   };
 }
 
@@ -251,6 +255,82 @@ function _parseMultipart(contentType, bodyLatin1, form, files) {
       form.set(nameM[1], Buffer.from(partBody, 'latin1').toString('utf8'));
     }
   }
+}
+
+// ── Signed cookie sessions ────────────────────────────────────────────
+// HMAC-SHA256 signed Map -> cookie value -> verified Map.  Mirrors the
+// scalascript.server.SessionCookie helper used by the interpreter, so
+// the same cookie packed on the JVM runtime is accepted on Node and
+// vice-versa (given a matching SSC_SESSION_SECRET).
+
+let _sessionSecretCache = null;
+function _sessionSecret() {
+  if (_sessionSecretCache !== null) return _sessionSecretCache;
+  const env = (typeof process !== 'undefined' && process.env) ? process.env.SSC_SESSION_SECRET : undefined;
+  if (env && env.length > 0) {
+    _sessionSecretCache = Buffer.from(env, 'utf-8');
+  } else {
+    const crypto = require('crypto');
+    _sessionSecretCache = crypto.randomBytes(32);
+    if (typeof console !== 'undefined') console.error('[ssc] SSC_SESSION_SECRET not set; using a process-local random key. Sessions will not survive a server restart.');
+  }
+  return _sessionSecretCache;
+}
+function _b64urlEnc(buf) {
+  return buf.toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+function _b64urlDec(s) {
+  const pad = (4 - s.length % 4) % 4;
+  return Buffer.from(s.replace(/-/g, '+').replace(/_/g, '/') + '='.repeat(pad), 'base64');
+}
+function _hmacSha256(body) {
+  const crypto = require('crypto');
+  return crypto.createHmac('sha256', _sessionSecret()).update(body).digest();
+}
+function _sessionJson(map) {
+  // Map<String, String> only — keys/values escaped for JSON.
+  const esc = s => '"' + s.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
+    .replace(/\n/g, '\\n').replace(/\r/g, '\\r').replace(/\t/g, '\\t') + '"';
+  const parts = [];
+  if (map instanceof Map) map.forEach((v, k) => parts.push(esc(String(k)) + ':' + esc(String(v))));
+  else for (const [k, v] of Object.entries(map || {})) parts.push(esc(String(k)) + ':' + esc(String(v)));
+  return '{' + parts.join(',') + '}';
+}
+function _packSession(map) {
+  const body = _b64urlEnc(Buffer.from(_sessionJson(map), 'utf-8'));
+  const sig  = _b64urlEnc(_hmacSha256(body));
+  return body + '.' + sig;
+}
+function _unpackSession(cookieValue) {
+  const dot = cookieValue.indexOf('.');
+  if (dot <= 0 || dot === cookieValue.length - 1) return new Map();
+  const body = cookieValue.substring(0, dot);
+  const sig  = cookieValue.substring(dot + 1);
+  try {
+    const expected = _b64urlEnc(_hmacSha256(body));
+    // Constant-time-ish compare: never short-circuit on first byte.
+    if (expected.length !== sig.length) return new Map();
+    let diff = 0;
+    for (let i = 0; i < expected.length; i++) diff |= expected.charCodeAt(i) ^ sig.charCodeAt(i);
+    if (diff !== 0) return new Map();
+    const json = _b64urlDec(body).toString('utf-8');
+    const parsed = JSON.parse(json);
+    const out = new Map();
+    for (const [k, v] of Object.entries(parsed)) if (typeof v === 'string') out.set(k, v);
+    return out;
+  } catch (e) { return new Map(); }
+}
+function _parseCookieSession(headerValue) {
+  if (!headerValue) return new Map();
+  const pair = headerValue.split(';').map(s => s.trim()).find(s => s.startsWith('session='));
+  if (!pair) return new Map();
+  return _unpackSession(pair.substring('session='.length));
+}
+function _buildSetCookie(map) {
+  const base = 'Path=/; HttpOnly; SameSite=Lax';
+  if (!map || (map instanceof Map ? map.size === 0 : Object.keys(map).length === 0))
+    return 'session=; ' + base + '; Max-Age=0';
+  return 'session=' + _packSession(map) + '; ' + base;
 }
 
 // JSON-encode anything: strings pass through as raw JSON (so hand-built
@@ -301,13 +381,32 @@ function _jsonQuote(s) {
   return out + '"';
 }
 
+// withSession/clearSession attach a `setSession` field; serve()'s
+// response writer turns that into a Set-Cookie header.
+function _withSession(resp, payload) {
+  // Accept either a Map or a plain object/case-class.
+  let m;
+  if (payload instanceof Map) m = payload;
+  else { m = new Map(); for (const [k, v] of Object.entries(payload || {})) m.set(String(k), String(v)); }
+  return { ...resp, setSession: m, withSession: resp.withSession, clearSession: resp.clearSession };
+}
+function _clearSessionOn(resp) {
+  return { ...resp, setSession: new Map(), withSession: resp.withSession, clearSession: resp.clearSession };
+}
+function _mkResp(fields) {
+  const r = { _type: 'Response', ...fields };
+  r.withSession  = function(payload) { return _withSession(this, payload); };
+  r.clearSession = function() { return _clearSessionOn(this); };
+  return r;
+}
+
 const Response = {
-  html(body)     { return { _type: 'Response', status: 200, headers: new Map([['Content-Type', 'text/html; charset=utf-8']]), body: _show(body) }; },
-  text(body)     { return { _type: 'Response', status: 200, headers: new Map([['Content-Type', 'text/plain; charset=utf-8']]), body: _show(body) }; },
-  json(body)     { return { _type: 'Response', status: 200, headers: new Map([['Content-Type', 'application/json']]), body: _toJson(body) }; },
-  redirect(to)   { return { _type: 'Response', status: 302, headers: new Map([['Location', to]]), body: '' }; },
-  notFound(body) { return { _type: 'Response', status: 404, headers: new Map(), body: _show(body ?? 'Not Found') }; },
-  status(code, body) { return { _type: 'Response', status: code, headers: new Map(), body: _show(body ?? '') }; },
+  html(body)     { return _mkResp({ status: 200, headers: new Map([['Content-Type', 'text/html; charset=utf-8']]), body: _show(body) }); },
+  text(body)     { return _mkResp({ status: 200, headers: new Map([['Content-Type', 'text/plain; charset=utf-8']]), body: _show(body) }); },
+  json(body)     { return _mkResp({ status: 200, headers: new Map([['Content-Type', 'application/json']]), body: _toJson(body) }); },
+  redirect(to)   { return _mkResp({ status: 302, headers: new Map([['Location', to]]), body: '' }); },
+  notFound(body) { return _mkResp({ status: 404, headers: new Map(), body: _show(body ?? 'Not Found') }); },
+  status(code, body) { return _mkResp({ status: code, headers: new Map(), body: _show(body ?? '') }); },
 };
 
 // Try to serve a static asset under the cwd; returns true when handled,
@@ -375,6 +474,11 @@ function serve(port) {
           const headers = result && result.headers instanceof Map ? result.headers : new Map();
           if (!headers.has('Content-Type')) headers.set('Content-Type', 'text/plain; charset=utf-8');
           const out = headers ? Object.fromEntries(headers.entries()) : {};
+          // `withSession`/`clearSession` attach a Map at `setSession`. Empty
+          // Map clears the cookie, non-empty packs + signs.
+          if (result && result.setSession !== undefined) {
+            out['Set-Cookie'] = _buildSetCookie(result.setSession);
+          }
           res.writeHead(result.status ?? 200, out);
           res.end(result.body ?? '');
           return;

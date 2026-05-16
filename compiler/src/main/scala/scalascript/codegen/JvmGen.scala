@@ -1258,14 +1258,130 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |  headers: Map[String, String],
        |  body:    String,
        |  form:    Map[String, String]         = Map.empty,
-       |  files:   Map[String, UploadedFile]   = Map.empty
+       |  files:   Map[String, UploadedFile]   = Map.empty,
+       |  session: Map[String, String]         = Map.empty
        |)
        |
        |case class Response(
-       |  status:  Int                 = 200,
-       |  headers: Map[String, String] = Map.empty,
-       |  body:    String              = ""
-       |)
+       |  status:     Int                         = 200,
+       |  headers:    Map[String, String]         = Map.empty,
+       |  body:       String                      = "",
+       |  setSession: Option[Map[String, String]] = None
+       |):
+       |  /** Attach a session payload — HMAC-signed and packed into Set-Cookie. */
+       |  def withSession(payload: Map[String, String]): Response = copy(setSession = Some(payload))
+       |  /** Clear the session cookie (Max-Age=0 on the wire). */
+       |  def clearSession(): Response                            = copy(setSession = Some(Map.empty))
+       |
+       |// ── Signed cookie sessions ──────────────────────────────────────
+       |// HMAC-SHA256-signed Map[String, String] roundtripped through the
+       |// `session=<b64url(json)>.<b64url(hmac)>` cookie format.  Mirrors
+       |// scalascript.server.SessionCookie and the JsGen Node runtime so
+       |// the wire format is identical across all three backends.
+       |private lazy val _sessionSecret: Array[Byte] =
+       |  sys.env.get("SSC_SESSION_SECRET").filter(_.nonEmpty) match
+       |    case Some(s) => s.getBytes("UTF-8")
+       |    case None    =>
+       |      val bytes = new Array[Byte](32)
+       |      java.security.SecureRandom().nextBytes(bytes)
+       |      System.err.println(
+       |        "[ssc] SSC_SESSION_SECRET not set; using a process-local random key. " +
+       |        "Sessions will not survive a server restart."
+       |      )
+       |      bytes
+       |private def _hmacSha256(payload: Array[Byte]): Array[Byte] =
+       |  val mac = javax.crypto.Mac.getInstance("HmacSHA256")
+       |  mac.init(javax.crypto.spec.SecretKeySpec(_sessionSecret, "HmacSHA256"))
+       |  mac.doFinal(payload)
+       |private def _b64urlEnc(b: Array[Byte]): String =
+       |  java.util.Base64.getUrlEncoder.withoutPadding.encodeToString(b)
+       |private def _b64urlDec(s: String): Array[Byte] =
+       |  java.util.Base64.getUrlDecoder.decode(s)
+       |private def _sessionJsonEnc(m: Map[String, String]): String =
+       |  def esc(s: String): String =
+       |    val sb = StringBuilder().append('"')
+       |    var i = 0
+       |    while i < s.length do
+       |      val c = s.charAt(i)
+       |      if c == '"' || c == '\\' then sb.append('\\').append(c)
+       |      else if c == '\n' then sb.append("\\n")
+       |      else if c == '\r' then sb.append("\\r")
+       |      else if c == '\t' then sb.append("\\t")
+       |      else if c < 0x20 then sb.append("\\u%04x".format(c.toInt))
+       |      else sb.append(c)
+       |      i += 1
+       |    sb.append('"').toString
+       |  m.iterator.map((k, v) => esc(k) + ":" + esc(v)).mkString("{", ",", "}")
+       |private def _sessionJsonDec(json: String): Option[Map[String, String]] =
+       |  val t = json.trim
+       |  if !t.startsWith("{") || !t.endsWith("}") then None
+       |  else
+       |    val inner = t.substring(1, t.length - 1).trim
+       |    if inner.isEmpty then Some(Map.empty)
+       |    else try
+       |      var i = 0
+       |      def skipWs(): Unit = while i < inner.length && inner.charAt(i).isWhitespace do i += 1
+       |      def readStr(): String =
+       |        if inner.charAt(i) != '"' then throw RuntimeException("expected quote")
+       |        i += 1
+       |        val sb = StringBuilder()
+       |        while i < inner.length && inner.charAt(i) != '"' do
+       |          val c = inner.charAt(i)
+       |          if c == '\\' && i + 1 < inner.length then
+       |            inner.charAt(i + 1) match
+       |              case '"'  => sb.append('"');  i += 2
+       |              case '\\' => sb.append('\\'); i += 2
+       |              case 'n'  => sb.append('\n'); i += 2
+       |              case 'r'  => sb.append('\r'); i += 2
+       |              case 't'  => sb.append('\t'); i += 2
+       |              case 'u' if i + 5 < inner.length =>
+       |                sb.append(Integer.parseInt(inner.substring(i + 2, i + 6), 16).toChar)
+       |                i += 6
+       |              case _    => sb.append(c); i += 1
+       |          else { sb.append(c); i += 1 }
+       |        if i >= inner.length then throw RuntimeException("unterminated")
+       |        i += 1
+       |        sb.toString
+       |      val out = scala.collection.mutable.LinkedHashMap.empty[String, String]
+       |      while i < inner.length do
+       |        skipWs(); val k = readStr()
+       |        skipWs()
+       |        if i >= inner.length || inner.charAt(i) != ':' then throw RuntimeException("expected colon")
+       |        i += 1
+       |        skipWs(); val v = readStr()
+       |        out(k) = v
+       |        skipWs()
+       |        if i < inner.length then
+       |          if inner.charAt(i) != ',' then throw RuntimeException("expected comma")
+       |          i += 1
+       |      Some(out.toMap)
+       |    catch case _: Throwable => None
+       |private def _packSession(m: Map[String, String]): String =
+       |  val body = _b64urlEnc(_sessionJsonEnc(m).getBytes("UTF-8"))
+       |  val sig  = _b64urlEnc(_hmacSha256(body.getBytes("UTF-8")))
+       |  body + "." + sig
+       |private def _unpackSession(cookieValue: String): Map[String, String] =
+       |  val dot = cookieValue.indexOf('.')
+       |  if dot <= 0 || dot == cookieValue.length - 1 then Map.empty
+       |  else
+       |    val body = cookieValue.substring(0, dot)
+       |    val sig  = cookieValue.substring(dot + 1)
+       |    try
+       |      val expected = _b64urlEnc(_hmacSha256(body.getBytes("UTF-8")))
+       |      if !java.security.MessageDigest.isEqual(
+       |          expected.getBytes("UTF-8"), sig.getBytes("UTF-8")) then Map.empty
+       |      else _sessionJsonDec(String(_b64urlDec(body), "UTF-8")).getOrElse(Map.empty)
+       |    catch case _: Throwable => Map.empty
+       |private def _parseCookieSession(cookieHeader: String): Map[String, String] =
+       |  if cookieHeader == null || cookieHeader.isEmpty then Map.empty
+       |  else cookieHeader.split(';').iterator.map(_.trim)
+       |    .find(_.startsWith("session="))
+       |    .map(p => _unpackSession(p.substring("session=".length)))
+       |    .getOrElse(Map.empty)
+       |private def _buildSetCookie(payload: Map[String, String]): String =
+       |  val base = "Path=/; HttpOnly; SameSite=Lax"
+       |  if payload.isEmpty then s"session=; $base; Max-Age=0"
+       |  else s"session=${_packSession(payload)}; $base"
        |
        |// JSON-encode anything: strings pass through as raw JSON (so hand-
        |// built JSON strings keep working); other values get structural
@@ -1442,8 +1558,12 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |            _parseMultipart(ct, bodyLatin1)
        |          else
        |            (Map.empty[String, String], Map.empty[String, UploadedFile])
+       |        val cookieHeader = headers.collectFirst {
+       |          case (k, v) if k.equalsIgnoreCase("Cookie") => v
+       |        }.getOrElse("")
+       |        val session = _parseCookieSession(cookieHeader)
        |        val req  = Request(method, path, params,
-       |          _parseQuery(ex.getRequestURI.getRawQuery), headers, body, form, files)
+       |          _parseQuery(ex.getRequestURI.getRawQuery), headers, body, form, files, session)
        |        _writeResponse(ex, r.handler(req))
        |      case None =>
        |        // Fall through to a static file under the current directory
@@ -1463,6 +1583,9 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |  r.headers.foreach((k, v) => ex.getResponseHeaders.add(k, v))
        |  if !r.headers.contains("Content-Type") then
        |    ex.getResponseHeaders.add("Content-Type", "text/plain; charset=utf-8")
+       |  r.setSession.foreach { payload =>
+       |    ex.getResponseHeaders.add("Set-Cookie", _buildSetCookie(payload))
+       |  }
        |  val bytes = r.body.getBytes("UTF-8")
        |  ex.sendResponseHeaders(r.status, if bytes.isEmpty then -1L else bytes.length.toLong)
        |  if bytes.nonEmpty then ex.getResponseBody.write(bytes)
