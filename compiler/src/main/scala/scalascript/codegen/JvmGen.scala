@@ -1485,6 +1485,23 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |  val v = java.lang.System.getenv(key)
        |  if v == null || v.isEmpty then defaultVal else v
        |
+       |// ── Rate limiting ─────────────────────────────────────────────
+       |// Fixed-window counter, process-local.  Returns true if allowed
+       |// (and bumps the counter), false if `limit` requests already
+       |// happened within `windowSeconds`.
+       |private case class _RateBucket(count: java.util.concurrent.atomic.AtomicLong, windowStartMs: Long)
+       |private val _rateLimitBuckets = new java.util.concurrent.ConcurrentHashMap[String, _RateBucket]()
+       |def rateLimit(key: String, limit: Long, windowSeconds: Long): Boolean =
+       |  val now      = java.lang.System.currentTimeMillis()
+       |  val windowMs = windowSeconds * 1000L
+       |  val current  = _rateLimitBuckets.get(key)
+       |  if current == null || now - current.windowStartMs >= windowMs then
+       |    _rateLimitBuckets.put(key, _RateBucket(java.util.concurrent.atomic.AtomicLong(1L), now))
+       |    1L <= limit
+       |  else current.count.incrementAndGet() <= limit
+       |def rateLimitReset(key: String): Unit =
+       |  _rateLimitBuckets.remove(key)
+       |
        |// ── TOTP / 2FA (RFC 6238) ─────────────────────────────────────
        |// HMAC-SHA1, 30-second step, 6-digit code, base32 secret —
        |// compatible with Google Authenticator etc.

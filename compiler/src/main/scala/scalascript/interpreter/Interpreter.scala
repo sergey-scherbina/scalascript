@@ -603,6 +603,22 @@ class Interpreter(
       case _ => throw InterpretError("csrfValid(req)")
     }
 
+    // ── Rate limiting ────────────────────────────────────────────────
+    // `rateLimit(key, limit, windowSeconds)` — fixed-window counter.
+    // Returns true if the call is allowed (and bumps the counter),
+    // false if `limit` requests already happened within the window.
+    nativeP("rateLimit") {
+      case List(Value.StringV(key), Value.IntV(lim), Value.IntV(win)) =>
+        Value.BoolV(scalascript.server.RateLimit.tryAcquire(key, lim, win))
+      case _ => throw InterpretError("rateLimit(key: String, limit: Int, windowSeconds: Int)")
+    }
+    nativeP("rateLimitReset") {
+      case List(Value.StringV(key)) =>
+        scalascript.server.RateLimit.reset(key)
+        Value.UnitV
+      case _ => throw InterpretError("rateLimitReset(key: String)")
+    }
+
     // ── TOTP / 2FA (RFC 6238) ────────────────────────────────────────
     // `totpSecret()` mints a base32 secret to share with the user's
     // authenticator app via QR (`totpUri`); `totpCode(secret)` is the

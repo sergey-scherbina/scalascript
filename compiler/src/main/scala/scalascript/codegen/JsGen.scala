@@ -426,6 +426,23 @@ function _parseCookieSession(headerValue) {
   if (!pair) return new Map();
   return _unpackSession(pair.substring('session='.length));
 }
+// ── Rate limiting ─────────────────────────────────────────────────────
+// Fixed-window counter, process-local.  Same surface on all three
+// backends.
+const _rateLimitBuckets = new Map();
+function rateLimit(key, limit, windowSeconds) {
+  const now      = Date.now();
+  const windowMs = windowSeconds * 1000;
+  const current  = _rateLimitBuckets.get(key);
+  if (!current || now - current.windowStartMs >= windowMs) {
+    _rateLimitBuckets.set(key, { count: 1, windowStartMs: now });
+    return 1 <= limit;
+  }
+  current.count += 1;
+  return current.count <= limit;
+}
+function rateLimitReset(key) { _rateLimitBuckets.delete(key); }
+
 // ── TOTP / 2FA (RFC 6238) ─────────────────────────────────────────────
 // Compatible with Google Authenticator etc: HMAC-SHA1, 30-second step,
 // 6-digit code, base32 secret.
