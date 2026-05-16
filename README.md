@@ -94,6 +94,8 @@ compiles them via Scala.js.
 | Default parameters | `def f(x: Int, step: Int = 1)`, also on class/enum constructors |
 | Module imports | `[name](./lib.ssc)` markdown links bring definitions into scope |
 | Content helpers | `doc(...)` / `render(...)` structured output |
+| HTML / CSS interpolators | `html"..."` (auto-escaping) and `css"..."` with `${expr}` |
+| REST primitives | `route(method, path)(handler)` + `Request`/`Response` + `serve(port)` |
 
 JVM interpreter only: `serve` (requires a running interpreter at request time).
 
@@ -117,6 +119,7 @@ JVM interpreter only: `serve` (requires a running interpreter at request time).
 | [default-params.ssc](examples/default-params.ssc) | Default parameter values on defs, classes, and enum cases |
 | [lang-split.ssc](examples/lang-split.ssc) | `scala` vs `scalascript` block annotations side by side |
 | [scala-js-demo.ssc](examples/scala-js-demo.ssc) | Pure `scala` 3 document — JS via Scala.js, JVM via scala-cli (outside interpreter subset) |
+| [rest-api.ssc](examples/rest-api.ssc) | Tiny in-memory REST API — `route()`, `html"..."`, `serve()` |
 
 Run them all at once:
 

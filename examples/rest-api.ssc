@@ -1,0 +1,67 @@
+#!/usr/bin/env ssc
+---
+name: rest-api
+version: 1.0.0
+description: Tiny in-memory todo REST API — demonstrates html"", route() and serve.
+---
+
+# Todo REST API
+
+A two-resource demo: a static list of `todos` plus REST endpoints that read,
+create, and delete them.  The page at `/` renders an HTML view that talks to
+the JSON endpoints.
+
+```scalascript
+var todos: List[String] = List("Buy milk", "Walk the dog", "Write spec")
+
+def jsonArray(items: List[String]): String =
+  val quoted = items.map(s => "\"" + s.replace("\"", "\\\"") + "\"")
+  "[" + quoted.mkString(",") + "]"
+
+// ───────────────────────────────────────────────────────────────
+//  JSON API
+// ───────────────────────────────────────────────────────────────
+
+route("GET", "/api/todos") { req =>
+  Response.json(jsonArray(todos))
+}
+
+route("POST", "/api/todos") { req =>
+  todos = todos ++ List(req.body)
+  Response.status(201, req.body)
+}
+
+route("DELETE", "/api/todos/:id") { req =>
+  val idx = req.params.get("id").get.toInt
+  if idx < 0 || idx >= todos.length then Response.notFound("no such todo")
+  else
+    val before = todos.take(idx)
+    val after  = todos.drop(idx + 1)
+    todos = before ++ after
+    Response.status(204)
+}
+
+// ───────────────────────────────────────────────────────────────
+//  HTML view
+// ───────────────────────────────────────────────────────────────
+
+def renderItem(p: (String, Int)): String =
+  html"<li>${p._1} <small>(#${p._2})</small></li>"
+
+route("GET", "/") { req =>
+  val items = todos.zipWithIndex.map(renderItem).mkString("")
+  Response.html(html"""<!doctype html>
+<html><head><title>Todos</title></head>
+<body>
+  <h1>Todos (${todos.length})</h1>
+  <ul>${raw(items)}</ul>
+  <form method="POST" action="/api/todos" enctype="text/plain">
+    <input name="body" placeholder="New todo" required>
+    <button type="submit">Add</button>
+  </form>
+</body></html>""")
+}
+
+println("Listening on http://localhost:8765/")
+serve(8765)
+```

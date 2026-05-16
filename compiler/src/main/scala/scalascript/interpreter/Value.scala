@@ -51,6 +51,9 @@ object Value:
     case MapV(m)              =>
       if m.isEmpty then "Map()"
       else m.map { case (k, v) => s"${show(k)} -> ${show(v)}" }.mkString("Map(", ", ", ")")
+    case InstanceV("_Raw", fields) =>
+      // Pre-escaped HTML marker produced by `raw(s)`; show unwraps the body.
+      fields.get("html").map(show).getOrElse("")
     case InstanceV(t, fields) =>
       if fields.isEmpty then t
       else fields.values.map(show).mkString(s"$t(", ", ", ")")

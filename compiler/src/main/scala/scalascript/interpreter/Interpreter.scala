@@ -188,6 +188,117 @@ class Interpreter(out: java.io.PrintStream = System.out, baseDir: Option[os.Path
       "E"     -> globals("math.E")
     ))
 
+    // ─── Web primitives: escape, raw, route, Request, Response ────────
+
+    nativeP("escape") {
+      case List(Value.StringV(s)) => Value.StringV(htmlEscape(s))
+      case List(v)                => Value.StringV(htmlEscape(Value.show(v)))
+      case _                      => throw InterpretError("escape(s)")
+    }
+
+    // raw(s) marks a string as pre-escaped HTML so html"..." doesn't re-escape.
+    nativeP("raw") {
+      case List(Value.StringV(s)) => Value.InstanceV("_Raw", Map("html" -> Value.StringV(s)))
+      case List(v)                => Value.InstanceV("_Raw", Map("html" -> Value.StringV(Value.show(v))))
+      case _                      => throw InterpretError("raw(s)")
+    }
+
+    // Response(status, headers, body) — Map-based, all optional.
+    def mkResponse(
+        status:  Int,
+        headers: Map[Value, Value] = Map.empty,
+        body:    String = ""
+    ): Value.InstanceV =
+      Value.InstanceV("Response", Map(
+        "status"  -> Value.IntV(status),
+        "headers" -> Value.MapV(headers),
+        "body"    -> Value.StringV(body)
+      ))
+
+    def bodyOf(v: Value): String = v match
+      case Value.StringV(s)                                    => s
+      case Value.InstanceV("_Raw", fields)                     => fields.get("html").map(Value.show).getOrElse("")
+      case other                                               => Value.show(other)
+
+    nativeP("Response.html") {
+      case List(v) =>
+        Value.InstanceV("Response", Map(
+          "status"  -> Value.IntV(200),
+          "headers" -> Value.MapV(Map(Value.StringV("Content-Type") -> Value.StringV("text/html; charset=utf-8"))),
+          "body"    -> Value.StringV(bodyOf(v))
+        ))
+      case _ => throw InterpretError("Response.html(body)")
+    }
+    nativeP("Response.text") {
+      case List(v) => mkResponse(200, Map(Value.StringV("Content-Type") -> Value.StringV("text/plain; charset=utf-8")), bodyOf(v))
+      case _       => throw InterpretError("Response.text(body)")
+    }
+    nativeP("Response.json") {
+      case List(v) => mkResponse(200, Map(Value.StringV("Content-Type") -> Value.StringV("application/json")), bodyOf(v))
+      case _       => throw InterpretError("Response.json(body)")
+    }
+    nativeP("Response.redirect") {
+      case List(Value.StringV(loc)) => mkResponse(302, Map(Value.StringV("Location") -> Value.StringV(loc)), "")
+      case _ => throw InterpretError("Response.redirect(url)")
+    }
+    nativeP("Response.notFound") {
+      case Nil      => mkResponse(404, body = "Not Found")
+      case List(v)  => mkResponse(404, body = bodyOf(v))
+      case _        => throw InterpretError("Response.notFound([body])")
+    }
+    nativeP("Response.status") {
+      case List(Value.IntV(s))                       => mkResponse(s.toInt)
+      case List(Value.IntV(s), v)                    => mkResponse(s.toInt, body = bodyOf(v))
+      case _                                         => throw InterpretError("Response.status(code[, body])")
+    }
+    // Response companion object — fields call the underlying natives.
+    globals("Response") = Value.InstanceV("Response", Map(
+      "html"     -> globals("Response.html"),
+      "text"     -> globals("Response.text"),
+      "json"     -> globals("Response.json"),
+      "redirect" -> globals("Response.redirect"),
+      "notFound" -> globals("Response.notFound"),
+      "status"   -> globals("Response.status")
+    ))
+
+    // route(method, path)(handler) — registers a handler in the global table.
+    // Path syntax: literal segments + `:name` captures (e.g. /users/:id).
+    nativeP("route") {
+      case List(Value.StringV(method), Value.StringV(path)) =>
+        // Curried — return a fn that takes the handler.
+        Value.NativeFnV("route.handler", Computation.pureFn {
+          case List(handler) =>
+            scalascript.server.Routes.register(method, path, handler, this)
+            Value.UnitV
+          case _ => throw InterpretError("route(method, path) { handler }")
+        })
+      case _ => throw InterpretError("route(method, path) { handler }")
+    }
+
+  /** Invoke an interpreter Value (closure or native fn) from outside —
+   *  used by WebServer to call route handlers in response to HTTP requests. */
+  def invoke(fn: Value, args: List[Value]): Value =
+    Computation.run(callValue(fn, args, Map.empty))
+
+  /** HTML-escape a string for safe interpolation in an html block. */
+  private def htmlEscape(s: String): String =
+    val sb = StringBuilder()
+    s.foreach {
+      case '&'  => sb ++= "&amp;"
+      case '<'  => sb ++= "&lt;"
+      case '>'  => sb ++= "&gt;"
+      case '"'  => sb ++= "&quot;"
+      case '\'' => sb ++= "&#39;"
+      case c    => sb += c
+    }
+    sb.toString
+
+  /** Escape `rendered` unless the underlying value is a `raw(...)` marker,
+   *  in which case the marker's body is already trusted HTML. */
+  private def htmlEscapeUnlessRaw(v: Value, rendered: String): String = v match
+    case Value.InstanceV("_Raw", _) => rendered
+    case _                          => htmlEscape(rendered)
+
   def exportedGlobals: Map[String, Value] = globals.toMap
 
   // ─── Section / block execution ───────────────────────────────────
@@ -266,7 +377,9 @@ class Interpreter(out: java.io.PrintStream = System.out, baseDir: Option[os.Path
       val paramVals = d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values).toList
       val params    = paramVals.map(_.name.value)
       val defaults  = paramVals.map(_.default)
-      val fn: Value.FunV = Value.FunV(params, d.body, env.toMap, d.name.value, defaults)
+      // See Term.Function above for why we drop globals from the capture.
+      val capturedEnv = env.toMap -- globals.keys
+      val fn: Value.FunV = Value.FunV(params, d.body, capturedEnv, d.name.value, defaults)
       env(d.name.value) = fn
       if d.name.value == "main" && params.isEmpty then mainCalled = false
 
@@ -462,13 +575,18 @@ class Interpreter(out: java.io.PrintStream = System.out, baseDir: Option[os.Path
         case other              => located(s"if condition must be Boolean, got ${Value.show(other)}")
       }
 
-    // String interpolation s"..." / f"..." / md"..."
-    case Term.Interpolate(Term.Name(prefix), parts, args) if prefix == "s" || prefix == "f" || prefix == "md" =>
+    // String interpolation s"..." / f"..." / md"..." / html"..." / css"..."
+    case Term.Interpolate(Term.Name(prefix), parts, args)
+        if prefix == "s" || prefix == "f" || prefix == "md"
+        || prefix == "html" || prefix == "css" =>
       evalArgs(args.map(_.asInstanceOf[Term]), env) { argVs =>
         val sb = StringBuilder()
         for i <- parts.indices do
           sb ++= parts(i).asInstanceOf[Lit.String].value
-          if i < argVs.length then sb ++= Value.show(argVs(i))
+          if i < argVs.length then
+            val rendered = Value.show(argVs(i))
+            // html"..." escapes interpolated values unless wrapped in raw(...).
+            sb ++= (if prefix == "html" then htmlEscapeUnlessRaw(argVs(i), rendered) else rendered)
         val raw = sb.toString
         Pure(Value.StringV(if prefix == "md" then stripIndent(raw) else raw))
       }
@@ -491,7 +609,10 @@ class Interpreter(out: java.io.PrintStream = System.out, baseDir: Option[os.Path
 
     // Lambda  x => body  or  (x, y) => body
     case Term.Function.After_4_6_0(paramClause, body) =>
-      Pure(Value.FunV(paramClause.values.map(_.name.value), body, env))
+      // Capture only true locals — keys that aren't shadowed by mutable
+      // module-level state in `globals`.  Otherwise a `var` reassigned after
+      // the lambda is built would still read its capture-time snapshot.
+      Pure(Value.FunV(paramClause.values.map(_.name.value), body, env -- globals.keys))
 
     // Partial function  { case pat => body; ... }  — e.g. xs.map { case (k, v) => ... }
     case Term.PartialFunction(cases) =>

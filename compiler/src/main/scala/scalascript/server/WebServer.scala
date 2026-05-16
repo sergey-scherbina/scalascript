@@ -7,6 +7,7 @@ import com.sun.net.httpserver.{HttpServer as JHttpServer, HttpExchange}
 import org.commonmark.parser.{Parser as CmParser}
 import org.commonmark.renderer.html.HtmlRenderer
 import java.net.InetSocketAddress
+import scala.jdk.CollectionConverters.*
 
 /** Minimal HTTP server that serves .ssc files as HTML pages.
  *
@@ -32,20 +33,89 @@ object WebServer:
 
   private def handle(root: String, log: java.io.PrintStream, ex: HttpExchange): Unit =
     try
+      val method  = ex.getRequestMethod
       val rawPath = ex.getRequestURI.getPath
-      val filePath = resolveSsc(root, rawPath)
-      val file = java.io.File(filePath)
-      val (status, body) =
-        if file.exists() then (200, renderFile(file))
-        else (404, page("404", s"<h1>404</h1><p>Not found: <code>$rawPath</code></p>"))
-      val bytes = body.getBytes("UTF-8")
-      ex.getResponseHeaders.add("Content-Type", "text/html; charset=utf-8")
-      ex.sendResponseHeaders(status, bytes.length)
-      ex.getResponseBody.write(bytes)
+      Routes.matchRequest(method, rawPath) match
+        case Some((entry, params)) =>
+          dispatchRoute(entry, params, ex)
+        case None =>
+          // Fall back to static .ssc page rendering (GET only).
+          val filePath = resolveSsc(root, rawPath)
+          val file = java.io.File(filePath)
+          val (status, body) =
+            if file.exists() then (200, renderFile(file))
+            else (404, page("404", s"<h1>404</h1><p>Not found: <code>$rawPath</code></p>"))
+          val bytes = body.getBytes("UTF-8")
+          ex.getResponseHeaders.add("Content-Type", "text/html; charset=utf-8")
+          ex.sendResponseHeaders(status, bytes.length)
+          ex.getResponseBody.write(bytes)
     catch case e: Exception =>
       log.println(s"Error: ${e.getMessage}")
     finally
       ex.close()
+
+  /** Invoke the user's route handler closure with a `Request` value, then
+   *  serialise its returned `Response` value back to the HTTP exchange. */
+  private def dispatchRoute(
+      entry:  Routes.Entry,
+      params: Map[String, String],
+      ex:     HttpExchange
+  ): Unit =
+    import scalascript.interpreter.Value
+    val query = parseQuery(Option(ex.getRequestURI.getRawQuery).getOrElse(""))
+    val headers: Map[Value, Value] =
+      ex.getRequestHeaders.entrySet.iterator.asScala.flatMap { e =>
+        if e.getValue.isEmpty then None
+        else Some(Value.StringV(e.getKey) -> Value.StringV(e.getValue.get(0)))
+      }.toMap
+    val body = scala.io.Source.fromInputStream(ex.getRequestBody, "UTF-8").mkString
+    val req = Value.InstanceV("Request", Map(
+      "method"  -> Value.StringV(ex.getRequestMethod),
+      "path"    -> Value.StringV(ex.getRequestURI.getPath),
+      "params"  -> Value.MapV(params.map((k, v) => Value.StringV(k) -> Value.StringV(v))),
+      "query"   -> Value.MapV(query.map((k, v) => Value.StringV(k) -> Value.StringV(v))),
+      "headers" -> Value.MapV(headers),
+      "body"    -> Value.StringV(body)
+    ))
+    val result = entry.interpreter.invoke(entry.handler, List(req))
+    writeResponse(result, ex)
+
+  private def writeResponse(v: scalascript.interpreter.Value, ex: HttpExchange): Unit =
+    import scalascript.interpreter.Value
+    val (status, headers, body) = v match
+      case Value.InstanceV("Response", fields) =>
+        val s = fields.get("status") match
+          case Some(Value.IntV(n)) => n.toInt
+          case _                   => 200
+        val h = fields.get("headers") match
+          case Some(Value.MapV(m)) =>
+            m.collect { case (Value.StringV(k), Value.StringV(v)) => k -> v }.toMap
+          case _ => Map.empty[String, String]
+        val b = fields.get("body") match
+          case Some(Value.StringV(s)) => s
+          case Some(other)            => Value.show(other)
+          case None                   => ""
+        (s, h, b)
+      case Value.StringV(s)  => (200, Map("Content-Type" -> "text/plain; charset=utf-8"), s)
+      case Value.UnitV       => (204, Map.empty[String, String], "")
+      case other             => (200, Map("Content-Type" -> "text/plain; charset=utf-8"), Value.show(other))
+    headers.foreach((k, v) => ex.getResponseHeaders.add(k, v))
+    if !headers.contains("Content-Type") then
+      ex.getResponseHeaders.add("Content-Type", "text/plain; charset=utf-8")
+    val bytes = body.getBytes("UTF-8")
+    ex.sendResponseHeaders(status, if bytes.isEmpty then -1 else bytes.length.toLong)
+    if bytes.nonEmpty then ex.getResponseBody.write(bytes)
+
+  private def parseQuery(q: String): Map[String, String] =
+    if q.isEmpty then Map.empty
+    else q.split('&').iterator.flatMap { pair =>
+      val i = pair.indexOf('=')
+      if i < 0 then Some(java.net.URLDecoder.decode(pair, "UTF-8") -> "")
+      else Some(
+        java.net.URLDecoder.decode(pair.substring(0, i), "UTF-8") ->
+        java.net.URLDecoder.decode(pair.substring(i + 1), "UTF-8")
+      )
+    }.toMap
 
   private def resolveSsc(root: String, urlPath: String): String =
     val clean = urlPath.stripSuffix("/").stripSuffix(".ssc")
