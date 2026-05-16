@@ -68,6 +68,37 @@ Known bugs and rough edges that need a separate pass.
   outside the interpreter's subset).  Either broaden the interpreter or
   remove the file's interpreter expectation.
 
+## v0.5 — Interpreter performance (Tier 1)
+
+The tree-walking interpreter runs ~1000× slower than the compiled paths
+on call-heavy workloads (see `bench/`).  This is by design — the
+interpreter exists for instant-startup interactive use, not throughput.
+But the worst offenders are easy to attack without an architectural
+rewrite, with a realistic target of **~5×** overall.
+
+- **Slot-indexed variable resolution.**  Pre-pass rewrites every
+  `Term.Name("x")` into a `LocalSlot(i)` against a per-scope index.
+  Lookups become array indexing instead of two HashMap probes (`env`
+  then `globals`).  Highest-impact change.
+- **Cached function resolution at call sites.**  At a `Term.Apply` the
+  callee is currently re-resolved by name on every invocation.  Cache
+  the resolved `FunV` / `NativeFnV` at the call site after the first
+  resolve, invalidate on rebinding.
+- **Constant folding in the parser.**  Literals in
+  `if n < 2 then ...` are re-boxed into `Value.IntV(2)` on every visit.
+  Hoist literal-to-`Value` conversion to parse time.
+- **Skip `Computation` wrapping on pure paths.**  Functions without
+  reachable effects (already known from `analyzeEffects`) shouldn't
+  pay the `Pure(...)` allocation per step — return raw `Value`.
+- **Integer fast path in the `infix` table.**  Match `(Int, op, Int)`
+  before the generic pattern table so primitive arithmetic doesn't
+  pay the full dispatch cost.
+
+Re-benchmark after each step; commit only if the median moves more
+than measurement noise.  Tier 2 (bytecode IR) and Tier 3 (JVM-bytecode
+JIT or Truffle/Graal) are out of scope until a real workload demands
+them — `ssc compile` already covers throughput.
+
 ## Beyond
 
 Larger features that aren't on the critical path but are worth keeping in
