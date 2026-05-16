@@ -1,0 +1,57 @@
+#!/usr/bin/env ssc
+---
+name: layout
+description: Site layout — doctype + sticky nav + body + footer.
+---
+
+# Layout
+
+`Layout.render(title, body, styles, current)` wraps a page in the site
+chrome: `<!doctype html>`, a sticky header with three nav links, the
+page body, and a footer.  `current` is the URL path of the active
+nav link so it can be visually highlighted.
+
+```scalascript
+object Layout:
+  private val s = scope("Layout")
+
+  val css: String = s.css("""
+    body { font: 1rem/1.5 system-ui, sans-serif; margin: 0; color: #111827; }
+    .header { position: sticky; top: 0; background: #2563eb; color: #fff;
+              padding: .8em 1.2em; box-shadow: 0 2px 4px rgba(0,0,0,.1); }
+    .header h1 { display: inline; margin: 0; font-size: 1.1em; }
+    .nav { display: inline; margin-left: 2em; }
+    .nav a { color: #dbeafe; margin-right: 1em; text-decoration: none; }
+    .nav a.current { color: #fff; font-weight: 600; }
+    .main { max-width: 720px; margin: 2rem auto; padding: 0 1rem; }
+    .footer { color: #6b7280; text-align: center; padding: 2em 0; font-size: .9em; }
+  """)
+
+  private def navLink(href: String, label: String, current: String): String =
+    val cls = if current == href then s.cls("current") else ""
+    html"""<a href="${href}" class="${cls}">${label}</a>"""
+
+  def render(title: String, body: String, styles: String = "", current: String = "/"): String =
+    val nav = html"""<nav class="${s.cls("nav")}">
+      ${raw(navLink("/",        "Home",    current))}
+      ${raw(navLink("/about",   "About",   current))}
+      ${raw(navLink("/contact", "Contact", current))}
+    </nav>"""
+    html"""<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>${title}</title>
+  <style>${raw(css)}
+${raw(styles)}</style>
+</head>
+<body>
+  <header class="${s.cls("header")}">
+    <h1>ScalaScript site</h1>
+    ${raw(nav)}
+  </header>
+  <main class="${s.cls("main")}">${raw(body)}</main>
+  <footer class="${s.cls("footer")}">Built with ssc build.</footer>
+</body>
+</html>"""
+```

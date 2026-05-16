@@ -1,0 +1,29 @@
+#!/usr/bin/env ssc
+---
+name: site-contact
+description: Contact page of the multi-page site example.
+routes:
+  - method: GET
+    path: /contact
+    handler: contactPage
+---
+
+# Contact
+
+[Layout](./components/layout.ssc)
+
+```scalascript
+def contactPage(req: Request): Response =
+  val body = html"""
+    <h2>Contact</h2>
+    <p>Reach out via the project's GitHub repository.</p>
+    <ul>
+      <li>GitHub: <a href="https://github.com/sergey-scherbina/scalascript">sergey-scherbina/scalascript</a></li>
+      <li>Spec: see <code>SPEC.md</code> in the repo root.</li>
+    </ul>
+  """
+  Response.html(Layout.render("Contact — ScalaScript site", body, "", "/contact"))
+
+println("Listening on http://localhost:8770/")
+serve(8770)
+```

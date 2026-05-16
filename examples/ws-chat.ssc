@@ -1,0 +1,86 @@
+#!/usr/bin/env ssc
+---
+name: ws-chat
+version: 1.0.0
+description: Tiny WebSocket chat — every client sees every message.  Same .ssc on interpreter, JsGen, and JvmGen.
+---
+
+# WebSocket Chat
+
+A one-room chat demo.  Open the page in two browser tabs, type, watch
+both see each other.  The server keeps a list of connected sockets and
+broadcasts every incoming message to all of them.
+
+The same `onWebSocket(path) { ws => … }` API works on all three
+backends:
+
+  - Interpreter — `ssc ws-chat.ssc` (NIO proxy in front of the
+    interpreter's `HttpServer`).
+  - JsGen — `jssc ws-chat.ssc` (Node's `server.on('upgrade')`, pure
+    stdlib, no `ws` npm dependency).
+  - JvmGen — `sscc ws-chat.ssc` (blocking-IO proxy compiled into the
+    emitted Scala source).
+
+## State
+
+```scalascript
+var clients: List[WebSocket] = List()
+
+def broadcast(msg: String): Unit =
+  clients.foreach { c => c.send(msg) }
+```
+
+## WebSocket route
+
+```scalascript
+onWebSocket("/chat") { ws =>
+  clients = ws :: clients
+  broadcast("[user joined]  total: " + clients.length)
+
+  ws.onMessage { msg =>
+    broadcast(msg)
+  }
+
+  ws.onClose { () =>
+    clients = clients.filter(c => c != ws)
+    broadcast("[user left]  total: " + clients.length)
+  }
+}
+```
+
+## HTML page
+
+```scalascript
+route("GET", "/") { req =>
+  Response.html(html"""<!doctype html>
+<html><head><title>WS Chat</title></head>
+<body>
+  <h1>WebSocket chat</h1>
+  <input id="msg" placeholder="say something" autofocus>
+  <button id="send">send</button>
+  <ul id="log"></ul>
+  <script>
+    const ws = new WebSocket(`ws://${location.host}/chat`);
+    const log = document.getElementById('log');
+    ws.onmessage = (e) => {
+      const li = document.createElement('li');
+      li.textContent = e.data;
+      log.prepend(li);
+    };
+    document.getElementById('send').onclick = () => {
+      const m = document.getElementById('msg');
+      if (m.value) { ws.send(m.value); m.value = ''; }
+    };
+    document.getElementById('msg').addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') document.getElementById('send').click();
+    });
+  </script>
+</body></html>""")
+}
+```
+
+## Listen
+
+```scalascript
+serve(8080)
+```

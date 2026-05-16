@@ -172,6 +172,16 @@ for (const [k, v] of Object.entries(__tagBindings)) {
 // nanosecond-scale return type across backends.
 function nanoTime() { return Date.now() * 1_000_000; }
 
+// Environment variable reader — Node has process.env; the browser
+// SPA target has no env, so getenv() falls back to its default in that
+// case so the user code keeps compiling cleanly.
+function getenv(key, defaultVal) {
+  const env = (typeof process !== 'undefined' && process.env) ? process.env : {};
+  const v   = env[key];
+  if (v === undefined || v === null || v === '') return defaultVal ?? '';
+  return v;
+}
+
 // ── REST routing + serve(port) ─────────────────────────────────────────
 // Matches the interpreter / JVM-backend semantics: route(method, path)
 // registers a closure, serve(port) starts Node's http.createServer and
@@ -179,6 +189,7 @@ function nanoTime() { return Date.now() * 1_000_000; }
 // needed.  Browser-side execution is intentionally out of scope: this
 // runtime require()s 'http' which only exists in Node.
 const _routes = [];
+const _wsRoutes = [];
 
 function _parsePath(p) {
   return p.split('/').filter(s => s.length > 0).map(s =>
@@ -189,6 +200,16 @@ function _parsePath(p) {
 function route(method, path) {
   return function(handler) {
     _routes.push({ method: method.toUpperCase(), pattern: _parsePath(path), handler });
+  };
+}
+
+// onWebSocket(path)(handler) — handler receives a WebSocket object with
+// `send` / `close` methods and `onMessage` / `onClose` registration.
+// Path matching shares `_parsePath` with `route` (literal + `:name`
+// captures), so `/chat/:room` works the same way for both.
+function onWebSocket(path) {
+  return function(handler) {
+    _wsRoutes.push({ pattern: _parsePath(path), handler });
   };
 }
 
@@ -394,8 +415,18 @@ function _parseCookieSession(headerValue) {
   if (!pair) return new Map();
   return _unpackSession(pair.substring('session='.length));
 }
+// Cookie security config — secure flag + SameSite policy, set via
+// the top-level cookieConfig(secure, sameSite) call.  Production
+// HTTPS deployments should flip secure=true.
+let _cookieSecure   = false;
+let _cookieSameSite = 'Lax';
+function cookieConfig(secure, sameSite) {
+  _cookieSecure = !!secure;
+  if (typeof sameSite === 'string' && (sameSite === 'Strict' || sameSite === 'Lax' || sameSite === 'None'))
+    _cookieSameSite = sameSite;
+}
 function _buildSetCookie(map) {
-  const base = 'Path=/; HttpOnly; SameSite=Lax';
+  const base = 'Path=/; HttpOnly; SameSite=' + _cookieSameSite + (_cookieSecure ? '; Secure' : '');
   if (!map || (map instanceof Map ? map.size === 0 : Object.keys(map).length === 0))
     return 'session=; ' + base + '; Max-Age=0';
   return 'session=' + _packSession(map) + '; ' + base;
@@ -530,11 +561,13 @@ const _oauthProviders = {
   google: {
     authorizeUrl: 'https://accounts.google.com/o/oauth2/v2/auth',
     tokenUrl:     'https://oauth2.googleapis.com/token',
+    userinfoUrl:  'https://www.googleapis.com/oauth2/v3/userinfo',
     defaultScope: 'openid email profile',
   },
   github: {
     authorizeUrl: 'https://github.com/login/oauth/authorize',
     tokenUrl:     'https://github.com/login/oauth/access_token',
+    userinfoUrl:  'https://api.github.com/user',
     defaultScope: 'user:email',
   },
 };
@@ -550,12 +583,73 @@ function oauthAuthorizeUrl(provider, clientId, redirectUri, state, scope) {
   if (eff) params.set('scope', eff);
   return cfg.authorizeUrl + '?' + params.toString();
 }
-// Node's fetch is async — the synchronous oauthExchangeCode contract
-// from the interpreter / JVM backends doesn't translate cleanly, so
-// the JS Node runtime issues the token POST via a blocking sub-process
-// (curl).  Not pretty, but it gives byte-identical semantics across
-// backends without dragging in deasync or rewriting the user code to
-// be async.
+// Node's fetch is async; the OAuth surface across backends is sync.
+// We bridge the gap with worker_threads + Atomics.wait: spawn a Worker
+// that does `await fetch(...)` and posts the result back through a
+// MessageChannel; the main thread blocks on Atomics.wait until the
+// Worker signals completion, then drains the message synchronously
+// via receiveMessageOnPort.  Pure Node built-ins — no external binary,
+// no extra dependencies.  Worker creation is ~50-100ms one-time;
+// OAuth flows are rare (once per login) so we don't pool.
+function _oauthSyncFetch(method, url, headers, body) {
+  const { Worker, MessageChannel, receiveMessageOnPort } = require('worker_threads');
+  const sab  = new SharedArrayBuffer(4);
+  const flag = new Int32Array(sab);
+  const { port1, port2 } = new MessageChannel();
+  const workerSrc = [
+    'const { parentPort, workerData } = require(\'worker_threads\');',
+    'const flag = new Int32Array(workerData.sab);',
+    'const port = workerData.port;',
+    '(async () => {',
+    '  let msg;',
+    '  try {',
+    '    const r = await fetch(workerData.url, {',
+    '      method:  workerData.method,',
+    '      headers: workerData.headers,',
+    '      body:    workerData.body,',
+    '    });',
+    '    const text = await r.text();',
+    '    const ct   = r.headers.get(\'content-type\') || \'\';',
+    '    msg = { ok: r.ok, status: r.status, contentType: ct, body: text };',
+    '  } catch (e) {',
+    '    msg = { ok: false, error: String(e) };',
+    '  }',
+    '  port.postMessage(msg);',
+    '  Atomics.store(flag, 0, 1);',
+    '  Atomics.notify(flag, 0);',
+    '})();',
+  ].join('\n');
+  const worker = new Worker(workerSrc, {
+    eval: true,
+    workerData: { sab, port: port2, url, method, headers, body },
+    transferList: [port2],
+  });
+  // Block the main thread until the worker bumps the flag.  Cap at 35s
+  // so a dead provider doesn't hang the route handler forever.
+  Atomics.wait(flag, 0, 0, 35_000);
+  const drained = receiveMessageOnPort(port1);
+  worker.terminate();
+  port1.close();
+  return drained ? drained.message : { ok: false, error: 'timeout' };
+}
+function _oauthDecodeBody(r) {
+  if (!r.ok) return null;
+  if (r.body.trim().startsWith('{') || (r.contentType || '').toLowerCase().includes('application/json'))
+    try { return JSON.parse(r.body); } catch (_) { return null; }
+  // application/x-www-form-urlencoded (GitHub default for /token)
+  const parsed = new URLSearchParams(r.body);
+  const obj = {};
+  for (const [k, v] of parsed) obj[k] = v;
+  return obj;
+}
+function _oauthMapFrom(obj) {
+  if (!obj) return null;
+  const m = new Map();
+  for (const [k, v] of Object.entries(obj))
+    m.set(k, (v === null || typeof v === 'object') ? JSON.stringify(v) : String(v));
+  return m;
+}
+
 function oauthExchangeCode(provider, code, clientId, clientSecret, redirectUri) {
   const cfg = _oauthProviders[provider];
   if (!cfg) return _None;
@@ -565,27 +659,44 @@ function oauthExchangeCode(provider, code, clientId, clientSecret, redirectUri) 
   params.set('client_id',     clientId);
   params.set('client_secret', clientSecret);
   params.set('redirect_uri',  redirectUri);
+  const r = _oauthSyncFetch('POST', cfg.tokenUrl,
+    { 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json' },
+    params.toString());
+  const m = _oauthMapFrom(_oauthDecodeBody(r));
+  return m ? _Some(m) : _None;
+}
+function oauthRegisterProvider(name, cfg) {
+  const out = {};
+  if (cfg instanceof Map) cfg.forEach((v, k) => out[String(k)] = String(v));
+  else for (const [k, v] of Object.entries(cfg || {})) out[String(k)] = String(v);
+  _oauthProviders[name] = { ..._oauthProviders[name], ...out };
+}
+function oauthRefreshToken(provider, refreshToken, clientId, clientSecret) {
+  const cfg = _oauthProviders[provider];
+  if (!cfg) return _None;
+  const params = new URLSearchParams();
+  params.set('grant_type',    'refresh_token');
+  params.set('refresh_token', refreshToken);
+  params.set('client_id',     clientId);
+  params.set('client_secret', clientSecret);
+  const r = _oauthSyncFetch('POST', cfg.tokenUrl,
+    { 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json' },
+    params.toString());
+  const m = _oauthMapFrom(_oauthDecodeBody(r));
+  return m ? _Some(m) : _None;
+}
+function oauthUserinfo(provider, accessToken) {
+  const cfg = _oauthProviders[provider];
+  if (!cfg || !cfg.userinfoUrl) return _None;
+  const r = _oauthSyncFetch('GET', cfg.userinfoUrl,
+    { 'Authorization': 'Bearer ' + accessToken,
+      'Accept':        'application/json',
+      'User-Agent':    'scalascript-oauth/0.6' },
+    undefined);
+  if (!r.ok || !r.body.trim().startsWith('{')) return _None;
   try {
-    const { execFileSync } = require('child_process');
-    const body = params.toString();
-    const out  = execFileSync('curl', [
-      '-sS', '--fail-with-body',
-      '-H', 'Content-Type: application/x-www-form-urlencoded',
-      '-H', 'Accept: application/json',
-      '-X', 'POST',
-      '--data', body,
-      cfg.tokenUrl,
-    ], { encoding: 'utf-8', timeout: 30000 });
-    let obj;
-    if (out.trim().startsWith('{')) obj = JSON.parse(out);
-    else {
-      const parsed = new URLSearchParams(out);
-      obj = {};
-      for (const [k, v] of parsed) obj[k] = v;
-    }
-    const m = new Map();
-    for (const [k, v] of Object.entries(obj)) m.set(k, String(v));
-    return _Some(m);
+    const m = _oauthMapFrom(JSON.parse(r.body));
+    return m ? _Some(m) : _None;
   } catch (e) { return _None; }
 }
 
@@ -736,9 +847,196 @@ function _contentTypeFor(name) {
   return 'application/octet-stream';
 }
 
+// ── WebSocket framing (RFC 6455) ───────────────────────────────────────
+// Pure-Node implementation — `crypto` for the handshake hash, raw
+// `net.Socket` writes for frames.  No `ws` npm dependency.
+
+const _WS_MAGIC = '258EAFA5-E914-47DA-95CA-C5AB0DC85B11';
+
+function _wsAcceptKey(clientKey) {
+  const crypto = require('crypto');
+  return crypto.createHash('sha1').update(clientKey + _WS_MAGIC).digest('base64');
+}
+
+// Try to parse one frame starting at `offset` in `buf`.  Returns
+// `{ fin, opcode, payload, consumed }` on success or `null` when more
+// bytes are needed.  Throws on a protocol error (unknown opcode,
+// oversized payload) — caller should close.
+function _wsParseFrame(buf, offset) {
+  const avail = buf.length - offset;
+  if (avail < 2) return null;
+  const b0 = buf[offset];
+  const b1 = buf[offset + 1];
+  const fin    = (b0 & 0x80) !== 0;
+  const opcode = b0 & 0x0F;
+  const masked = (b1 & 0x80) !== 0;
+  const len7   = b1 & 0x7F;
+  let hdrLen = 2;
+  let payloadLen;
+  if (len7 <= 125) payloadLen = len7;
+  else if (len7 === 126) {
+    if (avail < 4) return null;
+    payloadLen = buf.readUInt16BE(offset + 2);
+    hdrLen = 4;
+  } else {
+    if (avail < 10) return null;
+    const big = buf.readBigUInt64BE(offset + 2);
+    if (big > BigInt(0x7fffffff)) throw new Error('frame too large');
+    payloadLen = Number(big);
+    hdrLen = 10;
+  }
+  const maskLen = masked ? 4 : 0;
+  const totalLen = hdrLen + maskLen + payloadLen;
+  if (avail < totalLen) return null;
+  const payload = Buffer.allocUnsafe(payloadLen);
+  const payloadStart = offset + hdrLen + maskLen;
+  if (masked) {
+    const m = buf.slice(offset + hdrLen, offset + hdrLen + 4);
+    for (let i = 0; i < payloadLen; i++)
+      payload[i] = buf[payloadStart + i] ^ m[i & 3];
+  } else if (payloadLen > 0) {
+    buf.copy(payload, 0, payloadStart, payloadStart + payloadLen);
+  }
+  return { fin, opcode, payload, consumed: totalLen };
+}
+
+function _wsEncodeFrame(opcode, payload) {
+  const len = payload.length;
+  let buf;
+  if (len <= 125) {
+    buf = Buffer.allocUnsafe(2 + len);
+    buf[0] = 0x80 | opcode;
+    buf[1] = len;
+    payload.copy(buf, 2);
+  } else if (len <= 0xFFFF) {
+    buf = Buffer.allocUnsafe(4 + len);
+    buf[0] = 0x80 | opcode;
+    buf[1] = 126;
+    buf.writeUInt16BE(len, 2);
+    payload.copy(buf, 4);
+  } else {
+    buf = Buffer.allocUnsafe(10 + len);
+    buf[0] = 0x80 | opcode;
+    buf[1] = 127;
+    buf.writeBigUInt64BE(BigInt(len), 2);
+    payload.copy(buf, 10);
+  }
+  return buf;
+}
+
+function _wsEncodeText(s)    { return _wsEncodeFrame(0x1, Buffer.from(String(s), 'utf-8')); }
+function _wsEncodePong(p)    { return _wsEncodeFrame(0xA, p); }
+function _wsEncodeClose(code, reason) {
+  const r = Buffer.from(reason || '', 'utf-8');
+  const p = Buffer.allocUnsafe(2 + r.length);
+  p.writeUInt16BE(code, 0);
+  r.copy(p, 2);
+  return _wsEncodeFrame(0x8, p);
+}
+
+// Build the `WebSocket` value the handler receives — wraps `socket`
+// with `send` / `close` / `onMessage` / `onClose` and pumps inbound
+// frames through `_wsParseFrame`.  Control frames (ping/close) are
+// handled here; text/binary frames invoke `onMessage` if registered.
+function _wsMakeWebSocket(socket) {
+  let onMessage = null;
+  let onClose   = null;
+  let closing   = false;
+  let inBuf     = Buffer.alloc(0);
+
+  const ws = {
+    _type: 'WebSocket',
+    send: (s) => {
+      if (!closing && !socket.destroyed) socket.write(_wsEncodeText(s));
+    },
+    close: (code, reason) => {
+      if (!closing && !socket.destroyed) {
+        closing = true;
+        socket.write(_wsEncodeClose(code ?? 1000, reason ?? ''));
+        socket.end();
+      }
+    },
+    onMessage: (cb) => { onMessage = cb; },
+    onClose:   (cb) => { onClose   = cb; }
+  };
+
+  socket.on('data', chunk => {
+    inBuf = inBuf.length === 0 ? chunk : Buffer.concat([inBuf, chunk]);
+    let offset = 0;
+    try {
+      while (true) {
+        const f = _wsParseFrame(inBuf, offset);
+        if (!f) break;
+        offset += f.consumed;
+        switch (f.opcode) {
+          case 0x9: socket.write(_wsEncodePong(f.payload)); break;            // ping
+          case 0xA: break;                                                     // pong
+          case 0x8: {                                                          // close
+            const status = f.payload.length >= 2 ? f.payload.readUInt16BE(0) : 1000;
+            if (!closing) { closing = true; socket.write(_wsEncodeClose(status, '')); }
+            socket.end();
+            break;
+          }
+          case 0x1: case 0x2: {                                                // text / binary
+            if (onMessage) {
+              const msg = f.opcode === 0x1 ? f.payload.toString('utf-8') : f.payload.toString('latin1');
+              try { onMessage(msg); } catch (e) { console.error('WS message handler:', e.message); }
+            }
+            break;
+          }
+          default:
+            if (!closing) { closing = true; socket.write(_wsEncodeClose(1003, '')); }
+            socket.end();
+        }
+      }
+    } catch (e) {
+      if (!closing) { closing = true; socket.write(_wsEncodeClose(1002, 'protocol error')); }
+      socket.end();
+      return;
+    }
+    inBuf = offset > 0 ? inBuf.slice(offset) : inBuf;
+  });
+
+  socket.on('close', () => {
+    if (onClose) try { onClose(); } catch (e) { console.error('WS close handler:', e.message); }
+  });
+
+  return ws;
+}
+
+// Called from the `server.on('upgrade', …)` listener — finishes the
+// 101 handshake, builds the WebSocket value, and runs the user's
+// `onWebSocket` block.  No matching route → 404 + close.
+function _wsHandleUpgrade(req, socket) {
+  try {
+    const u = new URL(req.url, 'http://localhost');
+    const segs = u.pathname.split('/').filter(s => s.length > 0);
+    for (const r of _wsRoutes) {
+      const params = _matchPath(r.pattern, segs);
+      if (params == null) continue;
+      const clientKey = req.headers['sec-websocket-key'];
+      if (!clientKey) { socket.destroy(); return; }
+      const accept = _wsAcceptKey(clientKey);
+      socket.write(
+        'HTTP/1.1 101 Switching Protocols\r\n' +
+        'Upgrade: websocket\r\n' +
+        'Connection: Upgrade\r\n' +
+        'Sec-WebSocket-Accept: ' + accept + '\r\n\r\n'
+      );
+      const ws = _wsMakeWebSocket(socket);
+      try { r.handler(ws); } catch (e) { console.error('WS upgrade handler:', e.message); }
+      return;
+    }
+    socket.write('HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n');
+    socket.destroy();
+  } catch (e) {
+    try { socket.destroy(); } catch (_) {}
+  }
+}
+
 function serve(port) {
   const http = require('http');
-  http.createServer((req, res) => {
+  const server = http.createServer((req, res) => {
     // Collect chunks as Buffers (not strings) so multipart file uploads
     // round-trip byte-for-byte.
     const chunks = [];
@@ -796,7 +1094,11 @@ function serve(port) {
         res.writeHead(500); res.end('Internal Error');
       }
     });
-  }).listen(port, () => console.log(`Listening on http://localhost:${port}/`));
+  });
+  // WebSocket upgrade lives on the same server — Node hands us the raw
+  // socket (post-headers) and stays out of the way after.
+  server.on('upgrade', (req, socket, _head) => _wsHandleUpgrade(req, socket));
+  server.listen(port, () => console.log(`Listening on http://localhost:${port}/`));
 }
 
 function _show(v) {

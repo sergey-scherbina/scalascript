@@ -193,6 +193,18 @@ class Interpreter(
     // Wall-clock for benchmarks — same name across all three backends.
     nativeP("nanoTime") { _ => Value.IntV(java.lang.System.nanoTime()) }
 
+    // Environment variable reader, same surface on all three backends.
+    // `getenv(key)` returns the value or empty string when unset.
+    // `getenv(key, default)` substitutes the default when missing/empty.
+    nativeP("getenv") {
+      case List(Value.StringV(k)) =>
+        Value.StringV(Option(java.lang.System.getenv(k)).getOrElse(""))
+      case List(Value.StringV(k), Value.StringV(d)) =>
+        val v = java.lang.System.getenv(k)
+        Value.StringV(if v == null || v.isEmpty then d else v)
+      case _ => throw InterpretError("getenv(key[, default])")
+    }
+
     // doc(...) builds a DocV; render(...) prints it
     nativeP("doc")    { args => Value.DocV(args) }
     nativeP("render") { args =>
@@ -579,6 +591,20 @@ class Interpreter(
       case _ => throw InterpretError("csrfValid(req)")
     }
 
+    // ── Cookie security config ───────────────────────────────────────
+    // `cookieConfig(secure = true, sameSite = "Strict")` — production
+    // hardening for the session cookie.  Defaults are HttpOnly +
+    // SameSite=Lax, no Secure (so localhost http works in dev).
+    nativeP("cookieConfig") {
+      case List(Value.BoolV(secure)) =>
+        scalascript.server.SessionCookie.setCookieConfig(secure, scalascript.server.SessionCookie.cookieSameSite)
+        Value.UnitV
+      case List(Value.BoolV(secure), Value.StringV(sameSite)) =>
+        scalascript.server.SessionCookie.setCookieConfig(secure, sameSite)
+        Value.UnitV
+      case _ => throw InterpretError("cookieConfig(secure: Boolean[, sameSite: String])")
+    }
+
     // ── Server-side session store opt-in ─────────────────────────────
     // After `useSessionStore()` is called, withSession/clearSession and
     // req.session indirect through scalascript.server.SessionStore (an
@@ -645,6 +671,37 @@ class Interpreter(
       case _ => throw InterpretError(
         "oauthExchangeCode(provider, code, clientId, clientSecret, redirectUri)")
     }
+    nativeP("oauthUserinfo") {
+      case List(Value.StringV(prov), Value.StringV(token)) =>
+        scalascript.server.OAuth.userinfo(prov, token) match
+          case Some(m) =>
+            Value.OptionV(Some(Value.MapV(m.map((k, v) => Value.StringV(k) -> Value.StringV(v)))))
+          case None => Value.OptionV(None)
+      case _ => throw InterpretError("oauthUserinfo(provider, accessToken)")
+    }
+    // `oauthRefreshToken(provider, refresh, clientId, clientSecret)` —
+    // refresh-grant flow.  Returns the new token response or None.
+    nativeP("oauthRefreshToken") {
+      case List(Value.StringV(prov), Value.StringV(refresh),
+                Value.StringV(cid),  Value.StringV(csec)) =>
+        scalascript.server.OAuth.refreshToken(prov, refresh, cid, csec) match
+          case Some(m) =>
+            Value.OptionV(Some(Value.MapV(m.map((k, v) => Value.StringV(k) -> Value.StringV(v)))))
+          case None => Value.OptionV(None)
+      case _ => throw InterpretError(
+        "oauthRefreshToken(provider, refreshToken, clientId, clientSecret)")
+    }
+    // `oauthRegisterProvider(name, Map("authorizeUrl" -> ..., ...))` —
+    // adds (or overrides) a provider config at runtime.  Required keys:
+    // `authorizeUrl`, `tokenUrl`.  Optional: `userinfoUrl`, `defaultScope`.
+    nativeP("oauthRegisterProvider") {
+      case List(Value.StringV(name), Value.MapV(m)) =>
+        val cfg = m.collect { case (Value.StringV(k), Value.StringV(v)) => k -> v }.toMap
+        scalascript.server.OAuth.registerProvider(name, cfg)
+        Value.UnitV
+      case _ => throw InterpretError(
+        "oauthRegisterProvider(name, Map[String, String])")
+    }
 
     // route(method, path)(handler) — registers a handler in the global table.
     // Path syntax: literal segments + `:name` captures (e.g. /users/:id).
@@ -658,6 +715,21 @@ class Interpreter(
           case _ => throw InterpretError("route(method, path) { handler }")
         })
       case _ => throw InterpretError("route(method, path) { handler }")
+    }
+
+    // onWebSocket(path)(handler) — registers a WS upgrade handler.  The
+    // handler receives a `WebSocket` value with `send` / `close` methods
+    // and `onMessage` / `onClose` callback registration.  Path syntax is
+    // the same as `route` (literal + `:name` captures).
+    nativeP("onWebSocket") {
+      case List(Value.StringV(path)) =>
+        Value.NativeFnV("onWebSocket.handler", Computation.pureFn {
+          case List(handler) =>
+            scalascript.server.WsRoutes.register(path, handler, this)
+            Value.UnitV
+          case _ => throw InterpretError("onWebSocket(path) { ws => … }")
+        })
+      case _ => throw InterpretError("onWebSocket(path) { ws => … }")
     }
 
   /** Invoke an interpreter Value (closure or native fn) from outside —

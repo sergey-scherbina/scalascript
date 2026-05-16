@@ -1,0 +1,102 @@
+---
+name: oauth-demo
+version: 1.0.0
+description: OAuth2 sign-in flow against GitHub or Google, wired through sessions + CSRF state.
+---
+
+# OAuth demo
+
+A complete sign-in flow that composes the v0.6 auth primitives:
+
+- `csrfToken()` mints the `state` parameter (per RFC 6749 §10.12).
+- `req.session.updated("oauth_state", state)` stashes it server-side.
+- `oauthAuthorizeUrl(...)` builds the provider redirect.
+- On callback we compare `req.query("state")` against `req.session("oauth_state")` —
+  request is rejected otherwise.
+- `oauthExchangeCode(...)` swaps the code for an access token.
+- `oauthUserinfo(...)` calls the provider's `/userinfo` endpoint and
+  surfaces the result.
+- The user's email lands in `req.session` for subsequent requests;
+  `clearSession()` logs out.
+
+Set credentials in the environment before running:
+
+```bash
+export OAUTH_PROVIDER=github                 # or "google"
+export OAUTH_CLIENT_ID=Ov23li...             # from your OAuth App
+export OAUTH_CLIENT_SECRET=...
+export OAUTH_REDIRECT_URI=http://localhost:8774/oauth/callback
+export SSC_SESSION_SECRET=$(openssl rand -hex 32)
+bin/ssc examples/oauth-demo.ssc
+```
+
+The callback URL must match the one registered with your OAuth App.
+
+```scalascript
+// Env-driven config — keep secrets out of source.  `getenv(key, default)`
+// is a builtin on all three backends; missing/empty falls back to the
+// supplied default.
+val provider     = getenv("OAUTH_PROVIDER",      "github")
+val clientId     = getenv("OAUTH_CLIENT_ID",     "")
+val clientSecret = getenv("OAUTH_CLIENT_SECRET", "")
+val redirectUri  = getenv("OAUTH_REDIRECT_URI",  "http://localhost:8774/oauth/callback")
+
+route("GET", "/") { req =>
+  val who = req.session.get("user") match
+    case Some(u) => html"<p>Signed in as <strong>${u}</strong>.</p>"
+    case None    => html"<p><a href='/login'>Sign in with ${provider}</a></p>"
+  Response.html(html"""<!doctype html>
+<title>OAuth demo</title>
+<h1>OAuth demo (${provider})</h1>
+${raw(who)}
+${raw(if req.session.contains("user")
+       then "<form method='POST' action='/logout'><button>Sign out</button></form>"
+       else "")}""")
+}
+
+route("GET", "/login") { req =>
+  if clientId == "" then
+    Response.status(500, html"<p>OAUTH_CLIENT_ID is not set; see the demo header.</p>")
+  else
+    val state = csrfToken()
+    Response.redirect(oauthAuthorizeUrl(provider, clientId, redirectUri, state))
+      .withSession(req.session.updated("oauth_state", state))
+}
+
+route("GET", "/oauth/callback") { req =>
+  val supplied = req.query.getOrElse("state", "")
+  val expected = req.session.getOrElse("oauth_state", "")
+  if expected == "" || supplied != expected then
+    Response.status(403, "bad state — possible CSRF; aborted")
+  else
+    val code = req.query.getOrElse("code", "")
+    if code == "" then Response.status(400, "no code in callback")
+    else oauthExchangeCode(provider, code, clientId, clientSecret, redirectUri) match
+      case None =>
+        Response.status(401, "token exchange failed")
+      case Some(tok) =>
+        val accessToken = tok.getOrElse("access_token", "")
+        oauthUserinfo(provider, accessToken) match
+          case None =>
+            // Got a token but the userinfo call failed — keep at least
+            // the token in session so the user isn't bounced.
+            Response.redirect("/")
+              .withSession(req.session.updated("access_token", accessToken))
+          case Some(info) =>
+            // GitHub: `login` is the username, `email` is the public email
+            // (may be null if private — fall back to login).
+            // Google: `email` is reliably present.
+            val email = info.get("email").filter(_ != "null").orElse(info.get("login")).getOrElse("?")
+            Response.redirect("/")
+              .withSession(req.session
+                .updated("user",         email)
+                .updated("access_token", accessToken))
+}
+
+route("POST", "/logout") { req =>
+  Response.redirect("/").clearSession()
+}
+
+println(s"OAuth demo (${provider}) · http://localhost:8774/")
+serve(8774)
+```

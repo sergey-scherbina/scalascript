@@ -1,0 +1,31 @@
+#!/usr/bin/env ssc
+---
+name: site-about
+description: About page of the multi-page site example.
+routes:
+  - method: GET
+    path: /about
+    handler: aboutPage
+---
+
+# About
+
+[Layout](./components/layout.ssc)
+
+```scalascript
+def aboutPage(req: Request): Response =
+  val body = html"""
+    <h2>About</h2>
+    <p>ScalaScript unifies Markdown structure with Scala-style typed
+       expressions.  A single <code>.ssc</code> document can declare
+       routes, render HTML, and ship inline CSS — across an interpreter,
+       a JVM-compiled server, a Node server, and a browser SPA.</p>
+    <p>This page demonstrates that the same <code>Layout</code>
+       component is reused across all three pages of the site without
+       duplication.</p>
+  """
+  Response.html(Layout.render("About — ScalaScript site", body, "", "/about"))
+
+println("Listening on http://localhost:8770/")
+serve(8770)
+```

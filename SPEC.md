@@ -676,9 +676,38 @@ responses are accepted (GitHub uses the latter by default).  Custom
 providers are not yet first-class — for now, hand-roll the redirect
 + exchange against an arbitrary URL.
 
+```scalascript
+// 3) After exchange, fetch the user profile from the provider's
+//    /userinfo endpoint with the access token.  Returns the parsed
+//    JSON object as Map[String, String] (nested values surface as
+//    raw JSON strings).
+oauthUserinfo("google", accessToken)   // Some(Map("email" -> ..., "name" -> ...))
+oauthUserinfo("github", accessToken)   // Some(Map("login" -> ..., "email" -> ..., ...))
+```
+
+`oauthUserinfo` follows the same `Authorization: Bearer <token>` +
+`Accept: application/json` shape every well-known provider uses;
+GitHub additionally requires a User-Agent header, which the helper
+sets automatically.
+
 State handling is the caller's job — pair it with sessions and CSRF
 above.  The OAuth helpers stay narrow on purpose so they compose with
-the rest of the auth surface instead of duplicating it.
+the rest of the auth surface instead of duplicating it.  See
+[`examples/oauth-demo.ssc`](examples/oauth-demo.ssc) for a complete
+end-to-end flow driven by env-supplied credentials.
+
+#### Environment access
+
+```scalascript
+val secret = getenv("APP_SECRET")              // "" when unset
+val port   = getenv("PORT", "8080")            // fallback default
+```
+
+`getenv(key)` / `getenv(key, default)` reads from the process
+environment on the interpreter and JVM backends; the JS Node target
+reads `process.env`; the browser-SPA target has no environment so the
+default is always returned.  Used by `oauth-demo.ssc` to keep client
+secrets out of source.
 
 #### Response
 
@@ -826,6 +855,16 @@ The REST primitives are available on all three backends:
   server-style `.ssc` page without booting a server.  The output is
   byte-identical to `curl http://…/<path>` against the same file
   served under `ssc <file>`.
+- **Batch static build** (`ssc build <src-dir> [<out-dir>]`) — walks
+  every top-level `.ssc` file in `src-dir`, runs each headlessly, and
+  writes every registered literal GET route to disk under `<out-dir>`
+  (default `dist/`).  The path-to-file mapping is `/` → `index.html`,
+  `/about` → `about.html`, `/blog/x` → `blog/x.html` (subdirectories
+  created as needed).  Routes with `:capture` segments and files that
+  register no GET routes are skipped.  When two files claim the same
+  URL the build emits a `[warn]` line — last write wins, but it's
+  almost always a structural bug.  Subdirectories of `src-dir`
+  (typically component modules) are not walked.
 
 ### 8.4 Components
 
