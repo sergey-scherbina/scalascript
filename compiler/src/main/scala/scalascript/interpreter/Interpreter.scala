@@ -802,12 +802,6 @@ class Interpreter(out: java.io.PrintStream = System.out, baseDir: Option[os.Path
     case _ => located(s"Not callable: ${Value.show(fn)}")
 
   private def callFun(f: Value.FunV, args: List[Value]): Computation =
-    // Locals-only base env. `eval` for Term.Name already falls back to
-    // `globals.getOrElse(...)`, so we don't need to splat the globals Map
-    // into env on every call — that allocation dominated the hot recursive
-    // path (fib / sum).
-    val selfEntry = if f.name.nonEmpty then Map(f.name -> f) else Map.empty
-    val baseEnv   = f.closure ++ selfEntry
     // Auto-tuple: an N-parameter lambda passed where a 1-arg function on
     // an N-tuple is expected (e.g. `pairs.foreach((n, s) => ...)`) gets
     // its single tuple argument destructured into the N parameters.
@@ -816,7 +810,15 @@ class Interpreter(out: java.io.PrintStream = System.out, baseDir: Option[os.Path
         if f.params.length > 1 && elems.length == f.params.length =>
         elems
       case _ => args
-    val effArgs   = applyDefaults(f.params, f.defaults, tupledArgs, baseEnv)
+    // Only allocate the defaults-pass base env when defaults are actually
+    // needed — most calls pass enough args and skip the allocation.
+    // `eval` for Term.Name already falls back through `globals`, so locals
+    // (closure + self ref + params) are all the env we need.
+    val effArgs =
+      if tupledArgs.length >= f.params.length then tupledArgs
+      else
+        val selfEntry = if f.name.nonEmpty then Map(f.name -> f) else Map.empty
+        applyDefaults(f.params, f.defaults, tupledArgs, f.closure ++ selfEntry)
     val info      = tcoInfoFor(f)
     val hasMutualTail = info.tailTargets.nonEmpty && info.tailTargets.exists { n =>
       (globals.get(n) orElse f.closure.get(n)).exists(_.isInstanceOf[Value.FunV])
@@ -824,7 +826,13 @@ class Interpreter(out: java.io.PrintStream = System.out, baseDir: Option[os.Path
     if info.noNonTailSelf && (info.isSelfTailRec || hasMutualTail) then
       tcoTrampoline(f, effArgs, null)
     else
-      val callEnv = baseEnv ++ f.params.zip(effArgs).toMap
+      // Build callEnv directly: closure + (self ref if named) + params zipped
+      // with args.  One fewer intermediate Map than the old `baseEnv ++ …`.
+      val closureWithSelf =
+        if f.name.nonEmpty then f.closure.updated(f.name, f) else f.closure
+      val callEnv =
+        if f.params.isEmpty then closureWithSelf
+        else closureWithSelf ++ f.params.iterator.zip(effArgs.iterator).toMap
       try runUntilSuspension(eval(f.body, callEnv))
       catch case r: ReturnSignal => Pure(r.value)
 
