@@ -4,6 +4,99 @@ Tracks work that is **not yet done**. As things land, move them out of here
 (into git history) rather than ticking checkboxes — the file should always
 read forward.
 
+## v0.8 — WebSocket production-readiness
+
+The WS stack landed in v0.7 covers the API surface across all three
+backends (`onWebSocket(path) { ws => … }`, framing, fragmentation,
+`ws.request`, virtual threads on JvmGen, NIO proxy on interpreter)
+but still has known production gaps.  Listed in order of "stops
+real problems" → "feature gaps" → "nice to have"; each sprint is a
+session-sized chunk.
+
+### Sprint 1 — slow-client head-of-line
+
+A `clients.foreach { _.send(msg) }` broadcast still blocks on the
+slowest peer on JvmGen, because `out.write` is synchronous and
+serialised through `_serverExecutor`.  Interpreter already solves
+this via the NIO outbox + cap; JsGen mostly solves it via Node's
+async writes but leaks memory on slow peers.
+
+1. **JvmGen — per-connection write-queue + writer virtual thread.**
+   Each `WebSocket` gets a `LinkedBlockingQueue[Array[Byte]]` and a
+   dedicated writer VT.  `ws.send(s)` enqueues (O(1), non-blocking),
+   the writer pulls and writes blocking on its own thread.  Slow
+   peer → queue grows → at cap drop the connection.  ~50 LOC in
+   `serveRuntime`.
+2. **JsGen — backpressure on `socket.write`.**  Check the return
+   value (false = TCP-buffer full) and the `socket.writableLength`
+   counter; close the connection past a cap so Node's internal
+   buffer doesn't pile up unbounded.  ~15 LOC.
+3. **Regression test.**  100 concurrent clients, 1 deliberately
+   slow (e.g. doesn't read).  Broadcast must finish in < 100 ms
+   wall-clock; the slow client gets dropped, the other 99 keep
+   echoing.  ~80 LOC of test scaffolding.
+
+### Sprint 2 — security / robustness hardening
+
+4. **`Origin` allowlist.**  `onWebSocket("/x", origins = List(
+   "https://app.example.com")) { … }`.  Without this any site can
+   open `new WebSocket('ws://server/chat')` from a logged-in user
+   (the WS equivalent of CSRF).  ~40 LOC × 3 backends.
+5. **Server-initiated ping every 30 s + dead-peer drop.**  Even
+   with TCP keepalive enabled, a NAT-dropped session can sit in
+   `in.read()` for hours.  Send a Ping, expect a Pong within N s,
+   close on timeout.  ~60 LOC × 3 backends.
+6. **`maxWsConnections` ceiling.**  DoS vector: open 100K WS to
+   exhaust the FD table.  Configurable cap with a clean 503 on
+   overflow.  ~20 LOC.
+7. **Connect/disconnect bench.**  10K concurrent WS + a mixed
+   HTTP load to establish a baseline before the NIO migration.
+   ~100 LOC.
+
+### Sprint 3 — API completeness
+
+Common asks from real apps that aren't covered today.
+
+8. **`ws.sendBytes(Array[Byte])`.**  Only text is sendable now;
+   binary frames are received but can't be sent.  ~10 LOC × 3.
+9. **`ws.ping()` / `ws.onPong { … }`.**  User-side liveness probe.
+   Useful for health-checked clients.  ~20 LOC × 3.
+10. **`Sec-WebSocket-Protocol` subprotocol negotiation.**  Pick from
+    the client's offered list, echo on the 101.  Without this
+    `socket.io` / `graphql-ws` clients refuse to connect.  ~30 LOC × 3.
+11. **Built-in `WsRoom` type.**  Thread-safe registry + `broadcast(msg)`
+    so every chat demo doesn't reinvent `var clients =
+    List[WebSocket]()` (and forget the synchronisation).  ~80 LOC × 3.
+12. **`ws.request.cookies: Map[String, String]`.**  Parse `Cookie:`
+    header into a map at upgrade time, parallel to what REST
+    handlers already see.  ~20 LOC × 3.
+
+### Sprint 4 — observability
+
+13. **Structured connect/disconnect/error logs** — client IP, route,
+    duration, close code.  ~30 LOC × 3.
+14. **`metrics()` native** — `wsActive`, `wsMessagesIn`/`Out`,
+    `wsBytesIn`/`Out` exposed as a map for scraping.  ~50 LOC.
+15. **HTTP access log** for the proxy-forwarded path.  Currently
+    silent.  ~20 LOC.
+
+### Sprint 5 — architectural debt
+
+Defer until 1-4 are settled and a real workload demands them.
+
+16. **Full NIO HTTP on JvmGen.**  Today the WS proxy sits in front
+    of a JDK `HttpServer`, so every HTTP request opens a fresh
+    `Socket` to localhost.  Replacing the HTTP stack with our own
+    NIO server would fold the proxy in, remove the loopback hop,
+    and unify the threading model with the interpreter.  ~1500 LOC.
+17. **Loom-only or NIO-only — pick one for both JVM backends.**
+    Maintaining two parallel models (NIO for interpreter,
+    Loom+blocking for JvmGen) is dead weight if neither has a real
+    edge.  Worth re-deciding after (16).
+18. **`permessage-deflate` (RFC 7692).**  5-10× compression on
+    JSON-heavy WS workloads.  Not worth the complexity until a
+    real app needs it.  ~200 LOC × 3.
+
 ## v0.7 — Reusable libraries and packaging
 
 A consumer should be able to depend on a third-party `.ssc` library —
