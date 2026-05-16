@@ -35,6 +35,7 @@ wait_for_server() {
 # Expected occurrence counts for known markers.  These cover both the
 # CSS-rule occurrence and the rendered element occurrence — drift in
 # either indicates a regression in the import / object / css / scope path.
+EXPECTED_DOCTYPE=1           # single <!doctype html> — Page wraps; route handler must not emit its own
 EXPECTED_TITLE=2             # <title>Components demo</title> + <h1>…
 EXPECTED_BTN_PRIMARY=2       # .btn-primary { … } + class="btn btn-primary"
 EXPECTED_BTN_SECONDARY=2     # .btn-secondary + Cancel button
@@ -68,6 +69,7 @@ run_backend() {
     local body
     body=$(curl -sS "http://localhost:$PORT/")
 
+    local doctype=$(echo "$body" | grep -ci '<!doctype html>' || true)
     local title=$(echo "$body"  | grep -c 'Components demo' || true)
     local btn1=$(echo "$body"   | grep -c 'btn-primary'   || true)
     local btn2=$(echo "$body"   | grep -c 'btn-secondary' || true)
@@ -79,6 +81,7 @@ run_backend() {
     local atitle=$(echo "$body" | grep -c 'title__Alert'  || true)
     local abody=$(echo "$body"  | grep -c 'body__Alert'   || true)
 
+    [ "$doctype" = "$EXPECTED_DOCTYPE" ]        || { echo "  [FAIL] $label doctype:$doctype (want $EXPECTED_DOCTYPE)"; fail=1; }
     [ "$title"  = "$EXPECTED_TITLE" ]           || { echo "  [FAIL] $label title:$title (want $EXPECTED_TITLE)"; fail=1; }
     [ "$btn1"   = "$EXPECTED_BTN_PRIMARY" ]     || { echo "  [FAIL] $label btn-primary:$btn1 (want $EXPECTED_BTN_PRIMARY)"; fail=1; }
     [ "$btn2"   = "$EXPECTED_BTN_SECONDARY" ]   || { echo "  [FAIL] $label btn-secondary:$btn2 (want $EXPECTED_BTN_SECONDARY)"; fail=1; }
