@@ -4,6 +4,67 @@ Tracks work that is **not yet done**. As things land, move them out of here
 (into git history) rather than ticking checkboxes — the file should always
 read forward.
 
+## v0.7 — Reusable libraries and packaging
+
+A consumer should be able to depend on a third-party `.ssc` library —
+component pack, REST middleware, layout kit — without vendoring its
+files into their own tree.  The steps are ordered so each one is
+useful in isolation and unblocks the next.
+
+1. **Import-alias parsing.**  `[Card as MyCard](./card.ssc)` /
+   `[render, css as styles](./card.ssc)`.  The AST already carries
+   `ImportBinding.alias: Option[String]`, but `Parser.asImport` always
+   emits `None` (`parser/Parser.scala:167`).  Wire the parser, then
+   honour the alias in `Interpreter.runImport` (`globals(alias) = v`)
+   and in JsGen / JvmGen `genImport`.  Smallest step, biggest
+   immediate payoff — unblocks naming conflicts between any two
+   libraries that export the same identifier.  ~2–3 hours.
+
+2. **`ssc bundle <file.ssc> [-o name.sscpkg]`.**  Walks transitive
+   `.ssc` imports starting from `<file>`, packs them into a zip with
+   layout
+       bundle.yaml          (entry, name, version, transitive list)
+       <entry>.ssc          (at the archive root)
+       <relative paths>/…   (imported files, paths kept)
+   Refuses imports above the entry directory (`../foo.ssc`) so authors
+   keep impls self-contained.  No network, no registry — distribution
+   by attaching `.sscpkg` to a GitHub release / S3 / email.  Consumer
+   unzips and imports relatively.  ~2–3 hours.
+
+3. **URL imports.**  `[Card](https://raw.githubusercontent.com/u/r/v1.0/card.ssc)`
+   resolves to a local cache at `~/.cache/ssc/<host>/<path>` (first
+   fetch downloads; subsequent reads hit cache; pin by tag/sha for
+   reproducibility).  Deno-style: no central registry needed, but
+   real distribution becomes a one-liner.  Add a `--no-network`
+   flag for sandboxed builds.  ~1–2 days.
+
+4. **Cross-backend `dependencies:` resolver.**  Today the manifest's
+   `dependencies:` only flows to scala-cli on the JVM target.
+   Extend it to:
+     - JSON (`{"foo": "1.2.0", "bar": "https://..."}`) — either
+       semver against a future registry or a URL pin.
+     - Resolve at parse time on all three backends (interp, JsGen,
+       JvmGen), pull sources into the local cache, and rewrite
+       bare-name imports (`[Card](foo://card.ssc)`) to the resolved
+       path.
+   Decouples the URL from every call site — pin once in the manifest,
+   import by short name everywhere.  ~1 day on top of (3).
+
+5. **`package` keyword** *(optional)*.  `package org.example.ui` at
+   the top of a scalascript block puts its declarations under that
+   dotted path so two libraries can each export `Card` without
+   collision in the global namespace.  Mostly cosmetic once (1)/(3)
+   are in place — alias parsing already solves the collision case
+   for callers, and URL/dep resolution provides the uniqueness — but
+   `package`-prefixed imports map cleanly to a future registry.
+   Parser + 3 backends (`object org.example.ui.Card { … }` emit).
+   ~1–2 days.  Defer until a concrete clash motivates it.
+
+6. **Registry** *(future)*.  Central index (`registry.scalascript.io`)
+   with semver resolution, lock file (`ssc.lock`), publish/yank
+   workflow.  Weeks of work; only worth opening once the surface
+   above is well-trodden.  Out of scope for v0.7.
+
 ## v0.5 — Interpreter performance (Tier 1) — landed
 
 Closed in a series of small commits on the
