@@ -411,13 +411,20 @@ case class Response(
   body:    String = ""
 )
 object Response:
-  def html(body: String): Response
-  def text(body: String): Response
-  def json(body: String): Response
+  def html(body: Any): Response
+  def text(body: Any): Response
+  def json(body: Any): Response          // structural JSON encoder
   def redirect(url: String): Response
-  def notFound(body: String = "Not Found"): Response
-  def status(code: Int, body: String = ""): Response
+  def notFound(body: Any = "Not Found"): Response
+  def status(code: Int, body: Any = ""): Response
 ```
+
+`Response.json(...)` accepts arbitrary values — `List`, `Map`, `Option`,
+case classes, tuples, primitives — and serialises them to JSON with
+proper string escaping.  A bare `String` argument is treated as already-
+serialised JSON and passed through verbatim (so callers that hand-build
+JSON bodies keep working).  The encoder is identical across all three
+backends (byte-equal output).
 
 A handler may return a `Response`, a `String` (becomes a 200 text response),
 or `Unit` (becomes a 204).
@@ -433,7 +440,7 @@ val safe = html"<p>hello ${userInput}</p>"        // userInput escaped
 val outer = html"<div>${raw(safe)}</div>"          // safe passed through
 ```
 
-#### Typed HTML DSL (interpreter)
+#### Typed HTML DSL
 
 ScalaScript ships a tag-constructor set at the top level: `html`, `head`,
 `body`, `div`, `span`, `p`, `a`, `h1`–`h6`, `ul`, `li`, `table`, `tr`, `td`,
@@ -456,8 +463,9 @@ val page = html(
 //    <ul><li>milk</li><li>eggs</li><li>&lt;bread&gt;</li></ul>…</body></html>
 ```
 
-Currently interpreter-only; JsGen and JvmGen don't yet expose the tag
-registry.
+Supported on all three backends.  The interpreter, JsGen, and JvmGen each
+ship the same tag registry, attribute namespace, and `:=` operator, and
+they emit byte-identical HTML for the same source.
 
 #### Heading-bound `html` / `css` blocks (interpreter)
 

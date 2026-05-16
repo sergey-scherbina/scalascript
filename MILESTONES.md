@@ -18,22 +18,14 @@ without reaching for raw string concatenation.
 
 ## v0.3 — Cross-backend REST (remaining)
 
-The JVM and JS backends now ship their own `serveRuntime` / `route` runtime
-(see the `feat(web)` cross-backend commit).  What's left:
+The JVM and JS backends now ship their own `serveRuntime` / `route` runtime.
+Structural `Response.json` and the `e2e/rest-smoke.sc` cross-backend harness
+have landed; one item left:
 
 - **Browser-side JS.**  The current JS backend emits a Node server.  A
   parallel build target should generate a client-side router that hydrates
   `.ssc` documents in the browser, so a single `.ssc` can run as either
   Node service or SPA.
-- ~~**`Response.json` auto-serialisation.**~~  *Landed.*  Hand-rolled
-  encoders on all three backends (INT/JS/JVM) serialise `List`, `Map`,
-  `Option`, primitives, case classes and tuples to byte-identical JSON.
-  Bare `String` bodies still pass through verbatim for back-compat.
-- ~~**Cross-backend smoke harness.**~~  *Landed* as `e2e/rest-smoke.sc`.
-  Boots `examples/rest-api.ssc` through each backend in turn, runs a
-  fixed sequence of HTTP requests, and diffs `(status, body)` across
-  INT/JS/JVM. Works both from an installed `bin/` and from a fresh
-  worktree (falls back to `scala-cli run compiler` when bin/ is absent).
 
 ## v0.4 — Stability & polish
 
