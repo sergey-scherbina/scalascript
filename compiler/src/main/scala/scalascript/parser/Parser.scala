@@ -67,8 +67,32 @@ object Parser:
       targets = raw.get("targets").collect {
         case l: java.util.List[?] => l.asScala.map(_.toString).toList
       }.getOrElse(Nil),
+      routes = parseRoutes(raw),
       raw = raw
     )
+
+  /** Pull `routes: [{method: ..., path: ..., handler: ...}]` out of the
+   *  raw YAML map.  Entries that lack any of the three required fields
+   *  are silently skipped — strict validation lives in the typer, not
+   *  here, so a misspelled key surfaces as an "unknown route" later
+   *  rather than blocking the whole parse. */
+  private def parseRoutes(raw: Map[String, Any]): List[RouteDecl] =
+    raw.get("routes").collect {
+      case xs: java.util.List[?] =>
+        xs.asScala.toList.flatMap {
+          case m: java.util.Map[?, ?] =>
+            val mm: Map[String, Any] = m.asScala.iterator.collect {
+              case (k: String, v) => k -> (v: Any)
+            }.toMap
+            val method  = mm.get("method").collect { case s: String => s.toUpperCase }
+            val path    = mm.get("path").collect { case s: String => s }
+            val handler = mm.get("handler").collect { case s: String => s }
+            (method, path, handler) match
+              case (Some(m), Some(p), Some(h)) => Some(RouteDecl(m, p, h))
+              case _                            => None
+          case _ => None
+        }
+    }.getOrElse(Nil)
 
   // ─── Section extraction from the flat CommonMark tree ────────────
   //

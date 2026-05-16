@@ -51,8 +51,22 @@ dependencies:
 exports:
   - functionName
   - TypeName
+routes:
+  - method: GET
+    path: /api/todos
+    handler: listTodos
+  - method: POST
+    path: /api/todos
+    handler: addTodo
 ---
 ```
+
+`routes:` declares HTTP routes alongside the regular module surface;
+each entry is equivalent to writing
+`route(method, path) { req => handler(req) }` inline.  The handler is
+looked up by name from the top-level defs in the module, so a typical
+file just lists handlers in the manifest and defines them in
+`scalascript` blocks below.
 
 See [schemas/frontmatter.yaml](schemas/frontmatter.yaml) for the complete schema.
 

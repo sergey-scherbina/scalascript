@@ -55,11 +55,26 @@ class JvmGen(baseDir: Option[os.Path] = None):
       }
     }
 
+    val frontmatterRoutes = module.manifest.toList.flatMap(_.routes)
+
     sb.append(preamble)
     sb.append(htmlDslTagBindings(collectUserTopNames(blocks)))
-    if effectOps.nonEmpty    then sb.append(effectsRuntime)
-    if mutualGroups.nonEmpty then sb.append(mutualTcoRuntime)
-    if blocksUseRoutes(blocks) then sb.append(serveRuntime)
+    if effectOps.nonEmpty                                  then sb.append(effectsRuntime)
+    if mutualGroups.nonEmpty                               then sb.append(mutualTcoRuntime)
+    if blocksUseRoutes(blocks) || frontmatterRoutes.nonEmpty then sb.append(serveRuntime)
+
+    // Front-matter route declarations are emitted as `route(method, path)
+    // { req => handler(req) }` calls.  We place them BEFORE the user blocks
+    // because the user's `serve(port)` typically appears as the last
+    // statement of their script and blocks forever — registrations
+    // afterwards would never run.  Forward references to the handler defs
+    // work because `.sc` script files wrap all top-level defs as methods
+    // of an enclosing class, so they're accessible throughout the body.
+    frontmatterRoutes.foreach { r =>
+      val esc = r.path.replace("\\", "\\\\").replace("\"", "\\\"")
+      sb.append(s"""route("${r.method}", "$esc") { req => ${r.handler}(req) }\n""")
+    }
+    if frontmatterRoutes.nonEmpty then sb.append("\n")
 
     blocks.foreach { block =>
       sb.append(emitBlock(block).stripTrailing())

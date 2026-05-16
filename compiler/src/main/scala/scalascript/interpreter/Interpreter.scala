@@ -120,12 +120,37 @@ class Interpreter(out: java.io.PrintStream = System.out, baseDir: Option[os.Path
 
   def run(module: Module): Unit =
     initBuiltins()
+    registerFrontmatterRoutes(module)
     module.sections.foreach(runSection)
     if !mainCalled then
       globals.get("main").foreach {
         case f: Value.FunV if f.params.isEmpty => Computation.run(callFun(f, Nil)); mainCalled = true
         case _ => ()
       }
+
+  /** Register each `routes:` entry from front-matter as if the user had
+   *  written `route(method, path) { req => handler(req) }` inline.  We
+   *  register BEFORE evaluating sections (since the user's `serve(port)`
+   *  call at the end of a section blocks forever) and bind a lazy
+   *  wrapper that resolves the handler from `globals` at request time,
+   *  once the section defs have run. */
+  private def registerFrontmatterRoutes(module: Module): Unit =
+    module.manifest.foreach { m =>
+      m.routes.foreach { r =>
+        val lazyHandler = Value.NativeFnV(
+          s"frontmatter.route.${r.handler}",
+          Computation.pureFn { args =>
+            globals.get(r.handler) match
+              case Some(h) => Computation.run(callValue(h, args, Map.empty))
+              case None    =>
+                throw InterpretError(
+                  s"front-matter route ${r.method} ${r.path} references unknown handler '${r.handler}'"
+                )
+          }
+        )
+        scalascript.server.Routes.register(r.method, r.path, lazyHandler, this)
+      }
+    }
 
   // ─── Built-ins ───────────────────────────────────────────────────
 

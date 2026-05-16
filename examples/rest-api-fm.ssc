@@ -1,0 +1,61 @@
+#!/usr/bin/env ssc
+---
+name: rest-api-fm
+version: 1.0.0
+description: Same todos REST API, but routes are declared in front-matter.
+routes:
+  - method: GET
+    path: /api/todos
+    handler: listTodos
+  - method: POST
+    path: /api/todos
+    handler: addTodo
+  - method: DELETE
+    path: /api/todos/:id
+    handler: removeTodo
+  - method: GET
+    path: /
+    handler: indexPage
+---
+
+# Todos (front-matter routes)
+
+Handlers below are referenced by name from the `routes:` block above.
+
+```scalascript
+var todos: List[String] = List("Buy milk", "Walk the dog", "Write spec")
+
+def listTodos(req: Request): Response =
+  Response.json(todos)
+
+def addTodo(req: Request): Response =
+  val item = if req.form.contains("item") then req.form("item") else req.body
+  todos = todos :+ item
+  Response.status(201, item)
+
+def removeTodo(req: Request): Response =
+  val idx = req.params("id").toInt
+  if idx < 0 || idx >= todos.length then Response.notFound("no such todo")
+  else
+    todos = todos.take(idx) ++ todos.drop(idx + 1)
+    Response.status(204)
+
+def renderItem(t: String, i: Int): String =
+  html"<li>${t} <small>(#${i})</small></li>"
+
+def indexPage(req: Request): Response =
+  val items = todos.zipWithIndex.map((t, i) => renderItem(t, i)).mkString("")
+  Response.html(html"""<!doctype html>
+<html><head><title>Todos</title></head>
+<body>
+  <h1>Todos (${todos.length})</h1>
+  <ul>${raw(items)}</ul>
+  <form method="POST" action="/api/todos">
+    <input name="item" placeholder="New todo" required>
+    <button type="submit">Add</button>
+  </form>
+</body></html>""")
+
+println("Listening on http://localhost:8767/")
+serve(8767)
+```

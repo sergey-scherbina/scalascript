@@ -155,6 +155,36 @@ properties:
       - "main"
       - "App.run"
 
+  routes:
+    type: array
+    description: |
+      HTTP route declarations.  Each entry registers
+      `route(method, path) { req => handler(req) }` automatically;
+      the handler must be a top-level function defined in the module
+      that takes a `Request` and returns a `Response`.
+    items:
+      type: object
+      required: [method, path, handler]
+      additionalProperties: false
+      properties:
+        method:
+          type: string
+          enum: [GET, POST, PUT, PATCH, DELETE, HEAD, OPTIONS]
+        path:
+          type: string
+          description: URL path pattern with `:name` captures (e.g. `/users/:id`)
+        handler:
+          type: string
+          description: Name of a top-level handler function in the module
+          pattern: "^[A-Za-z_][A-Za-z0-9_]*$"
+    examples:
+      - - method: GET
+          path: /api/todos
+          handler: listTodos
+        - method: POST
+          path: /api/todos
+          handler: addTodo
+
   keywords:
     type: array
     items:

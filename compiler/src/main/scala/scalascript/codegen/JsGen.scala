@@ -987,11 +987,36 @@ class JsGen(baseDir: Option[os.Path] = None):
     sb.clear()
     analyzeMutualRecursion(module)
     analyzeEffects(module)
+    // Front-matter route declarations are emitted BEFORE the user blocks so
+    // a typical user-side `serve(port)` (last statement of the script) sees
+    // them already registered.  JS function declarations are hoisted, so
+    // forward references to the handler defs resolve at call time.
+    emitFrontmatterRoutes(module)
     module.sections.foreach(genSection)
     // Auto-call main() if defined and not already called
     if hasMain && !mainCalled then
       line("if (typeof main === 'function') { main(); }")
     sb.toString
+
+  /** Emit `route(method, path)(handler)` registrations for every
+   *  `routes:` entry in the module's front-matter. */
+  private def emitFrontmatterRoutes(module: Module): Unit =
+    module.manifest.toList.flatMap(_.routes).foreach { r =>
+      val m = jsQuote(r.method)
+      val p = jsQuote(r.path)
+      line(s"route($m, $p)(${r.handler});")
+    }
+
+  private def jsQuote(s: String): String =
+    val sb = StringBuilder().append('"')
+    s.foreach {
+      case '"'  => sb.append("\\\"")
+      case '\\' => sb.append("\\\\")
+      case '\n' => sb.append("\\n")
+      case '\r' => sb.append("\\r")
+      case c    => sb.append(c)
+    }
+    sb.append('"').toString
 
   // ─── Effect analysis ─────────────────────────────────────────────
   //
@@ -1084,6 +1109,11 @@ class JsGen(baseDir: Option[os.Path] = None):
     sb.clear()
     analyzeMutualRecursion(module)
     analyzeEffects(module)
+    // Emit `route(...)` registrations from front-matter before user blocks,
+    // so a typical user-side `serve(port)` (last statement of the script)
+    // sees them already registered.  JS function declarations are hoisted,
+    // so forward references to handler defs resolve at call time.
+    emitFrontmatterRoutes(module)
     val result    = mutable.ListBuffer[JsGen.Segment]()
     val scalaBuf  = mutable.ListBuffer[String]()
     var ssStart   = 0

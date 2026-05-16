@@ -22,9 +22,16 @@ case class Manifest(
   dependencies: Map[String, String],
   exports: List[String],
   targets: List[String],
+  routes: List[RouteDecl],
   raw: Map[String, Any],
   span: Option[Span] = None
 )
+
+/** A `routes:` entry in front-matter declares a route without an inline
+ *  `route(method, path) { ... }` call.  `handler` is the name of a top-
+ *  level function defined elsewhere in the module that takes a `Request`
+ *  and returns a `Response`. */
+case class RouteDecl(method: String, path: String, handler: String, span: Option[Span] = None)
 
 case class Section(
   heading: Heading,
