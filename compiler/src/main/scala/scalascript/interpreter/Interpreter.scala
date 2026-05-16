@@ -616,11 +616,17 @@ class Interpreter(out: java.io.PrintStream = System.out, baseDir: Option[os.Path
 
     // if/then/else
     case t: Term.If =>
-      eval(t.cond, env).flatMap {
-        case Value.BoolV(true)  => eval(t.thenp, env)
-        case Value.BoolV(false) => eval(t.elsep, env)
-        case other              => located(s"if condition must be Boolean, got ${Value.show(other)}")
-      }
+      eval(t.cond, env) match
+        // Fast path: cond evaluated eagerly to a pure BoolV (the typical
+        // case after pure-value shortcuts kick in). Skip the FlatMap.
+        case Pure(Value.BoolV(true))  => eval(t.thenp, env)
+        case Pure(Value.BoolV(false)) => eval(t.elsep, env)
+        case Pure(other)              => located(s"if condition must be Boolean, got ${Value.show(other)}")
+        case condC                    => condC.flatMap {
+          case Value.BoolV(true)  => eval(t.thenp, env)
+          case Value.BoolV(false) => eval(t.elsep, env)
+          case other              => located(s"if condition must be Boolean, got ${Value.show(other)}")
+        }
 
     // String interpolation s"..." / f"..." / md"..." / html"..." / css"..."
     case Term.Interpolate(Term.Name(prefix), parts, args)
