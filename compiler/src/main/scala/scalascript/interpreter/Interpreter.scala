@@ -211,6 +211,7 @@ class Interpreter(out: java.io.PrintStream = System.out, baseDir: Option[os.Path
       Value.MapV(entries)
     }
     globals("None") = Value.OptionV(None)
+    globals("Nil")  = Value.ListV(Nil)
 
     nativeP("math.sqrt")  { case List(Value.DoubleV(d)) => Value.DoubleV(math.sqrt(d))
                             case List(Value.IntV(n))    => Value.DoubleV(math.sqrt(n.toDouble))
@@ -875,12 +876,37 @@ class Interpreter(out: java.io.PrintStream = System.out, baseDir: Option[os.Path
         || prefix == "html" || prefix == "css" =>
       evalArgs(args.map(_.asInstanceOf[Term]), env) { argVs =>
         val sb = StringBuilder()
+        // f"..." semantics: the literal part following each ${} can begin
+        // with a Java/printf-style format spec applied to the preceding arg.
+        //   `f"${pi}%.2f"` →  parts = ["", "%.2f"], spec consumed off parts(1)
+        val fmtRe = "^%[-+# 0,(]*\\d*(?:\\.\\d+)?[bBhHsScCdoxXeEfgGaAtT%]".r
         for i <- parts.indices do
-          sb ++= parts(i).asInstanceOf[Lit.String].value
-          if i < argVs.length then
-            val rendered = Value.show(argVs(i))
-            // html"..." escapes interpolated values unless wrapped in raw(...).
-            sb ++= (if prefix == "html" then htmlEscapeUnlessRaw(argVs(i), rendered) else rendered)
+          val partStr = parts(i).asInstanceOf[Lit.String].value
+          // The first part precedes any interpolation; never consumes a spec.
+          val (consumedSpec, partRest) =
+            if i > 0 && prefix == "f" then
+              fmtRe.findFirstIn(partStr) match
+                case Some(spec) => (Some(spec), partStr.substring(spec.length))
+                case None       => (None, partStr)
+            else (None, partStr)
+          // Emit the interpolated value for index (i - 1) before this part's text.
+          if i > 0 then
+            val v = argVs(i - 1)
+            val rendered = consumedSpec match
+              case Some(spec) =>
+                val boxed: AnyRef = v match
+                  case Value.IntV(n)    => java.lang.Long.valueOf(n)
+                  case Value.DoubleV(d) => java.lang.Double.valueOf(d)
+                  case Value.BoolV(b)   => java.lang.Boolean.valueOf(b)
+                  case Value.CharV(c)   => java.lang.Character.valueOf(c)
+                  case Value.StringV(s) => s
+                  case other            => Value.show(other)
+                try String.format(spec, boxed)
+                catch case _: java.util.IllegalFormatException => Value.show(v)
+              case None =>
+                Value.show(v)
+            sb ++= (if prefix == "html" then htmlEscapeUnlessRaw(v, rendered) else rendered)
+          sb ++= partRest
         val raw = sb.toString
         Pure(Value.StringV(if prefix == "md" then stripIndent(raw) else raw))
       }
@@ -1479,6 +1505,22 @@ class Interpreter(out: java.io.PrintStream = System.out, baseDir: Option[os.Path
           case Value.ListV(items) => Value.StringV(items.map(Value.show).mkString)
           case _                  => Value.StringV(s)
         }
+      case (Value.StringV(s), "takeWhile",    List(f)) =>
+        def loop(i: Int): Computation =
+          if i >= s.length then Pure(Value.StringV(s))
+          else callValue(f, List(Value.CharV(s.charAt(i))), env).flatMap {
+            case Value.BoolV(true) => loop(i + 1)
+            case _                 => Pure(Value.StringV(s.substring(0, i)))
+          }
+        loop(0)
+      case (Value.StringV(s), "dropWhile",    List(f)) =>
+        def loop(i: Int): Computation =
+          if i >= s.length then Pure(Value.StringV(""))
+          else callValue(f, List(Value.CharV(s.charAt(i))), env).flatMap {
+            case Value.BoolV(true) => loop(i + 1)
+            case _                 => Pure(Value.StringV(s.substring(i)))
+          }
+        loop(0)
       // ── List ────────────────────────────────────────────────────
       case (Value.ListV(ls), "length",     Nil)  => Pure(Value.IntV(ls.length.toLong))
       case (Value.ListV(ls), "size",       Nil)  => Pure(Value.IntV(ls.size.toLong))
@@ -1501,6 +1543,9 @@ class Interpreter(out: java.io.PrintStream = System.out, baseDir: Option[os.Path
       case (Value.ListV(ls), "indexOf",    List(v)) => Pure(Value.IntV(ls.indexOf(v).toLong))
       case (Value.ListV(ls), "take",       List(Value.IntV(n))) => Pure(Value.ListV(ls.take(n.toInt)))
       case (Value.ListV(ls), "drop",       List(Value.IntV(n))) => Pure(Value.ListV(ls.drop(n.toInt)))
+      case (Value.ListV(ls), "splitAt",    List(Value.IntV(n))) =>
+        val (a, b) = ls.splitAt(n.toInt)
+        Pure(Value.TupleV(List(Value.ListV(a), Value.ListV(b))))
       case (Value.ListV(ls), "takeRight",  List(Value.IntV(n))) => Pure(Value.ListV(ls.takeRight(n.toInt)))
       case (Value.ListV(ls), "dropRight",  List(Value.IntV(n))) => Pure(Value.ListV(ls.dropRight(n.toInt)))
       // Higher-order: sequence the callback computations
@@ -1734,6 +1779,10 @@ class Interpreter(out: java.io.PrintStream = System.out, baseDir: Option[os.Path
           case Some(f: Value.FunV)      if f.params.isEmpty => callFun(f, Nil)
           case Some(f: Value.NativeFnV)                     => f.f(Nil)
           case Some(v)                                       => Pure(v)
+          // Scala's auto-generated `toString` on case classes / enum cases:
+          // fall through to the generic Value.show path so users get the
+          // expected "Circle(3.0)" rendering without having to define it.
+          case None if fname == "toString"                   => Pure(Value.StringV(Value.show(recv)))
           case None                                          => located(s"No field '$fname'")
       // ── Enum companion call (Color.RGB(1,2,3)) ───────────────────
       case (Value.InstanceV(_, fields), fname, fargs) if fields.contains(fname) =>
@@ -1809,6 +1858,13 @@ class Interpreter(out: java.io.PrintStream = System.out, baseDir: Option[os.Path
             Some(env)
           case _ => None
       }
+    // List cons pattern: `head :: tail` matches a non-empty ListV.
+    case Pat.ExtractInfix.After_4_6_0(headPat, Term.Name("::"), tailClause) =>
+      scrutinee match
+        case Value.ListV(h :: t) if tailClause.values.length == 1 =>
+          matchPat(headPat, h, env).flatMap(e =>
+            matchPat(tailClause.values.head, Value.ListV(t), e))
+        case _ => None
     case Pat.Typed(inner, _)       => matchPat(inner, scrutinee, env)
     case Pat.Alternative(lhs, rhs) =>
       List(lhs, rhs).iterator.flatMap(p => matchPat(p, scrutinee, env)).nextOption()

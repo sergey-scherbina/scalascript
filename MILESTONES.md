@@ -16,15 +16,6 @@ without reaching for raw string concatenation.
   API plus binary-safe body reading so file uploads round-trip, and
   port both to JsGen / JvmGen.
 
-## v0.4 — Stability & polish
-
-Known bugs and rough edges that need a separate pass.
-
-- **`examples/scala-js-demo.ssc` interpreter run.**  The example currently
-  exits non-zero under the tree-walking interpreter (uses Scala 3 features
-  outside the interpreter's subset).  Either broaden the interpreter or
-  remove the file's interpreter expectation.
-
 ## v0.5 — Interpreter performance (Tier 1) — landed
 
 Closed in a series of small commits on the

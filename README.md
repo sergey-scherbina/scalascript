@@ -117,7 +117,7 @@ compiles them via Scala.js.
 | [effects.ssc](examples/effects.ssc) | Algebraic effects — Console routing, nondeterminism, early return |
 | [default-params.ssc](examples/default-params.ssc) | Default parameter values on defs, classes, and enum cases |
 | [lang-split.ssc](examples/lang-split.ssc) | `scala` vs `scalascript` block annotations side by side |
-| [scala-js-demo.ssc](examples/scala-js-demo.ssc) | Pure `scala` 3 document — JS via Scala.js, JVM via scala-cli (outside interpreter subset) |
+| [scala-js-demo.ssc](examples/scala-js-demo.ssc) | Pure `scala` 3 document — runs on all three backends with byte-identical output |
 | [rest-api.ssc](examples/rest-api.ssc) | Tiny in-memory REST API — `route()`, `html"..."`, `serve()` |
 | [spa-demo.ssc](examples/spa-demo.ssc) | Same `route()` / `serve()` source, browser SPA via `ssc emit-spa` |
 

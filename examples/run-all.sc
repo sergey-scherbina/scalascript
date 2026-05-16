@@ -65,9 +65,7 @@ val examples = Seq(
   "effects.ssc",
   "lang-split.ssc",
   "default-params.ssc",
-  // scala-js-demo.ssc deliberately omitted — it exercises Scala 3 features
-  // outside the tree-walking interpreter's subset; runs cleanly only on JS
-  // (via Scala.js) and JVM.
+  "scala-js-demo.ssc",
 )
 
 val sep = "-" * 60
