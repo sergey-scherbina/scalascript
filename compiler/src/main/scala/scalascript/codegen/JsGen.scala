@@ -189,6 +189,7 @@ function getenv(key, defaultVal) {
 // needed.  Browser-side execution is intentionally out of scope: this
 // runtime require()s 'http' which only exists in Node.
 const _routes = [];
+const _wsRoutes = [];
 
 function _parsePath(p) {
   return p.split('/').filter(s => s.length > 0).map(s =>
@@ -199,6 +200,16 @@ function _parsePath(p) {
 function route(method, path) {
   return function(handler) {
     _routes.push({ method: method.toUpperCase(), pattern: _parsePath(path), handler });
+  };
+}
+
+// onWebSocket(path)(handler) — handler receives a WebSocket object with
+// `send` / `close` methods and `onMessage` / `onClose` registration.
+// Path matching shares `_parsePath` with `route` (literal + `:name`
+// captures), so `/chat/:room` works the same way for both.
+function onWebSocket(path) {
+  return function(handler) {
+    _wsRoutes.push({ pattern: _parsePath(path), handler });
   };
 }
 
@@ -826,9 +837,196 @@ function _contentTypeFor(name) {
   return 'application/octet-stream';
 }
 
+// ── WebSocket framing (RFC 6455) ───────────────────────────────────────
+// Pure-Node implementation — `crypto` for the handshake hash, raw
+// `net.Socket` writes for frames.  No `ws` npm dependency.
+
+const _WS_MAGIC = '258EAFA5-E914-47DA-95CA-C5AB0DC85B11';
+
+function _wsAcceptKey(clientKey) {
+  const crypto = require('crypto');
+  return crypto.createHash('sha1').update(clientKey + _WS_MAGIC).digest('base64');
+}
+
+// Try to parse one frame starting at `offset` in `buf`.  Returns
+// `{ fin, opcode, payload, consumed }` on success or `null` when more
+// bytes are needed.  Throws on a protocol error (unknown opcode,
+// oversized payload) — caller should close.
+function _wsParseFrame(buf, offset) {
+  const avail = buf.length - offset;
+  if (avail < 2) return null;
+  const b0 = buf[offset];
+  const b1 = buf[offset + 1];
+  const fin    = (b0 & 0x80) !== 0;
+  const opcode = b0 & 0x0F;
+  const masked = (b1 & 0x80) !== 0;
+  const len7   = b1 & 0x7F;
+  let hdrLen = 2;
+  let payloadLen;
+  if (len7 <= 125) payloadLen = len7;
+  else if (len7 === 126) {
+    if (avail < 4) return null;
+    payloadLen = buf.readUInt16BE(offset + 2);
+    hdrLen = 4;
+  } else {
+    if (avail < 10) return null;
+    const big = buf.readBigUInt64BE(offset + 2);
+    if (big > BigInt(0x7fffffff)) throw new Error('frame too large');
+    payloadLen = Number(big);
+    hdrLen = 10;
+  }
+  const maskLen = masked ? 4 : 0;
+  const totalLen = hdrLen + maskLen + payloadLen;
+  if (avail < totalLen) return null;
+  const payload = Buffer.allocUnsafe(payloadLen);
+  const payloadStart = offset + hdrLen + maskLen;
+  if (masked) {
+    const m = buf.slice(offset + hdrLen, offset + hdrLen + 4);
+    for (let i = 0; i < payloadLen; i++)
+      payload[i] = buf[payloadStart + i] ^ m[i & 3];
+  } else if (payloadLen > 0) {
+    buf.copy(payload, 0, payloadStart, payloadStart + payloadLen);
+  }
+  return { fin, opcode, payload, consumed: totalLen };
+}
+
+function _wsEncodeFrame(opcode, payload) {
+  const len = payload.length;
+  let buf;
+  if (len <= 125) {
+    buf = Buffer.allocUnsafe(2 + len);
+    buf[0] = 0x80 | opcode;
+    buf[1] = len;
+    payload.copy(buf, 2);
+  } else if (len <= 0xFFFF) {
+    buf = Buffer.allocUnsafe(4 + len);
+    buf[0] = 0x80 | opcode;
+    buf[1] = 126;
+    buf.writeUInt16BE(len, 2);
+    payload.copy(buf, 4);
+  } else {
+    buf = Buffer.allocUnsafe(10 + len);
+    buf[0] = 0x80 | opcode;
+    buf[1] = 127;
+    buf.writeBigUInt64BE(BigInt(len), 2);
+    payload.copy(buf, 10);
+  }
+  return buf;
+}
+
+function _wsEncodeText(s)    { return _wsEncodeFrame(0x1, Buffer.from(String(s), 'utf-8')); }
+function _wsEncodePong(p)    { return _wsEncodeFrame(0xA, p); }
+function _wsEncodeClose(code, reason) {
+  const r = Buffer.from(reason || '', 'utf-8');
+  const p = Buffer.allocUnsafe(2 + r.length);
+  p.writeUInt16BE(code, 0);
+  r.copy(p, 2);
+  return _wsEncodeFrame(0x8, p);
+}
+
+// Build the `WebSocket` value the handler receives — wraps `socket`
+// with `send` / `close` / `onMessage` / `onClose` and pumps inbound
+// frames through `_wsParseFrame`.  Control frames (ping/close) are
+// handled here; text/binary frames invoke `onMessage` if registered.
+function _wsMakeWebSocket(socket) {
+  let onMessage = null;
+  let onClose   = null;
+  let closing   = false;
+  let inBuf     = Buffer.alloc(0);
+
+  const ws = {
+    _type: 'WebSocket',
+    send: (s) => {
+      if (!closing && !socket.destroyed) socket.write(_wsEncodeText(s));
+    },
+    close: (code, reason) => {
+      if (!closing && !socket.destroyed) {
+        closing = true;
+        socket.write(_wsEncodeClose(code ?? 1000, reason ?? ''));
+        socket.end();
+      }
+    },
+    onMessage: (cb) => { onMessage = cb; },
+    onClose:   (cb) => { onClose   = cb; }
+  };
+
+  socket.on('data', chunk => {
+    inBuf = inBuf.length === 0 ? chunk : Buffer.concat([inBuf, chunk]);
+    let offset = 0;
+    try {
+      while (true) {
+        const f = _wsParseFrame(inBuf, offset);
+        if (!f) break;
+        offset += f.consumed;
+        switch (f.opcode) {
+          case 0x9: socket.write(_wsEncodePong(f.payload)); break;            // ping
+          case 0xA: break;                                                     // pong
+          case 0x8: {                                                          // close
+            const status = f.payload.length >= 2 ? f.payload.readUInt16BE(0) : 1000;
+            if (!closing) { closing = true; socket.write(_wsEncodeClose(status, '')); }
+            socket.end();
+            break;
+          }
+          case 0x1: case 0x2: {                                                // text / binary
+            if (onMessage) {
+              const msg = f.opcode === 0x1 ? f.payload.toString('utf-8') : f.payload.toString('latin1');
+              try { onMessage(msg); } catch (e) { console.error('WS message handler:', e.message); }
+            }
+            break;
+          }
+          default:
+            if (!closing) { closing = true; socket.write(_wsEncodeClose(1003, '')); }
+            socket.end();
+        }
+      }
+    } catch (e) {
+      if (!closing) { closing = true; socket.write(_wsEncodeClose(1002, 'protocol error')); }
+      socket.end();
+      return;
+    }
+    inBuf = offset > 0 ? inBuf.slice(offset) : inBuf;
+  });
+
+  socket.on('close', () => {
+    if (onClose) try { onClose(); } catch (e) { console.error('WS close handler:', e.message); }
+  });
+
+  return ws;
+}
+
+// Called from the `server.on('upgrade', …)` listener — finishes the
+// 101 handshake, builds the WebSocket value, and runs the user's
+// `onWebSocket` block.  No matching route → 404 + close.
+function _wsHandleUpgrade(req, socket) {
+  try {
+    const u = new URL(req.url, 'http://localhost');
+    const segs = u.pathname.split('/').filter(s => s.length > 0);
+    for (const r of _wsRoutes) {
+      const params = _matchPath(r.pattern, segs);
+      if (params == null) continue;
+      const clientKey = req.headers['sec-websocket-key'];
+      if (!clientKey) { socket.destroy(); return; }
+      const accept = _wsAcceptKey(clientKey);
+      socket.write(
+        'HTTP/1.1 101 Switching Protocols\r\n' +
+        'Upgrade: websocket\r\n' +
+        'Connection: Upgrade\r\n' +
+        'Sec-WebSocket-Accept: ' + accept + '\r\n\r\n'
+      );
+      const ws = _wsMakeWebSocket(socket);
+      try { r.handler(ws); } catch (e) { console.error('WS upgrade handler:', e.message); }
+      return;
+    }
+    socket.write('HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n');
+    socket.destroy();
+  } catch (e) {
+    try { socket.destroy(); } catch (_) {}
+  }
+}
+
 function serve(port) {
   const http = require('http');
-  http.createServer((req, res) => {
+  const server = http.createServer((req, res) => {
     // Collect chunks as Buffers (not strings) so multipart file uploads
     // round-trip byte-for-byte.
     const chunks = [];
@@ -886,7 +1084,11 @@ function serve(port) {
         res.writeHead(500); res.end('Internal Error');
       }
     });
-  }).listen(port, () => console.log(`Listening on http://localhost:${port}/`));
+  });
+  // WebSocket upgrade lives on the same server — Node hands us the raw
+  // socket (post-headers) and stays out of the way after.
+  server.on('upgrade', (req, socket, _head) => _wsHandleUpgrade(req, socket));
+  server.listen(port, () => console.log(`Listening on http://localhost:${port}/`));
 }
 
 function _show(v) {

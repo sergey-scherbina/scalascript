@@ -703,6 +703,21 @@ class Interpreter(
       case _ => throw InterpretError("route(method, path) { handler }")
     }
 
+    // onWebSocket(path)(handler) — registers a WS upgrade handler.  The
+    // handler receives a `WebSocket` value with `send` / `close` methods
+    // and `onMessage` / `onClose` callback registration.  Path syntax is
+    // the same as `route` (literal + `:name` captures).
+    nativeP("onWebSocket") {
+      case List(Value.StringV(path)) =>
+        Value.NativeFnV("onWebSocket.handler", Computation.pureFn {
+          case List(handler) =>
+            scalascript.server.WsRoutes.register(path, handler, this)
+            Value.UnitV
+          case _ => throw InterpretError("onWebSocket(path) { ws => … }")
+        })
+      case _ => throw InterpretError("onWebSocket(path) { ws => … }")
+    }
+
   /** Invoke an interpreter Value (closure or native fn) from outside —
    *  used by WebServer to call route handlers in response to HTTP requests. */
   def invoke(fn: Value, args: List[Value]): Value =
