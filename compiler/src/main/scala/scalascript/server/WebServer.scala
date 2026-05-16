@@ -106,6 +106,12 @@ object WebServer:
         parseMultipart(contentType, bodyLatin1)
       else
         (Map.empty[String, String], Map.empty[String, Value])
+    val cookieHeader = headers.collectFirst {
+      case (Value.StringV(k), Value.StringV(v)) if k.equalsIgnoreCase("Cookie") => v
+    }.getOrElse("")
+    val session: Map[String, String] =
+      if cookieHeader.isEmpty then Map.empty
+      else SessionCookie.fromHeader(cookieHeader).getOrElse(Map.empty)
     val req = Value.InstanceV("Request", Map(
       "method"  -> Value.StringV(ex.getRequestMethod),
       "path"    -> Value.StringV(ex.getRequestURI.getPath),
@@ -114,14 +120,15 @@ object WebServer:
       "headers" -> Value.MapV(headers),
       "body"    -> Value.StringV(body),
       "form"    -> Value.MapV(form.map((k, v) => Value.StringV(k) -> Value.StringV(v))),
-      "files"   -> Value.MapV(files.map((k, v) => Value.StringV(k) -> v))
+      "files"   -> Value.MapV(files.map((k, v) => Value.StringV(k) -> v)),
+      "session" -> Value.MapV(session.map((k, v) => Value.StringV(k) -> Value.StringV(v)))
     ))
     val result = entry.interpreter.invoke(entry.handler, List(req))
     writeResponse(result, ex)
 
   private def writeResponse(v: scalascript.interpreter.Value, ex: HttpExchange): Unit =
     import scalascript.interpreter.Value
-    val (status, headers, body) = v match
+    val (status, headers, body, setSession) = v match
       case Value.InstanceV("Response", fields) =>
         val s = fields.get("status") match
           case Some(Value.IntV(n)) => n.toInt
@@ -134,13 +141,23 @@ object WebServer:
           case Some(Value.StringV(s)) => s
           case Some(other)            => Value.show(other)
           case None                   => ""
-        (s, h, b)
-      case Value.StringV(s)  => (200, Map("Content-Type" -> "text/plain; charset=utf-8"), s)
-      case Value.UnitV       => (204, Map.empty[String, String], "")
-      case other             => (200, Map("Content-Type" -> "text/plain; charset=utf-8"), Value.show(other))
+        // `withSession`/`clearSession` attach a `setSession: Map[String, String]`
+        // field — Some(empty) means clear, Some(non-empty) means write,
+        // None means leave the client's cookie alone.
+        val ss = fields.get("setSession") match
+          case Some(Value.MapV(m)) =>
+            Some(m.collect { case (Value.StringV(k), Value.StringV(v)) => k -> v }.toMap)
+          case _ => None
+        (s, h, b, ss)
+      case Value.StringV(s)  => (200, Map("Content-Type" -> "text/plain; charset=utf-8"), s, None)
+      case Value.UnitV       => (204, Map.empty[String, String], "", None)
+      case other             => (200, Map("Content-Type" -> "text/plain; charset=utf-8"), Value.show(other), None)
     headers.foreach((k, v) => ex.getResponseHeaders.add(k, v))
     if !headers.contains("Content-Type") then
       ex.getResponseHeaders.add("Content-Type", "text/plain; charset=utf-8")
+    setSession.foreach { payload =>
+      ex.getResponseHeaders.add("Set-Cookie", SessionCookie.toSetCookie(payload, secureFlag = false))
+    }
     val bytes = body.getBytes("UTF-8")
     ex.sendResponseHeaders(status, if bytes.isEmpty then -1 else bytes.length.toLong)
     if bytes.nonEmpty then ex.getResponseBody.write(bytes)

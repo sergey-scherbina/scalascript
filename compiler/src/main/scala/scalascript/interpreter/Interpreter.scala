@@ -1851,6 +1851,16 @@ class Interpreter(out: java.io.PrintStream = System.out, baseDir: Option[os.Path
         // Re-bind the method's closure with this instance's data fields so the
         // body can refer to them by name (`x`, `y`, …).
         callFun(fn.copy(closure = fn.closure ++ fields), fargs)
+      // ── Response builder methods (cookie sessions) ───────────────
+      // `resp.withSession(Map(...))` / `resp.clearSession()` attach a
+      // `setSession` field; the HTTP runtime turns that into a Set-Cookie.
+      // Must precede the InstanceV no-arg / enum-companion cases below so
+      // `clearSession()` and `withSession(...)` aren't shadowed by field
+      // lookup on the Response instance.
+      case (Value.InstanceV("Response", fields), "withSession", List(Value.MapV(m))) =>
+        Pure(Value.InstanceV("Response", fields + ("setSession" -> Value.MapV(m))))
+      case (Value.InstanceV("Response", fields), "clearSession", Nil) =>
+        Pure(Value.InstanceV("Response", fields + ("setSession" -> Value.MapV(Map.empty))))
       // ── Instance (case class / enum case) field access ───────────
       // No-arg defs and no-arg native fns are called automatically on access
       case (Value.InstanceV(_, fields), fname, Nil) =>
