@@ -196,8 +196,8 @@ in-memory `NormalizedModule`. This is the contract between in-proc and
 out-of-proc plugins — break it and out-of-proc backends silently
 diverge.
 
-JSON schema is committed at `schemas/ir.json` and versioned. Each
-`NormalizedModule` carries `irSchemaVersion`.
+JSON schema is committed at `schemas/ir.json`. Each `NormalizedModule`
+carries the single SPI/IR version number (§13).
 
 ## 6. Effect normalisation (the big migration)
 
@@ -739,7 +739,7 @@ entries for misses.
   ```yaml
   id: wasm
   displayName: WebAssembly (via wasm-tools)
-  spiVersion: "1.0"
+  spiVersion: "0.1.0"
   protocol: jsonrpc-stdio    # only protocol initially
   executable: ./bin/sscbackend-wasm
   args: ["--quiet"]
@@ -761,14 +761,21 @@ A subprocess backend whose `executable` is a JVM jar is allowed (we just
 spawn `java -jar ...`); that gives plugin authors a path to total
 isolation from core's classpath if they need it.
 
-## 13. SPI versioning
+## 13. Versioning
 
-- SPI uses **semver**.
-- Each plugin declares `spiVersion`. The loader rejects plugins outside
-  the compatible range and logs a clear message.
-- Breaking SPI changes go in **major** versions only.
-- `scalascript-backend-spi` is published independently of `core` (same
-  group / different artifact / independent version).
+Plain semver, no edge cases. **Current version: 0.1.0** (pre-stable —
+breaking changes are allowed in 0.x minor bumps).
+
+- One version number governs both the SPI and the IR schema. Plugins
+  declare `spiVersion = "0.1.0"`; the loader rejects mismatches by
+  major version (and, while we're in 0.x, by minor too).
+- Once we hit 1.0, breaking changes require a major bump; until then,
+  minor bumps may break.
+- `scalascript-backend-spi` is published as its own artifact so
+  third-party plugin authors can depend on it independently of
+  `core`, on the same version number.
+- No version ranges, no compatibility shims, no graceful degradation
+  for older plugins. Bumping the compiler means rebuilding plugins.
 
 ## 14. Migration plan (8 phases)
 
@@ -897,11 +904,6 @@ Specifically:
 
 ## 16. Open questions
 
-- **IR stability vs. language evolution.** Adding a language feature
-  often needs a new IR node. We bump the IR schema version every time.
-  Out-of-process backends that don't support the new version are still
-  allowed to run on older programs but refuse newer ones — is that the
-  policy we want, or do we require all plugins to update lockstep?
 - **Plugin trust.** A loaded JAR runs with full JVM permissions. Do we
   want any sandboxing for third-party plugins, or document this and
   rely on the user knowing what they install? (Initial recommendation:
@@ -924,6 +926,9 @@ Specifically:
   declared by the `BlockCompiler` (no user-side annotation), global
   module-wide visibility, cycles allowed via two-pass typing. Tier 1
   symbol-level + Tier 2 Pandoc-style `{#id}` for opaque blocks.
+- **IR / SPI versioning policy** → plain semver, one version number
+  for both (§13); lockstep updates across plugins, no partial
+  compatibility. Pre-stable at 0.1.0.
 
 ## 17. Definition of done
 
