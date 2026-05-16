@@ -39,16 +39,27 @@ object WebServer:
         case Some((entry, params)) =>
           dispatchRoute(entry, params, ex)
         case None =>
-          // Fall back to static .ssc page rendering (GET only).
-          val filePath = resolveSsc(root, rawPath)
-          val file = java.io.File(filePath)
-          val (status, body) =
-            if file.exists() then (200, renderFile(file))
-            else (404, page("404", s"<h1>404</h1><p>Not found: <code>$rawPath</code></p>"))
-          val bytes = body.getBytes("UTF-8")
-          ex.getResponseHeaders.add("Content-Type", "text/html; charset=utf-8")
-          ex.sendResponseHeaders(status, bytes.length)
-          ex.getResponseBody.write(bytes)
+          // No route matched.  Try, in order:
+          //   1. A static asset (any non-.ssc file under the root) — serve
+          //      with a sniffed Content-Type and pass-through bytes.
+          //   2. A `.ssc` page — render it as HTML (the original behaviour).
+          //   3. 404.
+          val staticFile = resolveStatic(root, rawPath)
+          val sscFile    = java.io.File(resolveSsc(root, rawPath))
+          if staticFile.isDefined then
+            serveStatic(staticFile.get, ex)
+          else if sscFile.exists() then
+            val body  = renderFile(sscFile)
+            val bytes = body.getBytes("UTF-8")
+            ex.getResponseHeaders.add("Content-Type", "text/html; charset=utf-8")
+            ex.sendResponseHeaders(200, bytes.length)
+            ex.getResponseBody.write(bytes)
+          else
+            val body  = page("404", s"<h1>404</h1><p>Not found: <code>$rawPath</code></p>")
+            val bytes = body.getBytes("UTF-8")
+            ex.getResponseHeaders.add("Content-Type", "text/html; charset=utf-8")
+            ex.sendResponseHeaders(404, bytes.length)
+            ex.getResponseBody.write(bytes)
     catch case e: Exception =>
       log.println(s"Error: ${e.getMessage}")
     finally
@@ -115,6 +126,55 @@ object WebServer:
     val bytes = body.getBytes("UTF-8")
     ex.sendResponseHeaders(status, if bytes.isEmpty then -1 else bytes.length.toLong)
     if bytes.nonEmpty then ex.getResponseBody.write(bytes)
+
+  /** Resolve a static (non-`.ssc`) file under `root` from the URL path.
+   *  Returns the file only if it exists, is a regular file, lies inside
+   *  `root` (path-traversal guard), and has a known asset extension.
+   *  `.ssc` files are deliberately excluded so route dispatch + the `.ssc`
+   *  rendering path keep ownership of them. */
+  private def resolveStatic(root: String, urlPath: String): Option[java.io.File] =
+    val cleaned = urlPath.stripPrefix("/")
+    if cleaned.isEmpty then return None
+    val rootDir = java.io.File(root).getCanonicalFile
+    val target  = java.io.File(rootDir, cleaned).getCanonicalFile
+    val name    = target.getName
+    if !target.exists() || !target.isFile() then None
+    else if !target.getPath.startsWith(rootDir.getPath) then None    // escaped root
+    else if name.endsWith(".ssc") then None
+    else Some(target)
+
+  private def serveStatic(file: java.io.File, ex: HttpExchange): Unit =
+    val bytes = java.nio.file.Files.readAllBytes(file.toPath)
+    ex.getResponseHeaders.add("Content-Type", contentTypeFor(file.getName))
+    ex.sendResponseHeaders(200, bytes.length.toLong)
+    ex.getResponseBody.write(bytes)
+
+  /** Map a filename suffix to a Content-Type.  Probe Files.probeContentType
+   *  first (covers many less-common types via the platform mime DB), fall
+   *  back to a small explicit table for the web essentials, then a safe
+   *  `application/octet-stream`. */
+  private def contentTypeFor(name: String): String =
+    val lower = name.toLowerCase
+    val explicit: Option[String] = lower match
+      case n if n.endsWith(".html") || n.endsWith(".htm") => Some("text/html; charset=utf-8")
+      case n if n.endsWith(".css")  => Some("text/css; charset=utf-8")
+      case n if n.endsWith(".js") || n.endsWith(".mjs") => Some("application/javascript; charset=utf-8")
+      case n if n.endsWith(".json") => Some("application/json; charset=utf-8")
+      case n if n.endsWith(".txt") || n.endsWith(".md") => Some("text/plain; charset=utf-8")
+      case n if n.endsWith(".svg")  => Some("image/svg+xml")
+      case n if n.endsWith(".png")  => Some("image/png")
+      case n if n.endsWith(".jpg") || n.endsWith(".jpeg") => Some("image/jpeg")
+      case n if n.endsWith(".gif")  => Some("image/gif")
+      case n if n.endsWith(".webp") => Some("image/webp")
+      case n if n.endsWith(".ico")  => Some("image/x-icon")
+      case n if n.endsWith(".woff") => Some("font/woff")
+      case n if n.endsWith(".woff2") => Some("font/woff2")
+      case n if n.endsWith(".wasm") => Some("application/wasm")
+      case _                        => None
+    explicit.orElse {
+      try Option(java.nio.file.Files.probeContentType(java.nio.file.Paths.get(name)))
+      catch case _: Throwable => None
+    }.getOrElse("application/octet-stream")
 
   private def parseQuery(q: String): Map[String, String] =
     if q.isEmpty then Map.empty

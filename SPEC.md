@@ -436,7 +436,10 @@ val outer = html"<div>${raw(safe)}</div>"          // safe passed through
 The REST primitives are available on all three backends:
 
 - **JVM interpreter** (`ssc run` / `bin/ssc`) — handlers run inside the
-  interpreter session that registered them.
+  interpreter session that registered them.  When no route matches, the
+  request falls through to static asset serving from the root directory
+  (any non-`.ssc` file is served with a sniffed `Content-Type`; path-traversal
+  is blocked by canonical-path checks), and then to `.ssc`-page rendering.
 - **JVM backend** (`ssc compile` / `bin/sscc`) — JvmGen emits a `serveRuntime`
   preamble (case classes for `Request` / `Response`, the route registry, and
   a JDK `HttpServer` dispatcher) when the module calls `route(...)`.  The

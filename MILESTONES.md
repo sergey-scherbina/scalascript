@@ -23,9 +23,11 @@ without reaching for raw string concatenation.
 - **Multipart form parsing.**  `req.form` now covers
   `application/x-www-form-urlencoded` on all three backends; add a
   parser for `multipart/form-data` so file uploads round-trip too.
-- **Static file serving.**  When `serve` falls through to the file-rendering
-  path, also serve plain assets (`.css`, `.js`, `.png`, …) from the root
-  directory with proper Content-Type sniffing.
+- **Static asset serving for compiled backends.**  Interpreter `serve`
+  now falls through to static files (any non-`.ssc` under the root)
+  before 404'ing.  The JvmGen / JsGen `serveRuntime` blocks still only
+  do REST + 404 — give them the same fall-through so a compiled
+  binary or Node script can serve a docs site too.
 - **Concurrent request handling.**  The default JDK `HttpServer` executor is
   multithreaded but the interpreter is not.  Decide between (a) explicit
   single-thread executor + document the limit or (b) lock around
