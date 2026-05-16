@@ -34,13 +34,16 @@ wait_for_server() {
 
 # Expected occurrence counts for known markers.  These cover both the
 # CSS-rule occurrence and the rendered element occurrence — drift in
-# either indicates a regression in the import / object / css path.
-EXPECTED_TITLE=2          # <title>Components demo</title> + <h1>…
-EXPECTED_BTN_PRIMARY=2    # .btn-primary { … } + class="btn btn-primary"
-EXPECTED_BTN_SECONDARY=2  # .btn-secondary + Cancel button
-EXPECTED_BTN_DANGER=2     # .btn-danger + Delete button
-EXPECTED_CARD_TITLE=3     # .card-title { … } + two rendered cards
-EXPECTED_CARD=2           # class="card" — two rendered cards (CSS rule uses .card, not class="card")
+# either indicates a regression in the import / object / css / scope path.
+EXPECTED_TITLE=2             # <title>Components demo</title> + <h1>…
+EXPECTED_BTN_PRIMARY=2       # .btn-primary { … } + class="btn btn-primary"
+EXPECTED_BTN_SECONDARY=2     # .btn-secondary + Cancel button
+EXPECTED_BTN_DANGER=2        # .btn-danger + Delete button
+# Card uses scope("Card"), so its classes are suffixed with __Card.  Each
+# of root / title / body appears in the CSS rule + twice in HTML (two cards).
+EXPECTED_CARD_ROOT=3
+EXPECTED_CARD_TITLE=3
+EXPECTED_CARD_BODY=3
 
 run_backend() {
     local label="$1"
@@ -63,15 +66,17 @@ run_backend() {
     local btn1=$(echo "$body" | grep -c 'btn-primary'   || true)
     local btn2=$(echo "$body" | grep -c 'btn-secondary' || true)
     local btn3=$(echo "$body" | grep -c 'btn-danger'    || true)
-    local card1=$(echo "$body" | grep -c 'card-title'   || true)
-    local cardc=$(echo "$body" | grep -c 'class="card"' || true)
+    local croot=$(echo "$body" | grep -c 'root__Card'   || true)
+    local ctitle=$(echo "$body" | grep -c 'title__Card' || true)
+    local cbody=$(echo "$body" | grep -c 'body__Card'   || true)
 
-    [ "$title" = "$EXPECTED_TITLE" ]           || { echo "  [FAIL] $label title:$title (want $EXPECTED_TITLE)"; fail=1; }
-    [ "$btn1"  = "$EXPECTED_BTN_PRIMARY" ]     || { echo "  [FAIL] $label btn-primary:$btn1 (want $EXPECTED_BTN_PRIMARY)"; fail=1; }
-    [ "$btn2"  = "$EXPECTED_BTN_SECONDARY" ]   || { echo "  [FAIL] $label btn-secondary:$btn2 (want $EXPECTED_BTN_SECONDARY)"; fail=1; }
-    [ "$btn3"  = "$EXPECTED_BTN_DANGER" ]      || { echo "  [FAIL] $label btn-danger:$btn3 (want $EXPECTED_BTN_DANGER)"; fail=1; }
-    [ "$card1" = "$EXPECTED_CARD_TITLE" ]      || { echo "  [FAIL] $label card-title:$card1 (want $EXPECTED_CARD_TITLE)"; fail=1; }
-    [ "$cardc" = "$EXPECTED_CARD" ]            || { echo "  [FAIL] $label card class:$cardc (want $EXPECTED_CARD)"; fail=1; }
+    [ "$title"  = "$EXPECTED_TITLE" ]           || { echo "  [FAIL] $label title:$title (want $EXPECTED_TITLE)"; fail=1; }
+    [ "$btn1"   = "$EXPECTED_BTN_PRIMARY" ]     || { echo "  [FAIL] $label btn-primary:$btn1 (want $EXPECTED_BTN_PRIMARY)"; fail=1; }
+    [ "$btn2"   = "$EXPECTED_BTN_SECONDARY" ]   || { echo "  [FAIL] $label btn-secondary:$btn2 (want $EXPECTED_BTN_SECONDARY)"; fail=1; }
+    [ "$btn3"   = "$EXPECTED_BTN_DANGER" ]      || { echo "  [FAIL] $label btn-danger:$btn3 (want $EXPECTED_BTN_DANGER)"; fail=1; }
+    [ "$croot"  = "$EXPECTED_CARD_ROOT" ]       || { echo "  [FAIL] $label root__Card:$croot (want $EXPECTED_CARD_ROOT)"; fail=1; }
+    [ "$ctitle" = "$EXPECTED_CARD_TITLE" ]      || { echo "  [FAIL] $label title__Card:$ctitle (want $EXPECTED_CARD_TITLE)"; fail=1; }
+    [ "$cbody"  = "$EXPECTED_CARD_BODY" ]       || { echo "  [FAIL] $label body__Card:$cbody (want $EXPECTED_CARD_BODY)"; fail=1; }
 
     kill $pid 2>/dev/null
     wait $pid 2>/dev/null

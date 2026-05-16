@@ -77,6 +77,25 @@ function collectCss(...parts) {
     .join('\n');
 }
 
+// `scope("Card")` returns a small object with two helpers used by
+// component-style .ssc files to suffix class names so two components
+// can both use bare class names like `.title` without conflict.
+//   const s = scope("Card");
+//   s.css(".title { color: blue }")   // → ".title__Card { color: blue }"
+//   s.cls("title")                    // → "title__Card"
+// See SPEC §8.4 for the convention and trade-offs.
+function scope(scopeName) {
+  // Note: `.ident` matches anywhere in the input; CSS that contains
+  // bare-identifier dots inside `url(...)` would be rewritten too — keep
+  // URLs free of those dots if the rewrite matters.
+  const rx = /\.([A-Za-z_][A-Za-z0-9_-]*)/g;
+  return {
+    name: scopeName,
+    css: (s) => String(s).replace(rx, (_, cls) => '.' + cls + '__' + scopeName),
+    cls: (n) => String(n) + '__' + scopeName,
+  };
+}
+
 // ── Typed HTML DSL — `div(attr.cls := "hero", h1("hi"))` ───────────────
 function _attr(key, value) { return { _type: 'Attr', name: key.name, value: _show(value) }; }
 function _attrKey(name)    { return { _type: 'AttrKey', name }; }
@@ -1494,7 +1513,12 @@ class JsGen(baseDir: Option[os.Path] = None):
 
     case d: Defn.Object =>
       val objectName = d.name.value
-      val members = mutable.ArrayBuffer.empty[String]
+      // Emit as an IIFE so members can reference earlier siblings —
+      // matches Scala semantics where `val s = ...; val css = s.css(...)`
+      // inside `object Card:` resolves `s` against the object body.
+      // A bare `{k1: ..., k2: ...}` object literal can't do that.
+      val decls = mutable.ArrayBuffer.empty[String]
+      val names = mutable.ArrayBuffer.empty[String]
       d.templ.body.stats.foreach {
         case dd: Defn.Def if isEffectOpDef(dd.body) =>
           val opName = dd.name.value
@@ -1502,11 +1526,24 @@ class JsGen(baseDir: Option[os.Path] = None):
           val params    = paramVals.map(_.name.value)
           val paramsStr = paramListWithDefaults(paramVals)
           val argsArr = if params.isEmpty then "[]" else s"[${params.mkString(", ")}]"
-          members += s"$opName: ($paramsStr) => _perform('$objectName', '$opName', $argsArr)"
-        case s =>
-          members += genObjectMember(s)
+          decls += s"const $opName = ($paramsStr) => _perform('$objectName', '$opName', $argsArr);"
+          names += opName
+        case dd: Defn.Def =>
+          val paramVals = dd.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values)
+          val paramsStr = paramListWithDefaults(paramVals)
+          val bodyJs = dd.body match
+            case Term.Block(bodyStats) => genBlockAsIife(bodyStats)
+            case expr                   => genExpr(expr)
+          decls += s"const ${dd.name.value} = ($paramsStr) => $bodyJs;"
+          names += dd.name.value
+        case Defn.Val(_, List(Pat.Var(n)), _, rhs) =>
+          decls += s"const ${n.value} = ${genExpr(rhs)};"
+          names += n.value
+        case _ => ()
       }
-      line(s"const $objectName = {${members.mkString(", ")}};")
+      val body = decls.mkString(" ")
+      val ret  = names.mkString(", ")
+      line(s"const $objectName = (() => { $body return { $ret }; })();")
 
     case d: Defn.Enum =>
       d.templ.body.stats.foreach {

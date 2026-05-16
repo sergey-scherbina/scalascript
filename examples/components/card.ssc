@@ -1,26 +1,30 @@
 #!/usr/bin/env ssc
 ---
 name: card
-description: Card with a title and a body.
+description: Card with a title and a body — uses `scope("Card")` for class names.
 ---
 
 # Card
 
-Same convention as `button.ssc`: one `object` exporting `render` + `css`.
+Same convention as `button.ssc`, plus `scope("Card")` to suffix class
+names so the bare `.root` / `.title` / `.body` selectors won't clash
+with another component that uses the same names.
 
 ```scalascript
 object Card:
-  val css: String = """
-    .card { border: 1px solid #e5e7eb; border-radius: 8px;
-            padding: 1em 1.2em; margin: 1em 0;
-            box-shadow: 0 1px 2px rgba(0,0,0,.05); background: #fff; }
-    .card-title { margin: 0 0 .4em; font-size: 1.1em; color: #111827; }
-    .card-body  { color: #374151; }
-  """
+  private val s = scope("Card")
+
+  val css: String = s.css("""
+    .root  { border: 1px solid #e5e7eb; border-radius: 8px;
+             padding: 1em 1.2em; margin: 1em 0;
+             box-shadow: 0 1px 2px rgba(0,0,0,.05); background: #fff; }
+    .title { margin: 0 0 .4em; font-size: 1.1em; color: #111827; }
+    .body  { color: #374151; }
+  """)
 
   def render(title: String, body: String): String =
-    html"""<div class="card">
-      <h3 class="card-title">${title}</h3>
-      <div class="card-body">${body}</div>
+    html"""<div class="${s.cls("root")}">
+      <h3 class="${s.cls("title")}">${title}</h3>
+      <div class="${s.cls("body")}">${body}</div>
     </div>"""
 ```

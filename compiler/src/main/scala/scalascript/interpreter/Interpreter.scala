@@ -288,6 +288,40 @@ class Interpreter(out: java.io.PrintStream = System.out, baseDir: Option[os.Path
       Value.StringV(parts.mkString("\n"))
     }
 
+    // `scope("Card")` returns a small object with two helpers used by
+    // component-style .ssc files to suffix class names (see SPEC §8.4):
+    //
+    //   val s = scope("Card")
+    //   s.css(""".title { ... }""")  // → ".title__Card { ... }"
+    //   s.cls("title")               // → "title__Card"
+    //
+    // Two components can both use bare class names like `.title` and
+    // their concatenated CSS won't conflict.  The CSS rewriter is a
+    // simple `\.identifier` regex pass — class chains (`.a.b`) are
+    // handled, but `.ident` inside CSS string contents (e.g. inside a
+    // `url("./file.ext")`) would also be rewritten; keep URL strings
+    // free of bare-identifier dots if you depend on them.
+    nativeP("scope") {
+      case List(Value.StringV(scopeName)) =>
+        def rewrite(css: String): String =
+          val pat = """\.([A-Za-z_][A-Za-z0-9_-]*)""".r
+          pat.replaceAllIn(css, m =>
+            java.util.regex.Matcher.quoteReplacement(s".${m.group(1)}__$scopeName")
+          )
+        Value.InstanceV("Scope", Map(
+          "name" -> Value.StringV(scopeName),
+          "css"  -> Value.NativeFnV("scope.css", Computation.pureFn {
+            case List(Value.StringV(s)) => Value.StringV(rewrite(s))
+            case _                       => throw InterpretError("scope.css(s)")
+          }),
+          "cls"  -> Value.NativeFnV("scope.cls", Computation.pureFn {
+            case List(Value.StringV(n)) => Value.StringV(s"${n}__$scopeName")
+            case _                       => throw InterpretError("scope.cls(name)")
+          })
+        ))
+      case _ => throw InterpretError("scope(name: String)")
+    }
+
     // ─── Typed HTML DSL — `div(cls := "x", h1("hi"))` style ───────────
     //
     // Each tag is a native fn that takes a list of mixed args: Attr values

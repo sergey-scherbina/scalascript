@@ -661,8 +661,33 @@ Why this shape:
 
   Arguments that don't expose a String `css` are silently skipped, so
   ordinary objects can be mixed in.  Identical output on all three
-  backends.  Per-component scoping (hashed class names) is future work
-  and lands only when two components actually clash.
+  backends.
+
+- **Class scoping via `scope(name)`.**  Two components can both write
+  bare class names like `.title` without conflict if each runs its
+  CSS through a per-component scope:
+
+  ```scalascript
+  object Card:
+    private val s = scope("Card")
+
+    val css: String = s.css("""
+      .title { font-size: 1.1em; }
+      .body  { color: #374151; }
+    """)
+    // expands to ".title__Card { … } .body__Card { … }"
+
+    def render(t: String, b: String): String = html"""
+      <div class="${s.cls("title")}">${t}</div>
+      <div class="${s.cls("body")}">${b}</div>
+    """
+  ```
+
+  `s.css(stylesheet)` is a regex pass that suffixes each `.identifier`
+  selector with `__<scope>`; `s.cls(name)` returns the same suffixed
+  name for use in render output.  Limitations: the rewriter doesn't
+  understand `url(./file.ext)`-style dots — keep URL strings free of
+  bare-identifier dots if you depend on them.
 
 A minimal worked example lives in `examples/components-demo.ssc`
 (importing `examples/components/{button,card}.ssc`) and is covered by

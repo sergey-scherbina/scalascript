@@ -1142,6 +1142,28 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |    catch case _: Throwable => None
        |  }.mkString("\n")
        |
+       |/** `scope("Card")` — class-name suffix helper for component-style
+       | *  .ssc files (see SPEC §8.4).
+       | *
+       | *    val s = scope("Card")
+       | *    val css = s.css(".title { color: blue }")  // ".title__Card { color: blue }"
+       | *    val c   = s.cls("title")                   // "title__Card"
+       | *
+       | *  Two components can both write bare `.title` without their
+       | *  concatenated CSS colliding.  The CSS rewriter is a simple
+       | *  `\.identifier` regex pass; class chains (`.a.b`) work, but
+       | *  `.ident` inside `url(...)` would also be rewritten — keep URL
+       | *  strings free of bare-identifier dots if you depend on them. */
+       |class _Scope(val name: String):
+       |  private val pat = "\\.([A-Za-z_][A-Za-z0-9_-]*)".r
+       |  def css(s: String): String =
+       |    pat.replaceAllIn(s, m =>
+       |      java.util.regex.Matcher.quoteReplacement("." + m.group(1) + "__" + name)
+       |    )
+       |  def cls(n: String): String = n + "__" + name
+       |
+       |def scope(name: String): _Scope = _Scope(name)
+       |
        |// Used by heading-bound html-block emission: escape unless raw(...).
        |def _html_interp(v: Any): String = v match
        |  case r: _Raw => r.html
