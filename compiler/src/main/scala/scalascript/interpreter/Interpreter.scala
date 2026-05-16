@@ -1132,10 +1132,10 @@ class Interpreter(out: java.io.PrintStream = System.out, baseDir: Option[os.Path
     // refresh-from-globals loop below must NOT clobber.  Without this guard a
     // lambda param like `p` (which also exists in globals as the `<p>` HTML
     // tag) would be overwritten by the global between statements.
-    val localOverrides: collection.Set[String] =
-      local.iterator.collect {
+    val localOverrides: scala.collection.mutable.Set[String] =
+      scala.collection.mutable.Set.from(local.iterator.collect {
         case (k, v) if !globals.get(k).contains(v) => k
-      }.toSet
+      })
     def step(remaining: List[Stat], lastVal: Value): Computation = remaining match
       case Nil => Pure(lastVal)
       case s :: rest =>
@@ -1147,10 +1147,13 @@ class Interpreter(out: java.io.PrintStream = System.out, baseDir: Option[os.Path
           case Defn.Val(_, pats, _, rhs) =>
             eval(rhs, local.toMap).flatMap { rhsVal =>
               pats match
-                case List(Pat.Var(n)) => local(n.value) = rhsVal
+                case List(Pat.Var(n)) =>
+                  local(n.value) = rhsVal
+                  localOverrides += n.value
                 case List(pat) =>
                   matchPat(pat, rhsVal, local.toMap) match
-                    case Some(patEnv) => patEnv.foreach { (k, v) => local(k) = v }
+                    case Some(patEnv) =>
+                      patEnv.foreach { (k, v) => local(k) = v; localOverrides += k }
                     case None         => located("Val pattern match failed")
                 case _ => ()
               step(rest, Value.UnitV)
@@ -1158,6 +1161,7 @@ class Interpreter(out: java.io.PrintStream = System.out, baseDir: Option[os.Path
           case Defn.Var.After_4_7_2(_, List(Pat.Var(n)), _, rhs) =>
             eval(rhs, local.toMap).flatMap { v =>
               local(n.value) = v
+              localOverrides += n.value
               step(rest, Value.UnitV)
             }
           case t: Term =>
@@ -1805,6 +1809,11 @@ class Interpreter(out: java.io.PrintStream = System.out, baseDir: Option[os.Path
       case (Value.MapV(m), "getOrElse",  List(k, d)) => Pure(m.getOrElse(k, d))
       case (Value.MapV(m), "updated",    List(k, v)) => Pure(Value.MapV(m + (k -> v)))
       case (Value.MapV(m), "removed",    List(k))    => Pure(Value.MapV(m - k))
+      // Scala syntax: `m + (k -> v)` parses as `m.+((k, v))` — accept the
+      // tupled form as a shortcut for `.updated`, and `++` for map merge.
+      case (Value.MapV(m), "+",  List(Value.TupleV(List(k, v))))  => Pure(Value.MapV(m + (k -> v)))
+      case (Value.MapV(m), "++", List(Value.MapV(other)))         => Pure(Value.MapV(m ++ other))
+      case (Value.MapV(m), "-",  List(k))                          => Pure(Value.MapV(m - k))
       case (Value.MapV(m), "map",        List(f)) =>
         Computation.sequence(m.toList.map { (k, v) =>
           callValue(f, List(Value.TupleV(List(k, v))), env)
