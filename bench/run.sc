@@ -20,17 +20,29 @@ val root = dir / os.up
 
 val nRuns = 5
 
-val sscBin      = root / "bin" / "ssc"
-val launcherDir =
-  if os.isDir(root / "bin") then root / "bin"
-  else root / "scripts" / "launchers"
-val jsscBin = launcherDir / "jssc"
-val ssccBin = launcherDir / "sscc"
+val sscBin   = root / "bin" / "ssc"
+val jsscBin  = root / "bin" / "jssc"
+val ssccBin  = root / "bin" / "sscc"
 val compiler = root / "compiler"
 
+// `bin/` is gitignored (built by scripts/install.sh).  Fall back to
+// invoking the compiler module via scala-cli when a launcher isn't
+// present, so the bench script works in a fresh checkout / worktree.
 def sscProc(file: os.Path): os.proc =
   if os.exists(sscBin) then os.proc(sscBin.toString, file.toString)
   else os.proc("scala-cli", "run", compiler.toString, "--", file.toString)
+
+def jsscProc(file: os.Path): os.proc =
+  if os.exists(jsscBin) then os.proc(jsscBin.toString, file.toString)
+  else
+    // Emulate `bin/jssc`: emit-js → node, piping through stdin.
+    val src = os.proc("scala-cli", "run", compiler.toString, "--", "emit-js", file.toString)
+      .call(stderr = os.Pipe).out.text()
+    os.proc("node", "-e", src)
+
+def ssccProc(file: os.Path): os.proc =
+  if os.exists(ssccBin) then os.proc(ssccBin.toString, file.toString)
+  else os.proc("scala-cli", "run", compiler.toString, "--", "compile", file.toString)
 
 case class Target(label: String, run: os.Path => os.proc)
 
@@ -42,8 +54,8 @@ val targets: Seq[(String, Seq[Target])] = Seq(
 
 def backends(name: String): Seq[Target] = Seq(
   Target("ssc-int",     _ => sscProc(dir / s"$name.ssc")),
-  Target("ssc-js",      _ => os.proc(jsscBin.toString, (dir / s"$name.ssc").toString)),
-  Target("ssc-jvm",     _ => os.proc(ssccBin.toString, (dir / s"$name.ssc").toString)),
+  Target("ssc-js",      _ => jsscProc(dir / s"$name.ssc")),
+  Target("ssc-jvm",     _ => ssccProc(dir / s"$name.ssc")),
   Target("scala-cli",   _ => os.proc("scala-cli", "run", (dir / s"$name.scala").toString)),
   Target("node",        _ => os.proc("node", (dir / s"$name.js").toString)),
 )
