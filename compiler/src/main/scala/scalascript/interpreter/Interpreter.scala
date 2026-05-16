@@ -844,13 +844,17 @@ class Interpreter(out: java.io.PrintStream = System.out, baseDir: Option[os.Path
     if info.noNonTailSelf && (info.isSelfTailRec || hasMutualTail) then
       tcoTrampoline(f, effArgs, null)
     else
-      // Build callEnv directly: closure + (self ref if named) + params zipped
-      // with args.  One fewer intermediate Map than the old `baseEnv ++ …`.
-      val closureWithSelf =
+      // Build callEnv directly: closure + (self ref if named) + params bound
+      // to args.  Specialise the common 1- and 2-parameter cases so we use
+      // `.updated` chains (which produce HashMap2 / HashMap3 specialisations)
+      // instead of allocating an intermediate Map via `zip.toMap`.
+      val withSelf =
         if f.name.nonEmpty then f.closure.updated(f.name, f) else f.closure
-      val callEnv =
-        if f.params.isEmpty then closureWithSelf
-        else closureWithSelf ++ f.params.iterator.zip(effArgs.iterator).toMap
+      val callEnv = f.params match
+        case Nil               => withSelf
+        case p :: Nil          => withSelf.updated(p, effArgs.head)
+        case p1 :: p2 :: Nil   => withSelf.updated(p1, effArgs.head).updated(p2, effArgs(1))
+        case _                 => withSelf ++ f.params.iterator.zip(effArgs.iterator).toMap
       try runUntilSuspension(eval(f.body, callEnv))
       catch case r: ReturnSignal => Pure(r.value)
 
@@ -926,7 +930,11 @@ class Interpreter(out: java.io.PrintStream = System.out, baseDir: Option[os.Path
             val selfTco = Value.NativeFnV(curFun.name, a => throw new TailCall(a))
             envStable     = curFun.closure.updated(curFun.name, selfTco) ++ mutualEntries
             envStableFor  = curFun
-          val callEnv = envStable ++ curFun.params.iterator.zip(curArgs.iterator).toMap
+          val callEnv = curFun.params match
+            case Nil               => envStable
+            case p :: Nil          => envStable.updated(p, curArgs.head)
+            case p1 :: p2 :: Nil   => envStable.updated(p1, curArgs.head).updated(p2, curArgs(1))
+            case _                 => envStable ++ curFun.params.iterator.zip(curArgs.iterator).toMap
           current = eval(curFun.body, callEnv)
         // Inner step loop — re-associate FlatMaps and step Pure short-circuits.
         // Exits via `return` inside the match; the condition stays `true`.
