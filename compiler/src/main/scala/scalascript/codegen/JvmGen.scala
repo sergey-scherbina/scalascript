@@ -813,10 +813,12 @@ class JvmGen(baseDir: Option[os.Path] = None):
    *  otherwise the lambda's explicit param type is used; otherwise we emit
    *  an unannotated form (and rely on Scala 3 inference, which usually
    *  needs an outer type ascription to succeed). */
-  /** A step in an optic path: a field-name select or an Option-unwrap (`.some`). */
+  /** A step in an optic path: a field-name select, an Option-unwrap
+   *  (`.some`), or a collection traversal (`.each`). */
   private enum FocusStep:
     case Field(name: String)
     case SomeUnwrap
+    case EachStep
 
   private def emitFocus(app: Term.Apply): String =
     val typeArg: Option[String] = app.fun match
@@ -839,7 +841,9 @@ class JvmGen(baseDir: Option[os.Path] = None):
         stepsAndExplicitTpe match
           case Some((steps, explicitTpe)) if steps.nonEmpty =>
             val tpe = typeArg.orElse(explicitTpe).getOrElse("Any")
-            if steps.exists(_ == FocusStep.SomeUnwrap) then
+            if steps.exists(_ == FocusStep.EachStep) then
+              buildTraversalLiteral(tpe, steps)
+            else if steps.exists(_ == FocusStep.SomeUnwrap) then
               buildOptionalLiteral(tpe, steps)
             else
               buildLensLiteral(tpe, steps.collect { case FocusStep.Field(n) => n })
@@ -851,6 +855,7 @@ class JvmGen(baseDir: Option[os.Path] = None):
   private def extractPathSteps(body: Term, isBase: Term => Boolean): Option[List[FocusStep]] =
     def loop(t: Term, acc: List[FocusStep]): Option[List[FocusStep]] = t match
       case Term.Select(qual, Term.Name("some")) => loop(qual, FocusStep.SomeUnwrap :: acc)
+      case Term.Select(qual, Term.Name("each")) => loop(qual, FocusStep.EachStep :: acc)
       case Term.Select(qual, name)              => loop(qual, FocusStep.Field(name.value) :: acc)
       case other if isBase(other)               => Some(acc)
       case _                                     => None
@@ -908,6 +913,56 @@ class JvmGen(baseDir: Option[os.Path] = None):
     case FocusStep.SomeUnwrap :: rest         =>
       val v = s"_p$counter"
       s"$target.map($v => ${emitOpticSet(rest, v, valExpr, counter + 1)})"
+    case FocusStep.EachStep :: _              =>
+      // Only reached via a misuse of buildOptionalLiteral on a path that
+      // ought to be a Traversal — keep behaviour consistent and stop.
+      target
+
+  /** Emit a Traversal literal for a path containing at least one `EachStep`.
+   *  `toList` walks the path producing a flat `List[A]`; `modify` applies
+   *  a function to every focus and rebuilds the structure. The second
+   *  lambda's `f` parameter is left unannotated so Scala 3 can infer
+   *  `A` from the leaf type that `toList` produces. */
+  private def buildTraversalLiteral(tpe: String, steps: List[FocusStep]): String =
+    val toListExpr = s"(s: $tpe) => ${emitTraversalGet(steps, "s", 0)}"
+    val modifyExpr = s"(s: $tpe, _f) => ${emitTraversalModify(steps, "s", "_f", 0)}"
+    s"Traversal($toListExpr, $modifyExpr)"
+
+  /** Build the `toList` expression. Splits on the first `.some` or `.each`
+   *  step; subsequent `.some` / `.each` chain via `List.flatMap`. */
+  private def emitTraversalGet(steps: List[FocusStep], in: String, counter: Int): String =
+    val firstSplit = steps.indexWhere(s => s == FocusStep.SomeUnwrap || s == FocusStep.EachStep)
+    if firstSplit < 0 then
+      val fields = steps.collect { case FocusStep.Field(n) => n }
+      val accessed = if fields.isEmpty then in else s"$in.${fields.mkString(".")}"
+      s"List($accessed)"
+    else
+      val prefix = steps.take(firstSplit).collect { case FocusStep.Field(n) => n }
+      val splitStep = steps(firstSplit)
+      val suffix = steps.drop(firstSplit + 1)
+      val prefixExpr = if prefix.isEmpty then in else s"$in.${prefix.mkString(".")}"
+      val v = s"_p$counter"
+      val recurExpr = emitTraversalGet(suffix, v, counter + 1)
+      splitStep match
+        case FocusStep.SomeUnwrap => s"$prefixExpr.toList.flatMap($v => $recurExpr)"
+        case FocusStep.EachStep   => s"$prefixExpr.flatMap($v => $recurExpr)"
+        case _                    => prefixExpr
+
+  /** Build the `modify` expression: `.copy(field = …)` for FieldSteps,
+   *  `.map(p => …)` for `.some` / `.each` steps, applying `f` at the leaf. */
+  private def emitTraversalModify(steps: List[FocusStep], target: String, fName: String, counter: Int): String = steps match
+    case Nil                                  => s"$fName($target)"
+    case FocusStep.Field(n) :: Nil            => s"$target.copy($n = $fName($target.$n))"
+    case FocusStep.Field(n) :: rest           =>
+      s"$target.copy($n = ${emitTraversalModify(rest, s"$target.$n", fName, counter)})"
+    case FocusStep.SomeUnwrap :: Nil          => s"$target.map($fName)"
+    case FocusStep.SomeUnwrap :: rest         =>
+      val v = s"_p$counter"
+      s"$target.map($v => ${emitTraversalModify(rest, v, fName, counter + 1)})"
+    case FocusStep.EachStep :: Nil            => s"$target.map($fName)"
+    case FocusStep.EachStep :: rest           =>
+      val v = s"_p$counter"
+      s"$target.map($v => ${emitTraversalModify(rest, v, fName, counter + 1)})"
 
   /** Emit a term that contains effect-related content, walking children. */
   private def emitExprDeep(term: Term): String = term match
@@ -1445,6 +1500,11 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |    Lens(s => other.get(get(s)), (s, b) => set(s, other.set(get(s), b)))
        |  def andThen[B](other: Optional[A, B]): Optional[S, B] =
        |    Optional(s => other.getOption(get(s)), (s, b) => set(s, other.set(get(s), b)))
+       |  def andThen[B](other: Traversal[A, B]): Traversal[S, B] =
+       |    Traversal(
+       |      s => other.toList(get(s)),
+       |      (s, f) => set(s, other.modifyF(get(s), f))
+       |    )
        |
        |// ── Prism runtime — sum-type optic, conditional get / set / modify ────
        |case class Prism[S, A](getOption: S => Option[A], reverseGet: A => S):
@@ -1478,6 +1538,34 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |      (s, b) => getOption(s) match
        |        case Some(a) => set(s, other.set(a, b))
        |        case None    => s
+       |    )
+       |  def andThen[B](other: Traversal[A, B]): Traversal[S, B] =
+       |    Traversal(
+       |      s => getOption(s).toList.flatMap(other.toList),
+       |      (s, f) => getOption(s) match
+       |        case Some(a) => set(s, other.modifyF(a, f))
+       |        case None    => s
+       |    )
+       |
+       |// ── Traversal runtime — multi-foci optic for `.each` paths ────────
+       |case class Traversal[S, A](toList: S => List[A], modifyF: (S, A => A) => S):
+       |  def getAll(s: S): List[A] = toList(s)
+       |  def modify(s: S, f: A => A): S = modifyF(s, f)
+       |  def set(s: S, a: A): S = modifyF(s, _ => a)
+       |  def andThen[B](other: Traversal[A, B]): Traversal[S, B] =
+       |    Traversal(
+       |      s => toList(s).flatMap(other.toList),
+       |      (s, f) => modifyF(s, a => other.modifyF(a, f))
+       |    )
+       |  def andThen[B](other: Lens[A, B]): Traversal[S, B] =
+       |    Traversal(
+       |      s => toList(s).map(other.get),
+       |      (s, f) => modifyF(s, a => other.set(a, f(other.get(a))))
+       |    )
+       |  def andThen[B](other: Optional[A, B]): Traversal[S, B] =
+       |    Traversal(
+       |      s => toList(s).flatMap(a => other.getOption(a).toList),
+       |      (s, f) => modifyF(s, a => other.modify(a, f))
        |    )
        |
        |// Environment variable reader — same surface on all three backends.

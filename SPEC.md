@@ -361,9 +361,45 @@ Lowering by backend:
 - **JS** — runtime helper `_makeOptional(steps)` walks an array of
   field names plus the marker `"__some__"`; missing layers yield `_None`
   for get and a no-op for set.
-- **Interpreter** — path is `List[PathStep]` (`FieldStep(name)` or
-  `SomeStep`); `opticGetOption` / `opticSet` walk the steps dynamically
-  against `InstanceV` / `OptionV` values.
+- **Interpreter** — path is `List[PathStep]` (`FieldStep(name)`,
+  `SomeStep`, or `EachStep`); `opticGetOption` / `opticSet` walk the
+  steps dynamically against `InstanceV` / `OptionV` / `ListV` values.
+
+A `.each` step in the path turns the optic into a `Traversal[T, A]` —
+the multi-foci sibling of `Lens` / `Optional`. Traversals expose
+`getAll: T => List[A]` (every reachable focus), `modify(s, f)` (applies
+`f` to each focus and rebuilds), `set(s, a)` (replaces every focus with
+the same value), and `andThen` (composes with any other optic,
+producing another Traversal).
+
+```scalascript
+case class Person(name: String, age: Int)
+case class Team(name: String, members: List[Person])
+
+val t = Team("eng", List(Person("Alice", 30), Person("Bob", 25)))
+
+val nameOfEach = Focus[Team](_.members.each.name)
+
+nameOfEach.getAll(t)                       // List(Alice, Bob)
+nameOfEach.modify(t, n => n.toUpperCase)   // Team(eng, List(Person(ALICE, …), …))
+nameOfEach.set(t, "anonymous")             // every member's name = "anonymous"
+```
+
+Composition rules (any optic ∘ Traversal → Traversal; Traversal ∘ any
+→ Traversal):
+- **Interpreter** — Traversal's `andThen` accepts Lens / Optional /
+  Traversal by reading their `_path` or `_steps` and concatenating;
+  Lens / Optional `andThen` likewise recognise a Traversal argument
+  and lift the result.
+- **JS** — runtime helper `_makeTraversal(steps)` walks an array of
+  field names plus markers `"__some__"` / `"__each__"`. `_opticGetAll`
+  uses `Array.flatMap`, `_opticModifyAll` uses `Array.map`.
+- **JVM** — `case class Traversal[S, A](toList, modifyF)` in the
+  preamble; cross-type `andThen` overloads on `Lens` / `Optional` /
+  `Traversal` produce a `Traversal[S, B]`. Path emission threads the
+  value through `List.flatMap` (for inner `.some` / `.each` segments)
+  and `.map` (for the leaf field segment); modify rebuilds nested
+  `.copy(...)` interleaved with `.map(p => …)` at every flat-step.
 
 ## 6. Module System
 

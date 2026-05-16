@@ -1,0 +1,8 @@
+List(Alice, Bob, Carol)
+List(30, 25, 35)
+List(ALICE, BOB, CAROL)
+List(40, 35, 45)
+List(anonymous, anonymous, anonymous)
+List()
+List()
+List(Alice, Bob, Carol)

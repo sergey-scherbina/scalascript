@@ -120,3 +120,25 @@ val profile  = Focus[User](_.profile.some)
 val homeCity = profile.andThen(Focus[Profile](_.home.some.city))
 println(homeCity.getOption(u1))           // Some(Boston)
 ```
+
+## Traversals — focus on every element of a collection
+
+`Focus[T](_.items.each.field)` returns a `Traversal` — the multi-foci
+counterpart of `Lens` / `Optional`. `getAll` collects every reachable
+value, `modify` applies a function to each focus, and `set` replaces
+all foci with the same value.
+
+```scalascript
+case class TeamMember(name: String, age: Int)
+case class Roster(team: String, members: List[TeamMember])
+
+val r = Roster("eng",
+  List(TeamMember("Alice", 30), TeamMember("Bob", 25), TeamMember("Carol", 35)))
+
+val memberNames = Focus[Roster](_.members.each.name)
+val memberAges  = Focus[Roster](_.members.each.age)
+
+println(memberNames.getAll(r))                          // List(Alice, Bob, Carol)
+println(memberAges.getAll(memberAges.modify(r, _ + 1))) // List(31, 26, 36)
+println(memberNames.set(r, "anon").members)             // every name = "anon"
+```
