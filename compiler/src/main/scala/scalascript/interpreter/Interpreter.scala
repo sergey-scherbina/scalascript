@@ -557,6 +557,21 @@ class Interpreter(out: java.io.PrintStream = System.out, baseDir: Option[os.Path
       case _ => throw InterpretError("csrfValid(req)")
     }
 
+    // ── Server-side session store opt-in ─────────────────────────────
+    // After `useSessionStore()` is called, withSession/clearSession and
+    // req.session indirect through scalascript.server.SessionStore (an
+    // in-memory Map keyed by random SSIDs).  The cookie carries only
+    // `{"_ssid": "..."}` instead of the full payload.
+    nativeP("useSessionStore") {
+      case Nil =>
+        scalascript.server.SessionStore.useStore()
+        Value.UnitV
+      case List(Value.IntV(ttl)) =>
+        scalascript.server.SessionStore.useStore(ttl)
+        Value.UnitV
+      case _ => throw InterpretError("useSessionStore() or useSessionStore(ttlSeconds: Int)")
+    }
+
     // ── JWT helpers ──────────────────────────────────────────────────
     // `jwtSign(Map(...))` returns a compact HS256 JWT.
     // `jwtVerify(token)` returns `Some(claims)` if the signature checks

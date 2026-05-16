@@ -227,8 +227,19 @@ function _mkRequest(req, params, bodyBuf) {
     _parseMultipart(ctOrig, bodyLatin1, form, files);
   }
   // Parse signed session cookie if present.
-  const cookieHeader = headers.get('cookie') || headers.get('Cookie') || '';
-  const session = _parseCookieSession(cookieHeader);
+  const cookieHeader     = headers.get('cookie') || headers.get('Cookie') || '';
+  const rawCookieSession = _parseCookieSession(cookieHeader);
+  // In store mode the cookie payload is `{_ssid:"..."}`; look the real
+  // payload up.  Otherwise the cookie *is* the payload.  The raw cookie
+  // travels back as `_rawCookieSession` so serve()'s writer can spot
+  // the prior SSID and evict it.
+  let session;
+  if (_sessionStoreEnabled) {
+    const ssid = rawCookieSession.get('_ssid');
+    session = ssid ? (_sessionStoreGet(ssid) || new Map()) : new Map();
+  } else {
+    session = rawCookieSession;
+  }
   // Parse Authorization: Bearer <jwt> if present.
   const authHeader = headers.get('authorization') || headers.get('Authorization') || '';
   const bearerStr  = _bearerFromAuth(authHeader);
@@ -247,6 +258,7 @@ function _mkRequest(req, params, bodyBuf) {
     session,
     bearerToken,
     jwtClaims: claims,
+    _rawCookieSession: rawCookieSession,
   };
 }
 
@@ -369,6 +381,49 @@ function _buildSetCookie(map) {
     return 'session=; ' + base + '; Max-Age=0';
   return 'session=' + _packSession(map) + '; ' + base;
 }
+
+// ── Opt-in server-side session store ──────────────────────────────────
+// Same semantics as scalascript.server.SessionStore: process-local Map
+// keyed by random SSID, lazy TTL sweep on every 256th access.  When
+// enabled, the cookie payload becomes `{"_ssid": "..."}` and the real
+// data lives on the server.
+const _sessionStore = new Map();
+let _sessionStoreEnabled = false;
+let _sessionStoreTtlMs   = 30 * 60 * 1000;
+let _sessionAccessCount  = 0;
+function useSessionStore(ttlSeconds) {
+  _sessionStoreEnabled = true;
+  if (typeof ttlSeconds === 'number' && ttlSeconds > 0) _sessionStoreTtlMs = ttlSeconds * 1000;
+}
+function _sessionStoreSweep() {
+  const cutoff = Date.now() - _sessionStoreTtlMs;
+  for (const [k, v] of _sessionStore) if (v.lastAccess < cutoff) _sessionStore.delete(k);
+}
+function _sessionStoreMaybeSweep() {
+  if ((++_sessionAccessCount & 255) === 0) _sessionStoreSweep();
+}
+function _sessionStorePut(payload) {
+  const crypto = require('crypto');
+  const ssid   = _b64urlEnc(crypto.randomBytes(24));
+  const m = new Map();
+  if (payload instanceof Map) payload.forEach((v, k) => m.set(String(k), String(v)));
+  else for (const [k, v] of Object.entries(payload || {})) m.set(String(k), String(v));
+  _sessionStore.set(ssid, { payload: m, lastAccess: Date.now() });
+  _sessionStoreMaybeSweep();
+  return ssid;
+}
+function _sessionStoreGet(ssid) {
+  const entry = _sessionStore.get(ssid);
+  if (!entry) return null;
+  if (Date.now() - entry.lastAccess > _sessionStoreTtlMs) {
+    _sessionStore.delete(ssid);
+    return null;
+  }
+  entry.lastAccess = Date.now();
+  _sessionStoreMaybeSweep();
+  return entry.payload;
+}
+function _sessionStoreDelete(ssid) { _sessionStore.delete(ssid); }
 
 // ── JWT (HS256) ────────────────────────────────────────────────────────
 // Compact HS256 JWTs that match scalascript.server.Jwt byte-for-byte
@@ -611,10 +666,30 @@ function serve(port) {
           const headers = result && result.headers instanceof Map ? result.headers : new Map();
           if (!headers.has('Content-Type')) headers.set('Content-Type', 'text/plain; charset=utf-8');
           const out = headers ? Object.fromEntries(headers.entries()) : {};
-          // `withSession`/`clearSession` attach a Map at `setSession`. Empty
-          // Map clears the cookie, non-empty packs + signs.
+          // `withSession`/`clearSession` attach a Map at `setSession`.
+          // In stateless mode the cookie *is* the payload. In store
+          // mode we stash the payload server-side and emit only the
+          // signed SSID, plus we delete any prior SSID so the store
+          // doesn't accumulate dead entries.
           if (result && result.setSession !== undefined) {
-            out['Set-Cookie'] = _buildSetCookie(result.setSession);
+            const ssetting = result.setSession;
+            let cookiePayload = ssetting;
+            if (_sessionStoreEnabled) {
+              const priorSsid = request.session && request.session.get && request.session.get('_ssid');
+              // request.session in store mode is the looked-up payload,
+              // not the raw cookie; grab the SSID off the raw cookie:
+              const rawSsid = (request._rawCookieSession && request._rawCookieSession.get)
+                ? request._rawCookieSession.get('_ssid') : null;
+              if (rawSsid) _sessionStoreDelete(rawSsid);
+              if ((ssetting instanceof Map && ssetting.size === 0) ||
+                  (!(ssetting instanceof Map) && Object.keys(ssetting || {}).length === 0)) {
+                cookiePayload = new Map();
+              } else {
+                const newSsid = _sessionStorePut(ssetting);
+                cookiePayload = new Map([['_ssid', newSsid]]);
+              }
+            }
+            out['Set-Cookie'] = _buildSetCookie(cookiePayload);
           }
           res.writeHead(result.status ?? 200, out);
           res.end(result.body ?? '');

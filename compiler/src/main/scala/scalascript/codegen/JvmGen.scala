@@ -1424,6 +1424,49 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |  if payload.isEmpty then s"session=; $base; Max-Age=0"
        |  else s"session=${_packSession(payload)}; $base"
        |
+       |// ── Opt-in server-side session store ────────────────────────────
+       |// Same semantics as scalascript.server.SessionStore: process-local
+       |// ConcurrentHashMap keyed by random SSID, lazy TTL sweep.  When
+       |// enabled the cookie payload is `{"_ssid": "..."}` and the real
+       |// data lives on the server.
+       |private case class _StoreEntry(payload: Map[String, String], lastAccess: Long)
+       |private val _sessionStore = new java.util.concurrent.ConcurrentHashMap[String, _StoreEntry]()
+       |@volatile private var _sessionStoreEnabled = false
+       |@volatile private var _sessionStoreTtlMs   = 30L * 60L * 1000L
+       |private val _sessionAccessCount = new java.util.concurrent.atomic.AtomicLong(0L)
+       |def useSessionStore(ttlSeconds: Long = 30L * 60L): Unit =
+       |  _sessionStoreTtlMs = ttlSeconds * 1000L
+       |  _sessionStoreEnabled = true
+       |private def _sessionStoreSweep(): Unit =
+       |  val cutoff = java.lang.System.currentTimeMillis() - _sessionStoreTtlMs
+       |  val it = _sessionStore.entrySet().iterator()
+       |  while it.hasNext do
+       |    val e = it.next()
+       |    if e.getValue.lastAccess < cutoff then it.remove()
+       |private def _sessionStoreMaybeSweep(): Unit =
+       |  if (_sessionAccessCount.incrementAndGet() & 0xFF) == 0L then _sessionStoreSweep()
+       |private def _sessionStorePut(payload: Map[String, String]): String =
+       |  val bytes = new Array[Byte](24)
+       |  java.security.SecureRandom().nextBytes(bytes)
+       |  val ssid = _b64urlEnc(bytes)
+       |  _sessionStore.put(ssid, _StoreEntry(payload, java.lang.System.currentTimeMillis()))
+       |  _sessionStoreMaybeSweep()
+       |  ssid
+       |private def _sessionStoreGet(ssid: String): Option[Map[String, String]] =
+       |  Option(_sessionStore.get(ssid)) match
+       |    case None    => None
+       |    case Some(e) =>
+       |      val now = java.lang.System.currentTimeMillis()
+       |      if now - e.lastAccess > _sessionStoreTtlMs then
+       |        _sessionStore.remove(ssid, e)
+       |        None
+       |      else
+       |        _sessionStore.put(ssid, e.copy(lastAccess = now))
+       |        _sessionStoreMaybeSweep()
+       |        Some(e.payload)
+       |private def _sessionStoreDelete(ssid: String): Unit =
+       |  _sessionStore.remove(ssid)
+       |
        |// ── JWT (HS256) ─────────────────────────────────────────────────
        |// Same wire format as scalascript.server.Jwt and the JsGen Node
        |// runtime: header `{"alg":"HS256","typ":"JWT"}`, payload = JSON of
@@ -1673,7 +1716,11 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |        val cookieHeader = headers.collectFirst {
        |          case (k, v) if k.equalsIgnoreCase("Cookie") => v
        |        }.getOrElse("")
-       |        val session = _parseCookieSession(cookieHeader)
+       |        val rawCookieSession = _parseCookieSession(cookieHeader)
+       |        val session =
+       |          if _sessionStoreEnabled then
+       |            rawCookieSession.get("_ssid").flatMap(_sessionStoreGet).getOrElse(Map.empty)
+       |          else rawCookieSession
        |        val authHeader = headers.collectFirst {
        |          case (k, v) if k.equalsIgnoreCase("Authorization") => v
        |        }.getOrElse("")
@@ -1682,7 +1729,7 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |        val req  = Request(method, path, params,
        |          _parseQuery(ex.getRequestURI.getRawQuery), headers, body,
        |          form, files, session, bearer, claims)
-       |        _writeResponse(ex, r.handler(req))
+       |        _writeResponse(ex, r.handler(req), rawCookieSession)
        |      case None =>
        |        // Fall through to a static file under the current directory
        |        // before 404'ing — mirrors the interpreter's WebServer.
@@ -1697,12 +1744,25 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |    System.err.println(s"route error: ${e.getMessage}")
        |  finally ex.close()
        |
-       |private def _writeResponse(ex: com.sun.net.httpserver.HttpExchange, r: Response): Unit =
+       |private def _writeResponse(
+       |    ex:               com.sun.net.httpserver.HttpExchange,
+       |    r:                Response,
+       |    rawCookieSession: Map[String, String] = Map.empty
+       |): Unit =
        |  r.headers.foreach((k, v) => ex.getResponseHeaders.add(k, v))
        |  if !r.headers.contains("Content-Type") then
        |    ex.getResponseHeaders.add("Content-Type", "text/plain; charset=utf-8")
        |  r.setSession.foreach { payload =>
-       |    ex.getResponseHeaders.add("Set-Cookie", _buildSetCookie(payload))
+       |    val cookiePayload: Map[String, String] =
+       |      if !_sessionStoreEnabled then payload
+       |      else if payload.isEmpty then
+       |        rawCookieSession.get("_ssid").foreach(_sessionStoreDelete)
+       |        Map.empty
+       |      else
+       |        rawCookieSession.get("_ssid").foreach(_sessionStoreDelete)
+       |        val ssid = _sessionStorePut(payload)
+       |        Map("_ssid" -> ssid)
+       |    ex.getResponseHeaders.add("Set-Cookie", _buildSetCookie(cookiePayload))
        |  }
        |  val bytes = r.body.getBytes("UTF-8")
        |  ex.sendResponseHeaders(r.status, if bytes.isEmpty then -1L else bytes.length.toLong)

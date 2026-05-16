@@ -109,9 +109,17 @@ object WebServer:
     val cookieHeader = headers.collectFirst {
       case (Value.StringV(k), Value.StringV(v)) if k.equalsIgnoreCase("Cookie") => v
     }.getOrElse("")
-    val session: Map[String, String] =
-      if cookieHeader.isEmpty then Map.empty
+    val rawCookieSession =
+      if cookieHeader.isEmpty then Map.empty[String, String]
       else SessionCookie.fromHeader(cookieHeader).getOrElse(Map.empty)
+    // In store mode the cookie payload is just `{"_ssid": "..."}`; we
+    // dereference the SSID against the in-memory store and surface the
+    // full payload to the handler.  In stateless mode the cookie *is*
+    // the payload.
+    val session: Map[String, String] =
+      if SessionStore.isEnabled then
+        rawCookieSession.get("_ssid").flatMap(SessionStore.get).getOrElse(Map.empty)
+      else rawCookieSession
     val authHeader = headers.collectFirst {
       case (Value.StringV(k), Value.StringV(v)) if k.equalsIgnoreCase("Authorization") => v
     }.getOrElse("")
@@ -134,9 +142,13 @@ object WebServer:
         .getOrElse(Value.OptionV(None))
     ))
     val result = entry.interpreter.invoke(entry.handler, List(req))
-    writeResponse(result, ex)
+    writeResponse(result, ex, rawCookieSession)
 
-  private def writeResponse(v: scalascript.interpreter.Value, ex: HttpExchange): Unit =
+  private def writeResponse(
+      v:                scalascript.interpreter.Value,
+      ex:               HttpExchange,
+      rawCookieSession: Map[String, String] = Map.empty
+  ): Unit =
     import scalascript.interpreter.Value
     val (status, headers, body, setSession) = v match
       case Value.InstanceV("Response", fields) =>
@@ -166,7 +178,21 @@ object WebServer:
     if !headers.contains("Content-Type") then
       ex.getResponseHeaders.add("Content-Type", "text/plain; charset=utf-8")
     setSession.foreach { payload =>
-      ex.getResponseHeaders.add("Set-Cookie", SessionCookie.toSetCookie(payload, secureFlag = false))
+      val cookiePayload: Map[String, String] =
+        if !SessionStore.isEnabled then payload
+        else if payload.isEmpty then
+          // clearSession: also evict from the store so a stolen cookie
+          // stops working server-side, not just client-side.
+          rawCookieSession.get("_ssid").foreach(SessionStore.delete)
+          Map.empty
+        else
+          // Replace any prior SSID (so refresh-on-rotate is implicit) —
+          // and free the old slot so the store doesn't accumulate dead
+          // entries on every withSession call.
+          rawCookieSession.get("_ssid").foreach(SessionStore.delete)
+          val ssid = SessionStore.put(payload)
+          Map("_ssid" -> ssid)
+      ex.getResponseHeaders.add("Set-Cookie", SessionCookie.toSetCookie(cookiePayload, secureFlag = false))
     }
     val bytes = body.getBytes("UTF-8")
     ex.sendResponseHeaders(status, if bytes.isEmpty then -1 else bytes.length.toLong)
