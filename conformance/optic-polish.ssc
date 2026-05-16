@@ -1,0 +1,39 @@
+---
+name: conformance-optic-polish
+version: 1.0.0
+---
+
+# Optic polish — positional `.copy` and labelled optic `_show`
+
+```scalascript
+case class Point(x: Int, y: Int, z: Int)
+
+val p = Point(1, 2, 3)
+
+// All-named (the original form)
+println(p.copy(y = 20))
+
+// All-positional
+println(p.copy(10, 20, 30))
+
+// Mixed: positional first, then named — matches Scala 3 semantics
+println(p.copy(10, z = 99))
+
+// Optics show their source-like path instead of <function> refs
+val xLens = Focus[Point](_.x)
+println(xLens)
+
+case class Wrap(point: Option[Point])
+val yOpt = Focus[Wrap](_.point.some.y)
+println(yOpt)
+
+case class Bag(points: List[Point])
+val zEach = Focus[Bag](_.points.each.z)
+println(zEach)
+
+enum Shape:
+  case Circle(r: Int)
+  case Rect(w: Int, h: Int)
+val cp = Prism[Shape, Circle]
+println(cp)
+```

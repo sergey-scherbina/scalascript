@@ -267,15 +267,18 @@ case head :: tail => head
 ### 5.5 Functional Updates and Lenses
 
 Case classes carry an auto-generated `copy` method that returns a new
-instance with selected fields overridden. Only named arguments are
-accepted:
+instance with selected fields overridden. Both positional and named
+arguments are accepted, with the Scala 3 rule that positionals must
+precede nameds:
 
 ```scalascript
 case class Address(street: String, city: String)
 case class Person(name: String, age: Int, address: Address)
 
 val alice = Person("Alice", 30, Address("Main St", "Boston"))
-val older = alice.copy(age = 31)            // overrides one field
+val older = alice.copy(age = 31)             // named override
+val full  = alice.copy("Bob", 40, alice.address) // all-positional
+val mixed = alice.copy("Bob", age = 40)       // positional, then named
 val moved = alice.copy(address = alice.address.copy(city = "NYC"))
 ```
 

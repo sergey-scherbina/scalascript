@@ -160,12 +160,39 @@ object Value:
     case InstanceV("_Raw", fields) =>
       // Pre-escaped HTML marker produced by `raw(s)`; show unwraps the body.
       fields.get("html").map(show).getOrElse("")
+    case InstanceV("Lens", fields) =>
+      fields.get("_path") match
+        case Some(ListV(items)) =>
+          val parts = items.collect { case StringV(s) => s }
+          s"Lens(_.${parts.mkString(".")})"
+        case _ => "Lens(?)"
+    case InstanceV("Optional", fields) =>
+      fields.get("_steps") match
+        case Some(ListV(items)) => s"Optional(_.${formatSteps(items)})"
+        case _ => "Optional(?)"
+    case InstanceV("Traversal", fields) =>
+      fields.get("_steps") match
+        case Some(ListV(items)) => s"Traversal(_.${formatSteps(items)})"
+        case _ => "Traversal(?)"
+    case InstanceV("Prism", fields) =>
+      fields.get("_variant") match
+        case Some(StringV(v)) => s"Prism[?, $v]"
+        case _ => "Prism(?)"
     case InstanceV(t, fields) =>
       if fields.isEmpty then t
       else fields.values.map(show).mkString(s"$t(", ", ", ")")
     case FunV(ps, _, _, _, _) => s"<function(${ps.length})>"
     case NativeFnV(name, _)   => s"<native:$name>"
     case DocV(parts)          => parts.map(show).mkString("\n")
+
+  /** Render an optic's `_steps` array as a dotted path with `.some` / `.each`
+   *  markers replaced by their source syntax (`__some__` → `some`, etc.). */
+  private def formatSteps(items: List[Value]): String =
+    items.collect {
+      case StringV("__some__") => "some"
+      case StringV("__each__") => "each"
+      case StringV(n)          => n
+    }.mkString(".")
 
 /** Free monad over effect operations — **trampolined**, stack-safe in the sense
  *  of "Stackless Scala With Free Monads" (Bjarnason 2012).
