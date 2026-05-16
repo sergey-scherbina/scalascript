@@ -486,10 +486,10 @@ the same. No core change needed.
 ## 9. Multi-language code blocks
 
 ScalaScript already mixes languages in one file: the parser recognises
-fence tags `scalascript`, `scala`, `js`, `html`, `css`, `md`. Today
-each generator hard-codes how to handle the foreign ones (`JvmGen`
-passes `scala` blocks to `scala-cli`; `JsGen` does its own thing; the
-`html`/`css`/`md` interpolators are baked into both). For external
+fence tags `scalascript`/`ssc`, `scala`, `html`, `css`, and (planned)
+`js`. Today each generator hard-codes how to handle the foreign ones
+(`JvmGen` passes `scala` blocks to `scala-cli`; `JsGen` does its own
+thing; the `html`/`css`/`md` interpolators are baked into both). For external
 plugins to bring **their own** dialect — a `wasm` plugin accepting
 `wat`, a `dotnet` plugin accepting `csharp`, a `sql` plugin accepting
 `sql`, etc. — fence-tag handling has to live in the SPI.
@@ -529,6 +529,52 @@ case class BlockArtifact(
 `scalascript` blocks are the language proper and are always handled by
 core's parser/typer — never by the `BlockCompiler` mechanism.
 
+### Reserved names and mandatory support
+
+- **Reserved.** The canonical name `scalascript` and its alias `ssc`
+  are reserved by core. A plugin that declares either in its
+  `codeBlockLanguages` or `BlockCompiler.languages` fails to register
+  with a clear error. Prevents accidental shadowing of the base
+  language.
+- **Mandatory.** Every program is built on `scalascript`/`ssc`
+  blocks; core's parser/typer always processes them, regardless of
+  the active backend. A backend's `codeBlockLanguages` lists
+  *additional* languages it natively understands; it can legitimately
+  be `Set.empty` (a pure code generator with no foreign-language
+  embedding).
+
+### Aliases and canonical names
+
+Some fence tags have multiple accepted spellings — `scalascript` ↔
+`ssc`, `javascript` ↔ `js`, `csharp` ↔ `cs`, `webassembly` ↔
+`wasm`/`wat`. Core maintains a **canonical-name table** and normalises
+every fence tag to its canonical form *before* any lookup against
+`codeBlockLanguages` or `BlockCompiler.languages`. A plugin therefore
+declares only the canonical name (e.g. `Set("scalascript")`, not
+`Set("scalascript", "ssc")`).
+
+Initial canonical table:
+
+| Canonical     | Aliases       |
+|---------------|---------------|
+| `scalascript` | `ssc`         |
+| `javascript`  | `js`          |
+| `python`      | `py`          |
+| `csharp`      | `cs`          |
+| `webassembly` | `wasm`, `wat` |
+| `html`        | —             |
+| `css`         | —             |
+| `scala`       | —             |
+
+Plugins extend the table by listing aliases in `plugin.yaml`
+(out-of-process) or returning them from `Backend` / `BlockCompiler`
+(in-process):
+
+```yaml
+aliases:
+  rust: [rs]
+```
+
 ### Resolution
 
 For each foreign block, core asks:
@@ -546,6 +592,14 @@ If multiple block compilers claim the same language, the user picks
 explicitly: `--block-handler scala=scalajs` overrides the default
 order (declared-by-target → first-registered).
 
+**Worked example.** `jvm` is the active target and natively handles
+`scala`; `scalajs` is *also* registered as a `BlockCompiler` for
+`scala`. By rule (1) the `jvm` backend wins — `scala` blocks are
+embedded as raw Scala source in the generated `.scala` file. To force
+delegation to `scalajs` (so the same blocks become JS), the user
+passes `--block-handler scala=scalajs`; rule (2) then fires even
+though the target backend would have claimed the language natively.
+
 ### Examples (current + planned)
 
 | Fence tag    | Handler                                       | Output                          |
@@ -559,13 +613,37 @@ order (declared-by-target → first-registered).
 | `sql`        | future `sql` plugin as block compiler         | typed query AST in IR           |
 | `python`     | future `python` plugin natively               | embedded Python                 |
 
-### What about `html"…"`, `css"…"`, `md"…"`?
+### Capabilities vs fence-tag support
 
-These are *string-interpolator* macros, not fenced code blocks. They
-stay part of the language proper, lowered in core during normalisation
-(like Scala 3 interpolators). They are not in scope for the
-`BlockCompiler` mechanism. This resolves the corresponding open
-question from §16.
+Fence-tag language support is **not** mirrored in §11 `Feature` flags.
+`codeBlockLanguages` (per Backend) and `BlockCompiler.languages` are
+the single source of truth: if a tag isn't listed there (after alias
+normalisation), core emits `Diagnostic.UnknownBlockLanguage`; if it
+is, the block compiles. A `Feature.ScalaBlocks` / `Feature.SqlBlocks`
+enum would duplicate the same information.
+
+### Relationship between `html`/`css` fence blocks and `html"…"`/`css"…"` interpolators
+
+The same language names appear in two surface forms:
+
+- **Fence block** ` ```html … ``` ` — the whole block is HTML (or
+  CSS). Treated as a top-level definition of type `Html` (or `Css`);
+  a `{#id}` attribute (Tier 2, §10) names it.
+- **String interpolator** `html"…${expr}…"` — inline expression in
+  ScalaScript code, with `${…}` slots. Compiler macro in core, like
+  Scala 3 interpolators.
+
+Both surface forms lower to the same prelude types (`Html` / `Css`)
+and the same `Html.render` / `Css.render` *optional intrinsic* (§8).
+One parsing+escaping codepath in core, one render-override hook for
+backends. Consolidates the duplicated `renderStringBlock` logic
+currently spread across `JvmGen`, `JsGen`, and `Interpreter`.
+
+`md` exists **only** as the interpolator `md"…"`. There is no
+` ```md ``` ` fence block — Markdown is the host document syntax;
+embedding it as a fenced block would be circular.
+
+This resolves the corresponding open question from §16.
 
 ### Why this matters
 
