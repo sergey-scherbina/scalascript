@@ -1336,6 +1336,11 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |  def andThen[B](other: Lens[A, B]): Lens[S, B] =
        |    Lens(s => other.get(get(s)), (s, b) => set(s, other.set(get(s), b)))
        |
+       |// Environment variable reader — same surface on all three backends.
+       |def getenv(key: String, defaultVal: String = ""): String =
+       |  val v = java.lang.System.getenv(key)
+       |  if v == null || v.isEmpty then defaultVal else v
+       |
        |""".stripMargin
 
   /** Trampoline runtime for mutual tail-recursion. Each mutually-recursive
@@ -1611,11 +1616,13 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |  "google" -> Map(
        |    "authorizeUrl" -> "https://accounts.google.com/o/oauth2/v2/auth",
        |    "tokenUrl"     -> "https://oauth2.googleapis.com/token",
+       |    "userinfoUrl"  -> "https://www.googleapis.com/oauth2/v3/userinfo",
        |    "defaultScope" -> "openid email profile",
        |  ),
        |  "github" -> Map(
        |    "authorizeUrl" -> "https://github.com/login/oauth/authorize",
        |    "tokenUrl"     -> "https://github.com/login/oauth/access_token",
+       |    "userinfoUrl"  -> "https://api.github.com/user",
        |    "defaultScope" -> "user:email",
        |  ),
        |)
@@ -1633,42 +1640,132 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |  if eff.nonEmpty then params("scope") = eff
        |  val qs = params.iterator.map((k, v) => _oauthEnc(k) + "=" + _oauthEnc(v)).mkString("&")
        |  base + "?" + qs
+       |// More permissive JSON-object parser than `_sessionJsonDec`: handles
+       |// nested objects / arrays by surfacing them as raw JSON strings.
+       |// Needed for userinfo responses (e.g. GitHub's `plan: {...}`).
+       |private def _oauthJsonFlat(s: String): Option[Map[String, String]] =
+       |  val t = s.trim
+       |  if !t.startsWith("{") || !t.endsWith("}") then None
+       |  else
+       |    val inner = t.substring(1, t.length - 1).trim
+       |    if inner.isEmpty then Some(Map.empty)
+       |    else try
+       |      val out = scala.collection.mutable.LinkedHashMap.empty[String, String]
+       |      var i = 0
+       |      def skipWs(): Unit = while i < inner.length && inner.charAt(i).isWhitespace do i += 1
+       |      def readStr(): String =
+       |        if inner.charAt(i) != '"' then throw RuntimeException("expected quote")
+       |        i += 1
+       |        val sb = StringBuilder()
+       |        while i < inner.length && inner.charAt(i) != '"' do
+       |          val c = inner.charAt(i)
+       |          if c == '\\' && i + 1 < inner.length then
+       |            inner.charAt(i + 1) match
+       |              case '"'  => sb.append('"');  i += 2
+       |              case '\\' => sb.append('\\'); i += 2
+       |              case 'n'  => sb.append('\n'); i += 2
+       |              case 'r'  => sb.append('\r'); i += 2
+       |              case 't'  => sb.append('\t'); i += 2
+       |              case _    => sb.append(c); i += 1
+       |          else { sb.append(c); i += 1 }
+       |        i += 1
+       |        sb.toString
+       |      def readScalar(): String =
+       |        val sb = StringBuilder()
+       |        while i < inner.length && inner.charAt(i) != ',' && inner.charAt(i) != '}' do
+       |          sb.append(inner.charAt(i)); i += 1
+       |        sb.toString.trim
+       |      def readNested(open: Char, close: Char): String =
+       |        val sb = StringBuilder().append(inner.charAt(i)); i += 1
+       |        var depth = 1
+       |        while i < inner.length && depth > 0 do
+       |          val c = inner.charAt(i)
+       |          sb.append(c)
+       |          if c == '"' then
+       |            i += 1
+       |            while i < inner.length && inner.charAt(i) != '"' do
+       |              if inner.charAt(i) == '\\' && i + 1 < inner.length then
+       |                sb.append(inner.charAt(i)).append(inner.charAt(i + 1)); i += 2
+       |              else { sb.append(inner.charAt(i)); i += 1 }
+       |            if i < inner.length then { sb.append('"'); i += 1 }
+       |          else
+       |            if c == open  then depth += 1
+       |            if c == close then depth -= 1
+       |            i += 1
+       |        sb.toString
+       |      while i < inner.length do
+       |        skipWs(); val k = readStr()
+       |        skipWs()
+       |        if inner.charAt(i) != ':' then throw RuntimeException("expected colon")
+       |        i += 1
+       |        skipWs()
+       |        val v =
+       |          if inner.charAt(i) == '"' then readStr()
+       |          else if inner.charAt(i) == '{' then readNested('{', '}')
+       |          else if inner.charAt(i) == '[' then readNested('[', ']')
+       |          else readScalar()
+       |        out(k) = v
+       |        skipWs()
+       |        if i < inner.length then
+       |          if inner.charAt(i) != ',' then throw RuntimeException("expected comma")
+       |          i += 1; skipWs()
+       |      Some(out.toMap)
+       |    catch case _: Throwable => None
+       |def oauthUserinfo(provider: String, accessToken: String): Option[Map[String, String]] =
+       |  _oauthProviders.get(provider).flatMap(_.get("userinfoUrl")).flatMap { url =>
+       |    try
+       |      val client = java.net.http.HttpClient.newBuilder()
+       |        .connectTimeout(java.time.Duration.ofSeconds(10)).build()
+       |      val req = java.net.http.HttpRequest.newBuilder()
+       |        .uri(java.net.URI.create(url))
+       |        .timeout(java.time.Duration.ofSeconds(30))
+       |        .header("Authorization", s"Bearer $accessToken")
+       |        .header("Accept",        "application/json")
+       |        .header("User-Agent",    "scalascript-oauth/0.6")
+       |        .GET().build()
+       |      val resp = client.send(req, java.net.http.HttpResponse.BodyHandlers.ofString())
+       |      if resp.statusCode() < 200 || resp.statusCode() >= 300 then None
+       |      else _oauthJsonFlat(resp.body())
+       |    catch case _: Throwable => None
+       |  }
+       |
        |def oauthExchangeCode(provider: String, code: String, clientId: String, clientSecret: String, redirectUri: String): Option[Map[String, String]] =
-       |  val cfg = _oauthProviders.getOrElse(provider, return None)
-       |  val tokenUrl = cfg("tokenUrl")
-       |  val form = Map(
-       |    "grant_type"    -> "authorization_code",
-       |    "code"          -> code,
-       |    "client_id"     -> clientId,
-       |    "client_secret" -> clientSecret,
-       |    "redirect_uri"  -> redirectUri,
-       |  )
-       |  val body = form.iterator.map((k, v) => _oauthEnc(k) + "=" + _oauthEnc(v)).mkString("&")
-       |  try
-       |    val client = java.net.http.HttpClient.newBuilder().connectTimeout(java.time.Duration.ofSeconds(10)).build()
-       |    val req = java.net.http.HttpRequest.newBuilder()
-       |      .uri(java.net.URI.create(tokenUrl))
-       |      .timeout(java.time.Duration.ofSeconds(30))
-       |      .header("Content-Type", "application/x-www-form-urlencoded")
-       |      .header("Accept", "application/json")
-       |      .POST(java.net.http.HttpRequest.BodyPublishers.ofString(body))
-       |      .build()
-       |    val resp = client.send(req, java.net.http.HttpResponse.BodyHandlers.ofString())
-       |    if resp.statusCode() < 200 || resp.statusCode() >= 300 then None
-       |    else
-       |      val text = resp.body()
-       |      val ct   = resp.headers().firstValue("content-type").orElse("").toLowerCase
-       |      if ct.contains("application/json") || text.trim.startsWith("{") then
-       |        _sessionJsonDec(text)
+       |  _oauthProviders.get(provider).flatMap { cfg =>
+       |    val tokenUrl = cfg("tokenUrl")
+       |    val form = Map(
+       |      "grant_type"    -> "authorization_code",
+       |      "code"          -> code,
+       |      "client_id"     -> clientId,
+       |      "client_secret" -> clientSecret,
+       |      "redirect_uri"  -> redirectUri,
+       |    )
+       |    val body = form.iterator.map((k, v) => _oauthEnc(k) + "=" + _oauthEnc(v)).mkString("&")
+       |    try
+       |      val client = java.net.http.HttpClient.newBuilder().connectTimeout(java.time.Duration.ofSeconds(10)).build()
+       |      val req = java.net.http.HttpRequest.newBuilder()
+       |        .uri(java.net.URI.create(tokenUrl))
+       |        .timeout(java.time.Duration.ofSeconds(30))
+       |        .header("Content-Type", "application/x-www-form-urlencoded")
+       |        .header("Accept", "application/json")
+       |        .POST(java.net.http.HttpRequest.BodyPublishers.ofString(body))
+       |        .build()
+       |      val resp = client.send(req, java.net.http.HttpResponse.BodyHandlers.ofString())
+       |      if resp.statusCode() < 200 || resp.statusCode() >= 300 then None
        |      else
-       |        Some(text.split('&').iterator.flatMap { pair =>
-       |          val i = pair.indexOf('=')
-       |          if i < 0 then None
-       |          else Some(
-       |            java.net.URLDecoder.decode(pair.substring(0, i), "UTF-8") ->
-       |            java.net.URLDecoder.decode(pair.substring(i + 1), "UTF-8"))
-       |        }.toMap)
-       |  catch case _: Throwable => None
+       |        val text = resp.body()
+       |        val ct   = resp.headers().firstValue("content-type").orElse("").toLowerCase
+       |        if ct.contains("application/json") || text.trim.startsWith("{") then
+       |          _sessionJsonDec(text)
+       |        else
+       |          Some(text.split('&').iterator.flatMap { pair =>
+       |            val i = pair.indexOf('=')
+       |            if i < 0 then None
+       |            else Some(
+       |              java.net.URLDecoder.decode(pair.substring(0, i), "UTF-8") ->
+       |              java.net.URLDecoder.decode(pair.substring(i + 1), "UTF-8"))
+       |          }.toMap)
+       |    catch case _: Throwable => None
+       |  }
        |
        |// HTTP Basic: Authorization: Basic <b64(user:pass)>
        |private def _basicFromAuth(h: String): Option[(String, String)] =

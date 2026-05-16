@@ -193,6 +193,18 @@ class Interpreter(
     // Wall-clock for benchmarks — same name across all three backends.
     nativeP("nanoTime") { _ => Value.IntV(java.lang.System.nanoTime()) }
 
+    // Environment variable reader, same surface on all three backends.
+    // `getenv(key)` returns the value or empty string when unset.
+    // `getenv(key, default)` substitutes the default when missing/empty.
+    nativeP("getenv") {
+      case List(Value.StringV(k)) =>
+        Value.StringV(Option(java.lang.System.getenv(k)).getOrElse(""))
+      case List(Value.StringV(k), Value.StringV(d)) =>
+        val v = java.lang.System.getenv(k)
+        Value.StringV(if v == null || v.isEmpty then d else v)
+      case _ => throw InterpretError("getenv(key[, default])")
+    }
+
     // doc(...) builds a DocV; render(...) prints it
     nativeP("doc")    { args => Value.DocV(args) }
     nativeP("render") { args =>
@@ -644,6 +656,14 @@ class Interpreter(
           case None => Value.OptionV(None)
       case _ => throw InterpretError(
         "oauthExchangeCode(provider, code, clientId, clientSecret, redirectUri)")
+    }
+    nativeP("oauthUserinfo") {
+      case List(Value.StringV(prov), Value.StringV(token)) =>
+        scalascript.server.OAuth.userinfo(prov, token) match
+          case Some(m) =>
+            Value.OptionV(Some(Value.MapV(m.map((k, v) => Value.StringV(k) -> Value.StringV(v)))))
+          case None => Value.OptionV(None)
+      case _ => throw InterpretError("oauthUserinfo(provider, accessToken)")
     }
 
     // route(method, path)(handler) — registers a handler in the global table.

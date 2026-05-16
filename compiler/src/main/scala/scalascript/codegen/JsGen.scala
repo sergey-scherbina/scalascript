@@ -172,6 +172,16 @@ for (const [k, v] of Object.entries(__tagBindings)) {
 // nanosecond-scale return type across backends.
 function nanoTime() { return Date.now() * 1_000_000; }
 
+// Environment variable reader — Node has process.env; the browser
+// SPA target has no env, so getenv() falls back to its default in that
+// case so the user code keeps compiling cleanly.
+function getenv(key, defaultVal) {
+  const env = (typeof process !== 'undefined' && process.env) ? process.env : {};
+  const v   = env[key];
+  if (v === undefined || v === null || v === '') return defaultVal ?? '';
+  return v;
+}
+
 // ── REST routing + serve(port) ─────────────────────────────────────────
 // Matches the interpreter / JVM-backend semantics: route(method, path)
 // registers a closure, serve(port) starts Node's http.createServer and
@@ -530,11 +540,13 @@ const _oauthProviders = {
   google: {
     authorizeUrl: 'https://accounts.google.com/o/oauth2/v2/auth',
     tokenUrl:     'https://oauth2.googleapis.com/token',
+    userinfoUrl:  'https://www.googleapis.com/oauth2/v3/userinfo',
     defaultScope: 'openid email profile',
   },
   github: {
     authorizeUrl: 'https://github.com/login/oauth/authorize',
     tokenUrl:     'https://github.com/login/oauth/access_token',
+    userinfoUrl:  'https://api.github.com/user',
     defaultScope: 'user:email',
   },
 };
@@ -585,6 +597,28 @@ function oauthExchangeCode(provider, code, clientId, clientSecret, redirectUri) 
     }
     const m = new Map();
     for (const [k, v] of Object.entries(obj)) m.set(k, String(v));
+    return _Some(m);
+  } catch (e) { return _None; }
+}
+function oauthUserinfo(provider, accessToken) {
+  const cfg = _oauthProviders[provider];
+  if (!cfg || !cfg.userinfoUrl) return _None;
+  try {
+    const { execFileSync } = require('child_process');
+    const out = execFileSync('curl', [
+      '-sS', '--fail-with-body',
+      '-H', 'Authorization: Bearer ' + accessToken,
+      '-H', 'Accept: application/json',
+      '-H', 'User-Agent: scalascript-oauth/0.6',
+      cfg.userinfoUrl,
+    ], { encoding: 'utf-8', timeout: 30000 });
+    if (!out.trim().startsWith('{')) return _None;
+    const obj = JSON.parse(out);
+    const m = new Map();
+    for (const [k, v] of Object.entries(obj)) {
+      // Flatten nested values to JSON strings — keeps the Map shape uniform.
+      m.set(k, (v === null || typeof v === 'object') ? JSON.stringify(v) : String(v));
+    }
     return _Some(m);
   } catch (e) { return _None; }
 }

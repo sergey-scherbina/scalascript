@@ -103,7 +103,8 @@ compiles them via Scala.js.
 | JWT bearer tokens | `jwtSign(Map(...))`, `jwtVerify(token)`, `req.bearerToken`, `req.jwtClaims` (HS256) |
 | Server-side sessions | `useSessionStore(ttlSeconds)` — opt-in, cookie carries an SSID, payload lives in process |
 | HTTP Basic auth | `req.basicAuth`, `Response.basicAuthChallenge(realm)` — for dev/internal endpoints |
-| OAuth2 / OIDC | `oauthAuthorizeUrl(...)` + `oauthExchangeCode(...)`, presets for `google` and `github` |
+| OAuth2 / OIDC | `oauthAuthorizeUrl(...)`, `oauthExchangeCode(...)`, `oauthUserinfo(...)`, presets for `google` and `github` |
+| Env access | `getenv(key)` / `getenv(key, default)` — `process.env` on Node, `System.getenv` on JVM |
 
 ## Examples
 
@@ -129,6 +130,7 @@ compiles them via Scala.js.
 | [rest-api.ssc](examples/rest-api.ssc) | Tiny in-memory REST API — `route()`, `html"..."`, `serve()` |
 | [spa-demo.ssc](examples/spa-demo.ssc) | Same `route()` / `serve()` source, browser SPA via `ssc emit-spa` |
 | [auth-demo.ssc](examples/auth-demo.ssc) | Login / logout with signed cookie sessions + CSRF tokens |
+| [oauth-demo.ssc](examples/oauth-demo.ssc) | Full OAuth2 sign-in (GitHub or Google) — state, exchange, userinfo |
 
 Run them all at once:
 
