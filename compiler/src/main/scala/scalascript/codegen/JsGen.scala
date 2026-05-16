@@ -1488,18 +1488,20 @@ function _dispatch(obj, method, args) {
       case 'max': return Math.max(...obj);
       case 'sorted': return [...obj].sort((a,b)=>a<b?-1:a>b?1:0);
       case 'flatten': return obj.flat();
-      // Native JS Array.{map,filter,forEach,...} pass (value, index, array)
-      // to the callback. Scala callers expect a single-arg lambda — and a
-      // bare `println` reference is variadic — so wrap to discard the extras.
-      case 'map': return obj.map(x => args[0](x));
-      case 'flatMap': return obj.flatMap(x => args[0](x));
-      case 'filter': return obj.filter(x => args[0](x));
-      case 'filterNot': return obj.filter(x => !args[0](x));
-      case 'foreach': case 'forEach': obj.forEach(x => args[0](x)); return undefined;
-      case 'exists': return obj.some(x => args[0](x));
-      case 'forall': return obj.every(x => args[0](x));
-      case 'find': { const r = obj.find(x => args[0](x)); return r !== undefined ? _Some(r) : _None; }
-      case 'count': return obj.filter(x => args[0](x)).length;
+      // Higher-order methods route through CPS-aware helpers so that a
+      // callback returning a Free tree (effectful caller, e.g. inside
+      // `runAsync { ... }`) is sequenced into a single Free instead of
+      // leaving an array of Free nodes behind.  Pure callbacks see no
+      // overhead — `_seq` short-circuits when nothing is Free.
+      case 'map':     return _seqMap(obj, args[0]);
+      case 'flatMap': return _seqFlatMap(obj, args[0]);
+      case 'filter':    return _seqFilter(obj, args[0], false);
+      case 'filterNot': return _seqFilter(obj, args[0], true);
+      case 'foreach': case 'forEach': return _seqForeach(obj, args[0]);
+      case 'exists':  return _seqExists(obj, args[0]);
+      case 'forall':  return _seqForall(obj, args[0]);
+      case 'find':    return _seqFind(obj, args[0]);
+      case 'count':   return _seqCount(obj, args[0]);
       case 'take': return obj.slice(0, args[0]);
       case 'drop': return obj.slice(args[0]);
       case 'takeRight': return obj.slice(-args[0]);
@@ -1519,8 +1521,8 @@ function _dispatch(obj, method, args) {
       case 'sortBy': return [...obj].sort((a,b) => { const fa=args[0](a),fb=args[0](b); return fa<fb?-1:fa>fb?1:0; });
       case 'groupBy': { const m=new Map(); obj.forEach(x=>{const k=args[0](x);if(!m.has(k))m.set(k,[]);m.get(k).push(x);}); return m; }
       case 'reduceLeft': return obj.reduce(args[0]);
-      case 'foldLeft': return (f) => obj.reduce(f, args[0]);
-      case 'foldRight': return (f) => obj.reduceRight((acc,x) => f(x,acc), args[0]);
+      case 'foldLeft':  return (f) => _seqFoldLeft(obj, args[0], f);
+      case 'foldRight': return (f) => _seqFoldLeft([...obj].reverse(), args[0], (acc, x) => f(x, acc));
       case 'sliding': { const n=args[0]; const r=[]; for(let i=0;i<=obj.length-n;i++) r.push(obj.slice(i,i+n)); return r; }
       case 'grouped': { const n=args[0]; const r=[]; for(let i=0;i<obj.length;i+=n) r.push(obj.slice(i,i+n)); return r; }
       case 'toString': return _show(obj);
@@ -1895,6 +1897,80 @@ function _runAsyncInner(initial) {
 }
 
 function _runAsync(bodyFn) { return _runAsyncInner(bodyFn()); }
+
+// ── CPS-aware collection helpers ──────────────────────────────────────────
+//
+// When a higher-order method like `xs.map(fn)` is called inside an
+// effectful context, `fn(x)` may return a Free tree instead of a plain
+// value.  These helpers detect that and stitch the per-element Free
+// values into a single sequenced Free that yields the final array.
+// Pure callbacks pass straight through with no overhead.
+//
+// `_seq(comps)` → sequence an array of (Free | value); returns either
+// the plain array (when none are Free) or a Free that yields it.
+function _seq(comps) {
+  let anyFree = false;
+  for (let i = 0; i < comps.length; i++) if (_isFree(comps[i])) { anyFree = true; break; }
+  if (!anyFree) return comps;
+  function loop(i, acc) {
+    if (i === comps.length) return acc;
+    return _bind(comps[i], (v) => { acc.push(v); return loop(i + 1, acc); });
+  }
+  return loop(0, []);
+}
+
+function _seqMap(arr, fn)        { return _seq(arr.map(x => fn(x))); }
+function _seqFlatMap(arr, fn)    {
+  const s = _seqMap(arr, fn);
+  if (_isFree(s)) return _bind(s, (rs) => rs.flat());
+  return s.flat();
+}
+function _seqFilter(arr, fn, neg) {
+  const flags = arr.map(x => fn(x));
+  const seq   = _seq(flags);
+  const pick  = (bs) => arr.filter((_, i) => neg ? !bs[i] : bs[i]);
+  if (_isFree(seq)) return _bind(seq, pick);
+  return pick(seq);
+}
+function _seqForeach(arr, fn) {
+  const comps = arr.map(x => fn(x));
+  const s     = _seq(comps);
+  if (_isFree(s)) return _bind(s, () => undefined);
+  return undefined;
+}
+function _seqExists(arr, fn) {
+  const seq = _seq(arr.map(x => fn(x)));
+  if (_isFree(seq)) return _bind(seq, (bs) => bs.some(b => b));
+  return seq.some(b => b);
+}
+function _seqForall(arr, fn) {
+  const seq = _seq(arr.map(x => fn(x)));
+  if (_isFree(seq)) return _bind(seq, (bs) => bs.every(b => b));
+  return seq.every(b => b);
+}
+function _seqCount(arr, fn) {
+  const seq = _seq(arr.map(x => fn(x)));
+  if (_isFree(seq)) return _bind(seq, (bs) => bs.filter(b => b).length);
+  return seq.filter(b => b).length;
+}
+function _seqFind(arr, fn) {
+  const seq = _seq(arr.map(x => fn(x)));
+  const pick = (bs) => {
+    const i = bs.findIndex(b => b);
+    return i < 0 ? _None : _Some(arr[i]);
+  };
+  if (_isFree(seq)) return _bind(seq, pick);
+  return pick(seq);
+}
+function _seqFoldLeft(arr, init, fn) {
+  function loop(i, acc) {
+    if (i === arr.length) return acc;
+    const next = fn(acc, arr[i]);
+    if (_isFree(next)) return _bind(next, (v) => loop(i + 1, v));
+    return loop(i + 1, next);
+  }
+  return loop(0, init);
+}
 """
 
 /** Browser-SPA overlay loaded AFTER `JsRuntime` so its `serve(...)` /
@@ -3137,7 +3213,7 @@ class JsGen(baseDir: Option[os.Path] = None):
         val qualJs = genExpr(qual)
         val initJs = initArgClause.values.map(genExpr).mkString(", ")
         val fJs = argVals.mkString(", ")
-        s"${qualJs}.reduce($fJs, $initJs)"
+        s"_seqFoldLeft($qualJs, $initJs, $fJs)"
 
       // foldRight curried
       case Term.Apply.After_4_6_0(Term.Select(qual, Term.Name("foldRight")), initArgClause) =>
@@ -3418,7 +3494,7 @@ class JsGen(baseDir: Option[os.Path] = None):
       case Term.Apply.After_4_6_0(Term.Select(qual, Term.Name("foldLeft")), initArgClause) =>
         bindArgsCps(qual :: initArgClause.values ++ args) { vs =>
           val q = vs.head; val init = vs(1); val f = vs(2)
-          s"${q}.reduce($f, $init)"
+          s"_seqFoldLeft($q, $init, $f)"
         }
 
       // foldRight curried

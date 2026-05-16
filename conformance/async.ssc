@@ -45,4 +45,25 @@ val r4 = runAsync {
   inner
 }
 println(r4)
+
+// Effectful callbacks inside collection HOFs — map / filter / foldLeft
+// sequence per-element Free results automatically so the pipeline
+// reads exactly like a pure one.
+def doubled(n: Int): Int =
+  Async.await(Async.async(() => n * 2))
+
+val r5 = runAsync {
+  List(1, 2, 3, 4).map(doubled)
+}
+println(r5)
+
+val r6 = runAsync {
+  List(1, 2, 3, 4, 5).filter(n => Async.await(Async.async(() => n > 2)))
+}
+println(r6)
+
+val r7 = runAsync {
+  List(1, 2, 3, 4).foldLeft(0)((acc, n) => acc + doubled(n))
+}
+println(r7)
 ```

@@ -598,8 +598,12 @@ class JvmGen(baseDir: Option[os.Path] = None):
 
     // Effectful function: emit CPS body
     case d: Defn.Def if isEffectfulFun(d.name.value) =>
+      // Widen all params to `Any` — inside CPS the body operates on Any
+      // (Pure value | Free node) anyway, and Any-typed params let callers
+      // inside an enclosing CPS context (where they hand us Any-bound
+      // locals) typecheck without per-arg casts.
       val params = d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values).map { p =>
-        p.decltpe.map(t => s"${p.name.value}: ${t.syntax}").getOrElse(s"${p.name.value}: Any")
+        s"${p.name.value}: Any"
       }.mkString(", ")
       // Return type set to Any (could be a Free value).
       s"def ${d.name.value}($params): Any = ${emitCpsExpr(d.body)}"
@@ -1166,7 +1170,10 @@ class JvmGen(baseDir: Option[os.Path] = None):
         val tpe = p.decltpe.map(t => s": ${t.syntax}").getOrElse(": Any")
         s"${p.name.value}${tpe}"
       }
-      val wrap = if params.length == 1 then params.head else s"(${params.mkString(", ")})"
+      // Always paren-wrap: a single-param lambda with a type ascription
+      // (`n: Any => body`) would be parsed as `n` of type `Any => body`,
+      // not as a one-parameter lambda.  Parens disambiguate.
+      val wrap = s"(${params.mkString(", ")})"
       s"$wrap => ${emitCpsExpr(body)}"
 
     // Nested handle inside CPS body
@@ -1230,10 +1237,25 @@ class JvmGen(baseDir: Option[os.Path] = None):
           s"""_perform("$eff", "$op"$argTail)"""
         }
 
-      // Method call on a non-effectful value: bind qual + args, dispatch
+      // Curried foldLeft: xs.foldLeft(init)(fn) — route through `_seqFoldLeft`
+      // so an effectful `fn` is sequenced step by step instead of leaving a
+      // Free tree at every accumulator step.
+      case Term.Apply.After_4_6_0(Term.Select(qual, Term.Name("foldLeft")), initArgClause) =>
+        bindArgsCps(qual :: initArgClause.values ++ args) { vs =>
+          val q = vs.head; val init = vs(1); val f = vs(2)
+          s"_seqFoldLeft($q.asInstanceOf[List[Any]], $init, $f.asInstanceOf[(Any, Any) => Any])"
+        }
+
+      // Method call: bind qual + args, then runtime-dispatch.  Inside CPS
+      // every value is statically typed `Any`, so we can't let the Scala
+      // typer resolve methods like `.map` directly — `_dispatch` does it
+      // at runtime and threads Free results through `_seq*` helpers for
+      // HOFs whose callbacks may produce a Free tree.
       case Term.Select(qual, Term.Name(method)) =>
         bindArgsCps(qual :: args) { vs =>
-          s"${vs.head}.${method}(${vs.tail.mkString(", ")})"
+          val argList = vs.tail.mkString(", ")
+          val argSeq  = if vs.tail.isEmpty then "Nil" else s"List($argList)"
+          s"""_dispatch(${vs.head}, "${method}", $argSeq)"""
         }
 
       case fun =>
@@ -3006,6 +3028,149 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |    _perform("Async", "parallel", thunks)
        |
        |case class Future(value: Any)
+       |
+       |// ── CPS-aware collection helpers (sequence Free callbacks) ──────────
+       |//
+       |// In CPS-emitted bodies the receiver of `xs.map(fn)` is typed `Any`
+       |// (the Free monad's value carrier), so Scala can't resolve `.map`
+       |// statically.  `_dispatch` runs the method at runtime — for HOFs
+       |// it routes through `_seq*` helpers that thread per-element Free
+       |// results into a single sequenced Free, matching the interpreter's
+       |// `Computation.sequence` semantics.  Pure callbacks short-circuit
+       |// (no Free anywhere → return the plain array).
+       |
+       |def _isFree(c: Any): Boolean = c.isInstanceOf[_Computation]
+       |
+       |def _seq(comps: List[Any]): Any =
+       |  if !comps.exists(_isFree) then comps
+       |  else
+       |    def loop(i: Int, acc: List[Any]): Any =
+       |      if i == comps.length then acc
+       |      else _bind(comps(i), (v: Any) => loop(i + 1, acc :+ v))
+       |    loop(0, Nil)
+       |
+       |def _seqMap(xs: List[Any], fn: Any => Any): Any =
+       |  _seq(xs.map(fn))
+       |
+       |def _seqFlatMap(xs: List[Any], fn: Any => Any): Any =
+       |  val s = _seqMap(xs, fn)
+       |  s match
+       |    case c: _Computation =>
+       |      _bind(c, (rs: Any) => rs.asInstanceOf[List[Any]].flatMap {
+       |        case ys: List[_] => ys.asInstanceOf[List[Any]]
+       |        case v           => List(v)
+       |      })
+       |    case rs: List[_] => rs.asInstanceOf[List[Any]].flatMap {
+       |      case ys: List[_] => ys.asInstanceOf[List[Any]]
+       |      case v           => List(v)
+       |    }
+       |    case _ => s
+       |
+       |def _seqFilter(xs: List[Any], fn: Any => Any, neg: Boolean): Any =
+       |  val flags = xs.map(fn)
+       |  val pick = (bs: List[Any]) => xs.zip(bs).collect {
+       |    case (x, b: Boolean) if (if neg then !b else b) => x
+       |  }
+       |  _seq(flags) match
+       |    case c: _Computation => _bind(c, (bs: Any) => pick(bs.asInstanceOf[List[Any]]))
+       |    case bs: List[_]     => pick(bs.asInstanceOf[List[Any]])
+       |    case other           => other
+       |
+       |def _seqForeach(xs: List[Any], fn: Any => Any): Any =
+       |  _seq(xs.map(fn)) match
+       |    case c: _Computation => _bind(c, (_: Any) => ())
+       |    case _               => ()
+       |
+       |def _seqExists(xs: List[Any], fn: Any => Any): Any =
+       |  _seq(xs.map(fn)) match
+       |    case c: _Computation => _bind(c, (bs: Any) =>
+       |      bs.asInstanceOf[List[Any]].exists { case b: Boolean => b; case _ => false })
+       |    case bs: List[_]     =>
+       |      bs.asInstanceOf[List[Any]].exists { case b: Boolean => b; case _ => false }
+       |    case _ => false
+       |
+       |def _seqForall(xs: List[Any], fn: Any => Any): Any =
+       |  _seq(xs.map(fn)) match
+       |    case c: _Computation => _bind(c, (bs: Any) =>
+       |      bs.asInstanceOf[List[Any]].forall { case b: Boolean => b; case _ => false })
+       |    case bs: List[_]     =>
+       |      bs.asInstanceOf[List[Any]].forall { case b: Boolean => b; case _ => false }
+       |    case _ => true
+       |
+       |def _seqCount(xs: List[Any], fn: Any => Any): Any =
+       |  _seq(xs.map(fn)) match
+       |    case c: _Computation => _bind(c, (bs: Any) =>
+       |      bs.asInstanceOf[List[Any]].count { case b: Boolean => b; case _ => false })
+       |    case bs: List[_]     =>
+       |      bs.asInstanceOf[List[Any]].count { case b: Boolean => b; case _ => false }
+       |    case _ => 0
+       |
+       |def _seqFind(xs: List[Any], fn: Any => Any): Any =
+       |  val flags = xs.map(fn)
+       |  val pick  = (bs: List[Any]) =>
+       |    val i = bs.indexWhere { case b: Boolean => b; case _ => false }
+       |    if i < 0 then None else Some(xs(i))
+       |  _seq(flags) match
+       |    case c: _Computation => _bind(c, (bs: Any) => pick(bs.asInstanceOf[List[Any]]))
+       |    case bs: List[_]     => pick(bs.asInstanceOf[List[Any]])
+       |    case _               => None
+       |
+       |def _seqFoldLeft(xs: List[Any], init: Any, fn: (Any, Any) => Any): Any =
+       |  def loop(i: Int, acc: Any): Any =
+       |    if i == xs.length then acc
+       |    else
+       |      val next = fn(acc, xs(i))
+       |      next match
+       |        case c: _Computation => _bind(c, (v: Any) => loop(i + 1, v))
+       |        case v               => loop(i + 1, v)
+       |  loop(0, init)
+       |
+       |/** Runtime method dispatcher used in CPS contexts where the receiver
+       | *  is statically `Any`.  Covers the collection HOFs that need
+       | *  Free-aware sequencing plus the common direct methods used inside
+       | *  `runAsync`/`handle` bodies.  Methods we don't know about fall
+       | *  through to Java reflection so a typo at the call site surfaces
+       | *  as the same NoSuchMethod we'd get with a direct call. */
+       |def _dispatch(obj: Any, method: String, args: List[Any]): Any =
+       |  (obj, method, args) match
+       |    // List HOFs — CPS-aware
+       |    case (xs: List[_], "map",       List(fn))   => _seqMap     (xs.asInstanceOf[List[Any]], fn.asInstanceOf[Any => Any])
+       |    case (xs: List[_], "flatMap",   List(fn))   => _seqFlatMap (xs.asInstanceOf[List[Any]], fn.asInstanceOf[Any => Any])
+       |    case (xs: List[_], "filter",    List(fn))   => _seqFilter  (xs.asInstanceOf[List[Any]], fn.asInstanceOf[Any => Any], neg = false)
+       |    case (xs: List[_], "filterNot", List(fn))   => _seqFilter  (xs.asInstanceOf[List[Any]], fn.asInstanceOf[Any => Any], neg = true)
+       |    case (xs: List[_], "foreach",   List(fn))   => _seqForeach (xs.asInstanceOf[List[Any]], fn.asInstanceOf[Any => Any])
+       |    case (xs: List[_], "exists",    List(fn))   => _seqExists  (xs.asInstanceOf[List[Any]], fn.asInstanceOf[Any => Any])
+       |    case (xs: List[_], "forall",    List(fn))   => _seqForall  (xs.asInstanceOf[List[Any]], fn.asInstanceOf[Any => Any])
+       |    case (xs: List[_], "find",      List(fn))   => _seqFind    (xs.asInstanceOf[List[Any]], fn.asInstanceOf[Any => Any])
+       |    case (xs: List[_], "count",     List(fn))   => _seqCount   (xs.asInstanceOf[List[Any]], fn.asInstanceOf[Any => Any])
+       |    case (xs: List[_], "foldLeft",  List(init)) =>
+       |      // Curried in Scala: foldLeft(init)(fn) — return the fn-taker.
+       |      (fn: ((Any, Any) => Any)) => _seqFoldLeft(xs.asInstanceOf[List[Any]], init, fn)
+       |    // Direct List methods we use commonly inside CPS bodies
+       |    case (xs: List[_], "head",     Nil)       => xs.head
+       |    case (xs: List[_], "tail",     Nil)       => xs.tail
+       |    case (xs: List[_], "size",     Nil)       => xs.size
+       |    case (xs: List[_], "length",   Nil)       => xs.length
+       |    case (xs: List[_], "isEmpty",  Nil)       => xs.isEmpty
+       |    case (xs: List[_], "nonEmpty", Nil)       => xs.nonEmpty
+       |    case (xs: List[_], "reverse",  Nil)       => xs.reverse
+       |    case (xs: List[_], "mkString", Nil)       => xs.mkString
+       |    case (xs: List[_], "mkString", List(s: String)) => xs.mkString(s)
+       |    case (xs: List[_], "sum",      Nil)       => xs.asInstanceOf[List[Any]].foldLeft(0: Any)((a, b) => _binOp("+", a, b))
+       |    case (s: String,   "length",   Nil)       => s.length
+       |    case (s: String,   "size",     Nil)       => s.length
+       |    case (s: String,   "toInt",    Nil)       => s.toInt
+       |    case (s: String,   "toLong",   Nil)       => s.toLong
+       |    case (s: String,   "toDouble", Nil)       => s.toDouble
+       |    // Fallback: try Java reflection so non-HOF method calls still work
+       |    case _ =>
+       |      val cls = obj.getClass
+       |      val ms  = cls.getMethods.filter(m =>
+       |        m.getName == method && m.getParameterCount == args.length)
+       |      if ms.isEmpty then
+       |        sys.error(s"No method '$method' on ${cls.getName} with ${args.length} arg(s)")
+       |      val boxed: Array[Object] = args.map(_.asInstanceOf[AnyRef]).toArray
+       |      ms.head.invoke(obj, boxed*)
        |
        |def _runAsync(bodyThunk: () => Any): Any =
        |  def dispatch(op: String, args: List[Any], resume: Any => Any): Any = op match

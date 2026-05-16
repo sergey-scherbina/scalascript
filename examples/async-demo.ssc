@@ -49,6 +49,25 @@ runAsync {
 }
 ```
 
+## Composing — async values flow through normal control flow
+
+A function that uses `Async.*` is itself effectful — its body returns a
+`Future`-bearing computation.  Higher-order methods like `List.map`,
+`filter`, `foldLeft`, `forall`, `exists`, `find`, `flatMap`, and
+`foreach` sequence such callbacks automatically, so you can drop an
+effectful helper into a familiar pipeline:
+
+```scalascript
+def doubled(n: Int): Int =
+  val f = Async.async(() => n * 2)
+  Async.await(f)
+
+runAsync {
+  val xs = List(10, 20, 30).map(doubled)
+  println(xs)
+}
+```
+
 ## Nested runAsync — inner driver completes before outer continues
 
 ```scalascript
