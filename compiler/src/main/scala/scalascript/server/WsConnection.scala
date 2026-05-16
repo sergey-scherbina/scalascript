@@ -29,23 +29,47 @@ final class WsConnection(
     private val selector:   java.nio.channels.Selector,
     private val interp:     Interpreter,
     private val executor:   Executor,
-    private val log:        java.io.PrintStream
+    private val log:        java.io.PrintStream,
+    /** Snapshot of the upgrade request (method, path, params, query,
+     *  headers) — exposed to the handler as `ws.request` so WS-side
+     *  auth (cookie / Authorization / Origin) can read the same data
+     *  REST handlers see. */
+    private val request:    Value
 ):
   // Outgoing frames waiting to be written.  Drained by the selector thread
   // in [[flush]]; new bytes appended from any thread via [[enqueue]].
   private val outbox: ConcurrentLinkedQueue[ByteBuffer] =
     new ConcurrentLinkedQueue[ByteBuffer]()
+  // Cumulative bytes parked on the outbox waiting to be written.  When
+  // the peer reads slowly we shouldn't queue indefinitely — a hostile or
+  // dead client could otherwise let a chatty broadcaster eat the heap.
+  private val outboxBytes: java.util.concurrent.atomic.AtomicLong =
+    java.util.concurrent.atomic.AtomicLong(0L)
 
   // Partial inbound frame buffer.  Bytes that didn't form a complete frame
   // last time around stay here for the next [[onBytes]] call.
   private var inBuf: Array[Byte] = new Array[Byte](4096)
   private var inLen: Int = 0
 
+  // Fragmented-message reassembly (RFC 6455 §5.4).  Real browsers split
+  // large text/binary messages across multiple frames: the first frame
+  // carries the opcode with FIN=0, followed by Continuation frames
+  // (opcode=0x0) with the rest, the last one with FIN=1.  Control frames
+  // (Ping/Pong/Close) are never fragmented and may interleave freely.
+  // Buffer until FIN=1 lands, then dispatch the joined payload using
+  // the originating opcode.
+  private var fragOpcode: WsFraming.Opcode | Null = null
+  private val fragBuf:    java.io.ByteArrayOutputStream =
+    new java.io.ByteArrayOutputStream()
+
   // User-side callbacks — registered from the handler thread, fired from
-  // the interpreter executor.  Volatile because the selector thread reads
-  // them when scheduling dispatch.
+  // the interpreter executor.  `onCloseCb` uses AtomicReference so the
+  // close-fires-once rule (against the read-loop / `close()` race) is
+  // enforced by a single CAS, not by best-effort `var = null` patterns.
   @volatile private var onMessageCb: Option[Value] = None
-  @volatile private var onCloseCb:   Option[Value] = None
+  private val onCloseCb:
+    java.util.concurrent.atomic.AtomicReference[Value | Null] =
+      java.util.concurrent.atomic.AtomicReference[Value | Null](null)
   @volatile private var closing:     Boolean       = false
 
   /** Append more inbound bytes to the parser buffer and drain whole frames
@@ -76,14 +100,16 @@ final class WsConnection(
       System.arraycopy(inBuf, offset, inBuf, 0, inLen - offset)
       inLen -= offset
 
-  /** Dispatch a complete frame.  Control frames (ping / close) are handled
-   *  on the spot; application frames (text / binary) are routed to the
-   *  user's `onMessage` callback via the interpreter executor. */
+  /** Dispatch a complete frame.  Control frames (ping / close) are
+   *  handled on the spot; application frames (text / binary) are routed
+   *  to the user's `onMessage` callback via the interpreter executor.
+   *  Fragmented messages (FIN=0 followed by Continuations) buffer until
+   *  the final fragment, then dispatch the joined payload. */
   private def onFrame(frame: WsFraming.Frame): Unit =
     import WsFraming.Opcode
     frame.opcode match
       case Opcode.Ping =>
-        enqueue(WsFraming.encodePong(frame.payload))
+        writeFrame(WsFraming.encodePong(frame.payload))
       case Opcode.Pong =>
         () // no app-level handler for pong
       case Opcode.Close =>
@@ -97,33 +123,87 @@ final class WsConnection(
           sendClose(status, "")
         closeNow()
       case Opcode.Text | Opcode.Binary =>
-        // Always queue the dispatch — `onMessageCb` may not be set yet
-        // when the frame is parsed on the selector thread (the user's
-        // `onWebSocket` block runs on the executor, also FIFO).  By
-        // queuing unconditionally we preserve message order and let the
-        // executor task read the up-to-date callback.
-        val payload: Value =
-          if frame.opcode == Opcode.Text then Value.StringV(frame.textPayload)
-          else Value.StringV(new String(frame.payload, "ISO-8859-1"))
-        executor.execute { () =>
-          onMessageCb.foreach { cb =>
-            try interp.invoke(cb, List(payload))
-            catch case e: Throwable =>
-              log.println(s"WS handler error: ${e.getMessage}")
-          }
-        }
+        if !frame.fin then
+          // Start of a fragmented message — stash the opcode and the
+          // first chunk, wait for Continuations.
+          if fragOpcode != null then
+            sendClose(1002, "new data frame mid-fragment")
+            return
+          fragOpcode = frame.opcode
+          fragBuf.reset()
+          fragBuf.write(frame.payload)
+          checkFragLimit()
+        else dispatchMessage(frame.opcode, frame.payload)
       case Opcode.Continuation =>
-        // Fragmentation: not currently reassembled — treat as protocol error.
-        sendClose(1003, "fragmented messages not supported")
+        if fragOpcode == null then
+          sendClose(1002, "continuation without prior data frame")
+          return
+        fragBuf.write(frame.payload)
+        if !checkFragLimit() then return
+        if frame.fin then
+          val op    = fragOpcode.asInstanceOf[Opcode] // safe: non-null
+          val bytes = fragBuf.toByteArray
+          fragOpcode = null
+          fragBuf.reset()
+          dispatchMessage(op, bytes)
+
+  /** Dispatch a fully-reassembled text/binary message to the user
+   *  `onMessage` callback through the executor.  Queued
+   *  unconditionally — the user's `onWebSocket` block runs on the same
+   *  single-thread executor and may not have set the callback yet when
+   *  the selector parses the first frame.  Reading `onMessageCb` inside
+   *  the task gives us the latest value. */
+  private def dispatchMessage(opcode: WsFraming.Opcode, payload: Array[Byte]): Unit =
+    val v: Value =
+      if opcode == WsFraming.Opcode.Text then
+        Value.StringV(new String(payload, java.nio.charset.StandardCharsets.UTF_8))
+      else Value.StringV(new String(payload, "ISO-8859-1"))
+    executor.execute { () =>
+      onMessageCb.foreach { cb =>
+        try interp.invoke(cb, List(v))
+        catch case e: Throwable =>
+          log.println(s"WS handler error: ${e.getMessage}")
+      }
+    }
+
+  /** Cap on the total reassembled-message size, same threshold as a
+   *  single frame.  Returns true when still under budget. */
+  private def checkFragLimit(): Boolean =
+    if fragBuf.size > WsFraming.MaxFrameBytes then
+      fragOpcode = null
+      fragBuf.reset()
+      sendClose(1009, "message too big")
+      false
+    else true
+
+  /** Soft cap on bytes parked on the outbox.  A slow client that fails
+   *  to drain its socket would otherwise let a chatty broadcaster pile
+   *  data into the heap unbounded — at the cap we drop the connection
+   *  rather than risk OOM. */
+  private val MaxOutboxBytes: Long = 4L * 1024L * 1024L
+
+  /** Low-level queue + wake.  No `closing` check — used by [[sendClose]]
+   *  too, which must be allowed to write the close control frame even
+   *  after setting `closing = true`. */
+  private def writeFrame(bytes: Array[Byte]): Unit =
+    if !key.isValid then return
+    outboxBytes.addAndGet(bytes.length.toLong)
+    outbox.add(ByteBuffer.wrap(bytes))
+    key.interestOpsOr(SelectionKey.OP_WRITE)
+    selector.wakeup()
 
   /** Public, thread-safe write: parks bytes on the outbox and wakes the
    *  selector so it picks them up.  Called from the interpreter thread
-   *  via the `ws.send` native. */
+   *  via the `ws.send` native.  When the outbox is already over
+   *  [[MaxOutboxBytes]] we tear the connection down rather than queue
+   *  yet another frame onto a backlog the peer can't drain. */
   def enqueue(bytes: Array[Byte]): Unit =
-    if !closing && key.isValid then
-      outbox.add(ByteBuffer.wrap(bytes))
-      key.interestOpsOr(SelectionKey.OP_WRITE)
-      selector.wakeup()
+    if closing || !key.isValid then return
+    if outboxBytes.get + bytes.length.toLong > MaxOutboxBytes then
+      // Don't bother sending a Close frame — its bytes would just join
+      // the same stalled outbox.  The peer is gone for our purposes.
+      closeNow()
+    else writeFrame(bytes)
 
   /** Drain pending writes into the channel.  Called by the selector loop
    *  when the channel is writable.  Returns once the outbox is empty or
@@ -131,17 +211,24 @@ final class WsConnection(
   def flush(): Unit =
     while !outbox.isEmpty do
       val buf = outbox.peek()
+      val before = buf.remaining
       channel.write(buf)
+      // Decrement outboxBytes by the amount actually written this round,
+      // so backpressure unwinds as the socket drains.
+      val written = before - buf.remaining
+      if written > 0 then outboxBytes.addAndGet(-written.toLong)
       if buf.hasRemaining then return
       outbox.poll()
     // Outbox empty: stop selecting for OP_WRITE.
     if key.isValid then key.interestOpsAnd(~SelectionKey.OP_WRITE)
 
-  /** Send a Close control frame, then mark the connection as closing. */
+  /** Send a Close control frame, then mark the connection as closing.
+   *  Uses [[writeFrame]] directly (not [[enqueue]]) so the close frame
+   *  itself isn't rejected by the `closing` flag we just set. */
   def sendClose(status: Int, reason: String): Unit =
     if !closing then
       closing = true
-      enqueue(WsFraming.encodeClose(status, reason))
+      writeFrame(WsFraming.encodeClose(status, reason))
 
   /** Force-close immediately (after a fatal error or the peer's Close).
    *  Idempotent. */
@@ -149,15 +236,17 @@ final class WsConnection(
     if key.isValid then
       key.cancel()
       try channel.close() catch case _: Throwable => ()
-      val cb = onCloseCb
-      onCloseCb = None
-      cb.foreach { c =>
+      // Atomic getAndSet — at most one caller can win the right to fire
+      // onClose.  Without this both the read-loop's drainFrames (on EOF
+      // or a peer-initiated close frame) and a user-side `ws.close()`
+      // could read the same non-null and invoke the callback twice.
+      val cb = onCloseCb.getAndSet(null)
+      if cb != null then
         executor.execute { () =>
-          try interp.invoke(c, Nil)
+          try interp.invoke(cb, Nil)
           catch case e: Throwable =>
             log.println(s"WS close handler error: ${e.getMessage}")
         }
-      }
 
   /** The `WebSocket` Value passed to the user's handler.  All four methods
    *  capture `this` so callbacks fire on the live connection. */
@@ -184,14 +273,15 @@ final class WsConnection(
     })
     val onClose = Value.NativeFnV("WebSocket.onClose", Computation.pureFn {
       case List(cb) =>
-        onCloseCb = Some(cb); Value.UnitV
+        onCloseCb.set(cb); Value.UnitV
       case _ => throw scalascript.interpreter.InterpretError("ws.onClose { () => … }")
     })
     Value.InstanceV("WebSocket", Map(
       "send"      -> send,
       "close"     -> close,
       "onMessage" -> onMessage,
-      "onClose"   -> onClose
+      "onClose"   -> onClose,
+      "request"   -> request
     ))
 
   private def ensureInCapacity(target: Int): Unit =

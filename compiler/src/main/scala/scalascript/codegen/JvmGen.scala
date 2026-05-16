@@ -1820,7 +1820,13 @@ class JvmGen(baseDir: Option[os.Path] = None):
    *  `ssc` / `ssc compile`.  `serve(port)` blocks the calling thread; the
    *  default executor is single-threaded so handler bodies see no concurrency
    *  unless the user supplies their own synchronisation. */
-  private val serveRuntime: String =
+  /** Server-side runtime (routes, sessions, JWT, OAuth, WS, …).  Split
+   *  into two `String` halves because the combined source exceeds the
+   *  JVM's 64 KB string-literal limit — the natural seam is right
+   *  before the WS-specific section. */
+  private val serveRuntime: String = serveRuntimePart1 + serveRuntimePart2
+
+  private val serveRuntimePart1: String =
     """|
        |// ── REST routing + serve(port) ─────────────────────────────────────────
        |case class UploadedFile(
@@ -2638,7 +2644,10 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |    try Option(java.nio.file.Files.probeContentType(java.nio.file.Paths.get(name)))
        |    catch case _: Throwable => None
        |  }.getOrElse("application/octet-stream")
-       |
+       |""".stripMargin
+
+  private val serveRuntimePart2: String =
+    """|
        |// ── WebSocket support (RFC 6455) ───────────────────────────────────────
        |//
        |// Asymmetric design vs the interpreter: the interpreter runs an NIO
@@ -2666,13 +2675,25 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |private val _serverExecutor: java.util.concurrent.ExecutorService =
        |  java.util.concurrent.Executors.newSingleThreadExecutor()
        |
-       |class WebSocket(private val socket: java.net.Socket):
-       |  import java.io.{BufferedInputStream, OutputStream}
+       |class WebSocket(private val socket: java.net.Socket, val request: Request):
+       |  import java.io.{BufferedInputStream, ByteArrayOutputStream, OutputStream}
        |  import java.nio.charset.StandardCharsets
        |  import java.util.concurrent.locks.ReentrantLock
+       |  import java.util.concurrent.atomic.AtomicReference
        |  @volatile private var onMessageCb: String => Unit = null
-       |  @volatile private var onCloseCb:   () => Unit     = null
+       |  // AtomicReference so close-fires-once is enforced by a CAS,
+       |  // not by a best-effort `var = null` read/write race between
+       |  // `close()` and the read-loop's `finally`.
+       |  private val onCloseCb = AtomicReference[() => Unit](null)
        |  @volatile private var closing:     Boolean        = false
+       |  // Fragmented-message reassembly (RFC 6455 §5.4): the first frame
+       |  // of a fragmented message carries the data opcode with FIN=0,
+       |  // follow-up frames are Continuation (opcode=0) with the rest,
+       |  // the last with FIN=1.  Control frames may interleave freely.
+       |  // Held strictly on the read-loop thread so no synchronisation
+       |  // needed beyond the loop itself.
+       |  private var fragOpcode: Int = -1
+       |  private val fragBuf     = ByteArrayOutputStream()
        |  private val out: OutputStream                     = socket.getOutputStream
        |  // Frame writes must be serialised so text/close/pong don't interleave
        |  // on the wire.  Use ReentrantLock instead of `synchronized` — on JDK
@@ -2702,14 +2723,14 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |          true
        |      finally writeLock.unlock()
        |    if fireOnClose then
-       |      val cb = onCloseCb; onCloseCb = null
+       |      val cb = onCloseCb.getAndSet(null)
        |      if cb != null then _serverExecutor.execute { () =>
        |        try cb() catch case e: Throwable =>
        |          System.err.println(s"WS close handler: ${e.getMessage}")
        |      }
        |
        |  def onMessage(cb: String => Unit): Unit = onMessageCb = cb
-       |  def onClose(cb: () => Unit): Unit       = onCloseCb   = cb
+       |  def onClose(cb: () => Unit): Unit       = onCloseCb.set(cb)
        |
        |  // Read-loop entry point: called from the per-connection thread
        |  // after the handshake completes.  Pulls bytes through the parser,
@@ -2747,20 +2768,25 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |                  close(status, "")
        |                  return
        |                case 0x1 | 0x2 =>
-       |                  val msg =
-       |                    if fr.opcode == 0x1
-       |                    then new String(fr.payload, StandardCharsets.UTF_8)
-       |                    else new String(fr.payload, "ISO-8859-1")
-       |                  // Always queue — `onMessageCb` may not be set yet
-       |                  // when the read-loop sees the first frame (the
-       |                  // user's `onWebSocket` block also runs on the
-       |                  // executor, FIFO).  Reading the callback inside
-       |                  // the task ensures it's the up-to-date one.
-       |                  _serverExecutor.execute { () =>
-       |                    val cb = onMessageCb
-       |                    if cb != null then try cb(msg) catch case e: Throwable =>
-       |                      System.err.println(s"WS message handler: ${e.getMessage}")
-       |                  }
+       |                  if !fr.fin then
+       |                    // Start of a fragmented message.
+       |                    if fragOpcode != -1 then { close(1002, "new data frame mid-fragment"); return }
+       |                    fragOpcode = fr.opcode
+       |                    fragBuf.reset()
+       |                    fragBuf.write(fr.payload)
+       |                    if fragBuf.size > _WsMaxFrameBytes then
+       |                      fragOpcode = -1; fragBuf.reset(); close(1009, "message too big"); return
+       |                  else _dispatchWsMessage(fr.opcode, fr.payload)
+       |                case 0x0 =>
+       |                  if fragOpcode == -1 then { close(1002, "continuation without prior data frame"); return }
+       |                  fragBuf.write(fr.payload)
+       |                  if fragBuf.size > _WsMaxFrameBytes then
+       |                    fragOpcode = -1; fragBuf.reset(); close(1009, "message too big"); return
+       |                  if fr.fin then
+       |                    val op    = fragOpcode
+       |                    val bytes = fragBuf.toByteArray
+       |                    fragOpcode = -1; fragBuf.reset()
+       |                    _dispatchWsMessage(op, bytes)
        |                case _   => close(1003, ""); return
        |        if offset > 0 then
        |          System.arraycopy(buf, offset, buf, 0, len - offset)
@@ -2768,11 +2794,26 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |    catch case _: Throwable => ()
        |    finally
        |      try socket.close() catch case _: Throwable => ()
-       |      val cb = onCloseCb; onCloseCb = null
+       |      val cb = onCloseCb.getAndSet(null)
        |      if cb != null then _serverExecutor.execute { () =>
        |        try cb() catch case e: Throwable =>
        |          System.err.println(s"WS close handler: ${e.getMessage}")
        |      }
+       |
+       |  /** Hand a fully-reassembled text/binary payload to the user
+       |   *  `onMessage` callback via the shared executor.  Queued
+       |   *  unconditionally — the `onWebSocket` body also runs on the
+       |   *  executor, so reading the callback inside the task gives us
+       |   *  the up-to-date value. */
+       |  private def _dispatchWsMessage(opcode: Int, payload: Array[Byte]): Unit =
+       |    val msg =
+       |      if opcode == 0x1 then new String(payload, StandardCharsets.UTF_8)
+       |      else                  new String(payload, "ISO-8859-1")
+       |    _serverExecutor.execute { () =>
+       |      val cb = onMessageCb
+       |      if cb != null then try cb(msg) catch case e: Throwable =>
+       |        System.err.println(s"WS message handler: ${e.getMessage}")
+       |    }
        |
        |private final case class _WsRoute(pattern: List[_Seg], handler: WebSocket => Unit)
        |private val _wsRoutes = scala.collection.mutable.ArrayBuffer.empty[_WsRoute]
@@ -2784,6 +2825,10 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |// ── Framing ──────────────────────────────────────────────────────────
        |
        |private val _WS_MAGIC = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
+       |// Hard cap on a single frame's payload (16 MB) — protects against a
+       |// hostile peer announcing a multi-GB payload that we'd otherwise
+       |// try to allocate up front.
+       |private val _WsMaxFrameBytes: Int = 16 * 1024 * 1024
        |
        |def _wsAcceptKey(clientKey: String): String =
        |  val md = java.security.MessageDigest.getInstance("SHA-1")
@@ -2815,7 +2860,7 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |      hdrLen += 8
        |      var v = 0L; var i = 0
        |      while i < 8 do { v = (v << 8) | (buf(offset + 2 + i) & 0xFF).toLong; i += 1 }
-       |      if v > Int.MaxValue.toLong then throw RuntimeException("WS frame too large")
+       |      if v > _WsMaxFrameBytes.toLong then throw RuntimeException(s"WS frame too large: $v bytes (max $_WsMaxFrameBytes)")
        |      v.toInt
        |  val maskLen = if masked then 4 else 0
        |  val total   = hdrLen + maskLen + payloadLen
@@ -2872,6 +2917,10 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |  sb.toArray
        |
        |private def _proxyConnection(client: java.net.Socket, internalPort: Int): Unit =
+       |  // TCP keepalive lets the OS detect peers that vanished without
+       |  // FIN (yanked cables, dropped mobile sessions).  Without it a
+       |  // dead WS holds its FD for ~2 h before the TCP stack notices.
+       |  try client.setKeepAlive(true) catch case _: Throwable => ()
        |  val cin  = java.io.BufferedInputStream(client.getInputStream)
        |  val cout = client.getOutputStream
        |  val head = _readHttpHead(cin)
@@ -2889,13 +2938,13 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |  if isWs then
        |    val segs = path.split('/').toList.filter(_.nonEmpty)
        |    val matched = _wsRoutes.iterator.flatMap { r =>
-       |      _matchPath(r.pattern, segs).map(_ => r)
+       |      _matchPath(r.pattern, segs).map(params => (r, params))
        |    }.nextOption()
        |    matched match
        |      case None =>
        |        cout.write("HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".getBytes("US-ASCII"))
        |        cout.flush(); client.close()
-       |      case Some(r) =>
+       |      case Some((r, params)) =>
        |        val key = headers.getOrElse("sec-websocket-key", "")
        |        if key.isEmpty then { client.close(); return }
        |        val accept = _wsAcceptKey(key)
@@ -2905,7 +2954,20 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |          "Connection: Upgrade\r\n" +
        |          s"Sec-WebSocket-Accept: $accept\r\n\r\n"
        |        cout.write(resp.getBytes("US-ASCII")); cout.flush()
-       |        val ws = WebSocket(client)
+       |        // Build the Request snapshot — same shape as REST handlers
+       |        // see (sans body / form / files; the WS upgrade is a GET
+       |        // with no body) so WS-side auth can read cookies /
+       |        // Authorization / Origin from `ws.request.headers`.
+       |        val rawQ  = request.split(' ').lift(1).getOrElse("/").split('?').lift(1).getOrElse("")
+       |        val wsReq = Request(
+       |          method  = "GET",
+       |          path    = path,
+       |          params  = params,
+       |          query   = _parseQuery(rawQ),
+       |          headers = headers,
+       |          body    = ""
+       |        )
+       |        val ws = WebSocket(client, wsReq)
        |        // Run the user's `onWebSocket` block on the shared single-
        |        // thread executor so any state it touches (top-level `var`s,
        |        // route registry, etc.) is serial with HTTP handlers and

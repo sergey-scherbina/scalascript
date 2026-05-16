@@ -34,9 +34,10 @@ object JsGen:
       case _                     => false
     } || s.subsections.exists(sectionHas)
 
-/** JS runtime preamble embedded in every generated page. Split into two
- *  triple-quoted parts because the combined source exceeds the JVM's
- *  64KB string-literal limit. */
+/** JS runtime preamble embedded in every generated page.  Split into
+ *  two triple-quoted halves because the combined source exceeds the
+ *  JVM's 64 KB string-literal limit; the `val JsRuntime` concatenation
+ *  is declared after both halves so source-order init sees them. */
 private val JsRuntimePart1: String = """
 let _output = [];
 function _println(...args) { _output.push(args.map(_show).join(' ')); }
@@ -1040,6 +1041,10 @@ function _contentTypeFor(name) {
 // `net.Socket` writes for frames.  No `ws` npm dependency.
 
 const _WS_MAGIC = '258EAFA5-E914-47DA-95CA-C5AB0DC85B11';
+// Hard cap on a single frame's payload (16 MB) — without it a hostile
+// client could announce a multi-gigabyte payload and force us to
+// allocate that much up front.
+const _WS_MAX_FRAME_BYTES = 16 * 1024 * 1024;
 
 function _wsAcceptKey(clientKey) {
   const crypto = require('crypto');
@@ -1069,7 +1074,7 @@ function _wsParseFrame(buf, offset) {
   } else {
     if (avail < 10) return null;
     const big = buf.readBigUInt64BE(offset + 2);
-    if (big > BigInt(0x7fffffff)) throw new Error('frame too large');
+    if (big > BigInt(_WS_MAX_FRAME_BYTES)) throw new Error('frame too large');
     payloadLen = Number(big);
     hdrLen = 10;
   }
@@ -1126,11 +1131,25 @@ function _wsEncodeClose(code, reason) {
 // with `send` / `close` / `onMessage` / `onClose` and pumps inbound
 // frames through `_wsParseFrame`.  Control frames (ping/close) are
 // handled here; text/binary frames invoke `onMessage` if registered.
-function _wsMakeWebSocket(socket) {
+function _wsMakeWebSocket(socket, request) {
   let onMessage = null;
   let onClose   = null;
   let closing   = false;
   let inBuf     = Buffer.alloc(0);
+  // Fragmentation reassembly (RFC 6455 §5.4): the first frame of a
+  // fragmented message carries the opcode with FIN=0, follow-up frames
+  // are Continuation (opcode=0) with the rest, and the last has FIN=1.
+  // Control frames may interleave freely.  Buffer until FIN=1 then
+  // dispatch the joined payload using the original opcode.
+  let fragOpcode = -1;
+  const fragParts = [];
+  let   fragSize  = 0;
+
+  const dispatchMessage = (opcode, payload) => {
+    if (!onMessage) return;
+    const msg = opcode === 0x1 ? payload.toString('utf-8') : payload.toString('latin1');
+    try { onMessage(msg); } catch (e) { console.error('WS message handler:', e.message); }
+  };
 
   const ws = {
     _type: 'WebSocket',
@@ -1145,7 +1164,8 @@ function _wsMakeWebSocket(socket) {
       }
     },
     onMessage: (cb) => { onMessage = cb; },
-    onClose:   (cb) => { onClose   = cb; }
+    onClose:   (cb) => { onClose   = cb; },
+    request:   request
   };
 
   socket.on('data', chunk => {
@@ -1166,9 +1186,37 @@ function _wsMakeWebSocket(socket) {
             break;
           }
           case 0x1: case 0x2: {                                                // text / binary
-            if (onMessage) {
-              const msg = f.opcode === 0x1 ? f.payload.toString('utf-8') : f.payload.toString('latin1');
-              try { onMessage(msg); } catch (e) { console.error('WS message handler:', e.message); }
+            if (!f.fin) {
+              if (fragOpcode !== -1) {
+                if (!closing) { closing = true; socket.write(_wsEncodeClose(1002, 'new data frame mid-fragment')); }
+                socket.end(); return;
+              }
+              fragOpcode = f.opcode;
+              fragParts.push(f.payload); fragSize += f.payload.length;
+              if (fragSize > _WS_MAX_FRAME_BYTES) {
+                fragOpcode = -1; fragParts.length = 0; fragSize = 0;
+                if (!closing) { closing = true; socket.write(_wsEncodeClose(1009, 'message too big')); }
+                socket.end(); return;
+              }
+            } else dispatchMessage(f.opcode, f.payload);
+            break;
+          }
+          case 0x0: {                                                          // continuation
+            if (fragOpcode === -1) {
+              if (!closing) { closing = true; socket.write(_wsEncodeClose(1002, 'continuation without prior data frame')); }
+              socket.end(); return;
+            }
+            fragParts.push(f.payload); fragSize += f.payload.length;
+            if (fragSize > _WS_MAX_FRAME_BYTES) {
+              fragOpcode = -1; fragParts.length = 0; fragSize = 0;
+              if (!closing) { closing = true; socket.write(_wsEncodeClose(1009, 'message too big')); }
+              socket.end(); return;
+            }
+            if (f.fin) {
+              const op  = fragOpcode;
+              const buf = Buffer.concat(fragParts, fragSize);
+              fragOpcode = -1; fragParts.length = 0; fragSize = 0;
+              dispatchMessage(op, buf);
             }
             break;
           }
@@ -1197,6 +1245,10 @@ function _wsMakeWebSocket(socket) {
 // `onWebSocket` block.  No matching route → 404 + close.
 function _wsHandleUpgrade(req, socket) {
   try {
+    // TCP keepalive lets the OS detect peers that vanished without
+    // sending FIN.  Without it a dead WS holds its socket FD for
+    // ~2 h before the TCP stack notices.
+    socket.setKeepAlive(true);
     const u = new URL(req.url, 'http://localhost');
     const segs = u.pathname.split('/').filter(s => s.length > 0);
     for (const r of _wsRoutes) {
@@ -1211,7 +1263,24 @@ function _wsHandleUpgrade(req, socket) {
         'Connection: Upgrade\r\n' +
         'Sec-WebSocket-Accept: ' + accept + '\r\n\r\n'
       );
-      const ws = _wsMakeWebSocket(socket);
+      // Build a Request-shaped object — same shape as `_mkRequest` for
+      // REST routes (minus body/form/files; the WS upgrade is a GET
+      // with no body) so handlers can read `ws.request.headers.get(...)`
+      // for cookies / Authorization / Origin.
+      const reqHeaders = new Map();
+      for (const [k, v] of Object.entries(req.headers))
+        reqHeaders.set(k, Array.isArray(v) ? (v[0] ?? '') : String(v ?? ''));
+      const reqQuery = new Map();
+      u.searchParams.forEach((v, k) => reqQuery.set(k, v));
+      const request = {
+        _type:  'Request',
+        method: 'GET',
+        path:   u.pathname,
+        params,
+        query:   reqQuery,
+        headers: reqHeaders
+      };
+      const ws = _wsMakeWebSocket(socket, request);
       try { r.handler(ws); } catch (e) { console.error('WS upgrade handler:', e.message); }
       return;
     }

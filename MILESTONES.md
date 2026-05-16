@@ -20,16 +20,24 @@ useful in isolation and unblocks the next.
    immediate payoff — unblocks naming conflicts between any two
    libraries that export the same identifier.  ~2–3 hours.
 
-2. **`ssc bundle <file.ssc> [-o name.sscpkg]`.**  Walks transitive
-   `.ssc` imports starting from `<file>`, packs them into a zip with
-   layout
-       bundle.yaml          (entry, name, version, transitive list)
-       <entry>.ssc          (at the archive root)
+2. **`ssc bundle <file.ssc> [<file.ssc>…] [-o name.sscpkg]`.**  Walks
+   transitive `.ssc` imports starting from every argument file, packs
+   them into a zip with layout
+       bundle.yaml          (entries[], name, version, transitive list)
+       <entry-1>.ssc        (at the archive root)
+       <entry-2>.ssc        (at the archive root)
        <relative paths>/…   (imported files, paths kept)
-   Refuses imports above the entry directory (`../foo.ssc`) so authors
-   keep impls self-contained.  No network, no registry — distribution
-   by attaching `.sscpkg` to a GitHub release / S3 / email.  Consumer
-   unzips and imports relatively.  ~2–3 hours.
+   Supports multiple entry files in one call so a library can ship
+   `card.ssc`, `button.ssc`, `alert.ssc` as a single archive without
+   needing an aggregator module.  Single-entry usage is the common
+   case (`bundle.yaml.entries = [card.ssc]`).
+
+   Imports above the entry directory (`../foo.ssc`) are flattened
+   into a synthetic `_external/<basename>` slot in the archive and
+   path references rewritten — the bundle stays self-contained no
+   matter how the original tree is structured.  No network, no
+   registry; distribution by attaching `.sscpkg` to a GitHub release
+   / S3 / email.  Consumer unzips and imports relatively.  ~3 hours.
 
 3. **URL imports.**  `[Card](https://raw.githubusercontent.com/u/r/v1.0/card.ssc)`
    resolves to a local cache at `~/.cache/ssc/<host>/<path>` (first
@@ -64,6 +72,95 @@ useful in isolation and unblocks the next.
    with semver resolution, lock file (`ssc.lock`), publish/yank
    workflow.  Weeks of work; only worth opening once the surface
    above is well-trodden.  Out of scope for v0.7.
+
+## v0.8 — Web Components target (`ssc emit-wc`)
+
+Make SSC components consumable as standards-track W3C Custom Elements
+so a `.ssc` component is a first-class HTML element usable in any
+framework (or none) — independent of the ScalaScript toolchain on the
+consumer side.
+
+Today our `object Card { val css, val js, def render(...) }` runs on
+the **server**: render returns a String, JS is a side-loaded handler
+that finds elements via querySelector, `scope(...)` simulates style
+isolation through class-name suffixes.  A W3C Custom Element runs on
+the **client**: a `class CardComponent extends HTMLElement` with
+lifecycle callbacks, real Shadow DOM, attribute-driven re-render.
+v0.8 emits the second from the first.
+
+What it does:
+
+- **New command `ssc emit-wc <file.ssc> [-o name.js]`** generates one
+  JS bundle per component (or one bundle per file with multiple
+  components):
+
+      class CardComponent extends HTMLElement {
+        static get observedAttributes() { return ['title', 'body']; }
+        connectedCallback() {
+          const shadow = this.attachShadow({mode: 'open'});
+          shadow.innerHTML = `<style>${Card.css}</style>` +
+            Card.render(this.getAttribute('title'), this.getAttribute('body'));
+        }
+        attributeChangedCallback() { this.connectedCallback(); }
+      }
+      customElements.define('card-component', CardComponent);
+
+  Consumer drops `<script type="module" src="card.js"/>` into any
+  HTML page and uses `<card-component title="…" body="…"/>` like a
+  native tag.
+
+- **Tag-name convention.**  PascalCase object name → kebab-case + a
+  required dash (W3C spec mandates a hyphen).  `object Card` →
+  `card-component`; `object NavBar` → `nav-bar-component`.  Override
+  via a `tagName: "my-card"` field on the object.
+
+- **Attributes-as-props.**  HTML attributes are string-only by spec.
+  `def render(title: String, count: Int, active: Boolean)` translates
+  to `getAttribute('title')`, `Number(getAttribute('count'))`,
+  `getAttribute('active') !== null`.  Booleans use presence semantics
+  (`<my-tag active>` vs absent).  Complex props (List, case classes)
+  pass through `data-` attributes parsed as JSON or via JS properties
+  set imperatively on the element.
+
+- **Real Shadow DOM scoping.**  Inside a Custom Element the
+  `<style>` is encapsulated, so `scope(...)` becomes optional — the
+  shadow boundary already prevents leaks.  Components that target
+  *only* `emit-wc` can drop `scope()` and write bare class names.
+  Mixed-target components keep `scope()` so the same source works
+  both as a server-rendered fragment (where there's no shadow) and
+  as a Custom Element.
+
+- **Slots.**  A render argument named `children: String` maps to a
+  `<slot></slot>` in the Custom Element template, letting callers
+  write `<card-component><h2>Title</h2><p>Body</p></card-component>`.
+
+What stays the same:
+
+- `def render(...)` is still the single source of truth for the
+  template.  `ssc render` / `ssc build` use it server-side; `ssc
+  emit-wc` wraps the same template in a Custom Element class.
+- `collectCss` / `collectJs` still aggregate for whole-page builds.
+- Existing component examples (Button, Card, Alert, Counter)
+  unchanged — they gain a new emission target without source edits.
+
+Open questions to resolve during implementation:
+
+- **SSR + hydration story.**  If a page is server-rendered AND
+  contains `<card-component>` tags, the inner shadow tree is re-
+  rendered on the client when the script runs, replacing the SSR
+  output.  Need a convention for `connectedCallback` to detect
+  already-rendered light DOM and adopt it instead of overwriting.
+- **Typed-prop sugar.**  Worth adding a `props: Map[String, Type]`
+  declaration to the component so attribute parsing is generated,
+  or stick with manual `getAttribute` calls in user code?
+- **Interop with React/Vue events.**  Custom Elements emit DOM
+  events.  Need a convention for `dispatchEvent(new CustomEvent(...))`
+  so framework wrappers can bind to them.
+
+Effort: 3–7 days, depending on how deep we go on the open questions.
+Defer until a concrete use case demands real client-side
+interactivity beyond `val js` querySelector handlers.
+
 
 ## v0.6 — Optics (Lens / Prism / Optional / Traversal) — landed
 
@@ -102,6 +199,7 @@ surface and produce identical output for `println` on instances and optics.
 
 Conformance: 27 tests across INT / JS / JVM, 81 PASS results.  Examples /
 SPEC §5.5 / README "What Works" updated as each stage landed.
+
 
 ## v0.5 — Interpreter performance (Tier 1) — landed
 

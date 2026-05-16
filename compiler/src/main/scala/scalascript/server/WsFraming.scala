@@ -21,6 +21,14 @@ object WsFraming:
   // and base64(SHA-1(·)) to produce `Sec-WebSocket-Accept`.
   val Magic: String = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 
+  /** Hard cap on a single frame's payload — protects the server from
+   *  hostile clients announcing a multi-gigabyte payload (which we'd
+   *  otherwise try to allocate up front).  16 MB is well above any
+   *  realistic browser-sent message; bigger payloads can still be
+   *  delivered as multiple fragmented frames once continuation support
+   *  lands. */
+  val MaxFrameBytes: Int = 16 * 1024 * 1024
+
   enum Opcode(val code: Int):
     case Continuation extends Opcode(0x0)
     case Text         extends Opcode(0x1)
@@ -91,8 +99,8 @@ object WsFraming:
           i += 1
         v
 
-    if payloadLen > Int.MaxValue.toLong then
-      throw WsProtocolError(s"Frame too large: $payloadLen bytes")
+    if payloadLen > MaxFrameBytes.toLong then
+      throw WsProtocolError(s"Frame too large: $payloadLen bytes (max $MaxFrameBytes)")
 
     // Mask key (4 bytes) is present iff MASK=1.  Client-to-server frames
     // MUST mask; server-to-client frames MUST NOT.  Both directions go

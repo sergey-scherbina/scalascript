@@ -967,24 +967,28 @@ The REST primitives are available on all three backends:
   byte-identical to `curl http://…/<path>` against the same file
   served under `ssc <file>`.
 - **Batch static build** (`ssc build <src-dir> [<out-dir>]`) — walks
-  every top-level `.ssc` file in `src-dir`, runs each headlessly, and
-  writes every registered literal GET route to disk under `<out-dir>`
-  (default `dist/`).  The path-to-file mapping is `/` → `index.html`,
-  `/about` → `about.html`, `/blog/x` → `blog/x.html` (subdirectories
-  created as needed).  Routes with `:capture` segments and files that
-  register no GET routes are skipped.  When two files claim the same
-  URL the build emits a `[warn]` line — last write wins, but it's
-  almost always a structural bug.  Subdirectories of `src-dir`
-  (typically component modules) are not walked for `.ssc` rendering.
+  `src-dir` **recursively** for `.ssc` files, runs each headlessly,
+  and writes every registered literal GET route to disk under
+  `<out-dir>` (default `dist/`).  The path-to-file mapping is `/` →
+  `index.html`, `/about` → `about.html`, `/blog/x` → `blog/x.html`
+  (subdirectories created as needed).  Routes with `:capture`
+  segments and files that register no GET routes are skipped.  When
+  two files claim the same URL the build emits a `[warn]` line —
+  last write wins, but it's almost always a structural bug.
+
+  The page walker skips conventional non-page directories:
+  `components/` (imported module convention), `target/`,
+  `node_modules/`, `dist/`, `out/`, `.scala-build/`, and any
+  directory whose name starts with `.`.
 
   In addition to rendered pages, `ssc build` runs an **asset pipeline**:
   every non-`.ssc` file under `src-dir` is mirrored into `<out-dir>`
   preserving its relative path, so `<src-dir>/favicon.svg` lands at
   `<out-dir>/favicon.svg`, `<src-dir>/assets/extra.css` lands at
-  `<out-dir>/assets/extra.css`, and so on.  The walker is recursive
-  for assets only — directories like `target/`, `node_modules/`,
-  `dist/`, `out/`, `.scala-build/`, and any dotfile-prefixed entry
-  are skipped as tooling output.
+  `<out-dir>/assets/extra.css`, and so on.  The asset walker is
+  recursive too and also walks into `components/` (a component
+  module may sit next to its icon).  Only the tooling / build-output
+  dirs above are skipped.
 
 ### 8.4 Components
 
