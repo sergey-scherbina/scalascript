@@ -56,6 +56,22 @@ class Interpreter(out: java.io.PrintStream = System.out, baseDir: Option[os.Path
   private val litCache: java.util.IdentityHashMap[Lit, Computation] =
     java.util.IdentityHashMap()
 
+  /** Cache of `closure.updated(name, f)` per FunV — the self-ref binding
+   *  is identical on every invocation of the same closure, so we save
+   *  one HashMap.updated allocation per call. */
+  private val closureWithSelfCache: java.util.IdentityHashMap[Value.FunV, Env] =
+    java.util.IdentityHashMap()
+
+  private def closureWithSelfFor(f: Value.FunV): Env =
+    if f.name.isEmpty then f.closure
+    else
+      val cached = closureWithSelfCache.get(f)
+      if cached != null then cached
+      else
+        val w = f.closure.updated(f.name, f)
+        closureWithSelfCache.put(f, w)
+        w
+
   private def tcoInfoFor(f: Value.FunV): TcoInfo =
     val cached = tcoCache.get(f)
     if cached != null then cached
@@ -871,9 +887,9 @@ class Interpreter(out: java.io.PrintStream = System.out, baseDir: Option[os.Path
       // Build callEnv directly: closure + (self ref if named) + params bound
       // to args.  Specialise the common 1- and 2-parameter cases so we use
       // `.updated` chains (which produce HashMap2 / HashMap3 specialisations)
-      // instead of allocating an intermediate Map via `zip.toMap`.
-      val withSelf =
-        if f.name.nonEmpty then f.closure.updated(f.name, f) else f.closure
+      // instead of allocating an intermediate Map via `zip.toMap`.  The
+      // closure+self map is identical per FunV so we cache it.
+      val withSelf = closureWithSelfFor(f)
       val callEnv = f.params match
         case Nil               => withSelf
         case p :: Nil          => withSelf.updated(p, effArgs.head)
