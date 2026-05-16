@@ -1848,6 +1848,7 @@ class Interpreter(out: java.io.PrintStream = System.out, baseDir: Option[os.Path
       case (Value.OptionV(opt),     "isDefined",  Nil) => Pure(Value.BoolV(opt.isDefined))
       case (Value.OptionV(opt),     "isEmpty",    Nil) => Pure(Value.BoolV(opt.isEmpty))
       case (Value.OptionV(opt),     "nonEmpty",   Nil) => Pure(Value.BoolV(opt.nonEmpty))
+      case (Value.OptionV(opt),     "contains",   List(v)) => Pure(Value.BoolV(opt.contains(v)))
       case (Value.OptionV(Some(v)), "getOrElse",  _)   => Pure(v)
       case (Value.OptionV(None),    "getOrElse",  List(d)) => Pure(d)
       case (Value.OptionV(opt),     "map",        List(f)) =>

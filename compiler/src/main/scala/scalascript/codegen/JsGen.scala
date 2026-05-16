@@ -694,6 +694,7 @@ function _dispatch(obj, method, args) {
       case 'foreach': args[0](obj.value); return undefined;
       case 'toList': return [obj.value];
       case 'orElse': return obj;
+      case 'contains': return obj.value === args[0];
     }
   }
   if (obj && obj._type === '_None') {
@@ -709,6 +710,7 @@ function _dispatch(obj, method, args) {
       case 'foreach': return undefined;
       case 'toList': return [];
       case 'orElse': return args[0];
+      case 'contains': return false;
     }
   }
   if (typeof obj === 'string') {
@@ -2046,6 +2048,16 @@ class JsGen(baseDir: Option[os.Path] = None):
         case "/" if isIntExpr(lhs) && args.headOption.exists(isIntExpr) =>
           s"Math.trunc($lhsJs / $rhsJs)"
         case other => s"($lhsJs $other $rhsJs)"
+
+    // Prefix unary operators: `!x`, `-x`, `+x`, `~x`.
+    case t: Term.ApplyUnary =>
+      val argJs = genExpr(t.arg)
+      t.op.value match
+        case "!" => s"!($argJs)"
+        case "-" => s"-($argJs)"
+        case "+" => s"+($argJs)"
+        case "~" => s"~($argJs)"
+        case op  => s"/* unsupported unary $op */"
 
     case other =>
       s"/* unsupported: ${other.productPrefix} */"

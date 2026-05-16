@@ -48,7 +48,7 @@ route("GET", "/login") { req =>
   <button type="submit">Sign in</button>
 </form>"""
   Response.html(layout("Sign in", body))
-    .withSession(req.session + ("csrf" -> token))
+    .withSession(req.session.updated("csrf", token))
 }
 
 route("POST", "/login") { req =>
@@ -56,9 +56,9 @@ route("POST", "/login") { req =>
   else
     val user = req.form.getOrElse("username", "")
     val pass = req.form.getOrElse("password", "")
-    if users.get(user) == Some(pass) then
+    if users.get(user).contains(pass) then
       Response.redirect("/profile")
-        .withSession(req.session + ("user" -> user))
+        .withSession(req.session.updated("user", user))
     else
       Response.html(layout("Sign in", html"<p style='color:red'>Wrong credentials.</p>"))
 }
@@ -74,7 +74,7 @@ route("GET", "/profile") { req =>
   <button>Sign out</button>
 </form>"""
       Response.html(layout("Profile", body))
-        .withSession(req.session + ("csrf" -> token))
+        .withSession(req.session.updated("csrf", token))
 }
 
 route("POST", "/logout") { req =>
