@@ -44,6 +44,12 @@ EXPECTED_BTN_DANGER=2        # .btn-danger + Delete button
 EXPECTED_CARD_ROOT=3
 EXPECTED_CARD_TITLE=3
 EXPECTED_CARD_BODY=3
+# Alert uses scope("Alert"); .root appears in 3 CSS rules (.root, .root.warn,
+# .root.error) + 3 rendered alerts = 6.  .title / .body each: 1 CSS rule +
+# 3 alerts = 4.
+EXPECTED_ALERT_ROOT=6
+EXPECTED_ALERT_TITLE=4
+EXPECTED_ALERT_BODY=4
 
 run_backend() {
     local label="$1"
@@ -62,13 +68,16 @@ run_backend() {
     local body
     body=$(curl -sS "http://localhost:$PORT/")
 
-    local title=$(echo "$body" | grep -c 'Components demo' || true)
-    local btn1=$(echo "$body" | grep -c 'btn-primary'   || true)
-    local btn2=$(echo "$body" | grep -c 'btn-secondary' || true)
-    local btn3=$(echo "$body" | grep -c 'btn-danger'    || true)
-    local croot=$(echo "$body" | grep -c 'root__Card'   || true)
-    local ctitle=$(echo "$body" | grep -c 'title__Card' || true)
-    local cbody=$(echo "$body" | grep -c 'body__Card'   || true)
+    local title=$(echo "$body"  | grep -c 'Components demo' || true)
+    local btn1=$(echo "$body"   | grep -c 'btn-primary'   || true)
+    local btn2=$(echo "$body"   | grep -c 'btn-secondary' || true)
+    local btn3=$(echo "$body"   | grep -c 'btn-danger'    || true)
+    local croot=$(echo "$body"  | grep -c 'root__Card'    || true)
+    local ctitle=$(echo "$body" | grep -c 'title__Card'   || true)
+    local cbody=$(echo "$body"  | grep -c 'body__Card'    || true)
+    local aroot=$(echo "$body"  | grep -c 'root__Alert'   || true)
+    local atitle=$(echo "$body" | grep -c 'title__Alert'  || true)
+    local abody=$(echo "$body"  | grep -c 'body__Alert'   || true)
 
     [ "$title"  = "$EXPECTED_TITLE" ]           || { echo "  [FAIL] $label title:$title (want $EXPECTED_TITLE)"; fail=1; }
     [ "$btn1"   = "$EXPECTED_BTN_PRIMARY" ]     || { echo "  [FAIL] $label btn-primary:$btn1 (want $EXPECTED_BTN_PRIMARY)"; fail=1; }
@@ -77,6 +86,9 @@ run_backend() {
     [ "$croot"  = "$EXPECTED_CARD_ROOT" ]       || { echo "  [FAIL] $label root__Card:$croot (want $EXPECTED_CARD_ROOT)"; fail=1; }
     [ "$ctitle" = "$EXPECTED_CARD_TITLE" ]      || { echo "  [FAIL] $label title__Card:$ctitle (want $EXPECTED_CARD_TITLE)"; fail=1; }
     [ "$cbody"  = "$EXPECTED_CARD_BODY" ]       || { echo "  [FAIL] $label body__Card:$cbody (want $EXPECTED_CARD_BODY)"; fail=1; }
+    [ "$aroot"  = "$EXPECTED_ALERT_ROOT" ]      || { echo "  [FAIL] $label root__Alert:$aroot (want $EXPECTED_ALERT_ROOT)"; fail=1; }
+    [ "$atitle" = "$EXPECTED_ALERT_TITLE" ]     || { echo "  [FAIL] $label title__Alert:$atitle (want $EXPECTED_ALERT_TITLE)"; fail=1; }
+    [ "$abody"  = "$EXPECTED_ALERT_BODY" ]      || { echo "  [FAIL] $label body__Alert:$abody (want $EXPECTED_ALERT_BODY)"; fail=1; }
 
     kill $pid 2>/dev/null
     wait $pid 2>/dev/null

@@ -1,0 +1,33 @@
+#!/usr/bin/env ssc
+---
+name: alert
+description: Inline message — uses `scope("Alert")`, deliberately shares class names with Card.
+---
+
+# Alert
+
+A boxed message with a level (`info` / `warn` / `error`).  Re-uses the
+same bare class names (`.title`, `.body`) that `card.ssc` does — proves
+`scope("Alert")` keeps them separate.
+
+```scalascript
+object Alert:
+  private val s = scope("Alert")
+
+  val css: String = s.css("""
+    .root  { border-left: 4px solid #2563eb; background: #eff6ff;
+             padding: .75em 1em; margin: 1em 0; border-radius: 4px; }
+    .root.warn  { border-left-color: #f59e0b; background: #fffbeb; }
+    .root.error { border-left-color: #dc2626; background: #fef2f2; }
+    .title { font-weight: 600; margin: 0 0 .25em; color: #111827; }
+    .body  { color: #1f2937; font-size: .95em; }
+  """)
+
+  def render(title: String, body: String, level: String = "info"): String =
+    val rootCls = if level == "info" then s.cls("root")
+                  else s.cls("root") + " " + level
+    html"""<div class="${rootCls}">
+      <div class="${s.cls("title")}">${title}</div>
+      <div class="${s.cls("body")}">${body}</div>
+    </div>"""
+```
