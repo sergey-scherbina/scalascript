@@ -77,10 +77,6 @@ already covers throughput.
 Larger features that aren't on the critical path but are worth keeping in
 view so they shape near-term decisions.
 
-- **Component system.**  A `.ssc` file as a self-contained component:
-  `scalascript` for logic, `html` for view, `css` for style, optional
-  front-matter route declarations.  Plays well with v0.2 heading-bound
-  blocks.
 - **WebSocket support.**  `ws("/path") { conn => ... }` upgrade primitive,
   bidirectional `Frame` type.
 - **Persistence.**  At minimum a `Storage` effect (key-value, JSON-backed)

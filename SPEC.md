@@ -611,6 +611,56 @@ The REST primitives are available on all three backends:
   bundle as dead code — they're lazily loaded inside the original
   `serve(port)`, which is shadowed by the browser override.
 
+### 8.4 Components
+
+A "component" in ScalaScript is a convention, not a compiler feature: a
+`.ssc` file owns one **`object`** whose fields are everything callers
+need to render the component.  The standard shape is:
+
+```scalascript
+object Name:
+  val css: String = """ ... """
+  def render(p1: T1, p2: T2, ...): String = html"""..."""
+```
+
+The module is then imported with `[Name](./path/to/name.ssc)` and used
+as `Name.render(...)` / `Name.css`.
+
+```ssc
+[Button](./components/button.ssc)
+[Card](./components/card.ssc)
+
+```scalascript
+val styles = List(Button.css, Card.css).mkString("\n")
+val page   = html"""
+  <style>${raw(styles)}</style>
+  ${raw(Card.render("First", "Body."))}
+  ${raw(Button.render("Save"))}
+"""
+\```
+```
+
+Why this shape:
+
+- **One source of truth per component.**  The CSS and the render logic
+  live in the same `.ssc` file; renaming a class only has to be done in
+  one place.
+- **No new compiler concept.**  Imports already pull `Name` into scope,
+  `object`s already work cross-backend, `html"..."` and the typed HTML
+  DSL compose without extra glue.
+- **Composition is plain function calls.**  Nesting, list rendering,
+  conditionals — all use the language as-is (`items.map(Card.render(...))
+  .mkString`).
+- **CSS collection is the caller's responsibility (MVP).**  A page
+  concatenates each component's `css` into one `<style>` tag.  This
+  trades convenience for visibility: nothing happens implicitly.  Auto-
+  collection and per-component scoping are future work; they're not
+  needed until two components actually clash.
+
+A minimal worked example lives in `examples/components-demo.ssc`
+(importing `examples/components/{button,card}.ssc`) and is covered by
+the cross-backend smoke test in `e2e/components-smoke.sh`.
+
 ## Appendix A: Reserved Words
 
 ```text

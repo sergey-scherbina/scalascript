@@ -1,0 +1,26 @@
+#!/usr/bin/env ssc
+---
+name: button
+description: Button component — variant via `kind` (primary / secondary / danger).
+---
+
+# Button
+
+A self-contained component.  Convention: export a top-level `object Button`
+with `def render(...)` and `val css: String`.  Importers say
+`[Button](./button.ssc)` and use `Button.render(...)` plus `Button.css`.
+
+```scalascript
+object Button:
+  val css: String = """
+    .btn { padding: .5em 1em; border-radius: 4px; border: 0; cursor: pointer;
+           font: inherit; transition: opacity .15s ease; }
+    .btn:hover { opacity: .85; }
+    .btn-primary   { background: #2563eb; color: #fff; }
+    .btn-secondary { background: #e5e7eb; color: #111827; }
+    .btn-danger    { background: #dc2626; color: #fff; }
+  """
+
+  def render(label: String, kind: String = "primary"): String =
+    html"""<button class="btn btn-${kind}">${label}</button>"""
+```

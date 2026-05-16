@@ -1,0 +1,61 @@
+#!/usr/bin/env ssc
+---
+name: components-demo
+description: Page that imports two components and composes them.
+routes:
+  - method: GET
+    path: /
+    handler: home
+---
+
+# Components demo
+
+Two co-located components, each `.ssc` file owning its HTML, CSS, and any
+logic.  Composition is plain function calls; CSS is collected once at the
+page level.
+
+[Button](./components/button.ssc)
+
+[Card](./components/card.ssc)
+
+```scalascript
+def home(req: Request): Response =
+  val cards = List(
+    Card.render("First card",  "Body of card one."),
+    Card.render("Second card", "Body of card two.")
+  ).mkString("\n")
+
+  val buttons = html"""
+    ${raw(Button.render("Save"))}
+    ${raw(Button.render("Cancel", "secondary"))}
+    ${raw(Button.render("Delete", "danger"))}
+  """
+
+  // Aggregate every imported component's CSS into a single <style> tag.
+  // This is the MVP "collection" pattern — see SPEC for trade-offs.
+  val styles = List(Button.css, Card.css).mkString("\n")
+
+  Response.html(html"""<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Components demo</title>
+  <style>
+    body { font: 1rem/1.5 system-ui, sans-serif; max-width: 640px;
+           margin: 2rem auto; padding: 0 1rem; color: #111827; }
+    h1 { margin-top: 0; }
+    .row { display: flex; gap: .5rem; margin-top: 1rem; }
+    ${raw(styles)}
+  </style>
+</head>
+<body>
+  <h1>Components demo</h1>
+  <p>Two ScalaScript components, imported and composed on one page.</p>
+  ${raw(cards)}
+  <div class="row">${raw(buttons)}</div>
+</body>
+</html>""")
+
+println("Listening on http://localhost:8768/")
+serve(8768)
+```
