@@ -731,7 +731,7 @@ class Interpreter(out: java.io.PrintStream = System.out, baseDir: Option[os.Path
               val arg = ta.argClause.values match { case List(n: Type.Name) => n.value; case _ => "_" }
               s"$tc[$arg]"
             case _ => located("summon: unsupported type")
-          Pure(env.getOrElse(key, located(s"No given for $key")))
+          Pure(env.getOrElse(key, globals.getOrElse(key, located(s"No given for $key"))))
         case _ => eval(t.fun, env)  // other type applications — erase type args
 
     case other => located(s"Cannot eval: ${other.productPrefix}")
@@ -802,8 +802,12 @@ class Interpreter(out: java.io.PrintStream = System.out, baseDir: Option[os.Path
     case _ => located(s"Not callable: ${Value.show(fn)}")
 
   private def callFun(f: Value.FunV, args: List[Value]): Computation =
+    // Locals-only base env. `eval` for Term.Name already falls back to
+    // `globals.getOrElse(...)`, so we don't need to splat the globals Map
+    // into env on every call — that allocation dominated the hot recursive
+    // path (fib / sum).
     val selfEntry = if f.name.nonEmpty then Map(f.name -> f) else Map.empty
-    val baseEnv   = globals.toMap ++ f.closure ++ selfEntry
+    val baseEnv   = f.closure ++ selfEntry
     // Auto-tuple: an N-parameter lambda passed where a 1-arg function on
     // an N-tuple is expected (e.g. `pairs.foreach((n, s) => ...)`) gets
     // its single tuple argument destructured into the N parameters.
@@ -887,7 +891,9 @@ class Interpreter(out: java.io.PrintStream = System.out, baseDir: Option[os.Path
         }.toMap
         val selfTco = Map(curFun.name ->
           (Value.NativeFnV(curFun.name, a => throw new TailCall(a)): Value))
-        val callEnv = globals.toMap ++ curFun.closure ++ selfTco ++ mutualEntries ++
+        // No `globals.toMap` here — `eval` falls back through the
+        // mutable `globals` Map directly for unresolved names.
+        val callEnv = curFun.closure ++ selfTco ++ mutualEntries ++
                       curFun.params.zip(curArgs).toMap
         current = eval(curFun.body, callEnv)
       try
@@ -1510,9 +1516,11 @@ class Interpreter(out: java.io.PrintStream = System.out, baseDir: Option[os.Path
     case Pat.Alternative(lhs, rhs) =>
       List(lhs, rhs).iterator.flatMap(p => matchPat(p, scrutinee, env)).nextOption()
     case t: Term.Name =>
-      env.get(t.value).flatMap(v => Option.when(v == scrutinee)(env))
+      env.get(t.value).orElse(globals.get(t.value))
+        .flatMap(v => Option.when(v == scrutinee)(env))
     case Term.Select(_, Term.Name(n)) =>
-      env.get(n).flatMap(v => Option.when(v == scrutinee)(env))
+      env.get(n).orElse(globals.get(n))
+        .flatMap(v => Option.when(v == scrutinee)(env))
     case _ => None
 
   // ─── For comprehension helpers ────────────────────────────────────
