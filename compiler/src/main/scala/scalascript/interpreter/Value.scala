@@ -4,6 +4,77 @@ import scala.meta.Term
 
 type Env = Map[String, Value]
 
+/** A `Map[String, Value]` specialised for the interpreter's call-env hot
+ *  path: a small parallel-arrays "frame" of local bindings (params and
+ *  self-ref) sitting on top of a `parent` map (closure captures).
+ *
+ *  Lookup walks `slots` linearly and falls through to `parent` on miss —
+ *  for N ≤ 4 this beats `HashMap.get` and dodges the per-call HashMap
+ *  allocation when we just append a couple of params to a closure.
+ *
+ *  Mutation ops (`updated`, `removed`, `iterator`, …) fall back to
+ *  flattening into a real Map; they're rare in eval. */
+final class FrameMap(
+  private val slots:  Array[String],
+  private val vals: Array[Value],
+  private val parent: Map[String, Value]
+) extends scala.collection.immutable.AbstractMap[String, Value]:
+
+  override def get(key: String): Option[Value] =
+    var i = 0
+    while i < slots.length do
+      if slots(i) == key then return Some(vals(i))
+      i += 1
+    parent.get(key)
+
+  override def getOrElse[V1 >: Value](key: String, default: => V1): V1 =
+    var i = 0
+    while i < slots.length do
+      if slots(i) == key then return vals(i)
+      i += 1
+    parent.getOrElse(key, default)
+
+  override def contains(key: String): Boolean =
+    var i = 0
+    while i < slots.length do
+      if slots(i) == key then return true
+      i += 1
+    parent.contains(key)
+
+  override def iterator: Iterator[(String, Value)] =
+    val localKeys = slots.toSet
+    slots.iterator.zip(vals.iterator) ++
+      parent.iterator.filterNot { case (k, _) => localKeys.contains(k) }
+
+  override def updated[V1 >: Value](key: String, value: V1): Map[String, V1] =
+    // Rare path — flatten and updated through the resulting Map.
+    flat.updated(key, value)
+
+  override def removed(key: String): Map[String, Value] =
+    flat.removed(key)
+
+  /** Materialise to an ordinary Map for fallback paths. */
+  private def flat: Map[String, Value] =
+    val b = Map.newBuilder[String, Value]
+    parent.foreach(kv => b += kv)
+    var i = 0
+    while i < slots.length do
+      b += (slots(i) -> vals(i))
+      i += 1
+    b.result()
+
+object FrameMap:
+  /** Build a frame with one slot. */
+  def one(name: String, value: Value, parent: Map[String, Value]): FrameMap =
+    new FrameMap(Array(name), Array(value), parent)
+
+  /** Build a frame with two slots. */
+  def two(n1: String, v1: Value, n2: String, v2: Value, parent: Map[String, Value]): FrameMap =
+    new FrameMap(Array(n1, n2), Array(v1, v2), parent)
+
+  def of(names: Array[String], vals: Array[Value], parent: Map[String, Value]): FrameMap =
+    new FrameMap(names, vals, parent)
+
 enum Value:
   case IntV(v: Long)
   case DoubleV(v: Double)

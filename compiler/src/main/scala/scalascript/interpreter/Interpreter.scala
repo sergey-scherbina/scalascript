@@ -952,17 +952,20 @@ class Interpreter(out: java.io.PrintStream = System.out, baseDir: Option[os.Path
     if info.noNonTailSelf && (info.isSelfTailRec || hasMutualTail) then
       tcoTrampoline(f, effArgs, null)
     else
-      // Build callEnv directly: closure + (self ref if named) + params bound
-      // to args.  Specialise the common 1- and 2-parameter cases so we use
-      // `.updated` chains (which produce HashMap2 / HashMap3 specialisations)
-      // instead of allocating an intermediate Map via `zip.toMap`.  The
-      // closure+self map is identical per FunV so we cache it.
+      // Build callEnv as a `FrameMap` — parallel arrays of param names /
+      // values on top of the (cached) closure-with-self map. Cheaper than
+      // a HashMap.updated chain for the typical 1-2 param case and
+      // turns lookup into a linear scan over `slots` (tiny), falling
+      // through to the closure map only for non-locals.
       val withSelf = closureWithSelfFor(f)
-      val callEnv = f.params match
+      val callEnv: Env = f.params match
         case Nil               => withSelf
-        case p :: Nil          => withSelf.updated(p, effArgs.head)
-        case p1 :: p2 :: Nil   => withSelf.updated(p1, effArgs.head).updated(p2, effArgs(1))
-        case _                 => withSelf ++ f.params.iterator.zip(effArgs.iterator).toMap
+        case p :: Nil          => FrameMap.one(p, effArgs.head, withSelf)
+        case p1 :: p2 :: Nil   => FrameMap.two(p1, effArgs.head, p2, effArgs(1), withSelf)
+        case ps                =>
+          val names = ps.toArray
+          val arr   = effArgs.iterator.take(names.length).toArray
+          FrameMap.of(names, arr, withSelf)
       try runUntilSuspension(eval(f.body, callEnv))
       catch case r: ReturnSignal => Pure(r.value)
 
