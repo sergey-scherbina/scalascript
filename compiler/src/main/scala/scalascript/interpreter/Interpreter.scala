@@ -906,23 +906,28 @@ class Interpreter(out: java.io.PrintStream = System.out, baseDir: Option[os.Path
     var curFun: Value.FunV   = initialFun
     var curArgs: List[Value] = initialArgs
     var current: Computation = initialComp
+    // Stable, per-curFun part of the call env: closure + self-tco stub +
+    // mutual-tail-call stubs. The only thing that varies across tail
+    // iterations is the param binding, so build this once per `curFun`
+    // and refresh it only when a mutual jump changes `curFun`.
+    var envStable: Map[String, Value] = null
+    var envStableFor: Value.FunV      = null
     while true do
-      if current == null then
-        val targets = tcoInfoFor(curFun).tailTargets
-        val mutualEntries: Map[String, Value] = targets.flatMap { name =>
-          (globals.get(name) orElse curFun.closure.get(name)).collect {
-            case fn: Value.FunV =>
-              name -> (Value.NativeFnV(name, a => throw new MutualTailCall(fn, a)): Value)
-          }
-        }.toMap
-        val selfTco = Map(curFun.name ->
-          (Value.NativeFnV(curFun.name, a => throw new TailCall(a)): Value))
-        // No `globals.toMap` here — `eval` falls back through the
-        // mutable `globals` Map directly for unresolved names.
-        val callEnv = curFun.closure ++ selfTco ++ mutualEntries ++
-                      curFun.params.zip(curArgs).toMap
-        current = eval(curFun.body, callEnv)
       try
+        if current == null then
+          if (envStable eq null) || (envStableFor ne curFun) then
+            val targets = tcoInfoFor(curFun).tailTargets
+            val mutualEntries: Map[String, Value] = targets.flatMap { name =>
+              (globals.get(name) orElse curFun.closure.get(name)).collect {
+                case fn: Value.FunV =>
+                  name -> (Value.NativeFnV(name, a => throw new MutualTailCall(fn, a)): Value)
+              }
+            }.toMap
+            val selfTco = Value.NativeFnV(curFun.name, a => throw new TailCall(a))
+            envStable     = curFun.closure.updated(curFun.name, selfTco) ++ mutualEntries
+            envStableFor  = curFun
+          val callEnv = envStable ++ curFun.params.iterator.zip(curArgs.iterator).toMap
+          current = eval(curFun.body, callEnv)
         // Inner step loop — re-associate FlatMaps and step Pure short-circuits.
         // Exits via `return` inside the match; the condition stays `true`.
         while true do
