@@ -519,12 +519,25 @@ The REST primitives are available on all three backends:
   Unmatched routes fall through to static asset serving (under the cwd,
   with the same MIME-sniffing and traversal guard as the interpreter)
   before 404'ing.
-- **JS backend** (`ssc emit-js` / `bin/jssc`) — JsGen emits a Node `http`
-  server runtime in `JsRuntime`.  Node's event loop keeps the process alive
-  once `serve(port)` calls `server.listen(...)`.  Static asset fall-through
-  uses Node's `fs.realpathSync` for the traversal guard.  Browser-side
-  execution is intentionally out of scope: the runtime `require()`s
-  `'http'`, which only exists in Node.
+- **JS backend, Node target** (`ssc emit-js` / `bin/jssc`) — JsGen emits
+  a Node `http` server runtime in `JsRuntime`.  Node's event loop keeps
+  the process alive once `serve(port)` calls `server.listen(...)`.
+  Static asset fall-through uses Node's `fs.realpathSync` for the
+  traversal guard.
+- **JS backend, browser SPA target** (`ssc emit-spa`) — same source,
+  wrapped as a self-contained `<!doctype html>` document with the
+  runtime + a `JsRuntimeBrowserPatch` overlay embedded in a single
+  `<script>`.  The overlay overrides `serve(...)` so it hooks `click`
+  on `<a>` elements (same-origin links only — external / `mailto:` /
+  fragment hrefs are left to the browser), listens to `popstate`, and
+  dispatches the current `location.pathname` through the same
+  `_routes` / `_matchPath` / `Response` machinery the Node target
+  uses.  `Response.html(...)` swaps `document.body.innerHTML`;
+  `Response.json(...)` is shown as a `<pre>`; redirects update the
+  history and dispatch again.  Output from `println` flushes to
+  `console.log`.  The Node-only static-asset helpers stay in the
+  bundle as dead code — they're lazily loaded inside the original
+  `serve(port)`, which is shadowed by the browser override.
 
 ## Appendix A: Reserved Words
 

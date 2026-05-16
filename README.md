@@ -96,8 +96,7 @@ compiles them via Scala.js.
 | Content helpers | `doc(...)` / `render(...)` structured output |
 | HTML / CSS interpolators | `html"..."` (auto-escaping) and `css"..."` with `${expr}` |
 | REST primitives | `route(method, path)(handler)` + `Request`/`Response` + `serve(port)` |
-
-JVM interpreter only: `serve` (requires a running interpreter at request time).
+| Browser SPA target | `ssc emit-spa file.ssc > spa.html` — same `route()` source runs as a single-page app |
 
 ## Examples
 
@@ -120,6 +119,7 @@ JVM interpreter only: `serve` (requires a running interpreter at request time).
 | [lang-split.ssc](examples/lang-split.ssc) | `scala` vs `scalascript` block annotations side by side |
 | [scala-js-demo.ssc](examples/scala-js-demo.ssc) | Pure `scala` 3 document — JS via Scala.js, JVM via scala-cli (outside interpreter subset) |
 | [rest-api.ssc](examples/rest-api.ssc) | Tiny in-memory REST API — `route()`, `html"..."`, `serve()` |
+| [spa-demo.ssc](examples/spa-demo.ssc) | Same `route()` / `serve()` source, browser SPA via `ssc emit-spa` |
 
 Run them all at once:
 

@@ -16,17 +16,6 @@ without reaching for raw string concatenation.
   API plus binary-safe body reading so file uploads round-trip, and
   port both to JsGen / JvmGen.
 
-## v0.3 — Cross-backend REST (remaining)
-
-The JVM and JS backends now ship their own `serveRuntime` / `route` runtime.
-Structural `Response.json` and the `e2e/rest-smoke.sc` cross-backend harness
-have landed; one item left:
-
-- **Browser-side JS.**  The current JS backend emits a Node server.  A
-  parallel build target should generate a client-side router that hydrates
-  `.ssc` documents in the browser, so a single `.ssc` can run as either
-  Node service or SPA.
-
 ## v0.4 — Stability & polish
 
 Known bugs and rough edges that need a separate pass.
