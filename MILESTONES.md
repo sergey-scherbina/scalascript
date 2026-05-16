@@ -143,6 +143,62 @@ Defer until a concrete use case demands real client-side
 interactivity beyond `val js` querySelector handlers.
 
 
+## v0.9 — Optics — second pass
+
+The v0.6 hierarchy (Lens / Prism / Optional / Traversal) covers
+field-path access on case classes, sum-type variants, `Option` paths
+via `.some`, and `List` traversals via `.each`.  A handful of
+extensions would close the remaining real-world gaps; listed in
+priority order so each one can ship independently.
+
+1. **Index optic — `.at(key)` / `.index(i)`.**  Today `Focus[T](_.users.each)`
+   traverses every element, but pointwise access (`users(3)`, `byId("u-42")`)
+   still falls back to `xs.find(...).map(...)` and hand-rolled `.copy`.
+   Add two path steps recognised by the Focus parser:
+
+       Focus[State](_.users.index(3))      // Optional[State, User]
+       Focus[Inventory](_.byId.at("u-42")) // Optional[Inventory, Option[User]]
+
+   `.index(i)` works on `List[A]` and returns `Optional[List[A], A]` — `None`
+   when the index is out of bounds.  `.at(k)` works on `Map[K, V]` and returns
+   `Optional[Map[K, V], Option[V]]` — the inner Option lets the caller insert
+   a missing key by `set(..., Some(v))` and delete via `set(..., None)`,
+   matching Monocle's semantics.
+
+   Backend lowering: same pattern as `SomeStep` / `EachStep` — add `IndexStep(i)`
+   and `AtKey(k)` to `PathStep`, extend `opticGetOption` / `opticSet` /
+   `opticGetAll` / `opticModifyAll`, runtime helpers in JS, emitter cases
+   in JvmGen.  Most useful extension by far — closes the biggest pain
+   point still left in optic-using code.  ~1 day across three backends
+   plus a conformance test.
+
+2. **`filter` on Traversal.**  `Focus[Team](_.members.each).filter(_.active).name`
+   to apply `modify` / `set` only to the subset where the predicate holds.
+   The traversal still produces a `List[A]` via `getAll` (filtered), and
+   `modify` rebuilds the structure leaving non-matching elements untouched.
+
+   Lowering: `Traversal.filter(p): Traversal` is a new method on the
+   runtime Traversal value, not a path step — composes by wrapping the
+   modifier with a guard.  Pure-Scala add-on in the JVM preamble; in the
+   interpreter / JS it threads a predicate through `opticModifyAll`.
+   ~half a day.  Defer until users actually ask — most filtered-update
+   code is already tractable via `traversal.modify(s, x => if p(x) then f(x) else x)`.
+
+3. **Iso (isomorphisms).**  `Iso[A, B]` with `get: A => B` and
+   `reverseGet: B => A` (lossless, bidirectional).  Monocle treats it
+   as the strongest optic, but ScalaScript's dynamic-by-default model
+   means the typical motivating case — `case class Wrapper(v: Int)` ↔
+   `Int` — barely needs an optic to begin with (interpreter doesn't
+   distinguish `Wrapper(5)` from `5` past the type tag).  Low ROI.
+   Implement only if a concrete consumer surfaces (e.g. a typeclass
+   library that wants newtype-style wrapping).
+
+**Drive-by polish (any time):** refactor existing examples
+(`rest-api.ssc`, `auth-demo.ssc`, `site/*.ssc`) to use lenses where they
+currently chain `.copy(field = obj.field.copy(...))` by hand.  Real-world
+demo of optic ergonomics in code that already exists — no new feature
+work, just a few diffs that double as documentation.
+
 ## v0.6 — Optics (Lens / Prism / Optional / Traversal) — landed
 
 Full optic hierarchy built around `Focus[T](_.path)` and `Prism[Sum, Var]`,
