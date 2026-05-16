@@ -143,9 +143,9 @@ def runBackend(b: Backend): BackendRun =
     stderr = os.Pipe
   )
   try
-    val deadline = System.currentTimeMillis() + 90_000  // sscc cold-compile can be slow
+    val deadline = System.currentTimeMillis() + 180_000  // sscc cold-compile + interp warm-up can be slow
     if !waitForServer(deadline) then
-      BackendRun(b.label, Nil, Some("server did not become ready within 90s"))
+      BackendRun(b.label, Nil, Some("server did not become ready within 180s"))
     else
       val results = steps.map { s =>
         val h = s.run()

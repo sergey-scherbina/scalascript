@@ -603,6 +603,23 @@ class Interpreter(
       case _ => throw InterpretError("csrfValid(req)")
     }
 
+    // ── Password hashing (PBKDF2-HMAC-SHA256) ────────────────────────
+    // `hashPassword(pass)` returns `pbkdf2$iter=N$<b64_salt>$<b64_hash>`;
+    // `verifyPassword(pass, enc)` checks it with constant-time compare.
+    // Default work factor is 200k iterations.
+    nativeP("hashPassword") {
+      case List(Value.StringV(pass)) =>
+        Value.StringV(scalascript.server.Password.hash(pass))
+      case List(Value.StringV(pass), Value.IntV(iter)) =>
+        Value.StringV(scalascript.server.Password.hash(pass, iter.toInt))
+      case _ => throw InterpretError("hashPassword(password[, iter])")
+    }
+    nativeP("verifyPassword") {
+      case List(Value.StringV(pass), Value.StringV(encoded)) =>
+        Value.BoolV(scalascript.server.Password.verify(pass, encoded))
+      case _ => throw InterpretError("verifyPassword(password, encoded)")
+    }
+
     // ── Cookie security config ───────────────────────────────────────
     // `cookieConfig(secure = true, sameSite = "Strict")` — production
     // hardening for the session cookie.  Defaults are HttpOnly +

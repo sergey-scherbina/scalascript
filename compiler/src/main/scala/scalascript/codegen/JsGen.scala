@@ -426,6 +426,34 @@ function _parseCookieSession(headerValue) {
   if (!pair) return new Map();
   return _unpackSession(pair.substring('session='.length));
 }
+// ── Password hashing (PBKDF2-HMAC-SHA256) ─────────────────────────────
+// Same algorithm + encoded format as scalascript.server.Password so
+// a hash minted on one backend verifies on another.  Default 200k iter.
+function hashPassword(password, iter) {
+  const crypto = require('crypto');
+  const it     = (typeof iter === 'number' && iter > 0) ? iter : 200000;
+  const salt   = crypto.randomBytes(16);
+  const hash   = crypto.pbkdf2Sync(password, salt, it, 32, 'sha256');
+  const b64    = b => b.toString('base64').replace(/=+$/, '');
+  return 'pbkdf2$iter=' + it + '$' + b64(salt) + '$' + b64(hash);
+}
+function verifyPassword(password, encoded) {
+  try {
+    const parts = String(encoded).split('$');
+    if (parts.length !== 4 || parts[0] !== 'pbkdf2') return false;
+    const iter     = parseInt(parts[1].replace('iter=', ''), 10);
+    if (!Number.isFinite(iter) || iter <= 0) return false;
+    const salt     = Buffer.from(parts[2], 'base64');
+    const expected = Buffer.from(parts[3], 'base64');
+    const crypto   = require('crypto');
+    const actual   = crypto.pbkdf2Sync(password, salt, iter, expected.length, 'sha256');
+    if (expected.length !== actual.length) return false;
+    let diff = 0;
+    for (let i = 0; i < expected.length; i++) diff |= expected[i] ^ actual[i];
+    return diff === 0;
+  } catch (e) { return false; }
+}
+
 // Cookie security config — secure flag + SameSite policy, set via
 // the top-level cookieConfig(secure, sameSite) call.  Production
 // HTTPS deployments should flip secure=true.

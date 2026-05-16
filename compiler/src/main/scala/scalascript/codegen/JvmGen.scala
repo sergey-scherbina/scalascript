@@ -1485,6 +1485,35 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |  val v = java.lang.System.getenv(key)
        |  if v == null || v.isEmpty then defaultVal else v
        |
+       |// ── Password hashing (PBKDF2-HMAC-SHA256) ──────────────────────
+       |// Same algorithm + encoded format as scalascript.server.Password
+       |// so a hash minted on one backend verifies on another.  Lives in
+       |// the base runtime (not gated on route usage) so non-server code
+       |// can still hash passwords (e.g. seeding a user table).
+       |def hashPassword(password: String, iter: Int = 200000): String =
+       |  val salt = new Array[Byte](16)
+       |  java.security.SecureRandom().nextBytes(salt)
+       |  val key = _pbkdf2(password, salt, iter, 256)
+       |  val b64 = java.util.Base64.getEncoder.withoutPadding
+       |  s"pbkdf2$$iter=$iter$$${b64.encodeToString(salt)}$$${b64.encodeToString(key)}"
+       |def verifyPassword(password: String, encoded: String): Boolean =
+       |  try
+       |    val parts = encoded.split('$')
+       |    if parts.length != 4 || parts(0) != "pbkdf2" then false
+       |    else
+       |      val iter     = parts(1).stripPrefix("iter=").toInt
+       |      val b64      = java.util.Base64.getDecoder
+       |      val salt     = b64.decode(parts(2))
+       |      val expected = b64.decode(parts(3))
+       |      val actual   = _pbkdf2(password, salt, iter, expected.length * 8)
+       |      java.security.MessageDigest.isEqual(expected, actual)
+       |  catch case _: Throwable => false
+       |private def _pbkdf2(password: String, salt: Array[Byte], iter: Int, bits: Int): Array[Byte] =
+       |  val spec    = javax.crypto.spec.PBEKeySpec(password.toCharArray, salt, iter, bits)
+       |  val factory = javax.crypto.SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256")
+       |  try factory.generateSecret(spec).getEncoded
+       |  finally spec.clearPassword()
+       |
        |""".stripMargin
 
   /** Trampoline runtime for mutual tail-recursion. Each mutually-recursive
