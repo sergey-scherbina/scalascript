@@ -25,7 +25,10 @@ object WebServer:
   def start(port: Int, root: String, log: java.io.PrintStream): Unit =
     val server = JHttpServer.create(InetSocketAddress(port), 0)
     server.createContext("/", handle(root, log, _))
-    server.setExecutor(null)
+    // Explicit single-thread executor: the interpreter's globals / call-stack
+    // / position tracker are not thread-safe, so handler bodies must run
+    // serially. JvmGen's `serveRuntime` does the same for compiled output.
+    server.setExecutor(java.util.concurrent.Executors.newSingleThreadExecutor())
     server.start()
     log.println(s"ScalaScript web · http://localhost:$port/  (root: $root)")
     log.println("Ctrl+C to stop.")

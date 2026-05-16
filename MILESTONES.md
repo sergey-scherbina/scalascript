@@ -28,10 +28,6 @@ without reaching for raw string concatenation.
   before 404'ing.  The JvmGen / JsGen `serveRuntime` blocks still only
   do REST + 404 — give them the same fall-through so a compiled
   binary or Node script can serve a docs site too.
-- **Concurrent request handling.**  The default JDK `HttpServer` executor is
-  multithreaded but the interpreter is not.  Decide between (a) explicit
-  single-thread executor + document the limit or (b) lock around
-  `Interpreter.invoke`.  Today races are latent.
 
 ## v0.3 — Cross-backend REST (remaining)
 
