@@ -34,8 +34,10 @@ object JsGen:
       case _                     => false
     } || s.subsections.exists(sectionHas)
 
-/** JS runtime preamble embedded in every generated page. */
-val JsRuntime: String = """
+/** JS runtime preamble embedded in every generated page. Split into two
+ *  triple-quoted parts because the combined source exceeds the JVM's
+ *  64KB string-literal limit. */
+private val JsRuntimePart1: String = """
 let _output = [];
 function _println(...args) { _output.push(args.map(_show).join(' ')); }
 function _print(...args) { const s = args.map(_show).join(''); _output.push(s); }
@@ -1100,7 +1102,9 @@ function serve(port) {
   server.on('upgrade', (req, socket, _head) => _wsHandleUpgrade(req, socket));
   server.listen(port, () => console.log(`Listening on http://localhost:${port}/`));
 }
+"""
 
+private val JsRuntimePart2: String = """
 function _show(v) {
   if (v === undefined) return '()';
   if (v === null) return 'null';
@@ -1194,6 +1198,10 @@ function _makeLens(path) {
     if (other && other._type === 'Lens' && other._path) {
       return _makeLens(path.concat(other._path));
     }
+    if (other && other._type === 'Optional' && other._steps) {
+      // Lens.andThen(Optional) → Optional. Lift field path to steps.
+      return _makeOptional(path.concat(other._steps));
+    }
     return _composeLens(_makeLens(path), other);
   };
   return { _type: 'Lens', _path: path, get, set, modify, andThen };
@@ -1204,6 +1212,55 @@ function _composeLens(a, b) {
   const modify  = (s, f) => a.modify(s, x => b.modify(x, f));
   const andThen = (other) => _composeLens({ _type: 'Lens', get, set, modify, andThen }, other);
   return { _type: 'Lens', get, set, modify, andThen };
+}
+
+// ── Optional runtime — partial optic for paths containing `.some` ─────
+// Steps are an array of strings: a field name, or "__some__" to traverse
+// into the inner value of a Some(...).
+function _opticGetOption(steps, s) {
+  let v = s;
+  for (let i = 0; i < steps.length; i++) {
+    const step = steps[i];
+    if (step === '__some__') {
+      if (v && v._type === '_Some') v = v.value;
+      else return _None;
+    } else {
+      if (v == null) return _None;
+      v = v[step];
+      if (v === undefined) return _None;
+    }
+  }
+  return _Some(v);
+}
+function _opticSet(steps, s, v) {
+  if (steps.length === 0) return v;
+  const [head, ...rest] = steps;
+  if (head === '__some__') {
+    if (s && s._type === '_Some') return _Some(_opticSet(rest, s.value, v));
+    return s;
+  }
+  if (s == null || s[head] === undefined) return s;
+  return { ...s, [head]: _opticSet(rest, s[head], v) };
+}
+function _makeOptional(steps) {
+  const getOption = (s) => _opticGetOption(steps, s);
+  const set       = (s, v) => _opticSet(steps, s, v);
+  const modify    = (s, f) => {
+    const got = getOption(s);
+    if (got && got._type === '_Some') return _opticSet(steps, s, f(got.value));
+    return s;
+  };
+  const andThen = (other) => {
+    const inner =
+      (other && other._type === 'Optional' && other._steps) ? other._steps :
+      (other && other._type === 'Lens'     && other._path)  ? other._path :
+      null;
+    if (inner === null) {
+      throw new Error('Optional.andThen(other): only path Lens/Optional supported');
+    }
+    return _makeOptional(steps.concat(inner));
+  };
+  return { _type: 'Optional', _steps: steps, getOption, set, modify, andThen };
 }
 
 // ── Prism runtime — sum-type optic, conditional get / set / modify ────
@@ -1542,6 +1599,8 @@ function _handle(bodyFn, handledOps, handlers) {
   return interp(bodyFn());
 }
 """
+
+val JsRuntime: String = JsRuntimePart1 + JsRuntimePart2
 
 /** Browser-SPA overlay loaded AFTER `JsRuntime` so its `serve(...)` /
  *  `console.log`-based output flush replace the Node-target versions.
@@ -2809,30 +2868,37 @@ class JsGen(baseDir: Option[os.Path] = None):
 
   private def genFocus(args: List[Term]): String = args match
     case List(lambda) =>
-      val pathOpt: Option[List[String]] = lambda match
+      val stepsOpt: Option[List[String]] = lambda match
         case Term.AnonymousFunction(body) =>
-          extractFieldPath(body, _.isInstanceOf[Term.Placeholder])
+          extractPathSteps(body, _.isInstanceOf[Term.Placeholder])
         case Term.Function.After_4_6_0(paramClause, body) =>
           paramClause.values.headOption.map(_.name.value).flatMap { p =>
-            extractFieldPath(body, {
+            extractPathSteps(body, {
               case Term.Name(n) => n == p
               case _            => false
             })
           }
         case _ => None
-      pathOpt match
-        case Some(path) if path.nonEmpty =>
-          s"_makeLens([${path.map(p => s"'$p'").mkString(", ")}])"
+      stepsOpt match
+        case Some(steps) if steps.nonEmpty =>
+          // Steps are encoded as strings: a field name, or the literal
+          // "__some__" for a `.some` traversal. The runtime helpers
+          // _makeLens / _makeOptional read the tag and dispatch.
+          if steps.contains("__some__") then
+            s"_makeOptional([${steps.map(s => s"'$s'").mkString(", ")}])"
+          else
+            s"_makeLens([${steps.map(s => s"'$s'").mkString(", ")}])"
         case _ =>
           s"(()=>{ throw new Error('Focus: expected a field-access lambda like _.field.subfield'); })()"
     case _ =>
       s"(()=>{ throw new Error('Focus expects exactly one lambda argument'); })()"
 
-  private def extractFieldPath(body: Term, isBase: Term => Boolean): Option[List[String]] =
+  private def extractPathSteps(body: Term, isBase: Term => Boolean): Option[List[String]] =
     def loop(t: Term, acc: List[String]): Option[List[String]] = t match
-      case Term.Select(qual, name) => loop(qual, name.value :: acc)
-      case other if isBase(other)  => Some(acc)
-      case _                       => None
+      case Term.Select(qual, Term.Name("some")) => loop(qual, "__some__" :: acc)
+      case Term.Select(qual, name)              => loop(qual, name.value :: acc)
+      case other if isBase(other)               => Some(acc)
+      case _                                     => None
     loop(body, Nil)
 
   // ─── CPS codegen for effectful contexts ──────────────────────────

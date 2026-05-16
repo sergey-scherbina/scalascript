@@ -1,0 +1,14 @@
+Some(Boston)
+None
+None
+Some(Paris)
+None
+None
+Some(BOSTON)
+None
+Some(Profile(Some(Address(Main St, Boston))))
+None
+Some(Boston)
+None
+Alice
+Aleksandra

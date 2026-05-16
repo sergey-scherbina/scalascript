@@ -493,19 +493,23 @@ class JvmGen(baseDir: Option[os.Path] = None):
   private def termNeedsCustomEmit(t: Term): Boolean =
     termUsesEffects(t) || termContainsFocus(t) || termContainsPrism(t)
 
-  private def termContainsFocus(t: Term): Boolean = t match
-    case app: Term.Apply if isFocusApp(app) => true
-    case _ => t.children.exists {
-      case tt: Term => termContainsFocus(tt)
-      case _        => false
-    }
+  private def termContainsFocus(t: Term): Boolean =
+    var found = false
+    def walk(n: Tree): Unit =
+      if !found then n match
+        case app: Term.Apply if isFocusApp(app) => found = true
+        case _ => n.children.foreach(walk)
+    walk(t)
+    found
 
-  private def termContainsPrism(t: Term): Boolean = t match
-    case ta: Term.ApplyType if isPrismApplyType(ta) => true
-    case _ => t.children.exists {
-      case tt: Term => termContainsPrism(tt)
-      case _        => false
-    }
+  private def termContainsPrism(t: Term): Boolean =
+    var found = false
+    def walk(n: Tree): Unit =
+      if !found then n match
+        case ta: Term.ApplyType if isPrismApplyType(ta) => found = true
+        case _ => n.children.foreach(walk)
+    walk(t)
+    found
 
   // ─── Default-param helpers ────────────────────────────────────────
   //
@@ -809,6 +813,11 @@ class JvmGen(baseDir: Option[os.Path] = None):
    *  otherwise the lambda's explicit param type is used; otherwise we emit
    *  an unannotated form (and rely on Scala 3 inference, which usually
    *  needs an outer type ascription to succeed). */
+  /** A step in an optic path: a field-name select or an Option-unwrap (`.some`). */
+  private enum FocusStep:
+    case Field(name: String)
+    case SomeUnwrap
+
   private def emitFocus(app: Term.Apply): String =
     val typeArg: Option[String] = app.fun match
       case ta: Term.ApplyType =>
@@ -816,31 +825,35 @@ class JvmGen(baseDir: Option[os.Path] = None):
       case _ => None
     app.argClause.values match
       case List(lambda) =>
-        val pathAndExplicitTpe: Option[(List[String], Option[String])] = lambda match
+        val stepsAndExplicitTpe: Option[(List[FocusStep], Option[String])] = lambda match
           case Term.AnonymousFunction(body) =>
-            extractFieldPath(body, _.isInstanceOf[Term.Placeholder]).map(_ -> None)
+            extractPathSteps(body, _.isInstanceOf[Term.Placeholder]).map(_ -> None)
           case Term.Function.After_4_6_0(paramClause, body) =>
             paramClause.values.headOption.flatMap { p =>
-              extractFieldPath(body, {
+              extractPathSteps(body, {
                 case Term.Name(n) => n == p.name.value
                 case _            => false
               }).map(_ -> p.decltpe.map(_.syntax))
             }
           case _ => None
-        pathAndExplicitTpe match
-          case Some((path, explicitTpe)) if path.nonEmpty =>
+        stepsAndExplicitTpe match
+          case Some((steps, explicitTpe)) if steps.nonEmpty =>
             val tpe = typeArg.orElse(explicitTpe).getOrElse("Any")
-            buildLensLiteral(tpe, path)
+            if steps.exists(_ == FocusStep.SomeUnwrap) then
+              buildOptionalLiteral(tpe, steps)
+            else
+              buildLensLiteral(tpe, steps.collect { case FocusStep.Field(n) => n })
           case _ =>
             "??? /* Focus: expected a field-access lambda like _.field.subfield */"
       case _ =>
         "??? /* Focus expects exactly one lambda argument */"
 
-  private def extractFieldPath(body: Term, isBase: Term => Boolean): Option[List[String]] =
-    def loop(t: Term, acc: List[String]): Option[List[String]] = t match
-      case Term.Select(qual, name) => loop(qual, name.value :: acc)
-      case other if isBase(other)  => Some(acc)
-      case _                       => None
+  private def extractPathSteps(body: Term, isBase: Term => Boolean): Option[List[FocusStep]] =
+    def loop(t: Term, acc: List[FocusStep]): Option[List[FocusStep]] = t match
+      case Term.Select(qual, Term.Name("some")) => loop(qual, FocusStep.SomeUnwrap :: acc)
+      case Term.Select(qual, name)              => loop(qual, FocusStep.Field(name.value) :: acc)
+      case other if isBase(other)               => Some(acc)
+      case _                                     => None
     loop(body, Nil)
 
   /** Emit a Lens literal whose setter walks `path` and rebuilds nested copies. */
@@ -856,6 +869,45 @@ class JvmGen(baseDir: Option[os.Path] = None):
       case Nil               => "v"
     val setter = s"(s: $tpe, v) => ${buildSet("s", path)}"
     s"Lens($getter, $setter)"
+
+  /** Emit an Optional literal for a path containing `.some` steps. Get/set
+   *  thread the value through `Option.flatMap` / `Option.map` and rebuild
+   *  copies along the way; missing layers turn the whole operation into a
+   *  no-op for set / modify, and `None` for getOption. */
+  private def buildOptionalLiteral(tpe: String, steps: List[FocusStep]): String =
+    val getter = s"(s: $tpe) => ${emitOpticGet(steps, "s", 0)}"
+    val setter = s"(s: $tpe, v) => ${emitOpticSet(steps, "s", "v", 0)}"
+    s"Optional($getter, $setter)"
+
+  /** Build the `getOption` expression. Splits on the first SomeUnwrap; if
+   *  more SomeUnwraps follow we use `flatMap`, otherwise `map`. Field-only
+   *  segments are emitted as chained `.f1.f2.…` accessors. */
+  private def emitOpticGet(steps: List[FocusStep], in: String, counter: Int): String =
+    val firstSome = steps.indexOf(FocusStep.SomeUnwrap)
+    if firstSome < 0 then
+      val fields = steps.collect { case FocusStep.Field(n) => n }
+      if fields.isEmpty then in else s"$in.${fields.mkString(".")}"
+    else
+      val prefix = steps.take(firstSome).collect { case FocusStep.Field(n) => n }
+      val suffix = steps.drop(firstSome + 1)
+      val prefixExpr = if prefix.isEmpty then in else s"$in.${prefix.mkString(".")}"
+      if suffix.isEmpty then prefixExpr
+      else
+        val combinator = if suffix.contains(FocusStep.SomeUnwrap) then "flatMap" else "map"
+        val v = s"_p$counter"
+        s"$prefixExpr.$combinator($v => ${emitOpticGet(suffix, v, counter + 1)})"
+
+  /** Build the `set` expression: nested `.copy(field = ...)` interleaved with
+   *  `.map(p => …)` at every SomeUnwrap. */
+  private def emitOpticSet(steps: List[FocusStep], target: String, valExpr: String, counter: Int): String = steps match
+    case Nil                                  => valExpr
+    case FocusStep.Field(n) :: Nil            => s"$target.copy($n = $valExpr)"
+    case FocusStep.Field(n) :: rest           =>
+      s"$target.copy($n = ${emitOpticSet(rest, s"$target.$n", valExpr, counter)})"
+    case FocusStep.SomeUnwrap :: Nil          => s"$target.map(_ => $valExpr)"
+    case FocusStep.SomeUnwrap :: rest         =>
+      val v = s"_p$counter"
+      s"$target.map($v => ${emitOpticSet(rest, v, valExpr, counter + 1)})"
 
   /** Emit a term that contains effect-related content, walking children. */
   private def emitExprDeep(term: Term): String = term match
@@ -1379,6 +1431,8 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |  def modify(s: S, f: A => A): S = set(s, f(get(s)))
        |  def andThen[B](other: Lens[A, B]): Lens[S, B] =
        |    Lens(s => other.get(get(s)), (s, b) => set(s, other.set(get(s), b)))
+       |  def andThen[B](other: Optional[A, B]): Optional[S, B] =
+       |    Optional(s => other.getOption(get(s)), (s, b) => set(s, other.set(get(s), b)))
        |
        |// ── Prism runtime — sum-type optic, conditional get / set / modify ────
        |case class Prism[S, A](getOption: S => Option[A], reverseGet: A => S):
@@ -1392,6 +1446,26 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |    Prism(
        |      s => getOption(s).flatMap(other.getOption),
        |      b => reverseGet(other.reverseGet(b))
+       |    )
+       |
+       |// ── Optional runtime — partial optic over a path with `.some` ─────
+       |case class Optional[S, A](getOption: S => Option[A], set: (S, A) => S):
+       |  def modify(s: S, f: A => A): S = getOption(s) match
+       |    case Some(a) => set(s, f(a))
+       |    case None    => s
+       |  def andThen[B](other: Optional[A, B]): Optional[S, B] =
+       |    Optional(
+       |      s => getOption(s).flatMap(other.getOption),
+       |      (s, b) => getOption(s) match
+       |        case Some(a) => set(s, other.set(a, b))
+       |        case None    => s
+       |    )
+       |  def andThen[B](other: Lens[A, B]): Optional[S, B] =
+       |    Optional(
+       |      s => getOption(s).map(other.get),
+       |      (s, b) => getOption(s) match
+       |        case Some(a) => set(s, other.set(a, b))
+       |        case None    => s
        |    )
        |
        |// Environment variable reader — same surface on all three backends.
