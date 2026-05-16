@@ -66,6 +66,17 @@ function _html_interp(v) {
   return _htmlEscape(_show(v));
 }
 
+// `collectCss(comp1, comp2, ...)` — concatenate each argument's `css`
+// field into one CSS string for a page-level <style>.  Convention helper
+// for component-style .ssc files (see SPEC §8.4).  Anything without a
+// String `css` field is silently skipped.
+function collectCss(...parts) {
+  return parts
+    .map(p => (p && typeof p.css === 'string') ? p.css : '')
+    .filter(s => s.length > 0)
+    .join('\n');
+}
+
 // ── Typed HTML DSL — `div(attr.cls := "hero", h1("hi"))` ───────────────
 function _attr(key, value) { return { _type: 'Attr', name: key.name, value: _show(value) }; }
 function _attrKey(name)    { return { _type: 'AttrKey', name }; }

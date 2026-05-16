@@ -31,9 +31,10 @@ def home(req: Request): Response =
     ${raw(Button.render("Delete", "danger"))}
   """
 
-  // Aggregate every imported component's CSS into a single <style> tag.
-  // This is the MVP "collection" pattern — see SPEC for trade-offs.
-  val styles = List(Button.css, Card.css).mkString("\n")
+  // Auto-collect every imported component's CSS into one <style> tag.
+  // `collectCss(...)` reaches into each argument's `css` field; it's a
+  // convention helper, see SPEC §8.4.
+  val styles = collectCss(Button, Card)
 
   Response.html(html"""<!doctype html>
 <html>

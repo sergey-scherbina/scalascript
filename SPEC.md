@@ -651,11 +651,18 @@ Why this shape:
 - **Composition is plain function calls.**  Nesting, list rendering,
   conditionals — all use the language as-is (`items.map(Card.render(...))
   .mkString`).
-- **CSS collection is the caller's responsibility (MVP).**  A page
-  concatenates each component's `css` into one `<style>` tag.  This
-  trades convenience for visibility: nothing happens implicitly.  Auto-
-  collection and per-component scoping are future work; they're not
-  needed until two components actually clash.
+- **CSS aggregation via `collectCss(...)`.**  A built-in helper
+  reaches into each argument's `css` field and concatenates them:
+
+  ```scalascript
+  val styles = collectCss(Button, Card, FormInput)
+  // styles = Button.css + "\n" + Card.css + "\n" + FormInput.css
+  ```
+
+  Arguments that don't expose a String `css` are silently skipped, so
+  ordinary objects can be mixed in.  Identical output on all three
+  backends.  Per-component scoping (hashed class names) is future work
+  and lands only when two components actually clash.
 
 A minimal worked example lives in `examples/components-demo.ssc`
 (importing `examples/components/{button,card}.ssc`) and is covered by

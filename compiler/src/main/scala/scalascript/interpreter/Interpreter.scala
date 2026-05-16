@@ -274,6 +274,20 @@ class Interpreter(out: java.io.PrintStream = System.out, baseDir: Option[os.Path
       case _                      => throw InterpretError("escape(s)")
     }
 
+    // `collectCss(comp1, comp2, ...)` — concatenate each argument's `css`
+    // field into one CSS string for a page-level <style>.  Anything
+    // without a `css` field is silently skipped; anything whose `css` is
+    // not a String is skipped too.  Convention helper for component-style
+    // .ssc files (see SPEC §8.4).
+    nativeP("collectCss") { args =>
+      val parts = args.flatMap {
+        case Value.InstanceV(_, fields) =>
+          fields.get("css").collect { case Value.StringV(s) => s }
+        case _ => None
+      }
+      Value.StringV(parts.mkString("\n"))
+    }
+
     // ─── Typed HTML DSL — `div(cls := "x", h1("hi"))` style ───────────
     //
     // Each tag is a native fn that takes a list of mixed args: Attr values

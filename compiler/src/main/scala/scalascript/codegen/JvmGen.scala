@@ -1125,6 +1125,23 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |
        |def escape(s: Any): String = _htmlEscape(_show(s))
        |
+       |/** `collectCss(comp1, comp2, ...)` — concatenate each argument's
+       | *  `css` field into one CSS string for a page-level <style>.
+       | *  Convention helper for component-style .ssc files (see SPEC §8.4).
+       | *  Each argument is expected to be a Scala `object` exposing a
+       | *  `val css: String`; reflective access keeps the helper free of
+       | *  a shared component supertype.  Anything without a no-arg
+       | *  `css` method that returns a String is silently skipped. */
+       |def collectCss(parts: Any*): String =
+       |  parts.flatMap { part =>
+       |    try
+       |      val m = part.getClass.getMethod("css")
+       |      m.invoke(part) match
+       |        case s: String => Some(s)
+       |        case _         => None
+       |    catch case _: Throwable => None
+       |  }.mkString("\n")
+       |
        |// Used by heading-bound html-block emission: escape unless raw(...).
        |def _html_interp(v: Any): String = v match
        |  case r: _Raw => r.html
