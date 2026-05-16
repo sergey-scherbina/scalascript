@@ -26,7 +26,7 @@ The driver runs each variant 5 times and reports the median.
 
 ## Sample results (Apple M-series · JDK 17 · Node 25)
 
-```
+```text
 workload      ssc-int     ssc-js      ssc-jvm     scala-cli   node
 --------------------------------------------------------------------------
 fib           2742        2           0           0           2
