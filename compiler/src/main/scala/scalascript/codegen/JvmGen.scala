@@ -2643,7 +2643,7 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |  java.util.concurrent.Executors.newSingleThreadExecutor()
        |
        |class WebSocket(private val socket: java.net.Socket):
-       |  import java.io.{BufferedInputStream, OutputStream}
+       |  import java.io.{BufferedInputStream, ByteArrayOutputStream, OutputStream}
        |  import java.nio.charset.StandardCharsets
        |  import java.util.concurrent.locks.ReentrantLock
        |  import java.util.concurrent.atomic.AtomicReference
@@ -2653,6 +2653,14 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |  // `close()` and the read-loop's `finally`.
        |  private val onCloseCb = AtomicReference[() => Unit](null)
        |  @volatile private var closing:     Boolean        = false
+       |  // Fragmented-message reassembly (RFC 6455 §5.4): the first frame
+       |  // of a fragmented message carries the data opcode with FIN=0,
+       |  // follow-up frames are Continuation (opcode=0) with the rest,
+       |  // the last with FIN=1.  Control frames may interleave freely.
+       |  // Held strictly on the read-loop thread so no synchronisation
+       |  // needed beyond the loop itself.
+       |  private var fragOpcode: Int = -1
+       |  private val fragBuf     = ByteArrayOutputStream()
        |  private val out: OutputStream                     = socket.getOutputStream
        |  // Frame writes must be serialised so text/close/pong don't interleave
        |  // on the wire.  Use ReentrantLock instead of `synchronized` — on JDK
@@ -2727,20 +2735,25 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |                  close(status, "")
        |                  return
        |                case 0x1 | 0x2 =>
-       |                  val msg =
-       |                    if fr.opcode == 0x1
-       |                    then new String(fr.payload, StandardCharsets.UTF_8)
-       |                    else new String(fr.payload, "ISO-8859-1")
-       |                  // Always queue — `onMessageCb` may not be set yet
-       |                  // when the read-loop sees the first frame (the
-       |                  // user's `onWebSocket` block also runs on the
-       |                  // executor, FIFO).  Reading the callback inside
-       |                  // the task ensures it's the up-to-date one.
-       |                  _serverExecutor.execute { () =>
-       |                    val cb = onMessageCb
-       |                    if cb != null then try cb(msg) catch case e: Throwable =>
-       |                      System.err.println(s"WS message handler: ${e.getMessage}")
-       |                  }
+       |                  if !fr.fin then
+       |                    // Start of a fragmented message.
+       |                    if fragOpcode != -1 then { close(1002, "new data frame mid-fragment"); return }
+       |                    fragOpcode = fr.opcode
+       |                    fragBuf.reset()
+       |                    fragBuf.write(fr.payload)
+       |                    if fragBuf.size > _WsMaxFrameBytes then
+       |                      fragOpcode = -1; fragBuf.reset(); close(1009, "message too big"); return
+       |                  else _dispatchWsMessage(fr.opcode, fr.payload)
+       |                case 0x0 =>
+       |                  if fragOpcode == -1 then { close(1002, "continuation without prior data frame"); return }
+       |                  fragBuf.write(fr.payload)
+       |                  if fragBuf.size > _WsMaxFrameBytes then
+       |                    fragOpcode = -1; fragBuf.reset(); close(1009, "message too big"); return
+       |                  if fr.fin then
+       |                    val op    = fragOpcode
+       |                    val bytes = fragBuf.toByteArray
+       |                    fragOpcode = -1; fragBuf.reset()
+       |                    _dispatchWsMessage(op, bytes)
        |                case _   => close(1003, ""); return
        |        if offset > 0 then
        |          System.arraycopy(buf, offset, buf, 0, len - offset)
@@ -2753,6 +2766,21 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |        try cb() catch case e: Throwable =>
        |          System.err.println(s"WS close handler: ${e.getMessage}")
        |      }
+       |
+       |  /** Hand a fully-reassembled text/binary payload to the user
+       |   *  `onMessage` callback via the shared executor.  Queued
+       |   *  unconditionally — the `onWebSocket` body also runs on the
+       |   *  executor, so reading the callback inside the task gives us
+       |   *  the up-to-date value. */
+       |  private def _dispatchWsMessage(opcode: Int, payload: Array[Byte]): Unit =
+       |    val msg =
+       |      if opcode == 0x1 then new String(payload, StandardCharsets.UTF_8)
+       |      else                  new String(payload, "ISO-8859-1")
+       |    _serverExecutor.execute { () =>
+       |      val cb = onMessageCb
+       |      if cb != null then try cb(msg) catch case e: Throwable =>
+       |        System.err.println(s"WS message handler: ${e.getMessage}")
+       |    }
        |
        |private final case class _WsRoute(pattern: List[_Seg], handler: WebSocket => Unit)
        |private val _wsRoutes = scala.collection.mutable.ArrayBuffer.empty[_WsRoute]

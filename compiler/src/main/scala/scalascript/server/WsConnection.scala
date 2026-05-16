@@ -46,6 +46,17 @@ final class WsConnection(
   private var inBuf: Array[Byte] = new Array[Byte](4096)
   private var inLen: Int = 0
 
+  // Fragmented-message reassembly (RFC 6455 §5.4).  Real browsers split
+  // large text/binary messages across multiple frames: the first frame
+  // carries the opcode with FIN=0, followed by Continuation frames
+  // (opcode=0x0) with the rest, the last one with FIN=1.  Control frames
+  // (Ping/Pong/Close) are never fragmented and may interleave freely.
+  // Buffer until FIN=1 lands, then dispatch the joined payload using
+  // the originating opcode.
+  private var fragOpcode: WsFraming.Opcode | Null = null
+  private val fragBuf:    java.io.ByteArrayOutputStream =
+    new java.io.ByteArrayOutputStream()
+
   // User-side callbacks — registered from the handler thread, fired from
   // the interpreter executor.  `onCloseCb` uses AtomicReference so the
   // close-fires-once rule (against the read-loop / `close()` race) is
@@ -84,14 +95,16 @@ final class WsConnection(
       System.arraycopy(inBuf, offset, inBuf, 0, inLen - offset)
       inLen -= offset
 
-  /** Dispatch a complete frame.  Control frames (ping / close) are handled
-   *  on the spot; application frames (text / binary) are routed to the
-   *  user's `onMessage` callback via the interpreter executor. */
+  /** Dispatch a complete frame.  Control frames (ping / close) are
+   *  handled on the spot; application frames (text / binary) are routed
+   *  to the user's `onMessage` callback via the interpreter executor.
+   *  Fragmented messages (FIN=0 followed by Continuations) buffer until
+   *  the final fragment, then dispatch the joined payload. */
   private def onFrame(frame: WsFraming.Frame): Unit =
     import WsFraming.Opcode
     frame.opcode match
       case Opcode.Ping =>
-        enqueue(WsFraming.encodePong(frame.payload))
+        writeFrame(WsFraming.encodePong(frame.payload))
       case Opcode.Pong =>
         () // no app-level handler for pong
       case Opcode.Close =>
@@ -105,24 +118,58 @@ final class WsConnection(
           sendClose(status, "")
         closeNow()
       case Opcode.Text | Opcode.Binary =>
-        // Always queue the dispatch — `onMessageCb` may not be set yet
-        // when the frame is parsed on the selector thread (the user's
-        // `onWebSocket` block runs on the executor, also FIFO).  By
-        // queuing unconditionally we preserve message order and let the
-        // executor task read the up-to-date callback.
-        val payload: Value =
-          if frame.opcode == Opcode.Text then Value.StringV(frame.textPayload)
-          else Value.StringV(new String(frame.payload, "ISO-8859-1"))
-        executor.execute { () =>
-          onMessageCb.foreach { cb =>
-            try interp.invoke(cb, List(payload))
-            catch case e: Throwable =>
-              log.println(s"WS handler error: ${e.getMessage}")
-          }
-        }
+        if !frame.fin then
+          // Start of a fragmented message — stash the opcode and the
+          // first chunk, wait for Continuations.
+          if fragOpcode != null then
+            sendClose(1002, "new data frame mid-fragment")
+            return
+          fragOpcode = frame.opcode
+          fragBuf.reset()
+          fragBuf.write(frame.payload)
+          checkFragLimit()
+        else dispatchMessage(frame.opcode, frame.payload)
       case Opcode.Continuation =>
-        // Fragmentation: not currently reassembled — treat as protocol error.
-        sendClose(1003, "fragmented messages not supported")
+        if fragOpcode == null then
+          sendClose(1002, "continuation without prior data frame")
+          return
+        fragBuf.write(frame.payload)
+        if !checkFragLimit() then return
+        if frame.fin then
+          val op    = fragOpcode.asInstanceOf[Opcode] // safe: non-null
+          val bytes = fragBuf.toByteArray
+          fragOpcode = null
+          fragBuf.reset()
+          dispatchMessage(op, bytes)
+
+  /** Dispatch a fully-reassembled text/binary message to the user
+   *  `onMessage` callback through the executor.  Queued
+   *  unconditionally — the user's `onWebSocket` block runs on the same
+   *  single-thread executor and may not have set the callback yet when
+   *  the selector parses the first frame.  Reading `onMessageCb` inside
+   *  the task gives us the latest value. */
+  private def dispatchMessage(opcode: WsFraming.Opcode, payload: Array[Byte]): Unit =
+    val v: Value =
+      if opcode == WsFraming.Opcode.Text then
+        Value.StringV(new String(payload, java.nio.charset.StandardCharsets.UTF_8))
+      else Value.StringV(new String(payload, "ISO-8859-1"))
+    executor.execute { () =>
+      onMessageCb.foreach { cb =>
+        try interp.invoke(cb, List(v))
+        catch case e: Throwable =>
+          log.println(s"WS handler error: ${e.getMessage}")
+      }
+    }
+
+  /** Cap on the total reassembled-message size, same threshold as a
+   *  single frame.  Returns true when still under budget. */
+  private def checkFragLimit(): Boolean =
+    if fragBuf.size > WsFraming.MaxFrameBytes then
+      fragOpcode = null
+      fragBuf.reset()
+      sendClose(1009, "message too big")
+      false
+    else true
 
   /** Soft cap on bytes parked on the outbox.  A slow client that fails
    *  to drain its socket would otherwise let a chatty broadcaster pile
