@@ -21,6 +21,7 @@ import scalascript.ast.*
     case "package"             => packageCommand(args.tail.toList)
     case "serve"               => serveCommand(args.tail.toList)
     case "render"              => renderCommand(args.tail.toList)
+    case "build"               => buildCommand(args.tail.toList)
     case "help" | "--help" | "-h" => printUsage()
     case _                     => runCommand(args.toList)
 
@@ -31,10 +32,14 @@ def printUsage(): Unit =
     |Usage: ssc <command> [options] <files...>
     |
     |Commands:
-    |  render                 Render .ssc as static HTML — runs file in
-    |                         headless mode (serve() is a no-op), then
-    |                         invokes the registered handler for a path
-    |                         (default `/`) and prints the response body.
+    |  render                 Render a single .ssc as static HTML — runs the file
+    |                         in headless mode (serve() is a no-op), invokes the
+    |                         registered handler for a path (default `/`), and
+    |                         prints the response body.
+    |  build                  Batch-render every .ssc in a directory.  Each file's
+    |                         literal GET routes become files under <out-dir>
+    |                         (default `dist/`); `/` → index.html, `/about` →
+    |                         about.html.  Files without GET routes are skipped.
     |  run                    Execute .ssc via tree-walking interpreter (default)
     |  watch                  Run .ssc and re-run on every file change
     |  repl                   Start interactive REPL (blank line runs, :quit exits)
@@ -146,6 +151,96 @@ private def extractResponseBody(v: scalascript.interpreter.Value): String =
     case Value.StringV(s) => s
     case Value.UnitV      => ""
     case other            => Value.show(other)
+
+/** `ssc build <src-dir> [<out-dir>]` — batch static-site generation.
+ *
+ *  Walks `src-dir` for top-level `.ssc` files (subdirectories are
+ *  treated as imported modules, not pages, and skipped).  For each
+ *  file, runs the interpreter in headless mode and renders every
+ *  registered literal GET route into `<out-dir>/<route>.html`:
+ *
+ *    /          →  <out-dir>/index.html
+ *    /about     →  <out-dir>/about.html
+ *    /blog/x    →  <out-dir>/blog/x.html
+ *
+ *  Routes with `:capture` segments are skipped (no data source).
+ *  Files that register no GET routes are also skipped.  Default
+ *  out-dir is `dist/`. */
+def buildCommand(args: List[String]): Unit =
+  import scalascript.interpreter.{Interpreter, Value}
+  import scalascript.server.Routes
+  if args.isEmpty then
+    System.err.println("Usage: ssc build <src-dir> [<out-dir>]")
+    System.exit(1)
+  val srcArg = args.head
+  val outArg = args.drop(1).headOption.getOrElse("dist")
+  val srcDir = os.Path(srcArg, os.pwd)
+  val outDir = os.Path(outArg, os.pwd)
+  if !os.exists(srcDir) || !os.isDir(srcDir) then
+    System.err.println(s"Error: $srcArg is not a directory"); System.exit(1)
+  os.makeDir.all(outDir)
+
+  val files = os.list(srcDir).filter(p => os.isFile(p) && p.ext == "ssc").sorted
+
+  var rendered = 0
+  var skipped  = 0
+  var failed   = 0
+  // Track which output paths have already been written so the user sees
+  // a warning when two source files claim the same URL (e.g. both
+  // declaring `GET /`) — last write wins, but it's almost always a bug.
+  val written = scala.collection.mutable.Map.empty[String, String]
+
+  for file <- files do
+    Routes.clear()
+    val nullOut = java.io.PrintStream(java.io.OutputStream.nullOutputStream)
+    val interp  = Interpreter(out = nullOut, baseDir = Some(file / os.up), headless = true)
+    val ok =
+      try { interp.run(scalascript.parser.Parser.parse(os.read(file))); true }
+      catch case e: Exception =>
+        System.err.println(s"  [fail] ${file.last}: ${e.getMessage}")
+        failed += 1
+        false
+    if ok then
+      val literalGets = Routes.all.filter { e =>
+        e.method == "GET" && e.pathPattern.forall(_.isInstanceOf[Routes.Segment.Literal])
+      }
+      if literalGets.isEmpty then
+        skipped += 1
+      else
+        for entry <- literalGets do
+          val req    = syntheticRequest("GET", entry.path, Map.empty)
+          val result = entry.interpreter.invoke(entry.handler, List(req))
+          val body   = extractResponseBody(result)
+          val out    = outPathFor(outDir, entry.path)
+          os.makeDir.all(out / os.up)
+          val key = out.toString
+          written.get(key).foreach { prior =>
+            System.err.println(
+              s"  [warn] $key overwritten by ${file.last} ${entry.path} (was ${prior})"
+            )
+          }
+          os.write.over(out, body)
+          written(key) = s"${file.last} ${entry.path}"
+          println(s"  ${file.last} ${entry.path} → ${displayPath(out)}")
+          rendered += 1
+
+  println()
+  println(s"Done: $rendered rendered, $skipped skipped, $failed failed")
+  if failed > 0 then System.exit(1)
+
+private def displayPath(p: os.Path): String =
+  val cwd = os.pwd.toString
+  val s   = p.toString
+  if s.startsWith(cwd + "/") then s.substring(cwd.length + 1) else s
+
+private def outPathFor(outDir: os.Path, urlPath: String): os.Path =
+  val clean = urlPath.stripPrefix("/").stripSuffix("/")
+  if clean.isEmpty then outDir / "index.html"
+  else if clean.endsWith(".html") then outDir / os.SubPath(clean)
+  else
+    val segs = clean.split('/').toIndexedSeq
+    val withExt = segs.init :+ (segs.last + ".html")
+    outDir / os.SubPath(withExt.mkString("/"))
 
 def parseCommand(args: List[String]): Unit =
   if args.isEmpty then { println("Error: No files specified"); System.exit(1) }

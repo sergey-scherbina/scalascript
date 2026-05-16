@@ -829,6 +829,16 @@ The REST primitives are available on all three backends:
   server-style `.ssc` page without booting a server.  The output is
   byte-identical to `curl http://…/<path>` against the same file
   served under `ssc <file>`.
+- **Batch static build** (`ssc build <src-dir> [<out-dir>]`) — walks
+  every top-level `.ssc` file in `src-dir`, runs each headlessly, and
+  writes every registered literal GET route to disk under `<out-dir>`
+  (default `dist/`).  The path-to-file mapping is `/` → `index.html`,
+  `/about` → `about.html`, `/blog/x` → `blog/x.html` (subdirectories
+  created as needed).  Routes with `:capture` segments and files that
+  register no GET routes are skipped.  When two files claim the same
+  URL the build emits a `[warn]` line — last write wins, but it's
+  almost always a structural bug.  Subdirectories of `src-dir`
+  (typically component modules) are not walked.
 
 ### 8.4 Components
 
