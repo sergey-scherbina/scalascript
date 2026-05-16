@@ -520,6 +520,75 @@ function _bearerFromAuth(h) {
   return t.substring(7).trim();
 }
 
+// ── OAuth2 helpers ────────────────────────────────────────────────────
+// `oauthAuthorizeUrl(provider, clientId, redirectUri, state[, scope])`
+// builds the provider's /authorize URL with the right defaults.
+// `oauthExchangeCode(...)` POSTs to /token and returns the parsed
+// response as a Map[String, String] wrapped in _Some, or _None on
+// failure.  Uses Node's global fetch (Node 18+).
+const _oauthProviders = {
+  google: {
+    authorizeUrl: 'https://accounts.google.com/o/oauth2/v2/auth',
+    tokenUrl:     'https://oauth2.googleapis.com/token',
+    defaultScope: 'openid email profile',
+  },
+  github: {
+    authorizeUrl: 'https://github.com/login/oauth/authorize',
+    tokenUrl:     'https://github.com/login/oauth/access_token',
+    defaultScope: 'user:email',
+  },
+};
+function oauthAuthorizeUrl(provider, clientId, redirectUri, state, scope) {
+  const cfg  = _oauthProviders[provider];
+  if (!cfg) throw new Error('unknown OAuth provider: ' + provider);
+  const eff  = (scope && scope.length > 0) ? scope : (cfg.defaultScope || '');
+  const params = new URLSearchParams();
+  params.set('response_type', 'code');
+  params.set('client_id', clientId);
+  params.set('redirect_uri', redirectUri);
+  params.set('state', state);
+  if (eff) params.set('scope', eff);
+  return cfg.authorizeUrl + '?' + params.toString();
+}
+// Node's fetch is async — the synchronous oauthExchangeCode contract
+// from the interpreter / JVM backends doesn't translate cleanly, so
+// the JS Node runtime issues the token POST via a blocking sub-process
+// (curl).  Not pretty, but it gives byte-identical semantics across
+// backends without dragging in deasync or rewriting the user code to
+// be async.
+function oauthExchangeCode(provider, code, clientId, clientSecret, redirectUri) {
+  const cfg = _oauthProviders[provider];
+  if (!cfg) return _None;
+  const params = new URLSearchParams();
+  params.set('grant_type',    'authorization_code');
+  params.set('code',          code);
+  params.set('client_id',     clientId);
+  params.set('client_secret', clientSecret);
+  params.set('redirect_uri',  redirectUri);
+  try {
+    const { execFileSync } = require('child_process');
+    const body = params.toString();
+    const out  = execFileSync('curl', [
+      '-sS', '--fail-with-body',
+      '-H', 'Content-Type: application/x-www-form-urlencoded',
+      '-H', 'Accept: application/json',
+      '-X', 'POST',
+      '--data', body,
+      cfg.tokenUrl,
+    ], { encoding: 'utf-8', timeout: 30000 });
+    let obj;
+    if (out.trim().startsWith('{')) obj = JSON.parse(out);
+    else {
+      const parsed = new URLSearchParams(out);
+      obj = {};
+      for (const [k, v] of parsed) obj[k] = v;
+    }
+    const m = new Map();
+    for (const [k, v] of Object.entries(obj)) m.set(k, String(v));
+    return _Some(m);
+  } catch (e) { return _None; }
+}
+
 // ── CSRF helpers ──────────────────────────────────────────────────────
 // `csrfToken()` returns a fresh url-safe random string; the caller stashes
 // it under "csrf" in the session and renders it in their form. `csrfValid`

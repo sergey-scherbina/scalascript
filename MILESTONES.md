@@ -4,17 +4,6 @@ Tracks work that is **not yet done**. As things land, move them out of here
 (into git history) rather than ticking checkboxes — the file should always
 read forward.
 
-## v0.6 — Auth / sessions / cookies
-
-Building blocks for authenticated `.ssc` web apps.  Signed cookie sessions,
-CSRF helpers, and a login/logout example have landed; remaining items are
-ordered so each can lean on the earlier ones.
-
-1. **OAuth2 / OIDC** (Google + GitHub).  Authorization-code flow with
-   provider-specific config; `oauthClient(provider, ...).authorizeUrl()`,
-   callback handler, token exchange.  Last in the order because it
-   needs an HTTP client and per-provider quirks.
-
 ## v0.5 — Interpreter performance (Tier 1) — landed
 
 Closed in a series of small commits on the

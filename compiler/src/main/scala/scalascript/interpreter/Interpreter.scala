@@ -606,6 +606,36 @@ class Interpreter(out: java.io.PrintStream = System.out, baseDir: Option[os.Path
       case _ => throw InterpretError("jwtVerify(token: String)")
     }
 
+    // ── OAuth2 helpers ────────────────────────────────────────────────
+    // `oauthAuthorizeUrl(provider, clientId, redirectUri, state[, scope])`
+    // — pure URL builder for the provider's `/authorize` endpoint.
+    // `oauthExchangeCode(provider, code, clientId, clientSecret, redirectUri)`
+    // — POSTs to the provider's `/token` endpoint and returns the parsed
+    // response (`access_token` + provider-specific fields).
+    nativeP("oauthAuthorizeUrl") { args =>
+      def s(v: Value): String = v match
+        case Value.StringV(x) => x
+        case other => Value.show(other)
+      args match
+        case List(prov, cid, redir, state) =>
+          Value.StringV(scalascript.server.OAuth.authorizeUrl(s(prov), s(cid), s(redir), s(state)))
+        case List(prov, cid, redir, state, scope) =>
+          Value.StringV(scalascript.server.OAuth.authorizeUrl(s(prov), s(cid), s(redir), s(state), s(scope)))
+        case _ => throw InterpretError(
+          "oauthAuthorizeUrl(provider, clientId, redirectUri, state[, scope])")
+    }
+    nativeP("oauthExchangeCode") {
+      case List(Value.StringV(prov), Value.StringV(code),
+                Value.StringV(cid),  Value.StringV(csec),
+                Value.StringV(redir)) =>
+        scalascript.server.OAuth.exchangeCode(prov, code, cid, csec, redir) match
+          case Some(m) =>
+            Value.OptionV(Some(Value.MapV(m.map((k, v) => Value.StringV(k) -> Value.StringV(v)))))
+          case None => Value.OptionV(None)
+      case _ => throw InterpretError(
+        "oauthExchangeCode(provider, code, clientId, clientSecret, redirectUri)")
+    }
+
     // route(method, path)(handler) — registers a handler in the global table.
     // Path syntax: literal segments + `:name` captures (e.g. /users/:id).
     nativeP("route") {

@@ -1520,6 +1520,72 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |  if t.length < 7 || !t.substring(0, 7).equalsIgnoreCase("Bearer ") then None
        |  else Some(t.substring(7).trim)
        |
+       |// ── OAuth2 helpers ────────────────────────────────────────────
+       |// Same surface as scalascript.server.OAuth: pure URL builder +
+       |// blocking token exchange via java.net.http.HttpClient.
+       |private val _oauthProviders: Map[String, Map[String, String]] = Map(
+       |  "google" -> Map(
+       |    "authorizeUrl" -> "https://accounts.google.com/o/oauth2/v2/auth",
+       |    "tokenUrl"     -> "https://oauth2.googleapis.com/token",
+       |    "defaultScope" -> "openid email profile",
+       |  ),
+       |  "github" -> Map(
+       |    "authorizeUrl" -> "https://github.com/login/oauth/authorize",
+       |    "tokenUrl"     -> "https://github.com/login/oauth/access_token",
+       |    "defaultScope" -> "user:email",
+       |  ),
+       |)
+       |private def _oauthEnc(s: String): String =
+       |  java.net.URLEncoder.encode(s, "UTF-8")
+       |def oauthAuthorizeUrl(provider: String, clientId: String, redirectUri: String, state: String, scope: String = ""): String =
+       |  val cfg = _oauthProviders.getOrElse(provider, throw IllegalArgumentException(s"unknown OAuth provider: $provider"))
+       |  val eff = if scope.nonEmpty then scope else cfg.getOrElse("defaultScope", "")
+       |  val base = cfg("authorizeUrl")
+       |  val params = scala.collection.mutable.LinkedHashMap[String, String]()
+       |  params("response_type") = "code"
+       |  params("client_id")     = clientId
+       |  params("redirect_uri")  = redirectUri
+       |  params("state")         = state
+       |  if eff.nonEmpty then params("scope") = eff
+       |  val qs = params.iterator.map((k, v) => _oauthEnc(k) + "=" + _oauthEnc(v)).mkString("&")
+       |  base + "?" + qs
+       |def oauthExchangeCode(provider: String, code: String, clientId: String, clientSecret: String, redirectUri: String): Option[Map[String, String]] =
+       |  val cfg = _oauthProviders.getOrElse(provider, return None)
+       |  val tokenUrl = cfg("tokenUrl")
+       |  val form = Map(
+       |    "grant_type"    -> "authorization_code",
+       |    "code"          -> code,
+       |    "client_id"     -> clientId,
+       |    "client_secret" -> clientSecret,
+       |    "redirect_uri"  -> redirectUri,
+       |  )
+       |  val body = form.iterator.map((k, v) => _oauthEnc(k) + "=" + _oauthEnc(v)).mkString("&")
+       |  try
+       |    val client = java.net.http.HttpClient.newBuilder().connectTimeout(java.time.Duration.ofSeconds(10)).build()
+       |    val req = java.net.http.HttpRequest.newBuilder()
+       |      .uri(java.net.URI.create(tokenUrl))
+       |      .timeout(java.time.Duration.ofSeconds(30))
+       |      .header("Content-Type", "application/x-www-form-urlencoded")
+       |      .header("Accept", "application/json")
+       |      .POST(java.net.http.HttpRequest.BodyPublishers.ofString(body))
+       |      .build()
+       |    val resp = client.send(req, java.net.http.HttpResponse.BodyHandlers.ofString())
+       |    if resp.statusCode() < 200 || resp.statusCode() >= 300 then None
+       |    else
+       |      val text = resp.body()
+       |      val ct   = resp.headers().firstValue("content-type").orElse("").toLowerCase
+       |      if ct.contains("application/json") || text.trim.startsWith("{") then
+       |        _sessionJsonDec(text)
+       |      else
+       |        Some(text.split('&').iterator.flatMap { pair =>
+       |          val i = pair.indexOf('=')
+       |          if i < 0 then None
+       |          else Some(
+       |            java.net.URLDecoder.decode(pair.substring(0, i), "UTF-8") ->
+       |            java.net.URLDecoder.decode(pair.substring(i + 1), "UTF-8"))
+       |        }.toMap)
+       |  catch case _: Throwable => None
+       |
        |// HTTP Basic: Authorization: Basic <b64(user:pass)>
        |private def _basicFromAuth(h: String): Option[(String, String)] =
        |  val t = Option(h).map(_.trim).getOrElse("")

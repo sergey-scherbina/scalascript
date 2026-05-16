@@ -568,6 +568,52 @@ Use over HTTPS only — Basic auth ships credentials in every request
 in (effectively) plaintext.  Not appropriate for production user-facing
 flows; see signed cookie sessions or JWT for those.
 
+#### OAuth2 / OIDC
+
+Authorization-code flow against external identity providers.  Two
+primitives, both available on all three backends:
+
+```scalascript
+// 1) Build the provider's authorize URL.  Caller picks a `state`,
+//    stashes it in the session, and verifies on callback.
+val state = csrfToken()
+Response.redirect(oauthAuthorizeUrl(
+  "google", clientId, "http://localhost:8080/oauth/callback", state
+)).withSession(req.session.updated("oauth_state", state))
+
+// 2) Exchange the returned code for tokens.  POSTs to the provider's
+//    token endpoint and returns the parsed JSON / form-encoded body
+//    as Option[Map[String, String]].
+route("GET", "/oauth/callback") { req =>
+  if req.query.get("state") != req.session.get("oauth_state") then
+    Response.status(403, "bad state")
+  else oauthExchangeCode(
+    "google", req.query("code"),
+    clientId, clientSecret,
+    "http://localhost:8080/oauth/callback"
+  ) match
+    case Some(tok) => Response.redirect("/").withSession(req.session.updated("access_token", tok("access_token")))
+    case None      => Response.status(401, "token exchange failed")
+}
+```
+
+Built-in providers — preset authorize / token URLs and default scopes:
+
+| name      | authorize URL                                            | default scope        |
+|-----------|----------------------------------------------------------|----------------------|
+| `google`  | `https://accounts.google.com/o/oauth2/v2/auth`           | `openid email profile` |
+| `github`  | `https://github.com/login/oauth/authorize`               | `user:email`         |
+
+`oauthExchangeCode` returns `None` on non-2xx responses or malformed
+bodies; both JSON and `application/x-www-form-urlencoded` provider
+responses are accepted (GitHub uses the latter by default).  Custom
+providers are not yet first-class — for now, hand-roll the redirect
++ exchange against an arbitrary URL.
+
+State handling is the caller's job — pair it with sessions and CSRF
+above.  The OAuth helpers stay narrow on purpose so they compose with
+the rest of the auth surface instead of duplicating it.
+
 #### Response
 
 ```scalascript

@@ -101,6 +101,7 @@ compiles them via Scala.js.
 | JWT bearer tokens | `jwtSign(Map(...))`, `jwtVerify(token)`, `req.bearerToken`, `req.jwtClaims` (HS256) |
 | Server-side sessions | `useSessionStore(ttlSeconds)` — opt-in, cookie carries an SSID, payload lives in process |
 | HTTP Basic auth | `req.basicAuth`, `Response.basicAuthChallenge(realm)` — for dev/internal endpoints |
+| OAuth2 / OIDC | `oauthAuthorizeUrl(...)` + `oauthExchangeCode(...)`, presets for `google` and `github` |
 
 ## Examples
 
