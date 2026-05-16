@@ -201,10 +201,58 @@ function _mkRequest(req, params, body) {
   };
 }
 
+// JSON-encode anything: strings pass through as raw JSON (so hand-built
+// JSON strings keep working); other values get structural emission with
+// proper escaping. Mirrors `toJson` in the interpreter.
+function _toJson(v) {
+  if (v === undefined || v === null) return 'null';
+  if (typeof v === 'string')         return v;       // raw passthrough
+  return _toJsonValue(v);
+}
+function _toJsonValue(v) {
+  if (v === undefined || v === null) return 'null';
+  if (typeof v === 'boolean')        return String(v);
+  if (typeof v === 'number')         return String(v);
+  if (typeof v === 'string')         return _jsonQuote(v);
+  if (Array.isArray(v))              return '[' + v.map(_toJsonValue).join(',') + ']';
+  if (v instanceof Map) {
+    const parts = [];
+    v.forEach((val, k) => parts.push(_jsonQuote(typeof k === 'string' ? k : _show(k)) + ':' + _toJsonValue(val)));
+    return '{' + parts.join(',') + '}';
+  }
+  if (v && v._type === '_Some') return _toJsonValue(v.value);
+  if (v && v._type === '_None') return 'null';
+  if (v && v._type) {
+    const parts = [];
+    for (const [k, val] of Object.entries(v)) {
+      if (k === '_type') continue;
+      parts.push(_jsonQuote(k) + ':' + _toJsonValue(val));
+    }
+    return '{' + parts.join(',') + '}';
+  }
+  return _jsonQuote(String(v));
+}
+function _jsonQuote(s) {
+  let out = '"';
+  for (let i = 0; i < s.length; i++) {
+    const c = s.charCodeAt(i);
+    if (c === 0x22) out += '\\"';
+    else if (c === 0x5c) out += '\\\\';
+    else if (c === 0x0a) out += '\\n';
+    else if (c === 0x0d) out += '\\r';
+    else if (c === 0x09) out += '\\t';
+    else if (c === 0x08) out += '\\b';
+    else if (c === 0x0c) out += '\\f';
+    else if (c < 0x20) out += '\\u' + c.toString(16).padStart(4, '0');
+    else out += s[i];
+  }
+  return out + '"';
+}
+
 const Response = {
   html(body)     { return { _type: 'Response', status: 200, headers: new Map([['Content-Type', 'text/html; charset=utf-8']]), body: _show(body) }; },
   text(body)     { return { _type: 'Response', status: 200, headers: new Map([['Content-Type', 'text/plain; charset=utf-8']]), body: _show(body) }; },
-  json(body)     { return { _type: 'Response', status: 200, headers: new Map([['Content-Type', 'application/json']]), body: _show(body) }; },
+  json(body)     { return { _type: 'Response', status: 200, headers: new Map([['Content-Type', 'application/json']]), body: _toJson(body) }; },
   redirect(to)   { return { _type: 'Response', status: 302, headers: new Map([['Location', to]]), body: '' }; },
   notFound(body) { return { _type: 'Response', status: 404, headers: new Map(), body: _show(body ?? 'Not Found') }; },
   status(code, body) { return { _type: 'Response', status: code, headers: new Map(), body: _show(body ?? '') }; },

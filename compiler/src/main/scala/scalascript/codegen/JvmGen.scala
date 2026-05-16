@@ -1241,13 +1241,68 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |  body:    String              = ""
        |)
        |
+       |// JSON-encode anything: strings pass through as raw JSON (so hand-
+       |// built JSON strings keep working); other values get structural
+       |// emission with proper escaping.
+       |private def _toJson(v: Any): String = v match
+       |  case null     => "null"
+       |  case s: String => s  // raw passthrough
+       |  case _        => _toJsonValue(v)
+       |private def _jsonQuote(s: String): String =
+       |  val sb = StringBuilder().append('"')
+       |  var i = 0
+       |  while i < s.length do
+       |    val c = s.charAt(i)
+       |    if c == '"' || c == '\\' then sb.append('\\').append(c)
+       |    else if c == '\n' then sb.append('\\').append('n')
+       |    else if c == '\r' then sb.append('\\').append('r')
+       |    else if c == '\t' then sb.append('\\').append('t')
+       |    else if c == '\b' then sb.append('\\').append('b')
+       |    else if c == '\f' then sb.append('\\').append('f')
+       |    else if c < 0x20 then
+       |      val hex = Integer.toHexString(c.toInt)
+       |      sb.append('\\').append('u')
+       |      var pad = 4 - hex.length
+       |      while pad > 0 do sb.append('0'); pad -= 1
+       |      sb.append(hex)
+       |    else sb.append(c)
+       |    i += 1
+       |  sb.append('"').toString
+       |private def _toJsonValue(v: Any): String = v match
+       |  case null              => "null"
+       |  case b: Boolean        => b.toString
+       |  case n: (Int | Long | Short | Byte)  => n.toString
+       |  case d: (Double | Float)             => d.toString
+       |  case s: String         => _jsonQuote(s)
+       |  case c: Char           => _jsonQuote(c.toString)
+       |  case None              => "null"
+       |  case Some(x)           => _toJsonValue(x)
+       |  case xs: Iterable[?]   =>
+       |    xs match
+       |      case m: Map[?, ?] =>
+       |        m.iterator.map { case (k, vv) =>
+       |          val ks = k match { case s: String => s; case other => _show(other) }
+       |          _jsonQuote(ks) + ":" + _toJsonValue(vv)
+       |        }.mkString("{", ",", "}")
+       |      case _ =>
+       |        xs.iterator.map(_toJsonValue).mkString("[", ",", "]")
+       |  case p: Product if p.productArity > 0 =>
+       |    val names = p.productElementNames.toList
+       |    val vals  = (0 until p.productArity).map(p.productElement).toList
+       |    val isTuple = names.forall(_.matches("_[0-9]+"))
+       |    if isTuple then vals.map(_toJsonValue).mkString("[", ",", "]")
+       |    else names.iterator.zip(vals.iterator).map { (k, vv) =>
+       |      _jsonQuote(k) + ":" + _toJsonValue(vv)
+       |    }.mkString("{", ",", "}")
+       |  case other             => _jsonQuote(_show(other))
+       |
        |object Response:
        |  private val Html = Map("Content-Type" -> "text/html; charset=utf-8")
        |  private val Text = Map("Content-Type" -> "text/plain; charset=utf-8")
        |  private val Json = Map("Content-Type" -> "application/json")
        |  def html(body: Any): Response     = Response(200, Html, _show(body))
        |  def text(body: Any): Response     = Response(200, Text, _show(body))
-       |  def json(body: Any): Response     = Response(200, Json, _show(body))
+       |  def json(body: Any): Response     = Response(200, Json, _toJson(body))
        |  def redirect(to: String): Response = Response(302, Map("Location" -> to), "")
        |  def notFound(body: Any = "Not Found"): Response = Response(404, body = _show(body))
        |  def status(code: Int, body: Any = ""): Response = Response(code, body = _show(body))

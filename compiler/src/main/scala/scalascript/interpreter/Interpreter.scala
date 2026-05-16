@@ -365,6 +365,47 @@ class Interpreter(out: java.io.PrintStream = System.out, baseDir: Option[os.Path
       case Value.InstanceV("_Raw", fields)                     => fields.get("html").map(Value.show).getOrElse("")
       case other                                               => Value.show(other)
 
+    /** JSON-encode a Value. Strings pass through as raw JSON (so callers
+     *  that hand-build a JSON string still work); everything else gets
+     *  proper escaping + structural emission. */
+    def toJson(v: Value): String =
+      def quote(s: String): String =
+        val sb = StringBuilder().append('"')
+        var i = 0
+        while i < s.length do
+          val c = s.charAt(i)
+          c match
+            case '"'  => sb.append("\\\"")
+            case '\\' => sb.append("\\\\")
+            case '\n' => sb.append("\\n")
+            case '\r' => sb.append("\\r")
+            case '\t' => sb.append("\\t")
+            case '\b' => sb.append("\\b")
+            case '\f' => sb.append("\\f")
+            case c if c < 0x20 => sb.append("\\u%04x".format(c.toInt))
+            case c    => sb.append(c)
+          i += 1
+        sb.append('"').toString
+      def keyStr(k: Value): String = k match
+        case Value.StringV(s) => s
+        case other            => Value.show(other)
+      v match
+        case Value.StringV(s)         => quote(s)
+        case Value.IntV(n)            => n.toString
+        case Value.DoubleV(d)         => d.toString
+        case Value.BoolV(b)           => b.toString
+        case Value.NullV | Value.UnitV => "null"
+        case Value.CharV(c)           => quote(c.toString)
+        case Value.ListV(items)       => items.map(toJson).mkString("[", ",", "]")
+        case Value.MapV(entries)      =>
+          entries.map((k, v) => quote(keyStr(k)) + ":" + toJson(v)).mkString("{", ",", "}")
+        case Value.OptionV(None)      => "null"
+        case Value.OptionV(Some(x))   => toJson(x)
+        case Value.TupleV(elems)      => elems.map(toJson).mkString("[", ",", "]")
+        case Value.InstanceV(_, fields) =>
+          fields.map((k, v) => quote(k) + ":" + toJson(v)).mkString("{", ",", "}")
+        case other                    => quote(Value.show(other))
+
     nativeP("Response.html") {
       case List(v) =>
         Value.InstanceV("Response", Map(
@@ -379,8 +420,13 @@ class Interpreter(out: java.io.PrintStream = System.out, baseDir: Option[os.Path
       case _       => throw InterpretError("Response.text(body)")
     }
     nativeP("Response.json") {
-      case List(v) => mkResponse(200, Map(Value.StringV("Content-Type") -> Value.StringV("application/json")), bodyOf(v))
-      case _       => throw InterpretError("Response.json(body)")
+      // String → raw passthrough (back-compat with hand-built JSON);
+      // any other Value → structural JSON encode.
+      case List(s: Value.StringV) =>
+        mkResponse(200, Map(Value.StringV("Content-Type") -> Value.StringV("application/json")), s.v)
+      case List(v) =>
+        mkResponse(200, Map(Value.StringV("Content-Type") -> Value.StringV("application/json")), toJson(v))
+      case _ => throw InterpretError("Response.json(body)")
     }
     nativeP("Response.redirect") {
       case List(Value.StringV(loc)) => mkResponse(302, Map(Value.StringV("Location") -> Value.StringV(loc)), "")
