@@ -255,7 +255,8 @@ class JvmGen(baseDir: Option[os.Path] = None):
       var found = false
       ScalaNode.fold(b.node) { tree =>
         if !found then tree.collect {
-          case Term.Apply.After_4_6_0(Term.Name("route"), _) => found = true
+          case Term.Apply.After_4_6_0(Term.Name("route"),        _) => found = true
+          case Term.Apply.After_4_6_0(Term.Name("onWebSocket"),  _) => found = true
         }
       }
       found
@@ -1493,13 +1494,281 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |    catch case _: Throwable => None
        |  }.getOrElse("application/octet-stream")
        |
+       |// ── WebSocket support (RFC 6455) ───────────────────────────────────────
+       |//
+       |// Asymmetric design vs the interpreter: the interpreter runs an NIO
+       |// selector loop in front of the JDK `HttpServer`; here we use a
+       |// blocking-IO proxy (one thread per connection).  The user-facing
+       |// `onWebSocket(path) { ws => … }` API is identical, so .ssc code is
+       |// portable.  NIO migration on this side will land together with the
+       |// HTTP NIO rewrite.
+       |//
+       |// `serve(port)` below stops binding the JDK HttpServer directly: it
+       |// starts the HttpServer on a loopback ephemeral port and a public
+       |// blocking proxy that sniffs the request head and either upgrades to
+       |// WebSocket (handshake + frame loop in-place) or forwards bytes both
+       |// ways to the internal HttpServer (REST + static files unchanged).
+       |
+       |class WebSocket(private val socket: java.net.Socket):
+       |  import java.io.{BufferedInputStream, OutputStream}
+       |  import java.nio.charset.StandardCharsets
+       |  @volatile private var onMessageCb: String => Unit = null
+       |  @volatile private var onCloseCb:   () => Unit     = null
+       |  @volatile private var closing:     Boolean        = false
+       |  private val out: OutputStream                     = socket.getOutputStream
+       |
+       |  def send(s: String): Unit = synchronized {
+       |    if !closing && !socket.isClosed then
+       |      out.write(_wsEncodeText(s))
+       |      out.flush()
+       |  }
+       |
+       |  def close(code: Int = 1000, reason: String = ""): Unit = synchronized {
+       |    if !closing && !socket.isClosed then
+       |      closing = true
+       |      out.write(_wsEncodeClose(code, reason))
+       |      out.flush()
+       |      try socket.close() catch case _: Throwable => ()
+       |      val cb = onCloseCb; onCloseCb = null
+       |      if cb != null then try cb() catch case _: Throwable => ()
+       |  }
+       |
+       |  def onMessage(cb: String => Unit): Unit = onMessageCb = cb
+       |  def onClose(cb: () => Unit): Unit       = onCloseCb   = cb
+       |
+       |  // Read-loop entry point: called from the per-connection thread
+       |  // after the handshake completes.  Pulls bytes through the parser,
+       |  // dispatches frames synchronously on the same thread.  Returns
+       |  // when the peer closes or a protocol error occurs.
+       |  def _runReadLoop(): Unit =
+       |    val in   = BufferedInputStream(socket.getInputStream)
+       |    var buf  = new Array[Byte](4096)
+       |    var len  = 0
+       |    try
+       |      while !closing && !socket.isClosed do
+       |        if len == buf.length then
+       |          val grown = new Array[Byte](buf.length * 2); System.arraycopy(buf, 0, grown, 0, len); buf = grown
+       |        val n = in.read(buf, len, buf.length - len)
+       |        if n < 0 then return
+       |        len += n
+       |        var offset = 0
+       |        var more   = true
+       |        while more do
+       |          _wsParseFrame(buf, offset, len) match
+       |            case null => more = false
+       |            case (fr, consumed) =>
+       |              offset += consumed
+       |              fr.opcode match
+       |                case 0x9 => synchronized { out.write(_wsEncodePong(fr.payload)); out.flush() }
+       |                case 0xA => ()
+       |                case 0x8 =>
+       |                  val status =
+       |                    if fr.payload.length >= 2
+       |                    then ((fr.payload(0) & 0xFF) << 8) | (fr.payload(1) & 0xFF)
+       |                    else 1000
+       |                  close(status, "")
+       |                  return
+       |                case 0x1 | 0x2 =>
+       |                  val msg =
+       |                    if fr.opcode == 0x1
+       |                    then new String(fr.payload, StandardCharsets.UTF_8)
+       |                    else new String(fr.payload, "ISO-8859-1")
+       |                  val cb = onMessageCb
+       |                  if cb != null then try cb(msg) catch case e: Throwable =>
+       |                    System.err.println(s"WS message handler: ${e.getMessage}")
+       |                case _   => close(1003, ""); return
+       |        if offset > 0 then
+       |          System.arraycopy(buf, offset, buf, 0, len - offset)
+       |          len -= offset
+       |    catch case _: Throwable => ()
+       |    finally
+       |      try socket.close() catch case _: Throwable => ()
+       |      val cb = onCloseCb; onCloseCb = null
+       |      if cb != null then try cb() catch case _: Throwable => ()
+       |
+       |private final case class _WsRoute(pattern: List[_Seg], handler: WebSocket => Unit)
+       |private val _wsRoutes = scala.collection.mutable.ArrayBuffer.empty[_WsRoute]
+       |
+       |def onWebSocket(path: String): (WebSocket => Unit) => Unit = (handler) => {
+       |  _wsRoutes += _WsRoute(_parsePath(path), handler)
+       |}
+       |
+       |// ── Framing ──────────────────────────────────────────────────────────
+       |
+       |private val _WS_MAGIC = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
+       |
+       |def _wsAcceptKey(clientKey: String): String =
+       |  val md = java.security.MessageDigest.getInstance("SHA-1")
+       |  val digest = md.digest((clientKey + _WS_MAGIC).getBytes("US-ASCII"))
+       |  java.util.Base64.getEncoder.encodeToString(digest)
+       |
+       |private final case class _WsFrame(fin: Boolean, opcode: Int, payload: Array[Byte])
+       |
+       |// Returns (frame, bytesConsumed) or null if more bytes are needed.
+       |// Throws on unrecoverable protocol error — caller closes the connection.
+       |private def _wsParseFrame(buf: Array[Byte], offset: Int, until: Int): (_WsFrame, Int) | Null =
+       |  val avail = until - offset
+       |  if avail < 2 then return null
+       |  val b0 = buf(offset)     & 0xFF
+       |  val b1 = buf(offset + 1) & 0xFF
+       |  val fin = (b0 & 0x80) != 0
+       |  val op  = b0 & 0x0F
+       |  val masked = (b1 & 0x80) != 0
+       |  val len7   = b1 & 0x7F
+       |  var hdrLen = 2
+       |  val payloadLen: Int =
+       |    if len7 <= 125 then len7
+       |    else if len7 == 126 then
+       |      if avail < hdrLen + 2 then return null
+       |      hdrLen += 2
+       |      ((buf(offset + 2) & 0xFF) << 8) | (buf(offset + 3) & 0xFF)
+       |    else
+       |      if avail < hdrLen + 8 then return null
+       |      hdrLen += 8
+       |      var v = 0L; var i = 0
+       |      while i < 8 do { v = (v << 8) | (buf(offset + 2 + i) & 0xFF).toLong; i += 1 }
+       |      if v > Int.MaxValue.toLong then throw RuntimeException("WS frame too large")
+       |      v.toInt
+       |  val maskLen = if masked then 4 else 0
+       |  val total   = hdrLen + maskLen + payloadLen
+       |  if avail < total then return null
+       |  val payload = new Array[Byte](payloadLen)
+       |  val payloadStart = offset + hdrLen + maskLen
+       |  if masked then
+       |    val m = Array.tabulate(4)(i => buf(offset + hdrLen + i))
+       |    var i = 0
+       |    while i < payloadLen do { payload(i) = (buf(payloadStart + i) ^ m(i & 3)).toByte; i += 1 }
+       |  else if payloadLen > 0 then
+       |    System.arraycopy(buf, payloadStart, payload, 0, payloadLen)
+       |  (_WsFrame(fin, op, payload), total)
+       |
+       |private def _wsEncodeFrame(opcode: Int, payload: Array[Byte]): Array[Byte] =
+       |  val len = payload.length
+       |  if len <= 125 then
+       |    val b = new Array[Byte](2 + len)
+       |    b(0) = (0x80 | opcode).toByte; b(1) = len.toByte
+       |    System.arraycopy(payload, 0, b, 2, len); b
+       |  else if len <= 0xFFFF then
+       |    val b = new Array[Byte](4 + len)
+       |    b(0) = (0x80 | opcode).toByte; b(1) = 126.toByte
+       |    b(2) = ((len >> 8) & 0xFF).toByte; b(3) = (len & 0xFF).toByte
+       |    System.arraycopy(payload, 0, b, 4, len); b
+       |  else
+       |    val b = new Array[Byte](10 + len)
+       |    b(0) = (0x80 | opcode).toByte; b(1) = 127.toByte
+       |    var v = len.toLong; var i = 0
+       |    while i < 8 do { b(9 - i) = (v & 0xFF).toByte; v >>>= 8; i += 1 }
+       |    System.arraycopy(payload, 0, b, 10, len); b
+       |
+       |def _wsEncodeText(s: String): Array[Byte] =
+       |  _wsEncodeFrame(0x1, s.getBytes(java.nio.charset.StandardCharsets.UTF_8))
+       |def _wsEncodePong(p: Array[Byte]): Array[Byte] = _wsEncodeFrame(0xA, p)
+       |def _wsEncodeClose(code: Int, reason: String): Array[Byte] =
+       |  val r = reason.getBytes(java.nio.charset.StandardCharsets.UTF_8)
+       |  val p = new Array[Byte](2 + r.length)
+       |  p(0) = ((code >> 8) & 0xFF).toByte; p(1) = (code & 0xFF).toByte
+       |  System.arraycopy(r, 0, p, 2, r.length); _wsEncodeFrame(0x8, p)
+       |
+       |// ── Proxy: blocking accept + sniff + forward / upgrade ───────────────
+       |
+       |private def _readHttpHead(in: java.io.BufferedInputStream): Array[Byte] =
+       |  val sb = scala.collection.mutable.ArrayBuffer.empty[Byte]
+       |  var prev3 = 0; var prev2 = 0; var prev1 = 0
+       |  var done  = false
+       |  while !done do
+       |    val b = in.read()
+       |    if b < 0 then return sb.toArray
+       |    sb += b.toByte
+       |    if prev3 == 13 && prev2 == 10 && prev1 == 13 && b == 10 then done = true
+       |    prev3 = prev2; prev2 = prev1; prev1 = b
+       |  sb.toArray
+       |
+       |private def _proxyConnection(client: java.net.Socket, internalPort: Int): Unit =
+       |  val cin  = java.io.BufferedInputStream(client.getInputStream)
+       |  val cout = client.getOutputStream
+       |  val head = _readHttpHead(cin)
+       |  val headText = new String(head, java.nio.charset.StandardCharsets.ISO_8859_1)
+       |  val lines    = headText.split("\r\n").toList
+       |  val request  = lines.headOption.getOrElse("")
+       |  val headers: Map[String, String] = lines.drop(1).flatMap { l =>
+       |    val i = l.indexOf(':')
+       |    if i < 0 then None
+       |    else Some(l.substring(0, i).trim.toLowerCase -> l.substring(i + 1).trim)
+       |  }.toMap
+       |  val path = request.split(' ').lift(1).getOrElse("/").split('?').head
+       |  val isWs = headers.get("upgrade").exists(_.equalsIgnoreCase("websocket")) &&
+       |             headers.get("connection").exists(_.toLowerCase.contains("upgrade"))
+       |  if isWs then
+       |    val segs = path.split('/').toList.filter(_.nonEmpty)
+       |    val matched = _wsRoutes.iterator.flatMap { r =>
+       |      _matchPath(r.pattern, segs).map(_ => r)
+       |    }.nextOption()
+       |    matched match
+       |      case None =>
+       |        cout.write("HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".getBytes("US-ASCII"))
+       |        cout.flush(); client.close()
+       |      case Some(r) =>
+       |        val key = headers.getOrElse("sec-websocket-key", "")
+       |        if key.isEmpty then { client.close(); return }
+       |        val accept = _wsAcceptKey(key)
+       |        val resp =
+       |          "HTTP/1.1 101 Switching Protocols\r\n" +
+       |          "Upgrade: websocket\r\n" +
+       |          "Connection: Upgrade\r\n" +
+       |          s"Sec-WebSocket-Accept: $accept\r\n\r\n"
+       |        cout.write(resp.getBytes("US-ASCII")); cout.flush()
+       |        val ws = WebSocket(client)
+       |        try r.handler(ws) catch case e: Throwable =>
+       |          System.err.println(s"WS upgrade handler: ${e.getMessage}")
+       |        ws._runReadLoop()
+       |  else
+       |    // Plain HTTP — open a backend socket to the internal HttpServer
+       |    // and copy bytes both ways until either side EOFs.
+       |    val back = java.net.Socket("127.0.0.1", internalPort)
+       |    val bin  = java.io.BufferedInputStream(back.getInputStream)
+       |    val bout = back.getOutputStream
+       |    bout.write(head); bout.flush()
+       |    val pump1 = Thread(() => _pump(cin, bout, back, client), "ws-proxy-pump-c2b")
+       |    val pump2 = Thread(() => _pump(bin, cout, client, back), "ws-proxy-pump-b2c")
+       |    pump1.setDaemon(true); pump2.setDaemon(true)
+       |    pump1.start(); pump2.start()
+       |    pump1.join(); pump2.join()
+       |
+       |private def _pump(in: java.io.InputStream, out: java.io.OutputStream, a: java.net.Socket, b: java.net.Socket): Unit =
+       |  val buf = new Array[Byte](8192)
+       |  try
+       |    var n = in.read(buf)
+       |    while n >= 0 do
+       |      out.write(buf, 0, n); out.flush()
+       |      n = in.read(buf)
+       |  catch case _: Throwable => ()
+       |  finally
+       |    try a.close() catch case _: Throwable => ()
+       |    try b.close() catch case _: Throwable => ()
+       |
        |def serve(port: Int): Unit =
-       |  val server = com.sun.net.httpserver.HttpServer.create(
-       |    java.net.InetSocketAddress(port), 0)
-       |  server.createContext("/", _handle)
-       |  server.setExecutor(java.util.concurrent.Executors.newSingleThreadExecutor())
-       |  server.start()
-       |  println(s"Listening on http://localhost:$port/")
+       |  // Internal HttpServer on a loopback ephemeral port — REST + static
+       |  // files keep flowing through it as before, single-threaded.
+       |  val executor = java.util.concurrent.Executors.newSingleThreadExecutor()
+       |  val internal = com.sun.net.httpserver.HttpServer.create(
+       |    java.net.InetSocketAddress("127.0.0.1", 0), 0)
+       |  internal.createContext("/", _handle)
+       |  internal.setExecutor(executor)
+       |  internal.start()
+       |  val internalPort = internal.getAddress.getPort
+       |  // Public-facing blocking proxy: one accept loop, one thread per
+       |  // connection.  WS connections hold their thread for the lifetime
+       |  // of the session; HTTP connections spawn two pump threads.
+       |  val pub = java.net.ServerSocket(port)
+       |  println(s"Listening on http://localhost:$port/  (proxy → 127.0.0.1:$internalPort)")
+       |  val pool = java.util.concurrent.Executors.newCachedThreadPool()
+       |  Thread(() => {
+       |    while !pub.isClosed do
+       |      try
+       |        val c = pub.accept()
+       |        pool.execute { () => _proxyConnection(c, internalPort) }
+       |      catch case _: Throwable => ()
+       |  }, "ws-proxy-accept").start()
        |  Thread.currentThread().join()
        |
        |""".stripMargin
