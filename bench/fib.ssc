@@ -1,0 +1,19 @@
+#!/usr/bin/env ssc
+---
+name: bench-fib
+description: Recursive Fibonacci — exercises function-call overhead.
+---
+
+# Fibonacci
+
+```scalascript
+def fib(n: Int): Int = if n < 2 then n else fib(n - 1) + fib(n - 2)
+
+val n      = 28
+val t0     = nanoTime()
+val result = fib(n)
+val t1     = nanoTime()
+
+println(s"BENCH_MS: ${(t1 - t0) / 1000000}")
+println(s"result=$result")
+```

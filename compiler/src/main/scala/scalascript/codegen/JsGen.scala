@@ -40,6 +40,20 @@ let _output = [];
 function _println(...args) { _output.push(args.map(_show).join(' ')); }
 function _print(...args) { const s = args.map(_show).join(''); _output.push(s); }
 
+// `_call(fn, ...args)` — wrapper for arbitrary callables in user code.
+// Functions are invoked directly; Arrays and Maps route through `_dispatch`
+// so `xs(i)` / `m(k)` behave like List / Map indexing.
+function _call(fn, ...args) {
+  if (typeof fn === 'function') return fn(...args);
+  if (Array.isArray(fn) || fn instanceof Map) return _dispatch(fn, 'apply', args);
+  throw new Error('not callable: ' + _show(fn));
+}
+
+// Wall-clock for benchmarks — matches ScalaScript's `nanoTime()` primitive.
+// Date.now() is millisecond-resolution, so we multiply to keep a single
+// nanosecond-scale return type across backends.
+function nanoTime() { return Date.now() * 1_000_000; }
+
 function _show(v) {
   if (v === undefined) return '()';
   if (v === null) return 'null';
@@ -120,6 +134,7 @@ function _dispatch(obj, method, args) {
       case 'tail': return obj.slice(1);
       case 'init': return obj.slice(0,-1);
       case 'length': case 'size': return obj.length;
+      case 'indices': return Array.from({length: obj.length}, (_, i) => i);
       case 'isEmpty': return obj.length === 0;
       case 'nonEmpty': return obj.length > 0;
       case 'reverse': return [...obj].reverse();
@@ -1328,6 +1343,8 @@ class JsGen(baseDir: Option[os.Path] = None):
       val rhsJs = if args.length == 1 then genExpr(args.head) else args.map(genExpr).mkString(", ")
       op.value match
         case "::" => s"[${genExpr(lhs)}, ...(${genExpr(args.head)})]"
+        case ":+" => s"[...($lhsJs), ${genExpr(args.head)}]"
+        case "+:" => s"[${genExpr(lhs)}, ...(${genExpr(args.head)})]"
         case "++" | ":::" => s"[...($lhsJs), ...(${genExpr(args.head)})]"
         case "->" =>
           val tmp = freshTmp()
@@ -1402,10 +1419,12 @@ class JsGen(baseDir: Option[os.Path] = None):
             val argsJs = argVals.mkString(", ")
             s"_dispatch($qualJs, '$method', [$argsJs])"
 
-      // Regular function call or constructor
+      // Regular function call or constructor — wrap in `_call` so a
+      // bare Array / Map reference (`xs(i)` / `m(k)`) is dispatched as
+      // indexing rather than failing with "not a function".
       case fun =>
         val funJs = genExpr(fun)
-        s"$funJs(${argVals.mkString(", ")})"
+        s"_call($funJs, ${argVals.mkString(", ")})"
 
   // ─── CPS codegen for effectful contexts ──────────────────────────
   //
@@ -1518,6 +1537,8 @@ class JsGen(baseDir: Option[os.Path] = None):
       bindArgsCps(List(lhs, rhs)) { case List(vl, vr) =>
         op.value match
           case "::"           => s"[$vl, ...$vr]"
+          case ":+"           => s"[...$vl, $vr]"
+          case "+:"           => s"[$vl, ...$vr]"
           case "++" | ":::"   => s"[...$vl, ...$vr]"
           case "->"           =>
             val tmp = freshTmp()

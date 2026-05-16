@@ -1,0 +1,20 @@
+#!/usr/bin/env ssc
+---
+name: bench-sum
+description: Tail-recursive sum 1..N — exercises tail-call optimisation.
+---
+
+# Sum (tail-recursive)
+
+```scalascript
+def sum(n: Long, acc: Long): Long =
+  if n <= 0 then acc else sum(n - 1, acc + n)
+
+val n      = 1000000L
+val t0     = nanoTime()
+val result = sum(n, 0L)
+val t1     = nanoTime()
+
+println(s"BENCH_MS: ${(t1 - t0) / 1000000}")
+println(s"result=$result")
+```

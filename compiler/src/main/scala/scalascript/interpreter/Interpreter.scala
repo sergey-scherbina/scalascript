@@ -106,6 +106,9 @@ class Interpreter(out: java.io.PrintStream = System.out, baseDir: Option[os.Path
       case _ => throw InterpretError("serve(port) or serve(port, dir)")
     }
 
+    // Wall-clock for benchmarks — same name across all three backends.
+    nativeP("nanoTime") { _ => Value.IntV(java.lang.System.nanoTime()) }
+
     // doc(...) builds a DocV; render(...) prints it
     nativeP("doc")    { args => Value.DocV(args) }
     nativeP("render") { args =>
@@ -768,6 +771,8 @@ class Interpreter(out: java.io.PrintStream = System.out, baseDir: Option[os.Path
       fields.get("apply") match
         case Some(f) => callValue(f, args, env)
         case None    => located(s"Instance is not callable")
+    // `xs(i)` and `m(k)` — apply-as-indexing on collections.
+    case _: Value.ListV | _: Value.MapV => dispatch(fn, "apply", args, env)
     case _ => located(s"Not callable: ${Value.show(fn)}")
 
   private def callFun(f: Value.FunV, args: List[Value]): Computation =
@@ -1105,6 +1110,8 @@ class Interpreter(out: java.io.PrintStream = System.out, baseDir: Option[os.Path
       case (v, "::",  Value.ListV(ls))                => Pure(Value.ListV(v :: ls))
       case (Value.ListV(a), "++", Value.ListV(b))     => Pure(Value.ListV(a ++ b))
       case (Value.ListV(a), ":::", Value.ListV(b))    => Pure(Value.ListV(a ++ b))
+      case (Value.ListV(ls), ":+", v)                 => Pure(Value.ListV(ls :+ v))
+      case (v, "+:",  Value.ListV(ls))                => Pure(Value.ListV(v +: ls))
       case (k, "->", v)                               => Pure(Value.TupleV(List(k, v)))
       // Fallback: method call on lhs
       case _ => dispatch(lhs, op, args, env)
@@ -1142,6 +1149,10 @@ class Interpreter(out: java.io.PrintStream = System.out, baseDir: Option[os.Path
       // ── List ────────────────────────────────────────────────────
       case (Value.ListV(ls), "length",     Nil)  => Pure(Value.IntV(ls.length.toLong))
       case (Value.ListV(ls), "size",       Nil)  => Pure(Value.IntV(ls.size.toLong))
+      case (Value.ListV(ls), "indices",    Nil)  => Pure(Value.ListV(ls.indices.map(i => Value.IntV(i.toLong)).toList))
+      case (Value.ListV(ls), "apply",      List(Value.IntV(i))) =>
+        if i < 0 || i >= ls.length then located(s"index $i out of bounds for list of length ${ls.length}")
+        else Pure(ls(i.toInt))
       case (Value.ListV(ls), "isEmpty",    Nil)  => Pure(Value.BoolV(ls.isEmpty))
       case (Value.ListV(ls), "nonEmpty",   Nil)  => Pure(Value.BoolV(ls.nonEmpty))
       case (Value.ListV(ls), "head",       Nil)  => Pure(ls.headOption.getOrElse(located("head on Nil")))
