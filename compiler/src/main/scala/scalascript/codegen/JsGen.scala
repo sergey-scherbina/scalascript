@@ -49,6 +49,23 @@ function _call(fn, ...args) {
   throw new Error('not callable: ' + _show(fn));
 }
 
+// HTML / CSS interpolators — html"..." auto-escapes interpolated values
+// unless wrapped in raw(...).
+function _htmlEscape(s) {
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+function raw(s)    { return { _type: '_Raw', html: _show(s) }; }
+function escape(s) { return _htmlEscape(_show(s)); }
+function _html_interp(v) {
+  if (v && v._type === '_Raw') return v.html;
+  return _htmlEscape(_show(v));
+}
+
 // Wall-clock for benchmarks — matches ScalaScript's `nanoTime()` primitive.
 // Date.now() is millisecond-resolution, so we multiply to keep a single
 // nanosecond-scale return type across backends.
@@ -1206,7 +1223,8 @@ class JsGen(baseDir: Option[os.Path] = None):
 
     // String interpolation
     case Term.Interpolate(Term.Name(prefix), parts, args)
-        if prefix == "s" || prefix == "f" || prefix == "md" =>
+        if prefix == "s" || prefix == "f" || prefix == "md"
+        || prefix == "html" || prefix == "css" =>
       val sb2 = StringBuilder()
       sb2.append("`")
       for i <- parts.indices do
@@ -1214,7 +1232,12 @@ class JsGen(baseDir: Option[os.Path] = None):
         sb2.append(part.replace("`", "\\`").replace("\\", "\\\\").replace("$", "\\$"))
         if i < args.length then
           val arg = args(i).asInstanceOf[Term]
-          sb2.append("${_show(").append(genExpr(arg)).append(")}")
+          val argJs = genExpr(arg)
+          // html"..." escapes interpolated values unless they're a raw() marker.
+          val wrapped =
+            if prefix == "html" then s"_html_interp($argJs)"
+            else                     s"_show($argJs)"
+          sb2.append("${").append(wrapped).append("}")
       sb2.append("`")
       val templateLiteral = sb2.toString
       if prefix == "md" then s"_md($templateLiteral)" else templateLiteral
@@ -1240,13 +1263,17 @@ class JsGen(baseDir: Option[os.Path] = None):
     // Lambda
     case Term.Function.After_4_6_0(paramClause, body) =>
       val params = paramClause.values.map(_.name.value)
-      val paramsStr = if params.length == 1 then params.head else s"(${params.mkString(", ")})"
-      body match
-        case Term.Block(stats) =>
-          val bodyJs = genBlockAsIife(stats)
-          s"$paramsStr => $bodyJs"
-        case expr =>
-          s"$paramsStr => ${genExpr(expr)}"
+      val bodyJs = body match
+        case Term.Block(stats) => genBlockAsIife(stats)
+        case expr              => genExpr(expr)
+      if params.length == 1 then s"${params.head} => $bodyJs"
+      else
+        // Auto-tuple: when this lambda is passed somewhere that supplies a
+        // single tuple-arg (e.g. `pairs.foreach((n, s) => ...)`, where the
+        // callback receives one `[n, s]` array), destructure on entry.
+        val arity   = params.length
+        val joined  = params.mkString(", ")
+        s"((...__a) => { const [$joined] = (__a.length === 1 && Array.isArray(__a[0]) && __a[0].length === $arity) ? __a[0] : __a; return $bodyJs; })"
 
     // Partial function { case ... => ... }
     case Term.PartialFunction(cases) =>
@@ -1510,10 +1537,14 @@ class JsGen(baseDir: Option[os.Path] = None):
     // Lambda — CPS body
     case Term.Function.After_4_6_0(paramClause, body) =>
       val params = paramClause.values.map(_.name.value)
-      val paramsStr = if params.length == 1 then params.head else s"(${params.mkString(", ")})"
-      body match
-        case Term.Block(stats) => s"$paramsStr => ${genCpsBlockAsIife(stats)}"
-        case expr              => s"$paramsStr => ${genCpsExpr(expr)}"
+      val bodyJs = body match
+        case Term.Block(stats) => genCpsBlockAsIife(stats)
+        case expr              => genCpsExpr(expr)
+      if params.length == 1 then s"${params.head} => $bodyJs"
+      else
+        val arity  = params.length
+        val joined = params.mkString(", ")
+        s"((...__a) => { const [$joined] = (__a.length === 1 && Array.isArray(__a[0]) && __a[0].length === $arity) ? __a[0] : __a; return $bodyJs; })"
 
     // Anonymous function with placeholders — body is CPS
     case t: Term.AnonymousFunction =>

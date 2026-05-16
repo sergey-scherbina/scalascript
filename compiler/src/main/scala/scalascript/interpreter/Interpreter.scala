@@ -778,7 +778,15 @@ class Interpreter(out: java.io.PrintStream = System.out, baseDir: Option[os.Path
   private def callFun(f: Value.FunV, args: List[Value]): Computation =
     val selfEntry = if f.name.nonEmpty then Map(f.name -> f) else Map.empty
     val baseEnv   = globals.toMap ++ f.closure ++ selfEntry
-    val effArgs   = applyDefaults(f.params, f.defaults, args, baseEnv)
+    // Auto-tuple: an N-parameter lambda passed where a 1-arg function on
+    // an N-tuple is expected (e.g. `pairs.foreach((n, s) => ...)`) gets
+    // its single tuple argument destructured into the N parameters.
+    val tupledArgs = args match
+      case List(Value.TupleV(elems))
+        if f.params.length > 1 && elems.length == f.params.length =>
+        elems
+      case _ => args
+    val effArgs   = applyDefaults(f.params, f.defaults, tupledArgs, baseEnv)
     val tailTargets =
       if f.name.nonEmpty then tailCallTargets(f.body, f.name, tailPos = true)
       else Set.empty[String]
