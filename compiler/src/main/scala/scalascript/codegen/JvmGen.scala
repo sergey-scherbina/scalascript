@@ -2050,6 +2050,62 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |  if t.length < 7 || !t.substring(0, 7).equalsIgnoreCase("Bearer ") then None
        |  else Some(t.substring(7).trim)
        |
+       |// ── JWT RS256 (asymmetric) ────────────────────────────────────
+       |// Same wire format as scalascript.server.JwtRsa.  Reads keys
+       |// from env (SSC_JWT_PRIVATE_KEY / SSC_JWT_PUBLIC_KEY, PEM).
+       |private def _pemBytes(pem: String): Array[Byte] =
+       |  val cleaned = pem
+       |    .replaceAll("-----BEGIN [^-]+-----", "")
+       |    .replaceAll("-----END [^-]+-----", "")
+       |    .replaceAll("\\s+", "")
+       |  java.util.Base64.getDecoder.decode(cleaned)
+       |private lazy val _jwtRsaPrivate: Option[java.security.PrivateKey] =
+       |  sys.env.get("SSC_JWT_PRIVATE_KEY").filter(_.nonEmpty).map { pem =>
+       |    java.security.KeyFactory.getInstance("RSA")
+       |      .generatePrivate(java.security.spec.PKCS8EncodedKeySpec(_pemBytes(pem)))
+       |  }
+       |private lazy val _jwtRsaPublic: Option[java.security.PublicKey] =
+       |  sys.env.get("SSC_JWT_PUBLIC_KEY").filter(_.nonEmpty).map { pem =>
+       |    java.security.KeyFactory.getInstance("RSA")
+       |      .generatePublic(java.security.spec.X509EncodedKeySpec(_pemBytes(pem)))
+       |  }
+       |private val _jwtRsaHeaderB64 = _b64urlEnc("{\"alg\":\"RS256\",\"typ\":\"JWT\"}".getBytes("UTF-8"))
+       |def jwtSignRsa(claims: Map[String, String]): String =
+       |  val pk = _jwtRsaPrivate.getOrElse(
+       |    throw RuntimeException("SSC_JWT_PRIVATE_KEY is not set (expected PKCS#8 RSA PEM)"))
+       |  val payloadB64 = _b64urlEnc(_sessionJsonEnc(claims).getBytes("UTF-8"))
+       |  val sig = java.security.Signature.getInstance("SHA256withRSA")
+       |  sig.initSign(pk)
+       |  sig.update((_jwtRsaHeaderB64 + "." + payloadB64).getBytes("UTF-8"))
+       |  val sigB64 = _b64urlEnc(sig.sign())
+       |  s"${_jwtRsaHeaderB64}.$payloadB64.$sigB64"
+       |def jwtVerifyRsa(token: String): Option[Map[String, String]] =
+       |  _jwtRsaPublic.flatMap { pub =>
+       |    val parts = token.split('.')
+       |    if parts.length != 3 then None
+       |    else
+       |      val h = parts(0); val p = parts(1); val s = parts(2)
+       |      try
+       |        val header = String(_b64urlDec(h), "UTF-8")
+       |        if !header.contains("\"alg\":\"RS256\"") then None
+       |        else
+       |          val sig = java.security.Signature.getInstance("SHA256withRSA")
+       |          sig.initVerify(pub)
+       |          sig.update((h + "." + p).getBytes("UTF-8"))
+       |          if !sig.verify(_b64urlDec(s)) then None
+       |          else _sessionJsonDec(String(_b64urlDec(p), "UTF-8")) match
+       |            case None => None
+       |            case Some(claims) =>
+       |              claims.get("exp") match
+       |                case Some(expStr) =>
+       |                  val now = java.lang.System.currentTimeMillis() / 1000L
+       |                  try
+       |                    if expStr.toLong < now then None else Some(claims)
+       |                  catch case _: Throwable => None
+       |                case None => Some(claims)
+       |      catch case _: Throwable => None
+       |  }
+       |
        |// ── OAuth2 helpers ────────────────────────────────────────────
        |// Same surface as scalascript.server.OAuth: pure URL builder +
        |// blocking token exchange via java.net.http.HttpClient.

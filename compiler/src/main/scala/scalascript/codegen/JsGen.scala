@@ -684,6 +684,61 @@ function _bearerFromAuth(h) {
   return t.substring(7).trim();
 }
 
+// ── JWT RS256 (asymmetric) ────────────────────────────────────────────
+// Same wire format as scalascript.server.JwtRsa.  Reads keys from env:
+//   SSC_JWT_PRIVATE_KEY (PKCS#8 RSA PEM) — signing
+//   SSC_JWT_PUBLIC_KEY  (X.509 SPKI PEM) — verifying
+// Use when verifier and signer are distinct processes.
+
+const _jwtRsaHeaderB64 = (() => null)();   // computed lazily, see below.
+let   _jwtRsaHeaderB64Cache = null;
+function _jwtRsaHeader() {
+  if (_jwtRsaHeaderB64Cache !== null) return _jwtRsaHeaderB64Cache;
+  _jwtRsaHeaderB64Cache = _b64urlEnc(Buffer.from('{"alg":"RS256","typ":"JWT"}', 'utf-8'));
+  return _jwtRsaHeaderB64Cache;
+}
+function jwtSignRsa(claims) {
+  const priv = (typeof process !== 'undefined' && process.env)
+    ? process.env.SSC_JWT_PRIVATE_KEY : '';
+  if (!priv || !priv.length) throw new Error('SSC_JWT_PRIVATE_KEY is not set');
+  let m;
+  if (claims instanceof Map) m = claims;
+  else { m = new Map(); for (const [k, v] of Object.entries(claims || {})) m.set(String(k), String(v)); }
+  const payloadB64 = _b64urlEnc(Buffer.from(_sessionJson(m), 'utf-8'));
+  const headerB64  = _jwtRsaHeader();
+  const crypto     = require('crypto');
+  const signer     = crypto.createSign('RSA-SHA256');
+  signer.update(headerB64 + '.' + payloadB64);
+  const sig = _b64urlEnc(signer.sign(priv));
+  return headerB64 + '.' + payloadB64 + '.' + sig;
+}
+function jwtVerifyRsa(token) {
+  const pub = (typeof process !== 'undefined' && process.env)
+    ? process.env.SSC_JWT_PUBLIC_KEY : '';
+  if (!pub || !pub.length) return _None;
+  if (typeof token !== 'string') return _None;
+  const parts = token.split('.');
+  if (parts.length !== 3) return _None;
+  const [h, p, s] = parts;
+  try {
+    const headerJson = _b64urlDec(h).toString('utf-8');
+    if (!headerJson.includes('"alg":"RS256"')) return _None;
+    const crypto = require('crypto');
+    const ver    = crypto.createVerify('RSA-SHA256');
+    ver.update(h + '.' + p);
+    if (!ver.verify(pub, _b64urlDec(s))) return _None;
+    const claims = JSON.parse(_b64urlDec(p).toString('utf-8'));
+    if (claims.exp !== undefined) {
+      const now = Math.floor(Date.now() / 1000);
+      const exp = parseInt(claims.exp, 10);
+      if (!Number.isFinite(exp) || exp < now) return _None;
+    }
+    const out = new Map();
+    for (const [k, v] of Object.entries(claims)) if (typeof v === 'string') out.set(k, v);
+    return _Some(out);
+  } catch (e) { return _None; }
+}
+
 // ── OAuth2 helpers ────────────────────────────────────────────────────
 // `oauthAuthorizeUrl(provider, clientId, redirectUri, state[, scope])`
 // builds the provider's /authorize URL with the right defaults.

@@ -715,6 +715,29 @@ class Interpreter(
       case _ => throw InterpretError("jwtVerify(token: String)")
     }
 
+    // ── JWT RS256 (asymmetric) ───────────────────────────────────────
+    // Reads keys from `SSC_JWT_PRIVATE_KEY` (PKCS#8 RSA PEM) and
+    // `SSC_JWT_PUBLIC_KEY` (X.509 SPKI PEM).  Use when verifier and
+    // signer are different processes — multiple services validating
+    // the same token without sharing a secret.
+    nativeP("jwtSignRsa") {
+      case List(Value.MapV(m)) =>
+        val claims = m.collect {
+          case (Value.StringV(k), Value.StringV(v)) => k -> v
+          case (Value.StringV(k), other)            => k -> Value.show(other)
+        }.toMap
+        Value.StringV(scalascript.server.JwtRsa.sign(claims))
+      case _ => throw InterpretError("jwtSignRsa(Map[String, String])")
+    }
+    nativeP("jwtVerifyRsa") {
+      case List(Value.StringV(token)) =>
+        scalascript.server.JwtRsa.verify(token) match
+          case Some(claims) =>
+            Value.OptionV(Some(Value.MapV(claims.map((k, v) => Value.StringV(k) -> Value.StringV(v)))))
+          case None => Value.OptionV(None)
+      case _ => throw InterpretError("jwtVerifyRsa(token: String)")
+    }
+
     // ── OAuth2 helpers ────────────────────────────────────────────────
     // `oauthAuthorizeUrl(provider, clientId, redirectUri, state[, scope])`
     // — pure URL builder for the provider's `/authorize` endpoint.
@@ -2436,6 +2459,12 @@ class Interpreter(
       case (Value.StringV(s), "mkString",     _)  => Pure(Value.StringV(s))
       case (Value.StringV(s), "take",         List(Value.IntV(n))) => Pure(Value.StringV(s.take(n.toInt)))
       case (Value.StringV(s), "drop",         List(Value.IntV(n))) => Pure(Value.StringV(s.drop(n.toInt)))
+      case (Value.StringV(s), "substring",    List(Value.IntV(a))) =>
+        Pure(Value.StringV(s.substring(a.toInt.max(0).min(s.length))))
+      case (Value.StringV(s), "substring",    List(Value.IntV(a), Value.IntV(b))) =>
+        val from = a.toInt.max(0).min(s.length)
+        val to   = b.toInt.max(from).min(s.length)
+        Pure(Value.StringV(s.substring(from, to)))
       case (Value.StringV(s), "replace",      List(Value.StringV(a), Value.StringV(b))) => Pure(Value.StringV(s.replace(a, b)))
       case (Value.StringV(s), "charAt",       List(Value.IntV(i))) =>
         if i < 0 || i >= s.length then located(s"index $i out of bounds for string of length ${s.length}")
