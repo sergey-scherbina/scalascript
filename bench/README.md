@@ -29,9 +29,9 @@ The driver runs each variant 5 times and reports the median.
 ```text
 workload      ssc-int     ssc-js      ssc-jvm     scala-cli   node
 --------------------------------------------------------------------------
-fib           350         4           0           0           2
-sum           600         3           0           0           2
-list-ops      180         4           44          70          2
+fib           330         4           0           0           2
+sum           610         3           0           0           2
+list-ops      175         4           44          70          2
 ```
 
 `0` means the work finished in under one millisecond (millisecond
