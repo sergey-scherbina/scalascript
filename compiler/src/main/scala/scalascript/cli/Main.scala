@@ -224,8 +224,25 @@ def buildCommand(args: List[String]): Unit =
           println(s"  ${file.last} ${entry.path} → ${displayPath(out)}")
           rendered += 1
 
+  // Asset pipeline: mirror every non-.ssc file under `src-dir` into
+  // `out-dir`, preserving relative paths.  Walks recursively so
+  // subdirectory assets (icons under `components/`, fonts under
+  // `assets/`, etc.) make it to the build.  Anything starting with `.`
+  // or under a `target/` / `node_modules/` / `dist/` folder is skipped —
+  // those are build output / tooling caches.
+  val assetSkipDirs = Set("target", "node_modules", "dist", "out", ".scala-build")
+  var copied = 0
+  os.walk(srcDir, skip = p => assetSkipDirs.contains(p.last) || p.last.startsWith(".")).foreach { p =>
+    if os.isFile(p) && p.ext != "ssc" then
+      val rel  = p.relativeTo(srcDir)
+      val dest = outDir / rel
+      os.makeDir.all(dest / os.up)
+      os.copy.over(p, dest)
+      copied += 1
+  }
+
   println()
-  println(s"Done: $rendered rendered, $skipped skipped, $failed failed")
+  println(s"Done: $rendered rendered, $skipped skipped, $copied assets, $failed failed")
   if failed > 0 then System.exit(1)
 
 private def displayPath(p: os.Path): String =

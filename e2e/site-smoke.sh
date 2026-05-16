@@ -64,6 +64,26 @@ check "index"   "$DIST/index.html"   "Home — ScalaScript site"     "/"
 check "about"   "$DIST/about.html"   "About — ScalaScript site"    "/about"
 check "contact" "$DIST/contact.html" "Contact — ScalaScript site"  "/contact"
 
+# Asset pipeline: ensure non-.ssc files mirror into dist with the same
+# relative paths, and the rendered pages reference them.
+for asset in favicon.svg assets/extra.css; do
+    if [ ! -f "$DIST/$asset" ]; then
+        echo "[FAIL] asset $asset not copied to dist"
+        fail=1
+    fi
+done
+for f in index.html about.html contact.html; do
+    if ! grep -q 'rel="icon" href="/favicon.svg"' "$DIST/$f"; then
+        echo "[FAIL] $f: missing favicon <link>"
+        fail=1
+    fi
+    if ! grep -q 'href="/assets/extra.css"' "$DIST/$f"; then
+        echo "[FAIL] $f: missing extra.css <link>"
+        fail=1
+    fi
+done
+[ $fail -eq 0 ] && echo "[PASS] assets  (favicon.svg + assets/extra.css mirrored)"
+
 # Sanity: the three pages share the same byte-perfect Layout chrome,
 # so the <header>...</header> block should be identical across all
 # three files except for which link is marked current.
