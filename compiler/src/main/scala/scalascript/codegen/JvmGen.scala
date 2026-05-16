@@ -1300,7 +1300,8 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |  files:       Map[String, UploadedFile]   = Map.empty,
        |  session:     Map[String, String]         = Map.empty,
        |  bearerToken: Option[String]              = None,
-       |  jwtClaims:   Option[Map[String, String]] = None
+       |  jwtClaims:   Option[Map[String, String]] = None,
+       |  basicAuth:   Option[(String, String)]    = None
        |)
        |
        |case class Response(
@@ -1519,6 +1520,18 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |  if t.length < 7 || !t.substring(0, 7).equalsIgnoreCase("Bearer ") then None
        |  else Some(t.substring(7).trim)
        |
+       |// HTTP Basic: Authorization: Basic <b64(user:pass)>
+       |private def _basicFromAuth(h: String): Option[(String, String)] =
+       |  val t = Option(h).map(_.trim).getOrElse("")
+       |  if t.length < 6 || !t.substring(0, 6).equalsIgnoreCase("Basic ") then None
+       |  else
+       |    try
+       |      val decoded = new String(java.util.Base64.getDecoder.decode(t.substring(6).trim), "UTF-8")
+       |      val colon   = decoded.indexOf(':')
+       |      if colon < 0 then None
+       |      else Some(decoded.substring(0, colon) -> decoded.substring(colon + 1))
+       |    catch case _: Throwable => None
+       |
        |// ── CSRF helpers ────────────────────────────────────────────────
        |// `csrfToken()` returns a url-safe random token; the caller stashes
        |// it under "csrf" in the session and renders it in their form.
@@ -1603,6 +1616,9 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |  def redirect(to: String): Response = Response(302, Map("Location" -> to), "")
        |  def notFound(body: Any = "Not Found"): Response = Response(404, body = _show(body))
        |  def status(code: Int, body: Any = ""): Response = Response(code, body = _show(body))
+       |  def basicAuthChallenge(realm: String): Response =
+       |    val safe = realm.replace("\\", "\\\\").replace("\"", "\\\"")
+       |    Response(401, Map("WWW-Authenticate" -> ("Basic realm=\"" + safe + "\"")), "Authentication required")
        |
        |private enum _Seg:
        |  case Lit(s: String)
@@ -1724,11 +1740,12 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |        val authHeader = headers.collectFirst {
        |          case (k, v) if k.equalsIgnoreCase("Authorization") => v
        |        }.getOrElse("")
-       |        val bearer = _bearerFromAuth(authHeader)
-       |        val claims = bearer.flatMap(jwtVerify)
+       |        val bearer    = _bearerFromAuth(authHeader)
+       |        val claims    = bearer.flatMap(jwtVerify)
+       |        val basicAuth = _basicFromAuth(authHeader)
        |        val req  = Request(method, path, params,
        |          _parseQuery(ex.getRequestURI.getRawQuery), headers, body,
-       |          form, files, session, bearer, claims)
+       |          form, files, session, bearer, claims, basicAuth)
        |        _writeResponse(ex, r.handler(req), rawCookieSession)
        |      case None =>
        |        // Fall through to a static file under the current directory

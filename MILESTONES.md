@@ -10,10 +10,7 @@ Building blocks for authenticated `.ssc` web apps.  Signed cookie sessions,
 CSRF helpers, and a login/logout example have landed; remaining items are
 ordered so each can lean on the earlier ones.
 
-1. **HTTP Basic auth helper.**  `req.basicAuth: Option[(String, String)]`
-   + a `requireBasicAuth(realm)` route guard.  Low priority — useful
-   for dev / internal endpoints, not for product-facing flows.
-2. **OAuth2 / OIDC** (Google + GitHub).  Authorization-code flow with
+1. **OAuth2 / OIDC** (Google + GitHub).  Authorization-code flow with
    provider-specific config; `oauthClient(provider, ...).authorizeUrl()`,
    callback handler, token exchange.  Last in the order because it
    needs an HTTP client and per-provider quirks.

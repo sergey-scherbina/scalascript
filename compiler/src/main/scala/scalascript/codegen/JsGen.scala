@@ -245,6 +245,8 @@ function _mkRequest(req, params, bodyBuf) {
   const bearerStr  = _bearerFromAuth(authHeader);
   const bearerToken = bearerStr ? _Some(bearerStr) : _None;
   const claims      = bearerStr ? jwtVerify(bearerStr) : _None;
+  // Parse Authorization: Basic <b64(user:pass)> into a 2-element tuple.
+  const basicAuth = _basicFromAuth(authHeader);
   return {
     _type:   'Request',
     method:  req.method,
@@ -258,8 +260,25 @@ function _mkRequest(req, params, bodyBuf) {
     session,
     bearerToken,
     jwtClaims: claims,
+    basicAuth,
     _rawCookieSession: rawCookieSession,
   };
+}
+
+// HTTP Basic: Authorization: Basic <b64(user:pass)>.  Returns _Some
+// of a 2-element tuple [user, pass] or _None.  The tuple is just an
+// Array — scalascript codegen lowers `case (u, p) =>` to indexed reads.
+function _basicFromAuth(h) {
+  const t = (h || '').trim();
+  if (t.length < 6 || t.substring(0, 6).toLowerCase() !== 'basic ') return _None;
+  try {
+    const decoded = Buffer.from(t.substring(6).trim(), 'base64').toString('utf-8');
+    const colon   = decoded.indexOf(':');
+    if (colon < 0) return _None;
+    const tup = [decoded.substring(0, colon), decoded.substring(colon + 1)];
+    tup._isTuple = true;
+    return _Some(tup);
+  } catch (e) { return _None; }
 }
 
 // `bodyLatin1` is the body decoded as Latin-1 (1 char = 1 byte), so the
@@ -599,6 +618,10 @@ const Response = {
   redirect(to)   { return _mkResp({ status: 302, headers: new Map([['Location', to]]), body: '' }); },
   notFound(body) { return _mkResp({ status: 404, headers: new Map(), body: _show(body ?? 'Not Found') }); },
   status(code, body) { return _mkResp({ status: code, headers: new Map(), body: _show(body ?? '') }); },
+  basicAuthChallenge(realm) {
+    const safe = String(realm).replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+    return _mkResp({ status: 401, headers: new Map([['WWW-Authenticate', 'Basic realm="' + safe + '"']]), body: 'Authentication required' });
+  },
 };
 
 // Try to serve a static asset under the cwd; returns true when handled,

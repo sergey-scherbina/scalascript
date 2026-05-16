@@ -516,14 +516,26 @@ class Interpreter(out: java.io.PrintStream = System.out, baseDir: Option[os.Path
       case List(Value.IntV(s), v)                    => mkResponse(s.toInt, body = bodyOf(v))
       case _                                         => throw InterpretError("Response.status(code[, body])")
     }
+    // `Response.basicAuthChallenge(realm)` — 401 + WWW-Authenticate so
+    // the browser shows a Basic auth prompt with the given realm label.
+    nativeP("Response.basicAuthChallenge") {
+      case List(Value.StringV(realm)) =>
+        // Quotes around the realm escape literal `"` per RFC 7617.
+        val safe = realm.replace("\\", "\\\\").replace("\"", "\\\"")
+        mkResponse(401,
+          Map(Value.StringV("WWW-Authenticate") -> Value.StringV(s"""Basic realm="$safe"""")),
+          "Authentication required")
+      case _ => throw InterpretError("Response.basicAuthChallenge(realm: String)")
+    }
     // Response companion object — fields call the underlying natives.
     globals("Response") = Value.InstanceV("Response", Map(
-      "html"     -> globals("Response.html"),
-      "text"     -> globals("Response.text"),
-      "json"     -> globals("Response.json"),
-      "redirect" -> globals("Response.redirect"),
-      "notFound" -> globals("Response.notFound"),
-      "status"   -> globals("Response.status")
+      "html"               -> globals("Response.html"),
+      "text"               -> globals("Response.text"),
+      "json"               -> globals("Response.json"),
+      "redirect"           -> globals("Response.redirect"),
+      "notFound"           -> globals("Response.notFound"),
+      "status"             -> globals("Response.status"),
+      "basicAuthChallenge" -> globals("Response.basicAuthChallenge")
     ))
 
     // ── CSRF helpers ─────────────────────────────────────────────────

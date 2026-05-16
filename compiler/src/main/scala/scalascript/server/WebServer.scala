@@ -125,6 +125,17 @@ object WebServer:
     }.getOrElse("")
     val bearer  = Jwt.fromAuthHeader(authHeader)
     val claims  = bearer.flatMap(Jwt.verify)
+    // HTTP Basic: Authorization: Basic <b64(user:password)>
+    val basicAuth: Option[(String, String)] =
+      val t = authHeader.trim
+      if t.length < 6 || !t.substring(0, 6).equalsIgnoreCase("Basic ") then None
+      else
+        try
+          val decoded = String(java.util.Base64.getDecoder.decode(t.substring(6).trim), "UTF-8")
+          val colon   = decoded.indexOf(':')
+          if colon < 0 then None
+          else Some(decoded.substring(0, colon) -> decoded.substring(colon + 1))
+        catch case _: Throwable => None
     val req = Value.InstanceV("Request", Map(
       "method"  -> Value.StringV(ex.getRequestMethod),
       "path"    -> Value.StringV(ex.getRequestURI.getPath),
@@ -139,6 +150,9 @@ object WebServer:
         .getOrElse(Value.OptionV(None)),
       "jwtClaims"   -> claims.map(c =>
           Value.OptionV(Some(Value.MapV(c.map((k, v) => Value.StringV(k) -> Value.StringV(v))))))
+        .getOrElse(Value.OptionV(None)),
+      "basicAuth"   -> basicAuth.map((u, p) =>
+          Value.OptionV(Some(Value.TupleV(List(Value.StringV(u), Value.StringV(p))))))
         .getOrElse(Value.OptionV(None))
     ))
     val result = entry.interpreter.invoke(entry.handler, List(req))

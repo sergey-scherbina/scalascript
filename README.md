@@ -100,6 +100,7 @@ compiles them via Scala.js.
 | Sessions + CSRF | `req.session`, `Response.html(...).withSession(Map(...))`, `csrfToken()` / `csrfValid(req)` |
 | JWT bearer tokens | `jwtSign(Map(...))`, `jwtVerify(token)`, `req.bearerToken`, `req.jwtClaims` (HS256) |
 | Server-side sessions | `useSessionStore(ttlSeconds)` — opt-in, cookie carries an SSID, payload lives in process |
+| HTTP Basic auth | `req.basicAuth`, `Response.basicAuthChallenge(realm)` — for dev/internal endpoints |
 
 ## Examples
 

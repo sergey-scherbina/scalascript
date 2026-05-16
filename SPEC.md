@@ -545,6 +545,29 @@ thread).  The default in-memory backend is per-process — for
 multi-process deployments swap it for a `Storage`-backed store once
 that effect lands.
 
+#### HTTP Basic auth
+
+For dev tooling and internal endpoints, a one-liner challenge:
+
+```scalascript
+route("GET", "/admin") { req =>
+  req.basicAuth match
+    case Some((user, pass)) if check(user, pass) => Response.html(...)
+    case _ => Response.basicAuthChallenge("Admin area")
+}
+```
+
+- `req.basicAuth: Option[(String, String)]` is parsed eagerly from
+  `Authorization: Basic <b64(user:password)>` — malformed encodings
+  surface as `None`.
+- `Response.basicAuthChallenge(realm)` returns `401` with
+  `WWW-Authenticate: Basic realm="..."` so the browser pops the
+  native sign-in prompt.
+
+Use over HTTPS only — Basic auth ships credentials in every request
+in (effectively) plaintext.  Not appropriate for production user-facing
+flows; see signed cookie sessions or JWT for those.
+
 #### Response
 
 ```scalascript
