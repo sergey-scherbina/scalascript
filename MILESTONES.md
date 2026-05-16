@@ -46,18 +46,15 @@ The JVM and JS backends now ship their own `serveRuntime` / `route` runtime
   `List`, `Map`, primitives — covering the same value space `Value.show`
   handles.  Probably a third-party lib (`upickle` or `circe`) on the JVM
   and a hand-rolled emitter for JS.
+- **Cross-backend smoke harness.**  Add a script under `bench/` (or a new
+  `e2e/`) that starts the same `rest-api.ssc` through each backend in
+  turn, hits it with `curl`, and diffs the responses — guards against
+  drift between the three serve runtimes.
 
 ## v0.4 — Stability & polish
 
 Known bugs and rough edges that need a separate pass.
 
-- **Interpreter — collection ergonomics.**  During the rest-api example
-  we hit several missing operations.  Add support in
-  `Interpreter` (`infix` table / method dispatch):
-  - `xs :+ x` / `x +: xs` cons-append on `List`
-  - `xs(i)` apply-on-`List` indexing
-  - `m(k)` apply-on-`Map` indexing
-  - `xs.indices` on `List`
 - **`examples/scala-js-demo.ssc` interpreter run.**  The example currently
   exits non-zero under the tree-walking interpreter (uses Scala 3 features
   outside the interpreter's subset).  Either broaden the interpreter or

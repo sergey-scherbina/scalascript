@@ -27,17 +27,15 @@ route("GET", "/api/todos") { req =>
 }
 
 route("POST", "/api/todos") { req =>
-  todos = todos ++ List(req.body)
+  todos = todos :+ req.body
   Response.status(201, req.body)
 }
 
 route("DELETE", "/api/todos/:id") { req =>
-  val idx = req.params.get("id").get.toInt
+  val idx = req.params("id").toInt
   if idx < 0 || idx >= todos.length then Response.notFound("no such todo")
   else
-    val before = todos.take(idx)
-    val after  = todos.drop(idx + 1)
-    todos = before ++ after
+    todos = todos.take(idx) ++ todos.drop(idx + 1)
     Response.status(204)
 }
 
@@ -45,11 +43,11 @@ route("DELETE", "/api/todos/:id") { req =>
 //  HTML view
 // ───────────────────────────────────────────────────────────────
 
-def renderItem(p: (String, Int)): String =
-  html"<li>${p._1} <small>(#${p._2})</small></li>"
+def renderItem(t: String, i: Int): String =
+  html"<li>${t} <small>(#${i})</small></li>"
 
 route("GET", "/") { req =>
-  val items = todos.zipWithIndex.map(renderItem).mkString("")
+  val items = todos.zipWithIndex.map((t, i) => renderItem(t, i)).mkString("")
   Response.html(html"""<!doctype html>
 <html><head><title>Todos</title></head>
 <body>
