@@ -269,6 +269,112 @@ currently chain `.copy(field = obj.field.copy(...))` by hand.  Real-world
 demo of optic ergonomics in code that already exists — no new feature
 work, just a few diffs that double as documentation.
 
+## v1.1 — Standard type-class hierarchy
+
+Land a small, principled std library of FP type classes with instances
+for the built-in types (`List`, `Option`, `Map`, `Either`, `Tuple2`).
+All declarations use existing Scala 3 `trait` + `given` machinery — no
+new keywords, no new parser syntax, no divergence from the "Scala 3
+dialect" brand.  The interpreter / JS / JVM all already support typeclass
+dispatch through `summon[…]` (covered by the `typeclass` conformance
+test), so this is mostly **library code in `std/`** plus a few inference
+ergonomics on top.
+
+Listed in order so each step is useful on its own and unblocks the next.
+
+1. **Core: `Category`, `Functor`, `Applicative`, `Monad`.**  Standard
+   shape:
+
+       trait Functor[F[_]]:
+         extension [A](fa: F[A]) def map[B](f: A => B): F[B]
+
+       trait Applicative[F[_]] extends Functor[F]:
+         def pure[A](a: A): F[A]
+         extension [A](fa: F[A]) def ap[B](ff: F[A => B]): F[B]
+
+       trait Monad[F[_]] extends Applicative[F]:
+         extension [A](fa: F[A]) def flatMap[B](f: A => F[B]): F[B]
+
+       trait Category[->>[_, _]]:
+         def id[A]: A ->> A
+         extension [A, B](f: A ->> B) def andThen[C](g: B ->> C): A ->> C
+
+   Instances: `List`, `Option`, `Either[E, *]`, `Tuple2[E, *]`,
+   `Function1[X, *]`, `Lens[S, *]`-style profunctor-light witnesses for
+   the optics that have natural functors (see point 4).
+
+2. **`Traversable` / `traverse` / `sequence`.**  The big one in practice
+   — lets users sequence effects across a structure:
+
+       trait Traversable[T[_]] extends Functor[T]:
+         extension [A](ta: T[A])
+           def traverse[F[_]: Applicative, B](f: A => F[B]): F[T[B]]
+           def sequence[F[_]: Applicative]: F[T[A]]  // T[F[A]] case
+
+   Instances for `List` and `Option` cover ~90% of real use.  Map's
+   `traverse` is by-value; Either's traverse is `traverse on Right`.
+
+3. **`Selective` (between Applicative and Monad).**  Mokhov/Lukyanov's
+   class — `select :: f (Either a b) -> f (a -> b) -> f b` — lets a
+   computation choose between two branches without the full power of
+   `flatMap`, so it stays statically analyseable.  Useful for parsers,
+   build-pipeline planners, anything that wants conditional effects but
+   keeps the call graph inspectable.  Smaller user base than the rest
+   of the hierarchy; ship after (1) and (2) land.
+
+4. **`Arrow` + `Profunctor` as type classes (NOT an optics rewrite).**
+   Adds the typeclass *definitions* and the obvious instances
+   (`Function1` for both, optic-shaped witnesses where they fit):
+
+       trait Profunctor[P[_, _]]:
+         extension [A, B](pab: P[A, B])
+           def dimap[C, D](f: C => A, g: B => D): P[C, D]
+
+       trait Arrow[->>[_, _]] extends Category[->>]:
+         def arr[A, B](f: A => B): A ->> B
+         extension [A, B](f: A ->> B)
+           def split[C, D](g: C ->> D): (A, C) ->> (B, D)
+           def fanout[C](g: A ->> C): A ->> (B, C)
+
+   The **existing concrete optic encoding stays as the primary API**;
+   we don't rewrite `Lens` / `Prism` / `Optional` / `Traversal` in
+   profunctor form (rank-N polymorphism + 5-10× slowdown isn't worth
+   it without a compiler that erases the abstraction).  Instead, expose
+   `Profunctor` and `Arrow` as standalone typeclasses with instances
+   for `Function1` / `Lens[*, *]`-views / `Iso[*, *]`-views so users
+   can write `dimap` / `split` over both functions and optics
+   uniformly.  Roughly: optics keep their concrete `get` / `set`
+   today; profunctor methods are a thin functional veneer on top.
+
+5. **Inference ergonomics (no new keywords).**  Two pragmatic wins
+   while keeping vanilla Scala 3 syntax:
+
+   - **`pure[F](x)` without explicit `summon`.**  Today users have to
+     write `summon[Applicative[F]].pure(x)`; add a top-level `def
+     pure[F[_]: Applicative, A](a: A): F[A] = ...` shortcut in the
+     std prelude so `pure[List](42)` Just Works.  Same for `empty`,
+     `unit`, etc.
+   - **`given` defaults for the common cases** so `xs.traverse(f)` on
+     a `List` finds the instance without imports.  Already works via
+     companion-object givens — just need to wire the std typeclass
+     module into the default import set (similar to how `math`
+     globals are imported today).
+
+   *Explicitly out of scope:* new `typeclass` / `instance` keywords, do-
+   notation desugaring, type defaulting.  Scala 3's `trait` + `given`
+   are sufficient — diverging from them costs more than it earns.
+
+**Profunctor-encoded optics are explicitly deferred** to a possible
+future "Optics 3 — profunctor rewrite" track only if a concrete use
+case demands it.  Current consensus: the concrete encoding is faster
+and more readable; profunctor optics are an academic win that we don't
+need today.
+
+Effort: (1) ~1 day for the typeclasses + instances; (2) ~1 day for
+Traversable + tests; (3) ~half a day; (4) ~1 day for the typeclasses
+and the obvious Function1 instances; (5) ~half a day.  Roughly a week
+end-to-end with conformance tests.
+
 ## v0.6 — Optics (Lens / Prism / Optional / Traversal) — landed
 
 Full optic hierarchy built around `Focus[T](_.path)` and `Prism[Sum, Var]`,
