@@ -2642,7 +2642,7 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |private val _serverExecutor: java.util.concurrent.ExecutorService =
        |  java.util.concurrent.Executors.newSingleThreadExecutor()
        |
-       |class WebSocket(private val socket: java.net.Socket):
+       |class WebSocket(private val socket: java.net.Socket, val request: Request):
        |  import java.io.{BufferedInputStream, ByteArrayOutputStream, OutputStream}
        |  import java.nio.charset.StandardCharsets
        |  import java.util.concurrent.locks.ReentrantLock
@@ -2905,13 +2905,13 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |  if isWs then
        |    val segs = path.split('/').toList.filter(_.nonEmpty)
        |    val matched = _wsRoutes.iterator.flatMap { r =>
-       |      _matchPath(r.pattern, segs).map(_ => r)
+       |      _matchPath(r.pattern, segs).map(params => (r, params))
        |    }.nextOption()
        |    matched match
        |      case None =>
        |        cout.write("HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".getBytes("US-ASCII"))
        |        cout.flush(); client.close()
-       |      case Some(r) =>
+       |      case Some((r, params)) =>
        |        val key = headers.getOrElse("sec-websocket-key", "")
        |        if key.isEmpty then { client.close(); return }
        |        val accept = _wsAcceptKey(key)
@@ -2921,7 +2921,20 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |          "Connection: Upgrade\r\n" +
        |          s"Sec-WebSocket-Accept: $accept\r\n\r\n"
        |        cout.write(resp.getBytes("US-ASCII")); cout.flush()
-       |        val ws = WebSocket(client)
+       |        // Build the Request snapshot — same shape as REST handlers
+       |        // see (sans body / form / files; the WS upgrade is a GET
+       |        // with no body) so WS-side auth can read cookies /
+       |        // Authorization / Origin from `ws.request.headers`.
+       |        val rawQ  = request.split(' ').lift(1).getOrElse("/").split('?').lift(1).getOrElse("")
+       |        val wsReq = Request(
+       |          method  = "GET",
+       |          path    = path,
+       |          params  = params,
+       |          query   = _parseQuery(rawQ),
+       |          headers = headers,
+       |          body    = ""
+       |        )
+       |        val ws = WebSocket(client, wsReq)
        |        // Run the user's `onWebSocket` block on the shared single-
        |        // thread executor so any state it touches (top-level `var`s,
        |        // route registry, etc.) is serial with HTTP handlers and

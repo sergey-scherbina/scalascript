@@ -29,7 +29,12 @@ final class WsConnection(
     private val selector:   java.nio.channels.Selector,
     private val interp:     Interpreter,
     private val executor:   Executor,
-    private val log:        java.io.PrintStream
+    private val log:        java.io.PrintStream,
+    /** Snapshot of the upgrade request (method, path, params, query,
+     *  headers) — exposed to the handler as `ws.request` so WS-side
+     *  auth (cookie / Authorization / Origin) can read the same data
+     *  REST handlers see. */
+    private val request:    Value
 ):
   // Outgoing frames waiting to be written.  Drained by the selector thread
   // in [[flush]]; new bytes appended from any thread via [[enqueue]].
@@ -275,7 +280,8 @@ final class WsConnection(
       "send"      -> send,
       "close"     -> close,
       "onMessage" -> onMessage,
-      "onClose"   -> onClose
+      "onClose"   -> onClose,
+      "request"   -> request
     ))
 
   private def ensureInCapacity(target: Int): Unit =

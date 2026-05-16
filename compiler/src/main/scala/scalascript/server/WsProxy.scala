@@ -5,6 +5,7 @@ import java.nio.ByteBuffer
 import java.nio.channels.{Selector, SelectionKey, ServerSocketChannel, SocketChannel}
 import java.nio.charset.StandardCharsets
 import java.util.concurrent.Executor
+import scalascript.interpreter.Value
 
 /** Single-threaded NIO proxy sitting in front of an internal JDK
  *  `HttpServer`.  Sniffs the request line + headers; on
@@ -190,11 +191,12 @@ final class WsProxy(
 
     val pathFromLine = requestLine.split(' ').lift(1).getOrElse("/")
     val path         = pathFromLine.split('?').head
+    val rawQuery     = pathFromLine.split('?').lift(1).getOrElse("")
     val isWsUpgrade  = headers.get("upgrade").exists(_.equalsIgnoreCase("websocket")) &&
                        headers.get("connection").exists(_.toLowerCase.contains("upgrade"))
 
     isWsUpgrade match
-      case true  => tryUpgrade(conn, path, headers, endIdx + 4, bytes)
+      case true  => tryUpgrade(conn, path, rawQuery, headers, endIdx + 4, bytes)
       case false => beginHttpForward(conn, bytes)
 
   /** Try to match the path against the WS registry and, on success,
@@ -203,6 +205,7 @@ final class WsProxy(
   private def tryUpgrade(
       conn:      Conn,
       path:      String,
+      rawQuery:  String,
       headers:   Map[String, String],
       headEnd:   Int,
       bytesSnap: Array[Byte]
@@ -215,7 +218,7 @@ final class WsProxy(
         conn.outBufs.add(ByteBuffer.wrap(resp))
         conn.outBufs.add(null) // sentinel: close after drain
         conn.key.interestOpsOr(SelectionKey.OP_WRITE)
-      case Some((entry, _)) =>
+      case Some((entry, params)) =>
         val key = headers.getOrElse("sec-websocket-key", "")
         if key.isEmpty then
           closeChain(conn.key); return
@@ -235,9 +238,22 @@ final class WsProxy(
           if n < 0 then
             closeChain(conn.key); return
           written += n
+        // Build a Request-shaped Value so the handler can read auth /
+        // cookies / origin via `ws.request.headers(...)`.  Mirrors the
+        // REST Request shape minus body/form/files (no body on a GET
+        // upgrade) and session/JWT (no eager pre-parsing here — the
+        // handler can derive them from the raw headers if it wants to).
+        val query = parseQueryString(rawQuery)
+        val request = Value.InstanceV("Request", Map(
+          "method"  -> Value.StringV("GET"),
+          "path"    -> Value.StringV(path),
+          "params"  -> Value.MapV(params.map((k, v) => Value.StringV(k) -> Value.StringV(v))),
+          "query"   -> Value.MapV(query.map((k, v)  => Value.StringV(k) -> Value.StringV(v))),
+          "headers" -> Value.MapV(headers.map((k, v) => Value.StringV(k) -> Value.StringV(v)))
+        ))
         // Transition: build the WsConnection and feed any post-handshake
         // bytes already in the buffer through its parser.
-        val ws = WsConnection(conn.ch, conn.key, selector, entry.interpreter, wsExecutor, log)
+        val ws = WsConnection(conn.ch, conn.key, selector, entry.interpreter, wsExecutor, log, request)
         conn.mode = Ws(ws)
         conn.inBuf.clear()
         val tail = bytesSnap.length - headEnd
@@ -301,6 +317,17 @@ final class WsProxy(
         return i
       i += 1
     -1
+
+  private def parseQueryString(q: String): Map[String, String] =
+    if q.isEmpty then Map.empty
+    else q.split('&').iterator.flatMap { pair =>
+      val i = pair.indexOf('=')
+      if i < 0 then Some(java.net.URLDecoder.decode(pair, "UTF-8") -> "")
+      else Some(
+        java.net.URLDecoder.decode(pair.substring(0, i), "UTF-8") ->
+        java.net.URLDecoder.decode(pair.substring(i + 1), "UTF-8")
+      )
+    }.toMap
 
   private def httpResponse(status: Int, reason: String, body: String): Array[Byte] =
     val bb = body.getBytes(StandardCharsets.UTF_8)

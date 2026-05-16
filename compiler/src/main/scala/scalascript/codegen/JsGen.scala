@@ -1131,7 +1131,7 @@ function _wsEncodeClose(code, reason) {
 // with `send` / `close` / `onMessage` / `onClose` and pumps inbound
 // frames through `_wsParseFrame`.  Control frames (ping/close) are
 // handled here; text/binary frames invoke `onMessage` if registered.
-function _wsMakeWebSocket(socket) {
+function _wsMakeWebSocket(socket, request) {
   let onMessage = null;
   let onClose   = null;
   let closing   = false;
@@ -1164,7 +1164,8 @@ function _wsMakeWebSocket(socket) {
       }
     },
     onMessage: (cb) => { onMessage = cb; },
-    onClose:   (cb) => { onClose   = cb; }
+    onClose:   (cb) => { onClose   = cb; },
+    request:   request
   };
 
   socket.on('data', chunk => {
@@ -1262,7 +1263,24 @@ function _wsHandleUpgrade(req, socket) {
         'Connection: Upgrade\r\n' +
         'Sec-WebSocket-Accept: ' + accept + '\r\n\r\n'
       );
-      const ws = _wsMakeWebSocket(socket);
+      // Build a Request-shaped object — same shape as `_mkRequest` for
+      // REST routes (minus body/form/files; the WS upgrade is a GET
+      // with no body) so handlers can read `ws.request.headers.get(...)`
+      // for cookies / Authorization / Origin.
+      const reqHeaders = new Map();
+      for (const [k, v] of Object.entries(req.headers))
+        reqHeaders.set(k, Array.isArray(v) ? (v[0] ?? '') : String(v ?? ''));
+      const reqQuery = new Map();
+      u.searchParams.forEach((v, k) => reqQuery.set(k, v));
+      const request = {
+        _type:  'Request',
+        method: 'GET',
+        path:   u.pathname,
+        params,
+        query:   reqQuery,
+        headers: reqHeaders
+      };
+      const ws = _wsMakeWebSocket(socket, request);
       try { r.handler(ws); } catch (e) { console.error('WS upgrade handler:', e.message); }
       return;
     }
