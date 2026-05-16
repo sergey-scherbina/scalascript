@@ -20,6 +20,10 @@ object JvmGen:
     JvmGen(baseDir).genModule(module)
 
   private case class Block(node: ScalaNode, src: String)
+  /** A heading-bound `html` / `css` code block: render to a string in the
+   *  same source position as the surrounding parsed blocks, then bind to
+   *  `<sectionId>.<lang>` (html or css) at the end of the module. */
+  private case class StringBlockEntry(lang: String, src: String, sectionId: String, order: Int)
 
 class JvmGen(baseDir: Option[os.Path] = None):
   // Effect operations declared in the module, keyed as "Eff.op".
@@ -61,6 +65,12 @@ class JvmGen(baseDir: Option[os.Path] = None):
       sb.append("\n\n")
     }
 
+    // Emit heading-bound string blocks as `lazy val` accessors on a per-section
+    // object.  `lazy val` makes the body see definitions that appear earlier
+    // OR LATER in the module, matching the interpreter's "evaluate at access
+    // time" behaviour (forward references work via Scala's initialisation order).
+    emitStringBlocks(sb)
+
     // Auto-call main entry if declared in front-matter.
     val mainEntry = module.manifest
       .flatMap(_.raw.get("main"))
@@ -69,17 +79,90 @@ class JvmGen(baseDir: Option[os.Path] = None):
 
     sb.toString.stripTrailing() + "\n"
 
+  private def emitStringBlocks(sb: StringBuilder): Unit =
+    if stringBlocks.isEmpty then return
+    sb.append("\n// ── Heading-bound html / css blocks ─────────────────────────────────\n")
+    // Group by section id; emit one object per section with the present
+    // language fields.
+    stringBlocks.groupBy(_.sectionId).foreach { case (id, entries) =>
+      sb.append(s"object $id:\n")
+      entries.sortBy(_.order).foreach { e =>
+        sb.append(s"  lazy val ${e.lang}: String = ${stringBlockTemplate(e.src, e.lang == Lang.Html)}\n")
+      }
+      sb.append("\n")
+    }
+
+  /** Build a Scala 3 `s""" ... """` template that mirrors the interpreter
+   *  rendering: each `${expr}` is wrapped in `_html_interp(...)` for html
+   *  blocks (auto-escape unless `_Raw`) or `_show(...)` for css blocks.
+   *  Literal `$` outside `${...}` is escaped to `$$`. */
+  private def stringBlockTemplate(src: String, escape: Boolean): String =
+    val sb = StringBuilder()
+    sb.append("s\"\"\"")
+    var i = 0
+    while i < src.length do
+      val c = src.charAt(i)
+      if c == '$' && i + 1 < src.length && src.charAt(i + 1) == '{' then
+        val end = findClose(src, i + 2)
+        if end < 0 then
+          sb.append("$$").append(src.substring(i + 1)); i = src.length
+        else
+          val expr = src.substring(i + 2, end).trim
+          val wrap = if escape then "_html_interp" else "_show"
+          sb.append("${").append(wrap).append("(").append(expr).append(")}")
+          i = end + 1
+      else if c == '$' then
+        sb.append("$$"); i += 1
+      else
+        sb.append(c); i += 1
+    sb.append("\"\"\"")
+    sb.toString
+
+  private def findClose(src: String, from: Int): Int =
+    var depth = 1
+    var i = from
+    while i < src.length && depth > 0 do
+      src.charAt(i) match
+        case '{' => depth += 1
+        case '}' => depth -= 1; if depth == 0 then return i
+        case _   => ()
+      i += 1
+    -1
+
+  // Heading-bound string blocks collected during `collectBlocks`; emitted
+  // as `_<id>_<lang>` String vals interleaved with parsed blocks (so they
+  // see preceding definitions), then wrapped in companion objects at the end.
+  private val stringBlocks = mutable.ArrayBuffer.empty[JvmGen.StringBlockEntry]
+
   private def collectBlocks(sections: List[Section]): List[JvmGen.Block] =
     sections.flatMap { s =>
+      val sectionId = sectionIdent(s.heading.text)
       val own = s.content.flatMap {
         case cb: Content.CodeBlock if Lang.isParseable(cb.lang) =>
           cb.tree.map(t => JvmGen.Block(t, cb.source)).toList
+        case cb: Content.CodeBlock if Lang.isStringBlock(cb.lang) =>
+          // Reserve a position in the eventual emission order so the
+          // String val lands between the surrounding parsed blocks.
+          sectionId.foreach { id =>
+            stringBlocks += JvmGen.StringBlockEntry(cb.lang, cb.source, id, stringBlocks.length)
+          }
+          Nil
         case imp: Content.Import =>
           inlineImport(imp.path)
         case _ => Nil
       }
       own ++ collectBlocks(s.subsections)
     }
+
+  /** Mirror Interpreter / JsGen `sectionIdent`. */
+  private def sectionIdent(text: String): Option[String] =
+    val parts = text.split("[^A-Za-z0-9]+").filter(_.nonEmpty)
+    if parts.isEmpty then None
+    else
+      val head = parts.head
+      val tail = parts.tail.map(p => p.head.toUpper + p.tail)
+      val raw  = head + tail.mkString
+      Some(if raw.head.isDigit then "_" + raw else raw)
 
   /** Resolve a `[name](./path.ssc)` Markdown import: parse the referenced
    *  file and return its code blocks, transitively following its own imports.
@@ -966,6 +1049,11 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |  sb.toString
        |
        |def escape(s: Any): String = _htmlEscape(_show(s))
+       |
+       |// Used by heading-bound html-block emission: escape unless raw(...).
+       |def _html_interp(v: Any): String = v match
+       |  case r: _Raw => r.html
+       |  case _       => _htmlEscape(_show(v))
        |
        |extension (sc: StringContext)
        |  def html(args: Any*): String =

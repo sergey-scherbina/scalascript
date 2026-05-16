@@ -792,6 +792,9 @@ class JsGen(baseDir: Option[os.Path] = None):
         case Content.CodeBlock(lang, src, _, _) if Lang.isStandardScala(lang) =>
           flushSS()
           scalaBuf += src.stripTrailing()
+        case cb: Content.CodeBlock if Lang.isStringBlock(cb.lang) =>
+          flushScala()
+          genStringBlock(cb, s)
         case imp: Content.Import =>
           flushScala()
           genImport(imp)
@@ -813,11 +816,75 @@ class JsGen(baseDir: Option[os.Path] = None):
         cb.tree.foreach(genScalaNode)
       case cb: Content.CodeBlock if Lang.isStandardScala(cb.lang) =>
         line(s"/* scala: standard Scala 3 block — compile via Scala.js for JS execution */")
+      case cb: Content.CodeBlock if Lang.isStringBlock(cb.lang) =>
+        genStringBlock(cb, section)
       case imp: Content.Import =>
         genImport(imp)
       case _ => ()
     }
     section.subsections.foreach(genSection)
+
+  /** Emit a heading-bound html / css block: render the source as a JS
+   *  template literal (using `_html_interp` for html), assign to
+   *  `<sectionIdent>.<lang>`. */
+  private def genStringBlock(cb: Content.CodeBlock, section: Section): Unit =
+    sectionIdent(section.heading.text).foreach { id =>
+      val rendered = stringBlockTemplate(cb.source, cb.lang == Lang.Html)
+      // Use `var` so multiple kinds of block in one section (html + css)
+      // can share a single object literal without each invocation
+      // clobbering the previous.
+      line(s"if (typeof $id === 'undefined') var $id = {};")
+      line(s"$id.${cb.lang} = $rendered;")
+    }
+
+  /** Build a JS template literal from the block source, routing every
+   *  `${...}` interpolation through `_html_interp` (html-escape unless raw)
+   *  or `_show` (css passthrough).  The expression text is preserved
+   *  verbatim — JS evaluates it in the surrounding scope at runtime. */
+  private def stringBlockTemplate(src: String, escape: Boolean): String =
+    val sb = StringBuilder()
+    sb.append('`')
+    var i = 0
+    while i < src.length do
+      if i + 1 < src.length && src.charAt(i) == '$' && src.charAt(i + 1) == '{' then
+        val end = findBalancedClose(src, i + 2)
+        if end < 0 then
+          sb.append(jsTemplateEscape(src.substring(i))); i = src.length
+        else
+          val expr = src.substring(i + 2, end).trim
+          val wrap = if escape then "_html_interp" else "_show"
+          sb.append("${").append(wrap).append("(").append(expr).append(")}")
+          i = end + 1
+      else
+        sb.append(jsTemplateEscape(src.charAt(i).toString))
+        i += 1
+    sb.append('`')
+    sb.toString
+
+  private def jsTemplateEscape(s: String): String =
+    s.replace("\\", "\\\\").replace("`", "\\`").replace("$", "\\$")
+
+  private def findBalancedClose(src: String, from: Int): Int =
+    var depth = 1
+    var i = from
+    while i < src.length && depth > 0 do
+      src.charAt(i) match
+        case '{' => depth += 1
+        case '}' => depth -= 1; if depth == 0 then return i
+        case _   => ()
+      i += 1
+    -1
+
+  /** Mirror Interpreter.sectionIdent: camelCase alphanumeric runs, preserve
+   *  the first word's casing; None when the heading is all punctuation. */
+  private def sectionIdent(text: String): Option[String] =
+    val parts = text.split("[^A-Za-z0-9]+").filter(_.nonEmpty)
+    if parts.isEmpty then None
+    else
+      val head = parts.head
+      val tail = parts.tail.map(p => p.head.toUpper + p.tail)
+      val raw  = head + tail.mkString
+      Some(if raw.head.isDigit then "_" + raw else raw)
 
   private def genImport(imp: Content.Import): Unit =
     import scalascript.parser.Parser

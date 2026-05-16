@@ -462,7 +462,10 @@ binds to `Page` (object-style) and `# my page` binds to `myPage`
 (val-style).  Multiple blocks of the same kind in one section overwrite
 each other; an `html` block and a `css` block in the same section both
 land as fields on the same `Page` instance (`Page.html`, `Page.css`).
-Currently interpreter-only; JsGen and JvmGen ignore string-blocks.
+Supported on all three backends: the interpreter renders eagerly in source
+order, JsGen emits JS template literals assigned to a per-section object,
+and JvmGen emits `lazy val` accessors on a per-section `object` so forward
+references to definitions later in the module resolve at access time.
 
 #### Backends
 
