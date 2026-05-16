@@ -49,10 +49,120 @@ function _call(fn, ...args) {
   throw new Error('not callable: ' + _show(fn));
 }
 
+// HTML / CSS interpolators — html"..." auto-escapes interpolated values
+// unless wrapped in raw(...).
+function _htmlEscape(s) {
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+function raw(s)    { return { _type: '_Raw', html: _show(s) }; }
+function escape(s) { return _htmlEscape(_show(s)); }
+function _html_interp(v) {
+  if (v && v._type === '_Raw') return v.html;
+  return _htmlEscape(_show(v));
+}
+
 // Wall-clock for benchmarks — matches ScalaScript's `nanoTime()` primitive.
 // Date.now() is millisecond-resolution, so we multiply to keep a single
 // nanosecond-scale return type across backends.
 function nanoTime() { return Date.now() * 1_000_000; }
+
+// ── REST routing + serve(port) ─────────────────────────────────────────
+// Matches the interpreter / JVM-backend semantics: route(method, path)
+// registers a closure, serve(port) starts Node's http.createServer and
+// dispatches.  Node's event loop keeps the process alive — no Thread.join
+// needed.  Browser-side execution is intentionally out of scope: this
+// runtime require()s 'http' which only exists in Node.
+const _routes = [];
+
+function _parsePath(p) {
+  return p.split('/').filter(s => s.length > 0).map(s =>
+    s.startsWith(':') ? { kind: 'cap', name: s.slice(1) }
+                      : { kind: 'lit', value: s });
+}
+
+function route(method, path) {
+  return function(handler) {
+    _routes.push({ method: method.toUpperCase(), pattern: _parsePath(path), handler });
+  };
+}
+
+function _matchPath(pat, segs) {
+  if (pat.length !== segs.length) return null;
+  const params = new Map();
+  for (let i = 0; i < pat.length; i++) {
+    const p = pat[i];
+    if (p.kind === 'lit') { if (p.value !== segs[i]) return null; }
+    else                  { params.set(p.name, segs[i]); }
+  }
+  return params;
+}
+
+function _mkRequest(req, params, body) {
+  const headers = new Map();
+  for (const [k, v] of Object.entries(req.headers)) {
+    if (Array.isArray(v)) headers.set(k, v[0] ?? '');
+    else                  headers.set(k, String(v ?? ''));
+  }
+  const u = new URL(req.url, 'http://localhost');
+  const query = new Map();
+  u.searchParams.forEach((v, k) => query.set(k, v));
+  return {
+    _type:   'Request',
+    method:  req.method,
+    path:    u.pathname,
+    params,
+    query,
+    headers,
+    body,
+  };
+}
+
+const Response = {
+  html(body)     { return { _type: 'Response', status: 200, headers: new Map([['Content-Type', 'text/html; charset=utf-8']]), body: _show(body) }; },
+  text(body)     { return { _type: 'Response', status: 200, headers: new Map([['Content-Type', 'text/plain; charset=utf-8']]), body: _show(body) }; },
+  json(body)     { return { _type: 'Response', status: 200, headers: new Map([['Content-Type', 'application/json']]), body: _show(body) }; },
+  redirect(to)   { return { _type: 'Response', status: 302, headers: new Map([['Location', to]]), body: '' }; },
+  notFound(body) { return { _type: 'Response', status: 404, headers: new Map(), body: _show(body ?? 'Not Found') }; },
+  status(code, body) { return { _type: 'Response', status: code, headers: new Map(), body: _show(body ?? '') }; },
+};
+
+function serve(port) {
+  const http = require('http');
+  http.createServer((req, res) => {
+    let body = '';
+    req.on('data', chunk => { body += chunk; });
+    req.on('end', () => {
+      try {
+        const method = req.method.toUpperCase();
+        const u = new URL(req.url, 'http://localhost');
+        const segs = u.pathname.split('/').filter(s => s.length > 0);
+        for (const r of _routes) {
+          if (r.method !== method) continue;
+          const params = _matchPath(r.pattern, segs);
+          if (params == null) continue;
+          const request = _mkRequest(req, params, body);
+          const result  = r.handler(request);
+          const headers = result && result.headers instanceof Map ? result.headers : new Map();
+          if (!headers.has('Content-Type')) headers.set('Content-Type', 'text/plain; charset=utf-8');
+          const out = headers ? Object.fromEntries(headers.entries()) : {};
+          res.writeHead(result.status ?? 200, out);
+          res.end(result.body ?? '');
+          return;
+        }
+        res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
+        res.end(`Not Found: ${u.pathname}`);
+      } catch (e) {
+        console.error('route error:', e.message);
+        res.writeHead(500); res.end('Internal Error');
+      }
+    });
+  }).listen(port, () => console.log(`Listening on http://localhost:${port}/`));
+}
 
 function _show(v) {
   if (v === undefined) return '()';
@@ -1206,7 +1316,8 @@ class JsGen(baseDir: Option[os.Path] = None):
 
     // String interpolation
     case Term.Interpolate(Term.Name(prefix), parts, args)
-        if prefix == "s" || prefix == "f" || prefix == "md" =>
+        if prefix == "s" || prefix == "f" || prefix == "md"
+        || prefix == "html" || prefix == "css" =>
       val sb2 = StringBuilder()
       sb2.append("`")
       for i <- parts.indices do
@@ -1214,7 +1325,12 @@ class JsGen(baseDir: Option[os.Path] = None):
         sb2.append(part.replace("`", "\\`").replace("\\", "\\\\").replace("$", "\\$"))
         if i < args.length then
           val arg = args(i).asInstanceOf[Term]
-          sb2.append("${_show(").append(genExpr(arg)).append(")}")
+          val argJs = genExpr(arg)
+          // html"..." escapes interpolated values unless they're a raw() marker.
+          val wrapped =
+            if prefix == "html" then s"_html_interp($argJs)"
+            else                     s"_show($argJs)"
+          sb2.append("${").append(wrapped).append("}")
       sb2.append("`")
       val templateLiteral = sb2.toString
       if prefix == "md" then s"_md($templateLiteral)" else templateLiteral
@@ -1240,13 +1356,17 @@ class JsGen(baseDir: Option[os.Path] = None):
     // Lambda
     case Term.Function.After_4_6_0(paramClause, body) =>
       val params = paramClause.values.map(_.name.value)
-      val paramsStr = if params.length == 1 then params.head else s"(${params.mkString(", ")})"
-      body match
-        case Term.Block(stats) =>
-          val bodyJs = genBlockAsIife(stats)
-          s"$paramsStr => $bodyJs"
-        case expr =>
-          s"$paramsStr => ${genExpr(expr)}"
+      val bodyJs = body match
+        case Term.Block(stats) => genBlockAsIife(stats)
+        case expr              => genExpr(expr)
+      if params.length == 1 then s"${params.head} => $bodyJs"
+      else
+        // Auto-tuple: when this lambda is passed somewhere that supplies a
+        // single tuple-arg (e.g. `pairs.foreach((n, s) => ...)`, where the
+        // callback receives one `[n, s]` array), destructure on entry.
+        val arity   = params.length
+        val joined  = params.mkString(", ")
+        s"((...__a) => { const [$joined] = (__a.length === 1 && Array.isArray(__a[0]) && __a[0].length === $arity) ? __a[0] : __a; return $bodyJs; })"
 
     // Partial function { case ... => ... }
     case Term.PartialFunction(cases) =>
@@ -1510,10 +1630,14 @@ class JsGen(baseDir: Option[os.Path] = None):
     // Lambda — CPS body
     case Term.Function.After_4_6_0(paramClause, body) =>
       val params = paramClause.values.map(_.name.value)
-      val paramsStr = if params.length == 1 then params.head else s"(${params.mkString(", ")})"
-      body match
-        case Term.Block(stats) => s"$paramsStr => ${genCpsBlockAsIife(stats)}"
-        case expr              => s"$paramsStr => ${genCpsExpr(expr)}"
+      val bodyJs = body match
+        case Term.Block(stats) => genCpsBlockAsIife(stats)
+        case expr              => genCpsExpr(expr)
+      if params.length == 1 then s"${params.head} => $bodyJs"
+      else
+        val arity  = params.length
+        val joined = params.mkString(", ")
+        s"((...__a) => { const [$joined] = (__a.length === 1 && Array.isArray(__a[0]) && __a[0].length === $arity) ? __a[0] : __a; return $bodyJs; })"
 
     // Anonymous function with placeholders — body is CPS
     case t: Term.AnonymousFunction =>

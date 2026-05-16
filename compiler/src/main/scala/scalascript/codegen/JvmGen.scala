@@ -54,6 +54,7 @@ class JvmGen(baseDir: Option[os.Path] = None):
     sb.append(preamble)
     if effectOps.nonEmpty    then sb.append(effectsRuntime)
     if mutualGroups.nonEmpty then sb.append(mutualTcoRuntime)
+    if blocksUseRoutes(blocks) then sb.append(serveRuntime)
 
     blocks.foreach { block =>
       sb.append(emitBlock(block).stripTrailing())
@@ -159,6 +160,22 @@ class JvmGen(baseDir: Option[os.Path] = None):
     effectOps.contains(s"$eff.$op")
 
   private def isEffectfulFun(name: String): Boolean = effectfulFuns.contains(name)
+
+  // ─── Routing detection ───────────────────────────────────────────
+  //
+  // True when any code block invokes `route(...)`, in which case JvmGen
+  // emits the serve runtime (Request/Response, registry, HTTP dispatcher).
+
+  private def blocksUseRoutes(blocks: List[JvmGen.Block]): Boolean =
+    blocks.exists { b =>
+      var found = false
+      ScalaNode.fold(b.node) { tree =>
+        if !found then tree.collect {
+          case Term.Apply.After_4_6_0(Term.Name("route"), _) => found = true
+        }
+      }
+      found
+    }
 
   // ─── Mutual-recursion analysis ────────────────────────────────────
   //
@@ -929,6 +946,42 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |      val indent = body.filter(_.trim.nonEmpty).map(_.takeWhile(_ == ' ').length).min
        |      body.map(_.drop(indent)).mkString("\n")
        |
+       |// ── HTML / CSS string interpolators ────────────────────────────────────
+       |// html"..." auto-escapes interpolated values unless wrapped in raw(s).
+       |case class _Raw(html: String)
+       |def raw(s: Any): _Raw = _Raw(_show(s))
+       |
+       |def _htmlEscape(s: String): String =
+       |  val sb = StringBuilder(s.length)
+       |  var i = 0
+       |  while i < s.length do
+       |    s.charAt(i) match
+       |      case '&'  => sb ++= "&amp;"
+       |      case '<'  => sb ++= "&lt;"
+       |      case '>'  => sb ++= "&gt;"
+       |      case '"'  => sb ++= "&quot;"
+       |      case '\'' => sb ++= "&#39;"
+       |      case c    => sb += c
+       |    i += 1
+       |  sb.toString
+       |
+       |def escape(s: Any): String = _htmlEscape(_show(s))
+       |
+       |extension (sc: StringContext)
+       |  def html(args: Any*): String =
+       |    val sb = StringBuilder()
+       |    val parts = sc.parts
+       |    var i = 0
+       |    while i < parts.length do
+       |      sb ++= parts(i)
+       |      if i < args.length then args(i) match
+       |        case r: _Raw => sb ++= r.html
+       |        case v       => sb ++= _htmlEscape(_show(v))
+       |      i += 1
+       |    sb.toString
+       |
+       |  def css(args: Any*): String = sc.s(args.map(_show)*)
+       |
        |case class _Doc(parts: Seq[Any])
        |def doc(args: Any*): _Doc = _Doc(args.toSeq)
        |def render(args: Any*): Unit =
@@ -957,6 +1010,126 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |  while r.isInstanceOf[_TailCall] do
        |    r = r.asInstanceOf[_TailCall].k()
        |  r
+       |
+       |""".stripMargin
+
+  /** Server runtime — REST routing + JDK HttpServer dispatcher.  Emitted only
+   *  when the module calls `route(...)`.  Provides the same Request/Response
+   *  shape and `Response.{html,text,json,redirect,notFound,status}` factories
+   *  as the interpreter, so a single `.ssc` source runs identically through
+   *  `ssc` / `ssc compile`.  `serve(port)` blocks the calling thread; the
+   *  default executor is single-threaded so handler bodies see no concurrency
+   *  unless the user supplies their own synchronisation. */
+  private val serveRuntime: String =
+    """|
+       |// ── REST routing + serve(port) ─────────────────────────────────────────
+       |case class Request(
+       |  method:  String,
+       |  path:    String,
+       |  params:  Map[String, String],
+       |  query:   Map[String, String],
+       |  headers: Map[String, String],
+       |  body:    String
+       |)
+       |
+       |case class Response(
+       |  status:  Int                 = 200,
+       |  headers: Map[String, String] = Map.empty,
+       |  body:    String              = ""
+       |)
+       |
+       |object Response:
+       |  private val Html = Map("Content-Type" -> "text/html; charset=utf-8")
+       |  private val Text = Map("Content-Type" -> "text/plain; charset=utf-8")
+       |  private val Json = Map("Content-Type" -> "application/json")
+       |  def html(body: Any): Response     = Response(200, Html, _show(body))
+       |  def text(body: Any): Response     = Response(200, Text, _show(body))
+       |  def json(body: Any): Response     = Response(200, Json, _show(body))
+       |  def redirect(to: String): Response = Response(302, Map("Location" -> to), "")
+       |  def notFound(body: Any = "Not Found"): Response = Response(404, body = _show(body))
+       |  def status(code: Int, body: Any = ""): Response = Response(code, body = _show(body))
+       |
+       |private enum _Seg:
+       |  case Lit(s: String)
+       |  case Cap(name: String)
+       |
+       |private def _parsePath(p: String): List[_Seg] =
+       |  p.split('/').toList.filter(_.nonEmpty).map { s =>
+       |    if s.startsWith(":") then _Seg.Cap(s.tail) else _Seg.Lit(s)
+       |  }
+       |
+       |private case class _Route(method: String, pattern: List[_Seg], handler: Request => Response)
+       |private val _routes = scala.collection.mutable.ArrayBuffer.empty[_Route]
+       |
+       |def route(method: String, path: String)(handler: Request => Response): Unit =
+       |  _routes += _Route(method.toUpperCase, _parsePath(path), handler)
+       |
+       |private def _matchPath(pat: List[_Seg], segs: List[String]): Option[Map[String, String]] =
+       |  if pat.length != segs.length then None
+       |  else
+       |    val ps = scala.collection.mutable.Map.empty[String, String]
+       |    val ok = pat.zip(segs).forall {
+       |      case (_Seg.Lit(p), a)  => p == a
+       |      case (_Seg.Cap(n), a)  => ps(n) = a; true
+       |    }
+       |    if ok then Some(ps.toMap) else None
+       |
+       |private def _parseQuery(q: String): Map[String, String] =
+       |  if q == null || q.isEmpty then Map.empty
+       |  else q.split('&').iterator.flatMap { pair =>
+       |    val i = pair.indexOf('=')
+       |    if i < 0 then Some(java.net.URLDecoder.decode(pair, "UTF-8") -> "")
+       |    else Some(
+       |      java.net.URLDecoder.decode(pair.substring(0, i), "UTF-8") ->
+       |      java.net.URLDecoder.decode(pair.substring(i + 1), "UTF-8")
+       |    )
+       |  }.toMap
+       |
+       |private def _handle(ex: com.sun.net.httpserver.HttpExchange): Unit =
+       |  try
+       |    val method = ex.getRequestMethod.toUpperCase
+       |    val path   = ex.getRequestURI.getPath
+       |    val segs   = path.split('/').toList.filter(_.nonEmpty)
+       |    val matched = _routes.iterator
+       |      .filter(_.method == method)
+       |      .flatMap(r => _matchPath(r.pattern, segs).map(p => (r, p)))
+       |      .nextOption()
+       |    matched match
+       |      case Some((r, params)) =>
+       |        import scala.jdk.CollectionConverters.*
+       |        val headers = ex.getRequestHeaders.entrySet.iterator.asScala.flatMap { e =>
+       |          if e.getValue.isEmpty then None
+       |          else Some(e.getKey -> e.getValue.get(0))
+       |        }.toMap
+       |        val body = scala.io.Source.fromInputStream(ex.getRequestBody, "UTF-8").mkString
+       |        val req  = Request(method, path, params,
+       |          _parseQuery(ex.getRequestURI.getRawQuery), headers, body)
+       |        _writeResponse(ex, r.handler(req))
+       |      case None =>
+       |        val msg = s"Not Found: $path".getBytes("UTF-8")
+       |        ex.getResponseHeaders.add("Content-Type", "text/plain; charset=utf-8")
+       |        ex.sendResponseHeaders(404, msg.length)
+       |        ex.getResponseBody.write(msg)
+       |  catch case e: Exception =>
+       |    System.err.println(s"route error: ${e.getMessage}")
+       |  finally ex.close()
+       |
+       |private def _writeResponse(ex: com.sun.net.httpserver.HttpExchange, r: Response): Unit =
+       |  r.headers.foreach((k, v) => ex.getResponseHeaders.add(k, v))
+       |  if !r.headers.contains("Content-Type") then
+       |    ex.getResponseHeaders.add("Content-Type", "text/plain; charset=utf-8")
+       |  val bytes = r.body.getBytes("UTF-8")
+       |  ex.sendResponseHeaders(r.status, if bytes.isEmpty then -1L else bytes.length.toLong)
+       |  if bytes.nonEmpty then ex.getResponseBody.write(bytes)
+       |
+       |def serve(port: Int): Unit =
+       |  val server = com.sun.net.httpserver.HttpServer.create(
+       |    java.net.InetSocketAddress(port), 0)
+       |  server.createContext("/", _handle)
+       |  server.setExecutor(java.util.concurrent.Executors.newSingleThreadExecutor())
+       |  server.start()
+       |  println(s"Listening on http://localhost:$port/")
+       |  Thread.currentThread().join()
        |
        |""".stripMargin
 

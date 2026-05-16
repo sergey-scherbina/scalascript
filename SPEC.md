@@ -427,10 +427,19 @@ val outer = html"<div>${raw(safe)}</div>"          // safe passed through
 
 #### Backends
 
-The REST primitives are currently exposed in the **JVM interpreter** only.
-Compiling a route-using `.ssc` file via the JVM or JS backend (`ssc compile`,
-`ssc emit-js`) leaves the calls unresolved — those backends do not bundle a
-server.
+The REST primitives are available on all three backends:
+
+- **JVM interpreter** (`ssc run` / `bin/ssc`) — handlers run inside the
+  interpreter session that registered them.
+- **JVM backend** (`ssc compile` / `bin/sscc`) — JvmGen emits a `serveRuntime`
+  preamble (case classes for `Request` / `Response`, the route registry, and
+  a JDK `HttpServer` dispatcher) when the module calls `route(...)`.  The
+  compiled `.sc` script blocks on `Thread.join` after `serve(port)` returns.
+- **JS backend** (`ssc emit-js` / `bin/jssc`) — JsGen emits a Node `http`
+  server runtime in `JsRuntime`.  Node's event loop keeps the process alive
+  once `serve(port)` calls `server.listen(...)`.  Browser-side execution is
+  intentionally out of scope: the runtime `require()`s `'http'`, which only
+  exists in Node.
 
 ## Appendix A: Reserved Words
 

@@ -32,24 +32,24 @@ without reaching for raw string concatenation.
   single-thread executor + document the limit or (b) lock around
   `Interpreter.invoke`.  Today races are latent.
 
-## v0.3 — Cross-backend REST
+## v0.3 — Cross-backend REST (remaining)
 
-Move the REST primitives off "JVM interpreter only".
+The JVM and JS backends now ship their own `serveRuntime` / `route` runtime
+(see the `feat(web)` cross-backend commit).  What's left:
 
-- **JVM compile backend.**  `ssc compile` for a `.ssc` file using `route(...)`
-  should emit a self-contained Scala 3 script that bundles the `WebServer`
-  runtime, registers the routes, and starts the server via the generated
-  main.  JvmGen needs to know about `route` / `Request` / `Response`.
-- **JS backend.**  Two sub-options to pick from when we get there:
-  - Generate a Node HTTP server (server-side rendering / SPA-less REST).
-  - Generate a client-side router that hydrates `.ssc` documents in the
-    browser.
-  Start with the Node target; it's the natural mirror of `ssc compile`.
+- **Browser-side JS.**  The current JS backend emits a Node server.  A
+  parallel build target should generate a client-side router that hydrates
+  `.ssc` documents in the browser, so a single `.ssc` can run as either
+  Node service or SPA.
 - **`Response.json` auto-serialisation.**  Today the body has to be a
   string the caller serialised.  Add a JSON serialiser for case classes,
   `List`, `Map`, primitives — covering the same value space `Value.show`
   handles.  Probably a third-party lib (`upickle` or `circe`) on the JVM
   and a hand-rolled emitter for JS.
+- **Cross-backend smoke harness.**  Add a script under `bench/` (or a new
+  `e2e/`) that starts the same `rest-api.ssc` through each backend in
+  turn, hits it with `curl`, and diffs the responses — guards against
+  drift between the three serve runtimes.
 
 ## v0.4 — Stability & polish
 
@@ -61,7 +61,6 @@ Known bugs and rough edges that need a separate pass.
   - `xs :+ x` / `x +: xs` cons-append on `List`
   - `xs(i)` apply-on-`List` indexing
   - `m(k)` apply-on-`Map` indexing
-  - tuple destructure in lambda parameters: `(t, i) => ...`
   - `xs.indices` on `List`
 - **`examples/scala-js-demo.ssc` interpreter run.**  The example currently
   exits non-zero under the tree-walking interpreter (uses Scala 3 features
