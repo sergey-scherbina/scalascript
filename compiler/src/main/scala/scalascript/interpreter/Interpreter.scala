@@ -1239,6 +1239,12 @@ class Interpreter(
               s"$tc[$arg]"
             case _ => located("summon: unsupported type")
           Pure(env.getOrElse(key, globals.getOrElse(key, located(s"No given for $key"))))
+        // Prism[Outer, Variant] — focus on a single sum-type variant.
+        case (Term.Name("Prism"), List(_, variantType)) =>
+          val variantName = variantType match
+            case n: Type.Name => n.value
+            case _            => located("Prism[Outer, Variant]: Variant must be a simple type name")
+          Pure(buildPrism(variantName))
         case _ => eval(t.fun, env)  // other type applications — erase type args
 
     // Prefix unary operators: `!x`, `-x`, `+x`, `~x`.
@@ -1387,6 +1393,59 @@ class Interpreter(
       "andThen" -> andThenFn,
       "_path"   -> Value.ListV(path.map(Value.StringV.apply))
     ))
+
+  /** `Prism[Outer, Variant]` — sum-type optic. `getOption` returns `Some(s)` if
+   *  the value is the named variant, else `None`. `set` / `modify` are no-ops
+   *  when the variant doesn't match. */
+  private def buildPrism(variantName: String): Value.InstanceV =
+    val getOptionFn = Value.NativeFnV("Prism.getOption", {
+      case List(s) => s match
+        case Value.InstanceV(t, _) if t == variantName => Pure(Value.OptionV(Some(s)))
+        case _                                          => Pure(Value.OptionV(None))
+      case _ => throw InterpretError("Prism.getOption(s)")
+    })
+    val reverseGetFn = Value.NativeFnV("Prism.reverseGet", {
+      case List(v) => Pure(v)
+      case _       => throw InterpretError("Prism.reverseGet(v)")
+    })
+    val setFn = Value.NativeFnV("Prism.set", {
+      case List(s, v) => s match
+        case Value.InstanceV(t, _) if t == variantName => Pure(v)
+        case _                                          => Pure(s)
+      case _ => throw InterpretError("Prism.set(s, v)")
+    })
+    val modifyFn = Value.NativeFnV("Prism.modify", {
+      case List(s, f) => s match
+        case Value.InstanceV(t, _) if t == variantName => callValue(f, List(s), Map.empty)
+        case _                                          => Pure(s)
+      case _ => throw InterpretError("Prism.modify(s, f)")
+    })
+    val andThenFn = Value.NativeFnV("Prism.andThen", {
+      case List(other: Value.InstanceV) if other.typeName == "Prism" =>
+        other.fields.get("_variant") match
+          case Some(Value.StringV(inner)) => Pure(buildPrismChain(variantName, inner))
+          case _ => throw InterpretError("Prism.andThen: malformed Prism")
+      case List(_) =>
+        throw InterpretError("Prism.andThen(other): only Prism-Prism composition supported in this stage")
+      case _ => throw InterpretError("Prism.andThen(other)")
+    })
+    Value.InstanceV("Prism", Map(
+      "getOption"  -> getOptionFn,
+      "reverseGet" -> reverseGetFn,
+      "set"        -> setFn,
+      "modify"     -> modifyFn,
+      "andThen"    -> andThenFn,
+      "_variant"   -> Value.StringV(variantName)
+    ))
+
+  /** Compose two prisms: `Prism[A, B].andThen(Prism[B, C]): Prism[A, C]`.
+   *  Match succeeds only when the value is the *inner* variant (a B that is
+   *  also a C in our dynamic type model means typeName == innerVariant). */
+  private def buildPrismChain(outerVariant: String, innerVariant: String): Value.InstanceV =
+    // For our flat enum model, both checks collapse to "is the innermost variant".
+    // We keep `outerVariant` only to preserve the documented shape.
+    val _ = outerVariant
+    buildPrism(innerVariant)
 
   /** Compose two arbitrary lenses by chaining their get / set / modify. */
   private def composedLens(a: Value.InstanceV, b: Value.InstanceV): Value.InstanceV =

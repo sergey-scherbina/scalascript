@@ -487,14 +487,22 @@ class JvmGen(baseDir: Option[os.Path] = None):
     }
 
   /** True if the term needs codegen rewriting (effect machinery,
-   *  Focus → Lens expansion) rather than verbatim Scala source emission. */
+   *  Focus → Lens expansion, Prism[O, V] → Prism literal) rather than
+   *  verbatim Scala source emission. */
   private def termNeedsCustomEmit(t: Term): Boolean =
-    termUsesEffects(t) || termContainsFocus(t)
+    termUsesEffects(t) || termContainsFocus(t) || termContainsPrism(t)
 
   private def termContainsFocus(t: Term): Boolean = t match
     case app: Term.Apply if isFocusApp(app) => true
     case _ => t.children.exists {
       case tt: Term => termContainsFocus(tt)
+      case _        => false
+    }
+
+  private def termContainsPrism(t: Term): Boolean = t match
+    case ta: Term.ApplyType if isPrismApplyType(ta) => true
+    case _ => t.children.exists {
+      case tt: Term => termContainsPrism(tt)
       case _        => false
     }
 
@@ -764,7 +772,11 @@ class JvmGen(baseDir: Option[os.Path] = None):
     case app: Term.Apply if isFocusApp(app) =>
       emitFocus(app)
 
-    // If the term has nested effect or Focus content, walk children.
+    // Prism[Outer, Variant] — lower to a Prism(getOption, reverseGet) literal.
+    case ta: Term.ApplyType if isPrismApplyType(ta) =>
+      emitPrism(ta)
+
+    // If the term has nested effect or Focus / Prism content, walk children.
     case _ if termNeedsCustomEmit(term) => emitExprDeep(term)
 
     // Otherwise emit Scala source as-is.
@@ -775,6 +787,21 @@ class JvmGen(baseDir: Option[os.Path] = None):
     case ta: Term.ApplyType                                =>
       ta.fun match { case Term.Name("Focus") => true; case _ => false }
     case _                                                 => false
+
+  private def isPrismApplyType(ta: Term.ApplyType): Boolean = ta.fun match
+    case Term.Name("Prism") => true
+    case _                  => false
+
+  /** Lower `Prism[Outer, Variant]` to a `Prism(getOption, reverseGet)` literal
+   *  that pattern-matches on the variant type. */
+  private def emitPrism(ta: Term.ApplyType): String =
+    ta.argClause.values match
+      case List(outerType, variantType) =>
+        val outer   = outerType.syntax
+        val variant = variantType.syntax
+        s"Prism[$outer, $variant]((s: $outer) => s match { case _v: $variant => Some(_v); case _ => None }, (a: $variant) => a)"
+      case _ =>
+        "??? /* Prism expects two type arguments: Prism[Outer, Variant] */"
 
   /** Lower `Focus[T](_.a.b)` to `Lens[T, _]((s: T) => s.a.b, (s: T, v) =>
    *  s.copy(a = s.a.copy(b = v)))`. `T` is taken from `Focus[T]` if present;
@@ -839,6 +866,8 @@ class JvmGen(baseDir: Option[os.Path] = None):
       sb2.toString
     case t: Term.If =>
       s"if ${emitExpr(t.cond)} then ${emitExpr(t.thenp)} else ${emitExpr(t.elsep)}"
+    case ta: Term.ApplyType if isPrismApplyType(ta) =>
+      emitPrism(ta)
     case app: Term.Apply =>
       app.fun match
         case Term.Apply.After_4_6_0(Term.Name("handle"), _) =>
@@ -1153,15 +1182,29 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |// Mirrors the interpreter / JS backends: a Double whose value is an
        |// integer renders without the trailing ".0" (e.g. 4.0 → "4").
        |def _show(v: Any): String = v match
+       |  case null      => "null"
        |  case d: Double => if d == d.toLong.toDouble then d.toLong.toString else d.toString
        |  case s: String => s
-       |  case null      => "null"
        |  // _Raw HTML nodes (from `raw(...)`, html"...", or DSL tag fns) render
        |  // as their inner string so `println(div(...))` prints the markup.
        |  case r: _Raw   => r.html
        |  // Render a Range like a List so xs.indices and similar lazy
        |  // iterables match the interpreter / JS output ("List(0, 1, 2)").
        |  case r: scala.collection.immutable.Range => r.toList.map(_show).mkString("List(", ", ", ")")
+       |  // Match interpreter/JS rendering of Option, Map, List, Tuple, and
+       |  // case-class instances — recursively `_show` children so a Double
+       |  // inside Some(Circle(5.0)) still drops its trailing `.0`.
+       |  case None       => "None"
+       |  case Some(inner) => "Some(" + _show(inner) + ")"
+       |  case m: Map[?, ?] =>
+       |    if m.isEmpty then "Map()"
+       |    else m.iterator.map((k, vv) => _show(k) + " -> " + _show(vv)).mkString("Map(", ", ", ")")
+       |  case t: scala.Tuple =>
+       |    "(" + t.productIterator.map(_show).mkString(", ") + ")"
+       |  case xs: List[?] => xs.map(_show).mkString("List(", ", ", ")")
+       |  case p: Product if p.productArity > 0 =>
+       |    p.productPrefix + "(" + p.productIterator.map(_show).mkString(", ") + ")"
+       |  case p: Product => p.productPrefix
        |  case other     => other.toString
        |
        |def println(v: Any): Unit = scala.Predef.println(_show(v))
@@ -1335,6 +1378,20 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |  def modify(s: S, f: A => A): S = set(s, f(get(s)))
        |  def andThen[B](other: Lens[A, B]): Lens[S, B] =
        |    Lens(s => other.get(get(s)), (s, b) => set(s, other.set(get(s), b)))
+       |
+       |// ── Prism runtime — sum-type optic, conditional get / set / modify ────
+       |case class Prism[S, A](getOption: S => Option[A], reverseGet: A => S):
+       |  def set(s: S, a: A): S = getOption(s) match
+       |    case Some(_) => reverseGet(a)
+       |    case None    => s
+       |  def modify(s: S, f: A => A): S = getOption(s) match
+       |    case Some(a) => reverseGet(f(a))
+       |    case None    => s
+       |  def andThen[B](other: Prism[A, B]): Prism[S, B] =
+       |    Prism(
+       |      s => getOption(s).flatMap(other.getOption),
+       |      b => reverseGet(other.reverseGet(b))
+       |    )
        |
        |""".stripMargin
 

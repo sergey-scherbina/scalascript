@@ -304,6 +304,32 @@ s.copy(a = s.a.copy(b = v)))`, the JS backend emits a runtime
 `_makeLens([...path])`, and the interpreter builds a path-keyed
 `InstanceV("Lens", ...)`.
 
+`Prism[Outer, Variant]` is the sum-type counterpart of `Lens`: it
+focuses on a single case of an `enum` or sealed hierarchy. `getOption`
+returns `Some(value)` when the runtime variant matches and `None`
+otherwise; `set` and `modify` are no-ops when the variant doesn't
+match.
+
+```scalascript
+enum Shape:
+  case Circle(radius: Int)
+  case Rect(width: Int, height: Int)
+
+val circle = Prism[Shape, Circle]
+val s: Shape = Circle(5)
+
+circle.getOption(s)                         // Some(Circle(5))
+circle.modify(s, c => Circle(c.radius * 2)) // Circle(10)
+circle.set(Rect(3, 4), Circle(9))           // Rect(3, 4) — unchanged
+circle.reverseGet(Circle(7))                // Circle(7) as Shape
+```
+
+The JVM backend lowers `Prism[O, V]` to a `Prism(getOption,
+reverseGet)` literal whose `getOption` is `s match { case _v: V =>
+Some(_v); case _ => None }`. The JS backend emits a runtime
+`_makePrism('V')` and matches on the `_type` field. The interpreter
+matches on the variant's typeName.
+
 ## 6. Module System
 
 ### 6.1 Module Identity
