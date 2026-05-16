@@ -34,11 +34,10 @@ The JVM and JS backends now ship their own `serveRuntime` / `route` runtime
   parallel build target should generate a client-side router that hydrates
   `.ssc` documents in the browser, so a single `.ssc` can run as either
   Node service or SPA.
-- **`Response.json` auto-serialisation.**  Today the body has to be a
-  string the caller serialised.  Add a JSON serialiser for case classes,
-  `List`, `Map`, primitives — covering the same value space `Value.show`
-  handles.  Probably a third-party lib (`upickle` or `circe`) on the JVM
-  and a hand-rolled emitter for JS.
+- ~~**`Response.json` auto-serialisation.**~~  *Landed.*  Hand-rolled
+  encoders on all three backends (INT/JS/JVM) serialise `List`, `Map`,
+  `Option`, primitives, case classes and tuples to byte-identical JSON.
+  Bare `String` bodies still pass through verbatim for back-compat.
 - **Cross-backend smoke harness.**  Add a script under `bench/` (or a new
   `e2e/`) that starts the same `rest-api.ssc` through each backend in
   turn, hits it with `curl`, and diffs the responses — guards against
