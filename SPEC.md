@@ -396,9 +396,11 @@ case class Request(
 ```
 
 `form` is eagerly parsed from `body` when the request's `Content-Type`
-starts with `application/x-www-form-urlencoded`; for any other content
-type it is `Map.empty` and the handler can still read the raw `body`.
-`multipart/form-data` is not yet covered.
+starts with `application/x-www-form-urlencoded` or `multipart/form-data`
+(text parts only — file parts, those with a `filename=` directive, are
+skipped); for any other content type it is `Map.empty` and the handler
+can still read the raw `body`.  A dedicated file-upload API is not yet
+exposed.
 
 #### Response
 

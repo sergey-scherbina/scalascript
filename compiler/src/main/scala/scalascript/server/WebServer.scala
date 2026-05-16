@@ -86,12 +86,16 @@ object WebServer:
     val contentType = headers.collectFirst {
       case (Value.StringV(k), Value.StringV(v)) if k.equalsIgnoreCase("Content-Type") => v
     }.getOrElse("")
-    // Eagerly parse application/x-www-form-urlencoded so `req.form("name")`
-    // works without the handler having to know the encoding.  Other bodies
-    // surface as an empty map; handlers can still read the raw `req.body`.
+    // Eagerly parse a few common form encodings so `req.form("name")` works
+    // without the handler having to know the encoding.  Other bodies surface
+    // as an empty map; handlers can still read the raw `req.body`.
+    //   - application/x-www-form-urlencoded → key=value&… via parseQuery
+    //   - multipart/form-data; boundary=...  → text parts only (files TBD)
+    val ctLower = contentType.toLowerCase
     val form: Map[String, String] =
-      if contentType.toLowerCase.startsWith("application/x-www-form-urlencoded")
-      then parseQuery(body) else Map.empty
+      if ctLower.startsWith("application/x-www-form-urlencoded") then parseQuery(body)
+      else if ctLower.startsWith("multipart/form-data")          then parseMultipart(contentType, body)
+      else Map.empty
     val req = Value.InstanceV("Request", Map(
       "method"  -> Value.StringV(ex.getRequestMethod),
       "path"    -> Value.StringV(ex.getRequestURI.getPath),
@@ -178,6 +182,40 @@ object WebServer:
       try Option(java.nio.file.Files.probeContentType(java.nio.file.Paths.get(name)))
       catch case _: Throwable => None
     }.getOrElse("application/octet-stream")
+
+  /** Minimal `multipart/form-data` parser: extract text-typed parts
+   *  (those without a `filename=` directive) into a `name → value` map.
+   *  File parts are skipped; multi-value names take the last occurrence.
+   *  Body is treated as a String (already decoded as UTF-8 at request
+   *  read time), so byte-exact binary uploads should still be read via
+   *  `req.body` until a full file-part API lands. */
+  private def parseMultipart(contentType: String, body: String): Map[String, String] =
+    val boundary = "boundary=([^;]+)".r.findFirstMatchIn(contentType).map { m =>
+      val raw = m.group(1).trim
+      if raw.startsWith("\"") && raw.endsWith("\"") then raw.substring(1, raw.length - 1) else raw
+    }
+    boundary.fold(Map.empty[String, String]) { b =>
+      val sep   = "--" + b
+      val parts = body.split(java.util.regex.Pattern.quote(sep), -1)
+      val out   = scala.collection.mutable.Map.empty[String, String]
+      // First chunk before the first boundary and the trailing "--" chunk
+      // contain no part data — skip both.
+      parts.drop(1).dropRight(1).foreach { raw =>
+        val part = raw.stripPrefix("\r\n").stripSuffix("\r\n")
+        val sepIdx = part.indexOf("\r\n\r\n")
+        if sepIdx >= 0 then
+          val headerText = part.substring(0, sepIdx)
+          val partBody   = part.substring(sepIdx + 4)
+          val disp       = headerText.linesIterator
+            .find(_.toLowerCase.startsWith("content-disposition"))
+            .getOrElse("")
+          val isFile = disp.toLowerCase.contains("filename=")
+          if !isFile then
+            val nameM = """name="([^"]*)"""".r.findFirstMatchIn(disp)
+            nameM.foreach { m => out(m.group(1)) = partBody }
+      }
+      out.toMap
+    }
 
   private def parseQuery(q: String): Map[String, String] =
     if q.isEmpty then Map.empty

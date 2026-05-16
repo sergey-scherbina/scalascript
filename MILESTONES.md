@@ -14,9 +14,11 @@ without reaching for raw string concatenation.
   h1("Hi"))`) returning HTML-tree values that convert to `String` on output.
   Minimum core: ~30 most common tags, ~20 attributes, sane escaping, splice
   interop with `html"..."` templates.
-- **Multipart form parsing.**  `req.form` now covers
-  `application/x-www-form-urlencoded` on all three backends; add a
-  parser for `multipart/form-data` so file uploads round-trip too.
+- **Multipart file uploads.**  The interpreter now parses
+  `multipart/form-data` text parts into `req.form`; file parts (those
+  with a `filename=` directive) are skipped.  Add a `req.files`-style
+  API plus binary-safe body reading so file uploads round-trip, and
+  port both to JsGen / JvmGen.
 - **Static asset serving for compiled backends.**  Interpreter `serve`
   now falls through to static files (any non-`.ssc` under the root)
   before 404'ing.  The JvmGen / JsGen `serveRuntime` blocks still only
