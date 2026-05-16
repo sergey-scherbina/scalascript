@@ -10,12 +10,11 @@ Direction-A follow-ups from the `feat(web): html"/css" interpolators + route()`
 landing.  Goal: a `.ssc` document can express a full HTML page + REST API
 without reaching for raw string concatenation.
 
-- **A.2 — heading-bound `html` / `css` blocks.**  Today `html"..."` /
-  `css"..."` only work as inline interpolators inside `scalascript` blocks.
-  Make fenced `html` / `css` code blocks parseable as string-blocks: the
-  block's body evaluates as a `String` with the same `${expr}` rules, and
-  the first such block under `# Foo` binds to `Foo.html` / `Foo.css` in
-  scope.  `Lang.isStringBlock` is already in place.
+- **A.2 — heading-bound `html` / `css` blocks on JS / JVM.**  The
+  interpreter now binds each section's first `html` / `css` block to
+  `<sectionIdent>.html` / `<sectionIdent>.css` via `${expr}` rendering.
+  JsGen and JvmGen still ignore string-blocks — give them the same
+  treatment so compiled output sees the same names.
 - **A.2 — typed HTML DSL.**  Tag and attribute constructors (`div(cls := "...",
   h1("Hi"))`) returning HTML-tree values that convert to `String` on output.
   Minimum core: ~30 most common tags, ~20 attributes, sane escaping, splice

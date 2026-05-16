@@ -370,11 +370,79 @@ class Interpreter(out: java.io.PrintStream = System.out, baseDir: Option[os.Path
           }
           case None => 0
         cb.tree.foreach(execBlock)
+      case cb: Content.CodeBlock if Lang.isStringBlock(cb.lang) =>
+        runStringBlock(cb, section)
       case imp: Content.Import =>
         runImport(imp)
       case _ => ()
     }
     section.subsections.foreach(runSection)
+
+  /** Evaluate an `html` or `css` block: ${expr} interpolations are resolved
+   *  in the current globals scope, html-escaped where appropriate, and the
+   *  resulting String is bound to `<sectionId>.<lang>` so the section's
+   *  scalascript blocks can reach it as a normal value.  When a section name
+   *  doesn't form a usable identifier, the binding is skipped — the block
+   *  still exists for its side effect of being parsed for errors. */
+  private def runStringBlock(cb: Content.CodeBlock, section: Section): Unit =
+    val rendered = renderStringBlock(cb.source, cb.lang == Lang.Html)
+    sectionIdent(section.heading.text).foreach { id =>
+      val existing = globals.get(id) match
+        case Some(Value.InstanceV(_, fields)) => fields
+        case _                                => Map.empty[String, Value]
+      val updated = existing + (cb.lang -> Value.StringV(rendered))
+      globals(id) = Value.InstanceV(id, updated)
+    }
+
+  /** Turn a markdown heading into a Scala identifier.  Words (alphanumeric
+   *  runs) become camelCase; the first word preserves its original casing
+   *  so headings like `Page` bind to `Page` (object-style) and `my page`
+   *  to `myPage` (val-style).  Returns None when there are no alphanumeric
+   *  characters at all. */
+  private def sectionIdent(text: String): Option[String] =
+    val parts = text.split("[^A-Za-z0-9]+").filter(_.nonEmpty)
+    if parts.isEmpty then None
+    else
+      val head = parts.head
+      val tail = parts.tail.map(p => p.head.toUpper + p.tail)
+      val raw  = head + tail.mkString
+      Some(if raw.head.isDigit then "_" + raw else raw)
+
+  /** Substitute `${expr}` segments in `src` with the evaluated value's
+   *  `Value.show`.  When `escape` is true (html blocks) and the expression
+   *  result isn't a `raw(...)` marker, the substituted value is HTML-escaped. */
+  private def renderStringBlock(src: String, escape: Boolean): String =
+    val sb  = StringBuilder()
+    var i   = 0
+    val len = src.length
+    while i < len do
+      if i + 1 < len && src.charAt(i) == '$' && src.charAt(i + 1) == '{' then
+        val end = findClosingBrace(src, i + 2)
+        if end < 0 then
+          sb.append(src.substring(i)); i = len
+        else
+          val exprSrc = src.substring(i + 2, end)
+          val parsed  = scala.meta.dialects.Scala3(exprSrc).parse[scala.meta.Term].get
+          val v       = Computation.run(eval(parsed, globals.toMap))
+          val shown   = Value.show(v)
+          sb.append(if escape then htmlEscapeUnlessRaw(v, shown) else shown)
+          i = end + 1
+      else
+        sb.append(src.charAt(i)); i += 1
+    sb.toString
+
+  /** Scan for the matching `}` from `from`, respecting balanced `{`/`}` so
+   *  expressions like `${ if x then "{" else "}" }` parse correctly. */
+  private def findClosingBrace(src: String, from: Int): Int =
+    var depth = 1
+    var i = from
+    while i < src.length && depth > 0 do
+      src.charAt(i) match
+        case '{' => depth += 1
+        case '}' => depth -= 1; if depth == 0 then return i
+        case _   => ()
+      i += 1
+    -1
 
   private def runImport(imp: Content.Import): Unit =
     import scalascript.parser.Parser

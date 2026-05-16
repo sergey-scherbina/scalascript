@@ -431,6 +431,39 @@ val safe = html"<p>hello ${userInput}</p>"        // userInput escaped
 val outer = html"<div>${raw(safe)}</div>"          // safe passed through
 ```
 
+#### Heading-bound `html` / `css` blocks (interpreter)
+
+A fenced ```` ```html ```` or ```` ```css ```` block placed under a
+heading binds the rendered string to a section identifier.  The block
+runs in source order with the rest of the section, so `${expr}` can
+reference any binding defined earlier in the same section.
+
+```ssc
+# Page
+
+```scalascript
+val title = "Welcome"
+val user  = "<World>"
+\```
+
+```html
+<h1>${title}</h1>
+<p>Hello, ${user}</p>
+\```
+
+```scalascript
+println(Page.html)        // <h1>Welcome</h1><p>Hello, &lt;World&gt;</p>
+\```
+```
+
+The section identifier is the heading text camelCased over runs of
+alphanumerics; the first word keeps its original casing so `# Page`
+binds to `Page` (object-style) and `# my page` binds to `myPage`
+(val-style).  Multiple blocks of the same kind in one section overwrite
+each other; an `html` block and a `css` block in the same section both
+land as fields on the same `Page` instance (`Page.html`, `Page.css`).
+Currently interpreter-only; JsGen and JvmGen ignore string-blocks.
+
 #### Backends
 
 The REST primitives are available on all three backends:
