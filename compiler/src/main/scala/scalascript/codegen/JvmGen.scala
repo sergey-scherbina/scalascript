@@ -2646,8 +2646,12 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |  import java.io.{BufferedInputStream, OutputStream}
        |  import java.nio.charset.StandardCharsets
        |  import java.util.concurrent.locks.ReentrantLock
+       |  import java.util.concurrent.atomic.AtomicReference
        |  @volatile private var onMessageCb: String => Unit = null
-       |  @volatile private var onCloseCb:   () => Unit     = null
+       |  // AtomicReference so close-fires-once is enforced by a CAS,
+       |  // not by a best-effort `var = null` read/write race between
+       |  // `close()` and the read-loop's `finally`.
+       |  private val onCloseCb = AtomicReference[() => Unit](null)
        |  @volatile private var closing:     Boolean        = false
        |  private val out: OutputStream                     = socket.getOutputStream
        |  // Frame writes must be serialised so text/close/pong don't interleave
@@ -2678,14 +2682,14 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |          true
        |      finally writeLock.unlock()
        |    if fireOnClose then
-       |      val cb = onCloseCb; onCloseCb = null
+       |      val cb = onCloseCb.getAndSet(null)
        |      if cb != null then _serverExecutor.execute { () =>
        |        try cb() catch case e: Throwable =>
        |          System.err.println(s"WS close handler: ${e.getMessage}")
        |      }
        |
        |  def onMessage(cb: String => Unit): Unit = onMessageCb = cb
-       |  def onClose(cb: () => Unit): Unit       = onCloseCb   = cb
+       |  def onClose(cb: () => Unit): Unit       = onCloseCb.set(cb)
        |
        |  // Read-loop entry point: called from the per-connection thread
        |  // after the handshake completes.  Pulls bytes through the parser,
@@ -2744,7 +2748,7 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |    catch case _: Throwable => ()
        |    finally
        |      try socket.close() catch case _: Throwable => ()
-       |      val cb = onCloseCb; onCloseCb = null
+       |      val cb = onCloseCb.getAndSet(null)
        |      if cb != null then _serverExecutor.execute { () =>
        |        try cb() catch case e: Throwable =>
        |          System.err.println(s"WS close handler: ${e.getMessage}")
