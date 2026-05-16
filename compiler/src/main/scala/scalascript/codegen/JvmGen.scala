@@ -1225,6 +1225,16 @@ class JvmGen(baseDir: Option[os.Path] = None):
   private val serveRuntime: String =
     """|
        |// ── REST routing + serve(port) ─────────────────────────────────────────
+       |case class UploadedFile(
+       |  name:        String,
+       |  filename:    String,
+       |  contentType: String,
+       |  size:        Int,
+       |  // ISO-8859-1 view of the original bytes (1 char = 1 byte). Round-trip
+       |  // back to a byte array with `bytes.getBytes("ISO-8859-1")`.
+       |  bytes:       String
+       |)
+       |
        |case class Request(
        |  method:  String,
        |  path:    String,
@@ -1232,7 +1242,8 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |  query:   Map[String, String],
        |  headers: Map[String, String],
        |  body:    String,
-       |  form:    Map[String, String] = Map.empty
+       |  form:    Map[String, String]         = Map.empty,
+       |  files:   Map[String, UploadedFile]   = Map.empty
        |)
        |
        |case class Response(
@@ -1343,6 +1354,47 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |    )
        |  }.toMap
        |
+       |/** Multipart parser — see WebServer.parseMultipart for the design notes.
+       | *  `bodyLatin1` is byte-equivalent to the wire body so split/index are
+       | *  byte-exact even when parts carry binary content. */
+       |private def _parseMultipart(
+       |    contentType: String,
+       |    bodyLatin1:  String
+       |): (Map[String, String], Map[String, UploadedFile]) =
+       |  val boundary = "boundary=([^;]+)".r.findFirstMatchIn(contentType).map { m =>
+       |    val raw = m.group(1).trim
+       |    if raw.startsWith("\"") && raw.endsWith("\"") then raw.substring(1, raw.length - 1) else raw
+       |  }
+       |  boundary.fold((Map.empty[String, String], Map.empty[String, UploadedFile])) { b =>
+       |    val sep   = "--" + b
+       |    val parts = bodyLatin1.split(java.util.regex.Pattern.quote(sep), -1)
+       |    val form  = scala.collection.mutable.Map.empty[String, String]
+       |    val files = scala.collection.mutable.Map.empty[String, UploadedFile]
+       |    parts.drop(1).dropRight(1).foreach { raw =>
+       |      val part   = raw.stripPrefix("\r\n").stripSuffix("\r\n")
+       |      val sepIdx = part.indexOf("\r\n\r\n")
+       |      if sepIdx >= 0 then
+       |        val headerText = part.substring(0, sepIdx)
+       |        val partBody   = part.substring(sepIdx + 4)
+       |        val disp = headerText.linesIterator
+       |          .find(_.toLowerCase.startsWith("content-disposition"))
+       |          .getOrElse("")
+       |        val ctype = headerText.linesIterator
+       |          .find(_.toLowerCase.startsWith("content-type"))
+       |          .map(_.split(":", 2).lift(1).getOrElse("").trim)
+       |          .getOrElse("application/octet-stream")
+       |        val name     = "name=\"([^\"]*)\"".r.findFirstMatchIn(disp).map(_.group(1))
+       |        val filename = "filename=\"([^\"]*)\"".r.findFirstMatchIn(disp).map(_.group(1))
+       |        (name, filename) match
+       |          case (Some(n), Some(fn)) =>
+       |            files(n) = UploadedFile(n, fn, ctype, partBody.length, partBody)
+       |          case (Some(n), None) =>
+       |            form(n) = new String(partBody.getBytes("ISO-8859-1"), "UTF-8")
+       |          case _ => ()
+       |    }
+       |    (form.toMap, files.toMap)
+       |  }
+       |
        |private def _handle(ex: com.sun.net.httpserver.HttpExchange): Unit =
        |  try
        |    val method = ex.getRequestMethod.toUpperCase
@@ -1359,15 +1411,24 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |          if e.getValue.isEmpty then None
        |          else Some(e.getKey -> e.getValue.get(0))
        |        }.toMap
-       |        val body = scala.io.Source.fromInputStream(ex.getRequestBody, "UTF-8").mkString
+       |        // Read body as bytes so multipart file parts round-trip byte-exact.
+       |        // `body` is the UTF-8 view (back-compat); `bodyLatin1` is a
+       |        // byte-equivalent String for multipart parsing.
+       |        val bodyBytes  = ex.getRequestBody.readAllBytes()
+       |        val body       = new String(bodyBytes, "UTF-8")
+       |        val bodyLatin1 = new String(bodyBytes, "ISO-8859-1")
        |        val ct   = headers.collectFirst {
        |          case (k, v) if k.equalsIgnoreCase("Content-Type") => v
        |        }.getOrElse("")
-       |        val form =
-       |          if ct.toLowerCase.startsWith("application/x-www-form-urlencoded")
-       |          then _parseQuery(body) else Map.empty[String, String]
+       |        val (form, files) =
+       |          if ct.toLowerCase.startsWith("application/x-www-form-urlencoded") then
+       |            (_parseQuery(body), Map.empty[String, UploadedFile])
+       |          else if ct.toLowerCase.startsWith("multipart/form-data") then
+       |            _parseMultipart(ct, bodyLatin1)
+       |          else
+       |            (Map.empty[String, String], Map.empty[String, UploadedFile])
        |        val req  = Request(method, path, params,
-       |          _parseQuery(ex.getRequestURI.getRawQuery), headers, body, form)
+       |          _parseQuery(ex.getRequestURI.getRawQuery), headers, body, form, files)
        |        _writeResponse(ex, r.handler(req))
        |      case None =>
        |        // Fall through to a static file under the current directory

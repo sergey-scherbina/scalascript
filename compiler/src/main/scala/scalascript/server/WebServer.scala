@@ -82,20 +82,30 @@ object WebServer:
         if e.getValue.isEmpty then None
         else Some(Value.StringV(e.getKey) -> Value.StringV(e.getValue.get(0)))
       }.toMap
-    val body = scala.io.Source.fromInputStream(ex.getRequestBody, "UTF-8").mkString
+    // Read the body as raw bytes (the only byte-clean source for multipart
+    // file parts).  `req.body` exposes the UTF-8 view for back-compat; the
+    // parsers below see a Latin-1 view that is byte-equivalent and works
+    // with String operations.
+    val bodyBytes  = ex.getRequestBody.readAllBytes()
+    val body       = new String(bodyBytes, "UTF-8")
+    val bodyLatin1 = new String(bodyBytes, "ISO-8859-1")
     val contentType = headers.collectFirst {
       case (Value.StringV(k), Value.StringV(v)) if k.equalsIgnoreCase("Content-Type") => v
     }.getOrElse("")
     // Eagerly parse a few common form encodings so `req.form("name")` works
     // without the handler having to know the encoding.  Other bodies surface
     // as an empty map; handlers can still read the raw `req.body`.
-    //   - application/x-www-form-urlencoded → key=value&… via parseQuery
-    //   - multipart/form-data; boundary=...  → text parts only (files TBD)
+    //   - application/x-www-form-urlencoded  → key=value&… via parseQuery
+    //   - multipart/form-data; boundary=…    → text parts to req.form,
+    //                                          file parts to req.files
     val ctLower = contentType.toLowerCase
-    val form: Map[String, String] =
-      if ctLower.startsWith("application/x-www-form-urlencoded") then parseQuery(body)
-      else if ctLower.startsWith("multipart/form-data")          then parseMultipart(contentType, body)
-      else Map.empty
+    val (form, files): (Map[String, String], Map[String, Value]) =
+      if ctLower.startsWith("application/x-www-form-urlencoded") then
+        (parseQuery(body), Map.empty[String, Value])
+      else if ctLower.startsWith("multipart/form-data") then
+        parseMultipart(contentType, bodyLatin1)
+      else
+        (Map.empty[String, String], Map.empty[String, Value])
     val req = Value.InstanceV("Request", Map(
       "method"  -> Value.StringV(ex.getRequestMethod),
       "path"    -> Value.StringV(ex.getRequestURI.getPath),
@@ -103,7 +113,8 @@ object WebServer:
       "query"   -> Value.MapV(query.map((k, v) => Value.StringV(k) -> Value.StringV(v))),
       "headers" -> Value.MapV(headers),
       "body"    -> Value.StringV(body),
-      "form"    -> Value.MapV(form.map((k, v) => Value.StringV(k) -> Value.StringV(v)))
+      "form"    -> Value.MapV(form.map((k, v) => Value.StringV(k) -> Value.StringV(v))),
+      "files"   -> Value.MapV(files.map((k, v) => Value.StringV(k) -> v))
     ))
     val result = entry.interpreter.invoke(entry.handler, List(req))
     writeResponse(result, ex)
@@ -183,38 +194,65 @@ object WebServer:
       catch case _: Throwable => None
     }.getOrElse("application/octet-stream")
 
-  /** Minimal `multipart/form-data` parser: extract text-typed parts
-   *  (those without a `filename=` directive) into a `name → value` map.
-   *  File parts are skipped; multi-value names take the last occurrence.
-   *  Body is treated as a String (already decoded as UTF-8 at request
-   *  read time), so byte-exact binary uploads should still be read via
-   *  `req.body` until a full file-part API lands. */
-  private def parseMultipart(contentType: String, body: String): Map[String, String] =
+  /** Parse `multipart/form-data` into text + file parts.
+   *
+   *  `bodyLatin1` is the request body decoded as ISO-8859-1, where each
+   *  Java char is byte-equivalent to the original input byte — boundary
+   *  matching and part splitting therefore work byte-exactly on Strings.
+   *
+   *  Text parts (no `filename=`) become String values in `form`, UTF-8
+   *  decoded from their byte representation.
+   *
+   *  File parts (with `filename=`) become an `UploadedFile` instance in
+   *  `files`, where `bytes` is the raw part body still in its Latin-1
+   *  String form.  Round-trip back to bytes with `bytes.getBytes("ISO-8859-1")`.
+   */
+  private def parseMultipart(
+      contentType: String,
+      bodyLatin1:  String
+  ): (Map[String, String], Map[String, scalascript.interpreter.Value]) =
+    import scalascript.interpreter.Value
     val boundary = "boundary=([^;]+)".r.findFirstMatchIn(contentType).map { m =>
       val raw = m.group(1).trim
       if raw.startsWith("\"") && raw.endsWith("\"") then raw.substring(1, raw.length - 1) else raw
     }
-    boundary.fold(Map.empty[String, String]) { b =>
+    boundary.fold((Map.empty[String, String], Map.empty[String, Value])) { b =>
       val sep   = "--" + b
-      val parts = body.split(java.util.regex.Pattern.quote(sep), -1)
-      val out   = scala.collection.mutable.Map.empty[String, String]
+      val parts = bodyLatin1.split(java.util.regex.Pattern.quote(sep), -1)
+      val form  = scala.collection.mutable.Map.empty[String, String]
+      val files = scala.collection.mutable.Map.empty[String, Value]
       // First chunk before the first boundary and the trailing "--" chunk
       // contain no part data — skip both.
       parts.drop(1).dropRight(1).foreach { raw =>
-        val part = raw.stripPrefix("\r\n").stripSuffix("\r\n")
+        val part   = raw.stripPrefix("\r\n").stripSuffix("\r\n")
         val sepIdx = part.indexOf("\r\n\r\n")
         if sepIdx >= 0 then
           val headerText = part.substring(0, sepIdx)
-          val partBody   = part.substring(sepIdx + 4)
-          val disp       = headerText.linesIterator
+          val partBody   = part.substring(sepIdx + 4) // still ISO-8859-1
+          val disp = headerText.linesIterator
             .find(_.toLowerCase.startsWith("content-disposition"))
             .getOrElse("")
-          val isFile = disp.toLowerCase.contains("filename=")
-          if !isFile then
-            val nameM = """name="([^"]*)"""".r.findFirstMatchIn(disp)
-            nameM.foreach { m => out(m.group(1)) = partBody }
+          val ctype = headerText.linesIterator
+            .find(_.toLowerCase.startsWith("content-type"))
+            .map(_.split(":", 2).lift(1).getOrElse("").trim)
+            .getOrElse("application/octet-stream")
+          val name     = """name="([^"]*)"""".r.findFirstMatchIn(disp).map(_.group(1))
+          val filename = """filename="([^"]*)"""".r.findFirstMatchIn(disp).map(_.group(1))
+          (name, filename) match
+            case (Some(n), Some(fn)) =>
+              files(n) = Value.InstanceV("UploadedFile", Map(
+                "name"        -> Value.StringV(n),
+                "filename"    -> Value.StringV(fn),
+                "contentType" -> Value.StringV(ctype),
+                "size"        -> Value.IntV(partBody.length),
+                "bytes"       -> Value.StringV(partBody) // bytes preserved as Latin-1 String
+              ))
+            case (Some(n), None) =>
+              // text part: re-decode as UTF-8 from its byte view
+              form(n) = new String(partBody.getBytes("ISO-8859-1"), "UTF-8")
+            case _ => ()
       }
-      out.toMap
+      (form.toMap, files.toMap)
     }
 
   private def parseQuery(q: String): Map[String, String] =

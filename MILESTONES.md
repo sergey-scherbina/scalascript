@@ -4,18 +4,6 @@ Tracks work that is **not yet done**. As things land, move them out of here
 (into git history) rather than ticking checkboxes — the file should always
 read forward.
 
-## v0.2 — Web layer maturity
-
-Direction-A follow-ups from the `feat(web): html"/css" interpolators + route()`
-landing.  Goal: a `.ssc` document can express a full HTML page + REST API
-without reaching for raw string concatenation.
-
-- **Multipart file uploads.**  The interpreter now parses
-  `multipart/form-data` text parts into `req.form`; file parts (those
-  with a `filename=` directive) are skipped.  Add a `req.files`-style
-  API plus binary-safe body reading so file uploads round-trip, and
-  port both to JsGen / JvmGen.
-
 ## v0.5 — Interpreter performance (Tier 1) — landed
 
 Closed in a series of small commits on the

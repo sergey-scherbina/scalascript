@@ -173,7 +173,7 @@ function _matchPath(pat, segs) {
   return params;
 }
 
-function _mkRequest(req, params, body) {
+function _mkRequest(req, params, bodyBuf) {
   const headers = new Map();
   for (const [k, v] of Object.entries(req.headers)) {
     if (Array.isArray(v)) headers.set(k, v[0] ?? '');
@@ -182,12 +182,19 @@ function _mkRequest(req, params, body) {
   const u = new URL(req.url, 'http://localhost');
   const query = new Map();
   u.searchParams.forEach((v, k) => query.set(k, v));
-  // Eagerly parse application/x-www-form-urlencoded so `req.form("name")`
-  // works without the handler having to know the encoding.
-  const form = new Map();
-  const ct = (headers.get('content-type') || headers.get('Content-Type') || '').toLowerCase();
+  // `bodyBuf` is a Buffer (byte-exact). The UTF-8 view goes to req.body
+  // for back-compat; multipart parsing uses the latin1 view, which is
+  // 1-char-per-byte so JS string operations preserve binary content.
+  const body       = bodyBuf.toString('utf8');
+  const bodyLatin1 = bodyBuf.toString('latin1');
+  const ct  = (headers.get('content-type') || headers.get('Content-Type') || '').toLowerCase();
+  const ctOrig = headers.get('content-type') || headers.get('Content-Type') || '';
+  const form  = new Map();
+  const files = new Map();
   if (ct.startsWith('application/x-www-form-urlencoded')) {
     new URLSearchParams(body).forEach((v, k) => form.set(k, v));
+  } else if (ct.startsWith('multipart/form-data')) {
+    _parseMultipart(ctOrig, bodyLatin1, form, files);
   }
   return {
     _type:   'Request',
@@ -198,7 +205,52 @@ function _mkRequest(req, params, body) {
     headers,
     body,
     form,
+    files,
   };
+}
+
+// `bodyLatin1` is the body decoded as Latin-1 (1 char = 1 byte), so the
+// boundary split is byte-exact even when parts contain binary.  Text
+// parts get UTF-8-decoded for `form`; file parts surface as an
+// `UploadedFile` whose `bytes` field is still Latin-1 — round-trip back
+// to bytes with `Buffer.from(bytes, 'latin1')`.
+function _parseMultipart(contentType, bodyLatin1, form, files) {
+  const m = /boundary=([^;]+)/.exec(contentType);
+  if (!m) return;
+  let b = m[1].trim();
+  if (b.startsWith('"') && b.endsWith('"')) b = b.slice(1, -1);
+  const sep = '--' + b;
+  // Split on the boundary; first chunk (preamble) and last chunk (closing --)
+  // contain no part data — skip both.
+  const chunks = bodyLatin1.split(sep);
+  for (let i = 1; i < chunks.length - 1; i++) {
+    let part = chunks[i];
+    if (part.startsWith('\r\n')) part = part.slice(2);
+    if (part.endsWith('\r\n'))   part = part.slice(0, -2);
+    const headEnd = part.indexOf('\r\n\r\n');
+    if (headEnd < 0) continue;
+    const headerText = part.slice(0, headEnd);
+    const partBody   = part.slice(headEnd + 4); // still latin1
+    const dispLine = headerText.split(/\r\n/).find(l => /^content-disposition/i.test(l)) || '';
+    const ctLine   = headerText.split(/\r\n/).find(l => /^content-type/i.test(l)) || '';
+    const ctype    = ctLine ? ctLine.split(':').slice(1).join(':').trim() : 'application/octet-stream';
+    const nameM     = /name="([^"]*)"/.exec(dispLine);
+    const filenameM = /filename="([^"]*)"/.exec(dispLine);
+    if (!nameM) continue;
+    if (filenameM) {
+      files.set(nameM[1], {
+        _type:       'UploadedFile',
+        name:        nameM[1],
+        filename:    filenameM[1],
+        contentType: ctype,
+        size:        partBody.length,
+        bytes:       partBody, // latin1-encoded; Buffer.from(., 'latin1') restores bytes
+      });
+    } else {
+      // text part: re-decode the byte view as UTF-8
+      form.set(nameM[1], Buffer.from(partBody, 'latin1').toString('utf8'));
+    }
+  }
 }
 
 // JSON-encode anything: strings pass through as raw JSON (so hand-built
@@ -304,10 +356,13 @@ function _contentTypeFor(name) {
 function serve(port) {
   const http = require('http');
   http.createServer((req, res) => {
-    let body = '';
-    req.on('data', chunk => { body += chunk; });
+    // Collect chunks as Buffers (not strings) so multipart file uploads
+    // round-trip byte-for-byte.
+    const chunks = [];
+    req.on('data', c => chunks.push(c));
     req.on('end', () => {
       try {
+        const bodyBuf = Buffer.concat(chunks);
         const method = req.method.toUpperCase();
         const u = new URL(req.url, 'http://localhost');
         const segs = u.pathname.split('/').filter(s => s.length > 0);
@@ -315,7 +370,7 @@ function serve(port) {
           if (r.method !== method) continue;
           const params = _matchPath(r.pattern, segs);
           if (params == null) continue;
-          const request = _mkRequest(req, params, body);
+          const request = _mkRequest(req, params, bodyBuf);
           const result  = r.handler(request);
           const headers = result && result.headers instanceof Map ? result.headers : new Map();
           if (!headers.has('Content-Type')) headers.set('Content-Type', 'text/plain; charset=utf-8');
@@ -543,6 +598,7 @@ function _dispatch(obj, method, args) {
       case 'toDouble': return parseFloat(obj);
       case 'toList': return [...obj];
       case 'charAt': return obj[args[0]];
+      case 'codePointAt': return obj.codePointAt(args[0]);
       case 'substring': return obj.substring(args[0], args[1]);
       case 'take': return obj.slice(0, args[0]);
       case 'drop': return obj.slice(args[0]);

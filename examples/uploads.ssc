@@ -1,0 +1,44 @@
+#!/usr/bin/env ssc
+---
+name: uploads
+version: 1.0.0
+description: Minimal multipart/form-data demo — req.files round-trips binary bytes.
+---
+
+# File uploads
+
+Two routes:
+
+- `POST /upload` — accepts `multipart/form-data`.  Reads the `file` part,
+  inspects `req.files("file")`, and returns a textual summary covering the
+  filename, content-type, size in bytes, plus the first and last byte
+  values (numeric, 0–255).
+- `GET /` — a tiny HTML form that posts to `/upload`.
+
+```scalascript
+route("POST", "/upload") { req =>
+  if req.files.contains("file") then
+    val f = req.files("file")
+    val first = if f.size > 0 then f.bytes.codePointAt(0) else -1
+    val last  = if f.size > 0 then f.bytes.codePointAt(f.size - 1) else -1
+    Response.text(
+      s"filename=${f.filename}|content-type=${f.contentType}|size=${f.size}|first=${first}|last=${last}"
+    )
+  else Response.status(400, "missing 'file' part")
+}
+
+route("GET", "/") { req =>
+  Response.html(html"""<!doctype html>
+<html><head><title>Upload</title></head>
+<body>
+  <h1>Upload</h1>
+  <form method="POST" action="/upload" enctype="multipart/form-data">
+    <input type="file" name="file" required>
+    <button type="submit">Upload</button>
+  </form>
+</body></html>""")
+}
+
+println("Listening on http://localhost:8766/")
+serve(8766)
+```

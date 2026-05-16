@@ -1500,6 +1500,27 @@ class Interpreter(out: java.io.PrintStream = System.out, baseDir: Option[os.Path
       case (Value.StringV(s), "take",         List(Value.IntV(n))) => Pure(Value.StringV(s.take(n.toInt)))
       case (Value.StringV(s), "drop",         List(Value.IntV(n))) => Pure(Value.StringV(s.drop(n.toInt)))
       case (Value.StringV(s), "replace",      List(Value.StringV(a), Value.StringV(b))) => Pure(Value.StringV(s.replace(a, b)))
+      case (Value.StringV(s), "charAt",       List(Value.IntV(i))) =>
+        if i < 0 || i >= s.length then located(s"index $i out of bounds for string of length ${s.length}")
+        else Pure(Value.CharV(s.charAt(i.toInt)))
+      case (Value.StringV(s), "apply",        List(Value.IntV(i))) =>
+        if i < 0 || i >= s.length then located(s"index $i out of bounds for string of length ${s.length}")
+        else Pure(Value.CharV(s.charAt(i.toInt)))
+      case (Value.StringV(s), "head",         Nil) =>
+        if s.isEmpty then located("head on empty String") else Pure(Value.CharV(s.head))
+      case (Value.StringV(s), "last",         Nil) =>
+        if s.isEmpty then located("last on empty String") else Pure(Value.CharV(s.last))
+      case (Value.StringV(s), "indexOf",      List(Value.StringV(t))) => Pure(Value.IntV(s.indexOf(t).toLong))
+      case (Value.StringV(s), "indexOf",      List(Value.CharV(c)))   => Pure(Value.IntV(s.indexOf(c.toInt).toLong))
+      case (Value.StringV(s), "codePointAt",  List(Value.IntV(i)))    =>
+        if i < 0 || i >= s.length then located(s"index $i out of bounds for string of length ${s.length}")
+        else Pure(Value.IntV(s.codePointAt(i.toInt).toLong))
+      // ── Char ────────────────────────────────────────────────────
+      case (Value.CharV(c), "toInt",      Nil) => Pure(Value.IntV(c.toInt.toLong))
+      case (Value.CharV(c), "toLong",     Nil) => Pure(Value.IntV(c.toLong))
+      case (Value.CharV(c), "toString",   Nil) => Pure(Value.StringV(c.toString))
+      case (Value.CharV(c), "isDigit",    Nil) => Pure(Value.BoolV(c.isDigit))
+      case (Value.CharV(c), "isLetter",   Nil) => Pure(Value.BoolV(c.isLetter))
       case (Value.StringV(s), "map",          List(f)) =>
         Computation.sequence(s.toList.map(c => callValue(f, List(Value.CharV(c)), env))).map {
           case Value.ListV(items) => Value.StringV(items.map(Value.show).mkString)
