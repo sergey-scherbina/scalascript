@@ -4,7 +4,7 @@ Tracks work that is **not yet done**. As things land, move them out of here
 (into git history) rather than ticking checkboxes — the file should always
 read forward.
 
-## v0.8 — WebSocket production-readiness
+## v1.0 — WebSocket production-readiness
 
 The WS stack landed in v0.7 covers the API surface across all three
 backends (`onWebSocket(path) { ws => … }`, framing, fragmentation,
@@ -12,29 +12,6 @@ backends (`onWebSocket(path) { ws => … }`, framing, fragmentation,
 but still has known production gaps.  Listed in order of "stops
 real problems" → "feature gaps" → "nice to have"; each sprint is a
 session-sized chunk.
-
-### Sprint 1 — slow-client head-of-line
-
-A `clients.foreach { _.send(msg) }` broadcast still blocks on the
-slowest peer on JvmGen, because `out.write` is synchronous and
-serialised through `_serverExecutor`.  Interpreter already solves
-this via the NIO outbox + cap; JsGen mostly solves it via Node's
-async writes but leaks memory on slow peers.
-
-1. **JvmGen — per-connection write-queue + writer virtual thread.**
-   Each `WebSocket` gets a `LinkedBlockingQueue[Array[Byte]]` and a
-   dedicated writer VT.  `ws.send(s)` enqueues (O(1), non-blocking),
-   the writer pulls and writes blocking on its own thread.  Slow
-   peer → queue grows → at cap drop the connection.  ~50 LOC in
-   `serveRuntime`.
-2. **JsGen — backpressure on `socket.write`.**  Check the return
-   value (false = TCP-buffer full) and the `socket.writableLength`
-   counter; close the connection past a cap so Node's internal
-   buffer doesn't pile up unbounded.  ~15 LOC.
-3. **Regression test.**  100 concurrent clients, 1 deliberately
-   slow (e.g. doesn't read).  Broadcast must finish in < 100 ms
-   wall-clock; the slow client gets dropped, the other 99 keep
-   echoing.  ~80 LOC of test scaffolding.
 
 ### Sprint 2 — security / robustness hardening
 
