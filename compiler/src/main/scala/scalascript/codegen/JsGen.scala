@@ -562,12 +562,73 @@ function oauthAuthorizeUrl(provider, clientId, redirectUri, state, scope) {
   if (eff) params.set('scope', eff);
   return cfg.authorizeUrl + '?' + params.toString();
 }
-// Node's fetch is async — the synchronous oauthExchangeCode contract
-// from the interpreter / JVM backends doesn't translate cleanly, so
-// the JS Node runtime issues the token POST via a blocking sub-process
-// (curl).  Not pretty, but it gives byte-identical semantics across
-// backends without dragging in deasync or rewriting the user code to
-// be async.
+// Node's fetch is async; the OAuth surface across backends is sync.
+// We bridge the gap with worker_threads + Atomics.wait: spawn a Worker
+// that does `await fetch(...)` and posts the result back through a
+// MessageChannel; the main thread blocks on Atomics.wait until the
+// Worker signals completion, then drains the message synchronously
+// via receiveMessageOnPort.  Pure Node built-ins — no external binary,
+// no extra dependencies.  Worker creation is ~50-100ms one-time;
+// OAuth flows are rare (once per login) so we don't pool.
+function _oauthSyncFetch(method, url, headers, body) {
+  const { Worker, MessageChannel, receiveMessageOnPort } = require('worker_threads');
+  const sab  = new SharedArrayBuffer(4);
+  const flag = new Int32Array(sab);
+  const { port1, port2 } = new MessageChannel();
+  const workerSrc = [
+    'const { parentPort, workerData } = require(\'worker_threads\');',
+    'const flag = new Int32Array(workerData.sab);',
+    'const port = workerData.port;',
+    '(async () => {',
+    '  let msg;',
+    '  try {',
+    '    const r = await fetch(workerData.url, {',
+    '      method:  workerData.method,',
+    '      headers: workerData.headers,',
+    '      body:    workerData.body,',
+    '    });',
+    '    const text = await r.text();',
+    '    const ct   = r.headers.get(\'content-type\') || \'\';',
+    '    msg = { ok: r.ok, status: r.status, contentType: ct, body: text };',
+    '  } catch (e) {',
+    '    msg = { ok: false, error: String(e) };',
+    '  }',
+    '  port.postMessage(msg);',
+    '  Atomics.store(flag, 0, 1);',
+    '  Atomics.notify(flag, 0);',
+    '})();',
+  ].join('\n');
+  const worker = new Worker(workerSrc, {
+    eval: true,
+    workerData: { sab, port: port2, url, method, headers, body },
+    transferList: [port2],
+  });
+  // Block the main thread until the worker bumps the flag.  Cap at 35s
+  // so a dead provider doesn't hang the route handler forever.
+  Atomics.wait(flag, 0, 0, 35_000);
+  const drained = receiveMessageOnPort(port1);
+  worker.terminate();
+  port1.close();
+  return drained ? drained.message : { ok: false, error: 'timeout' };
+}
+function _oauthDecodeBody(r) {
+  if (!r.ok) return null;
+  if (r.body.trim().startsWith('{') || (r.contentType || '').toLowerCase().includes('application/json'))
+    try { return JSON.parse(r.body); } catch (_) { return null; }
+  // application/x-www-form-urlencoded (GitHub default for /token)
+  const parsed = new URLSearchParams(r.body);
+  const obj = {};
+  for (const [k, v] of parsed) obj[k] = v;
+  return obj;
+}
+function _oauthMapFrom(obj) {
+  if (!obj) return null;
+  const m = new Map();
+  for (const [k, v] of Object.entries(obj))
+    m.set(k, (v === null || typeof v === 'object') ? JSON.stringify(v) : String(v));
+  return m;
+}
+
 function oauthExchangeCode(provider, code, clientId, clientSecret, redirectUri) {
   const cfg = _oauthProviders[provider];
   if (!cfg) return _None;
@@ -577,28 +638,11 @@ function oauthExchangeCode(provider, code, clientId, clientSecret, redirectUri) 
   params.set('client_id',     clientId);
   params.set('client_secret', clientSecret);
   params.set('redirect_uri',  redirectUri);
-  try {
-    const { execFileSync } = require('child_process');
-    const body = params.toString();
-    const out  = execFileSync('curl', [
-      '-sS', '--fail-with-body',
-      '-H', 'Content-Type: application/x-www-form-urlencoded',
-      '-H', 'Accept: application/json',
-      '-X', 'POST',
-      '--data', body,
-      cfg.tokenUrl,
-    ], { encoding: 'utf-8', timeout: 30000 });
-    let obj;
-    if (out.trim().startsWith('{')) obj = JSON.parse(out);
-    else {
-      const parsed = new URLSearchParams(out);
-      obj = {};
-      for (const [k, v] of parsed) obj[k] = v;
-    }
-    const m = new Map();
-    for (const [k, v] of Object.entries(obj)) m.set(k, String(v));
-    return _Some(m);
-  } catch (e) { return _None; }
+  const r = _oauthSyncFetch('POST', cfg.tokenUrl,
+    { 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json' },
+    params.toString());
+  const m = _oauthMapFrom(_oauthDecodeBody(r));
+  return m ? _Some(m) : _None;
 }
 function oauthRegisterProvider(name, cfg) {
   const out = {};
@@ -614,48 +658,24 @@ function oauthRefreshToken(provider, refreshToken, clientId, clientSecret) {
   params.set('refresh_token', refreshToken);
   params.set('client_id',     clientId);
   params.set('client_secret', clientSecret);
-  try {
-    const { execFileSync } = require('child_process');
-    const out = execFileSync('curl', [
-      '-sS', '--fail-with-body',
-      '-H', 'Content-Type: application/x-www-form-urlencoded',
-      '-H', 'Accept: application/json',
-      '-X', 'POST',
-      '--data', params.toString(),
-      cfg.tokenUrl,
-    ], { encoding: 'utf-8', timeout: 30000 });
-    let obj;
-    if (out.trim().startsWith('{')) obj = JSON.parse(out);
-    else {
-      const parsed = new URLSearchParams(out);
-      obj = {};
-      for (const [k, v] of parsed) obj[k] = v;
-    }
-    const m = new Map();
-    for (const [k, v] of Object.entries(obj)) m.set(k, String(v));
-    return _Some(m);
-  } catch (e) { return _None; }
+  const r = _oauthSyncFetch('POST', cfg.tokenUrl,
+    { 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json' },
+    params.toString());
+  const m = _oauthMapFrom(_oauthDecodeBody(r));
+  return m ? _Some(m) : _None;
 }
 function oauthUserinfo(provider, accessToken) {
   const cfg = _oauthProviders[provider];
   if (!cfg || !cfg.userinfoUrl) return _None;
+  const r = _oauthSyncFetch('GET', cfg.userinfoUrl,
+    { 'Authorization': 'Bearer ' + accessToken,
+      'Accept':        'application/json',
+      'User-Agent':    'scalascript-oauth/0.6' },
+    undefined);
+  if (!r.ok || !r.body.trim().startsWith('{')) return _None;
   try {
-    const { execFileSync } = require('child_process');
-    const out = execFileSync('curl', [
-      '-sS', '--fail-with-body',
-      '-H', 'Authorization: Bearer ' + accessToken,
-      '-H', 'Accept: application/json',
-      '-H', 'User-Agent: scalascript-oauth/0.6',
-      cfg.userinfoUrl,
-    ], { encoding: 'utf-8', timeout: 30000 });
-    if (!out.trim().startsWith('{')) return _None;
-    const obj = JSON.parse(out);
-    const m = new Map();
-    for (const [k, v] of Object.entries(obj)) {
-      // Flatten nested values to JSON strings — keeps the Map shape uniform.
-      m.set(k, (v === null || typeof v === 'object') ? JSON.stringify(v) : String(v));
-    }
-    return _Some(m);
+    const m = _oauthMapFrom(JSON.parse(r.body));
+    return m ? _Some(m) : _None;
   } catch (e) { return _None; }
 }
 
