@@ -69,9 +69,16 @@ The SPI exposes **two orthogonal extension axes**:
   SPA bundle, in-process execution.
 
 A plugin can register as one role, the other, or both. The two
-registries are populated independently (see §12 Discovery). They
-meet only in `core`, which feeds IR from source-language compilers
-into the chosen target backend.
+registries are populated independently (see §12 Discovery). They meet
+only in `core`, which feeds IR from source-language compilers into the
+chosen target backend.
+
+**Both roles support in-process and out-of-process plugins.** JVM
+plugins register via `ServiceLoader` (§12.1); plugins in any other
+language register a subprocess that speaks the wire protocol (§12.2).
+The SPI does not privilege one direction over the other — a Python
+frontend can run as a real `python3` subprocess just as a WASM
+backend runs as a `wasm-tools` subprocess.
 
 How the four current plugins map onto the new shape:
 
@@ -844,8 +851,11 @@ entries for misses.
 
 ### 12.1 In-process (JVM plugins)
 
-- `META-INF/services/scalascript.backend.spi.Backend` lists the plugin's
-  `Backend` implementation classes. Standard `ServiceLoader`.
+- Two `META-INF/services` files, one per role — a single plugin JAR
+  may list classes in either or both:
+  - `scalascript.backend.spi.Backend` — target-output classes
+  - `scalascript.backend.spi.SourceLanguage` — source-language classes
+- Standard `ServiceLoader` discovery for each.
 - Default discovery paths:
   - The bundled CLI classpath (the four standard plugins).
   - `~/.scalascript/plugins/*.jar`
@@ -857,37 +867,82 @@ entries for misses.
 
 ### 12.2 Out-of-process plugins
 
-- Plugin distribution is a directory with a `plugin.yaml`:
+A plugin distribution is a directory with a `plugin.yaml`. Either role
+— `Backend`, `SourceLanguage`, or both — can run out-of-process. The
+`roles` field declares which.
 
-  ```yaml
-  id: wasm
-  displayName: WebAssembly (via wasm-tools)
-  spiVersion: "0.1.0"
-  protocol: stdio-json       # or stdio-msgpack — plugin chooses
-  executable: ./bin/sscbackend-wasm
-  args: ["--quiet"]
-  capabilities:
-    features: [PatternMatching, MutableState, TailCallOptimization]
-    outputs:  [WasmBytecode]
-  ```
+#### Examples
 
-- Two protocols, identical message semantics, different framing
-  (selected by `protocol` in `plugin.yaml`):
-  - `stdio-json` — newline-delimited JSON, one message per line.
-  - `stdio-msgpack` — 4-byte big-endian length prefix + MsgPack
-    payload per message.
-- Core spawns the executable and exchanges framed messages over
-  stdin/stdout. Three methods initially:
-  - `describe()` → `Capabilities` (sanity-checked against `plugin.yaml`)
-  - `compile(ir, opts)` → `CompileResult`
-  - `shutdown()`
-- stderr is forwarded to the user as diagnostic logs.
-- Discovery paths mirror the in-process case but look for
-  `plugin.yaml` files instead of JARs.
+A pure target backend:
 
-A subprocess backend whose `executable` is a JVM jar is allowed (we just
-spawn `java -jar ...`); that gives plugin authors a path to total
-isolation from core's classpath if they need it.
+```yaml
+id: wasm
+displayName: WebAssembly (via wasm-tools)
+spiVersion: "0.1.0"
+protocol: stdio-json         # or stdio-msgpack
+executable: ./bin/sscbackend-wasm
+args: ["--quiet"]
+roles: [backend]
+backend:
+  features: [PatternMatching, MutableState, TailCallOptimization]
+  outputs:  [WasmBytecode]
+  acceptedSources: [wat]
+```
+
+A pure source-language plugin (e.g. real Python parser as a frontend):
+
+```yaml
+id: python-frontend
+displayName: Python (via CPython AST)
+spiVersion: "0.1.0"
+protocol: stdio-json
+executable: python3
+args: [./bin/ssc_python_frontend.py]
+roles: [source-language]
+sourceLanguage:
+  canonicalName: python
+  aliases: [py]
+```
+
+Both roles served by one subprocess:
+
+```yaml
+id: dotnet
+spiVersion: "0.1.0"
+protocol: stdio-msgpack
+executable: ./bin/ssc_dotnet
+roles: [source-language, backend]
+sourceLanguage:
+  canonicalName: csharp
+  aliases: [cs]
+backend:
+  features: [PatternMatching, MutableState]
+  outputs:  [DotNetIL]
+  acceptedSources: [csharp]
+```
+
+#### Wire protocol
+
+Two framings, selected by `protocol`:
+
+- `stdio-json` — newline-delimited JSON, one message per line.
+- `stdio-msgpack` — 4-byte big-endian length prefix + MsgPack payload.
+
+Methods are role-scoped:
+
+| Role            | Methods |
+|-----------------|---------|
+| common          | `describe()`, `shutdown()` |
+| backend         | `compile(ir, opts)`; for `InteractiveBackend`: `openSession`, `session.feed`, `session.close` |
+| source-language | `signatures(language, source, span)`, `compileBlock(language, source, span, scope, opts)` |
+
+stderr from the subprocess is forwarded to the user as diagnostic
+logs. Discovery paths mirror the in-process case but look for
+`plugin.yaml` files instead of JARs.
+
+A subprocess plugin whose `executable` is a JVM jar is allowed (just
+spawn `java -jar …`); useful when an author wants total isolation
+from core's classpath.
 
 ## 13. Versioning
 
@@ -979,13 +1034,20 @@ Each phase is one PR. Tests stay green at every step.
   imports of `JvmGen`/`JsGen`/`Interpreter` outside their plugin
   modules.
 
-### Phase 6 — Out-of-process loader  (M, ~1d)
+### Phase 6 — Out-of-process loader  (M, ~1–1.5d)
 
-- `core/plugin/Subprocess.scala`: JSON-RPC over stdio.
-- `plugin.yaml` parser and loader.
-- An in-tree smoke-test plugin (a 50-line Scala-CLI script that returns
-  a canned `TextOutput`) so we exercise the protocol in CI without
-  needing a real external backend.
+- `core/plugin/Subprocess.scala`: framed messages over stdio
+  (`stdio-json` and `stdio-msgpack`); role-aware dispatch (Backend
+  methods + SourceLanguage methods).
+- `plugin.yaml` parser and loader; the `roles:` field gates which
+  method set the loader expects from the subprocess.
+- Two in-tree smoke-test plugins exercising both roles in CI without
+  needing real external tooling:
+  - a 50-line Scala-CLI Backend plugin that returns a canned
+    `TextOutput`
+  - a 50-line Scala-CLI SourceLanguage plugin for a trivial dialect
+    (e.g. `toml`) — returns a single `SymbolExport` and a stub IR
+    fragment
 - Document the protocol under `docs/backend-spi-protocol.md`.
 
 ### Phase 7 — CLI ergonomics  (S–M, ~0.5–1d)
@@ -1086,6 +1148,7 @@ Specifically:
   - cross-block reference: scalascript ↔ foreign-language mutual
     recursion compiles and runs
   - duplicate-export collision reported with both source sites
-  - subprocess plugin smoke test
-  - plugin discovery from `--plugin-dir`
+  - subprocess plugin smoke test — Backend role
+  - subprocess plugin smoke test — SourceLanguage role
+  - plugin discovery from `--plugin-dir` (both registries)
 - [ ] `docs/architecture.md` rewritten to match.
