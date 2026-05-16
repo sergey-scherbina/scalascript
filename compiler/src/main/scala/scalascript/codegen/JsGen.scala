@@ -1333,6 +1333,10 @@ function _makeLens(path) {
       // Lens.andThen(Optional) → Optional. Lift field path to steps.
       return _makeOptional(path.concat(other._steps));
     }
+    if (other && other._type === 'Traversal' && other._steps) {
+      // Lens.andThen(Traversal) → Traversal.
+      return _makeTraversal(path.concat(other._steps));
+    }
     return _composeLens(_makeLens(path), other);
   };
   return { _type: 'Lens', _path: path, get, set, modify, andThen };
@@ -1373,6 +1377,13 @@ function _opticSet(steps, s, v) {
   if (s == null || s[head] === undefined) return s;
   return { ...s, [head]: _opticSet(rest, s[head], v) };
 }
+// Read the steps array off any path-optic (Lens uses _path, others _steps).
+function _opticSteps(o) {
+  if (!o) return null;
+  if (o._steps) return o._steps;
+  if (o._path)  return o._path;
+  return null;
+}
 function _makeOptional(steps) {
   const getOption = (s) => _opticGetOption(steps, s);
   const set       = (s, v) => _opticSet(steps, s, v);
@@ -1382,16 +1393,57 @@ function _makeOptional(steps) {
     return s;
   };
   const andThen = (other) => {
-    const inner =
-      (other && other._type === 'Optional' && other._steps) ? other._steps :
-      (other && other._type === 'Lens'     && other._path)  ? other._path :
-      null;
+    const inner = _opticSteps(other);
     if (inner === null) {
-      throw new Error('Optional.andThen(other): only path Lens/Optional supported');
+      throw new Error('Optional.andThen(other): only path optic supported');
     }
+    if (other._type === 'Traversal') return _makeTraversal(steps.concat(inner));
     return _makeOptional(steps.concat(inner));
   };
   return { _type: 'Optional', _steps: steps, getOption, set, modify, andThen };
+}
+
+// ── Traversal runtime — multi-foci optic for `.each` paths ────────────
+function _opticGetAll(steps, s) {
+  if (steps.length === 0) return [s];
+  const [head, ...rest] = steps;
+  if (head === '__some__') {
+    if (s && s._type === '_Some') return _opticGetAll(rest, s.value);
+    return [];
+  }
+  if (head === '__each__') {
+    if (Array.isArray(s)) return s.flatMap(item => _opticGetAll(rest, item));
+    return [];
+  }
+  if (s == null || s[head] === undefined) return [];
+  return _opticGetAll(rest, s[head]);
+}
+function _opticModifyAll(steps, s, f) {
+  if (steps.length === 0) return f(s);
+  const [head, ...rest] = steps;
+  if (head === '__some__') {
+    if (s && s._type === '_Some') return _Some(_opticModifyAll(rest, s.value, f));
+    return s;
+  }
+  if (head === '__each__') {
+    if (Array.isArray(s)) return s.map(item => _opticModifyAll(rest, item, f));
+    return s;
+  }
+  if (s == null || s[head] === undefined) return s;
+  return { ...s, [head]: _opticModifyAll(rest, s[head], f) };
+}
+function _makeTraversal(steps) {
+  const getAll = (s) => _opticGetAll(steps, s);
+  const modify = (s, f) => _opticModifyAll(steps, s, f);
+  const set    = (s, v) => _opticModifyAll(steps, s, _ => v);
+  const andThen = (other) => {
+    const inner = _opticSteps(other);
+    if (inner === null) {
+      throw new Error('Traversal.andThen(other): only path optic supported');
+    }
+    return _makeTraversal(steps.concat(inner));
+  };
+  return { _type: 'Traversal', _steps: steps, getAll, modify, set, andThen };
 }
 
 // ── Prism runtime — sum-type optic, conditional get / set / modify ────
@@ -3012,13 +3064,13 @@ class JsGen(baseDir: Option[os.Path] = None):
         case _ => None
       stepsOpt match
         case Some(steps) if steps.nonEmpty =>
-          // Steps are encoded as strings: a field name, or the literal
-          // "__some__" for a `.some` traversal. The runtime helpers
-          // _makeLens / _makeOptional read the tag and dispatch.
-          if steps.contains("__some__") then
-            s"_makeOptional([${steps.map(s => s"'$s'").mkString(", ")}])"
-          else
-            s"_makeLens([${steps.map(s => s"'$s'").mkString(", ")}])"
+          // Steps are encoded as strings: a field name, "__some__" for a
+          // `.some` traversal, or "__each__" for a `.each` traversal.
+          // Runtime helpers dispatch on the marker tokens.
+          val stepLiterals = s"[${steps.map(s => s"'$s'").mkString(", ")}]"
+          if steps.contains("__each__")      then s"_makeTraversal($stepLiterals)"
+          else if steps.contains("__some__") then s"_makeOptional($stepLiterals)"
+          else                                    s"_makeLens($stepLiterals)"
         case _ =>
           s"(()=>{ throw new Error('Focus: expected a field-access lambda like _.field.subfield'); })()"
     case _ =>
@@ -3027,6 +3079,7 @@ class JsGen(baseDir: Option[os.Path] = None):
   private def extractPathSteps(body: Term, isBase: Term => Boolean): Option[List[String]] =
     def loop(t: Term, acc: List[String]): Option[List[String]] = t match
       case Term.Select(qual, Term.Name("some")) => loop(qual, "__some__" :: acc)
+      case Term.Select(qual, Term.Name("each")) => loop(qual, "__each__" :: acc)
       case Term.Select(qual, name)              => loop(qual, name.value :: acc)
       case other if isBase(other)               => Some(acc)
       case _                                     => None
