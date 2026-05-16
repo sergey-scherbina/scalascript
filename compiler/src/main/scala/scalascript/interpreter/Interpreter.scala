@@ -813,6 +813,21 @@ class Interpreter(out: java.io.PrintStream = System.out, baseDir: Option[os.Path
     // is observed correctly.
     case app: Term.Apply =>
       app.fun match
+        // ── .copy(field = value, ...) on an InstanceV ────────────────
+        // Named args arrive as Term.Assign(Term.Name(field), rhs); we have
+        // to intercept BEFORE the generic eval path, otherwise Term.Assign
+        // would fall into the var-assignment case and mutate globals.
+        case Term.Select(qual, Term.Name("copy")) =>
+          evalCopy(qual, app.argClause.values, env)
+        // ── Focus[T](_.a.b) / Focus(_.a.b) — Monocle-style lens ──────
+        // Inspect the lambda body at AST level to extract a field-access
+        // chain, then synthesise a Lens value with get / set / modify /
+        // andThen. Done at AST level because the placeholder lambda is
+        // otherwise erased to an opaque NativeFnV.
+        case ta: Term.ApplyType if isFocusName(ta.fun) =>
+          evalFocus(app.argClause.values)
+        case Term.Name("Focus") =>
+          evalFocus(app.argClause.values)
         case Term.Select(qual, Term.Name(method)) =>
           val qualC    = eval(qual, env)
           val argComps = app.argClause.values.map(eval(_, env))
@@ -1034,6 +1049,179 @@ class Interpreter(out: java.io.PrintStream = System.out, baseDir: Option[os.Path
         case _ => eval(t.fun, env)  // other type applications — erase type args
 
     case other => located(s"Cannot eval: ${other.productPrefix}")
+
+  // ─── Lenses / Focus / .copy ──────────────────────────────────────
+
+  /** `recv.copy(field = value, ...)` — produce a new InstanceV with the
+   *  named fields overridden. Positional args aren't supported because
+   *  `InstanceV.fields` is an unordered `Map` that doesn't preserve
+   *  declaration order beyond four fields. */
+  private def evalCopy(qual: Term, args: List[Term], env: Env): Computation =
+    val qualC = eval(qual, env)
+    // Separate named (Term.Assign) from positional; capture the assign RHS
+    // BEFORE eval so it never goes through the var-assignment path.
+    val namedPairs: List[(String, Computation)] = args.collect {
+      case Term.Assign(Term.Name(field), rhs) => (field, eval(rhs, env))
+    }
+    val positional: List[Term] = args.filterNot {
+      case Term.Assign(_: Term.Name, _) => true
+      case _                            => false
+    }
+    if positional.nonEmpty then
+      located(".copy(...) requires named arguments — e.g. p.copy(x = 5)")
+    else
+      val (names, comps) = namedPairs.unzip
+      FlatMap(qualC, qualV =>
+        threadValues(comps) { newVals =>
+          val updates = names.zip(newVals).toMap
+          qualV match
+            case Value.InstanceV(typeName, fields) =>
+              val unknown = updates.keySet -- fields.keySet
+              if unknown.nonEmpty then
+                located(s".copy: unknown field(s) on $typeName: ${unknown.mkString(", ")}")
+              else
+                Pure(Value.InstanceV(typeName, fields ++ updates))
+            case other =>
+              located(s".copy: not a case-class instance: ${Value.show(other)}")
+        })
+
+  private def isFocusName(t: Term): Boolean = t match
+    case Term.Name("Focus") => true
+    case _                  => false
+
+  /** `Focus[T](_.a.b)` or `Focus(x => x.a.b)` — synthesise a Lens by
+   *  walking the lambda body to extract a chain of field selects. */
+  private def evalFocus(args: List[Term]): Computation =
+    args match
+      case List(lambda) =>
+        val pathOpt: Option[List[String]] = lambda match
+          case Term.AnonymousFunction(body) =>
+            extractFieldPath(body, isBase = _.isInstanceOf[Term.Placeholder])
+          case Term.Function.After_4_6_0(paramClause, body) =>
+            paramClause.values.headOption.map(_.name.value) match
+              case Some(p) =>
+                extractFieldPath(body, isBase = {
+                  case Term.Name(n) => n == p
+                  case _            => false
+                })
+              case None => None
+          case _ => None
+        pathOpt match
+          case Some(path) if path.nonEmpty => Pure(buildPathLens(path))
+          case _ => located("Focus: expected a field-access lambda like _.field.subfield")
+      case _ => located("Focus expects exactly one lambda argument")
+
+  /** Walk a Term.Select chain to extract the field-access path, ending at
+   *  some base term (placeholder or named param). Returns None if the
+   *  body isn't a pure path. */
+  private def extractFieldPath(body: Term, isBase: Term => Boolean): Option[List[String]] =
+    def loop(t: Term, acc: List[String]): Option[List[String]] = t match
+      case Term.Select(qual, name) => loop(qual, name.value :: acc)
+      case other if isBase(other)  => Some(acc)
+      case _                       => None
+    loop(body, Nil)
+
+  /** Walk a path into a nested InstanceV, returning the final value. */
+  private def lensGet(target: Value, path: List[String]): Value = path match
+    case Nil          => target
+    case head :: rest => target match
+      case Value.InstanceV(_, fields) =>
+        fields.get(head) match
+          case Some(v) => lensGet(v, rest)
+          case None    => throw InterpretError(s"Lens.get: no field '$head' on ${Value.show(target)}")
+      case _ => throw InterpretError(s"Lens.get: not an instance at '$head'")
+
+  /** Functional update of a nested field path. */
+  private def lensSet(target: Value, path: List[String], newVal: Value): Value = path match
+    case Nil          => newVal
+    case head :: rest => target match
+      case Value.InstanceV(typeName, fields) =>
+        val child = fields.getOrElse(head, throw InterpretError(s"Lens.set: no field '$head'"))
+        Value.InstanceV(typeName, fields.updated(head, lensSet(child, rest, newVal)))
+      case _ => throw InterpretError(s"Lens.set: not an instance at '$head'")
+
+  /** Build a Lens for a static field path. Exposed as an InstanceV so
+   *  `.get` / `.set` / `.modify` / `.andThen` dispatch via the usual
+   *  field-access machinery. */
+  private def buildPathLens(path: List[String]): Value.InstanceV =
+    val getFn = Value.NativeFnV("Lens.get", {
+      case List(s) => Pure(lensGet(s, path))
+      case _       => throw InterpretError("Lens.get(s)")
+    })
+    val setFn = Value.NativeFnV("Lens.set", {
+      case List(s, v) => Pure(lensSet(s, path, v))
+      case _          => throw InterpretError("Lens.set(s, v)")
+    })
+    val modifyFn = Value.NativeFnV("Lens.modify", {
+      case List(s, f) =>
+        val old = lensGet(s, path)
+        callValue(f, List(old), Map.empty).map(newV => lensSet(s, path, newV))
+      case _ => throw InterpretError("Lens.modify(s, f)")
+    })
+    val andThenFn = Value.NativeFnV("Lens.andThen", {
+      case List(Value.InstanceV("Lens", other)) =>
+        // If `other` is also a path-lens we can compose paths directly so
+        // the result keeps the simple representation. Otherwise fall back
+        // to functional composition (always works, costs a couple of
+        // extra calls per get/set).
+        other.get("_path") match
+          case Some(Value.ListV(items)) =>
+            val otherPath = items.collect { case Value.StringV(s) => s }
+            Pure(buildPathLens(path ++ otherPath))
+          case _ =>
+            Pure(composedLens(buildPathLens(path), Value.InstanceV("Lens", other)))
+      case List(other) =>
+        throw InterpretError(s"Lens.andThen expects a Lens, got ${Value.show(other)}")
+      case _ => throw InterpretError("Lens.andThen(other)")
+    })
+    Value.InstanceV("Lens", Map(
+      "get"     -> getFn,
+      "set"     -> setFn,
+      "modify"  -> modifyFn,
+      "andThen" -> andThenFn,
+      "_path"   -> Value.ListV(path.map(Value.StringV.apply))
+    ))
+
+  /** Compose two arbitrary lenses by chaining their get / set / modify. */
+  private def composedLens(a: Value.InstanceV, b: Value.InstanceV): Value.InstanceV =
+    val aGet = a.fields("get");    val bGet = b.fields("get")
+    val aSet = a.fields("set");    val bSet = b.fields("set")
+    val aMod = a.fields("modify"); val bMod = b.fields("modify")
+    val getFn = Value.NativeFnV("Lens.get", {
+      case List(s) =>
+        callValue(aGet, List(s), Map.empty).flatMap(x => callValue(bGet, List(x), Map.empty))
+      case _ => throw InterpretError("Lens.get(s)")
+    })
+    val setFn = Value.NativeFnV("Lens.set", {
+      case List(s, v) =>
+        callValue(aGet, List(s), Map.empty).flatMap { x =>
+          callValue(bSet, List(x, v), Map.empty).flatMap { x2 =>
+            callValue(aSet, List(s, x2), Map.empty)
+          }
+        }
+      case _ => throw InterpretError("Lens.set(s, v)")
+    })
+    val modifyFn = Value.NativeFnV("Lens.modify", {
+      case List(s, f) =>
+        val inner = Value.NativeFnV("inner", {
+          case List(x) => callValue(bMod, List(x, f), Map.empty)
+          case _       => throw InterpretError("modify inner")
+        })
+        callValue(aMod, List(s, inner), Map.empty)
+      case _ => throw InterpretError("Lens.modify(s, f)")
+    })
+    val andThenFn = Value.NativeFnV("Lens.andThen", {
+      case List(other: Value.InstanceV) if other.typeName == "Lens" =>
+        Pure(composedLens(Value.InstanceV("Lens", Map(
+          "get" -> getFn, "set" -> setFn, "modify" -> modifyFn,
+          "andThen" -> Value.NativeFnV("Lens.andThen.recur", _ => throw InterpretError("recur")))
+        ), other))
+      case _ => throw InterpretError("Lens.andThen(other)")
+    })
+    Value.InstanceV("Lens", Map(
+      "get" -> getFn, "set" -> setFn, "modify" -> modifyFn,
+      "andThen" -> andThenFn
+    ))
 
   /** Evaluate a list of argument terms eagerly to a list of Computations, then
    *  thread their values into `k` via FlatMap chain.

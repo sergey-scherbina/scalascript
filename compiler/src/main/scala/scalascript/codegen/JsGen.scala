@@ -464,6 +464,38 @@ function _Map(...pairs) {
   return m;
 }
 
+// ── Lens runtime — get/set/modify/andThen over a static field path ────
+function _lensGet(path, s) {
+  let v = s;
+  for (let i = 0; i < path.length; i++) v = v[path[i]];
+  return v;
+}
+function _lensSet(path, s, v) {
+  if (path.length === 0) return v;
+  const head = path[0];
+  const child = s[head];
+  return { ...s, [head]: _lensSet(path.slice(1), child, v) };
+}
+function _makeLens(path) {
+  const get      = (s) => _lensGet(path, s);
+  const set      = (s, v) => _lensSet(path, s, v);
+  const modify   = (s, f) => _lensSet(path, s, f(_lensGet(path, s)));
+  const andThen  = (other) => {
+    if (other && other._type === 'Lens' && other._path) {
+      return _makeLens(path.concat(other._path));
+    }
+    return _composeLens(_makeLens(path), other);
+  };
+  return { _type: 'Lens', _path: path, get, set, modify, andThen };
+}
+function _composeLens(a, b) {
+  const get     = (s) => b.get(a.get(s));
+  const set     = (s, v) => a.set(s, b.set(a.get(s), v));
+  const modify  = (s, f) => a.modify(s, x => b.modify(x, f));
+  const andThen = (other) => _composeLens({ _type: 'Lens', get, set, modify, andThen }, other);
+  return { _type: 'Lens', get, set, modify, andThen };
+}
+
 function _dispatch(obj, method, args) {
   if (Array.isArray(obj)) {
     switch(method) {
@@ -1893,6 +1925,24 @@ class JsGen(baseDir: Option[os.Path] = None):
       s"/* unsupported: ${other.productPrefix} */"
 
   private def genApply(app: Term.Apply): String =
+    // .copy(field = value, ...) — spread the receiver, override named fields.
+    // Intercepted before argVals are computed so Term.Assign doesn't fall into
+    // genExpr's `lhs = rhs` path (which would emit a JS assignment expression).
+    app.fun match
+      case Term.Select(qual, Term.Name("copy")) =>
+        return genCopy(qual, app.argClause.values)
+      case _ => ()
+
+    // Focus[T](_.a.b) / Focus(_.a.b) — emit a Lens object built from the
+    // syntactic field path. The lambda body is inspected at codegen time;
+    // letting it through normal genExpr would lose the path information.
+    app.fun match
+      case ta: Term.ApplyType if isFocusFun(ta.fun) =>
+        return genFocus(app.argClause.values)
+      case Term.Name("Focus") =>
+        return genFocus(app.argClause.values)
+      case _ => ()
+
     val argVals = app.argClause.values.map(genExpr)
     app.fun match
       // println / print
@@ -1948,6 +1998,50 @@ class JsGen(baseDir: Option[os.Path] = None):
       case fun =>
         val funJs = genExpr(fun)
         s"_call($funJs, ${argVals.mkString(", ")})"
+
+  // ─── Lenses / Focus / .copy ──────────────────────────────────────
+
+  private def isFocusFun(t: Term): Boolean = t match
+    case Term.Name("Focus") => true
+    case _                  => false
+
+  private def genCopy(qual: Term, args: List[Term]): String =
+    val qualJs = genExpr(qual)
+    val pairs  = args.collect {
+      case Term.Assign(Term.Name(field), rhs) => s"$field: ${genExpr(rhs)}"
+    }
+    if pairs.length != args.length then
+      s"(()=>{ throw new Error('.copy(...) requires named arguments — e.g. p.copy(x = 5)'); })()"
+    else
+      s"({...$qualJs, ${pairs.mkString(", ")}})"
+
+  private def genFocus(args: List[Term]): String = args match
+    case List(lambda) =>
+      val pathOpt: Option[List[String]] = lambda match
+        case Term.AnonymousFunction(body) =>
+          extractFieldPath(body, _.isInstanceOf[Term.Placeholder])
+        case Term.Function.After_4_6_0(paramClause, body) =>
+          paramClause.values.headOption.map(_.name.value).flatMap { p =>
+            extractFieldPath(body, {
+              case Term.Name(n) => n == p
+              case _            => false
+            })
+          }
+        case _ => None
+      pathOpt match
+        case Some(path) if path.nonEmpty =>
+          s"_makeLens([${path.map(p => s"'$p'").mkString(", ")}])"
+        case _ =>
+          s"(()=>{ throw new Error('Focus: expected a field-access lambda like _.field.subfield'); })()"
+    case _ =>
+      s"(()=>{ throw new Error('Focus expects exactly one lambda argument'); })()"
+
+  private def extractFieldPath(body: Term, isBase: Term => Boolean): Option[List[String]] =
+    def loop(t: Term, acc: List[String]): Option[List[String]] = t match
+      case Term.Select(qual, name) => loop(qual, name.value :: acc)
+      case other if isBase(other)  => Some(acc)
+      case _                       => None
+    loop(body, Nil)
 
   // ─── CPS codegen for effectful contexts ──────────────────────────
   //
