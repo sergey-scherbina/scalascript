@@ -482,11 +482,15 @@ The REST primitives are available on all three backends:
   preamble (case classes for `Request` / `Response`, the route registry, and
   a JDK `HttpServer` dispatcher) when the module calls `route(...)`.  The
   compiled `.sc` script blocks on `Thread.join` after `serve(port)` returns.
+  Unmatched routes fall through to static asset serving (under the cwd,
+  with the same MIME-sniffing and traversal guard as the interpreter)
+  before 404'ing.
 - **JS backend** (`ssc emit-js` / `bin/jssc`) — JsGen emits a Node `http`
   server runtime in `JsRuntime`.  Node's event loop keeps the process alive
-  once `serve(port)` calls `server.listen(...)`.  Browser-side execution is
-  intentionally out of scope: the runtime `require()`s `'http'`, which only
-  exists in Node.
+  once `serve(port)` calls `server.listen(...)`.  Static asset fall-through
+  uses Node's `fs.realpathSync` for the traversal guard.  Browser-side
+  execution is intentionally out of scope: the runtime `require()`s
+  `'http'`, which only exists in Node.
 
 ## Appendix A: Reserved Words
 

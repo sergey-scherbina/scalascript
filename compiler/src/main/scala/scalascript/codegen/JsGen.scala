@@ -139,6 +139,49 @@ const Response = {
   status(code, body) { return { _type: 'Response', status: code, headers: new Map(), body: _show(body ?? '') }; },
 };
 
+// Try to serve a static asset under the cwd; returns true when handled,
+// false when the file is missing or disqualified.  Path-traversal is
+// blocked via path.relative on resolved paths.
+function _serveStatic(res, urlPath) {
+  const path = require('path'), fs = require('fs');
+  const cleaned = urlPath.replace(/^\//, '');
+  if (!cleaned) return false;
+  const rootDir = fs.realpathSync(process.cwd());
+  let target;
+  try { target = fs.realpathSync(path.join(rootDir, cleaned)); }
+  catch { return false; }
+  const rel = path.relative(rootDir, target);
+  if (rel.startsWith('..') || path.isAbsolute(rel)) return false;
+  let stat;
+  try { stat = fs.statSync(target); }
+  catch { return false; }
+  if (!stat.isFile()) return false;
+  if (target.endsWith('.ssc')) return false;
+  const bytes = fs.readFileSync(target);
+  res.writeHead(200, { 'Content-Type': _contentTypeFor(target) });
+  res.end(bytes);
+  return true;
+}
+
+function _contentTypeFor(name) {
+  const lower = name.toLowerCase();
+  if (lower.endsWith('.html') || lower.endsWith('.htm')) return 'text/html; charset=utf-8';
+  if (lower.endsWith('.css'))   return 'text/css; charset=utf-8';
+  if (lower.endsWith('.js') || lower.endsWith('.mjs')) return 'application/javascript; charset=utf-8';
+  if (lower.endsWith('.json'))  return 'application/json; charset=utf-8';
+  if (lower.endsWith('.txt') || lower.endsWith('.md')) return 'text/plain; charset=utf-8';
+  if (lower.endsWith('.svg'))   return 'image/svg+xml';
+  if (lower.endsWith('.png'))   return 'image/png';
+  if (lower.endsWith('.jpg') || lower.endsWith('.jpeg')) return 'image/jpeg';
+  if (lower.endsWith('.gif'))   return 'image/gif';
+  if (lower.endsWith('.webp'))  return 'image/webp';
+  if (lower.endsWith('.ico'))   return 'image/x-icon';
+  if (lower.endsWith('.woff'))  return 'font/woff';
+  if (lower.endsWith('.woff2')) return 'font/woff2';
+  if (lower.endsWith('.wasm'))  return 'application/wasm';
+  return 'application/octet-stream';
+}
+
 function serve(port) {
   const http = require('http');
   http.createServer((req, res) => {
@@ -162,6 +205,8 @@ function serve(port) {
           res.end(result.body ?? '');
           return;
         }
+        // Fall through to a static file under the cwd before 404'ing.
+        if (_serveStatic(res, u.pathname)) return;
         res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
         res.end(`Not Found: ${u.pathname}`);
       } catch (e) {

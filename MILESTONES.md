@@ -19,11 +19,6 @@ without reaching for raw string concatenation.
   with a `filename=` directive) are skipped.  Add a `req.files`-style
   API plus binary-safe body reading so file uploads round-trip, and
   port both to JsGen / JvmGen.
-- **Static asset serving for compiled backends.**  Interpreter `serve`
-  now falls through to static files (any non-`.ssc` under the root)
-  before 404'ing.  The JvmGen / JsGen `serveRuntime` blocks still only
-  do REST + 404 — give them the same fall-through so a compiled
-  binary or Node script can serve a docs site too.
 
 ## v0.3 — Cross-backend REST (remaining)
 

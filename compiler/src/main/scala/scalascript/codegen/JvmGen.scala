@@ -1201,10 +1201,15 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |          _parseQuery(ex.getRequestURI.getRawQuery), headers, body, form)
        |        _writeResponse(ex, r.handler(req))
        |      case None =>
-       |        val msg = s"Not Found: $path".getBytes("UTF-8")
-       |        ex.getResponseHeaders.add("Content-Type", "text/plain; charset=utf-8")
-       |        ex.sendResponseHeaders(404, msg.length)
-       |        ex.getResponseBody.write(msg)
+       |        // Fall through to a static file under the current directory
+       |        // before 404'ing — mirrors the interpreter's WebServer.
+       |        _serveStatic(ex, path) match
+       |          case Some(_) => ()
+       |          case None    =>
+       |            val msg = s"Not Found: $path".getBytes("UTF-8")
+       |            ex.getResponseHeaders.add("Content-Type", "text/plain; charset=utf-8")
+       |            ex.sendResponseHeaders(404, msg.length.toLong)
+       |            ex.getResponseBody.write(msg)
        |  catch case e: Exception =>
        |    System.err.println(s"route error: ${e.getMessage}")
        |  finally ex.close()
@@ -1216,6 +1221,47 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |  val bytes = r.body.getBytes("UTF-8")
        |  ex.sendResponseHeaders(r.status, if bytes.isEmpty then -1L else bytes.length.toLong)
        |  if bytes.nonEmpty then ex.getResponseBody.write(bytes)
+       |
+       |/** Try to serve a static asset (non-.ssc file) under the cwd; returns
+       | *  Some when handled, None when the file is missing / disqualified.
+       | *  Path-traversal is blocked by canonical-path checks. */
+       |private def _serveStatic(ex: com.sun.net.httpserver.HttpExchange, urlPath: String): Option[Unit] =
+       |  val cleaned = urlPath.stripPrefix("/")
+       |  if cleaned.isEmpty then return None
+       |  val rootDir = new java.io.File(".").getCanonicalFile
+       |  val target  = new java.io.File(rootDir, cleaned).getCanonicalFile
+       |  if !target.exists() || !target.isFile() then None
+       |  else if !target.getPath.startsWith(rootDir.getPath) then None
+       |  else if target.getName.endsWith(".ssc") then None
+       |  else
+       |    val bytes = java.nio.file.Files.readAllBytes(target.toPath)
+       |    ex.getResponseHeaders.add("Content-Type", _contentTypeFor(target.getName))
+       |    ex.sendResponseHeaders(200, bytes.length.toLong)
+       |    ex.getResponseBody.write(bytes)
+       |    Some(())
+       |
+       |private def _contentTypeFor(name: String): String =
+       |  val lower = name.toLowerCase
+       |  val explicit: Option[String] = lower match
+       |    case n if n.endsWith(".html") || n.endsWith(".htm") => Some("text/html; charset=utf-8")
+       |    case n if n.endsWith(".css")  => Some("text/css; charset=utf-8")
+       |    case n if n.endsWith(".js") || n.endsWith(".mjs") => Some("application/javascript; charset=utf-8")
+       |    case n if n.endsWith(".json") => Some("application/json; charset=utf-8")
+       |    case n if n.endsWith(".txt") || n.endsWith(".md") => Some("text/plain; charset=utf-8")
+       |    case n if n.endsWith(".svg")  => Some("image/svg+xml")
+       |    case n if n.endsWith(".png")  => Some("image/png")
+       |    case n if n.endsWith(".jpg") || n.endsWith(".jpeg") => Some("image/jpeg")
+       |    case n if n.endsWith(".gif")  => Some("image/gif")
+       |    case n if n.endsWith(".webp") => Some("image/webp")
+       |    case n if n.endsWith(".ico")  => Some("image/x-icon")
+       |    case n if n.endsWith(".woff") => Some("font/woff")
+       |    case n if n.endsWith(".woff2") => Some("font/woff2")
+       |    case n if n.endsWith(".wasm") => Some("application/wasm")
+       |    case _ => None
+       |  explicit.orElse {
+       |    try Option(java.nio.file.Files.probeContentType(java.nio.file.Paths.get(name)))
+       |    catch case _: Throwable => None
+       |  }.getOrElse("application/octet-stream")
        |
        |def serve(port: Int): Unit =
        |  val server = com.sun.net.httpserver.HttpServer.create(
