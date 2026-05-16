@@ -330,6 +330,41 @@ Some(_v); case _ => None }`. The JS backend emits a runtime
 `_makePrism('V')` and matches on the `_type` field. The interpreter
 matches on the variant's typeName.
 
+When a `Focus[T](...)` lambda path contains a `.some` step, the result
+is an `Optional[T, A]` rather than a `Lens[T, A]`. Optionals expose
+`getOption` (returns `None` when any `Option` along the path is empty),
+`set` / `modify` (no-ops when the focus doesn't exist), and `andThen`
+(composes with other Optionals or Lenses, lifting to Optional):
+
+```scalascript
+case class Address(street: String, city: String)
+case class Profile(home: Option[Address])
+case class User(name: String, profile: Option[Profile])
+
+val cityOpt = Focus[User](_.profile.some.home.some.city)
+
+val alice = User("Alice", Some(Profile(Some(Address("Main St", "Boston")))))
+val bob   = User("Bob", None)
+
+cityOpt.getOption(alice)            // Some("Boston")
+cityOpt.getOption(bob)              // None
+cityOpt.set(alice, "Paris").profile // Some(Profile(Some(Address("Main St", "Paris"))))
+cityOpt.set(bob, "Paris")           // unchanged — bob has no profile
+```
+
+Lowering by backend:
+- **JVM** — `Optional((s: T) => <getter>, (s: T, v) => <setter>)` where
+  the getter threads through `Option.flatMap` / `.map` and the setter
+  rebuilds nested `.copy(...)` calls; intermediate `Option`s are
+  preserved via `.map`. `Lens.andThen(Optional)` / `Optional.andThen(Lens)`
+  overloads in the preamble produce an `Optional`.
+- **JS** — runtime helper `_makeOptional(steps)` walks an array of
+  field names plus the marker `"__some__"`; missing layers yield `_None`
+  for get and a no-op for set.
+- **Interpreter** — path is `List[PathStep]` (`FieldStep(name)` or
+  `SomeStep`); `opticGetOption` / `opticSet` walk the steps dynamically
+  against `InstanceV` / `OptionV` values.
+
 ## 6. Module System
 
 ### 6.1 Module Identity

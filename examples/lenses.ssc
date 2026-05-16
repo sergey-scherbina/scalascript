@@ -90,3 +90,33 @@ println(circlePrism.getOption(r))                          // None
 println(circlePrism.modify(c, x => Circle(x.radius * 2)))  // Circle(10)
 println(circlePrism.modify(r, x => Circle(x.radius * 2)))  // Rect(3, 4)
 ```
+
+## Optionals — focus through `Option` fields
+
+A path with `.some` returns an `Optional` instead of a `Lens`. `getOption`
+yields `None` whenever any Option along the path is empty; `set` and
+`modify` are no-ops in that case.
+
+```scalascript
+case class Profile(home: Option[Address])
+case class User(handle: String, profile: Option[Profile])
+
+val u1 = User("alice",  Some(Profile(Some(Address("Main St", "Boston")))))
+val u2 = User("bob",    None)
+val u3 = User("carol",  Some(Profile(None)))
+
+val cityOpt = Focus[User](_.profile.some.home.some.city)
+
+println(cityOpt.getOption(u1))            // Some(Boston)
+println(cityOpt.getOption(u2))            // None
+println(cityOpt.getOption(u3))            // None
+
+// set rebuilds copies along the path; no-op when a layer is None
+println(cityOpt.set(u1, "Paris").profile) // Some(Profile(Some(Address(Main St, Paris))))
+println(cityOpt.set(u2, "Paris").profile) // None — bob still has no profile
+
+// Optional composes with itself and with Lenses
+val profile  = Focus[User](_.profile.some)
+val homeCity = profile.andThen(Focus[Profile](_.home.some.city))
+println(homeCity.getOption(u1))           // Some(Boston)
+```

@@ -1,0 +1,48 @@
+---
+name: conformance-optional
+version: 1.0.0
+---
+
+# Optional
+
+```scalascript
+case class Address(street: String, city: String)
+case class Profile(home: Option[Address])
+case class User(name: String, profile: Option[Profile])
+
+val alice = User("Alice", Some(Profile(Some(Address("Main St", "Boston")))))
+val bob   = User("Bob",   None)
+val carol = User("Carol", Some(Profile(None)))
+
+// .some in the path produces an Optional
+val cityOpt = Focus[User](_.profile.some.home.some.city)
+
+// getOption — Some if every Option layer has a value
+println(cityOpt.getOption(alice))
+println(cityOpt.getOption(bob))
+println(cityOpt.getOption(carol))
+
+// set — no-op when any Option in the path is None
+println(cityOpt.getOption(cityOpt.set(alice, "Paris")))
+println(cityOpt.getOption(cityOpt.set(bob, "Paris")))
+println(cityOpt.getOption(cityOpt.set(carol, "Paris")))
+
+// modify
+println(cityOpt.getOption(cityOpt.modify(alice, c => c.toUpperCase)))
+println(cityOpt.getOption(cityOpt.modify(bob, c => c.toUpperCase)))
+
+// Single-step Optional ending with .some
+val profileOpt = Focus[User](_.profile.some)
+println(profileOpt.getOption(alice))
+println(profileOpt.getOption(bob))
+
+// Optional.andThen(Optional) — chain partial optics
+val cityViaChain = profileOpt.andThen(Focus[Profile](_.home.some.city))
+println(cityViaChain.getOption(alice))
+println(cityViaChain.getOption(carol))
+
+// Plain Lens still works (no .some in path)
+val nameLens = Focus[User](_.name)
+println(nameLens.get(alice))
+println(nameLens.set(alice, "Aleksandra").name)
+```

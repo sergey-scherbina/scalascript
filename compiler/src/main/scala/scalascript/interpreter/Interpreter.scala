@@ -1348,6 +1348,13 @@ class Interpreter(
 
   // ─── Lenses / Focus / .copy ──────────────────────────────────────
 
+  /** A single step in an optic path. `FieldStep` is a case-class field
+   *  selection; `SomeStep` traverses into an Option's value (turning the
+   *  surrounding optic into an Optional). */
+  private enum PathStep:
+    case FieldStep(name: String)
+    case SomeStep
+
   /** `recv.copy(field = value, ...)` — produce a new InstanceV with the
    *  named fields overridden. Positional args aren't supported because
    *  `InstanceV.fields` is an unordered `Map` that doesn't preserve
@@ -1385,36 +1392,42 @@ class Interpreter(
     case Term.Name("Focus") => true
     case _                  => false
 
-  /** `Focus[T](_.a.b)` or `Focus(x => x.a.b)` — synthesise a Lens by
-   *  walking the lambda body to extract a chain of field selects. */
+  /** `Focus[T](_.a.b)` or `Focus(x => x.a.b)` — synthesise a Lens or
+   *  Optional by walking the lambda body. A `.some` step in the path
+   *  (e.g. `_.maybe.some.field`) makes the result an Optional whose
+   *  `set` is a no-op when the Option is empty. */
   private def evalFocus(args: List[Term]): Computation =
     args match
       case List(lambda) =>
-        val pathOpt: Option[List[String]] = lambda match
+        val stepsOpt: Option[List[PathStep]] = lambda match
           case Term.AnonymousFunction(body) =>
-            extractFieldPath(body, isBase = _.isInstanceOf[Term.Placeholder])
+            extractPathSteps(body, isBase = _.isInstanceOf[Term.Placeholder])
           case Term.Function.After_4_6_0(paramClause, body) =>
             paramClause.values.headOption.map(_.name.value) match
               case Some(p) =>
-                extractFieldPath(body, isBase = {
+                extractPathSteps(body, isBase = {
                   case Term.Name(n) => n == p
                   case _            => false
                 })
               case None => None
           case _ => None
-        pathOpt match
-          case Some(path) if path.nonEmpty => Pure(buildPathLens(path))
+        stepsOpt match
+          case Some(steps) if steps.nonEmpty =>
+            if steps.exists(_ == PathStep.SomeStep) then Pure(buildPathOptional(steps))
+            else Pure(buildPathLens(steps.collect { case PathStep.FieldStep(n) => n }))
           case _ => located("Focus: expected a field-access lambda like _.field.subfield")
       case _ => located("Focus expects exactly one lambda argument")
 
-  /** Walk a Term.Select chain to extract the field-access path, ending at
-   *  some base term (placeholder or named param). Returns None if the
-   *  body isn't a pure path. */
-  private def extractFieldPath(body: Term, isBase: Term => Boolean): Option[List[String]] =
-    def loop(t: Term, acc: List[String]): Option[List[String]] = t match
-      case Term.Select(qual, name) => loop(qual, name.value :: acc)
-      case other if isBase(other)  => Some(acc)
-      case _                       => None
+  /** Walk a Term.Select chain to extract the field-access path. `.some`
+   *  selects translate to `SomeStep`; all other names become `FieldStep`. */
+  private def extractPathSteps(body: Term, isBase: Term => Boolean): Option[List[PathStep]] =
+    def loop(t: Term, acc: List[PathStep]): Option[List[PathStep]] = t match
+      case Term.Select(qual, Term.Name("some")) =>
+        loop(qual, PathStep.SomeStep :: acc)
+      case Term.Select(qual, name) =>
+        loop(qual, PathStep.FieldStep(name.value) :: acc)
+      case other if isBase(other) => Some(acc)
+      case _                      => None
     loop(body, Nil)
 
   /** Walk a path into a nested InstanceV, returning the final value. */
@@ -1466,8 +1479,19 @@ class Interpreter(
             Pure(buildPathLens(path ++ otherPath))
           case _ =>
             Pure(composedLens(buildPathLens(path), Value.InstanceV("Lens", other)))
+      case List(Value.InstanceV("Optional", other)) =>
+        // Lens.andThen(Optional) → Optional. Lift the field path to steps
+        // and concatenate.
+        val innerSteps = other.get("_steps") match
+          case Some(Value.ListV(items)) => items.collect {
+            case Value.StringV("__some__") => PathStep.SomeStep
+            case Value.StringV(n)          => PathStep.FieldStep(n)
+          }
+          case _ => throw InterpretError("Lens.andThen(Optional): malformed Optional")
+        val outerSteps = path.map(PathStep.FieldStep(_))
+        Pure(buildPathOptional(outerSteps ++ innerSteps))
       case List(other) =>
-        throw InterpretError(s"Lens.andThen expects a Lens, got ${Value.show(other)}")
+        throw InterpretError(s"Lens.andThen expects a Lens or Optional, got ${Value.show(other)}")
       case _ => throw InterpretError("Lens.andThen(other)")
     })
     Value.InstanceV("Lens", Map(
@@ -1570,6 +1594,86 @@ class Interpreter(
     Value.InstanceV("Lens", Map(
       "get" -> getFn, "set" -> setFn, "modify" -> modifyFn,
       "andThen" -> andThenFn
+    ))
+
+  // ─── Optional (partial optic) ────────────────────────────────────
+
+  /** Walk `steps` into `target`. Returns `None` as soon as a `SomeStep`
+   *  hits a `None`, or a `FieldStep` hits a non-instance. */
+  private def opticGetOption(target: Value, steps: List[PathStep]): Option[Value] = steps match
+    case Nil => Some(target)
+    case PathStep.FieldStep(n) :: rest => target match
+      case Value.InstanceV(_, fields) => fields.get(n).flatMap(v => opticGetOption(v, rest))
+      case _                          => None
+    case PathStep.SomeStep :: rest => target match
+      case Value.OptionV(Some(inner)) => opticGetOption(inner, rest)
+      case _                          => None
+
+  /** Functional set along `steps`. Returns the rebuilt value, or the
+   *  original `target` unchanged when the path doesn't fully resolve
+   *  (mirrors Optional.set semantics: no-op on miss). */
+  private def opticSet(target: Value, steps: List[PathStep], newVal: Value): Value = steps match
+    case Nil => newVal
+    case PathStep.FieldStep(n) :: rest => target match
+      case Value.InstanceV(typeName, fields) =>
+        fields.get(n) match
+          case Some(child) =>
+            Value.InstanceV(typeName, fields.updated(n, opticSet(child, rest, newVal)))
+          case None => target
+      case _ => target
+    case PathStep.SomeStep :: rest => target match
+      case Value.OptionV(Some(inner)) =>
+        Value.OptionV(Some(opticSet(inner, rest, newVal)))
+      case other => other
+
+  /** Build an Optional for a path that contains at least one `SomeStep`.
+   *  `getOption` returns `None` if any Option in the chain is empty;
+   *  `set` / `modify` are no-ops in that case. */
+  private def buildPathOptional(steps: List[PathStep]): Value.InstanceV =
+    val getOptionFn = Value.NativeFnV("Optional.getOption", {
+      case List(s) => Pure(Value.OptionV(opticGetOption(s, steps)))
+      case _       => throw InterpretError("Optional.getOption(s)")
+    })
+    val setFn = Value.NativeFnV("Optional.set", {
+      case List(s, v) => Pure(opticSet(s, steps, v))
+      case _          => throw InterpretError("Optional.set(s, v)")
+    })
+    val modifyFn = Value.NativeFnV("Optional.modify", {
+      case List(s, f) => opticGetOption(s, steps) match
+        case Some(old) =>
+          callValue(f, List(old), Map.empty).map(newV => opticSet(s, steps, newV))
+        case None => Pure(s)
+      case _ => throw InterpretError("Optional.modify(s, f)")
+    })
+    // Optional.andThen accepts another path-Optional or a path-Lens and
+    // chains by concatenating steps. Mixed-type composition (with manually
+    // built optics) is rejected for clarity.
+    val andThenFn = Value.NativeFnV("Optional.andThen", {
+      case List(Value.InstanceV(t, other)) if t == "Optional" || t == "Lens" =>
+        val otherStepsOpt: Option[List[PathStep]] = other.get("_steps") match
+          case Some(Value.ListV(items)) => Some(items.collect {
+            case Value.StringV("__some__") => PathStep.SomeStep
+            case Value.StringV(n)          => PathStep.FieldStep(n)
+          })
+          case _ => other.get("_path") match
+            case Some(Value.ListV(items)) =>
+              Some(items.collect { case Value.StringV(n) => PathStep.FieldStep(n) })
+            case _ => None
+        otherStepsOpt match
+          case Some(otherSteps) => Pure(buildPathOptional(steps ++ otherSteps))
+          case None => throw InterpretError("Optional.andThen: cannot compose with non-path optic")
+      case _ => throw InterpretError("Optional.andThen(other): only path Lens/Optional supported")
+    })
+    val stepsValue = Value.ListV(steps.map {
+      case PathStep.FieldStep(n) => Value.StringV(n)
+      case PathStep.SomeStep     => Value.StringV("__some__")
+    })
+    Value.InstanceV("Optional", Map(
+      "getOption" -> getOptionFn,
+      "set"       -> setFn,
+      "modify"    -> modifyFn,
+      "andThen"   -> andThenFn,
+      "_steps"    -> stepsValue
     ))
 
   /** Evaluate a list of argument terms eagerly to a list of Computations, then
