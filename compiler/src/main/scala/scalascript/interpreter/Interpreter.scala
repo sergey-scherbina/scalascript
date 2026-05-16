@@ -572,20 +572,38 @@ class Interpreter(out: java.io.PrintStream = System.out, baseDir: Option[os.Path
         case Term.Select(qual, Term.Name(method)) =>
           val qualC    = eval(qual, env)
           val argComps = app.argClause.values.map(eval(_, env))
-          FlatMap(qualC, qualV =>
-            threadValues(argComps)(argVals => dispatch(qualV, method, argVals, env)))
+          qualC match
+            case Pure(qualV) if argComps.forall(_.isInstanceOf[Pure]) =>
+              val argVs = argComps.map { case Pure(v) => v; case _ => Value.UnitV }
+              dispatch(qualV, method, argVs, env)
+            case _ =>
+              FlatMap(qualC, qualV =>
+                threadValues(argComps)(argVals => dispatch(qualV, method, argVals, env)))
         case fun =>
           val funC     = eval(fun, env)
           val argComps = app.argClause.values.map(eval(_, env))
-          FlatMap(funC, fv =>
-            threadValues(argComps)(argVals => callValue(fv, argVals, env)))
+          funC match
+            case Pure(fv) if argComps.forall(_.isInstanceOf[Pure]) =>
+              val argVs = argComps.map { case Pure(v) => v; case _ => Value.UnitV }
+              callValue(fv, argVs, env)
+            case _ =>
+              FlatMap(funC, fv =>
+                threadValues(argComps)(argVals => callValue(fv, argVals, env)))
 
     // Infix operators: a op b
     case Term.ApplyInfix.After_4_6_0(lhs, op, _, argClause) =>
       val lhsC     = eval(lhs, env)
       val argComps = argClause.values.map(eval(_, env))
-      FlatMap(lhsC, lhsV =>
-        threadValues(argComps)(argVs => infix(lhsV, op.value, argVs, env)))
+      // Fast path: both sides already pure (the typical case for hot
+      // arithmetic like `n - 1`, `acc + n`, `n < 2`). Skip the FlatMap
+      // chain and call infix directly.
+      lhsC match
+        case Pure(lhsV) if argComps.forall(_.isInstanceOf[Pure]) =>
+          val argVs = argComps.map { case Pure(v) => v; case _ => Value.UnitV }
+          infix(lhsV, op.value, argVs, env)
+        case _ =>
+          FlatMap(lhsC, lhsV =>
+            threadValues(argComps)(argVs => infix(lhsV, op.value, argVs, env)))
 
     // Field / method selection: a.b  (no-arg call)
     case Term.Select(qual, name) =>
