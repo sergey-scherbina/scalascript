@@ -10,10 +10,15 @@ Direction-A follow-ups from the `feat(web): html"/css" interpolators + route()`
 landing.  Goal: a `.ssc` document can express a full HTML page + REST API
 without reaching for raw string concatenation.
 
-- **A.2 — typed HTML DSL.**  Tag and attribute constructors (`div(cls := "...",
-  h1("Hi"))`) returning HTML-tree values that convert to `String` on output.
-  Minimum core: ~30 most common tags, ~20 attributes, sane escaping, splice
-  interop with `html"..."` templates.
+- **A.2 — typed HTML DSL on JS / JVM.**  Interpreter ships a top-level
+  tag-constructor set (~40 container + void tags, e.g. `div`, `p`,
+  `h1`, `ul`, `li`, `form`, `input`) plus an `attr.*` namespace
+  (`attr.cls`, `attr.id`, `attr.href`, `attr.type_`, …) and an `:=`
+  attribute operator.  Results are `_Raw` HTML nodes so they compose
+  with `html"..."` interpolation without double-escaping; `List` arg
+  flattens so `ul(items.map(li))` works.  JsGen and JvmGen don't yet
+  expose these — port the runtime + tag registry so the same DSL
+  source compiles cleanly on all three.
 - **Multipart file uploads.**  The interpreter now parses
   `multipart/form-data` text parts into `req.form`; file parts (those
   with a `filename=` directive) are skipped.  Add a `req.files`-style

@@ -433,6 +433,32 @@ val safe = html"<p>hello ${userInput}</p>"        // userInput escaped
 val outer = html"<div>${raw(safe)}</div>"          // safe passed through
 ```
 
+#### Typed HTML DSL (interpreter)
+
+ScalaScript ships a tag-constructor set at the top level: `html`, `head`,
+`body`, `div`, `span`, `p`, `a`, `h1`–`h6`, `ul`, `li`, `table`, `tr`, `td`,
+`form`, `button`, `label`, … plus void tags (`br`, `hr`, `img`, `input`,
+`link`, `meta`).  Attribute keys live under an `attr` namespace
+(`attr.cls`, `attr.id`, `attr.href`, `attr.type_`, …) and pair with values
+via the `:=` operator.  Each tag returns a `_Raw` HTML node so the result
+composes with `html"..."` without double-escaping.
+
+```scalascript
+val items = List("milk", "eggs", "<bread>")
+val page = html(
+  head(title("Demo"), link(attr.rel := "stylesheet", attr.href := "/style.css")),
+  body(
+    h1(attr.cls := "hero", "Welcome"),
+    ul(items.map(li))                  // Lists flatten into children
+  )
+)
+// → <html><head>…</head><body><h1 class="hero">Welcome</h1>
+//    <ul><li>milk</li><li>eggs</li><li>&lt;bread&gt;</li></ul>…</body></html>
+```
+
+Currently interpreter-only; JsGen and JvmGen don't yet expose the tag
+registry.
+
 #### Heading-bound `html` / `css` blocks (interpreter)
 
 A fenced ```` ```html ```` or ```` ```css ```` block placed under a

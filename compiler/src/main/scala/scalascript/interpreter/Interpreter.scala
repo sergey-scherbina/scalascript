@@ -248,6 +248,99 @@ class Interpreter(out: java.io.PrintStream = System.out, baseDir: Option[os.Path
       case _                      => throw InterpretError("escape(s)")
     }
 
+    // ─── Typed HTML DSL — `div(cls := "x", h1("hi"))` style ───────────
+    //
+    // Each tag is a native fn that takes a list of mixed args: Attr values
+    // (key=value pairs from `<key> := <value>`) and children (Strings, _Raw
+    // markers, or arbitrary Values rendered via Value.show).  The result is
+    // a _Raw HTML node so it composes with html"..." without re-escaping.
+
+    def attrKey(htmlName: String): Value.InstanceV =
+      Value.InstanceV("AttrKey", Map("name" -> Value.StringV(htmlName)))
+
+    // Attribute keys live under an `attr` namespace to avoid clobbering
+    // very common user-side bindings like `name`, `id`, `title`, `value`.
+    // Usage: `div(attr.cls := "hero", attr.id := "main")`.  Names that
+    // collide with Scala reserved words use an underscore suffix
+    // (`attr.type_`, `attr.for_`, `attr.method_`).
+    globals("attr") = Value.InstanceV("attr", Map(
+      "cls"         -> attrKey("class"),
+      "id"          -> attrKey("id"),
+      "href"        -> attrKey("href"),
+      "src"         -> attrKey("src"),
+      "alt"         -> attrKey("alt"),
+      "name"        -> attrKey("name"),
+      "title"       -> attrKey("title"),
+      "style"       -> attrKey("style"),
+      "type_"       -> attrKey("type"),
+      "value_"      -> attrKey("value"),
+      "placeholder" -> attrKey("placeholder"),
+      "method_"     -> attrKey("method"),
+      "action"      -> attrKey("action"),
+      "target"      -> attrKey("target"),
+      "rel"         -> attrKey("rel"),
+      "for_"        -> attrKey("for"),
+      "role"        -> attrKey("role"),
+      "colspan"     -> attrKey("colspan"),
+      "rowspan"     -> attrKey("rowspan"),
+      "disabled"    -> attrKey("disabled"),
+    ))
+
+    def htmlNode(s: String): Value.InstanceV =
+      Value.InstanceV("_Raw", Map("html" -> Value.StringV(s)))
+
+    /** Render a single child node: trusted html (_Raw) passes through,
+     *  Lists flatten so `xs.map(li)` composes naturally inside a parent
+     *  tag, everything else goes through `Value.show` + `htmlEscape`. */
+    def renderChild(v: Value): String = v match
+      case Value.InstanceV("_Raw", fields) =>
+        fields.get("html").map(Value.show).getOrElse("")
+      case Value.ListV(items) =>
+        items.map(renderChild).mkString
+      case other => htmlEscape(Value.show(other))
+
+    /** Split a tag's arg-list into attribute pairs (from `key := value`)
+     *  and children (everything else, rendered as HTML).  A `ListV` arg
+     *  flattens into multiple children. */
+    def renderTag(name: String, args: List[Value], voidTag: Boolean = false): Value.InstanceV =
+      val attrs    = scala.collection.mutable.LinkedHashMap.empty[String, String]
+      val children = StringBuilder()
+      def handle(v: Value): Unit = v match
+        case Value.InstanceV("Attr", fields) =>
+          val k = fields.get("name").map(Value.show).getOrElse("")
+          val vv = fields.get("value").map(Value.show).getOrElse("")
+          attrs(k) = vv
+        case Value.ListV(items) =>
+          items.foreach(handle)
+        case other =>
+          children ++= renderChild(other)
+      args.foreach(handle)
+      val attrStr =
+        if attrs.isEmpty then ""
+        else attrs.map((k, v) => s""" $k="${htmlEscape(v)}"""").mkString
+      if voidTag then htmlNode(s"<$name$attrStr>")
+      else            htmlNode(s"<$name$attrStr>${children.toString}</$name>")
+
+    // All tags live at the top level for ergonomics — `div(...)`, `h1(...)`,
+    // `body(...)`.  When user code rebinds one of these names (`val body =
+    // req.body` inside a route handler) the local binding shadows the tag
+    // global the usual way, just like any other top-level definition.
+    val containerTags = List(
+      "html", "head", "body", "title", "style", "script", "main",
+      "section", "header", "footer", "nav", "article", "aside",
+      "div", "span", "p", "a", "em", "strong", "small", "code", "pre",
+      "h1", "h2", "h3", "h4", "h5", "h6",
+      "ul", "ol", "li", "dl", "dt", "dd",
+      "table", "thead", "tbody", "tfoot", "tr", "td", "th",
+      "form", "button", "label", "select", "option", "textarea",
+      "figure", "figcaption", "blockquote",
+    )
+    containerTags.foreach { t => nativeP(t) { args => renderTag(t, args) } }
+
+    // Void tags: no children, no closing tag.  `<br>`, `<img src=...>`, etc.
+    val voidTags = List("br", "hr", "img", "input", "link", "meta")
+    voidTags.foreach { t => nativeP(t) { args => renderTag(t, args, voidTag = true) } }
+
     // raw(s) marks a string as pre-escaped HTML so html"..." doesn't re-escape.
     nativeP("raw") {
       case List(Value.StringV(s)) => Value.InstanceV("_Raw", Map("html" -> Value.StringV(s)))
@@ -1262,6 +1355,14 @@ class Interpreter(out: java.io.PrintStream = System.out, baseDir: Option[os.Path
   private def infix(lhs: Value, op: String, args: List[Value], env: Env): Computation =
     val rhs = args.headOption.getOrElse(Value.UnitV)
     (lhs, op, rhs) match
+      // HTML DSL: `cls := "hero"` builds an Attr instance that tag fns
+      // recognise as an attribute pair.
+      case (Value.InstanceV("AttrKey", fields), ":=", v) =>
+        val name = fields.get("name").map(Value.show).getOrElse("")
+        Pure(Value.InstanceV("Attr", Map(
+          "name"  -> Value.StringV(name),
+          "value" -> Value.StringV(Value.show(v))
+        )))
       case (Value.IntV(a),    "+",  Value.IntV(b))    => Pure(Value.IntV(a + b))
       case (Value.IntV(a),    "-",  Value.IntV(b))    => Pure(Value.IntV(a - b))
       case (Value.IntV(a),    "*",  Value.IntV(b))    => Pure(Value.IntV(a * b))
