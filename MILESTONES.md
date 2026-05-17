@@ -335,6 +335,45 @@ but two ergonomic gaps remain:
 Approx scope: 1 is ~2h; 2a-2c are ~2 days (CBOR parser + signature
 verify on three backends); 2d-2e ~1 day.
 
+## Interpreter ergonomics — carried over from v1.1
+
+Three friction points surfaced while building the v1.1 typeclass
+library.  Each was worked around at the call site (helpers instead
+of extensions, typed-`val` instead of ascription) to keep the
+milestone narrow, but each leaves an unergonomic seam users will
+hit again.  Roughly a session each; pick up when the next milestone
+that uses them lands.
+
+1. **Sealed-trait extension dispatch in the interpreter.**  A
+   `Right(…)` value has typeName `"Right"`, but `extension [A](fa:
+   Either[E, A])` registers under `"Either"`.  Without a
+   sealed-parent registry the interpreter misses the route — which
+   is why `Bifunctor[Either]` and `MonadError[Either, …]` ship
+   through helper functions in steps 5 and 6 of v1.1.  Need a
+   sealed-trait → case-class index built at trait/class definition
+   time, then `extensionDispatch` walks the parent chain.  ~100 LOC
+   interpreter change.  JS already handles this via `_typeOf` from
+   v1.1 step 4.
+
+2. **`using`-clause auto-resolution.**  Polymorphic typeclass code
+   (`def doIt[F[_]: Monad, A](fa: F[A])…`) requires `summon`
+   resolution at the call site.  ScalaScript today only supports
+   explicit-parameter passing, which is why every std helper is
+   monomorphic (`pureList`, `pureOption`, `combineAll(xs, intSum)`
+   rather than `pure[List](x)` / `xs.combineAll`).  Bigger lift
+   across all three backends — needs a resolution pass in the
+   typer that walks each `using` parameter, finds a unique
+   in-scope `given` of the right type, and re-writes the call to
+   pass it explicitly before lowering.  Defer until a user-facing
+   API actually wants the polymorphic shape.
+
+3. **`Term.Ascribe`.**  Type ascriptions like `(None: Option[Int])`
+   aren't handled by the interpreter — it errors with `Cannot
+   eval: Term.Ascribe`.  Worked around throughout the std lib and
+   conformance tests by binding to a typed `val` first.  Smallest
+   of the three: the interpreter just needs to evaluate the inner
+   term and discard the type.  ~20 LOC.
+
 ## v1.1 — Standard type-class hierarchy — landed
 
 Small, principled std library of FP type classes living in `std/`,
@@ -427,30 +466,6 @@ The 7 new tests:
     std-monaderror                 PASS  [INT] [JS] [JVM]
     std-bifunctor                  PASS  [INT] [JS] [JVM]
     std-index                      PASS  [INT] [JS] [JVM]
-
-### Carried into v1.2 — interpreter ergonomics
-
-A handful of friction points surfaced during the build but were kept
-narrow rather than expanded into this milestone:
-
-- **Sealed-trait extension dispatch in the interpreter.**  A
-  `Right(…)` value has typeName `"Right"`, but extensions inside
-  `Bifunctor[Either]` (or `MonadError[Either, …]`) register under
-  `"Either"`.  Without a sealed-parent registry the interpreter
-  misses the route — that's why Either ships through helper
-  functions in steps 5 and 6.  ~100 LOC interpreter change.
-
-- **`using`-clause auto-resolution.**  Polymorphic typeclass code
-  (`def doIt[F[_]: Monad, A](fa: F[A])…`) requires `summon`
-  resolution at the call site; ScalaScript today only supports
-  explicit-parameter passing.  Bigger lift across all three
-  backends; the per-instance helpers in std cover the common cases
-  without it.
-
-- **`Term.Ascribe`.**  Type ascriptions like `(None: Option[Int])`
-  aren't handled by the interpreter.  Worked around throughout the
-  std lib and conformance tests by binding to a typed `val`.  ~20
-  LOC interpreter change.
 
 ### Explicitly deferred — `Category` / `Arrow` / `Profunctor`
 
