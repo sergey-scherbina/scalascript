@@ -1,0 +1,31 @@
+#!/usr/bin/env ssc
+---
+name: container
+description: Max-width centred wrapper — the `<main>` of a typical page.
+---
+
+# Container
+
+```scalascript
+object Container:
+  private val sc = scope("Container")
+  private val root = sc.cls("root")
+
+  val css: String = sc.css("""
+    .root { margin: 0 auto; padding: 0 1rem; box-sizing: border-box;
+            width: 100%; }
+  """)
+
+  /** `size` is the max-width: e.g. "640px", "48em", "100ch".
+   *  Sensible presets: "sm" → 480px, "md" → 720px, "lg" → 960px,
+   *  "xl" → 1200px.  Anything else is passed through verbatim. */
+  def render(children: String, size: String = "md"): String =
+    val maxw = size match
+      case "sm" => "480px"
+      case "md" => "720px"
+      case "lg" => "960px"
+      case "xl" => "1200px"
+      case s    => s
+    val style = "max-width: " + maxw + ";"
+    html"""<div class="${root}" style="${style}">${raw(children)}</div>"""
+```

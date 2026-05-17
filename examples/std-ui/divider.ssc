@@ -1,0 +1,31 @@
+#!/usr/bin/env ssc
+---
+name: divider
+description: Themed `<hr>` with optional label inline.
+---
+
+# Divider
+
+```scalascript
+object Divider:
+  private val sc = scope("Divider")
+  private val plainCls   = sc.cls("plain")
+  private val labeledCls = sc.cls("labeled")
+  private val labelCls   = sc.cls("label")
+
+  val css: String = sc.css("""
+    .plain   { border: 0; border-top: 1px solid #e5e7eb;
+               margin: 1.5em 0; height: 1px; }
+    .labeled { display: flex; align-items: center; gap: .75em;
+               margin: 1.5em 0; color: #6b7280; font-size: .85em; }
+    .labeled::before,
+    .labeled::after { content: ""; flex: 1;
+                      border-top: 1px solid #e5e7eb; }
+    .label   { white-space: nowrap; text-transform: uppercase;
+               letter-spacing: .04em; }
+  """)
+
+  def render(label: String = ""): String =
+    if label.isEmpty then html"""<hr class="${plainCls}">"""
+    else html"""<div class="${labeledCls}"><span class="${labelCls}">${label}</span></div>"""
+```

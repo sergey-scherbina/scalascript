@@ -1,0 +1,39 @@
+#!/usr/bin/env ssc
+---
+name: grid
+description: N-column responsive grid via CSS grid.
+---
+
+# Grid
+
+```scalascript
+object Grid:
+  private val sc = scope("Grid")
+  private val root = sc.cls("root")
+
+  val css: String = sc.css("""
+    .root { display: grid; }
+    @media (max-width: 640px) { .root { grid-template-columns: 1fr !important; } }
+  """)
+
+  /** `columns` = the grid-template-columns string OR an integer
+   *  (passed in as a String) that we treat as `repeat(N, 1fr)`.
+   *  The component switches to a single column on mobile via the
+   *  scoped @media rule. */
+  def render(
+      children: String,
+      columns: String = "2",
+      gap: String = "1em"
+  ): String =
+    // Treat columns as an integer count when it's a bare digit string;
+    // anything with non-digits passes through verbatim as a literal
+    // `grid-template-columns` value (e.g. "1fr 2fr 1fr").
+    val allDigits = columns.length > 0 && columns.length < 4 &&
+                    columns.indexOf(' ') < 0 && columns.indexOf('f') < 0 &&
+                    columns.indexOf('%') < 0 && columns.indexOf(',') < 0
+    val tmpl =
+      if allDigits then "repeat(" + columns + ", 1fr)"
+      else columns
+    val style = "grid-template-columns: " + tmpl + "; gap: " + gap + ";"
+    html"""<div class="${root}" style="${style}">${raw(children)}</div>"""
+```

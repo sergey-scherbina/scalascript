@@ -65,18 +65,6 @@ on bare class names, all reachable through a top-level aggregator
 `std/ui/index.ssc` so consumers can do
 `[Button, Card, FormInput as Input](std/ui)`.
 
-Tier 2 — **layout primitives** (the things every page needs once)
-
-  - **`Stack`** / **`Row`** — flex containers with a `gap` prop;
-    `Stack` is vertical, `Row` is horizontal.  Cover ~90 % of
-    layout needs without a grid framework.
-  - **`Grid`** — n-column responsive grid (`columns`, `gap`).
-  - **`Container`** — max-width centred wrapper with consistent
-    horizontal padding.  The `<main>` of a typical page.
-  - **`Divider`** — `<hr>` with theme spacing.
-  - **`Spacer`** — flex-fill or fixed-height gap, for when `gap`
-    isn't enough.
-
 Tier 3 — **navigation**
 
   - **`NavBar`** — `Layout`-style header with brand + nav links +

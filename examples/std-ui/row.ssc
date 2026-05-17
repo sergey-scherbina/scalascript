@@ -1,0 +1,31 @@
+#!/usr/bin/env ssc
+---
+name: row
+description: Horizontal flex container with a uniform gap between children.
+---
+
+# Row
+
+```scalascript
+object Row:
+  private val sc = scope("Row")
+  private val root = sc.cls("root")
+
+  val css: String = sc.css("""
+    .root { display: flex; flex-direction: row; flex-wrap: wrap; }
+  """)
+
+  /** `align` maps to `align-items` (cross-axis), `justify` to
+   *  `justify-content` (main-axis).  `wrap=false` disables the
+   *  default flex-wrap. */
+  def render(
+      children: String,
+      gap: String = "1em",
+      align: String = "center",
+      justify: String = "flex-start",
+      wrap: Boolean = true
+  ): String =
+    val wrapCss = if wrap then "flex-wrap: wrap;" else "flex-wrap: nowrap;"
+    val style = "gap: " + gap + "; align-items: " + align + "; justify-content: " + justify + "; " + wrapCss
+    html"""<div class="${root}" style="${style}">${raw(children)}</div>"""
+```
