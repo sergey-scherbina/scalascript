@@ -1,0 +1,53 @@
+---
+name: optics-index-at
+---
+
+# v0.9 — Optics second pass: `.index(i)` and `.at(k)`
+
+Pointwise access into `List[A]` and `Map[K, V]` through Focus paths.
+`.index(i)` returns `None` out of bounds; `.at(k)` returns `None` for
+absent keys.  Both compose with field paths on either side.
+
+(Positional case-class constructors only — interpreter named-arg
+constructor handling is a separate pre-existing issue.)
+
+```scalascript
+case class User(name: String, active: Boolean)
+case class State(users: List[User], byId: Map[String, User])
+
+val s0 = State(
+  List(User("ada", true), User("bob", false), User("clara", true)),
+  Map("u-42" -> User("ada", true), "u-7" -> User("bob", false))
+)
+
+// ── .index(i) on List[A] ──
+val u1 = Focus[State](_.users.index(1))
+println(u1.getOption(s0))
+println(Focus[State](_.users.index(99)).getOption(s0))
+val s1 = u1.set(s0, User("BOB", true))
+println(s1.users(1).name)
+println(s1.users(1).active)
+
+// Nested: list element field
+val a1 = Focus[State](_.users.index(0).active)
+println(a1.getOption(s0))
+val s2 = a1.set(s0, false)
+println(s2.users(0).active)
+
+// ── .at(k) on Map[K, V] ──
+val k1 = Focus[State](_.byId.at("u-42"))
+println(k1.getOption(s0))
+println(Focus[State](_.byId.at("missing")).getOption(s0))
+val s3 = k1.set(s0, User("Ada Lovelace", true))
+println(s3.byId("u-42").name)
+
+// Nested: map value field
+val n1 = Focus[State](_.byId.at("u-7").name)
+println(n1.getOption(s0))
+val s4 = n1.set(s0, "Bob")
+println(s4.byId("u-7").name)
+
+// modify on a list index
+val toggled = Focus[State](_.users.index(2).active).modify(s0, b => !b)
+println(toggled.users(2).active)
+```

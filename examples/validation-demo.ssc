@@ -1,0 +1,32 @@
+#!/usr/bin/env ssc
+---
+name: validation-demo
+description: Typed request validation primitives — requireString/requireInt etc.
+---
+
+# Validation demo
+
+A `/users` POST route that requires `email` (String) and `age` (Int)
+form fields.  Missing or invalid fields short-circuit with 400 Bad
+Request automatically.  Optional fields fall back to defaults.
+
+```scalascript
+route("POST", "/users") { req =>
+  val email = requireString(req, "email")
+  val age   = requireInt(req, "age")
+  val role  = optionalString(req, "role")
+  val active = optionalBool(req, "active")
+  Response.json("created: " + email + " age=" + age +
+                " role=" + role + " active=" + active)
+}
+
+route("GET", "/echo") { req =>
+  // GET with query params: ?name=alice&n=5
+  val name = requireString(req, "name")
+  val n    = requireInt(req, "n")
+  Response.text("hi " + name + " n=" + n)
+}
+
+println("Listening on http://localhost:8772/")
+serve(8772)
+```

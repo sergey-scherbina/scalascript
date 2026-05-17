@@ -1694,7 +1694,22 @@ function serve(port) {
           const params = _matchPath(r.pattern, segs);
           if (params == null) continue;
           const request = _mkRequest(req, params, bodyBuf);
-          const result  = r.handler(request);
+          // Tier 5 #20 — validation primitives short-circuit by throwing
+          // _RestValidationError; catch here and turn into 400.
+          let result;
+          try {
+            result = r.handler(request);
+          } catch (e) {
+            if (e && e._restValidation) {
+              result = _mkResp({
+                status: 400,
+                headers: new Map([['Content-Type', 'text/plain; charset=utf-8']]),
+                body: String(e.message || e)
+              });
+            } else {
+              throw e;
+            }
+          }
           const headers = result && result.headers instanceof Map ? result.headers : new Map();
           if (!headers.has('Content-Type')) headers.set('Content-Type', 'text/plain; charset=utf-8');
           const out = headers ? Object.fromEntries(headers.entries()) : {};
@@ -1888,14 +1903,24 @@ function _composeLens(a, b) {
   return { _type: 'Lens', get, set, modify, andThen };
 }
 
-// ── Optional runtime — partial optic for paths containing `.some` ─────
-// Steps are an array of strings: a field name, or "__some__" to traverse
-// into the inner value of a Some(...).
+// ── Optional runtime — partial optic for paths containing `.some` /
+// `.index(i)` / `.at(k)` ────────────────────────────────────────────────
+// Steps are an array of either strings (field name / "__some__" /
+// "__each__") or small objects ({kind:'index',i}, {kind:'at',key}).
 function _opticGetOption(steps, s) {
   let v = s;
   for (let i = 0; i < steps.length; i++) {
     const step = steps[i];
-    if (step === '__some__') {
+    if (typeof step === 'object') {
+      if (step.kind === 'index') {
+        if (!Array.isArray(v) || step.i < 0 || step.i >= v.length) return _None;
+        v = v[step.i];
+      } else if (step.kind === 'at') {
+        if (!(v instanceof Map)) return _None;
+        if (!v.has(step.key)) return _None;
+        v = v.get(step.key);
+      } else return _None;
+    } else if (step === '__some__') {
       if (v && v._type === '_Some') v = v.value;
       else return _None;
     } else {
@@ -1909,6 +1934,22 @@ function _opticGetOption(steps, s) {
 function _opticSet(steps, s, v) {
   if (steps.length === 0) return v;
   const [head, ...rest] = steps;
+  if (typeof head === 'object') {
+    if (head.kind === 'index') {
+      if (!Array.isArray(s) || head.i < 0 || head.i >= s.length) return s;
+      const out = s.slice();
+      out[head.i] = _opticSet(rest, s[head.i], v);
+      return out;
+    }
+    if (head.kind === 'at') {
+      if (!(s instanceof Map)) return s;
+      if (!s.has(head.key)) return s;
+      const out = new Map(s);
+      out.set(head.key, _opticSet(rest, s.get(head.key), v));
+      return out;
+    }
+    return s;
+  }
   if (head === '__some__') {
     if (s && s._type === '_Some') return _Some(_opticSet(rest, s.value, v));
     return s;
@@ -1946,6 +1987,17 @@ function _makeOptional(steps) {
 function _opticGetAll(steps, s) {
   if (steps.length === 0) return [s];
   const [head, ...rest] = steps;
+  if (typeof head === 'object') {
+    if (head.kind === 'index') {
+      if (!Array.isArray(s) || head.i < 0 || head.i >= s.length) return [];
+      return _opticGetAll(rest, s[head.i]);
+    }
+    if (head.kind === 'at') {
+      if (!(s instanceof Map) || !s.has(head.key)) return [];
+      return _opticGetAll(rest, s.get(head.key));
+    }
+    return [];
+  }
   if (head === '__some__') {
     if (s && s._type === '_Some') return _opticGetAll(rest, s.value);
     return [];
@@ -1960,6 +2012,21 @@ function _opticGetAll(steps, s) {
 function _opticModifyAll(steps, s, f) {
   if (steps.length === 0) return f(s);
   const [head, ...rest] = steps;
+  if (typeof head === 'object') {
+    if (head.kind === 'index') {
+      if (!Array.isArray(s) || head.i < 0 || head.i >= s.length) return s;
+      const out = s.slice();
+      out[head.i] = _opticModifyAll(rest, s[head.i], f);
+      return out;
+    }
+    if (head.kind === 'at') {
+      if (!(s instanceof Map) || !s.has(head.key)) return s;
+      const out = new Map(s);
+      out.set(head.key, _opticModifyAll(rest, s.get(head.key), f));
+      return out;
+    }
+    return s;
+  }
   if (head === '__some__') {
     if (s && s._type === '_Some') return _Some(_opticModifyAll(rest, s.value, f));
     return s;
@@ -2260,6 +2327,73 @@ function jsonParse(s) {
 }
 
 function jsonStringify(v) { return _toJsonStringify(v); }
+
+// Tier 5 #20 — typed request validation primitives.  Each `requireX`
+// throws a tagged Error which the serve() dispatch catches and turns
+// into a 400 Bad Request.  Lookup walks form → query (JSON body lives
+// behind req.json — handlers fish field values out themselves).
+function _restValidationError(msg) {
+  const e = new Error(msg);
+  e._restValidation = true;
+  return e;
+}
+function _restFieldOf(req, name) {
+  if (req && req.form instanceof Map && req.form.has(name)) return req.form.get(name);
+  if (req && req.query instanceof Map && req.query.has(name)) return req.query.get(name);
+  return undefined;
+}
+function requireString(req, name) {
+  const v = _restFieldOf(req, name);
+  if (v === undefined) throw _restValidationError('missing field: ' + name);
+  return String(v);
+}
+function optionalString(req, name) {
+  const v = _restFieldOf(req, name);
+  return v === undefined ? _None : _Some(String(v));
+}
+function requireInt(req, name) {
+  const v = _restFieldOf(req, name);
+  if (v === undefined) throw _restValidationError('missing field: ' + name);
+  const s = String(v).trim();
+  if (!/^-?[0-9]+$/.test(s)) throw _restValidationError('invalid integer for field: ' + name);
+  return Number(s);
+}
+function optionalInt(req, name) {
+  const v = _restFieldOf(req, name);
+  if (v === undefined) return _None;
+  const s = String(v).trim();
+  if (!/^-?[0-9]+$/.test(s)) return _None;
+  return _Some(Number(s));
+}
+function requireDouble(req, name) {
+  const v = _restFieldOf(req, name);
+  if (v === undefined) throw _restValidationError('missing field: ' + name);
+  const n = Number(String(v).trim());
+  if (Number.isNaN(n)) throw _restValidationError('invalid number for field: ' + name);
+  return n;
+}
+function optionalDouble(req, name) {
+  const v = _restFieldOf(req, name);
+  if (v === undefined) return _None;
+  const n = Number(String(v).trim());
+  return Number.isNaN(n) ? _None : _Some(n);
+}
+function requireBool(req, name) {
+  const v = _restFieldOf(req, name);
+  if (v === undefined) throw _restValidationError('missing field: ' + name);
+  const s = String(v).trim().toLowerCase();
+  if (s === 'true'  || s === '1' || s === 'yes' || s === 'on')  return true;
+  if (s === 'false' || s === '0' || s === 'no'  || s === 'off') return false;
+  throw _restValidationError('invalid boolean for field: ' + name);
+}
+function optionalBool(req, name) {
+  const v = _restFieldOf(req, name);
+  if (v === undefined) return _None;
+  const s = String(v).trim().toLowerCase();
+  if (s === 'true'  || s === '1' || s === 'yes' || s === 'on')  return _Some(true);
+  if (s === 'false' || s === '0' || s === 'no'  || s === 'off') return _Some(false);
+  return _None;
+}
 
 function _toJsonStringify(v) {
   if (v === null || v === undefined) return 'null';
@@ -4416,23 +4550,46 @@ class JsGen(baseDir: Option[os.Path] = None):
         case _ => None
       stepsOpt match
         case Some(steps) if steps.nonEmpty =>
-          // Steps are encoded as strings: a field name, "__some__" for a
-          // `.some` traversal, or "__each__" for a `.each` traversal.
-          // Runtime helpers dispatch on the marker tokens.
-          val stepLiterals = s"[${steps.map(s => s"'$s'").mkString(", ")}]"
-          if steps.contains("__each__")      then s"_makeTraversal($stepLiterals)"
-          else if steps.contains("__some__") then s"_makeOptional($stepLiterals)"
-          else                                    s"_makeLens($stepLiterals)"
+          // Steps are JS-code fragments: each entry is a literal that goes
+          // straight into the array.  Field / __some__ / __each__ encode
+          // as plain strings ('field' / '__some__' / '__each__'); v0.9
+          // `.index(i)` / `.at(k)` encode as small object literals
+          // (`{kind:'index',i:3}` / `{kind:'at',key:'u-42'}`).
+          val stepLiterals = s"[${steps.mkString(", ")}]"
+          val hasIndexOrAt =
+            steps.exists(s => s.startsWith("{kind:'index'") || s.startsWith("{kind:'at'"))
+          if steps.contains("'__each__'")                      then s"_makeTraversal($stepLiterals)"
+          else if steps.contains("'__some__'") || hasIndexOrAt then s"_makeOptional($stepLiterals)"
+          else                                                       s"_makeLens($stepLiterals)"
         case _ =>
           s"(()=>{ throw new Error('Focus: expected a field-access lambda like _.field.subfield'); })()"
     case _ =>
       s"(()=>{ throw new Error('Focus expects exactly one lambda argument'); })()"
 
   private def extractPathSteps(body: Term, isBase: Term => Boolean): Option[List[String]] =
+    def jsLit(lit: Lit): Option[String] = lit match
+      case Lit.String(v)  => Some("\"" + v.replace("\\", "\\\\").replace("\"", "\\\"") + "\"")
+      case Lit.Int(v)     => Some(v.toString)
+      case Lit.Long(v)    => Some(v.toString)
+      case Lit.Double(v)  => Some(v.toString)
+      case Lit.Boolean(v) => Some(v.toString)
+      case _              => None
     def loop(t: Term, acc: List[String]): Option[List[String]] = t match
-      case Term.Select(qual, Term.Name("some")) => loop(qual, "__some__" :: acc)
-      case Term.Select(qual, Term.Name("each")) => loop(qual, "__each__" :: acc)
-      case Term.Select(qual, name)              => loop(qual, name.value :: acc)
+      case Term.Select(qual, Term.Name("some")) => loop(qual, "'__some__'" :: acc)
+      case Term.Select(qual, Term.Name("each")) => loop(qual, "'__each__'" :: acc)
+      // v0.9 pointwise — `.index(i)` / `.at(k)`.
+      case Term.Apply.After_4_6_0(Term.Select(qual, Term.Name("index")), argClause)
+          if argClause.values.size == 1 =>
+        argClause.values.head match
+          case Lit.Int(i)  => loop(qual, s"{kind:'index',i:$i}" :: acc)
+          case Lit.Long(i) => loop(qual, s"{kind:'index',i:$i}" :: acc)
+          case _           => None
+      case Term.Apply.After_4_6_0(Term.Select(qual, Term.Name("at")), argClause)
+          if argClause.values.size == 1 =>
+        argClause.values.head match
+          case lit: Lit => jsLit(lit).flatMap(js => loop(qual, s"{kind:'at',key:$js}" :: acc))
+          case _        => None
+      case Term.Select(qual, name)              => loop(qual, s"'${name.value}'" :: acc)
       case other if isBase(other)               => Some(acc)
       case _                                     => None
     loop(body, Nil)

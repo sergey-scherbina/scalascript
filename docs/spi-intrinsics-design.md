@@ -4,33 +4,234 @@
 > extraction) starts.  Companion to [`docs/backend-spi.md`](backend-spi.md)
 > §8 and [`docs/spi-followups-plan.md`](spi-followups-plan.md).
 >
+> Stage 5+/A is partially landed: `Backend.intrinsics` API exists,
+> `nowMillis` flows through all three backends, `println` migrated
+> from hardcoded `nativeP` to a `NativeImpl` intrinsic on the
+> interpreter (compiled backends still emit `println` inline).
+> The remaining work is **per-call-site dispatch** through `ExternCall`
+> for compiled backends — that's hole #1 below and prerequisite to
+> 5+/B.
+>
 > Each section: the open question, viable options, recommended path,
-> what stays open after.  None of these block 5+/A (Console.println as
-> proof point) — they all surface the moment 5+/B touches a real
-> platform package.
+> what stays open after.
 
 ## Why this doc exists
 
 `docs/backend-spi.md` §8 lays out the intrinsic mechanism end-to-end:
 `extern def` → `ExternCall` IR node → `Backend.intrinsics:
-Map[QualifiedName, IntrinsicImpl]` → `InlineCode` / `RuntimeCall` /
-`HostCallback`.  The API ships; no intrinsic has yet flowed through it
-end-to-end.
+Map[QualifiedName, IntrinsicImpl]` → one of four `IntrinsicImpl`
+variants (see [State of play](#state-of-play) below).
 
-Four design holes are likely to bite during 5+/B–D in ways that would
-force a redesign mid-extraction.  Resolving them up front costs an hour
-of writing and saves an iteration of churn later.
+Five design holes are likely to bite during 5+/B–D in ways that would
+force a redesign mid-extraction.  Resolving them up front costs an
+hour of writing and saves an iteration of churn later.
 
 Holes, ordered by blast radius:
 
-1. **[Sync vs async handler semantics](#1-sync-vs-async-handler-semantics)** — shape of every server-side intrinsic.
-2. **[Server vs client split in `std.ws`](#2-server-vs-client-split-in-stdws)** — naming + package layout.
-3. **[`HostCallback` end-to-end](#3-hostcallback-end-to-end)** — out-of-process backends (.NET, WASM) need this before they can ship anything HTTP/WS-shaped.
-4. **[Partial feature coverage](#4-partial-feature-coverage)** — graduation path for early backends that can't implement the full `std.http` surface day one.
+1. **[Per-call-site dispatch vs prelude aliasing](#1-per-call-site-dispatch-vs-prelude-aliasing)** — current compiled-backend implementation is a workaround that won't scale to HTTP-shaped intrinsics with handler closures.
+2. **[Sync vs async handler semantics](#2-sync-vs-async-handler-semantics)** — shape of every server-side intrinsic.
+3. **[Server vs client split in `std.ws`](#3-server-vs-client-split-in-stdws)** — naming + package layout.
+4. **[`HostCallback` end-to-end](#4-hostcallback-end-to-end)** — out-of-process backends (.NET, WASM) need this before they can ship anything HTTP/WS-shaped.
+5. **[Partial feature coverage](#5-partial-feature-coverage)** — graduation path for early backends that can't implement the full `std.http` surface day one.
+
+## State of play
+
+Verified against `main` (commit `464245a`+):
+
+### Landed
+
+- **`Backend.intrinsics: Map[QualifiedName, IntrinsicImpl]`** API on all
+  three backends (`backend-spi/Backend.scala:16`,
+  `JvmBackend.scala:20`, `JsBackend.scala:19`,
+  `InterpreterBackend.scala:21`).
+- **Four `IntrinsicImpl` variants** (`backend-spi/IntrinsicImpl.scala`):
+  - `InlineCode((List[IrExpr], EmitContext) => TargetCode)` — per-call-site
+    target source generation (compiled backends).
+  - `RuntimeCall(targetSymbol)` — alias to a runtime helper the backend
+    ships in its preamble.
+  - `HostCallback(name)` — out-of-process backend calls back into core
+    over the stdio wire.  **No dispatcher yet.**
+  - `NativeImpl((NativeContext, List[Any]) => Any)` — in-process
+    function the interpreter calls directly.  `NativeContext` carries
+    the per-session `out` / `err` `PrintStream`s.
+- **`NativeContext` trait** — runtime hooks an in-process native
+  intrinsic may consult (`out`, `err`).
+- **`ExternCall(name, args)` IR node** in `ir/Ir.scala:136` — derived
+  `ReadWriter` so it round-trips through the SPI wire protocol.
+- **`Feature` enum platform flags**: `ConsoleIO`, `HttpServer`,
+  `WebSockets`, `Auth`, `FileSystem`, `Crypto`, `Database`.
+  (`backend-spi/Feature.scala`).
+- **Three intrinsics actually populated** in backends:
+  - `nowMillis` — `NativeImpl` (interpreter), `RuntimeCall("java.lang.System.currentTimeMillis")` (JVM), `RuntimeCall("Date.now")` (JS).  Additive demo, no pre-existing path.
+  - `println` / `print` — `NativeImpl` only.  Hardcoded `nativeP("println")` / `nativeP("print")` blocks **removed from `Interpreter.initBuiltins`**; intrinsic-installed via `Interpreter.installNativeIntrinsics` at session start.  JvmGen / JsGen still hardcode their `println` emission — only the interpreter side has migrated.
+
+### Not landed
+
+- **Parser**: no `extern def` modifier.  Adding one is Stage 5+/C.1.
+- **Normalize**: `Normalize.scala:25` says "Stage 5 rewrites `extern
+  def` call sites to `ExternCall`" but no code actually does that yet.
+  Today's `nowMillis` / `println` work because their names hit the
+  intrinsic map directly via name-based installation, not via IR
+  lowering.
+- **Per-call-site emit-time intrinsic consultation** in compiled
+  backends: `JvmBackend.intrinsicPrelude` and `JsBackend`'s equivalent
+  prepend a single `def name() = target()` (or `const name = target`)
+  alias.  Works for **zero-argument intrinsics that take no closures**
+  — fine for `nowMillis`.  **Does NOT work** for `route(...) { handler
+  }` / `onWebSocket(...) { handler }` shapes; the alias can't capture
+  a closure parameter typed in user code.  Real per-call-site emit is
+  pending.
+- **`HostCallback` dispatcher** in core — no out-of-process round-trip
+  exists for any intrinsic.
+- **`std.http` / `std.ws` / `std.auth` / `std.fs` / `std.crypto`
+  prelude packages** — none exist as `.ssc` files.  Hardcoded
+  `nativeP("route")` / `nativeP("serve")` / `nativeP("onWebSocket")` /
+  `nativeP("onWebSocketAuth")` blocks still in
+  `Interpreter.initBuiltins`; HTTP / WS emission still inline in
+  JvmGen / JsGen as `Term.Apply(Term.Name("onWebSocket"), …)`
+  pattern matches.
+
+### Implication
+
+The SPI is **API-complete** but **dispatch-incomplete**.  5+/B
+(`std.http` extraction) cannot proceed without per-call-site IR
+dispatch — the current prelude-alias workaround is structurally too
+weak for handler-taking intrinsics.  That's the first hole below; it's
+prerequisite work, not a deferrable design question.
 
 ---
 
-## 1. Sync vs async handler semantics
+## 1. Per-call-site dispatch vs prelude aliasing
+
+### The question
+
+`JvmBackend.intrinsicPrelude` and the equivalent in `JsBackend` today
+turn every `RuntimeCall(target)` intrinsic into a one-line alias
+prepended to the emitted source:
+
+```scala
+// JVM
+def nowMillis() = java.lang.System.currentTimeMillis()
+// JS
+const nowMillis = () => Date.now();
+```
+
+User code `nowMillis()` then resolves to the alias via ordinary name
+lookup.  Crude but valid for zero-argument intrinsics that don't take
+closures.
+
+This breaks the moment we get to:
+
+```scala
+route("GET", "/users") { req => Response(...) }
+onWebSocket("/chat") { ws => ... }
+```
+
+A prelude alias `def route(method, path, handler) = ???` cannot
+forward to the platform API without knowing the handler's runtime
+shape — the JVM backend wants a `(Request => Response)` Scala value,
+the JS backend wants a JS callback, and the wire-level signatures
+differ.  The whole point of `InlineCode` is to **emit different target
+source per call site** depending on backend.
+
+### Options
+
+**A. Implement per-call-site `InlineCode` dispatch in JvmGen / JsGen.**
+Normalize lowers `route(method, path, handler)` →
+`ExternCall(QualifiedName("std.http.route"), [method, path, handler])`.
+JvmGen's emit pass, on hitting an `ExternCall`, looks up
+`backend.intrinsics(qn)`; if `InlineCode`, invokes `emit(args, ctx)`
+and inlines the result.  `RuntimeCall` keeps the alias-prepend path
+for trivial intrinsics.
+
+  - Pro: it's the spec's design (§8).
+  - Pro: zero workaround leftover after — `nowMillis` migrates to
+    `InlineCode` later if its overhead matters; today's alias still
+    works.
+  - Con: requires JvmGen and JsGen to consume `ir.NormalizedModule`
+    (or at least its `Extern` nodes) directly, not just the
+    `Denormalize`d AST view they use today.  ~1 iteration of plumbing
+    per backend.
+
+**B. Defer `InlineCode` until `std.http` actually needs it; ship `std.http`
+intrinsics as `RuntimeCall` with hand-written multi-arg runtime helpers.**
+Each backend ships a `_runtimeRoute(method, path, handler)`-style helper
+in its preamble; the intrinsic table maps `std.http.route` → that
+helper.
+
+  - Pro: smaller plumbing change — no IR consumption in codegens.
+  - Con: the helpers ARE the inlined target source; just packaged as
+    runtime functions instead of emit callbacks.  Lossy when call
+    sites benefit from inlining (constant folding `method` / `path`
+    at compile time).
+  - Con: helper layer adds an indirection on every HTTP call — small
+    but real overhead for hot paths.
+
+**C. Move existing JvmGen / JsGen HTTP emission verbatim into
+`InlineCode` callbacks, mechanically.**
+The current `Term.Apply(Term.Name("onWebSocket"), …)` match arm in
+JvmGen.scala lines ~3320-3380 becomes an `InlineCode.emit(args, ctx)`
+closure registered under `std.ws.onWebSocket`.  Same target source;
+just dispatched via the intrinsic map instead of pattern matching.
+
+  - Pro: zero behaviour change.  Mechanical refactor.  Conformance
+    suite is the regression net.
+  - Pro: keeps existing call-site inlining and constant folding.
+  - Con: still requires the codegens to walk IR (option A's plumbing
+    issue) — there's no shortcut.
+
+### Recommended
+
+**Option A** plumbing, **Option C** as the migration strategy for
+each existing inline-emit case.
+
+Concrete sequence for 5+/B (smallest unit of work that proves the
+path):
+
+1. Add `EmitContext` (in `ir/`) with whatever surrounding state JvmGen
+   / JsGen need to keep their existing emit logic working (symbol
+   names, indentation, the in-progress output buffer).  Mostly
+   already in JvmGen's internal threading; lift it to a typed
+   record.
+2. Add a `Normalize`-pass step that rewrites bare-name calls whose
+   target is in the runtime's `intrinsics` map → `ExternCall`.
+   (Before `extern def` parser modifier ships — name-based
+   recognition is fine as the bootstrap path.)
+3. Add JvmGen + JsGen emit cases for `ExternCall` that consult
+   `backend.intrinsics(qn)`: `InlineCode` invokes `emit`,
+   `RuntimeCall` falls back to today's alias.  `HostCallback` errors
+   for now (Stage 6+/C).
+4. Migrate **one** intrinsic (recommend `println`) to `InlineCode` on
+   JvmGen and JsGen as the proof point that compiled backends route
+   through the dispatcher.  Interpreter already uses `NativeImpl`;
+   conformance proves no regression.
+
+Once that lands, 5+/B `std.http` extraction can move HTTP emission
+into `InlineCode` callbacks one intrinsic at a time without further
+plumbing changes.
+
+What stays open:
+
+- **`EmitContext` shape** — minimum viable is just the output buffer
+  + a fresh-name supplier; everything else can be threaded through
+  closures.  Pin exact fields at Step 1.
+- **Round-trip stability of `ExternCall` through Denormalize** —
+  JvmGen and JsGen currently process the `Denormalize`d AST view, not
+  the IR directly.  Option A as scoped above keeps `Denormalize`
+  ignorant of `ExternCall`; codegens get the IR module passed
+  alongside the AST until full IR consumption migrates over.  That's
+  a Stage 5+/A.4-ish follow-up, not blocking 5+/B.
+
+### Concrete consequence for 5+/B
+
+`std.http.route` ships as an `InlineCode` intrinsic on JvmGen + JsGen,
+`NativeImpl` on Interpreter.  JvmGen's existing emit logic for
+`Term.Apply(Term.Name("route"), …)` moves verbatim into the `emit`
+closure.  Conformance tests pass unchanged.
+
+---
+
+## 2. Sync vs async handler semantics
 
 ### The question
 
@@ -142,7 +343,7 @@ No async wrapping on `route` itself.
 
 ---
 
-## 2. Server vs client split in `std.ws`
+## 3. Server vs client split in `std.ws`
 
 ### The question
 
@@ -214,7 +415,7 @@ What stays open:
 
 ---
 
-## 3. `HostCallback` end-to-end
+## 4. `HostCallback` end-to-end
 
 ### The question
 
@@ -312,7 +513,7 @@ What stays open:
 
 ---
 
-## 4. Partial feature coverage
+## 5. Partial feature coverage
 
 ### The question
 
@@ -419,29 +620,36 @@ What stays open:
 
 ## Summary table
 
-| Hole | Recommended | Cost to decide now | Cost to defer |
-|------|------------|--------------------|---------------|
-| Sync vs async handlers | Sync + Async-effect for cancellation/streaming | 30 min (write up) | ~1 iteration (redo 5+/B handler shape) |
-| `std.ws` server/client split | Two packages + `std.ws` re-export, two feature flags | 10 min (naming) | ~half iteration (move files when 5+/D lands) |
-| `HostCallback` end-to-end | Build before 5+/D; prove with `println` + `nowMillis` | ~1 iteration | unbounded (.NET/WASM stay without HTTP indefinitely) |
-| Partial feature coverage | Hierarchical sub-features, ~3 per package | 30 min (enum layout) | ~quarter iteration per blocked backend |
+| # | Hole | Recommended | Status today | Cost to decide now | Cost to defer |
+|---|------|------------|--------------|--------------------|---------------|
+| 1 | Per-call-site dispatch | Plumb `ExternCall` consumption in JvmGen/JsGen + migrate one intrinsic to `InlineCode` | Prelude-alias workaround only; doesn't scale to handler-taking intrinsics | ~1 iteration (plumbing) | **Blocks 5+/B entirely** |
+| 2 | Sync vs async handlers | Sync + Async-effect for cancellation/streaming | Sync today; no cancellation/streaming on any backend | 30 min (write up) | ~1 iteration (redo 5+/B handler shape) |
+| 3 | `std.ws` server/client split | Two packages + `std.ws` re-export, two feature flags | Single `Feature.WebSockets` flag today | 10 min (naming) | ~half iteration (move files when 5+/D lands) |
+| 4 | `HostCallback` end-to-end | Build before 5+/D; prove with `println` + `nowMillis` round-trip | ADT variant declared, dispatcher missing | ~1 iteration | unbounded (.NET/WASM stay without HTTP indefinitely) |
+| 5 | Partial feature coverage | Hierarchical sub-features, ~3 per package | All-or-nothing per §8 (strict) | 30 min (enum layout) | ~quarter iteration per blocked backend |
 
-**Total pre-flight investment:** ~1.5 iterations to settle all four.
-Saves ~2-3 iterations of redo across the 5+/B-D extractions and the
-first out-of-process backend MVP.
+**Total pre-flight investment:** hole #1 is ~1 iteration of code plus
+holes #2-5 at ~1 hour of writing.  Saves ~2-3 iterations of redo
+across 5+/B-D and the first out-of-process backend MVP.
 
 ## Next steps
 
 If recommendations stand:
 
 1. Land this doc.
-2. Update `docs/backend-spi.md` §8 to reflect: sync-handler decision,
-   `std.ws.server` / `std.ws.client` split, the hierarchical
-   `Feature` enum, and a one-liner pointing at this doc.
-3. Update `docs/spi-followups-plan.md` Stage 6+/C row — promote
-   `HostCallback` plumbing ahead of Stage 5+/D.
-4. Then 5+/A (Console.println proof point) → 5+/B (`std.http`) can
-   land on a settled base.
+2. Implement **hole #1** as Stage 5+/A.4: per-call-site `ExternCall`
+   dispatch in JvmGen + JsGen, with `println` migrated to `InlineCode`
+   as the proof point.  Prerequisite for 5+/B.
+3. Update `docs/backend-spi.md` §8 to reflect: sync-handler decision
+   (hole #2), `std.ws.server` / `std.ws.client` split (hole #3),
+   the hierarchical `Feature` enum (hole #5), and a one-liner
+   pointing at this doc.
+4. Update `docs/spi-followups-plan.md`: promote `HostCallback`
+   plumbing (Stage 6+/C, hole #4) to land before 5+/D; record 5+/A.4
+   plumbing as the new prerequisite to 5+/B.
+5. Then 5+/B (`std.http`) can proceed on a settled base — moving
+   today's hardcoded HTTP emission into `InlineCode` callbacks one
+   intrinsic at a time.
 
 If any recommendation needs redirect — flip the section and the
 table; rest of the plan is independent.

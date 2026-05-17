@@ -222,7 +222,22 @@ object WebServer:
           Value.OptionV(Some(Value.TupleV(List(Value.StringV(u), Value.StringV(p))))))
         .getOrElse(Value.OptionV(None))
     ))
-    val result = entry.interpreter.invoke(entry.handler, List(req))
+    // Tier 5 #20 — typed-validation primitives short-circuit by
+    // throwing RestValidationError, which we catch here and convert
+    // into a 400 Bad Request.  Handlers can stay linear:
+    //   val email = requireString(req, "email")
+    //   val age   = requireInt(req, "age")
+    //   ...
+    val result =
+      try entry.interpreter.invoke(entry.handler, List(req))
+      catch case ve: RestValidationError =>
+        Value.InstanceV("Response", Map(
+          "status"  -> Value.IntV(400),
+          "headers" -> Value.MapV(Map(
+            Value.StringV("Content-Type") -> Value.StringV("text/plain; charset=utf-8")
+          )),
+          "body"    -> Value.StringV(ve.getMessage)
+        ))
     writeResponse(result, ex, rawCookieSession)
 
   private def writeResponse(

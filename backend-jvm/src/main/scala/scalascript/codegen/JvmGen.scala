@@ -981,6 +981,12 @@ class JvmGen(baseDir: Option[os.Path] = None):
     case Field(name: String)
     case SomeUnwrap
     case EachStep
+    /** v0.9 — pointwise access into `List[A]`. */
+    case IndexStep(i: Int)
+    /** v0.9 — pointwise access into `Map[K, V]`.  `keyExpr` is a Scala
+     *  source fragment for the key (so a String key emits as `"foo"`,
+     *  an Int as `42`). */
+    case AtKey(keyExpr: String)
 
   private def emitFocus(app: Term.Apply): String =
     val typeArg: Option[String] = app.fun match
@@ -1003,9 +1009,13 @@ class JvmGen(baseDir: Option[os.Path] = None):
         stepsAndExplicitTpe match
           case Some((steps, explicitTpe)) if steps.nonEmpty =>
             val tpe = typeArg.orElse(explicitTpe).getOrElse("Any")
+            val hasPartial = steps.exists {
+              case FocusStep.SomeUnwrap | _: FocusStep.IndexStep | _: FocusStep.AtKey => true
+              case _                                                                    => false
+            }
             if steps.exists(_ == FocusStep.EachStep) then
               buildTraversalLiteral(tpe, steps)
-            else if steps.exists(_ == FocusStep.SomeUnwrap) then
+            else if hasPartial then
               buildOptionalLiteral(tpe, steps)
             else
               buildLensLiteral(tpe, steps.collect { case FocusStep.Field(n) => n })
@@ -1018,6 +1028,18 @@ class JvmGen(baseDir: Option[os.Path] = None):
     def loop(t: Term, acc: List[FocusStep]): Option[List[FocusStep]] = t match
       case Term.Select(qual, Term.Name("some")) => loop(qual, FocusStep.SomeUnwrap :: acc)
       case Term.Select(qual, Term.Name("each")) => loop(qual, FocusStep.EachStep :: acc)
+      // v0.9 pointwise — `_.users.index(3)` / `_.byId.at("u-42")`.
+      case Term.Apply.After_4_6_0(Term.Select(qual, Term.Name("index")), argClause)
+          if argClause.values.size == 1 =>
+        argClause.values.head match
+          case Lit.Int(i)  => loop(qual, FocusStep.IndexStep(i) :: acc)
+          case Lit.Long(i) => loop(qual, FocusStep.IndexStep(i.toInt) :: acc)
+          case _           => None
+      case Term.Apply.After_4_6_0(Term.Select(qual, Term.Name("at")), argClause)
+          if argClause.values.size == 1 =>
+        argClause.values.head match
+          case lit: Lit => loop(qual, FocusStep.AtKey(lit.syntax) :: acc)
+          case _        => None
       case Term.Select(qual, name)              => loop(qual, FocusStep.Field(name.value) :: acc)
       case other if isBase(other)               => Some(acc)
       case _                                     => None
@@ -1027,9 +1049,14 @@ class JvmGen(baseDir: Option[os.Path] = None):
    *  optic's `toString` label (e.g. `Lens(_.a.b)`, `Optional(_.x.some.y)`). */
   private def pathLabel(prefix: String, steps: List[FocusStep]): String =
     val parts = steps.map {
-      case FocusStep.Field(n)   => n
-      case FocusStep.SomeUnwrap => "some"
-      case FocusStep.EachStep   => "each"
+      case FocusStep.Field(n)    => n
+      case FocusStep.SomeUnwrap  => "some"
+      case FocusStep.EachStep    => "each"
+      case FocusStep.IndexStep(i)=> s"index($i)"
+      // `keyExpr` is the Scala source for the key (e.g. `"u-42"` with
+      // its quotes); the label is later embedded in a `"…"` literal so
+      // we must escape the inner double-quotes.
+      case FocusStep.AtKey(k)    => s"at(${k.replace("\"", "\\\"")})"
     }
     s"""$prefix(_.${parts.mkString(".")})"""
 
@@ -1058,26 +1085,38 @@ class JvmGen(baseDir: Option[os.Path] = None):
     val label  = pathLabel("Optional", steps)
     s"""Optional($getter, $setter, "$label")"""
 
-  /** Build the `getOption` expression. Splits on the first SomeUnwrap; if
-   *  more SomeUnwraps follow we use `flatMap`, otherwise `map`. Field-only
-   *  segments are emitted as chained `.f1.f2.…` accessors. */
+  private def isPartialStep(s: FocusStep): Boolean = s match
+    case FocusStep.SomeUnwrap | _: FocusStep.IndexStep | _: FocusStep.AtKey => true
+    case _                                                                    => false
+
+  /** Build the `getOption` expression. Splits on the first partial step
+   *  (Some / Index / At); if more partials follow we use `flatMap`,
+   *  otherwise `map`. Field-only segments are emitted as chained
+   *  `.f1.f2.…` accessors. */
   private def emitOpticGet(steps: List[FocusStep], in: String, counter: Int): String =
-    val firstSome = steps.indexOf(FocusStep.SomeUnwrap)
-    if firstSome < 0 then
+    val firstPartial = steps.indexWhere(isPartialStep)
+    if firstPartial < 0 then
       val fields = steps.collect { case FocusStep.Field(n) => n }
       if fields.isEmpty then in else s"$in.${fields.mkString(".")}"
     else
-      val prefix = steps.take(firstSome).collect { case FocusStep.Field(n) => n }
-      val suffix = steps.drop(firstSome + 1)
-      val prefixExpr = if prefix.isEmpty then in else s"$in.${prefix.mkString(".")}"
-      if suffix.isEmpty then prefixExpr
+      val prefixFields = steps.take(firstPartial).collect { case FocusStep.Field(n) => n }
+      val splitStep   = steps(firstPartial)
+      val suffix      = steps.drop(firstPartial + 1)
+      val prefixExpr  = if prefixFields.isEmpty then in else s"$in.${prefixFields.mkString(".")}"
+      val opticHead = splitStep match
+        case FocusStep.SomeUnwrap   => prefixExpr
+        case FocusStep.IndexStep(i) => s"$prefixExpr.lift($i)"
+        case FocusStep.AtKey(k)     => s"$prefixExpr.get($k)"
+        case _                      => prefixExpr
+      if suffix.isEmpty then opticHead
       else
-        val combinator = if suffix.contains(FocusStep.SomeUnwrap) then "flatMap" else "map"
+        val combinator = if suffix.exists(isPartialStep) then "flatMap" else "map"
         val v = s"_p$counter"
-        s"$prefixExpr.$combinator($v => ${emitOpticGet(suffix, v, counter + 1)})"
+        s"$opticHead.$combinator($v => ${emitOpticGet(suffix, v, counter + 1)})"
 
-  /** Build the `set` expression: nested `.copy(field = ...)` interleaved with
-   *  `.map(p => …)` at every SomeUnwrap. */
+  /** Build the `set` expression: nested `.copy(field = ...)` interleaved
+   *  with `.map(p => …)` for Some, bounds-checked `.updated` for Index,
+   *  unconditional `.updated` for At. */
   private def emitOpticSet(steps: List[FocusStep], target: String, valExpr: String, counter: Int): String = steps match
     case Nil                                  => valExpr
     case FocusStep.Field(n) :: Nil            => s"$target.copy($n = $valExpr)"
@@ -1087,6 +1126,16 @@ class JvmGen(baseDir: Option[os.Path] = None):
     case FocusStep.SomeUnwrap :: rest         =>
       val v = s"_p$counter"
       s"$target.map($v => ${emitOpticSet(rest, v, valExpr, counter + 1)})"
+    case FocusStep.IndexStep(i) :: Nil        =>
+      s"(if ($i >= 0 && $i < $target.length) $target.updated($i, $valExpr) else $target)"
+    case FocusStep.IndexStep(i) :: rest       =>
+      val v = s"_p$counter"
+      s"(if ($i >= 0 && $i < $target.length) $target.updated($i, { val $v = $target($i); ${emitOpticSet(rest, v, valExpr, counter + 1)} }) else $target)"
+    case FocusStep.AtKey(k) :: Nil            =>
+      s"$target.updated($k, $valExpr)"
+    case FocusStep.AtKey(k) :: rest           =>
+      val v = s"_p$counter"
+      s"$target.get($k).map($v => $target.updated($k, ${emitOpticSet(rest, v, valExpr, counter + 1)})).getOrElse($target)"
     case FocusStep.EachStep :: _              =>
       // Only reached via a misuse of buildOptionalLiteral on a path that
       // ought to be a Traversal — keep behaviour consistent and stop.
@@ -1106,7 +1155,11 @@ class JvmGen(baseDir: Option[os.Path] = None):
   /** Build the `toList` expression. Splits on the first `.some` or `.each`
    *  step; subsequent `.some` / `.each` chain via `List.flatMap`. */
   private def emitTraversalGet(steps: List[FocusStep], in: String, counter: Int): String =
-    val firstSplit = steps.indexWhere(s => s == FocusStep.SomeUnwrap || s == FocusStep.EachStep)
+    val firstSplit = steps.indexWhere {
+      case FocusStep.SomeUnwrap | FocusStep.EachStep |
+           _: FocusStep.IndexStep | _: FocusStep.AtKey => true
+      case _                                            => false
+    }
     if firstSplit < 0 then
       val fields = steps.collect { case FocusStep.Field(n) => n }
       val accessed = if fields.isEmpty then in else s"$in.${fields.mkString(".")}"
@@ -1119,9 +1172,11 @@ class JvmGen(baseDir: Option[os.Path] = None):
       val v = s"_p$counter"
       val recurExpr = emitTraversalGet(suffix, v, counter + 1)
       splitStep match
-        case FocusStep.SomeUnwrap => s"$prefixExpr.toList.flatMap($v => $recurExpr)"
-        case FocusStep.EachStep   => s"$prefixExpr.flatMap($v => $recurExpr)"
-        case _                    => prefixExpr
+        case FocusStep.SomeUnwrap   => s"$prefixExpr.toList.flatMap($v => $recurExpr)"
+        case FocusStep.EachStep     => s"$prefixExpr.flatMap($v => $recurExpr)"
+        case FocusStep.IndexStep(i) => s"$prefixExpr.lift($i).toList.flatMap($v => $recurExpr)"
+        case FocusStep.AtKey(k)     => s"$prefixExpr.get($k).toList.flatMap($v => $recurExpr)"
+        case _                      => prefixExpr
 
   /** Build the `modify` expression: `.copy(field = …)` for FieldSteps,
    *  `.map(p => …)` for `.some` / `.each` steps, applying `f` at the leaf. */
@@ -1138,6 +1193,16 @@ class JvmGen(baseDir: Option[os.Path] = None):
     case FocusStep.EachStep :: rest           =>
       val v = s"_p$counter"
       s"$target.map($v => ${emitTraversalModify(rest, v, fName, counter + 1)})"
+    case FocusStep.IndexStep(i) :: Nil        =>
+      s"(if ($i >= 0 && $i < $target.length) $target.updated($i, $fName($target($i))) else $target)"
+    case FocusStep.IndexStep(i) :: rest       =>
+      val v = s"_p$counter"
+      s"(if ($i >= 0 && $i < $target.length) $target.updated($i, { val $v = $target($i); ${emitTraversalModify(rest, v, fName, counter + 1)} }) else $target)"
+    case FocusStep.AtKey(k) :: Nil            =>
+      s"$target.get($k).map(_p => $target.updated($k, $fName(_p))).getOrElse($target)"
+    case FocusStep.AtKey(k) :: rest           =>
+      val v = s"_p$counter"
+      s"$target.get($k).map($v => $target.updated($k, ${emitTraversalModify(rest, v, fName, counter + 1)})).getOrElse($target)"
 
   /** Emit a term that contains effect-related content, walking children. */
   private def emitExprDeep(term: Term): String = term match
@@ -2761,6 +2826,53 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |def jsonParse(s: String): Any        = _fromJson(s)
        |def jsonStringify(v: Any): String    = _toJsonValue(v)
        |
+       |// Tier 5 #20 — typed request validation primitives.  Throws a
+       |// `_RestValidationError` on missing/invalid input; route dispatch
+       |// catches it and emits a 400 Bad Request.  Lookup walks
+       |// `req.form` → `req.query`; JSON body lives behind `req.json` —
+       |// handlers extract fields from it directly.
+       |final class _RestValidationError(msg: String) extends RuntimeException(msg)
+       |private def _restFieldOf(req: Request, name: String): Option[String] =
+       |  req.form.get(name).orElse(req.query.get(name))
+       |def requireString(req: Request, name: String): String =
+       |  _restFieldOf(req, name) match
+       |    case Some(s) => s
+       |    case None    => throw new _RestValidationError(s"missing field: $name")
+       |def optionalString(req: Request, name: String): Option[String] =
+       |  _restFieldOf(req, name)
+       |def requireInt(req: Request, name: String): Long =
+       |  _restFieldOf(req, name) match
+       |    case Some(s) =>
+       |      try s.trim.toLong
+       |      catch case _: NumberFormatException =>
+       |        throw new _RestValidationError(s"invalid integer for field: $name")
+       |    case None => throw new _RestValidationError(s"missing field: $name")
+       |def optionalInt(req: Request, name: String): Option[Long] =
+       |  _restFieldOf(req, name).flatMap(s =>
+       |    try Some(s.trim.toLong) catch case _: NumberFormatException => None)
+       |def requireDouble(req: Request, name: String): Double =
+       |  _restFieldOf(req, name) match
+       |    case Some(s) =>
+       |      try s.trim.toDouble
+       |      catch case _: NumberFormatException =>
+       |        throw new _RestValidationError(s"invalid number for field: $name")
+       |    case None => throw new _RestValidationError(s"missing field: $name")
+       |def optionalDouble(req: Request, name: String): Option[Double] =
+       |  _restFieldOf(req, name).flatMap(s =>
+       |    try Some(s.trim.toDouble) catch case _: NumberFormatException => None)
+       |def requireBool(req: Request, name: String): Boolean =
+       |  _restFieldOf(req, name) match
+       |    case Some(s) => s.trim.toLowerCase match
+       |      case "true"  | "1" | "yes" | "on"  => true
+       |      case "false" | "0" | "no"  | "off" => false
+       |      case _ => throw new _RestValidationError(s"invalid boolean for field: $name")
+       |    case None => throw new _RestValidationError(s"missing field: $name")
+       |def optionalBool(req: Request, name: String): Option[Boolean] =
+       |  _restFieldOf(req, name).flatMap(s => s.trim.toLowerCase match
+       |    case "true"  | "1" | "yes" | "on"  => Some(true)
+       |    case "false" | "0" | "no"  | "off" => Some(false)
+       |    case _ => None)
+       |
        |object Response:
        |  private val Html = Map("Content-Type" -> "text/html; charset=utf-8")
        |  private val Text = Map("Content-Type" -> "text/plain; charset=utf-8")
@@ -2929,7 +3041,15 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |        val req  = Request(method, path, params,
        |          _parseQuery(ex.getRequestURI.getRawQuery), headers, body,
        |          form, files, session, bearer, claims, basicAuth, cookies)
-       |        _writeResponse(ex, r.handler(req), rawCookieSession)
+       |        // Tier 5 #20 — validation primitives short-circuit by
+       |        // throwing _RestValidationError; convert to 400.
+       |        val resp =
+       |          try r.handler(req)
+       |          catch case ve: _RestValidationError =>
+       |            Response(400,
+       |              Map("Content-Type" -> "text/plain; charset=utf-8"),
+       |              ve.getMessage)
+       |        _writeResponse(ex, resp, rawCookieSession)
        |      case None =>
        |        // Fall through to a static file under the current directory
        |        // before 404'ing — mirrors the interpreter's WebServer.
