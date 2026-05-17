@@ -823,6 +823,16 @@ worth a separate fix when somebody has cycles.
   in.  Half-day refactor.  Worth it if a third WS-touching suite
   lands.
 
+- **Scala compiler warnings in our own code.**  `build.sbt` already
+  enables `-Wunused:all -deprecation -feature`, but the warnings
+  haven't been routinely fixed as they accumulated.  A one-pass
+  cleanup: triage the current backlog, fix the ones that point at
+  real issues (unused vals, deprecated stdlib calls, missing
+  `language:` imports), and silence-with-comment the ones that are
+  intentional.  Then bump to `-Xfatal-warnings` so the next batch
+  can't accumulate silently.  Tighten as `Compile / scalacOptions`
+  so test code can stay slightly looser if needed.  Half-day.
+
 ## Beyond
 
 Larger features that aren't on the critical path but are worth keeping in
