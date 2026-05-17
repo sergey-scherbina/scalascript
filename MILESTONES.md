@@ -51,38 +51,114 @@ useful in isolation and unblocks the next.
    workflow.  Weeks of work; only worth opening once the surface
    above is well-trodden.  Out of scope for v0.7.
 
-## v0.9 — Standard component pack (`std/ui/*`)
+## v0.9 — Standard component pack — cross-cutting follow-ups
 
-The component convention is in place (`object Foo { val css, val js,
-def render(...) }`), the distribution surface lands in v0.7, and
-v0.8 makes them W3C Custom Elements.  v0.9 fills the gap that every
-real `.ssc` app hits: a curated set of components, shipped as a
-single `.sscpkg` (or via URL imports against a stable tag), so
-nobody re-implements yet-another-`Button.ssc` from scratch.
-
-Layout one file per component under `std/ui/`, all using `scope(...)`
-on bare class names, all reachable through a top-level aggregator
-`std/ui/index.ssc` so consumers can do
-`[Button, Card, FormInput as Input](std/ui)`.
-
-Cross-cutting work the pack motivates:
+The eight tiers of `std/ui/*` (forms, layout, navigation, feedback,
+data, content/typography, widgets, theming) all landed in v0.9.
+What's left from that block is the tooling that the pack motivates:
 
   - **`ssc test`** — a runner for component-level unit tests
     (`tests:` block in front-matter or a sibling `*-test.ssc` file).
-    Without this every component ships untested.
-  - **Component preview** — `ssc preview <file>` opens a browser
-    page that renders the component with each declared `variants:`
-    set.  Storybook-lite.  Optional but pays back the cost the
-    first time a designer needs to see all 47 Button states.
-  - **A documentation page** for the pack (`examples/std-ui/`)
-    that builds via `ssc build` and renders every component with
-    every variant, with the source visible.
+    Without this every component ships untested.  Likely shape: each
+    test is `(name, () => Boolean)`, runner prints pass/fail and
+    aggregates exit status — same backend matrix as conformance.
+    ~1 day per backend.
+  - **`ssc preview <file>`** — opens a browser page that renders the
+    component with each declared `variants:` set.  Storybook-lite.
+    Pays back the cost the first time a designer needs to see all
+    47 Button states.  ~1 day.
+  - **Documentation page** for the pack (`examples/std-ui/`) that
+    builds via `ssc build` and renders every component with every
+    variant, with the source visible.  Largely content, not code.
+    ~1 day.
+  - **`std/ui/index.ssc` aggregator** — a single re-export entry so
+    consumers can write `[Button, Card](./std-ui)` instead of one
+    import per component.  Requires the directory-as-index resolver
+    fix below.
 
-Effort estimate: tiers are independent and roughly half-day each
-(one focused session per tier).  Whole pack is ~1–2 weeks of
-component work at one tier per day plus 2–3 days for `ssc test`
-and the preview tooling.  Defer until at least one consumer of the
-existing convention asks "where do I get a Button?".
+Defer until at least one consumer of the existing convention asks
+"where do I get a Button?".
+
+## v0.9.1 — Import ergonomics: directory-as-index
+
+Make `[Name](./pack)` resolve to `./pack/index.ssc` when the path is
+a directory.  Today `ImportResolver.resolve` returns the raw path; if
+it points to a directory all three backends fail with "not a file".
+
+Single-spot change: after the resolver computes the final `os.Path`,
+if `os.isDir(p)` then return `p / "index.ssc"`.  ~20 LOC + one
+conformance test that imports a folder.  Unblocks `std/ui/index.ssc`.
+
+## v0.10 — Extended component pack
+
+Components the standard pack didn't cover but every real app
+eventually wants.  Same shape as v0.9 (`object Foo { val css, val
+js, def render }`), same `scope()` pattern, mergeable one-at-a-time.
+
+  - **`DateInput` / `DatePicker`** — `<input type=date>` plus a CSS
+    polyfill for browsers that show the ugly native UI.
+  - **`TimeInput` / `DateTimePicker`**.
+  - **`FileUpload`** — drag-drop zone over the existing
+    `multipart/form-data` plumbing (req.files already works).
+  - **`Combobox`** — autocomplete `<input>` + filterable popover.
+  - **`Stepper`** — multi-step form wizard with progress indicator.
+  - **`Toolbar`** — horizontal action bar (compose Button + Dropdown).
+  - **`Card`** — header / body / footer slot trio.
+  - **`Alert`** banners (already present as an example; promote).
+  - **`Tag` / `Chip`** — closable inline tokens (close-button slot).
+  - **`Switch`** — toggle styled checkbox.
+  - **`RangeSlider`** — single + dual-handle.
+  - **`Tree`** — collapsible hierarchical view (built on Accordion
+    primitives).
+  - **`Carousel`** — scroll-snap based, no JS for the default mode.
+  - **`Lightbox`** — image viewer overlay.
+  - **`Stats`** — dashboard-style number tile with delta indicator.
+  - **`Empty`** — no-content placeholder with icon + CTA.
+
+Each is half-day to a day.  Pick what a consumer actually asks for
+before grinding through speculatively.
+
+## v0.11 — i18n / l10n
+
+Many real apps need translatable strings before they need much else.
+Today every component embeds English labels directly in `def
+render`.  Need a non-leaky way to thread a locale through.
+
+Shape under consideration:
+
+  - **`Locale` global** — a thread-local-like singleton with the
+    current locale code; components call `t("submit")` to look up
+    the active translation.  Falls back to the key string if no
+    translation registered.
+  - **Front-matter `translations:`** — per-page or per-component
+    YAML map keyed by locale code.  Aggregated into a global table
+    at boot.
+  - **Number / date formatting** — defer to ICU only on JVM; ship a
+    tiny built-in formatter for interpreter + JS.
+
+Defer until a multilingual app surfaces.  ~1 week if we keep it
+opinionated.
+
+## v0.12 — SSR + client hydration story
+
+We already render server-side and we can ship `val js` that finds
+elements via querySelector.  But once we ship Web Components (v0.8)
+the question is: how do server-rendered light-DOM + client-side
+shadow-DOM cohabit without one wiping the other?
+
+Investigation, not implementation, until v0.8 lands.
+
+## v0.13 — Component theming variants
+
+Beyond Tier 8's tokens we may want a "variant" concept: a Button
+that's `tone="primary"` is a token-driven recolour, but a Button
+that's `variant="ghost"` is a structurally different render (no
+background, just a border).  Convention: variants live in the same
+component, picked by string prop, documented in the front-matter
+`variants:` list (used by `ssc preview`).
+
+No code change — just discipline.  Promote when a real component
+ends up with three+ variant branches.
 
 ## v0.8 — Web Components target (`ssc emit-wc`)
 
