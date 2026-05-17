@@ -17,8 +17,6 @@ session-sized chunk.
 
 Common asks from real apps that aren't covered today.
 
-9. **`ws.ping()` / `ws.onPong { … }`.**  User-side liveness probe.
-   Useful for health-checked clients.  ~20 LOC × 3.
 10. **`Sec-WebSocket-Protocol` subprotocol negotiation.**  Pick from
     the client's offered list, echo on the 101.  Without this
     `socket.io` / `graphql-ws` clients refuse to connect.  ~30 LOC × 3.

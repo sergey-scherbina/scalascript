@@ -2745,6 +2745,7 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |  import java.util.concurrent.{LinkedBlockingQueue, ScheduledFuture, TimeUnit}
        |  import java.util.concurrent.atomic.AtomicReference
        |  @volatile private var onMessageCb: String => Unit = null
+       |  @volatile private var onPongCb:    String => Unit = null
        |  // AtomicReference so close-fires-once is enforced by a CAS,
        |  // not by a best-effort `var = null` read/write race between
        |  // the writer-VT's finally and any caller-side `close()`.
@@ -2859,6 +2860,17 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |
        |  def onMessage(cb: String => Unit): Unit = onMessageCb = cb
        |  def onClose(cb: () => Unit): Unit       = onCloseCb.set(cb)
+       |  def onPong(cb: String => Unit): Unit    = onPongCb   = cb
+       |
+       |  /** ping([payload]): empty Ping or Latin-1-byte-view payload that
+       |    * the peer echoes back as a Pong (delivered via `onPong`).
+       |    * Doesn't interfere with the server-side 30 s heartbeat;
+       |    * both call sites refresh the same `lastPongAt`. */
+       |  def ping(): Unit = ping("")
+       |  def ping(payload: String): Unit =
+       |    if closing then return
+       |    val bytes = if payload.isEmpty then Array.emptyByteArray else payload.getBytes("ISO-8859-1")
+       |    if !outQ.offer(_wsEncodePing(bytes)) then _forceShutdown()
        |
        |  /** Arm the periodic Ping → Pong heartbeat.  Called once by
        |    * `_proxyConnection` right after the upgrade. */
@@ -2904,7 +2916,15 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |                  // trying to send them anyway; the next ping will
        |                  // time out and the writer will force-close.
        |                  outQ.offer(_wsEncodePong(fr.payload))
-       |                case 0xA => lastPongAt = java.lang.System.currentTimeMillis()
+       |                case 0xA =>
+       |                  lastPongAt = java.lang.System.currentTimeMillis()
+       |                  val cb = onPongCb
+       |                  if cb != null then
+       |                    val payload = new String(fr.payload, "ISO-8859-1")
+       |                    _serverExecutor.execute { () =>
+       |                      try cb(payload) catch case e: Throwable =>
+       |                        System.err.println(s"WS onPong handler: ${e.getMessage}")
+       |                    }
        |                case 0x8 =>
        |                  val status =
        |                    if fr.payload.length >= 2

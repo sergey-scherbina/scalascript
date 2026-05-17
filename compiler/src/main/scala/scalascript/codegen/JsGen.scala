@@ -1163,6 +1163,7 @@ function _wsEncodeClose(code, reason) {
 function _wsMakeWebSocket(socket, request) {
   let onMessage = null;
   let onClose   = null;
+  let onPong    = null;
   let closing   = false;
   let inBuf     = Buffer.alloc(0);
   // Fragmentation reassembly (RFC 6455 §5.4): the first frame of a
@@ -1233,6 +1234,14 @@ function _wsMakeWebSocket(socket, request) {
     },
     onMessage: (cb) => { onMessage = cb; },
     onClose:   (cb) => { onClose   = cb; },
+    onPong:    (cb) => { onPong    = cb; },
+    // ping([payload]) — empty Ping or Latin-1-byte-view payload.
+    // Peer's Pong arrives via the `onPong` callback above.
+    ping: (s) => {
+      if (closing || socket.destroyed) return;
+      const payload = (s == null || s === '') ? Buffer.alloc(0) : Buffer.from(String(s), 'latin1');
+      socket.write(_wsEncodeFrame(0x9, payload));
+    },
     request:   request
   };
 
@@ -1246,7 +1255,13 @@ function _wsMakeWebSocket(socket, request) {
         offset += f.consumed;
         switch (f.opcode) {
           case 0x9: socket.write(_wsEncodePong(f.payload)); break;            // ping
-          case 0xA: lastPongAt = Date.now(); break;                            // pong (peer alive)
+          case 0xA:                                                            // pong (peer alive)
+            lastPongAt = Date.now();
+            if (onPong) {
+              try { onPong(f.payload.toString('latin1')); }
+              catch (e) { console.error('WS onPong handler:', e.message); }
+            }
+            break;
           case 0x8: {                                                          // close
             const status = f.payload.length >= 2 ? f.payload.readUInt16BE(0) : 1000;
             if (!closing) { closing = true; socket.write(_wsEncodeClose(status, '')); }

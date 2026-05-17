@@ -104,6 +104,7 @@ final class WsConnection(
   // close-fires-once rule (against the read-loop / `close()` race) is
   // enforced by a single CAS, not by best-effort `var = null` patterns.
   @volatile private var onMessageCb: Option[Value] = None
+  @volatile private var onPongCb:    Option[Value] = None
   private val onCloseCb:
     java.util.concurrent.atomic.AtomicReference[Value | Null] =
       java.util.concurrent.atomic.AtomicReference[Value | Null](null)
@@ -163,6 +164,17 @@ final class WsConnection(
         // Peer is alive — refresh the liveness timestamp so the
         // heartbeat task doesn't tear down the connection.
         lastPongAt = System.currentTimeMillis()
+        // Also fire user-side `onPong` if registered — payload is the
+        // bytes the peer echoed verbatim, surfaced as a Latin-1
+        // byte-view String (same convention as `onMessage` binary).
+        onPongCb.foreach { cb =>
+          val payload = Value.StringV(new String(frame.payload, "ISO-8859-1"))
+          executor.execute { () =>
+            try interp.invoke(cb, List(payload))
+            catch case e: Throwable =>
+              log.println(s"WS onPong handler error: ${e.getMessage}")
+          }
+        }
       case Opcode.Close =>
         // Echo a close back if we haven't sent one yet, then drop the
         // connection.  The 2-byte status (if present) is preserved.
@@ -370,12 +382,31 @@ final class WsConnection(
         onCloseCb.set(cb); Value.UnitV
       case _ => throw scalascript.interpreter.InterpretError("ws.onClose { () => … }")
     })
+    // ping / onPong: liveness probe.  ping() sends an empty Ping;
+    // ping(s) sends with a Latin-1 byte-view payload that the peer
+    // echoes verbatim in its Pong.  Doesn't interact with the
+    // server's own 30 s heartbeat — both call sites refresh the
+    // same lastPongAt.
+    val ping = Value.NativeFnV("WebSocket.ping", Computation.pureFn {
+      case Nil =>
+        enqueue(WsFraming.encodePing()); Value.UnitV
+      case List(Value.StringV(s)) =>
+        enqueue(WsFraming.encodePing(s.getBytes("ISO-8859-1"))); Value.UnitV
+      case _ => throw scalascript.interpreter.InterpretError("ws.ping() or ws.ping(payload)")
+    })
+    val onPong = Value.NativeFnV("WebSocket.onPong", Computation.pureFn {
+      case List(cb) =>
+        onPongCb = Some(cb); Value.UnitV
+      case _ => throw scalascript.interpreter.InterpretError("ws.onPong { payload => … }")
+    })
     Value.InstanceV("WebSocket", Map(
       "send"      -> send,
       "sendBytes" -> sendBytes,
       "close"     -> close,
+      "ping"      -> ping,
       "onMessage" -> onMessage,
       "onClose"   -> onClose,
+      "onPong"    -> onPong,
       "request"   -> request
     ))
 
