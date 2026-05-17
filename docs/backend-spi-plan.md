@@ -233,33 +233,74 @@ Handle / Resume nodes inside `Content.CodeBlock.body`).
 
 ## Stage 3 — Effect lowering (the migration)
 
-**Goal:** effects live as IR nodes; `JvmGen` / `JsGen` lose ~250 lines
-each.  Risk concentration — largest behavioural change in this whole
-plan.
+**Goal:** the CPS effect analysis lives in one shared place; both code
+generators consume it instead of carrying parallel copies.
 
-### 3.1 `EffectLowering` pass in `core/transform/`
-- Move `JvmGen.analyzeEffects` (line 234) and `JsGen.analyzeEffects`
-  (line 2814) into a single core pass that produces `Perform`/`Handle`/
-  `Resume` IR nodes.
-- Existing in-line `_run` / `_perform` / `_handle` emission in each
-  codegen becomes a straight pattern-match on these nodes.
-- **Done when:** `effects`, `signals`, `storage`, `async`,
-  `async-parallel`, `std-monaderror`, `std-selective` conformance
-  tests still green on all 3 backends.
+**Scope revised after reading the code.**  The plan originally said
+"`JvmGen`/`JsGen` lose ~250 lines each; instead they pattern-match on
+`Perform`/`Handle`/`Resume` IR nodes."  Reality on `feature/backend-spi`:
 
-### 3.2 Interpreter-side: use the same IR
-- The interpreter's `Computation` already mirrors this shape; refit it
-  to consume `Perform`/`Handle`/`Resume` from `NormalizedModule` rather
-  than re-deriving them from raw AST.
-- **Done when:** `InterpreterTest` + effect-using conformance tests
-  green; line-count regression in `Interpreter.scala` is non-negative
-  (we're not adding mass while moving structure).
+- Backends consume `scalameta.Tree` directly, not IR.  Switching them
+  to IR consumption is a **Stage 5** change (when backends migrate
+  behind the SPI as plugins).
+- What actually duplicates today is the CPS-analysis loop —
+  `effectOps` + `effectfulFuns` fixed-point in both `JvmGen` and
+  `JsGen` (~70-80 LOC each, nearly identical).
+- The interpreter has no such analysis pass — `Computation.Perform`
+  is produced at runtime when an effect op is evaluated.  Nothing to
+  refit.
 
-### 3.3 Cleanup: delete the dead duplicated paths
-- Remove `analyzeEffects` from `JvmGen` and `JsGen` entirely (the
-  pass is gone — they now consume IR).
-- **Done when:** zero matches for `analyzeEffects` in `backend-*`
-  modules; suite still green.
+So Stage 3 here is the analysis extraction, no IR-consumption switch.
+The IR `Perform`/`Handle`/`Resume` placeholders from Stage 2.1 stay
+empty until Stage 5 wires backends through the SPI; then populating
+them is incremental.
+
+### 3.1 Extract `EffectAnalysis` to `core/transform/`
+- New `core/transform/EffectAnalysis.scala`:
+  ```scala
+  case class Result(effectOps: Set[String], effectfulFuns: Set[String])
+  def analyze(trees: List[scala.meta.Tree], builtins: Set[String]): Result
+  ```
+- JvmGen + JsGen call into it.  Each keeps its own `effectOps` /
+  `effectfulFuns` mutable state (used during emission) but populates
+  it from the shared analysis instead of its own loop.
+- Built-in `Async` / `Storage` gating stays per-backend (JvmGen
+  gates by `blocksUseAsync`; JsGen unconditionally adds them).
+- **Done when:** both `analyzeEffects` methods reduced to thin
+  adapters calling `EffectAnalysis.analyze`; suite green.
+
+### 3.2 Cleanup + verification
+- Confirm the shared analysis is the only fixed-point loop —
+  no `analyzeEffects` LOC duplication remains.
+- Verify line-count regression: both backends should *lose* LOC, not
+  add it.
+- **Done when:** effect-using conformance tests
+  (`effects`, `signals`, `storage`, `async`, `async-parallel`,
+  `std-monaderror`, `std-selective`) green on all 3 backends; net LOC
+  delta across `backend-jvm/` + `backend-js/` is negative.
+
+#### Discovered while implementing 3.x
+
+- **`isEffectOpDef` was duplicated too.**  Moved to
+  `EffectAnalysis.isEffectOpDef` along with the main algorithm.
+  Both backends keep a tiny `private def isEffectOpDef = EffectAnalysis.isEffectOpDef`
+  forwarder to avoid touching every call site (5 sites between the two).
+- **JvmGen vs JsGen built-in gating diverges intentionally.**  JvmGen
+  only pre-registers `Async.*`/`Storage.*` when the module actually
+  uses them (saves emit work on lean modules); JsGen always registers.
+  Both call shapes preserved as-is — the gating belongs at the
+  adapter level (each backend knows its emission cost), not in the
+  shared analyzer.
+- **Net LOC delta: -100 in backends, +101 in core.**  +1 overall, but
+  the +101 is heavier on docstrings than the extracted code was.
+  Plan acceptance ("net LOC across backends is negative") satisfied.
+
+### Stage 3 — closed
+
+193 unit tests + 38 conformance green.  Effect analysis lives in
+one place; both Free-monad backends consume it.  Stage 5 will
+populate the IR `Perform`/`Handle`/`Resume` nodes once backends
+move behind the SPI.
 
 ---
 
@@ -482,7 +523,7 @@ Anything else that surfaces during execution: append here under a
 |-------|-----------------|-------|
 | 1     | 3 / 3           | **Stage 1 closed.** 1.1 sbt scaffold; 1.2 sources moved (compiler/ gone, sbt-assembly added); 1.3 SPI trait stubs + IR placeholders (ir/Ir.scala + 10 SPI files in backend-spi/). Transitional `backendInterpreter dependsOn backendJs` for `WebServer→JsGen` — Stage 5 fixes via HTTP intrinsics. |
 | 2     | 2 / 2           | **Stage 2 closed.** 2.1 IR + Normalize; 2.2 upickle `derives ReadWriter` on every IR data type + 76 round-trip tests (38 fixtures × JSON+MsgPack).  `schemas/ir.json` deferred to Stage 8 (docs). |
-| 3     | 0 / 3           | Not started |
+| 3     | 2 / 2           | **Stage 3 closed.** EffectAnalysis extracted to `core/transform/`; JvmGen + JsGen are now thin adapters.  LOC delta: JvmGen -48, JsGen -52 (-100 in backends), +101 in core.  IR-consumption switch deferred to Stage 5. |
 | 4     | 0 / 2           | Not started |
 | 5     | 0 / 4           | Not started |
 | 6     | 0 / 3           | Not started |

@@ -1,6 +1,7 @@
 package scalascript.codegen
 
 import scalascript.ast.*
+import scalascript.transform.EffectAnalysis
 import scala.collection.mutable
 import scala.meta.*
 
@@ -232,72 +233,23 @@ class JvmGen(baseDir: Option[os.Path] = None):
   // ─── Effect analysis ──────────────────────────────────────────────
 
   private def analyzeEffects(blocks: List[JvmGen.Block]): Unit =
-    effectOps.clear()
-    effectfulFuns.clear()
+    // Built-in `Async` / `Storage` effects — pre-populated only when the
+    // module actually uses them, keeping the emitted Scala lean otherwise.
+    val builtins =
+      (if blocksUseAsync(blocks) then
+         Set("Async.delay", "Async.async", "Async.await", "Async.parallel")
+       else Set.empty[String]) ++
+      (if blocksUseStorage(blocks) then
+         Set("Storage.get", "Storage.put", "Storage.remove", "Storage.has", "Storage.keys")
+       else Set.empty[String])
 
-    // Built-in `Async` effect — pre-populate `effectOps` so call sites
-    // like `Async.delay(...)` are CPS-rewritten exactly like user-declared
-    // ops, but only when the module actually mentions `Async.` or
-    // `runAsync(...)`.  Skipping the registration when absent keeps the
-    // emitted Scala lean for non-async modules.
-    if blocksUseAsync(blocks) then
-      effectOps ++= Set(
-        "Async.delay", "Async.async", "Async.await", "Async.parallel"
-      )
-    // Same pattern for the built-in `Storage` effect.
-    if blocksUseStorage(blocks) then
-      effectOps ++= Set(
-        "Storage.get", "Storage.put", "Storage.remove",
-        "Storage.has", "Storage.keys"
-      )
+    val trees = blocks.map(b => ScalaNode.fold(b.node)(identity))
+    val r     = EffectAnalysis.analyze(trees, builtins)
 
-    val funBodies = mutable.Map[String, Term]()
+    effectOps.clear();     effectOps     ++= r.effectOps
+    effectfulFuns.clear(); effectfulFuns ++= r.effectfulFuns
 
-    def collectFromStats(stats: List[Stat]): Unit = stats.foreach {
-      case d: Defn.Object =>
-        d.templ.body.stats.foreach {
-          case dd: Defn.Def if isEffectOpDef(dd.body) =>
-            effectOps += s"${d.name.value}.${dd.name.value}"
-          case _ => ()
-        }
-      case d: Defn.Def => funBodies(d.name.value) = d.body
-      case _           => ()
-    }
-
-    blocks.foreach { block =>
-      ScalaNode.fold(block.node) {
-        case Source(stats)     => collectFromStats(stats)
-        case Term.Block(stats) => collectFromStats(stats)
-        case _                 => ()
-      }
-    }
-
-    def callees(tree: scala.meta.Tree): Set[String] = tree match
-      case Term.Apply.After_4_6_0(Term.Name(n), argClause) =>
-        Set(n) ++ argClause.values.flatMap(callees).toSet
-      case Term.Apply.After_4_6_0(Term.Select(Term.Name(qual), Term.Name(method)), argClause) =>
-        Set(s"$qual.$method") ++ argClause.values.flatMap(callees).toSet
-      case Term.Apply.After_4_6_0(fun, argClause) =>
-        callees(fun) ++ argClause.values.flatMap(callees).toSet
-      case Term.Select(Term.Name(qual), Term.Name(method)) =>
-        Set(s"$qual.$method")
-      case other =>
-        other.children.flatMap(callees).toSet
-
-    var changed = true
-    while changed do
-      changed = false
-      funBodies.foreach { (fname, body) =>
-        if !effectfulFuns.contains(fname) then
-          val calls = callees(body)
-          if calls.exists(c => effectOps.contains(c) || effectfulFuns.contains(c)) then
-            effectfulFuns += fname
-            changed = true
-      }
-
-  private def isEffectOpDef(body: Term): Boolean = body match
-    case Term.Name("__effectOp__") => true
-    case _                         => false
+  private def isEffectOpDef(body: Term): Boolean = EffectAnalysis.isEffectOpDef(body)
 
   private def isEffectOpRef(eff: String, op: String): Boolean =
     effectOps.contains(s"$eff.$op")

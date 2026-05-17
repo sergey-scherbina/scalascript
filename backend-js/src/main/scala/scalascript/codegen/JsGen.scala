@@ -1,6 +1,7 @@
 package scalascript.codegen
 
 import scalascript.ast.*
+import scalascript.transform.EffectAnalysis
 import scala.collection.mutable
 
 /** JavaScript code generator for ScalaScript modules.
@@ -2812,74 +2813,22 @@ class JsGen(baseDir: Option[os.Path] = None):
   // compose with the Free Monad runtime without any wrapping.
 
   private def analyzeEffects(module: Module): Unit =
-    effectOps.clear()
-    effectfulFuns.clear()
-
-    // Built-in `Async` and `Storage` effects — operations always
-    // available without requiring `effect Foo:` declarations.  Their
-    // call sites get CPS-rewritten just like user-declared ops.
-    effectOps ++= Set(
+    val builtins = Set(
       "Async.delay", "Async.async", "Async.await", "Async.parallel",
       "Storage.get", "Storage.put", "Storage.remove", "Storage.has", "Storage.keys"
     )
 
-    val funBodies = mutable.Map[String, Term]()
-
-    def collectFromStats(stats: List[Stat]): Unit = stats.foreach {
-      case d: Defn.Object =>
-        d.templ.body.stats.foreach {
-          case dd: Defn.Def if isEffectOpDef(dd.body) =>
-            effectOps += s"${d.name.value}.${dd.name.value}"
-          case _ => ()
-        }
-      case d: Defn.Def => funBodies(d.name.value) = d.body
-      case _           => ()
-    }
-
-    def scan(section: Section): Unit =
-      section.content.foreach {
+    def collectTrees(s: Section): List[scala.meta.Tree] =
+      s.content.collect {
         case cb: Content.CodeBlock if Lang.isScalaScript(cb.lang) =>
-          cb.tree.foreach { node =>
-            ScalaNode.fold(node) {
-              case Source(stats)     => collectFromStats(stats)
-              case Term.Block(stats) => collectFromStats(stats)
-              case _                 => ()
-            }
-          }
-        case _ => ()
-      }
-      section.subsections.foreach(scan)
-    module.sections.foreach(scan)
+          cb.tree.map(ScalaNode.fold(_)(identity))
+      }.flatten ++ s.subsections.flatMap(collectTrees)
 
-    /** Collect all `name` (function names) and `Eff.op` (effect op refs) referenced
-     *  in a tree. We only care about Term.Apply heads (call sites). */
-    def callees(tree: scala.meta.Tree): Set[String] = tree match
-      case Term.Apply.After_4_6_0(Term.Name(n), argClause) =>
-        Set(n) ++ argClause.values.flatMap(callees).toSet
-      case Term.Apply.After_4_6_0(Term.Select(Term.Name(qual), Term.Name(method)), argClause) =>
-        Set(s"$qual.$method") ++ argClause.values.flatMap(callees).toSet
-      case Term.Apply.After_4_6_0(fun, argClause) =>
-        callees(fun) ++ argClause.values.flatMap(callees).toSet
-      case Term.Select(Term.Name(qual), Term.Name(method)) =>
-        Set(s"$qual.$method")
-      case other =>
-        other.children.flatMap(callees).toSet
+    val trees = module.sections.flatMap(collectTrees)
+    val r     = EffectAnalysis.analyze(trees, builtins)
 
-    // Iterate to fixed point
-    var changed = true
-    while changed do
-      changed = false
-      funBodies.foreach { (fname, body) =>
-        if !effectfulFuns.contains(fname) then
-          val calls = callees(body)
-          val isEff = calls.exists(c => effectOps.contains(c) || effectfulFuns.contains(c))
-          if isEff then
-            effectfulFuns += fname
-            changed = true
-          end if
-        end if
-      }
-    end while
+    effectOps.clear();     effectOps     ++= r.effectOps
+    effectfulFuns.clear(); effectfulFuns ++= r.effectfulFuns
 
   /** True if `Eff.op` is a declared effect operation. */
   private def isEffectOpRef(eff: String, op: String): Boolean =
@@ -3516,9 +3465,8 @@ class JsGen(baseDir: Option[os.Path] = None):
     case Pat.Wildcard() => "_"
     case _ => "_"
 
-  private def isEffectOpDef(body: Term): Boolean = body match
-    case Term.Name("__effectOp__") => true
-    case _                         => false
+  private def isEffectOpDef(body: Term): Boolean =
+    scalascript.transform.EffectAnalysis.isEffectOpDef(body)
 
   private def genHandleForm(body: Term, cases: List[Case]): String =
     val handledOps = cases.flatMap { c =>
