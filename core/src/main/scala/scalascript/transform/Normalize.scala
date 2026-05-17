@@ -2,6 +2,8 @@ package scalascript.transform
 
 import scalascript.ast
 import scalascript.ir
+import scalascript.backend.spi.{BackendOptions, ScopeContext, SymbolKind}
+import scalascript.plugin.SourceLanguageRegistry
 
 /** AST → IR conversion.
  *
@@ -22,8 +24,12 @@ import scalascript.ir
  *  `Perform`/`Handle`/`Resume` nodes inside `CodeBlock.body`; Stage 5
  *  rewrites `extern def` call sites to `ExternCall`.
  *
- *  The pass is intentionally pure data conversion.  No diagnostics, no
- *  failure modes — those layer on top in Stages 3-4. */
+ *  Stage 9+/A: foreign-language fences now route through the
+ *  `SourceLanguageRegistry` first.  A plugin claiming the fence tag
+ *  produces an `ir.Content.NormalizedBlock` (= `ir.Content`) via its
+ *  `compileBlock` method.  No plugin → fall back to the existing
+ *  `EmbeddedBlock` shape (preserves existing behaviour for `html` /
+ *  `css` blocks until 9+/B and 9+/C extract them as plugins). */
 object Normalize:
 
   def apply(m: ast.Module): ir.NormalizedModule =
@@ -64,16 +70,32 @@ object Normalize:
     case ast.Content.Prose(text, sp) =>
       ir.Content.Prose(text, sp.map(span))
     case ast.Content.CodeBlock(lang, source, _, sp) =>
-      // Foreign-language fences (html, css, future scala, wat, …) become
-      // EmbeddedBlock so SourceLanguage plugins (Stage 9) own them.
       if ast.Lang.isScalaScript(lang) then
         ir.Content.CodeBlock(source = source, body = Nil, span = sp.map(span))
       else
-        ir.Content.EmbeddedBlock(language = lang, source = source, span = sp.map(span))
+        // Stage 9+/A — ask the SourceLanguage registry first.  A
+        // plugin claiming this fence tag produces the IR fragment
+        // directly; otherwise fall back to the wrapping EmbeddedBlock
+        // shape (Stage 2.1 default — kept for the still-hardcoded
+        // html / css / scala paths in codegen until 9+/B and 9+/C
+        // move them through here).
+        SourceLanguageRegistry.lookup(lang) match
+          case Some(plugin) =>
+            plugin.compileBlock(source, NormalizeScope, BackendOptions()).fragment
+          case None =>
+            ir.Content.EmbeddedBlock(language = lang, source = source, span = sp.map(span))
     case ast.Content.Import(path, bindings, sp) =>
       ir.Content.Import(path, bindings.map(importBinding), sp.map(span))
     case ast.Content.DataList(items, ordered, sp) =>
       ir.Content.DataList(items.map(listItem), ordered, sp.map(span))
+
+  /** Minimum-viable scope handed to `SourceLanguage.compileBlock` — no
+   *  cross-block visibility (single-pass typing).  Stage 9+/A.2 builds
+   *  the real two-pass `signatures` → `compileBlock` flow on top of
+   *  this so plugins can reference module-wide symbols. */
+  private object NormalizeScope extends ScopeContext:
+    def isInScope(name: ir.QualifiedName): Boolean         = false
+    def resolve(name: ir.QualifiedName):   Option[SymbolKind] = None
 
   private def importBinding(b: ast.ImportBinding): ir.ImportBinding =
     ir.ImportBinding(b.name, b.alias, b.span.map(span))
