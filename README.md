@@ -212,13 +212,31 @@ scala-cli conformance/run.sc
 
 ## Backends
 
-ScalaScript supports three execution backends:
+ScalaScript supports four bundled backends, all loaded through the
+**Backend SPI** plugin architecture
+([`docs/backend-spi.md`](docs/backend-spi.md)):
 
-| Command | Backend | How it works |
-|---------|---------|--------------|
-| `bin/ssc file.ssc` | Interpreter | Tree-walking interpreter — instant startup, no compilation |
-| `bin/jssc file.ssc` | JavaScript | `scalascript` blocks → custom JS transpiler; `scala` blocks → **Scala.js** via scala-cli |
-| `bin/sscc file.ssc` | JVM / Scala 3 | Generates a `.sc` script and compiles via scala-cli |
+| Command | Backend id | How it works |
+|---------|------------|--------------|
+| `bin/ssc file.ssc`         | `int`         | Tree-walking interpreter — instant startup, no compilation |
+| `bin/jssc file.ssc`        | `js`          | `scalascript` blocks → custom JS transpiler; `scala` blocks → **Scala.js** via scala-cli |
+| `bin/sscc file.ssc`        | `jvm`         | Generates a `.sc` script and compiles via scala-cli |
+| `ssc emit-spa file.ssc`    | `scalajs-spa` | Self-contained SPA HTML + JS bundle |
+
+The `Backend` trait + `ServiceLoader` discovery let third parties
+add their own backend without touching `core` — drop a JAR and
+attach it via `ssc --plugin path/to/your-backend.jar`.  See
+[`docs/writing-a-backend.md`](docs/writing-a-backend.md) and the
+worked samples under `examples/plugins/`.
+
+Useful flags:
+
+```bash
+ssc --list-backends                 # list every visible backend
+ssc --list-source-languages         # list registered SourceLanguage plugins
+ssc --describe-backend jvm          # capabilities + intrinsics + sources
+ssc --backend js run file.ssc       # override the per-command default
+```
 
 The JavaScript backend handles two block types differently:
 

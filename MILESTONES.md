@@ -39,41 +39,124 @@ Defer until 1-4 are settled and a real workload demands them.
     JSON-heavy WS workloads.  Not worth the complexity until a
     real app needs it.  ~200 LOC × 3.
 
-## Backend SPI v0.1 — plugin architecture
+## Backend SPI v0.1 — landed (Stages 1–9.1)
 
-A standalone design document and 9-phase migration plan that
-abstracts the current four backends (`JvmGen`, `JsGen`,
-`ScalaJsBackend`, `Interpreter`) behind a stable plugin SPI.
-After landing, adding a new target (WASM, native, .NET, Python,
-SQL frontend, …) is one plugin JAR or subprocess instead of a
-modification to `core`.
+Plugin architecture that abstracts the four backends (`JvmGen`,
+`JsGen`, `ScalaJsBackend`, `Interpreter`) behind a stable SPI.
+Built on branch `feature/backend-spi` across ten stages; see commit
+history for the per-stage walk.  Design source of truth:
+[`docs/backend-spi.md`](docs/backend-spi.md).
 
-- **Design:** [`docs/backend-spi.md`](docs/backend-spi.md) — 17
-  sections, source of truth.  Locks all architectural decisions
-  (effects, intrinsics, multi-language blocks, block references,
-  prelude contributions, versioning, JSON+MsgPack wire formats,
-  core-boundary minimisation).
-- **Tracking issue:** [#36](https://github.com/sergey-scherbina/scalascript/issues/36)
-  — parent with the 9-phase checklist.  Phase issues
-  [#26–#33, #35](https://github.com/sergey-scherbina/scalascript/issues/26).
-- **Estimate:** ~8–11 working days total.
+What landed (Stages 1–9.1):
 
-### Phase summary
+- **9-module sbt layout** — `backend-spi/` (SPI traits), `ir/`
+  (IR + JSON/MsgPack codecs), `core/` (parser/typer/transform/
+  validate/plugin), `backend-jvm/` / `-js/` / `-scalajs/` /
+  `-interpreter/`, `backend-scala-source/` (SourceLanguage skeleton),
+  `cli/`.  Old `compiler/` single-module gone.
+- **SPI surface** (`backend-spi/`):  `Backend` /
+  `InteractiveBackend` / `Session` / `SourceLanguage` traits;
+  `Capabilities` + `Feature` (18 cases) + `OutputKind` (9);
+  `CompileResult` (TextOutput / Segmented / BinaryOutput / Executed
+  / Failed); `IntrinsicImpl` (InlineCode / RuntimeCall /
+  HostCallback); `Diagnostic` (Unsupported / UnknownIntrinsic /
+  UnknownBlockLanguage / Generic).
+- **IR + codecs** (`ir/`):  `NormalizedModule` mirrors AST with
+  upickle `derives ReadWriter` round-trip; placeholders for
+  `Perform`/`Handle`/`Resume`/`TailCall`/`ExternCall`/`MatchTree`
+  reserved for Stage 3+ population.  `Normalize` + `Denormalize`
+  passes in core.
+- **Effect analysis extracted** to `core/transform/EffectAnalysis.scala`
+  (`JvmGen`/`JsGen`/`Interpreter` no longer carry parallel copies).
+- **Capability validation** (`core/validate/CapabilityCheck.scala`):
+  walks IR, intersects required features with backend's set, emits
+  `Diagnostic.Unsupported` for misses.  Each bundled backend declares
+  its own `Capabilities`.
+- **In-process plugins via ServiceLoader.**  Every backend ships a
+  `META-INF/services/scalascript.backend.spi.Backend` entry;
+  `core/plugin/BackendRegistry` discovers them.  `--plugin <jar>`
+  adds a third-party JAR via `URLClassLoader`.
+- **Out-of-process plugins** (`core/plugin/SubprocessBackend.scala`):
+  stdio-json wire protocol with full spec at
+  [`docs/backend-spi-protocol.md`](docs/backend-spi-protocol.md).
+  `plugin.yaml` discovery from `$SCALASCRIPT_PLUGIN_PATH` and
+  `~/.scalascript/plugins/`.  Lazy spawn on first lookup; caches the
+  handle.
+- **CLI flags**:  `--list-backends`, `--list-source-languages`,
+  `--describe-backend <id>`, `--plugin <jar>`,
+  `--plugin-dir <dir>`, `--target <id>`, `--backend <id>`.  `cli/
+  Main.scala` routes `run`/`watch`/`compile`/`package`/`emit-scala`/
+  `emit-js`/`emit-spa` through `BackendRegistry.lookup` instead of
+  importing codegen classes directly.
+- **Two worked plugin examples**:
+  - `examples/plugins/hello-backend/` — in-process JAR variety
+    (~30 LOC + META-INF entry; builds via scala-cli).
+  - `examples/plugins/canned-backend/` — subprocess variety
+    (~50-line scala-cli script speaking stdio-json).
+- **Docs**:  `docs/architecture.md` §4 rewritten against post-SPI
+  reality; new `docs/writing-a-backend.md` (third-party guide);
+  new `docs/backend-spi-protocol.md` (wire spec).
+- **Tests**:  +110 vs main start state.  Module breakdown — core
+  94 (round-trip, capability, manifest, subprocess), interpreter 117
+  (unchanged), cli 18 (BackendRegistry / SourceLanguageRegistry /
+  GlobalFlags).  Total **229 unit + 38 conformance** green.
 
-1. **#26** — Module split & SPI skeleton  (M, ~1d)
-2. **#27** — IR + JSON/MsgPack codec  (M, ~1d)
-3. **#28** — Effect lowering as a core pass  (L, ~1–2d)
-4. **#29** — Capabilities + validation  (S, ~0.5d)
-5. **#30** — Convert existing backends to plugins  (M, ~1–1.5d)
-6. **#31** — Out-of-process plugin loader (stdio JSON/MsgPack)  (M, ~1–1.5d)
-7. **#32** — CLI ergonomics for plugin management  (S–M, ~0.5–1d)
-8. **#33** — Docs & sample external plugin  (S, ~0.5d)
-9. **#35** — Extract bundled SourceLanguage plugins (`html`, `css`, `scala-source`)  (M–L, ~1.5–2d)
+### Stage 5.4 — `std.http` / `std.ws` / `std.auth` extraction → DEFERRED
 
-After Phase 9, `core` knows only Markdown + `scalascript`/`ssc`;
-`html`, `css`, and `scala` blocks plus the `html"…"`/`css"…"`
-interpolators live in bundled plugins that consume the same SPI as
-any third-party plugin.
+`Backend.intrinsics` ships as the API but no platform package routes
+through it yet.  Hardcoded `nativeP("serve")` etc. stay in
+`Interpreter.scala`; `route`/`serve` keyword recognition stays inline
+in `JvmGen`/`JsGen`.  Full extraction needs an `extern` parser
+modifier + Normalize pass extension + per-codegen emission swap —
+4-6 iterations of work.  Concrete proposal:
+
+- **5+/A — Intrinsic plumbing.**  Add the `extern` parsing, the
+  `ExternCall` IR-node populated, the intrinsic-table consultation
+  at emit time.  Migrate ONE intrinsic (e.g. `Console.println`) end-
+  to-end as a proof point.  ~1 iteration.
+- **5+/B — `std.http` extraction.**  Move HTTP through the pipeline
+  established in 5+/A.  ~2 iterations.
+- **5+/C — `std.ws`, `std.auth`, `std.fs`, `std.crypto`.**  Same
+  pattern.  ~1 iteration each.
+
+The transitional `backend-interpreter dependsOn backend-js` stays
+in `build.sbt` (`server/WebServer.scala` imports `codegen.JsGen` for
+the SPA runtime preamble) until 5+/A lands.
+
+### Stage 9+ — `html` / `css` SourceLanguage extraction → DEFERRED
+
+`SourceLanguageRegistry` ships as the API, and `backend-scala-source/`
+is a registered no-op skeleton, but the actual extraction of
+`html` / `css` from `JvmGen`/`JsGen`/`Interpreter` is also multi-
+iteration:
+
+- **9+/A — Registry consumption.**  Parser routes unknown fence tags
+  through `SourceLanguageRegistry.lookup`; typer accepts
+  `SymbolExport` from plugins.
+- **9+/B — `backend-html` extraction.**  Move `containerTagNames` +
+  `nativeP("div")` block + `html"…"` interpolator + `_Raw` emission
+  into a `backend-html/` plugin with `Html` type in `preludeFiles`.
+- **9+/C — `backend-css` extraction.**  Same shape as 9+/B.
+
+After 9+/B and 9+/C the spec §17 acceptance bullet — "no
+`if lang == "html" || lang == "css"` anywhere in core" — becomes
+testable.  Until then `Lang.isStringBlock` / `Lang.isParseable`
+stay as they are.
+
+### Stage 6+ — Out-of-process protocol completions
+
+Stage 6 ships `stdio-json` framing + sync round-trip + describe /
+compile / shutdown methods.  Out of scope and reserved:
+
+- **`stdio-msgpack` framing.**  Same case classes round-tripped via
+  upickle's `writeBinary`/`readBinary`.  ~half a session.
+- **InteractiveBackend over subprocess.**  Needs concrete
+  `ir.Value` wire shape (Stage 5+/A territory).
+- **HostCallback intrinsic variant.**  Out-of-proc backends call
+  back into core via a named host callback core dispatches.  Wired
+  up alongside 5+/A.
+- **SourceLanguage role through subprocess.**  Ditto — wired
+  alongside 9+/A.
 
 ### After Phase 9 — `std/*` becomes a hybrid Predef
 
