@@ -70,6 +70,38 @@
 > | 4 | `HostCallback` end-to-end | **Build now** before 5+/D.  HostDispatcher in `core/` + stub subprocess backend + conformance round-trip via `println`.  ~1 day; first out-of-process backend (.NET / WASM) starts with a working callback. |
 > | 5 | Partial feature coverage | **Hierarchical sub-features** — ~3 sub-flags per platform package (e.g. `HttpServer` baseline + `HttpServerStreaming` + `HttpServerMultipart`; `WebSocketsServer` baseline + `WebSocketsServerExtras` + `WebSocketsClient`).  Backend declares the subset it implements; error messages stay actionable. |
 >
+> ## Additional prerequisites surfaced 2026-05-17
+>
+> A subsequent sanity check on the source-of-truth code surfaced four
+> follow-up questions specific to web-stack extraction (`std.http`
+> Stage 5+/B).  Resolutions:
+>
+> | # | Question | Resolution |
+> |---|----------|-----------|
+> | Б-1 | `extern def` parser + typer support | **Prerequisite to 5+/B; tracked as Stage 5+/A.5.**  Parser accepts an `extern` modifier on `def`; typer registers the symbol with its declared type (no body required).  Without this, intrinsic calls cannot be type-checked, which breaks both implicit `Conversion[Response, Async[Response]]` lift (no expected type to drive it) and the type-directed monad inference of direct syntax.  Existing intrinsics (`println`, `nowMillis`) work today through name-based registration without type info; that path stays for v1 console-style primitives, `extern def` is the typed surface for everything that takes user callbacks. |
+> | Б-2 | Where intrinsics ship runtime helpers (`class WebSocket`, `_wsEncodeText`, the proxy selector loop, …) | **Add `Backend.runtimePreamble: String` method to the SPI.**  Each backend assembles its preamble from its own private state — typically per-intrinsic strings concatenated.  Core prepends it before user code at emit time.  Minimum SPI surface; no changes to the four `IntrinsicImpl` variants.  Per-intrinsic dead-code elimination is a follow-up (today every Feature.HttpServer backend bundles the full runtime regardless of usage). |
+> | Б-3 | Direct syntax — implement before or after 5+/B `std.http`? | **After.**  Stage 5+/B ships with implicit `Conversion[A, Async[A]]` handling trivial handlers and explicit `for { x <- … } yield …` for compound bodies.  Direct-syntax do-notation (DS-1…DS-7) is sugar over the same monad — adds zero expressivity, only ergonomics.  Implementing it requires ~1-2 weeks of typer work and is best informed by real `std.http` / `std.ws` usage before committing.  Tracked as Stage 6+/A (or a separate v1.7 milestone). |
+> | Б-4 | Backend needs `preludeFiles` hook for `std.http` declarations? | **No.**  `extern def` declarations live in regular `std/*.ssc` files at the repo root (same as `std/foldable-traversable.ssc` etc.) and are loaded via user imports or the implicit prelude mechanism.  Once Б-1 lands the parser understands `extern def`, the file `std/http.ssc` is just a normal source file.  Backend SPI does not need a new prelude-contribution hook. |
+>
+> ### Updated stage order
+>
+> ```
+> Stage 5+/A.4 — per-call-site dispatch (hybrid AST-marker; hole #1)
+> Stage 5+/A.5 — extern def parser + typer + Backend.runtimePreamble (Б-1 + Б-2)
+> Stage 5+/B   — std.http extraction (no direct syntax; implicit lift + for-yield)
+> Stage 5+/D   — std.ws / auth / fs / crypto extraction
+> Stage 6+/C   — HostCallback dispatcher (hole #4)
+> Stage 6+/A   — direct-syntax do-notation implementation (Б-3, parked here
+>                so std.* extractions inform the real usage patterns)
+> ```
+>
+> Total estimated work to a functional std.http MVP: 5+/A.4 (~1-2 days)
+> + 5+/A.5 (~1-2 days) + 5+/B (~3-5 days) = ~1.5 weeks.  Direct syntax
+> (6+/A) and HostCallback (6+/C) add ~2-3 weeks each but don't block
+> std.http or std.ws.
+>
+> ---
+>
 > Sections below describe the original holes and trade-offs leading to
 > these resolutions.  Kept for archeology so future contributors don't
 > re-litigate without new evidence.

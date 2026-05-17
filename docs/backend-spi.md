@@ -157,6 +157,15 @@ trait Backend:
   def intrinsics: Map[QualifiedName, IntrinsicImpl]   // §8 — platform-native operations
   def acceptedSources: Set[String]                 // §9 — canonical source-language names this target can emit
 
+  /** Runtime helpers this backend ships in its output preamble.
+   *  Intrinsics that need supporting types or runtime functions
+   *  (e.g. `class WebSocket`, frame encoders, the proxy selector
+   *  loop) contribute strings to this preamble.  Core prepends
+   *  the assembled text to the emitted target source.
+   *
+   *  Added at Stage 5+/A.5; not present in the v0.1 SPI ship. */
+  def runtimePreamble: String = ""
+
   /** One-shot compilation. */
   def compile(ir: ir.NormalizedModule, opts: BackendOptions): CompileResult
 
@@ -377,12 +386,25 @@ opt in.
 > **Status (2026-05-17).** API surface (`Backend.intrinsics`,
 > `IntrinsicImpl` ADT with four variants, `Feature` enum, `ExternCall`
 > IR node) is landed.  Three intrinsics flow through the surface
-> (`nowMillis`, `println`, `print`).  Per-call-site `ExternCall`
-> dispatch in compiled backends is the next prerequisite, tracked
-> as Stage 5+/A.4 — see [`docs/spi-intrinsics-design.md`](spi-intrinsics-design.md)
-> for resolved design decisions on dispatch, handler semantics
-> (Async-return + direct-syntax), `std.ws` split, `HostCallback`
-> rollout, and partial-feature coverage.
+> (`nowMillis`, `println`, `print`).  Two prerequisites remain before
+> `std.http` extraction (Stage 5+/B) can start:
+>
+> 1. **Stage 5+/A.4** — per-call-site `ExternCall` dispatch in JvmGen /
+>    JsGen via the hybrid synthetic AST-marker pattern.
+> 2. **Stage 5+/A.5** — `extern def` parser + typer support, plus a
+>    `Backend.runtimePreamble: String` method so intrinsics can ship
+>    runtime helpers (e.g. `class WebSocket`, frame encoders) alongside
+>    per-call-site emit.
+>
+> Direct-syntax do-notation (handler-body ergonomics) is **deferred to
+> Stage 6+/A** — `std.http` MVP works on the implicit `Conversion[A,
+> Async[A]]` lift for trivial handlers and explicit `for { … } yield
+> …` for compound bodies.  Sugar-only addition; can wait until real
+> `std.*` usage informs the typer design.
+>
+> Full resolved design notes, including handler semantics (Async-return),
+> `std.ws` split, `HostCallback` rollout, and partial-feature coverage,
+> live in [`docs/spi-intrinsics-design.md`](spi-intrinsics-design.md).
 
 Today every code generator hard-codes its own HTTP runtime: each
 `route()` / `serve()` call is recognised by name in `JvmGen`, `JsGen`,
