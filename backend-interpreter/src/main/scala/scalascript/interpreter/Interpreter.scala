@@ -615,6 +615,97 @@ class Interpreter(
       case _ => throw InterpretError("jsonParse(s: String)")
     }
 
+    // Tier 5 #20 — typed request validation primitives.  Look up the
+    // field in `req.form` first, then `req.query`.  `requireX` throws
+    // `RestValidationError(msg)` which the HTTP dispatchers (WebServer
+    // for INT, JsGen-emitted serve() for JS, JvmGen-emitted route
+    // dispatch for JVM) catch and convert to a 400 Bad Request response
+    // — handlers write linear code without explicit error checks.
+    def fieldOf(req: Value, name: String): Option[String] =
+      def lookup(field: String): Option[String] = req match
+        case Value.InstanceV(_, fields) => fields.get(field) match
+          case Some(Value.MapV(m)) => m.get(Value.StringV(name)) match
+            case Some(Value.StringV(s)) => Some(s)
+            case _                      => None
+          case _ => None
+        case _ => None
+      lookup("form").orElse(lookup("query"))
+
+    nativeP("requireString") {
+      case List(req, Value.StringV(name)) =>
+        fieldOf(req, name) match
+          case Some(s) => Value.StringV(s)
+          case None    => throw new scalascript.server.RestValidationError(s"missing field: $name")
+      case _ => throw InterpretError("requireString(req, name)")
+    }
+    nativeP("optionalString") {
+      case List(req, Value.StringV(name)) =>
+        Value.OptionV(fieldOf(req, name).map(Value.StringV(_)))
+      case _ => throw InterpretError("optionalString(req, name)")
+    }
+    nativeP("requireInt") {
+      case List(req, Value.StringV(name)) =>
+        fieldOf(req, name) match
+          case Some(s) =>
+            try Value.IntV(s.toLong)
+            catch case _: NumberFormatException =>
+              throw new scalascript.server.RestValidationError(s"invalid integer for field: $name")
+          case None    =>
+            throw new scalascript.server.RestValidationError(s"missing field: $name")
+      case _ => throw InterpretError("requireInt(req, name)")
+    }
+    nativeP("optionalInt") {
+      case List(req, Value.StringV(name)) =>
+        val parsed = fieldOf(req, name).flatMap { s =>
+          try Some(Value.IntV(s.toLong))
+          catch case _: NumberFormatException => None
+        }
+        Value.OptionV(parsed)
+      case _ => throw InterpretError("optionalInt(req, name)")
+    }
+    nativeP("requireDouble") {
+      case List(req, Value.StringV(name)) =>
+        fieldOf(req, name) match
+          case Some(s) =>
+            try Value.DoubleV(s.toDouble)
+            catch case _: NumberFormatException =>
+              throw new scalascript.server.RestValidationError(s"invalid number for field: $name")
+          case None    =>
+            throw new scalascript.server.RestValidationError(s"missing field: $name")
+      case _ => throw InterpretError("requireDouble(req, name)")
+    }
+    nativeP("optionalDouble") {
+      case List(req, Value.StringV(name)) =>
+        val parsed = fieldOf(req, name).flatMap { s =>
+          try Some(Value.DoubleV(s.toDouble))
+          catch case _: NumberFormatException => None
+        }
+        Value.OptionV(parsed)
+      case _ => throw InterpretError("optionalDouble(req, name)")
+    }
+    nativeP("requireBool") {
+      case List(req, Value.StringV(name)) =>
+        fieldOf(req, name) match
+          case Some(s) => s.toLowerCase match
+            case "true"  | "1" | "yes" | "on"  => Value.BoolV(true)
+            case "false" | "0" | "no"  | "off" => Value.BoolV(false)
+            case _ => throw new scalascript.server.RestValidationError(s"invalid boolean for field: $name")
+          case None    =>
+            throw new scalascript.server.RestValidationError(s"missing field: $name")
+      case _ => throw InterpretError("requireBool(req, name)")
+    }
+    nativeP("optionalBool") {
+      case List(req, Value.StringV(name)) =>
+        val parsed = fieldOf(req, name).flatMap { s =>
+          s.toLowerCase match
+            case "true"  | "1" | "yes" | "on"  => Some(Value.BoolV(true))
+            case "false" | "0" | "no"  | "off" => Some(Value.BoolV(false))
+            case _ => None
+        }
+        Value.OptionV(parsed)
+      case _ => throw InterpretError("optionalBool(req, name)")
+    }
+
     nativeP("Response.html") {
       case List(v) =>
         Value.InstanceV("Response", Map(

@@ -2761,6 +2761,53 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |def jsonParse(s: String): Any        = _fromJson(s)
        |def jsonStringify(v: Any): String    = _toJsonValue(v)
        |
+       |// Tier 5 #20 — typed request validation primitives.  Throws a
+       |// `_RestValidationError` on missing/invalid input; route dispatch
+       |// catches it and emits a 400 Bad Request.  Lookup walks
+       |// `req.form` → `req.query`; JSON body lives behind `req.json` —
+       |// handlers extract fields from it directly.
+       |final class _RestValidationError(msg: String) extends RuntimeException(msg)
+       |private def _restFieldOf(req: Request, name: String): Option[String] =
+       |  req.form.get(name).orElse(req.query.get(name))
+       |def requireString(req: Request, name: String): String =
+       |  _restFieldOf(req, name) match
+       |    case Some(s) => s
+       |    case None    => throw new _RestValidationError(s"missing field: $name")
+       |def optionalString(req: Request, name: String): Option[String] =
+       |  _restFieldOf(req, name)
+       |def requireInt(req: Request, name: String): Long =
+       |  _restFieldOf(req, name) match
+       |    case Some(s) =>
+       |      try s.trim.toLong
+       |      catch case _: NumberFormatException =>
+       |        throw new _RestValidationError(s"invalid integer for field: $name")
+       |    case None => throw new _RestValidationError(s"missing field: $name")
+       |def optionalInt(req: Request, name: String): Option[Long] =
+       |  _restFieldOf(req, name).flatMap(s =>
+       |    try Some(s.trim.toLong) catch case _: NumberFormatException => None)
+       |def requireDouble(req: Request, name: String): Double =
+       |  _restFieldOf(req, name) match
+       |    case Some(s) =>
+       |      try s.trim.toDouble
+       |      catch case _: NumberFormatException =>
+       |        throw new _RestValidationError(s"invalid number for field: $name")
+       |    case None => throw new _RestValidationError(s"missing field: $name")
+       |def optionalDouble(req: Request, name: String): Option[Double] =
+       |  _restFieldOf(req, name).flatMap(s =>
+       |    try Some(s.trim.toDouble) catch case _: NumberFormatException => None)
+       |def requireBool(req: Request, name: String): Boolean =
+       |  _restFieldOf(req, name) match
+       |    case Some(s) => s.trim.toLowerCase match
+       |      case "true"  | "1" | "yes" | "on"  => true
+       |      case "false" | "0" | "no"  | "off" => false
+       |      case _ => throw new _RestValidationError(s"invalid boolean for field: $name")
+       |    case None => throw new _RestValidationError(s"missing field: $name")
+       |def optionalBool(req: Request, name: String): Option[Boolean] =
+       |  _restFieldOf(req, name).flatMap(s => s.trim.toLowerCase match
+       |    case "true"  | "1" | "yes" | "on"  => Some(true)
+       |    case "false" | "0" | "no"  | "off" => Some(false)
+       |    case _ => None)
+       |
        |object Response:
        |  private val Html = Map("Content-Type" -> "text/html; charset=utf-8")
        |  private val Text = Map("Content-Type" -> "text/plain; charset=utf-8")
@@ -2929,7 +2976,15 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |        val req  = Request(method, path, params,
        |          _parseQuery(ex.getRequestURI.getRawQuery), headers, body,
        |          form, files, session, bearer, claims, basicAuth, cookies)
-       |        _writeResponse(ex, r.handler(req), rawCookieSession)
+       |        // Tier 5 #20 — validation primitives short-circuit by
+       |        // throwing _RestValidationError; convert to 400.
+       |        val resp =
+       |          try r.handler(req)
+       |          catch case ve: _RestValidationError =>
+       |            Response(400,
+       |              Map("Content-Type" -> "text/plain; charset=utf-8"),
+       |              ve.getMessage)
+       |        _writeResponse(ex, resp, rawCookieSession)
        |      case None =>
        |        // Fall through to a static file under the current directory
        |        // before 404'ing — mirrors the interpreter's WebServer.
