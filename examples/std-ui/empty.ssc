@@ -1,0 +1,46 @@
+#!/usr/bin/env ssc
+---
+name: empty
+description: No-content placeholder — icon + heading + CTA.
+---
+
+# Empty
+
+For "no results", "nothing here yet", etc.  Pass `cta` as raw HTML
+so a Button / link slots cleanly.
+
+```scalascript
+object Empty:
+  private val sc = scope("Empty")
+  private val rootCls = sc.cls("root")
+  private val iconCls = sc.cls("icon")
+  private val titleCls = sc.cls("title")
+  private val hintCls = sc.cls("hint")
+  private val ctaCls = sc.cls("cta")
+
+  val css: String = sc.css("""
+    .root  { text-align: center; padding: 2.5em 1em;
+             color: #6b7280; }
+    .icon  { font-size: 2.5em; line-height: 1;
+             margin-bottom: .25em; opacity: .6; }
+    .title { color: #1f2937; font-size: 1.1em;
+             font-weight: 600; margin-bottom: .35em; }
+    .hint  { font-size: .92em; margin-bottom: 1em;
+             max-width: 32em; margin-left: auto;
+             margin-right: auto; line-height: 1.5; }
+    .cta   { display: inline-block; }
+  """)
+
+  /** `icon` is rendered verbatim — emoji or HTML, your call.  Pass
+   *  `""` to drop any of the three optional slots. */
+  def render(icon: String, title: String, hint: String, cta: String): String =
+    val iconHtml  = if icon == "" then "" else html"""<div class="${iconCls}">${raw(icon)}</div>"""
+    val hintHtml  = if hint == "" then "" else html"""<div class="${hintCls}">${hint}</div>"""
+    val ctaHtml   = if cta == ""  then "" else html"""<div class="${ctaCls}">${raw(cta)}</div>"""
+    html"""<div class="${rootCls}" role="status">
+      ${raw(iconHtml)}
+      <div class="${titleCls}">${title}</div>
+      ${raw(hintHtml)}
+      ${raw(ctaHtml)}
+    </div>"""
+```

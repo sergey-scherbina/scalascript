@@ -362,6 +362,11 @@ Landed in iter A: `Card` (header / body / footer trio), `Switch`
 inline chip).  All registered in `std/ui/index.ssc`, covered by
 `conformance/std-ui-extended.ssc` on three backends.
 
+Landed in iter B: `Stats` (dashboard tile with delta indicator),
+`Empty` (no-content placeholder), `Toolbar` (start/end flex layout),
+`Tree` (native-`<details>` collapsible hierarchy).  Covered by
+`conformance/std-ui-extended-b.ssc`.
+
 Each is half-day to a day.  Pick what a consumer actually asks for
 before grinding through speculatively.
 
