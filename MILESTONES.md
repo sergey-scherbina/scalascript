@@ -424,10 +424,39 @@ dispatch through `summon[…]` (covered by the `typeclass` conformance
 test), so this is mostly **library code in `std/`** plus a few inference
 ergonomics on top.
 
-Listed in order so each step is useful on its own and unblocks the next.
+### Hierarchy — minimal and sufficient
 
-1. **Core: `Category`, `Functor`, `Applicative`, `Monad`.**  Standard
-   shape:
+Ten classes, organised into three lanes.  Picked to cover ~99% of real
+FP user code without academic bloat; explicitly *excludes* Category /
+Arrow / Profunctor (deferred — see end of section).  `Eq`, `Order`, and
+`Show` already exist in the codebase via the `typeclass` conformance
+test and are not re-implemented here.
+
+    Algebraic lane           Functor / effect lane          Container lane
+
+      Semigroup                     Functor                    Foldable
+          │                            │                          │
+          ▼                            ▼                          ▼
+        Monoid                    Applicative              Traversable
+                                       │                  (extends Functor +
+                                       ▼                   Foldable; `traverse`
+                                   Selective               takes Applicative)
+                                       │
+                                       ▼                       Bifunctor
+                                     Monad                  (standalone, for
+                                       │                     Either / Tuple2)
+                                       ▼
+                                  MonadError
+
+### Steps (priority order — each useful in isolation)
+
+1. **`Semigroup` + `Monoid`.**  Foundation for fold / concat /
+   `combine` / `empty`.  Instances for `String`, `List`, `Int`-sum,
+   `Int`-product (newtype style), `Option[A: Semigroup]`, `Map[K, V:
+   Semigroup]` (last-write-wins is too lossy; merge values).  ~half a
+   day.
+
+2. **`Functor`, `Applicative`, `Monad`.**  Core abstractions:
 
        trait Functor[F[_]]:
          extension [A](fa: F[A]) def map[B](f: A => B): F[B]
@@ -439,85 +468,76 @@ Listed in order so each step is useful on its own and unblocks the next.
        trait Monad[F[_]] extends Applicative[F]:
          extension [A](fa: F[A]) def flatMap[B](f: A => F[B]): F[B]
 
-       trait Category[->>[_, _]]:
-         def id[A]: A ->> A
-         extension [A, B](f: A ->> B) def andThen[C](g: B ->> C): A ->> C
+   Instances: `List`, `Option`, `Either[E, *]`, `Function1[X, *]`,
+   `Tuple2[E, *]` (Writer-style).  ~1 day.
 
-   Instances: `List`, `Option`, `Either[E, *]`, `Tuple2[E, *]`,
-   `Function1[X, *]`, `Lens[S, *]`-style profunctor-light witnesses for
-   the optics that have natural functors (see point 4).
+3. **`Foldable` + `Traversable`.**  The practical win in real code.
 
-2. **`Traversable` / `traverse` / `sequence`.**  The big one in practice
-   — lets users sequence effects across a structure:
+       trait Foldable[F[_]]:
+         extension [A](fa: F[A])
+           def foldLeft[B](z: B)(op: (B, A) => B): B
+           def foldRight[B](z: B)(op: (A, B) => B): B
+           def toList: List[A]
 
-       trait Traversable[T[_]] extends Functor[T]:
+       trait Traversable[T[_]] extends Functor[T] with Foldable[T]:
          extension [A](ta: T[A])
            def traverse[F[_]: Applicative, B](f: A => F[B]): F[T[B]]
-           def sequence[F[_]: Applicative]: F[T[A]]  // T[F[A]] case
+           def sequence[F[_]: Applicative]: F[T[A]]
 
-   Instances for `List` and `Option` cover ~90% of real use.  Map's
-   `traverse` is by-value; Either's traverse is `traverse on Right`.
+   Instances for `List`, `Option`, `Map` (by-value), `Either` (right-
+   biased).  ~1 day with conformance tests.
 
-3. **`Selective` (between Applicative and Monad).**  Mokhov/Lukyanov's
-   class — `select :: f (Either a b) -> f (a -> b) -> f b` — lets a
-   computation choose between two branches without the full power of
-   `flatMap`, so it stays statically analyseable.  Useful for parsers,
-   build-pipeline planners, anything that wants conditional effects but
-   keeps the call graph inspectable.  Smaller user base than the rest
-   of the hierarchy; ship after (1) and (2) land.
+4. **`Selective` (between Applicative and Monad).**  Mokhov/Lukyanov:
+   `select :: f (Either a b) -> f (a -> b) -> f b` — conditional
+   effects while keeping the call graph statically inspectable.
+   Smaller user base; ship after the core lane.  ~half a day.
 
-4. **`Arrow` + `Profunctor` as type classes (NOT an optics rewrite).**
-   Adds the typeclass *definitions* and the obvious instances
-   (`Function1` for both, optic-shaped witnesses where they fit):
+5. **`MonadError`.**  Adds `raise[A](e: E): F[A]` and
+   `handleError[A](fa: F[A])(f: E => F[A]): F[A]` to `Monad`.
+   Instances for `Either[E, *]` and `Option` (with `E = Unit`).
+   Unifies error-handling vocabulary across types.  ~half a day.
 
-       trait Profunctor[P[_, _]]:
-         extension [A, B](pab: P[A, B])
-           def dimap[C, D](f: C => A, g: B => D): P[C, D]
+6. **`Bifunctor`.**  Two-position functor for `Either` and `Tuple2`:
 
-       trait Arrow[->>[_, _]] extends Category[->>]:
-         def arr[A, B](f: A => B): A ->> B
-         extension [A, B](f: A ->> B)
-           def split[C, D](g: C ->> D): (A, C) ->> (B, D)
-           def fanout[C](g: A ->> C): A ->> (B, C)
+       trait Bifunctor[F[_, _]]:
+         extension [A, B](fab: F[A, B])
+           def bimap[C, D](f: A => C, g: B => D): F[C, D]
+           def leftMap[C](f: A => C): F[C, B] = bimap(f, identity)
 
-   The **existing concrete optic encoding stays as the primary API**;
-   we don't rewrite `Lens` / `Prism` / `Optional` / `Traversal` in
-   profunctor form (rank-N polymorphism + 5-10× slowdown isn't worth
-   it without a compiler that erases the abstraction).  Instead, expose
-   `Profunctor` and `Arrow` as standalone typeclasses with instances
-   for `Function1` / `Lens[*, *]`-views / `Iso[*, *]`-views so users
-   can write `dimap` / `split` over both functions and optics
-   uniformly.  Roughly: optics keep their concrete `get` / `set`
-   today; profunctor methods are a thin functional veneer on top.
+   Closes the "I have an `Either[Error, User]`, I want to map the
+   error half" use case that comes up in every REST handler.  ~half
+   a day.
 
-5. **Inference ergonomics (no new keywords).**  Two pragmatic wins
+7. **Inference ergonomics (no new keywords).**  Two pragmatic wins
    while keeping vanilla Scala 3 syntax:
 
-   - **`pure[F](x)` without explicit `summon`.**  Today users have to
-     write `summon[Applicative[F]].pure(x)`; add a top-level `def
-     pure[F[_]: Applicative, A](a: A): F[A] = ...` shortcut in the
-     std prelude so `pure[List](42)` Just Works.  Same for `empty`,
-     `unit`, etc.
-   - **`given` defaults for the common cases** so `xs.traverse(f)` on
-     a `List` finds the instance without imports.  Already works via
-     companion-object givens — just need to wire the std typeclass
-     module into the default import set (similar to how `math`
-     globals are imported today).
+   - **`pure[F](x)` / `empty[F]` without explicit `summon`.**  Today
+     users write `summon[Applicative[F]].pure(x)`; add top-level
+     shortcut defs in the std prelude so `pure[List](42)` Just Works.
+   - **`given` defaults wired into the default import set** so
+     `xs.traverse(f)` on a `List` finds the instance without an
+     explicit import (similar to how `math.sqrt` is in scope today).
 
-   *Explicitly out of scope:* new `typeclass` / `instance` keywords, do-
-   notation desugaring, type defaulting.  Scala 3's `trait` + `given`
-   are sufficient — diverging from them costs more than it earns.
+   *Explicitly out of scope:* new `typeclass` / `instance` keywords,
+   do-notation desugaring, type defaulting.  Scala 3's `trait` +
+   `given` are sufficient — diverging from them costs more than it
+   earns.
 
-**Profunctor-encoded optics are explicitly deferred** to a possible
-future "Optics 3 — profunctor rewrite" track only if a concrete use
-case demands it.  Current consensus: the concrete encoding is faster
-and more readable; profunctor optics are an academic win that we don't
-need today.
+### Explicitly deferred — `Category` / `Arrow` / `Profunctor`
 
-Effort: (1) ~1 day for the typeclasses + instances; (2) ~1 day for
-Traversable + tests; (3) ~half a day; (4) ~1 day for the typeclasses
-and the obvious Function1 instances; (5) ~half a day.  Roughly a week
-end-to-end with conformance tests.
+Theoretically elegant but practically zero pull in user code without
+profunctor-encoded optics, which we've decided to keep concrete.  In
+Scala, function composition is already `f andThen g`; `***` / `&&&` /
+`dimap` surface once in a blue moon.  Holding these for a possible
+future "Optics 3 — profunctor rewrite" milestone only if a concrete
+consumer surfaces; until then, dead weight.
+
+### Effort
+
+Steps 1-6: ~4 days of typeclass + instance code; ~1 day of conformance
+tests.  Step 7 (ergonomics): half a day.  Roughly **a week end-to-end**
+across three backends.  Each step ships as its own PR, mergeable in
+sequence.
 
 ## v0.6 — Optics (Lens / Prism / Optional / Traversal) — landed
 
