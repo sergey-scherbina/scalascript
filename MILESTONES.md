@@ -775,6 +775,35 @@ after them.
     apps inevitably hit Kubernetes / load-balancer probes and
     re-implement these.  ~20 LOC × 3.
 
+22. **Indexed access on `Any`-typed JSON values.**  Follow-up to
+    Tier 5 #17.  `jsonParse(s)` returns `Any` because the result
+    varies (`Long` / `String` / `Map` / `List` / …); the
+    interpreter and JS dispatch `obj("name")` dynamically, but
+    the JVM Scala compiler rejects it — `Any` has no `apply`.
+    Today users have to bind to `val m: Map[String, Any] = ...`
+    explicitly (interpreter/JS only — JVM still rejects the
+    implicit cast).  Three viable shapes:
+
+    a. **Runtime `lookup(v, key)` helper.**  `lookup(obj, "name")`
+       — pattern-matches at runtime, returns `Any`.  Cheapest;
+       ugly call site.  ~30 LOC × 3.
+    b. **JvmGen lowering.**  Detect `obj(k)` where `obj`'s
+       inferred type is `Any`, emit `_lookup(obj, k)` instead of
+       `obj.apply(k)`.  Keeps user syntax `obj("name")` working;
+       requires the typer to flow `Any`-types into JvmGen.
+       ~150 LOC.
+    c. **`JsonValue` wrapper type.**  `jsonParse` returns a
+       sealed `JsonValue` with `apply(key: String): JsonValue`,
+       `asString`, `asInt`, `asList`, `asMap`, etc.  Most typed,
+       most ergonomic, biggest API surface.  ~300 LOC × 3 plus
+       conformance for the new type.
+
+    Recommended: start with (a) so users have a working escape
+    hatch, then add (c) for idiomatic access when v1.5 Tier 5 #20
+    (typed request validation) clarifies which JSON-typed shapes
+    matter in practice.  (b) only if (a) and (c) prove
+    insufficient.
+
 ### Execution plan — phases A → E
 
 Tiers above are organised by feature area; this is the
@@ -829,20 +858,24 @@ items inside the phase pushed individually.
     - D.6 — Backend connection pool in JvmGen proxy (#16) —
       becomes moot if Phase E lands.
 
-- **Phase D′ — REST server ergonomics** *(items 17-21; ~3-4 days)*.
+- **Phase D′ — REST server ergonomics** *(items 17-22; ~4-5 days)*.
   Tier 5 items.  Largely independent of Phases A-C; the only
   cross-tier dependency is SSE (D′.3) requiring Phase D.4
   (streaming responses) to land first.  Order chosen so the
   cheapest items unblock real user code immediately.
     - D′.1 — JSON read side (`jsonParse`, `jsonStringify`,
-      `req.json`) (#17).  Closes the most-asked-about asymmetry
-      in the current REST surface.
+      `req.json`) (#17) — **landed** (PR #47).
     - D′.2 — Middleware composition convention + std helpers
       (#18).  Pure library work; no runtime change.
     - D′.3 — Server-Sent Events helper (#19).  Hard-blocked on
       D.4 (Tier 4 #11).
     - D′.4 — Request validation surface (#20).
     - D′.5 — Built-in `/_health` / `/_ready` routes (#21).
+    - D′.6 — Indexed access on `Any`-typed JSON values (#22),
+      follow-up to D′.1.  Start with the `lookup(v, key)`
+      runtime helper (option a), revisit `JsonValue` wrapper
+      type (option c) once D′.4 clarifies which typed JSON
+      shapes matter in practice.
 
 - **Phase E — full NIO HTTP migration** *(Sprint 5.16, ~2 weeks)*.
   Replaces the JDK `HttpServer` + WS-proxy pair with a single
@@ -853,7 +886,7 @@ items inside the phase pushed individually.
   one Phase D item proves the JDK HttpServer is genuinely the
   bottleneck.
 
-Total: ~4.5 weeks of focused work for Phases A-D′ (after which the
+Total: ~4.5-5 weeks of focused work for Phases A-D′ (after which the
 HTTP/WS stack is genuinely production-ready and ergonomic for
 real REST apps), Phase E as a follow-up architectural pass when
 scale demands it.
