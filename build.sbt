@@ -89,6 +89,33 @@ lazy val backendScalaSource = project
     scalacOptions ++= sharedScalacOptions
   )
 
+// SourceLanguage plugin for `html` fence blocks + (eventually) the
+// `html"…"` interpolator and `Html` / DSL tag bindings via prelude.
+// Stage 9+/B.1 skeleton: ServiceLoader entry only — Normalize routes
+// `html` blocks through this plugin from now on, though the
+// plugin's compileBlock passes source through unchanged (same shape
+// as the old EmbeddedBlock fallback).  Stage 9+/B.2-B.4 migrate the
+// real DSL / interpolator / containerTagNames logic out of the
+// codegens.
+lazy val backendHtml = project
+  .in(file("backend-html"))
+  .dependsOn(backendSpi, core)
+  .settings(
+    name := "scalascript-backend-html",
+    scalacOptions ++= sharedScalacOptions
+  )
+
+// SourceLanguage plugin for `css` fence blocks + (eventually) the
+// `css"…"` interpolator and `Css` type via prelude.  Stage 9+/C.1
+// skeleton — same shape as backend-html.
+lazy val backendCss = project
+  .in(file("backend-css"))
+  .dependsOn(backendSpi, core)
+  .settings(
+    name := "scalascript-backend-css",
+    scalacOptions ++= sharedScalacOptions
+  )
+
 // TRANSITIONAL DEPENDENCY: backend-interpreter → backend-js.
 // `server/WebServer.scala` imports `scalascript.codegen.{JsGen, JsRuntime}`
 // to inject the JS runtime into SPA-mode pages.  Stage 5 (Backend SPI §8 —
@@ -105,7 +132,7 @@ lazy val backendInterpreter = project
 
 lazy val cli = project
   .in(file("cli"))
-  .dependsOn(core, backendJvm, backendJs, backendScalajs, backendInterpreter, backendScalaSource)
+  .dependsOn(core, backendJvm, backendJs, backendScalajs, backendInterpreter, backendScalaSource, backendHtml, backendCss)
   .settings(
     name := "scalascript-cli",
     libraryDependencies ++= Seq(
@@ -134,7 +161,7 @@ lazy val root = project
   .aggregate(
     backendSpi, ir, core,
     backendJvm, backendJs, backendScalajs, backendInterpreter,
-    backendScalaSource,
+    backendScalaSource, backendHtml, backendCss,
     cli
   )
   .settings(
