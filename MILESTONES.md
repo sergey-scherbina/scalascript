@@ -13,12 +13,6 @@ but still has known production gaps.  Listed in order of "stops
 real problems" → "feature gaps" → "nice to have"; each sprint is a
 session-sized chunk.
 
-### Sprint 2 — security / robustness hardening
-
-7. **Connect/disconnect bench.**  10K concurrent WS + a mixed
-   HTTP load to establish a baseline before the NIO migration.
-   ~100 LOC.
-
 ### Sprint 3 — API completeness
 
 Common asks from real apps that aren't covered today.
