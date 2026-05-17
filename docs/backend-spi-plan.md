@@ -391,7 +391,7 @@ Anything else that surfaces during execution: append here under a
 
 | Stage | Iterations done | Notes |
 |-------|-----------------|-------|
-| 1     | 0 / 3           | Not started |
+| 1     | 1 / 3           | 1.1 done — sbt scaffold (9 subprojects + transitional `compiler`); `bench` deferred to 1.2 (existing `bench/` is scala-cli scripts, not sbt) |
 | 2     | 0 / 2           | Not started |
 | 3     | 0 / 3           | Not started |
 | 4     | 0 / 2           | Not started |
