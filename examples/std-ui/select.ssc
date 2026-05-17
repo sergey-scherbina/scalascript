@@ -1,0 +1,47 @@
+#!/usr/bin/env ssc
+---
+name: select
+description: Labelled dropdown over a list of (value, label) pairs.
+---
+
+# Select
+
+```scalascript
+object Select:
+  private val sc = scope("Select")
+  private val root   = sc.cls("root")
+  private val labCls = sc.cls("label")
+  private val selCls = sc.cls("input")
+
+  val css: String = sc.css("""
+    .root  { display: flex; flex-direction: column; gap: .25em; margin-bottom: .75em; }
+    .label { font-size: .9em; color: #374151; font-weight: 500; }
+    .input { padding: .4em .6em; border: 1px solid #d1d5db; border-radius: 4px;
+             font: inherit; background: #fff; cursor: pointer; }
+    .input:focus { outline: none; border-color: #2563eb;
+                   box-shadow: 0 0 0 2px rgba(37,99,235,.2); }
+    .input:disabled { background: #f3f4f6; color: #6b7280; cursor: not-allowed; }
+  """)
+
+  def render(
+      name: String,
+      options: List[(String, String)],
+      label: String = "",
+      selected: String = "",
+      required: Boolean = false,
+      disabled: Boolean = false
+  ): String =
+    val labelEl = if label.isEmpty then "" else html"""<label class="${labCls}" for="${name}">${label}</label>"""
+    val req     = if required then " required" else ""
+    val dis     = if disabled then " disabled" else ""
+    val opts    = options.map { (v, l) =>
+      val sel = if v == selected then " selected" else ""
+      html"""<option value="${v}"${raw(sel)}>${l}</option>"""
+    }.mkString
+    html"""<div class="${root}">
+      ${raw(labelEl)}
+      <select class="${selCls}" id="${name}" name="${name}"${raw(req)}${raw(dis)}>
+        ${raw(opts)}
+      </select>
+    </div>"""
+```

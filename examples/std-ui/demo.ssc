@@ -1,0 +1,119 @@
+#!/usr/bin/env ssc
+---
+name: std-ui-demo
+description: Renders every Tier 1 form component on one page.
+routes:
+  - method: GET
+    path: /
+    handler: home
+---
+
+# std/ui — forms demo
+
+Imports every Tier 1 form component and renders it.  Verifies that
+the components compose, the page-level `collectCss(...)` /
+`collectJs(...)` aggregations pull each one's payload, and the
+`scope(...)` class names stay isolated.
+
+Positional args throughout — the interpreter's named-arg path
+on `obj.method(...)` calls is a pre-existing limitation
+(`Term.Assign` arms reach var-assignment before the dispatch
+path inspects defaults).  All component `render` signatures
+list the most-used params first so positional calls stay short.
+
+[Input](./input.ssc)
+
+[Textarea](./textarea.ssc)
+
+[Select](./select.ssc)
+
+[Checkbox](./checkbox.ssc)
+
+[Radio](./radio.ssc)
+
+[FormGroup](./form-group.ssc)
+
+[SubmitButton](./submit-button.ssc)
+
+```scalascript
+def home(req: Request): Response =
+  // Input.render(name, label, type, value, placeholder, required, disabled, helper, error)
+  val nameField  = Input.render("name", "Display name", "text", "", "e.g. Alice",
+                                true, false, "Visible to other users.", "")
+  val emailField = Input.render("email", "Email", "email", "", "",
+                                true, false, "", "That doesn't look like an email.")
+
+  val bioField = Textarea.render("bio", "Bio", "", "A few words about you…",
+                                 5, false, false, "Markdown allowed.", "")
+
+  val countryField = Select.render(
+    "country", List(
+      ("us", "United States"),
+      ("uk", "United Kingdom"),
+      ("de", "Germany"),
+      ("fr", "France"),
+      ("ua", "Ukraine")
+    ), "Country", "ua"
+  )
+
+  val newsletterField = Checkbox.render("newsletter", "Subscribe to the newsletter", true)
+
+  val planField = Radio.render(
+    "plan",
+    List(("free", "Free"), ("pro", "Pro"), ("team", "Team")),
+    "Plan",
+    "pro"
+  )
+
+  val identityGroup = FormGroup.render(
+    nameField + emailField + bioField,
+    "Identity",
+    "Who you are on the platform."
+  )
+  val prefsGroup = FormGroup.render(
+    countryField + planField + newsletterField,
+    "Preferences"
+  )
+
+  val buttons = html"""
+    ${raw(SubmitButton.render("Save", "primary"))}
+    ${raw(SubmitButton.render("Cancel", "secondary"))}
+    ${raw(SubmitButton.render("Delete account", "danger"))}
+  """
+
+  val body = html"""
+    <h1>std/ui — forms</h1>
+    <p>Tier 1 of the standard component pack: text input, textarea,
+       select, checkbox, radio group, form group, submit button.</p>
+    <form>
+      ${raw(identityGroup)}
+      ${raw(prefsGroup)}
+      <div>${raw(buttons)}</div>
+    </form>
+    <script>${raw(collectJs(Input, Textarea, Select, Checkbox, Radio, FormGroup, SubmitButton))}</script>
+  """
+
+  val styles = collectCss(Input, Textarea, Select, Checkbox, Radio, FormGroup, SubmitButton)
+
+  Response.html(html"""<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>std/ui — forms</title>
+  <style>
+    body { font: 1rem/1.5 system-ui, sans-serif; max-width: 640px;
+           margin: 2rem auto; padding: 0 1rem; color: #111827; }
+    form { background: #fff; padding: 1.5em 2em; border-radius: 8px;
+           border: 1px solid #e5e7eb; }
+    h1 { margin-top: 0; }
+    ${raw(styles)}
+  </style>
+</head>
+<body>
+  ${raw(body)}
+</body>
+</html>""")
+
+println("Listening on http://localhost:8769/")
+serve(8769)
+```

@@ -1,0 +1,54 @@
+#!/usr/bin/env ssc
+---
+name: textarea
+description: Labelled multi-line input.
+---
+
+# Textarea
+
+```scalascript
+object Textarea:
+  private val sc = scope("Textarea")
+  private val root   = sc.cls("root")
+  private val labCls = sc.cls("label")
+  private val taCls  = sc.cls("input")
+  private val errCls = sc.cls("error")
+  private val helpCls = sc.cls("helper")
+
+  val css: String = sc.css("""
+    .root  { display: flex; flex-direction: column; gap: .25em; margin-bottom: .75em; }
+    .label { font-size: .9em; color: #374151; font-weight: 500; }
+    .input { padding: .45em .65em; border: 1px solid #d1d5db; border-radius: 4px;
+             font: inherit; min-height: 5em; resize: vertical;
+             transition: border-color .15s ease; }
+    .input:focus { outline: none; border-color: #2563eb; box-shadow: 0 0 0 2px rgba(37,99,235,.2); }
+    .input[aria-invalid="true"] { border-color: #dc2626; }
+    .input:disabled { background: #f3f4f6; color: #6b7280; cursor: not-allowed; }
+    .helper { font-size: .8em; color: #6b7280; }
+    .error  { font-size: .8em; color: #dc2626; }
+  """)
+
+  def render(
+      name: String,
+      label: String = "",
+      value: String = "",
+      placeholder: String = "",
+      rows: Int = 4,
+      required: Boolean = false,
+      disabled: Boolean = false,
+      helper: String = "",
+      error: String = ""
+  ): String =
+    val labelEl = if label.isEmpty then "" else html"""<label class="${labCls}" for="${name}">${label}</label>"""
+    val req     = if required then " required" else ""
+    val dis     = if disabled then " disabled" else ""
+    val inv     = if error.nonEmpty then """ aria-invalid="true"""" else ""
+    val below   = if error.nonEmpty then html"""<small class="${errCls}">${error}</small>"""
+                  else if helper.nonEmpty then html"""<small class="${helpCls}">${helper}</small>"""
+                  else ""
+    html"""<div class="${root}">
+      ${raw(labelEl)}
+      <textarea class="${taCls}" id="${name}" name="${name}" rows="${rows}" placeholder="${placeholder}"${raw(req)}${raw(dis)}${raw(inv)}>${value}</textarea>
+      ${raw(below)}
+    </div>"""
+```

@@ -76,23 +76,6 @@ on bare class names, all reachable through a top-level aggregator
 `std/ui/index.ssc` so consumers can do
 `[Button, Card, FormInput as Input](std/ui)`.
 
-Tier 1 — **forms** (the highest-leverage gap right now)
-
-  - **`Input`** — labelled text input with optional helper text and
-    error state.  Renders `<label><span/><input/><small/></label>`;
-    attributes: `name`, `label`, `type` (text/email/password/url/
-    number/tel), `value`, `placeholder`, `required`, `helper`, `error`.
-  - **`Textarea`** — same shape as `Input`, multi-line.
-  - **`Select`** — dropdown over a `List[(String, String)]` of
-    `(value, label)` pairs; honours `selected`.
-  - **`Checkbox`** / **`Radio`** / **`RadioGroup`** — boolean
-    inputs.  Checkbox is single, RadioGroup builds a `<fieldset>`
-    around N `Radio` siblings with shared `name`.
-  - **`FormGroup`** — vertical stack with consistent spacing /
-    section header; the parent block most apps wrap forms in.
-  - **`SubmitButton`** — variant of the existing `Button` with
-    `type="submit"`, loading state, and disabled-while-pending JS.
-
 Tier 2 — **layout primitives** (the things every page needs once)
 
   - **`Stack`** / **`Row`** — flex containers with a `gap` prop;
