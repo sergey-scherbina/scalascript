@@ -2,6 +2,13 @@ ThisBuild / scalaVersion := "3.8.3"
 ThisBuild / organization := "io.scalascript"
 ThisBuild / version      := "0.1.0-SNAPSHOT"
 
+// Forked test JVMs default to ~512 KB stack which trips
+// `mutual-TCO` / `stack-safe bind chains` / Async tests under
+// parallel suite execution (see MILESTONES: Known issues).  Bump
+// once globally — the cost is negligible and the flake is gone.
+ThisBuild / Test / javaOptions += "-Xss4m"
+ThisBuild / Test / fork         := true
+
 lazy val compiler = project
   .in(file("compiler"))
   .settings(

@@ -743,18 +743,6 @@ library additions on top of the existing Free Monad infrastructure.
 Things noticed in passing while landing other work — not blocking, but
 worth a separate fix when somebody has cycles.
 
-- **`InterpreterTest` StackOverflowError under sbt's parallel suite
-  execution.**  ~5–10 % of `sbt compile/test` runs fail with a
-  `java.lang.StackOverflowError` somewhere inside
-  `Interpreter.callValue` / `eval` — almost always at the
-  `mutual-TCO` / `stack-safe bind chains` / `Async`-related tests.
-  Reproducible in isolation only by raising parallel suite load.
-  Looks like sbt's forked test JVM defaults to `-Xss` ≈ 512 KB
-  which is fine for any single test but tips over under the
-  combined recursion depth of all parallel suites.  Fixes to try:
-  bump `Test / javaOptions += "-Xss4m"` in `build.sbt`, or set
-  `Test / parallelExecution := false` for the `compiler` module.
-  Either is one-line; pick whichever the user prefers.
 - **WS test cross-suite isolation goes through a process-global
   `WsRoutes` table + `WsTestLock` monitor.**  Works, but the lock
   serialises ScalaTest's default parallel suite execution for every
