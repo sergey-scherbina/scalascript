@@ -3492,6 +3492,7 @@ class Interpreter(
       case _: Value.ListV       => "List"
       case _: Value.OptionV     => "Option"
       case _: Value.MapV        => "Map"
+      case Value.TupleV(elems)  => s"Tuple${elems.length}"
       case Value.InstanceV(t,_) => t
       case _                    => "Any"
     extensions.get((typeName, method)).map { fn =>
