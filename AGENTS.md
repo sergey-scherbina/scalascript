@@ -200,3 +200,75 @@ numbered item.  Keep them in this order:
    the local branch onto it and re-run the check suite.
 5. Push to `origin/main` (fast-forward or merge commit,
    depending on the work).
+
+## Big-feature workflow (long-lived branch)
+
+Backend SPI, a new compiler tier, a cross-backend rewrite — work
+that spans many sessions, touches multiple subsystems, and is
+**not safe to land item-by-item on `main`** because intermediate
+states would break consumers, leave the docs lying, or churn CI
+for weeks.  This is the explicit override of the
+"push-immediately" rule from the MILESTONES-driven loop.
+
+### Rules
+
+1. **One worktree, one long-lived branch.**  `EnterWorktree(name)`
+   on a descriptive branch (`feature/backend-spi`,
+   `feature/wasm-target`, …) off `origin/main`.  The branch lives
+   for the entire feature — weeks if needed.  All work stays
+   here.
+
+2. **Write the plan first, commit it, push it.**  Before any
+   implementation code, draft a plan document inside the worktree
+   (e.g. `docs/<feature>-plan.md`): the stages, the iterations
+   inside each stage, acceptance criteria per iteration, open
+   questions surfaced while reading the spec.  Commit and push the
+   plan as the **first commit on the branch** so the user can
+   review and redirect before any code is written.
+
+3. **Stages → iterations.**  Each stage is a coherent slice (e.g.
+   "Phase 1 — SPI skeleton", "Phase 2 — IR codec").  Each
+   iteration inside a stage is a session-sized unit that ends in
+   a green check suite.  Commit each iteration with a meaningful
+   message and **push to the feature branch** (not to `main`).
+
+4. **Track progress in the plan, not the chat.**  After each
+   iteration, edit the plan document in the same commit: mark
+   the iteration done (or strike it), add any newly discovered
+   work as additional iterations under the right stage.  The
+   plan is the durable record of what is left.
+
+5. **New findings → MILESTONES.md *in the branch*.**  If the
+   work surfaces something that belongs in a different
+   milestone (a follow-up that ships separately, a latent flake,
+   a deferred polish), add it to `MILESTONES.md` on the feature
+   branch.  It travels back to `main` with the final merge.
+
+6. **Merge to `main` only at the very end.**  When every stage
+   is complete, every iteration green, **every test passes**,
+   **all documentation is updated** (README, SPEC, MILESTONES,
+   any docs/*.md the feature touches), and the plan document
+   has nothing outstanding — then:
+     a. `git fetch origin && git rebase origin/main`
+     b. Re-run the full check suite (`sbt compile`, `sbt test`,
+        `scala-cli conformance/run.sc`, relevant e2e smokes).
+     c. Open one merge commit (or fast-forward if linear) into
+        `main`.  Push once.
+     d. Delete the plan document or move its lessons into
+        MILESTONES, then `ExitWorktree(action: "remove")`.
+
+7. **Keep up with `main`.**  Periodically `git fetch origin` and
+   rebase the feature branch onto current `origin/main` so
+   integration at the end is small.  Resolve conflicts as they
+   appear, not all at once at the end.
+
+### Why this differs from the MILESTONES loop
+
+The MILESTONES loop pushes each item to `main` immediately
+because each item is independently shippable.  A big-feature
+branch's intermediate iterations are **not** independently
+shippable — half-an-SPI on `main` would break every existing
+backend.  So intermediate commits land on the branch (for
+durability, review, CI on the branch, and so the user can pull
+the branch to inspect WIP) but only the finished feature lands
+on `main`.
