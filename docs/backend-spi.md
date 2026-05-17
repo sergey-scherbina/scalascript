@@ -80,14 +80,36 @@ The SPI does not privilege one direction over the other — a Python
 frontend can run as a real `python3` subprocess just as a WASM
 backend runs as a `wasm-tools` subprocess.
 
-How the four current plugins map onto the new shape:
+How the bundled plugin set maps onto the new shape. The **core**
+itself handles only Markdown (host syntax) and `scalascript`/`ssc`
+(host embedded language); everything else — including `html`/`css`
+fence blocks, the `html"…"`/`css"…"` interpolators, and `scala`
+blocks — lives in bundled plugins that use the same SPI as any
+third-party plugin:
 
-| Plugin        | SourceLanguage role         | Backend role                  |
-|---------------|-----------------------------|-------------------------------|
-| `jvm`         | `scala` (verbatim embed)    | Scala-source target           |
-| `js`          | (`js`, planned)             | JavaScript-source target      |
-| `scalajs`     | `scala` (via scalameta)     | SPA target (HTML + JS)        |
-| `interpreter` | `scala` (as SS subset)      | Execution target              |
+| Plugin            | Role             | Provides                                                    |
+|-------------------|------------------|-------------------------------------------------------------|
+| `scala-source`    | SourceLanguage   | `scala` fence blocks (scalameta parser + verbatim embedding)|
+| `html`            | SourceLanguage   | `html` blocks, `html"…"` interpolator, `Html` type + DSL    |
+| `css`             | SourceLanguage   | `css` blocks, `css"…"` interpolator, `Css` type             |
+| `jvm`             | Backend          | Scala-source target; accepts `scala`/`html`/`css`           |
+| `js`              | Backend          | JS-source target; accepts `html`/`css` (no `scala` without `scalajs`) |
+| `scalajs`         | Backend          | SPA target (HTML + JS); accepts `scala`/`html`/`css`        |
+| `interpreter`     | Backend          | Execution target; accepts everything                        |
+
+**Bundled plugins ship in the CLI distribution but are loaded via the
+same `ServiceLoader` mechanism as any other plugin.** A CLI build
+without the bundled set is technically valid — `html"…"` then
+resolves to "unknown symbol" at parse time — but the released CLI
+always includes them. This eats our own dog food: `core` knows
+nothing privileged about HTML, CSS, or Scala, and the bundled
+plugins are the worked example for any future SourceLanguage author.
+
+What stays in core's prelude (NOT a plugin): the Markdown structure
+itself, `scalascript`/`ssc` parsing and typing, the basic standard
+library (`Int`, `String`, `List`, `Option`, `Map`, …), the `s` / `f`
+string interpolators (standard Scala), the `md"…"` interpolator and
+`Md` type (Markdown is the host syntax — first-class).
 
 ### 4.1 sbt module layout
 
@@ -515,14 +537,19 @@ the same. No core change needed.
 
 ## 9. Multi-language code blocks
 
-ScalaScript already mixes languages in one file: the parser recognises
-fence tags `scalascript`/`ssc`, `scala`, `html`, `css`, and (planned)
-`js`. Today each generator hard-codes how to handle the foreign ones
-(`JvmGen` passes `scala` blocks to `scala-cli`; `JsGen` does its own
-thing; the `html`/`css`/`md` interpolators are baked into both). For external
-plugins to bring **their own** dialect — a `wasm` plugin accepting
-`wat`, a `dotnet` plugin accepting `csharp`, a `sql` plugin accepting
-`sql`, etc. — fence-tag handling has to live in the SPI.
+**Core handles only `scalascript`/`ssc` blocks** (the host embedded
+language) plus the host Markdown structure itself. Every other fence
+tag — `scala`, `html`, `css`, `wat`, `csharp`, `sql`, `python`, … —
+is the responsibility of a `SourceLanguage` plugin. Three of those
+plugins (`scala-source`, `html`, `css`) are *bundled* with the CLI
+but architecturally identical to any third-party plugin.
+
+Today's compiler hard-codes `html`/`css` blocks and the
+`html"…"`/`css"…"` interpolators across `JvmGen`, `JsGen`, and
+`Interpreter`. Phase 9 (§14) extracts them into the bundled plugins;
+the wire is already there because the parser already treats fence
+tags as opaque strings and interpolator prefixes as user-space
+identifiers.
 
 This section covers the **source-language** axis of the SPI (see §4
 intro). It is orthogonal to the **target-output** axis (`Backend`,
@@ -536,8 +563,14 @@ A plugin can implement `Backend`, `SourceLanguage`, or both:
 
 ```scala
 trait SourceLanguage:
-  /** Fence tags this compiler accepts: "scala", "sql", "rust", ... */
+  /** Canonical fence tags this plugin owns: "scala", "sql", "rust", ... */
   def languages: Set[String]
+
+  /** Prelude .ssc files this plugin contributes globally. Compiled by
+   *  core before user code; symbols become visible across every
+   *  block. This is where `Html` / `Css` / DSL extensions / extern
+   *  signatures live for the bundled `html` and `css` plugins. */
+  def preludeFiles: List[PreludeContribution]
 
   /** Pass 1: report symbols this block contributes to the module
    *  scope (§10). Bodies are NOT type-checked here. Enables forward
@@ -560,10 +593,46 @@ case class BlockArtifact(
   exports:   List[SymbolExport],    // symbols this block contributes globally (§10)
   artifacts: List[FileArtifact]     // any side-files the block produces
 )
+
+case class PreludeContribution(
+  virtualPath: String,    // for diagnostics, e.g. "html-plugin:Html.ssc"
+  source:      String     // raw .ssc source
+)
 ```
 
 `scalascript` blocks are the language proper and are always handled by
 core's parser/typer — never by the `SourceLanguage` mechanism.
+
+### Prelude contributions
+
+A `SourceLanguage` plugin needs more than per-block parsing — it needs
+to make *types and helpers visible globally*. The bundled `html`
+plugin, for example, has to expose `Html`, the `div`/`p`/`body` DSL
+functions, an `extension (sc: StringContext) def html(args: Any*): Html`
+(the interpolator), and an `extern def render(h: Html): String`
+(rendering hook for backends, §8). None of these are *block-scoped* —
+they're project-wide.
+
+The mechanism: each plugin contributes a list of `PreludeContribution`
+entries (see trait above). For in-process plugins, the entries are
+typically static resources packed in the JAR (a `prelude/` folder).
+For out-of-process plugins, they come back from the `describe()` RPC
+as an array of `{virtualPath, source}` records.
+
+Core compiles every plugin's prelude contributions **before** user
+code, in a deterministic order:
+
+1. Core's own prelude (`Int`, `String`, `List`, `Option`, `s`, `f`,
+   `md`, `Md`, …).
+2. Bundled plugins (`scala-source`, `html`, `css`) in plugin-id
+   lexicographic order.
+3. Discovered plugins (project → user → env → CLI-flag) — same id
+   order within each scope.
+
+Symbol collisions across prelude contributions are a hard error:
+`Diagnostic.DuplicatePreludeSymbol(name, [sources])`. No silent
+shadowing. If a user wants to override `div`, they do so in their own
+code, not by injecting a competing plugin.
 
 ### Reserved names and mandatory support
 
@@ -636,18 +705,19 @@ delegation to `scalajs` (so the same blocks become JS), the user
 passes `--block-handler scala=scalajs`; rule (2) then fires even
 though the target backend would have claimed the language natively.
 
-### Examples (current + planned)
+### Examples (bundled + planned)
 
-| Fence tag    | Handler                                       | Output                          |
-|--------------|-----------------------------------------------|---------------------------------|
-| `scalascript`| core (always)                                 | NormalizedModule                |
-| `scala`      | `jvm` plugin natively (target = `jvm`)        | embedded in generated Scala     |
-| `scala`      | `scalajs` plugin as `SourceLanguage` (target = `js`) | JS, woven into js output |
-| `js`         | `js` plugin natively                          | embedded in generated JS        |
-| `wat`        | future `wasm` plugin natively                 | embedded in WASM module         |
-| `csharp`     | future `dotnet` plugin natively               | embedded in generated C#        |
-| `sql`        | future `sql` `SourceLanguage` plugin          | typed query AST in IR           |
-| `python`     | future `python` plugin natively               | embedded Python                 |
+| Fence tag    | Handler                                              | Output                          |
+|--------------|------------------------------------------------------|---------------------------------|
+| `scalascript`| core (always)                                        | NormalizedModule                |
+| `scala`      | bundled `scala-source` `SourceLanguage`              | `EmbeddedSource(scala)` IR node |
+| `html`       | bundled `html` `SourceLanguage`                      | typed `Html` value in IR        |
+| `css`        | bundled `css` `SourceLanguage`                       | typed `Css` value in IR         |
+| `wat`        | future `wasm` plugin                                 | embedded in WASM module         |
+| `csharp`     | future `dotnet` plugin                               | embedded in generated C#        |
+| `sql`        | future `sql` `SourceLanguage` plugin                 | typed query AST in IR           |
+| `python`     | future `python` plugin                               | embedded Python                 |
+| (unknown)    | `Diagnostic.UnknownBlockLanguage(tag, available)`    | —                               |
 
 ### Capabilities vs fence-tag support
 
@@ -660,24 +730,32 @@ enum would duplicate the same information.
 
 ### Relationship between `html`/`css` fence blocks and `html"…"`/`css"…"` interpolators
 
-The same language names appear in two surface forms:
+The same language names appear in two surface forms, both owned by
+the **bundled `html` / `css` plugins** (not by core):
 
 - **Fence block** ` ```html … ``` ` — the whole block is HTML (or
-  CSS). Treated as a top-level definition of type `Html` (or `Css`);
-  a `{#id}` attribute (Tier 2, §10) names it.
+  CSS). The plugin's `compileBlock` parses it and returns a typed
+  `Html` (or `Css`) value as a `BlockArtifact`; a `{#id}` attribute
+  (Tier 2, §10) names it.
 - **String interpolator** `html"…${expr}…"` — inline expression in
-  ScalaScript code, with `${…}` slots. Compiler macro in core, like
-  Scala 3 interpolators.
+  ScalaScript code, with `${…}` slots. Desugars (via Scala 3's
+  standard interpolator mechanism) to a call to
+  `extension (sc: StringContext) def html(args: Any*): Html`, which
+  the plugin ships in its prelude contribution.
 
-Both surface forms lower to the same prelude types (`Html` / `Css`)
-and the same `Html.render` / `Css.render` *optional intrinsic* (§8).
-One parsing+escaping codepath in core, one render-override hook for
-backends. Consolidates the duplicated `renderStringBlock` logic
-currently spread across `JvmGen`, `JsGen`, and `Interpreter`.
+Both surface forms produce values of the same plugin-defined types
+(`Html` / `Css`) and route through the same `Html.render` /
+`Css.render` *optional intrinsic* (§8) supplied by the same plugin.
+One parsing+escaping codepath in the plugin, one render-override hook
+for backends. This consolidates and relocates the `renderStringBlock`
+logic currently duplicated across `JvmGen`, `JsGen`, and `Interpreter`
+— the duplication doesn't survive into the new architecture.
 
-`md` exists **only** as the interpolator `md"…"`. There is no
-` ```md ``` ` fence block — Markdown is the host document syntax;
-embedding it as a fenced block would be circular.
+`md` is **different** — it stays in core. There is no ` ```md ``` `
+fence block (markdown is the host document syntax; embedding it as a
+fenced block would be circular), and the `md"…"` interpolator + `Md`
+type are part of core's prelude, not a plugin contribution. The
+standard `s` and `f` Scala interpolators likewise stay in core.
 
 This resolves the corresponding open question from §16.
 
@@ -960,18 +1038,20 @@ breaking changes are allowed in 0.x minor bumps).
 - No version ranges, no compatibility shims, no graceful degradation
   for older plugins. Bumping the compiler means rebuilding plugins.
 
-## 14. Migration plan (8 phases)
+## 14. Migration plan (9 phases)
 
 Each phase is one PR. Tests stay green at every step.
 
 ### Phase 1 — Module split & SPI skeleton  (M, ~1d)
 
 - Add sbt subprojects: `backend-spi`, `ir`, `core`, `cli`, four backend
-  modules.
+  modules (the bundled SourceLanguage modules — `scala-source`,
+  `html`, `css` — come in Phase 9; placeholder dirs are fine now).
 - Move existing sources into `core` (no semantic changes).
 - Define `Backend` and `SourceLanguage` traits plus `CompileResult`,
   `Capabilities`, `BackendOptions`, `IntrinsicImpl`, `BlockArtifact`,
-  `SymbolExport` in `backend-spi` (stubs are fine).
+  `SymbolExport`, `PreludeContribution` in `backend-spi` (stubs are
+  fine).
 - `cli/Main.scala` still calls concrete backends directly — registry
   comes in Phase 5. Output: nothing visible changes, but the build is
   modular.
@@ -1023,8 +1103,16 @@ Each phase is one PR. Tests stay green at every step.
   is extracted: signatures move to `std/http.ssc` in the prelude with
   `extern` markers; each plugin exposes its platform code through
   `Backend.intrinsics` (§8).
-- Each plugin declares its `acceptedSources`: `jvm` → `{"scala"}`,
-  `js` → `{"js"}`, `scalajs` as `SourceLanguage` → `{"scala"}`.
+- Each backend declares its `acceptedSources`: `jvm` →
+  `{"scala", "html", "css"}`, `js` → `{"html", "css"}`,
+  `scalajs` (as both Backend + SourceLanguage) →
+  `{"scala", "html", "css"}`, `interpreter` →
+  `{"scala", "html", "css"}`. Strings reference future bundled
+  source plugins (delivered in Phase 9); for the duration of Phases
+  5–8 they're declared as expected but `core`'s built-in handling
+  for `html`/`css`/`scala` remains in place. Phase 9 removes the
+  built-in handling and the declarations finally point at real
+  registered plugins.
 - Block-export pipeline (§10) wired into the typer: signature
   collection across all foreign blocks first, then per-block
   compilation with the full module scope visible. Cycle support
@@ -1068,7 +1156,42 @@ Each phase is one PR. Tests stay green at every step.
 - New `examples/plugins/hello-backend/` — a buildable third-party
   plugin used as the worked example.
 
-**Total:** ~6–9 working days.
+### Phase 9 — Extract bundled SourceLanguage plugins  (M–L, ~1.5–2d)
+
+The radical core-simplification step: pull `html`/`css`/`scala`
+handling out of `core` into bundled plugins. After this, the only
+languages `core` itself parses are Markdown (the document syntax) and
+`scalascript`/`ssc` (the host embedded language).
+
+- New sbt subprojects:
+  - `backend-scala-source/` — `SourceLanguage` for `scala` fence
+    blocks. Wraps the existing scalameta parsing; produces
+    `EmbeddedSource(scala, …)` IR nodes for `acceptedSources`
+    backends to embed verbatim, or a lowered IR fragment for backends
+    that ask for it.
+  - `backend-html/` — `SourceLanguage` for `html` blocks and the
+    `html"…"` interpolator. Owns the `Html` type, the DSL tag bindings
+    (`div`, `p`, `body`, …), and the `extern def render(h: Html): String`
+    optional intrinsic. All of this ships via `preludeFiles`.
+  - `backend-css/` — same shape for `Css`.
+- Remove the now-redundant code from `core`:
+  - `Lang.isStringBlock` / `Lang.isParseable` predicates collapse to
+    "is it `scalascript`/`ssc`?".
+  - `JvmGen` preamble loses the `containerTagNames` / `voidTagNames`
+    list and the `_Raw` case-class emission.
+  - `Interpreter` loses the `nativeP("div") { … }` block and the
+    `renderStringBlock` paths for `html`/`css`.
+  - The interpolator match arms for `html` / `css` in `JvmGen`,
+    `JsGen`, and `Interpreter` are removed — they're now ordinary
+    extension methods supplied by the plugins' prelude.
+- Verify by build: a CLI build *without* the three new modules on its
+  classpath compiles, runs `scalascript` blocks fine, and reports
+  `Diagnostic.UnknownBlockLanguage` for `html`/`css`/`scala` — proving
+  the boundary holds.
+- Released CLI continues to bundle all three so user-facing behaviour
+  is unchanged.
+
+**Total:** ~8–11 working days.
 
 ## 15. What this enables (future)
 
@@ -1119,10 +1242,22 @@ Specifically:
 - **IR / SPI versioning policy** → plain semver, one version number
   for both (§13); lockstep updates across plugins, no partial
   compatibility. Pre-stable at 0.1.0.
+- **Core boundary minimisation** → core handles only Markdown and
+  `scalascript`/`ssc`. `html`, `css`, and `scala` fence blocks plus
+  the `html"…"`/`css"…"` interpolators move into bundled
+  SourceLanguage plugins (Phase 9, §14). `md`/`Md` and the `s`/`f`
+  Scala interpolators stay in core's prelude — markdown is the host
+  syntax, the others are standard Scala. The bundled plugins use the
+  same SPI as any third-party plugin: dog-fooding of the contract.
+- **Prelude contributions** → each `SourceLanguage` plugin can ship
+  `.ssc` files compiled into the module-wide scope before user code
+  (§9 "Prelude contributions"). This is how the `html` plugin
+  introduces the `Html` type and the `div`/`p`/`body` DSL globally
+  without touching `core`.
 
 ## 17. Definition of done
 
-- [ ] All eight phases merged.
+- [ ] All nine phases merged.
 - [ ] `cli/Main.scala`, `server/*.scala` contain zero direct references
       to `JvmGen`, `JsGen`, `ScalaJsBackend`, or `Interpreter`.
 - [ ] Adding a new backend requires no edits to `core` or `cli`.
@@ -1135,10 +1270,19 @@ Specifically:
 - [ ] HTTP handling is no longer hard-coded in any code generator;
       `std.http` ships as a prelude package, runtime lives in each
       plugin's intrinsic table.
-- [ ] `html"…"`/`css"…"`/`md"…"` build typed AST in core; render via
-      optional `extern` with default String body. No per-backend
-      HTML/CSS/MD generation duplicated; backends can opt into
-      native templating later without SPI breakage.
+- [ ] `html"…"`/`css"…"` live in their bundled SourceLanguage
+      plugins as `StringContext` extension methods; `md"…"` stays in
+      core. All three build typed AST (in plugin or core prelude) and
+      render via optional `extern` with default String body. No
+      per-backend HTML/CSS/MD generation duplicated; backends can opt
+      into native templating later without SPI breakage.
+- [ ] `core` builds and runs without the bundled `scala-source` /
+      `html` / `css` plugins on the classpath: `scalascript` blocks
+      compile, the three fence tags produce
+      `Diagnostic.UnknownBlockLanguage`. Released CLI bundles all
+      three.
+- [ ] No `Lang.scala`-style `if lang == "html" || lang == "css"`
+      anywhere in `core` after Phase 9.
 - [ ] Existing test suite (`InterpreterTest`) green.
 - [ ] New tests:
   - IR round-trip in both JSON and MsgPack
@@ -1151,4 +1295,8 @@ Specifically:
   - subprocess plugin smoke test — Backend role
   - subprocess plugin smoke test — SourceLanguage role
   - plugin discovery from `--plugin-dir` (both registries)
+  - prelude-contribution collision (duplicate symbol from two plugins)
+    reported with both source paths
+  - bundled-plugin-less build: `core` alone rejects `html`/`css`/`scala`
+    cleanly
 - [ ] `docs/architecture.md` rewritten to match.
