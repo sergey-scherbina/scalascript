@@ -1080,6 +1080,12 @@ view so they shape near-term decisions.
 - **`html"..."` precision.**  Smarter `${}` parsing inside string-blocks
   so `${ a + "}" }` doesn't fool the regex (current TODO in the inline
   block evaluator).
+- **Future web-services protocols.**  HTTP/2, gRPC, GraphQL, OpenAPI
+  schema export — each questioned during v1.1 review and deferred
+  with concrete reasoning.  See [`docs/future-protocols.md`](docs/future-protocols.md)
+  for prerequisites, effort estimates, and why each is on hold
+  until a concrete user surfaces.
+
 ## v0.5 — Interpreter performance (Tier 1) — landed
 
 Closed in a series of small commits on the
