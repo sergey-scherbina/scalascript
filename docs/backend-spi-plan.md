@@ -652,7 +652,7 @@ Anything else that surfaces during execution: append here under a
 | 3     | 2 / 2           | **Stage 3 closed.** EffectAnalysis extracted to `core/transform/`; JvmGen + JsGen are now thin adapters.  LOC delta: JvmGen -48, JsGen -52 (-100 in backends), +101 in core.  IR-consumption switch deferred to Stage 5. |
 | 4     | 2 / 2           | **Stage 4 closed.** 4 Capabilities values declared (1 per backend module); CapabilityCheck.detect + validate; 9 new tests (6 detect + 3 validate).  Detection coarse (keyword scan on `Content.CodeBlock.source`) until Stage 5+ populates IrExpr nodes. |
 | 5     | 3 / 4           | **Stage 5 closed at 5.3.** 5.1 adapters + Denormalize; 5.2 BackendRegistry; 5.3 CLI registry dispatch (7 of ~12 commands). 5.4 (HTTP intrinsics extraction) deferred — see preamble; full scope is multi-stage post-Stage-5 work. |
-| 6     | 0 / 3           | Not started |
+| 6     | 3 / 3           | **Stage 6 closed.** 6.1 wire protocol + SubprocessBackend; 6.2 plugin.yaml + registry discovery; 6.3 canned-backend smoke plugin + `docs/backend-spi-protocol.md`. |
 | 7     | 0 / 2           | Not started |
 | 8     | 0 / 2           | Not started |
 | 9     | 0 / 4           | Not started |
