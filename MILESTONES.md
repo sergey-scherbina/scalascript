@@ -65,15 +65,6 @@ on bare class names, all reachable through a top-level aggregator
 `std/ui/index.ssc` so consumers can do
 `[Button, Card, FormInput as Input](std/ui)`.
 
-Tier 6 — **content / typography**
-
-  - **`Code`** — `<pre><code>` with optional language hint;
-    syntax highlighting is out of scope, but the markup + spacing
-    is.
-  - **`MarkdownBlock`** — render a Markdown string via commonmark
-    server-side.  Useful for CMS-style content fields.
-  - **`Quote`** — styled blockquote with optional citation.
-
 Tier 7 — **widgets**
 
   - **`Avatar`** — circular image with fallback initials, sizes

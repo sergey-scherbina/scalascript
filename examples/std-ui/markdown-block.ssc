@@ -1,0 +1,58 @@
+#!/usr/bin/env ssc
+---
+name: markdown-block
+description: Styled wrapper for already-rendered Markdown HTML — typography for the prose.
+---
+
+# MarkdownBlock
+
+The interpreter does not bundle a Markdown renderer, so this component
+takes **already-rendered HTML** and wraps it in a styled container that
+gives headings, paragraphs, lists, code, blockquote, and tables a
+consistent typographic look.  Render the Markdown server-side (e.g.
+with `commonmark`, or even shell out to `pandoc`) and feed the HTML
+fragment in.
+
+```scalascript
+object MarkdownBlock:
+  private val sc = scope("MarkdownBlock")
+  private val rootCls = sc.cls("root")
+
+  val css: String = sc.css("""
+    .root           { line-height: 1.65; color: #1f2937; }
+    .root h1,
+    .root h2,
+    .root h3,
+    .root h4        { color: #111827; margin: 1.4em 0 .5em;
+                      line-height: 1.25; font-weight: 600; }
+    .root h1        { font-size: 1.8em; }
+    .root h2        { font-size: 1.45em; }
+    .root h3        { font-size: 1.2em; }
+    .root p         { margin: .75em 0; }
+    .root ul,
+    .root ol        { padding-left: 1.4em; margin: .75em 0; }
+    .root li        { margin: .25em 0; }
+    .root a         { color: #2563eb; text-decoration: underline; }
+    .root code      { background: #f1f5f9; color: #0f172a;
+                      padding: .12em .35em; border-radius: 3px;
+                      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+                      font-size: .92em; }
+    .root pre       { background: #0f172a; color: #e2e8f0;
+                      padding: 1em 1.15em; border-radius: 6px;
+                      overflow-x: auto; margin: 1em 0; }
+    .root pre code  { background: transparent; padding: 0; color: inherit; }
+    .root blockquote{ border-left: 3px solid #d1d5db; margin: 1em 0;
+                      padding: .4em 0 .4em 1em; color: #4b5563; }
+    .root hr        { border: 0; border-top: 1px solid #e5e7eb; margin: 1.5em 0; }
+    .root img       { max-width: 100%; }
+    .root table     { border-collapse: collapse; width: 100%; margin: 1em 0; }
+    .root th,
+    .root td        { padding: .5em .75em; border-bottom: 1px solid #e5e7eb;
+                      text-align: left; }
+    .root th        { background: #f9fafb; }
+  """)
+
+  /** Wraps a pre-rendered Markdown HTML fragment in styled typography. */
+  def render(rendered: String): String =
+    html"""<div class="${rootCls}">${raw(rendered)}</div>"""
+```

@@ -1,0 +1,109 @@
+#!/usr/bin/env ssc
+---
+name: std-ui-content-demo
+description: Renders every Tier 6 content / typography primitive on one page.
+routes:
+  - method: GET
+    path: /
+    handler: home
+---
+
+# std/ui — content / typography demo
+
+Imports `Code`, `MarkdownBlock`, `Quote` and shows each.
+
+[Code](./code.ssc)
+
+[MarkdownBlock](./markdown-block.ssc)
+
+[Quote](./quote.ssc)
+
+```scalascript
+def home(req: Request): Response =
+  val codeBlock = Code.render(
+    """def hello(name: String): String =
+  s"Hello, $name!"
+
+println(hello("ScalaScript"))""",
+    "scala"
+  )
+
+  val bashBlock = Code.render(
+    """ssc render examples/std-ui/content-demo.ssc > out.html""",
+    "bash"
+  )
+
+  val inlineEx = Code.inline("ssc render")
+
+  // Pre-rendered Markdown HTML — in real apps, generate this with
+  // commonmark or pandoc.  Here it's hand-written to keep the demo
+  // dependency-free.
+  val mdHtml = """
+    <h2>Heading two</h2>
+    <p>MarkdownBlock applies typographic styles to a chunk of
+    pre-rendered HTML — paragraphs, lists, links, <code>inline code</code>,
+    block quotes, even tables.</p>
+    <ul>
+      <li>Headings get tightened line-heights.</li>
+      <li>Code keeps its monospace look.</li>
+      <li><a href="#">Links</a> pick up the brand colour.</li>
+    </ul>
+    <p>Pair it with a real Markdown renderer for full prose pages.</p>
+  """
+  val mdBlock = MarkdownBlock.render(mdHtml)
+
+  val quote1 = Quote.render(
+    "Simplicity is the ultimate sophistication.",
+    "Leonardo da Vinci"
+  )
+
+  val quote2 = Quote.render(
+    "<p>Make it work, make it right, make it fast.</p>",
+    "Kent Beck"
+  )
+
+  val quote3 = Quote.render(
+    "An unattributed pull-quote still looks the part.",
+    ""
+  )
+
+  val body = html"""
+    <h1>std/ui — content / typography</h1>
+    <p>Tier 6 of the standard component pack.  You can use ${raw(inlineEx)}
+    to preview this page in your terminal.</p>
+
+    <h2>Code (block, with language hint)</h2>
+    ${raw(codeBlock)}
+    ${raw(bashBlock)}
+
+    <h2>MarkdownBlock</h2>
+    ${raw(mdBlock)}
+
+    <h2>Quote</h2>
+    ${raw(quote1)}
+    ${raw(quote2)}
+    ${raw(quote3)}
+  """
+
+  val styles = collectCss(Code, MarkdownBlock, Quote)
+
+  Response.html(html"""<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>std/ui — content / typography</title>
+  <style>
+    body { font: 1rem/1.5 system-ui, sans-serif; max-width: 720px;
+           margin: 2rem auto; padding: 0 1rem; color: #111827; }
+    h1 { margin-top: 0; }
+    ${raw(styles)}
+  </style>
+</head>
+<body>
+  ${raw(body)}
+</body>
+</html>""")
+
+println("Listening on http://localhost:8775/")
+serve(8775)
+```
