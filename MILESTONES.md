@@ -15,9 +15,6 @@ session-sized chunk.
 
 ### Sprint 2 — security / robustness hardening
 
-6. **`maxWsConnections` ceiling.**  DoS vector: open 100K WS to
-   exhaust the FD table.  Configurable cap with a clean 503 on
-   overflow.  ~20 LOC.
 7. **Connect/disconnect bench.**  10K concurrent WS + a mixed
    HTTP load to establish a baseline before the NIO migration.
    ~100 LOC.
@@ -525,6 +522,32 @@ landed; see git history.)
    reads linearly instead of the inverted-control callback chain.
    Builds on top of (1) for any subscriber UIs and on the existing
    `WsRoutes` plumbing in `compiler/src/main/scala/scalascript/server/`.
+
+## Known issues / latent flakes
+
+Things noticed in passing while landing other work — not blocking, but
+worth a separate fix when somebody has cycles.
+
+- **`InterpreterTest` StackOverflowError under sbt's parallel suite
+  execution.**  ~5–10 % of `sbt compile/test` runs fail with a
+  `java.lang.StackOverflowError` somewhere inside
+  `Interpreter.callValue` / `eval` — almost always at the
+  `mutual-TCO` / `stack-safe bind chains` / `Async`-related tests.
+  Reproducible in isolation only by raising parallel suite load.
+  Looks like sbt's forked test JVM defaults to `-Xss` ≈ 512 KB
+  which is fine for any single test but tips over under the
+  combined recursion depth of all parallel suites.  Fixes to try:
+  bump `Test / javaOptions += "-Xss4m"` in `build.sbt`, or set
+  `Test / parallelExecution := false` for the `compiler` module.
+  Either is one-line; pick whichever the user prefers.
+- **WS test cross-suite isolation goes through a process-global
+  `WsRoutes` table + `WsTestLock` monitor.**  Works, but the lock
+  serialises ScalaTest's default parallel suite execution for every
+  `Ws*E2ETest`.  Cleaner fix would be a per-Interpreter routes
+  registry — `WsRoutes` becomes `class WsRoutes` owned by the
+  `Interpreter` instance, `WsProxy` consults the interpreter passed
+  in.  Half-day refactor.  Worth it if a third WS-touching suite
+  lands.
 
 ## Beyond
 

@@ -2798,6 +2798,8 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |      val t = heartbeatTask; heartbeatTask = null
        |      if t != null then t.cancel(false)
        |      try socket.close() catch case _: Throwable => ()
+       |      // Release the global-cap slot reserved at upgrade time.
+       |      _wsActiveCount.decrementAndGet()
        |      val cb = onCloseCb.getAndSet(null)
        |      if cb != null then _serverExecutor.execute { () =>
        |        try cb() catch case e: Throwable =>
@@ -2939,6 +2941,19 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |  origins: List[String] = Nil   // empty = no Origin restriction
        |)
        |private val _wsRoutes = scala.collection.mutable.ArrayBuffer.empty[_WsRoute]
+       |
+       |// Process-wide cap on active WS sessions.  Tuned with
+       |// `setMaxWsConnections(n)`; default = unlimited.  Upgrades past
+       |// the cap are refused with 503.  `closeNow` decrements via the
+       |// per-connection `_releaseSlot` helper.
+       |private val _wsMaxActive    = java.util.concurrent.atomic.AtomicInteger(Int.MaxValue)
+       |private val _wsActiveCount  = java.util.concurrent.atomic.AtomicInteger(0)
+       |def setMaxWsConnections(n: Int): Unit =
+       |  _wsMaxActive.set(if n < 0 then Int.MaxValue else n)
+       |private def _wsTryReserve(): Boolean =
+       |  val after = _wsActiveCount.incrementAndGet()
+       |  if after > _wsMaxActive.get then { _wsActiveCount.decrementAndGet(); false }
+       |  else true
        |
        |def onWebSocket(path: String): (WebSocket => Unit) => Unit = (handler) => {
        |  _wsRoutes += _WsRoute(_parsePath(path), handler)
@@ -3083,6 +3098,13 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |          if !r.origins.contains(origin) then
        |            cout.write("HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".getBytes("US-ASCII"))
        |            cout.flush(); client.close(); return
+       |        // Process-wide active-connection cap.  Reserved AFTER
+       |        // the Origin check so a denied-Origin attempt doesn't
+       |        // briefly consume a slot.  Released in the writer-VT's
+       |        // `finally` after the channel closes.
+       |        if !_wsTryReserve() then
+       |          cout.write("HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".getBytes("US-ASCII"))
+       |          cout.flush(); client.close(); return
        |        val accept = _wsAcceptKey(key)
        |        val resp =
        |          "HTTP/1.1 101 Switching Protocols\r\n" +

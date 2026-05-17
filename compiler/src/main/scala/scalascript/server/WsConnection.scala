@@ -3,7 +3,35 @@ package scalascript.server
 import java.nio.ByteBuffer
 import java.nio.channels.{SocketChannel, SelectionKey}
 import java.util.concurrent.{ConcurrentLinkedQueue, Executor, ScheduledExecutorService, ScheduledFuture, TimeUnit}
+import java.util.concurrent.atomic.AtomicInteger
 import scalascript.interpreter.{Interpreter, Value, Computation}
+
+/** Process-global counters for active WS connections + the configurable
+ *  cap.  Lives on the companion (not in [[WsRoutes]]) so it can be set
+ *  before any `serve(port)` call and persists across server restarts
+ *  inside the same JVM. */
+object WsConnection:
+  /** Soft cap on simultaneously-open WS sessions process-wide.  Set
+   *  via the `setMaxWsConnections(n)` native; default = unlimited.
+   *  Beyond the cap, [[WsProxy]] rejects upgrades with 503 Service
+   *  Unavailable before allocating a WebSocket value or invoking the
+   *  user handler. */
+  val maxActive:    AtomicInteger = AtomicInteger(Int.MaxValue)
+  val activeCount:  AtomicInteger = AtomicInteger(0)
+
+  /** Atomic check-then-increment.  Returns true if the caller may
+   *  proceed (counter was below the cap), false if the cap is reached.
+   *  Failed reservations roll the counter back to its prior value so
+   *  the cap can't drift. */
+  def tryReserveSlot(): Boolean =
+    val after = activeCount.incrementAndGet()
+    if after > maxActive.get then
+      activeCount.decrementAndGet()
+      false
+    else true
+
+  def releaseSlot(): Unit =
+    activeCount.decrementAndGet()
 
 /** Live WebSocket session: parser state on the inbound side, write queue on
  *  the outbound side, plus the user-facing `WebSocket` value the handler
@@ -288,6 +316,10 @@ final class WsConnection(
     if key.isValid then
       key.cancel()
       try channel.close() catch case _: Throwable => ()
+      // Release the global-cap slot we reserved during the upgrade.
+      // Guarded by `key.isValid` so duplicate `closeNow` calls (peer
+      // close + reader EOF) don't double-decrement.
+      WsConnection.releaseSlot()
       // Atomic getAndSet — at most one caller can win the right to fire
       // onClose.  Without this both the read-loop's drainFrames (on EOF
       // or a peer-initiated close frame) and a user-side `ws.close()`

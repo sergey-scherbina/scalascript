@@ -263,6 +263,17 @@ final class WsProxy(
             conn.outBufs.add(ByteBuffer.wrap(resp))
             conn.key.interestOpsOr(SelectionKey.OP_WRITE)
             return
+        // Process-wide cap on active WS sessions — refuses upgrades
+        // with 503 before allocating a WsConnection.  Slot is released
+        // in `WsConnection.closeNow` on disconnect.  Reserved AFTER
+        // the cheaper Origin check so a denied-Origin attempt doesn't
+        // briefly consume a slot.
+        if !WsConnection.tryReserveSlot() then
+          val resp = httpResponse(503, "Service Unavailable",
+            "WebSocket connection limit reached")
+          conn.outBufs.add(ByteBuffer.wrap(resp))
+          conn.key.interestOpsOr(SelectionKey.OP_WRITE)
+          return
         val accept = WsFraming.acceptKey(key)
         val response =
           "HTTP/1.1 101 Switching Protocols\r\n" +

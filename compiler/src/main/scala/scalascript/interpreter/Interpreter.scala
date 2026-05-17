@@ -963,6 +963,20 @@ class Interpreter(
       case _ => throw InterpretError("onWebSocket(path) { ws => … } or onWebSocket(path, origins) { ws => … }")
     }
 
+    // setMaxWsConnections(n) — process-wide cap on simultaneously-open
+    // WebSocket sessions.  Upgrades past the cap are refused with 503.
+    // Default = unlimited (Int.MaxValue).  Setting it lower than the
+    // current active count is fine — existing sessions keep running,
+    // new upgrades are refused until the count drops.
+    nativeP("setMaxWsConnections") {
+      case List(Value.IntV(n)) =>
+        scalascript.server.WsConnection.maxActive.set(
+          if n > Int.MaxValue.toLong || n < 0 then Int.MaxValue else n.toInt
+        )
+        Value.UnitV
+      case _ => throw InterpretError("setMaxWsConnections(n)")
+    }
+
     // ── Async: built-in effect for async-style code ──────────────────
     //
     // Four operations — each produces a Perform node; `runAsync(body)`

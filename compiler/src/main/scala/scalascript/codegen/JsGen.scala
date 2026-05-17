@@ -202,6 +202,14 @@ function getenv(key, defaultVal) {
 // runtime require()s 'http' which only exists in Node.
 const _routes = [];
 const _wsRoutes = [];
+// Process-wide cap on active WS sessions.  `setMaxWsConnections(n)`
+// raises / lowers it.  Default = unlimited; upgrades past the cap
+// are refused with 503 Service Unavailable.
+let _wsMaxActive   = Number.POSITIVE_INFINITY;
+let _wsActiveCount = 0;
+function setMaxWsConnections(n) {
+  _wsMaxActive = (n == null || n < 0) ? Number.POSITIVE_INFINITY : n;
+}
 
 function _parsePath(p) {
   return p.split('/').filter(s => s.length > 0).map(s =>
@@ -1317,6 +1325,19 @@ function _wsHandleUpgrade(req, socket) {
       }
       const clientKey = req.headers['sec-websocket-key'];
       if (!clientKey) { socket.destroy(); return; }
+      // Process-wide active-connection cap — refuse with 503 before
+      // building the WebSocket value.  Slot is released in the
+      // `socket.on('close', ...)` listener below.
+      if (_wsActiveCount >= _wsMaxActive) {
+        socket.write(
+          'HTTP/1.1 503 Service Unavailable\r\n' +
+          'Content-Length: 0\r\nConnection: close\r\n\r\n'
+        );
+        socket.destroy();
+        return;
+      }
+      _wsActiveCount++;
+      socket.once('close', () => { _wsActiveCount--; });
       const accept = _wsAcceptKey(clientKey);
       socket.write(
         'HTTP/1.1 101 Switching Protocols\r\n' +
