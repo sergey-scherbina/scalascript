@@ -1,0 +1,14 @@
+Some(99)
+Some(42)
+None
+Some(7)
+Some(5)
+None
+Some(None)
+Some(Some(100))
+Right(0)
+Right(42)
+Left(re:boom)
+Left(explicit error)
+Right(Right(42))
+Right(Left(boom))

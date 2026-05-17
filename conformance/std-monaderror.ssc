@@ -1,0 +1,46 @@
+---
+name: conformance-std-monaderror
+version: 1.0.0
+---
+
+# Std — MonadError
+
+Exercises the `MonadError[Option, Unit]` extension dispatch and the
+helper-only `Either[String, *]` surface.
+
+[Left, Right](../std/either.ssc)
+
+[optionUnitError, raiseOption, handleOption, attemptOption, raiseEither, handleEither, attemptEither](../std/monaderror.ssc)
+
+## Option — extension dispatch
+
+```scalascript
+val noneInt: Option[Int] = None
+println(noneInt.handleError((_: Unit) => Some(99)))
+println(Some(42).handleError((_: Unit) => Some(99)))
+println(optionUnitError.raise[Int](()))
+```
+
+## Option — helpers
+
+```scalascript
+println(handleOption(noneInt, () => Some(7)))
+println(handleOption(Some(5), () => Some(7)))
+println(raiseOption[Int]())
+println(attemptOption(noneInt))
+println(attemptOption(Some(100)))
+```
+
+## Either — helpers
+
+```scalascript
+val ok:  Either[String, Int] = Right(42)
+val err: Either[String, Int] = Left("boom")
+
+println(handleEither(err, (e: String) => Right(0)))
+println(handleEither(ok,  (e: String) => Right(0)))
+println(handleEither(err, (e: String) => Left("re:" + e)))
+println(raiseEither[Int]("explicit error"))
+println(attemptEither(ok))
+println(attemptEither(err))
+```
