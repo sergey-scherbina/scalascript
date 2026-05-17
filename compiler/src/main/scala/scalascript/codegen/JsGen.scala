@@ -211,6 +211,30 @@ function setMaxWsConnections(n) {
   _wsMaxActive = (n == null || n < 0) ? Number.POSITIVE_INFINITY : n;
 }
 
+// WsRoom() — thread-safe (well, event-loop-safe) registry of
+// WebSocket objects + broadcast helper.  Replaces the pattern
+// every chat demo otherwise reinvents.  Node is single-threaded
+// so the array is unsynchronised; mutations land on the event
+// loop in order.
+function WsRoom() {
+  const members = [];
+  return {
+    _type: 'WsRoom',
+    add: (ws) => { members.push(ws); },
+    remove: (ws) => {
+      const i = members.indexOf(ws);
+      if (i >= 0) members.splice(i, 1);
+    },
+    broadcast: (msg) => {
+      for (const ws of members.slice()) {
+        try { if (ws && ws.send) ws.send(msg); }
+        catch (_) { /* dead client; reaped via onClose */ }
+      }
+    },
+    size: () => members.length
+  };
+}
+
 function _parsePath(p) {
   return p.split('/').filter(s => s.length > 0).map(s =>
     s.startsWith(':') ? { kind: 'cap', name: s.slice(1) }

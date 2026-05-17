@@ -17,9 +17,6 @@ session-sized chunk.
 
 Common asks from real apps that aren't covered today.
 
-11. **Built-in `WsRoom` type.**  Thread-safe registry + `broadcast(msg)`
-    so every chat demo doesn't reinvent `var clients =
-    List[WebSocket]()` (and forget the synchronisation).  ~80 LOC × 3.
 12. **`ws.request.cookies: Map[String, String]`.**  Parse `Cookie:`
     header into a map at upgrade time, parallel to what REST
     handlers already see.  ~20 LOC × 3.

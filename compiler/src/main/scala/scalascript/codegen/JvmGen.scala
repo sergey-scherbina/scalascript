@@ -3051,6 +3051,24 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |  if after > _wsMaxActive.get then { _wsActiveCount.decrementAndGet(); false }
        |  else true
        |
+       |/** WsRoom — thread-safe registry of WebSocket clients with a
+       |  * built-in `broadcast(msg)` helper.  Spawn one per logical
+       |  * channel (e.g. one room per chat room) and let the handler
+       |  * `add` / `remove` itself in onMessage / onClose. */
+       |class WsRoom:
+       |  private val members = java.util.concurrent.CopyOnWriteArrayList[WebSocket]()
+       |  def add(ws: WebSocket): Unit    = members.add(ws)
+       |  def remove(ws: WebSocket): Unit = members.remove(ws)
+       |  def broadcast(msg: String): Unit =
+       |    val it = members.iterator()
+       |    while it.hasNext do
+       |      try it.next().send(msg)
+       |      catch case _: Throwable => () // dead client, will be reaped via onClose
+       |  def size: Int = members.size
+       |
+       |/** Companion `WsRoom()` factory so user code reads naturally. */
+       |def WsRoom(): WsRoom = new WsRoom
+       |
        |def onWebSocket(path: String): (WebSocket => Unit) => Unit = (handler) => {
        |  _wsRoutes += _WsRoute(_parsePath(path), handler)
        |}

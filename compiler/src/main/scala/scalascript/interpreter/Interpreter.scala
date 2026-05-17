@@ -1012,6 +1012,50 @@ class Interpreter(
       case _ => throw InterpretError("setMaxWsConnections(n)")
     }
 
+    // WsRoom() — thread-safe registry of WebSocket clients with a
+    // built-in `broadcast(msg)` helper.  Replaces the boilerplate
+    // `var clients = List[WebSocket](); clients.foreach { c => c.send(msg) }`
+    // pattern that every chat-style demo otherwise reinvents (and
+    // gets the synchronisation wrong on JvmGen).
+    nativeP("WsRoom") {
+      case Nil =>
+        val members = java.util.concurrent.CopyOnWriteArrayList[Value]()
+        val add = Value.NativeFnV("WsRoom.add", Computation.pureFn {
+          case List(ws) => members.add(ws); Value.UnitV
+          case _ => throw InterpretError("room.add(ws)")
+        })
+        val remove = Value.NativeFnV("WsRoom.remove", Computation.pureFn {
+          case List(ws) => members.remove(ws); Value.UnitV
+          case _ => throw InterpretError("room.remove(ws)")
+        })
+        val broadcast = Value.NativeFnV("WsRoom.broadcast", Computation.pureFn {
+          case List(Value.StringV(msg)) =>
+            val it = members.iterator()
+            while it.hasNext do
+              it.next() match
+                case Value.InstanceV("WebSocket", fields) =>
+                  fields.get("send") match
+                    case Some(f: Value.NativeFnV) =>
+                      try Computation.run(f.f(List(Value.StringV(msg))))
+                      catch case _: Throwable => () // dead client; will be reaped via onClose
+                    case _ => ()
+                case _ => ()
+            Value.UnitV
+          case _ => throw InterpretError("room.broadcast(msg)")
+        })
+        val size = Value.NativeFnV("WsRoom.size", Computation.pureFn {
+          case Nil => Value.IntV(members.size.toLong)
+          case _   => throw InterpretError("room.size()")
+        })
+        Value.InstanceV("WsRoom", Map(
+          "add"       -> add,
+          "remove"    -> remove,
+          "broadcast" -> broadcast,
+          "size"      -> size
+        ))
+      case _ => throw InterpretError("WsRoom()")
+    }
+
     // ── Storage: built-in effect for key-value persistence ──────────
     //
     // Same Free-Monad shape as Async: each op produces a `Perform`
