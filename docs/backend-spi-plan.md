@@ -206,6 +206,29 @@ formats.  No backend uses it yet — it's just the data layer.
 - **Done when:** round-trip green on all 38 conformance fixtures, both
   formats.
 
+#### Discovered while implementing 2.x
+
+- **IR shape simplification.**  The plan said "flattened definition
+  list" per spec §5.2.  Stage 2.1 keeps the nested
+  `Section/subsections` tree instead — simpler round-trip and the
+  flattening can land when a backend actually consumes IR (Stage 5).
+  No semantic change; "definition list" is now a derived view, not a
+  primary shape.
+- **`schemas/ir.json` deferred to Stage 8.**  upickle has no schema
+  emitter; hand-writing one for every case class is doc-shaped work
+  best done with the rest of the SPI docs.  Tracked here so it
+  doesn't slip.
+- **`case object PatWildcard` derivation.**  Scala 3 `case object`
+  inside a sealed trait deriving ReadWriter Just Works™ — no special
+  handling needed.  Noting because it's the only case-object in IR
+  and I wasn't sure upickle 4.x handles it cleanly.
+
+### Stage 2 — closed
+
+193 unit tests green (was 117; +76 round-trip).  Conformance 38/38.
+IR layer is ready for Stage 3 (effect lowering populates Perform /
+Handle / Resume nodes inside `Content.CodeBlock.body`).
+
 ---
 
 ## Stage 3 — Effect lowering (the migration)
@@ -458,7 +481,7 @@ Anything else that surfaces during execution: append here under a
 | Stage | Iterations done | Notes |
 |-------|-----------------|-------|
 | 1     | 3 / 3           | **Stage 1 closed.** 1.1 sbt scaffold; 1.2 sources moved (compiler/ gone, sbt-assembly added); 1.3 SPI trait stubs + IR placeholders (ir/Ir.scala + 10 SPI files in backend-spi/). Transitional `backendInterpreter dependsOn backendJs` for `WebServer→JsGen` — Stage 5 fixes via HTTP intrinsics. |
-| 2     | 1 / 2           | 2.1 done — IR shape + Normalize pass (AST → IR, near-no-op).  IR mirrors AST sections/content; scalameta tree dropped (re-parse from source); foreign-lang fences become EmbeddedBlock; Perform/Handle/Resume/MatchTree/TailCall/ExternCall reserved as placeholders for Stage 3+. |
+| 2     | 2 / 2           | **Stage 2 closed.** 2.1 IR + Normalize; 2.2 upickle `derives ReadWriter` on every IR data type + 76 round-trip tests (38 fixtures × JSON+MsgPack).  `schemas/ir.json` deferred to Stage 8 (docs). |
 | 3     | 0 / 3           | Not started |
 | 4     | 0 / 2           | Not started |
 | 5     | 0 / 4           | Not started |

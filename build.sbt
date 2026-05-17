@@ -47,7 +47,8 @@ lazy val core = project
       "org.yaml"       %  "snakeyaml"  % "2.6",
       "com.lihaoyi"    %% "os-lib"     % "0.11.4",
       "org.scalameta"  %% "scalameta"  % "4.17.0",
-      "org.commonmark" %  "commonmark" % "0.28.0"
+      "org.commonmark" %  "commonmark" % "0.28.0",
+      scalatestTest
     ),
     scalacOptions ++= sharedScalacOptions
   )

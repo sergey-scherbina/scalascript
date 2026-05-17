@@ -1,11 +1,16 @@
 package scalascript.ir
 
+import upickle.default.ReadWriter
+
 // ---------------------------------------------------------------------------
 // Backend SPI v0.1 — IR (docs/backend-spi.md §5)
 //
 // Stage 2.1: structural types that round-trip losslessly through
 // JSON / MsgPack.  Mirrors the AST closely for "near-no-op" Normalize;
 // scalameta trees are NOT carried (backends re-parse from source).
+//
+// Stage 2.2: `derives ReadWriter` on every data type — upickle handles
+// both JSON and MsgPack wire formats from the same derivation.
 //
 // Expression-level placeholders (Perform / Handle / Resume / ExternCall
 // / TailCall / MatchTree) are reserved here so Stage 3 (effect lowering)
@@ -15,19 +20,19 @@ package scalascript.ir
 
 // ─── Positions ─────────────────────────────────────────────────────────────
 
-case class Position(line: Int, column: Int, offset: Int)
-case class Span(start: Position, end: Position)
+case class Position(line: Int, column: Int, offset: Int) derives ReadWriter
+case class Span(start: Position, end: Position)            derives ReadWriter
 
 // ─── Symbol references ─────────────────────────────────────────────────────
 
-case class QualifiedName(value: String):
+case class QualifiedName(value: String) derives ReadWriter:
   override def toString: String = value
 
-case class SymbolRef(qualifiedName: QualifiedName, span: Option[Span] = None)
+case class SymbolRef(qualifiedName: QualifiedName, span: Option[Span] = None) derives ReadWriter
 
 // ─── Manifest (front-matter, structured fields only) ───────────────────────
 
-case class RouteDecl(method: String, path: String, handler: String, span: Option[Span] = None)
+case class RouteDecl(method: String, path: String, handler: String, span: Option[Span] = None) derives ReadWriter
 
 case class Manifest(
   name:         Option[String],
@@ -39,7 +44,7 @@ case class Manifest(
   routes:       List[RouteDecl],
   pkg:          Option[List[String]],
   span:         Option[Span] = None
-)
+) derives ReadWriter
 
 // ─── Top-level module structure ────────────────────────────────────────────
 
@@ -47,20 +52,20 @@ case class NormalizedModule(
   manifest: Option[Manifest],
   sections: List[Section],
   span:     Option[Span] = None
-)
+) derives ReadWriter
 
 case class Section(
   heading:     Heading,
   content:     List[Content],
   subsections: List[Section],
   span:        Option[Span] = None
-)
+) derives ReadWriter
 
-case class Heading(level: Int, text: String, span: Option[Span] = None)
+case class Heading(level: Int, text: String, span: Option[Span] = None) derives ReadWriter
 
 // ─── Content (per-section payload) ─────────────────────────────────────────
 
-enum Content:
+enum Content derives ReadWriter:
   /** Raw prose extracted from a Markdown paragraph. */
   case Prose(text: String, span: Option[Span] = None)
   /** A `scalascript` / `ssc` fence — host embedded language.  Stored as
@@ -79,51 +84,54 @@ enum Content:
  *  interactive backend means handing it one `Content` node. */
 type NormalizedBlock = Content
 
-case class ImportBinding(name: String, alias: Option[String], span: Option[Span] = None)
-case class ListItem(content: String, nested: List[ListItem], span: Option[Span] = None)
+case class ImportBinding(name: String, alias: Option[String], span: Option[Span] = None) derives ReadWriter
+case class ListItem(content: String, nested: List[ListItem], span: Option[Span] = None)  derives ReadWriter
 
 // ─── Expression-level IR (placeholders for Stage 3+) ───────────────────────
 
 /** Sealed sum of IR expressions.  Stage 2.1 only declares the
  *  placeholders; Stage 3 (effect lowering) fills bodies. */
-sealed trait IrExpr
+sealed trait IrExpr derives ReadWriter
 
-case class Perform(effect: QualifiedName, op: String, args: List[IrExpr]) extends IrExpr
-case class Handle(body: IrExpr, cases: List[HandleCase], ret: HandleReturn) extends IrExpr
-case class HandleCase(effect: QualifiedName, op: String, params: List[String], body: IrExpr)
-case class HandleReturn(param: String, body: IrExpr)
-case class Resume(k: SymbolRef, value: IrExpr) extends IrExpr
+case class Perform(effect: QualifiedName, op: String, args: List[IrExpr]) extends IrExpr derives ReadWriter
+case class Handle(body: IrExpr, cases: List[HandleCase], ret: HandleReturn) extends IrExpr derives ReadWriter
+case class HandleCase(effect: QualifiedName, op: String, params: List[String], body: IrExpr) derives ReadWriter
+case class HandleReturn(param: String, body: IrExpr) derives ReadWriter
+case class Resume(k: SymbolRef, value: IrExpr) extends IrExpr derives ReadWriter
 
-case class TailCall(target: SymbolRef, args: List[IrExpr]) extends IrExpr
+case class TailCall(target: SymbolRef, args: List[IrExpr]) extends IrExpr derives ReadWriter
 
 /** `extern def` call site.  Stage 5 produces these when lowering calls
  *  to symbols declared with the `extern` modifier (spec §8). */
-case class ExternCall(name: QualifiedName, args: List[IrExpr], span: Option[Span] = None) extends IrExpr
+case class ExternCall(name: QualifiedName, args: List[IrExpr], span: Option[Span] = None) extends IrExpr derives ReadWriter
 
 /** Compiled pattern-match decision tree.  Stage 3's match desugaring
  *  produces this so each backend doesn't re-implement decision-tree
  *  compilation. */
-case class MatchTree(scrutinee: IrExpr, root: DecisionNode) extends IrExpr
+case class MatchTree(scrutinee: IrExpr, root: DecisionNode) extends IrExpr derives ReadWriter
 
-sealed trait DecisionNode
-case class Switch(cases: List[(Pattern, DecisionNode)], default: Option[DecisionNode]) extends DecisionNode
-case class Leaf(action: IrExpr) extends DecisionNode
+sealed trait DecisionNode derives ReadWriter
+case class Switch(cases: List[(Pattern, DecisionNode)], default: Option[DecisionNode]) extends DecisionNode derives ReadWriter
+case class Leaf(action: IrExpr) extends DecisionNode derives ReadWriter
 
-sealed trait Pattern
-case class PatLit(value: PatternLiteral) extends Pattern
-case class PatVar(name: String) extends Pattern
-case class PatCtor(ctor: QualifiedName, fields: List[Pattern]) extends Pattern
+sealed trait Pattern derives ReadWriter
+case class PatLit(value: PatternLiteral) extends Pattern derives ReadWriter
+case class PatVar(name: String) extends Pattern          derives ReadWriter
+case class PatCtor(ctor: QualifiedName, fields: List[Pattern]) extends Pattern derives ReadWriter
 case object PatWildcard extends Pattern
 
-/** A primitive literal usable in a pattern.  Round-trippable via
- *  upickle's standard derivation. */
-enum PatternLiteral:
+/** A primitive literal usable in a pattern. */
+enum PatternLiteral derives ReadWriter:
   case IntLit(value: Long)
   case StrLit(value: String)
   case BoolLit(value: Boolean)
   case NullLit
 
 // ─── Context types passed to backend intrinsics ────────────────────────────
+//
+// EmitContext / TargetCode / Value carry runtime references that are not
+// part of the serialised IR — they're used only at intrinsic call sites
+// (in-process) and don't cross the wire.  No ReadWriter required.
 
 trait EmitContext
 
@@ -132,8 +140,6 @@ opaque type TargetCode = String
 object TargetCode:
   def apply(s: String): TargetCode = s
   extension (t: TargetCode) def value: String = t
-
-// ─── Value type for interactive backends ───────────────────────────────────
 
 /** Runtime value handed to / returned from
  *  `Session.invokeHandler`.  Stage 5 settles the concrete shape; for now
