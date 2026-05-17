@@ -225,6 +225,105 @@ object WebAuthn:
             signCount,
           ))
 
+  // ── Authentication verification ───────────────────────────────────
+  // Counterpart to verifyRegistration.  Takes the browser's
+  // `navigator.credentials.get()` response and confirms the assertion
+  // was actually signed by the stored credential's private key.
+  //
+  // Inputs (all base64url):
+  //   clientDataJSONb64    : the JSON the client signed over
+  //   authenticatorDataB64 : binary authData (rpIdHash + flags + signCount)
+  //   signatureB64         : ASN.1 DER ECDSA signature
+  //   credentialIdB64      : which credential the client claims to be
+  //
+  // Returns Some((userId, newSignCount)) on success — userId from the
+  // consumed challenge, signCount already validated against the stored
+  // monotonic counter and persisted via `storeUpdateSignCount`.
+  final case class Assertion(userId: String, signCount: Long)
+
+  def verifyAssertion(
+      clientDataJSONb64:    String,
+      authenticatorDataB64: String,
+      signatureB64:         String,
+      credentialIdB64:      String,
+      expectedOrigin:       String,
+  ): Option[Assertion] =
+    try
+      val b64 = Base64.getUrlDecoder
+      val cd  = String(b64.decode(clientDataJSONb64), "UTF-8")
+      val challenge = jsonStringField(cd, "challenge").getOrElse(return None)
+      val origin    = jsonStringField(cd, "origin").getOrElse(return None)
+      val ctype     = jsonStringField(cd, "type").getOrElse(return None)
+      if ctype != "webauthn.get" then return None
+      if origin != expectedOrigin then return None
+      val userId = consumeChallenge(challenge).getOrElse(return None)
+      val cred   = storeFind(userId, credentialIdB64).getOrElse(return None)
+
+      val authData = b64.decode(authenticatorDataB64)
+      if authData.length < 37 then return None
+      val newCount =
+        ((authData(33) & 0xffL) << 24) |
+        ((authData(34) & 0xffL) << 16) |
+        ((authData(35) & 0xffL) <<  8) |
+         (authData(36) & 0xffL)
+
+      // Signed payload = authenticatorData || SHA-256(clientDataJSON).
+      val sha     = java.security.MessageDigest.getInstance("SHA-256")
+      val cdHash  = sha.digest(b64.decode(clientDataJSONb64))
+      val signed  = authData ++ cdHash
+
+      val pubKey  = decodeCosePublicKey(b64.decode(cred.publicKey)).getOrElse(return None)
+      val sig     = java.security.Signature.getInstance("SHA256withECDSA")
+      sig.initVerify(pubKey)
+      sig.update(signed)
+      if !sig.verify(b64.decode(signatureB64)) then return None
+
+      // Monotonic signCount — protects against cloned authenticators
+      // and replayed assertions.  Authenticators that don't implement
+      // counters always send 0; permit that as a no-op (don't bump).
+      if newCount > 0 then
+        if !storeUpdateSignCount(userId, credentialIdB64, newCount) then return None
+      Some(Assertion(userId, newCount))
+    catch case _: Throwable => None
+
+  /** Decode a COSE EC2 public key (RFC 8152 §13.1) into a JCA
+   *  ECPublicKey.  The key is a CBOR map with negative-int keys:
+   *      1 (kty) = 2 (EC2)
+   *      3 (alg) = -7 (ES256)
+   *     -1 (crv) = 1 (P-256)
+   *     -2 (x)   = 32-byte big-endian X coordinate
+   *     -3 (y)   = 32-byte big-endian Y coordinate */
+  private def decodeCosePublicKey(bytes: Array[Byte]): Option[java.security.PublicKey] =
+    try
+      val m = Cbor.read(bytes) match
+        case Cbor.MapV(m) => m
+        case _            => return None
+      def getInt(k: Long): Option[Long] = m.collectFirst {
+        case (Cbor.UIntV(v), Cbor.UIntV(x))                 if v == k => x
+        case (Cbor.NegV(v),  Cbor.UIntV(x))                 if v == k => x
+        case (Cbor.UIntV(v), Cbor.NegV(x))                  if v == k => x
+      }
+      def getBytes(k: Long): Option[Array[Byte]] = m.collectFirst {
+        case (Cbor.UIntV(v), Cbor.BytesV(b)) if v == k => b
+        case (Cbor.NegV(v),  Cbor.BytesV(b)) if v == k => b
+      }
+      val kty = getInt(1).getOrElse(return None)
+      val alg = getInt(3).getOrElse(return None)
+      val crv = getInt(-1).getOrElse(return None)
+      if kty != 2 || alg != -7L || crv != 1 then return None
+      val x = getBytes(-2).getOrElse(return None)
+      val y = getBytes(-3).getOrElse(return None)
+      val params = java.security.AlgorithmParameters.getInstance("EC")
+      params.init(java.security.spec.ECGenParameterSpec("secp256r1"))
+      val ecSpec = params.getParameterSpec(classOf[java.security.spec.ECParameterSpec])
+      val point  = java.security.spec.ECPoint(
+        java.math.BigInteger(1, x),
+        java.math.BigInteger(1, y),
+      )
+      val spec = java.security.spec.ECPublicKeySpec(point, ecSpec)
+      Some(java.security.KeyFactory.getInstance("EC").generatePublic(spec))
+    catch case _: Throwable => None
+
   /** Extract a top-level string field from a flat JSON object —
    *  enough for clientDataJSON which is always `{type, challenge,
    *  origin, ...}` with no nested objects we care about. */

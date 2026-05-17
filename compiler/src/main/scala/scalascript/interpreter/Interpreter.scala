@@ -710,6 +710,26 @@ class Interpreter(
     // with userId / credentialId / publicKey / signCount on success.
     // Currently accepts `none` attestation only (Apple, 1Password,
     // iOS); other formats land in a follow-up.
+    // `webauthnVerifyAssertion(clientDataJSONb64, authenticatorDataB64,
+    //   signatureB64, credentialIdB64, expectedOrigin)` — login side.
+    // Verifies the ECDSA P-256 signature against the stored credential
+    // and bumps signCount; returns Some(Map("userId", "signCount")) on
+    // success.
+    nativeP("webauthnVerifyAssertion") {
+      case List(Value.StringV(cd), Value.StringV(ad),
+                Value.StringV(sig), Value.StringV(cid),
+                Value.StringV(origin)) =>
+        scalascript.server.WebAuthn.verifyAssertion(cd, ad, sig, cid, origin) match
+          case Some(a) =>
+            Value.OptionV(Some(Value.MapV(Map(
+              Value.StringV("userId")    -> Value.StringV(a.userId),
+              Value.StringV("signCount") -> Value.IntV(a.signCount),
+            ))))
+          case None => Value.OptionV(None)
+      case _ => throw InterpretError(
+        "webauthnVerifyAssertion(clientDataJSONb64, authenticatorDataB64, " +
+        "signatureB64, credentialIdB64, expectedOrigin)")
+    }
     nativeP("webauthnVerifyRegistration") {
       case List(Value.StringV(cd), Value.StringV(att), Value.StringV(origin)) =>
         scalascript.server.WebAuthn.verifyRegistration(cd, att, origin) match
