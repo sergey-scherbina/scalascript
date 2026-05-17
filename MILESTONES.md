@@ -86,6 +86,135 @@ useful in isolation and unblocks the next.
    workflow.  Weeks of work; only worth opening once the surface
    above is well-trodden.  Out of scope for v0.7.
 
+## v0.9 — Standard component pack (`std/ui/*`)
+
+The component convention is in place (`object Foo { val css, val js,
+def render(...) }`), the distribution surface lands in v0.7, and
+v0.8 makes them W3C Custom Elements.  v0.9 fills the gap that every
+real `.ssc` app hits: a curated set of components, shipped as a
+single `.sscpkg` (or via URL imports against a stable tag), so
+nobody re-implements yet-another-`Button.ssc` from scratch.
+
+Layout one file per component under `std/ui/`, all using `scope(...)`
+on bare class names, all reachable through a top-level aggregator
+`std/ui/index.ssc` so consumers can do
+`[Button, Card, FormInput as Input](std/ui)`.
+
+Tier 1 — **forms** (the highest-leverage gap right now)
+
+  - **`Input`** — labelled text input with optional helper text and
+    error state.  Renders `<label><span/><input/><small/></label>`;
+    attributes: `name`, `label`, `type` (text/email/password/url/
+    number/tel), `value`, `placeholder`, `required`, `helper`, `error`.
+  - **`Textarea`** — same shape as `Input`, multi-line.
+  - **`Select`** — dropdown over a `List[(String, String)]` of
+    `(value, label)` pairs; honours `selected`.
+  - **`Checkbox`** / **`Radio`** / **`RadioGroup`** — boolean
+    inputs.  Checkbox is single, RadioGroup builds a `<fieldset>`
+    around N `Radio` siblings with shared `name`.
+  - **`FormGroup`** — vertical stack with consistent spacing /
+    section header; the parent block most apps wrap forms in.
+  - **`SubmitButton`** — variant of the existing `Button` with
+    `type="submit"`, loading state, and disabled-while-pending JS.
+
+Tier 2 — **layout primitives** (the things every page needs once)
+
+  - **`Stack`** / **`Row`** — flex containers with a `gap` prop;
+    `Stack` is vertical, `Row` is horizontal.  Cover ~90 % of
+    layout needs without a grid framework.
+  - **`Grid`** — n-column responsive grid (`columns`, `gap`).
+  - **`Container`** — max-width centred wrapper with consistent
+    horizontal padding.  The `<main>` of a typical page.
+  - **`Divider`** — `<hr>` with theme spacing.
+  - **`Spacer`** — flex-fill or fixed-height gap, for when `gap`
+    isn't enough.
+
+Tier 3 — **navigation**
+
+  - **`NavBar`** — `Layout`-style header with brand + nav links +
+    optional right-aligned slot.  Generalised version of what
+    `examples/site/components/layout.ssc` already inlines.
+  - **`Breadcrumbs`** — links with `/`-separator from a `List[(Path,
+    Label)]`.
+  - **`Tabs`** — controlled (active index as prop) and uncontrolled
+    (`val js` swaps `aria-selected` on click).  Tabs+content panels
+    in one component, with `data-tab="<id>"` wiring.
+  - **`Pagination`** — page-number row with prev/next, capped
+    visible-page count.
+  - **`Sidebar`** — sticky vertical nav for docs / dashboards.
+
+Tier 4 — **feedback / overlays**
+
+  - **`Toast`** + `toast.show(...)` JS helper — auto-dismiss
+    notifications stacked top-right.  Server-render-only stub +
+    client-side stack.
+  - **`Modal`** — open/close via `open` boolean; click-outside
+    closes; `Esc` closes; focus-trap inside.
+  - **`Drawer`** — slide-in side panel.  Same controls as Modal.
+  - **`Spinner`** + **`ProgressBar`** — pure CSS, no JS.
+  - **`Skeleton`** — animated placeholder for loading content.
+
+Tier 5 — **data display**
+
+  - **`Table`** — headers + rows from `List[(label, getter)]` and
+    `List[T]`.  Optional sortable columns (client-side `val js`).
+  - **`List`** (linear list — name TBD to avoid clashing with
+    `scala.List`) — vertical item list with optional dividers and
+    interactive rows.
+  - **`DataGrid`** — Table + pagination + filter row.  Probably
+    builds on `Table` rather than replacing it.
+  - **`KeyValue`** — `<dl>` pair list for "name: value" displays.
+
+Tier 6 — **content / typography**
+
+  - **`Code`** — `<pre><code>` with optional language hint;
+    syntax highlighting is out of scope, but the markup + spacing
+    is.
+  - **`MarkdownBlock`** — render a Markdown string via commonmark
+    server-side.  Useful for CMS-style content fields.
+  - **`Quote`** — styled blockquote with optional citation.
+
+Tier 7 — **widgets**
+
+  - **`Avatar`** — circular image with fallback initials, sizes
+    (`sm` / `md` / `lg`).
+  - **`Badge`** — small pill, neutral / info / warn / danger / success.
+  - **`Tooltip`** — CSS-only hover popover (no JS for the basic
+    version).
+  - **`Accordion`** — collapsible sections, multi-vs-single open
+    mode prop.
+  - **`Dropdown`** — button + popover menu; same JS bones as the
+    tab switcher.
+
+Tier 8 — **theming infrastructure**
+
+  - **CSS variables** (`--ui-color-primary`, `--ui-radius-md`,
+    `--ui-font-body`, …) defined in `std/ui/theme.ssc`; every
+    other component reads from them so theming is variable-swap.
+  - **`ThemeProvider`** — sets variables on `:root` from a Map.
+  - **Dark-mode toggle** — `prefers-color-scheme` defaults + a
+    user override via `data-theme="dark"`.
+  - **Reset / normalise stylesheet** shipped as `std/ui/reset.css`.
+
+Cross-cutting work the pack motivates:
+
+  - **`ssc test`** — a runner for component-level unit tests
+    (`tests:` block in front-matter or a sibling `*-test.ssc` file).
+    Without this every component ships untested.
+  - **Component preview** — `ssc preview <file>` opens a browser
+    page that renders the component with each declared `variants:`
+    set.  Storybook-lite.  Optional but pays back the cost the
+    first time a designer needs to see all 47 Button states.
+  - **A documentation page** for the pack (`examples/std-ui/`)
+    that builds via `ssc build` and renders every component with
+    every variant, with the source visible.
+
+Effort estimate: tiers are independent and roughly half-day each
+(one focused session per tier).  Whole pack is ~1–2 weeks of
+component work at one tier per day plus 2–3 days for `ssc test`
+and the preview tooling.  Defer until at least one consumer of the
+existing convention asks "where do I get a Button?".
+
 ## v0.8 — Web Components target (`ssc emit-wc`)
 
 Make SSC components consumable as standards-track W3C Custom Elements
