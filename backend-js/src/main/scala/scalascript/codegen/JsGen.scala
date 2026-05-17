@@ -1694,7 +1694,22 @@ function serve(port) {
           const params = _matchPath(r.pattern, segs);
           if (params == null) continue;
           const request = _mkRequest(req, params, bodyBuf);
-          const result  = r.handler(request);
+          // Tier 5 #20 — validation primitives short-circuit by throwing
+          // _RestValidationError; catch here and turn into 400.
+          let result;
+          try {
+            result = r.handler(request);
+          } catch (e) {
+            if (e && e._restValidation) {
+              result = _mkResp({
+                status: 400,
+                headers: new Map([['Content-Type', 'text/plain; charset=utf-8']]),
+                body: String(e.message || e)
+              });
+            } else {
+              throw e;
+            }
+          }
           const headers = result && result.headers instanceof Map ? result.headers : new Map();
           if (!headers.has('Content-Type')) headers.set('Content-Type', 'text/plain; charset=utf-8');
           const out = headers ? Object.fromEntries(headers.entries()) : {};
@@ -2312,6 +2327,73 @@ function jsonParse(s) {
 }
 
 function jsonStringify(v) { return _toJsonStringify(v); }
+
+// Tier 5 #20 — typed request validation primitives.  Each `requireX`
+// throws a tagged Error which the serve() dispatch catches and turns
+// into a 400 Bad Request.  Lookup walks form → query (JSON body lives
+// behind req.json — handlers fish field values out themselves).
+function _restValidationError(msg) {
+  const e = new Error(msg);
+  e._restValidation = true;
+  return e;
+}
+function _restFieldOf(req, name) {
+  if (req && req.form instanceof Map && req.form.has(name)) return req.form.get(name);
+  if (req && req.query instanceof Map && req.query.has(name)) return req.query.get(name);
+  return undefined;
+}
+function requireString(req, name) {
+  const v = _restFieldOf(req, name);
+  if (v === undefined) throw _restValidationError('missing field: ' + name);
+  return String(v);
+}
+function optionalString(req, name) {
+  const v = _restFieldOf(req, name);
+  return v === undefined ? _None : _Some(String(v));
+}
+function requireInt(req, name) {
+  const v = _restFieldOf(req, name);
+  if (v === undefined) throw _restValidationError('missing field: ' + name);
+  const s = String(v).trim();
+  if (!/^-?[0-9]+$/.test(s)) throw _restValidationError('invalid integer for field: ' + name);
+  return Number(s);
+}
+function optionalInt(req, name) {
+  const v = _restFieldOf(req, name);
+  if (v === undefined) return _None;
+  const s = String(v).trim();
+  if (!/^-?[0-9]+$/.test(s)) return _None;
+  return _Some(Number(s));
+}
+function requireDouble(req, name) {
+  const v = _restFieldOf(req, name);
+  if (v === undefined) throw _restValidationError('missing field: ' + name);
+  const n = Number(String(v).trim());
+  if (Number.isNaN(n)) throw _restValidationError('invalid number for field: ' + name);
+  return n;
+}
+function optionalDouble(req, name) {
+  const v = _restFieldOf(req, name);
+  if (v === undefined) return _None;
+  const n = Number(String(v).trim());
+  return Number.isNaN(n) ? _None : _Some(n);
+}
+function requireBool(req, name) {
+  const v = _restFieldOf(req, name);
+  if (v === undefined) throw _restValidationError('missing field: ' + name);
+  const s = String(v).trim().toLowerCase();
+  if (s === 'true'  || s === '1' || s === 'yes' || s === 'on')  return true;
+  if (s === 'false' || s === '0' || s === 'no'  || s === 'off') return false;
+  throw _restValidationError('invalid boolean for field: ' + name);
+}
+function optionalBool(req, name) {
+  const v = _restFieldOf(req, name);
+  if (v === undefined) return _None;
+  const s = String(v).trim().toLowerCase();
+  if (s === 'true'  || s === '1' || s === 'yes' || s === 'on')  return _Some(true);
+  if (s === 'false' || s === '0' || s === 'no'  || s === 'off') return _Some(false);
+  return _None;
+}
 
 function _toJsonStringify(v) {
   if (v === null || v === undefined) return 'null';
