@@ -1,0 +1,32 @@
+#!/usr/bin/env ssc
+---
+name: site-index
+description: Home page of the multi-page site example.
+routes:
+  - method: GET
+    path: /
+    handler: home
+---
+
+# Home
+
+[Layout](./components/layout.ssc)
+
+```scalascript
+def home(req: Request): Response =
+  val body = html"""
+    <h2>Welcome</h2>
+    <p>This is the home page of a multi-page ScalaScript site.  Every
+       page imports the same <code>Layout</code> component and declares
+       its own <code>GET</code> route.  <code>ssc build</code> walks the
+       directory and writes one HTML file per route.</p>
+    <ul>
+      <li>Try <a href="/about">/about</a> for project notes.</li>
+      <li>Try <a href="/contact">/contact</a> for how to reach the author.</li>
+    </ul>
+  """
+  Response.html(Layout.render("Home — ScalaScript site", body, "", "/"))
+
+println("Listening on http://localhost:8770/")
+serve(8770)
+```

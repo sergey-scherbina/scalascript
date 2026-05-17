@@ -1,0 +1,81 @@
+#!/usr/bin/env ssc
+---
+name: signals-demo
+version: 1.0.0
+description: Fine-grained reactivity — Signal, computed, effect
+---
+
+# Reactive Signals
+
+ScalaScript ships a built-in reactive system in the Solid / Knockout
+style.  Reading a signal inside an active `effect` or `computed`
+registers a mutual subscription; writing the signal queues every
+subscribing effect for a single deduplicated flush — so a diamond
+dependency (root → derived; consumer also reads root) sees each
+effect exactly once per transaction, not twice.
+
+The same source produces byte-identical output through the
+interpreter, the JS Node target, and `ssc compile`.
+
+## Three primitives
+
+```scalascript
+val count = Signal(0)
+println(count.get)          // 0
+count.set(5)
+println(count.get)          // 5
+
+val doubled = computed { count.get * 2 }
+println(doubled.get)        // 10
+
+effect { println("c=" + count.get + " d=" + doubled.get) }
+// prints once on registration; reruns whenever count changes:
+//   c=5 d=10
+count.set(7)
+// → c=7 d=14
+count.set(11)
+// → c=11 d=22
+```
+
+## Why one effect run per transaction (the diamond)
+
+`effect` reads both `count` *and* `doubled`, and `doubled` itself
+reads `count`.  A naive notification ordering would rerun `effect`
+twice on every `count.set(...)` — once because `count` changed,
+again because `doubled` recomputed.  The runtime queues all
+subscribers into a `LinkedHashSet` and runs them in a single flush,
+so each effect runs at most once per `signalSet` call.
+
+## What the runtime does on a write
+
+  1. `count.set(7)` updates the cell.
+  2. Every subscriber of `count` (`computed` updater + `effect`) is
+     queued, then the flush starts.
+  3. `computed` updater runs first — reads `count`, writes
+     `doubled = 14`.  That queues `effect` again, but the
+     `LinkedHashSet` rejects the duplicate.
+  4. `effect` runs once, reading the latest `count` and `doubled`.
+
+## Self-writes are safe
+
+An effect that writes a signal it also reads doesn't infinite-loop —
+`signalSet` skips subscribers currently on the running-effect stack:
+
+```scalascript
+val tick = Signal(0)
+effect { tick.set(tick.get + 1) }   // bumps tick once on registration, no loop
+```
+
+## Composing computed signals
+
+`computed` returns a regular (read-only) `Signal`, so downstream
+`computed` / `effect` chain naturally:
+
+```scalascript
+val n      = Signal(3)
+val sq     = computed { n.get * n.get }
+val cube   = computed { sq.get * n.get }
+effect { println("n=" + n.get + " sq=" + sq.get + " cube=" + cube.get) }
+n.set(4)
+// → n=4 sq=16 cube=64
+```

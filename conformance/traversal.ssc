@@ -1,0 +1,42 @@
+---
+name: conformance-traversal
+version: 1.0.0
+---
+
+# Traversal
+
+```scalascript
+case class Person(name: String, age: Int)
+case class Team(name: String, members: List[Person])
+
+val t = Team("eng", List(Person("Alice", 30), Person("Bob", 25), Person("Carol", 35)))
+
+// .each in path produces a Traversal
+val nameOfEach = Focus[Team](_.members.each.name)
+val ageOfEach  = Focus[Team](_.members.each.age)
+
+// getAll collects every focus into a list
+println(nameOfEach.getAll(t))
+println(ageOfEach.getAll(t))
+
+// modify applies f to every focus
+val upper = nameOfEach.modify(t, n => n.toUpperCase)
+println(nameOfEach.getAll(upper))
+
+val plus10 = ageOfEach.modify(t, a => a + 10)
+println(ageOfEach.getAll(plus10))
+
+// set replaces every focus with the same value
+val anon = nameOfEach.set(t, "anonymous")
+println(nameOfEach.getAll(anon))
+
+// Empty list — getAll is Nil, modify is no-op
+val empty = Team("none", List())
+println(nameOfEach.getAll(empty))
+println(nameOfEach.modify(empty, _ => "X").members)
+
+// Composition: Lens.andThen(Traversal) → Traversal
+val members = Focus[Team](_.members)
+val names   = members.andThen(Focus[List[Person]](_.each.name))
+println(names.getAll(t))
+```

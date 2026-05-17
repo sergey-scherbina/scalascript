@@ -1,0 +1,112 @@
+#!/usr/bin/env ssc
+---
+name: std-ui-layout-demo
+description: Renders every Tier 2 layout primitive on one page.
+routes:
+  - method: GET
+    path: /
+    handler: home
+---
+
+# std/ui — layout demo
+
+Imports every Tier 2 layout primitive (`Stack`, `Row`, `Grid`,
+`Container`, `Divider`, `Spacer`) and composes them into a single
+page so the markup is easy to inspect.
+
+[Stack](./stack.ssc)
+
+[Row](./row.ssc)
+
+[Grid](./grid.ssc)
+
+[Container](./container.ssc)
+
+[Divider](./divider.ssc)
+
+[Spacer](./spacer.ssc)
+
+```scalascript
+def box(label: String, color: String): String =
+  val style = "padding: .75em 1em; background: " + color + "; color: #fff; border-radius: 4px; text-align: center;"
+  html"""<div style="${style}">${label}</div>"""
+
+def home(req: Request): Response =
+  val stackBlock = Stack.render(
+    box("Stack child 1", "#2563eb") + box("Stack child 2", "#7c3aed") + box("Stack child 3", "#0891b2"),
+    "0.5em",
+    "stretch"
+  )
+
+  val rowBlock = Row.render(
+    box("Row A", "#dc2626") + box("Row B", "#ea580c") + box("Row C", "#ca8a04") + box("Row D", "#16a34a"),
+    "0.75em",
+    "center",
+    "flex-start",
+    true
+  )
+
+  val gridBlock = Grid.render(
+    box("1", "#2563eb") + box("2", "#7c3aed") +
+    box("3", "#0891b2") + box("4", "#dc2626") +
+    box("5", "#ea580c") + box("6", "#ca8a04"),
+    "3",
+    "0.5em"
+  )
+
+  val spacedRow = Row.render(
+    box("Left", "#1f2937") + Spacer.render("auto") + box("Right", "#1f2937"),
+    "0",
+    "center",
+    "flex-start",
+    false
+  )
+
+  val body = html"""
+    <h1>std/ui — layout primitives</h1>
+    <p>Tier 2 of the standard component pack.  Stack / Row / Grid /
+       Container / Divider / Spacer cover the layout needs every page
+       hits before reaching for a grid framework.</p>
+
+    ${raw(Divider.render("Stack"))}
+    ${raw(stackBlock)}
+
+    ${raw(Divider.render("Row (wrap)"))}
+    ${raw(rowBlock)}
+
+    ${raw(Divider.render("Row with Spacer(auto)"))}
+    ${raw(spacedRow)}
+
+    ${raw(Divider.render("Grid 3-col"))}
+    ${raw(gridBlock)}
+
+    ${raw(Divider.render(""))}
+    <p>Vertical <code>Spacer(2em)</code> below:</p>
+    <div style="background:#f3f4f6">↑</div>
+    ${raw(Spacer.render("2em"))}
+    <div style="background:#f3f4f6">↓</div>
+  """
+
+  val styles = collectCss(Stack, Row, Grid, Container, Divider, Spacer)
+  val inside = Container.render(body, "md")
+
+  Response.html(html"""<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>std/ui — layout</title>
+  <style>
+    body { font: 1rem/1.5 system-ui, sans-serif; margin: 2rem 0;
+           color: #111827; background: #fafafa; }
+    h1 { margin-top: 0; }
+    ${raw(styles)}
+  </style>
+</head>
+<body>
+  ${raw(inside)}
+</body>
+</html>""")
+
+println("Listening on http://localhost:8771/")
+serve(8771)
+```

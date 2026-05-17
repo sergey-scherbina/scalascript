@@ -1,0 +1,37 @@
+---
+name: conformance-prisms
+version: 1.0.0
+---
+
+# Prisms
+
+```scalascript
+enum Shape:
+  case Circle(radius: Int)
+  case Rect(width: Int, height: Int)
+
+val c: Shape = Circle(5)
+val r: Shape = Rect(3, 4)
+
+val circlePrism = Prism[Shape, Circle]
+val rectPrism   = Prism[Shape, Rect]
+
+// getOption — Some on match, None otherwise
+println(circlePrism.getOption(c))
+println(circlePrism.getOption(r))
+println(rectPrism.getOption(c))
+println(rectPrism.getOption(r))
+
+// modify — apply on match, no-op otherwise
+println(circlePrism.modify(c, x => Circle(x.radius * 2)))
+println(circlePrism.modify(r, x => Circle(x.radius * 2)))
+println(rectPrism.modify(r, x => Rect(x.width + 1, x.height + 1)))
+
+// set — replace on match, no-op otherwise
+println(circlePrism.set(c, Circle(99)))
+println(circlePrism.set(r, Circle(99)))
+
+// reverseGet — wrap a variant back as the outer type
+println(circlePrism.reverseGet(Circle(7)))
+println(rectPrism.reverseGet(Rect(2, 8)))
+```

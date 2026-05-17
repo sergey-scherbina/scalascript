@@ -1,0 +1,67 @@
+#!/usr/bin/env ssc
+---
+name: async-parallel-demo
+version: 1.0.0
+description: runAsyncParallel — real-thread Async handler on the JVM backends
+---
+
+# runAsyncParallel — real concurrency, same Async API
+
+The default `runAsync(body)` handler is single-threaded — thunks
+passed to `Async.async` and `Async.parallel` run on the calling
+thread.  `runAsyncParallel(body)` is a drop-in replacement that uses
+an `ExecutorService` + `CompletableFuture` on the JVM (interpreter
+and `ssc compile` backends) so `parallel` actually runs in parallel
+and `await` blocks the calling thread on the future.
+
+The user-visible API doesn't change — you swap the handler and the
+same code runs concurrently.  `parallel` returns results in
+*declared* order regardless of completion order, so output stays
+byte-identical to the single-threaded version for code that doesn't
+depend on timing.
+
+## Same source, two handlers, same output
+
+```scalascript
+def task(name: String, ms: Int): Int =
+  Async.delay(ms)
+  ms
+
+val items = List(
+  () => task("a", 50),
+  () => task("b", 50),
+  () => task("c", 50)
+)
+
+// Single-threaded: ~150ms total
+val t0 = nanoTime()
+val r1 = runAsync { Async.parallel(items) }
+val t1 = nanoTime()
+println("runAsync         result=" + r1.toString + " took ~" + ((t1 - t0) / 1000000) + "ms")
+
+// Real threads on the JVM: ~50ms total
+val t2 = nanoTime()
+val r2 = runAsyncParallel { Async.parallel(items) }
+val t3 = nanoTime()
+println("runAsyncParallel result=" + r2.toString + " took ~" + ((t3 - t2) / 1000000) + "ms")
+```
+
+## async + await fan-in
+
+```scalascript
+val sum = runAsyncParallel {
+  val a = Async.async(() => { Async.delay(30); 1 })
+  val b = Async.async(() => { Async.delay(30); 2 })
+  val c = Async.async(() => { Async.delay(30); 3 })
+  Async.await(a) + Async.await(b) + Async.await(c)
+}
+println("sum = " + sum)
+```
+
+## Notes on portability
+
+`runAsyncParallel` is currently real-thread on the JVM interpreter and
+`ssc compile` only.  The JS Node target aliases it to `runAsync`
+(single-threaded fallback) until the worker-thread implementation
+lands — code written against the parallel handler still runs there,
+just without the speedup.

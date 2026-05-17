@@ -1,0 +1,16 @@
+List(10, 20, 30)
+Some(8)
+None
+List(99)
+Some(hi)
+List(11, 21, 20, 40)
+List(11, 21, 12, 22)
+Some(12)
+None
+List(1, 10, 2, 20, 3, 30)
+Some(6)
+None
+Some(List(1, 2, 3))
+None
+List(Some(10), Some(20), Some(30))
+List(None)

@@ -30,7 +30,37 @@ object Parser:
     // Pure-Scala script (no Markdown headings or fences): wrap in a synthetic section
     val mdSrc = if isPureScala(body) then s"# Script\n\n```scala\n${body.trim}\n```\n" else body
     val doc = mdParser.parse(mdSrc).asInstanceOf[CmDocument]
-    Module(fmOpt.map(parseManifest), extractSections(doc))
+    val manifest = fmOpt.map(parseManifest)
+    val sections = extractSections(doc)
+    val pkg      = manifest.flatMap(_.pkg).getOrElse(Nil)
+    if pkg.isEmpty then Module(manifest, sections)
+    else Module(manifest, sections.map(wrapSectionInPackage(_, pkg)))
+
+  /** Wrap every scalascript-block's contents in nested `object`s matching
+   *  the front-matter `package:` segments.  `package: org.example.ui`
+   *  on a block holding `object Card { … }` becomes
+   *  `object org { object example { object ui { object Card { … } } } }`,
+   *  so importers see the module's names under the dotted prefix and
+   *  two libraries can each export `Card` without collision. */
+  private def wrapSectionInPackage(section: Section, pkg: List[String]): Section =
+    val newContent = section.content.map {
+      case cb: Content.CodeBlock if Lang.isScalaScript(cb.lang) =>
+        val nested = pkg.foldRight(cb.source) { (seg, body) =>
+          val indented = body.linesIterator.map("  " + _).mkString("\n")
+          s"object $seg:\n$indented"
+        }
+        val tree = scala.util.Try {
+          import scala.meta.{dialects, *}
+          dialects.Scala3(Input.VirtualFile(s"<package-wrap>", nested))
+            .parse[Source].toOption.map(scalascript.ast.ScalaNode(_))
+        }.toOption.flatten
+        Content.CodeBlock(cb.lang, nested, tree, cb.span)
+      case other => other
+    }
+    section.copy(
+      content     = newContent,
+      subsections = section.subsections.map(wrapSectionInPackage(_, pkg))
+    )
 
   def parseFile(path: os.Path): Module = parse(os.read(path))
 
@@ -68,6 +98,9 @@ object Parser:
         case l: java.util.List[?] => l.asScala.map(_.toString).toList
       }.getOrElse(Nil),
       routes = parseRoutes(raw),
+      pkg = raw.get("package").collect {
+        case s: String if s.nonEmpty => s.split('.').toList.filter(_.nonEmpty)
+      },
       raw = raw
     )
 
@@ -163,8 +196,15 @@ object Parser:
     child match
       case link: CmLink =>
         val path     = link.getDestination
-        val bindings = textOf(link).split(",").map(_.trim).filter(_.nonEmpty)
-          .map(b => ImportBinding(b, None)).toList
+        // `Name` or `Name as Alias` — multiple bindings separated by commas.
+        // Whitespace around the `as` keyword is required so it doesn't collide
+        // with names that happen to contain the substring.
+        val asPattern = """^([A-Za-z_][\w]*)\s+as\s+([A-Za-z_][\w]*)$""".r
+        val bindings = textOf(link).split(",").map(_.trim).filter(_.nonEmpty).map { s =>
+          s match
+            case asPattern(name, alias) => ImportBinding(name, Some(alias))
+            case bare                   => ImportBinding(bare, None)
+        }.toList
         if path.nonEmpty && bindings.nonEmpty then Some(Content.Import(path, bindings)) else None
       case _ => None
 

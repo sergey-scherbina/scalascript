@@ -1,0 +1,87 @@
+---
+name: auth-demo
+version: 1.0.0
+description: Login / logout demo wired through signed cookie sessions + CSRF.
+---
+
+# Auth demo
+
+A minimal site that walks the v0.6 auth surface end-to-end:
+
+- `GET /`         — landing page, links into the flow
+- `GET /login`    — form, mints a CSRF token and stashes it in the session
+- `POST /login`   — validates CSRF, checks credentials, sets `session("user")`,
+                    redirects to `/profile`
+- `GET /profile`  — session-gated; redirects to `/login` when anonymous
+- `POST /logout`  — validates CSRF, clears the cookie, redirects to `/`
+
+```scalascript
+// Toy user database — replace with a real lookup in production.
+val users: Map[String, String] = Map(
+  "alice" -> "wonderland",
+  "bob"   -> "builder",
+)
+
+def layout(pageTitle: String, pageBody: String): String =
+  html"""<!doctype html>
+<html><head><title>${pageTitle}</title></head>
+<body>
+<nav><a href="/">Home</a> · <a href="/login">Login</a> · <a href="/profile">Profile</a></nav>
+<h1>${pageTitle}</h1>
+${raw(pageBody)}
+</body></html>"""
+
+route("GET", "/") { req =>
+  val who = req.session.get("user") match
+    case Some(u) => html"<p>Signed in as <strong>${u}</strong>.</p>"
+    case None    => html"<p>Not signed in.</p>"
+  Response.html(layout("Auth demo", who))
+}
+
+route("GET", "/login") { req =>
+  // Reuse an existing token if the session already has one; otherwise mint.
+  val token = req.session.get("csrf").getOrElse(csrfToken())
+  val body  = html"""<form method="POST" action="/login">
+  <input type="hidden" name="csrf" value="${token}">
+  <label>Username <input name="username"></label>
+  <label>Password <input name="password" type="password"></label>
+  <button type="submit">Sign in</button>
+</form>"""
+  Response.html(layout("Sign in", body))
+    .withSession(req.session.updated("csrf", token))
+}
+
+route("POST", "/login") { req =>
+  if !csrfValid(req) then Response.status(403, "CSRF check failed")
+  else
+    val user = req.form.getOrElse("username", "")
+    val pass = req.form.getOrElse("password", "")
+    if users.get(user).contains(pass) then
+      Response.redirect("/profile")
+        .withSession(req.session.updated("user", user))
+    else
+      Response.html(layout("Sign in", html"<p style='color:red'>Wrong credentials.</p>"))
+}
+
+route("GET", "/profile") { req =>
+  req.session.get("user") match
+    case None    => Response.redirect("/login")
+    case Some(u) =>
+      val token = req.session.getOrElse("csrf", csrfToken())
+      val body  = html"""<p>Hello, <strong>${u}</strong>.</p>
+<form method="POST" action="/logout">
+  <input type="hidden" name="csrf" value="${token}">
+  <button>Sign out</button>
+</form>"""
+      Response.html(layout("Profile", body))
+        .withSession(req.session.updated("csrf", token))
+}
+
+route("POST", "/logout") { req =>
+  if !csrfValid(req) then Response.status(403, "CSRF check failed")
+  else Response.redirect("/").clearSession()
+}
+
+println("Auth demo · http://localhost:8769/")
+serve(8769)
+```

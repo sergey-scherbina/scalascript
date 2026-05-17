@@ -106,3 +106,97 @@ The opposite (small fix, no risk of collision, one or two commits) is
 fine to do directly on `main` as before; the worktree pattern is for
 multi-step refactors where intermediate commits aren't worth shipping
 individually.
+
+## MILESTONES-driven workflow
+
+The two patterns above (worktree-isolated long-running work,
+iteration-by-iteration landing) sit inside one larger loop:
+**`MILESTONES.md` is the durable plan; main is the durable record;
+worktrees are the working space between them.**
+
+### The shape of the loop
+
+1. **Capture work in `MILESTONES.md` as it surfaces.**  Whenever
+   something is identified that should be done but isn't being
+   done right now — a bug noticed in passing, a follow-up
+   suggested by a review, a feature the user mentioned and
+   deferred, a "known issue / latent flake" turned up by another
+   change — record it in `MILESTONES.md` immediately, with enough
+   context for a future session to act on it without re-reading
+   the conversation.  Group related items under a versioned
+   header (`## v0.X — title`) or under the `## Known issues /
+   latent flakes` section; preserve the file's forward-reading
+   convention (no checkboxes, prose only).
+
+2. **Plan the next version as numbered sprints / iterations.**
+   Inside a `## v0.X` section, break the work into session-sized
+   sprints, and inside each sprint into numbered items that are
+   meaningfully complete on their own.  This is what lets the
+   iteration-discipline rule below fire.
+
+3. **Pick a sprint, open a worktree, execute item-by-item.**  For
+   anything bigger than a one-or-two-commit fix, use the worktree
+   pattern (above) — fresh branch off `origin/main`, all
+   intermediate commits live there, `main` keeps moving
+   independently.  Inside the worktree branch, follow the
+   iteration-discipline rule for each numbered item: implement,
+   run the check suite, strike the item from `MILESTONES.md`,
+   rebase onto `origin/main`, push to `main`.
+
+4. **At sprint boundaries, exit the worktree.**  When every
+   item in a sprint is done and landed, the worktree branch is
+   empty (or only has merge-noise) — exit it
+   (`ExitWorktree(action: "remove")`), record the sprint as
+   complete in the relevant `## v0.X` section if anything
+   project-level was learned, and decide on the next sprint.
+
+5. **Push immediately, not at the end.**  Never accumulate
+   multiple finished items locally hoping to push them all at
+   once at the end of the sprint.  Each finished item should hit
+   `origin/main` before the next one starts, so CI runs against
+   it and the user can see progress one item at a time.
+
+### Why this shape
+
+- `MILESTONES.md` survives every conversation rotation; the
+  chat transcript doesn't.  Anything not written there is lost
+  the moment the session ends.
+- Numbered items in a sprint are an explicit contract: each
+  is small enough to land on its own, big enough to be worth a
+  commit.  Resists both end-of-sprint mega-commits and 50-step
+  bikeshed sequences.
+- Item-by-item push means the user reviews one self-contained
+  change at a time and can redirect the plan after any item
+  ("scratch sprint 3, do this other thing instead").
+- Striking items from `MILESTONES.md` in the same commit that
+  closes them means the document stays in sync with `main`
+  automatically — no separate "tidy MILESTONES" step.
+
+### When the loop doesn't apply
+
+- **One-shot bugfix or trivial change**:  skip the `MILESTONES.md`
+  entry, skip the worktree, commit directly to `main` with a
+  descriptive message.  The loop is for plans, not chores.
+- **User explicitly directs otherwise**:  "squash the whole
+  sprint into one commit", "don't push until I review", "work
+  on a feature branch and open a PR" — follow the instruction.
+  The loop is the default, not a law.
+
+### Iteration-discipline checklist
+
+The mechanical steps that the loop above implies for *every*
+numbered item.  Keep them in this order:
+
+1. Implement + commit on the local branch (worktree for
+   multi-step work; `main` directly for small fixes).
+2. Run the full check suite (`sbt compile`, `sbt test`,
+   conformance if touched, examples if touched).  Add or update
+   any test that covers the change.
+3. Update `MILESTONES.md` — strike the closed item so the
+   document keeps reading forward.  If new follow-ups surfaced
+   while doing the item, append them under the appropriate
+   sprint / known-issues section before moving on.
+4. `git fetch origin main`; if `origin/main` has moved, rebase
+   the local branch onto it and re-run the check suite.
+5. Push to `origin/main` (fast-forward or merge commit,
+   depending on the work).

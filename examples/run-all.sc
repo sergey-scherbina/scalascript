@@ -63,6 +63,7 @@ val examples = Seq(
   "content.ssc",
   "recursion.ssc",
   "effects.ssc",
+  "lenses.ssc",
   "lang-split.ssc",
   "default-params.ssc",
   "scala-js-demo.ssc",

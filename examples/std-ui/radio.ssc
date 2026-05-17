@@ -1,0 +1,54 @@
+#!/usr/bin/env ssc
+---
+name: radio
+description: Radio + RadioGroup — mutually-exclusive choice from a list of (value, label) pairs.
+---
+
+# Radio
+
+```scalascript
+object Radio:
+  private val sc = scope("Radio")
+  private val item = sc.cls("item")
+  private val box  = sc.cls("box")
+  private val txt  = sc.cls("label")
+  private val fld  = sc.cls("group")
+  private val leg  = sc.cls("legend")
+
+  val css: String = sc.css("""
+    .group  { border: 1px solid #e5e7eb; border-radius: 4px;
+              padding: .5em .75em; margin: .5em 0; display: flex;
+              flex-direction: column; gap: .25em; }
+    .legend { font-size: .9em; color: #374151; font-weight: 500;
+              padding: 0 .25em; }
+    .item   { display: inline-flex; align-items: center; gap: .4em;
+              cursor: pointer; }
+    .box    { accent-color: #2563eb; cursor: pointer; }
+    .label  { font-size: .95em; color: #1f2937; }
+  """)
+
+  /** A single radio button.  Most callers want RadioGroup. */
+  def renderOne(name: String, value: String, label: String, checked: Boolean = false): String =
+    val chk = if checked then " checked" else ""
+    html"""<label class="${item}">
+      <input class="${box}" type="radio" name="${name}" value="${value}"${raw(chk)}>
+      <span class="${txt}">${label}</span>
+    </label>"""
+
+  /** Several radios sharing a `name`, wrapped in a `<fieldset>`. */
+  def render(
+      name: String,
+      options: List[(String, String)],
+      legend: String = "",
+      selected: String = ""
+  ): String =
+    val items = options.map { (v, l) =>
+      renderOne(name, v, l, v == selected)
+    }.mkString("\n")
+    val legendEl = if legend.isEmpty then ""
+                   else html"""<legend class="${leg}">${legend}</legend>"""
+    html"""<fieldset class="${fld}">
+      ${raw(legendEl)}
+      ${raw(items)}
+    </fieldset>"""
+```

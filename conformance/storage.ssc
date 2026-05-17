@@ -1,0 +1,50 @@
+#!/usr/bin/env ssc
+---
+name: storage
+description: Built-in Storage effect — get / put / remove / has / keys via runEphemeralStorage
+---
+
+# Storage
+
+```scalascript
+// Basic put / get round-trip.
+runEphemeralStorage {
+  Storage.put("user", "alice")
+  Storage.put("role", "admin")
+  println(Storage.get("user"))
+  println(Storage.get("missing"))
+  println(Storage.has("role"))
+  println(Storage.keys())
+  Storage.remove("user")
+  println(Storage.has("user"))
+  println(Storage.keys())
+}
+
+// put overwrites the previous value.
+runEphemeralStorage {
+  Storage.put("k", "v1")
+  Storage.put("k", "v2")
+  println(Storage.get("k"))
+}
+
+// keys() preserves insertion order.
+runEphemeralStorage {
+  Storage.put("c", "3")
+  Storage.put("a", "1")
+  Storage.put("b", "2")
+  println(Storage.keys())
+}
+
+// Each runEphemeralStorage gets a fresh map — no cross-scope leakage.
+runEphemeralStorage { Storage.put("x", "first") }
+runEphemeralStorage { println(Storage.get("x")) }
+
+// Storage composes — read after write, concatenate string values.
+val concat = runEphemeralStorage {
+  Storage.put("a", "alpha")
+  Storage.put("b", "beta")
+  Storage.put("c", "gamma")
+  Storage.get("a").getOrElse("?") + "-" + Storage.get("b").getOrElse("?") + "-" + Storage.get("c").getOrElse("?")
+}
+println(concat)
+```

@@ -1,0 +1,44 @@
+---
+name: conformance-std-bifunctor
+version: 1.0.0
+---
+
+# Std — Bifunctor
+
+Exercises `Bifunctor[Tuple2]` via extension dispatch and
+`Either`-shaped helpers.
+
+[Left, Right](../std/either.ssc)
+
+[tupleBifunctor, bimapTuple, leftMapTuple, rightMapTuple, bimapEither, leftMapEither, rightMapEither](../std/bifunctor.ssc)
+
+## Tuple2 — extension dispatch
+
+```scalascript
+val t: (Int, String) = (10, "ok")
+println(t.bimap((x: Int) => x + 1, (s: String) => s + "!"))
+println(t.leftMap((x: Int) => x * 10))
+println(t.rightMap((s: String) => s + "?"))
+```
+
+## Tuple2 — helpers
+
+```scalascript
+println(bimapTuple((1, "a"), (x: Int) => x + 100, (s: String) => s + "_"))
+println(leftMapTuple((5, "x"), (x: Int) => -x))
+println(rightMapTuple((5, "x"), (s: String) => s + "Y"))
+```
+
+## Either — helpers
+
+```scalascript
+val r: Either[String, Int] = Right(42)
+val l: Either[String, Int] = Left("boom")
+
+println(bimapEither(r, (s: String) => "ERR:" + s, (n: Int) => n + 1))
+println(bimapEither(l, (s: String) => "ERR:" + s, (n: Int) => n + 1))
+println(leftMapEither(l, (s: String) => s.length))
+println(leftMapEither(r, (s: String) => s.length))
+println(rightMapEither(r, (n: Int) => n.toString))
+println(rightMapEither(l, (n: Int) => n.toString))
+```

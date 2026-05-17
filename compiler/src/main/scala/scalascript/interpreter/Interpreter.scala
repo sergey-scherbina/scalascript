@@ -18,13 +18,25 @@ import Computation.{Pure, Perform, FlatMap}
  *  continuation directly — no replay; side effects in body run exactly once;
  *  multi-shot works by calling the continuation multiple times.
  */
-class Interpreter(out: java.io.PrintStream = System.out, baseDir: Option[os.Path] = None):
+class Interpreter(
+    out:      java.io.PrintStream = System.out,
+    baseDir:  Option[os.Path]     = None,
+    /** When true, `serve(port)` is a no-op: routes still register, but
+     *  the HTTP server doesn't bind a port or block on `Thread.join`.
+     *  Used by `ssc render` for static-site generation — the route
+     *  table is filled in, then handlers are invoked off-band with
+     *  synthetic requests. */
+    headless: Boolean              = false):
   private val globals      = mutable.Map.empty[String, Value]
   private val extensions   = mutable.Map.empty[(String, String), Value.FunV]
   // Methods declared inside a `class` / `case class` body, keyed by type name.
   // Stored separately from instance fields so `show` and pattern matching see
   // only data fields.
   private val typeMethods  = mutable.Map.empty[String, Map[String, Value.FunV]]
+  // Field declaration order per type — needed for positional `.copy(...)`
+  // since `InstanceV.fields` is an unordered Map for instances with more
+  // than four fields.
+  private val typeFieldOrder = mutable.Map.empty[String, List[String]]
   private var mainCalled   = false
   private var placeholderIdx = 0
   // Tracks the last known source position for error messages (0-based line, 0-based column).
@@ -36,6 +48,35 @@ class Interpreter(out: java.io.PrintStream = System.out, baseDir: Option[os.Path
   // top-level expressions, every scalameta position is shifted down by one
   // line. `lineOffset` compensates so error messages report the user's line.
   private var lineOffset: Int = 0
+
+  // ─── Reactive signals (fine-grained reactivity) ──────────────────────
+  //
+  // Signals are mutable cells with subscriber tracking.  Reading a signal
+  // inside an active `effect` block registers a mutual subscription so
+  // the effect re-runs when the signal changes.  `computed` is an effect
+  // whose body's return value feeds another signal — derived state.
+  //
+  // We store backing state in a process-local side-table keyed by a
+  // monotone id; the user-visible value is an `InstanceV("Signal", {id})`
+  // / `InstanceV("Effect", {id})`.  Cross-backend semantics line up
+  // because all three backends use the same registry-based push model.
+
+  private class SignalState(var value: Value, val subs: mutable.HashSet[Long])
+  private class EffectState(val thunk: Value, val deps: mutable.HashSet[Long])
+
+  private val signals = mutable.HashMap.empty[Long, SignalState]
+  private val effects = mutable.HashMap.empty[Long, EffectState]
+  private var reactiveCounter: Long = 0L
+  // Stack of currently-tracking effect ids.  An effect-thunk that calls
+  // another effect (rare but legal) pushes its own id while running.
+  private val effectStack = mutable.Stack.empty[Long]
+  // Pending effect reruns queued by `signalSet` while we're inside an
+  // active flush.  A LinkedHashSet so each effect runs at most once per
+  // synchronous transaction (deduplicates the diamond — derived signal
+  // and final consumer both react to the same root change) and reruns
+  // happen in registration order for determinism.
+  private val pendingEffects = mutable.LinkedHashSet.empty[Long]
+  private var reactiveFlushing = false
 
   /** Per-FunV cache of the TCO classification — three full body walks
    *  (`tailCallTargets`, `callsInTailPos`, `hasNonTailSelfCall`) used to
@@ -118,8 +159,14 @@ class Interpreter(out: java.io.PrintStream = System.out, baseDir: Option[os.Path
 
   // ─── Public API ──────────────────────────────────────────────────
 
+  /** Module-level `dependencies:` from the front-matter, captured at the
+   *  top of `run` so any `[Card](dep://card.ssc)` import in this module
+   *  can rewrite its scheme through `ImportResolver`. */
+  private var moduleDeps: Map[String, String] = Map.empty
+
   def run(module: Module): Unit =
     initBuiltins()
+    moduleDeps = module.manifest.map(_.dependencies).getOrElse(Map.empty)
     registerFrontmatterRoutes(module)
     module.sections.foreach(runSection)
     if !mainCalled then
@@ -174,14 +221,28 @@ class Interpreter(out: java.io.PrintStream = System.out, baseDir: Option[os.Path
     }
     nativeP("serve") {
       case List(Value.IntV(port)) =>
-        scalascript.server.WebServer.start(port.toInt, ".", out); Value.UnitV
+        if !headless then scalascript.server.WebServer.start(port.toInt, ".", out)
+        Value.UnitV
       case List(Value.IntV(port), Value.StringV(dir)) =>
-        scalascript.server.WebServer.start(port.toInt, dir, out); Value.UnitV
+        if !headless then scalascript.server.WebServer.start(port.toInt, dir, out)
+        Value.UnitV
       case _ => throw InterpretError("serve(port) or serve(port, dir)")
     }
 
     // Wall-clock for benchmarks — same name across all three backends.
     nativeP("nanoTime") { _ => Value.IntV(java.lang.System.nanoTime()) }
+
+    // Environment variable reader, same surface on all three backends.
+    // `getenv(key)` returns the value or empty string when unset.
+    // `getenv(key, default)` substitutes the default when missing/empty.
+    nativeP("getenv") {
+      case List(Value.StringV(k)) =>
+        Value.StringV(Option(java.lang.System.getenv(k)).getOrElse(""))
+      case List(Value.StringV(k), Value.StringV(d)) =>
+        val v = java.lang.System.getenv(k)
+        Value.StringV(if v == null || v.isEmpty then d else v)
+      case _ => throw InterpretError("getenv(key[, default])")
+    }
 
     // doc(...) builds a DocV; render(...) prints it
     nativeP("doc")    { args => Value.DocV(args) }
@@ -272,6 +333,66 @@ class Interpreter(out: java.io.PrintStream = System.out, baseDir: Option[os.Path
       case List(Value.StringV(s)) => Value.StringV(htmlEscape(s))
       case List(v)                => Value.StringV(htmlEscape(Value.show(v)))
       case _                      => throw InterpretError("escape(s)")
+    }
+
+    // `collectCss(comp1, comp2, ...)` — concatenate each argument's `css`
+    // field into one CSS string for a page-level <style>.  Anything
+    // without a `css` field is silently skipped; anything whose `css` is
+    // not a String is skipped too.  Convention helper for component-style
+    // .ssc files (see SPEC §8.4).
+    nativeP("collectCss") { args =>
+      val parts = args.flatMap {
+        case Value.InstanceV(_, fields) =>
+          fields.get("css").collect { case Value.StringV(s) => s }
+        case _ => None
+      }
+      Value.StringV(parts.mkString("\n"))
+    }
+
+    // `collectJs(comp1, comp2, ...)` — same shape as collectCss, only it
+    // reads each argument's `js` field.  Pages stitch the result into
+    // a single page-level <script> tag.
+    nativeP("collectJs") { args =>
+      val parts = args.flatMap {
+        case Value.InstanceV(_, fields) =>
+          fields.get("js").collect { case Value.StringV(s) => s }
+        case _ => None
+      }
+      Value.StringV(parts.mkString("\n"))
+    }
+
+    // `scope("Card")` returns a small object with two helpers used by
+    // component-style .ssc files to suffix class names (see SPEC §8.4):
+    //
+    //   val s = scope("Card")
+    //   s.css(""".title { ... }""")  // → ".title__Card { ... }"
+    //   s.cls("title")               // → "title__Card"
+    //
+    // Two components can both use bare class names like `.title` and
+    // their concatenated CSS won't conflict.  The CSS rewriter is a
+    // simple `\.identifier` regex pass — class chains (`.a.b`) are
+    // handled, but `.ident` inside CSS string contents (e.g. inside a
+    // `url("./file.ext")`) would also be rewritten; keep URL strings
+    // free of bare-identifier dots if you depend on them.
+    nativeP("scope") {
+      case List(Value.StringV(scopeName)) =>
+        def rewrite(css: String): String =
+          val pat = """\.([A-Za-z_][A-Za-z0-9_-]*)""".r
+          pat.replaceAllIn(css, m =>
+            java.util.regex.Matcher.quoteReplacement(s".${m.group(1)}__$scopeName")
+          )
+        Value.InstanceV("Scope", Map(
+          "name" -> Value.StringV(scopeName),
+          "css"  -> Value.NativeFnV("scope.css", Computation.pureFn {
+            case List(Value.StringV(s)) => Value.StringV(rewrite(s))
+            case _                       => throw InterpretError("scope.css(s)")
+          }),
+          "cls"  -> Value.NativeFnV("scope.cls", Computation.pureFn {
+            case List(Value.StringV(n)) => Value.StringV(s"${n}__$scopeName")
+            case _                       => throw InterpretError("scope.cls(name)")
+          })
+        ))
+      case _ => throw InterpretError("scope(name: String)")
     }
 
     // ─── Typed HTML DSL — `div(cls := "x", h1("hi"))` style ───────────
@@ -468,15 +589,363 @@ class Interpreter(out: java.io.PrintStream = System.out, baseDir: Option[os.Path
       case List(Value.IntV(s), v)                    => mkResponse(s.toInt, body = bodyOf(v))
       case _                                         => throw InterpretError("Response.status(code[, body])")
     }
+    // `Response.basicAuthChallenge(realm)` — 401 + WWW-Authenticate so
+    // the browser shows a Basic auth prompt with the given realm label.
+    nativeP("Response.basicAuthChallenge") {
+      case List(Value.StringV(realm)) =>
+        // Quotes around the realm escape literal `"` per RFC 7617.
+        val safe = realm.replace("\\", "\\\\").replace("\"", "\\\"")
+        mkResponse(401,
+          Map(Value.StringV("WWW-Authenticate") -> Value.StringV(s"""Basic realm="$safe"""")),
+          "Authentication required")
+      case _ => throw InterpretError("Response.basicAuthChallenge(realm: String)")
+    }
     // Response companion object — fields call the underlying natives.
     globals("Response") = Value.InstanceV("Response", Map(
-      "html"     -> globals("Response.html"),
-      "text"     -> globals("Response.text"),
-      "json"     -> globals("Response.json"),
-      "redirect" -> globals("Response.redirect"),
-      "notFound" -> globals("Response.notFound"),
-      "status"   -> globals("Response.status")
+      "html"               -> globals("Response.html"),
+      "text"               -> globals("Response.text"),
+      "json"               -> globals("Response.json"),
+      "redirect"           -> globals("Response.redirect"),
+      "notFound"           -> globals("Response.notFound"),
+      "status"             -> globals("Response.status"),
+      "basicAuthChallenge" -> globals("Response.basicAuthChallenge")
     ))
+
+    // ── CSRF helpers ─────────────────────────────────────────────────
+    // `csrfToken()` returns a fresh url-safe random string; the caller
+    // is expected to stash it under "csrf" in the session and render it
+    // in their form.  `csrfValid(req)` checks the form's `csrf` field or
+    // the `X-CSRF-Token` header against the session's stored value.
+    nativeP("csrfToken") { _ =>
+      val bytes = new Array[Byte](24)
+      java.security.SecureRandom().nextBytes(bytes)
+      Value.StringV(java.util.Base64.getUrlEncoder.withoutPadding.encodeToString(bytes))
+    }
+    nativeP("csrfValid") {
+      case List(Value.InstanceV("Request", fields)) =>
+        def asMap(v: Option[Value]): Map[String, String] = v match
+          case Some(Value.MapV(m)) =>
+            m.collect { case (Value.StringV(k), Value.StringV(s)) => k -> s }.toMap
+          case _ => Map.empty
+        val form    = asMap(fields.get("form"))
+        val headers = asMap(fields.get("headers"))
+        val session = asMap(fields.get("session"))
+        val expected = session.getOrElse("csrf", "")
+        val supplied = form.get("csrf")
+          .orElse(headers.collectFirst { case (k, v) if k.equalsIgnoreCase("X-CSRF-Token") => v })
+          .getOrElse("")
+        val ok =
+          if expected.isEmpty || supplied.isEmpty then false
+          else java.security.MessageDigest.isEqual(
+            expected.getBytes("UTF-8"), supplied.getBytes("UTF-8"))
+        Value.BoolV(ok)
+      case _ => throw InterpretError("csrfValid(req)")
+    }
+
+    // ── Base64-url codec (handy for WebAuthn ceremonies, JWT, etc.) ──
+    nativeP("base64UrlEncode") {
+      case List(Value.StringV(s)) =>
+        Value.StringV(java.util.Base64.getUrlEncoder.withoutPadding
+          .encodeToString(s.getBytes("UTF-8")))
+      case _ => throw InterpretError("base64UrlEncode(s: String)")
+    }
+    nativeP("base64UrlDecode") {
+      case List(Value.StringV(s)) =>
+        try Value.StringV(String(java.util.Base64.getUrlDecoder.decode(s), "UTF-8"))
+        catch case _: Throwable => Value.StringV("")
+      case _ => throw InterpretError("base64UrlDecode(s: String)")
+    }
+
+    // ── WebAuthn / passkeys (stage 2a: challenge + store) ────────────
+    // The verifier (attestation + assertion signature) lands in a
+    // follow-up commit; these primitives let the handler issue a
+    // challenge, consume it on the matching ceremony, and persist
+    // (credentialId, publicKey) pairs.
+    nativeP("webauthnChallenge") {
+      case List(Value.StringV(uid)) =>
+        Value.StringV(scalascript.server.WebAuthn.challenge(uid))
+      case _ => throw InterpretError("webauthnChallenge(userId: String)")
+    }
+    nativeP("webauthnConsumeChallenge") {
+      case List(Value.StringV(s)) =>
+        scalascript.server.WebAuthn.consumeChallenge(s) match
+          case Some(uid) => Value.OptionV(Some(Value.StringV(uid)))
+          case None      => Value.OptionV(None)
+      case _ => throw InterpretError("webauthnConsumeChallenge(challenge: String)")
+    }
+    nativeP("webauthnStorePut") {
+      case List(Value.StringV(uid), Value.StringV(cid),
+                Value.StringV(pk), Value.IntV(cnt)) =>
+        scalascript.server.WebAuthn.storePut(uid,
+          scalascript.server.WebAuthn.Credential(cid, pk, cnt))
+        Value.UnitV
+      case _ => throw InterpretError(
+        "webauthnStorePut(userId, credentialId, publicKeyB64, signCount)")
+    }
+    nativeP("webauthnStoreGet") {
+      case List(Value.StringV(uid)) =>
+        Value.ListV(scalascript.server.WebAuthn.storeGet(uid).map { c =>
+          Value.MapV(Map(
+            Value.StringV("credentialId") -> Value.StringV(c.credentialId),
+            Value.StringV("publicKey")    -> Value.StringV(c.publicKey),
+            Value.StringV("signCount")    -> Value.IntV(c.signCount),
+          ))
+        })
+      case _ => throw InterpretError("webauthnStoreGet(userId: String)")
+    }
+    nativeP("webauthnStoreFind") {
+      case List(Value.StringV(uid), Value.StringV(cid)) =>
+        scalascript.server.WebAuthn.storeFind(uid, cid) match
+          case Some(c) =>
+            Value.OptionV(Some(Value.MapV(Map(
+              Value.StringV("credentialId") -> Value.StringV(c.credentialId),
+              Value.StringV("publicKey")    -> Value.StringV(c.publicKey),
+              Value.StringV("signCount")    -> Value.IntV(c.signCount),
+            ))))
+          case None => Value.OptionV(None)
+      case _ => throw InterpretError("webauthnStoreFind(userId, credentialId)")
+    }
+    nativeP("webauthnUpdateSignCount") {
+      case List(Value.StringV(uid), Value.StringV(cid), Value.IntV(cnt)) =>
+        Value.BoolV(scalascript.server.WebAuthn.storeUpdateSignCount(uid, cid, cnt))
+      case _ => throw InterpretError(
+        "webauthnUpdateSignCount(userId, credentialId, newSignCount)")
+    }
+    // `webauthnVerifyRegistration(clientDataJSONb64, attestationObjectB64,
+    //                             expectedOrigin)` — returns Some(Map)
+    // with userId / credentialId / publicKey / signCount on success.
+    // Currently accepts `none` attestation only (Apple, 1Password,
+    // iOS); other formats land in a follow-up.
+    // `webauthnVerifyAssertion(clientDataJSONb64, authenticatorDataB64,
+    //   signatureB64, credentialIdB64, expectedOrigin)` — login side.
+    // Verifies the ECDSA P-256 signature against the stored credential
+    // and bumps signCount; returns Some(Map("userId", "signCount")) on
+    // success.
+    nativeP("webauthnVerifyAssertion") {
+      case List(Value.StringV(cd), Value.StringV(ad),
+                Value.StringV(sig), Value.StringV(cid),
+                Value.StringV(origin)) =>
+        scalascript.server.WebAuthn.verifyAssertion(cd, ad, sig, cid, origin) match
+          case Some(a) =>
+            Value.OptionV(Some(Value.MapV(Map(
+              Value.StringV("userId")    -> Value.StringV(a.userId),
+              Value.StringV("signCount") -> Value.IntV(a.signCount),
+            ))))
+          case None => Value.OptionV(None)
+      case _ => throw InterpretError(
+        "webauthnVerifyAssertion(clientDataJSONb64, authenticatorDataB64, " +
+        "signatureB64, credentialIdB64, expectedOrigin)")
+    }
+    nativeP("webauthnVerifyRegistration") {
+      case List(Value.StringV(cd), Value.StringV(att), Value.StringV(origin)) =>
+        scalascript.server.WebAuthn.verifyRegistration(cd, att, origin) match
+          case Some(r) =>
+            Value.OptionV(Some(Value.MapV(Map(
+              Value.StringV("userId")       -> Value.StringV(r.userId),
+              Value.StringV("credentialId") -> Value.StringV(r.credentialId),
+              Value.StringV("publicKey")    -> Value.StringV(r.publicKey),
+              Value.StringV("signCount")    -> Value.IntV(r.signCount),
+            ))))
+          case None => Value.OptionV(None)
+      case _ => throw InterpretError(
+        "webauthnVerifyRegistration(clientDataJSONb64, attestationObjectB64, expectedOrigin)")
+    }
+
+    // ── Rate limiting ────────────────────────────────────────────────
+    // `rateLimit(key, limit, windowSeconds)` — fixed-window counter.
+    // Returns true if the call is allowed (and bumps the counter),
+    // false if `limit` requests already happened within the window.
+    nativeP("rateLimit") {
+      case List(Value.StringV(key), Value.IntV(lim), Value.IntV(win)) =>
+        Value.BoolV(scalascript.server.RateLimit.tryAcquire(key, lim, win))
+      case _ => throw InterpretError("rateLimit(key: String, limit: Int, windowSeconds: Int)")
+    }
+    nativeP("rateLimitReset") {
+      case List(Value.StringV(key)) =>
+        scalascript.server.RateLimit.reset(key)
+        Value.UnitV
+      case _ => throw InterpretError("rateLimitReset(key: String)")
+    }
+
+    // ── TOTP / 2FA (RFC 6238) ────────────────────────────────────────
+    // `totpSecret()` mints a base32 secret to share with the user's
+    // authenticator app via QR (`totpUri`); `totpCode(secret)` is the
+    // current 6-digit code; `totpValid(secret, code)` checks input
+    // with ±1 step clock-skew tolerance.
+    nativeP("totpSecret") { _ =>
+      Value.StringV(scalascript.server.Totp.secret())
+    }
+    nativeP("totpUri") {
+      case List(Value.StringV(s), Value.StringV(account)) =>
+        Value.StringV(scalascript.server.Totp.uri(s, account))
+      case List(Value.StringV(s), Value.StringV(account), Value.StringV(issuer)) =>
+        Value.StringV(scalascript.server.Totp.uri(s, account, issuer))
+      case _ => throw InterpretError("totpUri(secret, account[, issuer])")
+    }
+    nativeP("totpCode") {
+      case List(Value.StringV(s)) =>
+        Value.StringV(scalascript.server.Totp.code(s))
+      case _ => throw InterpretError("totpCode(secret)")
+    }
+    nativeP("totpValid") {
+      case List(Value.StringV(s), Value.StringV(code)) =>
+        Value.BoolV(scalascript.server.Totp.valid(s, code))
+      case List(Value.StringV(s), Value.StringV(code), Value.IntV(skew)) =>
+        Value.BoolV(scalascript.server.Totp.valid(s, code, skew.toInt))
+      case _ => throw InterpretError("totpValid(secret, code[, skew])")
+    }
+
+    // ── Password hashing (PBKDF2-HMAC-SHA256) ────────────────────────
+    // `hashPassword(pass)` returns `pbkdf2$iter=N$<b64_salt>$<b64_hash>`;
+    // `verifyPassword(pass, enc)` checks it with constant-time compare.
+    // Default work factor is 200k iterations.
+    nativeP("hashPassword") {
+      case List(Value.StringV(pass)) =>
+        Value.StringV(scalascript.server.Password.hash(pass))
+      case List(Value.StringV(pass), Value.IntV(iter)) =>
+        Value.StringV(scalascript.server.Password.hash(pass, iter.toInt))
+      case _ => throw InterpretError("hashPassword(password[, iter])")
+    }
+    nativeP("verifyPassword") {
+      case List(Value.StringV(pass), Value.StringV(encoded)) =>
+        Value.BoolV(scalascript.server.Password.verify(pass, encoded))
+      case _ => throw InterpretError("verifyPassword(password, encoded)")
+    }
+
+    // ── Cookie security config ───────────────────────────────────────
+    // `cookieConfig(secure = true, sameSite = "Strict")` — production
+    // hardening for the session cookie.  Defaults are HttpOnly +
+    // SameSite=Lax, no Secure (so localhost http works in dev).
+    nativeP("cookieConfig") {
+      case List(Value.BoolV(secure)) =>
+        scalascript.server.SessionCookie.setCookieConfig(secure, scalascript.server.SessionCookie.cookieSameSite)
+        Value.UnitV
+      case List(Value.BoolV(secure), Value.StringV(sameSite)) =>
+        scalascript.server.SessionCookie.setCookieConfig(secure, sameSite)
+        Value.UnitV
+      case _ => throw InterpretError("cookieConfig(secure: Boolean[, sameSite: String])")
+    }
+
+    // ── Server-side session store opt-in ─────────────────────────────
+    // After `useSessionStore()` is called, withSession/clearSession and
+    // req.session indirect through scalascript.server.SessionStore (an
+    // in-memory Map keyed by random SSIDs).  The cookie carries only
+    // `{"_ssid": "..."}` instead of the full payload.
+    nativeP("useSessionStore") {
+      case Nil =>
+        scalascript.server.SessionStore.useStore()
+        Value.UnitV
+      case List(Value.IntV(ttl)) =>
+        scalascript.server.SessionStore.useStore(ttl)
+        Value.UnitV
+      case _ => throw InterpretError("useSessionStore() or useSessionStore(ttlSeconds: Int)")
+    }
+
+    // ── JWT helpers ──────────────────────────────────────────────────
+    // `jwtSign(Map(...))` returns a compact HS256 JWT.
+    // `jwtVerify(token)` returns `Some(claims)` if the signature checks
+    // out and any `exp` claim is not in the past, otherwise `None`.
+    nativeP("jwtSign") {
+      case List(Value.MapV(m)) =>
+        val claims = m.collect {
+          case (Value.StringV(k), Value.StringV(v)) => k -> v
+          case (Value.StringV(k), other)            => k -> Value.show(other)
+        }.toMap
+        Value.StringV(scalascript.server.Jwt.sign(claims))
+      case _ => throw InterpretError("jwtSign(Map[String, String])")
+    }
+    nativeP("jwtVerify") {
+      case List(Value.StringV(token)) =>
+        scalascript.server.Jwt.verify(token) match
+          case Some(claims) =>
+            Value.OptionV(Some(Value.MapV(claims.map((k, v) => Value.StringV(k) -> Value.StringV(v)))))
+          case None => Value.OptionV(None)
+      case _ => throw InterpretError("jwtVerify(token: String)")
+    }
+
+    // ── JWT RS256 (asymmetric) ───────────────────────────────────────
+    // Reads keys from `SSC_JWT_PRIVATE_KEY` (PKCS#8 RSA PEM) and
+    // `SSC_JWT_PUBLIC_KEY` (X.509 SPKI PEM).  Use when verifier and
+    // signer are different processes — multiple services validating
+    // the same token without sharing a secret.
+    nativeP("jwtSignRsa") {
+      case List(Value.MapV(m)) =>
+        val claims = m.collect {
+          case (Value.StringV(k), Value.StringV(v)) => k -> v
+          case (Value.StringV(k), other)            => k -> Value.show(other)
+        }.toMap
+        Value.StringV(scalascript.server.JwtRsa.sign(claims))
+      case _ => throw InterpretError("jwtSignRsa(Map[String, String])")
+    }
+    nativeP("jwtVerifyRsa") {
+      case List(Value.StringV(token)) =>
+        scalascript.server.JwtRsa.verify(token) match
+          case Some(claims) =>
+            Value.OptionV(Some(Value.MapV(claims.map((k, v) => Value.StringV(k) -> Value.StringV(v)))))
+          case None => Value.OptionV(None)
+      case _ => throw InterpretError("jwtVerifyRsa(token: String)")
+    }
+
+    // ── OAuth2 helpers ────────────────────────────────────────────────
+    // `oauthAuthorizeUrl(provider, clientId, redirectUri, state[, scope])`
+    // — pure URL builder for the provider's `/authorize` endpoint.
+    // `oauthExchangeCode(provider, code, clientId, clientSecret, redirectUri)`
+    // — POSTs to the provider's `/token` endpoint and returns the parsed
+    // response (`access_token` + provider-specific fields).
+    nativeP("oauthAuthorizeUrl") { args =>
+      def s(v: Value): String = v match
+        case Value.StringV(x) => x
+        case other => Value.show(other)
+      args match
+        case List(prov, cid, redir, state) =>
+          Value.StringV(scalascript.server.OAuth.authorizeUrl(s(prov), s(cid), s(redir), s(state)))
+        case List(prov, cid, redir, state, scope) =>
+          Value.StringV(scalascript.server.OAuth.authorizeUrl(s(prov), s(cid), s(redir), s(state), s(scope)))
+        case _ => throw InterpretError(
+          "oauthAuthorizeUrl(provider, clientId, redirectUri, state[, scope])")
+    }
+    nativeP("oauthExchangeCode") {
+      case List(Value.StringV(prov), Value.StringV(code),
+                Value.StringV(cid),  Value.StringV(csec),
+                Value.StringV(redir)) =>
+        scalascript.server.OAuth.exchangeCode(prov, code, cid, csec, redir) match
+          case Some(m) =>
+            Value.OptionV(Some(Value.MapV(m.map((k, v) => Value.StringV(k) -> Value.StringV(v)))))
+          case None => Value.OptionV(None)
+      case _ => throw InterpretError(
+        "oauthExchangeCode(provider, code, clientId, clientSecret, redirectUri)")
+    }
+    nativeP("oauthUserinfo") {
+      case List(Value.StringV(prov), Value.StringV(token)) =>
+        scalascript.server.OAuth.userinfo(prov, token) match
+          case Some(m) =>
+            Value.OptionV(Some(Value.MapV(m.map((k, v) => Value.StringV(k) -> Value.StringV(v)))))
+          case None => Value.OptionV(None)
+      case _ => throw InterpretError("oauthUserinfo(provider, accessToken)")
+    }
+    // `oauthRefreshToken(provider, refresh, clientId, clientSecret)` —
+    // refresh-grant flow.  Returns the new token response or None.
+    nativeP("oauthRefreshToken") {
+      case List(Value.StringV(prov), Value.StringV(refresh),
+                Value.StringV(cid),  Value.StringV(csec)) =>
+        scalascript.server.OAuth.refreshToken(prov, refresh, cid, csec) match
+          case Some(m) =>
+            Value.OptionV(Some(Value.MapV(m.map((k, v) => Value.StringV(k) -> Value.StringV(v)))))
+          case None => Value.OptionV(None)
+      case _ => throw InterpretError(
+        "oauthRefreshToken(provider, refreshToken, clientId, clientSecret)")
+    }
+    // `oauthRegisterProvider(name, Map("authorizeUrl" -> ..., ...))` —
+    // adds (or overrides) a provider config at runtime.  Required keys:
+    // `authorizeUrl`, `tokenUrl`.  Optional: `userinfoUrl`, `defaultScope`.
+    nativeP("oauthRegisterProvider") {
+      case List(Value.StringV(name), Value.MapV(m)) =>
+        val cfg = m.collect { case (Value.StringV(k), Value.StringV(v)) => k -> v }.toMap
+        scalascript.server.OAuth.registerProvider(name, cfg)
+        Value.UnitV
+      case _ => throw InterpretError(
+        "oauthRegisterProvider(name, Map[String, String])")
+    }
 
     // route(method, path)(handler) — registers a handler in the global table.
     // Path syntax: literal segments + `:name` captures (e.g. /users/:id).
@@ -491,6 +960,159 @@ class Interpreter(out: java.io.PrintStream = System.out, baseDir: Option[os.Path
         })
       case _ => throw InterpretError("route(method, path) { handler }")
     }
+
+    // onWebSocket(path)(handler) — registers a WS upgrade handler.  The
+    // handler receives a `WebSocket` value with `send` / `close` methods
+    // and `onMessage` / `onClose` callback registration.  Path syntax is
+    // the same as `route` (literal + `:name` captures).
+    //
+    // Two-arg form `onWebSocket(path, origins)(handler)` restricts the
+    // upgrade to requests whose `Origin:` header is in the list — a
+    // browser-side CSRF guard since cross-site `new WebSocket(...)` is
+    // not blocked by the same-origin policy.
+    nativeP("onWebSocket") {
+      case List(Value.StringV(path)) =>
+        Value.NativeFnV("onWebSocket.handler", Computation.pureFn {
+          case List(handler) =>
+            scalascript.server.WsRoutes.register(path, handler, this)
+            Value.UnitV
+          case _ => throw InterpretError("onWebSocket(path) { ws => … }")
+        })
+      case List(Value.StringV(path), Value.ListV(origins)) =>
+        val origs = origins.collect { case Value.StringV(s) => s }
+        Value.NativeFnV("onWebSocket.handler", Computation.pureFn {
+          case List(handler) =>
+            scalascript.server.WsRoutes.register(path, handler, this, origs)
+            Value.UnitV
+          case _ => throw InterpretError("onWebSocket(path, origins) { ws => … }")
+        })
+      case List(Value.StringV(path), Value.ListV(origins), Value.ListV(protocols)) =>
+        val origs = origins.collect   { case Value.StringV(s) => s }
+        val protos = protocols.collect { case Value.StringV(s) => s }
+        Value.NativeFnV("onWebSocket.handler", Computation.pureFn {
+          case List(handler) =>
+            scalascript.server.WsRoutes.register(path, handler, this, origs, protos)
+            Value.UnitV
+          case _ => throw InterpretError("onWebSocket(path, origins, protocols) { ws => … }")
+        })
+      case _ => throw InterpretError("onWebSocket(path[, origins[, protocols]]) { ws => … }")
+    }
+
+    // setMaxWsConnections(n) — process-wide cap on simultaneously-open
+    // WebSocket sessions.  Upgrades past the cap are refused with 503.
+    // Default = unlimited (Int.MaxValue).  Setting it lower than the
+    // current active count is fine — existing sessions keep running,
+    // new upgrades are refused until the count drops.
+    nativeP("setMaxWsConnections") {
+      case List(Value.IntV(n)) =>
+        scalascript.server.WsConnection.maxActive.set(
+          if n > Int.MaxValue.toLong || n < 0 then Int.MaxValue else n.toInt
+        )
+        Value.UnitV
+      case _ => throw InterpretError("setMaxWsConnections(n)")
+    }
+
+    // WsRoom() — thread-safe registry of WebSocket clients with a
+    // built-in `broadcast(msg)` helper.  Replaces the boilerplate
+    // `var clients = List[WebSocket](); clients.foreach { c => c.send(msg) }`
+    // pattern that every chat-style demo otherwise reinvents (and
+    // gets the synchronisation wrong on JvmGen).
+    nativeP("WsRoom") {
+      case Nil =>
+        val members = java.util.concurrent.CopyOnWriteArrayList[Value]()
+        val add = Value.NativeFnV("WsRoom.add", Computation.pureFn {
+          case List(ws) => members.add(ws); Value.UnitV
+          case _ => throw InterpretError("room.add(ws)")
+        })
+        val remove = Value.NativeFnV("WsRoom.remove", Computation.pureFn {
+          case List(ws) => members.remove(ws); Value.UnitV
+          case _ => throw InterpretError("room.remove(ws)")
+        })
+        val broadcast = Value.NativeFnV("WsRoom.broadcast", Computation.pureFn {
+          case List(Value.StringV(msg)) =>
+            val it = members.iterator()
+            while it.hasNext do
+              it.next() match
+                case Value.InstanceV("WebSocket", fields) =>
+                  fields.get("send") match
+                    case Some(f: Value.NativeFnV) =>
+                      try Computation.run(f.f(List(Value.StringV(msg))))
+                      catch case _: Throwable => () // dead client; will be reaped via onClose
+                    case _ => ()
+                case _ => ()
+            Value.UnitV
+          case _ => throw InterpretError("room.broadcast(msg)")
+        })
+        val size = Value.NativeFnV("WsRoom.size", Computation.pureFn {
+          case Nil => Value.IntV(members.size.toLong)
+          case _   => throw InterpretError("room.size()")
+        })
+        Value.InstanceV("WsRoom", Map(
+          "add"       -> add,
+          "remove"    -> remove,
+          "broadcast" -> broadcast,
+          "size"      -> size
+        ))
+      case _ => throw InterpretError("WsRoom()")
+    }
+
+    // ── Storage: built-in effect for key-value persistence ──────────
+    //
+    // Same Free-Monad shape as Async: each op produces a `Perform`
+    // node; `runStorage(body)` is the JSON file-backed handler and
+    // `runEphemeralStorage(body)` is the in-memory test handler.
+    globals("Storage") = Value.InstanceV("Storage", Map(
+      "get"    -> Value.NativeFnV("Storage.get",
+        args => Perform("Storage", "get", args)),
+      "put"    -> Value.NativeFnV("Storage.put",
+        args => Perform("Storage", "put", args)),
+      "remove" -> Value.NativeFnV("Storage.remove",
+        args => Perform("Storage", "remove", args)),
+      "has"    -> Value.NativeFnV("Storage.has",
+        args => Perform("Storage", "has", args)),
+      "keys"   -> Value.NativeFnV("Storage.keys",
+        args => Perform("Storage", "keys", args)),
+    ))
+
+    // ── Async: built-in effect for async-style code ──────────────────
+    //
+    // Four operations — each produces a Perform node; `runAsync(body)`
+    // is the default handler.  See `evalRunAsync` / `asyncDispatch`
+    // below.  The model is single-threaded: thunks passed to
+    // `async` / `parallel` execute immediately on the calling thread
+    // (so output is deterministic and identical across all three
+    // backends).  Real concurrency on the JVM is a handler-swap away.
+    globals("Async") = Value.InstanceV("Async", Map(
+      "delay"    -> Value.NativeFnV("Async.delay",
+        args => Perform("Async", "delay", args)),
+      "async"    -> Value.NativeFnV("Async.async",
+        args => Perform("Async", "async", args)),
+      "await"    -> Value.NativeFnV("Async.await",
+        args => Perform("Async", "await", args)),
+      "parallel" -> Value.NativeFnV("Async.parallel",
+        args => Perform("Async", "parallel", args)),
+    ))
+    // `Future(v)` — wrap a value in a Future cell.  Used by handlers
+    // to materialise the result of an `async` thunk; users normally
+    // only construct Futures via `Async.async(...)`.
+    globals("Future") = Value.NativeFnV("Future", {
+      case List(v) => Pure(Value.InstanceV("Future", Map("value" -> v)))
+      case _       => throw InterpretError("Future(value)")
+    })
+
+    // ── Reactive primitives: Signal / computed / effect ────────────────
+    globals("Signal") = Value.NativeFnV("Signal", {
+      case List(init) => Pure(makeSignal(init))
+      case _          => throw InterpretError("Signal(initial)")
+    })
+    globals("computed") = Value.NativeFnV("computed", {
+      case List(thunk) => Pure(makeComputed(thunk))
+      case _           => throw InterpretError("computed { ... }")
+    })
+    globals("effect") = Value.NativeFnV("effect", {
+      case List(thunk) => makeEffect(thunk); Pure(Value.UnitV)
+      case _           => throw InterpretError("effect { ... }")
+    })
 
   /** Invoke an interpreter Value (closure or native fn) from outside —
    *  used by WebServer to call route handlers in response to HTTP requests. */
@@ -517,6 +1139,13 @@ class Interpreter(out: java.io.PrintStream = System.out, baseDir: Option[os.Path
     case _                          => htmlEscape(rendered)
 
   def exportedGlobals: Map[String, Value] = globals.toMap
+
+  /** Extension methods registered by this interpreter, exposed so that
+   *  parents can re-register them when importing a child module — the
+   *  JS and JVM backends inline imports wholesale and pick these up
+   *  for free, but the interpreter only copies the values named in
+   *  the import binding list and would otherwise drop extensions. */
+  def exportedExtensions: Map[(String, String), Value.FunV] = extensions.toMap
 
   // ─── Section / block execution ───────────────────────────────────
 
@@ -611,9 +1240,10 @@ class Interpreter(out: java.io.PrintStream = System.out, baseDir: Option[os.Path
 
   private def runImport(imp: Content.Import): Unit =
     import scalascript.parser.Parser
-    val resolvedPath = baseDir match
-      case Some(dir) => dir / os.RelPath(imp.path)
-      case None      => os.Path(imp.path, os.pwd)
+    val base = baseDir.getOrElse(os.pwd)
+    val resolvedPath =
+      try scalascript.imports.ImportResolver.resolve(imp.path, base, moduleDeps)
+      catch case e: Throwable => throw InterpretError(s"Import ${imp.path}: ${e.getMessage}")
     if !os.exists(resolvedPath) then
       throw InterpretError(s"Import not found: ${imp.path}")
     val childDir = resolvedPath / os.up
@@ -626,6 +1256,11 @@ class Interpreter(out: java.io.PrintStream = System.out, baseDir: Option[os.Path
       exported.get(sourceName) match
         case Some(v) => globals(targetName) = v
         case None    => throw InterpretError(s"'$sourceName' not found in ${imp.path}")
+    // Extensions registered by the imported module become available in
+    // the importer's scope.  Without this, an `extension` declared
+    // inside an imported `given ... with` would never dispatch — the
+    // child interpreter's `extensions` map is private to that child.
+    extensions ++= child.exportedExtensions
 
   private def execBlockStats(stats: List[Stat]): Unit =
     stats.zipWithIndex.foreach { (s, i) =>
@@ -691,6 +1326,7 @@ class Interpreter(out: java.io.PrintStream = System.out, baseDir: Option[os.Path
       val paramDefaults = params.map(_.default)
       val typeName = d.name.value
       val ctorEnv = env.toMap
+      typeFieldOrder(typeName) = paramNames
       env(typeName) = Value.NativeFnV(typeName, args => {
         val filled = applyDefaults(paramNames, paramDefaults, args, ctorEnv)
         Pure(Value.InstanceV(typeName, paramNames.zip(filled).toMap))
@@ -720,6 +1356,7 @@ class Interpreter(out: java.io.PrintStream = System.out, baseDir: Option[os.Path
           val ecParams      = ec.ctor.paramClauses.flatMap(_.values).toList
           val paramNames    = ecParams.map(_.name.value)
           val paramDefaults = ecParams.map(_.default)
+          if paramNames.nonEmpty then typeFieldOrder(caseName) = paramNames
           val v: Value =
             if paramNames.isEmpty then Value.InstanceV(caseName, Map.empty)
             else Value.NativeFnV(caseName, args => {
@@ -832,12 +1469,78 @@ class Interpreter(out: java.io.PrintStream = System.out, baseDir: Option[os.Path
           evalHandle(bodyArgClause.values.head.asInstanceOf[Term], pf.cases, env)
         case _ => located("handle expects a partial function { case Eff.op(args, resume) => ... }")
 
+    // Special form: runAsync(body) — default Async handler.  The body is
+    // a by-name expression; we evaluate it lazily so its effects compose
+    // into the Computation tree before the driver walks them.
+    case Term.Apply.After_4_6_0(Term.Name("runAsync"), bodyArgClause)
+        if bodyArgClause.values.size == 1 =>
+      asyncInterp(eval(bodyArgClause.values.head, env))
+
+    // Special form: runAsyncParallel(body) — alternate Async handler
+    // that executes thunks passed to `async` / `parallel` on real
+    // JVM threads (ExecutorService + CompletableFuture).  `await`
+    // blocks the calling thread on the future; `parallel` returns
+    // results in declared order regardless of completion order so
+    // value-deterministic code still produces byte-identical output.
+    case Term.Apply.After_4_6_0(Term.Name("runAsyncParallel"), bodyArgClause)
+        if bodyArgClause.values.size == 1 =>
+      asyncParInterp(eval(bodyArgClause.values.head, env))
+
+    // Special forms: runStorage / runEphemeralStorage — Storage-effect
+    // handlers.  The former hydrates from / persists to a JSON file
+    // (path from the optional second arg or `SSC_STORAGE_PATH` env,
+    // defaulting to `./ssc-storage.json`); the latter keeps the map
+    // in-memory and discards it at scope exit.
+    case Term.Apply.After_4_6_0(Term.Name("runStorage"), bodyArgClause)
+        if bodyArgClause.values.size >= 1 =>
+      val pathOpt = bodyArgClause.values.lift(1).map { p =>
+        Computation.run(eval(p, env)) match
+          case Value.StringV(s) => s
+          case _                => storageDefaultPath
+      }
+      storageInterp(eval(bodyArgClause.values.head, env), Some(pathOpt.getOrElse(storageDefaultPath)))
+    case Term.Apply.After_4_6_0(Term.Name("runEphemeralStorage"), bodyArgClause)
+        if bodyArgClause.values.size == 1 =>
+      storageInterp(eval(bodyArgClause.values.head, env), None)
+
+    // Special forms: `computed { ... }` / `effect { ... }` — by-name
+    // bodies wrapped as zero-arg closures so the reactive machinery can
+    // re-run them when dependencies change.  Without the special form
+    // the block would be evaluated eagerly at call time and the runtime
+    // would get a plain value instead of a thunk.
+    case Term.Apply.After_4_6_0(Term.Name("computed"), bodyArgClause)
+        if bodyArgClause.values.size == 1 =>
+      val body  = bodyArgClause.values.head.asInstanceOf[Term]
+      val thunk = Value.FunV(Nil, body, env, "")
+      Pure(makeComputed(thunk))
+    case Term.Apply.After_4_6_0(Term.Name("effect"), bodyArgClause)
+        if bodyArgClause.values.size == 1 =>
+      val body  = bodyArgClause.values.head.asInstanceOf[Term]
+      val thunk = Value.FunV(Nil, body, env, "")
+      makeEffect(thunk)
+      Pure(Value.UnitV)
+
     // Function application: detect obj.method(args) and dispatch directly.
     // All sub-terms are evaluated eagerly here; the FlatMap chain composes
     // already-built Computations so placeholderIdx and other eval-time state
     // is observed correctly.
     case app: Term.Apply =>
       app.fun match
+        // ── .copy(field = value, ...) on an InstanceV ────────────────
+        // Named args arrive as Term.Assign(Term.Name(field), rhs); we have
+        // to intercept BEFORE the generic eval path, otherwise Term.Assign
+        // would fall into the var-assignment case and mutate globals.
+        case Term.Select(qual, Term.Name("copy")) =>
+          evalCopy(qual, app.argClause.values, env)
+        // ── Focus[T](_.a.b) / Focus(_.a.b) — Monocle-style lens ──────
+        // Inspect the lambda body at AST level to extract a field-access
+        // chain, then synthesise a Lens value with get / set / modify /
+        // andThen. Done at AST level because the placeholder lambda is
+        // otherwise erased to an opaque NativeFnV.
+        case ta: Term.ApplyType if isFocusName(ta.fun) =>
+          evalFocus(app.argClause.values)
+        case Term.Name("Focus") =>
+          evalFocus(app.argClause.values)
         case Term.Select(qual, Term.Name(method)) =>
           val qualC    = eval(qual, env)
           val argComps = app.argClause.values.map(eval(_, env))
@@ -1056,9 +1759,471 @@ class Interpreter(out: java.io.PrintStream = System.out, baseDir: Option[os.Path
               s"$tc[$arg]"
             case _ => located("summon: unsupported type")
           Pure(env.getOrElse(key, globals.getOrElse(key, located(s"No given for $key"))))
+        // Prism[Outer, Variant] — focus on a single sum-type variant.
+        case (Term.Name("Prism"), List(_, variantType)) =>
+          val variantName = variantType match
+            case n: Type.Name => n.value
+            case _            => located("Prism[Outer, Variant]: Variant must be a simple type name")
+          Pure(buildPrism(variantName))
         case _ => eval(t.fun, env)  // other type applications — erase type args
 
+    // Prefix unary operators: `!x`, `-x`, `+x`, `~x`.
+    case t: Term.ApplyUnary =>
+      eval(t.arg, env).flatMap { v =>
+        (t.op.value, v) match
+          case ("!", Value.BoolV(b))   => Pure(Value.BoolV(!b))
+          case ("-", Value.IntV(n))    => Pure(Value.IntV(-n))
+          case ("-", Value.DoubleV(d)) => Pure(Value.DoubleV(-d))
+          case ("+", n: Value.IntV)    => Pure(n)
+          case ("+", d: Value.DoubleV) => Pure(d)
+          case ("~", Value.IntV(n))    => Pure(Value.IntV(~n))
+          case (op, other)             => located(s"Cannot apply unary $op to ${Value.show(other)}")
+      }
+
     case other => located(s"Cannot eval: ${other.productPrefix}")
+
+  // ─── Lenses / Focus / .copy ──────────────────────────────────────
+
+  /** A single step in an optic path. `FieldStep` is a case-class field
+   *  selection; `SomeStep` traverses into an Option's value (turning the
+   *  surrounding optic into an Optional); `EachStep` traverses into every
+   *  element of a List (turning the surrounding optic into a Traversal). */
+  private enum PathStep:
+    case FieldStep(name: String)
+    case SomeStep
+    case EachStep
+
+  /** `recv.copy(field = value, ...)` — produce a new InstanceV with the
+   *  named fields overridden. Mixing named and positional args is allowed:
+   *  positionals fill the parameter list left-to-right, then named overrides
+   *  apply on top. Field order comes from `typeFieldOrder`, populated when
+   *  the case class / enum case was registered. */
+  private def evalCopy(qual: Term, args: List[Term], env: Env): Computation =
+    val qualC = eval(qual, env)
+    // Walk args once, preserving order. Positional Computations are kept
+    // in order; named ones are tagged with their field name. RHS is
+    // evaluated BEFORE eval would see Term.Assign (which is also the
+    // var-assignment node), so the name doesn't leak into globals.
+    // Scala 3 disallows positional after named — mirror that here.
+    val firstNamed = args.indexWhere {
+      case Term.Assign(_: Term.Name, _) => true
+      case _                            => false
+    }
+    if firstNamed >= 0 && args.drop(firstNamed).exists {
+      case Term.Assign(_: Term.Name, _) => false
+      case _                            => true
+    } then located(".copy: positional argument after named argument is not allowed")
+    val tagged: List[(Option[String], Computation)] = args.map {
+      case Term.Assign(Term.Name(field), rhs) => (Some(field), eval(rhs, env))
+      case other                              => (None,        eval(other, env))
+    }
+    val (tags, comps) = tagged.unzip
+    FlatMap(qualC, qualV =>
+      threadValues(comps) { newVals =>
+        qualV match
+          case Value.InstanceV(typeName, fields) =>
+            val order = typeFieldOrder.getOrElse(typeName, fields.keys.toList)
+            val named = tags.zip(newVals).collect { case (Some(n), v) => n -> v }.toMap
+            val positionals = tags.zip(newVals).collect { case (None, v) => v }
+            val firstFreeFields = order.filterNot(named.contains).take(positionals.length)
+            if positionals.length > firstFreeFields.length then
+              located(s".copy: $typeName takes ${order.length} fields, got ${tags.length}")
+            else
+              val unknownNamed = named.keySet -- fields.keySet
+              if unknownNamed.nonEmpty then
+                located(s".copy: unknown field(s) on $typeName: ${unknownNamed.mkString(", ")}")
+              else
+                val fromPositions = firstFreeFields.zip(positionals).toMap
+                Pure(Value.InstanceV(typeName, fields ++ fromPositions ++ named))
+          case other =>
+            located(s".copy: not a case-class instance: ${Value.show(other)}")
+      })
+
+  private def isFocusName(t: Term): Boolean = t match
+    case Term.Name("Focus") => true
+    case _                  => false
+
+  /** `Focus[T](_.a.b)` or `Focus(x => x.a.b)` — synthesise a Lens or
+   *  Optional by walking the lambda body. A `.some` step in the path
+   *  (e.g. `_.maybe.some.field`) makes the result an Optional whose
+   *  `set` is a no-op when the Option is empty. */
+  private def evalFocus(args: List[Term]): Computation =
+    args match
+      case List(lambda) =>
+        val stepsOpt: Option[List[PathStep]] = lambda match
+          case Term.AnonymousFunction(body) =>
+            extractPathSteps(body, isBase = _.isInstanceOf[Term.Placeholder])
+          case Term.Function.After_4_6_0(paramClause, body) =>
+            paramClause.values.headOption.map(_.name.value) match
+              case Some(p) =>
+                extractPathSteps(body, isBase = {
+                  case Term.Name(n) => n == p
+                  case _            => false
+                })
+              case None => None
+          case _ => None
+        stepsOpt match
+          case Some(steps) if steps.nonEmpty =>
+            if steps.contains(PathStep.EachStep)      then Pure(buildPathTraversal(steps))
+            else if steps.contains(PathStep.SomeStep) then Pure(buildPathOptional(steps))
+            else Pure(buildPathLens(steps.collect { case PathStep.FieldStep(n) => n }))
+          case _ => located("Focus: expected a field-access lambda like _.field.subfield")
+      case _ => located("Focus expects exactly one lambda argument")
+
+  /** Walk a Term.Select chain to extract the field-access path. `.some`
+   *  selects translate to `SomeStep`, `.each` to `EachStep`; all other
+   *  names become `FieldStep`. */
+  private def extractPathSteps(body: Term, isBase: Term => Boolean): Option[List[PathStep]] =
+    def loop(t: Term, acc: List[PathStep]): Option[List[PathStep]] = t match
+      case Term.Select(qual, Term.Name("some")) =>
+        loop(qual, PathStep.SomeStep :: acc)
+      case Term.Select(qual, Term.Name("each")) =>
+        loop(qual, PathStep.EachStep :: acc)
+      case Term.Select(qual, name) =>
+        loop(qual, PathStep.FieldStep(name.value) :: acc)
+      case other if isBase(other) => Some(acc)
+      case _                      => None
+    loop(body, Nil)
+
+  /** Walk a path into a nested InstanceV, returning the final value. */
+  private def lensGet(target: Value, path: List[String]): Value = path match
+    case Nil          => target
+    case head :: rest => target match
+      case Value.InstanceV(_, fields) =>
+        fields.get(head) match
+          case Some(v) => lensGet(v, rest)
+          case None    => throw InterpretError(s"Lens.get: no field '$head' on ${Value.show(target)}")
+      case _ => throw InterpretError(s"Lens.get: not an instance at '$head'")
+
+  /** Functional update of a nested field path. */
+  private def lensSet(target: Value, path: List[String], newVal: Value): Value = path match
+    case Nil          => newVal
+    case head :: rest => target match
+      case Value.InstanceV(typeName, fields) =>
+        val child = fields.getOrElse(head, throw InterpretError(s"Lens.set: no field '$head'"))
+        Value.InstanceV(typeName, fields.updated(head, lensSet(child, rest, newVal)))
+      case _ => throw InterpretError(s"Lens.set: not an instance at '$head'")
+
+  /** Build a Lens for a static field path. Exposed as an InstanceV so
+   *  `.get` / `.set` / `.modify` / `.andThen` dispatch via the usual
+   *  field-access machinery. */
+  private def buildPathLens(path: List[String]): Value.InstanceV =
+    val getFn = Value.NativeFnV("Lens.get", {
+      case List(s) => Pure(lensGet(s, path))
+      case _       => throw InterpretError("Lens.get(s)")
+    })
+    val setFn = Value.NativeFnV("Lens.set", {
+      case List(s, v) => Pure(lensSet(s, path, v))
+      case _          => throw InterpretError("Lens.set(s, v)")
+    })
+    val modifyFn = Value.NativeFnV("Lens.modify", {
+      case List(s, f) =>
+        val old = lensGet(s, path)
+        callValue(f, List(old), Map.empty).map(newV => lensSet(s, path, newV))
+      case _ => throw InterpretError("Lens.modify(s, f)")
+    })
+    val andThenFn = Value.NativeFnV("Lens.andThen", {
+      case List(Value.InstanceV("Lens", other)) =>
+        // If `other` is also a path-lens we can compose paths directly so
+        // the result keeps the simple representation. Otherwise fall back
+        // to functional composition (always works, costs a couple of
+        // extra calls per get/set).
+        other.get("_path") match
+          case Some(Value.ListV(items)) =>
+            val otherPath = items.collect { case Value.StringV(s) => s }
+            Pure(buildPathLens(path ++ otherPath))
+          case _ =>
+            Pure(composedLens(buildPathLens(path), Value.InstanceV("Lens", other)))
+      case List(Value.InstanceV("Optional", other)) =>
+        // Lens.andThen(Optional) → Optional. Lift the field path to steps
+        // and concatenate.
+        stepsFromFields(other) match
+          case Some(innerSteps) =>
+            val outerSteps = path.map(PathStep.FieldStep(_))
+            Pure(buildPathOptional(outerSteps ++ innerSteps))
+          case None => throw InterpretError("Lens.andThen(Optional): malformed Optional")
+      case List(Value.InstanceV("Traversal", other)) =>
+        // Lens.andThen(Traversal) → Traversal.
+        stepsFromFields(other) match
+          case Some(innerSteps) =>
+            val outerSteps = path.map(PathStep.FieldStep(_))
+            Pure(buildPathTraversal(outerSteps ++ innerSteps))
+          case None => throw InterpretError("Lens.andThen(Traversal): malformed Traversal")
+      case List(other) =>
+        throw InterpretError(s"Lens.andThen expects a Lens / Optional / Traversal, got ${Value.show(other)}")
+      case _ => throw InterpretError("Lens.andThen(other)")
+    })
+    Value.InstanceV("Lens", Map(
+      "get"     -> getFn,
+      "set"     -> setFn,
+      "modify"  -> modifyFn,
+      "andThen" -> andThenFn,
+      "_path"   -> Value.ListV(path.map(Value.StringV.apply))
+    ))
+
+  /** `Prism[Outer, Variant]` — sum-type optic. `getOption` returns `Some(s)` if
+   *  the value is the named variant, else `None`. `set` / `modify` are no-ops
+   *  when the variant doesn't match. */
+  private def buildPrism(variantName: String): Value.InstanceV =
+    val getOptionFn = Value.NativeFnV("Prism.getOption", {
+      case List(s) => s match
+        case Value.InstanceV(t, _) if t == variantName => Pure(Value.OptionV(Some(s)))
+        case _                                          => Pure(Value.OptionV(None))
+      case _ => throw InterpretError("Prism.getOption(s)")
+    })
+    val reverseGetFn = Value.NativeFnV("Prism.reverseGet", {
+      case List(v) => Pure(v)
+      case _       => throw InterpretError("Prism.reverseGet(v)")
+    })
+    val setFn = Value.NativeFnV("Prism.set", {
+      case List(s, v) => s match
+        case Value.InstanceV(t, _) if t == variantName => Pure(v)
+        case _                                          => Pure(s)
+      case _ => throw InterpretError("Prism.set(s, v)")
+    })
+    val modifyFn = Value.NativeFnV("Prism.modify", {
+      case List(s, f) => s match
+        case Value.InstanceV(t, _) if t == variantName => callValue(f, List(s), Map.empty)
+        case _                                          => Pure(s)
+      case _ => throw InterpretError("Prism.modify(s, f)")
+    })
+    val andThenFn = Value.NativeFnV("Prism.andThen", {
+      case List(other: Value.InstanceV) if other.typeName == "Prism" =>
+        other.fields.get("_variant") match
+          case Some(Value.StringV(inner)) => Pure(buildPrismChain(variantName, inner))
+          case _ => throw InterpretError("Prism.andThen: malformed Prism")
+      case List(_) =>
+        throw InterpretError("Prism.andThen(other): only Prism-Prism composition supported in this stage")
+      case _ => throw InterpretError("Prism.andThen(other)")
+    })
+    Value.InstanceV("Prism", Map(
+      "getOption"  -> getOptionFn,
+      "reverseGet" -> reverseGetFn,
+      "set"        -> setFn,
+      "modify"     -> modifyFn,
+      "andThen"    -> andThenFn,
+      "_variant"   -> Value.StringV(variantName)
+    ))
+
+  /** Compose two prisms: `Prism[A, B].andThen(Prism[B, C]): Prism[A, C]`.
+   *  Match succeeds only when the value is the *inner* variant (a B that is
+   *  also a C in our dynamic type model means typeName == innerVariant). */
+  private def buildPrismChain(outerVariant: String, innerVariant: String): Value.InstanceV =
+    // For our flat enum model, both checks collapse to "is the innermost variant".
+    // We keep `outerVariant` only to preserve the documented shape.
+    val _ = outerVariant
+    buildPrism(innerVariant)
+
+  /** Compose two arbitrary lenses by chaining their get / set / modify. */
+  private def composedLens(a: Value.InstanceV, b: Value.InstanceV): Value.InstanceV =
+    val aGet = a.fields("get");    val bGet = b.fields("get")
+    val aSet = a.fields("set");    val bSet = b.fields("set")
+    val aMod = a.fields("modify"); val bMod = b.fields("modify")
+    val getFn = Value.NativeFnV("Lens.get", {
+      case List(s) =>
+        callValue(aGet, List(s), Map.empty).flatMap(x => callValue(bGet, List(x), Map.empty))
+      case _ => throw InterpretError("Lens.get(s)")
+    })
+    val setFn = Value.NativeFnV("Lens.set", {
+      case List(s, v) =>
+        callValue(aGet, List(s), Map.empty).flatMap { x =>
+          callValue(bSet, List(x, v), Map.empty).flatMap { x2 =>
+            callValue(aSet, List(s, x2), Map.empty)
+          }
+        }
+      case _ => throw InterpretError("Lens.set(s, v)")
+    })
+    val modifyFn = Value.NativeFnV("Lens.modify", {
+      case List(s, f) =>
+        val inner = Value.NativeFnV("inner", {
+          case List(x) => callValue(bMod, List(x, f), Map.empty)
+          case _       => throw InterpretError("modify inner")
+        })
+        callValue(aMod, List(s, inner), Map.empty)
+      case _ => throw InterpretError("Lens.modify(s, f)")
+    })
+    val andThenFn = Value.NativeFnV("Lens.andThen", {
+      case List(other: Value.InstanceV) if other.typeName == "Lens" =>
+        Pure(composedLens(Value.InstanceV("Lens", Map(
+          "get" -> getFn, "set" -> setFn, "modify" -> modifyFn,
+          "andThen" -> Value.NativeFnV("Lens.andThen.recur", _ => throw InterpretError("recur")))
+        ), other))
+      case _ => throw InterpretError("Lens.andThen(other)")
+    })
+    Value.InstanceV("Lens", Map(
+      "get" -> getFn, "set" -> setFn, "modify" -> modifyFn,
+      "andThen" -> andThenFn
+    ))
+
+  // ─── Optional (partial optic) ────────────────────────────────────
+
+  /** Walk `steps` into `target`. Returns `None` as soon as a `SomeStep`
+   *  hits a `None`, or a `FieldStep` hits a non-instance. */
+  private def opticGetOption(target: Value, steps: List[PathStep]): Option[Value] = steps match
+    case Nil => Some(target)
+    case PathStep.FieldStep(n) :: rest => target match
+      case Value.InstanceV(_, fields) => fields.get(n).flatMap(v => opticGetOption(v, rest))
+      case _                          => None
+    case PathStep.SomeStep :: rest => target match
+      case Value.OptionV(Some(inner)) => opticGetOption(inner, rest)
+      case _                          => None
+
+  /** Functional set along `steps`. Returns the rebuilt value, or the
+   *  original `target` unchanged when the path doesn't fully resolve
+   *  (mirrors Optional.set semantics: no-op on miss). */
+  private def opticSet(target: Value, steps: List[PathStep], newVal: Value): Value = steps match
+    case Nil => newVal
+    case PathStep.FieldStep(n) :: rest => target match
+      case Value.InstanceV(typeName, fields) =>
+        fields.get(n) match
+          case Some(child) =>
+            Value.InstanceV(typeName, fields.updated(n, opticSet(child, rest, newVal)))
+          case None => target
+      case _ => target
+    case PathStep.SomeStep :: rest => target match
+      case Value.OptionV(Some(inner)) =>
+        Value.OptionV(Some(opticSet(inner, rest, newVal)))
+      case other => other
+
+  /** Build an Optional for a path that contains at least one `SomeStep`.
+   *  `getOption` returns `None` if any Option in the chain is empty;
+   *  `set` / `modify` are no-ops in that case. */
+  private def buildPathOptional(steps: List[PathStep]): Value.InstanceV =
+    val getOptionFn = Value.NativeFnV("Optional.getOption", {
+      case List(s) => Pure(Value.OptionV(opticGetOption(s, steps)))
+      case _       => throw InterpretError("Optional.getOption(s)")
+    })
+    val setFn = Value.NativeFnV("Optional.set", {
+      case List(s, v) => Pure(opticSet(s, steps, v))
+      case _          => throw InterpretError("Optional.set(s, v)")
+    })
+    val modifyFn = Value.NativeFnV("Optional.modify", {
+      case List(s, f) => opticGetOption(s, steps) match
+        case Some(old) =>
+          callValue(f, List(old), Map.empty).map(newV => opticSet(s, steps, newV))
+        case None => Pure(s)
+      case _ => throw InterpretError("Optional.modify(s, f)")
+    })
+    // Optional.andThen accepts another path-optic and chains by
+    // concatenating steps. Composition with a Traversal yields a
+    // Traversal (multi-foci dominates).
+    val andThenFn = Value.NativeFnV("Optional.andThen", {
+      case List(Value.InstanceV("Traversal", other)) =>
+        stepsFromFields(other) match
+          case Some(rest) => Pure(buildPathTraversal(steps ++ rest))
+          case None       => throw InterpretError("Optional.andThen(Traversal): malformed")
+      case List(Value.InstanceV(t, other)) if t == "Optional" || t == "Lens" =>
+        stepsFromFields(other) match
+          case Some(rest) => Pure(buildPathOptional(steps ++ rest))
+          case None       => throw InterpretError("Optional.andThen: cannot compose with non-path optic")
+      case _ => throw InterpretError("Optional.andThen(other): only path optic supported")
+    })
+    val stepsValue = Value.ListV(steps.map {
+      case PathStep.FieldStep(n) => Value.StringV(n)
+      case PathStep.SomeStep     => Value.StringV("__some__")
+    })
+    Value.InstanceV("Optional", Map(
+      "getOption" -> getOptionFn,
+      "set"       -> setFn,
+      "modify"    -> modifyFn,
+      "andThen"   -> andThenFn,
+      "_steps"    -> stepsValue
+    ))
+
+  // ─── Traversal (multi-foci optic, `.each` paths) ─────────────────
+
+  /** Collect every reachable value along `steps`. SomeStep with None and
+   *  FieldStep with a missing field contribute zero values; EachStep
+   *  flat-maps over List elements. */
+  private def opticGetAll(target: Value, steps: List[PathStep]): List[Value] = steps match
+    case Nil => List(target)
+    case PathStep.FieldStep(n) :: rest => target match
+      case Value.InstanceV(_, fields) =>
+        fields.get(n).map(v => opticGetAll(v, rest)).getOrElse(Nil)
+      case _ => Nil
+    case PathStep.SomeStep :: rest => target match
+      case Value.OptionV(Some(inner)) => opticGetAll(inner, rest)
+      case _                          => Nil
+    case PathStep.EachStep :: rest => target match
+      case Value.ListV(items) => items.flatMap(item => opticGetAll(item, rest))
+      case _                  => Nil
+
+  /** Walk `steps` and apply `f` to every focus. Missing layers
+   *  (None / not-an-instance) leave the corresponding subtree
+   *  unchanged. Returns a Computation because `f` may be a user
+   *  function whose body performs effects. */
+  private def opticModifyAll(target: Value, steps: List[PathStep], f: Value): Computation = steps match
+    case Nil => callValue(f, List(target), Map.empty)
+    case PathStep.FieldStep(n) :: rest => target match
+      case Value.InstanceV(typeName, fields) =>
+        fields.get(n) match
+          case Some(child) =>
+            opticModifyAll(child, rest, f).map(updated =>
+              Value.InstanceV(typeName, fields.updated(n, updated)))
+          case None => Pure(target)
+      case _ => Pure(target)
+    case PathStep.SomeStep :: rest => target match
+      case Value.OptionV(Some(inner)) =>
+        opticModifyAll(inner, rest, f).map(updated => Value.OptionV(Some(updated)))
+      case _ => Pure(target)
+    case PathStep.EachStep :: rest => target match
+      case Value.ListV(items) =>
+        Computation.sequence(items.map(item => opticModifyAll(item, rest, f))).map {
+          case Value.ListV(updated) => Value.ListV(updated)
+          case _                    => target
+        }
+      case _ => Pure(target)
+
+  private def stepsAsListV(steps: List[PathStep]): Value.ListV =
+    Value.ListV(steps.map {
+      case PathStep.FieldStep(n) => Value.StringV(n)
+      case PathStep.SomeStep     => Value.StringV("__some__")
+      case PathStep.EachStep     => Value.StringV("__each__")
+    })
+
+  private def stepsFromFields(fields: Map[String, Value]): Option[List[PathStep]] =
+    fields.get("_steps").orElse(fields.get("_path")) match
+      case Some(Value.ListV(items)) => Some(items.collect {
+        case Value.StringV("__some__") => PathStep.SomeStep
+        case Value.StringV("__each__") => PathStep.EachStep
+        case Value.StringV(n)          => PathStep.FieldStep(n)
+      })
+      case _ => None
+
+  /** Build a Traversal for a path containing at least one `EachStep`.
+   *  `getAll` collects every focused value into a `List`; `modify`
+   *  applies a function to each focus and rebuilds the structure;
+   *  `set` replaces every focus with the same value. */
+  private def buildPathTraversal(steps: List[PathStep]): Value.InstanceV =
+    val getAllFn = Value.NativeFnV("Traversal.getAll", {
+      case List(s) => Pure(Value.ListV(opticGetAll(s, steps)))
+      case _       => throw InterpretError("Traversal.getAll(s)")
+    })
+    val modifyFn = Value.NativeFnV("Traversal.modify", {
+      case List(s, f) => opticModifyAll(s, steps, f)
+      case _          => throw InterpretError("Traversal.modify(s, f)")
+    })
+    val setFn = Value.NativeFnV("Traversal.set", {
+      case List(s, v) =>
+        val constFn = Value.NativeFnV("const", _ => Pure(v))
+        opticModifyAll(s, steps, constFn)
+      case _ => throw InterpretError("Traversal.set(s, v)")
+    })
+    val andThenFn = Value.NativeFnV("Traversal.andThen", {
+      case List(Value.InstanceV(t, other))
+          if t == "Traversal" || t == "Optional" || t == "Lens" =>
+        stepsFromFields(other) match
+          case Some(rest) => Pure(buildPathTraversal(steps ++ rest))
+          case None       => throw InterpretError("Traversal.andThen: cannot compose")
+      case _ => throw InterpretError("Traversal.andThen(other): only path optic supported")
+    })
+    Value.InstanceV("Traversal", Map(
+      "getAll"  -> getAllFn,
+      "modify"  -> modifyFn,
+      "set"     -> setFn,
+      "andThen" -> andThenFn,
+      "_steps"  -> stepsAsListV(steps)
+    ))
 
   /** Evaluate a list of argument terms eagerly to a list of Computations, then
    *  thread their values into `k` via FlatMap chain.
@@ -1088,10 +2253,10 @@ class Interpreter(out: java.io.PrintStream = System.out, baseDir: Option[os.Path
     // refresh-from-globals loop below must NOT clobber.  Without this guard a
     // lambda param like `p` (which also exists in globals as the `<p>` HTML
     // tag) would be overwritten by the global between statements.
-    val localOverrides: collection.Set[String] =
-      local.iterator.collect {
+    val localOverrides: scala.collection.mutable.Set[String] =
+      scala.collection.mutable.Set.from(local.iterator.collect {
         case (k, v) if !globals.get(k).contains(v) => k
-      }.toSet
+      })
     def step(remaining: List[Stat], lastVal: Value): Computation = remaining match
       case Nil => Pure(lastVal)
       case s :: rest =>
@@ -1103,10 +2268,13 @@ class Interpreter(out: java.io.PrintStream = System.out, baseDir: Option[os.Path
           case Defn.Val(_, pats, _, rhs) =>
             eval(rhs, local.toMap).flatMap { rhsVal =>
               pats match
-                case List(Pat.Var(n)) => local(n.value) = rhsVal
+                case List(Pat.Var(n)) =>
+                  local(n.value) = rhsVal
+                  localOverrides += n.value
                 case List(pat) =>
                   matchPat(pat, rhsVal, local.toMap) match
-                    case Some(patEnv) => patEnv.foreach { (k, v) => local(k) = v }
+                    case Some(patEnv) =>
+                      patEnv.foreach { (k, v) => local(k) = v; localOverrides += k }
                     case None         => located("Val pattern match failed")
                 case _ => ()
               step(rest, Value.UnitV)
@@ -1114,6 +2282,7 @@ class Interpreter(out: java.io.PrintStream = System.out, baseDir: Option[os.Path
           case Defn.Var.After_4_7_2(_, List(Pat.Var(n)), _, rhs) =>
             eval(rhs, local.toMap).flatMap { v =>
               local(n.value) = v
+              localOverrides += n.value
               step(rest, Value.UnitV)
             }
           case t: Term =>
@@ -1480,6 +2649,409 @@ class Interpreter(out: java.io.PrintStream = System.out, baseDir: Option[os.Path
 
     interp(eval(body, env))
 
+  // ─── Reactive primitives: implementation helpers ───────────────────
+
+  private def freshReactiveId(): Long =
+    reactiveCounter += 1; reactiveCounter
+
+  private def signalInstance(id: Long): Value.InstanceV =
+    Value.InstanceV("Signal", Map("id" -> Value.IntV(id)))
+
+  /** Allocate a new Signal cell and return its user-facing handle. */
+  private def makeSignal(init: Value): Value.InstanceV =
+    val id = freshReactiveId()
+    signals(id) = SignalState(init, mutable.HashSet.empty)
+    signalInstance(id)
+
+  /** Read a signal, registering a subscription with the active effect (if any). */
+  private def signalGet(id: Long): Value =
+    val s = signals.getOrElse(id, throw InterpretError("Signal disposed or unknown id"))
+    if effectStack.nonEmpty then
+      val eid = effectStack.top
+      s.subs += eid
+      effects.get(eid).foreach(_.deps += id)
+    s.value
+
+  /** Write a signal: replace its value and queue its subscribers for
+   *  rerun.  Reruns are deduplicated within the surrounding flush so a
+   *  diamond (root → derived → consumer; consumer also reads root) sees
+   *  each effect exactly once per transaction, matching Solid-style
+   *  fine-grained reactivity.  Subscribers currently on the effect
+   *  stack are skipped — without this guard an effect that writes to
+   *  a signal it also reads infinite-loops itself. */
+  private def signalSet(id: Long, v: Value): Unit =
+    val s = signals.getOrElse(id, throw InterpretError("Signal disposed or unknown id"))
+    s.value = v
+    s.subs.foreach { eid =>
+      if !effectStack.contains(eid) then pendingEffects += eid
+    }
+    if !reactiveFlushing then reactiveFlush()
+
+  private def reactiveFlush(): Unit =
+    reactiveFlushing = true
+    try
+      while pendingEffects.nonEmpty do
+        val eid = pendingEffects.head
+        pendingEffects -= eid
+        runEffect(eid)
+    finally reactiveFlushing = false
+
+  /** Detach an effect from all signals it currently depends on.  Called
+   *  before each rerun so a freshly-evaluated dependency set replaces
+   *  the previous one (handles `if` branches that read different
+   *  signals on different runs). */
+  private def clearEffectDeps(eid: Long): Unit =
+    effects.get(eid).foreach { e =>
+      e.deps.foreach { sid => signals.get(sid).foreach(_.subs -= eid) }
+      e.deps.clear()
+    }
+
+  /** Run an effect's thunk under tracking — pushes its id on the stack
+   *  so signal reads inside the thunk register as deps. */
+  private def runEffect(eid: Long): Unit =
+    effects.get(eid).foreach { e =>
+      clearEffectDeps(eid)
+      effectStack.push(eid)
+      try Computation.run(callValue(e.thunk, Nil, Map.empty))
+      finally effectStack.pop()
+    }
+
+  /** Create a side-effecting reactive block; runs once immediately then
+   *  re-runs whenever any signal it read changes. */
+  private def makeEffect(thunk: Value): Value =
+    val id = freshReactiveId()
+    effects(id) = EffectState(thunk, mutable.HashSet.empty)
+    runEffect(id)
+    Value.UnitV
+
+  /** Derived signal: runs `thunk` under tracking, stores the result in a
+   *  fresh signal, and re-runs (updating the signal) when its deps
+   *  change.  Reading the returned signal subscribes to *its* changes,
+   *  so downstream effects/computeds compose naturally. */
+  private def makeComputed(thunk: Value): Value.InstanceV =
+    val sid = freshReactiveId()
+    val eid = freshReactiveId()
+    signals(sid) = SignalState(Value.UnitV, mutable.HashSet.empty)
+    val updater = Value.NativeFnV("computed.update", Computation.pureFn { _ =>
+      val v = Computation.run(callValue(thunk, Nil, Map.empty))
+      signalSet(sid, v)
+      Value.UnitV
+    })
+    effects(eid) = EffectState(updater, mutable.HashSet.empty)
+    runEffect(eid)
+    signalInstance(sid)
+
+  /** Driver for the built-in `Async` effect — same Free-Monad walk as
+   *  `evalHandle` but with a fixed dispatch table for `Async.*` ops
+   *  (delay / async / await / parallel).  Non-Async Performs propagate
+   *  outward so an enclosing `handle` can pick them up.  Single-threaded
+   *  semantics: a thunk passed to `async` / `parallel` runs immediately
+   *  on the calling thread, so the resulting output is deterministic
+   *  and identical to the JS / JvmGen backends. */
+  private def asyncInterp(initial: Computation): Computation =
+    var current: Computation = initial
+    while true do
+      current match
+        case Pure(_) => return current
+        case Perform("Async", op, args) =>
+          // Bare Perform — no continuation; dispatch with identity resume.
+          current = asyncDispatch(op, args, v => Pure(v))
+        case Perform(_, _, _) => return current  // unhandled, propagate
+        case FlatMap(sub, f) => sub match
+          case Pure(v) =>
+            current = f(v)
+          case FlatMap(sub2, g) =>
+            current = FlatMap(sub2, x => FlatMap(g(x), f))
+          case Perform("Async", op, args) =>
+            current = asyncDispatch(op, args, v => asyncInterp(f(v)))
+          case Perform(_, _, _) =>
+            return FlatMap(sub, v => asyncInterp(f(v)))
+    throw InterpretError("unreachable")
+
+  private def asyncDispatch(
+    op:     String,
+    args:   List[Value],
+    resume: Value => Computation
+  ): Computation = op match
+    case "delay" => args match
+      case List(Value.IntV(ms)) =>
+        if ms > 0 then Thread.sleep(ms)
+        resume(Value.UnitV)
+      case _ => throw InterpretError("Async.delay(ms: Int)")
+    case "async" => args match
+      case List(thunk) =>
+        asyncInterp(callValue(thunk, Nil, Map.empty)) match
+          case Pure(v) =>
+            resume(Value.InstanceV("Future", Map("value" -> v)))
+          case _ => throw InterpretError(
+            "Async.async thunk leaked an unhandled non-Async effect")
+      case _ => throw InterpretError("Async.async(thunk)")
+    case "await" => args match
+      case List(Value.InstanceV("Future", fields)) =>
+        resume(fields.getOrElse("value", Value.UnitV))
+      case _ => throw InterpretError("Async.await(future)")
+    case "parallel" => args match
+      case List(Value.ListV(thunks)) =>
+        // Single-threaded: run each thunk through this driver, in declared
+        // order, collect results.  A real-concurrent backend can swap this
+        // for an executor without changing observable output (results are
+        // returned in input order regardless of completion order).
+        val results = thunks.map { t =>
+          asyncInterp(callValue(t, Nil, Map.empty)) match
+            case Pure(v) => v
+            case _ => throw InterpretError(
+              "Async.parallel thunk leaked an unhandled non-Async effect")
+        }
+        resume(Value.ListV(results))
+      case _ => throw InterpretError("Async.parallel(thunks: List[() => A])")
+    case _ => throw InterpretError(s"Unknown Async operation: $op")
+
+  // ── runAsyncParallel — real-thread driver for the same Async API ──
+  //
+  // Same Free Monad walk as `asyncInterp` but `async` / `parallel`
+  // dispatch their thunks to a per-driver `ExecutorService` instead
+  // of running them inline.  `await` blocks the calling thread on the
+  // future; `parallel` returns results in declared order regardless
+  // of completion order so value-deterministic code retains
+  // byte-identical output across the single- and parallel-handler
+  // variants.  `delay` still uses `Thread.sleep` because the calling
+  // thread is the right thread to block on the JVM.
+
+  private def asyncParInterp(initial: Computation): Computation =
+    val ex = java.util.concurrent.Executors.newCachedThreadPool()
+    try
+      // Inner driver re-used for thunks-inside-thunks (the future's
+      // body itself may use `Async.*`); shares the executor with the
+      // outer call so worker threads recursively submit to the same
+      // pool instead of allocating a fresh one per nesting level.
+      def driver(c: Computation): Computation =
+        var current: Computation = c
+        while true do
+          current match
+            case Pure(_) => return current
+            case Perform("Async", op, args) =>
+              current = asyncParDispatch(op, args, v => Pure(v), ex, driver)
+            case Perform(_, _, _) => return current
+            case FlatMap(sub, f) => sub match
+              case Pure(v)          => current = f(v)
+              case FlatMap(s2, g)   => current = FlatMap(s2, x => FlatMap(g(x), f))
+              case Perform("Async", op, args) =>
+                current = asyncParDispatch(op, args, v => driver(f(v)), ex, driver)
+              case Perform(_, _, _) =>
+                return FlatMap(sub, v => driver(f(v)))
+        throw InterpretError("unreachable")
+      driver(initial)
+    finally ex.shutdown()
+
+  private def asyncParDispatch(
+    op:     String,
+    args:   List[Value],
+    resume: Value => Computation,
+    ex:     java.util.concurrent.ExecutorService,
+    driver: Computation => Computation
+  ): Computation = op match
+    case "delay" => args match
+      case List(Value.IntV(ms)) =>
+        if ms > 0 then Thread.sleep(ms)
+        resume(Value.UnitV)
+      case _ => throw InterpretError("Async.delay(ms: Int)")
+    case "async" => args match
+      case List(thunk) =>
+        // Submit the thunk to the pool; the future holds whatever
+        // value its computation reduces to (driven through the same
+        // inner driver so nested Async.* ops still hit this handler).
+        val fut: java.util.concurrent.Future[Value] = ex.submit(
+          new java.util.concurrent.Callable[Value]:
+            def call(): Value = driver(callValue(thunk, Nil, Map.empty)) match
+              case Pure(v) => v
+              case _ => throw InterpretError(
+                "Async.async thunk leaked an unhandled non-Async effect")
+        )
+        // Stash the Java Future inside the InstanceV through a
+        // synthetic NativeFnV whose closure carries it — keeps the
+        // Value ADT untouched while letting us round-trip the ref.
+        val carrier = Value.NativeFnV("_futureRef", _ => {
+          throw InterpretError("Future ref is opaque")
+        })
+        val fid = freshFutureId()
+        parallelFutures.put(fid, fut)
+        resume(Value.InstanceV("Future", Map(
+          "_parId" -> Value.IntV(fid),
+          "value"  -> carrier
+        )))
+      case _ => throw InterpretError("Async.async(thunk)")
+    case "await" => args match
+      case List(Value.InstanceV("Future", fields)) =>
+        fields.get("_parId") match
+          case Some(Value.IntV(fid)) =>
+            val fut = parallelFutures.remove(fid)
+            if fut == null then throw InterpretError("Async.await: stale Future")
+            resume(fut.get())
+          case _ =>
+            // Single-thread Future (from runAsync) — unwrap directly.
+            resume(fields.getOrElse("value", Value.UnitV))
+      case _ => throw InterpretError("Async.await(future)")
+    case "parallel" => args match
+      case List(Value.ListV(thunks)) =>
+        // Submit all thunks first, then block on each in declared
+        // order so the result list mirrors input order regardless of
+        // completion order.
+        val futs = thunks.map { t =>
+          ex.submit(new java.util.concurrent.Callable[Value]:
+            def call(): Value = driver(callValue(t, Nil, Map.empty)) match
+              case Pure(v) => v
+              case _ => throw InterpretError(
+                "Async.parallel thunk leaked an unhandled non-Async effect")
+          )
+        }
+        val results = futs.map(_.get())
+        resume(Value.ListV(results))
+      case _ => throw InterpretError("Async.parallel(thunks: List[() => A])")
+    case _ => throw InterpretError(s"Unknown Async operation: $op")
+
+  private val parallelFutures =
+    new java.util.concurrent.ConcurrentHashMap[Long, java.util.concurrent.Future[Value]]()
+  private val parallelFutureSeq = new java.util.concurrent.atomic.AtomicLong(0L)
+  private def freshFutureId(): Long = parallelFutureSeq.incrementAndGet()
+
+  // ── Storage handler: walks the Free tree, dispatches Storage.* ops
+  // against a local mutable Map; on each mutation flushes to JSON
+  // file (file-backed mode) or skips persistence (ephemeral mode). ──
+
+  private def storageDefaultPath: String =
+    Option(java.lang.System.getenv("SSC_STORAGE_PATH"))
+      .filter(_.nonEmpty)
+      .getOrElse("./ssc-storage.json")
+
+  private def storageInterp(
+    initial: Computation,
+    path:    Option[String]    // None = ephemeral / in-memory
+  ): Computation =
+    val state = scala.collection.mutable.LinkedHashMap.empty[String, String]
+    path.foreach { p => storageLoad(p, state) }
+    storageRun(initial, state, path)
+
+  /** Drive a Free tree against an existing storage state.  Same shape
+   *  as `asyncInterp`: handled `Perform("Storage", ...)` ops dispatch
+   *  to the local map (file-flushed when `path` is set); other
+   *  Performs propagate so an outer handler picks them up; the
+   *  resume continuation re-enters `storageRun` with the same state
+   *  so a FlatMap's producer and consumer share the map. */
+  private def storageRun(
+    initial: Computation,
+    state:   scala.collection.mutable.LinkedHashMap[String, String],
+    path:    Option[String]
+  ): Computation =
+    def flush(): Unit = path.foreach { p => storageSave(p, state) }
+    def dispatch(op: String, args: List[Value], resume: Value => Computation): Computation =
+      op match
+        case "get" => args match
+          case List(Value.StringV(k)) =>
+            resume(state.get(k).map(v => Value.OptionV(Some(Value.StringV(v))))
+                                .getOrElse(Value.OptionV(None)))
+          case _ => throw InterpretError("Storage.get(key: String)")
+        case "put" => args match
+          case List(Value.StringV(k), v) =>
+            state(k) = Value.show(v); flush(); resume(Value.UnitV)
+          case _ => throw InterpretError("Storage.put(key: String, value)")
+        case "remove" => args match
+          case List(Value.StringV(k)) =>
+            state.remove(k); flush(); resume(Value.UnitV)
+          case _ => throw InterpretError("Storage.remove(key: String)")
+        case "has" => args match
+          case List(Value.StringV(k)) => resume(Value.BoolV(state.contains(k)))
+          case _ => throw InterpretError("Storage.has(key: String)")
+        case "keys" => args match
+          case Nil => resume(Value.ListV(state.keys.toList.map(Value.StringV.apply)))
+          case _   => throw InterpretError("Storage.keys()")
+        case _ => throw InterpretError(s"Unknown Storage operation: $op")
+    var current: Computation = initial
+    while true do
+      current match
+        case Pure(_) => return current
+        case Perform("Storage", op, args) =>
+          current = dispatch(op, args, v => Pure(v))
+        case Perform(_, _, _) => return current
+        case FlatMap(sub, f) => sub match
+          case Pure(v)          => current = f(v)
+          case FlatMap(s2, g)   => current = FlatMap(s2, x => FlatMap(g(x), f))
+          case Perform("Storage", op, args) =>
+            current = dispatch(op, args, v => storageRun(f(v), state, path))
+          case Perform(_, _, _) =>
+            return FlatMap(sub, v => storageRun(f(v), state, path))
+    throw InterpretError("unreachable")
+
+  private def storageLoad(
+    path:  String,
+    state: scala.collection.mutable.LinkedHashMap[String, String]
+  ): Unit =
+    val p = java.nio.file.Paths.get(path)
+    if java.nio.file.Files.exists(p) then
+      val src = java.nio.file.Files.readString(p)
+      storageParseJson(src).foreach { case (k, v) => state(k) = v }
+
+  private def storageSave(
+    path:  String,
+    state: scala.collection.mutable.LinkedHashMap[String, String]
+  ): Unit =
+    val json = storageRenderJson(state.toList)
+    java.nio.file.Files.writeString(java.nio.file.Paths.get(path), json)
+
+  /** Minimal JSON parser for `{"key":"value", ...}` — Storage values
+   *  are always strings so we don't need numbers / nested objects /
+   *  arrays.  Returns entries in source order. */
+  private def storageParseJson(src: String): List[(String, String)] =
+    val s   = src.trim
+    val out = scala.collection.mutable.ListBuffer.empty[(String, String)]
+    if !s.startsWith("{") || !s.endsWith("}") then return Nil
+    var i = 1
+    val end = s.length - 1
+    def skipWs(): Unit = while i < end && s.charAt(i).isWhitespace do i += 1
+    def readStr(): String =
+      if i >= end || s.charAt(i) != '"' then
+        throw InterpretError(s"Storage JSON: expected string at index $i")
+      i += 1
+      val sb = StringBuilder()
+      while i < end && s.charAt(i) != '"' do
+        if s.charAt(i) == '\\' && i + 1 < end then
+          s.charAt(i + 1) match
+            case '"'  => sb.append('"');  i += 2
+            case '\\' => sb.append('\\'); i += 2
+            case 'n'  => sb.append('\n'); i += 2
+            case 't'  => sb.append('\t'); i += 2
+            case 'r'  => sb.append('\r'); i += 2
+            case c    => sb.append(c);    i += 2
+        else
+          sb.append(s.charAt(i)); i += 1
+      i += 1
+      sb.toString
+    skipWs()
+    while i < end do
+      val k = readStr(); skipWs()
+      if i >= end || s.charAt(i) != ':' then
+        throw InterpretError("Storage JSON: expected ':'")
+      i += 1; skipWs()
+      val v = readStr(); skipWs()
+      out += (k -> v)
+      if i < end && s.charAt(i) == ',' then i += 1
+      skipWs()
+    out.toList
+
+  private def storageRenderJson(entries: List[(String, String)]): String =
+    def esc(s: String): String =
+      val sb = StringBuilder()
+      sb.append('"')
+      s.foreach {
+        case '"'  => sb.append("\\\"")
+        case '\\' => sb.append("\\\\")
+        case '\n' => sb.append("\\n")
+        case '\r' => sb.append("\\r")
+        case '\t' => sb.append("\\t")
+        case c    => sb.append(c)
+      }
+      sb.append('"').toString
+    entries.map { case (k, v) => s"${esc(k)}:${esc(v)}" }.mkString("{", ",", "}")
+
   // ─── Infix operators ──────────────────────────────────────────────
 
   private def infix(lhs: Value, op: String, args: List[Value], env: Env): Computation =
@@ -1557,6 +3129,12 @@ class Interpreter(out: java.io.PrintStream = System.out, baseDir: Option[os.Path
       case (Value.StringV(s), "mkString",     _)  => Pure(Value.StringV(s))
       case (Value.StringV(s), "take",         List(Value.IntV(n))) => Pure(Value.StringV(s.take(n.toInt)))
       case (Value.StringV(s), "drop",         List(Value.IntV(n))) => Pure(Value.StringV(s.drop(n.toInt)))
+      case (Value.StringV(s), "substring",    List(Value.IntV(a))) =>
+        Pure(Value.StringV(s.substring(a.toInt.max(0).min(s.length))))
+      case (Value.StringV(s), "substring",    List(Value.IntV(a), Value.IntV(b))) =>
+        val from = a.toInt.max(0).min(s.length)
+        val to   = b.toInt.max(from).min(s.length)
+        Pure(Value.StringV(s.substring(from, to)))
       case (Value.StringV(s), "replace",      List(Value.StringV(a), Value.StringV(b))) => Pure(Value.StringV(s.replace(a, b)))
       case (Value.StringV(s), "charAt",       List(Value.IntV(i))) =>
         if i < 0 || i >= s.length then located(s"index $i out of bounds for string of length ${s.length}")
@@ -1761,6 +3339,11 @@ class Interpreter(out: java.io.PrintStream = System.out, baseDir: Option[os.Path
       case (Value.MapV(m), "getOrElse",  List(k, d)) => Pure(m.getOrElse(k, d))
       case (Value.MapV(m), "updated",    List(k, v)) => Pure(Value.MapV(m + (k -> v)))
       case (Value.MapV(m), "removed",    List(k))    => Pure(Value.MapV(m - k))
+      // Scala syntax: `m + (k -> v)` parses as `m.+((k, v))` — accept the
+      // tupled form as a shortcut for `.updated`, and `++` for map merge.
+      case (Value.MapV(m), "+",  List(Value.TupleV(List(k, v))))  => Pure(Value.MapV(m + (k -> v)))
+      case (Value.MapV(m), "++", List(Value.MapV(other)))         => Pure(Value.MapV(m ++ other))
+      case (Value.MapV(m), "-",  List(k))                          => Pure(Value.MapV(m - k))
       case (Value.MapV(m), "map",        List(f)) =>
         Computation.sequence(m.toList.map { (k, v) =>
           callValue(f, List(Value.TupleV(List(k, v))), env)
@@ -1795,6 +3378,7 @@ class Interpreter(out: java.io.PrintStream = System.out, baseDir: Option[os.Path
       case (Value.OptionV(opt),     "isDefined",  Nil) => Pure(Value.BoolV(opt.isDefined))
       case (Value.OptionV(opt),     "isEmpty",    Nil) => Pure(Value.BoolV(opt.isEmpty))
       case (Value.OptionV(opt),     "nonEmpty",   Nil) => Pure(Value.BoolV(opt.nonEmpty))
+      case (Value.OptionV(opt),     "contains",   List(v)) => Pure(Value.BoolV(opt.contains(v)))
       case (Value.OptionV(Some(v)), "getOrElse",  _)   => Pure(v)
       case (Value.OptionV(None),    "getOrElse",  List(d)) => Pure(d)
       case (Value.OptionV(opt),     "map",        List(f)) =>
@@ -1844,6 +3428,21 @@ class Interpreter(out: java.io.PrintStream = System.out, baseDir: Option[os.Path
       case (Value.TupleV(es), "_2", Nil) => Pure(es(1))
       case (Value.TupleV(es), "_3", Nil) => Pure(es(2))
       case (Value.TupleV(es), "_4", Nil) => Pure(es(3))
+      // ── Signal methods (reactive) — must precede the generic InstanceV
+      // field-access paths so `.get`/`.set` don't fall into them. ──
+      case (Value.InstanceV("Signal", fields), "get", Nil) =>
+        fields.get("id") match
+          case Some(Value.IntV(id)) => Pure(signalGet(id))
+          case _                    => located("Signal handle missing id")
+      case (Value.InstanceV("Signal", fields), "set", List(v)) =>
+        fields.get("id") match
+          case Some(Value.IntV(id)) => signalSet(id, v); Pure(Value.UnitV)
+          case _                    => located("Signal handle missing id")
+      case (Value.InstanceV("Signal", fields), "apply", Nil) =>
+        // s() — sugar for s.get
+        fields.get("id") match
+          case Some(Value.IntV(id)) => Pure(signalGet(id))
+          case _                    => located("Signal handle missing id")
       // ── Class method (declared inside `class`/`case class` body) ──
       case (Value.InstanceV(typeName, fields), fname, fargs)
         if typeMethods.get(typeName).exists(_.contains(fname)) =>
@@ -1851,6 +3450,16 @@ class Interpreter(out: java.io.PrintStream = System.out, baseDir: Option[os.Path
         // Re-bind the method's closure with this instance's data fields so the
         // body can refer to them by name (`x`, `y`, …).
         callFun(fn.copy(closure = fn.closure ++ fields), fargs)
+      // ── Response builder methods (cookie sessions) ───────────────
+      // `resp.withSession(Map(...))` / `resp.clearSession()` attach a
+      // `setSession` field; the HTTP runtime turns that into a Set-Cookie.
+      // Must precede the InstanceV no-arg / enum-companion cases below so
+      // `clearSession()` and `withSession(...)` aren't shadowed by field
+      // lookup on the Response instance.
+      case (Value.InstanceV("Response", fields), "withSession", List(Value.MapV(m))) =>
+        Pure(Value.InstanceV("Response", fields + ("setSession" -> Value.MapV(m))))
+      case (Value.InstanceV("Response", fields), "clearSession", Nil) =>
+        Pure(Value.InstanceV("Response", fields + ("setSession" -> Value.MapV(Map.empty))))
       // ── Instance (case class / enum case) field access ───────────
       // No-arg defs and no-arg native fns are called automatically on access
       case (Value.InstanceV(_, fields), fname, Nil) =>
@@ -1883,6 +3492,7 @@ class Interpreter(out: java.io.PrintStream = System.out, baseDir: Option[os.Path
       case _: Value.ListV       => "List"
       case _: Value.OptionV     => "Option"
       case _: Value.MapV        => "Map"
+      case Value.TupleV(elems)  => s"Tuple${elems.length}"
       case Value.InstanceV(t,_) => t
       case _                    => "Any"
     extensions.get((typeName, method)).map { fn =>

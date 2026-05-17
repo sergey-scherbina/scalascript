@@ -40,7 +40,13 @@ class JvmGen(baseDir: Option[os.Path] = None):
 
   // ─── Module entry ─────────────────────────────────────────────────
 
+  /** Module-level `dependencies:` from the front-matter; threaded into
+   *  `inlineImport` so `<dep-name>://path` imports rewrite through the
+   *  resolver. */
+  private var moduleDeps: Map[String, String] = Map.empty
+
   def genModule(module: Module): String =
+    moduleDeps = module.manifest.map(_.dependencies).getOrElse(Map.empty)
     // Collect blocks first — including those pulled in by `[..](./x.ssc)`
     // imports — so the effect / mutual-TCO analysis sees the full picture.
     val blocks = collectBlocks(module.sections)
@@ -48,10 +54,14 @@ class JvmGen(baseDir: Option[os.Path] = None):
     analyzeMutualRecursion(blocks)
     val sb = StringBuilder()
 
-    // //> using directives from YAML front-matter
+    // //> using directives from YAML front-matter.  URL-shaped values
+    // are SSC-style `.ssc` deps (resolved by `ImportResolver`), not
+    // Maven coordinates — skip them here so scala-cli doesn't try to
+    // parse `cards:http://…` as a `g:a:v` triple and abort.
     module.manifest.foreach { m =>
       m.dependencies.foreach { (dep, version) =>
-        sb.append(s"""//> using dep "$dep:$version"\n""")
+        if !version.startsWith("http://") && !version.startsWith("https://") then
+          sb.append(s"""//> using dep "$dep:$version"\n""")
       }
     }
 
@@ -61,6 +71,7 @@ class JvmGen(baseDir: Option[os.Path] = None):
     sb.append(htmlDslTagBindings(collectUserTopNames(blocks)))
     if effectOps.nonEmpty                                  then sb.append(effectsRuntime)
     if mutualGroups.nonEmpty                               then sb.append(mutualTcoRuntime)
+    if blocksUseReactive(blocks)                           then sb.append(reactiveRuntime)
     if blocksUseRoutes(blocks) || frontmatterRoutes.nonEmpty then sb.append(serveRuntime)
 
     // Front-matter route declarations are emitted as `route(method, path)
@@ -164,7 +175,7 @@ class JvmGen(baseDir: Option[os.Path] = None):
           }
           Nil
         case imp: Content.Import =>
-          inlineImport(imp.path)
+          inlineImport(imp.path) ++ aliasBlock(imp.bindings).toList
         case _ => Nil
       }
       own ++ collectBlocks(s.subsections)
@@ -180,14 +191,31 @@ class JvmGen(baseDir: Option[os.Path] = None):
       val raw  = head + tail.mkString
       Some(if raw.head.isDigit then "_" + raw else raw)
 
+  /** For each `[Name as Alias]` binding, synthesise a `val Alias = Name`
+   *  declaration so the alias is available in the consumer's scope.
+   *  Whole-module inline means `Name` is already visible from the
+   *  import; the alias is an additional name pointing at the same value.
+   *  Returns `None` when no binding carries an alias. */
+  private def aliasBlock(bindings: List[ImportBinding]): Option[JvmGen.Block] =
+    import scala.meta.{dialects, *}
+    val aliases = bindings.collect {
+      case ImportBinding(name, Some(alias), _) => s"val $alias = $name"
+    }
+    if aliases.isEmpty then None
+    else
+      val src   = aliases.mkString("\n")
+      val input = Input.VirtualFile("<import-aliases>", src)
+      dialects.Scala3(input).parse[Source].toOption.map(s => JvmGen.Block(ScalaNode(s), src))
+
   /** Resolve a `[name](./path.ssc)` Markdown import: parse the referenced
    *  file and return its code blocks, transitively following its own imports.
    *  Each path is inlined at most once per JvmGen run. */
   private def inlineImport(path: String): List[JvmGen.Block] =
     import scalascript.parser.Parser
-    val resolved = baseDir match
-      case Some(dir) => dir / os.RelPath(path)
-      case None      => os.Path(path, os.pwd)
+    val base = baseDir.getOrElse(os.pwd)
+    val resolved =
+      try scalascript.imports.ImportResolver.resolve(path, base, moduleDeps)
+      catch case e: Throwable => throw new RuntimeException(s"Import $path: ${e.getMessage}")
     val key = resolved.toString
     if importedFiles.contains(key) then Nil
     else if !os.exists(resolved) then
@@ -206,6 +234,22 @@ class JvmGen(baseDir: Option[os.Path] = None):
   private def analyzeEffects(blocks: List[JvmGen.Block]): Unit =
     effectOps.clear()
     effectfulFuns.clear()
+
+    // Built-in `Async` effect — pre-populate `effectOps` so call sites
+    // like `Async.delay(...)` are CPS-rewritten exactly like user-declared
+    // ops, but only when the module actually mentions `Async.` or
+    // `runAsync(...)`.  Skipping the registration when absent keeps the
+    // emitted Scala lean for non-async modules.
+    if blocksUseAsync(blocks) then
+      effectOps ++= Set(
+        "Async.delay", "Async.async", "Async.await", "Async.parallel"
+      )
+    // Same pattern for the built-in `Storage` effect.
+    if blocksUseStorage(blocks) then
+      effectOps ++= Set(
+        "Storage.get", "Storage.put", "Storage.remove",
+        "Storage.has", "Storage.keys"
+      )
 
     val funBodies = mutable.Map[String, Term]()
 
@@ -270,7 +314,61 @@ class JvmGen(baseDir: Option[os.Path] = None):
       var found = false
       ScalaNode.fold(b.node) { tree =>
         if !found then tree.collect {
-          case Term.Apply.After_4_6_0(Term.Name("route"), _) => found = true
+          case Term.Apply.After_4_6_0(Term.Name("route"),        _) => found = true
+          case Term.Apply.After_4_6_0(Term.Name("onWebSocket"),  _) => found = true
+        }
+      }
+      found
+    }
+
+  /** True if any block references the built-in `Async` effect — either
+   *  via `runAsync(...)` or via a `Async.{delay,async,await,parallel}`
+   *  call.  Used to gate registration of the four Async op names in
+   *  `effectOps` (and therefore the emission of the effects runtime). */
+  private def blocksUseAsync(blocks: List[JvmGen.Block]): Boolean =
+    val asyncOps = Set("delay", "async", "await", "parallel")
+    blocks.exists { b =>
+      var found = false
+      ScalaNode.fold(b.node) { tree =>
+        if !found then tree.collect {
+          case Term.Apply.After_4_6_0(Term.Name("runAsync"),         _) => found = true
+          case Term.Apply.After_4_6_0(Term.Name("runAsyncParallel"), _) => found = true
+          case Term.Select(Term.Name("Async"), Term.Name(op))
+              if asyncOps(op) => found = true
+        }
+      }
+      found
+    }
+
+  /** True if any block uses the reactive primitives `Signal(...)`,
+   *  `computed { ... }`, or `effect { ... }`.  Gates emission of the
+   *  reactive runtime preamble in the generated Scala script. */
+  private def blocksUseReactive(blocks: List[JvmGen.Block]): Boolean =
+    blocks.exists { b =>
+      var found = false
+      ScalaNode.fold(b.node) { tree =>
+        if !found then tree.collect {
+          case Term.Apply.After_4_6_0(Term.Name("Signal"),   _) => found = true
+          case Term.Apply.After_4_6_0(Term.Name("computed"), _) => found = true
+          case Term.Apply.After_4_6_0(Term.Name("effect"),   _) => found = true
+        }
+      }
+      found
+    }
+
+  /** True if any block references the built-in `Storage` effect —
+   *  either via `runStorage` / `runEphemeralStorage` or a
+   *  `Storage.{get,put,remove,has,keys}` call. */
+  private def blocksUseStorage(blocks: List[JvmGen.Block]): Boolean =
+    val storageOps = Set("get", "put", "remove", "has", "keys")
+    blocks.exists { b =>
+      var found = false
+      ScalaNode.fold(b.node) { tree =>
+        if !found then tree.collect {
+          case Term.Apply.After_4_6_0(Term.Name("runStorage"),          _) => found = true
+          case Term.Apply.After_4_6_0(Term.Name("runEphemeralStorage"), _) => found = true
+          case Term.Select(Term.Name("Storage"), Term.Name(op))
+              if storageOps(op) => found = true
         }
       }
       found
@@ -479,12 +577,40 @@ class JvmGen(baseDir: Option[os.Path] = None):
 
   private def termUsesEffects(t: Term): Boolean = t match
     case Term.Apply.After_4_6_0(Term.Apply.After_4_6_0(Term.Name("handle"), _), _) => true
+    case Term.Apply.After_4_6_0(Term.Name("runAsync"), _)                         => true
+    case Term.Apply.After_4_6_0(Term.Name("runAsyncParallel"), _)                 => true
+    case Term.Apply.After_4_6_0(Term.Name("runStorage"), _)                       => true
+    case Term.Apply.After_4_6_0(Term.Name("runEphemeralStorage"), _)              => true
     case Term.Select(Term.Name(eff), Term.Name(op)) if isEffectOpRef(eff, op)     => true
     case Term.Apply.After_4_6_0(Term.Name(n), _) if isEffectfulFun(n)             => true
     case _ => t.children.exists {
       case tt: Term => termUsesEffects(tt)
       case _        => false
     }
+
+  /** True if the term needs codegen rewriting (effect machinery,
+   *  Focus → Lens expansion, Prism[O, V] → Prism literal) rather than
+   *  verbatim Scala source emission. */
+  private def termNeedsCustomEmit(t: Term): Boolean =
+    termUsesEffects(t) || termContainsFocus(t) || termContainsPrism(t)
+
+  private def termContainsFocus(t: Term): Boolean =
+    var found = false
+    def walk(n: Tree): Unit =
+      if !found then n match
+        case app: Term.Apply if isFocusApp(app) => found = true
+        case _ => n.children.foreach(walk)
+    walk(t)
+    found
+
+  private def termContainsPrism(t: Term): Boolean =
+    var found = false
+    def walk(n: Tree): Unit =
+      if !found then n match
+        case ta: Term.ApplyType if isPrismApplyType(ta) => found = true
+        case _ => n.children.foreach(walk)
+    walk(t)
+    found
 
   // ─── Default-param helpers ────────────────────────────────────────
   //
@@ -544,21 +670,25 @@ class JvmGen(baseDir: Option[os.Path] = None):
 
     // Effectful function: emit CPS body
     case d: Defn.Def if isEffectfulFun(d.name.value) =>
+      // Widen all params to `Any` — inside CPS the body operates on Any
+      // (Pure value | Free node) anyway, and Any-typed params let callers
+      // inside an enclosing CPS context (where they hand us Any-bound
+      // locals) typecheck without per-arg casts.
       val params = d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values).map { p =>
-        p.decltpe.map(t => s"${p.name.value}: ${t.syntax}").getOrElse(s"${p.name.value}: Any")
+        s"${p.name.value}: Any"
       }.mkString(", ")
       // Return type set to Any (could be a Free value).
       s"def ${d.name.value}($params): Any = ${emitCpsExpr(d.body)}"
 
     // val/var with effect-using rhs: transform rhs via emitExpr, which routes
     // `handle(...)` to its CPS rewrite.
-    case Defn.Val(mods, pats, tpe, rhs) if termUsesEffects(rhs) =>
+    case Defn.Val(mods, pats, tpe, rhs) if termNeedsCustomEmit(rhs) =>
       val mod = mods.map(_.syntax).mkString(" ")
       val modStr = if mod.isEmpty then "" else mod + " "
       val patsStr = pats.map(_.syntax).mkString(", ")
       val tpeStr = tpe.map(t => s": ${t.syntax}").getOrElse("")
       s"${modStr}val $patsStr$tpeStr = ${emitExpr(rhs)}"
-    case Defn.Var.After_4_7_2(mods, pats, tpe, rhs: Term) if termUsesEffects(rhs) =>
+    case Defn.Var.After_4_7_2(mods, pats, tpe, rhs: Term) if termNeedsCustomEmit(rhs) =>
       val mod = mods.map(_.syntax).mkString(" ")
       val modStr = if mod.isEmpty then "" else mod + " "
       val patsStr = pats.map(_.syntax).mkString(", ")
@@ -747,11 +877,235 @@ class JvmGen(baseDir: Option[os.Path] = None):
           emitHandleForm(bodyArgClause.values.head.asInstanceOf[Term], pf.cases)
         case _ => "??? /* invalid handle */"
 
-    // If the term has nested effect content, recursively process it.
-    case _ if termUsesEffects(term) => emitExprDeep(term)
+    // runAsync(body) — built-in Async-effect driver.  Body is CPS-emitted
+    // so Async.* ops build a Free tree that `_runAsync` walks against the
+    // default handler.
+    case Term.Apply.After_4_6_0(Term.Name("runAsync"), bodyArgClause)
+        if bodyArgClause.values.size == 1 =>
+      s"_runAsync(() => ${emitCpsExpr(bodyArgClause.values.head.asInstanceOf[Term])})"
+
+    // runAsyncParallel(body) — real-thread variant, same Async.* API
+    case Term.Apply.After_4_6_0(Term.Name("runAsyncParallel"), bodyArgClause)
+        if bodyArgClause.values.size == 1 =>
+      s"_runAsyncParallel(() => ${emitCpsExpr(bodyArgClause.values.head.asInstanceOf[Term])})"
+
+    // Storage handlers
+    case Term.Apply.After_4_6_0(Term.Name("runStorage"), bodyArgClause)
+        if bodyArgClause.values.size >= 1 =>
+      val bodyJs = emitCpsExpr(bodyArgClause.values.head.asInstanceOf[Term])
+      val pathJs = bodyArgClause.values.lift(1)
+        .map(p => emitExpr(p.asInstanceOf[Term]))
+        .getOrElse("null")
+      s"_runStorage(() => $bodyJs, $pathJs)"
+    case Term.Apply.After_4_6_0(Term.Name("runEphemeralStorage"), bodyArgClause)
+        if bodyArgClause.values.size == 1 =>
+      s"_runStorage(() => ${emitCpsExpr(bodyArgClause.values.head.asInstanceOf[Term])}, null)"
+
+    // Focus[T](_.a.b) / Focus(_.a.b) — lower to a Lens(get, set) literal.
+    // The lambda body's field-access chain becomes nested get + nested copy.
+    case app: Term.Apply if isFocusApp(app) =>
+      emitFocus(app)
+
+    // Prism[Outer, Variant] — lower to a Prism(getOption, reverseGet) literal.
+    case ta: Term.ApplyType if isPrismApplyType(ta) =>
+      emitPrism(ta)
+
+    // If the term has nested effect or Focus / Prism content, walk children.
+    case _ if termNeedsCustomEmit(term) => emitExprDeep(term)
 
     // Otherwise emit Scala source as-is.
     case other => other.syntax
+
+  private def isFocusApp(app: Term.Apply): Boolean = app.fun match
+    case Term.Name("Focus")                                => true
+    case ta: Term.ApplyType                                =>
+      ta.fun match { case Term.Name("Focus") => true; case _ => false }
+    case _                                                 => false
+
+  private def isPrismApplyType(ta: Term.ApplyType): Boolean = ta.fun match
+    case Term.Name("Prism") => true
+    case _                  => false
+
+  /** Lower `Prism[Outer, Variant]` to a `Prism(getOption, reverseGet)` literal
+   *  that pattern-matches on the variant type. */
+  private def emitPrism(ta: Term.ApplyType): String =
+    ta.argClause.values match
+      case List(outerType, variantType) =>
+        val outer   = outerType.syntax
+        val variant = variantType.syntax
+        val label   = s"Prism[?, $variant]"
+        s"""Prism[$outer, $variant]((s: $outer) => s match { case _v: $variant => Some(_v); case _ => None }, (a: $variant) => a, "$label")"""
+      case _ =>
+        "??? /* Prism expects two type arguments: Prism[Outer, Variant] */"
+
+  /** Lower `Focus[T](_.a.b)` to `Lens[T, _]((s: T) => s.a.b, (s: T, v) =>
+   *  s.copy(a = s.a.copy(b = v)))`. `T` is taken from `Focus[T]` if present;
+   *  otherwise the lambda's explicit param type is used; otherwise we emit
+   *  an unannotated form (and rely on Scala 3 inference, which usually
+   *  needs an outer type ascription to succeed). */
+  /** A step in an optic path: a field-name select, an Option-unwrap
+   *  (`.some`), or a collection traversal (`.each`). */
+  private enum FocusStep:
+    case Field(name: String)
+    case SomeUnwrap
+    case EachStep
+
+  private def emitFocus(app: Term.Apply): String =
+    val typeArg: Option[String] = app.fun match
+      case ta: Term.ApplyType =>
+        ta.argClause.values.headOption.map(_.syntax)
+      case _ => None
+    app.argClause.values match
+      case List(lambda) =>
+        val stepsAndExplicitTpe: Option[(List[FocusStep], Option[String])] = lambda match
+          case Term.AnonymousFunction(body) =>
+            extractPathSteps(body, _.isInstanceOf[Term.Placeholder]).map(_ -> None)
+          case Term.Function.After_4_6_0(paramClause, body) =>
+            paramClause.values.headOption.flatMap { p =>
+              extractPathSteps(body, {
+                case Term.Name(n) => n == p.name.value
+                case _            => false
+              }).map(_ -> p.decltpe.map(_.syntax))
+            }
+          case _ => None
+        stepsAndExplicitTpe match
+          case Some((steps, explicitTpe)) if steps.nonEmpty =>
+            val tpe = typeArg.orElse(explicitTpe).getOrElse("Any")
+            if steps.exists(_ == FocusStep.EachStep) then
+              buildTraversalLiteral(tpe, steps)
+            else if steps.exists(_ == FocusStep.SomeUnwrap) then
+              buildOptionalLiteral(tpe, steps)
+            else
+              buildLensLiteral(tpe, steps.collect { case FocusStep.Field(n) => n })
+          case _ =>
+            "??? /* Focus: expected a field-access lambda like _.field.subfield */"
+      case _ =>
+        "??? /* Focus expects exactly one lambda argument */"
+
+  private def extractPathSteps(body: Term, isBase: Term => Boolean): Option[List[FocusStep]] =
+    def loop(t: Term, acc: List[FocusStep]): Option[List[FocusStep]] = t match
+      case Term.Select(qual, Term.Name("some")) => loop(qual, FocusStep.SomeUnwrap :: acc)
+      case Term.Select(qual, Term.Name("each")) => loop(qual, FocusStep.EachStep :: acc)
+      case Term.Select(qual, name)              => loop(qual, FocusStep.Field(name.value) :: acc)
+      case other if isBase(other)               => Some(acc)
+      case _                                     => None
+    loop(body, Nil)
+
+  /** Render an optic path back into its source-like form for use in the
+   *  optic's `toString` label (e.g. `Lens(_.a.b)`, `Optional(_.x.some.y)`). */
+  private def pathLabel(prefix: String, steps: List[FocusStep]): String =
+    val parts = steps.map {
+      case FocusStep.Field(n)   => n
+      case FocusStep.SomeUnwrap => "some"
+      case FocusStep.EachStep   => "each"
+    }
+    s"""$prefix(_.${parts.mkString(".")})"""
+
+  /** Emit a Lens literal whose setter walks `path` and rebuilds nested copies. */
+  private def buildLensLiteral(tpe: String, path: List[String]): String =
+    val getter = s"(s: $tpe) => s.${path.mkString(".")}"
+    // Build the nested copy from outside in:
+    //   path = [a]            =>  s.copy(a = v)
+    //   path = [a, b]         =>  s.copy(a = s.a.copy(b = v))
+    //   path = [a, b, c]      =>  s.copy(a = s.a.copy(b = s.a.b.copy(c = v)))
+    def buildSet(prefix: String, remaining: List[String]): String = remaining match
+      case last :: Nil       => s"$prefix.copy($last = v)"
+      case head :: rest      => s"$prefix.copy($head = ${buildSet(s"$prefix.$head", rest)})"
+      case Nil               => "v"
+    val setter = s"(s: $tpe, v) => ${buildSet("s", path)}"
+    val label  = pathLabel("Lens", path.map(FocusStep.Field(_)))
+    s"""Lens($getter, $setter, "$label")"""
+
+  /** Emit an Optional literal for a path containing `.some` steps. Get/set
+   *  thread the value through `Option.flatMap` / `Option.map` and rebuild
+   *  copies along the way; missing layers turn the whole operation into a
+   *  no-op for set / modify, and `None` for getOption. */
+  private def buildOptionalLiteral(tpe: String, steps: List[FocusStep]): String =
+    val getter = s"(s: $tpe) => ${emitOpticGet(steps, "s", 0)}"
+    val setter = s"(s: $tpe, v) => ${emitOpticSet(steps, "s", "v", 0)}"
+    val label  = pathLabel("Optional", steps)
+    s"""Optional($getter, $setter, "$label")"""
+
+  /** Build the `getOption` expression. Splits on the first SomeUnwrap; if
+   *  more SomeUnwraps follow we use `flatMap`, otherwise `map`. Field-only
+   *  segments are emitted as chained `.f1.f2.…` accessors. */
+  private def emitOpticGet(steps: List[FocusStep], in: String, counter: Int): String =
+    val firstSome = steps.indexOf(FocusStep.SomeUnwrap)
+    if firstSome < 0 then
+      val fields = steps.collect { case FocusStep.Field(n) => n }
+      if fields.isEmpty then in else s"$in.${fields.mkString(".")}"
+    else
+      val prefix = steps.take(firstSome).collect { case FocusStep.Field(n) => n }
+      val suffix = steps.drop(firstSome + 1)
+      val prefixExpr = if prefix.isEmpty then in else s"$in.${prefix.mkString(".")}"
+      if suffix.isEmpty then prefixExpr
+      else
+        val combinator = if suffix.contains(FocusStep.SomeUnwrap) then "flatMap" else "map"
+        val v = s"_p$counter"
+        s"$prefixExpr.$combinator($v => ${emitOpticGet(suffix, v, counter + 1)})"
+
+  /** Build the `set` expression: nested `.copy(field = ...)` interleaved with
+   *  `.map(p => …)` at every SomeUnwrap. */
+  private def emitOpticSet(steps: List[FocusStep], target: String, valExpr: String, counter: Int): String = steps match
+    case Nil                                  => valExpr
+    case FocusStep.Field(n) :: Nil            => s"$target.copy($n = $valExpr)"
+    case FocusStep.Field(n) :: rest           =>
+      s"$target.copy($n = ${emitOpticSet(rest, s"$target.$n", valExpr, counter)})"
+    case FocusStep.SomeUnwrap :: Nil          => s"$target.map(_ => $valExpr)"
+    case FocusStep.SomeUnwrap :: rest         =>
+      val v = s"_p$counter"
+      s"$target.map($v => ${emitOpticSet(rest, v, valExpr, counter + 1)})"
+    case FocusStep.EachStep :: _              =>
+      // Only reached via a misuse of buildOptionalLiteral on a path that
+      // ought to be a Traversal — keep behaviour consistent and stop.
+      target
+
+  /** Emit a Traversal literal for a path containing at least one `EachStep`.
+   *  `toList` walks the path producing a flat `List[A]`; `modify` applies
+   *  a function to every focus and rebuilds the structure. The second
+   *  lambda's `f` parameter is left unannotated so Scala 3 can infer
+   *  `A` from the leaf type that `toList` produces. */
+  private def buildTraversalLiteral(tpe: String, steps: List[FocusStep]): String =
+    val toListExpr = s"(s: $tpe) => ${emitTraversalGet(steps, "s", 0)}"
+    val modifyExpr = s"(s: $tpe, _f) => ${emitTraversalModify(steps, "s", "_f", 0)}"
+    val label      = pathLabel("Traversal", steps)
+    s"""Traversal($toListExpr, $modifyExpr, "$label")"""
+
+  /** Build the `toList` expression. Splits on the first `.some` or `.each`
+   *  step; subsequent `.some` / `.each` chain via `List.flatMap`. */
+  private def emitTraversalGet(steps: List[FocusStep], in: String, counter: Int): String =
+    val firstSplit = steps.indexWhere(s => s == FocusStep.SomeUnwrap || s == FocusStep.EachStep)
+    if firstSplit < 0 then
+      val fields = steps.collect { case FocusStep.Field(n) => n }
+      val accessed = if fields.isEmpty then in else s"$in.${fields.mkString(".")}"
+      s"List($accessed)"
+    else
+      val prefix = steps.take(firstSplit).collect { case FocusStep.Field(n) => n }
+      val splitStep = steps(firstSplit)
+      val suffix = steps.drop(firstSplit + 1)
+      val prefixExpr = if prefix.isEmpty then in else s"$in.${prefix.mkString(".")}"
+      val v = s"_p$counter"
+      val recurExpr = emitTraversalGet(suffix, v, counter + 1)
+      splitStep match
+        case FocusStep.SomeUnwrap => s"$prefixExpr.toList.flatMap($v => $recurExpr)"
+        case FocusStep.EachStep   => s"$prefixExpr.flatMap($v => $recurExpr)"
+        case _                    => prefixExpr
+
+  /** Build the `modify` expression: `.copy(field = …)` for FieldSteps,
+   *  `.map(p => …)` for `.some` / `.each` steps, applying `f` at the leaf. */
+  private def emitTraversalModify(steps: List[FocusStep], target: String, fName: String, counter: Int): String = steps match
+    case Nil                                  => s"$fName($target)"
+    case FocusStep.Field(n) :: Nil            => s"$target.copy($n = $fName($target.$n))"
+    case FocusStep.Field(n) :: rest           =>
+      s"$target.copy($n = ${emitTraversalModify(rest, s"$target.$n", fName, counter)})"
+    case FocusStep.SomeUnwrap :: Nil          => s"$target.map($fName)"
+    case FocusStep.SomeUnwrap :: rest         =>
+      val v = s"_p$counter"
+      s"$target.map($v => ${emitTraversalModify(rest, v, fName, counter + 1)})"
+    case FocusStep.EachStep :: Nil            => s"$target.map($fName)"
+    case FocusStep.EachStep :: rest           =>
+      val v = s"_p$counter"
+      s"$target.map($v => ${emitTraversalModify(rest, v, fName, counter + 1)})"
 
   /** Emit a term that contains effect-related content, walking children. */
   private def emitExprDeep(term: Term): String = term match
@@ -763,10 +1117,14 @@ class JvmGen(baseDir: Option[os.Path] = None):
       sb2.toString
     case t: Term.If =>
       s"if ${emitExpr(t.cond)} then ${emitExpr(t.thenp)} else ${emitExpr(t.elsep)}"
+    case ta: Term.ApplyType if isPrismApplyType(ta) =>
+      emitPrism(ta)
     case app: Term.Apply =>
       app.fun match
         case Term.Apply.After_4_6_0(Term.Name("handle"), _) =>
           emitExpr(app)  // re-route to handle path
+        case _ if isFocusApp(app) =>
+          emitFocus(app)
         case Term.Select(qual, Term.Name(m)) =>
           val q = emitExpr(qual)
           val args = app.argClause.values.map(emitExpr).mkString(", ")
@@ -915,7 +1273,10 @@ class JvmGen(baseDir: Option[os.Path] = None):
         val tpe = p.decltpe.map(t => s": ${t.syntax}").getOrElse(": Any")
         s"${p.name.value}${tpe}"
       }
-      val wrap = if params.length == 1 then params.head else s"(${params.mkString(", ")})"
+      // Always paren-wrap: a single-param lambda with a type ascription
+      // (`n: Any => body`) would be parsed as `n` of type `Any => body`,
+      // not as a one-parameter lambda.  Parens disambiguate.
+      val wrap = s"(${params.mkString(", ")})"
       s"$wrap => ${emitCpsExpr(body)}"
 
     // Nested handle inside CPS body
@@ -927,6 +1288,25 @@ class JvmGen(baseDir: Option[os.Path] = None):
         case List(pf: Term.PartialFunction) =>
           emitHandleForm(bodyArgClause.values.head.asInstanceOf[Term], pf.cases)
         case _ => "??? /* invalid handle */"
+
+    // Nested runAsync inside CPS body — drive the inner Free tree to a
+    // plain value, then continue the outer continuation with it.
+    case Term.Apply.After_4_6_0(Term.Name("runAsync"), bodyArgClause)
+        if bodyArgClause.values.size == 1 =>
+      s"_runAsync(() => ${emitCpsExpr(bodyArgClause.values.head.asInstanceOf[Term])})"
+    case Term.Apply.After_4_6_0(Term.Name("runAsyncParallel"), bodyArgClause)
+        if bodyArgClause.values.size == 1 =>
+      s"_runAsyncParallel(() => ${emitCpsExpr(bodyArgClause.values.head.asInstanceOf[Term])})"
+    case Term.Apply.After_4_6_0(Term.Name("runStorage"), bodyArgClause)
+        if bodyArgClause.values.size >= 1 =>
+      val bodyJs = emitCpsExpr(bodyArgClause.values.head.asInstanceOf[Term])
+      val pathJs = bodyArgClause.values.lift(1)
+        .map(p => emitExpr(p.asInstanceOf[Term]))
+        .getOrElse("null")
+      s"_runStorage(() => $bodyJs, $pathJs)"
+    case Term.Apply.After_4_6_0(Term.Name("runEphemeralStorage"), bodyArgClause)
+        if bodyArgClause.values.size == 1 =>
+      s"_runStorage(() => ${emitCpsExpr(bodyArgClause.values.head.asInstanceOf[Term])}, null)"
 
     case app: Term.Apply => emitCpsApply(app)
 
@@ -973,10 +1353,25 @@ class JvmGen(baseDir: Option[os.Path] = None):
           s"""_perform("$eff", "$op"$argTail)"""
         }
 
-      // Method call on a non-effectful value: bind qual + args, dispatch
+      // Curried foldLeft: xs.foldLeft(init)(fn) — route through `_seqFoldLeft`
+      // so an effectful `fn` is sequenced step by step instead of leaving a
+      // Free tree at every accumulator step.
+      case Term.Apply.After_4_6_0(Term.Select(qual, Term.Name("foldLeft")), initArgClause) =>
+        bindArgsCps(qual :: initArgClause.values ++ args) { vs =>
+          val q = vs.head; val init = vs(1); val f = vs(2)
+          s"_seqFoldLeft($q.asInstanceOf[List[Any]], $init, $f.asInstanceOf[(Any, Any) => Any])"
+        }
+
+      // Method call: bind qual + args, then runtime-dispatch.  Inside CPS
+      // every value is statically typed `Any`, so we can't let the Scala
+      // typer resolve methods like `.map` directly — `_dispatch` does it
+      // at runtime and threads Free results through `_seq*` helpers for
+      // HOFs whose callbacks may produce a Free tree.
       case Term.Select(qual, Term.Name(method)) =>
         bindArgsCps(qual :: args) { vs =>
-          s"${vs.head}.${method}(${vs.tail.mkString(", ")})"
+          val argList = vs.tail.mkString(", ")
+          val argSeq  = if vs.tail.isEmpty then "Nil" else s"List($argList)"
+          s"""_dispatch(${vs.head}, "${method}", $argSeq)"""
         }
 
       case fun =>
@@ -1075,15 +1470,35 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |// Mirrors the interpreter / JS backends: a Double whose value is an
        |// integer renders without the trailing ".0" (e.g. 4.0 → "4").
        |def _show(v: Any): String = v match
+       |  case null      => "null"
        |  case d: Double => if d == d.toLong.toDouble then d.toLong.toString else d.toString
        |  case s: String => s
-       |  case null      => "null"
        |  // _Raw HTML nodes (from `raw(...)`, html"...", or DSL tag fns) render
        |  // as their inner string so `println(div(...))` prints the markup.
        |  case r: _Raw   => r.html
        |  // Render a Range like a List so xs.indices and similar lazy
        |  // iterables match the interpreter / JS output ("List(0, 1, 2)").
        |  case r: scala.collection.immutable.Range => r.toList.map(_show).mkString("List(", ", ", ")")
+       |  // Match interpreter/JS rendering of Option, Map, List, Tuple, and
+       |  // case-class instances — recursively `_show` children so a Double
+       |  // inside Some(Circle(5.0)) still drops its trailing `.0`.
+       |  case None       => "None"
+       |  case Some(inner) => "Some(" + _show(inner) + ")"
+       |  case m: Map[?, ?] =>
+       |    if m.isEmpty then "Map()"
+       |    else m.iterator.map((k, vv) => _show(k) + " -> " + _show(vv)).mkString("Map(", ", ", ")")
+       |  case t: scala.Tuple =>
+       |    "(" + t.productIterator.map(_show).mkString(", ") + ")"
+       |  case xs: List[?] => xs.map(_show).mkString("List(", ", ", ")")
+       |  // Optics carry a printable label as their last field; route through
+       |  // toString so callers see `Lens(_.a.b)` instead of the function refs.
+       |  case l: Lens[?, ?]      => l.toString
+       |  case o: Optional[?, ?]  => o.toString
+       |  case t: Traversal[?, ?] => t.toString
+       |  case p: Prism[?, ?]     => p.toString
+       |  case p: Product if p.productArity > 0 =>
+       |    p.productPrefix + "(" + p.productIterator.map(_show).mkString(", ") + ")"
+       |  case p: Product => p.productPrefix
        |  case other     => other.toString
        |
        |def println(v: Any): Unit = scala.Predef.println(_show(v))
@@ -1124,6 +1539,57 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |  sb.toString
        |
        |def escape(s: Any): String = _htmlEscape(_show(s))
+       |
+       |/** `collectCss(comp1, comp2, ...)` — concatenate each argument's
+       | *  `css` field into one CSS string for a page-level <style>.
+       | *  Convention helper for component-style .ssc files (see SPEC §8.4).
+       | *  Each argument is expected to be a Scala `object` exposing a
+       | *  `val css: String`; reflective access keeps the helper free of
+       | *  a shared component supertype.  Anything without a no-arg
+       | *  `css` method that returns a String is silently skipped. */
+       |def collectCss(parts: Any*): String =
+       |  parts.flatMap { part =>
+       |    try
+       |      val m = part.getClass.getMethod("css")
+       |      m.invoke(part) match
+       |        case s: String => Some(s)
+       |        case _         => None
+       |    catch case _: Throwable => None
+       |  }.mkString("\n")
+       |
+       |/** `collectJs(comp1, comp2, ...)` — same shape as `collectCss`,
+       | *  reads each argument's `val js: String` for a page <script>. */
+       |def collectJs(parts: Any*): String =
+       |  parts.flatMap { part =>
+       |    try
+       |      val m = part.getClass.getMethod("js")
+       |      m.invoke(part) match
+       |        case s: String => Some(s)
+       |        case _         => None
+       |    catch case _: Throwable => None
+       |  }.mkString("\n")
+       |
+       |/** `scope("Card")` — class-name suffix helper for component-style
+       | *  .ssc files (see SPEC §8.4).
+       | *
+       | *    val s = scope("Card")
+       | *    val css = s.css(".title { color: blue }")  // ".title__Card { color: blue }"
+       | *    val c   = s.cls("title")                   // "title__Card"
+       | *
+       | *  Two components can both write bare `.title` without their
+       | *  concatenated CSS colliding.  The CSS rewriter is a simple
+       | *  `\.identifier` regex pass; class chains (`.a.b`) work, but
+       | *  `.ident` inside `url(...)` would also be rewritten — keep URL
+       | *  strings free of bare-identifier dots if you depend on them. */
+       |class _Scope(val name: String):
+       |  private val pat = "\\.([A-Za-z_][A-Za-z0-9_-]*)".r
+       |  def css(s: String): String =
+       |    pat.replaceAllIn(s, m =>
+       |      java.util.regex.Matcher.quoteReplacement("." + m.group(1) + "__" + name)
+       |    )
+       |  def cls(n: String): String = n + "__" + name
+       |
+       |def scope(name: String): _Scope = _Scope(name)
        |
        |// Used by heading-bound html-block emission: escape unless raw(...).
        |def _html_interp(v: Any): String = v match
@@ -1213,6 +1679,225 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |// Wall-clock for benchmarks — matches ScalaScript's `nanoTime()` primitive.
        |def nanoTime(): Long = java.lang.System.nanoTime()
        |
+       |// ── Lens runtime — pure-functional optic over case-class field paths ──
+       |case class Lens[S, A](get: S => A, set: (S, A) => S, _label: String = ""):
+       |  override def toString: String = if _label.isEmpty then "Lens" else _label
+       |  def modify(s: S, f: A => A): S = set(s, f(get(s)))
+       |  def andThen[B](other: Lens[A, B]): Lens[S, B] =
+       |    Lens(s => other.get(get(s)), (s, b) => set(s, other.set(get(s), b)))
+       |  def andThen[B](other: Optional[A, B]): Optional[S, B] =
+       |    Optional(s => other.getOption(get(s)), (s, b) => set(s, other.set(get(s), b)))
+       |  def andThen[B](other: Traversal[A, B]): Traversal[S, B] =
+       |    Traversal(
+       |      s => other.toList(get(s)),
+       |      (s, f) => set(s, other.modifyF(get(s), f))
+       |    )
+       |
+       |// ── Prism runtime — sum-type optic, conditional get / set / modify ────
+       |case class Prism[S, A](getOption: S => Option[A], reverseGet: A => S, _label: String = ""):
+       |  override def toString: String = if _label.isEmpty then "Prism" else _label
+       |  def set(s: S, a: A): S = getOption(s) match
+       |    case Some(_) => reverseGet(a)
+       |    case None    => s
+       |  def modify(s: S, f: A => A): S = getOption(s) match
+       |    case Some(a) => reverseGet(f(a))
+       |    case None    => s
+       |  def andThen[B](other: Prism[A, B]): Prism[S, B] =
+       |    Prism(
+       |      s => getOption(s).flatMap(other.getOption),
+       |      b => reverseGet(other.reverseGet(b))
+       |    )
+       |
+       |// ── Optional runtime — partial optic over a path with `.some` ─────
+       |case class Optional[S, A](getOption: S => Option[A], set: (S, A) => S, _label: String = ""):
+       |  override def toString: String = if _label.isEmpty then "Optional" else _label
+       |  def modify(s: S, f: A => A): S = getOption(s) match
+       |    case Some(a) => set(s, f(a))
+       |    case None    => s
+       |  def andThen[B](other: Optional[A, B]): Optional[S, B] =
+       |    Optional(
+       |      s => getOption(s).flatMap(other.getOption),
+       |      (s, b) => getOption(s) match
+       |        case Some(a) => set(s, other.set(a, b))
+       |        case None    => s
+       |    )
+       |  def andThen[B](other: Lens[A, B]): Optional[S, B] =
+       |    Optional(
+       |      s => getOption(s).map(other.get),
+       |      (s, b) => getOption(s) match
+       |        case Some(a) => set(s, other.set(a, b))
+       |        case None    => s
+       |    )
+       |  def andThen[B](other: Traversal[A, B]): Traversal[S, B] =
+       |    Traversal(
+       |      s => getOption(s).toList.flatMap(other.toList),
+       |      (s, f) => getOption(s) match
+       |        case Some(a) => set(s, other.modifyF(a, f))
+       |        case None    => s
+       |    )
+       |
+       |// ── Traversal runtime — multi-foci optic for `.each` paths ────────
+       |case class Traversal[S, A](toList: S => List[A], modifyF: (S, A => A) => S, _label: String = ""):
+       |  override def toString: String = if _label.isEmpty then "Traversal" else _label
+       |  def getAll(s: S): List[A] = toList(s)
+       |  def modify(s: S, f: A => A): S = modifyF(s, f)
+       |  def set(s: S, a: A): S = modifyF(s, _ => a)
+       |  def andThen[B](other: Traversal[A, B]): Traversal[S, B] =
+       |    Traversal(
+       |      s => toList(s).flatMap(other.toList),
+       |      (s, f) => modifyF(s, a => other.modifyF(a, f))
+       |    )
+       |  def andThen[B](other: Lens[A, B]): Traversal[S, B] =
+       |    Traversal(
+       |      s => toList(s).map(other.get),
+       |      (s, f) => modifyF(s, a => other.set(a, f(other.get(a))))
+       |    )
+       |  def andThen[B](other: Optional[A, B]): Traversal[S, B] =
+       |    Traversal(
+       |      s => toList(s).flatMap(a => other.getOption(a).toList),
+       |      (s, f) => modifyF(s, a => other.modify(a, f))
+       |    )
+       |
+       |// Environment variable reader — same surface on all three backends.
+       |def getenv(key: String, defaultVal: String = ""): String =
+       |  val v = java.lang.System.getenv(key)
+       |  if v == null || v.isEmpty then defaultVal else v
+       |
+       |// ── Rate limiting ─────────────────────────────────────────────
+       |// Fixed-window counter, process-local.  Returns true if allowed
+       |// (and bumps the counter), false if `limit` requests already
+       |// happened within `windowSeconds`.
+       |private case class _RateBucket(count: java.util.concurrent.atomic.AtomicLong, windowStartMs: Long)
+       |private val _rateLimitBuckets = new java.util.concurrent.ConcurrentHashMap[String, _RateBucket]()
+       |def rateLimit(key: String, limit: Long, windowSeconds: Long): Boolean =
+       |  val now      = java.lang.System.currentTimeMillis()
+       |  val windowMs = windowSeconds * 1000L
+       |  val current  = _rateLimitBuckets.get(key)
+       |  if current == null || now - current.windowStartMs >= windowMs then
+       |    _rateLimitBuckets.put(key, _RateBucket(java.util.concurrent.atomic.AtomicLong(1L), now))
+       |    1L <= limit
+       |  else current.count.incrementAndGet() <= limit
+       |def rateLimitReset(key: String): Unit =
+       |  _rateLimitBuckets.remove(key)
+       |
+       |// ── TOTP / 2FA (RFC 6238) ─────────────────────────────────────
+       |// HMAC-SHA1, 30-second step, 6-digit code, base32 secret —
+       |// compatible with Google Authenticator etc.
+       |private val _totpAlphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567"
+       |private val _totpDecodeTable: Array[Int] =
+       |  val t = Array.fill(128)(-1)
+       |  _totpAlphabet.zipWithIndex.foreach((c, i) => t(c.toInt) = i)
+       |  t
+       |private def _base32Encode(bytes: Array[Byte]): String =
+       |  val sb = StringBuilder()
+       |  var buf = 0L
+       |  var bits = 0
+       |  for b <- bytes do
+       |    buf = (buf << 8) | (b & 0xffL)
+       |    bits += 8
+       |    while bits >= 5 do
+       |      bits -= 5
+       |      sb.append(_totpAlphabet.charAt(((buf >> bits) & 0x1f).toInt))
+       |  if bits > 0 then sb.append(_totpAlphabet.charAt(((buf << (5 - bits)) & 0x1f).toInt))
+       |  sb.toString
+       |private def _base32Decode(s: String): Array[Byte] =
+       |  val clean = s.toUpperCase.filter(c => c != '=' && c != ' ')
+       |  val out   = scala.collection.mutable.ArrayBuffer.empty[Byte]
+       |  var buf   = 0L
+       |  var bits  = 0
+       |  for c <- clean do
+       |    val v = if c.toInt < 128 then _totpDecodeTable(c.toInt) else -1
+       |    if v >= 0 then
+       |      buf = (buf << 5) | v.toLong
+       |      bits += 5
+       |      if bits >= 8 then
+       |        bits -= 8
+       |        out += ((buf >> bits) & 0xff).toByte
+       |  out.toArray
+       |def totpSecret(): String =
+       |  val bytes = new Array[Byte](20)
+       |  java.security.SecureRandom().nextBytes(bytes)
+       |  _base32Encode(bytes)
+       |def totpUri(secret: String, account: String, issuer: String = ""): String =
+       |  val labelIssuer = if issuer.isEmpty then "" else issuer + ":"
+       |  val label = java.net.URLEncoder.encode(labelIssuer + account, "UTF-8").replace("+", "%20")
+       |  val params = scala.collection.mutable.LinkedHashMap[String, String]()
+       |  params("secret")    = secret
+       |  params("algorithm") = "SHA1"
+       |  params("digits")    = "6"
+       |  params("period")    = "30"
+       |  if issuer.nonEmpty then params("issuer") = issuer
+       |  val qs = params.iterator.map((k, v) =>
+       |    java.net.URLEncoder.encode(k, "UTF-8") + "=" + java.net.URLEncoder.encode(v, "UTF-8")
+       |  ).mkString("&")
+       |  s"otpauth://totp/$label?$qs"
+       |private def _totpCodeAt(secret: String, counter: Long): String =
+       |  val key = _base32Decode(secret)
+       |  val buf = new Array[Byte](8)
+       |  var c = counter
+       |  var i = 7
+       |  while i >= 0 do
+       |    buf(i) = (c & 0xff).toByte
+       |    c >>>= 8
+       |    i -= 1
+       |  val mac = javax.crypto.Mac.getInstance("HmacSHA1")
+       |  mac.init(javax.crypto.spec.SecretKeySpec(key, "HmacSHA1"))
+       |  val h = mac.doFinal(buf)
+       |  val off = h(h.length - 1) & 0x0f
+       |  val bin = ((h(off)     & 0x7f) << 24) |
+       |            ((h(off + 1) & 0xff) << 16) |
+       |            ((h(off + 2) & 0xff) <<  8) |
+       |             (h(off + 3) & 0xff)
+       |  f"${bin % 1000000}%06d"
+       |def totpCode(secret: String): String =
+       |  _totpCodeAt(secret, java.lang.System.currentTimeMillis() / 1000L / 30L)
+       |def totpValid(secret: String, code: String, skew: Int = 1): Boolean =
+       |  if code == null || code.length != 6 || !code.forall(_.isDigit) then false
+       |  else
+       |    val now = java.lang.System.currentTimeMillis() / 1000L / 30L
+       |    var i = -skew
+       |    var ok = false
+       |    while i <= skew do
+       |      val expected = _totpCodeAt(secret, now + i)
+       |      if expected.length == code.length then
+       |        var diff = 0
+       |        var j = 0
+       |        while j < expected.length do
+       |          diff |= expected.charAt(j) ^ code.charAt(j)
+       |          j += 1
+       |        if diff == 0 then ok = true
+       |      i += 1
+       |    ok
+       |
+       |// ── Password hashing (PBKDF2-HMAC-SHA256) ──────────────────────
+       |// Same algorithm + encoded format as scalascript.server.Password
+       |// so a hash minted on one backend verifies on another.  Lives in
+       |// the base runtime (not gated on route usage) so non-server code
+       |// can still hash passwords (e.g. seeding a user table).
+       |def hashPassword(password: String, iter: Int = 200000): String =
+       |  val salt = new Array[Byte](16)
+       |  java.security.SecureRandom().nextBytes(salt)
+       |  val key = _pbkdf2(password, salt, iter, 256)
+       |  val b64 = java.util.Base64.getEncoder.withoutPadding
+       |  s"pbkdf2$$iter=$iter$$${b64.encodeToString(salt)}$$${b64.encodeToString(key)}"
+       |def verifyPassword(password: String, encoded: String): Boolean =
+       |  try
+       |    val parts = encoded.split('$')
+       |    if parts.length != 4 || parts(0) != "pbkdf2" then false
+       |    else
+       |      val iter     = parts(1).stripPrefix("iter=").toInt
+       |      val b64      = java.util.Base64.getDecoder
+       |      val salt     = b64.decode(parts(2))
+       |      val expected = b64.decode(parts(3))
+       |      val actual   = _pbkdf2(password, salt, iter, expected.length * 8)
+       |      java.security.MessageDigest.isEqual(expected, actual)
+       |  catch case _: Throwable => false
+       |private def _pbkdf2(password: String, salt: Array[Byte], iter: Int, bits: Int): Array[Byte] =
+       |  val spec    = javax.crypto.spec.PBEKeySpec(password.toCharArray, salt, iter, bits)
+       |  val factory = javax.crypto.SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256")
+       |  try factory.generateSecret(spec).getEncoded
+       |  finally spec.clearPassword()
+       |
        |""".stripMargin
 
   /** Trampoline runtime for mutual tail-recursion. Each mutually-recursive
@@ -1237,7 +1922,16 @@ class JvmGen(baseDir: Option[os.Path] = None):
    *  `ssc` / `ssc compile`.  `serve(port)` blocks the calling thread; the
    *  default executor is single-threaded so handler bodies see no concurrency
    *  unless the user supplies their own synchronisation. */
-  private val serveRuntime: String =
+  /** Server-side runtime (routes, sessions, JWT, OAuth, WS, …).  Split
+   *  into two `String` halves because the combined source exceeds the
+   *  JVM's 64 KB string-literal limit — the natural seam is right
+   *  before the WS-specific section. */
+  // `lazy` to break the forward-reference to the two halves declared
+  // below — a plain `val` initialises in source order, so both halves
+  // are still null when this line runs and the emit gets garbage.
+  private lazy val serveRuntime: String = serveRuntimePart1 + serveRuntimePart2
+
+  private val serveRuntimePart1: String =
     """|
        |// ── REST routing + serve(port) ─────────────────────────────────────────
        |case class UploadedFile(
@@ -1251,21 +1945,536 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |)
        |
        |case class Request(
-       |  method:  String,
-       |  path:    String,
-       |  params:  Map[String, String],
-       |  query:   Map[String, String],
-       |  headers: Map[String, String],
-       |  body:    String,
-       |  form:    Map[String, String]         = Map.empty,
-       |  files:   Map[String, UploadedFile]   = Map.empty
+       |  method:      String,
+       |  path:        String,
+       |  params:      Map[String, String],
+       |  query:       Map[String, String],
+       |  headers:     Map[String, String],
+       |  body:        String,
+       |  form:        Map[String, String]         = Map.empty,
+       |  files:       Map[String, UploadedFile]   = Map.empty,
+       |  session:     Map[String, String]         = Map.empty,
+       |  bearerToken: Option[String]              = None,
+       |  jwtClaims:   Option[Map[String, String]] = None,
+       |  basicAuth:   Option[(String, String)]    = None,
+       |  cookies:     Map[String, String]         = Map.empty
        |)
        |
        |case class Response(
-       |  status:  Int                 = 200,
-       |  headers: Map[String, String] = Map.empty,
-       |  body:    String              = ""
+       |  status:     Int                         = 200,
+       |  headers:    Map[String, String]         = Map.empty,
+       |  body:       String                      = "",
+       |  setSession: Option[Map[String, String]] = None
+       |):
+       |  /** Attach a session payload — HMAC-signed and packed into Set-Cookie. */
+       |  def withSession(payload: Map[String, String]): Response = copy(setSession = Some(payload))
+       |  /** Clear the session cookie (Max-Age=0 on the wire). */
+       |  def clearSession(): Response                            = copy(setSession = Some(Map.empty))
+       |
+       |// ── Signed cookie sessions ──────────────────────────────────────
+       |// HMAC-SHA256-signed Map[String, String] roundtripped through the
+       |// `session=<b64url(json)>.<b64url(hmac)>` cookie format.  Mirrors
+       |// scalascript.server.SessionCookie and the JsGen Node runtime so
+       |// the wire format is identical across all three backends.
+       |private lazy val _sessionSecret: Array[Byte] =
+       |  sys.env.get("SSC_SESSION_SECRET").filter(_.nonEmpty) match
+       |    case Some(s) => s.getBytes("UTF-8")
+       |    case None    =>
+       |      val bytes = new Array[Byte](32)
+       |      java.security.SecureRandom().nextBytes(bytes)
+       |      System.err.println(
+       |        "[ssc] SSC_SESSION_SECRET not set; using a process-local random key. " +
+       |        "Sessions will not survive a server restart."
+       |      )
+       |      bytes
+       |private def _hmacSha256(payload: Array[Byte]): Array[Byte] =
+       |  val mac = javax.crypto.Mac.getInstance("HmacSHA256")
+       |  mac.init(javax.crypto.spec.SecretKeySpec(_sessionSecret, "HmacSHA256"))
+       |  mac.doFinal(payload)
+       |private def _b64urlEnc(b: Array[Byte]): String =
+       |  java.util.Base64.getUrlEncoder.withoutPadding.encodeToString(b)
+       |private def _b64urlDec(s: String): Array[Byte] =
+       |  java.util.Base64.getUrlDecoder.decode(s)
+       |private def _sessionJsonEnc(m: Map[String, String]): String =
+       |  def esc(s: String): String =
+       |    val sb = StringBuilder().append('"')
+       |    var i = 0
+       |    while i < s.length do
+       |      val c = s.charAt(i)
+       |      if c == '"' || c == '\\' then sb.append('\\').append(c)
+       |      else if c == '\n' then sb.append("\\n")
+       |      else if c == '\r' then sb.append("\\r")
+       |      else if c == '\t' then sb.append("\\t")
+       |      else if c < 0x20 then sb.append("\\u%04x".format(c.toInt))
+       |      else sb.append(c)
+       |      i += 1
+       |    sb.append('"').toString
+       |  m.iterator.map((k, v) => esc(k) + ":" + esc(v)).mkString("{", ",", "}")
+       |private def _sessionJsonDec(json: String): Option[Map[String, String]] =
+       |  val t = json.trim
+       |  if !t.startsWith("{") || !t.endsWith("}") then None
+       |  else
+       |    val inner = t.substring(1, t.length - 1).trim
+       |    if inner.isEmpty then Some(Map.empty)
+       |    else try
+       |      var i = 0
+       |      def skipWs(): Unit = while i < inner.length && inner.charAt(i).isWhitespace do i += 1
+       |      def readStr(): String =
+       |        if inner.charAt(i) != '"' then throw RuntimeException("expected quote")
+       |        i += 1
+       |        val sb = StringBuilder()
+       |        while i < inner.length && inner.charAt(i) != '"' do
+       |          val c = inner.charAt(i)
+       |          if c == '\\' && i + 1 < inner.length then
+       |            inner.charAt(i + 1) match
+       |              case '"'  => sb.append('"');  i += 2
+       |              case '\\' => sb.append('\\'); i += 2
+       |              case 'n'  => sb.append('\n'); i += 2
+       |              case 'r'  => sb.append('\r'); i += 2
+       |              case 't'  => sb.append('\t'); i += 2
+       |              case 'u' if i + 5 < inner.length =>
+       |                sb.append(Integer.parseInt(inner.substring(i + 2, i + 6), 16).toChar)
+       |                i += 6
+       |              case _    => sb.append(c); i += 1
+       |          else { sb.append(c); i += 1 }
+       |        if i >= inner.length then throw RuntimeException("unterminated")
+       |        i += 1
+       |        sb.toString
+       |      val out = scala.collection.mutable.LinkedHashMap.empty[String, String]
+       |      while i < inner.length do
+       |        skipWs(); val k = readStr()
+       |        skipWs()
+       |        if i >= inner.length || inner.charAt(i) != ':' then throw RuntimeException("expected colon")
+       |        i += 1
+       |        skipWs(); val v = readStr()
+       |        out(k) = v
+       |        skipWs()
+       |        if i < inner.length then
+       |          if inner.charAt(i) != ',' then throw RuntimeException("expected comma")
+       |          i += 1
+       |      Some(out.toMap)
+       |    catch case _: Throwable => None
+       |private def _packSession(m: Map[String, String]): String =
+       |  val body = _b64urlEnc(_sessionJsonEnc(m).getBytes("UTF-8"))
+       |  val sig  = _b64urlEnc(_hmacSha256(body.getBytes("UTF-8")))
+       |  body + "." + sig
+       |private def _unpackSession(cookieValue: String): Map[String, String] =
+       |  val dot = cookieValue.indexOf('.')
+       |  if dot <= 0 || dot == cookieValue.length - 1 then Map.empty
+       |  else
+       |    val body = cookieValue.substring(0, dot)
+       |    val sig  = cookieValue.substring(dot + 1)
+       |    try
+       |      val expected = _b64urlEnc(_hmacSha256(body.getBytes("UTF-8")))
+       |      if !java.security.MessageDigest.isEqual(
+       |          expected.getBytes("UTF-8"), sig.getBytes("UTF-8")) then Map.empty
+       |      else _sessionJsonDec(String(_b64urlDec(body), "UTF-8")).getOrElse(Map.empty)
+       |    catch case _: Throwable => Map.empty
+       |private def _parseCookieSession(cookieHeader: String): Map[String, String] =
+       |  if cookieHeader == null || cookieHeader.isEmpty then Map.empty
+       |  else cookieHeader.split(';').iterator.map(_.trim)
+       |    .find(_.startsWith("session="))
+       |    .map(p => _unpackSession(p.substring("session=".length)))
+       |    .getOrElse(Map.empty)
+       |// Cookie security config — secure flag + SameSite policy, set
+       |// via the top-level `cookieConfig(secure, sameSite)` call.
+       |@volatile private var _cookieSecure: Boolean = false
+       |@volatile private var _cookieSameSite: String = "Lax"
+       |def cookieConfig(secure: Boolean, sameSite: String = "Lax"): Unit =
+       |  _cookieSecure = secure
+       |  _cookieSameSite = sameSite match
+       |    case s @ ("Strict" | "Lax" | "None") => s
+       |    case _                               => "Lax"
+       |private def _buildSetCookie(payload: Map[String, String]): String =
+       |  val base = s"Path=/; HttpOnly; SameSite=${_cookieSameSite}" +
+       |    (if _cookieSecure then "; Secure" else "")
+       |  if payload.isEmpty then s"session=; $base; Max-Age=0"
+       |  else s"session=${_packSession(payload)}; $base"
+       |
+       |// ── Opt-in server-side session store ────────────────────────────
+       |// Same semantics as scalascript.server.SessionStore: process-local
+       |// ConcurrentHashMap keyed by random SSID, lazy TTL sweep.  When
+       |// enabled the cookie payload is `{"_ssid": "..."}` and the real
+       |// data lives on the server.
+       |private case class _StoreEntry(payload: Map[String, String], lastAccess: Long)
+       |private val _sessionStore = new java.util.concurrent.ConcurrentHashMap[String, _StoreEntry]()
+       |@volatile private var _sessionStoreEnabled = false
+       |@volatile private var _sessionStoreTtlMs   = 30L * 60L * 1000L
+       |private val _sessionAccessCount = new java.util.concurrent.atomic.AtomicLong(0L)
+       |def useSessionStore(ttlSeconds: Long = 30L * 60L): Unit =
+       |  _sessionStoreTtlMs = ttlSeconds * 1000L
+       |  _sessionStoreEnabled = true
+       |private def _sessionStoreSweep(): Unit =
+       |  val cutoff = java.lang.System.currentTimeMillis() - _sessionStoreTtlMs
+       |  val it = _sessionStore.entrySet().iterator()
+       |  while it.hasNext do
+       |    val e = it.next()
+       |    if e.getValue.lastAccess < cutoff then it.remove()
+       |private def _sessionStoreMaybeSweep(): Unit =
+       |  if (_sessionAccessCount.incrementAndGet() & 0xFF) == 0L then _sessionStoreSweep()
+       |private def _sessionStorePut(payload: Map[String, String]): String =
+       |  val bytes = new Array[Byte](24)
+       |  java.security.SecureRandom().nextBytes(bytes)
+       |  val ssid = _b64urlEnc(bytes)
+       |  _sessionStore.put(ssid, _StoreEntry(payload, java.lang.System.currentTimeMillis()))
+       |  _sessionStoreMaybeSweep()
+       |  ssid
+       |private def _sessionStoreGet(ssid: String): Option[Map[String, String]] =
+       |  Option(_sessionStore.get(ssid)) match
+       |    case None    => None
+       |    case Some(e) =>
+       |      val now = java.lang.System.currentTimeMillis()
+       |      if now - e.lastAccess > _sessionStoreTtlMs then
+       |        _sessionStore.remove(ssid, e)
+       |        None
+       |      else
+       |        _sessionStore.put(ssid, e.copy(lastAccess = now))
+       |        _sessionStoreMaybeSweep()
+       |        Some(e.payload)
+       |private def _sessionStoreDelete(ssid: String): Unit =
+       |  _sessionStore.remove(ssid)
+       |
+       |// ── JWT (HS256) ─────────────────────────────────────────────────
+       |// Same wire format as scalascript.server.Jwt and the JsGen Node
+       |// runtime: header `{"alg":"HS256","typ":"JWT"}`, payload = JSON of
+       |// a Map[String, String], sig = HMAC-SHA256(header_b64.payload_b64).
+       |// Secret: SSC_JWT_SECRET preferred, SSC_SESSION_SECRET as fallback.
+       |private lazy val _jwtSecret: Array[Byte] =
+       |  sys.env.get("SSC_JWT_SECRET").filter(_.nonEmpty)
+       |    .orElse(sys.env.get("SSC_SESSION_SECRET").filter(_.nonEmpty)) match
+       |    case Some(s) => s.getBytes("UTF-8")
+       |    case None    =>
+       |      val bytes = new Array[Byte](32)
+       |      java.security.SecureRandom().nextBytes(bytes)
+       |      System.err.println("[ssc] SSC_JWT_SECRET / SSC_SESSION_SECRET not set; JWTs signed with a process-local random key.")
+       |      bytes
+       |private def _hmacSha256Jwt(payload: Array[Byte]): Array[Byte] =
+       |  val mac = javax.crypto.Mac.getInstance("HmacSHA256")
+       |  mac.init(javax.crypto.spec.SecretKeySpec(_jwtSecret, "HmacSHA256"))
+       |  mac.doFinal(payload)
+       |private val _jwtHeaderB64 = _b64urlEnc("{\"alg\":\"HS256\",\"typ\":\"JWT\"}".getBytes("UTF-8"))
+       |def jwtSign(claims: Map[String, String]): String =
+       |  val payloadB64 = _b64urlEnc(_sessionJsonEnc(claims).getBytes("UTF-8"))
+       |  val sig        = _b64urlEnc(_hmacSha256Jwt((_jwtHeaderB64 + "." + payloadB64).getBytes("UTF-8")))
+       |  s"${_jwtHeaderB64}.$payloadB64.$sig"
+       |def jwtVerify(token: String): Option[Map[String, String]] =
+       |  val parts = token.split('.')
+       |  if parts.length != 3 then None
+       |  else
+       |    val h = parts(0); val p = parts(1); val s = parts(2)
+       |    try
+       |      val expected = _b64urlEnc(_hmacSha256Jwt((h + "." + p).getBytes("UTF-8")))
+       |      if !java.security.MessageDigest.isEqual(
+       |          expected.getBytes("UTF-8"), s.getBytes("UTF-8")) then None
+       |      else
+       |        val header = String(_b64urlDec(h), "UTF-8")
+       |        if !header.contains("\"alg\":\"HS256\"") then None
+       |        else _sessionJsonDec(String(_b64urlDec(p), "UTF-8")) match
+       |          case None => None
+       |          case Some(claims) =>
+       |            claims.get("exp") match
+       |              case Some(expStr) =>
+       |                val now = java.lang.System.currentTimeMillis() / 1000L
+       |                try
+       |                  val exp = expStr.toLong
+       |                  if exp < now then None else Some(claims)
+       |                catch case _: Throwable => None
+       |              case None => Some(claims)
+       |    catch case _: Throwable => None
+       |private def _bearerFromAuth(h: String): Option[String] =
+       |  val t = Option(h).map(_.trim).getOrElse("")
+       |  if t.length < 7 || !t.substring(0, 7).equalsIgnoreCase("Bearer ") then None
+       |  else Some(t.substring(7).trim)
+       |
+       |// ── JWT RS256 (asymmetric) ────────────────────────────────────
+       |// Same wire format as scalascript.server.JwtRsa.  Reads keys
+       |// from env (SSC_JWT_PRIVATE_KEY / SSC_JWT_PUBLIC_KEY, PEM).
+       |private def _pemBytes(pem: String): Array[Byte] =
+       |  val cleaned = pem
+       |    .replaceAll("-----BEGIN [^-]+-----", "")
+       |    .replaceAll("-----END [^-]+-----", "")
+       |    .replaceAll("\\s+", "")
+       |  java.util.Base64.getDecoder.decode(cleaned)
+       |private lazy val _jwtRsaPrivate: Option[java.security.PrivateKey] =
+       |  sys.env.get("SSC_JWT_PRIVATE_KEY").filter(_.nonEmpty).map { pem =>
+       |    java.security.KeyFactory.getInstance("RSA")
+       |      .generatePrivate(java.security.spec.PKCS8EncodedKeySpec(_pemBytes(pem)))
+       |  }
+       |private lazy val _jwtRsaPublic: Option[java.security.PublicKey] =
+       |  sys.env.get("SSC_JWT_PUBLIC_KEY").filter(_.nonEmpty).map { pem =>
+       |    java.security.KeyFactory.getInstance("RSA")
+       |      .generatePublic(java.security.spec.X509EncodedKeySpec(_pemBytes(pem)))
+       |  }
+       |private val _jwtRsaHeaderB64 = _b64urlEnc("{\"alg\":\"RS256\",\"typ\":\"JWT\"}".getBytes("UTF-8"))
+       |def jwtSignRsa(claims: Map[String, String]): String =
+       |  val pk = _jwtRsaPrivate.getOrElse(
+       |    throw RuntimeException("SSC_JWT_PRIVATE_KEY is not set (expected PKCS#8 RSA PEM)"))
+       |  val payloadB64 = _b64urlEnc(_sessionJsonEnc(claims).getBytes("UTF-8"))
+       |  val sig = java.security.Signature.getInstance("SHA256withRSA")
+       |  sig.initSign(pk)
+       |  sig.update((_jwtRsaHeaderB64 + "." + payloadB64).getBytes("UTF-8"))
+       |  val sigB64 = _b64urlEnc(sig.sign())
+       |  s"${_jwtRsaHeaderB64}.$payloadB64.$sigB64"
+       |def jwtVerifyRsa(token: String): Option[Map[String, String]] =
+       |  _jwtRsaPublic.flatMap { pub =>
+       |    val parts = token.split('.')
+       |    if parts.length != 3 then None
+       |    else
+       |      val h = parts(0); val p = parts(1); val s = parts(2)
+       |      try
+       |        val header = String(_b64urlDec(h), "UTF-8")
+       |        if !header.contains("\"alg\":\"RS256\"") then None
+       |        else
+       |          val sig = java.security.Signature.getInstance("SHA256withRSA")
+       |          sig.initVerify(pub)
+       |          sig.update((h + "." + p).getBytes("UTF-8"))
+       |          if !sig.verify(_b64urlDec(s)) then None
+       |          else _sessionJsonDec(String(_b64urlDec(p), "UTF-8")) match
+       |            case None => None
+       |            case Some(claims) =>
+       |              claims.get("exp") match
+       |                case Some(expStr) =>
+       |                  val now = java.lang.System.currentTimeMillis() / 1000L
+       |                  try
+       |                    if expStr.toLong < now then None else Some(claims)
+       |                  catch case _: Throwable => None
+       |                case None => Some(claims)
+       |      catch case _: Throwable => None
+       |  }
+       |
+       |// ── OAuth2 helpers ────────────────────────────────────────────
+       |// Same surface as scalascript.server.OAuth: pure URL builder +
+       |// blocking token exchange via java.net.http.HttpClient.
+       |// Builtin presets + a mutable registry for user-supplied providers.
+       |private val _oauthProviders = new java.util.concurrent.ConcurrentHashMap[String, Map[String, String]](
+       |  java.util.Map.of(
+       |    "google", Map(
+       |      "authorizeUrl" -> "https://accounts.google.com/o/oauth2/v2/auth",
+       |      "tokenUrl"     -> "https://oauth2.googleapis.com/token",
+       |      "userinfoUrl"  -> "https://www.googleapis.com/oauth2/v3/userinfo",
+       |      "defaultScope" -> "openid email profile",
+       |    ),
+       |    "github", Map(
+       |      "authorizeUrl" -> "https://github.com/login/oauth/authorize",
+       |      "tokenUrl"     -> "https://github.com/login/oauth/access_token",
+       |      "userinfoUrl"  -> "https://api.github.com/user",
+       |      "defaultScope" -> "user:email",
+       |    ),
+       |  )
        |)
+       |private def _oauthCfg(provider: String): Option[Map[String, String]] =
+       |  Option(_oauthProviders.get(provider))
+       |def oauthRegisterProvider(name: String, cfg: Map[String, String]): Unit =
+       |  _oauthProviders.put(name, _oauthCfg(name).getOrElse(Map.empty) ++ cfg)
+       |private def _oauthEnc(s: String): String =
+       |  java.net.URLEncoder.encode(s, "UTF-8")
+       |def oauthAuthorizeUrl(provider: String, clientId: String, redirectUri: String, state: String, scope: String = ""): String =
+       |  val cfg = _oauthCfg(provider).getOrElse(throw IllegalArgumentException(s"unknown OAuth provider: $provider"))
+       |  val eff = if scope.nonEmpty then scope else cfg.getOrElse("defaultScope", "")
+       |  val base = cfg("authorizeUrl")
+       |  val params = scala.collection.mutable.LinkedHashMap[String, String]()
+       |  params("response_type") = "code"
+       |  params("client_id")     = clientId
+       |  params("redirect_uri")  = redirectUri
+       |  params("state")         = state
+       |  if eff.nonEmpty then params("scope") = eff
+       |  val qs = params.iterator.map((k, v) => _oauthEnc(k) + "=" + _oauthEnc(v)).mkString("&")
+       |  base + "?" + qs
+       |// More permissive JSON-object parser than `_sessionJsonDec`: handles
+       |// nested objects / arrays by surfacing them as raw JSON strings.
+       |// Needed for userinfo responses (e.g. GitHub's `plan: {...}`).
+       |private def _oauthJsonFlat(s: String): Option[Map[String, String]] =
+       |  val t = s.trim
+       |  if !t.startsWith("{") || !t.endsWith("}") then None
+       |  else
+       |    val inner = t.substring(1, t.length - 1).trim
+       |    if inner.isEmpty then Some(Map.empty)
+       |    else try
+       |      val out = scala.collection.mutable.LinkedHashMap.empty[String, String]
+       |      var i = 0
+       |      def skipWs(): Unit = while i < inner.length && inner.charAt(i).isWhitespace do i += 1
+       |      def readStr(): String =
+       |        if inner.charAt(i) != '"' then throw RuntimeException("expected quote")
+       |        i += 1
+       |        val sb = StringBuilder()
+       |        while i < inner.length && inner.charAt(i) != '"' do
+       |          val c = inner.charAt(i)
+       |          if c == '\\' && i + 1 < inner.length then
+       |            inner.charAt(i + 1) match
+       |              case '"'  => sb.append('"');  i += 2
+       |              case '\\' => sb.append('\\'); i += 2
+       |              case 'n'  => sb.append('\n'); i += 2
+       |              case 'r'  => sb.append('\r'); i += 2
+       |              case 't'  => sb.append('\t'); i += 2
+       |              case _    => sb.append(c); i += 1
+       |          else { sb.append(c); i += 1 }
+       |        i += 1
+       |        sb.toString
+       |      def readScalar(): String =
+       |        val sb = StringBuilder()
+       |        while i < inner.length && inner.charAt(i) != ',' && inner.charAt(i) != '}' do
+       |          sb.append(inner.charAt(i)); i += 1
+       |        sb.toString.trim
+       |      def readNested(open: Char, close: Char): String =
+       |        val sb = StringBuilder().append(inner.charAt(i)); i += 1
+       |        var depth = 1
+       |        while i < inner.length && depth > 0 do
+       |          val c = inner.charAt(i)
+       |          sb.append(c)
+       |          if c == '"' then
+       |            i += 1
+       |            while i < inner.length && inner.charAt(i) != '"' do
+       |              if inner.charAt(i) == '\\' && i + 1 < inner.length then
+       |                sb.append(inner.charAt(i)).append(inner.charAt(i + 1)); i += 2
+       |              else { sb.append(inner.charAt(i)); i += 1 }
+       |            if i < inner.length then { sb.append('"'); i += 1 }
+       |          else
+       |            if c == open  then depth += 1
+       |            if c == close then depth -= 1
+       |            i += 1
+       |        sb.toString
+       |      while i < inner.length do
+       |        skipWs(); val k = readStr()
+       |        skipWs()
+       |        if inner.charAt(i) != ':' then throw RuntimeException("expected colon")
+       |        i += 1
+       |        skipWs()
+       |        val v =
+       |          if inner.charAt(i) == '"' then readStr()
+       |          else if inner.charAt(i) == '{' then readNested('{', '}')
+       |          else if inner.charAt(i) == '[' then readNested('[', ']')
+       |          else readScalar()
+       |        out(k) = v
+       |        skipWs()
+       |        if i < inner.length then
+       |          if inner.charAt(i) != ',' then throw RuntimeException("expected comma")
+       |          i += 1; skipWs()
+       |      Some(out.toMap)
+       |    catch case _: Throwable => None
+       |def oauthUserinfo(provider: String, accessToken: String): Option[Map[String, String]] =
+       |  _oauthCfg(provider).flatMap(_.get("userinfoUrl")).flatMap { url =>
+       |    try
+       |      val client = java.net.http.HttpClient.newBuilder()
+       |        .connectTimeout(java.time.Duration.ofSeconds(10)).build()
+       |      val req = java.net.http.HttpRequest.newBuilder()
+       |        .uri(java.net.URI.create(url))
+       |        .timeout(java.time.Duration.ofSeconds(30))
+       |        .header("Authorization", s"Bearer $accessToken")
+       |        .header("Accept",        "application/json")
+       |        .header("User-Agent",    "scalascript-oauth/0.6")
+       |        .GET().build()
+       |      val resp = client.send(req, java.net.http.HttpResponse.BodyHandlers.ofString())
+       |      if resp.statusCode() < 200 || resp.statusCode() >= 300 then None
+       |      else _oauthJsonFlat(resp.body())
+       |    catch case _: Throwable => None
+       |  }
+       |
+       |def oauthExchangeCode(provider: String, code: String, clientId: String, clientSecret: String, redirectUri: String): Option[Map[String, String]] =
+       |  _oauthCfg(provider).flatMap { cfg =>
+       |    val tokenUrl = cfg("tokenUrl")
+       |    val form = Map(
+       |      "grant_type"    -> "authorization_code",
+       |      "code"          -> code,
+       |      "client_id"     -> clientId,
+       |      "client_secret" -> clientSecret,
+       |      "redirect_uri"  -> redirectUri,
+       |    )
+       |    val body = form.iterator.map((k, v) => _oauthEnc(k) + "=" + _oauthEnc(v)).mkString("&")
+       |    try
+       |      val client = java.net.http.HttpClient.newBuilder().connectTimeout(java.time.Duration.ofSeconds(10)).build()
+       |      val req = java.net.http.HttpRequest.newBuilder()
+       |        .uri(java.net.URI.create(tokenUrl))
+       |        .timeout(java.time.Duration.ofSeconds(30))
+       |        .header("Content-Type", "application/x-www-form-urlencoded")
+       |        .header("Accept", "application/json")
+       |        .POST(java.net.http.HttpRequest.BodyPublishers.ofString(body))
+       |        .build()
+       |      val resp = client.send(req, java.net.http.HttpResponse.BodyHandlers.ofString())
+       |      if resp.statusCode() < 200 || resp.statusCode() >= 300 then None
+       |      else
+       |        val text = resp.body()
+       |        val ct   = resp.headers().firstValue("content-type").orElse("").toLowerCase
+       |        if ct.contains("application/json") || text.trim.startsWith("{") then
+       |          _sessionJsonDec(text)
+       |        else
+       |          Some(text.split('&').iterator.flatMap { pair =>
+       |            val i = pair.indexOf('=')
+       |            if i < 0 then None
+       |            else Some(
+       |              java.net.URLDecoder.decode(pair.substring(0, i), "UTF-8") ->
+       |              java.net.URLDecoder.decode(pair.substring(i + 1), "UTF-8"))
+       |          }.toMap)
+       |    catch case _: Throwable => None
+       |  }
+       |
+       |// `oauthRefreshToken(provider, refresh, clientId, clientSecret)` —
+       |// trade a long-lived refresh token for a fresh access token.
+       |def oauthRefreshToken(provider: String, refresh: String, clientId: String, clientSecret: String): Option[Map[String, String]] =
+       |  _oauthCfg(provider).flatMap { cfg =>
+       |    val tokenUrl = cfg("tokenUrl")
+       |    val form = Map(
+       |      "grant_type"    -> "refresh_token",
+       |      "refresh_token" -> refresh,
+       |      "client_id"     -> clientId,
+       |      "client_secret" -> clientSecret,
+       |    )
+       |    val body = form.iterator.map((k, v) => _oauthEnc(k) + "=" + _oauthEnc(v)).mkString("&")
+       |    try
+       |      val client = java.net.http.HttpClient.newBuilder().connectTimeout(java.time.Duration.ofSeconds(10)).build()
+       |      val req = java.net.http.HttpRequest.newBuilder()
+       |        .uri(java.net.URI.create(tokenUrl))
+       |        .timeout(java.time.Duration.ofSeconds(30))
+       |        .header("Content-Type", "application/x-www-form-urlencoded")
+       |        .header("Accept", "application/json")
+       |        .POST(java.net.http.HttpRequest.BodyPublishers.ofString(body))
+       |        .build()
+       |      val resp = client.send(req, java.net.http.HttpResponse.BodyHandlers.ofString())
+       |      if resp.statusCode() < 200 || resp.statusCode() >= 300 then None
+       |      else
+       |        val text = resp.body()
+       |        val ct   = resp.headers().firstValue("content-type").orElse("").toLowerCase
+       |        if ct.contains("application/json") || text.trim.startsWith("{") then _oauthJsonFlat(text)
+       |        else
+       |          Some(text.split('&').iterator.flatMap { pair =>
+       |            val i = pair.indexOf('=')
+       |            if i < 0 then None
+       |            else Some(
+       |              java.net.URLDecoder.decode(pair.substring(0, i), "UTF-8") ->
+       |              java.net.URLDecoder.decode(pair.substring(i + 1), "UTF-8"))
+       |          }.toMap)
+       |    catch case _: Throwable => None
+       |  }
+       |
+       |// HTTP Basic: Authorization: Basic <b64(user:pass)>
+       |private def _basicFromAuth(h: String): Option[(String, String)] =
+       |  val t = Option(h).map(_.trim).getOrElse("")
+       |  if t.length < 6 || !t.substring(0, 6).equalsIgnoreCase("Basic ") then None
+       |  else
+       |    try
+       |      val decoded = new String(java.util.Base64.getDecoder.decode(t.substring(6).trim), "UTF-8")
+       |      val colon   = decoded.indexOf(':')
+       |      if colon < 0 then None
+       |      else Some(decoded.substring(0, colon) -> decoded.substring(colon + 1))
+       |    catch case _: Throwable => None
+       |
+       |// ── CSRF helpers ────────────────────────────────────────────────
+       |// `csrfToken()` returns a url-safe random token; the caller stashes
+       |// it under "csrf" in the session and renders it in their form.
+       |// `csrfValid(req)` checks form `csrf` / `X-CSRF-Token` header.
+       |def csrfToken(): String =
+       |  val bytes = new Array[Byte](24)
+       |  java.security.SecureRandom().nextBytes(bytes)
+       |  _b64urlEnc(bytes)
+       |def csrfValid(req: Request): Boolean =
+       |  val expected = req.session.getOrElse("csrf", "")
+       |  val supplied = req.form.get("csrf")
+       |    .orElse(req.headers.collectFirst {
+       |      case (k, v) if k.equalsIgnoreCase("X-CSRF-Token") => v
+       |    })
+       |    .getOrElse("")
+       |  if expected.isEmpty || supplied.isEmpty || expected.length != supplied.length then false
+       |  else java.security.MessageDigest.isEqual(
+       |    expected.getBytes("UTF-8"), supplied.getBytes("UTF-8"))
        |
        |// JSON-encode anything: strings pass through as raw JSON (so hand-
        |// built JSON strings keep working); other values get structural
@@ -1332,6 +2541,9 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |  def redirect(to: String): Response = Response(302, Map("Location" -> to), "")
        |  def notFound(body: Any = "Not Found"): Response = Response(404, body = _show(body))
        |  def status(code: Int, body: Any = ""): Response = Response(code, body = _show(body))
+       |  def basicAuthChallenge(realm: String): Response =
+       |    val safe = realm.replace("\\", "\\\\").replace("\"", "\\\"")
+       |    Response(401, Map("WWW-Authenticate" -> ("Basic realm=\"" + safe + "\"")), "Authentication required")
        |
        |private enum _Seg:
        |  case Lit(s: String)
@@ -1442,9 +2654,34 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |            _parseMultipart(ct, bodyLatin1)
        |          else
        |            (Map.empty[String, String], Map.empty[String, UploadedFile])
+       |        val cookieHeader = headers.collectFirst {
+       |          case (k, v) if k.equalsIgnoreCase("Cookie") => v
+       |        }.getOrElse("")
+       |        val rawCookieSession = _parseCookieSession(cookieHeader)
+       |        // Generic cookie map for handler convenience (parallels
+       |        // the WS-side `ws.request.cookies`).  Separate from the
+       |        // signed `session` map above.
+       |        val cookies: Map[String, String] =
+       |          if cookieHeader.isEmpty then Map.empty
+       |          else cookieHeader.split(';').iterator.flatMap { pair =>
+       |            val t = pair.trim
+       |            val i = t.indexOf('=')
+       |            if i < 0 then None else Some(t.substring(0, i).trim -> t.substring(i + 1).trim)
+       |          }.toMap
+       |        val session =
+       |          if _sessionStoreEnabled then
+       |            rawCookieSession.get("_ssid").flatMap(_sessionStoreGet).getOrElse(Map.empty)
+       |          else rawCookieSession
+       |        val authHeader = headers.collectFirst {
+       |          case (k, v) if k.equalsIgnoreCase("Authorization") => v
+       |        }.getOrElse("")
+       |        val bearer    = _bearerFromAuth(authHeader)
+       |        val claims    = bearer.flatMap(jwtVerify)
+       |        val basicAuth = _basicFromAuth(authHeader)
        |        val req  = Request(method, path, params,
-       |          _parseQuery(ex.getRequestURI.getRawQuery), headers, body, form, files)
-       |        _writeResponse(ex, r.handler(req))
+       |          _parseQuery(ex.getRequestURI.getRawQuery), headers, body,
+       |          form, files, session, bearer, claims, basicAuth, cookies)
+       |        _writeResponse(ex, r.handler(req), rawCookieSession)
        |      case None =>
        |        // Fall through to a static file under the current directory
        |        // before 404'ing — mirrors the interpreter's WebServer.
@@ -1459,10 +2696,26 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |    System.err.println(s"route error: ${e.getMessage}")
        |  finally ex.close()
        |
-       |private def _writeResponse(ex: com.sun.net.httpserver.HttpExchange, r: Response): Unit =
+       |private def _writeResponse(
+       |    ex:               com.sun.net.httpserver.HttpExchange,
+       |    r:                Response,
+       |    rawCookieSession: Map[String, String] = Map.empty
+       |): Unit =
        |  r.headers.foreach((k, v) => ex.getResponseHeaders.add(k, v))
        |  if !r.headers.contains("Content-Type") then
        |    ex.getResponseHeaders.add("Content-Type", "text/plain; charset=utf-8")
+       |  r.setSession.foreach { payload =>
+       |    val cookiePayload: Map[String, String] =
+       |      if !_sessionStoreEnabled then payload
+       |      else if payload.isEmpty then
+       |        rawCookieSession.get("_ssid").foreach(_sessionStoreDelete)
+       |        Map.empty
+       |      else
+       |        rawCookieSession.get("_ssid").foreach(_sessionStoreDelete)
+       |        val ssid = _sessionStorePut(payload)
+       |        Map("_ssid" -> ssid)
+       |    ex.getResponseHeaders.add("Set-Cookie", _buildSetCookie(cookiePayload))
+       |  }
        |  val bytes = r.body.getBytes("UTF-8")
        |  ex.sendResponseHeaders(r.status, if bytes.isEmpty then -1L else bytes.length.toLong)
        |  if bytes.nonEmpty then ex.getResponseBody.write(bytes)
@@ -1507,14 +2760,650 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |    try Option(java.nio.file.Files.probeContentType(java.nio.file.Paths.get(name)))
        |    catch case _: Throwable => None
        |  }.getOrElse("application/octet-stream")
+       |""".stripMargin
+
+  private val serveRuntimePart2: String =
+    """|
+       |// ── WebSocket support (RFC 6455) ───────────────────────────────────────
+       |//
+       |// Asymmetric design vs the interpreter: the interpreter runs an NIO
+       |// selector loop in front of the JDK `HttpServer`; here we use a
+       |// blocking-IO proxy with **one virtual thread per connection**
+       |// (Project Loom, JDK 21+).  A parked virtual thread on a slow read
+       |// costs ~few KB of heap rather than a 1 MB platform-thread stack,
+       |// so the scale ceiling is now file descriptors, not threads.
+       |// The user-facing `onWebSocket(path) { ws => … }` API is identical
+       |// to the interpreter, so .ssc code is portable.  Full NIO migration
+       |// will land alongside the HTTP NIO rewrite.
+       |//
+       |// Threading: user callbacks (`onWebSocket` body, `onMessage`,
+       |// `onClose`) all dispatch through `_serverExecutor`, a single-
+       |// platform-thread executor that also backs the internal HttpServer.
+       |// That way mutations to top-level `var`s from HTTP handlers and WS
+       |// callbacks are serial — no cross-handler races even though every
+       |// WS read-loop runs on its own virtual thread.
+       |//
+       |// `synchronized` on the WebSocket write path is avoided in favour of
+       |// `ReentrantLock`: on JDK 21 a `synchronized` block pins the carrier
+       |// thread of any virtual thread that enters it.  (Pinning was removed
+       |// in JDK 24; we keep the lock for portability.)
+       |
+       |private val _serverExecutor: java.util.concurrent.ExecutorService =
+       |  java.util.concurrent.Executors.newSingleThreadExecutor()
+       |
+       |// Shared scheduler driving the periodic Ping heartbeat across every
+       |// active WebSocket — single daemon thread, cheap.
+       |private val _wsHeartbeats: java.util.concurrent.ScheduledExecutorService =
+       |  java.util.concurrent.Executors.newSingleThreadScheduledExecutor(r => {
+       |    val t = Thread(r, "ws-heartbeats"); t.setDaemon(true); t
+       |  })
+       |
+       |class WebSocket(private val socket: java.net.Socket, val request: Request):
+       |  import java.io.{BufferedInputStream, ByteArrayOutputStream, OutputStream}
+       |  import java.nio.charset.StandardCharsets
+       |  import java.util.concurrent.{LinkedBlockingQueue, ScheduledFuture, TimeUnit}
+       |  import java.util.concurrent.atomic.AtomicReference
+       |  @volatile private var onMessageCb: String => Unit = null
+       |  @volatile private var onPongCb:    String => Unit = null
+       |  // AtomicReference so close-fires-once is enforced by a CAS,
+       |  // not by a best-effort `var = null` read/write race between
+       |  // the writer-VT's finally and any caller-side `close()`.
+       |  private val onCloseCb = AtomicReference[() => Unit](null)
+       |  @volatile private var closing:     Boolean        = false
+       |  // Server-initiated heartbeat: empty Ping every 30 s, drop the
+       |  // connection if no Pong arrives within 90 s.  Catches NAT-dropped
+       |  // and silently-half-closed peers well before OS keepalive does.
+       |  private val HeartbeatIntervalMs: Long = 30_000L
+       |  private val DeadAfterMs:         Long = 90_000L
+       |  @volatile private var lastPongAt: Long = java.lang.System.currentTimeMillis()
+       |  @volatile private var heartbeatTask: ScheduledFuture[?] = null
+       |  // Fragmented-message reassembly (RFC 6455 §5.4): the first frame
+       |  // of a fragmented message carries the data opcode with FIN=0,
+       |  // follow-up frames are Continuation (opcode=0) with the rest,
+       |  // the last with FIN=1.  Control frames may interleave freely.
+       |  // Held strictly on the read-loop thread so no synchronisation
+       |  // needed beyond the loop itself.
+       |  private var fragOpcode: Int = -1
+       |  private val fragBuf     = ByteArrayOutputStream()
+       |  private val out: OutputStream                     = socket.getOutputStream
+       |
+       |  // Outbound write queue: every `send` / `close` / `pong` parks a
+       |  // ready-encoded frame here and returns immediately.  A dedicated
+       |  // writer virtual thread drains the queue and writes to the
+       |  // socket — so a broadcast `clients.foreach { _.send(msg) }`
+       |  // never blocks on the slowest peer.  The queue is bounded
+       |  // (`MaxOutQDepth` frames): if a peer can't keep up the offers
+       |  // start returning false, and we force-close.
+       |  private val MaxOutQDepth = 1024
+       |  private val outQ: LinkedBlockingQueue[Array[Byte]] = LinkedBlockingQueue(MaxOutQDepth)
+       |  // Reference-identity sentinel for "drain and exit".  A zero-
+       |  // length payload is distinguishable by `eq` (we never enqueue
+       |  // an actual zero-length frame; the encoder always emits at
+       |  // least 2 bytes of header).
+       |  private val SENTINEL: Array[Byte] = new Array[Byte](0)
+       |  // Writer virtual thread — cheap with Loom (~few KB stack).
+       |  // Reflective lookup so the emit also compiles on Java 17,
+       |  // where ofVirtual() isn't on Thread.  Falls back to a
+       |  // regular daemon Thread (each WS connection still gets its
+       |  // own writer thread, just at a ~256 KB stack apiece).
+       |  private val writerThread: Thread =
+       |    try
+       |      val cls   = Class.forName("java.lang.Thread$Builder$OfVirtual")
+       |      val of    = classOf[Thread].getMethod("ofVirtual").invoke(null)
+       |      val named = cls.getMethod("name", classOf[String]).invoke(of, "ws-writer")
+       |      cls.getMethod("start", classOf[Runnable])
+       |        .invoke(named, (() => _writeLoop()): Runnable).asInstanceOf[Thread]
+       |    catch case _: Throwable =>
+       |      val t = Thread(() => _writeLoop(), "ws-writer")
+       |      t.setDaemon(true)
+       |      t.start()
+       |      t
+       |
+       |  private def _writeLoop(): Unit =
+       |    try
+       |      var done = false
+       |      while !done do
+       |        val bytes = outQ.take()
+       |        if bytes eq SENTINEL then done = true
+       |        else
+       |          // out.write is the only blocking op here, and we own
+       |          // its only caller — no lock needed.  A slow peer parks
+       |          // this VT (cheap); other connections' writers are
+       |          // unaffected.
+       |          out.write(bytes)
+       |          out.flush()
+       |    catch case _: Throwable => () // socket closed mid-write etc.
+       |    finally
+       |      // Stop the heartbeat first so it can't fire after we close.
+       |      val t = heartbeatTask; heartbeatTask = null
+       |      if t != null then t.cancel(false)
+       |      try socket.close() catch case _: Throwable => ()
+       |      // Release the global-cap slot reserved at upgrade time.
+       |      _wsActiveCount.decrementAndGet()
+       |      val cb = onCloseCb.getAndSet(null)
+       |      if cb != null then _serverExecutor.execute { () =>
+       |        try cb() catch case e: Throwable =>
+       |          System.err.println(s"WS close handler: ${e.getMessage}")
+       |      }
+       |      // Wake any parked recv consumers with a sentinel `null`.
+       |      _deliverRecv(null)
+       |
+       |  /** Force the writer loop to exit promptly when the queue can't
+       |   *  drain.  Used by `send`-overflow and by the read-loop when EOF
+       |   *  arrives.  Idempotent. */
+       |  private def _forceShutdown(): Unit =
+       |    if !closing then closing = true
+       |    // Closing the socket breaks both `out.write` (in writer) and
+       |    // `in.read` (in read-loop) with an IOException — both fall
+       |    // into their `catch / finally` clauses and tidy up.
+       |    try socket.close() catch case _: Throwable => ()
+       |
+       |  def send(s: String): Unit =
+       |    if closing then return
+       |    if !outQ.offer(_wsEncodeText(s)) then _forceShutdown()
+       |
+       |  // Binary frames take the Latin-1 byte-view convention the rest
+       |  // of the runtime already uses (UploadedFile.bytes, inbound
+       |  // binary frames): one Java char per wire byte.
+       |  def sendBytes(s: String): Unit =
+       |    if closing then return
+       |    if !outQ.offer(_wsEncodeFrame(0x2, s.getBytes("ISO-8859-1"))) then _forceShutdown()
+       |
+       |  def close(code: Int = 1000, reason: String = ""): Unit =
+       |    if closing then return
+       |    closing = true
+       |    // Best-effort: enqueue the close frame, then a sentinel so
+       |    // the writer drains and exits cleanly.  If the queue is full
+       |    // (slow peer), fall through to a hard socket close — the
+       |    // writer's finally handles onClose dispatch either way.
+       |    val queued = outQ.offer(_wsEncodeClose(code, reason)) && outQ.offer(SENTINEL)
+       |    if !queued then _forceShutdown()
+       |
+       |  def onMessage(cb: String => Unit): Unit = onMessageCb = cb
+       |  def onClose(cb: () => Unit): Unit       = onCloseCb.set(cb)
+       |  def onPong(cb: String => Unit): Unit    = onPongCb   = cb
+       |
+       |  // ── Async-style blocking recv (alternative to onMessage cb) ────
+       |  //
+       |  // Lets a handler read messages with a `while !ws.isClosed do …`
+       |  // loop instead of inverting control through `onMessage`.  Works
+       |  // because each WS connection runs the user handler on its own
+       |  // virtual thread (Loom), so a parked recv blocks just that VT.
+       |  // `_recvQueue` is lazily populated by `_deliverMessage` once
+       |  // `recv` (or `recvBytes`) is first called.
+       |  private val _recvQueue: LinkedBlockingQueue[String | Null] = LinkedBlockingQueue()
+       |  @volatile private var _recvEnabled: Boolean = false
+       |
+       |  /** Block the calling thread until a message arrives or the WS
+       |   *  closes.  Returns Some(msg) on a text/binary message, None on
+       |   *  close. */
+       |  def recv(): Option[String] =
+       |    _recvEnabled = true
+       |    val v = _recvQueue.take()
+       |    if v == null then None else Some(v.asInstanceOf[String])
+       |
+       |  /** True once the close-frame has been sent or received. */
+       |  def isClosed: Boolean = closing
+       |
+       |  /** Called by the read-loop after each fully-reassembled message
+       |   *  (and once with `null` on close).  Pushes into the recv-queue
+       |   *  if any recv-style consumer has activated it; otherwise falls
+       |   *  through to the callback-style API.  Cost when nobody calls
+       |   *  recv: a single volatile read. */
+       |  def _deliverRecv(payload: String | Null): Unit =
+       |    if _recvEnabled then _recvQueue.offer(payload)
+       |
+       |  /** ping([payload]): empty Ping or Latin-1-byte-view payload that
+       |    * the peer echoes back as a Pong (delivered via `onPong`).
+       |    * Doesn't interfere with the server-side 30 s heartbeat;
+       |    * both call sites refresh the same `lastPongAt`. */
+       |  def ping(): Unit = ping("")
+       |  def ping(payload: String): Unit =
+       |    if closing then return
+       |    val bytes = if payload.isEmpty then Array.emptyByteArray else payload.getBytes("ISO-8859-1")
+       |    if !outQ.offer(_wsEncodePing(bytes)) then _forceShutdown()
+       |
+       |  /** Arm the periodic Ping → Pong heartbeat.  Called once by
+       |    * `_proxyConnection` right after the upgrade. */
+       |  def _startHeartbeat(): Unit =
+       |    lastPongAt = java.lang.System.currentTimeMillis()
+       |    heartbeatTask = _wsHeartbeats.scheduleAtFixedRate(() => {
+       |      try
+       |        if java.lang.System.currentTimeMillis() - lastPongAt > DeadAfterMs then
+       |          close(1001, "ping timeout")
+       |        else if !closing then
+       |          // Empty Ping — _wsEncodePing's payload is unused except
+       |          // for the wire byte.  Drop on full outQ (peer too slow).
+       |          outQ.offer(_wsEncodePing(Array.emptyByteArray))
+       |      catch case _: Throwable => ()
+       |    }, HeartbeatIntervalMs, HeartbeatIntervalMs, TimeUnit.MILLISECONDS)
+       |
+       |  // Read-loop entry point: called from the per-connection thread
+       |  // after the handshake completes.  Pulls bytes through the parser,
+       |  // dispatches frames synchronously on the same thread.  Returns
+       |  // when the peer closes or a protocol error occurs.
+       |  def _runReadLoop(): Unit =
+       |    val in   = BufferedInputStream(socket.getInputStream)
+       |    var buf  = new Array[Byte](4096)
+       |    var len  = 0
+       |    try
+       |      while !closing && !socket.isClosed do
+       |        if len == buf.length then
+       |          val grown = new Array[Byte](buf.length * 2); System.arraycopy(buf, 0, grown, 0, len); buf = grown
+       |        val n = in.read(buf, len, buf.length - len)
+       |        if n < 0 then return
+       |        len += n
+       |        var offset = 0
+       |        var more   = true
+       |        while more do
+       |          _wsParseFrame(buf, offset, len) match
+       |            case null => more = false
+       |            case (fr, consumed) =>
+       |              offset += consumed
+       |              fr.opcode match
+       |                case 0x9 =>
+       |                  // Drop the pong if the write queue is full — peer
+       |                  // is too slow to keep up with the data flow we're
+       |                  // trying to send them anyway; the next ping will
+       |                  // time out and the writer will force-close.
+       |                  outQ.offer(_wsEncodePong(fr.payload))
+       |                case 0xA =>
+       |                  lastPongAt = java.lang.System.currentTimeMillis()
+       |                  val cb = onPongCb
+       |                  if cb != null then
+       |                    val payload = new String(fr.payload, "ISO-8859-1")
+       |                    _serverExecutor.execute { () =>
+       |                      try cb(payload) catch case e: Throwable =>
+       |                        System.err.println(s"WS onPong handler: ${e.getMessage}")
+       |                    }
+       |                case 0x8 =>
+       |                  val status =
+       |                    if fr.payload.length >= 2
+       |                    then ((fr.payload(0) & 0xFF) << 8) | (fr.payload(1) & 0xFF)
+       |                    else 1000
+       |                  close(status, "")
+       |                  return
+       |                case 0x1 | 0x2 =>
+       |                  if !fr.fin then
+       |                    // Start of a fragmented message.
+       |                    if fragOpcode != -1 then { close(1002, "new data frame mid-fragment"); return }
+       |                    fragOpcode = fr.opcode
+       |                    fragBuf.reset()
+       |                    fragBuf.write(fr.payload)
+       |                    if fragBuf.size > _WsMaxFrameBytes then
+       |                      fragOpcode = -1; fragBuf.reset(); close(1009, "message too big"); return
+       |                  else _dispatchWsMessage(fr.opcode, fr.payload)
+       |                case 0x0 =>
+       |                  if fragOpcode == -1 then { close(1002, "continuation without prior data frame"); return }
+       |                  fragBuf.write(fr.payload)
+       |                  if fragBuf.size > _WsMaxFrameBytes then
+       |                    fragOpcode = -1; fragBuf.reset(); close(1009, "message too big"); return
+       |                  if fr.fin then
+       |                    val op    = fragOpcode
+       |                    val bytes = fragBuf.toByteArray
+       |                    fragOpcode = -1; fragBuf.reset()
+       |                    _dispatchWsMessage(op, bytes)
+       |                case _   => close(1003, ""); return
+       |        if offset > 0 then
+       |          System.arraycopy(buf, offset, buf, 0, len - offset)
+       |          len -= offset
+       |    catch case _: Throwable => ()
+       |    finally
+       |      // Tell the writer to drain and exit; its `finally` does the
+       |      // actual `socket.close()` + onClose dispatch.  If the
+       |      // sentinel can't be queued (full backlog) we force-close
+       |      // the socket so the writer's blocking `out.write` throws
+       |      // and runs its cleanup.
+       |      closing = true
+       |      if !outQ.offer(SENTINEL) then
+       |        try socket.close() catch case _: Throwable => ()
+       |
+       |  /** Hand a fully-reassembled text/binary payload to the user
+       |   *  `onMessage` callback via the shared executor.  Queued
+       |   *  unconditionally — the `onWebSocket` body also runs on the
+       |   *  executor, so reading the callback inside the task gives us
+       |   *  the up-to-date value. */
+       |  private def _dispatchWsMessage(opcode: Int, payload: Array[Byte]): Unit =
+       |    val msg =
+       |      if opcode == 0x1 then new String(payload, StandardCharsets.UTF_8)
+       |      else                  new String(payload, "ISO-8859-1")
+       |    // Async-style recv path: parked consumers wake on the next take.
+       |    _deliverRecv(msg)
+       |    _serverExecutor.execute { () =>
+       |      val cb = onMessageCb
+       |      if cb != null then try cb(msg) catch case e: Throwable =>
+       |        System.err.println(s"WS message handler: ${e.getMessage}")
+       |    }
+       |
+       |private final case class _WsRoute(
+       |  pattern:   List[_Seg],
+       |  handler:   WebSocket => Unit,
+       |  origins:   List[String] = Nil,  // empty = no Origin restriction
+       |  protocols: List[String] = Nil   // empty = no subprotocol negotiation
+       |)
+       |private val _wsRoutes = scala.collection.mutable.ArrayBuffer.empty[_WsRoute]
+       |
+       |// Process-wide cap on active WS sessions.  Tuned with
+       |// `setMaxWsConnections(n)`; default = unlimited.  Upgrades past
+       |// the cap are refused with 503.  `closeNow` decrements via the
+       |// per-connection `_releaseSlot` helper.
+       |private val _wsMaxActive    = java.util.concurrent.atomic.AtomicInteger(Int.MaxValue)
+       |private val _wsActiveCount  = java.util.concurrent.atomic.AtomicInteger(0)
+       |def setMaxWsConnections(n: Int): Unit =
+       |  _wsMaxActive.set(if n < 0 then Int.MaxValue else n)
+       |private def _wsTryReserve(): Boolean =
+       |  val after = _wsActiveCount.incrementAndGet()
+       |  if after > _wsMaxActive.get then { _wsActiveCount.decrementAndGet(); false }
+       |  else true
+       |
+       |/** WsRoom — thread-safe registry of WebSocket clients with a
+       |  * built-in `broadcast(msg)` helper.  Spawn one per logical
+       |  * channel (e.g. one room per chat room) and let the handler
+       |  * `add` / `remove` itself in onMessage / onClose. */
+       |class WsRoom:
+       |  private val members = java.util.concurrent.CopyOnWriteArrayList[WebSocket]()
+       |  def add(ws: WebSocket): Unit    = members.add(ws)
+       |  def remove(ws: WebSocket): Unit = members.remove(ws)
+       |  def broadcast(msg: String): Unit =
+       |    val it = members.iterator()
+       |    while it.hasNext do
+       |      try it.next().send(msg)
+       |      catch case _: Throwable => () // dead client, will be reaped via onClose
+       |  def size: Int = members.size
+       |
+       |/** Companion `WsRoom()` factory so user code reads naturally. */
+       |def WsRoom(): WsRoom = new WsRoom
+       |
+       |def onWebSocket(path: String): (WebSocket => Unit) => Unit = (handler) => {
+       |  _wsRoutes += _WsRoute(_parsePath(path), handler)
+       |}
+       |
+       |/** Two-arg form: only accept upgrades whose `Origin:` header is in
+       |  * `origins`.  Browser CSRF guard — same-origin policy does NOT
+       |  * block cross-site `new WebSocket(...)` calls. */
+       |def onWebSocket(path: String, origins: List[String]): (WebSocket => Unit) => Unit = (handler) => {
+       |  _wsRoutes += _WsRoute(_parsePath(path), handler, origins)
+       |}
+       |
+       |/** Three-arg form: also negotiate Sec-WebSocket-Protocol.  Server
+       |  * picks the first protocol from its `protocols` list that's in
+       |  * the client's request; no match refuses with 400.  Required
+       |  * for `socket.io` / `graphql-ws` clients. */
+       |def onWebSocket(path: String, origins: List[String], protocols: List[String]): (WebSocket => Unit) => Unit = (handler) => {
+       |  _wsRoutes += _WsRoute(_parsePath(path), handler, origins, protocols)
+       |}
+       |
+       |// ── Framing ──────────────────────────────────────────────────────────
+       |
+       |private val _WS_MAGIC = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
+       |// Hard cap on a single frame's payload (16 MB) — protects against a
+       |// hostile peer announcing a multi-GB payload that we'd otherwise
+       |// try to allocate up front.
+       |private val _WsMaxFrameBytes: Int = 16 * 1024 * 1024
+       |
+       |def _wsAcceptKey(clientKey: String): String =
+       |  val md = java.security.MessageDigest.getInstance("SHA-1")
+       |  val digest = md.digest((clientKey + _WS_MAGIC).getBytes("US-ASCII"))
+       |  java.util.Base64.getEncoder.encodeToString(digest)
+       |
+       |private final case class _WsFrame(fin: Boolean, opcode: Int, payload: Array[Byte])
+       |
+       |// Returns (frame, bytesConsumed) or null if more bytes are needed.
+       |// Throws on unrecoverable protocol error — caller closes the connection.
+       |private def _wsParseFrame(buf: Array[Byte], offset: Int, until: Int): (_WsFrame, Int) | Null =
+       |  val avail = until - offset
+       |  if avail < 2 then return null
+       |  val b0 = buf(offset)     & 0xFF
+       |  val b1 = buf(offset + 1) & 0xFF
+       |  val fin = (b0 & 0x80) != 0
+       |  val op  = b0 & 0x0F
+       |  val masked = (b1 & 0x80) != 0
+       |  val len7   = b1 & 0x7F
+       |  var hdrLen = 2
+       |  val payloadLen: Int =
+       |    if len7 <= 125 then len7
+       |    else if len7 == 126 then
+       |      if avail < hdrLen + 2 then return null
+       |      hdrLen += 2
+       |      ((buf(offset + 2) & 0xFF) << 8) | (buf(offset + 3) & 0xFF)
+       |    else
+       |      if avail < hdrLen + 8 then return null
+       |      hdrLen += 8
+       |      var v = 0L; var i = 0
+       |      while i < 8 do { v = (v << 8) | (buf(offset + 2 + i) & 0xFF).toLong; i += 1 }
+       |      if v > _WsMaxFrameBytes.toLong then throw RuntimeException(s"WS frame too large: $v bytes (max $_WsMaxFrameBytes)")
+       |      v.toInt
+       |  val maskLen = if masked then 4 else 0
+       |  val total   = hdrLen + maskLen + payloadLen
+       |  if avail < total then return null
+       |  val payload = new Array[Byte](payloadLen)
+       |  val payloadStart = offset + hdrLen + maskLen
+       |  if masked then
+       |    val m = Array.tabulate(4)(i => buf(offset + hdrLen + i))
+       |    var i = 0
+       |    while i < payloadLen do { payload(i) = (buf(payloadStart + i) ^ m(i & 3)).toByte; i += 1 }
+       |  else if payloadLen > 0 then
+       |    System.arraycopy(buf, payloadStart, payload, 0, payloadLen)
+       |  (_WsFrame(fin, op, payload), total)
+       |
+       |private def _wsEncodeFrame(opcode: Int, payload: Array[Byte]): Array[Byte] =
+       |  val len = payload.length
+       |  if len <= 125 then
+       |    val b = new Array[Byte](2 + len)
+       |    b(0) = (0x80 | opcode).toByte; b(1) = len.toByte
+       |    System.arraycopy(payload, 0, b, 2, len); b
+       |  else if len <= 0xFFFF then
+       |    val b = new Array[Byte](4 + len)
+       |    b(0) = (0x80 | opcode).toByte; b(1) = 126.toByte
+       |    b(2) = ((len >> 8) & 0xFF).toByte; b(3) = (len & 0xFF).toByte
+       |    System.arraycopy(payload, 0, b, 4, len); b
+       |  else
+       |    val b = new Array[Byte](10 + len)
+       |    b(0) = (0x80 | opcode).toByte; b(1) = 127.toByte
+       |    var v = len.toLong; var i = 0
+       |    while i < 8 do { b(9 - i) = (v & 0xFF).toByte; v >>>= 8; i += 1 }
+       |    System.arraycopy(payload, 0, b, 10, len); b
+       |
+       |def _wsEncodeText(s: String): Array[Byte] =
+       |  _wsEncodeFrame(0x1, s.getBytes(java.nio.charset.StandardCharsets.UTF_8))
+       |def _wsEncodePong(p: Array[Byte]): Array[Byte] = _wsEncodeFrame(0xA, p)
+       |def _wsEncodePing(p: Array[Byte]): Array[Byte] = _wsEncodeFrame(0x9, p)
+       |def _wsEncodeClose(code: Int, reason: String): Array[Byte] =
+       |  val r = reason.getBytes(java.nio.charset.StandardCharsets.UTF_8)
+       |  val p = new Array[Byte](2 + r.length)
+       |  p(0) = ((code >> 8) & 0xFF).toByte; p(1) = (code & 0xFF).toByte
+       |  System.arraycopy(r, 0, p, 2, r.length); _wsEncodeFrame(0x8, p)
+       |
+       |// ── Proxy: blocking accept + sniff + forward / upgrade ───────────────
+       |
+       |private def _readHttpHead(in: java.io.BufferedInputStream): Array[Byte] =
+       |  val sb = scala.collection.mutable.ArrayBuffer.empty[Byte]
+       |  var prev3 = 0; var prev2 = 0; var prev1 = 0
+       |  var done  = false
+       |  while !done do
+       |    val b = in.read()
+       |    if b < 0 then return sb.toArray
+       |    sb += b.toByte
+       |    if prev3 == 13 && prev2 == 10 && prev1 == 13 && b == 10 then done = true
+       |    prev3 = prev2; prev2 = prev1; prev1 = b
+       |  sb.toArray
+       |
+       |private def _proxyConnection(client: java.net.Socket, internalPort: Int): Unit =
+       |  // TCP keepalive lets the OS detect peers that vanished without
+       |  // FIN (yanked cables, dropped mobile sessions).  Without it a
+       |  // dead WS holds its FD for ~2 h before the TCP stack notices.
+       |  try client.setKeepAlive(true) catch case _: Throwable => ()
+       |  val cin  = java.io.BufferedInputStream(client.getInputStream)
+       |  val cout = client.getOutputStream
+       |  val head = _readHttpHead(cin)
+       |  val headText = new String(head, java.nio.charset.StandardCharsets.ISO_8859_1)
+       |  val lines    = headText.split("\r\n").toList
+       |  val request  = lines.headOption.getOrElse("")
+       |  val headers: Map[String, String] = lines.drop(1).flatMap { l =>
+       |    val i = l.indexOf(':')
+       |    if i < 0 then None
+       |    else Some(l.substring(0, i).trim.toLowerCase -> l.substring(i + 1).trim)
+       |  }.toMap
+       |  val path = request.split(' ').lift(1).getOrElse("/").split('?').head
+       |  val isWs = headers.get("upgrade").exists(_.equalsIgnoreCase("websocket")) &&
+       |             headers.get("connection").exists(_.toLowerCase.contains("upgrade"))
+       |  if isWs then
+       |    val segs = path.split('/').toList.filter(_.nonEmpty)
+       |    val matched = _wsRoutes.iterator.flatMap { r =>
+       |      _matchPath(r.pattern, segs).map(params => (r, params))
+       |    }.nextOption()
+       |    matched match
+       |      case None =>
+       |        cout.write("HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".getBytes("US-ASCII"))
+       |        cout.flush(); client.close()
+       |      case Some((r, params)) =>
+       |        val key = headers.getOrElse("sec-websocket-key", "")
+       |        if key.isEmpty then { client.close(); return }
+       |        // Origin allowlist (CSRF guard) — empty list = unrestricted.
+       |        if r.origins.nonEmpty then
+       |          val origin = headers.getOrElse("origin", "")
+       |          if !r.origins.contains(origin) then
+       |            cout.write("HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".getBytes("US-ASCII"))
+       |            cout.flush(); client.close(); return
+       |        // Process-wide active-connection cap.  Reserved AFTER
+       |        // the Origin check so a denied-Origin attempt doesn't
+       |        // briefly consume a slot.  Released in the writer-VT's
+       |        // `finally` after the channel closes.
+       |        if !_wsTryReserve() then
+       |          cout.write("HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".getBytes("US-ASCII"))
+       |          cout.flush(); client.close(); return
+       |        // Subprotocol negotiation (RFC 6455 §1.9).
+       |        val chosenProtocol: String =
+       |          if r.protocols.isEmpty then ""
+       |          else
+       |            val offered = headers.getOrElse("sec-websocket-protocol", "")
+       |              .split(',').iterator.map(_.trim).filter(_.nonEmpty).toSet
+       |            r.protocols.find(offered.contains).getOrElse("")
+       |        if r.protocols.nonEmpty && chosenProtocol.isEmpty then
+       |          _wsActiveCount.decrementAndGet()
+       |          cout.write("HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".getBytes("US-ASCII"))
+       |          cout.flush(); client.close(); return
+       |        val accept = _wsAcceptKey(key)
+       |        val protoHeader = if chosenProtocol.isEmpty then "" else s"Sec-WebSocket-Protocol: $chosenProtocol\r\n"
+       |        val resp =
+       |          "HTTP/1.1 101 Switching Protocols\r\n" +
+       |          "Upgrade: websocket\r\n" +
+       |          "Connection: Upgrade\r\n" +
+       |          s"Sec-WebSocket-Accept: $accept\r\n" +
+       |          protoHeader + "\r\n"
+       |        cout.write(resp.getBytes("US-ASCII")); cout.flush()
+       |        // Build the Request snapshot — same shape as REST handlers
+       |        // see (sans body / form / files; the WS upgrade is a GET
+       |        // with no body) so WS-side auth can read cookies /
+       |        // Authorization / Origin from `ws.request.headers`.
+       |        val rawQ  = request.split(' ').lift(1).getOrElse("/").split('?').lift(1).getOrElse("")
+       |        // Cookie header: `name=value; name=value; …` → Map.
+       |        val wsCookies: Map[String, String] = headers.get("cookie") match
+       |          case None => Map.empty
+       |          case Some(raw) => raw.split(';').iterator.flatMap { pair =>
+       |            val t = pair.trim
+       |            val i = t.indexOf('=')
+       |            if i < 0 then None else Some(t.substring(0, i).trim -> t.substring(i + 1).trim)
+       |          }.toMap
+       |        val wsReq = Request(
+       |          method  = "GET",
+       |          path    = path,
+       |          params  = params,
+       |          query   = _parseQuery(rawQ),
+       |          headers = headers,
+       |          body    = "",
+       |          cookies = wsCookies
+       |        )
+       |        val ws = WebSocket(client, wsReq)
+       |        // Run the user's `onWebSocket` block on the shared single-
+       |        // thread executor so any state it touches (top-level `var`s,
+       |        // route registry, etc.) is serial with HTTP handlers and
+       |        // later `onMessage` / `onClose` callbacks.
+       |        _serverExecutor.execute { () =>
+       |          try r.handler(ws) catch case e: Throwable =>
+       |            System.err.println(s"WS upgrade handler: ${e.getMessage}")
+       |        }
+       |        // Read-loop stays on this thread (cached pool) so a slow
+       |        // socket can't block the executor; only the dispatched
+       |        // callbacks above go through the single-thread queue.
+       |        ws._startHeartbeat()
+       |        ws._runReadLoop()
+       |  else
+       |    // Plain HTTP — open a backend socket to the internal HttpServer
+       |    // and copy bytes both ways until either side EOFs.
+       |    val back = java.net.Socket("127.0.0.1", internalPort)
+       |    val bin  = java.io.BufferedInputStream(back.getInputStream)
+       |    val bout = back.getOutputStream
+       |    bout.write(head); bout.flush()
+       |    // Virtual threads (Loom) on JDK 21+; plain Threads as a
+       |    // fallback so the emit also compiles on Java 17.
+       |    def _spawn(name: String, body: () => Unit): Thread =
+       |      try
+       |        val cls    = Class.forName("java.lang.Thread$Builder$OfVirtual")
+       |        val of     = classOf[Thread].getMethod("ofVirtual").invoke(null)
+       |        val named  = cls.getMethod("name", classOf[String]).invoke(of, name)
+       |        cls.getMethod("start", classOf[Runnable])
+       |          .invoke(named, (() => body()): Runnable).asInstanceOf[Thread]
+       |      catch case _: Throwable =>
+       |        val t = Thread(() => body(), name)
+       |        t.start()
+       |        t
+       |    val pump1 = _spawn("ws-proxy-pump-c2b", () => _pump(cin, bout, back, client))
+       |    val pump2 = _spawn("ws-proxy-pump-b2c", () => _pump(bin, cout, client, back))
+       |    pump1.join(); pump2.join()
+       |
+       |private def _pump(in: java.io.InputStream, out: java.io.OutputStream, a: java.net.Socket, b: java.net.Socket): Unit =
+       |  val buf = new Array[Byte](8192)
+       |  try
+       |    var n = in.read(buf)
+       |    while n >= 0 do
+       |      out.write(buf, 0, n); out.flush()
+       |      n = in.read(buf)
+       |  catch case _: Throwable => ()
+       |  finally
+       |    try a.close() catch case _: Throwable => ()
+       |    try b.close() catch case _: Throwable => ()
        |
        |def serve(port: Int): Unit =
-       |  val server = com.sun.net.httpserver.HttpServer.create(
-       |    java.net.InetSocketAddress(port), 0)
-       |  server.createContext("/", _handle)
-       |  server.setExecutor(java.util.concurrent.Executors.newSingleThreadExecutor())
-       |  server.start()
-       |  println(s"Listening on http://localhost:$port/")
+       |  // Internal HttpServer on a loopback ephemeral port — REST + static
+       |  // files keep flowing through it as before, single-threaded.  The
+       |  // same `_serverExecutor` backs WS callbacks so all handler bodies
+       |  // serialise on one thread regardless of which protocol triggered
+       |  // them.
+       |  val internal = com.sun.net.httpserver.HttpServer.create(
+       |    java.net.InetSocketAddress("127.0.0.1", 0), 0)
+       |  internal.createContext("/", _handle)
+       |  internal.setExecutor(_serverExecutor)
+       |  internal.start()
+       |  val internalPort = internal.getAddress.getPort
+       |  // Public-facing blocking proxy: one accept loop, one virtual
+       |  // thread per connection.  Virtual threads cost ~few KB of heap
+       |  // each (vs ~1 MB for platform threads), so an idle WebSocket
+       |  // holding its read-loop thread is essentially free — scale
+       |  // ceiling is now file descriptors, not thread stacks.  HTTP
+       |  // forwarding spawns two more virtual threads per request, also
+       |  // cheap.
+       |  val pub = java.net.ServerSocket(port)
+       |  println(s"Listening on http://localhost:$port/  (proxy → 127.0.0.1:$internalPort)")
+       |  // Virtual threads (Loom) are the natural fit here — cheap, one
+       |  // per connection.  Fall back to a cached thread pool on JVMs
+       |  // older than 21 so the emit keeps working when the user's
+       |  // scala-cli picks a Java 17 JDK.  Reflection lookup avoids
+       |  // a compile-time dependency on the JDK 21 method.
+       |  val pool: java.util.concurrent.ExecutorService =
+       |    try
+       |      classOf[java.util.concurrent.Executors]
+       |        .getMethod("newVirtualThreadPerTaskExecutor")
+       |        .invoke(null).asInstanceOf[java.util.concurrent.ExecutorService]
+       |    catch case _: Throwable =>
+       |      java.util.concurrent.Executors.newCachedThreadPool()
+       |  Thread(() => {
+       |    while !pub.isClosed do
+       |      try
+       |        val c = pub.accept()
+       |        pool.execute { () => _proxyConnection(c, internalPort) }
+       |      catch case _: Throwable => ()
+       |  }, "ws-proxy-accept").start()
        |  Thread.currentThread().join()
        |
        |""".stripMargin
@@ -1636,5 +3525,484 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |  case (">=", x: Long,   y: Long)   => x >= y
        |  case (">=", x: Double, y: Double) => x >= y
        |  case _ => sys.error(s"Cannot $op on $a, $b")
+       |
+       |// ── Built-in `Async` effect + default `runAsync` handler ────────────────
+       |//
+       |// Same single-threaded semantics as the interpreter and JS Node target:
+       |// thunks passed to `async` / `parallel` execute immediately (so output
+       |// is byte-identical across all three backends), `delay` blocks the
+       |// calling thread via Thread.sleep, `await` unwraps the cached value.
+       |// Real-thread parallelism is a future handler swap away.
+       |
+       |object Async:
+       |  def delay(ms: Int): Any           = _perform("Async", "delay",    ms)
+       |  def async(thunk: () => Any): Any  = _perform("Async", "async",    thunk)
+       |  def await(fut: Any): Any          = _perform("Async", "await",    fut)
+       |  def parallel(thunks: List[() => Any]): Any =
+       |    _perform("Async", "parallel", thunks)
+       |
+       |case class Future(value: Any)
+       |
+       |// ── CPS-aware collection helpers (sequence Free callbacks) ──────────
+       |//
+       |// In CPS-emitted bodies the receiver of `xs.map(fn)` is typed `Any`
+       |// (the Free monad's value carrier), so Scala can't resolve `.map`
+       |// statically.  `_dispatch` runs the method at runtime — for HOFs
+       |// it routes through `_seq*` helpers that thread per-element Free
+       |// results into a single sequenced Free, matching the interpreter's
+       |// `Computation.sequence` semantics.  Pure callbacks short-circuit
+       |// (no Free anywhere → return the plain array).
+       |
+       |def _isFree(c: Any): Boolean = c.isInstanceOf[_Computation]
+       |
+       |def _seq(comps: List[Any]): Any =
+       |  if !comps.exists(_isFree) then comps
+       |  else
+       |    def loop(i: Int, acc: List[Any]): Any =
+       |      if i == comps.length then acc
+       |      else _bind(comps(i), (v: Any) => loop(i + 1, acc :+ v))
+       |    loop(0, Nil)
+       |
+       |def _seqMap(xs: List[Any], fn: Any => Any): Any =
+       |  _seq(xs.map(fn))
+       |
+       |def _seqFlatMap(xs: List[Any], fn: Any => Any): Any =
+       |  val s = _seqMap(xs, fn)
+       |  s match
+       |    case c: _Computation =>
+       |      _bind(c, (rs: Any) => rs.asInstanceOf[List[Any]].flatMap {
+       |        case ys: List[_] => ys.asInstanceOf[List[Any]]
+       |        case v           => List(v)
+       |      })
+       |    case rs: List[_] => rs.asInstanceOf[List[Any]].flatMap {
+       |      case ys: List[_] => ys.asInstanceOf[List[Any]]
+       |      case v           => List(v)
+       |    }
+       |    case _ => s
+       |
+       |def _seqFilter(xs: List[Any], fn: Any => Any, neg: Boolean): Any =
+       |  val flags = xs.map(fn)
+       |  val pick = (bs: List[Any]) => xs.zip(bs).collect {
+       |    case (x, b: Boolean) if (if neg then !b else b) => x
+       |  }
+       |  _seq(flags) match
+       |    case c: _Computation => _bind(c, (bs: Any) => pick(bs.asInstanceOf[List[Any]]))
+       |    case bs: List[_]     => pick(bs.asInstanceOf[List[Any]])
+       |    case other           => other
+       |
+       |def _seqForeach(xs: List[Any], fn: Any => Any): Any =
+       |  _seq(xs.map(fn)) match
+       |    case c: _Computation => _bind(c, (_: Any) => ())
+       |    case _               => ()
+       |
+       |def _seqExists(xs: List[Any], fn: Any => Any): Any =
+       |  _seq(xs.map(fn)) match
+       |    case c: _Computation => _bind(c, (bs: Any) =>
+       |      bs.asInstanceOf[List[Any]].exists { case b: Boolean => b; case _ => false })
+       |    case bs: List[_]     =>
+       |      bs.asInstanceOf[List[Any]].exists { case b: Boolean => b; case _ => false }
+       |    case _ => false
+       |
+       |def _seqForall(xs: List[Any], fn: Any => Any): Any =
+       |  _seq(xs.map(fn)) match
+       |    case c: _Computation => _bind(c, (bs: Any) =>
+       |      bs.asInstanceOf[List[Any]].forall { case b: Boolean => b; case _ => false })
+       |    case bs: List[_]     =>
+       |      bs.asInstanceOf[List[Any]].forall { case b: Boolean => b; case _ => false }
+       |    case _ => true
+       |
+       |def _seqCount(xs: List[Any], fn: Any => Any): Any =
+       |  _seq(xs.map(fn)) match
+       |    case c: _Computation => _bind(c, (bs: Any) =>
+       |      bs.asInstanceOf[List[Any]].count { case b: Boolean => b; case _ => false })
+       |    case bs: List[_]     =>
+       |      bs.asInstanceOf[List[Any]].count { case b: Boolean => b; case _ => false }
+       |    case _ => 0
+       |
+       |def _seqFind(xs: List[Any], fn: Any => Any): Any =
+       |  val flags = xs.map(fn)
+       |  val pick  = (bs: List[Any]) =>
+       |    val i = bs.indexWhere { case b: Boolean => b; case _ => false }
+       |    if i < 0 then None else Some(xs(i))
+       |  _seq(flags) match
+       |    case c: _Computation => _bind(c, (bs: Any) => pick(bs.asInstanceOf[List[Any]]))
+       |    case bs: List[_]     => pick(bs.asInstanceOf[List[Any]])
+       |    case _               => None
+       |
+       |def _seqFoldLeft(xs: List[Any], init: Any, fn: (Any, Any) => Any): Any =
+       |  def loop(i: Int, acc: Any): Any =
+       |    if i == xs.length then acc
+       |    else
+       |      val next = fn(acc, xs(i))
+       |      next match
+       |        case c: _Computation => _bind(c, (v: Any) => loop(i + 1, v))
+       |        case v               => loop(i + 1, v)
+       |  loop(0, init)
+       |
+       |/** Runtime method dispatcher used in CPS contexts where the receiver
+       | *  is statically `Any`.  Covers the collection HOFs that need
+       | *  Free-aware sequencing plus the common direct methods used inside
+       | *  `runAsync`/`handle` bodies.  Methods we don't know about fall
+       | *  through to Java reflection so a typo at the call site surfaces
+       | *  as the same NoSuchMethod we'd get with a direct call. */
+       |def _dispatch(obj: Any, method: String, args: List[Any]): Any =
+       |  (obj, method, args) match
+       |    // List HOFs — CPS-aware
+       |    case (xs: List[_], "map",       List(fn))   => _seqMap     (xs.asInstanceOf[List[Any]], fn.asInstanceOf[Any => Any])
+       |    case (xs: List[_], "flatMap",   List(fn))   => _seqFlatMap (xs.asInstanceOf[List[Any]], fn.asInstanceOf[Any => Any])
+       |    case (xs: List[_], "filter",    List(fn))   => _seqFilter  (xs.asInstanceOf[List[Any]], fn.asInstanceOf[Any => Any], neg = false)
+       |    case (xs: List[_], "filterNot", List(fn))   => _seqFilter  (xs.asInstanceOf[List[Any]], fn.asInstanceOf[Any => Any], neg = true)
+       |    case (xs: List[_], "foreach",   List(fn))   => _seqForeach (xs.asInstanceOf[List[Any]], fn.asInstanceOf[Any => Any])
+       |    case (xs: List[_], "exists",    List(fn))   => _seqExists  (xs.asInstanceOf[List[Any]], fn.asInstanceOf[Any => Any])
+       |    case (xs: List[_], "forall",    List(fn))   => _seqForall  (xs.asInstanceOf[List[Any]], fn.asInstanceOf[Any => Any])
+       |    case (xs: List[_], "find",      List(fn))   => _seqFind    (xs.asInstanceOf[List[Any]], fn.asInstanceOf[Any => Any])
+       |    case (xs: List[_], "count",     List(fn))   => _seqCount   (xs.asInstanceOf[List[Any]], fn.asInstanceOf[Any => Any])
+       |    case (xs: List[_], "foldLeft",  List(init)) =>
+       |      // Curried in Scala: foldLeft(init)(fn) — return the fn-taker.
+       |      (fn: ((Any, Any) => Any)) => _seqFoldLeft(xs.asInstanceOf[List[Any]], init, fn)
+       |    // Direct List methods we use commonly inside CPS bodies
+       |    case (xs: List[_], "head",     Nil)       => xs.head
+       |    case (xs: List[_], "tail",     Nil)       => xs.tail
+       |    case (xs: List[_], "size",     Nil)       => xs.size
+       |    case (xs: List[_], "length",   Nil)       => xs.length
+       |    case (xs: List[_], "isEmpty",  Nil)       => xs.isEmpty
+       |    case (xs: List[_], "nonEmpty", Nil)       => xs.nonEmpty
+       |    case (xs: List[_], "reverse",  Nil)       => xs.reverse
+       |    case (xs: List[_], "mkString", Nil)       => xs.mkString
+       |    case (xs: List[_], "mkString", List(s: String)) => xs.mkString(s)
+       |    case (xs: List[_], "sum",      Nil)       => xs.asInstanceOf[List[Any]].foldLeft(0: Any)((a, b) => _binOp("+", a, b))
+       |    case (s: String,   "length",   Nil)       => s.length
+       |    case (s: String,   "size",     Nil)       => s.length
+       |    case (s: String,   "toInt",    Nil)       => s.toInt
+       |    case (s: String,   "toLong",   Nil)       => s.toLong
+       |    case (s: String,   "toDouble", Nil)       => s.toDouble
+       |    // Option — `getOrElse` takes a by-name param which Java
+       |    // reflection can't resolve directly from a String arg.
+       |    case (opt: Option[_], "get",        Nil)       => opt.get
+       |    case (opt: Option[_], "getOrElse",  List(d))   => opt.getOrElse(d)
+       |    case (opt: Option[_], "isDefined",  Nil)       => opt.isDefined
+       |    case (opt: Option[_], "isEmpty",    Nil)       => opt.isEmpty
+       |    case (opt: Option[_], "nonEmpty",   Nil)       => opt.nonEmpty
+       |    case (opt: Option[_], "map",        List(fn))  =>
+       |      opt.asInstanceOf[Option[Any]].map(fn.asInstanceOf[Any => Any])
+       |    case (opt: Option[_], "flatMap",    List(fn))  =>
+       |      opt.asInstanceOf[Option[Any]].flatMap(x => fn.asInstanceOf[Any => Option[Any]](x))
+       |    case (opt: Option[_], "foreach",    List(fn))  =>
+       |      opt.asInstanceOf[Option[Any]].foreach(fn.asInstanceOf[Any => Any]); ()
+       |    // Fallback: try Java reflection so non-HOF method calls still work
+       |    case _ =>
+       |      val cls = obj.getClass
+       |      val ms  = cls.getMethods.filter(m =>
+       |        m.getName == method && m.getParameterCount == args.length)
+       |      if ms.isEmpty then
+       |        sys.error(s"No method '$method' on ${cls.getName} with ${args.length} arg(s)")
+       |      val boxed: Array[Object] = args.map(_.asInstanceOf[AnyRef]).toArray
+       |      ms.head.invoke(obj, boxed*)
+       |
+       |def _runAsync(bodyThunk: () => Any): Any =
+       |  def dispatch(op: String, args: List[Any], resume: Any => Any): Any = op match
+       |    case "delay" =>
+       |      val ms = args(0).asInstanceOf[Int]
+       |      if ms > 0 then Thread.sleep(ms.toLong)
+       |      resume(())
+       |    case "async" =>
+       |      val thunk = args(0).asInstanceOf[() => Any]
+       |      resume(Future(interp(thunk())))
+       |    case "await" =>
+       |      val fut = args(0).asInstanceOf[Future]
+       |      resume(fut.value)
+       |    case "parallel" =>
+       |      val thunks = args(0).asInstanceOf[List[() => Any]]
+       |      resume(thunks.map(t => interp(t())))
+       |    case _ => sys.error("Unknown Async operation: " + op)
+       |  def interp(initial: Any): Any =
+       |    var current: Any = initial
+       |    while true do
+       |      current match
+       |        case _Perform("Async", op, args) =>
+       |          val resume: Any => Any = (v: Any) => v
+       |          current = dispatch(op, args, resume)
+       |        case _Perform(_, _, _) => return current
+       |        case _FlatMap(sub, f) => sub match
+       |          case _Perform("Async", op, args) =>
+       |            val fn = f.asInstanceOf[Any => Any]
+       |            val resume: Any => Any = (v: Any) => interp(fn(v))
+       |            current = dispatch(op, args, resume)
+       |          case _Perform(_, _, _) =>
+       |            val fn = f.asInstanceOf[Any => Any]
+       |            return _FlatMap(sub, (v: Any) => interp(fn(v)))
+       |          case _FlatMap(s2, g) =>
+       |            current = _FlatMap(s2,
+       |              (x: Any) => _FlatMap(g.asInstanceOf[Any => Any](x), f))
+       |          case v =>
+       |            current = f.asInstanceOf[Any => Any](v)
+       |        case v => return v
+       |    throw new RuntimeException("unreachable")
+       |  interp(bodyThunk())
+       |
+       |// ── runAsyncParallel: real-thread alternate handler ────────────────────
+       |//
+       |// Same `Async.*` API as `runAsync` but `async` / `parallel` submit
+       |// their thunks to an `ExecutorService`.  `await` blocks the calling
+       |// thread on the future; `parallel` waits on each future in declared
+       |// order so the result list mirrors input order regardless of
+       |// completion order — value-deterministic code retains byte-identical
+       |// output across the single- and parallel-handler variants.
+       |
+       |val _parallelFutures =
+       |  new java.util.concurrent.ConcurrentHashMap[Long, java.util.concurrent.Future[Any]]()
+       |val _parallelFutureSeq = new java.util.concurrent.atomic.AtomicLong(0L)
+       |def _freshFutureId(): Long = _parallelFutureSeq.incrementAndGet()
+       |
+       |def _runAsyncParallel(bodyThunk: () => Any): Any =
+       |  val _ex = java.util.concurrent.Executors.newCachedThreadPool()
+       |  try
+       |    def dispatch(op: String, args: List[Any], resume: Any => Any): Any = op match
+       |      case "delay" =>
+       |        val ms = args(0).asInstanceOf[Int]
+       |        if ms > 0 then Thread.sleep(ms.toLong)
+       |        resume(())
+       |      case "async" =>
+       |        val thunk = args(0).asInstanceOf[() => Any]
+       |        val fut: java.util.concurrent.Future[Any] = _ex.submit(
+       |          new java.util.concurrent.Callable[Any] {
+       |            def call(): Any = interp(thunk())
+       |          })
+       |        val fid = _freshFutureId()
+       |        _parallelFutures.put(fid, fut)
+       |        resume(Future(("_parId", fid)))
+       |      case "await" =>
+       |        args(0) match
+       |          case Future(("_parId", fid: Long)) =>
+       |            val fut = _parallelFutures.remove(fid)
+       |            if fut == null then sys.error("Async.await: stale Future")
+       |            resume(fut.get())
+       |          case Future(v) => resume(v)
+       |          case _         => sys.error("Async.await(future)")
+       |      case "parallel" =>
+       |        val thunks = args(0).asInstanceOf[List[() => Any]]
+       |        val futs = thunks.map { t =>
+       |          _ex.submit(new java.util.concurrent.Callable[Any] {
+       |            def call(): Any = interp(t())
+       |          })
+       |        }
+       |        resume(futs.map(_.get()))
+       |      case _ => sys.error("Unknown Async operation: " + op)
+       |    def interp(initial: Any): Any =
+       |      var current: Any = initial
+       |      while true do
+       |        current match
+       |          case _Perform("Async", op, args) =>
+       |            current = dispatch(op, args, (v: Any) => v)
+       |          case _Perform(_, _, _) => return current
+       |          case _FlatMap(sub, f) => sub match
+       |            case _Perform("Async", op, args) =>
+       |              val fn = f.asInstanceOf[Any => Any]
+       |              current = dispatch(op, args, (v: Any) => interp(fn(v)))
+       |            case _Perform(_, _, _) =>
+       |              val fn = f.asInstanceOf[Any => Any]
+       |              return _FlatMap(sub, (v: Any) => interp(fn(v)))
+       |            case _FlatMap(s2, g) =>
+       |              current = _FlatMap(s2,
+       |                (x: Any) => _FlatMap(g.asInstanceOf[Any => Any](x), f))
+       |            case v =>
+       |              current = f.asInstanceOf[Any => Any](v)
+       |          case v => return v
+       |      throw new RuntimeException("unreachable")
+       |    interp(bodyThunk())
+       |  finally _ex.shutdown()
+       |
+       |// ── Storage: built-in key-value effect ─────────────────────────────────
+       |//
+       |// `Storage.{get,put,remove,has,keys}` produce `_Perform("Storage",
+       |// op, args)` nodes; `_runStorage(bodyThunk, path)` is the handler.
+       |// When `path` is non-null it hydrates from / flushes to that JSON
+       |// file on every mutation (file-backed); otherwise the map stays
+       |// in-process and is discarded at scope exit (ephemeral mode).
+       |
+       |def _storageLoad(path: String, state: scala.collection.mutable.LinkedHashMap[String, String]): Unit =
+       |  val p = java.nio.file.Paths.get(path)
+       |  if java.nio.file.Files.exists(p) then
+       |    val src = java.nio.file.Files.readString(p).trim
+       |    if src.startsWith("{") && src.endsWith("}") then
+       |      var i = 1
+       |      val end = src.length - 1
+       |      def skipWs(): Unit = while i < end && src.charAt(i).isWhitespace do i += 1
+       |      def readStr(): String =
+       |        if i >= end || src.charAt(i) != '"' then sys.error(s"Storage JSON: expected string at $i")
+       |        i += 1
+       |        val sb = new StringBuilder
+       |        while i < end && src.charAt(i) != '"' do
+       |          if src.charAt(i) == '\\' && i + 1 < end then
+       |            src.charAt(i + 1) match
+       |              case '"'  => sb.append('"');  i += 2
+       |              case '\\' => sb.append('\\'); i += 2
+       |              case 'n'  => sb.append('\n'); i += 2
+       |              case 't'  => sb.append('\t'); i += 2
+       |              case 'r'  => sb.append('\r'); i += 2
+       |              case c    => sb.append(c);    i += 2
+       |          else { sb.append(src.charAt(i)); i += 1 }
+       |        i += 1
+       |        sb.toString
+       |      skipWs()
+       |      while i < end do
+       |        val k = readStr(); skipWs()
+       |        if i >= end || src.charAt(i) != ':' then sys.error("Storage JSON: expected ':'")
+       |        i += 1; skipWs()
+       |        val v = readStr(); skipWs()
+       |        state(k) = v
+       |        if i < end && src.charAt(i) == ',' then i += 1
+       |        skipWs()
+       |
+       |def _storageSave(path: String, state: scala.collection.mutable.LinkedHashMap[String, String]): Unit =
+       |  def esc(s: String): String =
+       |    val sb = new StringBuilder
+       |    sb.append('"')
+       |    s.foreach {
+       |      case '"'  => sb.append("\\\"")
+       |      case '\\' => sb.append("\\\\")
+       |      case '\n' => sb.append("\\n")
+       |      case '\r' => sb.append("\\r")
+       |      case '\t' => sb.append("\\t")
+       |      case c    => sb.append(c)
+       |    }
+       |    sb.append('"').toString
+       |  val body = state.iterator.map { case (k, v) => esc(k) + ":" + esc(v) }.mkString(",")
+       |  java.nio.file.Files.writeString(java.nio.file.Paths.get(path), "{" + body + "}")
+       |
+       |def _runStorage(bodyThunk: () => Any, path: String): Any =
+       |  val state = scala.collection.mutable.LinkedHashMap.empty[String, String]
+       |  if path != null then _storageLoad(path, state)
+       |  def flush(): Unit = if path != null then _storageSave(path, state)
+       |  def dispatch(op: String, args: List[Any], resume: Any => Any): Any = op match
+       |    case "get" =>
+       |      val k = args(0).asInstanceOf[String]
+       |      resume(if state.contains(k) then Some(state(k)) else None)
+       |    case "put" =>
+       |      val k = args(0).asInstanceOf[String]
+       |      state(k) = _show(args(1))
+       |      flush()
+       |      resume(())
+       |    case "remove" =>
+       |      state.remove(args(0).asInstanceOf[String])
+       |      flush()
+       |      resume(())
+       |    case "has" => resume(state.contains(args(0).asInstanceOf[String]))
+       |    case "keys" => resume(state.keys.toList)
+       |    case _ => sys.error("Unknown Storage operation: " + op)
+       |  def interp(initial: Any): Any =
+       |    var current: Any = initial
+       |    while true do
+       |      current match
+       |        case _Perform("Storage", op, args) =>
+       |          current = dispatch(op, args, (v: Any) => v)
+       |        case _Perform(_, _, _) => return current
+       |        case _FlatMap(sub, f) => sub match
+       |          case _Perform("Storage", op, args) =>
+       |            val fn = f.asInstanceOf[Any => Any]
+       |            current = dispatch(op, args, (v: Any) => interp(fn(v)))
+       |          case _Perform(_, _, _) =>
+       |            val fn = f.asInstanceOf[Any => Any]
+       |            return _FlatMap(sub, (v: Any) => interp(fn(v)))
+       |          case _FlatMap(s2, g) =>
+       |            current = _FlatMap(s2,
+       |              (x: Any) => _FlatMap(g.asInstanceOf[Any => Any](x), f))
+       |          case v =>
+       |            current = f.asInstanceOf[Any => Any](v)
+       |        case v => return v
+       |    throw new RuntimeException("unreachable")
+       |  interp(bodyThunk())
+       |
+       |""".stripMargin
+
+  /** Reactive runtime — same push-model as the interpreter and JsGen.
+   *  Signals are mutable cells with a subscriber set; reads inside an
+   *  active effect / computed register a mutual subscription; writes
+   *  queue subscribers into a LinkedHashSet and a scheduled flush
+   *  drains it so each effect runs at most once per synchronous
+   *  transaction (dedupes the diamond). */
+  private val reactiveRuntime: String =
+    """|
+       |// ── Reactive signals (fine-grained reactivity) ─────────────────────
+       |class _Signal(var value: Any, val subs: scala.collection.mutable.HashSet[Long])
+       |class _Effect(val thunk: () => Any, val deps: scala.collection.mutable.HashSet[Long])
+       |
+       |val _signals = scala.collection.mutable.HashMap.empty[Long, _Signal]
+       |val _effects = scala.collection.mutable.HashMap.empty[Long, _Effect]
+       |var _reactiveSeq: Long = 0L
+       |val _effectStack = scala.collection.mutable.Stack.empty[Long]
+       |val _pendingEffects = scala.collection.mutable.LinkedHashSet.empty[Long]
+       |var _reactiveFlushing = false
+       |
+       |def _freshReactiveId(): Long = { _reactiveSeq += 1; _reactiveSeq }
+       |
+       |def _signalGet(id: Long): Any =
+       |  val s = _signals.getOrElse(id, sys.error("Signal disposed or unknown id"))
+       |  if _effectStack.nonEmpty then
+       |    val eid = _effectStack.top
+       |    s.subs += eid
+       |    _effects.get(eid).foreach(_.deps += id)
+       |  s.value
+       |
+       |def _signalSet(id: Long, v: Any): Unit =
+       |  val s = _signals.getOrElse(id, sys.error("Signal disposed or unknown id"))
+       |  s.value = v
+       |  // Skip subscribers currently running — otherwise an effect
+       |  // that writes a signal it also reads infinite-loops itself.
+       |  s.subs.foreach { eid =>
+       |    if !_effectStack.contains(eid) then _pendingEffects += eid
+       |  }
+       |  if !_reactiveFlushing then _reactiveFlush()
+       |
+       |def _reactiveFlush(): Unit =
+       |  _reactiveFlushing = true
+       |  try
+       |    while _pendingEffects.nonEmpty do
+       |      val eid = _pendingEffects.head
+       |      _pendingEffects -= eid
+       |      _runEffect(eid)
+       |  finally _reactiveFlushing = false
+       |
+       |def _clearEffectDeps(eid: Long): Unit =
+       |  _effects.get(eid).foreach { e =>
+       |    e.deps.foreach { sid => _signals.get(sid).foreach(_.subs -= eid) }
+       |    e.deps.clear()
+       |  }
+       |
+       |def _runEffect(eid: Long): Unit =
+       |  _effects.get(eid).foreach { e =>
+       |    _clearEffectDeps(eid)
+       |    _effectStack.push(eid)
+       |    try e.thunk()
+       |    finally _effectStack.pop()
+       |  }
+       |
+       |/** User-visible Signal handle — parameterised on the value type
+       | *  so callers get back `count.get: Int` instead of `Any` and the
+       | *  Scala typer resolves arithmetic (`count.get * 2`) cleanly. */
+       |class Signal[A](val id: Long):
+       |  def get: A           = _signalGet(id).asInstanceOf[A]
+       |  def set(v: A): Unit  = _signalSet(id, v)
+       |  def apply(): A       = get
+       |  override def toString: String = s"Signal(${get})"
+       |object Signal:
+       |  def apply[A](initial: A): Signal[A] =
+       |    val id = _freshReactiveId()
+       |    _signals(id) = _Signal(initial, scala.collection.mutable.HashSet.empty)
+       |    new Signal[A](id)
+       |
+       |def effect(thunk: => Any): Unit =
+       |  val eid = _freshReactiveId()
+       |  _effects(eid) = _Effect(() => thunk, scala.collection.mutable.HashSet.empty)
+       |  _runEffect(eid)
+       |
+       |def computed[A](thunk: => A): Signal[A] =
+       |  val sid = _freshReactiveId()
+       |  val eid = _freshReactiveId()
+       |  _signals(sid) = _Signal(null, scala.collection.mutable.HashSet.empty)
+       |  val updater: () => Any = () => _signalSet(sid, thunk)
+       |  _effects(eid) = _Effect(updater, scala.collection.mutable.HashSet.empty)
+       |  _runEffect(eid)
+       |  new Signal[A](sid)
        |
        |""".stripMargin

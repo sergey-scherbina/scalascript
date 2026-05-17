@@ -1,0 +1,37 @@
+#!/usr/bin/env ssc
+---
+name: checkbox
+description: Single checkbox with inline label.
+---
+
+# Checkbox
+
+```scalascript
+object Checkbox:
+  private val sc = scope("Checkbox")
+  private val root  = sc.cls("root")
+  private val box   = sc.cls("box")
+  private val txt   = sc.cls("label")
+
+  val css: String = sc.css("""
+    .root  { display: inline-flex; align-items: center; gap: .4em;
+             margin: .3em 0; cursor: pointer; }
+    .box   { width: 1em; height: 1em; accent-color: #2563eb; cursor: pointer; }
+    .label { font-size: .95em; color: #1f2937; }
+    .root:has(.box:disabled) { cursor: not-allowed; opacity: .6; }
+  """)
+
+  def render(
+      name: String,
+      label: String,
+      checked: Boolean = false,
+      value: String = "true",
+      disabled: Boolean = false
+  ): String =
+    val chk = if checked then " checked" else ""
+    val dis = if disabled then " disabled" else ""
+    html"""<label class="${root}">
+      <input class="${box}" type="checkbox" name="${name}" value="${value}"${raw(chk)}${raw(dis)}>
+      <span class="${txt}">${label}</span>
+    </label>"""
+```

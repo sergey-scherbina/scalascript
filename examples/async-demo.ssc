@@ -1,0 +1,95 @@
+#!/usr/bin/env ssc
+---
+name: async-demo
+version: 1.0.0
+description: Built-in Async effect — delay, async, await, parallel, all driven by runAsync
+---
+
+# Async Effect
+
+ScalaScript ships a built-in `Async` effect on top of the same Free-Monad
+machinery as user-declared effects.  Code inside `runAsync { ... }` can
+suspend on four operations and the default handler drives them to
+completion in a single-threaded, deterministic way — same observable
+output on the interpreter, the JS Node target, and `ssc compile`.
+
+  - `Async.delay(ms)`              — pause execution for `ms` milliseconds
+  - `Async.async(() => body)`      — wrap a thunk; runs at definition time, result lives in a `Future`
+  - `Async.await(fut)`             — extract a `Future`'s value
+  - `Async.parallel(thunks)`       — run a list of thunks, collect results in declared order
+
+## Awaiting individual futures
+
+```scalascript
+runAsync {
+  val a = Async.async(() => 1)
+  val b = Async.async(() => 2)
+  val c = Async.async(() => 3)
+  println(Async.await(a) + Async.await(b) + Async.await(c))
+}
+```
+
+## parallel — fan-out, collect in declared order
+
+```scalascript
+runAsync {
+  val squares = Async.parallel(
+    List(() => 1 * 1, () => 2 * 2, () => 3 * 3, () => 4 * 4)
+  )
+  println(squares)
+}
+```
+
+## delay — wall-clock pause
+
+```scalascript
+runAsync {
+  Async.delay(1)
+  println("after delay")
+}
+```
+
+## Composing — async values flow through normal control flow
+
+A function that uses `Async.*` is itself effectful — its body returns a
+`Future`-bearing computation.  Higher-order methods like `List.map`,
+`filter`, `foldLeft`, `forall`, `exists`, `find`, `flatMap`, and
+`foreach` sequence such callbacks automatically, so you can drop an
+effectful helper into a familiar pipeline:
+
+```scalascript
+def doubled(n: Int): Int =
+  val f = Async.async(() => n * 2)
+  Async.await(f)
+
+runAsync {
+  val xs = List(10, 20, 30).map(doubled)
+  println(xs)
+}
+```
+
+## Nested runAsync — inner driver completes before outer continues
+
+```scalascript
+runAsync {
+  val sub = runAsync {
+    val a = Async.async(() => 7)
+    val b = Async.async(() => 8)
+    Async.await(a) * Async.await(b)
+  }
+  println(sub)
+}
+```
+
+## Why an effect, not a keyword
+
+`Async` operations produce `Perform` nodes — the same shape user-declared
+effects produce.  That means:
+
+  - No "function colouring": a function that uses `Async.*` looks like
+    any other function, and you can swap `runAsync` for a custom handler
+    (e.g. one that uses real threads on the JVM or `Promise`s on Node)
+    without touching call sites.
+  - Composition with other effects is plain `handle(...)` nesting.
+  - Single source, three backends: this `.ssc` produces byte-identical
+    output through `ssc`, `jssc`, and `sscc`.

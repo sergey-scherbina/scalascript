@@ -1,0 +1,42 @@
+#!/usr/bin/env ssc
+---
+name: signals
+description: Fine-grained reactivity — Signal / computed / effect
+---
+
+# Signals
+
+```scalascript
+// Basic read/write
+val count = Signal(0)
+println(count.get)
+count.set(5)
+println(count.get)
+
+// computed is auto-tracked: re-evaluates when its dependency changes
+val doubled = computed { count.get * 2 }
+println(doubled.get)
+count.set(7)
+println(doubled.get)
+
+// effect runs once at registration and re-runs on each dep change.
+// A diamond (count → doubled; effect also reads count) sees the effect
+// exactly once per transaction — flush dedupes within signalSet.
+val log = Signal(List[String]())
+effect {
+  val line = "c=" + count.get + " d=" + doubled.get
+  log.set(log.get :+ line)
+}
+count.set(10)
+count.set(11)
+println(log.get)
+
+// Independent signals — touching one shouldn't rerun unrelated effects
+val a = Signal(1)
+val b = Signal(2)
+effect { println("a-eff=" + a.get) }
+effect { println("b-eff=" + b.get) }
+a.set(10)
+a.set(20)
+b.set(30)
+```

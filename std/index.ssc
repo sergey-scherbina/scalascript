@@ -1,0 +1,86 @@
+---
+name: std
+version: 1.0.0
+description: v1.1 typeclass library aggregator — one import for the whole std
+exports:
+  - intSum
+  - stringConcat
+  - listConcat
+  - combineAll
+  - combineAllOption
+  - listMonad
+  - optionMonad
+  - pureList
+  - pureOption
+  - map2List
+  - map2Option
+  - sequenceList
+  - sequenceOption
+  - listFoldable
+  - optionFoldable
+  - listTraversable
+  - optionTraversable
+  - foldLeftList
+  - foldLeftOption
+  - foldRightList
+  - foldRightOption
+  - traverseListOption
+  - traverseOptionList
+  - Left
+  - Right
+  - mapRight
+  - flatMapRight
+  - foldEither
+  - isLeft
+  - isRight
+  - listSelective
+  - optionSelective
+  - selectList
+  - selectOption
+  - branchList
+  - branchOption
+  - optionUnitError
+  - raiseOption
+  - handleOption
+  - attemptOption
+  - raiseEither
+  - handleEither
+  - attemptEither
+  - tupleBifunctor
+  - bimapTuple
+  - leftMapTuple
+  - rightMapTuple
+  - bimapEither
+  - leftMapEither
+  - rightMapEither
+---
+
+# std — v1.1 typeclass library
+
+Single-import aggregator for the v1.1 std typeclass library.  Consumers
+can write one import and pick what they want by name:
+
+```text
+[Monoid, intSum, combineAll, listFunctor, ...](./std/index.ssc)
+```
+
+instead of stitching together imports from each individual file
+(`semigroup-monoid.ssc`, `functor-applicative-monad.ssc`, etc.).
+
+Transitive imports propagate through all three backends as of step 7,
+so loading this file pulls in every typeclass, instance, and helper
+the library ships.
+
+[intSum, stringConcat, listConcat, combineAll, combineAllOption](./semigroup-monoid.ssc)
+
+[listMonad, optionMonad, pureList, pureOption, map2List, map2Option, sequenceList, sequenceOption](./functor-applicative-monad.ssc)
+
+[listFoldable, optionFoldable, listTraversable, optionTraversable, foldLeftList, foldLeftOption, foldRightList, foldRightOption, traverseListOption, traverseOptionList](./foldable-traversable.ssc)
+
+[Left, Right, mapRight, flatMapRight, foldEither, isLeft, isRight](./either.ssc)
+
+[listSelective, optionSelective, selectList, selectOption, branchList, branchOption](./selective.ssc)
+
+[optionUnitError, raiseOption, handleOption, attemptOption, raiseEither, handleEither, attemptEither](./monaderror.ssc)
+
+[tupleBifunctor, bimapTuple, leftMapTuple, rightMapTuple, bimapEither, leftMapEither, rightMapEither](./bifunctor.ssc)

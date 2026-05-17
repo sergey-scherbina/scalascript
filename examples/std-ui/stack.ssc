@@ -1,0 +1,25 @@
+#!/usr/bin/env ssc
+---
+name: stack
+description: Vertical flex container with a uniform gap between children.
+---
+
+# Stack
+
+```scalascript
+object Stack:
+  private val sc = scope("Stack")
+  private val root = sc.cls("root")
+
+  val css: String = sc.css("""
+    .root { display: flex; flex-direction: column; }
+  """)
+
+  def render(
+      children: String,
+      gap: String = "1em",
+      align: String = "stretch"
+  ): String =
+    val style = "gap: " + gap + "; align-items: " + align + ";"
+    html"""<div class="${root}" style="${style}">${raw(children)}</div>"""
+```

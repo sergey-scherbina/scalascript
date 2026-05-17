@@ -1,0 +1,37 @@
+#!/usr/bin/env ssc
+---
+name: form-group
+description: Vertical stack with consistent spacing — the parent block of a form.
+---
+
+# FormGroup
+
+```scalascript
+object FormGroup:
+  private val sc = scope("FormGroup")
+  private val root  = sc.cls("root")
+  private val titleCls = sc.cls("title")
+  private val descCls  = sc.cls("description")
+
+  val css: String = sc.css("""
+    .root        { display: flex; flex-direction: column; gap: .5em;
+                   margin: 1em 0; padding-bottom: 1em;
+                   border-bottom: 1px solid #f3f4f6; }
+    .root:last-child { border-bottom: 0; }
+    .title       { margin: 0 0 .2em; font-size: 1em; font-weight: 600;
+                   color: #111827; }
+    .description { margin: 0 0 .5em; font-size: .9em; color: #6b7280; }
+  """)
+
+  def render(body: String, title: String = "", description: String = ""): String =
+    val head =
+      if title.nonEmpty || description.nonEmpty then
+        val t = if title.isEmpty       then "" else html"""<h3 class="${titleCls}">${title}</h3>"""
+        val d = if description.isEmpty then "" else html"""<p class="${descCls}">${description}</p>"""
+        html"""${raw(t)}${raw(d)}"""
+      else ""
+    html"""<div class="${root}">
+      ${raw(head)}
+      ${raw(body)}
+    </div>"""
+```

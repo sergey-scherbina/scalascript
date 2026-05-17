@@ -1,0 +1,28 @@
+#!/usr/bin/env ssc
+---
+name: spacer
+description: Fixed-size gap or flex-fill placeholder.
+---
+
+# Spacer
+
+```scalascript
+object Spacer:
+  private val sc = scope("Spacer")
+  private val root = sc.cls("root")
+  private val grow = sc.cls("grow")
+
+  val css: String = sc.css("""
+    .root { display: block; }
+    .grow { flex: 1 1 auto; }
+  """)
+
+  /** A fixed-height vertical gap (`Spacer.render("2em")`) or a
+   *  flex-fill (`Spacer.render("auto")`) that pushes its siblings
+   *  apart when placed in a flex parent like Row / Stack. */
+  def render(size: String = "1em"): String =
+    if size == "auto" then html"""<div class="${root} ${grow}"></div>"""
+    else
+      val style = "height: " + size + ";"
+      html"""<div class="${root}" style="${style}"></div>"""
+```

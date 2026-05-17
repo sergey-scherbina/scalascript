@@ -1,0 +1,144 @@
+#!/usr/bin/env ssc
+---
+name: lenses
+version: 1.0.0
+description: Functional updates with .copy and Focus[T](_.path) lenses
+---
+
+# Lenses — Functional Updates
+
+Immutable case classes get `.copy(field = value)` automatically, and the
+`Focus[T](_.field.subfield)` macro builds a composable Lens so you can
+read, write, or modify a nested field without hand-writing chains of
+`.copy(...)`.
+
+## .copy
+
+Override one or more named fields; everything else is preserved.
+
+```scalascript
+case class Address(street: String, city: String)
+case class Person(name: String, age: Int, address: Address)
+
+val alice = Person("Alice", 30, Address("Main St", "Boston"))
+
+val older   = alice.copy(age = 31)
+val renamed = alice.copy(name = "Bob", age = 40)
+
+println(s"older   : ${older.name}, ${older.age}")
+println(s"renamed : ${renamed.name}, ${renamed.age}, ${renamed.address.city}")
+```
+
+## Focus — read / write / modify
+
+`Focus[T](_.path)` returns a `Lens` with `get`, `set`, and `modify`.
+
+```scalascript
+val ageLens = Focus[Person](_.age)
+
+println(ageLens.get(alice))                     // 30
+println(ageLens.set(alice, 99).age)             // 99
+println(ageLens.modify(alice, a => a + 10).age) // 40
+```
+
+## Focus into nested fields
+
+The lens walks the path on `set` and rebuilds copies along the way — no
+hand-rolled `alice.copy(address = alice.address.copy(...))` needed.
+
+```scalascript
+val cityLens = Focus[Person](_.address.city)
+
+println(cityLens.get(alice))             // Boston
+val toParis = cityLens.set(alice, "Paris")
+println(toParis.address.city)            // Paris
+println(toParis.address.street)          // Main St (untouched)
+```
+
+## Composition with andThen
+
+Two lenses chain into one:
+
+```scalascript
+val addrLens   = Focus[Person](_.address)
+val streetLens = Focus[Address](_.street)
+val streetOfP  = addrLens.andThen(streetLens)
+
+println(streetOfP.get(alice))                       // Main St
+println(streetOfP.set(alice, "Broadway").address.street) // Broadway
+```
+
+## Prisms — focus on a sum-type variant
+
+`Prism[Outer, Variant]` focuses on a single case of an `enum` or sealed
+hierarchy. Unlike a `Lens`, the focus may not exist — `getOption`
+returns `None` when the value isn't the named variant, and `set` /
+`modify` are no-ops in that case.
+
+```scalascript
+enum Shape:
+  case Circle(radius: Int)
+  case Rect(width: Int, height: Int)
+
+val circlePrism = Prism[Shape, Circle]
+
+val c: Shape = Circle(5)
+val r: Shape = Rect(3, 4)
+
+println(circlePrism.getOption(c))                          // Some(Circle(5))
+println(circlePrism.getOption(r))                          // None
+println(circlePrism.modify(c, x => Circle(x.radius * 2)))  // Circle(10)
+println(circlePrism.modify(r, x => Circle(x.radius * 2)))  // Rect(3, 4)
+```
+
+## Optionals — focus through `Option` fields
+
+A path with `.some` returns an `Optional` instead of a `Lens`. `getOption`
+yields `None` whenever any Option along the path is empty; `set` and
+`modify` are no-ops in that case.
+
+```scalascript
+case class Profile(home: Option[Address])
+case class User(handle: String, profile: Option[Profile])
+
+val u1 = User("alice",  Some(Profile(Some(Address("Main St", "Boston")))))
+val u2 = User("bob",    None)
+val u3 = User("carol",  Some(Profile(None)))
+
+val cityOpt = Focus[User](_.profile.some.home.some.city)
+
+println(cityOpt.getOption(u1))            // Some(Boston)
+println(cityOpt.getOption(u2))            // None
+println(cityOpt.getOption(u3))            // None
+
+// set rebuilds copies along the path; no-op when a layer is None
+println(cityOpt.set(u1, "Paris").profile) // Some(Profile(Some(Address(Main St, Paris))))
+println(cityOpt.set(u2, "Paris").profile) // None — bob still has no profile
+
+// Optional composes with itself and with Lenses
+val profile  = Focus[User](_.profile.some)
+val homeCity = profile.andThen(Focus[Profile](_.home.some.city))
+println(homeCity.getOption(u1))           // Some(Boston)
+```
+
+## Traversals — focus on every element of a collection
+
+`Focus[T](_.items.each.field)` returns a `Traversal` — the multi-foci
+counterpart of `Lens` / `Optional`. `getAll` collects every reachable
+value, `modify` applies a function to each focus, and `set` replaces
+all foci with the same value.
+
+```scalascript
+case class TeamMember(name: String, age: Int)
+case class Roster(team: String, members: List[TeamMember])
+
+val r = Roster("eng",
+  List(TeamMember("Alice", 30), TeamMember("Bob", 25), TeamMember("Carol", 35)))
+
+val memberNames = Focus[Roster](_.members.each.name)
+val memberAges  = Focus[Roster](_.members.each.age)
+
+println(memberNames.getAll(r))                          // List(Alice, Bob, Carol)
+println(memberAges.getAll(memberAges.modify(r, _ + 1))) // List(31, 26, 36)
+println(memberNames.set(r, "anon").members)             // every name = "anon"
+```

@@ -23,14 +23,38 @@ object WebServer:
   private val htmlRender = HtmlRenderer.builder().build()
 
   def start(port: Int, root: String, log: java.io.PrintStream): Unit =
-    val server = JHttpServer.create(InetSocketAddress(port), 0)
-    server.createContext("/", handle(root, log, _))
-    // Explicit single-thread executor: the interpreter's globals / call-stack
+    // Explicit single-thread executor shared between the HTTP handlers
+    // (via JDK HttpServer) and the WebSocket app callbacks (via WsProxy
+    // → WsConnection.dispatch).  The interpreter's globals / call-stack
     // / position tracker are not thread-safe, so handler bodies must run
-    // serially. JvmGen's `serveRuntime` does the same for compiled output.
-    server.setExecutor(java.util.concurrent.Executors.newSingleThreadExecutor())
-    server.start()
+    // serially regardless of which protocol triggered them.  JvmGen's
+    // `serveRuntime` does the same for compiled output.
+    val executor = java.util.concurrent.Executors.newSingleThreadExecutor()
+
+    // Internal HttpServer on a loopback ephemeral port.  Anything that
+    // isn't a `Upgrade: websocket` request reaches it through the NIO
+    // proxy below — REST handlers and `.ssc` page rendering keep
+    // working exactly as before.
+    val internalAddr = InetSocketAddress("127.0.0.1", 0)
+    val internal     = JHttpServer.create(internalAddr, 0)
+    internal.createContext("/", handle(root, log, _))
+    internal.setExecutor(executor)
+    internal.start()
+    val internalPort = internal.getAddress.getPort
+
+    // Public-facing port: NIO proxy.  Sniffs the request head, hands WS
+    // upgrades off to `WsRoutes` and forwards everything else to the
+    // internal HttpServer.
+    val proxy = WsProxy(
+      publicPort   = port,
+      internalAddr = InetSocketAddress("127.0.0.1", internalPort),
+      wsExecutor   = executor,
+      log          = log
+    )
+    proxy.start()
+
     log.println(s"ScalaScript web · http://localhost:$port/  (root: $root)")
+    log.println(s"  (NIO proxy → internal HttpServer on 127.0.0.1:$internalPort)")
     log.println("Ctrl+C to stop.")
     Thread.currentThread().join()
 
@@ -106,6 +130,46 @@ object WebServer:
         parseMultipart(contentType, bodyLatin1)
       else
         (Map.empty[String, String], Map.empty[String, Value])
+    val cookieHeader = headers.collectFirst {
+      case (Value.StringV(k), Value.StringV(v)) if k.equalsIgnoreCase("Cookie") => v
+    }.getOrElse("")
+    val rawCookieSession =
+      if cookieHeader.isEmpty then Map.empty[String, String]
+      else SessionCookie.fromHeader(cookieHeader).getOrElse(Map.empty)
+    // Generic cookie map for handler convenience (parallels the
+    // WS-side `ws.request.cookies`).  Separate from the signed
+    // `session` map above.
+    val cookies: Map[String, String] =
+      if cookieHeader.isEmpty then Map.empty
+      else cookieHeader.split(';').iterator.flatMap { pair =>
+        val t = pair.trim
+        val i = t.indexOf('=')
+        if i < 0 then None else Some(t.substring(0, i).trim -> t.substring(i + 1).trim)
+      }.toMap
+    // In store mode the cookie payload is just `{"_ssid": "..."}`; we
+    // dereference the SSID against the in-memory store and surface the
+    // full payload to the handler.  In stateless mode the cookie *is*
+    // the payload.
+    val session: Map[String, String] =
+      if SessionStore.isEnabled then
+        rawCookieSession.get("_ssid").flatMap(SessionStore.get).getOrElse(Map.empty)
+      else rawCookieSession
+    val authHeader = headers.collectFirst {
+      case (Value.StringV(k), Value.StringV(v)) if k.equalsIgnoreCase("Authorization") => v
+    }.getOrElse("")
+    val bearer  = Jwt.fromAuthHeader(authHeader)
+    val claims  = bearer.flatMap(Jwt.verify)
+    // HTTP Basic: Authorization: Basic <b64(user:password)>
+    val basicAuth: Option[(String, String)] =
+      val t = authHeader.trim
+      if t.length < 6 || !t.substring(0, 6).equalsIgnoreCase("Basic ") then None
+      else
+        try
+          val decoded = String(java.util.Base64.getDecoder.decode(t.substring(6).trim), "UTF-8")
+          val colon   = decoded.indexOf(':')
+          if colon < 0 then None
+          else Some(decoded.substring(0, colon) -> decoded.substring(colon + 1))
+        catch case _: Throwable => None
     val req = Value.InstanceV("Request", Map(
       "method"  -> Value.StringV(ex.getRequestMethod),
       "path"    -> Value.StringV(ex.getRequestURI.getPath),
@@ -114,14 +178,28 @@ object WebServer:
       "headers" -> Value.MapV(headers),
       "body"    -> Value.StringV(body),
       "form"    -> Value.MapV(form.map((k, v) => Value.StringV(k) -> Value.StringV(v))),
-      "files"   -> Value.MapV(files.map((k, v) => Value.StringV(k) -> v))
+      "files"   -> Value.MapV(files.map((k, v) => Value.StringV(k) -> v)),
+      "session" -> Value.MapV(session.map((k, v) => Value.StringV(k) -> Value.StringV(v))),
+      "cookies" -> Value.MapV(cookies.map((k, v) => Value.StringV(k) -> Value.StringV(v))),
+      "bearerToken" -> bearer.map(t => Value.OptionV(Some(Value.StringV(t))))
+        .getOrElse(Value.OptionV(None)),
+      "jwtClaims"   -> claims.map(c =>
+          Value.OptionV(Some(Value.MapV(c.map((k, v) => Value.StringV(k) -> Value.StringV(v))))))
+        .getOrElse(Value.OptionV(None)),
+      "basicAuth"   -> basicAuth.map((u, p) =>
+          Value.OptionV(Some(Value.TupleV(List(Value.StringV(u), Value.StringV(p))))))
+        .getOrElse(Value.OptionV(None))
     ))
     val result = entry.interpreter.invoke(entry.handler, List(req))
-    writeResponse(result, ex)
+    writeResponse(result, ex, rawCookieSession)
 
-  private def writeResponse(v: scalascript.interpreter.Value, ex: HttpExchange): Unit =
+  private def writeResponse(
+      v:                scalascript.interpreter.Value,
+      ex:               HttpExchange,
+      rawCookieSession: Map[String, String] = Map.empty
+  ): Unit =
     import scalascript.interpreter.Value
-    val (status, headers, body) = v match
+    val (status, headers, body, setSession) = v match
       case Value.InstanceV("Response", fields) =>
         val s = fields.get("status") match
           case Some(Value.IntV(n)) => n.toInt
@@ -134,13 +212,37 @@ object WebServer:
           case Some(Value.StringV(s)) => s
           case Some(other)            => Value.show(other)
           case None                   => ""
-        (s, h, b)
-      case Value.StringV(s)  => (200, Map("Content-Type" -> "text/plain; charset=utf-8"), s)
-      case Value.UnitV       => (204, Map.empty[String, String], "")
-      case other             => (200, Map("Content-Type" -> "text/plain; charset=utf-8"), Value.show(other))
+        // `withSession`/`clearSession` attach a `setSession: Map[String, String]`
+        // field — Some(empty) means clear, Some(non-empty) means write,
+        // None means leave the client's cookie alone.
+        val ss = fields.get("setSession") match
+          case Some(Value.MapV(m)) =>
+            Some(m.collect { case (Value.StringV(k), Value.StringV(v)) => k -> v }.toMap)
+          case _ => None
+        (s, h, b, ss)
+      case Value.StringV(s)  => (200, Map("Content-Type" -> "text/plain; charset=utf-8"), s, None)
+      case Value.UnitV       => (204, Map.empty[String, String], "", None)
+      case other             => (200, Map("Content-Type" -> "text/plain; charset=utf-8"), Value.show(other), None)
     headers.foreach((k, v) => ex.getResponseHeaders.add(k, v))
     if !headers.contains("Content-Type") then
       ex.getResponseHeaders.add("Content-Type", "text/plain; charset=utf-8")
+    setSession.foreach { payload =>
+      val cookiePayload: Map[String, String] =
+        if !SessionStore.isEnabled then payload
+        else if payload.isEmpty then
+          // clearSession: also evict from the store so a stolen cookie
+          // stops working server-side, not just client-side.
+          rawCookieSession.get("_ssid").foreach(SessionStore.delete)
+          Map.empty
+        else
+          // Replace any prior SSID (so refresh-on-rotate is implicit) —
+          // and free the old slot so the store doesn't accumulate dead
+          // entries on every withSession call.
+          rawCookieSession.get("_ssid").foreach(SessionStore.delete)
+          val ssid = SessionStore.put(payload)
+          Map("_ssid" -> ssid)
+      ex.getResponseHeaders.add("Set-Cookie", SessionCookie.toSetCookie(cookiePayload, secureFlag = false))
+    }
     val bytes = body.getBytes("UTF-8")
     ex.sendResponseHeaders(status, if bytes.isEmpty then -1 else bytes.length.toLong)
     if bytes.nonEmpty then ex.getResponseBody.write(bytes)

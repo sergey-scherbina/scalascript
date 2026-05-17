@@ -34,8 +34,11 @@ object JsGen:
       case _                     => false
     } || s.subsections.exists(sectionHas)
 
-/** JS runtime preamble embedded in every generated page. */
-val JsRuntime: String = """
+/** JS runtime preamble embedded in every generated page.  Split into
+ *  two triple-quoted halves because the combined source exceeds the
+ *  JVM's 64 KB string-literal limit; the `val JsRuntime` concatenation
+ *  is declared after both halves so source-order init sees them. */
+private val JsRuntimePart1: String = """
 let _output = [];
 function _println(...args) { _output.push(args.map(_show).join(' ')); }
 function _print(...args) { const s = args.map(_show).join(''); _output.push(s); }
@@ -64,6 +67,45 @@ function escape(s) { return _htmlEscape(_show(s)); }
 function _html_interp(v) {
   if (v && v._type === '_Raw') return v.html;
   return _htmlEscape(_show(v));
+}
+
+// `collectCss(comp1, comp2, ...)` — concatenate each argument's `css`
+// field into one CSS string for a page-level <style>.  Convention helper
+// for component-style .ssc files (see SPEC §8.4).  Anything without a
+// String `css` field is silently skipped.
+function collectCss(...parts) {
+  return parts
+    .map(p => (p && typeof p.css === 'string') ? p.css : '')
+    .filter(s => s.length > 0)
+    .join('\n');
+}
+
+// `collectJs(comp1, comp2, ...)` — same shape as collectCss, only it
+// reads each argument's `js` field for stitching into a page <script>.
+function collectJs(...parts) {
+  return parts
+    .map(p => (p && typeof p.js === 'string') ? p.js : '')
+    .filter(s => s.length > 0)
+    .join('\n');
+}
+
+// `scope("Card")` returns a small object with two helpers used by
+// component-style .ssc files to suffix class names so two components
+// can both use bare class names like `.title` without conflict.
+//   const s = scope("Card");
+//   s.css(".title { color: blue }")   // → ".title__Card { color: blue }"
+//   s.cls("title")                    // → "title__Card"
+// See SPEC §8.4 for the convention and trade-offs.
+function scope(scopeName) {
+  // Note: `.ident` matches anywhere in the input; CSS that contains
+  // bare-identifier dots inside `url(...)` would be rewritten too — keep
+  // URLs free of those dots if the rewrite matters.
+  const rx = /\.([A-Za-z_][A-Za-z0-9_-]*)/g;
+  return {
+    name: scopeName,
+    css: (s) => String(s).replace(rx, (_, cls) => '.' + cls + '__' + scopeName),
+    cls: (n) => String(n) + '__' + scopeName,
+  };
 }
 
 // ── Typed HTML DSL — `div(attr.cls := "hero", h1("hi"))` ───────────────
@@ -142,6 +184,16 @@ for (const [k, v] of Object.entries(__tagBindings)) {
 // nanosecond-scale return type across backends.
 function nanoTime() { return Date.now() * 1_000_000; }
 
+// Environment variable reader — Node has process.env; the browser
+// SPA target has no env, so getenv() falls back to its default in that
+// case so the user code keeps compiling cleanly.
+function getenv(key, defaultVal) {
+  const env = (typeof process !== 'undefined' && process.env) ? process.env : {};
+  const v   = env[key];
+  if (v === undefined || v === null || v === '') return defaultVal ?? '';
+  return v;
+}
+
 // ── REST routing + serve(port) ─────────────────────────────────────────
 // Matches the interpreter / JVM-backend semantics: route(method, path)
 // registers a closure, serve(port) starts Node's http.createServer and
@@ -149,6 +201,39 @@ function nanoTime() { return Date.now() * 1_000_000; }
 // needed.  Browser-side execution is intentionally out of scope: this
 // runtime require()s 'http' which only exists in Node.
 const _routes = [];
+const _wsRoutes = [];
+// Process-wide cap on active WS sessions.  `setMaxWsConnections(n)`
+// raises / lowers it.  Default = unlimited; upgrades past the cap
+// are refused with 503 Service Unavailable.
+let _wsMaxActive   = Number.POSITIVE_INFINITY;
+let _wsActiveCount = 0;
+function setMaxWsConnections(n) {
+  _wsMaxActive = (n == null || n < 0) ? Number.POSITIVE_INFINITY : n;
+}
+
+// WsRoom() — thread-safe (well, event-loop-safe) registry of
+// WebSocket objects + broadcast helper.  Replaces the pattern
+// every chat demo otherwise reinvents.  Node is single-threaded
+// so the array is unsynchronised; mutations land on the event
+// loop in order.
+function WsRoom() {
+  const members = [];
+  return {
+    _type: 'WsRoom',
+    add: (ws) => { members.push(ws); },
+    remove: (ws) => {
+      const i = members.indexOf(ws);
+      if (i >= 0) members.splice(i, 1);
+    },
+    broadcast: (msg) => {
+      for (const ws of members.slice()) {
+        try { if (ws && ws.send) ws.send(msg); }
+        catch (_) { /* dead client; reaped via onClose */ }
+      }
+    },
+    size: () => members.length
+  };
+}
 
 function _parsePath(p) {
   return p.split('/').filter(s => s.length > 0).map(s =>
@@ -159,6 +244,37 @@ function _parsePath(p) {
 function route(method, path) {
   return function(handler) {
     _routes.push({ method: method.toUpperCase(), pattern: _parsePath(path), handler });
+  };
+}
+
+// onWebSocket(path)(handler) — handler receives a WebSocket object with
+// `send` / `close` methods and `onMessage` / `onClose` registration.
+// Path matching shares `_parsePath` with `route` (literal + `:name`
+// captures), so `/chat/:room` works the same way for both.
+//
+// Two-arg form `onWebSocket(path, origins)(handler)` restricts the
+// upgrade to requests whose `Origin:` header matches one of `origins`
+// — a CSRF guard, since the browser same-origin policy does NOT
+// block cross-site `new WebSocket(...)` calls.
+//
+// Three-arg form `onWebSocket(path, origins, protocols)(handler)` adds
+// Sec-WebSocket-Protocol negotiation (RFC 6455 §1.9): server picks the
+// first protocol it offers that's in the client's request; no match
+// refuses with 400.  Required for `socket.io` / `graphql-ws` clients.
+function onWebSocket(path, originsArg, protocolsArg) {
+  let origins   = [];
+  let protocols = [];
+  if (Array.isArray(originsArg)) {
+    origins   = originsArg;
+    protocols = Array.isArray(protocolsArg) ? protocolsArg : [];
+  } else if (originsArg !== undefined) {
+    // Older call style: `onWebSocket(path)(handler)`, second arg is
+    // already the handler.  Wrap it.
+    _wsRoutes.push({ pattern: _parsePath(path), handler: originsArg, origins: [], protocols: [] });
+    return undefined;
+  }
+  return function(handler) {
+    _wsRoutes.push({ pattern: _parsePath(path), handler, origins, protocols });
   };
 }
 
@@ -196,6 +312,27 @@ function _mkRequest(req, params, bodyBuf) {
   } else if (ct.startsWith('multipart/form-data')) {
     _parseMultipart(ctOrig, bodyLatin1, form, files);
   }
+  // Parse signed session cookie if present.
+  const cookieHeader     = headers.get('cookie') || headers.get('Cookie') || '';
+  const rawCookieSession = _parseCookieSession(cookieHeader);
+  // In store mode the cookie payload is `{_ssid:"..."}`; look the real
+  // payload up.  Otherwise the cookie *is* the payload.  The raw cookie
+  // travels back as `_rawCookieSession` so serve()'s writer can spot
+  // the prior SSID and evict it.
+  let session;
+  if (_sessionStoreEnabled) {
+    const ssid = rawCookieSession.get('_ssid');
+    session = ssid ? (_sessionStoreGet(ssid) || new Map()) : new Map();
+  } else {
+    session = rawCookieSession;
+  }
+  // Parse Authorization: Bearer <jwt> if present.
+  const authHeader = headers.get('authorization') || headers.get('Authorization') || '';
+  const bearerStr  = _bearerFromAuth(authHeader);
+  const bearerToken = bearerStr ? _Some(bearerStr) : _None;
+  const claims      = bearerStr ? jwtVerify(bearerStr) : _None;
+  // Parse Authorization: Basic <b64(user:pass)> into a 2-element tuple.
+  const basicAuth = _basicFromAuth(authHeader);
   return {
     _type:   'Request',
     method:  req.method,
@@ -206,7 +343,28 @@ function _mkRequest(req, params, bodyBuf) {
     body,
     form,
     files,
+    session,
+    bearerToken,
+    jwtClaims: claims,
+    basicAuth,
+    _rawCookieSession: rawCookieSession,
   };
+}
+
+// HTTP Basic: Authorization: Basic <b64(user:pass)>.  Returns _Some
+// of a 2-element tuple [user, pass] or _None.  The tuple is just an
+// Array — scalascript codegen lowers `case (u, p) =>` to indexed reads.
+function _basicFromAuth(h) {
+  const t = (h || '').trim();
+  if (t.length < 6 || t.substring(0, 6).toLowerCase() !== 'basic ') return _None;
+  try {
+    const decoded = Buffer.from(t.substring(6).trim(), 'base64').toString('utf-8');
+    const colon   = decoded.indexOf(':');
+    if (colon < 0) return _None;
+    const tup = [decoded.substring(0, colon), decoded.substring(colon + 1)];
+    tup._isTuple = true;
+    return _Some(tup);
+  } catch (e) { return _None; }
 }
 
 // `bodyLatin1` is the body decoded as Latin-1 (1 char = 1 byte), so the
@@ -251,6 +409,561 @@ function _parseMultipart(contentType, bodyLatin1, form, files) {
       form.set(nameM[1], Buffer.from(partBody, 'latin1').toString('utf8'));
     }
   }
+}
+
+// ── Signed cookie sessions ────────────────────────────────────────────
+// HMAC-SHA256 signed Map -> cookie value -> verified Map.  Mirrors the
+// scalascript.server.SessionCookie helper used by the interpreter, so
+// the same cookie packed on the JVM runtime is accepted on Node and
+// vice-versa (given a matching SSC_SESSION_SECRET).
+
+let _sessionSecretCache = null;
+function _sessionSecret() {
+  if (_sessionSecretCache !== null) return _sessionSecretCache;
+  const env = (typeof process !== 'undefined' && process.env) ? process.env.SSC_SESSION_SECRET : undefined;
+  if (env && env.length > 0) {
+    _sessionSecretCache = Buffer.from(env, 'utf-8');
+  } else {
+    const crypto = require('crypto');
+    _sessionSecretCache = crypto.randomBytes(32);
+    if (typeof console !== 'undefined') console.error('[ssc] SSC_SESSION_SECRET not set; using a process-local random key. Sessions will not survive a server restart.');
+  }
+  return _sessionSecretCache;
+}
+function _b64urlEnc(buf) {
+  return buf.toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+function _b64urlDec(s) {
+  const pad = (4 - s.length % 4) % 4;
+  return Buffer.from(s.replace(/-/g, '+').replace(/_/g, '/') + '='.repeat(pad), 'base64');
+}
+function _hmacSha256(body) {
+  const crypto = require('crypto');
+  return crypto.createHmac('sha256', _sessionSecret()).update(body).digest();
+}
+function _sessionJson(map) {
+  // Map<String, String> only — keys/values escaped for JSON.
+  const esc = s => '"' + s.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
+    .replace(/\n/g, '\\n').replace(/\r/g, '\\r').replace(/\t/g, '\\t') + '"';
+  const parts = [];
+  if (map instanceof Map) map.forEach((v, k) => parts.push(esc(String(k)) + ':' + esc(String(v))));
+  else for (const [k, v] of Object.entries(map || {})) parts.push(esc(String(k)) + ':' + esc(String(v)));
+  return '{' + parts.join(',') + '}';
+}
+function _packSession(map) {
+  const body = _b64urlEnc(Buffer.from(_sessionJson(map), 'utf-8'));
+  const sig  = _b64urlEnc(_hmacSha256(body));
+  return body + '.' + sig;
+}
+function _unpackSession(cookieValue) {
+  const dot = cookieValue.indexOf('.');
+  if (dot <= 0 || dot === cookieValue.length - 1) return new Map();
+  const body = cookieValue.substring(0, dot);
+  const sig  = cookieValue.substring(dot + 1);
+  try {
+    const expected = _b64urlEnc(_hmacSha256(body));
+    // Constant-time-ish compare: never short-circuit on first byte.
+    if (expected.length !== sig.length) return new Map();
+    let diff = 0;
+    for (let i = 0; i < expected.length; i++) diff |= expected.charCodeAt(i) ^ sig.charCodeAt(i);
+    if (diff !== 0) return new Map();
+    const json = _b64urlDec(body).toString('utf-8');
+    const parsed = JSON.parse(json);
+    const out = new Map();
+    for (const [k, v] of Object.entries(parsed)) if (typeof v === 'string') out.set(k, v);
+    return out;
+  } catch (e) { return new Map(); }
+}
+function _parseCookieSession(headerValue) {
+  if (!headerValue) return new Map();
+  const pair = headerValue.split(';').map(s => s.trim()).find(s => s.startsWith('session='));
+  if (!pair) return new Map();
+  return _unpackSession(pair.substring('session='.length));
+}
+// ── Rate limiting ─────────────────────────────────────────────────────
+// Fixed-window counter, process-local.  Same surface on all three
+// backends.
+const _rateLimitBuckets = new Map();
+function rateLimit(key, limit, windowSeconds) {
+  const now      = Date.now();
+  const windowMs = windowSeconds * 1000;
+  const current  = _rateLimitBuckets.get(key);
+  if (!current || now - current.windowStartMs >= windowMs) {
+    _rateLimitBuckets.set(key, { count: 1, windowStartMs: now });
+    return 1 <= limit;
+  }
+  current.count += 1;
+  return current.count <= limit;
+}
+function rateLimitReset(key) { _rateLimitBuckets.delete(key); }
+
+// ── TOTP / 2FA (RFC 6238) ─────────────────────────────────────────────
+// Compatible with Google Authenticator etc: HMAC-SHA1, 30-second step,
+// 6-digit code, base32 secret.
+const _totpAlphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+function _base32Encode(buf) {
+  let out = '', bits = 0, val = 0;
+  for (let i = 0; i < buf.length; i++) {
+    val = (val << 8) | buf[i];
+    bits += 8;
+    while (bits >= 5) { bits -= 5; out += _totpAlphabet[(val >>> bits) & 0x1f]; }
+  }
+  if (bits > 0) out += _totpAlphabet[(val << (5 - bits)) & 0x1f];
+  return out;
+}
+function _base32Decode(s) {
+  const clean = String(s).toUpperCase().replace(/[= ]/g, '');
+  const out = [];
+  let bits = 0, val = 0;
+  for (const c of clean) {
+    const v = _totpAlphabet.indexOf(c);
+    if (v < 0) continue;
+    val = (val << 5) | v;
+    bits += 5;
+    if (bits >= 8) { bits -= 8; out.push((val >>> bits) & 0xff); }
+  }
+  return Buffer.from(out);
+}
+function totpSecret() {
+  const crypto = require('crypto');
+  return _base32Encode(crypto.randomBytes(20));
+}
+function totpUri(secret, account, issuer) {
+  const labelIssuer = (issuer && issuer.length > 0) ? issuer + ':' : '';
+  const label = encodeURIComponent(labelIssuer + account).replace(/\+/g, '%20');
+  const params = [
+    'secret=' + encodeURIComponent(secret),
+    'algorithm=SHA1',
+    'digits=6',
+    'period=30',
+  ];
+  if (issuer && issuer.length > 0) params.push('issuer=' + encodeURIComponent(issuer));
+  return 'otpauth://totp/' + label + '?' + params.join('&');
+}
+function _totpCodeAt(secret, counter) {
+  const key = _base32Decode(secret);
+  const buf = Buffer.alloc(8);
+  const hi  = Math.floor(counter / 0x100000000);
+  buf.writeUInt32BE(hi >>> 0, 0);
+  buf.writeUInt32BE((counter >>> 0) >>> 0, 4);
+  const crypto = require('crypto');
+  const h   = crypto.createHmac('sha1', key).update(buf).digest();
+  const off = h[h.length - 1] & 0x0f;
+  const bin = ((h[off]     & 0x7f) << 24) |
+              ((h[off + 1] & 0xff) << 16) |
+              ((h[off + 2] & 0xff) <<  8) |
+               (h[off + 3] & 0xff);
+  return (bin % 1000000).toString().padStart(6, '0');
+}
+function totpCode(secret) {
+  return _totpCodeAt(secret, Math.floor(Date.now() / 1000 / 30));
+}
+function totpValid(secret, code, skew) {
+  const sk = (typeof skew === 'number') ? skew : 1;
+  if (typeof code !== 'string' || code.length !== 6 || !/^\d+$/.test(code)) return false;
+  const now = Math.floor(Date.now() / 1000 / 30);
+  let ok = false;
+  for (let i = -sk; i <= sk; i++) {
+    const c = _totpCodeAt(secret, now + i);
+    if (c.length === code.length) {
+      let diff = 0;
+      for (let j = 0; j < c.length; j++) diff |= c.charCodeAt(j) ^ code.charCodeAt(j);
+      if (diff === 0) ok = true;
+    }
+  }
+  return ok;
+}
+
+// ── Password hashing (PBKDF2-HMAC-SHA256) ─────────────────────────────
+// Same algorithm + encoded format as scalascript.server.Password so
+// a hash minted on one backend verifies on another.  Default 200k iter.
+function hashPassword(password, iter) {
+  const crypto = require('crypto');
+  const it     = (typeof iter === 'number' && iter > 0) ? iter : 200000;
+  const salt   = crypto.randomBytes(16);
+  const hash   = crypto.pbkdf2Sync(password, salt, it, 32, 'sha256');
+  const b64    = b => b.toString('base64').replace(/=+$/, '');
+  return 'pbkdf2$iter=' + it + '$' + b64(salt) + '$' + b64(hash);
+}
+function verifyPassword(password, encoded) {
+  try {
+    const parts = String(encoded).split('$');
+    if (parts.length !== 4 || parts[0] !== 'pbkdf2') return false;
+    const iter     = parseInt(parts[1].replace('iter=', ''), 10);
+    if (!Number.isFinite(iter) || iter <= 0) return false;
+    const salt     = Buffer.from(parts[2], 'base64');
+    const expected = Buffer.from(parts[3], 'base64');
+    const crypto   = require('crypto');
+    const actual   = crypto.pbkdf2Sync(password, salt, iter, expected.length, 'sha256');
+    if (expected.length !== actual.length) return false;
+    let diff = 0;
+    for (let i = 0; i < expected.length; i++) diff |= expected[i] ^ actual[i];
+    return diff === 0;
+  } catch (e) { return false; }
+}
+
+// Cookie security config — secure flag + SameSite policy, set via
+// the top-level cookieConfig(secure, sameSite) call.  Production
+// HTTPS deployments should flip secure=true.
+let _cookieSecure   = false;
+let _cookieSameSite = 'Lax';
+function cookieConfig(secure, sameSite) {
+  _cookieSecure = !!secure;
+  if (typeof sameSite === 'string' && (sameSite === 'Strict' || sameSite === 'Lax' || sameSite === 'None'))
+    _cookieSameSite = sameSite;
+}
+function _buildSetCookie(map) {
+  const base = 'Path=/; HttpOnly; SameSite=' + _cookieSameSite + (_cookieSecure ? '; Secure' : '');
+  if (!map || (map instanceof Map ? map.size === 0 : Object.keys(map).length === 0))
+    return 'session=; ' + base + '; Max-Age=0';
+  return 'session=' + _packSession(map) + '; ' + base;
+}
+
+// ── Opt-in server-side session store ──────────────────────────────────
+// Same semantics as scalascript.server.SessionStore: process-local Map
+// keyed by random SSID, lazy TTL sweep on every 256th access.  When
+// enabled, the cookie payload becomes `{"_ssid": "..."}` and the real
+// data lives on the server.
+const _sessionStore = new Map();
+let _sessionStoreEnabled = false;
+let _sessionStoreTtlMs   = 30 * 60 * 1000;
+let _sessionAccessCount  = 0;
+function useSessionStore(ttlSeconds) {
+  _sessionStoreEnabled = true;
+  if (typeof ttlSeconds === 'number' && ttlSeconds > 0) _sessionStoreTtlMs = ttlSeconds * 1000;
+}
+function _sessionStoreSweep() {
+  const cutoff = Date.now() - _sessionStoreTtlMs;
+  for (const [k, v] of _sessionStore) if (v.lastAccess < cutoff) _sessionStore.delete(k);
+}
+function _sessionStoreMaybeSweep() {
+  if ((++_sessionAccessCount & 255) === 0) _sessionStoreSweep();
+}
+function _sessionStorePut(payload) {
+  const crypto = require('crypto');
+  const ssid   = _b64urlEnc(crypto.randomBytes(24));
+  const m = new Map();
+  if (payload instanceof Map) payload.forEach((v, k) => m.set(String(k), String(v)));
+  else for (const [k, v] of Object.entries(payload || {})) m.set(String(k), String(v));
+  _sessionStore.set(ssid, { payload: m, lastAccess: Date.now() });
+  _sessionStoreMaybeSweep();
+  return ssid;
+}
+function _sessionStoreGet(ssid) {
+  const entry = _sessionStore.get(ssid);
+  if (!entry) return null;
+  if (Date.now() - entry.lastAccess > _sessionStoreTtlMs) {
+    _sessionStore.delete(ssid);
+    return null;
+  }
+  entry.lastAccess = Date.now();
+  _sessionStoreMaybeSweep();
+  return entry.payload;
+}
+function _sessionStoreDelete(ssid) { _sessionStore.delete(ssid); }
+
+// ── JWT (HS256) ────────────────────────────────────────────────────────
+// Compact HS256 JWTs that match scalascript.server.Jwt byte-for-byte
+// (header `{"alg":"HS256","typ":"JWT"}`, payload = JSON of a
+// Map[String,String], signature over header.payload).  Secret picks up
+// SSC_JWT_SECRET first, then falls back to SSC_SESSION_SECRET so a tiny
+// deployment only needs one env var.
+
+let _jwtSecretCache = null;
+function _jwtSecret() {
+  if (_jwtSecretCache !== null) return _jwtSecretCache;
+  const env = (typeof process !== 'undefined' && process.env) ? process.env : {};
+  const s = env.SSC_JWT_SECRET || env.SSC_SESSION_SECRET || '';
+  if (s.length > 0) {
+    _jwtSecretCache = Buffer.from(s, 'utf-8');
+  } else {
+    const crypto = require('crypto');
+    _jwtSecretCache = crypto.randomBytes(32);
+    if (typeof console !== 'undefined') console.error('[ssc] SSC_JWT_SECRET / SSC_SESSION_SECRET not set; JWTs signed with a process-local random key.');
+  }
+  return _jwtSecretCache;
+}
+function _hmacSha256Jwt(body) {
+  const crypto = require('crypto');
+  return crypto.createHmac('sha256', _jwtSecret()).update(body).digest();
+}
+// Lazy: avoid touching the Node-only Buffer at module-load time so the
+// SPA bundle (no Buffer in the browser) can include this runtime as dead
+// code without crashing on import.
+let _jwtHeaderB64Cache = null;
+function _jwtHeaderB64() {
+  if (_jwtHeaderB64Cache !== null) return _jwtHeaderB64Cache;
+  _jwtHeaderB64Cache = _b64urlEnc(Buffer.from('{"alg":"HS256","typ":"JWT"}', 'utf-8'));
+  return _jwtHeaderB64Cache;
+}
+function jwtSign(claims) {
+  // Accept either a Map or a plain object/case-class with string values.
+  let m;
+  if (claims instanceof Map) m = claims;
+  else { m = new Map(); for (const [k, v] of Object.entries(claims || {})) m.set(String(k), String(v)); }
+  const payloadB64 = _b64urlEnc(Buffer.from(_sessionJson(m), 'utf-8'));
+  const headerB64  = _jwtHeaderB64();
+  const sig        = _b64urlEnc(_hmacSha256Jwt(headerB64 + '.' + payloadB64));
+  return headerB64 + '.' + payloadB64 + '.' + sig;
+}
+function jwtVerify(token) {
+  if (typeof token !== 'string') return _None;
+  const parts = token.split('.');
+  if (parts.length !== 3) return _None;
+  const [h, p, s] = parts;
+  try {
+    const expected = _b64urlEnc(_hmacSha256Jwt(h + '.' + p));
+    if (expected.length !== s.length) return _None;
+    let diff = 0;
+    for (let i = 0; i < expected.length; i++) diff |= expected.charCodeAt(i) ^ s.charCodeAt(i);
+    if (diff !== 0) return _None;
+    const headerJson = _b64urlDec(h).toString('utf-8');
+    if (!headerJson.includes('"alg":"HS256"')) return _None;
+    const claims = JSON.parse(_b64urlDec(p).toString('utf-8'));
+    // exp (Unix seconds) check, if present.
+    if (claims.exp !== undefined) {
+      const now = Math.floor(Date.now() / 1000);
+      const exp = parseInt(claims.exp, 10);
+      if (!Number.isFinite(exp) || exp < now) return _None;
+    }
+    const out = new Map();
+    for (const [k, v] of Object.entries(claims)) if (typeof v === 'string') out.set(k, v);
+    return _Some(out);
+  } catch (e) { return _None; }
+}
+function _bearerFromAuth(h) {
+  const t = (h || '').trim();
+  if (t.length < 7) return '';
+  if (t.substring(0, 7).toLowerCase() !== 'bearer ') return '';
+  return t.substring(7).trim();
+}
+
+// ── JWT RS256 (asymmetric) ────────────────────────────────────────────
+// Same wire format as scalascript.server.JwtRsa.  Reads keys from env:
+//   SSC_JWT_PRIVATE_KEY (PKCS#8 RSA PEM) — signing
+//   SSC_JWT_PUBLIC_KEY  (X.509 SPKI PEM) — verifying
+// Use when verifier and signer are distinct processes.
+
+const _jwtRsaHeaderB64 = (() => null)();   // computed lazily, see below.
+let   _jwtRsaHeaderB64Cache = null;
+function _jwtRsaHeader() {
+  if (_jwtRsaHeaderB64Cache !== null) return _jwtRsaHeaderB64Cache;
+  _jwtRsaHeaderB64Cache = _b64urlEnc(Buffer.from('{"alg":"RS256","typ":"JWT"}', 'utf-8'));
+  return _jwtRsaHeaderB64Cache;
+}
+function jwtSignRsa(claims) {
+  const priv = (typeof process !== 'undefined' && process.env)
+    ? process.env.SSC_JWT_PRIVATE_KEY : '';
+  if (!priv || !priv.length) throw new Error('SSC_JWT_PRIVATE_KEY is not set');
+  let m;
+  if (claims instanceof Map) m = claims;
+  else { m = new Map(); for (const [k, v] of Object.entries(claims || {})) m.set(String(k), String(v)); }
+  const payloadB64 = _b64urlEnc(Buffer.from(_sessionJson(m), 'utf-8'));
+  const headerB64  = _jwtRsaHeader();
+  const crypto     = require('crypto');
+  const signer     = crypto.createSign('RSA-SHA256');
+  signer.update(headerB64 + '.' + payloadB64);
+  const sig = _b64urlEnc(signer.sign(priv));
+  return headerB64 + '.' + payloadB64 + '.' + sig;
+}
+function jwtVerifyRsa(token) {
+  const pub = (typeof process !== 'undefined' && process.env)
+    ? process.env.SSC_JWT_PUBLIC_KEY : '';
+  if (!pub || !pub.length) return _None;
+  if (typeof token !== 'string') return _None;
+  const parts = token.split('.');
+  if (parts.length !== 3) return _None;
+  const [h, p, s] = parts;
+  try {
+    const headerJson = _b64urlDec(h).toString('utf-8');
+    if (!headerJson.includes('"alg":"RS256"')) return _None;
+    const crypto = require('crypto');
+    const ver    = crypto.createVerify('RSA-SHA256');
+    ver.update(h + '.' + p);
+    if (!ver.verify(pub, _b64urlDec(s))) return _None;
+    const claims = JSON.parse(_b64urlDec(p).toString('utf-8'));
+    if (claims.exp !== undefined) {
+      const now = Math.floor(Date.now() / 1000);
+      const exp = parseInt(claims.exp, 10);
+      if (!Number.isFinite(exp) || exp < now) return _None;
+    }
+    const out = new Map();
+    for (const [k, v] of Object.entries(claims)) if (typeof v === 'string') out.set(k, v);
+    return _Some(out);
+  } catch (e) { return _None; }
+}
+
+// ── OAuth2 helpers ────────────────────────────────────────────────────
+// `oauthAuthorizeUrl(provider, clientId, redirectUri, state[, scope])`
+// builds the provider's /authorize URL with the right defaults.
+// `oauthExchangeCode(...)` POSTs to /token and returns the parsed
+// response as a Map[String, String] wrapped in _Some, or _None on
+// failure.  Uses Node's global fetch (Node 18+).
+const _oauthProviders = {
+  google: {
+    authorizeUrl: 'https://accounts.google.com/o/oauth2/v2/auth',
+    tokenUrl:     'https://oauth2.googleapis.com/token',
+    userinfoUrl:  'https://www.googleapis.com/oauth2/v3/userinfo',
+    defaultScope: 'openid email profile',
+  },
+  github: {
+    authorizeUrl: 'https://github.com/login/oauth/authorize',
+    tokenUrl:     'https://github.com/login/oauth/access_token',
+    userinfoUrl:  'https://api.github.com/user',
+    defaultScope: 'user:email',
+  },
+};
+function oauthAuthorizeUrl(provider, clientId, redirectUri, state, scope) {
+  const cfg  = _oauthProviders[provider];
+  if (!cfg) throw new Error('unknown OAuth provider: ' + provider);
+  const eff  = (scope && scope.length > 0) ? scope : (cfg.defaultScope || '');
+  const params = new URLSearchParams();
+  params.set('response_type', 'code');
+  params.set('client_id', clientId);
+  params.set('redirect_uri', redirectUri);
+  params.set('state', state);
+  if (eff) params.set('scope', eff);
+  return cfg.authorizeUrl + '?' + params.toString();
+}
+// Node's fetch is async; the OAuth surface across backends is sync.
+// We bridge the gap with worker_threads + Atomics.wait: spawn a Worker
+// that does `await fetch(...)` and posts the result back through a
+// MessageChannel; the main thread blocks on Atomics.wait until the
+// Worker signals completion, then drains the message synchronously
+// via receiveMessageOnPort.  Pure Node built-ins — no external binary,
+// no extra dependencies.  Worker creation is ~50-100ms one-time;
+// OAuth flows are rare (once per login) so we don't pool.
+function _oauthSyncFetch(method, url, headers, body) {
+  const { Worker, MessageChannel, receiveMessageOnPort } = require('worker_threads');
+  const sab  = new SharedArrayBuffer(4);
+  const flag = new Int32Array(sab);
+  const { port1, port2 } = new MessageChannel();
+  const workerSrc = [
+    'const { parentPort, workerData } = require(\'worker_threads\');',
+    'const flag = new Int32Array(workerData.sab);',
+    'const port = workerData.port;',
+    '(async () => {',
+    '  let msg;',
+    '  try {',
+    '    const r = await fetch(workerData.url, {',
+    '      method:  workerData.method,',
+    '      headers: workerData.headers,',
+    '      body:    workerData.body,',
+    '    });',
+    '    const text = await r.text();',
+    '    const ct   = r.headers.get(\'content-type\') || \'\';',
+    '    msg = { ok: r.ok, status: r.status, contentType: ct, body: text };',
+    '  } catch (e) {',
+    '    msg = { ok: false, error: String(e) };',
+    '  }',
+    '  port.postMessage(msg);',
+    '  Atomics.store(flag, 0, 1);',
+    '  Atomics.notify(flag, 0);',
+    '})();',
+  ].join('\n');
+  const worker = new Worker(workerSrc, {
+    eval: true,
+    workerData: { sab, port: port2, url, method, headers, body },
+    transferList: [port2],
+  });
+  // Block the main thread until the worker bumps the flag.  Cap at 35s
+  // so a dead provider doesn't hang the route handler forever.
+  Atomics.wait(flag, 0, 0, 35_000);
+  const drained = receiveMessageOnPort(port1);
+  worker.terminate();
+  port1.close();
+  return drained ? drained.message : { ok: false, error: 'timeout' };
+}
+function _oauthDecodeBody(r) {
+  if (!r.ok) return null;
+  if (r.body.trim().startsWith('{') || (r.contentType || '').toLowerCase().includes('application/json'))
+    try { return JSON.parse(r.body); } catch (_) { return null; }
+  // application/x-www-form-urlencoded (GitHub default for /token)
+  const parsed = new URLSearchParams(r.body);
+  const obj = {};
+  for (const [k, v] of parsed) obj[k] = v;
+  return obj;
+}
+function _oauthMapFrom(obj) {
+  if (!obj) return null;
+  const m = new Map();
+  for (const [k, v] of Object.entries(obj))
+    m.set(k, (v === null || typeof v === 'object') ? JSON.stringify(v) : String(v));
+  return m;
+}
+
+function oauthExchangeCode(provider, code, clientId, clientSecret, redirectUri) {
+  const cfg = _oauthProviders[provider];
+  if (!cfg) return _None;
+  const params = new URLSearchParams();
+  params.set('grant_type',    'authorization_code');
+  params.set('code',          code);
+  params.set('client_id',     clientId);
+  params.set('client_secret', clientSecret);
+  params.set('redirect_uri',  redirectUri);
+  const r = _oauthSyncFetch('POST', cfg.tokenUrl,
+    { 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json' },
+    params.toString());
+  const m = _oauthMapFrom(_oauthDecodeBody(r));
+  return m ? _Some(m) : _None;
+}
+function oauthRegisterProvider(name, cfg) {
+  const out = {};
+  if (cfg instanceof Map) cfg.forEach((v, k) => out[String(k)] = String(v));
+  else for (const [k, v] of Object.entries(cfg || {})) out[String(k)] = String(v);
+  _oauthProviders[name] = { ..._oauthProviders[name], ...out };
+}
+function oauthRefreshToken(provider, refreshToken, clientId, clientSecret) {
+  const cfg = _oauthProviders[provider];
+  if (!cfg) return _None;
+  const params = new URLSearchParams();
+  params.set('grant_type',    'refresh_token');
+  params.set('refresh_token', refreshToken);
+  params.set('client_id',     clientId);
+  params.set('client_secret', clientSecret);
+  const r = _oauthSyncFetch('POST', cfg.tokenUrl,
+    { 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json' },
+    params.toString());
+  const m = _oauthMapFrom(_oauthDecodeBody(r));
+  return m ? _Some(m) : _None;
+}
+function oauthUserinfo(provider, accessToken) {
+  const cfg = _oauthProviders[provider];
+  if (!cfg || !cfg.userinfoUrl) return _None;
+  const r = _oauthSyncFetch('GET', cfg.userinfoUrl,
+    { 'Authorization': 'Bearer ' + accessToken,
+      'Accept':        'application/json',
+      'User-Agent':    'scalascript-oauth/0.6' },
+    undefined);
+  if (!r.ok || !r.body.trim().startsWith('{')) return _None;
+  try {
+    const m = _oauthMapFrom(JSON.parse(r.body));
+    return m ? _Some(m) : _None;
+  } catch (e) { return _None; }
+}
+
+// ── CSRF helpers ──────────────────────────────────────────────────────
+// `csrfToken()` returns a fresh url-safe random string; the caller stashes
+// it under "csrf" in the session and renders it in their form. `csrfValid`
+// checks form `csrf` / `X-CSRF-Token` header against session.
+function csrfToken() {
+  const crypto = require('crypto');
+  return _b64urlEnc(crypto.randomBytes(24));
+}
+function csrfValid(req) {
+  if (!req) return false;
+  const session = req.session instanceof Map ? req.session : new Map();
+  const expected = session.get('csrf') || '';
+  const form     = req.form instanceof Map ? req.form : new Map();
+  let supplied = form.get('csrf');
+  if (!supplied && req.headers instanceof Map) {
+    for (const [k, v] of req.headers) if (k.toLowerCase() === 'x-csrf-token') { supplied = v; break; }
+  }
+  supplied = supplied || '';
+  if (!expected || !supplied || expected.length !== supplied.length) return false;
+  let diff = 0;
+  for (let i = 0; i < expected.length; i++) diff |= expected.charCodeAt(i) ^ supplied.charCodeAt(i);
+  return diff === 0;
 }
 
 // JSON-encode anything: strings pass through as raw JSON (so hand-built
@@ -301,13 +1014,36 @@ function _jsonQuote(s) {
   return out + '"';
 }
 
+// withSession/clearSession attach a `setSession` field; serve()'s
+// response writer turns that into a Set-Cookie header.
+function _withSession(resp, payload) {
+  // Accept either a Map or a plain object/case-class.
+  let m;
+  if (payload instanceof Map) m = payload;
+  else { m = new Map(); for (const [k, v] of Object.entries(payload || {})) m.set(String(k), String(v)); }
+  return { ...resp, setSession: m, withSession: resp.withSession, clearSession: resp.clearSession };
+}
+function _clearSessionOn(resp) {
+  return { ...resp, setSession: new Map(), withSession: resp.withSession, clearSession: resp.clearSession };
+}
+function _mkResp(fields) {
+  const r = { _type: 'Response', ...fields };
+  r.withSession  = function(payload) { return _withSession(this, payload); };
+  r.clearSession = function() { return _clearSessionOn(this); };
+  return r;
+}
+
 const Response = {
-  html(body)     { return { _type: 'Response', status: 200, headers: new Map([['Content-Type', 'text/html; charset=utf-8']]), body: _show(body) }; },
-  text(body)     { return { _type: 'Response', status: 200, headers: new Map([['Content-Type', 'text/plain; charset=utf-8']]), body: _show(body) }; },
-  json(body)     { return { _type: 'Response', status: 200, headers: new Map([['Content-Type', 'application/json']]), body: _toJson(body) }; },
-  redirect(to)   { return { _type: 'Response', status: 302, headers: new Map([['Location', to]]), body: '' }; },
-  notFound(body) { return { _type: 'Response', status: 404, headers: new Map(), body: _show(body ?? 'Not Found') }; },
-  status(code, body) { return { _type: 'Response', status: code, headers: new Map(), body: _show(body ?? '') }; },
+  html(body)     { return _mkResp({ status: 200, headers: new Map([['Content-Type', 'text/html; charset=utf-8']]), body: _show(body) }); },
+  text(body)     { return _mkResp({ status: 200, headers: new Map([['Content-Type', 'text/plain; charset=utf-8']]), body: _show(body) }); },
+  json(body)     { return _mkResp({ status: 200, headers: new Map([['Content-Type', 'application/json']]), body: _toJson(body) }); },
+  redirect(to)   { return _mkResp({ status: 302, headers: new Map([['Location', to]]), body: '' }); },
+  notFound(body) { return _mkResp({ status: 404, headers: new Map(), body: _show(body ?? 'Not Found') }); },
+  status(code, body) { return _mkResp({ status: code, headers: new Map(), body: _show(body ?? '') }); },
+  basicAuthChallenge(realm) {
+    const safe = String(realm).replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+    return _mkResp({ status: 401, headers: new Map([['WWW-Authenticate', 'Basic realm="' + safe + '"']]), body: 'Authentication required' });
+  },
 };
 
 // Try to serve a static asset under the cwd; returns true when handled,
@@ -353,9 +1089,382 @@ function _contentTypeFor(name) {
   return 'application/octet-stream';
 }
 
+// ── WebSocket framing (RFC 6455) ───────────────────────────────────────
+// Pure-Node implementation — `crypto` for the handshake hash, raw
+// `net.Socket` writes for frames.  No `ws` npm dependency.
+
+const _WS_MAGIC = '258EAFA5-E914-47DA-95CA-C5AB0DC85B11';
+// Hard cap on a single frame's payload (16 MB) — without it a hostile
+// client could announce a multi-gigabyte payload and force us to
+// allocate that much up front.
+const _WS_MAX_FRAME_BYTES = 16 * 1024 * 1024;
+
+function _wsAcceptKey(clientKey) {
+  const crypto = require('crypto');
+  return crypto.createHash('sha1').update(clientKey + _WS_MAGIC).digest('base64');
+}
+
+// Try to parse one frame starting at `offset` in `buf`.  Returns
+// `{ fin, opcode, payload, consumed }` on success or `null` when more
+// bytes are needed.  Throws on a protocol error (unknown opcode,
+// oversized payload) — caller should close.
+function _wsParseFrame(buf, offset) {
+  const avail = buf.length - offset;
+  if (avail < 2) return null;
+  const b0 = buf[offset];
+  const b1 = buf[offset + 1];
+  const fin    = (b0 & 0x80) !== 0;
+  const opcode = b0 & 0x0F;
+  const masked = (b1 & 0x80) !== 0;
+  const len7   = b1 & 0x7F;
+  let hdrLen = 2;
+  let payloadLen;
+  if (len7 <= 125) payloadLen = len7;
+  else if (len7 === 126) {
+    if (avail < 4) return null;
+    payloadLen = buf.readUInt16BE(offset + 2);
+    hdrLen = 4;
+  } else {
+    if (avail < 10) return null;
+    const big = buf.readBigUInt64BE(offset + 2);
+    if (big > BigInt(_WS_MAX_FRAME_BYTES)) throw new Error('frame too large');
+    payloadLen = Number(big);
+    hdrLen = 10;
+  }
+  const maskLen = masked ? 4 : 0;
+  const totalLen = hdrLen + maskLen + payloadLen;
+  if (avail < totalLen) return null;
+  const payload = Buffer.allocUnsafe(payloadLen);
+  const payloadStart = offset + hdrLen + maskLen;
+  if (masked) {
+    const m = buf.slice(offset + hdrLen, offset + hdrLen + 4);
+    for (let i = 0; i < payloadLen; i++)
+      payload[i] = buf[payloadStart + i] ^ m[i & 3];
+  } else if (payloadLen > 0) {
+    buf.copy(payload, 0, payloadStart, payloadStart + payloadLen);
+  }
+  return { fin, opcode, payload, consumed: totalLen };
+}
+
+function _wsEncodeFrame(opcode, payload) {
+  const len = payload.length;
+  let buf;
+  if (len <= 125) {
+    buf = Buffer.allocUnsafe(2 + len);
+    buf[0] = 0x80 | opcode;
+    buf[1] = len;
+    payload.copy(buf, 2);
+  } else if (len <= 0xFFFF) {
+    buf = Buffer.allocUnsafe(4 + len);
+    buf[0] = 0x80 | opcode;
+    buf[1] = 126;
+    buf.writeUInt16BE(len, 2);
+    payload.copy(buf, 4);
+  } else {
+    buf = Buffer.allocUnsafe(10 + len);
+    buf[0] = 0x80 | opcode;
+    buf[1] = 127;
+    buf.writeBigUInt64BE(BigInt(len), 2);
+    payload.copy(buf, 10);
+  }
+  return buf;
+}
+
+function _wsEncodeText(s)    { return _wsEncodeFrame(0x1, Buffer.from(String(s), 'utf-8')); }
+// Binary frames take the Latin-1 byte-view convention the rest of
+// the runtime already uses (req.files(...).bytes, inbound binary
+// frames): one JS char per wire byte.
+function _wsEncodeBinaryLatin1(s) { return _wsEncodeFrame(0x2, Buffer.from(String(s), 'latin1')); }
+function _wsEncodePong(p)    { return _wsEncodeFrame(0xA, p); }
+function _wsEncodeClose(code, reason) {
+  const r = Buffer.from(reason || '', 'utf-8');
+  const p = Buffer.allocUnsafe(2 + r.length);
+  p.writeUInt16BE(code, 0);
+  r.copy(p, 2);
+  return _wsEncodeFrame(0x8, p);
+}
+
+// Build the `WebSocket` value the handler receives — wraps `socket`
+// with `send` / `close` / `onMessage` / `onClose` and pumps inbound
+// frames through `_wsParseFrame`.  Control frames (ping/close) are
+// handled here; text/binary frames invoke `onMessage` if registered.
+function _wsMakeWebSocket(socket, request) {
+  let onMessage = null;
+  let onClose   = null;
+  let onPong    = null;
+  let closing   = false;
+  let inBuf     = Buffer.alloc(0);
+  // Fragmentation reassembly (RFC 6455 §5.4): the first frame of a
+  // fragmented message carries the opcode with FIN=0, follow-up frames
+  // are Continuation (opcode=0) with the rest, and the last has FIN=1.
+  // Control frames may interleave freely.  Buffer until FIN=1 then
+  // dispatch the joined payload using the original opcode.
+  let fragOpcode = -1;
+  const fragParts = [];
+  let   fragSize  = 0;
+
+  // ── Server-initiated heartbeat ────────────────────────────────────
+  // Empty Ping every 30 s; if no Pong within 90 s the connection is
+  // assumed dead and torn down.  Catches half-closed TCP / NAT
+  // timeouts long before the OS keepalive (~2 h) would notice.
+  const HEARTBEAT_INTERVAL_MS = 30_000;
+  const DEAD_AFTER_MS         = 90_000;
+  let lastPongAt = Date.now();
+  const heartbeat = setInterval(() => {
+    try {
+      if (Date.now() - lastPongAt > DEAD_AFTER_MS) {
+        if (!closing) {
+          closing = true;
+          socket.write(_wsEncodeClose(1001, 'ping timeout'));
+        }
+        socket.destroy();
+      } else if (!closing && !socket.destroyed) {
+        socket.write(_wsEncodeFrame(0x9, Buffer.alloc(0)));
+      }
+    } catch (_) { /* socket closed mid-write — fall through */ }
+  }, HEARTBEAT_INTERVAL_MS);
+
+  const dispatchMessage = (opcode, payload) => {
+    if (!onMessage) return;
+    const msg = opcode === 0x1 ? payload.toString('utf-8') : payload.toString('latin1');
+    try { onMessage(msg); } catch (e) { console.error('WS message handler:', e.message); }
+  };
+
+  const ws = {
+    _type: 'WebSocket',
+    send: (s) => {
+      if (closing || socket.destroyed) return;
+      // Backpressure: `socket.write` is async — Node will buffer the
+      // bytes internally and return `false` when the kernel's send
+      // buffer is full.  If we keep ignoring that signal, a slow
+      // peer lets Node's per-socket queue grow without bound.  Past
+      // a 4 MB backlog, drop the connection.
+      const ok = socket.write(_wsEncodeText(s));
+      if (!ok && socket.writableLength > 4 * 1024 * 1024) {
+        closing = true;
+        try { socket.destroy(); } catch (_) {}
+      }
+    },
+    sendBytes: (s) => {
+      if (closing || socket.destroyed) return;
+      const ok = socket.write(_wsEncodeBinaryLatin1(s));
+      if (!ok && socket.writableLength > 4 * 1024 * 1024) {
+        closing = true;
+        try { socket.destroy(); } catch (_) {}
+      }
+    },
+    close: (code, reason) => {
+      if (!closing && !socket.destroyed) {
+        closing = true;
+        socket.write(_wsEncodeClose(code ?? 1000, reason ?? ''));
+        socket.end();
+      }
+    },
+    onMessage: (cb) => { onMessage = cb; },
+    onClose:   (cb) => { onClose   = cb; },
+    onPong:    (cb) => { onPong    = cb; },
+    // ping([payload]) — empty Ping or Latin-1-byte-view payload.
+    // Peer's Pong arrives via the `onPong` callback above.
+    ping: (s) => {
+      if (closing || socket.destroyed) return;
+      const payload = (s == null || s === '') ? Buffer.alloc(0) : Buffer.from(String(s), 'latin1');
+      socket.write(_wsEncodeFrame(0x9, payload));
+    },
+    request:   request
+  };
+
+  socket.on('data', chunk => {
+    inBuf = inBuf.length === 0 ? chunk : Buffer.concat([inBuf, chunk]);
+    let offset = 0;
+    try {
+      while (true) {
+        const f = _wsParseFrame(inBuf, offset);
+        if (!f) break;
+        offset += f.consumed;
+        switch (f.opcode) {
+          case 0x9: socket.write(_wsEncodePong(f.payload)); break;            // ping
+          case 0xA:                                                            // pong (peer alive)
+            lastPongAt = Date.now();
+            if (onPong) {
+              try { onPong(f.payload.toString('latin1')); }
+              catch (e) { console.error('WS onPong handler:', e.message); }
+            }
+            break;
+          case 0x8: {                                                          // close
+            const status = f.payload.length >= 2 ? f.payload.readUInt16BE(0) : 1000;
+            if (!closing) { closing = true; socket.write(_wsEncodeClose(status, '')); }
+            socket.end();
+            break;
+          }
+          case 0x1: case 0x2: {                                                // text / binary
+            if (!f.fin) {
+              if (fragOpcode !== -1) {
+                if (!closing) { closing = true; socket.write(_wsEncodeClose(1002, 'new data frame mid-fragment')); }
+                socket.end(); return;
+              }
+              fragOpcode = f.opcode;
+              fragParts.push(f.payload); fragSize += f.payload.length;
+              if (fragSize > _WS_MAX_FRAME_BYTES) {
+                fragOpcode = -1; fragParts.length = 0; fragSize = 0;
+                if (!closing) { closing = true; socket.write(_wsEncodeClose(1009, 'message too big')); }
+                socket.end(); return;
+              }
+            } else dispatchMessage(f.opcode, f.payload);
+            break;
+          }
+          case 0x0: {                                                          // continuation
+            if (fragOpcode === -1) {
+              if (!closing) { closing = true; socket.write(_wsEncodeClose(1002, 'continuation without prior data frame')); }
+              socket.end(); return;
+            }
+            fragParts.push(f.payload); fragSize += f.payload.length;
+            if (fragSize > _WS_MAX_FRAME_BYTES) {
+              fragOpcode = -1; fragParts.length = 0; fragSize = 0;
+              if (!closing) { closing = true; socket.write(_wsEncodeClose(1009, 'message too big')); }
+              socket.end(); return;
+            }
+            if (f.fin) {
+              const op  = fragOpcode;
+              const buf = Buffer.concat(fragParts, fragSize);
+              fragOpcode = -1; fragParts.length = 0; fragSize = 0;
+              dispatchMessage(op, buf);
+            }
+            break;
+          }
+          default:
+            if (!closing) { closing = true; socket.write(_wsEncodeClose(1003, '')); }
+            socket.end();
+        }
+      }
+    } catch (e) {
+      if (!closing) { closing = true; socket.write(_wsEncodeClose(1002, 'protocol error')); }
+      socket.end();
+      return;
+    }
+    inBuf = offset > 0 ? inBuf.slice(offset) : inBuf;
+  });
+
+  socket.on('close', () => {
+    clearInterval(heartbeat);
+    if (onClose) try { onClose(); } catch (e) { console.error('WS close handler:', e.message); }
+  });
+
+  return ws;
+}
+
+// Called from the `server.on('upgrade', …)` listener — finishes the
+// 101 handshake, builds the WebSocket value, and runs the user's
+// `onWebSocket` block.  No matching route → 404 + close.
+function _wsHandleUpgrade(req, socket) {
+  try {
+    // TCP keepalive lets the OS detect peers that vanished without
+    // sending FIN.  Without it a dead WS holds its socket FD for
+    // ~2 h before the TCP stack notices.
+    socket.setKeepAlive(true);
+    const u = new URL(req.url, 'http://localhost');
+    const segs = u.pathname.split('/').filter(s => s.length > 0);
+    for (const r of _wsRoutes) {
+      const params = _matchPath(r.pattern, segs);
+      if (params == null) continue;
+      // Origin allowlist (CSRF guard).  Empty list = no restriction.
+      if (r.origins && r.origins.length > 0) {
+        const origin = req.headers['origin'] ?? '';
+        if (!r.origins.includes(origin)) {
+          socket.write(
+            'HTTP/1.1 403 Forbidden\r\n' +
+            'Content-Length: 0\r\nConnection: close\r\n\r\n'
+          );
+          socket.destroy();
+          return;
+        }
+      }
+      const clientKey = req.headers['sec-websocket-key'];
+      if (!clientKey) { socket.destroy(); return; }
+      // Process-wide active-connection cap — refuse with 503 before
+      // building the WebSocket value.  Slot is released in the
+      // `socket.on('close', ...)` listener below.
+      if (_wsActiveCount >= _wsMaxActive) {
+        socket.write(
+          'HTTP/1.1 503 Service Unavailable\r\n' +
+          'Content-Length: 0\r\nConnection: close\r\n\r\n'
+        );
+        socket.destroy();
+        return;
+      }
+      // Subprotocol negotiation (RFC 6455 §1.9).  Server picks the
+      // first protocol it offers that's in the client's request;
+      // no match refuses with 400.  Empty server list = no
+      // negotiation, the request's protocol header (if any) is
+      // ignored and not echoed back.
+      let chosenProtocol = '';
+      if (r.protocols && r.protocols.length > 0) {
+        const offered = (req.headers['sec-websocket-protocol'] ?? '')
+          .split(',').map(s => s.trim()).filter(Boolean);
+        const offSet = new Set(offered);
+        chosenProtocol = r.protocols.find(p => offSet.has(p)) ?? '';
+        if (chosenProtocol === '') {
+          socket.write(
+            'HTTP/1.1 400 Bad Request\r\n' +
+            'Content-Length: 0\r\nConnection: close\r\n\r\n'
+          );
+          socket.destroy();
+          return;
+        }
+      }
+      _wsActiveCount++;
+      socket.once('close', () => { _wsActiveCount--; });
+      const accept = _wsAcceptKey(clientKey);
+      const protoHeader = chosenProtocol
+        ? 'Sec-WebSocket-Protocol: ' + chosenProtocol + '\r\n'
+        : '';
+      socket.write(
+        'HTTP/1.1 101 Switching Protocols\r\n' +
+        'Upgrade: websocket\r\n' +
+        'Connection: Upgrade\r\n' +
+        'Sec-WebSocket-Accept: ' + accept + '\r\n' +
+        protoHeader +
+        '\r\n'
+      );
+      // Build a Request-shaped object — same shape as `_mkRequest` for
+      // REST routes (minus body/form/files; the WS upgrade is a GET
+      // with no body) so handlers can read `ws.request.headers.get(...)`
+      // for cookies / Authorization / Origin.
+      const reqHeaders = new Map();
+      for (const [k, v] of Object.entries(req.headers))
+        reqHeaders.set(k, Array.isArray(v) ? (v[0] ?? '') : String(v ?? ''));
+      const reqQuery = new Map();
+      u.searchParams.forEach((v, k) => reqQuery.set(k, v));
+      // Cookie header: `name=value; name=value; …` → Map.
+      const reqCookies = new Map();
+      const cookieRaw = reqHeaders.get('cookie') ?? '';
+      for (const pair of cookieRaw.split(';')) {
+        const t = pair.trim();
+        const i = t.indexOf('=');
+        if (i > 0) reqCookies.set(t.substring(0, i).trim(), t.substring(i + 1).trim());
+      }
+      const request = {
+        _type:  'Request',
+        method: 'GET',
+        path:   u.pathname,
+        params,
+        query:   reqQuery,
+        headers: reqHeaders,
+        cookies: reqCookies
+      };
+      const ws = _wsMakeWebSocket(socket, request);
+      try { r.handler(ws); } catch (e) { console.error('WS upgrade handler:', e.message); }
+      return;
+    }
+    socket.write('HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n');
+    socket.destroy();
+  } catch (e) {
+    try { socket.destroy(); } catch (_) {}
+  }
+}
+
 function serve(port) {
   const http = require('http');
-  http.createServer((req, res) => {
+  const server = http.createServer((req, res) => {
     // Collect chunks as Buffers (not strings) so multipart file uploads
     // round-trip byte-for-byte.
     const chunks = [];
@@ -375,6 +1484,31 @@ function serve(port) {
           const headers = result && result.headers instanceof Map ? result.headers : new Map();
           if (!headers.has('Content-Type')) headers.set('Content-Type', 'text/plain; charset=utf-8');
           const out = headers ? Object.fromEntries(headers.entries()) : {};
+          // `withSession`/`clearSession` attach a Map at `setSession`.
+          // In stateless mode the cookie *is* the payload. In store
+          // mode we stash the payload server-side and emit only the
+          // signed SSID, plus we delete any prior SSID so the store
+          // doesn't accumulate dead entries.
+          if (result && result.setSession !== undefined) {
+            const ssetting = result.setSession;
+            let cookiePayload = ssetting;
+            if (_sessionStoreEnabled) {
+              const priorSsid = request.session && request.session.get && request.session.get('_ssid');
+              // request.session in store mode is the looked-up payload,
+              // not the raw cookie; grab the SSID off the raw cookie:
+              const rawSsid = (request._rawCookieSession && request._rawCookieSession.get)
+                ? request._rawCookieSession.get('_ssid') : null;
+              if (rawSsid) _sessionStoreDelete(rawSsid);
+              if ((ssetting instanceof Map && ssetting.size === 0) ||
+                  (!(ssetting instanceof Map) && Object.keys(ssetting || {}).length === 0)) {
+                cookiePayload = new Map();
+              } else {
+                const newSsid = _sessionStorePut(ssetting);
+                cookiePayload = new Map([['_ssid', newSsid]]);
+              }
+            }
+            out['Set-Cookie'] = _buildSetCookie(cookiePayload);
+          }
           res.writeHead(result.status ?? 200, out);
           res.end(result.body ?? '');
           return;
@@ -388,9 +1522,15 @@ function serve(port) {
         res.writeHead(500); res.end('Internal Error');
       }
     });
-  }).listen(port, () => console.log(`Listening on http://localhost:${port}/`));
+  });
+  // WebSocket upgrade lives on the same server — Node hands us the raw
+  // socket (post-headers) and stays out of the way after.
+  server.on('upgrade', (req, socket, _head) => _wsHandleUpgrade(req, socket));
+  server.listen(port, () => console.log(`Listening on http://localhost:${port}/`));
 }
+"""
 
+private val JsRuntimePart2: String = """
 function _show(v) {
   if (v === undefined) return '()';
   if (v === null) return 'null';
@@ -408,8 +1548,21 @@ function _show(v) {
   if (v && v._type === '_Some') return 'Some(' + _show(v.value) + ')';
   if (v && v._type === '_None') return 'None';
   if (v && v._type === '_Raw')  return v.html;
+  if (v && v._type === 'Lens' && v._path) {
+    return 'Lens(_.' + v._path.join('.') + ')';
+  }
+  if (v && (v._type === 'Optional' || v._type === 'Traversal') && v._steps) {
+    const parts = v._steps.map(s => s === '__some__' ? 'some' : s === '__each__' ? 'each' : s);
+    return v._type + '(_.' + parts.join('.') + ')';
+  }
+  if (v && v._type === 'Prism' && v._variant) {
+    return 'Prism[?, ' + v._variant + ']';
+  }
   if (v && v._type) {
-    const fields = Object.entries(v).filter(([k]) => k !== '_type');
+    // Hide internal optic helpers (`get`, `set`, …) by skipping any value
+    // whose type indicates it's an optic but no `_path`/`_steps` survived.
+    const fields = Object.entries(v).filter(([k]) =>
+      k !== '_type' && k !== '_path' && k !== '_steps' && k !== '_variant');
     if (!fields.length) return v._type;
     return v._type + '(' + fields.map(([,vv]) => _show(vv)).join(', ') + ')';
   }
@@ -464,6 +1617,177 @@ function _Map(...pairs) {
   return m;
 }
 
+// ── `.copy(...)` helper — fills positional args against the object's
+// own key order, then applies named overrides on top. Case-class
+// instances emit `{_type, a, b, …}` whose Object.keys order matches
+// the declared field order in V8 / modern Node.
+function _copy(obj, positional, named) {
+  const result = { ...obj, ...named };
+  if (positional.length === 0) return result;
+  const keys = Object.keys(obj).filter(k => k !== '_type');
+  let posIdx = 0;
+  for (const k of keys) {
+    if (posIdx >= positional.length) break;
+    if (k in named) continue;
+    result[k] = positional[posIdx++];
+  }
+  return result;
+}
+
+// ── Lens runtime — get/set/modify/andThen over a static field path ────
+function _lensGet(path, s) {
+  let v = s;
+  for (let i = 0; i < path.length; i++) v = v[path[i]];
+  return v;
+}
+function _lensSet(path, s, v) {
+  if (path.length === 0) return v;
+  const head = path[0];
+  const child = s[head];
+  return { ...s, [head]: _lensSet(path.slice(1), child, v) };
+}
+function _makeLens(path) {
+  const get      = (s) => _lensGet(path, s);
+  const set      = (s, v) => _lensSet(path, s, v);
+  const modify   = (s, f) => _lensSet(path, s, f(_lensGet(path, s)));
+  const andThen  = (other) => {
+    if (other && other._type === 'Lens' && other._path) {
+      return _makeLens(path.concat(other._path));
+    }
+    if (other && other._type === 'Optional' && other._steps) {
+      // Lens.andThen(Optional) → Optional. Lift field path to steps.
+      return _makeOptional(path.concat(other._steps));
+    }
+    if (other && other._type === 'Traversal' && other._steps) {
+      // Lens.andThen(Traversal) → Traversal.
+      return _makeTraversal(path.concat(other._steps));
+    }
+    return _composeLens(_makeLens(path), other);
+  };
+  return { _type: 'Lens', _path: path, get, set, modify, andThen };
+}
+function _composeLens(a, b) {
+  const get     = (s) => b.get(a.get(s));
+  const set     = (s, v) => a.set(s, b.set(a.get(s), v));
+  const modify  = (s, f) => a.modify(s, x => b.modify(x, f));
+  const andThen = (other) => _composeLens({ _type: 'Lens', get, set, modify, andThen }, other);
+  return { _type: 'Lens', get, set, modify, andThen };
+}
+
+// ── Optional runtime — partial optic for paths containing `.some` ─────
+// Steps are an array of strings: a field name, or "__some__" to traverse
+// into the inner value of a Some(...).
+function _opticGetOption(steps, s) {
+  let v = s;
+  for (let i = 0; i < steps.length; i++) {
+    const step = steps[i];
+    if (step === '__some__') {
+      if (v && v._type === '_Some') v = v.value;
+      else return _None;
+    } else {
+      if (v == null) return _None;
+      v = v[step];
+      if (v === undefined) return _None;
+    }
+  }
+  return _Some(v);
+}
+function _opticSet(steps, s, v) {
+  if (steps.length === 0) return v;
+  const [head, ...rest] = steps;
+  if (head === '__some__') {
+    if (s && s._type === '_Some') return _Some(_opticSet(rest, s.value, v));
+    return s;
+  }
+  if (s == null || s[head] === undefined) return s;
+  return { ...s, [head]: _opticSet(rest, s[head], v) };
+}
+// Read the steps array off any path-optic (Lens uses _path, others _steps).
+function _opticSteps(o) {
+  if (!o) return null;
+  if (o._steps) return o._steps;
+  if (o._path)  return o._path;
+  return null;
+}
+function _makeOptional(steps) {
+  const getOption = (s) => _opticGetOption(steps, s);
+  const set       = (s, v) => _opticSet(steps, s, v);
+  const modify    = (s, f) => {
+    const got = getOption(s);
+    if (got && got._type === '_Some') return _opticSet(steps, s, f(got.value));
+    return s;
+  };
+  const andThen = (other) => {
+    const inner = _opticSteps(other);
+    if (inner === null) {
+      throw new Error('Optional.andThen(other): only path optic supported');
+    }
+    if (other._type === 'Traversal') return _makeTraversal(steps.concat(inner));
+    return _makeOptional(steps.concat(inner));
+  };
+  return { _type: 'Optional', _steps: steps, getOption, set, modify, andThen };
+}
+
+// ── Traversal runtime — multi-foci optic for `.each` paths ────────────
+function _opticGetAll(steps, s) {
+  if (steps.length === 0) return [s];
+  const [head, ...rest] = steps;
+  if (head === '__some__') {
+    if (s && s._type === '_Some') return _opticGetAll(rest, s.value);
+    return [];
+  }
+  if (head === '__each__') {
+    if (Array.isArray(s)) return s.flatMap(item => _opticGetAll(rest, item));
+    return [];
+  }
+  if (s == null || s[head] === undefined) return [];
+  return _opticGetAll(rest, s[head]);
+}
+function _opticModifyAll(steps, s, f) {
+  if (steps.length === 0) return f(s);
+  const [head, ...rest] = steps;
+  if (head === '__some__') {
+    if (s && s._type === '_Some') return _Some(_opticModifyAll(rest, s.value, f));
+    return s;
+  }
+  if (head === '__each__') {
+    if (Array.isArray(s)) return s.map(item => _opticModifyAll(rest, item, f));
+    return s;
+  }
+  if (s == null || s[head] === undefined) return s;
+  return { ...s, [head]: _opticModifyAll(rest, s[head], f) };
+}
+function _makeTraversal(steps) {
+  const getAll = (s) => _opticGetAll(steps, s);
+  const modify = (s, f) => _opticModifyAll(steps, s, f);
+  const set    = (s, v) => _opticModifyAll(steps, s, _ => v);
+  const andThen = (other) => {
+    const inner = _opticSteps(other);
+    if (inner === null) {
+      throw new Error('Traversal.andThen(other): only path optic supported');
+    }
+    return _makeTraversal(steps.concat(inner));
+  };
+  return { _type: 'Traversal', _steps: steps, getAll, modify, set, andThen };
+}
+
+// ── Prism runtime — sum-type optic, conditional get / set / modify ────
+function _makePrism(variant) {
+  const matches = (s) => s != null && s._type === variant;
+  const getOption  = (s) => matches(s) ? _Some(s) : _None;
+  const reverseGet = (v) => v;
+  const set        = (s, v) => matches(s) ? v : s;
+  const modify     = (s, f) => matches(s) ? f(s) : s;
+  const andThen    = (other) => {
+    if (other && other._type === 'Prism' && other._variant) {
+      // Prism-Prism: dynamic typeName check collapses to the inner variant.
+      return _makePrism(other._variant);
+    }
+    throw new Error('Prism.andThen(other): only Prism-Prism composition supported in this stage');
+  };
+  return { _type: 'Prism', _variant: variant, getOption, reverseGet, set, modify, andThen };
+}
+
 function _dispatch(obj, method, args) {
   if (Array.isArray(obj)) {
     switch(method) {
@@ -489,18 +1813,20 @@ function _dispatch(obj, method, args) {
       case 'max': return Math.max(...obj);
       case 'sorted': return [...obj].sort((a,b)=>a<b?-1:a>b?1:0);
       case 'flatten': return obj.flat();
-      // Native JS Array.{map,filter,forEach,...} pass (value, index, array)
-      // to the callback. Scala callers expect a single-arg lambda — and a
-      // bare `println` reference is variadic — so wrap to discard the extras.
-      case 'map': return obj.map(x => args[0](x));
-      case 'flatMap': return obj.flatMap(x => args[0](x));
-      case 'filter': return obj.filter(x => args[0](x));
-      case 'filterNot': return obj.filter(x => !args[0](x));
-      case 'foreach': case 'forEach': obj.forEach(x => args[0](x)); return undefined;
-      case 'exists': return obj.some(x => args[0](x));
-      case 'forall': return obj.every(x => args[0](x));
-      case 'find': { const r = obj.find(x => args[0](x)); return r !== undefined ? _Some(r) : _None; }
-      case 'count': return obj.filter(x => args[0](x)).length;
+      // Higher-order methods route through CPS-aware helpers so that a
+      // callback returning a Free tree (effectful caller, e.g. inside
+      // `runAsync { ... }`) is sequenced into a single Free instead of
+      // leaving an array of Free nodes behind.  Pure callbacks see no
+      // overhead — `_seq` short-circuits when nothing is Free.
+      case 'map':     return _seqMap(obj, args[0]);
+      case 'flatMap': return _seqFlatMap(obj, args[0]);
+      case 'filter':    return _seqFilter(obj, args[0], false);
+      case 'filterNot': return _seqFilter(obj, args[0], true);
+      case 'foreach': case 'forEach': return _seqForeach(obj, args[0]);
+      case 'exists':  return _seqExists(obj, args[0]);
+      case 'forall':  return _seqForall(obj, args[0]);
+      case 'find':    return _seqFind(obj, args[0]);
+      case 'count':   return _seqCount(obj, args[0]);
       case 'take': return obj.slice(0, args[0]);
       case 'drop': return obj.slice(args[0]);
       case 'takeRight': return obj.slice(-args[0]);
@@ -520,8 +1846,8 @@ function _dispatch(obj, method, args) {
       case 'sortBy': return [...obj].sort((a,b) => { const fa=args[0](a),fb=args[0](b); return fa<fb?-1:fa>fb?1:0; });
       case 'groupBy': { const m=new Map(); obj.forEach(x=>{const k=args[0](x);if(!m.has(k))m.set(k,[]);m.get(k).push(x);}); return m; }
       case 'reduceLeft': return obj.reduce(args[0]);
-      case 'foldLeft': return (f) => obj.reduce(f, args[0]);
-      case 'foldRight': return (f) => obj.reduceRight((acc,x) => f(x,acc), args[0]);
+      case 'foldLeft':  return (f) => _seqFoldLeft(obj, args[0], f);
+      case 'foldRight': return (f) => _seqFoldLeft([...obj].reverse(), args[0], (acc, x) => f(x, acc));
       case 'sliding': { const n=args[0]; const r=[]; for(let i=0;i<=obj.length-n;i++) r.push(obj.slice(i,i+n)); return r; }
       case 'grouped': { const n=args[0]; const r=[]; for(let i=0;i<obj.length;i+=n) r.push(obj.slice(i,i+n)); return r; }
       case 'toString': return _show(obj);
@@ -553,6 +1879,13 @@ function _dispatch(obj, method, args) {
       case 'foreach': [...obj.entries()].forEach(([k,v])=>args[0]([k,v])); return undefined;
     }
   }
+  if (obj && obj._type === 'Signal') {
+    switch(method) {
+      case 'get':   return obj.get();
+      case 'set':   return obj.set(args[0]);
+      case 'apply': return obj.apply();
+    }
+  }
   if (obj && obj._type === '_Some') {
     switch(method) {
       case 'map': return _Some(args[0](obj.value));
@@ -566,6 +1899,7 @@ function _dispatch(obj, method, args) {
       case 'foreach': args[0](obj.value); return undefined;
       case 'toList': return [obj.value];
       case 'orElse': return obj;
+      case 'contains': return obj.value === args[0];
     }
   }
   if (obj && obj._type === '_None') {
@@ -581,6 +1915,7 @@ function _dispatch(obj, method, args) {
       case 'foreach': return undefined;
       case 'toList': return [];
       case 'orElse': return args[0];
+      case 'contains': return false;
     }
   }
   if (typeof obj === 'string') {
@@ -647,21 +1982,47 @@ function _dispatch(obj, method, args) {
     if (typeof val === 'function') return args.length ? val(...args) : val;
     return val;
   }
-  // Extension method fallback: look up _ext_<paramName>_<method>
-  // We try to find registered extension functions by method name
-  if (typeof _extensions !== 'undefined' && _extensions[method]) {
-    const fns = _extensions[method];
-    for (const fn of fns) {
-      try { return fn(obj, ...args); } catch(e) { /* try next */ }
+  // Extension method fallback: first look up by (receiver type, method) —
+  // this is how typeclass instances disambiguate (Functor[List].map vs
+  // Functor[Option].map).  Fall back to the older method-only registry
+  // for extensions whose receiver type isn't known statically.
+  const _ext_t = _typeOf(obj);
+  if (typeof _extensions !== 'undefined') {
+    const typed = _extensions[_ext_t + ':' + method];
+    if (typed) return typed(obj, ...args);
+    if (_extensions[method]) {
+      const fns = _extensions[method];
+      for (const fn of fns) {
+        try { return fn(obj, ...args); } catch(e) { /* try next */ }
+      }
     }
   }
   throw new Error('Method not found: ' + method + ' on ' + _show(obj));
 }
 
+function _typeOf(obj) {
+  if (obj === null || obj === undefined) return 'Any';
+  if (Array.isArray(obj)) return 'List';
+  if (obj === _None) return 'Option';
+  if (typeof obj === 'object' && obj._type === '_Some') return 'Option';
+  if (typeof obj === 'object' && obj._type === '_None') return 'Option';
+  if (obj instanceof Map) return 'Map';
+  if (typeof obj === 'string') return 'String';
+  if (typeof obj === 'number') return Number.isInteger(obj) ? 'Int' : 'Double';
+  if (typeof obj === 'boolean') return 'Boolean';
+  if (typeof obj === 'object' && obj._type) return obj._type;
+  return 'Any';
+}
+
 const _extensions = {};
-function _registerExt(method, fn) {
+function _registerExt(method, fn, type) {
+  // Two registries kept side-by-side:
+  //   _extensions[method]            — legacy method-name lookup with try/catch
+  //   _extensions[type + ':' + method] — direct (type, method) lookup
+  // When `type` is omitted, only the legacy registry is populated.
   if (!_extensions[method]) _extensions[method] = [];
   _extensions[method].push(fn);
+  if (type) _extensions[type + ':' + method] = fn;
 }
 
 function _trampoline(fn, ...args) {
@@ -779,6 +2140,411 @@ function _handle(bodyFn, handledOps, handlers) {
     }
   }
   return interp(bodyFn());
+}
+"""
+
+val JsRuntime: String = JsRuntimePart1 + JsRuntimePart2
+
+/** Built-in `Async` effect runtime — concatenated onto `JsRuntime`.
+ *  Lives in its own val because together with the rest of the runtime
+ *  it overflows the JVM's 65 535-byte string-literal limit.  Same
+ *  semantics as the interpreter and JvmGen: `delay` blocks via
+ *  Atomics on Node, thunks passed to `async` / `parallel` run
+ *  synchronously, results come back in declared order. */
+val JsRuntimeAsync: String = """
+
+// ── Async — built-in effect on top of the Free Monad ───────────────────────
+//
+// `Async.delay(ms)`, `Async.async(thunk)`, `Async.await(fut)`, and
+// `Async.parallel(thunks)` produce `_Perform("Async", op, args)` nodes,
+// indistinguishable from user-declared effect ops.  `_runAsync(bodyFn)`
+// is the default handler — single-threaded so output is deterministic
+// and byte-identical to the interpreter and JVM backends.  On Node
+// `delay(ms)` blocks via `Atomics.wait` on a SharedArrayBuffer flag (no
+// child process, no async coloring of caller code).  In the browser
+// (no SharedArrayBuffer without crossOriginIsolation) we fall back to
+// `Date.now()` spin, which is fine for the small delays used in demos.
+const Async = {
+  delay:    (ms)     => _perform('Async', 'delay',    [ms]),
+  async:    (thunk)  => _perform('Async', 'async',    [thunk]),
+  await:    (fut)    => _perform('Async', 'await',    [fut]),
+  parallel: (thunks) => _perform('Async', 'parallel', [thunks]),
+};
+function Future(value) { return { _type: 'Future', value }; }
+
+function _asyncSleep(ms) {
+  if (!(ms > 0)) return;
+  if (typeof SharedArrayBuffer !== 'undefined' && typeof Atomics !== 'undefined') {
+    try {
+      const sab = new SharedArrayBuffer(4);
+      Atomics.wait(new Int32Array(sab), 0, 0, ms);
+      return;
+    } catch (_) { /* not allowed in main thread of some envs — fall through */ }
+  }
+  // Last-resort spin (browser without isolation, etc.).  Tight but
+  // accurate enough for the small ms values typical in demos.
+  const end = Date.now() + ms;
+  while (Date.now() < end) { /* spin */ }
+}
+
+function _asyncDispatch(op, args, resume) {
+  switch (op) {
+    case 'delay': {
+      const ms = args[0];
+      if (typeof ms !== 'number') throw new Error('Async.delay(ms: Int)');
+      _asyncSleep(ms);
+      return resume(undefined);
+    }
+    case 'async': {
+      const thunk = args[0];
+      if (typeof thunk !== 'function') throw new Error('Async.async(thunk)');
+      const v = _runAsyncInner(thunk());
+      return resume(Future(v));
+    }
+    case 'await': {
+      const fut = args[0];
+      if (!fut || fut._type !== 'Future') throw new Error('Async.await(future)');
+      return resume(fut.value);
+    }
+    case 'parallel': {
+      const thunks = args[0];
+      if (!Array.isArray(thunks)) throw new Error('Async.parallel(thunks: List[() => A])');
+      const out = [];
+      for (const t of thunks) {
+        if (typeof t !== 'function') throw new Error('Async.parallel(thunks: List[() => A])');
+        out.push(_runAsyncInner(t()));
+      }
+      return resume(out);
+    }
+    default:
+      throw new Error('Unknown Async operation: ' + op);
+  }
+}
+
+// Drive a Computation to a plain value, dispatching `Async.*` ops along
+// the way.  Non-Async Performs propagate outward — useful for nested
+// handlers (`runAsync` inside `handle`, or vice versa).
+function _runAsyncInner(initial) {
+  let current = initial;
+  while (true) {
+    if (current instanceof _Perform) {
+      if (current.eff === 'Async') {
+        current = _asyncDispatch(current.op, current.args, (v) => v);
+      } else {
+        return current;  // propagate
+      }
+    } else if (current instanceof _FlatMap) {
+      const sub = current.sub;
+      if (sub instanceof _FlatMap) {
+        const sub2 = sub.sub, g = sub.k, f = current.k;
+        current = new _FlatMap(sub2, (x) => new _FlatMap(g(x), f));
+      } else if (sub instanceof _Perform) {
+        const f = current.k;
+        if (sub.eff === 'Async') {
+          current = _asyncDispatch(sub.op, sub.args, (v) => _runAsyncInner(f(v)));
+        } else {
+          return new _FlatMap(sub, (v) => _runAsyncInner(f(v)));
+        }
+      } else {
+        current = current.k(sub);
+      }
+    } else {
+      return current;  // plain value
+    }
+  }
+}
+
+function _runAsync(bodyFn) { return _runAsyncInner(bodyFn()); }
+
+// ── runAsyncParallel: same API on Node, single-threaded for now ────────────
+//
+// Real concurrency on Node would require `worker_threads` per `async` +
+// `Atomics.wait` for `await` — viable but heavyweight (50-100ms worker
+// creation, separate JS context per task).  v1.3 keeps the Node target
+// single-threaded and aliases `_runAsyncParallel` to `_runAsync`: code
+// written against the parallel handler still runs, just without the
+// speedup.  The JVM backends provide real concurrency.
+function _runAsyncParallel(bodyFn) { return _runAsyncInner(bodyFn()); }
+
+// ── Storage: built-in key-value effect ────────────────────────────────────
+//
+// `Storage.{get,put,remove,has,keys}` produce `_Perform("Storage", op,
+// args)` nodes; `_runStorage(bodyFn, path)` is the handler — when
+// `path` is non-null it hydrates from / flushes to a JSON file on
+// every mutation (file-backed mode), otherwise it stays in memory
+// (ephemeral mode, for tests).  Same Free-Monad walking shape as
+// `_runAsync`; non-Storage Performs propagate outward so an outer
+// handler picks them up.
+const Storage = {
+  get:    (key)        => _perform('Storage', 'get',    [key]),
+  put:    (key, value) => _perform('Storage', 'put',    [key, value]),
+  remove: (key)        => _perform('Storage', 'remove', [key]),
+  has:    (key)        => _perform('Storage', 'has',    [key]),
+  keys:   ()           => _perform('Storage', 'keys',   []),
+};
+
+function _storageDefaultPath() {
+  if (typeof process !== 'undefined' && process.env && process.env.SSC_STORAGE_PATH) {
+    return process.env.SSC_STORAGE_PATH;
+  }
+  return './ssc-storage.json';
+}
+
+function _storageLoad(path, state) {
+  if (typeof require === 'undefined') return;
+  try {
+    const fs = require('fs');
+    if (!fs.existsSync(path)) return;
+    const src = fs.readFileSync(path, 'utf-8');
+    const obj = JSON.parse(src);
+    for (const [k, v] of Object.entries(obj)) state.set(k, String(v));
+  } catch (e) { /* corrupt file — start empty */ }
+}
+
+function _storageSave(path, state) {
+  if (typeof require === 'undefined') return;
+  const fs  = require('fs');
+  const obj = {};
+  for (const [k, v] of state) obj[k] = v;
+  fs.writeFileSync(path, JSON.stringify(obj));
+}
+
+function _runStorage(bodyFn, path) {
+  const state = new Map();
+  if (path) _storageLoad(path, state);
+  function flush() { if (path) _storageSave(path, state); }
+
+  function dispatch(op, args, resume) {
+    switch (op) {
+      case 'get': {
+        const k = args[0];
+        return resume(state.has(k) ? _Some(state.get(k)) : _None);
+      }
+      case 'put': {
+        const k = args[0], v = args[1];
+        state.set(k, _show(v));
+        flush();
+        return resume(undefined);
+      }
+      case 'remove': {
+        state.delete(args[0]);
+        flush();
+        return resume(undefined);
+      }
+      case 'has':  return resume(state.has(args[0]));
+      case 'keys': return resume([...state.keys()]);
+      default:     throw new Error('Unknown Storage operation: ' + op);
+    }
+  }
+
+  function interp(initial) {
+    let current = initial;
+    while (true) {
+      if (current instanceof _Perform) {
+        if (current.eff === 'Storage') {
+          current = dispatch(current.op, current.args, (v) => v);
+        } else { return current; }
+      } else if (current instanceof _FlatMap) {
+        const sub = current.sub;
+        if (sub instanceof _FlatMap) {
+          const sub2 = sub.sub, g = sub.k, f = current.k;
+          current = new _FlatMap(sub2, (x) => new _FlatMap(g(x), f));
+        } else if (sub instanceof _Perform) {
+          const f = current.k;
+          if (sub.eff === 'Storage') {
+            current = dispatch(sub.op, sub.args, (v) => interp(f(v)));
+          } else {
+            return new _FlatMap(sub, (v) => interp(f(v)));
+          }
+        } else {
+          current = current.k(sub);
+        }
+      } else {
+        return current;
+      }
+    }
+  }
+  return interp(bodyFn());
+}
+
+// ── CPS-aware collection helpers ──────────────────────────────────────────
+//
+// When a higher-order method like `xs.map(fn)` is called inside an
+// effectful context, `fn(x)` may return a Free tree instead of a plain
+// value.  These helpers detect that and stitch the per-element Free
+// values into a single sequenced Free that yields the final array.
+// Pure callbacks pass straight through with no overhead.
+//
+// `_seq(comps)` → sequence an array of (Free | value); returns either
+// the plain array (when none are Free) or a Free that yields it.
+function _seq(comps) {
+  let anyFree = false;
+  for (let i = 0; i < comps.length; i++) if (_isFree(comps[i])) { anyFree = true; break; }
+  if (!anyFree) return comps;
+  function loop(i, acc) {
+    if (i === comps.length) return acc;
+    return _bind(comps[i], (v) => { acc.push(v); return loop(i + 1, acc); });
+  }
+  return loop(0, []);
+}
+
+function _seqMap(arr, fn)        { return _seq(arr.map(x => fn(x))); }
+function _seqFlatMap(arr, fn)    {
+  const s = _seqMap(arr, fn);
+  if (_isFree(s)) return _bind(s, (rs) => rs.flat());
+  return s.flat();
+}
+function _seqFilter(arr, fn, neg) {
+  const flags = arr.map(x => fn(x));
+  const seq   = _seq(flags);
+  const pick  = (bs) => arr.filter((_, i) => neg ? !bs[i] : bs[i]);
+  if (_isFree(seq)) return _bind(seq, pick);
+  return pick(seq);
+}
+function _seqForeach(arr, fn) {
+  const comps = arr.map(x => fn(x));
+  const s     = _seq(comps);
+  if (_isFree(s)) return _bind(s, () => undefined);
+  return undefined;
+}
+function _seqExists(arr, fn) {
+  const seq = _seq(arr.map(x => fn(x)));
+  if (_isFree(seq)) return _bind(seq, (bs) => bs.some(b => b));
+  return seq.some(b => b);
+}
+function _seqForall(arr, fn) {
+  const seq = _seq(arr.map(x => fn(x)));
+  if (_isFree(seq)) return _bind(seq, (bs) => bs.every(b => b));
+  return seq.every(b => b);
+}
+function _seqCount(arr, fn) {
+  const seq = _seq(arr.map(x => fn(x)));
+  if (_isFree(seq)) return _bind(seq, (bs) => bs.filter(b => b).length);
+  return seq.filter(b => b).length;
+}
+function _seqFind(arr, fn) {
+  const seq = _seq(arr.map(x => fn(x)));
+  const pick = (bs) => {
+    const i = bs.findIndex(b => b);
+    return i < 0 ? _None : _Some(arr[i]);
+  };
+  if (_isFree(seq)) return _bind(seq, pick);
+  return pick(seq);
+}
+function _seqFoldLeft(arr, init, fn) {
+  function loop(i, acc) {
+    if (i === arr.length) return acc;
+    const next = fn(acc, arr[i]);
+    if (_isFree(next)) return _bind(next, (v) => loop(i + 1, v));
+    return loop(i + 1, next);
+  }
+  return loop(0, init);
+}
+
+// ── Reactive signals (fine-grained reactivity) ────────────────────────────
+//
+// Same push model as the interpreter and JvmGen: signals are mutable
+// cells with a subscriber set; reading inside an active `effect`/
+// `computed` registers a mutual subscription; writes queue subscribers
+// into a `LinkedHashSet` and a single flush drains it, so the diamond
+// (root → derived → consumer; consumer also reads root) sees each
+// effect at most once per synchronous transaction.
+
+let _signalSeq = 0;
+const _signals = new Map();   // id → { value, subs:Set<eid> }
+const _effects = new Map();   // eid → { thunk, deps:Set<sid> }
+const _effectStack = [];
+const _pendingEffects = new Set();  // insertion-ordered in JS Sets
+let _reactiveFlushing = false;
+
+function _freshReactiveId() { _signalSeq += 1; return _signalSeq; }
+
+function _signalGet(id) {
+  const s = _signals.get(id);
+  if (!s) throw new Error('Signal disposed or unknown id');
+  if (_effectStack.length > 0) {
+    const eid = _effectStack[_effectStack.length - 1];
+    s.subs.add(eid);
+    const e = _effects.get(eid);
+    if (e) e.deps.add(id);
+  }
+  return s.value;
+}
+
+function _signalSet(id, v) {
+  const s = _signals.get(id);
+  if (!s) throw new Error('Signal disposed or unknown id');
+  s.value = v;
+  // Skip subscribers currently running — without this, an effect
+  // that writes a signal it also reads infinite-loops itself.
+  for (const eid of s.subs) {
+    if (_effectStack.indexOf(eid) < 0) _pendingEffects.add(eid);
+  }
+  if (!_reactiveFlushing) _reactiveFlush();
+}
+
+function _reactiveFlush() {
+  _reactiveFlushing = true;
+  try {
+    while (_pendingEffects.size > 0) {
+      const eid = _pendingEffects.values().next().value;
+      _pendingEffects.delete(eid);
+      _runEffect(eid);
+    }
+  } finally { _reactiveFlushing = false; }
+}
+
+function _clearEffectDeps(eid) {
+  const e = _effects.get(eid);
+  if (!e) return;
+  for (const sid of e.deps) {
+    const s = _signals.get(sid);
+    if (s) s.subs.delete(eid);
+  }
+  e.deps.clear();
+}
+
+function _runEffect(eid) {
+  const e = _effects.get(eid);
+  if (!e) return;
+  _clearEffectDeps(eid);
+  _effectStack.push(eid);
+  try { e.thunk(); }
+  finally { _effectStack.pop(); }
+}
+
+function Signal(initial) {
+  const id = _freshReactiveId();
+  _signals.set(id, { value: initial, subs: new Set() });
+  return {
+    _type: 'Signal',
+    id,
+    get:   () => _signalGet(id),
+    set:   (v) => _signalSet(id, v),
+    apply: () => _signalGet(id),
+  };
+}
+
+function effect(thunk) {
+  const eid = _freshReactiveId();
+  _effects.set(eid, { thunk, deps: new Set() });
+  _runEffect(eid);
+}
+
+function computed(thunk) {
+  const sid = _freshReactiveId();
+  const eid = _freshReactiveId();
+  _signals.set(sid, { value: undefined, subs: new Set() });
+  const updater = () => _signalSet(sid, thunk());
+  _effects.set(eid, { thunk: updater, deps: new Set() });
+  _runEffect(eid);
+  return {
+    _type: 'Signal',
+    id: sid,
+    get:   () => _signalGet(sid),
+    set:   () => { throw new Error('computed signal is read-only'); },
+    apply: () => _signalGet(sid),
+  };
 }
 """
 
@@ -983,8 +2749,22 @@ class JsGen(baseDir: Option[os.Path] = None):
 
   // ─── Module entry ─────────────────────────────────────────────────
 
+  /** Module-level `dependencies:` from the front-matter (set at the top
+   *  of `genModule` / `genModuleSegmented`).  Threaded into `genImport`
+   *  so `<dep-name>://path` imports rewrite through the resolver. */
+  private var moduleDeps: Map[String, String] = Map.empty
+
+  /** Absolute paths of `.ssc` files that have already been inlined by
+   *  `genImport`.  Mirrors the cycle-protection invariant in
+   *  `JvmGen.importedFiles` — a child module re-importing something
+   *  the parent already pulled in (or a diamond import) emits nothing
+   *  the second time around. */
+  private val importedFiles: scala.collection.mutable.Set[String] =
+    scala.collection.mutable.Set.empty
+
   def genModule(module: Module): String =
     sb.clear()
+    moduleDeps = module.manifest.map(_.dependencies).getOrElse(Map.empty)
     analyzeMutualRecursion(module)
     analyzeEffects(module)
     // Front-matter route declarations are emitted BEFORE the user blocks so
@@ -1034,6 +2814,14 @@ class JsGen(baseDir: Option[os.Path] = None):
   private def analyzeEffects(module: Module): Unit =
     effectOps.clear()
     effectfulFuns.clear()
+
+    // Built-in `Async` and `Storage` effects — operations always
+    // available without requiring `effect Foo:` declarations.  Their
+    // call sites get CPS-rewritten just like user-declared ops.
+    effectOps ++= Set(
+      "Async.delay", "Async.async", "Async.await", "Async.parallel",
+      "Storage.get", "Storage.put", "Storage.remove", "Storage.has", "Storage.keys"
+    )
 
     val funBodies = mutable.Map[String, Term]()
 
@@ -1107,6 +2895,7 @@ class JsGen(baseDir: Option[os.Path] = None):
    */
   def genModuleSegmented(module: Module): List[JsGen.Segment] =
     sb.clear()
+    moduleDeps = module.manifest.map(_.dependencies).getOrElse(Map.empty)
     analyzeMutualRecursion(module)
     analyzeEffects(module)
     // Emit `route(...)` registrations from front-matter before user blocks,
@@ -1232,23 +3021,43 @@ class JsGen(baseDir: Option[os.Path] = None):
 
   private def genImport(imp: Content.Import): Unit =
     import scalascript.parser.Parser
-    val resolvedPath = baseDir match
-      case Some(dir) => dir / os.RelPath(imp.path)
-      case None      => os.Path(imp.path, os.pwd)
-    if os.exists(resolvedPath) then
+    val base = baseDir.getOrElse(os.pwd)
+    val resolvedPath =
+      try scalascript.imports.ImportResolver.resolve(imp.path, base, moduleDeps)
+      catch case _: Throwable => base / os.RelPath(imp.path)
+    val key = resolvedPath.toString
+    if os.exists(resolvedPath) && !importedFiles.contains(key) then
+      importedFiles += key
       val childDir = resolvedPath / os.up
       val childModule = Parser.parse(os.read(resolvedPath))
       val childGen = new JsGen(Some(childDir))
+      childGen.importedFiles ++= importedFiles
       // Emit only the definitions from the imported module (suppress top-level output)
       childModule.sections.foreach { section =>
         section.content.foreach {
           case cb: Content.CodeBlock if Lang.isScalaScript(cb.lang) =>
             cb.tree.foreach(childGen.genScalaNode)
+          case nestedImp: Content.Import =>
+            // Propagate transitive imports — e.g., std/selective.ssc
+            // pulls in std/either.ssc, and consumers of selective need
+            // Either's constructors emitted too.
+            childGen.genImport(nestedImp)
           case _ => ()
         }
         section.subsections.foreach(childGen.genSection)
       }
       sb.append(childGen.sb)
+      // Pull cycle-protection state back so siblings don't re-import
+      importedFiles ++= childGen.importedFiles
+      // For each `[Name as Alias]` binding, rebind the original to the
+      // alias.  The original `Name` stays in scope too — JS imports are
+      // currently whole-module inlines (see v0.7 follow-up: scoped
+      // imports).  No alias emitted when binding has no `as`.
+      imp.bindings.foreach { b =>
+        b.alias.foreach { alias =>
+          line(s"const $alias = ${b.name};")
+        }
+      }
 
   private[codegen] def genScalaNode(node: ScalaNode): Unit =
     ScalaNode.fold(node) {
@@ -1352,20 +3161,7 @@ class JsGen(baseDir: Option[os.Path] = None):
       line(s"function $typeName($paramsStr) { return {_type: '$typeName', $fields}; }")
 
     case d: Defn.Object =>
-      val objectName = d.name.value
-      val members = mutable.ArrayBuffer.empty[String]
-      d.templ.body.stats.foreach {
-        case dd: Defn.Def if isEffectOpDef(dd.body) =>
-          val opName = dd.name.value
-          val paramVals = dd.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values)
-          val params    = paramVals.map(_.name.value)
-          val paramsStr = paramListWithDefaults(paramVals)
-          val argsArr = if params.isEmpty then "[]" else s"[${params.mkString(", ")}]"
-          members += s"$opName: ($paramsStr) => _perform('$objectName', '$opName', $argsArr)"
-        case s =>
-          members += genObjectMember(s)
-      }
-      line(s"const $objectName = {${members.mkString(", ")}};")
+      line(s"const ${d.name.value} = ${genObjectAsExpr(d)};")
 
     case d: Defn.Enum =>
       d.templ.body.stats.foreach {
@@ -1387,7 +3183,15 @@ class JsGen(baseDir: Option[os.Path] = None):
     case d: Defn.Given =>
       // given intShow: Show[Int] with { def show(x) = ... }
       // → const intShow = { show: (x) => ..., ... };
-      // also register as Show_Int
+      // also register as Show_Int.
+      //
+      // Extension methods inside the given body (`extension [A](fa: F[A]) def fmap[B](f) = ...`)
+      // are registered into the global `_extensions` table so `fa.fmap(f)` dispatches —
+      // same machinery as top-level extension groups.
+      d.templ.body.stats.foreach {
+        case eg: Defn.ExtensionGroup => genStat(eg)
+        case _                       => ()
+      }
       d.templ.inits.headOption.foreach { init =>
         val typeKeyOpt: Option[String] = init.tpe match
           case n: Type.Name  => Some(n.value)
@@ -1420,11 +3224,15 @@ class JsGen(baseDir: Option[os.Path] = None):
       d.paramClauseGroup.foreach { pcg =>
         pcg.paramClauses.headOption.flatMap(_.values.headOption).foreach { recvParam =>
           val recvName = recvParam.name.value
+          val recvType = recvParam.decltpe match
+            case Some(Type.Name(n))   => n
+            case Some(ta: Type.Apply) => ta.tpe match { case Type.Name(n) => n; case _ => "Any" }
+            case _                    => "Any"
           d.body match
             case defn: Defn.Def =>
-              genExtensionDef(recvName, defn)
+              genExtensionDef(recvName, recvType, defn)
             case Term.Block(stats) =>
-              stats.foreach { case defn: Defn.Def => genExtensionDef(recvName, defn); case _ => () }
+              stats.foreach { case defn: Defn.Def => genExtensionDef(recvName, recvType, defn); case _ => () }
             case _ => ()
         }
       }
@@ -1440,10 +3248,13 @@ class JsGen(baseDir: Option[os.Path] = None):
     case _: Export => () // ignored
     case _ => () // type aliases etc.
 
-  private def genExtensionDef(recvName: String, defn: Defn.Def): Unit =
+  private def genExtensionDef(recvName: String, recvType: String, defn: Defn.Def): Unit =
     val mparamVals = defn.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values)
     val paramsStr  = (recvName :: mparamVals.map(formalWithDefault)).mkString(", ")
-    val fnName = s"_ext_${recvName}_${defn.name.value}"
+    // Encode receiver TYPE into the function name so that the same extension
+    // method on different types (e.g., Functor[List].ap and Functor[Option].ap)
+    // does not collide and silently overwrite each other.
+    val fnName = s"_ext_${recvType}_${defn.name.value}"
     defn.body match
       case Term.Block(bodyStats) =>
         line(s"function $fnName($paramsStr) {")
@@ -1453,8 +3264,13 @@ class JsGen(baseDir: Option[os.Path] = None):
         line("}")
       case expr =>
         line(s"function $fnName($paramsStr) { return ${genExpr(expr)}; }")
-    // Register extension for dispatch
-    line(s"_registerExt('${defn.name.value}', ($recvName, ...args) => $fnName($recvName, ...args));")
+    // Register extension for dispatch.  The receiver type (when known)
+    // disambiguates same-named extensions across typeclass instances
+    // — e.g., Functor[List].map vs Functor[Option].map both register
+    // `map` but route by `_typeOf(obj)` at the call site.  `Any` means
+    // the legacy method-only registry handles it.
+    val regType = if recvType == "Any" then "null" else s"'$recvType'"
+    line(s"_registerExt('${defn.name.value}', ($recvName, ...args) => $fnName($recvName, ...args), $regType);")
 
   private def genObjectMember(stat: Stat): String = stat match
     case dd: Defn.Def =>
@@ -1462,6 +3278,45 @@ class JsGen(baseDir: Option[os.Path] = None):
     case Defn.Val(_, List(Pat.Var(n)), _, rhs) =>
       s"${n.value}: ${genExpr(rhs)}"
     case _ => ""
+
+  /** Emit a Scala `Defn.Object` as a JS expression — an IIFE that
+   *  declares each member as a local const and returns them as an
+   *  object literal.  Used both at top level (`const X = (iife)()`)
+   *  and as the right-hand side of a nested `const inner = (iife)()`
+   *  inside another object's body, which is how the `package:`
+   *  front-matter wrapper survives JS emission. */
+  private def genObjectAsExpr(d: Defn.Object): String =
+    val objectName = d.name.value
+    val decls = mutable.ArrayBuffer.empty[String]
+    val names = mutable.ArrayBuffer.empty[String]
+    d.templ.body.stats.foreach {
+      case dd: Defn.Def if isEffectOpDef(dd.body) =>
+        val opName = dd.name.value
+        val paramVals = dd.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values)
+        val params    = paramVals.map(_.name.value)
+        val paramsStr = paramListWithDefaults(paramVals)
+        val argsArr = if params.isEmpty then "[]" else s"[${params.mkString(", ")}]"
+        decls += s"const $opName = ($paramsStr) => _perform('$objectName', '$opName', $argsArr);"
+        names += opName
+      case dd: Defn.Def =>
+        val paramVals = dd.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values)
+        val paramsStr = paramListWithDefaults(paramVals)
+        val bodyJs = dd.body match
+          case Term.Block(bodyStats) => genBlockAsIife(bodyStats)
+          case expr                   => genExpr(expr)
+        decls += s"const ${dd.name.value} = ($paramsStr) => $bodyJs;"
+        names += dd.name.value
+      case Defn.Val(_, List(Pat.Var(n)), _, rhs) =>
+        decls += s"const ${n.value} = ${genExpr(rhs)};"
+        names += n.value
+      case nested: Defn.Object =>
+        decls += s"const ${nested.name.value} = ${genObjectAsExpr(nested)};"
+        names += nested.name.value
+      case _ => ()
+    }
+    val body = decls.mkString(" ")
+    val ret  = names.mkString(", ")
+    s"(() => { $body return { $ret }; })()"
 
   private def genDefAsMethod(dd: Defn.Def): String =
     val paramVals = dd.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values)
@@ -1854,6 +3709,11 @@ class JsGen(baseDir: Option[os.Path] = None):
               s"${tc}_${arg}"
             case _ => "undefined"
           key
+        case (Term.Name("Prism"), List(_, variantType)) =>
+          val variantName = variantType match
+            case n: Type.Name => n.value
+            case _            => return "(()=>{ throw new Error('Prism[Outer, Variant]: Variant must be a simple type name'); })()"
+          s"_makePrism('$variantName')"
         case _ => genExpr(t.fun)
 
     // Field/method selection without arguments
@@ -1883,6 +3743,34 @@ class JsGen(baseDir: Option[os.Path] = None):
           genHandleForm(bodyArgClause.values.head.asInstanceOf[Term], pf.cases)
         case _ => s"/* invalid handle */ undefined"
 
+    // Special form: runAsync(body) — built-in Async-effect driver.  Body
+    // is CPS-emitted so Async.* ops build a Free tree; `_runAsync`
+    // walks it and dispatches each op against the default handler.
+    case Term.Apply.After_4_6_0(Term.Name("runAsync"), bodyArgClause)
+        if bodyArgClause.values.size == 1 =>
+      s"_runAsync(() => ${genCpsExpr(bodyArgClause.values.head.asInstanceOf[Term])})"
+    case Term.Apply.After_4_6_0(Term.Name("runAsyncParallel"), bodyArgClause)
+        if bodyArgClause.values.size == 1 =>
+      s"_runAsyncParallel(() => ${genCpsExpr(bodyArgClause.values.head.asInstanceOf[Term])})"
+
+    // Storage handlers — file-backed (with optional path arg) and ephemeral
+    case Term.Apply.After_4_6_0(Term.Name("runStorage"), bodyArgClause)
+        if bodyArgClause.values.size >= 1 =>
+      val bodyJs = genCpsExpr(bodyArgClause.values.head.asInstanceOf[Term])
+      val pathJs = bodyArgClause.values.lift(1).map(p => genExpr(p.asInstanceOf[Term])).getOrElse("null")
+      s"_runStorage(() => $bodyJs, $pathJs)"
+    case Term.Apply.After_4_6_0(Term.Name("runEphemeralStorage"), bodyArgClause)
+        if bodyArgClause.values.size == 1 =>
+      s"_runStorage(() => ${genCpsExpr(bodyArgClause.values.head.asInstanceOf[Term])}, null)"
+
+    // Special forms: computed / effect — wrap the by-name body as a
+    // zero-arg thunk so the reactive scheduler can rerun it when its
+    // signal deps change.
+    case Term.Apply.After_4_6_0(Term.Name(react @ ("computed" | "effect")), bodyArgClause)
+        if bodyArgClause.values.size == 1 =>
+      val bodyJs = genExpr(bodyArgClause.values.head.asInstanceOf[Term])
+      s"$react(() => $bodyJs)"
+
     // Function application
     case app: Term.Apply =>
       genApply(app)
@@ -1903,8 +3791,10 @@ class JsGen(baseDir: Option[os.Path] = None):
           val tmp = freshTmp()
           s"(() => { const $tmp = [$lhsJs, $rhsJs]; $tmp._isTuple = true; return $tmp; })()"
         case "*" =>
-          // Could be string * n or numeric
-          s"(typeof $lhsJs === 'string' ? $lhsJs.repeat($rhsJs) : $lhsJs * $rhsJs)"
+          // Could be string * n or numeric.  Wrap `lhsJs` in parens so a
+          // bare number literal (`1 * 1`) doesn't trip JS's number-then-`.`
+          // parse rule on the string-repeat fallback branch.
+          s"(typeof ($lhsJs) === 'string' ? ($lhsJs).repeat($rhsJs) : ($lhsJs) * ($rhsJs))"
         case "==" => s"($lhsJs === $rhsJs)"
         case "!=" => s"($lhsJs !== $rhsJs)"
         case "&&" => s"($lhsJs && $rhsJs)"
@@ -1919,10 +3809,38 @@ class JsGen(baseDir: Option[os.Path] = None):
           s"Math.trunc($lhsJs / $rhsJs)"
         case other => s"($lhsJs $other $rhsJs)"
 
+    // Prefix unary operators: `!x`, `-x`, `+x`, `~x`.
+    case t: Term.ApplyUnary =>
+      val argJs = genExpr(t.arg)
+      t.op.value match
+        case "!" => s"!($argJs)"
+        case "-" => s"-($argJs)"
+        case "+" => s"+($argJs)"
+        case "~" => s"~($argJs)"
+        case op  => s"/* unsupported unary $op */"
+
     case other =>
       s"/* unsupported: ${other.productPrefix} */"
 
   private def genApply(app: Term.Apply): String =
+    // .copy(field = value, ...) — spread the receiver, override named fields.
+    // Intercepted before argVals are computed so Term.Assign doesn't fall into
+    // genExpr's `lhs = rhs` path (which would emit a JS assignment expression).
+    app.fun match
+      case Term.Select(qual, Term.Name("copy")) =>
+        return genCopy(qual, app.argClause.values)
+      case _ => ()
+
+    // Focus[T](_.a.b) / Focus(_.a.b) — emit a Lens object built from the
+    // syntactic field path. The lambda body is inspected at codegen time;
+    // letting it through normal genExpr would lose the path information.
+    app.fun match
+      case ta: Term.ApplyType if isFocusFun(ta.fun) =>
+        return genFocus(app.argClause.values)
+      case Term.Name("Focus") =>
+        return genFocus(app.argClause.values)
+      case _ => ()
+
     val argVals = app.argClause.values.map(genExpr)
     app.fun match
       // println / print
@@ -1954,7 +3872,7 @@ class JsGen(baseDir: Option[os.Path] = None):
         val qualJs = genExpr(qual)
         val initJs = initArgClause.values.map(genExpr).mkString(", ")
         val fJs = argVals.mkString(", ")
-        s"${qualJs}.reduce($fJs, $initJs)"
+        s"_seqFoldLeft($qualJs, $initJs, $fJs)"
 
       // foldRight curried
       case Term.Apply.After_4_6_0(Term.Select(qual, Term.Name("foldRight")), initArgClause) =>
@@ -1978,6 +3896,67 @@ class JsGen(baseDir: Option[os.Path] = None):
       case fun =>
         val funJs = genExpr(fun)
         s"_call($funJs, ${argVals.mkString(", ")})"
+
+  // ─── Lenses / Focus / .copy ──────────────────────────────────────
+
+  private def isFocusFun(t: Term): Boolean = t match
+    case Term.Name("Focus") => true
+    case _                  => false
+
+  private def genCopy(qual: Term, args: List[Term]): String =
+    val qualJs = genExpr(qual)
+    val positional = args.collect {
+      case t if !t.isInstanceOf[Term.Assign] => genExpr(t)
+    }
+    val named = args.collect {
+      case Term.Assign(Term.Name(field), rhs) => s"$field: ${genExpr(rhs)}"
+    }
+    if positional.isEmpty then
+      // All-named — emit a plain spread for clarity / speed.
+      if named.isEmpty then s"({...$qualJs})"
+      else s"({...$qualJs, ${named.mkString(", ")}})"
+    else
+      // Mixed or all-positional — route through the `_copy` runtime helper,
+      // which uses the object's own key order to map positionals to fields.
+      val posArr = s"[${positional.mkString(", ")}]"
+      val namedObj = if named.isEmpty then "{}" else s"{${named.mkString(", ")}}"
+      s"_copy($qualJs, $posArr, $namedObj)"
+
+  private def genFocus(args: List[Term]): String = args match
+    case List(lambda) =>
+      val stepsOpt: Option[List[String]] = lambda match
+        case Term.AnonymousFunction(body) =>
+          extractPathSteps(body, _.isInstanceOf[Term.Placeholder])
+        case Term.Function.After_4_6_0(paramClause, body) =>
+          paramClause.values.headOption.map(_.name.value).flatMap { p =>
+            extractPathSteps(body, {
+              case Term.Name(n) => n == p
+              case _            => false
+            })
+          }
+        case _ => None
+      stepsOpt match
+        case Some(steps) if steps.nonEmpty =>
+          // Steps are encoded as strings: a field name, "__some__" for a
+          // `.some` traversal, or "__each__" for a `.each` traversal.
+          // Runtime helpers dispatch on the marker tokens.
+          val stepLiterals = s"[${steps.map(s => s"'$s'").mkString(", ")}]"
+          if steps.contains("__each__")      then s"_makeTraversal($stepLiterals)"
+          else if steps.contains("__some__") then s"_makeOptional($stepLiterals)"
+          else                                    s"_makeLens($stepLiterals)"
+        case _ =>
+          s"(()=>{ throw new Error('Focus: expected a field-access lambda like _.field.subfield'); })()"
+    case _ =>
+      s"(()=>{ throw new Error('Focus expects exactly one lambda argument'); })()"
+
+  private def extractPathSteps(body: Term, isBase: Term => Boolean): Option[List[String]] =
+    def loop(t: Term, acc: List[String]): Option[List[String]] = t match
+      case Term.Select(qual, Term.Name("some")) => loop(qual, "__some__" :: acc)
+      case Term.Select(qual, Term.Name("each")) => loop(qual, "__each__" :: acc)
+      case Term.Select(qual, name)              => loop(qual, name.value :: acc)
+      case other if isBase(other)               => Some(acc)
+      case _                                     => None
+    loop(body, Nil)
 
   // ─── CPS codegen for effectful contexts ──────────────────────────
   //
@@ -2084,6 +4063,30 @@ class JsGen(baseDir: Option[os.Path] = None):
           genHandleForm(bodyArgClause.values.head.asInstanceOf[Term], pf.cases)
         case _ => "/* invalid handle */ undefined"
 
+    // Nested runAsync inside CPS body
+    case Term.Apply.After_4_6_0(Term.Name("runAsync"), bodyArgClause)
+        if bodyArgClause.values.size == 1 =>
+      s"_runAsync(() => ${genCpsExpr(bodyArgClause.values.head.asInstanceOf[Term])})"
+    case Term.Apply.After_4_6_0(Term.Name("runAsyncParallel"), bodyArgClause)
+        if bodyArgClause.values.size == 1 =>
+      s"_runAsyncParallel(() => ${genCpsExpr(bodyArgClause.values.head.asInstanceOf[Term])})"
+
+    // Nested storage handlers inside CPS body
+    case Term.Apply.After_4_6_0(Term.Name("runStorage"), bodyArgClause)
+        if bodyArgClause.values.size >= 1 =>
+      val bodyJs = genCpsExpr(bodyArgClause.values.head.asInstanceOf[Term])
+      val pathJs = bodyArgClause.values.lift(1).map(p => genExpr(p.asInstanceOf[Term])).getOrElse("null")
+      s"_runStorage(() => $bodyJs, $pathJs)"
+    case Term.Apply.After_4_6_0(Term.Name("runEphemeralStorage"), bodyArgClause)
+        if bodyArgClause.values.size == 1 =>
+      s"_runStorage(() => ${genCpsExpr(bodyArgClause.values.head.asInstanceOf[Term])}, null)"
+
+    // Nested computed / effect inside CPS body — same wrapping as the
+    // non-CPS form: by-name body becomes a zero-arg thunk.
+    case Term.Apply.After_4_6_0(Term.Name(react @ ("computed" | "effect")), bodyArgClause)
+        if bodyArgClause.values.size == 1 =>
+      s"$react(() => ${genCpsExpr(bodyArgClause.values.head.asInstanceOf[Term])})"
+
     // Apply — function or method call
     case app: Term.Apply =>
       genCpsApply(app)
@@ -2100,7 +4103,7 @@ class JsGen(baseDir: Option[os.Path] = None):
           case "->"           =>
             val tmp = freshTmp()
             s"(() => { const $tmp = [$vl, $vr]; $tmp._isTuple = true; return $tmp; })()"
-          case "*"            => s"(typeof $vl === 'string' ? $vl.repeat($vr) : $vl * $vr)"
+          case "*"            => s"(typeof ($vl) === 'string' ? ($vl).repeat($vr) : ($vl) * ($vr))"
           case "=="           => s"($vl === $vr)"
           case "!="           => s"($vl !== $vr)"
           case "&&"           => s"($vl && $vr)"
@@ -2178,7 +4181,7 @@ class JsGen(baseDir: Option[os.Path] = None):
       case Term.Apply.After_4_6_0(Term.Select(qual, Term.Name("foldLeft")), initArgClause) =>
         bindArgsCps(qual :: initArgClause.values ++ args) { vs =>
           val q = vs.head; val init = vs(1); val f = vs(2)
-          s"${q}.reduce($f, $init)"
+          s"_seqFoldLeft($q, $init, $f)"
         }
 
       // foldRight curried

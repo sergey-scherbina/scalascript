@@ -1,0 +1,69 @@
+#!/usr/bin/env ssc
+---
+name: async
+description: Built-in Async effect — delay / async / await / parallel via runAsync
+---
+
+# Async
+
+```scalascript
+// Sequential await
+val r1 = runAsync {
+  val a = Async.async(() => 1)
+  val b = Async.async(() => 2)
+  Async.await(a) + Async.await(b)
+}
+println(r1)
+
+// parallel keeps declared order
+val r2 = runAsync {
+  Async.parallel(List(() => 10, () => 20, () => 30))
+}
+println(r2)
+
+// delay is wall-clock; output is deterministic
+runAsync {
+  Async.delay(1)
+  println("after-delay")
+}
+
+// async + await + arithmetic compose
+val r3 = runAsync {
+  val a = Async.async(() => 6)
+  val b = Async.async(() => 7)
+  val sum = Async.await(a) + Async.await(b)
+  Async.await(Async.async(() => sum * 2))
+}
+println(r3)
+
+// Nested runAsync: inner driver completes before outer continues.
+val r4 = runAsync {
+  val inner = runAsync {
+    val f = Async.async(() => 7)
+    Async.await(f) + 3
+  }
+  inner
+}
+println(r4)
+
+// Effectful callbacks inside collection HOFs — map / filter / foldLeft
+// sequence per-element Free results automatically so the pipeline
+// reads exactly like a pure one.
+def doubled(n: Int): Int =
+  Async.await(Async.async(() => n * 2))
+
+val r5 = runAsync {
+  List(1, 2, 3, 4).map(doubled)
+}
+println(r5)
+
+val r6 = runAsync {
+  List(1, 2, 3, 4, 5).filter(n => Async.await(Async.async(() => n > 2)))
+}
+println(r6)
+
+val r7 = runAsync {
+  List(1, 2, 3, 4).foldLeft(0)((acc, n) => acc + doubled(n))
+}
+println(r7)
+```

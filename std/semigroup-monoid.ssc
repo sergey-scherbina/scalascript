@@ -1,0 +1,66 @@
+---
+name: std-semigroup-monoid
+version: 1.0.0
+description: Semigroup and Monoid typeclasses — std v1.1 step 1
+exports:
+  - Semigroup
+  - Monoid
+  - intSum
+  - stringConcat
+  - listConcat
+  - combineAll
+  - combineAllOption
+---
+
+# Semigroup and Monoid
+
+Two foundational algebraic typeclasses.
+
+- `Semigroup[A]` — values of type `A` can be `combine`d associatively.
+- `Monoid[A]` — additionally has an identity element, `empty`.
+
+ScalaScript does not auto-resolve `using` clauses, so helpers take the
+instance as a regular parameter (or callers pass `summon[Monoid[A]]`).
+
+Each std type ships **one canonical instance** — `Int` is the additive
+monoid, `String` is concatenation, `List[A]` is concatenation. Other
+lawful instances (multiplicative `Int`, "first" `Option`, etc.) belong
+in user code, typically via a newtype wrapper, so std stays
+unambiguous.
+
+## Typeclass definitions
+
+```scalascript
+trait Semigroup[A]:
+  def combine(a: A, b: A): A
+
+trait Monoid[A] extends Semigroup[A]:
+  def empty: A
+```
+
+## Canonical instances
+
+```scalascript
+given intSum: Monoid[Int] with
+  def empty: Int = 0
+  def combine(a: Int, b: Int): Int = a + b
+
+given stringConcat: Monoid[String] with
+  def empty: String = ""
+  def combine(a: String, b: String): String = a + b
+
+given listConcat: Monoid[List[Int]] with
+  def empty: List[Int] = List()
+  def combine(a: List[Int], b: List[Int]): List[Int] = a ++ b
+```
+
+## Helpers
+
+```scalascript
+def combineAll[A](xs: List[A], m: Monoid[A]): A =
+  xs.foldLeft(m.empty)(m.combine)
+
+def combineAllOption[A](xs: List[A], s: Semigroup[A]): Option[A] =
+  if xs.isEmpty then None
+  else Some(xs.tail.foldLeft(xs.head)(s.combine))
+```

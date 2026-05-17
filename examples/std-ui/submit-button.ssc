@@ -1,0 +1,54 @@
+#!/usr/bin/env ssc
+---
+name: submit-button
+description: Form-aware button — `type="submit"`, with optional loading state.
+---
+
+# SubmitButton
+
+```scalascript
+object SubmitButton:
+  private val sc = scope("SubmitButton")
+  private val btn   = sc.cls("btn")
+  private val prim  = sc.cls("primary")
+  private val dang  = sc.cls("danger")
+  private val sec   = sc.cls("secondary")
+
+  val css: String = sc.css("""
+    .btn      { padding: .55em 1.1em; border-radius: 4px; border: 0;
+                font: inherit; font-weight: 500; cursor: pointer;
+                transition: opacity .15s ease; }
+    .btn:hover { opacity: .85; }
+    .btn:disabled { opacity: .5; cursor: not-allowed; }
+    .primary   { background: #2563eb; color: #fff; }
+    .secondary { background: #e5e7eb; color: #111827; }
+    .danger    { background: #dc2626; color: #fff; }
+  """)
+
+  /** Pure client-side: disable the button on submit so a double-click
+   *  doesn't post the form twice.  Server-side validation still runs;
+   *  this is just UX. */
+  val js: String = s"""
+document.querySelectorAll('form').forEach(form => {
+  form.addEventListener('submit', () => {
+    form.querySelectorAll('button.$btn[type="submit"]').forEach(b => {
+      b.disabled = true;
+      b.dataset.originalText = b.textContent;
+      b.textContent = b.dataset.loadingText || 'Working…';
+    });
+  });
+});"""
+
+  def render(
+      label: String,
+      kind: String = "primary",
+      loadingText: String = "Working…",
+      disabled: Boolean = false
+  ): String =
+    val variant = kind match
+      case "danger"    => dang
+      case "secondary" => sec
+      case _           => prim
+    val dis = if disabled then " disabled" else ""
+    html"""<button class="${btn} ${variant}" type="submit" data-loading-text="${loadingText}"${raw(dis)}>${label}</button>"""
+```
