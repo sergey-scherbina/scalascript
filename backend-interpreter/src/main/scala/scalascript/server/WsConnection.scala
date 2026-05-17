@@ -71,7 +71,15 @@ final class WsConnection(
      *  shrink the interval and assert dead-peer drop without sitting
      *  through a real 90-second timeout. */
     private val heartbeatIntervalMs: Long = 30_000L,
-    private val deadAfterMs:         Long = 90_000L
+    private val deadAfterMs:         Long = 90_000L,
+    /** The subprotocol the server selected during upgrade negotiation
+     *  (RFC 6455 §1.9).  Empty when no negotiation took place
+     *  (route registered with no `protocols:` allowlist).  Surfaced
+     *  to the handler as `ws.subprotocol`; `ws.request.headers
+     *  ("sec-websocket-protocol")` still carries the client's full
+     *  offer list, so this distinguishes "what was offered" from
+     *  "what was chosen". */
+    val subprotocol: String = ""
 ):
   /** Stable per-connection identifier.  UUID-v4 generated at upgrade
    *  time so it's globally unique even across restarts, but short
@@ -446,8 +454,9 @@ final class WsConnection(
       "onPong"    -> onPong,
       "recv"      -> recv,
       "isClosed"  -> isClosed,
-      "request"   -> request,
-      "id"        -> Value.StringV(id)
+      "request"     -> request,
+      "id"          -> Value.StringV(id),
+      "subprotocol" -> Value.StringV(subprotocol)
     ))
 
   private def ensureInCapacity(target: Int): Unit =

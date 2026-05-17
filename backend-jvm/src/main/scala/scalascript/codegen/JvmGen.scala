@@ -3036,7 +3036,14 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |    val t = Thread(r, "ws-heartbeats"); t.setDaemon(true); t
        |  })
        |
-       |class WebSocket(private val socket: java.net.Socket, val request: Request):
+       |class WebSocket(
+       |    private val socket: java.net.Socket,
+       |    val request: Request,
+       |    /** The subprotocol the server selected during upgrade
+       |     *  negotiation (RFC 6455 §1.9), or "" when no negotiation
+       |     *  took place.  `ws.request.headers("sec-websocket-protocol")`
+       |     *  still carries the client's full offer list. */
+       |    val subprotocol: String = ""):
        |  /** Stable per-connection identifier.  UUID-v4 generated at
        |   *  upgrade time; surfaced to user code as `ws.id` and used to
        |   *  tag every log line for a single session. */
@@ -3556,7 +3563,7 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |          body    = "",
        |          cookies = wsCookies
        |        )
-       |        val ws = WebSocket(client, wsReq)
+       |        val ws = WebSocket(client, wsReq, subprotocol = chosenProtocol)
        |        // Run the user's `onWebSocket` block on the shared single-
        |        // thread executor so any state it touches (top-level `var`s,
        |        // route registry, etc.) is serial with HTTP handlers and

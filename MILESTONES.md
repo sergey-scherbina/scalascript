@@ -475,11 +475,6 @@ Sprint 3.  Each is meaningfully complete on its own.
     bearer { token => validate(token) }) { … }` — current users
     have to inspect `ws.request.headers("authorization")` and
     `ws.close(1008, "")` manually.  ~30 LOC × 3.
-23. **`ws.subprotocol: String`.**  The protocol the server chose
-    during negotiation.  Currently inspectable via
-    `ws.request.headers("sec-websocket-protocol")`, but that's the
-    client's full *offer* list, not the server's selection.
-    Surface the chosen value explicitly.  ~10 LOC × 3.
 24. **Close-handshake echo wait.**  RFC SHOULD wait briefly for
     the peer's close-echo after sending our Close before tearing
     down the channel.  Currently we just `closeNow`; strict

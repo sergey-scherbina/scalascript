@@ -1196,13 +1196,18 @@ function _wsEncodeClose(code, reason) {
 // with `send` / `close` / `onMessage` / `onClose` and pumps inbound
 // frames through `_wsParseFrame`.  Control frames (ping/close) are
 // handled here; text/binary frames invoke `onMessage` if registered.
-function _wsMakeWebSocket(socket, request) {
+function _wsMakeWebSocket(socket, request, subprotocol) {
   // Stable per-connection identifier — UUID-v4 generated at upgrade
   // time, surfaced to user code as `ws.id` and used to tag every log
   // line for a single session.
   const id = (typeof crypto !== 'undefined' && crypto.randomUUID)
     ? crypto.randomUUID()
     : require('crypto').randomUUID();
+  // The subprotocol the server selected during upgrade negotiation
+  // (RFC 6455 §1.9), or '' when no negotiation took place.
+  // `request.headers['sec-websocket-protocol']` still carries the
+  // client's full offer list.
+  const _subprotocol = subprotocol || '';
   let onMessage = null;
   let onClose   = null;
   let onPong    = null;
@@ -1278,6 +1283,7 @@ function _wsMakeWebSocket(socket, request) {
     onClose:   (cb) => { onClose   = cb; },
     onPong:    (cb) => { onPong    = cb; },
     id:        id,
+    subprotocol: _subprotocol,
     // ping([payload]) — empty Ping or Latin-1-byte-view payload.
     // Peer's Pong arrives via the `onPong` callback above.
     ping: (s) => {
@@ -1466,7 +1472,7 @@ function _wsHandleUpgrade(req, socket) {
         headers: reqHeaders,
         cookies: reqCookies
       };
-      const ws = _wsMakeWebSocket(socket, request);
+      const ws = _wsMakeWebSocket(socket, request, chosenProtocol);
       try { r.handler(ws); } catch (e) { console.error('WS upgrade handler:', e.message); }
       return;
     }
