@@ -61,6 +61,7 @@ class JvmGen(baseDir: Option[os.Path] = None):
     sb.append(htmlDslTagBindings(collectUserTopNames(blocks)))
     if effectOps.nonEmpty                                  then sb.append(effectsRuntime)
     if mutualGroups.nonEmpty                               then sb.append(mutualTcoRuntime)
+    if blocksUseReactive(blocks)                           then sb.append(reactiveRuntime)
     if blocksUseRoutes(blocks) || frontmatterRoutes.nonEmpty then sb.append(serveRuntime)
 
     // Front-matter route declarations are emitted as `route(method, path)
@@ -316,6 +317,22 @@ class JvmGen(baseDir: Option[os.Path] = None):
           case Term.Apply.After_4_6_0(Term.Name("runAsync"), _) => found = true
           case Term.Select(Term.Name("Async"), Term.Name(op))
               if asyncOps(op) => found = true
+        }
+      }
+      found
+    }
+
+  /** True if any block uses the reactive primitives `Signal(...)`,
+   *  `computed { ... }`, or `effect { ... }`.  Gates emission of the
+   *  reactive runtime preamble in the generated Scala script. */
+  private def blocksUseReactive(blocks: List[JvmGen.Block]): Boolean =
+    blocks.exists { b =>
+      var found = false
+      ScalaNode.fold(b.node) { tree =>
+        if !found then tree.collect {
+          case Term.Apply.After_4_6_0(Term.Name("Signal"),   _) => found = true
+          case Term.Apply.After_4_6_0(Term.Name("computed"), _) => found = true
+          case Term.Apply.After_4_6_0(Term.Name("effect"),   _) => found = true
         }
       }
       found
@@ -3463,5 +3480,97 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |        case v => return v
        |    throw new RuntimeException("unreachable")
        |  interp(bodyThunk())
+       |
+       |""".stripMargin
+
+  /** Reactive runtime — same push-model as the interpreter and JsGen.
+   *  Signals are mutable cells with a subscriber set; reads inside an
+   *  active effect / computed register a mutual subscription; writes
+   *  queue subscribers into a LinkedHashSet and a scheduled flush
+   *  drains it so each effect runs at most once per synchronous
+   *  transaction (dedupes the diamond). */
+  private val reactiveRuntime: String =
+    """|
+       |// ── Reactive signals (fine-grained reactivity) ─────────────────────
+       |class _Signal(var value: Any, val subs: scala.collection.mutable.HashSet[Long])
+       |class _Effect(val thunk: () => Any, val deps: scala.collection.mutable.HashSet[Long])
+       |
+       |val _signals = scala.collection.mutable.HashMap.empty[Long, _Signal]
+       |val _effects = scala.collection.mutable.HashMap.empty[Long, _Effect]
+       |var _reactiveSeq: Long = 0L
+       |val _effectStack = scala.collection.mutable.Stack.empty[Long]
+       |val _pendingEffects = scala.collection.mutable.LinkedHashSet.empty[Long]
+       |var _reactiveFlushing = false
+       |
+       |def _freshReactiveId(): Long = { _reactiveSeq += 1; _reactiveSeq }
+       |
+       |def _signalGet(id: Long): Any =
+       |  val s = _signals.getOrElse(id, sys.error("Signal disposed or unknown id"))
+       |  if _effectStack.nonEmpty then
+       |    val eid = _effectStack.top
+       |    s.subs += eid
+       |    _effects.get(eid).foreach(_.deps += id)
+       |  s.value
+       |
+       |def _signalSet(id: Long, v: Any): Unit =
+       |  val s = _signals.getOrElse(id, sys.error("Signal disposed or unknown id"))
+       |  s.value = v
+       |  // Skip subscribers currently running — otherwise an effect
+       |  // that writes a signal it also reads infinite-loops itself.
+       |  s.subs.foreach { eid =>
+       |    if !_effectStack.contains(eid) then _pendingEffects += eid
+       |  }
+       |  if !_reactiveFlushing then _reactiveFlush()
+       |
+       |def _reactiveFlush(): Unit =
+       |  _reactiveFlushing = true
+       |  try
+       |    while _pendingEffects.nonEmpty do
+       |      val eid = _pendingEffects.head
+       |      _pendingEffects -= eid
+       |      _runEffect(eid)
+       |  finally _reactiveFlushing = false
+       |
+       |def _clearEffectDeps(eid: Long): Unit =
+       |  _effects.get(eid).foreach { e =>
+       |    e.deps.foreach { sid => _signals.get(sid).foreach(_.subs -= eid) }
+       |    e.deps.clear()
+       |  }
+       |
+       |def _runEffect(eid: Long): Unit =
+       |  _effects.get(eid).foreach { e =>
+       |    _clearEffectDeps(eid)
+       |    _effectStack.push(eid)
+       |    try e.thunk()
+       |    finally _effectStack.pop()
+       |  }
+       |
+       |/** User-visible Signal handle — parameterised on the value type
+       | *  so callers get back `count.get: Int` instead of `Any` and the
+       | *  Scala typer resolves arithmetic (`count.get * 2`) cleanly. */
+       |class Signal[A](val id: Long):
+       |  def get: A           = _signalGet(id).asInstanceOf[A]
+       |  def set(v: A): Unit  = _signalSet(id, v)
+       |  def apply(): A       = get
+       |  override def toString: String = s"Signal(${get})"
+       |object Signal:
+       |  def apply[A](initial: A): Signal[A] =
+       |    val id = _freshReactiveId()
+       |    _signals(id) = _Signal(initial, scala.collection.mutable.HashSet.empty)
+       |    new Signal[A](id)
+       |
+       |def effect(thunk: => Any): Unit =
+       |  val eid = _freshReactiveId()
+       |  _effects(eid) = _Effect(() => thunk, scala.collection.mutable.HashSet.empty)
+       |  _runEffect(eid)
+       |
+       |def computed[A](thunk: => A): Signal[A] =
+       |  val sid = _freshReactiveId()
+       |  val eid = _freshReactiveId()
+       |  _signals(sid) = _Signal(null, scala.collection.mutable.HashSet.empty)
+       |  val updater: () => Any = () => _signalSet(sid, thunk)
+       |  _effects(eid) = _Effect(updater, scala.collection.mutable.HashSet.empty)
+       |  _runEffect(eid)
+       |  new Signal[A](sid)
        |
        |""".stripMargin

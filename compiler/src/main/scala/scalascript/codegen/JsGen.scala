@@ -1747,6 +1747,13 @@ function _dispatch(obj, method, args) {
       case 'foreach': [...obj.entries()].forEach(([k,v])=>args[0]([k,v])); return undefined;
     }
   }
+  if (obj && obj._type === 'Signal') {
+    switch(method) {
+      case 'get':   return obj.get();
+      case 'set':   return obj.set(args[0]);
+      case 'apply': return obj.apply();
+    }
+  }
   if (obj && obj._type === '_Some') {
     switch(method) {
       case 'map': return _Some(args[0](obj.value));
@@ -2163,6 +2170,112 @@ function _seqFoldLeft(arr, init, fn) {
     return loop(i + 1, next);
   }
   return loop(0, init);
+}
+
+// ── Reactive signals (fine-grained reactivity) ────────────────────────────
+//
+// Same push model as the interpreter and JvmGen: signals are mutable
+// cells with a subscriber set; reading inside an active `effect`/
+// `computed` registers a mutual subscription; writes queue subscribers
+// into a `LinkedHashSet` and a single flush drains it, so the diamond
+// (root → derived → consumer; consumer also reads root) sees each
+// effect at most once per synchronous transaction.
+
+let _signalSeq = 0;
+const _signals = new Map();   // id → { value, subs:Set<eid> }
+const _effects = new Map();   // eid → { thunk, deps:Set<sid> }
+const _effectStack = [];
+const _pendingEffects = new Set();  // insertion-ordered in JS Sets
+let _reactiveFlushing = false;
+
+function _freshReactiveId() { _signalSeq += 1; return _signalSeq; }
+
+function _signalGet(id) {
+  const s = _signals.get(id);
+  if (!s) throw new Error('Signal disposed or unknown id');
+  if (_effectStack.length > 0) {
+    const eid = _effectStack[_effectStack.length - 1];
+    s.subs.add(eid);
+    const e = _effects.get(eid);
+    if (e) e.deps.add(id);
+  }
+  return s.value;
+}
+
+function _signalSet(id, v) {
+  const s = _signals.get(id);
+  if (!s) throw new Error('Signal disposed or unknown id');
+  s.value = v;
+  // Skip subscribers currently running — without this, an effect
+  // that writes a signal it also reads infinite-loops itself.
+  for (const eid of s.subs) {
+    if (_effectStack.indexOf(eid) < 0) _pendingEffects.add(eid);
+  }
+  if (!_reactiveFlushing) _reactiveFlush();
+}
+
+function _reactiveFlush() {
+  _reactiveFlushing = true;
+  try {
+    while (_pendingEffects.size > 0) {
+      const eid = _pendingEffects.values().next().value;
+      _pendingEffects.delete(eid);
+      _runEffect(eid);
+    }
+  } finally { _reactiveFlushing = false; }
+}
+
+function _clearEffectDeps(eid) {
+  const e = _effects.get(eid);
+  if (!e) return;
+  for (const sid of e.deps) {
+    const s = _signals.get(sid);
+    if (s) s.subs.delete(eid);
+  }
+  e.deps.clear();
+}
+
+function _runEffect(eid) {
+  const e = _effects.get(eid);
+  if (!e) return;
+  _clearEffectDeps(eid);
+  _effectStack.push(eid);
+  try { e.thunk(); }
+  finally { _effectStack.pop(); }
+}
+
+function Signal(initial) {
+  const id = _freshReactiveId();
+  _signals.set(id, { value: initial, subs: new Set() });
+  return {
+    _type: 'Signal',
+    id,
+    get:   () => _signalGet(id),
+    set:   (v) => _signalSet(id, v),
+    apply: () => _signalGet(id),
+  };
+}
+
+function effect(thunk) {
+  const eid = _freshReactiveId();
+  _effects.set(eid, { thunk, deps: new Set() });
+  _runEffect(eid);
+}
+
+function computed(thunk) {
+  const sid = _freshReactiveId();
+  const eid = _freshReactiveId();
+  _signals.set(sid, { value: undefined, subs: new Set() });
+  const updater = () => _signalSet(sid, thunk());
+  _effects.set(eid, { thunk: updater, deps: new Set() });
+  _runEffect(eid);
+  return {
+    _type: 'Signal',
+    id: sid,
+    get:   () => _signalGet(sid),
+    set:   () => { throw new Error('computed signal is read-only'); },
+    apply: () => _signalGet(sid),
+  };
 }
 """
 
@@ -3314,6 +3427,14 @@ class JsGen(baseDir: Option[os.Path] = None):
         if bodyArgClause.values.size == 1 =>
       s"_runAsync(() => ${genCpsExpr(bodyArgClause.values.head.asInstanceOf[Term])})"
 
+    // Special forms: computed / effect — wrap the by-name body as a
+    // zero-arg thunk so the reactive scheduler can rerun it when its
+    // signal deps change.
+    case Term.Apply.After_4_6_0(Term.Name(react @ ("computed" | "effect")), bodyArgClause)
+        if bodyArgClause.values.size == 1 =>
+      val bodyJs = genExpr(bodyArgClause.values.head.asInstanceOf[Term])
+      s"$react(() => $bodyJs)"
+
     // Function application
     case app: Term.Apply =>
       genApply(app)
@@ -3610,6 +3731,12 @@ class JsGen(baseDir: Option[os.Path] = None):
     case Term.Apply.After_4_6_0(Term.Name("runAsync"), bodyArgClause)
         if bodyArgClause.values.size == 1 =>
       s"_runAsync(() => ${genCpsExpr(bodyArgClause.values.head.asInstanceOf[Term])})"
+
+    // Nested computed / effect inside CPS body — same wrapping as the
+    // non-CPS form: by-name body becomes a zero-arg thunk.
+    case Term.Apply.After_4_6_0(Term.Name(react @ ("computed" | "effect")), bodyArgClause)
+        if bodyArgClause.values.size == 1 =>
+      s"$react(() => ${genCpsExpr(bodyArgClause.values.head.asInstanceOf[Term])})"
 
     // Apply — function or method call
     case app: Term.Apply =>

@@ -531,6 +531,39 @@ output for code that didn't rely on timing.  `delay` uses `Thread.sleep`
 on the JVM and `Atomics.wait` on Node so it costs wall-clock time
 without coloring the surrounding code as async.
 
+#### 7.2.2 Reactive signals
+
+Fine-grained reactivity in the Solid / Knockout style — three
+primitives, push-based notification with scheduled flush:
+
+```scalascript
+val count   = Signal(0)
+val doubled = computed { count.get * 2 }
+effect { println("c=" + count.get + " d=" + doubled.get) }
+count.set(5)        // prints "c=5 d=10"
+```
+
+| Primitive                       | Effect                                        |
+|---------------------------------|-----------------------------------------------|
+| `Signal[A](initial: A)`         | mutable cell — `.get` reads with tracking, `.set(v)` writes |
+| `computed[A] { expr }`          | read-only derived `Signal[A]`; auto-tracks its dependencies |
+| `effect { expr }`               | reactive side-effect; runs once at registration, reruns on dep changes |
+
+Implementation: a side-table keyed by a monotone id holds the
+mutable state; reading a signal inside an active `effect` /
+`computed` registers a mutual subscription; writing queues all
+subscribers into a `LinkedHashSet`; a scheduled flush drains the
+set, so each effect reruns at most once per synchronous
+transaction (dedupes the diamond — root → derived → consumer,
+where the consumer also reads the root).  Subscribers currently
+running on the effect stack are skipped, so `effect { tick.set(tick.get + 1) }`
+bumps `tick` once instead of infinite-looping.
+
+Available on all three backends: the interpreter holds the
+side-table in-process; JsGen emits the same push-model in pure
+ES2020; JvmGen emits a typed `Signal[A]` case class so
+`count.get * 2` typechecks under Scala 3.
+
 ### 7.3 Interop
 
 Backends define interop mechanisms:

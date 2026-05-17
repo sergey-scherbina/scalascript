@@ -1,0 +1,10 @@
+0
+5
+10
+14
+List(c=7 d=14, c=10 d=20, c=11 d=22)
+a-eff=1
+b-eff=2
+a-eff=10
+a-eff=20
+b-eff=30

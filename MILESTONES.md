@@ -501,19 +501,47 @@ Tier 2 (bytecode IR) and Tier 3 (JVM-bytecode JIT or Truffle/Graal)
 are out of scope until a real workload demands them — `ssc compile`
 already covers throughput.
 
+## v1.3 — Runtime upgrades: real-thread Async, persistence, Async-integrated WS
+
+Three staged additions that build on the v0.8 Async / signals stack.
+Each lands as its own merge so the suite stays green between steps.
+(Stage 1 — fine-grained reactive `Signal` / `computed` / `effect` —
+landed; see git history.)
+
+1. **Real-thread `runAsyncParallel` handler.**  Drop-in alternative to
+   the default `runAsync` driver: on the JVM uses an
+   `ExecutorService` + `CompletableFuture`, on Node spawns
+   `worker_threads` for each `async`.  Same `Async.*` API, swap-the-
+   handler ergonomics — code written for `runAsync` becomes genuinely
+   concurrent in `runAsyncParallel` without touching call sites.
+   `parallel` returns results in declared order regardless of
+   completion order, preserving deterministic output for code that
+   doesn't rely on timing.  Conformance for this handler lives in its
+   own opt-in suite (output is timing-sensitive so we can't fold it
+   into the main `conformance/`).
+
+2. **`Storage` effect.**  `Storage.get(key)` / `Storage.put(key, v)` /
+   `Storage.remove(key)` / `Storage.keys()` against a JSON-backed
+   file (`./ssc-storage.json` by default, override via
+   `SSC_STORAGE_PATH`).  Lets REST + auth demos outlive a process
+   restart without dragging in JDBC.  Handlers `runStorage(body)` and
+   `runEphemeralStorage(body)` for the file-backed and in-memory
+   variants; the latter is what the conformance suite uses so tests
+   stay hermetic.
+
+3. **`Async`-integrated WebSocket.**  Lift the `ws.onMessage(cb)` /
+   `ws.onClose(cb)` callback surface into suspending `Async`
+   operations: `Async.recvFrom(ws)` and `Async.closed(ws)`.  A
+   WebSocket handler written as `runAsync { while (...) { … } }`
+   reads linearly instead of the inverted-control callback chain.
+   Builds on top of (1) for any subscriber UIs and on the existing
+   `WsRoutes` plumbing in `compiler/src/main/scala/scalascript/server/`.
+
 ## Beyond
 
 Larger features that aren't on the critical path but are worth keeping in
 view so they shape near-term decisions.
 
-- **Persistence.**  At minimum a `Storage` effect (key-value, JSON-backed)
-  so REST demos can outlive a process restart without dragging in JDBC.
-- **Real-thread `Async` handler.**  The built-in `Async` effect ships with a
-  single-threaded `runAsync` handler so observable output is byte-identical
-  across all three backends.  A drop-in alternative — `runAsyncParallel` on
-  the JVM using `ExecutorService` / `CompletableFuture`, on Node using
-  `worker_threads` — would give real concurrency for `async` / `parallel`
-  without touching user code.
 - **Hot reload in `serve` mode.**  Reparse and re-register routes when a
   `.ssc` file changes on disk; today the server pins them at start.
 - **REPL: web-aware mode.**  `bin/ssc repl` that lets you mount routes
