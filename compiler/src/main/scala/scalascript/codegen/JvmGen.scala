@@ -40,7 +40,13 @@ class JvmGen(baseDir: Option[os.Path] = None):
 
   // ─── Module entry ─────────────────────────────────────────────────
 
+  /** Module-level `dependencies:` from the front-matter; threaded into
+   *  `inlineImport` so `<dep-name>://path` imports rewrite through the
+   *  resolver. */
+  private var moduleDeps: Map[String, String] = Map.empty
+
   def genModule(module: Module): String =
+    moduleDeps = module.manifest.map(_.dependencies).getOrElse(Map.empty)
     // Collect blocks first — including those pulled in by `[..](./x.ssc)`
     // imports — so the effect / mutual-TCO analysis sees the full picture.
     val blocks = collectBlocks(module.sections)
@@ -48,10 +54,14 @@ class JvmGen(baseDir: Option[os.Path] = None):
     analyzeMutualRecursion(blocks)
     val sb = StringBuilder()
 
-    // //> using directives from YAML front-matter
+    // //> using directives from YAML front-matter.  URL-shaped values
+    // are SSC-style `.ssc` deps (resolved by `ImportResolver`), not
+    // Maven coordinates — skip them here so scala-cli doesn't try to
+    // parse `cards:http://…` as a `g:a:v` triple and abort.
     module.manifest.foreach { m =>
       m.dependencies.foreach { (dep, version) =>
-        sb.append(s"""//> using dep "$dep:$version"\n""")
+        if !version.startsWith("http://") && !version.startsWith("https://") then
+          sb.append(s"""//> using dep "$dep:$version"\n""")
       }
     }
 
@@ -204,7 +214,7 @@ class JvmGen(baseDir: Option[os.Path] = None):
     import scalascript.parser.Parser
     val base = baseDir.getOrElse(os.pwd)
     val resolved =
-      try scalascript.imports.ImportResolver.resolve(path, base)
+      try scalascript.imports.ImportResolver.resolve(path, base, moduleDeps)
       catch case e: Throwable => throw new RuntimeException(s"Import $path: ${e.getMessage}")
     val key = resolved.toString
     if importedFiles.contains(key) then Nil

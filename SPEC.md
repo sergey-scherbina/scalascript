@@ -470,6 +470,29 @@ into a local cache on first access, then reuses the cache:
 [Card](https://raw.githubusercontent.com/u/r/v1.0/card.ssc)
 ```
 
+For frequently-imported libraries the URL can be pinned once in the
+front-matter `dependencies:` map and referenced by a short scheme
+name throughout the file:
+
+```yaml
+---
+dependencies:
+  cards: https://raw.githubusercontent.com/u/cards/v1.0
+  ui:    https://cdn.example.com/ui-pack/2.3
+---
+```
+
+```markdown
+[Card](cards://card.ssc)         → https://…/cards/v1.0/card.ssc
+[Button](ui://forms/button.ssc)  → https://…/ui-pack/2.3/forms/button.ssc
+```
+
+The scheme name (`cards`, `ui`) is the key in `dependencies:`; the
+value is the base URL prefix.  Bare-string version constraints
+(`^1.2.0`) still flow to scala-cli for the JVM target's Maven
+resolution; only URL-shaped values activate the cross-backend
+resolver.
+
 Cache layout: `~/.cache/ssc/<scheme>/<authority>/<path>` — so
 `https://github.com/foo/bar/v1.ssc` lands at
 `~/.cache/ssc/https/github.com/foo/bar/v1.ssc`.  Relative imports

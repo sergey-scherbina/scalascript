@@ -24,11 +24,36 @@ object ImportResolver:
   private val cacheRoot: os.Path = os.home / ".cache" / "ssc"
 
   def resolve(rawPath: String, baseDir: os.Path): os.Path =
-    if isUrl(rawPath) then fetchToCache(rawPath)
+    resolve(rawPath, baseDir, Map.empty)
+
+  /** Same as `resolve(rawPath, baseDir)` but with the importing module's
+   *  manifest `dependencies:` map in scope.  An import path of the form
+   *  `<name>://<sub-path>` (where `<name>` is a key in `deps` whose value
+   *  is an HTTP(S) URL) is rewritten to `<value>/<sub-path>` and fetched
+   *  via the cache.  Versions that are bare strings (`^1.2.0`) are
+   *  ignored here — those flow through to scala-cli for the JVM target. */
+  def resolve(rawPath: String, baseDir: os.Path, deps: Map[String, String]): os.Path =
+    val pathThroughDep = applyDeps(rawPath, deps).getOrElse(rawPath)
+    if isUrl(pathThroughDep) then fetchToCache(pathThroughDep)
     else
-      val local = baseDir / os.RelPath(rawPath)
+      val local = baseDir / os.RelPath(pathThroughDep)
       if os.exists(local) then local
-      else cacheBackedRelative(rawPath, baseDir).getOrElse(local)
+      else cacheBackedRelative(pathThroughDep, baseDir).getOrElse(local)
+
+  /** Rewrite a `<name>://<sub>` path to the URL from the deps map.
+   *  Returns `Some(url)` when the rewrite fires; `None` to fall through
+   *  to plain relative / URL handling. */
+  private def applyDeps(rawPath: String, deps: Map[String, String]): Option[String] =
+    val schemeIdx = rawPath.indexOf("://")
+    if schemeIdx <= 0 then return None
+    val scheme = rawPath.substring(0, schemeIdx)
+    // Real URL schemes — leave alone.
+    if scheme == "http" || scheme == "https" || scheme == "file" then return None
+    deps.get(scheme).filter(isUrl).map { base =>
+      val sub = rawPath.substring(schemeIdx + 3).stripPrefix("/")
+      if base.endsWith("/") then base + sub
+      else base + "/" + sub
+    }
 
   private def isUrl(s: String): Boolean =
     s.startsWith("http://") || s.startsWith("https://")

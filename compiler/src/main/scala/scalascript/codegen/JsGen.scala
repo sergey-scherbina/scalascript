@@ -2523,8 +2523,14 @@ class JsGen(baseDir: Option[os.Path] = None):
 
   // ─── Module entry ─────────────────────────────────────────────────
 
+  /** Module-level `dependencies:` from the front-matter (set at the top
+   *  of `genModule` / `genModuleSegmented`).  Threaded into `genImport`
+   *  so `<dep-name>://path` imports rewrite through the resolver. */
+  private var moduleDeps: Map[String, String] = Map.empty
+
   def genModule(module: Module): String =
     sb.clear()
+    moduleDeps = module.manifest.map(_.dependencies).getOrElse(Map.empty)
     analyzeMutualRecursion(module)
     analyzeEffects(module)
     // Front-matter route declarations are emitted BEFORE the user blocks so
@@ -2655,6 +2661,7 @@ class JsGen(baseDir: Option[os.Path] = None):
    */
   def genModuleSegmented(module: Module): List[JsGen.Segment] =
     sb.clear()
+    moduleDeps = module.manifest.map(_.dependencies).getOrElse(Map.empty)
     analyzeMutualRecursion(module)
     analyzeEffects(module)
     // Emit `route(...)` registrations from front-matter before user blocks,
@@ -2782,7 +2789,7 @@ class JsGen(baseDir: Option[os.Path] = None):
     import scalascript.parser.Parser
     val base = baseDir.getOrElse(os.pwd)
     val resolvedPath =
-      try scalascript.imports.ImportResolver.resolve(imp.path, base)
+      try scalascript.imports.ImportResolver.resolve(imp.path, base, moduleDeps)
       catch case _: Throwable => base / os.RelPath(imp.path)
     if os.exists(resolvedPath) then
       val childDir = resolvedPath / os.up

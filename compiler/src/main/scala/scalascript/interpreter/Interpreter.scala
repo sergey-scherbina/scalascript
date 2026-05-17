@@ -159,8 +159,14 @@ class Interpreter(
 
   // ─── Public API ──────────────────────────────────────────────────
 
+  /** Module-level `dependencies:` from the front-matter, captured at the
+   *  top of `run` so any `[Card](dep://card.ssc)` import in this module
+   *  can rewrite its scheme through `ImportResolver`. */
+  private var moduleDeps: Map[String, String] = Map.empty
+
   def run(module: Module): Unit =
     initBuiltins()
+    moduleDeps = module.manifest.map(_.dependencies).getOrElse(Map.empty)
     registerFrontmatterRoutes(module)
     module.sections.foreach(runSection)
     if !mainCalled then
@@ -1158,7 +1164,7 @@ class Interpreter(
     import scalascript.parser.Parser
     val base = baseDir.getOrElse(os.pwd)
     val resolvedPath =
-      try scalascript.imports.ImportResolver.resolve(imp.path, base)
+      try scalascript.imports.ImportResolver.resolve(imp.path, base, moduleDeps)
       catch case e: Throwable => throw InterpretError(s"Import ${imp.path}: ${e.getMessage}")
     if !os.exists(resolvedPath) then
       throw InterpretError(s"Import not found: ${imp.path}")

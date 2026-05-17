@@ -70,19 +70,7 @@ component pack, REST middleware, layout kit — without vendoring its
 files into their own tree.  The steps are ordered so each one is
 useful in isolation and unblocks the next.
 
-1. **Cross-backend `dependencies:` resolver.**  Today the manifest's
-   `dependencies:` only flows to scala-cli on the JVM target.
-   Extend it to:
-     - JSON (`{"foo": "1.2.0", "bar": "https://..."}`) — either
-       semver against a future registry or a URL pin.
-     - Resolve at parse time on all three backends (interp, JsGen,
-       JvmGen), pull sources into the local cache, and rewrite
-       bare-name imports (`[Card](foo://card.ssc)`) to the resolved
-       path.
-   Decouples the URL from every call site — pin once in the manifest,
-   import by short name everywhere.  ~1 day.
-
-2. **`package` keyword** *(optional)*.  `package org.example.ui` at
+1. **`package` keyword** *(optional)*.  `package org.example.ui` at
    the top of a scalascript block puts its declarations under that
    dotted path so two libraries can each export `Card` without
    collision in the global namespace.  Mostly cosmetic once URL/dep
@@ -93,7 +81,7 @@ useful in isolation and unblocks the next.
    Parser + 3 backends (`object org.example.ui.Card { … }` emit).
    ~1–2 days.  Defer until a concrete clash motivates it.
 
-3. **Registry** *(future)*.  Central index (`registry.scalascript.io`)
+2. **Registry** *(future)*.  Central index (`registry.scalascript.io`)
    with semver resolution, lock file (`ssc.lock`), publish/yank
    workflow.  Weeks of work; only worth opening once the surface
    above is well-trodden.  Out of scope for v0.7.
