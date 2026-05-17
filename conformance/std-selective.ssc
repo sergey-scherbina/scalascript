@@ -1,0 +1,57 @@
+---
+name: conformance-std-selective
+version: 1.0.0
+---
+
+# Std — Selective and Either
+
+Exercises `Either`, the `Selective` typeclass on `List` / `Option`,
+and the branching helpers.
+
+[Left, Right, mapRight, flatMapRight, foldEither, isLeft, isRight](../std/either.ssc)
+
+[listSelective, optionSelective, selectList, selectOption, branchList, branchOption](../std/selective.ssc)
+
+## Either basics
+
+```scalascript
+val r: Either[String, Int] = Right(42)
+val l: Either[String, Int] = Left("nope")
+
+println(mapRight(r, (x: Int) => x + 1))
+println(mapRight(l, (x: Int) => x + 1))
+val blocked: Either[String, Int] = Left("blocked")
+println(flatMapRight(r, (x: Int) => Right(x * 2)))
+println(flatMapRight(r, (x: Int) => blocked))
+println(foldEither(r, (s: String) => "got " + s, (n: Int) => "ok " + n))
+println(foldEither(l, (s: String) => "got " + s, (n: Int) => "ok " + n))
+println(isLeft(l))
+println(isRight(r))
+```
+
+## Selective — `select`
+
+```scalascript
+val recover = (s: String) => s.length
+println(selectList(List(Right(10), Left("ab"), Right(99)), List(recover)))
+
+val someRight: Option[Either[String, Int]] = Some(Right(10))
+val someLeft:  Option[Either[String, Int]] = Some(Left("hello"))
+val noRecover: Option[String => Int]       = None
+println(selectOption(someRight, Some(recover)))
+println(selectOption(someLeft,  Some(recover)))
+println(selectOption(someLeft,  noRecover))
+```
+
+## Branching — `branch`
+
+```scalascript
+val onErr = (s: String) => "err:" + s
+val onOk  = (n: Int)    => "ok:"  + n
+println(branchList(List(Right(1), Left("bad"), Right(2)), List(onErr), List(onOk)))
+
+val r2: Option[Either[String, Int]] = Some(Right(7))
+val l2: Option[Either[String, Int]] = Some(Left("oops"))
+println(branchOption(r2, Some(onErr), Some(onOk)))
+println(branchOption(l2, Some(onErr), Some(onOk)))
+```

@@ -1973,21 +1973,47 @@ function _dispatch(obj, method, args) {
     if (typeof val === 'function') return args.length ? val(...args) : val;
     return val;
   }
-  // Extension method fallback: look up _ext_<paramName>_<method>
-  // We try to find registered extension functions by method name
-  if (typeof _extensions !== 'undefined' && _extensions[method]) {
-    const fns = _extensions[method];
-    for (const fn of fns) {
-      try { return fn(obj, ...args); } catch(e) { /* try next */ }
+  // Extension method fallback: first look up by (receiver type, method) —
+  // this is how typeclass instances disambiguate (Functor[List].map vs
+  // Functor[Option].map).  Fall back to the older method-only registry
+  // for extensions whose receiver type isn't known statically.
+  const _ext_t = _typeOf(obj);
+  if (typeof _extensions !== 'undefined') {
+    const typed = _extensions[_ext_t + ':' + method];
+    if (typed) return typed(obj, ...args);
+    if (_extensions[method]) {
+      const fns = _extensions[method];
+      for (const fn of fns) {
+        try { return fn(obj, ...args); } catch(e) { /* try next */ }
+      }
     }
   }
   throw new Error('Method not found: ' + method + ' on ' + _show(obj));
 }
 
+function _typeOf(obj) {
+  if (obj === null || obj === undefined) return 'Any';
+  if (Array.isArray(obj)) return 'List';
+  if (obj === _None) return 'Option';
+  if (typeof obj === 'object' && obj._type === '_Some') return 'Option';
+  if (typeof obj === 'object' && obj._type === '_None') return 'Option';
+  if (obj instanceof Map) return 'Map';
+  if (typeof obj === 'string') return 'String';
+  if (typeof obj === 'number') return Number.isInteger(obj) ? 'Int' : 'Double';
+  if (typeof obj === 'boolean') return 'Boolean';
+  if (typeof obj === 'object' && obj._type) return obj._type;
+  return 'Any';
+}
+
 const _extensions = {};
-function _registerExt(method, fn) {
+function _registerExt(method, fn, type) {
+  // Two registries kept side-by-side:
+  //   _extensions[method]            — legacy method-name lookup with try/catch
+  //   _extensions[type + ':' + method] — direct (type, method) lookup
+  // When `type` is omitted, only the legacy registry is populated.
   if (!_extensions[method]) _extensions[method] = [];
   _extensions[method].push(fn);
+  if (type) _extensions[type + ':' + method] = fn;
 }
 
 function _trampoline(fn, ...args) {
@@ -3211,8 +3237,13 @@ class JsGen(baseDir: Option[os.Path] = None):
         line("}")
       case expr =>
         line(s"function $fnName($paramsStr) { return ${genExpr(expr)}; }")
-    // Register extension for dispatch
-    line(s"_registerExt('${defn.name.value}', ($recvName, ...args) => $fnName($recvName, ...args));")
+    // Register extension for dispatch.  The receiver type (when known)
+    // disambiguates same-named extensions across typeclass instances
+    // — e.g., Functor[List].map vs Functor[Option].map both register
+    // `map` but route by `_typeOf(obj)` at the call site.  `Any` means
+    // the legacy method-only registry handles it.
+    val regType = if recvType == "Any" then "null" else s"'$recvType'"
+    line(s"_registerExt('${defn.name.value}', ($recvName, ...args) => $fnName($recvName, ...args), $regType);")
 
   private def genObjectMember(stat: Stat): String = stat match
     case dd: Defn.Def =>

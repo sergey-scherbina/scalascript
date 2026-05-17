@@ -1,0 +1,107 @@
+---
+name: std-selective
+version: 1.0.0
+description: Selective typeclass — std v1.1 step 4
+exports:
+  - Left
+  - Right
+  - mapRight
+  - flatMapRight
+  - foldEither
+  - isLeft
+  - isRight
+  - listSelective
+  - optionSelective
+  - selectList
+  - selectOption
+  - branchList
+  - branchOption
+---
+
+# Selective
+
+`Selective[F]` sits between `Applicative` and `Monad` — it can choose
+between two effectful branches without the full power of `flatMap`,
+so the call graph remains statically inspectable (Mokhov / Lukyanov,
+"Selective Applicative Functors").
+
+  applicative ⊂ selective ⊂ monad
+
+Useful for parsers, build pipelines, and any planner that wants
+conditional effects with up-front analysis.  Smaller user base than
+the rest of the v1.1 hierarchy; ships standalone here, with
+instances for `List` and `Option`.
+
+[Left, Right, mapRight, flatMapRight, foldEither, isLeft, isRight](./either.ssc)
+
+## Typeclass definition
+
+```scalascript
+trait Selective[F[_]]:
+  def pure[A](a: A): F[A]
+  extension [A, B](fab: F[Either[A, B]])
+    def select(ff: F[A => B]): F[B]
+```
+
+`select` runs the structure; for each `Right(b)` it keeps `b`
+unchanged, for each `Left(a)` it applies a function from the second
+argument.  The result is a context that picked one of two branches
+per element.
+
+## Instances
+
+```scalascript
+given listSelective: Selective[List] with
+  def pure[A](a: A): List[A] = List(a)
+  extension [A, B](fab: List[Either[A, B]])
+    def select(ff: List[A => B]): List[B] =
+      fab.flatMap { e =>
+        e match
+          case Right(b) => List(b)
+          case Left(a)  => ff.map(g => g(a))
+      }
+
+given optionSelective: Selective[Option] with
+  def pure[A](a: A): Option[A] = Some(a)
+  extension [A, B](fab: Option[Either[A, B]])
+    def select(ff: Option[A => B]): Option[B] = fab match
+      case Some(Right(b)) => Some(b)
+      case Some(Left(a))  => ff match
+        case Some(g) => Some(g(a))
+        case None    => None
+      case None => None
+```
+
+## Helpers
+
+```scalascript
+def selectList[A, B](fab: List[Either[A, B]], ff: List[A => B]): List[B] =
+  fab.select(ff)
+
+def selectOption[A, B](fab: Option[Either[A, B]], ff: Option[A => B]): Option[B] =
+  fab.select(ff)
+
+def branchList[A, B, C](
+  fab:    List[Either[A, B]],
+  onLeft: List[A => C],
+  onRight: List[B => C]
+): List[C] =
+  fab.flatMap { e =>
+    e match
+      case Left(a)  => onLeft.map(g => g(a))
+      case Right(b) => onRight.map(g => g(b))
+  }
+
+def branchOption[A, B, C](
+  fab:    Option[Either[A, B]],
+  onLeft: Option[A => C],
+  onRight: Option[B => C]
+): Option[C] = fab match
+  case Some(Left(a))  => onLeft match
+    case Some(g) => Some(g(a))
+    case None    => None
+  case Some(Right(b)) => onRight match
+    case Some(g) => Some(g(b))
+    case None    => None
+  case None => None
+```
