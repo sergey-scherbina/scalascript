@@ -1,0 +1,127 @@
+#!/usr/bin/env ssc
+---
+name: std-ui-feedback-demo
+description: Renders every Tier 4 feedback / overlay primitive on one page.
+routes:
+  - method: GET
+    path: /
+    handler: home
+---
+
+# std/ui — feedback demo
+
+Imports `Spinner`, `ProgressBar`, `Skeleton`, `Modal`, `Drawer`,
+`Toast` and shows each one.  Open the Modal / Drawer via the buttons;
+fire a Toast via the "Notify" buttons.
+
+[Spinner](./spinner.ssc)
+
+[ProgressBar](./progress-bar.ssc)
+
+[Skeleton](./skeleton.ssc)
+
+[Modal](./modal.ssc)
+
+[Drawer](./drawer.ssc)
+
+[Toast](./toast.ssc)
+
+```scalascript
+def home(req: Request): Response =
+  val spinners = html"""
+    <p>${raw(Spinner.render("sm"))} small &nbsp;
+       ${raw(Spinner.render("md"))} medium &nbsp;
+       ${raw(Spinner.render("lg"))} large</p>
+  """
+
+  val progress = html"""
+    <p>Determinate 25 %: ${raw(ProgressBar.render(25))}</p>
+    <p>Determinate 70 %: ${raw(ProgressBar.render(70))}</p>
+    <p>Indeterminate:    ${raw(ProgressBar.render(-1))}</p>
+  """
+
+  val skeletons = html"""
+    <div style="display:flex;align-items:center;gap:1em">
+      ${raw(Skeleton.render("48px", "48px", "circle"))}
+      <div style="flex:1">
+        ${raw(Skeleton.render("60%", "1em", "rect"))}
+        ${raw(Skeleton.render("80%", ".8em", "rect"))}
+      </div>
+    </div>
+  """
+
+  val confirmModal = Modal.render(
+    "confirm-modal",
+    "Delete this?",
+    "<p>This cannot be undone.</p>",
+    """<button type="button" data-modal-close>Cancel</button>
+       <button type="button" data-modal-close style="background:#dc2626;color:#fff;border:0;padding:.5em 1em;border-radius:4px">Delete</button>""",
+    false
+  )
+
+  val helpDrawer = Drawer.render(
+    "help-drawer",
+    "Help",
+    "<p>Hi, this is the help drawer.  Press <kbd>Esc</kbd> or click outside to close.</p>",
+    "right",
+    false
+  )
+
+  val body = html"""
+    <h1>std/ui — feedback &amp; overlays</h1>
+    <p>Tier 4 of the standard component pack.</p>
+
+    <h2>Spinner</h2>
+    ${raw(spinners)}
+
+    <h2>ProgressBar</h2>
+    ${raw(progress)}
+
+    <h2>Skeleton</h2>
+    ${raw(skeletons)}
+
+    <h2>Modal &amp; Drawer (click to open)</h2>
+    <p>
+      <button type="button" onclick="Modal.open('confirm-modal')">Open modal</button>
+      <button type="button" onclick="Drawer.open('help-drawer')">Open drawer</button>
+    </p>
+
+    <h2>Toast</h2>
+    <p>
+      <button type="button" onclick="Toast.show('Saved!', 'success')">Success toast</button>
+      <button type="button" onclick="Toast.show('Heads up', 'warn')">Warn toast</button>
+      <button type="button" onclick="Toast.show('Failed to save', 'error')">Error toast</button>
+    </p>
+
+    ${raw(confirmModal)}
+    ${raw(helpDrawer)}
+
+    <script>${raw(collectJs(Spinner, ProgressBar, Skeleton, Modal, Drawer, Toast))}</script>
+  """
+
+  val styles = collectCss(Spinner, ProgressBar, Skeleton, Modal, Drawer, Toast)
+
+  Response.html(html"""<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>std/ui — feedback</title>
+  <style>
+    body { font: 1rem/1.5 system-ui, sans-serif; max-width: 640px;
+           margin: 2rem auto; padding: 0 1rem; color: #111827; }
+    h1 { margin-top: 0; }
+    button { font: inherit; padding: .4em .8em; cursor: pointer;
+             border: 1px solid #d1d5db; background: #fff; border-radius: 4px;
+             margin-right: .5em; }
+    button:hover { background: #f9fafb; }
+    ${raw(styles)}
+  </style>
+</head>
+<body>
+  ${raw(body)}
+</body>
+</html>""")
+
+println("Listening on http://localhost:8773/")
+serve(8773)
+```

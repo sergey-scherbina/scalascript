@@ -1,0 +1,38 @@
+#!/usr/bin/env ssc
+---
+name: skeleton
+description: Animated placeholder block for loading content.
+---
+
+# Skeleton
+
+```scalascript
+object Skeleton:
+  private val sc = scope("Skeleton")
+  private val rootCls = sc.cls("root")
+  private val circCls = sc.cls("circle")
+
+  val css: String = sc.css("""
+    .root   { display: block; width: 100%; height: 1em; border-radius: 4px;
+              background: linear-gradient(90deg, #e5e7eb 25%, #f3f4f6 50%, #e5e7eb 75%);
+              background-size: 200% 100%;
+              animation: skel 1.4s ease-in-out infinite; }
+    .circle { border-radius: 50%; }
+    @keyframes skel {
+      0%   { background-position: 200% 0; }
+      100% { background-position: -200% 0; }
+    }
+  """)
+
+  /** `shape = "circle"` makes a round avatar placeholder; otherwise
+   *  it's a rectangle filling the given `width` × `height`. */
+  def render(
+      width: String = "100%",
+      height: String = "1em",
+      shape: String = "rect"
+  ): String =
+    val extra = if shape == "circle" then " " + circCls else ""
+    val cls = rootCls + extra
+    val style = "width: " + width + "; height: " + height + ";"
+    html"""<span class="${cls}" style="${style}" aria-hidden="true"></span>"""
+```

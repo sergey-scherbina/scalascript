@@ -65,17 +65,6 @@ on bare class names, all reachable through a top-level aggregator
 `std/ui/index.ssc` so consumers can do
 `[Button, Card, FormInput as Input](std/ui)`.
 
-Tier 4 — **feedback / overlays**
-
-  - **`Toast`** + `toast.show(...)` JS helper — auto-dismiss
-    notifications stacked top-right.  Server-render-only stub +
-    client-side stack.
-  - **`Modal`** — open/close via `open` boolean; click-outside
-    closes; `Esc` closes; focus-trap inside.
-  - **`Drawer`** — slide-in side panel.  Same controls as Modal.
-  - **`Spinner`** + **`ProgressBar`** — pure CSS, no JS.
-  - **`Skeleton`** — animated placeholder for loading content.
-
 Tier 5 — **data display**
 
   - **`Table`** — headers + rows from `List[(label, getter)]` and
