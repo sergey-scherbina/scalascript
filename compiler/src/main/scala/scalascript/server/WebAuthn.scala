@@ -128,3 +128,220 @@ object WebAuthn:
   def reset(): Unit =
     pending.clear()
     store.clear()
+
+  // ── Registration verification ─────────────────────────────────────
+  // Parses a `navigator.credentials.create()` response (clientDataJSON
+  // + attestationObject, both base64url-encoded) and extracts the
+  // credentialId + COSE public key that we need to remember.
+  //
+  // Scope deliberately narrow:
+  //   - `none` attestation format only (the default Apple / 1Password
+  //     / iOS passkeys use; `packed` and `fido-u2f` mean the
+  //     authenticator vouches for its provenance, which is useful for
+  //     enterprise but optional for typical sites).
+  //   - No attestation-signature verification.  We trust on first use:
+  //     the assertion flow's signature check binds future logins to
+  //     the public key we extract here, so a malicious enrolment
+  //     can't impersonate someone else's account.
+  //
+  // Returns Some((credentialIdB64, publicKeyB64, signCount, userId))
+  // on success — `userId` comes from the consumed challenge so the
+  // caller doesn't have to thread it through separately.
+  final case class Registration(
+      userId:       String,
+      credentialId: String,
+      publicKey:    String,
+      signCount:    Long,
+  )
+
+  def verifyRegistration(
+      clientDataJSONB64:   String,
+      attestationObjectB64: String,
+      expectedOrigin:      String,
+  ): Option[Registration] =
+    try
+      val b64 = Base64.getUrlDecoder
+      val cd  = String(b64.decode(clientDataJSONB64), "UTF-8")
+      // Parse the small clientDataJSON ourselves — only need 3 fields.
+      val challenge = jsonStringField(cd, "challenge").getOrElse(return None)
+      val origin    = jsonStringField(cd, "origin").getOrElse(return None)
+      val ctype     = jsonStringField(cd, "type").getOrElse(return None)
+      if ctype != "webauthn.create" then return None
+      if origin != expectedOrigin then return None
+      val userId = consumeChallenge(challenge).getOrElse(return None)
+      // attestationObject is a CBOR map { fmt, attStmt, authData }.
+      val attObj = Cbor.read(b64.decode(attestationObjectB64))
+      val attMap = attObj match { case Cbor.MapV(m) => m; case _ => return None }
+      val fmt = attMap.get(Cbor.StrV("fmt")) match
+        case Some(Cbor.StrV(s)) => s
+        case _                  => return None
+      if fmt != "none" then return None  // future stages handle other fmts
+      val authData = attMap.get(Cbor.StrV("authData")) match
+        case Some(Cbor.BytesV(b)) => b
+        case _                    => return None
+      val parsed = parseAuthData(authData).getOrElse(return None)
+      Some(Registration(userId, parsed.credentialIdB64, parsed.publicKeyB64, parsed.signCount))
+    catch case _: Throwable => None
+
+  /** Layout of authData (raw bytes from authenticator):
+   *    [0..32)   rpIdHash      SHA-256(rpId)
+   *    [32]      flags         UP / UV / AT / ED bits
+   *    [33..37)  signCount     uint32 big-endian
+   *    if flags & 0x40 (AT, attested credential data present):
+   *      [37..53)         AAGUID                16 bytes
+   *      [53..55)         credentialIdLength    uint16 big-endian
+   *      [55..55+L)       credentialId          L bytes
+   *      [55+L..end)      COSE public key       remaining CBOR
+   */
+  private final case class ParsedAuthData(
+      credentialIdB64: String,
+      publicKeyB64:    String,
+      signCount:       Long,
+  )
+
+  private def parseAuthData(b: Array[Byte]): Option[ParsedAuthData] =
+    if b.length < 37 then None
+    else
+      val flags     = b(32) & 0xff
+      val signCount =
+        ((b(33) & 0xffL) << 24) |
+        ((b(34) & 0xffL) << 16) |
+        ((b(35) & 0xffL) <<  8) |
+         (b(36) & 0xffL)
+      val attestedCredFlag = (flags & 0x40) != 0
+      if !attestedCredFlag then None
+      else if b.length < 55 then None
+      else
+        val credIdLen =
+          ((b(53) & 0xff) << 8) | (b(54) & 0xff)
+        if b.length < 55 + credIdLen then None
+        else
+          val credId  = b.slice(55, 55 + credIdLen)
+          val pubKey  = b.slice(55 + credIdLen, b.length)
+          val enc     = Base64.getUrlEncoder.withoutPadding
+          Some(ParsedAuthData(
+            enc.encodeToString(credId),
+            enc.encodeToString(pubKey),
+            signCount,
+          ))
+
+  /** Extract a top-level string field from a flat JSON object —
+   *  enough for clientDataJSON which is always `{type, challenge,
+   *  origin, ...}` with no nested objects we care about. */
+  private def jsonStringField(json: String, key: String): Option[String] =
+    val needle = "\"" + key + "\""
+    val ki = json.indexOf(needle)
+    if ki < 0 then None
+    else
+      var i = ki + needle.length
+      while i < json.length && json.charAt(i).isWhitespace do i += 1
+      if i >= json.length || json.charAt(i) != ':' then None
+      else
+        i += 1
+        while i < json.length && json.charAt(i).isWhitespace do i += 1
+        if i >= json.length || json.charAt(i) != '"' then None
+        else
+          i += 1
+          val sb = StringBuilder()
+          while i < json.length && json.charAt(i) != '"' do
+            val c = json.charAt(i)
+            if c == '\\' && i + 1 < json.length then
+              json.charAt(i + 1) match
+                case '"'  => sb.append('"');  i += 2
+                case '\\' => sb.append('\\'); i += 2
+                case 'n'  => sb.append('\n'); i += 2
+                case 'r'  => sb.append('\r'); i += 2
+                case 't'  => sb.append('\t'); i += 2
+                case '/'  => sb.append('/');  i += 2
+                case _    => sb.append(c); i += 1
+            else { sb.append(c); i += 1 }
+          Some(sb.toString)
+
+// ── Minimal CBOR reader ────────────────────────────────────────────
+// Covers the subset attestationObject + COSE keys use: unsigned ints
+// (major 0), negative ints (major 1), byte strings (major 2), text
+// strings (major 3), arrays (major 4), maps (major 5), simple values
+// (major 7).  No tags, no indefinite lengths, no big-int — these
+// aren't generated by real-world authenticators.
+
+private[server] object Cbor:
+  sealed trait Value
+  case class UIntV(v: Long)              extends Value
+  case class NegV(v: Long)               extends Value
+  case class BytesV(b: Array[Byte])      extends Value
+  case class StrV(s: String)             extends Value
+  case class ArrV(items: List[Value])    extends Value
+  case class MapV(m: Map[Value, Value])  extends Value
+  case object NullV                      extends Value
+  case object UndefV                     extends Value
+  case class BoolV(b: Boolean)           extends Value
+  case class FloatV(d: Double)           extends Value
+
+  def read(bytes: Array[Byte]): Value =
+    val (v, _) = readAt(bytes, 0)
+    v
+
+  private def readAt(b: Array[Byte], start: Int): (Value, Int) =
+    val ib   = b(start) & 0xff
+    val mt   = ib >>> 5
+    val info = ib & 0x1f
+    val (v, after) = readArg(b, start + 1, info)
+    mt match
+      case 0 => (UIntV(v), after)
+      case 1 => (NegV(-1L - v), after)
+      case 2 =>
+        val len = v.toInt
+        (BytesV(b.slice(after, after + len)), after + len)
+      case 3 =>
+        val len = v.toInt
+        (StrV(String(b.slice(after, after + len), "UTF-8")), after + len)
+      case 4 =>
+        var i  = after
+        val n  = v.toInt
+        val xs = scala.collection.mutable.ArrayBuffer.empty[Value]
+        var k  = 0
+        while k < n do { val (it, ni) = readAt(b, i); xs += it; i = ni; k += 1 }
+        (ArrV(xs.toList), i)
+      case 5 =>
+        var i  = after
+        val n  = v.toInt
+        val xs = scala.collection.mutable.LinkedHashMap.empty[Value, Value]
+        var k  = 0
+        while k < n do
+          val (kk, ni) = readAt(b, i)
+          val (vv, mi) = readAt(b, ni)
+          xs(kk) = vv
+          i = mi
+          k += 1
+        (MapV(xs.toMap), i)
+      case 7 =>
+        info match
+          case 20 => (BoolV(false), after)
+          case 21 => (BoolV(true),  after)
+          case 22 => (NullV,        after)
+          case 23 => (UndefV,       after)
+          // floats: skip the v bytes already in `after`
+          case _  => (FloatV(java.lang.Double.longBitsToDouble(v)), after)
+      case _ =>
+        throw RuntimeException(s"unsupported CBOR major type $mt")
+
+  /** Decode the additional-info / length argument that follows the
+   *  initial byte.  `info < 24` is its own value; 24/25/26/27 mean
+   *  1/2/4/8 more bytes carry an unsigned big-endian integer. */
+  private def readArg(b: Array[Byte], start: Int, info: Int): (Long, Int) =
+    info match
+      case n if n < 24 => (n.toLong, start)
+      case 24 => ((b(start) & 0xffL), start + 1)
+      case 25 =>
+        ((b(start) & 0xffL) << 8 | (b(start + 1) & 0xffL), start + 2)
+      case 26 =>
+        var v = 0L
+        var i = 0
+        while i < 4 do { v = (v << 8) | (b(start + i) & 0xffL); i += 1 }
+        (v, start + 4)
+      case 27 =>
+        var v = 0L
+        var i = 0
+        while i < 8 do { v = (v << 8) | (b(start + i) & 0xffL); i += 1 }
+        (v, start + 8)
+      case _  => throw RuntimeException(s"unsupported CBOR length info $info")

@@ -636,6 +636,20 @@ class Interpreter(
       case _ => throw InterpretError("csrfValid(req)")
     }
 
+    // ── Base64-url codec (handy for WebAuthn ceremonies, JWT, etc.) ──
+    nativeP("base64UrlEncode") {
+      case List(Value.StringV(s)) =>
+        Value.StringV(java.util.Base64.getUrlEncoder.withoutPadding
+          .encodeToString(s.getBytes("UTF-8")))
+      case _ => throw InterpretError("base64UrlEncode(s: String)")
+    }
+    nativeP("base64UrlDecode") {
+      case List(Value.StringV(s)) =>
+        try Value.StringV(String(java.util.Base64.getUrlDecoder.decode(s), "UTF-8"))
+        catch case _: Throwable => Value.StringV("")
+      case _ => throw InterpretError("base64UrlDecode(s: String)")
+    }
+
     // ── WebAuthn / passkeys (stage 2a: challenge + store) ────────────
     // The verifier (attestation + assertion signature) lands in a
     // follow-up commit; these primitives let the handler issue a
@@ -690,6 +704,25 @@ class Interpreter(
         Value.BoolV(scalascript.server.WebAuthn.storeUpdateSignCount(uid, cid, cnt))
       case _ => throw InterpretError(
         "webauthnUpdateSignCount(userId, credentialId, newSignCount)")
+    }
+    // `webauthnVerifyRegistration(clientDataJSONb64, attestationObjectB64,
+    //                             expectedOrigin)` — returns Some(Map)
+    // with userId / credentialId / publicKey / signCount on success.
+    // Currently accepts `none` attestation only (Apple, 1Password,
+    // iOS); other formats land in a follow-up.
+    nativeP("webauthnVerifyRegistration") {
+      case List(Value.StringV(cd), Value.StringV(att), Value.StringV(origin)) =>
+        scalascript.server.WebAuthn.verifyRegistration(cd, att, origin) match
+          case Some(r) =>
+            Value.OptionV(Some(Value.MapV(Map(
+              Value.StringV("userId")       -> Value.StringV(r.userId),
+              Value.StringV("credentialId") -> Value.StringV(r.credentialId),
+              Value.StringV("publicKey")    -> Value.StringV(r.publicKey),
+              Value.StringV("signCount")    -> Value.IntV(r.signCount),
+            ))))
+          case None => Value.OptionV(None)
+      case _ => throw InterpretError(
+        "webauthnVerifyRegistration(clientDataJSONb64, attestationObjectB64, expectedOrigin)")
     }
 
     // ── Rate limiting ────────────────────────────────────────────────
