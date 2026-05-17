@@ -333,6 +333,12 @@ function _mkRequest(req, params, bodyBuf) {
   const claims      = bearerStr ? jwtVerify(bearerStr) : _None;
   // Parse Authorization: Basic <b64(user:pass)> into a 2-element tuple.
   const basicAuth = _basicFromAuth(authHeader);
+  // Lenient `req.json` — _Some(parsed) on success, _None on parse
+  // failure or empty body.  Same shape as the interpreter / JVM
+  // backends; handlers decide whether to short-circuit with a 400.
+  const json = (body && body.length > 0)
+    ? (() => { try { return _Some(_jsonConvert(JSON.parse(body))); } catch (e) { return _None; } })()
+    : _None;
   return {
     _type:   'Request',
     method:  req.method,
@@ -341,6 +347,7 @@ function _mkRequest(req, params, bodyBuf) {
     query,
     headers,
     body,
+    json,
     form,
     files,
     session,
@@ -2023,6 +2030,57 @@ function _registerExt(method, fn, type) {
   if (!_extensions[method]) _extensions[method] = [];
   _extensions[method].push(fn);
   if (type) _extensions[type + ':' + method] = fn;
+}
+
+// JSON read side — bridges native JS values into our runtime shape so
+// the result of jsonParse(...) is indistinguishable from a literal
+// constructed in user code: objects become Map (not plain objects),
+// nulls become _None (matches Option literals), arrays stay arrays.
+function _jsonConvert(v) {
+  if (v === null || v === undefined) return _None;
+  if (Array.isArray(v)) return v.map(_jsonConvert);
+  if (typeof v === 'object') {
+    const m = new Map();
+    for (const k of Object.keys(v)) m.set(k, _jsonConvert(v[k]));
+    return m;
+  }
+  return v;
+}
+
+function jsonParse(s) {
+  try { return _jsonConvert(JSON.parse(s)); }
+  catch (e) { throw new Error('jsonParse: ' + e.message); }
+}
+
+function jsonStringify(v) { return _toJsonStringify(v); }
+
+function _toJsonStringify(v) {
+  if (v === null || v === undefined) return 'null';
+  if (v === _None || (v && v._type === '_None')) return 'null';
+  if (v && v._type === '_Some') return _toJsonStringify(v.value);
+  if (typeof v === 'string') return JSON.stringify(v);
+  if (typeof v === 'number' || typeof v === 'boolean') return JSON.stringify(v);
+  if (Array.isArray(v)) {
+    if (v._isTuple === true) return '[' + v.map(_toJsonStringify).join(',') + ']';
+    return '[' + v.map(_toJsonStringify).join(',') + ']';
+  }
+  if (v instanceof Map) {
+    const parts = [];
+    for (const [k, val] of v) parts.push(JSON.stringify(String(k)) + ':' + _toJsonStringify(val));
+    return '{' + parts.join(',') + '}';
+  }
+  if (typeof v === 'object') {
+    // Plain object — usually a case class (`_type` + named fields)
+    // or a Request-shaped record.  Emit field-by-field, skipping the
+    // `_type` discriminator since it's not user-visible JSON.
+    const parts = [];
+    for (const k of Object.keys(v)) {
+      if (k === '_type' || k.startsWith('_')) continue;
+      parts.push(JSON.stringify(k) + ':' + _toJsonStringify(v[k]));
+    }
+    return '{' + parts.join(',') + '}';
+  }
+  return JSON.stringify(String(v));
 }
 
 function _trampoline(fn, ...args) {

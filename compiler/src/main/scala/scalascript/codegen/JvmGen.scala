@@ -72,7 +72,7 @@ class JvmGen(baseDir: Option[os.Path] = None):
     if effectOps.nonEmpty                                  then sb.append(effectsRuntime)
     if mutualGroups.nonEmpty                               then sb.append(mutualTcoRuntime)
     if blocksUseReactive(blocks)                           then sb.append(reactiveRuntime)
-    if blocksUseRoutes(blocks) || frontmatterRoutes.nonEmpty then sb.append(serveRuntime)
+    if blocksUseRoutes(blocks) || frontmatterRoutes.nonEmpty || blocksUseJson(blocks) then sb.append(serveRuntime)
 
     // Front-matter route declarations are emitted as `route(method, path)
     // { req => handler(req) }` calls.  We place them BEFORE the user blocks
@@ -323,6 +323,22 @@ class JvmGen(baseDir: Option[os.Path] = None):
         if !found then tree.collect {
           case Term.Apply.After_4_6_0(Term.Name("route"),        _) => found = true
           case Term.Apply.After_4_6_0(Term.Name("onWebSocket"),  _) => found = true
+        }
+      }
+      found
+    }
+
+  /** True if any block references the standalone JSON helpers
+   *  (`jsonParse` / `jsonStringify`).  Used to pull in `serveRuntime`
+   *  — which carries the `_toJson` / `_toJsonValue` / `_fromJson`
+   *  machinery — even when the script doesn't register any route. */
+  private def blocksUseJson(blocks: List[JvmGen.Block]): Boolean =
+    blocks.exists { b =>
+      var found = false
+      ScalaNode.fold(b.node) { tree =>
+        if !found then tree.collect {
+          case Term.Apply.After_4_6_0(Term.Name("jsonParse"),     _) => found = true
+          case Term.Apply.After_4_6_0(Term.Name("jsonStringify"), _) => found = true
         }
       }
       found
@@ -2089,7 +2105,13 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |  jwtClaims:   Option[Map[String, String]] = None,
        |  basicAuth:   Option[(String, String)]    = None,
        |  cookies:     Map[String, String]         = Map.empty
-       |)
+       |):
+       |  /** Lenient JSON-read accessor — Some(parsed) on success, None
+       |   *  on parse failure or empty body.  Same semantics as the
+       |   *  interpreter / JS backends. */
+       |  lazy val json: Option[Any] =
+       |    if body.isEmpty then None
+       |    else try Some(_fromJson(body)) catch case _: Throwable => None
        |
        |case class Response(
        |  status:     Int                         = 200,
@@ -2661,6 +2683,127 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |      _jsonQuote(k) + ":" + _toJsonValue(vv)
        |    }.mkString("{", ",", "}")
        |  case other             => _jsonQuote(_show(other))
+       |
+       |// JSON read side — hand-rolled recursive-descent parser.  Returns
+       |// Map[String, Any] for objects, List[Any] for arrays, Long for
+       |// integers, Double for fractional / exponent numbers, String for
+       |// strings, Boolean for booleans, None for JSON null.  Mirrors the
+       |// interpreter / JS backends bit-for-bit.
+       |private class _JsonParseException(msg: String) extends RuntimeException(msg)
+       |private def _fromJson(src: String): Any =
+       |  val state = new _JsonParser(src)
+       |  val v = state.parseValue()
+       |  state.skipWs()
+       |  if state.pos < src.length then
+       |    throw _JsonParseException("jsonParse: trailing data at position " + state.pos)
+       |  v
+       |private class _JsonParser(src: String):
+       |  var pos: Int = 0
+       |  val len: Int = src.length
+       |  private def fail(msg: String): Nothing =
+       |    throw _JsonParseException("jsonParse: " + msg + " at position " + pos)
+       |  def skipWs(): Unit =
+       |    while pos < len && { val c = src.charAt(pos); c == ' ' || c == '\t' || c == '\n' || c == '\r' } do pos += 1
+       |  private def expect(s: String): Unit =
+       |    if pos + s.length > len || src.substring(pos, pos + s.length) != s then fail(s"expected '$s'")
+       |    else pos += s.length
+       |  private def parseString(): String =
+       |    if pos >= len || src.charAt(pos) != '"' then fail("expected '\"'")
+       |    pos += 1
+       |    val sb = StringBuilder()
+       |    var done = false
+       |    while !done do
+       |      if pos >= len then fail("unterminated string")
+       |      src.charAt(pos) match
+       |        case '"'  => pos += 1; done = true
+       |        case '\\' =>
+       |          pos += 1
+       |          if pos >= len then fail("dangling escape")
+       |          src.charAt(pos) match
+       |            case '"'  => sb.append('"');  pos += 1
+       |            case '\\' => sb.append('\\'); pos += 1
+       |            case '/'  => sb.append('/');  pos += 1
+       |            case 'n'  => sb.append('\n'); pos += 1
+       |            case 'r'  => sb.append('\r'); pos += 1
+       |            case 't'  => sb.append('\t'); pos += 1
+       |            case 'b'  => sb.append('\b'); pos += 1
+       |            case 'f'  => sb.append('\f'); pos += 1
+       |            case 'u'  =>
+       |              pos += 1
+       |              if pos + 4 > len then fail("short unicode escape")
+       |              val hex = src.substring(pos, pos + 4)
+       |              try sb.append(Integer.parseInt(hex, 16).toChar)
+       |              catch case _: NumberFormatException => fail("bad unicode escape")
+       |              pos += 4
+       |            case c    => fail(s"bad escape '\\$c'")
+       |        case c    => sb.append(c); pos += 1
+       |    sb.toString
+       |  private def parseNumber(): Any =
+       |    val start = pos
+       |    if pos < len && src.charAt(pos) == '-' then pos += 1
+       |    while pos < len && { val c = src.charAt(pos); c >= '0' && c <= '9' } do pos += 1
+       |    var isDouble = false
+       |    if pos < len && src.charAt(pos) == '.' then
+       |      isDouble = true
+       |      pos += 1
+       |      while pos < len && { val c = src.charAt(pos); c >= '0' && c <= '9' } do pos += 1
+       |    if pos < len && (src.charAt(pos) == 'e' || src.charAt(pos) == 'E') then
+       |      isDouble = true
+       |      pos += 1
+       |      if pos < len && (src.charAt(pos) == '+' || src.charAt(pos) == '-') then pos += 1
+       |      while pos < len && { val c = src.charAt(pos); c >= '0' && c <= '9' } do pos += 1
+       |    val s = src.substring(start, pos)
+       |    if isDouble then s.toDouble
+       |    else try s.toLong catch case _: NumberFormatException => s.toDouble
+       |  def parseValue(): Any =
+       |    skipWs()
+       |    if pos >= len then fail("unexpected end of input")
+       |    src.charAt(pos) match
+       |      case '"' => parseString()
+       |      case 't' => expect("true");  true
+       |      case 'f' => expect("false"); false
+       |      case 'n' => expect("null");  None
+       |      case '[' =>
+       |        pos += 1; skipWs()
+       |        val items = scala.collection.mutable.ListBuffer.empty[Any]
+       |        if pos < len && src.charAt(pos) == ']' then pos += 1
+       |        else
+       |          var done = false
+       |          while !done do
+       |            items += parseValue()
+       |            skipWs()
+       |            if pos >= len then fail("unterminated array")
+       |            src.charAt(pos) match
+       |              case ',' => pos += 1; skipWs()
+       |              case ']' => pos += 1; done = true
+       |              case c   => fail(s"expected ',' or ']', got '$c'")
+       |        items.toList
+       |      case '{' =>
+       |        pos += 1; skipWs()
+       |        val entries = scala.collection.mutable.ListBuffer.empty[(String, Any)]
+       |        if pos < len && src.charAt(pos) == '}' then pos += 1
+       |        else
+       |          var done = false
+       |          while !done do
+       |            skipWs()
+       |            val k = parseString()
+       |            skipWs()
+       |            if pos >= len || src.charAt(pos) != ':' then fail("expected ':'")
+       |            pos += 1
+       |            val v = parseValue()
+       |            entries += (k -> v)
+       |            skipWs()
+       |            if pos >= len then fail("unterminated object")
+       |            src.charAt(pos) match
+       |              case ',' => pos += 1
+       |              case '}' => pos += 1; done = true
+       |              case c   => fail(s"expected ',' or '}', got '$c'")
+       |        entries.toMap
+       |      case c if c == '-' || (c >= '0' && c <= '9') => parseNumber()
+       |      case c   => fail(s"unexpected character '$c'")
+       |
+       |def jsonParse(s: String): Any        = _fromJson(s)
+       |def jsonStringify(v: Any): String    = _toJsonValue(v)
        |
        |object Response:
        |  private val Html = Map("Content-Type" -> "text/html; charset=utf-8")
