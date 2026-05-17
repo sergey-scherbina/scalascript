@@ -1,0 +1,10 @@
+15
+List(7)
+Some(6)
+Some(List(10, 20, 30))
+List(99)
+Right(-1)
+Right(42)
+(25, HI)
+(-5, hi!)
+Some(0)
