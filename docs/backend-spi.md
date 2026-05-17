@@ -1254,6 +1254,22 @@ Specifically:
   (§9 "Prelude contributions"). This is how the `html` plugin
   introduces the `Html` type and the `div`/`p`/`body` DSL globally
   without touching `core`.
+- **`std/*` as bundled prelude** → after Phase 9 introduces
+  `PreludeContribution`, the existing `std/*.ssc` typeclass
+  hierarchy (landed under v1.1: Functor/Applicative/Monad,
+  Foldable/Traversable, Bifunctor, Either, Selective, MonadError,
+  Semigroup/Monoid) ships as a bundled `backend-std-prelude`
+  plugin. **Predef-style hybrid:** the universally applicable
+  layer (`Functor`/`Applicative`/`Monad`, `Foldable`/`Traversable`,
+  `Either`/`Left`/`Right`, plus `List`/`Option`/`Either` instances)
+  becomes auto-prelude — visible without explicit imports.
+  Specialised abstractions (`MonadError`, `Selective`, `Bifunctor`,
+  `Semigroup`/`Monoid`) remain explicit `[X](./std/…)` imports.
+  Same SPI as any third-party plugin — the bundled split is just
+  configuration of which files land in `preludeFiles` versus which
+  the user imports by hand. Concrete tier split TBD during the
+  Phase 9 follow-up; tracked in
+  [`MILESTONES.md → Backend SPI v0.1`](../MILESTONES.md).
 
 ## 17. Definition of done
 
