@@ -1,0 +1,34 @@
+#!/usr/bin/env ssc
+---
+name: actors-pingpong
+description: v1.6 Phase 1 — spawn / send / receive / self ping-pong.
+---
+
+# Actors Phase 1 — ping-pong
+
+A `pong` actor echoes back `Reply(payload)`; the root actor sends
+three `Ping(from, msg)` messages and prints replies.  Demonstrates
+`spawn`, `self`, `!`, `receive`, and pattern-matching on case-class
+messages.
+
+```scalascript
+case class Ping(from: Pid, msg: String)
+case class Reply(text: String)
+
+runActors {
+  val pong = spawn { () =>
+    receive { case Ping(from, msg) => from ! Reply("pong: " + msg) }
+    receive { case Ping(from, msg) => from ! Reply("pong: " + msg) }
+    receive { case Ping(from, msg) => from ! Reply("pong: " + msg) }
+  }
+
+  val me = self()
+  pong ! Ping(me, "one")
+  pong ! Ping(me, "two")
+  pong ! Ping(me, "three")
+
+  receive { case Reply(s) => println(s) }
+  receive { case Reply(s) => println(s) }
+  receive { case Reply(s) => println(s) }
+}
+```
