@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# sscc — ScalaScript compiler: compiles .ssc → Scala 3 → JVM via scala-cli
+# sscc — ScalaScript compiler: compiles .ssc → Scala 3 → JVM
 # Usage: sscc file.ssc [file2.ssc ...]
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-COMPILER="$(dirname "$SCRIPT_DIR")/compiler"
-exec scala-cli run "$COMPILER" -- compile "$@"
+SSC="$SCRIPT_DIR/ssc"
+exec "$SSC" compile "$@"

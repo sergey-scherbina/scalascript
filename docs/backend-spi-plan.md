@@ -103,6 +103,47 @@ and `ir`; every test still passes; nothing user-visible changes.
 - **Done when:** `sbt test` + `scala-cli conformance/run.sc` green;
   no `compiler/` references remain outside the alias.
 
+#### Discovered while implementing 1.2
+
+- **`server/WebServer.scala` imports `codegen.{JsGen, JsRuntime}`** —
+  the server runtime embeds the JS runtime string into SPA-mode
+  responses.  This forces `backend-interpreter dependsOn backendJs`,
+  which violates the spec's "backends don't depend on each other"
+  rule.  Marked TRANSITIONAL in `build.sbt`; **Stage 5** removes it
+  via the HTTP-intrinsic refactor (§8) — the server moves behind the
+  SPI and the JS runtime becomes a capability the backend declares.
+- **`JsGenWsTest`** depends on `scalascript.server.WsFraming`
+  (lives in `backend-interpreter`).  Moved it from
+  `backend-js/src/test` to `backend-interpreter/src/test/scalascript/codegen/`
+  so the test sees both sides.  Cross-backend tests of this shape
+  belong in `backend-interpreter`'s test scope until Stage 5 splits
+  out the WS runtime.
+- **WsStress placement** — went into `backend-interpreter/.../bench/`
+  (not a separate `bench` subproject).  Reason: existing `bench/`
+  dir is scala-cli scripts (fib/sum/list-ops), not sbt; and
+  WsStress logically stresses the interpreter runtime.  Also lets
+  Stage 5's HTTP intrinsic refactor pick it up naturally.
+- **`compiler/project.scala` deleted** — was scala-cli-only deps
+  list parallel to `build.sbt`.  After the split, scala-cli no
+  longer compiles the project directly; sbt + `sbt-assembly` does
+  it via `cli/assembly` → `cli/target/scala-3.8.3/ssc.jar`.
+- **`scripts/install.sh` rewritten** to invoke `sbt cli/assembly`
+  and emit a tiny `java -jar` wrapper at the target path.  Drops
+  `scala-cli --power package` entirely.
+- **`scripts/launchers/{jssc,sscc,ssc-js}` rewritten** to call
+  `bin/ssc <subcommand>` instead of `scala-cli run compiler --`.
+  Symlinks land them in `bin/` via install.sh as before.
+- **CI workflow `.github/workflows/ci.yml` updated** — conformance
+  job now does `bash scripts/install.sh` to build `bin/ssc` first,
+  then runs `scala-cli conformance/run.sc`.  Dropped the standalone
+  `scala3` job (conformance suite already covers the JVM backend).
+  `sbt` job runs `sbt compile test` (was `sbt compiler/compile compiler/test`).
+- **`conformance/run.sc` + `examples/run-all.sc`** no longer fall
+  back to `scala-cli run compiler --`; they require pre-built
+  `bin/ssc` (with a clear error message if missing).
+- **`README.md` Project Layout + Library Usage sections** refreshed
+  to match new module tree.
+
 ### 1.3 SPI trait stubs in `backend-spi`
 - Define exactly the surface from spec §4.2–4.4:
   `Backend`, `InteractiveBackend`, `Session`, `CompileResult`,
@@ -391,7 +432,7 @@ Anything else that surfaces during execution: append here under a
 
 | Stage | Iterations done | Notes |
 |-------|-----------------|-------|
-| 1     | 1 / 3           | 1.1 done — sbt scaffold (9 subprojects + transitional `compiler`); `bench` deferred to 1.2 (existing `bench/` is scala-cli scripts, not sbt) |
+| 1     | 2 / 3           | 1.1 done — sbt scaffold; 1.2 done — sources moved (compiler/ gone, 8 new modules populated, sbt-assembly added, CI updated, install.sh + launchers use ssc.jar). Transitional `backendInterpreter dependsOn backendJs` for `WebServer→JsGen` — Stage 5 fixes via HTTP intrinsics. |
 | 2     | 0 / 2           | Not started |
 | 3     | 0 / 3           | Not started |
 | 4     | 0 / 2           | Not started |

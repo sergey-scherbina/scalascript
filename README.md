@@ -253,14 +253,24 @@ bin/
   ssc-js       # JS transpiler: emit JS to stdout, or --run to execute
   http.ssc     # HTTP server for examples browser
 
-compiler/
+backend-spi/                # SPI traits (Backend, SourceLanguage, Capabilities, …)
+ir/                         # IR types + JSON/MsgPack codecs
+core/
   src/main/scala/scalascript/
-    parser/      # Markdown + YAML + Scala parser
-    ast/         # AST types
-    interpreter/ # Tree-walking interpreter
-    codegen/     # Code generators (JsGen → JavaScript, JvmGen → Scala 3)
-    cli/         # Command-line entry point
-    server/      # Built-in HTTP server
+    parser/    # Markdown + YAML + Scala parser
+    typer/     # Type checker
+    ast/       # AST types
+    imports/   # Cross-file import resolver
+    interpreter/Value.scala  # Computation Free monad (used by interpreter+codegens)
+backend-jvm/      # JvmGen — emits Scala 3 source
+backend-js/       # JsGen — transpiles to JavaScript
+backend-scalajs/  # ScalaJsBackend — emits SPA via Scala.js
+backend-interpreter/
+  src/main/scala/scalascript/
+    interpreter/    # Tree-walking interpreter
+    server/         # Built-in HTTP / WebSocket runtime
+    bench/          # WsStress benchmark
+cli/                        # Main entry point (ssc command)
 
 conformance/     # Cross-backend conformance test suite
   expected/      # Canonical expected outputs
@@ -268,11 +278,14 @@ conformance/     # Cross-backend conformance test suite
 examples/        # Runnable .ssc files
   run-all.sc     # Runs all examples in order
 
-build.sbt        # sbt build — use scalascript as a library
+build.sbt        # sbt build — multi-module per spec §4.1
 project/
   build.properties
+  plugins.sbt    # sbt-assembly for fat-jar packaging
 
 docs/            # Architecture, spec, design docs
+  backend-spi.md       # Backend SPI v0.1 design (source of truth)
+  backend-spi-plan.md  # Execution plan for the SPI rollout (this branch only)
 scripts/         # setup.sh (install scala-cli), install.sh (build binary)
 ```
 
@@ -299,9 +312,9 @@ sscc examples/hello.ssc
 ScalaScript can be used as a Scala 3 library via sbt:
 
 ```bash
-sbt compiler/compile   # compile
-sbt compiler/test      # run tests
-sbt compiler/package   # produce a JAR
+sbt compile      # compile all modules
+sbt test         # run unit tests
+sbt cli/assembly # produce a self-contained ssc.jar
 ```
 
 The public API surface:

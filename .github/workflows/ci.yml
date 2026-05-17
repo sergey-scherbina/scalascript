@@ -79,42 +79,17 @@ jobs:
         with:
           power: true
 
+      - name: Setup sbt
+        uses: sbt/setup-sbt@v1
+
+      - name: Build ssc launcher (sbt-assembly)
+        run: bash scripts/install.sh ./bin/ssc
+
       - name: Run conformance tests
-        run: |
-          # Use the up-to-date compiler sources rather than the
-          # checked-in launcher (which may lag behind ssc/scala-cli changes).
-          rm -f bin/ssc
-          scala-cli conformance/run.sc
+        run: scala-cli conformance/run.sc
 
       - name: Run examples on all three backends
         run: scala-cli examples/run-all.sc
-
-  scala3:
-    name: Scala 3 Compiler Backend
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Java
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '21'
-
-      - name: Setup Scala CLI
-        uses: VirtusLab/scala-cli-setup@v1
-        with:
-          power: true
-
-      - name: Compile and run hello.ssc via Scala 3
-        run: |
-          out=$(scala-cli run compiler -- compile examples/hello.ssc 2>/dev/null)
-          [ "$out" = "Hello, World!" ] && echo "OK: $out" || (echo "FAIL: got '$out'"; exit 1)
-
-      - name: Compile and run script.ssc via Scala 3
-        run: scala-cli run compiler -- compile examples/script.ssc 2>/dev/null
 
   sbt:
     name: sbt — compile and test
@@ -134,4 +109,4 @@ jobs:
         uses: sbt/setup-sbt@v1
 
       - name: Compile and test via sbt
-        run: sbt compiler/compile compiler/test
+        run: sbt compile test

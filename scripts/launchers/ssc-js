@@ -8,7 +8,7 @@
 #   ssc-js --run file.ssc      # transpile and run in one step (requires node)
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-COMPILER="$(dirname "$SCRIPT_DIR")/compiler"
+SSC="$SCRIPT_DIR/ssc"
 
 RUN=false
 FILES=()
@@ -20,7 +20,7 @@ for arg in "$@"; do
 done
 
 if $RUN; then
-  exec scala-cli run "$COMPILER" -- emit-js "${FILES[@]}" | node
+  "$SSC" emit-js "${FILES[@]}" | node
 else
-  exec scala-cli run "$COMPILER" -- emit-js "${FILES[@]}"
+  exec "$SSC" emit-js "${FILES[@]}"
 fi

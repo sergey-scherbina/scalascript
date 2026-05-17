@@ -17,12 +17,16 @@ val dir: os.Path =
 
 val expectedDir = dir / "expected"
 val sscBin      = dir / os.up / "bin" / "ssc"
-val compiler    = dir / os.up / "compiler"
 
-// Use the pre-built binary when available, fall back to scala-cli run in CI
+// Requires the pre-built launcher. Build with `bash scripts/install.sh ./bin/ssc`
+// (which produces cli/target/scala-3.8.3/ssc.jar via sbt-assembly and writes
+// bin/ssc as a tiny java -jar wrapper).
+if !os.exists(sscBin) then
+  System.err.println(s"bin/ssc not found at $sscBin. Build it first: bash scripts/install.sh ./bin/ssc")
+  System.exit(2)
+
 def ssc(args: String*): os.proc =
-  if os.exists(sscBin) then os.proc(sscBin.toString +: args.toSeq)
-  else os.proc(Seq("scala-cli", "run", compiler.toString, "--") ++ args.toSeq)
+  os.proc(sscBin.toString +: args.toSeq)
 
 val tests = os.list(dir)
   .filter(_.ext == "ssc")

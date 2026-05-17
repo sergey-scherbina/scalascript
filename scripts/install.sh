@@ -1,18 +1,24 @@
 #!/usr/bin/env bash
-# Build ssc as a self-contained binary and stage the repo-local launchers.
-# Requires scala-cli with --power mode.
+# Build ssc as a self-contained jar (via sbt assembly) and stage the
+# repo-local launchers. Requires sbt and a JDK (21+).
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(dirname "$SCRIPT_DIR")"
-COMPILER="$ROOT/compiler"
 DEST="${1:-$HOME/.local/bin/ssc}"
 BIN_DIR="$(cd "$(dirname "$DEST")" 2>/dev/null && pwd || echo "$(dirname "$DEST")")"
+JAR_PATH="$ROOT/cli/target/scala-3.8.3/ssc.jar"
 
 mkdir -p "$BIN_DIR"
 
-echo "Building standalone ssc binary..."
-scala-cli --power package "$COMPILER" --standalone --output "$DEST" -f --main-class scalascript.cli.ssc
+echo "Building ssc fat jar via sbt-assembly..."
+(cd "$ROOT" && sbt -no-colors cli/assembly)
+[ -f "$JAR_PATH" ] || { echo "Assembly did not produce $JAR_PATH" >&2; exit 1; }
+
+cat > "$DEST" <<EOF
+#!/usr/bin/env bash
+exec java -jar "$JAR_PATH" "\$@"
+EOF
 chmod +x "$DEST"
 echo "Installed: $DEST"
 echo "Test: $DEST examples/hello.ssc"

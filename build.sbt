@@ -12,12 +12,12 @@ ThisBuild / Test / javaOptions += "-Xss8m"
 ThisBuild / Test / fork         := true
 
 val sharedScalacOptions = Seq("-Wunused:all", "-deprecation", "-feature")
+val scalatestTest       = "org.scalatest" %% "scalatest" % "3.2.18" % Test
 
 // ---------------------------------------------------------------------------
 // Backend SPI v0.1 — module layout (docs/backend-spi.md §4.1)
 //
-// Stage 1.1 of the SPI rollout: empty modules + dependency arrows.
-// Sources still live in `compiler/` until Stage 1.2 moves them.
+// Stage 1.2: sources moved out of compiler/ into the new modules.
 // ---------------------------------------------------------------------------
 
 lazy val backendSpi = project
@@ -32,6 +32,9 @@ lazy val ir = project
   .dependsOn(backendSpi)
   .settings(
     name := "scalascript-ir",
+    libraryDependencies ++= Seq(
+      "com.lihaoyi" %% "upickle" % "4.4.2"
+    ),
     scalacOptions ++= sharedScalacOptions
   )
 
@@ -40,12 +43,18 @@ lazy val core = project
   .dependsOn(backendSpi, ir)
   .settings(
     name := "scalascript-core",
+    libraryDependencies ++= Seq(
+      "org.yaml"       %  "snakeyaml"  % "2.6",
+      "com.lihaoyi"    %% "os-lib"     % "0.11.4",
+      "org.scalameta"  %% "scalameta"  % "4.17.0",
+      "org.commonmark" %  "commonmark" % "0.28.0"
+    ),
     scalacOptions ++= sharedScalacOptions
   )
 
 lazy val backendJvm = project
   .in(file("backend-jvm"))
-  .dependsOn(backendSpi, ir)
+  .dependsOn(backendSpi, ir, core)
   .settings(
     name := "scalascript-backend-jvm",
     scalacOptions ++= sharedScalacOptions
@@ -53,7 +62,7 @@ lazy val backendJvm = project
 
 lazy val backendJs = project
   .in(file("backend-js"))
-  .dependsOn(backendSpi, ir)
+  .dependsOn(backendSpi, ir, core)
   .settings(
     name := "scalascript-backend-js",
     scalacOptions ++= sharedScalacOptions
@@ -61,17 +70,23 @@ lazy val backendJs = project
 
 lazy val backendScalajs = project
   .in(file("backend-scalajs"))
-  .dependsOn(backendSpi, ir)
+  .dependsOn(backendSpi, ir, core)
   .settings(
     name := "scalascript-backend-scalajs",
     scalacOptions ++= sharedScalacOptions
   )
 
+// TRANSITIONAL DEPENDENCY: backend-interpreter → backend-js.
+// `server/WebServer.scala` imports `scalascript.codegen.{JsGen, JsRuntime}`
+// to inject the JS runtime into SPA-mode pages.  Stage 5 (Backend SPI §8 —
+// HTTP/WS intrinsics) extracts this so the server lives behind the SPI and
+// backends no longer reference each other.
 lazy val backendInterpreter = project
   .in(file("backend-interpreter"))
-  .dependsOn(backendSpi, ir)
+  .dependsOn(backendSpi, ir, core, backendJs)
   .settings(
     name := "scalascript-backend-interpreter",
+    libraryDependencies ++= Seq(scalatestTest),
     scalacOptions ++= sharedScalacOptions
   )
 
@@ -80,43 +95,29 @@ lazy val cli = project
   .dependsOn(core, backendJvm, backendJs, backendScalajs, backendInterpreter)
   .settings(
     name := "scalascript-cli",
-    scalacOptions ++= sharedScalacOptions
+    libraryDependencies ++= Seq(
+      "com.lihaoyi" %% "pprint" % "0.9.6"
+    ),
+    scalacOptions ++= sharedScalacOptions,
+    assembly / mainClass       := Some("scalascript.cli.ssc"),
+    assembly / assemblyJarName := "ssc.jar",
+    assembly / assemblyMergeStrategy := {
+      case PathList("META-INF", _ @ _*) => MergeStrategy.discard
+      case _                            => MergeStrategy.first
+    }
   )
 
 // NOTE: `bench/` exists today as a scala-cli script directory (fib/sum/
 // list-ops workload comparisons across backends) — not an sbt project.
-// WsStress (currently in compiler/.../bench/) needs an sbt home but the
-// placement is deferred to Stage 1.2; see docs/backend-spi-plan.md
-// "Open questions" #1.
-
-// ---------------------------------------------------------------------------
-// Transitional: the existing single-module compiler.  Sources move out into
-// the new modules in Stage 1.2; this entry disappears at that point.
-// ---------------------------------------------------------------------------
-
-lazy val compiler = project
-  .in(file("compiler"))
-  .settings(
-    name := "scalascript",
-    libraryDependencies ++= Seq(
-      "org.yaml"         %  "snakeyaml"  % "2.6",
-      "com.lihaoyi"      %% "os-lib"     % "0.11.4",
-      "com.lihaoyi"      %% "upickle"    % "4.4.2",
-      "com.lihaoyi"      %% "pprint"     % "0.9.6",
-      "org.scalameta"    %% "scalameta"  % "4.17.0",
-      "org.commonmark"   %  "commonmark" % "0.28.0",
-      "org.scalatest"    %% "scalatest"  % "3.2.18" % Test
-    ),
-    scalacOptions ++= sharedScalacOptions
-  )
+// `WsStress` lives under backend-interpreter/.../bench/ since it
+// stresses the interpreter's WS runtime.
 
 lazy val root = project
   .in(file("."))
   .aggregate(
     backendSpi, ir, core,
     backendJvm, backendJs, backendScalajs, backendInterpreter,
-    cli,
-    compiler
+    cli
   )
   .settings(
     publish / skip := true
