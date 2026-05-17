@@ -210,24 +210,51 @@ expect 1008.
 
 ---
 
-## Sprint 5 — architectural debt — **conditional**
+## Sprint 5 — architectural debt — **deferred (decision recorded)**
 
-Listed for completeness; recommend deferring per "Sprint ordering
-rationale" above.  Each item below assumes Sprints 4 + 6 are in.
+User decision (this branch, 2026-05-17): **Sprint 5 is NOT in scope
+for v1.0** — ship 4 + 6 only.  Sprint 5 stays in `MILESTONES.md` as
+a future sprint with the convergence direction now pinned (below).
 
-### 5.1 — Loom-vs-NIO decision (`#17`) — **first if Sprint 5 proceeds**
+### 5.1 — Loom-vs-NIO decision (`#17`) — **PINNED: Loom**
 
-Not code: a `docs/ws-runtime-decision.md` and a 1-paragraph entry
-under "Decisions already made" in `AGENTS.md`.  Either path commits
-us to a single threading model for *both* JVM backends:
+User decision (this branch, 2026-05-17): both JVM backends converge
+on **Loom + blocking I/O** when Sprint 5 lands.  Implications:
 
-- **Pick NIO** → 5.16 lands (~1500 LOC); JvmGen migrates to NIO;
-  interpreter unchanged; Loom code in emitted preamble deleted.
-- **Pick Loom** → 5.16 cancelled; interpreter NIO proxy rewritten
-  to Loom + blocking I/O (~1000 LOC across `WsProxy.scala` +
-  `WsConnection.scala`); JvmGen unchanged.
+- **JvmGen unchanged.**  Already Loom (virtual-thread-per-connection
+  + blocking sockets in the emitted preamble, ~`JvmGen.scala:2849`).
+- **Interpreter NIO proxy gets rewritten** (~1000 LOC across
+  `WsProxy.scala` + `WsConnection.scala`): one virtual thread per
+  connection, blocking reads, blocking writes — same model as
+  JvmGen.  The NIO selector loop, fragmented-message reassembly on
+  the selector thread, and `OP_WRITE` ping-pong all go away.
+- **Item 5.3 (full NIO HTTP migration on JvmGen) is cancelled.**
+  The decision picks the opposite direction.
+- **Item 5.2 (`permessage-deflate`) is unaffected** — extension
+  works the same under either threading model.
+- **JDK 21+ becomes the JVM baseline** for both backends.  Already
+  effectively required by JvmGen's reflective virtual-thread call;
+  Sprint 5 would make this explicit and drop the Java-17 reflection
+  fallback at `JvmGen.scala:2849-2860`.
 
-**Cannot proceed without user input on this one.**
+When Sprint 5 lands as its own branch, this decision is the starting
+point and doesn't need to be re-litigated.
+
+### 5.2 — `permessage-deflate` (`#18`)
+
+RFC 7692.  Negotiates `permessage-deflate` extension during upgrade,
+applies per-message DEFLATE (zlib) on outbound, INFLATE on inbound.
+Adds two opcodes-extension bits to framing (`RSV1` flag = compressed
+message).  ~ 200 LOC × 3.  Independent of 5.1 / 5.3.
+Use Java's `java.util.zip.Inflater` / `Deflater` on JVM, `zlib` on
+Node.  Conformance: `ws-deflate-smoke` — round-trip a 4 KB JSON
+payload, verify it compresses on the wire.
+
+### 5.3 — Full NIO HTTP on JvmGen (`#16`) — **CANCELLED**
+
+Cancelled by 5.1 (Loom path).  The interpreter migrates *to* Loom
+instead.  Item stays in `MILESTONES.md` as "rejected by 5.1 decision"
+so future readers don't re-propose it.
 
 ### 5.2 — `permessage-deflate` (`#18`)
 
@@ -284,27 +311,17 @@ items:
 4. Single merge commit (or fast-forward) into `main`.  Push once.
 5. Delete this plan doc and `ExitWorktree(action: "remove")`.
 
-## Open questions for the user
+## Decisions on record (2026-05-17)
 
-1. **Sprint 5 inclusion.**  Ship 4 + 6 only, or 4 + 6 + 5?
-   - 4 + 6 only: ~ 2-3 days, all additive, low risk.
-   - + 5.2 (`permessage-deflate`): + ~ 2 days, still additive.
-   - + 5.1 / 5.3 (NIO migration): + ~ 2 weeks, architectural,
-     requires the Loom-vs-NIO decision up front.
-
-2. **Sprint 5.1 — Loom or NIO?**  Only matters if (1) includes 5.
-   Current state:
-   - Interpreter: NIO.
-   - JvmGen: Loom + blocking sockets (`Thread.startVirtualThread`).
-   - Convergence direction unsettled.
-
-3. **JsGen scope for new features.**  Some Sprint-6 items
-   (`permessage-deflate`, NIO migration) have no JsGen equivalent —
-   Node WS uses its own socket abstraction.  OK to leave JsGen at
-   feature-parity-minus-compression for v1.0?
-
-4. **Backwards compatibility.**  All new `onWebSocket` overloads are
-   strictly additive.  Existing 1-/2-/3-arg call sites keep working.
-   `ws.id`, `ws.subprotocol`, `ws.recv` (already present) — new
-   fields on the WebSocket instance, no breakage.  Confirm this
-   is the contract for v1.0.
+1. **Scope:** Sprints 4 + 6 only.  Sprint 5 stays in `MILESTONES.md`
+   for a future branch.
+2. **Sprint 5.1 (when it lands):** converge on **Loom**.  Interpreter
+   gets rewritten to virtual-thread-per-connection + blocking I/O;
+   `WsProxy` selector loop deleted.  Item 5.3 (NIO migration of
+   JvmGen) is cancelled as a consequence.
+3. **JsGen scope:** feature parity with interpreter / JvmGen for all
+   Sprint 4 + 6 items.  `permessage-deflate` (Sprint 5.2) has no
+   architectural blocker on Node but lives outside this branch.
+4. **Backwards compatibility:** all new `onWebSocket` overloads are
+   strictly additive; new fields on the WebSocket instance
+   (`ws.id`, `ws.subprotocol`) don't replace anything existing.

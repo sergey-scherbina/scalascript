@@ -428,19 +428,35 @@ session-sized chunk.
 ### Sprint 5 — architectural debt
 
 Defer until 1-4 are settled and a real workload demands them.
+Convergence direction decided 2026-05-17: items below assume the
+**Loom** path; see (17).
 
-16. **Full NIO HTTP on JvmGen.**  Today the WS proxy sits in front
-    of a JDK `HttpServer`, so every HTTP request opens a fresh
-    `Socket` to localhost.  Replacing the HTTP stack with our own
-    NIO server would fold the proxy in, remove the loopback hop,
-    and unify the threading model with the interpreter.  ~1500 LOC.
-17. **Loom-only or NIO-only — pick one for both JVM backends.**
-    Maintaining two parallel models (NIO for interpreter,
-    Loom+blocking for JvmGen) is dead weight if neither has a real
-    edge.  Worth re-deciding after (16).
+16. **Full NIO HTTP on JvmGen — CANCELLED by (17).**  Kept in
+    this list for archeology so future contributors don't
+    re-propose it without new evidence.  Original rationale: the
+    WS proxy sits in front of a JDK `HttpServer`, so every HTTP
+    request opens a fresh `Socket` to localhost.  Replacing the
+    HTTP stack with our own NIO server would fold the proxy in,
+    remove the loopback hop, and unify the threading model with
+    the interpreter.  ~1500 LOC.  Rejected because (17) picks the
+    opposite convergence direction.
+17. **Loom-only — interpreter migrates to Loom + blocking I/O.**
+    DECISION (2026-05-17, recorded in `docs/ws-v1.0-plan.md` §5.1
+    in the v1.0 branch): converge on Loom for both JVM backends.
+    JvmGen already uses virtual-thread-per-connection
+    (`JvmGen.scala:2849`).  Interpreter rewrites: `WsProxy.scala`
+    selector loop deleted, `WsConnection.scala` rewritten to
+    blocking reads/writes on a per-connection virtual thread,
+    fragmented-message reassembly moves onto that thread.
+    ~1000 LOC across the two files.  Side effect: JDK 21+ becomes
+    the explicit baseline and the Java-17 reflective
+    virtual-thread fallback at `JvmGen.scala:2849-2860` is
+    dropped.  When this lands as its own branch the decision is
+    the starting point — don't re-litigate.
 18. **`permessage-deflate` (RFC 7692).**  5-10× compression on
-    JSON-heavy WS workloads.  Not worth the complexity until a
-    real app needs it.  ~200 LOC × 3.
+    JSON-heavy WS workloads.  Independent of (17); ships under
+    either threading model.  ~200 LOC × 3.  Not worth the
+    complexity until a real app needs it.
 
 ### Sprint 6 — WS convenience helpers
 
