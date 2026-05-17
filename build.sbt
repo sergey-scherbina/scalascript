@@ -97,7 +97,8 @@ lazy val cli = project
   .settings(
     name := "scalascript-cli",
     libraryDependencies ++= Seq(
-      "com.lihaoyi" %% "pprint" % "0.9.6"
+      "com.lihaoyi" %% "pprint" % "0.9.6",
+      scalatestTest
     ),
     scalacOptions ++= sharedScalacOptions,
     assembly / mainClass       := Some("scalascript.cli.ssc"),
