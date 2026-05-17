@@ -244,6 +244,12 @@ class JvmGen(baseDir: Option[os.Path] = None):
       effectOps ++= Set(
         "Async.delay", "Async.async", "Async.await", "Async.parallel"
       )
+    // Same pattern for the built-in `Storage` effect.
+    if blocksUseStorage(blocks) then
+      effectOps ++= Set(
+        "Storage.get", "Storage.put", "Storage.remove",
+        "Storage.has", "Storage.keys"
+      )
 
     val funBodies = mutable.Map[String, Term]()
 
@@ -345,6 +351,24 @@ class JvmGen(baseDir: Option[os.Path] = None):
           case Term.Apply.After_4_6_0(Term.Name("Signal"),   _) => found = true
           case Term.Apply.After_4_6_0(Term.Name("computed"), _) => found = true
           case Term.Apply.After_4_6_0(Term.Name("effect"),   _) => found = true
+        }
+      }
+      found
+    }
+
+  /** True if any block references the built-in `Storage` effect —
+   *  either via `runStorage` / `runEphemeralStorage` or a
+   *  `Storage.{get,put,remove,has,keys}` call. */
+  private def blocksUseStorage(blocks: List[JvmGen.Block]): Boolean =
+    val storageOps = Set("get", "put", "remove", "has", "keys")
+    blocks.exists { b =>
+      var found = false
+      ScalaNode.fold(b.node) { tree =>
+        if !found then tree.collect {
+          case Term.Apply.After_4_6_0(Term.Name("runStorage"),          _) => found = true
+          case Term.Apply.After_4_6_0(Term.Name("runEphemeralStorage"), _) => found = true
+          case Term.Select(Term.Name("Storage"), Term.Name(op))
+              if storageOps(op) => found = true
         }
       }
       found
@@ -555,6 +579,8 @@ class JvmGen(baseDir: Option[os.Path] = None):
     case Term.Apply.After_4_6_0(Term.Apply.After_4_6_0(Term.Name("handle"), _), _) => true
     case Term.Apply.After_4_6_0(Term.Name("runAsync"), _)                         => true
     case Term.Apply.After_4_6_0(Term.Name("runAsyncParallel"), _)                 => true
+    case Term.Apply.After_4_6_0(Term.Name("runStorage"), _)                       => true
+    case Term.Apply.After_4_6_0(Term.Name("runEphemeralStorage"), _)              => true
     case Term.Select(Term.Name(eff), Term.Name(op)) if isEffectOpRef(eff, op)     => true
     case Term.Apply.After_4_6_0(Term.Name(n), _) if isEffectfulFun(n)             => true
     case _ => t.children.exists {
@@ -862,6 +888,18 @@ class JvmGen(baseDir: Option[os.Path] = None):
     case Term.Apply.After_4_6_0(Term.Name("runAsyncParallel"), bodyArgClause)
         if bodyArgClause.values.size == 1 =>
       s"_runAsyncParallel(() => ${emitCpsExpr(bodyArgClause.values.head.asInstanceOf[Term])})"
+
+    // Storage handlers
+    case Term.Apply.After_4_6_0(Term.Name("runStorage"), bodyArgClause)
+        if bodyArgClause.values.size >= 1 =>
+      val bodyJs = emitCpsExpr(bodyArgClause.values.head.asInstanceOf[Term])
+      val pathJs = bodyArgClause.values.lift(1)
+        .map(p => emitExpr(p.asInstanceOf[Term]))
+        .getOrElse("null")
+      s"_runStorage(() => $bodyJs, $pathJs)"
+    case Term.Apply.After_4_6_0(Term.Name("runEphemeralStorage"), bodyArgClause)
+        if bodyArgClause.values.size == 1 =>
+      s"_runStorage(() => ${emitCpsExpr(bodyArgClause.values.head.asInstanceOf[Term])}, null)"
 
     // Focus[T](_.a.b) / Focus(_.a.b) — lower to a Lens(get, set) literal.
     // The lambda body's field-access chain becomes nested get + nested copy.
@@ -1259,6 +1297,16 @@ class JvmGen(baseDir: Option[os.Path] = None):
     case Term.Apply.After_4_6_0(Term.Name("runAsyncParallel"), bodyArgClause)
         if bodyArgClause.values.size == 1 =>
       s"_runAsyncParallel(() => ${emitCpsExpr(bodyArgClause.values.head.asInstanceOf[Term])})"
+    case Term.Apply.After_4_6_0(Term.Name("runStorage"), bodyArgClause)
+        if bodyArgClause.values.size >= 1 =>
+      val bodyJs = emitCpsExpr(bodyArgClause.values.head.asInstanceOf[Term])
+      val pathJs = bodyArgClause.values.lift(1)
+        .map(p => emitExpr(p.asInstanceOf[Term]))
+        .getOrElse("null")
+      s"_runStorage(() => $bodyJs, $pathJs)"
+    case Term.Apply.After_4_6_0(Term.Name("runEphemeralStorage"), bodyArgClause)
+        if bodyArgClause.values.size == 1 =>
+      s"_runStorage(() => ${emitCpsExpr(bodyArgClause.values.head.asInstanceOf[Term])}, null)"
 
     case app: Term.Apply => emitCpsApply(app)
 
@@ -3534,6 +3582,19 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |    case (s: String,   "toInt",    Nil)       => s.toInt
        |    case (s: String,   "toLong",   Nil)       => s.toLong
        |    case (s: String,   "toDouble", Nil)       => s.toDouble
+       |    // Option — `getOrElse` takes a by-name param which Java
+       |    // reflection can't resolve directly from a String arg.
+       |    case (opt: Option[_], "get",        Nil)       => opt.get
+       |    case (opt: Option[_], "getOrElse",  List(d))   => opt.getOrElse(d)
+       |    case (opt: Option[_], "isDefined",  Nil)       => opt.isDefined
+       |    case (opt: Option[_], "isEmpty",    Nil)       => opt.isEmpty
+       |    case (opt: Option[_], "nonEmpty",   Nil)       => opt.nonEmpty
+       |    case (opt: Option[_], "map",        List(fn))  =>
+       |      opt.asInstanceOf[Option[Any]].map(fn.asInstanceOf[Any => Any])
+       |    case (opt: Option[_], "flatMap",    List(fn))  =>
+       |      opt.asInstanceOf[Option[Any]].flatMap(x => fn.asInstanceOf[Any => Option[Any]](x))
+       |    case (opt: Option[_], "foreach",    List(fn))  =>
+       |      opt.asInstanceOf[Option[Any]].foreach(fn.asInstanceOf[Any => Any]); ()
        |    // Fallback: try Java reflection so non-HOF method calls still work
        |    case _ =>
        |      val cls = obj.getClass
@@ -3656,6 +3717,107 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |      throw new RuntimeException("unreachable")
        |    interp(bodyThunk())
        |  finally _ex.shutdown()
+       |
+       |// ── Storage: built-in key-value effect ─────────────────────────────────
+       |//
+       |// `Storage.{get,put,remove,has,keys}` produce `_Perform("Storage",
+       |// op, args)` nodes; `_runStorage(bodyThunk, path)` is the handler.
+       |// When `path` is non-null it hydrates from / flushes to that JSON
+       |// file on every mutation (file-backed); otherwise the map stays
+       |// in-process and is discarded at scope exit (ephemeral mode).
+       |
+       |def _storageLoad(path: String, state: scala.collection.mutable.LinkedHashMap[String, String]): Unit =
+       |  val p = java.nio.file.Paths.get(path)
+       |  if java.nio.file.Files.exists(p) then
+       |    val src = java.nio.file.Files.readString(p).trim
+       |    if src.startsWith("{") && src.endsWith("}") then
+       |      var i = 1
+       |      val end = src.length - 1
+       |      def skipWs(): Unit = while i < end && src.charAt(i).isWhitespace do i += 1
+       |      def readStr(): String =
+       |        if i >= end || src.charAt(i) != '"' then sys.error(s"Storage JSON: expected string at $i")
+       |        i += 1
+       |        val sb = new StringBuilder
+       |        while i < end && src.charAt(i) != '"' do
+       |          if src.charAt(i) == '\\' && i + 1 < end then
+       |            src.charAt(i + 1) match
+       |              case '"'  => sb.append('"');  i += 2
+       |              case '\\' => sb.append('\\'); i += 2
+       |              case 'n'  => sb.append('\n'); i += 2
+       |              case 't'  => sb.append('\t'); i += 2
+       |              case 'r'  => sb.append('\r'); i += 2
+       |              case c    => sb.append(c);    i += 2
+       |          else { sb.append(src.charAt(i)); i += 1 }
+       |        i += 1
+       |        sb.toString
+       |      skipWs()
+       |      while i < end do
+       |        val k = readStr(); skipWs()
+       |        if i >= end || src.charAt(i) != ':' then sys.error("Storage JSON: expected ':'")
+       |        i += 1; skipWs()
+       |        val v = readStr(); skipWs()
+       |        state(k) = v
+       |        if i < end && src.charAt(i) == ',' then i += 1
+       |        skipWs()
+       |
+       |def _storageSave(path: String, state: scala.collection.mutable.LinkedHashMap[String, String]): Unit =
+       |  def esc(s: String): String =
+       |    val sb = new StringBuilder
+       |    sb.append('"')
+       |    s.foreach {
+       |      case '"'  => sb.append("\\\"")
+       |      case '\\' => sb.append("\\\\")
+       |      case '\n' => sb.append("\\n")
+       |      case '\r' => sb.append("\\r")
+       |      case '\t' => sb.append("\\t")
+       |      case c    => sb.append(c)
+       |    }
+       |    sb.append('"').toString
+       |  val body = state.iterator.map { case (k, v) => esc(k) + ":" + esc(v) }.mkString(",")
+       |  java.nio.file.Files.writeString(java.nio.file.Paths.get(path), "{" + body + "}")
+       |
+       |def _runStorage(bodyThunk: () => Any, path: String): Any =
+       |  val state = scala.collection.mutable.LinkedHashMap.empty[String, String]
+       |  if path != null then _storageLoad(path, state)
+       |  def flush(): Unit = if path != null then _storageSave(path, state)
+       |  def dispatch(op: String, args: List[Any], resume: Any => Any): Any = op match
+       |    case "get" =>
+       |      val k = args(0).asInstanceOf[String]
+       |      resume(if state.contains(k) then Some(state(k)) else None)
+       |    case "put" =>
+       |      val k = args(0).asInstanceOf[String]
+       |      state(k) = _show(args(1))
+       |      flush()
+       |      resume(())
+       |    case "remove" =>
+       |      state.remove(args(0).asInstanceOf[String])
+       |      flush()
+       |      resume(())
+       |    case "has" => resume(state.contains(args(0).asInstanceOf[String]))
+       |    case "keys" => resume(state.keys.toList)
+       |    case _ => sys.error("Unknown Storage operation: " + op)
+       |  def interp(initial: Any): Any =
+       |    var current: Any = initial
+       |    while true do
+       |      current match
+       |        case _Perform("Storage", op, args) =>
+       |          current = dispatch(op, args, (v: Any) => v)
+       |        case _Perform(_, _, _) => return current
+       |        case _FlatMap(sub, f) => sub match
+       |          case _Perform("Storage", op, args) =>
+       |            val fn = f.asInstanceOf[Any => Any]
+       |            current = dispatch(op, args, (v: Any) => interp(fn(v)))
+       |          case _Perform(_, _, _) =>
+       |            val fn = f.asInstanceOf[Any => Any]
+       |            return _FlatMap(sub, (v: Any) => interp(fn(v)))
+       |          case _FlatMap(s2, g) =>
+       |            current = _FlatMap(s2,
+       |              (x: Any) => _FlatMap(g.asInstanceOf[Any => Any](x), f))
+       |          case v =>
+       |            current = f.asInstanceOf[Any => Any](v)
+       |        case v => return v
+       |    throw new RuntimeException("unreachable")
+       |  interp(bodyThunk())
        |
        |""".stripMargin
 

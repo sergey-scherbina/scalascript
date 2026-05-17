@@ -98,6 +98,7 @@ compiles them via Scala.js.
 | Algebraic effects | `effect E:`, `handle(body) { case E.op(arg, resume) => ... }` |
 | Built-in `Async` effect | `runAsync { Async.async(...) ; Async.await(...) ; Async.parallel(...) ; Async.delay(ms) }` |
 | Real-thread `runAsyncParallel` | swap the handler for genuine JVM concurrency without touching call sites |
+| Built-in `Storage` effect | `runStorage { Storage.put(k, v); Storage.get(k) }` — JSON file-backed or ephemeral |
 | Reactive signals | `Signal(0)`, `s.get` / `s.set(v)`, `computed { … }`, `effect { … }` with scheduled flush |
 | Default parameters | `def f(x: Int, step: Int = 1)`, also on class/enum constructors |
 | Module imports | `[name](./lib.ssc)` markdown links bring definitions into scope |
@@ -131,6 +132,7 @@ compiles them via Scala.js.
 | [effects.ssc](examples/effects.ssc) | Algebraic effects — Console routing, nondeterminism, early return |
 | [async-demo.ssc](examples/async-demo.ssc) | Built-in `Async` effect — `runAsync`, `async`, `await`, `parallel`, `delay` |
 | [signals-demo.ssc](examples/signals-demo.ssc) | Reactive signals — `Signal`, `computed`, `effect`, diamond dedup |
+| [storage-demo.ssc](examples/storage-demo.ssc) | Built-in `Storage` effect — JSON-backed and ephemeral handlers |
 | [lenses.ssc](examples/lenses.ssc) | `.copy(field = v)`, `Focus[T](_.a.b)`, `get` / `set` / `modify` / `andThen` |
 | [default-params.ssc](examples/default-params.ssc) | Default parameter values on defs, classes, and enum cases |
 | [lang-split.ssc](examples/lang-split.ssc) | `scala` vs `scalascript` block annotations side by side |
@@ -199,6 +201,7 @@ scala-cli conformance/run.sc
 | effects | Algebraic effects: Console routing, Choose nondeterminism, Fail early-return |
 | async | Built-in `Async` effect — `runAsync` drives `async` / `await` / `parallel` / `delay` |
 | async-parallel | `runAsyncParallel` — real-thread Async on JVM, declared-order parallel for deterministic output |
+| storage | Built-in `Storage` effect — `get` / `put` / `remove` / `has` / `keys` via ephemeral or file-backed handler |
 | signals | Reactive `Signal` / `computed` / `effect` with diamond-dedup flush |
 | lenses | `.copy(field = v)` and `Focus[T](_.a.b)` — get / set / modify / andThen |
 | prisms | `Prism[Sum, Variant]` — getOption / set / modify on enum / sealed-trait cases |

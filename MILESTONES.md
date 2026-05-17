@@ -607,20 +607,12 @@ already covers throughput.
 
 Staged additions that build on the v0.8 Async / signals stack.  Each
 lands as its own merge so the suite stays green between steps.
-(Stages 1 and 2 — fine-grained reactive `Signal` / `computed` /
-`effect`, and real-thread `runAsyncParallel` handler — landed; see
-git history.)
+(Stages 1, 2, and 3 — fine-grained reactive `Signal` / `computed` /
+`effect`; real-thread `runAsyncParallel` handler; and the built-in
+`Storage` effect with file-backed + ephemeral handlers — landed;
+see git history.)
 
-1. **`Storage` effect.**  `Storage.get(key)` / `Storage.put(key, v)` /
-   `Storage.remove(key)` / `Storage.keys()` against a JSON-backed
-   file (`./ssc-storage.json` by default, override via
-   `SSC_STORAGE_PATH`).  Lets REST + auth demos outlive a process
-   restart without dragging in JDBC.  Handlers `runStorage(body)` and
-   `runEphemeralStorage(body)` for the file-backed and in-memory
-   variants; the latter is what the conformance suite uses so tests
-   stay hermetic.
-
-2. **`Async`-integrated WebSocket.**  Lift the `ws.onMessage(cb)` /
+1. **`Async`-integrated WebSocket.**  Lift the `ws.onMessage(cb)` /
    `ws.onClose(cb)` callback surface into suspending `Async`
    operations: `Async.recvFrom(ws)` and `Async.closed(ws)`.  A
    WebSocket handler written as `runAsync { while (...) { … } }`
@@ -628,7 +620,7 @@ git history.)
    Builds on top of the existing `WsRoutes` plumbing in
    `compiler/src/main/scala/scalascript/server/`.
 
-3. **Node target for `runAsyncParallel`.**  Today the Node JS runtime
+2. **Node target for `runAsyncParallel`.**  Today the Node JS runtime
    aliases `_runAsyncParallel` to `_runAsync` (single-threaded fallback)
    because real concurrency requires `worker_threads` + `Atomics.wait`
    for blocking `await`.  Wire that for parity with the JVM backends —

@@ -1,0 +1,79 @@
+#!/usr/bin/env ssc
+---
+name: storage-demo
+version: 1.0.0
+description: Built-in Storage effect — JSON-backed key-value persistence
+---
+
+# Storage Effect
+
+ScalaScript ships a built-in `Storage` effect for simple key-value
+persistence — same Free-Monad machinery as `Async`, so the same code
+runs under two interchangeable handlers:
+
+  - `runStorage { body }` — JSON file-backed (`./ssc-storage.json` by
+    default, override via the `SSC_STORAGE_PATH` env var or a second
+    arg to `runStorage`).  Survives process restart.
+  - `runEphemeralStorage { body }` — in-memory; fresh map per scope,
+    discarded at exit.  What conformance tests use so they stay
+    hermetic.
+
+Five operations:
+
+| Operation                          | Effect                              |
+|------------------------------------|-------------------------------------|
+| `Storage.get(key: String): Option[String]` | look up — `None` if absent  |
+| `Storage.put(key, value): Unit`    | insert / overwrite                  |
+| `Storage.remove(key): Unit`        | delete                              |
+| `Storage.has(key): Boolean`        | membership test                     |
+| `Storage.keys(): List[String]`     | all keys, insertion order           |
+
+## Basics
+
+```scalascript
+runEphemeralStorage {
+  Storage.put("user", "alice")
+  Storage.put("role", "admin")
+  println(Storage.get("user"))         // Some(alice)
+  println(Storage.get("missing"))      // None
+  println(Storage.has("role"))         // true
+  println(Storage.keys())              // List(user, role)
+}
+```
+
+## Composing with the request — a tiny session counter
+
+```scalascript
+def bumpCounter(user: String): String =
+  val current = Storage.get("hits:" + user).getOrElse("0")
+  val next    = (current.toInt + 1).toString
+  Storage.put("hits:" + user, next)
+  next
+
+runEphemeralStorage {
+  println(bumpCounter("alice"))   // 1
+  println(bumpCounter("alice"))   // 2
+  println(bumpCounter("bob"))     // 1
+  println(bumpCounter("alice"))   // 3
+  println(Storage.keys())         // List(hits:alice, hits:bob)
+}
+```
+
+## Switching to file-backed storage
+
+```scalascript
+// Same body — only the handler changes.
+runStorage {
+  Storage.put("greeting", "hello world")
+  println(Storage.get("greeting"))
+}
+// After the run, `./ssc-storage.json` contains {"greeting":"hello world"}
+// A second `runStorage` invocation reads it back.
+```
+
+## Why an effect, not a global
+
+`Storage.*` ops produce ordinary `Perform` nodes, so they compose with
+`handle(...)` and the other built-in effects — you can have an outer
+`runAsync { runEphemeralStorage { … } }` and the storage scope ends
+before the async one does, with no global mutable state leaking.

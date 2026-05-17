@@ -1003,6 +1003,24 @@ class Interpreter(
       case _ => throw InterpretError("setMaxWsConnections(n)")
     }
 
+    // ── Storage: built-in effect for key-value persistence ──────────
+    //
+    // Same Free-Monad shape as Async: each op produces a `Perform`
+    // node; `runStorage(body)` is the JSON file-backed handler and
+    // `runEphemeralStorage(body)` is the in-memory test handler.
+    globals("Storage") = Value.InstanceV("Storage", Map(
+      "get"    -> Value.NativeFnV("Storage.get",
+        args => Perform("Storage", "get", args)),
+      "put"    -> Value.NativeFnV("Storage.put",
+        args => Perform("Storage", "put", args)),
+      "remove" -> Value.NativeFnV("Storage.remove",
+        args => Perform("Storage", "remove", args)),
+      "has"    -> Value.NativeFnV("Storage.has",
+        args => Perform("Storage", "has", args)),
+      "keys"   -> Value.NativeFnV("Storage.keys",
+        args => Perform("Storage", "keys", args)),
+    ))
+
     // ── Async: built-in effect for async-style code ──────────────────
     //
     // Four operations — each produces a Perform node; `runAsync(body)`
@@ -1402,6 +1420,23 @@ class Interpreter(
     case Term.Apply.After_4_6_0(Term.Name("runAsyncParallel"), bodyArgClause)
         if bodyArgClause.values.size == 1 =>
       asyncParInterp(eval(bodyArgClause.values.head, env))
+
+    // Special forms: runStorage / runEphemeralStorage — Storage-effect
+    // handlers.  The former hydrates from / persists to a JSON file
+    // (path from the optional second arg or `SSC_STORAGE_PATH` env,
+    // defaulting to `./ssc-storage.json`); the latter keeps the map
+    // in-memory and discards it at scope exit.
+    case Term.Apply.After_4_6_0(Term.Name("runStorage"), bodyArgClause)
+        if bodyArgClause.values.size >= 1 =>
+      val pathOpt = bodyArgClause.values.lift(1).map { p =>
+        Computation.run(eval(p, env)) match
+          case Value.StringV(s) => s
+          case _                => storageDefaultPath
+      }
+      storageInterp(eval(bodyArgClause.values.head, env), Some(pathOpt.getOrElse(storageDefaultPath)))
+    case Term.Apply.After_4_6_0(Term.Name("runEphemeralStorage"), bodyArgClause)
+        if bodyArgClause.values.size == 1 =>
+      storageInterp(eval(bodyArgClause.values.head, env), None)
 
     // Special forms: `computed { ... }` / `effect { ... }` — by-name
     // bodies wrapped as zero-arg closures so the reactive machinery can
@@ -2813,6 +2848,144 @@ class Interpreter(
     new java.util.concurrent.ConcurrentHashMap[Long, java.util.concurrent.Future[Value]]()
   private val parallelFutureSeq = new java.util.concurrent.atomic.AtomicLong(0L)
   private def freshFutureId(): Long = parallelFutureSeq.incrementAndGet()
+
+  // ── Storage handler: walks the Free tree, dispatches Storage.* ops
+  // against a local mutable Map; on each mutation flushes to JSON
+  // file (file-backed mode) or skips persistence (ephemeral mode). ──
+
+  private def storageDefaultPath: String =
+    Option(java.lang.System.getenv("SSC_STORAGE_PATH"))
+      .filter(_.nonEmpty)
+      .getOrElse("./ssc-storage.json")
+
+  private def storageInterp(
+    initial: Computation,
+    path:    Option[String]    // None = ephemeral / in-memory
+  ): Computation =
+    val state = scala.collection.mutable.LinkedHashMap.empty[String, String]
+    path.foreach { p => storageLoad(p, state) }
+    storageRun(initial, state, path)
+
+  /** Drive a Free tree against an existing storage state.  Same shape
+   *  as `asyncInterp`: handled `Perform("Storage", ...)` ops dispatch
+   *  to the local map (file-flushed when `path` is set); other
+   *  Performs propagate so an outer handler picks them up; the
+   *  resume continuation re-enters `storageRun` with the same state
+   *  so a FlatMap's producer and consumer share the map. */
+  private def storageRun(
+    initial: Computation,
+    state:   scala.collection.mutable.LinkedHashMap[String, String],
+    path:    Option[String]
+  ): Computation =
+    def flush(): Unit = path.foreach { p => storageSave(p, state) }
+    def dispatch(op: String, args: List[Value], resume: Value => Computation): Computation =
+      op match
+        case "get" => args match
+          case List(Value.StringV(k)) =>
+            resume(state.get(k).map(v => Value.OptionV(Some(Value.StringV(v))))
+                                .getOrElse(Value.OptionV(None)))
+          case _ => throw InterpretError("Storage.get(key: String)")
+        case "put" => args match
+          case List(Value.StringV(k), v) =>
+            state(k) = Value.show(v); flush(); resume(Value.UnitV)
+          case _ => throw InterpretError("Storage.put(key: String, value)")
+        case "remove" => args match
+          case List(Value.StringV(k)) =>
+            state.remove(k); flush(); resume(Value.UnitV)
+          case _ => throw InterpretError("Storage.remove(key: String)")
+        case "has" => args match
+          case List(Value.StringV(k)) => resume(Value.BoolV(state.contains(k)))
+          case _ => throw InterpretError("Storage.has(key: String)")
+        case "keys" => args match
+          case Nil => resume(Value.ListV(state.keys.toList.map(Value.StringV.apply)))
+          case _   => throw InterpretError("Storage.keys()")
+        case _ => throw InterpretError(s"Unknown Storage operation: $op")
+    var current: Computation = initial
+    while true do
+      current match
+        case Pure(_) => return current
+        case Perform("Storage", op, args) =>
+          current = dispatch(op, args, v => Pure(v))
+        case Perform(_, _, _) => return current
+        case FlatMap(sub, f) => sub match
+          case Pure(v)          => current = f(v)
+          case FlatMap(s2, g)   => current = FlatMap(s2, x => FlatMap(g(x), f))
+          case Perform("Storage", op, args) =>
+            current = dispatch(op, args, v => storageRun(f(v), state, path))
+          case Perform(_, _, _) =>
+            return FlatMap(sub, v => storageRun(f(v), state, path))
+    throw InterpretError("unreachable")
+
+  private def storageLoad(
+    path:  String,
+    state: scala.collection.mutable.LinkedHashMap[String, String]
+  ): Unit =
+    val p = java.nio.file.Paths.get(path)
+    if java.nio.file.Files.exists(p) then
+      val src = java.nio.file.Files.readString(p)
+      storageParseJson(src).foreach { case (k, v) => state(k) = v }
+
+  private def storageSave(
+    path:  String,
+    state: scala.collection.mutable.LinkedHashMap[String, String]
+  ): Unit =
+    val json = storageRenderJson(state.toList)
+    java.nio.file.Files.writeString(java.nio.file.Paths.get(path), json)
+
+  /** Minimal JSON parser for `{"key":"value", ...}` — Storage values
+   *  are always strings so we don't need numbers / nested objects /
+   *  arrays.  Returns entries in source order. */
+  private def storageParseJson(src: String): List[(String, String)] =
+    val s   = src.trim
+    val out = scala.collection.mutable.ListBuffer.empty[(String, String)]
+    if !s.startsWith("{") || !s.endsWith("}") then return Nil
+    var i = 1
+    val end = s.length - 1
+    def skipWs(): Unit = while i < end && s.charAt(i).isWhitespace do i += 1
+    def readStr(): String =
+      if i >= end || s.charAt(i) != '"' then
+        throw InterpretError(s"Storage JSON: expected string at index $i")
+      i += 1
+      val sb = StringBuilder()
+      while i < end && s.charAt(i) != '"' do
+        if s.charAt(i) == '\\' && i + 1 < end then
+          s.charAt(i + 1) match
+            case '"'  => sb.append('"');  i += 2
+            case '\\' => sb.append('\\'); i += 2
+            case 'n'  => sb.append('\n'); i += 2
+            case 't'  => sb.append('\t'); i += 2
+            case 'r'  => sb.append('\r'); i += 2
+            case c    => sb.append(c);    i += 2
+        else
+          sb.append(s.charAt(i)); i += 1
+      i += 1
+      sb.toString
+    skipWs()
+    while i < end do
+      val k = readStr(); skipWs()
+      if i >= end || s.charAt(i) != ':' then
+        throw InterpretError("Storage JSON: expected ':'")
+      i += 1; skipWs()
+      val v = readStr(); skipWs()
+      out += (k -> v)
+      if i < end && s.charAt(i) == ',' then i += 1
+      skipWs()
+    out.toList
+
+  private def storageRenderJson(entries: List[(String, String)]): String =
+    def esc(s: String): String =
+      val sb = StringBuilder()
+      sb.append('"')
+      s.foreach {
+        case '"'  => sb.append("\\\"")
+        case '\\' => sb.append("\\\\")
+        case '\n' => sb.append("\\n")
+        case '\r' => sb.append("\\r")
+        case '\t' => sb.append("\\t")
+        case c    => sb.append(c)
+      }
+      sb.append('"').toString
+    entries.map { case (k, v) => s"${esc(k)}:${esc(v)}" }.mkString("{", ",", "}")
 
   // ─── Infix operators ──────────────────────────────────────────────
 

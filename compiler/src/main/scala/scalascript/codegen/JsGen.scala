@@ -2178,6 +2178,107 @@ function _runAsync(bodyFn) { return _runAsyncInner(bodyFn()); }
 // speedup.  The JVM backends provide real concurrency.
 function _runAsyncParallel(bodyFn) { return _runAsyncInner(bodyFn()); }
 
+// ── Storage: built-in key-value effect ────────────────────────────────────
+//
+// `Storage.{get,put,remove,has,keys}` produce `_Perform("Storage", op,
+// args)` nodes; `_runStorage(bodyFn, path)` is the handler — when
+// `path` is non-null it hydrates from / flushes to a JSON file on
+// every mutation (file-backed mode), otherwise it stays in memory
+// (ephemeral mode, for tests).  Same Free-Monad walking shape as
+// `_runAsync`; non-Storage Performs propagate outward so an outer
+// handler picks them up.
+const Storage = {
+  get:    (key)        => _perform('Storage', 'get',    [key]),
+  put:    (key, value) => _perform('Storage', 'put',    [key, value]),
+  remove: (key)        => _perform('Storage', 'remove', [key]),
+  has:    (key)        => _perform('Storage', 'has',    [key]),
+  keys:   ()           => _perform('Storage', 'keys',   []),
+};
+
+function _storageDefaultPath() {
+  if (typeof process !== 'undefined' && process.env && process.env.SSC_STORAGE_PATH) {
+    return process.env.SSC_STORAGE_PATH;
+  }
+  return './ssc-storage.json';
+}
+
+function _storageLoad(path, state) {
+  if (typeof require === 'undefined') return;
+  try {
+    const fs = require('fs');
+    if (!fs.existsSync(path)) return;
+    const src = fs.readFileSync(path, 'utf-8');
+    const obj = JSON.parse(src);
+    for (const [k, v] of Object.entries(obj)) state.set(k, String(v));
+  } catch (e) { /* corrupt file — start empty */ }
+}
+
+function _storageSave(path, state) {
+  if (typeof require === 'undefined') return;
+  const fs  = require('fs');
+  const obj = {};
+  for (const [k, v] of state) obj[k] = v;
+  fs.writeFileSync(path, JSON.stringify(obj));
+}
+
+function _runStorage(bodyFn, path) {
+  const state = new Map();
+  if (path) _storageLoad(path, state);
+  function flush() { if (path) _storageSave(path, state); }
+
+  function dispatch(op, args, resume) {
+    switch (op) {
+      case 'get': {
+        const k = args[0];
+        return resume(state.has(k) ? _Some(state.get(k)) : _None);
+      }
+      case 'put': {
+        const k = args[0], v = args[1];
+        state.set(k, _show(v));
+        flush();
+        return resume(undefined);
+      }
+      case 'remove': {
+        state.delete(args[0]);
+        flush();
+        return resume(undefined);
+      }
+      case 'has':  return resume(state.has(args[0]));
+      case 'keys': return resume([...state.keys()]);
+      default:     throw new Error('Unknown Storage operation: ' + op);
+    }
+  }
+
+  function interp(initial) {
+    let current = initial;
+    while (true) {
+      if (current instanceof _Perform) {
+        if (current.eff === 'Storage') {
+          current = dispatch(current.op, current.args, (v) => v);
+        } else { return current; }
+      } else if (current instanceof _FlatMap) {
+        const sub = current.sub;
+        if (sub instanceof _FlatMap) {
+          const sub2 = sub.sub, g = sub.k, f = current.k;
+          current = new _FlatMap(sub2, (x) => new _FlatMap(g(x), f));
+        } else if (sub instanceof _Perform) {
+          const f = current.k;
+          if (sub.eff === 'Storage') {
+            current = dispatch(sub.op, sub.args, (v) => interp(f(v)));
+          } else {
+            return new _FlatMap(sub, (v) => interp(f(v)));
+          }
+        } else {
+          current = current.k(sub);
+        }
+      } else {
+        return current;
+      }
+    }
+  }
+  return interp(bodyFn());
+}
+
 // ── CPS-aware collection helpers ──────────────────────────────────────────
 //
 // When a higher-order method like `xs.map(fn)` is called inside an
@@ -2618,12 +2719,12 @@ class JsGen(baseDir: Option[os.Path] = None):
     effectOps.clear()
     effectfulFuns.clear()
 
-    // Built-in `Async` effect — operations always available without
-    // requiring the user to declare `effect Async:` themselves.  Lets
-    // call sites like `Async.delay(...)` be rewritten to `_perform(...)`
-    // and functions that transitively call them get CPS-emitted.
+    // Built-in `Async` and `Storage` effects — operations always
+    // available without requiring `effect Foo:` declarations.  Their
+    // call sites get CPS-rewritten just like user-declared ops.
     effectOps ++= Set(
-      "Async.delay", "Async.async", "Async.await", "Async.parallel"
+      "Async.delay", "Async.async", "Async.await", "Async.parallel",
+      "Storage.get", "Storage.put", "Storage.remove", "Storage.has", "Storage.keys"
     )
 
     val funBodies = mutable.Map[String, Term]()
@@ -3534,6 +3635,16 @@ class JsGen(baseDir: Option[os.Path] = None):
         if bodyArgClause.values.size == 1 =>
       s"_runAsyncParallel(() => ${genCpsExpr(bodyArgClause.values.head.asInstanceOf[Term])})"
 
+    // Storage handlers — file-backed (with optional path arg) and ephemeral
+    case Term.Apply.After_4_6_0(Term.Name("runStorage"), bodyArgClause)
+        if bodyArgClause.values.size >= 1 =>
+      val bodyJs = genCpsExpr(bodyArgClause.values.head.asInstanceOf[Term])
+      val pathJs = bodyArgClause.values.lift(1).map(p => genExpr(p.asInstanceOf[Term])).getOrElse("null")
+      s"_runStorage(() => $bodyJs, $pathJs)"
+    case Term.Apply.After_4_6_0(Term.Name("runEphemeralStorage"), bodyArgClause)
+        if bodyArgClause.values.size == 1 =>
+      s"_runStorage(() => ${genCpsExpr(bodyArgClause.values.head.asInstanceOf[Term])}, null)"
+
     // Special forms: computed / effect — wrap the by-name body as a
     // zero-arg thunk so the reactive scheduler can rerun it when its
     // signal deps change.
@@ -3841,6 +3952,16 @@ class JsGen(baseDir: Option[os.Path] = None):
     case Term.Apply.After_4_6_0(Term.Name("runAsyncParallel"), bodyArgClause)
         if bodyArgClause.values.size == 1 =>
       s"_runAsyncParallel(() => ${genCpsExpr(bodyArgClause.values.head.asInstanceOf[Term])})"
+
+    // Nested storage handlers inside CPS body
+    case Term.Apply.After_4_6_0(Term.Name("runStorage"), bodyArgClause)
+        if bodyArgClause.values.size >= 1 =>
+      val bodyJs = genCpsExpr(bodyArgClause.values.head.asInstanceOf[Term])
+      val pathJs = bodyArgClause.values.lift(1).map(p => genExpr(p.asInstanceOf[Term])).getOrElse("null")
+      s"_runStorage(() => $bodyJs, $pathJs)"
+    case Term.Apply.After_4_6_0(Term.Name("runEphemeralStorage"), bodyArgClause)
+        if bodyArgClause.values.size == 1 =>
+      s"_runStorage(() => ${genCpsExpr(bodyArgClause.values.head.asInstanceOf[Term])}, null)"
 
     // Nested computed / effect inside CPS body — same wrapping as the
     // non-CPS form: by-name body becomes a zero-arg thunk.

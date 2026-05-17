@@ -633,7 +633,42 @@ The Node JS target currently aliases `runAsyncParallel` to `runAsync`
 in a follow-up); code written against the parallel handler still runs
 correctly there, just without the speedup.
 
-#### 7.2.2 Reactive signals
+#### 7.2.2 Storage — built-in key-value effect
+
+`Storage` is the persistence companion to `Async` — same Free-Monad
+shape, two handlers (file-backed and ephemeral).  Five operations:
+
+| Operation                          | Effect                            |
+|------------------------------------|-----------------------------------|
+| `Storage.get(key): Option[String]` | look up — `None` if absent        |
+| `Storage.put(key, value): Unit`    | insert / overwrite                |
+| `Storage.remove(key): Unit`        | delete                            |
+| `Storage.has(key): Boolean`        | membership test                   |
+| `Storage.keys(): List[String]`     | all keys, insertion order         |
+
+```scalascript
+runEphemeralStorage {
+  Storage.put("user", "alice")
+  println(Storage.get("user"))        // Some(alice)
+  println(Storage.keys())             // List(user)
+}
+```
+
+Two handlers, same body:
+
+  - `runStorage(body[, path])` — JSON file-backed.  Path resolution:
+    explicit second arg → `SSC_STORAGE_PATH` env var →
+    `./ssc-storage.json`.  Hydrates from the file on scope entry,
+    flushes after every mutation.
+  - `runEphemeralStorage(body)` — in-memory; fresh map per scope,
+    discarded at exit.  Conformance tests use this so they stay
+    hermetic.
+
+Available on all three backends.  Cross-backend wire format is
+JSON `{key: stringValue, …}` with insertion order preserved so a
+file written by one backend reads cleanly on another.
+
+#### 7.2.3 Reactive signals
 
 Fine-grained reactivity in the Solid / Knockout style — three
 primitives, push-based notification with scheduled flush:
