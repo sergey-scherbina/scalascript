@@ -1,0 +1,61 @@
+#!/usr/bin/env ssc
+---
+name: data-grid
+description: Table + client-side text filter — the workhorse for admin pages.
+---
+
+# DataGrid
+
+Composes the existing `Table` with a filter input.  Client-side JS
+filters visible rows by case-insensitive substring match across
+every cell.
+
+[Table](./table.ssc)
+
+```scalascript
+object DataGrid:
+  private val sc = scope("DataGrid")
+  private val rootCls = sc.cls("root")
+  private val toolbarCls = sc.cls("toolbar")
+  private val filterCls = sc.cls("filter")
+
+  val css: String = sc.css("""
+    .root      { margin: 1em 0; }
+    .toolbar   { display: flex; align-items: center; justify-content: space-between;
+                 gap: 1em; margin-bottom: .5em; }
+    .filter    { padding: .35em .6em; border: 1px solid #d1d5db;
+                 border-radius: 4px; font: inherit; min-width: 16em; }
+    .filter:focus { outline: none; border-color: #2563eb;
+                    box-shadow: 0 0 0 2px rgba(37,99,235,.2); }
+  """)
+
+  val js: String = s"""
+document.querySelectorAll('.$rootCls').forEach(grid => {
+  const input = grid.querySelector('.$filterCls');
+  const rows  = grid.querySelectorAll('tbody tr');
+  if (!input) return;
+  input.addEventListener('input', () => {
+    const q = input.value.toLowerCase();
+    rows.forEach(r => {
+      r.style.display = !q || r.textContent.toLowerCase().includes(q) ? '' : 'none';
+    });
+  });
+});"""
+
+  /** Renders a Table wrapped in a toolbar with a search box.
+   *  Pure server-side until the JS handler boots; once it does,
+   *  typing in the filter hides rows whose text doesn't match. */
+  def render(
+      headers: List[String],
+      rows: List[List[String]],
+      placeholder: String = "Filter…",
+      rightAlign: List[Int] = Nil
+  ): String =
+    val table = Table.render(headers, rows, rightAlign)
+    html"""<div class="${rootCls}">
+      <div class="${toolbarCls}">
+        <input class="${filterCls}" type="search" placeholder="${placeholder}" aria-label="Filter">
+      </div>
+      ${raw(table)}
+    </div>"""
+```

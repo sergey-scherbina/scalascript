@@ -65,17 +65,6 @@ on bare class names, all reachable through a top-level aggregator
 `std/ui/index.ssc` so consumers can do
 `[Button, Card, FormInput as Input](std/ui)`.
 
-Tier 5 — **data display**
-
-  - **`Table`** — headers + rows from `List[(label, getter)]` and
-    `List[T]`.  Optional sortable columns (client-side `val js`).
-  - **`List`** (linear list — name TBD to avoid clashing with
-    `scala.List`) — vertical item list with optional dividers and
-    interactive rows.
-  - **`DataGrid`** — Table + pagination + filter row.  Probably
-    builds on `Table` rather than replacing it.
-  - **`KeyValue`** — `<dl>` pair list for "name: value" displays.
-
 Tier 6 — **content / typography**
 
   - **`Code`** — `<pre><code>` with optional language hint;
