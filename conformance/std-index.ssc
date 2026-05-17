@@ -1,0 +1,36 @@
+---
+name: conformance-std-index
+version: 1.0.0
+---
+
+# Std — single-import aggregator
+
+Exercises `std/index.ssc` — pulls every typeclass / instance / helper
+from the v1.1 std library through one import.  Verifies that
+transitive imports propagate across all three backends.
+
+[intSum, combineAll, pureList, map2Option, listFoldable, traverseListOption, Left, Right, listSelective, branchOption, optionUnitError, handleEither, tupleBifunctor, bimapTuple](../std/index.ssc)
+
+```scalascript
+println(combineAll(List(1, 2, 3, 4, 5), intSum))
+
+println(pureList(7))
+
+println(map2Option(Some(2), Some(3), (a: Int, b: Int) => a * b))
+
+println(traverseListOption(List(1, 2, 3), (n: Int) => Some(n * 10)))
+
+println(listSelective.pure(99))
+
+val r: Either[String, Int] = Right(42)
+val l: Either[String, Int] = Left("nope")
+println(handleEither(l, (e: String) => Right(-1)))
+println(handleEither(r, (e: String) => Right(-1)))
+
+val pair: (Int, String) = (5, "hi")
+println(bimapTuple(pair, (x: Int) => x * x, (s: String) => s.toUpperCase))
+println(pair.bimap((x: Int) => -x, (s: String) => s + "!"))
+
+val noneInt: Option[Int] = None
+println(noneInt.handleError((_: Unit) => Some(0)))
+```

@@ -361,24 +361,16 @@ but two ergonomic gaps remain:
 Approx scope: 1 is ~2h; 2a-2c are ~2 days (CBOR parser + signature
 verify on three backends); 2d-2e ~1 day.
 
-## v1.1 — Standard type-class hierarchy
+## v1.1 — Standard type-class hierarchy — landed
 
-Land a small, principled std library of FP type classes with instances
-for the built-in types (`List`, `Option`, `Map`, `Either`, `Tuple2`).
-All declarations use existing Scala 3 `trait` + `given` machinery — no
-new keywords, no new parser syntax, no divergence from the "Scala 3
-dialect" brand.  The interpreter / JS / JVM all already support typeclass
-dispatch through `summon[…]` (covered by the `typeclass` conformance
-test), so this is mostly **library code in `std/`** plus a few inference
-ergonomics on top.
-
-### Hierarchy — minimal and sufficient
-
-Ten classes, organised into three lanes.  Picked to cover ~99% of real
-FP user code without academic bloat; explicitly *excludes* Category /
-Arrow / Profunctor (deferred — see end of section).  `Eq`, `Order`, and
-`Show` already exist in the codebase via the `typeclass` conformance
-test and are not re-implemented here.
+Small, principled std library of FP type classes living in `std/`,
+with instances for the built-in types (`List`, `Option`, `Either`,
+`Tuple2`).  All declarations use existing Scala 3 `trait` + `given`
+machinery — no new keywords, no new parser syntax.  Ten classes
+organised in three lanes; explicitly excludes Category / Arrow /
+Profunctor (deferred, see end of section).  `Eq`, `Order`, `Show`
+already covered by the `typeclass` conformance test and not
+re-implemented.
 
     Algebraic lane           Functor / effect lane          Container lane
 
@@ -386,106 +378,112 @@ test and are not re-implemented here.
           │                            │                          │
           ▼                            ▼                          ▼
         Monoid                    Applicative              Traversable
-                                       │                  (extends Functor +
-                                       ▼                   Foldable; `traverse`
-                                   Selective               takes Applicative)
-                                       │
+                                       │                  (extends Foldable;
+                                       ▼                   adds map directly
+                                   Selective               since cross-file
+                                       │                   trait inheritance
                                        ▼                       Bifunctor
-                                     Monad                  (standalone, for
-                                       │                     Either / Tuple2)
+                                     Monad                  is unsupported)
+                                       │
                                        ▼
                                   MonadError
 
-### Steps (priority order — each useful in isolation)
+Landed in seven incremental PRs (each useful in isolation):
 
-1. **`Semigroup` + `Monoid`.**  Foundation for fold / concat /
-   `combine` / `empty`.  Instances for `String`, `List`, `Int`-sum,
-   `Int`-product (newtype style), `Option[A: Semigroup]`, `Map[K, V:
-   Semigroup]` (last-write-wins is too lossy; merge values).  ~half a
-   day.
+- **Step 0 — JS extension-in-given fix.**  Extension methods
+  declared inside `given … with` weren't registered into the JS
+  `_extensions` table — they silently dropped on the JS backend.
+  Fix: recurse into `Defn.ExtensionGroup` in `Defn.Given` body.
+  Unblocks every typeclass in this milestone.  (PR #25)
 
-2. **`Functor`, `Applicative`, `Monad`.**  Core abstractions:
+- **Step 1 — Semigroup + Monoid.**  Foundation: `intSum`,
+  `stringConcat`, `listConcat`, `combineAll` / `combineAllOption`.
+  One canonical instance per type — alternatives belong in user code
+  via newtype wrappers.  (PR #34)
 
-       trait Functor[F[_]]:
-         extension [A](fa: F[A]) def map[B](f: A => B): F[B]
+- **Step 2 — Functor / Applicative / Monad.**  HKT trait hierarchy
+  with `extension` dispatch.  Instances for `List` and `Option`;
+  per-instance helpers (`pureList`, `map2Option`, `sequenceList`,
+  …) since `using` doesn't auto-resolve.  Drive-by fixes: interpreter
+  now forwards extension methods on import, JS encodes receiver type
+  into the extension fn name so `Functor[List].map` and
+  `Functor[Option].map` no longer collide.  (PR #37)
 
-       trait Applicative[F[_]] extends Functor[F]:
-         def pure[A](a: A): F[A]
-         extension [A](fa: F[A]) def ap[B](ff: F[A => B]): F[B]
+- **Step 3 — Foldable + Traversable.**  `foldLeft` / `foldRight` /
+  `toList` plus `map` on `Traversable`; helpers per (T, F) for
+  `traverse`.  Uncurried `foldLeft(z, f)` so `List`'s built-in
+  curried form doesn't accidentally shadow.  (PR #38)
 
-       trait Monad[F[_]] extends Applicative[F]:
-         extension [A](fa: F[A]) def flatMap[B](f: A => F[B]): F[B]
+- **Step 4 — Either + Selective.**  Ships `std/either.ssc` (sealed
+  trait + `Left` / `Right`) plus the `Selective[F]` typeclass with
+  instances for `List` and `Option`.  JS dispatch fix: extensions
+  are now keyed by `(receiver type, method)` via a new `_typeOf`
+  runtime helper, so same-named extensions across typeclass
+  instances no longer route to the wrong body via the try/catch
+  fallback.  (PR #39)
 
-   Instances: `List`, `Option`, `Either[E, *]`, `Function1[X, *]`,
-   `Tuple2[E, *]` (Writer-style).  ~1 day.
+- **Step 5 — MonadError.**  `MonadError[Option, Unit]` with full
+  extension dispatch; `Either[String, *]` exposed through helper
+  functions (`raiseEither` / `handleEither` / `attemptEither`)
+  because the interpreter doesn't route extensions through
+  user-defined sealed-trait hierarchies yet.  (PR #40)
 
-3. **`Foldable` + `Traversable`.**  The practical win in real code.
+- **Step 6 — Bifunctor.**  `Bifunctor[Tuple2]` via extension
+  dispatch; `Either` again via helpers.  Interpreter
+  `extensionDispatch` now recognises `TupleV` (routed as
+  `Tuple2` / `Tuple3` / …) so `(a, b).bimap(…)` works.  (PR #41)
 
-       trait Foldable[F[_]]:
-         extension [A](fa: F[A])
-           def foldLeft[B](z: B)(op: (B, A) => B): B
-           def foldRight[B](z: B)(op: (A, B) => B): B
-           def toList: List[A]
+- **Step 7 — Aggregator + transitive imports.**  `std/index.ssc`
+  pulls the whole library in through one import; JS `genImport`
+  now propagates nested `Content.Import` (with cycle protection
+  mirroring `JvmGen.importedFiles`), so a downstream lib's `Left`
+  / `Right` constructors reach consumers of `selective.ssc` without
+  having to import `either.ssc` separately at every call site.
 
-       trait Traversable[T[_]] extends Functor[T] with Foldable[T]:
-         extension [A](ta: T[A])
-           def traverse[F[_]: Applicative, B](f: A => F[B]): F[T[B]]
-           def sequence[F[_]: Applicative]: F[T[A]]
+### Conformance
 
-   Instances for `List`, `Option`, `Map` (by-value), `Either` (right-
-   biased).  ~1 day with conformance tests.
+38 tests across INT / JS / JVM (was 28 before this milestone).  All
+std typeclasses plus the aggregator pass green on every backend.
+The 7 new tests:
 
-4. **`Selective` (between Applicative and Monad).**  Mokhov/Lukyanov:
-   `select :: f (Either a b) -> f (a -> b) -> f b` — conditional
-   effects while keeping the call graph statically inspectable.
-   Smaller user base; ship after the core lane.  ~half a day.
+    std-semigroup-monoid           PASS  [INT] [JS] [JVM]
+    std-functor-applicative-monad  PASS  [INT] [JS] [JVM]
+    std-foldable-traversable       PASS  [INT] [JS] [JVM]
+    std-selective                  PASS  [INT] [JS] [JVM]
+    std-monaderror                 PASS  [INT] [JS] [JVM]
+    std-bifunctor                  PASS  [INT] [JS] [JVM]
+    std-index                      PASS  [INT] [JS] [JVM]
 
-5. **`MonadError`.**  Adds `raise[A](e: E): F[A]` and
-   `handleError[A](fa: F[A])(f: E => F[A]): F[A]` to `Monad`.
-   Instances for `Either[E, *]` and `Option` (with `E = Unit`).
-   Unifies error-handling vocabulary across types.  ~half a day.
+### Carried into v1.2 — interpreter ergonomics
 
-6. **`Bifunctor`.**  Two-position functor for `Either` and `Tuple2`:
+A handful of friction points surfaced during the build but were kept
+narrow rather than expanded into this milestone:
 
-       trait Bifunctor[F[_, _]]:
-         extension [A, B](fab: F[A, B])
-           def bimap[C, D](f: A => C, g: B => D): F[C, D]
-           def leftMap[C](f: A => C): F[C, B] = bimap(f, identity)
+- **Sealed-trait extension dispatch in the interpreter.**  A
+  `Right(…)` value has typeName `"Right"`, but extensions inside
+  `Bifunctor[Either]` (or `MonadError[Either, …]`) register under
+  `"Either"`.  Without a sealed-parent registry the interpreter
+  misses the route — that's why Either ships through helper
+  functions in steps 5 and 6.  ~100 LOC interpreter change.
 
-   Closes the "I have an `Either[Error, User]`, I want to map the
-   error half" use case that comes up in every REST handler.  ~half
-   a day.
+- **`using`-clause auto-resolution.**  Polymorphic typeclass code
+  (`def doIt[F[_]: Monad, A](fa: F[A])…`) requires `summon`
+  resolution at the call site; ScalaScript today only supports
+  explicit-parameter passing.  Bigger lift across all three
+  backends; the per-instance helpers in std cover the common cases
+  without it.
 
-7. **Inference ergonomics (no new keywords).**  Two pragmatic wins
-   while keeping vanilla Scala 3 syntax:
-
-   - **`pure[F](x)` / `empty[F]` without explicit `summon`.**  Today
-     users write `summon[Applicative[F]].pure(x)`; add top-level
-     shortcut defs in the std prelude so `pure[List](42)` Just Works.
-   - **`given` defaults wired into the default import set** so
-     `xs.traverse(f)` on a `List` finds the instance without an
-     explicit import (similar to how `math.sqrt` is in scope today).
-
-   *Explicitly out of scope:* new `typeclass` / `instance` keywords,
-   do-notation desugaring, type defaulting.  Scala 3's `trait` +
-   `given` are sufficient — diverging from them costs more than it
-   earns.
+- **`Term.Ascribe`.**  Type ascriptions like `(None: Option[Int])`
+  aren't handled by the interpreter.  Worked around throughout the
+  std lib and conformance tests by binding to a typed `val`.  ~20
+  LOC interpreter change.
 
 ### Explicitly deferred — `Category` / `Arrow` / `Profunctor`
 
 Theoretically elegant but practically zero pull in user code without
-profunctor-encoded optics, which we've decided to keep concrete.  In
-Scala, function composition is already `f andThen g`; `***` / `&&&` /
-`dimap` surface once in a blue moon.  Holding these for a possible
-future "Optics 3 — profunctor rewrite" milestone only if a concrete
-consumer surfaces; until then, dead weight.
-
-### Effort
-
-Steps 1-6: ~4 days of typeclass + instance code; ~1 day of conformance
-tests.  Step 7 (ergonomics): half a day.  Roughly **a week end-to-end**
-across three backends.  Each step ships as its own PR, mergeable in
-sequence.
+profunctor-encoded optics, which we've decided to keep concrete.
+Holding these for a possible future "Optics 3 — profunctor rewrite"
+milestone only if a concrete consumer surfaces.
 
 ## v0.6 — Optics (Lens / Prism / Optional / Traversal) — landed
 

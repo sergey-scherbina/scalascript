@@ -2754,6 +2754,14 @@ class JsGen(baseDir: Option[os.Path] = None):
    *  so `<dep-name>://path` imports rewrite through the resolver. */
   private var moduleDeps: Map[String, String] = Map.empty
 
+  /** Absolute paths of `.ssc` files that have already been inlined by
+   *  `genImport`.  Mirrors the cycle-protection invariant in
+   *  `JvmGen.importedFiles` — a child module re-importing something
+   *  the parent already pulled in (or a diamond import) emits nothing
+   *  the second time around. */
+  private val importedFiles: scala.collection.mutable.Set[String] =
+    scala.collection.mutable.Set.empty
+
   def genModule(module: Module): String =
     sb.clear()
     moduleDeps = module.manifest.map(_.dependencies).getOrElse(Map.empty)
@@ -3017,20 +3025,30 @@ class JsGen(baseDir: Option[os.Path] = None):
     val resolvedPath =
       try scalascript.imports.ImportResolver.resolve(imp.path, base, moduleDeps)
       catch case _: Throwable => base / os.RelPath(imp.path)
-    if os.exists(resolvedPath) then
+    val key = resolvedPath.toString
+    if os.exists(resolvedPath) && !importedFiles.contains(key) then
+      importedFiles += key
       val childDir = resolvedPath / os.up
       val childModule = Parser.parse(os.read(resolvedPath))
       val childGen = new JsGen(Some(childDir))
+      childGen.importedFiles ++= importedFiles
       // Emit only the definitions from the imported module (suppress top-level output)
       childModule.sections.foreach { section =>
         section.content.foreach {
           case cb: Content.CodeBlock if Lang.isScalaScript(cb.lang) =>
             cb.tree.foreach(childGen.genScalaNode)
+          case nestedImp: Content.Import =>
+            // Propagate transitive imports — e.g., std/selective.ssc
+            // pulls in std/either.ssc, and consumers of selective need
+            // Either's constructors emitted too.
+            childGen.genImport(nestedImp)
           case _ => ()
         }
         section.subsections.foreach(childGen.genSection)
       }
       sb.append(childGen.sb)
+      // Pull cycle-protection state back so siblings don't re-import
+      importedFiles ++= childGen.importedFiles
       // For each `[Name as Alias]` binding, rebind the original to the
       // alias.  The original `Name` stays in scope too — JS imports are
       // currently whole-module inlines (see v0.7 follow-up: scoped
