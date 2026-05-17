@@ -104,8 +104,11 @@ lazy val cli = project
     assembly / mainClass       := Some("scalascript.cli.ssc"),
     assembly / assemblyJarName := "ssc.jar",
     assembly / assemblyMergeStrategy := {
-      case PathList("META-INF", _ @ _*) => MergeStrategy.discard
-      case _                            => MergeStrategy.first
+      // ServiceLoader records — concatenate, never discard or first-win
+      // (BackendRegistry needs every backend module's entry).
+      case PathList("META-INF", "services", _*) => MergeStrategy.concat
+      case PathList("META-INF", _ @ _*)         => MergeStrategy.discard
+      case _                                    => MergeStrategy.first
     }
   )
 

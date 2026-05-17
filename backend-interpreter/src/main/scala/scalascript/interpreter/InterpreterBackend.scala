@@ -3,7 +3,6 @@ package scalascript.interpreter
 import scalascript.backend.spi.*
 import scalascript.ir
 import scalascript.transform.Denormalize
-import java.io.{ByteArrayOutputStream, PrintStream}
 
 /** Backend SPI adapter for the tree-walking Interpreter (target id `"int"`).
  *
@@ -22,27 +21,21 @@ class InterpreterBackend extends InteractiveBackend:
   def intrinsics:      Map[ir.QualifiedName, IntrinsicImpl] = Map.empty
   def acceptedSources: Set[String]                         = Set("scala", "html", "css")
 
-  /** One-shot run.  Captures stdout / stderr per the `Executed` shape;
-   *  returns exit code 0 on success or 1 on throw. */
+  /** One-shot run.  Streams stdout / stderr directly through the JVM's
+   *  System streams — `Executed.stdout` / `.stderr` come back empty by
+   *  design (output is already on the wire).  Callers that need
+   *  capture wrap stdout via `System.setOut(...)` before invoking. */
   def compile(module: ir.NormalizedModule, opts: BackendOptions): CompileResult =
     val astModule = Denormalize(module)
     val baseDir   = opts.baseDir.map(p => os.Path(p.toAbsolutePath.toString))
-    val outBuf    = new ByteArrayOutputStream
-    val errBuf    = new ByteArrayOutputStream
-    val out       = new PrintStream(outBuf, true, "UTF-8")
     val exit =
       try
-        Interpreter.run(astModule, out, baseDir)
+        Interpreter.run(astModule, System.out, baseDir)
         0
       catch case t: Throwable =>
-        new PrintStream(errBuf, true, "UTF-8").println(t.getMessage)
+        System.err.println(t.getMessage)
         1
-    out.flush()
-    CompileResult.Executed(
-      stdout = outBuf.toString("UTF-8"),
-      stderr = errBuf.toString("UTF-8"),
-      exit   = exit
-    )
+    CompileResult.Executed(stdout = "", stderr = "", exit = exit)
 
   def openSession(opts: BackendOptions): Session =
     val baseDir = opts.baseDir.map(p => os.Path(p.toAbsolutePath.toString))

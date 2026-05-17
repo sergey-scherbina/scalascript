@@ -2,9 +2,17 @@ package scalascript.cli
 
 import scalascript.parser.Parser
 import scalascript.typer.Typer
+// Stage 5.4 will phase these direct imports out via HTTP intrinsics +
+// concrete ir.Value bridging.  Until then, render / build / serve / repl
+// commands need Interpreter + JsRuntime preamble strings directly;
+// emit-spa needs ScalaJsBackend.compileSourceToJs for per-segment
+// Scala source compilation.
 import scalascript.interpreter.Interpreter
-import scalascript.codegen.{JsGen, JsRuntime, JsRuntimeAsync, JsRuntimeBrowserPatch, JvmGen, ScalaJsBackend}
+import scalascript.codegen.{JsRuntime, JsRuntimeAsync, JsRuntimeBrowserPatch, ScalaJsBackend}
 import scalascript.ast.*
+import scalascript.transform.Normalize
+import scalascript.plugin.BackendRegistry
+import scalascript.backend.spi.{BackendOptions, CompileResult, Segment}
 
 @main def ssc(args: String*): Unit =
   if args.isEmpty then { printUsage(); System.exit(1) }
@@ -24,7 +32,41 @@ import scalascript.ast.*
     case "build"               => buildCommand(args.tail.toList)
     case "bundle"              => bundleCommand(args.tail.toList)
     case "help" | "--help" | "-h" => printUsage()
+    case "--list-backends"     => println(BackendRegistry.describe)
     case _                     => runCommand(args.toList)
+
+// ─── Backend dispatch helpers (Stage 5.3) ─────────────────────────────
+
+private def resolveBackend(id: String): scalascript.backend.spi.Backend =
+  BackendRegistry.lookup(id).getOrElse {
+    System.err.println(
+      s"Unknown backend: '$id'. Available: ${BackendRegistry.all.map(_.id).mkString(", ")}"
+    )
+    System.exit(2)
+    throw new RuntimeException("unreachable")
+  }
+
+private def compileViaBackend(
+    backendId: String,
+    file:      os.Path,
+    extras:    Map[String, String] = Map.empty
+): CompileResult =
+  val module = Parser.parse(os.read(file))
+  val ir     = Normalize(module)
+  val opts   = BackendOptions(
+    baseDir = Some((file / os.up).toNIO),
+    extra   = extras
+  )
+  resolveBackend(backendId).compile(ir, opts)
+
+private def expectText(r: CompileResult, what: String): String = r match
+  case CompileResult.TextOutput(code, _, _) => code
+  case CompileResult.Failed(diags) =>
+    diags.foreach(d => System.err.println(s"[error] $d"))
+    System.exit(1); ""
+  case other =>
+    System.err.println(s"$what: unexpected result ${other.getClass.getSimpleName}")
+    System.exit(1); ""
 
 def printUsage(): Unit =
   println("""
@@ -492,7 +534,15 @@ def runCommand(args: List[String]): Unit =
     val path = os.Path(file, os.pwd)
     if !os.exists(path) then { println(s"Error: File not found: $file"); System.exit(1) }
     else
-      try   Interpreter.run(Parser.parse(os.read(path)), baseDir = Some(path / os.up))
+      try
+        compileViaBackend("int", path) match
+          case CompileResult.Executed(_, _, 0)    => ()
+          case CompileResult.Executed(_, _, exit) => System.exit(exit)
+          case CompileResult.Failed(diags)        =>
+            diags.foreach(d => System.err.println(s"[error] $d")); System.exit(1)
+          case other =>
+            System.err.println(s"Unexpected result: ${other.getClass.getSimpleName}")
+            System.exit(1)
       catch case e: Exception =>
         System.err.println(s"Runtime error: ${e.getMessage}")
         System.exit(1)
@@ -528,7 +578,7 @@ def watchCommand(args: List[String]): Unit =
   val dir     = absPath.getParent
 
   def runOnce(): Unit =
-    try   Interpreter.run(Parser.parse(os.read(os.Path(absPath))), baseDir = Some(os.Path(absPath.getParent)))
+    try compileViaBackend("int", os.Path(absPath))
     catch case e: Exception => System.err.println(s"Error: ${e.getMessage}")
 
   runOnce()
@@ -553,18 +603,27 @@ def emitJsCommand(args: List[String]): Unit =
     if !os.exists(path) then { println(s"Error: File not found: $file"); System.exit(1) }
     else
       try
-        val module   = Parser.parse(os.read(path))
-        val segments = JsGen.generateSegmented(module, baseDir)
-        val hasSSBlocks = segments.exists(_.isInstanceOf[JsGen.Segment.ScalaScriptJs])
+        val segments = compileViaBackend("js", path, Map("mode" -> "segmented")) match
+          case CompileResult.Segmented(segs) => segs
+          case CompileResult.Failed(diags) =>
+            diags.foreach(d => System.err.println(s"[error] $d")); System.exit(1); Nil
+          case other =>
+            System.err.println(s"emit-js: unexpected ${other.getClass.getSimpleName}")
+            System.exit(1); Nil
+        val hasSSBlocks = segments.exists {
+          case Segment.Code("javascript", _) => true
+          case _                             => false
+        }
         if hasSSBlocks then { println(JsRuntime); println(JsRuntimeAsync) }
         for seg <- segments do seg match
-          case JsGen.Segment.ScalaScriptJs(code) =>
+          case Segment.Code("javascript", code) =>
             println(code)
             // Flush the ScalaScript output buffer before the next Scala.js segment runs
             println("""process.stdout.write(_output.join('\n') + (_output.length ? '\n' : '')); _output = [];""")
-          case JsGen.Segment.ScalaSource(src) =>
+          case Segment.Source("scala", src) =>
             val bundle = ScalaJsBackend.compileSourceToJs(src, baseDir)
             if bundle.nonEmpty then println(bundle)
+          case _ => ()
       catch case e: Exception =>
         System.err.println(s"JS generation error: ${e.getMessage}")
         System.exit(1)
@@ -577,14 +636,20 @@ def emitSpaCommand(args: List[String]): Unit =
     if !os.exists(path) then { println(s"Error: File not found: $file"); System.exit(1) }
     else
       try
-        val module   = Parser.parse(os.read(path))
-        val segments = JsGen.generateSegmented(module, baseDir)
+        val module = Parser.parse(os.read(path))
+        val segments = compileViaBackend("js", path, Map("mode" -> "segmented")) match
+          case CompileResult.Segmented(segs) => segs
+          case CompileResult.Failed(diags) =>
+            diags.foreach(d => System.err.println(s"[error] $d")); System.exit(1); Nil
+          case other =>
+            System.err.println(s"emit-spa: unexpected ${other.getClass.getSimpleName}")
+            System.exit(1); Nil
         val title    = module.manifest.flatMap(_.name).getOrElse(path.last.stripSuffix(".ssc"))
         // Concatenate user JS — same segment loop as emit-js but no
         // process.stdout flushes (browser-only output goes to console).
         val userJs = segments.collect {
-          case JsGen.Segment.ScalaScriptJs(code) => code
-          case JsGen.Segment.ScalaSource(src)    =>
+          case Segment.Code("javascript", code) => code
+          case Segment.Source("scala", src)     =>
             ScalaJsBackend.compileSourceToJs(src, baseDir)
         }.filter(_.nonEmpty).mkString("\n")
         println(s"""<!doctype html>
@@ -613,7 +678,7 @@ def emitScalaCommand(args: List[String]): Unit =
     val path = os.Path(file, os.pwd)
     if !os.exists(path) then { println(s"Error: File not found: $file"); System.exit(1) }
     else
-      try   println(JvmGen.generate(Parser.parse(os.read(path)), Some(path / os.up)))
+      try   println(expectText(compileViaBackend("jvm", path), "emit-scala"))
       catch case e: Exception =>
         System.err.println(s"Scala generation error: ${e.getMessage}")
         System.exit(1)
@@ -625,8 +690,7 @@ def compileCommand(args: List[String]): Unit =
     if !os.exists(path) then { println(s"Error: File not found: $file"); System.exit(1) }
     else
       try
-        val module = Parser.parse(os.read(path))
-        val script = JvmGen.generate(module, Some(path / os.up))
+        val script = expectText(compileViaBackend("jvm", path), "compile")
         val tmp    = os.temp(script, suffix = ".sc", deleteOnExit = true)
         try
           val result = os.proc("scala-cli", "run", tmp).call(
@@ -653,8 +717,7 @@ def packageCommand(args: List[String]): Unit =
     if !os.exists(path) then { System.err.println(s"Error: File not found: $file"); System.exit(1) }
     else
       try
-        val module = Parser.parse(os.read(path))
-        val script = JvmGen.generate(module, Some(path / os.up))
+        val script = expectText(compileViaBackend("jvm", path), "package")
         val tmp    = os.temp(script, suffix = ".sc")
         try
           // Default output name: same as input file without .ssc extension
