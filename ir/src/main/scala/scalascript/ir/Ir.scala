@@ -87,11 +87,39 @@ type NormalizedBlock = Content
 case class ImportBinding(name: String, alias: Option[String], span: Option[Span] = None) derives ReadWriter
 case class ListItem(content: String, nested: List[ListItem], span: Option[Span] = None)  derives ReadWriter
 
-// ─── Expression-level IR (placeholders for Stage 3+) ───────────────────────
+// ─── Expression-level IR ────────────────────────────────────────────────
 
-/** Sealed sum of IR expressions.  Stage 2.1 only declares the
- *  placeholders; Stage 3 (effect lowering) fills bodies. */
+/** Sealed sum of IR expressions.  Stage 5+/A.1 concretises the core
+ *  ordinary-expression cases (Lit, VarRef, Call) so intrinsic
+ *  dispatch + `Normalize` can produce real IR.  Stage 3+ effect
+ *  primitives (Perform / Handle / Resume), Stage 5+/A.1 extern call
+ *  sites (ExternCall), Stage 3 match desugaring (MatchTree), and
+ *  Stage 3 tail-call annotations all coexist as IrExpr variants. */
 sealed trait IrExpr derives ReadWriter
+
+// ── Ordinary expressions ───────────────────────────────────────────────
+
+/** A primitive literal. */
+case class Lit(value: LitValue) extends IrExpr derives ReadWriter
+
+/** A variable reference by lexical name.  Resolved against the
+ *  module scope or enclosing frame. */
+case class VarRef(name: String) extends IrExpr derives ReadWriter
+
+/** Ordinary function / method call site, target resolved to an
+ *  absolute symbol reference. */
+case class Call(target: SymbolRef, args: List[IrExpr]) extends IrExpr derives ReadWriter
+
+/** A primitive literal payload — concrete variant of `Lit`.
+ *  Numeric kinds split so round-trip preserves type. */
+enum LitValue derives ReadWriter:
+  case IntL(value:    Long)
+  case DoubleL(value: Double)
+  case StringL(value: String)
+  case BoolL(value:   Boolean)
+  case UnitL
+
+// ── Effect primitives (Stage 3+) ──────────────────────────────────────
 
 case class Perform(effect: QualifiedName, op: String, args: List[IrExpr]) extends IrExpr derives ReadWriter
 case class Handle(body: IrExpr, cases: List[HandleCase], ret: HandleReturn) extends IrExpr derives ReadWriter
@@ -101,8 +129,10 @@ case class Resume(k: SymbolRef, value: IrExpr) extends IrExpr derives ReadWriter
 
 case class TailCall(target: SymbolRef, args: List[IrExpr]) extends IrExpr derives ReadWriter
 
-/** `extern def` call site.  Stage 5 produces these when lowering calls
- *  to symbols declared with the `extern` modifier (spec §8). */
+/** `extern def` call site — the call lowers to this when its target
+ *  is a symbol declared `extern` (spec §8).  Each backend's
+ *  `Backend.intrinsics` map decides how the call materialises:
+ *  inline target source, runtime helper, or out-of-process callback. */
 case class ExternCall(name: QualifiedName, args: List[IrExpr], span: Option[Span] = None) extends IrExpr derives ReadWriter
 
 /** Compiled pattern-match decision tree.  Stage 3's match desugaring
