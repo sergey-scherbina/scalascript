@@ -2037,6 +2037,12 @@ class Interpreter(
     case FieldStep(name: String)
     case SomeStep
     case EachStep
+    /** v0.9 — pointwise access into a `List[A]`.  Returns `None` on
+     *  out-of-bounds reads; sets are no-ops out of bounds. */
+    case IndexStep(i: Int)
+    /** v0.9 — pointwise access into a `Map[K, V]`.  Returns `None`
+     *  for absent keys; sets insert / overwrite. */
+    case AtKey(key: Value)
 
   /** `recv.copy(field = value, ...)` — produce a new InstanceV with the
    *  named fields overridden. Mixing named and positional args is allowed:
@@ -2109,8 +2115,12 @@ class Interpreter(
           case _ => None
         stepsOpt match
           case Some(steps) if steps.nonEmpty =>
-            if steps.contains(PathStep.EachStep)      then Pure(buildPathTraversal(steps))
-            else if steps.contains(PathStep.SomeStep) then Pure(buildPathOptional(steps))
+            val hasIndexOrAt = steps.exists {
+              case _: PathStep.IndexStep | _: PathStep.AtKey => true
+              case _                                         => false
+            }
+            if steps.contains(PathStep.EachStep)                 then Pure(buildPathTraversal(steps))
+            else if steps.contains(PathStep.SomeStep) || hasIndexOrAt then Pure(buildPathOptional(steps))
             else Pure(buildPathLens(steps.collect { case PathStep.FieldStep(n) => n }))
           case _ => located("Focus: expected a field-access lambda like _.field.subfield")
       case _ => located("Focus expects exactly one lambda argument")
@@ -2119,11 +2129,30 @@ class Interpreter(
    *  selects translate to `SomeStep`, `.each` to `EachStep`; all other
    *  names become `FieldStep`. */
   private def extractPathSteps(body: Term, isBase: Term => Boolean): Option[List[PathStep]] =
+    def litToValue(lit: Lit): Option[Value] = lit match
+      case Lit.Int(v)     => Some(Value.IntV(v.toLong))
+      case Lit.Long(v)    => Some(Value.IntV(v))
+      case Lit.String(v)  => Some(Value.StringV(v))
+      case Lit.Boolean(v) => Some(Value.BoolV(v))
+      case Lit.Double(v)  => Some(Value.DoubleV(v.toDouble))
+      case _              => None
     def loop(t: Term, acc: List[PathStep]): Option[List[PathStep]] = t match
       case Term.Select(qual, Term.Name("some")) =>
         loop(qual, PathStep.SomeStep :: acc)
       case Term.Select(qual, Term.Name("each")) =>
         loop(qual, PathStep.EachStep :: acc)
+      // v0.9 pointwise — `_.users.index(3)` / `_.byId.at("u-42")`.
+      case Term.Apply.After_4_6_0(Term.Select(qual, Term.Name("index")), argClause)
+          if argClause.values.size == 1 =>
+        argClause.values.head match
+          case Lit.Int(i)  => loop(qual, PathStep.IndexStep(i) :: acc)
+          case Lit.Long(i) => loop(qual, PathStep.IndexStep(i.toInt) :: acc)
+          case _           => None
+      case Term.Apply.After_4_6_0(Term.Select(qual, Term.Name("at")), argClause)
+          if argClause.values.size == 1 =>
+        argClause.values.head match
+          case lit: Lit => litToValue(lit).flatMap(v => loop(qual, PathStep.AtKey(v) :: acc))
+          case _        => None
       case Term.Select(qual, name) =>
         loop(qual, PathStep.FieldStep(name.value) :: acc)
       case other if isBase(other) => Some(acc)
@@ -2312,6 +2341,15 @@ class Interpreter(
     case PathStep.SomeStep :: rest => target match
       case Value.OptionV(Some(inner)) => opticGetOption(inner, rest)
       case _                          => None
+    case PathStep.IndexStep(i) :: rest => target match
+      case Value.ListV(items) if i >= 0 && i < items.length =>
+        opticGetOption(items(i), rest)
+      case _ => None
+    case PathStep.AtKey(k) :: rest => target match
+      case Value.MapV(m) => m.get(k).flatMap(v => opticGetOption(v, rest))
+      case _             => None
+    case PathStep.EachStep :: _ =>
+      None  // Traversal steps are handled by opticGetAll, not here.
 
   /** Functional set along `steps`. Returns the rebuilt value, or the
    *  original `target` unchanged when the path doesn't fully resolve
@@ -2329,6 +2367,20 @@ class Interpreter(
       case Value.OptionV(Some(inner)) =>
         Value.OptionV(Some(opticSet(inner, rest, newVal)))
       case other => other
+    case PathStep.IndexStep(i) :: rest => target match
+      case Value.ListV(items) if i >= 0 && i < items.length =>
+        Value.ListV(items.updated(i, opticSet(items(i), rest, newVal)))
+      case other => other
+    case PathStep.AtKey(k) :: rest => target match
+      case Value.MapV(m) =>
+        m.get(k) match
+          case Some(child) => Value.MapV(m.updated(k, opticSet(child, rest, newVal)))
+          // Absent key + remaining steps: no parent to write into.
+          case None if rest.isEmpty => Value.MapV(m.updated(k, newVal))
+          case None                  => target
+      case other => other
+    case PathStep.EachStep :: _ =>
+      target  // Traversal steps are handled by opticModifyAll, not here.
 
   /** Build an Optional for a path that contains at least one `SomeStep`.
    *  `getOption` returns `None` if any Option in the chain is empty;
@@ -2363,10 +2415,7 @@ class Interpreter(
           case None       => throw InterpretError("Optional.andThen: cannot compose with non-path optic")
       case _ => throw InterpretError("Optional.andThen(other): only path optic supported")
     })
-    val stepsValue = Value.ListV(steps.map {
-      case PathStep.FieldStep(n) => Value.StringV(n)
-      case PathStep.SomeStep     => Value.StringV("__some__")
-    })
+    val stepsValue = stepsAsListV(steps)
     Value.InstanceV("Optional", Map(
       "getOption" -> getOptionFn,
       "set"       -> setFn,
@@ -2392,6 +2441,13 @@ class Interpreter(
     case PathStep.EachStep :: rest => target match
       case Value.ListV(items) => items.flatMap(item => opticGetAll(item, rest))
       case _                  => Nil
+    case PathStep.IndexStep(i) :: rest => target match
+      case Value.ListV(items) if i >= 0 && i < items.length =>
+        opticGetAll(items(i), rest)
+      case _ => Nil
+    case PathStep.AtKey(k) :: rest => target match
+      case Value.MapV(m) => m.get(k).map(v => opticGetAll(v, rest)).getOrElse(Nil)
+      case _             => Nil
 
   /** Walk `steps` and apply `f` to every focus. Missing layers
    *  (None / not-an-instance) leave the corresponding subtree
@@ -2418,12 +2474,24 @@ class Interpreter(
           case _                    => target
         }
       case _ => Pure(target)
+    case PathStep.IndexStep(i) :: rest => target match
+      case Value.ListV(items) if i >= 0 && i < items.length =>
+        opticModifyAll(items(i), rest, f).map(updated => Value.ListV(items.updated(i, updated)))
+      case _ => Pure(target)
+    case PathStep.AtKey(k) :: rest => target match
+      case Value.MapV(m) => m.get(k) match
+        case Some(child) =>
+          opticModifyAll(child, rest, f).map(updated => Value.MapV(m.updated(k, updated)))
+        case None => Pure(target)
+      case _ => Pure(target)
 
   private def stepsAsListV(steps: List[PathStep]): Value.ListV =
     Value.ListV(steps.map {
       case PathStep.FieldStep(n) => Value.StringV(n)
       case PathStep.SomeStep     => Value.StringV("__some__")
       case PathStep.EachStep     => Value.StringV("__each__")
+      case PathStep.IndexStep(i) => Value.TupleV(List(Value.StringV("__index__"), Value.IntV(i.toLong)))
+      case PathStep.AtKey(k)     => Value.TupleV(List(Value.StringV("__at__"), k))
     })
 
   private def stepsFromFields(fields: Map[String, Value]): Option[List[PathStep]] =
@@ -2431,6 +2499,10 @@ class Interpreter(
       case Some(Value.ListV(items)) => Some(items.collect {
         case Value.StringV("__some__") => PathStep.SomeStep
         case Value.StringV("__each__") => PathStep.EachStep
+        case Value.TupleV(List(Value.StringV("__index__"), Value.IntV(i))) =>
+          PathStep.IndexStep(i.toInt)
+        case Value.TupleV(List(Value.StringV("__at__"), k)) =>
+          PathStep.AtKey(k)
         case Value.StringV(n)          => PathStep.FieldStep(n)
       })
       case _ => None

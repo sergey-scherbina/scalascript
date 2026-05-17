@@ -185,12 +185,14 @@ object Value:
     case NativeFnV(name, _)   => s"<native:$name>"
     case DocV(parts)          => parts.map(show).mkString("\n")
 
-  /** Render an optic's `_steps` array as a dotted path with `.some` / `.each`
-   *  markers replaced by their source syntax (`__some__` → `some`, etc.). */
+  /** Render an optic's `_steps` array as a dotted path with `.some` / `.each` /
+   *  `.index(i)` / `.at(k)` markers replaced by their source syntax. */
   private def formatSteps(items: List[Value]): String =
     items.collect {
       case StringV("__some__") => "some"
       case StringV("__each__") => "each"
+      case TupleV(List(StringV("__index__"), IntV(i))) => s"index($i)"
+      case TupleV(List(StringV("__at__"),    k))       => s"at(${show(k)})"
       case StringV(n)          => n
     }.mkString(".")
 

@@ -1,0 +1,12 @@
+Some(User(bob, false))
+None
+BOB
+true
+Some(true)
+false
+Some(User(ada, true))
+None
+Ada Lovelace
+Some(bob)
+Bob
+false
