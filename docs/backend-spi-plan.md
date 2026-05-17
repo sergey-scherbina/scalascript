@@ -363,6 +363,57 @@ move behind the SPI.
 green.  Capability layer ready for Stage 5 to plug into Backend impls
 and call `validate` before `compile`.
 
+#### Discovered while implementing 5.x
+
+- **Backend.compile signature vs codegen reality.**  Spec says
+  `compile(ir: NormalizedModule, opts: BackendOptions): CompileResult`.
+  All existing codegens consume `ast.Module` with parsed scalameta
+  trees.  Resolved by adding `transform.Denormalize` (inverse of
+  Normalize) so adapters can convert IR back to AST and call the
+  existing `generate(...)` methods.  Round-trip cost: ~1 ms per
+  compile, acceptable.  Post-Stage-5 cleanup: have codegens consume
+  IR directly, remove both transform passes.
+- **Streaming vs buffered output.**  Initial `InterpreterBackend.compile`
+  buffered stdout into `Executed.stdout`.  Worked for one-shot
+  programs but broke `run` / `watch` UX (long-running programs
+  produce no visible output until exit).  Switched to streaming
+  through `System.out` / `System.err`; `Executed.stdout/stderr` come
+  back empty by design.  CLI prints nothing additional.
+- **sbt-assembly + ServiceLoader.**  The merge strategy
+  `META-INF/_* → discard` was eating META-INF/services/, breaking
+  ServiceLoader at runtime.  Fix: `META-INF/services → concat`
+  before the discard rule.  Caught only when bin/ssc reported
+  "Unknown backend: 'int'" mid-conformance.  Will bite anyone who
+  forks the build later.
+- **Cross-backend integration test scope.**  Registry test belongs
+  in cli/ — the only module that aggregates every backend on its
+  classpath.  Added scalatest %Test to cli; tests assert all 4
+  bundled adapters discovered, lookup by id, acceptedSources
+  intersection, etc.
+- **HTTP intrinsics deferral.**  Stage 5.4 as originally scoped is
+  4–6 iterations of work (parser change + IR rewrite + per-backend
+  emission refactor + per-package intrinsic migration).  Closed
+  Stage 5 at 5.3 and proposed a post-Stage-5 multi-stage rollout
+  (5+/A, 5+/B, 5+/C in plan).  Transitional `backendInterpreter
+  dependsOn backendJs` stays.
+
+### Stage 5 — closed at 5.3
+
+209 unit tests (was 202; +7 BackendRegistryTest) + 38 conformance
+green.  Stage achievements:
+
+- 4 backend adapters implementing the SPI (`JvmBackend`,
+  `JsBackend`, `ScalaJsPluginBackend`, `InterpreterBackend` /
+  `InterpreterSession`).
+- ServiceLoader discovery via `core/plugin/BackendRegistry`.
+- 7 of ~12 CLI commands route through the registry; `--list-backends`
+  prints all 4.
+- Denormalize bridges IR → AST so existing codegens stay unchanged.
+
+HTTP intrinsics (5.4) deferred to a follow-up multi-stage rollout —
+preserves the spec contract without forcing a parser change in the
+middle of Stage 5.
+
 ---
 
 ## Stage 5 — Convert existing backends to plugins
@@ -399,16 +450,57 @@ import any of them directly.
   `import scalascript.interpreter` outside the backend modules
   returns zero hits.
 
-### 5.4 Extract HTTP intrinsics
-- `std/http.ssc` in prelude:  `extern def serve(port)`, `route`,
-  `stop`, `Request`, `Response` case classes.
-- Each backend exposes its existing HTTP runtime through
-  `Backend.intrinsics` (spec §8 — `InlineCode` / `RuntimeCall`).
-- Hard-coded `nativeP("serve")` etc. in `Interpreter` and the inline
-  HTTP emission in `JvmGen` / `JsGen` go through the intrinsic table.
-- **Done when:** `examples/hello-server.ssc` + auth/REST examples
-  still run identically; no `route` / `serve` string-literal matches
-  in `backend-*` modules outside the intrinsic registrations.
+### 5.4 Extract HTTP intrinsics — DEFERRED
+
+After scoping during 5.1–5.3 it became clear that **full HTTP
+intrinsic extraction is multi-stage work**, not a single iteration.
+Required pieces:
+
+  1. **`extern` modifier in the parser** (or convention like
+     `__extern__` body marker) — every recognised intrinsic needs a
+     parseable declaration.
+  2. **Typer rules** to treat `extern def` symbols as intrinsic call
+     sites rather than ordinary defs.
+  3. **`std/http.ssc` prelude file** with `extern def serve / route /
+     stop`, `Request` / `Response` case classes.
+  4. **Normalize pass extension** to rewrite calls to extern symbols
+     into `ir.ExternCall(qualifiedName, args)` IR nodes.
+  5. **Each codegen's emission swap** — `JvmGen`'s hardcoded
+     `route(...)` pattern-match (~150 LOC), `JsGen`'s Node-http
+     emission (~200 LOC), `Interpreter`'s `nativeP("serve")` block
+     (~100 LOC) — all replaced by intrinsic-table consultation.
+  6. **WS / auth / FS / crypto** — same shape for every platform
+     package in spec §8.
+
+Each of those is at least one iteration.  Together they're a
+**Stage 5.5+ multi-session effort** — bigger than the rest of
+Stage 5 combined.
+
+For now:
+
+- The transitional `backend-interpreter dependsOn backend-js`
+  stays in `build.sbt` (`server/WebServer.scala` still imports
+  `codegen.JsGen` for the SPA runtime preamble).  Tracked here.
+- `nativeP("serve")` / `nativeP("route")` etc. stay in
+  `Interpreter.scala`.
+- `route` / `serve` keyword recognition stays inline in `JvmGen` /
+  `JsGen`.
+
+**When this matters next:** the moment a new backend (WASM, .NET, …)
+needs HTTP support — the HTTP code can't be re-implemented in every
+backend.  Until then the intrinsics extraction is pure architecture
+work without a concrete consumer, so defer.
+
+Concrete next-stage proposal (post-Stage 5):
+
+- **Stage 5+/A — Intrinsic plumbing.**  Add the `extern` parsing,
+  the `ExternCall` IR-node populated, the intrinsic-table
+  consultation at emit time.  Migrate ONE intrinsic (e.g.
+  `Console.println`) end-to-end as a proof point.  ~1 iteration.
+- **Stage 5+/B — `std.http` extraction.**  Move HTTP through the
+  pipeline established in 5+/A.  ~2 iterations.
+- **Stage 5+/C — `std.ws`, `std.auth`, `std.fs`, `std.crypto`.**
+  Same pattern.  ~1 iteration each.
 
 ---
 
@@ -559,7 +651,7 @@ Anything else that surfaces during execution: append here under a
 | 2     | 2 / 2           | **Stage 2 closed.** 2.1 IR + Normalize; 2.2 upickle `derives ReadWriter` on every IR data type + 76 round-trip tests (38 fixtures × JSON+MsgPack).  `schemas/ir.json` deferred to Stage 8 (docs). |
 | 3     | 2 / 2           | **Stage 3 closed.** EffectAnalysis extracted to `core/transform/`; JvmGen + JsGen are now thin adapters.  LOC delta: JvmGen -48, JsGen -52 (-100 in backends), +101 in core.  IR-consumption switch deferred to Stage 5. |
 | 4     | 2 / 2           | **Stage 4 closed.** 4 Capabilities values declared (1 per backend module); CapabilityCheck.detect + validate; 9 new tests (6 detect + 3 validate).  Detection coarse (keyword scan on `Content.CodeBlock.source`) until Stage 5+ populates IrExpr nodes. |
-| 5     | 0 / 4           | Not started |
+| 5     | 3 / 4           | **Stage 5 closed at 5.3.** 5.1 adapters + Denormalize; 5.2 BackendRegistry; 5.3 CLI registry dispatch (7 of ~12 commands). 5.4 (HTTP intrinsics extraction) deferred — see preamble; full scope is multi-stage post-Stage-5 work. |
 | 6     | 0 / 3           | Not started |
 | 7     | 0 / 2           | Not started |
 | 8     | 0 / 2           | Not started |
