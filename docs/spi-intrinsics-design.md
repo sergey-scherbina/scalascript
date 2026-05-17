@@ -4,6 +4,25 @@
 > extraction) starts.  Companion to [`docs/backend-spi.md`](backend-spi.md)
 > §8 and [`docs/spi-followups-plan.md`](spi-followups-plan.md).
 >
+> ## Resolved (2026-05-17)
+>
+> Four of the five holes are now decided; one is parked.
+>
+> | # | Hole | Resolution |
+> |---|------|-----------|
+> | 1.1 | Plumbing approach | **Hybrid synthetic AST-marker** — Normalize rewrites `Term.Apply(Name(qn))` → `ir.ExternCall`; Denormalize emits as `Term.Apply(Name("__intrinsic_<qn>"))`; JvmGen/JsGen catch the prefix in existing `Term.Apply` emit case and consult `backend.intrinsics(qn)`. |
+> | 1.2 | `EmitContext` shape | **Minimum** — `out: StringBuilder`, `freshName(prefix): String`, `emitArg(IrExpr): String`.  Extend as needs surface. |
+> | 1.3 | First proof intrinsic | **`println(s)`** — migrates the existing hardcoded path on compiled backends without regression.  Interpreter already on `NativeImpl`. |
+> | 1.4 | Workspace | **Worktree** on a long-lived feature branch per AGENTS.md big-feature workflow. |
+> | 2 | Sync vs async handler semantics | **PARKED** — revisiting pending discussion of direct-syntax effects.  v0.8 algebraic effects are already direct-style; option A (sync handler + Async-effect) likely subsumes option B's benefits.  Will settle before 5+/B touches `std.http` handler shape. |
+> | 3 | `std.ws` server/client split | **Split** — packages `std.ws.server` / `std.ws.client` with `std.ws` re-export.  Two feature flags `Feature.WebSocketsServer` / `Feature.WebSocketsClient`.  Browser-SPA / CLI-only-client backends get the right capability bucket. |
+> | 4 | `HostCallback` end-to-end | **Build now** before 5+/D.  HostDispatcher in `core/` + stub subprocess backend + conformance round-trip via `println`.  ~1 day; first out-of-process backend (.NET / WASM) starts with a working callback. |
+> | 5 | Partial feature coverage | **Hierarchical sub-features** — ~3 sub-flags per platform package (e.g. `HttpServer` baseline + `HttpServerStreaming` + `HttpServerMultipart`; `WebSocketsServer` baseline + `WebSocketsServerExtras` + `WebSocketsClient`).  Backend declares the subset it implements; error messages stay actionable. |
+>
+> Sections below describe the original holes and trade-offs leading to
+> these resolutions.  Kept for archeology so future contributors don't
+> re-litigate without new evidence.
+>
 > Stage 5+/A is partially landed: `Backend.intrinsics` API exists,
 > `nowMillis` flows through all three backends, `println` migrated
 > from hardcoded `nativeP` to a `NativeImpl` intrinsic on the
