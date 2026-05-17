@@ -399,58 +399,43 @@ Sprint 3.  Each is meaningfully complete on its own.
     down the channel.  Currently we just `closeNow`; strict
     clients may complain.  Half a line of `scheduler.schedule(...)`.
 
-## v1.2 — Auth follow-up: combined example + WebAuthn / passkeys
+## v1.2 — Auth follow-up: combined example + WebAuthn / passkeys — **landed**
 
-The v0.6 auth surface landed primitives (sessions, CSRF, JWT HS256/RS256,
-server-side store, Basic, OAuth, TOTP, password hashing, rate limiting)
-but two ergonomic gaps remain:
+Shipped pieces (each on main):
 
-1. **`examples/auth-full.ssc`** — end-to-end demo stitching all v0.6
-   primitives in one file: signup with `hashPassword`, login with
-   `verifyPassword` + `rateLimit` on the endpoint, post-login session
-   via `withSession`, `csrfValid` on every state-changing POST, a
-   `/profile` route gated on `req.session`, optional 2FA via
-   `totpValid`, and an `/api/me` route protected by `req.jwtClaims`.
-   Acts as the canonical "how do I wire these together" reference —
-   today's `auth-demo.ssc` only shows cookie+CSRF, `oauth-demo.ssc`
-   only shows OAuth.  Small commit (~150 LOC), zero new compiler
-   features.
+  - **`examples/auth-full.ssc`** — combined demo of every v0.6 auth
+    primitive (hashPassword/verifyPassword, withSession, csrfValid,
+    rateLimit, totp, JWT, /api/me protection).
+  - **WebAuthn server primitives** in
+    `compiler/src/main/scala/scalascript/server/WebAuthn.scala`:
+      - `WebAuthn.challenge(userId)` — fresh base64url challenge
+      - `WebAuthnStore` (in-memory) for `credentialId → publicKey`
+      - `verifyRegistration` — `none`-attestation parser, COSE
+        public-key extractor
+      - `verifyAssertion` — clientDataJSON + authenticatorData +
+        ECDSA-SHA256 signature verify, signCount monotonicity
+  - **`examples/webauthn-demo.ssc`** — enrol + sign-in flow,
+    `navigator.credentials.create / get` glue inline.
+  - **`e2e/webauthn-smoke.sc`** — mocks an authenticator (ECDSA P-256
+    keypair, inline CBOR encoder) and walks
+    enrol → signin → replay-rejected against the running
+    `bin/ssc` interpreter on port 8781.
 
-2. **WebAuthn / passkeys** — modern standard for passwordless login
-   (FIDO2 / WebAuthn Level 2).  Server side runs entirely in the
-   existing serve runtime; browser side uses `navigator.credentials
-   .create()` / `.get()` against a small JS shim emitted alongside
-   the SPA target.  Stages:
+Carry-overs (out of v1.2, promote when asked):
 
-   2a. **Challenge issuance + credential store.**  `webauthnChallenge()`
-       returns a fresh base64url challenge bound to a session.
-       `WebAuthnStore` (in-memory by default, ConcurrentHashMap keyed
-       by userId) holds the `(credentialId → publicKey)` pairs.
-
-   2b. **Registration verification.**  Parse the browser's
-       `AttestationResponse` (CBOR-encoded `attestationObject` +
-       `clientDataJSON`), extract the COSE public key, verify the
-       challenge matches and `origin` / `rpId` match.  Support
-       packed / none attestation formats (covers Apple, Yubikey,
-       Android).  Store credentialId + publicKey + signCount.
-
-   2c. **Authentication verification.**  Parse `AssertionResponse`
-       (`authenticatorData` + `clientDataJSON` + `signature`),
-       verify signature against stored publicKey, check `signCount`
-       monotonicity, return logged-in `userId`.
-
-   2d. **`examples/webauthn-demo.ssc`** — full enrol + sign-in flow
-       driven by a small in-page `<script>` calling
-       `navigator.credentials`.  Same `.ssc` works on `ssc emit-spa`
-       and `ssc run`; the browser-side JS is emitted inline.
-
-   2e. **e2e harness `e2e/webauthn-smoke.sc`** — mocks an authenticator
-       (an in-process ECDSA P-256 keypair) and walks register → auth →
-       counter-replay-rejected.  No real authenticator hardware
-       needed in CI.
-
-Approx scope: 1 is ~2h; 2a-2c are ~2 days (CBOR parser + signature
-verify on three backends); 2d-2e ~1 day.
+  - **`packed` and `fido-u2f` attestation formats.**  Currently we
+    accept only `none` (Apple, 1Password, iOS passkeys, most
+    consumer flows).  Enterprise scenarios that want the
+    authenticator to vouch for its provenance need the attestation
+    signature checked.  ~150 LOC + a vendor root-cert bundle.
+  - **Per-credential `userHandle` / `displayName`.**  We key
+    everything on a single `userId` string; multi-account browsers
+    can't yet route by passkey.
+  - **WebAuthn on JsGen / JvmGen.**  The server lives in
+    `scalascript.server` which only the interpreter and JvmGen
+    backends bundle; the JS-target Node server lacks ECDSA / CBOR
+    parity.  Adds ~400 LOC duplicate logic — defer until a Node
+    deployment asks.
 
 ## v1.3 — Runtime upgrades: real-thread Async, persistence, Async-integrated WS
 
