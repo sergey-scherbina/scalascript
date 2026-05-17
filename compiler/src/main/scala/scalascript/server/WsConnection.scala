@@ -105,6 +105,14 @@ final class WsConnection(
   // enforced by a single CAS, not by best-effort `var = null` patterns.
   @volatile private var onMessageCb: Option[Value] = None
   @volatile private var onPongCb:    Option[Value] = None
+  // Async-style recv queue — populated by `dispatchMessage` once any
+  // consumer flips `recvEnabled` via the first `ws.recv()` call.  Null
+  // sentinel signals "WS closed".  Lets a user handler read messages
+  // with a sync `while !ws.isClosed do ws.recv()` loop instead of
+  // installing an inverted-control `onMessage` callback.
+  private val recvQueue: java.util.concurrent.LinkedBlockingQueue[String | Null] =
+    java.util.concurrent.LinkedBlockingQueue()
+  @volatile private var recvEnabled: Boolean = false
   private val onCloseCb:
     java.util.concurrent.atomic.AtomicReference[Value | Null] =
       java.util.concurrent.atomic.AtomicReference[Value | Null](null)
@@ -217,10 +225,13 @@ final class WsConnection(
    *  the selector parses the first frame.  Reading `onMessageCb` inside
    *  the task gives us the latest value. */
   private def dispatchMessage(opcode: WsFraming.Opcode, payload: Array[Byte]): Unit =
-    val v: Value =
+    val s: String =
       if opcode == WsFraming.Opcode.Text then
-        Value.StringV(new String(payload, java.nio.charset.StandardCharsets.UTF_8))
-      else Value.StringV(new String(payload, "ISO-8859-1"))
+        new String(payload, java.nio.charset.StandardCharsets.UTF_8)
+      else new String(payload, "ISO-8859-1")
+    // Async-style recv path: parked consumers wake on the next take.
+    if recvEnabled then recvQueue.offer(s)
+    val v: Value = Value.StringV(s)
     executor.execute { () =>
       onMessageCb.foreach { cb =>
         try interp.invoke(cb, List(v))
@@ -343,6 +354,8 @@ final class WsConnection(
           catch case e: Throwable =>
             log.println(s"WS close handler error: ${e.getMessage}")
         }
+      // Wake any parked recv consumers with a null sentinel.
+      if recvEnabled then recvQueue.offer(null)
 
   /** The `WebSocket` Value passed to the user's handler.  All four methods
    *  capture `this` so callbacks fire on the live connection. */
@@ -399,6 +412,24 @@ final class WsConnection(
         onPongCb = Some(cb); Value.UnitV
       case _ => throw scalascript.interpreter.InterpretError("ws.onPong { payload => … }")
     })
+    // Async-style sync recv — block the calling thread until the next
+    // message arrives (Some) or the WS closes (None).  Activates the
+    // recv-queue on first use; before that messages flow only through
+    // `onMessage`.  Calling thread must be off the WS executor (the
+    // user's `onWebSocket` block runs there; recv there would deadlock
+    // — fork a Thread / executor for the loop).
+    val recv = Value.NativeFnV("WebSocket.recv", Computation.pureFn {
+      case Nil =>
+        recvEnabled = true
+        val v = recvQueue.take()
+        if v == null then Value.OptionV(None)
+        else Value.OptionV(Some(Value.StringV(v)))
+      case _ => throw scalascript.interpreter.InterpretError("ws.recv()")
+    })
+    val isClosed = Value.NativeFnV("WebSocket.isClosed", Computation.pureFn {
+      case Nil => Value.BoolV(closing)
+      case _   => throw scalascript.interpreter.InterpretError("ws.isClosed")
+    })
     Value.InstanceV("WebSocket", Map(
       "send"      -> send,
       "sendBytes" -> sendBytes,
@@ -407,6 +438,8 @@ final class WsConnection(
       "onMessage" -> onMessage,
       "onClose"   -> onClose,
       "onPong"    -> onPong,
+      "recv"      -> recv,
+      "isClosed"  -> isClosed,
       "request"   -> request
     ))
 

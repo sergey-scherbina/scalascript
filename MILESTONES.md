@@ -589,13 +589,20 @@ lands as its own merge so the suite stays green between steps.
 `Storage` effect with file-backed + ephemeral handlers — landed;
 see git history.)
 
-1. **`Async`-integrated WebSocket.**  Lift the `ws.onMessage(cb)` /
-   `ws.onClose(cb)` callback surface into suspending `Async`
-   operations: `Async.recvFrom(ws)` and `Async.closed(ws)`.  A
-   WebSocket handler written as `runAsync { while (...) { … } }`
-   reads linearly instead of the inverted-control callback chain.
-   Builds on top of the existing `WsRoutes` plumbing in
-   `compiler/src/main/scala/scalascript/server/`.
+1. **`Async`-integrated WebSocket — full cross-backend.**  Blocking
+   `ws.recv(): Option[String]` and `ws.isClosed` primitives landed
+   for the JVM interpreter and `ssc compile` backends — see
+   `examples/ws-recv-demo.ssc` — so handlers can read in a `while
+   !ws.isClosed do ws.recv()` loop instead of inverting control
+   through `onMessage`.  Remaining work:
+     - Lift these into proper Async-effect operations
+       (`Async.recvFrom(ws)`, `Async.closed(ws)`) so a handler can
+       suspend across messages inside `runAsync { … }` instead of
+       parking a dedicated thread.
+     - JS Node target: `recv()` doesn't fit Node's single-thread
+       event loop without a `worker_threads` bridge — same shape as
+       stage 2 of this milestone (Node `runAsyncParallel`).  Until
+       then Node WS handlers keep the callback-only API.
 
 2. **Node target for `runAsyncParallel`.**  Today the Node JS runtime
    aliases `_runAsyncParallel` to `_runAsync` (single-threaded fallback)

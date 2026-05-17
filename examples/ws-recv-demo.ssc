@@ -1,0 +1,74 @@
+#!/usr/bin/env ssc
+---
+name: ws-recv-demo
+version: 1.0.0
+description: WebSocket sync recv — alternative to onMessage callbacks
+---
+
+# WebSocket Sync Recv
+
+The default `onWebSocket(path) { ws => … }` API gives you
+callback-style WebSocket handling:
+
+```scalascript
+onWebSocket("/chat") { ws =>
+  ws.onMessage { msg => ws.send("echo: " + msg) }
+  ws.onClose { () => println("closed") }
+}
+```
+
+This works but inverts control: every per-message bit of state has to
+live in a `var` outside the callback.  An alternative is the blocking
+`ws.recv(): Option[String]` API — it parks the calling thread until
+the next message arrives (`Some`) or the WS closes (`None`):
+
+```scalascript
+onWebSocket("/echo") { ws =>
+  // Spin off a thread so the handler returns promptly and the WS
+  // executor doesn't deadlock on its own recv.
+  val t = Thread(() => {
+    var n = 0
+    while !ws.isClosed do
+      ws.recv() match
+        case Some(msg) =>
+          n = n + 1
+          ws.send("#" + n + ": " + msg)
+        case None => ()  // WS closed
+    println("served " + n + " messages")
+  })
+  t.start()
+}
+
+serve(8080)
+```
+
+## Why a thread?
+
+The `onWebSocket` block runs on the WS executor (interpreter) or on
+the upgrade thread (JvmGen).  Blocking *that* thread on `recv()`
+would prevent it from processing incoming frames — deadlock.  Forking
+a fresh `Thread` (or, on JvmGen, a virtual thread) gives the recv
+loop its own stack so the executor stays free.
+
+A future `Async`-effect integration (`Async.recvFrom(ws)` inside
+`runAsync { … }`) will handle the threading automatically; see
+[MILESTONES.md](../MILESTONES.md) v1.3 stage 1.
+
+## Methods at a glance
+
+| Method            | Effect                                                  |
+|-------------------|---------------------------------------------------------|
+| `ws.recv()`       | block for next text/binary message; `None` on close     |
+| `ws.isClosed`     | true once the close frame has been sent or received     |
+| `ws.send(s)`      | enqueue a text frame (non-blocking)                     |
+| `ws.sendBytes(s)` | enqueue a binary frame                                  |
+| `ws.close()`      | initiate close                                          |
+
+Both styles coexist on a single connection: `onMessage` callbacks
+still fire after `recv()` is enabled.  Pick whichever reads cleaner
+for the workload.
+
+Supported on the JVM interpreter and `ssc compile` backends.  The
+JS Node target keeps the callback-only API for v1.3; a cross-backend
+`Async.recvFrom(ws)` integration will land in v1.4 once Node's
+`worker_threads` support is wired for the parallel `Async` handler.

@@ -2874,6 +2874,8 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |        try cb() catch case e: Throwable =>
        |          System.err.println(s"WS close handler: ${e.getMessage}")
        |      }
+       |      // Wake any parked recv consumers with a sentinel `null`.
+       |      _deliverRecv(null)
        |
        |  /** Force the writer loop to exit promptly when the queue can't
        |   *  drain.  Used by `send`-overflow and by the read-loop when EOF
@@ -2909,6 +2911,36 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |  def onMessage(cb: String => Unit): Unit = onMessageCb = cb
        |  def onClose(cb: () => Unit): Unit       = onCloseCb.set(cb)
        |  def onPong(cb: String => Unit): Unit    = onPongCb   = cb
+       |
+       |  // ── Async-style blocking recv (alternative to onMessage cb) ────
+       |  //
+       |  // Lets a handler read messages with a `while !ws.isClosed do …`
+       |  // loop instead of inverting control through `onMessage`.  Works
+       |  // because each WS connection runs the user handler on its own
+       |  // virtual thread (Loom), so a parked recv blocks just that VT.
+       |  // `_recvQueue` is lazily populated by `_deliverMessage` once
+       |  // `recv` (or `recvBytes`) is first called.
+       |  private val _recvQueue: LinkedBlockingQueue[String | Null] = LinkedBlockingQueue()
+       |  @volatile private var _recvEnabled: Boolean = false
+       |
+       |  /** Block the calling thread until a message arrives or the WS
+       |   *  closes.  Returns Some(msg) on a text/binary message, None on
+       |   *  close. */
+       |  def recv(): Option[String] =
+       |    _recvEnabled = true
+       |    val v = _recvQueue.take()
+       |    if v == null then None else Some(v.asInstanceOf[String])
+       |
+       |  /** True once the close-frame has been sent or received. */
+       |  def isClosed: Boolean = closing
+       |
+       |  /** Called by the read-loop after each fully-reassembled message
+       |   *  (and once with `null` on close).  Pushes into the recv-queue
+       |   *  if any recv-style consumer has activated it; otherwise falls
+       |   *  through to the callback-style API.  Cost when nobody calls
+       |   *  recv: a single volatile read. */
+       |  def _deliverRecv(payload: String | Null): Unit =
+       |    if _recvEnabled then _recvQueue.offer(payload)
        |
        |  /** ping([payload]): empty Ping or Latin-1-byte-view payload that
        |    * the peer echoes back as a Pong (delivered via `onPong`).
@@ -3024,6 +3056,8 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |    val msg =
        |      if opcode == 0x1 then new String(payload, StandardCharsets.UTF_8)
        |      else                  new String(payload, "ISO-8859-1")
+       |    // Async-style recv path: parked consumers wake on the next take.
+       |    _deliverRecv(msg)
        |    _serverExecutor.execute { () =>
        |      val cb = onMessageCb
        |      if cb != null then try cb(msg) catch case e: Throwable =>
