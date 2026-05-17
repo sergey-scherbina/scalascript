@@ -1182,6 +1182,15 @@ class Interpreter(
   def invoke(fn: Value, args: List[Value]): Value =
     Computation.run(callValue(fn, args, Map.empty))
 
+  /** Install a native function under `name` into the global table.
+   *  Used by `InterpreterBackend` to surface `Backend.intrinsics`
+   *  entries (`NativeImpl` variant) as callable globals before
+   *  user code runs.  Symmetric with `initBuiltins`'s `nativeP`,
+   *  but public so external SPI consumers can register their own
+   *  intrinsics without touching the interpreter source. */
+  def registerNative(name: String, fn: List[Value] => Value): Unit =
+    globals(name) = Value.NativeFnV(name, Computation.pureFn(fn))
+
   /** HTML-escape a string for safe interpolation in an html block. */
   private def htmlEscape(s: String): String =
     val sb = StringBuilder()

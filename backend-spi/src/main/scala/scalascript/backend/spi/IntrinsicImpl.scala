@@ -24,3 +24,16 @@ case class RuntimeCall(targetSymbol: String) extends IntrinsicImpl
 /** Out-of-process backends route platform calls back into core via a
  *  named host callback that core dispatches.  See §12.2 wire protocol. */
 case class HostCallback(name: String) extends IntrinsicImpl
+
+/** Interpretive intrinsic: an in-process function the runtime calls
+ *  directly with the evaluated arguments.  Unlike `InlineCode` /
+ *  `RuntimeCall` (which produce target source for compiled backends),
+ *  `NativeImpl` is the variant interpretive backends consume —
+ *  `InterpreterBackend` registers each one as a native function in
+ *  the interpreter's global table at session start.
+ *
+ *  Arguments and return value are typed `Any` because the SPI sits
+ *  in `backend-spi` while concrete value types live in the
+ *  interpreter (which depends on `backend-spi`, not vice versa);
+ *  the interpreter casts to its own `Value` ADT at the boundary. */
+case class NativeImpl(eval: List[Any] => Any) extends IntrinsicImpl

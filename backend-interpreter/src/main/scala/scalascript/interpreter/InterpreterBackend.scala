@@ -18,8 +18,27 @@ class InterpreterBackend extends InteractiveBackend:
   def displayName:     String                              = "Interpreter (tree-walking)"
   def spiVersion:      String                              = SpiVersion.Current
   def capabilities:    Capabilities                        = InterpreterCapabilities
-  def intrinsics:      Map[ir.QualifiedName, IntrinsicImpl] = Map.empty
+  def intrinsics:      Map[ir.QualifiedName, IntrinsicImpl] = InterpreterIntrinsics
   def acceptedSources: Set[String]                         = Set("scala", "html", "css")
+
+  /** Surface every `NativeImpl` entry from `intrinsics` as a global on
+   *  the interpreter before user code runs.  Other variants
+   *  (`InlineCode` / `RuntimeCall` / `HostCallback`) are no-ops here —
+   *  they're for compiled / out-of-process backends.
+   *
+   *  Stage 5+/A.2 proof point.  Stage 5+/B migrates existing
+   *  builtins (println / print) through this path. */
+  private def installIntrinsics(interp: Interpreter): Unit =
+    intrinsics.foreach {
+      case (qn, NativeImpl(eval)) =>
+        interp.registerNative(qn.value, args =>
+          // Bridge interpreter Value ↔ Any: arg unwrap + result wrap.
+          val raw  = args.map(unwrapValue)
+          val ret  = eval(raw)
+          wrapAsValue(ret)
+        )
+      case _ => ()
+    }
 
   /** One-shot run.  Streams stdout / stderr directly through the JVM's
    *  System streams — `Executed.stdout` / `.stderr` come back empty by
@@ -28,9 +47,11 @@ class InterpreterBackend extends InteractiveBackend:
   def compile(module: ir.NormalizedModule, opts: BackendOptions): CompileResult =
     val astModule = Denormalize(module)
     val baseDir   = opts.baseDir.map(p => os.Path(p.toAbsolutePath.toString))
+    val interp    = Interpreter(out = System.out, baseDir = baseDir)
+    installIntrinsics(interp)
     val exit =
       try
-        Interpreter.run(astModule, System.out, baseDir)
+        interp.run(astModule)
         0
       catch case t: Throwable =>
         System.err.println(t.getMessage)
@@ -39,7 +60,29 @@ class InterpreterBackend extends InteractiveBackend:
 
   def openSession(opts: BackendOptions): Session =
     val baseDir = opts.baseDir.map(p => os.Path(p.toAbsolutePath.toString))
-    new InterpreterSession(Interpreter(baseDir = baseDir, headless = false))
+    val interp  = Interpreter(baseDir = baseDir, headless = false)
+    installIntrinsics(interp)
+    new InterpreterSession(interp)
+
+  // ── Value ↔ Any bridging for `NativeImpl` ─────────────────────────────
+
+  private def unwrapValue(v: Value): Any = v match
+    case Value.IntV(n)    => n
+    case Value.DoubleV(d) => d
+    case Value.StringV(s) => s
+    case Value.BoolV(b)   => b
+    case Value.UnitV      => ()
+    case other            => other  // pass through for complex types
+
+  private def wrapAsValue(a: Any): Value = a match
+    case n: Long    => Value.IntV(n)
+    case i: Int     => Value.IntV(i.toLong)
+    case d: Double  => Value.DoubleV(d)
+    case s: String  => Value.StringV(s)
+    case b: Boolean => Value.BoolV(b)
+    case ()         => Value.UnitV
+    case v: Value   => v  // already wrapped
+    case other      => Value.StringV(other.toString)  // last-resort
 
 /** Session adapter for the live `Interpreter`.  Used by `ssc serve`
  *  (handler invocation per request).  Stage 5.4+ moves the WS / HTTP
