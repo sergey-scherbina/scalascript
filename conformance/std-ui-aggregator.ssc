@@ -1,0 +1,18 @@
+---
+name: std-ui-aggregator
+---
+
+# v0.9 — std/ui aggregator via dir-as-index
+
+Smoke-test that `[Name](../examples/std-ui)` works through the
+v0.9.1 resolver — pulls four components out of the aggregator and
+renders a marker from each.
+
+[Spinner, Badge, Avatar, Code](../examples/std-ui)
+
+```scalascript
+println(Spinner.render("md").length > 10)
+println(Badge.render("Test", "info").contains("info"))
+println(Avatar.render("Ada Lovelace", "", "md").contains("AL"))
+println(Code.inline("hi").contains("inline__Code"))
+```

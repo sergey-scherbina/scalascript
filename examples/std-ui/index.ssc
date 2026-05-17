@@ -1,0 +1,155 @@
+---
+name: std-ui
+version: 1.0.0
+description: |
+  std/ui aggregator — re-exports every component object in the pack so
+  consumers can write one directory import instead of forty.
+exports:
+  - Accordion
+  - Avatar
+  - Badge
+  - Breadcrumbs
+  - Checkbox
+  - Code
+  - Container
+  - DataGrid
+  - DataList
+  - Divider
+  - Drawer
+  - Dropdown
+  - FormGroup
+  - Grid
+  - Input
+  - KeyValue
+  - MarkdownBlock
+  - Modal
+  - NavBar
+  - Pagination
+  - ProgressBar
+  - Quote
+  - Radio
+  - Reset
+  - Row
+  - Select
+  - Sidebar
+  - Skeleton
+  - Spacer
+  - Spinner
+  - Stack
+  - SubmitButton
+  - Table
+  - Tabs
+  - Textarea
+  - Theme
+  - ThemeProvider
+  - ThemeToggle
+  - Toast
+  - Tooltip
+---
+
+# std/ui — aggregator
+
+Single entry point for the v0.9 standard component pack.  With the
+v0.9.1 directory-as-index resolver this lets consumers write:
+
+```ssc
+[Button, Card, FormInput as Input](./std-ui)
+```
+
+instead of one explicit import per component file.
+
+## Forms
+
+[Input](./input.ssc)
+
+[Textarea](./textarea.ssc)
+
+[Select](./select.ssc)
+
+[Checkbox](./checkbox.ssc)
+
+[Radio](./radio.ssc)
+
+[FormGroup](./form-group.ssc)
+
+[SubmitButton](./submit-button.ssc)
+
+## Layout
+
+[Stack](./stack.ssc)
+
+[Row](./row.ssc)
+
+[Grid](./grid.ssc)
+
+[Container](./container.ssc)
+
+[Divider](./divider.ssc)
+
+[Spacer](./spacer.ssc)
+
+## Navigation
+
+[NavBar](./navbar.ssc)
+
+[Breadcrumbs](./breadcrumbs.ssc)
+
+[Tabs](./tabs.ssc)
+
+[Pagination](./pagination.ssc)
+
+[Sidebar](./sidebar.ssc)
+
+## Feedback
+
+[Spinner](./spinner.ssc)
+
+[ProgressBar](./progress-bar.ssc)
+
+[Skeleton](./skeleton.ssc)
+
+[Modal](./modal.ssc)
+
+[Drawer](./drawer.ssc)
+
+[Toast](./toast.ssc)
+
+## Data display
+
+[Table](./table.ssc)
+
+[DataList](./data-list.ssc)
+
+[DataGrid](./data-grid.ssc)
+
+[KeyValue](./key-value.ssc)
+
+## Content / typography
+
+[Code](./code.ssc)
+
+[MarkdownBlock](./markdown-block.ssc)
+
+[Quote](./quote.ssc)
+
+## Widgets
+
+[Avatar](./avatar.ssc)
+
+[Badge](./badge.ssc)
+
+[Tooltip](./tooltip.ssc)
+
+[Accordion](./accordion.ssc)
+
+[Dropdown](./dropdown.ssc)
+
+## Theming
+
+[Theme](./theme.ssc)
+
+[ThemeProvider](./theme-provider.ssc)
+
+[ThemeToggle](./theme-toggle.ssc)
+
+[Reset](./reset.ssc)

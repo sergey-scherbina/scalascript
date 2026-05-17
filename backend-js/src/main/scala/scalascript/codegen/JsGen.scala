@@ -3831,7 +3831,10 @@ class JsGen(baseDir: Option[os.Path] = None):
       sb2.append("`")
       for i <- parts.indices do
         val part = parts(i).asInstanceOf[Lit.String].value
-        sb2.append(part.replace("`", "\\`").replace("\\", "\\\\").replace("$", "\\$"))
+        // Backslash first — replacing `\\` AFTER `` ` `` would double-escape
+        // the backslash inserted by the `` ` `` step, breaking the JS
+        // template literal.
+        sb2.append(part.replace("\\", "\\\\").replace("`", "\\`").replace("$", "\\$"))
         if i < args.length then
           val arg = args(i).asInstanceOf[Term]
           val argJs = genExpr(arg)
@@ -4302,7 +4305,8 @@ class JsGen(baseDir: Option[os.Path] = None):
         sb2.append("`")
         for i <- parts.indices do
           val part = parts(i).asInstanceOf[Lit.String].value
-          sb2.append(part.replace("`", "\\`").replace("\\", "\\\\").replace("$", "\\$"))
+          // Backslash first — see twin in genExpr.
+          sb2.append(part.replace("\\", "\\\\").replace("`", "\\`").replace("$", "\\$"))
           if i < args.length then sb2.append("${_show(").append(vs(i)).append(")}")
         sb2.append("`")
         val templateLiteral = sb2.toString
