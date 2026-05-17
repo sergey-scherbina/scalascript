@@ -458,7 +458,7 @@ Anything else that surfaces during execution: append here under a
 | Stage | Iterations done | Notes |
 |-------|-----------------|-------|
 | 1     | 3 / 3           | **Stage 1 closed.** 1.1 sbt scaffold; 1.2 sources moved (compiler/ gone, sbt-assembly added); 1.3 SPI trait stubs + IR placeholders (ir/Ir.scala + 10 SPI files in backend-spi/). Transitional `backendInterpreter dependsOn backendJs` for `WebServer→JsGen` — Stage 5 fixes via HTTP intrinsics. |
-| 2     | 0 / 2           | Not started |
+| 2     | 1 / 2           | 2.1 done — IR shape + Normalize pass (AST → IR, near-no-op).  IR mirrors AST sections/content; scalameta tree dropped (re-parse from source); foreign-lang fences become EmbeddedBlock; Perform/Handle/Resume/MatchTree/TailCall/ExternCall reserved as placeholders for Stage 3+. |
 | 3     | 0 / 3           | Not started |
 | 4     | 0 / 2           | Not started |
 | 5     | 0 / 4           | Not started |
