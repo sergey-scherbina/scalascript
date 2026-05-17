@@ -1,0 +1,76 @@
+#!/usr/bin/env ssc
+---
+name: stepper
+description: Multi-step wizard with progress indicator.
+---
+
+# Stepper
+
+Pure CSS — pass `step` (1-based) for the current position.  Useful
+for checkout flows, onboarding, multi-page forms.
+
+```scalascript
+object Stepper:
+  private val sc = scope("Stepper")
+  private val rootCls = sc.cls("root")
+  private val stepCls = sc.cls("step")
+  private val indexCls = sc.cls("index")
+  private val labelCls = sc.cls("label")
+  private val doneCls = sc.cls("done")
+  private val activeCls = sc.cls("active")
+  private val connectorCls = sc.cls("connector")
+
+  val css: String = sc.css("""
+    .root      { display: flex; align-items: flex-start;
+                 justify-content: center; gap: 0;
+                 margin: 1em 0; font: .95em/1.4 system-ui, sans-serif; }
+    .step      { display: flex; flex-direction: column;
+                 align-items: center; flex: 0 1 auto;
+                 color: #9ca3af; }
+    .index     { width: 1.9em; height: 1.9em;
+                 border: 2px solid #d1d5db; border-radius: 50%;
+                 background: #fff; color: inherit;
+                 display: inline-flex; align-items: center;
+                 justify-content: center; font-weight: 600;
+                 font-size: .95em; line-height: 1; }
+    .label     { margin-top: .35em; font-size: .85em;
+                 color: inherit; text-align: center;
+                 max-width: 8em; }
+    .done      { color: #16a34a; }
+    .done .index { background: #16a34a; color: #fff;
+                   border-color: #16a34a; }
+    .active    { color: #2563eb; }
+    .active .index { border-color: #2563eb; color: #2563eb; }
+    .connector { flex: 1 1 auto; height: 2px; background: #e5e7eb;
+                 align-self: center; margin-top: -1.1em;
+                 min-width: 1.5em; max-width: 5em; }
+    .connector.done { background: #16a34a; }
+  """)
+
+  /** `labels` is one entry per step.  `current` is the 1-based index
+   *  of the active step.  Earlier steps render as "done", later
+   *  steps as inactive. */
+  def render(labels: List[String], current: Int): String =
+    val n = labels.length
+    val parts = labels.zipWithIndex.map { (label, i) =>
+      val idx = i + 1
+      val state =
+        if idx < current then doneCls
+        else if idx == current then activeCls
+        else ""
+      val cls = stepCls + (if state == "" then "" else " " + state)
+      val indicator = if idx < current then "✓" else idx.toString
+      val connector =
+        if i < n - 1 then
+          val connectorState = if idx < current then connectorCls + " " + doneCls else connectorCls
+          html"""<div class="${connectorState}"></div>"""
+        else ""
+      html"""<div class="${cls}">
+        <div class="${indexCls}">${indicator}</div>
+        <div class="${labelCls}">${label}</div>
+      </div>${raw(connector)}"""
+    }.mkString
+    html"""<div class="${rootCls}" role="progressbar" aria-valuenow="${current.toString}" aria-valuemax="${n.toString}">
+      ${raw(parts)}
+    </div>"""
+```

@@ -1,0 +1,25 @@
+---
+name: std-ui-extended-c
+---
+
+# v0.10 iter C smoke — Stepper / Lightbox / FileUpload
+
+[Stepper, Lightbox, FileUpload](../examples/std-ui)
+
+```scalascript
+val s1 = Stepper.render(List("Cart", "Shipping", "Payment", "Confirm"), 2)
+println(s1.contains("done__Stepper"))    // step 1 is done
+println(s1.contains("active__Stepper"))  // step 2 is active
+println(s1.contains("aria-valuenow=\"2\""))
+
+val l1 = Lightbox.render("/thumb.jpg", "Cat photo", "/full.jpg")
+println(l1.contains("data-full=\"/full.jpg\""))
+println(l1.contains("thumb__Lightbox"))
+
+val u1 = FileUpload.render("avatar", "Drop a file here", "JPG / PNG, max 5MB", "image/*", false)
+println(u1.contains("name=\"avatar\""))
+println(u1.contains("accept=\"image/*\""))
+println(u1.contains("Drop a file here"))
+val u2 = FileUpload.render("docs", "Upload documents", "", "", true)
+println(u2.contains("multiple"))
+```

@@ -1,0 +1,68 @@
+#!/usr/bin/env ssc
+---
+name: lightbox
+description: Click-to-zoom image overlay — no library, no dependency.
+---
+
+# Lightbox
+
+A click handler that opens the image full-screen on a dark overlay;
+Esc / click anywhere dismisses.  Drop `Lightbox.render(src, alt)` in
+place of a regular `<img>`.
+
+```scalascript
+object Lightbox:
+  private val sc = scope("Lightbox")
+  private val thumbCls = sc.cls("thumb")
+  private val overlayCls = sc.cls("overlay")
+  private val imgCls = sc.cls("img")
+
+  val css: String = sc.css("""
+    .thumb   { cursor: zoom-in; max-width: 100%; height: auto;
+               border-radius: 4px; transition: opacity .12s; }
+    .thumb:hover { opacity: .85; }
+    .overlay { position: fixed; inset: 0;
+               background: rgba(0,0,0,.85);
+               display: none; align-items: center;
+               justify-content: center; z-index: 9999;
+               cursor: zoom-out; padding: 2em; }
+    .overlay[data-open="true"] { display: flex; }
+    .img     { max-width: 95vw; max-height: 95vh;
+               object-fit: contain; box-shadow: 0 0 40px rgba(0,0,0,.6); }
+  """)
+
+  val js: String = s"""
+(function(){
+  let overlay = null;
+  const ensure = () => {
+    if (overlay) return overlay;
+    overlay = document.createElement('div');
+    overlay.className = '$overlayCls';
+    overlay.innerHTML = '<img class="$imgCls">';
+    overlay.addEventListener('click', close);
+    document.body.appendChild(overlay);
+    return overlay;
+  };
+  const close = () => { if (overlay) overlay.setAttribute('data-open', 'false'); };
+  const open  = src => {
+    const o = ensure();
+    o.querySelector('.$imgCls').src = src;
+    o.setAttribute('data-open', 'true');
+  };
+  document.addEventListener('click', e => {
+    const t = e.target;
+    if (t && t.classList && t.classList.contains('$thumbCls')) {
+      open(t.getAttribute('data-full') || t.src);
+    }
+  });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') close(); });
+})();"""
+
+  /** `src` shows as a clickable thumbnail; click opens it full-size.
+   *  `full` (optional, defaults to `src`) is the high-res source for
+   *  the overlay — pass a different URL for low-res thumbnail +
+   *  high-res preview. */
+  def render(src: String, alt: String, full: String): String =
+    val fullSrc = if full == "" then src else full
+    html"""<img class="${thumbCls}" src="${src}" alt="${alt}" data-full="${fullSrc}">"""
+```

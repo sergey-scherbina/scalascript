@@ -15,6 +15,7 @@ exports:
   - Code
   - Container
   - Empty
+  - FileUpload
   - DataGrid
   - DataList
   - Divider
@@ -24,6 +25,7 @@ exports:
   - Grid
   - Input
   - KeyValue
+  - Lightbox
   - MarkdownBlock
   - Modal
   - NavBar
@@ -40,6 +42,7 @@ exports:
   - Spinner
   - Stack
   - Stats
+  - Stepper
   - SubmitButton
   - Switch
   - Table
@@ -169,6 +172,12 @@ instead of one explicit import per component file.
 [Toolbar](./toolbar.ssc)
 
 [Tree](./tree.ssc)
+
+[Stepper](./stepper.ssc)
+
+[Lightbox](./lightbox.ssc)
+
+[FileUpload](./file-upload.ssc)
 
 ## Theming
 

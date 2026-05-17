@@ -1,0 +1,87 @@
+#!/usr/bin/env ssc
+---
+name: file-upload
+description: Drag-drop zone wrapping <input type="file"> — works on top of req.files.
+---
+
+# FileUpload
+
+A drag-and-drop dropzone over a native `<input type="file">`.  Files
+chosen via click OR drop land in the same `<input>` so a standard
+`<form enctype="multipart/form-data">` POST sees them — `req.files`
+already routes the payload server-side.
+
+```scalascript
+object FileUpload:
+  private val sc = scope("FileUpload")
+  private val rootCls = sc.cls("root")
+  private val zoneCls = sc.cls("zone")
+  private val inputCls = sc.cls("input")
+  private val labelCls = sc.cls("label")
+  private val hintCls = sc.cls("hint")
+  private val listCls = sc.cls("list")
+  private val overCls = sc.cls("over")
+
+  val css: String = sc.css("""
+    .root  { font: 1rem/1.4 system-ui, sans-serif; margin: 1em 0; }
+    .zone  { display: block; padding: 1.5em; border: 2px dashed #cbd5e1;
+             border-radius: 8px; background: #f9fafb; cursor: pointer;
+             text-align: center; transition: border-color .12s, background-color .12s; }
+    .zone:hover { border-color: #2563eb; }
+    .zone.over  { border-color: #2563eb; background: #dbeafe; }
+    .input { position: absolute; left: -9999px; opacity: 0; }
+    .label { color: #1f2937; font-weight: 600; }
+    .hint  { color: #6b7280; font-size: .9em; margin-top: .35em; }
+    .list  { margin-top: .5em; color: #374151; font-size: .9em;
+             list-style: none; padding: 0; }
+    .list li { padding: .2em 0; }
+  """)
+
+  val js: String = s"""
+document.querySelectorAll('.$rootCls').forEach(root => {
+  const input = root.querySelector('.$inputCls');
+  const zone  = root.querySelector('.$zoneCls');
+  const list  = root.querySelector('.$listCls');
+  if (!input || !zone) return;
+  const refresh = () => {
+    if (!list) return;
+    list.innerHTML = '';
+    for (const f of input.files) {
+      const li = document.createElement('li');
+      li.textContent = f.name + ' (' + Math.round(f.size / 1024) + ' KB)';
+      list.appendChild(li);
+    }
+  };
+  zone.addEventListener('dragover', e => { e.preventDefault(); zone.classList.add('$overCls'); });
+  zone.addEventListener('dragleave', () => zone.classList.remove('$overCls'));
+  zone.addEventListener('drop', e => {
+    e.preventDefault();
+    zone.classList.remove('$overCls');
+    if (e.dataTransfer && e.dataTransfer.files.length) {
+      const dt = new DataTransfer();
+      for (const f of e.dataTransfer.files) dt.items.add(f);
+      input.files = dt.files;
+      refresh();
+    }
+  });
+  input.addEventListener('change', refresh);
+});"""
+
+  // `name` is the form-field name; `accept` is a comma-separated
+  // MIME-type / extension list; `multiple = true` allows multi-select.
+  def render(name: String, label: String, hint: String, accept: String, multiple: Boolean): String =
+    val multAttr = if multiple then " multiple" else ""
+    val q        = "\""
+    val accAttr  = if accept == "" then "" else " accept=" + q + accept + q
+    val hintHtml =
+      if hint == "" then ""
+      else html"""<div class="${hintCls}">${hint}</div>"""
+    html"""<div class="${rootCls}">
+      <label class="${zoneCls}">
+        <input class="${inputCls}" type="file" name="${name}"${raw(accAttr)}${raw(multAttr)}>
+        <span class="${labelCls}">${label}</span>
+        ${raw(hintHtml)}
+      </label>
+      <ul class="${listCls}"></ul>
+    </div>"""
+```
