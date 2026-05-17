@@ -102,8 +102,13 @@ class Interpreter(
   // duration so nested invocations don't share state.
   private class ActorRuntime:
     val mailboxes = mutable.LongMap.empty[mutable.Queue[Value]]
-    // (cases, env, continuation-after-receive) of an actor blocked on receive
-    val blocked = mutable.LongMap.empty[(List[Case], Env, Value => Computation)]
+    // (cases, env, continuation, optional wall-clock deadline, wrap-in-some?)
+    // `wrapSome` is true for timeout-receive: matched body's value is wrapped
+    // in Some(...) before being fed to the continuation so a single `receive`
+    // expression yields Option[A].
+    val blocked = mutable.LongMap.empty[
+      (List[Case], Env, Value => Computation, Option[Long], Boolean)
+    ]
     // Computation to run next when this actor is dispatched
     val pending = mutable.LongMap.empty[Computation]
     val ready   = mutable.Queue.empty[Long]
@@ -1138,6 +1143,14 @@ class Interpreter(
       case Nil => Perform("Actor", "self", Nil)
       case _   => throw InterpretError("self takes no arguments")
     })
+    // `exit(pid, reason)` — terminate target actor.  For Phase 1 the
+    // reason is logged but otherwise unused (links / monitors land
+    // in Phase 2).  No-op on unknown PID, Erlang semantics.
+    globals("exit") = Value.NativeFnV("exit", {
+      case List(pid @ Value.InstanceV("Pid", _), reason) =>
+        Perform("Actor", "exit", List(pid, reason))
+      case _ => throw InterpretError("exit(pid, reason)")
+    })
 
     // ── Reactive primitives: Signal / computed / effect ────────────────
     globals("Signal") = Value.NativeFnV("Signal", {
@@ -1560,6 +1573,27 @@ class Interpreter(
           val id = receiveSpecNext; receiveSpecNext += 1
           receiveSpecs(id) = (pf.cases, env)
           Perform("Actor", "receive", List(Value.IntV(id)))
+        case _ =>
+          located("receive expects a partial function { case msg => ... }")
+
+    // `receive(timeout = N) { case … }` — same dispatch, but the
+    // driver also tracks a deadline.  On timeout the receive value
+    // is None; on match it's Some(body-value).
+    case Term.Apply.After_4_6_0(
+            Term.Apply.After_4_6_0(Term.Name("receive"), timeoutClause),
+            pfArgClause)
+        if pfArgClause.values.size == 1 && timeoutClause.values.size == 1 =>
+      val timeoutTerm = timeoutClause.values.head match
+        case Term.Assign(Term.Name("timeout"), v) => v
+        case other: Term                          => other
+      val timeoutMs = Computation.run(eval(timeoutTerm, env)) match
+        case Value.IntV(n) => n
+        case _ => throw InterpretError("receive timeout must be an Int (milliseconds)")
+      pfArgClause.values.head match
+        case pf: Term.PartialFunction =>
+          val id = receiveSpecNext; receiveSpecNext += 1
+          receiveSpecs(id) = (pf.cases, env)
+          Perform("Actor", "receive_t", List(Value.IntV(id), Value.IntV(timeoutMs)))
         case _ =>
           located("receive expects a partial function { case msg => ... }")
 
@@ -2894,24 +2928,42 @@ class Interpreter(
       var deadlockGuard = 0
       val maxIterations = 100000
 
-      while rt.ready.nonEmpty && deadlockGuard < maxIterations do
+      while (rt.ready.nonEmpty || rt.blocked.exists(_._2._4.isDefined)) && deadlockGuard < maxIterations do
         deadlockGuard += 1
-        val id = rt.ready.dequeue()
-        // An actor may have been re-enqueued after completion if a
-        // late send arrived; skip if already done.
-        if rt.pending.contains(id) then
-          rt.currentId = id
-          val stepResult = stepActor(rt, id, rt.pending(id))
-          stepResult match
-            case ActorStep.Done(v)   =>
-              rt.pending.remove(id)
-              if id == rootId then rootResult(rootId) = v
-            case ActorStep.Suspend   =>
-              // Already moved to blocked or removed by stepActor.
-              ()
-            case ActorStep.Yield(c)  =>
-              rt.pending(id) = c
-              rt.ready.enqueue(id)
+        if rt.ready.isEmpty then
+          // Quiescent except for timeout-armed receives: sleep until
+          // the earliest deadline, then deliver None to that actor.
+          val now = System.currentTimeMillis()
+          val earliest = rt.blocked.collect {
+            case (id, (_, _, _, Some(d), _)) => (id, d)
+          }.minByOption(_._2)
+          earliest match
+            case Some((id, d)) =>
+              val sleepFor = d - now
+              if sleepFor > 0 then Thread.sleep(sleepFor)
+              rt.blocked.remove(id) match
+                case Some((_, _, k, _, _)) =>
+                  rt.pending(id) = k(Value.InstanceV("None", Map.empty))
+                  rt.ready.enqueue(id)
+                case None => ()
+            case None => () // shouldn't happen — loop exit condition would fire
+        else
+          val id = rt.ready.dequeue()
+          // An actor may have been re-enqueued after completion if a
+          // late send arrived; skip if already done.
+          if rt.pending.contains(id) then
+            rt.currentId = id
+            val stepResult = stepActor(rt, id, rt.pending(id))
+            stepResult match
+              case ActorStep.Done(v)   =>
+                rt.pending.remove(id)
+                if id == rootId then rootResult(rootId) = v
+              case ActorStep.Suspend   =>
+                // Already moved to blocked or removed by stepActor.
+                ()
+              case ActorStep.Yield(c)  =>
+                rt.pending(id) = c
+                rt.ready.enqueue(id)
 
       // Drain dead-letter logging for messages stuck in completed
       // actors' mailboxes — informational only, doesn't fail the run.
@@ -2995,8 +3047,8 @@ class Interpreter(
                 // If target was blocked, try to deliver right now so
                 // it becomes runnable for the next tick.
                 rt.blocked.get(targetId) match
-                  case Some((cases, blockedEnv, blockedK)) =>
-                    tryDeliver(rt, targetId, cases, blockedEnv, blockedK) match
+                  case Some((cases, blockedEnv, blockedK, _, wrapSome)) =>
+                    tryDeliver(rt, targetId, cases, blockedEnv, blockedK, wrapSome) match
                       case Some(newPending) =>
                         rt.blocked.remove(targetId)
                         rt.pending(targetId) = newPending
@@ -3013,12 +3065,37 @@ class Interpreter(
     case "receive" => args match
       case List(Value.IntV(specId)) =>
         val (cases, recvEnv) = receiveSpecs(specId)
-        tryDeliver(rt, id, cases, recvEnv, k) match
+        tryDeliver(rt, id, cases, recvEnv, k, wrapSome = false) match
           case Some(next) => Right(next)
           case None       =>
-            rt.blocked(id) = (cases, recvEnv, k)
+            rt.blocked(id) = (cases, recvEnv, k, None, false)
             Left(())
       case _ => throw InterpretError("receive expects an internal spec token")
+
+    case "receive_t" => args match
+      case List(Value.IntV(specId), Value.IntV(timeoutMs)) =>
+        val (cases, recvEnv) = receiveSpecs(specId)
+        tryDeliver(rt, id, cases, recvEnv, k, wrapSome = true) match
+          case Some(next) => Right(next)
+          case None       =>
+            val deadline = System.currentTimeMillis() + timeoutMs
+            rt.blocked(id) = (cases, recvEnv, k, Some(deadline), true)
+            Left(())
+      case _ => throw InterpretError("receive(timeout = N) — internal arg mismatch")
+
+    case "exit" => args match
+      case List(Value.InstanceV("Pid", fields), reason) =>
+        fields.get("id") match
+          case Some(Value.IntV(targetId)) if rt.pending.contains(targetId) || rt.blocked.contains(targetId) =>
+            out.println(s"[exit] actor=$targetId reason=${Value.show(reason)}")
+            rt.pending.remove(targetId)
+            rt.blocked.remove(targetId)
+            rt.mailboxes.remove(targetId)
+            // Note: ready queue may still hold a stale id; pending
+            // check at dispatch time filters it out.
+          case _ => ()
+        Right(k(Value.UnitV))
+      case _ => throw InterpretError("exit(pid, reason)")
 
     case other =>
       throw InterpretError(s"Unknown Actor op: $other")
@@ -3028,11 +3105,12 @@ class Interpreter(
    *  No-match: pop, log as dead-letter, try the next.
    *  Empty mailbox: None. */
   private def tryDeliver(
-      rt:    ActorRuntime,
-      id:    Long,
-      cases: List[Case],
-      env:   Env,
-      k:     Value => Computation
+      rt:        ActorRuntime,
+      id:        Long,
+      cases:     List[Case],
+      env:       Env,
+      k:         Value => Computation,
+      wrapSome:  Boolean
   ): Option[Computation] =
     val mb = rt.mailboxes(id)
     while mb.nonEmpty do
@@ -3049,7 +3127,12 @@ class Interpreter(
                 case _              => false
             }
             if guardOk then
-              matched = Some(eval(c.body, extEnv).flatMap(k))
+              val body = eval(c.body, extEnv)
+              matched = Some(
+                if wrapSome then body.flatMap(v =>
+                  k(Value.InstanceV("Some", Map("value" -> v))))
+                else body.flatMap(k)
+              )
           case None => ()
       if matched.isDefined then
         mb.dequeue()

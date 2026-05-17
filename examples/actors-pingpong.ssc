@@ -1,34 +1,48 @@
 #!/usr/bin/env ssc
 ---
 name: actors-pingpong
-description: v1.6 Phase 1 — spawn / send / receive / self ping-pong.
+description: v1.6 Phase 1 — spawn / send / receive / self / exit / timeout receive.
 ---
 
-# Actors Phase 1 — ping-pong
-
-A `pong` actor echoes back `Reply(payload)`; the root actor sends
-three `Ping(from, msg)` messages and prints replies.  Demonstrates
-`spawn`, `self`, `!`, `receive`, and pattern-matching on case-class
-messages.
+# Actors Phase 1 — ping-pong + timeout + exit
 
 ```scalascript
 case class Ping(from: Pid, msg: String)
 case class Reply(text: String)
+case class Tick(n: Int)
 
 runActors {
+  // ── ping-pong ────────────────────────────────────────────────────
   val pong = spawn { () =>
     receive { case Ping(from, msg) => from ! Reply("pong: " + msg) }
     receive { case Ping(from, msg) => from ! Reply("pong: " + msg) }
     receive { case Ping(from, msg) => from ! Reply("pong: " + msg) }
   }
-
   val me = self()
   pong ! Ping(me, "one")
   pong ! Ping(me, "two")
   pong ! Ping(me, "three")
+  receive { case Reply(s) => println(s) }
+  receive { case Reply(s) => println(s) }
+  receive { case Reply(s) => println(s) }
 
-  receive { case Reply(s) => println(s) }
-  receive { case Reply(s) => println(s) }
-  receive { case Reply(s) => println(s) }
+  // ── timeout receive: no Tick comes, deadline fires ───────────────
+  val r = receive(timeout = 50) { case Tick(n) => "got " + n }
+  println("after timeout: " + r)
+
+  // ── timeout receive: message arrives before deadline ─────────────
+  val sender = spawn { () =>
+    me ! Tick(42)
+  }
+  val r2 = receive(timeout = 1000) { case Tick(n) => n + 1 }
+  println("before timeout: " + r2)
+
+  // ── exit(pid) — kill a worker, subsequent sends silently drop ────
+  val worker = spawn { () =>
+    receive { case _ => println("worker: should never print") }
+  }
+  exit(worker, "kill")
+  worker ! "ignored payload"
+  println("done")
 }
 ```
