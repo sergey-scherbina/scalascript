@@ -1,0 +1,223 @@
+---
+name: webauthn-demo
+version: 1.0.0
+description: Passwordless sign-in via WebAuthn / passkeys (FIDO2 Level 2).
+---
+
+# WebAuthn passkey demo
+
+Two-button page: enrol a passkey, then sign in with it.  No password,
+no second-factor TOTP — the authenticator (Touch ID / Windows Hello /
+Yubikey / 1Password / iCloud Keychain) handles both authentication
+factors.
+
+How it works:
+
+1. **Enrol.** Browser asks the authenticator to create a fresh
+   credential bound to this origin.  The server stores
+   `(credentialId → publicKey)` for the logged-in user.
+2. **Sign in.** Server issues a challenge.  Browser asks the
+   authenticator to sign it.  Server verifies the ECDSA P-256
+   signature against the stored public key.
+
+The server side uses the v1.2 helpers landed in stages 2a-2c:
+`webauthnChallenge`, `webauthnVerifyRegistration`,
+`webauthnVerifyAssertion`, plus the credential store.
+
+The browser side is ~50 lines of inline JS using the standard
+`navigator.credentials.create / get` APIs.  Works on every modern
+browser; no library dependency.
+
+```bash
+export SSC_SESSION_SECRET=$(openssl rand -hex 32)
+bin/ssc examples/webauthn-demo.ssc
+# open http://localhost:8781/ in a browser
+```
+
+```scalascript
+// User identity for this demo — in a real app this comes from your
+// usual login form before passkey enrolment kicks in.  We just key
+// everything on a fixed string so the demo works in one tab.
+val USER_ID = "demo-user"
+
+cookieConfig(false, "Lax")
+
+route("GET", "/") { req =>
+  val signedIn = req.session.get("signedIn").contains("true")
+  val whoLine =
+    if signedIn then html"<p class='ok'>Signed in as <strong>${USER_ID}</strong>.</p>"
+    else html"<p>Not signed in.</p>"
+  val creds = webauthnStoreGet(USER_ID)
+  val credList =
+    if creds.isEmpty then html"<p><em>No passkeys enrolled yet.</em></p>"
+    else html"<p>Enrolled passkeys: <strong>${creds.length}</strong>.</p>"
+  val page = html"""<!doctype html>
+<title>WebAuthn passkey demo</title>
+<style>
+  body{font:14px system-ui;max-width:560px;margin:2em auto;padding:0 1em}
+  button{font-size:14px;padding:.5em 1em;margin:.3em .3em .3em 0}
+  pre{background:#f4f4f4;padding:.5em;font-size:11px;overflow-x:auto}
+  .ok{color:#080} .err{color:#b00}
+</style>
+<h1>WebAuthn passkey demo</h1>
+${raw(whoLine)}
+${raw(credList)}
+<button id="enrol">Enrol a passkey</button>
+<button id="signin">Sign in with passkey</button>
+<button id="logout">Sign out</button>
+<pre id="log"></pre>
+<script>
+  // ─── Browser glue ────────────────────────────────────────────────
+  const logEl = document.getElementById("log");
+  const log = s => { logEl.textContent += s + "\n"; };
+  const b64uEncode = b => btoa(String.fromCharCode(...new Uint8Array(b)))
+    .replaceAll("+","-").replaceAll("/","_").replace(/=+$$/, "");
+  const b64uDecode = s => Uint8Array.from(atob(s.replaceAll("-","+").replaceAll("_","/") +
+    "=".repeat((4 - s.length % 4) % 4)), c => c.charCodeAt(0)).buffer;
+  async function postJson(url, body) {
+    const r = await fetch(url, { method: "POST", headers: {"Content-Type": "application/json"},
+                                 body: JSON.stringify(body) });
+    return { status: r.status, body: await r.text() };
+  }
+
+  document.getElementById("enrol").onclick = async () => {
+    log("[enrol] requesting challenge…");
+    const r = await fetch("/webauthn/enrol/begin", { method: "POST" });
+    if (!r.ok) { log("  ✗ begin failed: " + r.status); return; }
+    const options = await r.json();
+    log("  challenge=" + options.challenge);
+    try {
+      const cred = await navigator.credentials.create({
+        publicKey: {
+          challenge: b64uDecode(options.challenge),
+          rp:        { name: "WebAuthn demo" },
+          user: {
+            id:          new TextEncoder().encode(options.userId),
+            name:        options.userId,
+            displayName: options.userId,
+          },
+          pubKeyCredParams: [{ type: "public-key", alg: -7 }],   // ES256
+          authenticatorSelection: { userVerification: "preferred" },
+          attestation: "none",
+          timeout: 60000,
+        },
+      });
+      log("  ✓ authenticator returned credential");
+      const out = await postJson("/webauthn/enrol/complete", {
+        clientDataJSON:    b64uEncode(cred.response.clientDataJSON),
+        attestationObject: b64uEncode(cred.response.attestationObject),
+      });
+      log("  server: " + out.status + " " + out.body);
+      if (out.status === 200) setTimeout(() => location.reload(), 500);
+    } catch (e) { log("  ✗ " + e.message); }
+  };
+
+  document.getElementById("signin").onclick = async () => {
+    log("[signin] requesting challenge…");
+    const r = await fetch("/webauthn/signin/begin", { method: "POST" });
+    if (!r.ok) { log("  ✗ begin failed: " + r.status); return; }
+    const options = await r.json();
+    if (!options.allowCredentials || !options.allowCredentials.length) {
+      log("  ✗ no enrolled passkeys — click Enrol first"); return;
+    }
+    try {
+      const assertion = await navigator.credentials.get({
+        publicKey: {
+          challenge: b64uDecode(options.challenge),
+          allowCredentials: options.allowCredentials.map(c => ({
+            type: "public-key",
+            id:   b64uDecode(c),
+          })),
+          userVerification: "preferred",
+          timeout: 60000,
+        },
+      });
+      log("  ✓ authenticator returned assertion");
+      const out = await postJson("/webauthn/signin/complete", {
+        clientDataJSON:    b64uEncode(assertion.response.clientDataJSON),
+        authenticatorData: b64uEncode(assertion.response.authenticatorData),
+        signature:         b64uEncode(assertion.response.signature),
+        credentialId:      b64uEncode(assertion.rawId),
+      });
+      log("  server: " + out.status + " " + out.body);
+      if (out.status === 200) setTimeout(() => location.reload(), 500);
+    } catch (e) { log("  ✗ " + e.message); }
+  };
+
+  document.getElementById("logout").onclick = async () => {
+    await fetch("/webauthn/logout", { method: "POST" });
+    location.reload();
+  };
+</script>"""
+  Response.html(page)
+}
+
+// ── Enrolment ────────────────────────────────────────────────────
+
+route("POST", "/webauthn/enrol/begin") { req =>
+  val ch = webauthnChallenge(USER_ID)
+  Response.json(Map(
+    "challenge" -> ch,
+    "userId"    -> USER_ID,
+  ))
+}
+
+route("POST", "/webauthn/enrol/complete") { req =>
+  // The browser POSTs JSON; req.body holds the raw payload.  Quick
+  // and dirty: extract the two base64url strings without pulling in
+  // a JSON parser.
+  val cd  = pickJsonString(req.body, "clientDataJSON").getOrElse("")
+  val att = pickJsonString(req.body, "attestationObject").getOrElse("")
+  webauthnVerifyRegistration(cd, att, "http://localhost:8781") match
+    case None    => Response.status(400, "registration failed")
+    case Some(r) =>
+      webauthnStorePut(r("userId").toString, r("credentialId").toString,
+        r("publicKey").toString, r("signCount").toString.toInt)
+      Response.text(s"enrolled credentialId=${r("credentialId")}")
+}
+
+// ── Sign-in ──────────────────────────────────────────────────────
+
+route("POST", "/webauthn/signin/begin") { req =>
+  val ch    = webauthnChallenge(USER_ID)
+  val creds = webauthnStoreGet(USER_ID).map(_("credentialId").toString)
+  Response.json(Map(
+    "challenge"        -> ch,
+    "allowCredentials" -> creds.mkString("[\"", "\",\"", "\"]"),
+  ))
+}
+
+route("POST", "/webauthn/signin/complete") { req =>
+  val cd  = pickJsonString(req.body, "clientDataJSON").getOrElse("")
+  val ad  = pickJsonString(req.body, "authenticatorData").getOrElse("")
+  val sig = pickJsonString(req.body, "signature").getOrElse("")
+  val cid = pickJsonString(req.body, "credentialId").getOrElse("")
+  webauthnVerifyAssertion(cd, ad, sig, cid, "http://localhost:8781") match
+    case None    => Response.status(401, "signature mismatch")
+    case Some(a) =>
+      Response.text(s"signed in (signCount=${a("signCount")})")
+        .withSession(req.session.updated("signedIn", "true"))
+}
+
+route("POST", "/webauthn/logout") { req =>
+  Response.text("bye").clearSession()
+}
+
+// Tiny JSON field extractor — clientDataJSON is the only nested
+// JSON we touch in user code; everything else is a flat object
+// with string values, so a regex-style lookup suffices.
+def pickJsonString(json: String, key: String): Option[String] =
+  val needle = "\"" + key + "\""
+  val ki = json.indexOf(needle)
+  if ki < 0 then None
+  else
+    val rest = json.substring(ki + needle.length).dropWhile(_ != '"')
+    if rest.isEmpty then None
+    else
+      val body = rest.drop(1).takeWhile(_ != '"')
+      Some(body)
+
+println("WebAuthn passkey demo · http://localhost:8781/")
+println("(open in a browser; passkeys need a real authenticator and HTTPS-or-localhost)")
+serve(8781)
+```
