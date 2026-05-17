@@ -577,6 +577,17 @@ class Interpreter(
           fields.map((k, v) => quote(k) + ":" + toJson(v)).mkString("{", ",", "}")
         case other                    => quote(Value.show(other))
 
+    nativeP("jsonStringify") {
+      case List(v) => Value.StringV(toJson(v))
+      case _       => throw InterpretError("jsonStringify(v)")
+    }
+    nativeP("jsonParse") {
+      case List(Value.StringV(s)) =>
+        try JsonParser.parse(s)
+        catch case e: JsonParser.ParseError => throw InterpretError(e.getMessage)
+      case _ => throw InterpretError("jsonParse(s: String)")
+    }
+
     nativeP("Response.html") {
       case List(v) =>
         Value.InstanceV("Response", Map(

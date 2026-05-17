@@ -1,0 +1,29 @@
+42
+3.14
+true
+false
+None
+hello
+-7
+0
+List(1, 2, 3)
+List()
+List(a, b)
+List(List(1, 2), List(3, 4))
+line1
+line2
+tab	here
+aAb
+42
+"hello"
+true
+false
+[1,2,3]
+[]
+{"a":1}
+42
+"hello"
+true
+[1,2,3]
+["a","b","c"]
+{"k":42}
