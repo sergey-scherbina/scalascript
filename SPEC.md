@@ -573,6 +573,30 @@ output for code that didn't rely on timing.  `delay` uses `Thread.sleep`
 on the JVM and `Atomics.wait` on Node so it costs wall-clock time
 without coloring the surrounding code as async.
 
+An alternate `runAsyncParallel(body)` driver provides genuine
+concurrency on the JVM backends (interpreter + `ssc compile`) using
+`ExecutorService` + `CompletableFuture` — thunks passed to
+`Async.async` and `Async.parallel` execute on real worker threads,
+`Async.await` blocks the calling thread on the future.  `parallel`
+still waits on each future in *declared* order, so byte-identical
+output is preserved across the single- and parallel-handler variants
+for code that doesn't rely on completion order:
+
+```scalascript
+runAsyncParallel {
+  Async.parallel(List(
+    () => { Async.delay(200); 1 },
+    () => { Async.delay(200); 2 },
+    () => { Async.delay(200); 3 }
+  ))   // List(1, 2, 3) — finishes in ~200ms instead of ~600ms
+}
+```
+
+The Node JS target currently aliases `runAsyncParallel` to `runAsync`
+(single-threaded — real concurrency on Node will use `worker_threads`
+in a follow-up); code written against the parallel handler still runs
+correctly there, just without the speedup.
+
 #### 7.2.2 Reactive signals
 
 Fine-grained reactivity in the Solid / Knockout style — three

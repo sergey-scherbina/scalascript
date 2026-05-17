@@ -2141,6 +2141,16 @@ function _runAsyncInner(initial) {
 
 function _runAsync(bodyFn) { return _runAsyncInner(bodyFn()); }
 
+// ── runAsyncParallel: same API on Node, single-threaded for now ────────────
+//
+// Real concurrency on Node would require `worker_threads` per `async` +
+// `Atomics.wait` for `await` — viable but heavyweight (50-100ms worker
+// creation, separate JS context per task).  v1.3 keeps the Node target
+// single-threaded and aliases `_runAsyncParallel` to `_runAsync`: code
+// written against the parallel handler still runs, just without the
+// speedup.  The JVM backends provide real concurrency.
+function _runAsyncParallel(bodyFn) { return _runAsyncInner(bodyFn()); }
+
 // ── CPS-aware collection helpers ──────────────────────────────────────────
 //
 // When a higher-order method like `xs.map(fn)` is called inside an
@@ -3477,6 +3487,9 @@ class JsGen(baseDir: Option[os.Path] = None):
     case Term.Apply.After_4_6_0(Term.Name("runAsync"), bodyArgClause)
         if bodyArgClause.values.size == 1 =>
       s"_runAsync(() => ${genCpsExpr(bodyArgClause.values.head.asInstanceOf[Term])})"
+    case Term.Apply.After_4_6_0(Term.Name("runAsyncParallel"), bodyArgClause)
+        if bodyArgClause.values.size == 1 =>
+      s"_runAsyncParallel(() => ${genCpsExpr(bodyArgClause.values.head.asInstanceOf[Term])})"
 
     // Special forms: computed / effect — wrap the by-name body as a
     // zero-arg thunk so the reactive scheduler can rerun it when its
@@ -3782,6 +3795,9 @@ class JsGen(baseDir: Option[os.Path] = None):
     case Term.Apply.After_4_6_0(Term.Name("runAsync"), bodyArgClause)
         if bodyArgClause.values.size == 1 =>
       s"_runAsync(() => ${genCpsExpr(bodyArgClause.values.head.asInstanceOf[Term])})"
+    case Term.Apply.After_4_6_0(Term.Name("runAsyncParallel"), bodyArgClause)
+        if bodyArgClause.values.size == 1 =>
+      s"_runAsyncParallel(() => ${genCpsExpr(bodyArgClause.values.head.asInstanceOf[Term])})"
 
     // Nested computed / effect inside CPS body — same wrapping as the
     // non-CPS form: by-name body becomes a zero-arg thunk.

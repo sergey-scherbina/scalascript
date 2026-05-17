@@ -97,6 +97,7 @@ compiles them via Scala.js.
 | Traversals | `Focus[T](_.items.each.field)` → `Traversal` — multi-foci `getAll` / `modify` / `set` |
 | Algebraic effects | `effect E:`, `handle(body) { case E.op(arg, resume) => ... }` |
 | Built-in `Async` effect | `runAsync { Async.async(...) ; Async.await(...) ; Async.parallel(...) ; Async.delay(ms) }` |
+| Real-thread `runAsyncParallel` | swap the handler for genuine JVM concurrency without touching call sites |
 | Reactive signals | `Signal(0)`, `s.get` / `s.set(v)`, `computed { … }`, `effect { … }` with scheduled flush |
 | Default parameters | `def f(x: Int, step: Int = 1)`, also on class/enum constructors |
 | Module imports | `[name](./lib.ssc)` markdown links bring definitions into scope |
@@ -197,6 +198,7 @@ scala-cli conformance/run.sc
 | modules | `[name](./path.ssc)` imports — bind definitions from another file |
 | effects | Algebraic effects: Console routing, Choose nondeterminism, Fail early-return |
 | async | Built-in `Async` effect — `runAsync` drives `async` / `await` / `parallel` / `delay` |
+| async-parallel | `runAsyncParallel` — real-thread Async on JVM, declared-order parallel for deterministic output |
 | signals | Reactive `Signal` / `computed` / `effect` with diamond-dedup flush |
 | lenses | `.copy(field = v)` and `Focus[T](_.a.b)` — get / set / modify / andThen |
 | prisms | `Prism[Sum, Variant]` — getOption / set / modify on enum / sealed-trait cases |

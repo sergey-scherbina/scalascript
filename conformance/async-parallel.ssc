@@ -1,0 +1,49 @@
+#!/usr/bin/env ssc
+---
+name: async-parallel
+description: runAsyncParallel — real-thread Async handler (declared-order semantics for deterministic output)
+---
+
+# runAsyncParallel
+
+```scalascript
+// Same Async.* API as runAsync — output is byte-identical when the
+// code doesn't depend on completion order.  parallel returns its
+// results in declared order regardless of which thread finishes first.
+
+val r1 = runAsyncParallel {
+  Async.parallel(List(() => 10, () => 20, () => 30))
+}
+println(r1)
+
+val r2 = runAsyncParallel {
+  val a = Async.async(() => 7)
+  val b = Async.async(() => 8)
+  Async.await(a) + Async.await(b)
+}
+println(r2)
+
+// delay is wall-clock; deterministic output
+runAsyncParallel {
+  Async.delay(1)
+  println("after-delay")
+}
+
+// Nested runAsyncParallel inside runAsyncParallel
+val r3 = runAsyncParallel {
+  val inner = runAsyncParallel {
+    Async.parallel(List(() => 1, () => 2, () => 3))
+  }
+  inner
+}
+println(r3)
+
+// Sequential async + await composition
+val r4 = runAsyncParallel {
+  val a = Async.async(() => 100)
+  val b = Async.async(() => 200)
+  val c = Async.async(() => 300)
+  Async.await(a) + Async.await(b) + Async.await(c)
+}
+println(r4)
+```

@@ -325,7 +325,8 @@ class JvmGen(baseDir: Option[os.Path] = None):
       var found = false
       ScalaNode.fold(b.node) { tree =>
         if !found then tree.collect {
-          case Term.Apply.After_4_6_0(Term.Name("runAsync"), _) => found = true
+          case Term.Apply.After_4_6_0(Term.Name("runAsync"),         _) => found = true
+          case Term.Apply.After_4_6_0(Term.Name("runAsyncParallel"), _) => found = true
           case Term.Select(Term.Name("Async"), Term.Name(op))
               if asyncOps(op) => found = true
         }
@@ -553,6 +554,7 @@ class JvmGen(baseDir: Option[os.Path] = None):
   private def termUsesEffects(t: Term): Boolean = t match
     case Term.Apply.After_4_6_0(Term.Apply.After_4_6_0(Term.Name("handle"), _), _) => true
     case Term.Apply.After_4_6_0(Term.Name("runAsync"), _)                         => true
+    case Term.Apply.After_4_6_0(Term.Name("runAsyncParallel"), _)                 => true
     case Term.Select(Term.Name(eff), Term.Name(op)) if isEffectOpRef(eff, op)     => true
     case Term.Apply.After_4_6_0(Term.Name(n), _) if isEffectfulFun(n)             => true
     case _ => t.children.exists {
@@ -855,6 +857,11 @@ class JvmGen(baseDir: Option[os.Path] = None):
     case Term.Apply.After_4_6_0(Term.Name("runAsync"), bodyArgClause)
         if bodyArgClause.values.size == 1 =>
       s"_runAsync(() => ${emitCpsExpr(bodyArgClause.values.head.asInstanceOf[Term])})"
+
+    // runAsyncParallel(body) — real-thread variant, same Async.* API
+    case Term.Apply.After_4_6_0(Term.Name("runAsyncParallel"), bodyArgClause)
+        if bodyArgClause.values.size == 1 =>
+      s"_runAsyncParallel(() => ${emitCpsExpr(bodyArgClause.values.head.asInstanceOf[Term])})"
 
     // Focus[T](_.a.b) / Focus(_.a.b) — lower to a Lens(get, set) literal.
     // The lambda body's field-access chain becomes nested get + nested copy.
@@ -1249,6 +1256,9 @@ class JvmGen(baseDir: Option[os.Path] = None):
     case Term.Apply.After_4_6_0(Term.Name("runAsync"), bodyArgClause)
         if bodyArgClause.values.size == 1 =>
       s"_runAsync(() => ${emitCpsExpr(bodyArgClause.values.head.asInstanceOf[Term])})"
+    case Term.Apply.After_4_6_0(Term.Name("runAsyncParallel"), bodyArgClause)
+        if bodyArgClause.values.size == 1 =>
+      s"_runAsyncParallel(() => ${emitCpsExpr(bodyArgClause.values.head.asInstanceOf[Term])})"
 
     case app: Term.Apply => emitCpsApply(app)
 
@@ -3547,6 +3557,78 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |        case v => return v
        |    throw new RuntimeException("unreachable")
        |  interp(bodyThunk())
+       |
+       |// ── runAsyncParallel: real-thread alternate handler ────────────────────
+       |//
+       |// Same `Async.*` API as `runAsync` but `async` / `parallel` submit
+       |// their thunks to an `ExecutorService`.  `await` blocks the calling
+       |// thread on the future; `parallel` waits on each future in declared
+       |// order so the result list mirrors input order regardless of
+       |// completion order — value-deterministic code retains byte-identical
+       |// output across the single- and parallel-handler variants.
+       |
+       |val _parallelFutures =
+       |  new java.util.concurrent.ConcurrentHashMap[Long, java.util.concurrent.Future[Any]]()
+       |val _parallelFutureSeq = new java.util.concurrent.atomic.AtomicLong(0L)
+       |def _freshFutureId(): Long = _parallelFutureSeq.incrementAndGet()
+       |
+       |def _runAsyncParallel(bodyThunk: () => Any): Any =
+       |  val _ex = java.util.concurrent.Executors.newCachedThreadPool()
+       |  try
+       |    def dispatch(op: String, args: List[Any], resume: Any => Any): Any = op match
+       |      case "delay" =>
+       |        val ms = args(0).asInstanceOf[Int]
+       |        if ms > 0 then Thread.sleep(ms.toLong)
+       |        resume(())
+       |      case "async" =>
+       |        val thunk = args(0).asInstanceOf[() => Any]
+       |        val fut: java.util.concurrent.Future[Any] = _ex.submit(
+       |          new java.util.concurrent.Callable[Any] {
+       |            def call(): Any = interp(thunk())
+       |          })
+       |        val fid = _freshFutureId()
+       |        _parallelFutures.put(fid, fut)
+       |        resume(Future(("_parId", fid)))
+       |      case "await" =>
+       |        args(0) match
+       |          case Future(("_parId", fid: Long)) =>
+       |            val fut = _parallelFutures.remove(fid)
+       |            if fut == null then sys.error("Async.await: stale Future")
+       |            resume(fut.get())
+       |          case Future(v) => resume(v)
+       |          case _         => sys.error("Async.await(future)")
+       |      case "parallel" =>
+       |        val thunks = args(0).asInstanceOf[List[() => Any]]
+       |        val futs = thunks.map { t =>
+       |          _ex.submit(new java.util.concurrent.Callable[Any] {
+       |            def call(): Any = interp(t())
+       |          })
+       |        }
+       |        resume(futs.map(_.get()))
+       |      case _ => sys.error("Unknown Async operation: " + op)
+       |    def interp(initial: Any): Any =
+       |      var current: Any = initial
+       |      while true do
+       |        current match
+       |          case _Perform("Async", op, args) =>
+       |            current = dispatch(op, args, (v: Any) => v)
+       |          case _Perform(_, _, _) => return current
+       |          case _FlatMap(sub, f) => sub match
+       |            case _Perform("Async", op, args) =>
+       |              val fn = f.asInstanceOf[Any => Any]
+       |              current = dispatch(op, args, (v: Any) => interp(fn(v)))
+       |            case _Perform(_, _, _) =>
+       |              val fn = f.asInstanceOf[Any => Any]
+       |              return _FlatMap(sub, (v: Any) => interp(fn(v)))
+       |            case _FlatMap(s2, g) =>
+       |              current = _FlatMap(s2,
+       |                (x: Any) => _FlatMap(g.asInstanceOf[Any => Any](x), f))
+       |            case v =>
+       |              current = f.asInstanceOf[Any => Any](v)
+       |          case v => return v
+       |      throw new RuntimeException("unreachable")
+       |    interp(bodyThunk())
+       |  finally _ex.shutdown()
        |
        |""".stripMargin
 

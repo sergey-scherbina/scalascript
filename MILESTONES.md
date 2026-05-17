@@ -606,24 +606,13 @@ already covers throughput.
 
 ## v1.3 — Runtime upgrades: real-thread Async, persistence, Async-integrated WS
 
-Three staged additions that build on the v0.8 Async / signals stack.
-Each lands as its own merge so the suite stays green between steps.
-(Stage 1 — fine-grained reactive `Signal` / `computed` / `effect` —
-landed; see git history.)
+Staged additions that build on the v0.8 Async / signals stack.  Each
+lands as its own merge so the suite stays green between steps.
+(Stages 1 and 2 — fine-grained reactive `Signal` / `computed` /
+`effect`, and real-thread `runAsyncParallel` handler — landed; see
+git history.)
 
-1. **Real-thread `runAsyncParallel` handler.**  Drop-in alternative to
-   the default `runAsync` driver: on the JVM uses an
-   `ExecutorService` + `CompletableFuture`, on Node spawns
-   `worker_threads` for each `async`.  Same `Async.*` API, swap-the-
-   handler ergonomics — code written for `runAsync` becomes genuinely
-   concurrent in `runAsyncParallel` without touching call sites.
-   `parallel` returns results in declared order regardless of
-   completion order, preserving deterministic output for code that
-   doesn't rely on timing.  Conformance for this handler lives in its
-   own opt-in suite (output is timing-sensitive so we can't fold it
-   into the main `conformance/`).
-
-2. **`Storage` effect.**  `Storage.get(key)` / `Storage.put(key, v)` /
+1. **`Storage` effect.**  `Storage.get(key)` / `Storage.put(key, v)` /
    `Storage.remove(key)` / `Storage.keys()` against a JSON-backed
    file (`./ssc-storage.json` by default, override via
    `SSC_STORAGE_PATH`).  Lets REST + auth demos outlive a process
@@ -632,13 +621,102 @@ landed; see git history.)
    variants; the latter is what the conformance suite uses so tests
    stay hermetic.
 
-3. **`Async`-integrated WebSocket.**  Lift the `ws.onMessage(cb)` /
+2. **`Async`-integrated WebSocket.**  Lift the `ws.onMessage(cb)` /
    `ws.onClose(cb)` callback surface into suspending `Async`
    operations: `Async.recvFrom(ws)` and `Async.closed(ws)`.  A
    WebSocket handler written as `runAsync { while (...) { … } }`
    reads linearly instead of the inverted-control callback chain.
-   Builds on top of (1) for any subscriber UIs and on the existing
-   `WsRoutes` plumbing in `compiler/src/main/scala/scalascript/server/`.
+   Builds on top of the existing `WsRoutes` plumbing in
+   `compiler/src/main/scala/scalascript/server/`.
+
+3. **Node target for `runAsyncParallel`.**  Today the Node JS runtime
+   aliases `_runAsyncParallel` to `_runAsync` (single-threaded fallback)
+   because real concurrency requires `worker_threads` + `Atomics.wait`
+   for blocking `await`.  Wire that for parity with the JVM backends —
+   each `Async.async(thunk)` posts to a worker, `Async.await(fut)`
+   blocks the main thread on the per-future `SharedArrayBuffer` flag.
+   Worker creation is ~50–100ms one-time, so a pool would help for
+   small-task workloads.
+
+## v1.4 — Standard-library effects
+
+A curated set of pure-by-default effects that cover the boring 80% of
+app plumbing (logging, config, IDs, random, time, retry, cache).  Each
+ships as a built-in `Effect`-style object with a `Perform` shape and
+a default handler, mirroring the `Async` template from v0.8 — so users
+can swap implementations (e.g. seeded `Random` for tests, in-memory
+`Cache` for unit tests, JSON `Logger` for production) without
+touching call sites.  Listed in priority order.
+
+1. **`Logger` effect.**  `Logger.info(msg)` / `.warn(msg)` /
+   `.error(msg)` / `.debug(msg)`.  Default `runLogger(body)` writes
+   to stderr with a level prefix; `runLoggerJson(body)` emits
+   newline-delimited JSON for log shippers; `runLoggerToList(body)`
+   collects into a `List[(level, msg)]` for tests.  Strings only in
+   v1 — structured logging (`Logger.info("foo", Map("user" -> id))`)
+   is a v2 extension.
+
+2. **`Random` effect.**  `Random.nextInt(n)`, `Random.nextDouble()`,
+   `Random.uuid()`, `Random.pick(xs)`.  Default uses
+   `ThreadLocalRandom` / `crypto.randomUUID`; `runRandomSeeded(42) {
+   body }` swaps in a deterministic LCG so test output is
+   reproducible.  Removes the ad-hoc `csrfToken()` / `jwtSign`
+   internal calls in favour of one entry point.
+
+3. **`Clock` / `Time` effect.**  `Clock.now(): Long` (epoch ms),
+   `Clock.nowIso(): String` (ISO-8601), `Clock.sleep(ms): Unit`.
+   Default uses `System.currentTimeMillis` / `Date.now`;
+   `runClockAt(t0) { body }` freezes time at `t0` so JWT-expiry and
+   rate-limit tests don't depend on wall-clock.
+
+4. **`Env` effect.**  `Env.get(key)`, `Env.set(key, v)` (scoped),
+   `Env.required(key)`.  Wraps the existing `getenv(...)` but with a
+   `runEnvWith(Map("FOO" -> "1")) { body }` handler so test fixtures
+   don't have to mutate the real process env.
+
+5. **`Http` client effect.**  `Http.get(url)`, `Http.post(url,
+   body)`, `Http.request(method, url, headers, body): Response`.
+   Default uses Java's `HttpClient` / Node's `fetch` (sync via
+   worker_threads as `_oauthSyncFetch` already does); a
+   `runHttpStub(routes) { body }` handler returns canned responses
+   keyed by URL pattern for unit tests.  Subsumes the bespoke
+   `_oauthSyncFetch` and gives users a first-class outbound HTTP
+   surface.
+
+6. **`Retry` effect.**  `Retry.attempt(n, delayMs)(thunk)` — replays
+   on exception until `n` attempts pass or thunk succeeds.  Default
+   handler uses exponential backoff; `runRetryNoSleep { body }` for
+   tests.  Pairs naturally with `Http` (`Retry.attempt(3) {
+   Http.get(...) }`).
+
+7. **`Cache` effect.**  `Cache.memoize(key, ttlSeconds)(thunk)` —
+   per-key memoisation with TTL.  Default is process-local;
+   `runCacheBypass { body }` always recomputes (test mode);
+   `runCacheBackedBy(store)` swaps in user storage.  Memoise
+   expensive REST handlers without rolling your own map.
+
+8. **`State[S]` effect.**  `State.get`, `State.set(s)`,
+   `State.modify(f)` — functional state threading.  `runState(s0) {
+   body }` returns `(finalState, result)`.  Lets users write
+   stateful computations without `var` and without losing
+   composition (each handler sees the same state interface).
+
+9. **`Tx` / transaction effect.**  `Tx.begin`, `Tx.commit`,
+   `Tx.rollback`, `Tx.atomic { body }` — abstract transactional
+   scope.  Default no-op handler; pluggable for the future DB layer
+   so handlers can chain `Storage.put` calls atomically.
+
+10. **`Auth` effect.**  `Auth.currentUser: Option[User]`,
+    `Auth.require: User`.  Pulled from the current request's
+    session / JWT claims; lets handlers stop threading `req` through
+    deep call chains just to read the caller.  Test handler injects
+    a fixed user.
+
+Each entry is roughly the same shape as v0.8's `Async` (effect
+object + default handler + opt-in test handler + conformance test),
+so they should land at a similar pace once the template is
+established.  No new compiler concept required — purely runtime
+library additions on top of the existing Free Monad infrastructure.
 
 ## Known issues / latent flakes
 
