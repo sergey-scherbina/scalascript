@@ -252,7 +252,14 @@ object Parser:
           i += 1
     result.toString
 
-  private def parseScala(code: String): Option[ScalaNode] =
+  private def parseScala(code: String): Option[ScalaNode] = parseScalaSource(code)
+
+  /** Re-parse a scalascript code-block body to a scalameta `ScalaNode`.
+   *
+   *  Public so `transform.Denormalize` can rebuild the AST trees that
+   *  `Normalize` strips when serialising to IR — backends still consume
+   *  the parsed tree until they migrate to IR-native traversal. */
+  def parseScalaSource(code: String): Option[ScalaNode] =
     import scala.meta.*
     given Dialect = dialects.Scala3
     val processed = preprocessEffects(code)
