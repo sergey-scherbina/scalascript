@@ -94,17 +94,64 @@ domain-specific.** Concrete split TBD during the Phase 9 follow-up.
 The user-space `std/*.ssc` files themselves are not touched — they
 just get loaded automatically for the auto-prelude tier.
 
-### Parked for after Phase 9
+### Open questions
+
+Decisions that don't block Phases 1–9 but need answers before specific
+later milestones land.
+
+- **Sync vs async handler semantics.**  JVM `HttpServer` is sync per
+  request; Node and WASM are inherently async.  Today the language
+  presents a sync API across all three backends.  When we add
+  cancellation, timeouts, or backpressure (likely with the WASM
+  backend or with a "real" Async runtime per v1.3), decide whether
+  they're expressed as algebraic effects or as `Future`/`Promise`
+  types.  Doesn't block Phase 1–9 — surfaces before the WASM
+  backend or v1.3 Runtime upgrades ship.
+
+- **Shared runtime artefacts between plugins.**  If two plugins both
+  wrap the same platform API (e.g. `jvm` and `interpreter` both
+  using `com.sun.net.httpserver`, or two future backends sharing a
+  cryptography binding), do they share a runtime jar / library?
+  Initial answer for v0.1: **no** — duplication is cheap, decoupling
+  is valuable.  Revisit if a real pattern of shared runtime emerges
+  across three or more plugins.
 
 - **Plugin trust / sandboxing.**  Loaded JAR plugins run with full
   JVM permissions; subprocess plugins run as ordinary OS processes.
   Documented as untrusted code for v0.1 of the SPI.  Revisit if/when
-  a plugin marketplace exists.
+  a plugin marketplace exists or we want to support running
+  user-supplied plugins inside CI.
 
 - **Namespaces (`package std.foo` hierarchy), local `.ssc`
   versioning, package registry / discovery.**  All real gaps for
   ecosystem-scale work but well beyond v0.1 scope.  Need separate
   design docs when use cases mature.
+
+### Considered and rejected
+
+For the archeology — proposals that surfaced during design and were
+deliberately not pursued, with the reasoning so future contributors
+don't re-propose them without new evidence.
+
+- **"Phase 10 — extract `Interpreter` pattern-matching to `.ssc`."**
+  Initial suggestion to move the ~300 lines of `.map`/`.flatMap`/
+  `.length` dispatch in `Interpreter.scala` into a bundled
+  `core-prelude` plugin (parallel to how Phase 9 handles
+  `html`/`css`/`scala`).  Rejected because:
+    1. The hardcoded dispatch is an artefact of **one** backend (the
+       tree-walking interpreter).  `JvmGen` and `JsGen` already
+       delegate to the platform stdlib, so the duplication isn't
+       multi-backend — it's a single-backend implementation detail.
+    2. The v1.1 `std/*` typeclass hierarchy already builds *on top
+       of* these primitives.  Replacing them with `.ssc`
+       implementations would slow the interpreter without
+       architectural payoff — typeclasses are the right place for
+       generic abstraction, not re-implementations of `.map`.
+    3. The real friction users hit (sealed-trait extension dispatch,
+       `summon` auto-resolution, `Term.Ascribe`) lives in the
+       interpreter's type-system / dispatch logic, not in its method
+       table.  That work is tracked under **Interpreter ergonomics
+       — carried over from v1.1** (further down in this file).
 
 ## v0.7 — Reusable libraries and packaging
 
