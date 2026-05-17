@@ -244,8 +244,12 @@ final class WsProxy(
         // No matching WS route — answer with a 404 and close.
         val body  = s"No WebSocket route for $path"
         val resp  = httpResponse(404, "Not Found", body)
+        Metrics.wsRejected.incrementAndGet()
         conn.outBufs.add(ByteBuffer.wrap(resp))
-        conn.outBufs.add(null) // sentinel: close after drain
+        // Skip the (broken) null sentinel — ArrayDeque rejects null
+        // with NPE which silently swallows in the selector loop.
+        // The 404 response has `Connection: close`; clients hang up
+        // when they see EOF or just close themselves after reading.
         conn.key.interestOpsOr(SelectionKey.OP_WRITE)
       case Some((entry, params)) =>
         val key = headers.getOrElse("sec-websocket-key", "")
@@ -262,6 +266,7 @@ final class WsProxy(
             val resp  = httpResponse(403, "Forbidden", body)
             conn.outBufs.add(ByteBuffer.wrap(resp))
             conn.key.interestOpsOr(SelectionKey.OP_WRITE)
+            Metrics.wsRejected.incrementAndGet()
             return
         // Pre-upgrade auth hook (RFC-agnostic).  Runs on the proxy
         // selector thread; must be read-only over interpreter
@@ -309,6 +314,7 @@ final class WsProxy(
             "WebSocket upgrade denied: authentication required")
           conn.outBufs.add(ByteBuffer.wrap(resp))
           conn.key.interestOpsOr(SelectionKey.OP_WRITE)
+          Metrics.wsRejected.incrementAndGet()
           return
         // Process-wide cap on active WS sessions — refuses upgrades
         // with 503 before allocating a WsConnection.  Slot is released
@@ -320,6 +326,7 @@ final class WsProxy(
             "WebSocket connection limit reached")
           conn.outBufs.add(ByteBuffer.wrap(resp))
           conn.key.interestOpsOr(SelectionKey.OP_WRITE)
+          Metrics.wsRejected.incrementAndGet()
           return
         // Per-route cap — composed with the process-wide cap (both
         // must permit the upgrade).  Tried AFTER the process-wide
@@ -332,6 +339,7 @@ final class WsProxy(
             s"Route ${entry.path} at capacity (${entry.maxConnections})")
           conn.outBufs.add(ByteBuffer.wrap(resp))
           conn.key.interestOpsOr(SelectionKey.OP_WRITE)
+          Metrics.wsRejected.incrementAndGet()
           return
         // Subprotocol negotiation (RFC 6455 §1.9).  When the route
         // was registered with a non-empty `protocols` list, pick the
@@ -354,6 +362,7 @@ final class WsProxy(
                   s"No matching Sec-WebSocket-Protocol; server offers: ${entry.protocols.mkString(", ")}")
                 conn.outBufs.add(ByteBuffer.wrap(resp))
                 conn.key.interestOpsOr(SelectionKey.OP_WRITE)
+                Metrics.wsRejected.incrementAndGet()
                 return
         val accept = WsFraming.acceptKey(key)
         val protoHeader =
@@ -403,7 +412,12 @@ final class WsProxy(
         ))
         // Transition: build the WsConnection and feed any post-handshake
         // bytes already in the buffer through its parser.
+        Metrics.wsUpgraded.incrementAndGet()
         val ws = WsConnection(conn.ch, conn.key, selector, entry.interpreter, wsExecutor, log, request, heartbeats, heartbeatIntervalMs, heartbeatDeadAfterMs, subprotocol = chosenProtocol, onTerminate = () => entry.release(), maxMessagesPerSec = entry.maxMessagesPerSec, user = userPayload)
+        // Structured connect log (Sprint 4 #13) — tab-separated kv pairs.
+        val accessIp     = try conn.ch.getRemoteAddress.toString catch case _: Throwable => "?"
+        val accessOrigin = headers.getOrElse("origin", "")
+        log.println(s"ws.connect\tid=${ws.id}\tip=$accessIp\troute=$path\torigin=$accessOrigin\tproto=$chosenProtocol")
         conn.mode = Ws(ws)
         conn.inBuf.clear()
         ws.startHeartbeat()

@@ -1108,6 +1108,17 @@ class Interpreter(
       case _ => throw InterpretError("onWebSocketAuth(path, authFn) { ws => … }")
     }
 
+    // metrics() — snapshot of process-wide counters as Map[String, Long].
+    // Same keys across all backends; scraped by health-checks / log
+    // shippers.  Reads are atomic; the map is built on demand so
+    // calls are cheap but not free — don't hammer it on hot paths.
+    nativeP("metrics") {
+      case Nil =>
+        val snap = scalascript.server.Metrics.snapshot()
+        Value.MapV(snap.map((k, v) => Value.StringV(k) -> Value.IntV(v)))
+      case _ => throw InterpretError("metrics() — no arguments")
+    }
+
     // setMaxWsConnections(n) — process-wide cap on simultaneously-open
     // WebSocket sessions.  Upgrades past the cap are refused with 503.
     // Default = unlimited (Int.MaxValue).  Setting it lower than the

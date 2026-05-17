@@ -409,21 +409,13 @@ ends up with three+ variant branches.
 
 ## v1.0 — WebSocket production-readiness
 
-The WS stack landed in v0.7 covers the API surface across all three
-backends (`onWebSocket(path) { ws => … }`, framing, fragmentation,
-`ws.request`, virtual threads on JvmGen, NIO proxy on interpreter)
-but still has known production gaps.  Listed in order of "stops
-real problems" → "feature gaps" → "nice to have"; each sprint is a
-session-sized chunk.
-
-### Sprint 4 — observability
-
-13. **Structured connect/disconnect/error logs** — client IP, route,
-    duration, close code.  ~30 LOC × 3.
-14. **`metrics()` native** — `wsActive`, `wsMessagesIn`/`Out`,
-    `wsBytesIn`/`Out` exposed as a map for scraping.  ~50 LOC.
-15. **HTTP access log** for the proxy-forwarded path.  Currently
-    silent.  ~20 LOC.
+Sprints 4 and 6 landed on this branch (2026-05-17): observability
+(structured ws.connect/ws.close logs, `metrics()` native, HTTP
+access log) and the six WS convenience helpers (`ws.id`,
+`ws.subprotocol`, per-route maxConnections, per-connection rate
+limit, pre-upgrade auth hook, close-handshake echo wait).  Cross-
+backend (interpreter / JvmGen / JsGen) parity throughout.  Sprint 5
+remains, deferred — see below.
 
 ### Sprint 5 — architectural debt
 

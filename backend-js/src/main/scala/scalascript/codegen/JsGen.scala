@@ -215,6 +215,24 @@ function setMaxWsConnections(n) {
   _wsMaxActive = (n == null || n < 0) ? Number.POSITIVE_INFINITY : n;
 }
 
+// ── Process-wide metrics (Sprint 4 #14) ─────────────────────────────
+// Same keys as scalascript.server.Metrics on the interpreter side,
+// so log shippers / health checks scrape identical output across
+// backends.  Node is single-threaded so counters are plain Numbers.
+const _metricsState = {
+  'ws.active': 0, 'ws.upgraded': 0, 'ws.rejected': 0,
+  'ws.messages.in': 0, 'ws.messages.out': 0,
+  'ws.bytes.in': 0,   'ws.bytes.out': 0,
+  'http.requests': 0, 'http.4xx': 0, 'http.5xx': 0,
+};
+function metrics() {
+  // Snapshot returned as a Map<string, number> — same shape as the
+  // interpreter / JvmGen surfaces.
+  const out = new Map();
+  for (const [k, v] of Object.entries(_metricsState)) out.set(k, v);
+  return out;
+}
+
 // WsRoom() — thread-safe (well, event-loop-safe) registry of
 // WebSocket objects + broadcast helper.  Replaces the pattern
 // every chat demo otherwise reinvents.  Node is single-threaded
@@ -1250,6 +1268,13 @@ function _wsMakeWebSocket(socket, request, subprotocol, maxMessagesPerSec, userP
   const id = (typeof crypto !== 'undefined' && crypto.randomUUID)
     ? crypto.randomUUID()
     : require('crypto').randomUUID();
+  // Wall-clock time of upgrade — feeds `duration_ms` into the
+  // Sprint-4 close log emitted on `'close'`.
+  const _startedAt = Date.now();
+  socket.once('close', () => {
+    const dur = Date.now() - _startedAt;
+    console.log(`ws.close\tid=${id}\tduration_ms=${dur}`);
+  });
   // The subprotocol the server selected during upgrade negotiation
   // (RFC 6455 §1.9), or '' when no negotiation took place.
   // `request.headers['sec-websocket-protocol']` still carries the
@@ -1313,6 +1338,8 @@ function _wsMakeWebSocket(socket, request, subprotocol, maxMessagesPerSec, userP
         return;
       }
     }
+    _metricsState['ws.messages.in']++;
+    _metricsState['ws.bytes.in'] += payload.length;
     if (!onMessage) return;
     const msg = opcode === 0x1 ? payload.toString('utf-8') : payload.toString('latin1');
     try { onMessage(msg); } catch (e) { console.error('WS message handler:', e.message); }
@@ -1327,7 +1354,10 @@ function _wsMakeWebSocket(socket, request, subprotocol, maxMessagesPerSec, userP
       // buffer is full.  If we keep ignoring that signal, a slow
       // peer lets Node's per-socket queue grow without bound.  Past
       // a 4 MB backlog, drop the connection.
-      const ok = socket.write(_wsEncodeText(s));
+      const frame = _wsEncodeText(s);
+      _metricsState['ws.messages.out']++;
+      _metricsState['ws.bytes.out'] += frame.length;
+      const ok = socket.write(frame);
       if (!ok && socket.writableLength > 4 * 1024 * 1024) {
         closing = true;
         try { socket.destroy(); } catch (_) {}
@@ -1335,7 +1365,10 @@ function _wsMakeWebSocket(socket, request, subprotocol, maxMessagesPerSec, userP
     },
     sendBytes: (s) => {
       if (closing || socket.destroyed) return;
-      const ok = socket.write(_wsEncodeBinaryLatin1(s));
+      const frame = _wsEncodeBinaryLatin1(s);
+      _metricsState['ws.messages.out']++;
+      _metricsState['ws.bytes.out'] += frame.length;
+      const ok = socket.write(frame);
       if (!ok && socket.writableLength > 4 * 1024 * 1024) {
         closing = true;
         try { socket.destroy(); } catch (_) {}
@@ -1466,6 +1499,7 @@ function _wsHandleUpgrade(req, socket) {
             'Content-Length: 0\r\nConnection: close\r\n\r\n'
           );
           socket.destroy();
+          _metricsState['ws.rejected']++;
           return;
         }
       }
@@ -1510,6 +1544,7 @@ function _wsHandleUpgrade(req, socket) {
             'Content-Length: 0\r\nConnection: close\r\n\r\n'
           );
           socket.destroy();
+          _metricsState['ws.rejected']++;
           return;
         }
         _authPayload = _isSome ? _v : { _type: '_Some', value: _v };
@@ -1525,6 +1560,7 @@ function _wsHandleUpgrade(req, socket) {
           'Content-Length: 0\r\nConnection: close\r\n\r\n'
         );
         socket.destroy();
+        _metricsState['ws.rejected']++;
         return;
       }
       // Per-route cap.  0 = unlimited; composes with the
@@ -1537,6 +1573,7 @@ function _wsHandleUpgrade(req, socket) {
           'Content-Length: 0\r\nConnection: close\r\n\r\n'
         );
         socket.destroy();
+        _metricsState['ws.rejected']++;
         return;
       }
       // Subprotocol negotiation (RFC 6455 §1.9).  Server picks the
@@ -1556,13 +1593,17 @@ function _wsHandleUpgrade(req, socket) {
             'Content-Length: 0\r\nConnection: close\r\n\r\n'
           );
           socket.destroy();
+          _metricsState['ws.rejected']++;
           return;
         }
       }
       _wsActiveCount++;
+      _metricsState['ws.active']++;
+      _metricsState['ws.upgraded']++;
       if (_routeCap > 0) r.activeCount = (r.activeCount ?? 0) + 1;
       socket.once('close', () => {
         _wsActiveCount--;
+        _metricsState['ws.active']--;
         if (_routeCap > 0 && r.activeCount > 0) r.activeCount--;
       });
       const accept = _wsAcceptKey(clientKey);
@@ -1577,12 +1618,17 @@ function _wsHandleUpgrade(req, socket) {
         protoHeader +
         '\r\n'
       );
+      // Structured connect log (Sprint 4 #13).
+      const _ip     = (socket && socket.remoteAddress) ? socket.remoteAddress : '?';
+      const _origin = req.headers['origin'] ?? '';
       const ws = _wsMakeWebSocket(socket, request, chosenProtocol, r.maxMessagesPerSec ?? 0, _authPayload);
+      console.log(`ws.connect\tid=${ws.id}\tip=${_ip}\troute=${u.pathname}\torigin=${_origin}\tproto=${chosenProtocol}`);
       try { r.handler(ws); } catch (e) { console.error('WS upgrade handler:', e.message); }
       return;
     }
     socket.write('HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n');
     socket.destroy();
+    _metricsState['ws.rejected']++;
   } catch (e) {
     try { socket.destroy(); } catch (_) {}
   }
@@ -1610,6 +1656,22 @@ function serve(port) {
     // Collect chunks as Buffers (not strings) so multipart file uploads
     // round-trip byte-for-byte.
     const chunks = [];
+    _metricsState['http.requests']++;
+    // Structured access log (Sprint 4 #15) — one tab-separated line
+    // per request, emitted from the `finish` event so the status
+    // code is final.
+    const _accessStart  = Date.now();
+    const _accessMethod = req.method ?? '?';
+    const _accessPath   = (req.url ?? '').split('?')[0];
+    const _accessIp     = (req.socket && req.socket.remoteAddress) ? req.socket.remoteAddress : '?';
+    const _accessUa     = (req.headers['user-agent'] ?? '').replace(/"/g, "'");
+    res.on('finish', () => {
+      const c = res.statusCode;
+      if (c >= 400 && c < 500) _metricsState['http.4xx']++;
+      else if (c >= 500)       _metricsState['http.5xx']++;
+      const dur = Date.now() - _accessStart;
+      console.log(`http\tip=${_accessIp}\tmethod=${_accessMethod}\tpath=${_accessPath}\tstatus=${c}\tduration_ms=${dur}\tua="${_accessUa}"`);
+    });
     req.on('data', c => chunks.push(c));
     req.on('end', () => {
       try {

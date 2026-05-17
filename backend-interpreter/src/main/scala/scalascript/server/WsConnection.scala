@@ -28,10 +28,15 @@ object WsConnection:
     if after > maxActive.get then
       activeCount.decrementAndGet()
       false
-    else true
+    else
+      // Mirror the cap-checked count into the metrics surface so
+      // `metrics()["ws.active"]` agrees with `activeCount.get`.
+      Metrics.wsActive.incrementAndGet()
+      true
 
   def releaseSlot(): Unit =
     activeCount.decrementAndGet()
+    Metrics.wsActive.decrementAndGet()
 
 /** Live WebSocket session: parser state on the inbound side, write queue on
  *  the outbound side, plus the user-facing `WebSocket` value the handler
@@ -105,6 +110,11 @@ final class WsConnection(
    *  and used by [[WsConnection]] / [[WsProxy]] to tag every log line
    *  for a single session. */
   val id: String = java.util.UUID.randomUUID().toString
+
+  /** Wall-clock time the connection was upgraded.  Used by
+   *  `closeNow` to compute the `duration_ms` field of the
+   *  `ws.close` access log line. */
+  private val startedAtMs: Long = System.currentTimeMillis()
   // Outgoing frames waiting to be written.  Drained by the selector thread
   // in [[flush]]; new bytes appended from any thread via [[enqueue]].
   private val outbox: ConcurrentLinkedQueue[ByteBuffer] =
@@ -167,6 +177,7 @@ final class WsConnection(
    *  read; safe to call repeatedly. */
   def onBytes(src: ByteBuffer): Unit =
     val n = src.remaining
+    Metrics.wsBytesIn.addAndGet(n.toLong)
     ensureInCapacity(inLen + n)
     src.get(inBuf, inLen, n)
     inLen += n
@@ -276,6 +287,7 @@ final class WsConnection(
       if rateMsgsInWindow > maxMessagesPerSec then
         sendClose(1008, "rate limit exceeded")
         return
+    Metrics.wsMessagesIn.incrementAndGet()
     val s: String =
       if opcode == WsFraming.Opcode.Text then
         new String(payload, java.nio.charset.StandardCharsets.UTF_8)
@@ -341,7 +353,9 @@ final class WsConnection(
       // Decrement outboxBytes by the amount actually written this round,
       // so backpressure unwinds as the socket drains.
       val written = before - buf.remaining
-      if written > 0 then outboxBytes.addAndGet(-written.toLong)
+      if written > 0 then
+        outboxBytes.addAndGet(-written.toLong)
+        Metrics.wsBytesOut.addAndGet(written.toLong)
       if buf.hasRemaining then return
       outbox.poll()
     // Outbox empty: stop selecting for OP_WRITE.
@@ -410,6 +424,11 @@ final class WsConnection(
       // Same idempotency: only fires once per connection because the
       // `key.isValid` guard above keeps the close path single-shot.
       try onTerminate() catch case _: Throwable => ()
+      // Structured close log (Sprint 4 #13) — one tab-separated
+      // line on every session teardown.  `duration_ms` is wall
+      // clock from upgrade.
+      val durMs = System.currentTimeMillis() - startedAtMs
+      log.println(s"ws.close\tid=$id\tduration_ms=$durMs")
       // Atomic getAndSet — at most one caller can win the right to fire
       // onClose.  Without this both the read-loop's drainFrames (on EOF
       // or a peer-initiated close frame) and a user-side `ws.close()`
@@ -429,6 +448,7 @@ final class WsConnection(
   def asValue: Value =
     val send = Value.NativeFnV("WebSocket.send", Computation.pureFn {
       case List(Value.StringV(s)) =>
+        Metrics.wsMessagesOut.incrementAndGet()
         enqueue(WsFraming.encodeText(s))
         Value.UnitV
       case _ => throw scalascript.interpreter.InterpretError("ws.send(text)")
@@ -439,6 +459,7 @@ final class WsConnection(
     // `bytes.getBytes("ISO-8859-1")` without escape-mangling.
     val sendBytes = Value.NativeFnV("WebSocket.sendBytes", Computation.pureFn {
       case List(Value.StringV(s)) =>
+        Metrics.wsMessagesOut.incrementAndGet()
         enqueue(WsFraming.encodeBinary(s.getBytes("ISO-8859-1")))
         Value.UnitV
       case _ => throw scalascript.interpreter.InterpretError("ws.sendBytes(bytes)")
