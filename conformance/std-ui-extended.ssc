@@ -1,0 +1,18 @@
+---
+name: std-ui-extended
+---
+
+# v0.10 — extended pack iter A smoke
+
+[Card, Switch, Alert, Tag](../examples/std-ui)
+
+```scalascript
+println(Card.render("Header text", "Body content", "Footer").contains("Header text"))
+println(Card.render("", "just body", "").contains("just body"))
+println(Switch.render("notifications", "Email me", true).contains("checked"))
+println(Switch.render("dark", "Dark mode", false).contains("Dark mode"))
+println(Alert.render("Saved!", "success").contains("success__Alert"))
+println(Alert.render("Boom", "danger").contains("role=\"alert\""))
+println(Tag.render("u-42", "alice", true).contains("data-tag-id=\"u-42\""))
+println(Tag.render("ro", "readonly", false).contains("readonly"))
+```

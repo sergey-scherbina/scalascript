@@ -1,0 +1,49 @@
+#!/usr/bin/env ssc
+---
+name: switch
+description: Toggle styled as an iOS-style switch — boolean form input.
+---
+
+# Switch
+
+A styled checkbox that looks like a sliding toggle.  Submits the
+same way as a regular checkbox; the visual is pure CSS.
+
+```scalascript
+object Switch:
+  private val sc = scope("Switch")
+  private val rootCls = sc.cls("root")
+  private val inputCls = sc.cls("input")
+  private val trackCls = sc.cls("track")
+  private val thumbCls = sc.cls("thumb")
+  private val labelCls = sc.cls("label")
+
+  val css: String = sc.css("""
+    .root  { display: inline-flex; align-items: center;
+             gap: .5em; cursor: pointer; user-select: none;
+             font: inherit; color: #1f2937; }
+    .input { position: absolute; opacity: 0; pointer-events: none; }
+    .track { width: 2.4em; height: 1.3em; background: #cbd5e1;
+             border-radius: 999px; position: relative;
+             transition: background-color .15s ease; }
+    .thumb { position: absolute; top: .15em; left: .15em;
+             width: 1em; height: 1em; border-radius: 50%;
+             background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.2);
+             transition: transform .15s ease; }
+    .input:checked + .track { background: #2563eb; }
+    .input:checked + .track > .thumb { transform: translateX(1.1em); }
+    .input:focus-visible + .track { outline: 2px solid #2563eb;
+                                    outline-offset: 2px; }
+    .label { font-size: .95em; }
+  """)
+
+  /** Pass `name` for the form field, `label` for the visible text,
+   *  and `checked` for the initial state. */
+  def render(name: String, label: String, checked: Boolean): String =
+    val checkedAttr = if checked then " checked" else ""
+    html"""<label class="${rootCls}">
+      <input class="${inputCls}" type="checkbox" name="${name}"${raw(checkedAttr)}>
+      <span class="${trackCls}"><span class="${thumbCls}"></span></span>
+      <span class="${labelCls}">${label}</span>
+    </label>"""
+```

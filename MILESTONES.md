@@ -349,10 +349,6 @@ js, def render }`), same `scope()` pattern, mergeable one-at-a-time.
   - **`Combobox`** — autocomplete `<input>` + filterable popover.
   - **`Stepper`** — multi-step form wizard with progress indicator.
   - **`Toolbar`** — horizontal action bar (compose Button + Dropdown).
-  - **`Card`** — header / body / footer slot trio.
-  - **`Alert`** banners (already present as an example; promote).
-  - **`Tag` / `Chip`** — closable inline tokens (close-button slot).
-  - **`Switch`** — toggle styled checkbox.
   - **`RangeSlider`** — single + dual-handle.
   - **`Tree`** — collapsible hierarchical view (built on Accordion
     primitives).
@@ -360,6 +356,11 @@ js, def render }`), same `scope()` pattern, mergeable one-at-a-time.
   - **`Lightbox`** — image viewer overlay.
   - **`Stats`** — dashboard-style number tile with delta indicator.
   - **`Empty`** — no-content placeholder with icon + CTA.
+
+Landed in iter A: `Card` (header / body / footer trio), `Switch`
+(iOS-style toggle), `Alert` (banner with five tones), `Tag` (closable
+inline chip).  All registered in `std/ui/index.ssc`, covered by
+`conformance/std-ui-extended.ssc` on three backends.
 
 Each is half-day to a day.  Pick what a consumer actually asks for
 before grinding through speculatively.
