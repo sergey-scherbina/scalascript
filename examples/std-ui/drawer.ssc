@@ -1,0 +1,80 @@
+#!/usr/bin/env ssc
+---
+name: drawer
+description: Slide-in side panel — same open/close as Modal, anchored to an edge.
+---
+
+# Drawer
+
+```scalascript
+object Drawer:
+  private val sc = scope("Drawer")
+  private val backdropCls = sc.cls("backdrop")
+  private val panelCls    = sc.cls("panel")
+  private val rightCls    = sc.cls("right")
+  private val leftCls     = sc.cls("left")
+  private val titleCls    = sc.cls("title")
+  private val bodyCls     = sc.cls("body")
+  private val closeCls    = sc.cls("close")
+
+  val css: String = sc.css("""
+    .backdrop { position: fixed; inset: 0; background: rgba(0,0,0,.3);
+                display: none; z-index: 40; }
+    .backdrop[data-open="true"] { display: block; }
+    .panel    { position: fixed; top: 0; bottom: 0; width: 20em;
+                max-width: calc(100vw - 3em);
+                background: #fff; box-shadow: 0 0 20px rgba(0,0,0,.15);
+                padding: 1em 1.25em; overflow-y: auto;
+                transition: transform .25s ease; }
+    .right    { right: 0;  transform: translateX(100%); }
+    .left     { left:  0;  transform: translateX(-100%); }
+    .backdrop[data-open="true"] .panel { transform: translateX(0); }
+    .title    { margin: 0 0 .75em; font-size: 1.05em; font-weight: 600; }
+    .body     { color: #374151; }
+    .close    { position: absolute; top: .5em; right: .5em;
+                background: transparent; border: 0; cursor: pointer;
+                font-size: 1.25em; color: #6b7280; padding: .25em .5em; }
+    .close:hover { color: #111827; }
+  """)
+
+  val js: String = s"""
+document.querySelectorAll('.$backdropCls').forEach(bd => {
+  bd.addEventListener('click', e => {
+    if (e.target === bd) bd.setAttribute('data-open', 'false');
+  });
+  bd.querySelectorAll('[data-drawer-close]').forEach(b =>
+    b.addEventListener('click', () => bd.setAttribute('data-open', 'false'))
+  );
+});
+document.addEventListener('keydown', e => {
+  if (e.key !== 'Escape') return;
+  document.querySelectorAll('.$backdropCls[data-open="true"]').forEach(bd =>
+    bd.setAttribute('data-open', 'false')
+  );
+});
+window.Drawer = window.Drawer || {
+  open:  (id) => { const el = document.getElementById(id);
+                   if (el) el.setAttribute('data-open', 'true'); },
+  close: (id) => { const el = document.getElementById(id);
+                   if (el) el.setAttribute('data-open', 'false'); }
+};"""
+
+  /** `side` is "left" or "right" (default).  Inside the body, any
+   *  element with `data-drawer-close` dismisses on click. */
+  def render(
+      id: String,
+      title: String,
+      body: String,
+      side: String = "right",
+      open: Boolean = false
+  ): String =
+    val sideCls = if side == "left" then leftCls else rightCls
+    val openAttr = if open then "true" else "false"
+    html"""<div class="${backdropCls}" id="${id}" data-open="${openAttr}">
+      <aside class="${panelCls} ${sideCls}" role="dialog" aria-modal="true">
+        <button class="${closeCls}" type="button" data-drawer-close aria-label="Close">×</button>
+        <h3 class="${titleCls}">${title}</h3>
+        <div class="${bodyCls}">${raw(body)}</div>
+      </aside>
+    </div>"""
+```

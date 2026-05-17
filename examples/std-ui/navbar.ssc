@@ -1,0 +1,53 @@
+#!/usr/bin/env ssc
+---
+name: navbar
+description: Sticky top header with brand + nav links + optional right slot.
+---
+
+# NavBar
+
+```scalascript
+object NavBar:
+  private val sc = scope("NavBar")
+  private val rootCls  = sc.cls("root")
+  private val brandCls = sc.cls("brand")
+  private val navCls   = sc.cls("nav")
+  private val linkCls  = sc.cls("link")
+  private val curCls   = sc.cls("current")
+  private val rightCls = sc.cls("right")
+
+  val css: String = sc.css("""
+    .root  { position: sticky; top: 0; z-index: 10;
+             display: flex; align-items: center; gap: 1.5em;
+             padding: .75em 1.2em; background: #1f2937; color: #fff;
+             box-shadow: 0 1px 3px rgba(0,0,0,.1); }
+    .brand { font-weight: 700; font-size: 1.05em; }
+    .nav   { display: flex; align-items: center; gap: 1.2em; flex: 1; }
+    .link  { color: #d1d5db; text-decoration: none; font-size: .95em; }
+    .link:hover   { color: #fff; }
+    .current      { color: #fff; font-weight: 600;
+                    border-bottom: 2px solid #60a5fa; padding-bottom: 2px; }
+    .right { display: flex; align-items: center; gap: .75em; }
+  """)
+
+  /** `links` is a `List[(href, label)]`; `current` highlights the
+   *  matching href.  `rightSlot` is arbitrary trailing HTML —
+   *  search box, profile menu, login button, whatever. */
+  def render(
+      brand: String,
+      links: List[(String, String)],
+      current: String = "/",
+      rightSlot: String = ""
+  ): String =
+    val items = links.map { (href, label) =>
+      val cls = if href == current then linkCls + " " + curCls else linkCls
+      html"""<a class="${cls}" href="${href}">${label}</a>"""
+    }.mkString
+    val rightHtml = if rightSlot.isEmpty then ""
+                    else html"""<div class="${rightCls}">${raw(rightSlot)}</div>"""
+    html"""<header class="${rootCls}">
+      <div class="${brandCls}">${brand}</div>
+      <nav class="${navCls}">${raw(items)}</nav>
+      ${raw(rightHtml)}
+    </header>"""
+```

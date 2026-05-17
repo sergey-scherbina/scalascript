@@ -1,0 +1,50 @@
+#!/usr/bin/env ssc
+---
+name: tooltip
+description: Pure-CSS hover/focus popover — no JS.
+---
+
+# Tooltip
+
+A CSS-only hint that appears on hover or keyboard focus.  Wraps the
+trigger in a `<span>` with `data-tip` so the bubble can be implemented
+as a `::after` pseudo-element.
+
+```scalascript
+object Tooltip:
+  private val sc = scope("Tooltip")
+  private val rootCls = sc.cls("root")
+
+  val css: String = sc.css("""
+    .root { position: relative; display: inline-block;
+            border-bottom: 1px dotted #6b7280; cursor: help; }
+    .root::after,
+    .root::before {
+      position: absolute; left: 50%; bottom: calc(100% + .35em);
+      transform: translateX(-50%);
+      opacity: 0; pointer-events: none;
+      transition: opacity .12s ease-in;
+    }
+    .root::after {
+      content: attr(data-tip);
+      background: #111827; color: #f9fafb;
+      padding: .35em .65em; border-radius: 4px;
+      font-size: .82em; line-height: 1.35; white-space: nowrap;
+      box-shadow: 0 4px 10px rgba(0,0,0,.15);
+    }
+    .root::before {
+      content: ""; bottom: calc(100% + .05em);
+      border: .3em solid transparent;
+      border-top-color: #111827;
+    }
+    .root:hover::after,
+    .root:hover::before,
+    .root:focus-within::after,
+    .root:focus-within::before { opacity: 1; }
+  """)
+
+  /** `trigger` is the visible text (or HTML); `tip` is the popover
+   *  content (plain text — it's stuffed into a `data-tip` attribute). */
+  def render(trigger: String, tip: String): String =
+    html"""<span class="${rootCls}" data-tip="${tip}" tabindex="0">${raw(trigger)}</span>"""
+```

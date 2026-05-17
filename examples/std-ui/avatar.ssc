@@ -1,0 +1,55 @@
+#!/usr/bin/env ssc
+---
+name: avatar
+description: Circular image with initials fallback — sm / md / lg sizes.
+---
+
+# Avatar
+
+A round avatar.  Pass `src` to use an image; pass `""` to fall back
+to monogrammed initials derived from the user's name.
+
+```scalascript
+object Avatar:
+  private val sc = scope("Avatar")
+  private val rootCls = sc.cls("root")
+  private val smCls = sc.cls("sm")
+  private val lgCls = sc.cls("lg")
+  private val imgCls = sc.cls("img")
+  private val initCls = sc.cls("init")
+
+  val css: String = sc.css("""
+    .root  { display: inline-flex; align-items: center; justify-content: center;
+             width: 2.5em; height: 2.5em; border-radius: 50%;
+             background: #2563eb; color: #fff; font-weight: 600;
+             font-size: .95em; overflow: hidden; vertical-align: middle;
+             user-select: none; }
+    .sm    { width: 1.75em; height: 1.75em; font-size: .8em; }
+    .lg    { width: 4em;    height: 4em;    font-size: 1.4em; }
+    .img   { width: 100%; height: 100%; object-fit: cover; }
+    .init  { line-height: 1; }
+  """)
+
+  /** Derives up to two uppercase initials from a display name. */
+  private def initials(name: String): String =
+    val parts = name.trim.split(" ").filter(_.nonEmpty)
+    if parts.isEmpty then "?"
+    else if parts.length == 1 then parts(0).substring(0, 1).toUpperCase
+    else (parts(0).substring(0, 1) + parts(parts.length - 1).substring(0, 1)).toUpperCase
+
+  /** `name` is used for the alt text and the initials fallback.
+   *  `src` empty means "no image, show initials".
+   *  `size` is "sm", "md" (default), or "lg". */
+  def render(name: String, src: String = "", size: String = "md"): String =
+    val sizeCls = size match
+      case "sm" => " " + smCls
+      case "lg" => " " + lgCls
+      case _    => ""
+    val cls = rootCls + sizeCls
+    val inner =
+      if src == "" then
+        html"""<span class="${initCls}">${initials(name)}</span>"""
+      else
+        html"""<img class="${imgCls}" src="${src}" alt="${name}">"""
+    html"""<span class="${cls}" role="img" aria-label="${name}">${raw(inner)}</span>"""
+```

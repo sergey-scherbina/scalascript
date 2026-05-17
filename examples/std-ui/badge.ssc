@@ -1,0 +1,43 @@
+#!/usr/bin/env ssc
+---
+name: badge
+description: Small pill — neutral / info / warn / danger / success tones.
+---
+
+# Badge
+
+A status pill.  Pick the tone with `tone`: `"neutral"` (default),
+`"info"`, `"success"`, `"warn"`, or `"danger"`.
+
+```scalascript
+object Badge:
+  private val sc = scope("Badge")
+  private val rootCls = sc.cls("root")
+  private val neutralCls = sc.cls("neutral")
+  private val infoCls = sc.cls("info")
+  private val successCls = sc.cls("success")
+  private val warnCls = sc.cls("warn")
+  private val dangerCls = sc.cls("danger")
+
+  val css: String = sc.css("""
+    .root     { display: inline-block; padding: .15em .55em;
+                font-size: .78em; font-weight: 600; line-height: 1.4;
+                border-radius: 999px; vertical-align: middle;
+                border: 1px solid transparent; }
+    .neutral  { background: #f3f4f6; color: #374151; border-color: #e5e7eb; }
+    .info     { background: #dbeafe; color: #1e40af; border-color: #bfdbfe; }
+    .success  { background: #d1fae5; color: #065f46; border-color: #a7f3d0; }
+    .warn     { background: #fef3c7; color: #92400e; border-color: #fde68a; }
+    .danger   { background: #fee2e2; color: #991b1b; border-color: #fecaca; }
+  """)
+
+  def render(label: String, tone: String = "neutral"): String =
+    val toneCls = tone match
+      case "info"    => infoCls
+      case "success" => successCls
+      case "warn"    => warnCls
+      case "danger"  => dangerCls
+      case _         => neutralCls
+    val cls = rootCls + " " + toneCls
+    html"""<span class="${cls}">${label}</span>"""
+```

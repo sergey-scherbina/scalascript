@@ -118,105 +118,114 @@ useful in isolation and unblocks the next.
    workflow.  Weeks of work; only worth opening once the surface
    above is well-trodden.  Out of scope for v0.7.
 
-## v0.9 — Standard component pack (`std/ui/*`)
+## v0.9 — Standard component pack — cross-cutting follow-ups
 
-The component convention is in place (`object Foo { val css, val js,
-def render(...) }`), the distribution surface lands in v0.7, and
-v0.8 makes them W3C Custom Elements.  v0.9 fills the gap that every
-real `.ssc` app hits: a curated set of components, shipped as a
-single `.sscpkg` (or via URL imports against a stable tag), so
-nobody re-implements yet-another-`Button.ssc` from scratch.
-
-Layout one file per component under `std/ui/`, all using `scope(...)`
-on bare class names, all reachable through a top-level aggregator
-`std/ui/index.ssc` so consumers can do
-`[Button, Card, FormInput as Input](std/ui)`.
-
-Tier 3 — **navigation**
-
-  - **`NavBar`** — `Layout`-style header with brand + nav links +
-    optional right-aligned slot.  Generalised version of what
-    `examples/site/components/layout.ssc` already inlines.
-  - **`Breadcrumbs`** — links with `/`-separator from a `List[(Path,
-    Label)]`.
-  - **`Tabs`** — controlled (active index as prop) and uncontrolled
-    (`val js` swaps `aria-selected` on click).  Tabs+content panels
-    in one component, with `data-tab="<id>"` wiring.
-  - **`Pagination`** — page-number row with prev/next, capped
-    visible-page count.
-  - **`Sidebar`** — sticky vertical nav for docs / dashboards.
-
-Tier 4 — **feedback / overlays**
-
-  - **`Toast`** + `toast.show(...)` JS helper — auto-dismiss
-    notifications stacked top-right.  Server-render-only stub +
-    client-side stack.
-  - **`Modal`** — open/close via `open` boolean; click-outside
-    closes; `Esc` closes; focus-trap inside.
-  - **`Drawer`** — slide-in side panel.  Same controls as Modal.
-  - **`Spinner`** + **`ProgressBar`** — pure CSS, no JS.
-  - **`Skeleton`** — animated placeholder for loading content.
-
-Tier 5 — **data display**
-
-  - **`Table`** — headers + rows from `List[(label, getter)]` and
-    `List[T]`.  Optional sortable columns (client-side `val js`).
-  - **`List`** (linear list — name TBD to avoid clashing with
-    `scala.List`) — vertical item list with optional dividers and
-    interactive rows.
-  - **`DataGrid`** — Table + pagination + filter row.  Probably
-    builds on `Table` rather than replacing it.
-  - **`KeyValue`** — `<dl>` pair list for "name: value" displays.
-
-Tier 6 — **content / typography**
-
-  - **`Code`** — `<pre><code>` with optional language hint;
-    syntax highlighting is out of scope, but the markup + spacing
-    is.
-  - **`MarkdownBlock`** — render a Markdown string via commonmark
-    server-side.  Useful for CMS-style content fields.
-  - **`Quote`** — styled blockquote with optional citation.
-
-Tier 7 — **widgets**
-
-  - **`Avatar`** — circular image with fallback initials, sizes
-    (`sm` / `md` / `lg`).
-  - **`Badge`** — small pill, neutral / info / warn / danger / success.
-  - **`Tooltip`** — CSS-only hover popover (no JS for the basic
-    version).
-  - **`Accordion`** — collapsible sections, multi-vs-single open
-    mode prop.
-  - **`Dropdown`** — button + popover menu; same JS bones as the
-    tab switcher.
-
-Tier 8 — **theming infrastructure**
-
-  - **CSS variables** (`--ui-color-primary`, `--ui-radius-md`,
-    `--ui-font-body`, …) defined in `std/ui/theme.ssc`; every
-    other component reads from them so theming is variable-swap.
-  - **`ThemeProvider`** — sets variables on `:root` from a Map.
-  - **Dark-mode toggle** — `prefers-color-scheme` defaults + a
-    user override via `data-theme="dark"`.
-  - **Reset / normalise stylesheet** shipped as `std/ui/reset.css`.
-
-Cross-cutting work the pack motivates:
+The eight tiers of `std/ui/*` (forms, layout, navigation, feedback,
+data, content/typography, widgets, theming) all landed in v0.9.
+What's left from that block is the tooling that the pack motivates:
 
   - **`ssc test`** — a runner for component-level unit tests
     (`tests:` block in front-matter or a sibling `*-test.ssc` file).
-    Without this every component ships untested.
-  - **Component preview** — `ssc preview <file>` opens a browser
-    page that renders the component with each declared `variants:`
-    set.  Storybook-lite.  Optional but pays back the cost the
-    first time a designer needs to see all 47 Button states.
-  - **A documentation page** for the pack (`examples/std-ui/`)
-    that builds via `ssc build` and renders every component with
-    every variant, with the source visible.
+    Without this every component ships untested.  Likely shape: each
+    test is `(name, () => Boolean)`, runner prints pass/fail and
+    aggregates exit status — same backend matrix as conformance.
+    ~1 day per backend.
+  - **`ssc preview <file>`** — opens a browser page that renders the
+    component with each declared `variants:` set.  Storybook-lite.
+    Pays back the cost the first time a designer needs to see all
+    47 Button states.  ~1 day.
+  - **Documentation page** for the pack (`examples/std-ui/`) that
+    builds via `ssc build` and renders every component with every
+    variant, with the source visible.  Largely content, not code.
+    ~1 day.
+  - **`std/ui/index.ssc` aggregator** — a single re-export entry so
+    consumers can write `[Button, Card](./std-ui)` instead of one
+    import per component.  Requires the directory-as-index resolver
+    fix below.
 
-Effort estimate: tiers are independent and roughly half-day each
-(one focused session per tier).  Whole pack is ~1–2 weeks of
-component work at one tier per day plus 2–3 days for `ssc test`
-and the preview tooling.  Defer until at least one consumer of the
-existing convention asks "where do I get a Button?".
+Defer until at least one consumer of the existing convention asks
+"where do I get a Button?".
+
+## v0.9.1 — Import ergonomics: directory-as-index
+
+Make `[Name](./pack)` resolve to `./pack/index.ssc` when the path is
+a directory.  Today `ImportResolver.resolve` returns the raw path; if
+it points to a directory all three backends fail with "not a file".
+
+Single-spot change: after the resolver computes the final `os.Path`,
+if `os.isDir(p)` then return `p / "index.ssc"`.  ~20 LOC + one
+conformance test that imports a folder.  Unblocks `std/ui/index.ssc`.
+
+## v0.10 — Extended component pack
+
+Components the standard pack didn't cover but every real app
+eventually wants.  Same shape as v0.9 (`object Foo { val css, val
+js, def render }`), same `scope()` pattern, mergeable one-at-a-time.
+
+  - **`DateInput` / `DatePicker`** — `<input type=date>` plus a CSS
+    polyfill for browsers that show the ugly native UI.
+  - **`TimeInput` / `DateTimePicker`**.
+  - **`FileUpload`** — drag-drop zone over the existing
+    `multipart/form-data` plumbing (req.files already works).
+  - **`Combobox`** — autocomplete `<input>` + filterable popover.
+  - **`Stepper`** — multi-step form wizard with progress indicator.
+  - **`Toolbar`** — horizontal action bar (compose Button + Dropdown).
+  - **`Card`** — header / body / footer slot trio.
+  - **`Alert`** banners (already present as an example; promote).
+  - **`Tag` / `Chip`** — closable inline tokens (close-button slot).
+  - **`Switch`** — toggle styled checkbox.
+  - **`RangeSlider`** — single + dual-handle.
+  - **`Tree`** — collapsible hierarchical view (built on Accordion
+    primitives).
+  - **`Carousel`** — scroll-snap based, no JS for the default mode.
+  - **`Lightbox`** — image viewer overlay.
+  - **`Stats`** — dashboard-style number tile with delta indicator.
+  - **`Empty`** — no-content placeholder with icon + CTA.
+
+Each is half-day to a day.  Pick what a consumer actually asks for
+before grinding through speculatively.
+
+## v0.11 — i18n / l10n
+
+Many real apps need translatable strings before they need much else.
+Today every component embeds English labels directly in `def
+render`.  Need a non-leaky way to thread a locale through.
+
+Shape under consideration:
+
+  - **`Locale` global** — a thread-local-like singleton with the
+    current locale code; components call `t("submit")` to look up
+    the active translation.  Falls back to the key string if no
+    translation registered.
+  - **Front-matter `translations:`** — per-page or per-component
+    YAML map keyed by locale code.  Aggregated into a global table
+    at boot.
+  - **Number / date formatting** — defer to ICU only on JVM; ship a
+    tiny built-in formatter for interpreter + JS.
+
+Defer until a multilingual app surfaces.  ~1 week if we keep it
+opinionated.
+
+## v0.12 — SSR + client hydration story
+
+We already render server-side and we can ship `val js` that finds
+elements via querySelector.  But once we ship Web Components (v0.8)
+the question is: how do server-rendered light-DOM + client-side
+shadow-DOM cohabit without one wiping the other?
+
+Investigation, not implementation, until v0.8 lands.
+
+## v0.13 — Component theming variants
+
+Beyond Tier 8's tokens we may want a "variant" concept: a Button
+that's `tone="primary"` is a token-driven recolour, but a Button
+that's `variant="ghost"` is a structurally different render (no
+background, just a border).  Convention: variants live in the same
+component, picked by string prop, documented in the front-matter
+`variants:` list (used by `ssc preview`).
+
+No code change — just discipline.  Promote when a real component
+ends up with three+ variant branches.
 
 ## v0.8 — Web Components target (`ssc emit-wc`)
 
@@ -416,6 +425,45 @@ but two ergonomic gaps remain:
 Approx scope: 1 is ~2h; 2a-2c are ~2 days (CBOR parser + signature
 verify on three backends); 2d-2e ~1 day.
 
+## Interpreter ergonomics — carried over from v1.1
+
+Three friction points surfaced while building the v1.1 typeclass
+library.  Each was worked around at the call site (helpers instead
+of extensions, typed-`val` instead of ascription) to keep the
+milestone narrow, but each leaves an unergonomic seam users will
+hit again.  Roughly a session each; pick up when the next milestone
+that uses them lands.
+
+1. **Sealed-trait extension dispatch in the interpreter.**  A
+   `Right(…)` value has typeName `"Right"`, but `extension [A](fa:
+   Either[E, A])` registers under `"Either"`.  Without a
+   sealed-parent registry the interpreter misses the route — which
+   is why `Bifunctor[Either]` and `MonadError[Either, …]` ship
+   through helper functions in steps 5 and 6 of v1.1.  Need a
+   sealed-trait → case-class index built at trait/class definition
+   time, then `extensionDispatch` walks the parent chain.  ~100 LOC
+   interpreter change.  JS already handles this via `_typeOf` from
+   v1.1 step 4.
+
+2. **`using`-clause auto-resolution.**  Polymorphic typeclass code
+   (`def doIt[F[_]: Monad, A](fa: F[A])…`) requires `summon`
+   resolution at the call site.  ScalaScript today only supports
+   explicit-parameter passing, which is why every std helper is
+   monomorphic (`pureList`, `pureOption`, `combineAll(xs, intSum)`
+   rather than `pure[List](x)` / `xs.combineAll`).  Bigger lift
+   across all three backends — needs a resolution pass in the
+   typer that walks each `using` parameter, finds a unique
+   in-scope `given` of the right type, and re-writes the call to
+   pass it explicitly before lowering.  Defer until a user-facing
+   API actually wants the polymorphic shape.
+
+3. **`Term.Ascribe`.**  Type ascriptions like `(None: Option[Int])`
+   aren't handled by the interpreter — it errors with `Cannot
+   eval: Term.Ascribe`.  Worked around throughout the std lib and
+   conformance tests by binding to a typed `val` first.  Smallest
+   of the three: the interpreter just needs to evaluate the inner
+   term and discard the type.  ~20 LOC.
+
 ## v1.1 — Standard type-class hierarchy — landed
 
 Small, principled std library of FP type classes living in `std/`,
@@ -508,30 +556,6 @@ The 7 new tests:
     std-monaderror                 PASS  [INT] [JS] [JVM]
     std-bifunctor                  PASS  [INT] [JS] [JVM]
     std-index                      PASS  [INT] [JS] [JVM]
-
-### Carried into v1.2 — interpreter ergonomics
-
-A handful of friction points surfaced during the build but were kept
-narrow rather than expanded into this milestone:
-
-- **Sealed-trait extension dispatch in the interpreter.**  A
-  `Right(…)` value has typeName `"Right"`, but extensions inside
-  `Bifunctor[Either]` (or `MonadError[Either, …]`) register under
-  `"Either"`.  Without a sealed-parent registry the interpreter
-  misses the route — that's why Either ships through helper
-  functions in steps 5 and 6.  ~100 LOC interpreter change.
-
-- **`using`-clause auto-resolution.**  Polymorphic typeclass code
-  (`def doIt[F[_]: Monad, A](fa: F[A])…`) requires `summon`
-  resolution at the call site; ScalaScript today only supports
-  explicit-parameter passing.  Bigger lift across all three
-  backends; the per-instance helpers in std cover the common cases
-  without it.
-
-- **`Term.Ascribe`.**  Type ascriptions like `(None: Option[Int])`
-  aren't handled by the interpreter.  Worked around throughout the
-  std lib and conformance tests by binding to a typed `val`.  ~20
-  LOC interpreter change.
 
 ### Explicitly deferred — `Category` / `Arrow` / `Profunctor`
 

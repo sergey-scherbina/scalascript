@@ -1,0 +1,28 @@
+#!/usr/bin/env ssc
+---
+name: theme-provider
+description: Wraps content in a scope that overrides CSS variables for that subtree.
+---
+
+# ThemeProvider
+
+A scoped container that overrides theme tokens for everything inside
+it.  Useful for "this card uses brand B" or "preview this widget in
+dark" — pass a `Map[String, String]` of variable overrides and they
+apply to the wrapped subtree only.
+
+```scalascript
+object ThemeProvider:
+  private val sc = scope("ThemeProvider")
+  private val rootCls = sc.cls("root")
+
+  val css: String = sc.css("""
+    .root { display: contents; }
+  """)
+
+  /** Renders an inline-style attribute setting each token as a CSS
+   *  variable.  The variables only cascade inside the wrapper. */
+  def render(tokens: Map[String, String], children: String): String =
+    val style = tokens.toList.map { (k, v) => s"--$k: $v;" }.mkString(" ")
+    html"""<div class="${rootCls}" style="${style}">${raw(children)}</div>"""
+```

@@ -1,0 +1,36 @@
+#!/usr/bin/env ssc
+---
+name: data-list
+description: Vertical list with optional dividers and interactive hovers.
+---
+
+# DataList
+
+(Named `DataList` to avoid clashing with `scala.List` at the
+top-level scope.)
+
+```scalascript
+object DataList:
+  private val sc = scope("DataList")
+  private val rootCls = sc.cls("root")
+  private val itemCls = sc.cls("item")
+  private val intCls  = sc.cls("interactive")
+
+  val css: String = sc.css("""
+    .root  { list-style: none; padding: 0; margin: 1em 0;
+             border: 1px solid #e5e7eb; border-radius: 6px; overflow: hidden;
+             background: #fff; }
+    .item  { padding: .65em .9em; border-bottom: 1px solid #f3f4f6;
+             color: #1f2937; }
+    .item:last-child { border-bottom: 0; }
+    .interactive { cursor: pointer; transition: background .15s ease; }
+    .interactive:hover { background: #f9fafb; }
+  """)
+
+  /** `items` is one HTML string per row.  `interactive=true` adds
+   *  hover styling — useful when the items are links or buttons. */
+  def render(items: List[String], interactive: Boolean = false): String =
+    val cls = if interactive then itemCls + " " + intCls else itemCls
+    val lis = items.map(it => html"""<li class="${cls}">${raw(it)}</li>""").mkString
+    html"""<ul class="${rootCls}">${raw(lis)}</ul>"""
+```

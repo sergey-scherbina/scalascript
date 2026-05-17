@@ -1,0 +1,53 @@
+#!/usr/bin/env ssc
+---
+name: table
+description: Headers + rows table, styled with banded rows.
+---
+
+# Table
+
+```scalascript
+object Table:
+  private val sc = scope("Table")
+  private val rootCls = sc.cls("root")
+  private val theadCls = sc.cls("thead")
+  private val numCls = sc.cls("num")
+
+  val css: String = sc.css("""
+    .root  { border-collapse: collapse; width: 100%;
+             font-size: .92em; margin: 1em 0; }
+    .root th, .root td { padding: .55em .75em; text-align: left;
+             border-bottom: 1px solid #e5e7eb; }
+    .thead th { background: #f9fafb; color: #374151;
+             font-weight: 600; border-bottom: 2px solid #e5e7eb; }
+    .root tbody tr:nth-child(even) { background: #fafafa; }
+    .root tbody tr:hover  { background: #eff6ff; }
+    .num { text-align: right; font-variant-numeric: tabular-nums; }
+  """)
+
+  /** `headers` labels the columns.  `rows` is one
+   *  `List[String]` per row — caller stringifies values.
+   *  `rightAlign` is a list of zero-based column indices that
+   *  should use the `.num` numeric style. */
+  def render(
+      headers: List[String],
+      rows: List[List[String]],
+      rightAlign: List[Int] = Nil
+  ): String =
+    val isNum = rightAlign.toSet
+    val head = headers.zipWithIndex.map { (h, i) =>
+      val cls = if isNum.contains(i) then numCls else ""
+      html"""<th class="${cls}">${h}</th>"""
+    }.mkString
+    val body = rows.map { row =>
+      val cells = row.zipWithIndex.map { (v, i) =>
+        val cls = if isNum.contains(i) then numCls else ""
+        html"""<td class="${cls}">${v}</td>"""
+      }.mkString
+      html"""<tr>${raw(cells)}</tr>"""
+    }.mkString
+    html"""<table class="${rootCls}">
+      <thead class="${theadCls}"><tr>${raw(head)}</tr></thead>
+      <tbody>${raw(body)}</tbody>
+    </table>"""
+```

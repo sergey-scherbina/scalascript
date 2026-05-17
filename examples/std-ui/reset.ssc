@@ -1,0 +1,31 @@
+#!/usr/bin/env ssc
+---
+name: reset
+description: Minimal CSS reset — sensible defaults for box-sizing, line-height, media.
+---
+
+# Reset
+
+A tiny modernised CSS reset.  Not as aggressive as Eric Meyer's, not
+as opinionated as Bootstrap's — just the handful of fixes every page
+benefits from: `box-sizing: border-box`, sane `line-height`,
+responsive media, form-element font inheritance.
+
+```scalascript
+object Reset:
+  val css: String = """
+*, *::before, *::after { box-sizing: border-box; }
+html { -moz-text-size-adjust: 100%; -webkit-text-size-adjust: 100%;
+       text-size-adjust: 100%; }
+body { margin: 0; min-height: 100vh; line-height: 1.5;
+       background: var(--ui-color-bg, #fff);
+       color: var(--ui-color-fg, #111827);
+       font-family: var(--ui-font-body, system-ui, sans-serif); }
+img, picture, svg, video { display: block; max-width: 100%; }
+input, button, textarea, select { font: inherit; color: inherit; }
+button { background: none; border: 0; padding: 0; cursor: pointer; }
+a { color: var(--ui-color-primary, #2563eb); }
+h1, h2, h3, h4, h5, h6, p, figure, blockquote { margin: 0; }
+ul, ol { padding: 0; margin: 0; }
+"""
+```

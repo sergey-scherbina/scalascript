@@ -1,0 +1,60 @@
+#!/usr/bin/env ssc
+---
+name: theme-toggle
+description: Light/dark switch — sets data-theme on <html> and persists in localStorage.
+---
+
+# ThemeToggle
+
+A small button that flips `<html>` between `data-theme="light"` and
+`data-theme="dark"`.  Choice is persisted in `localStorage`, and the
+boot script runs synchronously in `<head>` to apply the saved theme
+before first paint (no flash-of-wrong-theme).
+
+```scalascript
+object ThemeToggle:
+  private val sc = scope("ThemeToggle")
+  private val rootCls = sc.cls("root")
+
+  val css: String = sc.css("""
+    .root { background: var(--ui-color-surface, #f9fafb);
+            color: var(--ui-color-fg, #111827);
+            border: 1px solid var(--ui-color-border, #e5e7eb);
+            padding: .35em .8em; border-radius: 6px; cursor: pointer;
+            font: inherit; font-size: .9em; }
+    .root:hover { background: var(--ui-color-border, #e5e7eb); }
+  """)
+
+  /** Synchronous bootstrap that *must* run before <body>.  Apply the
+   *  saved theme to the documentElement to avoid the flash. */
+  val bootJs: String = """
+(function () {
+  try {
+    var saved = localStorage.getItem('ssc-theme');
+    if (saved === 'dark' || saved === 'light') {
+      document.documentElement.setAttribute('data-theme', saved);
+    }
+  } catch (_) {}
+})();"""
+
+  val js: String = s"""
+document.querySelectorAll('.$rootCls').forEach(btn => {
+  const sync = () => {
+    const t = document.documentElement.getAttribute('data-theme');
+    const isDark = t === 'dark' ||
+      (t !== 'light' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+    btn.textContent = isDark ? '☀ Light' : '☾ Dark';
+  };
+  sync();
+  btn.addEventListener('click', () => {
+    const cur = document.documentElement.getAttribute('data-theme');
+    const next = cur === 'dark' ? 'light' : 'dark';
+    document.documentElement.setAttribute('data-theme', next);
+    try { localStorage.setItem('ssc-theme', next); } catch (_) {}
+    sync();
+  });
+});"""
+
+  def render(): String =
+    html"""<button class="${rootCls}" type="button" aria-label="Toggle theme">☾ Dark</button>"""
+```

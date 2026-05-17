@@ -1,0 +1,30 @@
+#!/usr/bin/env ssc
+---
+name: key-value
+description: A <dl> of name/value pairs — profile, metadata, settings panels.
+---
+
+# KeyValue
+
+```scalascript
+object KeyValue:
+  private val sc = scope("KeyValue")
+  private val rootCls = sc.cls("root")
+  private val termCls = sc.cls("term")
+  private val descCls = sc.cls("desc")
+
+  val css: String = sc.css("""
+    .root { display: grid; grid-template-columns: max-content 1fr;
+            column-gap: 1em; row-gap: .5em; margin: 1em 0;
+            font-size: .95em; }
+    .term { color: #6b7280; font-weight: 500; }
+    .desc { color: #111827; margin: 0; }
+  """)
+
+  /** `pairs` is `List[(label, value)]`; values may contain raw HTML. */
+  def render(pairs: List[(String, String)]): String =
+    val rows = pairs.map { (k, v) =>
+      html"""<dt class="${termCls}">${k}</dt><dd class="${descCls}">${raw(v)}</dd>"""
+    }.mkString
+    html"""<dl class="${rootCls}">${raw(rows)}</dl>"""
+```

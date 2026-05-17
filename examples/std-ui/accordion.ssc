@@ -1,0 +1,64 @@
+#!/usr/bin/env ssc
+---
+name: accordion
+description: Collapsible panel groups using native <details>; single-open mode optional.
+---
+
+# Accordion
+
+Built on native `<details>`/`<summary>` so it's keyboard-accessible
+without any JS for the basic case.  Pass `singleOpen = true` and a
+tiny script enforces "only one section open at a time" within the
+accordion.
+
+```scalascript
+object Accordion:
+  private val sc = scope("Accordion")
+  private val rootCls = sc.cls("root")
+  private val itemCls = sc.cls("item")
+  private val summaryCls = sc.cls("summary")
+  private val bodyCls = sc.cls("body")
+  private val singleCls = sc.cls("single")
+
+  val css: String = sc.css("""
+    .root     { border: 1px solid #e5e7eb; border-radius: 6px;
+                overflow: hidden; margin: 1em 0; }
+    .item     { border-bottom: 1px solid #e5e7eb; }
+    .item:last-child { border-bottom: 0; }
+    .summary  { padding: .65em 1em; cursor: pointer;
+                font-weight: 600; color: #1f2937;
+                background: #fafafa; list-style: none; }
+    .summary::-webkit-details-marker { display: none; }
+    .summary::before { content: "▸"; display: inline-block;
+                       width: 1em; transition: transform .15s ease; }
+    .item[open] > .summary::before { transform: rotate(90deg); }
+    .summary:hover { background: #f3f4f6; }
+    .body     { padding: .8em 1em; color: #374151; line-height: 1.55;
+                background: #fff; }
+  """)
+
+  val js: String = s"""
+document.querySelectorAll('.$singleCls').forEach(group => {
+  const items = group.querySelectorAll('.$itemCls');
+  items.forEach(item => {
+    item.addEventListener('toggle', () => {
+      if (!item.open) return;
+      items.forEach(other => { if (other !== item) other.open = false; });
+    });
+  });
+});"""
+
+  /** `sections` is a list of `(summary, body)` pairs; the body may
+   *  contain HTML.  `singleOpen` enforces only-one-open behaviour. */
+  def render(sections: List[(String, String)], singleOpen: Boolean = false): String =
+    val items = sections.map { (s, b) =>
+      html"""<details class="${itemCls}">
+        <summary class="${summaryCls}">${s}</summary>
+        <div class="${bodyCls}">${raw(b)}</div>
+      </details>"""
+    }.mkString
+    val cls =
+      if singleOpen then rootCls + " " + singleCls
+      else rootCls
+    html"""<div class="${cls}">${raw(items)}</div>"""
+```

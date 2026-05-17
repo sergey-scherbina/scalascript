@@ -1,0 +1,33 @@
+#!/usr/bin/env ssc
+---
+name: spinner
+description: Pure-CSS rotating ring — no JS, no images.
+---
+
+# Spinner
+
+```scalascript
+object Spinner:
+  private val sc = scope("Spinner")
+  private val rootCls = sc.cls("root")
+  private val smCls = sc.cls("sm")
+  private val lgCls = sc.cls("lg")
+
+  val css: String = sc.css("""
+    .root { display: inline-block; width: 1.5em; height: 1.5em;
+            border: 2px solid rgba(0,0,0,.1); border-top-color: currentColor;
+            border-radius: 50%; animation: spnr 0.75s linear infinite;
+            vertical-align: -.25em; }
+    .sm   { width: 1em;   height: 1em;   border-width: 2px; }
+    .lg   { width: 2.5em; height: 2.5em; border-width: 3px; }
+    @keyframes spnr { to { transform: rotate(360deg); } }
+  """)
+
+  def render(size: String = "md"): String =
+    val extra = size match
+      case "sm" => " " + smCls
+      case "lg" => " " + lgCls
+      case _    => ""
+    val cls = rootCls + extra
+    html"""<span class="${cls}" role="status" aria-label="Loading"></span>"""
+```

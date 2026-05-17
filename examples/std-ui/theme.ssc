@@ -1,0 +1,87 @@
+#!/usr/bin/env ssc
+---
+name: theme
+description: Design tokens — colour, radius, spacing, typography — as CSS variables.
+---
+
+# Theme
+
+A single source-of-truth for the visual language of `std/ui`.  Tokens
+live as CSS custom properties on `:root`, so any component can read
+them via `var(--ui-color-primary)` and dark mode is a variable swap.
+
+Three exported values:
+
+* `Theme.css` — the `:root` rule with all light-mode tokens, plus a
+  `[data-theme="dark"]` override.
+* `Theme.lightTokens` — `Map[String, String]` of just the light values,
+  for use with `ThemeProvider`.
+* `Theme.darkTokens` — same for dark mode.
+
+```scalascript
+object Theme:
+  /** Light-mode token map.  Keys are CSS variable names without the
+   *  leading `--`. */
+  val lightTokens: Map[String, String] = Map(
+    "ui-color-bg"        -> "#ffffff",
+    "ui-color-fg"        -> "#111827",
+    "ui-color-muted"     -> "#6b7280",
+    "ui-color-border"    -> "#e5e7eb",
+    "ui-color-primary"   -> "#2563eb",
+    "ui-color-primary-hover" -> "#1d4ed8",
+    "ui-color-success"   -> "#16a34a",
+    "ui-color-warn"      -> "#f59e0b",
+    "ui-color-danger"    -> "#dc2626",
+    "ui-color-surface"   -> "#f9fafb",
+    "ui-radius-sm"       -> "3px",
+    "ui-radius-md"       -> "6px",
+    "ui-radius-lg"       -> "10px",
+    "ui-space-1"         -> ".25rem",
+    "ui-space-2"         -> ".5rem",
+    "ui-space-3"         -> "0.75rem",
+    "ui-space-4"         -> "1rem",
+    "ui-space-6"         -> "1.5rem",
+    "ui-font-body"       -> "system-ui, -apple-system, sans-serif",
+    "ui-font-mono"       -> "ui-monospace, SFMono-Regular, Menlo, monospace",
+    "ui-font-size-sm"    -> ".875rem",
+    "ui-font-size-md"    -> "1rem",
+    "ui-font-size-lg"    -> "1.125rem",
+    "ui-shadow-sm"       -> "0 1px 2px rgba(0,0,0,.05)",
+    "ui-shadow-md"       -> "0 4px 12px rgba(0,0,0,.08)"
+  )
+
+  /** Dark-mode token overrides.  Anything not listed inherits from
+   *  `lightTokens` (browsers cascade unset variables). */
+  val darkTokens: Map[String, String] = Map(
+    "ui-color-bg"        -> "#0b1220",
+    "ui-color-fg"        -> "#e5e7eb",
+    "ui-color-muted"     -> "#9ca3af",
+    "ui-color-border"    -> "#1f2937",
+    "ui-color-primary"   -> "#60a5fa",
+    "ui-color-primary-hover" -> "#3b82f6",
+    "ui-color-surface"   -> "#111827",
+    "ui-shadow-sm"       -> "0 1px 2px rgba(0,0,0,.4)",
+    "ui-shadow-md"       -> "0 4px 12px rgba(0,0,0,.45)"
+  )
+
+  private def declarations(tokens: Map[String, String]): String =
+    tokens.toList.map { (k, v) => s"  --$k: $v;" }.mkString("\n")
+
+  /** Emits `:root { ... }` for light tokens plus a
+   *  `[data-theme="dark"] { ... }` override and a media-query fallback
+   *  for users that haven't picked manually. */
+  val css: String =
+    val light = declarations(lightTokens)
+    val dark  = declarations(darkTokens)
+    s""":root {
+$light
+}
+[data-theme="dark"] {
+$dark
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+$dark
+  }
+}"""
+```

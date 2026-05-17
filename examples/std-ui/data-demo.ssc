@@ -1,0 +1,108 @@
+#!/usr/bin/env ssc
+---
+name: std-ui-data-demo
+description: Renders every Tier 5 data-display primitive on one page.
+routes:
+  - method: GET
+    path: /
+    handler: home
+---
+
+# std/ui — data display demo
+
+Imports `Table`, `DataList`, `DataGrid`, `KeyValue` and shows each.
+
+[Table](./table.ssc)
+
+[DataList](./data-list.ssc)
+
+[DataGrid](./data-grid.ssc)
+
+[KeyValue](./key-value.ssc)
+
+```scalascript
+def home(req: Request): Response =
+  val tbl = Table.render(
+    List("Name", "Role", "Joined", "Active issues"),
+    List(
+      List("Alice",   "Frontend", "2023-04-12", "3"),
+      List("Bogdan",  "Backend",  "2024-01-08", "7"),
+      List("Carmen",  "DevOps",   "2024-09-22", "1"),
+      List("Daichi",  "Frontend", "2025-03-15", "5")
+    ),
+    List(3)
+  )
+
+  val list = DataList.render(
+    List(
+      """<strong>Setup</strong> &nbsp; <small>Install scala-cli</small>""",
+      """<strong>Hello</strong> &nbsp; <small>First .ssc page</small>""",
+      """<strong>Routes</strong> &nbsp; <small>Wire HTTP handlers</small>""",
+      """<strong>Components</strong> &nbsp; <small>Build a UI library</small>"""
+    ),
+    true
+  )
+
+  val grid = DataGrid.render(
+    List("Country", "Capital", "Population"),
+    List(
+      List("Ukraine",        "Kyiv",      "44.1M"),
+      List("Germany",        "Berlin",    "83.2M"),
+      List("United Kingdom", "London",    "67.5M"),
+      List("France",         "Paris",     "67.4M"),
+      List("Japan",          "Tokyo",     "125.7M"),
+      List("Brazil",         "Brasília",  "214.3M")
+    ),
+    "Filter countries…",
+    List(2)
+  )
+
+  val kv = KeyValue.render(List(
+    ("Name",       "Alice Carter"),
+    ("Email",      """<a href="mailto:alice@example.com">alice@example.com</a>"""),
+    ("Joined",     "2023-04-12"),
+    ("Plan",       "<strong>Pro</strong>"),
+    ("Last login", "2 hours ago")
+  ))
+
+  val body = html"""
+    <h1>std/ui — data display</h1>
+    <p>Tier 5 of the standard component pack.</p>
+
+    <h2>Table (right-aligned issue count)</h2>
+    ${raw(tbl)}
+
+    <h2>DataList (interactive)</h2>
+    ${raw(list)}
+
+    <h2>DataGrid (try the filter)</h2>
+    ${raw(grid)}
+
+    <h2>KeyValue</h2>
+    ${raw(kv)}
+
+    <script>${raw(collectJs(Table, DataList, DataGrid, KeyValue))}</script>
+  """
+
+  val styles = collectCss(Table, DataList, DataGrid, KeyValue)
+
+  Response.html(html"""<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>std/ui — data display</title>
+  <style>
+    body { font: 1rem/1.5 system-ui, sans-serif; max-width: 720px;
+           margin: 2rem auto; padding: 0 1rem; color: #111827; }
+    h1 { margin-top: 0; }
+    ${raw(styles)}
+  </style>
+</head>
+<body>
+  ${raw(body)}
+</body>
+</html>""")
+
+println("Listening on http://localhost:8774/")
+serve(8774)
+```

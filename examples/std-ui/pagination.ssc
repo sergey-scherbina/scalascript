@@ -1,0 +1,74 @@
+#!/usr/bin/env ssc
+---
+name: pagination
+description: Page-number row with prev/next, capped visible-page count.
+---
+
+# Pagination
+
+```scalascript
+object Pagination:
+  private val sc = scope("Pagination")
+  private val rootCls = sc.cls("root")
+  private val itemCls = sc.cls("item")
+  private val curCls  = sc.cls("current")
+  private val gapCls  = sc.cls("gap")
+  private val disabledCls = sc.cls("disabled")
+
+  val css: String = sc.css("""
+    .root  { display: flex; align-items: center; gap: .25em; margin: 1em 0;
+             font-size: .9em; }
+    .item  { padding: .35em .65em; min-width: 2em; text-align: center;
+             border: 1px solid #e5e7eb; border-radius: 4px;
+             color: #1f2937; text-decoration: none; background: #fff; }
+    .item:hover { background: #f9fafb; }
+    .current      { background: #2563eb; color: #fff; border-color: #2563eb;
+                    font-weight: 600; }
+    .disabled     { opacity: .4; pointer-events: none; }
+    .gap   { padding: .35em .25em; color: #9ca3af; user-select: none; }
+  """)
+
+  /** `urlFor(pageNum)` builds the href for each page link (e.g.
+   *  `n => s"/blog?page=${n}"`).  `siblings` is how many page-number
+   *  links to show on each side of the current page before falling
+   *  back to a `…` gap. */
+  def render(
+      current: Int,
+      total: Int,
+      urlFor: Int => String,
+      siblings: Int = 2
+  ): String =
+    if total <= 1 then ""
+    else
+      val prevHref = urlFor(if current > 1 then current - 1 else 1)
+      val nextHref = urlFor(if current < total then current + 1 else total)
+      val prevCls = if current <= 1 then itemCls + " " + disabledCls else itemCls
+      val nextCls = if current >= total then itemCls + " " + disabledCls else itemCls
+      val prev = html"""<a class="${prevCls}" href="${prevHref}" aria-label="Previous page">‹</a>"""
+      val next = html"""<a class="${nextCls}" href="${nextHref}" aria-label="Next page">›</a>"""
+
+      def pageLink(n: Int): String =
+        val cls = if n == current then itemCls + " " + curCls else itemCls
+        val href = urlFor(n)
+        html"""<a class="${cls}" href="${href}">${n}</a>"""
+      def gap(): String = html"""<span class="${gapCls}">…</span>"""
+
+      // Build a numeric range with leading "1 …" and trailing "… N"
+      // when the window doesn't reach the ends.
+      val lowerWindow = current - siblings
+      val upperWindow = current + siblings
+      val left  = if lowerWindow < 2 then 2 else lowerWindow
+      val right = if upperWindow > total - 1 then total - 1 else upperWindow
+      val firstLink = pageLink(1)
+      val gapLeft   = if left > 2 then gap() else ""
+      val windowLinks = (left to right).map(pageLink).mkString
+      val gapRight  = if right < total - 1 then gap() else ""
+      val lastLink  = if total > 1 then pageLink(total) else ""
+      val middle    = firstLink + gapLeft + windowLinks + gapRight + lastLink
+
+      html"""<nav class="${rootCls}" aria-label="Pagination">
+        ${raw(prev)}
+        ${raw(middle)}
+        ${raw(next)}
+      </nav>"""
+```

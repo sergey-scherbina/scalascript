@@ -1,0 +1,41 @@
+#!/usr/bin/env ssc
+---
+name: quote
+description: Styled <blockquote> with optional citation line.
+---
+
+# Quote
+
+A pull-quote.  Body may contain inline HTML; citation is plain text
+and rendered as `<cite>` after an em-dash.
+
+```scalascript
+object Quote:
+  private val sc = scope("Quote")
+  private val rootCls = sc.cls("root")
+  private val bodyCls = sc.cls("body")
+  private val citeCls = sc.cls("cite")
+
+  val css: String = sc.css("""
+    .root  { border-left: 4px solid #2563eb; background: #f8fafc;
+             padding: .75em 1.25em; margin: 1.25em 0; color: #1f2937;
+             border-radius: 0 4px 4px 0; }
+    .body  { font-style: italic; }
+    .body p:first-child { margin-top: 0; }
+    .body p:last-child  { margin-bottom: 0; }
+    .cite  { display: block; margin-top: .5em; font-size: .9em;
+             color: #6b7280; font-style: normal; }
+    .cite::before { content: "— "; }
+  """)
+
+  /** Body is treated as raw HTML so callers can include inline
+   *  emphasis.  Citation is plain text; pass `""` to omit. */
+  def render(body: String, cite: String = ""): String =
+    val citeHtml =
+      if cite == "" then ""
+      else html"""<cite class="${citeCls}">${cite}</cite>"""
+    html"""<blockquote class="${rootCls}">
+      <div class="${bodyCls}">${raw(body)}</div>
+      ${raw(citeHtml)}
+    </blockquote>"""
+```

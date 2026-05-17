@@ -1,0 +1,41 @@
+#!/usr/bin/env ssc
+---
+name: code
+description: <pre><code> block with optional language hint — no syntax highlighting.
+---
+
+# Code
+
+A semantic, no-frills code block.  Content is HTML-escaped by the
+interpolator, so you can paste literal source.  Pass a `language`
+to add a `language-<x>` class — any highlighter (Prism, Hightlight.js)
+that scans for that class will pick it up later.
+
+```scalascript
+object Code:
+  private val sc = scope("Code")
+  private val rootCls = sc.cls("root")
+  private val inlineCls = sc.cls("inline")
+
+  val css: String = sc.css("""
+    .root  { display: block; background: #0f172a; color: #e2e8f0;
+             padding: 1em 1.15em; border-radius: 6px; overflow-x: auto;
+             font: .9em / 1.55 ui-monospace, SFMono-Regular, Menlo, monospace;
+             margin: 1em 0; }
+    .root code { background: transparent; padding: 0; color: inherit; }
+    .inline { background: #f1f5f9; color: #0f172a; padding: .12em .35em;
+              border-radius: 3px; font-family: ui-monospace, SFMono-Regular,
+              Menlo, monospace; font-size: .92em; }
+  """)
+
+  /** Block code.  Pass `language` (e.g. `"scala"`, `"bash"`) to add a
+   *  `language-<x>` class — handy for client-side highlighters. */
+  def render(source: String, language: String = ""): String =
+    val langCls = if language == "" then "" else " language-" + language
+    val codeCls = langCls.trim
+    html"""<pre class="${rootCls}"><code class="${codeCls}">${source}</code></pre>"""
+
+  /** Inline `<code>` for use inside paragraphs. */
+  def inline(snippet: String): String =
+    html"""<code class="${inlineCls}">${snippet}</code>"""
+```

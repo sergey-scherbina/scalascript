@@ -1,0 +1,41 @@
+#!/usr/bin/env ssc
+---
+name: breadcrumbs
+description: Path trail — list of (href, label) with `/` separators.
+---
+
+# Breadcrumbs
+
+```scalascript
+object Breadcrumbs:
+  private val sc = scope("Breadcrumbs")
+  private val rootCls = sc.cls("root")
+  private val sepCls  = sc.cls("sep")
+  private val linkCls = sc.cls("link")
+  private val curCls  = sc.cls("current")
+
+  val css: String = sc.css("""
+    .root    { display: flex; align-items: center; flex-wrap: wrap;
+               gap: .35em; font-size: .9em; margin: 1em 0; }
+    .sep     { color: #9ca3af; user-select: none; }
+    .link    { color: #2563eb; text-decoration: none; }
+    .link:hover    { text-decoration: underline; }
+    .current       { color: #374151; font-weight: 500; }
+  """)
+
+  /** The LAST item is rendered as plain text (current page).
+   *  Earlier items render as links with `/` separators between. */
+  def render(items: List[(String, String)]): String =
+    if items.isEmpty then ""
+    else
+      val n = items.length
+      val pieces = items.zipWithIndex.map { case ((href, label), i) =>
+        val isLast = i == n - 1
+        val el =
+          if isLast then html"""<span class="${curCls}">${label}</span>"""
+          else html"""<a class="${linkCls}" href="${href}">${label}</a>"""
+        if i == 0 then el
+        else html"""<span class="${sepCls}">/</span>${raw(el)}"""
+      }.mkString
+      html"""<nav class="${rootCls}" aria-label="Breadcrumb">${raw(pieces)}</nav>"""
+```

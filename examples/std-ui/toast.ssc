@@ -1,0 +1,72 @@
+#!/usr/bin/env ssc
+---
+name: toast
+description: Auto-dismiss notifications stacked top-right; `Toast.show(msg, kind)` from JS.
+---
+
+# Toast
+
+```scalascript
+object Toast:
+  private val sc = scope("Toast")
+  private val stackCls = sc.cls("stack")
+  private val itemCls  = sc.cls("item")
+  private val infoCls  = sc.cls("info")
+  private val successCls = sc.cls("success")
+  private val warnCls  = sc.cls("warn")
+  private val errorCls = sc.cls("error")
+
+  val css: String = sc.css("""
+    .stack   { position: fixed; top: 1em; right: 1em; z-index: 60;
+               display: flex; flex-direction: column; gap: .5em;
+               max-width: 24em; pointer-events: none; }
+    .item    { padding: .65em .9em; background: #1f2937; color: #fff;
+               border-radius: 6px; box-shadow: 0 4px 12px rgba(0,0,0,.15);
+               font-size: .9em; pointer-events: auto;
+               animation: tin .25s ease-out; }
+    .info    { background: #2563eb; }
+    .success { background: #16a34a; }
+    .warn    { background: #d97706; }
+    .error   { background: #dc2626; }
+    @keyframes tin {
+      from { opacity: 0; transform: translateX(20px); }
+      to   { opacity: 1; transform: translateX(0); }
+    }
+  """)
+
+  val js: String = s"""
+window.Toast = window.Toast || (() => {
+  let stack = null;
+  function ensureStack() {
+    if (stack && document.body.contains(stack)) return stack;
+    stack = document.createElement('div');
+    stack.className = '$stackCls';
+    document.body.appendChild(stack);
+    return stack;
+  }
+  const KINDS = { info: '$infoCls', success: '$successCls',
+                  warn: '$warnCls',  error:   '$errorCls' };
+  function show(msg, kind, ms) {
+    const k = KINDS[kind] || KINDS.info;
+    const el = document.createElement('div');
+    el.className = '$itemCls ' + k;
+    el.textContent = String(msg);
+    ensureStack().appendChild(el);
+    setTimeout(() => el.remove(), ms || 4000);
+    return el;
+  }
+  return { show };
+})();"""
+
+  /** Pre-rendered toast — useful for SSR.  Most callers will use the
+   *  client-side `Toast.show(msg, "success")` JS helper instead. */
+  def render(message: String, kind: String = "info"): String =
+    val variant = kind match
+      case "success" => successCls
+      case "warn"    => warnCls
+      case "error"   => errorCls
+      case _         => infoCls
+    html"""<div class="${stackCls}">
+      <div class="${itemCls} ${variant}">${message}</div>
+    </div>"""
+```
