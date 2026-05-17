@@ -1,0 +1,76 @@
+---
+name: std-monaderror
+version: 1.0.0
+description: MonadError typeclass — std v1.1 step 5
+exports:
+  - optionUnitError
+  - raiseOption
+  - handleOption
+  - attemptOption
+  - raiseEither
+  - handleEither
+  - attemptEither
+  - Left
+  - Right
+---
+
+# MonadError
+
+Adds `raise[A](e: E): F[A]` and `handleError[A](fa: F[A], h: E => F[A])`
+to `Monad`, parameterised by the error type `E`.
+
+The trait has two type parameters — the effect `F[_]` and the error
+`E`.  Instances ship for:
+
+  - `MonadError[Option, Unit]` — fully extension-dispatched
+  - `Either[String, *]` — exposed only through helper functions, since
+    the interpreter doesn't yet route extension methods through
+    user-defined sealed-trait hierarchies (e.g. `Right(...)` doesn't
+    inherit `Either`'s extensions).  Helpers `raiseEither`,
+    `handleEither`, and `attemptEither` give the same surface.
+
+[Left, Right](./either.ssc)
+
+## Typeclass definition
+
+```scalascript
+trait MonadError[F[_], E]:
+  def raise[A](e: E): F[A]
+  extension [A](fa: F[A]) def handleError(h: E => F[A]): F[A]
+```
+
+## Option instance (Unit error)
+
+```scalascript
+given optionUnitError: MonadError[Option, Unit] with
+  def raise[A](e: Unit): Option[A] = None
+  extension [A](fa: Option[A]) def handleError(h: Unit => Option[A]): Option[A] = fa match
+    case Some(_) => fa
+    case None    => h(())
+```
+
+## Either helpers (string error)
+
+```scalascript
+def raiseEither[A](e: String): Either[String, A] = Left(e)
+
+def handleEither[A](fa: Either[String, A], h: String => Either[String, A]): Either[String, A] =
+  fa match
+    case Right(_) => fa
+    case Left(e)  => h(e)
+
+def attemptEither[A](fa: Either[String, A]): Either[String, Either[String, A]] =
+  Right(fa)
+```
+
+## Option helpers
+
+```scalascript
+def raiseOption[A](): Option[A] = None
+
+def handleOption[A](fa: Option[A], h: () => Option[A]): Option[A] = fa match
+  case Some(_) => fa
+  case None    => h()
+
+def attemptOption[A](fa: Option[A]): Option[Option[A]] = Some(fa)
+```
