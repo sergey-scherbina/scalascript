@@ -2641,6 +2641,15 @@ class JsGen(baseDir: Option[os.Path] = None):
         section.subsections.foreach(childGen.genSection)
       }
       sb.append(childGen.sb)
+      // For each `[Name as Alias]` binding, rebind the original to the
+      // alias.  The original `Name` stays in scope too — JS imports are
+      // currently whole-module inlines (see v0.7 follow-up: scoped
+      // imports).  No alias emitted when binding has no `as`.
+      imp.bindings.foreach { b =>
+        b.alias.foreach { alias =>
+          line(s"const $alias = ${b.name};")
+        }
+      }
 
   private[codegen] def genScalaNode(node: ScalaNode): Unit =
     ScalaNode.fold(node) {

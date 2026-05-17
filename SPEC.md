@@ -445,6 +445,23 @@ Or selective import:
 [List, Map](std/collections)
 ```
 
+Each binding can be **aliased** with `Name as Alias`, so two libraries
+that both export the same identifier can be used side by side:
+
+```markdown
+[Card as UICard](./ui-pack/card.ssc)
+[Card as ChartCard](./chart-pack/card.ssc)
+
+```scalascript
+println(UICard.render(...))
+println(ChartCard.render(...))
+\```
+```
+
+Aliasing is mixable: `[Foo as F, Bar]` aliases `Foo` to `F` and
+imports `Bar` under its own name.  Whitespace around `as` is
+required.
+
 ### 6.4 Visibility
 
 - `# Heading` scope members: public by default

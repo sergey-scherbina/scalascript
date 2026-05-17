@@ -164,7 +164,7 @@ class JvmGen(baseDir: Option[os.Path] = None):
           }
           Nil
         case imp: Content.Import =>
-          inlineImport(imp.path)
+          inlineImport(imp.path) ++ aliasBlock(imp.bindings).toList
         case _ => Nil
       }
       own ++ collectBlocks(s.subsections)
@@ -179,6 +179,22 @@ class JvmGen(baseDir: Option[os.Path] = None):
       val tail = parts.tail.map(p => p.head.toUpper + p.tail)
       val raw  = head + tail.mkString
       Some(if raw.head.isDigit then "_" + raw else raw)
+
+  /** For each `[Name as Alias]` binding, synthesise a `val Alias = Name`
+   *  declaration so the alias is available in the consumer's scope.
+   *  Whole-module inline means `Name` is already visible from the
+   *  import; the alias is an additional name pointing at the same value.
+   *  Returns `None` when no binding carries an alias. */
+  private def aliasBlock(bindings: List[ImportBinding]): Option[JvmGen.Block] =
+    import scala.meta.{dialects, *}
+    val aliases = bindings.collect {
+      case ImportBinding(name, Some(alias), _) => s"val $alias = $name"
+    }
+    if aliases.isEmpty then None
+    else
+      val src   = aliases.mkString("\n")
+      val input = Input.VirtualFile("<import-aliases>", src)
+      dialects.Scala3(input).parse[Source].toOption.map(s => JvmGen.Block(ScalaNode(s), src))
 
   /** Resolve a `[name](./path.ssc)` Markdown import: parse the referenced
    *  file and return its code blocks, transitively following its own imports.
