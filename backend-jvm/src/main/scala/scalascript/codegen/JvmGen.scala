@@ -273,6 +273,10 @@ class JvmGen(baseDir: Option[os.Path] = None):
         if !found then tree.collect {
           case Term.Apply.After_4_6_0(Term.Name("route"),        _) => found = true
           case Term.Apply.After_4_6_0(Term.Name("onWebSocket"),  _) => found = true
+          // `serve(port)` on its own (no user routes) must still pull in
+          // the runtime: Tier 5 #21 auto-registers `/_health` /_ready` at
+          // serve() time so a bare `serve(8080)` is a valid program.
+          case Term.Apply.After_4_6_0(Term.Name("serve"),        _) => found = true
         }
       }
       found
@@ -2778,11 +2782,21 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |    if s.startsWith(":") then _Seg.Cap(s.tail) else _Seg.Lit(s)
        |  }
        |
-       |private case class _Route(method: String, pattern: List[_Seg], handler: Request => Response)
+       |private case class _Route(method: String, path: String, pattern: List[_Seg], handler: Request => Response)
        |private val _routes = scala.collection.mutable.ArrayBuffer.empty[_Route]
        |
        |def route(method: String, path: String)(handler: Request => Response): Unit =
-       |  _routes += _Route(method.toUpperCase, _parsePath(path), handler)
+       |  _routes += _Route(method.toUpperCase, path, _parsePath(path), handler)
+       |
+       |// Tier 5 #21 — `/_health` and `/_ready` defaults auto-registered the
+       |// first time `serve(...)` runs.  User-defined routes with the same
+       |// path keep precedence.
+       |private def _registerHealthDefaults(): Unit =
+       |  def has(p: String): Boolean = _routes.exists(r => r.method == "GET" && r.path == p)
+       |  val ok: Request => Response = _ =>
+       |    Response(200, Map("Content-Type" -> "application/json"), "{\"status\":\"ok\"}")
+       |  if !has("/_health") then _routes += _Route("GET", "/_health", _parsePath("/_health"), ok)
+       |  if !has("/_ready")  then _routes += _Route("GET", "/_ready",  _parsePath("/_ready"),  ok)
        |
        |private def _matchPath(pat: List[_Seg], segs: List[String]): Option[Map[String, String]] =
        |  if pat.length != segs.length then None
@@ -3589,6 +3603,7 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |    try b.close() catch case _: Throwable => ()
        |
        |def serve(port: Int): Unit =
+       |  _registerHealthDefaults()
        |  // Internal HttpServer on a loopback ephemeral port — REST + static
        |  // files keep flowing through it as before, single-threaded.  The
        |  // same `_serverExecutor` backs WS callbacks so all handler bodies
