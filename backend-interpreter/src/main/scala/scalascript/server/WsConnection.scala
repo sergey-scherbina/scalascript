@@ -198,15 +198,19 @@ final class WsConnection(
           }
         }
       case Opcode.Close =>
-        // Echo a close back if we haven't sent one yet, then drop the
-        // connection.  The 2-byte status (if present) is preserved.
+        // Echo a close back if we haven't sent one yet (RFC 6455
+        // §5.5.1).  `sendClose` schedules the channel teardown
+        // after a short grace so the selector has time to flush our
+        // echo onto the wire; if we already sent Close (we
+        // initiated), tear down right away — the peer has just
+        // acknowledged.  Either way `closeNow()` is idempotent.
         if !closing then
           val status =
             if frame.payload.length >= 2 then
               ((frame.payload(0) & 0xFF) << 8) | (frame.payload(1) & 0xFF)
             else 1000
           sendClose(status, "")
-        closeNow()
+        else closeNow()
       case Opcode.Text | Opcode.Binary =>
         if !frame.fin then
           // Start of a fragmented message — stash the opcode and the
@@ -312,11 +316,23 @@ final class WsConnection(
 
   /** Send a Close control frame, then mark the connection as closing.
    *  Uses [[writeFrame]] directly (not [[enqueue]]) so the close frame
-   *  itself isn't rejected by the `closing` flag we just set. */
+   *  itself isn't rejected by the `closing` flag we just set.
+   *
+   *  After queueing the Close frame, schedules a fallback `closeNow`
+   *  on the heartbeat scheduler so the channel doesn't sit open
+   *  indefinitely if the peer never echoes Close — RFC 6455 §7.1.1
+   *  recommends a brief wait, not an infinite one.  The first
+   *  trigger wins: peer echo (`onFrame(Close) → closeNow`), peer
+   *  half-close (read EOF → closeChain → closeNow), or this 500 ms
+   *  fallback.  `closeNow` is idempotent via `key.isValid`. */
   def sendClose(status: Int, reason: String): Unit =
     if !closing then
       closing = true
       writeFrame(WsFraming.encodeClose(status, reason))
+      scheduler.schedule(
+        new Runnable { def run(): Unit = closeNow() },
+        500L, TimeUnit.MILLISECONDS
+      )
 
   /** Arm the periodic Ping → Pong heartbeat.  Called by [[WsProxy]]
    *  right after the upgrade so the first ping lands one interval

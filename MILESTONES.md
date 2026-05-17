@@ -475,11 +475,6 @@ Sprint 3.  Each is meaningfully complete on its own.
     bearer { token => validate(token) }) { … }` — current users
     have to inspect `ws.request.headers("authorization")` and
     `ws.close(1008, "")` manually.  ~30 LOC × 3.
-24. **Close-handshake echo wait.**  RFC SHOULD wait briefly for
-    the peer's close-echo after sending our Close before tearing
-    down the channel.  Currently we just `closeNow`; strict
-    clients may complain.  Half a line of `scheduler.schedule(...)`.
-
 ## v1.2 — Auth follow-up: combined example + WebAuthn / passkeys — **landed**
 
 Shipped pieces (each on main):
