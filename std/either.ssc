@@ -1,0 +1,51 @@
+---
+name: std-either
+version: 1.0.0
+description: Either sum type — std v1.1 support type
+exports:
+  - Left
+  - Right
+  - mapRight
+  - flatMapRight
+  - foldEither
+  - isLeft
+  - isRight
+---
+
+# Either
+
+A right-biased two-case sum, used by `Selective` and `MonadError`. The
+language doesn't ship `Either` built in (only `Option`), so std
+provides it as a sealed trait with `Left` and `Right` case classes.
+
+## Type and constructors
+
+```scalascript
+sealed trait Either[A, B]
+case class Left[A, B](value: A)  extends Either[A, B]
+case class Right[A, B](value: B) extends Either[A, B]
+```
+
+## Right-biased helpers
+
+```scalascript
+def mapRight[A, B, C](e: Either[A, B], f: B => C): Either[A, C] = e match
+  case Right(b) => Right(f(b))
+  case Left(a)  => Left(a)
+
+def flatMapRight[A, B, C](e: Either[A, B], f: B => Either[A, C]): Either[A, C] = e match
+  case Right(b) => f(b)
+  case Left(a)  => Left(a)
+
+def foldEither[A, B, C](e: Either[A, B], onLeft: A => C, onRight: B => C): C = e match
+  case Right(b) => onRight(b)
+  case Left(a)  => onLeft(a)
+
+def isLeft[A, B](e: Either[A, B]): Boolean = e match
+  case Left(_)  => true
+  case Right(_) => false
+
+def isRight[A, B](e: Either[A, B]): Boolean = e match
+  case Right(_) => true
+  case Left(_)  => false
+```

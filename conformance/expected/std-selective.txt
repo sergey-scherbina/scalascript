@@ -1,0 +1,15 @@
+Right(43)
+Left(nope)
+Right(84)
+Left(blocked)
+ok 42
+got nope
+true
+true
+List(10, 2, 99)
+Some(10)
+Some(5)
+None
+List(ok:1, err:bad, ok:2)
+Some(ok:7)
+Some(err:oops)
