@@ -563,42 +563,61 @@ is indistinguishable from an in-process plugin from core's POV.
 
 **Goal:** `core` knows only Markdown + `scalascript`/`ssc`.  `html`,
 `css`, `scala` blocks live in bundled plugins on equal footing with
-third-party.  This is the radical core-simplification step; spec
-§14 Phase 9 is the locked design.
+third-party.
 
-### 9.1 `backend-scala-source` plugin
-- `SourceLanguage` for `scala` fence blocks.  Wraps existing
-  scalameta parsing; produces `EmbeddedSource(scala, …)` IR or a
-  lowered fragment depending on consumer.
-- Move scalameta dependency out of `core` into this plugin.
+### Scope revision after start of execution
 
-### 9.2 `backend-html` plugin
-- `SourceLanguage` for `html` blocks + `html"…"` interpolator.
-- Owns `Html` type, the `containerTagNames` / `voidTagNames` lists
-  currently in `JvmGen.scala:1415,1425`.
-- Ships `preludeFiles` defining `Html` and the DSL tag bindings
-  (`div`, `p`, `body`, …).
-- `extern def render(h: Html): String` with default body in plugin
-  prelude (Stage 4 optional-intrinsic pattern).
+Like the HTTP-intrinsics extraction (5.4), the **full** SourceLanguage
+extraction is multi-iteration work — every fence-tag move requires:
 
-### 9.3 `backend-css` plugin
-- Same shape as 9.2 for `Css`.
+  1. Parser hooks consulting `SourceLanguageRegistry` when the
+     fence tag isn't `scalascript`/`ssc`.
+  2. Typer hooks accepting cross-block symbol exports from plugins.
+  3. Codegen-side removal of the hardcoded `containerTagNames`,
+     `nativeP("div")`, `renderStringBlock`, and the interpolator
+     match arms for `html` / `css`.
+  4. A way for plugins to ship their prelude `.ssc` files
+     (`preludeFiles`) and have them parsed by core.
+  5. Per-plugin tests + conformance keeping the existing html/css/
+     scala examples green through the migration.
 
-### 9.4 Remove duplicated handling from core / backends
-- `Lang.scala` collapses to `isScalaScript`.  Drop `isStringBlock`,
-  `isParseable` (or reduce to scalascript-only).
-- `JvmGen` preamble loses container/void tag lists and `_Raw`
-  emission.
-- `Interpreter` loses `nativeP("div")` block (line 485) and
-  `renderStringBlock` paths for html/css.
-- Interpolator match arms for `html` / `css` in `JvmGen`, `JsGen`,
-  `Interpreter` deleted.
-- Verify by build:  a CLI build *without* the three plugins on
-  classpath compiles, runs `.ssc` files with `scalascript` blocks
-  fine, and reports `Diagnostic.UnknownBlockLanguage` for
-  `html`/`css`/`scala`.
-- **Done when:** zero `if lang == "html" || lang == "css"`-style
-  checks anywhere in `core` after this stage.
+Stage 9 here delivers the **registry + one skeleton plugin**.  9.2,
+9.3, 9.4 (html, css, removing duplicated handling) become a
+multi-iteration post-Stage-9 effort, same shape as the 5.4 → 5+/A/B/C
+breakdown.
+
+### 9.1 SourceLanguageRegistry + `backend-scala-source` skeleton
+
+- `core/plugin/SourceLanguageRegistry.scala`:  ServiceLoader-based
+  discovery mirroring `BackendRegistry`.  `all`, `lookup`,
+  `knownLanguages`, `addPluginJar`, `describe`.
+- `backend-scala-source/` sbt subproject with a `ScalaSourceLanguage`
+  impl + ServiceLoader META-INF entry.  `signatures` / `compileBlock`
+  are stubs — real scalameta-walking work belongs in a follow-up.
+- CLI: `--list-source-languages` flag (alongside `--list-backends`).
+  `--plugin <jar>` now feeds BOTH registries.
+- Test (cli module): 5 cases exercising discovery + lookup.
+
+### 9.2 / 9.3 / 9.4 — DEFERRED
+
+The actual extraction (html and css plugins with real impls; deletion
+of `nativeP("div")` / `containerTagNames` / `renderStringBlock`;
+parser hooks calling registry) is post-Stage-9 work — call it
+**Stage 9+/A, 9+/B, 9+/C** when picked up:
+
+- **9+/A — Registry consumption.**  Parser routes unknown fence tags
+  through `SourceLanguageRegistry.lookup`; typer accepts
+  `SymbolExport` from plugins.  Without consumers a SourceLanguage
+  plugin is decoration — this is the wire-up.
+- **9+/B — `backend-html` extraction.**  Move `containerTagNames` +
+  `nativeP("div")` block + html interpolator + `_Raw` emission into
+  a new `backend-html/` plugin with `Html` type in `preludeFiles`.
+- **9+/C — `backend-css` extraction.**  Same shape as 9+/B.
+
+After 9+/B and 9+/C, the spec §17 acceptance bullet — "no
+`if lang == "html" || lang == "css"` anywhere in core" — becomes
+testable.  Until then `Lang.isStringBlock` / `Lang.isParseable`
+stay as they are.
 
 ---
 
@@ -655,5 +674,5 @@ Anything else that surfaces during execution: append here under a
 | 6     | 3 / 3           | **Stage 6 closed.** 6.1 wire protocol + SubprocessBackend; 6.2 plugin.yaml + registry discovery; 6.3 canned-backend smoke plugin + `docs/backend-spi-protocol.md`. |
 | 7     | 2 / 2           | **Stage 7 closed.** GlobalFlags preprocessor (--plugin / --plugin-dir / --target / --backend / --list-backends / --describe-backend); BackendRegistry.addPluginJar via URLClassLoader; addPluginDir extends plugin.yaml search.  `--backend` lets `run`/`compile`/`emit-*` cross-dispatch. PluginManifest.executablePath now distinguishes PATH-resolvable commands (no slash) from relative paths. 6 new GlobalFlags tests. |
 | 8     | 2 / 2           | **Stage 8 closed.** architecture.md §4 + Extension Points + Directory Structure rewritten against post-SPI reality; new docs/writing-a-backend.md walks no-op backend in <100 lines; examples/plugins/hello-backend/ buildable scala-cli project (~30 LOC + META-INF entry) — verified end-to-end with `--plugin /tmp/hello-backend.jar --backend hello run`. |
-| 9     | 0 / 4           | Not started |
+| 9     | 1 / 4           | **Stage 9 closed at the registry layer.**  SourceLanguageRegistry + backend-scala-source plugin skeleton (ServiceLoader-discoverable); `--list-source-languages` CLI flag.  9.2-9.4 (full html/css/scala extraction with deletion of duplicated handling in JvmGen/JsGen/Interpreter) deferred as multi-stage post-Stage-9 work — same pattern as 5.4 deferral.  See preamble. |
 | 10    | 0 / 1           | Not started |

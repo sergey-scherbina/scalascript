@@ -11,7 +11,7 @@ import scalascript.interpreter.Interpreter
 import scalascript.codegen.{JsRuntime, JsRuntimeAsync, JsRuntimeBrowserPatch, ScalaJsBackend}
 import scalascript.ast.*
 import scalascript.transform.Normalize
-import scalascript.plugin.BackendRegistry
+import scalascript.plugin.{BackendRegistry, SourceLanguageRegistry}
 import scalascript.backend.spi.{BackendOptions, CompileResult, Segment}
 
 @main def ssc(rawArgs: String*): Unit =
@@ -25,6 +25,8 @@ import scalascript.backend.spi.{BackendOptions, CompileResult, Segment}
   // Standalone meta-commands that don't dispatch to a command handler.
   if globalFlags.listBackends then
     println(BackendRegistry.describe)
+  else if globalFlags.listSourceLanguages then
+    println(SourceLanguageRegistry.describe)
   else if globalFlags.describeBackend.isDefined then
     val id = globalFlags.describeBackend.get
     BackendRegistry.lookup(id) match
@@ -66,15 +68,17 @@ private def dispatchCommand(args: List[String]): Unit =
 
 /** Global, non-command-specific CLI flags. */
 case class GlobalFlags(
-    pluginJars:        List[os.Path] = Nil,
-    pluginDirs:        List[os.Path] = Nil,
-    target:            Option[String] = None,
-    backend:           Option[String] = None,
-    listBackends:      Boolean        = false,
-    describeBackend:   Option[String] = None
+    pluginJars:          List[os.Path] = Nil,
+    pluginDirs:          List[os.Path] = Nil,
+    target:              Option[String] = None,
+    backend:             Option[String] = None,
+    listBackends:        Boolean        = false,
+    listSourceLanguages: Boolean        = false,
+    describeBackend:     Option[String] = None
 ):
   def applyToRegistry(): Unit =
     pluginJars.foreach(BackendRegistry.addPluginJar)
+    pluginJars.foreach(SourceLanguageRegistry.addPluginJar)
     pluginDirs.foreach(BackendRegistry.addPluginDir)
 
 object GlobalFlags:
@@ -97,6 +101,8 @@ object GlobalFlags:
           flags = flags.copy(backend = Some(arr(i + 1))); i += 2
         case "--list-backends" =>
           flags = flags.copy(listBackends = true); i += 1
+        case "--list-source-languages" =>
+          flags = flags.copy(listSourceLanguages = true); i += 1
         case "--describe-backend" if i + 1 < arr.length =>
           flags = flags.copy(describeBackend = Some(arr(i + 1))); i += 2
         case other =>

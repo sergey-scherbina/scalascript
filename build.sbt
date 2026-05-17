@@ -77,6 +77,18 @@ lazy val backendScalajs = project
     scalacOptions ++= sharedScalacOptions
   )
 
+// SourceLanguage plugin for `scala` fence blocks (docs/backend-spi.md §9 / Phase 9).
+// Stage 9 skeleton: SourceLanguage impl + ServiceLoader entry; the
+// existing in-core `scala`-block handling stays in place until the
+// follow-up actually routes through here.
+lazy val backendScalaSource = project
+  .in(file("backend-scala-source"))
+  .dependsOn(backendSpi, core)
+  .settings(
+    name := "scalascript-backend-scala-source",
+    scalacOptions ++= sharedScalacOptions
+  )
+
 // TRANSITIONAL DEPENDENCY: backend-interpreter → backend-js.
 // `server/WebServer.scala` imports `scalascript.codegen.{JsGen, JsRuntime}`
 // to inject the JS runtime into SPA-mode pages.  Stage 5 (Backend SPI §8 —
@@ -93,7 +105,7 @@ lazy val backendInterpreter = project
 
 lazy val cli = project
   .in(file("cli"))
-  .dependsOn(core, backendJvm, backendJs, backendScalajs, backendInterpreter)
+  .dependsOn(core, backendJvm, backendJs, backendScalajs, backendInterpreter, backendScalaSource)
   .settings(
     name := "scalascript-cli",
     libraryDependencies ++= Seq(
@@ -122,6 +134,7 @@ lazy val root = project
   .aggregate(
     backendSpi, ir, core,
     backendJvm, backendJs, backendScalajs, backendInterpreter,
+    backendScalaSource,
     cli
   )
   .settings(
