@@ -1,6 +1,7 @@
 package scalascript.codegen
 
 import scalascript.backend.spi.*
+import scalascript.ir.QualifiedName
 
 /** Capabilities declared by the JvmGen backend (target id `"jvm"`).
  *
@@ -32,4 +33,12 @@ val JvmCapabilities: Capabilities = Capabilities(
   outputs  = Set(OutputKind.ScalaSource),
   options  = Set("optimizationLevel", "emitAssertions"),
   spiRange = SpiVersionRange(SpiVersion.Current, SpiVersion.Current)
+)
+
+/** Stage 5+/A.3 — `RuntimeCall` intrinsics surfaced as `def`
+ *  aliases prepended to JvmGen's output.  Each entry maps a
+ *  qualified name (the call site in user .ssc) to a target Scala
+ *  symbol the alias forwards to. */
+val JvmIntrinsics: Map[QualifiedName, IntrinsicImpl] = Map(
+  QualifiedName("nowMillis") -> RuntimeCall("java.lang.System.currentTimeMillis")
 )

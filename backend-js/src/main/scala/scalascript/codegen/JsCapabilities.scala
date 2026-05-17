@@ -1,6 +1,7 @@
 package scalascript.codegen
 
 import scalascript.backend.spi.*
+import scalascript.ir.QualifiedName
 
 /** Capabilities declared by the JsGen backend (target id `"js"`).
  *
@@ -34,4 +35,10 @@ val JsCapabilities: Capabilities = Capabilities(
   outputs  = Set(OutputKind.JavaScriptSource),
   options  = Set("optimizationLevel", "emitAssertions", "target"),
   spiRange = SpiVersionRange(SpiVersion.Current, SpiVersion.Current)
+)
+
+/** Stage 5+/A.3 — `RuntimeCall` intrinsics surfaced as JS `const`
+ *  aliases prepended to JsGen's output. */
+val JsIntrinsics: Map[QualifiedName, IntrinsicImpl] = Map(
+  QualifiedName("nowMillis") -> RuntimeCall("Date.now")
 )
