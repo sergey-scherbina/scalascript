@@ -39,6 +39,153 @@ Defer until 1-4 are settled and a real workload demands them.
     JSON-heavy WS workloads.  Not worth the complexity until a
     real app needs it.  ~200 LOC × 3.
 
+### Sprint 6 — WS convenience helpers
+
+Small quality-of-life additions noticed while running through
+Sprint 3.  Each is meaningfully complete on its own.
+
+19. **Per-route `maxConnections`.**  `setMaxWsConnections` is
+    process-wide.  Real apps want `/chat` capped at 1000 and
+    `/admin` capped at 5.  Add the cap as a fourth `onWebSocket`
+    arg or via a `WsRoute` builder.  ~40 LOC × 3.
+20. **Per-connection rate limit.**  Cap incoming messages/sec so
+    one client can't burn the server's CPU.  Bound a sliding-window
+    counter on `WsConnection`; on overflow close 1008 ("policy
+    violation").  ~30 LOC × 3.
+21. **Auth helper at upgrade time.**  `onWebSocket("/x", auth =
+    bearer { token => validate(token) }) { … }` — current users
+    have to inspect `ws.request.headers("authorization")` and
+    `ws.close(1008, "")` manually.  ~30 LOC × 3.
+22. **`ws.id: String`.**  Stable per-connection identifier for
+    logs / traces.  UUID-v4 generated at upgrade.  Trivial; pays
+    back the first time someone wants to grep logs for a single
+    session.  ~10 LOC × 3.
+23. **`ws.subprotocol: String`.**  The protocol the server chose
+    during negotiation.  Currently inspectable via
+    `ws.request.headers("sec-websocket-protocol")`, but that's the
+    client's full *offer* list, not the server's selection.
+    Surface the chosen value explicitly.  ~10 LOC × 3.
+24. **Close-handshake echo wait.**  RFC SHOULD wait briefly for
+    the peer's close-echo after sending our Close before tearing
+    down the channel.  Currently we just `closeNow`; strict
+    clients may complain.  Half a line of `scheduler.schedule(...)`.
+
+## v1.5 — Transport layer: TLS + HTTP/WS clients + streaming
+
+Right now ScalaScript ships a **server-only** HTTP/WS stack with
+**no transport encryption** of its own.  Adequate behind an
+nginx-terminating reverse proxy; a non-starter for standalone
+deployment to the internet, and a hard blocker for any `.ssc` app
+that needs to call OUT to an HTTPS API or another WebSocket server.
+Three blocks of work, ordered by impact:
+
+### Tier 1 — TLS (`https://` + `wss://`)
+
+The single biggest gap.  Without it, `serve(443)` is unreachable
+from real browsers (which refuse mixed-content and modern
+SameSite-cookie behaviour requires HTTPS).
+
+1. **TLS-terminating accept loop on the interpreter NIO proxy.**
+   Wrap the public `ServerSocketChannel` with a `SSLEngine` per
+   accepted channel.  JDK provides `SSLContext` + `SSLEngine`;
+   the trick is the handshake state machine (`NEED_WRAP` /
+   `NEED_UNWRAP` / `NEED_TASK`).  Same proxy still demuxes WS /
+   HTTP afterwards — encryption is independent of protocol.
+   ~250 LOC.
+
+2. **`https://` on the JvmGen-emitted HttpServer.**  The JDK has
+   `com.sun.net.httpserver.HttpsServer.create(...)` + `setHttpsConfigurator`.
+   One-liner if `serve(...)` learns to take an SSLContext.  Plus
+   matching TLS wrap for the JvmGen WS proxy's `ServerSocket`.
+   ~80 LOC.
+
+3. **`tlsContext` config primitive.**  `tls("cert.pem",
+   "key.pem")` builds an `SSLContext` from disk so `serve(443,
+   tls = tls("cert.pem", "key.pem"))` reads naturally.  Also
+   accept env vars for cert paths so docker-style deploys work.
+   ~50 LOC.
+
+4. **Let's Encrypt / acme.sh integration** *(optional)*.  Generate
+   certs on first run if missing.  Cheap to wire but pulls in a
+   real dependency or shells out to acme.sh.  Defer until users
+   ask.
+
+### Tier 2 — HTTP client
+
+`.ssc` apps that talk to external APIs (OAuth, payment, AI) have
+no in-runtime way to make an HTTPS call.  Today the only out-of-
+band option is shelling out via `os.proc(curl, ...)`, which
+silently breaks on JS / WASM targets and disables effect handlers.
+
+5. **`httpGet(url, headers?)` / `httpPost(url, body, headers?)`
+   primitives.**  Wraps `java.net.http.HttpClient` (built-in,
+   Loom-friendly, HTTP/2-capable) on JVM; `fetch(...)` on Node;
+   no-op or `XMLHttpRequest` on browser-SPA.  Returns
+   `Response(status, headers, body)`, mirroring our server-side
+   shape.  ~80 LOC × 3.
+
+6. **`httpClient { … }` block** with shared base URL / default
+   headers / TLS context.  Same convenience the server has via
+   `serve(port) { route(...); … }`.  ~30 LOC × 3.
+
+7. **Streaming response bodies.**  `httpGet(url).bodyStream { line
+   => println(line) }` — for SSE consumers and chunked downloads.
+   `java.net.http.HttpResponse.BodySubscribers.ofLines` on JVM;
+   `body.getReader()` on Node.  ~50 LOC × 3.
+
+### Tier 3 — WebSocket client
+
+Symmetric to `onWebSocket`: a `.ssc` app can act as a WS *client*
+against another server.  Common for microservices and integrations
+with Discord / Slack / market-data feeds.
+
+8. **`connectWebSocket(url) { ws => … }`.**  Performs the
+   handshake, returns the same `WebSocket` value shape the server
+   side exposes (`send`, `sendBytes`, `close`, `onMessage`,
+   `onClose`, `ping`, `onPong`).  Path semantics: `ws://host/path`
+   or `wss://host/path`.  ~250 LOC × 3 (handshake + framing reuse
+   the existing `WsFraming`).
+
+9. **`wss://` over TLS.**  Inherits from Tier 1's `SSLContext`
+   work.
+
+10. **Auto-reconnect with exponential backoff** *(optional)*.
+    Helps for long-lived integrations against flaky upstreams.
+    ~40 LOC.
+
+### Tier 4 — HTTP server completeness
+
+Real-world HTTP behaviours we've been doing without because the
+JDK HttpServer's defaults are "fine enough":
+
+11. **Streaming responses.**  `Response.body` is a `String` today;
+    a large file download or an SSE stream needs incremental
+    writes.  Add `Response.stream(write => …)` or
+    `Response.fromInputStream(...)`.  ~60 LOC × 3.
+
+12. **Streaming uploads.**  `req.body` is buffered in full;
+    multipart files materialise as `String` byte-views.  Real
+    file-upload servers need to spool to disk past N MB.  Add a
+    chunked-read API.  ~80 LOC × 3.
+
+13. **CORS helper.**  `cors(origins = List("https://app.com"),
+    methods = List("GET", "POST"))` middleware applied to a route
+    group.  ~30 LOC × 3.
+
+14. **Compression on responses.**  `Content-Encoding: gzip` when
+    the client says `Accept-Encoding: gzip`.  Built-in `java.util.
+    zip.GZIPOutputStream`.  ~40 LOC × 3.
+
+15. **Cache headers helper.**  `Response.cacheable(maxAgeSec, etag
+    = …)` writes the standard `Cache-Control` + `ETag` headers
+    and short-circuits 304 on `If-None-Match`.  ~50 LOC × 3.
+
+16. **HTTP backend connection pool in JvmGen proxy.**  Today every
+    HTTP request opens a fresh TCP to the internal HttpServer.
+    Tiny `keep-alive` pool would cut request overhead.  ~80 LOC.
+    (Subsumed by Sprint 5.16's full NIO migration if that lands
+    first.)
+
 ## Backend SPI v0.1 — plugin architecture
 
 A standalone design document and 9-phase migration plan that
