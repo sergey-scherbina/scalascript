@@ -329,6 +329,40 @@ move behind the SPI.
 - **Done when:** test green; existing conformance unaffected (every
   current backend declares every current feature).
 
+#### Discovered while implementing 4.x
+
+- **Capability declarations as standalone `val`** — backends don't yet
+  implement the `Backend` trait (that's Stage 5).  Each backend module
+  ships a top-level `val JvmCapabilities` / `val JsCapabilities` /
+  `val ScalaJsCapabilities` / `val InterpreterCapabilities` in the
+  same `scalascript.codegen` / `scalascript.interpreter` package.
+  Stage 5 hooks each `val` into `override def capabilities` of the
+  corresponding `Backend` impl — zero data motion, just wrapping.
+- **Wiring into pipeline deferred.**  Plan 4.2 said "wired into the
+  pipeline between Normalize and backend.compile".  Since nothing
+  calls `backend.compile` yet (Stage 5 territory), there's no pipeline
+  to wire into.  CapabilityCheck is callable; Stage 5 hooks it.
+- **Detection is keyword-based.**  `Content.CodeBlock.source` is raw
+  scalascript text (no parsed IrExpr nodes yet).  Detection uses
+  word-boundary regexes (`\bvar\b`, `\bextension\b`, …) and substring
+  scans for platform calls (`route(`, `onWebSocket`, `hashPassword`,
+  …).  Imprecise compared to structural traversal but suitable for
+  Stage 4's bar — "everyone declares everything → no diagnostics on
+  real programs".  Stage 5+ swaps detector for `IrExpr` walker; same
+  public API.
+- **`InterpolatorPat` regex** — matches any `identifier"..."` shape
+  for the `StringInterpolators` feature.  Catches `s"..."`,
+  `html"..."`, `css"..."`, `md"..."`, plus user-defined interpolators
+  identically.
+- **Feature.values.toSet** — Scala 3's enum derives `values` (Array);
+  test uses it to spin up "the most permissive backend possible".
+
+### Stage 4 — closed
+
+202 unit tests (193 + 9 new in CapabilityCheckTest) + 38 conformance
+green.  Capability layer ready for Stage 5 to plug into Backend impls
+and call `validate` before `compile`.
+
 ---
 
 ## Stage 5 — Convert existing backends to plugins
@@ -524,7 +558,7 @@ Anything else that surfaces during execution: append here under a
 | 1     | 3 / 3           | **Stage 1 closed.** 1.1 sbt scaffold; 1.2 sources moved (compiler/ gone, sbt-assembly added); 1.3 SPI trait stubs + IR placeholders (ir/Ir.scala + 10 SPI files in backend-spi/). Transitional `backendInterpreter dependsOn backendJs` for `WebServer→JsGen` — Stage 5 fixes via HTTP intrinsics. |
 | 2     | 2 / 2           | **Stage 2 closed.** 2.1 IR + Normalize; 2.2 upickle `derives ReadWriter` on every IR data type + 76 round-trip tests (38 fixtures × JSON+MsgPack).  `schemas/ir.json` deferred to Stage 8 (docs). |
 | 3     | 2 / 2           | **Stage 3 closed.** EffectAnalysis extracted to `core/transform/`; JvmGen + JsGen are now thin adapters.  LOC delta: JvmGen -48, JsGen -52 (-100 in backends), +101 in core.  IR-consumption switch deferred to Stage 5. |
-| 4     | 0 / 2           | Not started |
+| 4     | 2 / 2           | **Stage 4 closed.** 4 Capabilities values declared (1 per backend module); CapabilityCheck.detect + validate; 9 new tests (6 detect + 3 validate).  Detection coarse (keyword scan on `Content.CodeBlock.source`) until Stage 5+ populates IrExpr nodes. |
 | 5     | 0 / 4           | Not started |
 | 6     | 0 / 3           | Not started |
 | 7     | 0 / 2           | Not started |
