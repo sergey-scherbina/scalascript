@@ -28,21 +28,66 @@ object WsRoutes:
        *  `Sec-WebSocket-Protocol` request header and echoes it in
        *  the 101 response.  Empty list = no negotiation; non-empty
        *  list with no client match = upgrade refused with 400. */
-      protocols:   List[String] = Nil
-  )
+      protocols:   List[String] = Nil,
+      /** Per-route active-connection cap.  0 (default) = no limit;
+       *  composes with the process-wide `setMaxWsConnections` cap —
+       *  both must permit the upgrade.  Refused upgrades return 503.
+       *  See [[activeCount]] for the live counter. */
+      maxConnections: Int = 0,
+      /** Per-connection inbound message rate cap, in messages per
+       *  second.  0 (default) = no rate limiting.  Applied to every
+       *  client on this route independently — a noisy peer doesn't
+       *  starve quiet ones.  Overrun closes the offending connection
+       *  with code 1008 ("policy violation"). */
+      maxMessagesPerSec: Int = 0,
+      /** Pre-upgrade authentication hook.  Invoked synchronously by
+       *  `WsProxy.tryUpgrade` with the `Request` value built from
+       *  the upgrade headers; must return `None` to reject the
+       *  upgrade (server replies 401) or `Some(userValue)` to
+       *  accept and stash the user payload on the resulting
+       *  `WebSocket` as `ws.user`.  None (default) = no pre-upgrade
+       *  check.  Note: the hook runs on the proxy selector thread,
+       *  so it MUST NOT mutate interpreter globals — read-only
+       *  decisions over headers / cookies / Origin only. */
+      auth: Option[Value] = None,
+      /** Live count of WebSockets currently registered against this
+       *  entry.  Incremented inside [[tryReserve]] when both
+       *  process-wide and per-route caps allow the upgrade; decremented
+       *  by `WsConnection.closeNow` via the callback wired in
+       *  `WsProxy.tryUpgrade`. */
+      activeCount: java.util.concurrent.atomic.AtomicInteger =
+                   java.util.concurrent.atomic.AtomicInteger(0)
+  ):
+    /** Check-then-increment for the per-route cap.  Returns true if
+     *  the caller may proceed.  Rollback on failure so the counter
+     *  can't drift past the cap under contention. */
+    def tryReserve(): Boolean =
+      if maxConnections <= 0 then true
+      else
+        val after = activeCount.incrementAndGet()
+        if after > maxConnections then
+          activeCount.decrementAndGet()
+          false
+        else true
+
+    def release(): Unit =
+      if maxConnections > 0 then activeCount.decrementAndGet()
 
   private val entries = scala.collection.mutable.ArrayBuffer.empty[Entry]
 
   def clear(): Unit = entries.clear()
 
   def register(
-      path:      String,
-      handler:   Value,
-      interp:    Interpreter,
-      origins:   List[String] = Nil,
-      protocols: List[String] = Nil
+      path:              String,
+      handler:           Value,
+      interp:            Interpreter,
+      origins:           List[String] = Nil,
+      protocols:         List[String] = Nil,
+      maxConnections:    Int          = 0,
+      maxMessagesPerSec: Int          = 0,
+      auth:              Option[Value] = None
   ): Unit =
-    entries += Entry(path, parsePath(path), handler, interp, origins, protocols)
+    entries += Entry(path, parsePath(path), handler, interp, origins, protocols, maxConnections, maxMessagesPerSec, auth)
 
   def all: List[Entry] = entries.toList
 

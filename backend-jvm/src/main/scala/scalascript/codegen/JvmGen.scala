@@ -2861,6 +2861,12 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |  }
        |
        |private def _handle(ex: com.sun.net.httpserver.HttpExchange): Unit =
+       |  _Metrics.httpRequests.incrementAndGet()
+       |  val _accessStartNs = java.lang.System.nanoTime()
+       |  val _accessMethod  = ex.getRequestMethod
+       |  val _accessPath    = ex.getRequestURI.getPath
+       |  val _accessIp      = try ex.getRemoteAddress.getAddress.getHostAddress catch case _: Throwable => "?"
+       |  val _accessUa      = try ex.getRequestHeaders.getFirst("User-Agent") catch case _: Throwable => ""
        |  try
        |    val method = ex.getRequestMethod.toUpperCase
        |    val path   = ex.getRequestURI.getPath
@@ -2932,7 +2938,21 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |            ex.getResponseBody.write(msg)
        |  catch case e: Exception =>
        |    System.err.println(s"route error: ${e.getMessage}")
-       |  finally ex.close()
+       |    _Metrics.http5xx.incrementAndGet()
+       |  finally
+       |    val code = try ex.getResponseCode catch case _: Throwable => -1
+       |    if code >= 400 && code < 500 then _Metrics.http4xx.incrementAndGet()
+       |    else if code >= 500           then _Metrics.http5xx.incrementAndGet()
+       |    val _durMs   = (java.lang.System.nanoTime() - _accessStartNs) / 1_000_000L
+       |    val _effCode = if code < 0 then 0 else code
+       |    val _uaSan   = if _accessUa == null then "" else _accessUa.replace('"', '\'')
+       |    println("http\tip="           + _accessIp +
+       |            "\tmethod="           + _accessMethod +
+       |            "\tpath="             + _accessPath +
+       |            "\tstatus="           + _effCode +
+       |            "\tduration_ms="      + _durMs +
+       |            "\tua=\""             + _uaSan + "\"")
+       |    ex.close()
        |
        |private def _writeResponse(
        |    ex:               com.sun.net.httpserver.HttpExchange,
@@ -3036,7 +3056,34 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |    val t = Thread(r, "ws-heartbeats"); t.setDaemon(true); t
        |  })
        |
-       |class WebSocket(private val socket: java.net.Socket, val request: Request):
+       |class WebSocket(
+       |    private val socket: java.net.Socket,
+       |    val request: Request,
+       |    /** The subprotocol the server selected during upgrade
+       |     *  negotiation (RFC 6455 §1.9), or "" when no negotiation
+       |     *  took place.  `ws.request.headers("sec-websocket-protocol")`
+       |     *  still carries the client's full offer list. */
+       |    val subprotocol: String = "",
+       |    /** Per-route cleanup callback fired exactly once when this
+       |     *  connection terminates.  Used to decrement the route's
+       |     *  active-connection counter so the per-route cap recovers. */
+       |    private val _onTerminate: () => Unit = () => (),
+       |    /** Cap on inbound messages per second on this connection.
+       |     *  0 = unlimited.  Overrun closes with code 1008.  See
+       |     *  the fixed-window counter in `_dispatchWsMessage`. */
+       |    private val _maxMessagesPerSec: Int = 0,
+       |    /** Payload returned by the route's auth hook (or None for
+       |     *  routes without one).  Surfaced to handlers as
+       |     *  `ws.user` so authenticated routes don't re-parse
+       |     *  headers / claims / sessions inside the body. */
+       |    val user: Option[Any] = None):
+       |  /** Stable per-connection identifier.  UUID-v4 generated at
+       |   *  upgrade time; surfaced to user code as `ws.id` and used to
+       |   *  tag every log line for a single session. */
+       |  val id: String = java.util.UUID.randomUUID().toString
+       |  /** Wall-clock time of upgrade — feeds `duration_ms` into the
+       |   *  Sprint-4 close log. */
+       |  private val _startedAtMs: Long = java.lang.System.currentTimeMillis()
        |  import java.io.{BufferedInputStream, ByteArrayOutputStream, OutputStream}
        |  import java.nio.charset.StandardCharsets
        |  import java.util.concurrent.{LinkedBlockingQueue, ScheduledFuture, TimeUnit}
@@ -3118,6 +3165,14 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |      try socket.close() catch case _: Throwable => ()
        |      // Release the global-cap slot reserved at upgrade time.
        |      _wsActiveCount.decrementAndGet()
+       |      _Metrics.wsActive.decrementAndGet()
+       |      // Structured close log (Sprint 4 #13).  One tab-separated
+       |      // line per teardown, regardless of who initiated.
+       |      val _durMs = java.lang.System.currentTimeMillis() - _startedAtMs
+       |      println("ws.close\tid=" + id + "\tduration_ms=" + _durMs)
+       |      // Per-route cleanup (e.g. decrement the route's activeCount).
+       |      // No-op when the route had no per-route cap.
+       |      try _onTerminate() catch case _: Throwable => ()
        |      val cb = onCloseCb.getAndSet(null)
        |      if cb != null then _serverExecutor.execute { () =>
        |        try cb() catch case e: Throwable =>
@@ -3138,14 +3193,18 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |
        |  def send(s: String): Unit =
        |    if closing then return
-       |    if !outQ.offer(_wsEncodeText(s)) then _forceShutdown()
+       |    val frame = _wsEncodeText(s)
+       |    if !outQ.offer(frame) then _forceShutdown()
+       |    else { _Metrics.wsMessagesOut.incrementAndGet(); _Metrics.wsBytesOut.addAndGet(frame.length.toLong) }
        |
        |  // Binary frames take the Latin-1 byte-view convention the rest
        |  // of the runtime already uses (UploadedFile.bytes, inbound
        |  // binary frames): one Java char per wire byte.
        |  def sendBytes(s: String): Unit =
        |    if closing then return
-       |    if !outQ.offer(_wsEncodeFrame(0x2, s.getBytes("ISO-8859-1"))) then _forceShutdown()
+       |    val frame = _wsEncodeFrame(0x2, s.getBytes("ISO-8859-1"))
+       |    if !outQ.offer(frame) then _forceShutdown()
+       |    else { _Metrics.wsMessagesOut.incrementAndGet(); _Metrics.wsBytesOut.addAndGet(frame.length.toLong) }
        |
        |  def close(code: Int = 1000, reason: String = ""): Unit =
        |    if closing then return
@@ -3301,7 +3360,22 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |   *  unconditionally — the `onWebSocket` body also runs on the
        |   *  executor, so reading the callback inside the task gives us
        |   *  the up-to-date value. */
+       |  // Rate-limit state — fixed 1-second window.  Only the read loop
+       |  // touches these, so no synchronisation needed.
+       |  private var _rateWindowStartMs: Long = 0L
+       |  private var _rateMsgsInWindow:  Int  = 0
+       |
        |  private def _dispatchWsMessage(opcode: Int, payload: Array[Byte]): Unit =
+       |    if _maxMessagesPerSec > 0 then
+       |      val now = java.lang.System.currentTimeMillis()
+       |      if now - _rateWindowStartMs >= 1000L then
+       |        _rateWindowStartMs = now
+       |        _rateMsgsInWindow  = 0
+       |      _rateMsgsInWindow += 1
+       |      if _rateMsgsInWindow > _maxMessagesPerSec then
+       |        close(1008, "rate limit exceeded"); return
+       |    _Metrics.wsMessagesIn.incrementAndGet()
+       |    _Metrics.wsBytesIn.addAndGet(payload.length.toLong)
        |    val msg =
        |      if opcode == 0x1 then new String(payload, StandardCharsets.UTF_8)
        |      else                  new String(payload, "ISO-8859-1")
@@ -3317,9 +3391,65 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |  pattern:   List[_Seg],
        |  handler:   WebSocket => Unit,
        |  origins:   List[String] = Nil,  // empty = no Origin restriction
-       |  protocols: List[String] = Nil   // empty = no subprotocol negotiation
-       |)
+       |  protocols: List[String] = Nil,  // empty = no subprotocol negotiation
+       |  // Per-route active-connection cap.  0 = unlimited; positive
+       |  // values refuse upgrades past the cap with 503.  Composes
+       |  // with the process-wide `setMaxWsConnections` cap.
+       |  maxConnections: Int = 0,
+       |  // Per-connection inbound message rate cap (msgs/sec).
+       |  // 0 = unlimited; overrun closes the offending client with
+       |  // code 1008.  Applied per connection on this route.
+       |  maxMessagesPerSec: Int = 0,
+       |  // Pre-upgrade auth hook.  None = no check; Some(fn) =
+       |  // invoke fn with the Request before reserving any slot.
+       |  // fn returns Some(payload) to accept (payload becomes
+       |  // ws.user) or None to reject with HTTP 401.  Runs on the
+       |  // dispatch thread, so it must be read-only.
+       |  auth: Option[Request => Option[Any]] = None,
+       |  activeCount: java.util.concurrent.atomic.AtomicInteger =
+       |               java.util.concurrent.atomic.AtomicInteger(0)
+       |):
+       |  def tryReserve(): Boolean =
+       |    if maxConnections <= 0 then true
+       |    else
+       |      val after = activeCount.incrementAndGet()
+       |      if after > maxConnections then { activeCount.decrementAndGet(); false }
+       |      else true
+       |  def release(): Unit =
+       |    if maxConnections > 0 then activeCount.decrementAndGet()
        |private val _wsRoutes = scala.collection.mutable.ArrayBuffer.empty[_WsRoute]
+       |
+       |// ── Process-wide metrics (Sprint 4 #14) ─────────────────────────
+       |// Counters mirroring scalascript.server.Metrics on the
+       |// interpreter side.  Same key names so log shippers / health
+       |// checks scrape identical output across backends.
+       |private object _Metrics:
+       |  val wsActive      = java.util.concurrent.atomic.AtomicLong(0L)
+       |  val wsUpgraded    = java.util.concurrent.atomic.AtomicLong(0L)
+       |  val wsRejected    = java.util.concurrent.atomic.AtomicLong(0L)
+       |  val wsMessagesIn  = java.util.concurrent.atomic.AtomicLong(0L)
+       |  val wsMessagesOut = java.util.concurrent.atomic.AtomicLong(0L)
+       |  val wsBytesIn     = java.util.concurrent.atomic.AtomicLong(0L)
+       |  val wsBytesOut    = java.util.concurrent.atomic.AtomicLong(0L)
+       |  val httpRequests  = java.util.concurrent.atomic.AtomicLong(0L)
+       |  val http4xx       = java.util.concurrent.atomic.AtomicLong(0L)
+       |  val http5xx       = java.util.concurrent.atomic.AtomicLong(0L)
+       |  def snapshot: Map[String, Long] = Map(
+       |    "ws.active"       -> wsActive.get,
+       |    "ws.upgraded"     -> wsUpgraded.get,
+       |    "ws.rejected"     -> wsRejected.get,
+       |    "ws.messages.in"  -> wsMessagesIn.get,
+       |    "ws.messages.out" -> wsMessagesOut.get,
+       |    "ws.bytes.in"     -> wsBytesIn.get,
+       |    "ws.bytes.out"    -> wsBytesOut.get,
+       |    "http.requests"   -> httpRequests.get,
+       |    "http.4xx"        -> http4xx.get,
+       |    "http.5xx"        -> http5xx.get
+       |  )
+       |
+       |/** Snapshot of process-wide counters — `Map[String, Long]`,
+       |  * same key names as the interpreter's `metrics()` native. */
+       |def metrics(): Map[String, Long] = _Metrics.snapshot
        |
        |// Process-wide cap on active WS sessions.  Tuned with
        |// `setMaxWsConnections(n)`; default = unlimited.  Upgrades past
@@ -3332,7 +3462,7 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |private def _wsTryReserve(): Boolean =
        |  val after = _wsActiveCount.incrementAndGet()
        |  if after > _wsMaxActive.get then { _wsActiveCount.decrementAndGet(); false }
-       |  else true
+       |  else { _Metrics.wsActive.incrementAndGet(); true }
        |
        |/** WsRoom — thread-safe registry of WebSocket clients with a
        |  * built-in `broadcast(msg)` helper.  Spawn one per logical
@@ -3369,6 +3499,30 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |  * for `socket.io` / `graphql-ws` clients. */
        |def onWebSocket(path: String, origins: List[String], protocols: List[String]): (WebSocket => Unit) => Unit = (handler) => {
        |  _wsRoutes += _WsRoute(_parsePath(path), handler, origins, protocols)
+       |}
+       |
+       |/** Four-arg form adds a per-route active-connection cap.
+       |  * 0 = unlimited; positive values refuse upgrades past the cap
+       |  * with 503.  Composes with the process-wide
+       |  * `setMaxWsConnections`. */
+       |def onWebSocket(path: String, origins: List[String], protocols: List[String], maxConnections: Int): (WebSocket => Unit) => Unit = (handler) => {
+       |  _wsRoutes += _WsRoute(_parsePath(path), handler, origins, protocols, maxConnections)
+       |}
+       |
+       |/** Five-arg form also caps inbound messages per second per
+       |  * connection.  Overrun closes the offending client with code
+       |  * 1008 ("policy violation").  0 = unlimited. */
+       |def onWebSocket(path: String, origins: List[String], protocols: List[String], maxConnections: Int, maxMessagesPerSec: Int): (WebSocket => Unit) => Unit = (handler) => {
+       |  _wsRoutes += _WsRoute(_parsePath(path), handler, origins, protocols, maxConnections, maxMessagesPerSec)
+       |}
+       |
+       |/** Pre-upgrade auth hook.  `authFn(req)` returns `Some(payload)`
+       |  * to accept the upgrade (payload becomes `ws.user`) or `None`
+       |  * to reject with HTTP 401 before the WebSocket is even built.
+       |  * Hook runs on the dispatch thread — must be read-only over
+       |  * mutable state. */
+       |def onWebSocketAuth(path: String, authFn: Request => Option[Any]): (WebSocket => Unit) => Unit = (handler) => {
+       |  _wsRoutes += _WsRoute(_parsePath(path), handler, auth = Some(authFn))
        |}
        |
        |// ── Framing ──────────────────────────────────────────────────────────
@@ -3493,7 +3647,7 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |    matched match
        |      case None =>
        |        cout.write("HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".getBytes("US-ASCII"))
-       |        cout.flush(); client.close()
+       |        cout.flush(); client.close(); _Metrics.wsRejected.incrementAndGet()
        |      case Some((r, params)) =>
        |        val key = headers.getOrElse("sec-websocket-key", "")
        |        if key.isEmpty then { client.close(); return }
@@ -3502,14 +3656,55 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |          val origin = headers.getOrElse("origin", "")
        |          if !r.origins.contains(origin) then
        |            cout.write("HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".getBytes("US-ASCII"))
-       |            cout.flush(); client.close(); return
+       |            cout.flush(); client.close(); _Metrics.wsRejected.incrementAndGet(); return
+       |        // Pre-upgrade auth hook.  Same shape as the interpreter
+       |        // path: read-only over headers / cookies / Origin.
+       |        // None → reject with 401; Some(v) → carry v to ws.user.
+       |        val _authRawQ  = request.split(' ').lift(1).getOrElse("/").split('?').lift(1).getOrElse("")
+       |        val _authCookies: Map[String, String] = headers.get("cookie") match
+       |          case None => Map.empty
+       |          case Some(raw) => raw.split(';').iterator.flatMap { pair =>
+       |            val t = pair.trim
+       |            val i = t.indexOf('=')
+       |            if i < 0 then None else Some(t.substring(0, i).trim -> t.substring(i + 1).trim)
+       |          }.toMap
+       |        val _authReq = Request(
+       |          method  = "GET",
+       |          path    = path,
+       |          params  = params,
+       |          query   = _parseQuery(_authRawQ),
+       |          headers = headers,
+       |          body    = "",
+       |          cookies = _authCookies
+       |        )
+       |        var _authPayload: Option[Any] = None
+       |        var _authReject:  Boolean      = false
+       |        r.auth.foreach { fn =>
+       |          try fn(_authReq) match
+       |            case Some(v) => _authPayload = Some(v)
+       |            case None    => _authReject  = true
+       |          catch case e: Throwable =>
+       |            System.err.println(s"WS auth hook: ${e.getMessage}")
+       |            _authReject = true
+       |        }
+       |        if _authReject then
+       |          cout.write("HTTP/1.1 401 Unauthorized\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".getBytes("US-ASCII"))
+       |          cout.flush(); client.close(); _Metrics.wsRejected.incrementAndGet(); return
        |        // Process-wide active-connection cap.  Reserved AFTER
        |        // the Origin check so a denied-Origin attempt doesn't
        |        // briefly consume a slot.  Released in the writer-VT's
        |        // `finally` after the channel closes.
        |        if !_wsTryReserve() then
        |          cout.write("HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".getBytes("US-ASCII"))
-       |          cout.flush(); client.close(); return
+       |          cout.flush(); client.close(); _Metrics.wsRejected.incrementAndGet(); return
+       |        // Per-route active-connection cap.  Composes with the
+       |        // process-wide cap above (both must permit).  0 = no
+       |        // per-route limit.  Released by the writer-VT finally
+       |        // via `r.release()`.
+       |        if !r.tryReserve() then
+       |          _wsActiveCount.decrementAndGet()
+       |          cout.write("HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".getBytes("US-ASCII"))
+       |          cout.flush(); client.close(); _Metrics.wsRejected.incrementAndGet(); return
        |        // Subprotocol negotiation (RFC 6455 §1.9).
        |        val chosenProtocol: String =
        |          if r.protocols.isEmpty then ""
@@ -3519,8 +3714,9 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |            r.protocols.find(offered.contains).getOrElse("")
        |        if r.protocols.nonEmpty && chosenProtocol.isEmpty then
        |          _wsActiveCount.decrementAndGet()
+       |          r.release()
        |          cout.write("HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".getBytes("US-ASCII"))
-       |          cout.flush(); client.close(); return
+       |          cout.flush(); client.close(); _Metrics.wsRejected.incrementAndGet(); return
        |        val accept = _wsAcceptKey(key)
        |        val protoHeader = if chosenProtocol.isEmpty then "" else s"Sec-WebSocket-Protocol: $chosenProtocol\r\n"
        |        val resp =
@@ -3552,7 +3748,14 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |          body    = "",
        |          cookies = wsCookies
        |        )
-       |        val ws = WebSocket(client, wsReq)
+       |        _Metrics.wsUpgraded.incrementAndGet()
+       |        val ws = WebSocket(client, wsReq, subprotocol = chosenProtocol, _onTerminate = () => r.release(), _maxMessagesPerSec = r.maxMessagesPerSec, user = _authPayload)
+       |        // Structured connect log (Sprint 4 #13).
+       |        val _accessIp     = try client.getRemoteSocketAddress.toString catch case _: Throwable => "?"
+       |        val _accessOrigin = headers.getOrElse("origin", "")
+       |        println("ws.connect\tid=" + ws.id + "\tip=" + _accessIp +
+       |          "\troute=" + path + "\torigin=" + _accessOrigin +
+       |          "\tproto=" + chosenProtocol)
        |        // Run the user's `onWebSocket` block on the shared single-
        |        // thread executor so any state it touches (top-level `var`s,
        |        // route registry, etc.) is serial with HTTP handlers and

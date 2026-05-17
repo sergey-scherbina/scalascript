@@ -362,6 +362,11 @@ Landed in iter A: `Card` (header / body / footer trio), `Switch`
 inline chip).  All registered in `std/ui/index.ssc`, covered by
 `conformance/std-ui-extended.ssc` on three backends.
 
+Landed in iter B: `Stats` (dashboard tile with delta indicator),
+`Empty` (no-content placeholder), `Toolbar` (start/end flex layout),
+`Tree` (native-`<details>` collapsible hierarchy).  Covered by
+`conformance/std-ui-extended-b.ssc`.
+
 Each is half-day to a day.  Pick what a consumer actually asks for
 before grinding through speculatively.
 
@@ -409,69 +414,46 @@ ends up with three+ variant branches.
 
 ## v1.0 — WebSocket production-readiness
 
-The WS stack landed in v0.7 covers the API surface across all three
-backends (`onWebSocket(path) { ws => … }`, framing, fragmentation,
-`ws.request`, virtual threads on JvmGen, NIO proxy on interpreter)
-but still has known production gaps.  Listed in order of "stops
-real problems" → "feature gaps" → "nice to have"; each sprint is a
-session-sized chunk.
-
-### Sprint 4 — observability
-
-13. **Structured connect/disconnect/error logs** — client IP, route,
-    duration, close code.  ~30 LOC × 3.
-14. **`metrics()` native** — `wsActive`, `wsMessagesIn`/`Out`,
-    `wsBytesIn`/`Out` exposed as a map for scraping.  ~50 LOC.
-15. **HTTP access log** for the proxy-forwarded path.  Currently
-    silent.  ~20 LOC.
+Sprints 4 and 6 landed on this branch (2026-05-17): observability
+(structured ws.connect/ws.close logs, `metrics()` native, HTTP
+access log) and the six WS convenience helpers (`ws.id`,
+`ws.subprotocol`, per-route maxConnections, per-connection rate
+limit, pre-upgrade auth hook, close-handshake echo wait).  Cross-
+backend (interpreter / JvmGen / JsGen) parity throughout.  Sprint 5
+remains, deferred — see below.
 
 ### Sprint 5 — architectural debt
 
 Defer until 1-4 are settled and a real workload demands them.
+Convergence direction decided 2026-05-17: items below assume the
+**Loom** path; see (17).
 
-16. **Full NIO HTTP on JvmGen.**  Today the WS proxy sits in front
-    of a JDK `HttpServer`, so every HTTP request opens a fresh
-    `Socket` to localhost.  Replacing the HTTP stack with our own
-    NIO server would fold the proxy in, remove the loopback hop,
-    and unify the threading model with the interpreter.  ~1500 LOC.
-17. **Loom-only or NIO-only — pick one for both JVM backends.**
-    Maintaining two parallel models (NIO for interpreter,
-    Loom+blocking for JvmGen) is dead weight if neither has a real
-    edge.  Worth re-deciding after (16).
+16. **Full NIO HTTP on JvmGen — CANCELLED by (17).**  Kept in
+    this list for archeology so future contributors don't
+    re-propose it without new evidence.  Original rationale: the
+    WS proxy sits in front of a JDK `HttpServer`, so every HTTP
+    request opens a fresh `Socket` to localhost.  Replacing the
+    HTTP stack with our own NIO server would fold the proxy in,
+    remove the loopback hop, and unify the threading model with
+    the interpreter.  ~1500 LOC.  Rejected because (17) picks the
+    opposite convergence direction.
+17. **Loom-only — interpreter migrates to Loom + blocking I/O.**
+    DECISION (2026-05-17, recorded in `docs/ws-v1.0-plan.md` §5.1
+    in the v1.0 branch): converge on Loom for both JVM backends.
+    JvmGen already uses virtual-thread-per-connection
+    (`JvmGen.scala:2849`).  Interpreter rewrites: `WsProxy.scala`
+    selector loop deleted, `WsConnection.scala` rewritten to
+    blocking reads/writes on a per-connection virtual thread,
+    fragmented-message reassembly moves onto that thread.
+    ~1000 LOC across the two files.  Side effect: JDK 21+ becomes
+    the explicit baseline and the Java-17 reflective
+    virtual-thread fallback at `JvmGen.scala:2849-2860` is
+    dropped.  When this lands as its own branch the decision is
+    the starting point — don't re-litigate.
 18. **`permessage-deflate` (RFC 7692).**  5-10× compression on
-    JSON-heavy WS workloads.  Not worth the complexity until a
-    real app needs it.  ~200 LOC × 3.
-
-### Sprint 6 — WS convenience helpers
-
-Small quality-of-life additions noticed while running through
-Sprint 3.  Each is meaningfully complete on its own.
-
-19. **Per-route `maxConnections`.**  `setMaxWsConnections` is
-    process-wide.  Real apps want `/chat` capped at 1000 and
-    `/admin` capped at 5.  Add the cap as a fourth `onWebSocket`
-    arg or via a `WsRoute` builder.  ~40 LOC × 3.
-20. **Per-connection rate limit.**  Cap incoming messages/sec so
-    one client can't burn the server's CPU.  Bound a sliding-window
-    counter on `WsConnection`; on overflow close 1008 ("policy
-    violation").  ~30 LOC × 3.
-21. **Auth helper at upgrade time.**  `onWebSocket("/x", auth =
-    bearer { token => validate(token) }) { … }` — current users
-    have to inspect `ws.request.headers("authorization")` and
-    `ws.close(1008, "")` manually.  ~30 LOC × 3.
-22. **`ws.id: String`.**  Stable per-connection identifier for
-    logs / traces.  UUID-v4 generated at upgrade.  Trivial; pays
-    back the first time someone wants to grep logs for a single
-    session.  ~10 LOC × 3.
-23. **`ws.subprotocol: String`.**  The protocol the server chose
-    during negotiation.  Currently inspectable via
-    `ws.request.headers("sec-websocket-protocol")`, but that's the
-    client's full *offer* list, not the server's selection.
-    Surface the chosen value explicitly.  ~10 LOC × 3.
-24. **Close-handshake echo wait.**  RFC SHOULD wait briefly for
-    the peer's close-echo after sending our Close before tearing
-    down the channel.  Currently we just `closeNow`; strict
-    clients may complain.  Half a line of `scheduler.schedule(...)`.
+    JSON-heavy WS workloads.  Independent of (17); ships under
+    either threading model.  ~200 LOC × 3.  Not worth the
+    complexity until a real app needs it.
 
 ## v1.2 — Auth follow-up: combined example + WebAuthn / passkeys — **landed**
 

@@ -1,0 +1,57 @@
+#!/usr/bin/env ssc
+---
+name: stats
+description: Dashboard tile — big number + label + delta indicator.
+---
+
+# Stats
+
+```scalascript
+object Stats:
+  private val sc = scope("Stats")
+  private val rootCls = sc.cls("root")
+  private val labelCls = sc.cls("label")
+  private val valueCls = sc.cls("value")
+  private val deltaCls = sc.cls("delta")
+  private val upCls = sc.cls("up")
+  private val downCls = sc.cls("down")
+
+  val css: String = sc.css("""
+    .root  { display: inline-block; padding: 1em 1.25em;
+             background: #fff; border: 1px solid #e5e7eb;
+             border-radius: 8px; min-width: 9em;
+             font: 1rem/1.4 system-ui, sans-serif;
+             box-shadow: 0 1px 2px rgba(0,0,0,.04);
+             margin: .5em; }
+    .label { color: #6b7280; font-size: .85em;
+             text-transform: uppercase; letter-spacing: .04em;
+             font-weight: 600; }
+    .value { color: #111827; font-size: 1.85em;
+             font-weight: 700; margin-top: .15em;
+             font-variant-numeric: tabular-nums; }
+    .delta { font-size: .8em; font-weight: 500;
+             margin-top: .25em; display: inline-block; }
+    .up    { color: #16a34a; }
+    .up::before { content: "▲ "; }
+    .down  { color: #dc2626; }
+    .down::before { content: "▼ "; }
+  """)
+
+  /** `delta` is the change indicator — pass `""` to omit it.  The
+   *  sign of `delta`'s leading character picks the tone:
+   *  `"+12%"` → green up, `"-3"` → red down. */
+  def render(label: String, value: String, delta: String): String =
+    val deltaHtml =
+      if delta == "" then ""
+      else
+        val cls =
+          if delta.startsWith("-") then deltaCls + " " + downCls
+          else deltaCls + " " + upCls
+        val text = if delta.startsWith("-") || delta.startsWith("+") then delta.substring(1) else delta
+        html"""<div class="${cls}">${text}</div>"""
+    html"""<div class="${rootCls}">
+      <div class="${labelCls}">${label}</div>
+      <div class="${valueCls}">${value}</div>
+      ${raw(deltaHtml)}
+    </div>"""
+```

@@ -14,6 +14,7 @@ exports:
   - Checkbox
   - Code
   - Container
+  - Empty
   - DataGrid
   - DataList
   - Divider
@@ -38,12 +39,15 @@ exports:
   - Spacer
   - Spinner
   - Stack
+  - Stats
   - SubmitButton
   - Switch
   - Table
   - Tabs
   - Tag
   - Textarea
+  - Toolbar
+  - Tree
   - Theme
   - ThemeProvider
   - ThemeToggle
@@ -157,6 +161,14 @@ instead of one explicit import per component file.
 [Alert](./alert.ssc)
 
 [Tag](./tag.ssc)
+
+[Stats](./stats.ssc)
+
+[Empty](./empty.ssc)
+
+[Toolbar](./toolbar.ssc)
+
+[Tree](./tree.ssc)
 
 ## Theming
 

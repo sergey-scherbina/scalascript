@@ -1057,7 +1057,68 @@ class Interpreter(
             Value.UnitV
           case _ => throw InterpretError("onWebSocket(path, origins, protocols) { ws => … }")
         })
-      case _ => throw InterpretError("onWebSocket(path[, origins[, protocols]]) { ws => … }")
+      // Four-arg form adds a per-route active-connection cap.  0 (or
+      // negative) means no limit; positive values refuse upgrades
+      // past the cap with 503.  Composes with `setMaxWsConnections`
+      // (process-wide): both caps must permit.
+      case List(Value.StringV(path), Value.ListV(origins), Value.ListV(protocols), Value.IntV(maxConn)) =>
+        val origs  = origins.collect   { case Value.StringV(s) => s }
+        val protos = protocols.collect { case Value.StringV(s) => s }
+        val cap    = if maxConn > Int.MaxValue.toLong || maxConn < 0 then 0 else maxConn.toInt
+        Value.NativeFnV("onWebSocket.handler", Computation.pureFn {
+          case List(handler) =>
+            scalascript.server.WsRoutes.register(path, handler, this, origs, protos, cap)
+            Value.UnitV
+          case _ => throw InterpretError("onWebSocket(path, origins, protocols, maxConnections) { ws => … }")
+        })
+      // Five-arg form also caps inbound messages per second per
+      // connection.  Overrun closes the offending client with code
+      // 1008.  0 = unlimited.
+      case List(Value.StringV(path), Value.ListV(origins), Value.ListV(protocols), Value.IntV(maxConn), Value.IntV(maxRate)) =>
+        val origs  = origins.collect   { case Value.StringV(s) => s }
+        val protos = protocols.collect { case Value.StringV(s) => s }
+        val cap    = if maxConn > Int.MaxValue.toLong || maxConn < 0 then 0 else maxConn.toInt
+        val rate   = if maxRate > Int.MaxValue.toLong || maxRate < 0 then 0 else maxRate.toInt
+        Value.NativeFnV("onWebSocket.handler", Computation.pureFn {
+          case List(handler) =>
+            scalascript.server.WsRoutes.register(path, handler, this, origs, protos, cap, rate)
+            Value.UnitV
+          case _ => throw InterpretError("onWebSocket(path, origins, protocols, maxConnections, maxMessagesPerSec) { ws => … }")
+        })
+      case _ => throw InterpretError("onWebSocket(path[, origins[, protocols[, maxConnections[, maxMessagesPerSec]]]]) { ws => … }")
+    }
+
+    // onWebSocketAuth(path, authFn)(handler) — pre-upgrade auth hook.
+    // `authFn` receives the Request (same shape REST handlers see) and
+    // returns Option[Any]: None refuses the upgrade with HTTP 401;
+    // Some(value) accepts and stashes `value` on the resulting
+    // WebSocket as `ws.user`, so handler bodies don't have to re-parse
+    // headers / claims / sessions.  Runs synchronously on the proxy
+    // selector thread, so the hook MUST NOT mutate interpreter globals —
+    // read-only decisions over headers / cookies / Origin only.
+    nativeP("onWebSocketAuth") {
+      case List(Value.StringV(path), authFn) =>
+        Value.NativeFnV("onWebSocketAuth.handler", Computation.pureFn {
+          case List(handler) =>
+            scalascript.server.WsRoutes.register(
+              path, handler, this,
+              auth = Some(authFn)
+            )
+            Value.UnitV
+          case _ => throw InterpretError("onWebSocketAuth(path, authFn) { ws => … }")
+        })
+      case _ => throw InterpretError("onWebSocketAuth(path, authFn) { ws => … }")
+    }
+
+    // metrics() — snapshot of process-wide counters as Map[String, Long].
+    // Same keys across all backends; scraped by health-checks / log
+    // shippers.  Reads are atomic; the map is built on demand so
+    // calls are cheap but not free — don't hammer it on hot paths.
+    nativeP("metrics") {
+      case Nil =>
+        val snap = scalascript.server.Metrics.snapshot()
+        Value.MapV(snap.map((k, v) => Value.StringV(k) -> Value.IntV(v)))
+      case _ => throw InterpretError("metrics() — no arguments")
     }
 
     // setMaxWsConnections(n) — process-wide cap on simultaneously-open

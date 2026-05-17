@@ -1,0 +1,66 @@
+#!/usr/bin/env ssc
+---
+name: tree
+description: Collapsible hierarchical view — files, JSON, org charts.
+---
+
+# Tree
+
+Built on native `<details>`/`<summary>` so keyboard navigation works
+without JS.  Pass a `Node` shape:
+
+  - `Node(label, "leaf")` — leaf node, just text.
+  - `Node(label, "branch")` with children — collapsible.
+
+The caller renders children recursively by passing pre-rendered HTML
+in the `children` slot.
+
+```scalascript
+object Tree:
+  private val sc = scope("Tree")
+  private val rootCls = sc.cls("root")
+  private val leafCls = sc.cls("leaf")
+  private val branchCls = sc.cls("branch")
+  private val labelCls = sc.cls("label")
+  private val childrenCls = sc.cls("children")
+
+  val css: String = sc.css("""
+    .root     { font: .95em/1.5 ui-monospace, SFMono-Regular,
+                Menlo, monospace; color: #1f2937;
+                margin: .5em 0; }
+    .leaf,
+    .branch   { padding-left: 1.1em; position: relative; }
+    .leaf::before { content: "•"; position: absolute;
+                    left: 0; color: #9ca3af; }
+    .branch > summary {
+                cursor: pointer; user-select: none;
+                list-style: none; padding-left: 0; }
+    .branch > summary::-webkit-details-marker { display: none; }
+    .branch > summary::before {
+                content: "▸"; display: inline-block;
+                width: 1.1em; color: #6b7280;
+                transition: transform .12s ease; }
+    .branch[open] > summary::before { transform: rotate(90deg); }
+    .label    { color: #111827; }
+    .children { margin-left: .8em; border-left: 1px solid #e5e7eb;
+                padding-left: .6em; }
+  """)
+
+  /** Render a leaf node (no children). */
+  def leaf(label: String): String =
+    html"""<div class="${leafCls}"><span class="${labelCls}">${label}</span></div>"""
+
+  /** Render a branch node with pre-rendered `children` HTML.  Pass
+   *  `openDefault = true` to start expanded. */
+  def branch(label: String, children: String, openDefault: Boolean): String =
+    val openAttr = if openDefault then " open" else ""
+    html"""<details class="${branchCls}"${raw(openAttr)}>
+      <summary><span class="${labelCls}">${label}</span></summary>
+      <div class="${childrenCls}">${raw(children)}</div>
+    </details>"""
+
+  /** Wrap a hierarchy in the Tree root.  `body` is whatever
+   *  `leaf` / `branch` calls you chained together. */
+  def render(body: String): String =
+    html"""<div class="${rootCls}">${raw(body)}</div>"""
+```

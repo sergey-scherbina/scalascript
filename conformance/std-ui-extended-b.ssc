@@ -1,0 +1,24 @@
+---
+name: std-ui-extended-b
+---
+
+# v0.10 iter B smoke — Stats / Empty / Toolbar / Tree
+
+[Stats, Empty, Toolbar, Tree](../examples/std-ui)
+
+```scalascript
+println(Stats.render("Revenue", "$1,234", "+12%").contains("up__Stats"))
+println(Stats.render("Errors", "47", "-3").contains("down__Stats"))
+println(Stats.render("Users", "8200", "").contains("8200"))
+
+println(Empty.render("📭", "Inbox zero", "Nothing waiting.", "").contains("Inbox zero"))
+println(Empty.render("", "Quiet here", "", "").contains("title__Empty"))
+
+println(Toolbar.render("<button>New</button>", "<input>").contains("start__Toolbar"))
+
+val leaves = Tree.leaf("a.scala") + Tree.leaf("b.scala")
+val src    = Tree.branch("src/", leaves, true)
+val root   = Tree.render(src)
+println(root.contains("a.scala"))
+println(root.contains("branch__Tree"))
+```

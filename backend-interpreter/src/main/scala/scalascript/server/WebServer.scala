@@ -59,6 +59,12 @@ object WebServer:
     Thread.currentThread().join()
 
   private def handle(root: String, log: java.io.PrintStream, ex: HttpExchange): Unit =
+    Metrics.httpRequests.incrementAndGet()
+    val startNs = java.lang.System.nanoTime()
+    val accessMethod = ex.getRequestMethod
+    val accessPath   = ex.getRequestURI.getPath
+    val accessIp     = Option(ex.getRemoteAddress).map(_.getAddress.getHostAddress).getOrElse("?")
+    val accessUa     = Option(ex.getRequestHeaders.getFirst("User-Agent")).getOrElse("")
     try
       val method  = ex.getRequestMethod
       val rawPath = ex.getRequestURI.getPath
@@ -89,7 +95,23 @@ object WebServer:
             ex.getResponseBody.write(bytes)
     catch case e: Exception =>
       log.println(s"Error: ${e.getMessage}")
+      Metrics.http5xx.incrementAndGet()
     finally
+      // Bucket 4xx based on the response code the handler actually
+      // wrote.  5xx is counted in the catch above so we don't
+      // double-bump for handler-thrown exceptions that never made
+      // it to `sendResponseHeaders`.  `getResponseCode == -1` when
+      // the response wasn't sent.
+      val code = try ex.getResponseCode catch case _: Throwable => -1
+      if code >= 400 && code < 500 then Metrics.http4xx.incrementAndGet()
+      else if code >= 500           then Metrics.http5xx.incrementAndGet()
+      // Structured access log (Sprint 4 #15) — one tab-separated
+      // line per request.  Stable key order so log shippers can
+      // parse it without quoting tricks.  `duration_ms` is wall
+      // clock from entry to finally (post-write but pre-close).
+      val durMs = (java.lang.System.nanoTime() - startNs) / 1_000_000L
+      val effCode = if code < 0 then 0 else code
+      log.println(s"http\tip=$accessIp\tmethod=$accessMethod\tpath=$accessPath\tstatus=$effCode\tduration_ms=$durMs\tua=\"${accessUa.replace('"', '\'')}\"")
       ex.close()
 
   /** Invoke the user's route handler closure with a `Request` value, then

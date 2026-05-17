@@ -39,7 +39,7 @@ object JsGen:
  *  two triple-quoted halves because the combined source exceeds the
  *  JVM's 64 KB string-literal limit; the `val JsRuntime` concatenation
  *  is declared after both halves so source-order init sees them. */
-private val JsRuntimePart1: String = """
+private val JsRuntimePart1a: String = """
 let _output = [];
 function _println(...args) { _output.push(args.map(_show).join(' ')); }
 function _print(...args) { const s = args.map(_show).join(''); _output.push(s); }
@@ -195,6 +195,9 @@ function getenv(key, defaultVal) {
   return v;
 }
 
+"""
+
+private val JsRuntimePart1b: String = """
 // ── REST routing + serve(port) ─────────────────────────────────────────
 // Matches the interpreter / JVM-backend semantics: route(method, path)
 // registers a closure, serve(port) starts Node's http.createServer and
@@ -210,6 +213,24 @@ let _wsMaxActive   = Number.POSITIVE_INFINITY;
 let _wsActiveCount = 0;
 function setMaxWsConnections(n) {
   _wsMaxActive = (n == null || n < 0) ? Number.POSITIVE_INFINITY : n;
+}
+
+// ── Process-wide metrics (Sprint 4 #14) ─────────────────────────────
+// Same keys as scalascript.server.Metrics on the interpreter side,
+// so log shippers / health checks scrape identical output across
+// backends.  Node is single-threaded so counters are plain Numbers.
+const _metricsState = {
+  'ws.active': 0, 'ws.upgraded': 0, 'ws.rejected': 0,
+  'ws.messages.in': 0, 'ws.messages.out': 0,
+  'ws.bytes.in': 0,   'ws.bytes.out': 0,
+  'http.requests': 0, 'http.4xx': 0, 'http.5xx': 0,
+};
+function metrics() {
+  // Snapshot returned as a Map<string, number> — same shape as the
+  // interpreter / JvmGen surfaces.
+  const out = new Map();
+  for (const [k, v] of Object.entries(_metricsState)) out.set(k, v);
+  return out;
 }
 
 // WsRoom() — thread-safe (well, event-loop-safe) registry of
@@ -262,20 +283,58 @@ function route(method, path) {
 // Sec-WebSocket-Protocol negotiation (RFC 6455 §1.9): server picks the
 // first protocol it offers that's in the client's request; no match
 // refuses with 400.  Required for `socket.io` / `graphql-ws` clients.
-function onWebSocket(path, originsArg, protocolsArg) {
-  let origins   = [];
-  let protocols = [];
+function onWebSocket(path, originsArg, protocolsArg, maxConnectionsArg, maxMessagesPerSecArg) {
+  let origins           = [];
+  let protocols         = [];
+  let maxConnections    = 0;
+  let maxMessagesPerSec = 0;
   if (Array.isArray(originsArg)) {
-    origins   = originsArg;
-    protocols = Array.isArray(protocolsArg) ? protocolsArg : [];
+    origins        = originsArg;
+    protocols      = Array.isArray(protocolsArg) ? protocolsArg : [];
+    // Four-arg form: also a per-route active-connection cap.
+    // 0 = unlimited; positive values refuse upgrades past the cap
+    // with 503.  Composes with the process-wide cap.
+    maxConnections = (typeof maxConnectionsArg === 'number' && maxConnectionsArg > 0)
+      ? maxConnectionsArg : 0;
+    // Five-arg form: per-connection rate cap (msgs/sec).  Overrun
+    // closes the offending client with 1008.
+    maxMessagesPerSec = (typeof maxMessagesPerSecArg === 'number' && maxMessagesPerSecArg > 0)
+      ? maxMessagesPerSecArg : 0;
   } else if (originsArg !== undefined) {
     // Older call style: `onWebSocket(path)(handler)`, second arg is
     // already the handler.  Wrap it.
-    _wsRoutes.push({ pattern: _parsePath(path), handler: originsArg, origins: [], protocols: [] });
+    _wsRoutes.push({
+      pattern: _parsePath(path), handler: originsArg,
+      origins: [], protocols: [], maxConnections: 0, maxMessagesPerSec: 0,
+      auth: null, activeCount: 0,
+    });
     return undefined;
   }
   return function(handler) {
-    _wsRoutes.push({ pattern: _parsePath(path), handler, origins, protocols });
+    _wsRoutes.push({
+      pattern: _parsePath(path), handler,
+      origins, protocols, maxConnections, maxMessagesPerSec,
+      auth: null, activeCount: 0,
+    });
+  };
+}
+
+// Pre-upgrade auth hook.  `authFn(req)` returns the auth payload
+// (carried to `ws.user`) or null/undefined/None-like to refuse the
+// upgrade with HTTP 401.  Hook runs synchronously on the upgrade
+// dispatch; must be read-only over module-level state.  The hook's
+// return convention matches the interpreter / JvmGen contracts:
+//   - returning `{_type: '_Some', value: v}` accepts with `ws.user = Some(v)`
+//   - returning `{_type: '_None'}` rejects with 401
+//   - returning any other truthy value accepts with `ws.user = Some(that)`
+//   - returning null / undefined rejects with 401
+function onWebSocketAuth(path, authFn) {
+  return function(handler) {
+    _wsRoutes.push({
+      pattern: _parsePath(path), handler,
+      origins: [], protocols: [], maxConnections: 0, maxMessagesPerSec: 0,
+      auth: authFn, activeCount: 0,
+    });
   };
 }
 
@@ -670,6 +729,9 @@ function _sessionStoreGet(ssid) {
 }
 function _sessionStoreDelete(ssid) { _sessionStore.delete(ssid); }
 
+"""
+
+private val JsRuntimePart1c: String = """
 // ── JWT (HS256) ────────────────────────────────────────────────────────
 // Compact HS256 JWTs that match scalascript.server.Jwt byte-for-byte
 // (header `{"alg":"HS256","typ":"JWT"}`, payload = JSON of a
@@ -1097,6 +1159,9 @@ function _contentTypeFor(name) {
   return 'application/octet-stream';
 }
 
+"""
+
+private val JsRuntimePart1d: String = """
 // ── WebSocket framing (RFC 6455) ───────────────────────────────────────
 // Pure-Node implementation — `crypto` for the handshake hash, raw
 // `net.Socket` writes for frames.  No `ws` npm dependency.
@@ -1196,7 +1261,34 @@ function _wsEncodeClose(code, reason) {
 // with `send` / `close` / `onMessage` / `onClose` and pumps inbound
 // frames through `_wsParseFrame`.  Control frames (ping/close) are
 // handled here; text/binary frames invoke `onMessage` if registered.
-function _wsMakeWebSocket(socket, request) {
+function _wsMakeWebSocket(socket, request, subprotocol, maxMessagesPerSec, userPayload) {
+  // Stable per-connection identifier — UUID-v4 generated at upgrade
+  // time, surfaced to user code as `ws.id` and used to tag every log
+  // line for a single session.
+  const id = (typeof crypto !== 'undefined' && crypto.randomUUID)
+    ? crypto.randomUUID()
+    : require('crypto').randomUUID();
+  // Wall-clock time of upgrade — feeds `duration_ms` into the
+  // Sprint-4 close log emitted on `'close'`.
+  const _startedAt = Date.now();
+  socket.once('close', () => {
+    const dur = Date.now() - _startedAt;
+    console.log(`ws.close\tid=${id}\tduration_ms=${dur}`);
+  });
+  // The subprotocol the server selected during upgrade negotiation
+  // (RFC 6455 §1.9), or '' when no negotiation took place.
+  // `request.headers['sec-websocket-protocol']` still carries the
+  // client's full offer list.
+  const _subprotocol = subprotocol || '';
+  // Rate-limit state — fixed 1-second window.  0 cap = unlimited;
+  // overrun closes the offending client with code 1008.
+  const _rateCap = (typeof maxMessagesPerSec === 'number' && maxMessagesPerSec > 0)
+    ? maxMessagesPerSec : 0;
+  let _rateWindowStart = 0;
+  let _rateMsgs        = 0;
+  // Payload returned by the route's auth hook, or `_None` for
+  // routes without one.  Surfaced to handlers as `ws.user`.
+  const _user = userPayload || { _type: '_None' };
   let onMessage = null;
   let onClose   = null;
   let onPong    = null;
@@ -1233,6 +1325,21 @@ function _wsMakeWebSocket(socket, request) {
   }, HEARTBEAT_INTERVAL_MS);
 
   const dispatchMessage = (opcode, payload) => {
+    if (_rateCap > 0) {
+      const now = Date.now();
+      if (now - _rateWindowStart >= 1000) { _rateWindowStart = now; _rateMsgs = 0; }
+      _rateMsgs += 1;
+      if (_rateMsgs > _rateCap) {
+        if (!closing && !socket.destroyed) {
+          closing = true;
+          try { socket.write(_wsEncodeClose(1008, 'rate limit exceeded')); } catch (_) {}
+          try { socket.end(); } catch (_) {}
+        }
+        return;
+      }
+    }
+    _metricsState['ws.messages.in']++;
+    _metricsState['ws.bytes.in'] += payload.length;
     if (!onMessage) return;
     const msg = opcode === 0x1 ? payload.toString('utf-8') : payload.toString('latin1');
     try { onMessage(msg); } catch (e) { console.error('WS message handler:', e.message); }
@@ -1247,7 +1354,10 @@ function _wsMakeWebSocket(socket, request) {
       // buffer is full.  If we keep ignoring that signal, a slow
       // peer lets Node's per-socket queue grow without bound.  Past
       // a 4 MB backlog, drop the connection.
-      const ok = socket.write(_wsEncodeText(s));
+      const frame = _wsEncodeText(s);
+      _metricsState['ws.messages.out']++;
+      _metricsState['ws.bytes.out'] += frame.length;
+      const ok = socket.write(frame);
       if (!ok && socket.writableLength > 4 * 1024 * 1024) {
         closing = true;
         try { socket.destroy(); } catch (_) {}
@@ -1255,7 +1365,10 @@ function _wsMakeWebSocket(socket, request) {
     },
     sendBytes: (s) => {
       if (closing || socket.destroyed) return;
-      const ok = socket.write(_wsEncodeBinaryLatin1(s));
+      const frame = _wsEncodeBinaryLatin1(s);
+      _metricsState['ws.messages.out']++;
+      _metricsState['ws.bytes.out'] += frame.length;
+      const ok = socket.write(frame);
       if (!ok && socket.writableLength > 4 * 1024 * 1024) {
         closing = true;
         try { socket.destroy(); } catch (_) {}
@@ -1271,6 +1384,9 @@ function _wsMakeWebSocket(socket, request) {
     onMessage: (cb) => { onMessage = cb; },
     onClose:   (cb) => { onClose   = cb; },
     onPong:    (cb) => { onPong    = cb; },
+    id:        id,
+    subprotocol: _subprotocol,
+    user:        _user,
     // ping([payload]) — empty Ping or Latin-1-byte-view payload.
     // Peer's Pong arrives via the `onPong` callback above.
     ping: (s) => {
@@ -1383,8 +1499,55 @@ function _wsHandleUpgrade(req, socket) {
             'Content-Length: 0\r\nConnection: close\r\n\r\n'
           );
           socket.destroy();
+          _metricsState['ws.rejected']++;
           return;
         }
+      }
+      // Build a Request-shaped object — same shape as `_mkRequest`
+      // for REST routes (minus body/form/files; the WS upgrade is a
+      // GET with no body).  Constructed here (before the auth hook)
+      // so the hook receives the same shape user code sees later
+      // via `ws.request`.
+      const reqHeaders = new Map();
+      for (const [k, v] of Object.entries(req.headers))
+        reqHeaders.set(k, Array.isArray(v) ? (v[0] ?? '') : String(v ?? ''));
+      const reqQuery = new Map();
+      u.searchParams.forEach((v, k) => reqQuery.set(k, v));
+      const reqCookies = new Map();
+      const cookieRaw0 = reqHeaders.get('cookie') ?? '';
+      for (const pair of cookieRaw0.split(';')) {
+        const t = pair.trim();
+        const i = t.indexOf('=');
+        if (i > 0) reqCookies.set(t.substring(0, i).trim(), t.substring(i + 1).trim());
+      }
+      const request = {
+        _type:  'Request',
+        method: 'GET',
+        path:   u.pathname,
+        params,
+        query:  reqQuery,
+        headers: reqHeaders,
+        cookies: reqCookies,
+      };
+      // Pre-upgrade auth hook.  Same contract as interpreter / JvmGen:
+      // None → reject 401, Some(v) → carry v to ws.user.
+      let _authPayload = { _type: '_None' };
+      if (typeof r.auth === 'function') {
+        let _v = undefined;
+        try { _v = r.auth(request); }
+        catch (e) { console.error('WS auth hook:', e.message); _v = null; }
+        const _isNone = _v == null || (_v && _v._type === '_None');
+        const _isSome = _v && _v._type === '_Some';
+        if (_isNone) {
+          socket.write(
+            'HTTP/1.1 401 Unauthorized\r\n' +
+            'Content-Length: 0\r\nConnection: close\r\n\r\n'
+          );
+          socket.destroy();
+          _metricsState['ws.rejected']++;
+          return;
+        }
+        _authPayload = _isSome ? _v : { _type: '_Some', value: _v };
       }
       const clientKey = req.headers['sec-websocket-key'];
       if (!clientKey) { socket.destroy(); return; }
@@ -1397,6 +1560,20 @@ function _wsHandleUpgrade(req, socket) {
           'Content-Length: 0\r\nConnection: close\r\n\r\n'
         );
         socket.destroy();
+        _metricsState['ws.rejected']++;
+        return;
+      }
+      // Per-route cap.  0 = unlimited; composes with the
+      // process-wide cap above (both must permit).  Route counter
+      // released in the `socket.on('close', ...)` listener.
+      const _routeCap = (typeof r.maxConnections === 'number') ? r.maxConnections : 0;
+      if (_routeCap > 0 && (r.activeCount ?? 0) >= _routeCap) {
+        socket.write(
+          'HTTP/1.1 503 Service Unavailable\r\n' +
+          'Content-Length: 0\r\nConnection: close\r\n\r\n'
+        );
+        socket.destroy();
+        _metricsState['ws.rejected']++;
         return;
       }
       // Subprotocol negotiation (RFC 6455 §1.9).  Server picks the
@@ -1416,11 +1593,19 @@ function _wsHandleUpgrade(req, socket) {
             'Content-Length: 0\r\nConnection: close\r\n\r\n'
           );
           socket.destroy();
+          _metricsState['ws.rejected']++;
           return;
         }
       }
       _wsActiveCount++;
-      socket.once('close', () => { _wsActiveCount--; });
+      _metricsState['ws.active']++;
+      _metricsState['ws.upgraded']++;
+      if (_routeCap > 0) r.activeCount = (r.activeCount ?? 0) + 1;
+      socket.once('close', () => {
+        _wsActiveCount--;
+        _metricsState['ws.active']--;
+        if (_routeCap > 0 && r.activeCount > 0) r.activeCount--;
+      });
       const accept = _wsAcceptKey(clientKey);
       const protoHeader = chosenProtocol
         ? 'Sec-WebSocket-Protocol: ' + chosenProtocol + '\r\n'
@@ -1433,38 +1618,17 @@ function _wsHandleUpgrade(req, socket) {
         protoHeader +
         '\r\n'
       );
-      // Build a Request-shaped object — same shape as `_mkRequest` for
-      // REST routes (minus body/form/files; the WS upgrade is a GET
-      // with no body) so handlers can read `ws.request.headers.get(...)`
-      // for cookies / Authorization / Origin.
-      const reqHeaders = new Map();
-      for (const [k, v] of Object.entries(req.headers))
-        reqHeaders.set(k, Array.isArray(v) ? (v[0] ?? '') : String(v ?? ''));
-      const reqQuery = new Map();
-      u.searchParams.forEach((v, k) => reqQuery.set(k, v));
-      // Cookie header: `name=value; name=value; …` → Map.
-      const reqCookies = new Map();
-      const cookieRaw = reqHeaders.get('cookie') ?? '';
-      for (const pair of cookieRaw.split(';')) {
-        const t = pair.trim();
-        const i = t.indexOf('=');
-        if (i > 0) reqCookies.set(t.substring(0, i).trim(), t.substring(i + 1).trim());
-      }
-      const request = {
-        _type:  'Request',
-        method: 'GET',
-        path:   u.pathname,
-        params,
-        query:   reqQuery,
-        headers: reqHeaders,
-        cookies: reqCookies
-      };
-      const ws = _wsMakeWebSocket(socket, request);
+      // Structured connect log (Sprint 4 #13).
+      const _ip     = (socket && socket.remoteAddress) ? socket.remoteAddress : '?';
+      const _origin = req.headers['origin'] ?? '';
+      const ws = _wsMakeWebSocket(socket, request, chosenProtocol, r.maxMessagesPerSec ?? 0, _authPayload);
+      console.log(`ws.connect\tid=${ws.id}\tip=${_ip}\troute=${u.pathname}\torigin=${_origin}\tproto=${chosenProtocol}`);
       try { r.handler(ws); } catch (e) { console.error('WS upgrade handler:', e.message); }
       return;
     }
     socket.write('HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n');
     socket.destroy();
+    _metricsState['ws.rejected']++;
   } catch (e) {
     try { socket.destroy(); } catch (_) {}
   }
@@ -1492,6 +1656,22 @@ function serve(port) {
     // Collect chunks as Buffers (not strings) so multipart file uploads
     // round-trip byte-for-byte.
     const chunks = [];
+    _metricsState['http.requests']++;
+    // Structured access log (Sprint 4 #15) — one tab-separated line
+    // per request, emitted from the `finish` event so the status
+    // code is final.
+    const _accessStart  = Date.now();
+    const _accessMethod = req.method ?? '?';
+    const _accessPath   = (req.url ?? '').split('?')[0];
+    const _accessIp     = (req.socket && req.socket.remoteAddress) ? req.socket.remoteAddress : '?';
+    const _accessUa     = (req.headers['user-agent'] ?? '').replace(/"/g, "'");
+    res.on('finish', () => {
+      const c = res.statusCode;
+      if (c >= 400 && c < 500) _metricsState['http.4xx']++;
+      else if (c >= 500)       _metricsState['http.5xx']++;
+      const dur = Date.now() - _accessStart;
+      console.log(`http\tip=${_accessIp}\tmethod=${_accessMethod}\tpath=${_accessPath}\tstatus=${c}\tduration_ms=${dur}\tua="${_accessUa}"`);
+    });
     req.on('data', c => chunks.push(c));
     req.on('end', () => {
       try {
@@ -2218,7 +2398,8 @@ function _handle(bodyFn, handledOps, handlers) {
 }
 """
 
-val JsRuntime: String = JsRuntimePart1 + JsRuntimePart2
+val JsRuntime: String =
+  JsRuntimePart1a + JsRuntimePart1b + JsRuntimePart1c + JsRuntimePart1d + JsRuntimePart2
 
 /** Built-in `Async` effect runtime — concatenated onto `JsRuntime`.
  *  Lives in its own val because together with the rest of the runtime

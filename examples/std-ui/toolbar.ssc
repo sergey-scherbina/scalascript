@@ -1,0 +1,40 @@
+#!/usr/bin/env ssc
+---
+name: toolbar
+description: Horizontal action bar — flex container with left / right slots.
+---
+
+# Toolbar
+
+A flex container with `start` / `end` slots so primary actions stay
+left and secondary (filter / search / settings) stay right.  Wraps
+nicely on narrow screens.
+
+```scalascript
+object Toolbar:
+  private val sc = scope("Toolbar")
+  private val rootCls = sc.cls("root")
+  private val startCls = sc.cls("start")
+  private val endCls = sc.cls("end")
+
+  val css: String = sc.css("""
+    .root  { display: flex; align-items: center;
+             justify-content: space-between; gap: .75em;
+             padding: .65em 0; flex-wrap: wrap;
+             border-bottom: 1px solid #e5e7eb;
+             margin-bottom: 1em; }
+    .start { display: inline-flex; align-items: center;
+             gap: .5em; }
+    .end   { display: inline-flex; align-items: center;
+             gap: .5em; flex-wrap: wrap; }
+    .root > * { min-height: 2em; }
+  """)
+
+  /** `start` and `end` are raw HTML — drop Button / Dropdown /
+   *  Tooltip / SearchBox in either slot. */
+  def render(start: String, end: String): String =
+    html"""<div class="${rootCls}">
+      <div class="${startCls}">${raw(start)}</div>
+      <div class="${endCls}">${raw(end)}</div>
+    </div>"""
+```
