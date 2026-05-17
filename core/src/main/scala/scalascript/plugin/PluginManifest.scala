@@ -30,12 +30,15 @@ case class PluginManifest(
   def isBackend:        Boolean = roles.contains("backend")
   def isSourceLanguage: Boolean = roles.contains("source-language")
 
-  /** Absolute path to the plugin executable, honouring a relative
-   *  `executable` in the YAML by resolving against the manifest's
-   *  directory. */
+  /** Resolve the `executable` field.  If the YAML entry contains a
+   *  path separator (`./bin/foo`, `/usr/local/bin/foo`, `foo/bar`),
+   *  resolve it against the manifest's directory; otherwise treat it
+   *  as a bare command name and let `ProcessBuilder` find it on
+   *  `$PATH` (e.g. `executable: scala-cli`, `python3`, `bash`). */
   def executablePath: String =
-    val raw = os.Path(executable, manifestPath.map(_ / os.up).getOrElse(os.pwd))
-    raw.toString
+    if executable.contains('/') then
+      os.Path(executable, manifestPath.map(_ / os.up).getOrElse(os.pwd)).toString
+    else executable
 
 
 object PluginManifest:

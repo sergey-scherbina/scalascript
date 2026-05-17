@@ -653,7 +653,7 @@ Anything else that surfaces during execution: append here under a
 | 4     | 2 / 2           | **Stage 4 closed.** 4 Capabilities values declared (1 per backend module); CapabilityCheck.detect + validate; 9 new tests (6 detect + 3 validate).  Detection coarse (keyword scan on `Content.CodeBlock.source`) until Stage 5+ populates IrExpr nodes. |
 | 5     | 3 / 4           | **Stage 5 closed at 5.3.** 5.1 adapters + Denormalize; 5.2 BackendRegistry; 5.3 CLI registry dispatch (7 of ~12 commands). 5.4 (HTTP intrinsics extraction) deferred — see preamble; full scope is multi-stage post-Stage-5 work. |
 | 6     | 3 / 3           | **Stage 6 closed.** 6.1 wire protocol + SubprocessBackend; 6.2 plugin.yaml + registry discovery; 6.3 canned-backend smoke plugin + `docs/backend-spi-protocol.md`. |
-| 7     | 0 / 2           | Not started |
+| 7     | 2 / 2           | **Stage 7 closed.** GlobalFlags preprocessor (--plugin / --plugin-dir / --target / --backend / --list-backends / --describe-backend); BackendRegistry.addPluginJar via URLClassLoader; addPluginDir extends plugin.yaml search.  `--backend` lets `run`/`compile`/`emit-*` cross-dispatch. PluginManifest.executablePath now distinguishes PATH-resolvable commands (no slash) from relative paths. 6 new GlobalFlags tests. |
 | 8     | 0 / 2           | Not started |
 | 9     | 0 / 4           | Not started |
 | 10    | 0 / 1           | Not started |

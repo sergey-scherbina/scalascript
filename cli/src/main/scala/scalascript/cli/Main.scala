@@ -14,26 +14,104 @@ import scalascript.transform.Normalize
 import scalascript.plugin.BackendRegistry
 import scalascript.backend.spi.{BackendOptions, CompileResult, Segment}
 
-@main def ssc(args: String*): Unit =
-  if args.isEmpty then { printUsage(); System.exit(1) }
+@main def ssc(rawArgs: String*): Unit =
+  // Strip global plugin-management flags from anywhere in the
+  // argument list before dispatching to a command.  --plugin and
+  // --plugin-dir mutate BackendRegistry; --target / --backend are
+  // captured into thread-local state for command handlers.
+  val (globalFlags, args) = GlobalFlags.parse(rawArgs.toList)
+  globalFlags.applyToRegistry()
+
+  // Standalone meta-commands that don't dispatch to a command handler.
+  if globalFlags.listBackends then
+    println(BackendRegistry.describe)
+  else if globalFlags.describeBackend.isDefined then
+    val id = globalFlags.describeBackend.get
+    BackendRegistry.lookup(id) match
+      case Some(b) =>
+        println(s"id:          ${b.id}")
+        println(s"displayName: ${b.displayName}")
+        println(s"spiVersion:  ${b.spiVersion}")
+        println(s"acceptedSources: ${b.acceptedSources.mkString(", ")}")
+        println(s"capabilities.features: ${b.capabilities.features.toList.sortBy(_.toString).mkString(", ")}")
+        println(s"capabilities.outputs:  ${b.capabilities.outputs.toList.sortBy(_.toString).mkString(", ")}")
+        println(s"intrinsics:  ${b.intrinsics.size} registered")
+      case None =>
+        System.err.println(s"Unknown backend: $id")
+        System.exit(2)
+  else if args.isEmpty then
+    printUsage()
+    System.exit(1)
+  else dispatchCommand(args)
+
+private def dispatchCommand(args: List[String]): Unit =
   args.head match
-    case "parse"               => parseCommand(args.tail.toList)
-    case "check"               => checkCommand(args.tail.toList)
-    case "run"                 => runCommand(args.tail.toList)
-    case "watch"               => watchCommand(args.tail.toList)
-    case "repl"                => replCommand(args.tail.toList)
-    case "emit-js"             => emitJsCommand(args.tail.toList)
-    case "emit-spa"            => emitSpaCommand(args.tail.toList)
-    case "emit-scala"          => emitScalaCommand(args.tail.toList)
-    case "compile"             => compileCommand(args.tail.toList)
-    case "package"             => packageCommand(args.tail.toList)
-    case "serve"               => serveCommand(args.tail.toList)
-    case "render"              => renderCommand(args.tail.toList)
-    case "build"               => buildCommand(args.tail.toList)
-    case "bundle"              => bundleCommand(args.tail.toList)
+    case "parse"               => parseCommand(args.tail)
+    case "check"               => checkCommand(args.tail)
+    case "run"                 => runCommand(args.tail)
+    case "watch"               => watchCommand(args.tail)
+    case "repl"                => replCommand(args.tail)
+    case "emit-js"             => emitJsCommand(args.tail)
+    case "emit-spa"            => emitSpaCommand(args.tail)
+    case "emit-scala"          => emitScalaCommand(args.tail)
+    case "compile"             => compileCommand(args.tail)
+    case "package"             => packageCommand(args.tail)
+    case "serve"               => serveCommand(args.tail)
+    case "render"              => renderCommand(args.tail)
+    case "build"               => buildCommand(args.tail)
+    case "bundle"              => bundleCommand(args.tail)
     case "help" | "--help" | "-h" => printUsage()
     case "--list-backends"     => println(BackendRegistry.describe)
-    case _                     => runCommand(args.toList)
+    case _                     => runCommand(args)
+
+/** Global, non-command-specific CLI flags. */
+case class GlobalFlags(
+    pluginJars:        List[os.Path] = Nil,
+    pluginDirs:        List[os.Path] = Nil,
+    target:            Option[String] = None,
+    backend:           Option[String] = None,
+    listBackends:      Boolean        = false,
+    describeBackend:   Option[String] = None
+):
+  def applyToRegistry(): Unit =
+    pluginJars.foreach(BackendRegistry.addPluginJar)
+    pluginDirs.foreach(BackendRegistry.addPluginDir)
+
+object GlobalFlags:
+  /** Walk the arg list once, consuming any global flag we recognise
+   *  and leaving everything else for the command handler. */
+  def parse(args: List[String]): (GlobalFlags, List[String]) =
+    var flags = GlobalFlags()
+    val rest  = scala.collection.mutable.ListBuffer.empty[String]
+    var i     = 0
+    val arr   = args.toArray
+    while i < arr.length do
+      arr(i) match
+        case "--plugin" if i + 1 < arr.length =>
+          flags = flags.copy(pluginJars = flags.pluginJars :+ os.Path(arr(i + 1), os.pwd)); i += 2
+        case "--plugin-dir" if i + 1 < arr.length =>
+          flags = flags.copy(pluginDirs = flags.pluginDirs :+ os.Path(arr(i + 1), os.pwd)); i += 2
+        case "--target" if i + 1 < arr.length =>
+          flags = flags.copy(target = Some(arr(i + 1))); i += 2
+        case "--backend" if i + 1 < arr.length =>
+          flags = flags.copy(backend = Some(arr(i + 1))); i += 2
+        case "--list-backends" =>
+          flags = flags.copy(listBackends = true); i += 1
+        case "--describe-backend" if i + 1 < arr.length =>
+          flags = flags.copy(describeBackend = Some(arr(i + 1))); i += 2
+        case other =>
+          rest += other; i += 1
+    // Stash for handlers that consult the flag (via ActiveFlags).
+    ActiveFlags.set(flags)
+    (flags, rest.toList)
+
+/** Per-process snapshot of GlobalFlags so command handlers can read
+ *  e.g. `ActiveFlags.current.backend` without threading it through
+ *  every function. */
+object ActiveFlags:
+  @volatile private var snapshot: GlobalFlags = GlobalFlags()
+  def set(f: GlobalFlags): Unit = snapshot = f
+  def current: GlobalFlags      = snapshot
 
 // ─── Backend dispatch helpers (Stage 5.3) ─────────────────────────────
 
@@ -530,14 +608,18 @@ def parseCommand(args: List[String]): Unit =
 
 def runCommand(args: List[String]): Unit =
   if args.isEmpty then { println("Error: No files specified"); System.exit(1) }
+  val backendId = ActiveFlags.current.backend.getOrElse("int")
   for file <- args do
     val path = os.Path(file, os.pwd)
     if !os.exists(path) then { println(s"Error: File not found: $file"); System.exit(1) }
     else
       try
-        compileViaBackend("int", path) match
+        compileViaBackend(backendId, path) match
           case CompileResult.Executed(_, _, 0)    => ()
           case CompileResult.Executed(_, _, exit) => System.exit(exit)
+          case CompileResult.TextOutput(code, _, _) =>
+            // Non-interpreter backends produce text — print it to stdout.
+            println(code)
           case CompileResult.Failed(diags)        =>
             diags.foreach(d => System.err.println(s"[error] $d")); System.exit(1)
           case other =>

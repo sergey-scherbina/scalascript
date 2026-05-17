@@ -30,15 +30,42 @@ object BackendRegistry:
     pluginCache.clear()
     toShutdown.foreach { case p: SubprocessBackend => p.shutdown(); case _ => () }
     manifestCache = null
+    inProcessCache = null
+
+  // ── Extension points wired by CLI / tests ──────────────────────────
+
+  private val extraJarPaths      = scala.collection.mutable.ListBuffer.empty[os.Path]
+  private val extraPluginDirs    = scala.collection.mutable.ListBuffer.empty[os.Path]
+
+  /** Add an in-process plugin JAR — picked up on next ServiceLoader scan.
+   *  Per spec §12.1, the JAR runs in a `URLClassLoader` whose parent is
+   *  the SPI loader only so plugins can't see each other's deps. */
+  def addPluginJar(jar: os.Path): Unit =
+    extraJarPaths += jar
+    inProcessCache = null      // force re-scan of ServiceLoader
+
+  /** Add a plugin-discovery directory (peer of `~/.scalascript/plugins/`). */
+  def addPluginDir(dir: os.Path): Unit =
+    extraPluginDirs += dir
+    manifestCache = null
 
   // ── In-process backends (ServiceLoader) ─────────────────────────────
 
-  lazy val inProcess: List[Backend] =
-    ServiceLoader
-      .load(classOf[Backend])
-      .iterator
-      .asScala
-      .toList
+  private var inProcessCache: List[Backend] = null
+
+  def inProcess: List[Backend] =
+    if inProcessCache == null then
+      val loader =
+        if extraJarPaths.isEmpty then classOf[Backend].getClassLoader
+        else
+          val urls = extraJarPaths.map(_.toIO.toURI.toURL).toArray
+          new java.net.URLClassLoader(urls, classOf[Backend].getClassLoader)
+      inProcessCache = ServiceLoader
+        .load(classOf[Backend], loader)
+        .iterator
+        .asScala
+        .toList
+    inProcessCache
 
   // ── Out-of-process plugins (plugin.yaml) ────────────────────────────
 
@@ -49,7 +76,8 @@ object BackendRegistry:
    *  call; clear with `reload()`. */
   def manifests: List[PluginManifest] =
     if manifestCache == null then
-      manifestCache = PluginManifest.discover()
+      val paths = PluginManifest.defaultSearchPaths ++ extraPluginDirs.toList
+      manifestCache = PluginManifest.discover(paths)
     manifestCache
 
   /** Build (or retrieve cached) a SubprocessBackend for the manifest. */
