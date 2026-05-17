@@ -250,6 +250,13 @@ class JvmGen(baseDir: Option[os.Path] = None):
         "Storage.get", "Storage.put", "Storage.remove",
         "Storage.has", "Storage.keys"
       )
+    // v1.6 — built-in actor effect; pre-populate so emit treats
+    // `spawn`/`self`/`send`/`receive`/`exit` call sites as CPS-rewritten.
+    if blocksUseActors(blocks) then
+      effectOps ++= Set(
+        "Actor.spawn", "Actor.self", "Actor.send", "Actor.exit",
+        "Actor.receive", "Actor.receive_t"
+      )
 
     val funBodies = mutable.Map[String, Term]()
 
@@ -351,6 +358,20 @@ class JvmGen(baseDir: Option[os.Path] = None):
           case Term.Apply.After_4_6_0(Term.Name("Signal"),   _) => found = true
           case Term.Apply.After_4_6_0(Term.Name("computed"), _) => found = true
           case Term.Apply.After_4_6_0(Term.Name("effect"),   _) => found = true
+        }
+      }
+      found
+    }
+
+  /** True if any block references the v1.6 actor model — via
+   *  `runActors`, `spawn`, `self`, `exit`, or `receive`. */
+  private def blocksUseActors(blocks: List[JvmGen.Block]): Boolean =
+    val names = Set("runActors", "spawn", "self", "exit", "receive")
+    blocks.exists { b =>
+      var found = false
+      ScalaNode.fold(b.node) { tree =>
+        if !found then tree.collect {
+          case Term.Apply.After_4_6_0(Term.Name(n), _) if names(n) => found = true
         }
       }
       found
@@ -901,6 +922,47 @@ class JvmGen(baseDir: Option[os.Path] = None):
         if bodyArgClause.values.size == 1 =>
       s"_runStorage(() => ${emitCpsExpr(bodyArgClause.values.head.asInstanceOf[Term])}, null)"
 
+    // ── v1.6 Actors Phase 1 ────────────────────────────────────────────
+    case Term.Apply.After_4_6_0(Term.Name("runActors"), bodyArgClause)
+        if bodyArgClause.values.size == 1 =>
+      s"_runActors(() => ${emitCpsExpr(bodyArgClause.values.head.asInstanceOf[Term])})"
+
+    case Term.Apply.After_4_6_0(
+            Term.Apply.After_4_6_0(Term.Name("receive"), timeoutArgClause),
+            pfArgClause)
+        if pfArgClause.values.size == 1 && timeoutArgClause.values.size == 1 =>
+      val timeoutTerm = timeoutArgClause.values.head match
+        case Term.Assign(Term.Name("timeout"), v) => v
+        case other: Term                          => other
+      pfArgClause.values.head match
+        case pf: Term.PartialFunction =>
+          val matcher = emitReceiveMatcher(pf.cases)
+          s"Actor.receive_t(_registerReceive($matcher), ${emitExpr(timeoutTerm.asInstanceOf[Term])})"
+        case _ => "??? /* invalid receive */"
+
+    case Term.Apply.After_4_6_0(Term.Name("receive"), pfArgClause)
+        if pfArgClause.values.size == 1 =>
+      pfArgClause.values.head match
+        case pf: Term.PartialFunction =>
+          val matcher = emitReceiveMatcher(pf.cases)
+          s"Actor.receive_(_registerReceive($matcher))"
+        case _ => "??? /* invalid receive */"
+
+    case Term.Apply.After_4_6_0(Term.Name("spawn"), argClause)
+        if argClause.values.size == 1 =>
+      // emitCpsExpr on a `() => …` Function literal already emits
+      // `() => <cps-body>` — exactly the `() => Any` thunk `Actor.spawn`
+      // expects.  Wrapping in another `() =>` would double-thunk.
+      s"Actor.spawn(${emitCpsExpr(argClause.values.head.asInstanceOf[Term])})"
+    case Term.Apply.After_4_6_0(Term.Name("self"), argClause)
+        if argClause.values.isEmpty =>
+      "Actor.self()"
+    case Term.Apply.After_4_6_0(Term.Name("exit"), argClause)
+        if argClause.values.size == 2 =>
+      val pidJs    = emitExpr(argClause.values(0).asInstanceOf[Term])
+      val reasonJs = emitExpr(argClause.values(1).asInstanceOf[Term])
+      s"Actor.exit($pidJs, $reasonJs)"
+
     // Focus[T](_.a.b) / Focus(_.a.b) — lower to a Lens(get, set) literal.
     // The lambda body's field-access chain becomes nested get + nested copy.
     case app: Term.Apply if isFocusApp(app) =>
@@ -1136,10 +1198,37 @@ class JvmGen(baseDir: Option[os.Path] = None):
     case Term.ApplyInfix.After_4_6_0(lhs, op, _, argClause) =>
       val l = emitExpr(lhs)
       val r = argClause.values.map(emitExpr).mkString(", ")
-      s"$l ${op.value} $r"
+      // v1.6 actors: `pid ! msg` always lowers to Actor.send.
+      if op.value == "!" then s"Actor.send($l, $r)"
+      else s"$l ${op.value} $r"
     case Term.Select(qual, name) =>
       s"${emitExpr(qual)}.${name.value}"
     case other => other.syntax
+
+  /** Emit a Scala matcher closure for a `receive { case … }` block.
+   *  Type: `(msg: Any) => Option[Any]` — `Some(bodyComputation)` on
+   *  match, `None` on miss.  Case bodies are CPS-emitted so any nested
+   *  Actor / Async / handle effects compose into the actor's pending
+   *  Computation. */
+  private def emitReceiveMatcher(cases: List[Case]): String =
+    val sb = StringBuilder()
+    // Emit as `_pfToFun({ case pat => Some(...); case _ => None })`.
+    // `_pfToFun` is defined in the actor runtime and accepts a
+    // `PartialFunction[Any, Option[Any]]`, returning a total
+    // `Any => Option[Any]`.  This sidesteps Scala 3's
+    // `(x: Any) => x match {…}` postfix-`match` precedence trap and
+    // avoids needing in-line ascription that confuses the parser.
+    sb.append("_pfToFun { ")
+    cases.foreach { c =>
+      sb.append("case ")
+      sb.append(c.pat.syntax)
+      c.cond.foreach { g => sb.append(" if "); sb.append(g.syntax) }
+      sb.append(" => Some(")
+      sb.append(emitCpsExpr(c.body))
+      sb.append("); ")
+    }
+    sb.append("case _ => None }")
+    sb.toString
 
   /** Emit `handle(body) { cases }` as a `_handle(...)` call with CPS body. */
   private def emitHandleForm(body: Term, cases: List[Case]): String =
@@ -1308,6 +1397,47 @@ class JvmGen(baseDir: Option[os.Path] = None):
         if bodyArgClause.values.size == 1 =>
       s"_runStorage(() => ${emitCpsExpr(bodyArgClause.values.head.asInstanceOf[Term])}, null)"
 
+    // ── v1.6 Actors Phase 1 (inside CPS body) ──────────────────────────
+    case Term.Apply.After_4_6_0(Term.Name("runActors"), bodyArgClause)
+        if bodyArgClause.values.size == 1 =>
+      s"_runActors(() => ${emitCpsExpr(bodyArgClause.values.head.asInstanceOf[Term])})"
+
+    case Term.Apply.After_4_6_0(
+            Term.Apply.After_4_6_0(Term.Name("receive"), timeoutArgClause),
+            pfArgClause)
+        if pfArgClause.values.size == 1 && timeoutArgClause.values.size == 1 =>
+      val timeoutTerm = timeoutArgClause.values.head match
+        case Term.Assign(Term.Name("timeout"), v) => v
+        case other: Term                          => other
+      pfArgClause.values.head match
+        case pf: Term.PartialFunction =>
+          val matcher = emitReceiveMatcher(pf.cases)
+          s"Actor.receive_t(_registerReceive($matcher), ${emitExpr(timeoutTerm.asInstanceOf[Term])})"
+        case _ => "??? /* invalid receive */"
+
+    case Term.Apply.After_4_6_0(Term.Name("receive"), pfArgClause)
+        if pfArgClause.values.size == 1 =>
+      pfArgClause.values.head match
+        case pf: Term.PartialFunction =>
+          val matcher = emitReceiveMatcher(pf.cases)
+          s"Actor.receive_(_registerReceive($matcher))"
+        case _ => "??? /* invalid receive */"
+
+    case Term.Apply.After_4_6_0(Term.Name("spawn"), argClause)
+        if argClause.values.size == 1 =>
+      // emitCpsExpr on a `() => …` Function literal already emits
+      // `() => <cps-body>` — exactly the `() => Any` thunk `Actor.spawn`
+      // expects.  Wrapping in another `() =>` would double-thunk.
+      s"Actor.spawn(${emitCpsExpr(argClause.values.head.asInstanceOf[Term])})"
+    case Term.Apply.After_4_6_0(Term.Name("self"), argClause)
+        if argClause.values.isEmpty =>
+      "Actor.self()"
+    case Term.Apply.After_4_6_0(Term.Name("exit"), argClause)
+        if argClause.values.size == 2 =>
+      val pidJs    = emitExpr(argClause.values(0).asInstanceOf[Term])
+      val reasonJs = emitExpr(argClause.values(1).asInstanceOf[Term])
+      s"Actor.exit($pidJs, $reasonJs)"
+
     case app: Term.Apply => emitCpsApply(app)
 
     case Term.ApplyInfix.After_4_6_0(lhs, op, _, argClause) =>
@@ -1315,6 +1445,7 @@ class JvmGen(baseDir: Option[os.Path] = None):
       bindArgsCps(List(lhs, rhs)) { case List(vl, vr) =>
         op.value match
           case "==" | "!="    => s"($vl ${op.value} $vr)"
+          case "!"            => s"Actor.send($vl, $vr)"
           case "&&" | "||"    => s"(${vl}.asInstanceOf[Boolean] ${op.value} ${vr}.asInstanceOf[Boolean])"
           // Arithmetic / comparison operators: operands are Any in CPS context,
           // so delegate to a runtime helper that pattern-matches on the actual
@@ -3912,6 +4043,183 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |        case v => return v
        |    throw new RuntimeException("unreachable")
        |  interp(bodyThunk())
+       |
+       |// ── v1.6 Actors — Phase 1 cooperative scheduler ────────────────────────
+       |//
+       |// Same Computation / Free-Monad walk as `_runAsync` but the outer
+       |// loop interleaves multiple actors.  Mailboxes are `ArrayDeque`s;
+       |// blocked-on-receive state lives on each actor along with the
+       |// captured continuation.  Quiescence with timeout-armed receives
+       |// sleeps until the earliest deadline and resumes that actor with
+       |// `None`.  Single-threaded for parity with the interpreter and
+       |// JsGen — a Loom variant can swap the scheduler later without
+       |// changing the API surface.
+       |
+       |case class _Pid(id: Long)
+       |
+       |/** Adapter: a partial-function literal becomes a total
+       | *  `Any => Option[Any]`.  Used by emitReceiveMatcher so the
+       | *  generated source doesn't fight Scala 3's `(x) => x match`
+       | *  postfix-match precedence trap. */
+       |def _pfToFun(pf: PartialFunction[Any, Option[Any]]): Any => Option[Any] =
+       |  (msg: Any) => pf.applyOrElse(msg, (_: Any) => None)
+       |
+       |val _receiveSpecs =
+       |  new java.util.concurrent.ConcurrentHashMap[Long, Any => Option[Any]]()
+       |val _receiveSpecSeq = new java.util.concurrent.atomic.AtomicLong(0L)
+       |def _registerReceive(matcher: Any => Option[Any]): Long =
+       |  val id = _receiveSpecSeq.incrementAndGet()
+       |  _receiveSpecs.put(id, matcher)
+       |  id
+       |
+       |object Actor:
+       |  def spawn(thunk: () => Any): Any         = _perform("Actor", "spawn", thunk)
+       |  def self(): Any                          = _perform("Actor", "self")
+       |  def send(pid: Any, msg: Any): Any        = _perform("Actor", "send", pid, msg)
+       |  def exit(pid: Any, reason: Any): Any     = _perform("Actor", "exit", pid, reason)
+       |  def receive_(specId: Long): Any          = _perform("Actor", "receive",   specId)
+       |  def receive_t(specId: Long, ms: Any): Any = _perform("Actor", "receive_t", specId, ms)
+       |
+       |class _ActorState:
+       |  val mailbox = scala.collection.mutable.ArrayDeque.empty[Any]
+       |  var pending: Any = null
+       |  // (matcher, k, deadline?, wrapSome)
+       |  var blocked: (Any => Option[Any], Any => Any, Option[Long], Boolean) = null
+       |
+       |def _runActors(bodyThunk: () => Any): Any =
+       |  val actors = scala.collection.mutable.LongMap.empty[_ActorState]
+       |  val ready  = scala.collection.mutable.ArrayDeque.empty[Long]
+       |  var nextId: Long = 0L
+       |  var rootResult: Any = ()
+       |
+       |  def spawnActor(thunk: () => Any): Long =
+       |    val id = nextId
+       |    nextId += 1
+       |    val st = new _ActorState
+       |    st.pending = thunk()
+       |    actors.put(id, st)
+       |    ready.append(id)
+       |    id
+       |
+       |  val rootId = spawnActor(bodyThunk)
+       |
+       |  def tryDeliver(state: _ActorState, matcher: Any => Option[Any], wrapSome: Boolean): Option[Any] =
+       |    while state.mailbox.nonEmpty do
+       |      val msg = state.mailbox.head
+       |      matcher(msg) match
+       |        case Some(bodyC) =>
+       |          state.mailbox.removeHead()
+       |          if wrapSome then
+       |            return Some(_FlatMap(bodyC, (v: Any) => Some(v)))
+       |          else
+       |            return Some(bodyC)
+       |        case None =>
+       |          state.mailbox.removeHead()
+       |    None
+       |
+       |  def handleActorOp(id: Long, state: _ActorState, op: String, args: List[Any], k: Any => Any): Either[Unit, Any] = op match
+       |    case "spawn" =>
+       |      val thunk = args(0).asInstanceOf[() => Any]
+       |      val childId = spawnActor(thunk)
+       |      Right(k(_Pid(childId)))
+       |    case "self" => Right(k(_Pid(id)))
+       |    case "send" =>
+       |      args(0) match
+       |        case _Pid(targetId) =>
+       |          actors.get(targetId).foreach { ts =>
+       |            ts.mailbox.append(args(1))
+       |            if ts.blocked != null then
+       |              val b = ts.blocked
+       |              tryDeliver(ts, b._1, b._4) match
+       |                case Some(c) =>
+       |                  ts.pending = _FlatMap(c, b._2)
+       |                  ts.blocked = null
+       |                  ready.append(targetId)
+       |                case None => ()
+       |          }
+       |        case _ => ()
+       |      Right(k(()))
+       |    case "exit" =>
+       |      args(0) match
+       |        case _Pid(targetId) if actors.contains(targetId) =>
+       |          println(s"[exit] actor=$targetId reason=${args(1)}")
+       |          actors.remove(targetId)
+       |        case _ => ()
+       |      Right(k(()))
+       |    case "receive" =>
+       |      val matcher = _receiveSpecs.get(args(0).asInstanceOf[Long])
+       |      tryDeliver(state, matcher, false) match
+       |        case Some(c) => Right(_FlatMap(c, k))
+       |        case None =>
+       |          state.blocked = (matcher, k, None, false)
+       |          Left(())
+       |    case "receive_t" =>
+       |      val matcher = _receiveSpecs.get(args(0).asInstanceOf[Long])
+       |      val ms = args(1) match
+       |        case n: Int  => n.toLong
+       |        case n: Long => n
+       |        case _       => 0L
+       |      tryDeliver(state, matcher, true) match
+       |        case Some(c) => Right(_FlatMap(c, k))
+       |        case None =>
+       |          state.blocked = (matcher, k, Some(System.currentTimeMillis() + ms), true)
+       |          Left(())
+       |    case other => sys.error("Unknown Actor op: " + other)
+       |
+       |  def stepActor(id: Long, initial: Any): Unit =
+       |    var current: Any = initial
+       |    while true do
+       |      current match
+       |        case _Perform("Actor", op, args) =>
+       |          handleActorOp(id, actors(id), op, args, (v: Any) => v) match
+       |            case Right(next) => current = next
+       |            case Left(_)     => return
+       |        case _Perform(eff, op, _) =>
+       |          throw new RuntimeException("Unhandled effect inside actor: " + eff + "." + op)
+       |        case _FlatMap(sub, f) => sub match
+       |          case _Perform("Actor", op, args) =>
+       |            handleActorOp(id, actors(id), op, args, f.asInstanceOf[Any => Any]) match
+       |              case Right(next) => current = next
+       |              case Left(_)     => return
+       |          case _Perform(eff, op, _) =>
+       |            throw new RuntimeException("Unhandled effect inside actor: " + eff + "." + op)
+       |          case _FlatMap(s2, g) =>
+       |            current = _FlatMap(s2,
+       |              (x: Any) => _FlatMap(g.asInstanceOf[Any => Any](x), f))
+       |          case v =>
+       |            current = f.asInstanceOf[Any => Any](v)
+       |        case v =>
+       |          if id == rootId then rootResult = v
+       |          actors.remove(id)
+       |          return
+       |
+       |  while ready.nonEmpty ||
+       |        actors.exists { (_, st) => st != null && st.blocked != null && st.blocked._3.isDefined }
+       |  do
+       |    if ready.isEmpty then
+       |      val earliest = actors.iterator.collect {
+       |        case (aid, st) if st != null && st.blocked != null && st.blocked._3.isDefined =>
+       |          (aid, st.blocked._3.get)
+       |      }.toList.minByOption(_._2)
+       |      earliest.foreach { (aid, deadline) =>
+       |        val sleepFor = deadline - System.currentTimeMillis()
+       |        if sleepFor > 0 then Thread.sleep(sleepFor)
+       |        val st = actors(aid)
+       |        val (_, k, _, _) = st.blocked
+       |        st.pending = k(None)
+       |        st.blocked = null
+       |        ready.append(aid)
+       |      }
+       |    else
+       |      val id = ready.removeHead()
+       |      actors.get(id).foreach { st =>
+       |        if st.pending != null then
+       |          val initial = st.pending
+       |          st.pending = null
+       |          stepActor(id, initial)
+       |      }
+       |
+       |  rootResult
        |
        |""".stripMargin
 
