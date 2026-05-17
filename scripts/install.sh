@@ -12,7 +12,7 @@ BIN_DIR="$(cd "$(dirname "$DEST")" 2>/dev/null && pwd || echo "$(dirname "$DEST"
 mkdir -p "$BIN_DIR"
 
 echo "Building standalone ssc binary..."
-scala-cli --power package "$COMPILER" --standalone --output "$DEST" -f
+scala-cli --power package "$COMPILER" --standalone --output "$DEST" -f --main-class scalascript.cli.ssc
 chmod +x "$DEST"
 echo "Installed: $DEST"
 echo "Test: $DEST examples/hello.ssc"
