@@ -1956,7 +1956,8 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |  session:     Map[String, String]         = Map.empty,
        |  bearerToken: Option[String]              = None,
        |  jwtClaims:   Option[Map[String, String]] = None,
-       |  basicAuth:   Option[(String, String)]    = None
+       |  basicAuth:   Option[(String, String)]    = None,
+       |  cookies:     Map[String, String]         = Map.empty
        |)
        |
        |case class Response(
@@ -2657,6 +2658,16 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |          case (k, v) if k.equalsIgnoreCase("Cookie") => v
        |        }.getOrElse("")
        |        val rawCookieSession = _parseCookieSession(cookieHeader)
+       |        // Generic cookie map for handler convenience (parallels
+       |        // the WS-side `ws.request.cookies`).  Separate from the
+       |        // signed `session` map above.
+       |        val cookies: Map[String, String] =
+       |          if cookieHeader.isEmpty then Map.empty
+       |          else cookieHeader.split(';').iterator.flatMap { pair =>
+       |            val t = pair.trim
+       |            val i = t.indexOf('=')
+       |            if i < 0 then None else Some(t.substring(0, i).trim -> t.substring(i + 1).trim)
+       |          }.toMap
        |        val session =
        |          if _sessionStoreEnabled then
        |            rawCookieSession.get("_ssid").flatMap(_sessionStoreGet).getOrElse(Map.empty)
@@ -2669,7 +2680,7 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |        val basicAuth = _basicFromAuth(authHeader)
        |        val req  = Request(method, path, params,
        |          _parseQuery(ex.getRequestURI.getRawQuery), headers, body,
-       |          form, files, session, bearer, claims, basicAuth)
+       |          form, files, session, bearer, claims, basicAuth, cookies)
        |        _writeResponse(ex, r.handler(req), rawCookieSession)
        |      case None =>
        |        // Fall through to a static file under the current directory
@@ -3286,13 +3297,22 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |        // with no body) so WS-side auth can read cookies /
        |        // Authorization / Origin from `ws.request.headers`.
        |        val rawQ  = request.split(' ').lift(1).getOrElse("/").split('?').lift(1).getOrElse("")
+       |        // Cookie header: `name=value; name=value; …` → Map.
+       |        val wsCookies: Map[String, String] = headers.get("cookie") match
+       |          case None => Map.empty
+       |          case Some(raw) => raw.split(';').iterator.flatMap { pair =>
+       |            val t = pair.trim
+       |            val i = t.indexOf('=')
+       |            if i < 0 then None else Some(t.substring(0, i).trim -> t.substring(i + 1).trim)
+       |          }.toMap
        |        val wsReq = Request(
        |          method  = "GET",
        |          path    = path,
        |          params  = params,
        |          query   = _parseQuery(rawQ),
        |          headers = headers,
-       |          body    = ""
+       |          body    = "",
+       |          cookies = wsCookies
        |        )
        |        val ws = WebSocket(client, wsReq)
        |        // Run the user's `onWebSocket` block on the shared single-

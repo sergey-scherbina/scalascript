@@ -1434,13 +1434,22 @@ function _wsHandleUpgrade(req, socket) {
         reqHeaders.set(k, Array.isArray(v) ? (v[0] ?? '') : String(v ?? ''));
       const reqQuery = new Map();
       u.searchParams.forEach((v, k) => reqQuery.set(k, v));
+      // Cookie header: `name=value; name=value; …` → Map.
+      const reqCookies = new Map();
+      const cookieRaw = reqHeaders.get('cookie') ?? '';
+      for (const pair of cookieRaw.split(';')) {
+        const t = pair.trim();
+        const i = t.indexOf('=');
+        if (i > 0) reqCookies.set(t.substring(0, i).trim(), t.substring(i + 1).trim());
+      }
       const request = {
         _type:  'Request',
         method: 'GET',
         path:   u.pathname,
         params,
         query:   reqQuery,
-        headers: reqHeaders
+        headers: reqHeaders,
+        cookies: reqCookies
       };
       const ws = _wsMakeWebSocket(socket, request);
       try { r.handler(ws); } catch (e) { console.error('WS upgrade handler:', e.message); }

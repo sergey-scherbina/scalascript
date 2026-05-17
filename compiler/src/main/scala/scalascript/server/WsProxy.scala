@@ -321,12 +321,25 @@ final class WsProxy(
         // upgrade) and session/JWT (no eager pre-parsing here — the
         // handler can derive them from the raw headers if it wants to).
         val query = parseQueryString(rawQuery)
+        // Cookie header: `name1=value1; name2=value2; …` → Map.
+        // Same convention REST handlers use.
+        val cookies: Map[String, String] =
+          headers.get("cookie") match
+            case None => Map.empty
+            case Some(raw) =>
+              raw.split(';').iterator.flatMap { pair =>
+                val t = pair.trim
+                val i = t.indexOf('=')
+                if i < 0 then None
+                else Some(t.substring(0, i).trim -> t.substring(i + 1).trim)
+              }.toMap
         val request = Value.InstanceV("Request", Map(
           "method"  -> Value.StringV("GET"),
           "path"    -> Value.StringV(path),
           "params"  -> Value.MapV(params.map((k, v) => Value.StringV(k) -> Value.StringV(v))),
           "query"   -> Value.MapV(query.map((k, v)  => Value.StringV(k) -> Value.StringV(v))),
-          "headers" -> Value.MapV(headers.map((k, v) => Value.StringV(k) -> Value.StringV(v)))
+          "headers" -> Value.MapV(headers.map((k, v) => Value.StringV(k) -> Value.StringV(v))),
+          "cookies" -> Value.MapV(cookies.map((k, v) => Value.StringV(k) -> Value.StringV(v)))
         ))
         // Transition: build the WsConnection and feed any post-handshake
         // bytes already in the buffer through its parser.

@@ -136,6 +136,16 @@ object WebServer:
     val rawCookieSession =
       if cookieHeader.isEmpty then Map.empty[String, String]
       else SessionCookie.fromHeader(cookieHeader).getOrElse(Map.empty)
+    // Generic cookie map for handler convenience (parallels the
+    // WS-side `ws.request.cookies`).  Separate from the signed
+    // `session` map above.
+    val cookies: Map[String, String] =
+      if cookieHeader.isEmpty then Map.empty
+      else cookieHeader.split(';').iterator.flatMap { pair =>
+        val t = pair.trim
+        val i = t.indexOf('=')
+        if i < 0 then None else Some(t.substring(0, i).trim -> t.substring(i + 1).trim)
+      }.toMap
     // In store mode the cookie payload is just `{"_ssid": "..."}`; we
     // dereference the SSID against the in-memory store and surface the
     // full payload to the handler.  In stateless mode the cookie *is*
@@ -170,6 +180,7 @@ object WebServer:
       "form"    -> Value.MapV(form.map((k, v) => Value.StringV(k) -> Value.StringV(v))),
       "files"   -> Value.MapV(files.map((k, v) => Value.StringV(k) -> v)),
       "session" -> Value.MapV(session.map((k, v) => Value.StringV(k) -> Value.StringV(v))),
+      "cookies" -> Value.MapV(cookies.map((k, v) => Value.StringV(k) -> Value.StringV(v))),
       "bearerToken" -> bearer.map(t => Value.OptionV(Some(Value.StringV(t))))
         .getOrElse(Value.OptionV(None)),
       "jwtClaims"   -> claims.map(c =>

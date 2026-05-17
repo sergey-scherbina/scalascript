@@ -13,14 +13,6 @@ but still has known production gaps.  Listed in order of "stops
 real problems" → "feature gaps" → "nice to have"; each sprint is a
 session-sized chunk.
 
-### Sprint 3 — API completeness
-
-Common asks from real apps that aren't covered today.
-
-12. **`ws.request.cookies: Map[String, String]`.**  Parse `Cookie:`
-    header into a map at upgrade time, parallel to what REST
-    handlers already see.  ~20 LOC × 3.
-
 ### Sprint 4 — observability
 
 13. **Structured connect/disconnect/error logs** — client IP, route,
