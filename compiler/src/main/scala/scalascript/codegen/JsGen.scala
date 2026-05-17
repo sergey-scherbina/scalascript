@@ -3118,11 +3118,15 @@ class JsGen(baseDir: Option[os.Path] = None):
       d.paramClauseGroup.foreach { pcg =>
         pcg.paramClauses.headOption.flatMap(_.values.headOption).foreach { recvParam =>
           val recvName = recvParam.name.value
+          val recvType = recvParam.decltpe match
+            case Some(Type.Name(n))   => n
+            case Some(ta: Type.Apply) => ta.tpe match { case Type.Name(n) => n; case _ => "Any" }
+            case _                    => "Any"
           d.body match
             case defn: Defn.Def =>
-              genExtensionDef(recvName, defn)
+              genExtensionDef(recvName, recvType, defn)
             case Term.Block(stats) =>
-              stats.foreach { case defn: Defn.Def => genExtensionDef(recvName, defn); case _ => () }
+              stats.foreach { case defn: Defn.Def => genExtensionDef(recvName, recvType, defn); case _ => () }
             case _ => ()
         }
       }
@@ -3138,10 +3142,13 @@ class JsGen(baseDir: Option[os.Path] = None):
     case _: Export => () // ignored
     case _ => () // type aliases etc.
 
-  private def genExtensionDef(recvName: String, defn: Defn.Def): Unit =
+  private def genExtensionDef(recvName: String, recvType: String, defn: Defn.Def): Unit =
     val mparamVals = defn.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values)
     val paramsStr  = (recvName :: mparamVals.map(formalWithDefault)).mkString(", ")
-    val fnName = s"_ext_${recvName}_${defn.name.value}"
+    // Encode receiver TYPE into the function name so that the same extension
+    // method on different types (e.g., Functor[List].ap and Functor[Option].ap)
+    // does not collide and silently overwrite each other.
+    val fnName = s"_ext_${recvType}_${defn.name.value}"
     defn.body match
       case Term.Block(bodyStats) =>
         line(s"function $fnName($paramsStr) {")

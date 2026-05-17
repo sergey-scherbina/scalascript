@@ -1,0 +1,90 @@
+---
+name: std-functor-applicative-monad
+version: 1.0.0
+description: Functor, Applicative, Monad typeclasses — std v1.1 step 2
+exports:
+  - listMonad
+  - optionMonad
+  - pureList
+  - pureOption
+  - map2List
+  - map2Option
+  - sequenceList
+  - sequenceOption
+---
+
+# Functor, Applicative, Monad
+
+The core of the v1.1 functor / effect lane:
+
+```text
+Functor → Applicative → Monad
+```
+
+Each is a higher-kinded typeclass that abstracts over a one-place
+type constructor `F[_]`. Instances ship for `List` and `Option` —
+the two structures every script touches. Either-style fixed-error
+monads and the `Function1` reader belong in a later step (they need
+partial-application of two-place type constructors).
+
+## Typeclass definitions
+
+```scalascript
+trait Functor[F[_]]:
+  extension [A](fa: F[A]) def map[B](f: A => B): F[B]
+
+trait Applicative[F[_]] extends Functor[F]:
+  def pure[A](a: A): F[A]
+  extension [A](fa: F[A]) def ap[B](ff: F[A => B]): F[B]
+
+trait Monad[F[_]] extends Applicative[F]:
+  extension [A](fa: F[A]) def flatMap[B](f: A => F[B]): F[B]
+```
+
+## Instances
+
+```scalascript
+given listMonad: Monad[List] with
+  def pure[A](a: A): List[A] = List(a)
+  extension [A](fa: List[A])
+    def map[B](f: A => B): List[B] = fa.map(f)
+    def ap[B](ff: List[A => B]): List[B] =
+      for { g <- ff; x <- fa } yield g(x)
+    def flatMap[B](f: A => List[B]): List[B] = fa.flatMap(f)
+
+given optionMonad: Monad[Option] with
+  def pure[A](a: A): Option[A] = Some(a)
+  extension [A](fa: Option[A])
+    def map[B](f: A => B): Option[B] = fa.map(f)
+    def ap[B](ff: Option[A => B]): Option[B] = ff match
+      case Some(g) => fa.map(g)
+      case None    => None
+    def flatMap[B](f: A => Option[B]): Option[B] = fa.flatMap(f)
+```
+
+## Helpers
+
+ScalaScript does not auto-resolve `using` clauses, so the std prelude
+exposes monomorphic shortcuts per instance. These let callers avoid
+spelling out `listMonad.pure(x)` every time.
+
+```scalascript
+def pureList[A](a: A): List[A]     = listMonad.pure(a)
+def pureOption[A](a: A): Option[A] = optionMonad.pure(a)
+
+def map2List[A, B, C](fa: List[A], fb: List[B], f: (A, B) => C): List[C] =
+  for { a <- fa; b <- fb } yield f(a, b)
+
+def map2Option[A, B, C](fa: Option[A], fb: Option[B], f: (A, B) => C): Option[C] =
+  fa.flatMap(a => fb.map(b => f(a, b)))
+
+def sequenceList[A](xs: List[Option[A]]): Option[List[A]] =
+  val seed: Option[List[A]] = Some(List())
+  xs.foldRight(seed) { (oa, acc) =>
+    map2Option(oa, acc, (a: A, as: List[A]) => a :: as)
+  }
+
+def sequenceOption[A](xs: Option[List[A]]): List[Option[A]] = xs match
+  case Some(as) => as.map(a => Some(a))
+  case None     => List(None)
+```
