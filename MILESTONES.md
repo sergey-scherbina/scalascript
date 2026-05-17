@@ -812,49 +812,36 @@ or any pair across the three backends.
 Builds on v1.3 (Async-integrated WS).  Each phase ships
 independently and is useful in isolation.
 
-### Phase 1 — Local actors (~1 week)
+### Phase 1 — Local actors — **landed**
 
-Core process model.  No supervision, no distribution — just spawn,
-send, receive on one node.
+Shipped: `spawn`, `self()`, `pid ! msg`, `receive { case … }`,
+`receive(timeout = N) { case … }` (returns `Option`), `exit(pid,
+reason)`.  All three backends (interpreter, JsGen, JvmGen) share the
+same observable semantics over the existing Computation / Free
+Monad trampoline.  Cross-backend e2e in
+`e2e/actors-pingpong-smoke.sh`.
 
-  - **`spawn(behavior): Pid`** — creates an actor; behavior is
-    `Behavior[M]` (a function `M => Behavior[M]` returning `Same`,
-    `Stopped`, or `Become(next)`).  Returns an opaque `Pid`.
-  - **`spawn_link(behavior): Pid`** — atomic spawn-and-link so
-    there's no race window where the child dies before the parent
-    calls `link`.
-  - **`pid ! msg`** — fire-and-forget send; never blocks, never
-    fails (send to dead PID is a no-op, Erlang semantics).
-  - **`receive { case … }`** — FIFO head-only pattern match.  Did
-    not match → message goes to dead letters (logged).  Selective
-    receive (scanning the mailbox) is **explicitly out of scope**;
-    state-machine behaviour is expressed through `Become(next)`,
-    which switches the pattern set for the next receive.
-  - **`receive (timeout = 1000) { case … }`** — `None` on timeout;
-    otherwise the matched value.
-  - **`self: Pid`** — current actor's PID.
-  - **`call(pid, msg, timeout = 5000): Reply`** — request/reply
-    helper (the `gen_server:call/2` pattern), wired through a
-    one-shot internal mailbox so user code doesn't reimplement it
-    every time.
-  - **`exit(pid, reason)`** — kill another process by PID; needed
-    by supervisors and for clean shutdown.
+Carry-over follow-ups (Phase 1.x — not blocking the next Phase):
 
-  Mailboxes per backend:
-    - **JVM (Loom):** virtual thread per actor + `LinkedBlockingQueue`.
-      `receive` is a blocking `take()` — Loom parks cheaply.
-    - **Interpreter (NIO):** continuation per actor on the existing
-      event loop + `ArrayDeque`.  `receive` is a suspension point in
-      the `Async` effect.
-    - **JS:** microtask-scheduled coroutine + array mailbox.  Same
-      suspension semantics through `Async`.
-
-  New `Actor` effect, parallel to `Async`; internally uses Async's
-  suspension machinery on each backend.
-
-  Conformance: ping-pong; state machine via `Become`; timeout
-  receive; dead letter on unmatched; `Stopped` exit; `exit(other,
-  …)` from outside.
+  - **`spawn_link(behavior): Pid`** — atomic spawn-and-link.  Needs
+    Phase 2's link machinery.
+  - **`call(pid, msg, timeout = N)`** — `gen_server:call/2`
+    request/reply sugar.  Trivially user-implementable as
+    `pid ! (self, ref, msg); receive { case (`ref`, reply) => … }`,
+    so deferred until the boilerplate hurts.
+  - **`Become(next)` / `Stopped` return values** — the spec's
+    explicit "state-machine via Become" pattern wasn't shipped;
+    instead actors loop via recursion, exit by returning from the
+    spawn body.  Equivalent expressive power, idiomatic in Scala.
+    Promote to `Become` if a recursive style turns out unwieldy.
+  - **Case-class messages in CPS** — `case class Ping(from: Pid,
+    msg: String); pong ! Ping(self, "hi")` works on INT + JS but
+    JvmGen hits a pre-existing CPS limitation: `Ping(_t: Any)`
+    fails type-check because the case-class constructor expects
+    typed params.  Same limitation affects async/handle bodies on
+    JVM regardless of v1.6.  Fix is a separate JvmGen pass:
+    erase / cast Any-typed temps when feeding them to apply sites
+    whose signature is more specific.  ~150 LOC.
 
 ### Phase 2 — Supervision (~3-4 days)
 
