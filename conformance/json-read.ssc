@@ -1,0 +1,71 @@
+---
+name: conformance-json-read
+version: 1.0.0
+---
+
+# JSON read side
+
+Exercises `jsonParse(s: String)` and `jsonStringify(v)` across all
+three backends.  Mirrors `Response.json(v)`'s write-side serialiser
+(which has been there since v0.6) so values round-trip cleanly.
+
+Nested field access on `jsonParse(...)` results (`obj("name")`)
+needs a typed accessor / lookup helper that crosses the JVM static
+type system; tracked as a follow-up to Tier 5 #17.  This test
+verifies the read primitives without crossing that boundary.
+
+## Primitives
+
+```scalascript
+println(jsonParse("42"))
+println(jsonParse("3.14"))
+println(jsonParse("true"))
+println(jsonParse("false"))
+println(jsonParse("null"))
+println(jsonParse("\"hello\""))
+println(jsonParse("-7"))
+println(jsonParse("0.0"))
+```
+
+## Collections — display
+
+```scalascript
+println(jsonParse("[1, 2, 3]"))
+println(jsonParse("[]"))
+println(jsonParse("[\"a\", \"b\"]"))
+println(jsonParse("[[1, 2], [3, 4]]"))
+```
+
+## Escapes and unicode
+
+```scalascript
+println(jsonParse("\"line1\\nline2\""))
+println(jsonParse("\"tab\\there\""))
+println(jsonParse("\"a\\u0041b\""))
+```
+
+## stringify — primitives and collections
+
+```scalascript
+println(jsonStringify(42))
+println(jsonStringify("hello"))
+println(jsonStringify(true))
+println(jsonStringify(false))
+println(jsonStringify(List(1, 2, 3)))
+println(jsonStringify(List[Int]()))
+println(jsonStringify(Map("a" -> 1)))
+```
+
+## Round-trip — stringify(parse(s)) for canonical-form inputs
+
+For inputs already in a canonical, key-ordered form, parsing and
+re-stringifying must produce the same string on every backend.
+
+```scalascript
+println(jsonStringify(jsonParse("42")))
+println(jsonStringify(jsonParse("\"hello\"")))
+println(jsonStringify(jsonParse("true")))
+println(jsonStringify(jsonParse("[1,2,3]")))
+println(jsonStringify(jsonParse("[\"a\",\"b\",\"c\"]")))
+println(jsonStringify(jsonParse("{\"k\":42}")))
+```

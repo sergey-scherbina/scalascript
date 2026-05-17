@@ -97,6 +97,30 @@ class Interpreter(
   private val litCache: java.util.IdentityHashMap[Lit, Computation] =
     java.util.IdentityHashMap()
 
+  // ── v1.6 Actors — Phase 1 runtime state ─────────────────────────
+  // Each `runActors { ... }` installs a fresh ActorRuntime for its
+  // duration so nested invocations don't share state.
+  private class ActorRuntime:
+    val mailboxes = mutable.LongMap.empty[mutable.Queue[Value]]
+    // (cases, env, continuation, optional wall-clock deadline, wrap-in-some?)
+    // `wrapSome` is true for timeout-receive: matched body's value is wrapped
+    // in Some(...) before being fed to the continuation so a single `receive`
+    // expression yields Option[A].
+    val blocked = mutable.LongMap.empty[
+      (List[Case], Env, Value => Computation, Option[Long], Boolean)
+    ]
+    // Computation to run next when this actor is dispatched
+    val pending = mutable.LongMap.empty[Computation]
+    val ready   = mutable.Queue.empty[Long]
+    var nextId  = 0L
+    var currentId = -1L
+  private var actorRt: ActorRuntime = null
+  // Receive-spec boxing: we can't squeeze AST cases into `Value`, so
+  // `receive { case … }` stashes (cases, env) in a side map and the
+  // Perform's args carry just the opaque integer token.
+  private val receiveSpecs    = mutable.LongMap.empty[(List[Case], Env)]
+  private var receiveSpecNext = 0L
+
   /** Cache of `closure.updated(name, f)` per FunV — the self-ref binding
    *  is identical on every invocation of the same closure, so we save
    *  one HashMap.updated allocation per call. */
@@ -552,6 +576,17 @@ class Interpreter(
         case Value.InstanceV(_, fields) =>
           fields.map((k, v) => quote(k) + ":" + toJson(v)).mkString("{", ",", "}")
         case other                    => quote(Value.show(other))
+
+    nativeP("jsonStringify") {
+      case List(v) => Value.StringV(toJson(v))
+      case _       => throw InterpretError("jsonStringify(v)")
+    }
+    nativeP("jsonParse") {
+      case List(Value.StringV(s)) =>
+        try JsonParser.parse(s)
+        catch case e: JsonParser.ParseError => throw InterpretError(e.getMessage)
+      case _ => throw InterpretError("jsonParse(s: String)")
+    }
 
     nativeP("Response.html") {
       case List(v) =>
@@ -1100,6 +1135,34 @@ class Interpreter(
       case _       => throw InterpretError("Future(value)")
     })
 
+    // ── v1.6 Actors — Phase 1 natives (spawn / self / send) ────────────
+    //
+    // `runActors { … }` is the handler — it spawns the body as a root
+    // actor and drives a cooperative scheduler until all actors are
+    // either complete or deadlocked.
+    //
+    //   spawn(() => { … })   — new actor; returns Pid
+    //   self                 — current actor's Pid
+    //   pid ! msg            — fire-and-forget send (handled in `infix`)
+    //   receive { case … }   — special form; AST-level case extraction
+    //                          so the driver can dispatch matches itself
+    globals("spawn") = Value.NativeFnV("spawn", {
+      case List(thunk) => Perform("Actor", "spawn", List(thunk))
+      case _           => throw InterpretError("spawn(behavior: () => Unit)")
+    })
+    globals("self") = Value.NativeFnV("self", {
+      case Nil => Perform("Actor", "self", Nil)
+      case _   => throw InterpretError("self takes no arguments")
+    })
+    // `exit(pid, reason)` — terminate target actor.  For Phase 1 the
+    // reason is logged but otherwise unused (links / monitors land
+    // in Phase 2).  No-op on unknown PID, Erlang semantics.
+    globals("exit") = Value.NativeFnV("exit", {
+      case List(pid @ Value.InstanceV("Pid", _), reason) =>
+        Perform("Actor", "exit", List(pid, reason))
+      case _ => throw InterpretError("exit(pid, reason)")
+    })
+
     // ── Reactive primitives: Signal / computed / effect ────────────────
     globals("Signal") = Value.NativeFnV("Signal", {
       case List(init) => Pure(makeSignal(init))
@@ -1502,6 +1565,48 @@ class Interpreter(
     case Term.Apply.After_4_6_0(Term.Name("runEphemeralStorage"), bodyArgClause)
         if bodyArgClause.values.size == 1 =>
       storageInterp(eval(bodyArgClause.values.head, env), None)
+
+    // ── v1.6 Actors Phase 1 ────────────────────────────────────────────
+    // `runActors { body }` installs an actor scheduler, spawns the body
+    // as the root actor, and drives until quiescence.  The result is
+    // whatever the root actor returned, or UnitV if it never did.
+    case Term.Apply.After_4_6_0(Term.Name("runActors"), bodyArgClause)
+        if bodyArgClause.values.size == 1 =>
+      actorInterp(eval(bodyArgClause.values.head, env))
+
+    // `receive { case … }` — special form so we can pull out the AST
+    // cases at dispatch time.  Stashes (cases, env) and emits a Perform
+    // whose payload is the integer token into that side table.
+    case Term.Apply.After_4_6_0(Term.Name("receive"), pfArgClause)
+        if pfArgClause.values.size == 1 =>
+      pfArgClause.values.head match
+        case pf: Term.PartialFunction =>
+          val id = receiveSpecNext; receiveSpecNext += 1
+          receiveSpecs(id) = (pf.cases, env)
+          Perform("Actor", "receive", List(Value.IntV(id)))
+        case _ =>
+          located("receive expects a partial function { case msg => ... }")
+
+    // `receive(timeout = N) { case … }` — same dispatch, but the
+    // driver also tracks a deadline.  On timeout the receive value
+    // is None; on match it's Some(body-value).
+    case Term.Apply.After_4_6_0(
+            Term.Apply.After_4_6_0(Term.Name("receive"), timeoutClause),
+            pfArgClause)
+        if pfArgClause.values.size == 1 && timeoutClause.values.size == 1 =>
+      val timeoutTerm = timeoutClause.values.head match
+        case Term.Assign(Term.Name("timeout"), v) => v
+        case other: Term                          => other
+      val timeoutMs = Computation.run(eval(timeoutTerm, env)) match
+        case Value.IntV(n) => n
+        case _ => throw InterpretError("receive timeout must be an Int (milliseconds)")
+      pfArgClause.values.head match
+        case pf: Term.PartialFunction =>
+          val id = receiveSpecNext; receiveSpecNext += 1
+          receiveSpecs(id) = (pf.cases, env)
+          Perform("Actor", "receive_t", List(Value.IntV(id), Value.IntV(timeoutMs)))
+        case _ =>
+          located("receive expects a partial function { case msg => ... }")
 
     // Special forms: `computed { ... }` / `effect { ... }` — by-name
     // bodies wrapped as zero-arg closures so the reactive machinery can
@@ -2806,6 +2911,248 @@ class Interpreter(
       case _ => throw InterpretError("Async.parallel(thunks: List[() => A])")
     case _ => throw InterpretError(s"Unknown Async operation: $op")
 
+  // ── v1.6 Actors Phase 1 — cooperative scheduler ────────────────────
+  //
+  // Single-threaded green-thread scheduler over Computation.  Each
+  // actor's "current frame" lives in `pending(id)`.  Stepping an actor
+  // walks its Computation tree until it either returns Pure (actor
+  // completes) or hits a `Perform("Actor", op, …)` node we handle here.
+  // `receive` on an empty mailbox stores the (cases, env, continuation)
+  // triple in `blocked` and switches to another ready actor.
+  // `send` enqueues into the recipient's mailbox; if the recipient was
+  // blocked and the new head matches, we splice the case-body into
+  // its pending slot and mark it ready.
+  //
+  // The driver runs until every actor is either complete or blocked
+  // with an empty mailbox.  The root actor's final value is returned.
+  private def actorInterp(initial: Computation): Computation =
+    val rt = new ActorRuntime
+    val savedRt = actorRt
+    actorRt = rt
+    try
+      val rootId = rt.nextId
+      rt.nextId += 1
+      rt.mailboxes(rootId) = mutable.Queue.empty
+      rt.pending(rootId)   = initial
+      rt.ready.enqueue(rootId)
+      val rootResult = mutable.LongMap.empty[Value]
+      var deadlockGuard = 0
+      val maxIterations = 100000
+
+      while (rt.ready.nonEmpty || rt.blocked.exists(_._2._4.isDefined)) && deadlockGuard < maxIterations do
+        deadlockGuard += 1
+        if rt.ready.isEmpty then
+          // Quiescent except for timeout-armed receives: sleep until
+          // the earliest deadline, then deliver None to that actor.
+          val now = System.currentTimeMillis()
+          val earliest = rt.blocked.collect {
+            case (id, (_, _, _, Some(d), _)) => (id, d)
+          }.minByOption(_._2)
+          earliest match
+            case Some((id, d)) =>
+              val sleepFor = d - now
+              if sleepFor > 0 then Thread.sleep(sleepFor)
+              rt.blocked.remove(id) match
+                case Some((_, _, k, _, _)) =>
+                  rt.pending(id) = k(Value.InstanceV("None", Map.empty))
+                  rt.ready.enqueue(id)
+                case None => ()
+            case None => () // shouldn't happen — loop exit condition would fire
+        else
+          val id = rt.ready.dequeue()
+          // An actor may have been re-enqueued after completion if a
+          // late send arrived; skip if already done.
+          if rt.pending.contains(id) then
+            rt.currentId = id
+            val stepResult = stepActor(rt, id, rt.pending(id))
+            stepResult match
+              case ActorStep.Done(v)   =>
+                rt.pending.remove(id)
+                if id == rootId then rootResult(rootId) = v
+              case ActorStep.Suspend   =>
+                // Already moved to blocked or removed by stepActor.
+                ()
+              case ActorStep.Yield(c)  =>
+                rt.pending(id) = c
+                rt.ready.enqueue(id)
+
+      // Drain dead-letter logging for messages stuck in completed
+      // actors' mailboxes — informational only, doesn't fail the run.
+      Pure(rootResult.getOrElse(rootId, Value.UnitV))
+    finally
+      actorRt = savedRt
+
+  private enum ActorStep:
+    case Done(value: Value)
+    case Suspend
+    case Yield(next: Computation)
+
+  /** Walk one actor's Computation tree until we either complete it,
+   *  hit a suspend point, or yield (re-queue for a fresh slice). */
+  private def stepActor(rt: ActorRuntime, id: Long, initial: Computation): ActorStep =
+    var current: Computation = initial
+    while true do
+      current match
+        case Pure(v) =>
+          return ActorStep.Done(v)
+
+        // Bare Perform — Actor op with no continuation.
+        case Perform("Actor", op, args) =>
+          handleActorOp(rt, id, op, args, v => Pure(v)) match
+            case Right(next) => current = next
+            case Left(_)     => return ActorStep.Suspend
+
+        case Perform(eff, op, _) =>
+          throw InterpretError(s"Unhandled effect inside actor: $eff.$op")
+
+        case FlatMap(sub, f) => sub match
+          case Pure(v) =>
+            current = f(v)
+          case FlatMap(sub2, g) =>
+            current = FlatMap(sub2, x => FlatMap(g(x), f))
+          case Perform("Actor", op, args) =>
+            handleActorOp(rt, id, op, args, f) match
+              case Right(next) => current = next
+              case Left(_)     => return ActorStep.Suspend
+          case Perform(eff, op, _) =>
+            throw InterpretError(s"Unhandled effect inside actor: $eff.$op")
+    throw InterpretError("unreachable")
+
+  /** Handle one Actor effect op.
+   *  Right(next) — continue stepping this actor with `next`.
+   *  Left(())   — actor suspended; driver should move on. */
+  private def handleActorOp(
+      rt: ActorRuntime,
+      id: Long,
+      op: String,
+      args: List[Value],
+      k:  Value => Computation
+  ): Either[Unit, Computation] = op match
+    case "spawn" =>
+      val thunk = args.head
+      val childId = rt.nextId
+      rt.nextId += 1
+      rt.mailboxes(childId) = mutable.Queue.empty
+      // Eagerly build the child's initial Computation by calling the
+      // thunk with no args.  Defer actually stepping it until the
+      // scheduler picks the child off the ready queue.
+      val savedCurrent = rt.currentId
+      rt.currentId = childId
+      val childBody =
+        try callValue(thunk, Nil, Map.empty)
+        finally rt.currentId = savedCurrent
+      rt.pending(childId) = childBody
+      rt.ready.enqueue(childId)
+      Right(k(Value.InstanceV("Pid", Map("id" -> Value.IntV(childId)))))
+
+    case "self" =>
+      Right(k(Value.InstanceV("Pid", Map("id" -> Value.IntV(id)))))
+
+    case "send" => args match
+      case List(Value.InstanceV("Pid", fields), msg) =>
+        fields.get("id") match
+          case Some(Value.IntV(targetId)) =>
+            rt.mailboxes.get(targetId) match
+              case Some(mb) =>
+                mb.enqueue(msg)
+                // If target was blocked, try to deliver right now so
+                // it becomes runnable for the next tick.
+                rt.blocked.get(targetId) match
+                  case Some((cases, blockedEnv, blockedK, _, wrapSome)) =>
+                    tryDeliver(rt, targetId, cases, blockedEnv, blockedK, wrapSome) match
+                      case Some(newPending) =>
+                        rt.blocked.remove(targetId)
+                        rt.pending(targetId) = newPending
+                        rt.ready.enqueue(targetId)
+                      case None => ()  // head didn't match, stays blocked
+                  case None => ()
+              case None =>
+                // Send to dead PID — silent no-op, Erlang semantics.
+                ()
+          case _ => ()
+        Right(k(Value.UnitV))
+      case _ => throw InterpretError("send(pid, msg) expects a Pid and a value")
+
+    case "receive" => args match
+      case List(Value.IntV(specId)) =>
+        val (cases, recvEnv) = receiveSpecs(specId)
+        tryDeliver(rt, id, cases, recvEnv, k, wrapSome = false) match
+          case Some(next) => Right(next)
+          case None       =>
+            rt.blocked(id) = (cases, recvEnv, k, None, false)
+            Left(())
+      case _ => throw InterpretError("receive expects an internal spec token")
+
+    case "receive_t" => args match
+      case List(Value.IntV(specId), Value.IntV(timeoutMs)) =>
+        val (cases, recvEnv) = receiveSpecs(specId)
+        tryDeliver(rt, id, cases, recvEnv, k, wrapSome = true) match
+          case Some(next) => Right(next)
+          case None       =>
+            val deadline = System.currentTimeMillis() + timeoutMs
+            rt.blocked(id) = (cases, recvEnv, k, Some(deadline), true)
+            Left(())
+      case _ => throw InterpretError("receive(timeout = N) — internal arg mismatch")
+
+    case "exit" => args match
+      case List(Value.InstanceV("Pid", fields), reason) =>
+        fields.get("id") match
+          case Some(Value.IntV(targetId)) if rt.pending.contains(targetId) || rt.blocked.contains(targetId) =>
+            out.println(s"[exit] actor=$targetId reason=${Value.show(reason)}")
+            rt.pending.remove(targetId)
+            rt.blocked.remove(targetId)
+            rt.mailboxes.remove(targetId)
+            // Note: ready queue may still hold a stale id; pending
+            // check at dispatch time filters it out.
+          case _ => ()
+        Right(k(Value.UnitV))
+      case _ => throw InterpretError("exit(pid, reason)")
+
+    case other =>
+      throw InterpretError(s"Unknown Actor op: $other")
+
+  /** Pop messages from the head of `id`'s mailbox; for each one,
+   *  try to match a case.  Match: return Some(caseBody ⊛ k).
+   *  No-match: pop, log as dead-letter, try the next.
+   *  Empty mailbox: None. */
+  private def tryDeliver(
+      rt:        ActorRuntime,
+      id:        Long,
+      cases:     List[Case],
+      env:       Env,
+      k:         Value => Computation,
+      wrapSome:  Boolean
+  ): Option[Computation] =
+    val mb = rt.mailboxes(id)
+    while mb.nonEmpty do
+      val msg = mb.head
+      var matched: Option[Computation] = None
+      val it = cases.iterator
+      while matched.isEmpty && it.hasNext do
+        val c = it.next()
+        matchPat(c.pat, msg, env) match
+          case Some(extEnv) =>
+            val guardOk = c.cond.forall { g =>
+              Computation.run(eval(g, extEnv)) match
+                case Value.BoolV(b) => b
+                case _              => false
+            }
+            if guardOk then
+              val body = eval(c.body, extEnv)
+              matched = Some(
+                if wrapSome then body.flatMap(v =>
+                  k(Value.InstanceV("Some", Map("value" -> v))))
+                else body.flatMap(k)
+              )
+          case None => ()
+      if matched.isDefined then
+        mb.dequeue()
+        return matched
+      // Dead letter: discard the head and try the next.
+      out.println(s"[dead-letter] actor=$id msg=${Value.show(msg)}")
+      mb.dequeue()
+    None
+
   // ── runAsyncParallel — real-thread driver for the same Async API ──
   //
   // Same Free Monad walk as `asyncInterp` but `async` / `parallel`
@@ -3065,6 +3412,10 @@ class Interpreter(
           "name"  -> Value.StringV(name),
           "value" -> Value.StringV(Value.show(v))
         )))
+      // v1.6 actors — Pid ! msg fires off to the addressee's mailbox.
+      // No-op if Pid is unknown (Erlang semantics).
+      case (pid @ Value.InstanceV("Pid", _), "!", msg) =>
+        Perform("Actor", "send", List(pid, msg))
       case (Value.IntV(a),    "+",  Value.IntV(b))    => Pure(Value.IntV(a + b))
       case (Value.IntV(a),    "-",  Value.IntV(b))    => Pure(Value.IntV(a - b))
       case (Value.IntV(a),    "*",  Value.IntV(b))    => Pure(Value.IntV(a * b))

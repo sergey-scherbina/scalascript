@@ -334,6 +334,12 @@ function _mkRequest(req, params, bodyBuf) {
   const claims      = bearerStr ? jwtVerify(bearerStr) : _None;
   // Parse Authorization: Basic <b64(user:pass)> into a 2-element tuple.
   const basicAuth = _basicFromAuth(authHeader);
+  // Lenient `req.json` — _Some(parsed) on success, _None on parse
+  // failure or empty body.  Same shape as the interpreter / JVM
+  // backends; handlers decide whether to short-circuit with a 400.
+  const json = (body && body.length > 0)
+    ? (() => { try { return _Some(_jsonConvert(JSON.parse(body))); } catch (e) { return _None; } })()
+    : _None;
   return {
     _type:   'Request',
     method:  req.method,
@@ -342,6 +348,7 @@ function _mkRequest(req, params, bodyBuf) {
     query,
     headers,
     body,
+    json,
     form,
     files,
     session,
@@ -2026,6 +2033,57 @@ function _registerExt(method, fn, type) {
   if (type) _extensions[type + ':' + method] = fn;
 }
 
+// JSON read side — bridges native JS values into our runtime shape so
+// the result of jsonParse(...) is indistinguishable from a literal
+// constructed in user code: objects become Map (not plain objects),
+// nulls become _None (matches Option literals), arrays stay arrays.
+function _jsonConvert(v) {
+  if (v === null || v === undefined) return _None;
+  if (Array.isArray(v)) return v.map(_jsonConvert);
+  if (typeof v === 'object') {
+    const m = new Map();
+    for (const k of Object.keys(v)) m.set(k, _jsonConvert(v[k]));
+    return m;
+  }
+  return v;
+}
+
+function jsonParse(s) {
+  try { return _jsonConvert(JSON.parse(s)); }
+  catch (e) { throw new Error('jsonParse: ' + e.message); }
+}
+
+function jsonStringify(v) { return _toJsonStringify(v); }
+
+function _toJsonStringify(v) {
+  if (v === null || v === undefined) return 'null';
+  if (v === _None || (v && v._type === '_None')) return 'null';
+  if (v && v._type === '_Some') return _toJsonStringify(v.value);
+  if (typeof v === 'string') return JSON.stringify(v);
+  if (typeof v === 'number' || typeof v === 'boolean') return JSON.stringify(v);
+  if (Array.isArray(v)) {
+    if (v._isTuple === true) return '[' + v.map(_toJsonStringify).join(',') + ']';
+    return '[' + v.map(_toJsonStringify).join(',') + ']';
+  }
+  if (v instanceof Map) {
+    const parts = [];
+    for (const [k, val] of v) parts.push(JSON.stringify(String(k)) + ':' + _toJsonStringify(val));
+    return '{' + parts.join(',') + '}';
+  }
+  if (typeof v === 'object') {
+    // Plain object — usually a case class (`_type` + named fields)
+    // or a Request-shaped record.  Emit field-by-field, skipping the
+    // `_type` discriminator since it's not user-visible JSON.
+    const parts = [];
+    for (const k of Object.keys(v)) {
+      if (k === '_type' || k.startsWith('_')) continue;
+      parts.push(JSON.stringify(k) + ':' + _toJsonStringify(v[k]));
+    }
+    return '{' + parts.join(',') + '}';
+  }
+  return JSON.stringify(String(v));
+}
+
 function _trampoline(fn, ...args) {
   let r = fn(...args);
   while (typeof r === 'object' && r !== null && r._isTailCall === true) {
@@ -2266,6 +2324,193 @@ function _runAsync(bodyFn) { return _runAsyncInner(bodyFn()); }
 // written against the parallel handler still runs, just without the
 // speedup.  The JVM backends provide real concurrency.
 function _runAsyncParallel(bodyFn) { return _runAsyncInner(bodyFn()); }
+
+// ── v1.6 Actors — Phase 1 cooperative scheduler ────────────────────────
+//
+// Mirrors the interpreter's `actorInterp` / `handleActorOp`.  Each
+// `_runActors(bodyFn)` invocation creates a fresh actor registry,
+// spawns `bodyFn` as the root actor, and drives all spawned actors
+// cooperatively until quiescence.  Mailboxes are arrays; the
+// scheduler is a simple round-robin ready queue.  `receive` with a
+// non-empty matching head returns the case body's value; with an
+// empty mailbox it suspends.  `receive(timeout = N)` arms a deadline;
+// when the ready queue empties and no other progress is possible the
+// scheduler sleeps until the earliest deadline, then resumes that
+// actor with None.
+
+function Pid(id) { return { _type: 'Pid', id }; }
+
+const Actor = {
+  spawn:     (thunk) => _perform('Actor', 'spawn',     [thunk]),
+  self:      ()      => _perform('Actor', 'self',      []),
+  exit:      (pid, reason) => _perform('Actor', 'exit', [pid, reason]),
+  send:      (pid, msg) => _perform('Actor', 'send',   [pid, msg]),
+  receive_:  (specId)              => _perform('Actor', 'receive',   [specId]),
+  receive_t: (specId, timeoutMs)   => _perform('Actor', 'receive_t', [specId, timeoutMs]),
+};
+
+// `receive { case … }` lowers to a registered matcher function whose
+// integer token is passed to Actor.receive_/receive_t.  Codegen emits
+// a fresh closure per `receive` site that returns either { matched:
+// false } or { matched: true, body: () => <case-body Computation> }.
+let _receiveSpecNext = 0;
+const _receiveSpecs = new Map();
+function _registerReceive(matcher) {
+  const id = _receiveSpecNext++;
+  _receiveSpecs.set(id, matcher);
+  return id;
+}
+
+function _runActors(bodyFn) {
+  // id -> { mailbox: Value[], pending: _Computation | null,
+  //         blocked: { matcher, k, deadline, wrapSome } | null }
+  const actors = new Map();
+  const ready  = [];
+  let   nextId = 0;
+  let   rootResult = undefined;
+  let   rootDone   = false;
+
+  function spawnActor(thunk) {
+    const id = nextId++;
+    actors.set(id, { mailbox: [], pending: thunk(), blocked: null });
+    ready.push(id);
+    return Pid(id);
+  }
+  const rootId = spawnActor(bodyFn);
+
+  function tryDeliver(state, matcher, wrapSome) {
+    while (state.mailbox.length > 0) {
+      const msg = state.mailbox[0];
+      const r   = matcher(msg);
+      if (r && r.matched) {
+        state.mailbox.shift();
+        const bodyC = r.body();
+        return wrapSome
+          ? new _FlatMap(bodyC, (v) => _Some(v))
+          : bodyC;
+      }
+      state.mailbox.shift();  // dead-letter
+    }
+    return null;
+  }
+
+  function handleActorOp(id, state, op, args, k) {
+    switch (op) {
+      case 'spawn': {
+        const childPid = spawnActor(args[0]);
+        return { suspend: false, next: k(childPid) };
+      }
+      case 'self':
+        return { suspend: false, next: k(Pid(id)) };
+      case 'send': {
+        const target = args[0];
+        if (target && target._type === 'Pid') {
+          const ts = actors.get(target.id);
+          if (ts) {
+            ts.mailbox.push(args[1]);
+            if (ts.blocked) {
+              const b = ts.blocked;
+              const delivered = tryDeliver(ts, b.matcher, b.wrapSome);
+              if (delivered !== null) {
+                ts.pending = new _FlatMap(delivered, b.k);
+                ts.blocked = null;
+                ready.push(target.id);
+              }
+            }
+          }
+        }
+        return { suspend: false, next: k(undefined) };
+      }
+      case 'exit': {
+        const target = args[0];
+        if (target && target._type === 'Pid' && actors.has(target.id)) {
+          _output.push('[exit] actor=' + target.id + ' reason=' + _show(args[1]));
+          actors.delete(target.id);
+        }
+        return { suspend: false, next: k(undefined) };
+      }
+      case 'receive': {
+        const matcher = _receiveSpecs.get(args[0]);
+        const c = tryDeliver(state, matcher, false);
+        if (c !== null) return { suspend: false, next: new _FlatMap(c, k) };
+        state.blocked = { matcher, k, wrapSome: false, deadline: null };
+        return { suspend: true };
+      }
+      case 'receive_t': {
+        const matcher = _receiveSpecs.get(args[0]);
+        const c = tryDeliver(state, matcher, true);
+        if (c !== null) return { suspend: false, next: new _FlatMap(c, k) };
+        state.blocked = { matcher, k, wrapSome: true, deadline: Date.now() + args[1] };
+        return { suspend: true };
+      }
+      default:
+        throw new Error('Unknown Actor op: ' + op);
+    }
+  }
+
+  function stepActor(id) {
+    const state = actors.get(id);
+    if (!state) return;
+    let current = state.pending;
+    state.pending = null;
+    while (true) {
+      if (current instanceof _Perform) {
+        if (current.eff !== 'Actor')
+          throw new Error('Unhandled effect inside actor: ' + current.eff + '.' + current.op);
+        const r = handleActorOp(id, state, current.op, current.args, (v) => v);
+        if (r.suspend) return;
+        current = r.next;
+      } else if (current instanceof _FlatMap) {
+        const sub = current.sub;
+        if (sub instanceof _FlatMap) {
+          const sub2 = sub.sub, g = sub.k, f = current.k;
+          current = new _FlatMap(sub2, (x) => new _FlatMap(g(x), f));
+        } else if (sub instanceof _Perform) {
+          if (sub.eff !== 'Actor')
+            throw new Error('Unhandled effect inside actor: ' + sub.eff + '.' + sub.op);
+          const r = handleActorOp(id, state, sub.op, sub.args, current.k);
+          if (r.suspend) return;
+          current = r.next;
+        } else {
+          current = current.k(sub);
+        }
+      } else {
+        // Pure value — actor done.
+        if (id === rootId) { rootResult = current; rootDone = true; }
+        actors.delete(id);
+        return;
+      }
+    }
+  }
+
+  while (true) {
+    if (ready.length > 0) {
+      const id = ready.shift();
+      const state = actors.get(id);
+      if (state && state.pending !== null) stepActor(id);
+    } else {
+      // Quiescence — but timeout-armed receives may still fire.
+      let earliest = null;
+      for (const [aid, st] of actors) {
+        if (st && st.blocked && st.blocked.deadline != null) {
+          if (earliest === null || st.blocked.deadline < earliest.d)
+            earliest = { id: aid, d: st.blocked.deadline };
+        }
+      }
+      if (!earliest) break;
+      const sleepFor = earliest.d - Date.now();
+      if (sleepFor > 0) _asyncSleep(sleepFor);
+      const s = actors.get(earliest.id);
+      if (s && s.blocked) {
+        const kk = s.blocked.k;
+        s.blocked = null;
+        s.pending = kk(_None);
+        ready.push(earliest.id);
+      }
+    }
+  }
+  return rootResult;
+}
 
 // ── Storage: built-in key-value effect ────────────────────────────────────
 //
@@ -2815,7 +3060,9 @@ class JsGen(baseDir: Option[os.Path] = None):
   private def analyzeEffects(module: Module): Unit =
     val builtins = Set(
       "Async.delay", "Async.async", "Async.await", "Async.parallel",
-      "Storage.get", "Storage.put", "Storage.remove", "Storage.has", "Storage.keys"
+      "Storage.get", "Storage.put", "Storage.remove", "Storage.has", "Storage.keys",
+      "Actor.spawn", "Actor.self", "Actor.send", "Actor.exit",
+      "Actor.receive", "Actor.receive_t"
     )
 
     def collectTrees(s: Section): List[scala.meta.Tree] =
@@ -3468,6 +3715,26 @@ class JsGen(baseDir: Option[os.Path] = None):
   private def isEffectOpDef(body: Term): Boolean =
     scalascript.transform.EffectAnalysis.isEffectOpDef(body)
 
+  /** Emits a JS matcher closure for a `receive { case … }` block.
+   *  The closure takes the next mailbox message and returns either
+   *  `{ matched: false }` or `{ matched: true, body: () => <computation> }`.
+   *  Case bodies are CPS-emitted so any nested Actor / Async / handle
+   *  effects compose into the actor's pending Computation. */
+  private def genReceiveMatcher(cases: List[Case]): String =
+    val scrut = "__rcv_msg__"
+    val chain = cases.map { c =>
+      val (cond, bindings) = genPattern(scrut, c.pat)
+      val bindStmts = bindings.map { case (n, e) => s"const $n = $e;" }.mkString(" ")
+      val bodyCps   = genCpsExpr(c.body)
+      val condFinal = c.cond match
+        case Some(g) =>
+          val guardJs = genExpr(g)
+          if cond == "true" then s"($guardJs)" else s"($cond) && ($guardJs)"
+        case None => if cond == "true" then "true" else s"($cond)"
+      s"if ($condFinal) { $bindStmts return { matched: true, body: () => $bodyCps }; }"
+    }.mkString(" ")
+    s"($scrut) => { $chain return { matched: false }; }"
+
   private def genHandleForm(body: Term, cases: List[Case]): String =
     val handledOps = cases.flatMap { c =>
       c.pat match
@@ -3711,6 +3978,58 @@ class JsGen(baseDir: Option[os.Path] = None):
         if bodyArgClause.values.size == 1 =>
       s"_runStorage(() => ${genCpsExpr(bodyArgClause.values.head.asInstanceOf[Term])}, null)"
 
+    // ── v1.6 Actors Phase 1 ─────────────────────────────────────────
+    // `runActors { body }` — body is CPS-emitted so Actor.* ops build
+    // a Free tree the scheduler walks.
+    case Term.Apply.After_4_6_0(Term.Name("runActors"), bodyArgClause)
+        if bodyArgClause.values.size == 1 =>
+      s"_runActors(() => ${genCpsExpr(bodyArgClause.values.head.asInstanceOf[Term])})"
+
+    // `receive(timeout = N) { case … }` — same machinery as `receive`
+    // but the matcher is registered with `wrapSome=true` and the
+    // driver tracks a deadline.
+    case Term.Apply.After_4_6_0(
+            Term.Apply.After_4_6_0(Term.Name("receive"), timeoutArgClause),
+            pfArgClause)
+        if pfArgClause.values.size == 1 && timeoutArgClause.values.size == 1 =>
+      val timeoutTerm = timeoutArgClause.values.head match
+        case Term.Assign(Term.Name("timeout"), v) => v
+        case other: Term                          => other
+      pfArgClause.values.head match
+        case pf: Term.PartialFunction =>
+          val matcherJs = genReceiveMatcher(pf.cases)
+          s"Actor.receive_t(_registerReceive($matcherJs), ${genExpr(timeoutTerm.asInstanceOf[Term])})"
+        case _ => "/* invalid receive */ undefined"
+
+    // `receive { case … }` — special form so we can synthesise the
+    // matcher closure with the right CPS-emitted bodies.
+    case Term.Apply.After_4_6_0(Term.Name("receive"), pfArgClause)
+        if pfArgClause.values.size == 1 =>
+      pfArgClause.values.head match
+        case pf: Term.PartialFunction =>
+          val matcherJs = genReceiveMatcher(pf.cases)
+          s"Actor.receive_(_registerReceive($matcherJs))"
+        case _ => "/* invalid receive */ undefined"
+
+    // Spawn / self / exit — emit through the Actor runtime so they
+    // produce _Perform nodes the scheduler picks up.
+    case Term.Apply.After_4_6_0(Term.Name("spawn"), argClause)
+        if argClause.values.size == 1 =>
+      val thunk = argClause.values.head.asInstanceOf[Term]
+      // The thunk's body is CPS-emitted so its Actor.* ops chain.
+      thunk match
+        case Term.Function.After_4_6_0(_, body) =>
+          s"Actor.spawn(() => ${genCpsExpr(body)})"
+        case other => s"Actor.spawn(${genExpr(other)})"
+    case Term.Apply.After_4_6_0(Term.Name("self"), argClause)
+        if argClause.values.isEmpty =>
+      "Actor.self()"
+    case Term.Apply.After_4_6_0(Term.Name("exit"), argClause)
+        if argClause.values.size == 2 =>
+      val pidJs    = genExpr(argClause.values(0).asInstanceOf[Term])
+      val reasonJs = genExpr(argClause.values(1).asInstanceOf[Term])
+      s"Actor.exit($pidJs, $reasonJs)"
+
     // Special forms: computed / effect — wrap the by-name body as a
     // zero-arg thunk so the reactive scheduler can rerun it when its
     // signal deps change.
@@ -3735,6 +4054,8 @@ class JsGen(baseDir: Option[os.Path] = None):
         case "++" | ":::" => s"[...($lhsJs), ...(${genExpr(args.head)})]"
         // HTML DSL: `attr.cls := "hero"` builds an Attr object.
         case ":=" => s"_attr($lhsJs, $rhsJs)"
+        // v1.6 actors: `pid ! msg` enqueues into the receiver's mailbox.
+        case "!" => s"Actor.send($lhsJs, $rhsJs)"
         case "->" =>
           val tmp = freshTmp()
           s"(() => { const $tmp = [$lhsJs, $rhsJs]; $tmp._isTuple = true; return $tmp; })()"
@@ -4029,6 +4350,47 @@ class JsGen(baseDir: Option[os.Path] = None):
         if bodyArgClause.values.size == 1 =>
       s"_runStorage(() => ${genCpsExpr(bodyArgClause.values.head.asInstanceOf[Term])}, null)"
 
+    // ── v1.6 Actors Phase 1 (inside CPS body) ──────────────────────────
+    case Term.Apply.After_4_6_0(Term.Name("runActors"), bodyArgClause)
+        if bodyArgClause.values.size == 1 =>
+      s"_runActors(() => ${genCpsExpr(bodyArgClause.values.head.asInstanceOf[Term])})"
+
+    case Term.Apply.After_4_6_0(
+            Term.Apply.After_4_6_0(Term.Name("receive"), timeoutArgClause),
+            pfArgClause)
+        if pfArgClause.values.size == 1 && timeoutArgClause.values.size == 1 =>
+      val timeoutTerm = timeoutArgClause.values.head match
+        case Term.Assign(Term.Name("timeout"), v) => v
+        case other: Term                          => other
+      pfArgClause.values.head match
+        case pf: Term.PartialFunction =>
+          val matcherJs = genReceiveMatcher(pf.cases)
+          s"Actor.receive_t(_registerReceive($matcherJs), ${genExpr(timeoutTerm.asInstanceOf[Term])})"
+        case _ => "/* invalid receive */ undefined"
+
+    case Term.Apply.After_4_6_0(Term.Name("receive"), pfArgClause)
+        if pfArgClause.values.size == 1 =>
+      pfArgClause.values.head match
+        case pf: Term.PartialFunction =>
+          val matcherJs = genReceiveMatcher(pf.cases)
+          s"Actor.receive_(_registerReceive($matcherJs))"
+        case _ => "/* invalid receive */ undefined"
+
+    case Term.Apply.After_4_6_0(Term.Name("spawn"), argClause)
+        if argClause.values.size == 1 =>
+      // The spawn arg is a behavior thunk.  genCpsExpr on a Function
+      // emits a lambda whose body is `_bind`-chained — exactly the
+      // shape `Actor.spawn(thunk)` expects.
+      s"Actor.spawn(${genCpsExpr(argClause.values.head.asInstanceOf[Term])})"
+    case Term.Apply.After_4_6_0(Term.Name("self"), argClause)
+        if argClause.values.isEmpty =>
+      "Actor.self()"
+    case Term.Apply.After_4_6_0(Term.Name("exit"), argClause)
+        if argClause.values.size == 2 =>
+      val pidJs    = genExpr(argClause.values(0).asInstanceOf[Term])
+      val reasonJs = genExpr(argClause.values(1).asInstanceOf[Term])
+      s"Actor.exit($pidJs, $reasonJs)"
+
     // Nested computed / effect inside CPS body — same wrapping as the
     // non-CPS form: by-name body becomes a zero-arg thunk.
     case Term.Apply.After_4_6_0(Term.Name(react @ ("computed" | "effect")), bodyArgClause)
@@ -4048,6 +4410,7 @@ class JsGen(baseDir: Option[os.Path] = None):
           case ":+"           => s"[...$vl, $vr]"
           case "+:"           => s"[$vl, ...$vr]"
           case "++" | ":::"   => s"[...$vl, ...$vr]"
+          case "!"            => s"Actor.send($vl, $vr)"
           case "->"           =>
             val tmp = freshTmp()
             s"(() => { const $tmp = [$vl, $vr]; $tmp._isTuple = true; return $tmp; })()"

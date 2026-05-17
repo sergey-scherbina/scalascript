@@ -177,6 +177,10 @@ object WebServer:
       "query"   -> Value.MapV(query.map((k, v) => Value.StringV(k) -> Value.StringV(v))),
       "headers" -> Value.MapV(headers),
       "body"    -> Value.StringV(body),
+      // Lenient `req.json` — Some(parsed) on success, None on parse
+      // failure or empty body.  Handlers decide whether to short-
+      // circuit (Response.status(400)) or proceed.
+      "json"    -> Value.OptionV(if body.isEmpty then None else scalascript.interpreter.JsonParser.parseOption(body)),
       "form"    -> Value.MapV(form.map((k, v) => Value.StringV(k) -> Value.StringV(v))),
       "files"   -> Value.MapV(files.map((k, v) => Value.StringV(k) -> v)),
       "session" -> Value.MapV(session.map((k, v) => Value.StringV(k) -> Value.StringV(v))),
