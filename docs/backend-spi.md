@@ -374,6 +374,16 @@ opt in.
 
 ## 8. Platform intrinsics (HTTP, WebSockets, auth, FS, crypto)
 
+> **Status (2026-05-17).** API surface (`Backend.intrinsics`,
+> `IntrinsicImpl` ADT with four variants, `Feature` enum, `ExternCall`
+> IR node) is landed.  Three intrinsics flow through the surface
+> (`nowMillis`, `println`, `print`).  Per-call-site `ExternCall`
+> dispatch in compiled backends is the next prerequisite, tracked
+> as Stage 5+/A.4 — see [`docs/spi-intrinsics-design.md`](spi-intrinsics-design.md)
+> for resolved design decisions on dispatch, handler semantics
+> (Async-return + direct-syntax), `std.ws` split, `HostCallback`
+> rollout, and partial-feature coverage.
+
 Today every code generator hard-codes its own HTTP runtime: each
 `route()` / `serve()` call is recognised by name in `JvmGen`, `JsGen`,
 and `Interpreter`, and emitted as inline platform-specific code. This
@@ -414,9 +424,18 @@ The SPI introduces a uniform mechanism: **platform intrinsics**.
 
    extern def serve(port: Int): Unit
    extern def route(method: String, path: String,
-                    handler: Request => Response): Unit
+                    handler: Request => Async[Response]): Unit
    extern def stop(): Unit
    ```
+
+   **Handler shape:** intrinsics that accept user callbacks expect
+   the callback to return its result in the `Async` monad (or a
+   compatible monad).  An implicit `Conversion[A, Async[A]]` keeps
+   sync-shaped user code working — `req => Response(...)` lifts
+   automatically into `req => Async.now(Response(...))`.  See
+   [`docs/spi-intrinsics-design.md`](spi-intrinsics-design.md) §2 for
+   the trade-offs and the direct-syntax do-notation that makes the
+   bodies read like sync code.
 
 2. **Implementation in the backend.** The `Backend` trait carries an
    intrinsic table (see §4.2):
@@ -426,12 +445,28 @@ The SPI introduces a uniform mechanism: **platform intrinsics**.
    case class InlineCode(emit: (List[IrExpr], EmitContext) => TargetCode) extends IntrinsicImpl
    case class RuntimeCall(targetSymbol: String)                            extends IntrinsicImpl
    case class HostCallback(name: String)                                   extends IntrinsicImpl
+   case class NativeImpl(eval: (NativeContext, List[Any]) => Any)          extends IntrinsicImpl
    ```
 
-   The backend either inlines target code at the call site
-   (`InlineCode`), or routes the call to a runtime function it ships
-   (`RuntimeCall`), or, for out-of-process plugins, calls back into
-   core via a named host callback (`HostCallback`).
+   Four variants cover the cases backends actually need:
+
+   - **`InlineCode`** — backend inlines target source at each call
+     site.  Best when the call-site arguments are useful for
+     specialisation (constant folding, type-driven dispatch).
+   - **`RuntimeCall`** — alias to a runtime helper the backend ships
+     in its preamble.  Best for parameter-less primitives
+     (`nowMillis`, `randomUuid`) and for cases where call-site
+     specialisation buys nothing.
+   - **`HostCallback`** — out-of-process plugins call back into core
+     via a named host callback.  Wire format defined in §12.2.
+     Lets `.NET` / `WASM` subprocess backends reuse the in-process
+     intrinsics already implemented by core, rather than re-
+     implementing every platform primitive in their host language.
+   - **`NativeImpl`** — in-process function the interpretive backend
+     calls directly with already-evaluated arguments.  Pairs with a
+     `NativeContext` parameter carrying the runtime hooks an I/O
+     intrinsic needs (e.g. `println` reads `ctx.out` so the
+     interpreter's per-session `PrintStream` is honoured).
 
 3. **Validation.** Missing intrinsics are caught by the same
    `CapabilityCheck` as missing language features: using
@@ -487,16 +522,38 @@ This is relocation, not rewriting. Absorbed by Phase 5.
 
 Same pattern, no new SPI surface, for everything the platform provides:
 
-- `std.ws.{accept, send, recv, close}` — WebSockets, per backend.
+- `std.ws.server.{accept, send, recv, close}` — WebSocket **server**
+  side (`onWebSocket(path) { ws => … }`), per backend.
+- `std.ws.client.{connect, send, recv, close}` — WebSocket **client**
+  side (`connectWebSocket(url) { ws => … }`), per backend.  The
+  `std.ws` package re-exports both for convenience; the split lets
+  asymmetric backends (browser-SPA = client-only, CLI tool =
+  client-only, server-only embedded targets) declare exactly the
+  capability they implement.
 - `std.auth.{signJwt, verifyJwt, hashPassword, hashPasswordVerify}` —
   wraps platform crypto.
 - `std.fs.*`, `std.crypto.*`, `std.db.*` — same story.
 
-`Feature` flags in §9 group intrinsics into capability-check buckets
-(`HttpServer`, `WebSockets`, `Auth`, `FileSystem`, `Crypto`,
-`Database`). A backend that declares a feature MUST provide
-intrinsics for the whole package; partial coverage is a bug, not a
-degraded mode.
+**Capability granularity.**  `Feature` flags in §11 group intrinsics
+into hierarchical capability buckets — a baseline flag covers the
+package's core operations, sub-flags layer on optional extensions:
+
+- `HttpServer` (baseline: `route`, `serve`, `Request`, `Response`)
+  + `HttpServerStreaming` (`Response.stream`, streaming request body)
+  + `HttpServerMultipart` (`Request.files`, multipart parsing).
+- `WebSocketsServer` (baseline: `onWebSocket`, `send`, `recv`, `close`)
+  + `WebSocketsServerExtras` (per-route caps, rate limit, auth hook,
+  `ws.id` / `ws.subprotocol` / `ws.user`).
+- `WebSocketsClient` (`connectWebSocket`).
+- Same shape for `HttpClient` / `HttpClientStreaming`, `Crypto*`, etc.
+
+A backend declares the subset of sub-flags it implements; missing
+sub-flags produce actionable `Diagnostic.Unsupported` messages
+("backend X does not declare `HttpServerStreaming` — needed for
+`Response.stream(...)` at line 42").  Early-stage backends (`.NET`
+MVP, `WASM` PoC) can ship a baseline-only declaration and grow into
+the package over time.  See [`docs/spi-intrinsics-design.md`](spi-intrinsics-design.md)
+§5 for the hierarchy rationale.
 
 ### Why not model HTTP as an algebraic effect?
 
@@ -524,16 +581,45 @@ intrinsics that implement it. Programs depending on that package work
 only against backends that bundle the plugin — the capability check is
 the same. No core change needed.
 
+### Resolved questions
+
+- **Sync vs async handler semantics — RESOLVED.** Handlers return
+  `Async[Response]`.  Existing sync call sites continue to work via
+  an implicit `Conversion[Response, Async[Response]]`.  User-facing
+  ergonomics: a **direct-syntax do-notation block** where `x = expr`
+  is a monadic bind, `val x = expr` is a pure local, bare effectful
+  expressions become `_ <- expr`, and the trailing expression is the
+  yield.  Cancellation, timeouts, and streaming all flow through the
+  `Async` effect — one mechanism, not two.  Full details in
+  [`docs/spi-intrinsics-design.md`](spi-intrinsics-design.md) §2 and
+  the "Direct-syntax defaults" section.
+- **Per-call-site dispatch in compiled backends — RESOLVED.**
+  Hybrid synthetic AST-marker plumbing — Normalize rewrites
+  `Term.Apply(Name(qn))` to `ir.ExternCall(qn, args)`; Denormalize
+  emits the latter as `Term.Apply(Name("__intrinsic_<qn>"))`; JvmGen
+  and JsGen catch the prefix in their existing `Term.Apply` emit
+  case and consult `backend.intrinsics(qn)`.  Minimum-surface change
+  on top of the existing AST-based codegens; first proof intrinsic
+  is `println`.  See [`docs/spi-intrinsics-design.md`](spi-intrinsics-design.md)
+  §1.
+- **`HostCallback` rollout — RESOLVED.** Build the dispatcher
+  before Stage 5+/D (`std.ws / auth / fs / crypto` extraction) so
+  the first out-of-process backend (.NET / WASM) starts with a
+  working callback rather than having to re-implement every
+  platform primitive.  See [`docs/spi-intrinsics-design.md`](spi-intrinsics-design.md)
+  §4.
+
 ### Open questions
 
-- **Sync vs async handler semantics.** JVM `HttpServer` is sync per
-  request; Node and WASM are async. Today the language presents a
-  sync API. When we add cancellation/timeouts, decide whether they
-  go through effects or `Future`-style types. Doesn't block this SPI
-  design.
 - **Shared runtime artefacts.** If `jvm` and `interpreter` plugins
   both wrap `com.sun.net.httpserver`, do they share a runtime jar?
   Probably not in v1 — duplication is cheap; decoupling is valuable.
+- **Type-level effect-row tracking.** v1 keeps `Async[A]` as the
+  master effect type and lets handlers stack via the universal
+  `Computation[A]` Free-monad.  v2 may surface fine-grained rows
+  (`Async | Random | Logger`) at the type level — Scala 3 union
+  types make this syntactically free, but it requires typer work
+  for inference and `CapabilityCheck` to consult.
 
 ## 9. Multi-language code blocks
 
@@ -891,6 +977,7 @@ case class Capabilities(
 )
 
 enum Feature:
+  // Language features
   case AlgebraicEffects
   case MutableState
   case PatternMatching
@@ -902,14 +989,26 @@ enum Feature:
   case TailCallOptimization
   case StringInterpolators       // s"", html"", css"", md""
   case ModuleImports
-  // Platform capabilities — each gates a std.* intrinsic package (§8)
-  case ConsoleIO                 // std.io
-  case HttpServer                // std.http
-  case WebSockets                // std.ws
-  case Auth                      // std.auth
-  case FileSystem                // std.fs
-  case Crypto                    // std.crypto
-  case Database                  // std.db (future)
+
+  // Platform capabilities — hierarchical sub-features per package
+  // (§8 Generalisation).  A baseline flag covers the package's core
+  // operations; optional sub-flags layer on extensions.  Backends
+  // declare the subset they implement; early-stage backends ship
+  // baseline-only and grow into the package over time.
+
+  case ConsoleIO                 // std.io       — println/print baseline
+  case HttpServer                // std.http     — route + serve + Request + Response (bytes body)
+  case HttpServerStreaming       //              — + Response.stream / streaming request body
+  case HttpServerMultipart       //              — + Request.files / multipart parsing
+  case HttpClient                // std.http     — httpGet / httpPost (planned, v1.5 Tier 2)
+  case HttpClientStreaming       //              — + bodyStream for SSE / chunked downloads
+  case WebSocketsServer          // std.ws.server — onWebSocket + send/recv/close baseline
+  case WebSocketsServerExtras    //              — + per-route caps + rate limit + auth + ws.{id,subprotocol,user}
+  case WebSocketsClient          // std.ws.client — connectWebSocket (planned, v1.5 Tier 3)
+  case Auth                      // std.auth     — hashPassword/JWT/CSRF baseline
+  case FileSystem                // std.fs       — read/write/list baseline
+  case Crypto                    // std.crypto   — primitives wrapping platform JCE / crypto
+  case Database                  // std.db       — (future)
 
 enum OutputKind:
   case ScalaSource, JavaScriptSource, CssSource, HtmlSource
