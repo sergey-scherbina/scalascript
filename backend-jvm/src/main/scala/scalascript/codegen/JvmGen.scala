@@ -3037,6 +3037,10 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |  })
        |
        |class WebSocket(private val socket: java.net.Socket, val request: Request):
+       |  /** Stable per-connection identifier.  UUID-v4 generated at
+       |   *  upgrade time; surfaced to user code as `ws.id` and used to
+       |   *  tag every log line for a single session. */
+       |  val id: String = java.util.UUID.randomUUID().toString
        |  import java.io.{BufferedInputStream, ByteArrayOutputStream, OutputStream}
        |  import java.nio.charset.StandardCharsets
        |  import java.util.concurrent.{LinkedBlockingQueue, ScheduledFuture, TimeUnit}

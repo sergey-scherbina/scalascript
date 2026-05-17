@@ -475,10 +475,6 @@ Sprint 3.  Each is meaningfully complete on its own.
     bearer { token => validate(token) }) { … }` — current users
     have to inspect `ws.request.headers("authorization")` and
     `ws.close(1008, "")` manually.  ~30 LOC × 3.
-22. **`ws.id: String`.**  Stable per-connection identifier for
-    logs / traces.  UUID-v4 generated at upgrade.  Trivial; pays
-    back the first time someone wants to grep logs for a single
-    session.  ~10 LOC × 3.
 23. **`ws.subprotocol: String`.**  The protocol the server chose
     during negotiation.  Currently inspectable via
     `ws.request.headers("sec-websocket-protocol")`, but that's the

@@ -73,6 +73,12 @@ final class WsConnection(
     private val heartbeatIntervalMs: Long = 30_000L,
     private val deadAfterMs:         Long = 90_000L
 ):
+  /** Stable per-connection identifier.  UUID-v4 generated at upgrade
+   *  time so it's globally unique even across restarts, but short
+   *  enough to grep for in logs.  Surfaced to the handler as `ws.id`
+   *  and used by [[WsConnection]] / [[WsProxy]] to tag every log line
+   *  for a single session. */
+  val id: String = java.util.UUID.randomUUID().toString
   // Outgoing frames waiting to be written.  Drained by the selector thread
   // in [[flush]]; new bytes appended from any thread via [[enqueue]].
   private val outbox: ConcurrentLinkedQueue[ByteBuffer] =
@@ -440,7 +446,8 @@ final class WsConnection(
       "onPong"    -> onPong,
       "recv"      -> recv,
       "isClosed"  -> isClosed,
-      "request"   -> request
+      "request"   -> request,
+      "id"        -> Value.StringV(id)
     ))
 
   private def ensureInCapacity(target: Int): Unit =

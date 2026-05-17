@@ -1197,6 +1197,12 @@ function _wsEncodeClose(code, reason) {
 // frames through `_wsParseFrame`.  Control frames (ping/close) are
 // handled here; text/binary frames invoke `onMessage` if registered.
 function _wsMakeWebSocket(socket, request) {
+  // Stable per-connection identifier — UUID-v4 generated at upgrade
+  // time, surfaced to user code as `ws.id` and used to tag every log
+  // line for a single session.
+  const id = (typeof crypto !== 'undefined' && crypto.randomUUID)
+    ? crypto.randomUUID()
+    : require('crypto').randomUUID();
   let onMessage = null;
   let onClose   = null;
   let onPong    = null;
@@ -1271,6 +1277,7 @@ function _wsMakeWebSocket(socket, request) {
     onMessage: (cb) => { onMessage = cb; },
     onClose:   (cb) => { onClose   = cb; },
     onPong:    (cb) => { onPong    = cb; },
+    id:        id,
     // ping([payload]) — empty Ping or Latin-1-byte-view payload.
     // Peer's Pong arrives via the `onPong` callback above.
     ping: (s) => {
