@@ -681,6 +681,100 @@ JDK HttpServer's defaults are "fine enough":
     (Subsumed by Sprint 5.16's full NIO migration if that lands
     first.)
 
+### Tier 5 — REST server ergonomics
+
+Five gaps the existing REST surface leaves to user code, each
+trivially missing today and noticed during the v1.1 milestone
+review.  Independent of the other tiers; can land alongside or
+after them.
+
+17. **JSON read side.**  Write-side already works
+    (`Response.json(v)` recursively serialises Lists / Maps /
+    Options / Tuples / case classes); read side is missing.
+    Today `req.body` is the raw `String` and the user parses
+    manually.  Add:
+      - `jsonParse(s: String): Value` — generic parse to the
+        runtime's value shape (mirror of the existing internal
+        `toJson` used by `Response.json`).
+      - `jsonStringify(v): String` — same as `Response.json`'s
+        serialiser exposed as a standalone primitive (handy
+        outside the HTTP path — log lines, message payloads,
+        WS frames).
+      - `req.json: Value` — shorthand for
+        `jsonParse(req.body)` with a `400 Bad Request` on parse
+        failure.  Optional typed variant `req.jsonAs[T]` once
+        the typer carries enough info to derive a reader.
+    ~120 LOC × 3 (uPickle is already in deps from v1.0; pure
+    binding work per backend).
+
+18. **Middleware composition.**  Today every handler is
+    autonomous; cross-cutting concerns (auth check, request
+    logging, request-id, timing) get pasted into each one or
+    extracted into helper `def`s that the handler calls.  Add a
+    first-class middleware shape:
+
+    ```
+    def authMw(handler: Request => Response): Request => Response =
+      req => if validate(req) then handler(req) else Response.status(401)
+
+    route("GET", "/users")(authMw { req => ... })
+    route("GET", "/admin")(authMw andThen logMw { req => ... })
+    ```
+
+    Just function composition; no runtime change.  What's missing
+    is the **convention** and a couple of stock middlewares in
+    std: `withRequestId`, `withTiming`, `withRequestLog`, plus
+    the existing CORS (Tier 4 #13) and Cache (Tier 4 #15) helpers
+    fitting the same shape.  ~50 LOC of std helpers + docs.
+
+19. **Server-Sent Events (SSE) helper.**  Builds on Tier 4 #11
+    (streaming responses) but with the right Content-Type and
+    framing so browsers' `EventSource` works without user
+    boilerplate.  Shape:
+
+    ```
+    route("GET", "/events") { req =>
+      sse(req) { stream =>
+        stream.send(event = "tick", data = "1")
+        stream.send(data = "raw payload")
+        stream.close()
+      }
+    }
+    ```
+
+    Sets `Content-Type: text/event-stream`, `Cache-Control:
+    no-cache`, `Connection: keep-alive`; writes `event: …\ndata:
+    …\n\n` framing; flushes after each `send`.  ~80 LOC × 3.
+    Hard-blocked on Tier 4 #11 — without streaming responses,
+    SSE collapses to a one-shot buffered write.
+
+20. **Request validation helpers.**  Today every handler
+    re-implements `if req.form.contains("email") then …` with
+    ad-hoc string error messages.  Add a small typed validator
+    surface:
+
+    ```
+    val email   = req.require[String]("email")             // 400 if missing
+    val page    = req.optional[Int]("page").getOrElse(1)
+    val rating  = req.requireRange("rating", min = 1, max = 5)
+    ```
+
+    `require[T]` returns the value or short-circuits with
+    `Response.status(400, "missing/invalid: <field>")`.
+    Validation builders compose into an accumulating error map
+    when the handler wants to return all problems at once
+    (`req.validate { ... }` block).  ~150 LOC × 3 — mostly a
+    typed-coercion table covering `String` / `Int` / `Long` /
+    `Double` / `Boolean` / `Option`, plus the short-circuit
+    semantics through the existing Free-monad / Async layer.
+
+21. **Built-in health / readiness route.**  Convention: register
+    `GET /_health` and `GET /_ready` returning `200 {"status":
+    "ok"}` automatically when `serve(port)` is called, unless
+    the user has registered a route with the same path.  Real
+    apps inevitably hit Kubernetes / load-balancer probes and
+    re-implement these.  ~20 LOC × 3.
+
 ### Execution plan — phases A → E
 
 Tiers above are organised by feature area; this is the
@@ -735,6 +829,21 @@ items inside the phase pushed individually.
     - D.6 — Backend connection pool in JvmGen proxy (#16) —
       becomes moot if Phase E lands.
 
+- **Phase D′ — REST server ergonomics** *(items 17-21; ~3-4 days)*.
+  Tier 5 items.  Largely independent of Phases A-C; the only
+  cross-tier dependency is SSE (D′.3) requiring Phase D.4
+  (streaming responses) to land first.  Order chosen so the
+  cheapest items unblock real user code immediately.
+    - D′.1 — JSON read side (`jsonParse`, `jsonStringify`,
+      `req.json`) (#17).  Closes the most-asked-about asymmetry
+      in the current REST surface.
+    - D′.2 — Middleware composition convention + std helpers
+      (#18).  Pure library work; no runtime change.
+    - D′.3 — Server-Sent Events helper (#19).  Hard-blocked on
+      D.4 (Tier 4 #11).
+    - D′.4 — Request validation surface (#20).
+    - D′.5 — Built-in `/_health` / `/_ready` routes (#21).
+
 - **Phase E — full NIO HTTP migration** *(Sprint 5.16, ~2 weeks)*.
   Replaces the JDK `HttpServer` + WS-proxy pair with a single
   NIO selector loop owning both HTTP and WS state machines.
@@ -744,9 +853,10 @@ items inside the phase pushed individually.
   one Phase D item proves the JDK HttpServer is genuinely the
   bottleneck.
 
-Total: ~4 weeks of focused work for Phases A-D (after which the
-HTTP/WS stack is genuinely production-ready), Phase E as a
-follow-up architectural pass when scale demands it.
+Total: ~4.5 weeks of focused work for Phases A-D′ (after which the
+HTTP/WS stack is genuinely production-ready and ergonomic for
+real REST apps), Phase E as a follow-up architectural pass when
+scale demands it.
 
 ## v1.6 — Actors (Erlang-style, WebSocket-distributed)
 
