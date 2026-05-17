@@ -47,7 +47,7 @@ moving parts beyond themselves.
 
 | # | Stage | What | Iterations | Estimate |
 |---|-------|------|------------|----------|
-| 1 | 5+/A | IrExpr concrete + intrinsic-table consultation pattern | 3 | ~1d |
+| 1 | 5+/A | IrExpr concrete + intrinsic-table consultation pattern + JvmGen per-call-site dispatch | 4 | ~1d |
 | 2 | 5+/B | Migrate `println` / `print` (interpreter side) end-to-end | 1 | ~0.25d |
 | 3 | 9+/A | Parser routes unknown fence tags through `SourceLanguageRegistry` | 2 | ~0.5–1d |
 | 4 | 9+/B | `backend-html` extraction (containerTagNames + DSL prelude) | 4 | ~1.5d |

@@ -17,8 +17,12 @@ import scala.meta.*
  */
 object JvmGen:
 
-  def generate(module: Module, baseDir: Option[os.Path] = None): String =
-    JvmGen(baseDir).genModule(module)
+  def generate(
+      module:     Module,
+      baseDir:    Option[os.Path] = None,
+      intrinsics: Map[scalascript.ir.QualifiedName, scalascript.backend.spi.IntrinsicImpl] = Map.empty
+  ): String =
+    JvmGen(baseDir, intrinsics).genModule(module)
 
   private case class Block(node: ScalaNode, src: String)
   /** A heading-bound `html` / `css` code block: render to a string in the
@@ -26,7 +30,9 @@ object JvmGen:
    *  `<sectionId>.<lang>` (html or css) at the end of the module. */
   private case class StringBlockEntry(lang: String, src: String, sectionId: String, order: Int)
 
-class JvmGen(baseDir: Option[os.Path] = None):
+class JvmGen(
+    baseDir:    Option[os.Path] = None,
+    intrinsics: Map[scalascript.ir.QualifiedName, scalascript.backend.spi.IntrinsicImpl] = Map.empty):
   // Effect operations declared in the module, keyed as "Eff.op".
   private val effectOps     = mutable.Set.empty[String]
   // Functions whose body transitively performs effects; their bodies are
@@ -513,7 +519,24 @@ class JvmGen(baseDir: Option[os.Path] = None):
     out
 
   private def blockNeedsRewrite(node: ScalaNode): Boolean =
-    blockUsesEffects(node) || blockUsesMutualTco(node) || blockHasAutoOutputTerm(node)
+    blockUsesEffects(node)        ||
+    blockUsesMutualTco(node)      ||
+    blockHasAutoOutputTerm(node)  ||
+    blockUsesIntrinsics(node)
+
+  /** Stage 5+/A.4 — force blocks that call a registered intrinsic
+   *  through `emitExpr` so per-call-site dispatch fires.  Without
+   *  this, simple `val t = nowMillis()` would passthrough as raw
+   *  Scala and `nowMillis` would be unresolved (the Stage 5+/A.3
+   *  prelude alias is gone). */
+  private def blockUsesIntrinsics(node: ScalaNode): Boolean =
+    if intrinsics.isEmpty then false
+    else
+      val names = intrinsics.keySet.map(_.value)
+      def go(t: scala.meta.Tree): Boolean = t match
+        case Term.Apply.After_4_6_0(Term.Name(n), _) if names(n) => true
+        case other => other.children.exists(go)
+      ScalaNode.fold(node)(go)
 
   /** True if the top-level node ends with a bare expression — that's the
    *  trigger to take the walking emit path and inject the auto-output wrap. */
@@ -583,7 +606,21 @@ class JvmGen(baseDir: Option[os.Path] = None):
    *  Focus → Lens expansion, Prism[O, V] → Prism literal) rather than
    *  verbatim Scala source emission. */
   private def termNeedsCustomEmit(t: Term): Boolean =
-    termUsesEffects(t) || termContainsFocus(t) || termContainsPrism(t)
+    termUsesEffects(t) || termContainsFocus(t) || termContainsPrism(t) || termContainsIntrinsic(t)
+
+  /** Stage 5+/A.4 — `val t = nowMillis()` and similar val-bound
+   *  intrinsic calls need the rhs to go through `emitExpr` (where
+   *  the intrinsic dispatch fires).  Without this they emit the
+   *  raw scalameta syntax and the bare intrinsic name is
+   *  unresolved at scala-cli compile time. */
+  private def termContainsIntrinsic(t: Term): Boolean =
+    if intrinsics.isEmpty then false
+    else
+      val names = intrinsics.keySet.map(_.value)
+      def walk(n: Tree): Boolean = n match
+        case Term.Apply.After_4_6_0(Term.Name(nm), _) if names(nm) => true
+        case _ => n.children.exists(walk)
+      walk(t)
 
   private def termContainsFocus(t: Term): Boolean =
     var found = false
@@ -855,9 +892,62 @@ class JvmGen(baseDir: Option[os.Path] = None):
 
   // ─── Expression emission ──────────────────────────────────────────
 
+  /** Stage 5+/A.4 — per-call-site intrinsic dispatch.  Returns the
+   *  TargetCode string to splice into the emitted Scala, or `None`
+   *  if no intrinsic claims this name.  Called from `emitExpr` for
+   *  Term.Apply(Term.Name(fname), args) sites BEFORE the existing
+   *  hardcoded pattern matches, so a registered intrinsic always
+   *  wins.
+   *
+   *  Limitation: only fires when the block goes through `emitExpr`
+   *  (effects / mutual-TCO / auto-output) — passthrough blocks let
+   *  Scala's own name resolution apply.  Future work moves more
+   *  blocks through `emitExpr` so the dispatch covers everything. */
+  private def dispatchIntrinsic(fname: String, argClause: Term.ArgClause): Option[String] =
+    val qn = scalascript.ir.QualifiedName(fname)
+    intrinsics.get(qn).map {
+      case scalascript.backend.spi.RuntimeCall(target) =>
+        s"$target(${argClause.values.map(_.syntax).mkString(", ")})"
+      case scalascript.backend.spi.InlineCode(emit) =>
+        // Convert scalameta args → IR exprs (literal types preserved;
+        // everything else as a VarRef of its syntactic surface).
+        // Crude but covers `println("hello")` / `print(42)`-shaped
+        // call sites where args are scalars.
+        val irArgs = argClause.values.map(termToIr)
+        val ctx    = JvmEmitContext
+        emit(irArgs, ctx).value
+      case _ =>
+        // NativeImpl / HostCallback don't emit target source; fall
+        // through to scalameta's default emission.
+        argClause.values.map(_.syntax).mkString(s"$fname(", ", ", ")")
+    }
+
+  /** Minimum-viable IrExpr conversion for intrinsic dispatch — only
+   *  string / int / double literals survive shape; everything else
+   *  becomes a `VarRef` carrying the scalameta syntax (so the
+   *  intrinsic can splice it back into the emitted Scala unchanged). */
+  private def termToIr(t: Term): scalascript.ir.IrExpr = t match
+    case Lit.String(s)  => scalascript.ir.Lit(scalascript.ir.LitValue.StringL(s))
+    case Lit.Int(n)     => scalascript.ir.Lit(scalascript.ir.LitValue.IntL(n.toLong))
+    case Lit.Long(n)    => scalascript.ir.Lit(scalascript.ir.LitValue.IntL(n))
+    case Lit.Double(d)  => scalascript.ir.Lit(scalascript.ir.LitValue.DoubleL(d.toDouble))
+    case Lit.Boolean(b) => scalascript.ir.Lit(scalascript.ir.LitValue.BoolL(b))
+    case Lit.Unit()     => scalascript.ir.Lit(scalascript.ir.LitValue.UnitL)
+    case other          => scalascript.ir.VarRef(other.syntax)
+
+  /** Stage 5+/A.4 — `JvmGen`'s per-call-site EmitContext.  Trait
+   *  methods stubbed for now (intrinsics in this stage don't need
+   *  them); fleshed out in subsequent iterations. */
+  private object JvmEmitContext extends scalascript.ir.EmitContext
+
   /** Emit a Scala expression. For non-effectful subtrees, fall through to
    *  scalameta's source. For effect-related subtrees, do custom emission. */
   private def emitExpr(term: Term): String = term match
+    // Stage 5+/A.4 intrinsic dispatch — fires first.
+    case Term.Apply.After_4_6_0(Term.Name(fname), argClause)
+        if dispatchIntrinsic(fname, argClause).isDefined =>
+      dispatchIntrinsic(fname, argClause).get
+
     // handle(body) { cases }
     case Term.Apply.After_4_6_0(
       Term.Apply.After_4_6_0(Term.Name("handle"), bodyArgClause),

@@ -23,20 +23,9 @@ class JvmBackend extends Backend:
   def compile(module: ir.NormalizedModule, opts: BackendOptions): CompileResult =
     val astModule = Denormalize(module)
     val baseDir   = opts.baseDir.map(p => os.Path(p.toAbsolutePath.toString))
-    val code      = intrinsicPrelude + JvmGen.generate(astModule, baseDir)
+    // Stage 5+/A.4 — intrinsics flow through to JvmGen for per-call-site
+    // dispatch in `emitExpr`.  The earlier Stage 5+/A.3 `intrinsicPrelude`
+    // (prepended `def` aliases) is gone — per-call-site is the proper
+    // home for both `RuntimeCall` and `InlineCode` variants.
+    val code = JvmGen.generate(astModule, baseDir, intrinsics)
     CompileResult.TextOutput(code = code, language = "scala", sources = Nil)
-
-  /** Stage 5+/A.3 — surface every `RuntimeCall` intrinsic as a Scala
-   *  `def` injected before the JvmGen-emitted script.  The Scala
-   *  compiler then resolves the user-side call site to this def.
-   *
-   *  Crude but effective: a per-call-site intrinsic-table consult
-   *  during emit (the spec's eventual design) needs JvmGen surgery;
-   *  pre-prepending the runtime alias is the minimum-surface
-   *  demonstration that the SPI's `intrinsics` map drives a compiled
-   *  backend's behaviour. */
-  private def intrinsicPrelude: String =
-    intrinsics.collect {
-      case (qn, RuntimeCall(target)) =>
-        s"def ${qn.value}() = $target()"
-    }.mkString("", "\n", if intrinsics.nonEmpty then "\n" else "")
