@@ -1,0 +1,42 @@
+#!/usr/bin/env ssc
+---
+name: alert
+description: Banner box with a tone — flash messages, validation feedback.
+---
+
+# Alert
+
+A boxed message with five tones — same palette as Badge so they
+compose visually.
+
+```scalascript
+object Alert:
+  private val sc = scope("Alert")
+  private val rootCls = sc.cls("root")
+  private val infoCls = sc.cls("info")
+  private val successCls = sc.cls("success")
+  private val warnCls = sc.cls("warn")
+  private val dangerCls = sc.cls("danger")
+  private val neutralCls = sc.cls("neutral")
+
+  val css: String = sc.css("""
+    .root     { padding: .75em 1em; border-radius: 6px;
+                margin: 1em 0; border-left: 4px solid transparent;
+                font-size: .95em; line-height: 1.55; }
+    .neutral  { background: #f3f4f6; color: #374151; border-color: #9ca3af; }
+    .info     { background: #dbeafe; color: #1e40af; border-color: #2563eb; }
+    .success  { background: #d1fae5; color: #065f46; border-color: #16a34a; }
+    .warn     { background: #fef3c7; color: #92400e; border-color: #f59e0b; }
+    .danger   { background: #fee2e2; color: #991b1b; border-color: #dc2626; }
+  """)
+
+  def render(body: String, tone: String): String =
+    val toneCls = tone match
+      case "info"    => infoCls
+      case "success" => successCls
+      case "warn"    => warnCls
+      case "danger"  => dangerCls
+      case _         => neutralCls
+    val cls = rootCls + " " + toneCls
+    html"""<div class="${cls}" role="alert">${raw(body)}</div>"""
+```

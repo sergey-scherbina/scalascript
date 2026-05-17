@@ -1,0 +1,45 @@
+#!/usr/bin/env ssc
+---
+name: tag
+description: Closable inline token — labels, filters, multi-select chips.
+---
+
+# Tag
+
+Smaller than Badge, with an optional close button.  The button is
+just a plain `<button>` carrying a `data-tag-id` attribute; bind the
+click in your own `val js` to remove the tag from your state.
+
+```scalascript
+object Tag:
+  private val sc = scope("Tag")
+  private val rootCls = sc.cls("root")
+  private val labelCls = sc.cls("label")
+  private val closeCls = sc.cls("close")
+
+  val css: String = sc.css("""
+    .root  { display: inline-flex; align-items: center;
+             gap: .35em; padding: .1em .55em;
+             background: #e0e7ff; color: #3730a3;
+             border-radius: 4px; font-size: .85em;
+             font-weight: 500; line-height: 1.5;
+             vertical-align: middle; }
+    .label { white-space: nowrap; }
+    .close { background: transparent; border: 0; color: inherit;
+             cursor: pointer; padding: 0 .1em; font-size: 1em;
+             line-height: 1; opacity: .65; }
+    .close:hover { opacity: 1; }
+  """)
+
+  /** Pass `id` so a delegated click handler can identify which tag
+   *  was dismissed.  `closable = false` omits the × button. */
+  def render(id: String, label: String, closable: Boolean): String =
+    val closeBtn =
+      if !closable then ""
+      else html"""<button class="${closeCls}" type="button"
+                          aria-label="Remove ${label}"
+                          data-tag-id="${id}">×</button>"""
+    html"""<span class="${rootCls}">
+      <span class="${labelCls}">${label}</span>${raw(closeBtn)}
+    </span>"""
+```

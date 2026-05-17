@@ -6,9 +6,11 @@ description: |
   consumers can write one directory import instead of forty.
 exports:
   - Accordion
+  - Alert
   - Avatar
   - Badge
   - Breadcrumbs
+  - Card
   - Checkbox
   - Code
   - Container
@@ -37,8 +39,10 @@ exports:
   - Spinner
   - Stack
   - SubmitButton
+  - Switch
   - Table
   - Tabs
+  - Tag
   - Textarea
   - Theme
   - ThemeProvider
@@ -143,6 +147,16 @@ instead of one explicit import per component file.
 [Accordion](./accordion.ssc)
 
 [Dropdown](./dropdown.ssc)
+
+## Extended pack (v0.10)
+
+[Card](./card.ssc)
+
+[Switch](./switch.ssc)
+
+[Alert](./alert.ssc)
+
+[Tag](./tag.ssc)
 
 ## Theming
 

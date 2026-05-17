@@ -1,0 +1,40 @@
+#!/usr/bin/env ssc
+---
+name: card
+description: Header / body / footer trio — the workhorse layout for content blocks.
+---
+
+# Card
+
+```scalascript
+object Card:
+  private val sc = scope("Card")
+  private val rootCls = sc.cls("root")
+  private val headerCls = sc.cls("header")
+  private val bodyCls = sc.cls("body")
+  private val footerCls = sc.cls("footer")
+
+  val css: String = sc.css("""
+    .root   { border: 1px solid #e5e7eb; border-radius: 8px;
+              background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.05);
+              margin: 1em 0; overflow: hidden; }
+    .header { padding: .75em 1em; border-bottom: 1px solid #e5e7eb;
+              background: #f9fafb; font-weight: 600; color: #111827; }
+    .body   { padding: 1em; color: #374151; line-height: 1.55; }
+    .footer { padding: .65em 1em; border-top: 1px solid #e5e7eb;
+              background: #f9fafb; color: #6b7280; font-size: .9em; }
+  """)
+
+  /** Pass `""` to either slot to omit it.  All three slots accept HTML
+   *  so you can drop Buttons, Avatars, etc. in. */
+  def render(header: String, body: String, footer: String): String =
+    val headerHtml =
+      if header == "" then "" else html"""<div class="${headerCls}">${raw(header)}</div>"""
+    val footerHtml =
+      if footer == "" then "" else html"""<div class="${footerCls}">${raw(footer)}</div>"""
+    html"""<div class="${rootCls}">
+      ${raw(headerHtml)}
+      <div class="${bodyCls}">${raw(body)}</div>
+      ${raw(footerHtml)}
+    </div>"""
+```
