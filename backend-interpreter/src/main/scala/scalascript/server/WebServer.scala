@@ -101,10 +101,16 @@ object WebServer:
   ): Unit =
     import scalascript.interpreter.Value
     val query = parseQuery(Option(ex.getRequestURI.getRawQuery).getOrElse(""))
+    // Lowercase keys for portable lookup — Node's req.headers is already
+    // lowercased, the WS path (WsProxy / JvmGen WS handshake) also uses
+    // lowercase ("upgrade", "cookie", "sec-websocket-key", …), so REST
+    // matches.  Existing handlers that do `headers.get("authorization") ||
+    // headers.get("Authorization")` still find the value via the first
+    // arm.
     val headers: Map[Value, Value] =
       ex.getRequestHeaders.entrySet.iterator.asScala.flatMap { e =>
         if e.getValue.isEmpty then None
-        else Some(Value.StringV(e.getKey) -> Value.StringV(e.getValue.get(0)))
+        else Some(Value.StringV(e.getKey.toLowerCase) -> Value.StringV(e.getValue.get(0)))
       }.toMap
     // Read the body as raw bytes (the only byte-clean source for multipart
     // file parts).  `req.body` exposes the UTF-8 view for back-compat; the
