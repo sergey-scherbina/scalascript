@@ -606,6 +606,122 @@ so they should land at a similar pace once the template is
 established.  No new compiler concept required — purely runtime
 library additions on top of the existing Free Monad infrastructure.
 
+## Web stack — current state and critical gaps (snapshot 2026-05-17)
+
+A cross-cutting honest inventory of what's deployable, what works,
+and what isn't shipped yet, so the v1.5+ priorities can be reasoned
+about against real use cases.
+
+### What's landed and works in production
+
+**HTTP server** (behind a reverse proxy; see TLS gap below):
+`serve(port)`, `route(method, path)`, `Request` / `Response`,
+multipart upload (`req.files`), URL-encoded forms, query params,
+cookies, signed sessions (`withSession`), server-side session store
+(in-memory), CSRF (`csrfValid`), static file serving, `.ssc` page
+rendering.  Cross-backend parity: interpreter (NIO proxy + JDK
+HttpServer) / JvmGen / JsGen (Node `http`).
+
+**WebSocket server** (v1.0, landed 2026-05-17):
+`onWebSocket(path, origins, protocols, maxConnections,
+maxMessagesPerSec)` + `onWebSocketAuth(path, authFn)`.  `ws.send` /
+`sendBytes` / `recv` / `close` / `ping` / callback registration.
+`ws.id` (UUID-v4) / `ws.subprotocol` / `ws.user` / `ws.request`.
+RFC 6455 framing, fragmentation, ping/pong heartbeat, close-echo
+wait, Origin allowlist, subprotocol negotiation, per-route +
+process-wide caps, per-connection rate limit, structured
+`ws.connect` / `ws.close` logs, HTTP access log, `metrics()` native.
+Cross-backend parity (interpreter / JvmGen / JsGen).
+
+**Auth** (v0.6 + v1.2, landed): password hashing (PBKDF2-HMAC-SHA256),
+JWT HS256 + RS256, OAuth2 generic flow, TOTP 2FA (RFC 6238),
+WebAuthn / passkeys (Apple / Yubikey / Android), rate limit
+middleware, end-to-end `examples/auth-full.ssc`.
+
+**REST ergonomics** (v1.5 Tier 5, partially landed):
+`jsonParse` / `jsonStringify` / `req.json` — Tier 5 #17, PR #47.
+
+**Actors** (v1.6 Phase 1, landed): local `spawn` / `send` / `receive`
+/ `self` / `exit` / `link` / timeout receive on all three backends.
+
+### 🔴 Critical gaps (real blockers for specific use cases)
+
+1. **TLS / HTTPS** — Tier 1 of v1.5 below.  Single biggest gap.
+   `serve(443)` is unreachable from real browsers without it
+   (mixed-content + modern SameSite-cookie + WebAuthn all require
+   HTTPS).  Today the standard workaround is an nginx terminator
+   in front of `serve(80)` — fine for prod, but a hard blocker for
+   any "drop `bin/ssc` on a VM and go" deploy story.  ~1 week.
+
+2. **HTTP client** — Tier 2 of v1.5.  `.ssc` apps cannot make
+   outbound HTTPS calls from runtime.  Only escape hatch today is
+   `os.proc("curl", ...)` which breaks on JS / WASM and disables
+   effect handlers.  Concrete real-app blockers: OAuth token
+   exchange, payment integrations, AI / LLM API calls,
+   service-to-service, webhook delivery.  An internal
+   `_oauthSyncFetch` exists but is private — not user-callable.
+   ~1 week.
+
+3. **WebSocket client** — Tier 3 of v1.5.  Symmetric to
+   `onWebSocket`.  Without it, `.ssc` apps cannot be WS clients
+   (Discord-bot, Slack integration, market-data feeds — impossible
+   without `os.proc("websocat", ...)` hacks).  Also a hard
+   prerequisite for v1.6 Phase 3 (distributed actors over WS).
+   ~1 week; inherits TLS for `wss://` from Tier 1.
+
+4. **Streaming responses** — Tier 4 #11 of v1.5.  `Response.body`
+   is a `String` in memory today.  Concrete blockers: large file
+   downloads (>100 MB → OOM at emit), Server-Sent Events (SSE is
+   fundamentally streaming), long-lived progress reporting.
+   Streaming uploads (Tier 4 #12) have the same shape and a
+   similar criticality once a real file-upload service emerges.
+   ~½ week each.
+
+### 🟡 Important but not critical (workarounds exist)
+
+- **CORS / gzip / cache headers** (Tier 4 #13/#14/#15) — reverse
+  proxy handles these in prod deploys.  ~1-2 days each when wanted.
+- **Middleware composition convention** (Tier 5 #18) — copy-paste
+  works; ergonomics-only.  ~½ day std helpers.
+- **Request validation helpers** (Tier 5 #20) — manual
+  `req.form.contains` works; verbose.  ~1 day.
+- **`/_health` / `/_ready`** (Tier 5 #21) — 20 LOC × 3.  Useful
+  for k8s probes.  ~½ hour.
+- **`permessage-deflate`** (Sprint 5 #18 of v1.0) — 5-10×
+  compression on JSON WS workloads.  Only matters under scale.
+
+### 🟢 Latent / scale concerns
+
+- **WS test cross-suite isolation** through global `WsRoutes` +
+  `WsTestLock` — works, but serialises ScalaTest parallel
+  execution.  Half-day refactor when a third WS-touching suite
+  lands.
+- **NIO HTTP migration for JvmGen** (Sprint 5 #16 of v1.0,
+  cancelled per Loom-convergence decision) — eliminates the
+  loopback hop in JvmGen WS proxy.  Measurable overhead under
+  scale, not functional.
+- **Hot reload in `serve` mode** — routes pinned at start.
+  Restart-to-deploy works in prod; dev UX issue.
+- **`extern def` / `Backend.runtimePreamble` SPI gap** — see
+  Stage 5+/A.5 in [`docs/spi-followups-plan.md`](docs/spi-followups-plan.md).
+  Prerequisite to migrating `route` / `serve` / `onWebSocket`
+  into the intrinsic table.  Pure SPI rearrangement; no
+  user-visible behaviour change.
+
+### Bottom line
+
+The HTTP/WS stack is **production-ready as a server-behind-nginx**:
+all auth flows work, WS server has rate limits + caps + observability,
+237 unit + 39 conformance tests pass.
+
+**Two real-app boundaries are not crossed yet:**
+- Standalone-on-the-internet deploy → blocked on TLS (Tier 1).
+- Outbound HTTP / WS → blocked on Tier 2 / Tier 3 clients.
+
+Order the v1.5 tiers below against those two boundaries; everything
+else in v1.5 (Tier 4 streaming, Tier 5 ergonomics) is workaround-
+covered today.
+
 ## v1.5 — Transport layer: TLS + HTTP/WS clients + streaming
 
 Right now ScalaScript ships a **server-only** HTTP/WS stack with
