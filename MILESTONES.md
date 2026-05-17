@@ -77,7 +77,7 @@ Right now ScalaScript ships a **server-only** HTTP/WS stack with
 nginx-terminating reverse proxy; a non-starter for standalone
 deployment to the internet, and a hard blocker for any `.ssc` app
 that needs to call OUT to an HTTPS API or another WebSocket server.
-Three blocks of work, ordered by impact:
+Four tiers below; the execution plan is at the end.
 
 ### Tier 1 — TLS (`https://` + `wss://`)
 
@@ -185,6 +185,73 @@ JDK HttpServer's defaults are "fine enough":
     Tiny `keep-alive` pool would cut request overhead.  ~80 LOC.
     (Subsumed by Sprint 5.16's full NIO migration if that lands
     first.)
+
+### Execution plan — phases A → E
+
+Tiers above are organised by feature area; this is the
+**order they should land in** so each phase unblocks (or shares
+infra with) the next.  Each phase = one worktree per the
+[MILESTONES-driven workflow](AGENTS.md#milestones-driven-workflow),
+items inside the phase pushed individually.
+
+- **Phase A — TLS** *(items 1-4; ~1 week)*.  The blocking piece.
+  Without `https://` neither the existing server nor the planned
+  HTTP client matters for real internet use, and the modern
+  cookie / mixed-content rules make standalone `serve(80)` a dead
+  end.  Delivers the shared `SSLContext` factory that Phases B
+  and C re-use, so doing it first amortises the work.
+    - A.1 — `tls("cert.pem", "key.pem")` config primitive (#3).
+    - A.2 — `HttpsServer` for JvmGen REST (#2, JDK one-liner).
+    - A.3 — SSLEngine wrap for the interpreter's NIO proxy (#1,
+      the hard part — handshake state machine over `ByteBuffer`s).
+    - A.4 — TLS wrap for JvmGen's WS proxy `ServerSocket` (#2
+      partial, blocking IO so easier than A.3).
+    - A.5 — Optional Let's Encrypt / acme.sh integration (#4),
+      defer.
+
+- **Phase B — HTTP client** *(items 5-7; ~1 week)*.  Picks up
+  Phase A's `SSLContext` for free.  Wraps Java's `HttpClient`
+  (Loom-friendly, HTTP/2 capable) on JVM, `fetch` on Node,
+  `XMLHttpRequest` on browser-SPA.  Common return shape
+  `Response(status, headers, body)` mirrors the server side.
+    - B.1 — `httpGet` / `httpPost` primitives (#5).
+    - B.2 — `httpClient { … }` block for shared config (#6).
+    - B.3 — Streaming response bodies (`bodyStream { line => … }`)
+      for SSE / chunked downloads (#7).
+
+- **Phase C — WebSocket client** *(items 8-10; ~1 week)*.
+  Symmetric to `onWebSocket`; re-uses `WsFraming` and Phase A's
+  TLS.  Asymmetries vs the server: the client *masks* its
+  outbound frames (RFC 6455 §5.3), generates a random
+  `Sec-WebSocket-Key`, parses unmasked server frames.
+    - C.1 — `connectWebSocket(url) { ws => … }` (#8).
+    - C.2 — `wss://` over TLS (#9, free given A).
+    - C.3 — Auto-reconnect with backoff (#10), defer.
+
+- **Phase D — HTTP server completeness** *(items 11-16;
+  ~1 week)*.  Independent tactical fixes, each its own commit.
+  Can interleave with phases above if helpful, but most of them
+  presume the v1.0 server lifecycle is settled.
+    - D.1 — CORS helper (#13, smallest).
+    - D.2 — gzip on responses (#14).
+    - D.3 — Cache headers + 304 short-circuit (#15).
+    - D.4 — Streaming responses (#11, biggest API change).
+    - D.5 — Streaming uploads + spool-to-disk for big multipart (#12).
+    - D.6 — Backend connection pool in JvmGen proxy (#16) —
+      becomes moot if Phase E lands.
+
+- **Phase E — full NIO HTTP migration** *(Sprint 5.16, ~2 weeks)*.
+  Replaces the JDK `HttpServer` + WS-proxy pair with a single
+  NIO selector loop owning both HTTP and WS state machines.
+  Eliminates the loopback hop, unifies the threading model
+  across interpreter and JvmGen, and is what `permessage-deflate`
+  (Sprint 5.18) would build on top of.  Deferred until at least
+  one Phase D item proves the JDK HttpServer is genuinely the
+  bottleneck.
+
+Total: ~4 weeks of focused work for Phases A-D (after which the
+HTTP/WS stack is genuinely production-ready), Phase E as a
+follow-up architectural pass when scale demands it.
 
 ## Backend SPI v0.1 — plugin architecture
 
