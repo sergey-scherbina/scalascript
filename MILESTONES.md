@@ -65,16 +65,6 @@ on bare class names, all reachable through a top-level aggregator
 `std/ui/index.ssc` so consumers can do
 `[Button, Card, FormInput as Input](std/ui)`.
 
-Tier 8 — **theming infrastructure**
-
-  - **CSS variables** (`--ui-color-primary`, `--ui-radius-md`,
-    `--ui-font-body`, …) defined in `std/ui/theme.ssc`; every
-    other component reads from them so theming is variable-swap.
-  - **`ThemeProvider`** — sets variables on `:root` from a Map.
-  - **Dark-mode toggle** — `prefers-color-scheme` defaults + a
-    user override via `data-theme="dark"`.
-  - **Reset / normalise stylesheet** shipped as `std/ui/reset.css`.
-
 Cross-cutting work the pack motivates:
 
   - **`ssc test`** — a runner for component-level unit tests

@@ -1,0 +1,99 @@
+#!/usr/bin/env ssc
+---
+name: std-ui-theming-demo
+description: Renders the Theme tokens + ThemeProvider override + dark toggle.
+routes:
+  - method: GET
+    path: /
+    handler: home
+---
+
+# std/ui — theming demo
+
+Imports `Theme`, `ThemeProvider`, `ThemeToggle`, `Reset`.
+
+[Theme](./theme.ssc)
+
+[ThemeProvider](./theme-provider.ssc)
+
+[ThemeToggle](./theme-toggle.ssc)
+
+[Reset](./reset.ssc)
+
+```scalascript
+def home(req: Request): Response =
+  val sample = html"""
+    <h2 style="margin-bottom:.5em;">Sample card</h2>
+    <p style="color: var(--ui-color-muted);
+              padding: var(--ui-space-3);
+              background: var(--ui-color-surface);
+              border: 1px solid var(--ui-color-border);
+              border-radius: var(--ui-radius-md);
+              box-shadow: var(--ui-shadow-sm);">
+      Body text uses <code>var(--ui-color-fg)</code>, and surface
+      tokens give cards a consistent look across the pack.
+    </p>
+    <p>
+      <button style="background: var(--ui-color-primary); color: #fff;
+                     padding: .5em 1em; border: 0;
+                     border-radius: var(--ui-radius-md);
+                     box-shadow: var(--ui-shadow-md);
+                     cursor: pointer;">Primary button</button>
+    </p>
+  """
+
+  val brandedOverride = ThemeProvider.render(
+    Map(
+      "ui-color-primary"       -> "#a855f7",
+      "ui-color-primary-hover" -> "#9333ea",
+      "ui-color-surface"       -> "#faf5ff",
+      "ui-color-border"        -> "#e9d5ff"
+    ),
+    sample
+  )
+
+  val toggle = ThemeToggle.render()
+
+  val body = html"""
+    <header style="display:flex; align-items:center;
+                   justify-content:space-between; margin-bottom:1.5em;">
+      <h1 style="margin:0;">std/ui — theming</h1>
+      ${raw(toggle)}
+    </header>
+
+    <p>Tier 8 of the standard component pack.  Switch the theme to
+    see every token swap.  The “branded” card below uses
+    <code>ThemeProvider</code> to override the primary &amp; surface
+    colours for just its subtree.</p>
+
+    <h2>Default theme</h2>
+    ${raw(sample)}
+
+    <h2>Branded subtree (purple)</h2>
+    ${raw(brandedOverride)}
+
+    <script>${raw(collectJs(ThemeToggle))}</script>
+  """
+
+  val styles = collectCss(Reset, Theme, ThemeProvider, ThemeToggle)
+
+  Response.html(html"""<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>std/ui — theming</title>
+  <script>${raw(ThemeToggle.bootJs)}</script>
+  <style>
+    ${raw(styles)}
+    body { max-width: 720px; margin: 2rem auto; padding: 0 1rem; }
+    h1 { margin-top: 0; }
+  </style>
+</head>
+<body>
+  ${raw(body)}
+</body>
+</html>""")
+
+println("Listening on http://localhost:8777/")
+serve(8777)
+```
