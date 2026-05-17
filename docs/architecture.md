@@ -150,31 +150,61 @@ enum TypedExpr:
 
 ### 4. Backend Translation
 
-**Input:** Typed IR
-**Output:** Target-specific code
+**Input:** `ir.NormalizedModule` (post-`Normalize`).
+**Output:** A `CompileResult` variant: `TextOutput`, `Segmented`,
+`BinaryOutput`, `Executed`, or `Failed(diagnostics)`.
 
-Each backend implements the `Backend` trait:
+Every backend implements the SPI trait in `backend-spi`:
 
 ```scala
-trait Backend:
-  def name: String
-  def translate(module: TypedModule): Output
+package scalascript.backend.spi
 
-  // Hook points for customization
-  def translateType(tpe: Type): TargetType
-  def translateExpr(expr: TypedExpr): TargetExpr
-  def generateRuntime(): TargetCode
+trait Backend:
+  def id:              String                              // "jvm", "js", "wasm", …
+  def displayName:     String
+  def spiVersion:      String                              // SpiVersion.Current
+  def capabilities:    Capabilities                        // §11 — features/outputs/options
+  def intrinsics:      Map[ir.QualifiedName, IntrinsicImpl] // §8 — platform-native calls
+  def acceptedSources: Set[String]                         // §9 — embedded source languages
+  def compile(ir: NormalizedModule, opts: BackendOptions): CompileResult
+
+trait InteractiveBackend extends Backend:
+  def openSession(opts: BackendOptions): Session
+
+trait Session extends AutoCloseable:
+  def feed(block: NormalizedBlock): CompileResult
+  def invokeHandler(handlerRef: SymbolRef, args: List[Value]): Value
+  def close(): Unit
 ```
 
-**JVM Backend specifics:**
-- Generates Scala 3 source
-- Uses Scala-CLI for compilation
-- Preserves type information for IDE support
+Full design + open questions: [`docs/backend-spi.md`](backend-spi.md);
+out-of-process wire protocol: [`docs/backend-spi-protocol.md`](backend-spi-protocol.md).
 
-**JS Backend specifics:**
-- Generates ES modules
-- Includes minimal runtime for ScalaScript types
-- Source maps for debugging
+**Bundled adapters** (each in its own sbt subproject):
+
+| Subproject               | Backend impl                  | id              | Output kind        |
+|--------------------------|-------------------------------|-----------------|--------------------|
+| `backend-jvm/`           | `codegen.JvmBackend`          | `jvm`           | `ScalaSource`      |
+| `backend-js/`            | `codegen.JsBackend`           | `js`            | `JavaScriptSource` |
+| `backend-scalajs/`       | `codegen.ScalaJsPluginBackend`| `scalajs-spa`   | `JavaScriptSource` + `HtmlSource` |
+| `backend-interpreter/`   | `interpreter.InterpreterBackend` | `int`        | `ExecutionResult`  |
+
+`InterpreterBackend` is the only one extending `InteractiveBackend`
+(its `Session` underpins `ssc serve`).
+
+**Discovery.**  `core/plugin/BackendRegistry` combines two paths:
+
+  1. **ServiceLoader** picks up every JAR with a
+     `META-INF/services/scalascript.backend.spi.Backend` entry — how
+     the four bundled backends register, and how `--plugin <jar>`
+     attaches a third-party JAR via `URLClassLoader`.
+  2. **plugin.yaml** under `$SCALASCRIPT_PLUGIN_PATH` /
+     `~/.scalascript/plugins/` (or `--plugin-dir <dir>`) declares
+     subprocess plugins.  `SubprocessBackend` wraps each as a stdio
+     speaker.
+
+`BackendRegistry.lookup(id)` consults both — in-process first,
+subprocess on miss (lazy spawn).
 
 ## Symbol Table & Scopes
 
@@ -256,15 +286,23 @@ Format options:
 
 ### Custom Backends
 
-Implement `Backend` trait and register:
+See [`docs/writing-a-backend.md`](writing-a-backend.md) for a
+step-by-step walk-through of a no-op backend in under 100 lines.
+Two distribution shapes:
 
-```scala
-object MyBackend extends Backend:
-  def name = "my-target"
-  def translate(module: TypedModule) = ...
+  - **In-process JAR.**  Implement `Backend` in any JVM language,
+    drop a `META-INF/services/scalascript.backend.spi.Backend` entry
+    listing your class, attach the JAR via `--plugin <jar>` (or
+    place it on the bundled classpath).  Worked example:
+    `examples/plugins/hello-backend/`.
+  - **Subprocess.**  Any language that can read newline-delimited
+    JSON.  Drop a `plugin.yaml` under `~/.scalascript/plugins/`;
+    `SubprocessBackend` wraps the process and routes
+    `Backend.compile` over stdio.  Worked example:
+    `examples/plugins/canned-backend/`.
 
-BackendRegistry.register(MyBackend)
-```
+Both shapes go through `core/plugin/BackendRegistry` and are
+interchangeable from the CLI's view.
 
 ### Language Extensions
 
@@ -283,28 +321,43 @@ Via Language Server Protocol (LSP) in future milestones.
 ## Directory Structure (Implementation)
 
 ```text
-compiler/
-├── lexer/
-│   ├── Scanner.scala
-│   ├── Token.scala
-│   └── MarkdownLexer.scala
-├── parser/
-│   ├── Parser.scala
-│   ├── ExprParser.scala
-│   └── AST.scala
-├── typer/
-│   ├── Typer.scala
-│   ├── TypeInference.scala
-│   ├── Symbols.scala
-│   └── Types.scala
-├── ir/
-│   ├── TypedIR.scala
-│   └── IRSerializer.scala
-├── backend/
-│   ├── Backend.scala
-│   ├── JVMBackend.scala
-│   └── JSBackend.scala
-└── main/
-    ├── Compiler.scala
-    └── CLI.scala
+backend-spi/                # public, semver-stable
+└── src/main/scala/scalascript/backend/spi/
+    ├── Backend.scala          Backend / InteractiveBackend / Session
+    ├── BackendOptions.scala
+    ├── Capabilities.scala
+    ├── CompileResult.scala
+    ├── Diagnostic.scala
+    ├── Feature.scala
+    ├── OutputKind.scala
+    ├── IntrinsicImpl.scala
+    ├── SourceLanguage.scala
+    └── SpiVersion.scala
+
+ir/                         # NormalizedModule + JSON / MsgPack codecs
+└── src/main/scala/scalascript/ir/Ir.scala
+
+core/                       # parser, typer, normalize, registry, validation
+└── src/main/scala/scalascript/
+    ├── parser/Parser.scala
+    ├── typer/Typer.scala, Types.scala
+    ├── ast/                       # AST types + scalameta wrapper
+    ├── imports/ImportResolver.scala
+    ├── interpreter/Value.scala    # Computation Free monad (shared)
+    ├── transform/Normalize.scala  # AST → IR
+    ├── transform/Denormalize.scala# IR → AST (Stage 5 transitional)
+    ├── transform/EffectAnalysis.scala
+    ├── validate/CapabilityCheck.scala
+    └── plugin/
+        ├── BackendRegistry.scala
+        ├── PluginManifest.scala
+        ├── SubprocessBackend.scala
+        └── WireProtocol.scala
+
+backend-jvm/                # Backend adapter — JvmGen Scala source
+backend-js/                 # Backend adapter — JsGen JavaScript
+backend-scalajs/            # Backend adapter — Scala.js SPA
+backend-interpreter/        # InteractiveBackend — tree-walking interpreter
+
+cli/                        # ssc command + sbt-assembly fat jar
 ```

@@ -11,25 +11,132 @@ ThisBuild / version      := "0.1.0-SNAPSHOT"
 ThisBuild / Test / javaOptions += "-Xss8m"
 ThisBuild / Test / fork         := true
 
-lazy val compiler = project
-  .in(file("compiler"))
+val sharedScalacOptions = Seq("-Wunused:all", "-deprecation", "-feature")
+val scalatestTest       = "org.scalatest" %% "scalatest" % "3.2.18" % Test
+
+// ---------------------------------------------------------------------------
+// Backend SPI v0.1 — module layout (docs/backend-spi.md §4.1)
+//
+// Stage 1.2: sources moved out of compiler/ into the new modules.
+// ---------------------------------------------------------------------------
+
+lazy val ir = project
+  .in(file("ir"))
   .settings(
-    name := "scalascript",
+    name := "scalascript-ir",
     libraryDependencies ++= Seq(
-      "org.yaml"         %  "snakeyaml"  % "2.6",
-      "com.lihaoyi"      %% "os-lib"     % "0.11.4",
-      "com.lihaoyi"      %% "upickle"    % "4.4.2",
-      "com.lihaoyi"      %% "pprint"     % "0.9.6",
-      "org.scalameta"    %% "scalameta"  % "4.17.0",
-      "org.commonmark"   %  "commonmark" % "0.28.0",
-      "org.scalatest"    %% "scalatest"  % "3.2.18" % Test
+      "com.lihaoyi" %% "upickle" % "4.4.2"
     ),
-    scalacOptions ++= Seq("-Wunused:all", "-deprecation", "-feature")
+    scalacOptions ++= sharedScalacOptions
   )
+
+lazy val backendSpi = project
+  .in(file("backend-spi"))
+  .dependsOn(ir)
+  .settings(
+    name := "scalascript-backend-spi",
+    scalacOptions ++= sharedScalacOptions
+  )
+
+lazy val core = project
+  .in(file("core"))
+  .dependsOn(backendSpi)
+  .settings(
+    name := "scalascript-core",
+    libraryDependencies ++= Seq(
+      "org.yaml"       %  "snakeyaml"  % "2.6",
+      "com.lihaoyi"    %% "os-lib"     % "0.11.4",
+      "org.scalameta"  %% "scalameta"  % "4.17.0",
+      "org.commonmark" %  "commonmark" % "0.28.0",
+      scalatestTest
+    ),
+    scalacOptions ++= sharedScalacOptions
+  )
+
+lazy val backendJvm = project
+  .in(file("backend-jvm"))
+  .dependsOn(backendSpi, core)
+  .settings(
+    name := "scalascript-backend-jvm",
+    scalacOptions ++= sharedScalacOptions
+  )
+
+lazy val backendJs = project
+  .in(file("backend-js"))
+  .dependsOn(backendSpi, core)
+  .settings(
+    name := "scalascript-backend-js",
+    scalacOptions ++= sharedScalacOptions
+  )
+
+lazy val backendScalajs = project
+  .in(file("backend-scalajs"))
+  .dependsOn(backendSpi, core)
+  .settings(
+    name := "scalascript-backend-scalajs",
+    scalacOptions ++= sharedScalacOptions
+  )
+
+// SourceLanguage plugin for `scala` fence blocks (docs/backend-spi.md §9 / Phase 9).
+// Stage 9 skeleton: SourceLanguage impl + ServiceLoader entry; the
+// existing in-core `scala`-block handling stays in place until the
+// follow-up actually routes through here.
+lazy val backendScalaSource = project
+  .in(file("backend-scala-source"))
+  .dependsOn(backendSpi, core)
+  .settings(
+    name := "scalascript-backend-scala-source",
+    scalacOptions ++= sharedScalacOptions
+  )
+
+// TRANSITIONAL DEPENDENCY: backend-interpreter → backend-js.
+// `server/WebServer.scala` imports `scalascript.codegen.{JsGen, JsRuntime}`
+// to inject the JS runtime into SPA-mode pages.  Stage 5 (Backend SPI §8 —
+// HTTP/WS intrinsics) extracts this so the server lives behind the SPI and
+// backends no longer reference each other.
+lazy val backendInterpreter = project
+  .in(file("backend-interpreter"))
+  .dependsOn(backendSpi, core, backendJs)
+  .settings(
+    name := "scalascript-backend-interpreter",
+    libraryDependencies ++= Seq(scalatestTest),
+    scalacOptions ++= sharedScalacOptions
+  )
+
+lazy val cli = project
+  .in(file("cli"))
+  .dependsOn(core, backendJvm, backendJs, backendScalajs, backendInterpreter, backendScalaSource)
+  .settings(
+    name := "scalascript-cli",
+    libraryDependencies ++= Seq(
+      "com.lihaoyi" %% "pprint" % "0.9.6",
+      scalatestTest
+    ),
+    scalacOptions ++= sharedScalacOptions,
+    assembly / mainClass       := Some("scalascript.cli.ssc"),
+    assembly / assemblyJarName := "ssc.jar",
+    assembly / assemblyMergeStrategy := {
+      // ServiceLoader records — concatenate, never discard or first-win
+      // (BackendRegistry needs every backend module's entry).
+      case PathList("META-INF", "services", _*) => MergeStrategy.concat
+      case PathList("META-INF", _ @ _*)         => MergeStrategy.discard
+      case _                                    => MergeStrategy.first
+    }
+  )
+
+// NOTE: `bench/` exists today as a scala-cli script directory (fib/sum/
+// list-ops workload comparisons across backends) — not an sbt project.
+// `WsStress` lives under backend-interpreter/.../bench/ since it
+// stresses the interpreter's WS runtime.
 
 lazy val root = project
   .in(file("."))
-  .aggregate(compiler)
+  .aggregate(
+    backendSpi, ir, core,
+    backendJvm, backendJs, backendScalajs, backendInterpreter,
+    backendScalaSource,
+    cli
+  )
   .settings(
     publish / skip := true
   )

@@ -1,0 +1,16 @@
+---
+name: import-dir
+---
+
+# v0.9.1 — directory-as-index import
+
+Importing `./import-dir` (a directory) resolves to
+`./import-dir/index.ssc` so a multi-file pack can expose a single
+entry point.
+
+[hello, square](./import-dir)
+
+```scalascript
+println(hello("world"))
+println(square(7))
+```

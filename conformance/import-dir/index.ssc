@@ -1,0 +1,11 @@
+---
+name: import-dir-index
+exports: [hello, square]
+---
+
+# Pack index
+
+```scalascript
+def hello(name: String): String = "Hello, " + name + "!"
+def square(n: Int): Int = n * n
+```

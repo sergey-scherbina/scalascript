@@ -19,7 +19,10 @@ val root     = dir / os.up
 val sscBin   = root / "bin" / "ssc"
 val jsscBin  = root / "bin" / "jssc"
 val ssccBin  = root / "bin" / "sscc"
-val compiler = root / "compiler"
+
+if !os.exists(sscBin) then
+  System.err.println(s"bin/ssc not found at $sscBin. Build it first: bash scripts/install.sh ./bin/ssc")
+  System.exit(2)
 
 case class Run(out: String, code: Int, err: String)
 
@@ -27,22 +30,17 @@ def runProc(p: os.proc): Run =
   val r = p.call(stderr = os.Pipe, check = false)
   Run(r.out.text().stripTrailing(), r.exitCode, r.err.text())
 
-// `bin/` is gitignored — it's the developer's local launcher cache built by
-// scripts/install.sh. In CI it doesn't exist, so fall back to invoking the
-// compiler module directly via scala-cli.
 def runInt(file: os.Path): Run =
-  if os.exists(sscBin) then runProc(os.proc(sscBin.toString, file.toString))
-  else runProc(os.proc("scala-cli", "run", compiler.toString, "--", file.toString))
+  runProc(os.proc(sscBin.toString, file.toString))
 
 def runJvm(file: os.Path): Run =
   if os.exists(ssccBin) then runProc(os.proc(ssccBin.toString, file.toString))
-  else runProc(os.proc("scala-cli", "run", compiler.toString, "--", "compile", file.toString))
+  else runProc(os.proc(sscBin.toString, "compile", file.toString))
 
 def runJs(file: os.Path): Run =
   if os.exists(jsscBin) then runProc(os.proc(jsscBin.toString, file.toString))
   else
-    // Emulate `scala-cli run compiler -- emit-js <file> | node`.
-    val emit = os.proc("scala-cli", "run", compiler.toString, "--", "emit-js", file.toString)
+    val emit = os.proc(sscBin.toString, "emit-js", file.toString)
       .call(stderr = os.Pipe, check = false)
     if emit.exitCode != 0 then Run("", emit.exitCode, emit.err.text())
     else

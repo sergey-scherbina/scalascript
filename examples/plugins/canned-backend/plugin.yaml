@@ -1,0 +1,11 @@
+id: canned
+displayName: Canned (smoke)
+spiVersion: "0.1.0"
+protocol: stdio-json
+executable: scala-cli
+args: [run, plugin.scala]
+roles: [backend]
+backend:
+  features: [MutableState, PatternMatching]
+  outputs: [ExecutionResult]
+  acceptedSources: []

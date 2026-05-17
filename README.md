@@ -212,13 +212,31 @@ scala-cli conformance/run.sc
 
 ## Backends
 
-ScalaScript supports three execution backends:
+ScalaScript supports four bundled backends, all loaded through the
+**Backend SPI** plugin architecture
+([`docs/backend-spi.md`](docs/backend-spi.md)):
 
-| Command | Backend | How it works |
-|---------|---------|--------------|
-| `bin/ssc file.ssc` | Interpreter | Tree-walking interpreter — instant startup, no compilation |
-| `bin/jssc file.ssc` | JavaScript | `scalascript` blocks → custom JS transpiler; `scala` blocks → **Scala.js** via scala-cli |
-| `bin/sscc file.ssc` | JVM / Scala 3 | Generates a `.sc` script and compiles via scala-cli |
+| Command | Backend id | How it works |
+|---------|------------|--------------|
+| `bin/ssc file.ssc`         | `int`         | Tree-walking interpreter — instant startup, no compilation |
+| `bin/jssc file.ssc`        | `js`          | `scalascript` blocks → custom JS transpiler; `scala` blocks → **Scala.js** via scala-cli |
+| `bin/sscc file.ssc`        | `jvm`         | Generates a `.sc` script and compiles via scala-cli |
+| `ssc emit-spa file.ssc`    | `scalajs-spa` | Self-contained SPA HTML + JS bundle |
+
+The `Backend` trait + `ServiceLoader` discovery let third parties
+add their own backend without touching `core` — drop a JAR and
+attach it via `ssc --plugin path/to/your-backend.jar`.  See
+[`docs/writing-a-backend.md`](docs/writing-a-backend.md) and the
+worked samples under `examples/plugins/`.
+
+Useful flags:
+
+```bash
+ssc --list-backends                 # list every visible backend
+ssc --list-source-languages         # list registered SourceLanguage plugins
+ssc --describe-backend jvm          # capabilities + intrinsics + sources
+ssc --backend js run file.ssc       # override the per-command default
+```
 
 The JavaScript backend handles two block types differently:
 
@@ -253,14 +271,24 @@ bin/
   ssc-js       # JS transpiler: emit JS to stdout, or --run to execute
   http.ssc     # HTTP server for examples browser
 
-compiler/
+backend-spi/                # SPI traits (Backend, SourceLanguage, Capabilities, …)
+ir/                         # IR types + JSON/MsgPack codecs
+core/
   src/main/scala/scalascript/
-    parser/      # Markdown + YAML + Scala parser
-    ast/         # AST types
-    interpreter/ # Tree-walking interpreter
-    codegen/     # Code generators (JsGen → JavaScript, JvmGen → Scala 3)
-    cli/         # Command-line entry point
-    server/      # Built-in HTTP server
+    parser/    # Markdown + YAML + Scala parser
+    typer/     # Type checker
+    ast/       # AST types
+    imports/   # Cross-file import resolver
+    interpreter/Value.scala  # Computation Free monad (used by interpreter+codegens)
+backend-jvm/      # JvmGen — emits Scala 3 source
+backend-js/       # JsGen — transpiles to JavaScript
+backend-scalajs/  # ScalaJsBackend — emits SPA via Scala.js
+backend-interpreter/
+  src/main/scala/scalascript/
+    interpreter/    # Tree-walking interpreter
+    server/         # Built-in HTTP / WebSocket runtime
+    bench/          # WsStress benchmark
+cli/                        # Main entry point (ssc command)
 
 conformance/     # Cross-backend conformance test suite
   expected/      # Canonical expected outputs
@@ -268,11 +296,14 @@ conformance/     # Cross-backend conformance test suite
 examples/        # Runnable .ssc files
   run-all.sc     # Runs all examples in order
 
-build.sbt        # sbt build — use scalascript as a library
+build.sbt        # sbt build — multi-module per spec §4.1
 project/
   build.properties
+  plugins.sbt    # sbt-assembly for fat-jar packaging
 
 docs/            # Architecture, spec, design docs
+  backend-spi.md       # Backend SPI v0.1 design (source of truth)
+  backend-spi-plan.md  # Execution plan for the SPI rollout (this branch only)
 scripts/         # setup.sh (install scala-cli), install.sh (build binary)
 ```
 
@@ -299,9 +330,9 @@ sscc examples/hello.ssc
 ScalaScript can be used as a Scala 3 library via sbt:
 
 ```bash
-sbt compiler/compile   # compile
-sbt compiler/test      # run tests
-sbt compiler/package   # produce a JAR
+sbt compile      # compile all modules
+sbt test         # run unit tests
+sbt cli/assembly # produce a self-contained ssc.jar
 ```
 
 The public API surface:
