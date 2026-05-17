@@ -155,6 +155,31 @@ and `ir`; every test still passes; nothing user-visible changes.
 - **Done when:** `backend-spi` compiles standalone; published as its
   own artifact in the local build.
 
+#### Discovered while implementing 1.3
+
+- **Reversed `ir ⇄ backend-spi` dep direction.**  1.1 had
+  `ir dependsOn backendSpi`; spec §4.1 actually says the opposite
+  (SPI references IR types).  Reversed to `backendSpi dependsOn ir`
+  and dropped `ir` from explicit dep lists where it's transitively
+  available via backendSpi.
+- **Placeholder IR types live in `ir/`** (`ir/src/.../ir/Ir.scala`):
+  `QualifiedName`, `SymbolRef`, `NormalizedModule`, `NormalizedBlock`,
+  `Value`, `IrExpr`, `EmitContext`, opaque `TargetCode`.  All are
+  trait/case-class stubs; Stage 2 fills in concrete shapes + codecs.
+  Backend-spi traits reference them at signature level so the SPI is
+  type-checked end-to-end now.
+- **`SourceLanguage.aliases` and `preludeFiles` defaulted to empty.**
+  Lets a SourceLanguage author opt in without boilerplate; matches
+  the spec's expected minimal plugin shape.
+
+### Stage 1 — closed
+
+All three iterations green: sbt `compile test` 117/117, conformance
+38/38.  9 sbt subprojects build; `cli/assembly` produces a runnable
+`ssc.jar`.  The SPI surface (Backend, SourceLanguage, Capabilities,
+CompileResult, IntrinsicImpl, …) exists as types in `backend-spi/`
+and is ready for Stage 5 to implement against.
+
 ---
 
 ## Stage 2 — IR + JSON / MsgPack codec
@@ -432,7 +457,7 @@ Anything else that surfaces during execution: append here under a
 
 | Stage | Iterations done | Notes |
 |-------|-----------------|-------|
-| 1     | 2 / 3           | 1.1 done — sbt scaffold; 1.2 done — sources moved (compiler/ gone, 8 new modules populated, sbt-assembly added, CI updated, install.sh + launchers use ssc.jar). Transitional `backendInterpreter dependsOn backendJs` for `WebServer→JsGen` — Stage 5 fixes via HTTP intrinsics. |
+| 1     | 3 / 3           | **Stage 1 closed.** 1.1 sbt scaffold; 1.2 sources moved (compiler/ gone, sbt-assembly added); 1.3 SPI trait stubs + IR placeholders (ir/Ir.scala + 10 SPI files in backend-spi/). Transitional `backendInterpreter dependsOn backendJs` for `WebServer→JsGen` — Stage 5 fixes via HTTP intrinsics. |
 | 2     | 0 / 2           | Not started |
 | 3     | 0 / 3           | Not started |
 | 4     | 0 / 2           | Not started |

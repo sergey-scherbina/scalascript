@@ -20,16 +20,8 @@ val scalatestTest       = "org.scalatest" %% "scalatest" % "3.2.18" % Test
 // Stage 1.2: sources moved out of compiler/ into the new modules.
 // ---------------------------------------------------------------------------
 
-lazy val backendSpi = project
-  .in(file("backend-spi"))
-  .settings(
-    name := "scalascript-backend-spi",
-    scalacOptions ++= sharedScalacOptions
-  )
-
 lazy val ir = project
   .in(file("ir"))
-  .dependsOn(backendSpi)
   .settings(
     name := "scalascript-ir",
     libraryDependencies ++= Seq(
@@ -38,9 +30,17 @@ lazy val ir = project
     scalacOptions ++= sharedScalacOptions
   )
 
+lazy val backendSpi = project
+  .in(file("backend-spi"))
+  .dependsOn(ir)
+  .settings(
+    name := "scalascript-backend-spi",
+    scalacOptions ++= sharedScalacOptions
+  )
+
 lazy val core = project
   .in(file("core"))
-  .dependsOn(backendSpi, ir)
+  .dependsOn(backendSpi)
   .settings(
     name := "scalascript-core",
     libraryDependencies ++= Seq(
@@ -54,7 +54,7 @@ lazy val core = project
 
 lazy val backendJvm = project
   .in(file("backend-jvm"))
-  .dependsOn(backendSpi, ir, core)
+  .dependsOn(backendSpi, core)
   .settings(
     name := "scalascript-backend-jvm",
     scalacOptions ++= sharedScalacOptions
@@ -62,7 +62,7 @@ lazy val backendJvm = project
 
 lazy val backendJs = project
   .in(file("backend-js"))
-  .dependsOn(backendSpi, ir, core)
+  .dependsOn(backendSpi, core)
   .settings(
     name := "scalascript-backend-js",
     scalacOptions ++= sharedScalacOptions
@@ -70,7 +70,7 @@ lazy val backendJs = project
 
 lazy val backendScalajs = project
   .in(file("backend-scalajs"))
-  .dependsOn(backendSpi, ir, core)
+  .dependsOn(backendSpi, core)
   .settings(
     name := "scalascript-backend-scalajs",
     scalacOptions ++= sharedScalacOptions
@@ -83,7 +83,7 @@ lazy val backendScalajs = project
 // backends no longer reference each other.
 lazy val backendInterpreter = project
   .in(file("backend-interpreter"))
-  .dependsOn(backendSpi, ir, core, backendJs)
+  .dependsOn(backendSpi, core, backendJs)
   .settings(
     name := "scalascript-backend-interpreter",
     libraryDependencies ++= Seq(scalatestTest),
