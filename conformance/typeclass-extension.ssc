@@ -1,0 +1,26 @@
+---
+name: typeclass-extension
+version: 1.0.0
+---
+
+# Typeclass extension methods in `given` blocks
+
+`extension` methods declared inside a `given ... with` body must dispatch
+across all three backends — interpreter, JS, and JVM.  This exercises the
+HKT-style `Functor[F[_]]` shape that the v1.1 type-class library depends on.
+
+```scalascript
+trait Functor[F[_]]:
+  extension [A](fa: F[A]) def fmap[B](f: A => B): F[B]
+
+given listFunctor: Functor[List] with
+  extension [A](fa: List[A]) def fmap[B](f: A => B): List[B] = fa.map(f)
+
+given optionFunctor: Functor[Option] with
+  extension [A](fa: Option[A]) def fmap[B](f: A => B): Option[B] = fa.map(f)
+
+println(List(1, 2, 3).fmap(_ * 2))
+println(List("a", "b").fmap(_ + "!"))
+println(Some(10).fmap(_ + 1))
+println(None.fmap((x: Int) => x + 1))
+```
