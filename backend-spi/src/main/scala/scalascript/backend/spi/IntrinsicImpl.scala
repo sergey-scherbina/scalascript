@@ -35,5 +35,18 @@ case class HostCallback(name: String) extends IntrinsicImpl
  *  Arguments and return value are typed `Any` because the SPI sits
  *  in `backend-spi` while concrete value types live in the
  *  interpreter (which depends on `backend-spi`, not vice versa);
- *  the interpreter casts to its own `Value` ADT at the boundary. */
-case class NativeImpl(eval: List[Any] => Any) extends IntrinsicImpl
+ *  the interpreter casts to its own `Value` ADT at the boundary.
+ *
+ *  The `NativeContext` parameter carries the runtime hooks an I/O
+ *  intrinsic needs — e.g. `println` reads `ctx.out` so the
+ *  interpreter's per-invocation `PrintStream` (which can be a
+ *  null-stream during `ssc render` static generation) is honoured. */
+case class NativeImpl(eval: (NativeContext, List[Any]) => Any) extends IntrinsicImpl
+
+/** Runtime hooks an in-process native intrinsic may consult.  The
+ *  interpreter constructs one per session and passes it to every
+ *  `NativeImpl.eval` call.  Stateless intrinsics (`nowMillis`,
+ *  `hashSha256`, …) ignore it. */
+trait NativeContext:
+  def out: java.io.PrintStream
+  def err: java.io.PrintStream

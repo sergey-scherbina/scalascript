@@ -48,7 +48,7 @@ moving parts beyond themselves.
 | # | Stage | What | Iterations | Estimate |
 |---|-------|------|------------|----------|
 | 1 | 5+/A | IrExpr concrete + intrinsic-table consultation pattern | 3 | ~1d |
-| 2 | 5+/B | Migrate `Console.println` + `Console.print` end-to-end | 2 | ~0.5d |
+| 2 | 5+/B | Migrate `println` / `print` (interpreter side) end-to-end | 1 | ~0.25d |
 | 3 | 9+/A | Parser routes unknown fence tags through `SourceLanguageRegistry` | 2 | ~0.5–1d |
 | 4 | 9+/B | `backend-html` extraction (containerTagNames + DSL prelude) | 4 | ~1.5d |
 | 5 | 9+/C | `backend-css` extraction                                | 3 | ~1d |

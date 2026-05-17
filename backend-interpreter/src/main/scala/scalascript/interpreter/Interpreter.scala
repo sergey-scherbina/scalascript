@@ -19,7 +19,7 @@ import Computation.{Pure, Perform, FlatMap}
  *  multi-shot works by calling the continuation multiple times.
  */
 class Interpreter(
-    out:      java.io.PrintStream = System.out,
+    val out:  java.io.PrintStream = System.out,
     baseDir:  Option[os.Path]     = None,
     /** When true, `serve(port)` is a no-op: routes still register, but
      *  the HTTP server doesn't bind a port or block on `Thread.join`.
@@ -229,8 +229,10 @@ class Interpreter(
     def nativeP(name: String)(f: List[Value] => Value): Unit =
       globals(name) = Value.NativeFnV(name, Computation.pureFn(f))
 
-    nativeP("println") { args => out.println(args.map(Value.show).mkString(" ")); Value.UnitV }
-    nativeP("print")   { args => out.print(args.map(Value.show).mkString(" "));   Value.UnitV }
+    // println / print now live in `InterpreterIntrinsics` (Stage 5+/B);
+    // installNativeIntrinsics below routes them through `Backend.intrinsics`.
+    installNativeIntrinsics(InterpreterIntrinsics)
+
     nativeP("assert") {
       case List(Value.BoolV(true))             => Value.UnitV
       case List(Value.BoolV(false))            => throw InterpretError("Assertion failed")
@@ -1215,6 +1217,49 @@ class Interpreter(
    *  intrinsics without touching the interpreter source. */
   def registerNative(name: String, fn: List[Value] => Value): Unit =
     globals(name) = Value.NativeFnV(name, Computation.pureFn(fn))
+
+  /** Install every `NativeImpl` entry from a `Backend.intrinsics` map
+   *  as a callable global.  Bridges `Value` ↔ `Any` at the boundary
+   *  and provides a `NativeContext` whose `out` points at this
+   *  interpreter's `out` (so renderCommand's null-PrintStream
+   *  wrapping is respected).  Other intrinsic variants (`InlineCode`
+   *  / `RuntimeCall` / `HostCallback`) are no-ops here — they target
+   *  compiled or out-of-process backends. */
+  def installNativeIntrinsics(
+      intrinsics: Map[scalascript.ir.QualifiedName, scalascript.backend.spi.IntrinsicImpl]
+  ): Unit =
+    val ctx = new scalascript.backend.spi.NativeContext:
+      def out = Interpreter.this.out
+      def err = System.err
+    intrinsics.foreach {
+      case (qn, scalascript.backend.spi.NativeImpl(eval)) =>
+        registerNative(qn.value, args =>
+          val raw = args.map(unwrapValueAsAny)
+          val ret = eval(ctx, raw)
+          wrapAnyAsValue(ret)
+        )
+      case _ => ()
+    }
+
+  private def unwrapValueAsAny(v: Value): Any = v match
+    case Value.IntV(n)    => n
+    case Value.DoubleV(d) => d
+    case Value.StringV(s) => s
+    case Value.BoolV(b)   => b
+    case Value.UnitV      => ()
+    // Complex values: stringify via Value.show so intrinsics like
+    // println produce identical output to the pre-migration path.
+    case other            => Value.show(other)
+
+  private def wrapAnyAsValue(a: Any): Value = a match
+    case n: Long    => Value.IntV(n)
+    case i: Int     => Value.IntV(i.toLong)
+    case d: Double  => Value.DoubleV(d)
+    case s: String  => Value.StringV(s)
+    case b: Boolean => Value.BoolV(b)
+    case ()         => Value.UnitV
+    case v: Value   => v
+    case other      => Value.StringV(other.toString)
 
   /** HTML-escape a string for safe interpolation in an html block. */
   private def htmlEscape(s: String): String =
