@@ -1,0 +1,124 @@
+---
+name: std-foldable-traversable
+version: 1.0.0
+description: Foldable and Traversable typeclasses — std v1.1 step 3
+exports:
+  - listFoldable
+  - optionFoldable
+  - listTraversable
+  - optionTraversable
+  - foldLeftList
+  - foldLeftOption
+  - foldRightList
+  - foldRightOption
+  - traverseListOption
+  - traverseOptionList
+---
+
+# Foldable and Traversable
+
+The container lane of the v1.1 hierarchy.
+
+- `Foldable[F[_]]` — fold a structure into a single value or a `List`.
+- `Traversable[T[_]]` — extends Functor + Foldable, adds `traverse` /
+  `sequence` for sequencing effects across a structure.
+
+ScalaScript does not auto-resolve `using` clauses, so `traverse` takes
+the target `Applicative` instance as a regular parameter, and helpers
+ship per concrete (T, F) combination.
+
+ScalaScript also doesn't carry default trait methods through to
+`given` instances — every method is abstract, every instance
+implements all of them.
+
+## Typeclass definitions
+
+```scalascript
+trait Foldable[F[_]]:
+  extension [A](fa: F[A])
+    def foldLeft[B](z: B, f: (B, A) => B): B
+    def foldRight[B](z: B, f: (A, B) => B): B
+    def toList: List[A]
+
+trait Traversable[T[_]] extends Foldable[T]:
+  extension [A](ta: T[A])
+    def map[B](f: A => B): T[B]
+```
+
+`Traversable[T]` extends `Foldable[T]` and adds the `map` extension,
+giving the same surface that `Functor + Foldable` would in a fully
+HKT-aware std. The `Functor` typeclass itself lives in
+`functor-applicative-monad.ssc` and is not extended here to avoid
+cross-file trait inheritance.  Effectful traversal — `traverse`,
+`sequence` — lives in the helpers section since the polymorphic
+signature isn't expressible without `using`.
+
+## Instances
+
+```scalascript
+given listFoldable: Foldable[List] with
+  extension [A](fa: List[A])
+    def foldLeft[B](z: B, f: (B, A) => B): B  = fa.foldLeft(z)(f)
+    def foldRight[B](z: B, f: (A, B) => B): B = fa.foldRight(z)(f)
+    def toList: List[A] = fa
+
+given optionFoldable: Foldable[Option] with
+  extension [A](fa: Option[A])
+    def foldLeft[B](z: B, f: (B, A) => B): B = fa match
+      case Some(a) => f(z, a)
+      case None    => z
+    def foldRight[B](z: B, f: (A, B) => B): B = fa match
+      case Some(a) => f(a, z)
+      case None    => z
+    def toList: List[A] = fa match
+      case Some(a) => List(a)
+      case None    => List()
+
+given listTraversable: Traversable[List] with
+  extension [A](fa: List[A])
+    def map[B](f: A => B): List[B] = fa.map(f)
+    def foldLeft[B](z: B, f: (B, A) => B): B  = fa.foldLeft(z)(f)
+    def foldRight[B](z: B, f: (A, B) => B): B = fa.foldRight(z)(f)
+    def toList: List[A] = fa
+
+given optionTraversable: Traversable[Option] with
+  extension [A](fa: Option[A])
+    def map[B](f: A => B): Option[B] = fa.map(f)
+    def foldLeft[B](z: B, f: (B, A) => B): B = fa match
+      case Some(a) => f(z, a)
+      case None    => z
+    def foldRight[B](z: B, f: (A, B) => B): B = fa match
+      case Some(a) => f(a, z)
+      case None    => z
+    def toList: List[A] = fa match
+      case Some(a) => List(a)
+      case None    => List()
+```
+
+## Helpers
+
+```scalascript
+def foldLeftList[A, B](xs: List[A], z: B, f: (B, A) => B): B =
+  xs.foldLeft(z)(f)
+
+def foldRightList[A, B](xs: List[A], z: B, f: (A, B) => B): B =
+  xs.foldRight(z)(f)
+
+def foldLeftOption[A, B](oa: Option[A], z: B, f: (B, A) => B): B = oa match
+  case Some(a) => f(z, a)
+  case None    => z
+
+def foldRightOption[A, B](oa: Option[A], z: B, f: (A, B) => B): B = oa match
+  case Some(a) => f(a, z)
+  case None    => z
+
+def traverseListOption[A, B](xs: List[A], f: A => Option[B]): Option[List[B]] =
+  val seed: Option[List[B]] = Some(List())
+  xs.foldRight(seed) { (a, acc) =>
+    f(a).flatMap(b => acc.map(bs => b :: bs))
+  }
+
+def traverseOptionList[A, B](oa: Option[A], f: A => List[B]): List[Option[B]] = oa match
+  case Some(a) => f(a).map(b => Some(b))
+  case None    => List(None)
+```

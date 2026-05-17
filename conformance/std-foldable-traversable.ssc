@@ -1,0 +1,53 @@
+---
+name: conformance-std-foldable-traversable
+version: 1.0.0
+---
+
+# Std — Foldable and Traversable
+
+Exercises the v1.1 container lane: `Foldable[F]` extension methods,
+`Traversable[T]` inheriting Functor + Foldable, and the
+per-combination helpers (`traverseListOption`, etc.).
+
+[listFoldable, optionFoldable, listTraversable, optionTraversable, foldLeftList, foldLeftOption, foldRightList, foldRightOption, traverseListOption, traverseOptionList](../std/foldable-traversable.ssc)
+
+## Foldable — `foldLeft` / `foldRight` / `toList`
+
+```scalascript
+println(foldLeftList(List(1, 2, 3, 4), 0, (a: Int, b: Int) => a + b))
+println(foldRightList(List(1, 2, 3, 4), 100, (a: Int, b: Int) => b - a))
+
+val none10: Option[Int] = None
+println(foldLeftOption(Some(7), 100, (a: Int, b: Int) => a + b))
+println(foldLeftOption(none10, 100, (a: Int, b: Int) => a + b))
+println(foldRightOption(Some(7), 100, (a: Int, b: Int) => a + b))
+```
+
+## Extension-method dispatch
+
+`fa.toList`, `fa.map(f)` etc. resolve through the typeclass extensions
+as well as via the helper functions.  (List's `foldLeft` shadowed by
+the built-in curried form is exercised through the helpers above
+instead.)
+
+```scalascript
+val some5: Option[Int] = Some(5)
+
+println(Some(42).toList)
+println(none10.toList)
+println(some5.map((x: Int) => x + 1))
+println(none10.map((x: Int) => x + 1))
+```
+
+## Effectful traverse
+
+```scalascript
+val parse = (s: String) =>
+  if s == "0" || s == "1" || s == "2" || s == "3" then Some(s.toInt) else None
+
+println(traverseListOption(List("1", "2", "3"), parse))
+println(traverseListOption(List("1", "bad", "3"), parse))
+
+println(traverseOptionList(Some(3), (n: Int) => List(n, n * 2, n * 3)))
+println(traverseOptionList(none10, (n: Int) => List(n, n * 2)))
+```
