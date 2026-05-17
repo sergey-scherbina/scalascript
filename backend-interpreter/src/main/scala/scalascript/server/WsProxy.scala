@@ -274,6 +274,18 @@ final class WsProxy(
           conn.outBufs.add(ByteBuffer.wrap(resp))
           conn.key.interestOpsOr(SelectionKey.OP_WRITE)
           return
+        // Per-route cap — composed with the process-wide cap (both
+        // must permit the upgrade).  Tried AFTER the process-wide
+        // reservation so a route-denied attempt releases the global
+        // slot it just took (mirrors the protocol-mismatch path
+        // below).  0 = no per-route limit.
+        if !entry.tryReserve() then
+          WsConnection.releaseSlot()
+          val resp = httpResponse(503, "Service Unavailable",
+            s"Route ${entry.path} at capacity (${entry.maxConnections})")
+          conn.outBufs.add(ByteBuffer.wrap(resp))
+          conn.key.interestOpsOr(SelectionKey.OP_WRITE)
+          return
         // Subprotocol negotiation (RFC 6455 §1.9).  When the route
         // was registered with a non-empty `protocols` list, pick the
         // first server-side protocol that also appears in the
@@ -290,6 +302,7 @@ final class WsProxy(
               case Some(p) => p
               case None    =>
                 WsConnection.releaseSlot()
+                entry.release()
                 val resp = httpResponse(400, "Bad Request",
                   s"No matching Sec-WebSocket-Protocol; server offers: ${entry.protocols.mkString(", ")}")
                 conn.outBufs.add(ByteBuffer.wrap(resp))
@@ -343,7 +356,7 @@ final class WsProxy(
         ))
         // Transition: build the WsConnection and feed any post-handshake
         // bytes already in the buffer through its parser.
-        val ws = WsConnection(conn.ch, conn.key, selector, entry.interpreter, wsExecutor, log, request, heartbeats, heartbeatIntervalMs, heartbeatDeadAfterMs, subprotocol = chosenProtocol)
+        val ws = WsConnection(conn.ch, conn.key, selector, entry.interpreter, wsExecutor, log, request, heartbeats, heartbeatIntervalMs, heartbeatDeadAfterMs, subprotocol = chosenProtocol, onTerminate = () => entry.release())
         conn.mode = Ws(ws)
         conn.inBuf.clear()
         ws.startHeartbeat()

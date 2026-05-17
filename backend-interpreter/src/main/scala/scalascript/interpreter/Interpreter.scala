@@ -1055,7 +1055,21 @@ class Interpreter(
             Value.UnitV
           case _ => throw InterpretError("onWebSocket(path, origins, protocols) { ws => … }")
         })
-      case _ => throw InterpretError("onWebSocket(path[, origins[, protocols]]) { ws => … }")
+      // Four-arg form adds a per-route active-connection cap.  0 (or
+      // negative) means no limit; positive values refuse upgrades
+      // past the cap with 503.  Composes with `setMaxWsConnections`
+      // (process-wide): both caps must permit.
+      case List(Value.StringV(path), Value.ListV(origins), Value.ListV(protocols), Value.IntV(maxConn)) =>
+        val origs  = origins.collect   { case Value.StringV(s) => s }
+        val protos = protocols.collect { case Value.StringV(s) => s }
+        val cap    = if maxConn > Int.MaxValue.toLong || maxConn < 0 then 0 else maxConn.toInt
+        Value.NativeFnV("onWebSocket.handler", Computation.pureFn {
+          case List(handler) =>
+            scalascript.server.WsRoutes.register(path, handler, this, origs, protos, cap)
+            Value.UnitV
+          case _ => throw InterpretError("onWebSocket(path, origins, protocols, maxConnections) { ws => … }")
+        })
+      case _ => throw InterpretError("onWebSocket(path[, origins[, protocols[, maxConnections]]]) { ws => … }")
     }
 
     // setMaxWsConnections(n) — process-wide cap on simultaneously-open

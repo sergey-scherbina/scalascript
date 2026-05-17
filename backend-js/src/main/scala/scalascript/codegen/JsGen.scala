@@ -262,20 +262,32 @@ function route(method, path) {
 // Sec-WebSocket-Protocol negotiation (RFC 6455 §1.9): server picks the
 // first protocol it offers that's in the client's request; no match
 // refuses with 400.  Required for `socket.io` / `graphql-ws` clients.
-function onWebSocket(path, originsArg, protocolsArg) {
-  let origins   = [];
-  let protocols = [];
+function onWebSocket(path, originsArg, protocolsArg, maxConnectionsArg) {
+  let origins        = [];
+  let protocols      = [];
+  let maxConnections = 0;
   if (Array.isArray(originsArg)) {
-    origins   = originsArg;
-    protocols = Array.isArray(protocolsArg) ? protocolsArg : [];
+    origins        = originsArg;
+    protocols      = Array.isArray(protocolsArg) ? protocolsArg : [];
+    // Four-arg form: also a per-route active-connection cap.
+    // 0 = unlimited; positive values refuse upgrades past the cap
+    // with 503.  Composes with the process-wide cap.
+    maxConnections = (typeof maxConnectionsArg === 'number' && maxConnectionsArg > 0)
+      ? maxConnectionsArg : 0;
   } else if (originsArg !== undefined) {
     // Older call style: `onWebSocket(path)(handler)`, second arg is
     // already the handler.  Wrap it.
-    _wsRoutes.push({ pattern: _parsePath(path), handler: originsArg, origins: [], protocols: [] });
+    _wsRoutes.push({
+      pattern: _parsePath(path), handler: originsArg,
+      origins: [], protocols: [], maxConnections: 0, activeCount: 0,
+    });
     return undefined;
   }
   return function(handler) {
-    _wsRoutes.push({ pattern: _parsePath(path), handler, origins, protocols });
+    _wsRoutes.push({
+      pattern: _parsePath(path), handler,
+      origins, protocols, maxConnections, activeCount: 0,
+    });
   };
 }
 
@@ -1412,6 +1424,18 @@ function _wsHandleUpgrade(req, socket) {
         socket.destroy();
         return;
       }
+      // Per-route cap.  0 = unlimited; composes with the
+      // process-wide cap above (both must permit).  Route counter
+      // released in the `socket.on('close', ...)` listener.
+      const _routeCap = (typeof r.maxConnections === 'number') ? r.maxConnections : 0;
+      if (_routeCap > 0 && (r.activeCount ?? 0) >= _routeCap) {
+        socket.write(
+          'HTTP/1.1 503 Service Unavailable\r\n' +
+          'Content-Length: 0\r\nConnection: close\r\n\r\n'
+        );
+        socket.destroy();
+        return;
+      }
       // Subprotocol negotiation (RFC 6455 §1.9).  Server picks the
       // first protocol it offers that's in the client's request;
       // no match refuses with 400.  Empty server list = no
@@ -1433,7 +1457,11 @@ function _wsHandleUpgrade(req, socket) {
         }
       }
       _wsActiveCount++;
-      socket.once('close', () => { _wsActiveCount--; });
+      if (_routeCap > 0) r.activeCount = (r.activeCount ?? 0) + 1;
+      socket.once('close', () => {
+        _wsActiveCount--;
+        if (_routeCap > 0 && r.activeCount > 0) r.activeCount--;
+      });
       const accept = _wsAcceptKey(clientKey);
       const protoHeader = chosenProtocol
         ? 'Sec-WebSocket-Protocol: ' + chosenProtocol + '\r\n'

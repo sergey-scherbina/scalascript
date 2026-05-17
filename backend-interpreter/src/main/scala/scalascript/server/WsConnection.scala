@@ -79,7 +79,13 @@ final class WsConnection(
      *  ("sec-websocket-protocol")` still carries the client's full
      *  offer list, so this distinguishes "what was offered" from
      *  "what was chosen". */
-    val subprotocol: String = ""
+    val subprotocol: String = "",
+    /** Per-route cleanup callback fired exactly once when this
+     *  connection terminates.  Used to decrement the route's
+     *  `activeCount` so the per-route cap recovers.  Default is a
+     *  no-op for codepaths that don't have a route counter (tests,
+     *  raw connections). */
+    private val onTerminate: () => Unit = () => ()
 ):
   /** Stable per-connection identifier.  UUID-v4 generated at upgrade
    *  time so it's globally unique even across restarts, but short
@@ -373,6 +379,10 @@ final class WsConnection(
       // Guarded by `key.isValid` so duplicate `closeNow` calls (peer
       // close + reader EOF) don't double-decrement.
       WsConnection.releaseSlot()
+      // Per-route cleanup (e.g. decrement WsRoutes.Entry.activeCount).
+      // Same idempotency: only fires once per connection because the
+      // `key.isValid` guard above keeps the close path single-shot.
+      try onTerminate() catch case _: Throwable => ()
       // Atomic getAndSet — at most one caller can win the right to fire
       // onClose.  Without this both the read-loop's drainFrames (on EOF
       // or a peer-initiated close frame) and a user-side `ws.close()`

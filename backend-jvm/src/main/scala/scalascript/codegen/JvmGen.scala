@@ -3043,7 +3043,11 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |     *  negotiation (RFC 6455 §1.9), or "" when no negotiation
        |     *  took place.  `ws.request.headers("sec-websocket-protocol")`
        |     *  still carries the client's full offer list. */
-       |    val subprotocol: String = ""):
+       |    val subprotocol: String = "",
+       |    /** Per-route cleanup callback fired exactly once when this
+       |     *  connection terminates.  Used to decrement the route's
+       |     *  active-connection counter so the per-route cap recovers. */
+       |    private val _onTerminate: () => Unit = () => ()):
        |  /** Stable per-connection identifier.  UUID-v4 generated at
        |   *  upgrade time; surfaced to user code as `ws.id` and used to
        |   *  tag every log line for a single session. */
@@ -3129,6 +3133,9 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |      try socket.close() catch case _: Throwable => ()
        |      // Release the global-cap slot reserved at upgrade time.
        |      _wsActiveCount.decrementAndGet()
+       |      // Per-route cleanup (e.g. decrement the route's activeCount).
+       |      // No-op when the route had no per-route cap.
+       |      try _onTerminate() catch case _: Throwable => ()
        |      val cb = onCloseCb.getAndSet(null)
        |      if cb != null then _serverExecutor.execute { () =>
        |        try cb() catch case e: Throwable =>
@@ -3328,8 +3335,22 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |  pattern:   List[_Seg],
        |  handler:   WebSocket => Unit,
        |  origins:   List[String] = Nil,  // empty = no Origin restriction
-       |  protocols: List[String] = Nil   // empty = no subprotocol negotiation
-       |)
+       |  protocols: List[String] = Nil,  // empty = no subprotocol negotiation
+       |  // Per-route active-connection cap.  0 = unlimited; positive
+       |  // values refuse upgrades past the cap with 503.  Composes
+       |  // with the process-wide `setMaxWsConnections` cap.
+       |  maxConnections: Int = 0,
+       |  activeCount: java.util.concurrent.atomic.AtomicInteger =
+       |               java.util.concurrent.atomic.AtomicInteger(0)
+       |):
+       |  def tryReserve(): Boolean =
+       |    if maxConnections <= 0 then true
+       |    else
+       |      val after = activeCount.incrementAndGet()
+       |      if after > maxConnections then { activeCount.decrementAndGet(); false }
+       |      else true
+       |  def release(): Unit =
+       |    if maxConnections > 0 then activeCount.decrementAndGet()
        |private val _wsRoutes = scala.collection.mutable.ArrayBuffer.empty[_WsRoute]
        |
        |// Process-wide cap on active WS sessions.  Tuned with
@@ -3380,6 +3401,14 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |  * for `socket.io` / `graphql-ws` clients. */
        |def onWebSocket(path: String, origins: List[String], protocols: List[String]): (WebSocket => Unit) => Unit = (handler) => {
        |  _wsRoutes += _WsRoute(_parsePath(path), handler, origins, protocols)
+       |}
+       |
+       |/** Four-arg form adds a per-route active-connection cap.
+       |  * 0 = unlimited; positive values refuse upgrades past the cap
+       |  * with 503.  Composes with the process-wide
+       |  * `setMaxWsConnections`. */
+       |def onWebSocket(path: String, origins: List[String], protocols: List[String], maxConnections: Int): (WebSocket => Unit) => Unit = (handler) => {
+       |  _wsRoutes += _WsRoute(_parsePath(path), handler, origins, protocols, maxConnections)
        |}
        |
        |// ── Framing ──────────────────────────────────────────────────────────
@@ -3521,6 +3550,14 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |        if !_wsTryReserve() then
        |          cout.write("HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".getBytes("US-ASCII"))
        |          cout.flush(); client.close(); return
+       |        // Per-route active-connection cap.  Composes with the
+       |        // process-wide cap above (both must permit).  0 = no
+       |        // per-route limit.  Released by the writer-VT finally
+       |        // via `r.release()`.
+       |        if !r.tryReserve() then
+       |          _wsActiveCount.decrementAndGet()
+       |          cout.write("HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".getBytes("US-ASCII"))
+       |          cout.flush(); client.close(); return
        |        // Subprotocol negotiation (RFC 6455 §1.9).
        |        val chosenProtocol: String =
        |          if r.protocols.isEmpty then ""
@@ -3530,6 +3567,7 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |            r.protocols.find(offered.contains).getOrElse("")
        |        if r.protocols.nonEmpty && chosenProtocol.isEmpty then
        |          _wsActiveCount.decrementAndGet()
+       |          r.release()
        |          cout.write("HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".getBytes("US-ASCII"))
        |          cout.flush(); client.close(); return
        |        val accept = _wsAcceptKey(key)
@@ -3563,7 +3601,7 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |          body    = "",
        |          cookies = wsCookies
        |        )
-       |        val ws = WebSocket(client, wsReq, subprotocol = chosenProtocol)
+       |        val ws = WebSocket(client, wsReq, subprotocol = chosenProtocol, _onTerminate = () => r.release())
        |        // Run the user's `onWebSocket` block on the shared single-
        |        // thread executor so any state it touches (top-level `var`s,
        |        // route registry, etc.) is serial with HTTP handlers and

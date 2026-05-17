@@ -28,21 +28,48 @@ object WsRoutes:
        *  `Sec-WebSocket-Protocol` request header and echoes it in
        *  the 101 response.  Empty list = no negotiation; non-empty
        *  list with no client match = upgrade refused with 400. */
-      protocols:   List[String] = Nil
-  )
+      protocols:   List[String] = Nil,
+      /** Per-route active-connection cap.  0 (default) = no limit;
+       *  composes with the process-wide `setMaxWsConnections` cap —
+       *  both must permit the upgrade.  Refused upgrades return 503.
+       *  See [[activeCount]] for the live counter. */
+      maxConnections: Int = 0,
+      /** Live count of WebSockets currently registered against this
+       *  entry.  Incremented inside [[tryReserve]] when both
+       *  process-wide and per-route caps allow the upgrade; decremented
+       *  by `WsConnection.closeNow` via the callback wired in
+       *  `WsProxy.tryUpgrade`. */
+      activeCount: java.util.concurrent.atomic.AtomicInteger =
+                   java.util.concurrent.atomic.AtomicInteger(0)
+  ):
+    /** Check-then-increment for the per-route cap.  Returns true if
+     *  the caller may proceed.  Rollback on failure so the counter
+     *  can't drift past the cap under contention. */
+    def tryReserve(): Boolean =
+      if maxConnections <= 0 then true
+      else
+        val after = activeCount.incrementAndGet()
+        if after > maxConnections then
+          activeCount.decrementAndGet()
+          false
+        else true
+
+    def release(): Unit =
+      if maxConnections > 0 then activeCount.decrementAndGet()
 
   private val entries = scala.collection.mutable.ArrayBuffer.empty[Entry]
 
   def clear(): Unit = entries.clear()
 
   def register(
-      path:      String,
-      handler:   Value,
-      interp:    Interpreter,
-      origins:   List[String] = Nil,
-      protocols: List[String] = Nil
+      path:           String,
+      handler:        Value,
+      interp:         Interpreter,
+      origins:        List[String] = Nil,
+      protocols:      List[String] = Nil,
+      maxConnections: Int          = 0
   ): Unit =
-    entries += Entry(path, parsePath(path), handler, interp, origins, protocols)
+    entries += Entry(path, parsePath(path), handler, interp, origins, protocols, maxConnections)
 
   def all: List[Entry] = entries.toList
 
