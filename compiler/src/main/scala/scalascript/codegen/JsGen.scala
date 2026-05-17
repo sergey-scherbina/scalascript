@@ -2980,7 +2980,15 @@ class JsGen(baseDir: Option[os.Path] = None):
     case d: Defn.Given =>
       // given intShow: Show[Int] with { def show(x) = ... }
       // → const intShow = { show: (x) => ..., ... };
-      // also register as Show_Int
+      // also register as Show_Int.
+      //
+      // Extension methods inside the given body (`extension [A](fa: F[A]) def fmap[B](f) = ...`)
+      // are registered into the global `_extensions` table so `fa.fmap(f)` dispatches —
+      // same machinery as top-level extension groups.
+      d.templ.body.stats.foreach {
+        case eg: Defn.ExtensionGroup => genStat(eg)
+        case _                       => ()
+      }
       d.templ.inits.headOption.foreach { init =>
         val typeKeyOpt: Option[String] = init.tpe match
           case n: Type.Name  => Some(n.value)
