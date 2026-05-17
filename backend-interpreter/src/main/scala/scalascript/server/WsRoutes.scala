@@ -34,6 +34,12 @@ object WsRoutes:
        *  both must permit the upgrade.  Refused upgrades return 503.
        *  See [[activeCount]] for the live counter. */
       maxConnections: Int = 0,
+      /** Per-connection inbound message rate cap, in messages per
+       *  second.  0 (default) = no rate limiting.  Applied to every
+       *  client on this route independently — a noisy peer doesn't
+       *  starve quiet ones.  Overrun closes the offending connection
+       *  with code 1008 ("policy violation"). */
+      maxMessagesPerSec: Int = 0,
       /** Live count of WebSockets currently registered against this
        *  entry.  Incremented inside [[tryReserve]] when both
        *  process-wide and per-route caps allow the upgrade; decremented
@@ -62,14 +68,15 @@ object WsRoutes:
   def clear(): Unit = entries.clear()
 
   def register(
-      path:           String,
-      handler:        Value,
-      interp:         Interpreter,
-      origins:        List[String] = Nil,
-      protocols:      List[String] = Nil,
-      maxConnections: Int          = 0
+      path:              String,
+      handler:           Value,
+      interp:            Interpreter,
+      origins:           List[String] = Nil,
+      protocols:         List[String] = Nil,
+      maxConnections:    Int          = 0,
+      maxMessagesPerSec: Int          = 0
   ): Unit =
-    entries += Entry(path, parsePath(path), handler, interp, origins, protocols, maxConnections)
+    entries += Entry(path, parsePath(path), handler, interp, origins, protocols, maxConnections, maxMessagesPerSec)
 
   def all: List[Entry] = entries.toList
 

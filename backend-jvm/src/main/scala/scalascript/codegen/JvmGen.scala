@@ -3047,7 +3047,11 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |    /** Per-route cleanup callback fired exactly once when this
        |     *  connection terminates.  Used to decrement the route's
        |     *  active-connection counter so the per-route cap recovers. */
-       |    private val _onTerminate: () => Unit = () => ()):
+       |    private val _onTerminate: () => Unit = () => (),
+       |    /** Cap on inbound messages per second on this connection.
+       |     *  0 = unlimited.  Overrun closes with code 1008.  See
+       |     *  the fixed-window counter in `_dispatchWsMessage`. */
+       |    private val _maxMessagesPerSec: Int = 0):
        |  /** Stable per-connection identifier.  UUID-v4 generated at
        |   *  upgrade time; surfaced to user code as `ws.id` and used to
        |   *  tag every log line for a single session. */
@@ -3319,7 +3323,20 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |   *  unconditionally — the `onWebSocket` body also runs on the
        |   *  executor, so reading the callback inside the task gives us
        |   *  the up-to-date value. */
+       |  // Rate-limit state — fixed 1-second window.  Only the read loop
+       |  // touches these, so no synchronisation needed.
+       |  private var _rateWindowStartMs: Long = 0L
+       |  private var _rateMsgsInWindow:  Int  = 0
+       |
        |  private def _dispatchWsMessage(opcode: Int, payload: Array[Byte]): Unit =
+       |    if _maxMessagesPerSec > 0 then
+       |      val now = java.lang.System.currentTimeMillis()
+       |      if now - _rateWindowStartMs >= 1000L then
+       |        _rateWindowStartMs = now
+       |        _rateMsgsInWindow  = 0
+       |      _rateMsgsInWindow += 1
+       |      if _rateMsgsInWindow > _maxMessagesPerSec then
+       |        close(1008, "rate limit exceeded"); return
        |    val msg =
        |      if opcode == 0x1 then new String(payload, StandardCharsets.UTF_8)
        |      else                  new String(payload, "ISO-8859-1")
@@ -3340,6 +3357,10 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |  // values refuse upgrades past the cap with 503.  Composes
        |  // with the process-wide `setMaxWsConnections` cap.
        |  maxConnections: Int = 0,
+       |  // Per-connection inbound message rate cap (msgs/sec).
+       |  // 0 = unlimited; overrun closes the offending client with
+       |  // code 1008.  Applied per connection on this route.
+       |  maxMessagesPerSec: Int = 0,
        |  activeCount: java.util.concurrent.atomic.AtomicInteger =
        |               java.util.concurrent.atomic.AtomicInteger(0)
        |):
@@ -3409,6 +3430,13 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |  * `setMaxWsConnections`. */
        |def onWebSocket(path: String, origins: List[String], protocols: List[String], maxConnections: Int): (WebSocket => Unit) => Unit = (handler) => {
        |  _wsRoutes += _WsRoute(_parsePath(path), handler, origins, protocols, maxConnections)
+       |}
+       |
+       |/** Five-arg form also caps inbound messages per second per
+       |  * connection.  Overrun closes the offending client with code
+       |  * 1008 ("policy violation").  0 = unlimited. */
+       |def onWebSocket(path: String, origins: List[String], protocols: List[String], maxConnections: Int, maxMessagesPerSec: Int): (WebSocket => Unit) => Unit = (handler) => {
+       |  _wsRoutes += _WsRoute(_parsePath(path), handler, origins, protocols, maxConnections, maxMessagesPerSec)
        |}
        |
        |// ── Framing ──────────────────────────────────────────────────────────
@@ -3601,7 +3629,7 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |          body    = "",
        |          cookies = wsCookies
        |        )
-       |        val ws = WebSocket(client, wsReq, subprotocol = chosenProtocol, _onTerminate = () => r.release())
+       |        val ws = WebSocket(client, wsReq, subprotocol = chosenProtocol, _onTerminate = () => r.release(), _maxMessagesPerSec = r.maxMessagesPerSec)
        |        // Run the user's `onWebSocket` block on the shared single-
        |        // thread executor so any state it touches (top-level `var`s,
        |        // route registry, etc.) is serial with HTTP handlers and

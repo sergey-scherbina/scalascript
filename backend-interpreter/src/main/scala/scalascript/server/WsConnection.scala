@@ -85,7 +85,14 @@ final class WsConnection(
      *  `activeCount` so the per-route cap recovers.  Default is a
      *  no-op for codepaths that don't have a route counter (tests,
      *  raw connections). */
-    private val onTerminate: () => Unit = () => ()
+    private val onTerminate: () => Unit = () => (),
+    /** Cap on inbound messages per second on this connection.
+     *  0 = unlimited.  Overrun closes with code 1008 ("policy
+     *  violation").  Implemented as a fixed-window counter: every
+     *  second of wall clock the bucket resets to 0; the
+     *  `maxMessagesPerSec+1`-th message in any second trips the
+     *  close. */
+    private val maxMessagesPerSec: Int = 0
 ):
   /** Stable per-connection identifier.  UUID-v4 generated at upgrade
    *  time so it's globally unique even across restarts, but short
@@ -242,6 +249,12 @@ final class WsConnection(
           fragBuf.reset()
           dispatchMessage(op, bytes)
 
+  // Rate-limit state — fixed 1-second window, reset on first message
+  // of each second.  No synchronisation needed: `dispatchMessage` runs
+  // on the selector thread, which is the only writer.
+  private var rateWindowStartMs: Long = 0L
+  private var rateMsgsInWindow:  Int  = 0
+
   /** Dispatch a fully-reassembled text/binary message to the user
    *  `onMessage` callback through the executor.  Queued
    *  unconditionally — the user's `onWebSocket` block runs on the same
@@ -249,6 +262,15 @@ final class WsConnection(
    *  the selector parses the first frame.  Reading `onMessageCb` inside
    *  the task gives us the latest value. */
   private def dispatchMessage(opcode: WsFraming.Opcode, payload: Array[Byte]): Unit =
+    if maxMessagesPerSec > 0 then
+      val now = System.currentTimeMillis()
+      if now - rateWindowStartMs >= 1000L then
+        rateWindowStartMs = now
+        rateMsgsInWindow  = 0
+      rateMsgsInWindow += 1
+      if rateMsgsInWindow > maxMessagesPerSec then
+        sendClose(1008, "rate limit exceeded")
+        return
     val s: String =
       if opcode == WsFraming.Opcode.Text then
         new String(payload, java.nio.charset.StandardCharsets.UTF_8)

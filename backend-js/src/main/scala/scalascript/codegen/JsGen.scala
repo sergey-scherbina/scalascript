@@ -39,7 +39,7 @@ object JsGen:
  *  two triple-quoted halves because the combined source exceeds the
  *  JVM's 64 KB string-literal limit; the `val JsRuntime` concatenation
  *  is declared after both halves so source-order init sees them. */
-private val JsRuntimePart1: String = """
+private val JsRuntimePart1a: String = """
 let _output = [];
 function _println(...args) { _output.push(args.map(_show).join(' ')); }
 function _print(...args) { const s = args.map(_show).join(''); _output.push(s); }
@@ -195,6 +195,9 @@ function getenv(key, defaultVal) {
   return v;
 }
 
+"""
+
+private val JsRuntimePart1b: String = """
 // ── REST routing + serve(port) ─────────────────────────────────────────
 // Matches the interpreter / JVM-backend semantics: route(method, path)
 // registers a closure, serve(port) starts Node's http.createServer and
@@ -262,10 +265,11 @@ function route(method, path) {
 // Sec-WebSocket-Protocol negotiation (RFC 6455 §1.9): server picks the
 // first protocol it offers that's in the client's request; no match
 // refuses with 400.  Required for `socket.io` / `graphql-ws` clients.
-function onWebSocket(path, originsArg, protocolsArg, maxConnectionsArg) {
-  let origins        = [];
-  let protocols      = [];
-  let maxConnections = 0;
+function onWebSocket(path, originsArg, protocolsArg, maxConnectionsArg, maxMessagesPerSecArg) {
+  let origins           = [];
+  let protocols         = [];
+  let maxConnections    = 0;
+  let maxMessagesPerSec = 0;
   if (Array.isArray(originsArg)) {
     origins        = originsArg;
     protocols      = Array.isArray(protocolsArg) ? protocolsArg : [];
@@ -274,19 +278,23 @@ function onWebSocket(path, originsArg, protocolsArg, maxConnectionsArg) {
     // with 503.  Composes with the process-wide cap.
     maxConnections = (typeof maxConnectionsArg === 'number' && maxConnectionsArg > 0)
       ? maxConnectionsArg : 0;
+    // Five-arg form: per-connection rate cap (msgs/sec).  Overrun
+    // closes the offending client with 1008.
+    maxMessagesPerSec = (typeof maxMessagesPerSecArg === 'number' && maxMessagesPerSecArg > 0)
+      ? maxMessagesPerSecArg : 0;
   } else if (originsArg !== undefined) {
     // Older call style: `onWebSocket(path)(handler)`, second arg is
     // already the handler.  Wrap it.
     _wsRoutes.push({
       pattern: _parsePath(path), handler: originsArg,
-      origins: [], protocols: [], maxConnections: 0, activeCount: 0,
+      origins: [], protocols: [], maxConnections: 0, maxMessagesPerSec: 0, activeCount: 0,
     });
     return undefined;
   }
   return function(handler) {
     _wsRoutes.push({
       pattern: _parsePath(path), handler,
-      origins, protocols, maxConnections, activeCount: 0,
+      origins, protocols, maxConnections, maxMessagesPerSec, activeCount: 0,
     });
   };
 }
@@ -682,6 +690,9 @@ function _sessionStoreGet(ssid) {
 }
 function _sessionStoreDelete(ssid) { _sessionStore.delete(ssid); }
 
+"""
+
+private val JsRuntimePart1c: String = """
 // ── JWT (HS256) ────────────────────────────────────────────────────────
 // Compact HS256 JWTs that match scalascript.server.Jwt byte-for-byte
 // (header `{"alg":"HS256","typ":"JWT"}`, payload = JSON of a
@@ -1109,6 +1120,9 @@ function _contentTypeFor(name) {
   return 'application/octet-stream';
 }
 
+"""
+
+private val JsRuntimePart1d: String = """
 // ── WebSocket framing (RFC 6455) ───────────────────────────────────────
 // Pure-Node implementation — `crypto` for the handshake hash, raw
 // `net.Socket` writes for frames.  No `ws` npm dependency.
@@ -1208,7 +1222,7 @@ function _wsEncodeClose(code, reason) {
 // with `send` / `close` / `onMessage` / `onClose` and pumps inbound
 // frames through `_wsParseFrame`.  Control frames (ping/close) are
 // handled here; text/binary frames invoke `onMessage` if registered.
-function _wsMakeWebSocket(socket, request, subprotocol) {
+function _wsMakeWebSocket(socket, request, subprotocol, maxMessagesPerSec) {
   // Stable per-connection identifier — UUID-v4 generated at upgrade
   // time, surfaced to user code as `ws.id` and used to tag every log
   // line for a single session.
@@ -1220,6 +1234,12 @@ function _wsMakeWebSocket(socket, request, subprotocol) {
   // `request.headers['sec-websocket-protocol']` still carries the
   // client's full offer list.
   const _subprotocol = subprotocol || '';
+  // Rate-limit state — fixed 1-second window.  0 cap = unlimited;
+  // overrun closes the offending client with code 1008.
+  const _rateCap = (typeof maxMessagesPerSec === 'number' && maxMessagesPerSec > 0)
+    ? maxMessagesPerSec : 0;
+  let _rateWindowStart = 0;
+  let _rateMsgs        = 0;
   let onMessage = null;
   let onClose   = null;
   let onPong    = null;
@@ -1256,6 +1276,19 @@ function _wsMakeWebSocket(socket, request, subprotocol) {
   }, HEARTBEAT_INTERVAL_MS);
 
   const dispatchMessage = (opcode, payload) => {
+    if (_rateCap > 0) {
+      const now = Date.now();
+      if (now - _rateWindowStart >= 1000) { _rateWindowStart = now; _rateMsgs = 0; }
+      _rateMsgs += 1;
+      if (_rateMsgs > _rateCap) {
+        if (!closing && !socket.destroyed) {
+          closing = true;
+          try { socket.write(_wsEncodeClose(1008, 'rate limit exceeded')); } catch (_) {}
+          try { socket.end(); } catch (_) {}
+        }
+        return;
+      }
+    }
     if (!onMessage) return;
     const msg = opcode === 0x1 ? payload.toString('utf-8') : payload.toString('latin1');
     try { onMessage(msg); } catch (e) { console.error('WS message handler:', e.message); }
@@ -1500,7 +1533,7 @@ function _wsHandleUpgrade(req, socket) {
         headers: reqHeaders,
         cookies: reqCookies
       };
-      const ws = _wsMakeWebSocket(socket, request, chosenProtocol);
+      const ws = _wsMakeWebSocket(socket, request, chosenProtocol, r.maxMessagesPerSec ?? 0);
       try { r.handler(ws); } catch (e) { console.error('WS upgrade handler:', e.message); }
       return;
     }
@@ -2259,7 +2292,8 @@ function _handle(bodyFn, handledOps, handlers) {
 }
 """
 
-val JsRuntime: String = JsRuntimePart1 + JsRuntimePart2
+val JsRuntime: String =
+  JsRuntimePart1a + JsRuntimePart1b + JsRuntimePart1c + JsRuntimePart1d + JsRuntimePart2
 
 /** Built-in `Async` effect runtime — concatenated onto `JsRuntime`.
  *  Lives in its own val because together with the rest of the runtime

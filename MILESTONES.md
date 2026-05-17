@@ -463,10 +463,6 @@ Convergence direction decided 2026-05-17: items below assume the
 Small quality-of-life additions noticed while running through
 Sprint 3.  Each is meaningfully complete on its own.
 
-20. **Per-connection rate limit.**  Cap incoming messages/sec so
-    one client can't burn the server's CPU.  Bound a sliding-window
-    counter on `WsConnection`; on overflow close 1008 ("policy
-    violation").  ~30 LOC × 3.
 21. **Auth helper at upgrade time.**  `onWebSocket("/x", auth =
     bearer { token => validate(token) }) { … }` — current users
     have to inspect `ws.request.headers("authorization")` and
