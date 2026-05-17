@@ -65,20 +65,6 @@ on bare class names, all reachable through a top-level aggregator
 `std/ui/index.ssc` so consumers can do
 `[Button, Card, FormInput as Input](std/ui)`.
 
-Tier 3 — **navigation**
-
-  - **`NavBar`** — `Layout`-style header with brand + nav links +
-    optional right-aligned slot.  Generalised version of what
-    `examples/site/components/layout.ssc` already inlines.
-  - **`Breadcrumbs`** — links with `/`-separator from a `List[(Path,
-    Label)]`.
-  - **`Tabs`** — controlled (active index as prop) and uncontrolled
-    (`val js` swaps `aria-selected` on click).  Tabs+content panels
-    in one component, with `data-tab="<id>"` wiring.
-  - **`Pagination`** — page-number row with prev/next, capped
-    visible-page count.
-  - **`Sidebar`** — sticky vertical nav for docs / dashboards.
-
 Tier 4 — **feedback / overlays**
 
   - **`Toast`** + `toast.show(...)` JS helper — auto-dismiss

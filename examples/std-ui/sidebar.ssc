@@ -1,0 +1,50 @@
+#!/usr/bin/env ssc
+---
+name: sidebar
+description: Sticky vertical nav — sections with linked items.
+---
+
+# Sidebar
+
+```scalascript
+object Sidebar:
+  private val sc = scope("Sidebar")
+  private val rootCls = sc.cls("root")
+  private val sectionCls = sc.cls("section")
+  private val titleCls = sc.cls("title")
+  private val itemCls = sc.cls("item")
+  private val curCls = sc.cls("current")
+
+  val css: String = sc.css("""
+    .root    { position: sticky; top: 4rem; align-self: start;
+               width: 14em; max-height: calc(100vh - 5rem);
+               overflow-y: auto;
+               border-right: 1px solid #e5e7eb; padding-right: 1em;
+               font-size: .9em; }
+    .section { margin-bottom: 1.5em; }
+    .title   { font-size: .75em; font-weight: 600; text-transform: uppercase;
+               letter-spacing: .04em; color: #6b7280; margin: 0 0 .5em; }
+    .item    { display: block; padding: .35em .5em; color: #1f2937;
+               text-decoration: none; border-radius: 4px; }
+    .item:hover  { background: #f3f4f6; }
+    .current     { background: #eff6ff; color: #2563eb; font-weight: 600; }
+  """)
+
+  /** `sections` is a `List[(title, items)]` where `items` is a
+   *  `List[(href, label)]`.  `current` is the href of the active
+   *  link. */
+  def render(
+      sections: List[(String, List[(String, String)])],
+      current: String = "/"
+  ): String =
+    val body = sections.map { case (sectionTitle, items) =>
+      val rendered = items.map { (href, label) =>
+        val cls = if href == current then itemCls + " " + curCls else itemCls
+        html"""<a class="${cls}" href="${href}">${label}</a>"""
+      }.mkString
+      val titleEl = if sectionTitle.isEmpty then ""
+                    else html"""<h4 class="${titleCls}">${sectionTitle}</h4>"""
+      html"""<div class="${sectionCls}">${raw(titleEl)}${raw(rendered)}</div>"""
+    }.mkString
+    html"""<aside class="${rootCls}">${raw(body)}</aside>"""
+```

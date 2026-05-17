@@ -1,0 +1,114 @@
+#!/usr/bin/env ssc
+---
+name: std-ui-nav-demo
+description: Renders every Tier 3 navigation primitive on one page.
+routes:
+  - method: GET
+    path: /
+    handler: home
+---
+
+# std/ui — navigation demo
+
+Imports `NavBar`, `Breadcrumbs`, `Tabs`, `Pagination`, `Sidebar` and
+puts them on one page.
+
+[NavBar](./navbar.ssc)
+
+[Breadcrumbs](./breadcrumbs.ssc)
+
+[Tabs](./tabs.ssc)
+
+[Pagination](./pagination.ssc)
+
+[Sidebar](./sidebar.ssc)
+
+```scalascript
+def home(req: Request): Response =
+  val nav = NavBar.render(
+    "ScalaScript",
+    List(
+      ("/",        "Home"),
+      ("/docs",    "Docs"),
+      ("/blog",    "Blog"),
+      ("/contact", "Contact")
+    ),
+    "/docs",
+    """<a style="color:#fff" href="/login">Sign in</a>"""
+  )
+
+  val crumbs = Breadcrumbs.render(List(
+    ("/",         "Home"),
+    ("/docs",     "Docs"),
+    ("/docs/api", "API reference")
+  ))
+
+  val tabs = Tabs.render(List(
+    ("install", "Install",
+      html"""<p>Run <code>brew install scalascript</code>.</p>"""),
+    ("usage",   "Usage",
+      html"""<p>Then <code>ssc render hello.ssc</code>.</p>"""),
+    ("advanced","Advanced",
+      html"""<p>See the <a href="/docs">docs</a> for everything else.</p>""")
+  ), 0)
+
+  def pageHref(n: Int): String = "/blog?page=" + n.toString
+  val pager = Pagination.render(7, 12, pageHref, 2)
+
+  val sidebar = Sidebar.render(List(
+    ("Getting started", List(
+      ("/docs/install", "Install"),
+      ("/docs/hello",   "Hello world")
+    )),
+    ("Guides", List(
+      ("/docs/components", "Components"),
+      ("/docs/routes",     "Routes"),
+      ("/docs/effects",    "Effects")
+    )),
+    ("Reference", List(
+      ("/docs/api",   "API"),
+      ("/docs/cli",   "CLI"),
+      ("/docs/spec",  "Spec")
+    ))
+  ), "/docs/components")
+
+  val styles = collectCss(NavBar, Breadcrumbs, Tabs, Pagination, Sidebar)
+  val scripts = collectJs(NavBar, Breadcrumbs, Tabs, Pagination, Sidebar)
+
+  Response.html(html"""<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>std/ui — navigation</title>
+  <style>
+    body { font: 1rem/1.5 system-ui, sans-serif; margin: 0;
+           color: #111827; background: #fafafa; }
+    main { display: grid; grid-template-columns: auto 1fr;
+           gap: 2rem; padding: 1.5rem 2rem; max-width: 1100px; margin: 0 auto; }
+    .content { min-width: 0; }
+    ${raw(styles)}
+  </style>
+</head>
+<body>
+  ${raw(nav)}
+  <main>
+    ${raw(sidebar)}
+    <div class="content">
+      ${raw(crumbs)}
+      <h1>std/ui — navigation primitives</h1>
+      <p>Tier 3 of the standard component pack.</p>
+
+      <h2>Tabs</h2>
+      ${raw(tabs)}
+
+      <h2>Pagination</h2>
+      ${raw(pager)}
+    </div>
+  </main>
+  <script>${raw(scripts)}</script>
+</body>
+</html>""")
+
+println("Listening on http://localhost:8772/")
+serve(8772)
+```

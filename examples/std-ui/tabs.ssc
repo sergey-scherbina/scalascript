@@ -1,0 +1,66 @@
+#!/usr/bin/env ssc
+---
+name: tabs
+description: Tab strip + content panels with client-side switching.
+---
+
+# Tabs
+
+```scalascript
+object Tabs:
+  private val sc = scope("Tabs")
+  private val rootCls = sc.cls("root")
+  private val stripCls = sc.cls("strip")
+  private val tabCls = sc.cls("tab")
+  private val activeCls = sc.cls("active")
+  private val panelsCls = sc.cls("panels")
+  private val panelCls = sc.cls("panel")
+
+  val css: String = sc.css("""
+    .root   { margin: 1em 0; }
+    .strip  { display: flex; gap: .25em; border-bottom: 1px solid #e5e7eb;
+              margin-bottom: 1em; }
+    .tab    { padding: .5em 1em; border: 0; background: transparent;
+              cursor: pointer; font: inherit; color: #6b7280;
+              border-bottom: 2px solid transparent; margin-bottom: -1px; }
+    .tab:hover  { color: #1f2937; }
+    .tab[aria-selected="true"] { color: #2563eb;
+                                 border-bottom-color: #2563eb; font-weight: 600; }
+    .panel { display: none; }
+    .panel[aria-hidden="false"] { display: block; }
+  """)
+
+  val js: String = s"""
+document.querySelectorAll('.$rootCls').forEach(root => {
+  const tabs   = root.querySelectorAll('.$tabCls');
+  const panels = root.querySelectorAll('.$panelCls');
+  tabs.forEach((tab, i) => {
+    tab.addEventListener('click', () => {
+      tabs.forEach((t, j) => t.setAttribute('aria-selected', i === j ? 'true' : 'false'));
+      panels.forEach((p, j) => p.setAttribute('aria-hidden', i === j ? 'false' : 'true'));
+    });
+  });
+});"""
+
+  /** `tabs` is `List[(id, label, contentHtml)]`.  The tab whose
+   *  index matches `active` (default 0) is shown first; the others
+   *  are hidden via `aria-hidden`.  Click handlers in `js` toggle
+   *  the attributes — pure CSS handles the visual swap. */
+  def render(tabs: List[(String, String, String)], active: Int = 0): String =
+    val n = tabs.length
+    val strip = tabs.zipWithIndex.map { case ((id, label, _), i) =>
+      val sel = if i == active then "true" else "false"
+      val cls = if i == active then tabCls + " " + activeCls else tabCls
+      html"""<button class="${cls}" type="button" role="tab"
+              data-tab="${id}" aria-selected="${sel}">${label}</button>"""
+    }.mkString
+    val panels = tabs.zipWithIndex.map { case ((id, _, content), i) =>
+      val hide = if i == active then "false" else "true"
+      html"""<div class="${panelCls}" role="tabpanel" data-tab="${id}"
+              aria-hidden="${hide}">${raw(content)}</div>"""
+    }.mkString
+    html"""<div class="${rootCls}">
+      <div class="${stripCls}" role="tablist">${raw(strip)}</div>
+      <div class="${panelsCls}">${raw(panels)}</div>
+    </div>"""
+```
