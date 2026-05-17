@@ -34,11 +34,20 @@ object ImportResolver:
    *  ignored here — those flow through to scala-cli for the JVM target. */
   def resolve(rawPath: String, baseDir: os.Path, deps: Map[String, String]): os.Path =
     val pathThroughDep = applyDeps(rawPath, deps).getOrElse(rawPath)
-    if isUrl(pathThroughDep) then fetchToCache(pathThroughDep)
-    else
-      val local = baseDir / os.RelPath(pathThroughDep)
-      if os.exists(local) then local
-      else cacheBackedRelative(pathThroughDep, baseDir).getOrElse(local)
+    val resolved =
+      if isUrl(pathThroughDep) then fetchToCache(pathThroughDep)
+      else
+        val local = baseDir / os.RelPath(pathThroughDep)
+        if os.exists(local) then local
+        else cacheBackedRelative(pathThroughDep, baseDir).getOrElse(local)
+    // v0.9.1 — directory-as-index: `[Name](./pack)` and the path points to
+    // a directory ⇒ look for `<dir>/index.ssc` inside.  Returns the index
+    // when present; falls back to the directory path otherwise so callers
+    // still see a "not a file" error rather than a silent miss.
+    if os.exists(resolved) && os.isDir(resolved) then
+      val index = resolved / "index.ssc"
+      if os.exists(index) then index else resolved
+    else resolved
 
   /** Rewrite a `<name>://<sub>` path to the URL from the deps map.
    *  Returns `Some(url)` when the rewrite fires; `None` to fall through

@@ -335,16 +335,6 @@ What's left from that block is the tooling that the pack motivates:
 Defer until at least one consumer of the existing convention asks
 "where do I get a Button?".
 
-## v0.9.1 — Import ergonomics: directory-as-index
-
-Make `[Name](./pack)` resolve to `./pack/index.ssc` when the path is
-a directory.  Today `ImportResolver.resolve` returns the raw path; if
-it points to a directory all three backends fail with "not a file".
-
-Single-spot change: after the resolver computes the final `os.Path`,
-if `os.isDir(p)` then return `p / "index.ssc"`.  ~20 LOC + one
-conformance test that imports a folder.  Unblocks `std/ui/index.ssc`.
-
 ## v0.10 — Extended component pack
 
 Components the standard pack didn't cover but every real app
