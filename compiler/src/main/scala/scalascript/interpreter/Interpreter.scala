@@ -1069,6 +1069,13 @@ class Interpreter(
 
   def exportedGlobals: Map[String, Value] = globals.toMap
 
+  /** Extension methods registered by this interpreter, exposed so that
+   *  parents can re-register them when importing a child module — the
+   *  JS and JVM backends inline imports wholesale and pick these up
+   *  for free, but the interpreter only copies the values named in
+   *  the import binding list and would otherwise drop extensions. */
+  def exportedExtensions: Map[(String, String), Value.FunV] = extensions.toMap
+
   // ─── Section / block execution ───────────────────────────────────
 
   private def runSection(section: Section): Unit =
@@ -1178,6 +1185,11 @@ class Interpreter(
       exported.get(sourceName) match
         case Some(v) => globals(targetName) = v
         case None    => throw InterpretError(s"'$sourceName' not found in ${imp.path}")
+    // Extensions registered by the imported module become available in
+    // the importer's scope.  Without this, an `extension` declared
+    // inside an imported `given ... with` would never dispatch — the
+    // child interpreter's `extensions` map is private to that child.
+    extensions ++= child.exportedExtensions
 
   private def execBlockStats(stats: List[Stat]): Unit =
     stats.zipWithIndex.foreach { (s, i) =>

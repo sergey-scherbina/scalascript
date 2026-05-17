@@ -1,0 +1,54 @@
+---
+name: conformance-std-functor-applicative-monad
+version: 1.0.0
+---
+
+# Std — Functor, Applicative, Monad
+
+Exercises the v1.1 functor / effect lane: trait hierarchy with HKT,
+extension-method dispatch via `given ... with`, and the per-instance
+helpers (`pureList`, `map2Option`, `sequenceList`, ...).
+
+[listMonad, optionMonad, pureList, pureOption, map2List, map2Option, sequenceList, sequenceOption](../std/functor-applicative-monad.ssc)
+
+## Functor — `map`
+
+```scalascript
+val noneInt: Option[Int] = None
+println(List(1, 2, 3).map(_ * 10))
+println(Some(7).map(_ + 1))
+println(noneInt.map((x: Int) => x + 1))
+```
+
+## Applicative — `pure`, `ap`, `map2`
+
+```scalascript
+println(pureList(99))
+println(pureOption("hi"))
+
+val addOne = (x: Int) => x + 1
+val twice  = (x: Int) => x * 2
+println(List(10, 20).ap(List(addOne, twice)))
+
+println(map2List(List(1, 2), List(10, 20), (a: Int, b: Int) => a + b))
+println(map2Option(Some(3), Some(4), (a: Int, b: Int) => a * b))
+println(map2Option(Some(3), noneInt, (a: Int, b: Int) => a + b))
+```
+
+## Monad — `flatMap`
+
+```scalascript
+println(List(1, 2, 3).flatMap(x => List(x, x * 10)))
+println(Some(5).flatMap(x => Some(x + 1)))
+println(Some(5).flatMap(x => noneInt))
+```
+
+## Traverse-shaped helpers
+
+```scalascript
+println(sequenceList(List(Some(1), Some(2), Some(3))))
+println(sequenceList(List(Some(1), noneInt, Some(3))))
+println(sequenceOption(Some(List(10, 20, 30))))
+val noneList: Option[List[Int]] = None
+println(sequenceOption(noneList))
+```
