@@ -17,8 +17,6 @@ session-sized chunk.
 
 Common asks from real apps that aren't covered today.
 
-8. **`ws.sendBytes(Array[Byte])`.**  Only text is sendable now;
-   binary frames are received but can't be sent.  ~10 LOC × 3.
 9. **`ws.ping()` / `ws.onPong { … }`.**  User-side liveness probe.
    Useful for health-checked clients.  ~20 LOC × 3.
 10. **`Sec-WebSocket-Protocol` subprotocol negotiation.**  Pick from

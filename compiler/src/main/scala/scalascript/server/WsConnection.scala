@@ -341,6 +341,16 @@ final class WsConnection(
         Value.UnitV
       case _ => throw scalascript.interpreter.InterpretError("ws.send(text)")
     })
+    // Binary frames take the same Latin-1 byte-view string convention
+    // that `req.files(...).bytes` and inbound binary frames already use
+    // — one Java `char` per wire byte, round-trips via
+    // `bytes.getBytes("ISO-8859-1")` without escape-mangling.
+    val sendBytes = Value.NativeFnV("WebSocket.sendBytes", Computation.pureFn {
+      case List(Value.StringV(s)) =>
+        enqueue(WsFraming.encodeBinary(s.getBytes("ISO-8859-1")))
+        Value.UnitV
+      case _ => throw scalascript.interpreter.InterpretError("ws.sendBytes(bytes)")
+    })
     val close = Value.NativeFnV("WebSocket.close", Computation.pureFn {
       case Nil =>
         sendClose(1000, ""); Value.UnitV
@@ -362,6 +372,7 @@ final class WsConnection(
     })
     Value.InstanceV("WebSocket", Map(
       "send"      -> send,
+      "sendBytes" -> sendBytes,
       "close"     -> close,
       "onMessage" -> onMessage,
       "onClose"   -> onClose,

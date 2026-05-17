@@ -2840,6 +2840,13 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |    if closing then return
        |    if !outQ.offer(_wsEncodeText(s)) then _forceShutdown()
        |
+       |  // Binary frames take the Latin-1 byte-view convention the rest
+       |  // of the runtime already uses (UploadedFile.bytes, inbound
+       |  // binary frames): one Java char per wire byte.
+       |  def sendBytes(s: String): Unit =
+       |    if closing then return
+       |    if !outQ.offer(_wsEncodeFrame(0x2, s.getBytes("ISO-8859-1"))) then _forceShutdown()
+       |
        |  def close(code: Int = 1000, reason: String = ""): Unit =
        |    if closing then return
        |    closing = true

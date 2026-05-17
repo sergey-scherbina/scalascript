@@ -1143,6 +1143,10 @@ function _wsEncodeFrame(opcode, payload) {
 }
 
 function _wsEncodeText(s)    { return _wsEncodeFrame(0x1, Buffer.from(String(s), 'utf-8')); }
+// Binary frames take the Latin-1 byte-view convention the rest of
+// the runtime already uses (req.files(...).bytes, inbound binary
+// frames): one JS char per wire byte.
+function _wsEncodeBinaryLatin1(s) { return _wsEncodeFrame(0x2, Buffer.from(String(s), 'latin1')); }
 function _wsEncodePong(p)    { return _wsEncodeFrame(0xA, p); }
 function _wsEncodeClose(code, reason) {
   const r = Buffer.from(reason || '', 'utf-8');
@@ -1207,6 +1211,14 @@ function _wsMakeWebSocket(socket, request) {
       // peer lets Node's per-socket queue grow without bound.  Past
       // a 4 MB backlog, drop the connection.
       const ok = socket.write(_wsEncodeText(s));
+      if (!ok && socket.writableLength > 4 * 1024 * 1024) {
+        closing = true;
+        try { socket.destroy(); } catch (_) {}
+      }
+    },
+    sendBytes: (s) => {
+      if (closing || socket.destroyed) return;
+      const ok = socket.write(_wsEncodeBinaryLatin1(s));
       if (!ok && socket.writableLength > 4 * 1024 * 1024) {
         closing = true;
         try { socket.destroy(); } catch (_) {}
