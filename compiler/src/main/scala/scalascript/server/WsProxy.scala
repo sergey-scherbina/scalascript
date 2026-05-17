@@ -29,12 +29,24 @@ final class WsProxy(
     publicPort:   Int,
     internalAddr: InetSocketAddress,
     wsExecutor:   Executor,
-    log:          java.io.PrintStream
+    log:          java.io.PrintStream,
+    /** Heartbeat tuning forwarded to every accepted [[WsConnection]].
+     *  Defaults match the production policy (30 s ping, 90 s dead-after);
+     *  tests may shrink both to assert the round-trip in seconds. */
+    heartbeatIntervalMs: Long = 30_000L,
+    heartbeatDeadAfterMs: Long = 90_000L
 ):
   private val selector: Selector              = Selector.open()
   private val serverCh: ServerSocketChannel   = ServerSocketChannel.open()
   @volatile private var running: Boolean      = false
   private var thread: Thread                  = null
+  // One shared scheduler drives the periodic heartbeat across every
+  // active WsConnection.  Single daemon thread — heartbeats are
+  // every-30s lightweight tasks, no need for a pool.
+  private val heartbeats: java.util.concurrent.ScheduledExecutorService =
+    java.util.concurrent.Executors.newSingleThreadScheduledExecutor(r => {
+      val t = Thread(r, "ws-heartbeats"); t.setDaemon(true); t
+    })
 
   // ─── State attached to each SelectionKey ──────────────────────────
 
@@ -72,6 +84,7 @@ final class WsProxy(
   def stop(): Unit =
     running = false
     try selector.wakeup() catch case _: Throwable => ()
+    try heartbeats.shutdownNow() catch case _: Throwable => ()
 
   def localPort: Int =
     serverCh.socket().getLocalPort
@@ -281,9 +294,10 @@ final class WsProxy(
         ))
         // Transition: build the WsConnection and feed any post-handshake
         // bytes already in the buffer through its parser.
-        val ws = WsConnection(conn.ch, conn.key, selector, entry.interpreter, wsExecutor, log, request)
+        val ws = WsConnection(conn.ch, conn.key, selector, entry.interpreter, wsExecutor, log, request, heartbeats, heartbeatIntervalMs, heartbeatDeadAfterMs)
         conn.mode = Ws(ws)
         conn.inBuf.clear()
+        ws.startHeartbeat()
         val tail = bytesSnap.length - headEnd
         if tail > 0 then
           ws.onBytes(ByteBuffer.wrap(bytesSnap, headEnd, tail))

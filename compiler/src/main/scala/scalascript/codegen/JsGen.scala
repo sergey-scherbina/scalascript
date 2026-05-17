@@ -1162,6 +1162,27 @@ function _wsMakeWebSocket(socket, request) {
   const fragParts = [];
   let   fragSize  = 0;
 
+  // ── Server-initiated heartbeat ────────────────────────────────────
+  // Empty Ping every 30 s; if no Pong within 90 s the connection is
+  // assumed dead and torn down.  Catches half-closed TCP / NAT
+  // timeouts long before the OS keepalive (~2 h) would notice.
+  const HEARTBEAT_INTERVAL_MS = 30_000;
+  const DEAD_AFTER_MS         = 90_000;
+  let lastPongAt = Date.now();
+  const heartbeat = setInterval(() => {
+    try {
+      if (Date.now() - lastPongAt > DEAD_AFTER_MS) {
+        if (!closing) {
+          closing = true;
+          socket.write(_wsEncodeClose(1001, 'ping timeout'));
+        }
+        socket.destroy();
+      } else if (!closing && !socket.destroyed) {
+        socket.write(_wsEncodeFrame(0x9, Buffer.alloc(0)));
+      }
+    } catch (_) { /* socket closed mid-write — fall through */ }
+  }, HEARTBEAT_INTERVAL_MS);
+
   const dispatchMessage = (opcode, payload) => {
     if (!onMessage) return;
     const msg = opcode === 0x1 ? payload.toString('utf-8') : payload.toString('latin1');
@@ -1205,7 +1226,7 @@ function _wsMakeWebSocket(socket, request) {
         offset += f.consumed;
         switch (f.opcode) {
           case 0x9: socket.write(_wsEncodePong(f.payload)); break;            // ping
-          case 0xA: break;                                                     // pong
+          case 0xA: lastPongAt = Date.now(); break;                            // pong (peer alive)
           case 0x8: {                                                          // close
             const status = f.payload.length >= 2 ? f.payload.readUInt16BE(0) : 1000;
             if (!closing) { closing = true; socket.write(_wsEncodeClose(status, '')); }
@@ -1261,6 +1282,7 @@ function _wsMakeWebSocket(socket, request) {
   });
 
   socket.on('close', () => {
+    clearInterval(heartbeat);
     if (onClose) try { onClose(); } catch (e) { console.error('WS close handler:', e.message); }
   });
 

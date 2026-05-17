@@ -138,6 +138,12 @@ object WsFraming:
   def encodePong(payload: Array[Byte]): Array[Byte] =
     encodeFrame(Opcode.Pong, payload)
 
+  /** Encode a server-initiated ping.  Payload is the timestamp-ish
+   *  body the peer must echo verbatim in a Pong — empty by default
+   *  for cheapest heartbeat. */
+  def encodePing(payload: Array[Byte] = Array.emptyByteArray): Array[Byte] =
+    encodeFrame(Opcode.Ping, payload)
+
   /** Encode a server-side close (status + optional reason).  Status code
    *  is the 2-byte big-endian close code; 1000 = normal closure. */
   def encodeClose(status: Int, reason: String = ""): Array[Byte] =

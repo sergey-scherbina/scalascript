@@ -2711,10 +2711,17 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |private val _serverExecutor: java.util.concurrent.ExecutorService =
        |  java.util.concurrent.Executors.newSingleThreadExecutor()
        |
+       |// Shared scheduler driving the periodic Ping heartbeat across every
+       |// active WebSocket — single daemon thread, cheap.
+       |private val _wsHeartbeats: java.util.concurrent.ScheduledExecutorService =
+       |  java.util.concurrent.Executors.newSingleThreadScheduledExecutor(r => {
+       |    val t = Thread(r, "ws-heartbeats"); t.setDaemon(true); t
+       |  })
+       |
        |class WebSocket(private val socket: java.net.Socket, val request: Request):
        |  import java.io.{BufferedInputStream, ByteArrayOutputStream, OutputStream}
        |  import java.nio.charset.StandardCharsets
-       |  import java.util.concurrent.{LinkedBlockingQueue, TimeUnit}
+       |  import java.util.concurrent.{LinkedBlockingQueue, ScheduledFuture, TimeUnit}
        |  import java.util.concurrent.atomic.AtomicReference
        |  @volatile private var onMessageCb: String => Unit = null
        |  // AtomicReference so close-fires-once is enforced by a CAS,
@@ -2722,6 +2729,13 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |  // the writer-VT's finally and any caller-side `close()`.
        |  private val onCloseCb = AtomicReference[() => Unit](null)
        |  @volatile private var closing:     Boolean        = false
+       |  // Server-initiated heartbeat: empty Ping every 30 s, drop the
+       |  // connection if no Pong arrives within 90 s.  Catches NAT-dropped
+       |  // and silently-half-closed peers well before OS keepalive does.
+       |  private val HeartbeatIntervalMs: Long = 30_000L
+       |  private val DeadAfterMs:         Long = 90_000L
+       |  @volatile private var lastPongAt: Long = java.lang.System.currentTimeMillis()
+       |  @volatile private var heartbeatTask: ScheduledFuture[?] = null
        |  // Fragmented-message reassembly (RFC 6455 §5.4): the first frame
        |  // of a fragmented message carries the data opcode with FIN=0,
        |  // follow-up frames are Continuation (opcode=0) with the rest,
@@ -2779,6 +2793,9 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |          out.flush()
        |    catch case _: Throwable => () // socket closed mid-write etc.
        |    finally
+       |      // Stop the heartbeat first so it can't fire after we close.
+       |      val t = heartbeatTask; heartbeatTask = null
+       |      if t != null then t.cancel(false)
        |      try socket.close() catch case _: Throwable => ()
        |      val cb = onCloseCb.getAndSet(null)
        |      if cb != null then _serverExecutor.execute { () =>
@@ -2813,6 +2830,21 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |  def onMessage(cb: String => Unit): Unit = onMessageCb = cb
        |  def onClose(cb: () => Unit): Unit       = onCloseCb.set(cb)
        |
+       |  /** Arm the periodic Ping → Pong heartbeat.  Called once by
+       |    * `_proxyConnection` right after the upgrade. */
+       |  def _startHeartbeat(): Unit =
+       |    lastPongAt = java.lang.System.currentTimeMillis()
+       |    heartbeatTask = _wsHeartbeats.scheduleAtFixedRate(() => {
+       |      try
+       |        if java.lang.System.currentTimeMillis() - lastPongAt > DeadAfterMs then
+       |          close(1001, "ping timeout")
+       |        else if !closing then
+       |          // Empty Ping — _wsEncodePing's payload is unused except
+       |          // for the wire byte.  Drop on full outQ (peer too slow).
+       |          outQ.offer(_wsEncodePing(Array.emptyByteArray))
+       |      catch case _: Throwable => ()
+       |    }, HeartbeatIntervalMs, HeartbeatIntervalMs, TimeUnit.MILLISECONDS)
+       |
        |  // Read-loop entry point: called from the per-connection thread
        |  // after the handshake completes.  Pulls bytes through the parser,
        |  // dispatches frames synchronously on the same thread.  Returns
@@ -2842,7 +2874,7 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |                  // trying to send them anyway; the next ping will
        |                  // time out and the writer will force-close.
        |                  outQ.offer(_wsEncodePong(fr.payload))
-       |                case 0xA => ()
+       |                case 0xA => lastPongAt = java.lang.System.currentTimeMillis()
        |                case 0x8 =>
        |                  val status =
        |                    if fr.payload.length >= 2
@@ -2992,6 +3024,7 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |def _wsEncodeText(s: String): Array[Byte] =
        |  _wsEncodeFrame(0x1, s.getBytes(java.nio.charset.StandardCharsets.UTF_8))
        |def _wsEncodePong(p: Array[Byte]): Array[Byte] = _wsEncodeFrame(0xA, p)
+       |def _wsEncodePing(p: Array[Byte]): Array[Byte] = _wsEncodeFrame(0x9, p)
        |def _wsEncodeClose(code: Int, reason: String): Array[Byte] =
        |  val r = reason.getBytes(java.nio.charset.StandardCharsets.UTF_8)
        |  val p = new Array[Byte](2 + r.length)
@@ -3081,6 +3114,7 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |        // Read-loop stays on this thread (cached pool) so a slow
        |        // socket can't block the executor; only the dispatched
        |        // callbacks above go through the single-thread queue.
+       |        ws._startHeartbeat()
        |        ws._runReadLoop()
        |  else
        |    // Plain HTTP — open a backend socket to the internal HttpServer

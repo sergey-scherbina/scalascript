@@ -2,7 +2,7 @@ package scalascript.server
 
 import java.nio.ByteBuffer
 import java.nio.channels.{SocketChannel, SelectionKey}
-import java.util.concurrent.{ConcurrentLinkedQueue, Executor}
+import java.util.concurrent.{ConcurrentLinkedQueue, Executor, ScheduledExecutorService, ScheduledFuture, TimeUnit}
 import scalascript.interpreter.{Interpreter, Value, Computation}
 
 /** Live WebSocket session: parser state on the inbound side, write queue on
@@ -34,7 +34,16 @@ final class WsConnection(
      *  headers) — exposed to the handler as `ws.request` so WS-side
      *  auth (cookie / Authorization / Origin) can read the same data
      *  REST handlers see. */
-    private val request:    Value
+    private val request:    Value,
+    /** Shared scheduler driving the periodic Ping heartbeat — passed in
+     *  from [[WsProxy]] so every connection shares one daemon thread
+     *  instead of spinning up its own. */
+    private val scheduler:  ScheduledExecutorService,
+    /** Heartbeat tuning, hoisted to constructor params so tests can
+     *  shrink the interval and assert dead-peer drop without sitting
+     *  through a real 90-second timeout. */
+    private val heartbeatIntervalMs: Long = 30_000L,
+    private val deadAfterMs:         Long = 90_000L
 ):
   // Outgoing frames waiting to be written.  Drained by the selector thread
   // in [[flush]]; new bytes appended from any thread via [[enqueue]].
@@ -71,6 +80,18 @@ final class WsConnection(
     java.util.concurrent.atomic.AtomicReference[Value | Null] =
       java.util.concurrent.atomic.AtomicReference[Value | Null](null)
   @volatile private var closing:     Boolean       = false
+
+  // ─── Server-initiated heartbeat ──────────────────────────────────
+  // We send an empty Ping every `heartbeatIntervalMs` and expect a
+  // Pong back within `deadAfterMs` of our last successful Pong (or
+  // the upgrade time, for the first round).  This catches connections
+  // whose TCP path silently drops — NAT timeouts, mobile-to-WiFi
+  // handoff, half-closed peers — well before OS keepalive (~2 h)
+  // would notice.
+  @volatile private var lastPongAt: Long = System.currentTimeMillis()
+  // Held so we can cancel on close; volatile because the close-thread
+  // reads it after the scheduler thread set it.
+  @volatile private var heartbeatTask: ScheduledFuture[?] = null
 
   /** Append more inbound bytes to the parser buffer and drain whole frames
    *  into [[onFrame]].  Called by the selector thread after a successful
@@ -111,7 +132,9 @@ final class WsConnection(
       case Opcode.Ping =>
         writeFrame(WsFraming.encodePong(frame.payload))
       case Opcode.Pong =>
-        () // no app-level handler for pong
+        // Peer is alive — refresh the liveness timestamp so the
+        // heartbeat task doesn't tear down the connection.
+        lastPongAt = System.currentTimeMillis()
       case Opcode.Close =>
         // Echo a close back if we haven't sent one yet, then drop the
         // connection.  The 2-byte status (if present) is preserved.
@@ -230,9 +253,38 @@ final class WsConnection(
       closing = true
       writeFrame(WsFraming.encodeClose(status, reason))
 
+  /** Arm the periodic Ping → Pong heartbeat.  Called by [[WsProxy]]
+   *  right after the upgrade so the first ping lands one interval
+   *  later.  Stays armed until [[closeNow]] cancels the task. */
+  def startHeartbeat(): Unit =
+    lastPongAt = System.currentTimeMillis()
+    heartbeatTask = scheduler.scheduleAtFixedRate(() => {
+      try
+        if closing then return
+        val now = System.currentTimeMillis()
+        if now - lastPongAt > deadAfterMs then
+          // Peer hasn't echoed our pings — assume dead.  Queue a Close
+          // frame, then defer the hard channel teardown so the
+          // selector has a chance to flush our Close onto the wire
+          // first (otherwise we send FIN with the Close still in our
+          // outbox and the peer sees an abrupt drop).
+          sendClose(1001, "ping timeout")
+          scheduler.schedule(
+            new Runnable { def run(): Unit = closeNow() },
+            200L, TimeUnit.MILLISECONDS
+          )
+        else
+          writeFrame(WsFraming.encodePing())
+      catch case _: Throwable => closeNow()
+    }, heartbeatIntervalMs, heartbeatIntervalMs, TimeUnit.MILLISECONDS)
+
   /** Force-close immediately (after a fatal error or the peer's Close).
    *  Idempotent. */
   def closeNow(): Unit =
+    // Cancel the heartbeat task first — otherwise it might still fire
+    // once after we've closed the channel and try to write to it.
+    val task = heartbeatTask; heartbeatTask = null
+    if task != null then task.cancel(false)
     if key.isValid then
       key.cancel()
       try channel.close() catch case _: Throwable => ()

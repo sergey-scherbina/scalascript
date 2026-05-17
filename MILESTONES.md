@@ -15,10 +15,6 @@ session-sized chunk.
 
 ### Sprint 2 — security / robustness hardening
 
-5. **Server-initiated ping every 30 s + dead-peer drop.**  Even
-   with TCP keepalive enabled, a NAT-dropped session can sit in
-   `in.read()` for hours.  Send a Ping, expect a Pong within N s,
-   close on timeout.  ~60 LOC × 3 backends.
 6. **`maxWsConnections` ceiling.**  DoS vector: open 100K WS to
    exhaust the FD table.  Configurable cap with a clean 503 on
    overflow.  ~20 LOC.
