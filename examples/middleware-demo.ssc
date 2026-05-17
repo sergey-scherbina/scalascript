@@ -1,0 +1,23 @@
+#!/usr/bin/env ssc
+---
+name: middleware-demo
+description: Route wrapped with three stock middlewares (request-id, timing, log)
+---
+
+# Middleware demo
+
+A single `/echo` route wrapped with `withRequestId`, `withTiming`,
+and `withRequestLog` from `std/middleware.ssc`.
+
+[withRequestId, withTiming, withRequestLog](../std/middleware.ssc)
+
+```scalascript
+route("GET", "/echo") {
+  withRequestId(withTiming(withRequestLog { req =>
+    Response.json("echo " + req.path)
+  }))
+}
+
+println("Listening on http://localhost:8770/echo")
+serve(8770)
+```

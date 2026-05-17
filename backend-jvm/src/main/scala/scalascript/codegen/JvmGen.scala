@@ -2077,6 +2077,8 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |  def withSession(payload: Map[String, String]): Response = copy(setSession = Some(payload))
        |  /** Clear the session cookie (Max-Age=0 on the wire). */
        |  def clearSession(): Response                            = copy(setSession = Some(Map.empty))
+       |  /** Attach (or overwrite) a header — used by std/middleware.ssc. */
+       |  def withHeader(name: String, value: String): Response   = copy(headers = headers + (name -> value))
        |
        |// ── Signed cookie sessions ──────────────────────────────────────
        |// HMAC-SHA256-signed Map[String, String] roundtripped through the
@@ -2878,9 +2880,11 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |    matched match
        |      case Some((r, params)) =>
        |        import scala.jdk.CollectionConverters.*
+       |        // Lowercase keys for portable lookup — matches Node's
+       |        // `req.headers` and the WS handshake convention.
        |        val headers = ex.getRequestHeaders.entrySet.iterator.asScala.flatMap { e =>
        |          if e.getValue.isEmpty then None
-       |          else Some(e.getKey -> e.getValue.get(0))
+       |          else Some(e.getKey.toLowerCase -> e.getValue.get(0))
        |        }.toMap
        |        // Read body as bytes so multipart file parts round-trip byte-exact.
        |        // `body` is the UTF-8 view (back-compat); `bodyLatin1` is a

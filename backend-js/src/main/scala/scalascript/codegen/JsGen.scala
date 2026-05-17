@@ -1096,10 +1096,20 @@ function _withSession(resp, payload) {
 function _clearSessionOn(resp) {
   return { ...resp, setSession: new Map(), withSession: resp.withSession, clearSession: resp.clearSession };
 }
+// `resp.withHeader(name, value)` — used by std/middleware.ssc to attach
+// observability headers without rebuilding the Response by hand.
+// Merges into the existing `headers` Map; later calls overwrite for
+// the same key.
+function _withHeaderOn(resp, name, value) {
+  const headers = resp.headers instanceof Map ? new Map(resp.headers) : new Map();
+  headers.set(String(name), String(value));
+  return _mkResp({ ...resp, headers });
+}
 function _mkResp(fields) {
   const r = { _type: 'Response', ...fields };
-  r.withSession  = function(payload) { return _withSession(this, payload); };
-  r.clearSession = function() { return _clearSessionOn(this); };
+  r.withSession  = function(payload)      { return _withSession(this, payload); };
+  r.clearSession = function()             { return _clearSessionOn(this); };
+  r.withHeader   = function(name, value)  { return _withHeaderOn(this, name, value); };
   return r;
 }
 
