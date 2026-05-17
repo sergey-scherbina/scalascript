@@ -17,9 +17,6 @@ session-sized chunk.
 
 Common asks from real apps that aren't covered today.
 
-10. **`Sec-WebSocket-Protocol` subprotocol negotiation.**  Pick from
-    the client's offered list, echo on the 101.  Without this
-    `socket.io` / `graphql-ws` clients refuse to connect.  ~30 LOC × 3.
 11. **Built-in `WsRoom` type.**  Thread-safe registry + `broadcast(msg)`
     so every chat demo doesn't reinvent `var clients =
     List[WebSocket]()` (and forget the synchronisation).  ~80 LOC × 3.

@@ -274,12 +274,37 @@ final class WsProxy(
           conn.outBufs.add(ByteBuffer.wrap(resp))
           conn.key.interestOpsOr(SelectionKey.OP_WRITE)
           return
+        // Subprotocol negotiation (RFC 6455 §1.9).  When the route
+        // was registered with a non-empty `protocols` list, pick the
+        // first server-side protocol that also appears in the
+        // client's `Sec-WebSocket-Protocol` request header.  No
+        // match → refuse with 400 (registering protocols makes them
+        // required; if the user wants "optional", they register no
+        // protocols and read the header themselves via `ws.request`).
+        val chosenProtocol: String =
+          if entry.protocols.isEmpty then ""
+          else
+            val offered = headers.getOrElse("sec-websocket-protocol", "")
+              .split(',').iterator.map(_.trim).filter(_.nonEmpty).toSet
+            entry.protocols.find(offered.contains) match
+              case Some(p) => p
+              case None    =>
+                WsConnection.releaseSlot()
+                val resp = httpResponse(400, "Bad Request",
+                  s"No matching Sec-WebSocket-Protocol; server offers: ${entry.protocols.mkString(", ")}")
+                conn.outBufs.add(ByteBuffer.wrap(resp))
+                conn.key.interestOpsOr(SelectionKey.OP_WRITE)
+                return
         val accept = WsFraming.acceptKey(key)
+        val protoHeader =
+          if chosenProtocol.isEmpty then ""
+          else s"Sec-WebSocket-Protocol: $chosenProtocol\r\n"
         val response =
           "HTTP/1.1 101 Switching Protocols\r\n" +
           "Upgrade: websocket\r\n" +
           "Connection: Upgrade\r\n" +
-          s"Sec-WebSocket-Accept: $accept\r\n\r\n"
+          s"Sec-WebSocket-Accept: $accept\r\n" +
+          protoHeader + "\r\n"
         // Write the handshake synchronously — it's a few hundred bytes
         // and the socket buffer is empty.
         val respBytes = response.getBytes(StandardCharsets.US_ASCII)

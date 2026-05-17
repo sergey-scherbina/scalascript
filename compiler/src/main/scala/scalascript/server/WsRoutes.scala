@@ -22,7 +22,13 @@ object WsRoutes:
        *  Empty list = no restriction (any origin accepted, including
        *  none).  Matching is exact-string against the value of the
        *  request's `Origin:` header. */
-      origins:     List[String] = Nil
+      origins:     List[String] = Nil,
+      /** Subprotocols this route understands (RFC 6455 §1.9).  The
+       *  server picks the first one that also appears in the client's
+       *  `Sec-WebSocket-Protocol` request header and echoes it in
+       *  the 101 response.  Empty list = no negotiation; non-empty
+       *  list with no client match = upgrade refused with 400. */
+      protocols:   List[String] = Nil
   )
 
   private val entries = scala.collection.mutable.ArrayBuffer.empty[Entry]
@@ -30,12 +36,13 @@ object WsRoutes:
   def clear(): Unit = entries.clear()
 
   def register(
-      path:    String,
-      handler: Value,
-      interp:  Interpreter,
-      origins: List[String] = Nil
+      path:      String,
+      handler:   Value,
+      interp:    Interpreter,
+      origins:   List[String] = Nil,
+      protocols: List[String] = Nil
   ): Unit =
-    entries += Entry(path, parsePath(path), handler, interp, origins)
+    entries += Entry(path, parsePath(path), handler, interp, origins, protocols)
 
   def all: List[Entry] = entries.toList
 

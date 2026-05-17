@@ -986,7 +986,16 @@ class Interpreter(
             Value.UnitV
           case _ => throw InterpretError("onWebSocket(path, origins) { ws => … }")
         })
-      case _ => throw InterpretError("onWebSocket(path) { ws => … } or onWebSocket(path, origins) { ws => … }")
+      case List(Value.StringV(path), Value.ListV(origins), Value.ListV(protocols)) =>
+        val origs = origins.collect   { case Value.StringV(s) => s }
+        val protos = protocols.collect { case Value.StringV(s) => s }
+        Value.NativeFnV("onWebSocket.handler", Computation.pureFn {
+          case List(handler) =>
+            scalascript.server.WsRoutes.register(path, handler, this, origs, protos)
+            Value.UnitV
+          case _ => throw InterpretError("onWebSocket(path, origins, protocols) { ws => … }")
+        })
+      case _ => throw InterpretError("onWebSocket(path[, origins[, protocols]]) { ws => … }")
     }
 
     // setMaxWsConnections(n) — process-wide cap on simultaneously-open

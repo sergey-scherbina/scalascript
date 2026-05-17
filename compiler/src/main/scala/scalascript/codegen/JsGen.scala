@@ -232,21 +232,25 @@ function route(method, path) {
 // upgrade to requests whose `Origin:` header matches one of `origins`
 // — a CSRF guard, since the browser same-origin policy does NOT
 // block cross-site `new WebSocket(...)` calls.
-function onWebSocket(path, originsOrHandler) {
-  // Detect two-arg form (path + origins-Array).  In single-arg form
-  // the caller-supplied function gets curried via `route`-style: we
-  // return a fn that takes the handler.
-  let origins = [];
-  if (Array.isArray(originsOrHandler) || originsOrHandler instanceof Array) {
-    origins = originsOrHandler;
-  } else if (originsOrHandler !== undefined) {
+//
+// Three-arg form `onWebSocket(path, origins, protocols)(handler)` adds
+// Sec-WebSocket-Protocol negotiation (RFC 6455 §1.9): server picks the
+// first protocol it offers that's in the client's request; no match
+// refuses with 400.  Required for `socket.io` / `graphql-ws` clients.
+function onWebSocket(path, originsArg, protocolsArg) {
+  let origins   = [];
+  let protocols = [];
+  if (Array.isArray(originsArg)) {
+    origins   = originsArg;
+    protocols = Array.isArray(protocolsArg) ? protocolsArg : [];
+  } else if (originsArg !== undefined) {
     // Older call style: `onWebSocket(path)(handler)`, second arg is
     // already the handler.  Wrap it.
-    _wsRoutes.push({ pattern: _parsePath(path), handler: originsOrHandler, origins: [] });
+    _wsRoutes.push({ pattern: _parsePath(path), handler: originsArg, origins: [], protocols: [] });
     return undefined;
   }
   return function(handler) {
-    _wsRoutes.push({ pattern: _parsePath(path), handler, origins });
+    _wsRoutes.push({ pattern: _parsePath(path), handler, origins, protocols });
   };
 }
 
@@ -1363,14 +1367,39 @@ function _wsHandleUpgrade(req, socket) {
         socket.destroy();
         return;
       }
+      // Subprotocol negotiation (RFC 6455 §1.9).  Server picks the
+      // first protocol it offers that's in the client's request;
+      // no match refuses with 400.  Empty server list = no
+      // negotiation, the request's protocol header (if any) is
+      // ignored and not echoed back.
+      let chosenProtocol = '';
+      if (r.protocols && r.protocols.length > 0) {
+        const offered = (req.headers['sec-websocket-protocol'] ?? '')
+          .split(',').map(s => s.trim()).filter(Boolean);
+        const offSet = new Set(offered);
+        chosenProtocol = r.protocols.find(p => offSet.has(p)) ?? '';
+        if (chosenProtocol === '') {
+          socket.write(
+            'HTTP/1.1 400 Bad Request\r\n' +
+            'Content-Length: 0\r\nConnection: close\r\n\r\n'
+          );
+          socket.destroy();
+          return;
+        }
+      }
       _wsActiveCount++;
       socket.once('close', () => { _wsActiveCount--; });
       const accept = _wsAcceptKey(clientKey);
+      const protoHeader = chosenProtocol
+        ? 'Sec-WebSocket-Protocol: ' + chosenProtocol + '\r\n'
+        : '';
       socket.write(
         'HTTP/1.1 101 Switching Protocols\r\n' +
         'Upgrade: websocket\r\n' +
         'Connection: Upgrade\r\n' +
-        'Sec-WebSocket-Accept: ' + accept + '\r\n\r\n'
+        'Sec-WebSocket-Accept: ' + accept + '\r\n' +
+        protoHeader +
+        '\r\n'
       );
       // Build a Request-shaped object — same shape as `_mkRequest` for
       // REST routes (minus body/form/files; the WS upgrade is a GET

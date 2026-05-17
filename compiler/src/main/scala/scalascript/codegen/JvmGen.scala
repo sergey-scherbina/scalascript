@@ -3031,9 +3031,10 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |    }
        |
        |private final case class _WsRoute(
-       |  pattern: List[_Seg],
-       |  handler: WebSocket => Unit,
-       |  origins: List[String] = Nil   // empty = no Origin restriction
+       |  pattern:   List[_Seg],
+       |  handler:   WebSocket => Unit,
+       |  origins:   List[String] = Nil,  // empty = no Origin restriction
+       |  protocols: List[String] = Nil   // empty = no subprotocol negotiation
        |)
        |private val _wsRoutes = scala.collection.mutable.ArrayBuffer.empty[_WsRoute]
        |
@@ -3059,6 +3060,14 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |  * block cross-site `new WebSocket(...)` calls. */
        |def onWebSocket(path: String, origins: List[String]): (WebSocket => Unit) => Unit = (handler) => {
        |  _wsRoutes += _WsRoute(_parsePath(path), handler, origins)
+       |}
+       |
+       |/** Three-arg form: also negotiate Sec-WebSocket-Protocol.  Server
+       |  * picks the first protocol from its `protocols` list that's in
+       |  * the client's request; no match refuses with 400.  Required
+       |  * for `socket.io` / `graphql-ws` clients. */
+       |def onWebSocket(path: String, origins: List[String], protocols: List[String]): (WebSocket => Unit) => Unit = (handler) => {
+       |  _wsRoutes += _WsRoute(_parsePath(path), handler, origins, protocols)
        |}
        |
        |// ── Framing ──────────────────────────────────────────────────────────
@@ -3200,12 +3209,25 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |        if !_wsTryReserve() then
        |          cout.write("HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".getBytes("US-ASCII"))
        |          cout.flush(); client.close(); return
+       |        // Subprotocol negotiation (RFC 6455 §1.9).
+       |        val chosenProtocol: String =
+       |          if r.protocols.isEmpty then ""
+       |          else
+       |            val offered = headers.getOrElse("sec-websocket-protocol", "")
+       |              .split(',').iterator.map(_.trim).filter(_.nonEmpty).toSet
+       |            r.protocols.find(offered.contains).getOrElse("")
+       |        if r.protocols.nonEmpty && chosenProtocol.isEmpty then
+       |          _wsActiveCount.decrementAndGet()
+       |          cout.write("HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".getBytes("US-ASCII"))
+       |          cout.flush(); client.close(); return
        |        val accept = _wsAcceptKey(key)
+       |        val protoHeader = if chosenProtocol.isEmpty then "" else s"Sec-WebSocket-Protocol: $chosenProtocol\r\n"
        |        val resp =
        |          "HTTP/1.1 101 Switching Protocols\r\n" +
        |          "Upgrade: websocket\r\n" +
        |          "Connection: Upgrade\r\n" +
-       |          s"Sec-WebSocket-Accept: $accept\r\n\r\n"
+       |          s"Sec-WebSocket-Accept: $accept\r\n" +
+       |          protoHeader + "\r\n"
        |        cout.write(resp.getBytes("US-ASCII")); cout.flush()
        |        // Build the Request snapshot — same shape as REST handlers
        |        // see (sans body / form / files; the WS upgrade is a GET
