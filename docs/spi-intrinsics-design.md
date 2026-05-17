@@ -14,7 +14,58 @@
 > | 1.2 | `EmitContext` shape | **Minimum** — `out: StringBuilder`, `freshName(prefix): String`, `emitArg(IrExpr): String`.  Extend as needs surface. |
 > | 1.3 | First proof intrinsic | **`println(s)`** — migrates the existing hardcoded path on compiled backends without regression.  Interpreter already on `NativeImpl`. |
 > | 1.4 | Workspace | **Worktree** on a long-lived feature branch per AGENTS.md big-feature workflow. |
-> | 2 | Sync vs async handler semantics | **PARKED** — revisiting pending discussion of direct-syntax effects.  v0.8 algebraic effects are already direct-style; option A (sync handler + Async-effect) likely subsumes option B's benefits.  Will settle before 5+/B touches `std.http` handler shape. |
+> | 2 | Sync vs async handler semantics | **B + direct-syntax + implicit lift.**  Handler signature is `Request => Async[Response]`.  Existing call sites continue to work via Scala 3 `given Conversion[Response, Async[Response]]` — zero migration cost.  User-facing convenience: a **do-notation direct-syntax block** (see [Direct-syntax defaults](#direct-syntax-defaults)) lets handler bodies read like sync code while the type system honestly carries `Async`. |
+>
+> ## Direct-syntax defaults
+>
+> A direct-syntax block desugars to a `for { ... } yield ...` over a
+> single monad.  Each line `x = expr` becomes `x <- expr`; each bare
+> effectful line becomes `_ <- expr`; the trailing expression is the
+> yield clause.  Defaults locked 2026-05-17:
+>
+> | # | Question | Resolution |
+> |---|----------|-----------|
+> | DS-1 | How does the typer infer the monad for a direct block? | **Type-directed** — inferred from the expected return type (e.g. handler typed `Request => Async[Response]` ⇒ block is in `Async`).  An explicit `direct[M] { ... }` marker is the fallback when context is ambiguous. |
+> | DS-2 | Pure values inside a direct block — when do they auto-lift? | **`val x = expr` is a pure local binding (no bind).  `x = expr` is a monadic bind**; if `expr` is pure, it auto-lifts via `Monad[M].pure`.  Re-assignment to a pre-declared `var` keeps existing Scala semantics (the `var` heuristic disambiguates from monadic bind). |
+> | DS-3 | Bare statements — bind-and-discard or regular statement? | **Type-directed** — if the expression's type is `M[*]`, the line becomes `_ <- expr`.  Pure-typed bare expressions stay regular statements (e.g. `assert(x > 0)`). |
+> | DS-7 | Error handling — `MonadError` or thrown exceptions? | **Monadic** — `Async.fail(...)` / `Async.recover(...)` for monadic failure; `Async[A]` is a `MonadError`.  Thrown exceptions are NOT auto-wrapped into monadic failure (avoids the two-fault-model trap). |
+>
+> ### Effect rows
+>
+> Multi-effect computations (e.g. a block that uses both `Async` and
+> `Random`) represent the row as a **Scala 3 union type**:
+> `Async | Random | Logger`.  Runtime still uses the universal
+> `Computation[A]` Free-monad from v0.8 — the row exists only at the
+> type level for `CapabilityCheck` and type inference; no new runtime
+> machinery is needed.  Surface type-level row tracking is a v2
+> extension; the v1 path keeps `Async[A]` as the master effect type
+> that subsumes other effects via stacked handlers.
+>
+> ### Open follow-ups (do NOT block 5+/B)
+>
+> Edge cases that surface during typer extension; address as they
+> appear:
+>
+> - **Control flow inside direct blocks** — `if`/`match`/`while`
+>   desugar to nested for-comprehensions; pure branches auto-lift to
+>   the monad of the surrounding block.
+> - **`for`-loops** — desugar to `Async.traverse_` / `Async.foldM`
+>   instead of plain `foreach`.  Stdlib helpers needed:
+>   `Async.traverse`, `Async.parTraverse`, `Async.traverse_`,
+>   `Async.replicateM_`.
+> - **Lambdas inside collection operations** — a lambda whose
+>   expected return type is `M[*]` is itself a direct block (so
+>   `urls.parTraverse { url => resp = fetch(url); parse(resp) }`
+>   works recursively).
+> - **Error messages** — must be specific: "expected `Async[Int]`,
+>   got `Int` — pure values auto-lift only when bound; did you mean
+>   `val x = …` (pure) or `x = expr` (monadic bind)?".
+> - **`for { … } yield` continues to work** — direct syntax is sugar
+>   over the same monad; both coexist.
+> - **`return` / non-local exits** — disallowed inside direct blocks;
+>   use `Async.fail` for early failure.
+> - **Type-level effect-row tracking** — deferred to v2; `Async[A]`
+>   as master type covers v1 needs.
 > | 3 | `std.ws` server/client split | **Split** — packages `std.ws.server` / `std.ws.client` with `std.ws` re-export.  Two feature flags `Feature.WebSocketsServer` / `Feature.WebSocketsClient`.  Browser-SPA / CLI-only-client backends get the right capability bucket. |
 > | 4 | `HostCallback` end-to-end | **Build now** before 5+/D.  HostDispatcher in `core/` + stub subprocess backend + conformance round-trip via `println`.  ~1 day; first out-of-process backend (.NET / WASM) starts with a working callback. |
 > | 5 | Partial feature coverage | **Hierarchical sub-features** — ~3 sub-flags per platform package (e.g. `HttpServer` baseline + `HttpServerStreaming` + `HttpServerMultipart`; `WebSocketsServer` baseline + `WebSocketsServerExtras` + `WebSocketsClient`).  Backend declares the subset it implements; error messages stay actionable. |
