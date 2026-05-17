@@ -245,13 +245,38 @@ class Interpreter(
     }
     nativeP("serve") {
       case List(Value.IntV(port)) =>
+        registerHealthDefaults()
         if !headless then scalascript.server.WebServer.start(port.toInt, ".", out)
         Value.UnitV
       case List(Value.IntV(port), Value.StringV(dir)) =>
+        registerHealthDefaults()
         if !headless then scalascript.server.WebServer.start(port.toInt, dir, out)
         Value.UnitV
       case _ => throw InterpretError("serve(port) or serve(port, dir)")
     }
+
+    // Tier 5 #21 — built-in `/_health` and `/_ready` routes auto-registered
+    // when `serve(port)` is called.  User-defined routes with the same
+    // path take precedence; we only fill the slot when it's empty.
+    //
+    // Inline construction of the Response InstanceV (rather than calling
+    // `mkResponse`) keeps this self-contained so it can sit before the
+    // big `Response.*` block that introduces `mkResponse` further down.
+    def registerHealthDefaults(): Unit =
+      def isRegistered(path: String): Boolean =
+        scalascript.server.Routes.all.exists(e => e.method == "GET" && e.path == path)
+      val okResponse = Value.InstanceV("Response", Map(
+        "status"  -> Value.IntV(200),
+        "headers" -> Value.MapV(Map(
+          Value.StringV("Content-Type") -> Value.StringV("application/json")
+        )),
+        "body"    -> Value.StringV("""{"status":"ok"}""")
+      ))
+      val handler = Value.NativeFnV("_healthOk", Computation.pureFn(_ => okResponse))
+      if !isRegistered("/_health") then
+        scalascript.server.Routes.register("GET", "/_health", handler, this)
+      if !isRegistered("/_ready") then
+        scalascript.server.Routes.register("GET", "/_ready", handler, this)
 
     // Wall-clock for benchmarks — same name across all three backends.
     nativeP("nanoTime") { _ => Value.IntV(java.lang.System.nanoTime()) }

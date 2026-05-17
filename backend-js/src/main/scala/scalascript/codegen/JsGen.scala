@@ -244,7 +244,7 @@ function _parsePath(p) {
 
 function route(method, path) {
   return function(handler) {
-    _routes.push({ method: method.toUpperCase(), pattern: _parsePath(path), handler });
+    _routes.push({ method: method.toUpperCase(), path, pattern: _parsePath(path), handler });
   };
 }
 
@@ -1470,7 +1470,23 @@ function _wsHandleUpgrade(req, socket) {
   }
 }
 
+// Tier 5 #21 — auto-register `/_health` and `/_ready` defaults the
+// first time `serve(...)` runs.  User-registered routes with the
+// same path keep precedence (we only fill slots that aren't taken).
+function _registerHealthDefaults() {
+  const ok = () => ({
+    _type: 'Response',
+    status: 200,
+    headers: new Map([['Content-Type', 'application/json']]),
+    body: '{"status":"ok"}'
+  });
+  const has = (path) => _routes.some(r => r.method === 'GET' && r.path === path);
+  if (!has('/_health')) _routes.push({ method: 'GET', path: '/_health', pattern: _parsePath('/_health'), handler: ok });
+  if (!has('/_ready'))  _routes.push({ method: 'GET', path: '/_ready',  pattern: _parsePath('/_ready'),  handler: ok });
+}
+
 function serve(port) {
+  _registerHealthDefaults();
   const http = require('http');
   const server = http.createServer((req, res) => {
     // Collect chunks as Buffers (not strings) so multipart file uploads
@@ -3815,7 +3831,10 @@ class JsGen(baseDir: Option[os.Path] = None):
       sb2.append("`")
       for i <- parts.indices do
         val part = parts(i).asInstanceOf[Lit.String].value
-        sb2.append(part.replace("`", "\\`").replace("\\", "\\\\").replace("$", "\\$"))
+        // Backslash first — replacing `\\` AFTER `` ` `` would double-escape
+        // the backslash inserted by the `` ` `` step, breaking the JS
+        // template literal.
+        sb2.append(part.replace("\\", "\\\\").replace("`", "\\`").replace("$", "\\$"))
         if i < args.length then
           val arg = args(i).asInstanceOf[Term]
           val argJs = genExpr(arg)
@@ -4286,7 +4305,8 @@ class JsGen(baseDir: Option[os.Path] = None):
         sb2.append("`")
         for i <- parts.indices do
           val part = parts(i).asInstanceOf[Lit.String].value
-          sb2.append(part.replace("`", "\\`").replace("\\", "\\\\").replace("$", "\\$"))
+          // Backslash first — see twin in genExpr.
+          sb2.append(part.replace("\\", "\\\\").replace("`", "\\`").replace("$", "\\$"))
           if i < args.length then sb2.append("${_show(").append(vs(i)).append(")}")
         sb2.append("`")
         val templateLiteral = sb2.toString
