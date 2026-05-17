@@ -1,0 +1,66 @@
+#!/usr/bin/env ssc
+---
+name: dropdown
+description: Button + popover menu, click-toggle, click-outside close.
+---
+
+# Dropdown
+
+A button that toggles a menu beneath it.  Closes on click-outside or
+Escape; uses `aria-expanded` so screen readers track state.  Menu
+items are `(label, hrefOrSentinel)` pairs — a sentinel of `""`
+renders the item as a plain `<div>` (separator-friendly).
+
+```scalascript
+object Dropdown:
+  private val sc = scope("Dropdown")
+  private val rootCls = sc.cls("root")
+  private val triggerCls = sc.cls("trigger")
+  private val menuCls = sc.cls("menu")
+  private val itemCls = sc.cls("item")
+  private val openCls = sc.cls("open")
+
+  val css: String = sc.css("""
+    .root     { position: relative; display: inline-block; }
+    .trigger  { background: #2563eb; color: #fff; border: 0;
+                padding: .5em 1em; border-radius: 4px; cursor: pointer;
+                font: inherit; font-weight: 500; }
+    .trigger:hover { background: #1d4ed8; }
+    .trigger::after { content: " ▾"; }
+    .menu     { position: absolute; top: calc(100% + .35em); left: 0;
+                min-width: 12em; background: #fff;
+                border: 1px solid #e5e7eb; border-radius: 6px;
+                box-shadow: 0 8px 24px rgba(0,0,0,.08);
+                padding: .3em 0; display: none; z-index: 50; }
+    .root.open .menu { display: block; }
+    .item     { display: block; padding: .45em 1em; color: #1f2937;
+                text-decoration: none; font-size: .95em; cursor: pointer; }
+    .item:hover { background: #f3f4f6; }
+  """)
+
+  val js: String = s"""
+document.querySelectorAll('.$rootCls').forEach(dd => {
+  const trigger = dd.querySelector('.$triggerCls');
+  if (!trigger) return;
+  const close = () => { dd.classList.remove('$openCls'); trigger.setAttribute('aria-expanded','false'); };
+  trigger.addEventListener('click', e => {
+    e.stopPropagation();
+    const open = dd.classList.toggle('$openCls');
+    trigger.setAttribute('aria-expanded', open ? 'true' : 'false');
+  });
+  document.addEventListener('click', e => { if (!dd.contains(e.target)) close(); });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') close(); });
+});"""
+
+  /** `label` goes on the trigger button.  `items` are `(text, href)`
+   *  pairs; pass `""` for `href` to render a non-link row. */
+  def render(label: String, items: List[(String, String)]): String =
+    val rows = items.map { (text, href) =>
+      if href == "" then html"""<div class="${itemCls}">${text}</div>"""
+      else html"""<a class="${itemCls}" href="${href}">${text}</a>"""
+    }.mkString
+    html"""<div class="${rootCls}">
+      <button class="${triggerCls}" type="button" aria-haspopup="true" aria-expanded="false">${label}</button>
+      <div class="${menuCls}" role="menu">${raw(rows)}</div>
+    </div>"""
+```

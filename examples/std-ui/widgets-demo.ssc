@@ -1,0 +1,112 @@
+#!/usr/bin/env ssc
+---
+name: std-ui-widgets-demo
+description: Renders every Tier 7 widget on one page.
+routes:
+  - method: GET
+    path: /
+    handler: home
+---
+
+# std/ui — widgets demo
+
+Imports `Avatar`, `Badge`, `Tooltip`, `Accordion`, `Dropdown`.
+
+[Avatar](./avatar.ssc)
+
+[Badge](./badge.ssc)
+
+[Tooltip](./tooltip.ssc)
+
+[Accordion](./accordion.ssc)
+
+[Dropdown](./dropdown.ssc)
+
+```scalascript
+def home(req: Request): Response =
+  val avatars = html"""
+    ${raw(Avatar.render("Alice Carter", "", "sm"))}
+    ${raw(Avatar.render("Bogdan Petrov", "", "md"))}
+    ${raw(Avatar.render("Carmen Diaz", "", "lg"))}
+    ${raw(Avatar.render("Daichi Ito", "https://example.invalid/d.png", "md"))}
+  """
+
+  val badges = html"""
+    ${raw(Badge.render("Neutral", "neutral"))}
+    ${raw(Badge.render("Info", "info"))}
+    ${raw(Badge.render("Success", "success"))}
+    ${raw(Badge.render("Warning", "warn"))}
+    ${raw(Badge.render("Danger", "danger"))}
+  """
+
+  val tooltips = html"""
+    <p>Hover the term ${raw(Tooltip.render("kerning", "The spacing between specific letter pairs."))}
+    or ${raw(Tooltip.render("ligature", "Two glyphs joined into one — like \"fi\"."))} for a hint.</p>
+  """
+
+  val accordion = Accordion.render(
+    List(
+      ("What is ScalaScript?",
+       "A hybrid Markdown + Scala 3 language with three backends (interpreter, JVM codegen, JS codegen)."),
+      ("How do components work?",
+       "Each component is an <code>object</code> with <code>val css</code>, optional <code>val js</code>, and a <code>render</code> method."),
+      ("Can I publish components?",
+       "Bundle them with <code>ssc bundle</code> into a <code>.sscpkg</code>, or serve from a URL and import via <code>[Name](https://...)</code>.")
+    ),
+    true
+  )
+
+  val dropdown = Dropdown.render(
+    "Account",
+    List(
+      ("Profile",   "/profile"),
+      ("Settings",  "/settings"),
+      ("",          ""),
+      ("Sign out",  "/logout")
+    )
+  )
+
+  val body = html"""
+    <h1>std/ui — widgets</h1>
+    <p>Tier 7 of the standard component pack.</p>
+
+    <h2>Avatar</h2>
+    <p>${raw(avatars)}</p>
+
+    <h2>Badge</h2>
+    <p>${raw(badges)}</p>
+
+    <h2>Tooltip</h2>
+    ${raw(tooltips)}
+
+    <h2>Accordion (single-open)</h2>
+    ${raw(accordion)}
+
+    <h2>Dropdown</h2>
+    <p>${raw(dropdown)}</p>
+
+    <script>${raw(collectJs(Avatar, Badge, Tooltip, Accordion, Dropdown))}</script>
+  """
+
+  val styles = collectCss(Avatar, Badge, Tooltip, Accordion, Dropdown)
+
+  Response.html(html"""<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>std/ui — widgets</title>
+  <style>
+    body { font: 1rem/1.5 system-ui, sans-serif; max-width: 720px;
+           margin: 2rem auto; padding: 0 1rem; color: #111827; }
+    h1 { margin-top: 0; }
+    ${raw(styles)}
+  </style>
+</head>
+<body>
+  ${raw(body)}
+</body>
+</html>""")
+
+println("Listening on http://localhost:8776/")
+serve(8776)
+```

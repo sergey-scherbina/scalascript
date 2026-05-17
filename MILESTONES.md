@@ -65,18 +65,6 @@ on bare class names, all reachable through a top-level aggregator
 `std/ui/index.ssc` so consumers can do
 `[Button, Card, FormInput as Input](std/ui)`.
 
-Tier 7 — **widgets**
-
-  - **`Avatar`** — circular image with fallback initials, sizes
-    (`sm` / `md` / `lg`).
-  - **`Badge`** — small pill, neutral / info / warn / danger / success.
-  - **`Tooltip`** — CSS-only hover popover (no JS for the basic
-    version).
-  - **`Accordion`** — collapsible sections, multi-vs-single open
-    mode prop.
-  - **`Dropdown`** — button + popover menu; same JS bones as the
-    tab switcher.
-
 Tier 8 — **theming infrastructure**
 
   - **CSS variables** (`--ui-color-primary`, `--ui-radius-md`,
