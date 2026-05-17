@@ -1023,6 +1023,176 @@ so they should land at a similar pace once the template is
 established.  No new compiler concept required — purely runtime
 library additions on top of the existing Free Monad infrastructure.
 
+## v1.6 — Actors (Erlang-style, WebSocket-distributed)
+
+A first-class actor runtime: lightweight processes, mailboxes,
+supervision trees, location-transparent PIDs.  Models after Erlang
+(spawn / send / receive / link / monitor) rather than Akka
+(strongly-typed `Behavior[T]` DSL with separate `ActorRef[T]`
+hierarchy).  Distribution rides the existing WS stack — no new
+transport — so two nodes can be `INT↔INT`, `INT↔JVM`, `JVM↔JVM`,
+or any pair across the three backends.
+
+Builds on v1.3 (Async-integrated WS).  Each phase ships
+independently and is useful in isolation.
+
+### Phase 1 — Local actors (~1 week)
+
+Core process model.  No supervision, no distribution — just spawn,
+send, receive on one node.
+
+  - **`spawn(behavior): Pid`** — creates an actor; behavior is
+    `Behavior[M]` (a function `M => Behavior[M]` returning `Same`,
+    `Stopped`, or `Become(next)`).  Returns an opaque `Pid`.
+  - **`spawn_link(behavior): Pid`** — atomic spawn-and-link so
+    there's no race window where the child dies before the parent
+    calls `link`.
+  - **`pid ! msg`** — fire-and-forget send; never blocks, never
+    fails (send to dead PID is a no-op, Erlang semantics).
+  - **`receive { case … }`** — FIFO head-only pattern match.  Did
+    not match → message goes to dead letters (logged).  Selective
+    receive (scanning the mailbox) is **explicitly out of scope**;
+    state-machine behaviour is expressed through `Become(next)`,
+    which switches the pattern set for the next receive.
+  - **`receive (timeout = 1000) { case … }`** — `None` on timeout;
+    otherwise the matched value.
+  - **`self: Pid`** — current actor's PID.
+  - **`call(pid, msg, timeout = 5000): Reply`** — request/reply
+    helper (the `gen_server:call/2` pattern), wired through a
+    one-shot internal mailbox so user code doesn't reimplement it
+    every time.
+  - **`exit(pid, reason)`** — kill another process by PID; needed
+    by supervisors and for clean shutdown.
+
+  Mailboxes per backend:
+    - **JVM (Loom):** virtual thread per actor + `LinkedBlockingQueue`.
+      `receive` is a blocking `take()` — Loom parks cheaply.
+    - **Interpreter (NIO):** continuation per actor on the existing
+      event loop + `ArrayDeque`.  `receive` is a suspension point in
+      the `Async` effect.
+    - **JS:** microtask-scheduled coroutine + array mailbox.  Same
+      suspension semantics through `Async`.
+
+  New `Actor` effect, parallel to `Async`; internally uses Async's
+  suspension machinery on each backend.
+
+  Conformance: ping-pong; state machine via `Become`; timeout
+  receive; dead letter on unmatched; `Stopped` exit; `exit(other,
+  …)` from outside.
+
+### Phase 2 — Supervision (~3-4 days)
+
+Erlang-style fault tolerance.  With `trap_exit`, a supervisor is
+just a regular actor that handles EXIT messages — no special
+runtime, supervision is a library on top of Phase 1.
+
+  - **`link(pid)`** — bidirectional death link.  When either side
+    dies, the other receives an EXIT signal.  Default behaviour is
+    to crash the receiver; with `trap_exit = true` the EXIT
+    arrives as a normal `Exit(from, reason)` message.
+  - **`monitor(pid): MonitorRef`** — unidirectional.  The
+    monitoring actor receives a `Down(ref, from, reason)` message
+    when the target dies.
+  - **`trap_exit(on: Boolean)`** — toggle current process's
+    exit-signal handling.  Supervisors set this on at startup.
+  - **`Supervisor.start(children, strategy): Pid`**
+    - Strategies: `OneForOne`, `OneForAll`, `RestForOne`.
+    - `ChildSpec(id, start, restart, ...)` with restart classifier:
+      `Permanent` (always restart), `Transient` (restart only on
+      abnormal exit), `Temporary` (never restart).
+    - Max-restart window: `MaxRestarts(n, withinMs)`.  Exceeding
+      the budget crashes the supervisor itself (escalates upward).
+
+  Conformance: worker crashes → restarted; max-restart exceeded →
+  supervisor dies up the tree; `OneForAll` restarts all three
+  children when one dies; `Transient` doesn't restart on normal
+  exit.
+
+### Phase 3 — Distributed via WS (~1 week)
+
+Location-transparent PIDs and remote sends, riding the existing WS
+client stack (v1.5 Tier 3, prerequisite).
+
+  - **Node identity** `name@host:port`; PID is `<node>.<localId>`,
+    serializable.  Self-node's name is set at startup
+    (`startNode("logger@localhost:9100")`).
+  - **`connectNode(url, token = ..., serializer = Json | Binary)`**
+    — opens one long-lived WS channel between this node and the
+    peer.  PIDs are multiplexed over the channel; never one socket
+    per actor (fan-out would die).
+  - **`pid ! msg`** transparently routes: if PID's node is local,
+    queue.put; if remote, serialize and frame onto the per-peer
+    channel.
+  - **Serializer choice per link** — JSON via uPickle (default,
+    human-debuggable, cross-language) or binary uPickle
+    (compact, faster).  Both already in deps.
+  - **`register(name, pid)` / `whereis(name): Option[Pid]`** —
+    per-node atom registry.  Cross-node lookup is explicit:
+    `whereis("node2@x:9100", "logger")`.
+  - **Heartbeat** on each peer channel.  Loss of channel → all
+    PIDs from that node are considered dead; queued links /
+    monitors fire `Down(...) / Exit(...)`.
+  - **Auth:** reuses existing WS auth (JWT or bearer token); no
+    new cookie scheme.  `connectNode(url, token = "...")`.
+  - **Remote spawn is deliberately not supported** — functions
+    don't serialize.  Pattern: send a `Make(args)` message to a
+    locally-spawned process registered under a well-known name on
+    the remote node, and let it spawn its own children.
+
+  Conformance: 2-node ping-pong (`INT↔INT`); cross-backend
+  (`INT↔JVM`); link across nodes; kill one node → `Down` fires on
+  the other; serializer round-trip parity.
+
+### Hard-no list (closed by design)
+
+- **Selective receive with mailbox scan.**  Quadratic worst-case;
+  `Become(next)` covers the realistic use cases at FIFO cost.
+- **Hot code reload.**  Erlang-specific runtime trick, not in scope.
+- **Remote spawn with closure.**  Functions don't serialize; use
+  the registered-name pattern above.
+
+### Deferred follow-ups (carry into v1.6.x)
+
+Pulled out so v1.6 stays focused; each is meaningfully a separate
+PR that doesn't gate the core landing.
+
+1. **Bounded mailboxes + backpressure.**  v1.6 ships unbounded
+   mailboxes (Erlang default).  Add `mailbox = bounded(n,
+   onOverflow = Block | DropOldest | DropNewest | Fail)` as a
+   `spawn` option once a real workload demands backpressure.  ~80
+   LOC per backend.
+
+2. **Actor tracing & introspection.**  `processInfo(pid):
+   ProcessInfo` returning mailbox size, links, monitors, current
+   behavior; opt-in hook to log every message in/out of a PID.
+   Half a day; pays back the first time something hangs.
+
+3. **Cluster discovery.**  v1.6 requires manual `connectNode(url)`
+   per peer.  Add a seed-list or multicast helper so an N-node
+   cluster doesn't need N² manual connects.  ~150 LOC.
+
+4. **Cluster-wide registry.**  v1.6 has per-node `register` /
+   `whereis` with explicit cross-node lookup.  Add an Erlang
+   `global:register_name` analogue with node-id-priority conflict
+   resolution.  Requires a small consensus protocol; defer until
+   the manual cross-node `whereis` becomes friction.
+
+5. **Scheduled / delayed sends.**  `sendAfter(delayMs, pid, msg)`
+   and `sendInterval(periodMs, pid, msg, until = ...)`.  ~30 LOC
+   on top of the existing scheduler.
+
+6. **Persistent mailboxes / event sourcing.**  Far-future v2-class
+   feature; mention only.  Replay state from a journal on
+   supervisor restart, like Akka Persistence.
+
+### Effort
+
+Roughly **3 weeks end-to-end** across three backends: Phase 1 ~1
+week, Phase 2 ~3-4 days, Phase 3 ~1 week.  Each phase merges
+independently, each closes a real use case (Phase 1 — in-process
+concurrency; Phase 2 — fault tolerance; Phase 3 — uniform
+local/remote).
+
 ## Known issues / latent flakes
 
 Things noticed in passing while landing other work — not blocking, but
