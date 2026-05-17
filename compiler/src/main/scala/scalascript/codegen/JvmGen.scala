@@ -202,9 +202,10 @@ class JvmGen(baseDir: Option[os.Path] = None):
    *  Each path is inlined at most once per JvmGen run. */
   private def inlineImport(path: String): List[JvmGen.Block] =
     import scalascript.parser.Parser
-    val resolved = baseDir match
-      case Some(dir) => dir / os.RelPath(path)
-      case None      => os.Path(path, os.pwd)
+    val base = baseDir.getOrElse(os.pwd)
+    val resolved =
+      try scalascript.imports.ImportResolver.resolve(path, base)
+      catch case e: Throwable => throw new RuntimeException(s"Import $path: ${e.getMessage}")
     val key = resolved.toString
     if importedFiles.contains(key) then Nil
     else if !os.exists(resolved) then

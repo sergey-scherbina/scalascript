@@ -2759,9 +2759,10 @@ class JsGen(baseDir: Option[os.Path] = None):
 
   private def genImport(imp: Content.Import): Unit =
     import scalascript.parser.Parser
-    val resolvedPath = baseDir match
-      case Some(dir) => dir / os.RelPath(imp.path)
-      case None      => os.Path(imp.path, os.pwd)
+    val base = baseDir.getOrElse(os.pwd)
+    val resolvedPath =
+      try scalascript.imports.ImportResolver.resolve(imp.path, base)
+      catch case _: Throwable => base / os.RelPath(imp.path)
     if os.exists(resolvedPath) then
       val childDir = resolvedPath / os.up
       val childModule = Parser.parse(os.read(resolvedPath))

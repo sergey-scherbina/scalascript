@@ -462,6 +462,25 @@ Aliasing is mixable: `[Foo as F, Bar]` aliases `Foo` to `F` and
 imports `Bar` under its own name.  Whitespace around `as` is
 required.
 
+**URL imports** are supported too.  Replace the relative path with
+an `http://` or `https://` URL and the importer fetches the file
+into a local cache on first access, then reuses the cache:
+
+```markdown
+[Card](https://raw.githubusercontent.com/u/r/v1.0/card.ssc)
+```
+
+Cache layout: `~/.cache/ssc/<scheme>/<authority>/<path>` — so
+`https://github.com/foo/bar/v1.ssc` lands at
+`~/.cache/ssc/https/github.com/foo/bar/v1.ssc`.  Relative imports
+inside a URL-fetched file (`./helper.ssc`) are resolved by inverting
+the cache layout and fetching from the same origin, so a library can
+ship `.ssc` files that import their siblings without rewriting paths.
+
+Set the environment variable `SSC_NO_NETWORK=1` to disallow any
+outbound fetch.  Cached files keep working; uncached URLs fail with a
+clear error — useful for sandboxed or reproducible builds.
+
 ### 6.4 Visibility
 
 - `# Heading` scope members: public by default

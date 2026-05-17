@@ -1089,9 +1089,10 @@ class Interpreter(
 
   private def runImport(imp: Content.Import): Unit =
     import scalascript.parser.Parser
-    val resolvedPath = baseDir match
-      case Some(dir) => dir / os.RelPath(imp.path)
-      case None      => os.Path(imp.path, os.pwd)
+    val base = baseDir.getOrElse(os.pwd)
+    val resolvedPath =
+      try scalascript.imports.ImportResolver.resolve(imp.path, base)
+      catch case e: Throwable => throw InterpretError(s"Import ${imp.path}: ${e.getMessage}")
     if !os.exists(resolvedPath) then
       throw InterpretError(s"Import not found: ${imp.path}")
     val childDir = resolvedPath / os.up
