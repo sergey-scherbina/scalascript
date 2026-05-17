@@ -6,43 +6,41 @@ description: v1.6 Phase 1 — spawn / send / receive / self / exit / timeout rec
 
 # Actors Phase 1 — ping-pong + timeout + exit
 
+Same source runs on the interpreter, JsGen (emit-js | node) and
+JvmGen (emit-scala | scala-cli .sc).  Messages are plain strings so
+the JvmGen CPS path doesn't hit its case-class-constructor type
+limitation (case classes in Async/Actor CPS contexts are a separate
+issue tracked outside v1.6).
+
 ```scalascript
-case class Ping(from: Pid, msg: String)
-case class Reply(text: String)
-case class Tick(n: Int)
-
 runActors {
-  // ── ping-pong ────────────────────────────────────────────────────
   val pong = spawn { () =>
-    receive { case Ping(from, msg) => from ! Reply("pong: " + msg) }
-    receive { case Ping(from, msg) => from ! Reply("pong: " + msg) }
-    receive { case Ping(from, msg) => from ! Reply("pong: " + msg) }
+    receive { case s: String => println("pong: " + s) }
+    receive { case s: String => println("pong: " + s) }
+    receive { case s: String => println("pong: " + s) }
   }
+  pong ! "one"
+  pong ! "two"
+  pong ! "three"
+
+  // Empty mailbox + 50ms deadline → None.
+  val r1 = receive(timeout = 50) { case s: String => s }
+  println("after timeout: " + r1)
+
+  // Sender delivers before the deadline → Some.
   val me = self()
-  pong ! Ping(me, "one")
-  pong ! Ping(me, "two")
-  pong ! Ping(me, "three")
-  receive { case Reply(s) => println(s) }
-  receive { case Reply(s) => println(s) }
-  receive { case Reply(s) => println(s) }
-
-  // ── timeout receive: no Tick comes, deadline fires ───────────────
-  val r = receive(timeout = 50) { case Tick(n) => "got " + n }
-  println("after timeout: " + r)
-
-  // ── timeout receive: message arrives before deadline ─────────────
-  val sender = spawn { () =>
-    me ! Tick(42)
+  spawn { () =>
+    me ! "delivered"
   }
-  val r2 = receive(timeout = 1000) { case Tick(n) => n + 1 }
+  val r2 = receive(timeout = 1000) { case s: String => "got " + s }
   println("before timeout: " + r2)
 
-  // ── exit(pid) — kill a worker, subsequent sends silently drop ────
-  val worker = spawn { () =>
+  // exit(pid) — kill a worker, subsequent sends silently drop.
+  val w = spawn { () =>
     receive { case _ => println("worker: should never print") }
   }
-  exit(worker, "kill")
-  worker ! "ignored payload"
+  exit(w, "kill")
+  w ! "ignored"
   println("done")
 }
 ```
