@@ -3951,6 +3951,16 @@ class Interpreter(
         Pure(Value.InstanceV("Response", fields + ("setSession" -> Value.MapV(m))))
       case (Value.InstanceV("Response", fields), "clearSession", Nil) =>
         Pure(Value.InstanceV("Response", fields + ("setSession" -> Value.MapV(Map.empty))))
+      // `resp.withHeader("X-Trace-Id", "abc")` — used by std/middleware.ssc
+      // to attach observability headers without rebuilding the Response
+      // by hand.  Merges into the existing `headers` Map; later
+      // withHeader calls overwrite earlier ones for the same key.
+      case (Value.InstanceV("Response", fields), "withHeader", List(Value.StringV(name), Value.StringV(value))) =>
+        val existing = fields.get("headers") match
+          case Some(Value.MapV(m)) => m
+          case _                   => Map.empty[Value, Value]
+        val merged = existing + (Value.StringV(name) -> Value.StringV(value))
+        Pure(Value.InstanceV("Response", fields + ("headers" -> Value.MapV(merged))))
       // ── Instance (case class / enum case) field access ───────────
       // No-arg defs and no-arg native fns are called automatically on access
       case (Value.InstanceV(_, fields), fname, Nil) =>

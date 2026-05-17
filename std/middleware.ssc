@@ -1,0 +1,80 @@
+---
+name: std-middleware
+version: 1.0.0
+description: REST middleware composition — std v1.5 Tier 5 #18
+exports:
+  - withRequestId
+  - withTiming
+  - withRequestLog
+  - compose
+  - compose3
+---
+
+# Middleware composition
+
+Middleware in ScalaScript is just function composition.  A handler
+is `Request => Response`; a middleware is
+`(Request => Response) => (Request => Response)` — it takes the
+inner handler, returns a new handler that wraps it.
+
+```text
+type Handler    = Request => Response
+type Middleware = Handler => Handler
+```
+
+No new runtime concept, no new keywords.  This file ships three
+stock middlewares and a small `compose` helper for stacking them
+right-to-left (`compose(auth, log)(handler) == auth(log(handler))`).
+
+## Usage (illustrative)
+
+```text
+route("GET", "/users") {
+  withRequestId(withTiming { req => Response.json(allUsers) })
+}
+
+route("GET", "/orders") {
+  compose(withRequestId, withTiming) { req => Response.json(allOrders) }
+}
+```
+
+## Stock middlewares
+
+```scalascript
+def withRequestId(handler: Request => Response): Request => Response = req =>
+  // Echo any inbound X-Request-Id; otherwise mint one from nanoTime.
+  // `req.headers` keys are lowercased across all three backends, so the
+  // lookup uses `"x-request-id"` regardless of the wire-format casing
+  // the client sent.  Real apps will want csrfToken() for cryptographic
+  // randomness; nanoTime is fine for trace correlation.
+  val id = req.headers.getOrElse("x-request-id", "req-" + nanoTime().toString)
+  handler(req).withHeader("X-Request-Id", id)
+
+def withTiming(handler: Request => Response): Request => Response = req =>
+  val start = nanoTime()
+  val resp  = handler(req)
+  val ms    = (nanoTime() - start) / 1000000
+  resp.withHeader("X-Response-Time-Ms", ms.toString)
+
+def withRequestLog(handler: Request => Response): Request => Response = req =>
+  val start = nanoTime()
+  val resp  = handler(req)
+  val ms    = (nanoTime() - start) / 1000000
+  println(req.method + " " + req.path + " -> " + resp.status + " (" + ms + "ms)")
+  resp
+```
+
+## Composition helpers
+
+```scalascript
+def compose(outer: (Request => Response) => Request => Response,
+            inner: (Request => Response) => Request => Response):
+    (Request => Response) => Request => Response =
+  handler => outer(inner(handler))
+
+def compose3(a: (Request => Response) => Request => Response,
+             b: (Request => Response) => Request => Response,
+             c: (Request => Response) => Request => Response):
+    (Request => Response) => Request => Response =
+  handler => a(b(c(handler)))
+```
