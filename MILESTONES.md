@@ -62,18 +62,7 @@ component pack, REST middleware, layout kit — without vendoring its
 files into their own tree.  The steps are ordered so each one is
 useful in isolation and unblocks the next.
 
-1. **`package` keyword** *(optional)*.  `package org.example.ui` at
-   the top of a scalascript block puts its declarations under that
-   dotted path so two libraries can each export `Card` without
-   collision in the global namespace.  Mostly cosmetic once URL/dep
-   imports
-   are in place — alias parsing already solves the collision case
-   for callers, and URL/dep resolution provides the uniqueness — but
-   `package`-prefixed imports map cleanly to a future registry.
-   Parser + 3 backends (`object org.example.ui.Card { … }` emit).
-   ~1–2 days.  Defer until a concrete clash motivates it.
-
-2. **Registry** *(future)*.  Central index (`registry.scalascript.io`)
+1. **Registry** *(future)*.  Central index (`registry.scalascript.io`)
    with semver resolution, lock file (`ssc.lock`), publish/yank
    workflow.  Weeks of work; only worth opening once the surface
    above is well-trodden.  Out of scope for v0.7.

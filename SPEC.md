@@ -462,6 +462,42 @@ Aliasing is mixable: `[Foo as F, Bar]` aliases `Foo` to `F` and
 imports `Bar` under its own name.  Whitespace around `as` is
 required.
 
+**Package prefix.**  A module's front-matter `package:` field puts
+all the module's top-level declarations under a dotted namespace:
+
+```yaml
+---
+name: cards
+package: org.example.ui
+---
+```
+
+```scalascript
+object Card:
+  def render(t: String): String = html"<div class='card'>${t}</div>"
+```
+
+Importers see the module's contents through the prefix:
+
+```markdown
+[org](./cards.ssc)
+
+```scalascript
+println(org.example.ui.Card.render("hi"))
+\```
+```
+
+Under the hood every `scalascript` code block in the module is
+wrapped in nested `object`s matching the segments.  Two libraries
+that each export `Card` can ship different `package:` prefixes and
+coexist in a consumer's tree without an alias on the import.
+
+Limitation (shared with all imports): the JS / JVM backends still
+inline the whole module at the import site, so a single consumer
+importing TWO packaged modules that both name their outer wrapper
+(`org`) hits a duplicate-declaration error.  Workaround: import via
+URL or use a dependency alias scheme so only one inline happens.
+
 **URL imports** are supported too.  Replace the relative path with
 an `http://` or `https://` URL and the importer fetches the file
 into a local cache on first access, then reuses the cache:

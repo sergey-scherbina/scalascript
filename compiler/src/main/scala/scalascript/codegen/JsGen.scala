@@ -2939,38 +2939,7 @@ class JsGen(baseDir: Option[os.Path] = None):
       line(s"function $typeName($paramsStr) { return {_type: '$typeName', $fields}; }")
 
     case d: Defn.Object =>
-      val objectName = d.name.value
-      // Emit as an IIFE so members can reference earlier siblings —
-      // matches Scala semantics where `val s = ...; val css = s.css(...)`
-      // inside `object Card:` resolves `s` against the object body.
-      // A bare `{k1: ..., k2: ...}` object literal can't do that.
-      val decls = mutable.ArrayBuffer.empty[String]
-      val names = mutable.ArrayBuffer.empty[String]
-      d.templ.body.stats.foreach {
-        case dd: Defn.Def if isEffectOpDef(dd.body) =>
-          val opName = dd.name.value
-          val paramVals = dd.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values)
-          val params    = paramVals.map(_.name.value)
-          val paramsStr = paramListWithDefaults(paramVals)
-          val argsArr = if params.isEmpty then "[]" else s"[${params.mkString(", ")}]"
-          decls += s"const $opName = ($paramsStr) => _perform('$objectName', '$opName', $argsArr);"
-          names += opName
-        case dd: Defn.Def =>
-          val paramVals = dd.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values)
-          val paramsStr = paramListWithDefaults(paramVals)
-          val bodyJs = dd.body match
-            case Term.Block(bodyStats) => genBlockAsIife(bodyStats)
-            case expr                   => genExpr(expr)
-          decls += s"const ${dd.name.value} = ($paramsStr) => $bodyJs;"
-          names += dd.name.value
-        case Defn.Val(_, List(Pat.Var(n)), _, rhs) =>
-          decls += s"const ${n.value} = ${genExpr(rhs)};"
-          names += n.value
-        case _ => ()
-      }
-      val body = decls.mkString(" ")
-      val ret  = names.mkString(", ")
-      line(s"const $objectName = (() => { $body return { $ret }; })();")
+      line(s"const ${d.name.value} = ${genObjectAsExpr(d)};")
 
     case d: Defn.Enum =>
       d.templ.body.stats.foreach {
@@ -3075,6 +3044,45 @@ class JsGen(baseDir: Option[os.Path] = None):
     case Defn.Val(_, List(Pat.Var(n)), _, rhs) =>
       s"${n.value}: ${genExpr(rhs)}"
     case _ => ""
+
+  /** Emit a Scala `Defn.Object` as a JS expression — an IIFE that
+   *  declares each member as a local const and returns them as an
+   *  object literal.  Used both at top level (`const X = (iife)()`)
+   *  and as the right-hand side of a nested `const inner = (iife)()`
+   *  inside another object's body, which is how the `package:`
+   *  front-matter wrapper survives JS emission. */
+  private def genObjectAsExpr(d: Defn.Object): String =
+    val objectName = d.name.value
+    val decls = mutable.ArrayBuffer.empty[String]
+    val names = mutable.ArrayBuffer.empty[String]
+    d.templ.body.stats.foreach {
+      case dd: Defn.Def if isEffectOpDef(dd.body) =>
+        val opName = dd.name.value
+        val paramVals = dd.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values)
+        val params    = paramVals.map(_.name.value)
+        val paramsStr = paramListWithDefaults(paramVals)
+        val argsArr = if params.isEmpty then "[]" else s"[${params.mkString(", ")}]"
+        decls += s"const $opName = ($paramsStr) => _perform('$objectName', '$opName', $argsArr);"
+        names += opName
+      case dd: Defn.Def =>
+        val paramVals = dd.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values)
+        val paramsStr = paramListWithDefaults(paramVals)
+        val bodyJs = dd.body match
+          case Term.Block(bodyStats) => genBlockAsIife(bodyStats)
+          case expr                   => genExpr(expr)
+        decls += s"const ${dd.name.value} = ($paramsStr) => $bodyJs;"
+        names += dd.name.value
+      case Defn.Val(_, List(Pat.Var(n)), _, rhs) =>
+        decls += s"const ${n.value} = ${genExpr(rhs)};"
+        names += n.value
+      case nested: Defn.Object =>
+        decls += s"const ${nested.name.value} = ${genObjectAsExpr(nested)};"
+        names += nested.name.value
+      case _ => ()
+    }
+    val body = decls.mkString(" ")
+    val ret  = names.mkString(", ")
+    s"(() => { $body return { $ret }; })()"
 
   private def genDefAsMethod(dd: Defn.Def): String =
     val paramVals = dd.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values)

@@ -23,6 +23,11 @@ case class Manifest(
   exports: List[String],
   targets: List[String],
   routes: List[RouteDecl],
+  /** Optional package prefix (dot-separated, e.g. `org.example.ui`).
+   *  Every scalascript code block in the module is wrapped in nested
+   *  `object` declarations matching the segments so the module's
+   *  top-level names become accessible as `<pkg>.<Name>` from importers. */
+  pkg: Option[List[String]],
   raw: Map[String, Any],
   span: Option[Span] = None
 )
