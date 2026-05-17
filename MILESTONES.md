@@ -458,15 +458,6 @@ Convergence direction decided 2026-05-17: items below assume the
     either threading model.  ~200 LOC × 3.  Not worth the
     complexity until a real app needs it.
 
-### Sprint 6 — WS convenience helpers
-
-Small quality-of-life additions noticed while running through
-Sprint 3.  Each is meaningfully complete on its own.
-
-21. **Auth helper at upgrade time.**  `onWebSocket("/x", auth =
-    bearer { token => validate(token) }) { … }` — current users
-    have to inspect `ws.request.headers("authorization")` and
-    `ws.close(1008, "")` manually.  ~30 LOC × 3.
 ## v1.2 — Auth follow-up: combined example + WebAuthn / passkeys — **landed**
 
 Shipped pieces (each on main):

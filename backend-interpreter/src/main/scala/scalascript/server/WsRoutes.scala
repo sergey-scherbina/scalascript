@@ -40,6 +40,16 @@ object WsRoutes:
        *  starve quiet ones.  Overrun closes the offending connection
        *  with code 1008 ("policy violation"). */
       maxMessagesPerSec: Int = 0,
+      /** Pre-upgrade authentication hook.  Invoked synchronously by
+       *  `WsProxy.tryUpgrade` with the `Request` value built from
+       *  the upgrade headers; must return `None` to reject the
+       *  upgrade (server replies 401) or `Some(userValue)` to
+       *  accept and stash the user payload on the resulting
+       *  `WebSocket` as `ws.user`.  None (default) = no pre-upgrade
+       *  check.  Note: the hook runs on the proxy selector thread,
+       *  so it MUST NOT mutate interpreter globals — read-only
+       *  decisions over headers / cookies / Origin only. */
+      auth: Option[Value] = None,
       /** Live count of WebSockets currently registered against this
        *  entry.  Incremented inside [[tryReserve]] when both
        *  process-wide and per-route caps allow the upgrade; decremented
@@ -74,9 +84,10 @@ object WsRoutes:
       origins:           List[String] = Nil,
       protocols:         List[String] = Nil,
       maxConnections:    Int          = 0,
-      maxMessagesPerSec: Int          = 0
+      maxMessagesPerSec: Int          = 0,
+      auth:              Option[Value] = None
   ): Unit =
-    entries += Entry(path, parsePath(path), handler, interp, origins, protocols, maxConnections, maxMessagesPerSec)
+    entries += Entry(path, parsePath(path), handler, interp, origins, protocols, maxConnections, maxMessagesPerSec, auth)
 
   def all: List[Entry] = entries.toList
 

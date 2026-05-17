@@ -287,14 +287,35 @@ function onWebSocket(path, originsArg, protocolsArg, maxConnectionsArg, maxMessa
     // already the handler.  Wrap it.
     _wsRoutes.push({
       pattern: _parsePath(path), handler: originsArg,
-      origins: [], protocols: [], maxConnections: 0, maxMessagesPerSec: 0, activeCount: 0,
+      origins: [], protocols: [], maxConnections: 0, maxMessagesPerSec: 0,
+      auth: null, activeCount: 0,
     });
     return undefined;
   }
   return function(handler) {
     _wsRoutes.push({
       pattern: _parsePath(path), handler,
-      origins, protocols, maxConnections, maxMessagesPerSec, activeCount: 0,
+      origins, protocols, maxConnections, maxMessagesPerSec,
+      auth: null, activeCount: 0,
+    });
+  };
+}
+
+// Pre-upgrade auth hook.  `authFn(req)` returns the auth payload
+// (carried to `ws.user`) or null/undefined/None-like to refuse the
+// upgrade with HTTP 401.  Hook runs synchronously on the upgrade
+// dispatch; must be read-only over module-level state.  The hook's
+// return convention matches the interpreter / JvmGen contracts:
+//   - returning `{_type: '_Some', value: v}` accepts with `ws.user = Some(v)`
+//   - returning `{_type: '_None'}` rejects with 401
+//   - returning any other truthy value accepts with `ws.user = Some(that)`
+//   - returning null / undefined rejects with 401
+function onWebSocketAuth(path, authFn) {
+  return function(handler) {
+    _wsRoutes.push({
+      pattern: _parsePath(path), handler,
+      origins: [], protocols: [], maxConnections: 0, maxMessagesPerSec: 0,
+      auth: authFn, activeCount: 0,
     });
   };
 }
@@ -1222,7 +1243,7 @@ function _wsEncodeClose(code, reason) {
 // with `send` / `close` / `onMessage` / `onClose` and pumps inbound
 // frames through `_wsParseFrame`.  Control frames (ping/close) are
 // handled here; text/binary frames invoke `onMessage` if registered.
-function _wsMakeWebSocket(socket, request, subprotocol, maxMessagesPerSec) {
+function _wsMakeWebSocket(socket, request, subprotocol, maxMessagesPerSec, userPayload) {
   // Stable per-connection identifier — UUID-v4 generated at upgrade
   // time, surfaced to user code as `ws.id` and used to tag every log
   // line for a single session.
@@ -1240,6 +1261,9 @@ function _wsMakeWebSocket(socket, request, subprotocol, maxMessagesPerSec) {
     ? maxMessagesPerSec : 0;
   let _rateWindowStart = 0;
   let _rateMsgs        = 0;
+  // Payload returned by the route's auth hook, or `_None` for
+  // routes without one.  Surfaced to handlers as `ws.user`.
+  const _user = userPayload || { _type: '_None' };
   let onMessage = null;
   let onClose   = null;
   let onPong    = null;
@@ -1329,6 +1353,7 @@ function _wsMakeWebSocket(socket, request, subprotocol, maxMessagesPerSec) {
     onPong:    (cb) => { onPong    = cb; },
     id:        id,
     subprotocol: _subprotocol,
+    user:        _user,
     // ping([payload]) — empty Ping or Latin-1-byte-view payload.
     // Peer's Pong arrives via the `onPong` callback above.
     ping: (s) => {
@@ -1444,6 +1469,51 @@ function _wsHandleUpgrade(req, socket) {
           return;
         }
       }
+      // Build a Request-shaped object — same shape as `_mkRequest`
+      // for REST routes (minus body/form/files; the WS upgrade is a
+      // GET with no body).  Constructed here (before the auth hook)
+      // so the hook receives the same shape user code sees later
+      // via `ws.request`.
+      const reqHeaders = new Map();
+      for (const [k, v] of Object.entries(req.headers))
+        reqHeaders.set(k, Array.isArray(v) ? (v[0] ?? '') : String(v ?? ''));
+      const reqQuery = new Map();
+      u.searchParams.forEach((v, k) => reqQuery.set(k, v));
+      const reqCookies = new Map();
+      const cookieRaw0 = reqHeaders.get('cookie') ?? '';
+      for (const pair of cookieRaw0.split(';')) {
+        const t = pair.trim();
+        const i = t.indexOf('=');
+        if (i > 0) reqCookies.set(t.substring(0, i).trim(), t.substring(i + 1).trim());
+      }
+      const request = {
+        _type:  'Request',
+        method: 'GET',
+        path:   u.pathname,
+        params,
+        query:  reqQuery,
+        headers: reqHeaders,
+        cookies: reqCookies,
+      };
+      // Pre-upgrade auth hook.  Same contract as interpreter / JvmGen:
+      // None → reject 401, Some(v) → carry v to ws.user.
+      let _authPayload = { _type: '_None' };
+      if (typeof r.auth === 'function') {
+        let _v = undefined;
+        try { _v = r.auth(request); }
+        catch (e) { console.error('WS auth hook:', e.message); _v = null; }
+        const _isNone = _v == null || (_v && _v._type === '_None');
+        const _isSome = _v && _v._type === '_Some';
+        if (_isNone) {
+          socket.write(
+            'HTTP/1.1 401 Unauthorized\r\n' +
+            'Content-Length: 0\r\nConnection: close\r\n\r\n'
+          );
+          socket.destroy();
+          return;
+        }
+        _authPayload = _isSome ? _v : { _type: '_Some', value: _v };
+      }
       const clientKey = req.headers['sec-websocket-key'];
       if (!clientKey) { socket.destroy(); return; }
       // Process-wide active-connection cap — refuse with 503 before
@@ -1507,33 +1577,7 @@ function _wsHandleUpgrade(req, socket) {
         protoHeader +
         '\r\n'
       );
-      // Build a Request-shaped object — same shape as `_mkRequest` for
-      // REST routes (minus body/form/files; the WS upgrade is a GET
-      // with no body) so handlers can read `ws.request.headers.get(...)`
-      // for cookies / Authorization / Origin.
-      const reqHeaders = new Map();
-      for (const [k, v] of Object.entries(req.headers))
-        reqHeaders.set(k, Array.isArray(v) ? (v[0] ?? '') : String(v ?? ''));
-      const reqQuery = new Map();
-      u.searchParams.forEach((v, k) => reqQuery.set(k, v));
-      // Cookie header: `name=value; name=value; …` → Map.
-      const reqCookies = new Map();
-      const cookieRaw = reqHeaders.get('cookie') ?? '';
-      for (const pair of cookieRaw.split(';')) {
-        const t = pair.trim();
-        const i = t.indexOf('=');
-        if (i > 0) reqCookies.set(t.substring(0, i).trim(), t.substring(i + 1).trim());
-      }
-      const request = {
-        _type:  'Request',
-        method: 'GET',
-        path:   u.pathname,
-        params,
-        query:   reqQuery,
-        headers: reqHeaders,
-        cookies: reqCookies
-      };
-      const ws = _wsMakeWebSocket(socket, request, chosenProtocol, r.maxMessagesPerSec ?? 0);
+      const ws = _wsMakeWebSocket(socket, request, chosenProtocol, r.maxMessagesPerSec ?? 0, _authPayload);
       try { r.handler(ws); } catch (e) { console.error('WS upgrade handler:', e.message); }
       return;
     }

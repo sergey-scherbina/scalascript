@@ -263,6 +263,53 @@ final class WsProxy(
             conn.outBufs.add(ByteBuffer.wrap(resp))
             conn.key.interestOpsOr(SelectionKey.OP_WRITE)
             return
+        // Pre-upgrade auth hook (RFC-agnostic).  Runs on the proxy
+        // selector thread; must be read-only over interpreter
+        // globals.  Build the same Request snapshot the handler
+        // will eventually see and hand it to the hook; on `None`
+        // reply 401 and abort; on `Some(userValue)` carry the
+        // payload through to `WsConnection.user`.
+        val rawQ0 = parseQueryString(rawQuery)
+        val cookies0: Map[String, String] =
+          headers.get("cookie") match
+            case None => Map.empty
+            case Some(raw) =>
+              raw.split(';').iterator.flatMap { pair =>
+                val t = pair.trim
+                val i = t.indexOf('=')
+                if i < 0 then None
+                else Some(t.substring(0, i).trim -> t.substring(i + 1).trim)
+              }.toMap
+        val authReq: Value = Value.InstanceV("Request", Map(
+          "method"  -> Value.StringV("GET"),
+          "path"    -> Value.StringV(path),
+          "params"  -> Value.MapV(params.map((k, v) => Value.StringV(k) -> Value.StringV(v))),
+          "query"   -> Value.MapV(rawQ0.map((k, v)  => Value.StringV(k) -> Value.StringV(v))),
+          "headers" -> Value.MapV(headers.map((k, v) => Value.StringV(k) -> Value.StringV(v))),
+          "cookies" -> Value.MapV(cookies0.map((k, v) => Value.StringV(k) -> Value.StringV(v)))
+        ))
+        // Auth result threads through to `WsConnection.user`.  Three
+        // states: no hook (None, accept), hook returned a payload
+        // (Some(v), accept and carry v), hook returned None or
+        // threw (rejected, 401).  We model "rejected" with a
+        // separate boolean so the user payload type stays simple.
+        var userPayload: Option[Value] = None
+        var authRejected: Boolean      = false
+        entry.auth.foreach { fn =>
+          try entry.interpreter.invoke(fn, List(authReq)) match
+            case Value.OptionV(Some(v)) => userPayload = Some(v)
+            case Value.OptionV(None)    => authRejected = true
+            case other                  => userPayload = Some(other)
+          catch case e: Throwable =>
+            log.println(s"WS auth hook error: ${e.getMessage}")
+            authRejected = true
+        }
+        if authRejected then
+          val resp = httpResponse(401, "Unauthorized",
+            "WebSocket upgrade denied: authentication required")
+          conn.outBufs.add(ByteBuffer.wrap(resp))
+          conn.key.interestOpsOr(SelectionKey.OP_WRITE)
+          return
         // Process-wide cap on active WS sessions — refuses upgrades
         // with 503 before allocating a WsConnection.  Slot is released
         // in `WsConnection.closeNow` on disconnect.  Reserved AFTER
@@ -356,7 +403,7 @@ final class WsProxy(
         ))
         // Transition: build the WsConnection and feed any post-handshake
         // bytes already in the buffer through its parser.
-        val ws = WsConnection(conn.ch, conn.key, selector, entry.interpreter, wsExecutor, log, request, heartbeats, heartbeatIntervalMs, heartbeatDeadAfterMs, subprotocol = chosenProtocol, onTerminate = () => entry.release(), maxMessagesPerSec = entry.maxMessagesPerSec)
+        val ws = WsConnection(conn.ch, conn.key, selector, entry.interpreter, wsExecutor, log, request, heartbeats, heartbeatIntervalMs, heartbeatDeadAfterMs, subprotocol = chosenProtocol, onTerminate = () => entry.release(), maxMessagesPerSec = entry.maxMessagesPerSec, user = userPayload)
         conn.mode = Ws(ws)
         conn.inBuf.clear()
         ws.startHeartbeat()

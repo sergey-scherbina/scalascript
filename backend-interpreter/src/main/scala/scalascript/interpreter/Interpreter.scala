@@ -1086,6 +1086,28 @@ class Interpreter(
       case _ => throw InterpretError("onWebSocket(path[, origins[, protocols[, maxConnections[, maxMessagesPerSec]]]]) { ws => … }")
     }
 
+    // onWebSocketAuth(path, authFn)(handler) — pre-upgrade auth hook.
+    // `authFn` receives the Request (same shape REST handlers see) and
+    // returns Option[Any]: None refuses the upgrade with HTTP 401;
+    // Some(value) accepts and stashes `value` on the resulting
+    // WebSocket as `ws.user`, so handler bodies don't have to re-parse
+    // headers / claims / sessions.  Runs synchronously on the proxy
+    // selector thread, so the hook MUST NOT mutate interpreter globals —
+    // read-only decisions over headers / cookies / Origin only.
+    nativeP("onWebSocketAuth") {
+      case List(Value.StringV(path), authFn) =>
+        Value.NativeFnV("onWebSocketAuth.handler", Computation.pureFn {
+          case List(handler) =>
+            scalascript.server.WsRoutes.register(
+              path, handler, this,
+              auth = Some(authFn)
+            )
+            Value.UnitV
+          case _ => throw InterpretError("onWebSocketAuth(path, authFn) { ws => … }")
+        })
+      case _ => throw InterpretError("onWebSocketAuth(path, authFn) { ws => … }")
+    }
+
     // setMaxWsConnections(n) — process-wide cap on simultaneously-open
     // WebSocket sessions.  Upgrades past the cap are refused with 503.
     // Default = unlimited (Int.MaxValue).  Setting it lower than the

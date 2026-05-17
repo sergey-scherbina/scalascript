@@ -3051,7 +3051,12 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |    /** Cap on inbound messages per second on this connection.
        |     *  0 = unlimited.  Overrun closes with code 1008.  See
        |     *  the fixed-window counter in `_dispatchWsMessage`. */
-       |    private val _maxMessagesPerSec: Int = 0):
+       |    private val _maxMessagesPerSec: Int = 0,
+       |    /** Payload returned by the route's auth hook (or None for
+       |     *  routes without one).  Surfaced to handlers as
+       |     *  `ws.user` so authenticated routes don't re-parse
+       |     *  headers / claims / sessions inside the body. */
+       |    val user: Option[Any] = None):
        |  /** Stable per-connection identifier.  UUID-v4 generated at
        |   *  upgrade time; surfaced to user code as `ws.id` and used to
        |   *  tag every log line for a single session. */
@@ -3361,6 +3366,12 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |  // 0 = unlimited; overrun closes the offending client with
        |  // code 1008.  Applied per connection on this route.
        |  maxMessagesPerSec: Int = 0,
+       |  // Pre-upgrade auth hook.  None = no check; Some(fn) =
+       |  // invoke fn with the Request before reserving any slot.
+       |  // fn returns Some(payload) to accept (payload becomes
+       |  // ws.user) or None to reject with HTTP 401.  Runs on the
+       |  // dispatch thread, so it must be read-only.
+       |  auth: Option[Request => Option[Any]] = None,
        |  activeCount: java.util.concurrent.atomic.AtomicInteger =
        |               java.util.concurrent.atomic.AtomicInteger(0)
        |):
@@ -3437,6 +3448,15 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |  * 1008 ("policy violation").  0 = unlimited. */
        |def onWebSocket(path: String, origins: List[String], protocols: List[String], maxConnections: Int, maxMessagesPerSec: Int): (WebSocket => Unit) => Unit = (handler) => {
        |  _wsRoutes += _WsRoute(_parsePath(path), handler, origins, protocols, maxConnections, maxMessagesPerSec)
+       |}
+       |
+       |/** Pre-upgrade auth hook.  `authFn(req)` returns `Some(payload)`
+       |  * to accept the upgrade (payload becomes `ws.user`) or `None`
+       |  * to reject with HTTP 401 before the WebSocket is even built.
+       |  * Hook runs on the dispatch thread — must be read-only over
+       |  * mutable state. */
+       |def onWebSocketAuth(path: String, authFn: Request => Option[Any]): (WebSocket => Unit) => Unit = (handler) => {
+       |  _wsRoutes += _WsRoute(_parsePath(path), handler, auth = Some(authFn))
        |}
        |
        |// ── Framing ──────────────────────────────────────────────────────────
@@ -3571,6 +3591,39 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |          if !r.origins.contains(origin) then
        |            cout.write("HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".getBytes("US-ASCII"))
        |            cout.flush(); client.close(); return
+       |        // Pre-upgrade auth hook.  Same shape as the interpreter
+       |        // path: read-only over headers / cookies / Origin.
+       |        // None → reject with 401; Some(v) → carry v to ws.user.
+       |        val _authRawQ  = request.split(' ').lift(1).getOrElse("/").split('?').lift(1).getOrElse("")
+       |        val _authCookies: Map[String, String] = headers.get("cookie") match
+       |          case None => Map.empty
+       |          case Some(raw) => raw.split(';').iterator.flatMap { pair =>
+       |            val t = pair.trim
+       |            val i = t.indexOf('=')
+       |            if i < 0 then None else Some(t.substring(0, i).trim -> t.substring(i + 1).trim)
+       |          }.toMap
+       |        val _authReq = Request(
+       |          method  = "GET",
+       |          path    = path,
+       |          params  = params,
+       |          query   = _parseQuery(_authRawQ),
+       |          headers = headers,
+       |          body    = "",
+       |          cookies = _authCookies
+       |        )
+       |        var _authPayload: Option[Any] = None
+       |        var _authReject:  Boolean      = false
+       |        r.auth.foreach { fn =>
+       |          try fn(_authReq) match
+       |            case Some(v) => _authPayload = Some(v)
+       |            case None    => _authReject  = true
+       |          catch case e: Throwable =>
+       |            System.err.println(s"WS auth hook: ${e.getMessage}")
+       |            _authReject = true
+       |        }
+       |        if _authReject then
+       |          cout.write("HTTP/1.1 401 Unauthorized\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".getBytes("US-ASCII"))
+       |          cout.flush(); client.close(); return
        |        // Process-wide active-connection cap.  Reserved AFTER
        |        // the Origin check so a denied-Origin attempt doesn't
        |        // briefly consume a slot.  Released in the writer-VT's
@@ -3629,7 +3682,7 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |          body    = "",
        |          cookies = wsCookies
        |        )
-       |        val ws = WebSocket(client, wsReq, subprotocol = chosenProtocol, _onTerminate = () => r.release(), _maxMessagesPerSec = r.maxMessagesPerSec)
+       |        val ws = WebSocket(client, wsReq, subprotocol = chosenProtocol, _onTerminate = () => r.release(), _maxMessagesPerSec = r.maxMessagesPerSec, user = _authPayload)
        |        // Run the user's `onWebSocket` block on the shared single-
        |        // thread executor so any state it touches (top-level `var`s,
        |        // route registry, etc.) is serial with HTTP handlers and

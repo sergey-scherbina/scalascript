@@ -92,7 +92,12 @@ final class WsConnection(
      *  second of wall clock the bucket resets to 0; the
      *  `maxMessagesPerSec+1`-th message in any second trips the
      *  close. */
-    private val maxMessagesPerSec: Int = 0
+    private val maxMessagesPerSec: Int = 0,
+    /** Payload returned by the route's auth hook (or `None` for
+     *  routes without one).  Surfaced to the handler as
+     *  `ws.user` so authenticated handlers can read claims /
+     *  session info without re-parsing headers. */
+    val user: Option[Value] = None
 ):
   /** Stable per-connection identifier.  UUID-v4 generated at upgrade
    *  time so it's globally unique even across restarts, but short
@@ -504,7 +509,8 @@ final class WsConnection(
       "isClosed"  -> isClosed,
       "request"     -> request,
       "id"          -> Value.StringV(id),
-      "subprotocol" -> Value.StringV(subprotocol)
+      "subprotocol" -> Value.StringV(subprotocol),
+      "user"        -> Value.OptionV(user)
     ))
 
   private def ensureInCapacity(target: Int): Unit =
