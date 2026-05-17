@@ -2853,11 +2853,22 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |        System.err.println(s"WS message handler: ${e.getMessage}")
        |    }
        |
-       |private final case class _WsRoute(pattern: List[_Seg], handler: WebSocket => Unit)
+       |private final case class _WsRoute(
+       |  pattern: List[_Seg],
+       |  handler: WebSocket => Unit,
+       |  origins: List[String] = Nil   // empty = no Origin restriction
+       |)
        |private val _wsRoutes = scala.collection.mutable.ArrayBuffer.empty[_WsRoute]
        |
        |def onWebSocket(path: String): (WebSocket => Unit) => Unit = (handler) => {
        |  _wsRoutes += _WsRoute(_parsePath(path), handler)
+       |}
+       |
+       |/** Two-arg form: only accept upgrades whose `Origin:` header is in
+       |  * `origins`.  Browser CSRF guard — same-origin policy does NOT
+       |  * block cross-site `new WebSocket(...)` calls. */
+       |def onWebSocket(path: String, origins: List[String]): (WebSocket => Unit) => Unit = (handler) => {
+       |  _wsRoutes += _WsRoute(_parsePath(path), handler, origins)
        |}
        |
        |// ── Framing ──────────────────────────────────────────────────────────
@@ -2985,6 +2996,12 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |      case Some((r, params)) =>
        |        val key = headers.getOrElse("sec-websocket-key", "")
        |        if key.isEmpty then { client.close(); return }
+       |        // Origin allowlist (CSRF guard) — empty list = unrestricted.
+       |        if r.origins.nonEmpty then
+       |          val origin = headers.getOrElse("origin", "")
+       |          if !r.origins.contains(origin) then
+       |            cout.write("HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".getBytes("US-ASCII"))
+       |            cout.flush(); client.close(); return
        |        val accept = _wsAcceptKey(key)
        |        val resp =
        |          "HTTP/1.1 101 Switching Protocols\r\n" +

@@ -219,9 +219,26 @@ function route(method, path) {
 // `send` / `close` methods and `onMessage` / `onClose` registration.
 // Path matching shares `_parsePath` with `route` (literal + `:name`
 // captures), so `/chat/:room` works the same way for both.
-function onWebSocket(path) {
+//
+// Two-arg form `onWebSocket(path, origins)(handler)` restricts the
+// upgrade to requests whose `Origin:` header matches one of `origins`
+// — a CSRF guard, since the browser same-origin policy does NOT
+// block cross-site `new WebSocket(...)` calls.
+function onWebSocket(path, originsOrHandler) {
+  // Detect two-arg form (path + origins-Array).  In single-arg form
+  // the caller-supplied function gets curried via `route`-style: we
+  // return a fn that takes the handler.
+  let origins = [];
+  if (Array.isArray(originsOrHandler) || originsOrHandler instanceof Array) {
+    origins = originsOrHandler;
+  } else if (originsOrHandler !== undefined) {
+    // Older call style: `onWebSocket(path)(handler)`, second arg is
+    // already the handler.  Wrap it.
+    _wsRoutes.push({ pattern: _parsePath(path), handler: originsOrHandler, origins: [] });
+    return undefined;
+  }
   return function(handler) {
-    _wsRoutes.push({ pattern: _parsePath(path), handler });
+    _wsRoutes.push({ pattern: _parsePath(path), handler, origins });
   };
 }
 
@@ -1264,6 +1281,18 @@ function _wsHandleUpgrade(req, socket) {
     for (const r of _wsRoutes) {
       const params = _matchPath(r.pattern, segs);
       if (params == null) continue;
+      // Origin allowlist (CSRF guard).  Empty list = no restriction.
+      if (r.origins && r.origins.length > 0) {
+        const origin = req.headers['origin'] ?? '';
+        if (!r.origins.includes(origin)) {
+          socket.write(
+            'HTTP/1.1 403 Forbidden\r\n' +
+            'Content-Length: 0\r\nConnection: close\r\n\r\n'
+          );
+          socket.destroy();
+          return;
+        }
+      }
       const clientKey = req.headers['sec-websocket-key'];
       if (!clientKey) { socket.destroy(); return; }
       const accept = _wsAcceptKey(clientKey);

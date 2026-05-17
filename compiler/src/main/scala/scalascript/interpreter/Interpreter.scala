@@ -821,6 +821,11 @@ class Interpreter(
     // handler receives a `WebSocket` value with `send` / `close` methods
     // and `onMessage` / `onClose` callback registration.  Path syntax is
     // the same as `route` (literal + `:name` captures).
+    //
+    // Two-arg form `onWebSocket(path, origins)(handler)` restricts the
+    // upgrade to requests whose `Origin:` header is in the list — a
+    // browser-side CSRF guard since cross-site `new WebSocket(...)` is
+    // not blocked by the same-origin policy.
     nativeP("onWebSocket") {
       case List(Value.StringV(path)) =>
         Value.NativeFnV("onWebSocket.handler", Computation.pureFn {
@@ -829,7 +834,15 @@ class Interpreter(
             Value.UnitV
           case _ => throw InterpretError("onWebSocket(path) { ws => … }")
         })
-      case _ => throw InterpretError("onWebSocket(path) { ws => … }")
+      case List(Value.StringV(path), Value.ListV(origins)) =>
+        val origs = origins.collect { case Value.StringV(s) => s }
+        Value.NativeFnV("onWebSocket.handler", Computation.pureFn {
+          case List(handler) =>
+            scalascript.server.WsRoutes.register(path, handler, this, origs)
+            Value.UnitV
+          case _ => throw InterpretError("onWebSocket(path, origins) { ws => … }")
+        })
+      case _ => throw InterpretError("onWebSocket(path) { ws => … } or onWebSocket(path, origins) { ws => … }")
     }
 
     // ── Async: built-in effect for async-style code ──────────────────

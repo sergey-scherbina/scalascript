@@ -17,15 +17,25 @@ object WsRoutes:
       path:        String,
       pathPattern: List[Routes.Segment],
       handler:     Value,
-      interpreter: Interpreter
+      interpreter: Interpreter,
+      /** Allow-list of `Origin` headers the upgrade is permitted from.
+       *  Empty list = no restriction (any origin accepted, including
+       *  none).  Matching is exact-string against the value of the
+       *  request's `Origin:` header. */
+      origins:     List[String] = Nil
   )
 
   private val entries = scala.collection.mutable.ArrayBuffer.empty[Entry]
 
   def clear(): Unit = entries.clear()
 
-  def register(path: String, handler: Value, interp: Interpreter): Unit =
-    entries += Entry(path, parsePath(path), handler, interp)
+  def register(
+      path:    String,
+      handler: Value,
+      interp:  Interpreter,
+      origins: List[String] = Nil
+  ): Unit =
+    entries += Entry(path, parsePath(path), handler, interp, origins)
 
   def all: List[Entry] = entries.toList
 

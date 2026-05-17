@@ -15,10 +15,6 @@ session-sized chunk.
 
 ### Sprint 2 — security / robustness hardening
 
-4. **`Origin` allowlist.**  `onWebSocket("/x", origins = List(
-   "https://app.example.com")) { … }`.  Without this any site can
-   open `new WebSocket('ws://server/chat')` from a logged-in user
-   (the WS equivalent of CSRF).  ~40 LOC × 3 backends.
 5. **Server-initiated ping every 30 s + dead-peer drop.**  Even
    with TCP keepalive enabled, a NAT-dropped session can sit in
    `in.read()` for hours.  Send a Ping, expect a Pong within N s,

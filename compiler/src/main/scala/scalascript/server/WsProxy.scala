@@ -238,6 +238,18 @@ final class WsProxy(
         val key = headers.getOrElse("sec-websocket-key", "")
         if key.isEmpty then
           closeChain(conn.key); return
+        // Origin allowlist check (CSRF guard).  A browser sends `Origin:`
+        // on every WS handshake; if the route was registered with a
+        // non-empty list, reject anything not on it.  Empty list = no
+        // restriction (default).
+        if entry.origins.nonEmpty then
+          val origin = headers.getOrElse("origin", "")
+          if !entry.origins.contains(origin) then
+            val body  = s"Origin '$origin' not permitted"
+            val resp  = httpResponse(403, "Forbidden", body)
+            conn.outBufs.add(ByteBuffer.wrap(resp))
+            conn.key.interestOpsOr(SelectionKey.OP_WRITE)
+            return
         val accept = WsFraming.acceptKey(key)
         val response =
           "HTTP/1.1 101 Switching Protocols\r\n" +
