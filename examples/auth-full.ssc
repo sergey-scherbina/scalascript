@@ -1,0 +1,239 @@
+---
+name: auth-full
+version: 1.0.0
+description: End-to-end demo combining every v0.6 auth primitive in one place.
+---
+
+# Full auth demo
+
+A single `.ssc` that stitches the v0.6 auth surface together so you can
+see how the pieces compose:
+
+- `hashPassword` / `verifyPassword` — PBKDF2 store, no plaintext.
+- `csrfToken()` / `csrfValid(req)` — every state-changing POST is guarded.
+- `req.session` / `withSession` / `clearSession` — signed cookie sessions.
+- `rateLimit("login:<ip>", 5, 60)` — five attempts per IP per minute.
+- `totpSecret()` / `totpUri()` / `totpValid()` — optional 2FA.
+- `jwtSign(...)` / `req.jwtClaims` — bearer-token API alongside the
+  cookie-session UI.
+
+Two pre-seeded accounts:
+
+| user  | password    | totp enabled? |
+|-------|-------------|---------------|
+| alice | wonderland  | yes           |
+| bob   | builder     | no            |
+
+Set a real secret for prod; the dev default warns on startup:
+
+```bash
+export SSC_SESSION_SECRET=$(openssl rand -hex 32)
+bin/ssc examples/auth-full.ssc
+```
+
+```scalascript
+// ── Toy "database" ────────────────────────────────────────────────
+// In a real app these would live in a `Storage`-backed table.
+
+// Pre-computed PBKDF2 hashes for the demo creds (iter=200000).
+// `verifyPassword` will accept either — drop into REPL with
+// `println(hashPassword("wonderland"))` to mint fresh ones.
+var users: Map[String, Map[String, String]] = Map(
+  "alice" -> Map(
+    "passwordHash" -> hashPassword("wonderland"),
+    "totpSecret"   -> totpSecret(),   // fresh per process restart
+  ),
+  "bob"   -> Map(
+    "passwordHash" -> hashPassword("builder"),
+    "totpSecret"   -> "",             // empty = 2FA disabled
+  ),
+)
+
+cookieConfig(false, "Lax")  // dev — flip secure=true behind HTTPS
+
+// ── HTML layout (uses typed HTML DSL across all 3 backends) ──────
+
+def page(titleText: String, bodyHtml: String): String =
+  html"""<!doctype html>
+<title>${titleText} · auth-full</title>
+<style>
+  body{font:14px system-ui;max-width:480px;margin:2em auto;padding:0 1em}
+  nav a{margin-right:.5em} input{display:block;margin:.3em 0}
+  .err{color:#b00} .ok{color:#080}
+</style>
+<nav>
+  <a href="/">Home</a> · <a href="/login">Sign in</a> · <a href="/profile">Profile</a>
+</nav>
+<h1>${titleText}</h1>
+${raw(bodyHtml)}"""
+
+def msg(req: Request): String =
+  req.session.get("flash") match
+    case Some(m) if m.startsWith("err:") => html"<p class='err'>${m.substring(4)}</p>".toString
+    case Some(m) if m.startsWith("ok:")  => html"<p class='ok'>${m.substring(3)}</p>".toString
+    case _ => ""
+
+// ── Public routes ─────────────────────────────────────────────────
+
+route("GET", "/") { req =>
+  val body = req.session.get("user") match
+    case Some(u) =>
+      html"<p>Signed in as <strong>${u}</strong>. <a href='/profile'>Profile →</a></p>"
+    case None =>
+      html"<p>Not signed in. <a href='/login'>Sign in</a> or <a href='/signup'>create an account</a>.</p>"
+  Response.html(page("auth-full", body.toString + raw(msg(req)).html))
+    // Clear flash on next render.
+    .withSession(req.session.removed("flash"))
+}
+
+// ── Sign-up ───────────────────────────────────────────────────────
+
+route("GET", "/signup") { req =>
+  val tok = req.session.getOrElse("csrf", csrfToken())
+  val form = html"""<form method="POST" action="/signup">
+  <input type="hidden" name="csrf" value="${tok}">
+  <label>Username <input name="username" required></label>
+  <label>Password <input name="password" type="password" required></label>
+  <label>Enable 2FA <input name="enable_totp" type="checkbox" value="1"></label>
+  <button>Create account</button>
+</form>"""
+  Response.html(page("Sign up", form.toString + raw(msg(req)).html))
+    .withSession(req.session.updated("csrf", tok))
+}
+
+route("POST", "/signup") { req =>
+  if !csrfValid(req) then Response.status(403, "CSRF check failed")
+  else
+    val user = req.form.getOrElse("username", "").trim
+    val pass = req.form.getOrElse("password", "")
+    val want2fa = req.form.getOrElse("enable_totp", "") == "1"
+    if user.isEmpty || pass.length < 6 then
+      Response.redirect("/signup")
+        .withSession(req.session.updated("flash", "err:username + password (≥6 chars) required"))
+    else if users.contains(user) then
+      Response.redirect("/signup")
+        .withSession(req.session.updated("flash", "err:username already taken"))
+    else
+      val secret = if want2fa then totpSecret() else ""
+      users = users.updated(user, Map(
+        "passwordHash" -> hashPassword(pass),
+        "totpSecret"   -> secret,
+      ))
+      val flash =
+        if secret.isEmpty then "ok:account created — sign in"
+        else s"ok:account created; scan this URI in your authenticator: ${totpUri(secret, user, "auth-full")}"
+      Response.redirect("/login")
+        .withSession(req.session.updated("flash", flash))
+}
+
+// ── Sign-in ───────────────────────────────────────────────────────
+
+route("GET", "/login") { req =>
+  val tok = req.session.getOrElse("csrf", csrfToken())
+  val needTotp = req.session.getOrElse("pending_user", "").nonEmpty
+  val form =
+    if needTotp then html"""<form method="POST" action="/login/totp">
+  <input type="hidden" name="csrf" value="${tok}">
+  <p>Enter the 6-digit code from your authenticator app:</p>
+  <input name="code" pattern="[0-9]{6}" required>
+  <button>Verify</button>
+</form>"""
+    else html"""<form method="POST" action="/login">
+  <input type="hidden" name="csrf" value="${tok}">
+  <label>Username <input name="username" required></label>
+  <label>Password <input name="password" type="password" required></label>
+  <button>Sign in</button>
+</form>"""
+  Response.html(page("Sign in", form.toString + raw(msg(req)).html))
+    .withSession(req.session.updated("csrf", tok))
+}
+
+route("POST", "/login") { req =>
+  if !csrfValid(req) then Response.status(403, "CSRF check failed")
+  else
+    // Rate-limit by client IP — `X-Forwarded-For` when behind a
+    // reverse proxy, fall back to whoever's in `Host`.
+    val ip = req.headers.get("X-Forwarded-For")
+      .orElse(req.headers.get("Host")).getOrElse("unknown")
+    if !rateLimit(s"login:$ip", 5, 60) then
+      Response.status(429, "Too many login attempts; wait a minute")
+    else
+      val user = req.form.getOrElse("username", "")
+      val pass = req.form.getOrElse("password", "")
+      users.get(user) match
+        case Some(row) if verifyPassword(pass, row.getOrElse("passwordHash", "")) =>
+          // Successful password — clear the rate-limit budget so
+          // subsequent legitimate logins aren't penalised.
+          rateLimitReset(s"login:$ip")
+          val totpSec = row.getOrElse("totpSecret", "")
+          if totpSec.isEmpty then
+            Response.redirect("/profile")
+              .withSession(req.session.updated("user", user))
+          else
+            // Park the username; the next step asks for the TOTP code.
+            Response.redirect("/login")
+              .withSession(req.session.updated("pending_user", user))
+        case _ =>
+          Response.redirect("/login")
+            .withSession(req.session.updated("flash", "err:wrong username or password"))
+}
+
+route("POST", "/login/totp") { req =>
+  if !csrfValid(req) then Response.status(403, "CSRF check failed")
+  else
+    val user = req.session.getOrElse("pending_user", "")
+    val code = req.form.getOrElse("code", "")
+    val secret = users.get(user).flatMap(_.get("totpSecret")).getOrElse("")
+    if user.isEmpty || secret.isEmpty then
+      Response.redirect("/login")
+        .withSession(req.session
+          .removed("pending_user")
+          .updated("flash", "err:session expired; sign in again"))
+    else if !totpValid(secret, code) then
+      Response.redirect("/login")
+        .withSession(req.session.updated("flash", "err:wrong 2FA code"))
+    else
+      Response.redirect("/profile")
+        .withSession(req.session
+          .removed("pending_user")
+          .updated("user", user))
+}
+
+// ── Session-gated profile ─────────────────────────────────────────
+
+route("GET", "/profile") { req =>
+  req.session.get("user") match
+    case None    => Response.redirect("/login")
+    case Some(u) =>
+      val tok = req.session.getOrElse("csrf", csrfToken())
+      // Mint a fresh JWT each time so the user can use it for /api/me
+      // without setting up a separate API-key flow.
+      val token = jwtSign(Map("sub" -> u, "role" -> "user"))
+      val body = html"""<p>Hello, <strong>${u}</strong>.</p>
+<p>Bearer token for API calls (paste into <code>Authorization: Bearer &lt;token&gt;</code>):</p>
+<pre style="word-break:break-all">${token}</pre>
+<p>Try it: <code>curl -H "Authorization: Bearer $$token" http://localhost:8780/api/me</code></p>
+<form method="POST" action="/logout">
+  <input type="hidden" name="csrf" value="${tok}">
+  <button>Sign out</button>
+</form>"""
+      Response.html(page("Profile", body.toString))
+        .withSession(req.session.updated("csrf", tok))
+}
+
+route("POST", "/logout") { req =>
+  if !csrfValid(req) then Response.status(403, "CSRF check failed")
+  else Response.redirect("/").clearSession()
+}
+
+// ── JWT-protected API ─────────────────────────────────────────────
+
+route("GET", "/api/me") { req =>
+  req.jwtClaims match
+    case Some(c) => Response.json(c)
+    case None    => Response.status(401, "missing or invalid bearer token")
+}
+
+println("auth-full demo · http://localhost:8780/")
+serve(8780)
+```

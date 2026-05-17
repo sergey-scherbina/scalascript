@@ -2730,8 +2730,22 @@ class JvmGen(baseDir: Option[os.Path] = None):
        |  // least 2 bytes of header).
        |  private val SENTINEL: Array[Byte] = new Array[Byte](0)
        |  // Writer virtual thread — cheap with Loom (~few KB stack).
+       |  // Reflective lookup so the emit also compiles on Java 17,
+       |  // where ofVirtual() isn't on Thread.  Falls back to a
+       |  // regular daemon Thread (each WS connection still gets its
+       |  // own writer thread, just at a ~256 KB stack apiece).
        |  private val writerThread: Thread =
-       |    Thread.ofVirtual().name("ws-writer").start(() => _writeLoop())
+       |    try
+       |      val cls   = Class.forName("java.lang.Thread$Builder$OfVirtual")
+       |      val of    = classOf[Thread].getMethod("ofVirtual").invoke(null)
+       |      val named = cls.getMethod("name", classOf[String]).invoke(of, "ws-writer")
+       |      cls.getMethod("start", classOf[Runnable])
+       |        .invoke(named, (() => _writeLoop()): Runnable).asInstanceOf[Thread]
+       |    catch case _: Throwable =>
+       |      val t = Thread(() => _writeLoop(), "ws-writer")
+       |      t.setDaemon(true)
+       |      t.start()
+       |      t
        |
        |  private def _writeLoop(): Unit =
        |    try
