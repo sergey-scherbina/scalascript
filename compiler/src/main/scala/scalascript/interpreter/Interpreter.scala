@@ -636,6 +636,62 @@ class Interpreter(
       case _ => throw InterpretError("csrfValid(req)")
     }
 
+    // ── WebAuthn / passkeys (stage 2a: challenge + store) ────────────
+    // The verifier (attestation + assertion signature) lands in a
+    // follow-up commit; these primitives let the handler issue a
+    // challenge, consume it on the matching ceremony, and persist
+    // (credentialId, publicKey) pairs.
+    nativeP("webauthnChallenge") {
+      case List(Value.StringV(uid)) =>
+        Value.StringV(scalascript.server.WebAuthn.challenge(uid))
+      case _ => throw InterpretError("webauthnChallenge(userId: String)")
+    }
+    nativeP("webauthnConsumeChallenge") {
+      case List(Value.StringV(s)) =>
+        scalascript.server.WebAuthn.consumeChallenge(s) match
+          case Some(uid) => Value.OptionV(Some(Value.StringV(uid)))
+          case None      => Value.OptionV(None)
+      case _ => throw InterpretError("webauthnConsumeChallenge(challenge: String)")
+    }
+    nativeP("webauthnStorePut") {
+      case List(Value.StringV(uid), Value.StringV(cid),
+                Value.StringV(pk), Value.IntV(cnt)) =>
+        scalascript.server.WebAuthn.storePut(uid,
+          scalascript.server.WebAuthn.Credential(cid, pk, cnt))
+        Value.UnitV
+      case _ => throw InterpretError(
+        "webauthnStorePut(userId, credentialId, publicKeyB64, signCount)")
+    }
+    nativeP("webauthnStoreGet") {
+      case List(Value.StringV(uid)) =>
+        Value.ListV(scalascript.server.WebAuthn.storeGet(uid).map { c =>
+          Value.MapV(Map(
+            Value.StringV("credentialId") -> Value.StringV(c.credentialId),
+            Value.StringV("publicKey")    -> Value.StringV(c.publicKey),
+            Value.StringV("signCount")    -> Value.IntV(c.signCount),
+          ))
+        })
+      case _ => throw InterpretError("webauthnStoreGet(userId: String)")
+    }
+    nativeP("webauthnStoreFind") {
+      case List(Value.StringV(uid), Value.StringV(cid)) =>
+        scalascript.server.WebAuthn.storeFind(uid, cid) match
+          case Some(c) =>
+            Value.OptionV(Some(Value.MapV(Map(
+              Value.StringV("credentialId") -> Value.StringV(c.credentialId),
+              Value.StringV("publicKey")    -> Value.StringV(c.publicKey),
+              Value.StringV("signCount")    -> Value.IntV(c.signCount),
+            ))))
+          case None => Value.OptionV(None)
+      case _ => throw InterpretError("webauthnStoreFind(userId, credentialId)")
+    }
+    nativeP("webauthnUpdateSignCount") {
+      case List(Value.StringV(uid), Value.StringV(cid), Value.IntV(cnt)) =>
+        Value.BoolV(scalascript.server.WebAuthn.storeUpdateSignCount(uid, cid, cnt))
+      case _ => throw InterpretError(
+        "webauthnUpdateSignCount(userId, credentialId, newSignCount)")
+    }
+
     // ── Rate limiting ────────────────────────────────────────────────
     // `rateLimit(key, limit, windowSeconds)` — fixed-window counter.
     // Returns true if the call is allowed (and bumps the counter),
