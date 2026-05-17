@@ -130,93 +130,42 @@ useful in isolation and unblocks the next.
    workflow.  Weeks of work; only worth opening once the surface
    above is well-trodden.  Out of scope for v0.7.
 
-## v0.8 — Web Components target (`ssc emit-wc`)
+## v0.8 — Web Components target (`ssc emit-wc`) — **MVP landed**
 
-Make SSC components consumable as standards-track W3C Custom Elements
-so a `.ssc` component is a first-class HTML element usable in any
-framework (or none) — independent of the ScalaScript toolchain on the
-consumer side.
+`ssc emit-wc <file.ssc>` scans the file for component-shaped objects
+(`object Foo { val css; def render(<params>): String }`), emits the
+JsRuntime preamble + the user's JsGen output, then appends a
+`customElements.define('foo-component', class extends HTMLElement { … })`
+for each detected component.  Tag name = PascalCase → kebab-case +
+`-component`.  Each render parameter is read from the same-name HTML
+attribute as a String; Shadow DOM scopes the CSS automatically.
+`val js` (if present) runs against the shadow root via a `new Function`
+boot script.
 
-Today our `object Card { val css, val js, def render(...) }` runs on
-the **server**: render returns a String, JS is a side-loaded handler
-that finds elements via querySelector, `scope(...)` simulates style
-isolation through class-name suffixes.  A W3C Custom Element runs on
-the **client**: a `class CardComponent extends HTMLElement` with
-lifecycle callbacks, real Shadow DOM, attribute-driven re-render.
-v0.8 emits the second from the first.
+Cross-rendering parity:
+  - `ssc render` and `ssc build` still use the same `render` source
+    server-side — no source change to existing components.
+  - The detector skips objects without both `val css` and
+    `def render(...)`, so utility objects don't leak as elements.
 
-What it does:
+Carry-over / deferred:
 
-- **New command `ssc emit-wc <file.ssc> [-o name.js]`** generates one
-  JS bundle per component (or one bundle per file with multiple
-  components):
+  - **Tag-name override** via a `tagName: "my-card"` field — trivial
+    once a real consumer asks for it.
+  - **Typed prop coercion** — currently every attribute lands as a
+    String.  `def render(count: Int, active: Boolean)` should auto-
+    `Number(...)` / `!== null`.  ~20 LOC once we plumb param types
+    through `detectWcComponent`.
+  - **Slots** — `children: String` → `<slot></slot>` injection.
+  - **SSR + hydration** — `connectedCallback` currently overwrites the
+    light DOM unconditionally.  Need a convention for "adopt existing
+    children if the server already rendered me".
+  - **DOM-event helper** — `dispatchEvent(new CustomEvent(...))`
+    convenience so framework wrappers can bind.
+  - **`-o name.js` output flag** — currently the bundle goes to stdout
+    only.  Add `-o` like `ssc package`.
 
-      class CardComponent extends HTMLElement {
-        static get observedAttributes() { return ['title', 'body']; }
-        connectedCallback() {
-          const shadow = this.attachShadow({mode: 'open'});
-          shadow.innerHTML = `<style>${Card.css}</style>` +
-            Card.render(this.getAttribute('title'), this.getAttribute('body'));
-        }
-        attributeChangedCallback() { this.connectedCallback(); }
-      }
-      customElements.define('card-component', CardComponent);
-
-  Consumer drops `<script type="module" src="card.js"/>` into any
-  HTML page and uses `<card-component title="…" body="…"/>` like a
-  native tag.
-
-- **Tag-name convention.**  PascalCase object name → kebab-case + a
-  required dash (W3C spec mandates a hyphen).  `object Card` →
-  `card-component`; `object NavBar` → `nav-bar-component`.  Override
-  via a `tagName: "my-card"` field on the object.
-
-- **Attributes-as-props.**  HTML attributes are string-only by spec.
-  `def render(title: String, count: Int, active: Boolean)` translates
-  to `getAttribute('title')`, `Number(getAttribute('count'))`,
-  `getAttribute('active') !== null`.  Booleans use presence semantics
-  (`<my-tag active>` vs absent).  Complex props (List, case classes)
-  pass through `data-` attributes parsed as JSON or via JS properties
-  set imperatively on the element.
-
-- **Real Shadow DOM scoping.**  Inside a Custom Element the
-  `<style>` is encapsulated, so `scope(...)` becomes optional — the
-  shadow boundary already prevents leaks.  Components that target
-  *only* `emit-wc` can drop `scope()` and write bare class names.
-  Mixed-target components keep `scope()` so the same source works
-  both as a server-rendered fragment (where there's no shadow) and
-  as a Custom Element.
-
-- **Slots.**  A render argument named `children: String` maps to a
-  `<slot></slot>` in the Custom Element template, letting callers
-  write `<card-component><h2>Title</h2><p>Body</p></card-component>`.
-
-What stays the same:
-
-- `def render(...)` is still the single source of truth for the
-  template.  `ssc render` / `ssc build` use it server-side; `ssc
-  emit-wc` wraps the same template in a Custom Element class.
-- `collectCss` / `collectJs` still aggregate for whole-page builds.
-- Existing component examples (Button, Card, Alert, Counter)
-  unchanged — they gain a new emission target without source edits.
-
-Open questions to resolve during implementation:
-
-- **SSR + hydration story.**  If a page is server-rendered AND
-  contains `<card-component>` tags, the inner shadow tree is re-
-  rendered on the client when the script runs, replacing the SSR
-  output.  Need a convention for `connectedCallback` to detect
-  already-rendered light DOM and adopt it instead of overwriting.
-- **Typed-prop sugar.**  Worth adding a `props: Map[String, Type]`
-  declaration to the component so attribute parsing is generated,
-  or stick with manual `getAttribute` calls in user code?
-- **Interop with React/Vue events.**  Custom Elements emit DOM
-  events.  Need a convention for `dispatchEvent(new CustomEvent(...))`
-  so framework wrappers can bind to them.
-
-Effort: 3–7 days, depending on how deep we go on the open questions.
-Defer until a concrete use case demands real client-side
-interactivity beyond `val js` querySelector handlers.
+Defer the remaining items until a concrete consumer asks.
 
 
 ## v0.9 — Optics — second pass

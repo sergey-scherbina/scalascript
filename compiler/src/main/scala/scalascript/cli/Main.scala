@@ -17,6 +17,7 @@ import scalascript.ast.*
     case "emit-js"             => emitJsCommand(args.tail.toList)
     case "emit-spa"            => emitSpaCommand(args.tail.toList)
     case "emit-scala"          => emitScalaCommand(args.tail.toList)
+    case "emit-wc"             => emitWcCommand(args.tail.toList)
     case "compile"             => compileCommand(args.tail.toList)
     case "package"             => packageCommand(args.tail.toList)
     case "serve"               => serveCommand(args.tail.toList)
@@ -53,6 +54,7 @@ def printUsage(): Unit =
     |  emit-scala             Print generated Scala 3 script to stdout
     |  emit-js                Transpile .ssc to JavaScript (Node server) and print to stdout
     |  emit-spa               Wrap .ssc as a browser SPA (HTML + embedded JS) and print to stdout
+    |  emit-wc                Emit each component object as a W3C Custom Element bundle
     |  serve                  Start HTTP server serving .ssc files as web pages
     |  parse                  Parse .ssc files and print AST
     |  check                  Type-check .ssc files
@@ -76,6 +78,7 @@ def printUsage(): Unit =
     |  ssc emit-scala examples/hello.ssc
     |  ssc emit-js examples/hello.ssc | node
     |  ssc emit-spa examples/spa-demo.ssc > spa.html  # open spa.html in a browser
+    |  ssc emit-wc  examples/wc-card.ssc  > card.js   # use as <card-component title="…">…</card-component>
     |  ssc serve 8080
     |  ssc parse examples/typeclass.ssc
     |""".stripMargin)
@@ -605,6 +608,123 @@ def emitSpaCommand(args: List[String]): Unit =
                    |</html>""".stripMargin)
       catch case e: Exception =>
         System.err.println(s"SPA generation error: ${e.getMessage}")
+        System.exit(1)
+
+/** v0.8 — emit a JS bundle that registers each component object in the
+ *  file as a W3C Custom Element.  Detection rule: a top-level
+ *  `object Foo { val css: String; def render(<params>): String }`
+ *  becomes `<foo-component>` (PascalCase → kebab-case + `-component`).
+ *  Each render parameter is read from the same-name HTML attribute as
+ *  a String; Shadow DOM scopes the CSS automatically. */
+private case class WcComponent(name: String, params: List[String], hasJs: Boolean)
+
+/** PascalCase → kebab-case (uppercase letters introduce a hyphen). */
+private def wcKebab(s: String): String =
+  val sb = StringBuilder()
+  s.zipWithIndex.foreach { (c, i) =>
+    if c.isUpper then
+      if i > 0 then sb.append('-')
+      sb.append(c.toLower)
+    else sb.append(c)
+  }
+  sb.toString
+
+/** Inspect a scala.meta `Defn.Object` for the component shape:
+ *  `object Foo { val css: …; def render(<params>): … }`.  When that
+ *  shape is found, append it (plus an `hasJs` flag if a `val js` is
+ *  also present) to `into`. */
+private def detectWcComponent(
+    d:    scala.meta.Defn.Object,
+    into: scala.collection.mutable.ArrayBuffer[WcComponent]
+): Unit =
+  import scala.meta.{Defn, Pat}
+  var cssOk = false
+  var jsOk  = false
+  var params: Option[List[String]] = None
+  d.templ.body.stats.foreach {
+    case Defn.Val(_, List(Pat.Var(n)), _, _) if n.value == "css" => cssOk = true
+    case Defn.Val(_, List(Pat.Var(n)), _, _) if n.value == "js"  => jsOk = true
+    case dd: Defn.Def if dd.name.value == "render" =>
+      params = Some(
+        dd.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values).map(_.name.value))
+    case _ => ()
+  }
+  if cssOk && params.isDefined then
+    into += WcComponent(d.name.value, params.get, jsOk)
+
+/** v0.8 — emit a JS bundle that registers each component object in the
+ *  file as a W3C Custom Element.  Detection rule: a top-level
+ *  `object Foo { val css: String; def render(<params>): String }`
+ *  becomes `<foo-component>` (PascalCase → kebab-case + `-component`).
+ *  Each render parameter is read from the same-name HTML attribute as
+ *  a String; Shadow DOM scopes the CSS automatically. */
+def emitWcCommand(args: List[String]): Unit =
+  import scala.meta.Defn
+  import scalascript.ast.{Content, Lang}
+  if args.isEmpty then { println("Error: No files specified"); System.exit(1) }
+  for file <- args do
+    val path    = os.Path(file, os.pwd)
+    val baseDir = Some(path / os.up)
+    if !os.exists(path) then { println(s"Error: File not found: $file"); System.exit(1) }
+    else
+      try
+        val module     = Parser.parse(os.read(path))
+        val components = scala.collection.mutable.ArrayBuffer.empty[WcComponent]
+        module.sections.foreach { section =>
+          section.content.foreach {
+            case cb: Content.CodeBlock if Lang.isScalaScript(cb.lang) =>
+              cb.tree.foreach { node =>
+                scalascript.ast.ScalaNode.fold(node) {
+                  case d: Defn.Object => detectWcComponent(d, components)
+                  case scala.meta.Source(stats) =>
+                    stats.foreach {
+                      case d: Defn.Object => detectWcComponent(d, components)
+                      case _              => ()
+                    }
+                  case _ => ()
+                }
+              }
+            case _ => ()
+          }
+        }
+        val segments = JsGen.generateSegmented(module, baseDir)
+        val userJs = segments.collect {
+          case JsGen.Segment.ScalaScriptJs(code) => code
+          case JsGen.Segment.ScalaSource(src)    =>
+            ScalaJsBackend.compileSourceToJs(src, baseDir)
+        }.filter(_.nonEmpty).mkString("\n")
+        println(JsRuntime); println(JsRuntimeAsync)
+        println(userJs)
+        components.foreach { c =>
+          val tag       = wcKebab(c.name) + "-component"
+          val paramsArr = c.params.map(p => "'" + p + "'").mkString(", ")
+          val argsExpr  =
+            if c.params.isEmpty then ""
+            else c.params.map(p => s"this.getAttribute('$p') || ''").mkString(", ")
+          val jsHook =
+            if c.hasJs then
+              s"""
+      try { if (typeof ${c.name}.js === 'string' && ${c.name}.js.trim().length > 0) new Function(${c.name}.js).call(shadow); }
+      catch (e) { console.error('${c.name}.js failed:', e); }"""
+            else ""
+          // Anonymous class via `customElements.define(tag, class extends … {})`
+          // — avoids clashing with the heading-bound `<section>Component` object
+          // JsGen synthesises for the markdown section that introduces the
+          // component.
+          println(s"""
+customElements.define('$tag', class extends HTMLElement {
+  static get observedAttributes() { return [$paramsArr]; }
+  connectedCallback() {
+    const shadow = this.shadowRoot || this.attachShadow({mode: 'open'});
+    const css  = (typeof ${c.name}.css === 'string') ? ${c.name}.css : '';
+    const html = ${c.name}.render($argsExpr);
+    shadow.innerHTML = '<style>' + css + '</style>' + _show(html);$jsHook
+  }
+  attributeChangedCallback() { if (this.isConnected) this.connectedCallback(); }
+});""")
+        }
+      catch case e: Exception =>
+        System.err.println(s"emit-wc generation error: ${e.getMessage}")
         System.exit(1)
 
 def emitScalaCommand(args: List[String]): Unit =

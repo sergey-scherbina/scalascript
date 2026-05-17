@@ -1,0 +1,34 @@
+#!/usr/bin/env ssc
+---
+name: wc-card
+description: v0.8 — a Card component emitted as a W3C Custom Element via `ssc emit-wc`.
+---
+
+# Card component
+
+The same `object Card { val css, def render(...) }` that runs on the
+server via `ssc render` can also be emitted as a `<card-component>`
+custom element via `ssc emit-wc wc-card.ssc > card.js`.  Then any
+HTML page can do:
+
+```html
+<script type="module" src="card.js"></script>
+<card-component title="Hello" body="World"></card-component>
+```
+
+```scalascript
+object Card:
+  val css: String = """
+    .root { border: 1px solid #e5e7eb; border-radius: 8px;
+            padding: 1em 1.25em; font: 1rem/1.5 system-ui, sans-serif;
+            background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.05); }
+    .title { margin: 0 0 .25em; color: #111827; font-weight: 600; }
+    .body  { margin: 0; color: #4b5563; }
+  """
+
+  def render(title: String, body: String): String =
+    html"""<div class="root">
+      <h2 class="title">${title}</h2>
+      <p class="body">${body}</p>
+    </div>"""
+```
