@@ -39,6 +39,73 @@ Defer until 1-4 are settled and a real workload demands them.
     JSON-heavy WS workloads.  Not worth the complexity until a
     real app needs it.  ~200 LOC × 3.
 
+## Backend SPI v0.1 — plugin architecture
+
+A standalone design document and 9-phase migration plan that
+abstracts the current four backends (`JvmGen`, `JsGen`,
+`ScalaJsBackend`, `Interpreter`) behind a stable plugin SPI.
+After landing, adding a new target (WASM, native, .NET, Python,
+SQL frontend, …) is one plugin JAR or subprocess instead of a
+modification to `core`.
+
+- **Design:** [`docs/backend-spi.md`](docs/backend-spi.md) — 17
+  sections, source of truth.  Locks all architectural decisions
+  (effects, intrinsics, multi-language blocks, block references,
+  prelude contributions, versioning, JSON+MsgPack wire formats,
+  core-boundary minimisation).
+- **Tracking issue:** [#36](https://github.com/sergey-scherbina/scalascript/issues/36)
+  — parent with the 9-phase checklist.  Phase issues
+  [#26–#33, #35](https://github.com/sergey-scherbina/scalascript/issues/26).
+- **Estimate:** ~8–11 working days total.
+
+### Phase summary
+
+1. **#26** — Module split & SPI skeleton  (M, ~1d)
+2. **#27** — IR + JSON/MsgPack codec  (M, ~1d)
+3. **#28** — Effect lowering as a core pass  (L, ~1–2d)
+4. **#29** — Capabilities + validation  (S, ~0.5d)
+5. **#30** — Convert existing backends to plugins  (M, ~1–1.5d)
+6. **#31** — Out-of-process plugin loader (stdio JSON/MsgPack)  (M, ~1–1.5d)
+7. **#32** — CLI ergonomics for plugin management  (S–M, ~0.5–1d)
+8. **#33** — Docs & sample external plugin  (S, ~0.5d)
+9. **#35** — Extract bundled SourceLanguage plugins (`html`, `css`, `scala-source`)  (M–L, ~1.5–2d)
+
+After Phase 9, `core` knows only Markdown + `scalascript`/`ssc`;
+`html`, `css`, and `scala` blocks plus the `html"…"`/`css"…"`
+interpolators live in bundled plugins that consume the same SPI as
+any third-party plugin.
+
+### After Phase 9 — `std/*` becomes a hybrid Predef
+
+Once Phase 9 introduces `PreludeContribution`, the user-space
+typeclass hierarchy that landed in v1.1 ships as a bundled
+SourceLanguage plugin (`backend-std-prelude`) using the same SPI as
+any third-party plugin.  Decision: **Predef-style hybrid** — common
+abstractions auto-import, specialised ones remain explicit.
+
+| Tier                            | Files                                        | How imported |
+|---------------------------------|----------------------------------------------|--------------|
+| **Auto-prelude (always visible)** | `functor-applicative-monad.ssc`, `foldable-traversable.ssc`, `either.ssc` | Loaded as `preludeFiles` of the bundled plugin; symbols (`Functor`, `Applicative`, `Monad`, `Foldable`, `Traversable`, `Either`, `Left`, `Right`, the universally applicable `given` instances for `List` / `Option` / `Either`) visible globally without any `[X](./std/…)` line. |
+| **Explicit (specialised)**      | `monaderror.ssc`, `selective.ssc`, `bifunctor.ssc`, `semigroup-monoid.ssc` | Still imported via `[X](./std/…)` (or `[X](std/…)` once Phase 9 lets the std-prelude plugin advertise its own paths).  Reason: each is domain-specific — error-typed monads, selective effects, profunctors, algebraic structures — not every program needs them. |
+
+The exact line between tiers is debatable and may shift; principle is
+**pre-import what every program plausibly uses; leave explicit what's
+domain-specific.** Concrete split TBD during the Phase 9 follow-up.
+The user-space `std/*.ssc` files themselves are not touched — they
+just get loaded automatically for the auto-prelude tier.
+
+### Parked for after Phase 9
+
+- **Plugin trust / sandboxing.**  Loaded JAR plugins run with full
+  JVM permissions; subprocess plugins run as ordinary OS processes.
+  Documented as untrusted code for v0.1 of the SPI.  Revisit if/when
+  a plugin marketplace exists.
+
+- **Namespaces (`package std.foo` hierarchy), local `.ssc`
+  versioning, package registry / discovery.**  All real gaps for
+  ecosystem-scale work but well beyond v0.1 scope.  Need separate
+  design docs when use cases mature.
+
 ## v0.7 — Reusable libraries and packaging
 
 A consumer should be able to depend on a third-party `.ssc` library —
