@@ -151,10 +151,57 @@ class Interpreter(
   private def mkPid(nodeId: String, localId: Long): Value =
     Value.InstanceV("Pid", Map("nodeId" -> Value.StringV(nodeId), "localId" -> Value.IntV(localId)))
 
-  private def connectPeer(@annotation.unused url: String, @annotation.unused token: String): Unit =
-    // WS connection to a peer node — deferred to Phase 3 WebServer integration.
-    // peerChannels will be populated here when the handshake completes.
-    ()
+  private def connectPeer(url: String, token: String): Unit =
+    val hdrs = if token.nonEmpty then Map("Authorization" -> s"Bearer $token") else Map.empty[String, String]
+    Thread.ofVirtual().start { () =>
+      try
+        val sess = scalascript.server.WsClientSession(url, hdrs, List("ssc-actors-v1"), this, out)
+        sess.connect()
+        val ws = sess.wsObj
+        // Send our handshake frame first
+        sess.sendText(s"""{"nodeId":${jsonStr(localNodeId)}}""")
+        // Recv handshake reply: peer sends {"nodeId":"..."}
+        sess.recvText() match
+          case None => () // closed during handshake
+          case Some(firstMsg) =>
+            val peerNodeId = JsonParser.parseOption(firstMsg) match
+              case Some(Value.MapV(m)) =>
+                m.get(Value.StringV("nodeId")).collect { case Value.StringV(n) => n }.getOrElse("")
+              case _ => ""
+            if peerNodeId.nonEmpty then
+              peerChannels.put(peerNodeId, { text => sess.sendText(text) })
+              // Recv loop — on virtual thread, blocking is fine
+              var running = true
+              while running do
+                sess.recvText() match
+                  case None      => running = false
+                  case Some(msg) => dispatchPeerEnvelope(msg)
+              peerChannels.remove(peerNodeId)
+      catch case e: Throwable =>
+        out.println(s"connectNode error [$url]: ${e.getMessage}")
+    }
+
+  private def dispatchPeerEnvelope(rawJson: String): Unit =
+    JsonParser.parseOption(rawJson) match
+      case Some(Value.MapV(m)) =>
+        val t = m.get(Value.StringV("t")).collect { case Value.StringV(s) => s }.getOrElse("")
+        t match
+          case "msg" =>
+            val toLocalId = m.get(Value.StringV("to")).collect {
+              case Value.MapV(tm) => tm.get(Value.StringV("localId")) match
+                case Some(Value.IntV(n))    => n
+                case Some(Value.DoubleV(d)) => d.toLong
+                case _                      => -1L
+            }.getOrElse(-1L)
+            val bodyParsed = m.get(Value.StringV("body"))
+            if toLocalId >= 0 then
+              bodyParsed.foreach { body =>
+                val msgVal = ValueSerializer.fromParsed(body)
+                remoteInbox.offer((toLocalId, msgVal))
+                val t = schedulerThread; if t != null then t.interrupt()
+              }
+          case _ => () // ping/pong/reg/where/found handled in future stages
+      case _ => ()
 
   private def remoteDeliverOrQueue(nodeId: String, pidFields: Map[String, Value], msg: Value): Unit =
     peerChannels.get(nodeId) match
@@ -3849,10 +3896,17 @@ class Interpreter(
       rt.pending(rootId)   = initial
       rt.ready.enqueue(rootId)
       val rootResult = mutable.LongMap.empty[Value]
+      val isDistributed = localNodeId.nonEmpty || !peerChannels.isEmpty
+      // deadlockGuard prevents infinite loops in pure local programs.
+      // In distributed mode we keep the scheduler alive until all actors
+      // complete regardless of deadlock iterations.
       var deadlockGuard = 0
       val maxIterations = 100000
 
-      while (rt.ready.nonEmpty || rt.blocked.exists(_._2._4.isDefined) || !remoteInbox.isEmpty) && deadlockGuard < maxIterations do
+      def hasWork = rt.ready.nonEmpty || rt.blocked.exists(_._2._4.isDefined) || !remoteInbox.isEmpty ||
+                    (isDistributed && rt.blocked.nonEmpty)
+
+      while hasWork && (isDistributed || deadlockGuard < maxIterations) do
         deadlockGuard += 1
         // Drain remote inbox (messages from peer nodes on WS threads).
         while !remoteInbox.isEmpty do
@@ -3863,7 +3917,7 @@ class Interpreter(
           }
         if rt.ready.isEmpty then
           // Quiescent except for timeout-armed receives: sleep until
-          // the earliest deadline, then deliver None to that actor.
+          // the earliest deadline (or for remote messages if distributed).
           val now = System.currentTimeMillis()
           val earliest = rt.blocked.collect {
             case (id, (_, _, _, Some(d), _)) => (id, d)
@@ -3871,13 +3925,20 @@ class Interpreter(
           earliest match
             case Some((id, d)) =>
               val sleepFor = d - now
-              if sleepFor > 0 then Thread.sleep(sleepFor)
+              if sleepFor > 0 then
+                try Thread.sleep(sleepFor)
+                catch case _: InterruptedException => ()  // remote message woke us
               rt.blocked.remove(id) match
                 case Some((_, _, k, _, _)) =>
                   rt.pending(id) = k(Value.InstanceV("None", Map.empty))
                   rt.ready.enqueue(id)
                 case None => ()
-            case None => () // shouldn't happen — loop exit condition would fire
+            case None =>
+              if isDistributed && rt.blocked.nonEmpty then
+                // Waiting for remote messages — sleep interruptibly.
+                try Thread.sleep(30)
+                catch case _: InterruptedException => ()
+              // else: local deadlock — loop condition will exit next iteration
         else
           val id = rt.ready.dequeue()
           // An actor may have been re-enqueued after completion if a
@@ -4092,8 +4153,45 @@ class Interpreter(
     case "startNode" => args match
       case List(Value.StringV(nodeId)) =>
         localNodeId = nodeId
-        // Register /_ssc-actors WS route on the active WebServer so peers
-        // can connect to us.  Deferred to WebServer integration (Phase 3 core).
+        // Register /_ssc-actors WS route so inbound peer connections are accepted.
+        val peersRoute = Value.NativeFnV("_ssc-actors.handler", args => {
+          val ws = args.head
+          val wsFields = ws match
+            case Value.InstanceV(_, flds) => flds
+            case _ => Map.empty[String, Value]
+          def wsRecv(): Option[String] = wsFields.get("recv").flatMap { f =>
+            invoke(f, Nil) match
+              case Value.OptionV(Some(Value.StringV(s))) => Some(s)
+              case _ => None
+          }
+          def wsSend(text: String): Unit = wsFields.get("send").foreach { f =>
+            invoke(f, List(Value.StringV(text)))
+          }
+          // Receive handshake from peer: {"nodeId":"..."}
+          val peerNodeId = wsRecv().flatMap { first =>
+            JsonParser.parseOption(first).collect {
+              case Value.MapV(m) =>
+                m.get(Value.StringV("nodeId")).collect { case Value.StringV(n) => n }.getOrElse("")
+            }.filter(_.nonEmpty)
+          }
+          peerNodeId.foreach { pnId =>
+            wsSend(s"""{"nodeId":${jsonStr(localNodeId)}}""")
+            peerChannels.put(pnId, wsSend)
+            var running = true
+            while running do
+              wsRecv() match
+                case None      => running = false
+                case Some(msg) => dispatchPeerEnvelope(msg)
+            peerChannels.remove(pnId)
+          }
+          Pure(Value.UnitV)
+        })
+        scalascript.server.WsRoutes.register(
+          path      = "/_ssc-actors",
+          handler   = peersRoute,
+          interp    = this,
+          protocols = List("ssc-actors-v1")
+        )
         Right(k(Value.UnitV))
       case _ => throw InterpretError("startNode(nodeId)")
 
