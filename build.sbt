@@ -171,9 +171,32 @@ lazy val cli = project
       "-keep class scala.sys.** { *; }",
       // Scala 3 lazy val backing fields use $lzy1 suffix — keep across all classes
       "-keepclassmembers class ** { private ** *$lzy1; }",
-      // scala-meta: keep parser + AST; quasiquote machinery (TreeLifts 1 MB)
-      // is unreachable from JvmGen (no q"..." usage) and will be eliminated.
-      "-keep class scala.meta.** { *; }",
+      // scala-meta: targeted keeps — excludes internal.quasiquotes (TreeLifts 1 MB +
+      // ReificationMacros) which are compile-time-only macro impls unreachable at runtime.
+      // scala.meta.package$ implements quasiquotes.Api so ProGuard will keep the public
+      // quasiquotes API (XTension* companions), but not the internal implementation.
+      // Direct AST classes (Term, Type, Defn, …) live in scala.meta package itself:
+      "-keep class scala.meta.* { *; }",
+      "-keep class scala.meta.classifiers.** { *; }",
+      "-keep class scala.meta.parsers.** { *; }",
+      "-keep class scala.meta.prettyprinters.** { *; }",
+      "-keep class scala.meta.dialects.** { *; }",
+      "-keep class scala.meta.inputs.** { *; }",
+      "-keep class scala.meta.tokens.** { *; }",
+      "-keep class scala.meta.tokenizers.** { *; }",
+      "-keep class scala.meta.transversers.** { *; }",
+      "-keep class scala.meta.internal.classifiers.** { *; }",
+      "-keep class scala.meta.internal.dialects.** { *; }",
+      "-keep class scala.meta.internal.inputs.** { *; }",
+      "-keep class scala.meta.internal.io.** { *; }",
+      "-keep class scala.meta.internal.parsers.** { *; }",
+      "-keep class scala.meta.internal.platform.** { *; }",
+      "-keep class scala.meta.internal.prettyprinters.** { *; }",
+      "-keep class scala.meta.internal.tokenizers.** { *; }",
+      "-keep class scala.meta.internal.tokens.** { *; }",
+      "-keep class scala.meta.internal.transversers.** { *; }",
+      "-keep class scala.meta.internal.trees.** { *; }",
+      "-keep class scala.meta.shaded.** { *; }",
       "-keep class upickle.** { *; }",
       "-keep class ujson.** { *; }",
       "-keep class os.** { *; }",
