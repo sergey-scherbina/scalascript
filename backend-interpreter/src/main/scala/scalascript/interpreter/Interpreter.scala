@@ -499,6 +499,49 @@ class Interpreter(
       case _ => throw InterpretError("streamResponse(block)")
     }
 
+    // sse(req) { stream => stream.send(data) / stream.send(event, data) / stream.close() }
+    // Built on streamResponse — sets the SSE headers and wraps the raw write
+    // callback in an SseStream InstanceV so handlers don't have to format frames.
+    nativeP("sse") {
+      case List(_req) =>
+        val sseHeaders = Map(
+          "Content-Type"     -> "text/event-stream",
+          "Cache-Control"    -> "no-cache",
+          "Connection"       -> "keep-alive",
+          "X-Accel-Buffering"-> "no"
+        )
+        val headerMap = Value.MapV(sseHeaders.map((k, v) =>
+          (Value.StringV(k): Value) -> (Value.StringV(v): Value)))
+        Value.NativeFnV("sse.block", Computation.pureFn {
+          case List(block) =>
+            val callback = Value.NativeFnV("sse.writer", Computation.pureFn {
+              case List(writeFn) =>
+                val sseStream = Value.InstanceV("SseStream", Map(
+                  "send" -> Value.NativeFnV("SseStream.send", Computation.pureFn {
+                    case List(Value.StringV(data)) =>
+                      invoke(writeFn, List(Value.StringV(s"data: $data\n\n")))
+                      Value.UnitV
+                    case List(Value.StringV(event), Value.StringV(data)) =>
+                      invoke(writeFn, List(Value.StringV(s"event: $event\ndata: $data\n\n")))
+                      Value.UnitV
+                    case _ => throw InterpretError("SseStream.send(data) or send(event, data)")
+                  }),
+                  "close" -> Value.NativeFnV("SseStream.close", Computation.pureFn(_ => Value.UnitV))
+                ))
+                invoke(block, List(sseStream))
+                Value.UnitV
+              case _ => throw InterpretError("sse internal writer error")
+            })
+            Value.InstanceV("StreamResponse", Map(
+              "status"   -> Value.IntV(200),
+              "headers"  -> headerMap,
+              "callback" -> callback
+            ))
+          case _ => throw InterpretError("sse(req)(block)")
+        })
+      case _ => throw InterpretError("sse(req)(block)")
+    }
+
     // maxBodySize(bytes) — reject requests whose body exceeds the limit with 413.
     nativeP("maxBodySize") {
       case List(Value.IntV(n)) => scalascript.server.WebServer.setMaxBodySize(n.toLong); Value.UnitV

@@ -1,7 +1,7 @@
 ---
 name: std-http
 version: 0.1.0
-description: HTTP server + client primitives — extern declarations for route / serve / stop / tls / httpGet / httpPost / wsConnect / cors / useGzip / cacheable / noCache / streamResponse / maxBodySize
+description: HTTP server + client primitives — extern declarations for route / serve / stop / tls / httpGet / httpPost / wsConnect / cors / useGzip / cacheable / noCache / streamResponse / maxBodySize / sse
 exports:
   - route
   - serve
@@ -17,6 +17,7 @@ exports:
   - noCache
   - streamResponse
   - maxBodySize
+  - sse
   - Request
   - Response
 ---
@@ -74,6 +75,21 @@ extern def streamResponse(status: Int, headers: Map[String, String])(block: (Str
 
 // Body size limit — reject requests whose body exceeds n bytes with 413.
 extern def maxBodySize(bytes: Int): Unit
+
+// Server-Sent Events — sets Content-Type: text/event-stream and keeps the
+// connection open while the block runs.  stream.send(data) writes
+// "data: <data>\n\n"; stream.send(event, data) also sets the event field.
+extern def sse(req: Request)(block: SseStream => Unit): Response
+```
+
+# SseStream
+
+```scalascript
+// Yielded to the sse() block; not constructable by user code.
+extern class SseStream:
+  def send(data: String): Unit
+  def send(event: String, data: String): Unit
+  def close(): Unit
 ```
 
 # Request / Response

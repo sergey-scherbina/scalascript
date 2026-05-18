@@ -1901,6 +1901,28 @@ function streamResponse(statusOrBlock, headersOrBlock) {
   };
 }
 
+// ── Server-Sent Events ────────────────────────────────────────────────────────
+const _sseHeaders = new Map([
+  ['Content-Type',      'text/event-stream'],
+  ['Cache-Control',     'no-cache'],
+  ['Connection',        'keep-alive'],
+  ['X-Accel-Buffering', 'no']
+]);
+function sse(req) {
+  return function(block) {
+    return streamResponse(200, _sseHeaders)(function(write) {
+      const stream = {
+        send: function(eventOrData, data) {
+          if (data !== undefined) write('event: ' + eventOrData + '\ndata: ' + data + '\n\n');
+          else                    write('data: ' + eventOrData + '\n\n');
+        },
+        close: function() {}
+      };
+      block(stream);
+    });
+  };
+}
+
 // ── CORS / gzip / cache helpers ───────────────────────────────────────────────
 let _corsOrigins = null;
 let _corsMethods = null;

@@ -1082,46 +1082,21 @@ after them.
     ~120 LOC × 3 (uPickle is already in deps from v1.0; pure
     binding work per backend).
 
-18. **Middleware composition.**  Today every handler is
-    autonomous; cross-cutting concerns (auth check, request
-    logging, request-id, timing) get pasted into each one or
-    extracted into helper `def`s that the handler calls.  Add a
-    first-class middleware shape:
+18. **Middleware composition — landed.**  `std/middleware.ssc` ships
+    `withRequestId`, `withTiming`, `withRequestLog`, and `compose` /
+    `compose3` helpers.  Middleware is plain function composition —
+    `(Request => Response) => (Request => Response)` — no runtime
+    change.  `resp.withHeader(name, value)` is available on all three
+    backends so the stock middlewares can attach observability headers
+    without rebuilding the response map by hand.
 
-    ```
-    def authMw(handler: Request => Response): Request => Response =
-      req => if validate(req) then handler(req) else Response.status(401)
-
-    route("GET", "/users")(authMw { req => ... })
-    route("GET", "/admin")(authMw andThen logMw { req => ... })
-    ```
-
-    Just function composition; no runtime change.  What's missing
-    is the **convention** and a couple of stock middlewares in
-    std: `withRequestId`, `withTiming`, `withRequestLog`, plus
-    the existing CORS (Tier 4 #13) and Cache (Tier 4 #15) helpers
-    fitting the same shape.  ~50 LOC of std helpers + docs.
-
-19. **Server-Sent Events (SSE) helper.**  Builds on Tier 4 #11
-    (streaming responses) but with the right Content-Type and
-    framing so browsers' `EventSource` works without user
-    boilerplate.  Shape:
-
-    ```
-    route("GET", "/events") { req =>
-      sse(req) { stream =>
-        stream.send(event = "tick", data = "1")
-        stream.send(data = "raw payload")
-        stream.close()
-      }
-    }
-    ```
-
-    Sets `Content-Type: text/event-stream`, `Cache-Control:
-    no-cache`, `Connection: keep-alive`; writes `event: …\ndata:
-    …\n\n` framing; flushes after each `send`.  ~80 LOC × 3.
-    Hard-blocked on Tier 4 #11 — without streaming responses,
-    SSE collapses to a one-shot buffered write.
+19. **Server-Sent Events (SSE) helper — landed.**  `sse(req) { stream =>
+    stream.send(data); stream.send(event, data) }` built on top of
+    `streamResponse`.  Sets `Content-Type: text/event-stream`,
+    `Cache-Control: no-cache`, `Connection: keep-alive`,
+    `X-Accel-Buffering: no`; writes `event: …\ndata: …\n\n` framing
+    and flushes after each `send`.  Implemented across all three
+    backends (interpreter / JVM / Node.js).
 
 20. **Request validation helpers — landed.**  `requireString` /
     `optionalString` / `requireInt` / `optionalInt` / `requireDouble`
@@ -1157,12 +1132,10 @@ after them.
     handler complains about the readability of `requireString(req,
     "email")`.
 
-21. **Built-in health / readiness route.**  Convention: register
-    `GET /_health` and `GET /_ready` returning `200 {"status":
-    "ok"}` automatically when `serve(port)` is called, unless
-    the user has registered a route with the same path.  Real
-    apps inevitably hit Kubernetes / load-balancer probes and
-    re-implement these.  ~20 LOC × 3.
+21. **Built-in health / readiness route — landed.**  `GET /_health`
+    and `GET /_ready` return `200 {"status":"ok"}` automatically
+    unless the user registers a route with the same path.  Landed
+    across all three backends alongside the SPI migration.
 
 22. **Indexed access on `Any`-typed JSON values — options (a) + (c)
     landed.**

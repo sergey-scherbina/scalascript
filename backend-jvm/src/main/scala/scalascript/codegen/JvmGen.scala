@@ -3310,6 +3310,23 @@ class JvmGen(
        |def streamResponse(status: Int = 200, headers: Map[String, String] = Map.empty)(block: (String => Unit) => Any): _StreamResponse =
        |  _StreamResponse(status, headers, block)
        |
+       |// ── Server-Sent Events ────────────────────────────────────────────────
+       |private val _sseHeaders: Map[String, String] = Map(
+       |  "Content-Type"      -> "text/event-stream",
+       |  "Cache-Control"     -> "no-cache",
+       |  "Connection"        -> "keep-alive",
+       |  "X-Accel-Buffering" -> "no"
+       |)
+       |case class _SseStream(private val _write: String => Unit):
+       |  def send(data: String): Unit = _write(s"data: $data\n\n")
+       |  def send(event: String, data: String): Unit = _write(s"event: $event\ndata: $data\n\n")
+       |  def close(): Unit = ()
+       |
+       |def sse(req: Any)(block: _SseStream => Any): _StreamResponse =
+       |  streamResponse(200, _sseHeaders) { write =>
+       |    block(_SseStream(write))
+       |  }
+       |
        |// ── CORS / gzip / cache config ────────────────────────────────────────
        |@volatile private var _corsOrigins: List[String] = Nil
        |@volatile private var _corsMethods: List[String] = Nil
