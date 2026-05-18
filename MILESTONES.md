@@ -255,9 +255,15 @@ Costs of this shape:
 Stages already designed and planned in `docs/spi-followups-plan.md`
 + `docs/spi-intrinsics-design.md`:
 
-  - **5+/A.4 — per-call-site `ExternCall` dispatch.**  JvmGen / JsGen
-    gain a single emit case for `ExternCall(qn, args)` that consults
-    `backend.intrinsics(qn)`.  Removes the per-intrinsic match arms.
+  - **5+/A.4 — per-call-site `ExternCall` dispatch.**  ✅ **LANDED** (2026-05-18).
+    Achieved via AST-level `dispatchIntrinsic` / `dispatchIntrinsicJs` in
+    JvmGen / JsGen: both backends look up `QualifiedName(fname)` in the
+    intrinsics table before falling through to any hardcoded handling.
+    Stage 5+/B.3 extended this to `Term.Select(obj, method)` qualified calls.
+    The original `ExternCall(qn, args)` IR-node path remains planned for when
+    Normalize emits IR expressions; the AST-level approach covers all currently
+    migrated intrinsics.  Per-intrinsic match arms removed for all migrated
+    functions.
   - **5+/A.5 — `extern def` parser + `Backend.runtimePreamble`.**
     Declarations live in `std/*.ssc`; backends ship runtime helpers
     (e.g. emitted `class WebSocket`) via a single string field.
