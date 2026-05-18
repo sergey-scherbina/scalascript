@@ -132,6 +132,53 @@ class Interpreter(
     val trapExit   = mutable.LongMap.empty[Boolean]
     var nextMonRef = 0L
   private var actorRt: ActorRuntime = null
+
+  // ── Phase 3 — distributed node state ────────────────────────────────
+  // "" means this process has not called startNode and is local-only.
+  @volatile private var localNodeId: String = ""
+  // nodeId → send-function (delivers serialized JSON envelope to peer)
+  private val peerChannels =
+    new java.util.concurrent.ConcurrentHashMap[String, String => Unit]()
+  // Thread-safe queue for messages arriving from remote nodes on WS threads.
+  private val remoteInbox  =
+    new java.util.concurrent.ConcurrentLinkedQueue[(Long, Value)]()
+  // Reference to the scheduler thread so WS threads can interrupt it.
+  @volatile private var schedulerThread: Thread = null
+  // Per-node name → localId registry (ConcurrentHashMap default 0 means absent).
+  private val nodeRegistry =
+    new java.util.concurrent.ConcurrentHashMap[String, Long]()
+
+  private def mkPid(nodeId: String, localId: Long): Value =
+    Value.InstanceV("Pid", Map("nodeId" -> Value.StringV(nodeId), "localId" -> Value.IntV(localId)))
+
+  private def connectPeer(@annotation.unused url: String, @annotation.unused token: String): Unit =
+    // WS connection to a peer node — deferred to Phase 3 WebServer integration.
+    // peerChannels will be populated here when the handshake completes.
+    ()
+
+  private def remoteDeliverOrQueue(nodeId: String, pidFields: Map[String, Value], msg: Value): Unit =
+    peerChannels.get(nodeId) match
+      case null => () // peer not connected — silent drop (Erlang semantics)
+      case send =>
+        val toId   = pidFields.get("localId").collect { case Value.IntV(n) => n }.getOrElse(0L)
+        val fromId = if actorRt != null then actorRt.currentId else -1L
+        val body   = ValueSerializer.serialize(msg)
+        val envelope =
+          s"""{"t":"msg","to":{"nodeId":${jsonStr(nodeId)},"localId":$toId},"from":{"nodeId":${jsonStr(localNodeId)},"localId":$fromId},"body":$body}"""
+        send(envelope)
+
+  private def jsonStr(s: String): String =
+    val sb = new StringBuilder(s.length + 2)
+    sb.append('"')
+    s.foreach {
+      case '"'  => sb.append("\\\"")
+      case '\\' => sb.append("\\\\")
+      case '\n' => sb.append("\\n")
+      case c    => sb.append(c)
+    }
+    sb.append('"')
+    sb.result()
+
   // Receive-spec boxing: we can't squeeze AST cases into `Value`, so
   // `receive { case … }` stashes (cases, env) in a side map and the
   // Perform's args carry just the opaque integer token.
@@ -1846,6 +1893,26 @@ class Interpreter(
     globals("trapExit") = Value.NativeFnV("trapExit", {
       case List(b @ Value.BoolV(_)) => Perform("Actor", "trapExit", List(b))
       case _ => throw InterpretError("trapExit(on: Boolean): Unit")
+    })
+    // Phase 3 — distributed node primitives
+    globals("startNode") = Value.NativeFnV("startNode", {
+      case List(Value.StringV(nodeId)) => Perform("Actor", "startNode", List(Value.StringV(nodeId)))
+      case _ => throw InterpretError("startNode(nodeId: String): Unit")
+    })
+    globals("connectNode") = Value.NativeFnV("connectNode", {
+      case List(Value.StringV(url)) => Perform("Actor", "connectNode", List(Value.StringV(url)))
+      case List(Value.StringV(url), Value.StringV(token)) =>
+        Perform("Actor", "connectNode", List(Value.StringV(url), Value.StringV(token)))
+      case _ => throw InterpretError("connectNode(url: String, token: String = \"\"): Unit")
+    })
+    globals("register") = Value.NativeFnV("register", {
+      case List(Value.StringV(name), pid @ Value.InstanceV("Pid", _)) =>
+        Perform("Actor", "register", List(Value.StringV(name), pid))
+      case _ => throw InterpretError("register(name: String, pid: Pid): Unit")
+    })
+    globals("whereis") = Value.NativeFnV("whereis", {
+      case List(Value.StringV(name)) => Perform("Actor", "whereis", List(Value.StringV(name)))
+      case _ => throw InterpretError("whereis(name: String): Option[Pid]")
     })
 
     // ── Reactive primitives: Signal / computed / effect ────────────────
@@ -3845,6 +3912,7 @@ class Interpreter(
     val rt = new ActorRuntime
     val savedRt = actorRt
     actorRt = rt
+    schedulerThread = Thread.currentThread()
     try
       val rootId = rt.nextId
       rt.nextId += 1
@@ -3855,8 +3923,15 @@ class Interpreter(
       var deadlockGuard = 0
       val maxIterations = 100000
 
-      while (rt.ready.nonEmpty || rt.blocked.exists(_._2._4.isDefined)) && deadlockGuard < maxIterations do
+      while (rt.ready.nonEmpty || rt.blocked.exists(_._2._4.isDefined) || !remoteInbox.isEmpty) && deadlockGuard < maxIterations do
         deadlockGuard += 1
+        // Drain remote inbox (messages from peer nodes on WS threads).
+        while !remoteInbox.isEmpty do
+          val (targetId, msg) = remoteInbox.poll()
+          rt.mailboxes.get(targetId).foreach { mb =>
+            mb.enqueue(msg)
+            wakeBlocked(rt, targetId)
+          }
         if rt.ready.isEmpty then
           // Quiescent except for timeout-armed receives: sleep until
           // the earliest deadline, then deliver None to that actor.
@@ -3959,14 +4034,19 @@ class Interpreter(
         finally rt.currentId = savedCurrent
       rt.pending(childId) = childBody
       rt.ready.enqueue(childId)
-      Right(k(Value.InstanceV("Pid", Map("id" -> Value.IntV(childId)))))
+      Right(k(mkPid("", childId)))
 
     case "self" =>
-      Right(k(Value.InstanceV("Pid", Map("id" -> Value.IntV(id)))))
+      Right(k(mkPid(localNodeId, id)))
 
     case "send" => args match
       case List(Value.InstanceV("Pid", fields), msg) =>
-        fields.get("id") match
+        val pidNode = fields.get("nodeId").collect { case Value.StringV(n) => n }.getOrElse("")
+        if pidNode.nonEmpty && pidNode != localNodeId then
+          remoteDeliverOrQueue(pidNode, fields, msg)
+          Right(k(Value.UnitV))
+        else
+        fields.get("localId") match
           case Some(Value.IntV(targetId)) =>
             rt.mailboxes.get(targetId) match
               case Some(mb) =>
@@ -4012,7 +4092,7 @@ class Interpreter(
 
     case "exit" => args match
       case List(Value.InstanceV("Pid", fields), reason) =>
-        fields.get("id") match
+        fields.get("localId") match
           case Some(Value.IntV(targetId)) => killActor(rt, targetId, reason)
           case _                          => ()
         // Self-exit or link propagation may have killed the current actor.
@@ -4024,7 +4104,7 @@ class Interpreter(
 
     case "link" => args match
       case List(Value.InstanceV("Pid", fields)) =>
-        fields.get("id") match
+        fields.get("localId") match
           case Some(Value.IntV(targetId)) =>
             if rt.mailboxes.contains(targetId) then
               // Both alive — create bidirectional link
@@ -4035,7 +4115,7 @@ class Interpreter(
               val noproc = Value.InstanceV("noproc", Map.empty)
               if rt.trapExit.getOrElse(id, false) then
                 val exitMsg = Value.InstanceV("Exit", Map(
-                  "from"   -> Value.InstanceV("Pid", Map("id" -> Value.IntV(targetId))),
+                  "from"   -> mkPid("", targetId),
                   "reason" -> noproc))
                 rt.mailboxes.get(id).foreach(_.enqueue(exitMsg))
               else
@@ -4048,7 +4128,7 @@ class Interpreter(
 
     case "monitor" => args match
       case List(Value.InstanceV("Pid", fields)) =>
-        fields.get("id") match
+        fields.get("localId") match
           case Some(Value.IntV(targetId)) =>
             val monRef = rt.nextMonRef
             rt.nextMonRef += 1
@@ -4058,7 +4138,7 @@ class Interpreter(
               // Already dead — immediately deliver Down
               val downMsg = Value.InstanceV("Down", Map(
                 "ref"    -> Value.IntV(monRef),
-                "from"   -> Value.InstanceV("Pid", Map("id" -> Value.IntV(targetId))),
+                "from"   -> mkPid("", targetId),
                 "reason" -> Value.InstanceV("noproc", Map.empty)))
               rt.mailboxes.get(id).foreach(_.enqueue(downMsg))
               wakeBlocked(rt, id)
@@ -4077,6 +4157,38 @@ class Interpreter(
         rt.trapExit(id) = b
         Right(k(Value.UnitV))
       case _ => throw InterpretError("trapExit(on: Boolean)")
+
+    // ── Phase 3 — distributed actor ops ─────────────────────────────────
+
+    case "startNode" => args match
+      case List(Value.StringV(nodeId)) =>
+        localNodeId = nodeId
+        // Register /_ssc-actors WS route on the active WebServer so peers
+        // can connect to us.  Deferred to WebServer integration (Phase 3 core).
+        Right(k(Value.UnitV))
+      case _ => throw InterpretError("startNode(nodeId)")
+
+    case "connectNode" => args match
+      case List(Value.StringV(url)) => connectPeer(url, ""); Right(k(Value.UnitV))
+      case List(Value.StringV(url), Value.StringV(token)) => connectPeer(url, token); Right(k(Value.UnitV))
+      case _ => throw InterpretError("connectNode(url)")
+
+    case "register" => args match
+      case List(Value.StringV(name), Value.InstanceV("Pid", fields)) =>
+        val localId = fields.get("localId").collect { case Value.IntV(n) => n }.getOrElse(id)
+        nodeRegistry.put(name, localId)
+        Right(k(Value.UnitV))
+      case _ => throw InterpretError("register(name, pid)")
+
+    case "whereis" => args match
+      case List(Value.StringV(name)) =>
+        val result =
+          if nodeRegistry.containsKey(name) && rt.mailboxes.contains(nodeRegistry.get(name)) then
+            Value.OptionV(Some(mkPid(localNodeId, nodeRegistry.get(name))))
+          else
+            Value.OptionV(None)
+        Right(k(result))
+      case _ => throw InterpretError("whereis(name)")
 
     case other =>
       throw InterpretError(s"Unknown Actor op: $other")
@@ -4139,7 +4251,7 @@ class Interpreter(
     rt.mailboxes.remove(targetId)
     rt.trapExit.remove(targetId)
 
-    val deadPid = Value.InstanceV("Pid", Map("id" -> Value.IntV(targetId)))
+    val deadPid = mkPid("", targetId)
 
     // Notify linked actors.
     rt.links.remove(targetId).foreach { linkedSet =>
