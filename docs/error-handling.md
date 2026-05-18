@@ -282,6 +282,84 @@ explicitly tags both sides with `Left`/`Right`.  When `A` and
 `E` overlap on runtime type, the user uses `throws` instead;
 the compiler error from `throwsRaw` is actionable.
 
+#### 2.5.5 Unchecked `throw e` / `try`-`catch` — peer to `throwsRaw`
+
+`throw e` and `try { … } catch case e: E => …` are **first-class
+mechanisms** in ScalaScript and stay at the same tier as
+`throwsRaw`: opt-in, low-level, for the narrow cases where the
+canonical `throws` doesn't fit.
+
+- Untyped at the signature level — `def f(x: Int): Y` does NOT
+  declare what exceptions it might throw.  Callers learn from
+  documentation, not from the type.
+- Zero-allocation on the happy path (no `Right` / `Left` /
+  union packing).
+- Direct integration with JVM exception infrastructure — uses
+  the underlying platform's stack unwinding, native trace, JVM
+  finalizers, monitor unlock on `Thread.interrupt`, etc.
+- Survives unchanged through direct-syntax blocks (DS-7): a
+  thrown exception inside `direct[F] { … }` propagates out via
+  normal stack unwinding, **NOT** auto-wrapped into `F.fail`.
+
+#### Tier overview — when to use what
+
+| Tier | Mechanism | Best for | Cost |
+|------|-----------|----------|------|
+| **1 — canonical** | `throws[A, E] = Either[E, A]` | Default for typed error flow.  Direct-syntax integrated.  Cross-module APIs. | 1 box per call |
+| **2a — opt-in typed perf** | `throwsRaw[A, E] = A \| E` | Hot-path parsers; perf-critical inner loops where measurement shows Either-box dominates | 0 allocation |
+| **2b — opt-in untyped escape** | `throw e` / `try`-`catch` | JVM exception interop with library code that already uses unchecked throws; cases where typed signature would lie (e.g. `OutOfMemoryError`) | 0 allocation (JVM-native) |
+| **3 — monadic effects** | `MonadError[F, E]` | Inside custom `F[_]` effect types (Async, ZIO-style); reuses the v1.1 typeclass | 1 box, plus the F's overhead |
+| **4 — restartable (future)** | algebraic-effects handler stack | Common Lisp condition-system style: handler decides resume / retry / abort | v1.16, depends on v1.12 |
+
+#### How the three tier-2 forms bridge into tier 1
+
+```scala
+// 2b → 1: catch JVM exception, lift to Either
+val a: Int throws NumberFormatException =
+  attemptCatch[NumberFormatException] { s.toInt }
+
+// 2b → 2a: catch JVM exception into union (preserves native trace)
+val b: Int throwsRaw NumberFormatException =
+  attemptCatchRaw[NumberFormatException] { s.toInt }
+
+// 2a → 1: explicit boxing
+val c: Int throws NumberFormatException = box(b)
+val d: Int throwsRaw NumberFormatException = unbox(a)
+
+// 1 → 2b: re-raise from typed channel (rare; usually user code
+// already has a `Throwable` subtype, otherwise build a wrapper)
+a match
+  case Left(e)  => throw e         // E must be <: Throwable for this
+  case Right(n) => doSomething(n)
+```
+
+#### Why unchecked exceptions stay
+
+This is a **deliberate design choice**, not a temporary
+compromise:
+
+- **Some platform errors can't honestly be typed.**
+  `OutOfMemoryError`, `StackOverflowError`,
+  `InterruptedException` — these don't belong in a function's
+  `throws E` signature; they're systemic, not domain errors.
+  Unchecked is the right level.
+- **Java/Scala library interop.**  Most existing library code
+  throws; pretending otherwise would force `attemptCatch` at
+  every call site, which is the boilerplate `throws` was
+  supposed to remove.
+- **Debugging & assertions.**  `assert(x > 0)`,
+  `require(cond, msg)`, `???` — these throw on failure and
+  should keep their stack-unwinding semantics.
+- **Performance escape hatch.**  Some hot loops use exceptions
+  as control flow (e.g. parser early-exit on syntax error).
+  Removing the unchecked form would push these to monadic
+  alternatives at real perf cost.
+
+The tier model recognises that **no single error mechanism
+fits all cases**.  `throws` is the right default; the other
+tiers exist because they solve problems `throws` can't or
+shouldn't.
+
 ### 2.6 Error subtyping
 
 ```scala
@@ -507,11 +585,12 @@ into the original frame."  Both can ship.
 | Feature | Reason |
 |---------|--------|
 | **Auto-wrap thrown exceptions** in direct blocks | DS-7 (locked); the two-fault-model trap |
+| **Removing or deprecating unchecked `throw` / `try`-`catch`** | First-class peer to `throwsRaw` per §2.5.5.  Not going away; not migrating to Either |
 | **`A \| E` union encoding as the *default* `throws`** | Either-encoded is canon; union ships as opt-in `throwsRaw` companion (see §2.4) |
 | **Auto-conversion across the `throws` / `throwsRaw` boundary** | Explicit `box` / `unbox` only — auto-coercion would hide the perf intent |
 | **`throwsRaw` as the direct-syntax target** | `throws` (Either) is the only direct-syntax-integrated form; raw must `box` before entering a `direct[F]` block |
 | **Std-lib shim duplicates** (`parseIntRaw` etc.) on speculative basis | Add `Raw`-variant only when profiling shows real benefit on a specific helper |
-| **Java-style throws clauses** that propagate via the stack | Re-introduces unchecked propagation; type alias on the return type is the path |
+| **Java-style checked-`throws` clauses on signatures** (`def f() throws IOException`) — separate from the return type, compiler-enforced handling, stack propagation | Re-introduces parallel error-tracking machinery alongside `throws[A, E]` type alias; pick one path.  Note this targets the *checked* form — unchecked `throw e` stays per §2.5.5 |
 | **`throws` on JVM `Throwable` subtypes only** | Restricting `E` to `Throwable` would tie us to JVM; `throws` works over any type |
 | **Effect-row tracking for errors** (`F[A] throws E1 \| E2 ...`) | v1.12 algebraic effects territory; out of scope here |
 

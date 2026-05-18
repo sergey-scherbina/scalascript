@@ -2434,9 +2434,26 @@ The two-tier stack trace model documented in
 captures via `HasStackTrace`; trace-less `throws` pays
 nothing.
 
+### Tier model — four error mechanisms, one document
+
+Per `docs/error-handling.md` §2.5.5, ScalaScript has four
+error mechanisms; v1.15 ships the first three:
+
+  1. `throws[A, E] = Either[E, A]`         — canonical, monadic, typed
+  2. `throwsRaw[A, E] = A | E`              — opt-in perf / interop (Phase 8)
+  3. Unchecked `throw e` / `try`-`catch`    — peer to throwsRaw; JVM-native, untyped
+  4. `MonadError[F, E]` (already in v1.1)   — for monadic effects
+
+Tier 1 is the default; tiers 2 and 3 are opt-in escape
+hatches for specific use cases (hot paths, JVM interop,
+systemic errors).  Restartable errors (v1.16) are tier 4.
+
 ### Hard-no list (locked by design — `docs/error-handling.md` §5)
 
 - Auto-wrap thrown exceptions in direct blocks (DS-7 stays)
+- Removing or deprecating unchecked `throw` / `try`-`catch`
+  (first-class peer to `throwsRaw` per §2.5.5; not migrating
+  away)
 - `A | E` union encoding as the **default** `throws`
   (canonical is Either; union ships as opt-in `throwsRaw`
   companion — see Phase 8)
@@ -2444,7 +2461,10 @@ nothing.
   (explicit `box` / `unbox` only)
 - `throwsRaw` as a `direct[F] { … }` target (`throws` only;
   raw must be `box`-ed before entering a direct block)
-- Java-style throws clauses (only return-type-position `throws`)
+- Java-style **checked**-throws clauses on signatures
+  (separate from the return type, compiler-enforced) — keep
+  the `throws[A, E]` type-alias path.  Unchecked throws are
+  a different mechanism and stay.
 - `E` restricted to `Throwable` subtypes (works over any `E`)
 - Effect-row tracking for errors (v1.12 algebraic effects territory)
 
