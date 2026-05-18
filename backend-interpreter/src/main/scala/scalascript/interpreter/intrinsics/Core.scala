@@ -113,6 +113,47 @@ val CoreIntrinsics: Map[QualifiedName, IntrinsicImpl] = Map(
       case _               => throw InterpretError("escape(s)")
   ),
 
+  // ── Component / HTML-DSL helpers (Stage 5+/F) ─────────────────────────
+
+  QualifiedName("collectCss") -> NativeImpl((_, args) =>
+    val parts = args.flatMap {
+      case Value.InstanceV(_, fields) =>
+        fields.get("css").collect { case Value.StringV(s) => s }
+      case _ => None
+    }
+    parts.mkString("\n")
+  ),
+
+  QualifiedName("collectJs") -> NativeImpl((_, args) =>
+    val parts = args.flatMap {
+      case Value.InstanceV(_, fields) =>
+        fields.get("js").collect { case Value.StringV(s) => s }
+      case _ => None
+    }
+    parts.mkString("\n")
+  ),
+
+  QualifiedName("scope") -> NativeImpl((_, args) =>
+    args match
+      case List(scopeName: String) =>
+        def rewrite(css: String): String =
+          val pat = """\.([A-Za-z_][A-Za-z0-9_-]*)""".r
+          pat.replaceAllIn(css, m =>
+            java.util.regex.Matcher.quoteReplacement(s".${m.group(1)}__$scopeName"))
+        Value.InstanceV("Scope", Map(
+          "name" -> Value.StringV(scopeName),
+          "css"  -> Value.NativeFnV("scope.css", Computation.pureFn {
+            case List(Value.StringV(s)) => Value.StringV(rewrite(s))
+            case _                       => throw InterpretError("scope.css(s)")
+          }),
+          "cls"  -> Value.NativeFnV("scope.cls", Computation.pureFn {
+            case List(Value.StringV(n)) => Value.StringV(s"${n}__$scopeName")
+            case _                       => throw InterpretError("scope.cls(name)")
+          })
+        ))
+      case _ => throw InterpretError("scope(name: String)")
+  ),
+
 )
 
 // ── Private helpers ─────────────────────────────────────────────────────────

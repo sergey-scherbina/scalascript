@@ -21,4 +21,7 @@ val JvmCoreIntrinsics: Map[QualifiedName, IntrinsicImpl] = Map(
   QualifiedName("math.ceil")  -> RuntimeCall("math.ceil"),
   QualifiedName("math.round") -> RuntimeCall("math.round"),
   QualifiedName("escape")     -> RuntimeCall("escape"),
+  QualifiedName("collectCss") -> RuntimeCall("collectCss"),
+  QualifiedName("collectJs")  -> RuntimeCall("collectJs"),
+  QualifiedName("scope")      -> RuntimeCall("scope"),
 )

@@ -584,67 +584,8 @@ class Interpreter(
       "E"     -> globals("math.E")
     ))
 
-    // escape now lives in CoreIntrinsics (Stage 5+/E).
-
-    // `collectCss(comp1, comp2, ...)` — concatenate each argument's `css`
-    // field into one CSS string for a page-level <style>.  Anything
-    // without a `css` field is silently skipped; anything whose `css` is
-    // not a String is skipped too.  Convention helper for component-style
-    // .ssc files (see SPEC §8.4).
-    nativeP("collectCss") { args =>
-      val parts = args.flatMap {
-        case Value.InstanceV(_, fields) =>
-          fields.get("css").collect { case Value.StringV(s) => s }
-        case _ => None
-      }
-      Value.StringV(parts.mkString("\n"))
-    }
-
-    // `collectJs(comp1, comp2, ...)` — same shape as collectCss, only it
-    // reads each argument's `js` field.  Pages stitch the result into
-    // a single page-level <script> tag.
-    nativeP("collectJs") { args =>
-      val parts = args.flatMap {
-        case Value.InstanceV(_, fields) =>
-          fields.get("js").collect { case Value.StringV(s) => s }
-        case _ => None
-      }
-      Value.StringV(parts.mkString("\n"))
-    }
-
-    // `scope("Card")` returns a small object with two helpers used by
-    // component-style .ssc files to suffix class names (see SPEC §8.4):
-    //
-    //   val s = scope("Card")
-    //   s.css(""".title { ... }""")  // → ".title__Card { ... }"
-    //   s.cls("title")               // → "title__Card"
-    //
-    // Two components can both use bare class names like `.title` and
-    // their concatenated CSS won't conflict.  The CSS rewriter is a
-    // simple `\.identifier` regex pass — class chains (`.a.b`) are
-    // handled, but `.ident` inside CSS string contents (e.g. inside a
-    // `url("./file.ext")`) would also be rewritten; keep URL strings
-    // free of bare-identifier dots if you depend on them.
-    nativeP("scope") {
-      case List(Value.StringV(scopeName)) =>
-        def rewrite(css: String): String =
-          val pat = """\.([A-Za-z_][A-Za-z0-9_-]*)""".r
-          pat.replaceAllIn(css, m =>
-            java.util.regex.Matcher.quoteReplacement(s".${m.group(1)}__$scopeName")
-          )
-        Value.InstanceV("Scope", Map(
-          "name" -> Value.StringV(scopeName),
-          "css"  -> Value.NativeFnV("scope.css", Computation.pureFn {
-            case List(Value.StringV(s)) => Value.StringV(rewrite(s))
-            case _                       => throw InterpretError("scope.css(s)")
-          }),
-          "cls"  -> Value.NativeFnV("scope.cls", Computation.pureFn {
-            case List(Value.StringV(n)) => Value.StringV(s"${n}__$scopeName")
-            case _                       => throw InterpretError("scope.cls(name)")
-          })
-        ))
-      case _ => throw InterpretError("scope(name: String)")
-    }
+    // escape / collectCss / collectJs / scope now live in CoreIntrinsics
+    // (Stage 5+/E–F); installNativeIntrinsics routes them.
 
     // ─── Typed HTML DSL — `div(cls := "x", h1("hi"))` style ───────────
     //

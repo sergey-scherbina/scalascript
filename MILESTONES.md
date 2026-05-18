@@ -91,9 +91,25 @@ Branch `feature/spi-followups` (merged to `main`).
   created; Request/Response lifted to typed case-class declarations in
   `std/http.ssc`.
 
-**Still deferred (pending parallel WS v1.0 merge to main):**
+**Landed in `main` (2026-05-18):**
+- **5+/D — `std.ws` / `std.auth` extraction.**  ✅ **LANDED**.
+  metrics/setMaxWsConnections/WsRoom migrated to `WsIntrinsics`;
+  all 29 auth ops migrated to `AuthIntrinsics`; `NativeContext` extended
+  with WS route / client / auth hooks.
+- **5+/E — Core / JSON / Request / Response extraction.**  ✅ **LANDED**.
+  44 `nativeP` entries migrated: assert/require/nanoTime/getenv/doc/render/
+  Some/List/Map/math.*/escape/collectCss/collectJs/scope → `CoreIntrinsics`;
+  jsonStringify/jsonParse/jsonRead/lookup/lookupOpt → `JsonIntrinsics`;
+  requireX/optionalX/requireRange*/requireOneOf → `RequestIntrinsics`;
+  Response.html/text/json/redirect/notFound/status → `HttpIntrinsics`.
+  `NativeContext.validationRecord` hook bridges validate{} stack to NativeImpl.
+  JVM + JS intrinsic tables updated for CapabilityCheck coverage.
+  Only the HTML DSL tag-generator section (containerTags/voidTags/raw/attr)
+  remains hardcoded — those use callValue with effects and are better left
+  as native closures.
+
+**Still deferred:**
 - 5+/B.3 — migrate bare `println` → `Console.println` in Normalize
-- 5+/D — `std.ws` / `std.auth` / `std.fs` / `std.crypto` extraction (next step)
 - 9+/B.2-B.4 and 9+/C.2-C.3 — full html/css extraction out of codegens
 
 ### Stage 6+ — Out-of-process protocol completions — **LANDED**

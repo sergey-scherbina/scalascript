@@ -21,4 +21,7 @@ val JsCoreIntrinsics: Map[QualifiedName, IntrinsicImpl] = Map(
   QualifiedName("math.ceil")  -> RuntimeCall("Math.ceil"),
   QualifiedName("math.round") -> RuntimeCall("Math.round"),
   QualifiedName("escape")     -> RuntimeCall("escape"),
+  QualifiedName("collectCss") -> RuntimeCall("collectCss"),
+  QualifiedName("collectJs")  -> RuntimeCall("collectJs"),
+  QualifiedName("scope")      -> RuntimeCall("scope"),
 )
