@@ -3092,12 +3092,17 @@ function _runAsyncParallel(bodyFn) { return _runAsyncInner(bodyFn()); }
 function Pid(id) { return { _type: 'Pid', id }; }
 
 const Actor = {
-  spawn:     (thunk) => _perform('Actor', 'spawn',     [thunk]),
-  self:      ()      => _perform('Actor', 'self',      []),
-  exit:      (pid, reason) => _perform('Actor', 'exit', [pid, reason]),
-  send:      (pid, msg) => _perform('Actor', 'send',   [pid, msg]),
+  spawn:     (thunk)       => _perform('Actor', 'spawn',     [thunk]),
+  self:      ()            => _perform('Actor', 'self',      []),
+  exit:      (pid, reason) => _perform('Actor', 'exit',      [pid, reason]),
+  send:      (pid, msg)    => _perform('Actor', 'send',      [pid, msg]),
   receive_:  (specId)              => _perform('Actor', 'receive',   [specId]),
   receive_t: (specId, timeoutMs)   => _perform('Actor', 'receive_t', [specId, timeoutMs]),
+  // v1.6 Phase 2 — supervision
+  link:      (pid)         => _perform('Actor', 'link',      [pid]),
+  monitor:   (pid)         => _perform('Actor', 'monitor',   [pid]),
+  demonitor: (ref)         => _perform('Actor', 'demonitor', [ref]),
+  trapExit:  (b)           => _perform('Actor', 'trapExit',  [b]),
 };
 
 // `receive { case … }` lowers to a registered matcher function whose
@@ -3113,13 +3118,18 @@ function _registerReceive(matcher) {
 }
 
 function _runActors(bodyFn) {
-  // id -> { mailbox: Value[], pending: _Computation | null,
+  // id -> { mailbox: [], pending: _Computation | null,
   //         blocked: { matcher, k, deadline, wrapSome } | null }
-  const actors = new Map();
+  const actors     = new Map();
+  // Phase 2 supervision state (per _runActors invocation)
+  const links      = new Map();   // id -> Set<id>
+  const monitors   = new Map();   // watchedId -> Map<monRef, observerId>
+  const trapExitMap = new Map();  // id -> bool
+  let   nextMonRef = 0;
+
   const ready  = [];
   let   nextId = 0;
   let   rootResult = undefined;
-  let   rootDone   = false;
 
   function spawnActor(thunk) {
     const id = nextId++;
@@ -3143,6 +3153,60 @@ function _runActors(bodyFn) {
       state.mailbox.shift();  // dead-letter
     }
     return null;
+  }
+
+  function tryWakeBlocked(id) {
+    const st = actors.get(id);
+    if (!st || !st.blocked) return;
+    const b = st.blocked;
+    const delivered = tryDeliver(st, b.matcher, b.wrapSome);
+    if (delivered !== null) {
+      st.pending = new _FlatMap(delivered, b.k);
+      st.blocked = null;
+      ready.push(id);
+    }
+  }
+
+  // Kill actor targetId with reason, propagate through links, fire monitors.
+  // Idempotent: if actor not in `actors` map it's already dead.
+  function killActor(targetId, reason) {
+    if (!actors.has(targetId)) return;
+    actors.delete(targetId);
+    trapExitMap.delete(targetId);
+
+    const deadPid = Pid(targetId);
+
+    // Notify linked actors.
+    const linkedSet = links.get(targetId);
+    links.delete(targetId);
+    if (linkedSet) {
+      for (const linkedId of linkedSet) {
+        const ls = links.get(linkedId);
+        if (ls) ls.delete(targetId);
+        if (trapExitMap.get(linkedId)) {
+          const st = actors.get(linkedId);
+          if (st) {
+            st.mailbox.push({ _type: 'Exit', from: deadPid, reason });
+            tryWakeBlocked(linkedId);
+          }
+        } else {
+          killActor(linkedId, reason);
+        }
+      }
+    }
+
+    // Fire Down to all monitors watching targetId.
+    const monMap = monitors.get(targetId);
+    monitors.delete(targetId);
+    if (monMap) {
+      for (const [monRef, observerId] of monMap) {
+        const st = actors.get(observerId);
+        if (st) {
+          st.mailbox.push({ _type: 'Down', ref: monRef, from: deadPid, reason });
+          tryWakeBlocked(observerId);
+        }
+      }
+    }
   }
 
   function handleActorOp(id, state, op, args, k) {
@@ -3174,10 +3238,11 @@ function _runActors(bodyFn) {
       }
       case 'exit': {
         const target = args[0];
-        if (target && target._type === 'Pid' && actors.has(target.id)) {
-          _output.push('[exit] actor=' + target.id + ' reason=' + _show(args[1]));
-          actors.delete(target.id);
+        if (target && target._type === 'Pid') {
+          killActor(target.id, args[1]);
         }
+        // The caller may have been killed by a link; check.
+        if (!actors.has(id)) return { suspend: true };
         return { suspend: false, next: k(undefined) };
       }
       case 'receive': {
@@ -3193,6 +3258,59 @@ function _runActors(bodyFn) {
         if (c !== null) return { suspend: false, next: new _FlatMap(c, k) };
         state.blocked = { matcher, k, wrapSome: true, deadline: Date.now() + args[1] };
         return { suspend: true };
+      }
+      // ── v1.6 Phase 2 — supervision ────────────────────────────────────
+      case 'link': {
+        const target = args[0];
+        if (target && target._type === 'Pid') {
+          const targetId = target.id;
+          if (actors.has(targetId)) {
+            if (!links.has(id))       links.set(id,       new Set());
+            if (!links.has(targetId)) links.set(targetId, new Set());
+            links.get(id).add(targetId);
+            links.get(targetId).add(id);
+          } else {
+            // Target already dead — noproc exit signal.
+            const noproc = { _type: 'noproc' };
+            if (trapExitMap.get(id)) {
+              const st = actors.get(id);
+              if (st) st.mailbox.push({ _type: 'Exit', from: target, reason: noproc });
+            } else {
+              killActor(id, noproc);
+            }
+          }
+        }
+        if (!actors.has(id)) return { suspend: true };
+        return { suspend: false, next: k(undefined) };
+      }
+      case 'monitor': {
+        const target = args[0];
+        if (target && target._type === 'Pid') {
+          const targetId = target.id;
+          const monRef = nextMonRef++;
+          if (actors.has(targetId)) {
+            if (!monitors.has(targetId)) monitors.set(targetId, new Map());
+            monitors.get(targetId).set(monRef, id);
+          } else {
+            // Already dead — immediate Down(noproc).
+            const st = actors.get(id);
+            if (st) {
+              st.mailbox.push({ _type: 'Down', ref: monRef, from: target, reason: { _type: 'noproc' } });
+              tryWakeBlocked(id);
+            }
+          }
+          return { suspend: false, next: k(monRef) };
+        }
+        return { suspend: false, next: k(-1) };
+      }
+      case 'demonitor': {
+        const monRef = args[0];
+        for (const [, monMap] of monitors) monMap.delete(monRef);
+        return { suspend: false, next: k(undefined) };
+      }
+      case 'trapExit': {
+        trapExitMap.set(id, args[0] === true || args[0]);
+        return { suspend: false, next: k(undefined) };
       }
       default:
         throw new Error('Unknown Actor op: ' + op);
@@ -3226,8 +3344,29 @@ function _runActors(bodyFn) {
           current = current.k(sub);
         }
       } else {
-        // Pure value — actor done.
-        if (id === rootId) { rootResult = current; rootDone = true; }
+        // Pure value — actor done normally; fire monitors with reason "normal".
+        if (id === rootId) rootResult = current;
+        const myPid = Pid(id);
+        const monMap = monitors.get(id);
+        monitors.delete(id);
+        if (monMap) {
+          for (const [monRef, observerId] of monMap) {
+            const st = actors.get(observerId);
+            if (st) {
+              st.mailbox.push({ _type: 'Down', ref: monRef, from: myPid, reason: 'normal' });
+              tryWakeBlocked(observerId);
+            }
+          }
+        }
+        // Clean up link entries (normal exit does not propagate link signals).
+        const linkedSet = links.get(id);
+        links.delete(id);
+        if (linkedSet) {
+          for (const linkedId of linkedSet) {
+            const ls = links.get(linkedId);
+            if (ls) ls.delete(id);
+          }
+        }
         actors.delete(id);
         return;
       }
@@ -3815,7 +3954,8 @@ class JsGen(
       "Async.delay", "Async.async", "Async.await", "Async.parallel",
       "Storage.get", "Storage.put", "Storage.remove", "Storage.has", "Storage.keys",
       "Actor.spawn", "Actor.self", "Actor.send", "Actor.exit",
-      "Actor.receive", "Actor.receive_t"
+      "Actor.receive", "Actor.receive_t",
+      "Actor.link", "Actor.monitor", "Actor.demonitor", "Actor.trapExit"
     )
 
     def collectTrees(s: Section): List[scala.meta.Tree] =
@@ -4832,6 +4972,19 @@ class JsGen(
       val pidJs    = genExpr(argClause.values(0).asInstanceOf[Term])
       val reasonJs = genExpr(argClause.values(1).asInstanceOf[Term])
       s"Actor.exit($pidJs, $reasonJs)"
+    // v1.6 Phase 2 — supervision primitives
+    case Term.Apply.After_4_6_0(Term.Name("link"), argClause)
+        if argClause.values.size == 1 =>
+      s"Actor.link(${genExpr(argClause.values.head.asInstanceOf[Term])})"
+    case Term.Apply.After_4_6_0(Term.Name("monitor"), argClause)
+        if argClause.values.size == 1 =>
+      s"Actor.monitor(${genExpr(argClause.values.head.asInstanceOf[Term])})"
+    case Term.Apply.After_4_6_0(Term.Name("demonitor"), argClause)
+        if argClause.values.size == 1 =>
+      s"Actor.demonitor(${genExpr(argClause.values.head.asInstanceOf[Term])})"
+    case Term.Apply.After_4_6_0(Term.Name("trapExit"), argClause)
+        if argClause.values.size == 1 =>
+      s"Actor.trapExit(${genExpr(argClause.values.head.asInstanceOf[Term])})"
 
     // Special forms: computed / effect — wrap the by-name body as a
     // zero-arg thunk so the reactive scheduler can rerun it when its
@@ -5224,6 +5377,19 @@ class JsGen(
       val pidJs    = genExpr(argClause.values(0).asInstanceOf[Term])
       val reasonJs = genExpr(argClause.values(1).asInstanceOf[Term])
       s"Actor.exit($pidJs, $reasonJs)"
+    // v1.6 Phase 2 — supervision primitives (inside CPS body)
+    case Term.Apply.After_4_6_0(Term.Name("link"), argClause)
+        if argClause.values.size == 1 =>
+      s"Actor.link(${genExpr(argClause.values.head.asInstanceOf[Term])})"
+    case Term.Apply.After_4_6_0(Term.Name("monitor"), argClause)
+        if argClause.values.size == 1 =>
+      s"Actor.monitor(${genExpr(argClause.values.head.asInstanceOf[Term])})"
+    case Term.Apply.After_4_6_0(Term.Name("demonitor"), argClause)
+        if argClause.values.size == 1 =>
+      s"Actor.demonitor(${genExpr(argClause.values.head.asInstanceOf[Term])})"
+    case Term.Apply.After_4_6_0(Term.Name("trapExit"), argClause)
+        if argClause.values.size == 1 =>
+      s"Actor.trapExit(${genExpr(argClause.values.head.asInstanceOf[Term])})"
 
     // Nested computed / effect inside CPS body — same wrapping as the
     // non-CPS form: by-name body becomes a zero-arg thunk.

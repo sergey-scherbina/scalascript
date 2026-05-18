@@ -106,7 +106,7 @@ class Interpreter(
   private val litCache: java.util.IdentityHashMap[Lit, Computation] =
     java.util.IdentityHashMap()
 
-  // ── v1.6 Actors — Phase 1 runtime state ─────────────────────────
+  // ── v1.6 Actors — Phase 1 + Phase 2 runtime state ───────────────
   // Each `runActors { ... }` installs a fresh ActorRuntime for its
   // duration so nested invocations don't share state.
   private class ActorRuntime:
@@ -123,6 +123,14 @@ class Interpreter(
     val ready   = mutable.Queue.empty[Long]
     var nextId  = 0L
     var currentId = -1L
+    // Phase 2 — supervision
+    // links(id) = set of actor IDs bidirectionally linked to `id`
+    val links      = mutable.LongMap.empty[mutable.Set[Long]]
+    // monitors(watchedId) = Map(monitorRef → observerId)
+    val monitors   = mutable.LongMap.empty[mutable.Map[Long, Long]]
+    // trapExit(id) = true  →  Exit signals arrive as messages, not crashes
+    val trapExit   = mutable.LongMap.empty[Boolean]
+    var nextMonRef = 0L
   private var actorRt: ActorRuntime = null
   // Receive-spec boxing: we can't squeeze AST cases into `Value`, so
   // `receive { case … }` stashes (cases, env) in a side map and the
@@ -1629,6 +1637,55 @@ class Interpreter(
       case _       => throw InterpretError("Future(value)")
     })
 
+    // ── v1.4 standard-library effects ────────────────────────────────────
+    //
+    // Each object registers operation names that produce Perform nodes;
+    // the matching `run*` special forms (in `eval`) drive the handlers.
+
+    // Logger: info / warn / error / debug — four log levels.
+    // Handlers: runLogger (text, to `out`), runLoggerJson, runLoggerToList.
+    globals("Logger") = Value.InstanceV("Logger", Map(
+      "info"  -> Value.NativeFnV("Logger.info",  args => Perform("Logger", "info",  args)),
+      "warn"  -> Value.NativeFnV("Logger.warn",  args => Perform("Logger", "warn",  args)),
+      "error" -> Value.NativeFnV("Logger.error", args => Perform("Logger", "error", args)),
+      "debug" -> Value.NativeFnV("Logger.debug", args => Perform("Logger", "debug", args)),
+    ))
+
+    // Random: nextInt(n) / nextDouble() / uuid() / pick(xs).
+    // Handlers: runRandom (ThreadLocalRandom), runRandomSeeded(seed)(body).
+    globals("Random") = Value.InstanceV("Random", Map(
+      "nextInt"    -> Value.NativeFnV("Random.nextInt",
+        args => Perform("Random", "nextInt",    args)),
+      "nextDouble" -> Value.NativeFnV("Random.nextDouble",
+        args => Perform("Random", "nextDouble", args)),
+      "uuid"       -> Value.NativeFnV("Random.uuid",
+        args => Perform("Random", "uuid",       args)),
+      "pick"       -> Value.NativeFnV("Random.pick",
+        args => Perform("Random", "pick",       args)),
+    ))
+
+    // Clock: now() / nowIso() / sleep(ms).
+    // Handlers: runClock (wall clock), runClockAt(t0)(body) (frozen time).
+    globals("Clock") = Value.InstanceV("Clock", Map(
+      "now"    -> Value.NativeFnV("Clock.now",
+        args => Perform("Clock", "now",    args)),
+      "nowIso" -> Value.NativeFnV("Clock.nowIso",
+        args => Perform("Clock", "nowIso", args)),
+      "sleep"  -> Value.NativeFnV("Clock.sleep",
+        args => Perform("Clock", "sleep",  args)),
+    ))
+
+    // Env: get(key) / set(key, v) / required(key).
+    // Handlers: runEnv (real process env), runEnvWith(map)(body) (fixture map).
+    globals("Env") = Value.InstanceV("Env", Map(
+      "get"      -> Value.NativeFnV("Env.get",
+        args => Perform("Env", "get",      args)),
+      "set"      -> Value.NativeFnV("Env.set",
+        args => Perform("Env", "set",      args)),
+      "required" -> Value.NativeFnV("Env.required",
+        args => Perform("Env", "required", args)),
+    ))
+
     // ── v1.6 Actors — Phase 1 natives (spawn / self / send) ────────────
     //
     // `runActors { … }` is the handler — it spawns the body as a root
@@ -1648,13 +1705,27 @@ class Interpreter(
       case Nil => Perform("Actor", "self", Nil)
       case _   => throw InterpretError("self takes no arguments")
     })
-    // `exit(pid, reason)` — terminate target actor.  For Phase 1 the
-    // reason is logged but otherwise unused (links / monitors land
-    // in Phase 2).  No-op on unknown PID, Erlang semantics.
     globals("exit") = Value.NativeFnV("exit", {
       case List(pid @ Value.InstanceV("Pid", _), reason) =>
         Perform("Actor", "exit", List(pid, reason))
       case _ => throw InterpretError("exit(pid, reason)")
+    })
+    // Phase 2 — supervision primitives
+    globals("link") = Value.NativeFnV("link", {
+      case List(pid @ Value.InstanceV("Pid", _)) => Perform("Actor", "link", List(pid))
+      case _ => throw InterpretError("link(pid): Unit")
+    })
+    globals("monitor") = Value.NativeFnV("monitor", {
+      case List(pid @ Value.InstanceV("Pid", _)) => Perform("Actor", "monitor", List(pid))
+      case _ => throw InterpretError("monitor(pid): MonitorRef")
+    })
+    globals("demonitor") = Value.NativeFnV("demonitor", {
+      case List(ref @ Value.IntV(_)) => Perform("Actor", "demonitor", List(ref))
+      case _ => throw InterpretError("demonitor(ref): Unit")
+    })
+    globals("trapExit") = Value.NativeFnV("trapExit", {
+      case List(b @ Value.BoolV(_)) => Perform("Actor", "trapExit", List(b))
+      case _ => throw InterpretError("trapExit(on: Boolean): Unit")
     })
 
     // ── Reactive primitives: Signal / computed / effect ────────────────
@@ -2125,6 +2196,66 @@ class Interpreter(
         if bodyArgClause.values.size == 1 =>
       storageInterp(eval(bodyArgClause.values.head, env), None)
 
+    // ── v1.4 Logger effect handlers ───────────────────────────────────────
+    // runLogger { body }        — writes "[LEVEL] msg\n" to `out`
+    // runLoggerJson { body }    — writes {"level":"…","msg":"…"} newline JSON
+    // runLoggerToList { body }  — collects log lines; returns (result, list)
+    case Term.Apply.After_4_6_0(Term.Name("runLogger"), bodyArgClause)
+        if bodyArgClause.values.size == 1 =>
+      loggerRun(eval(bodyArgClause.values.head, env), "text", out)
+    case Term.Apply.After_4_6_0(Term.Name("runLoggerJson"), bodyArgClause)
+        if bodyArgClause.values.size == 1 =>
+      loggerRun(eval(bodyArgClause.values.head, env), "json", out)
+    case Term.Apply.After_4_6_0(Term.Name("runLoggerToList"), bodyArgClause)
+        if bodyArgClause.values.size == 1 =>
+      loggerToListRun(eval(bodyArgClause.values.head, env))
+
+    // ── v1.4 Random effect handlers ───────────────────────────────────────
+    // runRandom { body }            — ThreadLocalRandom
+    // runRandomSeeded(seed) { body } — deterministic LCG, seed is Long
+    case Term.Apply.After_4_6_0(Term.Name("runRandom"), bodyArgClause)
+        if bodyArgClause.values.size == 1 =>
+      randomRun(eval(bodyArgClause.values.head, env), None)
+    case Term.Apply.After_4_6_0(
+        Term.Apply.After_4_6_0(Term.Name("runRandomSeeded"), seedClause),
+        bodyClause)
+        if seedClause.values.size == 1 && bodyClause.values.size == 1 =>
+      val seed = Computation.run(eval(seedClause.values.head, env)) match
+        case Value.IntV(n) => n
+        case _             => throw InterpretError("runRandomSeeded(seed: Long) { body }")
+      randomRun(eval(bodyClause.values.head, env), Some(seed))
+
+    // ── v1.4 Clock effect handlers ────────────────────────────────────────
+    // runClock { body }        — real wall clock; Clock.sleep → Thread.sleep
+    // runClockAt(t0) { body }  — frozen at t0 ms epoch; sleep is a no-op
+    case Term.Apply.After_4_6_0(Term.Name("runClock"), bodyArgClause)
+        if bodyArgClause.values.size == 1 =>
+      clockRun(eval(bodyArgClause.values.head, env), None)
+    case Term.Apply.After_4_6_0(
+        Term.Apply.After_4_6_0(Term.Name("runClockAt"), t0Clause),
+        bodyClause)
+        if t0Clause.values.size == 1 && bodyClause.values.size == 1 =>
+      val t0 = Computation.run(eval(t0Clause.values.head, env)) match
+        case Value.IntV(n) => n
+        case _             => throw InterpretError("runClockAt(t0: Long) { body }")
+      clockRun(eval(bodyClause.values.head, env), Some(t0))
+
+    // ── v1.4 Env effect handlers ──────────────────────────────────────────
+    // runEnv { body }               — reads real process env; Env.set is local
+    // runEnvWith(Map(...)) { body }  — fixture map; Env.set mutates overlay
+    case Term.Apply.After_4_6_0(Term.Name("runEnv"), bodyArgClause)
+        if bodyArgClause.values.size == 1 =>
+      envRun(eval(bodyArgClause.values.head, env), None)
+    case Term.Apply.After_4_6_0(
+        Term.Apply.After_4_6_0(Term.Name("runEnvWith"), mapClause),
+        bodyClause)
+        if mapClause.values.size == 1 && bodyClause.values.size == 1 =>
+      val overlay = Computation.run(eval(mapClause.values.head, env)) match
+        case Value.MapV(m) =>
+          m.map { (k, v) => Value.show(k) -> Value.show(v) }.toMap
+        case _ => throw InterpretError("runEnvWith(map: Map[String, String]) { body }")
+      envRun(eval(bodyClause.values.head, env), Some(overlay))
+
     // ── v1.6 Actors Phase 1 ────────────────────────────────────────────
     // `runActors { body }` installs an actor scheduler, spawns the body
     // as the root actor, and drives until quiescence.  The result is
@@ -2232,7 +2363,13 @@ class Interpreter(
           evalFocus(app.argClause.values)
         case Term.Select(qual, Term.Name(method)) =>
           val qualC    = eval(qual, env)
-          val argComps = app.argClause.values.map(eval(_, env))
+          // Named args (Term.Assign) must evaluate only the RHS; the full
+          // Term.Assign path at line 2338 treats them as var-assignments and
+          // returns UnitV, destroying the actual value.
+          val argComps = app.argClause.values.map {
+            case Term.Assign(_, rhs) => eval(rhs, env)
+            case other               => eval(other, env)
+          }
           qualC match
             case Pure(qualV) if argComps.forall(_.isInstanceOf[Pure]) =>
               val argVs = argComps.map { case Pure(v) => v; case _ => Value.UnitV }
@@ -2242,7 +2379,10 @@ class Interpreter(
                 threadValues(argComps)(argVals => dispatch(qualV, method, argVals, env)))
         case fun =>
           val funC     = eval(fun, env)
-          val argComps = app.argClause.values.map(eval(_, env))
+          val argComps = app.argClause.values.map {
+            case Term.Assign(_, rhs) => eval(rhs, env)
+            case other               => eval(other, env)
+          }
           funC match
             case Pure(fv) if argComps.forall(_.isInstanceOf[Pure]) =>
               val argVs = argComps.map { case Pure(v) => v; case _ => Value.UnitV }
@@ -3753,16 +3893,70 @@ class Interpreter(
     case "exit" => args match
       case List(Value.InstanceV("Pid", fields), reason) =>
         fields.get("id") match
-          case Some(Value.IntV(targetId)) if rt.pending.contains(targetId) || rt.blocked.contains(targetId) =>
-            out.println(s"[exit] actor=$targetId reason=${Value.show(reason)}")
-            rt.pending.remove(targetId)
-            rt.blocked.remove(targetId)
-            rt.mailboxes.remove(targetId)
-            // Note: ready queue may still hold a stale id; pending
-            // check at dispatch time filters it out.
-          case _ => ()
-        Right(k(Value.UnitV))
+          case Some(Value.IntV(targetId)) => killActor(rt, targetId, reason)
+          case _                          => ()
+        // Self-exit or link propagation may have killed the current actor.
+        if rt.mailboxes.contains(id) then Right(k(Value.UnitV))
+        else Left(())
       case _ => throw InterpretError("exit(pid, reason)")
+
+    // ── Phase 2 — supervision ────────────────────────────────────────
+
+    case "link" => args match
+      case List(Value.InstanceV("Pid", fields)) =>
+        fields.get("id") match
+          case Some(Value.IntV(targetId)) =>
+            if rt.mailboxes.contains(targetId) then
+              // Both alive — create bidirectional link
+              rt.links.getOrElseUpdate(id,       mutable.Set.empty) += targetId
+              rt.links.getOrElseUpdate(targetId, mutable.Set.empty) += id
+            else
+              // Target already dead — noproc exit signal
+              val noproc = Value.InstanceV("noproc", Map.empty)
+              if rt.trapExit.getOrElse(id, false) then
+                val exitMsg = Value.InstanceV("Exit", Map(
+                  "from"   -> Value.InstanceV("Pid", Map("id" -> Value.IntV(targetId))),
+                  "reason" -> noproc))
+                rt.mailboxes.get(id).foreach(_.enqueue(exitMsg))
+              else
+                killActor(rt, id, noproc)
+          case _ => ()
+        // Link to dead target with no trapExit kills us — check before continuing.
+        if rt.mailboxes.contains(id) then Right(k(Value.UnitV))
+        else Left(())
+      case _ => throw InterpretError("link(pid)")
+
+    case "monitor" => args match
+      case List(Value.InstanceV("Pid", fields)) =>
+        fields.get("id") match
+          case Some(Value.IntV(targetId)) =>
+            val monRef = rt.nextMonRef
+            rt.nextMonRef += 1
+            if rt.mailboxes.contains(targetId) then
+              rt.monitors.getOrElseUpdate(targetId, mutable.Map.empty)(monRef) = id
+            else
+              // Already dead — immediately deliver Down
+              val downMsg = Value.InstanceV("Down", Map(
+                "ref"    -> Value.IntV(monRef),
+                "from"   -> Value.InstanceV("Pid", Map("id" -> Value.IntV(targetId))),
+                "reason" -> Value.InstanceV("noproc", Map.empty)))
+              rt.mailboxes.get(id).foreach(_.enqueue(downMsg))
+              wakeBlocked(rt, id)
+            Right(k(Value.IntV(monRef)))
+          case _ => Right(k(Value.IntV(-1L)))
+      case _ => throw InterpretError("monitor(pid)")
+
+    case "demonitor" => args match
+      case List(Value.IntV(monRef)) =>
+        rt.monitors.foreachEntry((_, monMap) => monMap.remove(monRef))
+        Right(k(Value.UnitV))
+      case _ => throw InterpretError("demonitor(ref)")
+
+    case "trapExit" => args match
+      case List(Value.BoolV(b)) =>
+        rt.trapExit(id) = b
+        Right(k(Value.UnitV))
+      case _ => throw InterpretError("trapExit(on: Boolean)")
 
     case other =>
       throw InterpretError(s"Unknown Actor op: $other")
@@ -3808,6 +4002,62 @@ class Interpreter(
       out.println(s"[dead-letter] actor=$id msg=${Value.show(msg)}")
       mb.dequeue()
     None
+
+  // ── Phase 2 — supervision helpers ────────────────────────────────
+
+  /** Kill actor `targetId` with `reason`.  Propagates through links:
+   *  - linked actors with trapExit=false also die (recursive)
+   *  - linked actors with trapExit=true receive an Exit message
+   *  Monitors on the dead actor fire Down messages to observers.
+   *  Idempotent: actors without a mailbox entry are already dead. */
+  private def killActor(rt: ActorRuntime, targetId: Long, reason: Value): Unit =
+    if !rt.mailboxes.contains(targetId) then return  // already dead
+
+    // Mark dead immediately to prevent re-entry from circular links.
+    rt.pending.remove(targetId)
+    rt.blocked.remove(targetId)
+    rt.mailboxes.remove(targetId)
+    rt.trapExit.remove(targetId)
+
+    val deadPid = Value.InstanceV("Pid", Map("id" -> Value.IntV(targetId)))
+
+    // Notify linked actors.
+    rt.links.remove(targetId).foreach { linkedSet =>
+      linkedSet.foreach { linkedId =>
+        rt.links.get(linkedId).foreach(_.remove(targetId))
+        if rt.trapExit.getOrElse(linkedId, false) then
+          val exitMsg = Value.InstanceV("Exit", Map("from" -> deadPid, "reason" -> reason))
+          rt.mailboxes.get(linkedId).foreach(_.enqueue(exitMsg))
+          wakeBlocked(rt, linkedId)
+        else
+          killActor(rt, linkedId, reason)
+      }
+    }
+
+    // Fire Down messages for all monitors on this actor.
+    rt.monitors.remove(targetId).foreach { monMap =>
+      monMap.foreach { (monRef, observerId) =>
+        val downMsg = Value.InstanceV("Down", Map(
+          "ref"    -> Value.IntV(monRef),
+          "from"   -> deadPid,
+          "reason" -> reason))
+        rt.mailboxes.get(observerId).foreach(_.enqueue(downMsg))
+        wakeBlocked(rt, observerId)
+      }
+    }
+
+  /** If `id` is currently blocked on a receive and a newly enqueued
+   *  message can be delivered, move it back to pending/ready. */
+  private def wakeBlocked(rt: ActorRuntime, id: Long): Unit =
+    rt.blocked.get(id) match
+      case Some((cases, env, k, _, wrapSome)) =>
+        tryDeliver(rt, id, cases, env, k, wrapSome) match
+          case Some(next) =>
+            rt.blocked.remove(id)
+            rt.pending(id) = next
+            rt.ready.enqueue(id)
+          case None => ()
+      case None => ()
 
   // ── runAsyncParallel — real-thread driver for the same Async API ──
   //
@@ -4683,6 +4933,226 @@ class Interpreter(
     val src    = s"# Snippet\n\n```scala\n$code\n```\n"
     val module = Parser.parse(src)
     module.sections.foreach(runSection)
+
+  // ── v1.4 Logger effect ─────────────────────────────────────────────────
+  //
+  // Walk the Free tree; intercept Perform("Logger", …) nodes and write to
+  // the supplied PrintStream.  Non-Logger Performs propagate outward.
+  //
+  // format = "text" → "[LEVEL] msg\n"
+  // format = "json" → {"level":"…","msg":"…"}\n
+
+  private def loggerRun(
+    initial: Computation,
+    format:  String,
+    sink:    java.io.PrintStream
+  ): Computation =
+    def write(level: String, msg: String): Unit = format match
+      case "json" =>
+        sink.println(s"""{"level":"$level","msg":${loggerJsonStr(msg)}}""")
+      case _ =>
+        sink.println(s"[${level.toUpperCase}] $msg")
+    def dispatch(op: String, args: List[Value], resume: Value => Computation): Computation =
+      args match
+        case List(v) => write(op, Value.show(v)); resume(Value.UnitV)
+        case _       => throw InterpretError(s"Logger.$op(msg)")
+    var current: Computation = initial
+    while true do
+      current match
+        case Pure(_) => return current
+        case Perform("Logger", op, args) =>
+          current = dispatch(op, args, v => Pure(v))
+        case Perform(_, _, _) => return current
+        case FlatMap(sub, f) => sub match
+          case Pure(v)                      => current = f(v)
+          case FlatMap(s2, g)               => current = FlatMap(s2, x => FlatMap(g(x), f))
+          case Perform("Logger", op, args)  =>
+            current = dispatch(op, args, v => loggerRun(f(v), format, sink))
+          case Perform(_, _, _)             =>
+            return FlatMap(sub, v => loggerRun(f(v), format, sink))
+    throw InterpretError("unreachable")
+
+  // Returns (bodyResult, List((level, msg), …)) as a TupleV pair.
+  // `run` drives the body and returns the raw body result; the outer
+  // flatMap attaches the accumulated log once (avoids double-wrapping
+  // when `run` is called recursively from dispatch continuations).
+  private def loggerToListRun(initial: Computation): Computation =
+    val log = scala.collection.mutable.ListBuffer.empty[(String, String)]
+    def dispatch(op: String, args: List[Value], resume: Value => Computation): Computation =
+      args match
+        case List(v) => log += (op -> Value.show(v)); resume(Value.UnitV)
+        case _       => throw InterpretError(s"Logger.$op(msg)")
+    def run(current0: Computation): Computation =
+      var current = current0
+      while true do
+        current match
+          case Pure(_)                     => return current
+          case Perform("Logger", op, args) =>
+            current = dispatch(op, args, v => Pure(v))
+          case Perform(_, _, _)            => return current
+          case FlatMap(sub, f) => sub match
+            case Pure(v)                     => current = f(v)
+            case FlatMap(s2, g)              => current = FlatMap(s2, x => FlatMap(g(x), f))
+            case Perform("Logger", op, args) =>
+              current = dispatch(op, args, v => run(f(v)))
+            case Perform(_, _, _)            =>
+              return FlatMap(sub, v => run(f(v)))
+      throw InterpretError("unreachable")
+    run(initial).flatMap { v =>
+      val entries = Value.ListV(log.toList.map { (lv, msg) =>
+        Value.TupleV(List(Value.StringV(lv), Value.StringV(msg)))
+      })
+      Pure(Value.TupleV(List(v, entries)))
+    }
+
+  private def loggerJsonStr(s: String): String =
+    val sb = new StringBuilder("\"")
+    s.foreach {
+      case '"'  => sb.append("\\\"")
+      case '\\' => sb.append("\\\\")
+      case '\n' => sb.append("\\n")
+      case '\r' => sb.append("\\r")
+      case '\t' => sb.append("\\t")
+      case c    => sb.append(c)
+    }
+    sb.append('"').toString
+
+  // ── v1.4 Random effect ─────────────────────────────────────────────────
+  //
+  // seed = None  → ThreadLocalRandom (non-deterministic)
+  // seed = Some  → java.util.Random(seed) (deterministic / test-friendly)
+
+  private def randomRun(initial: Computation, seed: Option[Long]): Computation =
+    val rng = seed.fold(
+      new java.util.Random(): java.util.Random
+    )(s => new java.util.Random(s))
+    def dispatch(op: String, args: List[Value], resume: Value => Computation): Computation =
+      op match
+        case "nextInt" => args match
+          case List(Value.IntV(n)) =>
+            resume(Value.IntV(rng.nextInt(n.toInt).toLong))
+          case _ => throw InterpretError("Random.nextInt(n: Int)")
+        case "nextDouble" =>
+          resume(Value.DoubleV(rng.nextDouble()))
+        case "uuid" =>
+          val bytes = new Array[Byte](16)
+          rng.nextBytes(bytes)
+          bytes(6) = ((bytes(6) & 0x0f) | 0x40).toByte
+          bytes(8) = ((bytes(8) & 0x3f) | 0x80).toByte
+          def hex(b: Byte) = f"${b & 0xff}%02x"
+          val u = bytes.map(hex).mkString
+          resume(Value.StringV(s"${u.take(8)}-${u.slice(8,12)}-${u.slice(12,16)}-${u.slice(16,20)}-${u.drop(20)}"))
+        case "pick" => args match
+          case List(Value.ListV(items)) if items.nonEmpty =>
+            resume(items(rng.nextInt(items.size)))
+          case _ => throw InterpretError("Random.pick(xs: List[A]) — list must be non-empty")
+        case _ => throw InterpretError(s"Unknown Random operation: $op")
+    def run(current0: Computation): Computation =
+      var current = current0
+      while true do
+        current match
+          case Pure(_) => return current
+          case Perform("Random", op, args) =>
+            current = dispatch(op, args, v => Pure(v))
+          case Perform(_, _, _) => return current
+          case FlatMap(sub, f) => sub match
+            case Pure(v)                      => current = f(v)
+            case FlatMap(s2, g)               => current = FlatMap(s2, x => FlatMap(g(x), f))
+            case Perform("Random", op, args)  =>
+              current = dispatch(op, args, v => run(f(v)))
+            case Perform(_, _, _)             =>
+              return FlatMap(sub, v => run(f(v)))
+      throw InterpretError("unreachable")
+    run(initial)
+
+  // ── v1.4 Clock effect ──────────────────────────────────────────────────
+  //
+  // frozen = None    → real wall clock; Clock.sleep → Thread.sleep(ms)
+  // frozen = Some(t) → always returns t; Clock.sleep is a no-op
+
+  private def clockRun(initial: Computation, frozen: Option[Long]): Computation =
+    def nowMs(): Long  = frozen.getOrElse(java.lang.System.currentTimeMillis())
+    def nowIso(): String =
+      val inst = java.time.Instant.ofEpochMilli(nowMs())
+      java.time.format.DateTimeFormatter.ISO_INSTANT.format(inst)
+    def dispatch(op: String, args: List[Value], resume: Value => Computation): Computation =
+      op match
+        case "now"    => resume(Value.IntV(nowMs()))
+        case "nowIso" => resume(Value.StringV(nowIso()))
+        case "sleep"  => args match
+          case List(Value.IntV(ms)) =>
+            if frozen.isEmpty && ms > 0 then Thread.sleep(ms)
+            resume(Value.UnitV)
+          case _ => throw InterpretError("Clock.sleep(ms: Long)")
+        case _ => throw InterpretError(s"Unknown Clock operation: $op")
+    def run(current0: Computation): Computation =
+      var current = current0
+      while true do
+        current match
+          case Pure(_) => return current
+          case Perform("Clock", op, args) =>
+            current = dispatch(op, args, v => Pure(v))
+          case Perform(_, _, _) => return current
+          case FlatMap(sub, f) => sub match
+            case Pure(v)                    => current = f(v)
+            case FlatMap(s2, g)             => current = FlatMap(s2, x => FlatMap(g(x), f))
+            case Perform("Clock", op, args) =>
+              current = dispatch(op, args, v => run(f(v)))
+            case Perform(_, _, _)           =>
+              return FlatMap(sub, v => run(f(v)))
+      throw InterpretError("unreachable")
+    run(initial)
+
+  // ── v1.4 Env effect ────────────────────────────────────────────────────
+  //
+  // overlay = None      → read from real process env; Env.set mutates a
+  //                       local overlay (does not touch the real env)
+  // overlay = Some(map) → reads from map first, then process env for misses;
+  //                       Env.set mutates the overlay
+
+  private def envRun(
+    initial: Computation,
+    overlay: Option[Map[String, String]]
+  ): Computation =
+    val local = scala.collection.mutable.Map.empty[String, String]
+    overlay.foreach(m => local ++= m)
+    def lookup(key: String): Option[String] =
+      local.get(key)
+        .orElse(if overlay.isEmpty then Option(java.lang.System.getenv(key)).filter(_.nonEmpty) else None)
+    def dispatch(op: String, args: List[Value], resume: Value => Computation): Computation =
+      op match
+        case "get" => args match
+          case List(Value.StringV(k)) =>
+            resume(Value.OptionV(lookup(k).map(Value.StringV.apply)))
+          case _ => throw InterpretError("Env.get(key: String)")
+        case "set" => args match
+          case List(Value.StringV(k), v) =>
+            local(k) = Value.show(v); resume(Value.UnitV)
+          case _ => throw InterpretError("Env.set(key: String, value)")
+        case "required" => args match
+          case List(Value.StringV(k)) =>
+            lookup(k) match
+              case Some(v) => resume(Value.StringV(v))
+              case None    => throw InterpretError(s"Env.required: key '$k' not found in environment")
+          case _ => throw InterpretError("Env.required(key: String)")
+        case _ => throw InterpretError(s"Unknown Env operation: $op")
+    def run(current0: Computation): Computation =
+      var current = current0
+      while true do
+        current match
+          case Pure(_) => return current
+          case Perform("Env", op, args) =>
+            current = dispatch(op, args, v => Pure(v))
+          case Perform(_, _, _) => return current
+          case FlatMap(sub, f) => sub match
+            case Pure(v)                  => current = f(v)
+            case FlatMap(s2, g)           => current = FlatMap(s2, x => FlatMap(g(x), f))
+            case Perform("Env", op, args) =>
+              current = dispatch(op, args, v => run(f(v)))
+            case Perform(_, _, _)         =>
+              return FlatMap(sub, v => run(f(v)))
+      throw InterpretError("unreachable")
+    run(initial)
 
 object Interpreter:
   def run(module: Module, out: java.io.PrintStream = System.out, baseDir: Option[os.Path] = None): Unit =

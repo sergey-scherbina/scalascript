@@ -1,0 +1,6 @@
+worker starting
+supervisor caught: crash
+root done
+down: oops
+working
+no down received
