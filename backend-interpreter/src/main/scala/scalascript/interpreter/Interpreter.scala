@@ -888,6 +888,11 @@ class Interpreter(
     // Response companion object — fields call the underlying natives.
     // Response.basicAuthChallenge now lives in AuthIntrinsics (Stage 5+/D).
     globals("Response") = Value.InstanceV("Response", Map(
+      "apply"              -> Value.NativeFnV("Response.apply", {
+        case List(status, headers, body) =>
+          Pure(Value.InstanceV("Response", Map("status" -> status, "headers" -> headers, "body" -> body)))
+        case _ => throw InterpretError("Response(status, headers, body) expects 3 arguments")
+      }),
       "html"               -> globals("Response.html"),
       "text"               -> globals("Response.text"),
       "json"               -> globals("Response.json"),

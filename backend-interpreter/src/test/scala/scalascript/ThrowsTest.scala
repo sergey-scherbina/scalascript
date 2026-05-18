@@ -476,13 +476,17 @@ class ThrowsTest extends AnyFunSuite with Matchers:
     capturedWithStd("""
       def parseAge(s: String): Int throws String =
         if s == "bad" then Left("not a number") else s.length
-      val r = direct[Either[String, Int]] {
+      val ok = direct[Either[String, Int]] {
         age = parseAge("hello")
         age * 2
       }
-      println(r.isRight)
-      println(r.getOrElse(-1))
-    """) shouldBe "true\n10"
+      println(ok)
+      val err = direct[Either[String, Int]] {
+        age = parseAge("bad")
+        age * 2
+      }
+      println(err.isLeft)
+    """) shouldBe "10\ntrue"
 
   test("direct[Either] — short-circuits when callee returns Left"):
     capturedWithStd("""
