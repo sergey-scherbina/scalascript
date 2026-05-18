@@ -22,24 +22,19 @@ class JsBackend extends Backend:
   def compile(module: ir.NormalizedModule, opts: BackendOptions): CompileResult =
     val astModule = Denormalize(module)
     val baseDir   = opts.baseDir.map(p => os.Path(p.toAbsolutePath.toString))
+    // Stage 5+/A.5 — intrinsics flow through to JsGen for per-call-site
+    // dispatch in `genExpr`.  The Stage 5+/A.3 `intrinsicPrelude`
+    // (prepended `const` aliases) is gone — per-call-site is the
+    // proper home for both `RuntimeCall` and `InlineCode` variants.
     opts.extra.getOrElse("mode", "oneshot") match
       case "segmented" =>
-        val segments = JsGen.generateSegmented(astModule, baseDir).map {
+        val segments = JsGen.generateSegmented(astModule, baseDir, intrinsics).map {
           case JsGen.Segment.ScalaScriptJs(code) =>
-            Segment.Code(language = "javascript", code = intrinsicPrelude + code)
+            Segment.Code(language = "javascript", code = code)
           case JsGen.Segment.ScalaSource(src)    =>
             Segment.Source(language = "scala", source = src)
         }
         CompileResult.Segmented(segments)
       case _ =>
-        val code = intrinsicPrelude + JsGen.generate(astModule, baseDir)
+        val code = JsGen.generate(astModule, baseDir, intrinsics)
         CompileResult.TextOutput(code = code, language = "javascript", sources = Nil)
-
-  /** Stage 5+/A.3 — surface `RuntimeCall` intrinsics as JS `const`
-   *  aliases prepended to the generated module.  Same crude-but-
-   *  effective approach as `JvmBackend.intrinsicPrelude`. */
-  private def intrinsicPrelude: String =
-    intrinsics.collect {
-      case (qn, RuntimeCall(target)) =>
-        s"const ${qn.value} = () => $target();"
-    }.mkString("", "\n", if intrinsics.nonEmpty then "\n" else "")

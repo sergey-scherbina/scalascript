@@ -16,13 +16,21 @@ object JsGen:
     case ScalaSource(source: String)
 
   /** Generate JS source for all scalascript code blocks in a module. */
-  def generate(module: Module, baseDir: Option[os.Path] = None): String =
-    val gen = new JsGen(baseDir)
+  def generate(
+      module:     Module,
+      baseDir:    Option[os.Path] = None,
+      intrinsics: Map[scalascript.ir.QualifiedName, scalascript.backend.spi.IntrinsicImpl] = Map.empty
+  ): String =
+    val gen = new JsGen(baseDir, intrinsics)
     gen.genModule(module)
 
   /** Generate segments in document order, preserving scala/scalascript interleaving. */
-  def generateSegmented(module: Module, baseDir: Option[os.Path] = None): List[Segment] =
-    val gen = new JsGen(baseDir)
+  def generateSegmented(
+      module:     Module,
+      baseDir:    Option[os.Path] = None,
+      intrinsics: Map[scalascript.ir.QualifiedName, scalascript.backend.spi.IntrinsicImpl] = Map.empty
+  ): List[Segment] =
+    val gen = new JsGen(baseDir, intrinsics)
     gen.genModuleSegmented(module)
 
   /** True if the module contains at least one scalascript block. */
@@ -3228,7 +3236,9 @@ function serve(/* ignored */) {
 }
 """
 
-class JsGen(baseDir: Option[os.Path] = None):
+class JsGen(
+    baseDir:    Option[os.Path] = None,
+    intrinsics: Map[scalascript.ir.QualifiedName, scalascript.backend.spi.IntrinsicImpl] = Map.empty):
   import scala.meta.*
 
   private[codegen] val sb = StringBuilder()
@@ -4116,8 +4126,49 @@ class JsGen(baseDir: Option[os.Path] = None):
     val bodyThunk = s"() => ${genCpsExpr(body)}"
     s"_handle($bodyThunk, [${handledOps.mkString(", ")}], {${handlerEntries.mkString(", ")}})"
 
+  /** Stage 5+/A.5 — per-call-site intrinsic dispatch.  Returns the
+   *  JS expression string to splice in, or `None` if no intrinsic
+   *  claims this name.  Called from `genExpr` for Term.Apply
+   *  (Term.Name(fname), args) sites BEFORE the existing hardcoded
+   *  pattern matches, so a registered intrinsic always wins. */
+  private def dispatchIntrinsicJs(fname: String, argClause: Term.ArgClause): Option[String] =
+    val qn = scalascript.ir.QualifiedName(fname)
+    intrinsics.get(qn).map {
+      case scalascript.backend.spi.RuntimeCall(target) =>
+        s"$target(${argClause.values.map(genExpr).mkString(", ")})"
+      case scalascript.backend.spi.InlineCode(emit) =>
+        val irArgs = argClause.values.map(termToIrJs)
+        val ctx    = JsEmitContext
+        emit(irArgs, ctx).value
+      case _ =>
+        // NativeImpl / HostCallback don't emit target source; fall
+        // through to scalameta's default emission.
+        argClause.values.map(genExpr).mkString(s"$fname(", ", ", ")")
+    }
+
+  /** Minimum-viable IrExpr conversion for intrinsic dispatch — only
+   *  string / int / double / bool literals survive shape; everything
+   *  else becomes a `VarRef` carrying the genExpr-emitted JS. */
+  private def termToIrJs(t: Term): scalascript.ir.IrExpr = t match
+    case Lit.String(s)  => scalascript.ir.Lit(scalascript.ir.LitValue.StringL(s))
+    case Lit.Int(n)     => scalascript.ir.Lit(scalascript.ir.LitValue.IntL(n.toLong))
+    case Lit.Long(n)    => scalascript.ir.Lit(scalascript.ir.LitValue.IntL(n))
+    case Lit.Double(d)  => scalascript.ir.Lit(scalascript.ir.LitValue.DoubleL(d.toDouble))
+    case Lit.Boolean(b) => scalascript.ir.Lit(scalascript.ir.LitValue.BoolL(b))
+    case Lit.Unit()     => scalascript.ir.Lit(scalascript.ir.LitValue.UnitL)
+    case other          => scalascript.ir.VarRef(genExpr(other))
+
+  /** Stage 5+/A.5 — `JsGen`'s per-call-site EmitContext.  Stub for
+   *  now; future intrinsics extend the trait surface as needed. */
+  private object JsEmitContext extends scalascript.ir.EmitContext
+
   /** Generate a JS expression string for a scalameta Term. */
   def genExpr(term: Term): String = term match
+    // Stage 5+/A.5 intrinsic dispatch — fires first.
+    case Term.Apply.After_4_6_0(Term.Name(fname), argClause)
+        if dispatchIntrinsicJs(fname, argClause).isDefined =>
+      dispatchIntrinsicJs(fname, argClause).get
+
     // Literals
     case Lit.Int(v)     => v.toString
     case Lit.Long(v)    => v.toString
