@@ -277,6 +277,23 @@ class JvmGen(
        else Set.empty[String]) ++
       (if blocksUseEnv(blocks) then
          Set("Env.get", "Env.set", "Env.required")
+       else Set.empty[String]) ++
+      (if blocksUseHttp(blocks) then
+         Set("Http.get", "Http.post", "Http.request")
+       else Set.empty[String]) ++
+      (if blocksUseRetry(blocks) then
+         Set("Retry.attempt")
+       else Set.empty[String]) ++
+      (if blocksUseCache(blocks) then
+         Set("Cache.memoize")
+       else Set.empty[String]) ++
+      (if blocksUseState(blocks) then
+         Set("State.get", "State.set", "State.modify")
+       else Set.empty[String]) ++
+      // Tx and Auth don't use _perform; add dummy entries only to gate
+      // effectsRuntime emission when no other effects are present.
+      (if blocksUseTx(blocks) || blocksUseAuth(blocks) then
+         Set("_v14extras")
        else Set.empty[String])
 
     val trees = blocks.map(b => ScalaNode.fold(b.node)(identity))
@@ -463,6 +480,83 @@ class JvmGen(
           case Term.Apply.After_4_6_0(Term.Name(n), _)
               if Set("runEnv", "runEnvWith")(n) => found = true
           case Term.Select(Term.Name("Env"), Term.Name(op)) if ops(op) => found = true
+        }
+      }
+      found
+    }
+
+  private def blocksUseHttp(blocks: List[JvmGen.Block]): Boolean =
+    val ops = Set("get", "post", "request")
+    blocks.exists { b =>
+      var found = false
+      ScalaNode.fold(b.node) { tree =>
+        if !found then tree.collect {
+          case Term.Apply.After_4_6_0(Term.Name(n), _)
+              if Set("runHttp", "runHttpStub")(n) => found = true
+          case Term.Select(Term.Name("Http"), Term.Name(op)) if ops(op) => found = true
+        }
+      }
+      found
+    }
+
+  private def blocksUseRetry(blocks: List[JvmGen.Block]): Boolean =
+    blocks.exists { b =>
+      var found = false
+      ScalaNode.fold(b.node) { tree =>
+        if !found then tree.collect {
+          case Term.Apply.After_4_6_0(Term.Name(n), _)
+              if Set("runRetry", "runRetryNoSleep")(n) => found = true
+          case Term.Select(Term.Name("Retry"), Term.Name("attempt")) => found = true
+        }
+      }
+      found
+    }
+
+  private def blocksUseCache(blocks: List[JvmGen.Block]): Boolean =
+    blocks.exists { b =>
+      var found = false
+      ScalaNode.fold(b.node) { tree =>
+        if !found then tree.collect {
+          case Term.Apply.After_4_6_0(Term.Name(n), _)
+              if Set("runCache", "runCacheBypass")(n) => found = true
+          case Term.Select(Term.Name("Cache"), Term.Name("memoize")) => found = true
+        }
+      }
+      found
+    }
+
+  private def blocksUseState(blocks: List[JvmGen.Block]): Boolean =
+    val ops = Set("get", "set", "modify")
+    blocks.exists { b =>
+      var found = false
+      ScalaNode.fold(b.node) { tree =>
+        if !found then tree.collect {
+          case Term.Apply.After_4_6_0(Term.Name("runState"), _) => found = true
+          case Term.Select(Term.Name("State"), Term.Name(op)) if ops(op) => found = true
+        }
+      }
+      found
+    }
+
+  private def blocksUseTx(blocks: List[JvmGen.Block]): Boolean =
+    blocks.exists { b =>
+      var found = false
+      ScalaNode.fold(b.node) { tree =>
+        if !found then tree.collect {
+          case Term.Apply.After_4_6_0(Term.Name("runTx"), _) => found = true
+          case Term.Select(Term.Name("Tx"), Term.Name("atomic")) => found = true
+        }
+      }
+      found
+    }
+
+  private def blocksUseAuth(blocks: List[JvmGen.Block]): Boolean =
+    blocks.exists { b =>
+      var found = false
+      ScalaNode.fold(b.node) { tree =>
+        if !found then tree.collect {
+          case Term.Apply.After_4_6_0(Term.Name("runAuthWith"), _) => found = true
+          case Term.Select(Term.Name("Auth"), Term.Name(_)) => found = true
         }
       }
       found
@@ -6428,6 +6522,205 @@ class JvmGen(
        |      scala.collection.mutable.Map.from(m.asInstanceOf[Map[String, String]])
        |    case _ => sys.error("runEnvWith(map: Map[String, String])")
        |  _handle(bodyThunk, ops, _envHandlers(overlay, useReal = false))
+       |
+       |// ── v1.4 Http effect ──────────────────────────────────────────────────────
+       |//
+       |// Http.{get,post,request}  → _perform("Http", op, args*)
+       |// runHttp { body }              — delegates to real _httpDoRequest
+       |// runHttpStub(routes) { body }  — test stub: url→body Map
+       |
+       |object Http:
+       |  def get(url: Any): Any                                   = _perform("Http", "get",     url)
+       |  def post(url: Any, body: Any): Any                       = _perform("Http", "post",    url, body)
+       |  def request(method: Any, url: Any, headers: Any, body: Any): Any =
+       |    _perform("Http", "request", method, url, headers, body)
+       |
+       |private def _httpEffectHandlers(
+       |  routes: Option[Map[String, String]]
+       |): Map[String, List[Any] => Any] =
+       |  def stubResponse(url: String): Any =
+       |    routes match
+       |      case Some(m) if m.contains(url) =>
+       |        Map("status" -> 200, "headers" -> Map.empty, "body" -> m(url))
+       |      case _ =>
+       |        Map("status" -> 404, "headers" -> Map.empty, "body" -> "")
+       |  def mkResponse(url: String, method: String, body: String,
+       |                 headers: Map[String, String]): Any =
+       |    routes.fold(_httpDoRequest(method, url, body, headers))(_ => stubResponse(url))
+       |  Map(
+       |    "Http.get" -> { (args: List[Any]) =>
+       |      val url = args(0).toString
+       |      args.last.asInstanceOf[Any => Any](mkResponse(url, "GET", "", Map.empty))
+       |    },
+       |    "Http.post" -> { (args: List[Any]) =>
+       |      val url = args(0).toString; val body = args(1).toString
+       |      args.last.asInstanceOf[Any => Any](mkResponse(url, "POST", body, Map.empty))
+       |    },
+       |    "Http.request" -> { (args: List[Any]) =>
+       |      val method = args(0).toString; val url = args(1).toString
+       |      val headers = args(2) match
+       |        case m: Map[_, _] => m.asInstanceOf[Map[String, String]]
+       |        case _            => Map.empty[String, String]
+       |      val body = if args.size > 3 then args(3).toString else ""
+       |      args.last.asInstanceOf[Any => Any](mkResponse(url, method, body, headers))
+       |    },
+       |  )
+       |
+       |def runHttp(bodyThunk: () => Any): Any =
+       |  val ops = Set("Http.get", "Http.post", "Http.request")
+       |  _handle(bodyThunk, ops, _httpEffectHandlers(None))
+       |
+       |def runHttpStub(routes: Any)(bodyThunk: () => Any): Any =
+       |  val ops = Set("Http.get", "Http.post", "Http.request")
+       |  val m = routes match
+       |    case r: Map[_, _] => r.asInstanceOf[Map[String, String]]
+       |    case _            => sys.error("runHttpStub(routes: Map[String, String])")
+       |  _handle(bodyThunk, ops, _httpEffectHandlers(Some(m)))
+       |
+       |// ── v1.4 Retry effect ─────────────────────────────────────────────────────
+       |//
+       |// Retry.attempt(n, delayMs)(thunk)  — retries thunk up to n times on exception
+       |// runRetry { body }        — real Thread.sleep between attempts
+       |// runRetryNoSleep { body } — test handler: no sleep
+       |
+       |object Retry:
+       |  def attempt(n: Any, delayMs: Any): Any => Any =
+       |    (thunk: Any) => _perform("Retry", "attempt", n, delayMs, thunk)
+       |
+       |private def _retryHandlers(doSleep: Boolean): Map[String, List[Any] => Any] = Map(
+       |  "Retry.attempt" -> { (args: List[Any]) =>
+       |    val n = args(0) match { case i: Int => i.toLong; case l: Long => l; case _ => 0L }
+       |    val delayMs = args(1) match { case i: Int => i.toLong; case l: Long => l; case _ => 0L }
+       |    val thunk = args(2).asInstanceOf[() => Any]
+       |    val resume = args.last.asInstanceOf[Any => Any]
+       |    var lastErr: Throwable = null
+       |    var result: Any = ()
+       |    var attempt = 0
+       |    var succeeded = false
+       |    while attempt <= n && !succeeded do
+       |      try { result = thunk(); succeeded = true }
+       |      catch case e: Throwable =>
+       |        lastErr = e; attempt += 1
+       |        if attempt <= n && doSleep && delayMs > 0 then Thread.sleep(delayMs)
+       |    if succeeded then resume(result) else throw lastErr
+       |  },
+       |)
+       |
+       |def runRetry(bodyThunk: () => Any): Any =
+       |  val ops = Set("Retry.attempt")
+       |  _handle(bodyThunk, ops, _retryHandlers(doSleep = true))
+       |
+       |def runRetryNoSleep(bodyThunk: () => Any): Any =
+       |  val ops = Set("Retry.attempt")
+       |  _handle(bodyThunk, ops, _retryHandlers(doSleep = false))
+       |
+       |// ── v1.4 Cache effect ─────────────────────────────────────────────────────
+       |//
+       |// Cache.memoize(key, ttlSeconds)(thunk)  — process-local TTL memoization
+       |// runCache { body }        — uses module-level _cacheStore
+       |// runCacheBypass { body }  — always recomputes; skips cache
+       |
+       |private val _cacheStore = new java.util.concurrent.ConcurrentHashMap[String, (Long, Any)]()
+       |private val _cacheBypass = ThreadLocal.withInitial[Boolean](() => false)
+       |
+       |object Cache:
+       |  def memoize(key: Any, ttlSeconds: Any): Any => Any =
+       |    (thunk: Any) => _perform("Cache", "memoize", key, ttlSeconds, thunk)
+       |
+       |private def _cacheHandlers(bypass: Boolean): Map[String, List[Any] => Any] = Map(
+       |  "Cache.memoize" -> { (args: List[Any]) =>
+       |    val key = args(0).toString
+       |    val ttlMs = (args(1) match
+       |      case i: Int  => i.toLong
+       |      case l: Long => l
+       |      case _       => 0L
+       |    ) * 1000L
+       |    val thunk = args(2).asInstanceOf[() => Any]
+       |    val resume = args.last.asInstanceOf[Any => Any]
+       |    if bypass || _cacheBypass.get() then resume(thunk())
+       |    else
+       |      val nowMs = java.lang.System.currentTimeMillis()
+       |      val cached = Option(_cacheStore.get(key))
+       |      cached match
+       |        case Some((expiry, v)) if nowMs < expiry => resume(v)
+       |        case _ =>
+       |          val v = thunk()
+       |          _cacheStore.put(key, (nowMs + ttlMs, v))
+       |          resume(v)
+       |  },
+       |)
+       |
+       |def runCache(bodyThunk: () => Any): Any =
+       |  val prior = _cacheBypass.get()
+       |  _cacheBypass.set(false)
+       |  try _handle(bodyThunk, Set("Cache.memoize"), _cacheHandlers(false))
+       |  finally _cacheBypass.set(prior)
+       |
+       |def runCacheBypass(bodyThunk: () => Any): Any =
+       |  val prior = _cacheBypass.get()
+       |  _cacheBypass.set(true)
+       |  try _handle(bodyThunk, Set("Cache.memoize"), _cacheHandlers(true))
+       |  finally _cacheBypass.set(prior)
+       |
+       |// ── v1.4 State effect ─────────────────────────────────────────────────────
+       |//
+       |// State.get              → _perform("State", "get")
+       |// State.set(s)           → _perform("State", "set", s)
+       |// State.modify(f)        → _perform("State", "modify", f)
+       |// runState(s0) { body }  — returns (finalState, result)
+       |
+       |object State:
+       |  def get(): Any          = _perform("State", "get")
+       |  def set(s: Any): Any    = _perform("State", "set", s)
+       |  def modify(f: Any): Any = _perform("State", "modify", f)
+       |
+       |def runState(s0: Any)(bodyThunk: () => Any): Any =
+       |  var state: Any = s0
+       |  val handlers: Map[String, List[Any] => Any] = Map(
+       |    "State.get" -> { (args: List[Any]) =>
+       |      args.last.asInstanceOf[Any => Any](state)
+       |    },
+       |    "State.set" -> { (args: List[Any]) =>
+       |      state = args(0)
+       |      args.last.asInstanceOf[Any => Any](())
+       |    },
+       |    "State.modify" -> { (args: List[Any]) =>
+       |      state = args(0).asInstanceOf[Any => Any](state)
+       |      args.last.asInstanceOf[Any => Any](())
+       |    },
+       |  )
+       |  val ops = Set("State.get", "State.set", "State.modify")
+       |  val result = _handle(bodyThunk, ops, handlers)
+       |  (state, result)
+       |
+       |// ── v1.4 Tx effect ────────────────────────────────────────────────────────
+       |//
+       |// Tx.atomic { body }  — signals transactional scope; default is no-op
+       |// runTx { body }      — default no-op handler (just runs body directly)
+       |
+       |object Tx:
+       |  def atomic(thunk: () => Any): Any = thunk()
+       |
+       |def runTx(bodyThunk: () => Any): Any = bodyThunk()
+       |
+       |// ── v1.4 Auth effect ──────────────────────────────────────────────────────
+       |//
+       |// Auth.currentUser  — Option[Any] from thread-local
+       |// Auth.require      — current user or throw RuntimeException
+       |// runAuthWith(user) { body }  — injects a fixed user
+       |
+       |private val _authUser = ThreadLocal.withInitial[Option[Any]](() => None)
+       |
+       |object Auth:
+       |  def currentUser: Any = _authUser.get()
+       |  def require: Any = _authUser.get() match
+       |    case Some(u) => u
+       |    case None    => throw new RuntimeException("Auth.require: no authenticated user in context")
+       |
+       |def runAuthWith(user: Any)(bodyThunk: () => Any): Any =
+       |  val prior = _authUser.get()
+       |  _authUser.set(Some(user))
+       |  try bodyThunk() finally _authUser.set(prior)
        |
        |""".stripMargin
 

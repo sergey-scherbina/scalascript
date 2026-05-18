@@ -443,6 +443,13 @@ class Interpreter(
   private val _httpTimeoutMs    = ThreadLocal.withInitial[Long](() => 30_000L)
   private val _httpMaxRetries   = ThreadLocal.withInitial[Int](() => 0)
   private val _httpRetryDelayMs = ThreadLocal.withInitial[Long](() => 1_000L)
+
+  // ── v1.4 Cache effect — process-local memoization store + bypass flag ──
+  private val _cacheStore  = new java.util.concurrent.ConcurrentHashMap[String, (Long, Value)]()
+  private val _cacheBypass = ThreadLocal.withInitial[Boolean](() => false)
+
+  // ── v1.4 Auth effect — current user (thread-local) ────────────────────
+  private val _authUser = ThreadLocal.withInitial[Option[Value]](() => None)
   // Receive-spec boxing: we can't squeeze AST cases into `Value`, so
   // `receive { case … }` stashes (cases, env) in a side map and the
   // Perform's args carry just the opaque integer token.
@@ -552,6 +559,22 @@ class Interpreter(
         scalascript.server.Routes.register(r.method, r.path, lazyHandler, this)
       }
     }
+
+  // ─── Minimal NativeContext for Http effect ───────────────────────────
+  //
+  // httpRun needs a NativeContext to call doHttpRequest.  This lightweight
+  // factory reads the same ThreadLocals used by httpClient{} scopes.
+
+  private def mkHttpCtx(): scalascript.backend.spi.NativeContext =
+    new scalascript.backend.spi.NativeContext:
+      def out = Interpreter.this.out
+      def err = System.err
+      override def httpBaseUrl: String    = _httpBaseUrl.get()
+      override def httpTimeoutMs: Long    = _httpTimeoutMs.get()
+      override def httpMaxRetries: Int    = _httpMaxRetries.get()
+      override def httpRetryDelayMs: Long = _httpRetryDelayMs.get()
+      override def invokeCallback(fn: Any, args: List[Any]): Any =
+        Interpreter.this.invoke(fn.asInstanceOf[Value], args.map(wrapAnyAsValue))
 
   // ─── Health-route defaults ────────────────────────────────────────
 
@@ -888,6 +911,77 @@ class Interpreter(
         args => Perform("Env", "set",      args)),
       "required" -> Value.NativeFnV("Env.required",
         args => Perform("Env", "required", args)),
+    ))
+
+    // Http: get(url) / post(url, body) / request(method, url, headers, body).
+    // Handlers: runHttp (real I/O), runHttpStub(routes)(body) (test stub).
+    globals("Http") = Value.InstanceV("Http", Map(
+      "get"     -> Value.NativeFnV("Http.get",
+        args => Perform("Http", "get",     args)),
+      "post"    -> Value.NativeFnV("Http.post",
+        args => Perform("Http", "post",    args)),
+      "request" -> Value.NativeFnV("Http.request",
+        args => Perform("Http", "request", args)),
+    ))
+
+    // Retry: attempt(n, delayMs)(thunk) — retry thunk up to n times on exception.
+    // Handlers: runRetry (real sleep), runRetryNoSleep (test, no sleep).
+    globals("Retry") = Value.InstanceV("Retry", Map(
+      "attempt" -> Value.NativeFnV("Retry.attempt", args => args match
+        case List(Value.IntV(n), Value.IntV(delayMs)) =>
+          Pure(Value.NativeFnV("Retry.attempt.thunk", thunkArgs => thunkArgs match
+            case List(thunk) => Perform("Retry", "attempt", List(Value.IntV(n), Value.IntV(delayMs), thunk))
+            case _           => throw InterpretError("Retry.attempt(n, delayMs)(thunk: () => Any)")
+          ))
+        case _ => throw InterpretError("Retry.attempt(n: Int, delayMs: Long)(thunk: () => Any)")
+      ),
+    ))
+
+    // Cache: memoize(key, ttlSeconds)(thunk) — process-local TTL memoization.
+    // Handlers: runCache (use cache), runCacheBypass (always recompute).
+    globals("Cache") = Value.InstanceV("Cache", Map(
+      "memoize" -> Value.NativeFnV("Cache.memoize", args => args match
+        case List(Value.StringV(key), Value.IntV(ttlSeconds)) =>
+          Pure(Value.NativeFnV("Cache.memoize.thunk", thunkArgs => thunkArgs match
+            case List(thunk) => Perform("Cache", "memoize", List(Value.StringV(key), Value.IntV(ttlSeconds), thunk))
+            case _           => throw InterpretError("Cache.memoize(key, ttlSeconds)(thunk: () => Any)")
+          ))
+        case _ => throw InterpretError("Cache.memoize(key: String, ttlSeconds: Long)(thunk: () => Any)")
+      ),
+    ))
+
+    // State[S]: get / set(s) — Free-Monad effect.
+    // Handler: runState(s0)(body) returns (finalState, result).
+    globals("State") = Value.InstanceV("State", Map(
+      "get"    -> Value.NativeFnV("State.get",
+        args => Perform("State", "get", args)),
+      "set"    -> Value.NativeFnV("State.set",
+        args => Perform("State", "set", args)),
+      "modify" -> Value.NativeFnV("State.modify",
+        args => Perform("State", "modify", args)),
+    ))
+
+    // Tx: atomic { body } — signals transactional scope; default is no-op.
+    // The block argument is already evaluated when passed; just return it.
+    // Handler: runTx { body } — default no-op handler (special form in eval).
+    globals("Tx") = Value.InstanceV("Tx", Map(
+      "atomic" -> Value.NativeFnV("Tx.atomic",
+        args => args match
+          case List(v) => Pure(v)
+          case _       => throw InterpretError("Tx.atomic { body }")
+      ),
+    ))
+
+    // Auth: currentUser / require — thread-local current user.
+    // Handler: runAuthWith(user)(body) — injects a fixed user.
+    globals("Auth") = Value.InstanceV("Auth", Map(
+      "currentUser" -> Value.NativeFnV("Auth.currentUser",
+        _ => Pure(_authUser.get().fold[Value](Value.OptionV(None))(u => Value.OptionV(Some(u))))),
+      "require"     -> Value.NativeFnV("Auth.require",
+        _ => _authUser.get() match
+          case Some(u) => Pure(u)
+          case None    => throw RuntimeException("Auth.require: no authenticated user in context")
+      ),
     ))
 
     // ── v1.6 Actors — Phase 1 natives (spawn / self / send) ────────────
@@ -1621,6 +1715,70 @@ class Interpreter(
           m.map { (k, v) => Value.show(k) -> Value.show(v) }.toMap
         case _ => throw InterpretError("runEnvWith(map: Map[String, String]) { body }")
       envRun(eval(bodyClause.values.head, env), Some(overlay))
+
+    // ── v1.4 Http effect handlers ─────────────────────────────────────────
+    // runHttp { body }                   — delegates to real httpGet/httpPost
+    // runHttpStub(routes) { body }       — test stub: url→body map
+    case Term.Apply.After_4_6_0(Term.Name("runHttp"), bodyArgClause)
+        if bodyArgClause.values.size == 1 =>
+      httpRun(eval(bodyArgClause.values.head, env), None)
+    case Term.Apply.After_4_6_0(
+        Term.Apply.After_4_6_0(Term.Name("runHttpStub"), routesClause),
+        bodyClause)
+        if routesClause.values.size == 1 && bodyClause.values.size == 1 =>
+      val routes = Computation.run(eval(routesClause.values.head, env)) match
+        case m @ Value.MapV(_) => m
+        case _ => throw InterpretError("runHttpStub(routes: Map[String, String]) { body }")
+      httpRun(eval(bodyClause.values.head, env), Some(routes))
+
+    // ── v1.4 State effect handlers ────────────────────────────────────────
+    // runState(s0) { body }  — runs body intercepting State performs;
+    //                          returns (finalState, result) as a tuple
+    case Term.Apply.After_4_6_0(
+        Term.Apply.After_4_6_0(Term.Name("runState"), s0Clause),
+        bodyClause)
+        if s0Clause.values.size == 1 && bodyClause.values.size == 1 =>
+      val s0 = Computation.run(eval(s0Clause.values.head, env))
+      stateRun(eval(bodyClause.values.head, env), s0)
+
+    // ── v1.4 Auth effect handlers ─────────────────────────────────────────
+    // runAuthWith(user) { body }  — injects a fixed user via thread-local;
+    // body is run synchronously so the thread-local is set during execution.
+    case Term.Apply.After_4_6_0(
+        Term.Apply.After_4_6_0(Term.Name("runAuthWith"), userClause),
+        bodyClause)
+        if userClause.values.size == 1 && bodyClause.values.size == 1 =>
+      val user = Computation.run(eval(userClause.values.head, env))
+      val prior = _authUser.get()
+      _authUser.set(Some(user))
+      try Pure(Computation.run(eval(bodyClause.values.head, env)))
+      finally _authUser.set(prior)
+
+    // ── v1.4 Retry effect handlers ────────────────────────────────────────
+    // runRetry { body }        — real sleep between attempts
+    // runRetryNoSleep { body } — test handler: retries without sleeping
+    case Term.Apply.After_4_6_0(Term.Name("runRetry"), bodyArgClause)
+        if bodyArgClause.values.size == 1 =>
+      retryRun(eval(bodyArgClause.values.head, env), sleep = true)
+    case Term.Apply.After_4_6_0(Term.Name("runRetryNoSleep"), bodyArgClause)
+        if bodyArgClause.values.size == 1 =>
+      retryRun(eval(bodyArgClause.values.head, env), sleep = false)
+
+    // ── v1.4 Cache effect handlers ────────────────────────────────────────
+    // runCache { body }        — explicit handler using process-local cache
+    // runCacheBypass { body }  — caching disabled; always recomputes
+    case Term.Apply.After_4_6_0(Term.Name("runCache"), bodyArgClause)
+        if bodyArgClause.values.size == 1 =>
+      cacheRun(eval(bodyArgClause.values.head, env), bypass = false)
+    case Term.Apply.After_4_6_0(Term.Name("runCacheBypass"), bodyArgClause)
+        if bodyArgClause.values.size == 1 =>
+      cacheRun(eval(bodyArgClause.values.head, env), bypass = true)
+
+    // ── v1.4 Tx effect handlers ───────────────────────────────────────────
+    // runTx { body }  — default no-op handler (just runs body directly)
+    case Term.Apply.After_4_6_0(Term.Name("runTx"), bodyArgClause)
+        if bodyArgClause.values.size == 1 =>
+      eval(bodyArgClause.values.head, env)
 
     // ── v1.5 httpClient(baseUrl) { block } ───────────────────────────────
     // Double-apply special form: evaluate body directly (not as a thunk) so
@@ -4872,6 +5030,213 @@ class Interpreter(
               return FlatMap(sub, v => run(f(v)))
       throw InterpretError("unreachable")
     run(initial)
+
+  // ── v1.4 Http effect ───────────────────────────────────────────────────
+  //
+  // routes = None      → real HTTP I/O via doHttpRequest
+  // routes = Some(map) → test stub: returns Response(200, …, routes(url))
+  //                      for known URLs, Response(404, …, "") otherwise
+
+  private def httpRun(
+    initial: Computation,
+    routes:  Option[Value.MapV]
+  ): Computation =
+    def stubResponse(url: String): Value =
+      routes match
+        case Some(Value.MapV(m)) =>
+          val key = Value.StringV(url)
+          m.get(key) match
+            case Some(v) =>
+              Value.InstanceV("Response", Map(
+                "status"  -> Value.IntV(200),
+                "headers" -> Value.MapV(Map.empty),
+                "body"    -> Value.StringV(Value.show(v))
+              ))
+            case None =>
+              Value.InstanceV("Response", Map(
+                "status"  -> Value.IntV(404),
+                "headers" -> Value.MapV(Map.empty),
+                "body"    -> Value.StringV("")
+              ))
+        case _ => throw InterpretError("httpRun: stub routes must be a Map[String, String]")
+    def dispatch(op: String, args: List[Value], resume: Value => Computation): Computation =
+      val ctx = mkHttpCtx()
+      op match
+        case "get" => args match
+          case List(Value.StringV(url)) =>
+            val resp = routes.fold(
+              doHttpRequest("GET", url, "", Map.empty, ctx)
+            )(_ => stubResponse(url))
+            resume(resp)
+          case _ => throw InterpretError("Http.get(url: String)")
+        case "post" => args match
+          case List(Value.StringV(url), Value.StringV(body)) =>
+            val resp = routes.fold(
+              doHttpRequest("POST", url, body, Map.empty, ctx)
+            )(_ => stubResponse(url))
+            resume(resp)
+          case _ => throw InterpretError("Http.post(url: String, body: String)")
+        case "request" => args match
+          case List(Value.StringV(method), Value.StringV(url), hdrs, Value.StringV(body)) =>
+            val hdrMap = hdrs match
+              case Value.MapV(m) => m.collect {
+                case (Value.StringV(k), Value.StringV(v)) => k -> v
+              }.toMap
+              case _ => Map.empty[String, String]
+            val resp = routes.fold(
+              doHttpRequest(method, url, body, hdrMap, ctx)
+            )(_ => stubResponse(url))
+            resume(resp)
+          case _ => throw InterpretError("Http.request(method, url, headers, body)")
+        case _ => throw InterpretError(s"Unknown Http operation: $op")
+    def run(current0: Computation): Computation =
+      var current = current0
+      while true do
+        current match
+          case Pure(_) => return current
+          case Perform("Http", op, args) =>
+            current = dispatch(op, args, v => Pure(v))
+          case Perform(_, _, _) => return current
+          case FlatMap(sub, f) => sub match
+            case Pure(v)                    => current = f(v)
+            case FlatMap(s2, g)             => current = FlatMap(s2, x => FlatMap(g(x), f))
+            case Perform("Http", op, args)  =>
+              current = dispatch(op, args, v => run(f(v)))
+            case Perform(_, _, _)           =>
+              return FlatMap(sub, v => run(f(v)))
+      throw InterpretError("unreachable")
+    run(initial)
+
+  // ── v1.4 Retry effect ──────────────────────────────────────────────────
+  //
+  // Intercepts Perform("Retry", "attempt", [n, delayMs, thunk]) and runs
+  // the thunk up to n times, sleeping delayMs between failures.
+  // sleep = false → test mode: no Thread.sleep even when delayMs > 0
+
+  private def retryRun(initial: Computation, sleep: Boolean): Computation =
+    def dispatch(op: String, args: List[Value], resume: Value => Computation): Computation =
+      op match
+        case "attempt" => args match
+          case List(Value.IntV(n), Value.IntV(delayMs), thunk) =>
+            var lastErr: Throwable = null
+            var result: Value = Value.UnitV
+            var attempt = 0
+            var succeeded = false
+            while attempt <= n && !succeeded do
+              try
+                result = Computation.run(callValue(thunk, Nil, Map.empty))
+                succeeded = true
+              catch case e: Throwable =>
+                lastErr = e
+                attempt += 1
+                if attempt <= n && sleep && delayMs > 0 then Thread.sleep(delayMs)
+            if succeeded then resume(result)
+            else throw lastErr
+          case _ => throw InterpretError("Retry.attempt(n: Int, delayMs: Long)(thunk)")
+        case _ => throw InterpretError(s"Unknown Retry operation: $op")
+    def run(current0: Computation): Computation =
+      var current = current0
+      while true do
+        current match
+          case Pure(_) => return current
+          case Perform("Retry", op, args) =>
+            current = dispatch(op, args, v => Pure(v))
+          case Perform(_, _, _) => return current
+          case FlatMap(sub, f) => sub match
+            case Pure(v)                     => current = f(v)
+            case FlatMap(s2, g)             => current = FlatMap(s2, x => FlatMap(g(x), f))
+            case Perform("Retry", op, args)  =>
+              current = dispatch(op, args, v => run(f(v)))
+            case Perform(_, _, _)            =>
+              return FlatMap(sub, v => run(f(v)))
+      throw InterpretError("unreachable")
+    run(initial)
+
+  // ── v1.4 Cache effect ──────────────────────────────────────────────────
+  //
+  // bypass = false → uses _cacheStore (process-local ConcurrentHashMap)
+  // bypass = true  → always calls thunk; skips cache entirely
+
+  private def cacheRun(initial: Computation, bypass: Boolean): Computation =
+    val priorBypass = _cacheBypass.get()
+    _cacheBypass.set(bypass)
+    def dispatch(op: String, args: List[Value], resume: Value => Computation): Computation =
+      op match
+        case "memoize" => args match
+          case List(Value.StringV(key), Value.IntV(ttlSeconds), thunk) =>
+            val result: Value =
+              if _cacheBypass.get() then
+                Computation.run(callValue(thunk, Nil, Map.empty))
+              else
+                val nowMs = java.lang.System.currentTimeMillis()
+                val cached = Option(_cacheStore.get(key))
+                cached match
+                  case Some((expiry, v)) if nowMs < expiry => v
+                  case _ =>
+                    val v = Computation.run(callValue(thunk, Nil, Map.empty))
+                    _cacheStore.put(key, (nowMs + ttlSeconds * 1000L, v))
+                    v
+            resume(result)
+          case _ => throw InterpretError("Cache.memoize(key: String, ttlSeconds: Long)(thunk)")
+        case _ => throw InterpretError(s"Unknown Cache operation: $op")
+    def run(current0: Computation): Computation =
+      var current = current0
+      while true do
+        current match
+          case Pure(_) => return current
+          case Perform("Cache", op, args) =>
+            current = dispatch(op, args, v => Pure(v))
+          case Perform(_, _, _) => return current
+          case FlatMap(sub, f) => sub match
+            case Pure(v)                     => current = f(v)
+            case FlatMap(s2, g)              => current = FlatMap(s2, x => FlatMap(g(x), f))
+            case Perform("Cache", op, args)  =>
+              current = dispatch(op, args, v => run(f(v)))
+            case Perform(_, _, _)            =>
+              return FlatMap(sub, v => run(f(v)))
+      throw InterpretError("unreachable")
+    try run(initial)
+    finally _cacheBypass.set(priorBypass)
+
+  // ── v1.4 State effect ──────────────────────────────────────────────────
+  //
+  // Intercepts Perform("State", "get"/"set"/"modify", …) nodes.
+  // Returns (finalState, result) as a TupleV pair.
+
+  private def stateRun(initial: Computation, s0: Value): Computation =
+    var state = s0
+    def dispatch(op: String, args: List[Value], resume: Value => Computation): Computation =
+      op match
+        case "get"    =>
+          resume(state)
+        case "set"    => args match
+          case List(s) => state = s; resume(Value.UnitV)
+          case _       => throw InterpretError("State.set(s)")
+        case "modify" => args match
+          case List(f) =>
+            val newState = Computation.run(callValue(f, List(state), Map.empty))
+            state = newState; resume(Value.UnitV)
+          case _ => throw InterpretError("State.modify(f: S => S)")
+        case _ => throw InterpretError(s"Unknown State operation: $op")
+    def run(current0: Computation): Computation =
+      var current = current0
+      while true do
+        current match
+          case Pure(_) => return current
+          case Perform("State", op, args) =>
+            current = dispatch(op, args, v => Pure(v))
+          case Perform(_, _, _) => return current
+          case FlatMap(sub, f) => sub match
+            case Pure(v)                      => current = f(v)
+            case FlatMap(s2, g)               => current = FlatMap(s2, x => FlatMap(g(x), f))
+            case Perform("State", op, args)   =>
+              current = dispatch(op, args, v => run(f(v)))
+            case Perform(_, _, _)             =>
+              return FlatMap(sub, v => run(f(v)))
+      throw InterpretError("unreachable")
+    run(initial).flatMap { result =>
+      Pure(Value.TupleV(List(state, result)))
+    }
 
 object Interpreter:
   def run(

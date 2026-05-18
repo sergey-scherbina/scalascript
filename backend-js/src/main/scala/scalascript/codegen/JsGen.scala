@@ -4543,6 +4543,214 @@ function runEnvWith(initMap) {
     return _handle(bodyFn, ops, _envHandlers(overlay, false));
   };
 }
+
+// ── v1.4 Http effect ────────────────────────────────────────────────────────
+//
+// Http.{get,post,request}  → _perform("Http", op, args)
+// runHttp(bodyFn)                — delegates to real _httpSyncFetchWithRetry
+// runHttpStub(routes)(bodyFn)    — test stub: returns {status:200,…} for known urls
+
+const Http = {
+  get:     (url)                         => _perform('Http', 'get',     [url]),
+  post:    (url, body)                   => _perform('Http', 'post',    [url, body]),
+  request: (method, url, headers, body)  => _perform('Http', 'request', [method, url, headers, body]),
+};
+
+function _httpEffectHandlers(routes) {
+  function stubResponse(url) {
+    if (routes instanceof Map && routes.has(url)) {
+      return { status: 200, headers: new Map(), body: String(routes.get(url)) };
+    }
+    return { status: 404, headers: new Map(), body: '' };
+  }
+  return {
+    'Http.get': function(args) {
+      const url = args[0];
+      const resp = routes ? stubResponse(url) : _httpSyncFetchWithRetry('GET', url, null, {});
+      return args[args.length - 1](resp);
+    },
+    'Http.post': function(args) {
+      const url = args[0]; const body = args[1];
+      const resp = routes ? stubResponse(url) : _httpSyncFetchWithRetry('POST', url, body, {});
+      return args[args.length - 1](resp);
+    },
+    'Http.request': function(args) {
+      const method = args[0]; const url = args[1];
+      const headers = args[2] instanceof Map ? Object.fromEntries(args[2].entries()) : (args[2] || {});
+      const body = args[3] != null ? String(args[3]) : null;
+      const resp = routes ? stubResponse(url) : _httpSyncFetchWithRetry(method, url, body, headers);
+      return args[args.length - 1](resp);
+    },
+  };
+}
+
+function runHttp(bodyFn) {
+  const ops = new Set(['Http.get', 'Http.post', 'Http.request']);
+  return _handle(bodyFn, ops, _httpEffectHandlers(null));
+}
+
+function runHttpStub(routes) {
+  return function(bodyFn) {
+    const ops = new Set(['Http.get', 'Http.post', 'Http.request']);
+    return _handle(bodyFn, ops, _httpEffectHandlers(routes));
+  };
+}
+
+// ── v1.4 Retry effect ───────────────────────────────────────────────────────
+//
+// Retry.attempt(n, delayMs)(thunk)  → _perform("Retry", "attempt", [n, delayMs, thunk])
+// runRetry(bodyFn)         — real sleep between attempts (_asyncSleep)
+// runRetryNoSleep(bodyFn)  — no sleep (test mode)
+
+const Retry = {
+  attempt: (n, delayMs) => function(thunk) {
+    return _perform('Retry', 'attempt', [n, delayMs, thunk]);
+  },
+};
+
+function _retryHandlers(doSleep) {
+  return {
+    'Retry.attempt': function(args) {
+      const n = args[0]; const delayMs = args[1]; const thunk = args[2];
+      const resume = args[args.length - 1];
+      let lastErr = null;
+      for (let attempt = 0; attempt <= n; attempt++) {
+        try {
+          const result = thunk();
+          return resume(result);
+        } catch(e) {
+          lastErr = e;
+          if (attempt < n && doSleep && delayMs > 0) _asyncSleep(delayMs);
+        }
+      }
+      throw lastErr;
+    },
+  };
+}
+
+function runRetry(bodyFn) {
+  const ops = new Set(['Retry.attempt']);
+  return _handle(bodyFn, ops, _retryHandlers(true));
+}
+
+function runRetryNoSleep(bodyFn) {
+  const ops = new Set(['Retry.attempt']);
+  return _handle(bodyFn, ops, _retryHandlers(false));
+}
+
+// ── v1.4 Cache effect ───────────────────────────────────────────────────────
+//
+// Cache.memoize(key, ttlSeconds)(thunk)  → _perform("Cache", "memoize", args)
+// runCache(bodyFn)        — uses module-level _cacheStore
+// runCacheBypass(bodyFn)  — always recomputes; skips cache
+
+const _cacheStore = new Map();
+let _cacheBypass = false;
+
+const Cache = {
+  memoize: (key, ttlSeconds) => function(thunk) {
+    return _perform('Cache', 'memoize', [key, ttlSeconds, thunk]);
+  },
+};
+
+function _cacheHandlers(bypass) {
+  return {
+    'Cache.memoize': function(args) {
+      const key = String(args[0]); const ttlMs = Number(args[1]) * 1000;
+      const thunk = args[2]; const resume = args[args.length - 1];
+      if (bypass) return resume(thunk());
+      const nowMs = Date.now();
+      const entry = _cacheStore.get(key);
+      if (entry && nowMs < entry[0]) return resume(entry[1]);
+      const v = thunk();
+      _cacheStore.set(key, [nowMs + ttlMs, v]);
+      return resume(v);
+    },
+  };
+}
+
+function runCache(bodyFn) {
+  const ops = new Set(['Cache.memoize']);
+  return _handle(bodyFn, ops, _cacheHandlers(false));
+}
+
+function runCacheBypass(bodyFn) {
+  const ops = new Set(['Cache.memoize']);
+  return _handle(bodyFn, ops, _cacheHandlers(true));
+}
+
+// ── v1.4 State effect ───────────────────────────────────────────────────────
+//
+// State.get              → _perform("State", "get",    [])
+// State.set(s)           → _perform("State", "set",    [s])
+// State.modify(f)        → _perform("State", "modify", [f])
+// runState(s0)(bodyFn)   — returns [finalState, result]
+
+const State = {
+  get:    ()  => _perform('State', 'get',    []),
+  set:    (s) => _perform('State', 'set',    [s]),
+  modify: (f) => _perform('State', 'modify', [f]),
+};
+
+function runState(s0) {
+  return function(bodyFn) {
+    let state = s0;
+    const handlers = {
+      'State.get': function(args) {
+        return args[args.length - 1](state);
+      },
+      'State.set': function(args) {
+        state = args[0];
+        return args[args.length - 1](undefined);
+      },
+      'State.modify': function(args) {
+        state = args[0](state);
+        return args[args.length - 1](undefined);
+      },
+    };
+    const ops = new Set(['State.get', 'State.set', 'State.modify']);
+    const result = _handle(bodyFn, ops, handlers);
+    return [state, result];
+  };
+}
+
+// ── v1.4 Tx effect ──────────────────────────────────────────────────────────
+//
+// Tx.atomic(thunk)  — signals transactional scope; default is no-op
+// runTx(bodyFn)     — default no-op handler (just runs body directly)
+
+const Tx = {
+  atomic: (thunk) => thunk(),
+};
+
+function runTx(bodyFn) {
+  return bodyFn();
+}
+
+// ── v1.4 Auth effect ────────────────────────────────────────────────────────
+//
+// Auth.currentUser  — returns current user or null (Option-like)
+// Auth.require      — returns current user or throws
+// runAuthWith(user)(bodyFn)  — injects a fixed user
+
+let _authUser = null;
+
+const Auth = {
+  currentUser: () => _authUser,
+  require:     () => {
+    if (_authUser === null) throw new Error('Auth.require: no authenticated user in context');
+    return _authUser;
+  },
+};
+
+function runAuthWith(user) {
+  return function(bodyFn) {
+    const prior = _authUser;
+    _authUser = user;
+    try { return bodyFn(); }
+    finally { _authUser = prior; }
+  };
+}
 """
 
 /** Browser-SPA overlay loaded AFTER `JsRuntime` so its `serve(...)` /

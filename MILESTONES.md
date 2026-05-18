@@ -866,7 +866,17 @@ see git history.)
    Worker creation is ~50–100ms one-time, so a pool would help for
    small-task workloads.
 
-## v1.4 — Standard-library effects ~ Partial (items 1–4 landed; items 5–10 pending)
+## v1.4 — Standard-library effects ✓ Landed
+
+**Landing notes (2026-05-18):**
+- Items 1–4 ✓ (prior): Logger, Random, Clock, Env — all three backends
+- Item 5 ✓: `Http` effect — `Http.get/post/request` + `runHttp` + `runHttpStub(routes)`
+- Item 6 ✓: `Retry` effect — `Retry.attempt(n, delayMs)(thunk)` + `runRetry` + `runRetryNoSleep`
+- Item 7 ✓: `Cache` effect — `Cache.memoize(key, ttl)(thunk)` + `runCache` + `runCacheBypass`
+- Item 8 ✓: `State` effect — `State.get/set/modify` + `runState(s0)(body)` → `(finalState, result)`
+- Item 9 ✓: `Tx` effect — `Tx.atomic { body }` + `runTx` (no-op default)
+- Item 10 ✓: `Auth` effect — `Auth.currentUser/require` + `runAuthWith(user)(body)`
+- 40 conformance tests in `StdEffectsTest`; all three backends
 
 A curated set of pure-by-default effects that cover the boring 80% of
 app plumbing (logging, config, IDs, random, time, retry, cache).  Each

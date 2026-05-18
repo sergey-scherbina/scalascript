@@ -218,3 +218,194 @@ class StdEffectsTest extends AnyFunSuite with Matchers:
                 case None    => println("missing")
         }
       """) shouldBe "found"
+
+  // ── Http ──────────────────────────────────────────────────────────────
+
+  test("runHttpStub returns stubbed 200 response for known URL"):
+    captured("""
+      val routes = Map("http://example.com/hello" -> "world")
+      runHttpStub(routes) {
+        val resp = Http.get("http://example.com/hello")
+        println(resp.status)
+        println(resp.body)
+      }
+    """) shouldBe "200\nworld"
+
+  test("runHttpStub returns 404 for unknown URL"):
+    captured("""
+      val routes = Map("http://example.com/hello" -> "world")
+      runHttpStub(routes) {
+        val resp = Http.get("http://example.com/missing")
+        println(resp.status)
+      }
+    """) shouldBe "404"
+
+  test("runHttpStub post returns stubbed response"):
+    captured("""
+      val routes = Map("http://api.test/submit" -> "ok")
+      runHttpStub(routes) {
+        val resp = Http.post("http://api.test/submit", "data")
+        println(resp.status)
+        println(resp.body)
+      }
+    """) shouldBe "200\nok"
+
+  test("runHttpStub request with method returns stubbed response"):
+    captured("""
+      val routes = Map("http://api.test/item" -> "found")
+      runHttpStub(routes) {
+        val resp = Http.request("DELETE", "http://api.test/item", Map(), "")
+        println(resp.status)
+        println(resp.body)
+      }
+    """) shouldBe "200\nfound"
+
+  // ── Retry ─────────────────────────────────────────────────────────────
+
+  test("Retry.attempt returns value on immediate success"):
+    captured("""
+      runRetryNoSleep {
+        val r = Retry.attempt(3, 0) { () => 42 }
+        println(r)
+      }
+    """) shouldBe "42"
+
+  test("Retry.attempt rethrows after max attempts exhausted"):
+    an[Exception] should be thrownBy captured("""
+      runRetryNoSleep {
+        Retry.attempt(2, 0) { () =>
+          throw RuntimeException("always fails")
+        }
+      }
+    """)
+
+  test("Retry.attempt n=0 runs exactly once even if it succeeds"):
+    captured("""
+      runRetryNoSleep {
+        val r = Retry.attempt(0, 0) { () => "once" }
+        println(r)
+      }
+    """) shouldBe "once"
+
+  // ── Cache ─────────────────────────────────────────────────────────────
+
+  test("Cache.memoize returns same value on second call"):
+    // Verify both calls return the same cached result
+    captured("""
+      runCache {
+        val v1 = Cache.memoize("key1d", 60) { () => 99 }
+        val v2 = Cache.memoize("key1d", 60) { () => 99 }
+        println(v1)
+        println(v2)
+        println(v1 == v2)
+      }
+    """) shouldBe "99\n99\ntrue"
+
+  test("runCacheBypass returns fresh value each call"):
+    captured("""
+      runCacheBypass {
+        val v1 = Cache.memoize("bypassKey4", 60) { () => 42 }
+        val v2 = Cache.memoize("bypassKey4", 60) { () => 99 }
+        println(v1)
+        println(v2)
+      }
+    """) shouldBe "42\n99"
+
+  // ── State ─────────────────────────────────────────────────────────────
+
+  test("runState returns (finalState, result) pair"):
+    captured("""
+      val (s, r) = runState(0) {
+        State.set(10)
+        State.set(42)
+        "done"
+      }
+      println(s)
+      println(r)
+    """) shouldBe "42\ndone"
+
+  test("State.get returns current state"):
+    captured("""
+      val (s, r) = runState(7) {
+        val v = State.get()
+        v
+      }
+      println(r)
+    """) shouldBe "7"
+
+  test("State.modify applies a function to the state"):
+    captured("""
+      val (s, r) = runState(10) {
+        State.modify(x => x * 2)
+        State.modify(x => x + 5)
+        State.get()
+      }
+      println(s)
+      println(r)
+    """) shouldBe "25\n25"
+
+  test("runState initial state is used when no set performed"):
+    captured("""
+      val (s, r) = runState(99) {
+        42
+      }
+      println(s)
+    """) shouldBe "99"
+
+  // ── Tx ────────────────────────────────────────────────────────────────
+
+  test("Tx.atomic just runs body"):
+    captured("""
+      val x = Tx.atomic { 123 }
+      println(x)
+    """) shouldBe "123"
+
+  test("runTx runs body directly"):
+    captured("""
+      runTx {
+        println("in tx")
+      }
+    """) shouldBe "in tx"
+
+  // ── Auth ──────────────────────────────────────────────────────────────
+
+  test("Auth.currentUser returns None outside runAuthWith"):
+    captured("""
+      val u = Auth.currentUser
+      u match
+        case Some(v) => println("some:" + v)
+        case None    => println("none")
+    """) shouldBe "none"
+
+  test("runAuthWith injects user for Auth.currentUser"):
+    captured("""
+      runAuthWith("alice") {
+        val u = Auth.currentUser
+        u match
+          case Some(v) => println(v)
+          case None    => println("none")
+      }
+    """) shouldBe "alice"
+
+  test("Auth.require returns user inside runAuthWith"):
+    captured("""
+      runAuthWith("bob") {
+        println(Auth.require)
+      }
+    """) shouldBe "bob"
+
+  test("Auth.require throws outside runAuthWith"):
+    an[Exception] should be thrownBy captured("""
+      Auth.require
+    """)
+
+  test("runAuthWith restores prior user after block"):
+    captured("""
+      runAuthWith("carol") {
+        println(Auth.require)
+      }
+      val u = Auth.currentUser
+      u match
+        case Some(v) => println("still: " + v)
+        case None    => println("restored")
+    """) shouldBe "carol\nrestored"
