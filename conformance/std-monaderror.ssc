@@ -31,12 +31,20 @@ println(attemptOption(noneInt))
 println(attemptOption(Some(100)))
 ```
 
-## Either — helpers
+## Either — extension dispatch (v1.13)
 
 ```scalascript
 val ok:  Either[String, Int] = Right(42)
 val err: Either[String, Int] = Left("boom")
 
+println(ok.handleError((e: String) => Right(0)))
+println(err.handleError((e: String) => Right(0)))
+println(err.handleError((e: String) => Left("re:" + e)))
+```
+
+## Either — helpers
+
+```scalascript
 println(handleEither(err, (e: String) => Right(0)))
 println(handleEither(ok,  (e: String) => Right(0)))
 println(handleEither(err, (e: String) => Left("re:" + e)))

@@ -7,18 +7,16 @@ version: 1.0.0
 
 Exercises the v1.1 std library's first two typeclasses: `Semigroup`,
 `Monoid`, the canonical instances, and the `combineAll` /
-`combineAllOption` helpers.
+`combineAllOption` helpers (context-bound form, landed v1.13).
 
 [intSum, stringConcat, listConcat, combineAll, combineAllOption](../std/semigroup-monoid.ssc)
 
 ```scalascript
-println(combineAll(List(1, 2, 3, 4, 5), intSum))
-println(combineAll(List[Int](), intSum))
-println(combineAll(List("hello", ", ", "world"), stringConcat))
-println(combineAll(List(List(1, 2), List(3), List(4, 5)), listConcat))
+println(combineAll(List(1, 2, 3, 4, 5)))
+println(combineAll(List("hello", ", ", "world")))
+println(combineAll(List(List(1, 2), List(3), List(4, 5))))
 
-println(combineAllOption(List[Int](), intSum))
-println(combineAllOption(List(7, 8, 9), intSum))
+println(combineAllOption(List(7, 8, 9)))
 
 println(intSum.combine(intSum.empty, 42))
 println(stringConcat.combine("foo", stringConcat.empty))

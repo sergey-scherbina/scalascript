@@ -10,7 +10,7 @@ Exercises `Bifunctor[Tuple2]` via extension dispatch and
 
 [Left, Right](../std/either.ssc)
 
-[tupleBifunctor, bimapTuple, leftMapTuple, rightMapTuple, bimapEither, leftMapEither, rightMapEither](../std/bifunctor.ssc)
+[tupleBifunctor, eitherBifunctor, bimapTuple, leftMapTuple, rightMapTuple, bimapEither, leftMapEither, rightMapEither](../std/bifunctor.ssc)
 
 ## Tuple2 — extension dispatch
 
@@ -29,12 +29,23 @@ println(leftMapTuple((5, "x"), (x: Int) => -x))
 println(rightMapTuple((5, "x"), (s: String) => s + "Y"))
 ```
 
-## Either — helpers
+## Either — extension dispatch (v1.13)
 
 ```scalascript
 val r: Either[String, Int] = Right(42)
 val l: Either[String, Int] = Left("boom")
 
+println(r.bimap((s: String) => "ERR:" + s, (n: Int) => n + 1))
+println(l.bimap((s: String) => "ERR:" + s, (n: Int) => n + 1))
+println(r.leftMap((s: String) => s.length))
+println(l.leftMap((s: String) => s.length))
+println(r.rightMap((n: Int) => n.toString))
+println(l.rightMap((n: Int) => n.toString))
+```
+
+## Either — helpers
+
+```scalascript
 println(bimapEither(r, (s: String) => "ERR:" + s, (n: Int) => n + 1))
 println(bimapEither(l, (s: String) => "ERR:" + s, (n: Int) => n + 1))
 println(leftMapEither(l, (s: String) => s.length))

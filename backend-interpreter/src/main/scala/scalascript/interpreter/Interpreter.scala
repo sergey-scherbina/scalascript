@@ -1511,7 +1511,14 @@ class Interpreter(
       val sourceName = binding.name
       val targetName = binding.alias.getOrElse(binding.name)
       lookupExport(exported, childPkg, sourceName) match
-        case Some(v) => globals(targetName) = v
+        case Some(v) =>
+          globals(targetName) = v
+          // For given instances: also import the type-keyed alias (e.g. "Monoid[Int]")
+          // so resolveGiven can find it even if only the explicit name was imported.
+          v match
+            case inst: Value.InstanceV if inst.typeName.contains('[') =>
+              if !globals.contains(inst.typeName) then globals(inst.typeName) = inst
+            case _ => ()
         case None    => throw InterpretError(s"'$sourceName' not found in ${imp.path}")
     // Extensions and sealed-parent mappings registered by the imported module
     // become available in the importer's scope.
@@ -1521,7 +1528,9 @@ class Interpreter(
   /** Navigate nested InstanceV objects to find `name` under the package path.
    *  For `pkg = ["org", "example", "ui"]` and `name = "Card"` this resolves
    *  `exported("org").fields("example").fields("ui").fields("Card")`.
-   *  Falls back to a flat `exported.get(name)` when `pkg` is empty. */
+   *  Falls back to a flat `exported.get(name)` when `pkg` is empty or when
+   *  the package path lookup misses (e.g. re-exported symbols from sub-imports
+   *  land in flat globals, not under the re-exporting module's package). */
   private def lookupExport(exported: Map[String, Value], pkg: List[String], name: String): Option[Value] =
     if pkg.isEmpty then exported.get(name)
     else
@@ -1533,6 +1542,7 @@ class Interpreter(
       pkgObj.collect {
         case Value.InstanceV(_, fields) => fields.get(name)
       }.flatten
+      .orElse(exported.get(name))
 
   private def execBlockStats(stats: List[Stat]): Unit =
     stats.zipWithIndex.foreach { (s, i) =>

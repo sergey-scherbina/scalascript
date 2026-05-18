@@ -403,7 +403,12 @@ unblocks downstream features as early as possible.
      to coroutine's program-as-control-flow.  Pure library work,
      no compiler changes.  Parallel with v1.11 if scheduling
      permits.
- 18. **v1.13 — Final Tagless ergonomics** ~ Partial (Phases 1+2+3 Landed)
+ 18. **v1.12 — Algebraic effects feasibility study** (~1 week, no
+     shipping code).
+     Design doc + prototype + go/no-go.  Investigates whether the
+     existing typer can carry effect rows; commits to or rejects a
+     v2.x algebraic-effects milestone.
+ 19. **v1.13 — Final Tagless ergonomics** ✓ Landed.
      Land four typer features that block idiomatic typeclass usage:
      `using` auto-resolution, context bounds, cross-file trait
      inheritance with HKT, sealed-trait extension dispatch in INT.
@@ -2109,7 +2114,7 @@ Four phases, ~1 week.  Pure library work; no compiler changes,
 no SPI changes.  Slots after v1.11; can also land in parallel
 with v1.11 since they have no shared code.
 
-## v1.13 — Final Tagless ergonomics ~ Partial (Phases 1+2+3 Landed; Phases 4,5,6 pending)
+## v1.13 — Final Tagless ergonomics ✓ Landed
 
 Make the FT pattern first-class in user code by landing four
 typer features that today block idiomatic typeclass usage.  The
@@ -3670,28 +3675,15 @@ milestone narrow, but each leaves an unergonomic seam users will
 hit again.  Roughly a session each; pick up when the next milestone
 that uses them lands.
 
-1. **Sealed-trait extension dispatch in the interpreter.**  A
-   `Right(…)` value has typeName `"Right"`, but `extension [A](fa:
-   Either[E, A])` registers under `"Either"`.  Without a
-   sealed-parent registry the interpreter misses the route — which
-   is why `Bifunctor[Either]` and `MonadError[Either, …]` ship
-   through helper functions in steps 5 and 6 of v1.1.  Need a
-   sealed-trait → case-class index built at trait/class definition
-   time, then `extensionDispatch` walks the parent chain.  ~100 LOC
-   interpreter change.  JS already handles this via `_typeOf` from
-   v1.1 step 4.
+1. **Sealed-trait extension dispatch in the interpreter.** ✓ Landed
+   with v1.13.  `sealedParents` registry walks the parent chain so
+   `Right(…)` reaches extensions on `Either`.  `std/bifunctor.ssc`
+   and `std/monaderror.ssc` now use full extension dispatch.
 
-2. **`using`-clause auto-resolution.**  Polymorphic typeclass code
-   (`def doIt[F[_]: Monad, A](fa: F[A])…`) requires `summon`
-   resolution at the call site.  ScalaScript today only supports
-   explicit-parameter passing, which is why every std helper is
-   monomorphic (`pureList`, `pureOption`, `combineAll(xs, intSum)`
-   rather than `pure[List](x)` / `xs.combineAll`).  Bigger lift
-   across all three backends — needs a resolution pass in the
-   typer that walks each `using` parameter, finds a unique
-   in-scope `given` of the right type, and re-writes the call to
-   pass it explicitly before lowering.  Defer until a user-facing
-   API actually wants the polymorphic shape.
+2. **`using`-clause auto-resolution.** ✓ Landed with v1.13.
+   Context-bound desugaring, `summon`, and `using` auto-resolution
+   all wired in the interpreter.  `combineAll[A: Monoid]` resolves
+   `given` instances from scope without explicit passing.
 
 3. **`Term.Ascribe`.**  Type ascriptions like `(None: Option[Int])`
    aren't handled by the interpreter — it errors with `Cannot

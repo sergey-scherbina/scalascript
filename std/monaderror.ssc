@@ -24,11 +24,9 @@ The trait has two type parameters — the effect `F[_]` and the error
 `E`.  Instances ship for:
 
   - `MonadError[Option, Unit]` — fully extension-dispatched
-  - `Either[String, *]` — exposed only through helper functions, since
-    the interpreter doesn't yet route extension methods through
-    user-defined sealed-trait hierarchies (e.g. `Right(...)` doesn't
-    inherit `Either`'s extensions).  Helpers `raiseEither`,
-    `handleEither`, and `attemptEither` give the same surface.
+  - `Either[String, A]` — `handleError` extension via sealed-parent chain
+    (landed v1.13); helpers `raiseEither`, `handleEither`, `attemptEither`
+    remain as function-style aliases.
 
 [Left, Right](./either.ssc)
 
@@ -50,7 +48,16 @@ given optionUnitError: MonadError[Option, Unit] with
     case None    => h(())
 ```
 
-## Either helpers (string error)
+## Either — handleError extension (v1.13)
+
+```scalascript
+extension [A](fa: Either[String, A])
+  def handleError(h: String => Either[String, A]): Either[String, A] = fa match
+    case Right(_) => fa
+    case Left(e)  => h(e)
+```
+
+## Either helpers (function-style aliases)
 
 ```scalascript
 def raiseEither[A](e: String): Either[String, A] = Left(e)

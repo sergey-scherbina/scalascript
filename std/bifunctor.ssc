@@ -5,6 +5,7 @@ description: Bifunctor typeclass — std v1.1 step 6
 package: std.bifunctor
 exports:
   - tupleBifunctor
+  - eitherBifunctor
   - bimapTuple
   - leftMapTuple
   - rightMapTuple
@@ -24,9 +25,9 @@ transform the error half independently of the value half:
   Either[ParseError, User].leftMap(_.toString)  // Either[String, User]
 
 ScalaScript ships `Bifunctor` for the two natural two-place
-constructors: `Tuple2` (full extension dispatch) and `Either`
-(helper functions only, since the interpreter doesn't route
-extension methods through user-defined sealed-trait hierarchies yet).
+constructors: `Tuple2` and `Either`, both via full extension dispatch
+(landed v1.13 — sealed-parent chain walk lets `Left`/`Right` values
+reach extensions registered on `Either`).
 
 [Left, Right](./either.ssc)
 
@@ -63,7 +64,23 @@ def rightMapTuple[A, B, D](fab: Tuple2[A, B], g: B => D): Tuple2[A, D] =
   (fab._1, g(fab._2))
 ```
 
-## Either helpers
+## Either instance
+
+```scalascript
+given eitherBifunctor: Bifunctor[Either] with
+  extension [A, B](fab: Either[A, B])
+    def bimap[C, D](f: A => C, g: B => D): Either[C, D] = fab match
+      case Left(a)  => Left(f(a))
+      case Right(b) => Right(g(b))
+    def leftMap[C](f: A => C): Either[C, B] = fab match
+      case Left(a)  => Left(f(a))
+      case Right(b) => Right(b)
+    def rightMap[D](g: B => D): Either[A, D] = fab match
+      case Left(a)  => Left(a)
+      case Right(b) => Right(g(b))
+```
+
+## Either helpers (function-style aliases)
 
 ```scalascript
 def bimapEither[A, B, C, D](fab: Either[A, B], f: A => C, g: B => D): Either[C, D] = fab match
