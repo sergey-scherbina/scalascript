@@ -537,388 +537,12 @@ class Interpreter(
       case _                              => Value.UnitV
     }
 
-    nativeP("tls") {
-      case List(Value.StringV(cert), Value.StringV(key)) =>
-        Value.InstanceV("TlsContext", Map(
-          "cert" -> Value.StringV(cert),
-          "key"  -> Value.StringV(key)
-        ))
-      case _ => throw InterpretError("tls(certPath, keyPath)")
-    }
-
-    // serve() with TLS overrides the HttpIntrinsics NativeImpl registration
-    // (last registration wins) to add the serve(port, tls(cert,key)) case.
-    nativeP("serve") {
-      case List(Value.IntV(port)) =>
-        registerHealthDefaults()
-        if !headless then scalascript.server.WebServer.start(port.toInt, ".", out)
-        Value.UnitV
-      case List(Value.IntV(port), Value.StringV(dir)) =>
-        registerHealthDefaults()
-        if !headless then scalascript.server.WebServer.start(port.toInt, dir, out)
-        Value.UnitV
-      case List(Value.IntV(port), Value.InstanceV("TlsContext", tlsFields)) =>
-        registerHealthDefaults()
-        if !headless then
-          val cert = tlsFields.get("cert").collect { case Value.StringV(s) => s }.getOrElse("")
-          val key  = tlsFields.get("key").collect  { case Value.StringV(s) => s }.getOrElse("")
-          scalascript.server.WebServer.start(port.toInt, ".", out, cert, key)
-        Value.UnitV
-      case _ => throw InterpretError("serve(port), serve(port, dir), or serve(port, tls(cert, key))")
-    }
-
     // Wall-clock for benchmarks — same name across all three backends.
     nativeP("nanoTime") { _ => Value.IntV(java.lang.System.nanoTime()) }
-
-    // ── Outbound HTTP client ──────────────────────────────────────────
-    // httpGet / httpPost / httpClient use java.net.http.HttpClient
-    // (built-in since JDK 11, Loom-friendly, HTTP/2-capable).  The
-    // thread-local _httpBaseUrl (class-level field) lets httpClient{}
-    // prepend a base URL without threading it through every call site.
-
-    def httpDoRequest(
-        method:  String,
-        rawUrl:  String,
-        body:    String,
-        headers: Map[String, String]
-    ): Value =
-      import java.net.http.{HttpClient as JHttpClient, HttpRequest, HttpResponse}
-      import scala.jdk.CollectionConverters.*
-      val base    = _httpBaseUrl.get()
-      val url     = if base.nonEmpty && !rawUrl.startsWith("http") then base + rawUrl else rawUrl
-      val timeout = java.time.Duration.ofMillis(_httpTimeoutMs.get())
-      val client  = JHttpClient.newBuilder().connectTimeout(timeout).build()
-      val builder = HttpRequest.newBuilder().uri(java.net.URI.create(url)).timeout(timeout)
-      headers.foreach((k, v) => builder.header(k, v))
-      val req = method match
-        case "GET"    => builder.GET().build()
-        case "POST"   => builder.POST(HttpRequest.BodyPublishers.ofString(body)).build()
-        case "PUT"    => builder.PUT(HttpRequest.BodyPublishers.ofString(body)).build()
-        case "DELETE" => builder.DELETE().build()
-        case m        => builder.method(m, HttpRequest.BodyPublishers.ofString(body)).build()
-      val maxTries = _httpMaxRetries.get() + 1
-      val delayMs  = _httpRetryDelayMs.get()
-      var attempt  = 0; var lastResp: HttpResponse[String] | Null = null; var lastErr: Throwable | Null = null
-      while attempt < maxTries do
-        try { lastResp = client.send(req, HttpResponse.BodyHandlers.ofString()); lastErr = null }
-        catch case e: Throwable => lastErr = e
-        val shouldRetry = lastErr != null || (lastResp != null && lastResp.statusCode() >= 500)
-        attempt += 1
-        if shouldRetry && attempt < maxTries then Thread.sleep(delayMs)
-        else attempt = maxTries // break
-      if lastErr != null then throw lastErr
-      val resp = lastResp.nn
-      val hdrs: Map[Value, Value] = resp.headers().map().entrySet().iterator().asScala.flatMap { e =>
-        if e.getValue.isEmpty then None
-        else Some((Value.StringV(e.getKey): Value) -> (Value.StringV(e.getValue.get(0)): Value))
-      }.toMap
-      Value.InstanceV("Response", Map(
-        "status"  -> Value.IntV(resp.statusCode().toLong),
-        "body"    -> Value.StringV(resp.body()),
-        "headers" -> Value.MapV(hdrs)
-      ))
-
-    def headersArg(v: Value): Map[String, String] = v match
-      case Value.MapV(m) => m.collect {
-        case (Value.StringV(k), Value.StringV(vv)) => k -> vv
-      }.toMap
-      case _ => Map.empty
-
-    nativeP("httpGet") {
-      case List(Value.StringV(url)) =>
-        httpDoRequest("GET", url, "", Map.empty)
-      case List(Value.StringV(url), hdrs) =>
-        httpDoRequest("GET", url, "", headersArg(hdrs))
-      case _ => throw InterpretError("httpGet(url[, headers])")
-    }
-    nativeP("httpPost") {
-      case List(Value.StringV(url), Value.StringV(body)) =>
-        httpDoRequest("POST", url, body, Map.empty)
-      case List(Value.StringV(url), Value.StringV(body), hdrs) =>
-        httpDoRequest("POST", url, body, headersArg(hdrs))
-      case _ => throw InterpretError("httpPost(url, body[, headers])")
-    }
-    nativeP("httpPut") {
-      case List(Value.StringV(url), Value.StringV(body)) =>
-        httpDoRequest("PUT", url, body, Map.empty)
-      case List(Value.StringV(url), Value.StringV(body), hdrs) =>
-        httpDoRequest("PUT", url, body, headersArg(hdrs))
-      case _ => throw InterpretError("httpPut(url, body[, headers])")
-    }
-    nativeP("httpPatch") {
-      case List(Value.StringV(url), Value.StringV(body)) =>
-        httpDoRequest("PATCH", url, body, Map.empty)
-      case List(Value.StringV(url), Value.StringV(body), hdrs) =>
-        httpDoRequest("PATCH", url, body, headersArg(hdrs))
-      case _ => throw InterpretError("httpPatch(url, body[, headers])")
-    }
-    nativeP("httpDelete") {
-      case List(Value.StringV(url)) =>
-        httpDoRequest("DELETE", url, "", Map.empty)
-      case List(Value.StringV(url), hdrs) =>
-        httpDoRequest("DELETE", url, "", headersArg(hdrs))
-      case _ => throw InterpretError("httpDelete(url[, headers])")
-    }
-
-    // httpGetStream / httpPostStream — streaming variants; call handler for each line.
-    // Curried: httpGetStream(url[, headers]) returns a NativeFnV expecting the handler.
-    def httpDoRequestStream(
-        method:  String,
-        rawUrl:  String,
-        body:    String,
-        headers: Map[String, String],
-        handler: Value
-    ): Value =
-      import java.net.http.{HttpClient as JHttpClient, HttpRequest, HttpResponse}
-      import scala.jdk.CollectionConverters.*
-      val base    = _httpBaseUrl.get()
-      val url     = if base.nonEmpty && !rawUrl.startsWith("http") then base + rawUrl else rawUrl
-      val timeout = java.time.Duration.ofMillis(_httpTimeoutMs.get())
-      val client  = JHttpClient.newBuilder().connectTimeout(timeout).build()
-      val builder = HttpRequest.newBuilder().uri(java.net.URI.create(url)).timeout(timeout)
-      headers.foreach((k, v) => builder.header(k, v))
-      val req = method match
-        case "GET"  => builder.GET().build()
-        case "POST" => builder.POST(HttpRequest.BodyPublishers.ofString(body)).build()
-        case m      => builder.method(m, HttpRequest.BodyPublishers.ofString(body)).build()
-      val resp = client.send(req, HttpResponse.BodyHandlers.ofLines())
-      val hdrs: Map[Value, Value] = resp.headers().map().entrySet().iterator().asScala.flatMap { e =>
-        if e.getValue.isEmpty then None
-        else Some((Value.StringV(e.getKey): Value) -> (Value.StringV(e.getValue.get(0)): Value))
-      }.toMap
-      resp.body().forEach { line => invoke(handler, List(Value.StringV(line))) }
-      Value.InstanceV("Response", Map(
-        "status"  -> Value.IntV(resp.statusCode().toLong),
-        "body"    -> Value.StringV(""),
-        "headers" -> Value.MapV(hdrs)
-      ))
-
-    nativeP("httpGetStream") {
-      case List(Value.StringV(url)) =>
-        Value.NativeFnV("httpGetStream.handler", Computation.pureFn {
-          case List(handler) => httpDoRequestStream("GET", url, "", Map.empty, handler)
-          case _ => throw InterpretError("httpGetStream(url)(handler)")
-        })
-      case List(Value.StringV(url), hdrs) =>
-        val h = headersArg(hdrs)
-        Value.NativeFnV("httpGetStream.handler", Computation.pureFn {
-          case List(handler) => httpDoRequestStream("GET", url, "", h, handler)
-          case _ => throw InterpretError("httpGetStream(url, headers)(handler)")
-        })
-      case _ => throw InterpretError("httpGetStream(url[, headers])(handler)")
-    }
-
-    nativeP("httpPostStream") {
-      case List(Value.StringV(url), Value.StringV(body)) =>
-        Value.NativeFnV("httpPostStream.handler", Computation.pureFn {
-          case List(handler) => httpDoRequestStream("POST", url, body, Map.empty, handler)
-          case _ => throw InterpretError("httpPostStream(url, body)(handler)")
-        })
-      case List(Value.StringV(url), Value.StringV(body), hdrs) =>
-        val h = headersArg(hdrs)
-        Value.NativeFnV("httpPostStream.handler", Computation.pureFn {
-          case List(handler) => httpDoRequestStream("POST", url, body, h, handler)
-          case _ => throw InterpretError("httpPostStream(url, body, headers)(handler)")
-        })
-      case _ => throw InterpretError("httpPostStream(url, body[, headers])(handler)")
-    }
 
     // httpClient(baseUrl) { block } — handled as a special form in eval
     // (double-apply pattern) so the block is evaluated directly rather than
     // wrapped as a thunk.  See the Term.Apply case in eval below.
-
-    // wsConnect(url[, headers[, protocols]]) { ws => … }
-    // Curried: first call returns a NativeFnV that takes the handler.
-    // Blocks on the calling thread until the server closes the connection.
-    nativeP("wsConnect") {
-      case List(Value.StringV(url)) =>
-        Value.NativeFnV("wsConnect.handler", Computation.pureFn {
-          case List(handler) =>
-            val sess = scalascript.server.WsClientSession(url, Map.empty, Nil, this, out)
-            sess.connect()
-            invoke(handler, List(sess.wsObj))
-            sess.awaitClose()
-            Value.UnitV
-          case _ => throw InterpretError("wsConnect(url) { ws => … }")
-        })
-      case List(Value.StringV(url), hdrs) =>
-        val headers = headersArg(hdrs)
-        Value.NativeFnV("wsConnect.handler", Computation.pureFn {
-          case List(handler) =>
-            val sess = scalascript.server.WsClientSession(url, headers, Nil, this, out)
-            sess.connect()
-            invoke(handler, List(sess.wsObj))
-            sess.awaitClose()
-            Value.UnitV
-          case _ => throw InterpretError("wsConnect(url, headers) { ws => … }")
-        })
-      case List(Value.StringV(url), hdrs, Value.ListV(prots)) =>
-        val headers   = headersArg(hdrs)
-        val protocols = prots.collect { case Value.StringV(s) => s }
-        Value.NativeFnV("wsConnect.handler", Computation.pureFn {
-          case List(handler) =>
-            val sess = scalascript.server.WsClientSession(url, headers, protocols, this, out)
-            sess.connect()
-            invoke(handler, List(sess.wsObj))
-            sess.awaitClose()
-            Value.UnitV
-          case _ => throw InterpretError("wsConnect(url, headers, protocols) { ws => … }")
-        })
-      case _ => throw InterpretError("wsConnect(url[, headers[, protocols]]) { ws => … }")
-    }
-
-    // cors(origins[, methods[, allowedHeaders]]) — global CORS policy
-    nativeP("cors") {
-      case List(Value.ListV(origins)) =>
-        scalascript.server.WebServer.configureCors(
-          origins.collect { case Value.StringV(s) => s },
-          List("GET","POST","PUT","DELETE","OPTIONS","PATCH"), Nil)
-        Value.UnitV
-      case List(Value.ListV(origins), Value.ListV(methods)) =>
-        scalascript.server.WebServer.configureCors(
-          origins.collect { case Value.StringV(s) => s },
-          methods.collect { case Value.StringV(s) => s }, Nil)
-        Value.UnitV
-      case List(Value.ListV(origins), Value.ListV(methods), Value.ListV(hdrs)) =>
-        scalascript.server.WebServer.configureCors(
-          origins.collect { case Value.StringV(s) => s },
-          methods.collect { case Value.StringV(s) => s },
-          hdrs.collect { case Value.StringV(s) => s })
-        Value.UnitV
-      case _ => throw InterpretError("cors(origins[, methods[, headers]])")
-    }
-
-    nativeP("useGzip") {
-      case Nil => scalascript.server.WebServer.enableGzip(); Value.UnitV
-      case _   => throw InterpretError("useGzip()")
-    }
-
-    def addCacheHdrs(v: Value, extra: Map[String, String]): Value = v match
-      case Value.InstanceV("Response", fields) =>
-        val h = fields.get("headers") match
-          case Some(Value.MapV(m)) => m
-          case _                   => Map.empty[Value, Value]
-        val merged = h ++ extra.map { case (k, vv) => (Value.StringV(k): Value) -> (Value.StringV(vv): Value) }
-        Value.InstanceV("Response", fields + ("headers" -> Value.MapV(merged)))
-      case other => other
-
-    nativeP("cacheable") {
-      case List(resp, Value.IntV(maxAge)) =>
-        addCacheHdrs(resp, Map("Cache-Control" -> s"public, max-age=$maxAge"))
-      case List(resp, Value.IntV(maxAge), Value.StringV(etag)) =>
-        addCacheHdrs(resp, Map("Cache-Control" -> s"public, max-age=$maxAge", "ETag" -> etag))
-      case _ => throw InterpretError("cacheable(response, maxAge[, etag])")
-    }
-
-    nativeP("noCache") {
-      case List(resp) =>
-        addCacheHdrs(resp, Map("Cache-Control" -> "no-store, no-cache, must-revalidate"))
-      case _ => throw InterpretError("noCache(response)")
-    }
-
-    // streamResponse { write => ... } — chunked streaming from a route handler.
-    // Returns a StreamResponse sentinel detected by WebServer.dispatchRoute
-    // before calling writeResponse.  Curried forms for status / headers too.
-    nativeP("streamResponse") {
-      case List(Value.IntV(status)) =>
-        Value.NativeFnV("streamResponse.block", Computation.pureFn {
-          case List(block) => Value.InstanceV("StreamResponse", Map(
-            "status" -> Value.IntV(status.toInt), "headers" -> Value.MapV(Map.empty), "callback" -> block))
-          case _ => throw InterpretError("streamResponse(status)(block)")
-        })
-      case List(Value.IntV(status), Value.MapV(hdrs)) =>
-        Value.NativeFnV("streamResponse.block", Computation.pureFn {
-          case List(block) => Value.InstanceV("StreamResponse", Map(
-            "status" -> Value.IntV(status.toInt), "headers" -> Value.MapV(hdrs), "callback" -> block))
-          case _ => throw InterpretError("streamResponse(status, headers)(block)")
-        })
-      case List(block) =>
-        Value.InstanceV("StreamResponse", Map(
-          "status" -> Value.IntV(200), "headers" -> Value.MapV(Map.empty), "callback" -> block))
-      case _ => throw InterpretError("streamResponse(block)")
-    }
-
-    // sse(req) { stream => stream.send(data) / stream.send(event, data) / stream.close() }
-    // Built on streamResponse — sets the SSE headers and wraps the raw write
-    // callback in an SseStream InstanceV so handlers don't have to format frames.
-    nativeP("sse") {
-      case List(_req) =>
-        val sseHeaders = Map(
-          "Content-Type"     -> "text/event-stream",
-          "Cache-Control"    -> "no-cache",
-          "Connection"       -> "keep-alive",
-          "X-Accel-Buffering"-> "no"
-        )
-        val headerMap = Value.MapV(sseHeaders.map((k, v) =>
-          (Value.StringV(k): Value) -> (Value.StringV(v): Value)))
-        Value.NativeFnV("sse.block", Computation.pureFn {
-          case List(block) =>
-            val callback = Value.NativeFnV("sse.writer", Computation.pureFn {
-              case List(writeFn) =>
-                val sseStream = Value.InstanceV("SseStream", Map(
-                  "send" -> Value.NativeFnV("SseStream.send", Computation.pureFn {
-                    case List(Value.StringV(data)) =>
-                      invoke(writeFn, List(Value.StringV(s"data: $data\n\n")))
-                      Value.UnitV
-                    case List(Value.StringV(event), Value.StringV(data)) =>
-                      invoke(writeFn, List(Value.StringV(s"event: $event\ndata: $data\n\n")))
-                      Value.UnitV
-                    case _ => throw InterpretError("SseStream.send(data) or send(event, data)")
-                  }),
-                  "close" -> Value.NativeFnV("SseStream.close", Computation.pureFn(_ => Value.UnitV))
-                ))
-                invoke(block, List(sseStream))
-                Value.UnitV
-              case _ => throw InterpretError("sse internal writer error")
-            })
-            Value.InstanceV("StreamResponse", Map(
-              "status"   -> Value.IntV(200),
-              "headers"  -> headerMap,
-              "callback" -> callback
-            ))
-          case _ => throw InterpretError("sse(req)(block)")
-        })
-      case _ => throw InterpretError("sse(req)(block)")
-    }
-
-    // maxBodySize(bytes) — reject requests whose body exceeds the limit with 413.
-    nativeP("maxBodySize") {
-      case List(Value.IntV(n)) => scalascript.server.WebServer.setMaxBodySize(n.toLong); Value.UnitV
-      case _ => throw InterpretError("maxBodySize(bytes: Int)")
-    }
-
-    // uploadSpoolThreshold / uploadDir — configure spool-to-disk for large file parts.
-    nativeP("uploadSpoolThreshold") {
-      case List(Value.IntV(n)) => scalascript.server.WebServer.setSpoolThreshold(n.toLong); Value.UnitV
-      case _ => throw InterpretError("uploadSpoolThreshold(bytes: Int)")
-    }
-    nativeP("uploadDir") {
-      case List(Value.StringV(p)) => scalascript.server.WebServer.setUploadDir(p); Value.UnitV
-      case _ => throw InterpretError("uploadDir(path: String)")
-    }
-
-    // use(fn) — register a middleware applied to every request before the route handler.
-    nativeP("use") {
-      case List(fn) => scalascript.server.Routes.addMiddleware(fn, this); Value.UnitV
-      case _ => throw InterpretError("use(fn: (Request, () => Response) => Response)")
-    }
-
-    // httpTimeout(ms) — set outbound HTTP request timeout for subsequent calls.
-    // Scoped inside httpClient{} blocks; restored on exit.
-    nativeP("httpTimeout") {
-      case List(Value.IntV(ms)) => _httpTimeoutMs.set(ms); Value.UnitV
-      case _ => throw InterpretError("httpTimeout(ms: Int)")
-    }
-
-    // httpRetry(maxAttempts[, delayMs]) — retry on network errors and 5xx up to maxAttempts times.
-    // Scoped inside httpClient{} blocks; restored on exit.
-    nativeP("httpRetry") {
-      case List(Value.IntV(n)) =>
-        _httpMaxRetries.set(n.toInt); Value.UnitV
-      case List(Value.IntV(n), Value.IntV(d)) =>
-        _httpMaxRetries.set(n.toInt); _httpRetryDelayMs.set(d); Value.UnitV
-      case _ => throw InterpretError("httpRetry(maxAttempts[, delayMs])")
-    }
 
     // Environment variable reader, same surface on all three backends.
     // `getenv(key)` returns the value or empty string when unset.
@@ -1927,94 +1551,11 @@ class Interpreter(
         "oauthRegisterProvider(name, Map[String, String])")
     }
 
-    // route / serve / stop now live in InterpreterIntrinsics (Stage 5+/B).
-
-    // onWebSocket(path)(handler) — registers a WS upgrade handler.  The
-    // handler receives a `WebSocket` value with `send` / `close` methods
-    // and `onMessage` / `onClose` callback registration.  Path syntax is
-    // the same as `route` (literal + `:name` captures).
-    //
-    // Two-arg form `onWebSocket(path, origins)(handler)` restricts the
-    // upgrade to requests whose `Origin:` header is in the list — a
-    // browser-side CSRF guard since cross-site `new WebSocket(...)` is
-    // not blocked by the same-origin policy.
-    nativeP("onWebSocket") {
-      case List(Value.StringV(path)) =>
-        Value.NativeFnV("onWebSocket.handler", Computation.pureFn {
-          case List(handler) =>
-            scalascript.server.WsRoutes.register(path, handler, this)
-            Value.UnitV
-          case _ => throw InterpretError("onWebSocket(path) { ws => … }")
-        })
-      case List(Value.StringV(path), Value.ListV(origins)) =>
-        val origs = origins.collect { case Value.StringV(s) => s }
-        Value.NativeFnV("onWebSocket.handler", Computation.pureFn {
-          case List(handler) =>
-            scalascript.server.WsRoutes.register(path, handler, this, origs)
-            Value.UnitV
-          case _ => throw InterpretError("onWebSocket(path, origins) { ws => … }")
-        })
-      case List(Value.StringV(path), Value.ListV(origins), Value.ListV(protocols)) =>
-        val origs = origins.collect   { case Value.StringV(s) => s }
-        val protos = protocols.collect { case Value.StringV(s) => s }
-        Value.NativeFnV("onWebSocket.handler", Computation.pureFn {
-          case List(handler) =>
-            scalascript.server.WsRoutes.register(path, handler, this, origs, protos)
-            Value.UnitV
-          case _ => throw InterpretError("onWebSocket(path, origins, protocols) { ws => … }")
-        })
-      // Four-arg form adds a per-route active-connection cap.  0 (or
-      // negative) means no limit; positive values refuse upgrades
-      // past the cap with 503.  Composes with `setMaxWsConnections`
-      // (process-wide): both caps must permit.
-      case List(Value.StringV(path), Value.ListV(origins), Value.ListV(protocols), Value.IntV(maxConn)) =>
-        val origs  = origins.collect   { case Value.StringV(s) => s }
-        val protos = protocols.collect { case Value.StringV(s) => s }
-        val cap    = if maxConn > Int.MaxValue.toLong || maxConn < 0 then 0 else maxConn.toInt
-        Value.NativeFnV("onWebSocket.handler", Computation.pureFn {
-          case List(handler) =>
-            scalascript.server.WsRoutes.register(path, handler, this, origs, protos, cap)
-            Value.UnitV
-          case _ => throw InterpretError("onWebSocket(path, origins, protocols, maxConnections) { ws => … }")
-        })
-      // Five-arg form also caps inbound messages per second per
-      // connection.  Overrun closes the offending client with code
-      // 1008.  0 = unlimited.
-      case List(Value.StringV(path), Value.ListV(origins), Value.ListV(protocols), Value.IntV(maxConn), Value.IntV(maxRate)) =>
-        val origs  = origins.collect   { case Value.StringV(s) => s }
-        val protos = protocols.collect { case Value.StringV(s) => s }
-        val cap    = if maxConn > Int.MaxValue.toLong || maxConn < 0 then 0 else maxConn.toInt
-        val rate   = if maxRate > Int.MaxValue.toLong || maxRate < 0 then 0 else maxRate.toInt
-        Value.NativeFnV("onWebSocket.handler", Computation.pureFn {
-          case List(handler) =>
-            scalascript.server.WsRoutes.register(path, handler, this, origs, protos, cap, rate)
-            Value.UnitV
-          case _ => throw InterpretError("onWebSocket(path, origins, protocols, maxConnections, maxMessagesPerSec) { ws => … }")
-        })
-      case _ => throw InterpretError("onWebSocket(path[, origins[, protocols[, maxConnections[, maxMessagesPerSec]]]]) { ws => … }")
-    }
-
-    // onWebSocketAuth(path, authFn)(handler) — pre-upgrade auth hook.
-    // `authFn` receives the Request (same shape REST handlers see) and
-    // returns Option[Any]: None refuses the upgrade with HTTP 401;
-    // Some(value) accepts and stashes `value` on the resulting
-    // WebSocket as `ws.user`, so handler bodies don't have to re-parse
-    // headers / claims / sessions.  Runs synchronously on the proxy
-    // selector thread, so the hook MUST NOT mutate interpreter globals —
-    // read-only decisions over headers / cookies / Origin only.
-    nativeP("onWebSocketAuth") {
-      case List(Value.StringV(path), authFn) =>
-        Value.NativeFnV("onWebSocketAuth.handler", Computation.pureFn {
-          case List(handler) =>
-            scalascript.server.WsRoutes.register(
-              path, handler, this,
-              auth = Some(authFn)
-            )
-            Value.UnitV
-          case _ => throw InterpretError("onWebSocketAuth(path, authFn) { ws => … }")
-        })
-      case _ => throw InterpretError("onWebSocketAuth(path, authFn) { ws => … }")
-    }
+    // route / serve / stop / tls / httpGet / httpPost / httpPut / httpPatch /
+    // httpDelete / httpGetStream / httpPostStream / wsConnect / cors / useGzip /
+    // cacheable / noCache / streamResponse / sse / maxBodySize /
+    // uploadSpoolThreshold / uploadDir / use / httpTimeout / httpRetry /
+    // onWebSocket / onWebSocketAuth now live in HttpIntrinsics (Stage 5+/B).
 
     // metrics() — snapshot of process-wide counters as Map[String, Long].
     // Same keys across all backends; scraped by health-checks / log
@@ -2327,6 +1868,40 @@ class Interpreter(
       override def registerRoute(method: String, path: String, handler: Any): Unit =
         scalascript.server.Routes.register(method, path, handler.asInstanceOf[Value], Interpreter.this)
       override def registerHealthDefaults(): Unit = Interpreter.this.registerHealthDefaults()
+      override def invokeCallback(fn: Any, args: List[Any]): Any =
+        Interpreter.this.invoke(fn.asInstanceOf[Value], args.map(wrapAnyAsValue))
+      override def httpBaseUrl: String    = _httpBaseUrl.get()
+      override def httpTimeoutMs: Long    = _httpTimeoutMs.get()
+      override def httpMaxRetries: Int    = _httpMaxRetries.get()
+      override def httpRetryDelayMs: Long = _httpRetryDelayMs.get()
+      override def setHttpTimeout(ms: Long): Unit = _httpTimeoutMs.set(ms)
+      override def setHttpRetry(maxAttempts: Int, delayMs: Long): Unit =
+        _httpMaxRetries.set(maxAttempts); _httpRetryDelayMs.set(delayMs)
+      override def startTlsServer(port: Int, dir: String, cert: String, key: String): Unit =
+        if !Interpreter.this.headless then
+          scalascript.server.WebServer.start(port, dir, Interpreter.this.out, cert, key)
+      override def registerWsRoute(path: String, origins: List[String], protocols: List[String],
+                                    maxConn: Int, maxRate: Int, handler: Any): Unit =
+        scalascript.server.WsRoutes.register(
+          path, handler.asInstanceOf[Value], Interpreter.this, origins, protocols, maxConn, maxRate)
+      override def registerWsAuthRoute(path: String, authFn: Any, handler: Any): Unit =
+        scalascript.server.WsRoutes.register(
+          path, handler.asInstanceOf[Value], Interpreter.this, auth = Some(authFn.asInstanceOf[Value]))
+      override def wsConnectSync(url: String, headers: Map[String, String],
+                                  protocols: List[String], handler: Any): Unit =
+        val sess = scalascript.server.WsClientSession(url, headers, protocols, Interpreter.this, Interpreter.this.out)
+        sess.connect()
+        Interpreter.this.invoke(handler.asInstanceOf[Value], List(sess.wsObj))
+        sess.awaitClose()
+      override def registerMiddleware(fn: Any): Unit =
+        scalascript.server.Routes.addMiddleware(fn.asInstanceOf[Value], Interpreter.this)
+      override def configureCors(origins: List[String], methods: List[String],
+                                  allowedHeaders: List[String]): Unit =
+        scalascript.server.WebServer.configureCors(origins, methods, allowedHeaders)
+      override def enableGzip(): Unit = scalascript.server.WebServer.enableGzip()
+      override def setMaxBodySize(bytes: Long): Unit = scalascript.server.WebServer.setMaxBodySize(bytes)
+      override def setSpoolThreshold(bytes: Long): Unit = scalascript.server.WebServer.setSpoolThreshold(bytes)
+      override def setUploadDir(path: String): Unit = scalascript.server.WebServer.setUploadDir(path)
     intrinsics.foreach {
       case (qn, scalascript.backend.spi.NativeImpl(eval)) =>
         registerNative(qn.value, args =>
@@ -2343,9 +1918,7 @@ class Interpreter(
     case Value.StringV(s) => s
     case Value.BoolV(b)   => b
     case Value.UnitV      => ()
-    // Complex values: stringify via Value.show so intrinsics like
-    // println produce identical output to the pre-migration path.
-    case other            => Value.show(other)
+    case other            => other  // pass complex Values through unchanged
 
   private def wrapAnyAsValue(a: Any): Value = a match
     case n: Long    => Value.IntV(n)

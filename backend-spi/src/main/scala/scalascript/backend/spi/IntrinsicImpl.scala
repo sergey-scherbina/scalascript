@@ -50,9 +50,36 @@ case class NativeImpl(eval: (NativeContext, List[Any]) => Any) extends Intrinsic
 trait NativeContext:
   def out: java.io.PrintStream
   def err: java.io.PrintStream
-  // HTTP-server hooks — default no-op; the interpreter overrides these
-  // in `installNativeIntrinsics` so HTTP intrinsics can live in the
-  // shared `InterpreterCapabilities` without a circular dependency.
+  // All methods below default to no-op / identity; the interpreter
+  // overrides them in `installNativeIntrinsics` so HTTP intrinsics
+  // can live in `InterpreterCapabilities` without a circular dependency.
   def headless: Boolean = false
   def registerRoute(method: String, path: String, handler: Any): Unit = ()
   def registerHealthDefaults(): Unit = ()
+  // Invoke a user-supplied callback (Value closure/NativeFn) from native code.
+  def invokeCallback(fn: Any, args: List[Any]): Any = ()
+  // Outbound HTTP client state — scoped inside httpClient{} blocks.
+  def httpBaseUrl: String = ""
+  def httpTimeoutMs: Long = 30000L
+  def httpMaxRetries: Int = 0
+  def httpRetryDelayMs: Long = 1000L
+  def setHttpTimeout(ms: Long): Unit = ()
+  def setHttpRetry(maxAttempts: Int, delayMs: Long): Unit = ()
+  // TLS server startup.
+  def startTlsServer(port: Int, dir: String, cert: String, key: String): Unit = ()
+  // WebSocket server route registration.
+  def registerWsRoute(path: String, origins: List[String], protocols: List[String],
+                      maxConn: Int, maxRate: Int, handler: Any): Unit = ()
+  def registerWsAuthRoute(path: String, authFn: Any, handler: Any): Unit = ()
+  // WebSocket client — blocks until server closes the connection.
+  def wsConnectSync(url: String, headers: Map[String, String],
+                    protocols: List[String], handler: Any): Unit = ()
+  // Middleware registration.
+  def registerMiddleware(fn: Any): Unit = ()
+  // CORS / response decoration.
+  def configureCors(origins: List[String], methods: List[String],
+                    allowedHeaders: List[String]): Unit = ()
+  def enableGzip(): Unit = ()
+  def setMaxBodySize(bytes: Long): Unit = ()
+  def setSpoolThreshold(bytes: Long): Unit = ()
+  def setUploadDir(path: String): Unit = ()

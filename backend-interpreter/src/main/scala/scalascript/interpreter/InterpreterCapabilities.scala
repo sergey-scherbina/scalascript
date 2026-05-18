@@ -2,6 +2,7 @@ package scalascript.interpreter
 
 import scalascript.backend.spi.*
 import scalascript.ir.QualifiedName
+import scalascript.interpreter.Value
 
 /** Capabilities declared by the tree-walking Interpreter (target id `"int"`).
  *
@@ -67,4 +68,5 @@ private def formatArg(a: Any): String = a match
   case d: Double => d.toString
   case s: String => s
   case ()        => "()"
+  case v: Value  => Value.show(v)
   case other     => other.toString
