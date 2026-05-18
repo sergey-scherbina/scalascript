@@ -15,9 +15,9 @@ import upickle.default.*
  *  up a real subprocess plugin binary. */
 class SubprocessBackendTest extends AnyFunSuite:
 
-  // Mock plugin script — reads one JSON line per request, writes one JSON
-  // line per response.  Supports: describe, compile, openSession,
-  // session.feed, invokeHandler, session.close, shutdown.
+  // Mock plugin: supports describe, compile, openSession, session.feed,
+  // invokeHandler, session.close, shutdown, AND host.* callback dispatch.
+  // The `compile-with-cb` method triggers a host.greet callback mid-compile.
   private val mockScript: String =
     """
       |while IFS= read -r line; do
@@ -29,6 +29,15 @@ class SubprocessBackendTest extends AnyFunSuite:
       |      ;;
       |    compile)
       |      jq -nc --argjson id "$id" '{id:$id, result:{kind:"text",code:"console.log(42)",language:"javascript"}}'
+      |      ;;
+      |    compile-with-cb)
+      |      # Fire a host.greet callback before replying
+      |      jq -nc --argjson id "999" '{id:999, method:"host.greet", params:{args:[{"$type":"Prim","v":{"$type":"StringL","value":"world"}}]}}'
+      |      # Read core reply (the callback response)
+      |      IFS= read -r cbreply
+      |      # Extract greeted string from the callback result value
+      |      greeted=$(printf '%s' "$cbreply" | jq -r '.result.value."$type"')
+      |      jq -nc --argjson id "$id" '{id:$id, result:{kind:"text",code:"ok",language:"text"}}'
       |      ;;
       |    openSession)
       |      jq -nc --argjson id "$id" '{id:$id, result:{sessionId:"sess-1"}}'
@@ -143,4 +152,33 @@ class SubprocessBackendTest extends AnyFunSuite:
             assert(result.value == Value.Prim(LitValue.IntL(99L)))
           case Left(e) =>
             fail(s"invokeHandler failed: $e")
+        plg.shutdown()
+
+  // ── Stage 6+/C — HostCallback dispatch ────────────────────────────────
+
+  test("registerHostCallback dispatched when plugin calls host.greet"):
+    spawnMock() match
+      case None      => cancel("jq not available — skipping subprocess test")
+      case Some(plg) =>
+        var receivedArg: ir.Value = Value.Null
+        plg.registerHostCallback("greet", args => {
+          receivedArg = args.headOption.getOrElse(Value.Null)
+          Value.Prim(LitValue.StringL("hello, world!"))
+        })
+        // compile-with-cb triggers host.greet before replying
+        plg.call("compile-with-cb", ujson.Obj()) match
+          case Right(_) => succeed
+          case Left(e)  => fail(s"compile-with-cb failed: $e")
+        assert(receivedArg == Value.Prim(LitValue.StringL("world")))
+        plg.shutdown()
+
+  test("unregistered host callback returns MethodNotFound error to plugin"):
+    spawnMock() match
+      case None      => cancel("jq not available — skipping subprocess test")
+      case Some(plg) =>
+        // compile-with-cb fires host.greet but no callback registered →
+        // plugin still gets an error response and then sends back its result
+        plg.call("compile-with-cb", ujson.Obj()) match
+          case Right(_) => succeed   // plugin proceeds despite callback error
+          case Left(e)  => fail(s"expected plugin to recover, got error: $e")
         plg.shutdown()

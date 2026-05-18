@@ -4,6 +4,7 @@ import scalascript.backend.spi.*
 import scalascript.ir
 import upickle.default.*
 import java.io.{BufferedReader, DataInputStream, DataOutputStream, InputStreamReader, OutputStreamWriter, PrintWriter}
+import scala.jdk.CollectionConverters.*
 import scala.util.{Try, Success, Failure}
 
 /** Wire framing variants — selected by `plugin.yaml#protocol`.
@@ -152,12 +153,22 @@ class SubprocessBackend private (
       if !proc.waitFor(2, java.util.concurrent.TimeUnit.SECONDS) then
         proc.destroyForcibly()
 
+  // ─── HostCallback registry (Stage 6+/C) ──────────────────────────────
+
+  private val hostCallbacks =
+    new java.util.concurrent.ConcurrentHashMap[String, (List[ir.Value]) => ir.Value]().asScala
+
+  /** Register a host function the subprocess plugin may call back into
+   *  during `compile` or `session.feed` via a `host.<name>` wire request.
+   *  Replaces any previously registered function for the same name. */
+  def registerHostCallback(name: String, fn: (List[ir.Value]) => ir.Value): Unit =
+    hostCallbacks.put(name, fn)
+
   // ─── Internal wire dispatch ───────────────────────────────────────────
 
-  /** One round-trip request → response.  Returns the `result` value or
-   *  the `error` envelope.  Thread-safe under sync call from a single
-   *  caller; concurrent compile() invocations must serialise externally
-   *  (registry-level pool when needed). */
+  /** One round-trip request → response, dispatching any interleaved
+   *  `host.*` callback requests inline before returning.
+   *  Thread-safe: all calls serialise through `this.synchronized`. */
   private[plugin] def call(method: String, params: ujson.Value): Either[ResponseError, ujson.Value] =
     val req = Request(method = method, params = params, id = nextId.getAndIncrement())
     this.synchronized {
@@ -167,39 +178,92 @@ class SubprocessBackend private (
     }
 
   private def callJson(req: Request): Either[ResponseError, ujson.Value] =
-    val line = write(req)
-    jsonWriter.println(line)
+    jsonWriter.println(write(req))
     jsonWriter.flush()
-    val responseLine = jsonReader.readLine()
-    if responseLine == null then
-      Left(ResponseError(ErrorCodes.PluginCrash, s"plugin/${descriptor.id} closed stdout"))
-    else parseResponse(read[Response](responseLine), responseLine)
+    var done: Either[ResponseError, ujson.Value] = null
+    while done == null do
+      val line = jsonReader.readLine()
+      if line == null then
+        done = Left(ResponseError(ErrorCodes.PluginCrash, s"plugin/${descriptor.id} closed stdout"))
+      else
+        val raw = ujson.read(line)
+        if raw.obj.contains("method") then
+          handleIncomingCallback(raw)
+        else
+          done = Try(read[Response](line)) match
+            case Success(resp) => decodeResponse(resp)
+            case Failure(t)    => Left(ResponseError(ErrorCodes.ParseError,
+                s"unparseable response: $t — $line"))
+    done
 
   private def callMsgPack(req: Request): Either[ResponseError, ujson.Value] =
     val bytes = writeBinary(req)
     binOut.writeInt(bytes.length)
     binOut.write(bytes)
     binOut.flush()
-    try
-      val len = binIn.readInt()
-      if len < 0 || len > 64 * 1024 * 1024 then
-        Left(ResponseError(ErrorCodes.ParseError, s"plugin/${descriptor.id}: bogus msgpack frame length $len"))
-      else
-        val buf = new Array[Byte](len)
-        binIn.readFully(buf)
-        parseResponse(readBinary[Response](buf), s"<msgpack ${len} bytes>")
-    catch case _: java.io.EOFException =>
-      Left(ResponseError(ErrorCodes.PluginCrash, s"plugin/${descriptor.id} closed stdout"))
+    var done: Either[ResponseError, ujson.Value] = null
+    while done == null do
+      try
+        val len = binIn.readInt()
+        if len < 0 || len > 64 * 1024 * 1024 then
+          done = Left(ResponseError(ErrorCodes.ParseError,
+            s"plugin/${descriptor.id}: bogus msgpack frame length $len"))
+        else
+          val buf = new Array[Byte](len)
+          binIn.readFully(buf)
+          Try(readBinary[ujson.Value](buf)) match
+            case Success(raw) if raw.obj.contains("method") =>
+              handleIncomingCallback(raw)
+            case _ =>
+              done = Try(readBinary[Response](buf)) match
+                case Success(resp) => decodeResponse(resp)
+                case Failure(t)    => Left(ResponseError(ErrorCodes.ParseError,
+                    s"unparseable response: $t — <msgpack ${len} bytes>"))
+      catch case _: java.io.EOFException =>
+        done = Left(ResponseError(ErrorCodes.PluginCrash, s"plugin/${descriptor.id} closed stdout"))
+    done
 
-  private def parseResponse(parse: => Response, repr: => String): Either[ResponseError, ujson.Value] =
-    Try(parse) match
-      case Success(resp) =>
-        (resp.result, resp.error) match
-          case (Some(r), _) => Right(r)
-          case (_, Some(e)) => Left(e)
-          case (_, _)       => Right(ujson.Null)
-      case Failure(t) =>
-        Left(ResponseError(ErrorCodes.ParseError, s"unparseable response: $t — $repr"))
+  private def decodeResponse(resp: Response): Either[ResponseError, ujson.Value] =
+    (resp.result, resp.error) match
+      case (Some(r), _) => Right(r)
+      case (_, Some(e)) => Left(e)
+      case (_, _)       => Right(ujson.Null)
+
+  /** Handle an incoming `host.<name>` callback from the plugin.
+   *  Dispatches to the registered host function and writes the result
+   *  back to the plugin on the same framing channel. */
+  private def handleIncomingCallback(raw: ujson.Value): Unit =
+    val method   = Try(raw("method").str).getOrElse("")
+    val callId   = Try(raw("id").num.toLong).getOrElse(0L)
+    val params   = raw.obj.get("params").getOrElse(ujson.Obj())
+    val args     = Try(read[List[ir.Value]](params("args"))).getOrElse(Nil)
+    val callbackName = method.stripPrefix(Methods.HostPrefix)
+    val resp: Response =
+      if !method.startsWith(Methods.HostPrefix) then
+        Response(id = callId, error = Some(ResponseError(ErrorCodes.InvalidRequest,
+          s"unexpected method from plugin: $method")))
+      else hostCallbacks.get(callbackName) match
+        case Some(fn) =>
+          Try(fn(args)) match
+            case Success(v) =>
+              Response(id = callId, result = Some(writeJs(MessageBodies.HostCallbackResult(v))))
+            case Failure(t) =>
+              Response(id = callId, error = Some(ResponseError(ErrorCodes.InternalError,
+                s"host callback '$callbackName' threw: ${t.getMessage}")))
+        case None =>
+          Response(id = callId, error = Some(ResponseError(ErrorCodes.MethodNotFound,
+            s"no host callback registered for '$callbackName'")))
+    sendDirectResponse(resp)
+
+  private def sendDirectResponse(resp: Response): Unit = framing match
+    case WireFraming.Json =>
+      jsonWriter.println(write(resp))
+      jsonWriter.flush()
+    case WireFraming.MsgPack =>
+      val b = writeBinary(resp)
+      binOut.writeInt(b.length)
+      binOut.write(b)
+      binOut.flush()
 
   private[plugin] def fromWire(w: MessageBodies.CompileResultWire): CompileResult = w.kind match
     case "text"      => CompileResult.TextOutput(

@@ -40,6 +40,10 @@ object Methods:
   val Signatures   = "signatures"
   val CompileBlock = "compileBlock"
 
+  /** Prefix for host-callback methods (plugin → core during compile/feed).
+   *  e.g. "host.nowMillis" dispatches to the `nowMillis` host callback. */
+  val HostPrefix = "host."
+
 /** One request from core to a subprocess plugin.  `params` is opaque
  *  JSON keyed by method-specific schemas; concrete codecs in
  *  `MessageBodies`. */
@@ -135,3 +139,11 @@ object MessageBodies:
   /** invokeHandler(sessionId, handlerRef, args) → Value */
   case class InvokeHandlerParams(sessionId: String, handlerRef: SymbolRef, args: List[Value]) derives ReadWriter
   case class InvokeHandlerResult(value: Value) derives ReadWriter
+
+  // ── HostCallback messages (Stage 6+/C) ───────────────────────────────
+
+  /** Plugin → core: `host.<name>` callback during compile / feed.
+   *  Same shape as a normal `Request` — `params` carries this body. */
+  case class HostCallbackParams(args: List[Value] = Nil) derives ReadWriter
+  /** Core → plugin: reply carrying the host function's return value. */
+  case class HostCallbackResult(value: Value) derives ReadWriter
