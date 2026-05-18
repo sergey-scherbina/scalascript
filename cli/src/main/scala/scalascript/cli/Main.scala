@@ -63,6 +63,7 @@ private def dispatchCommand(args: List[String]): Unit =
     case "render"              => renderCommand(args.tail)
     case "build"               => buildCommand(args.tail)
     case "bundle"              => bundleCommand(args.tail)
+    case "plugin"              => pluginCommand(args.tail)
     case "help" | "--help" | "-h" => printUsage()
     case "--list-backends"     => println(BackendRegistry.describe)
     case _                     => runCommand(args)
@@ -172,6 +173,12 @@ def printUsage(): Unit =
     |                         imports into a .sscpkg zip archive.  External imports
     |                         (above the entry directory) are flattened into
     |                         `_external/` with path references rewritten.
+    |  plugin <sub>           Manage installed .sscpkg plugins:
+    |    install <path>         Install a .sscpkg from a local path or HTTPS URL
+    |    list                   List installed plugins
+    |    uninstall <id>         Remove an installed plugin by id
+    |    check <id>             Verify SPI-version compatibility
+    |    pack <dir>             Pack a plugin source tree into a .sscpkg archive
     |  run                    Execute .ssc via tree-walking interpreter (default)
     |  watch                  Run .ssc and re-run on every file change
     |  repl                   Start interactive REPL (blank line runs, :quit exits)
@@ -607,6 +614,155 @@ def bundleCommand(args: List[String]): Unit =
   val external  = archivePath.values.count(_.startsWith("_external/"))
   val jarLine   = if backendJars.isEmpty then "" else s", ${backendJars.size} intrinsic JAR(s)"
   println(s"$outName  (${archivePath.size} sources, $external external$jarLine) — entries: $entryList")
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ssc plugin <subcommand>  —  v1.7 Tier 5
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Default directory where installed `.sscpkg` files live. */
+private def pluginsDir: os.Path = os.home / ".scalascript" / "plugins"
+
+def pluginCommand(args: List[String]): Unit =
+  args match
+    case "install"   :: rest => pluginInstall(rest)
+    case "list"      :: _    => pluginList()
+    case "uninstall" :: rest => pluginUninstall(rest)
+    case "check"     :: rest => pluginCheck(rest)
+    case "pack"      :: rest => pluginPack(rest)
+    case sub :: _            =>
+      System.err.println(s"Unknown plugin subcommand: '$sub'")
+      System.err.println("Usage: ssc plugin install|list|uninstall|check|pack ...")
+      System.exit(1)
+    case Nil =>
+      System.err.println("Usage: ssc plugin install|list|uninstall|check|pack ...")
+      System.exit(1)
+
+/** `ssc plugin install <path-or-url>` — copy/download a `.sscpkg` to
+ *  `~/.scalascript/plugins/` and print a confirmation. */
+def pluginInstall(args: List[String]): Unit =
+  val src = args.headOption.getOrElse {
+    System.err.println("Usage: ssc plugin install <path-or-url>"); System.exit(1); ""
+  }
+  val bytes: Array[Byte] =
+    if src.startsWith("http://") || src.startsWith("https://") then
+      val req  = java.net.http.HttpRequest.newBuilder(java.net.URI.create(src)).GET().build()
+      val resp = java.net.http.HttpClient.newHttpClient()
+        .send(req, java.net.http.HttpResponse.BodyHandlers.ofByteArray())
+      if resp.statusCode() != 200 then
+        System.err.println(s"plugin install: HTTP ${resp.statusCode()} from $src")
+        System.exit(1)
+      resp.body()
+    else
+      val p = os.Path(src, os.pwd)
+      if !os.exists(p) then
+        System.err.println(s"plugin install: not found: $src"); System.exit(1)
+      os.read.bytes(p)
+
+  // Parse manifest from the archive bytes to get id + version for the filename.
+  val tmp = os.temp(bytes, suffix = ".sscpkg")
+  val manifest =
+    try scalascript.plugin.SscpkgLoader.load(tmp).manifest
+    finally os.remove(tmp)
+
+  os.makeDir.all(pluginsDir)
+  val dest = pluginsDir / s"${manifest.id}-${manifest.version}.sscpkg"
+  os.write.over(dest, bytes)
+  println(s"Installed ${manifest.id} ${manifest.version} → $dest")
+
+/** `ssc plugin list` — print every `.sscpkg` in `~/.scalascript/plugins/`. */
+def pluginList(): Unit =
+  if !os.isDir(pluginsDir) then
+    println("(no plugins installed)"); return
+  val pkgs = os.list(pluginsDir).filter(_.ext == "sscpkg").sorted
+  if pkgs.isEmpty then println("(no plugins installed)")
+  else
+    pkgs.foreach { p =>
+      val m = scala.util.Try(scalascript.plugin.SscpkgLoader.load(p).manifest)
+      m match
+        case scala.util.Success(manifest) =>
+          val kinds   = manifest.kind.mkString(", ")
+          val targets = if manifest.targets.isEmpty then "" else s"  targets=${manifest.targets.mkString(",")}"
+          println(f"${manifest.id}%-30s  ${manifest.version}  spi=${manifest.spiVersion}  [$kinds]$targets")
+        case scala.util.Failure(e) =>
+          println(s"${p.last}  [parse error: ${e.getMessage}]")
+    }
+
+/** `ssc plugin uninstall <id>` — remove the installed `.sscpkg` for that id. */
+def pluginUninstall(args: List[String]): Unit =
+  val id = args.headOption.getOrElse {
+    System.err.println("Usage: ssc plugin uninstall <id>"); System.exit(1); ""
+  }
+  if !os.isDir(pluginsDir) then
+    System.err.println(s"plugin uninstall: '$id' not installed"); System.exit(1)
+  val pkgs = os.list(pluginsDir)
+    .filter(p => p.ext == "sscpkg" && p.last.startsWith(id + "-") || p.last == id + ".sscpkg")
+  if pkgs.isEmpty then
+    System.err.println(s"plugin uninstall: '$id' not installed"); System.exit(1)
+  pkgs.foreach { p => os.remove(p); println(s"Removed $p") }
+
+/** `ssc plugin check <id>` — verify that the installed plugin's spiVersion
+ *  matches the current compiler's supported SPI version. */
+def pluginCheck(args: List[String]): Unit =
+  val id = args.headOption.getOrElse {
+    System.err.println("Usage: ssc plugin check <id>"); System.exit(1); ""
+  }
+  if !os.isDir(pluginsDir) then
+    System.err.println(s"plugin check: '$id' not installed"); System.exit(1)
+  val pkgs = os.list(pluginsDir)
+    .filter(p => p.ext == "sscpkg" && (p.last.startsWith(id + "-") || p.last == id + ".sscpkg"))
+  if pkgs.isEmpty then
+    System.err.println(s"plugin check: '$id' not installed"); System.exit(1)
+  pkgs.foreach { p =>
+    val m = scalascript.plugin.SscpkgLoader.load(p).manifest
+    val supported = "0.1.0"
+    if m.spiVersion == supported then
+      println(s"${m.id} ${m.version}: OK  (spiVersion=${m.spiVersion})")
+    else
+      println(s"${m.id} ${m.version}: INCOMPATIBLE  (plugin=${m.spiVersion}, compiler=$supported)")
+      System.exit(1)
+  }
+
+/** `ssc plugin pack <dir> [-o output.sscpkg]` — pack a source tree containing
+ *  a `manifest.yaml` + optional `sources/`, `runtime/`, `intrinsics/` into
+ *  a `.sscpkg` archive. */
+def pluginPack(args: List[String]): Unit =
+  import java.util.zip.{ZipOutputStream, ZipEntry}
+
+  var output: Option[String] = None
+  var dirArg: Option[String] = None
+  val it = args.iterator
+  while it.hasNext do
+    it.next() match
+      case "-o" | "--output" if it.hasNext => output = Some(it.next())
+      case d => dirArg = Some(d)
+
+  val dir = os.Path(dirArg.getOrElse {
+    System.err.println("Usage: ssc plugin pack <dir> [-o output.sscpkg]"); System.exit(1); ""
+  }, os.pwd)
+  if !os.isDir(dir) then
+    System.err.println(s"plugin pack: not a directory: $dir"); System.exit(1)
+
+  val manifestPath = dir / "manifest.yaml"
+  if !os.exists(manifestPath) then
+    System.err.println(s"plugin pack: missing manifest.yaml in $dir"); System.exit(1)
+
+  val manifest = scalascript.plugin.SscpkgManifest.parseString(os.read(manifestPath)).get
+  val outName  = output.getOrElse(s"${manifest.id}-${manifest.version}.sscpkg")
+  val outPath  = os.Path(outName, os.pwd)
+
+  val zip = new ZipOutputStream(new java.io.FileOutputStream(outPath.toIO))
+  try
+    // Walk every file under dir and pack it, preserving the subtree.
+    os.walk(dir).filter(os.isFile).foreach { file =>
+      val rel = file.relativeTo(dir).toString
+      zip.putNextEntry(new ZipEntry(rel))
+      zip.write(os.read.bytes(file))
+      zip.closeEntry()
+    }
+  finally zip.close()
+
+  val fileCount = os.walk(dir).count(os.isFile)
+  println(s"$outName  ($fileCount files) — id=${manifest.id} version=${manifest.version}")
 
 /** Common-ancestor directory of a non-empty list of paths.
  *  Same as `paths.head`'s parents, narrowed to whichever still
