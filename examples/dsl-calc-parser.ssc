@@ -1,0 +1,85 @@
+#!/usr/bin/env ssc
+---
+name: dsl-calc-parser
+version: 1.0.0
+description: v1.20 DSL — arithmetic expression parser with std/parsing combinators and Doc pretty-printer
+---
+
+# Calculator: parser combinators + pretty-printer
+
+Builds a typed `Calc` AST, parses arithmetic expressions with `std/parsing`,
+and pretty-prints them back to a string using `std/dsl/pretty`.
+
+## Imports
+
+[Position, ParseError, ParseOk, ParseErr, Parser, PChar, PString, PRegex, PSatisfy, PSucceed, PFail](std/parsing/core.ssc)
+
+[PSequence, PChoice, PMany, POpt, PMapped, PFlatMapped, PNamed, runParser](std/parsing/combinators.ssc)
+
+[whitespace, whitespace1, identifier, integer, number, stringLit, skip, keyword, token](std/parsing/helpers.ssc)
+
+[DocNil, DocText, DocLine, DocIndent, DocBeside, DocAbove, text, line, empty, indent, renderDoc, render](std/dsl/pretty.ssc)
+
+## AST
+
+```scalascript
+case class CalcNum(v: Any)
+case class CalcAdd(l: Any, r: Any)
+case class CalcSub(l: Any, r: Any)
+case class CalcMul(l: Any, r: Any)
+case class CalcDiv(l: Any, r: Any)
+```
+
+## Parser
+
+```scalascript
+val ws  = whitespace
+val num = number.map(n => CalcNum(n))
+
+def mulOp(): Parser[Any] = ws ~> (Parser.char('*') | Parser.char('/')) <~ ws
+def addOp(): Parser[Any] = ws ~> (Parser.char('+') | Parser.char('-')) <~ ws
+
+val term = (num ~ (mulOp() ~ num).many()).map(pair =>
+  pair._2.foldLeft(pair._1)((acc, opAndNum) =>
+    opAndNum._1 match
+      case '*' => CalcMul(acc, opAndNum._2)
+      case '/' => CalcDiv(acc, opAndNum._2)
+      case _   => acc
+  )
+)
+
+val expr = (term ~ (addOp() ~ term).many()).map(pair =>
+  pair._2.foldLeft(pair._1)((acc, opAndTerm) =>
+    opAndTerm._1 match
+      case '+' => CalcAdd(acc, opAndTerm._2)
+      case '-' => CalcSub(acc, opAndTerm._2)
+      case _   => acc
+  )
+)
+```
+
+## Pretty-printer
+
+```scalascript
+def prettyCalc(e: Any): Any =
+  e match
+    case CalcNum(v)    => text("" + v)
+    case CalcAdd(l, r) => prettyCalc(l) ++ text(" + ") ++ prettyCalc(r)
+    case CalcSub(l, r) => prettyCalc(l) ++ text(" - ") ++ prettyCalc(r)
+    case CalcMul(l, r) => prettyCalc(l) ++ text(" * ") ++ prettyCalc(r)
+    case CalcDiv(l, r) => prettyCalc(l) ++ text(" / ") ++ prettyCalc(r)
+```
+
+## Round-trip
+
+```scalascript
+val inputs = List("1 + 2", "10 - 3", "2 * 3 + 4", "1 + 2 * 3", "10 / 2 - 1")
+
+for input <- inputs do
+  expr.parse(input) match
+    case ParseOk(ast, _, _) =>
+      val pretty = render(prettyCalc(ast))
+      println(input + " => " + pretty)
+    case ParseErr(e) =>
+      println("error: " + e.message)
+```

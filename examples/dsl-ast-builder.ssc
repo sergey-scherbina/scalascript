@@ -1,0 +1,76 @@
+#!/usr/bin/env ssc
+---
+name: dsl-ast-builder
+version: 1.0.0
+description: v1.20 DSL — AST nodes with Span tracking, Doc pretty-printer, and phantom-type builder
+---
+
+# DSL helpers: AST, pretty-printer, phantom-type builder
+
+Demonstrates the three `std/dsl/*` libraries working together:
+1. `std/dsl/ast` — source-position tracking with `Span` and `Node`
+2. `std/dsl/pretty` — Wadler/Lindig-style Doc combinators
+3. `std/dsl/builders` — phantom-type builder with compile-time required-field tracking
+
+## Imports
+
+[Span, spanEmpty, spanMerge, Node](std/dsl/ast.ssc)
+
+[DocNil, DocText, DocLine, DocIndent, DocBeside, DocAbove, text, line, empty, indent, renderDoc, render](std/dsl/pretty.ssc)
+
+[Builder, builder](std/dsl/builders.ssc)
+
+## 1. Span — source position tracking
+
+```scalascript
+val s1 = Span(0, 5)
+val s2 = Span(3, 10)
+val merged = spanMerge(s1, s2)
+println("s1:     " + s1.start + ".." + s1.end)
+println("s2:     " + s2.start + ".." + s2.end)
+println("merged: " + merged.start + ".." + merged.end)
+println("empty:  " + spanEmpty.start + ".." + spanEmpty.end)
+```
+
+## 2. Node — value with attached span
+
+```scalascript
+val nameNode  = Node("greet", Span(0, 5))
+val valueNode = Node(42, Span(7, 9))
+println("name:  " + nameNode.value + " at " + nameNode.span.start + ".." + nameNode.span.end)
+println("value: " + valueNode.value + " at " + valueNode.span.start + ".." + valueNode.span.end)
+```
+
+## 3. Doc pretty-printer
+
+```scalascript
+val header    = text("module") ++ text(" ") ++ text("example")
+val bodyLine1 = text("val x = 42")
+val bodyLine2 = text("val y = x + 1")
+val doc =
+  header /
+  empty /
+  indent(2, bodyLine1 / bodyLine2)
+
+println(render(doc))
+```
+
+## 4. Phantom-type builder
+
+The builder enforces at compile time that both `name` and `value` are set before `build()` is called.
+
+```scalascript
+val result =
+  builder()
+    .withName("metric")
+    .withValue(3.14)
+    .withTag("prod")
+    .withTag("v2")
+    .build()
+
+result match
+  case (name, value, tags) =>
+    println("name:  " + name)
+    println("value: " + value)
+    println("tags:  " + tags.asInstanceOf[List[Any]].mkString(", "))
+```
