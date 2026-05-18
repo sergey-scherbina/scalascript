@@ -2,6 +2,13 @@
 ---
 name: spinner
 description: Pure-CSS rotating ring — no JS, no images.
+variants:
+  - name: "small (sm)"
+    args: {size: "sm"}
+  - name: "medium (md)"
+    args: {size: "md"}
+  - name: "large (lg)"
+    args: {size: "lg"}
 ---
 
 # Spinner

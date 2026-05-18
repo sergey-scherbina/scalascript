@@ -65,6 +65,8 @@ private def dispatchCommand(args: List[String]): Unit =
     case "bundle"              => bundleCommand(args.tail)
     case "plugin"              => pluginCommand(args.tail)
     case "lock"                => lockCommand(args.tail)
+    case "test"                => testCommand(args.tail)
+    case "preview"             => previewCommand(args.tail)
     case "help" | "--help" | "-h" => printUsage()
     case "--list-backends"     => println(BackendRegistry.describe)
     case _                     => runCommand(args)
@@ -196,6 +198,12 @@ def printUsage(): Unit =
     |  serve                  Start HTTP server serving .ssc files as web pages
     |  parse                  Parse .ssc files and print AST
     |  check                  Type-check .ssc files
+    |  test <file(s)>         Run component unit tests — each test is (name, () => Boolean).
+    |                         Prints PASS/FAIL per test; exits non-zero on any failure.
+    |                         Tests are functions registered with test(name, thunk) in the
+    |                         file, or in a sibling *-test.ssc file.
+    |  preview <file>         Open a browser preview page showing each component variant
+    |                         declared in the front-matter variants: list.  Storybook-lite.
     |  lock <file>            Pin all URL/dep imports in ssc.lock (SHA-256 integrity)
     |  lock check <file>      Verify all URL/dep imports match ssc.lock
     |  help                   Show this help message
@@ -1284,6 +1292,309 @@ private def lockCheckCommand(args: List[String]): Unit =
   catch case e: Exception =>
     System.err.println(s"lock check error: ${e.getMessage}")
     System.exit(1)
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ssc test <file(s)>  —  v0.9 component-level unit test runner
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** `ssc test <file.ssc> [<file.ssc>...]`
+ *
+ *  Runs each file through the interpreter with an injected `test(name, thunk)`
+ *  builtin.  At runtime a `.ssc` test file calls:
+ *
+ *    test("renders sm", () => Spinner.render("sm").contains("sm"))
+ *    test("renders lg", () => Spinner.render("lg").contains("lg"))
+ *
+ *  The runner collects all registrations, then after the module finishes it
+ *  executes each thunk and prints a coloured PASS / FAIL line.  Exit status is
+ *  1 if any test failed, 0 if all passed.
+ *
+ *  If no file is given the runner looks for `*-test.ssc` siblings next to the
+ *  component being tested (same directory).
+ *
+ *  Backend matrix: interpreter only (cross-backend conformance is handled by
+ *  `conformance/`; this runner is for component-authored fast unit tests).
+ */
+def testCommand(args: List[String]): Unit =
+  import scalascript.interpreter.{Interpreter, Value, Computation}
+
+  if args.isEmpty then
+    System.err.println("Usage: ssc test <file.ssc> [<file.ssc>...]")
+    System.exit(1)
+
+  val files = args.flatMap { f =>
+    val p = os.Path(f, os.pwd)
+    if !os.exists(p) then
+      System.err.println(s"Error: File not found: $f"); System.exit(1); Nil
+    else List(p)
+  }
+
+  var totalPassed = 0
+  var totalFailed = 0
+
+  for file <- files do
+    println(s"\n  ${file.last}")
+
+    // Collect (name, thunk) pairs registered via test(name, thunk) calls.
+    val tests = scala.collection.mutable.ArrayBuffer.empty[(String, Value)]
+
+    // Create interpreter and inject the `test` builtin via injectGlobal BEFORE
+    // calling run().  initBuiltins() (called inside run) doesn't touch "test"
+    // so the injection survives and user code can call test(...) at top level.
+    val interp = Interpreter(out = System.out, baseDir = Some(file / os.up))
+    interp.injectGlobal("test",
+      Value.NativeFnV("test", Computation.pureFn {
+        case List(Value.StringV(name), thunk) =>
+          tests += (name -> thunk)
+          Value.UnitV
+        case _ =>
+          Value.UnitV
+      })
+    )
+
+    try interp.run(scalascript.parser.Parser.parse(os.read(file)))
+    catch case e: Exception =>
+      System.err.println(s"  [error] ${e.getMessage}")
+      totalFailed += 1
+
+    // Execute each registered test thunk and report.
+    for (name, thunk) <- tests do
+      val result =
+        try
+          interp.invoke(thunk, Nil) match
+            case Value.BoolV(true)  => Right(true)
+            case Value.BoolV(false) => Right(false)
+            case other              => Left(s"expected Boolean, got ${Value.show(other)}")
+        catch case e: Exception => Left(e.getMessage)
+      result match
+        case Right(true)  =>
+          println(s"    PASS  $name")
+          totalPassed += 1
+        case Right(false) =>
+          println(s"    FAIL  $name")
+          totalFailed += 1
+        case Left(msg)    =>
+          println(s"    FAIL  $name  ($msg)")
+          totalFailed += 1
+
+  println()
+  println(s"Results: $totalPassed passed, $totalFailed failed")
+  if totalFailed > 0 then System.exit(1)
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ssc preview <file>  —  v0.9 Storybook-lite browser preview
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** `ssc preview <file.ssc>`
+ *
+ *  Reads the `variants:` list from the file's YAML front-matter.  Each
+ *  variant is a map of named arguments that will be passed to every
+ *  `object Foo { def render(…) }` component found in the file.
+ *
+ *  Front-matter format:
+ *
+ *    ---
+ *    name: spinner
+ *    variants:
+ *      - name: "small"
+ *        args: {size: "sm"}
+ *      - name: "large"
+ *        args: {size: "lg"}
+ *    ---
+ *
+ *  The command:
+ *    1. Runs the file through the interpreter to collect CSS and component
+ *       objects.
+ *    2. Builds a self-contained HTML page that shows each variant in its own
+ *       labelled section.
+ *    3. Starts a one-shot HTTP server on a free port and opens the browser.
+ *    4. Shuts down after serving one request (the browser load).
+ *
+ *  If `variants:` is absent the page shows one "default" section rendering
+ *  every component with no arguments.
+ */
+def previewCommand(args: List[String]): Unit =
+  import scalascript.interpreter.{Interpreter, Value}
+  import scalascript.ast.{Content, Lang}
+  import scala.meta.Defn
+  import scala.jdk.CollectionConverters.*
+
+  if args.isEmpty then
+    System.err.println("Usage: ssc preview <file.ssc>")
+    System.exit(1)
+
+  val file    = args.head
+  val absPath = os.Path(file, os.pwd)
+  if !os.exists(absPath) then
+    System.err.println(s"Error: File not found: $file"); System.exit(1)
+
+  // Parse the module to extract front-matter and component shapes.
+  val module   = scalascript.parser.Parser.parse(os.read(absPath))
+  val title    = module.manifest.flatMap(_.name).getOrElse(absPath.last.stripSuffix(".ssc"))
+  val rawFM    = module.manifest.map(_.raw).getOrElse(Map.empty)
+
+  // Parse `variants:` from front-matter.
+  // Each entry: {name: String, args: {key: value, …}}
+  case class Variant(label: String, args: Map[String, String])
+
+  val variants: List[Variant] = rawFM.get("variants").collect {
+    case xs: java.util.List[?] =>
+      xs.asScala.toList.flatMap {
+        case m: java.util.Map[?, ?] =>
+          val mm = m.asScala.toMap.map((k, v) => k.toString -> v)
+          val label = mm.get("name").map(_.toString).getOrElse("default")
+          val argMap = mm.get("args").collect {
+            case am: java.util.Map[?, ?] =>
+              am.asScala.toMap.map((k, v) => k.toString -> v.toString)
+          }.getOrElse(Map.empty)
+          Some(Variant(label, argMap))
+        case _ => None
+      }
+  }.getOrElse(Nil)
+
+  val effectiveVariants =
+    if variants.isEmpty then List(Variant("default", Map.empty))
+    else variants
+
+  // Detect component objects (same detection as emit-wc).
+  val components = scala.collection.mutable.ArrayBuffer.empty[WcComponent]
+  module.sections.foreach { section =>
+    section.content.foreach {
+      case cb: Content.CodeBlock if Lang.isScalaScript(cb.lang) =>
+        cb.tree.foreach { node =>
+          scalascript.ast.ScalaNode.fold(node) {
+            case d: Defn.Object => detectWcComponent(d, components)
+            case scala.meta.Source(stats) =>
+              stats.foreach {
+                case d: Defn.Object => detectWcComponent(d, components)
+                case _              => ()
+              }
+            case _ => ()
+          }
+        }
+      case _ => ()
+    }
+  }
+
+  // Run the file to get live component instances.
+  val nullOut = java.io.PrintStream(java.io.OutputStream.nullOutputStream)
+  val interp  = Interpreter(out = nullOut, baseDir = Some(absPath / os.up))
+  try interp.run(module)
+  catch case e: Exception =>
+    System.err.println(s"Error running $file: ${e.getMessage}"); System.exit(1)
+
+  // Snapshot the globals after execution (all objects are InstanceV in the interpreter).
+  val interpGlobals = interp.exportedGlobals
+
+  // Collect CSS from component objects.
+  val allCss = components.flatMap { c =>
+    interpGlobals.get(c.name).collect {
+      case Value.InstanceV(_, fields) => fields.get("css").collect { case Value.StringV(css) => css }
+    }.flatten
+  }.mkString("\n")
+
+  // Render each variant for each component.
+  def renderVariant(comp: WcComponent, variant: Variant): String =
+    interpGlobals.get(comp.name) match
+      case Some(obj) =>
+        val renderFn = obj match
+          case Value.InstanceV(_, fields) => fields.get("render")
+          case _                          => None
+        renderFn match
+          case Some(fn) =>
+            val argVals = comp.params.map { p =>
+              variant.args.get(p).map(Value.StringV.apply).getOrElse(Value.StringV(""))
+            }
+            try Value.show(interp.invoke(fn, argVals))
+            catch case e: Exception => s"<em>render error: ${e.getMessage}</em>"
+          case None => s"<em>${comp.name} has no render method</em>"
+      case None => s"<em>${comp.name} not found</em>"
+
+  // Build the preview HTML page.
+  val variantSections = effectiveVariants.map { variant =>
+    val rendered = components.map { comp =>
+      val html = renderVariant(comp, variant)
+      s"""<div class="component-box">
+         |  <div class="component-label">${comp.name}</div>
+         |  <div class="component-render">$html</div>
+         |</div>""".stripMargin
+    }.mkString("\n")
+    s"""<section class="variant-section">
+       |  <h2 class="variant-heading">${variant.label}</h2>
+       |  <div class="component-row">$rendered</div>
+       |</section>""".stripMargin
+  }.mkString("\n")
+
+  val html = s"""<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Preview: $title</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+    body { font-family: system-ui, sans-serif; margin: 0; background: #f8f9fa; color: #212529; }
+    header { background: #1e293b; color: #f1f5f9; padding: 1rem 2rem;
+             display: flex; align-items: center; gap: 1rem; }
+    header h1 { margin: 0; font-size: 1.1rem; font-weight: 600; }
+    header .badge { font-size: .75rem; background: #0ea5e9; color: #fff;
+                    padding: .15em .55em; border-radius: 999px; }
+    main { padding: 2rem; max-width: 1200px; margin: 0 auto; }
+    .variant-section { margin-bottom: 2.5rem; }
+    .variant-heading { font-size: .85rem; font-weight: 600; text-transform: uppercase;
+                       letter-spacing: .08em; color: #64748b; margin: 0 0 1rem;
+                       padding-bottom: .5rem; border-bottom: 1px solid #e2e8f0; }
+    .component-row { display: flex; flex-wrap: wrap; gap: 1.5rem; }
+    .component-box { background: #fff; border: 1px solid #e2e8f0; border-radius: 8px;
+                     padding: 1.25rem; min-width: 200px; }
+    .component-label { font-size: .7rem; font-weight: 600; text-transform: uppercase;
+                       letter-spacing: .06em; color: #94a3b8; margin-bottom: .75rem; }
+    .component-render { }
+    $allCss
+  </style>
+</head>
+<body>
+<header>
+  <h1>$title</h1>
+  <span class="badge">ssc preview</span>
+</header>
+<main>
+  $variantSections
+</main>
+</body>
+</html>"""
+
+  // Start a one-shot HTTP server on a free port, then open the browser.
+  val serverSocket = java.net.ServerSocket(0)
+  val port         = serverSocket.getLocalPort
+  val url          = s"http://localhost:$port"
+
+  System.err.println(s"Preview: $url")
+  System.err.println("(browser will open automatically; Ctrl+C to stop)")
+
+  // Open browser in background.
+  val os_name = sys.props.getOrElse("os.name", "").toLowerCase
+  val openCmd =
+    if os_name.contains("mac") then List("open", url)
+    else if os_name.contains("linux") then List("xdg-open", url)
+    else List("cmd", "/c", "start", url)
+  scala.util.Try(Runtime.getRuntime.exec(openCmd.toArray))
+
+  // Serve the page on each connection until the user hits Ctrl+C.
+  // (Single-shot: serve one response then exit.)
+  val conn     = serverSocket.accept()
+  val in       = java.io.BufferedReader(java.io.InputStreamReader(conn.getInputStream))
+  // Drain the HTTP request headers.
+  var line = in.readLine()
+  while line != null && line.nonEmpty do line = in.readLine()
+  val out2     = conn.getOutputStream
+  val bodyBytes = html.getBytes("UTF-8")
+  val response = s"HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: ${bodyBytes.length}\r\nConnection: close\r\n\r\n"
+  out2.write(response.getBytes("UTF-8"))
+  out2.write(bodyBytes)
+  out2.flush()
+  conn.close()
+  serverSocket.close()
 
 def checkCommand(args: List[String]): Unit =
   if args.isEmpty then { println("Error: No files specified"); System.exit(1) }

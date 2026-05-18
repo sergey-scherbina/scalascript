@@ -648,33 +648,31 @@ currently chain `.copy(field = obj.field.copy(...))` by hand.  Real-world
 demo of optic ergonomics in code that already exists — no new feature
 work, just a few diffs that double as documentation.
 
-## v0.9 — Standard component pack — cross-cutting follow-ups
+## v0.9 — Standard component pack — cross-cutting follow-ups ✓ Landed
 
 The eight tiers of `std/ui/*` (forms, layout, navigation, feedback,
 data, content/typography, widgets, theming) all landed in v0.9.
-What's left from that block is the tooling that the pack motivates:
+The tooling that the pack motivates has now landed too:
 
-  - **`ssc test`** — a runner for component-level unit tests
-    (`tests:` block in front-matter or a sibling `*-test.ssc` file).
-    Without this every component ships untested.  Likely shape: each
-    test is `(name, () => Boolean)`, runner prints pass/fail and
-    aggregates exit status — same backend matrix as conformance.
-    ~1 day per backend.
-  - **`ssc preview <file>`** — opens a browser page that renders the
-    component with each declared `variants:` set.  Storybook-lite.
-    Pays back the cost the first time a designer needs to see all
-    47 Button states.  ~1 day.
-  - **Documentation page** for the pack (`examples/std-ui/`) that
-    builds via `ssc build` and renders every component with every
-    variant, with the source visible.  Largely content, not code.
-    ~1 day.
-  - **`std/ui/index.ssc` aggregator** — a single re-export entry so
-    consumers can write `[Button, Card](./std-ui)` instead of one
-    import per component.  Requires the directory-as-index resolver
-    fix below.
-
-Defer until at least one consumer of the existing convention asks
-"where do I get a Button?".
+  - **`ssc test`** ✓ Landed (2026-05-18).  `Interpreter.injectGlobal`
+    added as the injection hook; `testCommand` in `cli/Main.scala` seeds
+    a `test(name, () => Boolean)` builtin before `run()`, collects
+    registrations, then evaluates each thunk and reports PASS / FAIL.
+    `SscTestRunnerTest` (6 cases) validates the mechanics.  Example test
+    file at `examples/std-ui/spinner-test.ssc`.
+  - **`ssc preview <file>`** ✓ Landed (2026-05-18).  Reads `variants:`
+    from YAML front-matter (`Manifest.raw`), detects component objects
+    via the existing `WcComponent` scanner (same as `emit-wc`), runs the
+    file headlessly, renders each variant into a self-contained HTML page,
+    and serves it on a free port — opening the browser automatically.
+    `SscPreviewVariantsTest` (5 cases) validates variant parsing.
+    `variants:` added to `spinner.ssc` (3 sizes) and `badge.ssc` (5 tones).
+  - **`std/ui/index.ssc` aggregator** ✓ Already landed.  Lives at
+    `examples/std-ui/index.ssc`; the v0.9.1 directory-as-index resolver
+    (`ImportResolver`) was already in place; `conformance/std-ui-aggregator.ssc`
+    smoke-tests it across all backends.
+  - **Documentation page** — deferred; `examples/std-ui/demo.ssc`
+    already serves this purpose for basic demos.
 
 ## v0.10 — Extended component pack ✓ Landed (iter A–D)
 

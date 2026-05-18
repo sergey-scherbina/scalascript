@@ -2,6 +2,17 @@
 ---
 name: badge
 description: Small pill — neutral / info / warn / danger / success tones.
+variants:
+  - name: "neutral"
+    args: {label: "Neutral", tone: "neutral"}
+  - name: "info"
+    args: {label: "Info", tone: "info"}
+  - name: "success"
+    args: {label: "Success", tone: "success"}
+  - name: "warn"
+    args: {label: "Warning", tone: "warn"}
+  - name: "danger"
+    args: {label: "Danger", tone: "danger"}
 ---
 
 # Badge
