@@ -5698,6 +5698,20 @@ class JsGen(
         case Lit.Unit() => ""
         case ep         => s" else {\n${genGenStmt(ep)}\n  }"
       s"  if (${genExpr(t.cond)}) {\n${genGenStmt(t.thenp)}\n  }$elseStr"
+    case t: Term.Match =>
+      // Match as statement in a generator/coroutine body — must NOT wrap in an IIFE
+      // because case branches may contain `yield` (via suspend), which is invalid inside arrow fns.
+      val scrutVar = freshTmp()
+      val scrutExpr = genGenExpr(t.expr)
+      val casesJs = t.casesBlock.cases.map { c =>
+        val (cond, bindings) = genPattern(scrutVar, c.pat)
+        val bindingJs = if bindings.isEmpty then ""
+          else bindings.map { case (n, e) => s"    const $n = $e;" }.mkString("\n") + "\n"
+        val bodyJs = genGenStmt(c.body)
+        val condStr = s"($cond) "
+        s"  if $condStr{\n$bindingJs$bodyJs\n  }"
+      }.mkString(" else ")
+      s"  const $scrutVar = $scrutExpr;\n$casesJs"
     case t: Term => s"  ${genGenExpr(t)};"
     case _       => s"  ${genStatInline(s)}"
 

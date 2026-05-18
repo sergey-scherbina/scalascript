@@ -1,0 +1,47 @@
+---
+name: coroutine-basic
+description: v1.9 coroutine primitive — create, resume, suspend, Yielded/Returned
+---
+
+# Coroutine — single yield then return
+
+```scalascript
+val co = coroutineCreate[Int, Unit, String] { () =>
+  suspend(1)
+  suspend(2)
+  suspend(3)
+  "done"
+}
+println(coroutineResume(co, ()))
+println(coroutineResume(co, ()))
+println(coroutineResume(co, ()))
+println(coroutineResume(co, ()))
+```
+
+# Coroutine — two-way value passing
+
+```scalascript
+val pingpong = coroutineCreate[String, String, String] { () =>
+  val b = suspend("ping")
+  val c = suspend(b + "-pong")
+  c + "-final"
+}
+println(coroutineResume(pingpong, ""))
+println(coroutineResume(pingpong, "A"))
+println(coroutineResume(pingpong, "B"))
+```
+
+# Coroutine — while loop
+
+```scalascript
+val counter = coroutineCreate[Int, Unit, Unit] { () =>
+  var n = 0
+  while n < 3 do
+    suspend(n)
+    n = n + 1
+}
+println(coroutineResume(counter, ()))
+println(coroutineResume(counter, ()))
+println(coroutineResume(counter, ()))
+println(coroutineResume(counter, ()))
+```

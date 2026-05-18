@@ -133,3 +133,38 @@ class CoroutineCodegenTest extends AnyFunSuite with Matchers:
         case Errored(msg) => println("got error")
         case _            => println("unexpected: " + r)
     """) shouldBe "Yielded(())\ngot error"
+
+  test("JsGen: multiple sequential yields"):
+    assume(hasNode, "node not available")
+    runJs("""
+      val co = coroutineCreate[Int, Unit, String] { () =>
+        suspend(1)
+        suspend(2)
+        suspend(3)
+        "done"
+      }
+      println(coroutineResume(co, ()))
+      println(coroutineResume(co, ()))
+      println(coroutineResume(co, ()))
+      println(coroutineResume(co, ()))
+    """) shouldBe "Yielded(1)\nYielded(2)\nYielded(3)\nReturned(done)"
+
+  test("JsGen: nested coroutines"):
+    assume(hasNode, "node not available")
+    runJs("""
+      val outer = coroutineCreate[Int, Unit, String] { () =>
+        val inner = coroutineCreate[Int, Unit, String] { () =>
+          suspend(99)
+          "inner-done"
+        }
+        val step = coroutineResume(inner, ())
+        step match
+          case Yielded(v) =>
+            suspend(v)
+            ()
+          case _ => ()
+        "outer-done"
+      }
+      println(coroutineResume(outer, ()))
+      println(coroutineResume(outer, ()))
+    """) shouldBe "Yielded(99)\nReturned(outer-done)"

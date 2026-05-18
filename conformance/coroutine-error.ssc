@@ -1,0 +1,39 @@
+---
+name: coroutine-error
+description: v1.9 coroutine — error propagation and nested coroutines
+---
+
+# Coroutine — error propagation
+
+```scalascript
+val co = coroutineCreate[Int, Unit, String] { () =>
+  suspend(1)
+  val x: String = null
+  x.length.toString
+}
+println(coroutineResume(co, ()))
+val r = coroutineResume(co, ())
+r match
+  case Errored(_) => println("got-error")
+  case _          => println("unexpected")
+```
+
+# Coroutine — nested (outer resumes inner)
+
+```scalascript
+val outer = coroutineCreate[Int, Unit, String] { () =>
+  val inner = coroutineCreate[Int, Unit, String] { () =>
+    suspend(99)
+    "inner-done"
+  }
+  val step = coroutineResume(inner, ())
+  step match
+    case Yielded(v) =>
+      suspend(v)
+      ()
+    case _ => ()
+  "outer-done"
+}
+println(coroutineResume(outer, ()))
+println(coroutineResume(outer, ()))
+```
