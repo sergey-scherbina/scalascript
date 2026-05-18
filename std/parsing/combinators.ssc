@@ -1,0 +1,141 @@
+---
+name: std-parsing-combinators
+version: 1.0.0
+description: v1.20 std/parsing — combinator extension methods and recursive-descent interpreter
+exports:
+  - PSequence
+  - PChoice
+  - PMany
+  - POpt
+  - PMapped
+  - PFlatMapped
+  - PNamed
+  - runParser
+---
+
+# `std/parsing/combinators` — combinator nodes + recursive-descent interpreter
+
+Imports the core ADT from `core.ssc`, adds seven combinator case-class nodes,
+extension methods that build them (`~`, `|`, `map`, `flatMap`, `many`, `many1`,
+`opt`, `~>`, `<~`, `named`), and the default recursive-descent `parse` runner.
+
+[Position, ParseError, ParseOk, ParseErr, Parser, PChar, PString, PRegex, PSatisfy, PSucceed, PFail](core.ssc)
+
+## Combinator ADT nodes
+
+```scalascript
+// Sequence: parse left then right, return pair.
+case class PSequence(left: Any, right: Any) extends Parser[Any]
+
+// Choice: try left, fall back to right on failure.
+case class PChoice(left: Any, right: Any) extends Parser[Any]
+
+// Many: repeat inner at least minCount times, return list.
+case class PMany(inner: Any, minCount: Int) extends Parser[Any]
+
+// Optional: return Some(v) on success, None on failure.
+case class POpt(inner: Any) extends Parser[Any]
+
+// Map: transform the result of inner with f.
+case class PMapped(inner: Any, f: Any) extends Parser[Any]
+
+// FlatMap: inner result fed to f to produce next parser.
+case class PFlatMapped(inner: Any, f: Any) extends Parser[Any]
+
+// Named: wrap inner; augments error messages with a rule name.
+case class PNamed(inner: Any, name: String) extends Parser[Any]
+```
+
+## Extension methods on Parser
+
+```scalascript
+extension [A](p: Parser[A])
+  def ~[B](q: Parser[B]): Parser[Any]          = PSequence(p, q)
+  def |[B](q: Parser[B]): Parser[Any]          = PChoice(p, q)
+  def map[B](f: Any): Parser[Any]              = PMapped(p, f)
+  def flatMap[B](f: Any): Parser[Any]          = PFlatMapped(p, f)
+  def many(): Parser[Any]                      = PMany(p, 0)
+  def many1(): Parser[Any]                     = PMany(p, 1)
+  def opt(): Parser[Any]                       = POpt(p)
+  def ~>[B](q: Parser[B]): Parser[Any]         = PMapped(PSequence(p, q), pair => pair._2)
+  def <~[B](q: Parser[B]): Parser[Any]         = PMapped(PSequence(p, q), pair => pair._1)
+  def named(n: String): Parser[Any]            = PNamed(p, n)
+```
+
+## Recursive-descent interpreter
+
+```scalascript
+def runParser(p: Any, input: String, pos: Position): Any =
+  p match
+    case PChar(c) =>
+      if input.length == 0 then
+        ParseErr(ParseError("unexpected end of input", pos))
+      else if input.charAt(0) == c then
+        ParseOk(input.charAt(0), input.drop(1), Position(pos.offset + 1))
+      else
+        ParseErr(ParseError("expected '" + c + "'", pos))
+    case PString(s) =>
+      if input.startsWith(s) then
+        ParseOk(s, input.drop(s.length), Position(pos.offset + s.length))
+      else
+        ParseErr(ParseError("expected \"" + s + "\"", pos))
+    case PRegex(pat) =>
+      input.matchPrefix(pat) match
+        case Some(m) => ParseOk(m, input.drop(m.length), Position(pos.offset + m.length))
+        case None    => ParseErr(ParseError("expected /" + pat + "/", pos))
+    case PSatisfy(pred) =>
+      if input.length == 0 then
+        ParseErr(ParseError("unexpected end of input", pos))
+      else
+        val c = input.charAt(0)
+        if pred(c) then ParseOk(c, input.drop(1), Position(pos.offset + 1))
+        else ParseErr(ParseError("unexpected character", pos))
+    case PSucceed(v) =>
+      ParseOk(v, input, pos)
+    case PFail(msg) =>
+      ParseErr(ParseError(msg, pos))
+    case PSequence(left, right) =>
+      runParser(left, input, pos) match
+        case ParseOk(a, rest1, pos1) =>
+          runParser(right, rest1, pos1) match
+            case ParseOk(b, rest2, pos2) => ParseOk((a, b), rest2, pos2)
+            case err => err
+        case err => err
+    case PChoice(left, right) =>
+      runParser(left, input, pos) match
+        case ParseErr(_) => runParser(right, input, pos)
+        case ok          => ok
+    case PMany(inner, minCount) =>
+      def loop(inp: String, p2: Position, acc: List[Any]): Any =
+        runParser(inner, inp, p2) match
+          case ParseOk(v, rest, p3) => loop(rest, p3, acc :+ v)
+          case ParseErr(_)          => ParseOk(acc, inp, p2)
+      loop(input, pos, Nil) match
+        case ParseOk(acc, rest, p2) =>
+          if acc.length < minCount then
+            ParseErr(ParseError("expected at least " + minCount + " occurrences", pos))
+          else
+            ParseOk(acc, rest, p2)
+        case err => err
+    case POpt(inner) =>
+      runParser(inner, input, pos) match
+        case ParseOk(v, rest, pos2) => ParseOk(Some(v), rest, pos2)
+        case ParseErr(_)            => ParseOk(None, input, pos)
+    case PMapped(inner, f) =>
+      runParser(inner, input, pos) match
+        case ParseOk(v, rest, pos2) => ParseOk(f(v), rest, pos2)
+        case err                    => err
+    case PFlatMapped(inner, f) =>
+      runParser(inner, input, pos) match
+        case ParseOk(v, rest, pos2) => runParser(f(v), rest, pos2)
+        case err                    => err
+    case PNamed(inner, name) =>
+      runParser(inner, input, pos) match
+        case ParseErr(e) => ParseErr(ParseError("expected " + name, pos))
+        case ok          => ok
+    case _ =>
+      ParseErr(ParseError("unknown parser node", pos))
+
+extension [A](p: Parser[A])
+  def parse(input: String): Any = runParser(p, input, Position(0))
+```

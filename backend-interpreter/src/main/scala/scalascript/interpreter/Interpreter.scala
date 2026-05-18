@@ -30,6 +30,9 @@ class Interpreter(
     lockPath: Option[os.Path]      = None):
   private val globals      = mutable.Map.empty[String, Value]
   private val extensions   = mutable.Map.empty[(String, String), Value.FunV]
+  // Concrete type → declared parent type (from `extends` clause).  Used by
+  // extensionDispatch to find extension methods registered on a sealed parent.
+  private val parentTypes  = mutable.Map.empty[String, String]
   // Methods declared inside a `class` / `case class` body, keyed by type name.
   // Stored separately from instance fields so `show` and pattern matching see
   // only data fields.
@@ -660,6 +663,7 @@ class Interpreter(
     ))
     // Map / math.sqrt-round now live in CoreIntrinsics (Stage 5+/E).
     globals("None") = Value.OptionV(None)
+    globals("Some") = Value.NativeFnV("Some", { case List(v) => Pure(Value.OptionV(Some(v))); case _ => throw InterpretError("Some requires exactly one argument") })
     globals("Nil")  = Value.ListV(Nil)
 
     globals("math.Pi")   = Value.DoubleV(math.Pi)
@@ -1272,7 +1276,8 @@ class Interpreter(
    *  JS and JVM backends inline imports wholesale and pick these up
    *  for free, but the interpreter only copies the values named in
    *  the import binding list and would otherwise drop extensions. */
-  def exportedExtensions: Map[(String, String), Value.FunV] = extensions.toMap
+  def exportedExtensions:  Map[(String, String), Value.FunV] = extensions.toMap
+  def exportedParentTypes: Map[String, String]               = parentTypes.toMap
 
   // ─── Section / block execution ───────────────────────────────────
 
@@ -1388,7 +1393,8 @@ class Interpreter(
     // the importer's scope.  Without this, an `extension` declared
     // inside an imported `given ... with` would never dispatch — the
     // child interpreter's `extensions` map is private to that child.
-    extensions ++= child.exportedExtensions
+    extensions  ++= child.exportedExtensions
+    parentTypes ++= child.exportedParentTypes
 
   /** Navigate nested InstanceV objects to find `name` under the package path.
    *  For `pkg = ["org", "example", "ui"]` and `name = "Card"` this resolves
@@ -1498,6 +1504,14 @@ class Interpreter(
       val typeName = d.name.value
       val ctorEnv = env.toMap
       typeFieldOrder(typeName) = paramNames
+      // Record first parent type for extension-method dispatch on sealed parents.
+      d.templ.inits.headOption.foreach { init =>
+        val pn = init.tpe match
+          case Type.Name(n)   => n
+          case ta: Type.Apply => ta.tpe match { case Type.Name(n) => n; case _ => "" }
+          case _              => ""
+        if pn.nonEmpty then parentTypes(typeName) = pn
+      }
       env(typeName) = Value.NativeFnV(typeName, args => {
         val filled = applyDefaults(paramNames, paramDefaults, args, ctorEnv)
         Pure(Value.InstanceV(typeName, paramNames.zip(filled).toMap))
@@ -4419,6 +4433,10 @@ class Interpreter(
       case (Value.StringV(s), "toString",     Nil) => Pure(Value.StringV(s))
       case (Value.StringV(s), "contains",     List(Value.StringV(t))) => Pure(Value.BoolV(s.contains(t)))
       case (Value.StringV(s), "startsWith",   List(Value.StringV(t))) => Pure(Value.BoolV(s.startsWith(t)))
+      case (Value.StringV(s), "matchPrefix",  List(Value.StringV(pat))) =>
+        val m = java.util.regex.Pattern.compile(pat).matcher(s)
+        if m.lookingAt() then Pure(Value.OptionV(Some(Value.StringV(s.substring(0, m.end())))))
+        else Pure(Value.OptionV(None))
       case (Value.StringV(s), "endsWith",     List(Value.StringV(t))) => Pure(Value.BoolV(s.endsWith(t)))
       case (Value.StringV(s), "split",        List(Value.StringV(sep))) =>
         Pure(Value.ListV(s.split(java.util.regex.Pattern.quote(sep)).toList.map(Value.StringV(_))))
@@ -4777,7 +4795,10 @@ class Interpreter(
           // fall through to the generic Value.show path so users get the
           // expected "Circle(3.0)" rendering without having to define it.
           case None if fname == "toString"                   => Pure(Value.StringV(Value.show(recv)))
-          case None                                          => located(s"No field '$fname'")
+          // Fall through to extension method dispatch before erroring.
+          case None =>
+            extensionDispatch(recv, fname, Nil, env)
+              .getOrElse(located(s"No field '$fname'"))
       // ── Enum companion call (Color.RGB(1,2,3)) ───────────────────
       case (Value.InstanceV(_, fields), fname, fargs) if fields.contains(fname) =>
         callValue(fields(fname), fargs, env)
@@ -4803,6 +4824,11 @@ class Interpreter(
       case _                    => "Any"
     extensions.get((typeName, method)).map { fn =>
       callValue(fn, recv :: args, env)
+    }.orElse {
+      // Walk one level up the declared parent type (e.g. PChar → Parser).
+      parentTypes.get(typeName).flatMap(p => extensions.get((p, method))).map { fn =>
+        callValue(fn, recv :: args, env)
+      }
     }.orElse {
       globals.values.collectFirst {
         case Value.InstanceV(name, fields)
