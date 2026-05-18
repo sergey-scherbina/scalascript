@@ -1,0 +1,36 @@
+---
+name: dataset-map-filter
+---
+
+# Dataset — map / filter / flatMap / take / drop / distinct
+
+Lazy composition: no evaluation until the terminal op.
+Plan is reused across multiple `.collect()` calls.
+
+```scalascript
+val ds = Dataset.of(1, 2, 3, 4, 5, 6, 7, 8, 9, 10)
+
+// map
+println(ds.map(_ * 2).collect().mkString(", "))
+
+// filter
+println(ds.filter(_ % 2 == 0).collect().mkString(", "))
+
+// map + filter fused
+println(ds.map(_ * 3).filter(_ > 15).collect().mkString(", "))
+
+// flatMap
+println(ds.take(3).flatMap(x => List(x, x * 10)).collect().mkString(", "))
+
+// take / drop
+println(ds.take(4).collect().mkString(", "))
+println(ds.drop(7).collect().mkString(", "))
+
+// distinct
+println(Dataset.of(1, 2, 2, 3, 1, 3, 4).distinct.collect().mkString(", "))
+
+// Reuse: same plan, multiple terminals
+val pipeline = ds.filter(_ % 3 == 0)
+println(pipeline.count())
+println(pipeline.collect().mkString(", "))
+```

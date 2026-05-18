@@ -1,0 +1,17 @@
+---
+name: std-mapreduce
+version: 0.1.0
+description: Map-reduce — Dataset[T] lazy pipeline with sequential + parallel local runners (v1.21) and distributed execution via Cluster (v1.22).
+package: std.mapreduce
+exports:
+  - Dataset
+---
+
+# `std.mapreduce` — map-reduce for ScalaScript
+
+Re-exports everything from the sub-modules so callers can write
+`import std/mapreduce` and get the complete surface.
+
+```scalascript
+import std/mapreduce/dataset.{Dataset}
+```

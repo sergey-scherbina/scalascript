@@ -1,0 +1,22 @@
+---
+name: dataset-parallel-sum
+description: Parallel sum-of-squares across cores via Dataset.runParallel()
+backends: [jvm]
+---
+
+# Parallel sum of squares
+
+Demonstrates `runParallel()` using JVM virtual threads (Loom).
+Computes Σ(x²) for x in 1..100_000; verifies result matches sequential.
+
+```scalascript
+val n   = 100_000
+val data = Dataset.fromList(List.range(1, n + 1))
+
+val seqSum = data.map(x => x.toLong * x).runLocal().reduce(_ + _)
+val parSum = data.map(x => x.toLong * x).runParallel().reduce(_ + _)
+
+println(s"sequential: $seqSum")
+println(s"parallel:   $parSum")
+println(s"match: ${seqSum == parSum}")
+```

@@ -1,0 +1,35 @@
+---
+name: dataset-error
+---
+
+# Dataset — error propagation
+
+An exception thrown inside a `map` or `reduce` callback propagates
+as a regular runtime exception to the caller.
+
+```scalascript
+// map that throws on a specific element
+val ds = Dataset.of(1, 2, 0, 3)
+
+val result = try {
+  ds.map(x => if x == 0 then throw new RuntimeException("zero!") else 10 / x).collect()
+  "no error"
+} catch {
+  case e: RuntimeException => s"caught: ${e.getMessage}"
+}
+println(result)
+
+// reduce on empty dataset
+val empty = Dataset.of[Int]()
+val r2 = try {
+  empty.reduce(_ + _)
+  "no error"
+} catch {
+  case e: RuntimeException => s"caught: ${e.getMessage}"
+  case _: Exception        => "caught exception"
+}
+println(r2)
+
+// normal path still works after error
+println(ds.filter(_ > 0).map(x => 10 / x).collect().mkString(", "))
+```

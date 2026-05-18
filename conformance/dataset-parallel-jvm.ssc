@@ -1,0 +1,30 @@
+---
+name: dataset-parallel-jvm
+backends: [jvm]
+---
+
+# Dataset — parallel runner parity with sequential (JVM)
+
+`runParallel()` uses Loom virtual threads.  Result must be identical to
+`runLocal()` for embarrassingly-parallel operations.
+
+```scalascript
+val data = Dataset.fromList(List.range(1, 101))  // 1..100
+
+// Parallel collect matches sequential collect
+val seqResult  = data.map(_ * 2).filter(_ % 6 == 0).runLocal().collect()
+val parResult  = data.map(_ * 2).filter(_ % 6 == 0).runParallel().collect()
+println(seqResult.sorted.mkString(", "))
+println(parResult.sorted.mkString(", "))
+println(seqResult.sorted == parResult.sorted)
+
+// Parallel sum
+val seqSum = data.map(x => x.toLong * x).runLocal().reduce(_ + _)
+val parSum = data.map(x => x.toLong * x).runParallel().reduce(_ + _)
+println(seqSum)
+println(seqSum == parSum)
+
+// count parity
+println(data.runLocal().count())
+println(data.runParallel().count())
+```

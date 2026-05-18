@@ -1,0 +1,23 @@
+---
+name: dataset-sortBy
+---
+
+# Dataset — sortBy
+
+Sorts by a key function.  Tests ascending order on ints and strings.
+
+```scalascript
+val nums = Dataset.of(5, 3, 8, 1, 9, 2, 7, 4, 6)
+println(nums.sortBy(x => x).collect().mkString(", "))
+
+// descending via negation
+println(nums.sortBy(x => -x).collect().mkString(", "))
+
+// sortBy string length then value
+val strs = Dataset.of("banana", "fig", "apple", "kiwi", "cherry")
+println(strs.sortBy(s => s).collect().mkString(", "))
+println(strs.sortBy(s => s.length).collect().mkString(", "))
+
+// chain: filter then sort
+println(nums.filter(_ % 2 == 0).sortBy(x => x).collect().mkString(", "))
+```

@@ -1,0 +1,32 @@
+---
+name: dataset-from-generator
+---
+
+# Dataset — fromGenerator and toGenerator
+
+Round-trips through `Generator[T]`: `Dataset.fromGenerator` consumes a
+generator as source; `.toGenerator()` streams the pipeline output.
+
+```scalascript
+// Build a generator of 1..10
+val gen = generator[Int] { () =>
+  var i = 1
+  while i <= 10 do
+    suspend(i)
+    i += 1
+}
+
+// fromGenerator: materialises lazily at collect()
+val ds = Dataset.fromGenerator(gen)
+println(ds.map(_ * 2).filter(_ > 10).collect().mkString(", "))
+
+// toGenerator: stream the pipeline output
+val gen2 = generator[Int] { () =>
+  var j = 1
+  while j <= 5 do
+    suspend(j * j)
+    j += 1
+}
+val out = Dataset.fromGenerator(gen2).filter(_ % 2 == 1).toGenerator()
+out.foreach(v => println(v))
+```

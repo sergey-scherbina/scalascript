@@ -1,0 +1,24 @@
+---
+name: dataset-parallel-int
+backends: [interpreter]
+---
+
+# Dataset — parallel runner parity (interpreter)
+
+On the interpreter `runParallel()` uses cooperative concurrency
+(same observable semantics as sequential for pure pipelines).
+
+```scalascript
+val data = Dataset.fromList(List.range(1, 51))  // 1..50
+
+val seqResult = data.map(_ * 3).filter(_ % 9 == 0).runLocal().collect()
+val parResult = data.map(_ * 3).filter(_ % 9 == 0).runParallel().collect()
+println(seqResult.sorted.mkString(", "))
+println(parResult.sorted.mkString(", "))
+println(seqResult.sorted == parResult.sorted)
+
+val seqSum = data.runLocal().reduce(_ + _)
+val parSum = data.runParallel().reduce(_ + _)
+println(seqSum)
+println(seqSum == parSum)
+```

@@ -1,0 +1,27 @@
+---
+name: dataset-word-count
+description: Word count via Dataset — reads a text file, counts top-10 words
+---
+
+# Word count with `Dataset[T]`
+
+Classic MapReduce example: read lines from a file, split into words, count
+occurrences, return the top 10 by frequency.
+
+```scalascript
+val path = if args.length > 0 then args(0) else "./examples/dataset-word-count.ssc"
+
+val top10 = Dataset.fromFile(path)
+  .flatMap(line => line.split("\\s+").toList)
+  .filter(_.nonEmpty)
+  .map(_.toLowerCase.replaceAll("[^a-z]", ""))
+  .filter(_.nonEmpty)
+  .groupBy(w => w)
+  .map { case (word, occurrences) => (word, occurrences.length) }
+  .sortBy(_._2)
+  .take(10)
+  .runLocal()
+  .collect()
+
+top10.foreach { case (w, c) => println(s"$w: $c") }
+```

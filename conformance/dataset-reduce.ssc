@@ -1,0 +1,32 @@
+---
+name: dataset-reduce
+---
+
+# Dataset — reduce / fold / foreach / first
+
+Tests sequential reduction: int sum, max, string concat, fold with zero.
+
+```scalascript
+val nums = Dataset.of(1, 2, 3, 4, 5)
+
+// reduce: sum
+println(nums.reduce(_ + _))
+
+// reduce: max
+println(nums.reduce((a, b) => if a > b then a else b))
+
+// fold with zero
+println(nums.fold(0)(_ + _))
+println(nums.fold(100)(_ + _))
+
+// foreach
+nums.filter(_ % 2 == 1).foreach(x => println(s"odd: $x"))
+
+// first
+println(nums.filter(_ > 3).first().getOrElse(-1))
+println(nums.filter(_ > 100).first().getOrElse(-1))
+
+// string concat via fold
+val words = Dataset.of("hello", "world", "foo")
+println(words.fold("")((acc, w) => if acc.isEmpty then w else s"$acc $w"))
+```
