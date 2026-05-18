@@ -18,6 +18,14 @@
 >
 > ## Direct-syntax defaults
 >
+> **Full design promoted to [`docs/direct-syntax.md`](direct-syntax.md)**
+> (2026-05-18) — covers all seven decisions DS-1…DS-7 including
+> control flow, lambda boundaries, and bind-marker syntax, plus the
+> formal desugaring spec and implementation phases.  The summary
+> below mirrors the four core decisions from the May 17 lock-in for
+> readers who land here from the SPI followups thread; consult the
+> standalone document for canonical text.
+>
 > A direct-syntax block desugars to a `for { ... } yield ...` over a
 > single monad.  Each line `x = expr` becomes `x <- expr`; each bare
 > effectful line becomes `_ <- expr`; the trailing expression is the
