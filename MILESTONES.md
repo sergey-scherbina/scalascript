@@ -421,12 +421,16 @@ unblocks downstream features as early as possible.
      Full design in [`docs/metaprogramming.md`](docs/metaprogramming.md).
      User-defined macros (`quoted.Expr`) explicitly out of scope —
      deferred to v2.x.  Depends on v1.13 (`Mirror` resolution).
- 21. **v1.15 — Checked errors via `throws`** (~10 days).
-     Either-encoded `infix type throws[A, E] = Either[E, A]` +
-     return-site auto-conversions + direct-syntax integration +
-     std-lib platform-exception shims (`parseInt`, etc.) +
-     `attemptCatch[E <: Throwable] { … }` opt-in lift + `HasStackTrace`
-     mixin with `currentStackTrace()` per-backend.  Full design in
+ 21. **v1.15 — Checked errors via `throws`** (~12 days).
+     Dual-encoding: canonical `infix type throws[A, E] = Either[E, A]`
+     (direct-syntax-integrated, monadic, ergonomic) plus opt-in
+     `infix type throwsRaw[A, E] = A | E` (zero-allocation; preserves
+     native JVM `Throwable.getStackTrace`; used for hot-path parsing
+     and JVM exception interop).  Includes return-site auto-conversions,
+     `box`/`unbox` between encodings, std-lib platform-exception shims
+     (`parseInt`, etc.), `attemptCatch` / `attemptCatchRaw` opt-in
+     lifts, and the `HasStackTrace` mixin with `currentStackTrace()`
+     per-backend.  Full design in
      [`docs/error-handling.md`](docs/error-handling.md).  Depends on
      v1.8 (direct-syntax) + v1.13 (`using` + cross-file traits).
  22. **v1.16 — Restartable errors via algebraic effects** (~1 week
@@ -2398,16 +2402,45 @@ Frame format is identical across backends — uniform diagnostics.
 
 ### Phase 7 — Conformance + std polishing (~1 day)
 
-Six tests covering each decided piece (see
+Eight tests covering each decided piece (see
 `docs/error-handling.md` §9).  Add a `Response.fromError(e)`
 helper that turns `HasStackTrace` errors into 500-with-trace
 responses for development mode (production mode strips traces
 — follow-up to address logging story).
 
+### Phase 8 — `throwsRaw[A, E] = A | E` companion alias (~1 day)
+
+Ships the union-typed perf/interop companion as an opt-in
+type alias.  Pure stdlib work; no compiler changes (Scala 3
+union types already work at the parser/typer level).  Used
+by Phase 9 helpers; positioned as **opt-in, not default**.
+
+### Phase 9 — Conversion helpers + `attemptCatchRaw` (~1 day)
+
+- `box[A, E](raw: A | E): A throws E` — type-tested promotion
+- `unbox[A, E](boxed: A throws E): A | E` — demotion
+- `attemptCatchRaw[E <: Throwable, A] { … }: A throwsRaw E` —
+  union form that preserves native `Throwable.getStackTrace`
+  on JVM and avoids the `Right`/`Left` box.  Used for hot-path
+  parsing and JVM exception interop where the Either box is
+  measurable overhead.
+
+The two-tier stack trace model documented in
+`docs/error-handling.md` §2.4 falls out of this for free:
+`throwsRaw[A, Throwable]` keeps its native trace; `throws`
+captures via `HasStackTrace`; trace-less `throws` pays
+nothing.
+
 ### Hard-no list (locked by design — `docs/error-handling.md` §5)
 
 - Auto-wrap thrown exceptions in direct blocks (DS-7 stays)
-- `A | E` union encoding (rejected for `Either[E, A]`)
+- `A | E` union encoding as the **default** `throws`
+  (canonical is Either; union ships as opt-in `throwsRaw`
+  companion — see Phase 8)
+- Auto-conversion across the `throws` / `throwsRaw` boundary
+  (explicit `box` / `unbox` only)
+- `throwsRaw` as a `direct[F] { … }` target (`throws` only;
+  raw must be `box`-ed before entering a direct block)
 - Java-style throws clauses (only return-type-position `throws`)
 - `E` restricted to `Throwable` subtypes (works over any `E`)
 - Effect-row tracking for errors (v1.12 algebraic effects territory)
@@ -2420,13 +2453,20 @@ responses for development mode (production mode strips traces
 - `HasStackTrace` vs `extends Error` std convention
 - Capture cost on hot paths — measure when v1.15 lands
 - Cross-backend trace content (fn name normalisation)
+- When (if ever) to add `Raw`-form shims (`parseIntRaw` etc.)
+  — speculative basis is rejected; add only when profiling
+  shows a real benefit
+- `throwsRaw` interactions with overloading / method
+  dispatch — Scala 3 union restriction (`A` and `E` must be
+  runtime-distinguishable) — document the failure mode
 
 ### Effort
 
-Seven phases, ~10 days end-to-end across three backends.
-Phase 6 (stack traces) is the only piece with meaningful
-per-backend variance; everything else lands as typer + std
-work uniformly.
+Nine phases, ~12 days end-to-end across three backends
+(was ~10 — bumped by the dual-encoding companion).  Phase 6
+(stack traces) is still the only piece with meaningful
+per-backend variance; Phases 8-9 are pure stdlib + helper
+work that lands uniformly.
 
 ## v1.16 — Restartable errors via algebraic effects (depends on v1.12)
 

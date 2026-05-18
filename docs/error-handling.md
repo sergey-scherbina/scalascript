@@ -131,7 +131,95 @@ correctly.  Pure tail (`Response.json(...)`) auto-lifts via
 for `Monad[Either[E, *]]`) AND cross-file trait inheritance
 (`Either[E, *]` partial application).
 
-### 2.4 Error subtyping
+### 2.4 Dual encoding — `throws` (canon) + `throwsRaw` (opt-in)
+
+Either-encoded `throws` is the canonical default — ergonomic,
+monad-integrated, direct-syntax friendly.  But there are two
+narrow situations where the Either box has real cost:
+
+1. **JVM/Scala exception interop** — the `catch` clause already
+   produces a `Throwable` value; wrapping it in `Left(e)` is
+   pure overhead.
+2. **Hot-path parsers** (millions of operations / second) —
+   allocation pressure of `Right(...)` per call shows up in
+   profiles.
+
+To address both without polluting the canonical surface, ship a
+**companion** union-typed alias:
+
+```scala
+infix type throws[A, E]    = Either[E, A]    // canonical
+infix type throwsRaw[A, E] = A | E           // opt-in: perf + interop
+```
+
+Plus bidirectional conversion helpers in std:
+
+```scala
+inline def box[A, E](raw: A | E): A throws E = raw match
+  case e: E => Left(e)
+  case a    => Right(a.asInstanceOf[A])    // type-test on E first
+
+inline def unbox[A, E](boxed: A throws E): A | E = boxed match
+  case Left(e)  => e
+  case Right(a) => a
+```
+
+#### When to use which (the rule of thumb in std docs)
+
+| Situation | Use | Reason |
+|-----------|-----|--------|
+| Default / business logic | `throws` | Composable, direct-syntax integration |
+| Generic monadic code (`[F[_]: Monad]`) | `throws` | Has Monad instance |
+| API across module boundary | `throws` | Stable, encoded form, no `A`-vs-`E` ambiguity risk |
+| `direct[F] { … }` blocks | `throws` | Free monadic auto-bind |
+| Interop with JVM exception via single `catch` | `throwsRaw` | Preserves native stack trace, zero box |
+| Hot-path parser (millions / sec) | `throwsRaw` | Zero allocation per call |
+| Internal helper inside one module where profile shows it | `throwsRaw` | Compiler can inline more aggressively |
+
+**API boundary rule**: between modules always `throws`;
+internal optimisations can use `throwsRaw` and convert at the
+boundary.  Don't pollute downstream APIs with the perf-channel.
+
+#### Restrictions on `throwsRaw`
+
+Scala 3 unions require members to be **distinguishable at
+runtime**.  `throwsRaw[Int, Int]` is a compile error — the type
+tester can't tell which member was meant.  This is a hard
+limit: when `A` and `E` overlap on runtime type, use `throws`
+(which boxes both into distinct cases).
+
+#### Stack-trace consequence
+
+The dual encoding produces a **two-tier stack-trace model**:
+
+| Encoding | Trace source | Cost |
+|----------|--------------|------|
+| `throwsRaw[A, E <: Throwable]` | native `Throwable.getStackTrace` | 0 (free) |
+| `throws[A, E <: HasStackTrace]` | our `currentStackTrace()` capture | 1 stack walk per error |
+| `throws[A, E]` where `E` has no trace mixin | trace absent — pure value | 0 |
+
+This is cohabitation, not conflict: `throwsRaw[A, Throwable]`
+inherits native machinery for free; `throws` over `HasStackTrace`
+uses our uniform machinery; trace-less errors pay nothing.
+
+#### Direct-syntax interaction
+
+`direct[F]` integration is **`throws`-only** in v1.15.  Monad
+instance on `A | E` requires inline-match-driven Monad
+derivation (v1.14 territory), and even then `A`-vs-`E`
+ambiguity restricts the cases where it's well-defined.
+
+If you need direct-syntax over a raw value: box first.
+
+```scala
+val handled: Response throws AppError = direct[ResultS] {
+  raw  = parseTokenRaw(buf, idx)   // throwsRaw[Token, ParseError] — fast
+  tok  = box(raw)                  // throws[Token, ParseError] — monadic
+  // ... rest of monadic flow
+}
+```
+
+### 2.5 Error subtyping
 
 ```scala
 def loadUser(id: Int): User throws (NotFound | Forbidden) =
@@ -356,7 +444,10 @@ into the original frame."  Both can ship.
 | Feature | Reason |
 |---------|--------|
 | **Auto-wrap thrown exceptions** in direct blocks | DS-7 (locked); the two-fault-model trap |
-| **`A \| E` union encoding** for `throws` | Rejected in favour of Either — direct-syntax integration |
+| **`A \| E` union encoding as the *default* `throws`** | Either-encoded is canon; union ships as opt-in `throwsRaw` companion (see §2.4) |
+| **Auto-conversion across the `throws` / `throwsRaw` boundary** | Explicit `box` / `unbox` only — auto-coercion would hide the perf intent |
+| **`throwsRaw` as the direct-syntax target** | `throws` (Either) is the only direct-syntax-integrated form; raw must `box` before entering a `direct[F]` block |
+| **Std-lib shim duplicates** (`parseIntRaw` etc.) on speculative basis | Add `Raw`-variant only when profiling shows real benefit on a specific helper |
 | **Java-style throws clauses** that propagate via the stack | Re-introduces unchecked propagation; type alias on the return type is the path |
 | **`throws` on JVM `Throwable` subtypes only** | Restricting `E` to `Throwable` would tie us to JVM; `throws` works over any type |
 | **Effect-row tracking for errors** (`F[A] throws E1 \| E2 ...`) | v1.12 algebraic effects territory; out of scope here |
@@ -400,12 +491,17 @@ when first usage emerges.
 ## 7. v1.15 scope (decided portion)
 
 - `infix type throws[A, E] = Either[E, A]` shipped in std
-- Two auto-conversion givens at return site
-- Direct-syntax integration (depends on v1.8 + v1.13)
+- `infix type throwsRaw[A, E] = A | E` shipped in std as opt-in companion
+- Two auto-conversion givens at return site (for `throws` form)
+- `box[A, E](A | E): A throws E` / `unbox[A, E](A throws E): A | E`
+- Direct-syntax integration for `throws` (depends on v1.8 + v1.13)
 - Error subtyping (free via Scala 3 type rules)
-- Std-lib platform-exception shims (initial set above)
-- `attemptCatch[E <: Throwable] { … }` opt-in lift
-- Conformance: 6-8 tests covering each piece
+- Std-lib platform-exception shims in `throws` form (initial set above)
+- `attemptCatch[E <: Throwable] { … }` — Either-encoded lift
+- `attemptCatchRaw[E <: Throwable] { … }` — union-encoded lift,
+  preserves native trace, zero allocation
+- Conformance: 7-9 tests covering each piece (one for the raw form
+  and the conversion round-trip)
 
 ## 8. v1.16 scope (future, depends on v1.12)
 
@@ -418,16 +514,18 @@ when first usage emerges.
 
 ## 9. Conformance plan
 
-### v1.15 decided tests (6)
+### v1.15 decided tests (8)
 
 | Test | Exercises |
 |------|-----------|
 | `throws-basic.ssc` | `throws[A, E]` ≡ `Either[E, A]`, conversions both directions |
-| `throws-direct-syntax.ssc` | Auto-unpack inside `direct[Either[E, *]] { … }` |
-| `throws-subtyping.ssc` | `E1 <: E2` ⇒ `throws[A, E1] <: throws[A, E2]` |
+| `throws-raw.ssc` | `throwsRaw[A, E] = A \| E`, pattern-match on union, `box`/`unbox` round-trip |
+| `throws-direct-syntax.ssc` | Auto-unpack inside `direct[Either[E, *]] { … }` (Either form only) |
+| `throws-subtyping.ssc` | `E1 <: E2` ⇒ `throws[A, E1] <: throws[A, E2]` (both encodings) |
 | `throws-multi-error.ssc` | `Int throws (ParseError \| OverflowError)` round-trip |
 | `throws-shim.ssc` | Std `parseInt` etc. return `throws`-typed values |
-| `throws-attempt-catch.ssc` | `attemptCatch[IOException] { … }` lifts JVM exceptions |
+| `throws-attempt-catch.ssc` | `attemptCatch[IOException] { … }` Either lift |
+| `throws-attempt-catch-raw.ssc` | `attemptCatchRaw[IOException] { … }` union lift; native stack trace preserved on JVM |
 
 ### v1.15 in-design tests (2)
 
