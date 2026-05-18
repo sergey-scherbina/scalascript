@@ -1,0 +1,33 @@
+---
+name: dataset-from-file
+backends: [jvm, js]
+---
+
+# Dataset — fromFile
+
+`Dataset.fromFile(path)` reads lines lazily; the thunk fires only when a
+terminal op is called.  Uses a small fixture written to a temp file.
+
+```scalascript
+import std/fs.{writeFile, deleteFile}
+
+val tmpPath = "./conformance-dataset-file-test.tmp"
+writeFile(tmpPath, "alpha\nbeta\ngamma\ndelta\nepsilon\n")
+
+val ds = Dataset.fromFile(tmpPath)
+
+// count lines
+println(ds.count())
+
+// filter + collect
+println(ds.filter(_.length > 4).collect().mkString(", "))
+
+// map to lengths
+println(ds.map(_.length).reduce(_ + _))
+
+// reuse: same plan, second terminal
+println(ds.first().getOrElse(""))
+
+deleteFile(tmpPath)
+println("done")
+```

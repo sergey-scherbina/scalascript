@@ -89,6 +89,7 @@ class JvmGen(
     if blocksUseReactive(blocks)                           then sb.append(reactiveRuntime)
     if effectOps.nonEmpty || blocksUseRoutes(blocks) || frontmatterRoutes.nonEmpty || blocksUseJson(blocks) then sb.append(serveRuntime)
     if blocksUseMcp(blocks)                                                          then sb.append(JvmRuntimeMcp)
+    if blocksUseDataset(blocks)                                                      then sb.append(JvmRuntimeDataset)
 
     // Front-matter route declarations are emitted as `route(method, path)
     // { req => handler(req) }` calls.  We place them BEFORE the user blocks
@@ -330,6 +331,20 @@ class JvmGen(
           case Term.Apply.After_4_6_0(Term.Name("mcpServer"),  _) => found = true
           case Term.Apply.After_4_6_0(Term.Name("serveMcp"),   _) => found = true
           case Term.Apply.After_4_6_0(Term.Name("mcpConnect"), _) => found = true
+        }
+      }
+      found
+    }
+
+  // True when any code block uses `Dataset.of`, `Dataset.fromList`, etc.
+  private def blocksUseDataset(blocks: List[JvmGen.Block]): Boolean =
+    val triggers = Set("Dataset", "_Dataset")
+    blocks.exists { b =>
+      var found = false
+      ScalaNode.fold(b.node) { tree =>
+        if !found then tree.collect {
+          case Term.Select(Term.Name(n), _) if triggers(n) => found = true
+          case Term.Apply.After_4_6_0(Term.Select(Term.Name(n), _), _) if triggers(n) => found = true
         }
       }
       found

@@ -3375,74 +3375,29 @@ End-to-end DSL with pipeline:
 Four phases, ~1 week.  Pure stdlib work.  Independent of
 v1.20.1 and v1.20.2 — can ship in any order after v1.20.
 
-## v1.21 — Local map-reduce (`Dataset[T]`)
+## v1.21 — Local map-reduce (`Dataset[T]`) ✓ Landed (Phases 1–6)
 
-User-facing `Dataset[T]` type with sequential + parallel
-local execution.  Lazy plan accumulation, terminal-op
-evaluation, partition-and-fork on multi-core JVM via v1.3
-Async.parallel; sequential fallback on backends without
-real-thread parallel.
+Lazy `Dataset[T]` fluent API — sequential + parallel local execution
+via Loom virtual threads on JVM; sequential fallback on JS (v1.3 Node
+parallel deferred); cooperative on INT.  Streaming interop via
+`fromGenerator` / `toGenerator`.
 
-Full design in [`docs/mapreduce.md`](docs/mapreduce.md) §3.
+**What landed:**
+- `std/mapreduce/{dataset,index}.ssc` — `extern class Dataset[T]` + `extern object Dataset`
+  with full API: `map`, `filter`, `flatMap`, `take`, `drop`, `distinct`,
+  `groupBy`, `reduceByKey`, `sortBy`, `collect`, `count`, `reduce`,
+  `fold`, `foreach`, `first`, `toGenerator`, `runLocal`, `runParallel`;
+  constructors `of`, `fromList`, `fromGenerator`, `fromFile`.
+- `Feature.Dataset` in SPI; detected by `CapabilityCheck`; declared in
+  JS + JVM capabilities.
+- `JsRuntimeDataset` — class-based lazy pipeline, `runParallel()` warns
+  once and falls back to sequential on Node.
+- `JvmRuntimeDataset` — Scala `_Dataset[T]` class; `runParallel()` partitions
+  into `availableProcessors` chunks and processes each in a Loom virtual thread.
+- `JvmGen.blocksUseDataset` — injects preamble when Dataset is used.
+- 10 conformance tests + 2 examples.
 
-```scala
-val sumOfSquares = Dataset.of(1L to 1_000_000L: _*)
-  .map(x => x * x)
-  .reduce(_ + _)
-  // .runParallel() — partitions across cores via v1.3
-```
-
-### Phase 1 — `Dataset[T]` API + sequential runner (~3 days)
-
-`std/mapreduce/{types, dataset, sequential, index}.ssc`.
-Lazy plan, terminal eval, all combinators (`map`, `filter`,
-`flatMap`, `take`, `drop`, `distinct`, `groupBy`,
-`reduceByKey`, `sortBy`, `collect`, `count`, `reduce`,
-`fold`, `foreach`, `first`).
-
-### Phase 2 — Parallel runner on JVM (~3 days)
-
-`std/mapreduce/parallel.ssc`.  Partition + virtual thread
-per partition via v1.3 Async.parallel.  Conformance:
-`.runParallel()` == `.runLocal()` semantically; benchmark
-3-4× speedup on 8-core embarrassingly-parallel `.map`.
-
-### Phase 3 — Parallel runner on INT (~2 days)
-
-Same shape, NIO continuation scheduling.  Concurrency for
-IO-bound; no true parallelism (single-threaded NIO).
-
-### Phase 4 — JS sequential fallback (~1 day)
-
-`runParallel()` on JS falls back to sequential until v1.3
-Node parallel lands.  One-time warn.
-
-### Phase 5 — Streaming integration (~2 days)
-
-`Dataset.fromGenerator(...)` / `.toGenerator` depends on
-v1.10.  Backpressure-aware work-stealing partitioning.
-
-### Phase 6 — Conformance + benchmarks (~2 days)
-
-10 conformance tests (see `docs/mapreduce.md` §9.1).  JVM
-microbenchmark for parallel speedup.
-
-### Hard-no list (locked — `docs/mapreduce.md` §8)
-
-- Closure serialisation — v1.22 uses named handlers; closure
-  serialisation is v1.22.x
-- Streaming map-reduce as default — in-memory `Dataset[T]`
-  first; streaming opt-in via `fromGenerator`
-- Spark-style RDD lineage / recomputation — partition-level
-  retry is enough for v1
-- Persistent intermediate results (`cache()` / `persist()`)
-  — defer to v1.21.x
-
-### Effort
-
-Six phases, ~2 weeks end-to-end.  Mostly stdlib +
-backend-glue.  Depends on v1.3 (Async.parallel) and
-v1.10 (Generators).
+Full design: [`docs/mapreduce.md`](docs/mapreduce.md) §3.
 
 ## v1.22 — Distributed map-reduce
 

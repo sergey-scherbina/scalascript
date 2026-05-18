@@ -54,6 +54,10 @@ object CapabilityCheck:
       if src.contains("crypto.") || src.contains("hashSha256") then detected += Feature.Crypto
       if src.contains("mcpServer(") || src.contains("serveMcp(")  then detected += Feature.McpServer
       if src.contains("mcpConnect(")                              then detected += Feature.McpClient
+      if src.contains("Dataset.of(") || src.contains("Dataset.fromList(") ||
+         src.contains("Dataset.fromGenerator(") || src.contains("Dataset.fromFile(") ||
+         src.contains(".runLocal()") || src.contains(".runParallel()")
+                                                                  then detected += Feature.Dataset
 
     def scanContent(c: ir.Content): Unit = c match
       case ir.Content.CodeBlock(source, _, _) => scanSource(source)
@@ -68,6 +72,8 @@ object CapabilityCheck:
           detected += Feature.McpServer
         if path.contains("std/mcp/client") || path.contains("std/mcp/index") then
           detected += Feature.McpClient
+        if path.contains("std/mapreduce") then
+          detected += Feature.Dataset
       case _                          => ()
 
     def scanSection(s: ir.Section): Unit =

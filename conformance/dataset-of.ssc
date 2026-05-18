@@ -1,0 +1,19 @@
+---
+name: dataset-of
+---
+
+# Dataset.of — basic round-trip
+
+`Dataset.of(...)` wraps in-memory values; `.collect()` returns them as a
+list; `.count()` returns the size; plan is reusable.
+
+```scalascript
+val ds = Dataset.of(1, 2, 3, 4, 5)
+
+println(ds.collect().mkString(", "))
+println(ds.count())
+
+// Reuse — two terminals on the same Dataset
+println(ds.reduce(_ + _))
+println(ds.first().getOrElse(-1))
+```

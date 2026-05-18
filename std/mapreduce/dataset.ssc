@@ -1,0 +1,53 @@
+---
+name: std-mapreduce-dataset
+version: 0.1.0
+description: Dataset[T] — lazy, parallel-capable map-reduce pipeline. Constructors and fluent API.
+package: std.mapreduce
+exports:
+  - Dataset
+---
+
+# `std.mapreduce` — `Dataset[T]`
+
+Lazy, reusable map-reduce pipeline.  Transformations compose without
+executing; a terminal operation (`collect`, `reduce`, `count`, etc.)
+forces evaluation.  `runLocal()` picks the sequential runner;
+`runParallel()` picks the parallel runner (virtual threads on JVM,
+sequential fallback on JS until v1.3 Node parallel lands).
+
+```scalascript
+// ── Constructors ─────────────────────────────────────────────────────
+extern object Dataset:
+  def of[T](items: T*): Dataset[T]
+  def fromList[T](list: List[T]): Dataset[T]
+  def fromGenerator[T](gen: Generator[T]): Dataset[T]
+  def fromFile(path: String): Dataset[String]
+
+// ── Pipeline type ────────────────────────────────────────────────────
+extern class Dataset[T]:
+  // Lazy transformations — compose into a plan, no evaluation yet
+  def map[U](f: T => U): Dataset[U]
+  def filter(p: T => Boolean): Dataset[T]
+  def flatMap[U](f: T => List[U]): Dataset[U]
+  def take(n: Int): Dataset[T]
+  def drop(n: Int): Dataset[T]
+  def distinct: Dataset[T]
+
+  // Key-based (sequential in v1.21; shuffle-capable in v1.22)
+  def groupBy[K](key: T => K): Dataset[(K, List[T])]
+  def reduceByKey[K](key: T => K)(combine: (T, T) => T): Dataset[(K, T)]
+  def sortBy[K](key: T => K): Dataset[T]
+
+  // Execution mode selectors — return a new Dataset with mode set
+  def runLocal(): Dataset[T]
+  def runParallel(): Dataset[T]
+
+  // Terminal operations — force evaluation
+  def collect(): List[T]
+  def count(): Long
+  def reduce(combine: (T, T) => T): T
+  def fold[U](z: U)(combine: (U, T) => U): U
+  def foreach(action: T => Unit): Unit
+  def first(): Option[T]
+  def toGenerator(): Generator[T]
+```

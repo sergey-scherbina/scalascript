@@ -33,3 +33,4 @@ enum Feature:
   case Database                  // std.db (future)
   case McpServer                 // std.mcp server-side (jvm, js)
   case McpClient                 // std.mcp client-side (jvm, js)
+  case Dataset                   // std.mapreduce Dataset[T] (jvm, js, int)

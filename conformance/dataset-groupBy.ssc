@@ -1,0 +1,28 @@
+---
+name: dataset-groupBy
+---
+
+# Dataset — groupBy and reduceByKey
+
+Word-count pattern: groupBy identity, then map to (word, count).
+`reduceByKey` for incremental accumulation.
+
+```scalascript
+val words = Dataset.of("apple", "banana", "apple", "cherry", "banana", "apple")
+
+// groupBy — each group is (key, List[items])
+val grouped = words.groupBy(w => w).collect()
+val sortedGroups = grouped.sortBy(_._1)
+sortedGroups.foreach { case (word, occurrences) =>
+  println(s"$word: ${occurrences.length}")
+}
+
+// reduceByKey — (word, count) pairs
+val counted = Dataset.of(
+  ("a", 1), ("b", 1), ("a", 1), ("c", 1), ("b", 1), ("a", 1)
+).reduceByKey(_._1)((x, y) => (x._1, x._2 + y._2)).collect()
+val sortedCounts = counted.sortBy(_._1)
+sortedCounts.foreach { case (k, v) =>
+  println(s"$k -> ${v._2}")
+}
+```
