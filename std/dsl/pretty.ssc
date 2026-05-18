@@ -1,0 +1,79 @@
+---
+name: std-dsl-pretty
+version: 1.0.0
+description: v1.20 std/dsl — Doc pretty-printer combinator ADT and renderer
+exports:
+  - DocNil
+  - DocText
+  - DocLine
+  - DocIndent
+  - DocBeside
+  - DocAbove
+  - text
+  - line
+  - empty
+  - indent
+  - renderDoc
+  - render
+---
+
+# `std/dsl/pretty` — Doc pretty-printer combinators
+
+Wadler/Lindig-style pretty-printer as a reified ADT.
+Build a `Doc` value with the combinators below, then call `render(doc)` to produce a `String`.
+
+## ADT nodes
+
+```scalascript
+sealed trait Doc
+
+// Empty document.
+case class DocNil() extends Doc
+
+// A literal string fragment (no newlines).
+case class DocText(s: String) extends Doc
+
+// A line break, rendered as newline + current indentation.
+case class DocLine() extends Doc
+
+// Increase indentation by n spaces for inner.
+case class DocIndent(n: Int, inner: Any) extends Doc
+
+// Horizontal composition: left immediately followed by right.
+case class DocBeside(left: Any, right: Any) extends Doc
+
+// Vertical composition: left on one line, right on the next (at current indent).
+case class DocAbove(top: Any, bottom: Any) extends Doc
+```
+
+## Constructors and extension methods
+
+```scalascript
+def text(s: String): Doc      = DocText(s)
+val line: Doc                  = DocLine()
+val empty: Doc                 = DocNil()
+
+def indent(n: Int, inner: Any): Doc = DocIndent(n, inner)
+
+extension (l: Doc)
+  def ++(r: Any): Doc  = DocBeside(l, r)
+  def /(r: Any): Doc   = DocAbove(l, r)
+```
+
+## Renderer
+
+```scalascript
+def renderDoc(doc: Any, col: Int): String =
+  doc match
+    case DocNil()       => ""
+    case DocText(s)     => s
+    case DocLine()      => "\n" + " " * col
+    case DocIndent(n, inner) => renderDoc(inner, col + n)
+    case DocBeside(l, r) =>
+      renderDoc(l, col) + renderDoc(r, col)
+    case DocAbove(top, bottom) =>
+      renderDoc(top, col) + "\n" + " " * col + renderDoc(bottom, col)
+    case _ => ""
+
+def render(doc: Any): String = renderDoc(doc, 0)
+```

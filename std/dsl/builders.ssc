@@ -1,0 +1,53 @@
+---
+name: std-dsl-builders
+version: 1.0.0
+description: v1.20 std/dsl — phantom-type builder template (§3.5)
+exports:
+  - Builder
+  - builder
+---
+
+# `std/dsl/builders` — phantom-type builder template
+
+Builder pattern with phantom-type state tracking (§3.5).
+State markers (`NoX` / `HasX`) distinguish incomplete from complete builders.
+
+## Example: `Builder` template
+
+The concrete type below shows the pattern.  Adapt for your domain by replacing
+the three illustrative fields (`name`, `value`, `tags`) with your own.
+
+```scalascript
+// State marker sealed traits (no instances needed).
+sealed trait NoName
+sealed trait HasName
+sealed trait NoValue
+sealed trait HasValue
+
+// Mutable state hidden inside; phantom type parameters track which
+// required fields have been set.
+case class Builder[N, V](
+  _name:  Option[String]     = None,
+  _value: Option[Any]        = None,
+  _tags:  List[String]       = Nil
+)
+
+// Smart constructor — always starts with all required fields MISSING.
+def builder(): Builder[NoName, NoValue] = Builder()
+
+extension [V](b: Builder[NoName, V])
+  def withName(n: String): Builder[HasName, V] =
+    Builder(Some(n), b._value, b._tags)
+
+extension [N](b: Builder[N, NoValue])
+  def withValue(v: Any): Builder[N, HasValue] =
+    Builder(b._name, Some(v), b._tags)
+
+extension [N, V](b: Builder[N, V])
+  def withTag(t: String): Builder[N, V] =
+    Builder(b._name, b._value, b._tags :+ t)
+
+// Only callable when BOTH required fields are set (both phantom params are HasX).
+extension (b: Builder[HasName, HasValue])
+  def build(): Any = (b._name.getOrElse(""), b._value.getOrElse(()), b._tags)
+```
