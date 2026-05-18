@@ -8,7 +8,7 @@ import scalascript.typer.Typer
 // emit-spa needs ScalaJsBackend.compileSourceToJs for per-segment
 // Scala source compilation.
 import scalascript.interpreter.Interpreter
-import scalascript.codegen.{JsGen, JsRuntime, JsRuntimeAsync, JsRuntimeBrowserPatch, ScalaJsBackend}
+import scalascript.codegen.{JsGen, JsRuntime, JsRuntimeAsync, JsRuntimeV14Effects, JsRuntimeBrowserPatch, ScalaJsBackend}
 import scalascript.ast.*
 import scalascript.transform.Normalize
 import scalascript.plugin.{BackendRegistry, SourceLanguageRegistry}
@@ -439,14 +439,28 @@ def bundleCommand(args: List[String]): Unit =
 
   // ─── Argument parsing ─────────────────────────────────────────
   var output: Option[String] = None
+  // backendId -> jar path pairs from --with-backend-jar backendId:path
+  val backendJars = scala.collection.mutable.ArrayBuffer.empty[(String, os.Path)]
   val files = scala.collection.mutable.ArrayBuffer.empty[String]
   val it = args.iterator
   while it.hasNext do
     it.next() match
       case "-o" | "--output" if it.hasNext => output = Some(it.next())
+      case "--with-backend-jar" if it.hasNext =>
+        val spec = it.next()
+        spec.indexOf(':') match
+          case -1 =>
+            System.err.println(s"Error: --with-backend-jar requires backendId:path (got '$spec')")
+            System.exit(1)
+          case i =>
+            val bid  = spec.substring(0, i)
+            val path = os.Path(spec.substring(i + 1), os.pwd)
+            if !os.exists(path) then
+              System.err.println(s"Error: backend JAR not found: $path"); System.exit(1)
+            backendJars += bid -> path
       case f => files += f
   if files.isEmpty then
-    System.err.println("Usage: ssc bundle <file.ssc> [<file.ssc>...] [-o name.sscpkg]")
+    System.err.println("Usage: ssc bundle <file.ssc> [<file.ssc>...] [-o name.sscpkg] [--with-backend-jar backendId:path]")
     System.exit(1)
 
   val entryPaths = files.toList.map { f =>
@@ -552,29 +566,47 @@ def bundleCommand(args: List[String]): Unit =
   val outPath = os.Path(outName, os.pwd)
   os.makeDir.all(outPath / os.up)
 
+  // Derive bundle id from output name (strip version suffix + extension if present)
+  val bundleId = outName.stripSuffix(".sscpkg").replaceAll("-\\d+\\.\\d+.*$", "")
+  val isHybrid = backendJars.nonEmpty
+  val kind     = if isHybrid then "[library, plugin]" else "[library]"
+  val targets  = if isHybrid then backendJars.map(_._1).distinct.mkString("[", ", ", "]") else "[]"
+
   val zip = new ZipOutputStream(new java.io.FileOutputStream(outPath.toIO))
   try
-    // bundle.yaml manifest
-    val manifest = new StringBuilder
-    manifest.append("# ScalaScript bundle manifest\n")
-    manifest.append("entries:\n")
-    entryPaths.foreach { e => manifest.append(s"  - ${archivePath(e)}\n") }
-    manifest.append("transitive:\n")
-    archivePath.values.toList.sorted.foreach { p => manifest.append(s"  - $p\n") }
-    zip.putNextEntry(new ZipEntry("bundle.yaml"))
-    zip.write(manifest.toString.getBytes("UTF-8"))
+    // manifest.yaml (v1.7 Tier 2) — supersedes legacy bundle.yaml
+    val manifestYaml = new StringBuilder
+    manifestYaml.append("# ScalaScript package manifest\n")
+    manifestYaml.append(s"id:         $bundleId\n")
+    manifestYaml.append(s"version:    0.1.0\n")
+    manifestYaml.append(s"spiVersion: \"0.1.0\"\n")
+    manifestYaml.append(s"kind:       $kind\n")
+    manifestYaml.append(s"targets:    $targets\n")
+    manifestYaml.append("exports:\n")
+    manifestYaml.append("  externDefs: []\n")
+    zip.putNextEntry(new ZipEntry("manifest.yaml"))
+    zip.write(manifestYaml.toString.getBytes("UTF-8"))
     zip.closeEntry()
-    // .ssc files
+
+    // sources/*.ssc — all .ssc files packed under sources/ prefix
     archivePath.toList.sortBy(_._2).foreach { case (file, archive) =>
-      zip.putNextEntry(new ZipEntry(archive))
+      zip.putNextEntry(new ZipEntry("sources/" + archive))
       zip.write(rewriteImports(file).getBytes("UTF-8"))
+      zip.closeEntry()
+    }
+
+    // intrinsics/*.jar — one per --with-backend-jar entry
+    backendJars.foreach { case (_, jar) =>
+      zip.putNextEntry(new ZipEntry("intrinsics/" + jar.last))
+      zip.write(os.read.bytes(jar))
       zip.closeEntry()
     }
   finally zip.close()
 
   val entryList = entryPaths.map(archivePath).mkString(", ")
   val external  = archivePath.values.count(_.startsWith("_external/"))
-  println(s"$outName  (${archivePath.size} files, $external external) — entries: $entryList")
+  val jarLine   = if backendJars.isEmpty then "" else s", ${backendJars.size} intrinsic JAR(s)"
+  println(s"$outName  (${archivePath.size} sources, $external external$jarLine) — entries: $entryList")
 
 /** Common-ancestor directory of a non-empty list of paths.
  *  Same as `paths.head`'s parents, narrowed to whichever still
@@ -705,7 +737,7 @@ def emitJsCommand(args: List[String]): Unit =
           case Segment.Code("javascript", _) => true
           case _                             => false
         }
-        if hasSSBlocks then { println(JsRuntime); println(JsRuntimeAsync) }
+        if hasSSBlocks then { println(JsRuntime); println(JsRuntimeAsync); println(JsRuntimeV14Effects) }
         for seg <- segments do seg match
           case Segment.Code("javascript", code) =>
             println(code)
@@ -754,6 +786,7 @@ def emitSpaCommand(args: List[String]): Unit =
                    |<script>
                    |$JsRuntime
                    |$JsRuntimeAsync
+                   |$JsRuntimeV14Effects
                    |$JsRuntimeBrowserPatch
                    |$userJs
                    |</script>
@@ -846,7 +879,7 @@ def emitWcCommand(args: List[String]): Unit =
           case JsGen.Segment.ScalaSource(src)    =>
             ScalaJsBackend.compileSourceToJs(src, baseDir)
         }.filter(_.nonEmpty).mkString("\n")
-        println(JsRuntime); println(JsRuntimeAsync)
+        println(JsRuntime); println(JsRuntimeAsync); println(JsRuntimeV14Effects)
         println(userJs)
         components.foreach { c =>
           val tag       = wcKebab(c.name) + "-component"

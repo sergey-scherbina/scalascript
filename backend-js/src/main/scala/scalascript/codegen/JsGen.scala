@@ -1734,6 +1734,62 @@ function httpClient(baseUrl, block) {
   try { return block(); } finally { _httpBaseUrl = prior; }
 }
 
+// Streaming HTTP — collects lines in a worker thread then calls handler per line.
+// The 60-second timeout covers most LLM streaming responses.  A future version
+// can switch the worker to push-mode to avoid the full-buffer wait.
+function _httpStreamFetch(method, url, body, headers, handler) {
+  const effective = (_httpBaseUrl && !url.startsWith('http')) ? _httpBaseUrl + url : url;
+  const { Worker, MessageChannel, receiveMessageOnPort } = require('worker_threads');
+  const sab  = new SharedArrayBuffer(4);
+  const flag = new Int32Array(sab);
+  const { port1, port2 } = new MessageChannel();
+  const workerSrc = [
+    'const { workerData } = require(\'worker_threads\');',
+    'const { port, sab, url, method, headers, body } = workerData;',
+    'const flag = new Int32Array(sab);',
+    '(async () => {',
+    '  let result;',
+    '  try {',
+    '    const opts = { method, headers };',
+    '    if (body) opts.body = body;',
+    '    const r = await fetch(url, opts);',
+    '    const hdrs = {};',
+    '    r.headers.forEach((v, k) => hdrs[k] = v);',
+    '    const text = await r.text();',
+    '    const lines = text.split(\'\\n\');',
+    '    result = { status: r.status, headers: hdrs, lines };',
+    '  } catch (e) { result = { status: 0, headers: {}, lines: [], error: String(e) }; }',
+    '  port.postMessage(result);',
+    '  Atomics.store(flag, 0, 1);',
+    '  Atomics.notify(flag, 0);',
+    '})();',
+  ].join('\\n');
+  const worker = new Worker(workerSrc, {
+    eval: true,
+    workerData: { sab, port: port2, url: effective, method, headers, body: body || null },
+    transferList: [port2],
+  });
+  Atomics.wait(flag, 0, 0, 60_000);
+  const drained = receiveMessageOnPort(port1);
+  worker.terminate(); port1.close();
+  const r = drained ? drained.message : { status: 0, headers: {}, lines: [] };
+  const hdrsMap = new Map(Object.entries(r.headers || {}));
+  for (const line of (r.lines || [])) { handler(line); }
+  return { _type: 'Response', status: r.status, body: '', headers: hdrsMap };
+}
+
+function httpGetStream(url, headers) {
+  const h = (headers instanceof Map) ? Object.fromEntries(headers.entries())
+            : (headers && typeof headers === 'object') ? headers : {};
+  return function(handler) { return _httpStreamFetch('GET', url, null, h, handler); };
+}
+
+function httpPostStream(url, body, headers) {
+  const h = (headers instanceof Map) ? Object.fromEntries(headers.entries())
+            : (headers && typeof headers === 'object') ? headers : {};
+  return function(handler) { return _httpStreamFetch('POST', url, body, h, handler); };
+}
+
 function serve(port, _tlsCfg) {
   _registerHealthDefaults();
   const _useTls = !!_tlsCfg;
@@ -3853,6 +3909,227 @@ function computed(thunk) {
 }
 """
 
+/** v1.4 built-in effects: Logger, Random, Clock, Env.
+ *  Concatenated after `JsRuntimeAsync` wherever effects are available. */
+val JsRuntimeV14Effects: String = """
+
+// ── v1.4 Logger effect ──────────────────────────────────────────────────────
+//
+// Logger.{info,warn,error,debug}  → _perform("Logger", op, [msg])
+// runLogger(bodyFn)               — "[LEVEL] msg" to process.stdout
+// runLoggerJson(bodyFn)           — {"level":"…","msg":"…"} newline-JSON
+// runLoggerToList(bodyFn)         — [result, [[level, msg], …]]
+
+const Logger = {
+  info:  (msg) => _perform('Logger', 'info',  [msg]),
+  warn:  (msg) => _perform('Logger', 'warn',  [msg]),
+  error: (msg) => _perform('Logger', 'error', [msg]),
+  debug: (msg) => _perform('Logger', 'debug', [msg]),
+};
+
+function _loggerJsonStr(s) {
+  return JSON.stringify(String(s));
+}
+
+function _loggerMakeHandlers(fmt) {
+  function makeHandler(level) {
+    return function(args) {
+      const msg = args[0];
+      if (fmt === 'json') {
+        process.stdout.write('{"level":"' + level + '","msg":' + _loggerJsonStr(msg) + '}\n');
+      } else {
+        process.stdout.write('[' + level.toUpperCase() + '] ' + msg + '\n');
+      }
+      return args[args.length - 1](undefined);
+    };
+  }
+  return {
+    'Logger.info':  makeHandler('info'),
+    'Logger.warn':  makeHandler('warn'),
+    'Logger.error': makeHandler('error'),
+    'Logger.debug': makeHandler('debug'),
+  };
+}
+
+function runLogger(bodyFn) {
+  const handled = new Set(['Logger.info', 'Logger.warn', 'Logger.error', 'Logger.debug']);
+  return _handle(bodyFn, handled, _loggerMakeHandlers('text'));
+}
+
+function runLoggerJson(bodyFn) {
+  const handled = new Set(['Logger.info', 'Logger.warn', 'Logger.error', 'Logger.debug']);
+  return _handle(bodyFn, handled, _loggerMakeHandlers('json'));
+}
+
+function runLoggerToList(bodyFn) {
+  const log = [];
+  const handlers = {};
+  for (const level of ['info', 'warn', 'error', 'debug']) {
+    handlers['Logger.' + level] = function(args) {
+      log.push([level, String(args[0])]);
+      return args[args.length - 1](undefined);
+    };
+  }
+  const handled = new Set(Object.keys(handlers));
+  const result = _handle(bodyFn, handled, handlers);
+  return [result, log];
+}
+
+// ── v1.4 Random effect ──────────────────────────────────────────────────────
+//
+// Random.{nextInt,nextDouble,uuid,pick}  → _perform("Random", op, args)
+// runRandom(bodyFn)           — Math.random()-based (non-deterministic)
+// runRandomSeeded(seed)(body) — seeded LCG for deterministic output
+
+const Random = {
+  nextInt:    (n)  => _perform('Random', 'nextInt',    [n]),
+  nextDouble: ()   => _perform('Random', 'nextDouble', []),
+  uuid:       ()   => _perform('Random', 'uuid',       []),
+  pick:       (xs) => _perform('Random', 'pick',       [xs]),
+};
+
+function _randomHandlers(rng) {
+  return {
+    'Random.nextInt': function(args) {
+      const n = args[0] >>> 0;
+      return args[args.length - 1](n > 0 ? (rng() * n) | 0 : 0);
+    },
+    'Random.nextDouble': function(args) {
+      return args[args.length - 1](rng());
+    },
+    'Random.uuid': function(args) {
+      const b = new Array(16);
+      for (let i = 0; i < 16; i++) b[i] = (rng() * 256) | 0;
+      b[6] = (b[6] & 0x0f) | 0x40;
+      b[8] = (b[8] & 0x3f) | 0x80;
+      const hex = (x) => x.toString(16).padStart(2, '0');
+      const u = b.map(hex).join('');
+      const uuid = u.slice(0,8)+'-'+u.slice(8,12)+'-'+u.slice(12,16)+'-'+u.slice(16,20)+'-'+u.slice(20);
+      return args[args.length - 1](uuid);
+    },
+    'Random.pick': function(args) {
+      const xs = args[0];
+      return args[args.length - 1](xs[(rng() * xs.length) | 0]);
+    },
+  };
+}
+
+function _lcgRng(seed) {
+  let s = seed >>> 0;
+  return function() {
+    s = (Math.imul(1664525, s) + 1013904223) >>> 0;
+    return s / 4294967296;
+  };
+}
+
+function runRandom(bodyFn) {
+  const ops = new Set(['Random.nextInt', 'Random.nextDouble', 'Random.uuid', 'Random.pick']);
+  return _handle(bodyFn, ops, _randomHandlers(Math.random));
+}
+
+function runRandomSeeded(seed) {
+  return function(bodyFn) {
+    const ops = new Set(['Random.nextInt', 'Random.nextDouble', 'Random.uuid', 'Random.pick']);
+    return _handle(bodyFn, ops, _randomHandlers(_lcgRng(seed)));
+  };
+}
+
+// ── v1.4 Clock effect ───────────────────────────────────────────────────────
+//
+// Clock.{now,nowIso,sleep}  → _perform("Clock", op, args)
+// runClock(bodyFn)          — real wall clock; sleep → Atomics.wait spin
+// runClockAt(t0)(bodyFn)    — frozen at t0 ms since epoch; sleep is no-op
+
+const Clock = {
+  now:    ()   => _perform('Clock', 'now',    []),
+  nowIso: ()   => _perform('Clock', 'nowIso', []),
+  sleep:  (ms) => _perform('Clock', 'sleep',  [ms]),
+};
+
+function _clockHandlers(frozen) {
+  function nowMs()  { return frozen !== null ? frozen : Date.now(); }
+  function nowIso() { return new Date(nowMs()).toISOString(); }
+  return {
+    'Clock.now':    function(args) { return args[args.length - 1](nowMs()); },
+    'Clock.nowIso': function(args) { return args[args.length - 1](nowIso()); },
+    'Clock.sleep':  function(args) {
+      const ms = args[0];
+      if (frozen === null && ms > 0) { _asyncSleep(ms); }
+      return args[args.length - 1](undefined);
+    },
+  };
+}
+
+function runClock(bodyFn) {
+  const ops = new Set(['Clock.now', 'Clock.nowIso', 'Clock.sleep']);
+  return _handle(bodyFn, ops, _clockHandlers(null));
+}
+
+function runClockAt(t0) {
+  return function(bodyFn) {
+    const ops = new Set(['Clock.now', 'Clock.nowIso', 'Clock.sleep']);
+    return _handle(bodyFn, ops, _clockHandlers(t0));
+  };
+}
+
+// ── v1.4 Env effect ─────────────────────────────────────────────────────────
+//
+// Env.{get,set,required}  → _perform("Env", op, args)
+// runEnv(bodyFn)          — reads process.env; Env.set mutates local overlay
+// runEnvWith(map)(bodyFn) — fixture map; Env.set mutates overlay
+
+const Env = {
+  get:      (key)        => _perform('Env', 'get',      [key]),
+  set:      (key, value) => _perform('Env', 'set',      [key, value]),
+  required: (key)        => _perform('Env', 'required', [key]),
+};
+
+function _envHandlers(overlay, useReal) {
+  function lookup(k) {
+    if (k in overlay) return overlay[k];
+    if (useReal && typeof process !== 'undefined' && process.env) {
+      const v = process.env[k];
+      return v !== undefined && v !== '' ? v : undefined;
+    }
+    return undefined;
+  }
+  return {
+    'Env.get': function(args) {
+      const v = lookup(String(args[0]));
+      return args[args.length - 1](v !== undefined ? v : null);
+    },
+    'Env.set': function(args) {
+      overlay[String(args[0])] = String(args[1]);
+      return args[args.length - 1](undefined);
+    },
+    'Env.required': function(args) {
+      const k = String(args[0]);
+      const v = lookup(k);
+      if (v === undefined) throw new Error("Env.required: key '" + k + "' not found in environment");
+      return args[args.length - 1](v);
+    },
+  };
+}
+
+function runEnv(bodyFn) {
+  const ops = new Set(['Env.get', 'Env.set', 'Env.required']);
+  return _handle(bodyFn, ops, _envHandlers({}, true));
+}
+
+function runEnvWith(initMap) {
+  return function(bodyFn) {
+    const ops = new Set(['Env.get', 'Env.set', 'Env.required']);
+    const overlay = {};
+    if (initMap instanceof Map) {
+      for (const [k, v] of initMap) overlay[k] = v;
+    } else if (initMap && typeof initMap === 'object') {
+      Object.assign(overlay, initMap);
+    }
+    return _handle(bodyFn, ops, _envHandlers(overlay, false));
+  };
+}
+"""
+
 /** Browser-SPA overlay loaded AFTER `JsRuntime` so its `serve(...)` /
  *  `console.log`-based output flush replace the Node-target versions.
  *  The Node-only helpers (`_serveStatic`, `_contentTypeFor`, `require('http')`)
@@ -4125,7 +4402,11 @@ class JsGen(
       "Actor.spawn", "Actor.self", "Actor.send", "Actor.exit",
       "Actor.receive", "Actor.receive_t",
       "Actor.link", "Actor.monitor", "Actor.demonitor", "Actor.trapExit",
-      "Actor.startNode", "Actor.connectNode", "Actor.register", "Actor.whereis"
+      "Actor.startNode", "Actor.connectNode", "Actor.register", "Actor.whereis",
+      "Logger.info", "Logger.warn", "Logger.error", "Logger.debug",
+      "Random.nextInt", "Random.nextDouble", "Random.uuid", "Random.pick",
+      "Clock.now", "Clock.nowIso", "Clock.sleep",
+      "Env.get", "Env.set", "Env.required"
     )
 
     def collectTrees(s: Section): List[scala.meta.Tree] =

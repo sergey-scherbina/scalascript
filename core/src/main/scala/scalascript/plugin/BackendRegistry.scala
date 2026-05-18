@@ -31,6 +31,10 @@ object BackendRegistry:
     toShutdown.foreach { case p: SubprocessBackend => p.shutdown(); case _ => () }
     manifestCache = null
     inProcessCache = null
+    extraJarPaths.clear()
+    extraPluginDirs.clear()
+    extraPreambles.clear()
+    extraSourcePaths.clear()
 
   // ── Extension points wired by CLI / tests ──────────────────────────
 
@@ -39,10 +43,41 @@ object BackendRegistry:
 
   /** Add an in-process plugin JAR — picked up on next ServiceLoader scan.
    *  Per spec §12.1, the JAR runs in a `URLClassLoader` whose parent is
-   *  the SPI loader only so plugins can't see each other's deps. */
+   *  the SPI loader only so plugins can't see each other's deps.
+   *
+   *  If `jar` ends with `.sscpkg`, delegates to `loadSscpkg` instead. */
   def addPluginJar(jar: os.Path): Unit =
-    extraJarPaths += jar
-    inProcessCache = null      // force re-scan of ServiceLoader
+    if jar.ext == "sscpkg" then loadSscpkg(jar)
+    else
+      extraJarPaths += jar
+      inProcessCache = null      // force re-scan of ServiceLoader
+
+  /** Load a `.sscpkg` archive: register intrinsic JARs with the
+   *  ServiceLoader, cache per-backend runtime preamble strings, and
+   *  record source paths for prelude injection.
+   *  See docs/milestones.md §v1.7 Tier 2. */
+  def loadSscpkg(pkg: os.Path): Unit =
+    val result = SscpkgLoader.load(pkg)
+    result.intrinsicJars.foreach { jar =>
+      extraJarPaths += jar
+      inProcessCache = null
+    }
+    result.runtimeStrings.foreach { (backendId, code) =>
+      extraPreambles.getOrElseUpdate(backendId, new StringBuilder).append('\n').append(code)
+    }
+    result.sourcePaths.foreach { p =>
+      extraSourcePaths.getOrElseUpdate(pkg, scala.collection.mutable.ListBuffer.empty) += p
+    }
+
+  // ── Per-backend preamble strings from loaded .sscpkg files ──────────
+
+  private val extraPreambles   = scala.collection.mutable.Map.empty[String, StringBuilder]
+  private val extraSourcePaths = scala.collection.mutable.Map.empty[os.Path, scala.collection.mutable.ListBuffer[String]]
+
+  /** Accumulated runtime helper code from all loaded `.sscpkg` files
+   *  for the given backend.  Returns empty string if none loaded. */
+  def preambleFor(backendId: String): String =
+    extraPreambles.get(backendId).map(_.toString.stripLeading()).getOrElse("")
 
   /** Add a plugin-discovery directory (peer of `~/.scalascript/plugins/`). */
   def addPluginDir(dir: os.Path): Unit =

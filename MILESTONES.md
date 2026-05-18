@@ -405,11 +405,54 @@ unblocks downstream features as early as possible.
      Design doc + prototype + go/no-go.  Investigates whether the
      existing typer can carry effect rows; commits to or rejects a
      v2.x algebraic-effects milestone.
- 19. **6+/C — HostCallback dispatcher** (~1 week).
+ 19. **v1.13 — Final Tagless ergonomics** (~2 weeks).
+     Land four typer features that block idiomatic typeclass usage:
+     `using` auto-resolution, context bounds, cross-file trait
+     inheritance with HKT, sealed-trait extension dispatch in INT.
+     Full design in [`docs/final-tagless.md`](docs/final-tagless.md).
+     Closes carryover items 1 + 4 from v1.1.  Unlocks idiomatic FT
+     across `std/*` and unblocks v1.14 `derives`.
+ 20. **v1.14 — Metaprogramming MVP (`inline` + `derives`)** (~2.5
+     weeks).
+     `inline def`/`val`/`if`/`match` + `compiletime.summonInline`
+     compile-time evaluator, plus Tier 1 `derives` recipes for
+     `Eq` / `Show` / `Hash` / `Order` and a handful of std
+     typeclasses (`Foldable` / `Traversable` / `Functor`).
+     Full design in [`docs/metaprogramming.md`](docs/metaprogramming.md).
+     User-defined macros (`quoted.Expr`) explicitly out of scope —
+     deferred to v2.x.  Depends on v1.13 (`Mirror` resolution).
+ 21. **v1.15 — Checked errors via `throws`** (~13 days).
+     Dual-encoding: canonical `infix type throws[A, E] = Either[E, A]`
+     (direct-syntax-integrated, monadic, ergonomic) plus opt-in
+     `infix type throwsRaw[A, E] = A | E` (zero-allocation; preserves
+     native JVM `Throwable.getStackTrace`; used for hot-path parsing
+     and JVM exception interop).  Includes return-site auto-conversions,
+     `box`/`unbox` between encodings, std-lib platform-exception shims
+     (`parseInt`, etc.), `attemptCatch` / `attemptCatchRaw` opt-in
+     lifts, and the `HasStackTrace` mixin with `currentStackTrace()`
+     per-backend.  Full design in
+     [`docs/error-handling.md`](docs/error-handling.md).  Depends on
+     v1.8 (direct-syntax) + v1.13 (`using` + cross-file traits).
+ 22. **v1.16 — Restartable errors via algebraic effects** (~1 week
+     if v1.12 goes; otherwise retired).
+     Common Lisp condition-system style: handler resumes the
+     suspended computation with a replacement value.
+     **Hard-blocked on v1.12 feasibility study outcome.**
+ 23. **v1.17 — MCP support (client + server)** (~3 weeks).
+     Anthropic's Model Context Protocol via REST-shaped API
+     in a separate namespace (`std/mcp/*`).  Intrinsic-first:
+     wraps `@modelcontextprotocol/sdk` on Node and
+     `io.modelcontextprotocol:sdk` on JVM; interpreter +
+     scalajs-spa reject at typecheck via SPI feature flags.
+     Full design in [`docs/mcp.md`](docs/mcp.md).  Optional
+     v1.17.1 follow-ups: type-class layer (depends v1.14),
+     own implementation for INT (defer), streaming resources
+     (depends v1.10).
+ 24. **6+/C — HostCallback dispatcher** (~1 week).
      Stage 6+/C from spi-followups-plan.md.  Unblocks the first
      out-of-process (.NET / WASM) backend MVP.  Parked because no
      such backend is in flight.
- 20. **v2.0 — Separate compilation** (~2-3 months).
+ 25. **v2.0 — Separate compilation** (~2-3 months).
      Multi-month architecture commitment.  Promote when at least
      one of {real package ecosystem, >30s incremental build, IDE
      demand} is true.
@@ -844,6 +887,16 @@ touching call sites.  Listed in priority order.
     deep call chains just to read the caller.  Test handler injects
     a fixed user.
 
+**Status (2026-05-18):** items 1–4 (Logger, Random, Clock, Env) have
+landed across all three backends (interpreter, JvmGen, JsGen).  Each
+ships an effect object, default handler(s), and a test/fixture handler:
+- `Logger`: `runLogger` (text), `runLoggerJson` (newline-JSON), `runLoggerToList` (collect to list)
+- `Random`: `runRandom` (non-det), `runRandomSeeded(seed)(body)` (deterministic LCG / seeded java.util.Random)
+- `Clock`: `runClock` (wall clock), `runClockAt(t0)(body)` (frozen time)
+- `Env`: `runEnv` (real process env), `runEnvWith(map)(body)` (fixture map)
+
+Items 5–10 remain future work.
+
 Each entry is roughly the same shape as v0.8's `Async` (effect
 object + default handler + opt-in test handler + conformance test),
 so they should land at a similar pace once the template is
@@ -1213,15 +1266,18 @@ items inside the phase pushed individually.
     - A.5 — Optional Let's Encrypt / acme.sh integration (#4),
       defer.
 
-- **Phase B — HTTP client** *(items 5-7; ~1 week)*.  Picks up
-  Phase A's `SSLContext` for free.  Wraps Java's `HttpClient`
-  (Loom-friendly, HTTP/2 capable) on JVM, `fetch` on Node,
-  `XMLHttpRequest` on browser-SPA.  Common return shape
+- **Phase B — HTTP client** *(items 5-7; ~1 week)* — **landed**.  Wraps
+  Java's `HttpClient` on JVM, `fetch` on Node.  Common return shape
   `Response(status, headers, body)` mirrors the server side.
-    - B.1 — `httpGet` / `httpPost` primitives (#5).
-    - B.2 — `httpClient { … }` block for shared config (#6).
-    - B.3 — Streaming response bodies (`bodyStream { line => … }`)
-      for SSE / chunked downloads (#7).
+    - B.1 — `httpGet` / `httpPost` primitives (#5) — landed.
+    - B.2 — `httpClient { … }` block for shared config (#6) — landed.
+    - B.3 — Streaming response bodies (#7) — **landed** (2026-05-18).
+      `httpGetStream(url)(handler)` / `httpPostStream(url, body)(handler)` call
+      `handler` for each line as it arrives.  JVM uses `BodyHandlers.ofLines()`
+      (truly incremental); JS collects lines in a worker thread then calls
+      handler per line in the main thread.  Returns `Response(status, headers,
+      body = "")`.  Primary use: LLM streaming APIs (OpenAI, Anthropic),
+      SSE consumers, chunked downloads.
 
 - **Phase C — WebSocket client** *(items 8-10; ~1 week)*.
   Symmetric to `onWebSocket`; re-uses `WsFraming` and Phase A's
@@ -2042,6 +2098,503 @@ Four phases, ~1 week.  Pure library work; no compiler changes,
 no SPI changes.  Slots between v1.11 and v1.12; can also land
 in parallel with v1.11 since they have no shared code.
 
+## v1.13 — Final Tagless ergonomics
+
+Make the FT pattern first-class in user code by landing four
+typer features that today block idiomatic typeclass usage.  The
+v1.1 stdlib is already structured in FT style under the hood —
+every helper takes a typeclass instance as an explicit parameter
+because `using` doesn't auto-resolve.  This milestone closes that
+ergonomic gap and turns idiomatic FT from "possible with care"
+into the default mode.
+
+Full design in [`docs/final-tagless.md`](docs/final-tagless.md) —
+current state vs target, the four typer dependencies, worked
+examples, coexistence with v1.8 direct-syntax / v1.11.5 Free /
+v1.12 algebraic effects, hard-no list, open questions.
+
+```scala
+// Today
+def combineAll[A](xs: List[A], m: Monoid[A]): A =
+  xs.foldLeft(m.empty)(m.combine)
+combineAll(List(1, 2, 3), intSum)         // explicit instance
+
+// After v1.13
+def combineAll[A: Monoid](xs: List[A]): A =
+  xs.foldLeft(summon[Monoid[A]].empty)(summon[Monoid[A]].combine)
+combineAll(List(1, 2, 3))                 // resolved via given intSum
+```
+
+### Phase 1 — `using` auto-resolution (INT) (~3 days)
+
+Typer pass over `Term.Apply` nodes: for each `(using T1, T2, …)`
+parameter list, walk in-scope `given` instances and select a
+unique match.  Standard Scala 3 priority rules; ambiguous →
+actionable error.  Rewrite the call site to include the resolved
+arguments before lowering.
+
+### Phase 2 — `using` auto-resolution (JS / JVM) (~2 days)
+
+JS-codegen passes typer-resolved arguments through to `_call`
+emit.  JvmGen emits the `(using …)` parameter list as-is and
+Scala 3's own resolver handles the rest.  Mostly glue; the
+typer-side work was Phase 1.
+
+### Phase 3 — Context bounds desugaring (~0.5 day)
+
+Parser-level: `[F[_]: M1: M2]` → appended `(using M1[F], M2[F])`
+parameter list.  Standard Scala 3 semantics.  Trivial once Phase
+1 lands.
+
+### Phase 4 — Cross-file trait inheritance with HKT (~3-4 days)
+
+Today `trait Traversable[T[_]] extends Functor[T], Foldable[T]`
+breaks at the JVM compile when `Functor` lives in a separate
+file.  v1.1 step 3 worked around it.  Fix the typer's import-
+resolution pass to carry trait *definitions* (not just instances
+and extensions) into the consumer's scope.
+
+### Phase 5 — Sealed-trait extension dispatch in INT (~2 days)
+
+Build a sealed-parent registry at trait/class definition time.
+`extensionDispatch` walks the parent chain when the exact-name
+lookup misses.  Closes the carryover item from v1.1 that forced
+helper functions for `Either` in steps 5 / 6.  JS already
+handles this via `_typeOf`; JVM relies on Scala's own dispatch.
+
+### Phase 6 — Conformance + std polishing (~2 days)
+
+- Six conformance tests covering the four typer dependencies
+  (see `docs/final-tagless.md` §9).
+- Rewrite `std/semigroup-monoid.ssc` helpers from explicit-pass
+  to context-bound form.  Same observable behaviour, less
+  call-site boilerplate.
+- Re-enable extension-method form of `bimap` / `handleError` for
+  `Either` (currently shipped as helpers per v1.1 carryover).
+
+### Hard-no list (locked by design — `docs/final-tagless.md` §7)
+
+- **User-defined macros** — defer to v1.14 metaprogramming MVP
+  (`inline` + `derives`) and beyond
+- **Implicit conversions** that cross effect boundaries —
+  reintroduces the two-fault-model trap (DS-7)
+- **Custom `given` priority** beyond Scala 3 rules
+- **Effect-row tracking** (`[F[_]: (Console & Logger)]`) — v1.12
+- **Auto-deriving FT instances** from concrete types — confusing
+  failure modes; explicit `given` instances are the convention
+
+### Carryover updates after this lands
+
+`Interpreter ergonomics — carried over from v1.1` section in
+MILESTONES.md gets three edits:
+
+- Item 1 (`using` auto-resolution) → marked **landed** with v1.13.
+- Item 4 (sealed-trait extension dispatch) → marked **landed**
+  with v1.13.
+- Item 2 (`Term.Ascribe`) → stays open as separate work; not
+  FT-related.
+
+### Effort
+
+Six phases, ~2 weeks end-to-end across three backends.  Phase 1
+is the critical path; Phases 2-5 can interleave with it as
+worktrees if scheduling permits.
+
+## v1.14 — Metaprogramming MVP (`inline` + `derives`)
+
+Minimum-viable metaprogramming: bring Scala 3's `inline` keyword
+(compile-time computation, type-level matching) and limited
+`derives` (auto-derive trivial typeclass instances from
+product / sum types).  Explicitly **not** user-defined macros
+(`quoted.Expr` machinery) — that's a multi-month commitment
+deferred to v2.x.
+
+Full design in [`docs/metaprogramming.md`](docs/metaprogramming.md).
+
+### Why these two and not full macros
+
+| Feature | Cost | Payoff |
+|---------|------|--------|
+| `inline def`, `inline if`, `inline match` | ~1 week typer + 3 days × 3 backends | Compile-time constants, type-directed dispatch, `summonInline` for zero-cost typeclass lookup, foundation for `derives` |
+| `derives Eq, Show, Foldable, ...` | ~1 week + tier-1 derivation recipes | Idiomatic typeclass auto-derivation; `case class Foo(a: Int, b: String) derives Eq` |
+| Full Scala 3 macros (`quoted.Expr`) | ~3-4 months across three backends | Too expensive for the v1 audience |
+
+`inline` is the **gateway**: every `derives` implementation
+internally uses `inline match` to walk product/sum type structure
+at compile time.  Without `inline`, `derives` either becomes
+heavy runtime reflection (bad) or stays unimplemented.  So
+`inline` is the prerequisite, `derives` builds on top.
+
+### Phase 1 — `inline` evaluation (~5 days)
+
+- Parse `inline def`, `inline val`, `inline if`, `inline match`,
+  `inline summon[T]`.
+- Compile-time evaluator: walks `inline`-marked AST nodes,
+  performs constant folding, type-pattern matching, and
+  inlining at the call site.
+- `compiletime.constValue[T]` for type-level literals
+  (`compiletime.constValue["foo"]: String = "foo"`).
+- `compiletime.summonInline[T]: T` — `summon` resolved at compile
+  time, fails at compile time if no instance found.
+- Conformance: constant-fold, type-match dispatch,
+  `summonInline` over typeclass.
+
+### Phase 2 — `inline` cross-backend (~3 days)
+
+The compile-time evaluator runs in `core/` before backend split;
+JS / JVM / INT all see post-inlined code.  Phase is verification
++ edge-case fixes per backend, not parallel implementations.
+
+### Phase 3 — `derives` mechanism — Tier 1 recipes (~5 days)
+
+Limited set of typeclasses auto-derivable from product/sum
+structure:
+
+- `derives Eq`     — structural equality over fields
+- `derives Show`   — Scala-default `toString` style render
+- `derives Hash`   — `##` over fields
+- `derives Order`  — lexicographic over fields (top-down
+  declaration order)
+
+Each derivation is a `given` instance produced by an `inline
+def derived` method on the typeclass companion using
+`Mirror.Of[A]` (Scala 3 standard-library handle exposing
+structural type info).  Requires v1.13 (Mirror is a typeclass
+instance, needs `using` resolution).
+
+### Phase 4 — `derives` for std typeclasses (~3 days)
+
+Wire `derives Foldable`, `derives Traversable`, `derives Functor`
+(for products with a single type-param) on top of the Tier 1
+machinery.  Conformance: `derives-foldable.ssc` proves
+auto-derivation matches hand-written instances.
+
+### Phase 5 — Conformance + std polishing (~2 days)
+
+- Six conformance tests for `inline`-specific behaviour.
+- Five for `derives` per Tier 1 typeclass.
+- Optionally: rewrite a couple of std/examples files to use
+  `derives` where applicable.
+
+### Hard-no list (locked by design)
+
+- **User-defined macros via `quoted.Expr`** — deferred to v2.x
+- **`inline def` with side effects** — must be referentially
+  transparent at compile time
+- **Custom `derives` recipes from outside std** — only blessed
+  typeclasses auto-derive in v1.14; user recipes wait for full
+  macros
+- **Type-level naturals / Peano arithmetic** — `inline` is
+  pragmatic, not Haskell-grade
+
+### Open questions (re-evaluate when first usage emerges)
+
+- **`inline if` vs runtime `if`**: when does the typer know
+  enough to fold?  Heuristic: when both branches are
+  `inline`-computable values.
+- **`inline match` exhaustiveness**: warn vs error on
+  non-exhaustive inline matches.
+- **`derives` source order** for multi-param case classes:
+  which type-param does `derives Functor` pick?  Follow Scala 3:
+  last param.
+- **Cross-file `derives`**: requires v1.13 cross-file trait
+  inheritance.
+- **Performance**: does `inline summon` win measurably over
+  runtime `summon`?  Bench when v1.14 lands.
+- **Tier 2 derivations** for v1.14.1: `derives Monoid`,
+  `derives Semigroup`, `derives Codec` — defer until Tier 1
+  proves usage patterns.
+
+### Effort
+
+Five phases, ~2.5 weeks end-to-end.  Builds on v1.13 (`Mirror`
+requires `using` resolution).  Can land in parallel with
+v1.11/v1.11.5/v1.12 since those touch the runtime layer and
+this touches the typer.
+
+## v1.15 — Checked errors via `throws` type alias
+
+Closes the "every helper hand-rolls its own `Either`-wrapping
+convention" gap.  Ships an Either-encoded `throws[A, E]` type
+alias that integrates with direct-syntax (v1.8) via the v1.1
+`Monad[Either[E, *]]` instance, plus a `HasStackTrace` mixin
+giving Either-encoded errors diagnostic parity with JVM
+exception traces.
+
+Full design in [`docs/error-handling.md`](docs/error-handling.md).
+
+```scala
+infix type throws[A, E] = Either[E, A]
+
+def parseInt(s: String): Int throws ParseError =
+  if invalid then ParseError(s"bad: $s")    // auto-conversion → Left
+  else s.toInt                              // auto-conversion → Right
+
+def handler(req: Request): Response throws AppError = direct[ResultS] {
+  id   = parseInt(req.params("id"))   // monadic bind; Left short-circuits
+  user = loadUser(id)
+  Response.json(user)                 // pure tail auto-lifts to Right
+}
+```
+
+### Prerequisites
+
+- **v1.8 direct-syntax** — Either's `Monad[Either[E, *]]` is the
+  vehicle for `=`-binds inside `direct[ResultS] { … }`.
+- **v1.13 Final Tagless ergonomics** — `using` resolution finds
+  `Monad[Either[E, *]]`; cross-file trait inheritance carries
+  the std Either instance into user code.
+
+### Phase 1 — `infix type throws` parser + typer (~1 day)
+
+Parser accepts `type A throws E` desugared to `Either[E, A]`
+at the type-position level.  Typer treats the alias
+transparently — every `Either[E, A]` method, helper, and
+typeclass instance reads on `A throws E` unchanged.
+
+### Phase 2 — Return-site auto-conversion givens (~1 day)
+
+Two givens in std (`std/error-handling.ssc`):
+
+  `given [E, A] => Conversion[A, Either[E, A]] = Right(_)`
+  `given [E, A] => Conversion[E, Either[E, A]] = Left(_)`
+
+Allows `def f: Int throws ParseError = 42` and `... = ParseError(...)`
+without explicit `Right` / `Left` wrappers.  Conversions fire
+only when the bare-value type doesn't match expected.
+
+### Phase 3 — Direct-syntax integration (~3 days)
+
+Three things to ship in this phase, all driven off the same
+`MonadError` resolution machinery (v1.13):
+
+  1. **Auto-bind for `throws`-typed values** — `id =
+     parseInt(req.params("id"))` inside `direct[Either[E, *]]`
+     resolves via `Monad[Either[E, *]]` from v1.1 std.
+     Short-circuit on Left, pure tail auto-lifts to Right.
+  2. **Type-directed `throw` lowering** — inside `direct[F] { … }`,
+     `throw e: E` lowers to `F.fail(e)` *when* `MonadError[F, E']`
+     (with `E <: E'`) is in scope; otherwise stays as JVM-native
+     throw.  See `docs/error-handling.md` §2.5.6.
+  3. **Type-directed `try`-`catch` lowering** — `try body catch
+     case e: E => h` lowers to `F.handleError(body) { case e: E
+     => h }` when `MonadError[F, E']` matches; otherwise stays
+     as JVM-native try-catch.  Mixed catches (some typed, some
+     untyped) emit a hybrid lowering — typed branches as
+     `F.handleError`, untyped as wrapping JVM `catch` clauses.
+
+DS-7 refined accordingly: thrown exceptions auto-wrap ONLY when
+the user explicitly typed them AND the surrounding F advertises
+a matching error channel.  Bare `throw new RuntimeException(...)`
+inside a direct block still escapes via JVM stack unwinding —
+the two-fault-model trap stays avoided because the lowering is
+driven by what the user typed, not by silent magic.
+
+Conformance:
+  - `throws-direct-syntax.ssc` — basic auto-bind + short-circuit
+  - `throws-direct-throw.ssc` — `throw AppError(...)` → `Left`
+    inside `direct[ResultS]`
+  - `throws-direct-try-catch.ssc` — typed catch → `F.handleError`
+  - `throws-direct-mixed.ssc` — mixed typed + untyped catch
+    branches in one `try`
+
+### Phase 4 — Std-lib `throws`-typed shims (~2 days)
+
+Initial shim set:
+
+- `parseInt(s: String): Int throws NumberFormatException`
+- `parseLong(s: String): Long throws NumberFormatException`
+- `parseDouble(s: String): Double throws NumberFormatException`
+- `requireNonNull[A](a: A): A throws NullPointerException`
+- `divideOrError(a: Int, b: Int): Int throws ArithmeticException`
+
+Each catches the corresponding JVM exception and lifts to
+`Left(e)`.  IO shims defer to v1.5 Tier 2-4 (the HTTP/IO
+stack).
+
+### Phase 5 — `attemptCatch[E <: Throwable] { … }` adapter (~1 day)
+
+Universal opt-in: user wraps any third-party Java/Scala call:
+
+  `val bytes = attemptCatch[IOException] { Files.readAllBytes(path) }`
+
+Catches the named exception class, lets anything else propagate.
+DS-7 stays locked — no auto-wrap inside direct blocks.
+
+### Phase 6 — `HasStackTrace` mixin + `currentStackTrace()` (~2 days)
+
+- `trait HasStackTrace` with `def stackTrace: List[Frame]`.
+- `case class Frame(file: String, line: Int, fn: String)`.
+- `currentStackTrace(): List[Frame]` — per-backend runtime call,
+  returns the current call chain.
+- `fail[E <: HasStackTrace](e: E): Left[E, Nothing]` helper.
+
+Per-backend implementation:
+
+- **INT**: walk existing position tracker (`Interpreter.scala`'s
+  `trackPos` already counts call frames; expose it).
+- **JVM**: `Thread.currentThread.getStackTrace`, filter to user
+  frames, map to our `Frame` shape.
+- **JS**: parse `new Error().stack` to extract user frames; or
+  maintain own chain via codegen-injected push/pop on `Term.Apply`
+  (revisit if parse cost matters).
+
+Frame format is identical across backends — uniform diagnostics.
+
+### Phase 7 — Conformance + std polishing (~1 day)
+
+Eight tests covering each decided piece (see
+`docs/error-handling.md` §9).  Add a `Response.fromError(e)`
+helper that turns `HasStackTrace` errors into 500-with-trace
+responses for development mode (production mode strips traces
+— follow-up to address logging story).
+
+### Phase 8 — `throwsRaw[A, E] = A | E` companion alias (~1 day)
+
+Ships the union-typed perf/interop companion as an opt-in
+type alias.  Pure stdlib work; no compiler changes (Scala 3
+union types already work at the parser/typer level).  Used
+by Phase 9 helpers; positioned as **opt-in, not default**.
+
+### Phase 9 — Conversion helpers + `attemptCatchRaw` (~1 day)
+
+- `box[A, E](raw: A | E): A throws E` — type-tested promotion
+- `unbox[A, E](boxed: A throws E): A | E` — demotion
+- `attemptCatchRaw[E <: Throwable, A] { … }: A throwsRaw E` —
+  union form that preserves native `Throwable.getStackTrace`
+  on JVM and avoids the `Right`/`Left` box.  Used for hot-path
+  parsing and JVM exception interop where the Either box is
+  measurable overhead.
+
+The two-tier stack trace model documented in
+`docs/error-handling.md` §2.4 falls out of this for free:
+`throwsRaw[A, Throwable]` keeps its native trace; `throws`
+captures via `HasStackTrace`; trace-less `throws` pays
+nothing.
+
+### Tier model — four error mechanisms, one document
+
+Per `docs/error-handling.md` §2.5.5, ScalaScript has four
+error mechanisms; v1.15 ships the first three:
+
+  1. `throws[A, E] = Either[E, A]`         — canonical, monadic, typed
+  2. `throwsRaw[A, E] = A | E`              — opt-in perf / interop (Phase 8)
+  3. Unchecked `throw e` / `try`-`catch`    — peer to throwsRaw; JVM-native, untyped
+  4. `MonadError[F, E]` (already in v1.1)   — for monadic effects
+
+Tier 1 is the default; tiers 2 and 3 are opt-in escape
+hatches for specific use cases (hot paths, JVM interop,
+systemic errors).  Restartable errors (v1.16) are tier 4.
+
+### Hard-no list (locked by design — `docs/error-handling.md` §5)
+
+- Auto-wrap thrown exceptions in direct blocks (DS-7 stays)
+- Removing or deprecating unchecked `throw` / `try`-`catch`
+  (first-class peer to `throwsRaw` per §2.5.5; not migrating
+  away)
+- `A | E` union encoding as the **default** `throws`
+  (canonical is Either; union ships as opt-in `throwsRaw`
+  companion — see Phase 8)
+- Auto-conversion across the `throws` / `throwsRaw` boundary
+  (explicit `box` / `unbox` only)
+- `throwsRaw` as a `direct[F] { … }` target (`throws` only;
+  raw must be `box`-ed before entering a direct block)
+- Java-style **checked**-throws clauses on signatures
+  (separate from the return type, compiler-enforced) — keep
+  the `throws[A, E]` type-alias path.  Unchecked throws are
+  a different mechanism and stay.
+- `E` restricted to `Throwable` subtypes (works over any `E`)
+- Effect-row tracking for errors (v1.12 algebraic effects territory)
+
+### Locked policies (`docs/error-handling.md` §2.5)
+
+Four items previously carrying recommendations are now locked:
+
+- **Adapter naming**: `attemptCatch[E <: Throwable] { … }`
+  (Either form) + `attemptCatchRaw[E <: Throwable] { … }`
+  (union form).  `Raw` suffix mirrors `throwsRaw`.
+- **Stack-trace mixin**: `trait HasStackTrace { def stackTrace:
+  List[Frame] }` — opt-in.  Std also ships `trait Error
+  extends HasStackTrace` as a convenience for the common case.
+  Always-on capture rejected (~1-5% function-call overhead).
+- **Raw-form shim policy**: std shims ship in `throws` form
+  only by default.  `Raw`-companions added on case-by-case
+  basis when profiling demonstrates measurable Either-box
+  overhead on a specific helper.  Never speculative.
+- **`throwsRaw` runtime-distinguishability**: documented
+  limitation — `throwsRaw[Int, Int]` is a compile error
+  (Scala 3 unions need testable members).  Escape hatch is
+  `throws[A, E]`, which explicitly tags both sides.
+
+### Open questions (carry into design iteration)
+
+- Final exact std-shim list for v1.15 — tentative:
+  `parseInt`, `parseLong`, `parseDouble`, `requireNonNull`,
+  `divideOrError`.  Lock at implementation time when edge
+  cases (`parseHex`, `parseTimestamp`, …) surface specific
+  asks.
+- Stack-trace verbosity tuning — collapse synthetic frames
+  (trampoline / coroutine machinery) into user view, or
+  `--trace=internal` flag for unfiltered?  Operational
+  decision; defer until v1.15 lands and users complain.
+- Capture cost on hot paths — measure when v1.15 lands; add
+  `noTrace` modifier if overhead surfaces.
+- Cross-backend `fn`-name normalisation — JVM mangled vs JS
+  source vs INT definition site.  Tackle when first
+  diagnostic mismatch surfaces.
+- Java/Scala interop on the IDE side — `throws` is a pure
+  type alias, runtime is `Either[E, A]`; document for v2.0
+  separate compilation.
+
+### Effort
+
+Nine phases, ~13 days end-to-end across three backends
+(was ~12 — Phase 3 expanded from ~2 to ~3 days to absorb the
+type-directed `throw` / `try`-`catch` lowering inside direct
+blocks).  Phase 6 (stack traces) is still the only piece
+with meaningful per-backend variance; Phases 8-9 are pure
+stdlib + helper work that lands uniformly.
+
+## v1.16 — Restartable errors via algebraic effects (depends on v1.12)
+
+Common Lisp condition-system style restartable handlers.  A
+handler can choose to resume the suspended computation at the
+throw point with a replacement value, rather than only being
+able to abort or rewrap.
+
+```scala
+val config = restartable {
+  case FileNotFound(path) => Restart.useDefault
+  case PermissionDenied(p) => Restart.retry(sudo(p))
+  case other => Restart.abort(other)
+} {
+  parseConfig(readFile("/etc/app.conf"))
+}
+```
+
+**Hard-blocked on v1.12 algebraic-effects feasibility study.**
+If v1.12 says "go", v1.16 reduces to: `throw e` becomes
+`suspend(ErrorTag(e))`; handler stack catches the tag and
+resumes with a replacement value.  Direct mapping onto v1.9
+coroutines.
+
+If v1.12 says "no-go", v1.16 retires — the path becomes
+`M.recover` + retry-loops, no compile-time restart support.
+
+### Sketch
+
+- New `Restart[A]` ADT: `UseValue(a)`, `Retry(args)`, `Abort(e)`,
+  `Transform(e2)`.
+- `restartable[E, A](handler: E => Restart[A])(body: => A): A` —
+  catches `E`, applies the handler decision, resumes/aborts
+  accordingly.
+- Sits on the v1.9 coroutine primitive: `suspend(ErrorTag(e))`
+  pauses the computation, handler interprets, resume.
+
+### Effort
+
+~1 week if v1.12 goes; ~0 if v1.12 doesn't.
+
 ## v1.12 — Algebraic effects feasibility study
 
 **No shipping code** — design doc + working prototype + go/no-go
@@ -2100,6 +2653,153 @@ semantics is a maintainable trade-off.
 
 ~1 week if it happens.  Could be skipped entirely without
 affecting any v1.x milestone deliverable.
+
+## v1.17 — MCP support (client + server)
+
+Model Context Protocol — Anthropic's JSON-RPC 2.0-based
+protocol for connecting LLM applications to external tools,
+resources, and prompts.  Ships as **separate namespace and
+modules** (`std/mcp/server`, `std/mcp/client`, `std/mcp/types`),
+intentionally orthogonal to the existing REST stack — same
+shape API, different protocol.
+
+Full design in [`docs/mcp.md`](docs/mcp.md) — protocol basics,
+REST-shaped API rationale, server + client surfaces,
+intrinsic-first implementation strategy, backend feature
+flags, coexistence with v1.8 / v1.13 / v1.15, hard-no list,
+open questions.
+
+```scala
+// Server
+mcpServer { srv =>
+  srv.tool("get_weather") { args =>
+    val city = requireString(args, "city")
+    Tool.text(s"Weather in $city: sunny, 22°C")
+  }
+}
+serveMcp(transport = Transport.stdio)
+
+// Client
+val client = mcpConnect(Transport.spawn("node", "weather-server.js"))
+val result = client.callTool("get_weather", Map("city" -> "Berlin"))
+println(result.content.head)
+client.close()
+```
+
+### Implementation strategy — intrinsic-first
+
+Per user direction: backends with a standard SDK get an
+**intrinsic** that wraps it (~1 week each); platforms without
+a standard SDK defer to v1.17.x own-implementation.
+
+| Backend | MCP Server | MCP Client |
+|---------|-----------|------------|
+| jvm  | ✅ intrinsic (`io.modelcontextprotocol:sdk`) | ✅ intrinsic |
+| js (Node) | ✅ intrinsic (`@modelcontextprotocol/sdk`) | ✅ intrinsic |
+| interpreter | ❌ deferred to v1.17.x | ❌ deferred |
+| scalajs-spa | ❌ (server makes no sense in browser) | ❌ (HTTP+SSE in browser plausible v1.17.x) |
+
+Interpreter and scalajs-spa imports of `std/mcp/server` raise
+an actionable Feature-not-supported error at typecheck time
+per SPI §8 — not a runtime surprise.
+
+### Why REST-shaped API
+
+The MCP server surface mirrors the REST stack
+(`srv.tool` ↔ `route("GET", "/path")`, `serveMcp(...)` ↔
+`serve(port)`).  Users already know the pattern; JSON-RPC 2.0
+is RPC-shaped which fits handler-per-method naturally; the
+cross-cutting concerns (transport, lifecycle, error handling)
+translate cleanly.
+
+Type-class / FT-style API (`given McpTool[Args, Result]`) is
+**not** the v1 default — dynamic registration is common in
+real MCP servers (tools defined at runtime from config), and
+the JSON-Schema-shaped args fit the v1.15 `Map[String, Any]`
++ `require*` pattern.  Type-class layer ships as optional
+v1.17.1 add-on once v1.14 `derives` lands.
+
+### Phase 1 — Types + namespace skeleton (~2 days)
+
+`std/mcp/types.ssc` + skeleton `server.ssc` + skeleton
+`client.ssc`.  Pure types; no runtime dependency.
+
+### Phase 2 — JS server intrinsic (~5 days)
+
+JsGen-emitted `mcpServer { … }` / `serveMcp(...)` wraps
+`@modelcontextprotocol/sdk` (npm).  Three transports
+(stdio, http+sse, ws).  Conformance: round-trip with the
+canonical MCP CLI client.
+
+### Phase 3 — JVM server intrinsic (~4 days)
+
+JvmGen-emitted equivalent wrapping `io.modelcontextprotocol:sdk`
+via `//> using dep` directive.  Same surface, same three
+transports.
+
+### Phase 4 — JS client intrinsic (~3 days)
+
+`mcpConnect(transport)` wraps the JS SDK client.  Sync +
+Async variants (Async wraps SDK promises).
+
+### Phase 5 — JVM client intrinsic (~3 days)
+
+Same shape, Java SDK.
+
+### Phase 6 — Feature flags + interpreter rejection (~1 day)
+
+`Feature.McpServer` / `Feature.McpClient` declared per SPI
+§8.  JVM + JS advertise; INT + scalajs-spa reject at
+typecheck with actionable message.
+
+### Phase 7 — Examples + docs (~2 days)
+
+Three demos: tools server, client-discover, agent (both
+client and server in one script).  `docs/mcp.md` walkthroughs.
+
+### Hard-no list (locked by design — `docs/mcp.md` §10)
+
+- **Own MCP impl in v1** — intrinsic-first per user direction;
+  defer to v1.17.x when a backend without an SDK becomes a
+  real target
+- **Type-class API as primary** — REST-shaped is v1; FT layer
+  is v1.17.1+ add-on
+- **Custom transports** (Unix socket, named pipe) — stdio /
+  HTTP+SSE / WS cover the realistic landscape; bespoke
+  transports are an SDK-extension concern
+- **Schema validation in std layer** — SDK handles
+  JSON-Schema validation; std doesn't re-validate
+- **MCP-versioned namespaces** in v1.17 — single `std/mcp/*`
+  for now; versioned namespaces when MCP protocol diverges
+- **Bidirectional sampling** — MCP advanced feature; defer
+
+### Deferred follow-ups (carry into v1.17.x)
+
+1. **Own implementation for INT / scalajs-spa** (~1500 LOC
+   JSON-RPC 2.0 stack)
+2. **Type-class layer** (`given McpTool[A, R]`, `derives
+   McpSchema`) — depends on v1.14
+3. **Streaming resources** — depends on v1.10 Generators
+4. **Bidirectional sampling** — MCP advanced feature
+5. **`using mcpConnect(...) { client => … }` RAII** — needs
+   `using`-resource language feature
+6. **MCP protocol version negotiation** when v2 emerges
+
+### Open questions (carry into v1.17 implementation; see
+`docs/mcp.md` §11)
+
+- Typed tool args via v1.14 derives — when to layer in
+- `throws[ToolResult, McpError]` integration with v1.15 — wait
+  until v1.15 stabilises
+- `srv.onInitialize` hook for per-client customisation
+- Server-side per-tool authorisation helper
+- MCP request / response observability hooks
+
+### Effort
+
+Seven phases, ~3 weeks end-to-end.  JS and JVM intrinsics
+can be worktrees in parallel after Phase 1.  Phase 6 (feature
+flags) is the only piece touching the SPI.
 
 ## v2.0 — Separate compilation of modules
 
