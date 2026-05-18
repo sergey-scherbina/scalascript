@@ -349,6 +349,34 @@ class ThrowsTest extends AnyFunSuite with Matchers:
       println(frames.isEmpty == false || frames.isEmpty)
     """) shouldBe "true"
 
+  // ── Phase 6.1 — stack-trace frame filtering ──────────────────────
+
+  test("stack-trace filtering — named user function appears in default trace"):
+    capturedWithStd("""
+      def myWork() = currentStackTrace()
+      val frames = myWork()
+      println(frames.exists((f: Frame) => f.fn == "myWork"))
+    """) shouldBe "true"
+
+  test("stack-trace filtering — nested named functions both appear"):
+    capturedWithStd("""
+      def outer() =
+        def inner() = currentStackTrace()
+        inner()
+      val frames = outer()
+      println(frames.exists((f: Frame) => f.fn == "inner"))
+    """) shouldBe "true"
+
+  test("setTraceVerbose — toggling verbose does not throw, trace remains non-empty"):
+    capturedWithStd("""
+      def work() = currentStackTrace()
+      setTraceVerbose(true)
+      val v = work()
+      setTraceVerbose(false)
+      val q = work()
+      println(v.isEmpty == false || q.isEmpty == false)
+    """) shouldBe "true"
+
   // ── Phase 8 — throwsRaw ───────────────────────────────────────────
 
   test("throwsRaw — function with throwsRaw return type returns raw value"):

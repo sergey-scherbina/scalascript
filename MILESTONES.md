@@ -2560,10 +2560,10 @@ Four items previously carrying recommendations are now locked:
   `divideOrError`.  Lock at implementation time when edge
   cases (`parseHex`, `parseTimestamp`, …) surface specific
   asks.
-- Stack-trace verbosity tuning — collapse synthetic frames
-  (trampoline / coroutine machinery) into user view, or
-  `--trace=internal` flag for unfiltered?  Operational
-  decision; defer until v1.15 lands and users complain.
+- Stack-trace verbosity tuning — **landed (2026-05-19)**.
+  Default view filters `<anon>` / `_`-prefixed synthetic frames;
+  `setTraceVerbose(true)` enables full view.  3 conformance
+  tests in `ThrowsTest` (Phase 6.1).
 - Capture cost on hot paths — measure when v1.15 lands; add
   `noTrace` modifier if overhead surfaces.
 - Cross-backend `fn`-name normalisation — JVM mangled vs JS

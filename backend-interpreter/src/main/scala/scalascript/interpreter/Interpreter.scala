@@ -57,6 +57,8 @@ class Interpreter(
   private var lineOffset: Int = 0
   // Phase 6: interpreter call stack for currentStackTrace().
   private val callStack = scala.collection.mutable.ArrayBuffer.empty[(String, Int)]
+  // When true, currentStackTrace() includes anonymous (<anon>) and _-prefixed frames.
+  private var traceVerbose: Boolean = false
   // Phase 3.2: flag indicating we are inside a direct[Either[...]] block so
   // throw expressions lower to Left(...) instead of raising a ScriptException.
   private val _insideDirectBlock = new java.lang.ThreadLocal[Boolean] {
@@ -719,15 +721,25 @@ class Interpreter(
     })
 
     // ── currentStackTrace — returns call stack as List[Frame] ────────────
+    // By default filters out anonymous (<anon>) and _-prefixed synthetic frames.
+    // Call setTraceVerbose(true) to include all frames.
     globals("currentStackTrace") = Value.NativeFnV("currentStackTrace", _ =>
-      Pure(Value.ListV(callStack.toList.reverse.map { case (fn, line) =>
-        Value.InstanceV("Frame", Map(
-          "file" -> Value.StringV(""),
-          "line" -> Value.IntV(line),
-          "fn"   -> Value.StringV(fn)
-        ))
-      }))
+      Pure(Value.ListV(callStack.toList.reverse
+        .filter { case (fn, _) =>
+          traceVerbose || (fn != "<anon>" && !fn.startsWith("_"))
+        }
+        .map { case (fn, line) =>
+          Value.InstanceV("Frame", Map(
+            "file" -> Value.StringV(""),
+            "line" -> Value.IntV(line),
+            "fn"   -> Value.StringV(fn)
+          ))
+        }))
     )
+    globals("setTraceVerbose") = Value.NativeFnV("setTraceVerbose", {
+      case List(Value.BoolV(v)) => traceVerbose = v; Pure(Value.UnitV)
+      case _                    => Pure(Value.UnitV)
+    })
 
     // ── compiletime — metaprogramming primitives ─────────────────────────
     globals("compiletime") = Value.InstanceV("compiletime", Map(
