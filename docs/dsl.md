@@ -70,6 +70,87 @@ plugins** — that's already a separate SPI feature, designed in
 `docs/backend-spi.md` §9 and partially landed.  v1.20 is about
 user-space DSLs, not language-plugin authoring.
 
+## 2.5 Reified by default (locked 2026-05-18)
+
+**Architectural choice applying to ALL three DSL flavours**:
+DSLs in ScalaScript produce **data**, not effects.  Building
+a DSL value composes a tree of operations; execution is an
+**explicit** extension method call.
+
+```scala
+val query: Query[User]      = sql"SELECT * FROM users WHERE id = $id"   // data
+val users: List[User]       = query.exec   // explicit execution
+
+val parser: Parser[Double]  = (num ~ (char('+') ~> num).*).map(_sum)    // data
+val result: ParseResult[Double] = parser.parse("1 + 2")                 // explicit execution
+```
+
+### Why reified-by-default
+
+- **Inspectable** — walk the value, count nodes, find
+  amibiguity, dump for debug
+- **Multiple interpreters** — same DSL value, run via
+  recursive-descent / Pratt / compile-time codegen / mock
+  for tests
+- **Composable across module boundaries** — pass `Query[A]`
+  / `Parser[A]` between modules without runtime coupling;
+  important for v1.19 dep imports
+- **Compile-time evaluation possible** — once v1.14 `inline`
+  lands, the same DSL value can be evaluated at compile
+  time inside an `inline def`
+
+### Cost
+
+Boxed combinator nodes vs lambda closures — measurable
+allocation on hot paths.  Acceptable for v1; specialised
+interpreters (`compileToPratt`, etc.) are extension
+methods that compile down to specialised executors when
+needed.
+
+### The `.exec` convention
+
+Every reified DSL provides at least one execution
+extension method.  Conventional name: `.exec`.  Return
+type depends on the DSL's nature:
+
+| DSL kind | `.exec` return | Example |
+|----------|----------------|---------|
+| Pure (no IO) | `A` (synchronous) | `Parser[A].exec` (when input is in context) |
+| Effectful (IO / Async) | `Async[A]` | `Query[A].exec` (DB IO) |
+| With error channel (v1.15) | `A throws E` | `Validator[A].exec` |
+| Free-monad-shaped | `F[A]` via `foldMap` | `Free[Op, A].foldMap(handler)` |
+
+For DSLs that take input (`Parser[A]` needs a string),
+the execution method takes it:
+`parser.parse(input): ParseResult[A]` rather than `.exec`.
+Same principle — execution is explicit, parameters are
+arguments to the execution.
+
+### When users want immediate evaluation
+
+Three patterns, all opt-in:
+
+1. **Construct + immediately exec on the same line**:
+   ```scala
+   val users = sql"SELECT * FROM users".exec
+   ```
+2. **Inline DSL value in a direct block**:
+   ```scala
+   direct[Async] {
+     users = sql"SELECT * FROM users".exec   // auto-binds Async[A]
+     Response.json(users)
+   }
+   ```
+3. **DSL author ships a `.eager`-shaped convenience**:
+   ```scala
+   extension (sc: StringContext) def sqlNow(args: Any*): List[Row] =
+     sql"…".exec    // eager — wraps the lazy form
+   ```
+
+`.eager` / `.now` shorthands are DSL-author choice, not
+language-level mandate.  Stdlib reserves `.exec` as the
+canonical execution method.
+
 ## 3. Internal eDSL — patterns, not primitives
 
 Internal eDSLs need no new compiler features.  They reuse
@@ -196,55 +277,101 @@ std/parsing/
 Single-file would be possible at ~500 lines but nested is
 right per the policy: clear roles, room to grow.
 
-### 5.2 Core types
+### 5.2 Core types — `Parser[A]` as data (reified)
+
+Per §2.5 the parser is **data**, not an interface with a
+`.parse` method.  Combinators build a tree of case-class
+nodes; execution is an explicit extension method.
 
 ```scala
-case class Position(line: Int, col: Int):
+case class Position(line: Int, col: Int, offset: Int = 0):
   override def toString = s"$line:$col"
 
 case class ParseError(message: String, pos: Position, context: List[String] = Nil)
 
 enum ParseResult[+A]:
-  case Ok[A](value: A, rest: String, pos: Position) extends ParseResult[A]
-  case Err(error: ParseError) extends ParseResult[Nothing]
+  case Ok[A](value: A, rest: String, pos: Position, span: Span) extends ParseResult[A]
+  case Err(error: ParseError)                                     extends ParseResult[Nothing]
 
-trait Parser[+A]:
-  def parse(input: String, pos: Position = Position(1, 1)): ParseResult[A]
+// REIFIED: every combinator is a case-class node in this enum.
+// Building a Parser produces a tree.  No execution happens until
+// you call .parse(...) — see §5.3.
+enum Parser[+A]:
+  case Char(c: scala.Char)                                            extends Parser[scala.Char]
+  case StringP(s: String)                                             extends Parser[String]
+  case Regex(pattern: String)                                         extends Parser[String]
+  case Satisfy(pred: scala.Char => Boolean)                           extends Parser[scala.Char]
+  case Sequence[A, B](left: Parser[A], right: Parser[B])              extends Parser[(A, B)]
+  case Choice[A](left: Parser[A], right: Parser[A])                   extends Parser[A]
+  case Many[A](inner: Parser[A], minCount: Int)                       extends Parser[List[A]]
+  case Opt[A](inner: Parser[A])                                       extends Parser[Option[A]]
+  case Mapped[A, B](inner: Parser[A], f: A => B)                      extends Parser[B]
+  case FlatMapped[A, B](inner: Parser[A], f: A => Parser[B])          extends Parser[B]
+  case Named[A](inner: Parser[A], name: String)                       extends Parser[A]
 ```
 
-### 5.3 Combinators
+### 5.3 Combinators — pure data construction
+
+Combinators are extension methods that produce new
+`Parser` enum nodes.  **No execution happens.**
 
 ```scala
 object Parser:
-  // Primitives
-  def char(c: Char): Parser[Char]
-  def string(s: String): Parser[String]
-  def regex(pattern: String): Parser[String]
-  def satisfy(pred: Char => Boolean): Parser[Char]
+  // Primitives — leaf nodes
+  def char(c: scala.Char): Parser[scala.Char] = Parser.Char(c)
+  def string(s: String):  Parser[String]      = Parser.StringP(s)
+  def regex(pattern: String): Parser[String]  = Parser.Regex(pattern)
+  def satisfy(pred: scala.Char => Boolean): Parser[scala.Char] = Parser.Satisfy(pred)
 
-  // Choice
-  extension [A](p: Parser[A]) def |(other: => Parser[A]): Parser[A]
-
-  // Sequence
-  extension [A](p: Parser[A])
-    def ~[B](other: => Parser[B]): Parser[(A, B)]
-    def ~>[B](other: => Parser[B]): Parser[B]    // discard left
-    def <~[B](other: => Parser[B]): Parser[A]    // discard right
-
-  // Repetition
-  extension [A](p: Parser[A])
-    def *(): Parser[List[A]]      // zero or more
-    def +(): Parser[List[A]]      // one or more
-    def ?(): Parser[Option[A]]    // optional
-
-  // Transform
-  extension [A](p: Parser[A])
-    def map[B](f: A => B): Parser[B]
-    def flatMap[B](f: A => Parser[B]): Parser[B]
-
-  // Named
-  extension [A](p: Parser[A]) def named(name: String): Parser[A]   // for errors
+// Combinators — build composite nodes
+extension [A](p: Parser[A])
+  def |[A1 >: A](other: => Parser[A1]): Parser[A1] = Parser.Choice(p, other)
+  def ~[B](other: => Parser[B]): Parser[(A, B)]    = Parser.Sequence(p, other)
+  def ~>[B](other: => Parser[B]): Parser[B]        = (p ~ other).map(_._2)
+  def <~[B](other: => Parser[B]): Parser[A]        = (p ~ other).map(_._1)
+  def *(): Parser[List[A]]                         = Parser.Many(p, 0)
+  def +(): Parser[List[A]]                         = Parser.Many(p, 1)
+  def ?(): Parser[Option[A]]                       = Parser.Opt(p)
+  def map[B](f: A => B): Parser[B]                 = Parser.Mapped(p, f)
+  def flatMap[B](f: A => Parser[B]): Parser[B]     = Parser.FlatMapped(p, f)
+  def named(name: String): Parser[A]               = Parser.Named(p, name)
 ```
+
+### 5.3.1 Execution — explicit extension methods
+
+The default interpreter is recursive-descent.  Other
+interpreters can ship as extension methods over the same
+`Parser[A]` data — `compileToPratt`, `validate` (grammar
+check without running input), `parseInline` (compile-time
+via v1.14 `inline`).
+
+```scala
+// Default — recursive-descent runtime parser
+extension [A](p: Parser[A])
+  def parse(input: String, pos: Position = Position(1, 1)): ParseResult[A] =
+    std.parsing._internal.RecursiveDescent.run(p, input, pos)
+
+// Specialised — compile to a Pratt parser (deferred to v1.20.x
+// when measurement justifies it).  Same Parser data, faster
+// evaluator.
+extension [A](p: Parser[A])
+  def compileToPratt: CompiledParser[A] =
+    std.parsing._internal.PrattCompiler.compile(p)
+
+// Static — validate grammar without input (find unreachable
+// alternatives, left-recursion warnings, etc.)
+extension [A](p: Parser[A])
+  def validate: Either[GrammarError, GrammarReport] =
+    std.parsing._internal.GrammarValidator.check(p)
+
+// Compile-time — for interpolators that want compile-time
+// validation (depends on v1.14 inline; deferred to v1.20.1)
+extension [A](p: Parser[A])
+  inline def parseInline(input: String)(using Quotes): Expr[A] = ...
+```
+
+The user picks the interpreter at the call site; the
+`Parser` itself doesn't care.
 
 ### 5.4 Worked example
 
@@ -289,6 +416,83 @@ p.parse("baz")
 Position tracking is automatic.  `.named` decorates errors
 with a higher-level rule name.
 
+### 5.6 `Span` — uniform source position (locked)
+
+Mandatory for **every** DSL that wants to interop with the
+rest of the stack.  Lives in `std/dsl/types.ssc`:
+
+```scala
+case class Span(
+  source:    String = "<unknown>",  // file path, or "interpolator:<line>:<col>"
+  startLine: Int,
+  startCol:  Int,
+  endLine:   Int,
+  endCol:    Int,
+  byteOffset: Int = 0    // for interpolator-nested DSLs
+):
+  def merge(other: Span): Span =
+    Span(source, startLine, startCol,
+         other.endLine, other.endCol, byteOffset)
+
+  override def toString: String =
+    if startLine == endLine && startCol == endCol then s"$source:$startLine:$startCol"
+    else s"$source:$startLine:$startCol-$endLine:$endCol"
+
+object Span:
+  val Empty: Span = Span("", 0, 0, 0, 0)
+
+trait HasSpan:
+  def span: Span
+```
+
+**Locked**: every Parser-built AST node that's expected to
+participate in cross-DSL composition (interpolators
+embedded in fenced blocks; DSL output passed across module
+boundaries; error messages crossing nesting layers)
+implements `HasSpan`.
+
+Why locked: without a uniform position type, each DSL ships
+its own incompatible position machinery and cross-DSL error
+messages become "best-effort string concatenation" — the
+boundary between "parse error in your SQL" and "syntax
+error in your .ssc handler.ssc at line 47" can't be
+reported coherently.
+
+### 5.7 Hygiene for interpolated `$value` (tentative)
+
+Open architectural question with a **tentative**
+recommendation.  Two-tier convention:
+
+| Syntax | Semantics | Default |
+|--------|-----------|---------|
+| `$value` | **Parameter binding** — value passes through as a typed argument; DSL chooses safe handling (e.g., SQL parameter, JSON value) | Safe-by-default |
+| `$$identifier` | **Raw inline** — value is spliced into the source text as-is (e.g., SQL identifier, raw JSON fragment) | Escape hatch |
+
+Std-lib helpers in `std/dsl/types.ssc`:
+
+```scala
+case class Param[+T](value: T)        // safe — DSL-treated as binding
+case class RawInline(text: String)    // unsafe — DSL-treated as raw text
+
+// DSL author can require these explicitly via type discrimination:
+extension (sc: StringContext)
+  def sql(args: (Param[?] | RawInline)*): Query[?] =
+    SqlCompiler.compile(sc.parts, args.toList)
+    // safe: rejects bare `$x` for non-Param[?] / non-RawInline values
+```
+
+**Why tentative**: this convention only matters when a DSL
+has injection-class concerns (SQL, shell, HTML).
+Lightweight DSLs (e.g., a CSV parser) don't need this.
+The `Param[?] | RawInline` discrimination is the
+**strongest** form; a relaxed default ("any `$value` is
+just substituted; DSL author handles safety") works for
+simpler cases.
+
+The lock will happen once we see ≥3 real injection-class
+DSLs surface — until then, document the convention,
+don't enforce.
+
 ## 6. AST / DSL helpers — `std/dsl/*`
 
 A smaller companion library to `std/parsing/`.  Provides:
@@ -321,6 +525,52 @@ Ship in v1.20 alongside parsing.
 | **v1.17 MCP** | MCP tool definitions are themselves a kind of DSL — `srv.tool("name") { args => … }` is the builder-pattern flavour (§3.3) |
 | **Multi-language fenced blocks** | Complementary: blocks are language-plugin territory, this milestone is user-space DSL territory |
 
+### 7.1 Composition contract — `Exec[D[_], F[_]]` typeclass (tentative)
+
+Cross-DSL composition needs a uniform "how do I run this
+DSL value" hook.  **Tentative** proposal: a typeclass
+`Exec[D, F]` over the DSL constructor `D` and target
+monad `F`.
+
+```scala
+// std/dsl/types.ssc — tentative
+trait Exec[D[_], F[_]]:
+  extension [A](d: D[A]) def exec: F[A]
+
+// Pure DSL — execution returns the value directly
+given Exec[Parser, [X] =>> ParseResult[X]] with
+  extension [A](p: Parser[A]) def exec: ParseResult[A] = ???  // needs input?
+
+// Effectful DSL (SQL example) — execution returns Async
+given Exec[Query, Async] with
+  extension [A](q: Query[A]) def exec: Async[A] = SqlRuntime.run(q)
+
+// Combined with direct-syntax (v1.8):
+def handler(req: Request): Response throws AppError = direct[Async] {
+  users = sql"SELECT * FROM users WHERE active".exec   // exec gives Async[List[User]]
+  Response.json(users)
+}
+```
+
+**Why tentative**:
+
+- **Pro**: every DSL plays the same game; `direct[F]` blocks
+  auto-bind any `D[A].exec: F[A]`; clear contract for DSL
+  authors
+- **Con**: forces every DSL to fit `D[_]` → `F[_]` shape
+  (single-monad target); cross-effect lifts get awkward
+- **Con**: parsers (`Parser[A]`) need extra `input: String`
+  parameter, doesn't fit `Exec[D, F]` neatly
+- **Alternative (simpler)**: just convention — every DSL
+  has SOME `.exec`-shaped extension; no shared typeclass,
+  no formal contract.  DSL authors document their own
+  return types
+
+Likely we ship the **convention-only** version in v1.20 and
+revisit the typeclass form in v1.20.x once we have ≥3 DSLs
+that would benefit from formal `Exec` dispatch.  Locked
+once a real cross-DSL composition use case demands it.
+
 ## 8. Implementation phases (v1.20)
 
 ### Phase 1 — User-defined interpolators (~3 days)
@@ -329,17 +579,25 @@ Verify `extension (sc: StringContext) def myDsl(args: Any*)`
 works on all three backends.  Fix the gaps found.  Conformance:
 custom-interpolator round-trip, escaping, mixed-type args.
 
-### Phase 2 — `std/parsing/core.ssc` primitives (~2 days)
+### Phase 2 — `std/parsing/core.ssc` — reified `Parser[A]` ADT + primitive constructors (~2 days)
 
-`Parser[A]` trait, `Position`, `ParseResult`, `ParseError`,
-plus `char` / `string` / `regex` / `satisfy` primitives.
-Conformance: each primitive parses correctly + reports
-errors at the right position.
+`enum Parser[+A]` (case-class-per-combinator-node per §5.2),
+`Position`, `Span`, `ParseResult`, `ParseError`, primitive
+constructors `Parser.char` / `string` / `regex` / `satisfy`.
+No interpreter yet — pure data.  Conformance: each
+constructor builds the right ADT node; pattern-matchable.
 
-### Phase 3 — `std/parsing/combinators.ssc` (~3 days)
+### Phase 3 — `std/parsing/combinators.ssc` — combinator extensions + default interpreter (~3 days)
 
-`~` / `|` / `*` / `+` / `?` / `map` / `flatMap` / `~>` / `<~`
-/ `named`.  Conformance: calculator from §5.4 round-trips.
+Combinators `~` / `|` / `*` / `+` / `?` / `map` / `flatMap`
+/ `~>` / `<~` / `named` (extension methods producing
+`Parser.X` nodes — pure data construction, see §5.3).
+Plus the default recursive-descent interpreter shipped as
+`extension [A](p: Parser[A]) def parse(input, pos): ParseResult[A]`
+(see §5.3.1).  Conformance: calculator from §5.4
+round-trips.  Specialised interpreters
+(`compileToPratt`, `validate`, `parseInline`) are explicit
+v1.20.x follow-ups, NOT in this phase.
 
 ### Phase 4 — `std/parsing/helpers.ssc` (~2 days)
 
@@ -349,7 +607,12 @@ written entirely from these helpers.
 
 ### Phase 5 — `std/dsl/*` helpers (~3 days)
 
-AST helpers, pretty-printer combinators, precedence climbing.
+AST helpers, pretty-printer combinators, precedence climbing,
+**plus mandatory `Span` + `HasSpan` types per §5.6**
+(locked) and the **tentative** `Param[T]` / `RawInline` /
+`Exec[D, F]` typeclass shapes per §5.7 + §7.1 (shipped as
+opt-in convenience; convention-only enforcement in v1.20,
+formal lock decided in v1.20.x once usage shows the shape).
 Conformance: a typed `Calc` AST with pretty-printer that
 round-trips through parse → AST → pretty → parse.
 
@@ -381,6 +644,33 @@ Conformance gates the merge.
 
 ## 10. Open questions
 
+### Locked architectural choices (recap — see §2.5 / §5.2 / §5.6)
+
+- **Reified DSL by default** (§2.5) — all 3 flavours
+  produce data; execution is an explicit extension method
+- **Parser as ADT data, not a trait** (§5.2 / §5.3) —
+  `enum Parser[+A]` with case-class nodes; combinators
+  build the tree; `.parse(input)` extension method is the
+  default interpreter; specialised interpreters
+  (`compileToPratt`, `validate`, `parseInline`) ship as
+  additional extensions
+- **`Span` mandatory** for cross-DSL-composable AST nodes
+  (§5.6)
+
+### Tentative — likely-but-not-locked (§5.7 / §7.1)
+
+- **`Param[T]` / `RawInline` hygiene discrimination**
+  (§5.7) — ship as opt-in helpers in `std/dsl/types.ssc`;
+  enforce via type signatures only when ≥3 real
+  injection-class DSLs surface
+- **`Exec[D[_], F[_]]` composition typeclass** (§7.1) —
+  ship convention-only in v1.20 (every DSL has SOME
+  `.exec`-shaped extension; no formal typeclass); revisit
+  formal `Exec` lock in v1.20.x once ≥3 DSLs would
+  benefit from typeclass dispatch
+
+### Still open (decide when real usage surfaces)
+
 - **Interpolator backend support gap** — Phase 1 may discover
   that user-defined interpolators don't work on the
   interpreter today (the interpreter directly evaluates
@@ -411,6 +701,17 @@ Conformance gates the merge.
   ship `Doc[A]` à la Wadler/Leijen, or simpler `string +
   indent` combinators?  Wadler is the standard but heavier;
   simpler may be enough for v1.
+- **Typed interpolator outputs** (advanced — defer to
+  v1.20.1+) — `sql"SELECT name FROM users"` returns
+  `Query[Tuple1[String]]` not just `Query[?]`.  Requires
+  compile-time SQL-subset parser via v1.14 `inline` +
+  Mirror-based schema discovery.  Real win for type-safety
+  but high implementation cost; revisit when v1.14 firms.
+- **DSL versioning policy** — when a DSL author breaks
+  syntax (`sql"..."` v2 incompatible with v1), how do
+  consumers handle?  Probably ties into v1.19 dep import
+  semver; locked once both v1.19 and v1.20 ship and
+  community DSLs surface.
 
 ## 11. Conformance plan
 
