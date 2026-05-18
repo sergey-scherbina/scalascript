@@ -52,6 +52,13 @@ class Interpreter(
   // top-level expressions, every scalameta position is shifted down by one
   // line. `lineOffset` compensates so error messages report the user's line.
   private var lineOffset: Int = 0
+  // Phase 6: interpreter call stack for currentStackTrace().
+  private val callStack = scala.collection.mutable.ArrayBuffer.empty[(String, Int)]
+  // Phase 3.2: flag indicating we are inside a direct[Either[...]] block so
+  // throw expressions lower to Left(...) instead of raising a ScriptException.
+  private val _insideDirectBlock = new java.lang.ThreadLocal[Boolean] {
+    override def initialValue() = false
+  }
 
   // ─── Reactive signals (fine-grained reactivity) ──────────────────────
   //
@@ -708,6 +715,31 @@ class Interpreter(
               Value.InstanceV("RuntimeException", Map("message" -> Value.StringV(msg))))))
       case _ => located("attemptCatch(thunk)")
     })
+
+    // ── attemptCatchRaw — like attemptCatch but returns raw value (no Either boxing) ─
+    globals("attemptCatchRaw") = Value.NativeFnV("attemptCatchRaw", {
+      case List(thunk) =>
+        try
+          val result = Computation.run(callValue(thunk, Nil, Map.empty))
+          Pure(result)
+        catch
+          case se: ScriptException => Pure(se.value)
+          case t: Throwable =>
+            val msg = Option(t.getMessage).getOrElse(t.getClass.getSimpleName)
+            Pure(Value.InstanceV(t.getClass.getSimpleName, Map("message" -> Value.StringV(msg))))
+      case _ => located("attemptCatchRaw(thunk)")
+    })
+
+    // ── currentStackTrace — returns call stack as List[Frame] ────────────
+    globals("currentStackTrace") = Value.NativeFnV("currentStackTrace", _ =>
+      Pure(Value.ListV(callStack.toList.reverse.map { case (fn, line) =>
+        Value.InstanceV("Frame", Map(
+          "file" -> Value.StringV(""),
+          "line" -> Value.IntV(line),
+          "fn"   -> Value.StringV(fn)
+        ))
+      }))
+    )
 
     // escape / collectCss / collectJs / scope now live in CoreIntrinsics
     // (Stage 5+/E–F); installNativeIntrinsics routes them.
@@ -2298,7 +2330,8 @@ class Interpreter(
 
     case t: Term.Throw =>
       eval(t.expr, env).flatMap { v =>
-        throw ScriptException(v)
+        if _insideDirectBlock.get() then Pure(Value.InstanceV("Left", Map("value" -> v)))
+        else throw ScriptException(v)
       }
 
     case t: Term.Try =>
@@ -2968,12 +3001,20 @@ class Interpreter(
     val varNames: Set[String] = stats.collect {
       case Defn.Var.After_4_7_2(_, List(Pat.Var(n)), _, _) => n.value
     }.toSet
+    val prevInsideDirect = _insideDirectBlock.get()
+    _insideDirectBlock.set(true)
 
     // Thread env as an immutable snapshot so each branch of a List flatMap
     // gets its own independent variable bindings (avoids shared-state bugs
     // when the monad's flatMap calls the continuation multiple times eagerly).
     def step(remaining: List[Stat], cur: Env): Computation = remaining match
       case Nil => Pure(Value.UnitV)
+
+      // throw as last (or only) statement — lower to Left(...)
+      case (t: Term.Throw) :: Nil =>
+        eval(t.expr, cur).flatMap { v =>
+          Pure(Value.InstanceV("Left", Map("value" -> v)))
+        }
 
       case (last: Term) :: Nil =>
         eval(last, cur)
@@ -3014,6 +3055,12 @@ class Interpreter(
       case Defn.Var.After_4_7_2(_, List(Pat.Var(n)), _, rhs) :: rest =>
         eval(rhs, cur).flatMap { v => step(rest, cur + (n.value -> v)) }
 
+      // throw inside direct block — lower to Left(...) instead of raising
+      case (t: Term.Throw) :: rest =>
+        eval(t.expr, cur).flatMap { v =>
+          Pure(Value.InstanceV("Left", Map("value" -> v)))
+        }
+
       // bare expression for side effect
       case (t: Term) :: rest =>
         eval(t, cur).flatMap(_ => step(rest, cur))
@@ -3050,7 +3097,8 @@ class Interpreter(
       case _ :: rest =>
         step(rest, cur)
 
-    step(stats, env)
+    try step(stats, env)
+    finally _insideDirectBlock.set(prevInsideDirect)
 
   // ─── Call helpers ─────────────────────────────────────────────────
 
@@ -3121,8 +3169,13 @@ class Interpreter(
           val names = ps.toArray
           val arr   = effArgs.iterator.take(names.length).toArray
           FrameMap.of(names, arr, withSelf)
-      val result = try runUntilSuspension(eval(f.body, callEnv))
-                   catch case r: ReturnSignal => Pure(r.value)
+      val frameName = if f.name.nonEmpty then f.name else "<anon>"
+      val lineNum   = currentSpan.map(_._1 + 1).getOrElse(0)
+      callStack += ((frameName, lineNum))
+      val result =
+        try runUntilSuspension(eval(f.body, callEnv))
+        catch case r: ReturnSignal => Pure(r.value)
+      if callStack.nonEmpty then callStack.remove(callStack.length - 1)
       if f.returnsThrows then result.map(throwsAutoWrap)
       else result
 
@@ -3146,6 +3199,12 @@ class Interpreter(
   /** True if a scalameta Type is `A throws E` (infix `throws`). */
   private def isThrowsType(t: scala.meta.Type): Boolean = t match
     case ti: scala.meta.Type.ApplyInfix => ti.op.value == "throws"
+    case _                              => false
+
+  /** True if a scalameta Type is `A throwsRaw E` (infix `throwsRaw`).
+   *  throwsRaw functions return values as-is (no Either boxing) — same as the default. */
+  private def isThrowsRawType(t: scala.meta.Type): Boolean = t match
+    case ti: scala.meta.Type.ApplyInfix => ti.op.value == "throwsRaw"
     case _                              => false
 
   /** Infer the runtime "element type" of a value — the concrete type name
