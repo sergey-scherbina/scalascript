@@ -1,0 +1,50 @@
+---
+name: rest-validate
+---
+
+# v1.5 Tier 5 #20 — `validate { … }` accumulator + `requireRange`
+
+```scalascript
+// Fake request: anything with `.form` / `.query` Map fields plays the
+// role.  WebServer / route() construct the same shape — the helpers
+// just look up by name through `.form ?? .query`.
+case class FakeReq(form: Map[String, String], query: Map[String, String])
+
+val ok      = FakeReq(Map("email" -> "ada@example.com", "rating" -> "4"), Map())
+val bad     = FakeReq(Map("email" -> "x",                "rating" -> "9"), Map())
+val missing = FakeReq(Map(),                                              Map())
+
+// Happy path — no errors, returns Right with the body's value.
+val r1 = validate {
+  val email  = requireString(ok, "email")
+  val rating = requireRange(ok, "rating", 1, 5)
+  (email, rating)
+}
+println(r1)
+
+// Range violation accumulated with the rest.
+val r2 = validate {
+  val email  = requireString(bad, "email")
+  val rating = requireRange(bad, "rating", 1, 5)
+  (email, rating)
+}
+println(r2)
+
+// Missing fields accumulate too — all problems in one pass.
+val r3 = validate {
+  val email  = requireString(missing, "email")
+  val rating = requireRange(missing, "rating", 1, 5)
+  val tone   = requireOneOf(missing, "tone", List("info", "warn"))
+  (email, rating, tone)
+}
+println(r3)
+
+// requireRangeDouble.
+val ok2 = FakeReq(Map("score" -> "0.75"), Map())
+val r4  = validate { requireRangeDouble(ok2, "score", 0.0, 1.0) }
+println(r4)
+
+val bad2 = FakeReq(Map("score" -> "1.5"), Map())
+val r5   = validate { requireRangeDouble(bad2, "score", 0.0, 1.0) }
+println(r5)
+```

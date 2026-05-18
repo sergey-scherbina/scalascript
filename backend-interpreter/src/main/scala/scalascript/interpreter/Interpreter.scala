@@ -76,6 +76,15 @@ class Interpreter(
   // and final consumer both react to the same root change) and reruns
   // happen in registration order for determinism.
   private val pendingEffects = mutable.LinkedHashSet.empty[Long]
+
+  // v1.5 Tier 5 #20 — validation collector stack.  Each `validate { … }`
+  // block pushes a fresh ordered map; the `require*` natives check the
+  // head of the stack: when present they record the error and return a
+  // type-appropriate default so the body keeps running and accumulates
+  // every problem in one pass.  When empty (handler called require*
+  // outside a validate block) the call throws as before.
+  private val validationStack: mutable.Stack[mutable.LinkedHashMap[String, String]] =
+    mutable.Stack.empty
   private var reactiveFlushing = false
 
   /** Per-FunV cache of the TCO classification — three full body walks
@@ -664,11 +673,19 @@ class Interpreter(
         case _ => None
       lookup("form").orElse(lookup("query"))
 
+    // Inside a `validate { … }` block we record the error and return
+    // the supplied default so the body can keep running; outside one
+    // we throw as before and the route dispatcher emits a 400.
+    def recordOrThrow(name: String, msg: String, default: Value): Value =
+      validationStack.headOption match
+        case Some(buf) => buf.put(name, msg); default
+        case None      => throw new scalascript.server.RestValidationError(msg)
+
     nativeP("requireString") {
       case List(req, Value.StringV(name)) =>
         fieldOf(req, name) match
           case Some(s) => Value.StringV(s)
-          case None    => throw new scalascript.server.RestValidationError(s"missing field: $name")
+          case None    => recordOrThrow(name, s"missing field: $name", Value.StringV(""))
       case _ => throw InterpretError("requireString(req, name)")
     }
     nativeP("optionalString") {
@@ -682,9 +699,9 @@ class Interpreter(
           case Some(s) =>
             try Value.IntV(s.toLong)
             catch case _: NumberFormatException =>
-              throw new scalascript.server.RestValidationError(s"invalid integer for field: $name")
-          case None    =>
-            throw new scalascript.server.RestValidationError(s"missing field: $name")
+              recordOrThrow(name, s"invalid integer for field: $name", Value.IntV(0L))
+          case None =>
+            recordOrThrow(name, s"missing field: $name", Value.IntV(0L))
       case _ => throw InterpretError("requireInt(req, name)")
     }
     nativeP("optionalInt") {
@@ -702,9 +719,9 @@ class Interpreter(
           case Some(s) =>
             try Value.DoubleV(s.toDouble)
             catch case _: NumberFormatException =>
-              throw new scalascript.server.RestValidationError(s"invalid number for field: $name")
-          case None    =>
-            throw new scalascript.server.RestValidationError(s"missing field: $name")
+              recordOrThrow(name, s"invalid number for field: $name", Value.DoubleV(0.0))
+          case None =>
+            recordOrThrow(name, s"missing field: $name", Value.DoubleV(0.0))
       case _ => throw InterpretError("requireDouble(req, name)")
     }
     nativeP("optionalDouble") {
@@ -722,9 +739,9 @@ class Interpreter(
           case Some(s) => s.toLowerCase match
             case "true"  | "1" | "yes" | "on"  => Value.BoolV(true)
             case "false" | "0" | "no"  | "off" => Value.BoolV(false)
-            case _ => throw new scalascript.server.RestValidationError(s"invalid boolean for field: $name")
-          case None    =>
-            throw new scalascript.server.RestValidationError(s"missing field: $name")
+            case _ => recordOrThrow(name, s"invalid boolean for field: $name", Value.BoolV(false))
+          case None =>
+            recordOrThrow(name, s"missing field: $name", Value.BoolV(false))
       case _ => throw InterpretError("requireBool(req, name)")
     }
     nativeP("optionalBool") {
@@ -737,6 +754,55 @@ class Interpreter(
         }
         Value.OptionV(parsed)
       case _ => throw InterpretError("optionalBool(req, name)")
+    }
+
+    // v1.5 Tier 5 #20 — bounded numeric require.  Same coercion +
+    // validation surface as `requireInt`, plus an inclusive
+    // `[min..max]` range check.  Returns 0 on miss/invalid/oor inside
+    // a `validate { … }` block so the body keeps running.
+    nativeP("requireRange") {
+      case List(req, Value.StringV(name), Value.IntV(min), Value.IntV(max)) =>
+        fieldOf(req, name) match
+          case Some(s) =>
+            try
+              val n = s.toLong
+              if n < min || n > max then
+                recordOrThrow(name, s"out of range [$min..$max] for field: $name", Value.IntV(min))
+              else Value.IntV(n)
+            catch case _: NumberFormatException =>
+              recordOrThrow(name, s"invalid integer for field: $name", Value.IntV(min))
+          case None =>
+            recordOrThrow(name, s"missing field: $name", Value.IntV(min))
+      case _ => throw InterpretError("requireRange(req, name, min, max)")
+    }
+    nativeP("requireRangeDouble") {
+      case List(req, Value.StringV(name), Value.DoubleV(min), Value.DoubleV(max)) =>
+        fieldOf(req, name) match
+          case Some(s) =>
+            try
+              val n = s.toDouble
+              if n < min || n > max then
+                recordOrThrow(name, s"out of range [$min..$max] for field: $name", Value.DoubleV(min))
+              else Value.DoubleV(n)
+            catch case _: NumberFormatException =>
+              recordOrThrow(name, s"invalid number for field: $name", Value.DoubleV(min))
+          case None =>
+            recordOrThrow(name, s"missing field: $name", Value.DoubleV(min))
+      case _ => throw InterpretError("requireRangeDouble(req, name, min: Double, max: Double)")
+    }
+    nativeP("requireOneOf") {
+      case List(req, Value.StringV(name), Value.ListV(opts)) =>
+        val allowed = opts.collect { case Value.StringV(s) => s }
+        fieldOf(req, name) match
+          case Some(s) if allowed.contains(s) => Value.StringV(s)
+          case Some(s) =>
+            recordOrThrow(name,
+              s"invalid value '$s' for field: $name (expected one of: ${allowed.mkString(", ")})",
+              Value.StringV(allowed.headOption.getOrElse("")))
+          case None =>
+            recordOrThrow(name, s"missing field: $name",
+              Value.StringV(allowed.headOption.getOrElse("")))
+      case _ => throw InterpretError("requireOneOf(req, name, options: List[String])")
     }
 
     nativeP("Response.html") {
@@ -1846,6 +1912,31 @@ class Interpreter(
     case Term.Apply.After_4_6_0(Term.Name("runActors"), bodyArgClause)
         if bodyArgClause.values.size == 1 =>
       actorInterp(eval(bodyArgClause.values.head, env))
+
+    // v1.5 Tier 5 #20 — `validate { body }` runs `body` with an active
+    // validation collector.  Returns `Right(bodyResult)` when the body
+    // ran without any `require*` complaint, else `Left(Map[field,
+    // reason])` capturing every problem in document order.  `require*`
+    // inside the block returns a safe default on miss/invalid so the
+    // body keeps running and accumulates errors in one pass.
+    case Term.Apply.After_4_6_0(Term.Name("validate"), bodyArgClause)
+        if bodyArgClause.values.size == 1 =>
+      val buf = mutable.LinkedHashMap.empty[String, String]
+      validationStack.push(buf)
+      val bodyComp = try eval(bodyArgClause.values.head, env)
+                     finally ()  // never pop in the try — see below
+      bodyComp.flatMap { result =>
+        validationStack.pop()
+        if buf.nonEmpty then
+          val errMap = Value.MapV(
+            scala.collection.immutable.ListMap.from(
+              buf.map { (k, v) => Value.StringV(k) -> Value.StringV(v) }
+            )
+          )
+          Pure(Value.InstanceV("Left", Map("value" -> errMap)))
+        else
+          Pure(Value.InstanceV("Right", Map("value" -> result)))
+      }
 
     // `receive { case … }` — special form so we can pull out the AST
     // cases at dispatch time.  Stashes (cases, env) and emits a Perform
