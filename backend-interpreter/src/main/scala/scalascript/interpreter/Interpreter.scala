@@ -1447,14 +1447,32 @@ class Interpreter(
       ()
 
     case d: Defn.Def =>
-      val paramVals = d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values).toList
-      val params    = paramVals.map(_.name.value)
-      val defaults  = paramVals.map(_.default)
+      val allClauses      = d.paramClauseGroups.flatMap(_.paramClauses)
+      val regularClauses  = allClauses.filter(_.mod.isEmpty)
+      val usingClauses    = allClauses.filter(_.mod.nonEmpty)
+      val regularParamVals = regularClauses.flatMap(_.values).toList
+      val usingParamVals   = usingClauses.flatMap(_.values).toList
+      // Phase 3: context-bound type params [A: TC] → synthetic using param "A$TC: TC[A]"
+      @annotation.nowarn("msg=deprecated")
+      val cbUsingParams: List[(String, String)] =
+        d.paramClauseGroups.flatMap(_.tparamClause.values).flatMap { tp =>
+          tp.cbounds.map { cb =>
+            val tvName = tp.name.value
+            val tcStr  = typeToString(cb.asInstanceOf[scala.meta.Type])
+            s"${tvName}$$${tcStr.takeWhile(_ != '[')}" -> s"$tcStr[$tvName]"
+          }
+        }
+      val allRegularVals = regularParamVals ++ usingParamVals
+      val params   = allRegularVals.map(_.name.value) ++ cbUsingParams.map(_._1)
+      val defaults = allRegularVals.map(_.default)    ++ cbUsingParams.map(_ => None)
+      val paramTypes  = regularParamVals.map(p => p.decltpe.fold("Any")(typeToString))
+      val usingInfo: List[(String, String)] =
+        usingParamVals.map(p => p.name.value -> p.decltpe.fold("Any")(typeToString)) ++ cbUsingParams
       // See Term.Function above for why we drop only globals-shadowed keys.
       val capturedEnv = env.iterator.collect {
         case (k, v) if !globals.get(k).contains(v) => k -> v
       }.toMap
-      val fn: Value.FunV = Value.FunV(params, d.body, capturedEnv, d.name.value, defaults)
+      val fn: Value.FunV = Value.FunV(params, d.body, capturedEnv, d.name.value, defaults, paramTypes, usingInfo)
       env(d.name.value) = fn
       if d.name.value == "main" && params.isEmpty then mainCalled = false
 
@@ -1935,9 +1953,15 @@ class Interpreter(
             case _ =>
               FlatMap(qualC, qualV =>
                 threadValues(argComps)(argVals => dispatch(qualV, method, argVals, env)))
-        case fun =>
-          val funC     = eval(fun, env)
-          val argComps = app.argClause.values.map {
+        case _ =>
+          // Flatten nested Apply nodes so that curried calls like `f(a)(using b)`
+          // are collected into a single `callValue(f, [a, b])` invocation.
+          // This is needed so that explicitly-supplied `using` arguments are
+          // combined with regular arguments before `callFun` decides whether to
+          // auto-resolve given instances.
+          val (baseFun, allArgTerms) = collectApplyArgs(app)
+          val funC     = eval(baseFun, env)
+          val argComps = allArgTerms.map {
             case Term.Assign(_, rhs) => eval(rhs, env)
             case other               => eval(other, env)
           }
@@ -2149,14 +2173,26 @@ class Interpreter(
     case t: Term.ApplyType =>
       (t.fun, t.argClause.values) match
         case (Term.Name("summon"), List(typeArg)) =>
-          val key = typeArg match
-            case n: Type.Name  => n.value
-            case ta: Type.Apply =>
-              val tc  = ta.tpe match { case n: Type.Name => n.value; case _ => located("summon: bad type") }
-              val arg = ta.argClause.values match { case List(n: Type.Name) => n.value; case _ => "_" }
-              s"$tc[$arg]"
-            case _ => located("summon: unsupported type")
-          Pure(env.getOrElse(key, globals.getOrElse(key, located(s"No given for $key"))))
+          val key = typeToString(typeArg.asInstanceOf[scala.meta.Type])
+          // 1. Direct lookup in env / globals
+          val direct = env.get(key).orElse(globals.get(key))
+          val found = direct.orElse {
+            // 2. For generic keys like "Show[A]" try:
+            //    a) resolveGiven (infers concrete type from regular args if any)
+            //    b) scan env for a synthetic context-bound param "A$TC"
+            resolveGiven(key, Nil, env).orElse {
+              // key shape: "TC[A]" — look for env entry "A$TC"
+              val tcEnd = key.indexOf('[')
+              if tcEnd > 0 then
+                val tc     = key.substring(0, tcEnd)
+                val typeArg = key.substring(tcEnd + 1, key.length - 1).trim
+                val syntheticName = s"${typeArg}$$${tc}"
+                env.get(syntheticName)
+              else None
+            }
+          }
+          Pure(found.getOrElse(located(s"No given instance for '$key'")))
+
         // Prism[Outer, Variant] — focus on a single sum-type variant.
         case (Term.Name("Prism"), List(_, variantType)) =>
           val variantName = variantType match
@@ -2706,6 +2742,28 @@ class Interpreter(
     val argComps = args.map(eval(_, env))
     threadValues(argComps)(k)
 
+  /** Peel nested `Apply` nodes to collect all argument lists for a curried call.
+   *  Only activates when the **outermost** `Apply` has a `using` argument clause
+   *  (i.e. `mod = Some(Mod.Using())`).  In that case we collect all arg lists
+   *  (regular + using) into a single flat list and return the base callee.
+   *
+   *  This handles `f(regularArgs)(using usingArgs)` without affecting ordinary
+   *  curried calls like `onWebSocket(path) { handler }` which have no `using` mod.
+   */
+  private def collectApplyArgs(app: Term.Apply): (Term, List[Term]) =
+    // Only flatten when this outer Apply carries `using` args
+    if app.argClause.mod.isEmpty then (app.fun, app.argClause.values)
+    else
+      def peel(t: Term, acc: List[Term]): (Term, List[Term]) = t match
+        case inner: Term.Apply => inner.fun match
+          // Stop at select / type-apply / other complex funs
+          case _: Term.Select | _: Term.ApplyType | _: Term.ApplyInfix =>
+            (t, acc)
+          case _ =>
+            peel(inner.fun, inner.argClause.values ++ acc)
+        case other => (other, acc)
+      peel(app.fun, app.argClause.values)
+
   /** Thread a list of already-built Computations: bind each in order and feed
    *  the resulting values to `k`. */
   private def threadValues(comps: List[Computation])(k: List[Value] => Computation): Computation =
@@ -2855,13 +2913,30 @@ class Interpreter(
 
       // def inside direct block — register as pure closure, not a monadic bind
       case (d: Defn.Def) :: rest =>
-        val paramVals   = d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values).toList
-        val params      = paramVals.map(_.name.value)
-        val defaults    = paramVals.map(_.default)
+        val allClauses2      = d.paramClauseGroups.flatMap(_.paramClauses)
+        val regularClauses2  = allClauses2.filter(_.mod.isEmpty)
+        val usingClauses2    = allClauses2.filter(_.mod.nonEmpty)
+        val regularParamVals2 = regularClauses2.flatMap(_.values).toList
+        val usingParamVals2   = usingClauses2.flatMap(_.values).toList
+        @annotation.nowarn("msg=deprecated")
+        val cbUsingParams2: List[(String, String)] =
+          d.paramClauseGroups.flatMap(_.tparamClause.values).flatMap { tp =>
+            tp.cbounds.map { cb =>
+              val tvName = tp.name.value
+              val tcStr  = typeToString(cb.asInstanceOf[scala.meta.Type])
+              s"${tvName}$$${tcStr.takeWhile(_ != '[')}" -> s"$tcStr[$tvName]"
+            }
+          }
+        val allRegularVals2 = regularParamVals2 ++ usingParamVals2
+        val params2   = allRegularVals2.map(_.name.value) ++ cbUsingParams2.map(_._1)
+        val defaults2 = allRegularVals2.map(_.default)    ++ cbUsingParams2.map(_ => None)
+        val paramTypes2 = regularParamVals2.map(p => p.decltpe.fold("Any")(typeToString))
+        val usingInfo2: List[(String, String)] =
+          usingParamVals2.map(p => p.name.value -> p.decltpe.fold("Any")(typeToString)) ++ cbUsingParams2
         val capturedEnv = cur.iterator.collect {
           case (k, v) if !globals.get(k).contains(v) => k -> v
         }.toMap
-        val fn = Value.FunV(params, d.body, capturedEnv, d.name.value, defaults)
+        val fn = Value.FunV(params2, d.body, capturedEnv, d.name.value, defaults2, paramTypes2, usingInfo2)
         step(rest, cur + (d.name.value -> fn))
 
       case _ :: rest =>
@@ -2895,10 +2970,27 @@ class Interpreter(
     // needed — most calls pass enough args and skip the allocation.
     // `eval` for Term.Name already falls back through `globals`, so locals
     // (closure + self ref + params) are all the env we need.
+    val selfEntry = if f.name.nonEmpty then Map(f.name -> f) else Map.empty
     val effArgs =
       if tupledArgs.length >= f.params.length then tupledArgs
+      else if f.usingParams.nonEmpty then
+        // Phase 1: auto-resolve `using` / context-bound params that were not
+        // supplied by the call site.
+        val regularCount = f.params.length - f.usingParams.length
+        val withUsing =
+          if tupledArgs.length >= regularCount then
+            // Caller supplied all regular args — resolve each using param
+            val regularArgVals = tupledArgs.take(regularCount)
+            val resolved = f.usingParams.map { (pname, typeKey) =>
+              resolveGiven(typeKey, regularArgVals, f.closure)
+                .getOrElse(located(s"No given instance found for '$typeKey' (using parameter '$pname')"))
+            }
+            tupledArgs ++ resolved
+          else
+            tupledArgs  // Still need defaults — fall through
+        if withUsing.length >= f.params.length then withUsing
+        else applyDefaults(f.params, f.defaults, withUsing, f.closure ++ selfEntry)
       else
-        val selfEntry = if f.name.nonEmpty then Map(f.name -> f) else Map.empty
         applyDefaults(f.params, f.defaults, tupledArgs, f.closure ++ selfEntry)
     val info      = tcoInfoFor(f)
     val hasMutualTail = info.tailTargets.nonEmpty && info.tailTargets.exists { n =>
@@ -2923,6 +3015,62 @@ class Interpreter(
           FrameMap.of(names, arr, withSelf)
       try runUntilSuspension(eval(f.body, callEnv))
       catch case r: ReturnSignal => Pure(r.value)
+
+  // ─── Given / using helpers ────────────────────────────────────────
+
+  /** Convert a scalameta `Type` node to the canonical key string used to
+   *  store `given` instances (e.g. `"Monoid[Int]"`, `"Monad[List]"`). */
+  private def typeToString(t: scala.meta.Type): String = t match
+    case scala.meta.Type.Name(n)         => n
+    case ta: scala.meta.Type.Apply       => s"${typeToString(ta.tpe)}[${ta.argClause.values.map(typeToString).mkString(", ")}]"
+    case scala.meta.Type.Function.After_4_6_0(params, r) => s"(${params.values.map(typeToString).mkString(", ")}) => ${typeToString(r)}"
+    case scala.meta.Type.Tuple(ts)       => ts.map(typeToString).mkString("(", ", ", ")")
+    case _                               => "_"
+
+  /** Infer the runtime "element type" of a value — the concrete type name
+   *  that a single-letter type variable (like `A` in `Monoid[A]`) would
+   *  be bound to given this argument value. For `ListV` we recurse into the
+   *  head element so `List(1,2,3)` → `"Int"`. */
+  private def runtimeElemType(v: Value): String = v match
+    case Value.IntV(_)                => "Int"
+    case Value.DoubleV(_)             => "Double"
+    case Value.StringV(_)             => "String"
+    case Value.BoolV(_)               => "Boolean"
+    case Value.CharV(_)               => "Char"
+    case Value.ListV(h :: _)          => runtimeElemType(h)
+    case Value.InstanceV(t, _)        => t
+    case _                            => "_"
+
+  /** Resolve a given/implicit instance for `typeKey` (e.g. `"Monoid[A]"`)
+   *  using the regular-argument values to infer any free type variables.
+   *
+   *  Strategy:
+   *  1. Direct lookup in `callEnv` then `globals`.
+   *  2. If `typeKey` contains a single-letter uppercase free type variable
+   *     (e.g. `A` in `Monoid[A]`), infer its concrete form from the first
+   *     regular argument's runtime type and retry the lookup.
+   */
+  private def resolveGiven(typeKey: String, regularArgValues: List[Value], callEnv: Env): Option[Value] =
+    // 1. Direct lookup — works for fully-concrete keys like "Monad[List]"
+    callEnv.get(typeKey).orElse(globals.get(typeKey)).orElse {
+      val tcEnd = typeKey.indexOf('[')
+      if tcEnd < 0 then
+        // No type args — scan globals for exact match
+        globals.get(typeKey)
+      else
+        val tc      = typeKey.substring(0, tcEnd)
+        val typeArg = typeKey.substring(tcEnd + 1, typeKey.length - 1).trim
+        // 2. If typeArg is a free type variable (single short upper-case word),
+        //    infer its concrete type from the runtime values of regular args
+        val isFreeVar = typeArg.nonEmpty &&
+                        typeArg.forall(c => c.isLetterOrDigit || c == '_') &&
+                        typeArg.headOption.exists(_.isUpper) &&
+                        typeArg.length <= 2
+        if isFreeVar then
+          val inferredType = regularArgValues.iterator.map(runtimeElemType).find(_ != "_")
+          inferredType.flatMap(t => callEnv.get(s"$tc[$t]").orElse(globals.get(s"$tc[$t]")))
+        else None
+    }
 
   /** Extend `args` with default values for any missing trailing parameters.
    *  Each default is evaluated in `baseEnv` augmented with the bindings of all

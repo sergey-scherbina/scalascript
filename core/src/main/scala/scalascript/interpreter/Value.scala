@@ -123,13 +123,22 @@ enum Value:
    *  shorter than `params` (in which case missing tail entries are treated
    *  as `None`). Defaults are evaluated lazily at call time, in an env that
    *  includes the closure plus all parameters bound to the left.
+   *
+   *  `paramTypes` holds a type-annotation string for each *regular* (non-using)
+   *  parameter; used for given-instance type inference.
+   *  `usingParams` is an ordered list of `(paramName, typeKey)` pairs for all
+   *  `using` / context-bound parameters.  When a call site omits these
+   *  arguments, the interpreter resolves them automatically from the given
+   *  table.
    */
   case FunV(
     params: List[String],
     body: Term,
     closure: Env,
     name: String = "",
-    defaults: List[Option[Term]] = Nil
+    defaults: List[Option[Term]] = Nil,
+    paramTypes: List[String] = Nil,
+    usingParams: List[(String, String)] = Nil
   )
   /** Native function: must return a Computation. Pure built-ins return Pure(v); higher-order
    *  built-ins (map, filter, …) flatMap user callbacks to propagate effects. */
@@ -186,7 +195,7 @@ object Value:
     case InstanceV(t, fields) =>
       if fields.isEmpty then t
       else fields.values.map(show).mkString(s"$t(", ", ", ")")
-    case FunV(ps, _, _, _, _) => s"<function(${ps.length})>"
+    case FunV(ps, _, _, _, _, _, _) => s"<function(${ps.length})>"
     case NativeFnV(name, _)   => s"<native:$name>"
     case DocV(parts)          => parts.map(show).mkString("\n")
 

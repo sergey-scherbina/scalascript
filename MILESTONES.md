@@ -403,16 +403,28 @@ unblocks downstream features as early as possible.
      to coroutine's program-as-control-flow.  Pure library work,
      no compiler changes.  Parallel with v1.11 if scheduling
      permits.
- 18. **v1.13 — Final Tagless ergonomics** (~2 weeks).
+ 18. **v1.12 — Algebraic effects feasibility study** (~1 week, no
+     shipping code).
+     Design doc + prototype + go/no-go.  Investigates whether the
+     existing typer can carry effect rows; commits to or rejects a
+     v2.x algebraic-effects milestone.
+ 19. **v1.13 — Final Tagless ergonomics** ~ Partial (Phases 1+3 Landed)
      Land four typer features that block idiomatic typeclass usage:
      `using` auto-resolution, context bounds, cross-file trait
      inheritance with HKT, sealed-trait extension dispatch in INT.
      Full design in [`docs/final-tagless.md`](docs/final-tagless.md).
      Closes carryover items 1 + 4 from v1.1.  Unlocks idiomatic FT
-     across `std/*` and unblocks v1.14 `derives` + v1.15 `throws`.
- 19. **v1.15 — Checked errors via `throws`** (~13 days).
-     **Higher priority than v1.14** — closes the everyday
-     error-handling story; prerequisite for many real apps.
+     across `std/*` and unblocks v1.14 `derives`.
+ 20. **v1.14 — Metaprogramming MVP (`inline` + `derives`)** (~2.5
+     weeks).
+     `inline def`/`val`/`if`/`match` + `compiletime.summonInline`
+     compile-time evaluator, plus Tier 1 `derives` recipes for
+     `Eq` / `Show` / `Hash` / `Order` and a handful of std
+     typeclasses (`Foldable` / `Traversable` / `Functor`).
+     Full design in [`docs/metaprogramming.md`](docs/metaprogramming.md).
+     User-defined macros (`quoted.Expr`) explicitly out of scope —
+     deferred to v2.x.  Depends on v1.13 (`Mirror` resolution).
+ 21. **v1.15 — Checked errors via `throws`** (~13 days).
      Dual-encoding: canonical `infix type throws[A, E] = Either[E, A]`
      (direct-syntax-integrated, monadic, ergonomic) plus opt-in
      `infix type throwsRaw[A, E] = A | E` (zero-allocation; preserves
@@ -423,17 +435,13 @@ unblocks downstream features as early as possible.
      lifts, and the `HasStackTrace` mixin with `currentStackTrace()`
      per-backend.  Full design in
      [`docs/error-handling.md`](docs/error-handling.md).  Depends on
-     v1.8 ✓ (direct-syntax) + v1.13 (`using` + cross-file traits).
- 20. **v1.14 — Metaprogramming MVP (`inline` + `derives`)** (~2.5
-     weeks).
-     `inline def`/`val`/`if`/`match` + `compiletime.summonInline`
-     compile-time evaluator, plus Tier 1 `derives` recipes for
-     `Eq` / `Show` / `Hash` / `Order` and a handful of std
-     typeclasses (`Foldable` / `Traversable` / `Functor`).
-     Full design in [`docs/metaprogramming.md`](docs/metaprogramming.md).
-     User-defined macros (`quoted.Expr`) explicitly out of scope —
-     deferred to v2.x.  Depends on v1.13 (`Mirror` resolution).
- 21. **v1.17 — MCP support (client + server)** (~3 weeks).
+     v1.8 (direct-syntax) + v1.13 (`using` + cross-file traits).
+ 22. **v1.16 — Restartable errors via algebraic effects** (~1 week
+     if v1.12 goes; otherwise retired).
+     Common Lisp condition-system style: handler resumes the
+     suspended computation with a replacement value.
+     **Hard-blocked on v1.12 feasibility study outcome.**
+ 23. **v1.17 — MCP support (client + server)** (~3 weeks).
      Anthropic's Model Context Protocol via REST-shaped API
      in a separate namespace (`std/mcp/*`).  Intrinsic-first:
      wraps `@modelcontextprotocol/sdk` on Node and
@@ -443,65 +451,61 @@ unblocks downstream features as early as possible.
      v1.17.1 follow-ups: type-class layer (depends v1.14),
      own implementation for INT (defer), streaming resources
      (depends v1.10).
- 22. **v1.18 — `package` keyword + std layout migration** ✓ Landed.
+ 24. **v1.18 — `package` keyword + std layout migration** ✓ Landed.
      Phases 1, 2, 4 landed (parser, codegen, conformance); Phase 3 (std migration) deferred.
- 23. **v1.19 — URL / dep imports** ✓ Landed.
+ 25. **v1.19 — URL / dep imports** ✓ Landed.
      `[X](https://...)` URL fetch + `[X](dep:org/lib:1.2)`
      resolver, both with `ssc.lock` SHA-256 integrity-check.
      `ssc lock` / `ssc lock check` CLI.  Central registry
      deferred to v1.19.x.
- 24. **v1.20 — DSL primitives + `std/parsing`** (~2.5 weeks).
+ 26. **v1.20 — DSL primitives + `std/parsing`** (~2.5 weeks).
      User-defined string interpolators cross-backend +
      parser-combinator library (`std/parsing/*`) + AST/pretty-
      printer helpers (`std/dsl/*`).  Reified-by-default; Parser
      as ADT; left-recursion combinator family; context-in-parser
      via ADT nodes (foundation for v1.20.2).  Full design in
      [`docs/dsl.md`](docs/dsl.md).
- 24a. **v1.20.1 — DSL: parser error recovery** (~1 week).
+ 26a. **v1.20.1 — DSL: parser error recovery** (~1 week).
      Three recovery strategies (skip-to-sync, error nodes,
      multi-error accumulation) as opt-in extensions on the
      v1.20 Parser ADT.  LSP-friendly DSL'и become viable.
      Ships as `std/parsing/recovery.ssc`.  Independent —
      can ship in any order after v1.20.
- 24b. **v1.20.2 — DSL: indentation-aware parsing** (~3-5 days).
+ 26b. **v1.20.2 — DSL: indentation-aware parsing** (~3-5 days).
      `std/parsing/layout.ssc` built on the v1.20 context
      ADT-nodes (§5.8): `withIndent`, `sameIndent`, `block`,
      `line` combinators.  Indent-significant DSLs (config
      formats, query languages).  Independent of v1.20.1 / v1.20.3.
- 24c. **v1.20.3 — DSL: multi-pass pipeline** (~1 week).
+ 26c. **v1.20.3 — DSL: multi-pass pipeline** (~1 week).
      `std/dsl/passes.ssc` with `Pass[A, B]` combinators
      (`andThen` / `parallel` / `recover`) + walker helpers
      for name resolution / type check / evaluation.
      Foundation for full external DSLs.  Independent — can
      ship in any order after v1.20.
- 25. **v1.21 — Local map-reduce (`Dataset[T]`)** (~2 weeks).
+ 27. **v1.21 — Local map-reduce (`Dataset[T]`)** (~2 weeks).
      Lazy `Dataset[T]` fluent API with sequential + parallel
      local execution (v1.3 Async.parallel on JVM; sequential
      fallback on JS pending v1.3 Node parallel).  Streaming
      via v1.10 generators.  Full design in
      [`docs/mapreduce.md`](docs/mapreduce.md).
- 26. **v1.22 — Distributed map-reduce** (~3 weeks, hard-blocked
+ 28. **v1.22 — Distributed map-reduce** (~3 weeks, hard-blocked
      on v1.6 Phase 3).
      Same `Dataset[T]` API, distributed via v1.6 distributed
      actors.  Coordinator-dispatched partitions, named-handler
      registry (no closure serialisation), coordinator-mediated
      shuffle, configurable failure handling.  Closure
      serialisation + worker-to-worker shuffle in v1.22.x.
- 27. **Cluster management** — *deferred, no version assigned*.
+ 29. **Cluster management** — *deferred, no version assigned*.
      Peer discovery, membership view, leader election,
      configuration distribution.  Promote when any of three
      trigger conditions fire (see
      [`docs/cluster-management.md`](docs/cluster-management.md)
      §6).
- 28. **6+/C — HostCallback dispatcher** (~1 week).
+ 30. **6+/C — HostCallback dispatcher** (~1 week).
      Stage 6+/C from spi-followups-plan.md.  Unblocks the first
      out-of-process (.NET / WASM) backend MVP.  Parked because no
      such backend is in flight.
- 29. **v2.0 — Separate compilation** (~2-3 months).
-     Plus, after this sequence: **Algebraic effects feasibility
-     study** (deferred — see end of file).  Restartable errors
-     (was v1.16) folded into the deferred study; promotes only
-     if the study commits to "go".
+ 31. **v2.0 — Separate compilation** (~2-3 months).
      Multi-month architecture commitment.  Promote when at least
      one of {real package ecosystem, >30s incremental build, IDE
      demand} is true.
@@ -536,174 +540,6 @@ If two contributors:
 - **If .NET / WASM MVP is in flight**: pull 6+/C HostCallback
   forward; otherwise that work duplicates platform intrinsics
   inside the subprocess backend.
-
-## Parallel-safe work plan (for multi-agent execution)
-
-The "Recommended implementation sequence" above is a single-agent
-critical path.  When **multiple agents work in parallel** (the
-sibling-worktree workflow per `AGENTS.md`), pick by **track**, not
-by version number — tracks group milestones with low cross-conflict
-on files / SPI / typer state.
-
-### Three principles
-
-1. **New-namespace stdlib milestones are safest for parallel work.**
-   Each `std/<area>/*` ships in its own directory.  Two agents can
-   build `std/mcp/*` and `std/parsing/*` simultaneously without
-   touching each other's code or merge-conflicting.
-2. **Typer / runtime core work is sequential per area.**  Only one
-   milestone at a time should modify `Interpreter.scala` typer
-   passes, the `Async` runtime, the import resolver in `core/`,
-   etc.  Rebases get expensive fast.
-3. **Within a milestone, phase order encodes dependencies.**  Tracks
-   are inter-milestone parallelism; intra-milestone phase order is
-   still serial unless explicitly noted parallelizable in the
-   milestone's own description.
-
-### Multi-agent-safe tracks (run any combination in parallel)
-
-#### Track A — Stdlib new namespaces (3+ agents simultaneously)
-
-Each lives in its own `std/<area>/*` directory; cross-track file
-conflict is near-zero.  Agents in this track touch only their
-own namespace files plus optional per-backend intrinsic stubs
-that don't overlap with other tracks' intrinsics.
-
-  - **v1.17 — MCP support** (`std/mcp/server.ssc`,
-    `std/mcp/client.ssc`, `std/mcp/types.ssc`)
-  - **v1.20 — DSL primitives** (`std/parsing/*`, `std/dsl/*`)
-  - **v1.21 — Local map-reduce** (`std/mapreduce/*`, depends on
-    v1.3 partial + v1.10 ✓)
-  - **v1.22 — Distributed map-reduce** (extends `std/mapreduce/*`,
-    depends on v1.6 Phase 3 ✓)
-
-After v1.20 core lands, the three sub-milestones can run in
-parallel too — each ships its own sub-namespace file:
-
-  - **v1.20.1** — `std/parsing/recovery.ssc`
-  - **v1.20.2** — `std/parsing/layout.ssc`
-  - **v1.20.3** — `std/dsl/passes.ssc`
-
-#### Track B — Typer features (single agent, serial)
-
-All touch the typer pass infrastructure across all three backends
-(`Interpreter.scala`, `JsGen.scala`, `JvmGen.scala`).  Parallel
-work here causes painful rebases.
-
-  1. **v1.13** — Final Tagless ergonomics (using-resolution +
-     context bounds + cross-file trait inheritance + sealed-trait
-     dispatch)
-  2. **v1.14** — Metaprogramming MVP (`inline` + `derives`) —
-     depends on v1.13 `Mirror` resolution
-  3. **v1.18** — `package` keyword + std layout — partial overlap
-     with v1.13 (cross-file trait inheritance is shared)
-
-#### Track C — Error / effect handling (single agent, serial)
-
-Touches `MonadError` machinery, runtime error channels, throws
-typing.  Cross-track interaction with Track B (depends on v1.13
-for `using` resolution).
-
-  1. **v1.15** — Checked errors via `throws` (depends on v1.8 ✓ +
-     v1.13).  **Higher priority than v1.14.**
-
-The earlier **v1.12 — Algebraic-effects feasibility study** is
-**deferred** (no version assigned) — see "Algebraic effects
-feasibility study — deferred" at the end of this file.
-**v1.16 — Restartable errors** was hard-blocked on v1.12; it
-is folded into the deferred study and promotes only if the
-study commits to "go".
-
-#### Track D — Runtime core (single agent, serial)
-
-Touches the `Async` Free monad, scheduler, coroutine runtime
-across all three backends.
-
-  1. **v1.3 follow-up** — Async-integrated WS + Node parallel
-     stages (partial)
-  2. **v1.11** — Continuation-based `Async` rewrite (depends on
-     v1.9 ✓ + v1.10 ✓)
-
-#### Track E — UI / component work (single agent, serial)
-
-All touch `std/ui/*` and `examples/std-ui/*`; same files
-modified.  Independent of compiler / std / runtime tracks above.
-
-  1. **v0.9 second pass** — Optics second pass (small,
-     standalone)
-  2. **v0.9 cross-cutting** — Std component pack cross-cutting
-     follow-ups
-  3. **v0.10** — Extended component pack
-  4. **v0.11** — i18n / l10n
-  5. **v0.12** — SSR + client hydration
-  6. **v0.13** — Component theming variants
-
-#### Track F — Architecture (single agent, isolated)
-
-  - **v2.0** — Separate compilation of modules.  Long, deeply
-    integrated; explicitly blocks most other work in its
-    final phases.  Promote when at least one of the trigger
-    conditions in v2.0 description is met.
-
-### Cross-track conflict surface
-
-Compact matrix — which file regions each track touches.  Two
-tracks listed in different cells of the same column should not
-run in parallel.
-
-| Area                                  | Track A | Track B | Track C | Track D | Track E | Track F |
-|---------------------------------------|---------|---------|---------|---------|---------|---------|
-| `std/<new-area>/*` (own namespace)    | ✓ each in own | — | — | — | — | — |
-| `Interpreter.scala` / `JsGen.scala` / `JvmGen.scala` typer | minor (intrinsic stubs) | **heavy** | partial | partial | — | **heavy (rewrite)** |
-| `core/` import resolver, SPI         | — | — | — | partial | — | **heavy** |
-| `Async` runtime / Free monad         | — | — | partial (via v1.15) | **heavy** | — | partial |
-| `MonadError` typeclass + Either ergonomics | — | partial (via v1.13) | **heavy** | — | — | — |
-| `std/ui/*`, `examples/std-ui/*`      | — | — | — | — | **heavy** | — |
-| `MILESTONES.md` itself                | every track edits | every | every | every | every | every |
-
-Reading: Track A and Track B can run in parallel (different
-columns).  Track B and Track D both touch typer + runtime → don't
-run in parallel.  Track E and any other track is always safe
-(different files).  Track F is heavy in core/ and rewriting
-codegen — don't run other tracks during its final integration
-phases.
-
-### Picking a starting point — agent decision tree
-
-When you're an agent looking for unclaimed work, walk this
-decision tree:
-
-1. **Run the AGENTS.md "Before picking the next task — sync and
-   check" procedure first.**  Sync `origin/main`, audit sibling
-   worktrees.  Skip claimed items.
-2. **Prefer Track A** — multi-agent safe, lowest conflict surface.
-   Among Track A items, pick whichever has the **fewest sibling
-   agents** already in adjacent namespaces.
-3. **If Track A is full or unsuitable**, look at Track C v1.15
-   (checked errors via `throws`) — the highest-priority active
-   item in the error/effects track.
-4. **Tracks B / D / E / F at most one each** at any moment.  If
-   one is occupied, pick from a different track.
-5. **If everything is occupied**, escalate to the user via the
-   AGENTS.md "what to do when overlap is detected" path.
-
-### Conflict-aware pull-request hygiene
-
-Even on parallel-safe tracks, two `MILESTONES.md` edits collide.
-Standard mitigations:
-
-- **Rebase before pushing.**  `git pull --rebase origin main`
-  after committing local changes, before `git push`.  The
-  `MILESTONES.md` conflict is almost always trivial (different
-  sections); rebase resolves with a hand-edit.
-- **Push small, push often.**  A 200-line `MILESTONES.md` diff
-  rebases harder than a 30-line diff.  Track work in incremental
-  PRs.
-- **Always update `MILESTONES.md` in the SAME commit as the
-  feature change.**  Don't ship a feature in one PR and the
-  milestone update in another — siblings will see the feature
-  landed but the backlog stale, triggering false "is this
-  done?" investigations.
 
 ## v0.7 — Reusable libraries and packaging
 
@@ -1990,8 +1826,7 @@ computation, replacing the three parallel implementations that
 exist today (Free-monad `Async`, Loom-thread actors,
 NIO-continuation WS).  User-facing APIs are NOT changed by this
 milestone — coroutines land as an internal building block that
-v1.10/v1.11 build on top of (and that the deferred algebraic-
-effects study would build on if it ever promotes).
+v1.10-v1.12 build on top of.
 
 Full design in [`docs/coroutines.md`](docs/coroutines.md) —
 motivation, three intrinsics, orthogonal-components
@@ -2007,8 +1842,7 @@ extern def suspend[Y, R](out: Y): R
 
 Two-way value passing (`suspend(y): R`) deliberately — subsumes
 one-way generators (`R = Unit`) at zero extra cost and is
-strictly needed for the algebraic-effects path (deferred — see
-end of file) should it ever promote.
+strictly needed for the algebraic-effects path in v1.12.
 
 ### Prerequisite
 
@@ -2268,10 +2102,10 @@ val (log, _) = prog.foldMap(testInterp).run(Log.empty)  // test
 ### Effort
 
 Four phases, ~1 week.  Pure library work; no compiler changes,
-no SPI changes.  Slots after v1.11; can also land in parallel
-with v1.11 since they have no shared code.
+no SPI changes.  Slots between v1.11 and v1.12; can also land
+in parallel with v1.11 since they have no shared code.
 
-## v1.13 — Final Tagless ergonomics
+## v1.13 — Final Tagless ergonomics ~ Partial (Phases 1+3 Landed; Phases 2,4,5,6 pending)
 
 Make the FT pattern first-class in user code by landing four
 typer features that today block idiomatic typeclass usage.  The
@@ -2284,8 +2118,7 @@ into the default mode.
 Full design in [`docs/final-tagless.md`](docs/final-tagless.md) —
 current state vs target, the four typer dependencies, worked
 examples, coexistence with v1.8 direct-syntax / v1.11.5 Free /
-the deferred algebraic-effects study, hard-no list, open
-questions.
+v1.12 algebraic effects, hard-no list, open questions.
 
 ```scala
 // Today
@@ -2299,7 +2132,7 @@ def combineAll[A: Monoid](xs: List[A]): A =
 combineAll(List(1, 2, 3))                 // resolved via given intSum
 ```
 
-### Phase 1 — `using` auto-resolution (INT) (~3 days)
+### Phase 1 — `using` auto-resolution (INT) ✓ Landed
 
 Typer pass over `Term.Apply` nodes: for each `(using T1, T2, …)`
 parameter list, walk in-scope `given` instances and select a
@@ -2314,7 +2147,7 @@ emit.  JvmGen emits the `(using …)` parameter list as-is and
 Scala 3's own resolver handles the rest.  Mostly glue; the
 typer-side work was Phase 1.
 
-### Phase 3 — Context bounds desugaring (~0.5 day)
+### Phase 3 — Context bounds desugaring ✓ Landed
 
 Parser-level: `[F[_]: M1: M2]` → appended `(using M1[F], M2[F])`
 parameter list.  Standard Scala 3 semantics.  Trivial once Phase
@@ -2353,8 +2186,7 @@ handles this via `_typeOf`; JVM relies on Scala's own dispatch.
 - **Implicit conversions** that cross effect boundaries —
   reintroduces the two-fault-model trap (DS-7)
 - **Custom `given` priority** beyond Scala 3 rules
-- **Effect-row tracking** (`[F[_]: (Console & Logger)]`) —
-  territory of the deferred algebraic-effects study
+- **Effect-row tracking** (`[F[_]: (Console & Logger)]`) — v1.12
 - **Auto-deriving FT instances** from concrete types — confusing
   failure modes; explicit `given` instances are the convention
 
@@ -2484,8 +2316,8 @@ auto-derivation matches hand-written instances.
 
 Five phases, ~2.5 weeks end-to-end.  Builds on v1.13 (`Mirror`
 requires `using` resolution).  Can land in parallel with
-v1.11/v1.11.5 since those touch the runtime layer and this
-touches the typer.
+v1.11/v1.11.5/v1.12 since those touch the runtime layer and
+this touches the typer.
 
 ## v1.15 — Checked errors via `throws` type alias
 
@@ -2679,8 +2511,7 @@ systemic errors).  Restartable errors (v1.16) are tier 4.
   the `throws[A, E]` type-alias path.  Unchecked throws are
   a different mechanism and stay.
 - `E` restricted to `Throwable` subtypes (works over any `E`)
-- Effect-row tracking for errors (territory of the deferred
-  algebraic-effects study)
+- Effect-row tracking for errors (v1.12 algebraic effects territory)
 
 ### Locked policies (`docs/error-handling.md` §2.5)
 
@@ -2731,7 +2562,7 @@ blocks).  Phase 6 (stack traces) is still the only piece
 with meaningful per-backend variance; Phases 8-9 are pure
 stdlib + helper work that lands uniformly.
 
-## v1.16 — Restartable errors via algebraic effects (depends on the deferred algebraic-effects study)
+## v1.16 — Restartable errors via algebraic effects (depends on v1.12)
 
 Common Lisp condition-system style restartable handlers.  A
 handler can choose to resume the suspended computation at the
@@ -2748,15 +2579,14 @@ val config = restartable {
 }
 ```
 
-**Hard-blocked on the deferred algebraic-effects feasibility
-study (see end of file).**  If the study commits to "go",
-v1.16 reduces to: `throw e` becomes `suspend(ErrorTag(e))`;
-handler stack catches the tag and resumes with a replacement
-value.  Direct mapping onto v1.9 coroutines.
+**Hard-blocked on v1.12 algebraic-effects feasibility study.**
+If v1.12 says "go", v1.16 reduces to: `throw e` becomes
+`suspend(ErrorTag(e))`; handler stack catches the tag and
+resumes with a replacement value.  Direct mapping onto v1.9
+coroutines.
 
-If the study says "no-go" (or stays deferred indefinitely),
-v1.16 retires — the path becomes `M.recover` + retry-loops,
-no compile-time restart support.
+If v1.12 says "no-go", v1.16 retires — the path becomes
+`M.recover` + retry-loops, no compile-time restart support.
 
 ### Sketch
 
@@ -2770,8 +2600,48 @@ no compile-time restart support.
 
 ### Effort
 
-~1 week if the algebraic-effects study (deferred — see end of
-file) commits to go; ~0 otherwise.
+~1 week if v1.12 goes; ~0 if v1.12 doesn't.
+
+## v1.12 — Algebraic effects feasibility study
+
+**No shipping code** — design doc + working prototype + go/no-go
+decision.  Investigates whether ScalaScript's type system can
+support OCaml-5 / Koka-style algebraic effects with handler
+stacks, built on top of coroutines.
+
+### Why a study, not a milestone
+
+Effect rows on the type level (`(Async | Random | Logger)[A]`)
+require type-system machinery ScalaScript doesn't have today:
+
+- Union types in effect position (Scala 3 has these — usable)
+- Bounded polymorphism over effect rows (Scala 3 limit)
+- Effect subtraction at handler site (no precedent)
+
+Whether this is feasible *given the existing typer* is genuinely
+unknown.  Spending a week to prototype before committing to a
+multi-month implementation milestone is the right call.
+
+### Deliverables
+
+1. **Prototype** — working coroutine-based handler stack catching
+   tagged yields (informal `Op("name", args)` representation,
+   like `docs/coroutines.md` §4.3).  No type-level effect
+   tracking yet — just runtime semantics.
+2. **Type-system audit** — does the existing typer carry enough
+   information to refuse `pureFunction()` when called inside an
+   `Async` block?  What changes are needed?
+3. **Design doc** — `docs/algebraic-effects.md` with the chosen
+   approach (or "rejected, here's why").
+4. **Go/no-go decision** — commit to a v2.x algebraic-effects
+   milestone, or close this thread.
+
+### Effort
+
+~1 week of focused design + prototyping.  No conformance
+deliverable; the prototype's tests live alongside the prototype
+and don't enter the conformance suite unless a real
+implementation lands later.
 
 ## v1.9.x — Actor internals refactor (optional cleanup)
 
@@ -3880,95 +3750,6 @@ view so they shape near-term decisions.
   with concrete reasoning.  See [`docs/future-protocols.md`](docs/future-protocols.md)
   for prerequisites, effort estimates, and why each is on hold
   until a concrete user surfaces.
-
-## Algebraic effects feasibility study — deferred (no version assigned)
-
-Investigates whether ScalaScript's type system can support
-OCaml-5 / Koka-style algebraic effects with handler stacks,
-built on top of coroutines (v1.9 ✓).  Originally tracked as
-v1.12; demoted to deferred status (2026-05-19) — no concrete
-consumer is asking for it, and the existing stack (`Async` /
-`MonadError` / `throws[A, E]` / Free monad in v1.11.5) covers
-real workloads.  Promote when one of the trigger conditions
-in §5 fires.
-
-**No shipping code** when promoted — design doc + working
-prototype + go/no-go decision, then if "go", a separate v2.x
-implementation milestone with its own multi-month effort
-budget.
-
-### What's open / hard about it
-
-Effect rows on the type level (`(Async | Random | Logger)[A]`)
-require type-system machinery ScalaScript doesn't have today:
-
-- Union types in effect position (Scala 3 has these — usable)
-- Bounded polymorphism over effect rows (Scala 3 limit)
-- Effect subtraction at handler site (no precedent)
-
-Whether this is feasible *given the existing typer* is genuinely
-unknown.  A week of prototyping before committing to a
-multi-month milestone is the right shape — but only when
-there's a real consumer pulling.
-
-### Deliverables (when promoted)
-
-1. **Prototype** — coroutine-based handler stack catching
-   tagged yields (informal `Op("name", args)` representation,
-   like `docs/coroutines.md` §4.3).  No type-level effect
-   tracking yet — runtime semantics only.
-2. **Type-system audit** — does the existing typer carry
-   enough information to refuse `pureFunction()` when called
-   inside an `Async` block?  What changes are needed?
-3. **Design doc** — `docs/algebraic-effects.md` with the
-   chosen approach (or "rejected, here's why").
-4. **Go/no-go decision** — commit to a v2.x algebraic-effects
-   milestone, or close this thread permanently.
-
-### Effort (when promoted)
-
-~1 week of focused design + prototyping.  No conformance
-deliverable from the study itself; if "go" follows, conformance
-ships with the v2.x implementation milestone.
-
-### Promotion criteria
-
-Move out of "deferred" into a real milestone **when any of
-these fire**:
-
-1. **A real `.ssc` application demonstrates** that the v1.1
-   `MonadError` + v1.15 `throws[A, E]` + v1.11.5 Free monad
-   combination is insufficient for its effect-handling needs
-   — concrete example, not speculative.
-2. **A community-package author** ships a partial
-   algebraic-effects library on top of v1.9 coroutines and
-   the design proves out enough that folding into core makes
-   sense.
-3. **v1.16 restartable errors** becomes desirable in concrete
-   user code (v1.16 was hard-blocked on this study; if both
-   stay deferred, that's the natural pair).
-
-### Why deferred (locked decision 2026-05-19)
-
-- v1.1 std typeclass hierarchy + v1.15 `throws[A, E]` + v1.11.5
-  Free monad cover ~95% of real effect-handling needs already
-- Algebraic effects are theoretically elegant but practically
-  niche outside research languages (Koka, Eff, OCaml 5
-  experimental)
-- The type-system unknowns (effect-row tracking, subtraction)
-  are real research-grade risk
-- Coroutines (v1.9) already give the runtime substrate — if a
-  consumer surfaces, the prototype is ~1 week away, not blocked
-  on infrastructure
-
-### Hard-no list (locked even pre-promotion)
-
-| Feature | Reason |
-|---------|--------|
-| **Shipping algebraic effects without the feasibility study first** | Type-system risk too high to commit to multi-month work blind |
-| **Algebraic effects as a *replacement* for MonadError / Free / throws** | They'd be *complementary*, not a replacement; existing stack stays for users who don't want effect-row tracking |
-| **Effect-row tracking on every typer pass** unconditionally | Would be a global cost on every program; opt-in via explicit `in Effect` annotations |
-| **Cross-backend effect-row enforcement** beyond what the typer can do statically | Runtime checks for effect violation would defeat the point; if the typer can't enforce, the feature can't ship |
 
 ## v0.5 — Interpreter performance (Tier 1) — landed
 
