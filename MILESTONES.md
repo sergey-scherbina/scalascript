@@ -1557,8 +1557,8 @@ PR that doesn't gate the core landing.
    the manual cross-node `whereis` becomes friction.
 
 5. **Scheduled / delayed sends.**  `sendAfter(delayMs, pid, msg)`
-   and `sendInterval(periodMs, pid, msg, until = ...)`.  ~30 LOC
-   on top of the existing scheduler.
+   and `sendInterval(periodMs, pid, msg)` and `cancelTimer(ref)`.
+   **Landed** — all three backends; 5 tests green. ✓
 
 6. **Persistent mailboxes / event sourcing.**  Far-future v2-class
    feature; mention only.  Replay state from a journal on

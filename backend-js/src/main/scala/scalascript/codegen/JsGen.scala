@@ -3361,6 +3361,10 @@ const Actor = {
   connectNode: (url, token)   => _perform('Actor', 'connectNode', [url, token]),
   register:    (name, pid)    => _perform('Actor', 'register',    [name, pid]),
   whereis:     (name)         => _perform('Actor', 'whereis',     [name]),
+  // v1.6.x — scheduled sends
+  sendAfter:   (delayMs, pid, msg)  => _perform('Actor', 'sendAfter',   [delayMs, pid, msg]),
+  sendInterval:(periodMs, pid, msg) => _perform('Actor', 'sendInterval',[periodMs, pid, msg]),
+  cancelTimer: (ref)                => _perform('Actor', 'cancelTimer', [ref]),
 };
 
 // `receive { case … }` lowers to a registered matcher function whose
@@ -3384,6 +3388,9 @@ function _runActors(bodyFn) {
   const monitors   = new Map();   // watchedId -> Map<monRef, observerId>
   const trapExitMap = new Map();  // id -> bool
   let   nextMonRef = 0;
+  // v1.6.x scheduled sends — timerId -> { fireAt, periodMs, targetId, msg }
+  const _timers    = new Map();
+  let   _nextTimerId = 0;
   // Phase 3 distributed node state
   let   _localNodeId  = "";
   const _nodeRegistry = new Map();   // name -> localId
@@ -3833,6 +3840,29 @@ function _runActors(bodyFn) {
           : { _type: 'None' };
         return { suspend: false, next: k(found) };
       }
+      // v1.6.x — scheduled sends
+      case 'sendAfter': {
+        const delayMs  = args[0];
+        const tgtPid   = args[1];
+        const tMsg     = args[2];
+        const fireAt   = Date.now() + delayMs;
+        const tRef     = _nextTimerId++;
+        _timers.set(tRef, { fireAt, period: null, targetId: tgtPid.localId, msg: tMsg });
+        return { suspend: false, next: k(tRef) };
+      }
+      case 'sendInterval': {
+        const periodMs = args[0];
+        const tgtPid2  = args[1];
+        const tMsg2    = args[2];
+        const fireAt2  = Date.now() + periodMs;
+        const tRef2    = _nextTimerId++;
+        _timers.set(tRef2, { fireAt: fireAt2, period: periodMs, targetId: tgtPid2.localId, msg: tMsg2 });
+        return { suspend: false, next: k(tRef2) };
+      }
+      case 'cancelTimer': {
+        _timers.delete(args[0]);
+        return { suspend: false, next: k(undefined) };
+      }
       default:
         throw new Error('Unknown Actor op: ' + op);
     }
@@ -3901,12 +3931,28 @@ function _runActors(bodyFn) {
       _processRemoteInbox();
     }
     while (_nodeDownQueue.length > 0) _fireNodeDown(_nodeDownQueue.shift());
+    // Fire scheduled sends whose deadline has passed.
+    if (_timers.size > 0) {
+      const _nowMs = Date.now();
+      for (const [_tRef, _te] of Array.from(_timers)) {
+        if (_nowMs >= _te.fireAt) {
+          const _tSt = actors.get(_te.targetId);
+          if (_tSt) { _tSt.mailbox.push(_te.msg); tryWakeBlocked(_te.targetId); }
+          if (_te.period != null) {
+            _timers.set(_tRef, { fireAt: _te.fireAt + _te.period, period: _te.period,
+                                  targetId: _te.targetId, msg: _te.msg });
+          } else {
+            _timers.delete(_tRef);
+          }
+        }
+      }
+    }
     if (ready.length > 0) {
       const id = ready.shift();
       const state = actors.get(id);
       if (state && state.pending !== null) stepActor(id);
     } else {
-      // Quiescence — but timeout-armed receives, remote messages, or node-downs may fire.
+      // Quiescence — but timeout-armed receives, timers, remote messages, or node-downs may fire.
       if (_nodeDownQueue.length > 0) continue;
       let earliest = null;
       for (const [aid, st] of actors) {
@@ -3915,12 +3961,19 @@ function _runActors(bodyFn) {
             earliest = { id: aid, d: st.blocked.deadline };
         }
       }
+      // Earliest pending timer deadline.
+      let _timerMin = null;
+      for (const [, _te] of _timers) {
+        if (_timerMin === null || _te.fireAt < _timerMin) _timerMin = _te.fireAt;
+      }
       // Distributed: keep running while peer channels are open and actors are blocked.
       const isDistributed = _peerChannels.size > 0;
       const hasBlockedActors = isDistributed && actors.size > 0 &&
         [...actors.values()].some(st => st && st.blocked !== null);
-      if (!earliest && !hasBlockedActors) break;
-      const sleepFor = earliest != null ? Math.min(earliest.d - Date.now(), 10) : 10;
+      if (!earliest && _timers.size === 0 && !hasBlockedActors) break;
+      const _sleepUntil = [earliest != null ? earliest.d : null, _timerMin].filter(v => v != null);
+      const _minDeadline = _sleepUntil.length > 0 ? Math.min(..._sleepUntil) : null;
+      const sleepFor = _minDeadline != null ? Math.min(_minDeadline - Date.now(), 10) : 10;
       if (sleepFor > 0) _asyncSleep(sleepFor); // worker threads write to ring buffers during sleep
       if (earliest != null) {
         const now = Date.now();
@@ -4734,6 +4787,7 @@ class JsGen(
       "Actor.receive", "Actor.receive_t",
       "Actor.link", "Actor.monitor", "Actor.demonitor", "Actor.trapExit",
       "Actor.startNode", "Actor.connectNode", "Actor.register", "Actor.whereis",
+      "Actor.sendAfter", "Actor.sendInterval", "Actor.cancelTimer",
       "Logger.info", "Logger.warn", "Logger.error", "Logger.debug",
       "Random.nextInt", "Random.nextDouble", "Random.uuid", "Random.pick",
       "Clock.now", "Clock.nowIso", "Clock.sleep",
@@ -5823,6 +5877,18 @@ class JsGen(
     case Term.Apply.After_4_6_0(Term.Name("whereis"), argClause)
         if argClause.values.size == 1 =>
       s"Actor.whereis(${genExpr(argClause.values.head.asInstanceOf[Term])})"
+    // v1.6.x — scheduled sends
+    case Term.Apply.After_4_6_0(Term.Name("sendAfter"), argClause)
+        if argClause.values.size == 3 =>
+      val vs = argClause.values.map(v => genExpr(v.asInstanceOf[Term]))
+      s"Actor.sendAfter(${vs(0)}, ${vs(1)}, ${vs(2)})"
+    case Term.Apply.After_4_6_0(Term.Name("sendInterval"), argClause)
+        if argClause.values.size == 3 =>
+      val vs = argClause.values.map(v => genExpr(v.asInstanceOf[Term]))
+      s"Actor.sendInterval(${vs(0)}, ${vs(1)}, ${vs(2)})"
+    case Term.Apply.After_4_6_0(Term.Name("cancelTimer"), argClause)
+        if argClause.values.size == 1 =>
+      s"Actor.cancelTimer(${genExpr(argClause.values.head.asInstanceOf[Term])})"
     // v1.10 Generator — generator { () => body } / suspend(v)
     case Term.Apply.After_4_6_0(Term.Name("generator"), argClause)
         if argClause.values.size == 1 =>
@@ -6266,6 +6332,18 @@ class JsGen(
     case Term.Apply.After_4_6_0(Term.Name("whereis"), argClause)
         if argClause.values.size == 1 =>
       s"Actor.whereis(${genExpr(argClause.values.head.asInstanceOf[Term])})"
+    // v1.6.x — scheduled sends (inside CPS body)
+    case Term.Apply.After_4_6_0(Term.Name("sendAfter"), argClause)
+        if argClause.values.size == 3 =>
+      val vs = argClause.values.map(v => genExpr(v.asInstanceOf[Term]))
+      s"Actor.sendAfter(${vs(0)}, ${vs(1)}, ${vs(2)})"
+    case Term.Apply.After_4_6_0(Term.Name("sendInterval"), argClause)
+        if argClause.values.size == 3 =>
+      val vs = argClause.values.map(v => genExpr(v.asInstanceOf[Term]))
+      s"Actor.sendInterval(${vs(0)}, ${vs(1)}, ${vs(2)})"
+    case Term.Apply.After_4_6_0(Term.Name("cancelTimer"), argClause)
+        if argClause.values.size == 1 =>
+      s"Actor.cancelTimer(${genExpr(argClause.values.head.asInstanceOf[Term])})"
     // v1.10 Generator inside CPS body
     case Term.Apply.After_4_6_0(Term.Name("generator"), argClause)
         if argClause.values.size == 1 =>

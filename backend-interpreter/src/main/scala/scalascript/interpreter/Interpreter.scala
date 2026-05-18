@@ -134,6 +134,9 @@ class Interpreter(
     // trapExit(id) = true  →  Exit signals arrive as messages, not crashes
     val trapExit   = mutable.LongMap.empty[Boolean]
     var nextMonRef = 0L
+    // v1.6.x scheduled sends — timerId → (fireAt, periodMs, targetId, msg)
+    val timers     = mutable.LongMap.empty[(Long, Option[Long], Long, Value)]
+    var nextTimerId = 0L
   private var actorRt: ActorRuntime = null
 
   // ── Phase 3 — distributed node state ────────────────────────────────
@@ -2240,6 +2243,21 @@ class Interpreter(
     globals("whereis") = Value.NativeFnV("whereis", {
       case List(Value.StringV(name)) => Perform("Actor", "whereis", List(Value.StringV(name)))
       case _ => throw InterpretError("whereis(name: String): Option[Pid]")
+    })
+    // v1.6.x — scheduled sends
+    globals("sendAfter") = Value.NativeFnV("sendAfter", {
+      case List(Value.IntV(delayMs), pid @ Value.InstanceV("Pid", _), msg) =>
+        Perform("Actor", "sendAfter", List(Value.IntV(delayMs), pid, msg))
+      case _ => throw InterpretError("sendAfter(delayMs: Int, pid: Pid, msg: Any): TimerRef")
+    })
+    globals("sendInterval") = Value.NativeFnV("sendInterval", {
+      case List(Value.IntV(periodMs), pid @ Value.InstanceV("Pid", _), msg) =>
+        Perform("Actor", "sendInterval", List(Value.IntV(periodMs), pid, msg))
+      case _ => throw InterpretError("sendInterval(periodMs: Int, pid: Pid, msg: Any): TimerRef")
+    })
+    globals("cancelTimer") = Value.NativeFnV("cancelTimer", {
+      case List(Value.IntV(ref)) => Perform("Actor", "cancelTimer", List(Value.IntV(ref)))
+      case _ => throw InterpretError("cancelTimer(ref: TimerRef): Unit")
     })
 
     // ── v1.10 Generator — generator { body } / suspend(v) ──────────────
@@ -4395,6 +4413,7 @@ class Interpreter(
 
       def hasWork = rt.ready.nonEmpty || rt.blocked.exists(_._2._4.isDefined) ||
                     !remoteInbox.isEmpty || !nodeDownQueue.isEmpty ||
+                    rt.timers.nonEmpty ||
                     (isDistributed && rt.blocked.nonEmpty)
 
       while hasWork && (isDistributed || deadlockGuard < maxIterations) do
@@ -4409,30 +4428,43 @@ class Interpreter(
         // Fire EXIT/Down for any nodes that just went down (heartbeat timeout or disconnect).
         while !nodeDownQueue.isEmpty do
           fireNodeDown(rt, nodeDownQueue.poll())
+        // Fire scheduled sends whose deadline has passed.
+        if rt.timers.nonEmpty then
+          val nowMs = System.currentTimeMillis()
+          val fired = rt.timers.collect { case (ref, (fa, _, _, _)) if nowMs >= fa => ref }.toList
+          for ref <- fired; entry <- rt.timers.get(ref) do
+            val (fireAt, period, targetId, msg) = entry
+            rt.mailboxes.get(targetId).foreach { mb =>
+              mb.enqueue(msg)
+              wakeBlocked(rt, targetId)
+            }
+            period match
+              case Some(p) => rt.timers(ref) = (fireAt + p, period, targetId, msg)
+              case None    => rt.timers.remove(ref)
         if rt.ready.isEmpty then
-          // Quiescent except for timeout-armed receives: sleep until
-          // the earliest deadline (or for remote messages if distributed).
+          // Quiescent — sleep until earliest blocked-receive deadline,
+          // timer fire, or remote-message interrupt.
           val now = System.currentTimeMillis()
-          val earliest = rt.blocked.collect {
+          val earliestBlock = rt.blocked.collect {
             case (id, (_, _, _, Some(d), _)) => (id, d)
           }.minByOption(_._2)
-          earliest match
-            case Some((id, d)) =>
-              val sleepFor = d - now
-              if sleepFor > 0 then
-                try Thread.sleep(sleepFor)
-                catch case _: InterruptedException => ()  // remote message woke us
+          val earliestTimerMs = if rt.timers.isEmpty then None
+                                else Some(rt.timers.values.map(_._1).min)
+          val sleepUntil = List(earliestBlock.map(_._2), earliestTimerMs).flatten.minOption
+          val sleepFor   = sleepUntil.map(_ - now).getOrElse(if isDistributed then 30L else Long.MaxValue)
+          if sleepFor > 0 then
+            try Thread.sleep(sleepFor)
+            catch case _: InterruptedException => ()  // remote message or interrupt
+          // Unblock any timeout-receive whose deadline has now passed.
+          earliestBlock match
+            case Some((id, d)) if System.currentTimeMillis() >= d =>
               rt.blocked.remove(id) match
                 case Some((_, _, k, _, _)) =>
                   rt.pending(id) = k(Value.InstanceV("None", Map.empty))
                   rt.ready.enqueue(id)
                 case None => ()
-            case None =>
-              if isDistributed && rt.blocked.nonEmpty then
-                // Waiting for remote messages — sleep interruptibly.
-                try Thread.sleep(30)
-                catch case _: InterruptedException => ()
-              // else: local deadlock — loop condition will exit next iteration
+            case _ => ()
+          // (Fired timers will be drained at the top of the next iteration.)
         else
           val id = rt.ready.dequeue()
           // An actor may have been re-enqueued after completion if a
@@ -4772,6 +4804,31 @@ class Interpreter(
             Value.OptionV(None)
         Right(k(result))
       case _ => throw InterpretError("whereis(name)")
+
+    // v1.6.x — scheduled sends
+    case "sendAfter" => args match
+      case List(Value.IntV(delayMs), Value.InstanceV("Pid", fields), msg) =>
+        val targetId = fields.get("localId").collect { case Value.IntV(n) => n }.getOrElse(0L)
+        val fireAt   = System.currentTimeMillis() + delayMs
+        val ref      = rt.nextTimerId; rt.nextTimerId += 1
+        rt.timers(ref) = (fireAt, None, targetId, msg)
+        Right(k(Value.IntV(ref)))
+      case _ => throw InterpretError("sendAfter(delayMs, pid, msg)")
+
+    case "sendInterval" => args match
+      case List(Value.IntV(periodMs), Value.InstanceV("Pid", fields), msg) =>
+        val targetId = fields.get("localId").collect { case Value.IntV(n) => n }.getOrElse(0L)
+        val fireAt   = System.currentTimeMillis() + periodMs
+        val ref      = rt.nextTimerId; rt.nextTimerId += 1
+        rt.timers(ref) = (fireAt, Some(periodMs), targetId, msg)
+        Right(k(Value.IntV(ref)))
+      case _ => throw InterpretError("sendInterval(periodMs, pid, msg)")
+
+    case "cancelTimer" => args match
+      case List(Value.IntV(ref)) =>
+        rt.timers.remove(ref)
+        Right(k(Value.UnitV))
+      case _ => throw InterpretError("cancelTimer(ref)")
 
     case other =>
       throw InterpretError(s"Unknown Actor op: $other")

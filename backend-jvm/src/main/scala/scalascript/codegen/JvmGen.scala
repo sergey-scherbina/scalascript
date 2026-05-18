@@ -370,7 +370,8 @@ class JvmGen(
   private def blocksUseActors(blocks: List[JvmGen.Block]): Boolean =
     val names = Set("runActors", "spawn", "self", "exit", "receive",
                     "link", "monitor", "demonitor", "trapExit",
-                    "startNode", "connectNode", "register", "whereis")
+                    "startNode", "connectNode", "register", "whereis",
+                    "sendAfter", "sendInterval", "cancelTimer")
     blocks.exists { b =>
       var found = false
       ScalaNode.fold(b.node) { tree =>
@@ -1156,6 +1157,18 @@ class JvmGen(
     case Term.Apply.After_4_6_0(Term.Name("whereis"), argClause)
         if argClause.values.size == 1 =>
       s"Actor.whereis(${emitExpr(argClause.values.head.asInstanceOf[Term])})"
+    // v1.6.x — scheduled sends
+    case Term.Apply.After_4_6_0(Term.Name("sendAfter"), argClause)
+        if argClause.values.size == 3 =>
+      val vs = argClause.values.map(v => emitExpr(v.asInstanceOf[Term]))
+      s"Actor.sendAfter(${vs(0)}, ${vs(1)}, ${vs(2)})"
+    case Term.Apply.After_4_6_0(Term.Name("sendInterval"), argClause)
+        if argClause.values.size == 3 =>
+      val vs = argClause.values.map(v => emitExpr(v.asInstanceOf[Term]))
+      s"Actor.sendInterval(${vs(0)}, ${vs(1)}, ${vs(2)})"
+    case Term.Apply.After_4_6_0(Term.Name("cancelTimer"), argClause)
+        if argClause.values.size == 1 =>
+      s"Actor.cancelTimer(${emitExpr(argClause.values.head.asInstanceOf[Term])})"
 
     // Focus[T](_.a.b) / Focus(_.a.b) — lower to a Lens(get, set) literal.
     // The lambda body's field-access chain becomes nested get + nested copy.
@@ -1764,6 +1777,18 @@ class JvmGen(
     case Term.Apply.After_4_6_0(Term.Name("whereis"), argClause)
         if argClause.values.size == 1 =>
       s"Actor.whereis(${emitExpr(argClause.values.head.asInstanceOf[Term])})"
+    // v1.6.x — scheduled sends (inside CPS body)
+    case Term.Apply.After_4_6_0(Term.Name("sendAfter"), argClause)
+        if argClause.values.size == 3 =>
+      val vs = argClause.values.map(v => emitExpr(v.asInstanceOf[Term]))
+      s"Actor.sendAfter(${vs(0)}, ${vs(1)}, ${vs(2)})"
+    case Term.Apply.After_4_6_0(Term.Name("sendInterval"), argClause)
+        if argClause.values.size == 3 =>
+      val vs = argClause.values.map(v => emitExpr(v.asInstanceOf[Term]))
+      s"Actor.sendInterval(${vs(0)}, ${vs(1)}, ${vs(2)})"
+    case Term.Apply.After_4_6_0(Term.Name("cancelTimer"), argClause)
+        if argClause.values.size == 1 =>
+      s"Actor.cancelTimer(${emitExpr(argClause.values.head.asInstanceOf[Term])})"
 
     case app: Term.Apply => emitCpsApply(app)
 
@@ -5486,6 +5511,10 @@ class JvmGen(
        |  def connectNode(url: Any, tok: Any = ""): Any = _perform("Actor", "connectNode", url, tok)
        |  def register(name: Any, pid: Any): Any        = _perform("Actor", "register",    name, pid)
        |  def whereis(name: Any): Any                   = _perform("Actor", "whereis",     name)
+       |  // v1.6.x — scheduled sends
+       |  def sendAfter(delayMs: Any, pid: Any, msg: Any): Any   = _perform("Actor", "sendAfter",   delayMs, pid, msg)
+       |  def sendInterval(periodMs: Any, pid: Any, msg: Any): Any = _perform("Actor", "sendInterval", periodMs, pid, msg)
+       |  def cancelTimer(ref: Any): Any                          = _perform("Actor", "cancelTimer", ref)
        |
        |class _ActorState:
        |  val mailbox = scala.collection.mutable.ArrayDeque.empty[Any]
@@ -5500,6 +5529,9 @@ class JvmGen(
        |  val monitors  = scala.collection.mutable.LongMap.empty[scala.collection.mutable.Map[Long, Long]]
        |  val trapExitM = scala.collection.mutable.LongMap.empty[Boolean]
        |  var nextMonRef: Long = 0L
+       |  // v1.6.x scheduled sends — timerId → (fireAt, periodMs, targetId, msg)
+       |  val _timers      = scala.collection.mutable.LongMap.empty[(Long, Option[Long], Long, Any)]
+       |  var _nextTimerId: Long = 0L
        |  // Phase 3 distributed state
        |  var _localNodeId: String = ""
        |  val _nodeRegistry   = new java.util.concurrent.ConcurrentHashMap[String, Long]()
@@ -5909,6 +5941,26 @@ class JvmGen(
        |        else
        |          None
        |      Right(k(result))
+       |    // v1.6.x — scheduled sends
+       |    case "sendAfter" =>
+       |      val delayMs  = args(0).asInstanceOf[Long]
+       |      val targetId = args(1).asInstanceOf[_Pid].localId
+       |      val msg      = args(2)
+       |      val fireAt   = System.currentTimeMillis() + delayMs
+       |      val ref      = _nextTimerId; _nextTimerId += 1
+       |      _timers(ref) = (fireAt, None, targetId, msg)
+       |      Right(k(ref))
+       |    case "sendInterval" =>
+       |      val periodMs = args(0).asInstanceOf[Long]
+       |      val targetId = args(1).asInstanceOf[_Pid].localId
+       |      val msg      = args(2)
+       |      val fireAt   = System.currentTimeMillis() + periodMs
+       |      val ref      = _nextTimerId; _nextTimerId += 1
+       |      _timers(ref) = (fireAt, Some(periodMs), targetId, msg)
+       |      Right(k(ref))
+       |    case "cancelTimer" =>
+       |      _timers.remove(args(0).asInstanceOf[Long])
+       |      Right(k(()))
        |    case other => sys.error("Unknown Actor op: " + other)
        |
        |  def stepActor(id: Long, initial: Any): Unit =
@@ -5979,6 +6031,7 @@ class JvmGen(
        |
        |  while ready.nonEmpty ||
        |        !_nodeDownQueue.isEmpty ||
+       |        _timers.nonEmpty ||
        |        actors.exists { (_, st) => st != null && st.blocked != null && st.blocked._3.isDefined } ||
        |        (_isDistributed && actors.nonEmpty && actors.exists { (_, st) => st != null && st.blocked != null })
        |  do
@@ -5992,26 +6045,38 @@ class JvmGen(
        |    // Drain node-down notifications
        |    while !_nodeDownQueue.isEmpty do
        |      _fireNodeDown(_nodeDownQueue.poll())
+       |    // Fire scheduled sends whose deadline has passed.
+       |    if _timers.nonEmpty then
+       |      val _nowMs = System.currentTimeMillis()
+       |      val _firedRefs = _timers.collect { case (r, (fa, _, _, _)) if _nowMs >= fa => r }.toList
+       |      for _ref <- _firedRefs; _entry <- _timers.get(_ref) do
+       |        val (fireAt, period, targetId, msg) = _entry
+       |        actors.get(targetId).foreach { ts =>
+       |          ts.mailbox.append(msg)
+       |          tryWakeBlocked(targetId)
+       |        }
+       |        period match
+       |          case Some(p) => _timers(_ref) = (fireAt + p, period, targetId, msg)
+       |          case None    => _timers.remove(_ref)
        |    if ready.isEmpty then
-       |      val earliest = actors.iterator.collect {
+       |      val _blockDeadline = actors.iterator.collect {
        |        case (aid, st) if st != null && st.blocked != null && st.blocked._3.isDefined =>
        |          (aid, st.blocked._3.get)
        |      }.toList.minByOption(_._2)
-       |      earliest match
-       |        case Some((aid, deadline)) =>
-       |          val sleepFor = deadline - System.currentTimeMillis()
-       |          if sleepFor > 0 then
-       |            try Thread.sleep(sleepFor)
-       |            catch case _: InterruptedException => ()
+       |      val _timerDeadline = if _timers.isEmpty then None else Some(_timers.values.map(_._1).min)
+       |      val _sleepUntil = List(_blockDeadline.map(_._2), _timerDeadline).flatten.minOption
+       |      val _sleepFor   = _sleepUntil.map(_ - System.currentTimeMillis()).getOrElse(if _isDistributed then 30L else Long.MaxValue)
+       |      if _sleepFor > 0 then
+       |        try Thread.sleep(_sleepFor)
+       |        catch case _: InterruptedException => ()
+       |      _blockDeadline match
+       |        case Some((aid, deadline)) if System.currentTimeMillis() >= deadline =>
        |          val st = actors(aid)
        |          val (_, k, _, _) = st.blocked
        |          st.pending = k(None)
        |          st.blocked = null
        |          ready.append(aid)
-       |        case None =>
-       |          if _isDistributed && actors.exists { (_, st) => st != null && st.blocked != null } then
-       |            try Thread.sleep(30)
-       |            catch case _: InterruptedException => ()
+       |        case _ => ()
        |    else
        |      val id = ready.removeHead()
        |      actors.get(id).foreach { st =>
