@@ -44,7 +44,7 @@ object Parser:
    *  two libraries can each export `Card` without collision. */
   private def wrapSectionInPackage(section: Section, pkg: List[String]): Section =
     val newContent = section.content.map {
-      case cb: Content.CodeBlock if Lang.isScalaScript(cb.lang) =>
+      case cb: Content.CodeBlock if Lang.isParseable(cb.lang) =>
         val nested = pkg.foldRight(cb.source) { (seg, body) =>
           val indented = body.linesIterator.map("  " + _).mkString("\n")
           s"object $seg:\n$indented"

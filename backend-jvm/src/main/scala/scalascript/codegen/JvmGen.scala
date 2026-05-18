@@ -44,6 +44,9 @@ class JvmGen(
   // Resolved paths of files already inlined via Content.Import, so a diamond
   // import doesn't emit the same definitions twice.
   private val importedFiles = mutable.Set.empty[String]
+  // Maps resolved path → pkg segments so the alias generator can qualify names
+  // even when a file was already inlined (diamond import case).
+  private val importedPkgs  = mutable.Map.empty[String, List[String]]
 
   // ─── Module entry ─────────────────────────────────────────────────
 
@@ -182,7 +185,8 @@ class JvmGen(
           }
           Nil
         case imp: Content.Import =>
-          inlineImport(imp.path) ++ aliasBlock(imp.bindings).toList
+          val (blocks, importedPkg) = inlineImport(imp.path)
+          blocks ++ aliasBlock(imp.bindings, importedPkg).toList
         case _ => Nil
       }
       own ++ collectBlocks(s.subsections)
@@ -198,15 +202,18 @@ class JvmGen(
       val raw  = head + tail.mkString
       Some(if raw.head.isDigit then "_" + raw else raw)
 
-  /** For each `[Name as Alias]` binding, synthesise a `val Alias = Name`
-   *  declaration so the alias is available in the consumer's scope.
-   *  Whole-module inline means `Name` is already visible from the
-   *  import; the alias is an additional name pointing at the same value.
-   *  Returns `None` when no binding carries an alias. */
-  private def aliasBlock(bindings: List[ImportBinding]): Option[JvmGen.Block] =
+  /** Synthesise alias vals for import bindings.
+   *  When `pkg` is non-empty the imported names live under the nested package
+   *  objects (e.g. `org.example.ui.Card`), so every binding needs an alias —
+   *  even bare ones — pointing at the fully-qualified path.
+   *  When `pkg` is empty, only `as`-aliased bindings produce a `val`. */
+  private def aliasBlock(bindings: List[ImportBinding], pkg: List[String] = Nil): Option[JvmGen.Block] =
     import scala.meta.{dialects, *}
-    val aliases = bindings.collect {
-      case ImportBinding(name, Some(alias), _) => s"val $alias = $name"
+    val pkgPrefix = if pkg.isEmpty then "" else pkg.mkString("", ".", ".")
+    val aliases = bindings.flatMap { b =>
+      val fullName  = s"$pkgPrefix${b.name}"
+      val localName = b.alias.getOrElse(b.name)
+      if fullName == localName then None else Some(s"val $localName = $fullName")
     }
     if aliases.isEmpty then None
     else
@@ -215,26 +222,28 @@ class JvmGen(
       dialects.Scala3(input).parse[Source].toOption.map(s => JvmGen.Block(ScalaNode(s), src))
 
   /** Resolve a `[name](./path.ssc)` Markdown import: parse the referenced
-   *  file and return its code blocks, transitively following its own imports.
+   *  file, inline its code blocks, and return the `(blocks, pkg)` pair so
+   *  the caller can generate correctly-qualified alias vals.
    *  Each path is inlined at most once per JvmGen run. */
-  private def inlineImport(path: String): List[JvmGen.Block] =
+  private def inlineImport(path: String): (List[JvmGen.Block], List[String]) =
     import scalascript.parser.Parser
     val base = baseDir.getOrElse(os.pwd)
     val resolved =
       try scalascript.imports.ImportResolver.resolve(path, base, moduleDeps)
       catch case e: Throwable => throw new RuntimeException(s"Import $path: ${e.getMessage}")
     val key = resolved.toString
-    if importedFiles.contains(key) then Nil
+    if importedFiles.contains(key) then
+      (Nil, importedPkgs.getOrElse(key, Nil))
     else if !os.exists(resolved) then
       throw new RuntimeException(s"Import not found: $path")
     else
       importedFiles += key
       val importedModule = Parser.parse(os.read(resolved))
-      // Use a nested JvmGen for transitive imports so relative paths resolve
-      // against the imported file's directory.
+      val pkg = importedModule.manifest.flatMap(_.pkg).getOrElse(Nil)
+      importedPkgs(key) = pkg
       val nested = new JvmGen(Some(resolved / os.up))
       nested.importedFiles ++= importedFiles
-      nested.collectBlocks(importedModule.sections)
+      (nested.collectBlocks(importedModule.sections), pkg)
 
   // ─── Effect analysis ──────────────────────────────────────────────
 

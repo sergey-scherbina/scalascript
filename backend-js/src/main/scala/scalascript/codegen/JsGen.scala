@@ -4974,14 +4974,16 @@ class JsGen(
       sb.append(childGen.sb)
       // Pull cycle-protection state back so siblings don't re-import
       importedFiles ++= childGen.importedFiles
-      // For each `[Name as Alias]` binding, rebind the original to the
-      // alias.  The original `Name` stays in scope too — JS imports are
-      // currently whole-module inlines (see v0.7 follow-up: scoped
-      // imports).  No alias emitted when binding has no `as`.
+      // For each binding, emit `const localName = fullName;`.
+      // When the imported module has a `package:` prefix the symbols live
+      // under nested objects (e.g. `org.example.ui.Card`), so we qualify
+      // all names — including bare ones that carry no `as` alias.
+      val childPkg   = childModule.manifest.flatMap(_.pkg).getOrElse(Nil)
+      val pkgPrefix  = if childPkg.isEmpty then "" else childPkg.mkString("", ".", ".")
       imp.bindings.foreach { b =>
-        b.alias.foreach { alias =>
-          line(s"const $alias = ${b.name};")
-        }
+        val fullName  = s"$pkgPrefix${b.name}"
+        val localName = b.alias.getOrElse(b.name)
+        if fullName != localName then line(s"const $localName = $fullName;")
       }
 
   private[codegen] def genScalaNode(node: ScalaNode): Unit =

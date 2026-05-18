@@ -458,10 +458,12 @@ class Interpreter(
    *  top of `run` so any `[Card](dep://card.ssc)` import in this module
    *  can rewrite its scheme through `ImportResolver`. */
   private var moduleDeps: Map[String, String] = Map.empty
+  private var modulePkg: List[String] = Nil
 
   def run(module: Module): Unit =
     initBuiltins()
     moduleDeps = module.manifest.map(_.dependencies).getOrElse(Map.empty)
+    modulePkg  = module.manifest.flatMap(_.pkg).getOrElse(Nil)
     registerFrontmatterRoutes(module)
     module.sections.foreach(runSection)
     if !mainCalled then
@@ -1541,6 +1543,7 @@ class Interpreter(
     case _                          => htmlEscape(rendered)
 
   def exportedGlobals: Map[String, Value] = globals.toMap
+  def exportedPkg: List[String]           = modulePkg
 
   /** Extension methods registered by this interpreter, exposed so that
    *  parents can re-register them when importing a child module — the
@@ -1651,11 +1654,12 @@ class Interpreter(
     val childDir = resolvedPath / os.up
     val child    = Interpreter(out, Some(childDir))
     child.run(Parser.parse(os.read(resolvedPath)))
-    val exported = child.exportedGlobals
+    val exported   = child.exportedGlobals
+    val childPkg   = child.exportedPkg
     for binding <- imp.bindings do
       val sourceName = binding.name
       val targetName = binding.alias.getOrElse(binding.name)
-      exported.get(sourceName) match
+      lookupExport(exported, childPkg, sourceName) match
         case Some(v) => globals(targetName) = v
         case None    => throw InterpretError(s"'$sourceName' not found in ${imp.path}")
     // Extensions registered by the imported module become available in
@@ -1663,6 +1667,22 @@ class Interpreter(
     // inside an imported `given ... with` would never dispatch — the
     // child interpreter's `extensions` map is private to that child.
     extensions ++= child.exportedExtensions
+
+  /** Navigate nested InstanceV objects to find `name` under the package path.
+   *  For `pkg = ["org", "example", "ui"]` and `name = "Card"` this resolves
+   *  `exported("org").fields("example").fields("ui").fields("Card")`.
+   *  Falls back to a flat `exported.get(name)` when `pkg` is empty. */
+  private def lookupExport(exported: Map[String, Value], pkg: List[String], name: String): Option[Value] =
+    if pkg.isEmpty then exported.get(name)
+    else
+      val root = exported.get(pkg.head)
+      val pkgObj = pkg.tail.foldLeft(root) {
+        case (Some(Value.InstanceV(_, fields)), seg) => fields.get(seg)
+        case (acc, _)                                => acc
+      }
+      pkgObj.collect {
+        case Value.InstanceV(_, fields) => fields.get(name)
+      }.flatten
 
   private def execBlockStats(stats: List[Stat]): Unit =
     stats.zipWithIndex.foreach { (s, i) =>

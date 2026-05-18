@@ -2819,40 +2819,44 @@ println(TheirCard.render("hello"))
 Both `Card`s coexist because their full qualified names
 differ (`org.example.ui.Card` vs `other.org.components.Card`).
 
-### Phase 1 — Parser + typer (~1.5 days)
+### Phase 1 — Parser + typer (~1.5 days) ✓ Landed
 
-`package:` keyword in frontmatter.  Pure data.  Typer
-tracks package per module; exposes qualified names for
-symbol resolution.
+`package:` keyword in frontmatter parsed by `Parser.scala`
+into `Manifest.pkg: Option[List[String]]`.  `wrapSectionInPackage`
+wraps all parseable code blocks in nested `object` declarations
+matching the segments, so `Card` in a `package: org.example.ui`
+module becomes `org.example.ui.Card` at the AST level.
 
-### Phase 2 — Codegen per backend (~6 days)
+### Phase 2 — Codegen per backend (~6 days) ✓ Landed
 
-Emit `object pkg.name { … }` for package-namespaced modules
-on JVM, JS, INT.  Each backend ~2 days; can be worktrees in
-parallel after Phase 1.
+All three backends (Interpreter, JvmGen, JsGen) use `cb.tree`
+which already contains the wrapped AST — no per-backend
+emission changes needed.  Import resolution updated:
+
+- **Interpreter** (`runImport`): `lookupExport` navigates the
+  nested `InstanceV` hierarchy using the child module's
+  `exportedPkg` to find symbols by short name.
+- **JvmGen** (`aliasBlock`): generates `val Card = org.example.ui.Card`
+  for all bindings (aliased and bare) when the imported
+  module has a `pkg` prefix.
+- **JsGen** (`genImport`): generates `const Card = org.example.ui.Card;`
+  for all bindings when pkg is non-empty.
 
 ### Phase 3 — Std layout migration (~3 days)
 
-Move existing flat files into nested areas per
-`docs/modularity.md` §5 migration policy.  Concretely for
-v1.18:
+Deferred: `std/mcp/` waits for v1.17 (MCP); `std/actors/`
+migration deferred to the v1.6 Phase 2 follow-up.  All std
+files currently stay flat per migration policy.
 
-  - `std/mcp/{server, client, types, index}.ssc` (when
-    v1.17 lands — joint with this milestone)
-  - `std/actors/{core, supervision, index}.ssc` when v1.6
-    Phase 2 lands (already shipping as flat — migrate
-    here)
-  - Other areas stay flat per migration policy
+### Phase 4 — Conformance + docs ✓ Landed
 
-Conformance: collision-free dual-import test (`Card` from
-two different packages); package-qualified resolution.
-
-### Phase 4 — Conformance + docs (~1 day)
-
-- `package-keyword.ssc` — basic package declaration + import
-- `package-collision-free.ssc` — two libs with same name,
-  resolved by full path
-- `package-aliasing.ssc` — `as Alias` still works alongside
+`PackageKeywordTest.scala` — 7 tests covering:
+- single-segment package import
+- multi-segment package import (`org.example.ui`)
+- `as` alias alongside package prefix
+- collision-free: two modules export the same short name
+- no-package modules still work by short name
+- error on unknown name in packaged module
 
 ### Hard-no list (locked by design — `docs/modularity.md` §9
 + §11)
@@ -2863,10 +2867,7 @@ two different packages); package-qualified resolution.
   discipline stays
 - `package object` — Scala 3 deprecated; not reintroducing
 
-### Effort
-
-Four phases, ~1.5 weeks end-to-end.  Independent of v1.19
-(URL imports); both can land in parallel.
+### Status: ✓ Landed (Phases 1, 2, 4)  Phase 3 deferred
 
 ## v1.19 — URL / dep imports
 
