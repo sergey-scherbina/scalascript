@@ -155,6 +155,8 @@ worktrees are the working space between them.**
    once at the end of the sprint.  Each finished item should hit
    `origin/main` before the next one starts, so CI runs against
    it and the user can see progress one item at a time.
+   **After every merge to `main`, always run `git push origin main`
+   immediately — no exceptions, no asking first.**
 
 ### Why this shape
 
