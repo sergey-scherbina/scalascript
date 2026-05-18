@@ -1670,10 +1670,76 @@ function _registerHealthDefaults() {
   if (!has('/_ready'))  _routes.push({ method: 'GET', path: '/_ready',  pattern: _parsePath('/_ready'),  handler: ok });
 }
 
-function serve(port) {
+// TLS configuration object — pass to serve() to enable HTTPS.
+function tls(cert, key) {
+  const fs = require('fs');
+  return { cert: fs.readFileSync(cert), key: fs.readFileSync(key) };
+}
+
+// Outbound HTTP client (synchronous via worker_threads, same pattern as _oauthSyncFetch).
+let _httpBaseUrl = '';
+
+function _httpSyncFetch(method, url, body, headers) {
+  const effective = (_httpBaseUrl && !url.startsWith('http')) ? _httpBaseUrl + url : url;
+  const { Worker, MessageChannel, receiveMessageOnPort } = require('worker_threads');
+  const sab  = new SharedArrayBuffer(4);
+  const flag = new Int32Array(sab);
+  const { port1, port2 } = new MessageChannel();
+  const workerSrc = [
+    'const { parentPort, workerData } = require(\'worker_threads\');',
+    'const flag = new Int32Array(workerData.sab);',
+    'const port = workerData.port;',
+    '(async () => {',
+    '  let msg;',
+    '  try {',
+    '    const opts = { method: workerData.method, headers: workerData.headers };',
+    '    if (workerData.body) opts.body = workerData.body;',
+    '    const r = await fetch(workerData.url, opts);',
+    '    const text = await r.text();',
+    '    const hdrs = {};',
+    '    r.headers.forEach((v, k) => hdrs[k] = v);',
+    '    msg = { status: r.status, body: text, headers: hdrs };',
+    '  } catch (e) { msg = { status: 0, body: String(e), headers: {} }; }',
+    '  port.postMessage(msg);',
+    '  Atomics.store(flag, 0, 1);',
+    '  Atomics.notify(flag, 0);',
+    '})();',
+  ].join('\\n');
+  const worker = new Worker(workerSrc, {
+    eval: true,
+    workerData: { sab, port: port2, url: effective, method, headers: headers || {}, body: body || null },
+    transferList: [port2],
+  });
+  Atomics.wait(flag, 0, 0, 35_000);
+  const drained = receiveMessageOnPort(port1);
+  worker.terminate(); port1.close();
+  const r = drained ? drained.message : { status: 0, body: 'timeout', headers: {} };
+  const hdrsMap = new Map(Object.entries(r.headers || {}));
+  return { _type: 'Response', status: r.status, body: r.body, headers: hdrsMap };
+}
+
+function httpGet(url, headers) {
+  const h = headers instanceof Map ? Object.fromEntries(headers.entries()) : (headers || {});
+  return _httpSyncFetch('GET', url, null, h);
+}
+
+function httpPost(url, body, headers) {
+  const h = headers instanceof Map ? Object.fromEntries(headers.entries()) : (headers || {});
+  return _httpSyncFetch('POST', url, body, h);
+}
+
+function httpClient(baseUrl, block) {
+  const prior = _httpBaseUrl;
+  _httpBaseUrl = baseUrl;
+  try { return block(); } finally { _httpBaseUrl = prior; }
+}
+
+function serve(port, _tlsCfg) {
   _registerHealthDefaults();
-  const http = require('http');
-  const server = http.createServer((req, res) => {
+  const _useTls = !!_tlsCfg;
+  const http = _useTls ? require('https') : require('http');
+  const serverOpts = _useTls ? { cert: _tlsCfg.cert, key: _tlsCfg.key } : {};
+  const _requestHandler = (req, res) => {
     // Collect chunks as Buffers (not strings) so multipart file uploads
     // round-trip byte-for-byte.
     const chunks = [];
@@ -1762,11 +1828,14 @@ function serve(port) {
         res.writeHead(500); res.end('Internal Error');
       }
     });
-  });
+  };
+  const server = _useTls
+    ? http.createServer(serverOpts, _requestHandler)
+    : http.createServer(_requestHandler);
   // WebSocket upgrade lives on the same server — Node hands us the raw
   // socket (post-headers) and stays out of the way after.
   server.on('upgrade', (req, socket, _head) => _wsHandleUpgrade(req, socket));
-  server.listen(port, () => console.log(`Listening on http://localhost:${port}/`));
+  server.listen(port, () => console.log(`Listening on ${_useTls ? 'https' : 'http'}://localhost:${port}/`));
 }
 
 function stop() {}

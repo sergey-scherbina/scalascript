@@ -1,11 +1,15 @@
 ---
 name: std-http
 version: 0.1.0
-description: HTTP server primitives — extern declarations for route / serve / stop
+description: HTTP server + client primitives — extern declarations for route / serve / stop / tls / httpGet / httpPost
 exports:
   - route
   - serve
   - stop
+  - tls
+  - httpGet
+  - httpPost
+  - httpClient
   - Request
   - Response
 ---
@@ -17,12 +21,23 @@ backend's intrinsic table (Stage 5+/B); the per-backend runtime helpers
 are shipped via `Backend.runtimePreamble` (Stage 5+/A.6).
 
 ```scalascript
+// TLS configuration — pass to serve() to enable HTTPS.
+extern def tls(certPath: String, keyPath: String): TlsContext
+
 // Lifecycle
 extern def serve(port: Int): Unit
+extern def serve(port: Int, tlsCtx: TlsContext): Unit
 extern def stop(): Unit
 
 // Route registration — curried: route(method, path) { handler }
 extern def route(method: String, path: String, handler: Request => Response): Unit
+
+// Outbound HTTP client
+extern def httpGet(url: String): Response
+extern def httpGet(url: String, headers: Map[String, String]): Response
+extern def httpPost(url: String, body: String): Response
+extern def httpPost(url: String, body: String, headers: Map[String, String]): Response
+extern def httpClient(baseUrl: String)(block: => Unit): Unit
 ```
 
 # Request / Response

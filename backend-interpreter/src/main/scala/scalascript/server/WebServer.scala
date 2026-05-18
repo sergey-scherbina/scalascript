@@ -22,7 +22,10 @@ object WebServer:
   private val mdParser   = CmParser.builder().build()
   private val htmlRender = HtmlRenderer.builder().build()
 
-  def start(port: Int, root: String, log: java.io.PrintStream): Unit =
+  def start(port: Int, root: String, log: java.io.PrintStream,
+            certPath: String = "", keyPath: String = ""): Unit =
+    val useTls = certPath.nonEmpty && keyPath.nonEmpty
+
     // Explicit single-thread executor shared between the HTTP handlers
     // (via JDK HttpServer) and the WebSocket app callbacks (via WsProxy
     // → WsConnection.dispatch).  The interpreter's globals / call-stack
@@ -32,9 +35,9 @@ object WebServer:
     val executor = java.util.concurrent.Executors.newSingleThreadExecutor()
 
     // Internal HttpServer on a loopback ephemeral port.  Anything that
-    // isn't a `Upgrade: websocket` request reaches it through the NIO
-    // proxy below — REST handlers and `.ssc` page rendering keep
-    // working exactly as before.
+    // isn't a `Upgrade: websocket` request reaches it through the proxy
+    // below — REST handlers and `.ssc` page rendering keep working
+    // exactly as before regardless of whether TLS is in use.
     val internalAddr = InetSocketAddress("127.0.0.1", 0)
     val internal     = JHttpServer.create(internalAddr, 0)
     internal.createContext("/", handle(root, log, _))
@@ -42,21 +45,126 @@ object WebServer:
     internal.start()
     val internalPort = internal.getAddress.getPort
 
-    // Public-facing port: NIO proxy.  Sniffs the request head, hands WS
-    // upgrades off to `WsRoutes` and forwards everything else to the
-    // internal HttpServer.
-    val proxy = WsProxy(
-      publicPort   = port,
-      internalAddr = InetSocketAddress("127.0.0.1", internalPort),
-      wsExecutor   = executor,
-      log          = log
-    )
-    proxy.start()
+    if useTls then
+      // TLS mode: SSLServerSocket + virtual-thread-per-connection proxy.
+      // SSLSocket wraps the accept loop transparently — the handshake is
+      // done inside accept(), plaintext bytes come out of getInputStream()
+      // just as with a plain Socket.  Avoids the NIO + SSLEngine state
+      // machine while giving the same threading model as JvmGen.
+      val sslCtx = buildSslContext(certPath, keyPath)
+      val pub = sslCtx.getServerSocketFactory.createServerSocket(port)
+        .asInstanceOf[javax.net.ssl.SSLServerSocket]
+      log.println(s"ScalaScript web · https://localhost:$port/  (root: $root)")
+      log.println(s"  (TLS proxy → internal HttpServer on 127.0.0.1:$internalPort)")
+      log.println("Ctrl+C to stop.")
+      val pool = buildVThreadPool()
+      Thread({ () =>
+        while !pub.isClosed do
+          try
+            val c = pub.accept()
+            pool.execute { () =>
+              TlsProxy.handleConnection(c, internalPort, executor, log)
+            }
+          catch case _: Throwable => ()
+      }, "tls-proxy-accept").start()
+      Thread.currentThread().join()
+    else
+      // Non-TLS mode: NIO proxy (original behaviour).
+      val proxy = WsProxy(
+        publicPort   = port,
+        internalAddr = InetSocketAddress("127.0.0.1", internalPort),
+        wsExecutor   = executor,
+        log          = log
+      )
+      proxy.start()
+      log.println(s"ScalaScript web · http://localhost:$port/  (root: $root)")
+      log.println(s"  (NIO proxy → internal HttpServer on 127.0.0.1:$internalPort)")
+      log.println("Ctrl+C to stop.")
+      Thread.currentThread().join()
 
-    log.println(s"ScalaScript web · http://localhost:$port/  (root: $root)")
-    log.println(s"  (NIO proxy → internal HttpServer on 127.0.0.1:$internalPort)")
-    log.println("Ctrl+C to stop.")
-    Thread.currentThread().join()
+  /** Build an SSLContext from PEM cert + PKCS#8 private key files.
+   *
+   *  Accepts both traditional (PKCS#8 `BEGIN PRIVATE KEY`) and RSA
+   *  (`BEGIN RSA PRIVATE KEY`) PEM formats; strips the header/footer
+   *  and decodes the DER payload.  For RSA keys the raw bytes are
+   *  wrapped in a minimal PKCS#8 envelope so `PKCS8EncodedKeySpec`
+   *  accepts them without extra dependencies. */
+  def buildSslContext(certPath: String, keyPath: String): javax.net.ssl.SSLContext =
+    import java.security.{KeyStore, KeyFactory}
+    import java.security.cert.CertificateFactory
+    import javax.net.ssl.{KeyManagerFactory, SSLContext}
+
+    val certBytes = java.nio.file.Files.readAllBytes(java.nio.file.Paths.get(certPath))
+    val keyBytes  = java.nio.file.Files.readAllBytes(java.nio.file.Paths.get(keyPath))
+
+    val certFactory = CertificateFactory.getInstance("X.509")
+    val cert = certFactory.generateCertificate(java.io.ByteArrayInputStream(certBytes))
+
+    val keyPem = new String(keyBytes, "UTF-8")
+      .replace("-----BEGIN PRIVATE KEY-----", "")
+      .replace("-----END PRIVATE KEY-----", "")
+      .replace("-----BEGIN RSA PRIVATE KEY-----", "")
+      .replace("-----END RSA PRIVATE KEY-----", "")
+      .replaceAll("\\s", "")
+    val rawDer = java.util.Base64.getDecoder.decode(keyPem)
+
+    // If the PEM was PKCS#1 (RSA), wrap it in a PKCS#8 DER envelope.
+    val pkcs8Der =
+      if keyPem.contains("BEGIN RSA") || !new String(keyBytes).contains("BEGIN PRIVATE KEY") then
+        wrapPkcs1InPkcs8(rawDer)
+      else rawDer
+    val keySpec  = java.security.spec.PKCS8EncodedKeySpec(pkcs8Der)
+    val keyFact  = KeyFactory.getInstance("RSA")
+    val privateKey =
+      try keyFact.generatePrivate(keySpec)
+      catch case _: Throwable =>
+        KeyFactory.getInstance("EC").generatePrivate(keySpec)
+
+    val ks = KeyStore.getInstance("JKS")
+    ks.load(null, null)
+    ks.setCertificateEntry("cert", cert)
+    ks.setKeyEntry("key", privateKey, Array.emptyCharArray, Array(cert))
+
+    val kmf = KeyManagerFactory.getInstance(KeyManagerFactory.getDefaultAlgorithm)
+    kmf.init(ks, Array.emptyCharArray)
+
+    val ctx = SSLContext.getInstance("TLS")
+    ctx.init(kmf.getKeyManagers, null, null)
+    ctx
+
+  /** Wrap a PKCS#1 RSA key (no envelope) into the PKCS#8 DER structure
+   *  that `PKCS8EncodedKeySpec` expects.  The RSA OID is 1.2.840.113549.1.1.1. */
+  private def wrapPkcs1InPkcs8(pkcs1: Array[Byte]): Array[Byte] =
+    // AlgorithmIdentifier sequence: OID rsaEncryption + NULL
+    val oidSeq = Array[Byte](
+      0x30, 0x0d,                                     // SEQUENCE (13 bytes)
+      0x06, 0x09,                                     // OID (9 bytes)
+      0x2a, 0x86.toByte, 0x48, 0x86.toByte, 0xf7.toByte, 0x0d, 0x01, 0x01, 0x01,
+      0x05, 0x00                                      // NULL
+    )
+    val octetStr = encodeDerTlv(0x04, pkcs1)          // OCTET STRING wrapping PKCS#1
+    val inner    = oidSeq ++ Array[Byte](0x02, 0x01, 0x00) ++ // version = 0
+                   oidSeq ++ octetStr
+    // Outer SEQUENCE
+    encodeDerTlv(0x30, Array[Byte](0x02, 0x01, 0x00) ++ oidSeq ++ octetStr)
+
+  private def encodeDerTlv(tag: Byte, value: Array[Byte]): Array[Byte] =
+    val len = value.length
+    val lenBytes =
+      if len < 128 then Array(len.toByte)
+      else if len < 256 then Array(0x81.toByte, len.toByte)
+      else Array(0x82.toByte, (len >> 8).toByte, (len & 0xff).toByte)
+    Array(tag) ++ lenBytes ++ value
+
+  /** Build a virtual-thread executor if JDK 21+ is available, fall back
+   *  to a cached thread pool so the emit also compiles on Java 17. */
+  private def buildVThreadPool(): java.util.concurrent.ExecutorService =
+    try
+      classOf[java.util.concurrent.Executors]
+        .getMethod("newVirtualThreadPerTaskExecutor")
+        .invoke(null).asInstanceOf[java.util.concurrent.ExecutorService]
+    catch case _: Throwable =>
+      java.util.concurrent.Executors.newCachedThreadPool()
 
   private def handle(root: String, log: java.io.PrintStream, ex: HttpExchange): Unit =
     Metrics.httpRequests.incrementAndGet()

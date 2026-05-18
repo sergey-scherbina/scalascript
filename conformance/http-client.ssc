@@ -1,0 +1,35 @@
+---
+name: http-client
+---
+
+# v1.5 Phase B — `httpGet` / `httpPost` / `httpClient` primitives
+
+Note: requires outbound network access (https://httpbin.org).
+
+```scalascript
+// B.1 — httpGet returns a Response with status, body, headers.
+val r1 = httpGet("https://httpbin.org/status/200")
+println(r1.status)
+
+// httpGet with custom headers.
+val r2 = httpGet("https://httpbin.org/get", Map("X-Foo" -> "bar"))
+println(r2.status)
+
+// B.1 — httpPost returns a Response.
+val r3 = httpPost("https://httpbin.org/post", "hello")
+println(r3.status)
+
+// httpPost with content-type header.
+val r4 = httpPost(
+  "https://httpbin.org/post",
+  "{\"x\":1}",
+  Map("Content-Type" -> "application/json")
+)
+println(r4.status)
+
+// B.2 — httpClient sets base URL for relative paths within the block.
+httpClient("https://httpbin.org") {
+  val r = httpGet("/status/204")
+  println(r.status)
+}
+```
