@@ -389,12 +389,10 @@ unblocks downstream features as early as possible.
      Streaming responses + uploads, CORS, gzip, cache headers.
  12. **v1.5 Tier 5 — REST ergonomics** (~4-5d).
      Middleware, request validation, /_health/_ready, indexed JSON.
- 13. **v1.8 — Direct-syntax do-notation** (~3 weeks).
-     Promoted from 6+/A to its own milestone with full design in
-     [`docs/direct-syntax.md`](docs/direct-syntax.md) and a six-
-     phase plan.  Parked until Stage 5+/B `std.http` is complete —
-     implementation cost dominates over benefit until real `std.*`
-     packages drive direct-syntax usage patterns.
+ 13. **v1.8 — Direct-syntax do-notation** ✓ Landed.
+     All 6 phases in main: interpreter, JvmGen+JsGen codegen,
+     conformance tests, `std/monad-control.ssc`, diagnostics,
+     `direct-syntax-demo.ssc`.
  14. **v1.9 — Coroutine primitive** (~2 weeks).
      Single runtime primitive (3 SPI intrinsics) for paused-and-
      resumable computation.  Lands as an internal foundation; user
@@ -1709,7 +1707,14 @@ ecosystem with at least one canonical external plugin.
     at install time, not compile time.
   - The `Plugin marketplace` is one HTTP server away (left for v0.7).
 
-## v1.8 — Direct-syntax do-notation
+## v1.8 — Direct-syntax do-notation ✓ Landed
+
+**Landing notes:** All 6 phases merged to main.
+- Phase 1+2 ✓: `direct[M] { ... }` — interpreter + JvmGen/JsGen codegen
+- Phase 3 ✓: conformance test (`direct[M] { ... }` do-notation)
+- Phase 4 ✓: `std/monad-control.ssc` + `direct-control-flow` conformance
+- Phase 5 ✓: diagnostics — `return`-in-direct detection across all backends
+- Phase 6 ✓: `direct-syntax-demo.ssc` canonical example
 
 Pure sugar over the v1.1 `std/monad` machinery — zero new runtime,
 zero new type-system primitives.  Replaces nested `flatMap`
