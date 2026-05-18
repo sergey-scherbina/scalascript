@@ -1342,7 +1342,11 @@ items inside the phase pushed individually.
     - D′.1 — JSON read side (`jsonParse`, `jsonStringify`,
       `req.json`) (#17) — **landed** (PR #47).
     - D′.2 — Middleware composition convention + std helpers
-      (#18).  Pure library work; no runtime change.
+      (#18) — **landed**.  `std/middleware.ssc` ships per-route helpers
+      (`withRequestId`, `withTiming`, `withRequestLog`, `compose`,
+      `compose3`) plus global `use(fn: (Request, () => Response) =>
+      Response)` builtin (all three backends) and matching
+      `useRequestId()` / `useTiming()` / `useRequestLog()` wrappers.
     - D′.3 — Server-Sent Events helper (#19) — **landed**: `sse(req)(stream => …)`
       sets `Content-Type: text/event-stream`, streams events via
       `stream.send(data)` / `stream.send(event, data)`; all three backends.

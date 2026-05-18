@@ -1,13 +1,16 @@
 ---
 name: std-middleware
-version: 1.0.0
-description: REST middleware composition — std v1.5 Tier 5 #18
+version: 1.1.0
+description: REST middleware composition — per-route helpers (withRequestId/withTiming/withRequestLog/compose) and global use()-based helpers (useRequestId/useTiming/useRequestLog)
 exports:
   - withRequestId
   - withTiming
   - withRequestLog
   - compose
   - compose3
+  - useRequestId
+  - useTiming
+  - useRequestLog
 ---
 
 # Middleware composition
@@ -77,4 +80,37 @@ def compose3(a: (Request => Response) => Request => Response,
              c: (Request => Response) => Request => Response):
     (Request => Response) => Request => Response =
   handler => a(b(c(handler)))
+```
+
+## Global middleware — `use(fn)` variants
+
+Register once before `serve()` to apply to **every** route.
+Requires `std/http` to be imported so that `use` is in scope.
+
+```scalascript
+// Attach (or echo) X-Request-Id on every response.
+def useRequestId(): Unit =
+  use { (req, next) =>
+    val id = req.headers.getOrElse("x-request-id", "req-" + nanoTime().toString)
+    next().withHeader("X-Request-Id", id)
+  }
+
+// Attach X-Response-Time-Ms on every response.
+def useTiming(): Unit =
+  use { (req, next) =>
+    val start = nanoTime()
+    val resp  = next()
+    val ms    = (nanoTime() - start) / 1000000
+    resp.withHeader("X-Response-Time-Ms", ms.toString)
+  }
+
+// Print METHOD path -> status (Nms) for every request.
+def useRequestLog(): Unit =
+  use { (req, next) =>
+    val start = nanoTime()
+    val resp  = next()
+    val ms    = (nanoTime() - start) / 1000000
+    println(req.method + " " + req.path + " -> " + resp.status + " (" + ms + "ms)")
+    resp
+  }
 ```
