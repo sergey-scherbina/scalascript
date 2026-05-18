@@ -17,7 +17,7 @@ class FreeMonadTest extends AnyFunSuite with Matchers:
     val src =
       s"""# Test
          |
-         |[FPure, FFlatMap, freePure, freeLiftF, freeMap, freeFlatMap, freeFoldMapList, freeFoldMapOption](std/free.ssc)
+         |[Free, freePure, freeLiftF, freeMap, freeFlatMap, freeFoldMapList, freeFoldMapOption](std/free.ssc)
          |
          |```scala
          |$code
