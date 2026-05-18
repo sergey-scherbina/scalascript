@@ -1271,6 +1271,10 @@ class Interpreter(
   def exportedGlobals: Map[String, Value] = globals.toMap
   def exportedPkg: List[String]           = modulePkg
 
+  /** Inject a named value into the global scope before (or after) `run`.
+   *  Used by external runners (e.g. `ssc test`) to seed builtins that the
+   *  module can call freely, without subclassing the interpreter. */
+  def injectGlobal(name: String, value: Value): Unit = globals(name) = value
   /** Extension methods registered by this interpreter, exposed so that
    *  parents can re-register them when importing a child module — the
    *  JS and JVM backends inline imports wholesale and pick these up
