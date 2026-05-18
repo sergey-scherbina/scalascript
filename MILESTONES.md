@@ -541,6 +541,174 @@ If two contributors:
   forward; otherwise that work duplicates platform intrinsics
   inside the subprocess backend.
 
+## Parallel-safe work plan (for multi-agent execution)
+
+The "Recommended implementation sequence" above is a single-agent
+critical path.  When **multiple agents work in parallel** (the
+sibling-worktree workflow per `AGENTS.md`), pick by **track**, not
+by version number — tracks group milestones with low cross-conflict
+on files / SPI / typer state.
+
+### Three principles
+
+1. **New-namespace stdlib milestones are safest for parallel work.**
+   Each `std/<area>/*` ships in its own directory.  Two agents can
+   build `std/mcp/*` and `std/parsing/*` simultaneously without
+   touching each other's code or merge-conflicting.
+2. **Typer / runtime core work is sequential per area.**  Only one
+   milestone at a time should modify `Interpreter.scala` typer
+   passes, the `Async` runtime, the import resolver in `core/`,
+   etc.  Rebases get expensive fast.
+3. **Within a milestone, phase order encodes dependencies.**  Tracks
+   are inter-milestone parallelism; intra-milestone phase order is
+   still serial unless explicitly noted parallelizable in the
+   milestone's own description.
+
+### Multi-agent-safe tracks (run any combination in parallel)
+
+#### Track A — Stdlib new namespaces (3+ agents simultaneously)
+
+Each lives in its own `std/<area>/*` directory; cross-track file
+conflict is near-zero.  Agents in this track touch only their
+own namespace files plus optional per-backend intrinsic stubs
+that don't overlap with other tracks' intrinsics.
+
+  - **v1.17 — MCP support** (`std/mcp/server.ssc`,
+    `std/mcp/client.ssc`, `std/mcp/types.ssc`)
+  - **v1.20 — DSL primitives** (`std/parsing/*`, `std/dsl/*`)
+  - **v1.21 — Local map-reduce** (`std/mapreduce/*`, depends on
+    v1.3 partial + v1.10 ✓)
+  - **v1.22 — Distributed map-reduce** (extends `std/mapreduce/*`,
+    depends on v1.6 Phase 3 ✓)
+
+After v1.20 core lands, the three sub-milestones can run in
+parallel too — each ships its own sub-namespace file:
+
+  - **v1.20.1** — `std/parsing/recovery.ssc`
+  - **v1.20.2** — `std/parsing/layout.ssc`
+  - **v1.20.3** — `std/dsl/passes.ssc`
+
+#### Track B — Typer features (single agent, serial)
+
+All touch the typer pass infrastructure across all three backends
+(`Interpreter.scala`, `JsGen.scala`, `JvmGen.scala`).  Parallel
+work here causes painful rebases.
+
+  1. **v1.13** — Final Tagless ergonomics (using-resolution +
+     context bounds + cross-file trait inheritance + sealed-trait
+     dispatch)
+  2. **v1.14** — Metaprogramming MVP (`inline` + `derives`) —
+     depends on v1.13 `Mirror` resolution
+  3. **v1.18** — `package` keyword + std layout — partial overlap
+     with v1.13 (cross-file trait inheritance is shared)
+
+#### Track C — Error / effect handling (single agent, serial)
+
+Touches `MonadError` machinery, runtime error channels, throws
+typing.  Cross-track interaction with Track B (depends on v1.13
+for `using` resolution).
+
+  1. **v1.12** — Algebraic-effects feasibility study (no shipping
+     code, can run in parallel with anything — go/no-go decision)
+  2. **v1.15** — Checked errors via `throws` (depends on v1.8 ✓ +
+     v1.13)
+  3. **v1.16** — Restartable errors (depends on v1.12 go-decision)
+
+v1.12 is a special case: it's a design study (~1 week of doc
++ prototype), not real implementation; it can safely run in
+parallel with any other track because it doesn't modify any
+backend.
+
+#### Track D — Runtime core (single agent, serial)
+
+Touches the `Async` Free monad, scheduler, coroutine runtime
+across all three backends.
+
+  1. **v1.3 follow-up** — Async-integrated WS + Node parallel
+     stages (partial)
+  2. **v1.11** — Continuation-based `Async` rewrite (depends on
+     v1.9 ✓ + v1.10 ✓)
+
+#### Track E — UI / component work (single agent, serial)
+
+All touch `std/ui/*` and `examples/std-ui/*`; same files
+modified.  Independent of compiler / std / runtime tracks above.
+
+  1. **v0.9 second pass** — Optics second pass (small,
+     standalone)
+  2. **v0.9 cross-cutting** — Std component pack cross-cutting
+     follow-ups
+  3. **v0.10** — Extended component pack
+  4. **v0.11** — i18n / l10n
+  5. **v0.12** — SSR + client hydration
+  6. **v0.13** — Component theming variants
+
+#### Track F — Architecture (single agent, isolated)
+
+  - **v2.0** — Separate compilation of modules.  Long, deeply
+    integrated; explicitly blocks most other work in its
+    final phases.  Promote when at least one of the trigger
+    conditions in v2.0 description is met.
+
+### Cross-track conflict surface
+
+Compact matrix — which file regions each track touches.  Two
+tracks listed in different cells of the same column should not
+run in parallel.
+
+| Area                                  | Track A | Track B | Track C | Track D | Track E | Track F |
+|---------------------------------------|---------|---------|---------|---------|---------|---------|
+| `std/<new-area>/*` (own namespace)    | ✓ each in own | — | — | — | — | — |
+| `Interpreter.scala` / `JsGen.scala` / `JvmGen.scala` typer | minor (intrinsic stubs) | **heavy** | partial | partial | — | **heavy (rewrite)** |
+| `core/` import resolver, SPI         | — | — | — | partial | — | **heavy** |
+| `Async` runtime / Free monad         | — | — | partial (via v1.15) | **heavy** | — | partial |
+| `MonadError` typeclass + Either ergonomics | — | partial (via v1.13) | **heavy** | — | — | — |
+| `std/ui/*`, `examples/std-ui/*`      | — | — | — | — | **heavy** | — |
+| `MILESTONES.md` itself                | every track edits | every | every | every | every | every |
+
+Reading: Track A and Track B can run in parallel (different
+columns).  Track B and Track D both touch typer + runtime → don't
+run in parallel.  Track E and any other track is always safe
+(different files).  Track F is heavy in core/ and rewriting
+codegen — don't run other tracks during its final integration
+phases.
+
+### Picking a starting point — agent decision tree
+
+When you're an agent looking for unclaimed work, walk this
+decision tree:
+
+1. **Run the AGENTS.md "Before picking the next task — sync and
+   check" procedure first.**  Sync `origin/main`, audit sibling
+   worktrees.  Skip claimed items.
+2. **Prefer Track A** — multi-agent safe, lowest conflict surface.
+   Among Track A items, pick whichever has the **fewest sibling
+   agents** already in adjacent namespaces.
+3. **If Track A is full or unsuitable**, look at Track C v1.12
+   first — design-study, runs in parallel with anything.
+4. **Tracks B / D / E / F at most one each** at any moment.  If
+   one is occupied, pick from a different track.
+5. **If everything is occupied**, escalate to the user via the
+   AGENTS.md "what to do when overlap is detected" path.
+
+### Conflict-aware pull-request hygiene
+
+Even on parallel-safe tracks, two `MILESTONES.md` edits collide.
+Standard mitigations:
+
+- **Rebase before pushing.**  `git pull --rebase origin main`
+  after committing local changes, before `git push`.  The
+  `MILESTONES.md` conflict is almost always trivial (different
+  sections); rebase resolves with a hand-edit.
+- **Push small, push often.**  A 200-line `MILESTONES.md` diff
+  rebases harder than a 30-line diff.  Track work in incremental
+  PRs.
+- **Always update `MILESTONES.md` in the SAME commit as the
+  feature change.**  Don't ship a feature in one PR and the
+  milestone update in another — siblings will see the feature
+  landed but the backlog stale, triggering false "is this
+  done?" investigations.
+
 ## v0.7 — Reusable libraries and packaging
 
 A consumer should be able to depend on a third-party `.ssc` library —
