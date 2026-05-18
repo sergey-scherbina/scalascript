@@ -42,6 +42,9 @@ val JvmCapabilities: Capabilities = Capabilities(
 val JvmIntrinsics: Map[QualifiedName, IntrinsicImpl] =
   Map(
     QualifiedName("nowMillis") -> RuntimeCall("java.lang.System.currentTimeMillis")
-  ) ++ JvmHttpIntrinsics   // Stage 5+/B — HTTP:  intrinsics/Http.scala
-    ++ JvmWsIntrinsics    // Stage 5+/D — WS:   intrinsics/Ws.scala
-    ++ JvmAuthIntrinsics  // Stage 5+/D — Auth: intrinsics/Auth.scala
+  ) ++ JvmHttpIntrinsics     // Stage 5+/B — HTTP:     intrinsics/Http.scala
+    ++ JvmWsIntrinsics       // Stage 5+/D — WS:       intrinsics/Ws.scala
+    ++ JvmAuthIntrinsics     // Stage 5+/D — Auth:     intrinsics/Auth.scala
+    ++ JvmCoreIntrinsics     // Stage 5+/E — Core:     intrinsics/Core.scala
+    ++ JvmJsonIntrinsics     // Stage 5+/E — JSON:     intrinsics/Json.scala
+    ++ JvmRequestIntrinsics  // Stage 5+/E — Request:  intrinsics/Request.scala

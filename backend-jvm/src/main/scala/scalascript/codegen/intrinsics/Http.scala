@@ -45,4 +45,11 @@ val JvmHttpIntrinsics: Map[QualifiedName, IntrinsicImpl] = Map(
   // WebSocket server
   QualifiedName("onWebSocket")         -> RuntimeCall("onWebSocket"),
   QualifiedName("onWebSocketAuth")     -> RuntimeCall("onWebSocketAuth"),
+  // Response builders
+  QualifiedName("Response.html")       -> RuntimeCall("Response.html"),
+  QualifiedName("Response.text")       -> RuntimeCall("Response.text"),
+  QualifiedName("Response.json")       -> RuntimeCall("Response.json"),
+  QualifiedName("Response.redirect")   -> RuntimeCall("Response.redirect"),
+  QualifiedName("Response.notFound")   -> RuntimeCall("Response.notFound"),
+  QualifiedName("Response.status")     -> RuntimeCall("Response.status"),
 )

@@ -83,3 +83,6 @@ trait NativeContext:
   def setMaxBodySize(bytes: Long): Unit = ()
   def setSpoolThreshold(bytes: Long): Unit = ()
   def setUploadDir(path: String): Unit = ()
+  // Request validation — inside validate{} records error+default; outside throws.
+  def validationRecord(name: String, msg: String, default: Any): Any =
+    throw new RuntimeException(s"Validation error: $msg")

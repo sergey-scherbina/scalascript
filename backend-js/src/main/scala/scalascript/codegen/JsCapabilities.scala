@@ -42,6 +42,9 @@ val JsCapabilities: Capabilities = Capabilities(
 val JsIntrinsics: Map[QualifiedName, IntrinsicImpl] =
   Map(
     QualifiedName("nowMillis") -> RuntimeCall("Date.now")
-  ) ++ JsHttpIntrinsics   // Stage 5+/B — HTTP:  intrinsics/Http.scala
-    ++ JsWsIntrinsics    // Stage 5+/D — WS:   intrinsics/Ws.scala
-    ++ JsAuthIntrinsics  // Stage 5+/D — Auth: intrinsics/Auth.scala
+  ) ++ JsHttpIntrinsics     // Stage 5+/B — HTTP:     intrinsics/Http.scala
+    ++ JsWsIntrinsics       // Stage 5+/D — WS:       intrinsics/Ws.scala
+    ++ JsAuthIntrinsics     // Stage 5+/D — Auth:     intrinsics/Auth.scala
+    ++ JsCoreIntrinsics     // Stage 5+/E — Core:     intrinsics/Core.scala
+    ++ JsJsonIntrinsics     // Stage 5+/E — JSON:     intrinsics/Json.scala
+    ++ JsRequestIntrinsics  // Stage 5+/E — Request:  intrinsics/Request.scala

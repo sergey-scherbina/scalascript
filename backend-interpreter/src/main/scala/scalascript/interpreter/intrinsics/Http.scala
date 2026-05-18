@@ -364,6 +364,56 @@ val HttpIntrinsics: Map[QualifiedName, IntrinsicImpl] = Map(
         })
       case _ => throw InterpretError("onWebSocketAuth(path, authFn) { ws => … }")
   ),
+
+  // ── Response builders (Stage 5+/E) ────────────────────────────────────
+
+  QualifiedName("Response.html") -> NativeImpl((_, args) =>
+    args match
+      case List(v) =>
+        Value.InstanceV("Response", Map(
+          "status"  -> Value.IntV(200),
+          "headers" -> Value.MapV(Map(Value.StringV("Content-Type") -> Value.StringV("text/html; charset=utf-8"))),
+          "body"    -> Value.StringV(httpBodyOf(v))
+        ))
+      case _ => throw InterpretError("Response.html(body)")
+  ),
+
+  QualifiedName("Response.text") -> NativeImpl((_, args) =>
+    args match
+      case List(v) =>
+        httpMkResponse(200, Map(Value.StringV("Content-Type") -> Value.StringV("text/plain; charset=utf-8")), httpBodyOf(v))
+      case _ => throw InterpretError("Response.text(body)")
+  ),
+
+  QualifiedName("Response.json") -> NativeImpl((_, args) =>
+    args match
+      case List(s: String) =>
+        httpMkResponse(200, Map(Value.StringV("Content-Type") -> Value.StringV("application/json")), s)
+      case List(v) =>
+        httpMkResponse(200, Map(Value.StringV("Content-Type") -> Value.StringV("application/json")), jsonToJson(httpAnyToValue(v)))
+      case _ => throw InterpretError("Response.json(body)")
+  ),
+
+  QualifiedName("Response.redirect") -> NativeImpl((_, args) =>
+    args match
+      case List(loc: String) => httpMkResponse(302, Map(Value.StringV("Location") -> Value.StringV(loc)), "")
+      case _ => throw InterpretError("Response.redirect(url)")
+  ),
+
+  QualifiedName("Response.notFound") -> NativeImpl((_, args) =>
+    args match
+      case Nil     => httpMkResponse(404, body = "Not Found")
+      case List(v) => httpMkResponse(404, body = httpBodyOf(v))
+      case _       => throw InterpretError("Response.notFound([body])")
+  ),
+
+  QualifiedName("Response.status") -> NativeImpl((_, args) =>
+    args match
+      case List(s: Long)    => httpMkResponse(s.toInt)
+      case List(s: Long, v) => httpMkResponse(s.toInt, body = httpBodyOf(v))
+      case _ => throw InterpretError("Response.status(code[, body])")
+  ),
+
 )
 
 // ── Private helpers ────────────────────────────────────────────────────
@@ -460,3 +510,26 @@ private def doHttpRequestStream(
     "body"    -> Value.StringV(""),
     "headers" -> Value.MapV(hdrs)
   ))
+
+private def httpMkResponse(status: Int, headers: Map[Value, Value] = Map.empty, body: String = ""): Value =
+  Value.InstanceV("Response", Map(
+    "status"  -> Value.IntV(status),
+    "headers" -> Value.MapV(headers),
+    "body"    -> Value.StringV(body)
+  ))
+
+private def httpBodyOf(v: Any): String = v match
+  case s: String                           => s
+  case Value.InstanceV("_Raw", fields)    => fields.get("html").map(Value.show).getOrElse("")
+  case other: Value                        => Value.show(other)
+  case other                               => other.toString
+
+private def httpAnyToValue(a: Any): Value = a match
+  case n: Long    => Value.IntV(n)
+  case i: Int     => Value.IntV(i.toLong)
+  case d: Double  => Value.DoubleV(d)
+  case s: String  => Value.StringV(s)
+  case b: Boolean => Value.BoolV(b)
+  case ()         => Value.UnitV
+  case v: Value   => v
+  case other      => Value.StringV(other.toString)

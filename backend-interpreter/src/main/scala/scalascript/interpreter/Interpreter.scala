@@ -526,51 +526,11 @@ class Interpreter(
     // (Stage 5+/B); installNativeIntrinsics routes them through Backend.intrinsics.
     installNativeIntrinsics(InterpreterIntrinsics)
 
-    nativeP("assert") {
-      case List(Value.BoolV(true))             => Value.UnitV
-      case List(Value.BoolV(false))            => throw InterpretError("Assertion failed")
-      case List(Value.BoolV(true),  _)         => Value.UnitV
-      case List(Value.BoolV(false), msg)       => throw InterpretError(s"Assertion failed: ${Value.show(msg)}")
-      case _                                   => Value.UnitV
-    }
-    nativeP("require") {
-      case List(Value.BoolV(true))        => Value.UnitV
-      case List(Value.BoolV(false), msg)  => throw InterpretError(s"Requirement failed: ${Value.show(msg)}")
-      case _                              => Value.UnitV
-    }
-
-    // Wall-clock for benchmarks — same name across all three backends.
-    nativeP("nanoTime") { _ => Value.IntV(java.lang.System.nanoTime()) }
-
+    // assert / require / nanoTime / getenv / doc / render / Some / List now
+    // live in CoreIntrinsics (Stage 5+/E); installNativeIntrinsics routes them.
     // httpClient(baseUrl) { block } — handled as a special form in eval
     // (double-apply pattern) so the block is evaluated directly rather than
     // wrapped as a thunk.  See the Term.Apply case in eval below.
-
-    // Environment variable reader, same surface on all three backends.
-    // `getenv(key)` returns the value or empty string when unset.
-    // `getenv(key, default)` substitutes the default when missing/empty.
-    nativeP("getenv") {
-      case List(Value.StringV(k)) =>
-        Value.StringV(Option(java.lang.System.getenv(k)).getOrElse(""))
-      case List(Value.StringV(k), Value.StringV(d)) =>
-        val v = java.lang.System.getenv(k)
-        Value.StringV(if v == null || v.isEmpty then d else v)
-      case _ => throw InterpretError("getenv(key[, default])")
-    }
-
-    // doc(...) builds a DocV; render(...) prints it
-    nativeP("doc")    { args => Value.DocV(args) }
-    nativeP("render") { args =>
-      val text = args match
-        case List(Value.DocV(parts)) => parts.map(Value.show).mkString("\n")
-        case List(v)                 => Value.show(v)
-        case vs                      => vs.map(Value.show).mkString("\n")
-      out.println(text)
-      Value.UnitV
-    }
-
-    nativeP("Some")  { case List(v) => Value.OptionV(Some(v)); case _ => throw InterpretError("Some takes 1 arg") }
-    nativeP("List")  { args => Value.ListV(args) }
     // List companion object — fill/tabulate are curried (List.fill(n)(elem))
     globals("List.fill") = Value.NativeFnV("List.fill", {
       case List(Value.IntV(n)) =>
@@ -606,27 +566,10 @@ class Interpreter(
       "empty"    -> Value.ListV(Nil),
       "apply"    -> listNative
     ))
-    nativeP("Map") { args =>
-      val entries = args.collect { case Value.TupleV(List(k, v)) => k -> v }.toMap
-      Value.MapV(entries)
-    }
+    // Map / math.sqrt-round now live in CoreIntrinsics (Stage 5+/E).
     globals("None") = Value.OptionV(None)
     globals("Nil")  = Value.ListV(Nil)
 
-    nativeP("math.sqrt")  { case List(Value.DoubleV(d)) => Value.DoubleV(math.sqrt(d))
-                            case List(Value.IntV(n))    => Value.DoubleV(math.sqrt(n.toDouble))
-                            case _ => Value.UnitV }
-    nativeP("math.abs")   { case List(Value.DoubleV(d)) => Value.DoubleV(math.abs(d))
-                            case List(Value.IntV(n))    => Value.IntV(math.abs(n))
-                            case _ => Value.UnitV }
-    nativeP("math.pow")   { case List(Value.DoubleV(a), Value.DoubleV(b)) => Value.DoubleV(math.pow(a, b))
-                            case List(Value.IntV(a),    Value.DoubleV(b)) => Value.DoubleV(math.pow(a.toDouble, b))
-                            case List(Value.DoubleV(a), Value.IntV(b))    => Value.DoubleV(math.pow(a, b.toDouble))
-                            case List(Value.IntV(a),    Value.IntV(b))    => Value.DoubleV(math.pow(a.toDouble, b.toDouble))
-                            case _ => Value.UnitV }
-    nativeP("math.floor") { case List(Value.DoubleV(d)) => Value.DoubleV(math.floor(d)); case _ => Value.UnitV }
-    nativeP("math.ceil")  { case List(Value.DoubleV(d)) => Value.DoubleV(math.ceil(d));  case _ => Value.UnitV }
-    nativeP("math.round") { case List(Value.DoubleV(d)) => Value.IntV(math.round(d));    case _ => Value.UnitV }
     globals("math.Pi")   = Value.DoubleV(math.Pi)
     globals("math.E")    = Value.DoubleV(math.E)
     // math as an object so `math.sqrt(x)` works via field dispatch
@@ -641,13 +584,7 @@ class Interpreter(
       "E"     -> globals("math.E")
     ))
 
-    // ─── Web primitives: escape, raw, route, Request, Response ────────
-
-    nativeP("escape") {
-      case List(Value.StringV(s)) => Value.StringV(htmlEscape(s))
-      case List(v)                => Value.StringV(htmlEscape(Value.show(v)))
-      case _                      => throw InterpretError("escape(s)")
-    }
+    // escape now lives in CoreIntrinsics (Stage 5+/E).
 
     // `collectCss(comp1, comp2, ...)` — concatenate each argument's `css`
     // field into one CSS string for a page-level <style>.  Anything
@@ -809,392 +746,18 @@ class Interpreter(
       case _                      => throw InterpretError("raw(s)")
     }
 
-    // Response(status, headers, body) — Map-based, all optional.
-    def mkResponse(
-        status:  Int,
-        headers: Map[Value, Value] = Map.empty,
-        body:    String = ""
-    ): Value.InstanceV =
-      Value.InstanceV("Response", Map(
-        "status"  -> Value.IntV(status),
-        "headers" -> Value.MapV(headers),
-        "body"    -> Value.StringV(body)
-      ))
+    // mkResponse / bodyOf / toJson / jsonStringify / jsonParse now live in
+    // JsonIntrinsics + HttpIntrinsics (Stage 5+/E).
 
-    def bodyOf(v: Value): String = v match
-      case Value.StringV(s)                                    => s
-      case Value.InstanceV("_Raw", fields)                     => fields.get("html").map(Value.show).getOrElse("")
-      case other                                               => Value.show(other)
+    // wrapJson / jsonRead / lookupKey / lookup / lookupOpt now live in
+    // JsonIntrinsics (Stage 5+/E).
 
-    /** JSON-encode a Value. Strings pass through as raw JSON (so callers
-     *  that hand-build a JSON string still work); everything else gets
-     *  proper escaping + structural emission. */
-    def toJson(v: Value): String =
-      def quote(s: String): String =
-        val sb = StringBuilder().append('"')
-        var i = 0
-        while i < s.length do
-          val c = s.charAt(i)
-          c match
-            case '"'  => sb.append("\\\"")
-            case '\\' => sb.append("\\\\")
-            case '\n' => sb.append("\\n")
-            case '\r' => sb.append("\\r")
-            case '\t' => sb.append("\\t")
-            case '\b' => sb.append("\\b")
-            case '\f' => sb.append("\\f")
-            case c if c < 0x20 => sb.append("\\u%04x".format(c.toInt))
-            case c    => sb.append(c)
-          i += 1
-        sb.append('"').toString
-      def keyStr(k: Value): String = k match
-        case Value.StringV(s) => s
-        case other            => Value.show(other)
-      v match
-        case Value.StringV(s)         => quote(s)
-        case Value.IntV(n)            => n.toString
-        case Value.DoubleV(d)         => d.toString
-        case Value.BoolV(b)           => b.toString
-        case Value.NullV | Value.UnitV => "null"
-        case Value.CharV(c)           => quote(c.toString)
-        case Value.ListV(items)       => items.map(toJson).mkString("[", ",", "]")
-        case Value.MapV(entries)      =>
-          entries.map((k, v) => quote(keyStr(k)) + ":" + toJson(v)).mkString("{", ",", "}")
-        case Value.OptionV(None)      => "null"
-        case Value.OptionV(Some(x))   => toJson(x)
-        case Value.TupleV(elems)      => elems.map(toJson).mkString("[", ",", "]")
-        case Value.InstanceV(_, fields) =>
-          fields.map((k, v) => quote(k) + ":" + toJson(v)).mkString("{", ",", "}")
-        case other                    => quote(Value.show(other))
+    // lookupKey / lookup / lookupOpt — see above comment (Stage 5+/E).
 
-    nativeP("jsonStringify") {
-      case List(v) => Value.StringV(toJson(v))
-      case _       => throw InterpretError("jsonStringify(v)")
-    }
-    nativeP("jsonParse") {
-      case List(Value.StringV(s)) =>
-        try JsonParser.parse(s)
-        catch case e: JsonParser.ParseError => throw InterpretError(e.getMessage)
-      case _ => throw InterpretError("jsonParse(s: String)")
-    }
-
-    // v1.5 Tier 5 #22 — JsonValue wrapper (option c).
-    //
-    // `jsonRead(s)` returns a `JsonValue` that supports idiomatic
-    // field / index / typed-accessor calls:
-    //
-    //     val v = jsonRead("""{"user":{"name":"Ada"},"tags":["math"]}""")
-    //     v("user")("name").asString          // "Ada"
-    //     v("tags").asList.map(_.asString)    // List("math")
-    //     v.get("missing").map(_.asString)    // None
-    //     v("user").keys                       // List("name")
-    //
-    // Implementation is a self-recursive `InstanceV("JsonValue", …)` that
-    // bundles every accessor as a NativeFnV — `apply` for field /
-    // index access, `get` for the Option variants, `asX` / `isNull` /
-    // `keys` for type extraction.
-    def wrapJson(inner: Value): Value =
-      def typedFail(what: String, got: Value): Nothing =
-        throw InterpretError(s"JsonValue.$what: expected ${what.stripPrefix("as").toLowerCase} but got ${Value.show(got)}")
-      def pureFn(f: List[Value] => Value): List[Value] => Computation =
-        args => Pure(f(args))
-      val applyFn = Value.NativeFnV("JsonValue.apply", pureFn {
-        case List(Value.StringV(k)) => inner match
-          case Value.MapV(m) => m.get(Value.StringV(k)) match
-            case Some(v) => wrapJson(v)
-            case None    => throw InterpretError(s"JsonValue: no key '$k'")
-          case _ => throw InterpretError(s"JsonValue.apply($k): not an object")
-        case List(Value.IntV(i)) => inner match
-          case Value.ListV(items) =>
-            if i >= 0 && i < items.length then wrapJson(items(i.toInt))
-            else throw InterpretError(s"JsonValue: index $i out of bounds (size=${items.length})")
-          case _ => throw InterpretError(s"JsonValue.apply($i): not an array")
-        case args => throw InterpretError(s"JsonValue.apply(key: String | index: Int), got ${args.length} arg(s)")
-      })
-      val getFn = Value.NativeFnV("JsonValue.get", pureFn {
-        case List(Value.StringV(k)) => inner match
-          case Value.MapV(m) => Value.OptionV(m.get(Value.StringV(k)).map(wrapJson))
-          case _             => Value.OptionV(None)
-        case List(Value.IntV(i)) => inner match
-          case Value.ListV(items) if i >= 0 && i < items.length =>
-            Value.OptionV(Some(wrapJson(items(i.toInt))))
-          case _ => Value.OptionV(None)
-        case _ => throw InterpretError("JsonValue.get(key | index)")
-      })
-      val asStringFn = Value.NativeFnV("JsonValue.asString", pureFn(_ => inner match
-        case Value.StringV(s) => Value.StringV(s)
-        case other            => typedFail("asString", other)))
-      val asIntFn = Value.NativeFnV("JsonValue.asInt", pureFn(_ => inner match
-        case Value.IntV(n)    => Value.IntV(n)
-        case Value.DoubleV(d) => Value.IntV(d.toLong)
-        case other            => typedFail("asInt", other)))
-      val asDoubleFn = Value.NativeFnV("JsonValue.asDouble", pureFn(_ => inner match
-        case Value.DoubleV(d) => Value.DoubleV(d)
-        case Value.IntV(n)    => Value.DoubleV(n.toDouble)
-        case other            => typedFail("asDouble", other)))
-      val asBoolFn = Value.NativeFnV("JsonValue.asBool", pureFn(_ => inner match
-        case Value.BoolV(b) => Value.BoolV(b)
-        case other          => typedFail("asBool", other)))
-      val asListFn = Value.NativeFnV("JsonValue.asList", pureFn(_ => inner match
-        case Value.ListV(items) => Value.ListV(items.map(wrapJson))
-        case other              => typedFail("asList", other)))
-      val asMapFn = Value.NativeFnV("JsonValue.asMap", pureFn(_ => inner match
-        case Value.MapV(m) => Value.MapV(m.map { case (k, v) => k -> wrapJson(v) })
-        case other         => typedFail("asMap", other)))
-      val rawFn = Value.NativeFnV("JsonValue.raw", pureFn(_ => inner))
-      val isNullFn = Value.NativeFnV("JsonValue.isNull", pureFn(_ => inner match
-        case Value.UnitV | Value.OptionV(None) => Value.BoolV(true)
-        case _                                  => Value.BoolV(false)))
-      val keysFn = Value.NativeFnV("JsonValue.keys", pureFn(_ => inner match
-        case Value.MapV(m) => Value.ListV(m.keys.toList)
-        case _             => Value.ListV(Nil)))
-      val sizeFn = Value.NativeFnV("JsonValue.size", pureFn(_ => inner match
-        case Value.ListV(items) => Value.IntV(items.length.toLong)
-        case Value.MapV(m)      => Value.IntV(m.size.toLong)
-        case Value.StringV(s)   => Value.IntV(s.length.toLong)
-        case _                  => Value.IntV(0L)))
-      Value.InstanceV("JsonValue", Map(
-        "_inner"   -> inner,
-        "apply"    -> applyFn,
-        "get"      -> getFn,
-        "asString" -> asStringFn,
-        "asInt"    -> asIntFn,
-        "asLong"   -> asIntFn,
-        "asDouble" -> asDoubleFn,
-        "asBool"   -> asBoolFn,
-        "asList"   -> asListFn,
-        "asMap"    -> asMapFn,
-        "raw"      -> rawFn,
-        "isNull"   -> isNullFn,
-        "keys"     -> keysFn,
-        "size"     -> sizeFn,
-      ))
-
-    nativeP("jsonRead") {
-      case List(Value.StringV(s)) =>
-        try wrapJson(JsonParser.parse(s))
-        catch case e: JsonParser.ParseError => throw InterpretError(e.getMessage)
-      case List(v) => wrapJson(v)  // already-parsed value
-      case _       => throw InterpretError("jsonRead(s: String) or jsonRead(parsedAny)")
-    }
-
-    // v1.5 Tier 5 #22 — indexed access on `Any`-typed JSON values.
-    // `jsonParse` returns `Any` because the shape is data-dependent;
-    // the interpreter and JS already let users write `obj("name")`
-    // dynamically, but JvmGen-emitted Scala can't (the Scala typer
-    // rejects `apply` on `Any`).  `lookup(v, k)` is the cross-
-    // backend escape hatch — pattern-matches at runtime, throws
-    // when the key is absent (matches Map.apply semantics).
-    // `lookupOpt(v, k)` is the Option-returning variant.
-    def lookupKey(v: Value, k: Value): Option[Value] = v match
-      case Value.MapV(m)     => m.get(k)
-      case Value.ListV(items) => k match
-        case Value.IntV(i) if i >= 0 && i < items.length => Some(items(i.toInt))
-        case _                                            => None
-      case Value.InstanceV(_, fields) => k match
-        case Value.StringV(name) => fields.get(name)
-        case _                   => None
-      case Value.StringV(s) => k match
-        case Value.IntV(i) if i >= 0 && i < s.length =>
-          Some(Value.StringV(s.charAt(i.toInt).toString))
-        case _ => None
-      case _ => None
-
-    nativeP("lookup") {
-      case List(v, k) => lookupKey(v, k) match
-        case Some(x) => x
-        case None    => throw InterpretError(s"lookup: key ${Value.show(k)} not found in ${Value.show(v)}")
-      case _ => throw InterpretError("lookup(v, key)")
-    }
-    nativeP("lookupOpt") {
-      case List(v, k) => Value.OptionV(lookupKey(v, k))
-      case _          => throw InterpretError("lookupOpt(v, key)")
-    }
-
-    // Tier 5 #20 — typed request validation primitives.  Look up the
-    // field in `req.form` first, then `req.query`.  `requireX` throws
-    // `RestValidationError(msg)` which the HTTP dispatchers (WebServer
-    // for INT, JsGen-emitted serve() for JS, JvmGen-emitted route
-    // dispatch for JVM) catch and convert to a 400 Bad Request response
-    // — handlers write linear code without explicit error checks.
-    def fieldOf(req: Value, name: String): Option[String] =
-      def lookup(field: String): Option[String] = req match
-        case Value.InstanceV(_, fields) => fields.get(field) match
-          case Some(Value.MapV(m)) => m.get(Value.StringV(name)) match
-            case Some(Value.StringV(s)) => Some(s)
-            case _                      => None
-          case _ => None
-        case _ => None
-      lookup("form").orElse(lookup("query"))
-
-    // Inside a `validate { … }` block we record the error and return
-    // the supplied default so the body can keep running; outside one
-    // we throw as before and the route dispatcher emits a 400.
-    def recordOrThrow(name: String, msg: String, default: Value): Value =
-      validationStack.headOption match
-        case Some(buf) => buf.put(name, msg); default
-        case None      => throw new scalascript.server.RestValidationError(msg)
-
-    nativeP("requireString") {
-      case List(req, Value.StringV(name)) =>
-        fieldOf(req, name) match
-          case Some(s) => Value.StringV(s)
-          case None    => recordOrThrow(name, s"missing field: $name", Value.StringV(""))
-      case _ => throw InterpretError("requireString(req, name)")
-    }
-    nativeP("optionalString") {
-      case List(req, Value.StringV(name)) =>
-        Value.OptionV(fieldOf(req, name).map(Value.StringV(_)))
-      case _ => throw InterpretError("optionalString(req, name)")
-    }
-    nativeP("requireInt") {
-      case List(req, Value.StringV(name)) =>
-        fieldOf(req, name) match
-          case Some(s) =>
-            try Value.IntV(s.toLong)
-            catch case _: NumberFormatException =>
-              recordOrThrow(name, s"invalid integer for field: $name", Value.IntV(0L))
-          case None =>
-            recordOrThrow(name, s"missing field: $name", Value.IntV(0L))
-      case _ => throw InterpretError("requireInt(req, name)")
-    }
-    nativeP("optionalInt") {
-      case List(req, Value.StringV(name)) =>
-        val parsed = fieldOf(req, name).flatMap { s =>
-          try Some(Value.IntV(s.toLong))
-          catch case _: NumberFormatException => None
-        }
-        Value.OptionV(parsed)
-      case _ => throw InterpretError("optionalInt(req, name)")
-    }
-    nativeP("requireDouble") {
-      case List(req, Value.StringV(name)) =>
-        fieldOf(req, name) match
-          case Some(s) =>
-            try Value.DoubleV(s.toDouble)
-            catch case _: NumberFormatException =>
-              recordOrThrow(name, s"invalid number for field: $name", Value.DoubleV(0.0))
-          case None =>
-            recordOrThrow(name, s"missing field: $name", Value.DoubleV(0.0))
-      case _ => throw InterpretError("requireDouble(req, name)")
-    }
-    nativeP("optionalDouble") {
-      case List(req, Value.StringV(name)) =>
-        val parsed = fieldOf(req, name).flatMap { s =>
-          try Some(Value.DoubleV(s.toDouble))
-          catch case _: NumberFormatException => None
-        }
-        Value.OptionV(parsed)
-      case _ => throw InterpretError("optionalDouble(req, name)")
-    }
-    nativeP("requireBool") {
-      case List(req, Value.StringV(name)) =>
-        fieldOf(req, name) match
-          case Some(s) => s.toLowerCase match
-            case "true"  | "1" | "yes" | "on"  => Value.BoolV(true)
-            case "false" | "0" | "no"  | "off" => Value.BoolV(false)
-            case _ => recordOrThrow(name, s"invalid boolean for field: $name", Value.BoolV(false))
-          case None =>
-            recordOrThrow(name, s"missing field: $name", Value.BoolV(false))
-      case _ => throw InterpretError("requireBool(req, name)")
-    }
-    nativeP("optionalBool") {
-      case List(req, Value.StringV(name)) =>
-        val parsed = fieldOf(req, name).flatMap { s =>
-          s.toLowerCase match
-            case "true"  | "1" | "yes" | "on"  => Some(Value.BoolV(true))
-            case "false" | "0" | "no"  | "off" => Some(Value.BoolV(false))
-            case _ => None
-        }
-        Value.OptionV(parsed)
-      case _ => throw InterpretError("optionalBool(req, name)")
-    }
-
-    // v1.5 Tier 5 #20 — bounded numeric require.  Same coercion +
-    // validation surface as `requireInt`, plus an inclusive
-    // `[min..max]` range check.  Returns 0 on miss/invalid/oor inside
-    // a `validate { … }` block so the body keeps running.
-    nativeP("requireRange") {
-      case List(req, Value.StringV(name), Value.IntV(min), Value.IntV(max)) =>
-        fieldOf(req, name) match
-          case Some(s) =>
-            try
-              val n = s.toLong
-              if n < min || n > max then
-                recordOrThrow(name, s"out of range [$min..$max] for field: $name", Value.IntV(min))
-              else Value.IntV(n)
-            catch case _: NumberFormatException =>
-              recordOrThrow(name, s"invalid integer for field: $name", Value.IntV(min))
-          case None =>
-            recordOrThrow(name, s"missing field: $name", Value.IntV(min))
-      case _ => throw InterpretError("requireRange(req, name, min, max)")
-    }
-    nativeP("requireRangeDouble") {
-      case List(req, Value.StringV(name), Value.DoubleV(min), Value.DoubleV(max)) =>
-        fieldOf(req, name) match
-          case Some(s) =>
-            try
-              val n = s.toDouble
-              if n < min || n > max then
-                recordOrThrow(name, s"out of range [$min..$max] for field: $name", Value.DoubleV(min))
-              else Value.DoubleV(n)
-            catch case _: NumberFormatException =>
-              recordOrThrow(name, s"invalid number for field: $name", Value.DoubleV(min))
-          case None =>
-            recordOrThrow(name, s"missing field: $name", Value.DoubleV(min))
-      case _ => throw InterpretError("requireRangeDouble(req, name, min: Double, max: Double)")
-    }
-    nativeP("requireOneOf") {
-      case List(req, Value.StringV(name), Value.ListV(opts)) =>
-        val allowed = opts.collect { case Value.StringV(s) => s }
-        fieldOf(req, name) match
-          case Some(s) if allowed.contains(s) => Value.StringV(s)
-          case Some(s) =>
-            recordOrThrow(name,
-              s"invalid value '$s' for field: $name (expected one of: ${allowed.mkString(", ")})",
-              Value.StringV(allowed.headOption.getOrElse("")))
-          case None =>
-            recordOrThrow(name, s"missing field: $name",
-              Value.StringV(allowed.headOption.getOrElse("")))
-      case _ => throw InterpretError("requireOneOf(req, name, options: List[String])")
-    }
-
-    nativeP("Response.html") {
-      case List(v) =>
-        Value.InstanceV("Response", Map(
-          "status"  -> Value.IntV(200),
-          "headers" -> Value.MapV(Map(Value.StringV("Content-Type") -> Value.StringV("text/html; charset=utf-8"))),
-          "body"    -> Value.StringV(bodyOf(v))
-        ))
-      case _ => throw InterpretError("Response.html(body)")
-    }
-    nativeP("Response.text") {
-      case List(v) => mkResponse(200, Map(Value.StringV("Content-Type") -> Value.StringV("text/plain; charset=utf-8")), bodyOf(v))
-      case _       => throw InterpretError("Response.text(body)")
-    }
-    nativeP("Response.json") {
-      // String → raw passthrough (back-compat with hand-built JSON);
-      // any other Value → structural JSON encode.
-      case List(s: Value.StringV) =>
-        mkResponse(200, Map(Value.StringV("Content-Type") -> Value.StringV("application/json")), s.v)
-      case List(v) =>
-        mkResponse(200, Map(Value.StringV("Content-Type") -> Value.StringV("application/json")), toJson(v))
-      case _ => throw InterpretError("Response.json(body)")
-    }
-    nativeP("Response.redirect") {
-      case List(Value.StringV(loc)) => mkResponse(302, Map(Value.StringV("Location") -> Value.StringV(loc)), "")
-      case _ => throw InterpretError("Response.redirect(url)")
-    }
-    nativeP("Response.notFound") {
-      case Nil      => mkResponse(404, body = "Not Found")
-      case List(v)  => mkResponse(404, body = bodyOf(v))
-      case _        => throw InterpretError("Response.notFound([body])")
-    }
-    nativeP("Response.status") {
-      case List(Value.IntV(s))                       => mkResponse(s.toInt)
-      case List(Value.IntV(s), v)                    => mkResponse(s.toInt, body = bodyOf(v))
-      case _                                         => throw InterpretError("Response.status(code[, body])")
-    }
+    // fieldOf / recordOrThrow / requireX / optionalX / requireRange* / requireOneOf
+    // now live in RequestIntrinsics (Stage 5+/E); validationRecord hook bridges
+    // NativeContext to validationStack.
+    // Response.html/text/json/redirect/notFound/status now live in HttpIntrinsics.
     // Response companion object — fields call the underlying natives.
     // Response.basicAuthChallenge now lives in AuthIntrinsics (Stage 5+/D).
     globals("Response") = Value.InstanceV("Response", Map(
@@ -1217,7 +780,12 @@ class Interpreter(
     // httpDelete / httpGetStream / httpPostStream / wsConnect / cors / useGzip /
     // cacheable / noCache / streamResponse / sse / maxBodySize /
     // uploadSpoolThreshold / uploadDir / use / httpTimeout / httpRetry /
-    // onWebSocket / onWebSocketAuth now live in HttpIntrinsics (Stage 5+/B).
+    // onWebSocket / onWebSocketAuth / Response.* now live in HttpIntrinsics.
+    // assert / require / nanoTime / getenv / doc / render / Some / List / Map /
+    // math.* / escape now live in CoreIntrinsics.
+    // jsonStringify / jsonParse / jsonRead / lookup / lookupOpt in JsonIntrinsics.
+    // requireX / optionalX / requireRange* / requireOneOf in RequestIntrinsics.
+    // (Stage 5+/B through 5+/E)
 
     // ── Storage: built-in effect for key-value persistence ──────────
     //
@@ -1495,6 +1063,10 @@ class Interpreter(
       override def setMaxBodySize(bytes: Long): Unit = scalascript.server.WebServer.setMaxBodySize(bytes)
       override def setSpoolThreshold(bytes: Long): Unit = scalascript.server.WebServer.setSpoolThreshold(bytes)
       override def setUploadDir(path: String): Unit = scalascript.server.WebServer.setUploadDir(path)
+      override def validationRecord(name: String, msg: String, default: Any): Any =
+        validationStack.headOption match
+          case Some(buf) => buf.put(name, msg); default
+          case None      => throw new scalascript.server.RestValidationError(msg)
     intrinsics.foreach {
       case (qn, scalascript.backend.spi.NativeImpl(eval)) =>
         registerNative(qn.value, args =>
