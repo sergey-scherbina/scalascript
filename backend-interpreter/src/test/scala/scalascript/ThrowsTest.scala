@@ -394,3 +394,95 @@ class ThrowsTest extends AnyFunSuite with Matchers:
       val v = attemptCatchRaw(() => throw RuntimeException("oops"))
       println(v != null)
     """) shouldBe "true"
+
+  // ── Phase 7 — conformance + std polishing ────────────────────────
+
+  private def capturedWithStdFull(code: String): String =
+    val buf = java.io.ByteArrayOutputStream()
+    val ps  = java.io.PrintStream(buf, true)
+    val src =
+      s"""# Test
+         |
+         |[raise, rethrow, parseInt, parseLong, parseDouble, requireNonNull, divideOrError, Frame, HasStackTrace, fail, unbox, box, fromError](std/error-handling.ssc)
+         |
+         |```scala
+         |$code
+         |```
+         |""".stripMargin
+    Interpreter(ps, baseDir = Some(repoRoot)).run(Parser.parse(src))
+    ps.flush()
+    buf.toString.trim
+
+  test("fail — wraps error value in Left"):
+    capturedWithStd("""
+      val r = fail("something broke")
+      println(r.isLeft)
+    """) shouldBe "true"
+
+  test("HasStackTrace — user class with custom stackTrace"):
+    capturedWithStdFull("""
+      case class AppErr(msg: String) extends HasStackTrace:
+        def stackTrace: List[Frame] = List(Frame("app.ssc", 10, "doWork"))
+      val e = AppErr("bad")
+      println(e.stackTrace.length)
+      println(e.stackTrace.head.fn)
+    """) shouldBe "1\ndoWork"
+
+  test("throws — bare value return auto-wraps to Right"):
+    capturedWithStd("""
+      def safeLen(s: String): Int throws String = s.length
+      val r = safeLen("hello")
+      println(r.isRight)
+      println(r.getOrElse(-1))
+    """) shouldBe "true\n5"
+
+  test("throws — Left return from throws function"):
+    capturedWithStd("""
+      def safeParse(s: String): Int throws String =
+        if s == "" then Left("empty input") else s.length
+      val r = safeParse("")
+      println(r.isLeft)
+    """) shouldBe "true"
+
+  test("direct[Either] — calling a throws-annotated callee chains correctly"):
+    capturedWithStd("""
+      def parseAge(s: String): Int throws String =
+        if s == "bad" then Left("not a number") else s.length
+      val r = direct[Either[String, Int]] {
+        age = parseAge("hello")
+        age * 2
+      }
+      println(r.isRight)
+      println(r.getOrElse(-1))
+    """) shouldBe "true\n10"
+
+  test("direct[Either] — short-circuits when callee returns Left"):
+    capturedWithStd("""
+      def parseAge(s: String): Int throws String =
+        if s == "bad" then Left("not a number") else s.length
+      val r = direct[Either[String, Int]] {
+        age = parseAge("bad")
+        age * 2
+      }
+      println(r.isLeft)
+    """) shouldBe "true"
+
+  test("fromError — prod mode returns 500 with anonymous body"):
+    capturedWithStdFull("""
+      case class AppErr(msg: String) extends HasStackTrace:
+        def stackTrace: List[Frame] = List(Frame("app.ssc", 1, "run"))
+      val r = fromError(AppErr("db down"), false)
+      println(r.status)
+      println(r.body.contains("Internal server error"))
+      println(r.body.contains("db down"))
+    """) shouldBe "500\ntrue\nfalse"
+
+  test("fromError — dev mode returns 500 with error message and trace"):
+    capturedWithStdFull("""
+      case class AppErr(msg: String) extends HasStackTrace:
+        def stackTrace: List[Frame] = List(Frame("app.ssc", 42, "handle"))
+      val r = fromError(AppErr("connection refused"), true)
+      println(r.status)
+      println(r.body.contains("handle"))
+      println(r.body.contains("42"))
+    """) shouldBe "500\ntrue\ntrue"

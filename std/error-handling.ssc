@@ -12,10 +12,12 @@ exports:
   - requireNonNull
   - divideOrError
   - Frame
+  - HasStackTrace
   - fail
   - throwsRaw
   - unbox
   - box
+  - fromError
 ---
 
 # `std.error-handling` — Checked Errors via `throws`
@@ -99,4 +101,22 @@ def unbox[A, E](boxed: A throws E): A | E =
     case Left(e)  => e
 
 def box[A, E](raw: A): A throws E = Right(raw)
+```
+
+## fromError — HasStackTrace error to HTTP 500 Response
+
+Turns a `HasStackTrace` error into a `Response` for use in HTTP handlers.
+Dev mode includes the error message and formatted stack trace; prod mode
+returns an opaque 500 body.
+
+[Response](./http.ssc)
+
+```scalascript
+def fromError(e: HasStackTrace, dev: Boolean): Response =
+  if dev then
+    val lines = e.stackTrace.map((f: Frame) => s"  at ${f.fn}(${f.file}:${f.line})")
+    val body  = (List(e.toString) ++ lines).mkString("\n")
+    Response(500, Map("Content-Type" -> "text/plain"), body)
+  else
+    Response(500, Map("Content-Type" -> "application/json"), "{\"error\":\"Internal server error\"}")
 ```

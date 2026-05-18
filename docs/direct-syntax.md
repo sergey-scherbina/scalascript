@@ -397,8 +397,9 @@ code drives the question:
   for blocks that need multiple effects without nested directs.
 - **Transformer-aware lift** — automatic `OptionT.liftF` when an inner
   block of type `Option[A]` appears in an outer `Async` direct block.
-- **`std/monad-control.ssc` expansion** — `untilM`, `iterateWhileM`,
-  loop combinators beyond `whileM_`.
+- **`std/monad-control.ssc` expansion** — `iterateWhileM` ✓ landed
+  (`iterateWhileMOption`, `iterateWhileMList`); further loop combinators
+  beyond `whileM_` deferred to v1.8.x follow-ups.
 - **Capture checking interaction** — verify direct blocks don't
   leak `var`-captures across `Async.parallel`, once Scala 3.x
   capture checking matures.

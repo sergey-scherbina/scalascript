@@ -2311,7 +2311,7 @@ Five phases, ~2.5 weeks end-to-end.  Builds on v1.13 (`Mirror`
 requires `using` resolution).  Can land in parallel with v1.11/v1.11.5 since those touch the
 runtime layer and this touches the typer.
 
-## v1.15 — Checked errors via `throws` type alias — ✓ Landed (Phases 1+2+3+4+5+6+8+9; Phase 7 deferred)
+## v1.15 — Checked errors via `throws` type alias — ✓ Landed (all phases)
 
 Closes the "every helper hand-rolls its own `Either`-wrapping
 convention" gap.  Ships an Either-encoded `throws[A, E]` type
@@ -2343,7 +2343,11 @@ Full design in [`docs/error-handling.md`](docs/error-handling.md).
   `throwsRaw` return type return values as-is (default behaviour — no interpreter changes).
 - **Phase 9** ✓ — `unbox`, `box` helpers in `std/error-handling.ssc`; `attemptCatchRaw`
   native function registered in `initBuiltins`.
-- **47 conformance tests** green; full 336-test suite passes.
+- **Phase 7** ✓ — `fromError(e: HasStackTrace, dev: Boolean): Response` helper in
+  `std/error-handling.ssc`; `HasStackTrace` + `fromError` added to exports; 8
+  conformance tests in `ThrowsTest` (fail, user mixin, auto-Right, Left return,
+  direct+throws chain, short-circuit, fromError prod/dev modes).
+- **55 conformance tests** green; full suite passes.
 
 ```scala
 infix type throws[A, E] = Either[E, A]
