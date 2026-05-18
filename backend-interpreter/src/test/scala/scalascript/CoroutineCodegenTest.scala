@@ -168,3 +168,44 @@ class CoroutineCodegenTest extends AnyFunSuite with Matchers:
       println(coroutineResume(outer, ()))
       println(coroutineResume(outer, ()))
     """) shouldBe "Yielded(99)\nReturned(outer-done)"
+
+  test("JsGen: throw new RuntimeException — Errored captures message"):
+    assume(hasNode, "node not available")
+    runJs("""
+      val co = coroutineCreate[Unit, Unit, Int] { () =>
+        suspend(())
+        throw new RuntimeException("oops")
+      }
+      println(coroutineResume(co, ()))
+      println(coroutineResume(co, ()))
+    """) shouldBe "Yielded(())\nErrored(oops)"
+
+  test("JsGen: body side effects happen after first resume, not at create time"):
+    assume(hasNode, "node not available")
+    runJs("""
+      var ran = false
+      val co = coroutineCreate[Unit, Unit, Unit] { () =>
+        ran = true
+        suspend(())
+      }
+      println(ran)
+      println(coroutineResume(co, ()))
+      println(ran)
+    """) shouldBe "false\nYielded(())\ntrue"
+
+  test("JsGen: generator and coroutine both work in same program"):
+    assume(hasNode, "node not available")
+    runJs("""
+      val gen = generator { () =>
+        suspend(1)
+        suspend(2)
+      }
+      val co = coroutineCreate[Int, Unit, Unit] { () =>
+        suspend(10)
+        suspend(20)
+      }
+      println(gen.nextOpt())
+      println(coroutineResume(co, ()))
+      println(gen.nextOpt())
+      println(coroutineResume(co, ()))
+    """) shouldBe "Some(1)\nYielded(10)\nSome(2)\nYielded(20)"

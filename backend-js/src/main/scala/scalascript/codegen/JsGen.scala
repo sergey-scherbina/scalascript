@@ -4041,6 +4041,9 @@ function _coroutineResume(co, input) {
   if (r.done) { co._done = true; return Returned(r.value); }
   return Yielded(r.value);
 }
+// Runtime stub: suspend called outside a generator/coroutine body throws.
+// genGenExpr rewrites suspend(v) → (yield v) inside function* bodies.
+function suspend(v) { throw new Error('suspend called outside a coroutine or generator body'); }
 
 // ── Storage: built-in key-value effect ────────────────────────────────────
 //
@@ -5673,6 +5676,8 @@ class JsGen(
       val initJs = init.map(genGenStatItem).mkString("\n")
       val lastJs = last match
         case w: Term.While  => genGenStatItem(w)  // while returns Unit — no return needed
+        case t: Term.If     => genGenStatItem(t)  // if-as-statement form
+        case t: Term.Throw  => genGenStatItem(t)  // throw is a statement, not an expression
         case t: Term        => s"  return ${genGenExpr(t)};"
         case s              => s"  ${genStatInline(s)}"
       if init.isEmpty then lastJs else initJs + "\n" + lastJs
@@ -5712,6 +5717,17 @@ class JsGen(
         s"  if $condStr{\n$bindingJs$bodyJs\n  }"
       }.mkString(" else ")
       s"  const $scrutVar = $scrutExpr;\n$casesJs"
+    case Term.Throw(expr) =>
+      val errMsg = expr match
+        case Term.New(init) =>
+          init.argClauses.headOption.flatMap(_.values.headOption)
+            .map(v => genExpr(v.asInstanceOf[Term]))
+            .getOrElse("'error'")
+        case Term.Apply.After_4_6_0(Term.Name("RuntimeException" | "Exception" | "Error"), argClause)
+            if argClause.values.size == 1 =>
+          genExpr(argClause.values.head.asInstanceOf[Term])
+        case _ => genGenExpr(expr)
+      s"  throw new Error($errMsg);"
     case t: Term => s"  ${genGenExpr(t)};"
     case _       => s"  ${genStatInline(s)}"
 
