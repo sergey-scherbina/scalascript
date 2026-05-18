@@ -464,9 +464,27 @@ unblocks downstream features as early as possible.
  26. **v1.20 — DSL primitives + `std/parsing`** (~2.5 weeks).
      User-defined string interpolators cross-backend +
      parser-combinator library (`std/parsing/*`) + AST/pretty-
-     printer helpers (`std/dsl/*`).  Closes the DSL story for
-     internal + interpolator + external flavours.  Full design
-     in [`docs/dsl.md`](docs/dsl.md).
+     printer helpers (`std/dsl/*`).  Reified-by-default; Parser
+     as ADT; left-recursion combinator family; context-in-parser
+     via ADT nodes (foundation for v1.20.2).  Full design in
+     [`docs/dsl.md`](docs/dsl.md).
+ 26a. **v1.20.1 — DSL: parser error recovery** (~1 week).
+     Three recovery strategies (skip-to-sync, error nodes,
+     multi-error accumulation) as opt-in extensions on the
+     v1.20 Parser ADT.  LSP-friendly DSL'и become viable.
+     Ships as `std/parsing/recovery.ssc`.  Independent —
+     can ship in any order after v1.20.
+ 26b. **v1.20.2 — DSL: indentation-aware parsing** (~3-5 days).
+     `std/parsing/layout.ssc` built on the v1.20 context
+     ADT-nodes (§5.8): `withIndent`, `sameIndent`, `block`,
+     `line` combinators.  Indent-significant DSLs (config
+     formats, query languages).  Independent of v1.20.1 / v1.20.3.
+ 26c. **v1.20.3 — DSL: multi-pass pipeline** (~1 week).
+     `std/dsl/passes.ssc` with `Pass[A, B]` combinators
+     (`andThen` / `parallel` / `recover`) + walker helpers
+     for name resolution / type check / evaluation.
+     Foundation for full external DSLs.  Independent — can
+     ship in any order after v1.20.
  27. **v1.21 — Local map-reduce (`Dataset[T]`)** (~2 weeks).
      Lazy `Dataset[T]` fluent API with sequential + parallel
      local execution (v1.3 Async.parallel on JVM; sequential
@@ -2982,16 +3000,38 @@ arg substitution.  Largest risk: interpreter may not
 natively support StringContext-based interpolators — Phase
 1 surfaces the cost.
 
-### Phase 2 — `std/parsing/core.ssc` primitives (~2 days)
+### Phase 2 — `std/parsing/core.ssc` — reified `Parser[A]` ADT + primitives + context nodes (~2.5 days)
 
-`Parser[A]` trait, `Position`, `ParseResult`, `ParseError`
-+ `char` / `string` / `regex` / `satisfy`.
+`enum Parser[+A]` (case-class-per-combinator-node per
+`docs/dsl.md` §5.2), `Position`, `Span` (locked per §5.6),
+`ParseResult`, `ParseError`, plus `ParserContext` marker
+trait + `NoContext` + `WithLocalContext` / `ReadContext`
+nodes (per §5.8).  Primitive constructors `Parser.char` /
+`string` / `regex` / `satisfy`.  No interpreter yet —
+pure data.
 
-### Phase 3 — `std/parsing/combinators.ssc` (~3 days)
+Conformance: each constructor builds the right ADT node;
+pattern-matchable; context nodes round-trip through
+identity evaluator.
 
-`~` / `|` / `*` / `+` / `?` / `map` / `flatMap` / `~>` /
-`<~` / `named`.  Conformance: calculator from `docs/dsl.md`
-§5.4 round-trips.
+### Phase 3 — `std/parsing/combinators.ssc` + default interpreter (~3 days)
+
+Combinator extensions producing `Parser.X` nodes (per
+§5.3).  **Includes left-recursion family** (§5.3.1):
+`chainLeft`, `chainRight`, `chainPostfix`, `chainPrefix`
+— locked since these are the v1 answer to PEG's no-
+left-recursion limit.
+
+Default interpreter shipped as `extension [A](p: Parser[A])
+def parse(input, pos, ctx): ParseResult[A]` (per §5.3.2);
+context parameter defaults to `NoContext`.  Specialised
+interpreters (`compileToPratt`, `validate`, `parseInline`)
+are explicit v1.20.x follow-ups, NOT in this phase.
+
+Conformance: calculator from §5.4; left-recursive
+calculator using `chainLeft`; context round-trip via
+read + local-update; alternative interpreters in
+v1.20.x.
 
 ### Phase 4 — `std/parsing/helpers.ssc` (~2 days)
 
@@ -3027,6 +3067,167 @@ pretty-printer round-trip.
 Six phases, ~2.5 weeks end-to-end.  Mostly stdlib work;
 no compiler changes beyond Phase 1 interpolator
 verification.
+
+## v1.20.1 — DSL: parser error recovery
+
+Closes the "DSL fail-fasts on first parse error → useless
+for IDE / config files" gap.  Independent from v1.20 core
+parser; opt-in extensions on the same `Parser[A]` ADT.
+Ships as `std/parsing/recovery.ssc`.
+
+Full design in [`docs/dsl.md`](docs/dsl.md) §10 (still-open
+recovery section); design lock for this milestone happens
+at milestone start.  Three recovery strategies:
+
+  - **Skip-to-sync-token** — `parser.recoverUntil(syncOn)`:
+    on error, advance input to next sync character / token,
+    continue parsing
+  - **Error nodes in AST** — `parser.errorNode(default)`:
+    insert `ErrorNode(message, span)` into the result AST,
+    keep parsing; LSP-friendly
+  - **Multi-error accumulation** — `parser.parseAll(input):
+    (Option[A], List[ParseError])`: never short-circuit;
+    collect every error encountered
+
+### Phase 1 — Skip-to-sync-token extension (~1 day)
+
+`extension [A](p: Parser[A]) def recoverUntil(syncOn:
+Parser[Unit]): Parser[A]`.  Conformance: malformed input
+recovers and continues parsing at next sync token.
+
+### Phase 2 — Error nodes in AST (~2 days)
+
+`ErrorNode` AST shape via `std/dsl/types.ssc`; user opts
+in by ADT subclassing.  `parser.errorNode(default)`
+extension produces `ErrorNode` on parse failure.  Used
+by IDE-friendly DSLs.
+
+### Phase 3 — Multi-error accumulation (~2 days)
+
+`parser.parseAll(input)` runs to end-of-input collecting
+errors; partial AST + error list.  Useful for batch
+validation (config files, type checking).
+
+### Phase 4 — Conformance + docs (~1 day)
+
+Three conformance tests, one per strategy.  Worked
+example: IDE-style SQL parser that builds partial AST with
+error nodes for completion.
+
+### Effort
+
+Four phases, ~1 week.  Pure stdlib work, no compiler
+changes.  Independent of v1.20.2 and v1.20.3 — can ship
+in any order after v1.20.
+
+## v1.20.2 — DSL: indentation-aware parsing
+
+Layout-sensitive parsing for DSLs with significant
+indentation (config formats, query languages, scripting
+DSLs).  Built on the §5.8 context-in-parser mechanism
+shipped in v1.20 Phase 2.  Ships as `std/parsing/layout.ssc`.
+
+```scala
+[withIndent, sameIndent, deeperIndent, block, line](../std/parsing/layout.ssc)
+
+case class QueryItem(field: String, value: String)
+
+val queryItem: Parser[QueryItem] = 
+  sameIndent ~> identifier ~ (char(':') ~> whitespace ~> identifier)
+    .map((k, v) => QueryItem(k, v))
+
+val query: Parser[List[QueryItem]] = 
+  string("query") ~> identifier ~> queryItem.block.withIndent(2)
+
+query.parse("""
+query users
+  name: alice
+  email: alice@example.com
+""")
+```
+
+### Phase 1 — `IndentContext` + helpers (~2 days)
+
+`case class IndentContext(currentLevel: Int, stack:
+List[Int]) extends ParserContext` in
+`std/parsing/layout.ssc`.  `withIndent` /
+`sameIndent` / `deeperIndent` / `block` / `line`
+extension methods built on `localCtx` / `readCtx`
+primitives from v1.20 §5.8.
+
+### Phase 2 — Worked examples + conformance (~1-2 days)
+
+Two conformance tests + one example:
+
+  - `indent-config-format.ssc` — multi-level config DSL
+    with significant indent
+  - `indent-block-statements.ssc` — block-structured
+    syntax (if/while/for) with indent-defined bodies
+  - `examples/dsl-yaml-like.ssc` — YAML-flavoured config
+    parser as the canonical demo
+
+### Effort
+
+Two phases, ~3-5 days.  Pure stdlib work.  Depends on
+v1.20 Phase 2 (context ADT nodes); ships independently
+once v1.20 lands.
+
+## v1.20.3 — DSL: multi-pass pipeline
+
+Full external-DSL story typically requires more than just
+parse — name resolution, type-check, optimisation,
+codegen.  This milestone ships pipeline combinators that
+formalise the multi-pass pattern.  `std/dsl/passes.ssc`.
+
+```scala
+type Pass[A, B] = A => Either[List[Error], B]
+
+extension [A, B](p: Pass[A, B])
+  def andThen[C](next: Pass[B, C]): Pass[A, C]
+  def parallel[C, D](other: Pass[C, D]): Pass[(A, C), (B, D)]
+
+// Worked example — full CalcDSL pipeline
+val calc: Pass[String, Int] =
+  parse(exprParser)
+    .andThen(resolveNames(symtab))
+    .andThen(typeCheck(typing))
+    .andThen(evaluate(env))
+```
+
+### Phase 1 — `Pass[A, B]` core (~2 days)
+
+`std/dsl/passes.ssc`: `Pass[A, B]` type alias, `andThen` /
+`parallel` / `recover` / `traceAll` combinators.  Standard
+short-circuit-on-first-error semantics by default;
+opt-in accumulation via `accumulate`.
+
+### Phase 2 — AST walker helpers (~2 days)
+
+`std/dsl/walker.ssc`: `walk[A](ast: A)(visitor:
+Visitor[A]): A` for name resolution / type-checking
+recursion patterns.  Cata-/ana-style based on v1.1
+`Foldable`.
+
+### Phase 3 — Pipeline-aware error reporting (~2 days)
+
+Multi-pass error reporting: each `Pass` annotates errors
+with its phase name; final report shows `phase: error
+at span`.  Integrates with v1.20 §5.6 `Span` for cross-
+pass position tracking.
+
+### Phase 4 — Worked example + conformance (~1 day)
+
+End-to-end DSL with pipeline:
+
+  - `examples/dsl-mini-language.ssc` — toy language with
+    parse → name-resolve → type-check → evaluate
+  - Conformance: error at every phase; error at exactly
+    one phase; success through all phases
+
+### Effort
+
+Four phases, ~1 week.  Pure stdlib work.  Independent of
+v1.20.1 and v1.20.2 — can ship in any order after v1.20.
 
 ## v1.21 — Local map-reduce (`Dataset[T]`)
 
