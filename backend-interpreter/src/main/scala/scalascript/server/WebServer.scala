@@ -31,11 +31,14 @@ object WebServer:
   @volatile private var _corsMethods: List[String] = Nil
   @volatile private var _corsHeaders: List[String] = Nil
   @volatile private var _gzipEnabled = false
+  @volatile private var _maxBodySizeBytes: Long = Long.MaxValue
 
   def configureCors(origins: List[String], methods: List[String], hdrs: List[String]): Unit =
     _corsOrigins = origins; _corsMethods = methods; _corsHeaders = hdrs
 
   def enableGzip(): Unit = _gzipEnabled = true
+
+  def setMaxBodySize(n: Long): Unit = _maxBodySizeBytes = n
 
   def stop(): Unit =
     try _pubSock  match { case s if s != null => s.close(); case _ => () } catch case _: Throwable => ()
@@ -287,7 +290,19 @@ object WebServer:
     // file parts).  `req.body` exposes the UTF-8 view for back-compat; the
     // parsers below see a Latin-1 view that is byte-equivalent and works
     // with String operations.
+    val _clHdr = Option(ex.getRequestHeaders.getFirst("Content-Length"))
+      .flatMap(s => scala.util.Try(s.toLong).toOption).getOrElse(0L)
+    if _clHdr > _maxBodySizeBytes then
+      val _msg = "Request Entity Too Large".getBytes("UTF-8")
+      ex.sendResponseHeaders(413, _msg.length.toLong)
+      ex.getResponseBody.write(_msg)
+      return
     val bodyBytes  = ex.getRequestBody.readAllBytes()
+    if bodyBytes.length.toLong > _maxBodySizeBytes then
+      val _msg = "Request Entity Too Large".getBytes("UTF-8")
+      ex.sendResponseHeaders(413, _msg.length.toLong)
+      ex.getResponseBody.write(_msg)
+      return
     val body       = new String(bodyBytes, "UTF-8")
     val bodyLatin1 = new String(bodyBytes, "ISO-8859-1")
     val contentType = headers.collectFirst {
@@ -387,7 +402,46 @@ object WebServer:
           )),
           "body"    -> Value.StringV(ve.getMessage)
         ))
-    writeResponse(result, ex, rawCookieSession)
+    result match
+      case Value.InstanceV("StreamResponse", fields) =>
+        handleStreamResponse(fields, ex, rawCookieSession, entry.interpreter)
+      case _ =>
+        writeResponse(result, ex, rawCookieSession)
+
+  private def handleStreamResponse(
+      fields:  Map[String, scalascript.interpreter.Value],
+      ex:      HttpExchange,
+      _unused: Map[String, String],
+      interp:  Interpreter
+  ): Unit =
+    import scalascript.interpreter.Value
+    val status = fields.get("status") match
+      case Some(Value.IntV(n)) => n.toInt
+      case _                   => 200
+    val hdrs = fields.get("headers") match
+      case Some(Value.MapV(m)) => m.collect { case (Value.StringV(k), Value.StringV(v)) => k -> v }.toMap
+      case _                   => Map.empty[String, String]
+    val callback = fields.getOrElse("callback",
+      throw new RuntimeException("StreamResponse missing callback"))
+    hdrs.foreach((k, v) => ex.getResponseHeaders.add(k, v))
+    if !hdrs.contains("Content-Type") then
+      ex.getResponseHeaders.add("Content-Type", "text/plain; charset=utf-8")
+    applyCorsHeaders(ex)
+    ex.sendResponseHeaders(status, 0)  // 0 = chunked / unknown length
+    val out = ex.getResponseBody
+    try
+      val writeNative = Value.NativeFnV("streamWrite", scalascript.interpreter.Computation.pureFn { args =>
+        val chunk = args match
+          case List(Value.StringV(s)) => s
+          case List(other)            => Value.show(other)
+          case _                      => ""
+        out.write(chunk.getBytes("UTF-8"))
+        out.flush()
+        Value.UnitV
+      })
+      interp.invoke(callback, List(writeNative))
+    finally
+      out.close()
 
   private def writeResponse(
       v:                scalascript.interpreter.Value,

@@ -3296,6 +3296,20 @@ class JvmGen(
        |    (form.toMap, files.toMap)
        |  }
        |
+       |// ── Body size limit ───────────────────────────────────────────────────
+       |@volatile private var _maxBodySizeBytes: Long = Long.MaxValue
+       |def maxBodySize(n: Int): Unit = _maxBodySizeBytes = n.toLong
+       |private class _BodyTooLarge extends Exception("Request Entity Too Large")
+       |
+       |// ── Streaming response sentinel ────────────────────────────────────────
+       |case class _StreamResponse(
+       |  status:  Int,
+       |  headers: Map[String, String],
+       |  writer:  (String => Unit) => Any
+       |)
+       |def streamResponse(status: Int = 200, headers: Map[String, String] = Map.empty)(block: (String => Unit) => Any): _StreamResponse =
+       |  _StreamResponse(status, headers, block)
+       |
        |// ── CORS / gzip / cache config ────────────────────────────────────────
        |@volatile private var _corsOrigins: List[String] = Nil
        |@volatile private var _corsMethods: List[String] = Nil
@@ -3357,10 +3371,14 @@ class JvmGen(
        |          if e.getValue.isEmpty then None
        |          else Some(e.getKey.toLowerCase -> e.getValue.get(0))
        |        }.toMap
+       |        // Body size guard — reject before buffering when Content-Length is known.
+       |        val _clHdr = try Option(ex.getRequestHeaders.getFirst("Content-Length")).map(_.toLong).getOrElse(0L) catch case _: Throwable => 0L
+       |        if _clHdr > _maxBodySizeBytes then throw _BodyTooLarge()
        |        // Read body as bytes so multipart file parts round-trip byte-exact.
        |        // `body` is the UTF-8 view (back-compat); `bodyLatin1` is a
        |        // byte-equivalent String for multipart parsing.
        |        val bodyBytes  = ex.getRequestBody.readAllBytes()
+       |        if bodyBytes.length.toLong > _maxBodySizeBytes then throw _BodyTooLarge()
        |        val body       = new String(bodyBytes, "UTF-8")
        |        val bodyLatin1 = new String(bodyBytes, "ISO-8859-1")
        |        val ct   = headers.collectFirst {
@@ -3402,13 +3420,27 @@ class JvmGen(
        |          form, files, session, bearer, claims, basicAuth, cookies)
        |        // Tier 5 #20 — validation primitives short-circuit by
        |        // throwing _RestValidationError; convert to 400.
-       |        val resp =
+       |        val _rawResult =
        |          try r.handler(req)
        |          catch case ve: _RestValidationError =>
        |            Response(400,
        |              Map("Content-Type" -> "text/plain; charset=utf-8"),
        |              ve.getMessage)
-       |        _writeResponse(ex, resp, rawCookieSession)
+       |        _rawResult match
+       |          case sr: _StreamResponse =>
+       |            sr.headers.foreach((k, v) => ex.getResponseHeaders.add(k, v))
+       |            if !sr.headers.contains("Content-Type") then
+       |              ex.getResponseHeaders.add("Content-Type", "text/plain; charset=utf-8")
+       |            _applyCors(ex)
+       |            ex.sendResponseHeaders(sr.status, 0)
+       |            val _out = ex.getResponseBody
+       |            try sr.writer { chunk =>
+       |              val _b = chunk.getBytes("UTF-8"); _out.write(_b); _out.flush()
+       |            } finally _out.close()
+       |          case resp: Response =>
+       |            _writeResponse(ex, resp, rawCookieSession)
+       |          case other =>
+       |            _writeResponse(ex, Response(200, Map("Content-Type" -> "text/plain; charset=utf-8"), String.valueOf(other)), rawCookieSession)
        |      case None =>
        |        // Fall through to a static file under the current directory
        |        // before 404'ing — mirrors the interpreter's WebServer.
@@ -3419,9 +3451,14 @@ class JvmGen(
        |            ex.getResponseHeaders.add("Content-Type", "text/plain; charset=utf-8")
        |            ex.sendResponseHeaders(404, msg.length.toLong)
        |            ex.getResponseBody.write(msg)
-       |  catch case e: Exception =>
-       |    System.err.println(s"route error: ${e.getMessage}")
-       |    _Metrics.http5xx.incrementAndGet()
+       |  catch
+       |    case _: _BodyTooLarge =>
+       |      val _m = "Request Entity Too Large".getBytes("UTF-8")
+       |      ex.sendResponseHeaders(413, _m.length.toLong)
+       |      ex.getResponseBody.write(_m)
+       |    case e: Exception =>
+       |      System.err.println(s"route error: ${e.getMessage}")
+       |      _Metrics.http5xx.incrementAndGet()
        |  finally
        |    val code = try ex.getResponseCode catch case _: Throwable => -1
        |    if code >= 400 && code < 500 then _Metrics.http4xx.incrementAndGet()
