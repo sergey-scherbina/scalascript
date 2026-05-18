@@ -1280,6 +1280,8 @@ scale demands it.
 
 ## v1.6 — Actors (Erlang-style, WebSocket-distributed)
 
+Full design and implementation plan: [`docs/actors-dist.md`](docs/actors-dist.md).
+
 A first-class actor runtime: lightweight processes, mailboxes,
 supervision trees, location-transparent PIDs.  Models after Erlang
 (spawn / send / receive / link / monitor) rather than Akka
@@ -1328,6 +1330,25 @@ Erlang-style fault tolerance.  With `trap_exit`, a supervisor is
 just a regular actor that handles EXIT messages — no special
 runtime, supervision is a library on top of Phase 1.
 
+**Implementation state:** `link`/`monitor`/`demonitor`/`trap_exit`
+handlers are **absent** from `handleActorOp`.  The `ActorRuntime`
+class does not yet carry `links`, `monitors`, `trapExitM` fields.
+The current `exit` op removes the actor but does not propagate
+EXIT/DOWN signals.  Full implementation plan: `docs/actors-dist.md §Phase 2`.
+
+What needs to land:
+  - Add `links / monitored / monitorOf / trapExitM / nextMonRef` to
+    `ActorRuntime` (interpreter) and to the emitted actor runtime
+    strings in `JvmGen.scala` and `JsGen.scala`.
+  - Add `handleActorOp` cases for `"link"`, `"monitor"`,
+    `"demonitor"`, `"trap_exit"` — same logic in all three backends.
+  - Update `exit` / `killActor` to walk links and monitors and
+    enqueue `Exit(from, reason)` / `Down(ref, from, reason)` into
+    surviving actors' mailboxes.  Cascade-kill if `trap_exit = false`
+    and reason ≠ `"normal"`.
+  - `Supervisor.start` in `std/actors.ssc` is pure ScalaScript on
+    top of these primitives — no new runtime changes needed there.
+
   - **`link(pid)`** — bidirectional death link.  When either side
     dies, the other receives an EXIT signal.  Default behaviour is
     to crash the receiver; with `trap_exit = true` the EXIT
@@ -1352,38 +1373,55 @@ runtime, supervision is a library on top of Phase 1.
 
 ### Phase 3 — Distributed via WS (~1 week)
 
-Location-transparent PIDs and remote sends, riding the existing WS
-client stack (v1.5 Tier 3, prerequisite).
+Full design: [`docs/actors-dist.md §Phase 3`](docs/actors-dist.md).
 
-  - **Node identity** `name@host:port`; PID is `<node>.<localId>`,
-    serializable.  Self-node's name is set at startup
-    (`startNode("logger@localhost:9100")`).
-  - **`connectNode(url, token = ..., serializer = Json | Binary)`**
+Location-transparent PIDs and remote sends, riding the existing WS
+client stack (v1.5 Tier 3, prerequisite).  **Architectural decisions
+(locked 2026-05-18):**
+
+| Decision | Choice |
+|---|---|
+| `startNode` binding | WS route `/_ssc-actors` on existing `serve()` — no separate TCP listener |
+| Backends | All three: INT + JVM + JS |
+| Scope | Full: core + `register`/`whereis` + heartbeat + node-down |
+| Serializer | JSON only (binary uPickle deferred) |
+
+  - **Node identity** `name@host:port`; PID becomes `(nodeId: String,
+    localId: Long)`.  `nodeId = ""` is backward-compatible "local".
+    Self-node's name is set at startup: `startNode("logger@localhost:9100")`.
+  - **`connectNode(url, token = "")`**
     — opens one long-lived WS channel between this node and the
-    peer.  PIDs are multiplexed over the channel; never one socket
-    per actor (fan-out would die).
-  - **`pid ! msg`** transparently routes: if PID's node is local,
-    queue.put; if remote, serialize and frame onto the per-peer
-    channel.
-  - **Serializer choice per link** — JSON via uPickle (default,
-    human-debuggable, cross-language) or binary uPickle
-    (compact, faster).  Both already in deps.
+    peer (subprotocol `"ssc-actors-v1"` advertised at handshake).
+    PIDs are multiplexed over the channel; never one socket per actor.
+  - **`pid ! msg`** transparently routes: if `pid.nodeId == ""` or
+    matches own node, local queue; if remote, JSON-serialize and frame
+    onto the per-peer channel.
+  - **Wire protocol** — JSON text frames:
+    `{ "t": "msg"/"reg"/"where"/"found"/"ping"/"pong"/"down", … }`
+    Full spec in `docs/actors-dist.md`.
+  - **Value serialization** — compact JSON with `$t` type tag:
+    `{"$t":"i","v":n}` / `{"$t":"s","v":"…"}` / `{"$t":"o","cls":"Foo","f":{…}}`
+    etc.  Functions cannot be sent across nodes (runtime error).
+  - **Thread safety** — interpreter scheduler is single-threaded;
+    incoming WS messages enqueue to a `ConcurrentLinkedQueue remoteInbox`
+    drained at the top of each scheduler tick.
   - **`register(name, pid)` / `whereis(name): Option[Pid]`** —
-    per-node atom registry.  Cross-node lookup is explicit:
-    `whereis("node2@x:9100", "logger")`.
-  - **Heartbeat** on each peer channel.  Loss of channel → all
-    PIDs from that node are considered dead; queued links /
-    monitors fire `Down(...) / Exit(...)`.
-  - **Auth:** reuses existing WS auth (JWT or bearer token); no
-    new cookie scheme.  `connectNode(url, token = "...")`.
+    per-node atom registry.  Cross-node: `whereis("node2@…", "logger")`
+    sends a query frame and suspends the actor until the reply arrives
+    (same mechanism as `receive(timeout=N)`).
+  - **Heartbeat** — 30 s ping / 10 s pong timeout on each peer channel.
+    Loss of channel → all remote Pids from that node considered dead;
+    links and monitors fire EXIT / Down accordingly.
+  - **Auth:** `connectNode(url, token = "…")` passes the token as
+    `Authorization: Bearer …` in the WS upgrade headers.
   - **Remote spawn is deliberately not supported** — functions
     don't serialize.  Pattern: send a `Make(args)` message to a
     locally-spawned process registered under a well-known name on
-    the remote node, and let it spawn its own children.
+    the remote node.
 
   Conformance: 2-node ping-pong (`INT↔INT`); cross-backend
   (`INT↔JVM`); link across nodes; kill one node → `Down` fires on
-  the other; serializer round-trip parity.
+  the other; `register`/`whereis` round-trip; serializer parity.
 
 ### Hard-no list (closed by design)
 
