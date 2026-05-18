@@ -1,0 +1,88 @@
+#!/usr/bin/env ssc
+---
+name: actors-supervision
+description: Actor Phase 2 — trapExit / link / monitor / demonitor
+---
+
+# Actor Supervision
+
+Phase 2 actor primitives: `link`, `monitor`, `demonitor`, `trapExit`.
+
+## trapExit + link: Exit signal arrives as a message
+
+A process with `trapExit(true)` receives an `Exit` message when a linked
+actor crashes instead of dying itself.
+
+```scalascript
+runActors {
+  val sup = spawn { () =>
+    trapExit(true)
+    val worker = spawn { () =>
+      println("worker starting")
+      val me = self()
+      exit(me, "crash")
+    }
+    link(worker)
+    receive {
+      case Exit(from, reason) => println("supervisor caught: " + reason)
+    }
+  }
+}
+```
+
+## link without trapExit: crash propagates silently
+
+When `trapExit` is not set, a linked crash kills the linked actor without
+producing any output.  Unrelated actors continue normally.
+
+```scalascript
+runActors {
+  val b = spawn { () =>
+    val me = self()
+    exit(me, "kaboom")
+  }
+  val a = spawn { () =>
+    link(b)
+    receive { case _ => println("a unreachable") }
+  }
+  println("root done")
+}
+```
+
+## monitor: Down message on crash
+
+`monitor` delivers a `Down` message when the watched actor exits abnormally.
+
+```scalascript
+runActors {
+  val watcher = spawn { () =>
+    val worker = spawn { () =>
+      val me = self()
+      exit(me, "oops")
+    }
+    val ref = monitor(worker)
+    receive {
+      case Down(r, from, reason) => println("down: " + reason)
+    }
+  }
+}
+```
+
+## demonitor: cancel before Down is delivered
+
+After `demonitor`, no `Down` is delivered even if the watched actor exits.
+
+```scalascript
+runActors {
+  val watcher = spawn { () =>
+    val worker = spawn { () =>
+      println("working")
+      val me = self()
+      exit(me, "done")
+    }
+    val ref = monitor(worker)
+    demonitor(ref)
+    println("no down received")
+  }
+}
+```
