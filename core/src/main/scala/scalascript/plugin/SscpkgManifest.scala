@@ -13,13 +13,14 @@ import scala.util.{Try, Success, Failure}
  *  - **hybrid** — both shapes combined */
 case class SscpkgManifest(
   id:               String,
-  version:          String       = "0.1.0",
-  spiVersion:       String       = "0.1.0",
-  kind:             List[String] = List("library"),
-  targets:          List[String] = Nil,
-  externDefs:       List[String] = Nil,
-  featuresRequired: List[String] = Nil,
-  featuresDeclared: List[String] = Nil,
+  version:          String            = "0.1.0",
+  spiVersion:       String            = "0.1.0",
+  kind:             List[String]      = List("library"),
+  targets:          List[String]      = Nil,
+  externDefs:       List[String]      = Nil,
+  featuresRequired: List[String]      = Nil,
+  featuresDeclared: List[String]      = Nil,
+  dependencies:     Map[String, String] = Map.empty,  // depId → version constraint
 ):
   def isLibrary: Boolean = kind.contains("library")
   def isPlugin:  Boolean = kind.contains("plugin")
@@ -54,6 +55,19 @@ object SscpkgManifest:
             case _                          => Nil
         case _ => Nil
 
+    // dependencies: either a map {id: version} or a list [{id: x, version: y}]
+    def parseDeps(): Map[String, String] =
+      m.get("dependencies") match
+        case Some(dm: java.util.Map[?, ?]) =>
+          dm.asInstanceOf[java.util.Map[String, Any]].asScala.map { (k, v) => k -> v.toString }.toMap
+        case Some(dl: java.util.List[?]) =>
+          dl.asScala.collect {
+            case item: java.util.Map[?, ?] =>
+              val mm = item.asInstanceOf[java.util.Map[String, Any]].asScala
+              mm.get("id").map(_.toString) -> mm.get("version").map(_.toString).getOrElse("*")
+          }.collect { case (Some(id), ver) => id -> ver }.toMap
+        case _ => Map.empty
+
     SscpkgManifest(
       id               = requireStr("id"),
       version          = str("version", "0.1.0"),
@@ -63,5 +77,6 @@ object SscpkgManifest:
       externDefs       = nestedStrList("exports", "externDefs"),
       featuresRequired = nestedStrList("capabilities", "features"),
       featuresDeclared = nestedStrList("capabilities", "declares"),
+      dependencies     = parseDeps(),
     )
   }

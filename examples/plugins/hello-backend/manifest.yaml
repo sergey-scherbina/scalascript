@@ -1,0 +1,12 @@
+id:         org.example.hello-backend
+version:    0.1.0
+spiVersion: "0.1.0"
+kind:       [plugin]
+targets:    [jvm]
+
+capabilities:
+  declares:   []
+  features:   []
+
+exports:
+  externDefs: []

@@ -15,6 +15,7 @@ side by side.
 ```text
 hello-backend/
 ├── project.scala                              # scala-cli build config
+├── manifest.yaml                              # .sscpkg metadata (id, version, spiVersion)
 ├── src/main/
 │   ├── resources/META-INF/services/
 │   │   └── scalascript.backend.spi.Backend    # registers HelloBackend
@@ -35,10 +36,29 @@ entry pointing at it.  The SPI types come from the sibling
 `project.scala` for why (and how to swap for the published artifact
 once one exists).
 
+### Optional: pack as `.sscpkg`
+
+To package this plugin as a distributable `.sscpkg` archive:
+
+```bash
+# First build the JAR (step above), then:
+mkdir -p staging/intrinsics
+cp hello-backend.jar staging/intrinsics/
+cp manifest.yaml staging/
+ssc plugin pack staging -o org.example.hello-backend-0.1.0.sscpkg
+
+# Install into your local plugin directory:
+ssc plugin install org.example.hello-backend-0.1.0.sscpkg
+
+# Verify:
+ssc plugin list
+ssc plugin check org.example.hello-backend
+```
+
 ## Use
 
 ```bash
-# Verify discovery
+# Verify discovery (via JAR)
 ssc --plugin hello-backend.jar --list-backends
 # ...
 # hello          Hello, World  [spi=0.1.0, in-process]

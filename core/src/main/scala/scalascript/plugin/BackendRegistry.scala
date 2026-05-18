@@ -35,6 +35,7 @@ object BackendRegistry:
     extraPluginDirs.clear()
     extraPreambles.clear()
     extraSourcePaths.clear()
+    loadedPkgIds.clear()
 
   // ── Extension points wired by CLI / tests ──────────────────────────
 
@@ -52,12 +53,46 @@ object BackendRegistry:
       extraJarPaths += jar
       inProcessCache = null      // force re-scan of ServiceLoader
 
+  /** Supported SPI version for compatibility checks. */
+  val SpiVersion = "0.1.0"
+
+  /** IDs of .sscpkg archives already fully loaded — used for cycle detection. */
+  private val loadedPkgIds = scala.collection.mutable.Set.empty[String]
+
   /** Load a `.sscpkg` archive: register intrinsic JARs with the
    *  ServiceLoader, cache per-backend runtime preamble strings, and
-   *  record source paths for prelude injection.
-   *  See docs/milestones.md §v1.7 Tier 2. */
+   *  record source paths for prelude injection.  Resolves transitive
+   *  dependencies (cycle-safe via `loadedPkgIds`).
+   *  See docs/milestones.md §v1.7 Tier 2–3. */
   def loadSscpkg(pkg: os.Path): Unit =
-    val result = SscpkgLoader.load(pkg)
+    loadSscpkgWith(pkg, visited = scala.collection.mutable.Set.empty)
+
+  private def loadSscpkgWith(pkg: os.Path, visited: scala.collection.mutable.Set[String]): Unit =
+    val result   = SscpkgLoader.load(pkg)
+    val manifest = result.manifest
+    if loadedPkgIds.contains(manifest.id) then return  // already loaded
+    if visited.contains(manifest.id) then
+      throw RuntimeException(s"Dependency cycle detected involving '${manifest.id}'")
+    visited += manifest.id
+
+    // SPI compatibility warning (not hard failure — keeps old plugins usable).
+    if manifest.spiVersion != SpiVersion then
+      System.err.println(
+        s"[ssc] warning: plugin '${manifest.id}' spiVersion=${manifest.spiVersion}," +
+        s" compiler supports $SpiVersion — may be incompatible")
+
+    // Resolve transitive dependencies first (depth-first, post-order).
+    if manifest.dependencies.nonEmpty then
+      val searchPaths = allPluginDirs()
+      for (depId, _) <- manifest.dependencies if !loadedPkgIds.contains(depId) do
+        val depPkg = searchPaths.flatMap { dir =>
+          if os.isDir(dir) then
+            os.list(dir).filter(p => p.ext == "sscpkg" && p.last.startsWith(depId + "-") || p.last == depId + ".sscpkg")
+          else Nil
+        }.headOption.getOrElse(
+          throw RuntimeException(s"Missing dependency '$depId' for plugin '${manifest.id}'"))
+        loadSscpkgWith(depPkg, visited)
+
     result.intrinsicJars.foreach { jar =>
       extraJarPaths += jar
       inProcessCache = null
@@ -68,6 +103,7 @@ object BackendRegistry:
     result.sourcePaths.foreach { p =>
       extraSourcePaths.getOrElseUpdate(pkg, scala.collection.mutable.ListBuffer.empty) += p
     }
+    loadedPkgIds += manifest.id
 
   // ── Per-backend preamble strings from loaded .sscpkg files ──────────
 
@@ -101,6 +137,10 @@ object BackendRegistry:
         .asScala
         .toList
     inProcessCache
+
+  /** All directories where `.sscpkg` archives may be found (for dep resolution). */
+  private def allPluginDirs(): List[os.Path] =
+    (PluginManifest.defaultSearchPaths ++ extraPluginDirs.toList).distinct
 
   // ── Out-of-process plugins (plugin.yaml) ────────────────────────────
 
