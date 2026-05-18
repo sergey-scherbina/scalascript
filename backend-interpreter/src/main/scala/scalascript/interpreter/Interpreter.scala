@@ -254,6 +254,15 @@ class Interpreter(
       case List(Value.BoolV(false), msg)  => throw InterpretError(s"Requirement failed: ${Value.show(msg)}")
       case _                              => Value.UnitV
     }
+    nativeP("tls") {
+      case List(Value.StringV(cert), Value.StringV(key)) =>
+        Value.InstanceV("TlsContext", Map(
+          "cert" -> Value.StringV(cert),
+          "key"  -> Value.StringV(key)
+        ))
+      case _ => throw InterpretError("tls(certPath, keyPath)")
+    }
+
     nativeP("serve") {
       case List(Value.IntV(port)) =>
         registerHealthDefaults()
@@ -263,7 +272,14 @@ class Interpreter(
         registerHealthDefaults()
         if !headless then scalascript.server.WebServer.start(port.toInt, dir, out)
         Value.UnitV
-      case _ => throw InterpretError("serve(port) or serve(port, dir)")
+      case List(Value.IntV(port), Value.InstanceV("TlsContext", tlsFields)) =>
+        registerHealthDefaults()
+        if !headless then
+          val cert = tlsFields.get("cert").collect { case Value.StringV(s) => s }.getOrElse("")
+          val key  = tlsFields.get("key").collect  { case Value.StringV(s) => s }.getOrElse("")
+          scalascript.server.WebServer.start(port.toInt, ".", out, cert, key)
+        Value.UnitV
+      case _ => throw InterpretError("serve(port), serve(port, dir), or serve(port, tls(cert, key))")
     }
 
     // Tier 5 #21 — built-in `/_health` and `/_ready` routes auto-registered
@@ -291,6 +307,78 @@ class Interpreter(
 
     // Wall-clock for benchmarks — same name across all three backends.
     nativeP("nanoTime") { _ => Value.IntV(java.lang.System.nanoTime()) }
+
+    // ── Outbound HTTP client ──────────────────────────────────────────
+    // httpGet / httpPost / httpClient use java.net.http.HttpClient
+    // (built-in since JDK 11, Loom-friendly, HTTP/2-capable).  The
+    // thread-local _httpBaseUrl lets httpClient{} prepend a base URL
+    // without threading it through every call site.
+    val _httpBaseUrl = ThreadLocal.withInitial[String](() => "")
+
+    def httpDoRequest(
+        method:  String,
+        rawUrl:  String,
+        body:    String,
+        headers: Map[String, String]
+    ): Value =
+      import java.net.http.{HttpClient as JHttpClient, HttpRequest, HttpResponse}
+      import scala.jdk.CollectionConverters.*
+      val base = _httpBaseUrl.get()
+      val url  = if base.nonEmpty && !rawUrl.startsWith("http") then base + rawUrl else rawUrl
+      val client = JHttpClient.newHttpClient()
+      val builder = HttpRequest.newBuilder().uri(java.net.URI.create(url))
+      headers.foreach((k, v) => builder.header(k, v))
+      val req = method match
+        case "GET"    => builder.GET().build()
+        case "POST"   => builder.POST(HttpRequest.BodyPublishers.ofString(body)).build()
+        case "PUT"    => builder.PUT(HttpRequest.BodyPublishers.ofString(body)).build()
+        case "DELETE" => builder.DELETE().build()
+        case m        => builder.method(m, HttpRequest.BodyPublishers.ofString(body)).build()
+      val resp  = client.send(req, HttpResponse.BodyHandlers.ofString())
+      val hdrs: Map[Value, Value] = resp.headers().map().entrySet().iterator().asScala.flatMap { e =>
+        if e.getValue.isEmpty then None
+        else Some((Value.StringV(e.getKey): Value) -> (Value.StringV(e.getValue.get(0)): Value))
+      }.toMap
+      Value.InstanceV("Response", Map(
+        "status"  -> Value.IntV(resp.statusCode().toLong),
+        "body"    -> Value.StringV(resp.body()),
+        "headers" -> Value.MapV(hdrs)
+      ))
+
+    def headersArg(v: Value): Map[String, String] = v match
+      case Value.MapV(m) => m.collect {
+        case (Value.StringV(k), Value.StringV(vv)) => k -> vv
+      }.toMap
+      case _ => Map.empty
+
+    nativeP("httpGet") {
+      case List(Value.StringV(url)) =>
+        httpDoRequest("GET", url, "", Map.empty)
+      case List(Value.StringV(url), hdrs) =>
+        httpDoRequest("GET", url, "", headersArg(hdrs))
+      case _ => throw InterpretError("httpGet(url[, headers])")
+    }
+    nativeP("httpPost") {
+      case List(Value.StringV(url), Value.StringV(body)) =>
+        httpDoRequest("POST", url, body, Map.empty)
+      case List(Value.StringV(url), Value.StringV(body), hdrs) =>
+        httpDoRequest("POST", url, body, headersArg(hdrs))
+      case _ => throw InterpretError("httpPost(url, body[, headers])")
+    }
+    // httpClient(baseUrl) { block } — scoped base URL for httpGet/httpPost.
+    // The block is a thunk (NativeFnV or FunV); we set _httpBaseUrl before
+    // invoking it and restore the prior value after, so nesting works.
+    nativeP("httpClient") {
+      case List(Value.StringV(base), thunk) =>
+        val prior = _httpBaseUrl.get()
+        _httpBaseUrl.set(base)
+        try
+          val result = Computation.run(callValue(thunk, Nil, Map.empty))
+          result
+        finally
+          _httpBaseUrl.set(prior)
+      case _ => throw InterpretError("httpClient(baseUrl) { block }")
+    }
 
     // Environment variable reader, same surface on all three backends.
     // `getenv(key)` returns the value or empty string when unset.

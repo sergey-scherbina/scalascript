@@ -4221,7 +4221,48 @@ class JvmGen(
        |    try a.close() catch case _: Throwable => ()
        |    try b.close() catch case _: Throwable => ()
        |
-       |def serve(port: Int): Unit =
+       |// ── TLS / HTTPS support ────────────────────────────────────────────────
+       |case class _TlsConfig(cert: String, key: String)
+       |
+       |def tls(cert: String, key: String): _TlsConfig = _TlsConfig(cert, key)
+       |
+       |def _buildSslContext(certPath: String, keyPath: String): javax.net.ssl.SSLContext =
+       |  import java.security.{KeyStore, KeyFactory}
+       |  import java.security.cert.CertificateFactory
+       |  import javax.net.ssl.{KeyManagerFactory, SSLContext}
+       |  val certBytes = java.nio.file.Files.readAllBytes(java.nio.file.Paths.get(certPath))
+       |  val keyBytes  = java.nio.file.Files.readAllBytes(java.nio.file.Paths.get(keyPath))
+       |  val certFactory = CertificateFactory.getInstance("X.509")
+       |  val cert = certFactory.generateCertificate(java.io.ByteArrayInputStream(certBytes))
+       |  val keyPem = new String(keyBytes, "UTF-8")
+       |    .replaceAll("-----[^-]+-----", "").replaceAll("\\s", "")
+       |  val der = java.util.Base64.getDecoder.decode(keyPem)
+       |  val keySpec = java.security.spec.PKCS8EncodedKeySpec(der)
+       |  val privateKey =
+       |    try java.security.KeyFactory.getInstance("RSA").generatePrivate(keySpec)
+       |    catch case _: Throwable =>
+       |      java.security.KeyFactory.getInstance("EC").generatePrivate(keySpec)
+       |  val ks = KeyStore.getInstance("JKS")
+       |  ks.load(null, null)
+       |  ks.setCertificateEntry("cert", cert)
+       |  ks.setKeyEntry("key", privateKey, Array.emptyCharArray, Array(cert))
+       |  val kmf = KeyManagerFactory.getInstance(KeyManagerFactory.getDefaultAlgorithm)
+       |  kmf.init(ks, Array.emptyCharArray)
+       |  val ctx = SSLContext.getInstance("TLS")
+       |  ctx.init(kmf.getKeyManagers, null, null)
+       |  ctx
+       |
+       |def _vThreadPool(): java.util.concurrent.ExecutorService =
+       |  try
+       |    classOf[java.util.concurrent.Executors]
+       |      .getMethod("newVirtualThreadPerTaskExecutor")
+       |      .invoke(null).asInstanceOf[java.util.concurrent.ExecutorService]
+       |  catch case _: Throwable =>
+       |    java.util.concurrent.Executors.newCachedThreadPool()
+       |
+       |def serve(port: Int): Unit = serve(port, null.asInstanceOf[_TlsConfig])
+       |
+       |def serve(port: Int, tlsCfg: _TlsConfig): Unit =
        |  _registerHealthDefaults()
        |  // Internal HttpServer on a loopback ephemeral port — REST + static
        |  // files keep flowing through it as before, single-threaded.  The
@@ -4234,35 +4275,66 @@ class JvmGen(
        |  internal.setExecutor(_serverExecutor)
        |  internal.start()
        |  val internalPort = internal.getAddress.getPort
-       |  // Public-facing blocking proxy: one accept loop, one virtual
-       |  // thread per connection.  Virtual threads cost ~few KB of heap
-       |  // each (vs ~1 MB for platform threads), so an idle WebSocket
-       |  // holding its read-loop thread is essentially free — scale
-       |  // ceiling is now file descriptors, not thread stacks.  HTTP
-       |  // forwarding spawns two more virtual threads per request, also
-       |  // cheap.
-       |  val pub = java.net.ServerSocket(port)
-       |  println(s"Listening on http://localhost:$port/  (proxy → 127.0.0.1:$internalPort)")
-       |  // Virtual threads (Loom) are the natural fit here — cheap, one
-       |  // per connection.  Fall back to a cached thread pool on JVMs
-       |  // older than 21 so the emit keeps working when the user's
-       |  // scala-cli picks a Java 17 JDK.  Reflection lookup avoids
-       |  // a compile-time dependency on the JDK 21 method.
-       |  val pool: java.util.concurrent.ExecutorService =
-       |    try
-       |      classOf[java.util.concurrent.Executors]
-       |        .getMethod("newVirtualThreadPerTaskExecutor")
-       |        .invoke(null).asInstanceOf[java.util.concurrent.ExecutorService]
-       |    catch case _: Throwable =>
-       |      java.util.concurrent.Executors.newCachedThreadPool()
-       |  Thread(() => {
-       |    while !pub.isClosed do
-       |      try
-       |        val c = pub.accept()
-       |        pool.execute { () => _proxyConnection(c, internalPort) }
-       |      catch case _: Throwable => ()
-       |  }, "ws-proxy-accept").start()
+       |  val pool = _vThreadPool()
+       |  if tlsCfg != null then
+       |    // TLS mode: SSLServerSocket + virtual threads.  The SSLSocket
+       |    // terminates TLS transparently so _proxyConnection receives
+       |    // plaintext bytes and forwards them to the internal HttpServer.
+       |    val sslCtx = _buildSslContext(tlsCfg.cert, tlsCfg.key)
+       |    val pub = sslCtx.getServerSocketFactory.createServerSocket(port)
+       |      .asInstanceOf[javax.net.ssl.SSLServerSocket]
+       |    println(s"Listening on https://localhost:$port/  (proxy → 127.0.0.1:$internalPort)")
+       |    Thread(() => {
+       |      while !pub.isClosed do
+       |        try
+       |          val c = pub.accept()
+       |          pool.execute { () => _proxyConnection(c, internalPort) }
+       |        catch case _: Throwable => ()
+       |    }, "tls-proxy-accept").start()
+       |  else
+       |    val pub = java.net.ServerSocket(port)
+       |    println(s"Listening on http://localhost:$port/  (proxy → 127.0.0.1:$internalPort)")
+       |    Thread(() => {
+       |      while !pub.isClosed do
+       |        try
+       |          val c = pub.accept()
+       |          pool.execute { () => _proxyConnection(c, internalPort) }
+       |        catch case _: Throwable => ()
+       |    }, "ws-proxy-accept").start()
        |  Thread.currentThread().join()
+       |
+       |// ── Outbound HTTP client ────────────────────────────────────────────────
+       |private var _httpBaseUrl: String = ""
+       |
+       |private def _httpDoRequest(method: String, url: String, body: String,
+       |    headers: Map[String, String]): Any =
+       |  import java.net.http.{HttpClient as JHC, HttpRequest, HttpResponse}
+       |  import scala.jdk.CollectionConverters.*
+       |  val effectiveUrl = if _httpBaseUrl.nonEmpty && !url.startsWith("http") then _httpBaseUrl + url else url
+       |  val client = JHC.newHttpClient()
+       |  val builder = HttpRequest.newBuilder().uri(java.net.URI.create(effectiveUrl))
+       |  headers.foreach((k, v) => builder.header(k, v))
+       |  val req = method match
+       |    case "GET"    => builder.GET().build()
+       |    case "DELETE" => builder.DELETE().build()
+       |    case m        => builder.method(m, HttpRequest.BodyPublishers.ofString(body)).build()
+       |  val resp = client.send(req, HttpResponse.BodyHandlers.ofString())
+       |  val hdrs = resp.headers().map().entrySet().iterator().asScala.flatMap { e =>
+       |    if e.getValue.isEmpty then None
+       |    else Some(e.getKey -> e.getValue.get(0))
+       |  }.toMap
+       |  Response(status = resp.statusCode(), body = resp.body(), headers = hdrs)
+       |
+       |def httpGet(url: String, headers: Map[String, String] = Map.empty): Any =
+       |  _httpDoRequest("GET", url, "", headers)
+       |
+       |def httpPost(url: String, body: String, headers: Map[String, String] = Map.empty): Any =
+       |  _httpDoRequest("POST", url, body, headers)
+       |
+       |def httpClient(baseUrl: String)(block: => Any): Any =
+       |  val prior = _httpBaseUrl
+       |  _httpBaseUrl = baseUrl
+       |  try block finally _httpBaseUrl = prior
        |
        |""".stripMargin
 
