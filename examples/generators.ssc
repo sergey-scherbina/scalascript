@@ -1,0 +1,76 @@
+---
+name: generators-demo
+version: 0.1.0
+description: Generator[T] — pull-based lazy streams
+---
+
+# Generator[T] demo
+
+Pull-based lazy streams via `generator { () => ... }` and `suspend(v)`.
+
+```scalascript
+// Basic: collect all values
+val counter = generator[Int] { () =>
+  suspend(1)
+  suspend(2)
+  suspend(3)
+}
+println(counter.toList)
+// List(1, 2, 3)
+
+// next() returns Some/None
+val g = generator[Int] { () =>
+  suspend(10)
+  suspend(20)
+}
+println(g.next())
+println(g.next())
+println(g.next())
+// Some(10)
+// Some(20)
+// None
+
+// foreach
+val letters = generator[String] { () =>
+  suspend("a")
+  suspend("b")
+  suspend("c")
+}
+letters.foreach { v => println(v) }
+// a
+// b
+// c
+
+// map / filter / take pipeline
+val evens = generator[Int] { () =>
+  var i = 1
+  while i <= 10 do
+    suspend(i)
+    i = i + 1
+}.filter(_ % 2 == 0).take(3)
+println(evens.toList)
+// List(2, 4, 6)
+
+// Infinite Fibonacci stream
+val fibs = generator[Int] { () =>
+  var a = 0
+  var b = 1
+  while true do
+    suspend(a)
+    val t = a + b
+    a = b
+    b = t
+}
+println(fibs.take(8).toList)
+// List(0, 1, 1, 2, 3, 5, 8, 13)
+
+// drop
+val tail = generator[Int] { () =>
+  suspend(10)
+  suspend(20)
+  suspend(30)
+  suspend(40)
+}.drop(2)
+println(tail.toList)
+// List(30, 40)
+```

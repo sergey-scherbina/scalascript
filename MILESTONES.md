@@ -421,7 +421,7 @@ unblocks downstream features as early as possible.
      Full design in [`docs/metaprogramming.md`](docs/metaprogramming.md).
      User-defined macros (`quoted.Expr`) explicitly out of scope —
      deferred to v2.x.  Depends on v1.13 (`Mirror` resolution).
- 21. **v1.15 — Checked errors via `throws`** (~12 days).
+ 21. **v1.15 — Checked errors via `throws`** (~13 days).
      Dual-encoding: canonical `infix type throws[A, E] = Either[E, A]`
      (direct-syntax-integrated, monadic, ergonomic) plus opt-in
      `infix type throwsRaw[A, E] = A | E` (zero-allocation; preserves
@@ -438,11 +438,21 @@ unblocks downstream features as early as possible.
      Common Lisp condition-system style: handler resumes the
      suspended computation with a replacement value.
      **Hard-blocked on v1.12 feasibility study outcome.**
- 23. **6+/C — HostCallback dispatcher** (~1 week).
+ 23. **v1.17 — MCP support (client + server)** (~3 weeks).
+     Anthropic's Model Context Protocol via REST-shaped API
+     in a separate namespace (`std/mcp/*`).  Intrinsic-first:
+     wraps `@modelcontextprotocol/sdk` on Node and
+     `io.modelcontextprotocol:sdk` on JVM; interpreter +
+     scalajs-spa reject at typecheck via SPI feature flags.
+     Full design in [`docs/mcp.md`](docs/mcp.md).  Optional
+     v1.17.1 follow-ups: type-class layer (depends v1.14),
+     own implementation for INT (defer), streaming resources
+     (depends v1.10).
+ 24. **6+/C — HostCallback dispatcher** (~1 week).
      Stage 6+/C from spi-followups-plan.md.  Unblocks the first
      out-of-process (.NET / WASM) backend MVP.  Parked because no
      such backend is in flight.
- 24. **v2.0 — Separate compilation** (~2-3 months).
+ 25. **v2.0 — Separate compilation** (~2-3 months).
      Multi-month architecture commitment.  Promote when at least
      one of {real package ecosystem, >30s incremental build, IDE
      demand} is true.
@@ -2353,12 +2363,40 @@ Allows `def f: Int throws ParseError = 42` and `... = ParseError(...)`
 without explicit `Right` / `Left` wrappers.  Conversions fire
 only when the bare-value type doesn't match expected.
 
-### Phase 3 — Direct-syntax integration (~2 days)
+### Phase 3 — Direct-syntax integration (~3 days)
 
-Verify `direct[Either[E, *]] { … }` properly auto-binds
-`throws`-typed values via the v1.1 `Monad[Either[E, *]]`
-instance.  Conformance: `throws-direct-syntax.ssc` covering
-binding, short-circuit on Left, pure tail auto-lift.
+Three things to ship in this phase, all driven off the same
+`MonadError` resolution machinery (v1.13):
+
+  1. **Auto-bind for `throws`-typed values** — `id =
+     parseInt(req.params("id"))` inside `direct[Either[E, *]]`
+     resolves via `Monad[Either[E, *]]` from v1.1 std.
+     Short-circuit on Left, pure tail auto-lifts to Right.
+  2. **Type-directed `throw` lowering** — inside `direct[F] { … }`,
+     `throw e: E` lowers to `F.fail(e)` *when* `MonadError[F, E']`
+     (with `E <: E'`) is in scope; otherwise stays as JVM-native
+     throw.  See `docs/error-handling.md` §2.5.6.
+  3. **Type-directed `try`-`catch` lowering** — `try body catch
+     case e: E => h` lowers to `F.handleError(body) { case e: E
+     => h }` when `MonadError[F, E']` matches; otherwise stays
+     as JVM-native try-catch.  Mixed catches (some typed, some
+     untyped) emit a hybrid lowering — typed branches as
+     `F.handleError`, untyped as wrapping JVM `catch` clauses.
+
+DS-7 refined accordingly: thrown exceptions auto-wrap ONLY when
+the user explicitly typed them AND the surrounding F advertises
+a matching error channel.  Bare `throw new RuntimeException(...)`
+inside a direct block still escapes via JVM stack unwinding —
+the two-fault-model trap stays avoided because the lowering is
+driven by what the user typed, not by silent magic.
+
+Conformance:
+  - `throws-direct-syntax.ssc` — basic auto-bind + short-circuit
+  - `throws-direct-throw.ssc` — `throw AppError(...)` → `Left`
+    inside `direct[ResultS]`
+  - `throws-direct-try-catch.ssc` — typed catch → `F.handleError`
+  - `throws-direct-mixed.ssc` — mixed typed + untyped catch
+    branches in one `try`
 
 ### Phase 4 — Std-lib `throws`-typed shims (~2 days)
 
@@ -2434,9 +2472,26 @@ The two-tier stack trace model documented in
 captures via `HasStackTrace`; trace-less `throws` pays
 nothing.
 
+### Tier model — four error mechanisms, one document
+
+Per `docs/error-handling.md` §2.5.5, ScalaScript has four
+error mechanisms; v1.15 ships the first three:
+
+  1. `throws[A, E] = Either[E, A]`         — canonical, monadic, typed
+  2. `throwsRaw[A, E] = A | E`              — opt-in perf / interop (Phase 8)
+  3. Unchecked `throw e` / `try`-`catch`    — peer to throwsRaw; JVM-native, untyped
+  4. `MonadError[F, E]` (already in v1.1)   — for monadic effects
+
+Tier 1 is the default; tiers 2 and 3 are opt-in escape
+hatches for specific use cases (hot paths, JVM interop,
+systemic errors).  Restartable errors (v1.16) are tier 4.
+
 ### Hard-no list (locked by design — `docs/error-handling.md` §5)
 
 - Auto-wrap thrown exceptions in direct blocks (DS-7 stays)
+- Removing or deprecating unchecked `throw` / `try`-`catch`
+  (first-class peer to `throwsRaw` per §2.5.5; not migrating
+  away)
 - `A | E` union encoding as the **default** `throws`
   (canonical is Either; union ships as opt-in `throwsRaw`
   companion — see Phase 8)
@@ -2444,7 +2499,10 @@ nothing.
   (explicit `box` / `unbox` only)
 - `throwsRaw` as a `direct[F] { … }` target (`throws` only;
   raw must be `box`-ed before entering a direct block)
-- Java-style throws clauses (only return-type-position `throws`)
+- Java-style **checked**-throws clauses on signatures
+  (separate from the return type, compiler-enforced) — keep
+  the `throws[A, E]` type-alias path.  Unchecked throws are
+  a different mechanism and stay.
 - `E` restricted to `Throwable` subtypes (works over any `E`)
 - Effect-row tracking for errors (v1.12 algebraic effects territory)
 
@@ -2490,11 +2548,12 @@ Four items previously carrying recommendations are now locked:
 
 ### Effort
 
-Nine phases, ~12 days end-to-end across three backends
-(was ~10 — bumped by the dual-encoding companion).  Phase 6
-(stack traces) is still the only piece with meaningful
-per-backend variance; Phases 8-9 are pure stdlib + helper
-work that lands uniformly.
+Nine phases, ~13 days end-to-end across three backends
+(was ~12 — Phase 3 expanded from ~2 to ~3 days to absorb the
+type-directed `throw` / `try`-`catch` lowering inside direct
+blocks).  Phase 6 (stack traces) is still the only piece
+with meaningful per-backend variance; Phases 8-9 are pure
+stdlib + helper work that lands uniformly.
 
 ## v1.16 — Restartable errors via algebraic effects (depends on v1.12)
 
@@ -2594,6 +2653,153 @@ semantics is a maintainable trade-off.
 
 ~1 week if it happens.  Could be skipped entirely without
 affecting any v1.x milestone deliverable.
+
+## v1.17 — MCP support (client + server)
+
+Model Context Protocol — Anthropic's JSON-RPC 2.0-based
+protocol for connecting LLM applications to external tools,
+resources, and prompts.  Ships as **separate namespace and
+modules** (`std/mcp/server`, `std/mcp/client`, `std/mcp/types`),
+intentionally orthogonal to the existing REST stack — same
+shape API, different protocol.
+
+Full design in [`docs/mcp.md`](docs/mcp.md) — protocol basics,
+REST-shaped API rationale, server + client surfaces,
+intrinsic-first implementation strategy, backend feature
+flags, coexistence with v1.8 / v1.13 / v1.15, hard-no list,
+open questions.
+
+```scala
+// Server
+mcpServer { srv =>
+  srv.tool("get_weather") { args =>
+    val city = requireString(args, "city")
+    Tool.text(s"Weather in $city: sunny, 22°C")
+  }
+}
+serveMcp(transport = Transport.stdio)
+
+// Client
+val client = mcpConnect(Transport.spawn("node", "weather-server.js"))
+val result = client.callTool("get_weather", Map("city" -> "Berlin"))
+println(result.content.head)
+client.close()
+```
+
+### Implementation strategy — intrinsic-first
+
+Per user direction: backends with a standard SDK get an
+**intrinsic** that wraps it (~1 week each); platforms without
+a standard SDK defer to v1.17.x own-implementation.
+
+| Backend | MCP Server | MCP Client |
+|---------|-----------|------------|
+| jvm  | ✅ intrinsic (`io.modelcontextprotocol:sdk`) | ✅ intrinsic |
+| js (Node) | ✅ intrinsic (`@modelcontextprotocol/sdk`) | ✅ intrinsic |
+| interpreter | ❌ deferred to v1.17.x | ❌ deferred |
+| scalajs-spa | ❌ (server makes no sense in browser) | ❌ (HTTP+SSE in browser plausible v1.17.x) |
+
+Interpreter and scalajs-spa imports of `std/mcp/server` raise
+an actionable Feature-not-supported error at typecheck time
+per SPI §8 — not a runtime surprise.
+
+### Why REST-shaped API
+
+The MCP server surface mirrors the REST stack
+(`srv.tool` ↔ `route("GET", "/path")`, `serveMcp(...)` ↔
+`serve(port)`).  Users already know the pattern; JSON-RPC 2.0
+is RPC-shaped which fits handler-per-method naturally; the
+cross-cutting concerns (transport, lifecycle, error handling)
+translate cleanly.
+
+Type-class / FT-style API (`given McpTool[Args, Result]`) is
+**not** the v1 default — dynamic registration is common in
+real MCP servers (tools defined at runtime from config), and
+the JSON-Schema-shaped args fit the v1.15 `Map[String, Any]`
++ `require*` pattern.  Type-class layer ships as optional
+v1.17.1 add-on once v1.14 `derives` lands.
+
+### Phase 1 — Types + namespace skeleton (~2 days)
+
+`std/mcp/types.ssc` + skeleton `server.ssc` + skeleton
+`client.ssc`.  Pure types; no runtime dependency.
+
+### Phase 2 — JS server intrinsic (~5 days)
+
+JsGen-emitted `mcpServer { … }` / `serveMcp(...)` wraps
+`@modelcontextprotocol/sdk` (npm).  Three transports
+(stdio, http+sse, ws).  Conformance: round-trip with the
+canonical MCP CLI client.
+
+### Phase 3 — JVM server intrinsic (~4 days)
+
+JvmGen-emitted equivalent wrapping `io.modelcontextprotocol:sdk`
+via `//> using dep` directive.  Same surface, same three
+transports.
+
+### Phase 4 — JS client intrinsic (~3 days)
+
+`mcpConnect(transport)` wraps the JS SDK client.  Sync +
+Async variants (Async wraps SDK promises).
+
+### Phase 5 — JVM client intrinsic (~3 days)
+
+Same shape, Java SDK.
+
+### Phase 6 — Feature flags + interpreter rejection (~1 day)
+
+`Feature.McpServer` / `Feature.McpClient` declared per SPI
+§8.  JVM + JS advertise; INT + scalajs-spa reject at
+typecheck with actionable message.
+
+### Phase 7 — Examples + docs (~2 days)
+
+Three demos: tools server, client-discover, agent (both
+client and server in one script).  `docs/mcp.md` walkthroughs.
+
+### Hard-no list (locked by design — `docs/mcp.md` §10)
+
+- **Own MCP impl in v1** — intrinsic-first per user direction;
+  defer to v1.17.x when a backend without an SDK becomes a
+  real target
+- **Type-class API as primary** — REST-shaped is v1; FT layer
+  is v1.17.1+ add-on
+- **Custom transports** (Unix socket, named pipe) — stdio /
+  HTTP+SSE / WS cover the realistic landscape; bespoke
+  transports are an SDK-extension concern
+- **Schema validation in std layer** — SDK handles
+  JSON-Schema validation; std doesn't re-validate
+- **MCP-versioned namespaces** in v1.17 — single `std/mcp/*`
+  for now; versioned namespaces when MCP protocol diverges
+- **Bidirectional sampling** — MCP advanced feature; defer
+
+### Deferred follow-ups (carry into v1.17.x)
+
+1. **Own implementation for INT / scalajs-spa** (~1500 LOC
+   JSON-RPC 2.0 stack)
+2. **Type-class layer** (`given McpTool[A, R]`, `derives
+   McpSchema`) — depends on v1.14
+3. **Streaming resources** — depends on v1.10 Generators
+4. **Bidirectional sampling** — MCP advanced feature
+5. **`using mcpConnect(...) { client => … }` RAII** — needs
+   `using`-resource language feature
+6. **MCP protocol version negotiation** when v2 emerges
+
+### Open questions (carry into v1.17 implementation; see
+`docs/mcp.md` §11)
+
+- Typed tool args via v1.14 derives — when to layer in
+- `throws[ToolResult, McpError]` integration with v1.15 — wait
+  until v1.15 stabilises
+- `srv.onInitialize` hook for per-client customisation
+- Server-side per-tool authorisation helper
+- MCP request / response observability hooks
+
+### Effort
+
+Seven phases, ~3 weeks end-to-end.  JS and JVM intrinsics
+can be worktrees in parallel after Phase 1.  Phase 6 (feature
+flags) is the only piece touching the SPI.
 
 ## v2.0 — Separate compilation of modules
 

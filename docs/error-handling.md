@@ -282,6 +282,183 @@ explicitly tags both sides with `Left`/`Right`.  When `A` and
 `E` overlap on runtime type, the user uses `throws` instead;
 the compiler error from `throwsRaw` is actionable.
 
+#### 2.5.5 Unchecked `throw e` / `try`-`catch` — peer to `throwsRaw`
+
+`throw e` and `try { … } catch case e: E => …` are **first-class
+mechanisms** in ScalaScript and stay at the same tier as
+`throwsRaw`: opt-in, low-level, for the narrow cases where the
+canonical `throws` doesn't fit.
+
+- Untyped at the signature level — `def f(x: Int): Y` does NOT
+  declare what exceptions it might throw.  Callers learn from
+  documentation, not from the type.
+- Zero-allocation on the happy path (no `Right` / `Left` /
+  union packing).
+- Direct integration with JVM exception infrastructure — uses
+  the underlying platform's stack unwinding, native trace, JVM
+  finalizers, monitor unlock on `Thread.interrupt`, etc.
+- Survives unchanged through direct-syntax blocks (DS-7): a
+  thrown exception inside `direct[F] { … }` propagates out via
+  normal stack unwinding, **NOT** auto-wrapped into `F.fail`.
+
+#### Tier overview — when to use what
+
+| Tier | Mechanism | Best for | Cost |
+|------|-----------|----------|------|
+| **1 — canonical** | `throws[A, E] = Either[E, A]` | Default for typed error flow.  Direct-syntax integrated.  Cross-module APIs. | 1 box per call |
+| **2a — opt-in typed perf** | `throwsRaw[A, E] = A \| E` | Hot-path parsers; perf-critical inner loops where measurement shows Either-box dominates | 0 allocation |
+| **2b — opt-in untyped escape** | `throw e` / `try`-`catch` | JVM exception interop with library code that already uses unchecked throws; cases where typed signature would lie (e.g. `OutOfMemoryError`) | 0 allocation (JVM-native) |
+| **3 — monadic effects** | `MonadError[F, E]` | Inside custom `F[_]` effect types (Async, ZIO-style); reuses the v1.1 typeclass | 1 box, plus the F's overhead |
+| **4 — restartable (future)** | algebraic-effects handler stack | Common Lisp condition-system style: handler decides resume / retry / abort | v1.16, depends on v1.12 |
+
+#### How the three tier-2 forms bridge into tier 1
+
+```scala
+// 2b → 1: catch JVM exception, lift to Either
+val a: Int throws NumberFormatException =
+  attemptCatch[NumberFormatException] { s.toInt }
+
+// 2b → 2a: catch JVM exception into union (preserves native trace)
+val b: Int throwsRaw NumberFormatException =
+  attemptCatchRaw[NumberFormatException] { s.toInt }
+
+// 2a → 1: explicit boxing
+val c: Int throws NumberFormatException = box(b)
+val d: Int throwsRaw NumberFormatException = unbox(a)
+
+// 1 → 2b: re-raise from typed channel (rare; usually user code
+// already has a `Throwable` subtype, otherwise build a wrapper)
+a match
+  case Left(e)  => throw e         // E must be <: Throwable for this
+  case Right(n) => doSomething(n)
+```
+
+#### Why unchecked exceptions stay
+
+This is a **deliberate design choice**, not a temporary
+compromise:
+
+- **Some platform errors can't honestly be typed.**
+  `OutOfMemoryError`, `StackOverflowError`,
+  `InterruptedException` — these don't belong in a function's
+  `throws E` signature; they're systemic, not domain errors.
+  Unchecked is the right level.
+- **Java/Scala library interop.**  Most existing library code
+  throws; pretending otherwise would force `attemptCatch` at
+  every call site, which is the boilerplate `throws` was
+  supposed to remove.
+- **Debugging & assertions.**  `assert(x > 0)`,
+  `require(cond, msg)`, `???` — these throw on failure and
+  should keep their stack-unwinding semantics.
+- **Performance escape hatch.**  Some hot loops use exceptions
+  as control flow (e.g. parser early-exit on syntax error).
+  Removing the unchecked form would push these to monadic
+  alternatives at real perf cost.
+
+The tier model recognises that **no single error mechanism
+fits all cases**.  `throws` is the right default; the other
+tiers exist because they solve problems `throws` can't or
+shouldn't.
+
+#### 2.5.6 `throw` / `try`-`catch` inside `direct[F] { … }` — type-directed lowering
+
+The same `throw e` / `try { … } catch case e: E => …` syntax
+works **both** as JVM-native (tier 2b) and as monadic
+failure / recovery (tier 1/3) — **distinguished by type
+inference**.
+
+#### Lowering rules
+
+Inside `direct[F] { body }`:
+
+| Form | Lowering | Trigger |
+|------|----------|---------|
+| `throw e` where `e: E` and `MonadError[F, E']` (with `E <: E'`) in scope | `F.fail(e)` | Monadic — typed bridge to `F`'s error channel |
+| `throw e` where no `MonadError[F, _]` matches the type of `e` | JVM-native `throw e` (escapes via stack unwinding) | Tier 2b unchanged |
+| `try body catch case e: E => h` where `MonadError[F, E']` in scope (`E <: E'`) | `F.handleError(body) { case e: E => h }` | Monadic — typed bridge |
+| `try body catch case e: E => h` where no `MonadError[F, _]` matches `E` | JVM-native `try`-`catch` | Tier 2b unchanged |
+| `try body catch { multiple cases }` — some types match `MonadError[F, _]`, others don't | Lower per-case: typed branches become `F.handleError`, untyped branches become JVM `catch` clauses on the lowered for-comprehension | Hybrid (rare, but supported) |
+
+The discriminator is **purely the type of `e` (or the case
+pattern in `catch`)** vs the available `MonadError[F, ?]`
+instances in scope at the call site.  No new keyword, no
+annotation — the typer routes by the `using`-resolution
+machinery from v1.13.
+
+#### How this relates to DS-7
+
+DS-7 said "thrown exceptions are NOT auto-wrapped into
+monadic failure" — that holds for **untyped escapes**:
+`throw new RuntimeException(...)` inside a direct block where
+no `MonadError[F, RuntimeException]` is in scope keeps
+escaping via the JVM channel.
+
+The new rule narrows DS-7: when the user *did* write a
+type-annotated throw (`throw e: AppError`) and the
+surrounding `direct[F]` has `MonadError[F, AppError]`
+available, the typer takes that as an explicit ask for the
+monadic bridge and lowers accordingly.  The two-fault-model
+trap is avoided because the user didn't get implicit
+behaviour — the lowering is driven by what they *did*
+type at the call site.
+
+#### Worked example
+
+```scala
+type ResultS = [A] =>> Either[AppError, A]
+
+def handler(req: Request): Response throws AppError = direct[ResultS] {
+  // 1. Typed throw → monadic Left
+  if !req.valid then throw AppError.BadRequest        // → Left(AppError.BadRequest)
+
+  // 2. Typed try-catch → monadic handleError
+  user = try loadUser(req.id)
+         catch case _: NotFound => User.guest         // F.handleError lowering
+
+  // 3. Untyped throw → JVM unchecked (no MonadError[ResultS, AssertionError])
+  if user.age < 0 then assert(false, "impossible")    // escapes via stack
+
+  // 4. Mixed catch — some typed, some untyped
+  data = try fetchData(user)
+         catch
+           case e: AppError       => fallback         // typed → F.handleError clause
+           case e: IOException    => throw new RuntimeException("io", e)
+           // untyped → JVM catch clause wrapping the for-comp lowering
+
+  Response.ok(data)
+}
+```
+
+#### Why this works on top of existing infrastructure
+
+- **No new compiler concept** — uses v1.8 direct-syntax
+  desugarer + v1.13 `using` resolution.  The desugarer gets
+  one extra rule: "before emitting `throw` / `try`-`catch`
+  in lowered output, query `MonadError[F, ?]` for the type
+  involved and prefer monadic if found."
+- **No new SPI primitives** — `MonadError` is already in
+  v1.1; direct-syntax already lowers to for-comprehension;
+  this is one more case in the lowering table.
+- **No runtime cost** — when the discrimination is made at
+  compile time, the emitted code is either pure monadic or
+  pure JVM-native.  No runtime branch.
+
+#### Open questions (carry into v1.15 implementation)
+
+- **Catch-pattern with `_: Throwable`** inside direct block —
+  catches everything, including monadic failures lifted into
+  `F.fail`?  Probably should: if user writes `case _:
+  Throwable`, they want the universal catcher.  Lower to
+  `F.handleError(_ => h)` plus a wrapping JVM `try`-`catch`
+  for any unchecked that didn't go through the monadic path.
+- **`throw` of a value that matches MonadError[F, E] for
+  multiple F in scope** — error at compile time per Scala 3
+  ambiguous-resolution rules; same as ordinary `using`
+  ambiguity.
+- **Tail-position `throw`** — pure-tail `throw e` should
+  lower to `F.fail(e)` directly (no need for the surrounding
+  for-comprehension); typer detects tail position.
+
 ### 2.6 Error subtyping
 
 ```scala
@@ -507,11 +684,12 @@ into the original frame."  Both can ship.
 | Feature | Reason |
 |---------|--------|
 | **Auto-wrap thrown exceptions** in direct blocks | DS-7 (locked); the two-fault-model trap |
+| **Removing or deprecating unchecked `throw` / `try`-`catch`** | First-class peer to `throwsRaw` per §2.5.5.  Not going away; not migrating to Either |
 | **`A \| E` union encoding as the *default* `throws`** | Either-encoded is canon; union ships as opt-in `throwsRaw` companion (see §2.4) |
 | **Auto-conversion across the `throws` / `throwsRaw` boundary** | Explicit `box` / `unbox` only — auto-coercion would hide the perf intent |
 | **`throwsRaw` as the direct-syntax target** | `throws` (Either) is the only direct-syntax-integrated form; raw must `box` before entering a `direct[F]` block |
 | **Std-lib shim duplicates** (`parseIntRaw` etc.) on speculative basis | Add `Raw`-variant only when profiling shows real benefit on a specific helper |
-| **Java-style throws clauses** that propagate via the stack | Re-introduces unchecked propagation; type alias on the return type is the path |
+| **Java-style checked-`throws` clauses on signatures** (`def f() throws IOException`) — separate from the return type, compiler-enforced handling, stack propagation | Re-introduces parallel error-tracking machinery alongside `throws[A, E]` type alias; pick one path.  Note this targets the *checked* form — unchecked `throw e` stays per §2.5.5 |
 | **`throws` on JVM `Throwable` subtypes only** | Restricting `E` to `Throwable` would tie us to JVM; `throws` works over any type |
 | **Effect-row tracking for errors** (`F[A] throws E1 \| E2 ...`) | v1.12 algebraic effects territory; out of scope here |
 
