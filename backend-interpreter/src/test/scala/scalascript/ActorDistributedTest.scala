@@ -1,0 +1,100 @@
+package scalascript
+
+import org.scalatest.funsuite.AnyFunSuite
+import org.scalatest.matchers.should.Matchers
+import scalascript.interpreter.Interpreter
+import scalascript.parser.Parser
+
+/** Unit tests for v1.6 Phase 3 — distributed actor node primitives.
+ *  This test suite covers single-process distributed semantics (register /
+ *  whereis / startNode local routing) without actual WS connections. */
+class ActorDistributedTest extends AnyFunSuite with Matchers:
+
+  private def captured(code: String): String =
+    val buf = java.io.ByteArrayOutputStream()
+    val ps  = java.io.PrintStream(buf, true)
+    val src = s"# Test\n\n```scala\n$code\n```\n"
+    val module = Parser.parse(src)
+    Interpreter(ps).run(module)
+    ps.flush()
+    buf.toString.trim
+
+  test("register + whereis: known name returns Some"):
+    captured("""
+      runActors {
+        val w = spawn { () => receive { case _ => () } }
+        register("srv", w)
+        whereis("srv") match
+          case Some(_) => println("found")
+          case None    => println("missing")
+        w ! "done"
+      }
+    """) shouldBe "found"
+
+  test("whereis unknown name returns None"):
+    captured("""
+      runActors {
+        whereis("nope") match
+          case Some(_) => println("found")
+          case None    => println("none")
+      }
+    """) shouldBe "none"
+
+  test("startNode sets node identity — local send still works"):
+    captured("""
+      runActors {
+        startNode("node1@localhost:9100")
+        val a = spawn { () =>
+          receive {
+            case "ping" => println("pong")
+          }
+        }
+        a ! "ping"
+      }
+    """) shouldBe "pong"
+
+  test("Pid carries nodeId and localId fields"):
+    captured("""
+      runActors {
+        startNode("test@host:1")
+        val me = spawn { () =>
+          val p = self()
+          p match
+            case Pid(nId, lId) => println(nId)
+          ()
+        }
+        me ! ()
+      }
+    """) shouldBe "test@host:1"
+
+  test("ValueSerializer round-trips IntV"):
+    import scalascript.interpreter.{Value, ValueSerializer}
+    val v = Value.IntV(42L)
+    val json = ValueSerializer.serialize(v)
+    val back = ValueSerializer.deserialize(json)
+    back shouldBe v
+
+  test("ValueSerializer round-trips StringV"):
+    import scalascript.interpreter.{Value, ValueSerializer}
+    val v = Value.StringV("hello \"world\"")
+    val json = ValueSerializer.serialize(v)
+    val back = ValueSerializer.deserialize(json)
+    back shouldBe v
+
+  test("ValueSerializer round-trips Pid"):
+    import scalascript.interpreter.{Value, ValueSerializer}
+    val v = Value.InstanceV("Pid", Map("nodeId" -> Value.StringV("n@h:1"), "localId" -> Value.IntV(5L)))
+    val json = ValueSerializer.serialize(v)
+    val back = ValueSerializer.deserialize(json)
+    back shouldBe v
+
+  test("ValueSerializer round-trips nested InstanceV"):
+    import scalascript.interpreter.{Value, ValueSerializer}
+    val v = Value.InstanceV("Down", Map(
+      "ref"    -> Value.IntV(1L),
+      "from"   -> Value.InstanceV("Pid", Map("nodeId" -> Value.StringV(""), "localId" -> Value.IntV(3L))),
+      "reason" -> Value.StringV("oops")
+    ))
+    val json = ValueSerializer.serialize(v)
+    val back = ValueSerializer.deserialize(json)
+    back shouldBe v

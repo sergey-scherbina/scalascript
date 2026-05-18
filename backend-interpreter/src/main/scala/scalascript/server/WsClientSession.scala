@@ -92,6 +92,21 @@ final class WsClientSession(
 
   def subprotocol: String = _subprotocol
 
+  /** Scala-side send — bypasses the Value/Computation machinery for use on
+   *  virtual threads without involving the interpreter's actor scheduler. */
+  def sendText(text: String): Unit =
+    _ws match
+      case ws if ws != null =>
+        Metrics.wsMessagesOut.incrementAndGet()
+        ws.sendText(text, true)
+      case _ => ()
+
+  /** Blocking receive — returns None on close.  Safe to call on virtual
+   *  threads; blocks the carrier only while the OS is waiting for data. */
+  def recvText(): Option[String] =
+    val v = recvQueue.take()
+    if v == null then None else Some(v)
+
   private def dispatch(f: () => Unit): Unit =
     try f()
     catch case e: Throwable => log.println(s"wsConnect callback error: ${e.getMessage}")

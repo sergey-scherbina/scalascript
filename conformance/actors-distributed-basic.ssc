@@ -1,0 +1,48 @@
+#!/usr/bin/env ssc
+---
+name: actors-distributed-basic
+description: Actor Phase 3 — distributed node registry (register / whereis)
+---
+
+# Distributed Actors — Basic
+
+Phase 3 node primitives tested in single-process mode:
+`startNode`, `register`, `whereis`, and remote-send routing.
+
+## register / whereis: local registry
+
+After `register(name, pid)`, `whereis(name)` returns `Some(pid)`.
+`whereis` on an unknown name returns `None`.
+
+```scalascript
+runActors {
+  val worker = spawn { () =>
+    receive { case _ => () }
+  }
+  register("myWorker", worker)
+  whereis("myWorker") match
+    case Some(_) => println("found")
+    case None    => println("not found")
+  whereis("unknown") match
+    case Some(_) => println("found2")
+    case None    => println("not found2")
+  worker ! "stop"
+}
+```
+
+## startNode sets localNodeId (no-op without serve)
+
+`startNode` sets the node identity.  Local sends still work normally
+after calling it.
+
+```scalascript
+runActors {
+  startNode("node1@localhost:9100")
+  val a = spawn { () =>
+    receive {
+      case "ping" => println("pong")
+    }
+  }
+  a ! "ping"
+}
+```
