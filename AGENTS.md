@@ -359,7 +359,13 @@ numbered item.  Keep them in this order:
    worktrees for in-progress work.  If overlap is detected
    or the item is already done, pick a different item.
    Don't skip this step — it takes seconds and prevents
-   hours of duplicate work.
+   hours of duplicate work.  **For pick-the-next-item
+   strategy, consult `MILESTONES.md` § "Parallel-safe work
+   plan (for multi-agent execution)"** — it groups
+   milestones into tracks (Track A through F) so two agents
+   on different tracks don't conflict on files / typer /
+   runtime, with a cross-track conflict-surface matrix and
+   an agent decision tree for picking.
 1. Implement + commit on the local branch (worktree for
    multi-step work; `main` directly for small fixes).
 2. Run the full check suite (`sbt compile`, `sbt test`,
