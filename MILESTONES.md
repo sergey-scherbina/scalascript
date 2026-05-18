@@ -201,6 +201,101 @@ don't re-propose them without new evidence.
        table.  That work is tracked under **Interpreter ergonomics
        — carried over from v1.1** (further down in this file).
 
+## Compiler extensibility roadmap
+
+A cross-cutting note tying together the SPI followups
+([`docs/spi-followups-plan.md`](docs/spi-followups-plan.md)), the
+intrinsic-module extraction direction
+([`docs/spi-intrinsics-design.md`](docs/spi-intrinsics-design.md)),
+and the "deflation" benefit on the three large codegens.
+
+### Today's pattern-matching debt
+
+Every code generator hardcodes platform intrinsics as match arms on
+`Term.Name`:
+
+  - `backend-jvm/JvmGen.scala`     — 4500 LOC, ~⅓ is HTTP/WS/auth
+    inlined match cases.
+  - `backend-js/JsGen.scala`       — 5400 LOC, similar split.
+  - `backend-interpreter/Interpreter.scala` — 4500 LOC, dozens of
+    `nativeP("route")` / `nativeP("onWebSocket")` / … blocks.
+
+Costs of this shape:
+
+  - Adding a platform primitive touches three files.
+  - No cross-backend parity check at build time; conformance suite
+    catches misses post-hoc.
+  - Individual intrinsics aren't independently testable.
+  - Third-party platform extensions impossible — the code lives
+    inside `core/`, not in plugins.
+
+### What the SPI followups deliver
+
+Stages already designed and planned in `docs/spi-followups-plan.md`
++ `docs/spi-intrinsics-design.md`:
+
+  - **5+/A.4 — per-call-site `ExternCall` dispatch.**  JvmGen / JsGen
+    gain a single emit case for `ExternCall(qn, args)` that consults
+    `backend.intrinsics(qn)`.  Removes the per-intrinsic match arms.
+  - **5+/A.5 — `extern def` parser + `Backend.runtimePreamble`.**
+    Declarations live in `std/*.ssc`; backends ship runtime helpers
+    (e.g. emitted `class WebSocket`) via a single string field.
+  - **5+/B — `std.http` extraction.**  Existing HTTP emission moves
+    from inlined codegen into `InlineCode` closures registered
+    against qualified names.  Per-backend intrinsic implementations
+    can live in their own files (`backend-jvm/intrinsics/Http.scala`,
+    …).
+  - **5+/D — `std.ws` / `std.auth` / `std.fs` / `std.crypto`
+    extraction.**  Same pattern as 5+/B, one package per iteration.
+
+### Expected deflation
+
+After 5+/B + 5+/D land:
+
+  | File                            | Before  | After  | Delta |
+  |---------------------------------|--------:|-------:|------:|
+  | `JvmGen.scala`                  | 4500    | ~1500  | −3000 |
+  | `JsGen.scala`                   | 5400    | ~1500  | −3900 |
+  | `Interpreter.scala`             | 4500    | ~2500  | −2000 |
+  | new `backend-*/intrinsics/*`    |       0 | ~3000  | +3000 |
+
+Total LOC roughly conserved; split by responsibility: codegen
+core = "how to emit the generic language", intrinsic modules =
+"what `onWebSocket` does on backend X".  Each intrinsic = one
+function on each backend it claims.
+
+### Third-party plugin path
+
+The SPI declaration (§8 of `docs/backend-spi.md`) already supports
+third-party intrinsic packages — a plugin author ships an `extern`
+package together with the `Backend.intrinsics` entries that
+implement it.  Once 5+/B proves the pattern in-tree, the
+out-of-tree plugin path is one ServiceLoader-discovery wire-up.
+
+Remaining UX/distribution work (not blocking the SPI mechanism):
+
+  - **Package format** (`.sscpkg` archive with manifest + sources +
+    optional pre-compiled IR) — mentioned in v0.7 as future.
+  - **Plugin resolver** — `--plugin <jar>` / `~/.scalascript/plugins/`
+    discovery already in §12.1 design; verify end-to-end.
+  - **Registry** — `registry.scalascript.io` with semver + lock
+    file (v0.7 future, deferred).
+
+### Effort to "extensibility done"
+
+5+/A.4 (~1-2d) + 5+/A.5 (~1-2d) + 5+/B (~3-5d) + 5+/D (~1-2d
+per package × 4 packages = ~1 week) = **~2-3 weeks** of focused
+work.  After this, "add a new platform primitive" is one
+function per backend; "ship a Kafka library" is one external
+plugin JAR.
+
+### Out of scope here
+
+Separate compilation of modules (per-module IR artifacts +
+interface files + linker pass) is a different architectural axis.
+Tracked as v2.0 below — it's a 2-3 month commitment that becomes
+worth the cost only once a real package ecosystem emerges.
+
 ## v0.7 — Reusable libraries and packaging
 
 A consumer should be able to depend on a third-party `.ssc` library —
@@ -1204,6 +1299,106 @@ week, Phase 2 ~3-4 days, Phase 3 ~1 week.  Each phase merges
 independently, each closes a real use case (Phase 1 — in-process
 concurrency; Phase 2 — fault tolerance; Phase 3 — uniform
 local/remote).
+
+## v2.0 — Separate compilation of modules
+
+Today every `ssc compile` parses, types, normalises, and emits the
+entire reachable module-tree in a single pass.  Separate compilation
+means each module compiles independently into an IR artifact +
+interface; consumer modules link against pre-compiled artifacts
+instead of re-parsing every source.
+
+Analogues: Haskell `.hi` + `.o`, OCaml `.cmi` + `.cmo`, Scala
+`.tasty` + `.class`, Rust crates.
+
+### What it unlocks
+
+- **Incremental build speed.**  Stdlib + third-party packages don't
+  re-parse on every `ssc compile`.  Important for large projects
+  and IDE/language-server analysis loops.
+- **Distributable libraries.**  Someone ships a `.sscpkg` with
+  pre-compiled IR; consumer compiles only their own code against
+  the package's interface.  Without source disclosure required.
+- **Compilation caching across CI runs** — keyed on
+  module-content hash, not whole-tree hash.
+- **IDE support.**  Language server analyses one module at a time;
+  cross-module references resolve through interface lookups,
+  not full re-parse.
+
+### What's needed
+
+1. **Module boundary definition.**  What is a module?  A directory
+   with a `package.yaml` declaring exports?  A single `.ssc` file?
+   Decision needed before anything else.
+2. **Interface artifact** (`.scim` or similar) — exported types,
+   `extern def` signatures, typeclass instances, capability
+   declarations.  No bodies.  Stable across builds within the
+   same compiler version.
+3. **IR artifact** — body IR in JSON / msgpack, the v0.1 SPI's
+   `NormalizedModule` serialisation generalised per module.
+4. **Type-checker that consumes interfaces without bodies.**  Today
+   the typer sees the full module-tree; separate compilation
+   requires it to type-check against a foreign module's interface
+   alone.
+5. **Linker pass.**  Collect compiled artifacts, resolve symbol
+   references across modules, hand a fully-linked
+   `NormalizedModule` to `Backend.compile`.
+6. **Stable IR ABI.**  Decade-long commitment per Haskell `.hi`
+   versioning practice — adds a `.scim` magic number / version
+   guard so incompatible artifacts are detected, not silently
+   miscompiled.
+7. **Symbol mangling.**  Cross-module-name collisions resolved
+   through fully-qualified mangled names; consumer-side imports
+   rewrite to mangled forms before linking.
+8. **Build orchestration.**  Dependency graph between modules;
+   parallel + incremental rebuild logic; `Makefile`-style
+   timestamp tracking or content-hash based.
+
+### Cost
+
+Realistically **2-3 months of focused work** by one person.  Every
+piece of the pipeline is touched — parser carries through to
+linker.  The hidden cost is the **stable IR ABI commitment** —
+once shipped, the ABI freezes design space for the IR
+representation.
+
+### Prerequisites
+
+  - Stage 5+/B + 5+/D (intrinsic-module extraction) **landed** —
+    otherwise the "modules" concept is fragmented between SourceLanguage
+    plugins, Backend plugins, and embedded platform code.
+  - SPI v0.1 IR serialisation **shipped** — already done (Stage 2).
+  - Real motivating use case — at least one third-party package
+    that benefits from being distributed pre-compiled.
+
+### Why deferred
+
+Single-program compilation is the dominant scenario today; the
+existing whole-tree compile is fast enough for the size of programs
+we see.  Separate compilation pays off when:
+
+  - A package ecosystem emerges (multiple third-party `.sscpkg`s
+    in active use).
+  - Build times exceed comfort (>30s incremental).
+  - IDE / language-server demand emerges.
+
+None of these are true in 2026.  Tracked here so the conversation
+isn't restarted from scratch when one becomes true; the design
+direction is clear, the cost is honest, the prerequisites are
+listed.
+
+### Considered alternatives — rejected
+
+- **Bytecode-level caching.**  Cache `Backend.compile` output keyed
+  on source hash.  Cheaper to implement but doesn't unlock
+  distribution-without-source.  Could land as a smaller win on
+  the way to full separate compilation.  Promote if real users
+  ask.
+- **Whole-program incremental** (Salsa-style demand-driven
+  recomputation).  Faster builds without ABI commitment.
+  Heavier implementation cost (architectural rewrite of the
+  compilation driver); same outcome.  Defer pending Bazel /
+  cargo-style use case.
 
 ## Interpreter ergonomics — carried over from v1.1
 
