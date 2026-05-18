@@ -1,7 +1,7 @@
 ---
 name: std-http
 version: 0.1.0
-description: HTTP server + client primitives — extern declarations for route / serve / stop / tls / httpGet / httpPost
+description: HTTP server + client primitives — extern declarations for route / serve / stop / tls / httpGet / httpPost / wsConnect
 exports:
   - route
   - serve
@@ -10,6 +10,7 @@ exports:
   - httpGet
   - httpPost
   - httpClient
+  - wsConnect
   - Request
   - Response
 ---
@@ -38,6 +39,12 @@ extern def httpGet(url: String, headers: Map[String, String]): Response
 extern def httpPost(url: String, body: String): Response
 extern def httpPost(url: String, body: String, headers: Map[String, String]): Response
 extern def httpClient(baseUrl: String)(block: => Unit): Unit
+
+// Outbound WebSocket client — blocks until the server closes the connection.
+// handler receives a WebSocket object with send / recv / onMessage / close / ping / etc.
+extern def wsConnect(url: String)(handler: WebSocket => Unit): Unit
+extern def wsConnect(url: String, headers: Map[String, String])(handler: WebSocket => Unit): Unit
+extern def wsConnect(url: String, headers: Map[String, String], protocols: List[String])(handler: WebSocket => Unit): Unit
 ```
 
 # Request / Response

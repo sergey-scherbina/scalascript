@@ -380,6 +380,46 @@ class Interpreter(
       case _ => throw InterpretError("httpClient(baseUrl) { block }")
     }
 
+    // wsConnect(url[, headers[, protocols]]) { ws => … }
+    // Curried: first call returns a NativeFnV that takes the handler.
+    // Blocks on the calling thread until the server closes the connection.
+    nativeP("wsConnect") {
+      case List(Value.StringV(url)) =>
+        Value.NativeFnV("wsConnect.handler", Computation.pureFn {
+          case List(handler) =>
+            val sess = scalascript.server.WsClientSession(url, Map.empty, Nil, this, out)
+            sess.connect()
+            invoke(handler, List(sess.wsObj))
+            sess.awaitClose()
+            Value.UnitV
+          case _ => throw InterpretError("wsConnect(url) { ws => … }")
+        })
+      case List(Value.StringV(url), hdrs) =>
+        val headers = headersArg(hdrs)
+        Value.NativeFnV("wsConnect.handler", Computation.pureFn {
+          case List(handler) =>
+            val sess = scalascript.server.WsClientSession(url, headers, Nil, this, out)
+            sess.connect()
+            invoke(handler, List(sess.wsObj))
+            sess.awaitClose()
+            Value.UnitV
+          case _ => throw InterpretError("wsConnect(url, headers) { ws => … }")
+        })
+      case List(Value.StringV(url), hdrs, Value.ListV(prots)) =>
+        val headers   = headersArg(hdrs)
+        val protocols = prots.collect { case Value.StringV(s) => s }
+        Value.NativeFnV("wsConnect.handler", Computation.pureFn {
+          case List(handler) =>
+            val sess = scalascript.server.WsClientSession(url, headers, protocols, this, out)
+            sess.connect()
+            invoke(handler, List(sess.wsObj))
+            sess.awaitClose()
+            Value.UnitV
+          case _ => throw InterpretError("wsConnect(url, headers, protocols) { ws => … }")
+        })
+      case _ => throw InterpretError("wsConnect(url[, headers[, protocols]]) { ws => … }")
+    }
+
     // Environment variable reader, same surface on all three backends.
     // `getenv(key)` returns the value or empty string when unset.
     // `getenv(key, default)` substitutes the default when missing/empty.

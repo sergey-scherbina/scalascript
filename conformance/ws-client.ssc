@@ -1,0 +1,21 @@
+// ws-client.ssc — outbound WebSocket client smoke test
+// Requires a live WebSocket echo server at ws://localhost:9001.
+// No expected/ws-client.txt → skipped by the conformance runner.
+//
+// Run manually: ssc conformance/ws-client.ssc
+// (start an echo server first, e.g. with websocat -s 9001)
+//
+// Expected output:
+//   connected
+//   echo: hello
+//   done
+
+wsConnect("ws://localhost:9001") { ws =>
+  println("connected")
+  ws.send("hello")
+  ws.onMessage { msg =>
+    println("echo: " + msg)
+    ws.close()
+  }
+}
+println("done")
