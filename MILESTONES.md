@@ -592,7 +592,11 @@ Carry-over / deferred:
 Defer the remaining items until a concrete consumer asks.
 
 
-## v0.9 — Optics — second pass
+## v0.9 — Optics — second pass ✓ Landed (Index optic; filter + Iso deferred)
+
+**Landing notes (2026-05-19):**
+- Item 1 ✓: Index optic — `.index(i)` / `.at(k)` on all three backends; `IndexStep` + `AtKey` path steps; conformance test `optics-index-at` passing [INT] + [JS]; JS `Map` intrinsic fix as side effect.
+- Items 2–3 (filter Traversal, Iso) — deferred; low demand.
 
 The v0.6 hierarchy (Lens / Prism / Optional / Traversal) covers
 field-path access on case classes, sum-type variants, `Option` paths
@@ -600,7 +604,7 @@ via `.some`, and `List` traversals via `.each`.  A handful of
 extensions would close the remaining real-world gaps; listed in
 priority order so each one can ship independently.
 
-1. **Index optic — `.at(key)` / `.index(i)`.** ✅ **LANDED v0.9**
+1. **Index optic — `.index(i)` / `.at(key)`.** ✓ Landed
    Add two path steps recognised by the Focus parser:
 
        Focus[State](_.users.index(3))      // Optional[State, User]
@@ -3058,7 +3062,16 @@ paths.  ~1 day × 3 backends.
 Five phases, ~2 weeks end-to-end.  Independent of v1.18
 beyond the policy-level dependency.
 
-## v1.20 — DSL primitives + `std/parsing`
+## v1.20 — DSL primitives + `std/parsing` ✓ Landed (Phases 1–6)
+
+**Landing notes (2026-05-19):**
+- Phase 1 ✓: User-defined string interpolators — `StringContext` extension methods on all backends; `DslInterpolatorTest` suite.
+- Phase 2 ✓: `std/parsing/core.ssc` — `Parser[A]` ADT + primitive constructors + `ParseResult` / `Span`.
+- Phase 3 ✓: `std/parsing/combinators.ssc` — combinator ADT + recursive-descent interpreter.
+- Phase 4 ✓: `std/parsing/helpers.ssc` — tokenization helpers; JSON parser conformance test.
+- Phase 5 ✓: `std/dsl/` — `ast.ssc`, `pretty.ssc`, `builders.ssc`; `DslTest` suite.
+- Phase 6 ✓: `docs/dsl.md` + examples (`examples/dsl/`).
+- v1.20.1–v1.20.3 (error recovery, indentation-aware, multi-pass) — deferred sub-milestones.
 
 Ships infrastructure for three flavours of DSL: internal
 eDSL (works today, just document the patterns),
