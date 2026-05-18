@@ -1,7 +1,7 @@
 ---
 name: std-http
 version: 0.1.0
-description: HTTP server + client primitives — extern declarations for route / serve / stop / tls / httpGet / httpPost / wsConnect
+description: HTTP server + client primitives — extern declarations for route / serve / stop / tls / httpGet / httpPost / wsConnect / cors / useGzip / cacheable / noCache
 exports:
   - route
   - serve
@@ -11,6 +11,10 @@ exports:
   - httpPost
   - httpClient
   - wsConnect
+  - cors
+  - useGzip
+  - cacheable
+  - noCache
   - Request
   - Response
 ---
@@ -45,6 +49,21 @@ extern def httpClient(baseUrl: String)(block: => Unit): Unit
 extern def wsConnect(url: String)(handler: WebSocket => Unit): Unit
 extern def wsConnect(url: String, headers: Map[String, String])(handler: WebSocket => Unit): Unit
 extern def wsConnect(url: String, headers: Map[String, String], protocols: List[String])(handler: WebSocket => Unit): Unit
+
+// CORS — register a global policy applied to every response (including OPTIONS preflight).
+// origins: List("*") for open or List("https://app.com") for specific.
+extern def cors(origins: List[String]): Unit
+extern def cors(origins: List[String], methods: List[String]): Unit
+extern def cors(origins: List[String], methods: List[String], headers: List[String]): Unit
+
+// gzip — enable automatic compression for text/* / JSON responses when client accepts it.
+extern def useGzip(): Unit
+
+// Cache helpers — add Cache-Control / ETag to an existing Response.
+// 304 short-circuit fires automatically in the server when ETag matches If-None-Match.
+extern def cacheable(response: Response, maxAge: Int): Response
+extern def cacheable(response: Response, maxAge: Int, etag: String): Response
+extern def noCache(response: Response): Response
 ```
 
 # Request / Response
