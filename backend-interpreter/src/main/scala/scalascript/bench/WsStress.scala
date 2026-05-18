@@ -10,6 +10,21 @@ import java.nio.charset.StandardCharsets
 import java.util.concurrent.{ConcurrentLinkedQueue, CountDownLatch, Executors, TimeUnit}
 import java.util.concurrent.atomic.AtomicInteger
 
+/** Spawn-helper that uses Loom virtual threads on JDK 21+ and a
+ *  regular daemon thread on older JDKs.  Bench file isn't worth
+ *  losing Java 17 compat for. */
+private def _spawnVirtualOrDaemon(body: () => Unit): Thread =
+  try
+    val cls   = Class.forName("java.lang.Thread$Builder$OfVirtual")
+    val of    = classOf[Thread].getMethod("ofVirtual").invoke(null)
+    cls.getMethod("start", classOf[Runnable])
+      .invoke(of, (() => body()): Runnable).asInstanceOf[Thread]
+  catch case _: Throwable =>
+    val t = Thread(() => body())
+    t.setDaemon(true)
+    t.start()
+    t
+
 /** WebSocket connect / fan-out / disconnect baseline for the
  *  interpreter's NIO proxy.  Runs in-process: same JVM hosts the
  *  server + N WebSocket clients (Loom virtual threads, ~few KB each).
@@ -86,7 +101,7 @@ onWebSocket("/bench") { ws =>
   val cerr      = AtomicInteger(0)
   val t1 = now()
   (1 to n).foreach { _ =>
-    Thread.ofVirtual().start { () =>
+    _spawnVirtualOrDaemon { () =>
       try
         val s = WsStressUtil.handshake(port)
         sockets.add(s)
@@ -116,7 +131,7 @@ onWebSocket("/bench") { ws =>
   val bcLat = CountDownLatch(recv.length)
   val bcErr = AtomicInteger(0)
   recv.foreach { s =>
-    Thread.ofVirtual().start { () =>
+    _spawnVirtualOrDaemon { () =>
       try { WsStressUtil.readFrame(s); bcLat.countDown() }
       catch case _: Throwable => bcErr.incrementAndGet(); bcLat.countDown()
     }
