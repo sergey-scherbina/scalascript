@@ -396,17 +396,27 @@ object WebServer:
     //   val email = requireString(req, "email")
     //   val age   = requireInt(req, "age")
     //   ...
+    // Build middleware chain: innermost = route handler, outermost = first registered middleware.
+    val mws = Routes.middlewares
+    def baseHandler(): Value =
+      try entry.interpreter.invoke(entry.handler, List(req))
+      catch case ve: RestValidationError =>
+        Value.InstanceV("Response", Map(
+          "status"  -> Value.IntV(400),
+          "headers" -> Value.MapV(Map(
+            Value.StringV("Content-Type") -> Value.StringV("text/plain; charset=utf-8")
+          )),
+          "body"    -> Value.StringV(ve.getMessage)
+        ))
+    var chain: () => Value = () => baseHandler()
+    mws.reverse.foreach { (fn, interp) =>
+      val nextChain = chain
+      val nextFn = scalascript.interpreter.Value.NativeFnV("next",
+        scalascript.interpreter.Computation.pureFn { _ => nextChain() })
+      chain = () => interp.invoke(fn, List(req, nextFn))
+    }
     try
-      val result =
-        try entry.interpreter.invoke(entry.handler, List(req))
-        catch case ve: RestValidationError =>
-          Value.InstanceV("Response", Map(
-            "status"  -> Value.IntV(400),
-            "headers" -> Value.MapV(Map(
-              Value.StringV("Content-Type") -> Value.StringV("text/plain; charset=utf-8")
-            )),
-            "body"    -> Value.StringV(ve.getMessage)
-          ))
+      val result = chain()
       result match
         case Value.InstanceV("StreamResponse", fields) =>
           handleStreamResponse(fields, ex, rawCookieSession, entry.interpreter)

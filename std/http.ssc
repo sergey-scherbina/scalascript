@@ -1,7 +1,7 @@
 ---
 name: std-http
 version: 0.1.0
-description: HTTP server + client primitives — extern declarations for route / serve / stop / tls / httpGet / httpPost / httpClient / httpGetStream / httpPostStream / wsConnect / cors / useGzip / cacheable / noCache / streamResponse / maxBodySize / uploadSpoolThreshold / uploadDir / sse
+description: HTTP server + client primitives — extern declarations for route / serve / stop / tls / httpGet / httpPost / httpClient / httpGetStream / httpPostStream / wsConnect / cors / useGzip / cacheable / noCache / streamResponse / maxBodySize / uploadSpoolThreshold / uploadDir / sse / use
 exports:
   - route
   - serve
@@ -27,6 +27,7 @@ exports:
   - uploadSpoolThreshold
   - uploadDir
   - sse
+  - use
   - Request
   - Response
   - UploadedFile
@@ -49,6 +50,10 @@ extern def stop(): Unit
 
 // Route registration — curried: route(method, path) { handler }
 extern def route(method: String, path: String, handler: Request => Response): Unit
+
+// Middleware — wraps every route handler.  First registered = outermost.
+// Call next() to pass control to the next middleware / route handler.
+extern def use(fn: (Request, () => Response) => Response): Unit
 
 // Outbound HTTP client
 extern def httpGet(url: String): Response

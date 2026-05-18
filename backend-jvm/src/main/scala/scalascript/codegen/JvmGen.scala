@@ -3322,10 +3322,13 @@ class JvmGen(
        |  }
        |
        |private case class _Route(method: String, path: String, pattern: List[_Seg], handler: Request => Response)
-       |private val _routes = scala.collection.mutable.ArrayBuffer.empty[_Route]
+       |private val _routes      = scala.collection.mutable.ArrayBuffer.empty[_Route]
+       |private val _middlewares = scala.collection.mutable.ArrayBuffer.empty[(Request, () => Response) => Response]
        |
        |def route(method: String, path: String)(handler: Request => Response): Unit =
        |  _routes += _Route(method.toUpperCase, path, _parsePath(path), handler)
+       |
+       |def use(fn: (Request, () => Response) => Response): Unit = _middlewares += fn
        |
        |// Tier 5 #21 — `/_health` and `/_ready` defaults auto-registered the
        |// first time `serve(...)` runs.  User-defined routes with the same
@@ -3555,13 +3558,18 @@ class JvmGen(
        |          form, files, session, bearer, claims, basicAuth, cookies)
        |        // Tier 5 #20 — validation primitives short-circuit by
        |        // throwing _RestValidationError; convert to 400.
+       |        // D′.2 — build middleware chain: first registered = outermost.
+       |        def _baseHandler(): Response =
+       |          try r.handler(req)
+       |          catch case ve: _RestValidationError =>
+       |            Response(400, Map("Content-Type" -> "text/plain; charset=utf-8"), ve.getMessage)
+       |        var _chain: () => Response = () => _baseHandler()
+       |        _middlewares.reverseIterator.foreach { mw =>
+       |          val _inner = _chain
+       |          _chain = () => mw(req, _inner)
+       |        }
        |        try
-       |          val _rawResult =
-       |            try r.handler(req)
-       |            catch case ve: _RestValidationError =>
-       |              Response(400,
-       |                Map("Content-Type" -> "text/plain; charset=utf-8"),
-       |                ve.getMessage)
+       |          val _rawResult = _chain()
        |          _rawResult match
        |            case sr: _StreamResponse =>
        |              sr.headers.foreach((k, v) => ex.getResponseHeaders.add(k, v))

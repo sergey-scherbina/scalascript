@@ -216,6 +216,8 @@ private val JsRuntimePart1b: String = """
 // needed.  Browser-side execution is intentionally out of scope: this
 // runtime require()s 'http' which only exists in Node.
 const _routes = [];
+const _middlewares = [];
+function use(fn) { _middlewares.push(fn); }
 const _wsRoutes = [];
 // Process-wide cap on active WS sessions.  `setMaxWsConnections(n)`
 // raises / lowers it.  Default = unlimited; upgrades past the cap
@@ -1899,20 +1901,24 @@ function serve(port, _tlsCfg) {
           const request = _mkRequest(req, params, bodyBuf);
           // Tier 5 #20 — validation primitives short-circuit by throwing
           // _RestValidationError; catch here and turn into 400.
-          let result;
-          try {
-            result = r.handler(request);
-          } catch (e) {
-            if (e && e._restValidation) {
-              result = _mkResp({
-                status: 400,
-                headers: new Map([['Content-Type', 'text/plain; charset=utf-8']]),
-                body: String(e.message || e)
-              });
-            } else {
+          // D′.2 — build middleware chain: first registered = outermost.
+          function _baseHandler() {
+            try {
+              return r.handler(request);
+            } catch (e) {
+              if (e && e._restValidation) {
+                return _mkResp({ status: 400, headers: new Map([['Content-Type', 'text/plain; charset=utf-8']]), body: String(e.message || e) });
+              }
               throw e;
             }
           }
+          let _chain = _baseHandler;
+          for (let _i = _middlewares.length - 1; _i >= 0; _i--) {
+            const _mw = _middlewares[_i], _inner = _chain;
+            _chain = () => _mw(request, _inner);
+          }
+          let result;
+          result = _chain();
           try {
             // Streaming response — invoke the writer block with a chunk callback
             if (result && result._streaming) {

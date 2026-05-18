@@ -833,6 +833,12 @@ class Interpreter(
       case _ => throw InterpretError("uploadDir(path: String)")
     }
 
+    // use(fn) — register a middleware applied to every request before the route handler.
+    nativeP("use") {
+      case List(fn) => scalascript.server.Routes.addMiddleware(fn, this); Value.UnitV
+      case _ => throw InterpretError("use(fn: (Request, () => Response) => Response)")
+    }
+
     // httpTimeout(ms) — set outbound HTTP request timeout for subsequent calls.
     // Scoped inside httpClient{} blocks; restored on exit.
     nativeP("httpTimeout") {

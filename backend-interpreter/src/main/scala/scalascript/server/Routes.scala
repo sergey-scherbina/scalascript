@@ -29,12 +29,17 @@ object Routes:
     case class Literal(s: String) extends Segment
     case class Capture(name: String) extends Segment
 
-  private val entries = scala.collection.mutable.ArrayBuffer.empty[Entry]
+  private val entries     = scala.collection.mutable.ArrayBuffer.empty[Entry]
+  private val _middlewares = scala.collection.mutable.ArrayBuffer.empty[(Value, Interpreter)]
 
-  def clear(): Unit = entries.clear()
+  def clear(): Unit = { entries.clear(); _middlewares.clear() }
 
   def register(method: String, path: String, handler: Value, interp: Interpreter): Unit =
     entries += Entry(method.toUpperCase, path, parsePath(path), handler, interp)
+
+  def addMiddleware(fn: Value, interp: Interpreter): Unit = _middlewares += ((fn, interp))
+
+  def middlewares: List[(Value, Interpreter)] = _middlewares.toList
 
   def all: List[Entry] = entries.toList
 
