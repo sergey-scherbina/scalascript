@@ -4020,6 +4020,28 @@ function _makeGenerator(genFn) {
   return _wrap(iter);
 }
 
+// ── v1.9 Coroutine primitive — JS native generators ────────────────────────
+// coroutineCreate(fn) wraps a function* generator; coroutineResume steps it.
+// suspend(v) inside a coroutineCreate body compiles to `yield v` (JsGen
+// emits it via genGeneratorBody / genGenExpr, same path as generator bodies).
+function Yielded(value)   { return { _type: 'Yielded',   value }; }
+function Returned(value)  { return { _type: 'Returned',  value }; }
+function Errored(message) { return { _type: 'Errored',  message }; }
+
+function _coroutineCreate(genFn) {
+  const gen = genFn();
+  return { _type: '_Coroutine', _gen: gen, _done: false };
+}
+
+function _coroutineResume(co, input) {
+  if (co._done) throw new Error('coroutineResume: coroutine already completed');
+  let r;
+  try { r = co._gen.next(input); }
+  catch (e) { co._done = true; return Errored(e.message || String(e)); }
+  if (r.done) { co._done = true; return Returned(r.value); }
+  return Yielded(r.value);
+}
+
 // ── Storage: built-in key-value effect ────────────────────────────────────
 //
 // `Storage.{get,put,remove,has,keys}` produce `_Perform("Storage", op,
@@ -5410,11 +5432,44 @@ class JsGen(
         // After each non-last stat, continue with remaining
       }
 
-  // ── Generator body emitter ────────────────────────────────────────────
-  // Emits a `function*() { ... }` with `suspend(v)` → `yield v` and no
-  // IIFE wrapping for blocks (yield must be lexically in the function*).
+  // ── Generator / coroutine body helpers ───────────────────────────────
+  // The parser wraps `{ () => body }` in a Term.Block; this helper unwraps
+  // it so we always call genGeneratorBody with just the body content.
+  private def extractGenBody(arg: Term): String = arg match
+    case Term.Function.After_4_6_0(_, body) =>
+      genGeneratorBody(body.asInstanceOf[Term])
+    case Term.Block(List(Term.Function.After_4_6_0(_, body))) =>
+      genGeneratorBody(body.asInstanceOf[Term])
+    case other =>
+      s"function*() { return ${genExpr(other)}; }"
+
+  private def extractCoroutineBody(arg: Term): String = arg match
+    case Term.Function.After_4_6_0(_, body) =>
+      genCoroutineBody(body.asInstanceOf[Term])
+    case Term.Block(List(Term.Function.After_4_6_0(_, body))) =>
+      genCoroutineBody(body.asInstanceOf[Term])
+    case other =>
+      s"function*() { return ${genExpr(other)}; }"
+
   private def genGeneratorBody(t: Term): String =
     s"function*() {\n${genGenStmt(t)}\n}"
+
+  // Like genGeneratorBody but emits `return` for the last expression so
+  // the coroutine's completion value is propagated via gen.next().done.
+  private def genCoroutineBody(t: Term): String =
+    s"function*() {\n${genCoroutineStmts(t)}\n}"
+
+  private def genCoroutineStmts(t: Term): String = t match
+    case Term.Block(stats) if stats.nonEmpty =>
+      val (init, last) = (stats.init, stats.last)
+      val initJs = init.map(genGenStatItem).mkString("\n")
+      val lastJs = last match
+        case w: Term.While  => genGenStatItem(w)  // while returns Unit — no return needed
+        case t: Term        => s"  return ${genGenExpr(t)};"
+        case s              => s"  ${genStatInline(s)}"
+      if init.isEmpty then lastJs else initJs + "\n" + lastJs
+    case t: Term => s"  return ${genGenExpr(t)};"
+    case s       => s"  ${genStatInline(s)}"
 
   private def genGenStmt(t: Term): String = t match
     case Term.Block(stats) => stats.map(genGenStatItem).mkString("\n")
@@ -5909,14 +5964,20 @@ class JsGen(
     // v1.10 Generator — generator { () => body } / suspend(v)
     case Term.Apply.After_4_6_0(Term.Name("generator"), argClause)
         if argClause.values.size == 1 =>
-      val bodyJs = argClause.values.head match
-        case Term.Function.After_4_6_0(_, body) =>
-          genGeneratorBody(body.asInstanceOf[Term])
-        case other => s"function*() { return ${genExpr(other.asInstanceOf[Term])}; }"
-      s"_makeGenerator($bodyJs)"
+      s"_makeGenerator(${extractGenBody(argClause.values.head.asInstanceOf[Term])})"
     case Term.Apply.After_4_6_0(Term.Name("suspend"), argClause)
         if argClause.values.size == 1 =>
       s"(yield ${genExpr(argClause.values.head.asInstanceOf[Term])})"
+    // v1.9 Coroutine — coroutineCreate { () => body } / coroutineResume(co, in)
+    case Term.Apply.After_4_6_0(
+        Term.ApplyType.After_4_6_0(Term.Name("coroutineCreate"), _) | Term.Name("coroutineCreate"),
+        argClause) if argClause.values.size == 1 =>
+      s"_coroutineCreate(${extractCoroutineBody(argClause.values.head.asInstanceOf[Term])})"
+    case Term.Apply.After_4_6_0(
+        Term.ApplyType.After_4_6_0(Term.Name("coroutineResume"), _) | Term.Name("coroutineResume"),
+        argClause) if argClause.values.size == 2 =>
+      val vs = argClause.values.map(v => genExpr(v.asInstanceOf[Term]))
+      s"_coroutineResume(${vs(0)}, ${vs(1)})"
 
     // Special forms: computed / effect — wrap the by-name body as a
     // zero-arg thunk so the reactive scheduler can rerun it when its

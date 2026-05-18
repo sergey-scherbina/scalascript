@@ -4952,10 +4952,16 @@ class JvmGen(
        |
        |private def _suspend(v: Any): Unit =
        |  val q = _genQueueTL.get()
-       |  if q == null then throw new RuntimeException("suspend called outside a generator body")
+       |  if q == null then throw new RuntimeException("suspend called outside a coroutine or generator body")
        |  q.put(Some(v))
        |
-       |def suspend(v: Any): Unit = _suspend(v)
+       |def suspend(v: Any): Any =
+       |  val coH = _coHandleTL.get()
+       |  if coH != null then
+       |    coH.fromBody.put(Yielded(v))
+       |    coH.toBody.take()
+       |  else
+       |    _suspend(v)
        |
        |class _Generator[+A](bodyFn: () => Unit):
        |  private type Q = java.util.concurrent.SynchronousQueue[Option[Any]]
@@ -5047,6 +5053,55 @@ class JvmGen(
        |  })
        |
        |def generator(body: => Unit): _Generator[Any] = new _Generator[Any](() => body)
+       |
+       |// ── v1.9 Coroutine primitive — virtual-thread handshake ──────────────────
+       |// Two-way suspend/resume via a pair of SynchronousQueues.
+       |// Protocol (lazy start): body waits on toBody.take() for the first resume,
+       |// each suspend puts Yielded(out) and takes from toBody for the next input.
+       |case class Yielded(value: Any)
+       |case class Returned(value: Any)
+       |case class Errored(message: String)
+       |
+       |private case class _CoHandle(
+       |  fromBody: java.util.concurrent.SynchronousQueue[Any],
+       |  toBody:   java.util.concurrent.SynchronousQueue[Any]
+       |)
+       |private case class _Coroutine(_id: Long)
+       |private val _coHandleTL = new ThreadLocal[_CoHandle]()
+       |private val _coHandles  = new java.util.concurrent.ConcurrentHashMap[Long, _CoHandle]()
+       |private val _nextCoId   = new java.util.concurrent.atomic.AtomicLong(0L)
+       |
+       |def coroutineCreate(body: () => Any): _Coroutine =
+       |  val fromBody = new java.util.concurrent.SynchronousQueue[Any]()
+       |  val toBody   = new java.util.concurrent.SynchronousQueue[Any]()
+       |  val handle   = _CoHandle(fromBody, toBody)
+       |  val id       = _nextCoId.getAndIncrement()
+       |  _coHandles.put(id, handle)
+       |  Thread.ofVirtual().start { () =>
+       |    _coHandleTL.set(handle)
+       |    toBody.take()
+       |    try
+       |      val result = body()
+       |      fromBody.put(Returned(result))
+       |    catch case t: Throwable =>
+       |      val msg = Option(t.getMessage).getOrElse(t.getClass.getSimpleName)
+       |      try fromBody.put(Errored(msg)) catch case _: Throwable => ()
+       |  }
+       |  _Coroutine(id)
+       |
+       |def coroutineResume(co: Any, in: Any): Any =
+       |  co match
+       |    case _Coroutine(id) =>
+       |      val handle = _coHandles.get(id)
+       |      if handle == null then throw new RuntimeException("coroutineResume: coroutine already completed")
+       |      handle.toBody.put(in)
+       |      val step = handle.fromBody.take()
+       |      step match
+       |        case _: Returned | _: Errored => _coHandles.remove(id)
+       |        case _ => ()
+       |      step
+       |    case _ => throw new RuntimeException("coroutineResume: not a coroutine")
+       |
        |""".stripMargin
 
   /** Free-Monad runtime for algebraic effects. Mirrors the interpreter and JS
