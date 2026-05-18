@@ -421,7 +421,7 @@ unblocks downstream features as early as possible.
      Full design in [`docs/metaprogramming.md`](docs/metaprogramming.md).
      User-defined macros (`quoted.Expr`) explicitly out of scope —
      deferred to v2.x.  Depends on v1.13 (`Mirror` resolution).
- 21. **v1.15 — Checked errors via `throws`** (~12 days).
+ 21. **v1.15 — Checked errors via `throws`** (~13 days).
      Dual-encoding: canonical `infix type throws[A, E] = Either[E, A]`
      (direct-syntax-integrated, monadic, ergonomic) plus opt-in
      `infix type throwsRaw[A, E] = A | E` (zero-allocation; preserves
@@ -2353,12 +2353,40 @@ Allows `def f: Int throws ParseError = 42` and `... = ParseError(...)`
 without explicit `Right` / `Left` wrappers.  Conversions fire
 only when the bare-value type doesn't match expected.
 
-### Phase 3 — Direct-syntax integration (~2 days)
+### Phase 3 — Direct-syntax integration (~3 days)
 
-Verify `direct[Either[E, *]] { … }` properly auto-binds
-`throws`-typed values via the v1.1 `Monad[Either[E, *]]`
-instance.  Conformance: `throws-direct-syntax.ssc` covering
-binding, short-circuit on Left, pure tail auto-lift.
+Three things to ship in this phase, all driven off the same
+`MonadError` resolution machinery (v1.13):
+
+  1. **Auto-bind for `throws`-typed values** — `id =
+     parseInt(req.params("id"))` inside `direct[Either[E, *]]`
+     resolves via `Monad[Either[E, *]]` from v1.1 std.
+     Short-circuit on Left, pure tail auto-lifts to Right.
+  2. **Type-directed `throw` lowering** — inside `direct[F] { … }`,
+     `throw e: E` lowers to `F.fail(e)` *when* `MonadError[F, E']`
+     (with `E <: E'`) is in scope; otherwise stays as JVM-native
+     throw.  See `docs/error-handling.md` §2.5.6.
+  3. **Type-directed `try`-`catch` lowering** — `try body catch
+     case e: E => h` lowers to `F.handleError(body) { case e: E
+     => h }` when `MonadError[F, E']` matches; otherwise stays
+     as JVM-native try-catch.  Mixed catches (some typed, some
+     untyped) emit a hybrid lowering — typed branches as
+     `F.handleError`, untyped as wrapping JVM `catch` clauses.
+
+DS-7 refined accordingly: thrown exceptions auto-wrap ONLY when
+the user explicitly typed them AND the surrounding F advertises
+a matching error channel.  Bare `throw new RuntimeException(...)`
+inside a direct block still escapes via JVM stack unwinding —
+the two-fault-model trap stays avoided because the lowering is
+driven by what the user typed, not by silent magic.
+
+Conformance:
+  - `throws-direct-syntax.ssc` — basic auto-bind + short-circuit
+  - `throws-direct-throw.ssc` — `throw AppError(...)` → `Left`
+    inside `direct[ResultS]`
+  - `throws-direct-try-catch.ssc` — typed catch → `F.handleError`
+  - `throws-direct-mixed.ssc` — mixed typed + untyped catch
+    branches in one `try`
 
 ### Phase 4 — Std-lib `throws`-typed shims (~2 days)
 
@@ -2434,9 +2462,26 @@ The two-tier stack trace model documented in
 captures via `HasStackTrace`; trace-less `throws` pays
 nothing.
 
+### Tier model — four error mechanisms, one document
+
+Per `docs/error-handling.md` §2.5.5, ScalaScript has four
+error mechanisms; v1.15 ships the first three:
+
+  1. `throws[A, E] = Either[E, A]`         — canonical, monadic, typed
+  2. `throwsRaw[A, E] = A | E`              — opt-in perf / interop (Phase 8)
+  3. Unchecked `throw e` / `try`-`catch`    — peer to throwsRaw; JVM-native, untyped
+  4. `MonadError[F, E]` (already in v1.1)   — for monadic effects
+
+Tier 1 is the default; tiers 2 and 3 are opt-in escape
+hatches for specific use cases (hot paths, JVM interop,
+systemic errors).  Restartable errors (v1.16) are tier 4.
+
 ### Hard-no list (locked by design — `docs/error-handling.md` §5)
 
 - Auto-wrap thrown exceptions in direct blocks (DS-7 stays)
+- Removing or deprecating unchecked `throw` / `try`-`catch`
+  (first-class peer to `throwsRaw` per §2.5.5; not migrating
+  away)
 - `A | E` union encoding as the **default** `throws`
   (canonical is Either; union ships as opt-in `throwsRaw`
   companion — see Phase 8)
@@ -2444,7 +2489,10 @@ nothing.
   (explicit `box` / `unbox` only)
 - `throwsRaw` as a `direct[F] { … }` target (`throws` only;
   raw must be `box`-ed before entering a direct block)
-- Java-style throws clauses (only return-type-position `throws`)
+- Java-style **checked**-throws clauses on signatures
+  (separate from the return type, compiler-enforced) — keep
+  the `throws[A, E]` type-alias path.  Unchecked throws are
+  a different mechanism and stay.
 - `E` restricted to `Throwable` subtypes (works over any `E`)
 - Effect-row tracking for errors (v1.12 algebraic effects territory)
 
@@ -2490,11 +2538,12 @@ Four items previously carrying recommendations are now locked:
 
 ### Effort
 
-Nine phases, ~12 days end-to-end across three backends
-(was ~10 — bumped by the dual-encoding companion).  Phase 6
-(stack traces) is still the only piece with meaningful
-per-backend variance; Phases 8-9 are pure stdlib + helper
-work that lands uniformly.
+Nine phases, ~13 days end-to-end across three backends
+(was ~12 — Phase 3 expanded from ~2 to ~3 days to absorb the
+type-directed `throw` / `try`-`catch` lowering inside direct
+blocks).  Phase 6 (stack traces) is still the only piece
+with meaningful per-backend variance; Phases 8-9 are pure
+stdlib + helper work that lands uniformly.
 
 ## v1.16 — Restartable errors via algebraic effects (depends on v1.12)
 
