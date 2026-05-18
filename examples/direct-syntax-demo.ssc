@@ -1,0 +1,158 @@
+#!/usr/bin/env ssc
+---
+name: direct-syntax-demo
+version: 1.0.0
+description: v1.8 direct[M] do-notation — Option and List monad examples
+---
+
+# Direct-Syntax Do-Notation
+
+`direct[M] { … }` desugars a block of monadic code into a `flatMap`
+chain without `for`/`yield` or explicit callbacks.  Bind forms
+(`x = expr`) extract values from `M`-wrapped computations; plain `val`
+bindings stay pure.
+
+[whileMOption, forMOption, replicateMOption](../std/monad-control.ssc)
+
+## Validated record lookup
+
+`direct[Option]` short-circuits as soon as any step returns `None` —
+the same semantics as chained `.flatMap` calls, written as sequential code.
+
+```scalascript
+case class User(name: String, age: Int)
+case class Profile(user: User, bio: String)
+
+val users: Map[String, User] = Map(
+  "alice" -> User("Alice", 30),
+  "bob"   -> User("Bob",   25)
+)
+
+val bios: Map[String, String] = Map(
+  "alice" -> "functional programmer"
+)
+
+def lookupProfile(id: String): Option[Profile] =
+  direct[Option] {
+    user = users.get(id)
+    bio  = bios.get(user.name.toLowerCase)
+    Some(Profile(user, bio))
+  }
+
+println(lookupProfile("alice"))   // Some(Profile(User(Alice,30),functional programmer))
+println(lookupProfile("bob"))     // None — no bio entry
+println(lookupProfile("carol"))   // None — no user entry
+```
+
+## Safe arithmetic pipeline
+
+Chain multiple validated steps; a `None` anywhere short-circuits to `None`.
+
+```scalascript
+def safeDivide(a: Int, b: Int): Option[Int] =
+  if b == 0 then None else Some(a / b)
+
+def safeRoot(n: Int): Option[Int] =
+  if n < 0 then None else Some(n)   // simplified: integer "root" just checks sign
+
+val r1 = direct[Option] {
+  q  = safeDivide(100, 4)     // Some(25)
+  ok = safeRoot(q)            // Some(25)
+  val doubled = ok * 2
+  Some(doubled)
+}
+println(r1)   // Some(50)
+
+val r2 = direct[Option] {
+  q  = safeDivide(10, 0)      // None — short-circuits
+  ok = safeRoot(q)
+  Some(ok)
+}
+println(r2)   // None
+```
+
+## Cartesian enumeration with List
+
+`direct[List]` produces the Cartesian product of all binds — equivalent
+to a nested `for` comprehension.
+
+```scalascript
+val sizes   = List("S", "M", "L")
+val colours = List("red", "blue")
+
+val skus = direct[List] {
+  size   = sizes
+  colour = colours
+  List(size + "-" + colour)
+}
+println(skus.mkString(", "))
+// S-red, S-blue, M-red, M-blue, L-red, L-blue
+```
+
+## Combining direct and monad-control helpers
+
+`forMOption` sequentially runs an `Option`-returning function for each
+element, short-circuiting on `None`.
+
+```scalascript
+val inventory: Map[String, Int] = Map("apples" -> 5, "bread" -> 2)
+
+def reserve(item: String, qty: Int): Option[Unit] =
+  inventory.get(item) match
+    case Some(n) if n >= qty => Some(())
+    case _                   => None
+
+val order1 = direct[Option] {
+  r = forMOption(List("apples", "bread"), (item: String) => reserve(item, 1))
+  Some("order confirmed")
+}
+println(order1)   // Some(order confirmed)
+
+val order2 = direct[Option] {
+  r = forMOption(List("apples", "milk"), (item: String) => reserve(item, 1))
+  Some("order confirmed")
+}
+println(order2)   // None — milk not in inventory
+```
+
+## Pure vals and mutable vars coexist with binds
+
+```scalascript
+val r3 = direct[Option] {
+  x = Some(10)
+  val scale = 3
+  var acc = 0
+  y = Some(x * scale)
+  acc = acc + y
+  Some(acc)
+}
+println(r3)   // Some(30)
+```
+
+## Nested direct blocks
+
+The inner block computes independently; its result becomes the RHS of
+an outer bind.
+
+```scalascript
+def tryParse(s: String): Option[Int] =
+  if s.length > 3 then Some(s.length) else None
+
+val r4 = direct[Option] {
+  inner = direct[Option] {
+    a = tryParse("hi")    // length 2, fails (<= 3)
+    Some(a + 1)
+  }
+  Some(inner * 10)
+}
+println(r4)   // None — "hi" fails tryParse
+
+val r5 = direct[Option] {
+  inner = direct[Option] {
+    a = tryParse("hello") // length 5, passes
+    Some(a + 1)
+  }
+  Some(inner * 10)
+}
+println(r5)   // Some(60)  (length 5 + 1 = 6, * 10)
+```
