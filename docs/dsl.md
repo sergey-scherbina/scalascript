@@ -295,19 +295,30 @@ enum ParseResult[+A]:
 
 // REIFIED: every combinator is a case-class node in this enum.
 // Building a Parser produces a tree.  No execution happens until
-// you call .parse(...) — see §5.3.
+// you call .parse(...) — see §5.3.2.
 enum Parser[+A]:
+  // Primitives
   case Char(c: scala.Char)                                            extends Parser[scala.Char]
   case StringP(s: String)                                             extends Parser[String]
   case Regex(pattern: String)                                         extends Parser[String]
   case Satisfy(pred: scala.Char => Boolean)                           extends Parser[scala.Char]
+  // Composition
   case Sequence[A, B](left: Parser[A], right: Parser[B])              extends Parser[(A, B)]
   case Choice[A](left: Parser[A], right: Parser[A])                   extends Parser[A]
   case Many[A](inner: Parser[A], minCount: Int)                       extends Parser[List[A]]
   case Opt[A](inner: Parser[A])                                       extends Parser[Option[A]]
+  // Transform
   case Mapped[A, B](inner: Parser[A], f: A => B)                      extends Parser[B]
   case FlatMapped[A, B](inner: Parser[A], f: A => Parser[B])          extends Parser[B]
   case Named[A](inner: Parser[A], name: String)                       extends Parser[A]
+  // Context manipulation (see §5.8)
+  case WithLocalContext[A](
+    inner:  Parser[A],
+    update: ParserContext => ParserContext
+  ) extends Parser[A]
+  case ReadContext[A](
+    f: ParserContext => Parser[A]
+  ) extends Parser[A]
 ```
 
 ### 5.3 Combinators — pure data construction
@@ -337,7 +348,64 @@ extension [A](p: Parser[A])
   def named(name: String): Parser[A]               = Parser.Named(p, name)
 ```
 
-### 5.3.1 Execution — explicit extension methods
+### 5.3.1 Left-recursion combinators (locked)
+
+PEG semantics naïvely forbids direct left recursion
+(`expr := expr '+' term` loops infinitely).  Ship a family
+of **special-purpose combinators** that let users write
+left-recursive grammars naturally:
+
+```scala
+extension [A](p: Parser[A])
+  // A op A op A — left-associative chain
+  def chainLeft[A1 >: A](op: Parser[(A1, A) => A1]): Parser[A1] =
+    (p ~ (op ~ p).*).map { case (first, rest) =>
+      rest.foldLeft(first) { case (acc, (f, b)) => f(acc, b) }
+    }
+
+  // A op A op A — right-associative chain
+  def chainRight[A1 >: A](op: Parser[(A, A1) => A1]): Parser[A1] =
+    (p ~ (op ~ p).?).map { case (first, opt) =>
+      opt match
+        case None => first
+        case Some((f, rest)) => f(first, rest)
+    }
+
+  // A suf suf suf — postfix chains (e.g., `x.field.method.field`)
+  def chainPostfix(suffix: Parser[A => A]): Parser[A] =
+    (p ~ suffix.*).map { case (first, rest) =>
+      rest.foldLeft(first)((acc, f) => f(acc))
+    }
+
+  // pre pre pre A — prefix chains (e.g., `not not not x`)
+  def chainPrefix(prefix: Parser[A => A]): Parser[A] =
+    (prefix.* ~ p).map { case (pres, base) =>
+      pres.foldRight(base)((f, acc) => f(acc))
+    }
+```
+
+Worked example — calculator that previously needed
+PEG-workaround:
+
+```scala
+val factor: Parser[Int] = num | (char('(') ~> expr <~ char(')'))
+val term:   Parser[Int] = factor.chainLeft(char('*').as((a, b) => a * b))
+val expr:   Parser[Int] = term.chainLeft(char('+').as((a, b) => a + b))
+```
+
+Reads as left-recursive grammar; under the hood compiles
+to `(p ~ (op ~ p).*).foldLeft` — same PEG-safe shape, but
+the user thinks in CFG terms.
+
+For **truly mutually recursive left-recursion** (e.g.,
+`expr ::= expr '+' term | letExpr` where `letExpr ::=
+"let" id "=" expr`) — that needs memoised fixpoint (Warth
+2008).  **Deferred to v1.20.x** — packrat overhead is
+acceptable only when measurement justifies, and the
+operator-chain combinators above cover ~95% of real
+parser-author needs.
+
+### 5.3.2 Execution — explicit extension methods
 
 The default interpreter is recursive-descent.  Other
 interpreters can ship as extension methods over the same
@@ -493,6 +561,112 @@ The lock will happen once we see ≥3 real injection-class
 DSLs surface — until then, document the convention,
 don't enforce.
 
+### 5.8 Parser context via ADT nodes (locked)
+
+Some DSLs need to track parser-local state that isn't part
+of input position — indentation level, current scope,
+already-bound identifiers, etc.  Locked design (2026-05-18):
+**context lives in the Parser ADT as two extra nodes**;
+runtime evaluator carries the value through evaluation
+(NOT thread-local).
+
+```scala
+// std/parsing/types.ssc — additions to the existing Parser enum
+
+trait ParserContext
+
+case object NoContext extends ParserContext
+
+enum Parser[+A]:
+  // ... existing nodes from §5.2 (Char, StringP, Regex, Sequence, ...)
+
+  // NEW: context-manipulation nodes
+  case WithLocalContext[A](
+    inner:  Parser[A],
+    update: ParserContext => ParserContext
+  ) extends Parser[A]
+
+  case ReadContext[A](
+    f: ParserContext => Parser[A]
+  ) extends Parser[A]
+
+// Extension API
+extension [A](p: Parser[A])
+  def localCtx(update: ParserContext => ParserContext): Parser[A] =
+    Parser.WithLocalContext(p, update)
+
+object Parser:
+  def readCtx[A](f: ParserContext => Parser[A]): Parser[A] =
+    Parser.ReadContext(f)
+```
+
+The default-interpreter signature gains a `ctx` parameter:
+
+```scala
+extension [A](p: Parser[A])
+  def parse(
+    input: String,
+    pos:   Position       = Position(1, 1),
+    ctx:   ParserContext  = NoContext
+  ): ParseResult[A] =
+    std.parsing._internal.RecursiveDescent.run(p, input, pos, ctx)
+```
+
+#### Why this shape
+
+- **`Parser[A]` types stay simple** — no `Parser[A, C]` polluting every signature for users who don't need context
+- **Context is in the Parser data** — `WithLocalContext` / `ReadContext` are first-class ADT nodes; users introspecting / transforming the Parser tree see context manipulations as data
+- **Runtime carry, not thread-local** — interpreter passes `ctx` through recursion; reentrant; parallel `.parse(...)` calls don't interfere
+- **Open for any context type** — `ParserContext` is a marker trait; downstream DSL ships its own subtype (`IndentContext`, `ScopeContext`, etc.)
+- **Type safety via pattern-match** — `ReadContext(case ic: IndentContext => …)` is the convention; mismatched context surfaces as a parser failure, not a runtime crash
+
+#### Worked example — indentation-aware (preview, v1.20.2)
+
+```scala
+// std/parsing/layout.ssc (ships in v1.20.2; design preview here)
+
+case class IndentContext(currentLevel: Int, stack: List[Int]) extends ParserContext
+
+extension [A](p: Parser[A])
+  // Run `p` with current indent set to `min`
+  def withIndent(min: Int): Parser[A] = p.localCtx {
+    case ic: IndentContext => ic.copy(currentLevel = min)
+    case _                 => IndentContext(min, Nil)
+  }
+
+  // Require current input column ≥ current indent level
+  def sameIndent: Parser[Unit] = Parser.readCtx {
+    case ic: IndentContext =>
+      Parser.satisfyPosition(_.col >= ic.currentLevel).map(_ => ())
+    case _ =>
+      Parser.fail("sameIndent requires an IndentContext in scope")
+  }
+
+  // Multi-line block at current indent
+  def block: Parser[List[A]] = ???
+```
+
+#### Considered alternatives — rejected
+
+- **(a) Field per node** (`case Char(c: scala.Char, ctx: ParserContext)`) —
+  combinator nodes are *data*, context is *runtime state*; storing
+  context per-node duplicates it without payoff, and changing it
+  requires reconstructing the tree
+- **(b) Subclass** (`trait CtxParser[+A, C] extends Parser[A]`) —
+  combining `Parser[A]` with `CtxParser[A, C]` in `~` / `|` causes
+  type pollution or loses context information; user has to choose
+  one layer
+- **(d) Thread-local** — rejected by user direction (and bad
+  practice generally: not reentrant, problematic across coroutine
+  boundaries in v1.9, hidden state)
+
+#### Cost
+
+Two extra `Parser` ADT cases; one extra `ctx` parameter on
+the evaluator.  No runtime overhead when `NoContext` —
+RecursiveDescent skips the dispatch path.  Indentation DSL
+ships as a separate opt-in module (v1.20.2).
+
 ## 6. AST / DSL helpers — `std/dsl/*`
 
 A smaller companion library to `std/parsing/`.  Provides:
@@ -644,7 +818,7 @@ Conformance gates the merge.
 
 ## 10. Open questions
 
-### Locked architectural choices (recap — see §2.5 / §5.2 / §5.6)
+### Locked architectural choices (recap)
 
 - **Reified DSL by default** (§2.5) — all 3 flavours
   produce data; execution is an explicit extension method
@@ -654,8 +828,17 @@ Conformance gates the merge.
   default interpreter; specialised interpreters
   (`compileToPratt`, `validate`, `parseInline`) ship as
   additional extensions
+- **Left-recursion via combinator family** (§5.3.1) —
+  `chainLeft` / `chainRight` / `chainPostfix` /
+  `chainPrefix` cover ~95% of left-recursion needs without
+  packrat overhead; general fixpoint deferred to v1.20.x
 - **`Span` mandatory** for cross-DSL-composable AST nodes
   (§5.6)
+- **Context-in-parser via ADT nodes** (§5.8) — `WithLocalContext`
+  / `ReadContext` cases on the `Parser` enum + `ParserContext`
+  marker trait; runtime evaluator carries the value, not
+  thread-local; indentation-aware parsing built on top in
+  v1.20.2
 
 ### Tentative — likely-but-not-locked (§5.7 / §7.1)
 
@@ -712,6 +895,32 @@ Conformance gates the merge.
   consumers handle?  Probably ties into v1.19 dep import
   semver; locked once both v1.19 and v1.20 ship and
   community DSLs surface.
+
+### TODO — separate mini-milestones when consumer surfaces
+
+These are not part of v1.20 / v1.20.x scope.  Each is a
+genuinely useful follow-up that needs its own design pass
+when a concrete consumer asks:
+
+- **Quasi-quotation** — `sql"... ${otherQuery}"` where
+  `otherQuery: Query[A]` is itself a reified DSL value
+  (not just a runtime value).  Allows DSL composition
+  ("embed this sub-query at this position").  Probably
+  builds on §5.7 hygiene with a new `EmbedReified[D]`
+  marker; tackle when ≥2 DSLs want it.
+- **Parser testing helpers** — `Parser.test(input,
+  expected): TestCase`, property-based `parse(pretty(ast))
+  == ast` shapes, fuzz-testing combinators.  Useful, no
+  language-level blockers.  Ships as `std/parsing/testing.ssc`
+  in a follow-up milestone.
+- **DSL playground / REPL** — `ssc dsl <name>` interactive
+  evaluation.  Useful for SQL-like and query-language
+  authors.  Needs interactive REPL infrastructure (already
+  in `MILESTONES.md` Beyond).
+- **Generated DSL documentation** — auto-doc derived from
+  Grammar / AST shape.  For interpolators, document
+  expected forms.  Static-site generator integration.
+  v2.x-class — touches doc-tooling pipeline.
 
 ## 11. Conformance plan
 
