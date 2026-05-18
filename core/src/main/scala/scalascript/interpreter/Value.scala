@@ -283,6 +283,10 @@ class InterpretError(msg: String) extends RuntimeException(msg)
 /** Thrown by `Term.Throw` evaluation; carries the ScalaScript value that was thrown.
  *  Caught by `Term.Try` handlers in the interpreter. */
 class ScriptException(val value: Value) extends RuntimeException(Value.show(value))
+/** Like ScriptException but overrides fillInStackTrace to skip JVM trace capture.
+ *  Used for @noTrace-annotated types thrown in hot loops. */
+class ScriptExceptionNoTrace(value: Value) extends ScriptException(value):
+  override def fillInStackTrace(): Throwable = this
 private[interpreter] class ReturnSignal(val value: Value) extends Exception
 private[interpreter] class TailCall(val args: List[Value]) extends Throwable(null, null, true, false)
 private[interpreter] class MutualTailCall(val f: Value.FunV, val args: List[Value]) extends Throwable(null, null, true, false)

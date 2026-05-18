@@ -514,3 +514,25 @@ class ThrowsTest extends AnyFunSuite with Matchers:
       println(r.body.contains("handle"))
       println(r.body.contains("42"))
     """) shouldBe "500\ntrue\ntrue"
+
+  // ── Phase 7 — @noTrace modifier ──────────────────────────────────
+
+  test("@noTrace case class can be thrown and caught normally"):
+    captured("""
+      @noTrace
+      case class ParseError(msg: String)
+      val r = try
+        throw ParseError("bad input")
+        "ok"
+      catch
+        case e: ParseError => e.msg
+      println(r)
+    """) shouldBe "bad input"
+
+  test("@noTrace case class can be used without throwing"):
+    captured("""
+      @noTrace
+      case class HotError(code: Int)
+      val e = HotError(42)
+      println(e.code)
+    """) shouldBe "42"

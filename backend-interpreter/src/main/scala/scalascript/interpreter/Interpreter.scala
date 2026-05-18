@@ -59,6 +59,8 @@ class Interpreter(
   private val callStack = scala.collection.mutable.ArrayBuffer.empty[(String, Int)]
   // When true, currentStackTrace() includes anonymous (<anon>) and _-prefixed frames.
   private var traceVerbose: Boolean = false
+  // Types declared with @noTrace — throw uses ScriptExceptionNoTrace to skip JVM fillInStackTrace.
+  private val noTraceTypes = mutable.HashSet.empty[String]
   // Phase 3.2: flag indicating we are inside a direct[Either[...]] block so
   // throw expressions lower to Left(...) instead of raising a ScriptException.
   private val _insideDirectBlock = new java.lang.ThreadLocal[Boolean] {
@@ -1625,6 +1627,10 @@ class Interpreter(
       val typeName = d.name.value
       val ctorEnv = env.toMap
       typeFieldOrder(typeName) = paramNames
+      if d.mods.exists {
+        case Mod.Annot(Init.After_4_6_0(Type.Name("noTrace"), _, _)) => true
+        case _ => false
+      } then noTraceTypes += typeName
       // Record first parent type for extension-method dispatch on sealed parents.
       d.templ.inits.headOption.foreach { init =>
         val pn = init.tpe match
@@ -2399,7 +2405,12 @@ class Interpreter(
     case t: Term.Throw =>
       eval(t.expr, env).flatMap { v =>
         if _insideDirectBlock.get() then Pure(Value.InstanceV("Left", Map("value" -> v)))
-        else throw ScriptException(v)
+        else
+          val isNoTrace = v match
+            case Value.InstanceV(typeName, _) => noTraceTypes.contains(typeName)
+            case _ => false
+          if isNoTrace then throw ScriptExceptionNoTrace(v)
+          else throw ScriptException(v)
       }
 
     case t: Term.Try =>

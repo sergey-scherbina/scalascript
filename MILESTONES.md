@@ -2564,8 +2564,10 @@ Four items previously carrying recommendations are now locked:
   Default view filters `<anon>` / `_`-prefixed synthetic frames;
   `setTraceVerbose(true)` enables full view.  3 conformance
   tests in `ThrowsTest` (Phase 6.1).
-- Capture cost on hot paths — measure when v1.15 lands; add
-  `noTrace` modifier if overhead surfaces.
+- Capture cost on hot paths — **`@noTrace` landed (2026-05-19)**.
+  Classes annotated `@noTrace` throw `ScriptExceptionNoTrace` which
+  overrides `fillInStackTrace()` to a no-op.  2 conformance tests
+  in `ThrowsTest` (Phase 7).
 - Cross-backend `fn`-name normalisation — JVM mangled vs JS
   source vs INT definition site.  Tackle when first
   diagnostic mismatch surfaces.
