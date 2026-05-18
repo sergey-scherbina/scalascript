@@ -201,11 +201,104 @@ worktrees are the working space between them.**
   on a feature branch and open a PR" — follow the instruction.
   The loop is the default, not a law.
 
+### Before picking the next task — check sibling worktrees
+
+Multiple agents may be working in parallel, each in its own
+sibling worktree under `.claude/worktrees/<name>/` and on its
+own branch.  **Before picking up a new item from `MILESTONES.md`,
+check what other agents are currently working on — including
+work they haven't committed yet, let alone pushed.**  This
+avoids two agents independently starting the same item and
+having to throw one of them away.
+
+Concretely, before claiming the next backlog item, run:
+
+```bash
+# 1. List sibling worktrees — each is another agent's workspace
+git worktree list
+
+# 2. For each sibling worktree, check what they're doing:
+for wt in $(git worktree list --porcelain | awk '/^worktree / && $2 != "'"$(git rev-parse --show-toplevel)"'" { print $2 }'); do
+    echo "=== $wt ==="
+    # Branch name often encodes the task
+    git -C "$wt" branch --show-current
+
+    # Uncommitted changes — files actively being edited
+    git -C "$wt" status -s
+
+    # Recent commits on that branch (vs origin/main)
+    git -C "$wt" log --oneline origin/main..HEAD 2>/dev/null | head -10
+
+    # Latest scratch files that hint at intent (design docs, examples)
+    git -C "$wt" diff --name-only origin/main..HEAD 2>/dev/null | head -20
+done
+
+# 3. Cross-check with active remote branches (pushed but not merged)
+git fetch origin
+git branch -r --no-merged origin/main | grep claude/ | head -20
+```
+
+Signals that an item is already being worked on, in priority
+order:
+
+1. **A sibling worktree's branch name contains a related keyword**
+   (e.g., `claude/std-mcp-server-sgnXX` when you were about to
+   pick up "v1.17 Phase 2 — JS server intrinsic").  Strongest
+   signal — don't take it.
+2. **Uncommitted changes in a sibling worktree touch files
+   that overlap with your candidate item** — e.g., the file
+   list from `git status` includes `std/mcp/server.ssc` and
+   that's where your item would land.  Strong signal.
+3. **Recent commits on a sibling branch reference the same
+   milestone item** — read the commit messages with
+   `git log --oneline origin/main..HEAD`.  Strong signal.
+4. **Scratch / draft files in a sibling worktree** (design
+   docs, examples named after the item) — moderate signal;
+   the agent may be still designing, not implementing yet.
+5. **A remote `claude/*` branch (unmerged) with a name that
+   matches** — they pushed and stopped; could be abandoned
+   or paused.  Read the latest commit; if recent, assume
+   active; if days old with no progress, ask the user.
+
+**What to do when overlap is detected**:
+
+- **Pick a different item** from the same sprint, or a
+  different sprint within the same milestone.  Most
+  milestones have ≥3 independent phases; another phase is
+  usually safe.
+- **If everything in the current milestone is taken**, move
+  to the next milestone in the recommended sequence (per
+  `MILESTONES.md` § "Recommended implementation sequence").
+- **If nothing is free**, report to the user with a
+  one-paragraph summary of who's doing what, and ask which
+  unblocked item to take next (or whether to wait).
+
+**What NOT to do**:
+
+- Don't merge / cherry-pick from a sibling worktree branch
+  to "help" — those commits aren't yours; the other agent
+  may rebase or revert them.
+- Don't push to a sibling agent's branch.
+- Don't `rm -rf` a sibling worktree, even if it looks abandoned
+  — ask the user before reclaiming worktree space.
+- Don't assume "no remote branch = item is free" — uncommitted
+  local work is the most common case and won't show up
+  without `git worktree list`.
+
+This check is **fast** — usually under a second — and saves
+hours of duplicate work when it catches an overlap.
+
 ### Iteration-discipline checklist
 
 The mechanical steps that the loop above implies for *every*
 numbered item.  Keep them in this order:
 
+0. **Before claiming the item**, run the sibling-worktree
+   check from the previous section (`git worktree list` +
+   uncommitted-changes scan + remote `claude/*` branch
+   audit).  If overlap is detected, pick a different item.
+   Don't skip this step — it takes seconds and prevents
+   hours of duplicate work.
 1. Implement + commit on the local branch (worktree for
    multi-step work; `main` directly for small fixes).
 2. Run the full check suite (`sbt compile`, `sbt test`,
