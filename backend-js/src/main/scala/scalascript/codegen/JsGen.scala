@@ -1690,10 +1690,14 @@ function tls(cert, key) {
 }
 
 // Outbound HTTP client (synchronous via worker_threads, same pattern as _oauthSyncFetch).
-let _httpBaseUrl = '';
+let _httpBaseUrl   = '';
+let _httpTimeoutMs = 30_000;
+
+function httpTimeout(ms) { _httpTimeoutMs = ms; }
 
 function _httpSyncFetch(method, url, body, headers) {
   const effective = (_httpBaseUrl && !url.startsWith('http')) ? _httpBaseUrl + url : url;
+  const timeoutMs = _httpTimeoutMs;
   const { Worker, MessageChannel, receiveMessageOnPort } = require('worker_threads');
   const sab  = new SharedArrayBuffer(4);
   const flag = new Int32Array(sab);
@@ -1705,9 +1709,12 @@ function _httpSyncFetch(method, url, body, headers) {
     '(async () => {',
     '  let msg;',
     '  try {',
-    '    const opts = { method: workerData.method, headers: workerData.headers };',
+    '    const ac = new AbortController();',
+    '    const timer = setTimeout(() => ac.abort(), workerData.timeoutMs);',
+    '    const opts = { method: workerData.method, headers: workerData.headers, signal: ac.signal };',
     '    if (workerData.body) opts.body = workerData.body;',
     '    const r = await fetch(workerData.url, opts);',
+    '    clearTimeout(timer);',
     '    const text = await r.text();',
     '    const hdrs = {};',
     '    r.headers.forEach((v, k) => hdrs[k] = v);',
@@ -1720,10 +1727,10 @@ function _httpSyncFetch(method, url, body, headers) {
   ].join('\\n');
   const worker = new Worker(workerSrc, {
     eval: true,
-    workerData: { sab, port: port2, url: effective, method, headers: headers || {}, body: body || null },
+    workerData: { sab, port: port2, url: effective, method, headers: headers || {}, body: body || null, timeoutMs },
     transferList: [port2],
   });
-  Atomics.wait(flag, 0, 0, 35_000);
+  Atomics.wait(flag, 0, 0, timeoutMs + 500);
   const drained = receiveMessageOnPort(port1);
   worker.terminate(); port1.close();
   const r = drained ? drained.message : { status: 0, body: 'timeout', headers: {} };
@@ -1742,33 +1749,36 @@ function httpPost(url, body, headers) {
 }
 
 function httpClient(baseUrl, block) {
-  const prior = _httpBaseUrl;
+  const priorBase = _httpBaseUrl, priorT = _httpTimeoutMs;
   _httpBaseUrl = baseUrl;
-  try { return block(); } finally { _httpBaseUrl = prior; }
+  try { return block(); } finally { _httpBaseUrl = priorBase; _httpTimeoutMs = priorT; }
 }
 
 // Streaming HTTP — collects lines in a worker thread then calls handler per line.
-// The 60-second timeout covers most LLM streaming responses.  A future version
-// can switch the worker to push-mode to avoid the full-buffer wait.
+// Uses _httpTimeoutMs for the worker AbortController and the Atomics.wait guard.
 function _httpStreamFetch(method, url, body, headers, handler) {
-  const effective = (_httpBaseUrl && !url.startsWith('http')) ? _httpBaseUrl + url : url;
+  const effective  = (_httpBaseUrl && !url.startsWith('http')) ? _httpBaseUrl + url : url;
+  const timeoutMs  = _httpTimeoutMs;
   const { Worker, MessageChannel, receiveMessageOnPort } = require('worker_threads');
   const sab  = new SharedArrayBuffer(4);
   const flag = new Int32Array(sab);
   const { port1, port2 } = new MessageChannel();
   const workerSrc = [
     'const { workerData } = require(\'worker_threads\');',
-    'const { port, sab, url, method, headers, body } = workerData;',
+    'const { port, sab, url, method, headers, body, timeoutMs } = workerData;',
     'const flag = new Int32Array(sab);',
     '(async () => {',
     '  let result;',
     '  try {',
-    '    const opts = { method, headers };',
+    '    const ac = new AbortController();',
+    '    const timer = setTimeout(() => ac.abort(), timeoutMs);',
+    '    const opts = { method, headers, signal: ac.signal };',
     '    if (body) opts.body = body;',
     '    const r = await fetch(url, opts);',
     '    const hdrs = {};',
     '    r.headers.forEach((v, k) => hdrs[k] = v);',
     '    const text = await r.text();',
+    '    clearTimeout(timer);',
     '    const lines = text.split(\'\\n\');',
     '    result = { status: r.status, headers: hdrs, lines };',
     '  } catch (e) { result = { status: 0, headers: {}, lines: [], error: String(e) }; }',
@@ -1779,10 +1789,10 @@ function _httpStreamFetch(method, url, body, headers, handler) {
   ].join('\\n');
   const worker = new Worker(workerSrc, {
     eval: true,
-    workerData: { sab, port: port2, url: effective, method, headers, body: body || null },
+    workerData: { sab, port: port2, url: effective, method, headers, body: body || null, timeoutMs },
     transferList: [port2],
   });
-  Atomics.wait(flag, 0, 0, 60_000);
+  Atomics.wait(flag, 0, 0, timeoutMs + 500);
   const drained = receiveMessageOnPort(port1);
   worker.terminate(); port1.close();
   const r = drained ? drained.message : { status: 0, headers: {}, lines: [] };

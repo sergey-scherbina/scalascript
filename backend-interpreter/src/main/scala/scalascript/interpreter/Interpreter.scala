@@ -317,8 +317,9 @@ class Interpreter(
     sb.append('"')
     sb.result()
 
-  // Base URL for httpClient {} scopes — thread-local so nested calls restore correctly.
-  private val _httpBaseUrl = ThreadLocal.withInitial[String](() => "")
+  // Base URL and timeout for httpClient {} scopes — thread-local so nested calls restore correctly.
+  private val _httpBaseUrl     = ThreadLocal.withInitial[String](() => "")
+  private val _httpTimeoutMs   = ThreadLocal.withInitial[Long](() => 30_000L)
   // Receive-spec boxing: we can't squeeze AST cases into `Value`, so
   // `receive { case … }` stashes (cases, env) in a side map and the
   // Perform's args carry just the opaque integer token.
@@ -517,10 +518,11 @@ class Interpreter(
     ): Value =
       import java.net.http.{HttpClient as JHttpClient, HttpRequest, HttpResponse}
       import scala.jdk.CollectionConverters.*
-      val base = _httpBaseUrl.get()
-      val url  = if base.nonEmpty && !rawUrl.startsWith("http") then base + rawUrl else rawUrl
-      val client = JHttpClient.newHttpClient()
-      val builder = HttpRequest.newBuilder().uri(java.net.URI.create(url))
+      val base    = _httpBaseUrl.get()
+      val url     = if base.nonEmpty && !rawUrl.startsWith("http") then base + rawUrl else rawUrl
+      val timeout = java.time.Duration.ofMillis(_httpTimeoutMs.get())
+      val client  = JHttpClient.newBuilder().connectTimeout(timeout).build()
+      val builder = HttpRequest.newBuilder().uri(java.net.URI.create(url)).timeout(timeout)
       headers.foreach((k, v) => builder.header(k, v))
       val req = method match
         case "GET"    => builder.GET().build()
@@ -571,10 +573,11 @@ class Interpreter(
     ): Value =
       import java.net.http.{HttpClient as JHttpClient, HttpRequest, HttpResponse}
       import scala.jdk.CollectionConverters.*
-      val base = _httpBaseUrl.get()
-      val url  = if base.nonEmpty && !rawUrl.startsWith("http") then base + rawUrl else rawUrl
-      val client = JHttpClient.newHttpClient()
-      val builder = HttpRequest.newBuilder().uri(java.net.URI.create(url))
+      val base    = _httpBaseUrl.get()
+      val url     = if base.nonEmpty && !rawUrl.startsWith("http") then base + rawUrl else rawUrl
+      val timeout = java.time.Duration.ofMillis(_httpTimeoutMs.get())
+      val client  = JHttpClient.newBuilder().connectTimeout(timeout).build()
+      val builder = HttpRequest.newBuilder().uri(java.net.URI.create(url)).timeout(timeout)
       headers.foreach((k, v) => builder.header(k, v))
       val req = method match
         case "GET"  => builder.GET().build()
@@ -794,6 +797,13 @@ class Interpreter(
     nativeP("uploadDir") {
       case List(Value.StringV(p)) => scalascript.server.WebServer.setUploadDir(p); Value.UnitV
       case _ => throw InterpretError("uploadDir(path: String)")
+    }
+
+    // httpTimeout(ms) — set outbound HTTP request timeout for subsequent calls.
+    // Scoped inside httpClient{} blocks; restored on exit.
+    nativeP("httpTimeout") {
+      case List(Value.IntV(ms)) => _httpTimeoutMs.set(ms); Value.UnitV
+      case _ => throw InterpretError("httpTimeout(ms: Int)")
     }
 
     // Environment variable reader, same surface on all three backends.
@@ -2676,17 +2686,17 @@ class Interpreter(
       val baseComp = eval(baseClause.values.head, env)
       baseComp match
         case Pure(Value.StringV(base)) =>
-          val prior = _httpBaseUrl.get()
+          val priorBase = _httpBaseUrl.get(); val priorT = _httpTimeoutMs.get()
           _httpBaseUrl.set(base.stripSuffix("/"))
           try eval(bodyClause.values.head, env)
-          finally _httpBaseUrl.set(prior)
+          finally { _httpBaseUrl.set(priorBase); _httpTimeoutMs.set(priorT) }
         case _ =>
           FlatMap(baseComp, {
             case Value.StringV(base) =>
-              val prior = _httpBaseUrl.get()
+              val priorBase = _httpBaseUrl.get(); val priorT = _httpTimeoutMs.get()
               _httpBaseUrl.set(base.stripSuffix("/"))
               try eval(bodyClause.values.head, env)
-              finally _httpBaseUrl.set(prior)
+              finally { _httpBaseUrl.set(priorBase); _httpTimeoutMs.set(priorT) }
             case _ => throw InterpretError("httpClient(baseUrl: String) { body }")
           })
 

@@ -10,6 +10,7 @@ exports:
   - httpGet
   - httpPost
   - httpClient
+  - httpTimeout
   - httpGetStream
   - httpPostStream
   - wsConnect
@@ -51,6 +52,9 @@ extern def httpGet(url: String, headers: Map[String, String]): Response
 extern def httpPost(url: String, body: String): Response
 extern def httpPost(url: String, body: String, headers: Map[String, String]): Response
 extern def httpClient(baseUrl: String)(block: => Unit): Unit
+// Set outbound HTTP timeout (ms) for all requests in the current httpClient{} block.
+// Default: 30 000 ms.  Scoped — restored to the previous value when the block exits.
+extern def httpTimeout(ms: Int): Unit
 
 // Streaming outbound HTTP — calls handler for each line as it arrives.
 // Useful for SSE consumers, LLM streaming APIs (OpenAI, Anthropic), and chunked

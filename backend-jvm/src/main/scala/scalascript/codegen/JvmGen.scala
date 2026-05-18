@@ -4570,15 +4570,19 @@ class JvmGen(
        |  _stopLatch.await()
        |
        |// ── Outbound HTTP client ────────────────────────────────────────────────
-       |private var _httpBaseUrl: String = ""
+       |private var _httpBaseUrl:   String = ""
+       |private var _httpTimeoutMs: Long   = 30_000L
+       |
+       |def httpTimeout(ms: Int): Unit = _httpTimeoutMs = ms.toLong
        |
        |private def _httpDoRequest(method: String, url: String, body: String,
        |    headers: Map[String, String]): Any =
        |  import java.net.http.{HttpClient as JHC, HttpRequest, HttpResponse}
        |  import scala.jdk.CollectionConverters.*
        |  val effectiveUrl = if _httpBaseUrl.nonEmpty && !url.startsWith("http") then _httpBaseUrl + url else url
-       |  val client = JHC.newHttpClient()
-       |  val builder = HttpRequest.newBuilder().uri(java.net.URI.create(effectiveUrl))
+       |  val timeout = java.time.Duration.ofMillis(_httpTimeoutMs)
+       |  val client  = JHC.newBuilder().connectTimeout(timeout).build()
+       |  val builder = HttpRequest.newBuilder().uri(java.net.URI.create(effectiveUrl)).timeout(timeout)
        |  headers.foreach((k, v) => builder.header(k, v))
        |  val req = method match
        |    case "GET"    => builder.GET().build()
@@ -4598,9 +4602,9 @@ class JvmGen(
        |  _httpDoRequest("POST", url, body, headers)
        |
        |def httpClient(baseUrl: String)(block: => Any): Any =
-       |  val prior = _httpBaseUrl
+       |  val priorBase = _httpBaseUrl; val priorT = _httpTimeoutMs
        |  _httpBaseUrl = baseUrl
-       |  try block finally _httpBaseUrl = prior
+       |  try block finally { _httpBaseUrl = priorBase; _httpTimeoutMs = priorT }
        |
        |// ── v1.10 Generator — pull-based lazy streams via virtual threads ────────
        |// Each Generator[A] runs its body in a virtual thread.
@@ -4683,7 +4687,8 @@ class JvmGen(
        |  import java.net.http.{HttpClient as JHC, HttpRequest, HttpResponse}
        |  import scala.jdk.CollectionConverters.*
        |  val effectiveUrl = if _httpBaseUrl.nonEmpty && !url.startsWith("http") then _httpBaseUrl + url else url
-       |  val client = JHC.newHttpClient()
+       |  val timeout = java.time.Duration.ofMillis(_httpTimeoutMs)
+       |  val client  = JHC.newBuilder().connectTimeout(timeout).build()
        |  val builder = HttpRequest.newBuilder().uri(java.net.URI.create(effectiveUrl))
        |  headers.foreach((k, v) => builder.header(k, v))
        |  val req = method match
