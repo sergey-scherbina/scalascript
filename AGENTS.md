@@ -71,6 +71,15 @@ ScalaScript is a meta-programming / specification language with extension `.ssc`
 4. **No AI at runtime or compile time.** The language stands on its own.
 5. **Each problem keeps its own dialect.** ScalaScript’s value is not replacing every language but providing a common spec/translation layer between them.
 
+## Non-negotiable rules
+
+These override any other guidance in this file:
+
+1. **Push to `origin/main` immediately after every completed, working feature.**
+   As soon as a feature compiles, all tests pass, and MILESTONES.md is updated —
+   push to `origin/main` right away.  No accumulation, no asking first,
+   no exceptions.  If `origin/main` has moved, rebase first, then push.
+
 ## Long-running task strategy (worktree-isolated work)
 
 When a task is large enough to span many commits or risks colliding with
