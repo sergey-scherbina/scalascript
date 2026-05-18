@@ -253,6 +253,18 @@ class JvmGen(
          Set("Actor.spawn", "Actor.self", "Actor.send", "Actor.exit",
              "Actor.receive", "Actor.receive_t",
              "Actor.link", "Actor.monitor", "Actor.demonitor", "Actor.trapExit")
+       else Set.empty[String]) ++
+      (if blocksUseLogger(blocks) then
+         Set("Logger.info", "Logger.warn", "Logger.error", "Logger.debug")
+       else Set.empty[String]) ++
+      (if blocksUseRandom(blocks) then
+         Set("Random.nextInt", "Random.nextDouble", "Random.uuid", "Random.pick")
+       else Set.empty[String]) ++
+      (if blocksUseClock(blocks) then
+         Set("Clock.now", "Clock.nowIso", "Clock.sleep")
+       else Set.empty[String]) ++
+      (if blocksUseEnv(blocks) then
+         Set("Env.get", "Env.set", "Env.required")
        else Set.empty[String])
 
     val trees = blocks.map(b => ScalaNode.fold(b.node)(identity))
@@ -382,6 +394,62 @@ class JvmGen(
           case Term.Apply.After_4_6_0(Term.Name("runEphemeralStorage"), _) => found = true
           case Term.Select(Term.Name("Storage"), Term.Name(op))
               if storageOps(op) => found = true
+        }
+      }
+      found
+    }
+
+  private def blocksUseLogger(blocks: List[JvmGen.Block]): Boolean =
+    val ops = Set("info", "warn", "error", "debug")
+    blocks.exists { b =>
+      var found = false
+      ScalaNode.fold(b.node) { tree =>
+        if !found then tree.collect {
+          case Term.Apply.After_4_6_0(Term.Name(n), _)
+              if Set("runLogger", "runLoggerJson", "runLoggerToList")(n) => found = true
+          case Term.Select(Term.Name("Logger"), Term.Name(op)) if ops(op) => found = true
+        }
+      }
+      found
+    }
+
+  private def blocksUseRandom(blocks: List[JvmGen.Block]): Boolean =
+    val ops = Set("nextInt", "nextDouble", "uuid", "pick")
+    blocks.exists { b =>
+      var found = false
+      ScalaNode.fold(b.node) { tree =>
+        if !found then tree.collect {
+          case Term.Apply.After_4_6_0(Term.Name(n), _)
+              if Set("runRandom", "runRandomSeeded")(n) => found = true
+          case Term.Select(Term.Name("Random"), Term.Name(op)) if ops(op) => found = true
+        }
+      }
+      found
+    }
+
+  private def blocksUseClock(blocks: List[JvmGen.Block]): Boolean =
+    val ops = Set("now", "nowIso", "sleep")
+    blocks.exists { b =>
+      var found = false
+      ScalaNode.fold(b.node) { tree =>
+        if !found then tree.collect {
+          case Term.Apply.After_4_6_0(Term.Name(n), _)
+              if Set("runClock", "runClockAt")(n) => found = true
+          case Term.Select(Term.Name("Clock"), Term.Name(op)) if ops(op) => found = true
+        }
+      }
+      found
+    }
+
+  private def blocksUseEnv(blocks: List[JvmGen.Block]): Boolean =
+    val ops = Set("get", "set", "required")
+    blocks.exists { b =>
+      var found = false
+      ScalaNode.fold(b.node) { tree =>
+        if !found then tree.collect {
+          case Term.Apply.After_4_6_0(Term.Name(n), _)
+              if Set("runEnv", "runEnvWith")(n) => found = true
+          case Term.Select(Term.Name("Env"), Term.Name(op)) if ops(op) => found = true
         }
       }
       found
@@ -5502,6 +5570,197 @@ class JvmGen(
        |      }
        |
        |  rootResult
+       |
+       |// ── v1.4 Logger effect ─────────────────────────────────────────────────────
+       |//
+       |// Logger.{info,warn,error,debug}  → _perform("Logger", op, msg)
+       |// runLogger { body }              — "[LEVEL] msg" to stdout
+       |// runLoggerJson { body }          — {"level":"…","msg":"…"} newline-JSON
+       |// runLoggerToList { body }        — (result, List[(level, msg)])
+       |
+       |object Logger:
+       |  def info (msg: Any): Any  = _perform("Logger", "info",  msg)
+       |  def warn (msg: Any): Any  = _perform("Logger", "warn",  msg)
+       |  def error(msg: Any): Any  = _perform("Logger", "error", msg)
+       |  def debug(msg: Any): Any  = _perform("Logger", "debug", msg)
+       |
+       |private def _loggerJsonStr(s: String): String =
+       |  val sb = new StringBuilder("\"")
+       |  s.foreach {
+       |    case '"'  => sb.append("\\\"")
+       |    case '\\' => sb.append("\\\\")
+       |    case '\n' => sb.append("\\n")
+       |    case '\r' => sb.append("\\r")
+       |    case '\t' => sb.append("\\t")
+       |    case c    => sb.append(c)
+       |  }
+       |  sb.append('"').toString
+       |
+       |def runLogger(bodyThunk: () => Any): Any =
+       |  val ops = Set("Logger.info", "Logger.warn", "Logger.error", "Logger.debug")
+       |  _handle(bodyThunk, ops, Map(
+       |    "Logger.info"  -> { (args: List[Any]) => println(s"[INFO] ${args(0)}");  args.last.asInstanceOf[Any => Any](()) },
+       |    "Logger.warn"  -> { (args: List[Any]) => println(s"[WARN] ${args(0)}");  args.last.asInstanceOf[Any => Any](()) },
+       |    "Logger.error" -> { (args: List[Any]) => println(s"[ERROR] ${args(0)}"); args.last.asInstanceOf[Any => Any](()) },
+       |    "Logger.debug" -> { (args: List[Any]) => println(s"[DEBUG] ${args(0)}"); args.last.asInstanceOf[Any => Any](()) },
+       |  ))
+       |
+       |def runLoggerJson(bodyThunk: () => Any): Any =
+       |  val ops = Set("Logger.info", "Logger.warn", "Logger.error", "Logger.debug")
+       |  def fmt(level: String)(args: List[Any]): Any =
+       |    println(s"{\"level\":\"$level\",\"msg\":${_loggerJsonStr(args(0).toString)}}")
+       |    args.last.asInstanceOf[Any => Any](())
+       |  _handle(bodyThunk, ops, Map(
+       |    "Logger.info"  -> fmt("info"),
+       |    "Logger.warn"  -> fmt("warn"),
+       |    "Logger.error" -> fmt("error"),
+       |    "Logger.debug" -> fmt("debug"),
+       |  ))
+       |
+       |def runLoggerToList(bodyThunk: () => Any): Any =
+       |  val log = scala.collection.mutable.ArrayBuffer.empty[(String, String)]
+       |  def writeLog(level: String)(args: List[Any]): Any =
+       |    log += (level -> args(0).toString)
+       |    args.last.asInstanceOf[Any => Any](())
+       |  val ops = Set("Logger.info", "Logger.warn", "Logger.error", "Logger.debug")
+       |  val result = _handle(bodyThunk, ops, Map(
+       |    "Logger.info"  -> writeLog("info"),
+       |    "Logger.warn"  -> writeLog("warn"),
+       |    "Logger.error" -> writeLog("error"),
+       |    "Logger.debug" -> writeLog("debug"),
+       |  ))
+       |  (result, log.toList)
+       |
+       |// ── v1.4 Random effect ─────────────────────────────────────────────────────
+       |//
+       |// Random.{nextInt,nextDouble,uuid,pick}  → _perform("Random", op, args*)
+       |// runRandom { body }          — java.util.Random (non-deterministic)
+       |// runRandomSeeded(seed)(body) — deterministic seeded java.util.Random
+       |
+       |object Random:
+       |  def nextInt(n: Any): Any  = _perform("Random", "nextInt",    n)
+       |  def nextDouble(): Any     = _perform("Random", "nextDouble")
+       |  def uuid(): Any           = _perform("Random", "uuid")
+       |  def pick(xs: Any): Any    = _perform("Random", "pick",       xs)
+       |
+       |private def _randomHandlers(rng: java.util.Random): Map[String, List[Any] => Any] = Map(
+       |  "Random.nextInt" -> { (args: List[Any]) =>
+       |    val n = args(0).asInstanceOf[Int]
+       |    args.last.asInstanceOf[Any => Any](rng.nextInt(if n > 0 then n else 1))
+       |  },
+       |  "Random.nextDouble" -> { (args: List[Any]) =>
+       |    args.last.asInstanceOf[Any => Any](rng.nextDouble())
+       |  },
+       |  "Random.uuid" -> { (args: List[Any]) =>
+       |    val bytes = new Array[Byte](16)
+       |    rng.nextBytes(bytes)
+       |    bytes(6) = ((bytes(6) & 0x0f) | 0x40).toByte
+       |    bytes(8) = ((bytes(8) & 0x3f) | 0x80).toByte
+       |    def hex(b: Byte) = f"${b & 0xff}%02x"
+       |    val u = bytes.map(hex).mkString
+       |    args.last.asInstanceOf[Any => Any](s"${u.take(8)}-${u.slice(8,12)}-${u.slice(12,16)}-${u.slice(16,20)}-${u.drop(20)}")
+       |  },
+       |  "Random.pick" -> { (args: List[Any]) =>
+       |    val xs = args(0).asInstanceOf[List[Any]]
+       |    args.last.asInstanceOf[Any => Any](xs(rng.nextInt(xs.size)))
+       |  },
+       |)
+       |
+       |def runRandom(bodyThunk: () => Any): Any =
+       |  val ops = Set("Random.nextInt", "Random.nextDouble", "Random.uuid", "Random.pick")
+       |  _handle(bodyThunk, ops, _randomHandlers(new java.util.Random()))
+       |
+       |def runRandomSeeded(seed: Any)(bodyThunk: () => Any): Any =
+       |  val ops = Set("Random.nextInt", "Random.nextDouble", "Random.uuid", "Random.pick")
+       |  val s = seed match
+       |    case n: Long => n
+       |    case n: Int  => n.toLong
+       |    case _       => sys.error("runRandomSeeded(seed: Long)")
+       |  _handle(bodyThunk, ops, _randomHandlers(new java.util.Random(s)))
+       |
+       |// ── v1.4 Clock effect ──────────────────────────────────────────────────────
+       |//
+       |// Clock.{now,nowIso,sleep}  → _perform("Clock", op, args*)
+       |// runClock { body }         — real wall clock; sleep → Thread.sleep(ms)
+       |// runClockAt(t0) { body }   — frozen at t0 ms since epoch; sleep is no-op
+       |
+       |object Clock:
+       |  def now(): Any          = _perform("Clock", "now")
+       |  def nowIso(): Any       = _perform("Clock", "nowIso")
+       |  def sleep(ms: Any): Any = _perform("Clock", "sleep", ms)
+       |
+       |private def _clockHandlers(frozen: Option[Long]): Map[String, List[Any] => Any] =
+       |  def nowMs()  = frozen.getOrElse(java.lang.System.currentTimeMillis())
+       |  def nowIso() =
+       |    java.time.format.DateTimeFormatter.ISO_INSTANT
+       |      .format(java.time.Instant.ofEpochMilli(nowMs()))
+       |  Map(
+       |    "Clock.now"    -> { (args: List[Any]) => args.last.asInstanceOf[Any => Any](nowMs()) },
+       |    "Clock.nowIso" -> { (args: List[Any]) => args.last.asInstanceOf[Any => Any](nowIso()) },
+       |    "Clock.sleep"  -> { (args: List[Any]) =>
+       |      val ms = args(0) match { case n: Long => n; case n: Int => n.toLong; case _ => 0L }
+       |      if frozen.isEmpty && ms > 0 then Thread.sleep(ms)
+       |      args.last.asInstanceOf[Any => Any](())
+       |    },
+       |  )
+       |
+       |def runClock(bodyThunk: () => Any): Any =
+       |  val ops = Set("Clock.now", "Clock.nowIso", "Clock.sleep")
+       |  _handle(bodyThunk, ops, _clockHandlers(None))
+       |
+       |def runClockAt(t0: Any)(bodyThunk: () => Any): Any =
+       |  val ops = Set("Clock.now", "Clock.nowIso", "Clock.sleep")
+       |  val frozen = t0 match
+       |    case n: Long => n
+       |    case n: Int  => n.toLong
+       |    case _       => sys.error("runClockAt(t0: Long)")
+       |  _handle(bodyThunk, ops, _clockHandlers(Some(frozen)))
+       |
+       |// ── v1.4 Env effect ────────────────────────────────────────────────────────
+       |//
+       |// Env.{get,set,required}  → _perform("Env", op, args*)
+       |// runEnv { body }          — real process env; Env.set mutates local overlay
+       |// runEnvWith(map) { body } — fixture map; Env.set mutates overlay
+       |
+       |object Env:
+       |  def get(key: Any): Any             = _perform("Env", "get",      key)
+       |  def set(key: Any, value: Any): Any = _perform("Env", "set",      key, value)
+       |  def required(key: Any): Any        = _perform("Env", "required", key)
+       |
+       |private def _envHandlers(
+       |  overlay: scala.collection.mutable.Map[String, String],
+       |  useReal: Boolean
+       |): Map[String, List[Any] => Any] =
+       |  def lookup(k: String): Option[String] =
+       |    overlay.get(k)
+       |      .orElse(if useReal then Option(java.lang.System.getenv(k)).filter(_.nonEmpty) else None)
+       |  Map(
+       |    "Env.get" -> { (args: List[Any]) =>
+       |      args.last.asInstanceOf[Any => Any](lookup(args(0).toString))
+       |    },
+       |    "Env.set" -> { (args: List[Any]) =>
+       |      overlay(args(0).toString) = args(1).toString
+       |      args.last.asInstanceOf[Any => Any](())
+       |    },
+       |    "Env.required" -> { (args: List[Any]) =>
+       |      val k = args(0).toString
+       |      lookup(k) match
+       |        case Some(v) => args.last.asInstanceOf[Any => Any](v)
+       |        case None    => sys.error(s"Env.required: key '$k' not found in environment")
+       |    },
+       |  )
+       |
+       |def runEnv(bodyThunk: () => Any): Any =
+       |  val ops = Set("Env.get", "Env.set", "Env.required")
+       |  _handle(bodyThunk, ops, _envHandlers(scala.collection.mutable.Map.empty, useReal = true))
+       |
+       |def runEnvWith(initMap: Any)(bodyThunk: () => Any): Any =
+       |  val ops = Set("Env.get", "Env.set", "Env.required")
+       |  val overlay = initMap match
+       |    case m: Map[_, _] =>
+       |      scala.collection.mutable.Map.from(m.asInstanceOf[Map[String, String]])
+       |    case _ => sys.error("runEnvWith(map: Map[String, String])")
+       |  _handle(bodyThunk, ops, _envHandlers(overlay, useReal = false))
        |
        |""".stripMargin
 
