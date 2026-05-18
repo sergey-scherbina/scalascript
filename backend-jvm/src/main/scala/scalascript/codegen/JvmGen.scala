@@ -1811,6 +1811,17 @@ class JvmGen(
         sb2.toString
       }
 
+    // User-defined interpolator: StringContext("p1","p2").prefix(arg1, arg2)
+    case Term.Interpolate(Term.Name(prefix), parts, args) =>
+      bindArgsCps(args.map(_.asInstanceOf[Term])) { vs =>
+        val scParts = parts.map { p =>
+          val s = p.asInstanceOf[Lit.String].value
+          "\"" + s.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
+        }.mkString(", ")
+        val argsStr = vs.mkString(", ")
+        s"StringContext($scParts).$prefix($argsStr)"
+      }
+
     case Term.Tuple(elems) =>
       bindArgsCps(elems) { vs => s"(${vs.mkString(", ")})" }
 

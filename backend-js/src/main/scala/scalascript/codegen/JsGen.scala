@@ -86,6 +86,10 @@ function _html_interp(v) {
   return _htmlEscape(_show(v));
 }
 
+// User-defined string interpolators: `_sc(parts)` builds the StringContext
+// object passed as the first argument to the extension method.
+function _sc(parts) { return { _type: 'StringContext', parts }; }
+
 // `collectCss(comp1, comp2, ...)` — concatenate each argument's `css`
 // field into one CSS string for a page-level <style>.  Convention helper
 // for component-style .ssc files (see SPEC §8.4).  Anything without a
@@ -5951,6 +5955,16 @@ class JsGen(
       val templateLiteral = sb2.toString
       if prefix == "md" then s"_md($templateLiteral)" else templateLiteral
 
+    // User-defined interpolator: _ext_StringContext_prefix(_sc([...]), [arg1, arg2])
+    // Args are packed into an array so the `args: Any*` param binds a list.
+    case Term.Interpolate(Term.Name(prefix), parts, args) =>
+      val partsJs = parts.map { p =>
+        val s = p.asInstanceOf[Lit.String].value
+        "\"" + s.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
+      }.mkString("[", ", ", "]")
+      val argsJs = args.map(a => genExpr(a.asInstanceOf[Term])).mkString("[", ", ", "]")
+      s"_ext_StringContext_$prefix(_sc($partsJs), $argsJs)"
+
     // Anonymous function with _ placeholders — stack-based param counting
     case t: Term.AnonymousFunction =>
       phCounters = 0 :: phCounters          // push fresh counter
@@ -6510,6 +6524,17 @@ class JsGen(
         sb2.append("`")
         val templateLiteral = sb2.toString
         if prefix == "md" then s"_md($templateLiteral)" else templateLiteral
+      }
+
+    // User-defined interpolator (CPS path): _ext_StringContext_prefix(_sc([...]), [...])
+    case Term.Interpolate(Term.Name(prefix), parts, args) =>
+      bindArgsCps(args.map(_.asInstanceOf[Term])) { vs =>
+        val partsJs = parts.map { p =>
+          val s = p.asInstanceOf[Lit.String].value
+          "\"" + s.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
+        }.mkString("[", ", ", "]")
+        val argsJs = vs.mkString("[", ", ", "]")
+        s"_ext_StringContext_$prefix(_sc($partsJs), $argsJs)"
       }
 
     // Tuple

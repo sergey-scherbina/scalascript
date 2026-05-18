@@ -2052,6 +2052,20 @@ class Interpreter(
         Pure(Value.StringV(if prefix == "md" then stripIndent(raw) else raw))
       }
 
+    // User-defined interpolator — build StringContext instance and call prefix fn.
+    // Vararg `args: Any*` is packed into a single ListV so the body sees it as
+    // an indexed list (args(0), args.length, etc.).
+    case Term.Interpolate(Term.Name(prefix), parts, args) =>
+      evalArgs(args.map(_.asInstanceOf[Term]), env) { argVs =>
+        val partVals = parts.map(p => Value.StringV(p.asInstanceOf[Lit.String].value))
+        val sc = Value.InstanceV("StringContext", Map("parts" -> Value.ListV(partVals)))
+        val fn: Value = extensions.get(("StringContext", prefix))
+          .orElse(env.get(prefix))
+          .orElse(globals.get(prefix))
+          .getOrElse(located(s"Unknown interpolator '$prefix': not in scope"))
+        callValue(fn, List(sc, Value.ListV(argVs)), env)
+      }
+
     // Anonymous function with _ placeholders: _.field, _ + 1, _ + _, etc.
     case t: Term.AnonymousFunction =>
       Pure(Value.NativeFnV("anon", args => {
