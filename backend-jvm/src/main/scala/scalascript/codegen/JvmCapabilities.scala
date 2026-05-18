@@ -40,5 +40,10 @@ val JvmCapabilities: Capabilities = Capabilities(
  *  qualified name (the call site in user .ssc) to a target Scala
  *  symbol the alias forwards to. */
 val JvmIntrinsics: Map[QualifiedName, IntrinsicImpl] = Map(
-  QualifiedName("nowMillis") -> RuntimeCall("java.lang.System.currentTimeMillis")
+  QualifiedName("nowMillis") -> RuntimeCall("java.lang.System.currentTimeMillis"),
+  // Stage 5+/B — HTTP server: route/serve/stop are defined as Scala defs in the
+  // serveRuntime preamble; RuntimeCall tells CapabilityCheck they're covered.
+  QualifiedName("route")    -> RuntimeCall("route"),
+  QualifiedName("serve")    -> RuntimeCall("serve"),
+  QualifiedName("stop")     -> RuntimeCall("stop")
 )

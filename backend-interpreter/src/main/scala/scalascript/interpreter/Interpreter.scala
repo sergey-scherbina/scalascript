@@ -232,14 +232,34 @@ class Interpreter(
       }
     }
 
+  // ─── Health-route defaults ────────────────────────────────────────
+
+  // Extracted from initBuiltins so installNativeIntrinsics' NativeContext
+  // can forward to it via ctx.registerHealthDefaults().
+  private def registerHealthDefaults(): Unit =
+    def isRegistered(path: String): Boolean =
+      scalascript.server.Routes.all.exists(e => e.method == "GET" && e.path == path)
+    val okResponse = Value.InstanceV("Response", Map(
+      "status"  -> Value.IntV(200),
+      "headers" -> Value.MapV(Map(
+        Value.StringV("Content-Type") -> Value.StringV("application/json")
+      )),
+      "body"    -> Value.StringV("""{"status":"ok"}""")
+    ))
+    val handler = Value.NativeFnV("_healthOk", Computation.pureFn(_ => okResponse))
+    if !isRegistered("/_health") then
+      scalascript.server.Routes.register("GET", "/_health", handler, this)
+    if !isRegistered("/_ready") then
+      scalascript.server.Routes.register("GET", "/_ready", handler, this)
+
   // ─── Built-ins ───────────────────────────────────────────────────
 
   private def initBuiltins(): Unit =
     def nativeP(name: String)(f: List[Value] => Value): Unit =
       globals(name) = Value.NativeFnV(name, Computation.pureFn(f))
 
-    // println / print now live in `InterpreterIntrinsics` (Stage 5+/B);
-    // installNativeIntrinsics below routes them through `Backend.intrinsics`.
+    // println / print / route / serve / stop now live in InterpreterIntrinsics
+    // (Stage 5+/B); installNativeIntrinsics routes them through Backend.intrinsics.
     installNativeIntrinsics(InterpreterIntrinsics)
 
     nativeP("assert") {
@@ -254,40 +274,6 @@ class Interpreter(
       case List(Value.BoolV(false), msg)  => throw InterpretError(s"Requirement failed: ${Value.show(msg)}")
       case _                              => Value.UnitV
     }
-    nativeP("serve") {
-      case List(Value.IntV(port)) =>
-        registerHealthDefaults()
-        if !headless then scalascript.server.WebServer.start(port.toInt, ".", out)
-        Value.UnitV
-      case List(Value.IntV(port), Value.StringV(dir)) =>
-        registerHealthDefaults()
-        if !headless then scalascript.server.WebServer.start(port.toInt, dir, out)
-        Value.UnitV
-      case _ => throw InterpretError("serve(port) or serve(port, dir)")
-    }
-
-    // Tier 5 #21 — built-in `/_health` and `/_ready` routes auto-registered
-    // when `serve(port)` is called.  User-defined routes with the same
-    // path take precedence; we only fill the slot when it's empty.
-    //
-    // Inline construction of the Response InstanceV (rather than calling
-    // `mkResponse`) keeps this self-contained so it can sit before the
-    // big `Response.*` block that introduces `mkResponse` further down.
-    def registerHealthDefaults(): Unit =
-      def isRegistered(path: String): Boolean =
-        scalascript.server.Routes.all.exists(e => e.method == "GET" && e.path == path)
-      val okResponse = Value.InstanceV("Response", Map(
-        "status"  -> Value.IntV(200),
-        "headers" -> Value.MapV(Map(
-          Value.StringV("Content-Type") -> Value.StringV("application/json")
-        )),
-        "body"    -> Value.StringV("""{"status":"ok"}""")
-      ))
-      val handler = Value.NativeFnV("_healthOk", Computation.pureFn(_ => okResponse))
-      if !isRegistered("/_health") then
-        scalascript.server.Routes.register("GET", "/_health", handler, this)
-      if !isRegistered("/_ready") then
-        scalascript.server.Routes.register("GET", "/_ready", handler, this)
 
     // Wall-clock for benchmarks — same name across all three backends.
     nativeP("nanoTime") { _ => Value.IntV(java.lang.System.nanoTime()) }
@@ -1299,19 +1285,7 @@ class Interpreter(
         "oauthRegisterProvider(name, Map[String, String])")
     }
 
-    // route(method, path)(handler) — registers a handler in the global table.
-    // Path syntax: literal segments + `:name` captures (e.g. /users/:id).
-    nativeP("route") {
-      case List(Value.StringV(method), Value.StringV(path)) =>
-        // Curried — return a fn that takes the handler.
-        Value.NativeFnV("route.handler", Computation.pureFn {
-          case List(handler) =>
-            scalascript.server.Routes.register(method, path, handler, this)
-            Value.UnitV
-          case _ => throw InterpretError("route(method, path) { handler }")
-        })
-      case _ => throw InterpretError("route(method, path) { handler }")
-    }
+    // route / serve / stop now live in InterpreterIntrinsics (Stage 5+/B).
 
     // onWebSocket(path)(handler) — registers a WS upgrade handler.  The
     // handler receives a `WebSocket` value with `send` / `close` methods
@@ -1582,6 +1556,10 @@ class Interpreter(
     val ctx = new scalascript.backend.spi.NativeContext:
       def out = Interpreter.this.out
       def err = System.err
+      override def headless = Interpreter.this.headless
+      override def registerRoute(method: String, path: String, handler: Any): Unit =
+        scalascript.server.Routes.register(method, path, handler.asInstanceOf[Value], Interpreter.this)
+      override def registerHealthDefaults(): Unit = Interpreter.this.registerHealthDefaults()
     intrinsics.foreach {
       case (qn, scalascript.backend.spi.NativeImpl(eval)) =>
         registerNative(qn.value, args =>

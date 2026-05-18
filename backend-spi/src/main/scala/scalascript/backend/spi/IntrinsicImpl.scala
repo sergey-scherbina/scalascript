@@ -50,3 +50,9 @@ case class NativeImpl(eval: (NativeContext, List[Any]) => Any) extends Intrinsic
 trait NativeContext:
   def out: java.io.PrintStream
   def err: java.io.PrintStream
+  // HTTP-server hooks — default no-op; the interpreter overrides these
+  // in `installNativeIntrinsics` so HTTP intrinsics can live in the
+  // shared `InterpreterCapabilities` without a circular dependency.
+  def headless: Boolean = false
+  def registerRoute(method: String, path: String, handler: Any): Unit = ()
+  def registerHealthDefaults(): Unit = ()

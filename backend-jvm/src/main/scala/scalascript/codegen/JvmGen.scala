@@ -4264,6 +4264,8 @@ class JvmGen(
        |  }, "ws-proxy-accept").start()
        |  Thread.currentThread().join()
        |
+       |def stop(): Unit = ()
+       |
        |""".stripMargin
 
   /** Free-Monad runtime for algebraic effects. Mirrors the interpreter and JS

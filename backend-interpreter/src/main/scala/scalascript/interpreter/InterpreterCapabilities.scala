@@ -53,7 +53,38 @@ val InterpreterIntrinsics: Map[QualifiedName, IntrinsicImpl] = Map(
   ),
   QualifiedName("print") -> NativeImpl((ctx, args) =>
     ctx.out.print(args.map(formatArg).mkString(" "))
-  )
+  ),
+  // Stage 5+/B — HTTP server intrinsics migrated from nativeP.
+  // route(method, path) — curried; returns a NativeFnV that accepts the handler.
+  // wrapAnyAsValue passes Value through unchanged, so the returned NativeFnV
+  // is callable directly by the interpreter's dispatch.
+  QualifiedName("route") -> NativeImpl((ctx, args) =>
+    args match
+      case List(method: String, path: String) =>
+        Value.NativeFnV("route.handler", Computation.pureFn {
+          case List(handler) =>
+            ctx.registerRoute(method, path, handler)
+            Value.UnitV
+          case _ => throw InterpretError("route(method, path) { handler }")
+        })
+      case _ => throw InterpretError("route(method, path) { handler }")
+  ),
+  // serve(port) / serve(port, dir) — starts the HTTP server.
+  // Delegates to ctx.registerHealthDefaults() and WebServer.start via ctx.
+  QualifiedName("serve") -> NativeImpl((ctx, args) =>
+    args match
+      case List(port: Long) =>
+        ctx.registerHealthDefaults()
+        if !ctx.headless then scalascript.server.WebServer.start(port.toInt, ".", ctx.out)
+        ()
+      case List(port: Long, dir: String) =>
+        ctx.registerHealthDefaults()
+        if !ctx.headless then scalascript.server.WebServer.start(port.toInt, dir, ctx.out)
+        ()
+      case _ => throw InterpretError("serve(port) or serve(port, dir)")
+  ),
+  // stop() — no-op stub; real shutdown deferred to feature/v1.5-tls-http-client.
+  QualifiedName("stop") -> NativeImpl((_, _) => ())
 )
 
 /** Same shape as `Value.show` but works on the `Any` payload an

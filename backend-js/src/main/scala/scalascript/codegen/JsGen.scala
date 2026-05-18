@@ -1768,6 +1768,8 @@ function serve(port) {
   server.on('upgrade', (req, socket, _head) => _wsHandleUpgrade(req, socket));
   server.listen(port, () => console.log(`Listening on http://localhost:${port}/`));
 }
+
+function stop() {}
 """
 
 private val JsRuntimePart2: String = """
