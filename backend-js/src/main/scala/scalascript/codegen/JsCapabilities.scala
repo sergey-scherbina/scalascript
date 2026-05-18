@@ -41,7 +41,16 @@ val JsCapabilities: Capabilities = Capabilities(
  *  aliases prepended to JsGen's output. */
 val JsIntrinsics: Map[QualifiedName, IntrinsicImpl] =
   Map(
-    QualifiedName("nowMillis") -> RuntimeCall("Date.now")
+    QualifiedName("nowMillis")        -> RuntimeCall("Date.now"),
+    // Stage 5+/B.3 — bare println/print rewritten to Console.* in Normalize.
+    // `_println` / `_print` do their own `_show` internally so args are not
+    // double-escaped.
+    // Backward-compat: code that bypasses Normalize still uses bare `println`.
+    QualifiedName("println")         -> RuntimeCall("_println"),
+    QualifiedName("print")           -> RuntimeCall("_print"),
+    // Canonical form after Normalize rewrites bare println → Console.println.
+    QualifiedName("Console.println") -> RuntimeCall("_println"),
+    QualifiedName("Console.print")   -> RuntimeCall("_print")
   ) ++ JsHttpIntrinsics     // Stage 5+/B — HTTP:     intrinsics/Http.scala
     ++ JsWsIntrinsics       // Stage 5+/D — WS:       intrinsics/Ws.scala
     ++ JsAuthIntrinsics     // Stage 5+/D — Auth:     intrinsics/Auth.scala

@@ -541,6 +541,18 @@ class Interpreter(
     // (Stage 5+/B); installNativeIntrinsics routes them through Backend.intrinsics.
     installNativeIntrinsics(InterpreterIntrinsics)
 
+    // Stage 5+/B.3 — Console companion object mirrors math / Response companions.
+    // Normalize rewrites bare `println` → `Console.println`; the companion lets
+    // user code also call `Console.println(...)` explicitly without the rewrite.
+    globals("Console") = Value.InstanceV("Console", Map(
+      "println" -> globals("Console.println"),
+      "print"   -> globals("Console.print")
+    ))
+    // Backward-compat aliases: bare `println` / `print` still work in code that
+    // bypasses the Normalize pass (tests, runSnippet, direct Interpreter.run calls).
+    globals("println") = globals("Console.println")
+    globals("print")   = globals("Console.print")
+
     // assert / require / nanoTime / getenv / doc / render / Some / List now
     // live in CoreIntrinsics (Stage 5+/E); installNativeIntrinsics routes them.
     // httpClient(baseUrl) { block } — handled as a special form in eval

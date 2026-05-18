@@ -71,7 +71,7 @@ object Normalize:
       ir.Content.Prose(text, sp.map(span))
     case ast.Content.CodeBlock(lang, source, _, sp) =>
       if ast.Lang.isScalaScript(lang) then
-        ir.Content.CodeBlock(source = source, body = Nil, span = sp.map(span))
+        ir.Content.CodeBlock(source = rewriteConsole(source), body = Nil, span = sp.map(span))
       else
         // Stage 9+/A — ask the SourceLanguage registry first.  A
         // plugin claiming this fence tag produces the IR fragment
@@ -88,6 +88,19 @@ object Normalize:
       ir.Content.Import(path, bindings.map(importBinding), sp.map(span))
     case ast.Content.DataList(items, ordered, sp) =>
       ir.Content.DataList(items.map(listItem), ordered, sp.map(span))
+
+  /** 5+/B.3 — rewrite bare `println` / `print` to their `Console.*`
+   *  qualified forms so all backends dispatch through the intrinsic table.
+   *  The regex uses word-boundaries so identifiers like `myPrintln` are
+   *  untouched; the substitution is purely textual (no AST parse). */
+  // Matches bare `println` / `print` that are NOT already dot-qualified.
+  private val PrintlnRe = raw"(?<!\.)(\bprintln\b)".r
+  private val PrintRe   = raw"(?<!\.)(\bprint\b)".r
+
+  private def rewriteConsole(src: String): String =
+    val s1 = PrintlnRe.replaceAllIn(src,   "Console.println")
+    val s2 = PrintRe.replaceAllIn(s1, "Console.print")
+    s2
 
   /** Minimum-viable scope handed to `SourceLanguage.compileBlock` — no
    *  cross-block visibility (single-pass typing).  Stage 9+/A.2 builds

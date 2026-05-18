@@ -107,9 +107,18 @@ Branch `feature/spi-followups` (merged to `main`).
   Only the HTML DSL tag-generator section (containerTags/voidTags/raw/attr)
   remains hardcoded — those use callValue with effects and are better left
   as native closures.
+- **5+/B.3 — bare `println` → `Console.println` migration.**  ✅ **LANDED**.
+  Normalize rewrites bare `println` / `print` calls to `Console.println` /
+  `Console.print` (word-boundary regex, not preceded by `.`).  All three
+  backends now route `Console.println` through the intrinsics table:
+  interpreter installs a `Console` companion `InstanceV` (mirrors `math` /
+  `Response`); JvmGen gets a `Console` shadow object in the preamble;
+  JsGen gets `const Console = { println: _println, print: _print }` plus
+  `Term.Select` qualified-intrinsic dispatch in `genExpr`.  Backward-compat
+  bare `println` / `print` entries retained in all tables and `initBuiltins`
+  for code that bypasses Normalize (tests, `runSnippet`).
 
 **Still deferred:**
-- 5+/B.3 — migrate bare `println` → `Console.println` in Normalize
 - 9+/B.2-B.4 and 9+/C.2-C.3 — full html/css extraction out of codegens
 
 ### Stage 6+ — Out-of-process protocol completions — **LANDED**

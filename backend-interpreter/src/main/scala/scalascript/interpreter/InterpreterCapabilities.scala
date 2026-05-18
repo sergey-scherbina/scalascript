@@ -47,13 +47,14 @@ val InterpreterIntrinsics: Map[QualifiedName, IntrinsicImpl] =
     QualifiedName("nowMillis") -> NativeImpl((_, _) =>
       java.lang.System.currentTimeMillis()
     ),
-    // Stage 5+/B — migrating existing Console builtins.  Hardcoded
-    // `nativeP("println")` / `nativeP("print")` removed from
-    // Interpreter.initBuiltins; this is now the single source.
-    QualifiedName("println") -> NativeImpl((ctx, args) =>
+    // Stage 5+/B.3 — bare `println` / `print` rewritten to
+    // `Console.println` / `Console.print` in Normalize; the interpreter
+    // installs the NativeFn under `Console.println` and assembles a
+    // `globals("Console")` companion object in initBuiltins below.
+    QualifiedName("Console.println") -> NativeImpl((ctx, args) =>
       ctx.out.println(args.map(formatArg).mkString(" "))
     ),
-    QualifiedName("print") -> NativeImpl((ctx, args) =>
+    QualifiedName("Console.print") -> NativeImpl((ctx, args) =>
       ctx.out.print(args.map(formatArg).mkString(" "))
     )
   ) ++ HttpIntrinsics      // Stage 5+/B — HTTP:     intrinsics/Http.scala

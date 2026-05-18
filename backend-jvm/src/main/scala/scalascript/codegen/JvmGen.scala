@@ -1084,6 +1084,11 @@ class JvmGen(
         if dispatchIntrinsic(fname, argClause).isDefined =>
       dispatchIntrinsic(fname, argClause).get
 
+    // Stage 5+/B.3 — qualified intrinsic dispatch for `Obj.method(args)`.
+    case Term.Apply.After_4_6_0(Term.Select(Term.Name(obj), Term.Name(method)), argClause)
+        if dispatchIntrinsic(s"$obj.$method", argClause).isDefined =>
+      dispatchIntrinsic(s"$obj.$method", argClause).get
+
     // handle(body) { cases }
     case Term.Apply.After_4_6_0(
       Term.Apply.After_4_6_0(Term.Name("handle"), bodyArgClause),
@@ -2034,6 +2039,14 @@ class JvmGen(
        |  case other     => other.toString
        |
        |def println(v: Any): Unit = scala.Predef.println(_show(v))
+       |def print(v: Any): Unit   = scala.Predef.print(_show(v))
+       |
+       |// Stage 5+/B.3 — `Console` shadows `scala.Console` so that Normalize's
+       |// bare-println rewrite (`println` → `Console.println`) routes through
+       |// `_show` in both the emitExpr intrinsic path and the passthrough path.
+       |object Console:
+       |  def println(v: Any): Unit = scala.Predef.println(_show(v))
+       |  def print(v: Any): Unit   = scala.Predef.print(_show(v))
        |
        |// `sx` is like `s` but routes each interpolated value through `_show`,
        |// so a whole-number Double interpolated into a string drops its ".0".

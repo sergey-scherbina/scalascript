@@ -53,6 +53,9 @@ private val JsRuntimePart1a: String = """
 let _output = [];
 function _println(...args) { _output.push(args.map(_show).join(' ')); }
 function _print(...args) { const s = args.map(_show).join(''); _output.push(s); }
+// Stage 5+/B.3 — Console companion so user code can call Console.println
+// directly (or after Normalize's bare-println → Console.println rewrite).
+const Console = { println: _println, print: _print };
 
 // `_call(fn, ...args)` — wrapper for arbitrary callables in user code.
 // Functions are invoked directly; Arrays and Maps route through `_dispatch`
@@ -5592,6 +5595,11 @@ class JsGen(
         if dispatchIntrinsicJs(fname, argClause).isDefined =>
       dispatchIntrinsicJs(fname, argClause).get
 
+    // Stage 5+/B.3 — qualified intrinsic dispatch for `Obj.method(args)`.
+    case Term.Apply.After_4_6_0(Term.Select(Term.Name(obj), Term.Name(method)), argClause)
+        if dispatchIntrinsicJs(s"$obj.$method", argClause).isDefined =>
+      dispatchIntrinsicJs(s"$obj.$method", argClause).get
+
     // Literals
     case Lit.Int(v)     => v.toString
     case Lit.Long(v)    => v.toString
@@ -6004,14 +6012,6 @@ class JsGen(
 
     val argVals = app.argClause.values.map(genExpr)
     app.fun match
-      // println / print
-      case Term.Name("println") =>
-        if argVals.isEmpty then "_println()"
-        else s"_println(${argVals.map(a => s"_show($a)").mkString(", ")})"
-      case Term.Name("print") =>
-        if argVals.isEmpty then "_print()"
-        else s"_print(${argVals.map(a => s"_show($a)").mkString(", ")})"
-
       // Map constructor - args are tuple pairs
       case Term.Name("Map") =>
         s"_Map(${argVals.mkString(", ")})"
@@ -6434,18 +6434,6 @@ class JsGen(
       case Term.Select(Term.Name(eff), Term.Name(op)) if isEffectOpRef(eff, op) =>
         bindArgsCps(args) { vs =>
           s"_perform('$eff', '$op', [${vs.mkString(", ")}])"
-        }
-
-      // println / print: stringify and call
-      case Term.Name("println") =>
-        bindArgsCps(args) { vs =>
-          val callArgs = vs.map(v => s"_show($v)").mkString(", ")
-          s"_println($callArgs)"
-        }
-      case Term.Name("print") =>
-        bindArgsCps(args) { vs =>
-          val callArgs = vs.map(v => s"_show($v)").mkString(", ")
-          s"_print($callArgs)"
         }
 
       // Builtin constructors

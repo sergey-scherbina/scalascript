@@ -41,7 +41,15 @@ val JvmCapabilities: Capabilities = Capabilities(
  *  symbol the alias forwards to. */
 val JvmIntrinsics: Map[QualifiedName, IntrinsicImpl] =
   Map(
-    QualifiedName("nowMillis") -> RuntimeCall("java.lang.System.currentTimeMillis")
+    QualifiedName("nowMillis")        -> RuntimeCall("java.lang.System.currentTimeMillis"),
+    // Stage 5+/B.3 — bare println/print rewritten to Console.* in Normalize.
+    // RuntimeCall targets the preamble's overridden `println`/`print` that
+    // route through `_show` for correct Double formatting.
+    // Backward-compat bare forms (for code that bypasses Normalize).
+    QualifiedName("println")         -> RuntimeCall("println"),
+    QualifiedName("print")           -> RuntimeCall("print"),
+    QualifiedName("Console.println") -> RuntimeCall("println"),
+    QualifiedName("Console.print")   -> RuntimeCall("print")
   ) ++ JvmHttpIntrinsics     // Stage 5+/B — HTTP:     intrinsics/Http.scala
     ++ JvmWsIntrinsics       // Stage 5+/D — WS:       intrinsics/Ws.scala
     ++ JvmAuthIntrinsics     // Stage 5+/D — Auth:     intrinsics/Auth.scala
