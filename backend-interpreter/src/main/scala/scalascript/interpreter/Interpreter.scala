@@ -226,6 +226,8 @@ class Interpreter(
     sb.append('"')
     sb.result()
 
+  // Base URL for httpClient {} scopes — thread-local so nested calls restore correctly.
+  private val _httpBaseUrl = ThreadLocal.withInitial[String](() => "")
   // Receive-spec boxing: we can't squeeze AST cases into `Value`, so
   // `receive { case … }` stashes (cases, env) in a side map and the
   // Perform's args carry just the opaque integer token.
@@ -413,9 +415,8 @@ class Interpreter(
     // ── Outbound HTTP client ──────────────────────────────────────────
     // httpGet / httpPost / httpClient use java.net.http.HttpClient
     // (built-in since JDK 11, Loom-friendly, HTTP/2-capable).  The
-    // thread-local _httpBaseUrl lets httpClient{} prepend a base URL
-    // without threading it through every call site.
-    val _httpBaseUrl = ThreadLocal.withInitial[String](() => "")
+    // thread-local _httpBaseUrl (class-level field) lets httpClient{}
+    // prepend a base URL without threading it through every call site.
 
     def httpDoRequest(
         method:  String,
@@ -467,20 +468,9 @@ class Interpreter(
         httpDoRequest("POST", url, body, headersArg(hdrs))
       case _ => throw InterpretError("httpPost(url, body[, headers])")
     }
-    // httpClient(baseUrl) { block } — scoped base URL for httpGet/httpPost.
-    // The block is a thunk (NativeFnV or FunV); we set _httpBaseUrl before
-    // invoking it and restore the prior value after, so nesting works.
-    nativeP("httpClient") {
-      case List(Value.StringV(base), thunk) =>
-        val prior = _httpBaseUrl.get()
-        _httpBaseUrl.set(base)
-        try
-          val result = Computation.run(callValue(thunk, Nil, Map.empty))
-          result
-        finally
-          _httpBaseUrl.set(prior)
-      case _ => throw InterpretError("httpClient(baseUrl) { block }")
-    }
+    // httpClient(baseUrl) { block } — handled as a special form in eval
+    // (double-apply pattern) so the block is evaluated directly rather than
+    // wrapped as a thunk.  See the Term.Apply case in eval below.
 
     // wsConnect(url[, headers[, protocols]]) { ws => … }
     // Curried: first call returns a NativeFnV that takes the handler.
@@ -2489,6 +2479,30 @@ class Interpreter(
           m.map { (k, v) => Value.show(k) -> Value.show(v) }.toMap
         case _ => throw InterpretError("runEnvWith(map: Map[String, String]) { body }")
       envRun(eval(bodyClause.values.head, env), Some(overlay))
+
+    // ── v1.5 httpClient(baseUrl) { block } ───────────────────────────────
+    // Double-apply special form: evaluate body directly (not as a thunk) so
+    // any statements inside the block run with _httpBaseUrl set, then restore.
+    case Term.Apply.After_4_6_0(
+        Term.Apply.After_4_6_0(Term.Name("httpClient"), baseClause),
+        bodyClause)
+        if baseClause.values.size == 1 && bodyClause.values.size == 1 =>
+      val baseComp = eval(baseClause.values.head, env)
+      baseComp match
+        case Pure(Value.StringV(base)) =>
+          val prior = _httpBaseUrl.get()
+          _httpBaseUrl.set(base.stripSuffix("/"))
+          try eval(bodyClause.values.head, env)
+          finally _httpBaseUrl.set(prior)
+        case _ =>
+          FlatMap(baseComp, {
+            case Value.StringV(base) =>
+              val prior = _httpBaseUrl.get()
+              _httpBaseUrl.set(base.stripSuffix("/"))
+              try eval(bodyClause.values.head, env)
+              finally _httpBaseUrl.set(prior)
+            case _ => throw InterpretError("httpClient(baseUrl: String) { body }")
+          })
 
     // ── v1.6 Actors Phase 1 ────────────────────────────────────────────
     // `runActors { body }` installs an actor scheduler, spawns the body
