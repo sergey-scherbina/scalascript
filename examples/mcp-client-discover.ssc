@@ -1,0 +1,31 @@
+#!/usr/bin/env ssc
+---
+name: mcp-client-discover
+version: 1.0.0
+description: MCP client that spawns a server subprocess and lists its capabilities.
+---
+
+# MCP Client — Discovery Demo
+
+Spawns the `mcp-server-tools` example as a subprocess and lists all
+tools, resources, and prompts it advertises.
+
+```scalascript
+[mcpConnect, Transport](../std/mcp/client.ssc)
+
+val client = mcpConnect(Transport.Spawn("node", List("examples/mcp-server-tools.js")))
+
+val tools = client.listTools()
+println(s"Tools (${tools.size}):")
+for t <- tools do
+  println(s"  - ${t.name}: ${t.description}")
+
+val resources = client.listResources()
+println(s"Resources: ${resources.size}")
+
+val prompts = client.listPrompts()
+println(s"Prompts: ${prompts.size}")
+
+client.close()
+println("Done")
+```

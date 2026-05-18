@@ -30,7 +30,9 @@ val JsCapabilities: Capabilities = Capabilities(
     Feature.WebSockets,
     Feature.Auth,
     Feature.FileSystem,
-    Feature.Crypto
+    Feature.Crypto,
+    Feature.McpServer,
+    Feature.McpClient
   ),
   outputs  = Set(OutputKind.JavaScriptSource),
   options  = Set("optimizationLevel", "emitAssertions", "target"),
@@ -57,3 +59,4 @@ val JsIntrinsics: Map[QualifiedName, IntrinsicImpl] =
     ++ JsCoreIntrinsics     // Stage 5+/E — Core:     intrinsics/Core.scala
     ++ JsJsonIntrinsics     // Stage 5+/E — JSON:     intrinsics/Json.scala
     ++ JsRequestIntrinsics  // Stage 5+/E — Request:  intrinsics/Request.scala
+    ++ JsMcpIntrinsics      // v1.17     — MCP:       intrinsics/Mcp.scala

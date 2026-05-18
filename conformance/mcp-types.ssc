@@ -1,0 +1,60 @@
+---
+name: mcp-types
+---
+
+# MCP types — pure construction and extraction
+
+Tests that `ToolResult`, `ResourceResult`, `PromptResult`, `Content`,
+`Message`, `Role`, `Transport`, `McpError`, and the `require*` helpers
+are all usable without starting a server.  Runs on all backends.
+
+```scalascript
+[ToolResult, ResourceResult, PromptResult, Content, Message, Role, Transport, McpError,
+ Tool, Resource, Prompt, requireString, requireInt, requireDouble, requireBool](../std/mcp/types.ssc)
+
+// Tool convenience constructors
+val t1 = Tool.text("hello")
+println(t1.isError)
+println(t1.content.head match { case Content.Text(s) => s; case _ => "?" })
+
+val t2 = Tool.error("oops")
+println(t2.isError)
+
+// ResourceResult
+val r1 = Resource.text("some text")
+println(r1.contents.head match { case Content.Text(s) => s; case _ => "?" })
+
+// PromptResult
+val p1 = Prompt.messages(
+  Message(Role.User, Content.Text("hello")),
+  Message(Role.Assistant, Content.Text("world"))
+)
+println(p1.messages.size)
+println(p1.messages.head.role match { case Role.User => "user"; case _ => "?" })
+
+// requireString / requireInt / requireDouble / requireBool
+val args: Map[String, Any] = Map("name" -> "Alice", "age" -> 30, "score" -> 9.5, "active" -> true)
+println(requireString(args, "name"))
+println(requireInt(args, "age"))
+println(requireDouble(args, "score"))
+println(requireBool(args, "active"))
+
+// McpError on missing field
+val err = try {
+  requireString(Map.empty, "missing")
+  "no error"
+} catch {
+  case e: McpError => s"McpError: ${e.message}"
+}
+println(err)
+
+// Transport enum cases
+val t = Transport.Stdio
+println(t match { case Transport.Stdio => "stdio"; case _ => "?" })
+
+val h = Transport.Http(8080)
+println(h match { case Transport.Http(p, _) => s"http:$p"; case _ => "?" })
+
+val sp = Transport.Spawn("node", List("server.js"))
+println(sp match { case Transport.Spawn(cmd, _) => cmd; case _ => "?" })
+```

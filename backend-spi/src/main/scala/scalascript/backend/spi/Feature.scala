@@ -31,3 +31,5 @@ enum Feature:
   case FileSystem                // std.fs
   case Crypto                    // std.crypto
   case Database                  // std.db (future)
+  case McpServer                 // std.mcp server-side (jvm, js)
+  case McpClient                 // std.mcp client-side (jvm, js)

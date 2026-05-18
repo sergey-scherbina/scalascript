@@ -1,0 +1,45 @@
+---
+name: std-mcp
+version: 0.1.0
+description: MCP (Model Context Protocol) support — re-exports all of std/mcp/types, std/mcp/server, std/mcp/client.
+package: std.mcp
+exports:
+  - ToolResult
+  - ResourceResult
+  - PromptResult
+  - Content
+  - Message
+  - Role
+  - Transport
+  - McpError
+  - Tool
+  - Resource
+  - Prompt
+  - requireString
+  - requireInt
+  - requireDouble
+  - requireBool
+  - McpServer
+  - mcpServer
+  - serveMcp
+  - McpClient
+  - ToolDescriptor
+  - ResourceDescriptor
+  - PromptDescriptor
+  - ArgSpec
+  - mcpConnect
+---
+
+# `std.mcp` — Model Context Protocol
+
+Aggregates `std/mcp/types`, `std/mcp/server`, and `std/mcp/client`.
+Import whichever subset you need, or import this file for everything.
+
+```scalascript
+[ToolResult, ResourceResult, PromptResult, Content, Message, Role, Transport, McpError,
+ Tool, Resource, Prompt, requireString, requireInt, requireDouble, requireBool](./types.ssc)
+
+[McpServer, mcpServer, serveMcp](./server.ssc)
+
+[McpClient, ToolDescriptor, ResourceDescriptor, PromptDescriptor, ArgSpec, mcpConnect](./client.ssc)
+```

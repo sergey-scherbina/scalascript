@@ -1,0 +1,57 @@
+---
+name: std-mcp-client
+version: 0.1.0
+description: MCP client primitives — mcpConnect + McpClient. Wraps @modelcontextprotocol/sdk on JS and io.modelcontextprotocol:sdk on JVM. Not available on interpreter or scalajs-spa.
+package: std.mcp
+exports:
+  - McpClient
+  - ToolDescriptor
+  - ResourceDescriptor
+  - PromptDescriptor
+  - ArgSpec
+  - mcpConnect
+---
+
+# `std.mcp.client`
+
+MCP client API. `mcpConnect(transport)` returns an `McpClient`; call `.close()` when done.
+
+Requires `Feature.McpClient` — available on `jvm` and `js` (Node) backends only.
+
+```scalascript
+[ToolResult, ResourceResult, PromptResult, Content, Transport, McpError](./types.ssc)
+
+// ─── Descriptor types (what the server advertised) ───────────────────────────
+
+case class ArgSpec(name: String, typeName: String, required: Boolean)
+
+case class ToolDescriptor(name: String, description: String, schema: Map[String, Any])
+
+case class ResourceDescriptor(uri: String, name: String, mimeType: String)
+
+case class PromptDescriptor(name: String, description: String, args: List[ArgSpec])
+
+// ─── McpClient trait ─────────────────────────────────────────────────────────
+
+extern class McpClient:
+  // Discovery
+  def listTools(): List[ToolDescriptor]
+  def listResources(): List[ResourceDescriptor]
+  def listPrompts(): List[PromptDescriptor]
+
+  // Invocation — synchronous variants
+  def callTool(name: String, args: Map[String, Any]): ToolResult
+  def readResource(uri: String): ResourceResult
+  def getPrompt(name: String, args: Map[String, Any]): PromptResult
+
+  // Lifecycle
+  def close(): Unit
+  def isClosed: Boolean
+
+// ─── Factory ─────────────────────────────────────────────────────────────────
+
+// Connect to an MCP server on the given transport.
+// Blocks until the handshake completes; throws McpError on failure.
+extern def mcpConnect(transport: Transport): McpClient
+extern def mcpConnect(transport: Transport, timeoutMs: Long): McpClient
+```

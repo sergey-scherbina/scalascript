@@ -1,0 +1,32 @@
+---
+name: mcp-server-tool
+requires: Feature.McpServer
+---
+
+# MCP server — tool round-trip (stdio transport)
+
+Registers a single tool handler, verifies `mcpServer` builder pattern,
+and calls `serveMcp(Transport.Stdio)`.  Requires `@modelcontextprotocol/sdk`
+installed and an MCP client to drive the round-trip.
+
+Skipped on backends without `Feature.McpServer` (interpreter, scalajs-spa).
+
+```scalascript
+[mcpServer, serveMcp, Tool, requireString, requireInt, Transport](../std/mcp/server.ssc)
+
+var toolCallCount = 0
+
+mcpServer { srv =>
+  srv.tool("greet", "Return a greeting") { args =>
+    toolCallCount += 1
+    val name = requireString(args, "name")
+    Tool.text(s"Hello, $name!")
+  }
+
+  srv.onConnected(() => println("connected"))
+  srv.onDisconnected(() => println("disconnected"))
+}
+
+println("ready")
+serveMcp(Transport.Stdio)
+```

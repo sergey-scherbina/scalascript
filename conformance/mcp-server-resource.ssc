@@ -1,0 +1,26 @@
+---
+name: mcp-server-resource
+requires: Feature.McpServer
+---
+
+# MCP server — resource round-trip
+
+Registers a resource handler and verifies URI-based dispatch.
+Skipped on backends without `Feature.McpServer`.
+
+```scalascript
+[mcpServer, serveMcp, Resource, Transport](../std/mcp/server.ssc)
+
+mcpServer { srv =>
+  srv.resource("file:///readme.md", "README", "text/markdown") { uri =>
+    Resource.text(uri, "# Hello from ScalaScript MCP", "text/markdown")
+  }
+
+  srv.resource("data://users") { uri =>
+    Resource.text("""[{"id":1,"name":"Alice"},{"id":2,"name":"Bob"}]""", "application/json")
+  }
+}
+
+println("ready")
+serveMcp(Transport.Stdio)
+```

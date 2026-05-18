@@ -28,7 +28,9 @@ val JvmCapabilities: Capabilities = Capabilities(
     Feature.WebSockets,
     Feature.Auth,
     Feature.FileSystem,
-    Feature.Crypto
+    Feature.Crypto,
+    Feature.McpServer,
+    Feature.McpClient
   ),
   outputs  = Set(OutputKind.ScalaSource),
   options  = Set("optimizationLevel", "emitAssertions"),
@@ -56,3 +58,4 @@ val JvmIntrinsics: Map[QualifiedName, IntrinsicImpl] =
     ++ JvmCoreIntrinsics     // Stage 5+/E — Core:     intrinsics/Core.scala
     ++ JvmJsonIntrinsics     // Stage 5+/E — JSON:     intrinsics/Json.scala
     ++ JvmRequestIntrinsics  // Stage 5+/E — Request:  intrinsics/Request.scala
+    ++ JvmMcpIntrinsics      // v1.17     — MCP:       intrinsics/Mcp.scala

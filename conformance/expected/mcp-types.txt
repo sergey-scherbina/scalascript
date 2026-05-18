@@ -1,0 +1,14 @@
+false
+hello
+true
+some text
+2
+user
+Alice
+30
+9.5
+true
+McpError: missing field: 'missing'
+stdio
+http:8080
+node

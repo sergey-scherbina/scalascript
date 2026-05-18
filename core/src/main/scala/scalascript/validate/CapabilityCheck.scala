@@ -52,6 +52,8 @@ object CapabilityCheck:
       if src.contains("os.read") || src.contains("os.write") || src.contains("os.list")
                                                             then detected += Feature.FileSystem
       if src.contains("crypto.") || src.contains("hashSha256") then detected += Feature.Crypto
+      if src.contains("mcpServer(") || src.contains("serveMcp(")  then detected += Feature.McpServer
+      if src.contains("mcpConnect(")                              then detected += Feature.McpClient
 
     def scanContent(c: ir.Content): Unit = c match
       case ir.Content.CodeBlock(source, _, _) => scanSource(source)
@@ -60,7 +62,12 @@ object CapabilityCheck:
         // *consumed* (host blocks reference them) — too coarse to detect
         // perfectly here; leave it to Stage 9's SourceLanguage plugins.
         ()
-      case ir.Content.Import(_, _, _) => detected += Feature.ModuleImports
+      case ir.Content.Import(path, _, _) =>
+        detected += Feature.ModuleImports
+        if path.contains("std/mcp/server") || path.contains("std/mcp/index") then
+          detected += Feature.McpServer
+        if path.contains("std/mcp/client") || path.contains("std/mcp/index") then
+          detected += Feature.McpClient
       case _                          => ()
 
     def scanSection(s: ir.Section): Unit =

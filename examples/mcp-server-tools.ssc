@@ -1,0 +1,41 @@
+#!/usr/bin/env ssc
+---
+name: mcp-server-tools
+version: 1.0.0
+description: MCP server with three tools exposed over stdio transport — calculator, echo, and weather stub.
+---
+
+# MCP Server — Tools Demo
+
+A minimal MCP server that exposes three tools over `stdio` transport.
+Connect with any MCP-compatible client (e.g. `npx @modelcontextprotocol/inspector`).
+
+```scalascript
+[mcpServer, serveMcp, Tool, requireString, requireInt, Transport](../std/mcp/server.ssc)
+[requireDouble](../std/mcp/types.ssc)
+
+mcpServer { srv =>
+
+  srv.tool("echo", "Return the input string unchanged") { args =>
+    val msg = requireString(args, "message")
+    Tool.text(s"Echo: $msg")
+  }
+
+  srv.tool("add", "Add two numbers") { args =>
+    val a = requireDouble(args, "a")
+    val b = requireDouble(args, "b")
+    Tool.text(s"${a + b}")
+  }
+
+  srv.tool("get_weather", "Get current weather for a city (stub)") { args =>
+    val city = requireString(args, "city")
+    Tool.text(s"Weather in $city: sunny, 22°C (stub data)")
+  }
+
+  srv.onConnected(() => println("MCP client connected"))
+  srv.onDisconnected(() => println("MCP client disconnected"))
+}
+
+println("MCP server ready on stdio")
+serveMcp(Transport.Stdio)
+```

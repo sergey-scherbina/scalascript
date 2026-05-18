@@ -8,7 +8,7 @@ import scalascript.typer.Typer
 // emit-spa needs ScalaJsBackend.compileSourceToJs for per-segment
 // Scala source compilation.
 import scalascript.interpreter.Interpreter
-import scalascript.codegen.{JsGen, JsRuntime, JsRuntimeAsync, JsRuntimeV14Effects, JsRuntimeBrowserPatch, ScalaJsBackend}
+import scalascript.codegen.{JsGen, JsRuntime, JsRuntimeAsync, JsRuntimeV14Effects, JsRuntimeBrowserPatch, JsRuntimeMcp, ScalaJsBackend}
 import scalascript.ast.*
 import scalascript.transform.Normalize
 import scalascript.plugin.{BackendRegistry, SourceLanguageRegistry}
@@ -970,7 +970,7 @@ def emitJsCommand(args: List[String]): Unit =
           case Segment.Code("javascript", _) => true
           case _                             => false
         }
-        if hasSSBlocks then { println(JsRuntime); println(JsRuntimeAsync); println(JsRuntimeV14Effects) }
+        if hasSSBlocks then { println(JsRuntime); println(JsRuntimeAsync); println(JsRuntimeV14Effects); println(JsRuntimeMcp) }
         for seg <- segments do seg match
           case Segment.Code("javascript", code) =>
             println(code)
@@ -1112,7 +1112,7 @@ def emitWcCommand(args: List[String]): Unit =
           case JsGen.Segment.ScalaSource(src)    =>
             ScalaJsBackend.compileSourceToJs(src, baseDir)
         }.filter(_.nonEmpty).mkString("\n")
-        println(JsRuntime); println(JsRuntimeAsync); println(JsRuntimeV14Effects)
+        println(JsRuntime); println(JsRuntimeAsync); println(JsRuntimeV14Effects); println(JsRuntimeMcp)
         println(userJs)
         components.foreach { c =>
           val tag       = wcKebab(c.name) + "-component"
