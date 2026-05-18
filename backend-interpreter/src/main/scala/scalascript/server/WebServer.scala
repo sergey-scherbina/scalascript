@@ -22,9 +22,23 @@ object WebServer:
   private val mdParser   = CmParser.builder().build()
   private val htmlRender = HtmlRenderer.builder().build()
 
+  @volatile private var _latch:    java.util.concurrent.CountDownLatch | Null = null
+  @volatile private var _internal: JHttpServer | Null                          = null
+  @volatile private var _pubSock:  java.net.ServerSocket | Null                = null
+  @volatile private var _proxy:    WsProxy | Null                              = null
+
+  def stop(): Unit =
+    try _pubSock  match { case s if s != null => s.close(); case _ => () } catch case _: Throwable => ()
+    try _proxy    match { case p if p != null => p.stop();  case _ => () } catch case _: Throwable => ()
+    try _internal match { case h if h != null => h.stop(0); case _ => () } catch case _: Throwable => ()
+    _latch match { case l if l != null => l.countDown(); case _ => () }
+
   def start(port: Int, root: String, log: java.io.PrintStream,
             certPath: String = "", keyPath: String = ""): Unit =
     val useTls = certPath.nonEmpty && keyPath.nonEmpty
+
+    val latch    = java.util.concurrent.CountDownLatch(1)
+    _latch = latch
 
     // Explicit single-thread executor shared between the HTTP handlers
     // (via JDK HttpServer) and the WebSocket app callbacks (via WsProxy
@@ -43,17 +57,15 @@ object WebServer:
     internal.createContext("/", handle(root, log, _))
     internal.setExecutor(executor)
     internal.start()
+    _internal = internal
     val internalPort = internal.getAddress.getPort
 
     if useTls then
       // TLS mode: SSLServerSocket + virtual-thread-per-connection proxy.
-      // SSLSocket wraps the accept loop transparently — the handshake is
-      // done inside accept(), plaintext bytes come out of getInputStream()
-      // just as with a plain Socket.  Avoids the NIO + SSLEngine state
-      // machine while giving the same threading model as JvmGen.
       val sslCtx = buildSslContext(certPath, keyPath)
       val pub = sslCtx.getServerSocketFactory.createServerSocket(port)
         .asInstanceOf[javax.net.ssl.SSLServerSocket]
+      _pubSock = pub
       log.println(s"ScalaScript web · https://localhost:$port/  (root: $root)")
       log.println(s"  (TLS proxy → internal HttpServer on 127.0.0.1:$internalPort)")
       log.println("Ctrl+C to stop.")
@@ -67,7 +79,7 @@ object WebServer:
             }
           catch case _: Throwable => ()
       }, "tls-proxy-accept").start()
-      Thread.currentThread().join()
+      latch.await()
     else
       // Non-TLS mode: NIO proxy (original behaviour).
       val proxy = WsProxy(
@@ -76,11 +88,12 @@ object WebServer:
         wsExecutor   = executor,
         log          = log
       )
+      _proxy = proxy
       proxy.start()
       log.println(s"ScalaScript web · http://localhost:$port/  (root: $root)")
       log.println(s"  (NIO proxy → internal HttpServer on 127.0.0.1:$internalPort)")
       log.println("Ctrl+C to stop.")
-      Thread.currentThread().join()
+      latch.await()
 
   /** Build an SSLContext from PEM cert + PKCS#8 private key files.
    *

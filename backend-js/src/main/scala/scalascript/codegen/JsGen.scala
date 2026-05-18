@@ -1836,9 +1836,14 @@ function serve(port, _tlsCfg) {
   // socket (post-headers) and stays out of the way after.
   server.on('upgrade', (req, socket, _head) => _wsHandleUpgrade(req, socket));
   server.listen(port, () => console.log(`Listening on ${_useTls ? 'https' : 'http'}://localhost:${port}/`));
+  _activeServer = server;
 }
 
-function stop() {}
+let _activeServer = null;
+
+function stop() {
+  if (_activeServer) { _activeServer.close(); _activeServer = null; }
+}
 """
 
 private val JsRuntimePart2: String = """

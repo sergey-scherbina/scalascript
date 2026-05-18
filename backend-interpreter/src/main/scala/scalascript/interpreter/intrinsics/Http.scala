@@ -40,6 +40,7 @@ val HttpIntrinsics: Map[QualifiedName, IntrinsicImpl] = Map(
         ()
       case _ => throw InterpretError("serve(port) or serve(port, dir)")
   ),
-  // stop() — no-op stub; real shutdown deferred to feature/v1.5-tls-http-client.
-  QualifiedName("stop") -> NativeImpl((_, _) => ())
+  QualifiedName("stop") -> NativeImpl((ctx, _) =>
+    if !ctx.headless then scalascript.server.WebServer.stop()
+  )
 )

@@ -4260,29 +4260,32 @@ class JvmGen(
        |  catch case _: Throwable =>
        |    java.util.concurrent.Executors.newCachedThreadPool()
        |
+       |private val _stopLatch = java.util.concurrent.CountDownLatch(1)
+       |@volatile private var _pubSocket: java.net.ServerSocket | Null = null
+       |@volatile private var _internalHttp: com.sun.net.httpserver.HttpServer | Null = null
+       |
+       |def stop(): Unit =
+       |  try { _pubSocket  match { case s if s != null => s.close();  case _ => () } } catch { case _: Throwable => () }
+       |  try { _internalHttp match { case h if h != null => h.stop(0); case _ => () } } catch { case _: Throwable => () }
+       |  _stopLatch.countDown()
+       |
        |def serve(port: Int): Unit = serve(port, null.asInstanceOf[_TlsConfig])
        |
        |def serve(port: Int, tlsCfg: _TlsConfig): Unit =
        |  _registerHealthDefaults()
-       |  // Internal HttpServer on a loopback ephemeral port — REST + static
-       |  // files keep flowing through it as before, single-threaded.  The
-       |  // same `_serverExecutor` backs WS callbacks so all handler bodies
-       |  // serialise on one thread regardless of which protocol triggered
-       |  // them.
        |  val internal = com.sun.net.httpserver.HttpServer.create(
        |    java.net.InetSocketAddress("127.0.0.1", 0), 0)
        |  internal.createContext("/", _handle)
        |  internal.setExecutor(_serverExecutor)
        |  internal.start()
+       |  _internalHttp = internal
        |  val internalPort = internal.getAddress.getPort
        |  val pool = _vThreadPool()
        |  if tlsCfg != null then
-       |    // TLS mode: SSLServerSocket + virtual threads.  The SSLSocket
-       |    // terminates TLS transparently so _proxyConnection receives
-       |    // plaintext bytes and forwards them to the internal HttpServer.
        |    val sslCtx = _buildSslContext(tlsCfg.cert, tlsCfg.key)
        |    val pub = sslCtx.getServerSocketFactory.createServerSocket(port)
        |      .asInstanceOf[javax.net.ssl.SSLServerSocket]
+       |    _pubSocket = pub
        |    println(s"Listening on https://localhost:$port/  (proxy → 127.0.0.1:$internalPort)")
        |    Thread(() => {
        |      while !pub.isClosed do
@@ -4293,6 +4296,7 @@ class JvmGen(
        |    }, "tls-proxy-accept").start()
        |  else
        |    val pub = java.net.ServerSocket(port)
+       |    _pubSocket = pub
        |    println(s"Listening on http://localhost:$port/  (proxy → 127.0.0.1:$internalPort)")
        |    Thread(() => {
        |      while !pub.isClosed do
@@ -4301,9 +4305,7 @@ class JvmGen(
        |          pool.execute { () => _proxyConnection(c, internalPort) }
        |        catch case _: Throwable => ()
        |    }, "ws-proxy-accept").start()
-       |  Thread.currentThread().join()
-       |
-       |def stop(): Unit = ()
+       |  _stopLatch.await()
        |
        |// ── Outbound HTTP client ────────────────────────────────────────────────
        |private var _httpBaseUrl: String = ""
