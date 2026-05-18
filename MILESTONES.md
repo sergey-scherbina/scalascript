@@ -388,8 +388,8 @@ unblocks downstream features as early as possible.
      All 6 phases in main: interpreter, JvmGen+JsGen codegen,
      conformance tests, `std/monad-control.ssc`, diagnostics,
      `direct-syntax-demo.ssc`.
- 14. **v1.9 — Coroutine primitive** ~ Partial.
-     Phase 1 (JVM/Loom) landed; Phases 2–4 (JS, interpreter, diagnostics) pending.
+ 14. **v1.9 — Coroutine primitive** ✓ Landed.
+     All 4 phases; interpreter + JvmGen + JsGen; 19 conformance tests.
  15. **v1.10 — Generators** ✓ Landed.
      `flatMap`, `zip`, `zipWithIndex` added; all 3 backends; 4 new tests.
  16. **v1.11 — Continuation-based Async** (~2 weeks).
@@ -1812,7 +1812,14 @@ source-to-source rewriting before the backend split, so INT / JS /
 JVM see the same desugared `for { x <- e } yield body` and the
 existing v1.1 `Monad` machinery handles emission.
 
-## v1.9 — Coroutine primitive ~ Partial (Phase 1 / JVM via Loom landed; Phases 2–4 / JS + diagnostics pending)
+## v1.9 — Coroutine primitive ✓ Landed
+
+**Landing notes:** All 4 phases completed across all three backends.
+- Phase 1 ✓: Interpreter — virtual-thread handshake (`coroutineCreate` / `coroutineResume` / `suspend`)
+- Phase 2 ✓: JsGen — JS native `function*` generator wrapper; JvmGen — virtual-thread handshake
+- Phase 3 ✓: `Step[Y,T]` ADT (`Yielded` / `Returned` / `Errored`); `std/coroutine.ssc` spec
+- Phase 4 ✓: 19 conformance tests (`CoroutineTest`, `CoroutineCodegenTest`); error diagnostics
+- `docs/coroutines.md` — full design doc
 
 A single shared runtime primitive for paused-and-resumable
 computation, replacing the three parallel implementations that
