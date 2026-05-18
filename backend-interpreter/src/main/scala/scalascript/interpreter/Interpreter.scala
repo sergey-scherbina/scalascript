@@ -30,6 +30,10 @@ class Interpreter(
     lockPath: Option[os.Path]      = None):
   private val globals      = mutable.Map.empty[String, Value]
   private val extensions   = mutable.Map.empty[(String, String), Value.FunV]
+  // Maps subtype name → sealed parent name, e.g. "Right" → "Either".
+  // Built from enum cases and case-class `extends` clauses; used to walk
+  // the parent chain in extensionDispatch when exact lookup misses.
+  private val sealedParents = mutable.Map.empty[String, String]
   // Methods declared inside a `class` / `case class` body, keyed by type name.
   // Stored separately from instance fields so `show` and pattern matching see
   // only data fields.
@@ -1397,6 +1401,8 @@ class Interpreter(
    *  the import binding list and would otherwise drop extensions. */
   def exportedExtensions: Map[(String, String), Value.FunV] = extensions.toMap
 
+  def exportedSealedParents: Map[String, String] = sealedParents.toMap
+
   // ─── Section / block execution ───────────────────────────────────
 
   private def runSection(section: Section): Unit =
@@ -1507,11 +1513,10 @@ class Interpreter(
       lookupExport(exported, childPkg, sourceName) match
         case Some(v) => globals(targetName) = v
         case None    => throw InterpretError(s"'$sourceName' not found in ${imp.path}")
-    // Extensions registered by the imported module become available in
-    // the importer's scope.  Without this, an `extension` declared
-    // inside an imported `given ... with` would never dispatch — the
-    // child interpreter's `extensions` map is private to that child.
-    extensions ++= child.exportedExtensions
+    // Extensions and sealed-parent mappings registered by the imported module
+    // become available in the importer's scope.
+    extensions    ++= child.exportedExtensions
+    sealedParents ++= child.exportedSealedParents
 
   /** Navigate nested InstanceV objects to find `name` under the package path.
    *  For `pkg = ["org", "example", "ui"]` and `name = "Card"` this resolves
@@ -1625,6 +1630,13 @@ class Interpreter(
       val typeName = d.name.value
       val ctorEnv = env.toMap
       typeFieldOrder(typeName) = paramNames
+      d.templ.inits.foreach { init =>
+        val parentName = init.tpe match
+          case Type.Name(n)   => n
+          case ta: Type.Apply => ta.tpe match { case Type.Name(n) => n; case _ => "" }
+          case _              => ""
+        if parentName.nonEmpty then sealedParents(typeName) = parentName
+      }
       env(typeName) = Value.NativeFnV(typeName, args => {
         val filled = applyDefaults(paramNames, paramDefaults, args, ctorEnv)
         Pure(Value.InstanceV(typeName, paramNames.zip(filled).toMap))
@@ -1663,6 +1675,7 @@ class Interpreter(
           val paramNames    = ecParams.map(_.name.value)
           val paramDefaults = ecParams.map(_.default)
           if paramNames.nonEmpty then typeFieldOrder(caseName) = paramNames
+          sealedParents(caseName) = enumName
           val v: Value =
             if paramNames.isEmpty then Value.InstanceV(caseName, Map.empty)
             else Value.NativeFnV(caseName, args => {
@@ -4842,6 +4855,18 @@ class Interpreter(
   // ─── Dispatch ─────────────────────────────────────────────────────
 
   private def dispatch(recv: Value, name: String, args: List[Value], env: Env): Computation =
+    // User-defined extensions take priority over built-in dispatch for non-InstanceV types.
+    val userExt = recv match
+      case _: Value.OptionV => extensions.get(("Option", name)).map(callValue(_, recv :: args, env))
+      case _: Value.ListV   => extensions.get(("List",   name)).map(callValue(_, recv :: args, env))
+      case _: Value.IntV    => extensions.get(("Int",    name)).map(callValue(_, recv :: args, env))
+      case _: Value.DoubleV => extensions.get(("Double", name)).map(callValue(_, recv :: args, env))
+      case _: Value.StringV => extensions.get(("String", name)).map(callValue(_, recv :: args, env))
+      case _: Value.BoolV   => extensions.get(("Boolean",name)).map(callValue(_, recv :: args, env))
+      case _: Value.MapV    => extensions.get(("Map",    name)).map(callValue(_, recv :: args, env))
+      case _                => None
+    if userExt.isDefined then userExt.get
+    else
     (recv, name, args) match
       // ── String ──────────────────────────────────────────────────
       case (Value.StringV(s), "length",       Nil) => Pure(Value.IntV(s.length.toLong))
@@ -5236,7 +5261,9 @@ class Interpreter(
       case (Value.InstanceV("Left",  _),      "toSeq",     Nil) =>
         Pure(Value.ListV(Nil))
       // ── Instance (case class / enum case) field access ───────────
-      // No-arg defs and no-arg native fns are called automatically on access
+      // No-arg defs and no-arg native fns are called automatically on access.
+      // When the field is absent, try sealed-parent extension dispatch before
+      // giving up — so `Red.label` can reach an `extension (c: Color)` method.
       case (Value.InstanceV(_, fields), fname, Nil) =>
         fields.get(fname) match
           case Some(f: Value.FunV)      if f.params.isEmpty => callFun(f, Nil)
@@ -5246,7 +5273,9 @@ class Interpreter(
           // fall through to the generic Value.show path so users get the
           // expected "Circle(3.0)" rendering without having to define it.
           case None if fname == "toString"                   => Pure(Value.StringV(Value.show(recv)))
-          case None                                          => located(s"No field '$fname'")
+          case None =>
+            extensionDispatch(recv, fname, Nil, env)
+              .getOrElse(located(s"No field '$fname'"))
       // ── Enum companion call (Color.RGB(1,2,3)) ───────────────────
       case (Value.InstanceV(_, fields), fname, fargs) if fields.contains(fname) =>
         callValue(fields(fname), fargs, env)
@@ -5272,6 +5301,16 @@ class Interpreter(
       case _                    => "Any"
     extensions.get((typeName, method)).map { fn =>
       callValue(fn, recv :: args, env)
+    }.orElse {
+      // Walk sealed-parent chain: Right → Either, Some → Option, etc.
+      var parent: Option[String] = sealedParents.get(typeName)
+      var found: Option[Computation] = None
+      while parent.isDefined && found.isEmpty do
+        found = extensions.get((parent.get, method)).map { fn =>
+          callValue(fn, recv :: args, env)
+        }
+        parent = sealedParents.get(parent.get)
+      found
     }.orElse {
       globals.values.collectFirst {
         case Value.InstanceV(name, fields)
@@ -5329,7 +5368,29 @@ class Interpreter(
           matchPat(headPat, h, env).flatMap(e =>
             matchPat(tailClause.values.head, Value.ListV(t), e))
         case _ => None
-    case Pat.Typed(inner, _)       => matchPat(inner, scrutinee, env)
+    case Pat.Typed(inner, tpe) =>
+      val typeName = tpe match
+        case Type.Name(n)   => n
+        case ta: Type.Apply => ta.tpe match { case Type.Name(n) => n; case _ => "" }
+        case _              => ""
+      if typeName.isEmpty then matchPat(inner, scrutinee, env)
+      else
+        val matches = scrutinee match
+          case Value.InstanceV(t, _) =>
+            t == typeName || {
+              var p = sealedParents.get(t); var ok = false
+              while p.isDefined && !ok do { ok = p.get == typeName; p = sealedParents.get(p.get) }
+              ok
+            }
+          case _: Value.IntV    => typeName == "Int"
+          case _: Value.DoubleV => typeName == "Double"
+          case _: Value.StringV => typeName == "String"
+          case _: Value.BoolV   => typeName == "Boolean"
+          case _: Value.ListV   => typeName == "List"
+          case _: Value.OptionV => typeName == "Option"
+          case _: Value.MapV    => typeName == "Map"
+          case _                => false
+        if matches then matchPat(inner, scrutinee, env) else None
     case Pat.Alternative(lhs, rhs) =>
       List(lhs, rhs).iterator.flatMap(p => matchPat(p, scrutinee, env)).nextOption()
     case t: Term.Name =>
