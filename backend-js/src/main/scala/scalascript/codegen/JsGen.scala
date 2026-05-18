@@ -3207,7 +3207,7 @@ function _runAsyncParallel(bodyFn) { return _runAsyncInner(bodyFn()); }
 // scheduler sleeps until the earliest deadline, then resumes that
 // actor with None.
 
-function Pid(id) { return { _type: 'Pid', id }; }
+function Pid(nodeId, localId) { return { _type: 'Pid', nodeId, localId }; }
 
 const Actor = {
   spawn:     (thunk)       => _perform('Actor', 'spawn',     [thunk]),
@@ -3221,6 +3221,11 @@ const Actor = {
   monitor:   (pid)         => _perform('Actor', 'monitor',   [pid]),
   demonitor: (ref)         => _perform('Actor', 'demonitor', [ref]),
   trapExit:  (b)           => _perform('Actor', 'trapExit',  [b]),
+  // v1.6 Phase 3 — distributed nodes
+  startNode:   (nodeId)       => _perform('Actor', 'startNode',   [nodeId]),
+  connectNode: (url, token)   => _perform('Actor', 'connectNode', [url, token]),
+  register:    (name, pid)    => _perform('Actor', 'register',    [name, pid]),
+  whereis:     (name)         => _perform('Actor', 'whereis',     [name]),
 };
 
 // `receive { case … }` lowers to a registered matcher function whose
@@ -3244,6 +3249,9 @@ function _runActors(bodyFn) {
   const monitors   = new Map();   // watchedId -> Map<monRef, observerId>
   const trapExitMap = new Map();  // id -> bool
   let   nextMonRef = 0;
+  // Phase 3 distributed node state
+  let   _localNodeId  = "";
+  const _nodeRegistry = new Map();   // name -> localId
 
   const ready  = [];
   let   nextId = 0;
@@ -3253,7 +3261,7 @@ function _runActors(bodyFn) {
     const id = nextId++;
     actors.set(id, { mailbox: [], pending: thunk(), blocked: null });
     ready.push(id);
-    return Pid(id);
+    return Pid(_localNodeId, id);
   }
   const rootId = spawnActor(bodyFn);
 
@@ -3292,7 +3300,7 @@ function _runActors(bodyFn) {
     actors.delete(targetId);
     trapExitMap.delete(targetId);
 
-    const deadPid = Pid(targetId);
+    const deadPid = Pid(_localNodeId, targetId);
 
     // Notify linked actors.
     const linkedSet = links.get(targetId);
@@ -3334,11 +3342,11 @@ function _runActors(bodyFn) {
         return { suspend: false, next: k(childPid) };
       }
       case 'self':
-        return { suspend: false, next: k(Pid(id)) };
+        return { suspend: false, next: k(Pid(_localNodeId, id)) };
       case 'send': {
         const target = args[0];
         if (target && target._type === 'Pid') {
-          const ts = actors.get(target.id);
+          const ts = actors.get(target.localId);
           if (ts) {
             ts.mailbox.push(args[1]);
             if (ts.blocked) {
@@ -3347,7 +3355,7 @@ function _runActors(bodyFn) {
               if (delivered !== null) {
                 ts.pending = new _FlatMap(delivered, b.k);
                 ts.blocked = null;
-                ready.push(target.id);
+                ready.push(target.localId);
               }
             }
           }
@@ -3357,7 +3365,7 @@ function _runActors(bodyFn) {
       case 'exit': {
         const target = args[0];
         if (target && target._type === 'Pid') {
-          killActor(target.id, args[1]);
+          killActor(target.localId, args[1]);
         }
         // The caller may have been killed by a link; check.
         if (!actors.has(id)) return { suspend: true };
@@ -3381,7 +3389,7 @@ function _runActors(bodyFn) {
       case 'link': {
         const target = args[0];
         if (target && target._type === 'Pid') {
-          const targetId = target.id;
+          const targetId = target.localId;
           if (actors.has(targetId)) {
             if (!links.has(id))       links.set(id,       new Set());
             if (!links.has(targetId)) links.set(targetId, new Set());
@@ -3404,7 +3412,7 @@ function _runActors(bodyFn) {
       case 'monitor': {
         const target = args[0];
         if (target && target._type === 'Pid') {
-          const targetId = target.id;
+          const targetId = target.localId;
           const monRef = nextMonRef++;
           if (actors.has(targetId)) {
             if (!monitors.has(targetId)) monitors.set(targetId, new Map());
@@ -3429,6 +3437,28 @@ function _runActors(bodyFn) {
       case 'trapExit': {
         trapExitMap.set(id, args[0] === true || args[0]);
         return { suspend: false, next: k(undefined) };
+      }
+      // ── v1.6 Phase 3 — distributed node primitives ────────────────────
+      case 'startNode': {
+        _localNodeId = args[0];
+        return { suspend: false, next: k(undefined) };
+      }
+      case 'connectNode': {
+        // JS backend: no real WS networking; connectNode is a no-op.
+        return { suspend: false, next: k(undefined) };
+      }
+      case 'register': {
+        const regName = args[0];
+        const regPid  = args[1];
+        if (regPid && regPid._type === 'Pid') _nodeRegistry.set(regName, regPid.localId);
+        return { suspend: false, next: k(undefined) };
+      }
+      case 'whereis': {
+        const lookName = args[0];
+        const found = _nodeRegistry.has(lookName)
+          ? { _type: 'Some', value: Pid(_localNodeId, _nodeRegistry.get(lookName)) }
+          : { _type: 'None' };
+        return { suspend: false, next: k(found) };
       }
       default:
         throw new Error('Unknown Actor op: ' + op);
@@ -3464,7 +3494,7 @@ function _runActors(bodyFn) {
       } else {
         // Pure value — actor done normally; fire monitors with reason "normal".
         if (id === rootId) rootResult = current;
-        const myPid = Pid(id);
+        const myPid = Pid(_localNodeId, id);
         const monMap = monitors.get(id);
         monitors.delete(id);
         if (monMap) {
@@ -4073,7 +4103,8 @@ class JsGen(
       "Storage.get", "Storage.put", "Storage.remove", "Storage.has", "Storage.keys",
       "Actor.spawn", "Actor.self", "Actor.send", "Actor.exit",
       "Actor.receive", "Actor.receive_t",
-      "Actor.link", "Actor.monitor", "Actor.demonitor", "Actor.trapExit"
+      "Actor.link", "Actor.monitor", "Actor.demonitor", "Actor.trapExit",
+      "Actor.startNode", "Actor.connectNode", "Actor.register", "Actor.whereis"
     )
 
     def collectTrees(s: Section): List[scala.meta.Tree] =
@@ -5103,6 +5134,21 @@ class JsGen(
     case Term.Apply.After_4_6_0(Term.Name("trapExit"), argClause)
         if argClause.values.size == 1 =>
       s"Actor.trapExit(${genExpr(argClause.values.head.asInstanceOf[Term])})"
+    // v1.6 Phase 3 — distributed node primitives
+    case Term.Apply.After_4_6_0(Term.Name("startNode"), argClause)
+        if argClause.values.size == 1 =>
+      s"Actor.startNode(${genExpr(argClause.values.head.asInstanceOf[Term])})"
+    case Term.Apply.After_4_6_0(Term.Name("connectNode"), argClause)
+        if argClause.values.size >= 1 =>
+      val url   = genExpr(argClause.values(0).asInstanceOf[Term])
+      val token = if argClause.values.size >= 2 then genExpr(argClause.values(1).asInstanceOf[Term]) else "\"\""
+      s"Actor.connectNode($url, $token)"
+    case Term.Apply.After_4_6_0(Term.Name("register"), argClause)
+        if argClause.values.size == 2 =>
+      s"Actor.register(${genExpr(argClause.values(0).asInstanceOf[Term])}, ${genExpr(argClause.values(1).asInstanceOf[Term])})"
+    case Term.Apply.After_4_6_0(Term.Name("whereis"), argClause)
+        if argClause.values.size == 1 =>
+      s"Actor.whereis(${genExpr(argClause.values.head.asInstanceOf[Term])})"
 
     // Special forms: computed / effect — wrap the by-name body as a
     // zero-arg thunk so the reactive scheduler can rerun it when its
@@ -5508,6 +5554,21 @@ class JsGen(
     case Term.Apply.After_4_6_0(Term.Name("trapExit"), argClause)
         if argClause.values.size == 1 =>
       s"Actor.trapExit(${genExpr(argClause.values.head.asInstanceOf[Term])})"
+    // v1.6 Phase 3 — distributed node primitives (inside CPS body)
+    case Term.Apply.After_4_6_0(Term.Name("startNode"), argClause)
+        if argClause.values.size == 1 =>
+      s"Actor.startNode(${genExpr(argClause.values.head.asInstanceOf[Term])})"
+    case Term.Apply.After_4_6_0(Term.Name("connectNode"), argClause)
+        if argClause.values.size >= 1 =>
+      val url   = genExpr(argClause.values(0).asInstanceOf[Term])
+      val token = if argClause.values.size >= 2 then genExpr(argClause.values(1).asInstanceOf[Term]) else "\"\""
+      s"Actor.connectNode($url, $token)"
+    case Term.Apply.After_4_6_0(Term.Name("register"), argClause)
+        if argClause.values.size == 2 =>
+      s"Actor.register(${genExpr(argClause.values(0).asInstanceOf[Term])}, ${genExpr(argClause.values(1).asInstanceOf[Term])})"
+    case Term.Apply.After_4_6_0(Term.Name("whereis"), argClause)
+        if argClause.values.size == 1 =>
+      s"Actor.whereis(${genExpr(argClause.values.head.asInstanceOf[Term])})"
 
     // Nested computed / effect inside CPS body — same wrapping as the
     // non-CPS form: by-name body becomes a zero-arg thunk.
