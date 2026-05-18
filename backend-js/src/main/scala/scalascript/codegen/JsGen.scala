@@ -6714,7 +6714,23 @@ class JsGen(
 
   // ─── direct[M] { ... } — v1.8 do-notation ────────────────────────
 
+  private def checkDirectBlockStatics(stats: List[Stat]): Unit =
+    def isNestedDirect(t: Tree): Boolean = t match
+      case app: Term.Apply =>
+        app.fun match
+          case Term.ApplyType.After_4_6_0(Term.Name("direct"), _) => true
+          case _ => false
+      case _ => false
+    def go(t: Tree): Unit = t match
+      case _: Term.Return =>
+        throw new RuntimeException("'return' inside a direct block escapes the flatMap chain — for early failure use the monad's zero (None, Nil, Left(err), …) instead")
+      case _ if isNestedDirect(t) => ()
+      case _: Defn.Def | _: Term.Function => ()
+      case other => other.children.foreach(go)
+    stats.foreach(go)
+
   private def genDirectBlock(stats: List[Stat]): String =
+    checkDirectBlockStatics(stats)
     if stats.isEmpty then "undefined"
     else
       val varNames: Set[String] = stats.collect {

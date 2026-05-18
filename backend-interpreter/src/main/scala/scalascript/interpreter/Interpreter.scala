@@ -2969,7 +2969,23 @@ class Interpreter(
    *  - `_ = expr`       — explicit bind-and-discard.
    *  - bare expression  — evaluated for side effects; result discarded.
    *  - last expression  — the tail / yield clause. */
+  private def checkDirectBlockStatics(stats: List[Stat]): Unit =
+    def isNestedDirect(t: Tree): Boolean = t match
+      case app: Term.Apply =>
+        app.fun match
+          case Term.ApplyType.After_4_6_0(Term.Name("direct"), _) => true
+          case _ => false
+      case _ => false
+    def go(t: Tree): Unit = t match
+      case _: Term.Return =>
+        located("'return' inside a direct block escapes the flatMap chain — for early failure use the monad's zero (None, Nil, Left(err), …) instead")
+      case _ if isNestedDirect(t) => ()
+      case _: Defn.Def | _: Term.Function => ()
+      case other => other.children.foreach(go)
+    stats.foreach(go)
+
   private def evalDirectBlock(stats: List[Stat], env: Env): Computation =
+    checkDirectBlockStatics(stats)
     val varNames: Set[String] = stats.collect {
       case Defn.Var.After_4_7_2(_, List(Pat.Var(n)), _, _) => n.value
     }.toSet
@@ -3022,6 +3038,17 @@ class Interpreter(
       // bare expression for side effect
       case (t: Term) :: rest =>
         eval(t, cur).flatMap(_ => step(rest, cur))
+
+      // def inside direct block — register as pure closure, not a monadic bind
+      case (d: Defn.Def) :: rest =>
+        val paramVals   = d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values).toList
+        val params      = paramVals.map(_.name.value)
+        val defaults    = paramVals.map(_.default)
+        val capturedEnv = cur.iterator.collect {
+          case (k, v) if !globals.get(k).contains(v) => k -> v
+        }.toMap
+        val fn = Value.FunV(params, d.body, capturedEnv, d.name.value, defaults)
+        step(rest, cur + (d.name.value -> fn))
 
       case _ :: rest =>
         step(rest, cur)

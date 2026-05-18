@@ -608,7 +608,20 @@ class JvmGen(
     blockUsesMutualTco(node)      ||
     blockHasAutoOutputTerm(node)  ||
     blockUsesIntrinsics(node)     ||
-    blockContainsExternDef(node)
+    blockContainsExternDef(node)  ||
+    blockContainsDirectBlock(node)
+
+  /** v1.8 — force any block containing a direct[M] { ... } expression through
+   *  emitStats so emitDirectBlock rewrites it to .flatMap chains (and so the
+   *  Phase 5 static checks fire). */
+  private def blockContainsDirectBlock(node: ScalaNode): Boolean =
+    def go(t: scala.meta.Tree): Boolean = t match
+      case app: Term.Apply =>
+        app.fun match
+          case Term.ApplyType.After_4_6_0(Term.Name("direct"), _) => true
+          case _ => app.children.exists(go)
+      case other => other.children.exists(go)
+    ScalaNode.fold(node)(go)
 
   /** Stage 5+/A.6 (Б-1) — force blocks that declare an `extern def`
    *  through `emitStats` so the extern stub gets filtered out (the
@@ -703,7 +716,16 @@ class JvmGen(
    *  Focus → Lens expansion, Prism[O, V] → Prism literal) rather than
    *  verbatim Scala source emission. */
   private def termNeedsCustomEmit(t: Term): Boolean =
-    termUsesEffects(t) || termContainsFocus(t) || termContainsPrism(t) || termContainsIntrinsic(t)
+    termUsesEffects(t) || termContainsFocus(t) || termContainsPrism(t) || termContainsIntrinsic(t) || termContainsDirectBlock(t)
+
+  private def termContainsDirectBlock(t: Term): Boolean =
+    def go(n: Tree): Boolean = n match
+      case app: Term.Apply =>
+        app.fun match
+          case Term.ApplyType.After_4_6_0(Term.Name("direct"), _) => true
+          case _ => app.children.exists(go)
+      case other => other.children.exists(go)
+    go(t)
 
   /** Stage 5+/A.4 — `val t = nowMillis()` and similar val-bound
    *  intrinsic calls need the rhs to go through `emitExpr` (where
@@ -1488,7 +1510,23 @@ class JvmGen(
 
   // ─── direct[M] { ... } — v1.8 do-notation ────────────────────────
 
+  private def checkDirectBlockStatics(stats: List[Stat]): Unit =
+    def isNestedDirect(t: Tree): Boolean = t match
+      case app: Term.Apply =>
+        app.fun match
+          case Term.ApplyType.After_4_6_0(Term.Name("direct"), _) => true
+          case _ => false
+      case _ => false
+    def go(t: Tree): Unit = t match
+      case _: Term.Return =>
+        throw new RuntimeException("'return' inside a direct block escapes the flatMap chain — for early failure use the monad's zero (None, Nil, Left(err), …) instead")
+      case _ if isNestedDirect(t) => ()
+      case _: Defn.Def | _: Term.Function => ()
+      case other => other.children.foreach(go)
+    stats.foreach(go)
+
   private def emitDirectBlock(stats: List[Stat]): String =
+    checkDirectBlockStatics(stats)
     if stats.isEmpty then "()"
     else
       val varNames: Set[String] = stats.collect {
