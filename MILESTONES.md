@@ -1166,19 +1166,32 @@ after them.
     apps inevitably hit Kubernetes / load-balancer probes and
     re-implement these.  ~20 LOC × 3.
 
-22. **Indexed access on `Any`-typed JSON values — option (a) landed.**
-    `lookup(v, key)` and `lookupOpt(v, key)` ship across all three
-    backends.  Both dispatch dynamically at runtime against `Map[?, ?]`
-    / `Seq[?]` / `String`; `lookup` throws on a missing key (Map.apply
-    semantics) and `lookupOpt` returns `Option`.  Nested access is
-    plain function composition: `lookup(lookup(v, "addr"), "city")`.
+22. **Indexed access on `Any`-typed JSON values — options (a) + (c)
+    landed.**
 
-    Deferred for later (recommended progression): option (c) —
-    a sealed `JsonValue` wrapper with typed accessors — once
-    v1.5 Tier 5 #20 (typed request validation) clarifies which
-    JSON-typed shapes matter in practice.  Option (b) — JvmGen
-    lowering of `obj("name")` on `Any` — only if (a) + (c) prove
-    insufficient.
+    Option (a): `lookup(v, key)` / `lookupOpt(v, key)` — runtime helpers
+    that dispatch dynamically against `Map[?, ?]` / `Seq[?]` /
+    `String`.  `lookup` throws on a missing key (Map.apply semantics);
+    `lookupOpt` returns `Option`.
+
+    Option (c): **`JsonValue` wrapper.**  `jsonRead(s): JsonValue`
+    returns an opaque wrapper that supports idiomatic typed access:
+
+    ```
+    val v = jsonRead(src)
+    v("user")("name").asString
+    v("user").get("bio").map(_.asString)
+    v("tags").asList.map(_.asString)
+    ```
+
+    Methods: `apply(String | Int)`, `get(String | Int): Option[…]`,
+    `asString` / `asInt` / `asLong` / `asDouble` / `asBool`, `asList:
+    List[JsonValue]`, `asMap`, `keys`, `size`, `isNull`, `raw`.
+    `apply` / `get` chain through nested objects / arrays without
+    intermediate casts.
+
+    Option (b) — JvmGen lowering of `obj("name")` on `Any` — only if
+    (a) + (c) prove insufficient.
 
 ### Execution plan — phases A → E
 
@@ -1250,9 +1263,10 @@ items inside the phase pushed individually.
       the `validate { body }` accumulator returning `Either[Map, T]`.
     - D′.5 — Built-in `/_health` / `/_ready` routes (#21).
     - D′.6 — Indexed access on `Any`-typed JSON values (#22) —
-      **option (a) landed**: `lookup` / `lookupOpt` across three
-      backends.  Revisit `JsonValue` wrapper (option c) once D′.4
-      clarifies which typed JSON shapes matter in practice.
+      **options (a) + (c) landed**.  `lookup` / `lookupOpt` runtime
+      helpers (a) and the `JsonValue` wrapper (c) — `jsonRead(s)`
+      with `apply` / `get` / `asString` / `asInt` / `asList` / `asMap`
+      / `keys` / `size` / `isNull` / `raw` — across all three backends.
 
 - **Phase E — full NIO HTTP migration** *(Sprint 5.16, ~2 weeks)*.
   Replaces the JDK `HttpServer` + WS-proxy pair with a single

@@ -1,0 +1,34 @@
+---
+name: json-value
+---
+
+# v1.5 Tier 5 #22 option (c) — `JsonValue` wrapper
+
+```scalascript
+val src = """{"user":{"name":"Ada","age":36},"tags":["math","logic"],"active":true,"score":0.875}"""
+val v = jsonRead(src)
+
+// Idiomatic apply + typed accessors.
+println(v("user")("name").asString)
+println(v("user")("age").asInt)
+println(v("active").asBool)
+println(v("score").asDouble)
+
+// Array indexing.
+println(v("tags")(0).asString)
+println(v("tags")(1).asString)
+println(v("tags").size)
+
+// asList + map.
+println(v("tags").asList.map(jv => jv.asString))
+
+// get returns Option.
+println(v.get("user"))
+println(v.get("missing"))
+println(v("user").get("name").map(jv => jv.asString))
+println(v("user").get("nope"))
+
+// keys.
+val keys = v("user").keys.map(k => k.toString).sorted
+println(keys)
+```

@@ -58,6 +58,9 @@ function _print(...args) { const s = args.map(_show).join(''); _output.push(s); 
 function _call(fn, ...args) {
   if (typeof fn === 'function') return fn(...args);
   if (Array.isArray(fn) || fn instanceof Map) return _dispatch(fn, 'apply', args);
+  // v1.5 Tier 5 #22 — `JsonValue` is a plain object with an `apply`
+  // method, so `v("key")` and `v(0)` reach into the wrapper.
+  if (fn && fn._type === 'JsonValue' && typeof fn.apply === 'function') return fn.apply(...args);
   throw new Error('not callable: ' + _show(fn));
 }
 
@@ -1795,6 +1798,11 @@ function _show(v) {
   if (v && v._type === 'Prism' && v._variant) {
     return 'Prism[?, ' + v._variant + ']';
   }
+  if (v && v._type === 'JsonValue') {
+    // Hide the bundled accessor closures and render the wrapped inner
+    // value so output matches the interpreter / JVM.
+    return _show(v._inner);
+  }
   if (v && v._type) {
     // Hide internal optic helpers (`get`, `set`, …) by skipping any value
     // whose type indicates it's an optic but no `_path`/`_steps` survived.
@@ -2366,6 +2374,89 @@ function lookup(v, k) {
 function lookupOpt(v, k) {
   const r = _lookupKey(v, k);
   return (r === undefined) ? _None : _Some(r);
+}
+
+// v1.5 Tier 5 #22 option (c) — `JsonValue` wrapper.  Same idiomatic
+// apply / get / typed-accessor surface as INT / JVM.  Stored as a
+// plain object with method properties; `_show` special-cases the
+// `_type === 'JsonValue'` discriminator so output matches the
+// other backends.
+function _jsonValueWrap(inner) {
+  const self = { _type: 'JsonValue', _inner: inner };
+  self.apply = function(k) {
+    if (typeof k === 'string') {
+      if (inner instanceof Map) {
+        if (inner.has(k)) return _jsonValueWrap(inner.get(k));
+        throw new Error("JsonValue: no key '" + k + "'");
+      }
+      throw new Error("JsonValue.apply('" + k + "'): not an object");
+    }
+    if (typeof k === 'number') {
+      if (Array.isArray(inner)) {
+        if (k >= 0 && k < inner.length) return _jsonValueWrap(inner[k]);
+        throw new Error("JsonValue: index " + k + " out of bounds (size=" + inner.length + ')');
+      }
+      throw new Error("JsonValue.apply(" + k + "): not an array");
+    }
+    throw new Error("JsonValue.apply(key: String | index: Int)");
+  };
+  self.get = function(k) {
+    if (typeof k === 'string' && inner instanceof Map && inner.has(k))
+      return _Some(_jsonValueWrap(inner.get(k)));
+    if (typeof k === 'number' && Array.isArray(inner) && k >= 0 && k < inner.length)
+      return _Some(_jsonValueWrap(inner[k]));
+    return _None;
+  };
+  self.asString = function() {
+    if (typeof inner === 'string') return inner;
+    throw new Error('JsonValue.asString: expected string but got ' + _show(inner));
+  };
+  self.asInt = function() {
+    if (typeof inner === 'number') return Math.trunc(inner);
+    throw new Error('JsonValue.asInt: expected int but got ' + _show(inner));
+  };
+  self.asLong   = self.asInt;
+  self.asDouble = function() {
+    if (typeof inner === 'number') return inner;
+    throw new Error('JsonValue.asDouble: expected double but got ' + _show(inner));
+  };
+  self.asBool = function() {
+    if (typeof inner === 'boolean') return inner;
+    throw new Error('JsonValue.asBool: expected bool but got ' + _show(inner));
+  };
+  self.asList = function() {
+    if (Array.isArray(inner)) return inner.map(_jsonValueWrap);
+    throw new Error('JsonValue.asList: expected list but got ' + _show(inner));
+  };
+  self.asMap = function() {
+    if (inner instanceof Map) {
+      const out = new Map();
+      for (const [k, v] of inner) out.set(k, _jsonValueWrap(v));
+      return out;
+    }
+    throw new Error('JsonValue.asMap: expected map but got ' + _show(inner));
+  };
+  self.raw    = function() { return inner; };
+  self.isNull = function() { return inner === null || inner === undefined; };
+  self.keys   = function() {
+    if (inner instanceof Map) return [...inner.keys()];
+    return [];
+  };
+  self.size = function() {
+    if (Array.isArray(inner))      return inner.length;
+    if (inner instanceof Map)      return inner.size;
+    if (typeof inner === 'string') return inner.length;
+    return 0;
+  };
+  return self;
+}
+function jsonRead(s) {
+  if (typeof s === 'string') {
+    try { return _jsonValueWrap(_jsonConvert(JSON.parse(s))); }
+    catch (e) { throw new Error('jsonRead: ' + e.message); }
+  }
+  // Allow re-wrapping a previously-parsed value.
+  return _jsonValueWrap(s);
 }
 
 // Tier 5 #20 — typed request validation primitives.  Each `requireX`

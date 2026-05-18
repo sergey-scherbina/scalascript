@@ -1,0 +1,13 @@
+Ada
+36
+true
+0.875
+math
+logic
+2
+List(math, logic)
+Some(Map(name -> Ada, age -> 36))
+None
+Some(Ada)
+None
+List(age, name)
