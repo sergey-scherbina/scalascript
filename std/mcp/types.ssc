@@ -1,0 +1,112 @@
+---
+name: std-mcp-types
+version: 0.1.0
+description: Shared data types for MCP server and client — ToolResult, ResourceResult, PromptResult, Content, Message, Role, Transport, McpError.
+package: std.mcp
+exports:
+  - ToolResult
+  - ResourceResult
+  - PromptResult
+  - Content
+  - Message
+  - Role
+  - Transport
+  - McpError
+  - Tool
+  - Resource
+  - Prompt
+  - requireString
+  - requireInt
+  - requireDouble
+  - requireBool
+---
+
+# `std.mcp` types
+
+Pure data types shared by `std/mcp/server.ssc` and `std/mcp/client.ssc`.
+No platform intrinsics — all three backends can see this file.
+
+```scalascript
+// Error raised by tool / resource / prompt handlers.
+// Automatically converted to an isError=true ToolResult by the MCP runtime.
+case class McpError(message: String)
+
+// ─── Content variants ────────────────────────────────────────────────────────
+
+enum Content:
+  case Text(text: String)
+  case Image(data: String, mimeType: String)   // data: base64-encoded bytes
+  case Resource(uri: String)
+
+// ─── Result types ────────────────────────────────────────────────────────────
+
+case class ToolResult(content: List[Content], isError: Boolean = false)
+
+case class ResourceResult(uri: String, contents: List[Content])
+
+case class PromptResult(messages: List[Message])
+
+// ─── Message / Role ──────────────────────────────────────────────────────────
+
+enum Role:
+  case User
+  case Assistant
+  case System
+
+case class Message(role: Role, content: Content)
+
+// ─── Transport ───────────────────────────────────────────────────────────────
+
+enum Transport:
+  case Stdio
+  case Http(port: Int, path: String = "/mcp")
+  case Ws(port: Int, path: String = "/mcp")
+  case Spawn(cmd: String, args: List[String] = List())
+
+// ─── Convenience constructors ────────────────────────────────────────────────
+
+object Tool:
+  def text(s: String): ToolResult =
+    ToolResult(List(Content.Text(s)))
+  def error(msg: String): ToolResult =
+    ToolResult(List(Content.Text(msg)), isError = true)
+
+object Resource:
+  def text(s: String, mimeType: String = "text/plain"): ResourceResult =
+    ResourceResult("", List(Content.Text(s)))
+  def text(uri: String, s: String, mimeType: String): ResourceResult =
+    ResourceResult(uri, List(Content.Text(s)))
+
+object Prompt:
+  def messages(msgs: Message*): PromptResult =
+    PromptResult(msgs.toList)
+
+// ─── Argument extractors ─────────────────────────────────────────────────────
+// Mirror the v1.15 req.require[T] pattern for Map[String, Any] tool args.
+
+def requireString(args: Map[String, Any], key: String): String =
+  args.get(key) match
+    case Some(s: String) => s
+    case Some(v)         => throw McpError(s"field '$key': expected String, got $v")
+    case None            => throw McpError(s"missing field: '$key'")
+
+def requireInt(args: Map[String, Any], key: String): Int =
+  args.get(key) match
+    case Some(n: Int)    => n
+    case Some(n: Double) => n.toInt
+    case Some(v)         => throw McpError(s"field '$key': expected Int, got $v")
+    case None            => throw McpError(s"missing field: '$key'")
+
+def requireDouble(args: Map[String, Any], key: String): Double =
+  args.get(key) match
+    case Some(n: Double) => n
+    case Some(n: Int)    => n.toDouble
+    case Some(v)         => throw McpError(s"field '$key': expected Double, got $v")
+    case None            => throw McpError(s"missing field: '$key'")
+
+def requireBool(args: Map[String, Any], key: String): Boolean =
+  args.get(key) match
+    case Some(b: Boolean) => b
+    case Some(v)          => throw McpError(s"field '$key': expected Boolean, got $v")
+    case None             => throw McpError(s"missing field: '$key'")
+```

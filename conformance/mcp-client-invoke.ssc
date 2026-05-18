@@ -1,0 +1,35 @@
+---
+name: mcp-client-invoke
+requires: Feature.McpClient
+---
+
+# MCP client — callTool round-trip
+
+Spawns `mcp-server-tools.ssc` as a subprocess, calls `echo` and `add`
+tools, asserts expected output.
+Skipped on backends without `Feature.McpClient`.
+
+Note: requires `@modelcontextprotocol/sdk` and the server script compiled.
+
+```scalascript
+[mcpConnect, Transport](../std/mcp/client.ssc)
+
+val client = mcpConnect(Transport.Spawn("node", List("examples/mcp-server-tools.js")))
+
+// List tools
+val tools = client.listTools()
+println(tools.size >= 3)
+
+// callTool — echo
+val echoResult = client.callTool("echo", Map("message" -> "hello"))
+println(echoResult.isError)
+println(echoResult.content.head match { case c if c.toString.contains("hello") => "ok"; case _ => "fail" })
+
+// callTool — add
+val addResult = client.callTool("add", Map("a" -> 3.0, "b" -> 4.0))
+println(addResult.isError)
+println(addResult.content.head match { case c if c.toString.contains("7") => "ok"; case _ => "fail" })
+
+client.close()
+println(client.isClosed)
+```

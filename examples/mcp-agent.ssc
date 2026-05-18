@@ -1,0 +1,43 @@
+#!/usr/bin/env ssc
+---
+name: mcp-agent
+version: 1.0.0
+description: An MCP server that is itself an MCP client — a tool that calls another MCP server.
+---
+
+# MCP Agent — Server + Client in One Script
+
+Demonstrates using `mcpServer` and `mcpConnect` together.  The server
+exposes a `translate` tool that internally calls a downstream MCP server
+(here, the echo tool from `mcp-server-tools`).
+
+```scalascript
+[mcpServer, serveMcp, Tool, requireString, Transport](../std/mcp/server.ssc)
+[mcpConnect](../std/mcp/client.ssc)
+
+mcpServer { srv =>
+
+  // A tool that delegates to a downstream MCP server
+  srv.tool("translate", "Echo via downstream MCP (proxy demo)") { args =>
+    val text = requireString(args, "text")
+    // Connect to the downstream server for each call (real code would keep
+    // a persistent client; here we keep it simple).
+    val downstream = mcpConnect(Transport.Spawn("node", List("examples/mcp-server-tools.js")))
+    val result = downstream.callTool("echo", Map("message" -> text))
+    downstream.close()
+    result
+  }
+
+  srv.tool("add_proxy", "Add via downstream MCP") { args =>
+    val a = args.getOrElse("a", 0.0)
+    val b = args.getOrElse("b", 0.0)
+    val downstream = mcpConnect(Transport.Spawn("node", List("examples/mcp-server-tools.js")))
+    val result = downstream.callTool("add", Map("a" -> a, "b" -> b))
+    downstream.close()
+    result
+  }
+}
+
+println("MCP agent ready on stdio")
+serveMcp(Transport.Stdio)
+```

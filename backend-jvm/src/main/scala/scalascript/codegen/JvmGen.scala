@@ -78,6 +78,8 @@ class JvmGen(
     }
 
     val frontmatterRoutes = module.manifest.toList.flatMap(_.routes)
+    if blocksUseMcp(blocks) then
+      sb.append(s"""//> using dep "$JvmMcpDep"\n""")
 
     sb.append(preamble)
     sb.append(generatorRuntime)
@@ -86,6 +88,7 @@ class JvmGen(
     if mutualGroups.nonEmpty                               then sb.append(mutualTcoRuntime)
     if blocksUseReactive(blocks)                           then sb.append(reactiveRuntime)
     if effectOps.nonEmpty || blocksUseRoutes(blocks) || frontmatterRoutes.nonEmpty || blocksUseJson(blocks) then sb.append(serveRuntime)
+    if blocksUseMcp(blocks)                                                          then sb.append(JvmRuntimeMcp)
 
     // Front-matter route declarations are emitted as `route(method, path)
     // { req => handler(req) }` calls.  We place them BEFORE the user blocks
@@ -318,6 +321,20 @@ class JvmGen(
 
   // ─── Routing detection ───────────────────────────────────────────
   //
+  // True when any code block calls `mcpServer`, `serveMcp`, or `mcpConnect`.
+  private def blocksUseMcp(blocks: List[JvmGen.Block]): Boolean =
+    blocks.exists { b =>
+      var found = false
+      ScalaNode.fold(b.node) { tree =>
+        if !found then tree.collect {
+          case Term.Apply.After_4_6_0(Term.Name("mcpServer"),  _) => found = true
+          case Term.Apply.After_4_6_0(Term.Name("serveMcp"),   _) => found = true
+          case Term.Apply.After_4_6_0(Term.Name("mcpConnect"), _) => found = true
+        }
+      }
+      found
+    }
+
   // True when any code block invokes `route(...)`, in which case JvmGen
   // emits the serve runtime (Request/Response, registry, HTTP dispatcher).
 

@@ -1,0 +1,57 @@
+---
+name: std-mcp-server
+version: 0.1.0
+description: MCP server primitives — mcpServer builder + serveMcp launcher. Wraps @modelcontextprotocol/sdk on JS and io.modelcontextprotocol:sdk on JVM. Not available on interpreter or scalajs-spa.
+package: std.mcp
+exports:
+  - McpServer
+  - mcpServer
+  - serveMcp
+---
+
+# `std.mcp.server`
+
+MCP server API. Same shape as the REST stack: `mcpServer { srv => ... }` registers
+handlers; `serveMcp(transport)` starts listening.
+
+Requires `Feature.McpServer` — available on `jvm` and `js` (Node) backends only.
+
+```scalascript
+[ToolResult, ResourceResult, PromptResult, Content, Message, Role, Transport, McpError,
+ Tool, Resource, Prompt, requireString, requireInt, requireDouble, requireBool](./types.ssc)
+
+// ─── McpServer trait ─────────────────────────────────────────────────────────
+
+// Builder object passed to the mcpServer { srv => ... } block.
+// Register tools, resources, and prompts before calling serveMcp().
+extern class McpServer:
+  // Register a tool handler.
+  // handler receives JSON-decoded args as Map[String, Any].
+  def tool(name: String)(handler: Map[String, Any] => ToolResult): Unit
+  def tool(name: String, description: String)(handler: Map[String, Any] => ToolResult): Unit
+
+  // Register a resource handler.
+  // handler receives the requested URI as String.
+  def resource(uri: String)(handler: String => ResourceResult): Unit
+  def resource(uri: String, name: String)(handler: String => ResourceResult): Unit
+  def resource(uri: String, name: String, mimeType: String)(handler: String => ResourceResult): Unit
+
+  // Register a prompt handler.
+  // handler receives template args as Map[String, Any].
+  def prompt(name: String)(handler: Map[String, Any] => PromptResult): Unit
+  def prompt(name: String, description: String)(handler: Map[String, Any] => PromptResult): Unit
+
+  // Lifecycle hooks — called once per client connect / disconnect.
+  def onConnected(handler: () => Unit): Unit
+  def onDisconnected(handler: () => Unit): Unit
+
+// ─── Factory + launcher ──────────────────────────────────────────────────────
+
+// Configure the MCP server.  Call inside the setup block to register handlers.
+// Returns Unit; server state is held by the runtime.
+extern def mcpServer(setup: McpServer => Unit): Unit
+
+// Start the MCP server on the given transport.  Blocks until the process exits
+// (stdio) or the server is stopped.
+extern def serveMcp(transport: Transport): Unit
+```

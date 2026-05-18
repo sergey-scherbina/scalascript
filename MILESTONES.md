@@ -438,7 +438,7 @@ unblocks downstream features as early as possible.
      Full design in [`docs/metaprogramming.md`](docs/metaprogramming.md).
      User-defined macros (`quoted.Expr`) explicitly out of scope —
      deferred to v2.x.  Depends on v1.13 (`Mirror` resolution).
- 21. **v1.17 — MCP support (client + server)** (~3 weeks).
+ 21. **v1.17 — MCP support (client + server)** ✓ Landed (Phases 1–7).
      Anthropic's Model Context Protocol via REST-shaped API
      in a separate namespace (`std/mcp/*`).  Intrinsic-first:
      wraps `@modelcontextprotocol/sdk` on Node and
