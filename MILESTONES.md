@@ -379,11 +379,37 @@ unblocks downstream features as early as possible.
      phase plan.  Parked until Stage 5+/B `std.http` is complete —
      implementation cost dominates over benefit until real `std.*`
      packages drive direct-syntax usage patterns.
- 14. **6+/C — HostCallback dispatcher** (~1 week).
+ 14. **v1.9 — Coroutine primitive** (~2 weeks).
+     Single runtime primitive (3 SPI intrinsics) for paused-and-
+     resumable computation.  Lands as an internal foundation; user
+     APIs (Async / actors / WS) don't change.  Full design in
+     [`docs/coroutines.md`](docs/coroutines.md).  Prerequisite:
+     `extern def` typer support (Stage 5+/A.5).
+ 15. **v1.10 — Generators** (~3-5 days).
+     `Generator[T]` user-facing API built on v1.9 coroutines.
+     Lazy pull-based streams, `.next` / `.map` / `.filter` / `.take`
+     / `.toList`.  Sets up the SSE source pattern for Tier 4 #11.
+ 16. **v1.11 — Continuation-based Async** (~2 weeks).
+     Rewrite `Async.*` on top of v1.9 coroutines.  Internal
+     `Computation[A]` becomes a runtime-only shim; ≥20% allocation
+     reduction target on flatMap-heavy workloads.  User code
+     unchanged — conformance gates the merge.
+ 17. **v1.11.5 — `Free[F, A]` as stdlib type** (~1 week).
+     User-facing `Free` monad in `std/free.ssc` built on v1.1
+     typeclasses + v1.9 coroutines.  Program-as-data complement
+     to coroutine's program-as-control-flow.  Pure library work,
+     no compiler changes.  Parallel with v1.11 if scheduling
+     permits.
+ 18. **v1.12 — Algebraic effects feasibility study** (~1 week, no
+     shipping code).
+     Design doc + prototype + go/no-go.  Investigates whether the
+     existing typer can carry effect rows; commits to or rejects a
+     v2.x algebraic-effects milestone.
+ 19. **6+/C — HostCallback dispatcher** (~1 week).
      Stage 6+/C from spi-followups-plan.md.  Unblocks the first
      out-of-process (.NET / WASM) backend MVP.  Parked because no
      such backend is in flight.
- 15. **v2.0 — Separate compilation** (~2-3 months).
+ 20. **v2.0 — Separate compilation** (~2-3 months).
      Multi-month architecture commitment.  Promote when at least
      one of {real package ecosystem, >30s incremental build, IDE
      demand} is true.
@@ -1734,6 +1760,346 @@ Cross-backend behaviour is identical — direct syntax is pure
 source-to-source rewriting before the backend split, so INT / JS /
 JVM see the same desugared `for { x <- e } yield body` and the
 existing v1.1 `Monad` machinery handles emission.
+
+## v1.9 — Coroutine primitive
+
+A single shared runtime primitive for paused-and-resumable
+computation, replacing the three parallel implementations that
+exist today (Free-monad `Async`, Loom-thread actors,
+NIO-continuation WS).  User-facing APIs are NOT changed by this
+milestone — coroutines land as an internal building block that
+v1.10-v1.12 build on top of.
+
+Full design in [`docs/coroutines.md`](docs/coroutines.md) —
+motivation, three intrinsics, orthogonal-components
+decomposition, per-backend implementation sketches, internal
+refactor strategy.
+
+```scala
+// Three SPI intrinsics; everything else reduces to these:
+extern def coroutineCreate[Y, R, T](body: => T): Coroutine[Y, R, T]
+extern def coroutineResume[Y, R, T](co: Coroutine[Y, R, T], in: R): Step[Y, T]
+extern def suspend[Y, R](out: Y): R
+```
+
+Two-way value passing (`suspend(y): R`) deliberately — subsumes
+one-way generators (`R = Unit`) at zero extra cost and is
+strictly needed for the algebraic-effects path in v1.12.
+
+### Prerequisite
+
+`extern def` parser + typer support (Stage 5+/A.5, in flight as
+part of SPI followups).  Without it the three intrinsics can't be
+declared with proper type signatures.
+
+### Phase 1 — JVM intrinsic (Loom backend) (~3 days)
+
+SynchronousQueue + virtual thread per coroutine.  ~80 LOC
+including error propagation.  Reuses the existing
+`Thread.ofVirtual` infrastructure that already backs actors.
+
+### Phase 2 — JS intrinsic (Node) (~3 days)
+
+`function*` generator with a thin wrapper.  JS-codegen transform
+lowers `suspend(y)` calls inside `coroutineCreate` bodies to
+`yield y`.  ~50 LOC runtime + the codegen rewrite.
+
+### Phase 3 — Interpreter intrinsic (NIO single-thread) (~5 days)
+
+CPS transform on coroutine bodies at lowering time.  Each
+`suspend(y)` becomes a `Computation.Suspend(y, continuation)`
+node consumed by the existing trampoline.  ~300-400 LOC; shares
+infrastructure with `Async`.
+
+### Phase 4 — Diagnostics + conformance (~3 days)
+
+- "suspend called outside a coroutine" error path on all three backends.
+- Six conformance tests (`coroutine-basic`, `coroutine-twoway`,
+  `coroutine-generator`, `coroutine-error`, `coroutine-nested`,
+  `coroutine-outside`) — see `docs/coroutines.md` §10.
+- Stack-trace fidelity verification — the INT CPS transform
+  must preserve source positions through suspension points.
+
+### Hard-no list (locked by design — `docs/coroutines.md` §9)
+
+- Symmetric coroutines (`transfer(other)`) → asymmetric suffices
+- User-visible scheduler API → backend-specific, not portable
+- Coroutine cancellation in v1.9 → defer to v1.9.x
+- Synchronous cross-coroutine `transfer` → conflates scheduling
+  with control flow
+
+### Effort
+
+Four phases, ~2 weeks end-to-end.  Phases 1-3 are largely
+parallel across backends; Phase 4 gates on all three.
+
+## v1.10 — Generators
+
+User-facing `Generator[T]` API built on the v1.9 coroutine
+primitive.  Lazy pull-based streams without an `Observable`
+library or a custom `Iterator` reimplementation.
+
+```scala
+def fibs: Generator[Long] = generator {
+  var a = 0L; var b = 1L
+  while true do
+    suspend(a)
+    val t = a + b; a = b; b = t
+}
+
+fibs.take(10).toList   // List(0, 1, 1, 2, 3, 5, 8, 13, 21, 34)
+```
+
+`Generator[T]` is `Coroutine[T, Unit, Unit]` with a thin wrapper —
+zero new runtime primitive, just an ergonomic surface.
+
+### Phase 1 — Core API (~2 days)
+
+- `Generator[T]` with `.next(): Option[T]`, `.foreach(f)`,
+  `.toList`, `.toListN(n)`, `.take(n)`, `.drop(n)`
+- `generator { ... }` builder
+- Conformance: lazy infinite streams, early termination
+
+### Phase 2 — Lazy combinators (~2 days)
+
+- `.map(f)`, `.filter(p)`, `.flatMap(f)` — all build a new
+  generator (no eager evaluation)
+- `.zip(other)`, `.zipWithIndex`
+- Conformance: pipeline composition that produces a single value
+  from infinite source
+
+### Phase 3 — Use-case demos (~1 day)
+
+- `examples/generator-fib.ssc` — Fibonacci stream
+- `examples/generator-file-lines.ssc` — large-file reading without
+  loading into memory
+- `examples/generator-sse-source.ssc` — feeds the v1.5 Tier 5 #19
+  SSE helper once that lands
+
+### Effort
+
+Three phases, ~3-5 days.  Pure library work on top of v1.9.
+
+## v1.11 — Continuation-based `Async`
+
+Rewrite `Async.delay / await / parallel` on top of v1.9
+coroutines.  The existing internal Free-monad `Computation[A]`
+(which today is the runtime trampoline for both Async and
+user-defined `effect E:` declarations) becomes a runtime-only
+compatibility shim: it stops being the *implementation* of
+`Async`, but stays in core so legacy `effect`-keyword paths
+keep working.  Allocation cost per `flatMap` drops
+significantly; stack traces become readable.
+
+The user-facing `Free[F, A]` library type that lands in v1.11.5
+is a **separate concept** — see `docs/coroutines.md` §6.5.  It
+shares the name but not the implementation: stdlib `Free` is
+data-as-value built on coroutines, runtime `Computation` is the
+internal trampoline.
+
+User code is **unchanged** — every existing `runAsync { ... }` /
+`Async.await(fut)` keeps working.  Conformance gates the merge:
+every Async test must pass identically before/after.
+
+### Phase 1 — IO-scheduler design (~3 days)
+
+- Map `Async[T]` to `Coroutine[IORequest, IOResult, T]`.
+- Scheduler resumes the coroutine when the IO completes.
+- Spec the `IORequest` ADT (`Delay`, `Async.async`, `Parallel`).
+
+### Phase 2 — Rewrite primitives (~4 days)
+
+- `Async.delay(f)` → `suspend(DelayIO(f))`
+- `Async.async(thunk)` → fork a new coroutine; scheduler returns
+  a `Future` handle that other coroutines can `await` on
+- `Async.await(fut)` → `suspend(AwaitFuture(fut))`
+- `Async.parallel(thunks)` → fork-and-await primitive built from
+  the above
+
+### Phase 3 — Performance gates (~2 days)
+
+- Benchmark: allocation count on `Async.flatMap`-heavy workload
+  ≥20% reduction
+- Wall-clock: ≥10% improvement on the existing
+  `bench/AsyncBench.scala`
+- Memory footprint: per-coroutine overhead < 1KB on JVM
+
+### Phase 4 — Stack-trace polish (~2 days)
+
+User stack traces must show the user's coroutine body, not the
+trampoline internals.  Was a regression risk in v0.8; verify
+explicit fix here.
+
+### Phase 5 — Runtime-shim for `Computation[A]` (~1 day)
+
+Old code paths that built `Computation[A]` directly (the
+`effect E:` language construct lowers to this; some legacy
+custom effects too) must keep working.  Add a thin
+`Computation.toCoroutine` bridge that runs a Computation by
+folding it into a coroutine.  Keeps `Computation` as the IR
+representation for compiler-emitted effects; only the
+*execution path* moves to coroutines.
+
+### Hard-no list
+
+- Breaking the `Async.*` user API → conformance gates this
+- Removing `Computation[A]` entirely → it stays as IR for the
+  language-level `effect E:` / `perform` / `handle` keywords.
+  User-facing `Free[F, A]` (v1.11.5) is a *separate* type, not
+  a rename — see `docs/coroutines.md` §6.5
+
+### Effort
+
+Five phases, ~2 weeks end-to-end.  Bigger than v1.9-v1.10 due
+to the performance gate and the compatibility shim.
+
+## v1.11.5 — `Free[F, A]` as stdlib type
+
+User-facing `Free` monad as a new stdlib module `std/free.ssc`.
+Not a runtime primitive — pure ScalaScript code built on top of
+v1.1 typeclasses (`Monad`, `Functor`) and v1.9 coroutines.
+
+Coroutines (v1.9) gave us **program as control flow**; `Free`
+gives us **program as data**.  Both stay; they're complementary
+(see `docs/coroutines.md` §6.5).
+
+```scala
+[Free, Pure, Suspend, FlatMap, foldMap, runM, liftF](./std/free.ssc)
+
+// Define an effect as a Functor
+enum ConsoleF[A]:
+  case Read[A]() extends ConsoleF[String]
+  case Write(s: String) extends ConsoleF[Unit]
+
+// Build a program as data
+val prog: Free[ConsoleF, Unit] = for
+  name <- Free.liftF(ConsoleF.Read())
+  _    <- Free.liftF(ConsoleF.Write(s"hi $name"))
+yield ()
+
+// Multiple interpreters for the same program — production / test
+val ioInterp: [X] => ConsoleF[X] => Async[X]    = ...
+val testInterp: [X] => ConsoleF[X] => State[Log, X] = ...
+
+runAsync { prog.foldMap(ioInterp) }     // production
+val (log, _) = prog.foldMap(testInterp).run(Log.empty)  // test
+```
+
+### Phase 1 — Core data type (~1 day)
+
+- `enum Free[F[_], A]` with `Pure`, `Suspend`, `FlatMap`.
+- `pure`, `liftF`, `flatMap`, `map` on `Free`.
+- Stack-safe via trampolining (Coyoneda or right-associated bind).
+- Conformance: monad laws, large-program stack safety.
+
+### Phase 2 — `foldMap` interpreter (~1 day)
+
+- `Free.foldMap[F, G, A](prog)(nt)(using Monad[G]): G[A]`
+- Natural transformation `[X] => F[X] => G[X]` (Scala 3 polymorphic functions).
+- Conformance: same program, two different interpreters, both pass.
+
+### Phase 3 — `runM` coroutine-backed runner (~1 day)
+
+- `Free.runM[F, A](prog)(handler): Coroutine[?, ?, A]`
+- Sits on v1.9 coroutine primitive.  Fast common-path runner;
+  semantically equivalent to `foldMap` over `Coroutine`-monad,
+  but avoids the intermediate `Monad[G]` instance dispatch.
+- Conformance: existing `foldMap` test re-runs under `runM`,
+  identical observable output.
+
+### Phase 4 — Algebraic-effect synergy demo (~1 day)
+
+- Worked example: `effectful-config-loader.ssc` builds a program
+  as `Free[ConfigOp, Config]`, runs it twice (file-backed vs
+  in-memory), demonstrates the data-as-value advantage over
+  direct coroutine code.
+- Conformance: `std-free.ssc` covering the four phase deliverables.
+
+### Hard-no list (locked by design)
+
+- `Cofree` / `FreeT` monad transformers → v2.x if concrete need
+- Compile-time program optimisation (fusion of adjacent FlatMaps)
+  → revisit when measurements demand; pure-runtime optimisation
+  beats compile-time complexity at v1
+- Auto-deriving `Free` from `effect E:` language constructs →
+  out of scope; `effect` stays a compiler construct lowered via
+  Perform/Handle/Resume IR, `Free` is a separate user-space DSL
+
+### Why this is its own milestone (~1 week, not folded into v1.11)
+
+- **Different audience**: v1.11 is a perf rewrite of an existing
+  runtime (no API change).  v1.11.5 introduces a new user-facing
+  type.  Conflating them complicates the conformance gate.
+- **Different risk profile**: v1.11 has performance gates;
+  v1.11.5 is pure library code with no perf budget.
+- **Different prerequisite**: v1.11.5 needs v1.9 (coroutines)
+  but not v1.11 (Async on coroutines).  Could ship in parallel
+  with v1.11 if scheduling permits.
+
+### Effort
+
+Four phases, ~1 week.  Pure library work; no compiler changes,
+no SPI changes.  Slots between v1.11 and v1.12; can also land
+in parallel with v1.11 since they have no shared code.
+
+## v1.12 — Algebraic effects feasibility study
+
+**No shipping code** — design doc + working prototype + go/no-go
+decision.  Investigates whether ScalaScript's type system can
+support OCaml-5 / Koka-style algebraic effects with handler
+stacks, built on top of coroutines.
+
+### Why a study, not a milestone
+
+Effect rows on the type level (`(Async | Random | Logger)[A]`)
+require type-system machinery ScalaScript doesn't have today:
+
+- Union types in effect position (Scala 3 has these — usable)
+- Bounded polymorphism over effect rows (Scala 3 limit)
+- Effect subtraction at handler site (no precedent)
+
+Whether this is feasible *given the existing typer* is genuinely
+unknown.  Spending a week to prototype before committing to a
+multi-month implementation milestone is the right call.
+
+### Deliverables
+
+1. **Prototype** — working coroutine-based handler stack catching
+   tagged yields (informal `Op("name", args)` representation,
+   like `docs/coroutines.md` §4.3).  No type-level effect
+   tracking yet — just runtime semantics.
+2. **Type-system audit** — does the existing typer carry enough
+   information to refuse `pureFunction()` when called inside an
+   `Async` block?  What changes are needed?
+3. **Design doc** — `docs/algebraic-effects.md` with the chosen
+   approach (or "rejected, here's why").
+4. **Go/no-go decision** — commit to a v2.x algebraic-effects
+   milestone, or close this thread.
+
+### Effort
+
+~1 week of focused design + prototyping.  No conformance
+deliverable; the prototype's tests live alongside the prototype
+and don't enter the conformance suite unless a real
+implementation lands later.
+
+## v1.9.x — Actor internals refactor (optional cleanup)
+
+Rebuild `spawn(...)` / `receive` on top of v1.9 coroutines.
+Mailbox becomes a `Channel[M]` built from the coroutine
+primitive.  Visible from outside only as a performance / code-
+size win.
+
+**Deferred behind v1.11.**  Only land if measurements show the
+existing Loom-/NIO-/microtask-based actor runtime has measurable
+overhead vs the coroutine-based path.  Until then, redundancy is
+acceptable — two implementations sharing the same observable
+semantics is a maintainable trade-off.
+
+### Effort
+
+~1 week if it happens.  Could be skipped entirely without
+affecting any v1.x milestone deliverable.
 
 ## v2.0 — Separate compilation of modules
 
