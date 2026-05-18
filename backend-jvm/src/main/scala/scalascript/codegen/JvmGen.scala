@@ -85,7 +85,7 @@ class JvmGen(
     if effectOps.nonEmpty                                  then sb.append(effectsRuntime)
     if mutualGroups.nonEmpty                               then sb.append(mutualTcoRuntime)
     if blocksUseReactive(blocks)                           then sb.append(reactiveRuntime)
-    if blocksUseRoutes(blocks) || frontmatterRoutes.nonEmpty || blocksUseJson(blocks) then sb.append(serveRuntime)
+    if effectOps.nonEmpty || blocksUseRoutes(blocks) || frontmatterRoutes.nonEmpty || blocksUseJson(blocks) then sb.append(serveRuntime)
 
     // Front-matter route declarations are emitted as `route(method, path)
     // { req => handler(req) }` calls.  We place them BEFORE the user blocks
@@ -1194,12 +1194,11 @@ class JvmGen(
           emitHandleForm(bodyArgClause.values.head.asInstanceOf[Term], pf.cases)
         case _ => "??? /* invalid handle */"
 
-    // runAsync(body) — built-in Async-effect driver.  Body is CPS-emitted
-    // so Async.* ops build a Free tree that `_runAsync` walks against the
-    // default handler.
+    // runAsync(body) — coroutine scheduler.  Body is emitted as plain
+    // code; Async.* ops check _coHandleTL and suspend/resume the VT.
     case Term.Apply.After_4_6_0(Term.Name("runAsync"), bodyArgClause)
         if bodyArgClause.values.size == 1 =>
-      s"_runAsync(() => ${emitCpsExpr(bodyArgClause.values.head.asInstanceOf[Term])})"
+      s"_runAsync(() => ${emitExpr(bodyArgClause.values.head.asInstanceOf[Term])})"
 
     // runAsyncParallel(body) — real-thread variant, same Async.* API
     case Term.Apply.After_4_6_0(Term.Name("runAsyncParallel"), bodyArgClause)
@@ -1612,9 +1611,14 @@ class JvmGen(
     case Term.ApplyInfix.After_4_6_0(lhs, op, _, argClause) =>
       val l = emitExpr(lhs)
       val r = argClause.values.map(emitExpr).mkString(", ")
-      // v1.6 actors: `pid ! msg` always lowers to Actor.send.
-      if op.value == "!" then s"Actor.send($l, $r)"
-      else s"$l ${op.value} $r"
+      op.value match
+        // v1.6 actors: `pid ! msg` always lowers to Actor.send.
+        case "!" => s"Actor.send($l, $r)"
+        // Arithmetic / comparison: operands may be Any (e.g. Async.await result),
+        // so delegate to the same _binOp helper used in CPS context.
+        case "+" | "-" | "*" | "/" | "%" |
+             "<" | ">" | "<=" | ">="    => s"""_binOp("${op.value}", $l, $r)"""
+        case other                      => s"$l $other $r"
     case Term.Select(qual, name) =>
       s"${emitExpr(qual)}.${name.value}"
     case other => other.syntax
@@ -1839,7 +1843,7 @@ class JvmGen(
     // plain value, then continue the outer continuation with it.
     case Term.Apply.After_4_6_0(Term.Name("runAsync"), bodyArgClause)
         if bodyArgClause.values.size == 1 =>
-      s"_runAsync(() => ${emitCpsExpr(bodyArgClause.values.head.asInstanceOf[Term])})"
+      s"_runAsync(() => ${emitExpr(bodyArgClause.values.head.asInstanceOf[Term])})"
     case Term.Apply.After_4_6_0(Term.Name("runAsyncParallel"), bodyArgClause)
         if bodyArgClause.values.size == 1 =>
       s"_runAsyncParallel(() => ${emitCpsExpr(bodyArgClause.values.head.asInstanceOf[Term])})"
@@ -3563,12 +3567,12 @@ class JvmGen(
        |
        |private case class _Route(method: String, path: String, pattern: List[_Seg], handler: Request => Response)
        |private val _routes      = scala.collection.mutable.ArrayBuffer.empty[_Route]
-       |private val _middlewares = scala.collection.mutable.ArrayBuffer.empty[(Request, () => Response) => Response]
+       |private val _middlewares = scala.collection.mutable.ArrayBuffer.empty[(Request, () => Any) => Any]
        |
        |def route(method: String, path: String)(handler: Request => Response): Unit =
        |  _routes += _Route(method.toUpperCase, path, _parsePath(path), handler)
        |
-       |def use(fn: (Request, () => Response) => Response): Unit = _middlewares += fn
+       |def use(fn: (Request, () => Any) => Any): Unit = _middlewares += fn
        |
        |// Tier 5 #21 — `/_health` and `/_ready` defaults auto-registered the
        |// first time `serve(...)` runs.  User-defined routes with the same
@@ -3735,7 +3739,7 @@ class JvmGen(
        |    if method == "OPTIONS" && _corsOrigins.nonEmpty then
        |      _applyCors(ex)
        |      ex.sendResponseHeaders(204, -1)
-       |    else
+       |    else {
        |    val matched = _routes.iterator
        |      .filter(_.method == method)
        |      .flatMap(r => _matchPath(r.pattern, segs).map(p => (r, p)))
@@ -3799,17 +3803,17 @@ class JvmGen(
        |        // Tier 5 #20 — validation primitives short-circuit by
        |        // throwing _RestValidationError; convert to 400.
        |        // D′.2 — build middleware chain: first registered = outermost.
-       |        def _baseHandler(): Response =
+       |        def _baseHandler(): Any =
        |          try r.handler(req)
        |          catch case ve: _RestValidationError =>
        |            Response(400, Map("Content-Type" -> "text/plain; charset=utf-8"), ve.getMessage)
-       |        var _chain: () => Response = () => _baseHandler()
+       |        var _chain: () => Any = () => _baseHandler()
        |        _middlewares.reverseIterator.foreach { mw =>
        |          val _inner = _chain
        |          _chain = () => mw(req, _inner)
        |        }
        |        try
-       |          val _rawResult = _chain()
+       |          val _rawResult: Any = _chain()
        |          _rawResult match
        |            case sr: _StreamResponse =>
        |              sr.headers.foreach((k, v) => ex.getResponseHeaders.add(k, v))
@@ -3837,6 +3841,7 @@ class JvmGen(
        |            ex.getResponseHeaders.add("Content-Type", "text/plain; charset=utf-8")
        |            ex.sendResponseHeaders(404, msg.length.toLong)
        |            ex.getResponseBody.write(msg)
+       |    }
        |  catch
        |    case _: _BodyTooLarge =>
        |      val _m = "Request Entity Too Large".getBytes("UTF-8")
@@ -4976,7 +4981,7 @@ class JvmGen(
        |
        |  def connect(): Unit =
        |    val builder = _JHttpClient.newHttpClient().newWebSocketBuilder()
-       |    extraHdrs.foreach(builder.header)
+       |    extraHdrs.foreach { case (k, v) => builder.header(k, v) }
        |    if protocols.nonEmpty then builder.subprotocols(protocols.head, protocols.tail*)
        |    val ws = builder.buildAsync(URI.create(url), _listener).join()
        |    _ws = ws
@@ -5160,7 +5165,7 @@ class JvmGen(
        |  fromBody: java.util.concurrent.SynchronousQueue[Any],
        |  toBody:   java.util.concurrent.SynchronousQueue[Any]
        |)
-       |private case class _Coroutine(_id: Long)
+       |case class _Coroutine(_id: Long)
        |private val _coHandleTL = new ThreadLocal[_CoHandle]()
        |private val _coHandles  = new java.util.concurrent.ConcurrentHashMap[Long, _CoHandle]()
        |private val _nextCoId   = new java.util.concurrent.atomic.AtomicLong(0L)
@@ -5316,20 +5321,45 @@ class JvmGen(
        |  case (">=", x: Double, y: Double) => x >= y
        |  case _ => sys.error(s"Cannot $op on $a, $b")
        |
-       |// ── Built-in `Async` effect + default `runAsync` handler ────────────────
+       |// ── Built-in `Async` effect + v1.11 coroutine-based `runAsync` ─────────
        |//
-       |// Same single-threaded semantics as the interpreter and JS Node target:
-       |// thunks passed to `async` / `parallel` execute immediately (so output
-       |// is byte-identical across all three backends), `delay` blocks the
-       |// calling thread via Thread.sleep, `await` unwraps the cached value.
-       |// Real-thread parallelism is a future handler swap away.
+       |// v1.11: Async.* ops check _coHandleTL.  When set (inside a runAsync
+       |// virtual thread), they suspend with an IORequest case class instead of
+       |// returning a _Perform node.  The runAsync scheduler drives the coroutine
+       |// and dispatches IORequests.  runAsyncParallel still uses the old Free
+       |// monad path (Async.* return _perform nodes when _coHandleTL is null).
+       |
+       |// IORequest types for the runAsync coroutine scheduler
+       |private case class _DelayIO(ms: Long)
+       |private case class _AsyncIO(thunk: () => Any)
+       |private case class _AwaitIO(fut: Any)
+       |private case class _ParallelIO(thunks: List[() => Any])
        |
        |object Async:
-       |  def delay(ms: Int): Any           = _perform("Async", "delay",    ms)
-       |  def async(thunk: () => Any): Any  = _perform("Async", "async",    thunk)
-       |  def await(fut: Any): Any          = _perform("Async", "await",    fut)
+       |  def delay(ms: Int): Any =
+       |    val coH = _coHandleTL.get()
+       |    if coH != null then
+       |      coH.fromBody.put(Yielded(_DelayIO(ms.toLong)))
+       |      coH.toBody.take()
+       |    else _perform("Async", "delay", ms)
+       |  def async(thunk: () => Any): Any =
+       |    val coH = _coHandleTL.get()
+       |    if coH != null then
+       |      coH.fromBody.put(Yielded(_AsyncIO(thunk)))
+       |      coH.toBody.take()
+       |    else _perform("Async", "async", thunk)
+       |  def await(fut: Any): Any =
+       |    val coH = _coHandleTL.get()
+       |    if coH != null then
+       |      coH.fromBody.put(Yielded(_AwaitIO(fut)))
+       |      coH.toBody.take()
+       |    else _perform("Async", "await", fut)
        |  def parallel(thunks: List[() => Any]): Any =
-       |    _perform("Async", "parallel", thunks)
+       |    val coH = _coHandleTL.get()
+       |    if coH != null then
+       |      coH.fromBody.put(Yielded(_ParallelIO(thunks)))
+       |      coH.toBody.take()
+       |    else _perform("Async", "parallel", thunks)
        |
        |case class Future(value: Any)
        |
@@ -5489,46 +5519,46 @@ class JvmGen(
        |      val boxed: Array[Object] = args.map(_.asInstanceOf[AnyRef]).toArray
        |      ms.head.invoke(obj, boxed*)
        |
+       |// v1.11 coroutine-based runAsync scheduler
+       |def _driveAsyncCo(
+       |  fromBody: java.util.concurrent.SynchronousQueue[Any],
+       |  toBody:   java.util.concurrent.SynchronousQueue[Any]
+       |): Any =
+       |  while true do
+       |    fromBody.take() match
+       |      case Returned(v)           => return v
+       |      case Errored(msg)          => throw new RuntimeException(s"Async error: $msg")
+       |      case Yielded(_DelayIO(ms)) =>
+       |        if ms > 0 then Thread.sleep(ms)
+       |        toBody.put(())
+       |      case Yielded(_AsyncIO(thunk)) =>
+       |        toBody.put(Future(_runAsync(thunk)))
+       |      case Yielded(_AwaitIO(fut)) =>
+       |        toBody.put(fut match
+       |          case Future(v) => v
+       |          case other     => sys.error(s"Async.await: expected Future, got $other"))
+       |      case Yielded(_ParallelIO(thunks)) =>
+       |        toBody.put(thunks.map(_runAsync))
+       |      case other =>
+       |        sys.error(s"_driveAsyncCo: unexpected step: $other")
+       |  sys.error("unreachable")
+       |
        |def _runAsync(bodyThunk: () => Any): Any =
-       |  def dispatch(op: String, args: List[Any], resume: Any => Any): Any = op match
-       |    case "delay" =>
-       |      val ms = args(0).asInstanceOf[Int]
-       |      if ms > 0 then Thread.sleep(ms.toLong)
-       |      resume(())
-       |    case "async" =>
-       |      val thunk = args(0).asInstanceOf[() => Any]
-       |      resume(Future(interp(thunk())))
-       |    case "await" =>
-       |      val fut = args(0).asInstanceOf[Future]
-       |      resume(fut.value)
-       |    case "parallel" =>
-       |      val thunks = args(0).asInstanceOf[List[() => Any]]
-       |      resume(thunks.map(t => interp(t())))
-       |    case _ => sys.error("Unknown Async operation: " + op)
-       |  def interp(initial: Any): Any =
-       |    var current: Any = initial
-       |    while true do
-       |      current match
-       |        case _Perform("Async", op, args) =>
-       |          val resume: Any => Any = (v: Any) => v
-       |          current = dispatch(op, args, resume)
-       |        case _Perform(_, _, _) => return current
-       |        case _FlatMap(sub, f) => sub match
-       |          case _Perform("Async", op, args) =>
-       |            val fn = f.asInstanceOf[Any => Any]
-       |            val resume: Any => Any = (v: Any) => interp(fn(v))
-       |            current = dispatch(op, args, resume)
-       |          case _Perform(_, _, _) =>
-       |            val fn = f.asInstanceOf[Any => Any]
-       |            return _FlatMap(sub, (v: Any) => interp(fn(v)))
-       |          case _FlatMap(s2, g) =>
-       |            current = _FlatMap(s2,
-       |              (x: Any) => _FlatMap(g.asInstanceOf[Any => Any](x), f))
-       |          case v =>
-       |            current = f.asInstanceOf[Any => Any](v)
-       |        case v => return v
-       |    throw new RuntimeException("unreachable")
-       |  interp(bodyThunk())
+       |  val fromBody = new java.util.concurrent.SynchronousQueue[Any]()
+       |  val toBody   = new java.util.concurrent.SynchronousQueue[Any]()
+       |  val handle   = _CoHandle(fromBody, toBody)
+       |  Thread.ofVirtual().start { () =>
+       |    _coHandleTL.set(handle)
+       |    toBody.take()
+       |    try
+       |      val result = bodyThunk()
+       |      fromBody.put(Returned(result))
+       |    catch case t: Throwable =>
+       |      val msg = Option(t.getMessage).getOrElse(t.getClass.getSimpleName)
+       |      try fromBody.put(Errored(msg)) catch case _: Throwable => ()
+       |  }
+       |  toBody.put(())
+       |  _driveAsyncCo(fromBody, toBody)
        |
        |// ── runAsyncParallel: real-thread alternate handler ────────────────────
        |//
@@ -5790,6 +5820,21 @@ class JvmGen(
        |  val _remoteLinks    = new java.util.concurrent.ConcurrentHashMap[String,
        |    java.util.concurrent.CopyOnWriteArrayList[(Long, Long)]]()
        |
+       |  val ready  = scala.collection.mutable.ArrayDeque.empty[Long]
+       |  var nextId: Long = 0L
+       |  var rootResult: Any = ()
+       |
+       |  def spawnActor(thunk: () => Any): Long =
+       |    val id = nextId
+       |    nextId += 1
+       |    val st = new _ActorState
+       |    st.pending = thunk()
+       |    actors.put(id, st)
+       |    ready.append(id)
+       |    id
+       |
+       |  val rootId = spawnActor(bodyThunk)
+       |
        |  def _fireNodeDown(nodeId: String): Unit =
        |    val noconn = "noconnection"
        |    val deadBase = Map("nodeId" -> nodeId)
@@ -5822,17 +5867,17 @@ class JvmGen(
        |        val textB  = new StringBuilder()
        |        @volatile var _ws2: _JWs2 | Null = null
        |        val listener = new _JWs2.Listener:
-       |          def onText(ws: _JWs2, data: CharSequence, last: Boolean): _CF[?] =
+       |          override def onText(ws: _JWs2, data: CharSequence, last: Boolean): _CF[?] =
        |            textB.append(data)
-       |            if last then val m = textB.toString(); textB.setLength(0); recvQ.offer(m)
+       |            if last then { val m = textB.toString(); textB.setLength(0); recvQ.offer(m) }
        |            ws.request(1); _CF.completedFuture(null)
-       |          def onClose(ws: _JWs2, c: Int, r: String): _CF[?] =
+       |          override def onClose(ws: _JWs2, c: Int, r: String): _CF[?] =
        |            recvQ.offer(null); _CF.completedFuture(null)
-       |          def onError(ws: _JWs2 | Null, e: Throwable): Unit =
+       |          override def onError(ws: _JWs2 | Null, e: Throwable): Unit =
        |            System.err.println("ssc-peer error [" + url + "]: " + e.getMessage); recvQ.offer(null)
        |        val hdrs = if token.nonEmpty then Map("Authorization" -> ("Bearer " + token)) else Map.empty[String,String]
        |        val builder = _JHC2.newHttpClient().newWebSocketBuilder()
-       |        hdrs.foreach(builder.header)
+       |        hdrs.foreach { case (k, v) => builder.header(k, v) }
        |        builder.subprotocols("ssc-actors-v1")
        |        val ws = builder.buildAsync(URI.create(url), listener).join()
        |        _ws2 = ws
@@ -5948,20 +5993,11 @@ class JvmGen(
        |        _Pid(nid, lid)
        |      case _ => json
        |
-       |  val ready  = scala.collection.mutable.ArrayDeque.empty[Long]
-       |  var nextId: Long = 0L
-       |  var rootResult: Any = ()
-       |
-       |  def spawnActor(thunk: () => Any): Long =
-       |    val id = nextId
-       |    nextId += 1
-       |    val st = new _ActorState
-       |    st.pending = thunk()
-       |    actors.put(id, st)
-       |    ready.append(id)
-       |    id
-       |
-       |  val rootId = spawnActor(bodyThunk)
+       |  def _jstr(s: String): String =
+       |    val sb = new StringBuilder(s.length + 2).append('"')
+       |    s.foreach { case '"' => sb.append("\\\""); case '\\' => sb.append("\\\\")
+       |                case '\n' => sb.append("\\n"); case c => sb.append(c) }
+       |    sb.append('"').toString
        |
        |  def tryDeliver(state: _ActorState, matcher: Any => Option[Any], wrapSome: Boolean): Option[Any] =
        |    while state.mailbox.nonEmpty do
@@ -6131,15 +6167,11 @@ class JvmGen(
        |    case "startNode" =>
        |      _localNodeId = args(0).toString
        |      // Register /_ssc-actors WS route for inbound peer connections.
-       |      onWebSocket("/_ssc-actors") { wsMap =>
-       |        val sendFn = wsMap("send").asInstanceOf[Any => Any]
-       |        val recvQF = wsMap("recv").asInstanceOf[() => Any]
-       |        def wsSend(t: String): Unit = sendFn(t); ()
-       |        def wsRecv(): String | Null  = recvQF() match
-       |          case Some(s: String) => s
-       |          case None            => null
-       |          case s: String       => s
-       |          case _               => null
+       |      onWebSocket("/_ssc-actors") { ws =>
+       |        def wsSend(t: String): Unit = ws.send(t)
+       |        def wsRecv(): String | Null  = ws.recv() match
+       |          case Some(s) => s
+       |          case None    => null
        |        val first = wsRecv()
        |        if first != null then
        |          val pnId = _parseNodeId(first)
@@ -6264,12 +6296,6 @@ class JvmGen(
        |    case _Pid(nId, lId) => "{\"$t\":\"pid\",\"n\":" + _jstr(nId) + ",\"id\":" + lId + "}"
        |    case xs: List[?] => "{\"$t\":\"l\",\"v\":[" + xs.map(_serializeValue).mkString(",") + "]}"
        |    case _          => "{\"$t\":\"s\",\"v\":" + _jstr(v.toString) + "}"
-       |
-       |  def _jstr(s: String): String =
-       |    val sb = new StringBuilder(s.length + 2).append('"')
-       |    s.foreach { case '"' => sb.append("\\\""); case '\\' => sb.append("\\\\")
-       |                case '\n' => sb.append("\\n"); case c => sb.append(c) }
-       |    sb.append('"').toString
        |
        |  val _isDistributed = _localNodeId.nonEmpty || !_peerChannels.isEmpty
        |
