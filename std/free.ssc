@@ -1,0 +1,100 @@
+---
+name: std-free
+version: 1.0.0
+description: Free[F, A] monad — program as data, v1.11.5
+exports:
+  - FPure
+  - FFlatMap
+  - freePure
+  - freeLiftF
+  - freeMap
+  - freeFlatMap
+  - freeFoldMapList
+  - freeFoldMapOption
+---
+
+# `std.free` — Free Monad
+
+**Program-as-data** complement to v1.9 coroutines.  A `Free[F, A]` value
+is an unevaluated program whose effects are described by `F`.  Running it
+requires a **natural transformation** `nt: F[_] => G[_]` that maps each
+effect step into a target monad `G`.
+
+The same program runs under multiple interpreters — the key advantage over
+direct-style code (see §5 of `docs/coroutines.md`).
+
+Uses the **operational monad** (Coyoneda) encoding: no `Functor` constraint
+is required on `F`.
+
+## Data type
+
+```scalascript
+sealed trait Free[F, A]
+case class FPure[F, A](value: A) extends Free[F, A]
+case class FFlatMap[F, A](eff: Any, cont: Any => Free[F, A]) extends Free[F, A]
+```
+
+## Constructors
+
+```scalascript
+def freePure[F, A](a: A): Free[F, A] = FPure(a)
+
+def freeLiftF[F, A](fa: F): Free[F, A] =
+  FFlatMap(fa, (a: Any) => FPure(a))
+```
+
+## Combinators
+
+`freeFlatMap` reassociates right: `FFlatMap(FFlatMap(e, k), f)` becomes
+`FFlatMap(e, b => FFlatMap(k(b), f))`.  This keeps the tree flat and avoids
+stack overflow for left-associated bind chains.
+
+```scalascript
+def freeMap[F, A, B](prog: Free[F, A], f: A => B): Free[F, B] =
+  freeFlatMap(prog, (a: A) => FPure(f(a)))
+
+def freeFlatMap[F, A, B](prog: Free[F, A], f: A => Free[F, B]): Free[F, B] =
+  prog match
+    case FPure(a)         => f(a)
+    case FFlatMap(eff, k) => FFlatMap(eff, (b: Any) => freeFlatMap(k(b), f))
+```
+
+## Interpreters
+
+`freeFoldMapList` / `freeFoldMapOption` fold a `Free[F, A]` into the List or
+Option monad.  Pass a natural transformation `nt: Any => List[Any]` (or
+`Any => Option[Any]`) that interprets each effect value.
+
+```scalascript
+def freeFoldMapList[F, A](prog: Free[F, A], nt: Any => List[Any]): List[Any] =
+  prog match
+    case FPure(a)         => List(a)
+    case FFlatMap(eff, k) =>
+      nt(eff).flatMap((b: Any) => freeFoldMapList(k(b), nt))
+
+def freeFoldMapOption[F, A](prog: Free[F, A], nt: Any => Option[Any]): Option[Any] =
+  prog match
+    case FPure(a)         => Some(a)
+    case FFlatMap(eff, k) =>
+      nt(eff) match
+        case None    => None
+        case Some(b) => freeFoldMapOption(k(b), nt)
+```
+
+## Usage sketch
+
+```text
+// 1. Define your effect algebra
+sealed trait ConsoleF[A]
+case class ReadLine()           extends ConsoleF[String]
+case class PrintLine(s: String) extends ConsoleF[Unit]
+
+// 2. Build a program as data
+val prog = freeFlatMap(freeLiftF(ReadLine()), name =>
+           freeFlatMap(freeLiftF(PrintLine(s"hi $name")),
+           _ => freePure[ConsoleF, Int](0)))
+
+// 3. Interpret — production: println / readLine
+// 4. Interpret — testing: pre-canned inputs, log output in a List
+//    Same `prog` value, two different `nt` functions.
+```

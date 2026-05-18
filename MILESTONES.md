@@ -397,7 +397,7 @@ unblocks downstream features as early as possible.
      `Computation[A]` becomes a runtime-only shim; ≥20% allocation
      reduction target on flatMap-heavy workloads.  User code
      unchanged — conformance gates the merge.
- 17. **v1.11.5 — `Free[F, A]` as stdlib type** (~1 week).
+ 17. **v1.11.5 — `Free[F, A]` as stdlib type** ✓ Landed
      User-facing `Free` monad in `std/free.ssc` built on v1.1
      typeclasses + v1.9 coroutines.  Program-as-data complement
      to coroutine's program-as-control-flow.  Pure library work,
@@ -2016,7 +2016,7 @@ representation for compiler-emitted effects; only the
 Five phases, ~2 weeks end-to-end.  Bigger than v1.9-v1.10 due
 to the performance gate and the compatibility shim.
 
-## v1.11.5 — `Free[F, A]` as stdlib type
+## v1.11.5 — `Free[F, A]` as stdlib type ✓ Landed
 
 User-facing `Free` monad as a new stdlib module `std/free.ssc`.
 Not a runtime primitive — pure ScalaScript code built on top of
