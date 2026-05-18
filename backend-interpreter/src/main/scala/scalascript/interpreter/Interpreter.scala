@@ -840,21 +840,52 @@ class Interpreter(
 
     // ── Async: built-in effect for async-style code ──────────────────
     //
-    // Four operations — each produces a Perform node; `runAsync(body)`
-    // is the default handler.  See `evalRunAsync` / `asyncDispatch`
-    // below.  The model is single-threaded: thunks passed to
-    // `async` / `parallel` execute immediately on the calling thread
-    // (so output is deterministic and identical across all three
-    // backends).  Real concurrency on the JVM is a handler-swap away.
+    // v1.11: When called from inside a runAsync coroutine body
+    // (_coHandleTL is set), each op suspends with an IORequest value.
+    // The runAsync scheduler drives the coroutine and handles the request.
+    // Outside a coroutine (e.g. runAsyncParallel), falls back to Perform
+    // nodes so the Free-monad driver (asyncParInterp) handles them.
     globals("Async") = Value.InstanceV("Async", Map(
-      "delay"    -> Value.NativeFnV("Async.delay",
-        args => Perform("Async", "delay", args)),
-      "async"    -> Value.NativeFnV("Async.async",
-        args => Perform("Async", "async", args)),
-      "await"    -> Value.NativeFnV("Async.await",
-        args => Perform("Async", "await", args)),
-      "parallel" -> Value.NativeFnV("Async.parallel",
-        args => Perform("Async", "parallel", args)),
+      "delay" -> Value.NativeFnV("Async.delay", {
+        case List(Value.IntV(ms)) =>
+          val coH = _coHandleTL.get()
+          if coH != null then
+            coH.fromBody.put(Value.InstanceV("Yielded", Map("value" ->
+              Value.InstanceV("DelayIO", Map("ms" -> Value.IntV(ms))))))
+            Pure(coH.toBody.take())
+          else Perform("Async", "delay", List(Value.IntV(ms)))
+        case args => throw InterpretError(s"Async.delay(ms: Int)")
+      }),
+      "async" -> Value.NativeFnV("Async.async", {
+        case List(thunk) =>
+          val coH = _coHandleTL.get()
+          if coH != null then
+            coH.fromBody.put(Value.InstanceV("Yielded", Map("value" ->
+              Value.InstanceV("AsyncIO", Map("thunk" -> thunk)))))
+            Pure(coH.toBody.take())
+          else Perform("Async", "async", List(thunk))
+        case args => throw InterpretError(s"Async.async(thunk)")
+      }),
+      "await" -> Value.NativeFnV("Async.await", {
+        case List(fut) =>
+          val coH = _coHandleTL.get()
+          if coH != null then
+            coH.fromBody.put(Value.InstanceV("Yielded", Map("value" ->
+              Value.InstanceV("AwaitIO", Map("fut" -> fut)))))
+            Pure(coH.toBody.take())
+          else Perform("Async", "await", List(fut))
+        case args => throw InterpretError(s"Async.await(future)")
+      }),
+      "parallel" -> Value.NativeFnV("Async.parallel", {
+        case List(thunks) =>
+          val coH = _coHandleTL.get()
+          if coH != null then
+            coH.fromBody.put(Value.InstanceV("Yielded", Map("value" ->
+              Value.InstanceV("ParallelIO", Map("thunks" -> thunks)))))
+            Pure(coH.toBody.take())
+          else Perform("Async", "parallel", List(thunks))
+        case args => throw InterpretError(s"Async.parallel(thunks: List[() => A])")
+      }),
     ))
     // `Future(v)` — wrap a value in a Future cell.  Used by handlers
     // to materialise the result of an `async` thunk; users normally
@@ -1622,12 +1653,14 @@ class Interpreter(
           evalHandle(bodyArgClause.values.head.asInstanceOf[Term], pf.cases, env)
         case _ => located("handle expects a partial function { case Eff.op(args, resume) => ... }")
 
-    // Special form: runAsync(body) — default Async handler.  The body is
-    // a by-name expression; we evaluate it lazily so its effects compose
-    // into the Computation tree before the driver walks them.
+    // Special form: runAsync(body) — v1.11 coroutine-based Async scheduler.
+    // Runs the body in a virtual thread with CoHandle set, then drives it
+    // by dispatching IORequest suspensions (DelayIO / AsyncIO / AwaitIO /
+    // ParallelIO) in a loop.  Allocation-free per-flatMap compared to the
+    // old Free-monad asyncInterp; semantics unchanged.
     case Term.Apply.After_4_6_0(Term.Name("runAsync"), bodyArgClause)
         if bodyArgClause.values.size == 1 =>
-      asyncInterp(eval(bodyArgClause.values.head, env))
+      Pure(runAsyncCo(bodyArgClause.values.head, env))
 
     // Special form: runAsyncParallel(body) — alternate Async handler
     // that executes thunks passed to `async` / `parallel` on real
@@ -3317,6 +3350,96 @@ class Interpreter(
     effects(eid) = EffectState(updater, mutable.HashSet.empty)
     runEffect(eid)
     signalInstance(sid)
+
+  // ── v1.11 coroutine-based Async scheduler ────────────────────────────
+  //
+  // Runs a runAsync body (or thunk) inside a virtual thread with _coHandleTL
+  // set, then drives the resulting coroutine by dispatching IORequest
+  // suspensions.  Each Async.* op suspends with an IORequest InstanceV
+  // instead of returning a Perform node, so the Free-monad trampoline is
+  // bypassed entirely for the runAsync path.
+
+  private def runAsyncCo(bodyTerm: Term, env: Env): Value =
+    val fromBody = new java.util.concurrent.SynchronousQueue[Value]()
+    val toBody   = new java.util.concurrent.SynchronousQueue[Value]()
+    val handle   = CoHandle(fromBody, toBody)
+    Thread.ofVirtual().start { () =>
+      _coHandleTL.set(handle)
+      toBody.take()
+      try
+        val result = Computation.run(eval(bodyTerm, env))
+        fromBody.put(Value.InstanceV("Returned", Map("value" -> result)))
+      catch case t: Throwable =>
+        val msg = Option(t.getMessage).getOrElse(t.getClass.getSimpleName)
+        try fromBody.put(Value.InstanceV("Errored", Map("message" -> Value.StringV(msg))))
+        catch case _: Throwable => ()
+    }
+    toBody.put(Value.UnitV)
+    driveAsyncCo(fromBody, toBody)
+
+  private def runAsyncThunkCo(thunk: Value): Value =
+    val fromBody = new java.util.concurrent.SynchronousQueue[Value]()
+    val toBody   = new java.util.concurrent.SynchronousQueue[Value]()
+    val handle   = CoHandle(fromBody, toBody)
+    Thread.ofVirtual().start { () =>
+      _coHandleTL.set(handle)
+      toBody.take()
+      try
+        val result = Computation.run(callValue(thunk, Nil, Map.empty))
+        fromBody.put(Value.InstanceV("Returned", Map("value" -> result)))
+      catch case t: Throwable =>
+        val msg = Option(t.getMessage).getOrElse(t.getClass.getSimpleName)
+        try fromBody.put(Value.InstanceV("Errored", Map("message" -> Value.StringV(msg))))
+        catch case _: Throwable => ()
+    }
+    toBody.put(Value.UnitV)
+    driveAsyncCo(fromBody, toBody)
+
+  private def driveAsyncCo(
+    fromBody: java.util.concurrent.SynchronousQueue[Value],
+    toBody:   java.util.concurrent.SynchronousQueue[Value]
+  ): Value =
+    while true do
+      fromBody.take() match
+        case Value.InstanceV("Returned", fields) =>
+          return fields.getOrElse("value", Value.UnitV)
+        case Value.InstanceV("Errored", fields) =>
+          val msg = fields.get("message").collect { case Value.StringV(s) => s }
+            .getOrElse("async error")
+          throw InterpretError(s"Async error: $msg")
+        case Value.InstanceV("Yielded", fields) =>
+          val result = dispatchAsyncIO(fields.getOrElse("value", Value.UnitV))
+          toBody.put(result)
+        case other =>
+          throw InterpretError(s"runAsync: unexpected coroutine step: $other")
+    throw InterpretError("unreachable")
+
+  private def dispatchAsyncIO(request: Value): Value = request match
+    case Value.InstanceV("DelayIO", fields) =>
+      val ms = fields.get("ms").collect { case Value.IntV(n) => n }.getOrElse(0L)
+      if ms > 0L then Thread.sleep(ms)
+      Value.UnitV
+    case Value.InstanceV("AsyncIO", fields) =>
+      val thunk = fields.getOrElse("thunk",
+        throw InterpretError("AsyncIO: missing thunk"))
+      val result = runAsyncThunkCo(thunk)
+      Value.InstanceV("Future", Map("value" -> result))
+    case Value.InstanceV("AwaitIO", fields) =>
+      val fut = fields.getOrElse("fut",
+        throw InterpretError("AwaitIO: missing fut"))
+      fut match
+        case Value.InstanceV("Future", futFields) =>
+          futFields.getOrElse("value",
+            throw InterpretError("AwaitIO: Future has no value field"))
+        case _ => throw InterpretError(s"Async.await: expected Future, got $fut")
+    case Value.InstanceV("ParallelIO", fields) =>
+      fields.getOrElse("thunks",
+        throw InterpretError("ParallelIO: missing thunks")) match
+        case Value.ListV(ts) =>
+          Value.ListV(ts.map(runAsyncThunkCo))
+        case _ => throw InterpretError("Async.parallel: thunks must be a list")
+    case other =>
+      throw InterpretError(s"runAsync: unrecognized IORequest: $other")
 
   /** Driver for the built-in `Async` effect — same Free-Monad walk as
    *  `evalHandle` but with a fixed dispatch table for `Async.*` ops
