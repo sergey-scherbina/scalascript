@@ -202,6 +202,20 @@ class Interpreter(
   private type GenQueue = java.util.concurrent.SynchronousQueue[Option[Value]]
   private val _genQueueTL = new ThreadLocal[GenQueue]()
 
+  // ── v1.9 Coroutines — two-way suspend/resume via virtual threads ──────
+  // Protocol (lazy-start):
+  //   coroutineCreate: starts T but T immediately blocks on toBody.take()
+  //   coroutineResume: toBody.put(in); result = fromBody.take()
+  //   suspend(out):    fromBody.put(Yielded(out)); toBody.take()
+  // This ensures the puts/takes interleave without deadlock.
+  private case class CoHandle(
+    fromBody: java.util.concurrent.SynchronousQueue[Value],
+    toBody:   java.util.concurrent.SynchronousQueue[Value]
+  )
+  private val _coHandleTL    = new ThreadLocal[CoHandle]()
+  private val coHandles       = new java.util.concurrent.ConcurrentHashMap[Long, CoHandle]()
+  private val nextCoId        = new java.util.concurrent.atomic.AtomicLong(0L)
+
   private def makeGeneratorV(queue: GenQueue): Value =
     import scala.collection.mutable.ListBuffer
 
@@ -917,13 +931,59 @@ class Interpreter(
         Pure(makeGeneratorV(queue))
       case _ => throw InterpretError("generator(body: => Unit)")
     })
+    // Updated `suspend` handles both generator (R=Unit) and coroutine contexts.
     globals("suspend") = Value.NativeFnV("suspend", {
       case List(v) =>
-        val q = _genQueueTL.get()
-        if q == null then throw InterpretError("suspend called outside a generator body")
-        q.put(Some(v))
-        Pure(Value.UnitV)
+        val coH = _coHandleTL.get()
+        if coH != null then
+          coH.fromBody.put(Value.InstanceV("Yielded", Map("value" -> v)))
+          Pure(coH.toBody.take())
+        else
+          val genQ = _genQueueTL.get()
+          if genQ == null then
+            throw InterpretError("suspend called outside a coroutine or generator body")
+          genQ.put(Some(v))
+          Pure(Value.UnitV)
       case _ => throw InterpretError("suspend(v)")
+    })
+
+    // ── v1.9 Coroutines — coroutineCreate / coroutineResume ──────────────
+    globals("coroutineCreate") = Value.NativeFnV("coroutineCreate", {
+      case List(thunk) =>
+        val fromBody = new java.util.concurrent.SynchronousQueue[Value]()
+        val toBody   = new java.util.concurrent.SynchronousQueue[Value]()
+        val handle   = CoHandle(fromBody, toBody)
+        val id       = nextCoId.getAndIncrement()
+        coHandles.put(id, handle)
+        Thread.ofVirtual().start { () =>
+          _coHandleTL.set(handle)
+          toBody.take()  // lazy start: block until first coroutineResume
+          try
+            val result = Computation.run(callValue(thunk, Nil, Map.empty))
+            fromBody.put(Value.InstanceV("Returned", Map("value" -> result)))
+          catch case t: Throwable =>
+            val msg = Option(t.getMessage).getOrElse(t.getClass.getSimpleName)
+            try fromBody.put(Value.InstanceV("Errored", Map("message" -> Value.StringV(msg))))
+            catch case _: Throwable => ()
+        }
+        Pure(Value.InstanceV("Coroutine", Map("_id" -> Value.IntV(id))))
+      case _ => throw InterpretError("coroutineCreate(body: () => T)")
+    })
+
+    globals("coroutineResume") = Value.NativeFnV("coroutineResume", {
+      case List(Value.InstanceV("Coroutine", fields), in) =>
+        val id = fields.get("_id") match
+          case Some(Value.IntV(n)) => n
+          case _ => throw InterpretError("coroutineResume: invalid coroutine handle")
+        val handle = coHandles.get(id)
+        if handle == null then throw InterpretError("coroutineResume: coroutine already completed")
+        handle.toBody.put(in)
+        val step = handle.fromBody.take()
+        step match
+          case Value.InstanceV("Returned" | "Errored", _) => coHandles.remove(id)
+          case _ => ()
+        Pure(step)
+      case _ => throw InterpretError("coroutineResume(co, in)")
     })
 
     // ── Reactive primitives: Signal / computed / effect ────────────────
@@ -2481,6 +2541,14 @@ class Interpreter(
             eval(rhs, local.toMap).flatMap { v =>
               local(n.value) = v
               localOverrides += n.value
+              step(rest, Value.UnitV)
+            }
+          // Local var mutation: write to local AND globals so that both the
+          // current evalBlock and any enclosing while loop (via freshEnv) see it.
+          case Term.Assign(Term.Name(x), rhs) if localOverrides.contains(x) =>
+            eval(rhs, local.toMap).flatMap { v =>
+              local(x)   = v
+              globals(x) = v
               step(rest, Value.UnitV)
             }
           case t: Term =>

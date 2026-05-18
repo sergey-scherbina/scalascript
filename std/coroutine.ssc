@@ -1,0 +1,87 @@
+---
+name: std-coroutine
+version: 1.0.0
+description: v1.9 coroutine primitive — coroutineCreate / coroutineResume / suspend
+exports:
+  - Step
+  - coroutineCreate
+  - coroutineResume
+  - suspend
+---
+
+# `std.coroutine` — Coroutine primitive
+
+Low-level paused-and-resumable computation with two-way value passing.
+`coroutineCreate` wraps a body; `coroutineResume` steps it forward and
+returns the next `Step`; `suspend(out)` pauses the body and receives
+the next resume's input as its return value.
+
+Callers consume the ADT by pattern-matching on `Yielded` / `Returned`.
+`Errored` is returned when the body throws an unhandled exception.
+
+v1.10 builds `Generator[T]` on top of this; v1.11 rebuilds `Async` on it.
+
+```scalascript
+enum Step[Y, T]:
+  case Yielded(value: Y)
+  case Returned(value: T)
+  case Errored(message: String)
+
+extern def coroutineCreate[Y, R, T](body: () => T): Any
+extern def coroutineResume[Y, R, T](co: Any, in: R): Step[Y, T]
+extern def suspend[Y, R](out: Y): R
+```
+
+## Example — ping-pong (two-way value passing)
+
+Each `coroutineResume` sends a value IN and gets a value OUT.
+
+```scalascript
+[Step, coroutineCreate, coroutineResume, suspend](../std/coroutine.ssc)
+
+val pingpong = coroutineCreate[String, String, Unit] { () =>
+  val b = suspend("ping")
+  val c = suspend(b + "-pong")
+  suspend(c + "-done")
+}
+
+println(coroutineResume(pingpong, ""))     // Yielded(ping)
+println(coroutineResume(pingpong, "A"))    // Yielded(A-pong)
+println(coroutineResume(pingpong, "B"))    // Yielded(B-done)
+println(coroutineResume(pingpong, "C"))    // Returned(())
+```
+
+## Example — generator loop
+
+`Y = Int`, `R = Unit` — one-directional yield, ignore resume input.
+
+```scalascript
+[Step, coroutineCreate, coroutineResume, suspend](../std/coroutine.ssc)
+
+val counter = coroutineCreate[Int, Unit, Unit] { () =>
+  var n = 0
+  while true do
+    suspend(n)
+    n += 1
+}
+
+println(coroutineResume(counter, ()))   // Yielded(0)
+println(coroutineResume(counter, ()))   // Yielded(1)
+println(coroutineResume(counter, ()))   // Yielded(2)
+```
+
+## Example — error propagation
+
+When the coroutine body throws, `coroutineResume` returns `Errored(message)`.
+
+```scalascript
+[Step, coroutineCreate, coroutineResume, suspend](../std/coroutine.ssc)
+
+val boom = coroutineCreate[Unit, Unit, Unit] { () =>
+  suspend(())
+  throw new RuntimeException("oops")
+}
+
+println(coroutineResume(boom, ()))   // Yielded(())
+println(coroutineResume(boom, ()))   // Errored(oops)
+```
