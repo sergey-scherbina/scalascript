@@ -1383,14 +1383,14 @@ items inside the phase pushed individually.
       with `apply` / `get` / `asString` / `asInt` / `asList` / `asMap`
       / `keys` / `size` / `isNull` / `raw` — across all three backends.
 
-- **Phase E — full NIO HTTP migration** *(Sprint 5.16, ~2 weeks)*.
+- **Phase E — full NIO HTTP migration** *(Sprint 5.16, ~2 weeks)* — **BLOCKED, do not start.**
   Replaces the JDK `HttpServer` + WS-proxy pair with a single
   NIO selector loop owning both HTTP and WS state machines.
   Eliminates the loopback hop, unifies the threading model
   across interpreter and JvmGen, and is what `permessage-deflate`
-  (Sprint 5.18) would build on top of.  Deferred until at least
-  one Phase D item proves the JDK HttpServer is genuinely the
-  bottleneck.
+  (Sprint 5.18) would build on top of.  Blocked by user decision
+  (2026-05-18) — not a priority until JDK HttpServer is proven
+  to be a real bottleneck in production.
 
 Total: ~4.5-5 weeks of focused work for Phases A-D′ (after which the
 HTTP/WS stack is genuinely production-ready and ergonomic for

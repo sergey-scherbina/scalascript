@@ -102,6 +102,15 @@ These override any other guidance in this file:
    worktree — the rule is for anything that takes more than one
    commit.
 
+4. **Never start work that another agent is already doing.**
+   Before claiming any item, run `git worktree list` and inspect each
+   sibling worktree: branch name, uncommitted changes (`git status -s`),
+   and commits ahead of `origin/main` (`git log --oneline origin/main..HEAD`).
+   If any sibling worktree's branch name, changed files, or recent commit
+   messages overlap with the item you were about to take — pick a
+   different item.  Do not coordinate by asking; just read the worktrees.
+   This check takes seconds and prevents hours of duplicate work.
+
 ## Long-running task strategy (worktree-isolated work)
 
 When a task is large enough to span many commits or risks colliding with
