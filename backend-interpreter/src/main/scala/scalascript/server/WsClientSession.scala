@@ -107,6 +107,13 @@ final class WsClientSession(
     val v = recvQueue.take()
     if v == null then None else Some(v)
 
+  /** Hard-close the underlying WebSocket (e.g. heartbeat timeout). */
+  def abort(): Unit =
+    try _ws match
+      case ws if ws != null => ws.abort()
+      case _                => doClose()
+    catch case _: Throwable => doClose()
+
   private def dispatch(f: () => Unit): Unit =
     try f()
     catch case e: Throwable => log.println(s"wsConnect callback error: ${e.getMessage}")

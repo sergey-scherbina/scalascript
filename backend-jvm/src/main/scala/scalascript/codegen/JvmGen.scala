@@ -5372,7 +5372,8 @@ class JvmGen(
        |        case v => return v
        |    throw new RuntimeException("unreachable")
        |  interp(bodyThunk())
-       |
+       |""".stripMargin +
+    """|
        |// ── v1.6 Actors — Phase 1 cooperative scheduler ────────────────────────
        |//
        |// Same Computation / Free-Monad walk as `_runAsync` but the outer
@@ -5439,9 +5440,175 @@ class JvmGen(
        |  var nextMonRef: Long = 0L
        |  // Phase 3 distributed state
        |  var _localNodeId: String = ""
-       |  val _nodeRegistry = new java.util.concurrent.ConcurrentHashMap[String, Long]()
-       |  val _peerChannels = new java.util.concurrent.ConcurrentHashMap[String, String => Unit]()
-       |  val _remoteInbox  = new java.util.concurrent.ConcurrentLinkedQueue[(Long, Any)]()
+       |  val _nodeRegistry   = new java.util.concurrent.ConcurrentHashMap[String, Long]()
+       |  val _peerChannels   = new java.util.concurrent.ConcurrentHashMap[String, String => Unit]()
+       |  val _remoteInbox    = new java.util.concurrent.ConcurrentLinkedQueue[(Long, Any)]()
+       |  val _peerLastPong   = new java.util.concurrent.ConcurrentHashMap[String, Long]()
+       |  val _nodeDownQueue  = new java.util.concurrent.ConcurrentLinkedQueue[String]()
+       |  // cross-node monitors: nodeId → [(localActorId, monRef, remotePid.localId)]
+       |  val _remoteMonitors = new java.util.concurrent.ConcurrentHashMap[String,
+       |    java.util.concurrent.CopyOnWriteArrayList[(Long, Long, Long)]]()
+       |  // cross-node links:   nodeId → [(localActorId, remotePid.localId)]
+       |  val _remoteLinks    = new java.util.concurrent.ConcurrentHashMap[String,
+       |    java.util.concurrent.CopyOnWriteArrayList[(Long, Long)]]()
+       |
+       |  def _fireNodeDown(nodeId: String): Unit =
+       |    val noconn = "noconnection"
+       |    val deadBase = Map("nodeId" -> nodeId)
+       |    Option(_remoteMonitors.remove(nodeId)).foreach { list =>
+       |      list.forEach { (actorId, monRef, rPidLocalId) =>
+       |        actors.get(actorId).foreach { st =>
+       |          st.mailbox.append(Down(monRef, _Pid(nodeId, rPidLocalId), noconn))
+       |          tryWakeBlocked(actorId)
+       |        }
+       |      }
+       |    }
+       |    Option(_remoteLinks.remove(nodeId)).foreach { list =>
+       |      list.forEach { (actorId, rPidLocalId) =>
+       |        if trapExitM.getOrElse(actorId, false) then
+       |          actors.get(actorId).foreach { st =>
+       |            st.mailbox.append(Exit(_Pid(nodeId, rPidLocalId), noconn))
+       |            tryWakeBlocked(actorId)
+       |          }
+       |        else killActor(actorId, noconn)
+       |      }
+       |    }
+       |
+       |  def _connectPeer(url: String, token: String): Unit =
+       |    Thread.ofVirtual().start { () =>
+       |      try
+       |        import java.net.URI
+       |        import java.net.http.{HttpClient => _JHC2, WebSocket => _JWs2}
+       |        import java.util.concurrent.{LinkedBlockingQueue => _LBQ, CompletableFuture => _CF}
+       |        val recvQ  = new _LBQ[String | Null]()
+       |        val textB  = new StringBuilder()
+       |        @volatile var _ws2: _JWs2 | Null = null
+       |        val listener = new _JWs2.Listener:
+       |          def onText(ws: _JWs2, data: CharSequence, last: Boolean): _CF[?] =
+       |            textB.append(data)
+       |            if last then val m = textB.toString(); textB.setLength(0); recvQ.offer(m)
+       |            ws.request(1); _CF.completedFuture(null)
+       |          def onClose(ws: _JWs2, c: Int, r: String): _CF[?] =
+       |            recvQ.offer(null); _CF.completedFuture(null)
+       |          def onError(ws: _JWs2 | Null, e: Throwable): Unit =
+       |            System.err.println("ssc-peer error [" + url + "]: " + e.getMessage); recvQ.offer(null)
+       |        val hdrs = if token.nonEmpty then Map("Authorization" -> ("Bearer " + token)) else Map.empty[String,String]
+       |        val builder = _JHC2.newHttpClient().newWebSocketBuilder()
+       |        hdrs.foreach(builder.header)
+       |        builder.subprotocols("ssc-actors-v1")
+       |        val ws = builder.buildAsync(URI.create(url), listener).join()
+       |        _ws2 = ws
+       |        def sendFn(t: String): Unit = if _ws2 != null then _ws2.sendText(t, true)
+       |        def recvFn(): String | Null  = recvQ.take()
+       |        sendFn("{\"nodeId\":" + _jstr(_localNodeId) + "}")
+       |        val first = recvFn()
+       |        if first != null then
+       |          val pnId = _parseNodeId(first)
+       |          if pnId.nonEmpty then
+       |            _peerChannels.put(pnId, sendFn)
+       |            _peerLastPong.put(pnId, System.currentTimeMillis())
+       |            val hbThread = Thread.ofVirtual().start { () =>
+       |              try
+       |                while _peerChannels.containsKey(pnId) do
+       |                  Thread.sleep(30000L)
+       |                  if _peerChannels.containsKey(pnId) then
+       |                    val age = System.currentTimeMillis() - _peerLastPong.getOrDefault(pnId, 0L)
+       |                    if age > 40000L then
+       |                      _peerChannels.remove(pnId)
+       |                      try if _ws2 != null then _ws2.abort() catch case _: Throwable => ()
+       |                    else try _peerChannels.get(pnId)("{\"t\":\"ping\"}") catch case _: Throwable => ()
+       |              catch case _: InterruptedException => ()
+       |            }
+       |            var running = true
+       |            while running do
+       |              val msg = recvFn()
+       |              if msg == null then running = false
+       |              else _dispatchPeerEnv(pnId, msg)
+       |            hbThread.interrupt()
+       |            _peerChannels.remove(pnId)
+       |            _peerLastPong.remove(pnId)
+       |            _nodeDownQueue.offer(pnId)
+       |      catch case e: Throwable => System.err.println("connectNode error [" + url + "]: " + e.getMessage)
+       |    }
+       |
+       |  def _parseNodeId(json: String): String =
+       |    val key = "\"nodeId\""
+       |    val ki = json.indexOf(key); if ki < 0 then return ""
+       |    val vi = json.indexOf('"', ki + key.length + 1); if vi < 0 then return ""
+       |    val ve = json.indexOf('"', vi + 1); if ve < 0 then return ""
+       |    json.substring(vi + 1, ve)
+       |
+       |  def _dispatchPeerEnv(pnId: String, json: String): Unit =
+       |    val ti = json.indexOf("\"t\""); if ti < 0 then return
+       |    val vi = json.indexOf('"', ti + 4); if vi < 0 then return
+       |    val ve = json.indexOf('"', vi + 1); if ve < 0 then return
+       |    val t  = json.substring(vi + 1, ve)
+       |    t match
+       |      case "msg" =>
+       |        val toId = _extractToLocalId(json)
+       |        if toId >= 0 then
+       |          val body = _extractBody(json)
+       |          if body != null then
+       |            val msg = _deserializeValue(body)
+       |            _remoteInbox.offer((toId, msg))
+       |      case "ping" => try Option(_peerChannels.get(pnId)).foreach(_.apply("{\"t\":\"pong\"}")) catch case _: Throwable => ()
+       |      case "pong" => _peerLastPong.put(pnId, System.currentTimeMillis())
+       |      case _      => ()
+       |
+       |  def _extractToLocalId(json: String): Long =
+       |    val toKey = "\"to\""; val ti = json.indexOf(toKey); if ti < 0 then return -1L
+       |    val lk = "\"localId\""; val li = json.indexOf(lk, ti); if li < 0 then return -1L
+       |    val ci = json.indexOf(':', li + lk.length); if ci < 0 then return -1L
+       |    var i = ci + 1; while i < json.length && json(i) == ' ' do i += 1
+       |    var j = i; while j < json.length && (json(j).isDigit || json(j) == '-') do j += 1
+       |    if j > i then json.substring(i, j).toLongOption.getOrElse(-1L) else -1L
+       |
+       |  def _extractBody(json: String): String | Null =
+       |    val bk = "\"body\""; val bi = json.indexOf(bk); if bi < 0 then return null
+       |    val ci = json.indexOf(':', bi + bk.length); if ci < 0 then return null
+       |    var i = ci + 1; while i < json.length && json(i) == ' ' do i += 1
+       |    if i >= json.length then return null
+       |    // Body is a nested JSON object — find balanced {}
+       |    if json(i) != '{' then return null
+       |    var depth = 0; var j = i
+       |    while j < json.length do
+       |      if json(j) == '{' then depth += 1
+       |      else if json(j) == '}' then { depth -= 1; if depth == 0 then return json.substring(i, j + 1) }
+       |      j += 1
+       |    null
+       |
+       |  def _deserializeValue(json: String): Any =
+       |    val ti = json.indexOf("\"$t\""); if ti < 0 then return json
+       |    val vi = json.indexOf('"', ti + 5); if vi < 0 then return json
+       |    val ve = json.indexOf('"', vi + 1); if ve < 0 then return json
+       |    val tag = json.substring(vi + 1, ve)
+       |    tag match
+       |      case "i" =>
+       |        val nv = json.indexOf("\"v\""); val ci = json.indexOf(':', nv + 3)
+       |        var i = ci + 1; while i < json.length && json(i) == ' ' do i += 1
+       |        var j = i; while j < json.length && (json(j).isDigit || json(j) == '-') do j += 1
+       |        json.substring(i, j).toLongOption.getOrElse(0L)
+       |      case "d" =>
+       |        val nv = json.indexOf("\"v\""); val ci = json.indexOf(':', nv + 3)
+       |        var i = ci + 1; while i < json.length && json(i) == ' ' do i += 1
+       |        var j = i; while j < json.length && (json(j).isDigit || json(j) == '-' || json(j) == '.' || json(j) == 'e') do j += 1
+       |        json.substring(i, j).toDoubleOption.getOrElse(0.0)
+       |      case "s" =>
+       |        val nv = json.indexOf("\"v\""); val qi = json.indexOf('"', json.indexOf(':', nv + 3) + 1)
+       |        val qe = json.indexOf('"', qi + 1)
+       |        if qi >= 0 && qe > qi then json.substring(qi + 1, qe) else ""
+       |      case "b" =>
+       |        json.contains("true")
+       |      case "u" => ()
+       |      case "pid" =>
+       |        val ni = json.indexOf("\"n\""); val qi = json.indexOf('"', json.indexOf(':', ni + 3) + 1)
+       |        val qe = json.indexOf('"', qi + 1); val nid = if qi >= 0 && qe > qi then json.substring(qi + 1, qe) else ""
+       |        val li = json.indexOf("\"id\""); val ci = json.indexOf(':', li + 4)
+       |        var i = ci + 1; while i < json.length && json(i) == ' ' do i += 1
+       |        var j = i; while j < json.length && (json(j).isDigit || json(j) == '-') do j += 1
+       |        val lid = json.substring(i, j).toLongOption.getOrElse(0L)
+       |        _Pid(nid, lid)
+       |      case _ => json
        |
        |  val ready  = scala.collection.mutable.ArrayDeque.empty[Long]
        |  var nextId: Long = 0L
@@ -5565,8 +5732,15 @@ class JvmGen(
        |    // ── v1.6 Phase 2 — supervision ─────────────────────────────────────
        |    case "link" =>
        |      args(0) match
-       |        case _Pid(_, targetId) =>
-       |          if actors.contains(targetId) then
+       |        case _Pid(nid, targetId) =>
+       |          if nid.nonEmpty && nid != _localNodeId then
+       |            if _peerChannels.containsKey(nid) then
+       |              _remoteLinks.computeIfAbsent(nid, _ => new java.util.concurrent.CopyOnWriteArrayList()).add((id, targetId))
+       |            else
+       |              if trapExitM.getOrElse(id, false) then
+       |                actors.get(id).foreach(_.mailbox.append(Exit(_Pid(nid, targetId), noproc)))
+       |              else killActor(id, noproc)
+       |          else if actors.contains(targetId) then
        |            links.getOrElseUpdate(id,       scala.collection.mutable.Set.empty) += targetId
        |            links.getOrElseUpdate(targetId, scala.collection.mutable.Set.empty) += id
        |          else
@@ -5578,16 +5752,26 @@ class JvmGen(
        |      if actors.contains(id) then Right(k(())) else Left(())
        |    case "monitor" =>
        |      args(0) match
-       |        case _Pid(_, targetId) =>
+       |        case _Pid(nid, targetId) =>
        |          val monRef = nextMonRef; nextMonRef += 1
-       |          if actors.contains(targetId) then
+       |          if nid.nonEmpty && nid != _localNodeId then
+       |            if _peerChannels.containsKey(nid) then
+       |              _remoteMonitors.computeIfAbsent(nid, _ => new java.util.concurrent.CopyOnWriteArrayList()).add((id, monRef, targetId))
+       |            else
+       |              actors.get(id).foreach { st =>
+       |                st.mailbox.append(Down(monRef, _Pid(nid, targetId), "noconnection"))
+       |                tryWakeBlocked(id)
+       |              }
+       |            Right(k(monRef))
+       |          else if actors.contains(targetId) then
        |            monitors.getOrElseUpdate(targetId, scala.collection.mutable.Map.empty)(monRef) = id
+       |            Right(k(monRef))
        |          else
        |            actors.get(id).foreach { st =>
        |              st.mailbox.append(Down(monRef, _Pid("", targetId), noproc))
        |              tryWakeBlocked(id)
        |            }
-       |          Right(k(monRef))
+       |            Right(k(monRef))
        |        case _ => Right(k(-1L))
        |    case "demonitor" =>
        |      val monRef = args(0).asInstanceOf[Long]
@@ -5601,9 +5785,47 @@ class JvmGen(
        |    // ── Phase 3 — distributed ────────────────────────────────────────────
        |    case "startNode" =>
        |      _localNodeId = args(0).toString
+       |      // Register /_ssc-actors WS route for inbound peer connections.
+       |      onWebSocket("/_ssc-actors") { wsMap =>
+       |        val sendFn = wsMap("send").asInstanceOf[Any => Any]
+       |        val recvQF = wsMap("recv").asInstanceOf[() => Any]
+       |        def wsSend(t: String): Unit = sendFn(t); ()
+       |        def wsRecv(): String | Null  = recvQF() match
+       |          case Some(s: String) => s
+       |          case None            => null
+       |          case s: String       => s
+       |          case _               => null
+       |        val first = wsRecv()
+       |        if first != null then
+       |          val pnId = _parseNodeId(first)
+       |          if pnId.nonEmpty then
+       |            wsSend("{\"nodeId\":" + _jstr(_localNodeId) + "}")
+       |            _peerChannels.put(pnId, wsSend)
+       |            _peerLastPong.put(pnId, System.currentTimeMillis())
+       |            val hbThread = Thread.ofVirtual().start { () =>
+       |              try
+       |                while _peerChannels.containsKey(pnId) do
+       |                  Thread.sleep(30000L)
+       |                  if _peerChannels.containsKey(pnId) then
+       |                    val age = System.currentTimeMillis() - _peerLastPong.getOrDefault(pnId, 0L)
+       |                    if age > 40000L then _peerChannels.remove(pnId)
+       |                    else try _peerChannels.get(pnId)("{\"t\":\"ping\"}") catch case _: Throwable => ()
+       |              catch case _: InterruptedException => ()
+       |            }
+       |            var running = true
+       |            while running do
+       |              val msg = wsRecv()
+       |              if msg == null then running = false else _dispatchPeerEnv(pnId, msg)
+       |            hbThread.interrupt()
+       |            _peerChannels.remove(pnId)
+       |            _peerLastPong.remove(pnId)
+       |            _nodeDownQueue.offer(pnId)
+       |      }
        |      Right(k(()))
        |    case "connectNode" =>
-       |      // WS peer connection stub — full implementation deferred to Phase 3 WS integration
+       |      val url = args(0).toString
+       |      val tok = if args.length > 1 then args(1).toString else ""
+       |      _connectPeer(url, tok)
        |      Right(k(()))
        |    case "register" =>
        |      val name = args(0).toString
@@ -5687,6 +5909,7 @@ class JvmGen(
        |  val _isDistributed = _localNodeId.nonEmpty || !_peerChannels.isEmpty
        |
        |  while ready.nonEmpty ||
+       |        !_nodeDownQueue.isEmpty ||
        |        actors.exists { (_, st) => st != null && st.blocked != null && st.blocked._3.isDefined } ||
        |        (_isDistributed && actors.nonEmpty && actors.exists { (_, st) => st != null && st.blocked != null })
        |  do
@@ -5697,6 +5920,9 @@ class JvmGen(
        |        ts.mailbox.append(msg)
        |        tryWakeBlocked(targetId)
        |      }
+       |    // Drain node-down notifications
+       |    while !_nodeDownQueue.isEmpty do
+       |      _fireNodeDown(_nodeDownQueue.poll())
        |    if ready.isEmpty then
        |      val earliest = actors.iterator.collect {
        |        case (aid, st) if st != null && st.blocked != null && st.blocked._3.isDefined =>

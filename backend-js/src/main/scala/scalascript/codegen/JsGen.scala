@@ -3386,6 +3386,38 @@ function _runActors(bodyFn) {
   // Phase 3 distributed node state
   let   _localNodeId  = "";
   const _nodeRegistry = new Map();   // name -> localId
+  // Node-down tracking — drained by the scheduler loop.
+  const _nodeDownQueue   = [];
+  const _remoteLinks     = new Map();  // nodeId -> [[localActorId, remotePid], ...]
+  const _remoteMonitors  = new Map();  // nodeId -> [[monRef, localActorId, remoteLocalId], ...]
+
+  function _fireNodeDown(deadNodeId) {
+    const deadPidOf = (localId) => Pid(deadNodeId, localId);
+    const mons = _remoteMonitors.get(deadNodeId) || [];
+    _remoteMonitors.delete(deadNodeId);
+    for (const [monRef, observerId, remoteLocalId] of mons) {
+      const st = actors.get(observerId);
+      if (st) {
+        st.mailbox.push({ _type: 'Down', ref: monRef, from: deadPidOf(remoteLocalId), reason: 'noconnection' });
+        tryWakeBlocked(observerId);
+      }
+    }
+    const lnks = _remoteLinks.get(deadNodeId) || [];
+    _remoteLinks.delete(deadNodeId);
+    for (const [localActorId, remotePid] of lnks) {
+      const ls = links.get(localActorId);
+      if (ls) ls.delete(remotePid.localId);
+      if (trapExitMap.get(localActorId)) {
+        const st = actors.get(localActorId);
+        if (st) {
+          st.mailbox.push({ _type: 'Exit', from: deadPidOf(remotePid.localId), reason: 'noconnection' });
+          tryWakeBlocked(localActorId);
+        }
+      } else {
+        killActor(localActorId, 'noconnection');
+      }
+    }
+  }
 
   const ready  = [];
   let   nextId = 0;
@@ -3523,8 +3555,13 @@ function _runActors(bodyFn) {
       case 'link': {
         const target = args[0];
         if (target && target._type === 'Pid') {
-          const targetId = target.localId;
-          if (actors.has(targetId)) {
+          const targetNodeId = target.nodeId;
+          const targetId     = target.localId;
+          if (targetNodeId && targetNodeId !== _localNodeId) {
+            // Remote pid — register for node-down notification.
+            if (!_remoteLinks.has(targetNodeId)) _remoteLinks.set(targetNodeId, []);
+            _remoteLinks.get(targetNodeId).push([id, target]);
+          } else if (actors.has(targetId)) {
             if (!links.has(id))       links.set(id,       new Set());
             if (!links.has(targetId)) links.set(targetId, new Set());
             links.get(id).add(targetId);
@@ -3546,9 +3583,15 @@ function _runActors(bodyFn) {
       case 'monitor': {
         const target = args[0];
         if (target && target._type === 'Pid') {
-          const targetId = target.localId;
+          const targetNodeId = target.nodeId;
+          const targetId     = target.localId;
           const monRef = nextMonRef++;
-          if (actors.has(targetId)) {
+          if (targetNodeId && targetNodeId !== _localNodeId) {
+            // Remote pid — register for node-down notification.
+            if (!_remoteMonitors.has(targetNodeId)) _remoteMonitors.set(targetNodeId, []);
+            _remoteMonitors.get(targetNodeId).push([monRef, id, targetId]);
+            return { suspend: false, next: k(monRef) };
+          } else if (actors.has(targetId)) {
             if (!monitors.has(targetId)) monitors.set(targetId, new Map());
             monitors.get(targetId).set(monRef, id);
           } else {
@@ -3656,12 +3699,15 @@ function _runActors(bodyFn) {
   }
 
   while (true) {
+    // Drain node-down notifications before checking the ready queue.
+    while (_nodeDownQueue.length > 0) _fireNodeDown(_nodeDownQueue.shift());
     if (ready.length > 0) {
       const id = ready.shift();
       const state = actors.get(id);
       if (state && state.pending !== null) stepActor(id);
     } else {
-      // Quiescence — but timeout-armed receives may still fire.
+      // Quiescence — but timeout-armed receives or pending node-downs may still fire.
+      if (_nodeDownQueue.length > 0) continue;
       let earliest = null;
       for (const [aid, st] of actors) {
         if (st && st.blocked && st.blocked.deadline != null) {

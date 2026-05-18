@@ -150,6 +150,45 @@ class Interpreter(
   // Per-node name → localId registry (ConcurrentHashMap default 0 means absent).
   private val nodeRegistry =
     new java.util.concurrent.ConcurrentHashMap[String, Long]()
+  // Heartbeat: last pong timestamp per peer (epoch ms); initialised to connect time.
+  private val peerLastPong =
+    new java.util.concurrent.ConcurrentHashMap[String, Long]()
+  // WS threads post dead nodeIds here; scheduler drains and fires EXIT/Down.
+  private val nodeDownQueue =
+    new java.util.concurrent.ConcurrentLinkedQueue[String]()
+  // Cross-node monitors: nodeId → [(localActorId, monRef, remotePid.localId)]
+  private val remoteMonitors =
+    new java.util.concurrent.ConcurrentHashMap[String,
+      java.util.concurrent.CopyOnWriteArrayList[(Long, Long, Long)]]()
+  // Cross-node links: nodeId → [(localActorId, remotePid.localId)]
+  private val remoteLinks =
+    new java.util.concurrent.ConcurrentHashMap[String,
+      java.util.concurrent.CopyOnWriteArrayList[(Long, Long)]]()
+
+  /** Fire EXIT/Down for all local actors that linked/monitored actors on `nodeId`. */
+  private def fireNodeDown(rt: ActorRuntime, nodeId: String): Unit =
+    val noconn = Value.InstanceV("noconnection", Map.empty)
+    Option(remoteMonitors.remove(nodeId)).foreach { list =>
+      list.forEach { (actorId, monRef, rPidLocalId) =>
+        val downMsg = Value.InstanceV("Down", Map(
+          "ref"    -> Value.IntV(monRef),
+          "from"   -> mkPid(nodeId, rPidLocalId),
+          "reason" -> noconn))
+        rt.mailboxes.get(actorId).foreach(_.enqueue(downMsg))
+        wakeBlocked(rt, actorId)
+      }
+    }
+    Option(remoteLinks.remove(nodeId)).foreach { list =>
+      list.forEach { (actorId, rPidLocalId) =>
+        val deadPid = mkPid(nodeId, rPidLocalId)
+        if rt.trapExit.getOrElse(actorId, false) then
+          val exitMsg = Value.InstanceV("Exit", Map("from" -> deadPid, "reason" -> noconn))
+          rt.mailboxes.get(actorId).foreach(_.enqueue(exitMsg))
+          wakeBlocked(rt, actorId)
+        else
+          killActor(rt, actorId, noconn)
+      }
+    }
 
   // ── v1.10 Generator — thread-per-generator, SynchronousQueue handshake ─
   // Each `generator { body }` spins a virtual thread that runs the body.
@@ -248,7 +287,6 @@ class Interpreter(
       try
         val sess = scalascript.server.WsClientSession(url, hdrs, List("ssc-actors-v1"), this, out)
         sess.connect()
-        val ws = sess.wsObj
         // Send our handshake frame first
         sess.sendText(s"""{"nodeId":${jsonStr(localNodeId)}}""")
         // Recv handshake reply: peer sends {"nodeId":"..."}
@@ -261,18 +299,37 @@ class Interpreter(
               case _ => ""
             if peerNodeId.nonEmpty then
               peerChannels.put(peerNodeId, { text => sess.sendText(text) })
+              peerLastPong.put(peerNodeId, System.currentTimeMillis())
+              // Heartbeat: ping every 30 s, abort if no pong for 40 s.
+              val hbThread = Thread.ofVirtual().start { () =>
+                try
+                  while peerChannels.containsKey(peerNodeId) do
+                    Thread.sleep(30_000L)
+                    if peerChannels.containsKey(peerNodeId) then
+                      val age = System.currentTimeMillis() - peerLastPong.getOrDefault(peerNodeId, 0L)
+                      if age > 40_000L then
+                        peerChannels.remove(peerNodeId)
+                        sess.abort()
+                      else
+                        try peerChannels.get(peerNodeId)("""{"t":"ping"}""") catch case _ => ()
+                catch case _: InterruptedException => ()
+              }
               // Recv loop — on virtual thread, blocking is fine
               var running = true
               while running do
                 sess.recvText() match
                   case None      => running = false
-                  case Some(msg) => dispatchPeerEnvelope(msg)
+                  case Some(msg) => dispatchPeerEnvelope(peerNodeId, msg)
+              hbThread.interrupt()
               peerChannels.remove(peerNodeId)
+              peerLastPong.remove(peerNodeId)
+              nodeDownQueue.offer(peerNodeId)
+              val t = schedulerThread; if t != null then t.interrupt()
       catch case e: Throwable =>
         out.println(s"connectNode error [$url]: ${e.getMessage}")
     }
 
-  private def dispatchPeerEnvelope(rawJson: String): Unit =
+  private def dispatchPeerEnvelope(peerNodeId: String, rawJson: String): Unit =
     JsonParser.parseOption(rawJson) match
       case Some(Value.MapV(m)) =>
         val t = m.get(Value.StringV("t")).collect { case Value.StringV(s) => s }.getOrElse("")
@@ -291,7 +348,11 @@ class Interpreter(
                 remoteInbox.offer((toLocalId, msgVal))
                 val t = schedulerThread; if t != null then t.interrupt()
               }
-          case _ => () // ping/pong/reg/where/found handled in future stages
+          case "ping" =>
+            Option(peerChannels.get(peerNodeId)).foreach(_.apply("""{"t":"pong"}"""))
+          case "pong" =>
+            peerLastPong.put(peerNodeId, System.currentTimeMillis())
+          case _ => ()
       case _ => ()
 
   private def remoteDeliverOrQueue(nodeId: String, pidFields: Map[String, Value], msg: Value): Unit =
@@ -4327,7 +4388,8 @@ class Interpreter(
       var deadlockGuard = 0
       val maxIterations = 100000
 
-      def hasWork = rt.ready.nonEmpty || rt.blocked.exists(_._2._4.isDefined) || !remoteInbox.isEmpty ||
+      def hasWork = rt.ready.nonEmpty || rt.blocked.exists(_._2._4.isDefined) ||
+                    !remoteInbox.isEmpty || !nodeDownQueue.isEmpty ||
                     (isDistributed && rt.blocked.nonEmpty)
 
       while hasWork && (isDistributed || deadlockGuard < maxIterations) do
@@ -4339,6 +4401,9 @@ class Interpreter(
             mb.enqueue(msg)
             wakeBlocked(rt, targetId)
           }
+        // Fire EXIT/Down for any nodes that just went down (heartbeat timeout or disconnect).
+        while !nodeDownQueue.isEmpty do
+          fireNodeDown(rt, nodeDownQueue.poll())
         if rt.ready.isEmpty then
           // Quiescent except for timeout-armed receives: sleep until
           // the earliest deadline (or for remote messages if distributed).
@@ -4518,9 +4583,22 @@ class Interpreter(
 
     case "link" => args match
       case List(Value.InstanceV("Pid", fields)) =>
+        val nid      = fields.get("nodeId").collect { case Value.StringV(n) => n }.getOrElse("")
         fields.get("localId") match
           case Some(Value.IntV(targetId)) =>
-            if rt.mailboxes.contains(targetId) then
+            if nid.nonEmpty && nid != localNodeId then
+              // Remote pid — register cross-node link; fire noproc if peer not connected.
+              if peerChannels.containsKey(nid) then
+                remoteLinks.computeIfAbsent(nid, _ =>
+                  new java.util.concurrent.CopyOnWriteArrayList()).add((id, targetId))
+              else
+                val noproc = Value.InstanceV("noproc", Map.empty)
+                if rt.trapExit.getOrElse(id, false) then
+                  val exitMsg = Value.InstanceV("Exit", Map(
+                    "from" -> mkPid(nid, targetId), "reason" -> noproc))
+                  rt.mailboxes.get(id).foreach(_.enqueue(exitMsg))
+                else killActor(rt, id, noproc)
+            else if rt.mailboxes.contains(targetId) then
               // Both alive — create bidirectional link
               rt.links.getOrElseUpdate(id,       mutable.Set.empty) += targetId
               rt.links.getOrElseUpdate(targetId, mutable.Set.empty) += id
@@ -4542,12 +4620,26 @@ class Interpreter(
 
     case "monitor" => args match
       case List(Value.InstanceV("Pid", fields)) =>
+        val nid      = fields.get("nodeId").collect { case Value.StringV(n) => n }.getOrElse("")
+        val monRef   = rt.nextMonRef; rt.nextMonRef += 1
         fields.get("localId") match
           case Some(Value.IntV(targetId)) =>
-            val monRef = rt.nextMonRef
-            rt.nextMonRef += 1
-            if rt.mailboxes.contains(targetId) then
+            if nid.nonEmpty && nid != localNodeId then
+              // Remote pid — register cross-node monitor; fire noproc if not connected.
+              if peerChannels.containsKey(nid) then
+                remoteMonitors.computeIfAbsent(nid, _ =>
+                  new java.util.concurrent.CopyOnWriteArrayList()).add((id, monRef, targetId))
+              else
+                val downMsg = Value.InstanceV("Down", Map(
+                  "ref"    -> Value.IntV(monRef),
+                  "from"   -> mkPid(nid, targetId),
+                  "reason" -> Value.InstanceV("noconnection", Map.empty)))
+                rt.mailboxes.get(id).foreach(_.enqueue(downMsg))
+                wakeBlocked(rt, id)
+              Right(k(Value.IntV(monRef)))
+            else if rt.mailboxes.contains(targetId) then
               rt.monitors.getOrElseUpdate(targetId, mutable.Map.empty)(monRef) = id
+              Right(k(Value.IntV(monRef)))
             else
               // Already dead — immediately deliver Down
               val downMsg = Value.InstanceV("Down", Map(
@@ -4556,7 +4648,7 @@ class Interpreter(
                 "reason" -> Value.InstanceV("noproc", Map.empty)))
               rt.mailboxes.get(id).foreach(_.enqueue(downMsg))
               wakeBlocked(rt, id)
-            Right(k(Value.IntV(monRef)))
+              Right(k(Value.IntV(monRef)))
           case _ => Right(k(Value.IntV(-1L)))
       case _ => throw InterpretError("monitor(pid)")
 
@@ -4601,12 +4693,30 @@ class Interpreter(
           peerNodeId.foreach { pnId =>
             wsSend(s"""{"nodeId":${jsonStr(localNodeId)}}""")
             peerChannels.put(pnId, wsSend)
+            peerLastPong.put(pnId, System.currentTimeMillis())
+            // Heartbeat: ping every 30 s, drop if no pong for 40 s.
+            val hbThread = Thread.ofVirtual().start { () =>
+              try
+                while peerChannels.containsKey(pnId) do
+                  Thread.sleep(30_000L)
+                  if peerChannels.containsKey(pnId) then
+                    val age = System.currentTimeMillis() - peerLastPong.getOrDefault(pnId, 0L)
+                    if age > 40_000L then
+                      peerChannels.remove(pnId)
+                    else
+                      try peerChannels.get(pnId)("""{"t":"ping"}""") catch case _ => ()
+              catch case _: InterruptedException => ()
+            }
             var running = true
             while running do
               wsRecv() match
                 case None      => running = false
-                case Some(msg) => dispatchPeerEnvelope(msg)
+                case Some(msg) => dispatchPeerEnvelope(pnId, msg)
+            hbThread.interrupt()
             peerChannels.remove(pnId)
+            peerLastPong.remove(pnId)
+            nodeDownQueue.offer(pnId)
+            val t = schedulerThread; if t != null then t.interrupt()
           }
           Pure(Value.UnitV)
         })
