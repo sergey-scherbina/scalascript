@@ -288,20 +288,27 @@ class JvmGen(
       found
     }
 
-  /** True if any block references the standalone JSON helpers
-   *  (`jsonParse` / `jsonStringify` / `lookup` / `lookupOpt`).  Used to
-   *  pull in `serveRuntime` — which carries the `_toJson` /
-   *  `_toJsonValue` / `_fromJson` / `_lookupKey` machinery — even when
-   *  the script doesn't register any route. */
+  /** True if any block references the standalone JSON / REST-validation
+   *  helpers without going through `serve()`.  Pulls in `serveRuntime`
+   *  — which carries `_toJson` / `_fromJson` / `_lookupKey` plus the
+   *  `require*` / `validate` family — so the script compiles even when
+   *  it never registers a route. */
   private def blocksUseJson(blocks: List[JvmGen.Block]): Boolean =
+    val triggers = Set(
+      "jsonParse", "jsonStringify", "lookup", "lookupOpt",
+      "validate",
+      "requireString",  "optionalString",
+      "requireInt",     "optionalInt",
+      "requireDouble",  "optionalDouble",
+      "requireBool",    "optionalBool",
+      "requireRange",   "requireRangeDouble",
+      "requireOneOf",
+    )
     blocks.exists { b =>
       var found = false
       ScalaNode.fold(b.node) { tree =>
         if !found then tree.collect {
-          case Term.Apply.After_4_6_0(Term.Name("jsonParse"),     _) => found = true
-          case Term.Apply.After_4_6_0(Term.Name("jsonStringify"), _) => found = true
-          case Term.Apply.After_4_6_0(Term.Name("lookup"),        _) => found = true
-          case Term.Apply.After_4_6_0(Term.Name("lookupOpt"),     _) => found = true
+          case Term.Apply.After_4_6_0(Term.Name(n), _) if triggers(n) => found = true
         }
       }
       found
@@ -2959,52 +2966,135 @@ class JvmGen(
        |  case None    => throw new RuntimeException("lookup: key " + _show(k) + " not found in " + _show(v))
        |def lookupOpt(v: Any, k: Any): Option[Any] = _lookupKey(v, k)
        |
-       |// Tier 5 #20 — typed request validation primitives.  Throws a
-       |// `_RestValidationError` on missing/invalid input; route dispatch
-       |// catches it and emits a 400 Bad Request.  Lookup walks
-       |// `req.form` → `req.query`; JSON body lives behind `req.json` —
-       |// handlers extract fields from it directly.
+       |// Tier 5 #20 — typed request validation primitives.  `requireX`
+       |// throws a `_RestValidationError` on missing/invalid input that
+       |// the route dispatcher catches and turns into a 400 Bad Request.
+       |//
+       |// `validate { body }` flips a thread-local flag so `require*`
+       |// records the error and returns a safe default instead of
+       |// throwing — the body keeps running and accumulates every
+       |// problem in one pass, returning Right(value) / Left(map).
+       |//
+       |// The argument is typed `Any` (not the bundled `Request` class)
+       |// so unit tests can pass any case class with `form` / `query`
+       |// maps; matches the dynamic semantics on the other two backends.
        |final class _RestValidationError(msg: String) extends RuntimeException(msg)
-       |private def _restFieldOf(req: Request, name: String): Option[String] =
-       |  req.form.get(name).orElse(req.query.get(name))
-       |def requireString(req: Request, name: String): String =
+       |val _validationStack = new java.util.concurrent.atomic.AtomicReference[List[scala.collection.mutable.LinkedHashMap[String, String]]](Nil)
+       |private def _recordOrThrow(name: String, msg: String, default: Any): Any =
+       |  val cur = _validationStack.get()
+       |  cur.headOption match
+       |    case Some(buf) =>
+       |      buf.put(name, msg); default
+       |    case None =>
+       |      throw new _RestValidationError(msg)
+       |private def _restFieldOf(req: Any, name: String): Option[String] =
+       |  def look(field: String): Option[String] = req match
+       |    case r: Request => field match
+       |      case "form"  => r.form.get(name)
+       |      case "query" => r.query.get(name)
+       |      case _       => None
+       |    case _ =>
+       |      try
+       |        val cls = req.getClass
+       |        val f = cls.getMethod(field)
+       |        f.invoke(req) match
+       |          case m: scala.collection.Map[?, ?] =>
+       |            m.asInstanceOf[scala.collection.Map[String, String]].get(name)
+       |          case _ => None
+       |      catch case _: Throwable => None
+       |  look("form").orElse(look("query"))
+       |def requireString(req: Any, name: String): String =
        |  _restFieldOf(req, name) match
        |    case Some(s) => s
-       |    case None    => throw new _RestValidationError(s"missing field: $name")
-       |def optionalString(req: Request, name: String): Option[String] =
+       |    case None    => _recordOrThrow(name, s"missing field: $name", "").asInstanceOf[String]
+       |def optionalString(req: Any, name: String): Option[String] =
        |  _restFieldOf(req, name)
-       |def requireInt(req: Request, name: String): Long =
+       |def requireInt(req: Any, name: String): Long =
        |  _restFieldOf(req, name) match
        |    case Some(s) =>
        |      try s.trim.toLong
        |      catch case _: NumberFormatException =>
-       |        throw new _RestValidationError(s"invalid integer for field: $name")
-       |    case None => throw new _RestValidationError(s"missing field: $name")
-       |def optionalInt(req: Request, name: String): Option[Long] =
+       |        _recordOrThrow(name, s"invalid integer for field: $name", 0L) match
+       |          case n: Long => n
+       |          case n: Int  => n.toLong
+       |          case _       => 0L
+       |    case None => _recordOrThrow(name, s"missing field: $name", 0L) match
+       |      case n: Long => n
+       |      case n: Int  => n.toLong
+       |      case _       => 0L
+       |def optionalInt(req: Any, name: String): Option[Long] =
        |  _restFieldOf(req, name).flatMap(s =>
        |    try Some(s.trim.toLong) catch case _: NumberFormatException => None)
-       |def requireDouble(req: Request, name: String): Double =
+       |def requireDouble(req: Any, name: String): Double =
        |  _restFieldOf(req, name) match
        |    case Some(s) =>
        |      try s.trim.toDouble
        |      catch case _: NumberFormatException =>
-       |        throw new _RestValidationError(s"invalid number for field: $name")
-       |    case None => throw new _RestValidationError(s"missing field: $name")
-       |def optionalDouble(req: Request, name: String): Option[Double] =
+       |        _recordOrThrow(name, s"invalid number for field: $name", 0.0).asInstanceOf[Double]
+       |    case None => _recordOrThrow(name, s"missing field: $name", 0.0).asInstanceOf[Double]
+       |def optionalDouble(req: Any, name: String): Option[Double] =
        |  _restFieldOf(req, name).flatMap(s =>
        |    try Some(s.trim.toDouble) catch case _: NumberFormatException => None)
-       |def requireBool(req: Request, name: String): Boolean =
+       |def requireBool(req: Any, name: String): Boolean =
        |  _restFieldOf(req, name) match
        |    case Some(s) => s.trim.toLowerCase match
        |      case "true"  | "1" | "yes" | "on"  => true
        |      case "false" | "0" | "no"  | "off" => false
-       |      case _ => throw new _RestValidationError(s"invalid boolean for field: $name")
-       |    case None => throw new _RestValidationError(s"missing field: $name")
-       |def optionalBool(req: Request, name: String): Option[Boolean] =
+       |      case _ => _recordOrThrow(name, s"invalid boolean for field: $name", false).asInstanceOf[Boolean]
+       |    case None => _recordOrThrow(name, s"missing field: $name", false).asInstanceOf[Boolean]
+       |def optionalBool(req: Any, name: String): Option[Boolean] =
        |  _restFieldOf(req, name).flatMap(s => s.trim.toLowerCase match
        |    case "true"  | "1" | "yes" | "on"  => Some(true)
        |    case "false" | "0" | "no"  | "off" => Some(false)
        |    case _ => None)
+       |def requireRange(req: Any, name: String, min: Long, max: Long): Long =
+       |  _restFieldOf(req, name) match
+       |    case Some(s) =>
+       |      try
+       |        val n = s.trim.toLong
+       |        if n < min || n > max then
+       |          _recordOrThrow(name, s"out of range [$min..$max] for field: $name", min) match
+       |            case x: Long => x; case x: Int => x.toLong; case _ => min
+       |        else n
+       |      catch case _: NumberFormatException =>
+       |        _recordOrThrow(name, s"invalid integer for field: $name", min) match
+       |          case x: Long => x; case x: Int => x.toLong; case _ => min
+       |    case None => _recordOrThrow(name, s"missing field: $name", min) match
+       |      case x: Long => x; case x: Int => x.toLong; case _ => min
+       |def requireRangeDouble(req: Any, name: String, min: Double, max: Double): Double =
+       |  _restFieldOf(req, name) match
+       |    case Some(s) =>
+       |      try
+       |        val n = s.trim.toDouble
+       |        if n < min || n > max then
+       |          _recordOrThrow(name, s"out of range [$min..$max] for field: $name", min).asInstanceOf[Double]
+       |        else n
+       |      catch case _: NumberFormatException =>
+       |        _recordOrThrow(name, s"invalid number for field: $name", min).asInstanceOf[Double]
+       |    case None =>
+       |      _recordOrThrow(name, s"missing field: $name", min).asInstanceOf[Double]
+       |def requireOneOf(req: Any, name: String, options: List[String]): String =
+       |  val fallback = options.headOption.getOrElse("")
+       |  _restFieldOf(req, name) match
+       |    case Some(s) if options.contains(s) => s
+       |    case Some(s) =>
+       |      _recordOrThrow(name,
+       |        s"invalid value '$s' for field: $name (expected one of: ${options.mkString(", ")})",
+       |        fallback).asInstanceOf[String]
+       |    case None =>
+       |      _recordOrThrow(name, s"missing field: $name", fallback).asInstanceOf[String]
+       |
+       |/** v1.5 Tier 5 #20 — accumulating-error block.  Runs `body` with an
+       | *  active collector, returns Right(result) on success or Left(map)
+       | *  carrying every error in insertion order. */
+       |def validate[A](body: => A): Any =
+       |  val buf = scala.collection.mutable.LinkedHashMap.empty[String, String]
+       |  _validationStack.updateAndGet(buf :: _)
+       |  try
+       |    val result = body
+       |    if buf.nonEmpty then Left(buf.toMap) else Right(result)
+       |  finally
+       |    _validationStack.updateAndGet(_.tail)
        |
        |object Response:
        |  private val Html = Map("Content-Type" -> "text/html; charset=utf-8")

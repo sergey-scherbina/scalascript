@@ -2382,9 +2382,24 @@ function _restFieldOf(req, name) {
   if (req && req.query instanceof Map && req.query.has(name)) return req.query.get(name);
   return undefined;
 }
+
+// v1.5 Tier 5 #20 — validation collector stack.  Inside a `validate { … }`
+// block the `require*` helpers record the error on the head of the stack
+// and return a safe default, so the body keeps running and accumulates
+// every problem in one pass.  Outside the block they throw as before
+// and the serve() dispatcher emits a 400.
+const _validationStack = [];
+function _recordOrThrow(name, msg, defaultValue) {
+  if (_validationStack.length > 0) {
+    _validationStack[_validationStack.length - 1].set(name, msg);
+    return defaultValue;
+  }
+  throw _restValidationError(msg);
+}
+
 function requireString(req, name) {
   const v = _restFieldOf(req, name);
-  if (v === undefined) throw _restValidationError('missing field: ' + name);
+  if (v === undefined) return _recordOrThrow(name, 'missing field: ' + name, '');
   return String(v);
 }
 function optionalString(req, name) {
@@ -2393,9 +2408,9 @@ function optionalString(req, name) {
 }
 function requireInt(req, name) {
   const v = _restFieldOf(req, name);
-  if (v === undefined) throw _restValidationError('missing field: ' + name);
+  if (v === undefined) return _recordOrThrow(name, 'missing field: ' + name, 0);
   const s = String(v).trim();
-  if (!/^-?[0-9]+$/.test(s)) throw _restValidationError('invalid integer for field: ' + name);
+  if (!/^-?[0-9]+$/.test(s)) return _recordOrThrow(name, 'invalid integer for field: ' + name, 0);
   return Number(s);
 }
 function optionalInt(req, name) {
@@ -2407,9 +2422,9 @@ function optionalInt(req, name) {
 }
 function requireDouble(req, name) {
   const v = _restFieldOf(req, name);
-  if (v === undefined) throw _restValidationError('missing field: ' + name);
+  if (v === undefined) return _recordOrThrow(name, 'missing field: ' + name, 0.0);
   const n = Number(String(v).trim());
-  if (Number.isNaN(n)) throw _restValidationError('invalid number for field: ' + name);
+  if (Number.isNaN(n)) return _recordOrThrow(name, 'invalid number for field: ' + name, 0.0);
   return n;
 }
 function optionalDouble(req, name) {
@@ -2420,11 +2435,11 @@ function optionalDouble(req, name) {
 }
 function requireBool(req, name) {
   const v = _restFieldOf(req, name);
-  if (v === undefined) throw _restValidationError('missing field: ' + name);
+  if (v === undefined) return _recordOrThrow(name, 'missing field: ' + name, false);
   const s = String(v).trim().toLowerCase();
   if (s === 'true'  || s === '1' || s === 'yes' || s === 'on')  return true;
   if (s === 'false' || s === '0' || s === 'no'  || s === 'off') return false;
-  throw _restValidationError('invalid boolean for field: ' + name);
+  return _recordOrThrow(name, 'invalid boolean for field: ' + name, false);
 }
 function optionalBool(req, name) {
   const v = _restFieldOf(req, name);
@@ -2433,6 +2448,59 @@ function optionalBool(req, name) {
   if (s === 'true'  || s === '1' || s === 'yes' || s === 'on')  return _Some(true);
   if (s === 'false' || s === '0' || s === 'no'  || s === 'off') return _Some(false);
   return _None;
+}
+
+// Bounded numeric + enum require — inclusive `[min..max]` range, or a
+// fixed list of allowed strings.  Same record-or-throw protocol so they
+// compose inside `validate { … }`.
+function requireRange(req, name, min, max) {
+  const v = _restFieldOf(req, name);
+  if (v === undefined) return _recordOrThrow(name, 'missing field: ' + name, min);
+  const s = String(v).trim();
+  if (!/^-?[0-9]+$/.test(s)) return _recordOrThrow(name, 'invalid integer for field: ' + name, min);
+  const n = Number(s);
+  if (n < min || n > max) return _recordOrThrow(name, 'out of range [' + min + '..' + max + '] for field: ' + name, min);
+  return n;
+}
+// JS Number can't tell `1` from `1.0` at runtime, but the Scala / JVM
+// interpolator formats `0.0..1.0` with the trailing `.0`.  Match that
+// format for whole numbers so conformance output agrees byte-for-byte.
+function _doubleFmt(n) {
+  return Number.isInteger(n) ? (n.toFixed(1)) : String(n);
+}
+function requireRangeDouble(req, name, min, max) {
+  const v = _restFieldOf(req, name);
+  if (v === undefined) return _recordOrThrow(name, 'missing field: ' + name, min);
+  const n = Number(String(v).trim());
+  if (Number.isNaN(n)) return _recordOrThrow(name, 'invalid number for field: ' + name, min);
+  if (n < min || n > max)
+    return _recordOrThrow(name,
+      'out of range [' + _doubleFmt(min) + '..' + _doubleFmt(max) + '] for field: ' + name, min);
+  return n;
+}
+function requireOneOf(req, name, options) {
+  const v = _restFieldOf(req, name);
+  const fallback = (options && options.length > 0) ? options[0] : '';
+  if (v === undefined) return _recordOrThrow(name, 'missing field: ' + name, fallback);
+  const s = String(v);
+  if (!options.includes(s)) {
+    return _recordOrThrow(name,
+      "invalid value '" + s + "' for field: " + name +
+        ' (expected one of: ' + options.join(', ') + ')',
+      fallback);
+  }
+  return s;
+}
+
+function validate(thunk) {
+  const buf = new Map();
+  _validationStack.push(buf);
+  let result;
+  try { result = thunk(); } finally { _validationStack.pop(); }
+  if (buf.size > 0) {
+    return { _type: 'Left', value: buf };
+  }
+  return { _type: 'Right', value: result };
 }
 
 function _toJsonStringify(v) {
@@ -4470,6 +4538,13 @@ class JsGen(
         if bodyArgClause.values.size == 1 =>
       val bodyJs = genExpr(bodyArgClause.values.head.asInstanceOf[Term])
       s"$react(() => $bodyJs)"
+
+    // v1.5 Tier 5 #20 — `validate { body }` collects all `require*`
+    // errors raised inside `body` and returns Right(value) / Left(map).
+    case Term.Apply.After_4_6_0(Term.Name("validate"), bodyArgClause)
+        if bodyArgClause.values.size == 1 =>
+      val bodyJs = genExpr(bodyArgClause.values.head.asInstanceOf[Term])
+      s"validate(() => $bodyJs)"
 
     // Function application
     case app: Term.Apply =>

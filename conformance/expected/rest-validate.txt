@@ -1,0 +1,5 @@
+Right((ada@example.com, 4))
+Left(Map(rating -> out of range [1..5] for field: rating))
+Left(Map(email -> missing field: email, rating -> missing field: rating, tone -> missing field: tone))
+Right(0.75)
+Left(Map(score -> out of range [0.0..1.0] for field: score))

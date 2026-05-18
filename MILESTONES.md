@@ -905,25 +905,39 @@ after them.
     Hard-blocked on Tier 4 #11 — without streaming responses,
     SSE collapses to a one-shot buffered write.
 
-20. **Request validation helpers.**  Today every handler
-    re-implements `if req.form.contains("email") then …` with
-    ad-hoc string error messages.  Add a small typed validator
-    surface:
+20. **Request validation helpers — landed.**  `requireString` /
+    `optionalString` / `requireInt` / `optionalInt` / `requireDouble`
+    / `optionalDouble` / `requireBool` / `optionalBool` /
+    `requireRange(name, min, max)` / `requireRangeDouble(name, min,
+    max)` / `requireOneOf(name, options)` ship across three backends.
+    Each call short-circuits with a `400 Bad Request` when used in a
+    route handler outside a `validate` block.
+
+    `validate { body }` flips a thread-local collector so the same
+    `require*` calls accumulate problems instead of throwing and
+    return `Left(Map[field, reason])` (or `Right(bodyValue)` when
+    everything checked out).  Handlers can return every error in
+    one round-trip:
 
     ```
-    val email   = req.require[String]("email")             // 400 if missing
-    val page    = req.optional[Int]("page").getOrElse(1)
-    val rating  = req.requireRange("rating", min = 1, max = 5)
+    validate {
+      val email  = requireString(req, "email")
+      val rating = requireRange(req, "rating", 1, 5)
+      val tone   = requireOneOf(req, "tone", List("info", "warn"))
+      (email, rating, tone)
+    } match
+      case Right((email, rating, tone)) => Response.json(...)
+      case Left(errors)                  => Response.status(400, errors.toString)
     ```
 
-    `require[T]` returns the value or short-circuits with
-    `Response.status(400, "missing/invalid: <field>")`.
-    Validation builders compose into an accumulating error map
-    when the handler wants to return all problems at once
-    (`req.validate { ... }` block).  ~150 LOC × 3 — mostly a
-    typed-coercion table covering `String` / `Int` / `Long` /
-    `Double` / `Boolean` / `Option`, plus the short-circuit
-    semantics through the existing Free-monad / Async layer.
+    `conformance/rest-validate.ssc` exercises the happy path, range
+    violation, missing-field accumulation, and the Double range
+    helper on all three backends.
+
+    Carry-over: the typed `req.require[T]` member-style surface
+    (vs the free-function form that landed) — defer until a real
+    handler complains about the readability of `requireString(req,
+    "email")`.
 
 21. **Built-in health / readiness route.**  Convention: register
     `GET /_health` and `GET /_ready` returning `200 {"status":
@@ -1011,7 +1025,9 @@ items inside the phase pushed individually.
       (#18).  Pure library work; no runtime change.
     - D′.3 — Server-Sent Events helper (#19).  Hard-blocked on
       D.4 (Tier 4 #11).
-    - D′.4 — Request validation surface (#20).
+    - D′.4 — Request validation surface (#20) — **landed**:
+      `require*` / `optional*` / `requireRange*` / `requireOneOf` plus
+      the `validate { body }` accumulator returning `Either[Map, T]`.
     - D′.5 — Built-in `/_health` / `/_ready` routes (#21).
     - D′.6 — Indexed access on `Any`-typed JSON values (#22) —
       **option (a) landed**: `lookup` / `lookupOpt` across three
