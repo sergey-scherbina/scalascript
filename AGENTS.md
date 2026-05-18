@@ -88,6 +88,20 @@ These override any other guidance in this file:
    push to `origin/main` right away.  No accumulation, no asking first,
    no exceptions.  If `origin/main` has moved, rebase first, then push.
 
+3. **Every feature starts in a worktree branch and ends with that branch deleted.**
+   At the start of work on a feature, create a fresh worktree on a
+   dedicated branch off `origin/main` (`EnterWorktree(name)` →
+   `.claude/worktrees/<name>/`).  All edits, commits, and validation
+   happen there.  After the feature lands on `origin/main` (merged or
+   fast-forwarded and pushed), delete the worktree branch:
+   `ExitWorktree(action: "remove")` to drop the worktree, then
+   `git branch -D <name>` locally and `git push origin --delete <name>`
+   on the remote.  Never leave stale feature branches behind after
+   merge.  Exceptions: one-shot bug fixes or trivial doc edits that
+   ship in a single commit may go directly on `main` without a
+   worktree — the rule is for anything that takes more than one
+   commit.
+
 ## Long-running task strategy (worktree-isolated work)
 
 When a task is large enough to span many commits or risks colliding with
@@ -115,9 +129,12 @@ parallel work on `main`, use this pattern:
    branch onto current `origin/main`, run the full check suite (sbt
    compile, conformance, examples/run-all, bench), then either fast-
    forward `main` or open a single merge commit. Push once.
-6. **Cleanup.** After the merge lands, exit the worktree
-   (`ExitWorktree(action: "remove")` or via the CLI) — keep main's
-   working tree free of stale worktrees.
+6. **Cleanup.** After the merge lands and the push to `origin/main`
+   succeeds, exit the worktree (`ExitWorktree(action: "remove")` or
+   via the CLI) AND delete the feature branch both locally
+   (`git branch -D <name>`) and on the remote
+   (`git push origin --delete <name>`).  Per non-negotiable rule #3,
+   feature branches don't outlive their merge.
 
 The opposite (small fix, no risk of collision, one or two commits) is
 fine to do directly on `main` as before; the worktree pattern is for
