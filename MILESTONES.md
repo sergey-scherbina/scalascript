@@ -3039,17 +3039,42 @@ Tokenization: `whitespace`, `identifier`, `number`,
 `stringLit`, `keyword(s)`.  Conformance: JSON parser
 written entirely from helpers.
 
-### Phase 5 — `std/dsl/*` helpers (~3 days)
+### Phase 5 — `std/dsl/*` helpers (~3-4 days)
 
-AST node shapes, pretty-printer combinators, precedence
-climbing, AST walker.  Conformance: typed Calc AST with
-pretty-printer round-trip.
+Ships in `std/dsl/`:
+
+  - **`types.ssc`** — `Span` + `HasSpan` (locked, per
+    `docs/dsl.md` §5.6); `Param[T]` + `RawInline` hygiene
+    helpers (tentative, per §5.7); `Exec[D[_], F[_]]`
+    convention (tentative, per §7.1)
+  - **`ast.ssc`** — common AST node shapes, source-position
+    threading
+  - **`pretty.ssc`** — pretty-printer combinators (start
+    simple, Wadler `Doc[A]` per §10 open question)
+  - **`walker.ssc`** — AST walker / cata for name resolution
+    and type-check recursion patterns
+  - **`builders.ssc`** — type-safe builder pattern via
+    phantom types (locked, per `docs/dsl.md` §3.5):
+    reusable scaffolding (phantom-type aliases, common
+    template) for required-field-tracked builders
+
+Conformance: typed Calc AST with pretty-printer
+round-trip; phantom-typed `HttpRequestBuilder` with
+compile-error on missing required field.
 
 ### Phase 6 — Documentation + examples (~2 days)
 
-`examples/dsl-sql-interpolator.ssc`,
-`examples/dsl-calc-parser.ssc`,
-`examples/dsl-json-parser.ssc`, doc walkthroughs.
+  - `examples/dsl-sql-interpolator.ssc` — full SQL-like
+    interpolator with compile-time validation
+  - `examples/dsl-calc-parser.ssc` — calculator with parser
+    combinators
+  - `examples/dsl-json-parser.ssc` — JSON parser from `std/parsing`
+  - `examples/dsl-typed-builder.ssc` — phantom-typed
+    builder pattern from `std/dsl/builders.ssc`
+  - `examples/dsl-multi-flavour.ssc` — canonical
+    composition: internal eDSL + interpolator + direct-
+    syntax in one route handler (per `docs/dsl.md` §3.7)
+  - `docs/dsl.md` walkthrough updates
 
 ### Hard-no list (locked — `docs/dsl.md` §9)
 
