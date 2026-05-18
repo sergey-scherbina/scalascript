@@ -342,12 +342,12 @@ channel.  Pairs with the intrinsic-table plumbing from 5+/A.
 
 | # | Stage  | Iterations done | Notes |
 |---|--------|-----------------|-------|
-| 1 | 5+/A   | 0 / 3           | Not started |
-| 2 | 5+/B   | 0 / 2           | Not started |
-| 3 | 9+/A   | 0 / 2           | Not started |
-| 4 | 9+/B   | 0 / 4           | Not started |
-| 5 | 9+/C   | 0 / 3           | Not started |
-| 6 | 6+     | 0 / 3           | Not started |
-| 7 | 10     | 0 / 1           | Not started |
+| 1 | 5+/A   | 6 / 3           | **DONE** — base + .4/.5 (per-call-site) + .6 (extern def / runtimePreamble) |
+| 2 | 5+/B   | 1 / 2           | **DONE (B.1)** — `std/http.ssc` `extern def` signatures.  B.2-B.4 deferred behind 5+/C |
+| 3 | 9+/A   | 1 / 2           | **DONE (A.1)** — parser ↔ registry |
+| 4 | 9+/B   | 1 / 4           | **DONE (B.1)** — `backend-html` plugin skeleton.  B.2-B.4 deferred |
+| 5 | 9+/C   | 1 / 3           | **DONE (C.1)** — `backend-css` plugin skeleton.  C.2-C.3 deferred |
+| 6 | 6+     | 1 / 3           | **DONE (A)** — stdio-msgpack framing.  B / C remain |
+| 7 | 10     | 0 / 1           | Final integration — pending after 6+/B,C |
 | — | 5+/C   | 0 / 4           | **DEFERRED** — parallel WS work on feature/ws-v1.0 |
 | — | 5+/D   | 0 / 8           | **DEFERRED** — same reason |
