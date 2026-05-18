@@ -66,62 +66,53 @@ What landed (Stages 1–9.1):
   (unchanged), cli 18 (BackendRegistry / SourceLanguageRegistry /
   GlobalFlags).  Total **229 unit + 38 conformance** green.
 
-### Stage 5.4 — `std.http` / `std.ws` / `std.auth` extraction → DEFERRED
+### Stages 5+, 9+ — SPI followups — **PARTIALLY LANDED**
 
-`Backend.intrinsics` ships as the API but no platform package routes
-through it yet.  Hardcoded `nativeP("serve")` etc. stay in
-`Interpreter.scala`; `route`/`serve` keyword recognition stays inline
-in `JvmGen`/`JsGen`.  Full extraction needs an `extern` parser
-modifier + Normalize pass extension + per-codegen emission swap —
-4-6 iterations of work.  Concrete proposal:
+Branch `feature/spi-followups` (merged to `main`).
 
-- **5+/A — Intrinsic plumbing.**  Add the `extern` parsing, the
-  `ExternCall` IR-node populated, the intrinsic-table consultation
-  at emit time.  Migrate ONE intrinsic (e.g. `Console.println`) end-
-  to-end as a proof point.  ~1 iteration.
-- **5+/B — `std.http` extraction.**  Move HTTP through the pipeline
-  established in 5+/A.  ~2 iterations.
-- **5+/C — `std.ws`, `std.auth`, `std.fs`, `std.crypto`.**  Same
-  pattern.  ~1 iteration each.
+**Landed in this branch:**
+- **5+/A — Intrinsic plumbing.**  `extern def` parser modifier;
+  `ExternCall` IR node; per-call-site intrinsic dispatch in all three
+  codegens; `Backend.runtimePreamble`; `Sys.nowMillis()` demo.
+- **5+/B.1 — `std/http.ssc` extern def signatures.**  `extern def route / serve / stop`
+  declarations; backend wiring via intrinsic table.  Full hardcoded
+  extraction (5+/B.2–B.4) deferred until parallel WS work merges.
+- **9+/A.1 — Parser ↔ SourceLanguageRegistry.**  Unknown fence tags
+  dispatched through `SourceLanguageRegistry.lookup` at parse time.
+- **9+/B.1 — `backend-html` plugin skeleton.**  `HtmlSourceLanguage`,
+  `Html` type, `containerTagNames` prelude.  Full extraction (9+/B.2–B.4)
+  deferred.
+- **9+/C.1 — `backend-css` plugin skeleton.**  Same shape for CSS.
+  Full extraction (9+/C.2–C.3) deferred.
 
-The transitional `backend-interpreter dependsOn backend-js` stays
-in `build.sbt` (`server/WebServer.scala` imports `codegen.JsGen` for
-the SPA runtime preamble) until 5+/A lands.
+**Still deferred (pending parallel WS v1.0 merge to main):**
+- 5+/B.2-B.4 — migrate bare `println` → `Console.println` in Normalize
+- 5+/C — `std.http` full extraction (route/serve/stop)
+- 5+/D — `std.ws` / `std.auth` / `std.fs` / `std.crypto`
+- 9+/B.2-B.4 and 9+/C.2-C.3 — full html/css extraction out of codegens
 
-### Stage 9+ — `html` / `css` SourceLanguage extraction → DEFERRED
+### Stage 6+ — Out-of-process protocol completions — **LANDED**
 
-`SourceLanguageRegistry` ships as the API, and `backend-scala-source/`
-is a registered no-op skeleton, but the actual extraction of
-`html` / `css` from `JvmGen`/`JsGen`/`Interpreter` is also multi-
-iteration:
+Branch `feature/spi-followups` (merged to `main`).
 
-- **9+/A — Registry consumption.**  Parser routes unknown fence tags
-  through `SourceLanguageRegistry.lookup`; typer accepts
-  `SymbolExport` from plugins.
-- **9+/B — `backend-html` extraction.**  Move `containerTagNames` +
-  `nativeP("div")` block + `html"…"` interpolator + `_Raw` emission
-  into a `backend-html/` plugin with `Html` type in `preludeFiles`.
-- **9+/C — `backend-css` extraction.**  Same shape as 9+/B.
+- **6+/A — `stdio-msgpack` framing.**  `WireFraming` enum (`Json | MsgPack`);
+  `SubprocessBackend` selects framing from `plugin.yaml#protocol`;
+  `callMsgPack` uses 4-byte big-endian length prefix +
+  `writeBinary`/`readBinary`.
+- **6+/B — InteractiveBackend over subprocess.**  `ir.Value` is now a
+  concrete sealed hierarchy (`Prim / Arr / Dict / Null`) with `derives
+  ReadWriter`.  `SubprocessBackend extends InteractiveBackend`; `openSession`
+  sends `openSession` wire message and returns a `SubprocessSession` that
+  forwards `feed` / `invokeHandler` / `close` over the wire.
+  `BackendRegistry.interactive` includes interactive subprocess plugins.
+- **6+/C — HostCallback dispatch.**  `SubprocessBackend.registerHostCallback`
+  populates a concurrent map; `callJson`/`callMsgPack` loop detecting
+  `host.*` messages from the plugin mid-compile, dispatch to the registered
+  handler, and write the result back — then continue waiting for the actual
+  compile response.
 
-After 9+/B and 9+/C the spec §17 acceptance bullet — "no
-`if lang == "html" || lang == "css"` anywhere in core" — becomes
-testable.  Until then `Lang.isStringBlock` / `Lang.isParseable`
-stay as they are.
-
-### Stage 6+ — Out-of-process protocol completions
-
-Stage 6 ships `stdio-json` framing + sync round-trip + describe /
-compile / shutdown methods.  Out of scope and reserved:
-
-- **`stdio-msgpack` framing.**  Same case classes round-tripped via
-  upickle's `writeBinary`/`readBinary`.  ~half a session.
-- **InteractiveBackend over subprocess.**  Needs concrete
-  `ir.Value` wire shape (Stage 5+/A territory).
-- **HostCallback intrinsic variant.**  Out-of-proc backends call
-  back into core via a named host callback core dispatches.  Wired
-  up alongside 5+/A.
-- **SourceLanguage role through subprocess.**  Ditto — wired
-  alongside 9+/A.
+Remaining: SourceLanguage role through subprocess (parked; lands with 9+/B
+and 9+/C full extractions).
 
 ### After Phase 9 — `std/*` becomes a hybrid Predef
 
