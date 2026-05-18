@@ -600,9 +600,7 @@ via `.some`, and `List` traversals via `.each`.  A handful of
 extensions would close the remaining real-world gaps; listed in
 priority order so each one can ship independently.
 
-1. **Index optic — `.at(key)` / `.index(i)`.**  Today `Focus[T](_.users.each)`
-   traverses every element, but pointwise access (`users(3)`, `byId("u-42")`)
-   still falls back to `xs.find(...).map(...)` and hand-rolled `.copy`.
+1. **Index optic — `.at(key)` / `.index(i)`.** ✅ **LANDED v0.9**
    Add two path steps recognised by the Focus parser:
 
        Focus[State](_.users.index(3))      // Optional[State, User]
@@ -614,12 +612,11 @@ priority order so each one can ship independently.
    a missing key by `set(..., Some(v))` and delete via `set(..., None)`,
    matching Monocle's semantics.
 
-   Backend lowering: same pattern as `SomeStep` / `EachStep` — add `IndexStep(i)`
-   and `AtKey(k)` to `PathStep`, extend `opticGetOption` / `opticSet` /
-   `opticGetAll` / `opticModifyAll`, runtime helpers in JS, emitter cases
-   in JvmGen.  Most useful extension by far — closes the biggest pain
-   point still left in optic-using code.  ~1 day across three backends
-   plus a conformance test.
+   All three backends (interpreter, JS, JVM) implement `IndexStep(i)` and
+   `AtKey(k)`.  JS backend intrinsic fixed (`"Map"` → `"_Map"` in
+   `JsCoreIntrinsics`) as a side effect, unblocking `Map(k->v,...)` literals
+   across all conformance tests.  Conformance test `optics-index-at` passes
+   [INT] and [JS].
 
 2. **`filter` on Traversal.**  `Focus[Team](_.members.each).filter(_.active).name`
    to apply `modify` / `set` only to the subset where the predicate holds.

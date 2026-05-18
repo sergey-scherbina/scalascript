@@ -13,7 +13,7 @@ val JsCoreIntrinsics: Map[QualifiedName, IntrinsicImpl] = Map(
   QualifiedName("render")     -> RuntimeCall("render"),
   QualifiedName("Some")       -> RuntimeCall("Some"),
   QualifiedName("List")       -> RuntimeCall("List"),
-  QualifiedName("Map")        -> RuntimeCall("Map"),
+  QualifiedName("Map")        -> RuntimeCall("_Map"),
   QualifiedName("math.sqrt")  -> RuntimeCall("Math.sqrt"),
   QualifiedName("math.abs")   -> RuntimeCall("Math.abs"),
   QualifiedName("math.pow")   -> RuntimeCall("Math.pow"),
