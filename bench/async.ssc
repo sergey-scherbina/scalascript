@@ -1,0 +1,29 @@
+#!/usr/bin/env ssc
+---
+name: bench-async
+description: Coroutine-based Async scheduler — measures throughput of async/await cycles.
+---
+
+# Async (coroutine scheduler)
+
+```scalascript
+val n = 10000
+
+val t0 = nanoTime()
+
+val result = runAsync {
+  def loop(i: Int, acc: Int): Int =
+    if i <= 0 then acc
+    else
+      val v = Async.await(Async.async(() => i))
+      loop(i - 1, acc + v)
+  loop(n, 0)
+}
+
+val t1 = nanoTime()
+val ms = (t1 - t0) / 1000000
+
+val expected = n * (n + 1) / 2
+println(s"BENCH_MS: $ms")
+println(s"result=$result expected=$expected ok=${result == expected}")
+```

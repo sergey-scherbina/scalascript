@@ -217,7 +217,9 @@ class Interpreter(
   // This ensures the puts/takes interleave without deadlock.
   private case class CoHandle(
     fromBody: java.util.concurrent.SynchronousQueue[Value],
-    toBody:   java.util.concurrent.SynchronousQueue[Value]
+    toBody:   java.util.concurrent.SynchronousQueue[Value],
+    errRef:   java.util.concurrent.atomic.AtomicReference[Throwable] =
+      new java.util.concurrent.atomic.AtomicReference[Throwable](null)
   )
   private val _coHandleTL    = new ThreadLocal[CoHandle]()
   private val coHandles       = new java.util.concurrent.ConcurrentHashMap[Long, CoHandle]()
@@ -3665,12 +3667,12 @@ class Interpreter(
         val result = Computation.run(eval(bodyTerm, env))
         fromBody.put(Value.InstanceV("Returned", Map("value" -> result)))
       catch case t: Throwable =>
-        val msg = Option(t.getMessage).getOrElse(t.getClass.getSimpleName)
-        try fromBody.put(Value.InstanceV("Errored", Map("message" -> Value.StringV(msg))))
+        handle.errRef.set(t)
+        try fromBody.put(Value.InstanceV("Errored", Map.empty))
         catch case _: Throwable => ()
     }
     toBody.put(Value.UnitV)
-    driveAsyncCo(fromBody, toBody)
+    driveAsyncCo(handle, fromBody, toBody)
 
   private def runAsyncThunkCo(thunk: Value): Value =
     val fromBody = new java.util.concurrent.SynchronousQueue[Value]()
@@ -3683,14 +3685,15 @@ class Interpreter(
         val result = Computation.run(callValue(thunk, Nil, Map.empty))
         fromBody.put(Value.InstanceV("Returned", Map("value" -> result)))
       catch case t: Throwable =>
-        val msg = Option(t.getMessage).getOrElse(t.getClass.getSimpleName)
-        try fromBody.put(Value.InstanceV("Errored", Map("message" -> Value.StringV(msg))))
+        handle.errRef.set(t)
+        try fromBody.put(Value.InstanceV("Errored", Map.empty))
         catch case _: Throwable => ()
     }
     toBody.put(Value.UnitV)
-    driveAsyncCo(fromBody, toBody)
+    driveAsyncCo(handle, fromBody, toBody)
 
   private def driveAsyncCo(
+    handle:   CoHandle,
     fromBody: java.util.concurrent.SynchronousQueue[Value],
     toBody:   java.util.concurrent.SynchronousQueue[Value]
   ): Value =
@@ -3698,10 +3701,10 @@ class Interpreter(
       fromBody.take() match
         case Value.InstanceV("Returned", fields) =>
           return fields.getOrElse("value", Value.UnitV)
-        case Value.InstanceV("Errored", fields) =>
-          val msg = fields.get("message").collect { case Value.StringV(s) => s }
-            .getOrElse("async error")
-          throw InterpretError(s"Async error: $msg")
+        case Value.InstanceV("Errored", _) =>
+          val t = handle.errRef.get()
+          if t != null then throw t
+          else throw InterpretError("async error")
         case Value.InstanceV("Yielded", fields) =>
           val result = dispatchAsyncIO(fields.getOrElse("value", Value.UnitV))
           toBody.put(result)
