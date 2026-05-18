@@ -40,21 +40,22 @@ val InterpreterCapabilities: Capabilities = Capabilities(
  *  runs, exactly as if it were a built-in.  `NativeContext`
  *  receives the per-session `out` / `err` so I/O honours the
  *  interpreter's wrapping (null-stream during `ssc render`, etc.). */
-val InterpreterIntrinsics: Map[QualifiedName, IntrinsicImpl] = Map(
-  // Stage 5+/A.2 — additive demo (no existing hardcoded path).
-  QualifiedName("nowMillis") -> NativeImpl((_, _) =>
-    java.lang.System.currentTimeMillis()
-  ),
-  // Stage 5+/B — migrating existing Console builtins.  Hardcoded
-  // `nativeP("println")` / `nativeP("print")` removed from
-  // Interpreter.initBuiltins; this is now the single source.
-  QualifiedName("println") -> NativeImpl((ctx, args) =>
-    ctx.out.println(args.map(formatArg).mkString(" "))
-  ),
-  QualifiedName("print") -> NativeImpl((ctx, args) =>
-    ctx.out.print(args.map(formatArg).mkString(" "))
-  )
-)
+val InterpreterIntrinsics: Map[QualifiedName, IntrinsicImpl] =
+  Map(
+    // Stage 5+/A.2 — additive demo (no existing hardcoded path).
+    QualifiedName("nowMillis") -> NativeImpl((_, _) =>
+      java.lang.System.currentTimeMillis()
+    ),
+    // Stage 5+/B — migrating existing Console builtins.  Hardcoded
+    // `nativeP("println")` / `nativeP("print")` removed from
+    // Interpreter.initBuiltins; this is now the single source.
+    QualifiedName("println") -> NativeImpl((ctx, args) =>
+      ctx.out.println(args.map(formatArg).mkString(" "))
+    ),
+    QualifiedName("print") -> NativeImpl((ctx, args) =>
+      ctx.out.print(args.map(formatArg).mkString(" "))
+    )
+  ) ++ HttpIntrinsics  // Stage 5+/B — HTTP: intrinsics/Http.scala
 
 /** Same shape as `Value.show` but works on the `Any` payload an
  *  intrinsic sees post-unwrap.  Critical: doubles render without the

@@ -39,6 +39,7 @@ val JsCapabilities: Capabilities = Capabilities(
 
 /** Stage 5+/A.3 — `RuntimeCall` intrinsics surfaced as JS `const`
  *  aliases prepended to JsGen's output. */
-val JsIntrinsics: Map[QualifiedName, IntrinsicImpl] = Map(
-  QualifiedName("nowMillis") -> RuntimeCall("Date.now")
-)
+val JsIntrinsics: Map[QualifiedName, IntrinsicImpl] =
+  Map(
+    QualifiedName("nowMillis") -> RuntimeCall("Date.now")
+  ) ++ JsHttpIntrinsics  // Stage 5+/B — HTTP: intrinsics/Http.scala

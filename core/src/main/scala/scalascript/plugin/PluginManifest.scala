@@ -24,6 +24,8 @@ case class PluginManifest(
   // SourceLanguage role
   canonicalName:   Option[String] = None,
   aliases:         Set[String]   = Set.empty,
+  /** Plugin declares `openSession` support.  Stage 6+/B. */
+  interactive:     Boolean      = false,
   // Originating manifest path — useful for resolving relative `executable`.
   manifestPath:    Option[os.Path] = None
 ):
@@ -90,7 +92,12 @@ object PluginManifest:
       outputs         = block(backendBlock, "outputs").toSet,
       acceptedSources = block(backendBlock, "acceptedSources").toSet,
       canonicalName   = sourceBlock.get("canonicalName").map(_.toString),
-      aliases         = block(sourceBlock, "aliases").toSet
+      aliases         = block(sourceBlock, "aliases").toSet,
+      interactive     = asScala.get("interactive").exists {
+                          case b: java.lang.Boolean => b.booleanValue()
+                          case s: String            => s == "true"
+                          case _                    => false
+                        }
     )
   }
 

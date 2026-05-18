@@ -39,6 +39,7 @@ val JvmCapabilities: Capabilities = Capabilities(
  *  aliases prepended to JvmGen's output.  Each entry maps a
  *  qualified name (the call site in user .ssc) to a target Scala
  *  symbol the alias forwards to. */
-val JvmIntrinsics: Map[QualifiedName, IntrinsicImpl] = Map(
-  QualifiedName("nowMillis") -> RuntimeCall("java.lang.System.currentTimeMillis")
-)
+val JvmIntrinsics: Map[QualifiedName, IntrinsicImpl] =
+  Map(
+    QualifiedName("nowMillis") -> RuntimeCall("java.lang.System.currentTimeMillis")
+  ) ++ JvmHttpIntrinsics  // Stage 5+/B — HTTP: intrinsics/Http.scala

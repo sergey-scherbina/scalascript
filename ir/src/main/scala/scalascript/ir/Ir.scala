@@ -171,7 +171,19 @@ object TargetCode:
   def apply(s: String): TargetCode = s
   extension (t: TargetCode) def value: String = t
 
-/** Runtime value handed to / returned from
- *  `Session.invokeHandler`.  Stage 5 settles the concrete shape; for now
- *  any opaque payload travels through the wire as JSON. */
-trait Value
+/** Runtime value handed to / returned from `Session.invokeHandler`.
+ *
+ *  Stage 6+/B concretises the shape so values cross the subprocess wire.
+ *  Mirrors the `LitValue` primitives plus structured types needed by
+ *  handler invocations (list arguments, record results). */
+sealed trait Value derives ReadWriter
+
+object Value:
+  /** A primitive scalar — shares the `LitValue` alphabet from `IrExpr`. */
+  case class Prim(v: LitValue)                    extends Value derives ReadWriter
+  /** Homogeneous or heterogeneous ordered list. */
+  case class Arr(items: List[Value])               extends Value derives ReadWriter
+  /** String-keyed dictionary (JSON object / Scala Map shape). */
+  case class Dict(fields: Map[String, Value])      extends Value derives ReadWriter
+  /** Explicit null / absent value. */
+  case object Null                                  extends Value

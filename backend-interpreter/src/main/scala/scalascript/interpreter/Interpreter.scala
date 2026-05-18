@@ -232,14 +232,34 @@ class Interpreter(
       }
     }
 
+  // ─── Health-route defaults ────────────────────────────────────────
+
+  // Extracted from initBuiltins so installNativeIntrinsics' NativeContext
+  // can forward to it via ctx.registerHealthDefaults().
+  private def registerHealthDefaults(): Unit =
+    def isRegistered(path: String): Boolean =
+      scalascript.server.Routes.all.exists(e => e.method == "GET" && e.path == path)
+    val okResponse = Value.InstanceV("Response", Map(
+      "status"  -> Value.IntV(200),
+      "headers" -> Value.MapV(Map(
+        Value.StringV("Content-Type") -> Value.StringV("application/json")
+      )),
+      "body"    -> Value.StringV("""{"status":"ok"}""")
+    ))
+    val handler = Value.NativeFnV("_healthOk", Computation.pureFn(_ => okResponse))
+    if !isRegistered("/_health") then
+      scalascript.server.Routes.register("GET", "/_health", handler, this)
+    if !isRegistered("/_ready") then
+      scalascript.server.Routes.register("GET", "/_ready", handler, this)
+
   // ─── Built-ins ───────────────────────────────────────────────────
 
   private def initBuiltins(): Unit =
     def nativeP(name: String)(f: List[Value] => Value): Unit =
       globals(name) = Value.NativeFnV(name, Computation.pureFn(f))
 
-    // println / print now live in `InterpreterIntrinsics` (Stage 5+/B);
-    // installNativeIntrinsics below routes them through `Backend.intrinsics`.
+    // println / print / route / serve / stop now live in InterpreterIntrinsics
+    // (Stage 5+/B); installNativeIntrinsics routes them through Backend.intrinsics.
     installNativeIntrinsics(InterpreterIntrinsics)
 
     nativeP("assert") {
@@ -254,40 +274,6 @@ class Interpreter(
       case List(Value.BoolV(false), msg)  => throw InterpretError(s"Requirement failed: ${Value.show(msg)}")
       case _                              => Value.UnitV
     }
-    nativeP("serve") {
-      case List(Value.IntV(port)) =>
-        registerHealthDefaults()
-        if !headless then scalascript.server.WebServer.start(port.toInt, ".", out)
-        Value.UnitV
-      case List(Value.IntV(port), Value.StringV(dir)) =>
-        registerHealthDefaults()
-        if !headless then scalascript.server.WebServer.start(port.toInt, dir, out)
-        Value.UnitV
-      case _ => throw InterpretError("serve(port) or serve(port, dir)")
-    }
-
-    // Tier 5 #21 — built-in `/_health` and `/_ready` routes auto-registered
-    // when `serve(port)` is called.  User-defined routes with the same
-    // path take precedence; we only fill the slot when it's empty.
-    //
-    // Inline construction of the Response InstanceV (rather than calling
-    // `mkResponse`) keeps this self-contained so it can sit before the
-    // big `Response.*` block that introduces `mkResponse` further down.
-    def registerHealthDefaults(): Unit =
-      def isRegistered(path: String): Boolean =
-        scalascript.server.Routes.all.exists(e => e.method == "GET" && e.path == path)
-      val okResponse = Value.InstanceV("Response", Map(
-        "status"  -> Value.IntV(200),
-        "headers" -> Value.MapV(Map(
-          Value.StringV("Content-Type") -> Value.StringV("application/json")
-        )),
-        "body"    -> Value.StringV("""{"status":"ok"}""")
-      ))
-      val handler = Value.NativeFnV("_healthOk", Computation.pureFn(_ => okResponse))
-      if !isRegistered("/_health") then
-        scalascript.server.Routes.register("GET", "/_health", handler, this)
-      if !isRegistered("/_ready") then
-        scalascript.server.Routes.register("GET", "/_ready", handler, this)
 
     // Wall-clock for benchmarks — same name across all three backends.
     nativeP("nanoTime") { _ => Value.IntV(java.lang.System.nanoTime()) }
@@ -622,6 +608,106 @@ class Interpreter(
         try JsonParser.parse(s)
         catch case e: JsonParser.ParseError => throw InterpretError(e.getMessage)
       case _ => throw InterpretError("jsonParse(s: String)")
+    }
+
+    // v1.5 Tier 5 #22 — JsonValue wrapper (option c).
+    //
+    // `jsonRead(s)` returns a `JsonValue` that supports idiomatic
+    // field / index / typed-accessor calls:
+    //
+    //     val v = jsonRead("""{"user":{"name":"Ada"},"tags":["math"]}""")
+    //     v("user")("name").asString          // "Ada"
+    //     v("tags").asList.map(_.asString)    // List("math")
+    //     v.get("missing").map(_.asString)    // None
+    //     v("user").keys                       // List("name")
+    //
+    // Implementation is a self-recursive `InstanceV("JsonValue", …)` that
+    // bundles every accessor as a NativeFnV — `apply` for field /
+    // index access, `get` for the Option variants, `asX` / `isNull` /
+    // `keys` for type extraction.
+    def wrapJson(inner: Value): Value =
+      def typedFail(what: String, got: Value): Nothing =
+        throw InterpretError(s"JsonValue.$what: expected ${what.stripPrefix("as").toLowerCase} but got ${Value.show(got)}")
+      def pureFn(f: List[Value] => Value): List[Value] => Computation =
+        args => Pure(f(args))
+      val applyFn = Value.NativeFnV("JsonValue.apply", pureFn {
+        case List(Value.StringV(k)) => inner match
+          case Value.MapV(m) => m.get(Value.StringV(k)) match
+            case Some(v) => wrapJson(v)
+            case None    => throw InterpretError(s"JsonValue: no key '$k'")
+          case _ => throw InterpretError(s"JsonValue.apply($k): not an object")
+        case List(Value.IntV(i)) => inner match
+          case Value.ListV(items) =>
+            if i >= 0 && i < items.length then wrapJson(items(i.toInt))
+            else throw InterpretError(s"JsonValue: index $i out of bounds (size=${items.length})")
+          case _ => throw InterpretError(s"JsonValue.apply($i): not an array")
+        case args => throw InterpretError(s"JsonValue.apply(key: String | index: Int), got ${args.length} arg(s)")
+      })
+      val getFn = Value.NativeFnV("JsonValue.get", pureFn {
+        case List(Value.StringV(k)) => inner match
+          case Value.MapV(m) => Value.OptionV(m.get(Value.StringV(k)).map(wrapJson))
+          case _             => Value.OptionV(None)
+        case List(Value.IntV(i)) => inner match
+          case Value.ListV(items) if i >= 0 && i < items.length =>
+            Value.OptionV(Some(wrapJson(items(i.toInt))))
+          case _ => Value.OptionV(None)
+        case _ => throw InterpretError("JsonValue.get(key | index)")
+      })
+      val asStringFn = Value.NativeFnV("JsonValue.asString", pureFn(_ => inner match
+        case Value.StringV(s) => Value.StringV(s)
+        case other            => typedFail("asString", other)))
+      val asIntFn = Value.NativeFnV("JsonValue.asInt", pureFn(_ => inner match
+        case Value.IntV(n)    => Value.IntV(n)
+        case Value.DoubleV(d) => Value.IntV(d.toLong)
+        case other            => typedFail("asInt", other)))
+      val asDoubleFn = Value.NativeFnV("JsonValue.asDouble", pureFn(_ => inner match
+        case Value.DoubleV(d) => Value.DoubleV(d)
+        case Value.IntV(n)    => Value.DoubleV(n.toDouble)
+        case other            => typedFail("asDouble", other)))
+      val asBoolFn = Value.NativeFnV("JsonValue.asBool", pureFn(_ => inner match
+        case Value.BoolV(b) => Value.BoolV(b)
+        case other          => typedFail("asBool", other)))
+      val asListFn = Value.NativeFnV("JsonValue.asList", pureFn(_ => inner match
+        case Value.ListV(items) => Value.ListV(items.map(wrapJson))
+        case other              => typedFail("asList", other)))
+      val asMapFn = Value.NativeFnV("JsonValue.asMap", pureFn(_ => inner match
+        case Value.MapV(m) => Value.MapV(m.map { case (k, v) => k -> wrapJson(v) })
+        case other         => typedFail("asMap", other)))
+      val rawFn = Value.NativeFnV("JsonValue.raw", pureFn(_ => inner))
+      val isNullFn = Value.NativeFnV("JsonValue.isNull", pureFn(_ => inner match
+        case Value.UnitV | Value.OptionV(None) => Value.BoolV(true)
+        case _                                  => Value.BoolV(false)))
+      val keysFn = Value.NativeFnV("JsonValue.keys", pureFn(_ => inner match
+        case Value.MapV(m) => Value.ListV(m.keys.toList)
+        case _             => Value.ListV(Nil)))
+      val sizeFn = Value.NativeFnV("JsonValue.size", pureFn(_ => inner match
+        case Value.ListV(items) => Value.IntV(items.length.toLong)
+        case Value.MapV(m)      => Value.IntV(m.size.toLong)
+        case Value.StringV(s)   => Value.IntV(s.length.toLong)
+        case _                  => Value.IntV(0L)))
+      Value.InstanceV("JsonValue", Map(
+        "_inner"   -> inner,
+        "apply"    -> applyFn,
+        "get"      -> getFn,
+        "asString" -> asStringFn,
+        "asInt"    -> asIntFn,
+        "asLong"   -> asIntFn,
+        "asDouble" -> asDoubleFn,
+        "asBool"   -> asBoolFn,
+        "asList"   -> asListFn,
+        "asMap"    -> asMapFn,
+        "raw"      -> rawFn,
+        "isNull"   -> isNullFn,
+        "keys"     -> keysFn,
+        "size"     -> sizeFn,
+      ))
+
+    nativeP("jsonRead") {
+      case List(Value.StringV(s)) =>
+        try wrapJson(JsonParser.parse(s))
+        catch case e: JsonParser.ParseError => throw InterpretError(e.getMessage)
+      case List(v) => wrapJson(v)  // already-parsed value
+      case _       => throw InterpretError("jsonRead(s: String) or jsonRead(parsedAny)")
     }
 
     // v1.5 Tier 5 #22 — indexed access on `Any`-typed JSON values.
@@ -1199,19 +1285,7 @@ class Interpreter(
         "oauthRegisterProvider(name, Map[String, String])")
     }
 
-    // route(method, path)(handler) — registers a handler in the global table.
-    // Path syntax: literal segments + `:name` captures (e.g. /users/:id).
-    nativeP("route") {
-      case List(Value.StringV(method), Value.StringV(path)) =>
-        // Curried — return a fn that takes the handler.
-        Value.NativeFnV("route.handler", Computation.pureFn {
-          case List(handler) =>
-            scalascript.server.Routes.register(method, path, handler, this)
-            Value.UnitV
-          case _ => throw InterpretError("route(method, path) { handler }")
-        })
-      case _ => throw InterpretError("route(method, path) { handler }")
-    }
+    // route / serve / stop now live in InterpreterIntrinsics (Stage 5+/B).
 
     // onWebSocket(path)(handler) — registers a WS upgrade handler.  The
     // handler receives a `WebSocket` value with `send` / `close` methods
@@ -1482,6 +1556,10 @@ class Interpreter(
     val ctx = new scalascript.backend.spi.NativeContext:
       def out = Interpreter.this.out
       def err = System.err
+      override def headless = Interpreter.this.headless
+      override def registerRoute(method: String, path: String, handler: Any): Unit =
+        scalascript.server.Routes.register(method, path, handler.asInstanceOf[Value], Interpreter.this)
+      override def registerHealthDefaults(): Unit = Interpreter.this.registerHealthDefaults()
     intrinsics.foreach {
       case (qn, scalascript.backend.spi.NativeImpl(eval)) =>
         registerNative(qn.value, args =>
