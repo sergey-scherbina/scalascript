@@ -42,6 +42,15 @@ object EffectAnalysis:
     case Term.Name("__effectOp__") => true
     case _                         => false
 
+  /** Marker body recognised as an `extern def` declaration —
+   *  Stage 5+/A.6 (Б-1).  `extern def foo(...): T` is preprocessed
+   *  by `Parser.preprocessExtern` into `def foo(...): T = __extern__`,
+   *  and codegens consult this helper to skip emission for the stub
+   *  (the intrinsic table provides the real implementation). */
+  def isExternDef(body: Term): Boolean = body match
+    case Term.Name("__extern__") => true
+    case _                       => false
+
   /** Run the analysis.
    *
    *  @param trees    one entry per `Defn`-bearing scalameta tree (typically

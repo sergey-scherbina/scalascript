@@ -220,6 +220,30 @@ object Parser:
 
   // ─── Scala parsing via scalameta ─────────────────────────────────
 
+  /** Preprocess `extern def foo(...): T` (no body) into `def foo(...): T =
+   *  __extern__` so scalameta parses it as an ordinary def whose body the
+   *  codegens recognise as an extern stub (`EffectAnalysis.isExternDef`).
+   *
+   *  The `extern` modifier isn't a Scala 3 keyword; this preprocess step
+   *  is the same pattern as `preprocessEffects` for `effect Name:` blocks
+   *  — surface syntax we want, expanded into scalameta-friendly form
+   *  before parsing.  Stage 5+/A.6 (Б-1). */
+  private def preprocessExtern(code: String): String =
+    val externLine = """^(\s*)extern\s+def\s+(.+?)\s*$""".r
+    val lines = code.linesIterator.toArray
+    if !lines.exists(l => externLine.findFirstIn(l).isDefined) then return code
+    val result = new StringBuilder()
+    for line <- lines do
+      externLine.findFirstMatchIn(line) match
+        case Some(m) if !line.contains("=") =>
+          result.append(m.group(1))
+                .append("def ")
+                .append(m.group(2).stripTrailing)
+                .append(" = __extern__\n")
+        case _ =>
+          result.append(line).append("\n")
+    result.toString
+
   // Preprocess `effect Name:` declarations into `object Name { def op(...) = __effectOp__ }`.
   private def preprocessEffects(code: String): String =
     val effectLine = """^(\s*)effect\s+(\w+)(?:\s+extends\s+\S+)?\s*:""".r
@@ -262,7 +286,7 @@ object Parser:
   def parseScalaSource(code: String): Option[ScalaNode] =
     import scala.meta.*
     given Dialect = dialects.Scala3
-    val processed = preprocessEffects(code)
+    val processed = preprocessExtern(preprocessEffects(code))
     processed.parse[Source] match
       case Parsed.Success(tree) => Some(ScalaNode(tree))
       case _: Parsed.Error      =>

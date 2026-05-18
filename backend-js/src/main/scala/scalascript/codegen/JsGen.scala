@@ -3683,6 +3683,12 @@ class JsGen(
       if isIntExpr(rhs) then intVars += n.value
       line(s"let ${n.value} = ${genExpr(rhs)};")
 
+    // Stage 5+/A.6 (Б-1) — extern def stub is type-only; the intrinsic
+    // table provides the real impl (dispatched at call sites by
+    // dispatchIntrinsicJs).  Skip emission entirely so __extern__ doesn't
+    // leak into the JS.
+    case d: Defn.Def if scalascript.transform.EffectAnalysis.isExternDef(d.body) => ()
+
     case d: Defn.Def =>
       val paramVals = d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values)
       val params    = paramVals.map(_.name.value)

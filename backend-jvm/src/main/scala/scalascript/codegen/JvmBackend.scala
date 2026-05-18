@@ -27,5 +27,8 @@ class JvmBackend extends Backend:
     // dispatch in `emitExpr`.  The earlier Stage 5+/A.3 `intrinsicPrelude`
     // (prepended `def` aliases) is gone — per-call-site is the proper
     // home for both `RuntimeCall` and `InlineCode` variants.
-    val code = JvmGen.generate(astModule, baseDir, intrinsics)
+    // Stage 5+/A.6 (Б-2) — `runtimePreamble` (intrinsic-shipped runtime
+    // helpers) is prepended before JvmGen's output if non-empty.
+    val emitted = JvmGen.generate(astModule, baseDir, intrinsics)
+    val code    = if runtimePreamble.isEmpty then emitted else runtimePreamble + "\n" + emitted
     CompileResult.TextOutput(code = code, language = "scala", sources = Nil)

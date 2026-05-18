@@ -22,19 +22,20 @@ class JsBackend extends Backend:
   def compile(module: ir.NormalizedModule, opts: BackendOptions): CompileResult =
     val astModule = Denormalize(module)
     val baseDir   = opts.baseDir.map(p => os.Path(p.toAbsolutePath.toString))
+    val preamble  = if runtimePreamble.isEmpty then "" else runtimePreamble + "\n"
     // Stage 5+/A.5 — intrinsics flow through to JsGen for per-call-site
-    // dispatch in `genExpr`.  The Stage 5+/A.3 `intrinsicPrelude`
-    // (prepended `const` aliases) is gone — per-call-site is the
-    // proper home for both `RuntimeCall` and `InlineCode` variants.
+    // dispatch in `genExpr`.  Stage 5+/A.6 (Б-2) — intrinsic-shipped
+    // runtime helpers via Backend.runtimePreamble prepend before
+    // JsGen's output.
     opts.extra.getOrElse("mode", "oneshot") match
       case "segmented" =>
         val segments = JsGen.generateSegmented(astModule, baseDir, intrinsics).map {
           case JsGen.Segment.ScalaScriptJs(code) =>
-            Segment.Code(language = "javascript", code = code)
+            Segment.Code(language = "javascript", code = preamble + code)
           case JsGen.Segment.ScalaSource(src)    =>
             Segment.Source(language = "scala", source = src)
         }
         CompileResult.Segmented(segments)
       case _ =>
-        val code = JsGen.generate(astModule, baseDir, intrinsics)
+        val code = preamble + JsGen.generate(astModule, baseDir, intrinsics)
         CompileResult.TextOutput(code = code, language = "javascript", sources = Nil)

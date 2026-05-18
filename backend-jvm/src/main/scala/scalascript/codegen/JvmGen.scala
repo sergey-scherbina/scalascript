@@ -525,7 +525,19 @@ class JvmGen(
     blockUsesEffects(node)        ||
     blockUsesMutualTco(node)      ||
     blockHasAutoOutputTerm(node)  ||
-    blockUsesIntrinsics(node)
+    blockUsesIntrinsics(node)     ||
+    blockContainsExternDef(node)
+
+  /** Stage 5+/A.6 (Б-1) — force blocks that declare an `extern def`
+   *  through `emitStats` so the extern stub gets filtered out (the
+   *  intrinsic table provides the real impl).  Without this the
+   *  `__extern__` body marker would emit verbatim and scala-cli
+   *  would fail with "Not found: __extern__". */
+  private def blockContainsExternDef(node: ScalaNode): Boolean =
+    def go(t: scala.meta.Tree): Boolean = t match
+      case d: Defn.Def if EffectAnalysis.isExternDef(d.body) => true
+      case other => other.children.exists(go)
+    ScalaNode.fold(node)(go)
 
   /** Stage 5+/A.4 — force blocks that call a registered intrinsic
    *  through `emitExpr` so per-call-site dispatch fires.  Without
@@ -683,6 +695,12 @@ class JvmGen(
     }
 
   private def emitStat(stat: Stat): String = stat match
+    // Stage 5+/A.6 (Б-1) — `extern def foo(...): T = __extern__` is a
+    // type-only stub; the intrinsic table provides the real impl
+    // (caught at call sites by `dispatchIntrinsic`).  Skip emission
+    // so Scala doesn't choke on `__extern__`.
+    case d: Defn.Def if EffectAnalysis.isExternDef(d.body) => ""
+
     // Effect declaration: `effect Console: def writeLine(s): Unit; def readLine(): String`
     // → `object Console: def writeLine(s) = _perform("Console", "writeLine", s)`
     case d: Defn.Object if d.templ.body.stats.exists {

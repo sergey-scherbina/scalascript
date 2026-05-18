@@ -1620,6 +1620,15 @@ class Interpreter(
     case Defn.Var.After_4_7_2(_, List(Pat.Var(n)), _, rhs) =>
       env(n.value) = Computation.run(eval(rhs, env.toMap))
 
+    case d: Defn.Def if scalascript.transform.EffectAnalysis.isExternDef(d.body) =>
+      // Stage 5+/A.6 (Б-1) — extern def stub is type-only; the
+      // intrinsic table (`InterpreterIntrinsics`) provides the
+      // real impl via `installNativeIntrinsics` at session start.
+      // Skip the def so the runtime keeps the intrinsic binding
+      // (otherwise our FunV would shadow it with a body that fails
+      // when called — `__extern__` is undefined).
+      ()
+
     case d: Defn.Def =>
       val paramVals = d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values).toList
       val params    = paramVals.map(_.name.value)

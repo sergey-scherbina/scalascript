@@ -16,6 +16,16 @@ trait Backend:
   def intrinsics: Map[QualifiedName, IntrinsicImpl] // §8 — platform operations
   def acceptedSources: Set[String]                  // §9 — canonical source-language names this target can embed
 
+  /** Runtime helpers this backend ships alongside the intrinsic
+   *  dispatch — typically per-intrinsic strings concatenated.  Core
+   *  prepends this before user code at emit time.  Stage 5+/A.6 (Б-2).
+   *
+   *  Example: a backend that maps `extern def serve(port)` to a
+   *  runtime helper `_serve(port)` returns the helper's source in
+   *  `runtimePreamble`.  Default empty — backends without
+   *  intrinsic-shipped runtime helpers override nothing. */
+  def runtimePreamble: String = ""
+
   /** One-shot compilation. */
   def compile(ir: NormalizedModule, opts: BackendOptions): CompileResult
 
