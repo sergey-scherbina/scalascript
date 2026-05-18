@@ -296,6 +296,131 @@ interface files + linker pass) is a different architectural axis.
 Tracked as v2.0 below — it's a 2-3 month commitment that becomes
 worth the cost only once a real package ecosystem emerges.
 
+## Recommended implementation sequence
+
+The roadmap items below interleave by version number but have real
+dependency relationships.  This section gives a critical-path
+ordering optimised for unblocking high-impact deliverables first
+and minimising rework.
+
+### Dependency graph
+
+```
+SPI 5+/A.4 (per-call-site dispatch)
+  │
+  └── SPI 5+/A.5 (extern def + Backend.runtimePreamble)
+        │
+        ├── SPI 5+/B  (std.http extraction; proof of intrinsic-module shape)
+        │     │
+        │     └── SPI 5+/D (std.ws / auth / fs / crypto extraction)
+        │           │
+        │           └── v1.7 (plugin packaging & discovery)
+        │                 │
+        │                 └── v2.0 (separate compilation)
+        │
+        └── v1.5 Tier 1 (TLS — could ship as intrinsic via new pipeline)
+              │
+              ├── v1.5 Tier 2 (HTTP client — uses Tier 1 TLS for HTTPS)
+              │
+              └── v1.5 Tier 3 (WS client — uses Tier 1 TLS for wss)
+                    │
+                    └── v1.6 Phase 3 (distributed actors over WS)
+
+v1.5 Tier 4 (streaming) + Tier 5 (REST ergonomics) — orthogonal,
+       no SPI dependency, can land any time
+
+v1.6 Phase 2 (supervision) — orthogonal, no SPI dependency
+
+6+/A (direct-syntax) — orthogonal, parked until std.* extracted
+6+/C (HostCallback dispatcher) — orthogonal, parked
+```
+
+### Suggested order (critical-path optimised)
+
+This minimises rework (TLS ships through the new pipeline rather
+than the old hardcoded codegens, so no double-implementation) and
+unblocks downstream features as early as possible.
+
+  1. **SPI 5+/A.4** — per-call-site dispatch (~1-2d).
+     Foundational; unblocks everything below.
+  2. **SPI 5+/A.5** — `extern def` parser + `Backend.runtimePreamble`
+     (~1-2d).  Foundational; pairs with 5+/A.4.
+  3. **SPI 5+/B** — `std.http` extraction (~3-5d).
+     Proof point that the SPI shape carries a real platform package
+     end-to-end.  Critical for confidence before generalising.
+  4. **v1.5 Tier 1 — TLS** (~1 week).
+     Highest-impact functional unblocker (standalone-internet
+     deploy).  Ships as a new intrinsic via the just-built pipeline,
+     so the work is doubly cost-efficient (real feature + proves
+     the SPI on a non-trivial intrinsic).
+  5. **SPI 5+/D** — `std.ws / auth / fs / crypto` extraction
+     (~1 week, 1-2d per package).
+     Generalises 5+/B to the remaining platform surface; finishes
+     the codegen-deflation pass.
+  6. **v1.5 Tier 2 — HTTP client** (~1 week).
+     Outbound integration unblocker (OAuth callbacks, payments,
+     AI/LLM, microservices).  Ships through the SPI pipeline as a
+     new intrinsic package.
+  7. **v1.5 Tier 3 — WS client** (~1 week).
+     Symmetric to onWebSocket; needed for v1.6 Phase 3.  Inherits
+     TLS for `wss://`.
+  8. **v1.7 — Plugin packaging & discovery** (~3 weeks).
+     Now that the SPI surface is clean and exercised by multiple
+     extracted packages (http, ws, auth, fs, crypto + tls + http
+     client + ws client), the plugin distribution layer has a
+     stable target to build against.
+  9. **v1.6 Phase 2 — Actors supervision** (~3-4d).
+     Independent; can land any time after Phase 1.
+ 10. **v1.6 Phase 3 — Distributed actors** (~1 week).
+     Builds on Tier 3 WS client.
+ 11. **v1.5 Tier 4 — HTTP server completeness** (~1 week).
+     Streaming responses + uploads, CORS, gzip, cache headers.
+ 12. **v1.5 Tier 5 — REST ergonomics** (~4-5d).
+     Middleware, request validation, /_health/_ready, indexed JSON.
+ 13. **6+/A — Direct-syntax do-notation** (~1-2 weeks).
+     Parked until extraction is complete — implementation cost
+     dominates over benefit until real `std.*` packages drive
+     direct-syntax usage patterns.
+ 14. **6+/C — HostCallback dispatcher** (~1 week).
+     Stage 6+/C from spi-followups-plan.md.  Unblocks the first
+     out-of-process (.NET / WASM) backend MVP.  Parked because no
+     such backend is in flight.
+ 15. **v2.0 — Separate compilation** (~2-3 months).
+     Multi-month architecture commitment.  Promote when at least
+     one of {real package ecosystem, >30s incremental build, IDE
+     demand} is true.
+
+### Approximate total
+
+Critical-path through step 10 (web stack production-ready + clean
+SPI + plugin ecosystem + actors complete + clients done): **~10-12
+weeks** of focused work.  Steps 11-13 add polish and ergonomics
+over another month.  Steps 14-15 are future commitments tracked
+here for prioritisation, not pending work.
+
+### What can be parallelised
+
+If two contributors:
+
+  - **One** drives the SPI critical path: 1 → 2 → 3 → 5 → 8.
+  - **Other** does v1.5 functional features 4 → 6 → 7 in parallel
+    after SPI 5+/A.4/A.5 land.
+  - v1.6 Phase 2 and v1.5 Tier 4/5 can interleave anywhere they fit.
+
+### When the order changes
+
+- **If standalone-internet deploy is urgent**: pull v1.5 Tier 1
+  forward, ship it as inline codegen first, migrate to intrinsic
+  later.  Costs ~1-2 days of rework when migrating; the deploy
+  capability ships ~3 weeks earlier.
+- **If a real third-party plugin author shows up**: pull v1.7
+  forward; even an incomplete extraction (only std.http extracted,
+  not yet std.ws/auth/fs/crypto) gives them enough scaffolding to
+  start.  Document the partial surface and proceed iteratively.
+- **If .NET / WASM MVP is in flight**: pull 6+/C HostCallback
+  forward; otherwise that work duplicates platform intrinsics
+  inside the subprocess backend.
+
 ## v0.7 — Reusable libraries and packaging
 
 A consumer should be able to depend on a third-party `.ssc` library —
@@ -1299,6 +1424,169 @@ week, Phase 2 ~3-4 days, Phase 3 ~1 week.  Each phase merges
 independently, each closes a real use case (Phase 1 — in-process
 concurrency; Phase 2 — fault tolerance; Phase 3 — uniform
 local/remote).
+
+## v1.7 — Plugin packaging & discovery (true extensibility)
+
+The Backend SPI (`docs/backend-spi.md`) already designs how
+third-party plugins claim intrinsics, ship runtime helpers, declare
+capabilities — the *mechanism* is in place.  What's missing is the
+*distribution layer*: package format, discovery, loader, sample
+plugin, CLI ergonomics.  Without these, "third-party Kafka plugin"
+remains a hypothetical; with them, the ecosystem opens.
+
+**Prerequisite:** Stages 5+/A.4 + 5+/A.5 + 5+/B + 5+/D landed —
+otherwise plugins have no clean shape to plug into (HTTP / WS
+still hardcoded in core codegens, no `extern def` parser surface,
+no `runtimePreamble` SPI slot).
+
+### Tier 1 — Plugin discovery infrastructure
+
+Audit + complete what `docs/backend-spi.md` §12.1 already
+describes; some pieces may be partly landed from Stage 5–6.
+
+  - `META-INF/services/scalascript.backend.spi.Backend` —
+    ServiceLoader-based in-process plugin discovery.  Same for
+    `SourceLanguage`.
+  - Default discovery paths:
+      - bundled CLI classpath (the four standard plugins),
+      - `~/.scalascript/plugins/*.jar`,
+      - `$SCALASCRIPT_PLUGIN_PATH` (colon-separated dirs).
+  - CLI flags: `--plugin <jar>`, `--plugin-dir <dir>`.
+  - Each plugin JAR in its own `URLClassLoader` whose parent is
+    the SPI classloader only (no dependency conflicts between
+    plugins).
+
+Estimate: ~2-3 days to verify what's there + close gaps + end-to-
+end conformance with a trivial test plugin.
+
+### Tier 2 — `.sscpkg` archive format
+
+A unified package format that covers both shapes:
+
+  - **User-space `.ssc` library** (v0.7 case): `.ssc` source files,
+    optional `package.yaml` manifest, no intrinsics.
+  - **Backend / SourceLanguage plugin**: compiled JAR with
+    `IntrinsicImpl` classes + runtime helper strings + `META-INF`
+    service entries + optional `.ssc` prelude files.
+  - **Hybrid**: both — e.g. a Kafka package that ships an
+    `extern def`-declaring `.ssc` API + a JVM-backend JAR that
+    implements the intrinsics.
+
+Layout:
+```
+mypackage-1.2.3.sscpkg  (ZIP archive)
+├── manifest.yaml          — id, version, deps, kind, capabilities, exports
+├── sources/               — .ssc files (loaded into module scope)
+├── runtime/               — per-backend helper strings
+│   ├── jvm.scala
+│   ├── js.js
+│   └── interpreter.scala
+├── intrinsics/            — compiled IntrinsicImpl classes
+│   └── mypackage-intrinsics.jar
+└── subprocess/            — optional out-of-process plugin executables
+    ├── linux-x86_64
+    └── darwin-arm64
+```
+
+`manifest.yaml`:
+```yaml
+id:           org.example.kafka
+version:      1.2.3
+spiVersion:   "0.1.0"
+kind:         [library, plugin]   # one or both
+dependencies:
+  - id: org.example.json, version: ^1.0
+exports:
+  externDefs: [std.kafka.connect, std.kafka.publish, std.kafka.subscribe]
+capabilities:
+  features:   [HttpClient]        # required by the plugin's intrinsics
+  declares:   [KafkaClient]       # custom sub-feature this plugin adds
+targets:      [jvm, interpreter]  # which backends this plugin supports
+```
+
+Estimate: ~3-4 days.
+
+### Tier 3 — Resolver & loader
+
+Reads a `.sscpkg`, validates manifest (SPI version, dependency
+graph), routes contributions:
+
+  - `sources/*.ssc` → module-tree prelude
+  - `intrinsics/*.jar` → ServiceLoader-discovered `Backend.intrinsics`
+    contributions
+  - `runtime/*` → concatenated into `Backend.runtimePreamble` for
+    the matching backend
+  - `subprocess/*` → out-of-process plugin launcher (Stage 6 wire)
+
+Plus dependency resolution (transitive `.sscpkg` loading) with
+cycle detection.
+
+Estimate: ~3-4 days.
+
+### Tier 4 — Sample external plugin
+
+Pick one real platform integration as the canonical reference and
+ship it as a standalone repo + `.sscpkg`.  Candidates:
+
+  - **Kafka client** — natural fit; demonstrates HTTP-client
+    dependency + connection pooling + serialisation.
+  - **Redis client** — smaller surface, simpler protocol; better
+    if Kafka is too complex for a first example.
+  - **PostgreSQL client** — drives the `std.db` design too.
+
+Includes:
+  - `extern def`-declared API surface in `.ssc`
+  - `IntrinsicImpl` for JvmGen (uses JDBC / libpq / kafka-java)
+  - `IntrinsicImpl` for Interpreter (same Scala wrapper as JvmGen,
+    different runtime path)
+  - Optional JsGen (Node native client)
+  - End-to-end example `.ssc` consuming the package
+  - README + `manifest.yaml` + `.sscpkg` build instructions
+
+Estimate: ~3-5 days depending on which integration.
+
+### Tier 5 — CLI ergonomics
+
+  - `ssc plugin install <path-or-url>` — fetch `.sscpkg`, validate,
+    drop into `~/.scalascript/plugins/`.
+  - `ssc plugin list` — installed plugins with version, capabilities
+    declared, SPI version compatibility.
+  - `ssc plugin uninstall <id>` — remove.
+  - `ssc plugin check <id>` — verify SPI compatibility with the
+    running compiler.
+  - `ssc plugin pack <dir>` — build a `.sscpkg` from a source tree
+    (similar to `ssc bundle` from v0.7).
+
+Estimate: ~2 days.
+
+### Tier 6 — Local registry stub (optional)
+
+Filesystem-based registry mirror — a config file listing known
+packages + their canonical URLs.  Enables `ssc plugin install
+kafka` without specifying the full URL.
+
+Central HTTP-based registry (`registry.scalascript.io`) — defer to
+the v0.7 future-of-future entry; that's a multi-week ops project,
+not a milestone.
+
+Estimate: ~1-2 days for the local stub.
+
+### Total effort
+
+Tier 1 (~3d) + Tier 2 (~4d) + Tier 3 (~4d) + Tier 4 (~5d) +
+Tier 5 (~2d) + Tier 6 (~2d) = **~3 weeks** to a working plugin
+ecosystem with at least one canonical external plugin.
+
+### What this unlocks
+
+  - Anyone can publish a platform-integration package as
+    `org.example.mything-1.0.sscpkg`.
+  - `ssc plugin install` makes it available to user programs.
+  - User code `import [Kafka](std.kafka)` works the same as
+    today's built-in `import [Json](std.json)`.
+  - Capability check + SPI version guard catch incompatibilities
+    at install time, not compile time.
+  - The `Plugin marketplace` is one HTTP server away (left for v0.7).
 
 ## v2.0 — Separate compilation of modules
 
