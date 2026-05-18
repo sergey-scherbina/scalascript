@@ -201,15 +201,74 @@ worktrees are the working space between them.**
   on a feature branch and open a PR" — follow the instruction.
   The loop is the default, not a law.
 
-### Before picking the next task — check sibling worktrees
+### Before picking the next task — sync and check
 
 Multiple agents may be working in parallel, each in its own
 sibling worktree under `.claude/worktrees/<name>/` and on its
-own branch.  **Before picking up a new item from `MILESTONES.md`,
-check what other agents are currently working on — including
-work they haven't committed yet, let alone pushed.**  This
-avoids two agents independently starting the same item and
-having to throw one of them away.
+own branch.  And `origin/main` keeps moving independently as
+other agents push their finished items.  **Before picking up
+a new item from `MILESTONES.md`, both** (a) sync with
+`origin/main` and review what's already landed, **and** (b)
+check what other agents are currently working on (including
+uncommitted work).  Skipping either one costs hours of
+duplicate work; running both takes seconds.
+
+#### Step 1 — Sync and review `origin/main` for already-landed work
+
+`MILESTONES.md` is the durable plan, but **the source of
+truth for what's actually done is `origin/main`**.  The
+backlog file can be stale — items may have landed in
+recent commits before the file was updated, or a milestone
+may have been re-scoped by a sibling agent.  Always pull
+fresh and review before claiming anything.
+
+```bash
+# 1. Sync — non-destructive; updates remote-tracking branches
+git fetch origin
+
+# 2. Bring local main up to date
+git checkout main && git pull --ff-only origin main
+
+# 3. Review what landed since the last session.
+#    20 lines is usually enough; expand if it's been a while.
+git log origin/main --oneline -20
+
+# 4. Read the latest MILESTONES.md, AGENTS.md, and any new
+#    docs/*.md.  Recent design docs may have re-scoped the
+#    item you were about to take.
+git diff HEAD@{1.day.ago}..HEAD -- MILESTONES.md docs/
+
+# 5. Search for the candidate item's key terms across recent
+#    commits — catches "landed but MILESTONES.md not yet
+#    updated" cases.
+git log --oneline --all --grep="<item-keyword>" -20
+```
+
+What to look for:
+
+1. **The item itself was already landed** — `git log` shows
+   a commit like `feat(v1.5/B.3): httpGetStream …` and your
+   item was "v1.5 Tier 2 #7 streaming response bodies".
+   Skip it; mark `MILESTONES.md` as landed if it isn't
+   already; pick the next item.
+2. **A prerequisite was added that changes your approach** —
+   e.g., your item is "v1.20.2 indentation-aware parsing"
+   and a new commit refactored `Parser` ADT.  Re-read the
+   relevant phase before starting.
+3. **A new design doc supersedes the item** — e.g., `docs/`
+   gained a new file that explicitly deferred or re-scoped
+   your candidate.  Honour the doc.
+4. **A sibling agent's PR was merged** — the
+   `Recommended implementation sequence` may have shifted
+   (item numbers reflow); re-check what's actually next.
+
+#### Step 2 — Check sibling worktrees for in-progress work
+
+After confirming the item isn't already landed, check that
+no other agent is currently working on it.  Sibling agents
+have their own worktrees, often with uncommitted changes
+that won't show up anywhere in `origin/main` or even in
+remote branches yet.
 
 Concretely, before claiming the next backlog item, run:
 
@@ -285,18 +344,20 @@ order:
   local work is the most common case and won't show up
   without `git worktree list`.
 
-This check is **fast** — usually under a second — and saves
-hours of duplicate work when it catches an overlap.
+Both Step 1 and Step 2 are **fast** — together usually
+under five seconds — and save hours of duplicate work
+when they catch an overlap or a stale-plan mismatch.
 
 ### Iteration-discipline checklist
 
 The mechanical steps that the loop above implies for *every*
 numbered item.  Keep them in this order:
 
-0. **Before claiming the item**, run the sibling-worktree
-   check from the previous section (`git worktree list` +
-   uncommitted-changes scan + remote `claude/*` branch
-   audit).  If overlap is detected, pick a different item.
+0. **Before claiming the item**, run BOTH pre-checks from
+   the previous section: (a) sync with `origin/main` and
+   review what's already landed, and (b) check sibling
+   worktrees for in-progress work.  If overlap is detected
+   or the item is already done, pick a different item.
    Don't skip this step — it takes seconds and prevents
    hours of duplicate work.
 1. Implement + commit on the local branch (worktree for
