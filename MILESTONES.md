@@ -1761,6 +1761,99 @@ worth a separate fix when somebody has cycles.
   can't accumulate silently.  Tighten as `Compile / scalacOptions`
   so test code can stay slightly looser if needed.  Half-day.
 
+## CLI — native binary (GraalVM native-image)
+
+Produce a self-contained `ssc` native executable via GraalVM native-image:
+no JVM installation required, cold-start drops from ~1-2 s → ~50-100 ms.
+Current baseline: `ssc.jar` 29.4 MiB → ProGuard-shrunk `ssc-min.jar` 26.4 MiB
+(task: `sbt cli/shrinkJar`).  Native-image would produce a 60-100 MiB binary
+(embeds GC + thread runtime) but removes the JVM dependency entirely.
+
+### Effort estimate: ~2 weeks
+
+**Why it's non-trivial:**
+
+1. **Reflection config** (~1 week, the hard part).
+   Three libraries each need hand-tuned `reflect-config.json`:
+   - **scala-meta** — parser uses reflection internally for AST node
+     construction; agent-generated config is usually incomplete.
+   - **upickle** — macro-derived JSON codecs work at compile time but
+     the resulting dispatch uses reflective-style case matching that
+     native-image needs hints for.
+   - **snakeyaml** — notorious for native-image; uses reflection for
+     Java bean deserialization.  Might need a switch to a native-image-
+     friendly YAML library (e.g. eo-yaml or a pure-Scala parser).
+   Workflow: run `native-image-agent -agentlib:...` while exercising
+   all CLI paths (run / compile / watch / serve examples), curate the
+   generated `reflect-config.json` + `resource-config.json`.
+
+2. **ServiceLoader** (~1 day).
+   `BackendRegistry` discovers backends via `ServiceLoader`; native-image
+   needs explicit `resource-config.json` entries listing every
+   `META-INF/services/scalascript.backend.spi.Backend` file.  Bundles
+   the four standard backends at build time; third-party in-process
+   plugins cannot be added later (see below).
+
+3. **Multi-platform CI** (~3 days).
+   GraalVM native-image produces a platform-specific binary.  Need
+   separate GitHub Actions jobs for macOS ARM64, macOS x86_64, Linux
+   x86_64 (Linux ARM64 and Windows are optional stretch goals).  Each
+   job must install GraalVM (not standard OpenJDK); build takes 5-15 min.
+
+### Known downsides / tradeoffs
+
+| Issue | Severity | Notes |
+|---|---|---|
+| `--plugin <jar>` broken | **High** | `URLClassLoader` cannot dynamically load class files at runtime in native-image. In-process JAR plugins would need to be disabled in native mode. Subprocess plugins (stdio-json wire protocol) still work fine — they're a separate process. |
+| Binary size larger than JAR | Medium | 60-100 MiB self-contained vs 26 MiB ProGuard JAR + JVM. Trade-off: no JVM dependency. |
+| Reflection config drift | Medium | A new library or reflection path added later may work in JVM mode and silently crash in native mode. Requires running the agent again on any significant dependency change. |
+| CI build time | Low | 5-15 min per platform per commit; mitigated by only running native builds on release tags, not every push. |
+| GraalVM in CI | Low | Adds a dependency not in the standard JDK ecosystem; GitHub Actions has `setup-java` with `distribution: graalvm` support. |
+| Debug quality | Low | Stack traces and heap dumps are less ergonomic in native mode; crashes can be harder to diagnose. |
+
+### Recommendation
+
+- **Ship it as an opt-in release artifact**, not the primary distribution.
+  Keep `ssc.jar` as the default (`java -jar ssc.jar`); native binary is
+  a convenience for users who want instant startup without a JVM.
+- **Disable `--plugin <jar>` in native mode** (print a clear error
+  pointing to subprocess plugins).  Don't try to redesign the plugin
+  loader — subprocess plugins are the robust path anyway.
+- **Sequence after v1.7** (plugin discovery) so the native build can
+  bake the stable ServiceLoader shape.  Starting before v1.7 means
+  the reflection config will need re-generation once the plugin
+  discovery layer changes.
+- **snakeyaml risk**: if agent-generated config doesn't cover all YAML
+  paths, consider replacing snakeyaml with a pure-Scala YAML parser
+  (smaller attack surface, no reflection).
+
+### Implementation sketch
+
+```
+build.sbt additions:
+  cli.enablePlugins(GraalVMNativeImagePlugin)   // via sbt-native-image
+  GraalVMNativeImage / mainClass := Some("scalascript.cli.ssc")
+  graalVMNativeImageOptions ++= Seq(
+    "--no-fallback",
+    "--initialize-at-build-time=scala",
+    "-H:ReflectionConfigurationFiles=native-image-configs/reflect-config.json",
+    "-H:ResourceConfigurationFiles=native-image-configs/resource-config.json",
+    ...
+  )
+
+Release workflow (GitHub Actions):
+  strategy.matrix:
+    os: [ubuntu-latest, macos-latest, macos-13]  // arm + x86
+  steps:
+    - uses: graalvm/setup-graalvm@v1
+      with: { java-version: '21', distribution: graalvm }
+    - run: sbt cli/graalvm-native-image:packageBin
+    - uses: actions/upload-artifact@v4
+      with: { name: ssc-${{ matrix.os }}, path: cli/target/... }
+```
+
+---
+
 ## Beyond
 
 Larger features that aren't on the critical path but are worth keeping in
