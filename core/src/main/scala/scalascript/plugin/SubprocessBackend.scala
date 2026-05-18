@@ -21,28 +21,17 @@ object WireFraming:
     case "stdio-msgpack" => MsgPack
     case _               => Json
 
-/** A Backend implementation that delegates to a subprocess speaking
- *  the newline-delimited JSON protocol from `WireProtocol.scala`.
+/** Delegates to a subprocess speaking stdio-json or stdio-msgpack.
  *
- *  Stage 6.1: process management + sync request/response only.  Each
- *  `Backend` method serialises params, writes one line to the
- *  subprocess's stdin, reads one line from stdout, parses the
- *  response.  Stderr is forwarded line-by-line to `System.err` via a
- *  background pump thread.
- *
- *  Lifecycle: a fresh subprocess is spawned at construction;
- *  `shutdown()` sends a `shutdown` request then closes streams.
- *  Process exit is monitored by `BackendRegistry` (Stage 6.2).
- *
- *  Out-of-scope for 6.1: MsgPack framing, plugin crash detection /
- *  restart, host-callback dispatch (the `HostCallback` IntrinsicImpl
- *  variant), interactive session methods.  All land in 6.2 or as
- *  follow-up. */
+ *  Stage 6.1: process management + compile.
+ *  Stage 6+/A: MsgPack framing.
+ *  Stage 6+/B: InteractiveBackend — openSession / session.feed /
+ *              invokeHandler forwarded over the same wire. */
 class SubprocessBackend private (
     proc:         Process,
     initialDesc:  MessageBodies.DescribeResult,
-    framing:      WireFraming = WireFraming.Json
-) extends Backend:
+    framing:      WireFraming
+) extends InteractiveBackend:
 
   /** Set once the initial `describe` handshake completes inside
    *  `SubprocessBackend.spawn`; never mutated thereafter.  Held as a
@@ -81,10 +70,12 @@ class SubprocessBackend private (
 
   // ─── Backend SPI surface (driven by `descriptor`) ──────────────────────
 
-  def id:              String = descriptor.id
-  def displayName:     String = descriptor.displayName
-  def spiVersion:      String = descriptor.spiVersion
+  def id:              String   = descriptor.id
+  def displayName:     String   = descriptor.displayName
+  def spiVersion:      String   = descriptor.spiVersion
   def acceptedSources: Set[String] = descriptor.acceptedSources
+  /** True if the plugin declared `interactive: true` in its describe response. */
+  def isInteractive:   Boolean  = descriptor.interactive
 
   def capabilities: Capabilities =
     // The descriptor sends feature/output names as strings; map back to
@@ -127,6 +118,27 @@ class SubprocessBackend private (
           message = s"plugin/${descriptor.id}: compile failed: ${err.message}",
           source  = None
         )))
+
+  // ─── InteractiveBackend surface ────────────────────────────────────────
+
+  /** Open a stateful session on the subprocess plugin.
+   *  The plugin must declare `interactive: true` in its describe result;
+   *  throws `UnsupportedOperationException` otherwise. */
+  def openSession(opts: BackendOptions): Session =
+    if !descriptor.interactive then
+      throw UnsupportedOperationException(
+        s"plugin/${descriptor.id} does not declare interactive support"
+      )
+    val params = MessageBodies.OpenSessionParams(
+      baseDir = opts.baseDir.map(_.toAbsolutePath.toString),
+      extra   = opts.extra
+    )
+    call(Methods.OpenSession, writeJs(params)) match
+      case Right(json) =>
+        val result = read[MessageBodies.OpenSessionResult](json)
+        new SubprocessSession(result.sessionId, this)
+      case Left(err) =>
+        throw RuntimeException(s"plugin/${descriptor.id}: openSession failed: ${err.message}")
 
   /** Send `shutdown` and close streams.  Idempotent: a second call is a
    *  no-op.  Forces process termination if the plugin doesn't exit on
@@ -189,7 +201,7 @@ class SubprocessBackend private (
       case Failure(t) =>
         Left(ResponseError(ErrorCodes.ParseError, s"unparseable response: $t — $repr"))
 
-  private def fromWire(w: MessageBodies.CompileResultWire): CompileResult = w.kind match
+  private[plugin] def fromWire(w: MessageBodies.CompileResultWire): CompileResult = w.kind match
     case "text"      => CompileResult.TextOutput(
                           code     = w.code.getOrElse(""),
                           language = w.language.getOrElse(""),
@@ -229,6 +241,50 @@ class SubprocessBackend private (
     case "unknown-block"         => Diagnostic.UnknownBlockLanguage(w.feature)
     case _                       => Diagnostic.Generic(w.message, None)
 
+
+/** A `Session` that forwards every call to a subprocess plugin session
+ *  identified by `sessionId`.  Stage 6+/B. */
+private class SubprocessSession(
+    sessionId: String,
+    backend:   SubprocessBackend
+) extends Session:
+  import upickle.default.*
+
+  def feed(block: ir.NormalizedBlock): CompileResult =
+    val params = MessageBodies.SessionFeedParams(sessionId = sessionId, block = block)
+    backend.call(Methods.SessionFeed, writeJs(params)) match
+      case Right(json) =>
+        Try(read[MessageBodies.CompileResultWire](json)) match
+          case Success(wire) => backend.fromWire(wire)
+          case Failure(t)    => CompileResult.Failed(List(Diagnostic.Generic(
+            message = s"plugin/${backend.id}: malformed session.feed response: ${t.getMessage}",
+            source  = None
+          )))
+      case Left(err) =>
+        CompileResult.Failed(List(Diagnostic.Generic(
+          message = s"plugin/${backend.id}: session.feed failed: ${err.message}",
+          source  = None
+        )))
+
+  def invokeHandler(handlerRef: ir.SymbolRef, args: List[ir.Value]): ir.Value =
+    val params = MessageBodies.InvokeHandlerParams(
+      sessionId  = sessionId,
+      handlerRef = handlerRef,
+      args       = args
+    )
+    backend.call(Methods.InvokeHandler, writeJs(params)) match
+      case Right(json) =>
+        Try(read[MessageBodies.InvokeHandlerResult](json)) match
+          case Success(r) => r.value
+          case Failure(t) =>
+            throw RuntimeException(s"plugin/${backend.id}: malformed invokeHandler response: ${t.getMessage}")
+      case Left(err) =>
+        throw RuntimeException(s"plugin/${backend.id}: invokeHandler failed: ${err.message}")
+
+  def close(): Unit =
+    val params = MessageBodies.SessionCloseParams(sessionId = sessionId)
+    backend.call(Methods.SessionClose, writeJs(params))
+    ()
 
 object SubprocessBackend:
 

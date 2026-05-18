@@ -1,5 +1,6 @@
 package scalascript.plugin
 
+import scalascript.ir.{Content, SymbolRef, Value}
 import upickle.default.ReadWriter
 
 /** Wire protocol for subprocess plugins.
@@ -83,7 +84,10 @@ object MessageBodies:
     role:            String,                 // "backend" | "source-language" | "both"
     acceptedSources: Set[String] = Set.empty,
     features:        Set[String] = Set.empty,
-    outputs:         Set[String] = Set.empty
+    outputs:         Set[String] = Set.empty,
+    /** True when the plugin supports `openSession` / `session.feed` /
+     *  `invokeHandler`.  Stage 6+/B. */
+    interactive:     Boolean     = false
   ) derives ReadWriter
 
   /** compile(ir, opts) — core → plugin.  IR is forwarded as-is via
@@ -115,3 +119,19 @@ object MessageBodies:
   case class SegmentWire(kind: String, language: String = "", code: String = "", source: String = "") derives ReadWriter
 
   case class DiagnosticWire(kind: String, message: String, feature: String = "", backend: String = "") derives ReadWriter
+
+  // ── Interactive session messages (Stage 6+/B) ─────────────────────────
+
+  /** openSession(opts) → sessionId */
+  case class OpenSessionParams(baseDir: Option[String] = None, extra: Map[String, String] = Map.empty) derives ReadWriter
+  case class OpenSessionResult(sessionId: String) derives ReadWriter
+
+  /** session.feed(sessionId, block) → CompileResultWire */
+  case class SessionFeedParams(sessionId: String, block: Content) derives ReadWriter
+
+  /** session.close(sessionId) — no result body */
+  case class SessionCloseParams(sessionId: String) derives ReadWriter
+
+  /** invokeHandler(sessionId, handlerRef, args) → Value */
+  case class InvokeHandlerParams(sessionId: String, handlerRef: SymbolRef, args: List[Value]) derives ReadWriter
+  case class InvokeHandlerResult(value: Value) derives ReadWriter

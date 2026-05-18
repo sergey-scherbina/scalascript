@@ -121,9 +121,14 @@ object BackendRegistry:
     inProcess.filter(_.acceptedSources.contains(language))
 
   /** All interactive backends — the subset used by `ssc serve` and
-   *  future REPL modes. */
+   *  future REPL modes.  Includes subprocess plugins that declare
+   *  `interactive: true` (Stage 6+/B). */
   def interactive: List[InteractiveBackend] =
-    inProcess.collect { case b: InteractiveBackend => b }
+    val inProc = inProcess.collect { case b: InteractiveBackend => b }
+    val sub    = manifests.filter(_.interactive).flatMap(subprocessBackendFor).collect {
+      case b: InteractiveBackend => b
+    }
+    inProc ++ sub
 
   /** One-line description per backend, intended for `--list-backends`.
    *  Includes both in-process and out-of-process plugins; subprocess

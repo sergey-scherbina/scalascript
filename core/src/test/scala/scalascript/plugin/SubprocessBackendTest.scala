@@ -2,7 +2,10 @@ package scalascript.plugin
 
 import org.scalatest.funsuite.AnyFunSuite
 import scalascript.ir
+import scalascript.ir.Value
+import scalascript.ir.LitValue
 import scalascript.backend.spi.{BackendOptions, CompileResult}
+import upickle.default.*
 
 /** Exercises the subprocess wire protocol against a mock plugin written
  *  inline as a Bash one-liner.  The mock implements just enough of the
@@ -13,10 +16,8 @@ import scalascript.backend.spi.{BackendOptions, CompileResult}
 class SubprocessBackendTest extends AnyFunSuite:
 
   // Mock plugin script — reads one JSON line per request, writes one JSON
-  // line per response.  Recognises three methods: describe, compile, shutdown.
-  // Implemented as a bash + jq pipeline so the test has zero runtime deps
-  // beyond what the JVM environment usually carries.  If jq is missing,
-  // tests are tagged `cancel`d at the cost of a noisy stderr line.
+  // line per response.  Supports: describe, compile, openSession,
+  // session.feed, invokeHandler, session.close, shutdown.
   private val mockScript: String =
     """
       |while IFS= read -r line; do
@@ -24,10 +25,22 @@ class SubprocessBackendTest extends AnyFunSuite:
       |  id=$(printf '%s' "$line" | jq -r '.id')
       |  case "$method" in
       |    describe)
-      |      jq -nc --argjson id "$id" '{id:$id, result:{id:"mock",displayName:"Mock Plugin",spiVersion:"0.1.0",role:"backend",acceptedSources:[],features:["MutableState","PatternMatching"],outputs:["JavaScriptSource"]}}'
+      |      jq -nc --argjson id "$id" '{id:$id, result:{id:"mock",displayName:"Mock Plugin",spiVersion:"0.1.0",role:"backend",interactive:true,acceptedSources:[],features:["MutableState","PatternMatching"],outputs:["JavaScriptSource"]}}'
       |      ;;
       |    compile)
       |      jq -nc --argjson id "$id" '{id:$id, result:{kind:"text",code:"console.log(42)",language:"javascript"}}'
+      |      ;;
+      |    openSession)
+      |      jq -nc --argjson id "$id" '{id:$id, result:{sessionId:"sess-1"}}'
+      |      ;;
+      |    "session.feed")
+      |      jq -nc --argjson id "$id" '{id:$id, result:{kind:"executed",stdout:"fed",stderr:"",exit:0}}'
+      |      ;;
+      |    invokeHandler)
+      |      jq -nc --argjson id "$id" '{id:$id, result:{value:{"$type":"Prim","v":{"$type":"IntL","value":99}}}}'
+      |      ;;
+      |    "session.close")
+      |      jq -nc --argjson id "$id" '{id:$id, result:{}}'
       |      ;;
       |    shutdown)
       |      jq -nc --argjson id "$id" '{id:$id, result:{ok:true}}'
@@ -85,3 +98,49 @@ class SubprocessBackendTest extends AnyFunSuite:
         plg.shutdown()
         plg.shutdown()      // no-throw on second call
         succeed
+
+  // ── Stage 6+/B — ir.Value round-trip ──────────────────────────────────
+
+  test("ir.Value serialises and deserialises via upickle"):
+    val v: Value = Value.Prim(LitValue.IntL(42L))
+    val json = write(v)
+    val back = read[Value](json)
+    assert(back == v)
+
+  test("ir.Value.Arr and Dict round-trip"):
+    val v: Value = Value.Arr(List(
+      Value.Prim(LitValue.StringL("hello")),
+      Value.Dict(Map("x" -> Value.Prim(LitValue.BoolL(true)))),
+      Value.Null
+    ))
+    assert(read[Value](write(v)) == v)
+
+  // ── Stage 6+/B — interactive session over subprocess ──────────────────
+
+  test("openSession returns a working SubprocessSession"):
+    spawnMock() match
+      case None      => cancel("jq not available — skipping subprocess test")
+      case Some(plg) =>
+        assert(plg.isInteractive)
+        val session = plg.openSession(BackendOptions())
+        val block   = ir.Content.CodeBlock(source = "println(1)", body = Nil)
+        plg.call(Methods.SessionFeed,
+          writeJs(MessageBodies.SessionFeedParams("sess-1", block))) match
+          case Right(_) => succeed
+          case Left(e)  => fail(s"session.feed failed: $e")
+        session.close()
+        plg.shutdown()
+
+  test("invokeHandler round-trip returns Value.Prim(IntL(99))"):
+    spawnMock() match
+      case None      => cancel("jq not available — skipping subprocess test")
+      case Some(plg) =>
+        val ref    = ir.SymbolRef(ir.QualifiedName("test.handler"))
+        val params = MessageBodies.InvokeHandlerParams("sess-1", ref, Nil)
+        plg.call(Methods.InvokeHandler, writeJs(params)) match
+          case Right(json) =>
+            val result = read[MessageBodies.InvokeHandlerResult](json)
+            assert(result.value == Value.Prim(LitValue.IntL(99L)))
+          case Left(e) =>
+            fail(s"invokeHandler failed: $e")
+        plg.shutdown()

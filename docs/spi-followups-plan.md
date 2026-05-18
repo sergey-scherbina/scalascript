@@ -347,7 +347,7 @@ channel.  Pairs with the intrinsic-table plumbing from 5+/A.
 | 3 | 9+/A   | 1 / 2           | **DONE (A.1)** — parser ↔ registry |
 | 4 | 9+/B   | 1 / 4           | **DONE (B.1)** — `backend-html` plugin skeleton.  B.2-B.4 deferred |
 | 5 | 9+/C   | 1 / 3           | **DONE (C.1)** — `backend-css` plugin skeleton.  C.2-C.3 deferred |
-| 6 | 6+     | 1 / 3           | **DONE (A)** — stdio-msgpack framing.  B / C remain |
+| 6 | 6+     | 2 / 3           | **DONE (A+B)** — msgpack framing + InteractiveBackend over subprocess + concrete ir.Value.  C remains |
 | 7 | 10     | 0 / 1           | Final integration — pending after 6+/B,C |
 | — | 5+/C   | 0 / 4           | **DEFERRED** — parallel WS work on feature/ws-v1.0 |
 | — | 5+/D   | 0 / 8           | **DEFERRED** — same reason |
