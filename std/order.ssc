@@ -1,0 +1,62 @@
+---
+name: std-order
+version: 1.0.0
+description: Order typeclass — total ordering
+exports:
+  - Order
+  - compare
+  - lt
+  - gt
+  - lte
+  - gte
+  - min
+  - max
+---
+
+# Order
+
+Total ordering typeclass. Use `derives Order` on case classes for auto-derivation.
+
+## Typeclass
+
+```scalascript
+trait Order[A]:
+  def compare(a: A, b: A): Int
+  def lt(a: A, b: A): Boolean  = compare(a, b) < 0
+  def gt(a: A, b: A): Boolean  = compare(a, b) > 0
+  def lte(a: A, b: A): Boolean = compare(a, b) <= 0
+  def gte(a: A, b: A): Boolean = compare(a, b) >= 0
+  def min(a: A, b: A): A       = if lte(a, b) then a else b
+  def max(a: A, b: A): A       = if gte(a, b) then a else b
+```
+
+## Primitive instances
+
+```scalascript
+given Order[Int] with
+  def compare(a: Int, b: Int): Int = a.compareTo(b)
+
+given Order[Long] with
+  def compare(a: Long, b: Long): Int = a.compareTo(b)
+
+given Order[Double] with
+  def compare(a: Double, b: Double): Int = a.compareTo(b)
+
+given Order[String] with
+  def compare(a: String, b: String): Int = a.compareTo(b)
+
+given Order[Boolean] with
+  def compare(a: Boolean, b: Boolean): Int = a.compareTo(b)
+```
+
+## Helpers
+
+```scalascript
+def compare[A](a: A, b: A)(using o: Order[A]): Int = o.compare(a, b)
+def lt[A](a: A, b: A)(using o: Order[A]): Boolean  = o.lt(a, b)
+def gt[A](a: A, b: A)(using o: Order[A]): Boolean  = o.gt(a, b)
+def lte[A](a: A, b: A)(using o: Order[A]): Boolean = o.lte(a, b)
+def gte[A](a: A, b: A)(using o: Order[A]): Boolean = o.gte(a, b)
+def min[A](a: A, b: A)(using o: Order[A]): A       = o.min(a, b)
+def max[A](a: A, b: A)(using o: Order[A]): A       = o.max(a, b)
+```

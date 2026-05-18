@@ -1,0 +1,47 @@
+---
+name: std-eq
+version: 1.0.0
+description: Eq typeclass — structural equality
+exports:
+  - Eq
+  - eqv
+  - neqv
+---
+
+# Eq
+
+Structural equality typeclass. Use `derives Eq` on case classes for auto-derivation.
+
+## Typeclass
+
+```scalascript
+trait Eq[A]:
+  def eqv(a: A, b: A): Boolean
+  def neqv(a: A, b: A): Boolean = !eqv(a, b)
+```
+
+## Primitive instances
+
+```scalascript
+given Eq[Int] with
+  def eqv(a: Int, b: Int): Boolean = a == b
+
+given Eq[Long] with
+  def eqv(a: Long, b: Long): Boolean = a == b
+
+given Eq[Double] with
+  def eqv(a: Double, b: Double): Boolean = a == b
+
+given Eq[String] with
+  def eqv(a: String, b: String): Boolean = a == b
+
+given Eq[Boolean] with
+  def eqv(a: Boolean, b: Boolean): Boolean = a == b
+```
+
+## Helpers
+
+```scalascript
+def eqv[A](a: A, b: A)(using eq: Eq[A]): Boolean = eq.eqv(a, b)
+def neqv[A](a: A, b: A)(using eq: Eq[A]): Boolean = eq.neqv(a, b)
+```

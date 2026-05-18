@@ -743,6 +743,19 @@ class Interpreter(
       }))
     )
 
+    // ── compiletime — metaprogramming primitives ─────────────────────────
+    globals("compiletime") = Value.InstanceV("compiletime", Map(
+      "error" -> Value.NativeFnV("compiletime.error", {
+        case List(Value.StringV(msg)) => located(s"compiletime.error: $msg")
+        case List(v)                  => located(s"compiletime.error: ${Value.show(v)}")
+        case _                        => located("compiletime.error: (no message)")
+      }),
+      // constValue and summonInline are handled as Term.ApplyType in eval;
+      // these stubs exist so `compiletime` resolves as a namespace object.
+      "constValue"    -> Value.NativeFnV("compiletime.constValue",    _ => Pure(Value.UnitV)),
+      "summonInline"  -> Value.NativeFnV("compiletime.summonInline",  _ => Pure(Value.UnitV))
+    ))
+
     // escape / collectCss / collectJs / scope now live in CoreIntrinsics
     // (Stage 5+/E–F); installNativeIntrinsics routes them.
 
@@ -1630,6 +1643,14 @@ class Interpreter(
       }
       val methodDefs: Map[String, Value.FunV] = methodPairs.toMap
       if methodDefs.nonEmpty then typeMethods(typeName) = methodDefs
+      // Auto-generate given instances for derived typeclasses
+      if d.templ.derives.nonEmpty then
+        d.templ.derives.foreach { derivedType =>
+          val tcName = derivedType match
+            case Type.Name(n) => n
+            case _            => derivedType.syntax
+          synthesizeDerivedInstance(typeName, paramNames, tcName, env)
+        }
 
     case d: Defn.Enum =>
       val enumName = d.name.value
@@ -1654,7 +1675,20 @@ class Interpreter(
       }
       env(enumName) = Value.InstanceV(enumName, caseFields.toMap)
 
-    case _: Defn.Trait => () // trait is erased — only the given instances matter
+    case d: Defn.Trait =>
+      // Register a sentinel InstanceV for the trait name so it is importable
+      // as a type-level name (e.g. `[Eq, eqv](std/eq.ssc)`).
+      val traitName = d.name.value
+      if !env.contains(traitName) then
+        env(traitName) = Value.InstanceV(traitName, Map.empty)
+      // If the trait has `derives` clauses, synthesize those instances.
+      if d.templ.derives.nonEmpty then
+        d.templ.derives.foreach { derivedType =>
+          val tcName = derivedType match
+            case Type.Name(n) => n
+            case _            => derivedType.syntax
+          synthesizeDerivedInstance(traitName, Nil, tcName, env)
+        }
 
     case d: Defn.Given =>
       d.templ.inits.headOption.foreach { init =>
@@ -2315,6 +2349,17 @@ class Interpreter(
             case n: Type.Name => n.value
             case _            => located("Prism[Outer, Variant]: Variant must be a simple type name")
           Pure(buildPrism(variantName))
+
+        // compiletime.constValue[T] — return the compile-time constant value of type T
+        case (Term.Select(Term.Name("compiletime"), Term.Name("constValue")), List(typeArg)) =>
+          Pure(constValueOfType(typeArg.asInstanceOf[scala.meta.Type]))
+
+        // compiletime.summonInline[TC[T]] — look up a given instance
+        case (Term.Select(Term.Name("compiletime"), Term.Name("summonInline")), List(typeArg)) =>
+          val key = typeToString(typeArg.asInstanceOf[scala.meta.Type])
+          val found = env.get(key).orElse(globals.get(key)).orElse(resolveGiven(key, Nil, env))
+          Pure(found.getOrElse(located(s"No given instance for '$key' (summonInline)")))
+
         case _ => eval(t.fun, env)  // other type applications — erase type args
 
     // Prefix unary operators: `!x`, `-x`, `+x`, `~x`.
@@ -3198,6 +3243,17 @@ class Interpreter(
     case ti: scala.meta.Type.ApplyInfix  => s"${typeToString(ti.lhs)} ${ti.op.value} ${typeToString(ti.rhs)}"
     case _                               => "_"
 
+  /** Extract the compile-time constant value of a type-level literal.
+   *  Used by `compiletime.constValue[T]`. */
+  private def constValueOfType(tp: scala.meta.Type): Value = tp match
+    case scala.meta.Lit.Int(n)      => Value.IntV(n.toLong)
+    case scala.meta.Lit.String(s)   => Value.StringV(s)
+    case scala.meta.Lit.Boolean(b)  => Value.BoolV(b)
+    case scala.meta.Lit.Double(d)   => Value.DoubleV(d.toDouble)
+    case scala.meta.Lit.Long(l)     => Value.IntV(l)
+    case scala.meta.Type.Name(n)    => Value.StringV(n)
+    case _                          => Value.StringV(tp.syntax)
+
   /** True if a scalameta Type is `A throws E` (infix `throws`). */
   private def isThrowsType(t: scala.meta.Type): Boolean = t match
     case ti: scala.meta.Type.ApplyInfix => ti.op.value == "throws"
@@ -3253,6 +3309,129 @@ class Interpreter(
           inferredType.flatMap(t => callEnv.get(s"$tc[$t]").orElse(globals.get(s"$tc[$t]")))
         else None
     }
+
+  // ─── Structural helpers for `derives` ────────────────────────────────────
+
+  private def structuralEq(a: Value, b: Value): Boolean = (a, b) match
+    case (Value.IntV(x),     Value.IntV(y))     => x == y
+    case (Value.DoubleV(x),  Value.DoubleV(y))  => x == y
+    case (Value.StringV(x),  Value.StringV(y))  => x == y
+    case (Value.BoolV(x),    Value.BoolV(y))    => x == y
+    case (Value.UnitV,       Value.UnitV)       => true
+    case (Value.ListV(xs),   Value.ListV(ys))   =>
+      xs.length == ys.length && xs.zip(ys).forall { case (x, y) => structuralEq(x, y) }
+    case (Value.InstanceV(t1, f1), Value.InstanceV(t2, f2)) =>
+      t1 == t2 && f1.keySet == f2.keySet && f1.keys.forall(k => structuralEq(f1(k), f2(k)))
+    case _ => a == b
+
+  private def structuralShow(v: Value): String = v match
+    case Value.InstanceV(typeName, fields) =>
+      if fields.isEmpty then typeName
+      else
+        val fieldStr = typeFieldOrder.get(typeName) match
+          case Some(order) => order.map(k => s"$k=${structuralShow(fields.getOrElse(k, Value.UnitV))}").mkString(", ")
+          case None        => fields.map { case (k, v) => s"$k=${structuralShow(v)}" }.mkString(", ")
+        s"$typeName($fieldStr)"
+    case _ => Value.show(v)
+
+  private def structuralHash(v: Value): Int = v match
+    case Value.IntV(n)    => n.##
+    case Value.DoubleV(d) => d.##
+    case Value.StringV(s) => s.##
+    case Value.BoolV(b)   => b.##
+    case Value.UnitV      => 0
+    case Value.ListV(xs)  => xs.foldLeft(1)((acc, x) => acc * 31 + structuralHash(x))
+    case Value.InstanceV(typeName, fields) =>
+      val fieldHashes = typeFieldOrder.get(typeName) match
+        case Some(order) => order.map(k => structuralHash(fields.getOrElse(k, Value.UnitV)))
+        case None        => fields.values.map(structuralHash).toList
+      fieldHashes.foldLeft(typeName.##)((acc, h) => acc * 31 + h)
+    case _ => v.##
+
+  private def structuralCompare(a: Value, b: Value): Int = (a, b) match
+    case (Value.IntV(x),    Value.IntV(y))    => x.compareTo(y)
+    case (Value.DoubleV(x), Value.DoubleV(y)) => x.compareTo(y)
+    case (Value.StringV(x), Value.StringV(y)) => x.compareTo(y)
+    case (Value.BoolV(x),   Value.BoolV(y))   => x.compareTo(y)
+    case (Value.InstanceV(t1, f1), Value.InstanceV(t2, f2)) if t1 == t2 =>
+      typeFieldOrder.get(t1) match
+        case Some(order) =>
+          order.iterator.map { k =>
+            structuralCompare(f1.getOrElse(k, Value.UnitV), f2.getOrElse(k, Value.UnitV))
+          }.find(_ != 0).getOrElse(0)
+        case None => 0
+    case _ => 0
+
+  /** Synthesize and register a given instance for typeclass `tcName` applied to `typeName`.
+   *  The key `TC[TypeName]` is stored in both `env` and `globals` so it is
+   *  visible in the current scope and in all future scopes. */
+  private def synthesizeDerivedInstance(
+    typeName:   String,
+    fieldNames: List[String],
+    tcName:     String,
+    env:        mutable.Map[String, Value]
+  ): Unit =
+    val typeKey = s"$tcName[$typeName]"
+    val instance: Value = tcName match
+
+      case "Eq" =>
+        Value.InstanceV("Eq", Map(
+          "eqv"  -> Value.NativeFnV("Eq.eqv",  {
+            case List(a, b) => Pure(Value.BoolV(structuralEq(a, b)))
+            case _          => Pure(Value.BoolV(false))
+          }),
+          "neqv" -> Value.NativeFnV("Eq.neqv", {
+            case List(a, b) => Pure(Value.BoolV(!structuralEq(a, b)))
+            case _          => Pure(Value.BoolV(true))
+          })
+        ))
+
+      case "Show" =>
+        Value.InstanceV("Show", Map(
+          "show" -> Value.NativeFnV("Show.show", {
+            case List(v) => Pure(Value.StringV(structuralShow(v)))
+            case _       => Pure(Value.StringV(""))
+          })
+        ))
+
+      case "Hash" =>
+        Value.InstanceV("Hash", Map(
+          "hash" -> Value.NativeFnV("Hash.hash", {
+            case List(v) => Pure(Value.IntV(structuralHash(v).toLong))
+            case _       => Pure(Value.IntV(0))
+          })
+        ))
+
+      case "Order" =>
+        Value.InstanceV("Order", Map(
+          "compare" -> Value.NativeFnV("Order.compare", {
+            case List(a, b) => Pure(Value.IntV(structuralCompare(a, b).toLong))
+            case _          => Pure(Value.IntV(0))
+          }),
+          "lt"  -> Value.NativeFnV("Order.lt",  { case List(a, b) => Pure(Value.BoolV(structuralCompare(a, b) < 0));  case _ => Pure(Value.BoolV(false)) }),
+          "gt"  -> Value.NativeFnV("Order.gt",  { case List(a, b) => Pure(Value.BoolV(structuralCompare(a, b) > 0));  case _ => Pure(Value.BoolV(false)) }),
+          "lte" -> Value.NativeFnV("Order.lte", { case List(a, b) => Pure(Value.BoolV(structuralCompare(a, b) <= 0)); case _ => Pure(Value.BoolV(false)) }),
+          "gte" -> Value.NativeFnV("Order.gte", { case List(a, b) => Pure(Value.BoolV(structuralCompare(a, b) >= 0)); case _ => Pure(Value.BoolV(false)) }),
+          "min" -> Value.NativeFnV("Order.min", { case List(a, b) => Pure(if structuralCompare(a, b) <= 0 then a else b); case _ => Pure(Value.UnitV) }),
+          "max" -> Value.NativeFnV("Order.max", { case List(a, b) => Pure(if structuralCompare(a, b) >= 0 then a else b); case _ => Pure(Value.UnitV) })
+        ))
+
+      case _ =>
+        // Unknown typeclass — try looking up TC.derived in globals
+        globals.get(tcName) match
+          case Some(tcObj: Value.InstanceV) =>
+            tcObj.fields.get("derived") match
+              case Some(fn) =>
+                val mirror = Value.InstanceV("Mirror", Map(
+                  "label"  -> Value.StringV(typeName),
+                  "fields" -> Value.ListV(fieldNames.map(Value.StringV.apply))
+                ))
+                Computation.run(callValue(fn, List(mirror), Map.empty))
+              case None => return
+          case _ => return
+
+    env(typeKey)     = instance
+    globals(typeKey) = instance
 
   /** Extend `args` with default values for any missing trailing parameters.
    *  Each default is evaluated in `baseEnv` augmented with the bindings of all

@@ -1,0 +1,44 @@
+---
+name: std-show
+version: 1.0.0
+description: Show typeclass — string representation
+exports:
+  - Show
+  - show
+---
+
+# Show
+
+String representation typeclass. Use `derives Show` on case classes for auto-derivation.
+
+## Typeclass
+
+```scalascript
+trait Show[A]:
+  def show(a: A): String
+```
+
+## Primitive instances
+
+```scalascript
+given Show[Int] with
+  def show(a: Int): String = a.toString
+
+given Show[Long] with
+  def show(a: Long): String = a.toString
+
+given Show[Double] with
+  def show(a: Double): String = a.toString
+
+given Show[String] with
+  def show(a: String): String = a
+
+given Show[Boolean] with
+  def show(a: Boolean): String = a.toString
+```
+
+## Helper
+
+```scalascript
+def show[A](a: A)(using s: Show[A]): String = s.show(a)
+```

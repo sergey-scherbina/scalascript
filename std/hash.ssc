@@ -1,0 +1,44 @@
+---
+name: std-hash
+version: 1.0.0
+description: Hash typeclass — structural hashing
+exports:
+  - Hash
+  - hash
+---
+
+# Hash
+
+Structural hashing typeclass. Use `derives Hash` on case classes for auto-derivation.
+
+## Typeclass
+
+```scalascript
+trait Hash[A]:
+  def hash(a: A): Int
+```
+
+## Primitive instances
+
+```scalascript
+given Hash[Int] with
+  def hash(a: Int): Int = a
+
+given Hash[Long] with
+  def hash(a: Long): Int = a.toInt
+
+given Hash[Double] with
+  def hash(a: Double): Int = a.hashCode
+
+given Hash[String] with
+  def hash(a: String): Int = a.hashCode
+
+given Hash[Boolean] with
+  def hash(a: Boolean): Int = if a then 1 else 0
+```
+
+## Helper
+
+```scalascript
+def hash[A](a: A)(using h: Hash[A]): Int = h.hash(a)
+```
