@@ -3007,6 +3007,15 @@ myDsl(args)...` cross-backend), and external DSL via a new
 `std/parsing/*` parser-combinator library and `std/dsl/*`
 helpers for AST + pretty-printing.
 
+**Architectural lock — reified by default** (see
+`docs/dsl.md` §2.5): all three flavours produce *data*
+(combinator trees / AST nodes), and execution is an
+**explicit extension method** call (`.exec`, `.parse(input)`,
+etc.).  Same `Parser[A]` value can run via recursive-descent
+(default), Pratt (v1.20.x perf), grammar validation, or
+compile-time via v1.14 `inline` — interpreters are
+independent extensions over the same data.
+
 Full design in [`docs/dsl.md`](docs/dsl.md).
 
 ```scala
