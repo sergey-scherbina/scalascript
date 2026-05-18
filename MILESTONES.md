@@ -373,10 +373,12 @@ unblocks downstream features as early as possible.
      Streaming responses + uploads, CORS, gzip, cache headers.
  12. **v1.5 Tier 5 — REST ergonomics** (~4-5d).
      Middleware, request validation, /_health/_ready, indexed JSON.
- 13. **6+/A — Direct-syntax do-notation** (~1-2 weeks).
-     Parked until extraction is complete — implementation cost
-     dominates over benefit until real `std.*` packages drive
-     direct-syntax usage patterns.
+ 13. **v1.8 — Direct-syntax do-notation** (~3 weeks).
+     Promoted from 6+/A to its own milestone with full design in
+     [`docs/direct-syntax.md`](docs/direct-syntax.md) and a six-
+     phase plan.  Parked until Stage 5+/B `std.http` is complete —
+     implementation cost dominates over benefit until real `std.*`
+     packages drive direct-syntax usage patterns.
  14. **6+/C — HostCallback dispatcher** (~1 week).
      Stage 6+/C from spi-followups-plan.md.  Unblocks the first
      out-of-process (.NET / WASM) backend MVP.  Parked because no
@@ -1635,6 +1637,110 @@ ecosystem with at least one canonical external plugin.
   - Capability check + SPI version guard catch incompatibilities
     at install time, not compile time.
   - The `Plugin marketplace` is one HTTP server away (left for v0.7).
+
+## v1.8 — Direct-syntax do-notation
+
+Pure sugar over the v1.1 `std/monad` machinery — zero new runtime,
+zero new type-system primitives.  Replaces nested `flatMap`
+callbacks and `for { x <- … } yield …` boilerplate with code that
+reads like sync but types honestly carry the monad:
+
+```scala
+route("GET", "/user") { req =>
+  user   = Async.delay(loadUser(req))     // monadic bind
+  orders = Async.delay(loadOrders(user))  // chains over `user`
+  Response.json(user, orders)             // pure tail — auto-lifts
+}
+```
+
+Full design in [`docs/direct-syntax.md`](docs/direct-syntax.md) —
+seven locked decisions (DS-1…DS-7), grammar, formal desugaring
+spec, comparison with for-comprehension / capture checking /
+cats-effect direct-style.
+
+Parked behind two prerequisites:
+1. **Stage 5+/B `std.http` extraction** (in flight) — drives real
+   usage patterns that inform error-message ergonomics.
+2. **`extern def` typer support** (Stage 5+/A.5, in flight) —
+   prerequisite for type-directed monad inference; without it
+   `Request => Async[Response]` can't be inferred from intrinsic
+   declarations alone.
+
+### Phase 1 — Typer foundation (~3 days)
+
+Parser accepts `direct[M] { … }`; typer sets the expected type of
+the body to `M[A]`; synthesises a `DirectMarker(M, body)` IR node
+(no runtime emission yet).
+
+### Phase 2 — Desugaring transformer (~4 days)
+
+New `core/transform/DirectDesugar.scala` walks `DirectMarker`
+nodes, applies the rewrite rules from `docs/direct-syntax.md` §5,
+emits a `Term.For` (scala-meta).  Existing for-comprehension
+lowering takes over from there — no new IR nodes, no new runtime.
+
+### Phase 3 — Type-directed implicit mode (~3 days)
+
+Detect "implicit direct block": a block whose expected type is
+`M[A]` with a `Monad[M]` in scope AND containing a bind-form
+(`x = expr` or bare `M[*]`-typed expression).  Drop the explicit
+`direct[M]` marker requirement for the common case.
+
+### Phase 4 — Control flow + traverse helpers (~2 days)
+
+- Add `whileM_` to a new `std/monad-control.ssc` for `Monad[M]`.
+- Verify `xs.traverse_` from `std/foldable-traversable.ssc` lowers
+  correctly inside direct blocks.
+- Conformance: `direct-control-flow.ssc`.
+
+### Phase 5 — Diagnostics (~2 days)
+
+Compiler errors for the four known foot-guns (full list in
+`docs/direct-syntax.md` §8 Phase 5):
+
+- `return` inside direct → "use `M.fail(...)` for early exit"
+- Monadic bind to `var` → "use `val` or a fresh name"
+- `.map(x => doMonadic(x))` → "use `.traverse` for monadic body"
+- Cross-monad bind → "transformer stack out of scope; lift explicitly"
+
+### Phase 6 — Conformance + std rewrites (~2 days)
+
+Six conformance tests (one per DS theme — see `docs/direct-syntax.md`
+§11).  Rewrite `examples/rest-api.ssc` and `examples/async-parallel-
+demo.ssc` to direct syntax as the canonical demos.
+
+### Hard-no list (closed by design — `docs/direct-syntax.md` §9)
+
+- Effect-row type tracking (`Async | Random | Logger`) → v2
+- Monad transformers (`OptionT`, `EitherT`, `StateT`) → v2
+- Auto-wrap thrown exceptions into `M.fail` → DS-7
+- `await`-style keyword (`val x = await(expr)`) → DS-6
+- Non-local `return` from inside a direct block → bypasses bind chain
+
+### Deferred follow-ups (carry into v1.8.1)
+
+Parked deliberately — re-evaluate after v1.8 ships and real code
+drives the question:
+
+1. **Postfix `.!` explicit-bind operator** (DS-6 follow-up).
+2. **Effect-row union types** — `direct[Async | Random]`.
+3. **Transformer-aware lift** — auto `OptionT.liftF` inside an
+   outer `Async` direct block.
+4. **`std/monad-control.ssc` expansion** — `untilM`, `iterateWhileM`.
+5. **Capture-checking interaction** — verify direct blocks don't
+   leak `var`-captures across `Async.parallel`, once Scala 3.x
+   capture checking matures.
+
+### Effort
+
+Six phases, ~16 days end-to-end (~3 weeks).  Each phase merges
+independently; Phases 1+2 (explicit `direct[M]` form) deliver real
+value alone, Phase 3 closes the ergonomics gap, Phases 4-6 polish.
+
+Cross-backend behaviour is identical — direct syntax is pure
+source-to-source rewriting before the backend split, so INT / JS /
+JVM see the same desugared `for { x <- e } yield body` and the
+existing v1.1 `Monad` machinery handles emission.
 
 ## v2.0 — Separate compilation of modules
 
