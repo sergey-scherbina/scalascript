@@ -2,6 +2,7 @@
 name: std-semigroup-monoid
 version: 1.0.0
 description: Semigroup and Monoid typeclasses — std v1.1 step 1
+package: std.semigroup_monoid
 exports:
   - Semigroup
   - Monoid

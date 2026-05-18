@@ -2,6 +2,7 @@
 name: std-generators
 version: 0.1.0
 description: Pull-based lazy streams — generator { body } / suspend(v) + Generator[T] combinators
+package: std.generators
 exports:
   - generator
   - suspend

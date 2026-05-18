@@ -1331,6 +1331,18 @@ class Interpreter(
   def exportedGlobals: Map[String, Value] = globals.toMap
   def exportedPkg: List[String]           = modulePkg
 
+  /** Recursively merge two InstanceVs: overlay fields win, but when both
+   *  sides map a key to an InstanceV the merge descends into that pair.
+   *  Used when a module has multiple code blocks all wrapped under the
+   *  same package object (e.g. `object std { object free { … } }`). */
+  private def mergeDeep(base: Value.InstanceV, overlay: Value.InstanceV): Value.InstanceV =
+    val merged = overlay.fields.foldLeft(base.fields) { case (acc, (k, v)) =>
+      (acc.get(k), v) match
+        case (Some(b: Value.InstanceV), o: Value.InstanceV) => acc.updated(k, mergeDeep(b, o))
+        case _                                               => acc.updated(k, v)
+    }
+    Value.InstanceV(base.typeName, merged)
+
   /** Extension methods registered by this interpreter, exposed so that
    *  parents can re-register them when importing a child module — the
    *  JS and JVM backends inline imports wholesale and pick these up
@@ -1554,7 +1566,10 @@ class Interpreter(
             args => Perform(effName, opName, args))
         case s => execStat(s, members)
       }
-      env(objectName) = Value.InstanceV(objectName, members.toMap)
+      val newObj: Value.InstanceV = Value.InstanceV(objectName, members.toMap)
+      env.get(objectName) match
+        case Some(existing: Value.InstanceV) => env(objectName) = mergeDeep(existing, newObj)
+        case _                               => env(objectName) = newObj
 
     case d: Defn.Class =>
       val params = d.ctor.paramClauses.flatMap(_.values).toList

@@ -2,6 +2,7 @@
 name: std-monad-control
 version: 1.0.0
 description: Control-flow combinators over Monad — whileM_, untilM_, forM_
+package: std.monad_control
 exports:
   - whileMOption
   - whileMList

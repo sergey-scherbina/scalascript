@@ -2,6 +2,7 @@
 name: std-bifunctor
 version: 1.0.0
 description: Bifunctor typeclass — std v1.1 step 6
+package: std.bifunctor
 exports:
   - tupleBifunctor
   - bimapTuple

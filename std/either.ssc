@@ -2,6 +2,7 @@
 name: std-either
 version: 1.0.0
 description: Either sum type — std v1.1 support type
+package: std.either
 exports:
   - Left
   - Right

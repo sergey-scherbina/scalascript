@@ -2,6 +2,7 @@
 name: std-nodes
 version: 1.0.0
 description: Distributed actor node primitives — v1.6 Phase 3
+package: std.nodes
 exports:
   - startNode
   - connectNode

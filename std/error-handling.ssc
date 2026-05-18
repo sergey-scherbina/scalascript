@@ -2,6 +2,7 @@
 name: std-error-handling
 version: 1.0.0
 description: Checked errors via throws type alias — v1.15
+package: std.error_handling
 exports:
   - raise
   - rethrow

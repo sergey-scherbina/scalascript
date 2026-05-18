@@ -2,6 +2,7 @@
 name: std-free
 version: 1.0.0
 description: Free[F, A] monad — program as data, v1.11.5
+package: std.free
 exports:
   - Free
   - freePure

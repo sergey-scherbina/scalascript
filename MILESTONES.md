@@ -2886,11 +2886,40 @@ emission changes needed.  Import resolution updated:
 - **JsGen** (`genImport`): generates `const Card = org.example.ui.Card;`
   for all bindings when pkg is non-empty.
 
-### Phase 3 — Std layout migration (~3 days)
+### Phase 3 — Std layout migration ✓ Landed
 
-Deferred: `std/mcp/` waits for v1.17 (MCP); `std/actors/`
-migration deferred to the v1.6 Phase 2 follow-up.  All std
-files currently stay flat per migration policy.
+All 16 std files (excluding `actors.ssc` deferred to v1.6 Phase 2
+and the not-yet-created `std/mcp/` waiting for v1.17) now carry a
+`package:` declaration in their frontmatter.  Packages assigned:
+
+| file | package |
+|------|---------|
+| `bifunctor.ssc` | `std.bifunctor` |
+| `coroutine.ssc` | `std.coroutine` |
+| `either.ssc` | `std.either` |
+| `error-handling.ssc` | `std.error_handling` |
+| `foldable-traversable.ssc` | `std.foldable_traversable` |
+| `free.ssc` | `std.free` |
+| `functor-applicative-monad.ssc` | `std.functor_applicative_monad` |
+| `generators.ssc` | `std.generators` |
+| `http.ssc` | `std.http` |
+| `index.ssc` | `std` |
+| `middleware.ssc` | `std.middleware` |
+| `monad-control.ssc` | `std.monad_control` |
+| `monaderror.ssc` | `std.monaderror` |
+| `nodes.ssc` | `std.nodes` |
+| `selective.ssc` | `std.selective` |
+| `semigroup-monoid.ssc` | `std.semigroup_monoid` |
+
+The Phase 2 aliasing (Interpreter `lookupExport`, JvmGen
+`aliasBlock`, JsGen `genImport`) makes all existing short-name
+imports backward-compatible.
+
+Also landed: interpreter `mergeDeep` — recursive InstanceV merge
+for same-named objects across multiple code blocks in one module.
+Without this, files with several `scalascript` fenced blocks (like
+`free.ssc`) would have their package-wrapped objects silently
+overwritten on each successive block.
 
 ### Phase 4 — Conformance + docs ✓ Landed
 
@@ -2911,7 +2940,7 @@ files currently stay flat per migration policy.
   discipline stays
 - `package object` — Scala 3 deprecated; not reintroducing
 
-### Status: ✓ Landed (Phases 1, 2, 4)  Phase 3 deferred
+### Status: ✓ Landed (all phases)
 
 ## v1.19 — URL / dep imports ✓ Landed
 

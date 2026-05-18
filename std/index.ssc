@@ -2,6 +2,7 @@
 name: std
 version: 1.0.0
 description: v1.1 typeclass library aggregator — one import for the whole std
+package: std
 exports:
   - intSum
   - stringConcat

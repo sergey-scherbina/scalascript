@@ -2,6 +2,7 @@
 name: std-monaderror
 version: 1.0.0
 description: MonadError typeclass — std v1.1 step 5
+package: std.monaderror
 exports:
   - optionUnitError
   - raiseOption

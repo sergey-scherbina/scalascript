@@ -2,6 +2,7 @@
 name: std-foldable-traversable
 version: 1.0.0
 description: Foldable and Traversable typeclasses — std v1.1 step 3
+package: std.foldable_traversable
 exports:
   - listFoldable
   - optionFoldable

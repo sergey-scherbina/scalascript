@@ -2,6 +2,7 @@
 name: std-coroutine
 version: 1.0.0
 description: v1.9 coroutine primitive — coroutineCreate / coroutineResume / suspend
+package: std.coroutine
 exports:
   - Step
   - coroutineCreate

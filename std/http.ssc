@@ -2,6 +2,7 @@
 name: std-http
 version: 0.1.0
 description: HTTP server + client primitives — extern declarations for route / serve / stop / tls / httpGet / httpPost / httpClient / httpGetStream / httpPostStream / wsConnect / cors / useGzip / cacheable / noCache / streamResponse / maxBodySize / uploadSpoolThreshold / uploadDir / sse / use
+package: std.http
 exports:
   - route
   - serve

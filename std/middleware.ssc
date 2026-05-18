@@ -2,6 +2,7 @@
 name: std-middleware
 version: 1.1.0
 description: REST middleware composition — per-route helpers (withRequestId/withTiming/withRequestLog/compose) and global use()-based helpers (useRequestId/useTiming/useRequestLog)
+package: std.middleware
 exports:
   - withRequestId
   - withTiming

@@ -2,6 +2,7 @@
 name: std-selective
 version: 1.0.0
 description: Selective typeclass — std v1.1 step 4
+package: std.selective
 exports:
   - Left
   - Right
