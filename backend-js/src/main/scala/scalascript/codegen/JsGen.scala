@@ -1734,6 +1734,62 @@ function httpClient(baseUrl, block) {
   try { return block(); } finally { _httpBaseUrl = prior; }
 }
 
+// Streaming HTTP — collects lines in a worker thread then calls handler per line.
+// The 60-second timeout covers most LLM streaming responses.  A future version
+// can switch the worker to push-mode to avoid the full-buffer wait.
+function _httpStreamFetch(method, url, body, headers, handler) {
+  const effective = (_httpBaseUrl && !url.startsWith('http')) ? _httpBaseUrl + url : url;
+  const { Worker, MessageChannel, receiveMessageOnPort } = require('worker_threads');
+  const sab  = new SharedArrayBuffer(4);
+  const flag = new Int32Array(sab);
+  const { port1, port2 } = new MessageChannel();
+  const workerSrc = [
+    'const { workerData } = require(\'worker_threads\');',
+    'const { port, sab, url, method, headers, body } = workerData;',
+    'const flag = new Int32Array(sab);',
+    '(async () => {',
+    '  let result;',
+    '  try {',
+    '    const opts = { method, headers };',
+    '    if (body) opts.body = body;',
+    '    const r = await fetch(url, opts);',
+    '    const hdrs = {};',
+    '    r.headers.forEach((v, k) => hdrs[k] = v);',
+    '    const text = await r.text();',
+    '    const lines = text.split(\'\\n\');',
+    '    result = { status: r.status, headers: hdrs, lines };',
+    '  } catch (e) { result = { status: 0, headers: {}, lines: [], error: String(e) }; }',
+    '  port.postMessage(result);',
+    '  Atomics.store(flag, 0, 1);',
+    '  Atomics.notify(flag, 0);',
+    '})();',
+  ].join('\\n');
+  const worker = new Worker(workerSrc, {
+    eval: true,
+    workerData: { sab, port: port2, url: effective, method, headers, body: body || null },
+    transferList: [port2],
+  });
+  Atomics.wait(flag, 0, 0, 60_000);
+  const drained = receiveMessageOnPort(port1);
+  worker.terminate(); port1.close();
+  const r = drained ? drained.message : { status: 0, headers: {}, lines: [] };
+  const hdrsMap = new Map(Object.entries(r.headers || {}));
+  for (const line of (r.lines || [])) { handler(line); }
+  return { _type: 'Response', status: r.status, body: '', headers: hdrsMap };
+}
+
+function httpGetStream(url, headers) {
+  const h = (headers instanceof Map) ? Object.fromEntries(headers.entries())
+            : (headers && typeof headers === 'object') ? headers : {};
+  return function(handler) { return _httpStreamFetch('GET', url, null, h, handler); };
+}
+
+function httpPostStream(url, body, headers) {
+  const h = (headers instanceof Map) ? Object.fromEntries(headers.entries())
+            : (headers && typeof headers === 'object') ? headers : {};
+  return function(handler) { return _httpStreamFetch('POST', url, body, h, handler); };
+}
+
 function serve(port, _tlsCfg) {
   _registerHealthDefaults();
   const _useTls = !!_tlsCfg;

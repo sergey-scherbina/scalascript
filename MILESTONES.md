@@ -1256,15 +1256,18 @@ items inside the phase pushed individually.
     - A.5 — Optional Let's Encrypt / acme.sh integration (#4),
       defer.
 
-- **Phase B — HTTP client** *(items 5-7; ~1 week)*.  Picks up
-  Phase A's `SSLContext` for free.  Wraps Java's `HttpClient`
-  (Loom-friendly, HTTP/2 capable) on JVM, `fetch` on Node,
-  `XMLHttpRequest` on browser-SPA.  Common return shape
+- **Phase B — HTTP client** *(items 5-7; ~1 week)* — **landed**.  Wraps
+  Java's `HttpClient` on JVM, `fetch` on Node.  Common return shape
   `Response(status, headers, body)` mirrors the server side.
-    - B.1 — `httpGet` / `httpPost` primitives (#5).
-    - B.2 — `httpClient { … }` block for shared config (#6).
-    - B.3 — Streaming response bodies (`bodyStream { line => … }`)
-      for SSE / chunked downloads (#7).
+    - B.1 — `httpGet` / `httpPost` primitives (#5) — landed.
+    - B.2 — `httpClient { … }` block for shared config (#6) — landed.
+    - B.3 — Streaming response bodies (#7) — **landed** (2026-05-18).
+      `httpGetStream(url)(handler)` / `httpPostStream(url, body)(handler)` call
+      `handler` for each line as it arrives.  JVM uses `BodyHandlers.ofLines()`
+      (truly incremental); JS collects lines in a worker thread then calls
+      handler per line in the main thread.  Returns `Response(status, headers,
+      body = "")`.  Primary use: LLM streaming APIs (OpenAI, Anthropic),
+      SSE consumers, chunked downloads.
 
 - **Phase C — WebSocket client** *(items 8-10; ~1 week)*.
   Symmetric to `onWebSocket`; re-uses `WsFraming` and Phase A's

@@ -1,7 +1,7 @@
 ---
 name: std-http
 version: 0.1.0
-description: HTTP server + client primitives — extern declarations for route / serve / stop / tls / httpGet / httpPost / wsConnect / cors / useGzip / cacheable / noCache / streamResponse / maxBodySize / sse
+description: HTTP server + client primitives — extern declarations for route / serve / stop / tls / httpGet / httpPost / httpClient / httpGetStream / httpPostStream / wsConnect / cors / useGzip / cacheable / noCache / streamResponse / maxBodySize / sse
 exports:
   - route
   - serve
@@ -10,6 +10,8 @@ exports:
   - httpGet
   - httpPost
   - httpClient
+  - httpGetStream
+  - httpPostStream
   - wsConnect
   - cors
   - useGzip
@@ -46,6 +48,15 @@ extern def httpGet(url: String, headers: Map[String, String]): Response
 extern def httpPost(url: String, body: String): Response
 extern def httpPost(url: String, body: String, headers: Map[String, String]): Response
 extern def httpClient(baseUrl: String)(block: => Unit): Unit
+
+// Streaming outbound HTTP — calls handler for each line as it arrives.
+// Useful for SSE consumers, LLM streaming APIs (OpenAI, Anthropic), and chunked
+// downloads.  Returns a Response with status + headers; body is empty (consumed
+// line-by-line by the handler).
+extern def httpGetStream(url: String)(handler: String => Unit): Response
+extern def httpGetStream(url: String, headers: Map[String, String])(handler: String => Unit): Response
+extern def httpPostStream(url: String, body: String)(handler: String => Unit): Response
+extern def httpPostStream(url: String, body: String, headers: Map[String, String])(handler: String => Unit): Response
 
 // Outbound WebSocket client — blocks until the server closes the connection.
 // handler receives a WebSocket object with send / recv / onMessage / close / ping / etc.

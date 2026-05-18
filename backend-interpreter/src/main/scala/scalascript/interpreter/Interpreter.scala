@@ -468,6 +468,69 @@ class Interpreter(
         httpDoRequest("POST", url, body, headersArg(hdrs))
       case _ => throw InterpretError("httpPost(url, body[, headers])")
     }
+
+    // httpGetStream / httpPostStream — streaming variants; call handler for each line.
+    // Curried: httpGetStream(url[, headers]) returns a NativeFnV expecting the handler.
+    def httpDoRequestStream(
+        method:  String,
+        rawUrl:  String,
+        body:    String,
+        headers: Map[String, String],
+        handler: Value
+    ): Value =
+      import java.net.http.{HttpClient as JHttpClient, HttpRequest, HttpResponse}
+      import scala.jdk.CollectionConverters.*
+      val base = _httpBaseUrl.get()
+      val url  = if base.nonEmpty && !rawUrl.startsWith("http") then base + rawUrl else rawUrl
+      val client = JHttpClient.newHttpClient()
+      val builder = HttpRequest.newBuilder().uri(java.net.URI.create(url))
+      headers.foreach((k, v) => builder.header(k, v))
+      val req = method match
+        case "GET"  => builder.GET().build()
+        case "POST" => builder.POST(HttpRequest.BodyPublishers.ofString(body)).build()
+        case m      => builder.method(m, HttpRequest.BodyPublishers.ofString(body)).build()
+      val resp = client.send(req, HttpResponse.BodyHandlers.ofLines())
+      val hdrs: Map[Value, Value] = resp.headers().map().entrySet().iterator().asScala.flatMap { e =>
+        if e.getValue.isEmpty then None
+        else Some((Value.StringV(e.getKey): Value) -> (Value.StringV(e.getValue.get(0)): Value))
+      }.toMap
+      resp.body().forEach { line => invoke(handler, List(Value.StringV(line))) }
+      Value.InstanceV("Response", Map(
+        "status"  -> Value.IntV(resp.statusCode().toLong),
+        "body"    -> Value.StringV(""),
+        "headers" -> Value.MapV(hdrs)
+      ))
+
+    nativeP("httpGetStream") {
+      case List(Value.StringV(url)) =>
+        Value.NativeFnV("httpGetStream.handler", Computation.pureFn {
+          case List(handler) => httpDoRequestStream("GET", url, "", Map.empty, handler)
+          case _ => throw InterpretError("httpGetStream(url)(handler)")
+        })
+      case List(Value.StringV(url), hdrs) =>
+        val h = headersArg(hdrs)
+        Value.NativeFnV("httpGetStream.handler", Computation.pureFn {
+          case List(handler) => httpDoRequestStream("GET", url, "", h, handler)
+          case _ => throw InterpretError("httpGetStream(url, headers)(handler)")
+        })
+      case _ => throw InterpretError("httpGetStream(url[, headers])(handler)")
+    }
+
+    nativeP("httpPostStream") {
+      case List(Value.StringV(url), Value.StringV(body)) =>
+        Value.NativeFnV("httpPostStream.handler", Computation.pureFn {
+          case List(handler) => httpDoRequestStream("POST", url, body, Map.empty, handler)
+          case _ => throw InterpretError("httpPostStream(url, body)(handler)")
+        })
+      case List(Value.StringV(url), Value.StringV(body), hdrs) =>
+        val h = headersArg(hdrs)
+        Value.NativeFnV("httpPostStream.handler", Computation.pureFn {
+          case List(handler) => httpDoRequestStream("POST", url, body, h, handler)
+          case _ => throw InterpretError("httpPostStream(url, body, headers)(handler)")
+        })
+      case _ => throw InterpretError("httpPostStream(url, body[, headers])(handler)")
+    }
+
     // httpClient(baseUrl) { block } — handled as a special form in eval
     // (double-apply pattern) so the block is evaluated directly rather than
     // wrapped as a thunk.  See the Term.Apply case in eval below.

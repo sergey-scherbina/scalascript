@@ -4582,6 +4582,32 @@ class JvmGen(
        |  _httpBaseUrl = baseUrl
        |  try block finally _httpBaseUrl = prior
        |
+       |// Streaming variants — call handler for each line as it arrives.
+       |// Uses BodyHandlers.ofLines() so lines are emitted incrementally.
+       |private def _httpDoRequestStream(method: String, url: String, body: String,
+       |    headers: Map[String, String], handler: String => Any): Any =
+       |  import java.net.http.{HttpClient as JHC, HttpRequest, HttpResponse}
+       |  import scala.jdk.CollectionConverters.*
+       |  val effectiveUrl = if _httpBaseUrl.nonEmpty && !url.startsWith("http") then _httpBaseUrl + url else url
+       |  val client = JHC.newHttpClient()
+       |  val builder = HttpRequest.newBuilder().uri(java.net.URI.create(effectiveUrl))
+       |  headers.foreach((k, v) => builder.header(k, v))
+       |  val req = method match
+       |    case "GET"  => builder.GET().build()
+       |    case m      => builder.method(m, HttpRequest.BodyPublishers.ofString(body)).build()
+       |  val resp = client.send(req, HttpResponse.BodyHandlers.ofLines())
+       |  val hdrs = resp.headers().map().entrySet().iterator().asScala.flatMap { e =>
+       |    if e.getValue.isEmpty then None else Some(e.getKey -> e.getValue.get(0))
+       |  }.toMap
+       |  resp.body().forEach { line => handler(line) }
+       |  Response(status = resp.statusCode(), headers = hdrs, body = "")
+       |
+       |def httpGetStream(url: String, headers: Map[String, String] = Map.empty)(handler: String => Any): Any =
+       |  _httpDoRequestStream("GET", url, "", headers, handler)
+       |
+       |def httpPostStream(url: String, body: String, headers: Map[String, String] = Map.empty)(handler: String => Any): Any =
+       |  _httpDoRequestStream("POST", url, body, headers, handler)
+       |
        |// ── Outbound WebSocket client ─────────────────────────────────────────
        |
        |private class _WsClientConn(url: String, extraHdrs: Map[String, String], protocols: List[String]):
