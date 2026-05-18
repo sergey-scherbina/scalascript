@@ -1,6 +1,6 @@
 # DSL — defining domain-specific languages in ScalaScript
 
-Status: **design / planning**.  Implementation tracked as
+Status: **shipped — Phases 1–6 complete**.  Implementation tracked as
 **v1.20 — DSL primitives + std/parsing** in MILESTONES.md.
 Companion to [`docs/markdown-as-syntax.md`](markdown-as-syntax.md)
 (multi-language fenced blocks via SourceLanguage SPI plugins —
@@ -888,10 +888,9 @@ A smaller companion library to `std/parsing/`.  Provides:
 
 ```
 std/dsl/
-├── types.ssc       # Node, Located, Span, PrettyPrint trait
-├── pretty.ssc      # combinators: text, indent, line, group
-├── walker.ssc      # cata-style traversal
-└── index.ssc       # aggregator
+├── ast.ssc       # Span, spanEmpty, spanMerge, HasSpan, Node[A]
+├── pretty.ssc    # Wadler/Lindig Doc ADT: text, line, empty, indent, ++, /, render
+└── builders.ssc  # phantom-type Builder[N,V] template: withName, withValue, withTag, build
 ```
 
 These tools formalise the patterns every DSL author reinvents.
@@ -999,14 +998,17 @@ formal lock decided in v1.20.x once usage shows the shape).
 Conformance: a typed `Calc` AST with pretty-printer that
 round-trips through parse → AST → pretty → parse.
 
-### Phase 6 — Documentation + examples (~2 days)
+### Phase 6 — Documentation + examples (shipped)
 
-- `examples/dsl-sql-interpolator.ssc` — full SQL-like
-  interpolator with compile-time validation
-- `examples/dsl-calc-parser.ssc` — calculator with parser
-  combinators
-- `examples/dsl-json-parser.ssc` — JSON parser from `std/parsing`
-- `docs/dsl.md` walkthrough updates
+- `examples/dsl-calc-parser.ssc` — calculator parser: typed Calc AST,
+  `std/parsing` combinator parser, `std/dsl/pretty` Doc pretty-printer,
+  round-trip parse → pretty → parse
+- `examples/dsl-json-parser.ssc` — full recursive JSON parser from
+  `std/parsing` helpers; `flatMap`-defer for mutual recursion; typed
+  JNull/JBool/JNum/JStr/JArr/JObj ADT
+- `examples/dsl-ast-builder.ssc` — all three `std/dsl/*` libraries:
+  Span/Node position tracking, Doc pretty-printer, phantom-type builder
+- `docs/dsl.md` status updated to shipped
 
 ### Effort
 

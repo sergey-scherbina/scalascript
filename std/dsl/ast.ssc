@@ -1,0 +1,38 @@
+---
+name: std-dsl-ast
+version: 1.0.0
+description: v1.20 std/dsl — Span, HasSpan, and Node[A] wrapper for position-annotated AST nodes
+exports:
+  - Span
+  - spanEmpty
+  - spanMerge
+  - Node
+---
+
+# `std/dsl/ast` — AST position types
+
+Core types for building typed, position-aware DSL abstract syntax trees.
+Every node that participates in cross-DSL composition should implement `HasSpan`.
+
+## Types
+
+```scalascript
+// Source span: half-open byte range [start, end) in the input string.
+case class Span(start: Int, end: Int)
+
+// Sentinel for nodes whose origin is unknown or synthesized.
+val spanEmpty: Span = Span(0, 0)
+
+// Merge two spans into the smallest span enclosing both.
+def spanMerge(a: Span, b: Span): Span =
+  val s = if a.start < b.start then a.start else b.start
+  val e = if a.end > b.end then a.end else b.end
+  Span(s, e)
+
+// Uniform interface for positioned AST nodes.
+trait HasSpan:
+  def span: Span
+
+// Wraps a parsed value A together with its source span.
+case class Node[A](value: A, span: Span) extends HasSpan
+```

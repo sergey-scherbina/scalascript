@@ -1,0 +1,110 @@
+#!/usr/bin/env ssc
+---
+name: dsl-json-parser
+version: 1.0.0
+description: v1.20 DSL — recursive JSON parser built entirely from std/parsing helpers
+---
+
+# JSON parser from std/parsing helpers
+
+A full recursive JSON parser demonstrating:
+- All `std/parsing/helpers.ssc` tokenization helpers
+- `flatMap`-defer for mutually recursive parsers (avoids construction-time infinite loops)
+- Typed ADT for JSON values
+
+## Imports
+
+[Position, ParseError, ParseOk, ParseErr, Parser, PChar, PString, PRegex, PSatisfy, PSucceed, PFail](std/parsing/core.ssc)
+
+[PSequence, PChoice, PMany, POpt, PMapped, PFlatMapped, PNamed, runParser](std/parsing/combinators.ssc)
+
+[whitespace, whitespace1, identifier, integer, number, stringLit, skip, keyword, token](std/parsing/helpers.ssc)
+
+## JSON ADT
+
+```scalascript
+case class JNull()
+case class JBool(v: Any)
+case class JNum(v: Any)
+case class JStr(v: Any)
+case class JArr(items: Any)
+case class JObj(fields: Any)
+```
+
+## Parser definitions
+
+```scalascript
+val ws = whitespace
+
+val jNull  = keyword("null").map(_ => JNull())
+val jTrue  = keyword("true").map(_ => JBool(true))
+val jFalse = keyword("false").map(_ => JBool(false))
+val jNum   = number.map(n => JNum(n))
+val jStr   = stringLit.map(s => JStr(s))
+
+def jValue(): Parser[Any] =
+  Parser.succeed(()).flatMap(_ =>
+    jNull | jTrue | jFalse | jNum | jStr | jArr() | jObj()
+  )
+
+def jArr(): Parser[Any] =
+  (ws ~> Parser.char('[') ~> ws ~>
+    (jValue() ~ (ws ~> Parser.char(',') ~> ws ~> jValue()).many()).opt() <~
+  ws <~ Parser.char(']')).map(opt =>
+    opt match
+      case None => JArr(Nil)
+      case Some(pair) =>
+        JArr(pair._2.foldLeft(List(pair._1))((acc, v) => acc :+ v))
+  )
+
+def jObj(): Parser[Any] =
+  val field = jStr ~ (ws ~> Parser.char(':') ~> ws ~> jValue())
+  (ws ~> Parser.char('{') ~> ws ~>
+    (field ~ (ws ~> Parser.char(',') ~> ws ~> field).many()).opt() <~
+  ws <~ Parser.char('}')).map(opt =>
+    opt match
+      case None => JObj(Nil)
+      case Some(pair) =>
+        JObj(pair._2.foldLeft(List(pair._1))((acc, f) => acc :+ f))
+  )
+```
+
+## Pretty-print a parsed JSON value
+
+```scalascript
+def showJson(v: Any): String =
+  v match
+    case JNull()    => "null"
+    case JBool(b)   => "" + b
+    case JNum(n)    => "" + n
+    case JStr(s)    => "\"" + s + "\""
+    case JArr(items) =>
+      "[" + items.asInstanceOf[List[Any]].map(showJson).mkString(", ") + "]"
+    case JObj(fields) =>
+      val fs = fields.asInstanceOf[List[Any]].map(f =>
+        f match
+          case (k, vv) => showJson(k) + ": " + showJson(vv)
+          case _       => "?"
+      )
+      "{" + fs.mkString(", ") + "}"
+    case _ => "?"
+```
+
+## Parse examples
+
+```scalascript
+val inputs = List(
+  "null",
+  "true",
+  "42",
+  "\"hello\"",
+  "[1, 2, 3]",
+  "{\"a\": 1, \"b\": true}",
+  "{\"name\": \"Alice\", \"scores\": [95, 87, 91]}"
+)
+
+for input <- inputs do
+  jValue().parse(input) match
+    case ParseOk(v, _, _) => println(input + " => " + showJson(v))
+    case ParseErr(e)      => println("error: " + e.message)
+```

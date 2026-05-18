@@ -1,0 +1,81 @@
+---
+name: std-parsing-core
+version: 1.0.0
+description: v1.20 std/parsing — Parser[A] ADT, Position, Span, ParseResult, ParseError, and primitive constructors
+exports:
+  - Position
+  - Span
+  - ParseError
+  - ParseOk
+  - ParseErr
+  - Parser
+  - PChar
+  - PString
+  - PRegex
+  - PSatisfy
+  - PSucceed
+  - PFail
+---
+
+# `std/parsing/core` — Parser ADT and primitives
+
+Reified-by-default parser combinator library.  Building a
+parser produces a **data tree** (case-class nodes).  Execution
+is explicit: call `.parse(input)` (defined in
+`std/parsing/combinators.ssc`).
+
+## Types
+
+```scalascript
+// Offset in the input string.
+case class Position(offset: Int)
+
+// Closed interval [start, end) in the input.
+case class Span(start: Position, end: Position)
+
+// A parse failure with message and position.
+case class ParseError(message: String, pos: Position)
+
+// Result of running a parser.
+sealed trait ParseResult[A]
+case class ParseOk[A](value: A, rest: String, pos: Position) extends ParseResult[A]
+case class ParseErr[A](error: ParseError) extends ParseResult[A]
+```
+
+## Parser nodes
+
+Each case is a node in the parser data tree.
+
+```scalascript
+sealed trait Parser[A]
+
+// Matches a single character exactly.
+case class PChar(c: Any) extends Parser[Any]
+
+// Matches a literal string.
+case class PString(s: String) extends Parser[String]
+
+// Matches text satisfying a regular expression.
+case class PRegex(pattern: String) extends Parser[String]
+
+// Matches a single character satisfying a predicate.
+case class PSatisfy(pred: Any) extends Parser[Any]
+
+// Always succeeds with the given value, consuming nothing.
+case class PSucceed[A](value: A) extends Parser[A]
+
+// Always fails with the given message.
+case class PFail(message: String) extends Parser[Any]
+```
+
+## Companion constructors
+
+```scalascript
+object Parser:
+  def char(c: Any): Parser[Any]                  = PChar(c)
+  def string(s: String): Parser[String]          = PString(s)
+  def regex(pattern: String): Parser[String]     = PRegex(pattern)
+  def satisfy(pred: Any): Parser[Any]            = PSatisfy(pred)
+  def succeed[A](value: A): Parser[A]            = PSucceed(value)
+  def fail(message: String): Parser[Any]         = PFail(message)
+```
