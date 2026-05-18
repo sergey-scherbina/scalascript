@@ -56,7 +56,9 @@ val InterpreterIntrinsics: Map[QualifiedName, IntrinsicImpl] =
     QualifiedName("print") -> NativeImpl((ctx, args) =>
       ctx.out.print(args.map(formatArg).mkString(" "))
     )
-  ) ++ HttpIntrinsics  // Stage 5+/B — HTTP: intrinsics/Http.scala
+  ) ++ HttpIntrinsics   // Stage 5+/B — HTTP: intrinsics/Http.scala
+    ++ WsIntrinsics    // Stage 5+/D — WS:   intrinsics/Ws.scala
+    ++ AuthIntrinsics  // Stage 5+/D — Auth: intrinsics/Auth.scala
 
 /** Same shape as `Value.show` but works on the `Any` payload an
  *  intrinsic sees post-unwrap.  Critical: doubles render without the
