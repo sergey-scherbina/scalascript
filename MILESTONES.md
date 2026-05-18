@@ -360,49 +360,23 @@ unblocks downstream features as early as possible.
   3. **SPI 5+/B** — `std.http` extraction (~3-5d).
      Proof point that the SPI shape carries a real platform package
      end-to-end.  Critical for confidence before generalising.
-  4. **v1.5 Tier 1 — TLS** (~1 week).
-     Highest-impact functional unblocker (standalone-internet
-     deploy).  Ships as a new intrinsic via the just-built pipeline,
-     so the work is doubly cost-efficient (real feature + proves
-     the SPI on a non-trivial intrinsic).
-  5. **SPI 5+/D** — `std.ws / auth / fs / crypto` extraction
-     (~1 week, 1-2d per package).
-     Generalises 5+/B to the remaining platform surface; finishes
-     the codegen-deflation pass.
-  6. **v1.5 Tier 2 — HTTP client** (~1 week).
-     Outbound integration unblocker (OAuth callbacks, payments,
-     AI/LLM, microservices).  Ships through the SPI pipeline as a
-     new intrinsic package.
-  7. **v1.5 Tier 3 — WS client** (~1 week).
-     Symmetric to onWebSocket; needed for v1.6 Phase 3.  Inherits
-     TLS for `wss://`.
-  8. **v1.7 — Plugin packaging & discovery** (~3 weeks).
-     Now that the SPI surface is clean and exercised by multiple
-     extracted packages (http, ws, auth, fs, crypto + tls + http
-     client + ws client), the plugin distribution layer has a
-     stable target to build against.
-  9. **v1.6 Phase 2 — Actors supervision** (~3-4d).
-     Independent; can land any time after Phase 1.
- 10. **v1.6 Phase 3 — Distributed actors** (~1 week).
-     Builds on Tier 3 WS client.
- 11. **v1.5 Tier 4 — HTTP server completeness** (~1 week).
-     Streaming responses + uploads, CORS, gzip, cache headers.
- 12. **v1.5 Tier 5 — REST ergonomics** (~4-5d).
-     Middleware, request validation, /_health/_ready, indexed JSON.
+  4. **v1.5 Tier 1 — TLS** ✓ Landed.
+  5. **SPI 5+/D** — `std.ws / auth / fs / crypto` extraction ✓ Landed.
+  6. **v1.5 Tier 2 — HTTP client** ✓ Landed.
+  7. **v1.5 Tier 3 — WS client** ✓ Landed.
+  8. **v1.7 — Plugin packaging & discovery** ✓ Landed.
+  9. **v1.6 Phase 2 — Actors supervision** ✓ Landed.
+ 10. **v1.6 Phase 3 — Distributed actors** ✓ Landed.
+ 11. **v1.5 Tier 4 — HTTP server completeness** ✓ Landed.
+ 12. **v1.5 Tier 5 — REST ergonomics** ✓ Landed.
  13. **v1.8 — Direct-syntax do-notation** ✓ Landed.
      All 6 phases in main: interpreter, JvmGen+JsGen codegen,
      conformance tests, `std/monad-control.ssc`, diagnostics,
      `direct-syntax-demo.ssc`.
- 14. **v1.9 — Coroutine primitive** (~2 weeks).
-     Single runtime primitive (3 SPI intrinsics) for paused-and-
-     resumable computation.  Lands as an internal foundation; user
-     APIs (Async / actors / WS) don't change.  Full design in
-     [`docs/coroutines.md`](docs/coroutines.md).  Prerequisite:
-     `extern def` typer support (Stage 5+/A.5).
- 15. **v1.10 — Generators** (~3-5 days).
-     `Generator[T]` user-facing API built on v1.9 coroutines.
-     Lazy pull-based streams, `.next` / `.map` / `.filter` / `.take`
-     / `.toList`.  Sets up the SSE source pattern for Tier 4 #11.
+ 14. **v1.9 — Coroutine primitive** ~ Partial.
+     Phase 1 (JVM/Loom) landed; Phases 2–4 (JS, interpreter, diagnostics) pending.
+ 15. **v1.10 — Generators** ~ Partial.
+     `Generator[T]` core landed; lazy combinators + demos pending.
  16. **v1.11 — Continuation-based Async** (~2 weeks).
      Rewrite `Async.*` on top of v1.9 coroutines.  Internal
      `Computation[A]` becomes a runtime-only shim; ≥20% allocation
@@ -462,13 +436,8 @@ unblocks downstream features as early as possible.
      v1.17.1 follow-ups: type-class layer (depends v1.14),
      own implementation for INT (defer), streaming resources
      (depends v1.10).
- 24. **v1.18 — `package` keyword + std layout migration**
-     (~1.5 weeks).
-     Promotes v0.7 "package keyword (deferred future)" into a
-     real milestone.  Closes namespace-collision risk between
-     third-party libs.  Full design in
-     [`docs/modularity.md`](docs/modularity.md) §9.  Can land
-     parallel with v1.19.
+ 24. **v1.18 — `package` keyword + std layout migration** ✓ Landed.
+     Phases 1, 2, 4 landed (parser, codegen, conformance); Phase 3 (std migration) deferred.
  25. **v1.19 — URL / dep imports** ✓ Landed.
      `[X](https://...)` URL fetch + `[X](dep:org/lib:1.2)`
      resolver, both with `ssc.lock` SHA-256 integrity-check.
@@ -768,7 +737,7 @@ component, picked by string prop, documented in the front-matter
 No code change — just discipline.  Promote when a real component
 ends up with three+ variant branches.
 
-## v1.0 — WebSocket production-readiness
+## v1.0 — WebSocket production-readiness ✓ Landed (Sprints 1–4, 6; Sprint 5 deferred)
 
 Sprints 4 and 6 landed on this branch (2026-05-17): observability
 (structured ws.connect/ws.close logs, `metrics()` native, HTTP
@@ -849,7 +818,7 @@ Carry-overs (out of v1.2, promote when asked):
     parity.  Adds ~400 LOC duplicate logic — defer until a Node
     deployment asks.
 
-## v1.3 — Runtime upgrades: real-thread Async, persistence, Async-integrated WS
+## v1.3 — Runtime upgrades: real-thread Async, persistence, Async-integrated WS ~ Partial (Stages 1–3 landed; Async-integrated WS + Node runAsyncParallel pending)
 
 Staged additions that build on the v0.8 Async / signals stack.  Each
 lands as its own merge so the suite stays green between steps.
@@ -882,7 +851,7 @@ see git history.)
    Worker creation is ~50–100ms one-time, so a pool would help for
    small-task workloads.
 
-## v1.4 — Standard-library effects
+## v1.4 — Standard-library effects ~ Partial (items 1–4 landed; items 5–10 pending)
 
 A curated set of pure-by-default effects that cover the boring 80% of
 app plumbing (logging, config, IDs, random, time, retry, cache).  Each
@@ -1088,7 +1057,7 @@ Order the v1.5 tiers below against those two boundaries; everything
 else in v1.5 (Tier 4 streaming, Tier 5 ergonomics) is workaround-
 covered today.
 
-## v1.5 — Transport layer: TLS + HTTP/WS clients + streaming
+## v1.5 — Transport layer: TLS + HTTP/WS clients + streaming ✓ Landed (Phases A–D′; Phase E / NIO migration deferred)
 
 Right now ScalaScript ships a **server-only** HTTP/WS stack with
 **no transport encryption** of its own.  Adequate behind an
@@ -1407,7 +1376,7 @@ HTTP/WS stack is genuinely production-ready and ergonomic for
 real REST apps), Phase E as a follow-up architectural pass when
 scale demands it.
 
-## v1.6 — Actors (Erlang-style, WebSocket-distributed)
+## v1.6 — Actors (Erlang-style, WebSocket-distributed) ✓ Landed (Phases 1–3: local, supervision, distributed — all backends)
 
 Full design and implementation plan: [`docs/actors-dist.md`](docs/actors-dist.md).
 
@@ -1603,7 +1572,7 @@ independently, each closes a real use case (Phase 1 — in-process
 concurrency; Phase 2 — fault tolerance; Phase 3 — uniform
 local/remote).
 
-## v1.7 — Plugin packaging & discovery (true extensibility)
+## v1.7 — Plugin packaging & discovery (true extensibility) ✓ Landed (Tiers 1–5: parser integration, .sscpkg, dep resolution, CLI)
 
 The Backend SPI (`docs/backend-spi.md`) already designs how
 third-party plugins claim intrinsics, ship runtime helpers, declare
@@ -1818,7 +1787,7 @@ source-to-source rewriting before the backend split, so INT / JS /
 JVM see the same desugared `for { x <- e } yield body` and the
 existing v1.1 `Monad` machinery handles emission.
 
-## v1.9 — Coroutine primitive
+## v1.9 — Coroutine primitive ~ Partial (Phase 1 / JVM via Loom landed; Phases 2–4 / JS + diagnostics pending)
 
 A single shared runtime primitive for paused-and-resumable
 computation, replacing the three parallel implementations that
@@ -1890,7 +1859,7 @@ infrastructure with `Async`.
 Four phases, ~2 weeks end-to-end.  Phases 1-3 are largely
 parallel across backends; Phase 4 gates on all three.
 
-## v1.10 — Generators
+## v1.10 — Generators ~ Partial (Generator[T] landed; lazy combinators + demos status unclear)
 
 User-facing `Generator[T]` API built on the v1.9 coroutine
 primitive.  Lazy pull-based streams without an `Observable`
