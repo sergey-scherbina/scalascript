@@ -251,7 +251,8 @@ class JvmGen(
        else Set.empty[String]) ++
       (if blocksUseActors(blocks) then
          Set("Actor.spawn", "Actor.self", "Actor.send", "Actor.exit",
-             "Actor.receive", "Actor.receive_t")
+             "Actor.receive", "Actor.receive_t",
+             "Actor.link", "Actor.monitor", "Actor.demonitor", "Actor.trapExit")
        else Set.empty[String])
 
     val trees = blocks.map(b => ScalaNode.fold(b.node)(identity))
@@ -351,9 +352,11 @@ class JvmGen(
     }
 
   /** True if any block references the v1.6 actor model — via
-   *  `runActors`, `spawn`, `self`, `exit`, or `receive`. */
+   *  `runActors`, `spawn`, `self`, `exit`, `receive`, `link`, `monitor`,
+   *  `demonitor`, or `trapExit`. */
   private def blocksUseActors(blocks: List[JvmGen.Block]): Boolean =
-    val names = Set("runActors", "spawn", "self", "exit", "receive")
+    val names = Set("runActors", "spawn", "self", "exit", "receive",
+                    "link", "monitor", "demonitor", "trapExit")
     blocks.exists { b =>
       var found = false
       ScalaNode.fold(b.node) { tree =>
@@ -1051,6 +1054,19 @@ class JvmGen(
       val pidJs    = emitExpr(argClause.values(0).asInstanceOf[Term])
       val reasonJs = emitExpr(argClause.values(1).asInstanceOf[Term])
       s"Actor.exit($pidJs, $reasonJs)"
+    // v1.6 Phase 2 — supervision primitives
+    case Term.Apply.After_4_6_0(Term.Name("link"), argClause)
+        if argClause.values.size == 1 =>
+      s"Actor.link(${emitExpr(argClause.values.head.asInstanceOf[Term])})"
+    case Term.Apply.After_4_6_0(Term.Name("monitor"), argClause)
+        if argClause.values.size == 1 =>
+      s"Actor.monitor(${emitExpr(argClause.values.head.asInstanceOf[Term])})"
+    case Term.Apply.After_4_6_0(Term.Name("demonitor"), argClause)
+        if argClause.values.size == 1 =>
+      s"Actor.demonitor(${emitExpr(argClause.values.head.asInstanceOf[Term])})"
+    case Term.Apply.After_4_6_0(Term.Name("trapExit"), argClause)
+        if argClause.values.size == 1 =>
+      s"Actor.trapExit(${emitExpr(argClause.values.head.asInstanceOf[Term])})"
 
     // Focus[T](_.a.b) / Focus(_.a.b) — lower to a Lens(get, set) literal.
     // The lambda body's field-access chain becomes nested get + nested copy.
@@ -1591,6 +1607,19 @@ class JvmGen(
       val pidJs    = emitExpr(argClause.values(0).asInstanceOf[Term])
       val reasonJs = emitExpr(argClause.values(1).asInstanceOf[Term])
       s"Actor.exit($pidJs, $reasonJs)"
+    // v1.6 Phase 2 — supervision primitives (inside CPS body)
+    case Term.Apply.After_4_6_0(Term.Name("link"), argClause)
+        if argClause.values.size == 1 =>
+      s"Actor.link(${emitExpr(argClause.values.head.asInstanceOf[Term])})"
+    case Term.Apply.After_4_6_0(Term.Name("monitor"), argClause)
+        if argClause.values.size == 1 =>
+      s"Actor.monitor(${emitExpr(argClause.values.head.asInstanceOf[Term])})"
+    case Term.Apply.After_4_6_0(Term.Name("demonitor"), argClause)
+        if argClause.values.size == 1 =>
+      s"Actor.demonitor(${emitExpr(argClause.values.head.asInstanceOf[Term])})"
+    case Term.Apply.After_4_6_0(Term.Name("trapExit"), argClause)
+        if argClause.values.size == 1 =>
+      s"Actor.trapExit(${emitExpr(argClause.values.head.asInstanceOf[Term])})"
 
     case app: Term.Apply => emitCpsApply(app)
 
@@ -4785,6 +4814,10 @@ class JvmGen(
        |// changing the API surface.
        |
        |case class _Pid(id: Long)
+       |// v1.6 Phase 2 — supervision message types visible to ScalaScript code
+       |case class Exit(from: Any, reason: Any)
+       |case class Down(ref: Any, from: Any, reason: Any)
+       |case object noproc
        |
        |/** Adapter: a partial-function literal becomes a total
        | *  `Any => Option[Any]`.  Used by emitReceiveMatcher so the
@@ -4802,12 +4835,17 @@ class JvmGen(
        |  id
        |
        |object Actor:
-       |  def spawn(thunk: () => Any): Any         = _perform("Actor", "spawn", thunk)
-       |  def self(): Any                          = _perform("Actor", "self")
-       |  def send(pid: Any, msg: Any): Any        = _perform("Actor", "send", pid, msg)
-       |  def exit(pid: Any, reason: Any): Any     = _perform("Actor", "exit", pid, reason)
-       |  def receive_(specId: Long): Any          = _perform("Actor", "receive",   specId)
-       |  def receive_t(specId: Long, ms: Any): Any = _perform("Actor", "receive_t", specId, ms)
+       |  def spawn(thunk: () => Any): Any          = _perform("Actor", "spawn",    thunk)
+       |  def self(): Any                           = _perform("Actor", "self")
+       |  def send(pid: Any, msg: Any): Any         = _perform("Actor", "send",     pid, msg)
+       |  def exit(pid: Any, reason: Any): Any      = _perform("Actor", "exit",     pid, reason)
+       |  def receive_(specId: Long): Any           = _perform("Actor", "receive",  specId)
+       |  def receive_t(specId: Long, ms: Any): Any = _perform("Actor", "receive_t",specId, ms)
+       |  // v1.6 Phase 2 — supervision
+       |  def link(pid: Any): Any                   = _perform("Actor", "link",     pid)
+       |  def monitor(pid: Any): Any                = _perform("Actor", "monitor",  pid)
+       |  def demonitor(ref: Any): Any              = _perform("Actor", "demonitor",ref)
+       |  def trapExit(b: Any): Any                 = _perform("Actor", "trapExit", b)
        |
        |class _ActorState:
        |  val mailbox = scala.collection.mutable.ArrayDeque.empty[Any]
@@ -4816,7 +4854,13 @@ class JvmGen(
        |  var blocked: (Any => Option[Any], Any => Any, Option[Long], Boolean) = null
        |
        |def _runActors(bodyThunk: () => Any): Any =
-       |  val actors = scala.collection.mutable.LongMap.empty[_ActorState]
+       |  val actors    = scala.collection.mutable.LongMap.empty[_ActorState]
+       |  // Phase 2 supervision state
+       |  val links     = scala.collection.mutable.LongMap.empty[scala.collection.mutable.Set[Long]]
+       |  val monitors  = scala.collection.mutable.LongMap.empty[scala.collection.mutable.Map[Long, Long]]
+       |  val trapExitM = scala.collection.mutable.LongMap.empty[Boolean]
+       |  var nextMonRef: Long = 0L
+       |
        |  val ready  = scala.collection.mutable.ArrayDeque.empty[Long]
        |  var nextId: Long = 0L
        |  var rootResult: Any = ()
@@ -4846,6 +4890,44 @@ class JvmGen(
        |          state.mailbox.removeHead()
        |    None
        |
+       |  def tryWakeBlocked(id: Long): Unit =
+       |    actors.get(id).foreach { st =>
+       |      if st.blocked != null then
+       |        val b = st.blocked
+       |        tryDeliver(st, b._1, b._4) match
+       |          case Some(c) =>
+       |            st.pending = _FlatMap(c, b._2)
+       |            st.blocked = null
+       |            ready.append(id)
+       |          case None => ()
+       |    }
+       |
+       |  def killActor(targetId: Long, reason: Any): Unit =
+       |    if !actors.contains(targetId) then return
+       |    actors.remove(targetId)
+       |    trapExitM.remove(targetId)
+       |    val deadPid = _Pid(targetId)
+       |    links.remove(targetId).foreach { linkedSet =>
+       |      linkedSet.foreach { linkedId =>
+       |        links.get(linkedId).foreach(_.remove(targetId))
+       |        if trapExitM.getOrElse(linkedId, false) then
+       |          actors.get(linkedId).foreach { st =>
+       |            st.mailbox.append(Exit(deadPid, reason))
+       |            tryWakeBlocked(linkedId)
+       |          }
+       |        else
+       |          killActor(linkedId, reason)
+       |      }
+       |    }
+       |    monitors.remove(targetId).foreach { monMap =>
+       |      monMap.foreach { (monRef, observerId) =>
+       |        actors.get(observerId).foreach { st =>
+       |          st.mailbox.append(Down(monRef, deadPid, reason))
+       |          tryWakeBlocked(observerId)
+       |        }
+       |      }
+       |    }
+       |
        |  def handleActorOp(id: Long, state: _ActorState, op: String, args: List[Any], k: Any => Any): Either[Unit, Any] = op match
        |    case "spawn" =>
        |      val thunk = args(0).asInstanceOf[() => Any]
@@ -4870,11 +4952,9 @@ class JvmGen(
        |      Right(k(()))
        |    case "exit" =>
        |      args(0) match
-       |        case _Pid(targetId) if actors.contains(targetId) =>
-       |          println(s"[exit] actor=$targetId reason=${args(1)}")
-       |          actors.remove(targetId)
-       |        case _ => ()
-       |      Right(k(()))
+       |        case _Pid(targetId) => killActor(targetId, args(1))
+       |        case _              => ()
+       |      if actors.contains(id) then Right(k(())) else Left(())
        |    case "receive" =>
        |      val matcher = _receiveSpecs.get(args(0).asInstanceOf[Long])
        |      tryDeliver(state, matcher, false) match
@@ -4893,6 +4973,42 @@ class JvmGen(
        |        case None =>
        |          state.blocked = (matcher, k, Some(System.currentTimeMillis() + ms), true)
        |          Left(())
+       |    // ── v1.6 Phase 2 — supervision ─────────────────────────────────────
+       |    case "link" =>
+       |      args(0) match
+       |        case _Pid(targetId) =>
+       |          if actors.contains(targetId) then
+       |            links.getOrElseUpdate(id,       scala.collection.mutable.Set.empty) += targetId
+       |            links.getOrElseUpdate(targetId, scala.collection.mutable.Set.empty) += id
+       |          else
+       |            if trapExitM.getOrElse(id, false) then
+       |              actors.get(id).foreach(_.mailbox.append(Exit(_Pid(targetId), noproc)))
+       |            else
+       |              killActor(id, noproc)
+       |        case _ => ()
+       |      if actors.contains(id) then Right(k(())) else Left(())
+       |    case "monitor" =>
+       |      args(0) match
+       |        case _Pid(targetId) =>
+       |          val monRef = nextMonRef; nextMonRef += 1
+       |          if actors.contains(targetId) then
+       |            monitors.getOrElseUpdate(targetId, scala.collection.mutable.Map.empty)(monRef) = id
+       |          else
+       |            actors.get(id).foreach { st =>
+       |              st.mailbox.append(Down(monRef, _Pid(targetId), noproc))
+       |              tryWakeBlocked(id)
+       |            }
+       |          Right(k(monRef))
+       |        case _ => Right(k(-1L))
+       |    case "demonitor" =>
+       |      val monRef = args(0).asInstanceOf[Long]
+       |      monitors.foreachEntry((_, m) => m.remove(monRef))
+       |      Right(k(()))
+       |    case "trapExit" =>
+       |      trapExitM(id) = args(0) match
+       |        case b: Boolean => b
+       |        case _          => args(0) == true
+       |      Right(k(()))
        |    case other => sys.error("Unknown Actor op: " + other)
        |
        |  def stepActor(id: Long, initial: Any): Unit =
@@ -4919,6 +5035,21 @@ class JvmGen(
        |            current = f.asInstanceOf[Any => Any](v)
        |        case v =>
        |          if id == rootId then rootResult = v
+       |          // Fire monitors with reason "normal" on natural completion.
+       |          val myPid = _Pid(id)
+       |          monitors.remove(id).foreach { monMap =>
+       |            monMap.foreach { (monRef, observerId) =>
+       |              actors.get(observerId).foreach { st =>
+       |                st.mailbox.append(Down(monRef, myPid, "normal"))
+       |                tryWakeBlocked(observerId)
+       |              }
+       |            }
+       |          }
+       |          links.remove(id).foreach { linkedSet =>
+       |            linkedSet.foreach { linkedId =>
+       |              links.get(linkedId).foreach(_.remove(id))
+       |            }
+       |          }
        |          actors.remove(id)
        |          return
        |
