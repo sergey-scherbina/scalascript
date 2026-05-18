@@ -3391,6 +3391,103 @@ function _runActors(bodyFn) {
   const _nodeDownQueue   = [];
   const _remoteLinks     = new Map();  // nodeId -> [[localActorId, remotePid], ...]
   const _remoteMonitors  = new Map();  // nodeId -> [[monRef, localActorId, remoteLocalId], ...]
+  // Phase 3: outbound peer channels (nodeId -> { worker, send })
+  const _peerChannels = new Map();
+  // Inbound messages from peer workers (raw JSON strings), drained each tick.
+  const _remoteRawInbox = [];
+  // Ring buffer constants (shared with workers via workerData).
+  const _RING_SLOTS = 64, _RING_SLOT_BYTES = 2048, _RING_HDR = 8;
+
+  // Drain all peer ring buffers into _remoteRawInbox.
+  function _drainPeerBuffers() {
+    for (const [, peer] of _peerChannels) {
+      const hdr = new Int32Array(peer.sab, 0, 2);
+      for (;;) {
+        const wc = Atomics.load(hdr, 0);
+        const rc = Atomics.load(hdr, 1);
+        if (wc === rc) break;
+        const slotOff = (rc % _RING_SLOTS) * _RING_SLOT_BYTES;
+        const len  = new DataView(peer.sab).getInt32(_RING_HDR + slotOff, true);
+        if (len > 0) {
+          const bytes = new Uint8Array(peer.sab, _RING_HDR + slotOff + 4, len);
+          _remoteRawInbox.push(Buffer.from(bytes).toString('utf8'));
+        }
+        Atomics.store(hdr, 1, rc + 1);
+      }
+    }
+  }
+
+  // Deserialise a $t-tagged JSON object into a ScalaScript value.
+  function _deserActorVal(o) {
+    if (o == null) return undefined;
+    switch (o.$t) {
+      case 'i': case 'd': return o.v;
+      case 's': return o.v;
+      case 'b': return o.v;
+      case 'u': return undefined;
+      case 'pid': return Pid(o.n, o.id);
+      case 'l': return o.v.map(_deserActorVal);
+      case 'o': {
+        const obj = { _type: o.cls };
+        for (const [k, v] of Object.entries(o.f)) obj[k] = _deserActorVal(v);
+        return obj;
+      }
+      default: return String(o.v != null ? o.v : '');
+    }
+  }
+
+  // Serialise a ScalaScript value to a $t-tagged JSON string.
+  function _serActorVal(v) {
+    if (v === null || v === undefined) return '{"$t":"u"}';
+    if (typeof v === 'number' && Number.isInteger(v)) return '{"$t":"i","v":' + v + '}';
+    if (typeof v === 'number') return '{"$t":"d","v":' + v + '}';
+    if (typeof v === 'string')  return '{"$t":"s","v":' + JSON.stringify(v) + '}';
+    if (typeof v === 'boolean') return '{"$t":"b","v":' + v + '}';
+    if (v && v._type === 'Pid') return '{"$t":"pid","n":' + JSON.stringify(v.nodeId) + ',"id":' + v.localId + '}';
+    if (Array.isArray(v)) return '{"$t":"l","v":[' + v.map(_serActorVal).join(',') + ']}';
+    if (v && v._type) {
+      const flds = Object.entries(v).filter(([k]) => k !== '_type').map(([k, vv]) => JSON.stringify(k) + ':' + _serActorVal(vv)).join(',');
+      return '{"$t":"o","cls":' + JSON.stringify(v._type) + ',"f":{' + flds + '}}';
+    }
+    return '{"$t":"s","v":' + JSON.stringify(String(v)) + '}';
+  }
+
+  // Process _remoteRawInbox: deliver messages, handle handshakes, node-downs.
+  function _processRemoteInbox() {
+    while (_remoteRawInbox.length > 0) {
+      const raw = _remoteRawInbox.shift();
+      try {
+        const env = JSON.parse(raw);
+        if (env.t === 'handshake') {
+          // Worker completed WS handshake — upgrade pending entry to real nodeId.
+          const peerNodeId = env.nodeId;
+          for (const [key, peer] of _peerChannels) {
+            if (peer.pending) {
+              _peerChannels.delete(key);
+              _peerChannels.set(peerNodeId, { sab: peer.sab, send: peer.send, worker: peer.worker });
+              break;
+            }
+          }
+        } else if (env.t === 'msg') {
+          const toId = env.to && env.to.localId;
+          if (toId != null) {
+            const body = _deserActorVal(env.body);
+            const st   = actors.get(toId);
+            if (st) {
+              st.mailbox.push(body);
+              tryWakeBlocked(toId);
+            }
+          }
+        } else if (env.t === 'ping') {
+          const peer = _peerChannels.get(env.from);
+          if (peer) peer.send(JSON.stringify({ t: 'pong' }));
+        } else if (env.t === 'down') {
+          _nodeDownQueue.push(env.nodeId);
+          _peerChannels.delete(env.nodeId);
+        }
+      } catch (_e) {}
+    }
+  }
 
   function _fireNodeDown(deadNodeId) {
     const deadPidOf = (localId) => Pid(deadNodeId, localId);
@@ -3523,16 +3620,29 @@ function _runActors(bodyFn) {
       case 'send': {
         const target = args[0];
         if (target && target._type === 'Pid') {
-          const ts = actors.get(target.localId);
-          if (ts) {
-            ts.mailbox.push(args[1]);
-            if (ts.blocked) {
-              const b = ts.blocked;
-              const delivered = tryDeliver(ts, b.matcher, b.wrapSome);
-              if (delivered !== null) {
-                ts.pending = new _FlatMap(delivered, b.k);
-                ts.blocked = null;
-                ready.push(target.localId);
+          const targetNode = target.nodeId || '';
+          if (targetNode && targetNode !== _localNodeId) {
+            // Remote send — serialise and deliver via peer channel.
+            const peer = _peerChannels.get(targetNode);
+            if (peer) {
+              const body = _serActorVal(args[1]);
+              const env  = '{"t":"msg","to":{"nodeId":' + JSON.stringify(targetNode) +
+                           ',"localId":' + target.localId + '},"from":{"nodeId":' +
+                           JSON.stringify(_localNodeId) + ',"localId":' + id + '},"body":' + body + '}';
+              peer.send(env);
+            }
+          } else {
+            const ts = actors.get(target.localId);
+            if (ts) {
+              ts.mailbox.push(args[1]);
+              if (ts.blocked) {
+                const b = ts.blocked;
+                const delivered = tryDeliver(ts, b.matcher, b.wrapSome);
+                if (delivered !== null) {
+                  ts.pending = new _FlatMap(delivered, b.k);
+                  ts.blocked = null;
+                  ready.push(target.localId);
+                }
               }
             }
           }
@@ -3628,11 +3738,86 @@ function _runActors(bodyFn) {
       }
       // ── v1.6 Phase 3 — distributed node primitives ────────────────────
       case 'startNode': {
-        _localNodeId = args[0];
+        _localNodeId = String(args[0]);
+        // Register /_ssc-actors WS handler for inbound peer connections.
+        // Peers connect, exchange nodeId handshake, then send actor messages.
+        if (typeof onWebSocket === 'function') {
+          onWebSocket('/_ssc-actors', (ws) => {
+            let peerNodeId = '';
+            ws.onMessage((msg) => {
+              if (!peerNodeId) {
+                try {
+                  const h = JSON.parse(msg);
+                  if (h.nodeId) {
+                    peerNodeId = h.nodeId;
+                    ws.send(JSON.stringify({ nodeId: _localNodeId }));
+                    // Register send channel for this inbound peer.
+                    // Use a stub — real ring buffer approach would need shared memory,
+                    // but inbound WS handler runs in same event loop here.
+                    _peerChannels.set(peerNodeId, { sab: null, send: (json) => ws.send(json) });
+                  }
+                } catch (_) {}
+              } else {
+                _remoteRawInbox.push(msg);
+              }
+            });
+            ws.onClose(() => {
+              if (peerNodeId) {
+                _nodeDownQueue.push(peerNodeId);
+                _peerChannels.delete(peerNodeId);
+              }
+            });
+          });
+        }
         return { suspend: false, next: k(undefined) };
       }
       case 'connectNode': {
-        // JS backend: no real WS networking; connectNode is a no-op.
+        const peerUrl = String(args[0]);
+        const token   = args[1] != null ? String(args[1]) : '';
+        const sab     = new SharedArrayBuffer(_RING_HDR + _RING_SLOTS * _RING_SLOT_BYTES);
+        const ownNodeId = _localNodeId;
+        const ringSlots = _RING_SLOTS, ringSlotBytes = _RING_SLOT_BYTES, ringHdr = _RING_HDR;
+        // Worker code: WS connection + ring-buffer writes.
+        // Requires the 'ws' npm package.
+        const workerSrc = [
+          "const { workerData, parentPort } = require('worker_threads');",
+          "const { url, token, sab, ownNodeId, RS, RSB, RH } = workerData;",
+          "let WsClass; try { WsClass = require('ws'); } catch(_) { throw new Error('connectNode requires the ws npm package'); }",
+          "const hdr  = new Int32Array(sab, 0, 2);",
+          "function ringWrite(json) {",
+          "  const wc = Atomics.load(hdr, 0), rc = Atomics.load(hdr, 1);",
+          "  if (((wc - rc + RS) % RS) >= RS - 1) return;",
+          "  const bytes = Buffer.from(json, 'utf8');",
+          "  if (bytes.length + 4 > RSB) return;",
+          "  const off = RH + (wc % RS) * RSB;",
+          "  new DataView(sab).setInt32(off, bytes.length, true);",
+          "  new Uint8Array(sab).set(bytes, off + 4);",
+          "  Atomics.store(hdr, 0, wc + 1);",
+          "}",
+          "const hdrs = token ? { Authorization: 'Bearer ' + token } : {};",
+          "const ws = new WsClass(url, ['ssc-actors-v1'], { headers: hdrs });",
+          "let peerNodeId = '';",
+          "ws.on('open', () => ws.send(JSON.stringify({ nodeId: ownNodeId })));",
+          "ws.on('message', (data) => {",
+          "  const msg = Buffer.isBuffer(data) ? data.toString('utf8') : String(data);",
+          "  if (!peerNodeId) {",
+          "    try { const h = JSON.parse(msg); if (h.nodeId) { peerNodeId = h.nodeId; ringWrite(JSON.stringify({ t: 'handshake', nodeId: peerNodeId })); } } catch(_) {}",
+          "  } else {",
+          "    ringWrite(msg);",
+          "  }",
+          "});",
+          "ws.on('close', () => { if (peerNodeId) ringWrite(JSON.stringify({ t: 'down', nodeId: peerNodeId })); });",
+          "ws.on('error', (e) => { console.error('ssc-actors connectNode error [' + url + ']:', e.message); if (peerNodeId) ringWrite(JSON.stringify({ t: 'down', nodeId: peerNodeId })); });",
+          "parentPort.on('message', ({ json }) => { try { if (ws.readyState === 1) ws.send(json); } catch(_) {} });",
+          "setInterval(() => { try { if (ws.readyState === 1) ws.send(JSON.stringify({ t: 'ping' })); } catch(_) {} }, 30000);"
+        ].join('\n');
+        const { Worker } = require('worker_threads');
+        const worker = new Worker(workerSrc, { eval: true,
+          workerData: { url: peerUrl, token, sab, ownNodeId, RS: ringSlots, RSB: ringSlotBytes, RH: ringHdr } });
+        const sendFn = (json) => worker.postMessage({ json });
+        // Store with a placeholder nodeId; handshake message will confirm it.
+        // Use URL as temporary key; replaced on first handshake drain.
+        _peerChannels.set('__pending__' + peerUrl, { sab, send: sendFn, worker, pending: true, url: peerUrl });
         return { suspend: false, next: k(undefined) };
       }
       case 'register': {
@@ -3710,14 +3895,18 @@ function _runActors(bodyFn) {
   }
 
   while (true) {
-    // Drain node-down notifications before checking the ready queue.
+    // Drain peer ring buffers then node-down queue before each scheduler tick.
+    if (_peerChannels.size > 0) {
+      _drainPeerBuffers();
+      _processRemoteInbox();
+    }
     while (_nodeDownQueue.length > 0) _fireNodeDown(_nodeDownQueue.shift());
     if (ready.length > 0) {
       const id = ready.shift();
       const state = actors.get(id);
       if (state && state.pending !== null) stepActor(id);
     } else {
-      // Quiescence — but timeout-armed receives or pending node-downs may still fire.
+      // Quiescence — but timeout-armed receives, remote messages, or node-downs may fire.
       if (_nodeDownQueue.length > 0) continue;
       let earliest = null;
       for (const [aid, st] of actors) {
@@ -3726,15 +3915,22 @@ function _runActors(bodyFn) {
             earliest = { id: aid, d: st.blocked.deadline };
         }
       }
-      if (!earliest) break;
-      const sleepFor = earliest.d - Date.now();
-      if (sleepFor > 0) _asyncSleep(sleepFor);
-      const s = actors.get(earliest.id);
-      if (s && s.blocked) {
-        const kk = s.blocked.k;
-        s.blocked = null;
-        s.pending = kk(_None);
-        ready.push(earliest.id);
+      // Distributed: keep running while peer channels are open and actors are blocked.
+      const isDistributed = _peerChannels.size > 0;
+      const hasBlockedActors = isDistributed && actors.size > 0 &&
+        [...actors.values()].some(st => st && st.blocked !== null);
+      if (!earliest && !hasBlockedActors) break;
+      const sleepFor = earliest != null ? Math.min(earliest.d - Date.now(), 10) : 10;
+      if (sleepFor > 0) _asyncSleep(sleepFor); // worker threads write to ring buffers during sleep
+      if (earliest != null) {
+        const now = Date.now();
+        const s = actors.get(earliest.id);
+        if (s && s.blocked && s.blocked.deadline != null && now >= s.blocked.deadline) {
+          const kk = s.blocked.k;
+          s.blocked = null;
+          s.pending = kk(_None);
+          ready.push(earliest.id);
+        }
       }
     }
   }
