@@ -250,7 +250,7 @@ class JvmGen(
          Set("Storage.get", "Storage.put", "Storage.remove", "Storage.has", "Storage.keys")
        else Set.empty[String]) ++
       (if blocksUseActors(blocks) then
-         Set("Actor.spawn", "Actor.self", "Actor.send", "Actor.exit",
+         Set("Actor.spawn", "Actor.spawn_link", "Actor.self", "Actor.send", "Actor.exit",
              "Actor.receive", "Actor.receive_t",
              "Actor.link", "Actor.monitor", "Actor.demonitor", "Actor.trapExit")
        else Set.empty[String]) ++
@@ -1116,6 +1116,9 @@ class JvmGen(
       // `() => <cps-body>` — exactly the `() => Any` thunk `Actor.spawn`
       // expects.  Wrapping in another `() =>` would double-thunk.
       s"Actor.spawn(${emitCpsExpr(argClause.values.head.asInstanceOf[Term])})"
+    case Term.Apply.After_4_6_0(Term.Name("spawn_link"), argClause)
+        if argClause.values.size == 1 =>
+      s"Actor.spawn_link(${emitCpsExpr(argClause.values.head.asInstanceOf[Term])})"
     case Term.Apply.After_4_6_0(Term.Name("self"), argClause)
         if argClause.values.isEmpty =>
       "Actor.self()"
@@ -1685,6 +1688,9 @@ class JvmGen(
       // `() => <cps-body>` — exactly the `() => Any` thunk `Actor.spawn`
       // expects.  Wrapping in another `() =>` would double-thunk.
       s"Actor.spawn(${emitCpsExpr(argClause.values.head.asInstanceOf[Term])})"
+    case Term.Apply.After_4_6_0(Term.Name("spawn_link"), argClause)
+        if argClause.values.size == 1 =>
+      s"Actor.spawn_link(${emitCpsExpr(argClause.values.head.asInstanceOf[Term])})"
     case Term.Apply.After_4_6_0(Term.Name("self"), argClause)
         if argClause.values.isEmpty =>
       "Actor.self()"
@@ -5428,6 +5434,7 @@ class JvmGen(
        |
        |object Actor:
        |  def spawn(thunk: () => Any): Any              = _perform("Actor", "spawn",       thunk)
+       |  def spawn_link(thunk: () => Any): Any         = _perform("Actor", "spawnLink",   thunk)
        |  def self(): Any                               = _perform("Actor", "self")
        |  def send(pid: Any, msg: Any): Any             = _perform("Actor", "send",        pid, msg)
        |  def exit(pid: Any, reason: Any): Any          = _perform("Actor", "exit",        pid, reason)
@@ -5700,6 +5707,13 @@ class JvmGen(
        |    case "spawn" =>
        |      val thunk = args(0).asInstanceOf[() => Any]
        |      val childId = spawnActor(thunk)
+       |      Right(k(_Pid(_localNodeId, childId)))
+       |    case "spawnLink" =>
+       |      val thunk = args(0).asInstanceOf[() => Any]
+       |      val childId = spawnActor(thunk)
+       |      // Atomic bidirectional link
+       |      links.getOrElseUpdate(id,      scala.collection.mutable.Set.empty) += childId
+       |      links.getOrElseUpdate(childId, scala.collection.mutable.Set.empty) += id
        |      Right(k(_Pid(_localNodeId, childId)))
        |    case "self" => Right(k(_Pid(_localNodeId, id)))
        |    case "send" =>

@@ -2190,6 +2190,11 @@ class Interpreter(
       case List(thunk) => Perform("Actor", "spawn", List(thunk))
       case _           => throw InterpretError("spawn(behavior: () => Unit)")
     })
+    // v1.6 Phase 1.x — atomic spawn + link
+    globals("spawn_link") = Value.NativeFnV("spawn_link", {
+      case List(thunk) => Perform("Actor", "spawnLink", List(thunk))
+      case _           => throw InterpretError("spawn_link(behavior: () => Unit)")
+    })
     globals("self") = Value.NativeFnV("self", {
       case Nil => Perform("Actor", "self", Nil)
       case _   => throw InterpretError("self takes no arguments")
@@ -4513,6 +4518,23 @@ class Interpreter(
         finally rt.currentId = savedCurrent
       rt.pending(childId) = childBody
       rt.ready.enqueue(childId)
+      Right(k(mkPid("", childId)))
+
+    case "spawnLink" =>
+      val thunk = args.head
+      val childId = rt.nextId
+      rt.nextId += 1
+      rt.mailboxes(childId) = mutable.Queue.empty
+      val savedCurrent = rt.currentId
+      rt.currentId = childId
+      val childBody =
+        try callValue(thunk, Nil, Map.empty)
+        finally rt.currentId = savedCurrent
+      rt.pending(childId) = childBody
+      rt.ready.enqueue(childId)
+      // Atomic bidirectional link before returning
+      rt.links.getOrElseUpdate(id,      mutable.Set.empty) += childId
+      rt.links.getOrElseUpdate(childId, mutable.Set.empty) += id
       Right(k(mkPid("", childId)))
 
     case "self" =>

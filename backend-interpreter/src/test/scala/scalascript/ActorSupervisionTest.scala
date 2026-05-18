@@ -144,3 +144,35 @@ class ActorSupervisionTest extends AnyFunSuite with Matchers:
         println("root done")
       }
     """) shouldBe "root done"
+
+  // ── spawn_link ────────────────────────────────────────────────────
+
+  test("spawn_link: supervisor with trapExit receives Exit when linked child crashes"):
+    captured("""
+      runActors {
+        val sup = spawn { () =>
+          trapExit(true)
+          val worker = spawn_link { () =>
+            val me = self()
+            exit(me, "crash")
+          }
+          receive {
+            case Exit(from, reason) => println("caught: " + reason)
+          }
+        }
+      }
+    """) shouldBe "caught: crash"
+
+  test("spawn_link: crash propagates to parent when parent has no trapExit"):
+    captured("""
+      runActors {
+        val sup = spawn { () =>
+          val worker = spawn_link { () =>
+            val me = self()
+            exit(me, "kaboom")
+          }
+          receive { case _ => println("unreachable") }
+        }
+        println("root ok")
+      }
+    """) shouldBe "root ok"

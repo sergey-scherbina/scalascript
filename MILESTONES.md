@@ -1402,8 +1402,8 @@ Monad trampoline.  Cross-backend e2e in
 
 Carry-over follow-ups (Phase 1.x — not blocking the next Phase):
 
-  - **`spawn_link(behavior): Pid`** — atomic spawn-and-link.  Needs
-    Phase 2's link machinery.
+  - **`spawn_link(behavior): Pid`** — atomic spawn-and-link — **landed**.
+    All three backends; 2 unit tests in `ActorSupervisionTest`.
   - **`call(pid, msg, timeout = N)`** — `gen_server:call/2`
     request/reply sugar.  Trivially user-implementable as
     `pid ! (self, ref, msg); receive { case (`ref`, reply) => … }`,
@@ -1422,54 +1422,24 @@ Carry-over follow-ups (Phase 1.x — not blocking the next Phase):
     erase / cast Any-typed temps when feeding them to apply sites
     whose signature is more specific.  ~150 LOC.
 
-### Phase 2 — Supervision (~3-4 days)
+### Phase 2 — Supervision (~3-4 days) — **landed**
 
-Erlang-style fault tolerance.  With `trap_exit`, a supervisor is
+Erlang-style fault tolerance.  With `trapExit`, a supervisor is
 just a regular actor that handles EXIT messages — no special
 runtime, supervision is a library on top of Phase 1.
 
-**Implementation state:** `link`/`monitor`/`demonitor`/`trap_exit`
-handlers are **absent** from `handleActorOp`.  The `ActorRuntime`
-class does not yet carry `links`, `monitors`, `trapExitM` fields.
-The current `exit` op removes the actor but does not propagate
-EXIT/DOWN signals.  Full implementation plan: `docs/actors-dist.md §Phase 2`.
+**Fully landed across all three backends (interpreter, JvmGen, JsGen):**
+- `link(pid)` — bidirectional death link; crash propagates unless `trapExit(true)`.
+- `monitor(pid): MonitorRef` — unidirectional; delivers `Down(ref, from, reason)`.
+- `demonitor(ref)` — cancels a monitor before the watched actor exits.
+- `trapExit(b)` — toggle current actor's exit-signal handling.
+- `killActor` propagates EXIT/Down signals; cascade-kill when `trapExit = false`.
+- `Supervisor.start(specs, strategy, MaxRestarts)` in `std/actors.ssc` — pure
+  ScalaScript; supports `one_for_one` / `one_for_all` / `rest_for_one` strategies,
+  `permanent` / `transient` / `temporary` restart classifiers.
+- 7 unit tests in `ActorSupervisionTest`; conformance `actors-supervision.ssc`.
 
-What needs to land:
-  - Add `links / monitored / monitorOf / trapExitM / nextMonRef` to
-    `ActorRuntime` (interpreter) and to the emitted actor runtime
-    strings in `JvmGen.scala` and `JsGen.scala`.
-  - Add `handleActorOp` cases for `"link"`, `"monitor"`,
-    `"demonitor"`, `"trap_exit"` — same logic in all three backends.
-  - Update `exit` / `killActor` to walk links and monitors and
-    enqueue `Exit(from, reason)` / `Down(ref, from, reason)` into
-    surviving actors' mailboxes.  Cascade-kill if `trap_exit = false`
-    and reason ≠ `"normal"`.
-  - `Supervisor.start` in `std/actors.ssc` is pure ScalaScript on
-    top of these primitives — no new runtime changes needed there.
-
-  - **`link(pid)`** — bidirectional death link.  When either side
-    dies, the other receives an EXIT signal.  Default behaviour is
-    to crash the receiver; with `trap_exit = true` the EXIT
-    arrives as a normal `Exit(from, reason)` message.
-  - **`monitor(pid): MonitorRef`** — unidirectional.  The
-    monitoring actor receives a `Down(ref, from, reason)` message
-    when the target dies.
-  - **`trap_exit(on: Boolean)`** — toggle current process's
-    exit-signal handling.  Supervisors set this on at startup.
-  - **`Supervisor.start(children, strategy): Pid`**
-    - Strategies: `OneForOne`, `OneForAll`, `RestForOne`.
-    - `ChildSpec(id, start, restart, ...)` with restart classifier:
-      `Permanent` (always restart), `Transient` (restart only on
-      abnormal exit), `Temporary` (never restart).
-    - Max-restart window: `MaxRestarts(n, withinMs)`.  Exceeding
-      the budget crashes the supervisor itself (escalates upward).
-
-  Conformance: worker crashes → restarted; max-restart exceeded →
-  supervisor dies up the tree; `OneForAll` restarts all three
-  children when one dies; `Transient` doesn't restart on normal
-  exit.
-
-### Phase 3 — Distributed via WS (~1 week) — interpreter core landed
+### Phase 3 — Distributed via WS (~1 week) — interpreter + JvmGen landed; JsGen partial
 
 Full design: [`docs/actors-dist.md §Phase 3`](docs/actors-dist.md).
 Std library module: [`std/nodes.ssc`](std/nodes.ssc).
@@ -1495,12 +1465,19 @@ client stack (v1.5 Tier 3, prerequisite).  **Architectural decisions
   sends JSON envelope via `peerChannels`.
 - Tests: 8 new `ActorDistributedTest` + conformance `actors-distributed-basic.ssc`.
 
-**Remaining (JVM + JS backends + heartbeat + node-down):**
+**Also landed in JvmGen (2026-05-18):** `startNode` + `connectNode` (outbound
+WS, subprotocol `ssc-actors-v1`, heartbeat/pong, node-down), `register`/`whereis`,
+remote send, `remoteInbox` drain, cross-node links/monitors.  Mirrors interpreter
+architecture 1:1.
+
+**Remaining: JsGen `connectNode`** — `startNode`/`register`/`whereis` work;
+`connectNode` is a no-op (JS backend rarely used as a distributed peer).
+Deferred pending a real use case.
 
 | Decision | Choice |
 |---|---|
 | `startNode` binding | WS route `/_ssc-actors` on existing `serve()` — no separate TCP listener |
-| Backends | All three: INT + JVM + JS |
+| Backends | INT ✅ JVM ✅ JS (partial — no `connectNode`) |
 | Scope | Full: core + `register`/`whereis` + heartbeat + node-down |
 | Serializer | JSON only (binary uPickle deferred) |
 

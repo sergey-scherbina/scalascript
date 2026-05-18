@@ -3344,8 +3344,9 @@ function _runAsyncParallel(bodyFn) { return _runAsyncInner(bodyFn()); }
 function Pid(nodeId, localId) { return { _type: 'Pid', nodeId, localId }; }
 
 const Actor = {
-  spawn:     (thunk)       => _perform('Actor', 'spawn',     [thunk]),
-  self:      ()            => _perform('Actor', 'self',      []),
+  spawn:      (thunk)      => _perform('Actor', 'spawn',      [thunk]),
+  spawn_link: (thunk)      => _perform('Actor', 'spawnLink',  [thunk]),
+  self:       ()           => _perform('Actor', 'self',       []),
   exit:      (pid, reason) => _perform('Actor', 'exit',      [pid, reason]),
   send:      (pid, msg)    => _perform('Actor', 'send',      [pid, msg]),
   receive_:  (specId)              => _perform('Actor', 'receive',   [specId]),
@@ -3505,6 +3506,16 @@ function _runActors(bodyFn) {
     switch (op) {
       case 'spawn': {
         const childPid = spawnActor(args[0]);
+        return { suspend: false, next: k(childPid) };
+      }
+      case 'spawnLink': {
+        const childPid = spawnActor(args[0]);
+        // Atomic bidirectional link
+        const childId = childPid.localId;
+        if (!links.has(id))      links.set(id,      new Set());
+        if (!links.has(childId)) links.set(childId, new Set());
+        links.get(id).add(childId);
+        links.get(childId).add(id);
         return { suspend: false, next: k(childPid) };
       }
       case 'self':
@@ -4523,7 +4534,7 @@ class JsGen(
     val builtins = Set(
       "Async.delay", "Async.async", "Async.await", "Async.parallel",
       "Storage.get", "Storage.put", "Storage.remove", "Storage.has", "Storage.keys",
-      "Actor.spawn", "Actor.self", "Actor.send", "Actor.exit",
+      "Actor.spawn", "Actor.spawn_link", "Actor.self", "Actor.send", "Actor.exit",
       "Actor.receive", "Actor.receive_t",
       "Actor.link", "Actor.monitor", "Actor.demonitor", "Actor.trapExit",
       "Actor.startNode", "Actor.connectNode", "Actor.register", "Actor.whereis",
@@ -5573,6 +5584,13 @@ class JsGen(
         case Term.Function.After_4_6_0(_, body) =>
           s"Actor.spawn(() => ${genCpsExpr(body)})"
         case other => s"Actor.spawn(${genExpr(other)})"
+    case Term.Apply.After_4_6_0(Term.Name("spawn_link"), argClause)
+        if argClause.values.size == 1 =>
+      val thunk = argClause.values.head.asInstanceOf[Term]
+      thunk match
+        case Term.Function.After_4_6_0(_, body) =>
+          s"Actor.spawn_link(() => ${genCpsExpr(body)})"
+        case other => s"Actor.spawn_link(${genExpr(other)})"
     case Term.Apply.After_4_6_0(Term.Name("self"), argClause)
         if argClause.values.isEmpty =>
       "Actor.self()"
@@ -6004,6 +6022,9 @@ class JsGen(
       // emits a lambda whose body is `_bind`-chained — exactly the
       // shape `Actor.spawn(thunk)` expects.
       s"Actor.spawn(${genCpsExpr(argClause.values.head.asInstanceOf[Term])})"
+    case Term.Apply.After_4_6_0(Term.Name("spawn_link"), argClause)
+        if argClause.values.size == 1 =>
+      s"Actor.spawn_link(${genCpsExpr(argClause.values.head.asInstanceOf[Term])})"
     case Term.Apply.After_4_6_0(Term.Name("self"), argClause)
         if argClause.values.isEmpty =>
       "Actor.self()"
