@@ -1844,6 +1844,141 @@ let _activeServer = null;
 function stop() {
   if (_activeServer) { _activeServer.close(); _activeServer = null; }
 }
+
+// ── Outbound WebSocket client (ws:// and wss://) ─────────────────────────────
+// Uses Node.js net/tls modules + manual RFC 6455 framing.
+// Client→server frames are masked (RFC 6455 §5.3).
+
+function _wsEncodeMasked(opcode, payload) {
+  const mask = require('crypto').randomBytes(4);
+  const masked = Buffer.alloc(payload.length);
+  for (let i = 0; i < payload.length; i++) masked[i] = payload[i] ^ mask[i % 4];
+  const L = payload.length;
+  let hdr;
+  if (L <= 125)    { hdr = Buffer.alloc(6);  hdr[0] = 0x80 | opcode; hdr[1] = 0x80 | L;   mask.copy(hdr, 2); }
+  else if (L<65536){ hdr = Buffer.alloc(8);  hdr[0] = 0x80 | opcode; hdr[1] = 0xFE; hdr.writeUInt16BE(L, 2); mask.copy(hdr, 4); }
+  else             { hdr = Buffer.alloc(14); hdr[0] = 0x80 | opcode; hdr[1] = 0xFF; hdr.writeUInt32BE(0, 2); hdr.writeUInt32BE(L, 6); mask.copy(hdr, 10); }
+  return Buffer.concat([hdr, masked]);
+}
+
+function wsConnect(url, extraHeaders, protocols) {
+  return function(handler) {
+    const _u = new URL(url);
+    const isTls = _u.protocol === 'wss:';
+    const _port = parseInt(_u.port) || (isTls ? 443 : 80);
+    const _host = _u.hostname;
+    const _path = (_u.pathname || '/') + (_u.search || '');
+    const _id = require('crypto').randomUUID();
+
+    let _sock = null;
+    let _closing = false, _closed = false;
+    let _onMsgCb = null, _onCloseCb = null, _onPongCb = null;
+    const _msgQueue = [];
+    let _subproto = '';
+
+    function _doClose() {
+      if (!_closed) {
+        _closed = true; _closing = true;
+        if (_onCloseCb) try { _onCloseCb(); } catch(_e) {}
+      }
+    }
+
+    const _wsObj = new Map([
+      ['id',         _id],
+      ['subprotocol', ''],
+      ['send',       s  => { if (!_closing && _sock) _sock.write(_wsEncodeMasked(0x1, Buffer.from(String(s), 'utf-8'))); }],
+      ['sendBytes',  s  => { if (!_closing && _sock) _sock.write(_wsEncodeMasked(0x2, Buffer.from(String(s), 'latin1'))); }],
+      ['close',      (code, reason) => {
+        if (!_closing) {
+          _closing = true;
+          const c = (typeof code === 'number') ? code : 1000;
+          const rb = Buffer.from(typeof reason === 'string' ? reason : '', 'utf-8');
+          const p = Buffer.alloc(2 + rb.length); p.writeUInt16BE(c, 0); rb.copy(p, 2);
+          if (_sock) _sock.write(_wsEncodeMasked(0x8, p));
+        }
+      }],
+      ['onMessage',  cb => { _onMsgCb  = cb; }],
+      ['onClose',    cb => { _onCloseCb = cb; }],
+      ['ping',       payload => {
+        if (_sock) _sock.write(_wsEncodeMasked(0x9,
+          payload ? Buffer.from(String(payload), 'latin1') : Buffer.alloc(0)));
+      }],
+      ['onPong',     cb => { _onPongCb = cb; }],
+      ['recv',       () => {
+        const msg = _msgQueue.shift();
+        return msg !== undefined ? { _type: '_Some', value: msg } : { _type: '_None' };
+      }],
+      ['isClosed',   () => _closing],
+    ]);
+
+    // RFC 6455 handshake
+    const _crypto = require('crypto');
+    const _wsKey  = _crypto.randomBytes(16).toString('base64');
+    const _hdrs   = extraHeaders instanceof Map ? Object.fromEntries(extraHeaders.entries()) : (extraHeaders || {});
+    const _prots  = Array.isArray(protocols) ? protocols : [];
+    let _req = `GET ${_path} HTTP/1.1\r\nHost: ${_host}:${_port}\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: ${_wsKey}\r\nSec-WebSocket-Version: 13\r\n`;
+    if (_prots.length > 0) _req += `Sec-WebSocket-Protocol: ${_prots.join(', ')}\r\n`;
+    for (const [k, v] of Object.entries(_hdrs)) _req += `${k}: ${v}\r\n`;
+    _req += '\r\n';
+
+    let _buf = Buffer.alloc(0), _upgraded = false;
+    let _fragOp = 0, _fragBuf = Buffer.alloc(0);
+
+    function _parseFrames(data) {
+      _buf = Buffer.concat([_buf, data]);
+      outer: while (_buf.length >= 2) {
+        const fin = (_buf[0] >> 7) & 1;
+        const op  = _buf[0] & 0xF;
+        let payLen = _buf[1] & 0x7F;
+        let off = 2;
+        if (payLen === 126) { if (_buf.length < 4) break; payLen = _buf.readUInt16BE(2); off = 4; }
+        else if (payLen === 127) { if (_buf.length < 10) break; payLen = _buf.readUInt32BE(6); off = 10; }
+        if (_buf.length < off + payLen) break;
+        const payload = _buf.slice(off, off + payLen);
+        _buf = _buf.slice(off + payLen);
+        if      (op === 0x8) { _doClose(); break; }
+        else if (op === 0xA) { if (_onPongCb) try { _onPongCb(payload.toString('latin1')); } catch(_e) {} }
+        else if (op === 0x9) { if (_sock) _sock.write(_wsEncodeMasked(0xA, payload)); }
+        else {
+          if (op !== 0x0) { _fragOp = op; _fragBuf = payload; }
+          else { _fragBuf = Buffer.concat([_fragBuf, payload]); }
+          if (fin) {
+            const msg = _fragOp === 0x1 ? _fragBuf.toString('utf-8') : _fragBuf.toString('latin1');
+            _fragBuf = Buffer.alloc(0);
+            _msgQueue.push(msg);
+            if (_onMsgCb) try { _onMsgCb(msg); } catch(_e) {}
+          }
+        }
+      }
+    }
+
+    const _netMod = isTls ? require('tls') : require('net');
+    const _connOpts = isTls ? { host: _host, port: _port, servername: _host } : { host: _host, port: _port };
+    _sock = _netMod.connect(_connOpts, () => { _sock.write(_req); });
+
+    _sock.on('data', data => {
+      if (!_upgraded) {
+        _buf = Buffer.concat([_buf, data]);
+        const idx = _buf.indexOf('\r\n\r\n');
+        if (idx === -1) return;
+        const respHdrs = _buf.slice(0, idx).toString('utf-8');
+        const remaining = _buf.slice(idx + 4);
+        _buf = Buffer.alloc(0);
+        if (!respHdrs.includes(' 101 ')) { _sock.destroy(); _doClose(); return; }
+        const spM = respHdrs.match(/Sec-WebSocket-Protocol:\s*([^\r\n]+)/i);
+        if (spM) { _subproto = spM[1].trim(); _wsObj.set('subprotocol', _subproto); }
+        _upgraded = true;
+        handler(_wsObj);
+        if (remaining.length > 0) _parseFrames(remaining);
+      } else {
+        _parseFrames(data);
+      }
+    });
+    _sock.on('error', e => { console.error(`wsConnect error [${url}]: ${e.message}`); _doClose(); });
+    _sock.on('close', _doClose);
+    _sock.on('end',   _doClose);
+  };
+}
 """
 
 private val JsRuntimePart2: String = """
