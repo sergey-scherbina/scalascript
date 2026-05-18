@@ -1,0 +1,103 @@
+---
+name: conformance-direct-syntax
+version: 1.0.0
+---
+
+# Direct Syntax — `direct[M] { ... }` do-notation
+
+Exercises the v1.8 direct-syntax desugaring: monadic bind (`x = expr`),
+pure val binding (`val x = expr`), bind-and-discard (`val _ = expr`),
+mutable vars, and nested blocks.
+
+## Option — happy path
+
+```scalascript
+val r1 = direct[Option] {
+  x = Some(40)
+  y = Some(2)
+  Some(x + y)
+}
+println(r1)
+```
+
+## Option — short-circuit on None
+
+```scalascript
+val r2 = direct[Option] {
+  x = Some(1)
+  y = None
+  Some(x + y)
+}
+println(r2)
+```
+
+## Pure val binding inside direct block
+
+```scalascript
+val r3 = direct[Option] {
+  x = Some(10)
+  val doubled = x * 2
+  Some(doubled)
+}
+println(r3)
+```
+
+## Bind-and-discard (`val _ = expr`)
+
+```scalascript
+val r4 = direct[Option] {
+  val _ = Some("logged")
+  x = Some(42)
+  Some(x)
+}
+println(r4)
+```
+
+## Mutable var inside direct block
+
+```scalascript
+val r5 = direct[Option] {
+  var counter = 0
+  x = Some(10)
+  counter = counter + x
+  Some(counter)
+}
+println(r5)
+```
+
+## List — Cartesian product
+
+```scalascript
+val r6 = direct[List] {
+  x = List(1, 2)
+  y = List(10, 20)
+  List(x + y)
+}
+println(r6)
+```
+
+## Nested direct blocks
+
+```scalascript
+val inner = direct[Option] {
+  a = Some(3)
+  Some(a + 1)
+}
+val outer = direct[Option] {
+  x = inner
+  Some(x * 10)
+}
+println(outer)
+```
+
+## Three-bind chain
+
+```scalascript
+val r8 = direct[Option] {
+  a = Some(1)
+  b = Some(2)
+  c = Some(3)
+  Some(a + b + c)
+}
+println(r8)
+```

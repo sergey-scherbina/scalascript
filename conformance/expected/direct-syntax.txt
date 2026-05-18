@@ -1,0 +1,8 @@
+Some(42)
+None
+Some(20)
+Some(42)
+Some(10)
+List(11, 21, 12, 22)
+Some(40)
+Some(6)
