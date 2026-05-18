@@ -1,0 +1,82 @@
+---
+name: std-monad-control
+version: 1.0.0
+description: Control-flow combinators over Monad — whileM_, untilM_, forM_
+exports:
+  - whileMOption
+  - whileMList
+  - untilMOption
+  - untilMList
+  - forMOption
+  - forMList
+  - replicateMOption
+  - replicateMList
+---
+
+# Monad Control — `whileM_`, `untilM_`, `forM_`
+
+Loop combinators for `Option` and `List` monads.  These are free
+functions (monomorphic per instance) rather than typeclass members,
+following the same convention as `pureList`/`pureOption` in
+`functor-applicative-monad.ssc`.
+
+The `cond` / `body` parameters are `() => M[A]` thunks so that
+each iteration re-evaluates the condition and body fresh — mirroring
+Haskell's `IO`-style `whileM_`.
+
+## whileM_ — loop while condition holds
+
+```scalascript
+def whileMOption(cond: () => Option[Boolean], body: () => Option[Unit]): Option[Unit] =
+  cond() match
+    case None        => None
+    case Some(false) => Some(())
+    case Some(true)  =>
+      body() match
+        case None    => None
+        case Some(_) => whileMOption(cond, body)
+
+def whileMList(cond: () => List[Boolean], body: () => List[Unit]): List[Unit] =
+  cond().flatMap { b =>
+    if b then body().flatMap(_ => whileMList(cond, body))
+    else List(())
+  }
+```
+
+## untilM_ — loop until condition holds (whileM_ with negated cond)
+
+```scalascript
+def untilMOption(cond: () => Option[Boolean], body: () => Option[Unit]): Option[Unit] =
+  whileMOption(() => cond().map(b => !b), body)
+
+def untilMList(cond: () => List[Boolean], body: () => List[Unit]): List[Unit] =
+  whileMList(() => cond().map(b => !b), body)
+```
+
+## forM_ — traverse a list with a side-effecting function, discard results
+
+```scalascript
+def forMOption[A](xs: List[A], f: A => Option[Unit]): Option[Unit] =
+  xs.foldLeft(Some(())) { (acc, a) =>
+    acc.flatMap(_ => f(a))
+  }
+
+def forMList[A](xs: List[A], f: A => List[Unit]): List[Unit] =
+  xs.foldLeft(List(())) { (acc, a) =>
+    acc.flatMap(_ => f(a))
+  }
+```
+
+## replicateM_ — run an action n times, discard results
+
+```scalascript
+def replicateMOption(n: Int, body: () => Option[Unit]): Option[Unit] =
+  if n <= 0 then Some(())
+  else body() match
+    case None    => None
+    case Some(_) => replicateMOption(n - 1, body)
+
+def replicateMList(n: Int, body: () => List[Unit]): List[Unit] =
+  if n <= 0 then List(())
+  else body().flatMap(_ => replicateMList(n - 1, body))
+```

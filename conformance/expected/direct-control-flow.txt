@@ -1,0 +1,15 @@
+Some(())
+3
+None
+2
+Some(())
+5
+Some(())
+10
+None
+2
+Some(())
+4
+Some(110)
+List(())
+60
