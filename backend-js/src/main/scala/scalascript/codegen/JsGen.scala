@@ -125,6 +125,24 @@ function scope(scopeName) {
   };
 }
 
+// ── Given / typeclass registry ─────────────────────────────────────────
+// _ssc_givens["TC_Arg"] = instance — populated by every `given` declaration.
+var _ssc_givens = {};
+// Returns the ScalaScript type name for a runtime value (elem type for arrays).
+function _ssc_typeOf(v) {
+  if (Array.isArray(v)) return v.length > 0 ? _ssc_typeOf(v[0]) : 'Any';
+  if (typeof v === 'number') return (v|0) === v ? 'Int' : 'Double';
+  if (typeof v === 'string') return 'String';
+  if (typeof v === 'boolean') return 'Boolean';
+  if (v && v._type) return v._type;
+  return 'Any';
+}
+function _resolveGiven(key) {
+  var v = _ssc_givens[key];
+  if (v !== undefined) return v;
+  throw new Error('No given instance for ' + JSON.stringify(key));
+}
+
 // ── Typed HTML DSL — `div(attr.cls := "hero", h1("hi"))` ───────────────
 function _attr(key, value) { return { _type: 'Attr', name: key.name, value: _show(value) }; }
 function _attrKey(name)    { return { _type: 'AttrKey', name }; }
@@ -4871,6 +4889,9 @@ class JsGen(
   // Functions that transitively perform effects — emitted in CPS form so callers
   // get a Free value (Pure plain value or Perform node) and can compose them.
   private val effectfulFuns: scala.collection.mutable.Set[String] = scala.collection.mutable.Set.empty
+  // Maps summon key "TC_A" → local param name "A$TC" for context-bound params
+  // of the current Defn.Def being emitted. Cleared before each function.
+  private val cbSummonMap = scala.collection.mutable.Map.empty[String, String]
 
   private def freshTmp(): String =
     tmpIdx += 1
@@ -5281,11 +5302,32 @@ class JsGen(
     case d: Defn.Def if scalascript.transform.EffectAnalysis.isExternDef(d.body) => ()
 
     case d: Defn.Def =>
-      val paramVals = d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values)
-      val params    = paramVals.map(_.name.value)
+      val paramVals   = d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values)
+      val params      = paramVals.map(_.name.value)
       val hasDefaults = paramVals.exists(_.default.isDefined)
-      val fname   = d.name.value
-      val paramsStr = paramListWithDefaults(paramVals)
+      val fname       = d.name.value
+      // Context-bound type params [A: TC] → synthetic JS param "A$TC", summon key "TC_A"
+      @annotation.nowarn("msg=deprecated")
+      val cbParams: List[(String, String)] =
+        d.paramClauseGroups.flatMap(_.tparamClause.values).flatMap { tp =>
+          tp.cbounds.map { cb =>
+            val tvName = tp.name.value
+            val tcName = cb match
+              case Type.Name(n)   => n
+              case ta: Type.Apply => ta.tpe match { case Type.Name(n) => n; case _ => "?" }
+              case _              => "?"
+            s"${tvName}$$${tcName}" -> s"${tcName}_${tvName}"
+          }
+        }
+      val savedCbMap    = cbSummonMap.toMap
+      cbSummonMap.clear()
+      cbParams.foreach { (pname, skey) => cbSummonMap(skey) = pname }
+      val baseParamsStr = paramListWithDefaults(paramVals)
+      val cbParamsStr   = cbParams.map(_._1).mkString(", ")
+      val paramsStr     =
+        if baseParamsStr.isEmpty then cbParamsStr
+        else if cbParamsStr.isEmpty then baseParamsStr
+        else s"$baseParamsStr, $cbParamsStr"
       if fname == "main" && params.isEmpty then hasMain = true
       // Effectful function: body emitted in CPS form, returns Free value.
       if isEffectfulFun(fname) then
@@ -5294,6 +5336,28 @@ class JsGen(
             line(s"function $fname($paramsStr) { return ${genCpsBlockAsIife(stats)}; }")
           case expr =>
             line(s"function $fname($paramsStr) { return ${genCpsExpr(expr)}; }")
+      // Context-bound params: emit plain function with auto-resolve guards; skip TCO
+      else if cbParams.nonEmpty then
+        val hintParam = paramVals.headOption.map(_.name.value).getOrElse("undefined")
+        val cbGuards = cbParams.map { (pname, skey) =>
+          val tcName = skey.takeWhile(_ != '_')
+          s"""if ($pname === undefined) $pname = _resolveGiven("${tcName}_" + _ssc_typeOf($hintParam));"""
+        }
+        d.body match
+          case Term.Block(bodyStats) =>
+            line(s"function $fname($paramsStr) {")
+            indent += 1
+            cbGuards.foreach(line)
+            genFunctionBody(bodyStats)
+            indent -= 1
+            line("}")
+          case expr =>
+            line(s"function $fname($paramsStr) {")
+            indent += 1
+            cbGuards.foreach(line)
+            line(s"return ${genExpr(expr)};")
+            indent -= 1
+            line("}")
       // Mutual recursion group → _impl + trampoline wrapper.
       // Defaults disable the TCO/mutual-TCO shadowing path since the _p shadow
       // names would shadow the original parameter names referenced in default
@@ -5326,6 +5390,8 @@ class JsGen(
             line("}")
           case expr =>
             line(s"function $fname($paramsStr) { return ${genExpr(expr)}; }")
+      cbSummonMap.clear()
+      cbSummonMap ++= savedCbMap
 
     case d: Defn.Class =>
       // case class → constructor function returning plain object
@@ -5387,10 +5453,12 @@ class JsGen(
           val explicitName = d.name.value
           if explicitName.nonEmpty then
             line(s"const $explicitName = $obj;")
-            // Also register with typeclass key for summon
+            // Also register with typeclass key for summon and _ssc_givens
             line(s"const $typeKey = $explicitName;")
+            line(s"""_ssc_givens["$typeKey"] = $explicitName;""")
           else
             line(s"const $typeKey = $obj;")
+            line(s"""_ssc_givens["$typeKey"] = $typeKey;""")
         }
       }
 
@@ -6046,7 +6114,8 @@ class JsGen(
               val arg = ta.argClause.values match { case List(n: Type.Name) => n.value; case _ => "_" }
               s"${tc}_${arg}"
             case _ => "undefined"
-          key
+          // Prefer a local CB param if one shadows this summon key
+          cbSummonMap.getOrElse(key, key)
         case (Term.Name("Prism"), List(_, variantType)) =>
           val variantName = variantType match
             case n: Type.Name => n.value
@@ -6286,6 +6355,15 @@ class JsGen(
       s"/* unsupported: ${other.productPrefix} */"
 
   private def genApply(app: Term.Apply): String =
+    // f(regular)(using tc) — flatten all curried arg lists when the outermost
+    // Apply carries a `using` clause, so the JS call passes all args at once.
+    if app.argClause.mod.nonEmpty then
+      def collectAllArgs(t: Term, acc: List[Term]): (Term, List[Term]) = t match
+        case inner: Term.Apply => collectAllArgs(inner.fun, inner.argClause.values ++ acc)
+        case other             => (other, acc)
+      val (baseFun, allArgs) = collectAllArgs(app.fun, app.argClause.values)
+      return s"_call(${genExpr(baseFun)}, ${allArgs.map(genExpr).mkString(", ")})"
+
     // .copy(field = value, ...) — spread the receiver, override named fields.
     // Intercepted before argVals are computed so Term.Assign doesn't fall into
     // genExpr's `lhs = rhs` path (which would emit a JS assignment expression).
