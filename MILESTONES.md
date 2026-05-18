@@ -1940,7 +1940,7 @@ zero new runtime primitive, just an ergonomic surface.
 
 Three phases, ~3-5 days.  Pure library work on top of v1.9.
 
-## v1.11 — Continuation-based `Async`
+## v1.11 — Continuation-based `Async` ✓ Landed (Phases 1–5)
 
 Rewrite `Async.delay / await / parallel` on top of v1.9
 coroutines.  The existing internal Free-monad `Computation[A]`
