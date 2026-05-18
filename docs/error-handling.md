@@ -360,6 +360,105 @@ fits all cases**.  `throws` is the right default; the other
 tiers exist because they solve problems `throws` can't or
 shouldn't.
 
+#### 2.5.6 `throw` / `try`-`catch` inside `direct[F] { … }` — type-directed lowering
+
+The same `throw e` / `try { … } catch case e: E => …` syntax
+works **both** as JVM-native (tier 2b) and as monadic
+failure / recovery (tier 1/3) — **distinguished by type
+inference**.
+
+#### Lowering rules
+
+Inside `direct[F] { body }`:
+
+| Form | Lowering | Trigger |
+|------|----------|---------|
+| `throw e` where `e: E` and `MonadError[F, E']` (with `E <: E'`) in scope | `F.fail(e)` | Monadic — typed bridge to `F`'s error channel |
+| `throw e` where no `MonadError[F, _]` matches the type of `e` | JVM-native `throw e` (escapes via stack unwinding) | Tier 2b unchanged |
+| `try body catch case e: E => h` where `MonadError[F, E']` in scope (`E <: E'`) | `F.handleError(body) { case e: E => h }` | Monadic — typed bridge |
+| `try body catch case e: E => h` where no `MonadError[F, _]` matches `E` | JVM-native `try`-`catch` | Tier 2b unchanged |
+| `try body catch { multiple cases }` — some types match `MonadError[F, _]`, others don't | Lower per-case: typed branches become `F.handleError`, untyped branches become JVM `catch` clauses on the lowered for-comprehension | Hybrid (rare, but supported) |
+
+The discriminator is **purely the type of `e` (or the case
+pattern in `catch`)** vs the available `MonadError[F, ?]`
+instances in scope at the call site.  No new keyword, no
+annotation — the typer routes by the `using`-resolution
+machinery from v1.13.
+
+#### How this relates to DS-7
+
+DS-7 said "thrown exceptions are NOT auto-wrapped into
+monadic failure" — that holds for **untyped escapes**:
+`throw new RuntimeException(...)` inside a direct block where
+no `MonadError[F, RuntimeException]` is in scope keeps
+escaping via the JVM channel.
+
+The new rule narrows DS-7: when the user *did* write a
+type-annotated throw (`throw e: AppError`) and the
+surrounding `direct[F]` has `MonadError[F, AppError]`
+available, the typer takes that as an explicit ask for the
+monadic bridge and lowers accordingly.  The two-fault-model
+trap is avoided because the user didn't get implicit
+behaviour — the lowering is driven by what they *did*
+type at the call site.
+
+#### Worked example
+
+```scala
+type ResultS = [A] =>> Either[AppError, A]
+
+def handler(req: Request): Response throws AppError = direct[ResultS] {
+  // 1. Typed throw → monadic Left
+  if !req.valid then throw AppError.BadRequest        // → Left(AppError.BadRequest)
+
+  // 2. Typed try-catch → monadic handleError
+  user = try loadUser(req.id)
+         catch case _: NotFound => User.guest         // F.handleError lowering
+
+  // 3. Untyped throw → JVM unchecked (no MonadError[ResultS, AssertionError])
+  if user.age < 0 then assert(false, "impossible")    // escapes via stack
+
+  // 4. Mixed catch — some typed, some untyped
+  data = try fetchData(user)
+         catch
+           case e: AppError       => fallback         // typed → F.handleError clause
+           case e: IOException    => throw new RuntimeException("io", e)
+           // untyped → JVM catch clause wrapping the for-comp lowering
+
+  Response.ok(data)
+}
+```
+
+#### Why this works on top of existing infrastructure
+
+- **No new compiler concept** — uses v1.8 direct-syntax
+  desugarer + v1.13 `using` resolution.  The desugarer gets
+  one extra rule: "before emitting `throw` / `try`-`catch`
+  in lowered output, query `MonadError[F, ?]` for the type
+  involved and prefer monadic if found."
+- **No new SPI primitives** — `MonadError` is already in
+  v1.1; direct-syntax already lowers to for-comprehension;
+  this is one more case in the lowering table.
+- **No runtime cost** — when the discrimination is made at
+  compile time, the emitted code is either pure monadic or
+  pure JVM-native.  No runtime branch.
+
+#### Open questions (carry into v1.15 implementation)
+
+- **Catch-pattern with `_: Throwable`** inside direct block —
+  catches everything, including monadic failures lifted into
+  `F.fail`?  Probably should: if user writes `case _:
+  Throwable`, they want the universal catcher.  Lower to
+  `F.handleError(_ => h)` plus a wrapping JVM `try`-`catch`
+  for any unchecked that didn't go through the monadic path.
+- **`throw` of a value that matches MonadError[F, E] for
+  multiple F in scope** — error at compile time per Scala 3
+  ambiguous-resolution rules; same as ordinary `using`
+  ambiguity.
+- **Tail-position `throw`** — pure-tail `throw e` should
+  lower to `F.fail(e)` directly (no need for the surrounding
+  for-comprehension); typer detects tail position.
+
 ### 2.6 Error subtyping
 
 ```scala
