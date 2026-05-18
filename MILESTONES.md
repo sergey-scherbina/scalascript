@@ -945,21 +945,15 @@ touching call sites.  Listed in priority order.
     deep call chains just to read the caller.  Test handler injects
     a fixed user.
 
-**Status (2026-05-18):** items 1–4 (Logger, Random, Clock, Env) have
-landed across all three backends (interpreter, JvmGen, JsGen).  Each
-ships an effect object, default handler(s), and a test/fixture handler:
-- `Logger`: `runLogger` (text), `runLoggerJson` (newline-JSON), `runLoggerToList` (collect to list)
-- `Random`: `runRandom` (non-det), `runRandomSeeded(seed)(body)` (deterministic LCG / seeded java.util.Random)
-- `Clock`: `runClock` (wall clock), `runClockAt(t0)(body)` (frozen time)
-- `Env`: `runEnv` (real process env), `runEnvWith(map)(body)` (fixture map)
+**Status (2026-05-18):** all 10 effects landed across all three backends
+(interpreter, JvmGen, JsGen) — see landing notes at the top of this
+milestone.  Each ships an effect object, default handler(s), and a
+test/fixture handler; 40 conformance tests in `StdEffectsTest`.
 
-Items 5–10 remain future work.
-
-Each entry is roughly the same shape as v0.8's `Async` (effect
-object + default handler + opt-in test handler + conformance test),
-so they should land at a similar pace once the template is
-established.  No new compiler concept required — purely runtime
-library additions on top of the existing Free Monad infrastructure.
+Each entry follows the same shape as v0.8's `Async` (effect object +
+default handler + opt-in test handler + conformance test).  No new
+compiler concept required — purely runtime library additions on top of
+the existing Free Monad infrastructure.
 
 ## Web stack — current state and critical gaps (snapshot 2026-05-17)
 

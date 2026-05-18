@@ -1287,6 +1287,18 @@ class Interpreter(
   def exportedParentTypes:   Map[String, String]               = parentTypes.toMap
   def exportedTypeFieldOrder: Map[String, List[String]]        = typeFieldOrder.toMap
 
+  // Deep-merge overlay into base so multiple code blocks sharing the same
+  // package prefix (e.g. `object std { object lib { ... } }` appearing in
+  // separate fenced blocks of the same .ssc file) accumulate rather than
+  // overwrite each other.
+  private def mergeDeep(base: Value.InstanceV, overlay: Value.InstanceV): Value.InstanceV =
+    val merged = overlay.fields.foldLeft(base.fields) { case (acc, (k, v)) =>
+      (acc.get(k), v) match
+        case (Some(b: Value.InstanceV), o: Value.InstanceV) => acc.updated(k, mergeDeep(b, o))
+        case _                                               => acc.updated(k, v)
+    }
+    Value.InstanceV(base.typeName, merged)
+
   // ─── Section / block execution ───────────────────────────────────
 
   private def runSection(section: Section): Unit =
@@ -1395,7 +1407,12 @@ class Interpreter(
       val sourceName = binding.name
       val targetName = binding.alias.getOrElse(binding.name)
       lookupExport(exported, childPkg, sourceName) match
-        case Some(v) => globals(targetName) = v
+        case Some(v) =>
+          globals(targetName) = v
+          v match
+            case inst: Value.InstanceV if inst.typeName.contains('[') =>
+              if !globals.contains(inst.typeName) then globals(inst.typeName) = inst
+            case _ => ()
         case None    => throw InterpretError(s"'$sourceName' not found in ${imp.path}")
     // Extensions registered by the imported module become available in
     // the importer's scope.  Without this, an `extension` declared
@@ -1420,6 +1437,7 @@ class Interpreter(
       pkgObj.collect {
         case Value.InstanceV(_, fields) => fields.get(name)
       }.flatten
+      .orElse(exported.get(name))
 
   private def execBlockStats(stats: List[Stat]): Unit =
     stats.zipWithIndex.foreach { (s, i) =>
@@ -1504,7 +1522,10 @@ class Interpreter(
             args => Perform(effName, opName, args))
         case s => execStat(s, members)
       }
-      env(objectName) = Value.InstanceV(objectName, members.toMap)
+      val newObj: Value.InstanceV = Value.InstanceV(objectName, members.toMap)
+      env.get(objectName) match
+        case Some(existing: Value.InstanceV) => env(objectName) = mergeDeep(existing, newObj)
+        case _                               => env(objectName) = newObj
 
     case d: Defn.Class =>
       val params = d.ctor.paramClauses.flatMap(_.values).toList
@@ -1551,6 +1572,7 @@ class Interpreter(
           val paramNames    = ecParams.map(_.name.value)
           val paramDefaults = ecParams.map(_.default)
           if paramNames.nonEmpty then typeFieldOrder(caseName) = paramNames
+          parentTypes(caseName) = enumName
           val v: Value =
             if paramNames.isEmpty then Value.InstanceV(caseName, Map.empty)
             else Value.NativeFnV(caseName, args => {
@@ -1563,7 +1585,12 @@ class Interpreter(
       }
       env(enumName) = Value.InstanceV(enumName, caseFields.toMap)
 
-    case _: Defn.Trait => () // trait is erased — only the given instances matter
+    case d: Defn.Trait =>
+      // Register a sentinel InstanceV so the trait name is importable as a
+      // type-level symbol (e.g. `[Semigroup, intSum](std/semigroup-monoid.ssc)`).
+      val traitName = d.name.value
+      if !env.contains(traitName) then
+        env(traitName) = Value.InstanceV(traitName, Map.empty)
 
     case d: Defn.Given =>
       d.templ.inits.headOption.foreach { init =>
@@ -4427,6 +4454,18 @@ class Interpreter(
   // ─── Dispatch ─────────────────────────────────────────────────────
 
   private def dispatch(recv: Value, name: String, args: List[Value], env: Env): Computation =
+    // User-defined extensions take priority over built-in dispatch for primitive/std types.
+    val userExt = recv match
+      case _: Value.OptionV => extensions.get(("Option", name)).map(callValue(_, recv :: args, env))
+      case _: Value.ListV   => extensions.get(("List",   name)).map(callValue(_, recv :: args, env))
+      case _: Value.IntV    => extensions.get(("Int",    name)).map(callValue(_, recv :: args, env))
+      case _: Value.DoubleV => extensions.get(("Double", name)).map(callValue(_, recv :: args, env))
+      case _: Value.StringV => extensions.get(("String", name)).map(callValue(_, recv :: args, env))
+      case _: Value.BoolV   => extensions.get(("Boolean",name)).map(callValue(_, recv :: args, env))
+      case _: Value.MapV    => extensions.get(("Map",    name)).map(callValue(_, recv :: args, env))
+      case _                => None
+    if userExt.isDefined then userExt.get
+    else
     (recv, name, args) match
       // ── String ──────────────────────────────────────────────────
       case (Value.StringV(s), "length",       Nil) => Pure(Value.IntV(s.length.toLong))
@@ -4834,10 +4873,13 @@ class Interpreter(
     extensions.get((typeName, method)).map { fn =>
       callValue(fn, recv :: args, env)
     }.orElse {
-      // Walk one level up the declared parent type (e.g. PChar → Parser).
-      parentTypes.get(typeName).flatMap(p => extensions.get((p, method))).map { fn =>
-        callValue(fn, recv :: args, env)
-      }
+      // Walk the parent chain (e.g. Right → Either, PChar → Parser, Red → Color).
+      var parent: Option[String] = parentTypes.get(typeName)
+      var found: Option[Computation] = None
+      while parent.isDefined && found.isEmpty do
+        found = extensions.get((parent.get, method)).map(fn => callValue(fn, recv :: args, env))
+        parent = parentTypes.get(parent.get)
+      found
     }.orElse {
       globals.values.collectFirst {
         case Value.InstanceV(name, fields)
@@ -4896,7 +4938,29 @@ class Interpreter(
           matchPat(headPat, h, env).flatMap(e =>
             matchPat(tailClause.values.head, Value.ListV(t), e))
         case _ => None
-    case Pat.Typed(inner, _)       => matchPat(inner, scrutinee, env)
+    case Pat.Typed(inner, tpe) =>
+      val typeName = tpe match
+        case Type.Name(n)   => n
+        case ta: Type.Apply => ta.tpe match { case Type.Name(n) => n; case _ => "" }
+        case _              => ""
+      if typeName.isEmpty then matchPat(inner, scrutinee, env)
+      else
+        val matches = scrutinee match
+          case Value.InstanceV(t, _) =>
+            t == typeName || {
+              var p = parentTypes.get(t); var ok = false
+              while p.isDefined && !ok do { ok = p.get == typeName; p = parentTypes.get(p.get) }
+              ok
+            }
+          case _: Value.IntV    => typeName == "Int"
+          case _: Value.DoubleV => typeName == "Double"
+          case _: Value.StringV => typeName == "String"
+          case _: Value.BoolV   => typeName == "Boolean"
+          case _: Value.ListV   => typeName == "List"
+          case _: Value.OptionV => typeName == "Option"
+          case _: Value.MapV    => typeName == "Map"
+          case _                => false
+        if matches then matchPat(inner, scrutinee, env) else None
     case Pat.Alternative(lhs, rhs) =>
       List(lhs, rhs).iterator.flatMap(p => matchPat(p, scrutinee, env)).nextOption()
     case t: Term.Name =>
