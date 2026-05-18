@@ -1,0 +1,88 @@
+---
+name: std-mapreduce-handlers
+version: 0.1.0
+description: Named-handler registry for distributed map-reduce. v1.22.
+package: std.mapreduce
+exports:
+  - NamedHandler
+  - HandlerRegistry
+  - named
+---
+
+# `std.mapreduce.HandlerRegistry` — named-handler registry
+
+Each worker node registers mapper and reducer functions **by name** before
+the coordinator dispatches any job.  The coordinator sends handler names
+in messages; workers look up the implementation in the local registry and
+apply it to their partition.
+
+**No closure serialisation** — this is a hard-no per `docs/mapreduce.md`
+§8 and `MILESTONES.md` §v1.22.  Every node must have the same codebase
+deployed; the registry is populated at node startup.
+
+```scalascript
+// ── Handler descriptor ────────────────────────────────────────────────
+// A NamedHandler pairs a registry key with the actual function.
+// The type parameter is erased at runtime; the registry stores Any => Any.
+case class NamedHandler[A, B](name: String, fn: A => B)
+
+// ── Registry ─────────────────────────────────────────────────────────
+// Mutable, process-global table populated at node startup.
+// Thread-safe: the ScalaScript runtime serialises actor messages so
+// concurrent registration from multiple actors is safe.
+object HandlerRegistry:
+  // Internal storage: name → (Any => Any)
+  // Kept as a List of pairs so we stay in pure-ScalaScript primitives.
+  var entries: List[(String, Any => Any)] = Nil
+
+  // Register a named mapper / reducer.  Overwrites any previous entry
+  // with the same name (last-wins; allows re-registration at restart).
+  def register[A, B](h: NamedHandler[A, B]): Unit =
+    val erasedFn: Any => Any = x => h.fn(x.asInstanceOf[A]).asInstanceOf[Any]
+    entries = (h.name, erasedFn) :: entries.filter(_._1 != h.name)
+
+  // Look up by name.  Returns Some(fn) or None if not registered.
+  def lookup(name: String): Option[Any => Any] =
+    entries.find(_._1 == name).map(_._2)
+
+  // Apply a registered handler to a value.  Throws if name is unknown.
+  def apply(name: String, value: Any): Any =
+    lookup(name) match
+      case Some(fn) => fn(value)
+      case None()   => throw new RuntimeException(
+        s"HandlerRegistry: no handler registered for '$name'. " +
+        "Ensure Workers.registerAll() is called at node startup.")
+
+  // Apply a registered predicate (Boolean-returning handler).
+  def applyPredicate(name: String, value: Any): Boolean =
+    apply(name, value).asInstanceOf[Boolean]
+
+  // Apply a registered key extractor (returns the groupBy key).
+  def applyKey(name: String, value: Any): Any =
+    apply(name, value)
+
+  // Apply a registered combiner (T, T) => T reducer.
+  def applyCombine(name: String, a: Any, b: Any): Any =
+    // Combiners are stored as Any => Any where the input is a pair.
+    apply(name, (a, b))
+
+  // Clear the registry (useful in tests).
+  def clear(): Unit =
+    entries = Nil
+
+  // List all registered names (for diagnostics / health-check).
+  def registeredNames(): List[String] =
+    entries.map(_._1)
+
+// ── DSL helper ────────────────────────────────────────────────────────
+// `named("parseRow")` builds a NamedRef that the coordinator embeds in
+// dispatch messages.  On the worker side, HandlerRegistry.apply resolves
+// the name back to the concrete function.
+//
+// Usage:
+//   HandlerRegistry.register(NamedHandler("parseRow", parseRow))
+//   dataset.map(named("parseRow")).runDistributed(cluster)
+case class NamedRef(name: String)
+
+def named(name: String): NamedRef = NamedRef(name)
+```
