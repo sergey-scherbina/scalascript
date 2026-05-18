@@ -70,13 +70,12 @@ What landed (Stages 1–9.1):
 
 Branch `feature/spi-followups` (merged to `main`).
 
-**Landed in this branch:**
+**Landed in `feature/spi-followups`:**
 - **5+/A — Intrinsic plumbing.**  `extern def` parser modifier;
   `ExternCall` IR node; per-call-site intrinsic dispatch in all three
   codegens; `Backend.runtimePreamble`; `Sys.nowMillis()` demo.
 - **5+/B.1 — `std/http.ssc` extern def signatures.**  `extern def route / serve / stop`
-  declarations; backend wiring via intrinsic table.  Full hardcoded
-  extraction (5+/B.2–B.4) deferred until parallel WS work merges.
+  declarations.
 - **9+/A.1 — Parser ↔ SourceLanguageRegistry.**  Unknown fence tags
   dispatched through `SourceLanguageRegistry.lookup` at parse time.
 - **9+/B.1 — `backend-html` plugin skeleton.**  `HtmlSourceLanguage`,
@@ -85,10 +84,16 @@ Branch `feature/spi-followups` (merged to `main`).
 - **9+/C.1 — `backend-css` plugin skeleton.**  Same shape for CSS.
   Full extraction (9+/C.2–C.3) deferred.
 
+**Landed in `feature/spi-5b-http`:**
+- **5+/B.2-4 — `std.http` full extraction.**  ✅ **LANDED** (2026-05-18).
+  route/serve/stop migrated from `nativeP` to `IntrinsicImpl` pipeline;
+  `NativeContext` extended with HTTP hooks; `backend-*/intrinsics/Http.scala`
+  created; Request/Response lifted to typed case-class declarations in
+  `std/http.ssc`.
+
 **Still deferred (pending parallel WS v1.0 merge to main):**
-- 5+/B.2-B.4 — migrate bare `println` → `Console.println` in Normalize
-- 5+/C — `std.http` full extraction (route/serve/stop)
-- 5+/D — `std.ws` / `std.auth` / `std.fs` / `std.crypto`
+- 5+/B.3 — migrate bare `println` → `Console.println` in Normalize
+- 5+/D — `std.ws` / `std.auth` / `std.fs` / `std.crypto` extraction (next step)
 - 9+/B.2-B.4 and 9+/C.2-C.3 — full html/css extraction out of codegens
 
 ### Stage 6+ — Out-of-process protocol completions — **LANDED**
@@ -231,13 +236,13 @@ Stages already designed and planned in `docs/spi-followups-plan.md`
   - **5+/A.5 — `extern def` parser + `Backend.runtimePreamble`.**
     Declarations live in `std/*.ssc`; backends ship runtime helpers
     (e.g. emitted `class WebSocket`) via a single string field.
-  - **5+/B — `std.http` extraction.**  Existing HTTP emission moves
-    from inlined codegen into `InlineCode` closures registered
-    against qualified names.  Per-backend intrinsic implementations
-    can live in their own files (`backend-jvm/intrinsics/Http.scala`,
-    …).
+  - **5+/B — `std.http` extraction.**  ✅ **LANDED**.  route/serve/stop
+    in InterpreterIntrinsics + JvmHttpIntrinsics + JsHttpIntrinsics.
+    NativeContext extended.  std/http.ssc has Request/Response declarations.
   - **5+/D — `std.ws` / `std.auth` / `std.fs` / `std.crypto`
-    extraction.**  Same pattern as 5+/B, one package per iteration.
+    extraction.**  **Next step.**  Same pattern as 5+/B, one package
+    per iteration.  Requires extending NativeContext or adding new hooks
+    per intrinsic group.
 
 ### Expected deflation
 

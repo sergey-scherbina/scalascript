@@ -46,45 +46,44 @@ left untouched.  Only `JvmIntrinsics` / `JsIntrinsics` receive new
 
 ## Stages
 
-### Stage A — prereq (folded into Iter 1)
+### Stage A — prereq (folded into Iter 1)  ✅ DONE 2026-05-18
 - [x] Extend `NativeContext` in `backend-spi/IntrinsicImpl.scala`
 - [x] Extract `registerHealthDefaults()` to class-level private method in `Interpreter.scala`
 - [x] Extend anonymous `NativeContext` in `installNativeIntrinsics`
 
-### Iter 1 — route()  ✅
-- Remove `nativeP("route")` from `Interpreter.initBuiltins`
-- Add `QualifiedName("route") -> NativeImpl(...)` to `InterpreterCapabilities`
-- Add `QualifiedName("route") -> RuntimeCall("route")` to `JvmIntrinsics` / `JsIntrinsics`
-- Tests green
+### Iter 1 — route()  ✅ DONE 2026-05-18
+- [x] Remove `nativeP("route")` from `Interpreter.initBuiltins`
+- [x] Add `QualifiedName("route") -> NativeImpl(...)` to `HttpIntrinsics`
+- [x] Add `QualifiedName("route") -> RuntimeCall("route")` to `JvmHttpIntrinsics` / `JsHttpIntrinsics`
+- [x] Tests green (123/123)
 
-### Iter 2 — serve()  ✅
-- Remove `nativeP("serve")` from `Interpreter.initBuiltins`
-- Add `QualifiedName("serve") -> NativeImpl(...)` to `InterpreterCapabilities`
-- Add `QualifiedName("serve") -> RuntimeCall("serve")` to `JvmIntrinsics` / `JsIntrinsics`
-- Tests green
+### Iter 2 — serve()  ✅ DONE 2026-05-18
+- [x] Remove `nativeP("serve")` from `Interpreter.initBuiltins`
+- [x] Add `QualifiedName("serve") -> NativeImpl(...)` to `HttpIntrinsics`
+- [x] Add `QualifiedName("serve") -> RuntimeCall("serve")` to `JvmHttpIntrinsics` / `JsHttpIntrinsics`
+- [x] Tests green
 
-### Iter 3 — stop()  ✅
-- Add `QualifiedName("stop") -> NativeImpl((_, _) => ())` to `InterpreterCapabilities`
-- Add `QualifiedName("stop") -> RuntimeCall("stop")` to `JvmIntrinsics` / `JsIntrinsics`
-- Add `def stop(): Unit = ()` to JVM runtime preamble
-- Add `function stop() {}` to JS runtime preamble
-- Tests green
+### Iter 3 — stop()  ✅ DONE 2026-05-18
+- [x] Add `QualifiedName("stop") -> NativeImpl((_, _) => ())` to `HttpIntrinsics`
+- [x] Add `QualifiedName("stop") -> RuntimeCall("stop")` to `JvmHttpIntrinsics` / `JsHttpIntrinsics`
+- [x] Add `def stop(): Unit = ()` to JVM serveRuntime preamble
+- [x] Add `function stop() {}` to JS JsRuntimePart1b
+- [x] Tests green
 
-### Iter 4 — std/http.ssc Request / Response  ✅
-- Replace TODO-stub comment with proper case class declarations
-- Fields: `method`, `path`, `headers`, `body`, `form`, `files`, `cookies`,
-  `session`, `json`
-- Existing tests must pass without changes
+### Iter 4 — std/http.ssc Request / Response  ✅ DONE 2026-05-18
+- [x] Replaced TODO-stub comment with proper case class declarations
+- [x] Fields: `method`, `path`, `headers`, `body`, `form`, `files`, `cookies`, `session`, `json`
+- [x] Existing tests pass without changes
 
-### Iter 5 — extract to intrinsics/ files  ✅
-- `backend-interpreter/.../intrinsics/Http.scala` — HTTP NativeImpl entries
-- `backend-jvm/.../intrinsics/Http.scala` — HTTP RuntimeCall entries
-- `backend-js/.../intrinsics/Http.scala` — HTTP RuntimeCall entries
-- Import in the respective Capabilities files
+### Iter 5 — extract to intrinsics/ files  ✅ DONE 2026-05-18
+- [x] `backend-interpreter/.../intrinsics/Http.scala` — `HttpIntrinsics` (NativeImpl)
+- [x] `backend-jvm/.../intrinsics/Http.scala` — `JvmHttpIntrinsics` (RuntimeCall)
+- [x] `backend-js/.../intrinsics/Http.scala` — `JsHttpIntrinsics` (RuntimeCall)
+- [x] Capabilities files use `++ HttpIntrinsics` / `++ JvmHttpIntrinsics` / `++ JsHttpIntrinsics`
 
-### Iter 6 — MILESTONES.md  ✅
-- Mark SPI 5+/B as landed
-- Add SPI 5+/D (std.ws / auth / fs / crypto) as next step
+### Iter 6 — MILESTONES.md  ✅ DONE 2026-05-18
+- [x] SPI 5+/B marked as landed
+- [x] SPI 5+/D noted as next step
 
 ## Open questions resolved before coding
 
