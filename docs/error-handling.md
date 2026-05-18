@@ -219,7 +219,70 @@ val handled: Response throws AppError = direct[ResultS] {
 }
 ```
 
-### 2.5 Error subtyping
+### 2.5 Locked policies (promoted from open questions 2026-05-18)
+
+Four items that were carrying recommendations in §6 are now
+**locked** with the recommendations as the final design.  Listed
+here so a reader doesn't have to chase them through the open-
+questions section.
+
+#### 2.5.1 Adapter naming — `attemptCatch` / `attemptCatchRaw`
+
+The Either-encoded lift is `attemptCatch[E <: Throwable] { … }`;
+the union-encoded perf/interop lift is `attemptCatchRaw[E <:
+Throwable] { … }`.  Both names ship in std.  The `Raw` suffix
+mirrors `throwsRaw` and signals "perf channel — sees the
+exception value directly, no box".
+
+No alternative name (`safeCall`, `catching`, etc.) — verb-first
+matches the rest of the std API (`requireNonNull`, `divideOrError`),
+and the `attempt-` prefix mirrors `MonadError.attempt`.
+
+#### 2.5.2 Stack-trace mixin — `HasStackTrace`, opt-in
+
+The std convention is `trait HasStackTrace { def stackTrace:
+List[Frame] }` — opt-in.  Error types that want a trace mix in
+`HasStackTrace`; their constructor or factory calls
+`currentStackTrace()` to capture.  Errors that don't mix it in
+pay zero overhead — pure data.
+
+Std additionally provides a `trait Error extends HasStackTrace`
+convenience for the common case where an error wants both a
+domain shape (case-class fields) AND a trace.  Users who
+explicitly *don't* want a trace skip both mixins.
+
+Rejected alternative: always-on capture for every error value
+(~1-5% function-call overhead even when nobody reads the
+trace).  Hot-path parsers care about this.
+
+#### 2.5.3 Raw-form shim policy — measurement-driven, not speculative
+
+Standard-library platform-exception shims (§3.2) ship in the
+**`throws` form by default**.  A `Raw`-form companion
+(`parseIntRaw`, etc.) is added **only when profiling
+demonstrates measurable allocation pressure on that specific
+helper in real code**.  Never on speculative basis.
+
+Initial v1.15 shim set: all in `throws` form, no Raw variants.
+If a downstream consumer (e.g. high-throughput JSON parser in
+`std/json`) demonstrates the Either box is dominant, that's
+when the Raw-form companion gets added — case-by-case, with
+the benchmark in the PR.
+
+#### 2.5.4 `throwsRaw` runtime-distinguishability — known limitation
+
+Scala 3 unions require members to be distinguishable at
+runtime.  `throwsRaw[Int, Int]` is a compile error: the type
+tester can't tell whether a value of type `Int` was an "A" or
+an "E".  This is **not an open question** — it's a documented
+limitation of `throwsRaw`.
+
+The escape hatch is `throws[Int, Int]` (Either-encoded), which
+explicitly tags both sides with `Left`/`Right`.  When `A` and
+`E` overlap on runtime type, the user uses `throws` instead;
+the compiler error from `throwsRaw` is actionable.
+
+### 2.6 Error subtyping
 
 ```scala
 def loadUser(id: Int): User throws (NotFound | Forbidden) =
@@ -457,36 +520,47 @@ into the original frame."  Both can ship.
 These do **not** block the v1.15 decided portion (§2).  Lock
 when first usage emerges.
 
-- **Which std-lib platform operations get `throws`-typed
-  shims in v1.15?**  Initial list: `parseInt`, `parseLong`,
-  `parseDouble`, `requireNonNull`, divide-with-default.
-  IO shims defer to v1.5 Tier 2-4.
-- **`attemptCatch[E <: Throwable]` syntax** — `attemptCatch`?
-  `safeCall`?  `catching`?  Naming TBD.
+- **Final exact std-lib shim list for v1.15** — initial
+  tentative: `parseInt`, `parseLong`, `parseDouble`,
+  `requireNonNull`, `divideOrError`.  IO shims defer to v1.5
+  Tier 2-4.  The exact contents of the v1.15 ship list lock
+  at implementation time once edge cases (e.g. `parseHex`,
+  `parseTimestamp`) get specific requests.
 - **Stack-trace verbosity tuning** — collapse synthetic frames
   (the trampoline / coroutine machinery) into the user view?
-  `--trace=internal` flag for full unfiltered?
-- **`HasStackTrace` vs `extends Error`** — what's the std
-  convention for "this error type carries a trace"?  Probably
-  a `Error` trait in std that mixes in `HasStackTrace` by
-  default, with explicit opt-out.
+  `--trace=internal` flag for full unfiltered?  Operational
+  decision; defer until v1.15 lands and users complain about
+  noisy traces (or don't).
 - **Restartable handlers and snapshot traces** — does a
   restart preserve the original error's snapshot, or build a
   new one when the handler retries?  Probably the original;
-  user can capture a new one if they want.
+  user can capture a new one if they want.  Lives in the
+  v1.16 design, not v1.15.
 - **Capture cost on hot paths** — measure when v1.15 lands;
   add a `noTrace` modifier on case classes if the overhead
-  shows up.
-- **Cross-backend trace format compatibility** — `Frame(file,
+  shows up.  Until v1.15 ships there's nothing to bench.
+- **Cross-backend trace format normalisation** — `Frame(file,
   line, fn)` is uniform, but the *content* of `fn` differs:
   JVM shows mangled JVM names, JS shows source names, INT
   shows the user's definition site.  Worth a normalisation
-  pass for consistent output.
+  pass for consistent output; tackle when the first cross-
+  backend diagnostic mismatch surfaces.
 - **Java/Scala interop on the IDE side** — if a `throws`-typed
   value is passed to Java code, does it see `Either[E, A]`?
   Yes — `throws` is pure type alias, the runtime representation
   is `Either[E, A]`.  Document this for the IDE/refactoring
   story when v2.0 separate compilation arrives.
+
+### Already locked (cross-reference §2.5)
+
+These were carrying recommendations and are now locked:
+
+- **`attemptCatch` / `attemptCatchRaw`** naming — see §2.5.1
+- **`HasStackTrace`** opt-in mixin convention — see §2.5.2
+- **Raw-form shim policy** — measurement-driven, never
+  speculative — see §2.5.3
+- **`throwsRaw` runtime-distinguishability** — known
+  limitation, escape hatch is `throws` — see §2.5.4
 
 ## 7. v1.15 scope (decided portion)
 
