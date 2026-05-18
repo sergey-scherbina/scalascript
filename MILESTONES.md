@@ -403,7 +403,7 @@ unblocks downstream features as early as possible.
      to coroutine's program-as-control-flow.  Pure library work,
      no compiler changes.  Parallel with v1.11 if scheduling
      permits.
- 18. **v1.13 — Final Tagless ergonomics** ~ Partial (Phases 1+3 Landed)
+ 18. **v1.13 — Final Tagless ergonomics** ~ Partial (Phases 1+2+3 Landed)
      Land four typer features that block idiomatic typeclass usage:
      `using` auto-resolution, context bounds, cross-file trait
      inheritance with HKT, sealed-trait extension dispatch in INT.
@@ -2109,7 +2109,7 @@ Four phases, ~1 week.  Pure library work; no compiler changes,
 no SPI changes.  Slots after v1.11; can also land in parallel
 with v1.11 since they have no shared code.
 
-## v1.13 — Final Tagless ergonomics ~ Partial (Phases 1+3 Landed; Phases 2,4,5,6 pending)
+## v1.13 — Final Tagless ergonomics ~ Partial (Phases 1+2+3 Landed; Phases 4,5,6 pending)
 
 Make the FT pattern first-class in user code by landing four
 typer features that today block idiomatic typeclass usage.  The
@@ -2145,7 +2145,7 @@ unique match.  Standard Scala 3 priority rules; ambiguous →
 actionable error.  Rewrite the call site to include the resolved
 arguments before lowering.
 
-### Phase 2 — `using` auto-resolution (JS / JVM) (~2 days)
+### Phase 2 — `using` auto-resolution (JS / JVM) ✓ Landed
 
 JS-codegen passes typer-resolved arguments through to `_call`
 emit.  JvmGen emits the `(using …)` parameter list as-is and
