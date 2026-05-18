@@ -26,7 +26,8 @@ class Interpreter(
      *  Used by `ssc render` for static-site generation — the route
      *  table is filled in, then handlers are invoked off-band with
      *  synthetic requests. */
-    headless: Boolean              = false):
+    headless: Boolean              = false,
+    lockPath: Option[os.Path]      = None):
   private val globals      = mutable.Map.empty[String, Value]
   private val extensions   = mutable.Map.empty[(String, String), Value.FunV]
   // Methods declared inside a `class` / `case class` body, keyed by type name.
@@ -1160,12 +1161,12 @@ class Interpreter(
     import scalascript.parser.Parser
     val base = baseDir.getOrElse(os.pwd)
     val resolvedPath =
-      try scalascript.imports.ImportResolver.resolve(imp.path, base, moduleDeps)
+      try scalascript.imports.ImportResolver.resolve(imp.path, base, moduleDeps, lockPath)
       catch case e: Throwable => throw InterpretError(s"Import ${imp.path}: ${e.getMessage}")
     if !os.exists(resolvedPath) then
       throw InterpretError(s"Import not found: ${imp.path}")
     val childDir = resolvedPath / os.up
-    val child    = Interpreter(out, Some(childDir))
+    val child    = Interpreter(out, Some(childDir), lockPath = lockPath)
     child.run(Parser.parse(os.read(resolvedPath)))
     val exported   = child.exportedGlobals
     val childPkg   = child.exportedPkg
@@ -4751,5 +4752,10 @@ class Interpreter(
     run(initial)
 
 object Interpreter:
-  def run(module: Module, out: java.io.PrintStream = System.out, baseDir: Option[os.Path] = None): Unit =
-    Interpreter(out, baseDir).run(module)
+  def run(
+      module:   Module,
+      out:      java.io.PrintStream = System.out,
+      baseDir:  Option[os.Path]     = None,
+      lockPath: Option[os.Path]     = None
+  ): Unit =
+    Interpreter(out, baseDir, lockPath = lockPath).run(module)

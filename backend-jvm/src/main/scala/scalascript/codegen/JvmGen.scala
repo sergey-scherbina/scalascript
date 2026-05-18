@@ -20,9 +20,10 @@ object JvmGen:
   def generate(
       module:     Module,
       baseDir:    Option[os.Path] = None,
-      intrinsics: Map[scalascript.ir.QualifiedName, scalascript.backend.spi.IntrinsicImpl] = Map.empty
+      intrinsics: Map[scalascript.ir.QualifiedName, scalascript.backend.spi.IntrinsicImpl] = Map.empty,
+      lockPath:   Option[os.Path] = None
   ): String =
-    JvmGen(baseDir, intrinsics).genModule(module)
+    JvmGen(baseDir, intrinsics, lockPath).genModule(module)
 
   private case class Block(node: ScalaNode, src: String)
   /** A heading-bound `html` / `css` code block: render to a string in the
@@ -32,7 +33,8 @@ object JvmGen:
 
 class JvmGen(
     baseDir:    Option[os.Path] = None,
-    intrinsics: Map[scalascript.ir.QualifiedName, scalascript.backend.spi.IntrinsicImpl] = Map.empty):
+    intrinsics: Map[scalascript.ir.QualifiedName, scalascript.backend.spi.IntrinsicImpl] = Map.empty,
+    lockPath:   Option[os.Path] = None):
   // Effect operations declared in the module, keyed as "Eff.op".
   private val effectOps     = mutable.Set.empty[String]
   // Functions whose body transitively performs effects; their bodies are
@@ -229,7 +231,7 @@ class JvmGen(
     import scalascript.parser.Parser
     val base = baseDir.getOrElse(os.pwd)
     val resolved =
-      try scalascript.imports.ImportResolver.resolve(path, base, moduleDeps)
+      try scalascript.imports.ImportResolver.resolve(path, base, moduleDeps, lockPath)
       catch case e: Throwable => throw new RuntimeException(s"Import $path: ${e.getMessage}")
     val key = resolved.toString
     if importedFiles.contains(key) then
@@ -241,7 +243,7 @@ class JvmGen(
       val importedModule = Parser.parse(os.read(resolved))
       val pkg = importedModule.manifest.flatMap(_.pkg).getOrElse(Nil)
       importedPkgs(key) = pkg
-      val nested = new JvmGen(Some(resolved / os.up))
+      val nested = new JvmGen(Some(resolved / os.up), lockPath = lockPath)
       nested.importedFiles ++= importedFiles
       (nested.collectBlocks(importedModule.sections), pkg)
 

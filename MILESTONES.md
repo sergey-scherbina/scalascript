@@ -471,12 +471,11 @@ unblocks downstream features as early as possible.
      third-party libs.  Full design in
      [`docs/modularity.md`](docs/modularity.md) §9.  Can land
      parallel with v1.19.
- 25. **v1.19 — URL / dep imports** (~2 weeks).
+ 25. **v1.19 — URL / dep imports** ✓ Landed.
      `[X](https://...)` URL fetch + `[X](dep:org/lib:1.2)`
      resolver, both with `ssc.lock` SHA-256 integrity-check.
-     Builds on v1.7 Tier 2 `.sscpkg` (landed) + v1.18 `package`
-     keyword.  Central registry deferred to v1.19.x.  Full
-     design in [`docs/modularity.md`](docs/modularity.md) §10.
+     `ssc lock` / `ssc lock check` CLI.  Central registry
+     deferred to v1.19.x.
  26. **v1.20 — DSL primitives + `std/parsing`** (~2.5 weeks).
      User-defined string interpolators cross-backend +
      parser-combinator library (`std/parsing/*`) + AST/pretty-
@@ -2885,7 +2884,16 @@ files currently stay flat per migration policy.
 
 ### Status: ✓ Landed (Phases 1, 2, 4)  Phase 3 deferred
 
-## v1.19 — URL / dep imports
+## v1.19 — URL / dep imports ✓ Landed
+
+**Landing notes (2026-05-18):**
+- Phase 1 ✓: `LockFile.scala` — SHA-256 integrity model; YAML read/write/check/pin
+- Phase 2 ✓: `dep:` scheme in `ImportResolver` — `dep-sources` chain lookup + lock integration
+- Phase 3 ✓: All three backends thread `lockPath` through `inlineImport` / `genImport` / `runImport`
+- Phase 4 ✓: `ssc lock <file>` and `ssc lock check <file>` CLI commands
+- Phase 5 ✓: `LockFileTest` — 9 conformance tests (sha256, pin/check, YAML round-trip, error cases)
+- Hard-no enforced: URL not in existing `ssc.lock` → build error ("run `ssc lock` first")
+- Central registry deferred to v1.19.x as planned
 
 Builds on v1.7 Tier 2 (`.sscpkg` archive landed) and v1.18
 (`package` keyword) to enable distributed `.ssc` library

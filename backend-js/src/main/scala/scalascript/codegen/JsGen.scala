@@ -19,18 +19,20 @@ object JsGen:
   def generate(
       module:     Module,
       baseDir:    Option[os.Path] = None,
-      intrinsics: Map[scalascript.ir.QualifiedName, scalascript.backend.spi.IntrinsicImpl] = Map.empty
+      intrinsics: Map[scalascript.ir.QualifiedName, scalascript.backend.spi.IntrinsicImpl] = Map.empty,
+      lockPath:   Option[os.Path] = None
   ): String =
-    val gen = new JsGen(baseDir, intrinsics)
+    val gen = new JsGen(baseDir, intrinsics, lockPath)
     gen.genModule(module)
 
   /** Generate segments in document order, preserving scala/scalascript interleaving. */
   def generateSegmented(
       module:     Module,
       baseDir:    Option[os.Path] = None,
-      intrinsics: Map[scalascript.ir.QualifiedName, scalascript.backend.spi.IntrinsicImpl] = Map.empty
+      intrinsics: Map[scalascript.ir.QualifiedName, scalascript.backend.spi.IntrinsicImpl] = Map.empty,
+      lockPath:   Option[os.Path] = None
   ): List[Segment] =
-    val gen = new JsGen(baseDir, intrinsics)
+    val gen = new JsGen(baseDir, intrinsics, lockPath)
     gen.genModuleSegmented(module)
 
   /** True if the module contains at least one scalascript block. */
@@ -4609,7 +4611,8 @@ function serve(/* ignored */) {
 
 class JsGen(
     baseDir:    Option[os.Path] = None,
-    intrinsics: Map[scalascript.ir.QualifiedName, scalascript.backend.spi.IntrinsicImpl] = Map.empty):
+    intrinsics: Map[scalascript.ir.QualifiedName, scalascript.backend.spi.IntrinsicImpl] = Map.empty,
+    lockPath:   Option[os.Path] = None):
   import scala.meta.*
 
   private[codegen] val sb = StringBuilder()
@@ -4948,14 +4951,14 @@ class JsGen(
     import scalascript.parser.Parser
     val base = baseDir.getOrElse(os.pwd)
     val resolvedPath =
-      try scalascript.imports.ImportResolver.resolve(imp.path, base, moduleDeps)
+      try scalascript.imports.ImportResolver.resolve(imp.path, base, moduleDeps, lockPath)
       catch case _: Throwable => base / os.RelPath(imp.path)
     val key = resolvedPath.toString
     if os.exists(resolvedPath) && !importedFiles.contains(key) then
       importedFiles += key
       val childDir = resolvedPath / os.up
       val childModule = Parser.parse(os.read(resolvedPath))
-      val childGen = new JsGen(Some(childDir))
+      val childGen = new JsGen(Some(childDir), lockPath = lockPath)
       childGen.importedFiles ++= importedFiles
       // Emit only the definitions from the imported module (suppress top-level output)
       childModule.sections.foreach { section =>

@@ -64,6 +64,7 @@ private def dispatchCommand(args: List[String]): Unit =
     case "build"               => buildCommand(args.tail)
     case "bundle"              => bundleCommand(args.tail)
     case "plugin"              => pluginCommand(args.tail)
+    case "lock"                => lockCommand(args.tail)
     case "help" | "--help" | "-h" => printUsage()
     case "--list-backends"     => println(BackendRegistry.describe)
     case _                     => runCommand(args)
@@ -195,6 +196,8 @@ def printUsage(): Unit =
     |  serve                  Start HTTP server serving .ssc files as web pages
     |  parse                  Parse .ssc files and print AST
     |  check                  Type-check .ssc files
+    |  lock <file>            Pin all URL/dep imports in ssc.lock (SHA-256 integrity)
+    |  lock check <file>      Verify all URL/dep imports match ssc.lock
     |  help                   Show this help message
     |
     |Package flags (passed through to scala-cli package):
@@ -1207,6 +1210,80 @@ def packageCommand(args: List[String]): Unit =
       catch case e: Exception =>
         System.err.println(s"Package error: ${e.getMessage}")
         System.exit(1)
+
+def lockCommand(args: List[String]): Unit =
+  args match
+    case "check" :: rest => lockCheckCommand(rest)
+    case rest            => lockPinCommand(rest)
+
+private def collectUrlImports(module: scalascript.ast.Module): List[String] =
+  def fromSection(s: scalascript.ast.Section): List[String] =
+    val direct = s.content.collect {
+      case scalascript.ast.Content.Import(path, _, _)
+          if path.startsWith("http://") || path.startsWith("https://") || path.startsWith("dep:") => path
+    }
+    direct ++ s.subsections.flatMap(fromSection)
+  module.sections.flatMap(fromSection)
+
+private def lockPinCommand(args: List[String]): Unit =
+  if args.isEmpty then { System.err.println("lock: no file specified"); System.exit(1) }
+  val file = args.head
+  val path = os.Path(file, os.pwd)
+  if !os.exists(path) then { System.err.println(s"lock: file not found: $file"); System.exit(1) }
+  val lockPath = path / os.up / "ssc.lock"
+  try
+    val module  = Parser.parse(os.read(path))
+    val urls    = collectUrlImports(module)
+    if urls.isEmpty then
+      println("lock: no URL/dep imports found")
+    else
+      import scalascript.imports.{ImportResolver, LockFile}
+      val baseDir = path / os.up
+      val deps    = module.manifest.map(_.dependencies).getOrElse(Map.empty)
+      var lock    = LockFile.read(lockPath).getOrElse(LockFile.empty)
+      for url <- urls do
+        val resolved = ImportResolver.resolve(url, baseDir, deps, lockPath = Some(lockPath))
+        val content  = os.read.bytes(resolved)
+        lock = lock.pin(url, content)
+        println(s"  pinned $url")
+      LockFile.write(lock, lockPath)
+      println(s"lock: wrote ${lockPath.relativeTo(os.pwd)}")
+  catch case e: Exception =>
+    System.err.println(s"lock error: ${e.getMessage}")
+    System.exit(1)
+
+private def lockCheckCommand(args: List[String]): Unit =
+  if args.isEmpty then { System.err.println("lock check: no file specified"); System.exit(1) }
+  val file = args.head
+  val path = os.Path(file, os.pwd)
+  if !os.exists(path) then { System.err.println(s"lock check: file not found: $file"); System.exit(1) }
+  val lockPath = path / os.up / "ssc.lock"
+  if !os.exists(lockPath) then
+    System.err.println(s"lock check: no ssc.lock at ${lockPath.relativeTo(os.pwd)}")
+    System.exit(1)
+  try
+    import scalascript.imports.{ImportResolver, LockFile}
+    val module  = Parser.parse(os.read(path))
+    val urls    = collectUrlImports(module)
+    val lock    = LockFile.read(lockPath).fold(e => throw e, identity)
+    val baseDir = path / os.up
+    val deps    = module.manifest.map(_.dependencies).getOrElse(Map.empty)
+    var hasErrors = false
+    for url <- urls do
+      lock.entries.get(url) match
+        case None =>
+          System.err.println(s"  MISSING in lock: $url")
+          hasErrors = true
+        case Some(_) =>
+          val resolved = ImportResolver.resolve(url, baseDir, deps, lockPath = Some(lockPath))
+          val content  = os.read.bytes(resolved)
+          lock.check(url, content) match
+            case Left(err)  => System.err.println(s"  FAIL: $err"); hasErrors = true
+            case Right(_)   => println(s"  ok $url")
+    if hasErrors then System.exit(1) else println("lock check: all OK")
+  catch case e: Exception =>
+    System.err.println(s"lock check error: ${e.getMessage}")
+    System.exit(1)
 
 def checkCommand(args: List[String]): Unit =
   if args.isEmpty then { println("Error: No files specified"); System.exit(1) }
