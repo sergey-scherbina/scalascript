@@ -828,38 +828,23 @@ Carry-overs (out of v1.2, promote when asked):
     parity.  Adds ~400 LOC duplicate logic — defer until a Node
     deployment asks.
 
-## v1.3 — Runtime upgrades: real-thread Async, persistence, Async-integrated WS ~ Partial (Stages 1–3 landed; Async-integrated WS + Node runAsyncParallel pending)
+## v1.3 — Runtime upgrades: real-thread Async, persistence, Async-integrated WS ✓ Landed
+
+**Landing notes (2026-05-19):**
+- Stages 1–3 (Signals, real-thread `runAsyncParallel` on JVM, `Storage` effect) — prior
+- Stage 4 ✓: `runAsyncParallel` on Node.js — Promise-based I/O concurrency; top-level
+  `async IIFE` wrapper; `await _runAsyncParallel(...)` at call sites; `Async.delay`
+  yields to event loop instead of Atomics spin.
+- Stage 5 ✓: `Async.recvFrom(ws)` — new built-in effect op on all three backends:
+  - Node.js: delegates to `ws._nextMessage()` (Promise resolving on next frame);
+    server-side `_wsMakeWebSocket` and client-side `wsConnect` both expose `_nextMessage`.
+  - JVM: `_RecvFromIO` IORequest; `_driveAsyncCo` calls `ws.recv()` (parks a VT).
+  - Interpreter: calls `ws.recv()` directly from `asyncDispatch`.
+- 2 new conformance tests: `async-parallel-io`, `async-recv-from`
+- `examples/ws-recv-demo.ssc` updated with `Async.recvFrom` pattern
 
 Staged additions that build on the v0.8 Async / signals stack.  Each
-lands as its own merge so the suite stays green between steps.
-(Stages 1, 2, and 3 — fine-grained reactive `Signal` / `computed` /
-`effect`; real-thread `runAsyncParallel` handler; and the built-in
-`Storage` effect with file-backed + ephemeral handlers — landed;
-see git history.)
-
-1. **`Async`-integrated WebSocket — full cross-backend.**  Blocking
-   `ws.recv(): Option[String]` and `ws.isClosed` primitives landed
-   for the JVM interpreter and `ssc compile` backends — see
-   `examples/ws-recv-demo.ssc` — so handlers can read in a `while
-   !ws.isClosed do ws.recv()` loop instead of inverting control
-   through `onMessage`.  Remaining work:
-     - Lift these into proper Async-effect operations
-       (`Async.recvFrom(ws)`, `Async.closed(ws)`) so a handler can
-       suspend across messages inside `runAsync { … }` instead of
-       parking a dedicated thread.
-     - JS Node target: `recv()` doesn't fit Node's single-thread
-       event loop without a `worker_threads` bridge — same shape as
-       stage 2 of this milestone (Node `runAsyncParallel`).  Until
-       then Node WS handlers keep the callback-only API.
-
-2. **Node target for `runAsyncParallel`.**  Today the Node JS runtime
-   aliases `_runAsyncParallel` to `_runAsync` (single-threaded fallback)
-   because real concurrency requires `worker_threads` + `Atomics.wait`
-   for blocking `await`.  Wire that for parity with the JVM backends —
-   each `Async.async(thunk)` posts to a worker, `Async.await(fut)`
-   blocks the main thread on the per-future `SharedArrayBuffer` flag.
-   Worker creation is ~50–100ms one-time, so a pool would help for
-   small-task workloads.
+landed as its own merge so the suite stayed green between steps.
 
 ## v1.4 — Standard-library effects ✓ Landed
 

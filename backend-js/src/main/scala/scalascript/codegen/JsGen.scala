@@ -1357,6 +1357,18 @@ function _wsMakeWebSocket(socket, request, subprotocol, maxMessagesPerSec, userP
   let onPong    = null;
   let closing   = false;
   let inBuf     = Buffer.alloc(0);
+  // Recv queue for Async.recvFrom — messages land here when no waiter is
+  // active; _nextMessage() drains the queue or parks a Promise resolver.
+  const _recvQueue = [];
+  let _recvWaiter = null;
+  function _deliverRecvMsg(msgOrNull) {
+    if (_recvWaiter !== null) {
+      const res = _recvWaiter; _recvWaiter = null;
+      res(msgOrNull === null ? { _type: '_None' } : { _type: '_Some', value: msgOrNull });
+    } else if (msgOrNull !== null) {
+      _recvQueue.push(msgOrNull);
+    }
+  }
   // Fragmentation reassembly (RFC 6455 §5.4): the first frame of a
   // fragmented message carries the opcode with FIN=0, follow-up frames
   // are Continuation (opcode=0) with the rest, and the last has FIN=1.
@@ -1403,8 +1415,9 @@ function _wsMakeWebSocket(socket, request, subprotocol, maxMessagesPerSec, userP
     }
     _metricsState['ws.messages.in']++;
     _metricsState['ws.bytes.in'] += payload.length;
-    if (!onMessage) return;
     const msg = opcode === 0x1 ? payload.toString('utf-8') : payload.toString('latin1');
+    _deliverRecvMsg(msg);
+    if (!onMessage) return;
     try { onMessage(msg); } catch (e) { console.error('WS message handler:', e.message); }
   };
 
@@ -1457,6 +1470,12 @@ function _wsMakeWebSocket(socket, request, subprotocol, maxMessagesPerSec, userP
       const payload = (s == null || s === '') ? Buffer.alloc(0) : Buffer.from(String(s), 'latin1');
       socket.write(_wsEncodeFrame(0x9, payload));
     },
+    isClosed: () => closing,
+    _nextMessage: () => new Promise(resolve => {
+      if (closing) { resolve({ _type: '_None' }); return; }
+      if (_recvQueue.length > 0) { resolve({ _type: '_Some', value: _recvQueue.shift() }); return; }
+      _recvWaiter = resolve;
+    }),
     request:   request
   };
 
@@ -1533,6 +1552,8 @@ function _wsMakeWebSocket(socket, request, subprotocol, maxMessagesPerSec, userP
 
   socket.on('close', () => {
     clearInterval(heartbeat);
+    closing = true;
+    _deliverRecvMsg(null);  // wake any pending Async.recvFrom with None
     if (onClose) try { onClose(); } catch (e) { console.error('WS close handler:', e.message); }
   });
 
@@ -2153,11 +2174,13 @@ function wsConnect(url, extraHeaders, protocols) {
     let _closing = false, _closed = false;
     let _onMsgCb = null, _onCloseCb = null, _onPongCb = null;
     const _msgQueue = [];
+    let _recvWaiter = null;
     let _subproto = '';
 
     function _doClose() {
       if (!_closed) {
         _closed = true; _closing = true;
+        if (_recvWaiter !== null) { const r = _recvWaiter; _recvWaiter = null; r({ _type: '_None' }); }
         if (_onCloseCb) try { _onCloseCb(); } catch(_e) {}
       }
     }
@@ -2188,6 +2211,12 @@ function wsConnect(url, extraHeaders, protocols) {
         return msg !== undefined ? { _type: '_Some', value: msg } : { _type: '_None' };
       }],
       ['isClosed',   () => _closing],
+      ['_nextMessage', () => new Promise(resolve => {
+        if (_closing) { resolve({ _type: '_None' }); return; }
+        const msg = _msgQueue.shift();
+        if (msg !== undefined) { resolve({ _type: '_Some', value: msg }); return; }
+        _recvWaiter = resolve;
+      })],
     ]);
 
     // RFC 6455 handshake
@@ -2224,7 +2253,12 @@ function wsConnect(url, extraHeaders, protocols) {
           if (fin) {
             const msg = _fragOp === 0x1 ? _fragBuf.toString('utf-8') : _fragBuf.toString('latin1');
             _fragBuf = Buffer.alloc(0);
-            _msgQueue.push(msg);
+            if (_recvWaiter !== null) {
+              const r = _recvWaiter; _recvWaiter = null;
+              r({ _type: '_Some', value: msg });
+            } else {
+              _msgQueue.push(msg);
+            }
             if (_onMsgCb) try { _onMsgCb(msg); } catch(_e) {}
           }
         }
@@ -3258,6 +3292,7 @@ const Async = {
   async:    (thunk)  => _perform('Async', 'async',    [thunk]),
   await:    (fut)    => _perform('Async', 'await',    [fut]),
   parallel: (thunks) => _perform('Async', 'parallel', [thunks]),
+  recvFrom: (ws)     => _perform('Async', 'recvFrom', [ws]),
 };
 function Future(value) { return { _type: 'Future', value }; }
 
@@ -3345,15 +3380,69 @@ function _runAsyncInner(initial) {
 
 function _runAsync(bodyFn) { return _runAsyncInner(bodyFn()); }
 
-// ── runAsyncParallel: same API on Node, single-threaded for now ────────────
+// ── runAsyncParallel: true I/O concurrency on Node via Promises ────────────
 //
-// Real concurrency on Node would require `worker_threads` per `async` +
-// `Atomics.wait` for `await` — viable but heavyweight (50-100ms worker
-// creation, separate JS context per task).  v1.3 keeps the Node target
-// single-threaded and aliases `_runAsyncParallel` to `_runAsync`: code
-// written against the parallel handler still runs, just without the
-// speedup.  The JVM backends provide real concurrency.
-function _runAsyncParallel(bodyFn) { return _runAsyncInner(bodyFn()); }
+// Each `Async.async(thunk)` launches an independent Promise-driven run of
+// `thunk`, returning a handle that `Async.await` can resolve.  `parallel`
+// fans out all thunks concurrently with `Promise.all`.  `recvFrom(ws)`
+// delegates to `ws._nextMessage()` — a Promise that resolves on the next
+// incoming WebSocket frame, or `None` on close.  The outer `async function`
+// keeps the Node.js event loop live while awaiting I/O.
+async function _runAsyncParallelInner(node) {
+  while (true) {
+    // Right-associate nested _FlatMap nodes to avoid stack growth.
+    while (node instanceof _FlatMap && node.sub instanceof _FlatMap) {
+      const sub2 = node.sub.sub, g = node.sub.k, f = node.k;
+      node = new _FlatMap(sub2, (x) => new _FlatMap(g(x), f));
+    }
+    if (node instanceof _FlatMap) {
+      const result = await _runAsyncParallelInner(node.sub);
+      node = node.k(result);
+    } else if (node instanceof _Perform && node.eff === 'Async') {
+      switch (node.op) {
+        case 'delay': {
+          const ms = node.args[0];
+          if (ms > 0) await new Promise(r => setTimeout(r, ms));
+          node = undefined;
+          break;
+        }
+        case 'async': {
+          const thunk = node.args[0];
+          const p = _runAsyncParallelInner(thunk());
+          return { _type: 'Future', _isParFut: true, _promise: p };
+        }
+        case 'await': {
+          const fut = node.args[0];
+          if (!fut || !fut._isParFut) throw new Error('Async.await: expected parallel Future');
+          return await fut._promise;
+        }
+        case 'parallel': {
+          const thunks = node.args[0];
+          return await Promise.all(thunks.map(t => _runAsyncParallelInner(t())));
+        }
+        case 'recvFrom': {
+          const ws = node.args[0];
+          const nextMsg = typeof ws._nextMessage === 'function' ? ws._nextMessage
+                        : (ws instanceof Map ? ws.get('_nextMessage') : null);
+          if (typeof nextMsg !== 'function') throw new Error('Async.recvFrom: ws has no _nextMessage');
+          node = await nextMsg();
+          break;
+        }
+        default:
+          throw new Error('Unknown Async operation in runAsyncParallel: ' + node.op);
+      }
+    } else {
+      return node;  // plain value
+    }
+  }
+}
+async function _runAsyncParallel(bodyFn) {
+  try { return await _runAsyncParallelInner(bodyFn()); }
+  catch (e) {
+    if (typeof process !== 'undefined') process.stderr.write('runAsyncParallel error: ' + (e && e.message || String(e)) + '\n');
+    throw e;
+  }
+}
 
 // ── v1.6 Actors — Phase 1 cooperative scheduler ────────────────────────
 //
@@ -4882,6 +4971,9 @@ class JsGen(
   private var tmpIdx = 0
   private var hasMain = false
   private var mainCalled = false
+  // Set when the module uses runAsyncParallel; causes the user code sections to
+  // be wrapped in a top-level async IIFE so `await _runAsyncParallel(...)` works.
+  private var usesRunAsyncParallel: Boolean = false
   // Stack of placeholder counters: each AnonymousFunction pushes 0, Placeholder increments top
   private var phCounters: List[Int] = Nil
   // Names of variables known to hold integer values (for integer division detection)
@@ -5003,15 +5095,21 @@ class JsGen(
     moduleDeps = module.manifest.map(_.dependencies).getOrElse(Map.empty)
     analyzeMutualRecursion(module)
     analyzeEffects(module)
+    scanForRunAsyncParallel(module)
     // Front-matter route declarations are emitted BEFORE the user blocks so
     // a typical user-side `serve(port)` (last statement of the script) sees
     // them already registered.  JS function declarations are hoisted, so
     // forward references to the handler defs resolve at call time.
     emitFrontmatterRoutes(module)
+    // When `runAsyncParallel` is used, wrap the entire user-code body in a
+    // top-level async IIFE so `await _runAsyncParallel(...)` is legal.
+    if usesRunAsyncParallel then line("(async () => {")
     module.sections.foreach(genSection)
     // Auto-call main() if defined and not already called
     if hasMain && !mainCalled then
       line("if (typeof main === 'function') { main(); }")
+    if usesRunAsyncParallel then
+      line("})().catch(e => { if (typeof process !== 'undefined') { process.stderr.write(String(e) + '\\n'); process.exit(1); } });")
     sb.toString
 
   /** Emit `route(method, path)(handler)` registrations for every
@@ -5049,7 +5147,7 @@ class JsGen(
 
   private def analyzeEffects(module: Module): Unit =
     val builtins = Set(
-      "Async.delay", "Async.async", "Async.await", "Async.parallel",
+      "Async.delay", "Async.async", "Async.await", "Async.parallel", "Async.recvFrom",
       "Storage.get", "Storage.put", "Storage.remove", "Storage.has", "Storage.keys",
       "Actor.spawn", "Actor.spawn_link", "Actor.self", "Actor.send", "Actor.exit",
       "Actor.receive", "Actor.receive_t",
@@ -5074,6 +5172,21 @@ class JsGen(
     effectOps.clear();     effectOps     ++= r.effectOps
     effectfulFuns.clear(); effectfulFuns ++= r.effectfulFuns
 
+  /** Walk the module AST and set `usesRunAsyncParallel` if any `runAsyncParallel` call
+   *  is present.  Called from `genModule` before emitting user code sections so the
+   *  IIFE wrapper and `await` prefix can be applied consistently. */
+  private def scanForRunAsyncParallel(module: Module): Unit =
+    def collectTrees(s: Section): List[scala.meta.Tree] =
+      s.content.collect {
+        case cb: Content.CodeBlock if Lang.isScalaScript(cb.lang) =>
+          cb.tree.map(ScalaNode.fold(_)(identity))
+      }.flatten ++ s.subsections.flatMap(collectTrees)
+    usesRunAsyncParallel = module.sections.flatMap(collectTrees).exists { tree =>
+      tree.collect {
+        case scala.meta.Term.Apply.After_4_6_0(scala.meta.Term.Name("runAsyncParallel"), _) => ()
+      }.nonEmpty
+    }
+
   /** True if `Eff.op` is a declared effect operation. */
   private def isEffectOpRef(eff: String, op: String): Boolean =
     effectOps.contains(s"$eff.$op")
@@ -5091,6 +5204,7 @@ class JsGen(
     moduleDeps = module.manifest.map(_.dependencies).getOrElse(Map.empty)
     analyzeMutualRecursion(module)
     analyzeEffects(module)
+    scanForRunAsyncParallel(module)
     // Emit `route(...)` registrations from front-matter before user blocks,
     // so a typical user-side `serve(port)` (last statement of the script)
     // sees them already registered.  JS function declarations are hoisted,
@@ -5128,10 +5242,13 @@ class JsGen(
       }
       s.subsections.foreach(walkSection)
 
+    if usesRunAsyncParallel then sb.append("(async () => {\n")
     module.sections.foreach(walkSection)
     flushScala()
     if hasMain && !mainCalled then
       sb.append("if (typeof main === 'function') { main(); }\n")
+    if usesRunAsyncParallel then
+      sb.append("})().catch(e => { if (typeof process !== 'undefined') { process.stderr.write(String(e) + '\\n'); process.exit(1); } });\n")
     val finalCode = sb.substring(ssStart)
     if finalCode.trim.nonEmpty then result += JsGen.Segment.ScalaScriptJs(finalCode)
     result.toList
@@ -6172,7 +6289,8 @@ class JsGen(
       s"_runAsync(() => ${genCpsExpr(bodyArgClause.values.head.asInstanceOf[Term])})"
     case Term.Apply.After_4_6_0(Term.Name("runAsyncParallel"), bodyArgClause)
         if bodyArgClause.values.size == 1 =>
-      s"_runAsyncParallel(() => ${genCpsExpr(bodyArgClause.values.head.asInstanceOf[Term])})"
+      val awaitPrefix = if usesRunAsyncParallel then "await " else ""
+      s"${awaitPrefix}_runAsyncParallel(() => ${genCpsExpr(bodyArgClause.values.head.asInstanceOf[Term])})"
 
     // Storage handlers — file-backed (with optional path arg) and ephemeral
     case Term.Apply.After_4_6_0(Term.Name("runStorage"), bodyArgClause)
@@ -6660,7 +6778,8 @@ class JsGen(
       s"_runAsync(() => ${genCpsExpr(bodyArgClause.values.head.asInstanceOf[Term])})"
     case Term.Apply.After_4_6_0(Term.Name("runAsyncParallel"), bodyArgClause)
         if bodyArgClause.values.size == 1 =>
-      s"_runAsyncParallel(() => ${genCpsExpr(bodyArgClause.values.head.asInstanceOf[Term])})"
+      val awaitPrefix = if usesRunAsyncParallel then "await " else ""
+      s"${awaitPrefix}_runAsyncParallel(() => ${genCpsExpr(bodyArgClause.values.head.asInstanceOf[Term])})"
 
     // Nested storage handlers inside CPS body
     case Term.Apply.After_4_6_0(Term.Name("runStorage"), bodyArgClause)
