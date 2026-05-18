@@ -4570,10 +4570,13 @@ class JvmGen(
        |  _stopLatch.await()
        |
        |// ── Outbound HTTP client ────────────────────────────────────────────────
-       |private var _httpBaseUrl:   String = ""
-       |private var _httpTimeoutMs: Long   = 30_000L
+       |private var _httpBaseUrl:    String = ""
+       |private var _httpTimeoutMs:  Long   = 30_000L
+       |private var _httpMaxRetries: Int    = 0
+       |private var _httpRetryDelay: Long   = 1_000L
        |
-       |def httpTimeout(ms: Int): Unit = _httpTimeoutMs = ms.toLong
+       |def httpTimeout(ms: Int): Unit  = _httpTimeoutMs = ms.toLong
+       |def httpRetry(n: Int, delayMs: Int = 1000): Unit = { _httpMaxRetries = n; _httpRetryDelay = delayMs.toLong }
        |
        |private def _httpDoRequest(method: String, url: String, body: String,
        |    headers: Map[String, String]): Any =
@@ -4588,7 +4591,17 @@ class JvmGen(
        |    case "GET"    => builder.GET().build()
        |    case "DELETE" => builder.DELETE().build()
        |    case m        => builder.method(m, HttpRequest.BodyPublishers.ofString(body)).build()
-       |  val resp = client.send(req, HttpResponse.BodyHandlers.ofString())
+       |  val maxTries = _httpMaxRetries + 1
+       |  var attempt = 0; var lastResp: HttpResponse[String] | Null = null; var lastErr: Throwable | Null = null
+       |  while attempt < maxTries do
+       |    try { lastResp = client.send(req, HttpResponse.BodyHandlers.ofString()); lastErr = null }
+       |    catch case e: Throwable => lastErr = e
+       |    val shouldRetry = lastErr != null || (lastResp != null && lastResp.statusCode() >= 500)
+       |    attempt += 1
+       |    if shouldRetry && attempt < maxTries then Thread.sleep(_httpRetryDelay)
+       |    else attempt = maxTries
+       |  if lastErr != null then throw lastErr
+       |  val resp = lastResp.nn
        |  val hdrs = resp.headers().map().entrySet().iterator().asScala.flatMap { e =>
        |    if e.getValue.isEmpty then None
        |    else Some(e.getKey -> e.getValue.get(0))
@@ -4612,8 +4625,10 @@ class JvmGen(
        |
        |def httpClient(baseUrl: String)(block: => Any): Any =
        |  val priorBase = _httpBaseUrl; val priorT = _httpTimeoutMs
+       |  val priorR = _httpMaxRetries; val priorD = _httpRetryDelay
        |  _httpBaseUrl = baseUrl
-       |  try block finally { _httpBaseUrl = priorBase; _httpTimeoutMs = priorT }
+       |  try block finally { _httpBaseUrl = priorBase; _httpTimeoutMs = priorT
+       |                       _httpMaxRetries = priorR; _httpRetryDelay = priorD }
        |
        |// ── v1.10 Generator — pull-based lazy streams via virtual threads ────────
        |// Each Generator[A] runs its body in a virtual thread.

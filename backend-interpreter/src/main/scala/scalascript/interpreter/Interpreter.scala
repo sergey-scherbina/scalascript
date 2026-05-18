@@ -318,8 +318,10 @@ class Interpreter(
     sb.result()
 
   // Base URL and timeout for httpClient {} scopes — thread-local so nested calls restore correctly.
-  private val _httpBaseUrl     = ThreadLocal.withInitial[String](() => "")
-  private val _httpTimeoutMs   = ThreadLocal.withInitial[Long](() => 30_000L)
+  private val _httpBaseUrl      = ThreadLocal.withInitial[String](() => "")
+  private val _httpTimeoutMs    = ThreadLocal.withInitial[Long](() => 30_000L)
+  private val _httpMaxRetries   = ThreadLocal.withInitial[Int](() => 0)
+  private val _httpRetryDelayMs = ThreadLocal.withInitial[Long](() => 1_000L)
   // Receive-spec boxing: we can't squeeze AST cases into `Value`, so
   // `receive { case … }` stashes (cases, env) in a side map and the
   // Perform's args carry just the opaque integer token.
@@ -530,7 +532,18 @@ class Interpreter(
         case "PUT"    => builder.PUT(HttpRequest.BodyPublishers.ofString(body)).build()
         case "DELETE" => builder.DELETE().build()
         case m        => builder.method(m, HttpRequest.BodyPublishers.ofString(body)).build()
-      val resp  = client.send(req, HttpResponse.BodyHandlers.ofString())
+      val maxTries = _httpMaxRetries.get() + 1
+      val delayMs  = _httpRetryDelayMs.get()
+      var attempt  = 0; var lastResp: HttpResponse[String] | Null = null; var lastErr: Throwable | Null = null
+      while attempt < maxTries do
+        try { lastResp = client.send(req, HttpResponse.BodyHandlers.ofString()); lastErr = null }
+        catch case e: Throwable => lastErr = e
+        val shouldRetry = lastErr != null || (lastResp != null && lastResp.statusCode() >= 500)
+        attempt += 1
+        if shouldRetry && attempt < maxTries then Thread.sleep(delayMs)
+        else attempt = maxTries // break
+      if lastErr != null then throw lastErr
+      val resp = lastResp.nn
       val hdrs: Map[Value, Value] = resp.headers().map().entrySet().iterator().asScala.flatMap { e =>
         if e.getValue.isEmpty then None
         else Some((Value.StringV(e.getKey): Value) -> (Value.StringV(e.getValue.get(0)): Value))
@@ -825,6 +838,16 @@ class Interpreter(
     nativeP("httpTimeout") {
       case List(Value.IntV(ms)) => _httpTimeoutMs.set(ms); Value.UnitV
       case _ => throw InterpretError("httpTimeout(ms: Int)")
+    }
+
+    // httpRetry(maxAttempts[, delayMs]) — retry on network errors and 5xx up to maxAttempts times.
+    // Scoped inside httpClient{} blocks; restored on exit.
+    nativeP("httpRetry") {
+      case List(Value.IntV(n)) =>
+        _httpMaxRetries.set(n.toInt); Value.UnitV
+      case List(Value.IntV(n), Value.IntV(d)) =>
+        _httpMaxRetries.set(n.toInt); _httpRetryDelayMs.set(d); Value.UnitV
+      case _ => throw InterpretError("httpRetry(maxAttempts[, delayMs])")
     }
 
     // Environment variable reader, same surface on all three backends.
@@ -2708,16 +2731,20 @@ class Interpreter(
       baseComp match
         case Pure(Value.StringV(base)) =>
           val priorBase = _httpBaseUrl.get(); val priorT = _httpTimeoutMs.get()
+          val priorR = _httpMaxRetries.get(); val priorD = _httpRetryDelayMs.get()
           _httpBaseUrl.set(base.stripSuffix("/"))
           try eval(bodyClause.values.head, env)
-          finally { _httpBaseUrl.set(priorBase); _httpTimeoutMs.set(priorT) }
+          finally { _httpBaseUrl.set(priorBase); _httpTimeoutMs.set(priorT)
+                    _httpMaxRetries.set(priorR); _httpRetryDelayMs.set(priorD) }
         case _ =>
           FlatMap(baseComp, {
             case Value.StringV(base) =>
               val priorBase = _httpBaseUrl.get(); val priorT = _httpTimeoutMs.get()
+              val priorR = _httpMaxRetries.get(); val priorD = _httpRetryDelayMs.get()
               _httpBaseUrl.set(base.stripSuffix("/"))
               try eval(bodyClause.values.head, env)
-              finally { _httpBaseUrl.set(priorBase); _httpTimeoutMs.set(priorT) }
+              finally { _httpBaseUrl.set(priorBase); _httpTimeoutMs.set(priorT)
+                        _httpMaxRetries.set(priorR); _httpRetryDelayMs.set(priorD) }
             case _ => throw InterpretError("httpClient(baseUrl: String) { body }")
           })
 

@@ -1690,10 +1690,13 @@ function tls(cert, key) {
 }
 
 // Outbound HTTP client (synchronous via worker_threads, same pattern as _oauthSyncFetch).
-let _httpBaseUrl   = '';
-let _httpTimeoutMs = 30_000;
+let _httpBaseUrl    = '';
+let _httpTimeoutMs  = 30_000;
+let _httpMaxRetries = 0;
+let _httpRetryDelay = 1_000;
 
 function httpTimeout(ms) { _httpTimeoutMs = ms; }
+function httpRetry(n, delayMs) { _httpMaxRetries = n; if (delayMs !== undefined) _httpRetryDelay = delayMs; }
 
 function _httpSyncFetch(method, url, body, headers) {
   const effective = (_httpBaseUrl && !url.startsWith('http')) ? _httpBaseUrl + url : url;
@@ -1738,35 +1741,53 @@ function _httpSyncFetch(method, url, body, headers) {
   return { _type: 'Response', status: r.status, body: r.body, headers: hdrsMap };
 }
 
+function _httpSyncFetchWithRetry(method, url, body, headers) {
+  const { receiveMessageOnPort } = require('worker_threads');
+  const maxTries = _httpMaxRetries + 1;
+  let last;
+  for (let attempt = 0; attempt < maxTries; attempt++) {
+    last = _httpSyncFetch(method, url, body, headers);
+    if (last.status !== 0 && last.status < 500) break;
+    if (attempt < maxTries - 1) {
+      const sab2 = new SharedArrayBuffer(4); const flag2 = new Int32Array(sab2);
+      Atomics.wait(flag2, 0, 0, _httpRetryDelay);
+    }
+  }
+  return last;
+}
+
 function httpGet(url, headers) {
   const h = headers instanceof Map ? Object.fromEntries(headers.entries()) : (headers || {});
-  return _httpSyncFetch('GET', url, null, h);
+  return _httpSyncFetchWithRetry('GET', url, null, h);
 }
 
 function httpPost(url, body, headers) {
   const h = headers instanceof Map ? Object.fromEntries(headers.entries()) : (headers || {});
-  return _httpSyncFetch('POST', url, body, h);
+  return _httpSyncFetchWithRetry('POST', url, body, h);
 }
 
 function httpPut(url, body, headers) {
   const h = headers instanceof Map ? Object.fromEntries(headers.entries()) : (headers || {});
-  return _httpSyncFetch('PUT', url, body, h);
+  return _httpSyncFetchWithRetry('PUT', url, body, h);
 }
 
 function httpPatch(url, body, headers) {
   const h = headers instanceof Map ? Object.fromEntries(headers.entries()) : (headers || {});
-  return _httpSyncFetch('PATCH', url, body, h);
+  return _httpSyncFetchWithRetry('PATCH', url, body, h);
 }
 
 function httpDelete(url, headers) {
   const h = headers instanceof Map ? Object.fromEntries(headers.entries()) : (headers || {});
-  return _httpSyncFetch('DELETE', url, null, h);
+  return _httpSyncFetchWithRetry('DELETE', url, null, h);
 }
 
 function httpClient(baseUrl, block) {
   const priorBase = _httpBaseUrl, priorT = _httpTimeoutMs;
+  const priorR = _httpMaxRetries, priorD = _httpRetryDelay;
   _httpBaseUrl = baseUrl;
-  try { return block(); } finally { _httpBaseUrl = priorBase; _httpTimeoutMs = priorT; }
+  try { return block(); }
+  finally { _httpBaseUrl = priorBase; _httpTimeoutMs = priorT;
+            _httpMaxRetries = priorR; _httpRetryDelay = priorD; }
 }
 
 // Streaming HTTP — collects lines in a worker thread then calls handler per line.

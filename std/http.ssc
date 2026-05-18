@@ -14,6 +14,7 @@ exports:
   - httpDelete
   - httpClient
   - httpTimeout
+  - httpRetry
   - httpGetStream
   - httpPostStream
   - wsConnect
@@ -64,6 +65,10 @@ extern def httpClient(baseUrl: String)(block: => Unit): Unit
 // Set outbound HTTP timeout (ms) for all requests in the current httpClient{} block.
 // Default: 30 000 ms.  Scoped — restored to the previous value when the block exits.
 extern def httpTimeout(ms: Int): Unit
+// Retry on network errors and 5xx responses.  maxAttempts = total tries (not extra).
+// delayMs between attempts, default 1 000 ms.  Scoped like httpTimeout.
+extern def httpRetry(maxAttempts: Int): Unit
+extern def httpRetry(maxAttempts: Int, delayMs: Int): Unit
 
 // Streaming outbound HTTP — calls handler for each line as it arrives.
 // Useful for SSE consumers, LLM streaming APIs (OpenAI, Anthropic), and chunked
