@@ -498,10 +498,10 @@ unblocks downstream features as early as possible.
      out-of-process (.NET / WASM) backend MVP.  Parked because no
      such backend is in flight.
  29. **v2.0 — Separate compilation** (~2-3 months).
-     Plus, after this sequence: **Algebraic effects feasibility
-     study** (deferred — see end of file).  Restartable errors
-     (was v1.16) folded into the deferred study; promotes only
-     if the study commits to "go".
+     **After v2.0 is complete the algebraic-effects feasibility
+     study (blocked — see end of file) may be re-evaluated.**
+     Restartable errors (was v1.16) are folded into that study
+     and promote only if the study commits to "go".
      Multi-month architecture commitment.  Promote when at least
      one of {real package ecosystem, >30s incremental build, IDE
      demand} is true.
@@ -608,11 +608,11 @@ for `using` resolution).
      v1.13).  **Higher priority than v1.14.**
 
 The earlier **v1.12 — Algebraic-effects feasibility study** is
-**deferred** (no version assigned) — see "Algebraic effects
-feasibility study — deferred" at the end of this file.
-**v1.16 — Restartable errors** was hard-blocked on v1.12; it
-is folded into the deferred study and promotes only if the
-study commits to "go".
+**BLOCKED** — not to be touched until all milestones through
+v2.0 are complete.  See "Algebraic effects feasibility study —
+BLOCKED" at the end of this file.  **v1.16 — Restartable
+errors** was hard-blocked on that study; it is folded in and
+promotes only if the study eventually commits to "go".
 
 #### Track D — Runtime core (single agent, serial)
 
@@ -1990,8 +1990,8 @@ computation, replacing the three parallel implementations that
 exist today (Free-monad `Async`, Loom-thread actors,
 NIO-continuation WS).  User-facing APIs are NOT changed by this
 milestone — coroutines land as an internal building block that
-v1.10/v1.11 build on top of (and that the deferred algebraic-
-effects study would build on if it ever promotes).
+v1.10/v1.11 build on top of (and that the blocked algebraic-
+effects study would build on if it ever unblocks).
 
 Full design in [`docs/coroutines.md`](docs/coroutines.md) —
 motivation, three intrinsics, orthogonal-components
@@ -2007,8 +2007,8 @@ extern def suspend[Y, R](out: Y): R
 
 Two-way value passing (`suspend(y): R`) deliberately — subsumes
 one-way generators (`R = Unit`) at zero extra cost and is
-strictly needed for the algebraic-effects path (deferred — see
-end of file) should it ever promote.
+strictly needed for the algebraic-effects path (blocked — see
+end of file) should it ever unblock post-v2.0.
 
 ### Prerequisite
 
@@ -2284,7 +2284,7 @@ into the default mode.
 Full design in [`docs/final-tagless.md`](docs/final-tagless.md) —
 current state vs target, the four typer dependencies, worked
 examples, coexistence with v1.8 direct-syntax / v1.11.5 Free /
-the deferred algebraic-effects study, hard-no list, open
+the blocked algebraic-effects study, hard-no list, open
 questions.
 
 ```scala
@@ -2354,7 +2354,7 @@ handles this via `_typeOf`; JVM relies on Scala's own dispatch.
   reintroduces the two-fault-model trap (DS-7)
 - **Custom `given` priority** beyond Scala 3 rules
 - **Effect-row tracking** (`[F[_]: (Console & Logger)]`) —
-  territory of the deferred algebraic-effects study
+  territory of the blocked algebraic-effects study
 - **Auto-deriving FT instances** from concrete types — confusing
   failure modes; explicit `given` instances are the convention
 
@@ -2679,8 +2679,8 @@ systemic errors).  Restartable errors (v1.16) are tier 4.
   the `throws[A, E]` type-alias path.  Unchecked throws are
   a different mechanism and stay.
 - `E` restricted to `Throwable` subtypes (works over any `E`)
-- Effect-row tracking for errors (territory of the deferred
-  algebraic-effects study)
+- Effect-row tracking for errors (territory of the blocked
+  algebraic-effects study — post-v2.0)
 
 ### Locked policies (`docs/error-handling.md` §2.5)
 
@@ -2731,7 +2731,7 @@ blocks).  Phase 6 (stack traces) is still the only piece
 with meaningful per-backend variance; Phases 8-9 are pure
 stdlib + helper work that lands uniformly.
 
-## v1.16 — Restartable errors via algebraic effects (depends on the deferred algebraic-effects study)
+## v1.16 — Restartable errors via algebraic effects (BLOCKED — depends on the blocked algebraic-effects study)
 
 Common Lisp condition-system style restartable handlers.  A
 handler can choose to resume the suspended computation at the
@@ -2748,13 +2748,15 @@ val config = restartable {
 }
 ```
 
-**Hard-blocked on the deferred algebraic-effects feasibility
-study (see end of file).**  If the study commits to "go",
-v1.16 reduces to: `throw e` becomes `suspend(ErrorTag(e))`;
-handler stack catches the tag and resumes with a replacement
-value.  Direct mapping onto v1.9 coroutines.
+**BLOCKED — not to be touched until all milestones through
+v2.0 are complete** (same block as the algebraic-effects
+feasibility study — see end of file).  If that study
+eventually commits to "go", v1.16 reduces to: `throw e`
+becomes `suspend(ErrorTag(e))`; handler stack catches the tag
+and resumes with a replacement value.  Direct mapping onto
+v1.9 coroutines.
 
-If the study says "no-go" (or stays deferred indefinitely),
+If the study says "no-go" (or stays blocked indefinitely),
 v1.16 retires — the path becomes `M.recover` + retry-loops,
 no compile-time restart support.
 
@@ -2770,7 +2772,7 @@ no compile-time restart support.
 
 ### Effort
 
-~1 week if the algebraic-effects study (deferred — see end of
+~1 week if the algebraic-effects study (blocked — see end of
 file) commits to go; ~0 otherwise.
 
 ## v1.9.x — Actor internals refactor (optional cleanup)
@@ -3881,16 +3883,19 @@ view so they shape near-term decisions.
   for prerequisites, effort estimates, and why each is on hold
   until a concrete user surfaces.
 
-## Algebraic effects feasibility study — deferred (no version assigned)
+## Algebraic effects feasibility study — BLOCKED (no version assigned)
+
+**Do not start this until all other milestones through v2.0 are
+complete.**  This is a post-v2.0 concern; no agent, contributor,
+or planning round should promote or schedule it before that.
 
 Investigates whether ScalaScript's type system can support
 OCaml-5 / Koka-style algebraic effects with handler stacks,
 built on top of coroutines (v1.9 ✓).  Originally tracked as
-v1.12; demoted to deferred status (2026-05-19) — no concrete
-consumer is asking for it, and the existing stack (`Async` /
-`MonadError` / `throws[A, E]` / Free monad in v1.11.5) covers
-real workloads.  Promote when one of the trigger conditions
-in §5 fires.
+v1.12; demoted to deferred (2026-05-19) and further blocked
+(2026-05-18) — no concrete consumer is asking for it, and
+the existing stack (`Async` / `MonadError` / `throws[A, E]` /
+Free monad in v1.11.5) covers real workloads.
 
 **No shipping code** when promoted — design doc + working
 prototype + go/no-go decision, then if "go", a separate v2.x
@@ -3933,8 +3938,12 @@ ships with the v2.x implementation milestone.
 
 ### Promotion criteria
 
-Move out of "deferred" into a real milestone **when any of
-these fire**:
+**Hard prerequisite (non-negotiable):** all milestones through
+v2.0 (separate compilation) must be complete before this study
+is even re-evaluated.
+
+Once that prerequisite is met, move out of "blocked" into a
+real milestone **only if all of the following are true**:
 
 1. **A real `.ssc` application demonstrates** that the v1.1
    `MonadError` + v1.15 `throws[A, E]` + v1.11.5 Free monad
@@ -3944,9 +3953,8 @@ these fire**:
    algebraic-effects library on top of v1.9 coroutines and
    the design proves out enough that folding into core makes
    sense.
-3. **v1.16 restartable errors** becomes desirable in concrete
-   user code (v1.16 was hard-blocked on this study; if both
-   stay deferred, that's the natural pair).
+3. **The team explicitly decides** to invest the 1-week
+   feasibility study, knowing all other milestones are done.
 
 ### Why deferred (locked decision 2026-05-19)
 
