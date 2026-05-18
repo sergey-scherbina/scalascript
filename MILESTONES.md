@@ -2319,7 +2319,7 @@ requires `using` resolution).  Can land in parallel with
 v1.11/v1.11.5/v1.12 since those touch the runtime layer and
 this touches the typer.
 
-## v1.15 — Checked errors via `throws` type alias
+## v1.15 — Checked errors via `throws` type alias — ~ Partial (Phases 1+2+4+5 Landed; Phases 3+6+7+8+9 pending)
 
 Closes the "every helper hand-rolls its own `Either`-wrapping
 convention" gap.  Ships an Either-encoded `throws[A, E]` type
@@ -2329,6 +2329,20 @@ giving Either-encoded errors diagnostic parity with JVM
 exception traces.
 
 Full design in [`docs/error-handling.md`](docs/error-handling.md).
+
+**Landed in `feature/v1.15-throws` (2026-05-18):**
+- **Phase 1** ✓ — `infix type throws[A, E] = Either[E, A]` type alias; `typeToString`
+  handles `Type.ApplyInfix("throws")`; `Defn.Type` silently dropped by catch-all.
+- **Phase 2** ✓ — Return-site auto-Right wrapping: `FunV.returnsThrows` flag; `callFun`
+  wraps non-Either results; `Left`/`Right` constructors in `CoreIntrinsics`; full Either
+  method dispatch (`isLeft`, `isRight`, `getOrElse`, `map`, `flatMap`, `fold`, `toOption`,
+  `swap`, `toSeq`).
+- **Phase 4** ✓ — `std/error-handling.ssc` shims: `parseInt`, `parseLong`, `parseDouble`,
+  `requireNonNull`, `divideOrError`; `Term.Throw` (throws `ScriptException`); `Term.Try`
+  (catches `ScriptException` + any JVM `Throwable`); exception constructors
+  (`RuntimeException`, `NumberFormatException`, `ArithmeticException`, etc.).
+- **Phase 5** ✓ — `attemptCatch(thunk)` native function; `raise` / `rethrow` helpers.
+- **35 conformance tests** green; full 324-test suite passes.
 
 ```scala
 infix type throws[A, E] = Either[E, A]
@@ -2352,14 +2366,14 @@ def handler(req: Request): Response throws AppError = direct[ResultS] {
   `Monad[Either[E, *]]`; cross-file trait inheritance carries
   the std Either instance into user code.
 
-### Phase 1 — `infix type throws` parser + typer (~1 day)
+### Phase 1 — `infix type throws` parser + typer (~1 day) ✓ Landed
 
 Parser accepts `type A throws E` desugared to `Either[E, A]`
 at the type-position level.  Typer treats the alias
 transparently — every `Either[E, A]` method, helper, and
 typeclass instance reads on `A throws E` unchanged.
 
-### Phase 2 — Return-site auto-conversion givens (~1 day)
+### Phase 2 — Return-site auto-conversion givens (~1 day) ✓ Landed
 
 Two givens in std (`std/error-handling.ssc`):
 
@@ -2405,7 +2419,7 @@ Conformance:
   - `throws-direct-mixed.ssc` — mixed typed + untyped catch
     branches in one `try`
 
-### Phase 4 — Std-lib `throws`-typed shims (~2 days)
+### Phase 4 — Std-lib `throws`-typed shims (~2 days) ✓ Landed
 
 Initial shim set:
 
@@ -2419,7 +2433,7 @@ Each catches the corresponding JVM exception and lifts to
 `Left(e)`.  IO shims defer to v1.5 Tier 2-4 (the HTTP/IO
 stack).
 
-### Phase 5 — `attemptCatch[E <: Throwable] { … }` adapter (~1 day)
+### Phase 5 — `attemptCatch[E <: Throwable] { … }` adapter (~1 day) ✓ Landed
 
 Universal opt-in: user wraps any third-party Java/Scala call:
 

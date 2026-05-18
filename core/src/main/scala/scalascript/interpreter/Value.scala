@@ -138,7 +138,8 @@ enum Value:
     name: String = "",
     defaults: List[Option[Term]] = Nil,
     paramTypes: List[String] = Nil,
-    usingParams: List[(String, String)] = Nil
+    usingParams: List[(String, String)] = Nil,
+    returnsThrows: Boolean = false
   )
   /** Native function: must return a Computation. Pure built-ins return Pure(v); higher-order
    *  built-ins (map, filter, …) flatMap user callbacks to propagate effects. */
@@ -195,7 +196,7 @@ object Value:
     case InstanceV(t, fields) =>
       if fields.isEmpty then t
       else fields.values.map(show).mkString(s"$t(", ", ", ")")
-    case FunV(ps, _, _, _, _, _, _) => s"<function(${ps.length})>"
+    case FunV(ps, _, _, _, _, _, _, _) => s"<function(${ps.length})>"
     case NativeFnV(name, _)   => s"<native:$name>"
     case DocV(parts)          => parts.map(show).mkString("\n")
 
@@ -279,6 +280,9 @@ extension (c: Computation)
   def map(f: Value => Value): Computation          = Computation.map(c, f)
 
 class InterpretError(msg: String) extends RuntimeException(msg)
+/** Thrown by `Term.Throw` evaluation; carries the ScalaScript value that was thrown.
+ *  Caught by `Term.Try` handlers in the interpreter. */
+class ScriptException(val value: Value) extends RuntimeException(Value.show(value))
 private[interpreter] class ReturnSignal(val value: Value) extends Exception
 private[interpreter] class TailCall(val args: List[Value]) extends Throwable(null, null, true, false)
 private[interpreter] class MutualTailCall(val f: Value.FunV, val args: List[Value]) extends Throwable(null, null, true, false)

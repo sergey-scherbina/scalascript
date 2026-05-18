@@ -662,6 +662,21 @@ class Interpreter(
     globals("None") = Value.OptionV(None)
     globals("Nil")  = Value.ListV(Nil)
 
+    // ── Exception constructors ────────────────────────────────────────
+    // Allow `throw RuntimeException("msg")` and `try ... catch { case e: ... }`
+    // in ScalaScript code.  Each factory produces an InstanceV so field access
+    // like `e.message` works naturally.
+    def exceptionCtor(typeName: String): Value.NativeFnV =
+      Value.NativeFnV(typeName, {
+        case Nil               => Pure(Value.InstanceV(typeName, Map("message" -> Value.StringV(typeName))))
+        case List(v)           => Pure(Value.InstanceV(typeName, Map("message" -> v)))
+        case msg :: cause :: _ => Pure(Value.InstanceV(typeName, Map("message" -> msg, "cause" -> cause)))
+      })
+    List("RuntimeException", "Exception", "IllegalArgumentException",
+         "IllegalStateException", "NumberFormatException", "ArithmeticException",
+         "NullPointerException", "IndexOutOfBoundsException", "UnsupportedOperationException",
+         "NoSuchElementException").foreach { n => globals(n) = exceptionCtor(n) }
+
     globals("math.Pi")   = Value.DoubleV(math.Pi)
     globals("math.E")    = Value.DoubleV(math.E)
     // math as an object so `math.sqrt(x)` works via field dispatch
@@ -675,6 +690,24 @@ class Interpreter(
       "Pi"    -> globals("math.Pi"),
       "E"     -> globals("math.E")
     ))
+
+    // ── attemptCatch — wrap a thunk that might throw into Either ─────────
+    // `attemptCatch[E, A](thunk)` — calls `thunk()`, returns Right(result) on
+    // success or Left(InstanceV("Exception", ...)) on any exception.
+    globals("attemptCatch") = Value.NativeFnV("attemptCatch", {
+      case List(thunk) =>
+        try
+          val result = Computation.run(callValue(thunk, Nil, Map.empty))
+          Pure(Value.InstanceV("Right", Map("value" -> result)))
+        catch
+          case se: ScriptException =>
+            Pure(Value.InstanceV("Left", Map("value" -> se.value)))
+          case t: Throwable =>
+            val msg = Option(t.getMessage).getOrElse(t.getClass.getSimpleName)
+            Pure(Value.InstanceV("Left", Map("value" ->
+              Value.InstanceV("RuntimeException", Map("message" -> Value.StringV(msg))))))
+      case _ => located("attemptCatch(thunk)")
+    })
 
     // escape / collectCss / collectJs / scope now live in CoreIntrinsics
     // (Stage 5+/E–F); installNativeIntrinsics routes them.
@@ -1472,7 +1505,8 @@ class Interpreter(
       val capturedEnv = env.iterator.collect {
         case (k, v) if !globals.get(k).contains(v) => k -> v
       }.toMap
-      val fn: Value.FunV = Value.FunV(params, d.body, capturedEnv, d.name.value, defaults, paramTypes, usingInfo)
+      val rThrows = d.decltpe.exists(isThrowsType)
+      val fn: Value.FunV = Value.FunV(params, d.body, capturedEnv, d.name.value, defaults, paramTypes, usingInfo, rThrows)
       env(d.name.value) = fn
       if d.name.value == "main" && params.isEmpty then mainCalled = false
 
@@ -2214,6 +2248,31 @@ class Interpreter(
           case (op, other)             => located(s"Cannot apply unary $op to ${Value.show(other)}")
       }
 
+    case t: Term.Throw =>
+      eval(t.expr, env).flatMap { v =>
+        throw ScriptException(v)
+      }
+
+    case t: Term.Try =>
+      def tryCatch(thrownVal: Value, cause: Throwable): Value =
+        t.catchp.iterator.flatMap { c =>
+          matchPat(c.pat, thrownVal, Map.empty).map(bound => (c, bound))
+        }.nextOption() match
+          case Some((matchedCase, bound)) => Computation.run(eval(matchedCase.body, env ++ bound))
+          case None                       => throw cause
+      val tryResult: Value =
+        try Computation.run(eval(t.expr, env))
+        catch
+          case se: ScriptException  => tryCatch(se.value, se)
+          case th: Throwable =>
+            // Convert any JVM exception (NumberFormatException, InterpretError, etc.)
+            // into a ScalaScript InstanceV so catch patterns can match it.
+            val exTypeName = th.getClass.getSimpleName
+            val msg = Option(th.getMessage).getOrElse(exTypeName)
+            tryCatch(Value.InstanceV(exTypeName, Map("message" -> Value.StringV(msg))), th)
+      t.finallyp.foreach(f => Computation.run(eval(f, env)))
+      Pure(tryResult)
+
     case other => located(s"Cannot eval: ${other.productPrefix}")
 
   // ─── Lenses / Focus / .copy ──────────────────────────────────────
@@ -2936,7 +2995,8 @@ class Interpreter(
         val capturedEnv = cur.iterator.collect {
           case (k, v) if !globals.get(k).contains(v) => k -> v
         }.toMap
-        val fn = Value.FunV(params2, d.body, capturedEnv, d.name.value, defaults2, paramTypes2, usingInfo2)
+        val rThrows2 = d.decltpe.exists(isThrowsType)
+        val fn = Value.FunV(params2, d.body, capturedEnv, d.name.value, defaults2, paramTypes2, usingInfo2, rThrows2)
         step(rest, cur + (d.name.value -> fn))
 
       case _ :: rest =>
@@ -3013,8 +3073,15 @@ class Interpreter(
           val names = ps.toArray
           val arr   = effArgs.iterator.take(names.length).toArray
           FrameMap.of(names, arr, withSelf)
-      try runUntilSuspension(eval(f.body, callEnv))
-      catch case r: ReturnSignal => Pure(r.value)
+      val result = try runUntilSuspension(eval(f.body, callEnv))
+                   catch case r: ReturnSignal => Pure(r.value)
+      if f.returnsThrows then result.map(throwsAutoWrap)
+      else result
+
+  private def throwsAutoWrap(v: Value): Value = v match
+    case Value.InstanceV("Left",  _) => v
+    case Value.InstanceV("Right", _) => v
+    case other => Value.InstanceV("Right", Map("value" -> other))
 
   // ─── Given / using helpers ────────────────────────────────────────
 
@@ -3025,7 +3092,13 @@ class Interpreter(
     case ta: scala.meta.Type.Apply       => s"${typeToString(ta.tpe)}[${ta.argClause.values.map(typeToString).mkString(", ")}]"
     case scala.meta.Type.Function.After_4_6_0(params, r) => s"(${params.values.map(typeToString).mkString(", ")}) => ${typeToString(r)}"
     case scala.meta.Type.Tuple(ts)       => ts.map(typeToString).mkString("(", ", ", ")")
+    case ti: scala.meta.Type.ApplyInfix  => s"${typeToString(ti.lhs)} ${ti.op.value} ${typeToString(ti.rhs)}"
     case _                               => "_"
+
+  /** True if a scalameta Type is `A throws E` (infix `throws`). */
+  private def isThrowsType(t: scala.meta.Type): Boolean = t match
+    case ti: scala.meta.Type.ApplyInfix => ti.op.value == "throws"
+    case _                              => false
 
   /** Infer the runtime "element type" of a value — the concrete type name
    *  that a single-letter type variable (like `A` in `Monoid[A]`) would
@@ -4752,6 +4825,37 @@ class Interpreter(
           case _                   => Map.empty[Value, Value]
         val merged = existing + (Value.StringV(name) -> Value.StringV(value))
         Pure(Value.InstanceV("Response", fields + ("headers" -> Value.MapV(merged))))
+      // ── Either (Left / Right) methods ────────────────────────────
+      case (Value.InstanceV("Right", _),      "isRight",   Nil) => Pure(Value.BoolV(true))
+      case (Value.InstanceV("Left",  _),      "isRight",   Nil) => Pure(Value.BoolV(false))
+      case (Value.InstanceV("Right", _),      "isLeft",    Nil) => Pure(Value.BoolV(false))
+      case (Value.InstanceV("Left",  _),      "isLeft",    Nil) => Pure(Value.BoolV(true))
+      case (Value.InstanceV("Right", fields), "getOrElse", List(_)) =>
+        Pure(fields.getOrElse("value", Value.UnitV))
+      case (Value.InstanceV("Left",  _),      "getOrElse", List(d)) => Pure(d)
+      case (Value.InstanceV("Right", fields), "map",       List(f)) =>
+        callValue(f, List(fields.getOrElse("value", Value.UnitV)), env).map(v =>
+          Value.InstanceV("Right", Map("value" -> v)))
+      case (Value.InstanceV("Left",  _),      "map",       List(_)) => Pure(recv)
+      case (Value.InstanceV("Right", fields), "flatMap",   List(f)) =>
+        callValue(f, List(fields.getOrElse("value", Value.UnitV)), env)
+      case (Value.InstanceV("Left",  _),      "flatMap",   List(_)) => Pure(recv)
+      case (Value.InstanceV("Right", fields), "fold",      List(_, r)) =>
+        callValue(r, List(fields.getOrElse("value", Value.UnitV)), env)
+      case (Value.InstanceV("Left",  fields), "fold",      List(l, _)) =>
+        callValue(l, List(fields.getOrElse("value", Value.UnitV)), env)
+      case (Value.InstanceV("Right", fields), "toOption",  Nil) =>
+        Pure(Value.OptionV(Some(fields.getOrElse("value", Value.UnitV))))
+      case (Value.InstanceV("Left",  _),      "toOption",  Nil) =>
+        Pure(Value.OptionV(None))
+      case (Value.InstanceV("Right", fields), "swap",      Nil) =>
+        Pure(Value.InstanceV("Left",  fields))
+      case (Value.InstanceV("Left",  fields), "swap",      Nil) =>
+        Pure(Value.InstanceV("Right", fields))
+      case (Value.InstanceV("Right", fields), "toSeq",     Nil) =>
+        Pure(Value.ListV(List(fields.getOrElse("value", Value.UnitV))))
+      case (Value.InstanceV("Left",  _),      "toSeq",     Nil) =>
+        Pure(Value.ListV(Nil))
       // ── Instance (case class / enum case) field access ───────────
       // No-arg defs and no-arg native fns are called automatically on access
       case (Value.InstanceV(_, fields), fname, Nil) =>
