@@ -289,9 +289,10 @@ class JvmGen(
     }
 
   /** True if any block references the standalone JSON helpers
-   *  (`jsonParse` / `jsonStringify`).  Used to pull in `serveRuntime`
-   *  — which carries the `_toJson` / `_toJsonValue` / `_fromJson`
-   *  machinery — even when the script doesn't register any route. */
+   *  (`jsonParse` / `jsonStringify` / `lookup` / `lookupOpt`).  Used to
+   *  pull in `serveRuntime` — which carries the `_toJson` /
+   *  `_toJsonValue` / `_fromJson` / `_lookupKey` machinery — even when
+   *  the script doesn't register any route. */
   private def blocksUseJson(blocks: List[JvmGen.Block]): Boolean =
     blocks.exists { b =>
       var found = false
@@ -299,6 +300,8 @@ class JvmGen(
         if !found then tree.collect {
           case Term.Apply.After_4_6_0(Term.Name("jsonParse"),     _) => found = true
           case Term.Apply.After_4_6_0(Term.Name("jsonStringify"), _) => found = true
+          case Term.Apply.After_4_6_0(Term.Name("lookup"),        _) => found = true
+          case Term.Apply.After_4_6_0(Term.Name("lookupOpt"),     _) => found = true
         }
       }
       found
@@ -2915,6 +2918,28 @@ class JvmGen(
        |
        |def jsonParse(s: String): Any        = _fromJson(s)
        |def jsonStringify(v: Any): String    = _toJsonValue(v)
+       |
+       |// v1.5 Tier 5 #22 — indexed access on `Any`-typed JSON values.
+       |// `jsonParse` returns `Any`; the Scala typer rejects `obj("name")`
+       |// on `Any` because `Any` has no `apply`.  `lookup` / `lookupOpt`
+       |// dispatch dynamically at runtime so the same source compiles on
+       |// all three backends.  `lookup` throws on a missing key
+       |// (matches Map.apply); `lookupOpt` returns `Option`.
+       |private def _lookupKey(v: Any, k: Any): Option[Any] = v match
+       |  case m: scala.collection.Map[?, ?] => m.asInstanceOf[scala.collection.Map[Any, Any]].get(k)
+       |  case xs: scala.collection.Seq[?]   => k match
+       |    case i: Int  => if i >= 0 && i < xs.length then Some(xs(i)) else None
+       |    case i: Long => val ii = i.toInt; if ii >= 0 && ii < xs.length then Some(xs(ii)) else None
+       |    case _       => None
+       |  case s: String => k match
+       |    case i: Int  => if i >= 0 && i < s.length then Some(s.charAt(i).toString) else None
+       |    case i: Long => val ii = i.toInt; if ii >= 0 && ii < s.length then Some(s.charAt(ii).toString) else None
+       |    case _       => None
+       |  case _ => None
+       |def lookup(v: Any, k: Any): Any = _lookupKey(v, k) match
+       |  case Some(x) => x
+       |  case None    => throw new RuntimeException("lookup: key " + _show(k) + " not found in " + _show(v))
+       |def lookupOpt(v: Any, k: Any): Option[Any] = _lookupKey(v, k)
        |
        |// Tier 5 #20 — typed request validation primitives.  Throws a
        |// `_RestValidationError` on missing/invalid input; route dispatch

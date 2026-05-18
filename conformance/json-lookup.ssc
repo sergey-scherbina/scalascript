@@ -1,0 +1,33 @@
+---
+name: json-lookup
+---
+
+# v1.5 Tier 5 #22 — `lookup` on Any-typed JSON
+
+```scalascript
+val src = """{"name": "Ada", "age": 36, "tags": ["math", "logic"], "addr": {"city": "London"}}"""
+val v: Any = jsonParse(src)
+
+// Map field — same syntax on all three backends.
+println(lookup(v, "name"))
+println(lookup(v, "age"))
+
+// Nested: object → list → element.
+val tags = lookup(v, "tags")
+println(lookup(tags, 0))
+println(lookup(tags, 1))
+
+// Nested: object → object → field.
+val addr = lookup(v, "addr")
+println(lookup(addr, "city"))
+
+// lookupOpt — Option flavour.
+println(lookupOpt(v, "name"))
+println(lookupOpt(v, "missing"))
+println(lookupOpt(tags, 99))
+
+// String indexing.
+val s: Any = "hello"
+println(lookup(s, 0))
+println(lookupOpt(s, 99))
+```

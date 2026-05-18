@@ -2336,6 +2336,38 @@ function jsonParse(s) {
 
 function jsonStringify(v) { return _toJsonStringify(v); }
 
+// v1.5 Tier 5 #22 — indexed access on `Any`-typed JSON values.
+// JS already lets users write `obj("name")` dynamically via `_dispatch`,
+// but `lookup` / `lookupOpt` are the cross-backend escape hatch so the
+// same source compiles cleanly on JvmGen too.  `lookup` throws on a
+// missing key; `lookupOpt` returns `_None` / `_Some(v)`.
+function _lookupKey(v, k) {
+  if (v instanceof Map) {
+    return v.has(k) ? v.get(k) : undefined;
+  }
+  if (Array.isArray(v)) {
+    if (typeof k !== 'number') return undefined;
+    return (k >= 0 && k < v.length) ? v[k] : undefined;
+  }
+  if (typeof v === 'string') {
+    if (typeof k !== 'number') return undefined;
+    return (k >= 0 && k < v.length) ? v.charAt(k) : undefined;
+  }
+  if (v && typeof v === 'object') {
+    return Object.prototype.hasOwnProperty.call(v, k) ? v[k] : undefined;
+  }
+  return undefined;
+}
+function lookup(v, k) {
+  const r = _lookupKey(v, k);
+  if (r === undefined) throw new Error('lookup: key ' + _show(k) + ' not found in ' + _show(v));
+  return r;
+}
+function lookupOpt(v, k) {
+  const r = _lookupKey(v, k);
+  return (r === undefined) ? _None : _Some(r);
+}
+
 // Tier 5 #20 — typed request validation primitives.  Each `requireX`
 // throws a tagged Error which the serve() dispatch catches and turns
 // into a 400 Bad Request.  Lookup walks form → query (JSON body lives

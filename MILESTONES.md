@@ -932,33 +932,18 @@ after them.
     apps inevitably hit Kubernetes / load-balancer probes and
     re-implement these.  ~20 LOC × 3.
 
-22. **Indexed access on `Any`-typed JSON values.**  Follow-up to
-    Tier 5 #17.  `jsonParse(s)` returns `Any` because the result
-    varies (`Long` / `String` / `Map` / `List` / …); the
-    interpreter and JS dispatch `obj("name")` dynamically, but
-    the JVM Scala compiler rejects it — `Any` has no `apply`.
-    Today users have to bind to `val m: Map[String, Any] = ...`
-    explicitly (interpreter/JS only — JVM still rejects the
-    implicit cast).  Three viable shapes:
+22. **Indexed access on `Any`-typed JSON values — option (a) landed.**
+    `lookup(v, key)` and `lookupOpt(v, key)` ship across all three
+    backends.  Both dispatch dynamically at runtime against `Map[?, ?]`
+    / `Seq[?]` / `String`; `lookup` throws on a missing key (Map.apply
+    semantics) and `lookupOpt` returns `Option`.  Nested access is
+    plain function composition: `lookup(lookup(v, "addr"), "city")`.
 
-    a. **Runtime `lookup(v, key)` helper.**  `lookup(obj, "name")`
-       — pattern-matches at runtime, returns `Any`.  Cheapest;
-       ugly call site.  ~30 LOC × 3.
-    b. **JvmGen lowering.**  Detect `obj(k)` where `obj`'s
-       inferred type is `Any`, emit `_lookup(obj, k)` instead of
-       `obj.apply(k)`.  Keeps user syntax `obj("name")` working;
-       requires the typer to flow `Any`-types into JvmGen.
-       ~150 LOC.
-    c. **`JsonValue` wrapper type.**  `jsonParse` returns a
-       sealed `JsonValue` with `apply(key: String): JsonValue`,
-       `asString`, `asInt`, `asList`, `asMap`, etc.  Most typed,
-       most ergonomic, biggest API surface.  ~300 LOC × 3 plus
-       conformance for the new type.
-
-    Recommended: start with (a) so users have a working escape
-    hatch, then add (c) for idiomatic access when v1.5 Tier 5 #20
-    (typed request validation) clarifies which JSON-typed shapes
-    matter in practice.  (b) only if (a) and (c) prove
+    Deferred for later (recommended progression): option (c) —
+    a sealed `JsonValue` wrapper with typed accessors — once
+    v1.5 Tier 5 #20 (typed request validation) clarifies which
+    JSON-typed shapes matter in practice.  Option (b) — JvmGen
+    lowering of `obj("name")` on `Any` — only if (a) + (c) prove
     insufficient.
 
 ### Execution plan — phases A → E
@@ -1028,11 +1013,10 @@ items inside the phase pushed individually.
       D.4 (Tier 4 #11).
     - D′.4 — Request validation surface (#20).
     - D′.5 — Built-in `/_health` / `/_ready` routes (#21).
-    - D′.6 — Indexed access on `Any`-typed JSON values (#22),
-      follow-up to D′.1.  Start with the `lookup(v, key)`
-      runtime helper (option a), revisit `JsonValue` wrapper
-      type (option c) once D′.4 clarifies which typed JSON
-      shapes matter in practice.
+    - D′.6 — Indexed access on `Any`-typed JSON values (#22) —
+      **option (a) landed**: `lookup` / `lookupOpt` across three
+      backends.  Revisit `JsonValue` wrapper (option c) once D′.4
+      clarifies which typed JSON shapes matter in practice.
 
 - **Phase E — full NIO HTTP migration** *(Sprint 5.16, ~2 weeks)*.
   Replaces the JDK `HttpServer` + WS-proxy pair with a single

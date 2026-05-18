@@ -615,6 +615,39 @@ class Interpreter(
       case _ => throw InterpretError("jsonParse(s: String)")
     }
 
+    // v1.5 Tier 5 #22 — indexed access on `Any`-typed JSON values.
+    // `jsonParse` returns `Any` because the shape is data-dependent;
+    // the interpreter and JS already let users write `obj("name")`
+    // dynamically, but JvmGen-emitted Scala can't (the Scala typer
+    // rejects `apply` on `Any`).  `lookup(v, k)` is the cross-
+    // backend escape hatch — pattern-matches at runtime, throws
+    // when the key is absent (matches Map.apply semantics).
+    // `lookupOpt(v, k)` is the Option-returning variant.
+    def lookupKey(v: Value, k: Value): Option[Value] = v match
+      case Value.MapV(m)     => m.get(k)
+      case Value.ListV(items) => k match
+        case Value.IntV(i) if i >= 0 && i < items.length => Some(items(i.toInt))
+        case _                                            => None
+      case Value.InstanceV(_, fields) => k match
+        case Value.StringV(name) => fields.get(name)
+        case _                   => None
+      case Value.StringV(s) => k match
+        case Value.IntV(i) if i >= 0 && i < s.length =>
+          Some(Value.StringV(s.charAt(i.toInt).toString))
+        case _ => None
+      case _ => None
+
+    nativeP("lookup") {
+      case List(v, k) => lookupKey(v, k) match
+        case Some(x) => x
+        case None    => throw InterpretError(s"lookup: key ${Value.show(k)} not found in ${Value.show(v)}")
+      case _ => throw InterpretError("lookup(v, key)")
+    }
+    nativeP("lookupOpt") {
+      case List(v, k) => Value.OptionV(lookupKey(v, k))
+      case _          => throw InterpretError("lookupOpt(v, key)")
+    }
+
     // Tier 5 #20 — typed request validation primitives.  Look up the
     // field in `req.form` first, then `req.query`.  `requireX` throws
     // `RestValidationError(msg)` which the HTTP dispatchers (WebServer
