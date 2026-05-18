@@ -1,0 +1,18 @@
+# Use Crypto Plugin
+
+Demonstrates calling `extern def` functions provided by the
+`org.example.crypto` plugin.
+
+```scala
+import [Crypto](crypto)
+
+val digest   = sha256("hello, world")
+val encoded  = base64Encode("hello")
+val decoded  = base64Decode(encoded)
+val mac      = hmacSha256("secret-key", "message")
+
+println("sha256:        " + digest)
+println("base64:        " + encoded)
+println("decoded:       " + decoded)
+println("hmac-sha256:   " + mac)
+```

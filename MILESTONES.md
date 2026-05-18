@@ -1586,135 +1586,76 @@ otherwise plugins have no clean shape to plug into (HTTP / WS
 still hardcoded in core codegens, no `extern def` parser surface,
 no `runtimePreamble` SPI slot).
 
-### Tier 1 — Plugin discovery infrastructure
+### Tier 1 — Plugin discovery infrastructure ✓
 
-Audit + complete what `docs/backend-spi.md` §12.1 already
-describes; some pieces may be partly landed from Stage 5–6.
+**Landed.**  ServiceLoader-based in-process discovery via
+`META-INF/services/scalascript.backend.spi.Backend` (and
+`SourceLanguage`).  `BackendRegistry` + `SourceLanguageRegistry`
+handle both in-process and subprocess (out-of-process) plugins.
+CLI flags `--plugin <jar>` and `--plugin-dir <dir>` registered;
+URLClassLoader isolation per plugin JAR.  `BackendRegistryTest`
+covers discovery + in-process + subprocess paths.
 
-  - `META-INF/services/scalascript.backend.spi.Backend` —
-    ServiceLoader-based in-process plugin discovery.  Same for
-    `SourceLanguage`.
-  - Default discovery paths:
-      - bundled CLI classpath (the four standard plugins),
-      - `~/.scalascript/plugins/*.jar`,
-      - `$SCALASCRIPT_PLUGIN_PATH` (colon-separated dirs).
-  - CLI flags: `--plugin <jar>`, `--plugin-dir <dir>`.
-  - Each plugin JAR in its own `URLClassLoader` whose parent is
-    the SPI classloader only (no dependency conflicts between
-    plugins).
+### Tier 2 — `.sscpkg` archive format ✓
 
-Estimate: ~2-3 days to verify what's there + close gaps + end-to-
-end conformance with a trivial test plugin.
+**Landed.**  ZIP-based `.sscpkg` format with `manifest.yaml`,
+`sources/`, `runtime/`, `intrinsics/`, `subprocess/` layout.
+`SscpkgLoader.load()` + `SscpkgManifest.parseString()` fully
+implemented and tested (`SscpkgLoaderTest`, `SscpkgManifestTest`).
+`ssc plugin pack <dir>` packs a source tree into an archive.
 
-### Tier 2 — `.sscpkg` archive format
+### Tier 3 — Resolver & loader ✓
 
-A unified package format that covers both shapes:
+**Landed.**  `BackendRegistry.loadSscpkg()` routes contributions:
+intrinsic JARs → URLClassLoader, runtime strings → per-backend
+preamble buffer, source paths recorded for prelude injection.
+Transitive dependency resolution with cycle detection (`loadSscpkgWith`,
+`loadedPkgIds`, `visited` set).  Tested in `SscpkgLoaderTest`
+(preamble accumulation, dep resolution, cycle detection,
+missing-dep error).
 
-  - **User-space `.ssc` library** (v0.7 case): `.ssc` source files,
-    optional `package.yaml` manifest, no intrinsics.
-  - **Backend / SourceLanguage plugin**: compiled JAR with
-    `IntrinsicImpl` classes + runtime helper strings + `META-INF`
-    service entries + optional `.ssc` prelude files.
-  - **Hybrid**: both — e.g. a Kafka package that ships an
-    `extern def`-declaring `.ssc` API + a JVM-backend JAR that
-    implements the intrinsics.
+### Tier 4 — Sample external plugin ✓
 
-Layout:
-```
-mypackage-1.2.3.sscpkg  (ZIP archive)
-├── manifest.yaml          — id, version, deps, kind, capabilities, exports
-├── sources/               — .ssc files (loaded into module scope)
-├── runtime/               — per-backend helper strings
-│   ├── jvm.scala
-│   ├── js.js
-│   └── interpreter.scala
-├── intrinsics/            — compiled IntrinsicImpl classes
-│   └── mypackage-intrinsics.jar
-└── subprocess/            — optional out-of-process plugin executables
-    ├── linux-x86_64
-    └── darwin-arm64
-```
+**Landed** — `examples/plugins/crypto-plugin/` is the canonical
+reference plugin demonstrating the full workflow:
 
-`manifest.yaml`:
-```yaml
-id:           org.example.kafka
-version:      1.2.3
-spiVersion:   "0.1.0"
-kind:         [library, plugin]   # one or both
-dependencies:
-  - id: org.example.json, version: ^1.0
-exports:
-  externDefs: [std.kafka.connect, std.kafka.publish, std.kafka.subscribe]
-capabilities:
-  features:   [HttpClient]        # required by the plugin's intrinsics
-  declares:   [KafkaClient]       # custom sub-feature this plugin adds
-targets:      [jvm, interpreter]  # which backends this plugin supports
-```
+  - `sources/crypto.ssc` — `extern def` API (sha256, base64, hmac)
+  - `runtime/jvm.scala` + `runtime/js.js` — per-backend helpers
+  - `src/.../CryptoIntrinsics.scala` — `IntrinsicImpl.RuntimeCall`
+    (JvmGen/JsGen) + `IntrinsicImpl.NativeImpl` (Interpreter)
+  - `src/.../CryptoBackendPlugin.scala` — `Backend` SPI impl
+  - `manifest.yaml` with `kind: [library, plugin]` + `targets`
+  - `examples/use-crypto.ssc` — end-to-end usage example
+  - `README.md` — build + pack + install instructions
+  - `project.scala` — scala-cli build definition
 
-Estimate: ~3-4 days.
+Depends on no external libraries — uses JVM standard-library
+crypto (`java.security`, `javax.crypto`).
 
-### Tier 3 — Resolver & loader
+### Tier 5 — CLI ergonomics ✓
 
-Reads a `.sscpkg`, validates manifest (SPI version, dependency
-graph), routes contributions:
+**Landed.**  All five subcommands implemented in `cli/Main.scala`:
+  - `ssc plugin install <path|url|name>` — install from file, HTTPS URL,
+    or registry short name (resolves via `~/.scalascript/registry.yaml`)
+  - `ssc plugin list` — lists id, version, spiVersion, kind, targets
+  - `ssc plugin uninstall <id>` — removes matching `.sscpkg`
+  - `ssc plugin check <id>` — verifies spiVersion compatibility
+  - `ssc plugin pack <dir> [-o out.sscpkg]` — zips source tree
 
-  - `sources/*.ssc` → module-tree prelude
-  - `intrinsics/*.jar` → ServiceLoader-discovered `Backend.intrinsics`
-    contributions
-  - `runtime/*` → concatenated into `Backend.runtimePreamble` for
-    the matching backend
-  - `subprocess/*` → out-of-process plugin launcher (Stage 6 wire)
+Tested in `PluginCliTest`.
 
-Plus dependency resolution (transitive `.sscpkg` loading) with
-cycle detection.
+### Tier 6 — Local registry stub ✓
 
-Estimate: ~3-4 days.
+**Landed.**  `LocalRegistry.scala` in `core/plugin/`:
+  - YAML format: `~/.scalascript/registry.yaml` maps ids to URLs
+  - `LocalRegistry.resolve(name)` — look up by full id or short alias
+  - `LocalRegistry.loadAll()` — merge multiple registry files
+  - `LocalRegistry.toYaml(entries)` — serialize back
+  - `ssc plugin registry list|add|remove|search` — CLI subcommands
+  - `ssc plugin install <shortname>` resolves via registry
 
-### Tier 4 — Sample external plugin
-
-Pick one real platform integration as the canonical reference and
-ship it as a standalone repo + `.sscpkg`.  Candidates:
-
-  - **Kafka client** — natural fit; demonstrates HTTP-client
-    dependency + connection pooling + serialisation.
-  - **Redis client** — smaller surface, simpler protocol; better
-    if Kafka is too complex for a first example.
-  - **PostgreSQL client** — drives the `std.db` design too.
-
-Includes:
-  - `extern def`-declared API surface in `.ssc`
-  - `IntrinsicImpl` for JvmGen (uses JDBC / libpq / kafka-java)
-  - `IntrinsicImpl` for Interpreter (same Scala wrapper as JvmGen,
-    different runtime path)
-  - Optional JsGen (Node native client)
-  - End-to-end example `.ssc` consuming the package
-  - README + `manifest.yaml` + `.sscpkg` build instructions
-
-Estimate: ~3-5 days depending on which integration.
-
-### Tier 5 — CLI ergonomics
-
-  - `ssc plugin install <path-or-url>` — fetch `.sscpkg`, validate,
-    drop into `~/.scalascript/plugins/`.
-  - `ssc plugin list` — installed plugins with version, capabilities
-    declared, SPI version compatibility.
-  - `ssc plugin uninstall <id>` — remove.
-  - `ssc plugin check <id>` — verify SPI compatibility with the
-    running compiler.
-  - `ssc plugin pack <dir>` — build a `.sscpkg` from a source tree
-    (similar to `ssc bundle` from v0.7).
-
-Estimate: ~2 days.
-
-### Tier 6 — Local registry stub (optional)
-
-Filesystem-based registry mirror — a config file listing known
-packages + their canonical URLs.  Enables `ssc plugin install
-kafka` without specifying the full URL.
-
-Central HTTP-based registry (`registry.scalascript.io`) — defer to
-the v0.7 future-of-future entry; that's a multi-week ops project,
-not a milestone.
+Central HTTP-based registry (`registry.scalascript.io`) — deferred
+to v0.7; that's a multi-week ops project, not a milestone.
 
 Estimate: ~1-2 days for the local stub.
 

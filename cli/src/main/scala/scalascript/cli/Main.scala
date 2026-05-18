@@ -174,11 +174,15 @@ def printUsage(): Unit =
     |                         (above the entry directory) are flattened into
     |                         `_external/` with path references rewritten.
     |  plugin <sub>           Manage installed .sscpkg plugins:
-    |    install <path>         Install a .sscpkg from a local path or HTTPS URL
+    |    install <path|name>    Install a .sscpkg from a local path, HTTPS URL, or registry name
     |    list                   List installed plugins
     |    uninstall <id>         Remove an installed plugin by id
     |    check <id>             Verify SPI-version compatibility
     |    pack <dir>             Pack a plugin source tree into a .sscpkg archive
+    |    registry list          List entries in ~/.scalascript/registry.yaml
+    |    registry add <id> <url> [desc]  Add/update a registry entry
+    |    registry remove <id>   Remove a registry entry
+    |    registry search <q>    Search registry by id or description
     |  run                    Execute .ssc via tree-walking interpreter (default)
     |  watch                  Run .ssc and re-run on every file change
     |  repl                   Start interactive REPL (blank line runs, :quit exits)
@@ -629,20 +633,35 @@ def pluginCommand(args: List[String]): Unit =
     case "uninstall" :: rest => pluginUninstall(rest)
     case "check"     :: rest => pluginCheck(rest)
     case "pack"      :: rest => pluginPack(rest)
+    case "registry"  :: rest => pluginRegistryCommand(rest)
     case sub :: _            =>
       System.err.println(s"Unknown plugin subcommand: '$sub'")
-      System.err.println("Usage: ssc plugin install|list|uninstall|check|pack ...")
+      System.err.println("Usage: ssc plugin install|list|uninstall|check|pack|registry ...")
       System.exit(1)
     case Nil =>
-      System.err.println("Usage: ssc plugin install|list|uninstall|check|pack ...")
+      System.err.println("Usage: ssc plugin install|list|uninstall|check|pack|registry ...")
       System.exit(1)
 
-/** `ssc plugin install <path-or-url>` — copy/download a `.sscpkg` to
- *  `~/.scalascript/plugins/` and print a confirmation. */
+/** `ssc plugin install <path-or-url-or-name>` — copy/download a
+ *  `.sscpkg` to `~/.scalascript/plugins/` and print a confirmation.
+ *  Short names (e.g. "redis") are resolved via the local registry
+ *  (`~/.scalascript/registry.yaml`). */
 def pluginInstall(args: List[String]): Unit =
-  val src = args.headOption.getOrElse {
-    System.err.println("Usage: ssc plugin install <path-or-url>"); System.exit(1); ""
+  val rawSrc = args.headOption.getOrElse {
+    System.err.println("Usage: ssc plugin install <path-or-url-or-name>"); System.exit(1); ""
   }
+  // Resolve short name via local registry if it's not a path or URL.
+  val src =
+    if rawSrc.startsWith("http://") || rawSrc.startsWith("https://") || os.exists(os.Path(rawSrc, os.pwd)) then rawSrc
+    else
+      scalascript.plugin.LocalRegistry.resolve(rawSrc) match
+        case Some(entry) =>
+          println(s"Resolved '$rawSrc' → ${entry.url}  (${entry.description})")
+          entry.url
+        case None =>
+          System.err.println(
+            s"plugin install: '$rawSrc' is not a file, URL, or known registry entry"); System.exit(1); ""
+
   val bytes: Array[Byte] =
     if src.startsWith("http://") || src.startsWith("https://") then
       val req  = java.net.http.HttpRequest.newBuilder(java.net.URI.create(src)).GET().build()
@@ -763,6 +782,61 @@ def pluginPack(args: List[String]): Unit =
 
   val fileCount = os.walk(dir).count(os.isFile)
   println(s"$outName  ($fileCount files) — id=${manifest.id} version=${manifest.version}")
+
+/** `ssc plugin registry <sub> [args]` — manage local registry.
+ *
+ *  Subcommands:
+ *    list                  — print all registry entries
+ *    add <id> <url>        — add/update an entry in ~/.scalascript/registry.yaml
+ *    remove <id>           — remove an entry
+ *    search <query>        — search entries by id or description substring
+ */
+def pluginRegistryCommand(args: List[String]): Unit =
+  import scalascript.plugin.LocalRegistry
+  val regPath = os.home / ".scalascript" / "registry.yaml"
+  args match
+    case "list" :: _ =>
+      val entries = LocalRegistry.loadAll()
+      if entries.isEmpty then println("(no registry entries)")
+      else entries.foreach { e =>
+        val ver  = if e.version.nonEmpty then s"  v${e.version}" else ""
+        val desc = if e.description.nonEmpty then s"  — ${e.description}" else ""
+        println(f"${e.id}%-40s$ver$desc")
+      }
+    case "add" :: id :: url :: rest =>
+      val description = rest.headOption.getOrElse("")
+      val existing    = if os.exists(regPath) then LocalRegistry.loadAll() else Nil
+      val updated     = existing.filterNot(_.id == id) :+
+                        LocalRegistry.Entry(id, url, description = description)
+      os.makeDir.all(regPath / os.up)
+      os.write.over(regPath, LocalRegistry.toYaml(updated))
+      println(s"Registry: added '$id'  →  $url")
+    case "remove" :: id :: _ =>
+      if !os.exists(regPath) then
+        System.err.println("registry remove: no registry file found"); System.exit(1)
+      val entries = LocalRegistry.loadAll()
+      val updated = entries.filterNot(_.id == id)
+      if updated.size == entries.size then
+        System.err.println(s"registry remove: '$id' not found"); System.exit(1)
+      os.write.over(regPath, LocalRegistry.toYaml(updated))
+      println(s"Registry: removed '$id'")
+    case "search" :: query :: _ =>
+      val q       = query.toLowerCase
+      val matches = LocalRegistry.loadAll().filter { e =>
+        e.id.toLowerCase.contains(q) || e.description.toLowerCase.contains(q)
+      }
+      if matches.isEmpty then println("(no matches)")
+      else matches.foreach { e =>
+        val desc = if e.description.nonEmpty then s"  — ${e.description}" else ""
+        println(s"${e.id}$desc")
+      }
+    case sub :: _ =>
+      System.err.println(s"Unknown registry subcommand: '${sub}'")
+      System.err.println("Usage: ssc plugin registry list|add|remove|search ...")
+      System.exit(1)
+    case Nil =>
+      System.err.println("Usage: ssc plugin registry list|add|remove|search ...")
+      System.exit(1)
 
 /** Common-ancestor directory of a non-empty list of paths.
  *  Same as `paths.head`'s parents, narrowed to whichever still

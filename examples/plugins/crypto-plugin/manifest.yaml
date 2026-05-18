@@ -1,0 +1,16 @@
+id:         org.example.crypto
+version:    1.0.0
+spiVersion: "0.1.0"
+kind:       [library, plugin]
+targets:    [jvm, interpreter]
+
+capabilities:
+  features:   []
+  declares:   [CryptoUtils]
+
+exports:
+  externDefs:
+    - std.crypto.sha256
+    - std.crypto.base64Encode
+    - std.crypto.base64Decode
+    - std.crypto.hmacSha256

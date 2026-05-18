@@ -1,0 +1,18 @@
+# Crypto utilities
+
+```scala
+// Cryptographic hash and encoding utilities.
+// Provided by the org.example.crypto plugin (IntrinsicImpl-backed).
+
+/** SHA-256 hex digest of the UTF-8 encoding of `input`. */
+extern def sha256(input: String): String
+
+/** Base-64 encode a UTF-8 string. */
+extern def base64Encode(s: String): String
+
+/** Base-64 decode a Base-64-encoded string to UTF-8. */
+extern def base64Decode(s: String): String
+
+/** HMAC-SHA256 hex digest using `key` (UTF-8) and `data` (UTF-8). */
+extern def hmacSha256(key: String, data: String): String
+```
