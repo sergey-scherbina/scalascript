@@ -448,11 +448,24 @@ unblocks downstream features as early as possible.
      v1.17.1 follow-ups: type-class layer (depends v1.14),
      own implementation for INT (defer), streaming resources
      (depends v1.10).
- 24. **6+/C — HostCallback dispatcher** (~1 week).
+ 24. **v1.18 — `package` keyword + std layout migration**
+     (~1.5 weeks).
+     Promotes v0.7 "package keyword (deferred future)" into a
+     real milestone.  Closes namespace-collision risk between
+     third-party libs.  Full design in
+     [`docs/modularity.md`](docs/modularity.md) §9.  Can land
+     parallel with v1.19.
+ 25. **v1.19 — URL / dep imports** (~2 weeks).
+     `[X](https://...)` URL fetch + `[X](dep:org/lib:1.2)`
+     resolver, both with `ssc.lock` SHA-256 integrity-check.
+     Builds on v1.7 Tier 2 `.sscpkg` (landed) + v1.18 `package`
+     keyword.  Central registry deferred to v1.19.x.  Full
+     design in [`docs/modularity.md`](docs/modularity.md) §10.
+ 26. **6+/C — HostCallback dispatcher** (~1 week).
      Stage 6+/C from spi-followups-plan.md.  Unblocks the first
      out-of-process (.NET / WASM) backend MVP.  Parked because no
      such backend is in flight.
- 25. **v2.0 — Separate compilation** (~2-3 months).
+ 27. **v2.0 — Separate compilation** (~2-3 months).
      Multi-month architecture commitment.  Promote when at least
      one of {real package ecosystem, >30s incremental build, IDE
      demand} is true.
@@ -2799,6 +2812,181 @@ client and server in one script).  `docs/mcp.md` walkthroughs.
 Seven phases, ~3 weeks end-to-end.  JS and JVM intrinsics
 can be worktrees in parallel after Phase 1.  Phase 6 (feature
 flags) is the only piece touching the SPI.
+
+## v1.18 — `package` keyword + std layout migration
+
+Promotes the v0.7 "package keyword (optional, mostly
+cosmetic)" out of deferred-future status into a real
+milestone.  Closes the namespace-collision risk between
+third-party libraries before community packages start
+surfacing.  Pairs with v1.19 URL/dep imports — together
+they unlock decentralised library distribution.
+
+Full design in [`docs/modularity.md`](docs/modularity.md) §9.
+
+```scala
+---
+package: org.example.ui
+exports: [Card, Button]
+---
+
+# Card
+
+```scalascript
+object Card { val css = ...; def render(t: String): String = ... }
+```
+```
+
+Consumer:
+
+```scala
+[Card as MyCard](dep:org.example/ui:1.0)
+[Card as TheirCard](dep:other.org/components:2.1)
+
+println(MyCard.render("hi"))
+println(TheirCard.render("hello"))
+```
+
+Both `Card`s coexist because their full qualified names
+differ (`org.example.ui.Card` vs `other.org.components.Card`).
+
+### Phase 1 — Parser + typer (~1.5 days)
+
+`package:` keyword in frontmatter.  Pure data.  Typer
+tracks package per module; exposes qualified names for
+symbol resolution.
+
+### Phase 2 — Codegen per backend (~6 days)
+
+Emit `object pkg.name { … }` for package-namespaced modules
+on JVM, JS, INT.  Each backend ~2 days; can be worktrees in
+parallel after Phase 1.
+
+### Phase 3 — Std layout migration (~3 days)
+
+Move existing flat files into nested areas per
+`docs/modularity.md` §5 migration policy.  Concretely for
+v1.18:
+
+  - `std/mcp/{server, client, types, index}.ssc` (when
+    v1.17 lands — joint with this milestone)
+  - `std/actors/{core, supervision, index}.ssc` when v1.6
+    Phase 2 lands (already shipping as flat — migrate
+    here)
+  - Other areas stay flat per migration policy
+
+Conformance: collision-free dual-import test (`Card` from
+two different packages); package-qualified resolution.
+
+### Phase 4 — Conformance + docs (~1 day)
+
+- `package-keyword.ssc` — basic package declaration + import
+- `package-collision-free.ssc` — two libs with same name,
+  resolved by full path
+- `package-aliasing.ssc` — `as Alias` still works alongside
+
+### Hard-no list (locked by design — `docs/modularity.md` §9
++ §11)
+
+- Implicit package from directory layout — explicit
+  `package:` only
+- Wildcard imports (`import std.mcp.*`) — per-name
+  discipline stays
+- `package object` — Scala 3 deprecated; not reintroducing
+
+### Effort
+
+Four phases, ~1.5 weeks end-to-end.  Independent of v1.19
+(URL imports); both can land in parallel.
+
+## v1.19 — URL / dep imports
+
+Builds on v1.7 Tier 2 (`.sscpkg` archive landed) and v1.18
+(`package` keyword) to enable distributed `.ssc` library
+distribution **before** a central registry exists.
+
+```scala
+[Card](https://github.com/user/lib/main/Card.ssc)
+[Tools](dep:org.example/mcp-tools:1.2)
+```
+
+Full design in [`docs/modularity.md`](docs/modularity.md) §10.
+
+### Two resolution strategies
+
+**URL imports**: HTTPS-fetched at compile time; cached at
+`~/.cache/scalascript/url-imports/`; SHA-256
+integrity-checked (recorded in `ssc.lock`).
+
+**Dep imports**: `dep:org.example/lib:1.2` looked up
+through a chain — local cache → user's
+`~/.config/scalascript/dep-sources` list of HTTP
+endpoints → eventually `registry.scalascript.io` (deferred
+to v1.19.x).
+
+Both produce a `ssc.lock` file alongside the entry point;
+`ssc check` re-validates lock consistency.
+
+### Phase 1 — URL import resolver (~5 days)
+
+- HTTPS fetch of `.ssc` (or `.sscpkg` archive) with
+  Content-Type sniffing
+- Local cache layout (`~/.cache/scalascript/url-imports/`)
+  with SHA-256 keys
+- Integrity check on each load; mismatch → build error
+- `ssc.lock` write-on-fetch / verify-on-read
+
+### Phase 2 — Dep import resolver (~3 days)
+
+- `dep:` URL scheme parsing (`dep:org.scope/name:version`)
+- Source-list lookup chain
+- Lock-file integration
+
+### Phase 3 — Per-backend integration (~3 days)
+
+Each backend's import-resolution path consults the
+URL/dep resolver before falling back to file-relative
+paths.  ~1 day × 3 backends.
+
+### Phase 4 — `ssc check` / `ssc lock` CLI (~2 days)
+
+- `ssc lock` — recompute the lock file
+- `ssc check` — verify lock file vs current resolutions
+- Helpful errors for stale / missing entries
+
+### Phase 5 — Conformance + docs (~1 day)
+
+- `url-import-roundtrip.ssc` — fetch a known-content URL,
+  verify SHA, use the import
+- `dep-import-cache-hit.ssc` — second build hits cache,
+  doesn't network
+- `lock-file-mismatch.ssc` — modified upstream produces a
+  build error per lock policy
+
+### Hard-no list (locked by design — `docs/modularity.md`
+§10 + §11)
+
+- **Auto-resolve transitive deps from URL imports** —
+  user must hoist into their own lock file
+- **`git://` / `git@` imports** — host `.sscpkg` at HTTPS
+  instead
+- **Mutable URL imports without integrity check** — every
+  URL gets a SHA-256 in `ssc.lock`
+- **Silent default-pin on missing lock file** — refuse to
+  fetch; require explicit `ssc lock`
+
+### Deferred to v1.19.x
+
+- **Central registry** (`registry.scalascript.io`) — publish
+  / yank / search.  Deployment + ops concern with its own
+  milestone shape
+- **Semver resolution across dep imports** — start with
+  exact pinning; semver requires registry semantics
+
+### Effort
+
+Five phases, ~2 weeks end-to-end.  Independent of v1.18
+beyond the policy-level dependency.
 
 ## v2.0 — Separate compilation of modules
 
