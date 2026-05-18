@@ -1,0 +1,239 @@
+---
+name: std-mapreduce-shuffle
+version: 0.1.0
+description: Coordinator-mediated all-to-all shuffle for groupBy/reduceByKey. v1.22.
+package: std.mapreduce
+exports:
+  - ShuffleStage
+  - ShuffleProtocol
+  - runDistributedShuffle
+---
+
+# `std.mapreduce.shuffle` — coordinator-mediated shuffle
+
+Implements the v1.22 shuffle: each worker sends key-grouped partial results
+back to the coordinator, which redistributes by key to second-stage workers
+that produce the final `(K, List[T])` or `(K, T)` groups.
+
+Worker-to-worker direct shuffle is the v1.22.x optimisation;
+v1.22 keeps the coordinator as the hub.
+
+## Protocol
+
+```
+Phase A (map stage):
+  coordinator → workers: ProcessPartition(stage = map + keyExtract)
+  workers → coordinator: ShufflePartial(jobId, partId, buckets)
+    where buckets: List[(key, List[items])]
+
+Phase B (reduce/group stage):
+  coordinator collects all buckets, groups by key, re-partitions by key
+  coordinator → workers: ProcessKeyPartition(jobId, key, items)
+  workers → coordinator: KeyResult(jobId, key, result)
+
+coordinator merges KeyResults → final List[(K, V)]
+```
+
+```scalascript
+// ── Shuffle-specific stage ops ─────────────────────────────────────────
+// GroupByOp: extract key, return (key, item) pairs
+case class GroupByOp(keyHandlerName: String)  extends StageOp
+// ReduceByKeyOp: extract key, combine using named reducer
+case class ReduceByKeyOp(keyHandlerName: String, combineHandlerName: String) extends StageOp
+
+// ── Shuffle messages ──────────────────────────────────────────────────
+// Worker → coordinator after map phase: key-bucketed partial results
+case class ShufflePartial(
+  jobId:   String,
+  partId:  Int,
+  buckets: List[(Any, List[Any])]   // (key, items-for-that-key)
+)
+
+// Coordinator → worker for reduce/group phase
+case class ProcessKeyPartition(
+  jobId:   String,
+  key:     Any,
+  items:   List[Any],
+  combineHandlerName: String,   // "" means groupBy (no reduce)
+  replyTo: Any
+)
+
+// Worker → coordinator: one key's reduced / grouped result
+case class KeyResult(
+  jobId:  String,
+  key:    Any,
+  result: Any         // List[item] for groupBy; single item for reduceByKey
+)
+
+// ── Shuffle protocol (worker side) ────────────────────────────────────
+object ShuffleProtocol:
+  // Worker message loop — handles both regular partitions AND key partitions.
+  def handleMessages(): Unit =
+    receive {
+      case HealthCheckRequest(replyTo) =>
+        replyTo ! HealthCheckOk()
+        handleMessages()
+
+      case ShutdownWorker() =>
+        ()
+
+      case ProcessPartition(jobId, partId, data, stage, replyTo) =>
+        // Check if stage ends with a GroupByOp or ReduceByKeyOp.
+        // If so, we are in Phase A of shuffle: produce buckets.
+        val (priorOps, shuffleOp) = splitAtShuffle(stage.ops)
+        val intermediate = WorkerProtocol.applyStage(Stage(priorOps), data)
+        shuffleOp match
+          case Some(GroupByOp(keyName)) =>
+            val buckets = buildBuckets(intermediate, keyName)
+            replyTo ! ShufflePartial(jobId, partId, buckets)
+          case Some(ReduceByKeyOp(keyName, _)) =>
+            val buckets = buildBuckets(intermediate, keyName)
+            replyTo ! ShufflePartial(jobId, partId, buckets)
+          case None() =>
+            // No shuffle op — normal path
+            replyTo ! PartitionResult(jobId, partId, intermediate)
+        handleMessages()
+
+      case ProcessKeyPartition(jobId, key, items, combineHandlerName, replyTo) =>
+        // Phase B: either group (return List) or reduce (combine items)
+        val result =
+          if combineHandlerName.isEmpty then
+            items   // groupBy: return the list as-is
+          else
+            items.reduce((a, b) => HandlerRegistry.applyCombine(combineHandlerName, a, b))
+        replyTo ! KeyResult(jobId, key, result)
+        handleMessages()
+    }
+
+  // Split the ops list at the first GroupByOp / ReduceByKeyOp.
+  // Returns (priorOps, Some(shuffleOp)) or (allOps, None).
+  def splitAtShuffle(ops: List[StageOp]): (List[StageOp], Option[StageOp]) =
+    ops match
+      case Nil => (Nil, None())
+      case (op @ GroupByOp(_)) :: _      => (Nil, Some(op))
+      case (op @ ReduceByKeyOp(_, _)) :: _ => (Nil, Some(op))
+      case head :: tail =>
+        val (prior, shuffle) = splitAtShuffle(tail)
+        (head :: prior, shuffle)
+
+  // Build key-bucketed list from intermediate items.
+  def buildBuckets(items: List[Any], keyName: String): List[(Any, List[Any])] =
+    val keyedItems = items.map(x => (HandlerRegistry.applyKey(keyName, x), x))
+    val keys = keyedItems.map(_._1).distinct
+    keys.map { k =>
+      val group = keyedItems.filter(_._1 == k).map(_._2)
+      (k, group)
+    }
+
+// ── Shuffle coordinator ───────────────────────────────────────────────
+
+// Describes a shuffle stage (Phase 4 only).
+case class ShuffleStage(
+  preShuffle:          Stage,           // ops before groupBy/reduceByKey
+  keyHandlerName:      String,          // groupBy / reduceByKey key fn name
+  combineHandlerName:  String,          // "" for groupBy; combiner name for reduceByKey
+  isGroupBy:           Boolean
+)
+
+// Run a distributed groupBy or reduceByKey with coordinator-mediated shuffle.
+def runDistributedShuffle(
+  data:         List[Any],
+  shuffleStage: ShuffleStage,
+  cluster:      Cluster,
+  retries:      Int,
+  allowPartial: Boolean
+): DistributedResult[Any] =
+  val jobId    = nanoTime().toString
+  val numNodes = cluster.nodes.length
+  val partitions = partitionData(data, numNodes)
+
+  val me = self()
+  trapExit(true)
+
+  // Spawn shuffle-capable workers on each remote node
+  val workers = cluster.pids.zip(cluster.nodes).map { case (nodePid, node) =>
+    val wPid = spawnOn(nodePid) { () => ShuffleProtocol.handleMessages() }
+    link(wPid)
+    (wPid, node)
+  }
+
+  // Phase A: map + key-extract → ShufflePartial from each worker
+  val groupByOp =
+    if shuffleStage.isGroupBy then GroupByOp(shuffleStage.keyHandlerName)
+    else ReduceByKeyOp(shuffleStage.keyHandlerName, shuffleStage.combineHandlerName)
+
+  val phaseAStage = Stage(shuffleStage.preShuffle.ops :+ groupByOp)
+  val assignments = workers.zip(partitions).zipWithIndex.map {
+    case (((wPid, node), partition), idx) =>
+      wPid ! ProcessPartition(jobId, idx, partition, phaseAStage, me)
+      (idx, wPid, node)
+  }
+
+  // Collect ShufflePartial messages
+  val allBuckets = collectShufflePartials(
+    jobId    = jobId,
+    pending  = assignments.length,
+    buckets  = Nil
+  )
+
+  // Merge buckets: group all items by key across all workers
+  val mergedByKey = mergeBuckets(allBuckets)
+
+  // Phase B: dispatch each key's items to a worker for reduction / grouping
+  val keys = mergedByKey.map(_._1)
+  val keyAssignments = keys.zipWithIndex.map { case (key, idx) =>
+    val (wPid, _) = workers(idx % workers.length)
+    val items = mergedByKey.find(_._1 == key).map(_._2).getOrElse(Nil)
+    wPid ! ProcessKeyPartition(
+      jobId, key, items,
+      shuffleStage.combineHandlerName,
+      me
+    )
+    (key, wPid)
+  }
+
+  // Collect KeyResult messages
+  val keyResults = collectKeyResults(
+    jobId   = jobId,
+    pending = keyAssignments.length,
+    results = Nil
+  )
+
+  // Build final result as List[(K, V)] in original key order
+  val ordered = keys.flatMap(k => keyResults.find(_._1 == k).map(x => (k, x._2)))
+  DistributedResult(ordered.asInstanceOf[List[Any]], Nil)
+
+// Collect Phase A ShufflePartial messages.
+def collectShufflePartials(
+  jobId:   String,
+  pending: Int,
+  buckets: List[(Any, List[Any])]
+): List[(Any, List[Any])] =
+  if pending == 0 then buckets
+  else
+    receive {
+      case ShufflePartial(jid, _, newBuckets) if jid == jobId =>
+        collectShufflePartials(jobId, pending - 1, buckets ++ newBuckets)
+    }
+
+// Merge key-bucketed lists from multiple workers into one per-key list.
+def mergeBuckets(buckets: List[(Any, List[Any])]): List[(Any, List[Any])] =
+  val keys = buckets.map(_._1).distinct
+  keys.map { k =>
+    val allItems = buckets.filter(_._1 == k).flatMap(_._2)
+    (k, allItems)
+  }
+
+// Collect Phase B KeyResult messages.
+def collectKeyResults(
+  jobId:   String,
+  pending: Int,
+  results: List[(Any, Any)]
+): List[(Any, Any)] =
+  if pending == 0 then results
+  else
+    receive {
+      case KeyResult(jid, key, result) if jid == jobId =>
+        collectKeyResults(jobId, pending - 1, (key, result) :: results)
+    }
+```
