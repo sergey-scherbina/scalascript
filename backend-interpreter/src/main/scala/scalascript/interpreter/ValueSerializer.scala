@@ -91,41 +91,55 @@ object ValueSerializer:
     }
     sb.append('"')
 
-  def deserialize(json: String): Value = fromValue(JsonParser.parse(json))
+  def deserialize(json: String): Value = fromParsed(JsonParser.parse(json))
 
-  private def fromValue(v: Value): Value = v match
-    case Value.InstanceV(_, fields) =>
-      val t = fields.get("$t").collect { case Value.StringV(s) => s }.getOrElse("")
-      t match
-        case "i"  => Value.IntV(fields("v") match { case Value.IntV(n) => n; case Value.DoubleV(d) => d.toLong })
-        case "d"  => Value.DoubleV(fields("v") match { case Value.DoubleV(d) => d; case Value.IntV(n) => n.toDouble })
-        case "s"  => Value.StringV(fields("v") match { case Value.StringV(s) => s; case other => Value.show(other) })
-        case "b"  => Value.BoolV(fields("v") match { case Value.BoolV(b) => b; case _ => false })
-        case "u"  => Value.UnitV
-        case "l"  =>
-          val items = fields("v") match { case Value.ListV(vs) => vs; case _ => Nil }
-          Value.ListV(items.map(fromValue))
-        case "m"  =>
-          val pairs = fields("v") match { case Value.ListV(vs) => vs; case _ => Nil }
-          val kvs = pairs.collect {
-            case Value.ListV(List(k, v2)) => (fromValue(k), fromValue(v2))
-          }
-          Value.MapV(kvs.toMap)
-        case "tp" =>
-          val items = fields("v") match { case Value.ListV(vs) => vs; case _ => Nil }
-          Value.TupleV(items.map(fromValue))
-        case "pid" =>
-          val nodeId  = fields.get("n").collect { case Value.StringV(s) => s }.getOrElse("")
-          val localId = fields.get("id") match
-            case Some(Value.IntV(n))    => n
-            case Some(Value.DoubleV(d)) => d.toLong
-            case _                      => 0L
-          Value.InstanceV("Pid", Map("nodeId" -> Value.StringV(nodeId), "localId" -> Value.IntV(localId)))
-        case "o"  =>
-          val cls    = fields.get("cls").collect { case Value.StringV(s) => s }.getOrElse("")
-          val fs     = fields.get("f") match
-            case Some(Value.InstanceV(_, fmap)) => fmap.map { case (k, v2) => k -> fromValue(v2) }
-            case _                              => Map.empty[String, Value]
-          Value.InstanceV(cls, fs)
-        case _ => v
+  /** Convert a JsonParser-produced Value (MapV/ListV/primitives) back into
+   *  the wire-encoded interpreter value using the "$t" type tag convention. */
+  def fromParsed(v: Value): Value = v match
+    case Value.MapV(m) =>
+      def str(k: String) = m.get(Value.StringV(k)).collect { case Value.StringV(s) => s }
+      def any(k: String) = m.get(Value.StringV(k))
+      str("$t") match
+        case None    => v  // not a wire-encoded value — return as-is
+        case Some(t) => t match
+          case "i"  => any("v") match
+            case Some(Value.IntV(n))    => Value.IntV(n)
+            case Some(Value.DoubleV(d)) => Value.IntV(d.toLong)
+            case _                      => Value.IntV(0)
+          case "d"  => any("v") match
+            case Some(Value.DoubleV(d)) => Value.DoubleV(d)
+            case Some(Value.IntV(n))    => Value.DoubleV(n.toDouble)
+            case _                      => Value.DoubleV(0.0)
+          case "s"  => Value.StringV(str("v").getOrElse(""))
+          case "b"  => Value.BoolV(any("v").collect { case Value.BoolV(b) => b }.getOrElse(false))
+          case "u"  => Value.UnitV
+          case "l"  =>
+            val items = any("v") match { case Some(Value.ListV(vs)) => vs; case _ => Nil }
+            Value.ListV(items.map(fromParsed))
+          case "m"  =>
+            val pairs = any("v") match { case Some(Value.ListV(vs)) => vs; case _ => Nil }
+            val kvs = pairs.collect {
+              case Value.ListV(List(k, v2)) => (fromParsed(k), fromParsed(v2))
+            }
+            Value.MapV(kvs.toMap)
+          case "tp" =>
+            val items = any("v") match { case Some(Value.ListV(vs)) => vs; case _ => Nil }
+            Value.TupleV(items.map(fromParsed))
+          case "pid" =>
+            val nodeId  = str("n").getOrElse("")
+            val localId = any("id") match
+              case Some(Value.IntV(n))    => n
+              case Some(Value.DoubleV(d)) => d.toLong
+              case _                      => 0L
+            Value.InstanceV("Pid", Map("nodeId" -> Value.StringV(nodeId), "localId" -> Value.IntV(localId)))
+          case "o"  =>
+            val cls = str("cls").getOrElse("")
+            val fs  = any("f") match
+              case Some(Value.MapV(fm)) =>
+                fm.collect {
+                  case (Value.StringV(k), v2) => k -> fromParsed(v2)
+                }
+              case _ => Map.empty[String, Value]
+            Value.InstanceV(cls, fs)
+          case _ => v
     case _ => v
