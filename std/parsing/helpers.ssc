@@ -1,0 +1,54 @@
+---
+name: std-parsing-helpers
+version: 1.0.0
+description: v1.20 std/parsing — tokenization helpers built on combinators
+exports:
+  - whitespace
+  - whitespace1
+  - identifier
+  - integer
+  - number
+  - stringLit
+  - skip
+  - keyword
+  - token
+---
+
+# `std/parsing/helpers` — tokenization helpers
+
+Builds common token parsers on top of `combinators.ssc`.
+
+[Position, ParseError, ParseOk, ParseErr, Parser, PChar, PString, PRegex, PSatisfy, PSucceed, PFail](core.ssc)
+
+[PSequence, PChoice, PMany, POpt, PMapped, PFlatMapped, PNamed, runParser](combinators.ssc)
+
+## Helpers
+
+```scalascript
+// Zero or more whitespace characters (always succeeds).
+val whitespace: Parser[Any] = Parser.regex("\\s*")
+
+// One or more whitespace characters.
+val whitespace1: Parser[Any] = Parser.regex("\\s+")
+
+// Java-style identifier: letter/underscore followed by letters/digits/underscores.
+val identifier: Parser[Any] = Parser.regex("[a-zA-Z_][a-zA-Z0-9_]*")
+
+// Decimal integer (no fractional part), returned as Int.
+val integer: Parser[Any] = Parser.regex("-?[0-9]+").map(s => s.toInt)
+
+// Decimal number (optional fractional and exponent parts), returned as Double.
+val number: Parser[Any] = Parser.regex("-?[0-9]+(\\.[0-9]+)?([eE][+-]?[0-9]+)?").map(s => s.toDouble)
+
+// Double-quoted string literal without escape processing.
+val stringLit: Parser[Any] = Parser.char('"') ~> Parser.regex("[^\"]*") <~ Parser.char('"')
+
+// Wrap a parser: skip leading + trailing whitespace, return inner result.
+def skip(p: Any): Parser[Any] = whitespace ~> p <~ whitespace
+
+// Match an exact keyword string.
+def keyword(s: String): Parser[Any] = Parser.string(s)
+
+// Skip trailing whitespace after a parser (lexeme / token combinator).
+def token(p: Any): Parser[Any] = p <~ whitespace
+```

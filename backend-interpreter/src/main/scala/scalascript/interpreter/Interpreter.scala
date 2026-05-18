@@ -1276,8 +1276,9 @@ class Interpreter(
    *  JS and JVM backends inline imports wholesale and pick these up
    *  for free, but the interpreter only copies the values named in
    *  the import binding list and would otherwise drop extensions. */
-  def exportedExtensions:  Map[(String, String), Value.FunV] = extensions.toMap
-  def exportedParentTypes: Map[String, String]               = parentTypes.toMap
+  def exportedExtensions:    Map[(String, String), Value.FunV] = extensions.toMap
+  def exportedParentTypes:   Map[String, String]               = parentTypes.toMap
+  def exportedTypeFieldOrder: Map[String, List[String]]        = typeFieldOrder.toMap
 
   // ─── Section / block execution ───────────────────────────────────
 
@@ -1393,8 +1394,9 @@ class Interpreter(
     // the importer's scope.  Without this, an `extension` declared
     // inside an imported `given ... with` would never dispatch — the
     // child interpreter's `extensions` map is private to that child.
-    extensions  ++= child.exportedExtensions
-    parentTypes ++= child.exportedParentTypes
+    extensions      ++= child.exportedExtensions
+    parentTypes     ++= child.exportedParentTypes
+    typeFieldOrder  ++= child.exportedTypeFieldOrder
 
   /** Navigate nested InstanceV objects to find `name` under the package path.
    *  For `pkg = ["org", "example", "ui"]` and `name = "Card"` this resolves
@@ -4868,7 +4870,8 @@ class Interpreter(
         val args = argClause.values
         scrutinee match
           case Value.InstanceV(t, fields) if t == typeName =>
-            val fieldVals = fields.values.toList
+            val order     = typeFieldOrder.getOrElse(t, fields.keys.toList)
+            val fieldVals = order.flatMap(fields.get)
             if args.length != fieldVals.length then None
             else args.zip(fieldVals).foldLeft(Option(env)) { (acc, pe) =>
               acc.flatMap(e => matchPat(pe._1, pe._2, e))
