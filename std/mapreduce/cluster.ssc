@@ -1,0 +1,76 @@
+---
+name: std-mapreduce-cluster
+version: 0.1.0
+description: Cluster handle — thin wrapper over v1.6 Phase 3 connectNode. v1.22.
+package: std.mapreduce
+exports:
+  - Node
+  - Cluster
+  - ClusterError
+---
+
+# `std.mapreduce.Cluster` — distributed cluster handle
+
+Thin wrapper over v1.6 Phase 3 `connectNode`.  `Cluster.connect(nodes…)`
+opens WS channels to each listed node and returns a `Cluster` handle; the
+coordinator uses the handle to spawn remote workers.  `cluster.close()`
+tears down all connections.
+
+The hard-no list (from `docs/mapreduce.md` §8) applies:
+
+- **No implicit cluster discovery** — callers must enumerate nodes.
+- **No cross-language workers** — all nodes speak ScalaScript actors.
+
+```scalascript
+// ── Node address ─────────────────────────────────────────────────────
+// "name@host:port" — same format as v1.6 Phase 3 startNode / connectNode.
+case class Node(address: String):
+  def name: String =
+    if address.contains("@") then address.split("@")(0) else address
+  def hostPort: String =
+    if address.contains("@") then address.split("@")(1) else address
+
+// ── Error type ───────────────────────────────────────────────────────
+case class ClusterError(node: Node, reason: String)
+
+// ── Cluster handle ───────────────────────────────────────────────────
+// Holds the resolved Pid of the actor runtime on each remote node.
+// Obtained via Cluster.connect; closed via cluster.close().
+case class Cluster(nodes: List[Node], pids: List[Any]):
+
+  // Health-check probe: send a "ping" to every registered worker runner
+  // and wait for a "pong" back.  Returns a list of nodes that failed
+  // to respond within timeoutMs milliseconds.
+  def healthCheck(timeoutMs: Long): List[Node] =
+    val results = nodes.zip(pids).map { case (node, pid) =>
+      val me = self()
+      pid ! ("__healthCheck__", me)
+      val ok = receiveWithTimeout(timeoutMs) {
+        case "__healthCheckOk__" => true
+      }
+      if ok then None() else Some(node)
+    }
+    results.flatMap {
+      case Some(n) => List(n)
+      case None()  => Nil
+    }
+
+  // Tear down all connections.
+  def close(): Unit =
+    pids.foreach(pid => pid ! "__shutdown__")
+
+object Cluster:
+  // Connect to a set of remote nodes by address.
+  // Calls connectNode for each node; collects the resulting Pids.
+  // Throws ClusterError if any node cannot be reached.
+  def connect(ns: Node*): Cluster =
+    val nodeList = ns.toList
+    val pids = nodeList.map { node =>
+      connectNode(node.address)
+    }
+    Cluster(nodeList, pids)
+
+  // Convenience overload for a pre-built list.
+  def connectList(ns: List[Node]): Cluster =
+    connect(ns: _*)
+```

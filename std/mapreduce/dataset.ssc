@@ -1,7 +1,7 @@
 ---
 name: std-mapreduce-dataset
-version: 0.1.0
-description: Dataset[T] — lazy, parallel-capable map-reduce pipeline. Constructors and fluent API.
+version: 0.2.0
+description: Dataset[T] — lazy, parallel-capable map-reduce pipeline. Constructors and fluent API. v1.22 adds runDistributed.
 package: std.mapreduce
 exports:
   - Dataset
@@ -41,6 +41,9 @@ extern class Dataset[T]:
   // Execution mode selectors — return a new Dataset with mode set
   def runLocal(): Dataset[T]
   def runParallel(): Dataset[T]
+  // Distributed execution via v1.22 Cluster.
+  // Named handlers must be registered on every worker node before calling this.
+  def runDistributed(cluster: Cluster, retries: Int, allowPartial: Boolean): Dataset[T]
 
   // Terminal operations — force evaluation
   def collect(): List[T]
