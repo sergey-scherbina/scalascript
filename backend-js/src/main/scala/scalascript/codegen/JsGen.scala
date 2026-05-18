@@ -1765,6 +1765,12 @@ function serve(port, _tlsCfg) {
         const bodyBuf = Buffer.concat(chunks);
         const method = req.method.toUpperCase();
         const u = new URL(req.url, 'http://localhost');
+        // CORS preflight — OPTIONS with configured origins short-circuits route dispatch
+        if (method === 'OPTIONS' && _corsOrigins) {
+          const _preOut = {};
+          _applyCors(req.headers, _preOut);
+          res.writeHead(204, _preOut); res.end(); return;
+        }
         const segs = u.pathname.split('/').filter(s => s.length > 0);
         for (const r of _routes) {
           if (r.method !== method) continue;
@@ -1790,6 +1796,7 @@ function serve(port, _tlsCfg) {
           const headers = result && result.headers instanceof Map ? result.headers : new Map();
           if (!headers.has('Content-Type')) headers.set('Content-Type', 'text/plain; charset=utf-8');
           const out = headers ? Object.fromEntries(headers.entries()) : {};
+          _applyCors(req.headers, out);
           // `withSession`/`clearSession` attach a Map at `setSession`.
           // In stateless mode the cookie *is* the payload. In store
           // mode we stash the payload server-side and emit only the
@@ -1815,8 +1822,27 @@ function serve(port, _tlsCfg) {
             }
             out['Set-Cookie'] = _buildSetCookie(cookiePayload);
           }
-          res.writeHead(result.status ?? 200, out);
-          res.end(result.body ?? '');
+          // 304 short-circuit when ETag matches If-None-Match
+          const _etag = out['ETag'] || out['etag'] || '';
+          const _inm  = req.headers['if-none-match'] || '';
+          if (_etag && _inm && (_etag === _inm || `"${_etag}"` === _inm)) {
+            res.writeHead(304, {}); res.end(); return;
+          }
+          // gzip compression for text responses
+          const _body = result.body ?? '';
+          const _acceptGzip  = (req.headers['accept-encoding'] || '').includes('gzip');
+          const _contentType = out['Content-Type'] || '';
+          const _compressible = _contentType.startsWith('text/') || _contentType.includes('json') || _contentType.includes('javascript');
+          if (_gzipEnabled && _acceptGzip && _compressible && _body.length > 0) {
+            const _compressed = require('zlib').gzipSync(Buffer.from(_body, 'utf-8'));
+            out['Content-Encoding'] = 'gzip';
+            out['Content-Length'] = String(_compressed.length);
+            res.writeHead(result.status ?? 200, out);
+            res.end(_compressed);
+          } else {
+            res.writeHead(result.status ?? 200, out);
+            res.end(_body);
+          }
           return;
         }
         // Fall through to a static file under the cwd before 404'ing.
@@ -1843,6 +1869,46 @@ let _activeServer = null;
 
 function stop() {
   if (_activeServer) { _activeServer.close(); _activeServer = null; }
+}
+
+// ── CORS / gzip / cache helpers ───────────────────────────────────────────────
+let _corsOrigins = null;
+let _corsMethods = null;
+let _corsHeaders = null;
+let _gzipEnabled = false;
+
+function cors(origins, methods, headers) {
+  _corsOrigins = Array.isArray(origins) ? origins : [...(origins || [])];
+  _corsMethods = Array.isArray(methods) ? methods : ['GET','POST','PUT','DELETE','OPTIONS','PATCH'];
+  _corsHeaders = Array.isArray(headers) ? headers : [];
+}
+
+function useGzip() { _gzipEnabled = true; }
+
+function cacheable(r, maxAge, etag) {
+  const h = r && r.headers instanceof Map ? new Map(r.headers) : new Map();
+  h.set('Cache-Control', `public, max-age=${maxAge}`);
+  if (etag) h.set('ETag', String(etag));
+  return Object.assign({}, r, { headers: h });
+}
+
+function noCache(r) {
+  const h = r && r.headers instanceof Map ? new Map(r.headers) : new Map();
+  h.set('Cache-Control', 'no-store, no-cache, must-revalidate');
+  return Object.assign({}, r, { headers: h });
+}
+
+function _applyCors(reqHeaders, outHeaders) {
+  if (!_corsOrigins) return;
+  const origin = (reqHeaders && reqHeaders['origin']) || '';
+  let allowed = '';
+  if (_corsOrigins.includes('*')) allowed = '*';
+  else if (_corsOrigins.includes(origin)) allowed = origin;
+  if (!allowed) return;
+  outHeaders['Access-Control-Allow-Origin'] = allowed;
+  if (_corsMethods && _corsMethods.length) outHeaders['Access-Control-Allow-Methods'] = _corsMethods.join(', ');
+  if (_corsHeaders && _corsHeaders.length) outHeaders['Access-Control-Allow-Headers'] = _corsHeaders.join(', ');
+  outHeaders['Vary'] = 'Origin';
 }
 
 // ── Outbound WebSocket client (ws:// and wss://) ─────────────────────────────

@@ -3296,6 +3296,39 @@ class JvmGen(
        |    (form.toMap, files.toMap)
        |  }
        |
+       |// ── CORS / gzip / cache config ────────────────────────────────────────
+       |@volatile private var _corsOrigins: List[String] = Nil
+       |@volatile private var _corsMethods: List[String] = Nil
+       |@volatile private var _corsHeaders: List[String] = Nil
+       |@volatile private var _gzipEnabled = false
+       |
+       |def cors(origins: List[String], methods: List[String] = List("GET","POST","PUT","DELETE","OPTIONS","PATCH"), headers: List[String] = Nil): Unit =
+       |  _corsOrigins = origins; _corsMethods = methods; _corsHeaders = headers
+       |
+       |def useGzip(): Unit = _gzipEnabled = true
+       |
+       |def cacheable(r: Response, maxAge: Long, etag: String = ""): Response =
+       |  val cc = s"public, max-age=$maxAge"
+       |  val h0 = r.headers + ("Cache-Control" -> cc)
+       |  val h1 = if etag.nonEmpty then h0 + ("ETag" -> etag) else h0
+       |  r.copy(headers = h1)
+       |
+       |def noCache(r: Response): Response =
+       |  r.copy(headers = r.headers + ("Cache-Control" -> "no-store, no-cache, must-revalidate"))
+       |
+       |private def _applyCors(ex: com.sun.net.httpserver.HttpExchange): Unit =
+       |  if _corsOrigins.nonEmpty then
+       |    val origin  = Option(ex.getRequestHeaders.getFirst("Origin")).getOrElse("")
+       |    val allowed = if _corsOrigins.contains("*") then "*"
+       |                  else if _corsOrigins.contains(origin) then origin else ""
+       |    if allowed.nonEmpty then
+       |      ex.getResponseHeaders.add("Access-Control-Allow-Origin", allowed)
+       |      if _corsMethods.nonEmpty then
+       |        ex.getResponseHeaders.add("Access-Control-Allow-Methods", _corsMethods.mkString(", "))
+       |      if _corsHeaders.nonEmpty then
+       |        ex.getResponseHeaders.add("Access-Control-Allow-Headers", _corsHeaders.mkString(", "))
+       |      ex.getResponseHeaders.add("Vary", "Origin")
+       |
        |private def _handle(ex: com.sun.net.httpserver.HttpExchange): Unit =
        |  _Metrics.httpRequests.incrementAndGet()
        |  val _accessStartNs = java.lang.System.nanoTime()
@@ -3307,6 +3340,10 @@ class JvmGen(
        |    val method = ex.getRequestMethod.toUpperCase
        |    val path   = ex.getRequestURI.getPath
        |    val segs   = path.split('/').toList.filter(_.nonEmpty)
+       |    if method == "OPTIONS" && _corsOrigins.nonEmpty then
+       |      _applyCors(ex)
+       |      ex.sendResponseHeaders(204, -1)
+       |    else
        |    val matched = _routes.iterator
        |      .filter(_.method == method)
        |      .flatMap(r => _matchPath(r.pattern, segs).map(p => (r, p)))
@@ -3408,6 +3445,7 @@ class JvmGen(
        |  r.headers.foreach((k, v) => ex.getResponseHeaders.add(k, v))
        |  if !r.headers.contains("Content-Type") then
        |    ex.getResponseHeaders.add("Content-Type", "text/plain; charset=utf-8")
+       |  _applyCors(ex)
        |  r.setSession.foreach { payload =>
        |    val cookiePayload: Map[String, String] =
        |      if !_sessionStoreEnabled then payload
@@ -3420,9 +3458,28 @@ class JvmGen(
        |        Map("_ssid" -> ssid)
        |    ex.getResponseHeaders.add("Set-Cookie", _buildSetCookie(cookiePayload))
        |  }
-       |  val bytes = r.body.getBytes("UTF-8")
-       |  ex.sendResponseHeaders(r.status, if bytes.isEmpty then -1L else bytes.length.toLong)
-       |  if bytes.nonEmpty then ex.getResponseBody.write(bytes)
+       |  val _responseEtag   = r.headers.getOrElse("ETag", r.headers.getOrElse("etag", ""))
+       |  val _ifNoneMatch    = Option(ex.getRequestHeaders.getFirst("If-None-Match")).getOrElse("")
+       |  val _etagUnquoted   = _ifNoneMatch.stripPrefix("\"").stripSuffix("\"")
+       |  if _responseEtag.nonEmpty && _ifNoneMatch.nonEmpty &&
+       |     (_responseEtag == _ifNoneMatch || _responseEtag == _etagUnquoted) then
+       |    ex.sendResponseHeaders(304, -1L)
+       |  else
+       |    val _rawBytes    = r.body.getBytes("UTF-8")
+       |    val _acceptGzip  = Option(ex.getRequestHeaders.getFirst("Accept-Encoding")).getOrElse("").contains("gzip")
+       |    val _contentType = Option(ex.getResponseHeaders.getFirst("Content-Type")).getOrElse("")
+       |    val _compress    = _gzipEnabled && _acceptGzip && _rawBytes.nonEmpty &&
+       |                       (_contentType.startsWith("text/") || _contentType.contains("json") || _contentType.contains("javascript"))
+       |    val bytes =
+       |      if _compress then
+       |        val baos = new java.io.ByteArrayOutputStream()
+       |        val gz   = new java.util.zip.GZIPOutputStream(baos)
+       |        gz.write(_rawBytes); gz.finish()
+       |        ex.getResponseHeaders.add("Content-Encoding", "gzip")
+       |        baos.toByteArray
+       |      else _rawBytes
+       |    ex.sendResponseHeaders(r.status, if bytes.isEmpty then -1L else bytes.length.toLong)
+       |    if bytes.nonEmpty then ex.getResponseBody.write(bytes)
        |
        |/** Try to serve a static asset (non-.ssc file) under the cwd; returns
        | *  Some when handled, None when the file is missing / disqualified.

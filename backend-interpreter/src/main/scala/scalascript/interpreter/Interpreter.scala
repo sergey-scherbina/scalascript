@@ -428,6 +428,55 @@ class Interpreter(
       case _ => throw InterpretError("wsConnect(url[, headers[, protocols]]) { ws => … }")
     }
 
+    // cors(origins[, methods[, allowedHeaders]]) — global CORS policy
+    nativeP("cors") {
+      case List(Value.ListV(origins)) =>
+        scalascript.server.WebServer.configureCors(
+          origins.collect { case Value.StringV(s) => s },
+          List("GET","POST","PUT","DELETE","OPTIONS","PATCH"), Nil)
+        Value.UnitV
+      case List(Value.ListV(origins), Value.ListV(methods)) =>
+        scalascript.server.WebServer.configureCors(
+          origins.collect { case Value.StringV(s) => s },
+          methods.collect { case Value.StringV(s) => s }, Nil)
+        Value.UnitV
+      case List(Value.ListV(origins), Value.ListV(methods), Value.ListV(hdrs)) =>
+        scalascript.server.WebServer.configureCors(
+          origins.collect { case Value.StringV(s) => s },
+          methods.collect { case Value.StringV(s) => s },
+          hdrs.collect { case Value.StringV(s) => s })
+        Value.UnitV
+      case _ => throw InterpretError("cors(origins[, methods[, headers]])")
+    }
+
+    nativeP("useGzip") {
+      case Nil => scalascript.server.WebServer.enableGzip(); Value.UnitV
+      case _   => throw InterpretError("useGzip()")
+    }
+
+    def addCacheHdrs(v: Value, extra: Map[String, String]): Value = v match
+      case Value.InstanceV("Response", fields) =>
+        val h = fields.get("headers") match
+          case Some(Value.MapV(m)) => m
+          case _                   => Map.empty[Value, Value]
+        val merged = h ++ extra.map { case (k, vv) => (Value.StringV(k): Value) -> (Value.StringV(vv): Value) }
+        Value.InstanceV("Response", fields + ("headers" -> Value.MapV(merged)))
+      case other => other
+
+    nativeP("cacheable") {
+      case List(resp, Value.IntV(maxAge)) =>
+        addCacheHdrs(resp, Map("Cache-Control" -> s"public, max-age=$maxAge"))
+      case List(resp, Value.IntV(maxAge), Value.StringV(etag)) =>
+        addCacheHdrs(resp, Map("Cache-Control" -> s"public, max-age=$maxAge", "ETag" -> etag))
+      case _ => throw InterpretError("cacheable(response, maxAge[, etag])")
+    }
+
+    nativeP("noCache") {
+      case List(resp) =>
+        addCacheHdrs(resp, Map("Cache-Control" -> "no-store, no-cache, must-revalidate"))
+      case _ => throw InterpretError("noCache(response)")
+    }
+
     // Environment variable reader, same surface on all three backends.
     // `getenv(key)` returns the value or empty string when unset.
     // `getenv(key, default)` substitutes the default when missing/empty.

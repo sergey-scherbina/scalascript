@@ -27,6 +27,16 @@ object WebServer:
   @volatile private var _pubSock:  java.net.ServerSocket | Null                = null
   @volatile private var _proxy:    WsProxy | Null                              = null
 
+  @volatile private var _corsOrigins: List[String] = Nil
+  @volatile private var _corsMethods: List[String] = Nil
+  @volatile private var _corsHeaders: List[String] = Nil
+  @volatile private var _gzipEnabled = false
+
+  def configureCors(origins: List[String], methods: List[String], hdrs: List[String]): Unit =
+    _corsOrigins = origins; _corsMethods = methods; _corsHeaders = hdrs
+
+  def enableGzip(): Unit = _gzipEnabled = true
+
   def stop(): Unit =
     try _pubSock  match { case s if s != null => s.close(); case _ => () } catch case _: Throwable => ()
     try _proxy    match { case p if p != null => p.stop();  case _ => () } catch case _: Throwable => ()
@@ -179,6 +189,19 @@ object WebServer:
     catch case _: Throwable =>
       java.util.concurrent.Executors.newCachedThreadPool()
 
+  private def applyCorsHeaders(ex: HttpExchange): Unit =
+    if _corsOrigins.nonEmpty then
+      val origin  = Option(ex.getRequestHeaders.getFirst("Origin")).getOrElse("")
+      val allowed = if _corsOrigins.contains("*") then "*"
+                    else if _corsOrigins.contains(origin) then origin else ""
+      if allowed.nonEmpty then
+        ex.getResponseHeaders.add("Access-Control-Allow-Origin", allowed)
+        if _corsMethods.nonEmpty then
+          ex.getResponseHeaders.add("Access-Control-Allow-Methods", _corsMethods.mkString(", "))
+        if _corsHeaders.nonEmpty then
+          ex.getResponseHeaders.add("Access-Control-Allow-Headers", _corsHeaders.mkString(", "))
+        ex.getResponseHeaders.add("Vary", "Origin")
+
   private def handle(root: String, log: java.io.PrintStream, ex: HttpExchange): Unit =
     Metrics.httpRequests.incrementAndGet()
     val startNs = java.lang.System.nanoTime()
@@ -189,6 +212,11 @@ object WebServer:
     try
       val method  = ex.getRequestMethod
       val rawPath = ex.getRequestURI.getPath
+      // CORS preflight — OPTIONS with Origin bypasses route dispatch
+      if method == "OPTIONS" && _corsOrigins.nonEmpty then
+        applyCorsHeaders(ex)
+        ex.sendResponseHeaders(204, -1)
+      else
       Routes.matchRequest(method, rawPath) match
         case Some((entry, params)) =>
           dispatchRoute(entry, params, ex)
@@ -394,6 +422,7 @@ object WebServer:
     headers.foreach((k, v) => ex.getResponseHeaders.add(k, v))
     if !headers.contains("Content-Type") then
       ex.getResponseHeaders.add("Content-Type", "text/plain; charset=utf-8")
+    applyCorsHeaders(ex)
     setSession.foreach { payload =>
       val cookiePayload: Map[String, String] =
         if !SessionStore.isEnabled then payload
@@ -411,9 +440,27 @@ object WebServer:
           Map("_ssid" -> ssid)
       ex.getResponseHeaders.add("Set-Cookie", SessionCookie.toSetCookie(cookiePayload, secureFlag = false))
     }
-    val bytes = body.getBytes("UTF-8")
-    ex.sendResponseHeaders(status, if bytes.isEmpty then -1 else bytes.length.toLong)
-    if bytes.nonEmpty then ex.getResponseBody.write(bytes)
+    // 304 short-circuit when client's ETag matches
+    val responseEtag = headers.getOrElse("ETag", headers.getOrElse("etag", ""))
+    val ifNoneMatch  = Option(ex.getRequestHeaders.getFirst("If-None-Match")).getOrElse("")
+    if responseEtag.nonEmpty && ifNoneMatch.nonEmpty &&
+       (responseEtag == ifNoneMatch || s""""$responseEtag"""" == ifNoneMatch) then
+      ex.sendResponseHeaders(304, -1)
+    else
+      val rawBytes = body.getBytes("UTF-8")
+      val acceptGzip   = Option(ex.getRequestHeaders.getFirst("Accept-Encoding")).getOrElse("").contains("gzip")
+      val contentType  = Option(ex.getResponseHeaders.getFirst("Content-Type")).getOrElse("")
+      val compressible = contentType.startsWith("text/") || contentType.contains("json") || contentType.contains("javascript")
+      val bytes =
+        if _gzipEnabled && acceptGzip && compressible && rawBytes.nonEmpty then
+          val baos = java.io.ByteArrayOutputStream()
+          val gz   = java.util.zip.GZIPOutputStream(baos)
+          gz.write(rawBytes); gz.finish()
+          ex.getResponseHeaders.add("Content-Encoding", "gzip")
+          baos.toByteArray
+        else rawBytes
+      ex.sendResponseHeaders(status, if bytes.isEmpty then -1 else bytes.length.toLong)
+      if bytes.nonEmpty then ex.getResponseBody.write(bytes)
 
   /** Resolve a static (non-`.ssc`) file under `root` from the URL path.
    *  Returns the file only if it exists, is a regular file, lies inside
