@@ -75,7 +75,15 @@ ScalaScript is a meta-programming / specification language with extension `.ssc`
 
 These override any other guidance in this file:
 
-1. **Push to `origin/main` immediately after every completed, working feature.**
+1. **Mark the feature as landed in `MILESTONES.md` before pushing.**
+   As soon as a feature is done (compiles, all tests pass), update the
+   corresponding section in `MILESTONES.md` — add `✓ Landed` to the header
+   and a brief landing note listing what was done.  Do this in the same
+   commit as the feature, or as the immediately preceding commit.
+   Never push to `main` with a finished feature that isn't marked in
+   `MILESTONES.md`.
+
+2. **Push to `origin/main` immediately after every completed, working feature.**
    As soon as a feature compiles, all tests pass, and MILESTONES.md is updated —
    push to `origin/main` right away.  No accumulation, no asking first,
    no exceptions.  If `origin/main` has moved, rebase first, then push.
