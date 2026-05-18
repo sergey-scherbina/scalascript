@@ -1,0 +1,41 @@
+---
+name: std-http
+version: 0.1.0
+description: HTTP server primitives — extern declarations for route / serve / stop
+exports:
+  - route
+  - serve
+  - stop
+---
+
+# `std.http` — HTTP server primitives
+
+`extern def` declarations for the HTTP server primitives that every
+ScalaScript backend ships.  These are **type signatures only** — the
+real implementations live in each backend's intrinsic table (Stage
+5+/B), with the per-backend runtime helpers shipped via
+`Backend.runtimePreamble` (Stage 5+/A.6 / Б-2).
+
+Status: **Stage 5+/B.1 — signature formalisation only**.  Today the
+codegens still recognise bare `route(...)` / `serve(...)` calls via
+hardcoded pattern matching.  Subsequent iterations of 5+/B migrate
+those paths to flow through the intrinsic table; users that import
+this file see no behavioural change, just a typed surface.
+
+```scalascript
+// Lifecycle
+extern def serve(port: Int): Unit
+extern def stop(): Unit
+
+// Route registration — `handler` is a function from Request to Response.
+extern def route(method: String, path: String, handler: Request => Response): Unit
+```
+
+# Request / Response
+
+Currently `Request` and `Response` are runtime case classes the
+codegens construct via `InstanceV("Request", …)` / `InstanceV("Response", …)`.
+Stage 5+/B will lift them into proper case-class declarations
+in this file.  For now the SHAPE is documented by the existing
+example bodies under `examples/rest-api.ssc` and the auth helpers
+in `backend-interpreter/.../server/`.
