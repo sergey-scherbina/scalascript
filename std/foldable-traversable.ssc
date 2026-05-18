@@ -14,6 +14,8 @@ exports:
   - foldRightOption
   - traverseListOption
   - traverseOptionList
+  - Foldable
+  - Traversable
 ---
 
 # Foldable and Traversable
@@ -34,6 +36,8 @@ implements all of them.
 
 ## Typeclass definitions
 
+[Functor](./functor-applicative-monad.ssc)
+
 ```scalascript
 trait Foldable[F[_]]:
   extension [A](fa: F[A])
@@ -41,18 +45,13 @@ trait Foldable[F[_]]:
     def foldRight[B](z: B, f: (A, B) => B): B
     def toList: List[A]
 
-trait Traversable[T[_]] extends Foldable[T]:
-  extension [A](ta: T[A])
-    def map[B](f: A => B): T[B]
+trait Traversable[T[_]] extends Functor[T], Foldable[T]
 ```
 
-`Traversable[T]` extends `Foldable[T]` and adds the `map` extension,
-giving the same surface that `Functor + Foldable` would in a fully
-HKT-aware std. The `Functor` typeclass itself lives in
-`functor-applicative-monad.ssc` and is not extended here to avoid
-cross-file trait inheritance.  Effectful traversal — `traverse`,
-`sequence` — lives in the helpers section since the polymorphic
-signature isn't expressible without `using`.
+`Traversable[T]` extends both `Functor[T]` and `Foldable[T]`.
+`Functor` provides `map`; each concrete instance supplies all abstract
+methods.  Effectful traversal — `traverse`, `sequence` — lives in
+the helpers section since the polymorphic signature requires `using`.
 
 ## Instances
 

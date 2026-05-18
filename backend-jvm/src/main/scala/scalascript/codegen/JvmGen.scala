@@ -205,24 +205,31 @@ class JvmGen(
       val raw  = head + tail.mkString
       Some(if raw.head.isDigit then "_" + raw else raw)
 
-  /** Synthesise alias vals for import bindings.
-   *  When `pkg` is non-empty the imported names live under the nested package
-   *  objects (e.g. `org.example.ui.Card`), so every binding needs an alias —
-   *  even bare ones — pointing at the fully-qualified path.
+  /** Synthesise import/alias bindings for imported names.
+   *  When `pkg` is non-empty, emit a Scala `import` statement — this handles
+   *  both trait/type definitions and given values, since `val X = pkg.X` would
+   *  fail to compile for traits.
    *  When `pkg` is empty, only `as`-aliased bindings produce a `val`. */
   private def aliasBlock(bindings: List[ImportBinding], pkg: List[String] = Nil): Option[JvmGen.Block] =
     import scala.meta.{dialects, *}
-    val pkgPrefix = if pkg.isEmpty then "" else pkg.mkString("", ".", ".")
-    val aliases = bindings.flatMap { b =>
-      val fullName  = s"$pkgPrefix${b.name}"
-      val localName = b.alias.getOrElse(b.name)
-      if fullName == localName then None else Some(s"val $localName = $fullName")
-    }
-    if aliases.isEmpty then None
-    else
-      val src   = aliases.mkString("\n")
+    if pkg.nonEmpty then
+      val pkgPath = pkg.mkString(".")
+      val specs   = bindings.map { b => b.alias match
+        case None    => b.name
+        case Some(a) => s"${b.name} as $a"
+      }.mkString(", ")
+      val src   = s"import $pkgPath.{$specs}"
       val input = Input.VirtualFile("<import-aliases>", src)
       dialects.Scala3(input).parse[Source].toOption.map(s => JvmGen.Block(ScalaNode(s), src))
+    else
+      val aliases = bindings.flatMap { b =>
+        b.alias.map { a => s"val $a = ${b.name}" }
+      }
+      if aliases.isEmpty then None
+      else
+        val src   = aliases.mkString("\n")
+        val input = Input.VirtualFile("<import-aliases>", src)
+        dialects.Scala3(input).parse[Source].toOption.map(s => JvmGen.Block(ScalaNode(s), src))
 
   /** Resolve a `[name](./path.ssc)` Markdown import: parse the referenced
    *  file, inline its code blocks, and return the `(blocks, pkg)` pair so

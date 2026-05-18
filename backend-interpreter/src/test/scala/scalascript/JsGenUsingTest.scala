@@ -134,3 +134,30 @@ class JsGenUsingTest extends AnyFunSuite with Matchers:
     """)
     code should include (": Show")
     code should include ("summon")
+
+  test("JvmGen: cross-file trait import uses Scala import, not val alias"):
+    val dir = os.temp.dir(deleteOnExit = true)
+    try
+      os.write(dir / "functor.ssc", """|---
+          |name: functor
+          |package: mylib.functor
+          |---
+          |# Functor
+          |```scalascript
+          |trait Functor[F[_]]:
+          |  extension [A](fa: F[A]) def map[B](f: A => B): F[B]
+          |```
+          |""".stripMargin)
+      val consumerSrc = """|# Consumer
+          |
+          |[Functor](functor.ssc)
+          |
+          |```scalascript
+          |trait Traversable[T[_]] extends Functor[T]
+          |```
+          |""".stripMargin
+      val m    = Parser.parse(consumerSrc)
+      val code = JvmGen.generate(m, baseDir = Some(dir))
+      code should include ("import mylib.functor")
+      code should not include "val Functor ="
+    finally os.remove.all(dir)
