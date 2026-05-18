@@ -2805,6 +2805,12 @@ class Interpreter(
           evalFocus(app.argClause.values)
         case Term.Name("Focus") =>
           evalFocus(app.argClause.values)
+        // ── direct[M] { stmts } — v1.8 do-notation sugar ─────────────
+        case Term.ApplyType.After_4_6_0(Term.Name("direct"), _) =>
+          app.argClause.values match
+            case List(block: Term.Block) => evalDirectBlock(block.stats, env)
+            case List(single: Term)      => eval(single, env)
+            case _                       => located("direct[M] expects a single block argument")
         case Term.Select(qual, Term.Name(method)) =>
           val qualC    = eval(qual, env)
           // Named args (Term.Assign) must evaluate only the RHS; the full
@@ -3647,6 +3653,78 @@ class Interpreter(
             execStat(stat, local)
             step(rest, Value.UnitV)
     step(stats, Value.UnitV)
+
+  // ─── direct[M] { ... } — v1.8 do-notation ───────────────────────────
+
+  /** Evaluate a `direct[M] { stmts }` block by desugaring bind-forms
+   *  (`x = expr`) into `monadValue.flatMap { x => rest }` calls.
+   *
+   *  Rules (DS-1 … DS-7 from docs/direct-syntax.md):
+   *  - `x = expr`       — monadic bind unless `x` was declared `var` in
+   *                       this same direct block (then: mutation).
+   *  - `val x = expr`   — pure local binding.
+   *  - `var x = expr`   — mutable var (never monadic).
+   *  - `_ = expr`       — explicit bind-and-discard.
+   *  - bare expression  — evaluated for side effects; result discarded.
+   *  - last expression  — the tail / yield clause. */
+  private def evalDirectBlock(stats: List[Stat], env: Env): Computation =
+    val varNames: Set[String] = stats.collect {
+      case Defn.Var.After_4_7_2(_, List(Pat.Var(n)), _, _) => n.value
+    }.toSet
+
+    // Thread env as an immutable snapshot so each branch of a List flatMap
+    // gets its own independent variable bindings (avoids shared-state bugs
+    // when the monad's flatMap calls the continuation multiple times eagerly).
+    def step(remaining: List[Stat], cur: Env): Computation = remaining match
+      case Nil => Pure(Value.UnitV)
+
+      case (last: Term) :: Nil =>
+        eval(last, cur)
+
+      // var mutation (pure — not a monadic bind)
+      case Term.Assign(Term.Name(x), rhs) :: rest if varNames.contains(x) =>
+        eval(rhs, cur).flatMap { v => step(rest, cur + (x -> v)) }
+
+      // x = expr — monadic bind
+      case Term.Assign(Term.Name(x), rhs) :: rest =>
+        FlatMap(eval(rhs, cur), { monadValue =>
+          val cont = Value.NativeFnV(s"direct-bind-$x", args =>
+            step(rest, cur + (x -> args.head))
+          )
+          dispatch(monadValue, "flatMap", List(cont), cur)
+        })
+
+      // val _ = expr — monadic bind-and-discard
+      case Defn.Val(_, List(_: Pat.Wildcard), _, rhs) :: rest =>
+        FlatMap(eval(rhs, cur), { monadValue =>
+          val cont = Value.NativeFnV("direct-bind-_", _ => step(rest, cur))
+          dispatch(monadValue, "flatMap", List(cont), cur)
+        })
+
+      // val x = expr — pure binding
+      case Defn.Val(_, pats, _, rhs) :: rest =>
+        eval(rhs, cur).flatMap { v =>
+          pats match
+            case List(Pat.Var(n)) => step(rest, cur + (n.value -> v))
+            case List(pat) =>
+              matchPat(pat, v, cur) match
+                case Some(patEnv) => step(rest, cur ++ patEnv)
+                case None         => located("direct block: val pattern match failed")
+            case _ => step(rest, cur)
+        }
+
+      // var x = expr — mutable local var declaration
+      case Defn.Var.After_4_7_2(_, List(Pat.Var(n)), _, rhs) :: rest =>
+        eval(rhs, cur).flatMap { v => step(rest, cur + (n.value -> v)) }
+
+      // bare expression for side effect
+      case (t: Term) :: rest =>
+        eval(t, cur).flatMap(_ => step(rest, cur))
+
+      case _ :: rest =>
+        step(rest, cur)
+
+    step(stats, env)
 
   // ─── Call helpers ─────────────────────────────────────────────────
 
