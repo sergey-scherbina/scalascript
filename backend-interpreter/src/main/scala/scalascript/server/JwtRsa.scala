@@ -44,7 +44,9 @@ object JwtRsa:
     Base64.getDecoder.decode(cleaned)
 
   private def parsePrivate(pem: String): PrivateKey =
-    KeyFactory.getInstance("RSA").generatePrivate(PKCS8EncodedKeySpec(pemBytes(pem)))
+    val raw  = pemBytes(pem)
+    val der8 = if pem.contains("BEGIN RSA PRIVATE KEY") then WebServer.wrapPkcs1InPkcs8(raw) else raw
+    KeyFactory.getInstance("RSA").generatePrivate(PKCS8EncodedKeySpec(der8))
 
   private def parsePublic(pem: String): PublicKey =
     KeyFactory.getInstance("RSA").generatePublic(X509EncodedKeySpec(pemBytes(pem)))

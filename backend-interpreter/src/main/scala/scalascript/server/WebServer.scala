@@ -164,7 +164,7 @@ object WebServer:
 
   /** Wrap a PKCS#1 RSA key (no envelope) into the PKCS#8 DER structure
    *  that `PKCS8EncodedKeySpec` expects.  The RSA OID is 1.2.840.113549.1.1.1. */
-  private def wrapPkcs1InPkcs8(pkcs1: Array[Byte]): Array[Byte] =
+  private[server] def wrapPkcs1InPkcs8(pkcs1: Array[Byte]): Array[Byte] =
     // AlgorithmIdentifier sequence: OID rsaEncryption + NULL
     val oidSeq = Array[Byte](
       0x30, 0x0d,                                     // SEQUENCE (13 bytes)

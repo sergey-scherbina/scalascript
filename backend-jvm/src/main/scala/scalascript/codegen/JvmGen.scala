@@ -2622,10 +2622,26 @@ class JvmGen(
        |    .replaceAll("-----END [^-]+-----", "")
        |    .replaceAll("\\s+", "")
        |  java.util.Base64.getDecoder.decode(cleaned)
+       |// Wrap a PKCS#1 RSA DER blob in a PKCS#8 PrivateKeyInfo envelope so
+       |// Java's KeyFactory can load keys produced by `openssl genrsa`.
+       |private def _pkcs1ToPkcs8(pkcs1: Array[Byte]): Array[Byte] =
+       |  def encLen(n: Int): Array[Byte] =
+       |    if n < 128 then Array(n.toByte)
+       |    else if n < 256 then Array(0x81.toByte, n.toByte)
+       |    else Array(0x82.toByte, (n >> 8).toByte, (n & 0xff).toByte)
+       |  val rsaOid = Array[Byte](0x06,0x09,0x2a,0x86.toByte,0x48,0x86.toByte,0xf7.toByte,0x0d,0x01,0x01,0x01)
+       |  val nul    = Array[Byte](0x05, 0x00)
+       |  val algId  = Array(0x30.toByte) ++ encLen(rsaOid.length + nul.length) ++ rsaOid ++ nul
+       |  val octet  = Array(0x04.toByte) ++ encLen(pkcs1.length) ++ pkcs1
+       |  val ver    = Array[Byte](0x02, 0x01, 0x00)
+       |  val inner  = ver ++ algId ++ octet
+       |  Array(0x30.toByte) ++ encLen(inner.length) ++ inner
        |private lazy val _jwtRsaPrivate: Option[java.security.PrivateKey] =
        |  sys.env.get("SSC_JWT_PRIVATE_KEY").filter(_.nonEmpty).map { pem =>
+       |    val raw = _pemBytes(pem)
+       |    val der8 = if pem.contains("BEGIN RSA PRIVATE KEY") then _pkcs1ToPkcs8(raw) else raw
        |    java.security.KeyFactory.getInstance("RSA")
-       |      .generatePrivate(java.security.spec.PKCS8EncodedKeySpec(_pemBytes(pem)))
+       |      .generatePrivate(java.security.spec.PKCS8EncodedKeySpec(der8))
        |  }
        |private lazy val _jwtRsaPublic: Option[java.security.PublicKey] =
        |  sys.env.get("SSC_JWT_PUBLIC_KEY").filter(_.nonEmpty).map { pem =>
@@ -4500,14 +4516,17 @@ class JvmGen(
        |  import java.security.{KeyStore, KeyFactory}
        |  import java.security.cert.CertificateFactory
        |  import javax.net.ssl.{KeyManagerFactory, SSLContext}
-       |  val certBytes = java.nio.file.Files.readAllBytes(java.nio.file.Paths.get(certPath))
-       |  val keyBytes  = java.nio.file.Files.readAllBytes(java.nio.file.Paths.get(keyPath))
+       |  val certBytes  = java.nio.file.Files.readAllBytes(java.nio.file.Paths.get(certPath))
+       |  val keyBytes   = java.nio.file.Files.readAllBytes(java.nio.file.Paths.get(keyPath))
        |  val certFactory = CertificateFactory.getInstance("X.509")
        |  val cert = certFactory.generateCertificate(java.io.ByteArrayInputStream(certBytes))
-       |  val keyPem = new String(keyBytes, "UTF-8")
-       |    .replaceAll("-----[^-]+-----", "").replaceAll("\\s", "")
-       |  val der = java.util.Base64.getDecoder.decode(keyPem)
-       |  val keySpec = java.security.spec.PKCS8EncodedKeySpec(der)
+       |  val keyPemRaw  = new String(keyBytes, "UTF-8")
+       |  val isPkcs1    = keyPemRaw.contains("BEGIN RSA PRIVATE KEY")
+       |  val keyPem     = keyPemRaw.replaceAll("-----[^-]+-----", "").replaceAll("\\s", "")
+       |  val der        = java.util.Base64.getDecoder.decode(keyPem)
+       |  // PKCS#1 keys (openssl genrsa) need wrapping in a PKCS#8 envelope.
+       |  val der8       = if isPkcs1 then _pkcs1ToPkcs8(der) else der
+       |  val keySpec    = java.security.spec.PKCS8EncodedKeySpec(der8)
        |  val privateKey =
        |    try java.security.KeyFactory.getInstance("RSA").generatePrivate(keySpec)
        |    catch case _: Throwable =>
