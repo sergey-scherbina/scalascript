@@ -106,7 +106,7 @@ class Interpreter(
   private val litCache: java.util.IdentityHashMap[Lit, Computation] =
     java.util.IdentityHashMap()
 
-  // ── v1.6 Actors — Phase 1 runtime state ─────────────────────────
+  // ── v1.6 Actors — Phase 1 + Phase 2 runtime state ───────────────
   // Each `runActors { ... }` installs a fresh ActorRuntime for its
   // duration so nested invocations don't share state.
   private class ActorRuntime:
@@ -123,6 +123,14 @@ class Interpreter(
     val ready   = mutable.Queue.empty[Long]
     var nextId  = 0L
     var currentId = -1L
+    // Phase 2 — supervision
+    // links(id) = set of actor IDs bidirectionally linked to `id`
+    val links      = mutable.LongMap.empty[mutable.Set[Long]]
+    // monitors(watchedId) = Map(monitorRef → observerId)
+    val monitors   = mutable.LongMap.empty[mutable.Map[Long, Long]]
+    // trapExit(id) = true  →  Exit signals arrive as messages, not crashes
+    val trapExit   = mutable.LongMap.empty[Boolean]
+    var nextMonRef = 0L
   private var actorRt: ActorRuntime = null
   // Receive-spec boxing: we can't squeeze AST cases into `Value`, so
   // `receive { case … }` stashes (cases, env) in a side map and the
@@ -1506,13 +1514,27 @@ class Interpreter(
       case Nil => Perform("Actor", "self", Nil)
       case _   => throw InterpretError("self takes no arguments")
     })
-    // `exit(pid, reason)` — terminate target actor.  For Phase 1 the
-    // reason is logged but otherwise unused (links / monitors land
-    // in Phase 2).  No-op on unknown PID, Erlang semantics.
     globals("exit") = Value.NativeFnV("exit", {
       case List(pid @ Value.InstanceV("Pid", _), reason) =>
         Perform("Actor", "exit", List(pid, reason))
       case _ => throw InterpretError("exit(pid, reason)")
+    })
+    // Phase 2 — supervision primitives
+    globals("link") = Value.NativeFnV("link", {
+      case List(pid @ Value.InstanceV("Pid", _)) => Perform("Actor", "link", List(pid))
+      case _ => throw InterpretError("link(pid): Unit")
+    })
+    globals("monitor") = Value.NativeFnV("monitor", {
+      case List(pid @ Value.InstanceV("Pid", _)) => Perform("Actor", "monitor", List(pid))
+      case _ => throw InterpretError("monitor(pid): MonitorRef")
+    })
+    globals("demonitor") = Value.NativeFnV("demonitor", {
+      case List(ref @ Value.IntV(_)) => Perform("Actor", "demonitor", List(ref))
+      case _ => throw InterpretError("demonitor(ref): Unit")
+    })
+    globals("trapExit") = Value.NativeFnV("trapExit", {
+      case List(b @ Value.BoolV(_)) => Perform("Actor", "trapExit", List(b))
+      case _ => throw InterpretError("trapExit(on: Boolean): Unit")
     })
 
     // ── Reactive primitives: Signal / computed / effect ────────────────
@@ -3611,16 +3633,70 @@ class Interpreter(
     case "exit" => args match
       case List(Value.InstanceV("Pid", fields), reason) =>
         fields.get("id") match
-          case Some(Value.IntV(targetId)) if rt.pending.contains(targetId) || rt.blocked.contains(targetId) =>
-            out.println(s"[exit] actor=$targetId reason=${Value.show(reason)}")
-            rt.pending.remove(targetId)
-            rt.blocked.remove(targetId)
-            rt.mailboxes.remove(targetId)
-            // Note: ready queue may still hold a stale id; pending
-            // check at dispatch time filters it out.
-          case _ => ()
-        Right(k(Value.UnitV))
+          case Some(Value.IntV(targetId)) => killActor(rt, targetId, reason)
+          case _                          => ()
+        // Self-exit or link propagation may have killed the current actor.
+        if rt.mailboxes.contains(id) then Right(k(Value.UnitV))
+        else Left(())
       case _ => throw InterpretError("exit(pid, reason)")
+
+    // ── Phase 2 — supervision ────────────────────────────────────────
+
+    case "link" => args match
+      case List(Value.InstanceV("Pid", fields)) =>
+        fields.get("id") match
+          case Some(Value.IntV(targetId)) =>
+            if rt.mailboxes.contains(targetId) then
+              // Both alive — create bidirectional link
+              rt.links.getOrElseUpdate(id,       mutable.Set.empty) += targetId
+              rt.links.getOrElseUpdate(targetId, mutable.Set.empty) += id
+            else
+              // Target already dead — noproc exit signal
+              val noproc = Value.InstanceV("noproc", Map.empty)
+              if rt.trapExit.getOrElse(id, false) then
+                val exitMsg = Value.InstanceV("Exit", Map(
+                  "from"   -> Value.InstanceV("Pid", Map("id" -> Value.IntV(targetId))),
+                  "reason" -> noproc))
+                rt.mailboxes.get(id).foreach(_.enqueue(exitMsg))
+              else
+                killActor(rt, id, noproc)
+          case _ => ()
+        // Link to dead target with no trapExit kills us — check before continuing.
+        if rt.mailboxes.contains(id) then Right(k(Value.UnitV))
+        else Left(())
+      case _ => throw InterpretError("link(pid)")
+
+    case "monitor" => args match
+      case List(Value.InstanceV("Pid", fields)) =>
+        fields.get("id") match
+          case Some(Value.IntV(targetId)) =>
+            val monRef = rt.nextMonRef
+            rt.nextMonRef += 1
+            if rt.mailboxes.contains(targetId) then
+              rt.monitors.getOrElseUpdate(targetId, mutable.Map.empty)(monRef) = id
+            else
+              // Already dead — immediately deliver Down
+              val downMsg = Value.InstanceV("Down", Map(
+                "ref"    -> Value.IntV(monRef),
+                "from"   -> Value.InstanceV("Pid", Map("id" -> Value.IntV(targetId))),
+                "reason" -> Value.InstanceV("noproc", Map.empty)))
+              rt.mailboxes.get(id).foreach(_.enqueue(downMsg))
+              wakeBlocked(rt, id)
+            Right(k(Value.IntV(monRef)))
+          case _ => Right(k(Value.IntV(-1L)))
+      case _ => throw InterpretError("monitor(pid)")
+
+    case "demonitor" => args match
+      case List(Value.IntV(monRef)) =>
+        rt.monitors.foreachEntry((_, monMap) => monMap.remove(monRef))
+        Right(k(Value.UnitV))
+      case _ => throw InterpretError("demonitor(ref)")
+
+    case "trapExit" => args match
+      case List(Value.BoolV(b)) =>
+        rt.trapExit(id) = b
+        Right(k(Value.UnitV))
+      case _ => throw InterpretError("trapExit(on: Boolean)")
 
     case other =>
       throw InterpretError(s"Unknown Actor op: $other")
@@ -3666,6 +3742,62 @@ class Interpreter(
       out.println(s"[dead-letter] actor=$id msg=${Value.show(msg)}")
       mb.dequeue()
     None
+
+  // ── Phase 2 — supervision helpers ────────────────────────────────
+
+  /** Kill actor `targetId` with `reason`.  Propagates through links:
+   *  - linked actors with trapExit=false also die (recursive)
+   *  - linked actors with trapExit=true receive an Exit message
+   *  Monitors on the dead actor fire Down messages to observers.
+   *  Idempotent: actors without a mailbox entry are already dead. */
+  private def killActor(rt: ActorRuntime, targetId: Long, reason: Value): Unit =
+    if !rt.mailboxes.contains(targetId) then return  // already dead
+
+    // Mark dead immediately to prevent re-entry from circular links.
+    rt.pending.remove(targetId)
+    rt.blocked.remove(targetId)
+    rt.mailboxes.remove(targetId)
+    rt.trapExit.remove(targetId)
+
+    val deadPid = Value.InstanceV("Pid", Map("id" -> Value.IntV(targetId)))
+
+    // Notify linked actors.
+    rt.links.remove(targetId).foreach { linkedSet =>
+      linkedSet.foreach { linkedId =>
+        rt.links.get(linkedId).foreach(_.remove(targetId))
+        if rt.trapExit.getOrElse(linkedId, false) then
+          val exitMsg = Value.InstanceV("Exit", Map("from" -> deadPid, "reason" -> reason))
+          rt.mailboxes.get(linkedId).foreach(_.enqueue(exitMsg))
+          wakeBlocked(rt, linkedId)
+        else
+          killActor(rt, linkedId, reason)
+      }
+    }
+
+    // Fire Down messages for all monitors on this actor.
+    rt.monitors.remove(targetId).foreach { monMap =>
+      monMap.foreach { (monRef, observerId) =>
+        val downMsg = Value.InstanceV("Down", Map(
+          "ref"    -> Value.IntV(monRef),
+          "from"   -> deadPid,
+          "reason" -> reason))
+        rt.mailboxes.get(observerId).foreach(_.enqueue(downMsg))
+        wakeBlocked(rt, observerId)
+      }
+    }
+
+  /** If `id` is currently blocked on a receive and a newly enqueued
+   *  message can be delivered, move it back to pending/ready. */
+  private def wakeBlocked(rt: ActorRuntime, id: Long): Unit =
+    rt.blocked.get(id) match
+      case Some((cases, env, k, _, wrapSome)) =>
+        tryDeliver(rt, id, cases, env, k, wrapSome) match
+          case Some(next) =>
+            rt.blocked.remove(id)
+            rt.pending(id) = next
+            rt.ready.enqueue(id)
+          case None => ()
+      case None => ()
 
   // ── runAsyncParallel — real-thread driver for the same Async API ──
   //
