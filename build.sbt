@@ -130,8 +130,14 @@ lazy val backendInterpreter = project
     scalacOptions ++= sharedScalacOptions
   )
 
+// ── ProGuard shrink task (run: sbt cli/shrinkJar) ──────────────────────────
+// sbt-proguard is used ONLY for config generation + ProGuard JAR resolution;
+// we bypass its runner (hardcoded -Xmx256M) and fork java with -Xmx1G.
+val shrinkJar = taskKey[File]("Shrink the assembled ssc.jar with ProGuard 7.5 (1 G heap)")
+
 lazy val cli = project
   .in(file("cli"))
+  .enablePlugins(SbtProguard)
   .dependsOn(core, backendJvm, backendJs, backendScalajs, backendInterpreter, backendScalaSource, backendHtml, backendCss)
   .settings(
     name := "scalascript-cli",
@@ -148,6 +154,72 @@ lazy val cli = project
       case PathList("META-INF", "services", _*) => MergeStrategy.concat
       case PathList("META-INF", _ @ _*)         => MergeStrategy.discard
       case _                                    => MergeStrategy.first
+    },
+    // ── ProGuard configuration (used by shrinkJar, not by proguard task) ─
+    Proguard / proguardVersion   := "7.5.0",
+    Proguard / proguardInputs    := Seq(assembly.value),
+    Proguard / proguardOutputs   := Seq((assembly / assemblyOutputPath).value.getParentFile / "ssc-min.jar"),
+    Proguard / proguardLibraries := Nil,
+    Proguard / proguardOptions   := Seq(
+      "-keep class scalascript.cli.ssc { public static void main(java.lang.String[]); }",
+      "-keep class scalascript.** { *; }",
+      "-keep class scala.runtime.** { *; }",
+      "-keep class scala.collection.** { *; }",
+      "-keep class scala.reflect.** { *; }",
+      "-keep class scala.quoted.** { *; }",
+      "-keep class scala.io.** { *; }",
+      "-keep class scala.sys.** { *; }",
+      // Scala 3 lazy val backing fields use $lzy1 suffix — keep across all classes
+      "-keepclassmembers class ** { private ** *$lzy1; }",
+      // scala-meta: keep parser + AST; quasiquote machinery (TreeLifts 1 MB)
+      // is unreachable from JvmGen (no q"..." usage) and will be eliminated.
+      "-keep class scala.meta.** { *; }",
+      "-keep class upickle.** { *; }",
+      "-keep class ujson.** { *; }",
+      "-keep class os.** { *; }",
+      "-keep class geny.** { *; }",
+      "-keep class pprint.** { *; }",
+      "-keep class fansi.** { *; }",
+      "-keep class sourcecode.** { *; }",
+      "-keepattributes *Annotation*,Signature,InnerClasses,EnclosingMethod,Exceptions,LineNumberTable,SourceFile",
+      "-dontwarn scala.**",
+      "-dontwarn java.lang.invoke.**",
+      "-dontwarn sun.**",
+      "-dontwarn com.sun.**",
+      "-dontoptimize",
+      "-dontobfuscate",
+      "-ignorewarnings"
+    ) ++ {
+      val jHome = file(System.getProperty("java.home"))
+      if ((jHome / "jmods").exists)
+        Seq("-libraryjars <java.home>/jmods(!**.jar,!module-info.class)")
+      else
+        Seq("-libraryjars <java.home>/lib/rt.jar")
+    },
+    // ── shrinkJar: bypass sbt-proguard runner; fork java with -Xmx1G ─────
+    // proguardConfiguration in sbt-proguard 0.5.0 is a settingKey (path only,
+    // no file written), so we write the config ourselves from proguardOptions.
+    shrinkJar := {
+      val log    = streams.value.log
+      val opts   = (Proguard / proguardOptions).value
+      val pgCp   = (Proguard / managedClasspath).value.files
+                     .mkString(java.io.File.pathSeparator)
+      val outJar = (Proguard / proguardOutputs).value.head
+      val inJar  = (Proguard / proguardInputs).value.head
+      val cfgDir = (Proguard / proguardConfiguration).value.getParentFile
+      cfgDir.mkdirs()
+      val cfgFile = cfgDir / "configuration.pro"
+      val lines   = Seq(s"-injars  '${inJar.getAbsolutePath}'",
+                        s"-outjars '${outJar.getAbsolutePath}'") ++
+                    opts
+      IO.writeLines(cfgFile, lines)
+      log.info(s"ProGuard 7.5: ${inJar.getName} (${inJar.length / (1024*1024)} MB) → ${outJar.getName}")
+      val cmd = Seq("java", "-Xmx1G", "-cp", pgCp, "proguard.ProGuard", s"@${cfgFile.getAbsolutePath}")
+      val ret = scala.sys.process.Process(cmd, baseDirectory.value).!
+      if (ret != 0) sys.error(s"ProGuard failed with exit code $ret")
+      val saved = (inJar.length - outJar.length) / (1024 * 1024)
+      log.info(s"Shrunk to ${outJar.length / (1024*1024)} MB  (saved ~${saved} MB)")
+      outJar
     }
   )
 
