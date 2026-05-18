@@ -1,0 +1,124 @@
+---
+name: std-mapreduce-failure
+version: 0.1.0
+description: Failure handling for distributed map-reduce — Down/Exit supervision, retry, partial. v1.22.
+package: std.mapreduce
+exports:
+  - FailurePolicy
+  - withFailurePolicy
+  - DistributedJobError
+---
+
+# `std.mapreduce.failure` — failure handling
+
+Failure handling for distributed `Dataset[T]` execution.
+
+Built on v1.6 supervision primitives:
+- `link` + `trapExit` → coordinator receives `Exit(pid, reason)` when a
+  worker actor crashes.
+- `monitor` + `Down` → non-fatal monitoring (used when `allowPartial = true`
+  so coordinator doesn't crash on worker death).
+
+## Policy
+
+```
+Default: fail-whole
+  Any worker failure aborts the whole job with DistributedError.
+
+Opt-in retry (retries = N):
+  Failed partition is re-dispatched to a healthy worker up to N times.
+  After N exhausted: fail-whole with DistributedError.
+
+Opt-in partial (allowPartial = true):
+  Failed partitions are collected as DistributedError entries alongside
+  successful results. Coordinator continues.
+  Caller receives DistributedResult(results, failures).
+```
+
+```scalascript
+// ── Policy descriptor ─────────────────────────────────────────────────
+case class FailurePolicy(
+  retries:      Int,
+  allowPartial: Boolean
+)
+
+object FailurePolicy:
+  val failWhole:    FailurePolicy = FailurePolicy(retries = 0, allowPartial = false)
+  val retryOnce:    FailurePolicy = FailurePolicy(retries = 1, allowPartial = false)
+  val retryThrice:  FailurePolicy = FailurePolicy(retries = 3, allowPartial = false)
+  val partial:      FailurePolicy = FailurePolicy(retries = 0, allowPartial = true)
+  val retryPartial: FailurePolicy = FailurePolicy(retries = 2, allowPartial = true)
+
+// ── Job-level error (thrown on fail-whole) ────────────────────────────
+// Wraps one or more DistributedError entries.
+// The first failure is the primary cause; rest are from concurrent failures.
+case class DistributedJobError(
+  primaryFailure: DistributedError,
+  otherFailures:  List[DistributedError]
+):
+  def allFailures: List[DistributedError] = primaryFailure :: otherFailures
+  override def toString: String =
+    s"DistributedJobError(${primaryFailure.node.address}: ${primaryFailure.reason})"
+
+// ── Retry bookkeeping ─────────────────────────────────────────────────
+// Tracks how many times each partition has been retried.
+case class RetryState(
+  partitionId:  Int,
+  retriesLeft:  Int,
+  originalNode: Node,
+  partition:    List[Any]
+)
+
+object RetryState:
+  def initial(partId: Int, node: Node, partition: List[Any], maxRetries: Int): RetryState =
+    RetryState(partId, maxRetries, node, partition)
+
+// ── withFailurePolicy helper ──────────────────────────────────────────
+// Decorator that wraps a coordinator's result collector with the
+// failure policy logic.  Called from collectResults in distributed.ssc.
+//
+// On worker failure, this decides:
+//   1. If retriesLeft > 0 → re-dispatch to next healthy worker.
+//   2. If allowPartial → accumulate DistributedError and continue.
+//   3. Otherwise → throw DistributedJobError immediately.
+def withFailurePolicy(
+  policy:      FailurePolicy,
+  failedPart:  Int,
+  failedNode:  Node,
+  reason:      String,
+  retryStates: List[RetryState],
+  pending:     Set[Int],
+  jobId:       String,
+  stage:       Stage,
+  cluster:     Cluster,
+  me:          Any
+): (List[RetryState], Set[Int], List[DistributedError]) =
+  val state = retryStates.find(_.partitionId == failedPart)
+    .getOrElse(RetryState.initial(failedPart, failedNode, Nil, policy.retries))
+
+  if state.retriesLeft > 0 then
+    // Choose a healthy worker: cycle through cluster pids, skip failed node
+    val healthyPid = cluster.pids
+      .zip(cluster.nodes)
+      .find { case (_, n) => n.address != failedNode.address }
+      .map(_._1)
+      .getOrElse(cluster.pids.head)   // last resort: retry on same node family
+
+    healthyPid ! ProcessPartition(jobId, failedPart, state.partition, stage, me)
+    val updated = retryStates.map(s =>
+      if s.partitionId == failedPart then s.copy(retriesLeft = s.retriesLeft - 1)
+      else s
+    )
+    (updated, pending, Nil)
+
+  else if policy.allowPartial then
+    val err = DistributedError(failedNode, reason)
+    (retryStates, pending - failedPart, List(err))
+
+  else
+    // Fail whole job
+    throw DistributedJobError(
+      DistributedError(failedNode, reason),
+      Nil
+    )
+```
