@@ -55,6 +55,13 @@ class Interpreter(
   // top-level expressions, every scalameta position is shifted down by one
   // line. `lineOffset` compensates so error messages report the user's line.
   private var lineOffset: Int = 0
+  // Phase 6: interpreter call stack for currentStackTrace().
+  private val callStack = scala.collection.mutable.ArrayBuffer.empty[(String, Int)]
+  // Phase 3.2: flag indicating we are inside a direct[Either[...]] block so
+  // throw expressions lower to Left(...) instead of raising a ScriptException.
+  private val _insideDirectBlock = new java.lang.ThreadLocal[Boolean] {
+    override def initialValue() = false
+  }
 
   // ─── Reactive signals (fine-grained reactivity) ──────────────────────
   //
@@ -665,6 +672,75 @@ class Interpreter(
     globals("None") = Value.OptionV(None)
     globals("Some") = Value.NativeFnV("Some", { case List(v) => Pure(Value.OptionV(Some(v))); case _ => throw InterpretError("Some requires exactly one argument") })
     globals("Nil")  = Value.ListV(Nil)
+
+    // ── Exception constructors ────────────────────────────────────────
+    // Allow `throw RuntimeException("msg")` and `try ... catch { case e: ... }`
+    // in ScalaScript code.  Each factory produces an InstanceV so field access
+    // like `e.message` works naturally.
+    def exceptionCtor(typeName: String): Value.NativeFnV =
+      Value.NativeFnV(typeName, {
+        case Nil               => Pure(Value.InstanceV(typeName, Map("message" -> Value.StringV(typeName))))
+        case List(v)           => Pure(Value.InstanceV(typeName, Map("message" -> v)))
+        case msg :: cause :: _ => Pure(Value.InstanceV(typeName, Map("message" -> msg, "cause" -> cause)))
+      })
+    List("RuntimeException", "Exception", "IllegalArgumentException",
+         "IllegalStateException", "NumberFormatException", "ArithmeticException",
+         "NullPointerException", "IndexOutOfBoundsException", "UnsupportedOperationException",
+         "NoSuchElementException").foreach { n => globals(n) = exceptionCtor(n) }
+
+    // ── attemptCatch — wrap a thunk that might throw into Either ─────────
+    globals("attemptCatch") = Value.NativeFnV("attemptCatch", {
+      case List(thunk) =>
+        try
+          val result = Computation.run(callValue(thunk, Nil, Map.empty))
+          Pure(Value.InstanceV("Right", Map("value" -> result)))
+        catch
+          case se: ScriptException =>
+            Pure(Value.InstanceV("Left", Map("value" -> se.value)))
+          case t: Throwable =>
+            val msg = Option(t.getMessage).getOrElse(t.getClass.getSimpleName)
+            Pure(Value.InstanceV("Left", Map("value" ->
+              Value.InstanceV("RuntimeException", Map("message" -> Value.StringV(msg))))))
+      case _ => located("attemptCatch(thunk)")
+    })
+
+    // ── attemptCatchRaw — like attemptCatch but returns raw value (no Either boxing) ─
+    globals("attemptCatchRaw") = Value.NativeFnV("attemptCatchRaw", {
+      case List(thunk) =>
+        try
+          val result = Computation.run(callValue(thunk, Nil, Map.empty))
+          Pure(result)
+        catch
+          case se: ScriptException => Pure(se.value)
+          case t: Throwable =>
+            val msg = Option(t.getMessage).getOrElse(t.getClass.getSimpleName)
+            Pure(Value.InstanceV(t.getClass.getSimpleName, Map("message" -> Value.StringV(msg))))
+      case _ => located("attemptCatchRaw(thunk)")
+    })
+
+    // ── currentStackTrace — returns call stack as List[Frame] ────────────
+    globals("currentStackTrace") = Value.NativeFnV("currentStackTrace", _ =>
+      Pure(Value.ListV(callStack.toList.reverse.map { case (fn, line) =>
+        Value.InstanceV("Frame", Map(
+          "file" -> Value.StringV(""),
+          "line" -> Value.IntV(line),
+          "fn"   -> Value.StringV(fn)
+        ))
+      }))
+    )
+
+    // ── compiletime — metaprogramming primitives ─────────────────────────
+    globals("compiletime") = Value.InstanceV("compiletime", Map(
+      "error" -> Value.NativeFnV("compiletime.error", {
+        case List(Value.StringV(msg)) => located(s"compiletime.error: $msg")
+        case List(v)                  => located(s"compiletime.error: ${Value.show(v)}")
+        case _                        => located("compiletime.error: (no message)")
+      }),
+      // constValue and summonInline are handled as Term.ApplyType in eval;
+      // these stubs exist so `compiletime` resolves as a namespace object.
+      "constValue"    -> Value.NativeFnV("compiletime.constValue",    _ => Pure(Value.UnitV)),
+      "summonInline"  -> Value.NativeFnV("compiletime.summonInline",  _ => Pure(Value.UnitV))
+    ))
 
     globals("math.Pi")   = Value.DoubleV(math.Pi)
     globals("math.E")    = Value.DoubleV(math.E)
@@ -1507,7 +1583,8 @@ class Interpreter(
       val capturedEnv = env.iterator.collect {
         case (k, v) if !globals.get(k).contains(v) => k -> v
       }.toMap
-      val fn: Value.FunV = Value.FunV(params, d.body, capturedEnv, d.name.value, defaults, paramTypes, usingInfo)
+      val rThrows = d.decltpe.exists(isThrowsType)
+      val fn: Value.FunV = Value.FunV(params, d.body, capturedEnv, d.name.value, defaults, paramTypes, usingInfo, rThrows)
       env(d.name.value) = fn
       if d.name.value == "main" && params.isEmpty then mainCalled = false
 
@@ -1562,6 +1639,14 @@ class Interpreter(
       }
       val methodDefs: Map[String, Value.FunV] = methodPairs.toMap
       if methodDefs.nonEmpty then typeMethods(typeName) = methodDefs
+      // Auto-generate given instances for derived typeclasses
+      if d.templ.derives.nonEmpty then
+        d.templ.derives.foreach { derivedType =>
+          val tcName = derivedType match
+            case Type.Name(n) => n
+            case _            => derivedType.syntax
+          synthesizeDerivedInstance(typeName, paramNames, tcName, env)
+        }
 
     case d: Defn.Enum =>
       val enumName = d.name.value
@@ -1593,6 +1678,14 @@ class Interpreter(
       val traitName = d.name.value
       if !env.contains(traitName) then
         env(traitName) = Value.InstanceV(traitName, Map.empty)
+      // If the trait has `derives` clauses, synthesize those instances.
+      if d.templ.derives.nonEmpty then
+        d.templ.derives.foreach { derivedType =>
+          val tcName = derivedType match
+            case Type.Name(n) => n
+            case _            => derivedType.syntax
+          synthesizeDerivedInstance(traitName, Nil, tcName, env)
+        }
 
     case d: Defn.Given =>
       d.templ.inits.headOption.foreach { init =>
@@ -2265,6 +2358,17 @@ class Interpreter(
             case n: Type.Name => n.value
             case _            => located("Prism[Outer, Variant]: Variant must be a simple type name")
           Pure(buildPrism(variantName))
+
+        // compiletime.constValue[T] — return the compile-time constant value of type T
+        case (Term.Select(Term.Name("compiletime"), Term.Name("constValue")), List(typeArg)) =>
+          Pure(constValueOfType(typeArg.asInstanceOf[scala.meta.Type]))
+
+        // compiletime.summonInline[TC[T]] — look up a given instance
+        case (Term.Select(Term.Name("compiletime"), Term.Name("summonInline")), List(typeArg)) =>
+          val key = typeToString(typeArg.asInstanceOf[scala.meta.Type])
+          val found = env.get(key).orElse(globals.get(key)).orElse(resolveGiven(key, Nil, env))
+          Pure(found.getOrElse(located(s"No given instance for '$key' (summonInline)")))
+
         case _ => eval(t.fun, env)  // other type applications — erase type args
 
     // Prefix unary operators: `!x`, `-x`, `+x`, `~x`.
@@ -2279,6 +2383,32 @@ class Interpreter(
           case ("~", Value.IntV(n))    => Pure(Value.IntV(~n))
           case (op, other)             => located(s"Cannot apply unary $op to ${Value.show(other)}")
       }
+
+    case t: Term.Throw =>
+      eval(t.expr, env).flatMap { v =>
+        if _insideDirectBlock.get() then Pure(Value.InstanceV("Left", Map("value" -> v)))
+        else throw ScriptException(v)
+      }
+
+    case t: Term.Try =>
+      def tryCatch(thrownVal: Value, cause: Throwable): Value =
+        t.catchp.iterator.flatMap { c =>
+          matchPat(c.pat, thrownVal, Map.empty).map(bound => (c, bound))
+        }.nextOption() match
+          case Some((matchedCase, bound)) => Computation.run(eval(matchedCase.body, env ++ bound))
+          case None                       => throw cause
+      val tryResult: Value =
+        try Computation.run(eval(t.expr, env))
+        catch
+          case se: ScriptException  => tryCatch(se.value, se)
+          case th: Throwable =>
+            // Convert any JVM exception (NumberFormatException, InterpretError, etc.)
+            // into a ScalaScript InstanceV so catch patterns can match it.
+            val exTypeName = th.getClass.getSimpleName
+            val msg = Option(th.getMessage).getOrElse(exTypeName)
+            tryCatch(Value.InstanceV(exTypeName, Map("message" -> Value.StringV(msg))), th)
+      t.finallyp.foreach(f => Computation.run(eval(f, env)))
+      Pure(tryResult)
 
     case other => located(s"Cannot eval: ${other.productPrefix}")
 
@@ -2927,12 +3057,20 @@ class Interpreter(
     val varNames: Set[String] = stats.collect {
       case Defn.Var.After_4_7_2(_, List(Pat.Var(n)), _, _) => n.value
     }.toSet
+    val prevInsideDirect = _insideDirectBlock.get()
+    _insideDirectBlock.set(true)
 
     // Thread env as an immutable snapshot so each branch of a List flatMap
     // gets its own independent variable bindings (avoids shared-state bugs
     // when the monad's flatMap calls the continuation multiple times eagerly).
     def step(remaining: List[Stat], cur: Env): Computation = remaining match
       case Nil => Pure(Value.UnitV)
+
+      // throw as last (or only) statement — lower to Left(...)
+      case (t: Term.Throw) :: Nil =>
+        eval(t.expr, cur).flatMap { v =>
+          Pure(Value.InstanceV("Left", Map("value" -> v)))
+        }
 
       case (last: Term) :: Nil =>
         eval(last, cur)
@@ -2973,6 +3111,12 @@ class Interpreter(
       case Defn.Var.After_4_7_2(_, List(Pat.Var(n)), _, rhs) :: rest =>
         eval(rhs, cur).flatMap { v => step(rest, cur + (n.value -> v)) }
 
+      // throw inside direct block — lower to Left(...) instead of raising
+      case (t: Term.Throw) :: rest =>
+        eval(t.expr, cur).flatMap { v =>
+          Pure(Value.InstanceV("Left", Map("value" -> v)))
+        }
+
       // bare expression for side effect
       case (t: Term) :: rest =>
         eval(t, cur).flatMap(_ => step(rest, cur))
@@ -3002,13 +3146,15 @@ class Interpreter(
         val capturedEnv = cur.iterator.collect {
           case (k, v) if !globals.get(k).contains(v) => k -> v
         }.toMap
-        val fn = Value.FunV(params2, d.body, capturedEnv, d.name.value, defaults2, paramTypes2, usingInfo2)
+        val rThrows2 = d.decltpe.exists(isThrowsType)
+        val fn = Value.FunV(params2, d.body, capturedEnv, d.name.value, defaults2, paramTypes2, usingInfo2, rThrows2)
         step(rest, cur + (d.name.value -> fn))
 
       case _ :: rest =>
         step(rest, cur)
 
-    step(stats, env)
+    try step(stats, env)
+    finally _insideDirectBlock.set(prevInsideDirect)
 
   // ─── Call helpers ─────────────────────────────────────────────────
 
@@ -3079,8 +3225,20 @@ class Interpreter(
           val names = ps.toArray
           val arr   = effArgs.iterator.take(names.length).toArray
           FrameMap.of(names, arr, withSelf)
-      try runUntilSuspension(eval(f.body, callEnv))
-      catch case r: ReturnSignal => Pure(r.value)
+      val frameName = if f.name.nonEmpty then f.name else "<anon>"
+      val lineNum   = currentSpan.map(_._1 + 1).getOrElse(0)
+      callStack += ((frameName, lineNum))
+      val result =
+        try runUntilSuspension(eval(f.body, callEnv))
+        catch case r: ReturnSignal => Pure(r.value)
+      if callStack.nonEmpty then callStack.remove(callStack.length - 1)
+      if f.returnsThrows then result.map(throwsAutoWrap)
+      else result
+
+  private def throwsAutoWrap(v: Value): Value = v match
+    case Value.InstanceV("Left",  _) => v
+    case Value.InstanceV("Right", _) => v
+    case other => Value.InstanceV("Right", Map("value" -> other))
 
   // ─── Given / using helpers ────────────────────────────────────────
 
@@ -3091,7 +3249,30 @@ class Interpreter(
     case ta: scala.meta.Type.Apply       => s"${typeToString(ta.tpe)}[${ta.argClause.values.map(typeToString).mkString(", ")}]"
     case scala.meta.Type.Function.After_4_6_0(params, r) => s"(${params.values.map(typeToString).mkString(", ")}) => ${typeToString(r)}"
     case scala.meta.Type.Tuple(ts)       => ts.map(typeToString).mkString("(", ", ", ")")
+    case ti: scala.meta.Type.ApplyInfix  => s"${typeToString(ti.lhs)} ${ti.op.value} ${typeToString(ti.rhs)}"
     case _                               => "_"
+
+  /** Extract the compile-time constant value of a type-level literal.
+   *  Used by `compiletime.constValue[T]`. */
+  private def constValueOfType(tp: scala.meta.Type): Value = tp match
+    case scala.meta.Lit.Int(n)      => Value.IntV(n.toLong)
+    case scala.meta.Lit.String(s)   => Value.StringV(s)
+    case scala.meta.Lit.Boolean(b)  => Value.BoolV(b)
+    case scala.meta.Lit.Double(d)   => Value.DoubleV(d.toDouble)
+    case scala.meta.Lit.Long(l)     => Value.IntV(l)
+    case scala.meta.Type.Name(n)    => Value.StringV(n)
+    case _                          => Value.StringV(tp.syntax)
+
+  /** True if a scalameta Type is `A throws E` (infix `throws`). */
+  private def isThrowsType(t: scala.meta.Type): Boolean = t match
+    case ti: scala.meta.Type.ApplyInfix => ti.op.value == "throws"
+    case _                              => false
+
+  /** True if a scalameta Type is `A throwsRaw E` (infix `throwsRaw`).
+   *  throwsRaw functions return values as-is (no Either boxing) — same as the default. */
+  private def isThrowsRawType(t: scala.meta.Type): Boolean = t match
+    case ti: scala.meta.Type.ApplyInfix => ti.op.value == "throwsRaw"
+    case _                              => false
 
   /** Infer the runtime "element type" of a value — the concrete type name
    *  that a single-letter type variable (like `A` in `Monoid[A]`) would
@@ -4854,6 +5035,37 @@ class Interpreter(
           case _                   => Map.empty[Value, Value]
         val merged = existing + (Value.StringV(name) -> Value.StringV(value))
         Pure(Value.InstanceV("Response", fields + ("headers" -> Value.MapV(merged))))
+      // ── Either (Left / Right) methods ────────────────────────────
+      case (Value.InstanceV("Right", _),      "isRight",   Nil) => Pure(Value.BoolV(true))
+      case (Value.InstanceV("Left",  _),      "isRight",   Nil) => Pure(Value.BoolV(false))
+      case (Value.InstanceV("Right", _),      "isLeft",    Nil) => Pure(Value.BoolV(false))
+      case (Value.InstanceV("Left",  _),      "isLeft",    Nil) => Pure(Value.BoolV(true))
+      case (Value.InstanceV("Right", fields), "getOrElse", List(_)) =>
+        Pure(fields.getOrElse("value", Value.UnitV))
+      case (Value.InstanceV("Left",  _),      "getOrElse", List(d)) => Pure(d)
+      case (Value.InstanceV("Right", fields), "map",       List(f)) =>
+        callValue(f, List(fields.getOrElse("value", Value.UnitV)), env).map(v =>
+          Value.InstanceV("Right", Map("value" -> v)))
+      case (Value.InstanceV("Left",  _),      "map",       List(_)) => Pure(recv)
+      case (Value.InstanceV("Right", fields), "flatMap",   List(f)) =>
+        callValue(f, List(fields.getOrElse("value", Value.UnitV)), env)
+      case (Value.InstanceV("Left",  _),      "flatMap",   List(_)) => Pure(recv)
+      case (Value.InstanceV("Right", fields), "fold",      List(_, r)) =>
+        callValue(r, List(fields.getOrElse("value", Value.UnitV)), env)
+      case (Value.InstanceV("Left",  fields), "fold",      List(l, _)) =>
+        callValue(l, List(fields.getOrElse("value", Value.UnitV)), env)
+      case (Value.InstanceV("Right", fields), "toOption",  Nil) =>
+        Pure(Value.OptionV(Some(fields.getOrElse("value", Value.UnitV))))
+      case (Value.InstanceV("Left",  _),      "toOption",  Nil) =>
+        Pure(Value.OptionV(None))
+      case (Value.InstanceV("Right", fields), "swap",      Nil) =>
+        Pure(Value.InstanceV("Left",  fields))
+      case (Value.InstanceV("Left",  fields), "swap",      Nil) =>
+        Pure(Value.InstanceV("Right", fields))
+      case (Value.InstanceV("Right", fields), "toSeq",     Nil) =>
+        Pure(Value.ListV(List(fields.getOrElse("value", Value.UnitV))))
+      case (Value.InstanceV("Left",  _),      "toSeq",     Nil) =>
+        Pure(Value.ListV(Nil))
       // ── Instance (case class / enum case) field access ───────────
       // No-arg defs and no-arg native fns are called automatically on access
       case (Value.InstanceV(_, fields), fname, Nil) =>
@@ -4909,6 +5121,129 @@ class Interpreter(
           callValue(fields(method), recv :: args, env)
       }
     }
+
+  // ─── Structural helpers for `derives` ────────────────────────────────────
+
+  private def structuralEq(a: Value, b: Value): Boolean = (a, b) match
+    case (Value.IntV(x),     Value.IntV(y))     => x == y
+    case (Value.DoubleV(x),  Value.DoubleV(y))  => x == y
+    case (Value.StringV(x),  Value.StringV(y))  => x == y
+    case (Value.BoolV(x),    Value.BoolV(y))    => x == y
+    case (Value.UnitV,       Value.UnitV)       => true
+    case (Value.ListV(xs),   Value.ListV(ys))   =>
+      xs.length == ys.length && xs.zip(ys).forall { case (x, y) => structuralEq(x, y) }
+    case (Value.InstanceV(t1, f1), Value.InstanceV(t2, f2)) =>
+      t1 == t2 && f1.keySet == f2.keySet && f1.keys.forall(k => structuralEq(f1(k), f2(k)))
+    case _ => a == b
+
+  private def structuralShow(v: Value): String = v match
+    case Value.InstanceV(typeName, fields) =>
+      if fields.isEmpty then typeName
+      else
+        val fieldStr = typeFieldOrder.get(typeName) match
+          case Some(order) => order.map(k => s"$k=${structuralShow(fields.getOrElse(k, Value.UnitV))}").mkString(", ")
+          case None        => fields.map { case (k, v) => s"$k=${structuralShow(v)}" }.mkString(", ")
+        s"$typeName($fieldStr)"
+    case _ => Value.show(v)
+
+  private def structuralHash(v: Value): Int = v match
+    case Value.IntV(n)    => n.##
+    case Value.DoubleV(d) => d.##
+    case Value.StringV(s) => s.##
+    case Value.BoolV(b)   => b.##
+    case Value.UnitV      => 0
+    case Value.ListV(xs)  => xs.foldLeft(1)((acc, x) => acc * 31 + structuralHash(x))
+    case Value.InstanceV(typeName, fields) =>
+      val fieldHashes = typeFieldOrder.get(typeName) match
+        case Some(order) => order.map(k => structuralHash(fields.getOrElse(k, Value.UnitV)))
+        case None        => fields.values.map(structuralHash).toList
+      fieldHashes.foldLeft(typeName.##)((acc, h) => acc * 31 + h)
+    case _ => v.##
+
+  private def structuralCompare(a: Value, b: Value): Int = (a, b) match
+    case (Value.IntV(x),    Value.IntV(y))    => x.compareTo(y)
+    case (Value.DoubleV(x), Value.DoubleV(y)) => x.compareTo(y)
+    case (Value.StringV(x), Value.StringV(y)) => x.compareTo(y)
+    case (Value.BoolV(x),   Value.BoolV(y))   => x.compareTo(y)
+    case (Value.InstanceV(t1, f1), Value.InstanceV(t2, f2)) if t1 == t2 =>
+      typeFieldOrder.get(t1) match
+        case Some(order) =>
+          order.iterator.map { k =>
+            structuralCompare(f1.getOrElse(k, Value.UnitV), f2.getOrElse(k, Value.UnitV))
+          }.find(_ != 0).getOrElse(0)
+        case None => 0
+    case _ => 0
+
+  /** Synthesize and register a given instance for typeclass `tcName` applied to `typeName`.
+   *  The key `TC[TypeName]` is stored in both `env` and `globals` so it is
+   *  visible in the current scope and in all future scopes. */
+  private def synthesizeDerivedInstance(
+    typeName:   String,
+    fieldNames: List[String],
+    tcName:     String,
+    env:        mutable.Map[String, Value]
+  ): Unit =
+    val typeKey = s"$tcName[$typeName]"
+    val instance: Value = tcName match
+
+      case "Eq" =>
+        Value.InstanceV("Eq", Map(
+          "eqv"  -> Value.NativeFnV("Eq.eqv",  {
+            case List(a, b) => Pure(Value.BoolV(structuralEq(a, b)))
+            case _          => Pure(Value.BoolV(false))
+          }),
+          "neqv" -> Value.NativeFnV("Eq.neqv", {
+            case List(a, b) => Pure(Value.BoolV(!structuralEq(a, b)))
+            case _          => Pure(Value.BoolV(true))
+          })
+        ))
+
+      case "Show" =>
+        Value.InstanceV("Show", Map(
+          "show" -> Value.NativeFnV("Show.show", {
+            case List(v) => Pure(Value.StringV(structuralShow(v)))
+            case _       => Pure(Value.StringV(""))
+          })
+        ))
+
+      case "Hash" =>
+        Value.InstanceV("Hash", Map(
+          "hash" -> Value.NativeFnV("Hash.hash", {
+            case List(v) => Pure(Value.IntV(structuralHash(v).toLong))
+            case _       => Pure(Value.IntV(0))
+          })
+        ))
+
+      case "Order" =>
+        Value.InstanceV("Order", Map(
+          "compare" -> Value.NativeFnV("Order.compare", {
+            case List(a, b) => Pure(Value.IntV(structuralCompare(a, b).toLong))
+            case _          => Pure(Value.IntV(0))
+          }),
+          "lt"  -> Value.NativeFnV("Order.lt",  { case List(a, b) => Pure(Value.BoolV(structuralCompare(a, b) < 0));  case _ => Pure(Value.BoolV(false)) }),
+          "gt"  -> Value.NativeFnV("Order.gt",  { case List(a, b) => Pure(Value.BoolV(structuralCompare(a, b) > 0));  case _ => Pure(Value.BoolV(false)) }),
+          "lte" -> Value.NativeFnV("Order.lte", { case List(a, b) => Pure(Value.BoolV(structuralCompare(a, b) <= 0)); case _ => Pure(Value.BoolV(false)) }),
+          "gte" -> Value.NativeFnV("Order.gte", { case List(a, b) => Pure(Value.BoolV(structuralCompare(a, b) >= 0)); case _ => Pure(Value.BoolV(false)) }),
+          "min" -> Value.NativeFnV("Order.min", { case List(a, b) => Pure(if structuralCompare(a, b) <= 0 then a else b); case _ => Pure(Value.UnitV) }),
+          "max" -> Value.NativeFnV("Order.max", { case List(a, b) => Pure(if structuralCompare(a, b) >= 0 then a else b); case _ => Pure(Value.UnitV) })
+        ))
+
+      case _ =>
+        // Unknown typeclass — try looking up TC.derived in globals
+        globals.get(tcName) match
+          case Some(tcObj: Value.InstanceV) =>
+            tcObj.fields.get("derived") match
+              case Some(fn) =>
+                val mirror = Value.InstanceV("Mirror", Map(
+                  "label"  -> Value.StringV(typeName),
+                  "fields" -> Value.ListV(fieldNames.map(Value.StringV.apply))
+                ))
+                Computation.run(callValue(fn, List(mirror), Map.empty))
+              case None => Value.UnitV
+          case _ => Value.UnitV
+    if instance != Value.UnitV then
+      env(typeKey) = instance
+      globals(typeKey) = instance
 
   // ─── Pattern matching ────────────────────────────────────────────
 
