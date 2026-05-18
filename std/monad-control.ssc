@@ -12,6 +12,8 @@ exports:
   - forMList
   - replicateMOption
   - replicateMList
+  - iterateWhileMOption
+  - iterateWhileMList
 ---
 
 # Monad Control — `whileM_`, `untilM_`, `forM_`
@@ -80,4 +82,22 @@ def replicateMOption(n: Int, body: () => Option[Unit]): Option[Unit] =
 def replicateMList(n: Int, body: () => List[Unit]): List[Unit] =
   if n <= 0 then List(())
   else body().flatMap(_ => replicateMList(n - 1, body))
+```
+
+## iterateWhileM_ — thread state through a monadic step while condition holds
+
+Unlike `whileM_`, which discards results and focuses on side effects,
+`iterateWhileM_` **threads a value through each step** and returns the
+final value when the condition no longer holds.
+
+```scalascript
+def iterateWhileMOption[A](init: A, step: A => Option[A], cond: A => Boolean): Option[A] =
+  if !cond(init) then Some(init)
+  else step(init) match
+    case None       => None
+    case Some(next) => iterateWhileMOption(next, step, cond)
+
+def iterateWhileMList[A](init: A, step: A => List[A], cond: A => Boolean): List[A] =
+  if !cond(init) then List(init)
+  else step(init).flatMap(next => iterateWhileMList(next, step, cond))
 ```
