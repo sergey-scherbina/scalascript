@@ -1964,11 +1964,15 @@ User code is **unchanged** — every existing `runAsync { ... }` /
 `Async.await(fut)` keeps working.  Conformance gates the merge:
 every Async test must pass identically before/after.
 
-### Phase 1 — IO-scheduler design (~3 days)
+### Phase 1 — IO-scheduler design (~3 days) ✓ Landed (Interpreter)
 
-- Map `Async[T]` to `Coroutine[IORequest, IOResult, T]`.
-- Scheduler resumes the coroutine when the IO completes.
-- Spec the `IORequest` ADT (`Delay`, `Async.async`, `Parallel`).
+- `runAsync { body }` creates a virtual thread with CoHandle set;
+  a scheduler loop dispatches `DelayIO` / `AsyncIO` / `AwaitIO` /
+  `ParallelIO` suspensions.
+- `Async.delay/async/await/parallel` suspend with IORequest when
+  inside a coroutine; fall back to `Perform` nodes for `runAsyncParallel`.
+- 11 unit tests in `AsyncTest`; all scenarios from `async.ssc` pass.
+- JvmGen + JsGen follow in Phase 2.
 
 ### Phase 2 — Rewrite primitives (~4 days)
 
