@@ -1371,13 +1371,33 @@ What needs to land:
   children when one dies; `Transient` doesn't restart on normal
   exit.
 
-### Phase 3 — Distributed via WS (~1 week)
+### Phase 3 — Distributed via WS (~1 week) — interpreter core landed
 
 Full design: [`docs/actors-dist.md §Phase 3`](docs/actors-dist.md).
+Std library module: [`std/nodes.ssc`](std/nodes.ssc).
 
 Location-transparent PIDs and remote sends, riding the existing WS
 client stack (v1.5 Tier 3, prerequisite).  **Architectural decisions
 (locked 2026-05-18):**
+
+**Landed in interpreter (2026-05-18):**
+- Pid extended to `(nodeId: String = "", localId: Long)`; all Phase 2
+  tests pass unchanged (backward-compatible empty-string default).
+- `ValueSerializer`: hand-rolled Value↔JSON serializer using `$t` type
+  tags; verified via `ActorDistributedTest` round-trips.
+- Scheduler extended: `remoteInbox` drain, interruptible remote-wait
+  sleep, keeps running while distributed actors are blocked on receive.
+- `startNode(nodeId)`: sets node identity, registers `/_ssc-actors` WS
+  route with a NativeFnV peer-handshake + dispatch loop.
+- `connectNode(url, token?)`: spawns a virtual thread, connects outbound
+  WS with subprotocol `ssc-actors-v1`, exchanges handshake, loops recv.
+- `register(name, pid)` / `whereis(name)`: per-node atom registry backed
+  by `ConcurrentHashMap`.
+- Remote send routing in `pid ! msg`: checks `nodeId`, serializes body,
+  sends JSON envelope via `peerChannels`.
+- Tests: 8 new `ActorDistributedTest` + conformance `actors-distributed-basic.ssc`.
+
+**Remaining (JVM + JS backends + heartbeat + node-down):**
 
 | Decision | Choice |
 |---|---|
