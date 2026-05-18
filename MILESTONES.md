@@ -1251,20 +1251,13 @@ infra with) the next.  Each phase = one worktree per the
 [MILESTONES-driven workflow](AGENTS.md#milestones-driven-workflow),
 items inside the phase pushed individually.
 
-- **Phase A — TLS** *(items 1-4; ~1 week)*.  The blocking piece.
-  Without `https://` neither the existing server nor the planned
-  HTTP client matters for real internet use, and the modern
-  cookie / mixed-content rules make standalone `serve(80)` a dead
-  end.  Delivers the shared `SSLContext` factory that Phases B
-  and C re-use, so doing it first amortises the work.
-    - A.1 — `tls("cert.pem", "key.pem")` config primitive (#3).
-    - A.2 — `HttpsServer` for JvmGen REST (#2, JDK one-liner).
-    - A.3 — SSLEngine wrap for the interpreter's NIO proxy (#1,
-      the hard part — handshake state machine over `ByteBuffer`s).
-    - A.4 — TLS wrap for JvmGen's WS proxy `ServerSocket` (#2
-      partial, blocking IO so easier than A.3).
-    - A.5 — Optional Let's Encrypt / acme.sh integration (#4),
-      defer.
+- **Phase A — TLS** *(items 1-4; ~1 week)* — **landed**.
+    - A.1 — `tls("cert.pem", "key.pem")` config primitive (#3) — landed.
+    - A.2 — `HttpsServer` for JvmGen REST (#2) — landed.
+    - A.3 — SSLEngine/TLS proxy for interpreter's NIO proxy (#1) — landed
+      (virtual-thread TLS proxy + PKCS#8/PKCS#1 PEM loader).
+    - A.4 — TLS wrap for JvmGen's WS proxy `ServerSocket` (#2 partial) — landed.
+    - A.5 — Let's Encrypt integration (#4) — deferred.
 
 - **Phase B — HTTP client** *(items 5-7; ~1 week)* — **landed**.  Wraps
   Java's `HttpClient` on JVM, `fetch` on Node.  Common return shape
@@ -1279,23 +1272,22 @@ items inside the phase pushed individually.
       body = "")`.  Primary use: LLM streaming APIs (OpenAI, Anthropic),
       SSE consumers, chunked downloads.
 
-- **Phase C — WebSocket client** *(items 8-10; ~1 week)*.
-  Symmetric to `onWebSocket`; re-uses `WsFraming` and Phase A's
-  TLS.  Asymmetries vs the server: the client *masks* its
-  outbound frames (RFC 6455 §5.3), generates a random
-  `Sec-WebSocket-Key`, parses unmasked server frames.
-    - C.1 — `connectWebSocket(url) { ws => … }` (#8).
-    - C.2 — `wss://` over TLS (#9, free given A).
-    - C.3 — Auto-reconnect with backoff (#10), defer.
+- **Phase C — WebSocket client** *(items 8-10; ~1 week)* — **landed**.
+    - C.1 — `wsConnect(url) { ws => … }` (#8) — landed: all three backends,
+      with `send`/`recv`/`onMessage`/`onClose`/`ping`/`subprotocol`/`close`.
+    - C.2 — `wss://` over TLS (#9) — landed: free via JDK `HttpClient`
+      (handles `wss://` natively) on JVM; via `ws` npm module on Node.
+    - C.3 — Auto-reconnect with backoff (#10) — deferred.
 
 - **Phase D — HTTP server completeness** *(items 11-16;
-  ~1 week)*.  Independent tactical fixes, each its own commit.
-  Can interleave with phases above if helpful, but most of them
-  presume the v1.0 server lifecycle is settled.
-    - D.1 — CORS helper (#13, smallest).
-    - D.2 — gzip on responses (#14).
-    - D.3 — Cache headers + 304 short-circuit (#15).
-    - D.4 — Streaming responses (#11, biggest API change).
+  ~1 week)* — **landed** (D.1-D.5).
+    - D.1 — CORS helper (#13) — landed: `cors(origins, methods?, headers?)`.
+    - D.2 — gzip on responses (#14) — landed: `useGzip()`.
+    - D.3 — Cache headers + 304 short-circuit (#15) — landed:
+      `cacheable(resp, maxAge, etag?)` / `noCache(resp)`; 304 fires
+      automatically when `ETag` matches `If-None-Match`.
+    - D.4 — Streaming responses (#11) — landed: `streamResponse(status?, headers?)(write => …)`
+      chunked transfer across all three backends.
     - D.5 — Streaming uploads + spool-to-disk for big multipart (#12) — **landed**:
       `uploadSpoolThreshold(n)` / `uploadDir(path)` config; file parts
       larger than threshold written to temp file, `UploadedFile.path` set,
@@ -1313,12 +1305,15 @@ items inside the phase pushed individually.
       `req.json`) (#17) — **landed** (PR #47).
     - D′.2 — Middleware composition convention + std helpers
       (#18).  Pure library work; no runtime change.
-    - D′.3 — Server-Sent Events helper (#19).  Hard-blocked on
-      D.4 (Tier 4 #11).
+    - D′.3 — Server-Sent Events helper (#19) — **landed**: `sse(req)(stream => …)`
+      sets `Content-Type: text/event-stream`, streams events via
+      `stream.send(data)` / `stream.send(event, data)`; all three backends.
     - D′.4 — Request validation surface (#20) — **landed**:
       `require*` / `optional*` / `requireRange*` / `requireOneOf` plus
       the `validate { body }` accumulator returning `Either[Map, T]`.
-    - D′.5 — Built-in `/_health` / `/_ready` routes (#21).
+    - D′.5 — Built-in `/_health` / `/_ready` routes (#21) — **landed**:
+      auto-registered when `serve()` is called; user-registered routes
+      with the same paths take priority.
     - D′.6 — Indexed access on `Any`-typed JSON values (#22) —
       **options (a) + (c) landed**.  `lookup` / `lookupOpt` runtime
       helpers (a) and the `JsonValue` wrapper (c) — `jsonRead(s)`
