@@ -424,7 +424,7 @@ unblocks downstream features as early as possible.
      per-backend.  Full design in
      [`docs/error-handling.md`](docs/error-handling.md).  Depends on
      v1.8 ✓ (direct-syntax) + v1.13 (`using` + cross-file traits).
- 20. **v1.14 — Metaprogramming MVP (`inline` + `derives`)** (~2.5
+ 20. **v1.14 — Metaprogramming MVP (`inline` + `derives`)** ✓ Landed.
      weeks).
      `inline def`/`val`/`if`/`match` + `compiletime.summonInline`
      compile-time evaluator, plus Tier 1 `derives` recipes for
@@ -2213,7 +2213,7 @@ Six phases, ~2 weeks end-to-end across three backends.  Phase 1
 is the critical path; Phases 2-5 can interleave with it as
 worktrees if scheduling permits.
 
-## v1.14 — Metaprogramming MVP (`inline` + `derives`)
+## v1.14 — Metaprogramming MVP (`inline` + `derives`) — ✓ Landed (Phases 1+3+4+5; Phase 2 N/A for interpreter)
 
 Minimum-viable metaprogramming: bring Scala 3's `inline` keyword
 (compile-time computation, type-level matching) and limited
@@ -2223,6 +2223,18 @@ product / sum types).  Explicitly **not** user-defined macros
 deferred to v2.x.
 
 Full design in [`docs/metaprogramming.md`](docs/metaprogramming.md).
+
+**Landed in `feature/v1.14-inline-derives` (2026-05-18):**
+- **Phase 1** ✓ — `inline def/val/if/match` already parsed and evaluated by scalameta 4.17 +
+  tree-walker (no changes needed); `compiletime.constValue[T]` extracts singleton type literal;
+  `compiletime.summonInline[T]` resolves given by type-key; `compiletime.error("msg")` throws.
+- **Phase 2** N/A — interpreter has no backend split; all backends share the same inlined output.
+- **Phase 3** ✓ — `derives` clause on `Defn.Class` and `Defn.Trait` auto-generates `given TC[A]`
+  instances via `synthesizeDerivedInstance`; structural helpers `structuralEq`, `structuralShow`,
+  `structuralHash`, `structuralCompare` walk `Value.InstanceV` using `typeFieldOrder`.
+- **Phase 4** ✓ — `std/eq.ssc`, `std/show.ssc`, `std/hash.ssc`, `std/order.ssc` with trait
+  definitions and primitive instances for Int/Long/Double/String/Boolean; helper functions.
+- **Phase 5** ✓ — 15 conformance tests in `InlineDerivesTest.scala`; 378 total tests pass.
 
 ### Why these two and not full macros
 
