@@ -178,6 +178,11 @@ object Value:
       fields.get("_variant") match
         case Some(StringV(v)) => s"Prism[?, $v]"
         case _ => "Prism(?)"
+    case InstanceV("JsonValue", fields) =>
+      // Render the wrapped raw value, hiding the bundled accessor
+      // closures.  `v.toString` reads like JSON: strings quoted,
+      // arrays / objects bracketed.
+      fields.get("_inner").map(show).getOrElse("JsonValue(?)")
     case InstanceV(t, fields) =>
       if fields.isEmpty then t
       else fields.values.map(show).mkString(s"$t(", ", ", ")")

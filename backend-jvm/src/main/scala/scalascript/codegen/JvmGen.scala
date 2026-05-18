@@ -295,7 +295,8 @@ class JvmGen(
    *  it never registers a route. */
   private def blocksUseJson(blocks: List[JvmGen.Block]): Boolean =
     val triggers = Set(
-      "jsonParse", "jsonStringify", "lookup", "lookupOpt",
+      "jsonParse", "jsonStringify", "jsonRead",
+      "lookup", "lookupOpt",
       "validate",
       "requireString",  "optionalString",
       "requireInt",     "optionalInt",
@@ -2213,7 +2214,8 @@ class JvmGen(
   // `lazy` to break the forward-reference to the two halves declared
   // below — a plain `val` initialises in source order, so both halves
   // are still null when this line runs and the emit gets garbage.
-  private lazy val serveRuntime: String = serveRuntimePart1 + serveRuntimePart2
+  private lazy val serveRuntime: String =
+    serveRuntimePart1 + serveRuntimePart1b + serveRuntimePart2
 
   private val serveRuntimePart1: String =
     """|
@@ -2943,6 +2945,73 @@ class JvmGen(
        |
        |def jsonParse(s: String): Any        = _fromJson(s)
        |def jsonStringify(v: Any): String    = _toJsonValue(v)
+       |""".stripMargin
+
+  // Continuation of part1 — split out so each string stays under the
+  // JVM's 65 535-byte constant-pool limit.
+  private val serveRuntimePart1b: String =
+    """|
+       |// v1.5 Tier 5 #22 option (c) — `JsonValue` wrapper.  `jsonRead(s)`
+       |// returns a `JsonValue` that supports idiomatic apply / get /
+       |// typed-accessor methods.  Stored as a Scala class so
+       |// `v("k")(i).asString` resolves cleanly through the Scala typer.
+       |class JsonValue(val raw: Any):
+       |  def apply(k: String): JsonValue = raw match
+       |    case m: scala.collection.Map[?, ?] =>
+       |      m.asInstanceOf[scala.collection.Map[Any, Any]].get(k) match
+       |        case Some(v) => new JsonValue(v)
+       |        case None    => throw new RuntimeException("JsonValue: no key '" + k + "'")
+       |    case _ => throw new RuntimeException("JsonValue.apply('" + k + "'): not an object")
+       |  def apply(i: Int): JsonValue = raw match
+       |    case xs: scala.collection.Seq[?] =>
+       |      if i >= 0 && i < xs.length then new JsonValue(xs(i))
+       |      else throw new RuntimeException("JsonValue: index " + i + " out of bounds (size=" + xs.length + ")")
+       |    case _ => throw new RuntimeException("JsonValue.apply(" + i + "): not an array")
+       |  def get(k: String): Option[JsonValue] = raw match
+       |    case m: scala.collection.Map[?, ?] =>
+       |      m.asInstanceOf[scala.collection.Map[Any, Any]].get(k).map(new JsonValue(_))
+       |    case _ => None
+       |  def get(i: Int): Option[JsonValue] = raw match
+       |    case xs: scala.collection.Seq[?] if i >= 0 && i < xs.length =>
+       |      Some(new JsonValue(xs(i)))
+       |    case _ => None
+       |  def asString: String = raw match
+       |    case s: String => s
+       |    case other     => throw new RuntimeException("JsonValue.asString: expected string but got " + _show(other))
+       |  def asInt: Long = raw match
+       |    case n: Long   => n
+       |    case n: Int    => n.toLong
+       |    case n: Double => n.toLong
+       |    case other     => throw new RuntimeException("JsonValue.asInt: expected int but got " + _show(other))
+       |  def asLong: Long = asInt
+       |  def asDouble: Double = raw match
+       |    case n: Double => n
+       |    case n: Long   => n.toDouble
+       |    case n: Int    => n.toDouble
+       |    case other     => throw new RuntimeException("JsonValue.asDouble: expected double but got " + _show(other))
+       |  def asBool: Boolean = raw match
+       |    case b: Boolean => b
+       |    case other      => throw new RuntimeException("JsonValue.asBool: expected bool but got " + _show(other))
+       |  def asList: List[JsonValue] = raw match
+       |    case xs: scala.collection.Seq[?] => xs.toList.map(x => new JsonValue(x))
+       |    case other => throw new RuntimeException("JsonValue.asList: expected list but got " + _show(other))
+       |  def asMap: scala.collection.Map[Any, JsonValue] = raw match
+       |    case m: scala.collection.Map[?, ?] =>
+       |      m.asInstanceOf[scala.collection.Map[Any, Any]]
+       |        .map { case (k, v) => k -> new JsonValue(v) }
+       |    case other => throw new RuntimeException("JsonValue.asMap: expected map but got " + _show(other))
+       |  def isNull: Boolean = raw == null
+       |  def keys: List[Any] = raw match
+       |    case m: scala.collection.Map[?, ?] =>
+       |      m.asInstanceOf[scala.collection.Map[Any, Any]].keys.toList
+       |    case _ => Nil
+       |  def size: Long = raw match
+       |    case xs: scala.collection.Seq[?]   => xs.length.toLong
+       |    case m: scala.collection.Map[?, ?] => m.size.toLong
+       |    case s: String                      => s.length.toLong
+       |    case _                              => 0L
+       |  override def toString: String = _show(raw)
+       |def jsonRead(s: String): JsonValue = new JsonValue(_fromJson(s))
        |
        |// v1.5 Tier 5 #22 — indexed access on `Any`-typed JSON values.
        |// `jsonParse` returns `Any`; the Scala typer rejects `obj("name")`
