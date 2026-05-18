@@ -1763,6 +1763,11 @@ function serve(port, _tlsCfg) {
     req.on('end', () => {
       try {
         const bodyBuf = Buffer.concat(chunks);
+        if (_maxBodySizeBytes > 0 && bodyBuf.length > _maxBodySizeBytes) {
+          res.writeHead(413, { 'Content-Type': 'text/plain; charset=utf-8' });
+          res.end('Request Entity Too Large');
+          return;
+        }
         const method = req.method.toUpperCase();
         const u = new URL(req.url, 'http://localhost');
         // CORS preflight — OPTIONS with configured origins short-circuits route dispatch
@@ -1792,6 +1797,16 @@ function serve(port, _tlsCfg) {
             } else {
               throw e;
             }
+          }
+          // Streaming response — invoke the writer block with a chunk callback
+          if (result && result._streaming) {
+            const _sh = result.headers instanceof Map ? Object.fromEntries(result.headers.entries()) : {};
+            if (!_sh['Content-Type']) _sh['Content-Type'] = 'text/plain; charset=utf-8';
+            _applyCors(req.headers, _sh);
+            res.writeHead(result.status || 200, _sh);
+            result.block(chunk => res.write(chunk));
+            res.end();
+            return;
           }
           const headers = result && result.headers instanceof Map ? result.headers : new Map();
           if (!headers.has('Content-Type')) headers.set('Content-Type', 'text/plain; charset=utf-8');
@@ -1869,6 +1884,21 @@ let _activeServer = null;
 
 function stop() {
   if (_activeServer) { _activeServer.close(); _activeServer = null; }
+}
+
+// ── Body size limit ───────────────────────────────────────────────────────────
+let _maxBodySizeBytes = 0;
+function maxBodySize(n) { _maxBodySizeBytes = n; }
+
+// ── Streaming response ────────────────────────────────────────────────────────
+function streamResponse(statusOrBlock, headersOrBlock) {
+  if (typeof statusOrBlock === 'function') {
+    return { _streaming: true, status: 200, headers: new Map(), block: statusOrBlock };
+  }
+  return function(block) {
+    const hdrs = (headersOrBlock instanceof Map) ? headersOrBlock : new Map();
+    return { _streaming: true, status: statusOrBlock || 200, headers: hdrs, block: block };
+  };
 }
 
 // ── CORS / gzip / cache helpers ───────────────────────────────────────────────

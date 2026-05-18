@@ -477,6 +477,34 @@ class Interpreter(
       case _ => throw InterpretError("noCache(response)")
     }
 
+    // streamResponse { write => ... } — chunked streaming from a route handler.
+    // Returns a StreamResponse sentinel detected by WebServer.dispatchRoute
+    // before calling writeResponse.  Curried forms for status / headers too.
+    nativeP("streamResponse") {
+      case List(Value.IntV(status)) =>
+        Value.NativeFnV("streamResponse.block", Computation.pureFn {
+          case List(block) => Value.InstanceV("StreamResponse", Map(
+            "status" -> Value.IntV(status.toInt), "headers" -> Value.MapV(Map.empty), "callback" -> block))
+          case _ => throw InterpretError("streamResponse(status)(block)")
+        })
+      case List(Value.IntV(status), Value.MapV(hdrs)) =>
+        Value.NativeFnV("streamResponse.block", Computation.pureFn {
+          case List(block) => Value.InstanceV("StreamResponse", Map(
+            "status" -> Value.IntV(status.toInt), "headers" -> Value.MapV(hdrs), "callback" -> block))
+          case _ => throw InterpretError("streamResponse(status, headers)(block)")
+        })
+      case List(block) =>
+        Value.InstanceV("StreamResponse", Map(
+          "status" -> Value.IntV(200), "headers" -> Value.MapV(Map.empty), "callback" -> block))
+      case _ => throw InterpretError("streamResponse(block)")
+    }
+
+    // maxBodySize(bytes) — reject requests whose body exceeds the limit with 413.
+    nativeP("maxBodySize") {
+      case List(Value.IntV(n)) => scalascript.server.WebServer.setMaxBodySize(n.toLong); Value.UnitV
+      case _ => throw InterpretError("maxBodySize(bytes: Int)")
+    }
+
     // Environment variable reader, same surface on all three backends.
     // `getenv(key)` returns the value or empty string when unset.
     // `getenv(key, default)` substitutes the default when missing/empty.

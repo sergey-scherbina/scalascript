@@ -1,7 +1,7 @@
 ---
 name: std-http
 version: 0.1.0
-description: HTTP server + client primitives — extern declarations for route / serve / stop / tls / httpGet / httpPost / wsConnect / cors / useGzip / cacheable / noCache
+description: HTTP server + client primitives — extern declarations for route / serve / stop / tls / httpGet / httpPost / wsConnect / cors / useGzip / cacheable / noCache / streamResponse / maxBodySize
 exports:
   - route
   - serve
@@ -15,6 +15,8 @@ exports:
   - useGzip
   - cacheable
   - noCache
+  - streamResponse
+  - maxBodySize
   - Request
   - Response
 ---
@@ -64,6 +66,14 @@ extern def useGzip(): Unit
 extern def cacheable(response: Response, maxAge: Int): Response
 extern def cacheable(response: Response, maxAge: Int, etag: String): Response
 extern def noCache(response: Response): Response
+
+// Streaming responses — chunked transfer; the block receives a write(chunk) callback.
+extern def streamResponse(block: (String => Unit) => Unit): Response
+extern def streamResponse(status: Int)(block: (String => Unit) => Unit): Response
+extern def streamResponse(status: Int, headers: Map[String, String])(block: (String => Unit) => Unit): Response
+
+// Body size limit — reject requests whose body exceeds n bytes with 413.
+extern def maxBodySize(bytes: Int): Unit
 ```
 
 # Request / Response
