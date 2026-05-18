@@ -86,7 +86,8 @@ object BackendRegistry:
       SubprocessBackend.spawn(
         executable = m.executablePath,
         args       = m.args,
-        workingDir = m.manifestPath.map(_ / os.up)
+        workingDir = m.manifestPath.map(_ / os.up),
+        framing    = WireFraming.fromManifest(m.protocol)
       ).toOption.map { b =>
         pluginCache.put(m.id, b)
         b

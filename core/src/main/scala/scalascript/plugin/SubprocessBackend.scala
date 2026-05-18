@@ -3,8 +3,23 @@ package scalascript.plugin
 import scalascript.backend.spi.*
 import scalascript.ir
 import upickle.default.*
-import java.io.{BufferedReader, InputStreamReader, OutputStreamWriter, PrintWriter}
+import java.io.{BufferedReader, DataInputStream, DataOutputStream, InputStreamReader, OutputStreamWriter, PrintWriter}
 import scala.util.{Try, Success, Failure}
+
+/** Wire framing variants — selected by `plugin.yaml#protocol`.
+ *  Stage 6+/A. */
+enum WireFraming:
+  /** Newline-delimited JSON over UTF-8 streams. */
+  case Json
+  /** 4-byte big-endian length prefix + MsgPack payload.
+   *  Same case-class shapes as Json, round-tripped via upickle's
+   *  `writeBinary` / `readBinary`. */
+  case MsgPack
+
+object WireFraming:
+  def fromManifest(protocol: String): WireFraming = protocol match
+    case "stdio-msgpack" => MsgPack
+    case _               => Json
 
 /** A Backend implementation that delegates to a subprocess speaking
  *  the newline-delimited JSON protocol from `WireProtocol.scala`.
@@ -25,7 +40,8 @@ import scala.util.{Try, Success, Failure}
  *  follow-up. */
 class SubprocessBackend private (
     proc:         Process,
-    initialDesc:  MessageBodies.DescribeResult
+    initialDesc:  MessageBodies.DescribeResult,
+    framing:      WireFraming = WireFraming.Json
 ) extends Backend:
 
   /** Set once the initial `describe` handshake completes inside
@@ -36,8 +52,20 @@ class SubprocessBackend private (
   @volatile private var descriptor: MessageBodies.DescribeResult = initialDesc
 
   private val nextId = new java.util.concurrent.atomic.AtomicLong(1L)
-  private val stdout = new BufferedReader(new InputStreamReader(proc.getInputStream, "UTF-8"))
-  private val stdin  = new PrintWriter(new OutputStreamWriter(proc.getOutputStream, "UTF-8"), /* autoFlush */ true)
+
+  // Framing-dependent IO handles.  Initialised exactly one pair —
+  // can't share a single InputStream across reader + DataInputStream
+  // since they'd race for bytes.
+  private val (jsonReader, jsonWriter, binIn, binOut) = framing match
+    case WireFraming.Json =>
+      val r = new BufferedReader(new InputStreamReader(proc.getInputStream, "UTF-8"))
+      val w = new PrintWriter(new OutputStreamWriter(proc.getOutputStream, "UTF-8"), /* autoFlush */ true)
+      (r, w, null.asInstanceOf[DataInputStream], null.asInstanceOf[DataOutputStream])
+    case WireFraming.MsgPack =>
+      val in  = new DataInputStream(proc.getInputStream)
+      val out = new DataOutputStream(proc.getOutputStream)
+      (null.asInstanceOf[BufferedReader], null.asInstanceOf[PrintWriter], in, out)
+
   startStderrPump()
 
   private def startStderrPump(): Unit =
@@ -106,36 +134,60 @@ class SubprocessBackend private (
   def shutdown(): Unit =
     if proc.isAlive then
       Try(call(Methods.Shutdown, ujson.Obj()))
-      Try(stdin.close())
-      Try(stdout.close())
+      framing match
+        case WireFraming.Json    => Try(jsonWriter.close()); Try(jsonReader.close())
+        case WireFraming.MsgPack => Try(binOut.close()); Try(binIn.close())
       if !proc.waitFor(2, java.util.concurrent.TimeUnit.SECONDS) then
         proc.destroyForcibly()
 
   // ─── Internal wire dispatch ───────────────────────────────────────────
 
-  /** One round-trip request → response.  Returns the `result` JSON or
+  /** One round-trip request → response.  Returns the `result` value or
    *  the `error` envelope.  Thread-safe under sync call from a single
    *  caller; concurrent compile() invocations must serialise externally
    *  (registry-level pool when needed). */
   private[plugin] def call(method: String, params: ujson.Value): Either[ResponseError, ujson.Value] =
     val req = Request(method = method, params = params, id = nextId.getAndIncrement())
-    val line = write(req)
     this.synchronized {
-      stdin.println(line)
-      stdin.flush()
-      val responseLine = stdout.readLine()
-      if responseLine == null then
-        Left(ResponseError(ErrorCodes.PluginCrash, s"plugin/${descriptor.id} closed stdout"))
-      else
-        Try(read[Response](responseLine)) match
-          case Success(resp) =>
-            (resp.result, resp.error) match
-              case (Some(r), _) => Right(r)
-              case (_, Some(e)) => Left(e)
-              case (_, _)       => Right(ujson.Null)
-          case Failure(t) =>
-            Left(ResponseError(ErrorCodes.ParseError, s"unparseable response: $t — line: $responseLine"))
+      framing match
+        case WireFraming.Json    => callJson(req)
+        case WireFraming.MsgPack => callMsgPack(req)
     }
+
+  private def callJson(req: Request): Either[ResponseError, ujson.Value] =
+    val line = write(req)
+    jsonWriter.println(line)
+    jsonWriter.flush()
+    val responseLine = jsonReader.readLine()
+    if responseLine == null then
+      Left(ResponseError(ErrorCodes.PluginCrash, s"plugin/${descriptor.id} closed stdout"))
+    else parseResponse(read[Response](responseLine), responseLine)
+
+  private def callMsgPack(req: Request): Either[ResponseError, ujson.Value] =
+    val bytes = writeBinary(req)
+    binOut.writeInt(bytes.length)
+    binOut.write(bytes)
+    binOut.flush()
+    try
+      val len = binIn.readInt()
+      if len < 0 || len > 64 * 1024 * 1024 then
+        Left(ResponseError(ErrorCodes.ParseError, s"plugin/${descriptor.id}: bogus msgpack frame length $len"))
+      else
+        val buf = new Array[Byte](len)
+        binIn.readFully(buf)
+        parseResponse(readBinary[Response](buf), s"<msgpack ${len} bytes>")
+    catch case _: java.io.EOFException =>
+      Left(ResponseError(ErrorCodes.PluginCrash, s"plugin/${descriptor.id} closed stdout"))
+
+  private def parseResponse(parse: => Response, repr: => String): Either[ResponseError, ujson.Value] =
+    Try(parse) match
+      case Success(resp) =>
+        (resp.result, resp.error) match
+          case (Some(r), _) => Right(r)
+          case (_, Some(e)) => Left(e)
+          case (_, _)       => Right(ujson.Null)
+      case Failure(t) =>
+        Left(ResponseError(ErrorCodes.ParseError, s"unparseable response: $t — $repr"))
 
   private def fromWire(w: MessageBodies.CompileResultWire): CompileResult = w.kind match
     case "text"      => CompileResult.TextOutput(
@@ -184,15 +236,16 @@ object SubprocessBackend:
    *  initial `describe` handshake, return a usable `SubprocessBackend`. */
   def spawn(
       executable: String,
-      args:       List[String]  = Nil,
-      workingDir: Option[os.Path] = None
+      args:       List[String]   = Nil,
+      workingDir: Option[os.Path] = None,
+      framing:    WireFraming    = WireFraming.Json
   ): Try[SubprocessBackend] =
     Try {
       val pb = new ProcessBuilder((executable +: args)*)
       workingDir.foreach(d => pb.directory(d.toIO))
       pb.redirectErrorStream(false)
       val proc = pb.start()
-      val inst = new SubprocessBackend(proc, initialDesc = stubDescriptor(executable))
+      val inst = new SubprocessBackend(proc, initialDesc = stubDescriptor(executable), framing = framing)
       inst.call(Methods.Describe, ujson.Obj()) match
         case Right(json) =>
           inst.updateDescriptor(read[MessageBodies.DescribeResult](json))
