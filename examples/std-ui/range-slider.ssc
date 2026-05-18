@@ -1,0 +1,193 @@
+#!/usr/bin/env ssc
+---
+name: range-slider
+description: |
+  RangeSlider — single-handle <input type="range"> with live value display.
+  Dual-handle variant overlays two range inputs to produce a min/max pair.
+---
+
+# RangeSlider
+
+Single-handle slider built on the native `<input type="range">` so it
+keyboard-navigates and form-submits out of the box.  JavaScript
+optionally shows a live value bubble.
+
+Dual-handle variant (`RangeSlider.renderDual`) overlays two `<input
+type="range">` elements and writes `name_min` / `name_max` form fields;
+JS keeps them from crossing.
+
+```scalascript
+object RangeSlider:
+  private val sc        = scope("RangeSlider")
+  private val rootCls   = sc.cls("root")
+  private val labelCls  = sc.cls("label")
+  private val trackCls  = sc.cls("track")
+  private val inputCls  = sc.cls("input")
+  private val fillCls   = sc.cls("fill")
+  private val bubbleCls = sc.cls("bubble")
+  private val hintCls   = sc.cls("hint")
+  private val dualCls   = sc.cls("dual")
+  private val minCls    = sc.cls("min")
+  private val maxCls    = sc.cls("max")
+  private val limitsCls = sc.cls("limits")
+  private val limitMinCls = sc.cls("limit-min")
+  private val limitMaxCls = sc.cls("limit-max")
+
+  val css: String = sc.css("""
+    .root   { display: flex; flex-direction: column; gap: .35em;
+              font: 1rem/1.4 system-ui, sans-serif; margin: .5em 0; }
+    .label  { font-weight: 600; color: #1f2937; font-size: .95em; }
+    .track  { position: relative; height: 1.4em; display: flex;
+              align-items: center; }
+    .input  { -webkit-appearance: none; appearance: none;
+              width: 100%; height: 4px; border-radius: 2px;
+              background: #e5e7eb; outline: none; cursor: pointer;
+              position: relative; z-index: 1; margin: 0; }
+    .input::-webkit-slider-thumb {
+              -webkit-appearance: none; appearance: none;
+              width: 1.1em; height: 1.1em; border-radius: 50%;
+              background: #2563eb; border: 2px solid #fff;
+              box-shadow: 0 1px 4px rgba(0,0,0,.2); cursor: pointer;
+              position: relative; z-index: 3; }
+    .input::-moz-range-thumb {
+              width: 1.1em; height: 1.1em; border-radius: 50%;
+              background: #2563eb; border: 2px solid #fff;
+              box-shadow: 0 1px 4px rgba(0,0,0,.2); cursor: pointer; }
+    .input:focus { outline: none; }
+    .input:focus::-webkit-slider-thumb {
+              box-shadow: 0 0 0 3px rgba(37,99,235,.3); }
+    .fill   { position: absolute; left: 0; height: 4px;
+              border-radius: 2px; background: #2563eb;
+              pointer-events: none; z-index: 0; }
+    .bubble { position: absolute; top: -1.8em; transform: translateX(-50%);
+              background: #1f2937; color: #fff; font-size: .78em;
+              padding: .15em .45em; border-radius: 4px;
+              pointer-events: none; white-space: nowrap;
+              opacity: 0; transition: opacity .1s; }
+    .track:hover .bubble, .input:focus ~ .bubble { opacity: 1; }
+    .dual   { position: relative; height: 1.4em; }
+    .min,.max { position: absolute; width: 100%; height: 4px;
+                background: none; -webkit-appearance: none;
+                appearance: none; pointer-events: none; margin: 0; top: 50%;
+                transform: translateY(-50%); cursor: pointer;
+                z-index: 2; outline: none; }
+    .min { z-index: 3; }
+    .min::-webkit-slider-thumb, .max::-webkit-slider-thumb {
+              -webkit-appearance: none; appearance: none;
+              width: 1.1em; height: 1.1em; border-radius: 50%;
+              background: #2563eb; border: 2px solid #fff;
+              box-shadow: 0 1px 4px rgba(0,0,0,.2);
+              pointer-events: all; }
+    .min::-moz-range-thumb, .max::-moz-range-thumb {
+              width: 1.1em; height: 1.1em; border-radius: 50%;
+              background: #2563eb; border: 2px solid #fff;
+              box-shadow: 0 1px 4px rgba(0,0,0,.2);
+              pointer-events: all; }
+    .limits { display: flex; justify-content: space-between;
+              font-size: .8em; color: #9ca3af; margin-top: .15em; }
+    .hint   { color: #6b7280; font-size: .85em; }
+  """)
+
+  val js: String = s"""
+(function(){
+  // Single-handle: update fill width + bubble position
+  document.querySelectorAll('.$rootCls:not(.$dualCls) .$trackCls').forEach(track => {
+    const input  = track.querySelector('.$inputCls');
+    const fill   = track.querySelector('.$fillCls');
+    const bubble = track.querySelector('.$bubbleCls');
+    if (!input) return;
+    const upd = () => {
+      const min=parseFloat(input.min||0), max=parseFloat(input.max||100);
+      const val=parseFloat(input.value||0);
+      const pct=((val-min)/(max-min))*100;
+      if (fill)   fill.style.width = pct+'%';
+      if (bubble) { bubble.textContent=input.value; bubble.style.left=pct+'%'; }
+    };
+    input.addEventListener('input', upd);
+    upd();
+  });
+  // Dual-handle
+  document.querySelectorAll('.$dualCls').forEach(dual => {
+    const minI = dual.querySelector('.$minCls');
+    const maxI = dual.querySelector('.$maxCls');
+    const fill = dual.querySelector('.$fillCls');
+    if (!minI || !maxI) return;
+    const upd = () => {
+      const lo=parseFloat(minI.min||0), hi=parseFloat(minI.max||100);
+      const mn=parseFloat(minI.value), mx=parseFloat(maxI.value);
+      if (mn > mx) { minI.value=mx; } if (mx < mn) { maxI.value=mn; }
+      if (fill) {
+        const left=((parseFloat(minI.value)-lo)/(hi-lo))*100;
+        const right=((parseFloat(maxI.value)-lo)/(hi-lo))*100;
+        fill.style.left=left+'%'; fill.style.width=(right-left)+'%';
+      }
+    };
+    minI.addEventListener('input', upd);
+    maxI.addEventListener('input', upd);
+    upd();
+  });
+})();"""
+
+  /** Render a single-handle range slider.
+   *  `name`  — form field name.
+   *  `label` — visible label; pass `""` to omit.
+   *  `min` / `max` — numeric range boundaries.
+   *  `value` — initial value (clamped to min…max).
+   *  `step`  — step size (use 1 for integers).
+   *  `showBubble` — show live value tooltip above the thumb.
+   *  `hint`  — helper text; pass `""` to omit. */
+  def render(name: String, label: String, min: Int, max: Int, value: Int,
+             step: Int, showBubble: Boolean, hint: String): String =
+    val labelHtml =
+      if label == "" then ""
+      else html"""<label class="${labelCls}" for="${name}">${label}: <strong>${value.toString}</strong></label>"""
+    val hintHtml =
+      if hint == "" then ""
+      else html"""<div class="${hintCls}">${hint}</div>"""
+    val bubbleHtml =
+      if showBubble then html"""<div class="${bubbleCls}">${value.toString}</div>"""
+      else ""
+    html"""<div class="${rootCls}">
+      ${raw(labelHtml)}
+      <div class="${trackCls}">
+        <div class="${fillCls}"></div>
+        <input class="${inputCls}" type="range" id="${name}" name="${name}"
+               min="${min.toString}" max="${max.toString}"
+               value="${value.toString}" step="${step.toString}">
+        ${raw(bubbleHtml)}
+      </div>
+      <div class="${limitsCls}">
+        <span class="${limitMinCls}">${min.toString}</span>
+        <span class="${limitMaxCls}">${max.toString}</span>
+      </div>
+      ${raw(hintHtml)}
+    </div>"""
+
+  /** Render a dual-handle range slider producing `name_min` / `name_max` fields.
+   *  `minValue` / `maxValue` — initial positions of the two handles. */
+  def renderDual(name: String, label: String, min: Int, max: Int,
+                 minValue: Int, maxValue: Int, step: Int, hint: String): String =
+    val labelHtml =
+      if label == "" then ""
+      else html"""<label class="${labelCls}">${label}: <strong>${minValue.toString}</strong> – <strong>${maxValue.toString}</strong></label>"""
+    val hintHtml =
+      if hint == "" then ""
+      else html"""<div class="${hintCls}">${hint}</div>"""
+    html"""<div class="${rootCls}">
+      ${raw(labelHtml)}
+      <div class="${dualCls}">
+        <div class="${fillCls}"></div>
+        <input class="${minCls}" type="range" name="${name}_min"
+               min="${min.toString}" max="${max.toString}"
+               value="${minValue.toString}" step="${step.toString}">
+        <input class="${maxCls}" type="range" name="${name}_max"
+               min="${min.toString}" max="${max.toString}"
+               value="${maxValue.toString}" step="${step.toString}">
+      </div>
+      <div class="${limitsCls}">
+        <span class="${limitMinCls}">${min.toString}</span>
+        <span class="${limitMaxCls}">${max.toString}</span>
+      </div>
+      ${raw(hintHtml)}
+    </div>"""
+```

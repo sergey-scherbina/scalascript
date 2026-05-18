@@ -676,40 +676,36 @@ What's left from that block is the tooling that the pack motivates:
 Defer until at least one consumer of the existing convention asks
 "where do I get a Button?".
 
-## v0.10 — Extended component pack
+## v0.10 — Extended component pack ✓ Landed (iter A–D)
 
 Components the standard pack didn't cover but every real app
 eventually wants.  Same shape as v0.9 (`object Foo { val css, val
 js, def render }`), same `scope()` pattern, mergeable one-at-a-time.
 
-  - **`DateInput` / `DatePicker`** — `<input type=date>` plus a CSS
-    polyfill for browsers that show the ugly native UI.
-  - **`TimeInput` / `DateTimePicker`**.
-  - **`FileUpload`** — drag-drop zone over the existing
-    `multipart/form-data` plumbing (req.files already works).
-  - **`Combobox`** — autocomplete `<input>` + filterable popover.
-  - **`Stepper`** — multi-step form wizard with progress indicator.
-  - **`Toolbar`** — horizontal action bar (compose Button + Dropdown).
-  - **`RangeSlider`** — single + dual-handle.
-  - **`Tree`** — collapsible hierarchical view (built on Accordion
-    primitives).
-  - **`Carousel`** — scroll-snap based, no JS for the default mode.
-  - **`Lightbox`** — image viewer overlay.
-  - **`Stats`** — dashboard-style number tile with delta indicator.
-  - **`Empty`** — no-content placeholder with icon + CTA.
-
 Landed in iter A: `Card` (header / body / footer trio), `Switch`
 (iOS-style toggle), `Alert` (banner with five tones), `Tag` (closable
-inline chip).  All registered in `std/ui/index.ssc`, covered by
-`conformance/std-ui-extended.ssc` on three backends.
+inline chip).  All registered in `examples/std-ui/index.ssc`, covered
+by `conformance/std-ui-extended.ssc` on three backends.
 
 Landed in iter B: `Stats` (dashboard tile with delta indicator),
 `Empty` (no-content placeholder), `Toolbar` (start/end flex layout),
 `Tree` (native-`<details>` collapsible hierarchy).  Covered by
 `conformance/std-ui-extended-b.ssc`.
 
-Each is half-day to a day.  Pick what a consumer actually asks for
-before grinding through speculatively.
+Landed in iter C: `Stepper` (multi-step progress indicator),
+`Lightbox` (click-to-zoom overlay with JS enhancement),
+`FileUpload` (drag-drop zone over `req.files` multipart plumbing).
+Covered by `conformance/std-ui-extended-c.ssc`.
+
+Landed in iter D: `DateInput` (native `<input type="date">` with
+styled wrapper), `DatePicker` (popover calendar polyfill with JS),
+`TimeInput` (native `<input type="time">` with consistent styling),
+`DateTimePicker` (side-by-side date + time pair widget), `Combobox`
+(autocomplete input + filterable popover with keyboard navigation),
+`RangeSlider` (single-handle + dual-handle variants over
+`<input type="range">`), `Carousel` (scroll-snap based
+image slider with optional arrows + dot indicators, no-JS default).
+Covered by `conformance/std-ui-extended-d.ssc` (40 assertions).
 
 ## v0.11 — i18n / l10n
 

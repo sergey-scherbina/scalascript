@@ -1,0 +1,80 @@
+---
+name: std-ui-extended-d
+---
+
+# v0.10 iter D smoke — DateInput / DatePicker / TimeInput / DateTimePicker / Combobox / RangeSlider / Carousel
+
+[DateInput, DatePicker, TimeInput, DateTimePicker, Combobox, RangeSlider, Carousel](../examples/std-ui)
+
+```scalascript
+// DateInput
+val d1 = DateInput.render("dob", "Date of Birth", "2024-01-15", "2000-01-01", "2099-12-31", "YYYY-MM-DD", true)
+println(d1.contains("type=\"date\""))
+println(d1.contains("name=\"dob\""))
+println(d1.contains("value=\"2024-01-15\""))
+println(d1.contains("min=\"2000-01-01\""))
+println(d1.contains("required"))
+println(d1.contains("Date of Birth"))
+
+// DatePicker
+val d2 = DatePicker.render("appt", "Appointment", "2024-06-01", "Choose a date")
+println(d2.contains("name=\"appt\""))
+println(d2.contains("cal__DatePicker"))
+println(d2.contains("value=\"2024-06-01\""))
+
+// TimeInput
+val t1 = TimeInput.render("start", "Start Time", "09:00", "08:00", "18:00", 900, "Business hours only", false)
+println(t1.contains("type=\"time\""))
+println(t1.contains("name=\"start\""))
+println(t1.contains("value=\"09:00\""))
+println(t1.contains("step=\"900\""))
+println(t1.contains("Business hours only"))
+
+// DateTimePicker
+val dt1 = DateTimePicker.render("event", "Event Date & Time", "2024-07-04", "14:00", "", true)
+println(dt1.contains("name=\"event_date\""))
+println(dt1.contains("name=\"event_time\""))
+println(dt1.contains("value=\"2024-07-04\""))
+println(dt1.contains("required"))
+
+// Combobox
+val opts = List(("apple", "Apple"), ("banana", "Banana"), ("cherry", "Cherry"))
+val c1 = Combobox.render("fruit", "Pick a fruit", opts, "", "Search...", "Type to filter")
+println(c1.contains("role=\"combobox\""))
+println(c1.contains("name=\"fruit\""))
+println(c1.contains("Apple"))
+println(c1.contains("Cherry"))
+println(c1.contains("Type to filter"))
+val c2 = Combobox.render("color", "", opts, "banana", "", "")
+println(c2.contains("value=\"banana\""))
+
+// RangeSlider single
+val r1 = RangeSlider.render("volume", "Volume", 0, 100, 70, 1, true, "Adjust loudness")
+println(r1.contains("type=\"range\""))
+println(r1.contains("name=\"volume\""))
+println(r1.contains("min=\"0\""))
+println(r1.contains("max=\"100\""))
+println(r1.contains("value=\"70\""))
+println(r1.contains("Adjust loudness"))
+
+// RangeSlider dual
+val r2 = RangeSlider.renderDual("price", "Price Range", 0, 500, 50, 300, 10, "USD")
+println(r2.contains("name=\"price_min\""))
+println(r2.contains("name=\"price_max\""))
+println(r2.contains("value=\"50\""))
+println(r2.contains("value=\"300\""))
+
+// Carousel
+val s1 = Carousel.slide("/img/a.jpg", "Slide A", "First slide")
+val s2 = Carousel.slide("/img/b.jpg", "Slide B", "")
+val s3 = Carousel.slide("/img/c.jpg", "Slide C", "Last slide")
+val body = s1 + s2 + s3
+val car1 = Carousel.render(body, 3, "320px", true, true)
+println(car1.contains("slide__Carousel"))
+println(car1.contains("/img/a.jpg"))
+println(car1.contains("First slide"))
+println(car1.contains("prev__Carousel"))
+println(car1.contains("dots__Carousel"))
+val car2 = Carousel.render(body, 3, "50vh", false, false)
+println(!car2.contains("prev__Carousel"))
+```

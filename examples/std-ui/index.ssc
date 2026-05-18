@@ -11,9 +11,14 @@ exports:
   - Badge
   - Breadcrumbs
   - Card
+  - Carousel
   - Checkbox
   - Code
+  - Combobox
   - Container
+  - DateInput
+  - DatePicker
+  - DateTimePicker
   - Empty
   - FileUpload
   - DataGrid
@@ -33,6 +38,7 @@ exports:
   - ProgressBar
   - Quote
   - Radio
+  - RangeSlider
   - Reset
   - Row
   - Select
@@ -49,6 +55,7 @@ exports:
   - Tabs
   - Tag
   - Textarea
+  - TimeInput
   - Toolbar
   - Tree
   - Theme
@@ -178,6 +185,20 @@ instead of one explicit import per component file.
 [Lightbox](./lightbox.ssc)
 
 [FileUpload](./file-upload.ssc)
+
+[DateInput](./date-input.ssc)
+
+[DatePicker](./date-input.ssc)
+
+[TimeInput](./time-input.ssc)
+
+[DateTimePicker](./time-input.ssc)
+
+[Combobox](./combobox.ssc)
+
+[RangeSlider](./range-slider.ssc)
+
+[Carousel](./carousel.ssc)
 
 ## Theming
 

@@ -1,0 +1,203 @@
+#!/usr/bin/env ssc
+---
+name: date-input
+description: |
+  DateInput — native <input type="date"> with consistent cross-browser styling.
+  DatePicker — same, with a lightweight popover calendar polyfill for browsers
+  that render the native picker poorly.
+---
+
+# DateInput
+
+Native `<input type="date">` wrapped in a styled container.  Works on
+all modern browsers; picks up the OS date format automatically.
+
+# DatePicker
+
+Thin wrapper around `DateInput` that overlays a CSS-driven calendar
+pop-up when the native picker is unreliable.  JavaScript progressively
+enhances the experience — the input is always a plain `<input type="date">`
+so forms and server-side code see a standard `YYYY-MM-DD` string.
+
+```scalascript
+object DateInput:
+  private val sc       = scope("DateInput")
+  private val rootCls  = sc.cls("root")
+  private val labelCls = sc.cls("label")
+  private val inputCls = sc.cls("input")
+  private val hintCls  = sc.cls("hint")
+
+  val css: String = sc.css("""
+    .root  { display: flex; flex-direction: column; gap: .3em;
+             font: 1rem/1.4 system-ui, sans-serif; margin: .5em 0; }
+    .label { font-weight: 600; color: #1f2937; font-size: .95em; }
+    .input { padding: .5em .75em; border: 1px solid #d1d5db;
+             border-radius: 6px; font: inherit; color: #1f2937;
+             background: #fff; cursor: pointer;
+             transition: border-color .12s; width: 100%;
+             box-sizing: border-box; }
+    .input:hover  { border-color: #6b7280; }
+    .input:focus  { outline: none; border-color: #2563eb;
+                    box-shadow: 0 0 0 3px rgba(37,99,235,.15); }
+    .input:disabled { background: #f3f4f6; color: #9ca3af; cursor: default; }
+    .hint  { color: #6b7280; font-size: .85em; }
+  """)
+
+  /** Render a date input.
+   *  `name`     — form field name.
+   *  `label`    — visible label text; pass `""` to omit.
+   *  `value`    — initial value in YYYY-MM-DD format; pass `""` for empty.
+   *  `min`/`max`— optional range constraints in YYYY-MM-DD format.
+   *  `hint`     — helper text below the field; pass `""` to omit.
+   *  `required` — adds the HTML required attribute. */
+  def render(name: String, label: String, value: String,
+             min: String, max: String, hint: String, required: Boolean): String =
+    val labelHtml =
+      if label == "" then ""
+      else html"""<label class="${labelCls}" for="${name}">${label}</label>"""
+    val hintHtml =
+      if hint == "" then ""
+      else html"""<div class="${hintCls}">${hint}</div>"""
+    val valueAttr   = if value == ""   then "" else " value=\"" + value + "\""
+    val minAttr     = if min == ""     then "" else " min=\"" + min + "\""
+    val maxAttr     = if max == ""     then "" else " max=\"" + max + "\""
+    val reqAttr     = if required      then " required" else ""
+    html"""<div class="${rootCls}">
+      ${raw(labelHtml)}
+      <input class="${inputCls}" type="date" id="${name}" name="${name}"${raw(valueAttr)}${raw(minAttr)}${raw(maxAttr)}${raw(reqAttr)}>
+      ${raw(hintHtml)}
+    </div>"""
+
+
+object DatePicker:
+  private val sc         = scope("DatePicker")
+  private val rootCls    = sc.cls("root")
+  private val labelCls   = sc.cls("label")
+  private val inputCls   = sc.cls("input")
+  private val calCls     = sc.cls("cal")
+  private val navCls     = sc.cls("nav")
+  private val prevCls    = sc.cls("prev")
+  private val nextCls    = sc.cls("next")
+  private val monthCls   = sc.cls("month")
+  private val gridCls    = sc.cls("grid")
+  private val dayCls     = sc.cls("day")
+  private val todayCls   = sc.cls("today")
+  private val selCls     = sc.cls("sel")
+  private val hintCls    = sc.cls("hint")
+
+  val css: String = sc.css("""
+    .root   { position: relative; display: inline-block;
+              font: 1rem/1.4 system-ui, sans-serif; }
+    .label  { display: block; font-weight: 600; color: #1f2937;
+              font-size: .95em; margin-bottom: .3em; }
+    .input  { padding: .5em .75em; border: 1px solid #d1d5db;
+              border-radius: 6px; font: inherit; color: #1f2937;
+              background: #fff; cursor: pointer; width: 13em;
+              box-sizing: border-box; transition: border-color .12s; }
+    .input:focus { outline: none; border-color: #2563eb;
+                   box-shadow: 0 0 0 3px rgba(37,99,235,.15); }
+    .cal    { position: absolute; top: calc(100% + 4px); left: 0;
+              background: #fff; border: 1px solid #e5e7eb;
+              border-radius: 8px; box-shadow: 0 4px 16px rgba(0,0,0,.1);
+              padding: .75em; z-index: 200; min-width: 17em;
+              display: none; }
+    .cal[data-open="true"] { display: block; }
+    .nav    { display: flex; align-items: center;
+              justify-content: space-between; margin-bottom: .5em; }
+    .prev,.next { background: none; border: none; cursor: pointer;
+                  font-size: 1.1em; color: #374151; padding: .2em .4em;
+                  border-radius: 4px; }
+    .prev:hover,.next:hover { background: #f3f4f6; }
+    .month  { font-weight: 600; color: #111827; font-size: .95em; }
+    .grid   { display: grid; grid-template-columns: repeat(7, 1fr);
+              gap: 2px; }
+    .day    { text-align: center; padding: .3em 0; border-radius: 4px;
+              cursor: pointer; font-size: .9em; color: #374151; }
+    .day:hover  { background: #f3f4f6; }
+    .day.today  { font-weight: 700; color: #2563eb; }
+    .day.sel    { background: #2563eb; color: #fff; }
+    .day.sel:hover { background: #1d4ed8; }
+    .day[data-other]   { color: #d1d5db; }
+    .hint   { color: #6b7280; font-size: .85em; margin-top: .3em; }
+  """)
+
+  val js: String = s"""
+(function(){
+  function pad(n){ return n < 10 ? '0'+n : ''+n; }
+  function fmt(y,m,d){ return y+'-'+pad(m+1)+'-'+pad(d); }
+  const DAYS=['Su','Mo','Tu','We','Th','Fr','Sa'];
+  document.querySelectorAll('.$rootCls').forEach(root => {
+    const input = root.querySelector('.$inputCls');
+    const cal   = root.querySelector('.$calCls');
+    const mnth  = root.querySelector('.$monthCls');
+    const grid  = root.querySelector('.$gridCls');
+    const prev  = root.querySelector('.$prevCls');
+    const next  = root.querySelector('.$nextCls');
+    if (!input || !cal) return;
+    const now = new Date();
+    let cur = { y: now.getFullYear(), m: now.getMonth() };
+    const open  = () => { render(); cal.setAttribute('data-open','true'); };
+    const close = () => cal.setAttribute('data-open','false');
+    const toggle = () =>
+      cal.getAttribute('data-open')==='true' ? close() : open();
+    const render = () => {
+      const y=cur.y, m=cur.m;
+      const months=['Jan','Feb','Mar','Apr','May','Jun',
+                    'Jul','Aug','Sep','Oct','Nov','Dec'];
+      mnth.textContent = months[m]+' '+y;
+      const first = new Date(y,m,1).getDay();
+      const last  = new Date(y,m+1,0).getDate();
+      let html = DAYS.map(d=>'<div class="$dayCls" style="font-weight:600;color:#6b7280;cursor:default">'+d+'</div>').join('');
+      for(let i=0;i<first;i++) html+='<div class="$dayCls" data-other></div>';
+      for(let d=1;d<=last;d++){
+        const ds=fmt(y,m,d);
+        const isToday=ds===fmt(now.getFullYear(),now.getMonth(),now.getDate());
+        const isSel=ds===input.value;
+        const cls='$dayCls'+(isToday?' $todayCls':'')+(isSel?' $selCls':'');
+        html+='<div class="'+cls+'" data-date="'+ds+'">'+d+'</div>';
+      }
+      grid.innerHTML=html;
+      grid.querySelectorAll('[data-date]').forEach(el=>{
+        el.addEventListener('click',e=>{
+          input.value=e.target.getAttribute('data-date');
+          input.dispatchEvent(new Event('change',{bubbles:true}));
+          close();
+        });
+      });
+    };
+    input.addEventListener('click', toggle);
+    if (prev) prev.addEventListener('click',()=>{ cur.m--; if(cur.m<0){cur.m=11;cur.y--;} render(); });
+    if (next) next.addEventListener('click',()=>{ cur.m++; if(cur.m>11){cur.m=0;cur.y++;} render(); });
+    document.addEventListener('click', e => {
+      if (!root.contains(e.target)) close();
+    });
+  });
+})();"""
+
+  /** Render a date picker with popover calendar.
+   *  `name`  — form field name.
+   *  `label` — visible label; pass `""` to omit.
+   *  `value` — initial date in YYYY-MM-DD; pass `""` for empty.
+   *  `hint`  — helper text; pass `""` to omit. */
+  def render(name: String, label: String, value: String, hint: String): String =
+    val labelHtml =
+      if label == "" then ""
+      else html"""<span class="${labelCls}">${label}</span>"""
+    val hintHtml =
+      if hint == "" then ""
+      else html"""<div class="${hintCls}">${hint}</div>"""
+    val valueAttr = if value == "" then "" else " value=\"" + value + "\""
+    html"""<div class="${rootCls}">
+      ${raw(labelHtml)}
+      <input class="${inputCls}" type="date" id="${name}" name="${name}"${raw(valueAttr)} readonly>
+      <div class="${calCls}">
+        <div class="${navCls}">
+          <button class="${prevCls}" type="button">&#8249;</button>
+          <span class="${monthCls}"></span>
+          <button class="${nextCls}" type="button">&#8250;</button>
+        </div>
+        <div class="${gridCls}"></div>
+      </div>
+      ${raw(hintHtml)}
+    </div>"""
+```

@@ -1,0 +1,129 @@
+#!/usr/bin/env ssc
+---
+name: time-input
+description: |
+  TimeInput — native <input type="time"> with consistent styling.
+  DateTimePicker — combined date + time pair rendered as a single styled widget.
+---
+
+# TimeInput
+
+Native `<input type="time">` styled consistently across browsers.
+The value is always in `HH:MM` (or `HH:MM:SS`) format as required by
+the HTML spec.
+
+# DateTimePicker
+
+Side-by-side date + time inputs combined into one widget.  Both share a
+single group so CSS Grid keeps them aligned.  The value can be assembled
+server-side from the two separate form fields `name_date` and `name_time`.
+
+```scalascript
+object TimeInput:
+  private val sc       = scope("TimeInput")
+  private val rootCls  = sc.cls("root")
+  private val labelCls = sc.cls("label")
+  private val inputCls = sc.cls("input")
+  private val hintCls  = sc.cls("hint")
+
+  val css: String = sc.css("""
+    .root  { display: flex; flex-direction: column; gap: .3em;
+             font: 1rem/1.4 system-ui, sans-serif; margin: .5em 0; }
+    .label { font-weight: 600; color: #1f2937; font-size: .95em; }
+    .input { padding: .5em .75em; border: 1px solid #d1d5db;
+             border-radius: 6px; font: inherit; color: #1f2937;
+             background: #fff; cursor: pointer; width: 100%;
+             box-sizing: border-box; transition: border-color .12s; }
+    .input:hover  { border-color: #6b7280; }
+    .input:focus  { outline: none; border-color: #2563eb;
+                    box-shadow: 0 0 0 3px rgba(37,99,235,.15); }
+    .input:disabled { background: #f3f4f6; color: #9ca3af; cursor: default; }
+    .hint  { color: #6b7280; font-size: .85em; }
+  """)
+
+  /** Render a time input.
+   *  `name`     — form field name.
+   *  `label`    — visible label; pass `""` to omit.
+   *  `value`    — initial value in HH:MM format; pass `""` for empty.
+   *  `min`/`max`— optional range constraints in HH:MM format.
+   *  `step`     — step in seconds (e.g., 900 = 15 min increments); 0 to omit.
+   *  `hint`     — helper text; pass `""` to omit.
+   *  `required` — adds the HTML required attribute. */
+  def render(name: String, label: String, value: String,
+             min: String, max: String, step: Int,
+             hint: String, required: Boolean): String =
+    val labelHtml =
+      if label == "" then ""
+      else html"""<label class="${labelCls}" for="${name}">${label}</label>"""
+    val hintHtml =
+      if hint == "" then ""
+      else html"""<div class="${hintCls}">${hint}</div>"""
+    val valueAttr = if value == "" then "" else " value=\"" + value + "\""
+    val minAttr   = if min == ""   then "" else " min=\"" + min + "\""
+    val maxAttr   = if max == ""   then "" else " max=\"" + max + "\""
+    val stepAttr  = if step <= 0   then "" else " step=\"" + step.toString + "\""
+    val reqAttr   = if required    then " required" else ""
+    html"""<div class="${rootCls}">
+      ${raw(labelHtml)}
+      <input class="${inputCls}" type="time" id="${name}" name="${name}"${raw(valueAttr)}${raw(minAttr)}${raw(maxAttr)}${raw(stepAttr)}${raw(reqAttr)}>
+      ${raw(hintHtml)}
+    </div>"""
+
+
+object DateTimePicker:
+  private val sc        = scope("DateTimePicker")
+  private val rootCls   = sc.cls("root")
+  private val labelCls  = sc.cls("label")
+  private val groupCls  = sc.cls("group")
+  private val dateCls   = sc.cls("date")
+  private val timeCls   = sc.cls("time")
+  private val sepCls    = sc.cls("sep")
+  private val hintCls   = sc.cls("hint")
+
+  val css: String = sc.css("""
+    .root  { display: flex; flex-direction: column; gap: .3em;
+             font: 1rem/1.4 system-ui, sans-serif; margin: .5em 0; }
+    .label { font-weight: 600; color: #1f2937; font-size: .95em; }
+    .group { display: flex; align-items: center; gap: .4em; flex-wrap: wrap; }
+    .date,.time {
+             padding: .5em .75em; border: 1px solid #d1d5db;
+             border-radius: 6px; font: inherit; color: #1f2937;
+             background: #fff; cursor: pointer;
+             box-sizing: border-box; transition: border-color .12s; }
+    .date  { flex: 1 1 10em; min-width: 9em; }
+    .time  { flex: 1 1 7em;  min-width: 7em; }
+    .date:focus,.time:focus {
+             outline: none; border-color: #2563eb;
+             box-shadow: 0 0 0 3px rgba(37,99,235,.15); }
+    .sep   { color: #9ca3af; font-size: .9em; user-select: none; }
+    .hint  { color: #6b7280; font-size: .85em; }
+  """)
+
+  /** Render a date + time picker pair.
+   *  `name`      — base name; date field gets `name_date`, time gets `name_time`.
+   *  `label`     — visible label; pass `""` to omit.
+   *  `dateValue` — initial date in YYYY-MM-DD; pass `""` for empty.
+   *  `timeValue` — initial time in HH:MM; pass `""` for empty.
+   *  `hint`      — helper text; pass `""` to omit.
+   *  `required`  — marks both sub-inputs as required. */
+  def render(name: String, label: String, dateValue: String,
+             timeValue: String, hint: String, required: Boolean): String =
+    val labelHtml =
+      if label == "" then ""
+      else html"""<label class="${labelCls}">${label}</label>"""
+    val hintHtml =
+      if hint == "" then ""
+      else html"""<div class="${hintCls}">${hint}</div>"""
+    val dv  = if dateValue == "" then "" else " value=\"" + dateValue + "\""
+    val tv  = if timeValue == "" then "" else " value=\"" + timeValue + "\""
+    val req = if required then " required" else ""
+    html"""<div class="${rootCls}">
+      ${raw(labelHtml)}
+      <div class="${groupCls}">
+        <input class="${dateCls}" type="date" name="${name}_date"${raw(dv)}${raw(req)}>
+        <span class="${sepCls}">at</span>
+        <input class="${timeCls}" type="time" name="${name}_time"${raw(tv)}${raw(req)}>
+      </div>
+      ${raw(hintHtml)}
+    </div>"""
+```
