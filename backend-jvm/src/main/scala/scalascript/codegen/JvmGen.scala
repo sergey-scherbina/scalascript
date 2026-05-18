@@ -1166,6 +1166,15 @@ class JvmGen(
     case ta: Term.ApplyType if isPrismApplyType(ta) =>
       emitPrism(ta)
 
+    // direct[M] { stmts } — v1.8 do-notation sugar
+    case Term.Apply.After_4_6_0(
+        Term.ApplyType.After_4_6_0(Term.Name("direct"), _), argClause)
+        if argClause.values.size == 1 =>
+      argClause.values.head match
+        case block: Term.Block => emitDirectBlock(block.stats)
+        case single: Term      => emitExpr(single)
+        case _                 => "??? /* direct: expected block */"
+
     // If the term has nested effect or Focus / Prism content, walk children.
     case _ if termNeedsCustomEmit(term) => emitExprDeep(term)
 
@@ -1463,6 +1472,33 @@ class JvmGen(
     case Term.Select(qual, name) =>
       s"${emitExpr(qual)}.${name.value}"
     case other => other.syntax
+
+  // ─── direct[M] { ... } — v1.8 do-notation ────────────────────────
+
+  private def emitDirectBlock(stats: List[Stat]): String =
+    if stats.isEmpty then "()"
+    else
+      val varNames: Set[String] = stats.collect {
+        case Defn.Var.After_4_7_2(_, List(Pat.Var(n)), _, _) => n.value
+      }.toSet
+      def go(remaining: List[Stat]): String = remaining match
+        case Nil => "()"
+        case List(t: Term)  => emitExpr(t)
+        case List(other)    => s"{ ${other.syntax} }"
+        case Term.Assign(Term.Name(x), rhs) :: rest if varNames.contains(x) =>
+          s"{ $x = ${emitExpr(rhs)}\n${go(rest)} }"
+        case Term.Assign(Term.Name(x), rhs) :: rest =>
+          s"${emitExpr(rhs)}.flatMap { $x =>\n${go(rest)}\n}"
+        case Defn.Val(_, List(_: Pat.Wildcard), _, rhs) :: rest =>
+          s"${emitExpr(rhs)}.flatMap { _ =>\n${go(rest)}\n}"
+        case Defn.Val(_, List(Pat.Var(n)), _, rhs) :: rest =>
+          s"{ val ${n.value} = ${emitExpr(rhs)}\n${go(rest)} }"
+        case Defn.Var.After_4_7_2(_, List(Pat.Var(n)), _, rhs) :: rest =>
+          s"{ var ${n.value} = ${emitExpr(rhs)}\n${go(rest)} }"
+        case (t: Term) :: rest =>
+          s"{ ${emitExpr(t)}\n${go(rest)} }"
+        case _ :: rest => go(rest)
+      go(stats)
 
   /** Emit a Scala matcher closure for a `receive { case … }` block.
    *  Type: `(msg: Any) => Option[Any]` — `Some(bodyComputation)` on

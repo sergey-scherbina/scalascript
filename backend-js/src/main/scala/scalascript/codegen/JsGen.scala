@@ -5726,6 +5726,15 @@ class JsGen(
         return genFocus(app.argClause.values)
       case _ => ()
 
+    // direct[M] { stmts } — v1.8 do-notation sugar
+    app.fun match
+      case Term.ApplyType.After_4_6_0(Term.Name("direct"), _) if app.argClause.values.size == 1 =>
+        return (app.argClause.values.head match
+          case block: Term.Block => genDirectBlock(block.stats)
+          case single: Term      => genExpr(single)
+          case _                 => "undefined")
+      case _ => ()
+
     val argVals = app.argClause.values.map(genExpr)
     app.fun match
       // println / print
@@ -6428,6 +6437,33 @@ class JsGen(
       val inner = genForYieldHelper(rest, bodyJs)
       s"(() => { const $v = $rhsJs; $patJs return $inner; })()"
     case _ :: rest => genForYieldHelper(rest, bodyJs)
+
+  // ─── direct[M] { ... } — v1.8 do-notation ────────────────────────
+
+  private def genDirectBlock(stats: List[Stat]): String =
+    if stats.isEmpty then "undefined"
+    else
+      val varNames: Set[String] = stats.collect {
+        case Defn.Var.After_4_7_2(_, List(Pat.Var(n)), _, _) => n.value
+      }.toSet
+      def go(remaining: List[Stat]): String = remaining match
+        case Nil => "undefined"
+        case List(t: Term)  => genExpr(t)
+        case List(other)    => s"(() => { ${genStatInline(other)} return undefined; })()"
+        case Term.Assign(Term.Name(x), rhs) :: rest if varNames.contains(x) =>
+          s"(() => { $x = ${genExpr(rhs)}; return ${go(rest)}; })()"
+        case Term.Assign(Term.Name(x), rhs) :: rest =>
+          s"_dispatch(${genExpr(rhs)}, 'flatMap', [($x) => ${go(rest)}])"
+        case Defn.Val(_, List(_: Pat.Wildcard), _, rhs) :: rest =>
+          s"_dispatch(${genExpr(rhs)}, 'flatMap', [(_) => ${go(rest)}])"
+        case Defn.Val(_, List(Pat.Var(n)), _, rhs) :: rest =>
+          s"(() => { const ${n.value} = ${genExpr(rhs)}; return ${go(rest)}; })()"
+        case Defn.Var.After_4_7_2(_, List(Pat.Var(n)), _, rhs) :: rest =>
+          s"(() => { let ${n.value} = ${genExpr(rhs)}; return ${go(rest)}; })()"
+        case (t: Term) :: rest =>
+          s"(() => { ${genExpr(t)}; return ${go(rest)}; })()"
+        case _ :: rest => go(rest)
+      go(stats)
 
   private def genForPatBinding(pat: Pat, scrutVar: String): String = pat match
     case Pat.Var(n) if n.value == scrutVar => ""
