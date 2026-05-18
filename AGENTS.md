@@ -409,7 +409,13 @@ for weeks.  This is the explicit override of the
    "Phase 1 — SPI skeleton", "Phase 2 — IR codec").  Each
    iteration inside a stage is a session-sized unit that ends in
    a green check suite.  Commit each iteration with a meaningful
-   message and **push to the feature branch** (not to `main`).
+   message.  **If the iteration is self-contained and the full
+   check suite passes without breaking any existing
+   functionality, push it to `main` immediately and continue from
+   there** (same as the MILESTONES loop).  Push to the feature
+   branch only when the iteration is an intermediate,
+   non-shippable state (e.g. half-refactored internals, a stub
+   that makes callers fail).
 
 4. **Track progress in the plan, not the chat.**  After each
    iteration, edit the plan document in the same commit: mark
@@ -423,31 +429,44 @@ for weeks.  This is the explicit override of the
    a deferred polish), add it to `MILESTONES.md` on the feature
    branch.  It travels back to `main` with the final merge.
 
-6. **Merge to `main` only at the very end.**  When every stage
-   is complete, every iteration green, **every test passes**,
-   **all documentation is updated** (README, SPEC, MILESTONES,
-   any docs/*.md the feature touches), and the plan document
-   has nothing outstanding — then:
-     a. `git fetch origin && git rebase origin/main`
-     b. Re-run the full check suite (`sbt compile`, `sbt test`,
+6. **Land to `main` as soon as each iteration is ready.**  Don't
+   wait for the whole feature to be done.  After each iteration:
+     a. Run the full check suite (`sbt compile`, `sbt test`,
         `scala-cli conformance/run.sc`, relevant e2e smokes).
-     c. Open one merge commit (or fast-forward if linear) into
-        `main`.  Push once.
-     d. Delete the plan document or move its lessons into
-        MILESTONES, then `ExitWorktree(action: "remove")`.
+     b. If everything is green and nothing is broken,
+        `git fetch origin && git rebase origin/main`, then
+        fast-forward / merge into `main` and push immediately.
+     c. Update `MILESTONES.md` in the same commit.
+     d. Continue the next iteration (still in the worktree or
+        directly on `main` for the next small piece).
+
+   When **every** stage is complete and the feature is fully
+   done, ensure all documentation is updated (README, SPEC,
+   MILESTONES, any docs/*.md the feature touches), then delete
+   the plan document or merge its lessons into MILESTONES, and
+   `ExitWorktree(action: "remove")`.
 
 7. **Keep up with `main`.**  Periodically `git fetch origin` and
    rebase the feature branch onto current `origin/main` so
    integration at the end is small.  Resolve conflicts as they
    appear, not all at once at the end.
 
-### Why this differs from the MILESTONES loop
+### How this relates to the MILESTONES loop
 
-The MILESTONES loop pushes each item to `main` immediately
-because each item is independently shippable.  A big-feature
-branch's intermediate iterations are **not** independently
-shippable — half-an-SPI on `main` would break every existing
-backend.  So intermediate commits land on the branch (for
-durability, review, CI on the branch, and so the user can pull
-the branch to inspect WIP) but only the finished feature lands
-on `main`.
+Both workflows share the same core rule: **push to `main` as
+soon as a unit of work is independently shippable.**  The only
+difference is granularity.
+
+- MILESTONES-loop items are always shippable by design (each is
+  scoped to be so).
+- Big-feature iterations are *sometimes* shippable (a new
+  intrinsic table entry, a finished codec phase, a standalone
+  refactor that leaves callers intact) and *sometimes* not (a
+  half-migrated internal that would break existing backends).
+
+For the shippable ones: treat them exactly like a MILESTONES
+item — run the suite, rebase, push, continue.  For the
+non-shippable ones: commit on the feature branch and keep going
+until the blocking intermediate state resolves into something
+green.  The feature branch exists as a safety net for those
+moments, not as a gate for everything.
