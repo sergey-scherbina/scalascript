@@ -1439,7 +1439,7 @@ runtime, supervision is a library on top of Phase 1.
   `permanent` / `transient` / `temporary` restart classifiers.
 - 7 unit tests in `ActorSupervisionTest`; conformance `actors-supervision.ssc`.
 
-### Phase 3 — Distributed via WS (~1 week) — interpreter + JvmGen landed; JsGen partial
+### Phase 3 — Distributed via WS (~1 week) — **landed** (all three backends)
 
 Full design: [`docs/actors-dist.md §Phase 3`](docs/actors-dist.md).
 Std library module: [`std/nodes.ssc`](std/nodes.ssc).
@@ -1470,14 +1470,18 @@ WS, subprotocol `ssc-actors-v1`, heartbeat/pong, node-down), `register`/`whereis
 remote send, `remoteInbox` drain, cross-node links/monitors.  Mirrors interpreter
 architecture 1:1.
 
-**Remaining: JsGen `connectNode`** — `startNode`/`register`/`whereis` work;
-`connectNode` is a no-op (JS backend rarely used as a distributed peer).
-Deferred pending a real use case.
+**Also landed in JsGen (2026-05-18):** `connectNode` via worker thread +
+`SharedArrayBuffer` ring buffer.  Worker manages WS connection (subprotocol
+`ssc-actors-v1`, handshake, heartbeat).  Ring buffer written by worker,
+drained by scheduler each tick via `_drainPeerBuffers()`.  Remote sends
+serialised with `$t` JSON via `_serActorVal` (mirrors INT/JVM).  `startNode`
+also registers `/_ssc-actors` WS handler for inbound peers.  Requires
+`ws` npm package.
 
 | Decision | Choice |
 |---|---|
 | `startNode` binding | WS route `/_ssc-actors` on existing `serve()` — no separate TCP listener |
-| Backends | INT ✅ JVM ✅ JS (partial — no `connectNode`) |
+| Backends | INT ✅ JVM ✅ JS ✅ |
 | Scope | Full: core + `register`/`whereis` + heartbeat + node-down |
 | Serializer | JSON only (binary uPickle deferred) |
 
