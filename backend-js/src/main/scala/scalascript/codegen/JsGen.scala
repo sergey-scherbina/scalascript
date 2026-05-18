@@ -4011,6 +4011,10 @@ function _makeGenerator(genFn) {
       filter(p) { return _wrap((function*(it) { for (const v of { [Symbol.iterator]() { return it; } }) if (p(v)) yield v; })(iter2)); },
       take(n)   { return _wrap((function*(it) { let i=0; for (const v of { [Symbol.iterator]() { return it; } }) { if(i++>=n) break; yield v; } })(iter2)); },
       drop(n)   { return _wrap((function*(it) { let i=0; for (const v of { [Symbol.iterator]() { return it; } }) { if(i++<n) continue; yield v; } })(iter2)); },
+      flatMap(f){ return _wrap((function*(it) { for (const v of { [Symbol.iterator]() { return it; } }) { const inner = f(v); yield* { [Symbol.iterator]() { const i2 = inner._iter(); return { next() { const r = i2.next(); return r; } }; } }; } })(iter2)); },
+      zip(other){ return _wrap((function*(it) { const oit = other._iter(); for (const v of { [Symbol.iterator]() { return it; } }) { const ob = oit.next(); if (ob.done) break; const t = [v, ob.value]; t._isTuple=true; yield t; } })(iter2)); },
+      zipWithIndex(){ return _wrap((function*(it) { let i=0; for (const v of { [Symbol.iterator]() { return it; } }) { const t=[v,i++]; t._isTuple=true; yield t; } })(iter2)); },
+      _iter()   { return iter2; },
     };
   }
   return _wrap(iter);

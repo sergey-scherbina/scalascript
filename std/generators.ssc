@@ -15,7 +15,7 @@ spins a lightweight virtual thread (JVM/interpreter) or a native generator
 function (JS).  `suspend(v)` yields one value to the consumer.
 
 The returned `Generator[T]` supports `next()`, `foreach`, `toList`, `map`,
-`filter`, `take`, and `drop`.
+`filter`, `flatMap`, `zip`, `zipWithIndex`, `take`, and `drop`.
 
 ```scalascript
 // Create a generator — body runs in its own lightweight thread / native generator.

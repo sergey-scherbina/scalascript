@@ -73,4 +73,31 @@ val tail = generator[Int] { () =>
 }.drop(2)
 println(tail.toList)
 // List(30, 40)
+
+// flatMap — expand each element into a sub-stream
+val pairs = generator[Int] { () =>
+  suspend(1)
+  suspend(2)
+  suspend(3)
+}.flatMap { n => generator[Int] { () =>
+  suspend(n)
+  suspend(n * 10)
+}}
+println(pairs.toList)
+// List(1, 10, 2, 20, 3, 30)
+
+// zip — pair elements from two streams (stops at shorter)
+val nums = generator[Int] { () => suspend(1); suspend(2); suspend(3) }
+val strs = generator[String] { () => suspend("a"); suspend("b") }
+println(nums.zip(strs).toList)
+// List((1, a), (2, b))
+
+// zipWithIndex — attach position to each element
+val words = generator[String] { () =>
+  suspend("hello")
+  suspend("world")
+  suspend("foo")
+}
+println(words.zipWithIndex.toList)
+// List((hello, 0), (world, 1), (foo, 2))
 ```

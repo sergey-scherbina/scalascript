@@ -121,3 +121,44 @@ class GeneratorTest extends AnyFunSuite with Matchers:
       val g = generator { () => () }
       println(g.toList)
     """) shouldBe "List()"
+
+  test("generator — flatMap expands each element"):
+    captured("""
+      val g = generator { () =>
+        suspend(1)
+        suspend(2)
+        suspend(3)
+      }
+      println(g.flatMap { n => generator { () =>
+        suspend(n)
+        suspend(n * 10)
+      }}.toList)
+    """) shouldBe "List(1, 10, 2, 20, 3, 30)"
+
+  test("generator — zip pairs elements, stops at shorter"):
+    captured("""
+      val a = generator { () => suspend(1); suspend(2); suspend(3) }
+      val b = generator { () => suspend("x"); suspend("y") }
+      println(a.zip(b).toList)
+    """) shouldBe "List((1, x), (2, y))"
+
+  test("generator — zipWithIndex pairs values with indices"):
+    captured("""
+      val g = generator { () =>
+        suspend("a")
+        suspend("b")
+        suspend("c")
+      }
+      println(g.zipWithIndex.toList)
+    """) shouldBe "List((a, 0), (b, 1), (c, 2))"
+
+  test("generator — flatMap on infinite stream with take"):
+    captured("""
+      val nats = generator { () =>
+        var i = 1
+        while true do
+          suspend(i)
+          i = i + 1
+      }
+      println(nats.flatMap { n => generator { () => suspend(n); suspend(-n) }}.take(6).toList)
+    """) shouldBe "List(1, -1, 2, -2, 3, -3)"

@@ -390,8 +390,8 @@ unblocks downstream features as early as possible.
      `direct-syntax-demo.ssc`.
  14. **v1.9 — Coroutine primitive** ~ Partial.
      Phase 1 (JVM/Loom) landed; Phases 2–4 (JS, interpreter, diagnostics) pending.
- 15. **v1.10 — Generators** ~ Partial.
-     `Generator[T]` core landed; lazy combinators + demos pending.
+ 15. **v1.10 — Generators** ✓ Landed.
+     `flatMap`, `zip`, `zipWithIndex` added; all 3 backends; 4 new tests.
  16. **v1.11 — Continuation-based Async** (~2 weeks).
      Rewrite `Async.*` on top of v1.9 coroutines.  Internal
      `Computation[A]` becomes a runtime-only shim; ≥20% allocation
@@ -1874,7 +1874,12 @@ infrastructure with `Async`.
 Four phases, ~2 weeks end-to-end.  Phases 1-3 are largely
 parallel across backends; Phase 4 gates on all three.
 
-## v1.10 — Generators ~ Partial (Generator[T] landed; lazy combinators + demos status unclear)
+## v1.10 — Generators ✓ Landed
+
+**Landing notes (2026-05-18):**
+- Phase 1 ✓: `Generator[T]` with `next`, `foreach`, `toList`, `map`, `filter`, `take`, `drop` — interpreter + JvmGen + JsGen
+- Phase 2 ✓: `flatMap`, `zip`, `zipWithIndex` added to all three backends; 4 new conformance tests
+- Phase 3 ✓: `examples/generators.ssc` extended with flatMap/zip/zipWithIndex demos
 
 User-facing `Generator[T]` API built on the v1.9 coroutine
 primitive.  Lazy pull-based streams without an `Observable`

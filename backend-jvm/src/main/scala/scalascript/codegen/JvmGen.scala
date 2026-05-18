@@ -80,6 +80,7 @@ class JvmGen(
     val frontmatterRoutes = module.manifest.toList.flatMap(_.routes)
 
     sb.append(preamble)
+    sb.append(generatorRuntime)
     sb.append(htmlDslTagBindings(collectUserTopNames(blocks)))
     if effectOps.nonEmpty                                  then sb.append(effectsRuntime)
     if mutualGroups.nonEmpty                               then sb.append(mutualTcoRuntime)
@@ -4786,80 +4787,6 @@ class JvmGen(
        |  try block finally { _httpBaseUrl = priorBase; _httpTimeoutMs = priorT
        |                       _httpMaxRetries = priorR; _httpRetryDelay = priorD }
        |
-       |// ── v1.10 Generator — pull-based lazy streams via virtual threads ────────
-       |// Each Generator[A] runs its body in a virtual thread.
-       |// suspend(v) blocks the body thread until the consumer calls .next().
-       |private val _genQueueTL = new ThreadLocal[java.util.concurrent.SynchronousQueue[Option[Any]]]()
-       |
-       |private def _suspend(v: Any): Unit =
-       |  val q = _genQueueTL.get()
-       |  if q == null then throw new RuntimeException("suspend called outside a generator body")
-       |  q.put(Some(v))
-       |
-       |def suspend(v: Any): Unit = _suspend(v)
-       |
-       |class _Generator[+A](bodyFn: () => Unit):
-       |  private type Q = java.util.concurrent.SynchronousQueue[Option[Any]]
-       |  private val queue: Q = new Q()
-       |  Thread.ofVirtual().start { () =>
-       |    _genQueueTL.set(queue)
-       |    try bodyFn()
-       |    catch case _: Throwable => ()
-       |    finally try queue.put(None) catch case _ => ()
-       |  }
-       |
-       |  def next(): Option[A] = queue.take().asInstanceOf[Option[A]]
-       |
-       |  def foreach(f: A => Unit): Unit =
-       |    var item = queue.take().asInstanceOf[Option[A]]
-       |    while item.isDefined do
-       |      f(item.get)
-       |      item = queue.take().asInstanceOf[Option[A]]
-       |
-       |  def toList: List[A] =
-       |    val buf = scala.collection.mutable.ListBuffer.empty[A]
-       |    var item = queue.take().asInstanceOf[Option[A]]
-       |    while item.isDefined do
-       |      buf += item.get
-       |      item = queue.take().asInstanceOf[Option[A]]
-       |    buf.toList
-       |
-       |  def map[B](f: A => B): _Generator[B] = new _Generator[B]({ () =>
-       |    var item = queue.take().asInstanceOf[Option[A]]
-       |    while item.isDefined do
-       |      _suspend(f(item.get))
-       |      item = queue.take().asInstanceOf[Option[A]]
-       |  })
-       |
-       |  def filter(pred: A => Boolean): _Generator[A] = new _Generator[A]({ () =>
-       |    var item = queue.take().asInstanceOf[Option[A]]
-       |    while item.isDefined do
-       |      if pred(item.get) then _suspend(item.get)
-       |      item = queue.take().asInstanceOf[Option[A]]
-       |  })
-       |
-       |  def take(n: Int): _Generator[A] = new _Generator[A]({ () =>
-       |    var remaining = n
-       |    var item = queue.take().asInstanceOf[Option[A]]
-       |    while item.isDefined && remaining > 0 do
-       |      _suspend(item.get)
-       |      remaining -= 1
-       |      item = if remaining > 0 then queue.take().asInstanceOf[Option[A]] else None
-       |  })
-       |
-       |  def drop(n: Int): _Generator[A] = new _Generator[A]({ () =>
-       |    var toDrop = n
-       |    var item = queue.take().asInstanceOf[Option[A]]
-       |    while item.isDefined && toDrop > 0 do
-       |      toDrop -= 1
-       |      item = queue.take().asInstanceOf[Option[A]]
-       |    while item.isDefined do
-       |      _suspend(item.get)
-       |      item = queue.take().asInstanceOf[Option[A]]
-       |  })
-       |
-       |def generator(body: => Unit): _Generator[Any] = new _Generator[Any](() => body)
-       |
        |// Streaming variants — call handler for each line as it arrives.
        |// Uses BodyHandlers.ofLines() so lines are emitted incrementally.
        |private def _httpDoRequestStream(method: String, url: String, body: String,
@@ -5014,6 +4941,112 @@ class JvmGen(
        |  sess.awaitClose()
        |  ()
        |
+       |""".stripMargin
+
+  private val generatorRuntime: String =
+    """|
+       |// ── v1.10 Generator — pull-based lazy streams via virtual threads ────────
+       |// Each Generator[A] runs its body in a virtual thread.
+       |// suspend(v) blocks the body thread until the consumer calls .next().
+       |private val _genQueueTL = new ThreadLocal[java.util.concurrent.SynchronousQueue[Option[Any]]]()
+       |
+       |private def _suspend(v: Any): Unit =
+       |  val q = _genQueueTL.get()
+       |  if q == null then throw new RuntimeException("suspend called outside a generator body")
+       |  q.put(Some(v))
+       |
+       |def suspend(v: Any): Unit = _suspend(v)
+       |
+       |class _Generator[+A](bodyFn: () => Unit):
+       |  private type Q = java.util.concurrent.SynchronousQueue[Option[Any]]
+       |  private val queue: Q = new Q()
+       |  Thread.ofVirtual().start { () =>
+       |    _genQueueTL.set(queue)
+       |    try bodyFn()
+       |    catch case _: Throwable => ()
+       |    finally try queue.put(None) catch case _ => ()
+       |  }
+       |
+       |  def next(): Option[A] = queue.take().asInstanceOf[Option[A]]
+       |
+       |  def foreach(f: A => Unit): Unit =
+       |    var item = queue.take().asInstanceOf[Option[A]]
+       |    while item.isDefined do
+       |      f(item.get)
+       |      item = queue.take().asInstanceOf[Option[A]]
+       |
+       |  def toList: List[A] =
+       |    val buf = scala.collection.mutable.ListBuffer.empty[A]
+       |    var item = queue.take().asInstanceOf[Option[A]]
+       |    while item.isDefined do
+       |      buf += item.get
+       |      item = queue.take().asInstanceOf[Option[A]]
+       |    buf.toList
+       |
+       |  def map[B](f: A => B): _Generator[B] = new _Generator[B]({ () =>
+       |    var item = queue.take().asInstanceOf[Option[A]]
+       |    while item.isDefined do
+       |      _suspend(f(item.get))
+       |      item = queue.take().asInstanceOf[Option[A]]
+       |  })
+       |
+       |  def filter(pred: A => Boolean): _Generator[A] = new _Generator[A]({ () =>
+       |    var item = queue.take().asInstanceOf[Option[A]]
+       |    while item.isDefined do
+       |      if pred(item.get) then _suspend(item.get)
+       |      item = queue.take().asInstanceOf[Option[A]]
+       |  })
+       |
+       |  def take(n: Int): _Generator[A] = new _Generator[A]({ () =>
+       |    var remaining = n
+       |    var item = queue.take().asInstanceOf[Option[A]]
+       |    while item.isDefined && remaining > 0 do
+       |      _suspend(item.get)
+       |      remaining -= 1
+       |      item = if remaining > 0 then queue.take().asInstanceOf[Option[A]] else None
+       |  })
+       |
+       |  def drop(n: Int): _Generator[A] = new _Generator[A]({ () =>
+       |    var toDrop = n
+       |    var item = queue.take().asInstanceOf[Option[A]]
+       |    while item.isDefined && toDrop > 0 do
+       |      toDrop -= 1
+       |      item = queue.take().asInstanceOf[Option[A]]
+       |    while item.isDefined do
+       |      _suspend(item.get)
+       |      item = queue.take().asInstanceOf[Option[A]]
+       |  })
+       |
+       |  def flatMap[B](f: A => _Generator[B]): _Generator[B] = new _Generator[B]({ () =>
+       |    var item = queue.take().asInstanceOf[Option[A]]
+       |    while item.isDefined do
+       |      val inner = f(item.get)
+       |      var sub = inner.next()
+       |      while sub.isDefined do
+       |        _suspend(sub.get)
+       |        sub = inner.next()
+       |      item = queue.take().asInstanceOf[Option[A]]
+       |  })
+       |
+       |  def zip[B](other: _Generator[B]): _Generator[(A, B)] = new _Generator[(A, B)]({ () =>
+       |    var a = queue.take().asInstanceOf[Option[A]]
+       |    var b = other.next()
+       |    while a.isDefined && b.isDefined do
+       |      _suspend((a.get, b.get))
+       |      a = queue.take().asInstanceOf[Option[A]]
+       |      if a.isDefined then b = other.next()
+       |  })
+       |
+       |  def zipWithIndex: _Generator[(A, Int)] = new _Generator[(A, Int)]({ () =>
+       |    var idx = 0
+       |    var item = queue.take().asInstanceOf[Option[A]]
+       |    while item.isDefined do
+       |      _suspend((item.get, idx))
+       |      idx += 1
+       |      item = queue.take().asInstanceOf[Option[A]]
+       |  })
+       |
+       |def generator(body: => Unit): _Generator[Any] = new _Generator[Any](() => body)
        |""".stripMargin
 
   /** Free-Monad runtime for algebraic effects. Mirrors the interpreter and JS

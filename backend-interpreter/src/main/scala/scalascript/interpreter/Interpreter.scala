@@ -294,6 +294,48 @@ class Interpreter(
         }
         case _ => throw InterpretError("Generator.drop(n: Int)")
       }),
+      "flatMap" -> Value.NativeFnV("Generator.flatMap", Computation.pureFn {
+        case List(f) => startChained { ownQ =>
+          var item = queue.take()
+          while item.isDefined do
+            val inner = Computation.run(callValue(f, List(item.get), Map.empty))
+            inner match
+              case Value.InstanceV("Generator", fields) =>
+                val innerNext = fields("next")
+                var sub = Computation.run(callValue(innerNext, Nil, Map.empty))
+                while sub != Value.OptionV(None) do
+                  sub match
+                    case Value.OptionV(Some(v)) => ownQ.put(Some(v))
+                    case _ =>
+                  sub = Computation.run(callValue(innerNext, Nil, Map.empty))
+              case _ => throw InterpretError("Generator.flatMap: body must return a Generator")
+            item = queue.take()
+        }
+        case _ => throw InterpretError("Generator.flatMap(f)")
+      }),
+      "zip" -> Value.NativeFnV("Generator.zip", Computation.pureFn {
+        case List(other: Value.InstanceV) => startChained { ownQ =>
+          val otherNext = other.fields("next")
+          var a = queue.take()
+          var b = Computation.run(callValue(otherNext, Nil, Map.empty))
+          while a.isDefined && b != Value.OptionV(None) do
+            val bVal = b match { case Value.OptionV(Some(v)) => v; case _ => Value.UnitV }
+            ownQ.put(Some(Value.TupleV(List(a.get, bVal))))
+            a = queue.take()
+            b = if a.isDefined then Computation.run(callValue(otherNext, Nil, Map.empty)) else Value.OptionV(None)
+        }
+        case _ => throw InterpretError("Generator.zip(other: Generator)")
+      }),
+      "zipWithIndex" -> Value.NativeFnV("Generator.zipWithIndex", Computation.pureFn { _ =>
+        startChained { ownQ =>
+          var idx = 0
+          var item = queue.take()
+          while item.isDefined do
+            ownQ.put(Some(Value.TupleV(List(item.get, Value.IntV(idx)))))
+            idx += 1
+            item = queue.take()
+        }
+      }),
     ))
 
   private def mkPid(nodeId: String, localId: Long): Value =
