@@ -405,11 +405,27 @@ unblocks downstream features as early as possible.
      Design doc + prototype + go/no-go.  Investigates whether the
      existing typer can carry effect rows; commits to or rejects a
      v2.x algebraic-effects milestone.
- 19. **6+/C — HostCallback dispatcher** (~1 week).
+ 19. **v1.13 — Final Tagless ergonomics** (~2 weeks).
+     Land four typer features that block idiomatic typeclass usage:
+     `using` auto-resolution, context bounds, cross-file trait
+     inheritance with HKT, sealed-trait extension dispatch in INT.
+     Full design in [`docs/final-tagless.md`](docs/final-tagless.md).
+     Closes carryover items 1 + 4 from v1.1.  Unlocks idiomatic FT
+     across `std/*` and unblocks v1.14 `derives`.
+ 20. **v1.14 — Metaprogramming MVP (`inline` + `derives`)** (~2.5
+     weeks).
+     `inline def`/`val`/`if`/`match` + `compiletime.summonInline`
+     compile-time evaluator, plus Tier 1 `derives` recipes for
+     `Eq` / `Show` / `Hash` / `Order` and a handful of std
+     typeclasses (`Foldable` / `Traversable` / `Functor`).
+     Full design in [`docs/metaprogramming.md`](docs/metaprogramming.md).
+     User-defined macros (`quoted.Expr`) explicitly out of scope —
+     deferred to v2.x.  Depends on v1.13 (`Mirror` resolution).
+ 21. **6+/C — HostCallback dispatcher** (~1 week).
      Stage 6+/C from spi-followups-plan.md.  Unblocks the first
      out-of-process (.NET / WASM) backend MVP.  Parked because no
      such backend is in flight.
- 20. **v2.0 — Separate compilation** (~2-3 months).
+ 22. **v2.0 — Separate compilation** (~2-3 months).
      Multi-month architecture commitment.  Promote when at least
      one of {real package ecosystem, >30s incremental build, IDE
      demand} is true.
@@ -2051,6 +2067,220 @@ val (log, _) = prog.foldMap(testInterp).run(Log.empty)  // test
 Four phases, ~1 week.  Pure library work; no compiler changes,
 no SPI changes.  Slots between v1.11 and v1.12; can also land
 in parallel with v1.11 since they have no shared code.
+
+## v1.13 — Final Tagless ergonomics
+
+Make the FT pattern first-class in user code by landing four
+typer features that today block idiomatic typeclass usage.  The
+v1.1 stdlib is already structured in FT style under the hood —
+every helper takes a typeclass instance as an explicit parameter
+because `using` doesn't auto-resolve.  This milestone closes that
+ergonomic gap and turns idiomatic FT from "possible with care"
+into the default mode.
+
+Full design in [`docs/final-tagless.md`](docs/final-tagless.md) —
+current state vs target, the four typer dependencies, worked
+examples, coexistence with v1.8 direct-syntax / v1.11.5 Free /
+v1.12 algebraic effects, hard-no list, open questions.
+
+```scala
+// Today
+def combineAll[A](xs: List[A], m: Monoid[A]): A =
+  xs.foldLeft(m.empty)(m.combine)
+combineAll(List(1, 2, 3), intSum)         // explicit instance
+
+// After v1.13
+def combineAll[A: Monoid](xs: List[A]): A =
+  xs.foldLeft(summon[Monoid[A]].empty)(summon[Monoid[A]].combine)
+combineAll(List(1, 2, 3))                 // resolved via given intSum
+```
+
+### Phase 1 — `using` auto-resolution (INT) (~3 days)
+
+Typer pass over `Term.Apply` nodes: for each `(using T1, T2, …)`
+parameter list, walk in-scope `given` instances and select a
+unique match.  Standard Scala 3 priority rules; ambiguous →
+actionable error.  Rewrite the call site to include the resolved
+arguments before lowering.
+
+### Phase 2 — `using` auto-resolution (JS / JVM) (~2 days)
+
+JS-codegen passes typer-resolved arguments through to `_call`
+emit.  JvmGen emits the `(using …)` parameter list as-is and
+Scala 3's own resolver handles the rest.  Mostly glue; the
+typer-side work was Phase 1.
+
+### Phase 3 — Context bounds desugaring (~0.5 day)
+
+Parser-level: `[F[_]: M1: M2]` → appended `(using M1[F], M2[F])`
+parameter list.  Standard Scala 3 semantics.  Trivial once Phase
+1 lands.
+
+### Phase 4 — Cross-file trait inheritance with HKT (~3-4 days)
+
+Today `trait Traversable[T[_]] extends Functor[T], Foldable[T]`
+breaks at the JVM compile when `Functor` lives in a separate
+file.  v1.1 step 3 worked around it.  Fix the typer's import-
+resolution pass to carry trait *definitions* (not just instances
+and extensions) into the consumer's scope.
+
+### Phase 5 — Sealed-trait extension dispatch in INT (~2 days)
+
+Build a sealed-parent registry at trait/class definition time.
+`extensionDispatch` walks the parent chain when the exact-name
+lookup misses.  Closes the carryover item from v1.1 that forced
+helper functions for `Either` in steps 5 / 6.  JS already
+handles this via `_typeOf`; JVM relies on Scala's own dispatch.
+
+### Phase 6 — Conformance + std polishing (~2 days)
+
+- Six conformance tests covering the four typer dependencies
+  (see `docs/final-tagless.md` §9).
+- Rewrite `std/semigroup-monoid.ssc` helpers from explicit-pass
+  to context-bound form.  Same observable behaviour, less
+  call-site boilerplate.
+- Re-enable extension-method form of `bimap` / `handleError` for
+  `Either` (currently shipped as helpers per v1.1 carryover).
+
+### Hard-no list (locked by design — `docs/final-tagless.md` §7)
+
+- **User-defined macros** — defer to v1.14 metaprogramming MVP
+  (`inline` + `derives`) and beyond
+- **Implicit conversions** that cross effect boundaries —
+  reintroduces the two-fault-model trap (DS-7)
+- **Custom `given` priority** beyond Scala 3 rules
+- **Effect-row tracking** (`[F[_]: (Console & Logger)]`) — v1.12
+- **Auto-deriving FT instances** from concrete types — confusing
+  failure modes; explicit `given` instances are the convention
+
+### Carryover updates after this lands
+
+`Interpreter ergonomics — carried over from v1.1` section in
+MILESTONES.md gets three edits:
+
+- Item 1 (`using` auto-resolution) → marked **landed** with v1.13.
+- Item 4 (sealed-trait extension dispatch) → marked **landed**
+  with v1.13.
+- Item 2 (`Term.Ascribe`) → stays open as separate work; not
+  FT-related.
+
+### Effort
+
+Six phases, ~2 weeks end-to-end across three backends.  Phase 1
+is the critical path; Phases 2-5 can interleave with it as
+worktrees if scheduling permits.
+
+## v1.14 — Metaprogramming MVP (`inline` + `derives`)
+
+Minimum-viable metaprogramming: bring Scala 3's `inline` keyword
+(compile-time computation, type-level matching) and limited
+`derives` (auto-derive trivial typeclass instances from
+product / sum types).  Explicitly **not** user-defined macros
+(`quoted.Expr` machinery) — that's a multi-month commitment
+deferred to v2.x.
+
+Full design in [`docs/metaprogramming.md`](docs/metaprogramming.md).
+
+### Why these two and not full macros
+
+| Feature | Cost | Payoff |
+|---------|------|--------|
+| `inline def`, `inline if`, `inline match` | ~1 week typer + 3 days × 3 backends | Compile-time constants, type-directed dispatch, `summonInline` for zero-cost typeclass lookup, foundation for `derives` |
+| `derives Eq, Show, Foldable, ...` | ~1 week + tier-1 derivation recipes | Idiomatic typeclass auto-derivation; `case class Foo(a: Int, b: String) derives Eq` |
+| Full Scala 3 macros (`quoted.Expr`) | ~3-4 months across three backends | Too expensive for the v1 audience |
+
+`inline` is the **gateway**: every `derives` implementation
+internally uses `inline match` to walk product/sum type structure
+at compile time.  Without `inline`, `derives` either becomes
+heavy runtime reflection (bad) or stays unimplemented.  So
+`inline` is the prerequisite, `derives` builds on top.
+
+### Phase 1 — `inline` evaluation (~5 days)
+
+- Parse `inline def`, `inline val`, `inline if`, `inline match`,
+  `inline summon[T]`.
+- Compile-time evaluator: walks `inline`-marked AST nodes,
+  performs constant folding, type-pattern matching, and
+  inlining at the call site.
+- `compiletime.constValue[T]` for type-level literals
+  (`compiletime.constValue["foo"]: String = "foo"`).
+- `compiletime.summonInline[T]: T` — `summon` resolved at compile
+  time, fails at compile time if no instance found.
+- Conformance: constant-fold, type-match dispatch,
+  `summonInline` over typeclass.
+
+### Phase 2 — `inline` cross-backend (~3 days)
+
+The compile-time evaluator runs in `core/` before backend split;
+JS / JVM / INT all see post-inlined code.  Phase is verification
++ edge-case fixes per backend, not parallel implementations.
+
+### Phase 3 — `derives` mechanism — Tier 1 recipes (~5 days)
+
+Limited set of typeclasses auto-derivable from product/sum
+structure:
+
+- `derives Eq`     — structural equality over fields
+- `derives Show`   — Scala-default `toString` style render
+- `derives Hash`   — `##` over fields
+- `derives Order`  — lexicographic over fields (top-down
+  declaration order)
+
+Each derivation is a `given` instance produced by an `inline
+def derived` method on the typeclass companion using
+`Mirror.Of[A]` (Scala 3 standard-library handle exposing
+structural type info).  Requires v1.13 (Mirror is a typeclass
+instance, needs `using` resolution).
+
+### Phase 4 — `derives` for std typeclasses (~3 days)
+
+Wire `derives Foldable`, `derives Traversable`, `derives Functor`
+(for products with a single type-param) on top of the Tier 1
+machinery.  Conformance: `derives-foldable.ssc` proves
+auto-derivation matches hand-written instances.
+
+### Phase 5 — Conformance + std polishing (~2 days)
+
+- Six conformance tests for `inline`-specific behaviour.
+- Five for `derives` per Tier 1 typeclass.
+- Optionally: rewrite a couple of std/examples files to use
+  `derives` where applicable.
+
+### Hard-no list (locked by design)
+
+- **User-defined macros via `quoted.Expr`** — deferred to v2.x
+- **`inline def` with side effects** — must be referentially
+  transparent at compile time
+- **Custom `derives` recipes from outside std** — only blessed
+  typeclasses auto-derive in v1.14; user recipes wait for full
+  macros
+- **Type-level naturals / Peano arithmetic** — `inline` is
+  pragmatic, not Haskell-grade
+
+### Open questions (re-evaluate when first usage emerges)
+
+- **`inline if` vs runtime `if`**: when does the typer know
+  enough to fold?  Heuristic: when both branches are
+  `inline`-computable values.
+- **`inline match` exhaustiveness**: warn vs error on
+  non-exhaustive inline matches.
+- **`derives` source order** for multi-param case classes:
+  which type-param does `derives Functor` pick?  Follow Scala 3:
+  last param.
+- **Cross-file `derives`**: requires v1.13 cross-file trait
+  inheritance.
+- **Performance**: does `inline summon` win measurably over
+  runtime `summon`?  Bench when v1.14 lands.
+- **Tier 2 derivations** for v1.14.1: `derives Monoid`,
+  `derives Semigroup`, `derives Codec` — defer until Tier 1
+  proves usage patterns.
+
+### Effort
+
+Five phases, ~2.5 weeks end-to-end.  Builds on v1.13 (`Mirror`
+requires `using` resolution).  Can land in parallel with
+v1.11/v1.11.5/v1.12 since those touch the runtime layer and
+this touches the typer.
 
 ## v1.12 — Algebraic effects feasibility study
 
