@@ -6,36 +6,47 @@ exports:
   - route
   - serve
   - stop
+  - Request
+  - Response
 ---
 
 # `std.http` — HTTP server primitives
 
-`extern def` declarations for the HTTP server primitives that every
-ScalaScript backend ships.  These are **type signatures only** — the
-real implementations live in each backend's intrinsic table (Stage
-5+/B), with the per-backend runtime helpers shipped via
-`Backend.runtimePreamble` (Stage 5+/A.6 / Б-2).
-
-Status: **Stage 5+/B.1 — signature formalisation only**.  Today the
-codegens still recognise bare `route(...)` / `serve(...)` calls via
-hardcoded pattern matching.  Subsequent iterations of 5+/B migrate
-those paths to flow through the intrinsic table; users that import
-this file see no behavioural change, just a typed surface.
+Platform-neutral HTTP server primitives.  Implementations live in each
+backend's intrinsic table (Stage 5+/B); the per-backend runtime helpers
+are shipped via `Backend.runtimePreamble` (Stage 5+/A.6).
 
 ```scalascript
 // Lifecycle
 extern def serve(port: Int): Unit
 extern def stop(): Unit
 
-// Route registration — `handler` is a function from Request to Response.
+// Route registration — curried: route(method, path) { handler }
 extern def route(method: String, path: String, handler: Request => Response): Unit
 ```
 
 # Request / Response
 
-Currently `Request` and `Response` are runtime case classes the
-codegens construct via `InstanceV("Request", …)` / `InstanceV("Response", …)`.
-Stage 5+/B will lift them into proper case-class declarations
-in this file.  For now the SHAPE is documented by the existing
-example bodies under `examples/rest-api.ssc` and the auth helpers
-in `backend-interpreter/.../server/`.
+```scalascript
+// Incoming HTTP request.  All fields are populated by the backend before
+// the route handler is called; absent values are empty/None.
+case class Request(
+  method:  String,                    // "GET", "POST", …
+  path:    String,                    // decoded URL path, e.g. "/users/42"
+  headers: Map[String, String],       // header name → value (lower-cased)
+  body:    String,                    // raw request body (UTF-8)
+  form:    Map[String, String],       // application/x-www-form-urlencoded fields
+  files:   Map[String, Any],          // multipart file uploads
+  cookies: Map[String, String],       // Cookie header, parsed
+  session: Map[String, String],       // signed session payload
+  json:    Option[Any]                // parsed JSON body, or None
+)
+
+// Outgoing HTTP response.  Build with Response.json / Response.text / etc.
+// or construct directly.
+case class Response(
+  status:  Int,                       // HTTP status code, e.g. 200
+  headers: Map[String, String],       // response headers
+  body:    String                     // response body (UTF-8)
+)
+```
