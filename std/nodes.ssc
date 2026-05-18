@@ -1,0 +1,77 @@
+---
+name: std-nodes
+version: 1.0.0
+description: Distributed actor node primitives — v1.6 Phase 3
+exports:
+  - startNode
+  - connectNode
+  - register
+  - whereis
+---
+
+# std.nodes — Distributed actor nodes
+
+Phase 3 distributed actor primitives.  A ScalaScript process becomes a
+node by calling `startNode`, then connects to peers via `connectNode`.
+Messages cross node boundaries transparently with `pid ! msg`.
+
+## Quick start
+
+```text
+// node1.ssc
+import nodes.startNode
+import nodes.connectNode
+
+runActors {
+  startNode("node1@localhost:9100")
+  connectNode("ws://localhost:9200/_ssc-actors")
+  val me = self()
+  register("echo", me)
+  receive {
+    case (sender, msg) => sender ! msg
+  }
+  serve(9100)
+}
+```
+
+## API
+
+| Function | Signature | Description |
+|---|---|---|
+| `startNode` | `(nodeId: String): Unit` | Set this node's identity and register `/_ssc-actors` WS route on the active server |
+| `connectNode` | `(url: String, token: String = ""): Unit` | Connect outbound WS to a peer node |
+| `register` | `(name: String, pid: Pid): Unit` | Register a local actor under a name |
+| `whereis` | `(name: String): Option[Pid]` | Look up a locally registered actor |
+
+## Pid format
+
+In distributed mode, `Pid` carries a `nodeId` field (`""` = local):
+
+```text
+self()  // Pid(nodeId = "node1@localhost:9100", localId = 0)
+```
+
+Remote sends are transparent: `remotePid ! msg` serializes `msg` to
+JSON and delivers it over the `/_ssc-actors` WebSocket channel.
+
+## Wire protocol
+
+All peer-to-peer frames are JSON text over `/_ssc-actors` (subprotocol
+`ssc-actors-v1`).  The envelope shape:
+
+```json
+{ "t": "msg",
+  "to":   { "nodeId": "node2@host:9200", "localId": 5 },
+  "from": { "nodeId": "node1@host:9100", "localId": 3 },
+  "body": <serialized Value> }
+```
+
+## extern declarations
+
+```scalascript
+extern def startNode(nodeId: String): Unit
+extern def connectNode(url: String): Unit
+extern def connectNode(url: String, token: String): Unit
+extern def register(name: String, pid: Pid): Unit
+extern def whereis(name: String): Option[Pid]
+```
