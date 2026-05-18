@@ -1,0 +1,145 @@
+---
+name: std-actors
+version: 1.0.0
+description: Erlang-style actor supervision — v1.6 Phase 2
+exports:
+  - ChildSpec
+  - MaxRestarts
+  - Supervisor
+---
+
+# std.actors — Actor supervision
+
+Erlang-style supervision trees built on the Phase 2 actor primitives
+(`link`, `monitor`, `demonitor`, `trapExit`).
+
+## Quick start
+
+```text
+import actors.ChildSpec
+import actors.MaxRestarts
+import actors.Supervisor
+
+val spec = ChildSpec(
+  id      = "worker",
+  start   = () => spawn { () => workerBody() },
+  restart = "permanent"   // "permanent" | "transient" | "temporary"
+)
+
+val supPid = Supervisor.start(
+  List(spec),
+  "one_for_one",             // "one_for_one" | "one_for_all" | "rest_for_one"
+  MaxRestarts(3, 5000)       // 3 restarts within 5 000 ms
+)
+```
+
+## Restart classifiers
+
+| Value | Meaning |
+|---|---|
+| `"permanent"` | Always restarted, regardless of exit reason |
+| `"transient"` | Restarted only on *abnormal* exit (reason ≠ `"normal"`) |
+| `"temporary"` | Never restarted; removed from supervision on exit |
+
+## Strategies
+
+| Value | Meaning |
+|---|---|
+| `"one_for_one"` | Only the crashed child is restarted |
+| `"one_for_all"` | All supervised children are killed and restarted |
+| `"rest_for_one"` | Crashed child + all children started after it are restarted |
+
+## MaxRestarts budget
+
+If the supervisor restarts more than `n` children within `withinMs`
+milliseconds, it exceeds its budget, kills all remaining children, and
+exits with reason `"max_restart_exceeded"`.  A parent supervisor (if
+any) will receive the Exit signal and can escalate.
+
+---
+
+## Implementation
+
+```scalascript
+case class ChildSpec(id: String, start: () => Any, restart: String)
+
+case class MaxRestarts(n: Int, withinMs: Long)
+
+object Supervisor:
+  // Internal helper — defined inside the object so it's captured in
+  // the start closure when the object is imported into another module.
+  case class SupEntry(id: String, pid: Any, spec: ChildSpec)
+  def start(specs: List[ChildSpec],
+            strategy: String,
+            maxRestarts: MaxRestarts): Any =
+    spawn { () =>
+      trapExit(true)
+
+      // ── helpers ────────────────────────────────────────────────────
+
+      def spawnChild(spec: ChildSpec): Any =
+        val pid = spec.start()
+        link(pid)
+        pid
+
+      def initEntries(specs: List[ChildSpec]): List[SupEntry] =
+        specs.map(s => SupEntry(s.id, spawnChild(s), s))
+
+      def shouldRestart(restart: String, reason: Any): Boolean =
+        if restart == "permanent" then true
+        else if restart == "transient" then reason != "normal"
+        else false
+
+      // ── main supervisor loop ────────────────────────────────────────
+      // `entries` tracks currently supervised (id, pid, spec) tuples.
+      // `history` is a list of restart timestamps (ms) used to enforce
+      // the MaxRestarts budget.
+
+      def loop(entries: List[SupEntry], history: List[Long]): Unit =
+        if entries.isEmpty then ()
+        else receive {
+          case Exit(from, reason) =>
+            val nowMs = nanoTime() / 1000000
+            val pruned = history.filter(t => nowMs - t < maxRestarts.withinMs)
+            if pruned.length >= maxRestarts.n then
+              // Budget exceeded — kill survivors and propagate failure.
+              entries.foreach(e => exit(e.pid, "supervisor_shutdown"))
+              val me = self()
+              exit(me, "max_restart_exceeded")
+            else
+              val maybeEntry = entries.find(e => e.pid == from)
+              maybeEntry match
+                case None() =>
+                  loop(entries, pruned)
+                case Some(entry) =>
+                  val doRestart = shouldRestart(entry.spec.restart, reason)
+                  if strategy == "one_for_one" then
+                    if doRestart then
+                      val newPid = spawnChild(entry.spec)
+                      val newEntries = entries.map(e =>
+                        if e.pid == from then SupEntry(e.id, newPid, e.spec) else e)
+                      loop(newEntries, nowMs :: pruned)
+                    else
+                      val remaining = entries.filter(e => e.pid != from)
+                      loop(remaining, pruned)
+                  else if strategy == "one_for_all" then
+                    entries.foreach(e =>
+                      if e.pid != from then exit(e.pid, "supervisor_oneforall"))
+                    val newEntries = initEntries(specs)
+                    loop(newEntries, nowMs :: pruned)
+                  else
+                    // rest_for_one: restart crashed child + all after it
+                    val idx = entries.indexOf(entry)
+                    val before = entries.take(idx)
+                    val fromHere = entries.drop(idx)
+                    fromHere.tail.foreach(e => exit(e.pid, "supervisor_restforone"))
+                    val newTail = fromHere.map(e => {
+                      val newPid = spawnChild(e.spec)
+                      SupEntry(e.id, newPid, e.spec)
+                    })
+                    loop(before ++ newTail, nowMs :: pruned)
+        }
+
+      loop(initEntries(specs), Nil)
+    }
+```

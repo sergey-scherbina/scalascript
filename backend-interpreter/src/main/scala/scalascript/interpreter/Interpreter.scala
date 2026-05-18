@@ -2112,7 +2112,13 @@ class Interpreter(
           evalFocus(app.argClause.values)
         case Term.Select(qual, Term.Name(method)) =>
           val qualC    = eval(qual, env)
-          val argComps = app.argClause.values.map(eval(_, env))
+          // Named args (Term.Assign) must evaluate only the RHS; the full
+          // Term.Assign path at line 2338 treats them as var-assignments and
+          // returns UnitV, destroying the actual value.
+          val argComps = app.argClause.values.map {
+            case Term.Assign(_, rhs) => eval(rhs, env)
+            case other               => eval(other, env)
+          }
           qualC match
             case Pure(qualV) if argComps.forall(_.isInstanceOf[Pure]) =>
               val argVs = argComps.map { case Pure(v) => v; case _ => Value.UnitV }
@@ -2122,7 +2128,10 @@ class Interpreter(
                 threadValues(argComps)(argVals => dispatch(qualV, method, argVals, env)))
         case fun =>
           val funC     = eval(fun, env)
-          val argComps = app.argClause.values.map(eval(_, env))
+          val argComps = app.argClause.values.map {
+            case Term.Assign(_, rhs) => eval(rhs, env)
+            case other               => eval(other, env)
+          }
           funC match
             case Pure(fv) if argComps.forall(_.isInstanceOf[Pure]) =>
               val argVs = argComps.map { case Pure(v) => v; case _ => Value.UnitV }
