@@ -1,7 +1,7 @@
 ---
 name: std-http
 version: 0.1.0
-description: HTTP server + client primitives — extern declarations for route / serve / stop / tls / httpGet / httpPost / httpClient / httpGetStream / httpPostStream / wsConnect / cors / useGzip / cacheable / noCache / streamResponse / maxBodySize / sse
+description: HTTP server + client primitives — extern declarations for route / serve / stop / tls / httpGet / httpPost / httpClient / httpGetStream / httpPostStream / wsConnect / cors / useGzip / cacheable / noCache / streamResponse / maxBodySize / uploadSpoolThreshold / uploadDir / sse
 exports:
   - route
   - serve
@@ -19,9 +19,12 @@ exports:
   - noCache
   - streamResponse
   - maxBodySize
+  - uploadSpoolThreshold
+  - uploadDir
   - sse
   - Request
   - Response
+  - UploadedFile
 ---
 
 # `std.http` — HTTP server primitives
@@ -87,6 +90,13 @@ extern def streamResponse(status: Int, headers: Map[String, String])(block: (Str
 // Body size limit — reject requests whose body exceeds n bytes with 413.
 extern def maxBodySize(bytes: Int): Unit
 
+// Spool-to-disk — file parts larger than the threshold are written to a
+// temp file under uploadDir instead of held in memory.
+// Default threshold: 1 MiB.  Default dir: OS temp directory.
+// The temp file is deleted automatically after the route handler returns.
+extern def uploadSpoolThreshold(bytes: Int): Unit
+extern def uploadDir(path: String): Unit
+
 // Server-Sent Events — sets Content-Type: text/event-stream and keeps the
 // connection open while the block runs.  stream.send(data) writes
 // "data: <data>\n\n"; stream.send(event, data) also sets the event field.
@@ -103,6 +113,24 @@ extern class SseStream:
   def close(): Unit
 ```
 
+# UploadedFile
+
+```scalascript
+// Multipart file upload.  For parts ≤ uploadSpoolThreshold the raw bytes
+// are available in `bytes` (Latin-1 encoded, 1 char = 1 byte); use
+// `Buffer.from(bytes, 'latin1')` (JS) or `bytes.getBytes("ISO-8859-1")`
+// (JVM) to recover the original bytes.  For parts that were spooled to
+// disk `bytes` is empty and `path` holds the temp-file path; read with
+// java.nio.file.Files.readAllBytes / fs.readFileSync as appropriate.
+extern class UploadedFile:
+  val name:        String  // form field name
+  val filename:    String  // original filename from the browser
+  val contentType: String  // MIME type, e.g. "image/jpeg"
+  val size:        Int     // part body length in bytes
+  val bytes:       String  // raw bytes as Latin-1 String; empty when spooled
+  val path:        String  // temp-file path when spooled; "" otherwise
+```
+
 # Request / Response
 
 ```scalascript
@@ -114,7 +142,7 @@ case class Request(
   headers: Map[String, String],       // header name → value (lower-cased)
   body:    String,                    // raw request body (UTF-8)
   form:    Map[String, String],       // application/x-www-form-urlencoded fields
-  files:   Map[String, Any],          // multipart file uploads
+  files:   Map[String, Any],          // multipart file uploads → UploadedFile
   cookies: Map[String, String],       // Cookie header, parsed
   session: Map[String, String],       // signed session payload
   json:    Option[Any]                // parsed JSON body, or None

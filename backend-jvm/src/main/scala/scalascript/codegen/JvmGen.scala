@@ -2358,7 +2358,9 @@ class JvmGen(
        |  size:        Int,
        |  // ISO-8859-1 view of the original bytes (1 char = 1 byte). Round-trip
        |  // back to a byte array with `bytes.getBytes("ISO-8859-1")`.
-       |  bytes:       String
+       |  // Empty when the part was spooled to disk; use `path` then.
+       |  bytes:       String,
+       |  path:        String = "" // temp-file path when spooled; "" otherwise
        |)
        |
        |case class Request(
@@ -3362,16 +3364,17 @@ class JvmGen(
        |private def _parseMultipart(
        |    contentType: String,
        |    bodyLatin1:  String
-       |): (Map[String, String], Map[String, UploadedFile]) =
+       |): (Map[String, String], Map[String, UploadedFile], List[java.io.File]) =
        |  val boundary = "boundary=([^;]+)".r.findFirstMatchIn(contentType).map { m =>
        |    val raw = m.group(1).trim
        |    if raw.startsWith("\"") && raw.endsWith("\"") then raw.substring(1, raw.length - 1) else raw
        |  }
-       |  boundary.fold((Map.empty[String, String], Map.empty[String, UploadedFile])) { b =>
-       |    val sep   = "--" + b
-       |    val parts = bodyLatin1.split(java.util.regex.Pattern.quote(sep), -1)
-       |    val form  = scala.collection.mutable.Map.empty[String, String]
-       |    val files = scala.collection.mutable.Map.empty[String, UploadedFile]
+       |  boundary.fold((Map.empty[String, String], Map.empty[String, UploadedFile], List.empty[java.io.File])) { b =>
+       |    val sep     = "--" + b
+       |    val parts   = bodyLatin1.split(java.util.regex.Pattern.quote(sep), -1)
+       |    val form    = scala.collection.mutable.Map.empty[String, String]
+       |    val files   = scala.collection.mutable.Map.empty[String, UploadedFile]
+       |    val spooled = scala.collection.mutable.ListBuffer.empty[java.io.File]
        |    parts.drop(1).dropRight(1).foreach { raw =>
        |      val part   = raw.stripPrefix("\r\n").stripSuffix("\r\n")
        |      val sepIdx = part.indexOf("\r\n\r\n")
@@ -3389,18 +3392,32 @@ class JvmGen(
        |        val filename = "filename=\"([^\"]*)\"".r.findFirstMatchIn(disp).map(_.group(1))
        |        (name, filename) match
        |          case (Some(n), Some(fn)) =>
-       |            files(n) = UploadedFile(n, fn, ctype, partBody.length, partBody)
+       |            val (bytesStr, pathStr) =
+       |              if partBody.length.toLong > _spoolThreshold then
+       |                val tmp = java.nio.file.Files.createTempFile(
+       |                  java.nio.file.Paths.get(_uploadDir), "ssc-upload-", "").toFile
+       |                java.nio.file.Files.write(tmp.toPath, partBody.getBytes("ISO-8859-1"))
+       |                spooled += tmp
+       |                ("", tmp.getAbsolutePath)
+       |              else (partBody, "")
+       |            files(n) = UploadedFile(n, fn, ctype, partBody.length, bytesStr, pathStr)
        |          case (Some(n), None) =>
        |            form(n) = new String(partBody.getBytes("ISO-8859-1"), "UTF-8")
        |          case _ => ()
        |    }
-       |    (form.toMap, files.toMap)
+       |    (form.toMap, files.toMap, spooled.toList)
        |  }
        |
        |// ── Body size limit ───────────────────────────────────────────────────
        |@volatile private var _maxBodySizeBytes: Long = Long.MaxValue
        |def maxBodySize(n: Int): Unit = _maxBodySizeBytes = n.toLong
        |private class _BodyTooLarge extends Exception("Request Entity Too Large")
+       |
+       |// ── Upload spool-to-disk ──────────────────────────────────────────────
+       |@volatile private var _spoolThreshold: Long = 1024L * 1024L
+       |@volatile private var _uploadDir: String    = System.getProperty("java.io.tmpdir")
+       |def uploadSpoolThreshold(n: Int): Unit = _spoolThreshold = n.toLong
+       |def uploadDir(path: String): Unit      = _uploadDir = path
        |
        |// ── Streaming response sentinel ────────────────────────────────────────
        |case class _StreamResponse(
@@ -3502,13 +3519,13 @@ class JvmGen(
        |        val ct   = headers.collectFirst {
        |          case (k, v) if k.equalsIgnoreCase("Content-Type") => v
        |        }.getOrElse("")
-       |        val (form, files) =
+       |        val (form, files, _spooledTmps) =
        |          if ct.toLowerCase.startsWith("application/x-www-form-urlencoded") then
-       |            (_parseQuery(body), Map.empty[String, UploadedFile])
+       |            (_parseQuery(body), Map.empty[String, UploadedFile], Nil)
        |          else if ct.toLowerCase.startsWith("multipart/form-data") then
        |            _parseMultipart(ct, bodyLatin1)
        |          else
-       |            (Map.empty[String, String], Map.empty[String, UploadedFile])
+       |            (Map.empty[String, String], Map.empty[String, UploadedFile], Nil)
        |        val cookieHeader = headers.collectFirst {
        |          case (k, v) if k.equalsIgnoreCase("Cookie") => v
        |        }.getOrElse("")
@@ -3538,27 +3555,30 @@ class JvmGen(
        |          form, files, session, bearer, claims, basicAuth, cookies)
        |        // Tier 5 #20 — validation primitives short-circuit by
        |        // throwing _RestValidationError; convert to 400.
-       |        val _rawResult =
-       |          try r.handler(req)
-       |          catch case ve: _RestValidationError =>
-       |            Response(400,
-       |              Map("Content-Type" -> "text/plain; charset=utf-8"),
-       |              ve.getMessage)
-       |        _rawResult match
-       |          case sr: _StreamResponse =>
-       |            sr.headers.foreach((k, v) => ex.getResponseHeaders.add(k, v))
-       |            if !sr.headers.contains("Content-Type") then
-       |              ex.getResponseHeaders.add("Content-Type", "text/plain; charset=utf-8")
-       |            _applyCors(ex)
-       |            ex.sendResponseHeaders(sr.status, 0)
-       |            val _out = ex.getResponseBody
-       |            try sr.writer { chunk =>
-       |              val _b = chunk.getBytes("UTF-8"); _out.write(_b); _out.flush()
-       |            } finally _out.close()
-       |          case resp: Response =>
-       |            _writeResponse(ex, resp, rawCookieSession)
-       |          case other =>
-       |            _writeResponse(ex, Response(200, Map("Content-Type" -> "text/plain; charset=utf-8"), String.valueOf(other)), rawCookieSession)
+       |        try
+       |          val _rawResult =
+       |            try r.handler(req)
+       |            catch case ve: _RestValidationError =>
+       |              Response(400,
+       |                Map("Content-Type" -> "text/plain; charset=utf-8"),
+       |                ve.getMessage)
+       |          _rawResult match
+       |            case sr: _StreamResponse =>
+       |              sr.headers.foreach((k, v) => ex.getResponseHeaders.add(k, v))
+       |              if !sr.headers.contains("Content-Type") then
+       |                ex.getResponseHeaders.add("Content-Type", "text/plain; charset=utf-8")
+       |              _applyCors(ex)
+       |              ex.sendResponseHeaders(sr.status, 0)
+       |              val _out = ex.getResponseBody
+       |              try sr.writer { chunk =>
+       |                val _b = chunk.getBytes("UTF-8"); _out.write(_b); _out.flush()
+       |              } finally _out.close()
+       |            case resp: Response =>
+       |              _writeResponse(ex, resp, rawCookieSession)
+       |            case other =>
+       |              _writeResponse(ex, Response(200, Map("Content-Type" -> "text/plain; charset=utf-8"), String.valueOf(other)), rawCookieSession)
+       |        finally
+       |          _spooledTmps.foreach { f => try f.delete() catch case _: Throwable => () }
        |      case None =>
        |        // Fall through to a static file under the current directory
        |        // before 404'ing — mirrors the interpreter's WebServer.

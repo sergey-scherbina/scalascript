@@ -786,6 +786,16 @@ class Interpreter(
       case _ => throw InterpretError("maxBodySize(bytes: Int)")
     }
 
+    // uploadSpoolThreshold / uploadDir — configure spool-to-disk for large file parts.
+    nativeP("uploadSpoolThreshold") {
+      case List(Value.IntV(n)) => scalascript.server.WebServer.setSpoolThreshold(n.toLong); Value.UnitV
+      case _ => throw InterpretError("uploadSpoolThreshold(bytes: Int)")
+    }
+    nativeP("uploadDir") {
+      case List(Value.StringV(p)) => scalascript.server.WebServer.setUploadDir(p); Value.UnitV
+      case _ => throw InterpretError("uploadDir(path: String)")
+    }
+
     // Environment variable reader, same surface on all three backends.
     // `getenv(key)` returns the value or empty string when unset.
     // `getenv(key, default)` substitutes the default when missing/empty.

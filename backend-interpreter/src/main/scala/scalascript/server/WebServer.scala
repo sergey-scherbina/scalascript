@@ -32,6 +32,8 @@ object WebServer:
   @volatile private var _corsHeaders: List[String] = Nil
   @volatile private var _gzipEnabled = false
   @volatile private var _maxBodySizeBytes: Long = Long.MaxValue
+  @volatile private var _spoolThreshold: Long   = 1024L * 1024L
+  @volatile private var _uploadDir: String       = System.getProperty("java.io.tmpdir")
 
   def configureCors(origins: List[String], methods: List[String], hdrs: List[String]): Unit =
     _corsOrigins = origins; _corsMethods = methods; _corsHeaders = hdrs
@@ -39,6 +41,8 @@ object WebServer:
   def enableGzip(): Unit = _gzipEnabled = true
 
   def setMaxBodySize(n: Long): Unit = _maxBodySizeBytes = n
+  def setSpoolThreshold(n: Long): Unit = _spoolThreshold = n
+  def setUploadDir(path: String): Unit = _uploadDir = path
 
   def stop(): Unit =
     try _pubSock  match { case s if s != null => s.close(); case _ => () } catch case _: Throwable => ()
@@ -315,13 +319,13 @@ object WebServer:
     //   - multipart/form-data; boundary=…    → text parts to req.form,
     //                                          file parts to req.files
     val ctLower = contentType.toLowerCase
-    val (form, files): (Map[String, String], Map[String, Value]) =
+    val (form, files, _spooledTmps): (Map[String, String], Map[String, Value], List[java.io.File]) =
       if ctLower.startsWith("application/x-www-form-urlencoded") then
-        (parseQuery(body), Map.empty[String, Value])
+        (parseQuery(body), Map.empty[String, Value], Nil)
       else if ctLower.startsWith("multipart/form-data") then
         parseMultipart(contentType, bodyLatin1)
       else
-        (Map.empty[String, String], Map.empty[String, Value])
+        (Map.empty[String, String], Map.empty[String, Value], Nil)
     val cookieHeader = headers.collectFirst {
       case (Value.StringV(k), Value.StringV(v)) if k.equalsIgnoreCase("Cookie") => v
     }.getOrElse("")
@@ -392,21 +396,24 @@ object WebServer:
     //   val email = requireString(req, "email")
     //   val age   = requireInt(req, "age")
     //   ...
-    val result =
-      try entry.interpreter.invoke(entry.handler, List(req))
-      catch case ve: RestValidationError =>
-        Value.InstanceV("Response", Map(
-          "status"  -> Value.IntV(400),
-          "headers" -> Value.MapV(Map(
-            Value.StringV("Content-Type") -> Value.StringV("text/plain; charset=utf-8")
-          )),
-          "body"    -> Value.StringV(ve.getMessage)
-        ))
-    result match
-      case Value.InstanceV("StreamResponse", fields) =>
-        handleStreamResponse(fields, ex, rawCookieSession, entry.interpreter)
-      case _ =>
-        writeResponse(result, ex, rawCookieSession)
+    try
+      val result =
+        try entry.interpreter.invoke(entry.handler, List(req))
+        catch case ve: RestValidationError =>
+          Value.InstanceV("Response", Map(
+            "status"  -> Value.IntV(400),
+            "headers" -> Value.MapV(Map(
+              Value.StringV("Content-Type") -> Value.StringV("text/plain; charset=utf-8")
+            )),
+            "body"    -> Value.StringV(ve.getMessage)
+          ))
+      result match
+        case Value.InstanceV("StreamResponse", fields) =>
+          handleStreamResponse(fields, ex, rawCookieSession, entry.interpreter)
+        case _ =>
+          writeResponse(result, ex, rawCookieSession)
+    finally
+      _spooledTmps.foreach(f => try f.delete() catch case _: Throwable => ())
 
   private def handleStreamResponse(
       fields:  Map[String, scalascript.interpreter.Value],
@@ -581,17 +588,18 @@ object WebServer:
   private def parseMultipart(
       contentType: String,
       bodyLatin1:  String
-  ): (Map[String, String], Map[String, scalascript.interpreter.Value]) =
+  ): (Map[String, String], Map[String, scalascript.interpreter.Value], List[java.io.File]) =
     import scalascript.interpreter.Value
     val boundary = "boundary=([^;]+)".r.findFirstMatchIn(contentType).map { m =>
       val raw = m.group(1).trim
       if raw.startsWith("\"") && raw.endsWith("\"") then raw.substring(1, raw.length - 1) else raw
     }
-    boundary.fold((Map.empty[String, String], Map.empty[String, Value])) { b =>
-      val sep   = "--" + b
-      val parts = bodyLatin1.split(java.util.regex.Pattern.quote(sep), -1)
-      val form  = scala.collection.mutable.Map.empty[String, String]
-      val files = scala.collection.mutable.Map.empty[String, Value]
+    boundary.fold((Map.empty[String, String], Map.empty[String, Value], List.empty[java.io.File])) { b =>
+      val sep     = "--" + b
+      val parts   = bodyLatin1.split(java.util.regex.Pattern.quote(sep), -1)
+      val form    = scala.collection.mutable.Map.empty[String, String]
+      val files   = scala.collection.mutable.Map.empty[String, Value]
+      val spooled = scala.collection.mutable.ListBuffer.empty[java.io.File]
       // First chunk before the first boundary and the trailing "--" chunk
       // contain no part data — skip both.
       parts.drop(1).dropRight(1).foreach { raw =>
@@ -611,19 +619,29 @@ object WebServer:
           val filename = """filename="([^"]*)"""".r.findFirstMatchIn(disp).map(_.group(1))
           (name, filename) match
             case (Some(n), Some(fn)) =>
+              val (bytesVal, pathVal) =
+                if partBody.length.toLong > _spoolThreshold then
+                  val tmp = java.nio.file.Files.createTempFile(
+                    java.nio.file.Paths.get(_uploadDir), "ssc-upload-", "").toFile
+                  java.nio.file.Files.write(tmp.toPath, partBody.getBytes("ISO-8859-1"))
+                  spooled += tmp
+                  (Value.StringV(""), Value.StringV(tmp.getAbsolutePath))
+                else
+                  (Value.StringV(partBody), Value.StringV(""))
               files(n) = Value.InstanceV("UploadedFile", Map(
                 "name"        -> Value.StringV(n),
                 "filename"    -> Value.StringV(fn),
                 "contentType" -> Value.StringV(ctype),
                 "size"        -> Value.IntV(partBody.length),
-                "bytes"       -> Value.StringV(partBody) // bytes preserved as Latin-1 String
+                "bytes"       -> bytesVal,
+                "path"        -> pathVal
               ))
             case (Some(n), None) =>
               // text part: re-decode as UTF-8 from its byte view
               form(n) = new String(partBody.getBytes("ISO-8859-1"), "UTF-8")
             case _ => ()
       }
-      (form.toMap, files.toMap)
+      (form.toMap, files.toMap, spooled.toList)
     }
 
   private def parseQuery(q: String): Map[String, String] =

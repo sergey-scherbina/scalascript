@@ -378,10 +378,11 @@ function _mkRequest(req, params, bodyBuf) {
   const ctOrig = headers.get('content-type') || headers.get('Content-Type') || '';
   const form  = new Map();
   const files = new Map();
+  let _spooled = [];
   if (ct.startsWith('application/x-www-form-urlencoded')) {
     new URLSearchParams(body).forEach((v, k) => form.set(k, v));
   } else if (ct.startsWith('multipart/form-data')) {
-    _parseMultipart(ctOrig, bodyLatin1, form, files);
+    _spooled = _parseMultipart(ctOrig, bodyLatin1, form, files);
   }
   // Parse signed session cookie if present.
   const cookieHeader     = headers.get('cookie') || headers.get('Cookie') || '';
@@ -426,6 +427,7 @@ function _mkRequest(req, params, bodyBuf) {
     jwtClaims: claims,
     basicAuth,
     _rawCookieSession: rawCookieSession,
+    _spooled,
   };
 }
 
@@ -451,8 +453,9 @@ function _basicFromAuth(h) {
 // `UploadedFile` whose `bytes` field is still Latin-1 — round-trip back
 // to bytes with `Buffer.from(bytes, 'latin1')`.
 function _parseMultipart(contentType, bodyLatin1, form, files) {
+  const spooled = [];
   const m = /boundary=([^;]+)/.exec(contentType);
-  if (!m) return;
+  if (!m) return spooled;
   let b = m[1].trim();
   if (b.startsWith('"') && b.endsWith('"')) b = b.slice(1, -1);
   const sep = '--' + b;
@@ -474,19 +477,29 @@ function _parseMultipart(contentType, bodyLatin1, form, files) {
     const filenameM = /filename="([^"]*)"/.exec(dispLine);
     if (!nameM) continue;
     if (filenameM) {
+      let bytesVal = partBody, pathVal = '';
+      if (Buffer.byteLength(partBody, 'latin1') > _spoolThreshold) {
+        const _fs   = require('fs'), _path = require('path'), _crypto = require('crypto');
+        const _tmp  = _path.join(_uploadDir, 'ssc-upload-' + _crypto.randomBytes(8).toString('hex'));
+        _fs.writeFileSync(_tmp, Buffer.from(partBody, 'latin1'));
+        spooled.push(_tmp);
+        bytesVal = ''; pathVal = _tmp;
+      }
       files.set(nameM[1], {
         _type:       'UploadedFile',
         name:        nameM[1],
         filename:    filenameM[1],
         contentType: ctype,
         size:        partBody.length,
-        bytes:       partBody, // latin1-encoded; Buffer.from(., 'latin1') restores bytes
+        bytes:       bytesVal, // latin1-encoded; Buffer.from(., 'latin1') restores bytes
+        path:        pathVal,
       });
     } else {
       // text part: re-decode the byte view as UTF-8
       form.set(nameM[1], Buffer.from(partBody, 'latin1').toString('utf8'));
     }
   }
+  return spooled;
 }
 
 // ── Signed cookie sessions ────────────────────────────────────────────
@@ -1854,67 +1867,74 @@ function serve(port, _tlsCfg) {
               throw e;
             }
           }
-          // Streaming response — invoke the writer block with a chunk callback
-          if (result && result._streaming) {
-            const _sh = result.headers instanceof Map ? Object.fromEntries(result.headers.entries()) : {};
-            if (!_sh['Content-Type']) _sh['Content-Type'] = 'text/plain; charset=utf-8';
-            _applyCors(req.headers, _sh);
-            res.writeHead(result.status || 200, _sh);
-            result.block(chunk => res.write(chunk));
-            res.end();
-            return;
-          }
-          const headers = result && result.headers instanceof Map ? result.headers : new Map();
-          if (!headers.has('Content-Type')) headers.set('Content-Type', 'text/plain; charset=utf-8');
-          const out = headers ? Object.fromEntries(headers.entries()) : {};
-          _applyCors(req.headers, out);
-          // `withSession`/`clearSession` attach a Map at `setSession`.
-          // In stateless mode the cookie *is* the payload. In store
-          // mode we stash the payload server-side and emit only the
-          // signed SSID, plus we delete any prior SSID so the store
-          // doesn't accumulate dead entries.
-          if (result && result.setSession !== undefined) {
-            const ssetting = result.setSession;
-            let cookiePayload = ssetting;
-            if (_sessionStoreEnabled) {
-              const priorSsid = request.session && request.session.get && request.session.get('_ssid');
-              // request.session in store mode is the looked-up payload,
-              // not the raw cookie; grab the SSID off the raw cookie:
-              const rawSsid = (request._rawCookieSession && request._rawCookieSession.get)
-                ? request._rawCookieSession.get('_ssid') : null;
-              if (rawSsid) _sessionStoreDelete(rawSsid);
-              if ((ssetting instanceof Map && ssetting.size === 0) ||
-                  (!(ssetting instanceof Map) && Object.keys(ssetting || {}).length === 0)) {
-                cookiePayload = new Map();
-              } else {
-                const newSsid = _sessionStorePut(ssetting);
-                cookiePayload = new Map([['_ssid', newSsid]]);
-              }
+          try {
+            // Streaming response — invoke the writer block with a chunk callback
+            if (result && result._streaming) {
+              const _sh = result.headers instanceof Map ? Object.fromEntries(result.headers.entries()) : {};
+              if (!_sh['Content-Type']) _sh['Content-Type'] = 'text/plain; charset=utf-8';
+              _applyCors(req.headers, _sh);
+              res.writeHead(result.status || 200, _sh);
+              result.block(chunk => res.write(chunk));
+              res.end();
+              return;
             }
-            out['Set-Cookie'] = _buildSetCookie(cookiePayload);
+            const headers = result && result.headers instanceof Map ? result.headers : new Map();
+            if (!headers.has('Content-Type')) headers.set('Content-Type', 'text/plain; charset=utf-8');
+            const out = headers ? Object.fromEntries(headers.entries()) : {};
+            _applyCors(req.headers, out);
+            // `withSession`/`clearSession` attach a Map at `setSession`.
+            // In stateless mode the cookie *is* the payload. In store
+            // mode we stash the payload server-side and emit only the
+            // signed SSID, plus we delete any prior SSID so the store
+            // doesn't accumulate dead entries.
+            if (result && result.setSession !== undefined) {
+              const ssetting = result.setSession;
+              let cookiePayload = ssetting;
+              if (_sessionStoreEnabled) {
+                const priorSsid = request.session && request.session.get && request.session.get('_ssid');
+                // request.session in store mode is the looked-up payload,
+                // not the raw cookie; grab the SSID off the raw cookie:
+                const rawSsid = (request._rawCookieSession && request._rawCookieSession.get)
+                  ? request._rawCookieSession.get('_ssid') : null;
+                if (rawSsid) _sessionStoreDelete(rawSsid);
+                if ((ssetting instanceof Map && ssetting.size === 0) ||
+                    (!(ssetting instanceof Map) && Object.keys(ssetting || {}).length === 0)) {
+                  cookiePayload = new Map();
+                } else {
+                  const newSsid = _sessionStorePut(ssetting);
+                  cookiePayload = new Map([['_ssid', newSsid]]);
+                }
+              }
+              out['Set-Cookie'] = _buildSetCookie(cookiePayload);
+            }
+            // 304 short-circuit when ETag matches If-None-Match
+            const _etag = out['ETag'] || out['etag'] || '';
+            const _inm  = req.headers['if-none-match'] || '';
+            if (_etag && _inm && (_etag === _inm || `"${_etag}"` === _inm)) {
+              res.writeHead(304, {}); res.end(); return;
+            }
+            // gzip compression for text responses
+            const _body = result.body ?? '';
+            const _acceptGzip  = (req.headers['accept-encoding'] || '').includes('gzip');
+            const _contentType = out['Content-Type'] || '';
+            const _compressible = _contentType.startsWith('text/') || _contentType.includes('json') || _contentType.includes('javascript');
+            if (_gzipEnabled && _acceptGzip && _compressible && _body.length > 0) {
+              const _compressed = require('zlib').gzipSync(Buffer.from(_body, 'utf-8'));
+              out['Content-Encoding'] = 'gzip';
+              out['Content-Length'] = String(_compressed.length);
+              res.writeHead(result.status ?? 200, out);
+              res.end(_compressed);
+            } else {
+              res.writeHead(result.status ?? 200, out);
+              res.end(_body);
+            }
+            return;
+          } finally {
+            if (request._spooled && request._spooled.length > 0) {
+              const _fs = require('fs');
+              request._spooled.forEach(f => { try { _fs.unlinkSync(f); } catch (_e) {} });
+            }
           }
-          // 304 short-circuit when ETag matches If-None-Match
-          const _etag = out['ETag'] || out['etag'] || '';
-          const _inm  = req.headers['if-none-match'] || '';
-          if (_etag && _inm && (_etag === _inm || `"${_etag}"` === _inm)) {
-            res.writeHead(304, {}); res.end(); return;
-          }
-          // gzip compression for text responses
-          const _body = result.body ?? '';
-          const _acceptGzip  = (req.headers['accept-encoding'] || '').includes('gzip');
-          const _contentType = out['Content-Type'] || '';
-          const _compressible = _contentType.startsWith('text/') || _contentType.includes('json') || _contentType.includes('javascript');
-          if (_gzipEnabled && _acceptGzip && _compressible && _body.length > 0) {
-            const _compressed = require('zlib').gzipSync(Buffer.from(_body, 'utf-8'));
-            out['Content-Encoding'] = 'gzip';
-            out['Content-Length'] = String(_compressed.length);
-            res.writeHead(result.status ?? 200, out);
-            res.end(_compressed);
-          } else {
-            res.writeHead(result.status ?? 200, out);
-            res.end(_body);
-          }
-          return;
         }
         // Fall through to a static file under the cwd before 404'ing.
         if (_serveStatic(res, u.pathname)) return;
@@ -1945,6 +1965,12 @@ function stop() {
 // ── Body size limit ───────────────────────────────────────────────────────────
 let _maxBodySizeBytes = 0;
 function maxBodySize(n) { _maxBodySizeBytes = n; }
+
+// ── Upload spool-to-disk ──────────────────────────────────────────────────────
+let _spoolThreshold = 1024 * 1024; // 1 MB
+let _uploadDir = require('os').tmpdir();
+function uploadSpoolThreshold(n) { _spoolThreshold = n; }
+function uploadDir(path) { _uploadDir = path; }
 
 // ── Streaming response ────────────────────────────────────────────────────────
 function streamResponse(statusOrBlock, headersOrBlock) {

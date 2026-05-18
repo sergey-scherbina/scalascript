@@ -1296,7 +1296,11 @@ items inside the phase pushed individually.
     - D.2 — gzip on responses (#14).
     - D.3 — Cache headers + 304 short-circuit (#15).
     - D.4 — Streaming responses (#11, biggest API change).
-    - D.5 — Streaming uploads + spool-to-disk for big multipart (#12).
+    - D.5 — Streaming uploads + spool-to-disk for big multipart (#12) — **landed**:
+      `uploadSpoolThreshold(n)` / `uploadDir(path)` config; file parts
+      larger than threshold written to temp file, `UploadedFile.path` set,
+      `bytes` cleared; temp file auto-deleted after handler returns.
+      All three backends (interpreter / JvmGen / JsGen).
     - D.6 — Backend connection pool in JvmGen proxy (#16) —
       becomes moot if Phase E lands.
 
