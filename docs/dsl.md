@@ -155,23 +155,104 @@ canonical execution method.
 
 Internal eDSLs need no new compiler features.  They reuse
 host syntax.  The v1.20 milestone documents the **patterns**
-that work well so users don't reinvent each one:
+that work well so users don't reinvent each one.
 
-### 3.1 Fluent API
+### 3.0 Trivial-fluent vs constructed-fluent — locked (2026-05-18)
+
+Two different shapes hide under the "fluent API" label, and
+they have **different rules** under §2.5 reified-by-default:
+
+| Shape | Receiver | Reified? | Example |
+|-------|----------|----------|---------|
+| **Trivial fluent** | Built-in collection (`List` / `Map` / etc.) | No — receiver IS the data; nothing to reify | `xs.map(f).filter(p).take(10)` |
+| **Constructed fluent** | DSL value returned by a constructor | **Yes** — receiver is a DSL-value, follows §2.5 | `from(users).where(...).select(...)` → `Query[T]` |
+
+**Locked rule**: when a fluent chain begins with a
+**constructor function** (not a built-in collection), the
+resulting value is **reified** (a DSL data tree), and
+execution requires an explicit `.exec` (or shape-specific
+runner).  This keeps internal eDSLs consistent with §2.5.
 
 ```scala
-val q = from(users)
-  .where(_.age > 18)
+// Trivial fluent — fine, no reified-by-default issue
+val activeUsers = users.filter(_.active).map(_.name).take(10)
+// activeUsers: List[String]  — already evaluated
+
+// Constructed fluent — REIFIED per §2.5
+val q: Query[String] = from(users)
   .where(_.active)
   .select(_.name)
   .limit(10)
+// q is data, NOT a list
+
+// Execution is explicit
+val activeNames: List[String] = q.exec
+// or, inside `direct[Async]`:
+direct[Async] {
+  active = q.execAsync   // returns Async[List[String]]
+  Response.json(active)
+}
 ```
 
-Implementation: each method on `Query[T]` returns a new `Query[T]`
-(or `Query[U]` for projecting `select`).  Pattern works
-today; no new feature.
+**Why locked**: without this distinction, "internal eDSL"
+becomes a backdoor that silently violates the reified
+contract, breaking inspect / multi-interpreter / compile-
+time-evaluation guarantees.  Authors building constructed-
+fluent DSLs follow the same rules as parser combinators or
+interpolators.
 
-### 3.2 Operator-style with extension methods
+### 3.1 Trivial fluent — works today
+
+Standard receiver-on-data chaining:
+
+```scala
+val activeUsers = users.filter(_.active).map(_.name).take(10)
+```
+
+Receiver IS the data; each method is immediate; no DSL
+value to reify; no `.exec` needed.  This is just
+straight-line collection processing; the "eDSL" label is
+a misnomer at this level.  Documented here to be explicit:
+**trivial-fluent isn't subject to the reified lock**.
+
+### 3.2 Constructed fluent — reified value, explicit `.exec`
+
+```scala
+case class Query[A](
+  table:      String,
+  predicates: List[Row => Boolean] = Nil,
+  projection: Option[Row => A]     = None,
+  limit:      Option[Int]          = None
+)
+
+object Query:
+  def from(table: String): Query[Row] =
+    Query(table = table)
+
+extension [A](q: Query[A])
+  def where(p: Row => Boolean): Query[A] =
+    q.copy(predicates = q.predicates :+ p)
+
+  def select[B](f: Row => B): Query[B] =
+    q.copy(projection = Some(f.asInstanceOf[Row => B]))
+
+  def limit(n: Int): Query[A] =
+    q.copy(limit = Some(n))
+
+  def exec: List[A] = QueryRuntime.run(q)
+
+// Usage
+val q  = from("users").where(_.active).select(_.name).limit(10)
+val rs = q.exec   // explicit execution
+```
+
+`Query[A]` is data (a case class); chained methods return
+new `Query[A]` values without running anything; `.exec` is
+the only thing that touches the data store.  Inspectable
+via `q.predicates.length`, transformable via copy, testable
+via mock runtime.
+
+### 3.3 Operator-style with extension methods
 
 ```scala
 val combined: Lens[T, A] = outerLens andThen innerLens
@@ -181,8 +262,10 @@ val merged:   Map[K, V]  = m1 |+| m2  // semigroup combine, post-v1.13
 
 `extension (a: Foo) def `<symbolic>`(b: Bar): Result`
 declares the symbolic operator.  Standard Scala 3.
+Operators on DSL-values follow the same reified rule as
+§3.2 — they return new DSL values, not execute.
 
-### 3.3 Builder + DSL block
+### 3.4 Builder + DSL block
 
 ```scala
 val app = mcpServer { srv =>     // existing pattern from v1.17
@@ -199,6 +282,132 @@ val schema = describeSchema { s =>
 Pattern: a top-level constructor takes a single lambda that
 receives a builder.  Used today by `mcpServer`, `route`,
 `onWebSocket`; documented as a convention.
+
+### 3.5 Type-safe builder with phantom types (locked — `std/dsl/builders.ssc`)
+
+Common need: enforce **required fields set at compile
+time**.  Standard Scala 3 phantom-type pattern; v1.20
+Phase 5 ships a template in `std/dsl/builders.ssc`.
+
+```scala
+// State markers
+sealed trait NoUrl;     sealed trait HasUrl
+sealed trait NoMethod;  sealed trait HasMethod
+sealed trait NoBody;    sealed trait HasBody
+
+case class HttpRequestBuilder[U, M, B](
+  url:    Option[String]      = None,
+  method: Option[String]      = None,
+  body:   Option[String]      = None,
+  hdrs:   Map[String, String] = Map.empty
+):
+  def withUrl(u: String): HttpRequestBuilder[HasUrl, M, B] =
+    copy(url = Some(u))
+
+  def withMethod(m: String): HttpRequestBuilder[U, HasMethod, B] =
+    copy(method = Some(m))
+
+  def withBody(b: String): HttpRequestBuilder[U, M, HasBody] =
+    copy(body = Some(b))
+
+  def withHeader(k: String, v: String): HttpRequestBuilder[U, M, B] =
+    copy(hdrs = hdrs + (k -> v))
+
+// `build` only available when all required slots are set
+extension (b: HttpRequestBuilder[HasUrl, HasMethod, HasBody])
+  def build: HttpRequest = HttpRequest(b.url.get, b.method.get, b.body.get, b.hdrs)
+
+def httpRequest: HttpRequestBuilder[NoUrl, NoMethod, NoBody] =
+  HttpRequestBuilder()
+
+// Usage
+val req = httpRequest
+  .withUrl("https://api.example.com")
+  .withMethod("POST")
+  .withBody("""{"foo":1}""")
+  .withHeader("Authorization", "Bearer abc")
+  .build         // ✓ compiles
+
+val bad = httpRequest
+  .withUrl("https://api.example.com")
+  .withMethod("POST")
+  .build         // ✗ compile error: no `build` on HttpRequestBuilder[HasUrl, HasMethod, NoBody]
+```
+
+Std-lib helpers in `std/dsl/builders.ssc` provide
+reusable scaffolding (phantom-type aliases, common
+pattern templates).  Users define their own state types
+per DSL — phantom types aren't auto-derivable.
+
+### 3.6 Limitations — when to escape to other flavours (locked)
+
+Internal eDSLs are **bounded by Scala 3 syntax**.  What
+you **cannot** do, and what to reach for instead:
+
+| Want | Internal eDSL? | Use instead |
+|------|----------------|-------------|
+| Custom keywords (`SELECT`, `FROM`) | ❌ each is just an identifier; can't visually disambiguate from another method | Interpolator (§4) or parser combinators (§5) |
+| Custom block delimiters (`begin … end`) | ❌ only `{...}` available | External DSL (§5) |
+| Custom literal syntax (`42px`, `100%`) | Limited via case-class wrappers (`42.px`); no parsing | Interpolator (§4) — `dim"42px"` |
+| Whitespace-significant constructs | ❌ Scala ignores user whitespace | External DSL with `std/parsing/layout` (v1.20.2) |
+| Custom operator precedence | ❌ Scala 3 precedence fixed by first character | External DSL (§5) with Pratt (v1.20.x) |
+| Source-position tracking | ❌ no `Span` automatically; user must track manually | External DSL — `Parser[A]` carries `Span` per §5.6 |
+| Inspectable / transformable program tree | ✓ via constructed-fluent (§3.2) returning case-class ADT | — |
+| Compile-time validation | Partial — through `inline def` validating constructed-fluent shape; full grammar validation requires external DSL with `parser.validate` | Mix as needed |
+
+**Heuristic**: if your DSL fits naturally in Scala syntax
+(methods on values + operators), internal eDSL is the
+right call.  If users have to fight the language to
+express the natural shape, escape.
+
+### 3.7 Composing internal eDSL with other flavours
+
+Worked example combining internal eDSL (§3.2 constructed-
+fluent `Query[A]`), interpolator (§4), and direct-syntax
+(v1.8 + v1.15 `throws`):
+
+```scala
+[Query, from, exec](../std/db.ssc)         // hypothetical
+[sql](../std/sql-interpolator.ssc)         // hypothetical
+[requireString](../std/http.ssc)
+
+route("GET", "/users/:id") { req =>
+  val userId = requireString(req, "id")
+
+  direct[Either[AppError, *]] {
+    // Internal eDSL — reified Query[User] per §3.2
+    user = from("users")
+      .where(_.id == userId)
+      .first
+      .exec                            // .exec lifts Query[User] → Either[AppError, User]
+
+    // Interpolator DSL — reified SqlQuery
+    orderQ = sql"""SELECT * FROM orders
+                   WHERE user_id = ${user.id}
+                   ORDER BY date DESC
+                   LIMIT 10"""
+
+    orders = orderQ.exec               // SqlQuery → Either[AppError, List[Order]]
+
+    Response.json(Map("user" -> user, "orders" -> orders))
+  } match
+    case Right(r) => r
+    case Left(e)  => Response.status(500, e.message)
+}
+```
+
+Composition rules in play:
+
+- Each DSL produces a **reified value** (per §2.5)
+- Each DSL has its own `.exec` extension that lifts to
+  the surrounding direct-syntax `Either[AppError, *]`
+  monad (per §7.1 tentative `Exec[D, F]` typeclass —
+  the convention here is "every DSL has a typed `.exec`")
+- The direct block auto-binds `Either`-valued operations
+  (per v1.8 + v1.15 via `Monad[Either[E, *]]`)
+
+This is the **canonical 'real app' eDSL pattern**.
+Conformance test ships in v1.20 Phase 6.
 
 ## 4. Interpolator DSL — user-defined `myDsl"..."`
 
@@ -839,6 +1048,17 @@ Conformance gates the merge.
   marker trait; runtime evaluator carries the value, not
   thread-local; indentation-aware parsing built on top in
   v1.20.2
+- **Trivial-fluent vs constructed-fluent distinction** (§3.0) —
+  constructed-fluent eDSLs (those starting with a constructor
+  function, returning a DSL-value) follow §2.5 reified-by-default;
+  trivial-fluent (built-in collection chains) executes
+  immediately
+- **Type-safe builder pattern** (§3.5) — phantom-typed
+  required-field tracking; std-lib template in
+  `std/dsl/builders.ssc` (v1.20 Phase 5)
+- **Internal eDSL limitations** (§3.6) — bounded by Scala 3
+  syntax; documented escape-hatch table for when to reach
+  for interpolators (§4) or external DSL (§5)
 
 ### Tentative — likely-but-not-locked (§5.7 / §7.1)
 
@@ -947,6 +1167,14 @@ when a concrete consumer asks:
 |------|-----------|
 | `dsl-ast-round-trip.ssc` | parse → AST → pretty-print → parse equivalence |
 | `dsl-precedence.ssc` | Precedence climbing for `1 + 2 * 3` → `1 + (2 * 3)` |
+
+### Internal eDSL tests (3)
+
+| Test | Exercises |
+|------|-----------|
+| `edsl-constructed-fluent.ssc` | §3.2 `Query[A]` reified; `.exec` runs; transformations don't execute |
+| `edsl-phantom-builder.ssc` | §3.5 `HttpRequestBuilder[U, M, B]` — `build` only with all required slots; missing slot is compile error |
+| `edsl-composition.ssc` | §3.7 internal eDSL + interpolator + direct-syntax in one route handler (canonical real-app pattern) |
 
 Each test runs on all three backends; observable output
 matches exactly.
