@@ -56,6 +56,18 @@ val CoreIntrinsics: Map[QualifiedName, IntrinsicImpl] = Map(
       case _       => throw InterpretError("Some takes 1 arg")
   ),
 
+  QualifiedName("Left") -> NativeImpl((_, args) =>
+    args match
+      case List(v) => Value.InstanceV("Left", Map("value" -> coreAnyToValue(v)))
+      case _       => throw InterpretError("Left takes 1 arg")
+  ),
+
+  QualifiedName("Right") -> NativeImpl((_, args) =>
+    args match
+      case List(v) => Value.InstanceV("Right", Map("value" -> coreAnyToValue(v)))
+      case _       => throw InterpretError("Right takes 1 arg")
+  ),
+
   QualifiedName("List") -> NativeImpl((_, args) =>
     Value.ListV(args.map(coreAnyToValue))
   ),

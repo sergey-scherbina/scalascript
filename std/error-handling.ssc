@@ -1,0 +1,66 @@
+---
+name: std-error-handling
+version: 1.0.0
+description: Checked errors via throws type alias — v1.15
+exports:
+  - raise
+  - rethrow
+  - parseInt
+  - parseLong
+  - parseDouble
+  - requireNonNull
+  - divideOrError
+---
+
+# `std.error-handling` — Checked Errors via `throws`
+
+`throws` is an **infix type alias**: `A throws E = Either[E, A]`.
+
+```scalascript
+infix type throws[A, E] = Either[E, A]
+```
+
+Return `Left(e)` for the error path, or let the interpreter auto-wrap a bare
+`A` value into `Right(a)` when the declared return type is `A throws E`.
+
+## Helpers
+
+```scalascript
+// Lift an error into the error channel.
+def raise[A, E](e: E): A throws E = Left(e)
+
+// Unwrap a Right, or throw a RuntimeException for Left.
+def rethrow[A, E](r: A throws E): A =
+  r match
+    case Right(a) => a
+    case Left(e)  => throw RuntimeException(e.toString)
+```
+
+## Standard-library shims
+
+Safe wrappers for common JVM operations that can fail.
+
+```scalascript
+def parseInt(s: String): Int throws NumberFormatException =
+  try s.toInt
+  catch
+    case e: NumberFormatException => Left(e)
+
+def parseLong(s: String): Long throws NumberFormatException =
+  try s.toLong
+  catch
+    case e: NumberFormatException => Left(e)
+
+def parseDouble(s: String): Double throws NumberFormatException =
+  try s.toDouble
+  catch
+    case e: NumberFormatException => Left(e)
+
+def requireNonNull[A](a: A): A throws NullPointerException =
+  if a == null then Left(NullPointerException("null value"))
+  else a
+
+def divideOrError(a: Int, b: Int): Int throws ArithmeticException =
+  if b == 0 then Left(ArithmeticException("/ by zero"))
+  else a / b
+```
