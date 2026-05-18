@@ -859,6 +859,8 @@ class Interpreter(
         args => Perform("Async", "await", args)),
       "parallel" -> Value.NativeFnV("Async.parallel",
         args => Perform("Async", "parallel", args)),
+      "recvFrom" -> Value.NativeFnV("Async.recvFrom",
+        args => Perform("Async", "recvFrom", args)),
     ))
     // `Future(v)` — wrap a value in a Future cell.  Used by handlers
     // to materialise the result of an `async` thunk; users normally
@@ -3593,6 +3595,16 @@ class Interpreter(
         }
         resume(Value.ListV(results))
       case _ => throw InterpretError("Async.parallel(thunks: List[() => A])")
+    case "recvFrom" => args match
+      case List(ws) =>
+        val recvFn = ws match
+          case Value.InstanceV(_, fields) =>
+            fields.getOrElse("recv", throw InterpretError("Async.recvFrom: ws has no recv"))
+          case other => throw InterpretError(s"Async.recvFrom: expected ws, got $other")
+        callValue(recvFn, Nil, Map.empty) match
+          case Pure(v) => resume(v)
+          case comp    => FlatMap(comp, resume)
+      case _ => throw InterpretError("Async.recvFrom(ws)")
     case _ => throw InterpretError(s"Unknown Async operation: $op")
 
   // ── v1.6 Actors Phase 1 — cooperative scheduler ────────────────────
@@ -4249,6 +4261,16 @@ class Interpreter(
         val results = futs.map(_.get())
         resume(Value.ListV(results))
       case _ => throw InterpretError("Async.parallel(thunks: List[() => A])")
+    case "recvFrom" => args match
+      case List(ws) =>
+        val recvFn = ws match
+          case Value.InstanceV(_, fields) =>
+            fields.getOrElse("recv", throw InterpretError("Async.recvFrom: ws has no recv"))
+          case other => throw InterpretError(s"Async.recvFrom: expected ws, got $other")
+        callValue(recvFn, Nil, Map.empty) match
+          case Pure(v) => resume(v)
+          case comp    => FlatMap(comp, resume)
+      case _ => throw InterpretError("Async.recvFrom(ws)")
     case _ => throw InterpretError(s"Unknown Async operation: $op")
 
   private val parallelFutures =

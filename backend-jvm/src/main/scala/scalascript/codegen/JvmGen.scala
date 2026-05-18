@@ -267,7 +267,7 @@ class JvmGen(
     // otherwise.
     val builtins =
       (if blocksUseAsync(blocks) then
-         Set("Async.delay", "Async.async", "Async.await", "Async.parallel")
+         Set("Async.delay", "Async.async", "Async.await", "Async.parallel", "Async.recvFrom")
        else Set.empty[String]) ++
       (if blocksUseStorage(blocks) then
          Set("Storage.get", "Storage.put", "Storage.remove", "Storage.has", "Storage.keys")
@@ -5384,6 +5384,7 @@ class JvmGen(
        |private case class _AsyncIO(thunk: () => Any)
        |private case class _AwaitIO(fut: Any)
        |private case class _ParallelIO(thunks: List[() => Any])
+       |private case class _RecvFromIO(ws: Any)
        |
        |object Async:
        |  def delay(ms: Int): Any =
@@ -5410,6 +5411,13 @@ class JvmGen(
        |      coH.fromBody.put(Yielded(_ParallelIO(thunks)))
        |      coH.toBody.take()
        |    else _perform("Async", "parallel", thunks)
+       |  def recvFrom(ws: Any): Any =
+       |    val coH = _coHandleTL.get()
+       |    if coH != null then
+       |      coH.fromBody.put(Yielded(_RecvFromIO(ws)))
+       |      coH.toBody.take()
+       |    else
+       |      ws.asInstanceOf[Map[String, Any]]("recv").asInstanceOf[() => Any]()
        |
        |case class Future(value: Any)
        |
@@ -5589,6 +5597,8 @@ class JvmGen(
        |          case other     => sys.error(s"Async.await: expected Future, got $other"))
        |      case Yielded(_ParallelIO(thunks)) =>
        |        toBody.put(thunks.map(_runAsync))
+       |      case Yielded(_RecvFromIO(ws)) =>
+       |        toBody.put(ws.asInstanceOf[Map[String, Any]]("recv").asInstanceOf[() => Any]())
        |      case other =>
        |        sys.error(s"_driveAsyncCo: unexpected step: $other")
        |  sys.error("unreachable")
