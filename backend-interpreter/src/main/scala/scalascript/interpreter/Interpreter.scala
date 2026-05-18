@@ -38,7 +38,10 @@ class Interpreter(
   // than four fields.
   private val typeFieldOrder = mutable.Map.empty[String, List[String]]
   private var mainCalled   = false
-  private var placeholderIdx = 0
+  // ThreadLocal so concurrent generator virtual threads each get their own counter.
+  private val _phIdxTL: ThreadLocal[Int] = ThreadLocal.withInitial(() => 0)
+  private inline def placeholderIdx: Int          = _phIdxTL.get()
+  private inline def placeholderIdx_=(v: Int): Unit = _phIdxTL.set(v)
   // Tracks the last known source position for error messages (0-based line, 0-based column).
   private var currentSpan: Option[(Int, Int)] = None
   // Source of the code block currently being executed — used to print the
@@ -147,6 +150,94 @@ class Interpreter(
   // Per-node name → localId registry (ConcurrentHashMap default 0 means absent).
   private val nodeRegistry =
     new java.util.concurrent.ConcurrentHashMap[String, Long]()
+
+  // ── v1.10 Generator — thread-per-generator, SynchronousQueue handshake ─
+  // Each `generator { body }` spins a virtual thread that runs the body.
+  // `suspend(v)` inside the body does queue.put(Some(v)), blocking until
+  // the consumer calls .next() / .foreach() / .toList.
+  // Combinators (map/filter/take/drop) chain virtual threads in a pipeline.
+  private type GenQueue = java.util.concurrent.SynchronousQueue[Option[Value]]
+  private val _genQueueTL = new ThreadLocal[GenQueue]()
+
+  private def makeGeneratorV(queue: GenQueue): Value =
+    import scala.collection.mutable.ListBuffer
+
+    def startChained(bodyFn: GenQueue => Unit): Value =
+      val q2 = new GenQueue()
+      Thread.ofVirtual().start { () =>
+        _genQueueTL.set(q2)
+        try bodyFn(q2)
+        catch case _: Throwable => ()
+        finally try q2.put(None) catch case _ => ()
+      }
+      makeGeneratorV(q2)
+
+    Value.InstanceV("Generator", Map(
+      "next" -> Value.NativeFnV("Generator.next", Computation.pureFn { _ =>
+        Value.OptionV(queue.take())
+      }),
+      "foreach" -> Value.NativeFnV("Generator.foreach", Computation.pureFn {
+        case List(f) =>
+          var item = queue.take()
+          while item.isDefined do
+            Computation.run(callValue(f, List(item.get), Map.empty))
+            item = queue.take()
+          Value.UnitV
+        case _ => throw InterpretError("Generator.foreach(f)")
+      }),
+      "toList" -> Value.NativeFnV("Generator.toList", Computation.pureFn { _ =>
+        val buf = ListBuffer[Value]()
+        var item = queue.take()
+        while item.isDefined do
+          buf += item.get
+          item = queue.take()
+        Value.ListV(buf.toList)
+      }),
+      "map" -> Value.NativeFnV("Generator.map", Computation.pureFn {
+        case List(f) => startChained { ownQ =>
+          var item = queue.take()
+          while item.isDefined do
+            val mapped = Computation.run(callValue(f, List(item.get), Map.empty))
+            ownQ.put(Some(mapped))
+            item = queue.take()
+        }
+        case _ => throw InterpretError("Generator.map(f)")
+      }),
+      "filter" -> Value.NativeFnV("Generator.filter", Computation.pureFn {
+        case List(pred) => startChained { ownQ =>
+          var item = queue.take()
+          while item.isDefined do
+            if Computation.run(callValue(pred, List(item.get), Map.empty)) == Value.BoolV(true) then
+              ownQ.put(Some(item.get))
+            item = queue.take()
+        }
+        case _ => throw InterpretError("Generator.filter(pred)")
+      }),
+      "take" -> Value.NativeFnV("Generator.take", Computation.pureFn {
+        case List(Value.IntV(n)) => startChained { ownQ =>
+          var remaining = n
+          var item = queue.take()
+          while item.isDefined && remaining > 0 do
+            ownQ.put(Some(item.get))
+            remaining -= 1
+            item = if remaining > 0 then queue.take() else None
+        }
+        case _ => throw InterpretError("Generator.take(n: Int)")
+      }),
+      "drop" -> Value.NativeFnV("Generator.drop", Computation.pureFn {
+        case List(Value.IntV(n)) => startChained { ownQ =>
+          var toDrop = n.toInt
+          var item = queue.take()
+          while item.isDefined && toDrop > 0 do
+            toDrop -= 1
+            item = queue.take()
+          while item.isDefined do
+            ownQ.put(Some(item.get))
+            item = queue.take()
+        }
+        case _ => throw InterpretError("Generator.drop(n: Int)")
+      }),
+    ))
 
   private def mkPid(nodeId: String, localId: Long): Value =
     Value.InstanceV("Pid", Map("nodeId" -> Value.StringV(nodeId), "localId" -> Value.IntV(localId)))
@@ -1962,6 +2053,28 @@ class Interpreter(
       case _ => throw InterpretError("whereis(name: String): Option[Pid]")
     })
 
+    // ── v1.10 Generator — generator { body } / suspend(v) ──────────────
+    globals("generator") = Value.NativeFnV("generator", {
+      case List(thunk) =>
+        val queue = new GenQueue()
+        Thread.ofVirtual().start { () =>
+          _genQueueTL.set(queue)
+          try Computation.run(callValue(thunk, Nil, Map.empty))
+          catch case _: Throwable => ()
+          finally try queue.put(None) catch case _ => ()
+        }
+        Pure(makeGeneratorV(queue))
+      case _ => throw InterpretError("generator(body: => Unit)")
+    })
+    globals("suspend") = Value.NativeFnV("suspend", {
+      case List(v) =>
+        val q = _genQueueTL.get()
+        if q == null then throw InterpretError("suspend called outside a generator body")
+        q.put(Some(v))
+        Pure(Value.UnitV)
+      case _ => throw InterpretError("suspend(v)")
+    })
+
     // ── Reactive primitives: Signal / computed / effect ────────────────
     globals("Signal") = Value.NativeFnV("Signal", {
       case List(init) => Pure(makeSignal(init))
@@ -2792,10 +2905,21 @@ class Interpreter(
     case t: Term.For =>
       evalForDo(t.enumsBlock.enums, t.body, env, Map.empty).map(_ => Value.UnitV)
 
-    // while cond do body  — refresh env from globals each iteration so mutations are visible
+    // while cond do body  — refresh env from globals each iteration so mutations are visible.
+    // Snapshot globals at loop entry: only update a key on subsequent iterations if its
+    // globals value CHANGED since entry (i.e., was written by Term.Assign).  This prevents
+    // a pre-existing globals entry (e.g. the HTML `<a>` tag) from clobbering a local
+    // `var a = 0` that happens to shadow it.
     case t: Term.While =>
+      val entrySnap: Map[String, Value] = env.iterator.flatMap { (k, _) =>
+        globals.get(k).map(k -> _)
+      }.toMap
       def loop: Computation =
-        val freshEnv = env.map { (k, v) => k -> globals.getOrElse(k, v) }
+        val freshEnv = env.map { (k, v) =>
+          globals.get(k) match
+            case Some(gv) if entrySnap.get(k).forall(_ != gv) => k -> gv
+            case _                                             => k -> v
+        }
         eval(t.expr, freshEnv).flatMap {
           case Value.BoolV(true) => eval(t.body, freshEnv).flatMap(_ => loop)
           case _                 => Pure(Value.UnitV)

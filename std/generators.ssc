@@ -1,0 +1,27 @@
+---
+name: std-generators
+version: 0.1.0
+description: Pull-based lazy streams — generator { body } / suspend(v) + Generator[T] combinators
+exports:
+  - generator
+  - suspend
+  - Generator
+---
+
+# `std.generators` — Pull-based lazy streams
+
+Platform-neutral pull-based lazy streams.  Each `generator { () => ... }` block
+spins a lightweight virtual thread (JVM/interpreter) or a native generator
+function (JS).  `suspend(v)` yields one value to the consumer.
+
+The returned `Generator[T]` supports `next()`, `foreach`, `toList`, `map`,
+`filter`, `take`, and `drop`.
+
+```scalascript
+// Create a generator — body runs in its own lightweight thread / native generator.
+// Call suspend(v) inside the body to yield each value.
+extern def generator[T](body: () => Unit): Generator[T]
+
+// Yield one value from inside a generator body.
+extern def suspend[T](value: T): Unit
+```

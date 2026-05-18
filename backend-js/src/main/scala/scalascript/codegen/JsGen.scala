@@ -3550,6 +3550,27 @@ function _runActors(bodyFn) {
   return rootResult;
 }
 
+// ── v1.10 Generator — pull-based lazy streams via JS native generators ────
+// generator { () => ...; suspend(v); ... } lowers to
+//   _makeGenerator(function*() { ...; yield v; ... })
+// The returned object wraps the JS iterator with the ScalaScript API.
+function _makeGenerator(genFn) {
+  const iter = genFn();
+  function _wrap(iter2) {
+    return {
+      next()    { const r = iter2.next(); return r.done ? null : { _isSome: true, _value: r.value }; },
+      nextOpt() { const r = iter2.next(); return r.done ? _None : _Some(r.value); },
+      foreach(f) { for (const v of { [Symbol.iterator]() { return iter2; } }) f(v); },
+      toList()  { const a = []; for (const v of { [Symbol.iterator]() { return iter2; } }) a.push(v); return a; },
+      map(f)    { return _wrap((function*(it) { for (const v of { [Symbol.iterator]() { return it; } }) yield f(v); })(iter2)); },
+      filter(p) { return _wrap((function*(it) { for (const v of { [Symbol.iterator]() { return it; } }) if (p(v)) yield v; })(iter2)); },
+      take(n)   { return _wrap((function*(it) { let i=0; for (const v of { [Symbol.iterator]() { return it; } }) { if(i++>=n) break; yield v; } })(iter2)); },
+      drop(n)   { return _wrap((function*(it) { let i=0; for (const v of { [Symbol.iterator]() { return it; } }) { if(i++<n) continue; yield v; } })(iter2)); },
+    };
+  }
+  return _wrap(iter);
+}
+
 // ── Storage: built-in key-value effect ────────────────────────────────────
 //
 // `Storage.{get,put,remove,has,keys}` produce `_Perform("Storage", op,
@@ -4711,6 +4732,40 @@ class JsGen(
         // After each non-last stat, continue with remaining
       }
 
+  // ── Generator body emitter ────────────────────────────────────────────
+  // Emits a `function*() { ... }` with `suspend(v)` → `yield v` and no
+  // IIFE wrapping for blocks (yield must be lexically in the function*).
+  private def genGeneratorBody(t: Term): String =
+    s"function*() {\n${genGenStmt(t)}\n}"
+
+  private def genGenStmt(t: Term): String = t match
+    case Term.Block(stats) => stats.map(genGenStatItem).mkString("\n")
+    case s: Stat           => genGenStatItem(s)
+
+  private def genGenStatItem(s: Stat): String = s match
+    case Defn.Val(_, List(Pat.Var(n)), _, rhs) =>
+      s"  const ${n.value} = ${genGenExpr(rhs)};"
+    case Defn.Var.After_4_7_2(_, List(Pat.Var(n)), _, rhs) =>
+      s"  let ${n.value} = ${genGenExpr(rhs)};"
+    case Term.Assign(Term.Name(n), rhs) =>
+      s"  $n = ${genGenExpr(rhs)};"
+    case t: Term.While =>
+      val bodyStr = genGenStmt(t.body)
+      s"  while (${genExpr(t.expr)}) {\n$bodyStr\n  }"
+    case t: Term.If =>
+      val elseStr = t.elsep match
+        case Lit.Unit() => ""
+        case ep         => s" else {\n${genGenStmt(ep)}\n  }"
+      s"  if (${genExpr(t.cond)}) {\n${genGenStmt(t.thenp)}\n  }$elseStr"
+    case t: Term => s"  ${genGenExpr(t)};"
+    case _       => s"  ${genStatInline(s)}"
+
+  private def genGenExpr(t: Term): String = t match
+    case Term.Apply.After_4_6_0(Term.Name("suspend"), argClause) if argClause.values.size == 1 =>
+      s"(yield ${genExpr(argClause.values.head.asInstanceOf[Term])})"
+    case Term.Block(stats) => stats.map(genGenStatItem).mkString("\n")
+    case _                 => genExpr(t)
+
   private def genBlockAsIife(stats: List[Stat]): String =
     if stats.isEmpty then "undefined"
     else if stats.length == 1 then
@@ -5149,6 +5204,17 @@ class JsGen(
     case Term.Apply.After_4_6_0(Term.Name("whereis"), argClause)
         if argClause.values.size == 1 =>
       s"Actor.whereis(${genExpr(argClause.values.head.asInstanceOf[Term])})"
+    // v1.10 Generator — generator { () => body } / suspend(v)
+    case Term.Apply.After_4_6_0(Term.Name("generator"), argClause)
+        if argClause.values.size == 1 =>
+      val bodyJs = argClause.values.head match
+        case Term.Function.After_4_6_0(_, body) =>
+          genGeneratorBody(body.asInstanceOf[Term])
+        case other => s"function*() { return ${genExpr(other.asInstanceOf[Term])}; }"
+      s"_makeGenerator($bodyJs)"
+    case Term.Apply.After_4_6_0(Term.Name("suspend"), argClause)
+        if argClause.values.size == 1 =>
+      s"(yield ${genExpr(argClause.values.head.asInstanceOf[Term])})"
 
     // Special forms: computed / effect — wrap the by-name body as a
     // zero-arg thunk so the reactive scheduler can rerun it when its
@@ -5569,6 +5635,17 @@ class JsGen(
     case Term.Apply.After_4_6_0(Term.Name("whereis"), argClause)
         if argClause.values.size == 1 =>
       s"Actor.whereis(${genExpr(argClause.values.head.asInstanceOf[Term])})"
+    // v1.10 Generator inside CPS body
+    case Term.Apply.After_4_6_0(Term.Name("generator"), argClause)
+        if argClause.values.size == 1 =>
+      val bodyJs = argClause.values.head match
+        case Term.Function.After_4_6_0(_, body) =>
+          genGeneratorBody(body.asInstanceOf[Term])
+        case other => s"function*() { return ${genExpr(other.asInstanceOf[Term])}; }"
+      s"_makeGenerator($bodyJs)"
+    case Term.Apply.After_4_6_0(Term.Name("suspend"), argClause)
+        if argClause.values.size == 1 =>
+      s"(yield ${genExpr(argClause.values.head.asInstanceOf[Term])})"
 
     // Nested computed / effect inside CPS body — same wrapping as the
     // non-CPS form: by-name body becomes a zero-arg thunk.
