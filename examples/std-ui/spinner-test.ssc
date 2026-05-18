@@ -1,0 +1,17 @@
+---
+name: spinner-test
+description: Unit tests for the Spinner component — run with `ssc test`.
+---
+
+# Spinner tests
+
+[Spinner](./spinner.ssc)
+
+```scalascript
+test("default render is non-empty", () => Spinner.render("md").nonEmpty)
+test("sm render contains size class", () => Spinner.render("sm").contains("sm"))
+test("lg render contains size class", () => Spinner.render("lg").contains("lg"))
+test("render has role=status", () => Spinner.render("md").contains("role=\"status\""))
+test("css is non-empty", () => Spinner.css.nonEmpty)
+test("css contains animation", () => Spinner.css.contains("animation"))
+```

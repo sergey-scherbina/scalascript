@@ -1273,7 +1273,10 @@ class Interpreter(
 
   /** Inject a named value into the global scope before (or after) `run`.
    *  Used by external runners (e.g. `ssc test`) to seed builtins that the
-   *  module can call freely, without subclassing the interpreter. */
+   *  module can call freely, without subclassing the interpreter.
+   *  Injecting before `run()` is safe: `initBuiltins()` (called inside `run`)
+   *  only adds standard entries and never clears the map, so injected globals
+   *  with non-standard names survive untouched. */
   def injectGlobal(name: String, value: Value): Unit = globals(name) = value
   /** Extension methods registered by this interpreter, exposed so that
    *  parents can re-register them when importing a child module — the
