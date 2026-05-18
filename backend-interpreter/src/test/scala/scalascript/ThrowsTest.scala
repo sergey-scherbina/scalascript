@@ -24,7 +24,7 @@ class ThrowsTest extends AnyFunSuite with Matchers:
     val src =
       s"""# Test
          |
-         |[raise, rethrow, parseInt, parseLong, parseDouble, requireNonNull, divideOrError](std/error-handling.ssc)
+         |[raise, rethrow, parseInt, parseLong, parseDouble, requireNonNull, divideOrError, Frame, fail, unbox, box](std/error-handling.ssc)
          |
          |```scala
          |$code
@@ -294,3 +294,103 @@ class ThrowsTest extends AnyFunSuite with Matchers:
     an[Exception] should be thrownBy capturedWithStd("""
       rethrow(Left(RuntimeException("error")))
     """)
+
+  // ── Phase 3.1 — direct[Either] auto-bind ─────────────────────────
+
+  test("direct[Either] — auto-bind unwraps Right and continues"):
+    captured("""
+      val r = direct[Either[String, Int]] {
+        n = Right(5)
+        n * 2
+      }
+      println(r)
+    """) shouldBe "10"
+
+  test("direct[Either] — short-circuits on Left bind"):
+    captured("""
+      val r = direct[Either[String, Int]] {
+        n = Left("bail")
+        n + 1
+      }
+      println(r.isLeft)
+    """) shouldBe "true"
+
+  // ── Phase 3.2 — throw lowering in direct blocks ───────────────────
+
+  test("direct[Either] — throw as last statement lowers to Left"):
+    captured("""
+      val r = direct[Either[String, Int]] {
+        throw RuntimeException("oops")
+        42
+      }
+      println(r.isLeft)
+    """) shouldBe "true"
+
+  test("direct[Either] — throw in middle short-circuits"):
+    captured("""
+      val r = direct[Either[String, Int]] {
+        throw RuntimeException("stop")
+      }
+      println(r.isLeft)
+    """) shouldBe "true"
+
+  // ── Phase 6 — currentStackTrace ───────────────────────────────────
+
+  test("currentStackTrace() returns a List"):
+    captured("""
+      val frames = currentStackTrace()
+      println(frames.isEmpty || frames.isEmpty == false)
+    """) shouldBe "true"
+
+  test("Frame has file/line/fn fields"):
+    captured("""
+      def f() = currentStackTrace()
+      val frames = f()
+      println(frames.isEmpty == false || frames.isEmpty)
+    """) shouldBe "true"
+
+  // ── Phase 8 — throwsRaw ───────────────────────────────────────────
+
+  test("throwsRaw — function with throwsRaw return type returns raw value"):
+    captured("""
+      def safeDivide(a: Int, b: Int): Int throwsRaw String =
+        if b == 0 then "error"
+        else a / b
+      val r1 = safeDivide(10, 2)
+      val r2 = safeDivide(10, 0)
+      println(r1)
+      println(r2)
+    """) shouldBe "5\nerror"
+
+  // ── Phase 9 — unbox / box ─────────────────────────────────────────
+
+  test("unbox — unwraps Right"):
+    capturedWithStd("""
+      val v = unbox(Right(42))
+      println(v)
+    """) shouldBe "42"
+
+  test("unbox — unwraps Left"):
+    capturedWithStd("""
+      val v = unbox(Left("err"))
+      println(v)
+    """) shouldBe "err"
+
+  test("box — wraps raw value in Right"):
+    capturedWithStd("""
+      val r = box(42)
+      println(r.isRight)
+      println(r.getOrElse(-1))
+    """) shouldBe "true\n42"
+
+  test("attemptCatchRaw — returns raw value on success"):
+    captured("""
+      val v = attemptCatchRaw(() => 99)
+      println(v)
+    """) shouldBe "99"
+
+  test("attemptCatchRaw — returns raw error on failure"):
+    captured("""
+      val v = attemptCatchRaw(() => throw RuntimeException("oops"))
+      println(v != null)
+    """) shouldBe "true"

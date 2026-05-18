@@ -424,7 +424,7 @@ unblocks downstream features as early as possible.
      Full design in [`docs/metaprogramming.md`](docs/metaprogramming.md).
      User-defined macros (`quoted.Expr`) explicitly out of scope —
      deferred to v2.x.  Depends on v1.13 (`Mirror` resolution).
- 21. **v1.15 — Checked errors via `throws`** (~13 days).
+ 21. **v1.15 — Checked errors via `throws`** ✓ Landed.
      Dual-encoding: canonical `infix type throws[A, E] = Either[E, A]`
      (direct-syntax-integrated, monadic, ergonomic) plus opt-in
      `infix type throwsRaw[A, E] = A | E` (zero-allocation; preserves
@@ -2319,7 +2319,7 @@ requires `using` resolution).  Can land in parallel with
 v1.11/v1.11.5/v1.12 since those touch the runtime layer and
 this touches the typer.
 
-## v1.15 — Checked errors via `throws` type alias — ~ Partial (Phases 1+2+4+5 Landed; Phases 3+6+7+8+9 pending)
+## v1.15 — Checked errors via `throws` type alias — ✓ Landed (Phases 1+2+3+4+5+6+8+9; Phase 7 deferred)
 
 Closes the "every helper hand-rolls its own `Either`-wrapping
 convention" gap.  Ships an Either-encoded `throws[A, E]` type
@@ -2342,7 +2342,16 @@ Full design in [`docs/error-handling.md`](docs/error-handling.md).
   (catches `ScriptException` + any JVM `Throwable`); exception constructors
   (`RuntimeException`, `NumberFormatException`, `ArithmeticException`, etc.).
 - **Phase 5** ✓ — `attemptCatch(thunk)` native function; `raise` / `rethrow` helpers.
-- **35 conformance tests** green; full 324-test suite passes.
+- **Phase 3** ✓ — `direct[Either]` throw-lowering: `Term.Throw` inside direct blocks lowers
+  to `Pure(Left(v))` via `_insideDirectBlock` thread-local; auto-bind short-circuit already
+  worked via `Left.flatMap` dispatch (Phase 3.3 try-catch lowering deferred).
+- **Phase 6** ✓ — `HasStackTrace` trait + `Frame(file, line, fn)` case class; `callStack`
+  `ArrayBuffer` in interpreter pushed/popped in `callFun`; `currentStackTrace()` native.
+- **Phase 8** ✓ — `infix type throwsRaw[A, E] = A | E` type alias in stdlib; functions with
+  `throwsRaw` return type return values as-is (default behaviour — no interpreter changes).
+- **Phase 9** ✓ — `unbox`, `box` helpers in `std/error-handling.ssc`; `attemptCatchRaw`
+  native function registered in `initBuiltins`.
+- **47 conformance tests** green; full 336-test suite passes.
 
 ```scala
 infix type throws[A, E] = Either[E, A]

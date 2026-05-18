@@ -10,6 +10,11 @@ exports:
   - parseDouble
   - requireNonNull
   - divideOrError
+  - Frame
+  - fail
+  - throwsRaw
+  - unbox
+  - box
 ---
 
 # `std.error-handling` — Checked Errors via `throws`
@@ -63,4 +68,34 @@ def requireNonNull[A](a: A): A throws NullPointerException =
 def divideOrError(a: Int, b: Int): Int throws ArithmeticException =
   if b == 0 then Left(ArithmeticException("/ by zero"))
   else a / b
+```
+
+## HasStackTrace
+
+```scalascript
+case class Frame(file: String, line: Int, fn: String)
+
+trait HasStackTrace:
+  def stackTrace: List[Frame]
+
+def fail[E](e: E): Nothing throws E = Left(e)
+
+def currentStackTrace(): List[Frame] = currentStackTrace()
+```
+
+## throwsRaw
+
+```scalascript
+infix type throwsRaw[A, E] = A | E
+```
+
+## box / unbox / attemptCatchRaw
+
+```scalascript
+def unbox[A, E](boxed: A throws E): A | E =
+  boxed match
+    case Right(a) => a
+    case Left(e)  => e
+
+def box[A, E](raw: A): A throws E = Right(raw)
 ```
