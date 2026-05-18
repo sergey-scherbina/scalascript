@@ -2448,20 +2448,45 @@ nothing.
 - `E` restricted to `Throwable` subtypes (works over any `E`)
 - Effect-row tracking for errors (v1.12 algebraic effects territory)
 
+### Locked policies (`docs/error-handling.md` §2.5)
+
+Four items previously carrying recommendations are now locked:
+
+- **Adapter naming**: `attemptCatch[E <: Throwable] { … }`
+  (Either form) + `attemptCatchRaw[E <: Throwable] { … }`
+  (union form).  `Raw` suffix mirrors `throwsRaw`.
+- **Stack-trace mixin**: `trait HasStackTrace { def stackTrace:
+  List[Frame] }` — opt-in.  Std also ships `trait Error
+  extends HasStackTrace` as a convenience for the common case.
+  Always-on capture rejected (~1-5% function-call overhead).
+- **Raw-form shim policy**: std shims ship in `throws` form
+  only by default.  `Raw`-companions added on case-by-case
+  basis when profiling demonstrates measurable Either-box
+  overhead on a specific helper.  Never speculative.
+- **`throwsRaw` runtime-distinguishability**: documented
+  limitation — `throwsRaw[Int, Int]` is a compile error
+  (Scala 3 unions need testable members).  Escape hatch is
+  `throws[A, E]`, which explicitly tags both sides.
+
 ### Open questions (carry into design iteration)
 
-- Final std-shim list for v1.15
-- Naming: `attemptCatch` vs `safeCall` vs `catching`
-- Stack-trace verbosity tuning (collapse synthetic frames?)
-- `HasStackTrace` vs `extends Error` std convention
-- Capture cost on hot paths — measure when v1.15 lands
-- Cross-backend trace content (fn name normalisation)
-- When (if ever) to add `Raw`-form shims (`parseIntRaw` etc.)
-  — speculative basis is rejected; add only when profiling
-  shows a real benefit
-- `throwsRaw` interactions with overloading / method
-  dispatch — Scala 3 union restriction (`A` and `E` must be
-  runtime-distinguishable) — document the failure mode
+- Final exact std-shim list for v1.15 — tentative:
+  `parseInt`, `parseLong`, `parseDouble`, `requireNonNull`,
+  `divideOrError`.  Lock at implementation time when edge
+  cases (`parseHex`, `parseTimestamp`, …) surface specific
+  asks.
+- Stack-trace verbosity tuning — collapse synthetic frames
+  (trampoline / coroutine machinery) into user view, or
+  `--trace=internal` flag for unfiltered?  Operational
+  decision; defer until v1.15 lands and users complain.
+- Capture cost on hot paths — measure when v1.15 lands; add
+  `noTrace` modifier if overhead surfaces.
+- Cross-backend `fn`-name normalisation — JVM mangled vs JS
+  source vs INT definition site.  Tackle when first
+  diagnostic mismatch surfaces.
+- Java/Scala interop on the IDE side — `throws` is a pure
+  type alias, runtime is `Either[E, A]`; document for v2.0
+  separate compilation.
 
 ### Effort
 
