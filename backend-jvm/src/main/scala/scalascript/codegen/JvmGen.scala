@@ -4601,6 +4601,15 @@ class JvmGen(
        |def httpPost(url: String, body: String, headers: Map[String, String] = Map.empty): Any =
        |  _httpDoRequest("POST", url, body, headers)
        |
+       |def httpPut(url: String, body: String, headers: Map[String, String] = Map.empty): Any =
+       |  _httpDoRequest("PUT", url, body, headers)
+       |
+       |def httpPatch(url: String, body: String, headers: Map[String, String] = Map.empty): Any =
+       |  _httpDoRequest("PATCH", url, body, headers)
+       |
+       |def httpDelete(url: String, headers: Map[String, String] = Map.empty): Any =
+       |  _httpDoRequest("DELETE", url, "", headers)
+       |
        |def httpClient(baseUrl: String)(block: => Any): Any =
        |  val priorBase = _httpBaseUrl; val priorT = _httpTimeoutMs
        |  _httpBaseUrl = baseUrl

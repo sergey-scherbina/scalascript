@@ -561,6 +561,27 @@ class Interpreter(
         httpDoRequest("POST", url, body, headersArg(hdrs))
       case _ => throw InterpretError("httpPost(url, body[, headers])")
     }
+    nativeP("httpPut") {
+      case List(Value.StringV(url), Value.StringV(body)) =>
+        httpDoRequest("PUT", url, body, Map.empty)
+      case List(Value.StringV(url), Value.StringV(body), hdrs) =>
+        httpDoRequest("PUT", url, body, headersArg(hdrs))
+      case _ => throw InterpretError("httpPut(url, body[, headers])")
+    }
+    nativeP("httpPatch") {
+      case List(Value.StringV(url), Value.StringV(body)) =>
+        httpDoRequest("PATCH", url, body, Map.empty)
+      case List(Value.StringV(url), Value.StringV(body), hdrs) =>
+        httpDoRequest("PATCH", url, body, headersArg(hdrs))
+      case _ => throw InterpretError("httpPatch(url, body[, headers])")
+    }
+    nativeP("httpDelete") {
+      case List(Value.StringV(url)) =>
+        httpDoRequest("DELETE", url, "", Map.empty)
+      case List(Value.StringV(url), hdrs) =>
+        httpDoRequest("DELETE", url, "", headersArg(hdrs))
+      case _ => throw InterpretError("httpDelete(url[, headers])")
+    }
 
     // httpGetStream / httpPostStream — streaming variants; call handler for each line.
     // Curried: httpGetStream(url[, headers]) returns a NativeFnV expecting the handler.

@@ -9,6 +9,9 @@ exports:
   - tls
   - httpGet
   - httpPost
+  - httpPut
+  - httpPatch
+  - httpDelete
   - httpClient
   - httpTimeout
   - httpGetStream
@@ -51,6 +54,12 @@ extern def httpGet(url: String): Response
 extern def httpGet(url: String, headers: Map[String, String]): Response
 extern def httpPost(url: String, body: String): Response
 extern def httpPost(url: String, body: String, headers: Map[String, String]): Response
+extern def httpPut(url: String, body: String): Response
+extern def httpPut(url: String, body: String, headers: Map[String, String]): Response
+extern def httpPatch(url: String, body: String): Response
+extern def httpPatch(url: String, body: String, headers: Map[String, String]): Response
+extern def httpDelete(url: String): Response
+extern def httpDelete(url: String, headers: Map[String, String]): Response
 extern def httpClient(baseUrl: String)(block: => Unit): Unit
 // Set outbound HTTP timeout (ms) for all requests in the current httpClient{} block.
 // Default: 30 000 ms.  Scoped — restored to the previous value when the block exits.

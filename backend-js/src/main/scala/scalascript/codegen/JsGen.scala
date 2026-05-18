@@ -1748,6 +1748,21 @@ function httpPost(url, body, headers) {
   return _httpSyncFetch('POST', url, body, h);
 }
 
+function httpPut(url, body, headers) {
+  const h = headers instanceof Map ? Object.fromEntries(headers.entries()) : (headers || {});
+  return _httpSyncFetch('PUT', url, body, h);
+}
+
+function httpPatch(url, body, headers) {
+  const h = headers instanceof Map ? Object.fromEntries(headers.entries()) : (headers || {});
+  return _httpSyncFetch('PATCH', url, body, h);
+}
+
+function httpDelete(url, headers) {
+  const h = headers instanceof Map ? Object.fromEntries(headers.entries()) : (headers || {});
+  return _httpSyncFetch('DELETE', url, null, h);
+}
+
 function httpClient(baseUrl, block) {
   const priorBase = _httpBaseUrl, priorT = _httpTimeoutMs;
   _httpBaseUrl = baseUrl;
