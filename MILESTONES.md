@@ -421,11 +421,24 @@ unblocks downstream features as early as possible.
      Full design in [`docs/metaprogramming.md`](docs/metaprogramming.md).
      User-defined macros (`quoted.Expr`) explicitly out of scope —
      deferred to v2.x.  Depends on v1.13 (`Mirror` resolution).
- 21. **6+/C — HostCallback dispatcher** (~1 week).
+ 21. **v1.15 — Checked errors via `throws`** (~10 days).
+     Either-encoded `infix type throws[A, E] = Either[E, A]` +
+     return-site auto-conversions + direct-syntax integration +
+     std-lib platform-exception shims (`parseInt`, etc.) +
+     `attemptCatch[E <: Throwable] { … }` opt-in lift + `HasStackTrace`
+     mixin with `currentStackTrace()` per-backend.  Full design in
+     [`docs/error-handling.md`](docs/error-handling.md).  Depends on
+     v1.8 (direct-syntax) + v1.13 (`using` + cross-file traits).
+ 22. **v1.16 — Restartable errors via algebraic effects** (~1 week
+     if v1.12 goes; otherwise retired).
+     Common Lisp condition-system style: handler resumes the
+     suspended computation with a replacement value.
+     **Hard-blocked on v1.12 feasibility study outcome.**
+ 23. **6+/C — HostCallback dispatcher** (~1 week).
      Stage 6+/C from spi-followups-plan.md.  Unblocks the first
      out-of-process (.NET / WASM) backend MVP.  Parked because no
      such backend is in flight.
- 22. **v2.0 — Separate compilation** (~2-3 months).
+ 24. **v2.0 — Separate compilation** (~2-3 months).
      Multi-month architecture commitment.  Promote when at least
      one of {real package ecosystem, >30s incremental build, IDE
      demand} is true.
@@ -2281,6 +2294,179 @@ Five phases, ~2.5 weeks end-to-end.  Builds on v1.13 (`Mirror`
 requires `using` resolution).  Can land in parallel with
 v1.11/v1.11.5/v1.12 since those touch the runtime layer and
 this touches the typer.
+
+## v1.15 — Checked errors via `throws` type alias
+
+Closes the "every helper hand-rolls its own `Either`-wrapping
+convention" gap.  Ships an Either-encoded `throws[A, E]` type
+alias that integrates with direct-syntax (v1.8) via the v1.1
+`Monad[Either[E, *]]` instance, plus a `HasStackTrace` mixin
+giving Either-encoded errors diagnostic parity with JVM
+exception traces.
+
+Full design in [`docs/error-handling.md`](docs/error-handling.md).
+
+```scala
+infix type throws[A, E] = Either[E, A]
+
+def parseInt(s: String): Int throws ParseError =
+  if invalid then ParseError(s"bad: $s")    // auto-conversion → Left
+  else s.toInt                              // auto-conversion → Right
+
+def handler(req: Request): Response throws AppError = direct[ResultS] {
+  id   = parseInt(req.params("id"))   // monadic bind; Left short-circuits
+  user = loadUser(id)
+  Response.json(user)                 // pure tail auto-lifts to Right
+}
+```
+
+### Prerequisites
+
+- **v1.8 direct-syntax** — Either's `Monad[Either[E, *]]` is the
+  vehicle for `=`-binds inside `direct[ResultS] { … }`.
+- **v1.13 Final Tagless ergonomics** — `using` resolution finds
+  `Monad[Either[E, *]]`; cross-file trait inheritance carries
+  the std Either instance into user code.
+
+### Phase 1 — `infix type throws` parser + typer (~1 day)
+
+Parser accepts `type A throws E` desugared to `Either[E, A]`
+at the type-position level.  Typer treats the alias
+transparently — every `Either[E, A]` method, helper, and
+typeclass instance reads on `A throws E` unchanged.
+
+### Phase 2 — Return-site auto-conversion givens (~1 day)
+
+Two givens in std (`std/error-handling.ssc`):
+
+  `given [E, A] => Conversion[A, Either[E, A]] = Right(_)`
+  `given [E, A] => Conversion[E, Either[E, A]] = Left(_)`
+
+Allows `def f: Int throws ParseError = 42` and `... = ParseError(...)`
+without explicit `Right` / `Left` wrappers.  Conversions fire
+only when the bare-value type doesn't match expected.
+
+### Phase 3 — Direct-syntax integration (~2 days)
+
+Verify `direct[Either[E, *]] { … }` properly auto-binds
+`throws`-typed values via the v1.1 `Monad[Either[E, *]]`
+instance.  Conformance: `throws-direct-syntax.ssc` covering
+binding, short-circuit on Left, pure tail auto-lift.
+
+### Phase 4 — Std-lib `throws`-typed shims (~2 days)
+
+Initial shim set:
+
+- `parseInt(s: String): Int throws NumberFormatException`
+- `parseLong(s: String): Long throws NumberFormatException`
+- `parseDouble(s: String): Double throws NumberFormatException`
+- `requireNonNull[A](a: A): A throws NullPointerException`
+- `divideOrError(a: Int, b: Int): Int throws ArithmeticException`
+
+Each catches the corresponding JVM exception and lifts to
+`Left(e)`.  IO shims defer to v1.5 Tier 2-4 (the HTTP/IO
+stack).
+
+### Phase 5 — `attemptCatch[E <: Throwable] { … }` adapter (~1 day)
+
+Universal opt-in: user wraps any third-party Java/Scala call:
+
+  `val bytes = attemptCatch[IOException] { Files.readAllBytes(path) }`
+
+Catches the named exception class, lets anything else propagate.
+DS-7 stays locked — no auto-wrap inside direct blocks.
+
+### Phase 6 — `HasStackTrace` mixin + `currentStackTrace()` (~2 days)
+
+- `trait HasStackTrace` with `def stackTrace: List[Frame]`.
+- `case class Frame(file: String, line: Int, fn: String)`.
+- `currentStackTrace(): List[Frame]` — per-backend runtime call,
+  returns the current call chain.
+- `fail[E <: HasStackTrace](e: E): Left[E, Nothing]` helper.
+
+Per-backend implementation:
+
+- **INT**: walk existing position tracker (`Interpreter.scala`'s
+  `trackPos` already counts call frames; expose it).
+- **JVM**: `Thread.currentThread.getStackTrace`, filter to user
+  frames, map to our `Frame` shape.
+- **JS**: parse `new Error().stack` to extract user frames; or
+  maintain own chain via codegen-injected push/pop on `Term.Apply`
+  (revisit if parse cost matters).
+
+Frame format is identical across backends — uniform diagnostics.
+
+### Phase 7 — Conformance + std polishing (~1 day)
+
+Six tests covering each decided piece (see
+`docs/error-handling.md` §9).  Add a `Response.fromError(e)`
+helper that turns `HasStackTrace` errors into 500-with-trace
+responses for development mode (production mode strips traces
+— follow-up to address logging story).
+
+### Hard-no list (locked by design — `docs/error-handling.md` §5)
+
+- Auto-wrap thrown exceptions in direct blocks (DS-7 stays)
+- `A | E` union encoding (rejected for `Either[E, A]`)
+- Java-style throws clauses (only return-type-position `throws`)
+- `E` restricted to `Throwable` subtypes (works over any `E`)
+- Effect-row tracking for errors (v1.12 algebraic effects territory)
+
+### Open questions (carry into design iteration)
+
+- Final std-shim list for v1.15
+- Naming: `attemptCatch` vs `safeCall` vs `catching`
+- Stack-trace verbosity tuning (collapse synthetic frames?)
+- `HasStackTrace` vs `extends Error` std convention
+- Capture cost on hot paths — measure when v1.15 lands
+- Cross-backend trace content (fn name normalisation)
+
+### Effort
+
+Seven phases, ~10 days end-to-end across three backends.
+Phase 6 (stack traces) is the only piece with meaningful
+per-backend variance; everything else lands as typer + std
+work uniformly.
+
+## v1.16 — Restartable errors via algebraic effects (depends on v1.12)
+
+Common Lisp condition-system style restartable handlers.  A
+handler can choose to resume the suspended computation at the
+throw point with a replacement value, rather than only being
+able to abort or rewrap.
+
+```scala
+val config = restartable {
+  case FileNotFound(path) => Restart.useDefault
+  case PermissionDenied(p) => Restart.retry(sudo(p))
+  case other => Restart.abort(other)
+} {
+  parseConfig(readFile("/etc/app.conf"))
+}
+```
+
+**Hard-blocked on v1.12 algebraic-effects feasibility study.**
+If v1.12 says "go", v1.16 reduces to: `throw e` becomes
+`suspend(ErrorTag(e))`; handler stack catches the tag and
+resumes with a replacement value.  Direct mapping onto v1.9
+coroutines.
+
+If v1.12 says "no-go", v1.16 retires — the path becomes
+`M.recover` + retry-loops, no compile-time restart support.
+
+### Sketch
+
+- New `Restart[A]` ADT: `UseValue(a)`, `Retry(args)`, `Abort(e)`,
+  `Transform(e2)`.
+- `restartable[E, A](handler: E => Restart[A])(body: => A): A` —
+  catches `E`, applies the handler decision, resumes/aborts
+  accordingly.
+- Sits on the v1.9 coroutine primitive: `suspend(ErrorTag(e))`
+  pauses the computation, handler interprets, resume.
+
+### Effort
+
+~1 week if v1.12 goes; ~0 if v1.12 doesn't.
 
 ## v1.12 — Algebraic effects feasibility study
 
