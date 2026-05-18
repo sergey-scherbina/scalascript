@@ -461,11 +461,36 @@ unblocks downstream features as early as possible.
      Builds on v1.7 Tier 2 `.sscpkg` (landed) + v1.18 `package`
      keyword.  Central registry deferred to v1.19.x.  Full
      design in [`docs/modularity.md`](docs/modularity.md) §10.
- 26. **6+/C — HostCallback dispatcher** (~1 week).
+ 26. **v1.20 — DSL primitives + `std/parsing`** (~2.5 weeks).
+     User-defined string interpolators cross-backend +
+     parser-combinator library (`std/parsing/*`) + AST/pretty-
+     printer helpers (`std/dsl/*`).  Closes the DSL story for
+     internal + interpolator + external flavours.  Full design
+     in [`docs/dsl.md`](docs/dsl.md).
+ 27. **v1.21 — Local map-reduce (`Dataset[T]`)** (~2 weeks).
+     Lazy `Dataset[T]` fluent API with sequential + parallel
+     local execution (v1.3 Async.parallel on JVM; sequential
+     fallback on JS pending v1.3 Node parallel).  Streaming
+     via v1.10 generators.  Full design in
+     [`docs/mapreduce.md`](docs/mapreduce.md).
+ 28. **v1.22 — Distributed map-reduce** (~3 weeks, hard-blocked
+     on v1.6 Phase 3).
+     Same `Dataset[T]` API, distributed via v1.6 distributed
+     actors.  Coordinator-dispatched partitions, named-handler
+     registry (no closure serialisation), coordinator-mediated
+     shuffle, configurable failure handling.  Closure
+     serialisation + worker-to-worker shuffle in v1.22.x.
+ 29. **Cluster management** — *deferred, no version assigned*.
+     Peer discovery, membership view, leader election,
+     configuration distribution.  Promote when any of three
+     trigger conditions fire (see
+     [`docs/cluster-management.md`](docs/cluster-management.md)
+     §6).
+ 30. **6+/C — HostCallback dispatcher** (~1 week).
      Stage 6+/C from spi-followups-plan.md.  Unblocks the first
      out-of-process (.NET / WASM) backend MVP.  Parked because no
      such backend is in flight.
- 27. **v2.0 — Separate compilation** (~2-3 months).
+ 31. **v2.0 — Separate compilation** (~2-3 months).
      Multi-month architecture commitment.  Promote when at least
      one of {real package ecosystem, >30s incremental build, IDE
      demand} is true.
@@ -2987,6 +3012,273 @@ paths.  ~1 day × 3 backends.
 
 Five phases, ~2 weeks end-to-end.  Independent of v1.18
 beyond the policy-level dependency.
+
+## v1.20 — DSL primitives + `std/parsing`
+
+Ships infrastructure for three flavours of DSL: internal
+eDSL (works today, just document the patterns),
+interpolator DSL (`extension (sc: StringContext) def
+myDsl(args)...` cross-backend), and external DSL via a new
+`std/parsing/*` parser-combinator library and `std/dsl/*`
+helpers for AST + pretty-printing.
+
+Full design in [`docs/dsl.md`](docs/dsl.md).
+
+```scala
+// Internal — works today
+val q = from(users).where(_.age > 18).select(_.name)
+
+// User-defined interpolator — v1.20 verifies cross-backend
+extension (sc: StringContext)
+  def sql(args: Any*): SqlQuery = SqlQuery.compile(sc.parts, args)
+
+val q = sql"SELECT * FROM users WHERE age > $minAge"
+
+// External — v1.20 ships std/parsing combinators
+val expr: Parser[Double] = (term ~ (char('+') ~> term).*).map(...)
+val parsed = expr.parse("1 + 2 * 3")  // Ok(7.0)
+```
+
+### Phase 1 — User-defined interpolators (~3 days)
+
+Verify and fix `StringContext` extension methods across
+INT / JS / JVM.  Conformance: round-trip, escaping, typed
+arg substitution.  Largest risk: interpreter may not
+natively support StringContext-based interpolators — Phase
+1 surfaces the cost.
+
+### Phase 2 — `std/parsing/core.ssc` primitives (~2 days)
+
+`Parser[A]` trait, `Position`, `ParseResult`, `ParseError`
++ `char` / `string` / `regex` / `satisfy`.
+
+### Phase 3 — `std/parsing/combinators.ssc` (~3 days)
+
+`~` / `|` / `*` / `+` / `?` / `map` / `flatMap` / `~>` /
+`<~` / `named`.  Conformance: calculator from `docs/dsl.md`
+§5.4 round-trips.
+
+### Phase 4 — `std/parsing/helpers.ssc` (~2 days)
+
+Tokenization: `whitespace`, `identifier`, `number`,
+`stringLit`, `keyword(s)`.  Conformance: JSON parser
+written entirely from helpers.
+
+### Phase 5 — `std/dsl/*` helpers (~3 days)
+
+AST node shapes, pretty-printer combinators, precedence
+climbing, AST walker.  Conformance: typed Calc AST with
+pretty-printer round-trip.
+
+### Phase 6 — Documentation + examples (~2 days)
+
+`examples/dsl-sql-interpolator.ssc`,
+`examples/dsl-calc-parser.ssc`,
+`examples/dsl-json-parser.ssc`, doc walkthroughs.
+
+### Hard-no list (locked — `docs/dsl.md` §9)
+
+- DSL = new keyword — reuse Scala 3 extension / interpolator /
+  fluent-API mechanisms; no new syntax
+- Parser-generator language (BNF/EBNF) — combinators give the
+  same expressivity without a separate language
+- Macros to inline parser combinators — runtime overhead is
+  fine for v1; revisit on measurement
+- Built-in DFA / Pratt parser — combinators cover 90% of
+  needs; specialised parsers as community libs
+
+### Effort
+
+Six phases, ~2.5 weeks end-to-end.  Mostly stdlib work;
+no compiler changes beyond Phase 1 interpolator
+verification.
+
+## v1.21 — Local map-reduce (`Dataset[T]`)
+
+User-facing `Dataset[T]` type with sequential + parallel
+local execution.  Lazy plan accumulation, terminal-op
+evaluation, partition-and-fork on multi-core JVM via v1.3
+Async.parallel; sequential fallback on backends without
+real-thread parallel.
+
+Full design in [`docs/mapreduce.md`](docs/mapreduce.md) §3.
+
+```scala
+val sumOfSquares = Dataset.of(1L to 1_000_000L: _*)
+  .map(x => x * x)
+  .reduce(_ + _)
+  // .runParallel() — partitions across cores via v1.3
+```
+
+### Phase 1 — `Dataset[T]` API + sequential runner (~3 days)
+
+`std/mapreduce/{types, dataset, sequential, index}.ssc`.
+Lazy plan, terminal eval, all combinators (`map`, `filter`,
+`flatMap`, `take`, `drop`, `distinct`, `groupBy`,
+`reduceByKey`, `sortBy`, `collect`, `count`, `reduce`,
+`fold`, `foreach`, `first`).
+
+### Phase 2 — Parallel runner on JVM (~3 days)
+
+`std/mapreduce/parallel.ssc`.  Partition + virtual thread
+per partition via v1.3 Async.parallel.  Conformance:
+`.runParallel()` == `.runLocal()` semantically; benchmark
+3-4× speedup on 8-core embarrassingly-parallel `.map`.
+
+### Phase 3 — Parallel runner on INT (~2 days)
+
+Same shape, NIO continuation scheduling.  Concurrency for
+IO-bound; no true parallelism (single-threaded NIO).
+
+### Phase 4 — JS sequential fallback (~1 day)
+
+`runParallel()` on JS falls back to sequential until v1.3
+Node parallel lands.  One-time warn.
+
+### Phase 5 — Streaming integration (~2 days)
+
+`Dataset.fromGenerator(...)` / `.toGenerator` depends on
+v1.10.  Backpressure-aware work-stealing partitioning.
+
+### Phase 6 — Conformance + benchmarks (~2 days)
+
+10 conformance tests (see `docs/mapreduce.md` §9.1).  JVM
+microbenchmark for parallel speedup.
+
+### Hard-no list (locked — `docs/mapreduce.md` §8)
+
+- Closure serialisation — v1.22 uses named handlers; closure
+  serialisation is v1.22.x
+- Streaming map-reduce as default — in-memory `Dataset[T]`
+  first; streaming opt-in via `fromGenerator`
+- Spark-style RDD lineage / recomputation — partition-level
+  retry is enough for v1
+- Persistent intermediate results (`cache()` / `persist()`)
+  — defer to v1.21.x
+
+### Effort
+
+Six phases, ~2 weeks end-to-end.  Mostly stdlib +
+backend-glue.  Depends on v1.3 (Async.parallel) and
+v1.10 (Generators).
+
+## v1.22 — Distributed map-reduce
+
+Same `Dataset[T]` API, distributed execution backend.
+Workers are actors on remote nodes (v1.6 Phase 3);
+coordinator dispatches partitions, drives shuffle, handles
+failure.  Named handlers (registered on every node)
+instead of closure serialisation.
+
+Full design in [`docs/mapreduce.md`](docs/mapreduce.md) §4.
+
+```scala
+val cluster = Cluster.connect(
+  Node("worker-1@10.0.0.10:9100"),
+  Node("worker-2@10.0.0.11:9100"),
+  Node("worker-3@10.0.0.12:9100")
+)
+
+val result = Dataset.fromFile("/data/large.csv")
+  .map(named("parseRow"))    // named handler — registered on each node
+  .filter(named("isError"))
+  .groupBy(named("byService"))
+  .runDistributed(cluster, retries = 3)
+  .collect()
+```
+
+### Prerequisite
+
+**v1.6 Phase 3 — distributed actors via WS.**  Without it
+there's no cross-node messaging.  Phase 3 of v1.6 is
+already in flight per `MILESTONES.md`; v1.22 only starts
+when Phase 3 is firm.
+
+### Phase 1 — `Cluster` handle (~3 days)
+
+`std/mapreduce/cluster.ssc`.  Thin wrapper over v1.6
+`connectNode`.  `Cluster.connect(nodes...)`, `.close()`,
+health-check probe.
+
+### Phase 2 — Named-handler registry (~3 days)
+
+`std/mapreduce/handlers.ssc`.  Each node registers
+mappers / reducers by name at startup; messages refer to
+handlers by name, never serialise closures.
+
+### Phase 3 — Coordinator + worker actors (~5 days)
+
+`std/mapreduce/distributed.ssc`.  Coordinator spawns
+worker actors via v1.6 Phase 3 `connectNode` + `spawn`.
+Worker processes partitions sequentially using v1.21
+local-parallel for in-worker speedup.  Standard
+request-reply over mailboxes.
+
+### Phase 4 — Shuffle for `groupBy` / `reduceByKey` (~5 days)
+
+Coordinator-mediated all-to-all in v1.22 (workers send
+key-bucketed results back, coordinator redistributes by
+key to second-stage workers).  Worker-to-worker direct
+shuffle is v1.22.x optimisation.
+
+### Phase 5 — Failure handling (~3 days)
+
+Worker `Down(reason)` via v1.6 supervision links.
+Default: fail-whole.  Opt-in: `retries = N` or
+`allowPartial = true`.  Surface `DistributedError(node,
+reason)` to caller.
+
+### Phase 6 — Conformance + docs (~3 days)
+
+6 conformance tests on a 3-node cluster (2 JVM + 1 INT
+for cross-backend coverage).  Example applications:
+word-count, log-aggregation, simple join.
+
+### Hard-no list (locked — `docs/mapreduce.md` §8)
+
+- Closure serialisation in v1.22 (defer to v1.22.x)
+- Spark-like RDD lineage / recomputation
+- Implicit cluster discovery (use `Cluster.connect(nodes...)`;
+  auto-discovery belongs in `docs/cluster-management.md`)
+- Cross-language workers (Python mapper on JVM
+  coordinator)
+- Persistent intermediate results
+
+### Effort
+
+Six phases, ~3 weeks end-to-end.  **Hard-blocked on v1.6
+Phase 3.**
+
+## Cluster management — deferred (no version assigned)
+
+Peer-cluster orchestration on top of v1.6 Phase 3 actors:
+peer discovery, membership view, leader election,
+configuration distribution, cluster-wide failure
+detection, rolling restarts, metrics aggregation.
+
+Full design space and explicit hard-no list in
+[`docs/cluster-management.md`](docs/cluster-management.md).
+**No milestone version assigned** — promote when any of
+the trigger conditions fire:
+
+1. A real .ssc application running on 5+ nodes asks
+2. v1.22 distributed map-reduce gets 10+ user workloads
+   that ask "how do I avoid maintaining the node list
+   manually?"
+3. A community-package author ships `scalascript-cluster`
+   and demand suggests folding into std
+
+Until then: stays deferred.  Each release revisits the
+"promote?" question.
+
+### What's explicitly out of bounds, ever
+
+- Kubernetes / container orchestration (ScalaScript runs
+  *on* K8s, not *as* K8s)
+- Network policy / service mesh (CNI territory)
+- Mandatory dependency on external coordinator (etcd /
+  Consul / ZK opt-in adapters only)
+- Cluster spanning browser-SPA backends (no inbound WS)
 
 ## v2.0 — Separate compilation of modules
 
