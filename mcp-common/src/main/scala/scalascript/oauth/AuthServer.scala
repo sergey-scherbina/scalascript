@@ -263,7 +263,7 @@ class AuthServer(
             Right(client)
           case ClientType.Confidential =>
             (client.secret, secret) match
-              case (Some(expected), Some(presented)) if OAuth.constantTimeEquals(expected, presented) =>
+              case (Some(stored), Some(presented)) if OAuth.verifySecret(presented, stored) =>
                 Right(client)
               case _ => Left("invalid_client")
 
@@ -361,10 +361,16 @@ class AuthServer(
                               .getOrElse(config.supportedScopes)
         val name          = obj.get("client_name").flatMap(_.strOpt)
         val id            = "client-" + OAuth.randomOpaqueToken(8)
-        val secret        = if isPublic then None else Some(OAuth.randomOpaqueToken(24))
-        val client        = Client(
+        val plainSecret   = if isPublic then None else Some(OAuth.randomOpaqueToken(24))
+        // Store the hashed form so a database leak doesn't disclose
+        // the actual secret.  The returned Client carries the PLAINTEXT
+        // secret so the caller can surface it to the registering client
+        // (per RFC 7591 §3.2.1 — the client sees its secret once at
+        // registration time).  authenticateClient does PBKDF2 verify
+        // against the stored hash on subsequent token requests.
+        val storedClient = Client(
           id            = id,
-          secret        = secret,
+          secret        = plainSecret.map(OAuth.hashSecret(_)),
           redirectUris  = redirectUris,
           scopes        = scopes,
           grantTypes    = grantTypes,
@@ -372,8 +378,8 @@ class AuthServer(
           clientType    = if isPublic then ClientType.Public else ClientType.Confidential,
           name          = name
         )
-        clients.register(client)
-        Right(client)
+        clients.register(storedClient)
+        Right(storedClient.copy(secret = plainSecret))
       catch case _: Throwable => Left("invalid_client_metadata")
 
   /** Wire-shape JSON for a successful registration response. */

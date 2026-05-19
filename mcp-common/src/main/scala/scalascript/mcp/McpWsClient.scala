@@ -23,7 +23,14 @@ import java.util.concurrent.{
  *    - `notify(...)` is fire-and-forget.
  *    - `close()` initiates a 1000 (normal) close frame and unblocks
  *      every pending caller with a synthetic error response. */
-class McpWsClient(url: String, timeoutMs: Long):
+class McpWsClient(
+  url:         String,
+  timeoutMs:   Long,
+  /** v1.17.x — optional bearer token applied to the WS upgrade
+   *  handshake.  Subprotocols / per-message auth would need a separate
+   *  layer; the upgrade is the natural integration point for OAuth. */
+  bearerToken: Option[String] = None
+):
 
   private val nextId  = AtomicLong(1L)
   private val pending = ConcurrentHashMap[Long, LinkedBlockingQueue[JsonRpc.Message.Response]]()
@@ -78,6 +85,7 @@ class McpWsClient(url: String, timeoutMs: Long):
   private val httpClient = HttpClient.newBuilder().build()
   private val webSocket: JWs =
     val builder = httpClient.newWebSocketBuilder()
+    bearerToken.foreach(t => builder.header("Authorization", s"Bearer $t"))
     val fut = builder.buildAsync(URI.create(url), listener)
     val ws = fut.get(timeoutMs, TimeUnit.MILLISECONDS)
     handshakeLatch.await(timeoutMs, TimeUnit.MILLISECONDS)

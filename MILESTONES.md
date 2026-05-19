@@ -618,6 +618,31 @@ unblocks downstream features as early as possible.
          may prefer the entry-level field when both are set)
        - all new fields are optional; legacy registrations unchanged
 
+     **Client-side auth coverage** (Iter II) ✓ — closes the gap an
+     honest audit revealed: until this iteration our MCP clients
+     couldn't talk to our own auth-protected MCP servers, and AS-side
+     client secrets were stored in plaintext.
+
+       - **McpHttpClient.setBearerToken / McpWsClient(bearerToken)**
+         — bearer applied to every outbound POST + SSE GET (HTTP) or
+         the WebSocket upgrade handshake (WS).  `mcpConnect(transport,
+         timeoutMs?, bearerToken?)` exposes it from scripts.
+       - **`scalascript.oauth.OAuthClient`** — client-side OAuth SDK
+         covering all three roles' Client half: `discoverAs(issuer)`
+         / `discoverRs(resourceUrl)` metadata lookups; `freshPkce()`
+         + `authorizationUrl(...)` for the auth-code+PKCE flow;
+         `exchangeAuthorizationCode / refresh / clientCredentials`
+         token endpoints; `TokenHolder` with lazy auto-refresh when
+         the cached token is within `refreshLeadSeconds` of expiry.
+       - **AS client-secret hashing** — `OAuth.hashSecret` (PBKDF2-
+         HMAC-SHA256, 100k iterations, 16-byte salt) +
+         `verifySecret` (constant-time compare, legacy-plaintext
+         fallback for non-prefixed entries).  `registerClient` now
+         stores the hashed form; the registration response carries
+         the plaintext once per RFC 7591 §3.2.1 norms.  Existing
+         stores keep working — fallback path handles them until
+         rotation.
+
      **v1.17.x is now feature-complete** for MCP + OAuth + OIDC +
      all the spec-grade auth surface a real production AS needs.
  22. **v1.18 — `package` keyword + std layout migration** ✓ Landed (all phases, 2026-05-19).
