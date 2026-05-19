@@ -441,19 +441,12 @@ unblocks downstream features as early as possible.
  21. **v1.17 — MCP support (client + server)** ✓ Landed (Phases 1–7);
      v1.17.1 hardening ✓ Landed; v1.17.2 SSE/JS ✓ Landed;
      v1.17.3 prompts/JVM ✓ Landed; v1.17.4-min Http/Ws/JVM (minimal
-     wiring, echo placeholder) ✓ Landed (all 2026-05-19).
-     Anthropic's Model Context Protocol via REST-shaped API
-     in a separate namespace (`std/mcp/*`).  Intrinsic-first:
-     wraps `@modelcontextprotocol/sdk` on Node and
-     `io.modelcontextprotocol:sdk` on JVM; interpreter +
-     scalajs-spa reject at typecheck via SPI feature flags.
-     Full design in [`docs/mcp.md`](docs/mcp.md).  Remaining
-     v1.17.x work: full v1.17.4 (real `McpServerSession` dispatch +
-     runtime consolidation, see `feature/v1.17.4-http-ws-jvm` branch
-     and `PLAN-runtime-consolidation.md`), INT own-impl, type-class
-     layer, streaming resources.
- 22. **v1.18 — `package` keyword + std layout migration** ✓ Landed.
-     Phases 1, 2, 4 landed (parser, codegen, conformance); Phase 3 (std migration) deferred.
+     wiring, echo placeholder) ✓ Landed; v1.17.4-runtime
+     consolidation (Phase 1a + 1b — `runtime-server-common`) ✓ Landed
+     (all 2026-05-19).  Remaining v1.17.x: full v1.17.4 (real
+     `McpServerSession` dispatch + Phase 2 RouteDispatcher split),
+     INT own-impl, type-class layer, streaming resources.
+ 22. **v1.18 — `package` keyword + std layout migration** ✓ Landed (all phases, 2026-05-19).
  23. **v1.19 — URL / dep imports** ✓ Landed.
      `[X](https://...)` URL fetch + `[X](dep:org/lib:1.2)`
      resolver, both with `ssc.lock` SHA-256 integrity-check.
@@ -505,14 +498,14 @@ unblocks downstream features as early as possible.
      Stage 6+/C from spi-followups-plan.md.  Unblocks the first
      out-of-process (.NET / WASM) backend MVP.  Parked because no
      such backend is in flight.
- 29. **v2.0 — Separate compilation** (~2-3 months).
-     **After v2.0 is complete, the algebraic-effects feasibility
-     study (BLOCKED — see end of file) may be re-evaluated.**
-     Restartable errors (v1.16) are folded into that study and
-     promote only if the study commits to "go".
-     Multi-month architecture commitment.  Promote when at least
-     one of {real package ecosystem, >30s incremental build, IDE
-     demand} is true.
+ 29. **v2.0 — Separate compilation** — MVP + post-MVP hardening ✓ Landed
+     (2026-05-19): artifact format, `InterfaceExtractor` (with
+     `exports:` filtering + package-wrapped object walk), `ArtifactIO`,
+     `InterfaceScope` (real type parser), `Linker` (FQN rewrite, 7 e2e
+     tests), `ModuleGraph`, six CLI commands, CLI subprocess smoke tests.
+     Full pipeline deferred (~2-3 months remaining) — promote when
+     one of {real package ecosystem, >30s incremental build, IDE demand}
+     is true.
 
 ### Approximate total
 
@@ -2969,23 +2962,29 @@ What this minimal landing covers:
 - `serveMcp(Transport.Ws(port, path))` registers `onWebSocket(path) { … }`
   and `serve(port)`; each text frame is one JSON-RPC message.
 
-What this minimal landing does NOT cover (deferred to the proper v1.17.4,
-on branch `feature/v1.17.4-http-ws-jvm`):
+What this minimal landing does NOT cover (deferred to the proper v1.17.4):
 
 - Real `McpServerSession.handle(…)` dispatch into the SDK's request /
   response correlation, capability negotiation, and tool/resource/prompt
   invocation.  Inbound JSON-RPC is currently echoed back as a placeholder.
 - `McpServerBuilder.onConnected` / `onDisconnected` hook firing on the
   HTTP / WS code paths.
-- Consolidation of the duplicated HTTP/WS server stack (~2 250 LOC string
-  template in `JvmGen.serveRuntime` vs ~4 500 LOC of real classes in
-  `backend-interpreter/server/`).  See `PLAN-runtime-consolidation.md` on
-  the `feature/v1.17.4-http-ws-jvm` branch — Phase 1a (extract pure
-  primitives to new `runtime-server-common` module) has already landed
-  there; Phase 1b (JvmGen reads from the new module instead of duplicating)
-  and Phase 2 (split interpreter-coupled WebServer / WsConnection behind a
-  `RouteDispatcher` trait) are the next two steps that make the full v1.17.4
-  ~50 LOC of adapter rather than a new HTTP/WS stack.
+
+### v1.17.4-runtime — runtime-server-common consolidation ✓ Landed (2026-05-19)
+
+Runtime consolidation (previously tracked on branch
+`feature/v1.17.4-http-ws-jvm`) is now fully on `main`:
+
+- **Phase 1a** — `runtime-server-common` module extracted: pure server
+  primitives (route table, SSE helpers, WS upgrade handling) separated from
+  the interpreter-coupled `backend-interpreter/server/` stack.
+- **Phase 1b** — JvmGen migrated to read from `runtime-server-common`
+  instead of duplicating the ~2 250 LOC string template: `Metrics`,
+  `SessionCookie`, `SessionStore`, JWT (`HS256` + `RS256`), `DerCodec` all
+  moved to the new module.
+
+Phase 2 (split `WebServer` / `WsConnection` behind a `RouteDispatcher`
+trait to make the full v1.17.4 ~50 LOC of adapter) remains deferred.
 
 ### Deferred follow-ups (v1.17.x backlog, ordered by priority)
 
@@ -3018,7 +3017,7 @@ Seven phases, ~3 weeks end-to-end.  JS and JVM intrinsics
 can be worktrees in parallel after Phase 1.  Phase 6 (feature
 flags) is the only piece touching the SPI.
 
-## v1.18 — `package` keyword + std layout migration
+## v1.18 — `package` keyword + std layout migration ✓ Landed (2026-05-19)
 
 Promotes the v0.7 "package keyword (optional, mostly
 cosmetic)" out of deferred-future status into a real
@@ -3713,6 +3712,29 @@ What landed:
   `Typer.typeCheckWithInterfaces` factory — backward-compatible.
 - `cli/Main.scala`: six new commands — `emit-interface`, `emit-ir`,
   `check-with-iface`, `link`, and `build --incremental`.
+
+Post-MVP additions (also landed 2026-05-19):
+- `InterfaceExtractor` respects `exports:` front-matter — only declared
+  names appear in `.scim`; private helpers stay invisible to consumers.
+- `InterfaceExtractor` walks package-wrapped nested objects — `Parser.wrapSectionInPackage`
+  rewrites blocks as `object foo: object bar: <body>`; extractor now
+  recurses into nested `Defn.Object` so packaged modules (e.g. `std/dsl/pretty.ssc`)
+  expose their inner types in `.scim`.
+- `Linker` FQN-rewrite end-to-end tests (`LinkerRewriteTest`, 7 cases):
+  top-level `VarRef` rewrite, lambda shadowing, multi-import multi-call-site,
+  cross-module collision detection — exercised against real IR from
+  `Normalize` + `AstToIr` rather than hand-rolled IR.
+- CLI subprocess smoke tests (`V2ArtifactCliTest`, ~370 LOC): end-to-end
+  `emit-interface`, `emit-ir`, `check-with-iface`, `link`, and
+  `build --incremental` exercised at the `ssc` process boundary.
+- `InterfaceExtractor` AST-based capability + extern detection:
+  replaces text-scanning heuristics with proper scalameta AST traversal.
+- `InterfaceScope.parseSType`: real Scala-style type parser instead of
+  string splitting (handles generic, union, and intersection types).
+- `Normalize` emits `IrExpr` bodies to unblock Linker rewrites.
+- `wrapSectionInPackage` now applies `preprocessExtern` / `preprocessEffects`
+  before wrapping — fixes silent parse failures for `std/*` files with
+  both `package:` frontmatter and `extern def` surface forms.
 
 Default `ssc compile` / `ssc build` / `ssc run` are completely unchanged.
 The new commands are additive; the ABI commitment is in place from day one.
