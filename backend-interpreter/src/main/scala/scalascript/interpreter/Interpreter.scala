@@ -1766,6 +1766,21 @@ class Interpreter(
     // Mirrors the `math` companion-object pattern: dotted QualifiedName
     // entries from `OAuthIntrinsics` get a sibling InstanceV bound to
     // `globals("oauth")` so scripts can write `oauth.authServer(...)`.
+    // v1.17.x — nested `oauth.client.*` namespace: OAuth client SDK
+    // for .ssc apps (auth-code+PKCE, refresh, client_credentials,
+    // TokenHolder).
+    val oauthClient = Value.InstanceV("oauth.client", Map(
+      "discoverAs"                 -> globals("oauth.client.discoverAs"),
+      "discoverRs"                 -> globals("oauth.client.discoverRs"),
+      "freshPkce"                  -> globals("oauth.client.freshPkce"),
+      "freshState"                 -> globals("oauth.client.freshState"),
+      "verifyState"                -> globals("oauth.client.verifyState"),
+      "authorizationUrl"           -> globals("oauth.client.authorizationUrl"),
+      "exchangeAuthorizationCode"  -> globals("oauth.client.exchangeAuthorizationCode"),
+      "refresh"                    -> globals("oauth.client.refresh"),
+      "clientCredentials"          -> globals("oauth.client.clientCredentials"),
+      "tokenHolder"                -> globals("oauth.client.tokenHolder")
+    ))
     globals("oauth") = Value.InstanceV("oauth", Map(
       "authServer"          -> globals("oauth.authServer"),
       "serveAuthServer"     -> globals("oauth.serveAuthServer"),
@@ -1774,7 +1789,8 @@ class Interpreter(
       "pkceChallenge"       -> globals("oauth.pkceChallenge"),
       "guard"               -> globals("oauth.guard"),
       "guardWithValidator"  -> globals("oauth.guardWithValidator"),
-      "hmacValidator"       -> globals("oauth.hmacValidator")
+      "hmacValidator"       -> globals("oauth.hmacValidator"),
+      "client"              -> oauthClient
     ))
     // v1.17.x — oidc namespace: OpenID Connect Identity Provider on top
     // of the OAuth Authorization Server.
