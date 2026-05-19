@@ -2603,7 +2603,7 @@ class JvmGen(
       "RateLimit", "Password", "Totp", "Jwt", "JwtRsa",
       "SessionCookie", "SessionStore", "OAuth", "WebAuthn",
       "UploadedFile", "HttpHelpers", "Multipart", "TlsContextBuilder",
-      "CorsHelpers"
+      "CorsHelpers", "HttpModel", "BasicAuth"
     )
     val header =
       "\n// ── runtime-server-common (inlined from classpath resources) ──────────\n" +
@@ -2626,40 +2626,15 @@ class JvmGen(
        |// `UploadedFile` is inlined from runtime-server-common via commonRuntime —
        |// the case class definition lives there as the single source of truth.
        |
-       |case class Request(
-       |  method:      String,
-       |  path:        String,
-       |  params:      Map[String, String],
-       |  query:       Map[String, String],
-       |  headers:     Map[String, String],
-       |  body:        String,
-       |  form:        Map[String, String]         = Map.empty,
-       |  files:       Map[String, UploadedFile]   = Map.empty,
-       |  session:     Map[String, String]         = Map.empty,
-       |  bearerToken: Option[String]              = None,
-       |  jwtClaims:   Option[Map[String, String]] = None,
-       |  basicAuth:   Option[(String, String)]    = None,
-       |  cookies:     Map[String, String]         = Map.empty
-       |):
-       |  /** Lenient JSON-read accessor — Some(parsed) on success, None
-       |   *  on parse failure or empty body.  Same semantics as the
-       |   *  interpreter / JS backends. */
-       |  lazy val json: Option[Any] =
-       |    if body.isEmpty then None
-       |    else try Some(_fromJson(body)) catch case _: Throwable => None
-       |
-       |case class Response(
-       |  status:     Int                         = 200,
-       |  headers:    Map[String, String]         = Map.empty,
-       |  body:       String                      = "",
-       |  setSession: Option[Map[String, String]] = None
-       |):
-       |  /** Attach a session payload — HMAC-signed and packed into Set-Cookie. */
-       |  def withSession(payload: Map[String, String]): Response = copy(setSession = Some(payload))
-       |  /** Clear the session cookie (Max-Age=0 on the wire). */
-       |  def clearSession(): Response                            = copy(setSession = Some(Map.empty))
-       |  /** Attach (or overwrite) a header — used by std/middleware.ssc. */
-       |  def withHeader(name: String, value: String): Response   = copy(headers = headers + (name -> value))
+       |// `Request` / `Response` POJOs are inlined from runtime-server-common
+       |// via commonRuntime (HttpModel.scala) — the single source of truth.
+       |// `req.json` is provided here as an extension because the case class
+       |// lives in the shared module which doesn't depend on the JSON parser
+       |// (`_fromJson`) emitted later in this template.
+       |extension (req: Request)
+       |  def json: Option[Any] =
+       |    if req.body.isEmpty then None
+       |    else try Some(_fromJson(req.body)) catch case _: Throwable => None
        |
        |// ── Signed cookie sessions ──────────────────────────────────────
        |// HMAC-SHA256-signed Map[String, String] roundtripped through the
@@ -2798,17 +2773,10 @@ class JvmGen(
        |def oauthRefreshToken(provider: String, refresh: String, clientId: String, clientSecret: String): Option[Map[String, String]] =
        |  OAuth.refreshToken(provider, refresh, clientId, clientSecret)
        |
-       |// HTTP Basic: Authorization: Basic <b64(user:pass)>
+       |// HTTP Basic delegates to BasicAuth.fromHeader (inlined from
+       |// runtime-server-common, mirrors Jwt.fromAuthHeader for Bearer).
        |private def _basicFromAuth(h: String): Option[(String, String)] =
-       |  val t = Option(h).map(_.trim).getOrElse("")
-       |  if t.length < 6 || !t.substring(0, 6).equalsIgnoreCase("Basic ") then None
-       |  else
-       |    try
-       |      val decoded = new String(java.util.Base64.getDecoder.decode(t.substring(6).trim), "UTF-8")
-       |      val colon   = decoded.indexOf(':')
-       |      if colon < 0 then None
-       |      else Some(decoded.substring(0, colon) -> decoded.substring(colon + 1))
-       |    catch case _: Throwable => None
+       |  BasicAuth.fromHeader(h)
        |
        |// ── CSRF helpers ────────────────────────────────────────────────
        |// `csrfToken()` returns a url-safe random token; the caller stashes
@@ -3292,11 +3260,12 @@ class JvmGen(
        |def uploadDir(path: String): Unit      = _uploadDir = path
        |
        |// ── Streaming response sentinel ────────────────────────────────────────
-       |case class _StreamResponse(
-       |  status:  Int,
-       |  headers: Map[String, String],
-       |  writer:  (String => Unit) => Any
-       |)
+       |// `_StreamResponse` aliases to the POJO `StreamResponse` inlined from
+       |// runtime-server-common — kept as a local name so existing call sites
+       |// (`_StreamResponse(...)`, `case sr: _StreamResponse`, return-type
+       |// annotations) don't need to change.
+       |private type _StreamResponse = StreamResponse
+       |private val  _StreamResponse = StreamResponse
        |def streamResponse(status: Int = 200, headers: Map[String, String] = Map.empty)(block: (String => Unit) => Any): _StreamResponse =
        |  _StreamResponse(status, headers, block)
        |
