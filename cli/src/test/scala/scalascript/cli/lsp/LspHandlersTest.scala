@@ -939,3 +939,91 @@ class LspHandlersTest extends AnyFunSuite:
     assert(caps("documentSymbolProvider").bool == true,
       "expected documentSymbolProvider: true in capabilities")
   }
+
+  // ─── workspace/symbol ──────────────────────────────────────────────
+
+  private def wsQuery(h: Handlers, query: String) =
+    h.workspaceSymbol(ujson.Obj("query" -> query)).arr
+
+  test("workspaceSymbol empty query returns all symbols from open docs") {
+    val (_, h) = newHandlers()
+    h.initialize(ujson.Obj())
+    val uri = "file:///tmp/ws-sym-all.ssc"
+    val text =
+      """# MySection
+        |
+        |```scala
+        |val myVal: Int = 1
+        |def myFun(n: Int): Int = n
+        |```
+        |""".stripMargin
+    h.didOpen(ujson.Obj("textDocument" -> ujson.Obj(
+      "uri" -> uri, "languageId" -> "scalascript", "version" -> 1, "text" -> text
+    )))
+    val syms = wsQuery(h, "")
+    val names = syms.map(_("name").str).toSet
+    assert(names.contains("MySection"), s"expected heading, got: $names")
+    assert(names.contains("myVal"),     s"expected myVal, got: $names")
+    assert(names.contains("myFun"),     s"expected myFun, got: $names")
+  }
+
+  test("workspaceSymbol filters by query substring (case-insensitive)") {
+    val (_, h) = newHandlers()
+    h.initialize(ujson.Obj())
+    val uri = "file:///tmp/ws-sym-filter.ssc"
+    val text =
+      """# Section
+        |
+        |```scala
+        |val fooBar: Int = 1
+        |val fooQux: Int = 2
+        |val other: Int = 3
+        |```
+        |""".stripMargin
+    h.didOpen(ujson.Obj("textDocument" -> ujson.Obj(
+      "uri" -> uri, "languageId" -> "scalascript", "version" -> 1, "text" -> text
+    )))
+    val syms = wsQuery(h, "foo")
+    val names = syms.map(_("name").str).toSet
+    assert(names.contains("fooBar"), s"expected fooBar in results: $names")
+    assert(names.contains("fooQux"), s"expected fooQux in results: $names")
+    assert(!names.contains("other"), s"'other' should be filtered out: $names")
+  }
+
+  test("workspaceSymbol returns empty array when no docs open") {
+    val (_, h) = newHandlers()
+    h.initialize(ujson.Obj())
+    val syms = wsQuery(h, "anything")
+    assert(syms.isEmpty, s"expected empty result with no docs open, got: $syms")
+  }
+
+  test("workspaceSymbol each symbol has name, kind, location.uri, location.range") {
+    val (_, h) = newHandlers()
+    h.initialize(ujson.Obj())
+    val uri = "file:///tmp/ws-sym-schema.ssc"
+    val text =
+      """# S
+        |
+        |```scala
+        |def myFn(): Unit = ()
+        |```
+        |""".stripMargin
+    h.didOpen(ujson.Obj("textDocument" -> ujson.Obj(
+      "uri" -> uri, "languageId" -> "scalascript", "version" -> 1, "text" -> text
+    )))
+    val syms = wsQuery(h, "myFn")
+    assert(syms.nonEmpty, "expected at least myFn symbol")
+    val sym = syms.find(_("name").str == "myFn").get
+    assert(sym.obj.contains("kind"),     "expected 'kind' field")
+    assert(sym("kind").num.toInt == 12,  "def should be kind=12 (Function)")
+    val loc = sym("location")
+    assert(loc("uri").str == uri,        "location.uri must match open doc uri")
+    assert(loc.obj.contains("range"),    "location must have 'range'")
+  }
+
+  test("initialize advertises workspaceSymbolProvider capability") {
+    val (_, h) = newHandlers()
+    val caps = h.initialize(ujson.Obj())("capabilities")
+    assert(caps("workspaceSymbolProvider").bool == true,
+      "expected workspaceSymbolProvider: true in capabilities")
+  }

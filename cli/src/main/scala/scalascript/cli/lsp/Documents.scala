@@ -79,6 +79,9 @@ class Documents:
    *  by other in-editor files when the artifact dir isn't authoritative. */
   def all: Iterable[DocumentState] = docs.values
 
+  /** All open document URIs. */
+  def allUris: Iterable[String] = docs.keys
+
   // ─── Internals ──────────────────────────────────────────────────────
 
   private def parseAndCheck(

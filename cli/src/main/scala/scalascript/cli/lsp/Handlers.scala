@@ -51,6 +51,7 @@ class Handlers(docs: Documents):
         "referencesProvider"       -> true,
         "renameProvider"           -> ujson.Obj("prepareProvider" -> true),
         "documentSymbolProvider"   -> true,
+        "workspaceSymbolProvider"  -> true,
         "completionProvider"       -> ujson.Obj(
           "triggerCharacters" -> ujson.Arr(".", " ")
         )
@@ -442,6 +443,87 @@ class Handlers(docs: Documents):
         "range" -> rangeJson(sl, sc, el, ec)
       )
     )
+
+  // ─── workspace/symbol ───────────────────────────────────────────────
+
+  /** `workspace/symbol`.  Returns a flat `SymbolInformation[]` for every
+   *  symbol in every open document and every loaded `.scim` interface
+   *  whose name contains `query` (case-insensitive substring match).
+   *  An empty query returns all symbols (capped at 200 to stay fast). */
+  def workspaceSymbol(params: ujson.Value): ujson.Value =
+    val query = params.objOpt.flatMap(_.get("query")).flatMap(_.strOpt).getOrElse("").toLowerCase
+    val buf = List.newBuilder[ujson.Value]
+
+    // Symbols from every currently-open document.
+    docs.allUris.foreach { uri =>
+      docs.get(uri).foreach { state =>
+        // Section headings.
+        state.module.foreach { mod =>
+          def walkSections(sections: List[Section]): Unit =
+            sections.foreach { sec =>
+              val text = sec.heading.text
+              if text.nonEmpty && (query.isEmpty || text.toLowerCase.contains(query)) then
+                val (sl, sc, el, ec) = sec.heading.span match
+                  case Some(sp) => (sp.start.line, sp.start.column, sp.end.line, sp.end.column)
+                  case None     => (0, 0, 0, text.length)
+                buf += symbolInfo(text, SymbolKindLsp.Module, uri, sl, sc, el, ec)
+              walkSections(sec.subsections)
+            }
+          walkSections(mod.sections)
+        }
+        // Scalameta definitions in code blocks.
+        val blocks = state.module.toList.flatMap(collectBlocks)
+        if blocks.nonEmpty then
+          import scala.meta.*
+          for (cb, blockLine0) <- blocks do
+            cb.tree.foreach { node =>
+              ScalaNode.fold(node) { tree =>
+                tree.collect {
+                  case d: Defn.Def    => (d.name.value, SymbolKindLsp.Function,  d.name.pos)
+                  case d: Defn.Class  => (d.name.value, SymbolKindLsp.Class,     d.name.pos)
+                  case d: Defn.Object => (d.name.value, SymbolKindLsp.Object,    d.name.pos)
+                  case d: Defn.Trait  => (d.name.value, SymbolKindLsp.Interface, d.name.pos)
+                  case d: Defn.Enum   => (d.name.value, SymbolKindLsp.Enum,      d.name.pos)
+                }.foreach { case (name, kind, pos) =>
+                  if query.isEmpty || name.toLowerCase.contains(query) then
+                    buf += symbolInfo(name, kind, uri,
+                                     pos.startLine + blockLine0, pos.startColumn,
+                                     pos.endLine   + blockLine0, pos.endColumn)
+                }
+                // val/var patterns.
+                tree.collect {
+                  case d: Defn.Val => d.pats.collect { case Pat.Var(n) => (n.value, n.pos) }
+                  case d: Defn.Var => d.pats.collect { case Pat.Var(n) => (n.value, n.pos) }
+                }.flatten.foreach { case (name, pos) =>
+                  if query.isEmpty || name.toLowerCase.contains(query) then
+                    buf += symbolInfo(name, SymbolKindLsp.Variable, uri,
+                                     pos.startLine + blockLine0, pos.startColumn,
+                                     pos.endLine   + blockLine0, pos.endColumn)
+                }
+              }
+            }
+      }
+    }
+
+    // Symbols from loaded .scim interfaces (cross-module).
+    docs.importedInterfaces.foreach { case (alias, iface) =>
+      val ifaceUri = docs.sourceUriForHash(iface.sourceHash).getOrElse(s"scim:$alias")
+      (iface.exports ++ iface.externDefs).foreach { sym =>
+        if query.isEmpty || sym.name.toLowerCase.contains(query) then
+          val kind = sym.kind match
+            case "def"    => SymbolKindLsp.Function
+            case "class"  => SymbolKindLsp.Class
+            case "object" => SymbolKindLsp.Object
+            case "trait"  => SymbolKindLsp.Interface
+            case _        => SymbolKindLsp.Variable
+          val line = sym.definitionLine
+          val col  = sym.definitionColumn
+          buf += symbolInfo(sym.name, kind, ifaceUri, line, col, line, col + sym.name.length)
+      }
+    }
+
+    val results = buf.result().take(200)
+    ujson.Arr.from(results)
 
   // ─── references ─────────────────────────────────────────────────────
 

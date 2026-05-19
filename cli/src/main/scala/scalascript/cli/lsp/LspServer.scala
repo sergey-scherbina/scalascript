@@ -125,6 +125,10 @@ class LspServer(
           val result = handlers.documentSymbol(params)
           reply(LspProtocol.success(id, result))
 
+        case "workspace/symbol" =>
+          val result = handlers.workspaceSymbol(params)
+          reply(LspProtocol.success(id, result))
+
         case other =>
           reply(LspProtocol.failure(id, ErrorCodes.MethodNotFound, s"method not found: $other"))
     catch case e: Exception =>
