@@ -70,6 +70,7 @@ private def dispatchCommand(args: List[String]): Unit =
     case "check-with-iface"    => checkWithInterfaceCommand(args.tail)
     case "link"                => linkCommand(args.tail)
     case "info"                => infoCommand(args.tail)
+    case "verify"              => verifyCommand(args.tail)
     case "deps"                => depsCommand(args.tail)
     case "compile"             => compileCommand(args.tail)
     case "package"             => packageCommand(args.tail)
@@ -223,6 +224,10 @@ def printUsage(): Unit =
     |  link                   Link .scim/.scir artifact pairs into a merged module (v2.0)
     |  info <artifact>        Inspect a .scim/.scir/.scjvm/.scjs file (envelope + key fields)
     |                         Pass --json to dump the full envelope as pretty-printed JSON
+    |  verify <artifact-dir>  Health-check every v2.0 artifact in a directory.
+    |                         Validates envelope, sourceHash shape, cross-refs, and runtime
+    |                         coverage.  Flags: --strict (also re-hash source files),
+    |                         --src-dir <dir> (default: artifact-dir/..), --json.
     |  serve                  Start HTTP server serving .ssc files as web pages
     |  parse                  Parse .ssc files and print AST
     |  check                  Type-check .ssc files
@@ -2705,6 +2710,587 @@ private def printScjsInfo(path: os.Path, json: String, fileSize: Long, jsonMode:
         println(s"jsSourceBytes: ${art.jsSource.length}")
         println(s"imports: ${art.imports.length}")
         art.imports.foreach { imp => println(s"  - $imp") }
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ssc verify <artifact-dir>  —  v2.0 operational health-check
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** `ssc verify <artifact-dir> [--src-dir <dir>] [--strict] [--json]`
+ *
+ *  Walk every v2.0 artifact in `<artifact-dir>` (top-level only) and report
+ *  its integrity status.  Designed for CI/CD use: gates deploy on a clean
+ *  artifact set.
+ *
+ *  Per-artifact checks:
+ *
+ *   1. Envelope — `magic == "SSCART"` and `abiVersion == ArtifactVersion.current`,
+ *      reusing the existing IO readers (their `Left(err)` is propagated as the
+ *      artifact's FAIL reason).
+ *
+ *   2. `sourceHash` shape — 64-char lowercase hex.
+ *
+ *   3. `sourceHash` freshness (only with `--strict`) — for `.scim/.scir/.scjvm/.scjs`,
+ *      locate `<moduleId>.ssc` under `--src-dir` (recursive), recompute SHA-256
+ *      via `InterfaceExtractor.sha256` and assert the match.  Missing source
+ *      file → WARN.  Runtime artifacts (`.scjvm-runtime` / `.scjs-runtime`)
+ *      hash a synthetic runtime source, not a user file — they're skipped.
+ *
+ *   4. Cross-reference integrity — every `imports` entry in a `.scim/.scjvm/.scjs`
+ *      must have a matching artifact of the same kind in the dir (case-
+ *      insensitive basename match).  Missing import → FAIL.
+ *
+ *   5. Runtime artifact coverage — for `.scjvm/.scjs` collections, the union of
+ *      every module's `capabilities` must be a subset of the corresponding
+ *      `_runtime.scjvm-runtime` / `_runtime.scjs-runtime` capabilities.  When
+ *      modules declare capabilities but no runtime artifact exists, this is
+ *      a WARN (which becomes FAIL with `--strict`).
+ *
+ *  Exit codes:
+ *   - 0 when every artifact is OK, or only WARNs without `--strict`.
+ *   - 1 when any FAIL, or any WARN with `--strict`.
+ *
+ *  Output: plain text by default (one line per artifact + summary).  `--json`
+ *  emits a parseable JSON document `{ dir, artifacts: [...], summary: {...} }`.
+ *
+ *  v2.0 Phase 3 — operational health check. */
+def verifyCommand(args: List[String]): Unit =
+  var artifactDirArg: Option[String] = None
+  var srcDirArg:      Option[String] = None
+  var strict:         Boolean        = false
+  var jsonMode:       Boolean        = false
+  val it = args.iterator
+  while it.hasNext do
+    it.next() match
+      case "--src-dir" if it.hasNext => srcDirArg = Some(it.next())
+      case "--strict"                => strict = true
+      case "--json"                  => jsonMode = true
+      case other if other.startsWith("--") =>
+        System.err.println(s"verify: unrecognised argument '$other'")
+        System.exit(1)
+      case other =>
+        if artifactDirArg.isDefined then
+          System.err.println(s"verify: unexpected extra argument '$other'")
+          System.exit(1)
+        artifactDirArg = Some(other)
+
+  if artifactDirArg.isEmpty then
+    System.err.println("Usage: ssc verify <artifact-dir> [--src-dir <dir>] [--strict] [--json]")
+    System.exit(1)
+
+  val artifactDir = os.Path(artifactDirArg.get, os.pwd)
+  if !os.exists(artifactDir) then
+    System.err.println(s"verify: artifact-dir not found: $artifactDir")
+    System.exit(1)
+  if !os.isDir(artifactDir) then
+    System.err.println(s"verify: not a directory: $artifactDir")
+    System.exit(1)
+
+  val srcDir = srcDirArg.map(os.Path(_, os.pwd)).getOrElse(artifactDir / os.up)
+  // Source dir is allowed to be missing; freshness checks just degrade to WARN.
+
+  val (rows, summary) = runVerify(artifactDir, srcDir, strict)
+
+  if jsonMode then
+    println(VerifyReport.toJson(artifactDir, rows, summary))
+  else
+    VerifyReport.printPlain(artifactDir, rows, summary)
+
+  // Exit code policy: any FAIL → 1.  With --strict, any WARN also → 1.
+  val shouldFail =
+    summary.fail > 0 || (strict && summary.warn > 0)
+  if shouldFail then System.exit(1)
+
+/** Per-artifact verify outcome. */
+private case class VerifyRow(
+    path:        os.Path,
+    format:      String,                // "scim" | "scir" | "scjvm" | "scjs" | "scjvm-runtime" | "scjs-runtime"
+    status:      String,                // "ok" | "warn" | "fail"
+    summary:     String,                // human-readable one-liner for plain output
+    detail:      Map[String, ujson.Value] = Map.empty,
+    error:       Option[String] = None
+)
+
+private case class VerifySummary(ok: Int, warn: Int, fail: Int):
+  def total: Int = ok + warn + fail
+
+/** Walk every supported artifact in `artifactDir`, classify each, and return
+ *  the row + summary counts.  Pure read-only. */
+private def runVerify(
+    artifactDir: os.Path,
+    srcDir:      os.Path,
+    strict:      Boolean
+): (List[VerifyRow], VerifySummary) =
+  val supportedExts = Set("scim", "scir", "scjvm", "scjs", "scjvm-runtime", "scjs-runtime")
+  // os-lib `Path.ext` returns the last suffix (e.g. "scjvm-runtime" for
+  // `_runtime.scjvm-runtime`).  Top-level only — no recursion.
+  val files: List[os.Path] =
+    if !os.isDir(artifactDir) then Nil
+    else
+      os.list(artifactDir)
+        .filter(os.isFile)
+        .filter(p => supportedExts.contains(p.ext))
+        .sortBy(_.last)
+        .toList
+
+  // Quick lookup tables for cross-ref checks.  Use lowercase basenames so the
+  // match is case-insensitive per spec.
+  val scimNames:  Set[String] = files.filter(_.ext == "scim") .map(_.last.toLowerCase).toSet
+  val scjvmNames: Set[String] = files.filter(_.ext == "scjvm").map(_.last.toLowerCase).toSet
+  val scjsNames:  Set[String] = files.filter(_.ext == "scjs") .map(_.last.toLowerCase).toSet
+
+  // Index source files by their basename minus ".ssc" so freshness lookup is
+  // O(1) per artifact.  Recursive walk of srcDir (when it exists) — collisions
+  // (same moduleId in two subdirs) are resolved by first-wins.
+  val sourceIndex: Map[String, os.Path] =
+    if !os.exists(srcDir) || !os.isDir(srcDir) then Map.empty
+    else
+      val acc = scala.collection.mutable.LinkedHashMap.empty[String, os.Path]
+      try
+        os.walk(srcDir).filter(p => os.isFile(p) && p.ext == "ssc").foreach { p =>
+          val key = p.last.stripSuffix(".ssc")
+          if !acc.contains(key) then acc(key) = p
+        }
+      catch case _: Throwable => () // unreadable subdirs are ignored
+      acc.toMap
+
+  // Capability unions — populated by classifyJvm / classifyJs and consumed
+  // below to assess runtime coverage.
+  val jvmCaps = scala.collection.mutable.Set.empty[String]
+  val jsCaps  = scala.collection.mutable.Set.empty[String]
+  var jvmRuntimeRow: Option[VerifyRow] = None
+  var jsRuntimeRow:  Option[VerifyRow] = None
+
+  val rows = scala.collection.mutable.ListBuffer.empty[VerifyRow]
+
+  files.foreach { p =>
+    val row = p.ext match
+      case "scim"           => verifyScim(p, srcDir, sourceIndex, strict, scimNames)
+      case "scir"           => verifyScir(p, srcDir, sourceIndex, strict)
+      case "scjvm"          =>
+        val r = verifyScjvm(p, srcDir, sourceIndex, strict, scjvmNames)
+        r.detail.get("capabilities").foreach(_.arr.foreach(c => jvmCaps += c.str))
+        r
+      case "scjs"           =>
+        val r = verifyScjs(p, srcDir, sourceIndex, strict, scjsNames)
+        r.detail.get("capabilities").foreach(_.arr.foreach(c => jsCaps += c.str))
+        r
+      case "scjvm-runtime"  =>
+        val r = verifyJvmRuntime(p)
+        jvmRuntimeRow = Some(r)
+        r
+      case "scjs-runtime"   =>
+        val r = verifyJsRuntime(p)
+        jsRuntimeRow = Some(r)
+        r
+      case _                => // unreachable: filtered above
+        VerifyRow(p, p.ext, "fail", s"unsupported extension '.${p.ext}'", error = Some("unsupported extension"))
+    rows += row
+  }
+
+  // Cross-cutting: runtime capability coverage.  Append synthetic WARN rows
+  // when modules declare capabilities the runtime doesn't cover (or the
+  // runtime is missing entirely).
+  def assessRuntimeCoverage(
+      kind:        String,     // "scjvm" | "scjs"
+      moduleCaps:  Set[String],
+      runtimeRow:  Option[VerifyRow]
+  ): Option[VerifyRow] =
+    if moduleCaps.isEmpty then None
+    else runtimeRow match
+      case None =>
+        Some(VerifyRow(
+          artifactDir / s"_runtime.$kind-runtime",
+          s"$kind-runtime",
+          "warn",
+          s"runtime artifact MISSING but modules declare capabilities [${moduleCaps.toList.sorted.mkString(", ")}]",
+          error = Some(s"missing _runtime.$kind-runtime")
+        ))
+      case Some(r) if r.status == "fail" =>
+        None  // runtime row already failed; no need to layer a coverage warning on top.
+      case Some(r) =>
+        val rtCaps =
+          r.detail.get("capabilities").map(_.arr.map(_.str).toSet).getOrElse(Set.empty)
+        val uncovered = moduleCaps -- rtCaps
+        if uncovered.isEmpty then None
+        else
+          Some(VerifyRow(
+            r.path,
+            r.format,
+            "fail",
+            s"runtime missing capabilities [${uncovered.toList.sorted.mkString(", ")}] " +
+            s"(declared by modules but not in runtime caps [${rtCaps.toList.sorted.mkString(", ")}])",
+            error = Some(s"runtime missing capabilities: ${uncovered.toList.sorted.mkString(",")}")
+          ))
+
+  assessRuntimeCoverage("scjvm", jvmCaps.toSet, jvmRuntimeRow).foreach(rows += _)
+  assessRuntimeCoverage("scjs",  jsCaps.toSet,  jsRuntimeRow ).foreach(rows += _)
+
+  val ok   = rows.count(_.status == "ok")
+  val warn = rows.count(_.status == "warn")
+  val fail = rows.count(_.status == "fail")
+  (rows.toList, VerifySummary(ok, warn, fail))
+
+// ── Per-format classifiers ──────────────────────────────────────────────────
+
+/** Hex sanity check for `sourceHash`.  64 chars, all `[0-9a-f]`. */
+private def isValidSha256Hex(s: String): Boolean =
+  s.length == 64 && s.forall(c => (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'))
+
+/** Recompute the SHA-256 of `<candidate>.ssc` if found in `sourceIndex`.
+ *
+ *  Tries each candidate in order — typically `[moduleName, artifactBasename]`
+ *  — so we can match either a manifest `name:` or the on-disk file stem.
+ *  The build's incremental orchestrator names `.scim` files after the source
+ *  basename (e.g. `ast.scim`) but stamps `moduleName` with a hyphen-joined
+ *  package prefix (e.g. `std-dsl-ast`); falling back to the file basename
+ *  lets `--strict` succeed against the on-disk source `ast.ssc`.
+ *
+ *  Returns:
+ *   - `Right(true)`  — found and matches.
+ *   - `Right(false)` — found but mismatch (stale artifact / touched source).
+ *   - `Left("missing")` — none of the candidates resolved (warn).
+ *   - `Left(err)`        — i/o error (warn). */
+private def checkSourceHash(
+    candidates: List[String],
+    artifactSha: String,
+    sourceIndex: Map[String, os.Path]
+): Either[String, Boolean] =
+  val hit = candidates.iterator.flatMap(c => sourceIndex.get(c)).nextOption()
+  hit match
+    case None      => Left("missing")
+    case Some(src) =>
+      try
+        val recomputed = InterfaceExtractor.sha256(os.read.bytes(src))
+        Right(recomputed.equalsIgnoreCase(artifactSha))
+      catch case e: Throwable =>
+        Left(s"read error: ${e.getMessage}")
+
+/** Cross-reference check: every entry in `imports` must match a file in
+ *  `siblingNames` (lowercase basenames in the same artifact dir).
+ *
+ *  The build's `imports` field carries either bare module IDs (e.g. `"util"`,
+ *  emitted by `compile-jvm` from front-matter aliases) OR path fragments
+ *  (e.g. `"./util.ssc"`, emitted from raw `[link](util.ssc)` markdown imports).
+ *  Normalise both into a candidate basename `<id>.<ext>` and look it up.  An
+ *  import is considered satisfied when ANY candidate basename matches. */
+private def checkImports(
+    imports:      List[String],
+    artifactKind: String,         // "scim" | "scjvm" | "scjs"
+    siblingNames: Set[String]
+): List[String] =
+  imports.flatMap { imp =>
+    val raw = imp.trim
+    if raw.isEmpty then None
+    else
+      // Strip leading "./" and trailing ".ssc"; the residue is the module id.
+      val trimmed = raw.stripPrefix("./").stripSuffix(".ssc")
+      // Last path segment only — `foo/bar` → `bar`.
+      val basename = trimmed.split('/').last.toLowerCase
+      val candidate = s"$basename.$artifactKind"
+      if siblingNames.contains(candidate) then None
+      else Some(imp)
+  }
+
+private def verifyScim(
+    path:         os.Path,
+    srcDir:       os.Path,
+    sourceIndex:  Map[String, os.Path],
+    strict:       Boolean,
+    siblingScims: Set[String]
+): VerifyRow =
+  ArtifactIO.readInterfaceFile(path) match
+    case Left(err) =>
+      VerifyRow(path, "scim", "fail", err.linesIterator.next(), error = Some(err))
+    case Right(iface) =>
+      val checks  = scala.collection.mutable.ListBuffer.empty[String]
+      val warns   = scala.collection.mutable.ListBuffer.empty[String]
+      val fails   = scala.collection.mutable.ListBuffer.empty[String]
+
+      checks += "envelope OK"
+
+      if !isValidSha256Hex(iface.sourceHash) then
+        fails += s"sourceHash is not a 64-char hex string (got '${iface.sourceHash.take(16)}...')"
+      else if strict then
+        val basename = path.last.stripSuffix(".scim")
+        val candidates = (iface.moduleName.toList :+ basename).distinct
+        checkSourceHash(candidates, iface.sourceHash, sourceIndex) match
+          case Right(true)  => checks += "sourceHash OK"
+          case Right(false) => fails  += s"sourceHash mismatch — source file changed since artifact was written"
+          case Left("missing") => warns += s"sourceHash MISSING in $srcDir (no ${candidates.head}.ssc found)"
+          case Left(err)    => warns += s"sourceHash unverified ($err)"
+      else
+        checks += "sourceHash OK"
+
+      // Cross-refs from manifest dependencies.  Bare `imports` (path-based,
+      // emitted by JvmArtifact / JsArtifact `imports` list) live on the .scjvm
+      // and .scjs envelopes; .scim's authoritative source is `dependencies`.
+      val deps        = iface.dependencies.keys.toList
+      val missingDeps = checkImports(deps, "scim", siblingScims)
+      if missingDeps.nonEmpty then
+        fails += s"missing interface deps: ${missingDeps.mkString(", ")}"
+      else if deps.nonEmpty then
+        checks += s"imports ${deps.mkString(", ")}"
+
+      checks += s"${iface.exports.length} exports"
+
+      val (status, summary) =
+        if fails.nonEmpty then ("fail", fails.mkString("; "))
+        else if warns.nonEmpty then ("warn", (checks ++ warns).mkString(", "))
+        else ("ok", checks.mkString(", "))
+
+      val detail = scala.collection.mutable.LinkedHashMap.empty[String, ujson.Value]
+      detail("exports")    = ujson.Num(iface.exports.length.toDouble)
+      detail("sourceHash") = ujson.Str(iface.sourceHash)
+      if iface.capabilities.nonEmpty then
+        detail("capabilities") = ujson.Arr.from(iface.capabilities.map(c => ujson.Str(c.name)))
+      VerifyRow(path, "scim", status, summary, detail.toMap, fails.headOption.orElse(warns.headOption))
+
+private def verifyScir(
+    path:        os.Path,
+    srcDir:      os.Path,
+    sourceIndex: Map[String, os.Path],
+    strict:      Boolean
+): VerifyRow =
+  ArtifactIO.readIrFile(path) match
+    case Left(err) =>
+      VerifyRow(path, "scir", "fail", err.linesIterator.next(), error = Some(err))
+    case Right((nm, _, moduleName, sourceHash)) =>
+      val checks = scala.collection.mutable.ListBuffer.empty[String]
+      val warns  = scala.collection.mutable.ListBuffer.empty[String]
+      val fails  = scala.collection.mutable.ListBuffer.empty[String]
+
+      checks += "envelope OK"
+
+      if !isValidSha256Hex(sourceHash) then
+        fails += s"sourceHash is not a 64-char hex string"
+      else if strict then
+        val basename = path.last.stripSuffix(".scir")
+        val candidates = (moduleName.toList :+ basename).distinct
+        checkSourceHash(candidates, sourceHash, sourceIndex) match
+          case Right(true)     => checks += "sourceHash OK"
+          case Right(false)    => fails  += s"sourceHash mismatch — source file changed"
+          case Left("missing") => warns  += s"sourceHash MISSING in $srcDir (no ${candidates.head}.ssc found)"
+          case Left(err)       => warns  += s"sourceHash unverified ($err)"
+      else
+        checks += "sourceHash OK"
+
+      checks += s"${nm.sections.length} sections"
+
+      val (status, summary) =
+        if fails.nonEmpty then ("fail", fails.mkString("; "))
+        else if warns.nonEmpty then ("warn", (checks ++ warns).mkString(", "))
+        else ("ok", checks.mkString(", "))
+
+      val detail = Map[String, ujson.Value](
+        "sections"   -> ujson.Num(nm.sections.length.toDouble),
+        "sourceHash" -> ujson.Str(sourceHash)
+      )
+      VerifyRow(path, "scir", status, summary, detail, fails.headOption.orElse(warns.headOption))
+
+private def verifyScjvm(
+    path:         os.Path,
+    srcDir:       os.Path,
+    sourceIndex:  Map[String, os.Path],
+    strict:       Boolean,
+    siblingScjvm: Set[String]
+): VerifyRow =
+  JvmArtifactIO.readJvmFile(path) match
+    case Left(err) =>
+      VerifyRow(path, "scjvm", "fail", err.linesIterator.next(), error = Some(err))
+    case Right(art) =>
+      val checks = scala.collection.mutable.ListBuffer.empty[String]
+      val warns  = scala.collection.mutable.ListBuffer.empty[String]
+      val fails  = scala.collection.mutable.ListBuffer.empty[String]
+
+      checks += "envelope OK"
+
+      if !isValidSha256Hex(art.sourceHash) then
+        fails += s"sourceHash is not a 64-char hex string"
+      else if strict then
+        val basename = path.last.stripSuffix(".scjvm")
+        val candidates = (art.moduleName.toList :+ art.moduleId :+ basename).distinct
+        checkSourceHash(candidates, art.sourceHash, sourceIndex) match
+          case Right(true)     => checks += "sourceHash OK"
+          case Right(false)    => fails  += s"sourceHash mismatch — source file changed"
+          case Left("missing") => warns  += s"sourceHash MISSING in $srcDir (no ${candidates.head}.ssc found)"
+          case Left(err)       => warns  += s"sourceHash unverified ($err)"
+      else
+        checks += "sourceHash OK"
+
+      val missingImports = checkImports(art.imports, "scjvm", siblingScjvm)
+      if missingImports.nonEmpty then
+        fails += s"missing JVM imports: ${missingImports.mkString(", ")}"
+      else if art.imports.nonEmpty then
+        checks += s"imports ${art.imports.mkString(", ")}"
+
+      art.classBundle.foreach { b =>
+        val kb = (b.length * 3.0 / 4.0 / 1024.0).round
+        checks += s"classBundle $kb KB"
+      }
+      if art.capabilities.nonEmpty then
+        checks += s"caps [${art.capabilities.mkString(", ")}]"
+
+      val (status, summary) =
+        if fails.nonEmpty then ("fail", fails.mkString("; "))
+        else if warns.nonEmpty then ("warn", (checks ++ warns).mkString(", "))
+        else ("ok", checks.mkString(", "))
+
+      val detail = scala.collection.mutable.LinkedHashMap.empty[String, ujson.Value]
+      detail("sourceHash")   = ujson.Str(art.sourceHash)
+      detail("imports")      = ujson.Arr.from(art.imports.map(ujson.Str(_)))
+      detail("capabilities") = ujson.Arr.from(art.capabilities.map(ujson.Str(_)))
+      art.classBundle.foreach(b =>
+        detail("classBundleBytes") = ujson.Num((b.length * 3.0 / 4.0).round.toDouble))
+      VerifyRow(path, "scjvm", status, summary, detail.toMap, fails.headOption.orElse(warns.headOption))
+
+private def verifyScjs(
+    path:        os.Path,
+    srcDir:      os.Path,
+    sourceIndex: Map[String, os.Path],
+    strict:      Boolean,
+    siblingScjs: Set[String]
+): VerifyRow =
+  JsArtifactIO.readJsFile(path) match
+    case Left(err) =>
+      VerifyRow(path, "scjs", "fail", err.linesIterator.next(), error = Some(err))
+    case Right(art) =>
+      val checks = scala.collection.mutable.ListBuffer.empty[String]
+      val warns  = scala.collection.mutable.ListBuffer.empty[String]
+      val fails  = scala.collection.mutable.ListBuffer.empty[String]
+
+      checks += "envelope OK"
+
+      if !isValidSha256Hex(art.sourceHash) then
+        fails += s"sourceHash is not a 64-char hex string"
+      else if strict then
+        val basename = path.last.stripSuffix(".scjs")
+        val candidates = (art.moduleName.toList :+ art.moduleId :+ basename).distinct
+        checkSourceHash(candidates, art.sourceHash, sourceIndex) match
+          case Right(true)     => checks += "sourceHash OK"
+          case Right(false)    => fails  += s"sourceHash mismatch — source file changed"
+          case Left("missing") => warns  += s"sourceHash MISSING in $srcDir (no ${candidates.head}.ssc found)"
+          case Left(err)       => warns  += s"sourceHash unverified ($err)"
+      else
+        checks += "sourceHash OK"
+
+      val missingImports = checkImports(art.imports, "scjs", siblingScjs)
+      if missingImports.nonEmpty then
+        fails += s"missing JS imports: ${missingImports.mkString(", ")}"
+      else if art.imports.nonEmpty then
+        checks += s"imports ${art.imports.mkString(", ")}"
+
+      val kb = (art.jsSource.length / 1024.0).round
+      checks += s"jsSource $kb KB"
+      if art.capabilities.nonEmpty then
+        checks += s"caps [${art.capabilities.mkString(", ")}]"
+
+      val (status, summary) =
+        if fails.nonEmpty then ("fail", fails.mkString("; "))
+        else if warns.nonEmpty then ("warn", (checks ++ warns).mkString(", "))
+        else ("ok", checks.mkString(", "))
+
+      val detail = scala.collection.mutable.LinkedHashMap.empty[String, ujson.Value]
+      detail("sourceHash")     = ujson.Str(art.sourceHash)
+      detail("imports")        = ujson.Arr.from(art.imports.map(ujson.Str(_)))
+      detail("capabilities")   = ujson.Arr.from(art.capabilities.map(ujson.Str(_)))
+      detail("jsSourceBytes")  = ujson.Num(art.jsSource.length.toDouble)
+      VerifyRow(path, "scjs", status, summary, detail.toMap, fails.headOption.orElse(warns.headOption))
+
+private def verifyJvmRuntime(path: os.Path): VerifyRow =
+  JvmArtifactIO.readRuntimeFile(path) match
+    case Left(err) =>
+      VerifyRow(path, "scjvm-runtime", "fail", err.linesIterator.next(), error = Some(err))
+    case Right(rt) =>
+      val checks = scala.collection.mutable.ListBuffer.empty[String]
+      val fails  = scala.collection.mutable.ListBuffer.empty[String]
+      checks += "envelope OK"
+      if !isValidSha256Hex(rt.sourceHash) then
+        fails += s"sourceHash is not a 64-char hex string"
+      else
+        checks += "sourceHash OK"
+      val kb = (rt.classBundle.length * 3.0 / 4.0 / 1024.0).round
+      checks += s"classBundle $kb KB"
+      checks += s"caps [${rt.capabilities.mkString(", ")}]"
+      val (status, summary) =
+        if fails.nonEmpty then ("fail", fails.mkString("; "))
+        else ("ok", checks.mkString(", "))
+      val detail = Map[String, ujson.Value](
+        "sourceHash"       -> ujson.Str(rt.sourceHash),
+        "capabilities"     -> ujson.Arr.from(rt.capabilities.map(ujson.Str(_))),
+        "classBundleBytes" -> ujson.Num((rt.classBundle.length * 3.0 / 4.0).round.toDouble)
+      )
+      VerifyRow(path, "scjvm-runtime", status, summary, detail, fails.headOption)
+
+private def verifyJsRuntime(path: os.Path): VerifyRow =
+  JsArtifactIO.readRuntimeFile(path) match
+    case Left(err) =>
+      VerifyRow(path, "scjs-runtime", "fail", err.linesIterator.next(), error = Some(err))
+    case Right(rt) =>
+      val checks = scala.collection.mutable.ListBuffer.empty[String]
+      val fails  = scala.collection.mutable.ListBuffer.empty[String]
+      checks += "envelope OK"
+      if !isValidSha256Hex(rt.sourceHash) then
+        fails += s"sourceHash is not a 64-char hex string"
+      else
+        checks += "sourceHash OK"
+      val kb = (rt.jsSource.length / 1024.0).round
+      checks += s"jsSource $kb KB"
+      checks += s"caps [${rt.capabilities.mkString(", ")}]"
+      val (status, summary) =
+        if fails.nonEmpty then ("fail", fails.mkString("; "))
+        else ("ok", checks.mkString(", "))
+      val detail = Map[String, ujson.Value](
+        "sourceHash"    -> ujson.Str(rt.sourceHash),
+        "capabilities"  -> ujson.Arr.from(rt.capabilities.map(ujson.Str(_))),
+        "jsSourceBytes" -> ujson.Num(rt.jsSource.length.toDouble)
+      )
+      VerifyRow(path, "scjs-runtime", status, summary, detail, fails.headOption)
+
+// ── Output formatting ───────────────────────────────────────────────────────
+
+private object VerifyReport:
+  /** Plain-text report.  One line per artifact + a final summary line. */
+  def printPlain(dir: os.Path, rows: List[VerifyRow], summary: VerifySummary): Unit =
+    println(s"verify: $dir")
+    if rows.isEmpty then println("  (0 artifacts found)")
+    else
+      // Right-pad path names so summaries line up.
+      val nameWidth = rows.map(_.path.last.length).max
+      rows.foreach: r =>
+        val marker = r.status match
+          case "ok"   => "OK"
+          case "warn" => "WARN"
+          case "fail" => "FAIL"
+          case _      => "??"
+        val name = r.path.last.padTo(nameWidth, ' ')
+        println(s"  [$marker] $name  ${r.summary}")
+    end if
+    println(s"verify: ${summary.ok} OK, ${summary.warn} WARN, ${summary.fail} FAIL")
+
+  /** Machine-readable JSON report. */
+  def toJson(dir: os.Path, rows: List[VerifyRow], summary: VerifySummary): String =
+    val arr = ujson.Arr.from(rows.map { r =>
+      val o = ujson.Obj(
+        "path"   -> ujson.Str(r.path.last),
+        "format" -> ujson.Str(r.format),
+        "status" -> ujson.Str(r.status)
+      )
+      r.detail.foreach { (k, v) => o(k) = v }
+      r.error.foreach(e => o("error") = ujson.Str(e))
+      o("summary") = ujson.Str(r.summary)
+      o: ujson.Value
+    })
+    val obj = ujson.Obj(
+      "dir"       -> ujson.Str(dir.toString),
+      "artifacts" -> arr,
+      "summary"   -> ujson.Obj(
+        "ok"   -> ujson.Num(summary.ok.toDouble),
+        "warn" -> ujson.Num(summary.warn.toDouble),
+        "fail" -> ujson.Num(summary.fail.toDouble)
+      )
+    )
+    ujson.write(obj, indent = 2)
 
 
 /** Build the self-contained JS source written to a `.scjs` artifact.
