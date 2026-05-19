@@ -1261,8 +1261,7 @@ def watchCommand(args: List[String]): Unit =
 
   def runOnce(headless: Boolean): Unit =
     try
-      val source = os.read(osPath)
-      val module = scalascript.parser.Parser.parse(source)
+      val module = ParseCache.getOrParse(osPath)
       if headless then
         // Hot-reload path: clear old routes, re-run in headless mode so
         // `serve(port)` is a no-op.  Routes are freshly re-registered

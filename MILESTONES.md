@@ -4877,7 +4877,7 @@ Split into per-capability files, each installing via a registration hook in
 `(path, mtime, hash) → ParsedModule`; diff at section granularity and
 re-evaluate only changed sections and their dependents.
 
-- [ ] `ParseCache` — key by path + mtime + content hash
+- [x] `ParseCache` — key by path + mtime + content hash
 - [ ] Section-level diff by heading text
 - [ ] Re-evaluate only changed + dependent sections
 - [ ] Target: watch cycle on `rest-api.ssc` drops < 100 ms
