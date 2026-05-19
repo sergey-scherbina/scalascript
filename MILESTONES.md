@@ -5465,3 +5465,119 @@ profunctor-encoded optics, which we've decided to keep concrete.
 Holding these for a possible future "Optics 3 — profunctor rewrite"
 milestone only if a concrete consumer surfaces.
 
+
+---
+
+## Speculative — Smart contracts backend
+
+> Not scheduled. No concrete timeline. Here for ideation — revisit when
+> the WASM backend is stable and there is a concrete target chain.
+
+ScalaScript's functional core (immutable values, algebraic types, effect
+tracking, deterministic evaluation) maps naturally onto the constraints of
+smart contract VMs.  The open questions below need answers before any
+implementation work starts.
+
+### Why it fits
+
+- Smart contracts must be **deterministic** — no I/O, no randomness, no
+  system calls.  ScalaScript's effect system already tracks and restricts
+  side effects; a `@contract` annotation could enforce no-effect purity
+  statically.
+- **Algebraic types + pattern matching** are exactly the right tool for
+  encoding contract state machines.
+- **Formal verification hooks** — the typed IR can feed a proof assistant
+  (Lean 4, Coq) or SMT solver without changing the source language.
+- The planned **WASM backend** opens the door to WASM-based chains for
+  free, once it ships.
+
+### Open question 1 — which chain(s)?
+
+Different chains have very different VM models:
+
+| Chain | VM | Native language | Notes |
+|-------|----|-----------------|-------|
+| Ethereum / EVM chains | EVM (stack machine) | Solidity, Vyper | Largest ecosystem; custom IR needed |
+| Solana | SBF (BPF variant) | Rust | High throughput; no WASM path |
+| Cardano | UPLC (lambda calculus) | Haskell / Plutus | Strongest FP alignment; small ecosystem |
+| Polkadot / ink! | WASM | Rust | WASM backend would cover this |
+| Near | WASM | Rust, JS | WASM backend would cover this |
+| Cosmos / CosmWasm | WASM | Rust | WASM backend would cover this |
+| Aptos / Sui | Move VM | Move | Novel ownership model |
+
+**Most natural fit** given the planned WASM backend: **Near, Polkadot/ink!,
+CosmWasm** — zero extra VM work once WASM is stable.
+
+**Highest ecosystem value**: **EVM** — but needs a dedicated EVM bytecode
+backend (different from WASM).
+
+**Strongest type-theory alignment**: **Cardano/Plutus** — UPLC is a typed
+lambda calculus, very close to ScalaScript's IR.
+
+The realistic first target is probably one WASM chain (Near or Polkadot)
+plus optional EVM via a separate `backend-evm/` module.
+
+### Open question 2 — contract model
+
+What does a ScalaScript smart contract look like?
+
+```scalascript
+---
+name: token
+kind: contract
+chain: near
+---
+
+# Token contract
+
+```scalascript
+@state
+case class TokenState(balances: Map[String, Int], totalSupply: Int)
+
+@view
+def balanceOf(account: String): Int =
+  State.get[TokenState].balances.getOrElse(account, 0)
+
+@call
+def transfer(from: String, to: String, amount: Int): Unit =
+  direct[State[TokenState]] {
+    val s = State.get[TokenState].!
+    require(s.balances.getOrElse(from, 0) >= amount, "insufficient balance")
+    val s2 = s.copy(balances =
+      s.balances
+        .updated(from, s.balances(from) - amount)
+        .updated(to,   s.balances.getOrElse(to, 0) + amount))
+    State.set(s2).!
+  }
+```
+
+- `@state` — persistent storage type
+- `@view` — read-only call (no gas for state write)
+- `@call` — state-mutating transaction
+- `direct[State[TokenState]]` — existing monadic do-notation over contract state
+
+### Open question 3 — gas metering
+
+Does ScalaScript insert gas checks automatically (like Ethereum's opcode
+pricing), or does the underlying VM handle it?
+
+- WASM VMs (Near, Polkadot): the runtime meters WASM instructions — no
+  compiler work needed.
+- EVM: every opcode has a gas cost; the compiler must emit `GAS` checks.
+- Cardano: script size + execution units are the cost model; no per-opcode
+  metering.
+
+### Open question 4 — formal verification hooks
+
+Long-term: can the typer emit proof obligations that Lean 4 / Z3 can
+discharge?  The typed IR already has enough structure.  This is PhD-level
+research territory — keep it in mind when designing the contract annotation
+model, don't build for it yet.
+
+### Suggested first step (when WASM lands)
+
+1. Write 3 sample contracts in pseudo-ScalaScript (token, auction, multisig).
+2. Decide: Near or Polkadot as the first target.
+3. Prototype a `backend-wasm-contract/` thin layer on top of `backend-wasm/`
+   that enforces `@contract` purity and emits the chain's ABI JSON.
+4. No new language features needed for step 3 — reuse existing type system.
