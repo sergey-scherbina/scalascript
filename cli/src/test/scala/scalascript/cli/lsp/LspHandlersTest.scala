@@ -1027,3 +1027,98 @@ class LspHandlersTest extends AnyFunSuite:
     assert(caps("workspaceSymbolProvider").bool == true,
       "expected workspaceSymbolProvider: true in capabilities")
   }
+
+  // ─── textDocument/signatureHelp ────────────────────────────────────
+
+  private val sigUri = "file:///tmp/sig-help-test.ssc"
+
+  private def openSigDoc(h: Handlers, text: String): Unit =
+    h.initialize(ujson.Obj())
+    h.didOpen(ujson.Obj(
+      "textDocument" -> ujson.Obj(
+        "uri" -> sigUri, "languageId" -> "scalascript", "version" -> 1, "text" -> text
+      )
+    ))
+
+  private def sigHelp(h: Handlers, line: Int, character: Int) =
+    h.signatureHelp(ujson.Obj(
+      "textDocument" -> ujson.Obj("uri" -> sigUri),
+      "position"     -> ujson.Obj("line" -> line, "character" -> character)
+    ))
+
+  test("signatureHelp returns null for unknown URI") {
+    val (_, h) = newHandlers()
+    h.initialize(ujson.Obj())
+    val result = h.signatureHelp(ujson.Obj(
+      "textDocument" -> ujson.Obj("uri" -> "file:///tmp/no-such.ssc"),
+      "position"     -> ujson.Obj("line" -> 0, "character" -> 0)
+    ))
+    assert(result == ujson.Null)
+  }
+
+  test("signatureHelp returns null when cursor is not inside a call") {
+    val (_, h) = newHandlers()
+    val text =
+      """# S
+        |
+        |```scala
+        |def add(x: Int, y: Int): Int = x + y
+        |val z = 1
+        |```
+        |""".stripMargin
+    openSigDoc(h, text)
+    // Cursor on "z" — not inside a call
+    val result = sigHelp(h, line = 4, character = 5)
+    assert(result == ujson.Null, s"expected null outside call context, got: $result")
+  }
+
+  test("signatureHelp finds def and returns parameter labels") {
+    val (_, h) = newHandlers()
+    val text =
+      """# S
+        |
+        |```scala
+        |def add(x: Int, y: Int): Int = x + y
+        |val r = add(1,
+        |```
+        |""".stripMargin
+    openSigDoc(h, text)
+    // Cursor after the comma — activeParameter = 1
+    val result = sigHelp(h, line = 4, character = 14)
+    assert(result != ujson.Null, s"expected SignatureHelp, got null")
+    val sigs = result("signatures").arr
+    assert(sigs.length == 1, s"expected 1 signature")
+    val sig = sigs.head
+    assert(sig("label").str.contains("add"), s"label should contain 'add': ${sig("label")}")
+    val paramLabels = sig("parameters").arr.map(_("label").str).toList
+    assert(paramLabels.length == 2,            s"expected 2 params, got: $paramLabels")
+    assert(paramLabels(0).contains("x"),       s"first param should contain 'x': $paramLabels")
+    assert(paramLabels(1).contains("y"),       s"second param should contain 'y': $paramLabels")
+    assert(result("activeParameter").num.toInt == 1, "cursor after comma → activeParameter=1")
+  }
+
+  test("signatureHelp activeParameter = 0 at first argument") {
+    val (_, h) = newHandlers()
+    val text =
+      """# S
+        |
+        |```scala
+        |def greet(name: String, n: Int): String = name
+        |val r = greet(
+        |```
+        |""".stripMargin
+    openSigDoc(h, text)
+    // Cursor just after `(` — no commas yet → activeParameter = 0
+    val result = sigHelp(h, line = 4, character = 14)
+    assert(result != ujson.Null, "expected SignatureHelp")
+    assert(result("activeParameter").num.toInt == 0, "no commas → activeParameter=0")
+  }
+
+  test("initialize advertises signatureHelpProvider with trigger characters") {
+    val (_, h) = newHandlers()
+    val caps = h.initialize(ujson.Obj())("capabilities")
+    val shp = caps("signatureHelpProvider")
+    val triggers = shp("triggerCharacters").arr.map(_.str).toSet
+    assert(triggers.contains("("), "expected '(' in triggerCharacters")
+    assert(triggers.contains(","), "expected ',' in triggerCharacters")
+  }

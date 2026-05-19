@@ -52,6 +52,9 @@ class Handlers(docs: Documents):
         "renameProvider"           -> ujson.Obj("prepareProvider" -> true),
         "documentSymbolProvider"   -> true,
         "workspaceSymbolProvider"  -> true,
+        "signatureHelpProvider"    -> ujson.Obj(
+          "triggerCharacters" -> ujson.Arr("(", ",")
+        ),
         "completionProvider"       -> ujson.Obj(
           "triggerCharacters" -> ujson.Arr(".", " ")
         )
@@ -331,6 +334,130 @@ class Handlers(docs: Documents):
       "isIncomplete" -> false,
       "items"        -> items
     )
+
+  // ─── signatureHelp ──────────────────────────────────────────────────
+
+  /** `textDocument/signatureHelp`.  Scans backward from the cursor to find
+   *  the innermost unclosed `(`, treats the identifier before it as the
+   *  function name, and returns a `SignatureHelp` with the matching `def`'s
+   *  parameter labels and which parameter is active (comma count). */
+  def signatureHelp(params: ujson.Value): ujson.Value =
+    val (uri, line, character) = extractCursor(params)
+    docs.get(uri) match
+      case None => ujson.Null
+      case Some(state) =>
+        findCallContext(state.text, line, character) match
+          case None => ujson.Null
+          case Some((funcName, activeParam)) =>
+            findDefSignature(state, funcName) match
+              case None => ujson.Null
+              case Some((sigLabel, paramLabels)) =>
+                ujson.Obj(
+                  "signatures" -> ujson.Arr(
+                    ujson.Obj(
+                      "label"           -> sigLabel,
+                      "parameters"      -> ujson.Arr.from(paramLabels.map(p =>
+                        ujson.Obj("label" -> p)
+                      )),
+                      "activeParameter" -> activeParam
+                    )
+                  ),
+                  "activeSignature" -> 0,
+                  "activeParameter" -> activeParam
+                )
+
+  /** Scan backward from (line, character) to locate the innermost unclosed
+   *  `(`.  Returns `(functionName, activeParameterIndex)` where
+   *  `activeParameterIndex` is the number of top-level commas before the
+   *  cursor inside that call.  Returns `None` if no call context found. */
+  private def findCallContext(
+      text:      String,
+      line:      Int,
+      character: Int
+  ): Option[(String, Int)] =
+    def isIdentPart(c: Char) = c.isLetterOrDigit || c == '_'
+    val lines = text.linesIterator.toIndexedSeq
+    // Flatten text up to cursor into a single char sequence for backward scan.
+    val prefix = lines.take(line + 1).zipWithIndex.flatMap { case (l, i) =>
+      val end = if i == line then math.min(character, l.length) else l.length
+      l.take(end) + "\n"
+    }.mkString
+    // Walk backward: track nesting depth; stop at first unmatched `(`.
+    var depth  = 0
+    var commas = 0
+    var i      = prefix.length - 1
+    var found  = -1   // index of the unmatched `(`
+    while i >= 0 && found < 0 do
+      prefix(i) match
+        case ')' | ']' => depth += 1
+        case '(' | '[' =>
+          if depth > 0 then depth -= 1
+          else found = i
+        case ',' if depth == 0 => commas += 1
+        case _ => ()
+      if found < 0 then i -= 1
+    if found < 0 then return None
+    // Scan backward to find the identifier before `(`.
+    var j = found - 1
+    while j >= 0 && prefix(j) == ' ' do j -= 1
+    if j < 0 || !isIdentPart(prefix(j)) then return None
+    val end = j + 1
+    while j >= 0 && isIdentPart(prefix(j)) do j -= 1
+    val funcName = prefix.substring(j + 1, end)
+    if funcName.isEmpty then None
+    else Some((funcName, commas))
+
+  /** Look up a `def` by name in the document's scalameta ASTs and return
+   *  `(signatureLabel, parameterLabels)`.  Returns `None` if not found.
+   *
+   *  Falls back to line-by-line text parsing when the code block tree is
+   *  unavailable (e.g. the block has a parse error because the cursor is
+   *  inside an incomplete call expression). */
+  private def findDefSignature(
+      state:    DocumentState,
+      funcName: String
+  ): Option[(String, List[String])] =
+    import scala.meta.*
+
+    def extractSig(d: Defn.Def): (String, List[String]) =
+      val paramGroups = d.paramClauses.map { clause =>
+        clause.values.map { p =>
+          s"${p.name.value}${p.decltpe.map(t => s": ${t.syntax}").getOrElse("")}"
+        }.toList
+      }
+      val allParams = paramGroups.flatten.toList
+      val paramsStr = paramGroups.map(g => s"(${g.mkString(", ")})").mkString
+      val retStr    = d.decltpe.map(t => s": ${t.syntax}").getOrElse("")
+      (s"def ${d.name.value}$paramsStr$retStr", allParams)
+
+    state.module match
+      case None => None
+      case Some(mod) =>
+        collectBlocks(mod).iterator.flatMap { case (cb, _) =>
+          // Try the fully-parsed tree first.
+          val fromTree = cb.tree.flatMap { node =>
+            ScalaNode.fold(node) { tree =>
+              tree.collect { case d: Defn.Def if d.name.value == funcName => extractSig(d) }
+                  .headOption
+            }
+          }
+          if fromTree.isDefined then fromTree.toList
+          else
+            // Fallback: parse individual lines that look like the target def.
+            // This handles the case where the block has a parse error because
+            // the cursor sits inside an incomplete call expression.
+            cb.source.linesIterator
+              .filter(_.contains(s"def $funcName"))
+              .flatMap { defLine =>
+                try
+                  dialects.Scala3(defLine.trim).parse[Source].toOption.flatMap { src =>
+                    src.collect { case d: Defn.Def if d.name.value == funcName => extractSig(d) }
+                       .headOption
+                  }
+                catch case _: Exception => None
+              }
+              .to(LazyList)
+        }.nextOption()
 
   // ─── documentSymbol ─────────────────────────────────────────────────
 
