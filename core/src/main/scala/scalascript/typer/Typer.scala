@@ -4,12 +4,26 @@ import scalascript.ast.*
 import scala.collection.mutable.ListBuffer
 import scala.meta.*
 
-class Typer:
+/** Optionally-populated map of pre-compiled module interfaces.
+ *  Key is the import alias (or the last segment of the package name).
+ *  Used by `ssc check --use-interface <dir>` to avoid re-parsing sources.
+ *
+ *  v2.0 / Stage 4.
+ */
+class Typer(importedInterfaces: Map[String, scalascript.ir.ModuleInterface] = Map.empty):
   private val errors = ListBuffer[TypeError]()
 
   def typeCheck(module: Module): TypedModule =
     val prelude  = createPrelude()
-    val sections = module.sections.map(s => typeCheckSection(s, prelude))
+    // v2.0: if we have pre-compiled interfaces, build an InterfaceScope layer
+    // between the prelude and the module's own top-level scope so that names
+    // from imported modules resolve without re-parsing their source.
+    val baseScope =
+      if importedInterfaces.isEmpty then prelude
+      else
+        import scalascript.artifact.InterfaceScope
+        InterfaceScope.fromInterfaces(importedInterfaces.toList, parent = Some(prelude))
+    val sections = module.sections.map(s => typeCheckSection(s, baseScope))
     TypedModule(
       name     = module.manifest.flatMap(_.name).getOrElse("<anonymous>"),
       version  = module.manifest.flatMap(_.version).getOrElse("0.0.0"),
@@ -395,3 +409,16 @@ enum TypedDef:
 
 object Typer:
   def typeCheck(module: Module): TypedModule = Typer().typeCheck(module)
+
+  /** Type-check a module with pre-compiled interface scopes for its imports.
+   *
+   *  `interfaces` is a map of import alias → `ModuleInterface` loaded from
+   *  pre-compiled `.scim` artifacts.  Names exported by those interfaces are
+   *  available in the module's type-checking scope without re-parsing source.
+   *
+   *  v2.0 / Stage 4.
+   */
+  def typeCheckWithInterfaces(
+      module:     Module,
+      interfaces: Map[String, scalascript.ir.ModuleInterface]
+  ): TypedModule = Typer(interfaces).typeCheck(module)

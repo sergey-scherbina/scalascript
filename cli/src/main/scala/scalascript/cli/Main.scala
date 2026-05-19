@@ -63,6 +63,8 @@ private def dispatchCommand(args: List[String]): Unit =
     // v2.0 separate-compilation commands
     case "emit-interface"      => emitInterfaceCommand(args.tail)
     case "emit-ir"             => emitIrCommand(args.tail)
+    case "check-with-iface"    => checkWithInterfaceCommand(args.tail)
+    case "link"                => linkCommand(args.tail)
     case "compile"             => compileCommand(args.tail)
     case "package"             => packageCommand(args.tail)
     case "serve"               => serveCommand(args.tail)
@@ -178,7 +180,8 @@ def printUsage(): Unit =
     |                         in headless mode (serve() is a no-op), invokes the
     |                         registered handler for a path (default `/`), and
     |                         prints the response body.
-    |  build                  Batch-render every .ssc in a directory.  Each file's
+    |  build                  Batch-render every .ssc in a directory (or --incremental
+    |                         for separate-compilation artifact build).  Each file's
     |                         literal GET routes become files under <out-dir>
     |                         (default `dist/`); `/` → index.html, `/about` →
     |                         about.html.  Files without GET routes are skipped.
@@ -207,6 +210,8 @@ def printUsage(): Unit =
     |  emit-wc                Emit each component object as a W3C Custom Element bundle
     |  emit-interface         Extract module interface to .scim artifact (v2.0)
     |  emit-ir                Emit normalised module IR to .scir artifact (v2.0)
+    |  check-with-iface       Type-check .ssc consuming pre-compiled .scim interfaces (v2.0)
+    |  link                   Link .scim/.scir artifact pairs into a merged module (v2.0)
     |  serve                  Start HTTP server serving .ssc files as web pages
     |  parse                  Parse .ssc files and print AST
     |  check                  Type-check .ssc files
@@ -320,6 +325,104 @@ private def extractResponseBody(v: scalascript.interpreter.Value): String =
     case Value.UnitV      => ""
     case other            => Value.show(other)
 
+// ─────────────────────────────────────────────────────────────────────────────
+// ssc build --incremental  —  v2.0 separate compilation build orchestrator
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** `ssc build --incremental <src-dir> [--artifact-dir <dir>]`
+ *
+ *  Walks `src-dir` for `.ssc` files, builds the dependency graph via
+ *  `ModuleGraph`, and recompiles only stale modules (i.e. those whose source
+ *  hash has changed or whose `.scim` / `.scir` artifacts don't exist yet).
+ *
+ *  Artifacts are written to `--artifact-dir` (default `<src-dir>/.ssc-artifacts/`).
+ *
+ *  Cycle detection: if the dependency graph contains a cycle the build errors
+ *  immediately listing the cyclic files.
+ *
+ *  After building, the artifacts can be linked via `ssc link <artifact-dir>`.
+ *
+ *  v2.0 / Stage 6.
+ */
+def incrementalBuildCommand(args: List[String]): Unit =
+  import scalascript.artifact.{ModuleGraph, InterfaceExtractor, ArtifactIO}
+  import scalascript.transform.Normalize
+
+  var artifactDirArg: Option[String] = None
+  var srcDirArg:      Option[String] = None
+  val it = args.iterator
+  while it.hasNext do
+    it.next() match
+      case "--artifact-dir" if it.hasNext => artifactDirArg = Some(it.next())
+      case d => srcDirArg = Some(d)
+
+  if srcDirArg.isEmpty then
+    System.err.println("Usage: ssc build --incremental <src-dir> [--artifact-dir <dir>]")
+    System.exit(1)
+
+  val srcDir     = os.Path(srcDirArg.get, os.pwd)
+  val artDir     = artifactDirArg.map(os.Path(_, os.pwd)).getOrElse(srcDir / ".ssc-artifacts")
+
+  if !os.isDir(srcDir) then
+    System.err.println(s"build --incremental: '$srcDir' is not a directory"); System.exit(1)
+
+  os.makeDir.all(artDir)
+
+  // Build dependency graph.
+  val graph = ModuleGraph.build(srcDir)
+
+  if graph.cycles.nonEmpty then
+    System.err.println("build --incremental: circular dependencies detected:")
+    graph.cycles.foreach { cycle =>
+      System.err.println("  " + cycle.map(p => p.relativeTo(srcDir).toString).mkString(" → "))
+    }
+    System.exit(1)
+
+  val nodes = graph.orderedNodes
+  println(s"Discovered ${nodes.length} module(s) in ${srcDir.relativeTo(os.pwd)}")
+
+  var compiled = 0
+  var skipped  = 0
+  var failed   = 0
+
+  for node <- nodes do
+    val relPath  = node.relPath(srcDir)
+    val baseName = node.path.last.stripSuffix(".ssc")
+    val stale    = ModuleGraph.isStale(node.path, artDir)
+
+    if !stale then
+      println(s"  [skip]     $relPath (up-to-date)")
+      skipped += 1
+    else
+      print(s"  [compile]  $relPath ... ")
+      val ok = scala.util.Try {
+        val sourceBytes = os.read.bytes(node.path)
+        val src         = new String(sourceBytes, "UTF-8")
+        val module      = Parser.parse(src)
+        val ir          = Normalize(module)
+        val iface       = InterfaceExtractor.extract(module, sourceBytes)
+        val sourceHash  = iface.sourceHash
+
+        val scimPath = artDir / (baseName + ".scim")
+        val scirPath = artDir / (baseName + ".scir")
+
+        ArtifactIO.writeInterfaceFile(iface, scimPath)
+        ArtifactIO.writeIrFile(ir, node.pkg, module.manifest.flatMap(_.name), sourceHash, scirPath)
+      }
+      ok match
+        case scala.util.Success(_) =>
+          println("OK")
+          compiled += 1
+        case scala.util.Failure(e) =>
+          println(s"FAIL")
+          System.err.println(s"    ${e.getMessage}")
+          failed += 1
+
+  println()
+  println(s"Done: $compiled compiled, $skipped up-to-date, $failed failed")
+  println(s"Artifacts written to ${artDir.relativeTo(os.pwd)}")
+  if failed > 0 then System.exit(1)
+
 /** `ssc build <src-dir> [<out-dir>]` — batch static-site generation.
  *
  *  Walks `src-dir` for top-level `.ssc` files (subdirectories are
@@ -335,6 +438,11 @@ private def extractResponseBody(v: scalascript.interpreter.Value): String =
  *  Files that register no GET routes are also skipped.  Default
  *  out-dir is `dist/`. */
 def buildCommand(args: List[String]): Unit =
+  // v2.0: --incremental flag routes to separate-compilation build orchestrator.
+  if args.contains("--incremental") then
+    val rest = args.filterNot(_ == "--incremental")
+    incrementalBuildCommand(rest)
+    return
   import scalascript.interpreter.{Interpreter, Value}
   import scalascript.server.Routes
   if args.isEmpty then
@@ -1728,6 +1836,187 @@ def checkCommand(args: List[String]): Unit =
       try
         val module = Parser.parse(os.read(path))
         val typed  = Typer.typeCheck(module)
+        if typed.hasErrors then
+          hasErrors = true
+          typed.errors.foreach(e => println(s"  Error: ${e.msg}"))
+        else
+          println("OK")
+          println(typed.show)
+      catch case e: Exception =>
+        hasErrors = true
+        println(s"Error: ${e.getMessage}")
+  if hasErrors then System.exit(1)
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ssc link  —  v2.0 separate compilation
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** `ssc link <artifact-dir> [-o <output.scir>] [--backend <id>]`
+ *
+ *  Collects all `.scim` + `.scir` artifact pairs from `<artifact-dir>`,
+ *  links them into a single `NormalizedModule`, and either:
+ *  - Writes the merged module as a `.scir` JSON artifact (if `-o` is given
+ *    and ends with `.scir`), or
+ *  - Immediately compiles via `--backend <id>` (default `int`) and prints
+ *    or executes the result.
+ *
+ *  Artifacts are processed in dependency order: the linker reads each `.scim`
+ *  to determine the package, then topologically sorts them.  Cycles are
+ *  detected and reported as errors.
+ *
+ *  v2.0 / Stage 5.
+ */
+def linkCommand(args: List[String]): Unit =
+  import scalascript.artifact.Linker
+  var outputArg:   Option[String] = None
+  var backendArg:  Option[String] = None
+  val artifactDirs = scala.collection.mutable.ArrayBuffer.empty[String]
+  val it = args.iterator
+  while it.hasNext do
+    it.next() match
+      case "-o" | "--output" if it.hasNext  => outputArg  = Some(it.next())
+      case "--backend"       if it.hasNext  => backendArg = Some(it.next())
+      case d                                => artifactDirs += d
+
+  if artifactDirs.isEmpty then
+    System.err.println("Usage: ssc link <artifact-dir> [-o <output.scir>] [--backend <id>]")
+    System.exit(1)
+
+  // Collect all (interface, ir) pairs from the specified directories.
+  val allModules = scala.collection.mutable.ArrayBuffer.empty[Linker.CompiledModule]
+  var hasError = false
+
+  for dir <- artifactDirs.toList do
+    val dirPath = os.Path(dir, os.pwd)
+    if !os.isDir(dirPath) then
+      System.err.println(s"link: '$dir' is not a directory"); hasError = true
+    else
+      val scimFiles = os.list(dirPath).filter(_.ext == "scim").sorted
+      for scimPath <- scimFiles do
+        val scirPath = scimPath / os.up / (scimPath.last.stripSuffix(".scim") + ".scir")
+        ArtifactIO.readInterfaceFile(scimPath) match
+          case Left(err) =>
+            System.err.println(s"link: failed to read ${scimPath.last}: $err")
+            hasError = true
+          case Right(iface) =>
+            if !os.exists(scirPath) then
+              System.err.println(s"link: no matching .scir for ${scimPath.last}")
+              hasError = true
+            else
+              ArtifactIO.readIrFile(scirPath) match
+                case Left(err) =>
+                  System.err.println(s"link: failed to read ${scirPath.last}: $err")
+                  hasError = true
+                case Right((nm, _, _, _)) =>
+                  allModules += Linker.CompiledModule(iface, nm)
+
+  if hasError then System.exit(1)
+  if allModules.isEmpty then
+    System.err.println("link: no artifact pairs found")
+    System.exit(1)
+
+  // Detect cross-module name collisions and warn.
+  val collisions = Linker.detectCollisions(allModules.toList)
+  if collisions.nonEmpty then
+    System.err.println(s"link: ${collisions.length} name collision(s) detected (FQN mangling applied):")
+    collisions.foreach { (name, pkgs) =>
+      System.err.println(s"  '$name' exported by: ${pkgs.map(_.mkString(".")).mkString(", ")}")
+    }
+
+  val linked = Linker.link(allModules.toList)
+  println(s"Linked ${allModules.size} module(s) → ${linked.sections.length} section(s)")
+
+  outputArg match
+    case Some(out) if out.endsWith(".scir") =>
+      val outPath    = os.Path(out, os.pwd)
+      val sourceHash = "linked"  // no single source for a linked artifact
+      ArtifactIO.writeIrFile(linked, Nil, None, sourceHash, outPath)
+      println(s"Linked IR written to $outPath")
+    case Some("-") =>
+      val json = ArtifactIO.writeIr(linked, Nil, None, "linked")
+      println(json)
+    case Some(out) =>
+      System.err.println(s"link: -o output must end with .scir or be '-', got: $out")
+      System.exit(1)
+    case None =>
+      // No output path: compile and execute via backend.
+      val bid     = backendArg.orElse(ActiveFlags.current.backend).getOrElse("int")
+      val backend = resolveBackend(bid)
+      val opts    = BackendOptions()
+      val diags   = scalascript.validate.CapabilityCheck.validate(linked, backend.capabilities, bid)
+      if diags.nonEmpty then
+        diags.foreach(d => System.err.println(s"[error] $d"))
+        System.exit(1)
+      backend.compile(linked, opts) match
+        case CompileResult.Executed(_, _, exit) => if exit != 0 then System.exit(exit)
+        case CompileResult.TextOutput(code, _, _) => println(code)
+        case CompileResult.Failed(diags) =>
+          diags.foreach(d => System.err.println(s"[error] $d")); System.exit(1)
+        case other =>
+          System.err.println(s"link: unexpected result ${other.getClass.getSimpleName}")
+          System.exit(1)
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ssc check-with-iface  —  v2.0 separate compilation
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** `ssc check-with-iface --iface-dir <dir> <file.ssc> [<file.ssc>...]`
+ *
+ *  Type-checks each `.ssc` file against pre-compiled `.scim` interface
+ *  artifacts loaded from `--iface-dir`.  The loaded interfaces are available
+ *  as cross-module symbols during type-checking so imported names resolve
+ *  without re-parsing their source modules.
+ *
+ *  If no `--iface-dir` is specified the command falls back to the standard
+ *  single-module `check` behaviour (backward compat).
+ *
+ *  v2.0 / Stage 4.
+ */
+def checkWithInterfaceCommand(args: List[String]): Unit =
+  var ifaceDir: Option[os.Path] = None
+  val files = scala.collection.mutable.ArrayBuffer.empty[String]
+  val it = args.iterator
+  while it.hasNext do
+    it.next() match
+      case "--iface-dir" | "-I" if it.hasNext =>
+        ifaceDir = Some(os.Path(it.next(), os.pwd))
+      case f => files += f
+
+  if files.isEmpty then
+    System.err.println("Usage: ssc check-with-iface [--iface-dir <dir>] <file.ssc> [...]")
+    System.exit(1)
+
+  // Load all .scim files from the interface directory (if specified).
+  val interfaces: Map[String, scalascript.ir.ModuleInterface] =
+    ifaceDir match
+      case None => Map.empty
+      case Some(dir) =>
+        if !os.isDir(dir) then
+          System.err.println(s"check-with-iface: --iface-dir '$dir' is not a directory")
+          System.exit(1)
+        os.list(dir).filter(_.ext == "scim").flatMap { p =>
+          ArtifactIO.readInterfaceFile(p) match
+            case Right(iface) =>
+              val alias = p.last.stripSuffix(".scim")
+              System.err.println(s"  [iface] loaded $alias from ${p.last}")
+              List(alias -> iface)
+            case Left(err) =>
+              System.err.println(s"  [warn] skipping ${p.last}: $err")
+              Nil
+        }.toMap
+
+  var hasErrors = false
+  for file <- files.toList do
+    val path = os.Path(file, os.pwd)
+    if !os.exists(path) then
+      println(s"Error: File not found: $file"); hasErrors = true
+    else
+      println(s"=== Type checking (with interfaces): $file ===")
+      try
+        val module = Parser.parse(os.read(path))
+        val typed  =
+          if interfaces.isEmpty then Typer.typeCheck(module)
+          else Typer.typeCheckWithInterfaces(module, interfaces)
         if typed.hasErrors then
           hasErrors = true
           typed.errors.foreach(e => println(s"  Error: ${e.msg}"))
