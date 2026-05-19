@@ -4003,7 +4003,7 @@ class JvmGen(
        |  // binary frames): one Java char per wire byte.
        |  def sendBytes(s: String): Unit =
        |    if closing then return
-       |    val frame = _wsEncodeFrame(0x2, s.getBytes("ISO-8859-1"))
+       |    val frame = WsFraming.encodeBinary(s.getBytes("ISO-8859-1"))
        |    if !outQ.offer(frame) then _forceShutdown()
        |    else { _Metrics.wsMessagesOut.incrementAndGet(); _Metrics.wsBytesOut.addAndGet(frame.length.toLong) }
        |
@@ -4305,86 +4305,24 @@ class JvmGen(
        |  _wsRoutes += _WsRoute(_parsePath(path), handler, auth = Some(authFn))
        |}
        |
-       |// ── Framing ──────────────────────────────────────────────────────────
-       |
-       |private val _WS_MAGIC = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
-       |// Hard cap on a single frame's payload (16 MB) — protects against a
-       |// hostile peer announcing a multi-GB payload that we'd otherwise
-       |// try to allocate up front.
-       |private val _WsMaxFrameBytes: Int = 16 * 1024 * 1024
-       |
-       |def _wsAcceptKey(clientKey: String): String =
-       |  val md = java.security.MessageDigest.getInstance("SHA-1")
-       |  val digest = md.digest((clientKey + _WS_MAGIC).getBytes("US-ASCII"))
-       |  java.util.Base64.getEncoder.encodeToString(digest)
-       |
+       |// ── Framing — adapter shims around WsFraming ─────────────────────────
+       |// RFC 6455 frame codec lives in scalascript.server.WsFraming (inlined
+       |// from runtime-server-common).  The shims keep the legacy local API
+       |// (`_WsFrame(fin, opcode: Int, payload)`, `_wsParseFrame → ... | Null`,
+       |// `_wsEncodeText/Pong/Ping/Close`, `_wsAcceptKey`) so the surrounding
+       |// `_proxyConnection` / read-loop code keeps using bare Int opcodes
+       |// (0x0/0x1/0x2/0x8/0x9/0xA) for its pattern matches.
+       |private val _WsMaxFrameBytes: Int = WsFraming.MaxFrameBytes
+       |def _wsAcceptKey(clientKey: String): String = WsFraming.acceptKey(clientKey)
        |private final case class _WsFrame(fin: Boolean, opcode: Int, payload: Array[Byte])
-       |
-       |// Returns (frame, bytesConsumed) or null if more bytes are needed.
-       |// Throws on unrecoverable protocol error — caller closes the connection.
        |private def _wsParseFrame(buf: Array[Byte], offset: Int, until: Int): (_WsFrame, Int) | Null =
-       |  val avail = until - offset
-       |  if avail < 2 then return null
-       |  val b0 = buf(offset)     & 0xFF
-       |  val b1 = buf(offset + 1) & 0xFF
-       |  val fin = (b0 & 0x80) != 0
-       |  val op  = b0 & 0x0F
-       |  val masked = (b1 & 0x80) != 0
-       |  val len7   = b1 & 0x7F
-       |  var hdrLen = 2
-       |  val payloadLen: Int =
-       |    if len7 <= 125 then len7
-       |    else if len7 == 126 then
-       |      if avail < hdrLen + 2 then return null
-       |      hdrLen += 2
-       |      ((buf(offset + 2) & 0xFF) << 8) | (buf(offset + 3) & 0xFF)
-       |    else
-       |      if avail < hdrLen + 8 then return null
-       |      hdrLen += 8
-       |      var v = 0L; var i = 0
-       |      while i < 8 do { v = (v << 8) | (buf(offset + 2 + i) & 0xFF).toLong; i += 1 }
-       |      if v > _WsMaxFrameBytes.toLong then throw RuntimeException(s"WS frame too large: $v bytes (max $_WsMaxFrameBytes)")
-       |      v.toInt
-       |  val maskLen = if masked then 4 else 0
-       |  val total   = hdrLen + maskLen + payloadLen
-       |  if avail < total then return null
-       |  val payload = new Array[Byte](payloadLen)
-       |  val payloadStart = offset + hdrLen + maskLen
-       |  if masked then
-       |    val m = Array.tabulate(4)(i => buf(offset + hdrLen + i))
-       |    var i = 0
-       |    while i < payloadLen do { payload(i) = (buf(payloadStart + i) ^ m(i & 3)).toByte; i += 1 }
-       |  else if payloadLen > 0 then
-       |    System.arraycopy(buf, payloadStart, payload, 0, payloadLen)
-       |  (_WsFrame(fin, op, payload), total)
-       |
-       |private def _wsEncodeFrame(opcode: Int, payload: Array[Byte]): Array[Byte] =
-       |  val len = payload.length
-       |  if len <= 125 then
-       |    val b = new Array[Byte](2 + len)
-       |    b(0) = (0x80 | opcode).toByte; b(1) = len.toByte
-       |    System.arraycopy(payload, 0, b, 2, len); b
-       |  else if len <= 0xFFFF then
-       |    val b = new Array[Byte](4 + len)
-       |    b(0) = (0x80 | opcode).toByte; b(1) = 126.toByte
-       |    b(2) = ((len >> 8) & 0xFF).toByte; b(3) = (len & 0xFF).toByte
-       |    System.arraycopy(payload, 0, b, 4, len); b
-       |  else
-       |    val b = new Array[Byte](10 + len)
-       |    b(0) = (0x80 | opcode).toByte; b(1) = 127.toByte
-       |    var v = len.toLong; var i = 0
-       |    while i < 8 do { b(9 - i) = (v & 0xFF).toByte; v >>>= 8; i += 1 }
-       |    System.arraycopy(payload, 0, b, 10, len); b
-       |
-       |def _wsEncodeText(s: String): Array[Byte] =
-       |  _wsEncodeFrame(0x1, s.getBytes(java.nio.charset.StandardCharsets.UTF_8))
-       |def _wsEncodePong(p: Array[Byte]): Array[Byte] = _wsEncodeFrame(0xA, p)
-       |def _wsEncodePing(p: Array[Byte]): Array[Byte] = _wsEncodeFrame(0x9, p)
-       |def _wsEncodeClose(code: Int, reason: String): Array[Byte] =
-       |  val r = reason.getBytes(java.nio.charset.StandardCharsets.UTF_8)
-       |  val p = new Array[Byte](2 + r.length)
-       |  p(0) = ((code >> 8) & 0xFF).toByte; p(1) = (code & 0xFF).toByte
-       |  System.arraycopy(r, 0, p, 2, r.length); _wsEncodeFrame(0x8, p)
+       |  WsFraming.tryParse(buf, offset, until) match
+       |    case None    => null
+       |    case Some(f) => (_WsFrame(f.fin, f.opcode.code, f.payload), f.consumed)
+       |def _wsEncodeText(s: String): Array[Byte]      = WsFraming.encodeText(s)
+       |def _wsEncodePong(p: Array[Byte]): Array[Byte] = WsFraming.encodePong(p)
+       |def _wsEncodePing(p: Array[Byte]): Array[Byte] = WsFraming.encodePing(p)
+       |def _wsEncodeClose(code: Int, reason: String): Array[Byte] = WsFraming.encodeClose(code, reason)
        |
        |// ── Proxy: blocking accept + sniff + forward / upgrade ───────────────
        |
