@@ -9,8 +9,9 @@ rolling-restart drain protocol + cluster metrics aggregation
 (per-node gauges, snapshot on handshake) + `std.cluster.Cluster.*`
 wrapper.  The only remaining piece — alternative leader-election
 protocols (Raft, external coordinator via etcd/Consul/ZK adapters)
-— stays in this document and promotes when an app needs strong-
-consistency guarantees Bully can't give (see §6).
+— is fully specced in [`docs/cluster-raft.md`](cluster-raft.md) and
+promotes when an app needs strong-consistency guarantees Bully
+can't give (see §6).
 
 Companion to [`docs/coroutines.md`](coroutines.md) §3.4
 (v1.6 Phase 3 distributed actors — the foundation),
@@ -108,17 +109,19 @@ is fine.  For multi-tenant / untrusted networks, quorum
 
 ### 3.3 Leader election
 
-| Option | Trade-off |
-|--------|-----------|
-| **No leader** (all nodes equal) | Simplest; coordination via consensus on every decision |
-| **Raft** | Strong consistency; well-understood; ~500 LOC of careful protocol |
-| **Bully** | Simple but flaky on network partitions |
-| **External coordinator** | Outsource to etcd/Consul leadership lease |
+| Option | Trade-off | Status |
+|--------|-----------|--------|
+| **No leader** (all nodes equal) | Simplest; coordination via consensus on every decision | App-level |
+| **Bully** | Simple but flaky on network partitions | ✓ v1.23 |
+| **Raft** | Strong consistency; well-understood; ~500 LOC of careful protocol | Specced — [`cluster-raft.md`](cluster-raft.md) |
+| **External coordinator** | Outsource to etcd/Consul leadership lease | Specced — [`cluster-raft.md`](cluster-raft.md) |
 
-For v1.x: **probably no leader**.  Apps that need a
-coordinator can elect one application-level (e.g., "the
-node with the lowest PID owns the work-queue").  Built-in
-leader election waits until a real workload demands it.
+For v1.23: **Bully + opt-in auto re-elect**.  Apps that hit Bully's
+split-brain edge cases promote to Raft or an external-coordinator
+adapter using the API surface specced in
+[`docs/cluster-raft.md`](cluster-raft.md) §6 (same `electLeader` /
+`currentLeader` / `subscribeLeaderEvents` intrinsics; the protocol
+is an init-time switch).
 
 ### 3.4 Failure detection
 

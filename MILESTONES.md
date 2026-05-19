@@ -4073,6 +4073,8 @@ Full design space and explicit hard-no list in
   via etcd/Consul/ZK adapters).  Bully is enough for v1.x trusted-
   deployment use cases; promote a stronger protocol when an app needs
   strong consistency or partition-tolerance guarantees Bully can't give.
+  Full spec — algorithm, wire envelopes, API surface, implementation
+  phases, test plan — in [`docs/cluster-raft.md`](docs/cluster-raft.md).
 
 Promote the remaining items when any of the trigger conditions fire:
 
