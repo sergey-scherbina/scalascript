@@ -131,6 +131,63 @@ object ModuleGraph:
         val currentHash = InterfaceExtractor.sha256(os.read.bytes(srcPath))
         iface.sourceHash != currentHash
 
+  /** Return the list of section IDs that are stale relative to a `.scim`
+   *  artifact's per-section cumulative-hash chain.
+   *
+   *  Semantics (Option A — cumulative cascade):
+   *  - If the `.scim` is missing, corrupt, or carries an empty
+   *    `sectionHashes` map (pre-Phase-3 artifact), every section in the
+   *    current source is returned — equivalent to "fully stale, do a
+   *    full re-emit" (matches the legacy full-module-SHA behaviour).
+   *  - Otherwise, the current source's section-hash chain is recomputed
+   *    (`InterfaceExtractor.computeSectionHashes`) and compared key-by-key
+   *    against the stored map.  Any section whose hash changed OR whose
+   *    ID is new since the last write is reported stale.  Because the
+   *    chain is cumulative, a change in section N automatically cascades
+   *    to N+1, N+2, …
+   *  - Section IDs that exist in the stored map but no longer appear in
+   *    the source (i.e. the section was deleted) are NOT reported — the
+   *    caller already sees them missing from the current source and the
+   *    consumer (linker) will simply not emit code for them.
+   *
+   *  Order: section IDs are returned in source order (sorted by the
+   *  underlying section index).  Empty list ⇒ module fully up-to-date
+   *  (no re-emit needed).
+   *
+   *  v2.0 Phase 3 — section-level incremental cache.
+   *
+   *  @param srcPath      Path to the `.ssc` source file.
+   *  @param artifactDir  Directory where `.scim` artifacts live.
+   *  @return List of stale section IDs in source order (empty when fully
+   *          up-to-date). */
+  def staleSections(srcPath: os.Path, artifactDir: os.Path): List[String] =
+    val baseName = srcPath.last.stripSuffix(".ssc")
+    val scimPath = artifactDir / (baseName + ".scim")
+
+    // Parse the current source to compute the *desired* section hashes.
+    val srcBytes = scala.util.Try(os.read.bytes(srcPath)).getOrElse(Array.emptyByteArray)
+    val module   = scala.util.Try(Parser.parse(new String(srcBytes, "UTF-8")))
+      .getOrElse(scalascript.ast.Module(manifest = None, sections = Nil))
+    val current  = InterfaceExtractor.computeSectionHashes(module)
+
+    // Section IDs in source order — recompute from the module to be safe.
+    val orderedIds: List[String] =
+      module.sections.zipWithIndex.map { case (s, i) => InterfaceExtractor.sectionId(s, i) }
+
+    // No artifact OR an empty / unreadable one ⇒ every section is stale.
+    if !os.exists(scimPath) then return orderedIds
+    val stored: Map[String, String] = ArtifactIO.readInterfaceFile(scimPath) match
+      case Left(_)      => return orderedIds
+      case Right(iface) => iface.sectionHashes
+
+    if stored.isEmpty then return orderedIds
+
+    orderedIds.filter { id =>
+      val now    = current.getOrElse(id, "")
+      val before = stored.getOrElse(id, "")
+      before.isEmpty || before != now
+    }
+
   /** Check whether a `.ssc` module's JVM-backend cached `.scjvm` artifact is
    *  stale relative to the current source.
    *
