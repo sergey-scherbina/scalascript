@@ -31,6 +31,26 @@ class InterfaceExtractorTest extends AnyFunSuite:
     val raw = scalascriptSource.getBytes("UTF-8")
     InterfaceExtractor.extract(m, raw)
 
+  /** Build a module with the given YAML front-matter and a single
+   *  scalascript code block holding `scalascriptSource`.  Front-matter is
+   *  written verbatim — newline-terminated entries like `exports: [foo]`
+   *  or `package: std.dsl`. */
+  private def extractWithFrontMatter(frontMatter: String, scalascriptSource: String) =
+    val full =
+      s"""---
+         |$frontMatter
+         |---
+         |
+         |# Test
+         |
+         |```scalascript
+         |$scalascriptSource
+         |```
+         |""".stripMargin
+    val m   = Parser.parse(full)
+    val raw = full.getBytes("UTF-8")
+    InterfaceExtractor.extract(m, raw)
+
   // ── extern def detection ────────────────────────────────────────────────
 
   test("extern def — recorded under externDefs with HTTP capability"):
@@ -126,3 +146,44 @@ class InterfaceExtractorTest extends AnyFunSuite:
     val iface = extract("val x = 1 + 2")
     assert(iface.capabilities.isEmpty,
       s"expected no capabilities, got: ${iface.capabilities}")
+
+  // ── manifest `exports:` filters the export list ─────────────────────────
+
+  test("exports filter — manifest `exports: [foo]` excludes `bar`"):
+    // With an explicit `exports:` list, private helpers must stay hidden:
+    // the consumer-facing interface should expose only the listed names.
+    val iface = extractWithFrontMatter(
+      frontMatter = "exports:\n  - foo",
+      scalascriptSource =
+        """def foo(x: Int): Int = x + 1
+          |def bar(x: Int): Int = x - 1""".stripMargin
+    )
+    val names = iface.exports.map(_.name).toSet
+    assert(names == Set("foo"),
+      s"expected only `foo` to be exported, got: $names")
+
+  test("exports filter — empty/absent `exports:` keeps current (export-all) behaviour"):
+    // No `exports:` in the manifest must NOT inadvertently hide top-level defs.
+    val iface = extractWithFrontMatter(
+      frontMatter = "name: m",
+      scalascriptSource =
+        """def foo(x: Int): Int = x + 1
+          |def bar(x: Int): Int = x - 1""".stripMargin
+    )
+    val names = iface.exports.map(_.name).toSet
+    assert(names == Set("foo", "bar"),
+      s"expected both `foo` and `bar` when no `exports:` is set, got: $names")
+
+  test("exports filter — `exports:` listing an undefined name yields an empty subset"):
+    // A name listed in `exports:` that isn't actually defined is silently
+    // dropped; we don't fabricate symbols.  Real defs that ARE listed still
+    // get through.
+    val iface = extractWithFrontMatter(
+      frontMatter = "exports:\n  - foo\n  - missing",
+      scalascriptSource =
+        """def foo(x: Int): Int = x + 1
+          |def bar(x: Int): Int = x - 1""".stripMargin
+    )
+    val names = iface.exports.map(_.name).toSet
+    assert(names == Set("foo"),
+      s"expected only `foo` (since `missing` isn't defined), got: $names")

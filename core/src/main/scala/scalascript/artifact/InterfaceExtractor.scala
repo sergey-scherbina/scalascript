@@ -153,7 +153,7 @@ object InterfaceExtractor:
       "println", "print", "assert", "require", "Some", "None",
       "List", "Map", "math", "doc", "render", "serve"
     )
-    val exports = allDefs
+    val rawExports = allDefs
       .filterNot(d => preludeNames.contains(d.name) || d.kind == TSymbolKind.Param)
       .map { d =>
         ExportedSymbol(
@@ -164,6 +164,17 @@ object InterfaceExtractor:
         )
       }
       .toList
+
+    // Respect `exports:` in the manifest: if non-empty, expose ONLY those
+    // names in the interface so private helpers stay hidden from consumers.
+    // An absent / empty `exports:` keeps the default behaviour (export
+    // everything top-level).
+    val manifestExports = module.manifest.map(_.exports).getOrElse(Nil)
+    val exports =
+      if manifestExports.isEmpty then rawExports
+      else
+        val allow = manifestExports.toSet
+        rawExports.filter(s => allow.contains(s.name))
 
     // Detect capabilities by walking the parsed scalameta trees.  This
     // is the v2.0 AST-based replacement for the prior string-grep heuristic
