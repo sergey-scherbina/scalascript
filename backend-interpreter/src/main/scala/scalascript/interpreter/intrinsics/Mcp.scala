@@ -87,21 +87,29 @@ val McpIntrinsics: Map[QualifiedName, IntrinsicImpl] = Map(
   // ─── mcpConnect(transport[, timeoutMs]) ────────────────────────────
 
   QualifiedName("mcpConnect") -> NativeImpl((ctx, args) =>
-    val (transport, timeoutMs) = args match
-      case List(t)                  => (t, 30000L)
-      case List(t, ms: Long)        => (t, ms)
-      case List(t, ms: Int)         => (t, ms.toLong)
-      case _ => throw InterpretError("mcpConnect(transport[, timeoutMs])")
+    // v1.17.x — final optional argument is the bearer token (String).
+    // Position-based: `mcpConnect(transport)`,
+    //                 `mcpConnect(transport, timeoutMs)`,
+    //                 `mcpConnect(transport, bearerToken)` or
+    //                 `mcpConnect(transport, timeoutMs, bearerToken)`.
+    val (transport, timeoutMs, bearer) = args match
+      case List(t)                              => (t, 30000L, None)
+      case List(t, ms: Long)                    => (t, ms, None)
+      case List(t, ms: Int)                     => (t, ms.toLong, None)
+      case List(t, bt: String)                  => (t, 30000L, Some(bt))
+      case List(t, ms: Long,   bt: String)      => (t, ms, Some(bt))
+      case List(t, ms: Int,    bt: String)      => (t, ms.toLong, Some(bt))
+      case _ => throw InterpretError("mcpConnect(transport[, timeoutMs][, bearerToken])")
     Mcp.transportTag(transport) match
       case "Spawn" =>
         val (cmd, cmdArgs) = Mcp.spawnArgs(transport)
         Mcp.makeSpawnClient(cmd, cmdArgs, timeoutMs, ctx)
       case "Http" =>
         val url = Mcp.httpClientUrl(transport)
-        Mcp.makeHttpClient(url, timeoutMs, ctx)
+        Mcp.makeHttpClient(url, timeoutMs, ctx, bearer)
       case "Ws" =>
         val url = Mcp.wsClientUrl(transport)
-        Mcp.makeWsClient(url, timeoutMs, ctx)
+        Mcp.makeWsClient(url, timeoutMs, ctx, bearer)
       case "Stdio" =>
         throw InterpretError("mcpConnect: Transport.Stdio makes sense for servers, not clients — use Transport.Spawn")
       case other =>
@@ -355,8 +363,10 @@ private object Mcp:
     ctx.registerRoute("GET", sseEndpoint, sseHandler)
 
   /** Build an `McpClient` Value backed by `McpHttpClient`. */
-  def makeHttpClient(url: String, timeoutMs: Long, ctx: NativeContext): Value =
+  def makeHttpClient(url: String, timeoutMs: Long, ctx: NativeContext,
+                     bearerToken: Option[String] = None): Value =
     val client = new McpHttpClient(url, timeoutMs)
+    bearerToken.foreach(t => client.setBearerToken(Some(t)))
     // Spec-mandated initialize handshake — same shape as the Spawn path.
     val initParams = ujson.Obj(
       "protocolVersion" -> McpProtocol.ProtocolVersion,
@@ -424,8 +434,9 @@ private object Mcp:
     ctx.registerWsRoute(path, Nil, Nil, 0, 0, handler)
 
   /** Build an `McpClient` Value backed by `McpWsClient`. */
-  def makeWsClient(url: String, timeoutMs: Long, ctx: NativeContext): Value =
-    val client = new McpWsClient(url, timeoutMs)
+  def makeWsClient(url: String, timeoutMs: Long, ctx: NativeContext,
+                   bearerToken: Option[String] = None): Value =
+    val client = new McpWsClient(url, timeoutMs, bearerToken)
     val initParams = ujson.Obj(
       "protocolVersion" -> McpProtocol.ProtocolVersion,
       "capabilities"    -> ujson.Obj(),

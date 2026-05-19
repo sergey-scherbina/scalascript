@@ -305,6 +305,55 @@ object OAuth:
       case "plain" => constantTimeEquals(verifier,           challenge)
       case _       => false
 
+  // ─── Client secret hashing (PBKDF2) ─────────────────────────────────
+
+  /** v1.17.x — derive a salted PBKDF2-HMAC-SHA256 hash for a client
+   *  secret.  Output format: `pbkdf2:<iterations>:<base64url(salt)>:<base64url(hash)>`.
+   *  Use `verifySecret(...)` to check on the AS side; storage shouldn't
+   *  hold plaintext secrets.  100k iterations balances cost vs. response
+   *  time on token-endpoint hot paths. */
+  def hashSecret(secret: String, iterations: Int = 100_000): String =
+    val rng  = new java.security.SecureRandom
+    val salt = new Array[Byte](16)
+    rng.nextBytes(salt)
+    val hash = pbkdf2(secret, salt, iterations)
+    s"pbkdf2:$iterations:${b64u(salt)}:${b64u(hash)}"
+
+  /** Constant-time verification of a plaintext secret against a stored
+   *  PBKDF2 hash.  Recognises the `pbkdf2:...` format produced by
+   *  `hashSecret`; legacy plaintext entries (no prefix) are compared
+   *  directly so existing stores keep working until rotated. */
+  def verifySecret(presented: String, stored: String): Boolean =
+    if stored.startsWith("pbkdf2:") then
+      stored.split(':') match
+        case Array(_, iterStr, saltB64, hashB64) =>
+          try
+            val iter = iterStr.toInt
+            val salt = Base64.getUrlDecoder.decode(saltB64)
+            val expected = Base64.getUrlDecoder.decode(hashB64)
+            val actual   = pbkdf2(presented, salt, iter)
+            constantTimeEqualsBytes(actual, expected)
+          catch case _: Throwable => false
+        case _ => false
+    else
+      constantTimeEquals(presented, stored)
+
+  private def pbkdf2(secret: String, salt: Array[Byte], iterations: Int): Array[Byte] =
+    val spec = new javax.crypto.spec.PBEKeySpec(
+      secret.toCharArray, salt, iterations, 256)
+    val skf  = javax.crypto.SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256")
+    skf.generateSecret(spec).getEncoded
+
+  private def constantTimeEqualsBytes(a: Array[Byte], b: Array[Byte]): Boolean =
+    if a.length != b.length then false
+    else
+      var diff = 0
+      var i = 0
+      while i < a.length do
+        diff |= (a(i) ^ b(i))
+        i += 1
+      diff == 0
+
   // ─── Random token generation ────────────────────────────────────────
 
   /** Cryptographically-secure random opaque token (default 32 bytes →

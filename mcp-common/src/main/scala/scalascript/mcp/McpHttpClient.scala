@@ -32,6 +32,24 @@ class McpHttpClient(url: String, timeoutMs: Long):
   @volatile private var requestHandler:      ((String, ujson.Value) => ujson.Value) | Null = null
   @volatile private var sseThread: Thread | Null = null
 
+  /** v1.17.x — bearer token attached to every outgoing POST + SSE GET.
+   *  None means no Authorization header.  Tokens rotate via
+   *  `setBearerToken(...)` (e.g. after a refresh) — already-flying
+   *  requests use whatever was set when their HttpRequest was built. */
+  @volatile private var bearerToken: Option[String] = None
+
+  /** Attach (or rotate) the bearer token applied to every outbound
+   *  request.  Pass `None` to drop it. */
+  def setBearerToken(t: Option[String]): Unit = bearerToken = t
+
+  /** Add the `Authorization: Bearer <token>` header to the builder
+   *  when a token is set.  Re-reads the volatile field so token
+   *  rotation takes effect on the next request without rebuild. */
+  private def withBearer(b: HttpRequest.Builder): HttpRequest.Builder =
+    bearerToken match
+      case Some(t) => b.header("Authorization", s"Bearer $t")
+      case None    => b
+
   // Provided for API parity with McpClientCore — HTTP transport is
   // request/response so there's no asynchronous dispatch table needed.
   // We still track pending counts so close() can wait briefly for
@@ -69,10 +87,10 @@ class McpHttpClient(url: String, timeoutMs: Long):
     val t = new Thread((() => {
       while !closed && (notificationHandler != null || requestHandler != null) do
         try
-          val req = HttpRequest.newBuilder()
+          val req = withBearer(HttpRequest.newBuilder()
             .uri(URI.create(eventsUrl))
             .header("Accept", "text/event-stream")
-            .GET()
+            .GET())
             .build()
           val resp = client.send(req, HttpResponse.BodyHandlers.ofInputStream())
           if resp.statusCode() == 200 then
@@ -126,11 +144,11 @@ class McpHttpClient(url: String, timeoutMs: Long):
    *  the HTTP response body. */
   private def postResponseBack(frame: String): Unit =
     try
-      val req = HttpRequest.newBuilder()
+      val req = withBearer(HttpRequest.newBuilder()
         .uri(URI.create(url))
         .timeout(Duration.ofMillis(timeoutMs))
         .header("Content-Type", "application/json")
-        .POST(HttpRequest.BodyPublishers.ofString(frame))
+        .POST(HttpRequest.BodyPublishers.ofString(frame)))
         .build()
       client.send(req, HttpResponse.BodyHandlers.discarding())
     catch case _: Throwable => ()  // best-effort
@@ -150,12 +168,12 @@ class McpHttpClient(url: String, timeoutMs: Long):
     val rt   = if customTimeoutMs > 0 then customTimeoutMs else timeoutMs
     pending.put(id, java.lang.Boolean.TRUE)
     try
-      val req = HttpRequest.newBuilder()
+      val req = withBearer(HttpRequest.newBuilder()
         .uri(URI.create(url))
         .timeout(Duration.ofMillis(rt))
         .header("Content-Type", "application/json")
         .header("Accept", "application/json, text/event-stream")
-        .POST(HttpRequest.BodyPublishers.ofString(body))
+        .POST(HttpRequest.BodyPublishers.ofString(body)))
         .build()
       val resp = client.send(req, HttpResponse.BodyHandlers.ofInputStream())
       if resp.statusCode() < 200 || resp.statusCode() >= 300 then
@@ -225,11 +243,11 @@ class McpHttpClient(url: String, timeoutMs: Long):
    *  HTTP response body. */
   def notify(method: String, params: ujson.Value): Unit =
     if closed then return
-    val req = HttpRequest.newBuilder()
+    val req = withBearer(HttpRequest.newBuilder()
       .uri(URI.create(url))
       .timeout(Duration.ofMillis(timeoutMs))
       .header("Content-Type", "application/json")
-      .POST(HttpRequest.BodyPublishers.ofString(JsonRpc.encodeNotification(method, params)))
+      .POST(HttpRequest.BodyPublishers.ofString(JsonRpc.encodeNotification(method, params))))
       .build()
     try client.send(req, HttpResponse.BodyHandlers.discarding())
     catch case _: Throwable => ()  // best-effort
