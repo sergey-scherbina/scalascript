@@ -1872,6 +1872,12 @@ class Interpreter(
       "pkceVerifier"    -> globals("oauth.pkceVerifier"),
       "pkceChallenge"   -> globals("oauth.pkceChallenge")
     ))
+    // v1.17.x — oidc namespace: OpenID Connect Identity Provider on top
+    // of the OAuth Authorization Server.
+    globals("oidc") = Value.InstanceV("oidc", Map(
+      "server" -> globals("oidc.server"),
+      "serve"  -> globals("oidc.serve")
+    ))
 
     // escape / collectCss / collectJs / scope now live in CoreIntrinsics
     // (Stage 5+/E–F); installNativeIntrinsics routes them.
