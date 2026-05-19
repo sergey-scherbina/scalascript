@@ -2,7 +2,7 @@ package scalascript
 
 import org.scalatest.funsuite.AnyFunSuite
 import org.scalatest.matchers.should.Matchers
-import scalascript.interpreter.{Interpreter, Value, InterpretError}
+import scalascript.interpreter.{Interpreter, InterpretError}
 import scalascript.parser.Parser
 
 class InterpreterTest extends AnyFunSuite with Matchers:

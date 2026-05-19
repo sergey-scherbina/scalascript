@@ -9,7 +9,6 @@ import java.io.{ByteArrayOutputStream, PrintStream}
 import java.net.{InetSocketAddress, Socket}
 import java.nio.charset.StandardCharsets
 import java.util.concurrent.Executors
-import scala.concurrent.duration.*
 
 /** Verifies the `onWebSocket(path, origins)` two-arg form:
  *    - request with allowed Origin → 101 upgrade

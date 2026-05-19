@@ -5,10 +5,10 @@ import org.scalatest.matchers.should.Matchers
 import scalascript.parser.Parser
 import scalascript.interpreter.Interpreter
 
-import java.io.{BufferedReader, ByteArrayOutputStream, InputStreamReader, OutputStream, PrintStream}
+import java.io.{ByteArrayOutputStream, PrintStream}
 import java.net.{InetSocketAddress, Socket}
 import java.nio.charset.StandardCharsets
-import java.util.concurrent.{Executors, TimeUnit}
+import java.util.concurrent.Executors
 import scala.concurrent.duration.*
 
 /** End-to-end: spin up the WS proxy in front of a no-op HttpServer,

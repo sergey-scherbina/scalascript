@@ -9,7 +9,6 @@ import java.io.{ByteArrayOutputStream, PrintStream}
 import java.net.{InetSocketAddress, Socket}
 import java.nio.charset.StandardCharsets
 import java.util.concurrent.Executors
-import scala.concurrent.duration.*
 
 /** Verifies the user-initiated `ws.ping(payload)` + `ws.onPong` flow:
  *    - Server pings the client (an opcode-0x9 frame with payload "hi").

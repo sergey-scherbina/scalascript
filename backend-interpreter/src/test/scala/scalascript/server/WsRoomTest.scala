@@ -9,7 +9,6 @@ import java.io.{ByteArrayOutputStream, PrintStream}
 import java.net.{InetSocketAddress, Socket}
 import java.nio.charset.StandardCharsets
 import java.util.concurrent.{ConcurrentLinkedQueue, CountDownLatch, Executors, TimeUnit}
-import scala.concurrent.duration.*
 
 /** Verifies the built-in `WsRoom` type:
  *    - Three clients join a room, the first publishes a message,

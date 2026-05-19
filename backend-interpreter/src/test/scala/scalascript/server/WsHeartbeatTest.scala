@@ -109,13 +109,3 @@ onWebSocket("/hb") { ws => () }
       if prev == '\r' && b == '\n' then return sb.toString.dropRight(1)
       sb.append(b.toChar); prev = b
     ""
-
-  private def readAtLeast(in: java.io.InputStream, buf: Array[Byte], minBytes: Int, within: FiniteDuration): Int =
-    val deadline = System.nanoTime() + within.toNanos
-    var off = 0
-    while off < minBytes && System.nanoTime() < deadline do
-      val n = try in.read(buf, off, buf.length - off)
-              catch case _: java.net.SocketTimeoutException => 0
-      if n < 0 then return off
-      off += n
-    off

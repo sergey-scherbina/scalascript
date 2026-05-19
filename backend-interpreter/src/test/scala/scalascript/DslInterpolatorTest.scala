@@ -4,7 +4,7 @@ import org.scalatest.funsuite.AnyFunSuite
 import org.scalatest.matchers.should.Matchers
 import scalascript.codegen.{JsGen, JsRuntime}
 import scalascript.codegen.JvmGen
-import scalascript.interpreter.{Interpreter, InterpretError}
+import scalascript.interpreter.Interpreter
 import scalascript.parser.Parser
 
 import java.nio.charset.StandardCharsets

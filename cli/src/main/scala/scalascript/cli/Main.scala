@@ -260,7 +260,7 @@ def serveCommand(args: List[String]): Unit =
  *  generating static HTML from a server-style `.ssc` page without
  *  booting an HTTP listener. */
 def renderCommand(args: List[String]): Unit =
-  import scalascript.interpreter.{Interpreter, Value}
+  import scalascript.interpreter.Interpreter
   import scalascript.server.Routes
   if args.isEmpty then
     System.err.println("Usage: ssc render <file.ssc> [path]")
@@ -443,7 +443,7 @@ def buildCommand(args: List[String]): Unit =
     val rest = args.filterNot(_ == "--incremental")
     incrementalBuildCommand(rest)
     return
-  import scalascript.interpreter.{Interpreter, Value}
+  import scalascript.interpreter.Interpreter
   import scalascript.server.Routes
   if args.isEmpty then
     System.err.println("Usage: ssc build <src-dir> [<out-dir>]")

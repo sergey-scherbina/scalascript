@@ -8,8 +8,7 @@ import scalascript.interpreter.Interpreter
 import java.io.{ByteArrayOutputStream, PrintStream}
 import java.net.{InetSocketAddress, Socket}
 import java.nio.charset.StandardCharsets
-import java.util.concurrent.{Executors, TimeUnit}
-import scala.concurrent.duration.*
+import java.util.concurrent.Executors
 
 /** `ws.id` (Sprint 6 — item #22): every accepted WebSocket exposes a
  *  stable UUID-v4 identifier on the `WebSocket` instance.  Verifies

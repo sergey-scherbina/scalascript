@@ -17,7 +17,7 @@ import scalascript.parser.Parser
  */
 class PackageKeywordTest extends AnyFunSuite with Matchers:
 
-  private def captured(src: String, baseDir: Option[os.Path] = None): String =
+  private def captured(src: String, baseDir: Option[os.Path]): String =
     val buf = java.io.ByteArrayOutputStream()
     val ps  = java.io.PrintStream(buf, true)
     Interpreter(ps, baseDir).run(Parser.parse(src))

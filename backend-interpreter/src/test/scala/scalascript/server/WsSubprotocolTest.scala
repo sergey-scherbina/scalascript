@@ -9,7 +9,6 @@ import java.io.{ByteArrayOutputStream, PrintStream}
 import java.net.{InetSocketAddress, Socket}
 import java.nio.charset.StandardCharsets
 import java.util.concurrent.Executors
-import scala.concurrent.duration.*
 
 /** Verifies `Sec-WebSocket-Protocol` negotiation (RFC 6455 §1.9):
  *    - Route registered with two server-side protocols.
