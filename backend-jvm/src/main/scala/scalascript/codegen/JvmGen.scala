@@ -4017,19 +4017,11 @@ class JvmGen(
        |  try client.setKeepAlive(true) catch case _: Throwable => ()
        |  val cin  = java.io.BufferedInputStream(client.getInputStream)
        |  val cout = client.getOutputStream
-       |  val head = HttpHelpers.readHttpHead(cin)
-       |  val headText = new String(head, java.nio.charset.StandardCharsets.ISO_8859_1)
-       |  val lines    = headText.split("\r\n").toList
-       |  val request  = lines.headOption.getOrElse("")
-       |  val headers: Map[String, String] = lines.drop(1).flatMap { l =>
-       |    val i = l.indexOf(':')
-       |    if i < 0 then None
-       |    else Some(l.substring(0, i).trim.toLowerCase -> l.substring(i + 1).trim)
-       |  }.toMap
-       |  val path = request.split(' ').lift(1).getOrElse("/").split('?').head
-       |  val isWs = headers.get("upgrade").exists(_.equalsIgnoreCase("websocket")) &&
-       |             headers.get("connection").exists(_.toLowerCase.contains("upgrade"))
-       |  if isWs then
+       |  val head    = HttpHelpers.readHttpHead(cin)
+       |  val parsed  = HttpHelpers.parseHttpHead(head)
+       |  val headers = parsed.headers
+       |  val path    = parsed.path
+       |  if parsed.isUpgradeWebSocket then
        |    val segs = path.split('/').toList.filter(_.nonEmpty)
        |    val matched = _wsRoutes.iterator.flatMap { r =>
        |      _matchPath(r.pattern, segs).map(params => (r, params))
@@ -4054,12 +4046,11 @@ class JvmGen(
        |        // Authorization / Origin from `ws.request.headers`.  Built
        |        // once because the headers / path / params don't change
        |        // across the upgrade boundary.
-       |        val _rawQ = request.split(' ').lift(1).getOrElse("/").split('?').lift(1).getOrElse("")
        |        val _wsReq = Request(
        |          method  = "GET",
        |          path    = path,
        |          params  = params,
-       |          query   = _parseQuery(_rawQ),
+       |          query   = _parseQuery(parsed.rawQuery),
        |          headers = headers,
        |          body    = "",
        |          cookies = HttpHelpers.parseCookieHeader(headers.getOrElse("cookie", ""))

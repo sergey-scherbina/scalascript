@@ -67,6 +67,49 @@ object HttpHelpers:
       prev3 = prev2; prev2 = prev1; prev1 = b
     sb.toArray
 
+  /** Parsed HTTP request head — the bits both proxy entry points
+   *  (interpreter `TlsProxy` + codegen `_proxyConnection`) need to
+   *  decide HTTP-vs-WS routing and to build a `Request` snapshot.
+   *  `headers` keys are lowercased so `req.headers.get("authorization")`
+   *  works portably; `method` is the verb as it appeared on the wire
+   *  (uppercased by convention but not normalised here). */
+  final case class HttpRequestHead(
+      request:  String,
+      method:   String,
+      path:     String,
+      rawQuery: String,
+      headers:  Map[String, String]
+  ):
+    /** True iff the head announces an RFC 6455 `Upgrade: websocket`
+     *  + `Connection: upgrade` (matched case-insensitively). */
+    def isUpgradeWebSocket: Boolean =
+      headers.get("upgrade").exists(_.equalsIgnoreCase("websocket")) &&
+      headers.get("connection").exists(_.toLowerCase.contains("upgrade"))
+
+  /** Parse the bytes returned by [[readHttpHead]] into the
+   *  request-line tuple + a header Map.  Tolerant of malformed
+   *  lines (those without `:` are dropped) — same convention REST
+   *  pipelines have always used.  Decoding is ISO-8859-1 because
+   *  RFC 7230 §3 requires the head to be octet-clean and any
+   *  UTF-8 body bytes only appear AFTER the `\r\n\r\n` sentinel. */
+  def parseHttpHead(head: Array[Byte]): HttpRequestHead =
+    val text  = new String(head, java.nio.charset.StandardCharsets.ISO_8859_1)
+    val lines = text.split("\r\n").toList
+    val req   = lines.headOption.getOrElse("")
+    val hdrs: Map[String, String] = lines.drop(1).flatMap { l =>
+      val i = l.indexOf(':')
+      if i < 0 then None
+      else Some(l.substring(0, i).trim.toLowerCase -> l.substring(i + 1).trim)
+    }.toMap
+    val parts         = req.split(' ').toList
+    val method        = parts.headOption.getOrElse("")
+    val pathWithQuery = parts.lift(1).getOrElse("/")
+    val path          = pathWithQuery.split('?').head
+    val rawQuery      = if pathWithQuery.contains('?')
+                        then pathWithQuery.split('?').lift(1).getOrElse("")
+                        else ""
+    HttpRequestHead(req, method, path, rawQuery, hdrs)
+
   /** Parse a `Cookie:` header value like `a=1; b=2; c=3` into a Map.
    *  Whitespace around `=` and `;` is trimmed.  Pairs without `=` are
    *  dropped silently — same lenient parser the REST request pipeline
