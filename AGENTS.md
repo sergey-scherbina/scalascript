@@ -142,6 +142,31 @@ not to `main`. As soon as a later iteration restores green, push to
 as a safety net for unshippable intermediate states — **not** as a place
 to accumulate shippable work.
 
+### 6. Large features / milestones — iterate the loop
+
+For multi-iteration work (a whole milestone, a cross-backend feature,
+a sweep through a test family), don't ask "what's next?" after each
+shipped piece. Run the loop yourself:
+
+```
+while milestone has open work:
+    pick next slice
+    do the work (in worktree per rule 1)
+    run the relevant tests
+    if green: commit, merge to main, push, delete worktree (per rules 3-4)
+    if red:   fix or revert; don't push a broken slice
+```
+
+Stop only when:
+- the milestone's "What landed" checklist is complete, **or**
+- you hit something genuinely ambiguous and need user input on direction
+  (not "should I continue?" — yes, continue), **or**
+- the user interrupts.
+
+Don't pause between slices to summarise or ask permission. The user
+sees progress through commits and pushes; ask only when you need a
+decision they have to make.
+
 ### MILESTONES.md is the durable plan
 
 `MILESTONES.md` is the persistent backlog. Chat history doesn't survive
