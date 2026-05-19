@@ -382,6 +382,7 @@ class Interpreter(
     raftVotedFor     = localNodeId
     raftVotes        = 1
     raftElectionDue  = System.currentTimeMillis() + raftRandTimeout
+    raftPersist()
     val peerIds = scala.collection.mutable.ListBuffer.empty[String]
     peerChannels.keySet().forEach(p => peerIds += p)
     val total = peerIds.size + 1
@@ -414,6 +415,37 @@ class Interpreter(
       catch case _: Throwable => ()
     }
     if !raftTickThread.compareAndSet(null, t) then t.interrupt()
+  // v1.23 — Raft persistence (cluster-raft.md §4.1).
+  private def raftStatePath: java.nio.file.Path =
+    val key = if localNodeId.isEmpty then "default" else localNodeId.replaceAll("[^A-Za-z0-9._-]", "_")
+    java.nio.file.Paths.get(s".ssc-raft-state-$key.json")
+  private def raftPersist(): Unit =
+    try
+      val voted = raftVotedFor.replace("\\", "\\\\").replace("\"", "\\\"")
+      val json  = "{\"currentTerm\":" + raftCurrentTerm.toString + ",\"votedFor\":\"" + voted + "\"}"
+      java.nio.file.Files.writeString(raftStatePath, json,
+        java.nio.charset.StandardCharsets.UTF_8,
+        java.nio.file.StandardOpenOption.CREATE,
+        java.nio.file.StandardOpenOption.TRUNCATE_EXISTING)
+    catch case _: Throwable => ()
+  private def raftLoad(): Unit =
+    try
+      val p = raftStatePath
+      if java.nio.file.Files.exists(p) then
+        val s = java.nio.file.Files.readString(p)
+        val termIdx = s.indexOf("\"currentTerm\"")
+        if termIdx >= 0 then
+          val ci = s.indexOf(':', termIdx); var i = ci + 1
+          while i < s.length && s(i) == ' ' do i += 1
+          var j = i; while j < s.length && (s(j).isDigit || s(j) == '-') do j += 1
+          if j > i then s.substring(i, j).toLongOption.foreach(t => raftCurrentTerm = t)
+        val vk = "\"votedFor\""
+        val ki = s.indexOf(vk)
+        if ki >= 0 then
+          val qi = s.indexOf('"', ki + vk.length + 1)
+          val qe = if qi > 0 then s.indexOf('"', qi + 1) else -1
+          if qe > qi then raftVotedFor = s.substring(qi + 1, qe)
+    catch case _: Throwable => ()
   // v1.23 — drain / rolling-restart state.
   private val isDrainingSelf =
     new java.util.concurrent.atomic.AtomicBoolean(false)
@@ -1219,6 +1251,7 @@ class Interpreter(
               case Some(Value.DoubleV(d)) => d.toLong
               case _                      => 0L
             if from.nonEmpty then
+              var mutated = false
               val granted =
                 if term < raftCurrentTerm then false
                 else
@@ -1226,11 +1259,14 @@ class Interpreter(
                     raftCurrentTerm = term
                     raftVotedFor    = ""
                     raftStateName   = "follower"
+                    mutated = true
                   if raftVotedFor.isEmpty || raftVotedFor == from then
                     raftVotedFor    = from
                     raftElectionDue = System.currentTimeMillis() + raftRandTimeout
+                    mutated = true
                     true
                   else false
+              if mutated then raftPersist()
               val reply =
                 s"""{"t":"raft_vote_resp","from":${jsonStr(localNodeId)},"term":$raftCurrentTerm,"granted":$granted}"""
               try Option(peerChannels.get(from)).foreach(_.apply(reply))
@@ -1256,11 +1292,13 @@ class Interpreter(
               case Some(Value.DoubleV(d)) => d.toLong
               case _                      => 0L
             if from.nonEmpty && term >= raftCurrentTerm then
+              val termChanged = term > raftCurrentTerm
               raftCurrentTerm = term
               raftStateName   = "follower"
               val prevLeader  = raftLeaderId
               raftLeaderId    = from
               raftElectionDue = System.currentTimeMillis() + raftRandTimeout
+              if termChanged then raftPersist()
               if prevLeader != from then raftAdoptLeader(from)
           case _ => ()
       case _ => ()
@@ -5819,6 +5857,7 @@ class Interpreter(
     // v1.23 — protocol switch + history (cluster-raft.md §6)
     case "useRaftLeaderElection" =>
       leaderProtocolRef.set("raft")
+      raftLoad()
       raftStateName   = "follower"
       raftElectionDue = System.currentTimeMillis() + raftRandTimeout
       ensureRaftTickThread()

@@ -4347,6 +4347,7 @@ class JvmGen(
        |    _raftVotedFor    = _localNodeId
        |    _raftVotes       = 1
        |    _raftElectionDue = System.currentTimeMillis() + _raftRandTimeout
+       |    _raftPersist()
        |    val peerIds = scala.collection.mutable.ListBuffer.empty[String]
        |    _peerChannels.keySet().forEach(p => peerIds += p)
        |    val total = peerIds.size + 1
@@ -4379,6 +4380,41 @@ class JvmGen(
        |      catch case _: InterruptedException => ()
        |    }
        |    if !_raftTickThread.compareAndSet(null, t) then t.interrupt()
+       |  // v1.23 — Raft persistence (cluster-raft.md §4.1).  One JSON file per
+       |  // node, written on every (term, votedFor) mutation so a crashed-and-
+       |  // restarted node doesn't double-vote in the same term.  Best-effort:
+       |  // IO errors are swallowed (the alternative is to refuse to start,
+       |  // which is worse for trusted-deployment use).
+       |  def _raftStatePath: java.nio.file.Path =
+       |    val key = if _localNodeId.isEmpty then "default" else _localNodeId.replaceAll("[^A-Za-z0-9._-]", "_")
+       |    java.nio.file.Paths.get(s".ssc-raft-state-$key.json")
+       |  def _raftPersist(): Unit =
+       |    try
+       |      val voted = _raftVotedFor.replace("\\", "\\\\").replace("\"", "\\\"")
+       |      val json  = "{\"currentTerm\":" + _raftCurrentTerm.toString + ",\"votedFor\":\"" + voted + "\"}"
+       |      java.nio.file.Files.writeString(_raftStatePath, json,
+       |        java.nio.charset.StandardCharsets.UTF_8,
+       |        java.nio.file.StandardOpenOption.CREATE,
+       |        java.nio.file.StandardOpenOption.TRUNCATE_EXISTING)
+       |    catch case _: Throwable => ()
+       |  def _raftLoad(): Unit =
+       |    try
+       |      val p = _raftStatePath
+       |      if java.nio.file.Files.exists(p) then
+       |        val s = java.nio.file.Files.readString(p)
+       |        val termIdx = s.indexOf("\"currentTerm\"")
+       |        if termIdx >= 0 then
+       |          val ci = s.indexOf(':', termIdx); var i = ci + 1
+       |          while i < s.length && s(i) == ' ' do i += 1
+       |          var j = i; while j < s.length && (s(j).isDigit || s(j) == '-') do j += 1
+       |          if j > i then s.substring(i, j).toLongOption.foreach(t => _raftCurrentTerm = t)
+       |        val vk = "\"votedFor\""
+       |        val ki = s.indexOf(vk)
+       |        if ki >= 0 then
+       |          val qi = s.indexOf('"', ki + vk.length + 1)
+       |          val qe = if qi > 0 then s.indexOf('"', qi + 1) else -1
+       |          if qe > qi then _raftVotedFor = s.substring(qi + 1, qe)
+       |    catch case _: Throwable => ()
        |  // v1.23 — drain-aware step-down (cluster-raft.md §7).  Called when
        |  // `setDraining(true)` flips while this node holds leadership.
        |  // Releases the lease (coord), reverts to follower (Raft), or just
@@ -4771,6 +4807,7 @@ class JvmGen(
        |        val from = _extractJsonStr(json, "\"from\"")
        |        val term = _extractJsonLong(json, "\"term\"")
        |        if from.nonEmpty then
+       |          var mutated = false
        |          val granted =
        |            if term < _raftCurrentTerm then false
        |            else
@@ -4778,11 +4815,14 @@ class JvmGen(
        |                _raftCurrentTerm = term
        |                _raftVotedFor    = ""
        |                _raftState       = "follower"
+       |                mutated = true
        |              if _raftVotedFor.isEmpty || _raftVotedFor == from then
        |                _raftVotedFor    = from
        |                _raftElectionDue = System.currentTimeMillis() + _raftRandTimeout
+       |                mutated = true
        |                true
        |              else false
+       |          if mutated then _raftPersist()
        |          val reply = "{\"t\":\"raft_vote_resp\",\"from\":" + _jstr(_localNodeId) +
        |                      ",\"term\":" + _raftCurrentTerm.toString +
        |                      ",\"granted\":" + granted.toString + "}"
@@ -4803,11 +4843,13 @@ class JvmGen(
        |        val from = _extractJsonStr(json, "\"from\"")
        |        val term = _extractJsonLong(json, "\"term\"")
        |        if from.nonEmpty && term >= _raftCurrentTerm then
+       |          val termChanged = term > _raftCurrentTerm
        |          _raftCurrentTerm = term
        |          _raftState       = "follower"
        |          val prevLeader   = _raftLeaderId
        |          _raftLeaderId    = from
        |          _raftElectionDue = System.currentTimeMillis() + _raftRandTimeout
+       |          if termChanged then _raftPersist()
        |          if prevLeader != from then _raftAdoptLeader(from)
        |      case _      => ()
        |
@@ -5359,6 +5401,7 @@ class JvmGen(
        |    // v1.23 — protocol switch + history (cluster-raft.md §6).
        |    case "useRaftLeaderElection" =>
        |      _leaderProtocol.set("raft")
+       |      _raftLoad()
        |      _raftState       = "follower"
        |      _raftElectionDue = System.currentTimeMillis() + _raftRandTimeout
        |      _ensureRaftTickThread()

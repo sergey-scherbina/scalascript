@@ -3872,6 +3872,7 @@ function _runActors(bodyFn) {
     _raftVotedFor     = _localNodeId;
     _raftVotes        = 1;
     _raftElectionDue  = Date.now() + _raftRandTimeout();
+    _raftPersist();
     const peerIds = [];
     for (const nid of _peerChannels.keys()) peerIds.push(nid);
     const total = peerIds.length + 1;
@@ -3889,6 +3890,33 @@ function _runActors(bodyFn) {
         if (ch) { try { ch.send(payload); } catch (_) {} }
       }
     }
+  }
+  // v1.23 — Raft persistence (cluster-raft.md §4.1).  Node has `fs`;
+  // browser does not run distributed Raft anyway (no inbound WS).
+  let _raftFs = null;
+  try { _raftFs = require('fs'); } catch (_) { _raftFs = null; }
+  function _raftStatePath() {
+    const key = _localNodeId ? _localNodeId.replace(/[^A-Za-z0-9._-]/g, '_') : 'default';
+    return '.ssc-raft-state-' + key + '.json';
+  }
+  function _raftPersist() {
+    if (!_raftFs) return;
+    try {
+      const voted = _raftVotedFor.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+      const json  = '{"currentTerm":' + _raftCurrentTerm + ',"votedFor":"' + voted + '"}';
+      _raftFs.writeFileSync(_raftStatePath(), json, 'utf8');
+    } catch (_) {}
+  }
+  function _raftLoad() {
+    if (!_raftFs) return;
+    try {
+      const p = _raftStatePath();
+      if (!_raftFs.existsSync(p)) return;
+      const s = _raftFs.readFileSync(p, 'utf8');
+      const o = JSON.parse(s);
+      if (typeof o.currentTerm === 'number') _raftCurrentTerm = o.currentTerm;
+      if (typeof o.votedFor    === 'string') _raftVotedFor    = o.votedFor;
+    } catch (_) {}
   }
   function _ensureRaftTickThread() {
     if (_raftTickHandle != null) return;
@@ -4290,19 +4318,23 @@ function _runActors(bodyFn) {
           const term = env.term != null ? Number(env.term) : 0;
           if (from) {
             let granted = false;
+            let mutated = false;
             if (term < _raftCurrentTerm) granted = false;
             else {
               if (term > _raftCurrentTerm) {
                 _raftCurrentTerm = term;
                 _raftVotedFor    = "";
                 _raftStateName   = "follower";
+                mutated = true;
               }
               if (_raftVotedFor === "" || _raftVotedFor === from) {
                 _raftVotedFor    = from;
                 _raftElectionDue = Date.now() + _raftRandTimeout();
+                mutated = true;
                 granted = true;
               }
             }
+            if (mutated) _raftPersist();
             const reply = JSON.stringify({
               t: 'raft_vote_resp', from: _localNodeId, term: _raftCurrentTerm, granted
             });
@@ -4326,11 +4358,13 @@ function _runActors(bodyFn) {
           const from = env.from != null ? String(env.from) : '';
           const term = env.term != null ? Number(env.term) : 0;
           if (from && term >= _raftCurrentTerm) {
+            const termChanged = term > _raftCurrentTerm;
             _raftCurrentTerm = term;
             _raftStateName   = "follower";
             const prevLeader = _raftLeaderId;
             _raftLeaderId    = from;
             _raftElectionDue = Date.now() + _raftRandTimeout();
+            if (termChanged) _raftPersist();
             if (prevLeader !== from) _raftAdoptLeader(from);
           }
         }
@@ -4854,6 +4888,7 @@ private val JsRuntimeAsyncB: String = """
       // v1.23 — protocol switch + history (cluster-raft.md §6)
       case 'useRaftLeaderElection': {
         _leaderProtocol = 'raft';
+        _raftLoad();
         _raftStateName  = 'follower';
         _raftElectionDue = Date.now() + _raftRandTimeout();
         _ensureRaftTickThread();
