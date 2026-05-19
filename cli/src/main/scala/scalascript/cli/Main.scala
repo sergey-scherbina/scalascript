@@ -69,6 +69,7 @@ private def dispatchCommand(args: List[String]): Unit =
     case "check-with-iface"    => checkWithInterfaceCommand(args.tail)
     case "link"                => linkCommand(args.tail)
     case "info"                => infoCommand(args.tail)
+    case "deps"                => depsCommand(args.tail)
     case "compile"             => compileCommand(args.tail)
     case "package"             => packageCommand(args.tail)
     case "serve"               => serveCommand(args.tail)
@@ -1870,6 +1871,65 @@ private def compileJsDepInto(
   val imports    = (rawImports ++ depAliases).distinct.toList
   val moduleId   = moduleName.getOrElse(baseName)
   JsArtifactIO.writeJsFile(moduleId, pkg, moduleName, sourceHash, jsSource, imports, scjsPath)
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ssc deps <file.ssc>  —  show the resolved import graph (topo-sorted)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** `ssc deps <file.ssc> [--graph]`
+ *
+ *  Walk the target's import closure via `AutoResolve.resolve` and print
+ *  the topologically-sorted dependency list.  Useful for understanding
+ *  what `compile-jvm` / `compile-js` will recursively compile, and for
+ *  CI scripts that need to know the artifact set up front.
+ *
+ *  With `--graph`, prints a one-line edge per import (`from → to`)
+ *  in addition to the sorted list.
+ *
+ *  v2.0 — dep-graph introspection. */
+def depsCommand(args: List[String]): Unit =
+  var graphMode = false
+  val files = scala.collection.mutable.ArrayBuffer.empty[String]
+  args.foreach {
+    case "--graph" => graphMode = true
+    case f         => files += f
+  }
+  if files.length != 1 then
+    System.err.println("Usage: ssc deps <file.ssc> [--graph]")
+    System.exit(1)
+
+  val path = os.Path(files.head, os.pwd)
+  if !os.exists(path) then
+    System.err.println(s"deps: file not found: ${files.head}")
+    System.exit(1)
+
+  val resolution =
+    try AutoResolve.resolve(path)
+    catch case e: Exception =>
+      System.err.println(s"deps: ${e.getMessage}")
+      System.exit(1); throw e
+
+  if resolution.cycles.nonEmpty then
+    System.err.println(s"deps: ${resolution.cycles.length} cycle(s) detected:")
+    resolution.cycles.foreach { cycle =>
+      System.err.println(s"  ${cycle.map(_.last).mkString(" → ")}")
+    }
+    System.exit(1)
+
+  // Topo-sorted list, target last (deps come first).
+  println(s"target: $path")
+  println(s"resolved ${resolution.orderedNodes.length} module(s) in topo order:")
+  resolution.orderedNodes.foreach { node =>
+    val marker = if node.path == path then " (target)" else ""
+    println(s"  ${node.path}$marker")
+  }
+  if graphMode then
+    println(s"\nedges:")
+    resolution.orderedNodes.foreach { node =>
+      node.depPaths.foreach { dep =>
+        println(s"  ${node.path.last} → ${dep.last}")
+      }
+    }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ssc info <artifact>  —  v2.0 artifact envelope inspector
