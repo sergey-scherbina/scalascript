@@ -826,7 +826,12 @@ class JvmGen(
       val rawBlocks = nested.collectBlocks(importedModule.sections)
       val rewrittenBlocks = rawBlocks.map { b =>
         val hasEffect = ScalaNode.fold(b.node)(tree => containsEffectPrimitive(tree))
-        if hasEffect then b
+        if hasEffect then
+          // Effectful dep block: apply ONLY the bare-name regex
+          // rename (so case-class methods can resolve `self()` etc.)
+          // and skip the receive/send AST rewrite (which would produce
+          // shapes the Step 3 CPS emit can't handle).
+          qualifyBareActorCallsRegexOnlyInBlock(b)
         else qualifyBareActorCallsInBlock(b)
       }
       // Strategy D, Step 2 — index every Defn.Def in this dep (top-level
@@ -849,6 +854,19 @@ class JvmGen(
         case Some(reparsed) => JvmGen.Block(scalascript.ast.ScalaNode(reparsed), rewrittenSrc)
         case None           => block  // re-parse failed — fall back to original
 
+  /** Strategy D variant: bare-name rewrite only, no AST receive/send
+   *  rewrite.  Used for dep blocks with effect primitives where Step 3
+   *  handles receive/send via CPS emit. */
+  private def qualifyBareActorCallsRegexOnlyInBlock(block: JvmGen.Block): JvmGen.Block =
+    val rewrittenSrc = qualifyBareActorCallsRegexOnly(block.src)
+    if rewrittenSrc == block.src then block
+    else
+      import scala.meta.{dialects, *}
+      dialects.Scala3(Input.VirtualFile("<dep-rewrite>", rewrittenSrc))
+        .parse[Source].toOption match
+        case Some(reparsed) => JvmGen.Block(scalascript.ast.ScalaNode(reparsed), rewrittenSrc)
+        case None           => block
+
   /** Pre-emit string rewrite for dep blocks. Targets the narrow set of
    *  call shapes the runtime exposes only as `Actor.<n>` (not as bare
    *  top-level names) — so wrapping the dep in `object std { object pkg
@@ -863,19 +881,7 @@ class JvmGen(
    *  regex set below is intentionally tiny so the matching is
    *  predictable. */
   private def qualifyBareActorCallsInSource(src: String): String =
-    var out = src
-    // Bare actor calls: `self()`, `connectNode(addr)`, `link(pid)`, …
-    // Match `<name>(` at a word boundary so `Actor.self(` (already
-    // qualified) and arbitrary identifiers containing the substring
-    // aren't double-qualified.
-    val bareNames = actorBareNames - "receive" - "runActors" - "spawn" - "spawn_link" - "spawnBounded"
-    bareNames.foreach { n =>
-      // Replace `n(` with `Actor.n(` but only when the preceding
-      // char isn't a letter/digit/underscore/dot (so `Actor.n(` and
-      // `someObj.n(` are left alone).
-      val pattern = ("""(?<![.\w])""" + java.util.regex.Pattern.quote(n) + """\(""").r
-      out = pattern.replaceAllIn(out, java.util.regex.Matcher.quoteReplacement(s"Actor.$n("))
-    }
+    val withBareQualified = qualifyBareActorCallsRegexOnly(src)
     // After bare-name qualification, do AST-based rewrites for the
     // shapes that don't have safe regex equivalents:
     //   - `pid ! msg`            → `Actor.send(pid, msg)` (regex
@@ -884,7 +890,26 @@ class JvmGen(
     //   - `receive { case … }`   → `Actor.receive_(_registerReceive(…))`
     //   - `receive(t) { case … }`/`receiveWithTimeout(t) { case … }`
     //     → `Actor.receive_t(_registerReceive(…), t)`
-    out = rewriteActorAstCallsInSource(out)
+    rewriteActorAstCallsInSource(withBareQualified)
+
+  /** Bare-name part of the band-aid only — safe textual rename of
+   *  `self()` → `Actor.self()` etc.  Used by Strategy D for dep blocks
+   *  that contain effect primitives: we still need the bare-name
+   *  qualification (so case-class methods can call `self()` from inside
+   *  the wrapped object), but we skip the AST rewrite for
+   *  receive/send because it produces shapes the CPS emit can't
+   *  handle (`Actor.receive_(_registerReceive(_pfToFun{…}))` then gets
+   *  wrapped in nonsensical _bind chains over runtime helpers).  Top-
+   *  level `Defn.Def` bodies in the dep go through Step 3's CPS emit
+   *  which handles `receive` / `!` natively; only the case-class /
+   *  nested-method paths need the bare-name fixup. */
+  private def qualifyBareActorCallsRegexOnly(src: String): String =
+    var out = src
+    val bareNames = actorBareNames - "receive" - "runActors" - "spawn" - "spawn_link" - "spawnBounded"
+    bareNames.foreach { n =>
+      val pattern = ("""(?<![.\w])""" + java.util.regex.Pattern.quote(n) + """\(""").r
+      out = pattern.replaceAllIn(out, java.util.regex.Matcher.quoteReplacement(s"Actor.$n("))
+    }
     out
 
   /** Walk every Apply tree in `src` (via scalameta parse) and splice
@@ -1882,7 +1907,11 @@ class JvmGen(
         d.collect { case dd: Defn.Def if globalEffectfulDeps(dd.name.value) => () }.nonEmpty =>
       val inner = d.templ.body.stats.map(emitStat).filter(_.nonEmpty).mkString("\n")
       val indented = inner.linesIterator.map("  " + _).mkString("\n")
-      s"object ${d.name.value}:\n$indented"
+      // Use brace syntax (not Scala 3 indent) so the
+      // `mergeDuplicatePackageObjects` brace-balanced scanner can
+      // combine us with other dep blocks that also use braces (those
+      // come from the verbatim emit path for pure dep code).
+      s"object ${d.name.value} {\n$indented\n}"
 
     case t: Term => emitExpr(t)
 
@@ -2839,6 +2868,19 @@ class JvmGen(
   private def isSimpleCps(t: Term): Boolean = t match
     case _: Lit                                  => true
     case Term.Name(n) if !isEffectfulFun(n)      => true
+    // Varargs spread `xs: _*` is a syntactic call form — can't be bound
+    // as a value.  Pass through verbatim so `f(xs: _*)` stays as
+    // `f(xs: _*)` not `_bind(xs: _*, …)`.
+    case _: Term.Repeated                        => true
+    // Function literals / partial functions / placeholder lambdas
+    // (`_._1`, `_ + 1`) are pure values, never effectful.
+    case _: Term.Function                        => true
+    case _: Term.AnonymousFunction               => true
+    case _: Term.PartialFunction                 => true
+    // Named-arg assignments inside a call: `f(name = expr)`.  The CPS
+    // emit should treat the assignment shape as syntactic — bind only
+    // the value side if needed (handled separately when the time comes).
+    case _: Term.Assign                          => true
     case _                                       => false
 
   /** Bind a list of CPS sub-expressions; pass their values into `k`. */
