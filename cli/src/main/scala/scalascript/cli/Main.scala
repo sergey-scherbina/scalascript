@@ -15,7 +15,8 @@ import scalascript.validate.CapabilityCheck
 import scalascript.plugin.{BackendRegistry, SourceLanguageRegistry}
 import scalascript.backend.spi.{BackendOptions, CompileResult, Segment}
 // v2.0 separate-compilation artifact commands
-import scalascript.artifact.{InterfaceExtractor, ArtifactIO}
+import scalascript.artifact.{InterfaceExtractor, ArtifactIO, JvmArtifactIO}
+import scalascript.codegen.JvmGen
 
 @main def ssc(rawArgs: String*): Unit =
   // Strip global plugin-management flags from anywhere in the
@@ -63,6 +64,7 @@ private def dispatchCommand(args: List[String]): Unit =
     // v2.0 separate-compilation commands
     case "emit-interface"      => emitInterfaceCommand(args.tail)
     case "emit-ir"             => emitIrCommand(args.tail)
+    case "compile-jvm"         => compileJvmCommand(args.tail)
     case "check-with-iface"    => checkWithInterfaceCommand(args.tail)
     case "link"                => linkCommand(args.tail)
     case "compile"             => compileCommand(args.tail)
@@ -210,6 +212,7 @@ def printUsage(): Unit =
     |  emit-wc                Emit each component object as a W3C Custom Element bundle
     |  emit-interface         Extract module interface to .scim artifact (v2.0)
     |  emit-ir                Emit normalised module IR to .scir artifact (v2.0)
+    |  compile-jvm            Emit JVM-backend cached Scala source to .scjvm artifact (v2.0)
     |  check-with-iface       Type-check .ssc consuming pre-compiled .scim interfaces (v2.0)
     |  link                   Link .scim/.scir artifact pairs into a merged module (v2.0)
     |  serve                  Start HTTP server serving .ssc files as web pages
@@ -329,18 +332,29 @@ private def extractResponseBody(v: scalascript.interpreter.Value): String =
 // ssc build --incremental  —  v2.0 separate compilation build orchestrator
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** `ssc build --incremental <src-dir> [--artifact-dir <dir>]`
+/** `ssc build --incremental <src-dir> [--artifact-dir <dir>] [--backend <id>]`
  *
  *  Walks `src-dir` for `.ssc` files, builds the dependency graph via
  *  `ModuleGraph`, and recompiles only stale modules (i.e. those whose source
- *  hash has changed or whose `.scim` / `.scir` artifacts don't exist yet).
+ *  hash has changed or whose artifacts don't exist yet).
+ *
+ *  Artifact set emitted per module depends on `--backend`:
+ *  - default / no `--backend`: `.scim` + `.scir` (interface + IR).
+ *  - `--backend jvm`:          `.scim` + `.scir` + `.scjvm` (interface + IR +
+ *                              JVM-backend cached Scala source).
+ *
+ *  The `.scjvm` artifact carries the JVM backend's emitted Scala 3 source
+ *  for the single module so `ssc link --backend jvm` can textually splice
+ *  per-module sources without re-running codegen — the user-visible win for
+ *  incremental builds.
  *
  *  Artifacts are written to `--artifact-dir` (default `<src-dir>/.ssc-artifacts/`).
  *
  *  Cycle detection: if the dependency graph contains a cycle the build errors
  *  immediately listing the cyclic files.
  *
- *  After building, the artifacts can be linked via `ssc link <artifact-dir>`.
+ *  After building, the artifacts can be linked via `ssc link <artifact-dir>`
+ *  (with `--backend jvm` to pick up the `.scjvm` cache).
  *
  *  v2.0 / Stage 6.
  */
@@ -349,19 +363,22 @@ def incrementalBuildCommand(args: List[String]): Unit =
   import scalascript.transform.Normalize
 
   var artifactDirArg: Option[String] = None
+  var backendArg:     Option[String] = None
   var srcDirArg:      Option[String] = None
   val it = args.iterator
   while it.hasNext do
     it.next() match
       case "--artifact-dir" if it.hasNext => artifactDirArg = Some(it.next())
+      case "--backend"      if it.hasNext => backendArg     = Some(it.next())
       case d => srcDirArg = Some(d)
 
   if srcDirArg.isEmpty then
-    System.err.println("Usage: ssc build --incremental <src-dir> [--artifact-dir <dir>]")
+    System.err.println("Usage: ssc build --incremental <src-dir> [--artifact-dir <dir>] [--backend <id>]")
     System.exit(1)
 
   val srcDir     = os.Path(srcDirArg.get, os.pwd)
   val artDir     = artifactDirArg.map(os.Path(_, os.pwd)).getOrElse(srcDir / ".ssc-artifacts")
+  val emitJvm    = backendArg.orElse(ActiveFlags.current.backend).contains("jvm")
 
   if !os.isDir(srcDir) then
     System.err.println(s"build --incremental: '$srcDir' is not a directory"); System.exit(1)
@@ -379,7 +396,8 @@ def incrementalBuildCommand(args: List[String]): Unit =
     System.exit(1)
 
   val nodes = graph.orderedNodes
-  println(s"Discovered ${nodes.length} module(s) in ${srcDir.relativeTo(os.pwd)}")
+  println(s"Discovered ${nodes.length} module(s) in ${srcDir.relativeTo(os.pwd)}" +
+    (if emitJvm then "  (--backend jvm: emitting .scjvm)" else ""))
 
   var compiled = 0
   var skipped  = 0
@@ -388,7 +406,10 @@ def incrementalBuildCommand(args: List[String]): Unit =
   for node <- nodes do
     val relPath  = node.relPath(srcDir)
     val baseName = node.path.last.stripSuffix(".ssc")
-    val stale    = ModuleGraph.isStale(node.path, artDir)
+    // Staleness: any of .scim, .scir, or (if emitJvm) .scjvm out of date.
+    val coreStale = ModuleGraph.isStale(node.path, artDir)
+    val jvmStale  = emitJvm && ModuleGraph.isJvmStale(node.path, artDir)
+    val stale     = coreStale || jvmStale
 
     if !stale then
       println(s"  [skip]     $relPath (up-to-date)")
@@ -406,8 +427,28 @@ def incrementalBuildCommand(args: List[String]): Unit =
         val scimPath = artDir / (baseName + ".scim")
         val scirPath = artDir / (baseName + ".scir")
 
-        ArtifactIO.writeInterfaceFile(iface, scimPath)
-        ArtifactIO.writeIrFile(ir, node.pkg, module.manifest.flatMap(_.name), sourceHash, scirPath)
+        // Always (re)write .scim + .scir if those are stale.
+        if coreStale then
+          ArtifactIO.writeInterfaceFile(iface, scimPath)
+          ArtifactIO.writeIrFile(ir, node.pkg, module.manifest.flatMap(_.name), sourceHash, scirPath)
+
+        if emitJvm then
+          val scjvmPath = artDir / (baseName + ".scjvm")
+          // Only re-run JvmGen if the .scjvm itself is stale; if only the
+          // .scim/.scir went stale (impossible without source change here,
+          // since both share the SHA-256 check, but defensive) skip the
+          // expensive codegen.
+          if jvmStale || !os.exists(scjvmPath) then
+            val baseDir     = Some(node.path / os.up)
+            val scalaSource = JvmGen.generate(module, baseDir)
+            val rawImports  = collectImports(module.sections)
+            val depAliases  = module.manifest.toList.flatMap(_.dependencies.keys)
+            val imports     = (rawImports ++ depAliases).distinct.toList
+            val moduleId    = module.manifest.flatMap(_.name).getOrElse(baseName)
+            JvmArtifactIO.writeJvmFile(
+              moduleId, node.pkg, module.manifest.flatMap(_.name),
+              sourceHash, scalaSource, imports, scjvmPath
+            )
       }
       ok match
         case scala.util.Success(_) =>
@@ -1394,6 +1435,126 @@ def emitIrCommand(args: List[String]): Unit =
       System.err.println(s"emit-ir error: ${e.getMessage}")
       System.exit(1)
 
+// ─────────────────────────────────────────────────────────────────────────────
+// ssc compile-jvm  —  v2.0 JVM-backend incremental codegen cache
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** `ssc compile-jvm <file.ssc> [-o <file.scjvm>] [--iface-dir <dir>]`
+ *
+ *  Parses, normalises, and (optionally) type-checks the `.ssc` file against
+ *  pre-compiled `.scim` interfaces from `--iface-dir`.  Runs the JVM backend's
+ *  source codegen (`JvmGen.generate`) on this SINGLE module — not its
+ *  transitive deps — and writes the emitted Scala 3 source as a `.scjvm`
+ *  JSON artifact (ABI envelope + source hash + scalaSource + imports).
+ *
+ *  `ssc link --backend jvm` later concatenates every `.scjvm`'s `scalaSource`
+ *  in dep order to produce the combined source for scala-cli / scalac,
+ *  bypassing per-link re-codegen for unchanged modules.
+ *
+ *  If `-o` is not specified the output is written to `<file>.scjvm` in the
+ *  same directory as the source.  Pass `-` as the output path to print to
+ *  stdout instead.
+ *
+ *  v2.0 — JVM incremental codegen cache.
+ */
+def compileJvmCommand(args: List[String]): Unit =
+  var outputArg: Option[String] = None
+  var ifaceDir:  Option[os.Path] = None
+  val files = scala.collection.mutable.ArrayBuffer.empty[String]
+  val it = args.iterator
+  while it.hasNext do
+    it.next() match
+      case "-o" | "--output" if it.hasNext => outputArg = Some(it.next())
+      case "--iface-dir" | "-I" if it.hasNext =>
+        ifaceDir = Some(os.Path(it.next(), os.pwd))
+      case f => files += f
+
+  if files.isEmpty then
+    System.err.println("Usage: ssc compile-jvm <file.ssc> [-o <file.scjvm>] [--iface-dir <dir>]")
+    System.exit(1)
+
+  // Pre-load interfaces from --iface-dir for type-checking, if specified.
+  val interfaces: Map[String, scalascript.ir.ModuleInterface] =
+    ifaceDir match
+      case None => Map.empty
+      case Some(dir) =>
+        if !os.isDir(dir) then
+          System.err.println(s"compile-jvm: --iface-dir '$dir' is not a directory")
+          System.exit(1)
+        os.list(dir).filter(_.ext == "scim").flatMap { p =>
+          ArtifactIO.readInterfaceFile(p) match
+            case Right(iface) =>
+              val alias = p.last.stripSuffix(".scim")
+              List(alias -> iface)
+            case Left(err) =>
+              System.err.println(s"  [warn] skipping ${p.last}: $err")
+              Nil
+        }.toMap
+
+  for file <- files.toList do
+    val path = os.Path(file, os.pwd)
+    if !os.exists(path) then
+      System.err.println(s"Error: File not found: $file"); System.exit(1)
+    try
+      val sourceBytes = os.read.bytes(path)
+      val src         = new String(sourceBytes, "UTF-8")
+      val module      = Parser.parse(src)
+
+      // Type-check (optionally against pre-compiled interfaces).  Errors are
+      // surfaced as a non-zero exit code so the build orchestrator can stop
+      // before producing a stale `.scjvm`.
+      val typed =
+        if interfaces.isEmpty then Typer.typeCheck(module)
+        else Typer.typeCheckWithInterfaces(module, interfaces)
+      if typed.hasErrors then
+        typed.errors.foreach(e => System.err.println(s"  Error: ${e.msg}"))
+        System.exit(1)
+
+      // Run the JVM backend codegen on THIS module only (no merged dep
+      // code).  The link step textually concatenates per-module sources
+      // in dep order.
+      val baseDir     = Some(path / os.up)
+      val scalaSource = JvmGen.generate(module, baseDir)
+      val pkg         = module.manifest.flatMap(_.pkg).getOrElse(Nil)
+      val moduleName  = module.manifest.flatMap(_.name)
+      val sourceHash  = InterfaceExtractor.sha256(sourceBytes)
+
+      // Best-effort import discovery: collect `Content.Import` paths and
+      // front-matter `dependencies:` aliases.  Used by the linker as a hint
+      // for cross-module FQN resolution.  Not load-bearing for the textual
+      // MVP — the produced source already contains every name it needs.
+      val rawImports = collectImports(module.sections)
+      val depAliases = module.manifest.toList.flatMap(_.dependencies.keys)
+      val imports    = (rawImports ++ depAliases).distinct.toList
+
+      val moduleId = moduleName.getOrElse(path.last.stripSuffix(".ssc"))
+
+      val json = JvmArtifactIO.writeJvm(moduleId, pkg, moduleName, sourceHash, scalaSource, imports)
+      outputArg match
+        case Some("-") => println(json)
+        case Some(out) =>
+          val outPath = os.Path(out, os.pwd)
+          os.makeDir.all(outPath / os.up)
+          os.write.over(outPath, json)
+          println(s"JVM artifact written to $outPath")
+        case None =>
+          val outPath = path / os.up / (path.last.stripSuffix(".ssc") + ".scjvm")
+          os.makeDir.all(outPath / os.up)
+          os.write.over(outPath, json)
+          println(s"JVM artifact written to ${outPath.relativeTo(os.pwd)}")
+    catch case e: Exception =>
+      System.err.println(s"compile-jvm error: ${e.getMessage}")
+      System.exit(1)
+
+/** Collect raw import paths from a section recursively.  Used by
+ *  `compile-jvm` to populate `ModuleJvmArtifact.imports` as a hint for the
+ *  linker. */
+private def collectImports(sections: List[Section]): List[String] =
+  sections.flatMap { s =>
+    s.content.collect { case imp: Content.Import => imp.path } ++
+      collectImports(s.subsections)
+  }
+
 def compileCommand(args: List[String]): Unit =
   if args.isEmpty then { println("Error: No files specified"); System.exit(1) }
   for file <- args do
@@ -1851,14 +2012,24 @@ def checkCommand(args: List[String]): Unit =
 // ssc link  —  v2.0 separate compilation
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** `ssc link <artifact-dir> [-o <output.scir>] [--backend <id>]`
+/** `ssc link <artifact-dir> [-o <output>] [--backend <id>]`
  *
- *  Collects all `.scim` + `.scir` artifact pairs from `<artifact-dir>`,
- *  links them into a single `NormalizedModule`, and either:
- *  - Writes the merged module as a `.scir` JSON artifact (if `-o` is given
- *    and ends with `.scir`), or
- *  - Immediately compiles via `--backend <id>` (default `int`) and prints
- *    or executes the result.
+ *  Collects compiled artifacts from `<artifact-dir>` and produces a linked
+ *  result.  Two modes:
+ *
+ *  1. **IR-link mode** (default).  Reads `.scim` + `.scir` pairs, merges into
+ *     a single `NormalizedModule`, and either writes the merged IR as
+ *     `.scir` (`-o foo.scir`) or compiles via `--backend <id>` (default
+ *     `int`) and prints / executes the result.
+ *
+ *  2. **JVM cached-source mode** — `--backend jvm` with `.scjvm` artifacts
+ *     present in the dir.  Reads `.scjvm` artifacts, textually concatenates
+ *     their `scalaSource` strings in alphabetical order, and either prints
+ *     the combined source (`-o -`) or packages it via scala-cli into a JAR
+ *     (`-o foo.jar`).
+ *
+ *     MVP: textual concat.  Real linker should resolve cross-module imports
+ *     through bytecode mangling.  Phase 2.
  *
  *  Artifacts are processed in dependency order: the linker reads each `.scim`
  *  to determine the package, then topologically sorts them.  Cycles are
@@ -1879,8 +2050,24 @@ def linkCommand(args: List[String]): Unit =
       case d                                => artifactDirs += d
 
   if artifactDirs.isEmpty then
-    System.err.println("Usage: ssc link <artifact-dir> [-o <output.scir>] [--backend <id>]")
+    System.err.println("Usage: ssc link <artifact-dir> [-o <output>] [--backend <id>]")
     System.exit(1)
+
+  // ── JVM cached-source mode ───────────────────────────────────────────────
+  // If --backend jvm and the artifact dir(s) contain .scjvm files, take the
+  // textual-concat path.  This bypasses the IR linker and the JvmGen
+  // re-emission, splicing the per-module Scala 3 source strings directly.
+  val bid = backendArg.orElse(ActiveFlags.current.backend).getOrElse("int")
+  if bid == "jvm" then
+    val scjvmFiles = artifactDirs.toList.flatMap { dir =>
+      val p = os.Path(dir, os.pwd)
+      if !os.isDir(p) then Nil
+      else os.list(p).filter(_.ext == "scjvm").toList.sorted
+    }
+    if scjvmFiles.nonEmpty then
+      linkJvmFromScjvm(scjvmFiles, outputArg)
+      return
+  // Fall through to standard IR-link mode if no .scjvm files were found.
 
   // Collect all (interface, ir) pairs from the specified directories.
   val allModules = scala.collection.mutable.ArrayBuffer.empty[Linker.CompiledModule]
@@ -1940,7 +2127,6 @@ def linkCommand(args: List[String]): Unit =
       System.exit(1)
     case None =>
       // No output path: compile and execute via backend.
-      val bid     = backendArg.orElse(ActiveFlags.current.backend).getOrElse("int")
       val backend = resolveBackend(bid)
       val opts    = BackendOptions()
       val diags   = scalascript.validate.CapabilityCheck.validate(linked, backend.capabilities, bid)
@@ -1955,6 +2141,115 @@ def linkCommand(args: List[String]): Unit =
         case other =>
           System.err.println(s"link: unexpected result ${other.getClass.getSimpleName}")
           System.exit(1)
+
+/** Link a set of `.scjvm` artifacts by textually concatenating their
+ *  `scalaSource` strings (in path-sorted order) into a single Scala 3 source.
+ *
+ *  Output modes:
+ *  - `-o -`               : print the combined source to stdout.
+ *  - `-o <foo.scala>`     : write combined source to a `.scala` file.
+ *  - `-o <foo.jar>`       : write combined source to a temp `.sc`, drive
+ *                           `scala-cli --power package -o <foo.jar>` on it.
+ *  - (no -o)              : run the combined source via `scala-cli run`.
+ *
+ *  MVP limitation: textual concat.  Cross-module imports rely on the
+ *  per-module emitter having already produced fully-qualified names.  A
+ *  real linker resolves cross-module references through bytecode-level
+ *  symbol mangling — Phase 2.
+ *
+ *  v2.0 — JVM incremental codegen cache. */
+private def linkJvmFromScjvm(
+    scjvmFiles: List[os.Path],
+    outputArg:  Option[String]
+): Unit =
+  // Read all artifacts; bail on the first envelope mismatch so a stale
+  // artifact can't silently pollute the combined source.
+  val artifacts = scala.collection.mutable.ArrayBuffer.empty[scalascript.ir.ModuleJvmArtifact]
+  var hasError  = false
+  for p <- scjvmFiles do
+    JvmArtifactIO.readJvmFile(p) match
+      case Right(a) => artifacts += a
+      case Left(e)  =>
+        System.err.println(s"link: failed to read ${p.last}: $e")
+        hasError = true
+  if hasError then System.exit(1)
+  if artifacts.isEmpty then
+    System.err.println("link --backend jvm: no .scjvm artifacts found")
+    System.exit(1)
+
+  // MVP: textual concat.  Each .scjvm's `scalaSource` is a complete Scala
+  // 3 script — we strip duplicate `//> using` directives so scala-cli
+  // doesn't reject the combined file with "duplicate directive".  Real
+  // linking would resolve symbols at IR level; here we trust the per-module
+  // emitter and rely on Scala's own scoping rules.
+  val combined = mergeScalaSources(artifacts.toList.map(_.scalaSource))
+
+  println(s"Linked ${artifacts.size} .scjvm artifact(s) into combined Scala source " +
+    s"(${combined.linesIterator.length} lines)")
+
+  outputArg match
+    case Some("-") =>
+      println(combined)
+
+    case Some(out) if out.endsWith(".scala") || out.endsWith(".sc") =>
+      val outPath = os.Path(out, os.pwd)
+      os.makeDir.all(outPath / os.up)
+      os.write.over(outPath, combined)
+      println(s"Combined Scala source written to $outPath")
+
+    case Some(out) if out.endsWith(".jar") =>
+      val outPath = os.Path(out, os.pwd)
+      os.makeDir.all(outPath / os.up)
+      val tmp = os.temp(combined, suffix = ".sc", deleteOnExit = true)
+      try
+        val res = os.proc(
+          "scala-cli", "--power", "package", tmp.toString,
+          "-o", outPath.toString, "--assembly", "--force"
+        ).call(stdout = os.Inherit, stderr = os.Inherit, check = false)
+        if res.exitCode != 0 then
+          System.err.println(s"link --backend jvm: scala-cli package failed with exit ${res.exitCode}")
+          System.exit(res.exitCode)
+        println(s"JAR written to $outPath")
+      catch case e: Exception =>
+        System.err.println(s"link --backend jvm: scala-cli invocation failed: ${e.getMessage}")
+        System.exit(1)
+
+    case Some(out) =>
+      System.err.println(s"link --backend jvm: -o output must end with .scala, .sc, .jar, or be '-', got: $out")
+      System.exit(1)
+
+    case None =>
+      // No output: run the combined source via scala-cli run.
+      val tmp = os.temp(combined, suffix = ".sc", deleteOnExit = true)
+      try
+        val res = os.proc("scala-cli", "run", tmp).call(
+          stdout = os.Inherit, stderr = os.Inherit, check = false
+        )
+        if res.exitCode != 0 then System.exit(res.exitCode)
+      catch case e: Exception =>
+        System.err.println(s"link --backend jvm: scala-cli run failed: ${e.getMessage}")
+        System.exit(1)
+
+/** Merge multiple Scala 3 sources produced by `JvmGen.generate` into a single
+ *  combined source suitable for scala-cli.  Deduplicates `//> using`
+ *  directives (each module's preamble re-declares them) — otherwise scala-cli
+ *  rejects the combined file. */
+private def mergeScalaSources(sources: List[String]): String =
+  val seenDirectives = scala.collection.mutable.LinkedHashSet.empty[String]
+  val bodies         = scala.collection.mutable.ArrayBuffer.empty[String]
+  for src <- sources do
+    val (directives, rest) = src.linesWithSeparators.span(_.trim.startsWith("//>"))
+    directives.foreach(d => seenDirectives += d.stripLineEnd)
+    bodies += rest.mkString
+  val sb = new StringBuilder
+  seenDirectives.foreach(d => sb.append(d).append('\n'))
+  if seenDirectives.nonEmpty then sb.append('\n')
+  bodies.foreach { b =>
+    sb.append(b)
+    if !b.endsWith("\n") then sb.append('\n')
+    sb.append('\n')
+  }
+  sb.toString
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ssc check-with-iface  —  v2.0 separate compilation
