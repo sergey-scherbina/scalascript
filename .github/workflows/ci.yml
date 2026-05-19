@@ -108,5 +108,8 @@ jobs:
       - name: Setup sbt
         uses: sbt/setup-sbt@v1
 
-      - name: Compile and test via sbt
-        run: sbt compile test
+      - name: Compile and assemble ssc.jar
+        run: sbt compile cli/assembly
+
+      - name: Test via sbt
+        run: sbt test
