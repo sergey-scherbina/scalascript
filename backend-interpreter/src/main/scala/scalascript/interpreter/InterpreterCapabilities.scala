@@ -71,9 +71,10 @@ val InterpreterIntrinsics: Map[QualifiedName, IntrinsicImpl] =
     ++ CoreIntrinsics     // Stage 5+/E — Core:     intrinsics/Core.scala
     ++ JsonIntrinsics     // Stage 5+/E — JSON:     intrinsics/Json.scala
     ++ RequestIntrinsics  // Stage 5+/E — Request:  intrinsics/Request.scala
-    ++ McpIntrinsics      // v1.17     — MCP:       intrinsics/Mcp.scala
-    ++ OAuthIntrinsics    // v1.17     — OAuth AS:  intrinsics/OAuth.scala
-    ++ JdbcIntrinsics     // v1.26     — JDBC:      intrinsics/Jdbc.scala
+    ++ McpIntrinsics      // v1.17     — MCP:          intrinsics/Mcp.scala
+    ++ OAuthIntrinsics    // v1.17     — OAuth AS:     intrinsics/OAuth.scala
+    ++ OAuthClientIntrinsics // v1.17  — OAuth Client: intrinsics/OAuthClientIntrinsics.scala
+    ++ JdbcIntrinsics     // v1.26     — JDBC:         intrinsics/Jdbc.scala
 
 /** Same shape as `Value.show` but works on the `Any` payload an
  *  intrinsic sees post-unwrap.  Critical: doubles render without the

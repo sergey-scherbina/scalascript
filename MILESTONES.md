@@ -749,11 +749,35 @@ unblocks downstream features as early as possible.
      `client.setOn401Handler(() => holder.current())` against an
      `OAuthClient.TokenHolder` that knows how to refresh.
 
-     **Iter OO — Advanced OAuth specs (optional, post-v1.17)**:
-     DPoP (RFC 9449 sender-constrained tokens); PAR (RFC 9126 Pushed
-     Authorization Requests); MTLS client auth (RFC 8705 — depends
-     on ALPN / client-cert chains, gated behind cert-store
-     availability); script intrinsics for OAuthClient namespace.
+     **Iter OO — OAuth client script intrinsics** ✓ —
+     `oauth.client.*` namespace mirrors `OAuthClient` (JVM) for
+     `.ssc` apps.  Mounted as a nested InstanceV under the
+     existing `oauth` companion object so dotted access works the
+     same as `math.sqrt(...)`.
+
+       - `oauth.client.discoverAs(issuer)` / `discoverRs(url)`
+         — RFC 8414 / 9728 metadata fetch returning a Map.
+       - `oauth.client.freshPkce()` → Map { verifier, challenge,
+         method }; `oauth.client.freshState()` / `verifyState(a, b)`.
+       - `oauth.client.authorizationUrl(endpoint, clientId,
+         redirectUri, scopes, state, challenge, method)` — pure
+         URL builder.
+       - `oauth.client.exchangeAuthorizationCode(...)`,
+         `.refresh(...)`, `.clientCredentials(...)` — token
+         endpoints; return a tagged Map:
+         `{ ok: Boolean, accessToken?, tokenType?, expiresIn?,
+            refreshToken?, idToken?, scope?, error?, description?,
+            raw }`.
+       - `oauth.client.tokenHolder(endpoint, clientId
+         [, refreshLeadSeconds][, secret])` → InstanceV with
+         `.seed(tokens) / .current() / .clear()`.  Bridges to the
+         JVM TokenHolder via stable-id registry (same pattern as
+         AuthServer / OidcServer handles).
+
+     **Truly post-v1.17 (deferred)**: DPoP (RFC 9449
+     sender-constrained tokens); PAR (RFC 9126 Pushed
+     Authorization Requests); MTLS client auth (RFC 8705 —
+     depends on ALPN / client-cert chains).
  22. **v1.18 — `package` keyword + std layout migration** ✓ Landed (all phases, 2026-05-19).
  23. **v1.19 — URL / dep imports** ✓ Landed.
      `[X](https://...)` URL fetch + `[X](dep:org/lib:1.2)`
