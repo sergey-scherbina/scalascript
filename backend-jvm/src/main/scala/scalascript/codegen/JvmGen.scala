@@ -2825,129 +2825,16 @@ class JvmGen(
        |private def _sessionStoreDelete(ssid: String): Unit =
        |  _sessionStore.remove(ssid)
        |
-       |// ── JWT (HS256) ─────────────────────────────────────────────────
-       |// Same wire format as scalascript.server.Jwt and the JsGen Node
-       |// runtime: header `{"alg":"HS256","typ":"JWT"}`, payload = JSON of
-       |// a Map[String, String], sig = HMAC-SHA256(header_b64.payload_b64).
-       |// Secret: SSC_JWT_SECRET preferred, SSC_SESSION_SECRET as fallback.
-       |private lazy val _jwtSecret: Array[Byte] =
-       |  sys.env.get("SSC_JWT_SECRET").filter(_.nonEmpty)
-       |    .orElse(sys.env.get("SSC_SESSION_SECRET").filter(_.nonEmpty)) match
-       |    case Some(s) => s.getBytes("UTF-8")
-       |    case None    =>
-       |      val bytes = new Array[Byte](32)
-       |      java.security.SecureRandom().nextBytes(bytes)
-       |      System.err.println("[ssc] SSC_JWT_SECRET / SSC_SESSION_SECRET not set; JWTs signed with a process-local random key.")
-       |      bytes
-       |private def _hmacSha256Jwt(payload: Array[Byte]): Array[Byte] =
-       |  val mac = javax.crypto.Mac.getInstance("HmacSHA256")
-       |  mac.init(javax.crypto.spec.SecretKeySpec(_jwtSecret, "HmacSHA256"))
-       |  mac.doFinal(payload)
-       |private val _jwtHeaderB64 = _b64urlEnc("{\"alg\":\"HS256\",\"typ\":\"JWT\"}".getBytes("UTF-8"))
-       |def jwtSign(claims: Map[String, String]): String =
-       |  val payloadB64 = _b64urlEnc(_sessionJsonEnc(claims).getBytes("UTF-8"))
-       |  val sig        = _b64urlEnc(_hmacSha256Jwt((_jwtHeaderB64 + "." + payloadB64).getBytes("UTF-8")))
-       |  s"${_jwtHeaderB64}.$payloadB64.$sig"
-       |def jwtVerify(token: String): Option[Map[String, String]] =
-       |  val parts = token.split('.')
-       |  if parts.length != 3 then None
-       |  else
-       |    val h = parts(0); val p = parts(1); val s = parts(2)
-       |    try
-       |      val expected = _b64urlEnc(_hmacSha256Jwt((h + "." + p).getBytes("UTF-8")))
-       |      if !java.security.MessageDigest.isEqual(
-       |          expected.getBytes("UTF-8"), s.getBytes("UTF-8")) then None
-       |      else
-       |        val header = String(_b64urlDec(h), "UTF-8")
-       |        if !header.contains("\"alg\":\"HS256\"") then None
-       |        else _sessionJsonDec(String(_b64urlDec(p), "UTF-8")) match
-       |          case None => None
-       |          case Some(claims) =>
-       |            claims.get("exp") match
-       |              case Some(expStr) =>
-       |                val now = java.lang.System.currentTimeMillis() / 1000L
-       |                try
-       |                  val exp = expStr.toLong
-       |                  if exp < now then None else Some(claims)
-       |                catch case _: Throwable => None
-       |              case None => Some(claims)
-       |    catch case _: Throwable => None
-       |private def _bearerFromAuth(h: String): Option[String] =
-       |  val t = Option(h).map(_.trim).getOrElse("")
-       |  if t.length < 7 || !t.substring(0, 7).equalsIgnoreCase("Bearer ") then None
-       |  else Some(t.substring(7).trim)
-       |
-       |// ── JWT RS256 (asymmetric) ────────────────────────────────────
-       |// Same wire format as scalascript.server.JwtRsa.  Reads keys
-       |// from env (SSC_JWT_PRIVATE_KEY / SSC_JWT_PUBLIC_KEY, PEM).
-       |private def _pemBytes(pem: String): Array[Byte] =
-       |  val cleaned = pem
-       |    .replaceAll("-----BEGIN [^-]+-----", "")
-       |    .replaceAll("-----END [^-]+-----", "")
-       |    .replaceAll("\\s+", "")
-       |  java.util.Base64.getDecoder.decode(cleaned)
-       |// Wrap a PKCS#1 RSA DER blob in a PKCS#8 PrivateKeyInfo envelope so
-       |// Java's KeyFactory can load keys produced by `openssl genrsa`.
-       |private def _pkcs1ToPkcs8(pkcs1: Array[Byte]): Array[Byte] =
-       |  def encLen(n: Int): Array[Byte] =
-       |    if n < 128 then Array(n.toByte)
-       |    else if n < 256 then Array(0x81.toByte, n.toByte)
-       |    else Array(0x82.toByte, (n >> 8).toByte, (n & 0xff).toByte)
-       |  val rsaOid = Array[Byte](0x06,0x09,0x2a,0x86.toByte,0x48,0x86.toByte,0xf7.toByte,0x0d,0x01,0x01,0x01)
-       |  val nul    = Array[Byte](0x05, 0x00)
-       |  val algId  = Array(0x30.toByte) ++ encLen(rsaOid.length + nul.length) ++ rsaOid ++ nul
-       |  val octet  = Array(0x04.toByte) ++ encLen(pkcs1.length) ++ pkcs1
-       |  val ver    = Array[Byte](0x02, 0x01, 0x00)
-       |  val inner  = ver ++ algId ++ octet
-       |  Array(0x30.toByte) ++ encLen(inner.length) ++ inner
-       |private lazy val _jwtRsaPrivate: Option[java.security.PrivateKey] =
-       |  sys.env.get("SSC_JWT_PRIVATE_KEY").filter(_.nonEmpty).map { pem =>
-       |    val raw = _pemBytes(pem)
-       |    val der8 = if pem.contains("BEGIN RSA PRIVATE KEY") then _pkcs1ToPkcs8(raw) else raw
-       |    java.security.KeyFactory.getInstance("RSA")
-       |      .generatePrivate(java.security.spec.PKCS8EncodedKeySpec(der8))
-       |  }
-       |private lazy val _jwtRsaPublic: Option[java.security.PublicKey] =
-       |  sys.env.get("SSC_JWT_PUBLIC_KEY").filter(_.nonEmpty).map { pem =>
-       |    java.security.KeyFactory.getInstance("RSA")
-       |      .generatePublic(java.security.spec.X509EncodedKeySpec(_pemBytes(pem)))
-       |  }
-       |private val _jwtRsaHeaderB64 = _b64urlEnc("{\"alg\":\"RS256\",\"typ\":\"JWT\"}".getBytes("UTF-8"))
-       |def jwtSignRsa(claims: Map[String, String]): String =
-       |  val pk = _jwtRsaPrivate.getOrElse(
-       |    throw RuntimeException("SSC_JWT_PRIVATE_KEY is not set (expected PKCS#8 RSA PEM)"))
-       |  val payloadB64 = _b64urlEnc(_sessionJsonEnc(claims).getBytes("UTF-8"))
-       |  val sig = java.security.Signature.getInstance("SHA256withRSA")
-       |  sig.initSign(pk)
-       |  sig.update((_jwtRsaHeaderB64 + "." + payloadB64).getBytes("UTF-8"))
-       |  val sigB64 = _b64urlEnc(sig.sign())
-       |  s"${_jwtRsaHeaderB64}.$payloadB64.$sigB64"
-       |def jwtVerifyRsa(token: String): Option[Map[String, String]] =
-       |  _jwtRsaPublic.flatMap { pub =>
-       |    val parts = token.split('.')
-       |    if parts.length != 3 then None
-       |    else
-       |      val h = parts(0); val p = parts(1); val s = parts(2)
-       |      try
-       |        val header = String(_b64urlDec(h), "UTF-8")
-       |        if !header.contains("\"alg\":\"RS256\"") then None
-       |        else
-       |          val sig = java.security.Signature.getInstance("SHA256withRSA")
-       |          sig.initVerify(pub)
-       |          sig.update((h + "." + p).getBytes("UTF-8"))
-       |          if !sig.verify(_b64urlDec(s)) then None
-       |          else _sessionJsonDec(String(_b64urlDec(p), "UTF-8")) match
-       |            case None => None
-       |            case Some(claims) =>
-       |              claims.get("exp") match
-       |                case Some(expStr) =>
-       |                  val now = java.lang.System.currentTimeMillis() / 1000L
-       |                  try
-       |                    if expStr.toLong < now then None else Some(claims)
-       |                  catch case _: Throwable => None
-       |                case None => Some(claims)
-       |      catch case _: Throwable => None
-       |  }
+       |// ── JWT (HS256 + RS256) — adapter shims ───────────────────────
+       |// Implementations live in scalascript.server.{Jwt, JwtRsa} (inlined
+       |// from runtime-server-common); these top-level defs preserve the
+       |// user-facing `jwtSign / jwtVerify / jwtSignRsa / jwtVerifyRsa`
+       |// API, and `_bearerFromAuth` delegates to Jwt.fromAuthHeader.
+       |def jwtSign(claims: Map[String, String]): String           = Jwt.sign(claims)
+       |def jwtVerify(token: String): Option[Map[String, String]]  = Jwt.verify(token)
+       |def jwtSignRsa(claims: Map[String, String]): String        = JwtRsa.sign(claims)
+       |def jwtVerifyRsa(token: String): Option[Map[String, String]] = JwtRsa.verify(token)
+       |private def _bearerFromAuth(h: String): Option[String] = Jwt.fromAuthHeader(h)
        |
        |// ── OAuth2 helpers ────────────────────────────────────────────
        |// Same surface as scalascript.server.OAuth: pure URL builder +
@@ -4391,7 +4278,7 @@ class JvmGen(
        |// (inlined from runtime-server-common).  `_Metrics` is kept as a
        |// local alias so existing internal call sites — wsActive,
        |// wsUpgraded, httpRequests, … — keep their `_Metrics.foo` form.
-       |private val _Metrics = scalascript.server.Metrics
+       |private val _Metrics = Metrics
        |
        |/** Snapshot of process-wide counters — `Map[String, Long]`,
        |  * same key names as the interpreter's `metrics()` native. */
@@ -4769,7 +4656,7 @@ class JvmGen(
        |  val keyPem     = keyPemRaw.replaceAll("-----[^-]+-----", "").replaceAll("\\s", "")
        |  val der        = java.util.Base64.getDecoder.decode(keyPem)
        |  // PKCS#1 keys (openssl genrsa) need wrapping in a PKCS#8 envelope.
-       |  val der8       = if isPkcs1 then _pkcs1ToPkcs8(der) else der
+       |  val der8       = if isPkcs1 then DerCodec.wrapPkcs1InPkcs8(der) else der
        |  val keySpec    = java.security.spec.PKCS8EncodedKeySpec(der8)
        |  val privateKey =
        |    try java.security.KeyFactory.getInstance("RSA").generatePrivate(keySpec)
