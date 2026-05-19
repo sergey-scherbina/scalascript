@@ -284,15 +284,18 @@ class Interpreter(
   private def scheduleReconnect(rurl: String, rtok: String): Unit =
     Thread.ofVirtual().start { () =>
       var delay = reconnectInitialMs.max(1L)
+      var done  = false
       try
-        while !peerUrls.containsValue(rurl) do
-          try Thread.sleep(delay) catch case _: InterruptedException => return
-          if reconnectInitialMs <= 0L then return
-          if peerUrls.containsValue(rurl) then return
-          try connectPeer(rurl, rtok) catch case _: Throwable => ()
-          if peerUrls.containsValue(rurl) then return
-          val cap = if reconnectMaxMs > 0L then reconnectMaxMs else delay
-          delay = math.min(delay * 2L, cap.max(delay))
+        while !done && !peerUrls.containsValue(rurl) do
+          try Thread.sleep(delay) catch case _: InterruptedException => done = true
+          if !done && reconnectInitialMs <= 0L then done = true
+          if !done && peerUrls.containsValue(rurl) then done = true
+          if !done then
+            try connectPeer(rurl, rtok) catch case _: Throwable => ()
+            if peerUrls.containsValue(rurl) then done = true
+            else
+              val cap = if reconnectMaxMs > 0L then reconnectMaxMs else delay
+              delay = math.min(delay * 2L, cap.max(delay))
       catch case _: Throwable => ()
     }
   // Cross-node monitors: nodeId → [(localActorId, monRef, remotePid.localId)]

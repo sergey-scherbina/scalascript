@@ -5587,16 +5587,18 @@ class JvmGen(
        |  def _scheduleReconnect(rurl: String, rtok: String): Unit =
        |    Thread.ofVirtual().start { () =>
        |      var delay = _reconnectInitialMs.max(1L)
+       |      var done  = false
        |      try
-       |        while !_peerUrls.containsValue(rurl) do
-       |          try Thread.sleep(delay) catch case _: InterruptedException => return
-       |          // Bail out if the policy got disabled while we were sleeping.
-       |          if _reconnectInitialMs <= 0L then return
-       |          if _peerUrls.containsValue(rurl) then return
-       |          try _connectPeer(rurl, rtok) catch case _: Throwable => ()
-       |          if _peerUrls.containsValue(rurl) then return
-       |          val cap = if _reconnectMaxMs > 0L then _reconnectMaxMs else delay
-       |          delay = math.min(delay * 2L, cap.max(delay))
+       |        while !done && !_peerUrls.containsValue(rurl) do
+       |          try Thread.sleep(delay) catch case _: InterruptedException => done = true
+       |          if !done && _reconnectInitialMs <= 0L then done = true
+       |          if !done && _peerUrls.containsValue(rurl) then done = true
+       |          if !done then
+       |            try _connectPeer(rurl, rtok) catch case _: Throwable => ()
+       |            if _peerUrls.containsValue(rurl) then done = true
+       |            else
+       |              val cap = if _reconnectMaxMs > 0L then _reconnectMaxMs else delay
+       |              delay = math.min(delay * 2L, cap.max(delay))
        |      catch case _: Throwable => ()
        |    }
        |
