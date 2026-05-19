@@ -3277,6 +3277,27 @@ function _handle(bodyFn, handledOps, handlers) {
   }
   return interp(bodyFn());
 }
+
+// ── std.fs — synchronous file primitives (Node only) ───────────────────
+// Defined under user-facing names so nested calls like
+// `_println(readFile(p))` resolve directly.
+const _fsMod = (typeof require === 'function') ? require('fs') : null;
+function writeFile(path, contents) {
+  if (!_fsMod) throw new Error('writeFile: fs not available in this environment');
+  _fsMod.writeFileSync(path, contents);
+}
+function readFile(path) {
+  if (!_fsMod) throw new Error('readFile: fs not available in this environment');
+  return _fsMod.readFileSync(path, 'utf-8');
+}
+function deleteFile(path) {
+  if (!_fsMod) throw new Error('deleteFile: fs not available in this environment');
+  try { _fsMod.unlinkSync(path); } catch (e) { if (e && e.code !== 'ENOENT') throw e; }
+}
+function exists(path) {
+  if (!_fsMod) return false;
+  return _fsMod.existsSync(path);
+}
 """
 
 val JsRuntime: String =
