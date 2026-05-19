@@ -283,6 +283,36 @@ class Interpreter(
     if isDrainingSelf.get() then
       val payload = s"""{"t":"drain","from":${jsonStr(localNodeId)},"draining":true}"""
       try target(payload) catch case _: Throwable => ()
+  // v1.23 — cluster metrics aggregation: per-node gauges.
+  private val clusterMetrics =
+    new java.util.concurrent.ConcurrentHashMap[String,
+      java.util.concurrent.ConcurrentHashMap[String, java.lang.Double]]()
+  private val metricEventSubs =
+    new java.util.concurrent.CopyOnWriteArrayList[java.lang.Long]()
+  private val metricEventQueue =
+    new java.util.concurrent.ConcurrentLinkedQueue[Value]()
+  private def enqueueMetricEvent(name: String, nodeId: String, value: Double): Unit =
+    if !metricEventSubs.isEmpty then
+      val ev = Value.InstanceV("MetricChanged", Map(
+        "name"   -> Value.StringV(name),
+        "nodeId" -> Value.StringV(nodeId),
+        "value"  -> Value.DoubleV(value)))
+      metricEventQueue.offer(ev)
+      val t = schedulerThread; if t != null then t.interrupt()
+  private def applyMetricUpdate(name: String, nodeId: String, value: Double): Unit =
+    val inner = clusterMetrics.computeIfAbsent(name, _ =>
+      new java.util.concurrent.ConcurrentHashMap[String, java.lang.Double]())
+    val prev = inner.put(nodeId, java.lang.Double.valueOf(value))
+    if prev == null || prev.doubleValue() != value then
+      enqueueMetricEvent(name, nodeId, value)
+  private def sendMetricSnapshot(target: String => Unit): Unit =
+    clusterMetrics.forEach { (name, inner) =>
+      val v = inner.get(localNodeId)
+      if v != null then
+        val payload =
+          s"""{"t":"metric","from":${jsonStr(localNodeId)},"name":${jsonStr(name)},"value":${v.doubleValue()}}"""
+        try target(payload) catch case _: Throwable => ()
+    }
   private def enqueueLeaderEvent(tag: String, leaderId: String): Unit =
     if !leaderEventSubs.isEmpty then
       val ev = Value.InstanceV(tag, Map("nodeId" -> Value.StringV(leaderId)))
@@ -866,9 +896,10 @@ class Interpreter(
               if joinMode then
                 try peerChannels.get(peerNodeId)(s"""{"t":"peers_req","from":${jsonStr(localNodeId)}}""")
                 catch case _ => ()
-              // v1.23 — snapshot the cluster config + drain state to the new peer.
+              // v1.23 — snapshot the cluster config + drain state + metrics to the new peer.
               sendConfigSnapshot(text => sess.sendText(text))
               sendDrainState(text => sess.sendText(text))
+              sendMetricSnapshot(text => sess.sendText(text))
               // Heartbeat: ping every 30 s, abort if no pong for 40 s.
               val hbThread = Thread.ofVirtual().start { () =>
                 try
@@ -896,6 +927,7 @@ class Interpreter(
               peerPongHist.remove(peerNodeId)
               peerPhiViews.remove(peerNodeId)
               drainingPeers.remove(peerNodeId)
+              clusterMetrics.forEach { (_, inner) => inner.remove(peerNodeId) }
               nodeDownQueue.offer(peerNodeId)
               enqueueClusterEvent("NodeLeft", peerNodeId, "disconnect")
               if currentLeader.compareAndSet(peerNodeId, "") then
@@ -1015,6 +1047,14 @@ class Interpreter(
               val dr = m.get(Value.StringV("draining")).collect { case Value.BoolV(b) => b }.getOrElse(false)
               val prev = drainingPeers.put(from, java.lang.Boolean.valueOf(dr))
               if prev == null || prev.booleanValue() != dr then enqueueDrainEvent(from, dr)
+          case "metric" =>
+            val from  = m.get(Value.StringV("from")).collect { case Value.StringV(s) => s }.getOrElse("")
+            val name  = m.get(Value.StringV("name")).collect { case Value.StringV(s) => s }.getOrElse("")
+            val value = m.get(Value.StringV("value")) match
+              case Some(Value.DoubleV(d)) => d
+              case Some(Value.IntV(n))    => n.toDouble
+              case _                      => 0.0
+            if from.nonEmpty && name.nonEmpty then applyMetricUpdate(name, from, value)
           case _ => ()
       case _ => ()
 
@@ -1920,6 +1960,32 @@ class Interpreter(
     globals("subscribeDrainEvents") = Value.NativeFnV("subscribeDrainEvents", {
       case Nil => Perform("Actor", "subscribeDrainEvents", Nil)
       case _   => throw InterpretError("subscribeDrainEvents(): Unit")
+    })
+    // v1.23 — cluster metrics aggregation
+    globals("clusterMetricSet") = Value.NativeFnV("clusterMetricSet", {
+      case List(Value.StringV(n), Value.DoubleV(v)) =>
+        Perform("Actor", "clusterMetricSet", List(Value.StringV(n), Value.DoubleV(v)))
+      case List(Value.StringV(n), Value.IntV(v)) =>
+        Perform("Actor", "clusterMetricSet", List(Value.StringV(n), Value.DoubleV(v.toDouble)))
+      case _ => throw InterpretError("clusterMetricSet(name: String, value: Double): Unit")
+    })
+    globals("clusterMetricGet") = Value.NativeFnV("clusterMetricGet", {
+      case List(Value.StringV(n)) =>
+        Perform("Actor", "clusterMetricGet", List(Value.StringV(n)))
+      case _ => throw InterpretError("clusterMetricGet(name: String): Map[String, Double]")
+    })
+    globals("clusterMetricSum") = Value.NativeFnV("clusterMetricSum", {
+      case List(Value.StringV(n)) =>
+        Perform("Actor", "clusterMetricSum", List(Value.StringV(n)))
+      case _ => throw InterpretError("clusterMetricSum(name: String): Double")
+    })
+    globals("clusterMetricNames") = Value.NativeFnV("clusterMetricNames", {
+      case Nil => Perform("Actor", "clusterMetricNames", Nil)
+      case _   => throw InterpretError("clusterMetricNames(): List[String]")
+    })
+    globals("subscribeMetricEvents") = Value.NativeFnV("subscribeMetricEvents", {
+      case Nil => Perform("Actor", "subscribeMetricEvents", Nil)
+      case _   => throw InterpretError("subscribeMetricEvents(): Unit")
     })
     // v1.6.x — scheduled sends
     globals("sendAfter") = Value.NativeFnV("sendAfter", {
@@ -4812,6 +4878,7 @@ class Interpreter(
                     !clusterEventQueue.isEmpty ||
                     !leaderEventQueue.isEmpty || electionInProgress ||
                     !configEventQueue.isEmpty || !drainEventQueue.isEmpty ||
+                    !metricEventQueue.isEmpty ||
                     rt.timers.nonEmpty ||
                     (isDistributed && rt.blocked.nonEmpty)
 
@@ -4869,6 +4936,16 @@ class Interpreter(
         while !drainEventQueue.isEmpty do
           val ev = drainEventQueue.poll()
           val it = drainEventSubs.iterator
+          while it.hasNext do
+            val aid = it.next().toLong
+            rt.mailboxes.get(aid).foreach { mb =>
+              mb.offer(ev)
+              wakeBlocked(rt, aid)
+            }
+        // v1.23 — deliver metric events to subscribers.
+        while !metricEventQueue.isEmpty do
+          val ev = metricEventQueue.poll()
+          val it = metricEventSubs.iterator
           while it.hasNext do
             val aid = it.next().toLong
             rt.mailboxes.get(aid).foreach { mb =>
@@ -5258,6 +5335,7 @@ class Interpreter(
           enqueueClusterEvent("NodeJoined", pnId)
           sendConfigSnapshot(wsSend)
           sendDrainState(wsSend)
+          sendMetricSnapshot(wsSend)
           // Heartbeat: ping every 30 s, drop if no pong for 40 s.
           val hbThread = Thread.ofVirtual().start { () =>
             try
@@ -5283,6 +5361,7 @@ class Interpreter(
           peerPongHist.remove(pnId)
           peerPhiViews.remove(pnId)
           drainingPeers.remove(pnId)
+          clusterMetrics.forEach { (_, inner) => inner.remove(pnId) }
           nodeDownQueue.offer(pnId)
           enqueueClusterEvent("NodeLeft", pnId, "disconnect")
           if currentLeader.compareAndSet(pnId, "") then
@@ -5525,6 +5604,51 @@ class Interpreter(
     case "subscribeDrainEvents" =>
       val boxed = java.lang.Long.valueOf(id)
       if !drainEventSubs.contains(boxed) then drainEventSubs.add(boxed)
+      Right(k(Value.UnitV))
+
+    // v1.23 — cluster metrics aggregation
+    case "clusterMetricSet" => args match
+      case List(Value.StringV(name), Value.DoubleV(v)) =>
+        applyMetricUpdate(name, localNodeId, v)
+        val payload =
+          s"""{"t":"metric","from":${jsonStr(localNodeId)},"name":${jsonStr(name)},"value":$v}"""
+        peerChannels.forEach { (_, send) => try send(payload) catch case _: Throwable => () }
+        Right(k(Value.UnitV))
+      case List(Value.StringV(name), Value.IntV(v)) =>
+        val d = v.toDouble
+        applyMetricUpdate(name, localNodeId, d)
+        val payload =
+          s"""{"t":"metric","from":${jsonStr(localNodeId)},"name":${jsonStr(name)},"value":$d}"""
+        peerChannels.forEach { (_, send) => try send(payload) catch case _: Throwable => () }
+        Right(k(Value.UnitV))
+      case _ => throw InterpretError("clusterMetricSet(name: String, value: Double)")
+
+    case "clusterMetricGet" => args match
+      case List(Value.StringV(name)) =>
+        val inner = clusterMetrics.get(name)
+        val m = scala.collection.mutable.Map[Value, Value]()
+        if inner != null then
+          inner.forEach { (nid, v) => m += (Value.StringV(nid) -> Value.DoubleV(v.doubleValue())) }
+        Right(k(Value.MapV(m.toMap)))
+      case _ => throw InterpretError("clusterMetricGet(name: String): Map[String, Double]")
+
+    case "clusterMetricSum" => args match
+      case List(Value.StringV(name)) =>
+        val inner = clusterMetrics.get(name)
+        var sum = 0.0
+        if inner != null then
+          inner.forEach { (_, v) => sum += v.doubleValue() }
+        Right(k(Value.DoubleV(sum)))
+      case _ => throw InterpretError("clusterMetricSum(name: String): Double")
+
+    case "clusterMetricNames" =>
+      val buf = scala.collection.mutable.ListBuffer.empty[Value]
+      clusterMetrics.keySet().forEach(s => buf += Value.StringV(s))
+      Right(k(Value.ListV(buf.toList)))
+
+    case "subscribeMetricEvents" =>
+      val boxed = java.lang.Long.valueOf(id)
+      if !metricEventSubs.contains(boxed) then metricEventSubs.add(boxed)
       Right(k(Value.UnitV))
 
     // v1.6.x — scheduled sends

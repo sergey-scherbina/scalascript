@@ -1,0 +1,27 @@
+#!/usr/bin/env ssc
+---
+name: actors-cluster-metrics
+description: Actor v1.23 — cluster metric set/get/sum single-node round-trip
+---
+
+# Cluster metrics — single-node
+
+`clusterMetricSet(name, value)` stamps a gauge for THIS node and would
+broadcast to peers; in a single-node process the broadcast is a no-op
+but the local store still gets the value.  `clusterMetricGet` returns
+a `Map[String, Double]` keyed by nodeId (just one entry — the empty
+local node ID in single-node mode).  `clusterMetricSum` totals across
+nodes.  Multi-node aggregation is exercised by the integration suite;
+this conformance test pins the local round-trip across INT/JS/JVM.
+
+```scalascript
+runActors {
+  clusterMetricSet("cpu", 42.5)
+  clusterMetricSet("rps", 100)
+  println("cpu_sum=" + clusterMetricSum("cpu"))
+  println("rps_sum=" + clusterMetricSum("rps"))
+  println("names=" + clusterMetricNames().length)
+  println("missing=" + clusterMetricSum("nope"))
+  println("ok")
+}
+```

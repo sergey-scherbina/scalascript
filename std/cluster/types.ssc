@@ -1,7 +1,7 @@
 ---
 name: std-cluster-types
-version: 0.4.0
-description: "Cluster primitives — re-exports NodeJoined / NodeLeft + LeaderElected / LeaderLost + ConfigChanged + DrainStateChanged from std.actors"
+version: 0.5.0
+description: "Cluster primitives — re-exports NodeJoined / NodeLeft + LeaderElected / LeaderLost + ConfigChanged + DrainStateChanged + MetricChanged from std.actors"
 package: std.cluster
 exports:
   - NodeJoined
@@ -10,6 +10,7 @@ exports:
   - LeaderLost
   - ConfigChanged
   - DrainStateChanged
+  - MetricChanged
 ---
 
 # `std.cluster.types`
@@ -25,5 +26,5 @@ on each peer — no wrapping type to avoid friction with the underlying
 intrinsics that take plain strings.
 
 ```scalascript
-[NodeJoined, NodeLeft, LeaderElected, LeaderLost, ConfigChanged, DrainStateChanged](../actors.ssc)
+[NodeJoined, NodeLeft, LeaderElected, LeaderLost, ConfigChanged, DrainStateChanged, MetricChanged](../actors.ssc)
 ```

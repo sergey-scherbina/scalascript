@@ -150,4 +150,12 @@ object Cluster:
   def draining(): Boolean           = isDraining()
   def drainingNodes(): List[String] = drainingPeers()
   def subscribeDrain(): Unit        = subscribeDrainEvents()
+
+  // Cluster metrics aggregation helpers.  See `clusterMetricSet` in
+  // `std.actors` for the protocol.
+  def metricSet(name: String, value: Double): Unit = clusterMetricSet(name, value)
+  def metricGet(name: String): Map[String, Double] = clusterMetricGet(name)
+  def metricSum(name: String): Double              = clusterMetricSum(name)
+  def metricNames(): List[String]                  = clusterMetricNames()
+  def subscribeMetrics(): Unit                     = subscribeMetricEvents()
 ```

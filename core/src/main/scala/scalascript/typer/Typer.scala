@@ -102,6 +102,8 @@ class Typer(
       "clusterConfigSet", "clusterConfigGet", "clusterConfigKeys",
       "subscribeConfigEvents",
       "setDraining", "isDraining", "drainingPeers", "subscribeDrainEvents",
+      "clusterMetricSet", "clusterMetricGet", "clusterMetricSum",
+      "clusterMetricNames", "subscribeMetricEvents",
       "sendAfter", "sendInterval", "cancelTimer",
       "delay", "async", "await", "parallel", "recvFrom",
       // tests / DSL helpers

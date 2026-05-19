@@ -476,6 +476,8 @@ class JvmGen(
         "clusterConfigSet", "clusterConfigGet", "clusterConfigKeys",
         "subscribeConfigEvents",
         "setDraining", "isDraining", "drainingPeers", "subscribeDrainEvents",
+        "clusterMetricSet", "clusterMetricGet", "clusterMetricSum",
+        "clusterMetricNames", "subscribeMetricEvents",
         "sendAfter", "sendInterval", "cancelTimer", "processInfo")
 
   /** Case-class names defined inside `effectsRuntime` whose presence in
@@ -487,7 +489,8 @@ class JvmGen(
    *  would compile-error with "no pattern match extractor named NodeJoined". */
   private val actorRuntimeCaseClasses: Set[String] =
     Set("NodeJoined", "NodeLeft", "LeaderElected", "LeaderLost",
-        "ConfigChanged", "DrainStateChanged", "Exit", "Down")
+        "ConfigChanged", "DrainStateChanged", "MetricChanged",
+        "Exit", "Down")
 
   /** True if any block references the v1.6 actor model — via
    *  `runActors`, `spawn`, `self`, `exit`, `receive`, `link`, `monitor`,
@@ -1490,6 +1493,24 @@ class JvmGen(
     case Term.Apply.After_4_6_0(Term.Name("subscribeDrainEvents"), argClause)
         if argClause.values.isEmpty =>
       "Actor.subscribeDrainEvents()"
+    // v1.23 — cluster metrics aggregation
+    case Term.Apply.After_4_6_0(Term.Name("clusterMetricSet"), argClause)
+        if argClause.values.size == 2 =>
+      val n0 = emitExpr(argClause.values(0).asInstanceOf[Term])
+      val v0 = emitExpr(argClause.values(1).asInstanceOf[Term])
+      s"Actor.clusterMetricSet($n0, $v0)"
+    case Term.Apply.After_4_6_0(Term.Name("clusterMetricGet"), argClause)
+        if argClause.values.size == 1 =>
+      s"Actor.clusterMetricGet(${emitExpr(argClause.values.head.asInstanceOf[Term])})"
+    case Term.Apply.After_4_6_0(Term.Name("clusterMetricSum"), argClause)
+        if argClause.values.size == 1 =>
+      s"Actor.clusterMetricSum(${emitExpr(argClause.values.head.asInstanceOf[Term])})"
+    case Term.Apply.After_4_6_0(Term.Name("clusterMetricNames"), argClause)
+        if argClause.values.isEmpty =>
+      "Actor.clusterMetricNames()"
+    case Term.Apply.After_4_6_0(Term.Name("subscribeMetricEvents"), argClause)
+        if argClause.values.isEmpty =>
+      "Actor.subscribeMetricEvents()"
     // v1.23 — auto-reconnect policy
     case Term.Apply.After_4_6_0(Term.Name("setReconnectPolicy"), argClause)
         if argClause.values.size == 2 =>
@@ -2252,6 +2273,24 @@ class JvmGen(
     case Term.Apply.After_4_6_0(Term.Name("subscribeDrainEvents"), argClause)
         if argClause.values.isEmpty =>
       "Actor.subscribeDrainEvents()"
+    // v1.23 — cluster metrics aggregation
+    case Term.Apply.After_4_6_0(Term.Name("clusterMetricSet"), argClause)
+        if argClause.values.size == 2 =>
+      val n0 = emitExpr(argClause.values(0).asInstanceOf[Term])
+      val v0 = emitExpr(argClause.values(1).asInstanceOf[Term])
+      s"Actor.clusterMetricSet($n0, $v0)"
+    case Term.Apply.After_4_6_0(Term.Name("clusterMetricGet"), argClause)
+        if argClause.values.size == 1 =>
+      s"Actor.clusterMetricGet(${emitExpr(argClause.values.head.asInstanceOf[Term])})"
+    case Term.Apply.After_4_6_0(Term.Name("clusterMetricSum"), argClause)
+        if argClause.values.size == 1 =>
+      s"Actor.clusterMetricSum(${emitExpr(argClause.values.head.asInstanceOf[Term])})"
+    case Term.Apply.After_4_6_0(Term.Name("clusterMetricNames"), argClause)
+        if argClause.values.isEmpty =>
+      "Actor.clusterMetricNames()"
+    case Term.Apply.After_4_6_0(Term.Name("subscribeMetricEvents"), argClause)
+        if argClause.values.isEmpty =>
+      "Actor.subscribeMetricEvents()"
     // v1.23 — auto-reconnect policy
     case Term.Apply.After_4_6_0(Term.Name("setReconnectPolicy"), argClause)
         if argClause.values.size == 2 =>
@@ -5294,6 +5333,8 @@ class JvmGen(
        |case class ConfigChanged(key: String, value: String)
        |// v1.23 — drain / rolling-restart events
        |case class DrainStateChanged(nodeId: String, draining: Boolean)
+       |// v1.23 — cluster metrics aggregation events
+       |case class MetricChanged(name: String, nodeId: String, value: Double)
        |
        |/** Adapter: a partial-function literal becomes a total
        | *  `Any => Option[Any]`.  Used by emitReceiveMatcher so the
@@ -5371,6 +5412,12 @@ class JvmGen(
        |  def isDraining(): Any                            = _perform("Actor", "isDraining")
        |  def drainingPeers(): Any                         = _perform("Actor", "drainingPeers")
        |  def subscribeDrainEvents(): Any                  = _perform("Actor", "subscribeDrainEvents")
+       |  // v1.23 — cluster metrics aggregation
+       |  def clusterMetricSet(name: Any, value: Any): Any = _perform("Actor", "clusterMetricSet", name, value)
+       |  def clusterMetricGet(name: Any): Any             = _perform("Actor", "clusterMetricGet", name)
+       |  def clusterMetricSum(name: Any): Any             = _perform("Actor", "clusterMetricSum", name)
+       |  def clusterMetricNames(): Any                    = _perform("Actor", "clusterMetricNames")
+       |  def subscribeMetricEvents(): Any                 = _perform("Actor", "subscribeMetricEvents")
        |
        |class _ActorState:
        |  val mailbox = new java.util.concurrent.LinkedBlockingQueue[Any]()
@@ -5486,6 +5533,32 @@ class JvmGen(
        |    if _isDrainingSelf.get() then
        |      val payload = "{\"t\":\"drain\",\"from\":" + _jstr(_localNodeId) + ",\"draining\":true}"
        |      try targetSend(payload) catch case _: Throwable => ()
+       |  // v1.23 — cluster metrics: per-node gauges.
+       |  //   _clusterMetrics(name)(nodeId) = latest value
+       |  val _clusterMetrics    = new java.util.concurrent.ConcurrentHashMap[String,
+       |    java.util.concurrent.ConcurrentHashMap[String, java.lang.Double]]()
+       |  val _metricEventSubs   = new java.util.concurrent.CopyOnWriteArrayList[java.lang.Long]()
+       |  val _metricEventQueue  = new java.util.concurrent.ConcurrentLinkedQueue[(String, String, Double)]()
+       |  def _fireMetricEvent(name: String, nodeId: String, value: Double): Unit =
+       |    if !_metricEventSubs.isEmpty then _metricEventQueue.offer((name, nodeId, value))
+       |  def _applyMetricUpdate(name: String, nodeId: String, value: Double): Unit =
+       |    val inner = _clusterMetrics.computeIfAbsent(name, _ =>
+       |      new java.util.concurrent.ConcurrentHashMap[String, java.lang.Double]())
+       |    val boxed = java.lang.Double.valueOf(value)
+       |    val prev  = inner.put(nodeId, boxed)
+       |    if prev == null || prev.doubleValue() != value then
+       |      _fireMetricEvent(name, nodeId, value)
+       |  // Snapshot every local metric to a single peer on handshake so late
+       |  // joiners catch up without waiting for the next set.
+       |  def _sendMetricSnapshot(targetSend: String => Unit): Unit =
+       |    _clusterMetrics.forEach { (name, inner) =>
+       |      val localVal = inner.get(_localNodeId)
+       |      if localVal != null then
+       |        val payload = "{\"t\":\"metric\",\"from\":" + _jstr(_localNodeId) +
+       |                      ",\"name\":" + _jstr(name) +
+       |                      ",\"value\":" + localVal.doubleValue().toString + "}"
+       |        try targetSend(payload) catch case _: Throwable => ()
+       |    }
        |  def _fireLeaderEvent(tag: String, leaderId: String): Unit =
        |    if !_leaderEventSubs.isEmpty then _leaderEventQueue.offer((tag, leaderId))
        |  def _broadcastCoordinator(): Unit =
@@ -5624,6 +5697,7 @@ class JvmGen(
        |            // sees entries set before it joined (LWW protects existing values).
        |            _sendConfigSnapshot(sendFn)
        |            _sendDrainState(sendFn)
+       |            _sendMetricSnapshot(sendFn)
        |            val hbThread = Thread.ofVirtual().start { () =>
        |              try
        |                while _peerChannels.containsKey(pnId) do
@@ -5648,6 +5722,7 @@ class JvmGen(
        |            _peerPongHist.remove(pnId)
        |            _peerPhiViews.remove(pnId)
        |            _drainingPeers.remove(pnId)
+       |            _clusterMetrics.forEach { (_, inner) => inner.remove(pnId) }
        |            _nodeDownQueue.offer(pnId)
        |            _fireClusterEvent("NodeLeft", pnId, "disconnect")
        |            if _currentLeader.compareAndSet(pnId, "") then
@@ -5767,6 +5842,11 @@ class JvmGen(
        |          val prev = _drainingPeers.put(from, java.lang.Boolean.valueOf(isDraining))
        |          if prev == null || prev.booleanValue() != isDraining then
        |            _fireDrainEvent(from, isDraining)
+       |      case "metric" =>
+       |        val from  = _extractJsonStr(json, "\"from\"")
+       |        val name  = _extractJsonStr(json, "\"name\"")
+       |        val value = _extractJsonDouble(json, "\"value\"")
+       |        if from.nonEmpty && name.nonEmpty then _applyMetricUpdate(name, from, value)
        |      case _      => ()
        |
        |  def _extractJsonStr(json: String, key: String, fromIdx: Int = 0): String =
@@ -5781,6 +5861,16 @@ class JvmGen(
        |    var i = ci + 1; while i < json.length && json(i) == ' ' do i += 1
        |    var j = i; while j < json.length && (json(j).isDigit || json(j) == '-') do j += 1
        |    if j > i then json.substring(i, j).toLongOption.getOrElse(0L) else 0L
+       |
+       |  def _extractJsonDouble(json: String, key: String): Double =
+       |    val ki = json.indexOf(key); if ki < 0 then return 0.0
+       |    val ci = json.indexOf(':', ki + key.length); if ci < 0 then return 0.0
+       |    var i = ci + 1; while i < json.length && json(i) == ' ' do i += 1
+       |    var j = i
+       |    while j < json.length && (json(j).isDigit || json(j) == '-' ||
+       |                              json(j) == '.' || json(j) == 'e' || json(j) == 'E' ||
+       |                              json(j) == '+') do j += 1
+       |    if j > i then json.substring(i, j).toDoubleOption.getOrElse(0.0) else 0.0
        |
        |  def _extractPeersList(json: String): List[(String, String)] =
        |    val ak = "\"peers\""; val ai = json.indexOf(ak); if ai < 0 then return Nil
@@ -6144,6 +6234,7 @@ class JvmGen(
        |            _fireClusterEvent("NodeJoined", pnId)
        |            _sendConfigSnapshot(wsSend)
        |            _sendDrainState(wsSend)
+       |            _sendMetricSnapshot(wsSend)
        |            val hbThread = Thread.ofVirtual().start { () =>
        |              try
        |                while _peerChannels.containsKey(pnId) do
@@ -6165,6 +6256,7 @@ class JvmGen(
        |            _peerPongHist.remove(pnId)
        |            _peerPhiViews.remove(pnId)
        |            _drainingPeers.remove(pnId)
+       |            _clusterMetrics.forEach { (_, inner) => inner.remove(pnId) }
        |            _nodeDownQueue.offer(pnId)
        |            _fireClusterEvent("NodeLeft", pnId, "disconnect")
        |            if _currentLeader.compareAndSet(pnId, "") then
@@ -6360,6 +6452,42 @@ class JvmGen(
        |      val boxed = java.lang.Long.valueOf(id)
        |      if !_drainEventSubs.contains(boxed) then _drainEventSubs.add(boxed)
        |      Right(k(()))
+       |    // v1.23 — cluster metrics aggregation
+       |    case "clusterMetricSet" =>
+       |      val name = args(0).toString
+       |      val value = args(1) match
+       |        case d: Double => d
+       |        case l: Long   => l.toDouble
+       |        case i: Int    => i.toDouble
+       |        case _         => 0.0
+       |      _applyMetricUpdate(name, _localNodeId, value)
+       |      val payload = "{\"t\":\"metric\",\"from\":" + _jstr(_localNodeId) +
+       |                    ",\"name\":" + _jstr(name) +
+       |                    ",\"value\":" + value.toString + "}"
+       |      _peerChannels.forEach { (_, send) => try send(payload) catch case _: Throwable => () }
+       |      Right(k(()))
+       |    case "clusterMetricGet" =>
+       |      val name = args(0).toString
+       |      val inner = _clusterMetrics.get(name)
+       |      val m = scala.collection.mutable.Map.empty[String, Double]
+       |      if inner != null then
+       |        inner.forEach { (nid, v) => m(nid) = v.doubleValue() }
+       |      Right(k(m.toMap))
+       |    case "clusterMetricSum" =>
+       |      val name = args(0).toString
+       |      val inner = _clusterMetrics.get(name)
+       |      var sum = 0.0
+       |      if inner != null then
+       |        inner.forEach { (_, v) => sum += v.doubleValue() }
+       |      Right(k(sum))
+       |    case "clusterMetricNames" =>
+       |      val buf = scala.collection.mutable.ListBuffer.empty[String]
+       |      _clusterMetrics.keySet().forEach(s => buf += s)
+       |      Right(k(buf.toList))
+       |    case "subscribeMetricEvents" =>
+       |      val boxed = java.lang.Long.valueOf(id)
+       |      if !_metricEventSubs.contains(boxed) then _metricEventSubs.add(boxed)
+       |      Right(k(()))
        |    // v1.6.x — scheduled sends
        |    case "sendAfter" =>
        |      val delayMs  = args(0).asInstanceOf[Long]
@@ -6448,6 +6576,7 @@ class JvmGen(
        |        !_leaderEventQueue.isEmpty ||
        |        !_configEventQueue.isEmpty ||
        |        !_drainEventQueue.isEmpty ||
+       |        !_metricEventQueue.isEmpty ||
        |        _electionInProgress ||
        |        _timers.nonEmpty ||
        |        actors.exists { (_, st) => st != null && st.blocked != null && st.blocked._3.isDefined } ||
@@ -6513,6 +6642,17 @@ class JvmGen(
        |      val (_nid, _drn) = _drainEventQueue.poll()
        |      val _msg: Any = DrainStateChanged(_nid, _drn)
        |      val _it = _drainEventSubs.iterator
+       |      while _it.hasNext do
+       |        val _aid = _it.next().longValue()
+       |        actors.get(_aid).foreach { ts =>
+       |          ts.mailbox.offer(_msg)
+       |          tryWakeBlocked(_aid)
+       |        }
+       |    // v1.23 — deliver metric events to subscribers.
+       |    while !_metricEventQueue.isEmpty do
+       |      val (_nm, _nid, _val) = _metricEventQueue.poll()
+       |      val _msg: Any = MetricChanged(_nm, _nid, _val)
+       |      val _it = _metricEventSubs.iterator
        |      while _it.hasNext do
        |        val _aid = _it.next().longValue()
        |        actors.get(_aid).foreach { ts =>

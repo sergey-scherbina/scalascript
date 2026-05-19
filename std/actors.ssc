@@ -41,6 +41,12 @@ exports:
   - isDraining
   - drainingPeers
   - subscribeDrainEvents
+  - MetricChanged
+  - clusterMetricSet
+  - clusterMetricGet
+  - clusterMetricSum
+  - clusterMetricNames
+  - subscribeMetricEvents
 ---
 
 # std.actors — Actor supervision
@@ -299,6 +305,35 @@ extern def drainingPeers(): List[String]
 // mailbox deliveries.  Fires both for peer announcements and for the
 // local node's own `setDraining` toggles.
 extern def subscribeDrainEvents(): Unit
+
+// ─── Cluster metrics aggregation (v1.23) ─────────────────────────────────────
+
+// Metric-change events delivered to actors that have called
+// `subscribeMetricEvents()`.  Fires once per accepted update — whether
+// it originated locally (`clusterMetricSet`) or arrived from a peer.
+case class MetricChanged(name: String, nodeId: String, value: Double)
+
+// Stamp a gauge value for THIS node under `name`, then broadcast to
+// every connected peer.  Each node owns its own value for a given
+// metric — values are aggregated per-node, never overwritten across
+// nodes.  Apps poll `clusterMetricGet` for the full per-node view or
+// `clusterMetricSum` for the cluster-wide total.
+extern def clusterMetricSet(name: String, value: Double): Unit
+
+// Per-node view of `name`: `nodeId → value` for every node that has
+// announced a value (including this one).  Empty map when the metric
+// is unknown locally.
+extern def clusterMetricGet(name: String): Map[String, Double]
+
+// Convenience: sum of all per-node values for `name`.  0.0 when unknown.
+extern def clusterMetricSum(name: String): Double
+
+// Locally-known metric names — useful for ops dashboards / discovery.
+extern def clusterMetricNames(): List[String]
+
+// Register the calling actor for `MetricChanged(name, nodeId, value)`
+// mailbox deliveries.  No unsubscribe API; exit the actor to stop.
+extern def subscribeMetricEvents(): Unit
 
 // ─── Supervision tree ─────────────────────────────────────────────────────────
 

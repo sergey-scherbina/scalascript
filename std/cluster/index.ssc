@@ -1,6 +1,6 @@
 ---
 name: std-cluster
-version: 0.4.0
+version: 0.5.0
 description: "Cluster aggregator — re-exports std/cluster/types and std/cluster/membership"
 package: std.cluster
 exports:
@@ -10,6 +10,7 @@ exports:
   - LeaderLost
   - ConfigChanged
   - DrainStateChanged
+  - MetricChanged
   - Cluster
 ---
 
@@ -18,7 +19,7 @@ exports:
 One-stop import for cluster-shaped applications.
 
 ```scalascript
-[NodeJoined, NodeLeft, LeaderElected, LeaderLost, ConfigChanged, DrainStateChanged](./types.ssc)
+[NodeJoined, NodeLeft, LeaderElected, LeaderLost, ConfigChanged, DrainStateChanged, MetricChanged](./types.ssc)
 [Cluster](./membership.ssc)
 ```
 
@@ -26,8 +27,8 @@ One-stop import for cluster-shaped applications.
 
 This module is a thin wrapper over the actor-level intrinsics
 (`connectNode`, `joinCluster`, `clusterMembers`, `subscribeClusterEvents`,
-`electLeader`, `clusterConfigSet`, `setDraining`, …) that land in
-`std.actors`.
+`electLeader`, `clusterConfigSet`, `setDraining`, `clusterMetricSet`, …)
+that land in `std.actors`.
 
 | Piece | Status |
 |---|---|
@@ -43,3 +44,4 @@ This module is a thin wrapper over the actor-level intrinsics
 | Periodic gossip re-discovery (`Cluster.gossip`) | ✓ v1.23 |
 | Configuration distribution (`Cluster.configSet/Get/Keys/subscribeConfig`) | ✓ v1.23 |
 | Rolling-restart drain protocol (`Cluster.drain` / `draining` / `drainingNodes` / `subscribeDrain`) | ✓ v1.23 |
+| Metrics aggregation (`Cluster.metricSet/Get/Sum/Names/subscribeMetrics`) | ✓ v1.23 |

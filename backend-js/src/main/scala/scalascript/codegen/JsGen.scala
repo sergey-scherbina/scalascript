@@ -3569,6 +3569,12 @@ const Actor = {
   isDraining:            ()           => _perform('Actor', 'isDraining',            []),
   drainingPeers:         ()           => _perform('Actor', 'drainingPeers',         []),
   subscribeDrainEvents:  ()           => _perform('Actor', 'subscribeDrainEvents',  []),
+  // v1.23 — cluster metrics aggregation
+  clusterMetricSet:      (name, value) => _perform('Actor', 'clusterMetricSet',     [name, value]),
+  clusterMetricGet:      (name)        => _perform('Actor', 'clusterMetricGet',     [name]),
+  clusterMetricSum:      (name)        => _perform('Actor', 'clusterMetricSum',     [name]),
+  clusterMetricNames:    ()            => _perform('Actor', 'clusterMetricNames',   []),
+  subscribeMetricEvents: ()            => _perform('Actor', 'subscribeMetricEvents',[]),
 };
 
 // `receive { case … }` lowers to a registered matcher function whose
@@ -3686,6 +3692,30 @@ function _runActors(bodyFn) {
     if (!_isDrainingSelf) return;
     const payload = JSON.stringify({ t: 'drain', from: _localNodeId, draining: true });
     try { sendFn(payload); } catch (_) {}
+  }
+  // v1.23 — cluster metrics aggregation: per-node gauges.
+  const _clusterMetrics    = new Map(); // name -> Map<nodeId, value>
+  const _metricEventSubs   = new Set();
+  const _metricEventQueue  = [];
+  function _fireMetricEvent(name, nodeId, value) {
+    if (_metricEventSubs.size === 0) return;
+    _metricEventQueue.push({ name, nodeId, value });
+  }
+  function _applyMetricUpdate(name, nodeId, value) {
+    let inner = _clusterMetrics.get(name);
+    if (!inner) { inner = new Map(); _clusterMetrics.set(name, inner); }
+    const prev = inner.get(nodeId);
+    inner.set(nodeId, value);
+    if (prev !== value) _fireMetricEvent(name, nodeId, value);
+  }
+  function _sendMetricSnapshot(sendFn) {
+    for (const [name, inner] of _clusterMetrics) {
+      const v = inner.get(_localNodeId);
+      if (v != null) {
+        const payload = JSON.stringify({ t: 'metric', from: _localNodeId, name, value: v });
+        try { sendFn(payload); } catch (_) {}
+      }
+    }
   }
   function _scheduleReconnect(rurl, rtok) {
     let delay = Math.max(_reconnectInitialMs, 1);
@@ -3883,6 +3913,7 @@ function _runActors(bodyFn) {
               // v1.23 — snapshot the cluster config + drain state to the new peer.
               _sendConfigSnapshot(peer.send);
               _sendDrainState(peer.send);
+              _sendMetricSnapshot(peer.send);
               break;
             }
           }
@@ -3912,6 +3943,7 @@ function _runActors(bodyFn) {
           _peerLastPong.delete(env.nodeId);
           _peerPhiViews.delete(env.nodeId);
           _drainingPeers.delete(env.nodeId);
+          for (const [, inner] of _clusterMetrics) inner.delete(env.nodeId);
           _fireClusterEvent('NodeLeft', env.nodeId, 'disconnect');
           if (_currentLeader === env.nodeId) {
             _currentLeader = "";
@@ -3984,6 +4016,11 @@ function _runActors(bodyFn) {
             _drainingPeers.set(from, dr);
             if (prev !== dr) _fireDrainEvent(from, dr);
           }
+        } else if (env.t === 'metric') {
+          const from  = env.from != null ? String(env.from) : '';
+          const name  = env.name != null ? String(env.name) : '';
+          const value = env.value != null ? Number(env.value) : 0;
+          if (from && name) _applyMetricUpdate(name, from, value);
         }
       } catch (_e) {}
     }
@@ -4328,6 +4365,7 @@ private val JsRuntimeAsyncB: String = """
                     // v1.23 — snapshot the cluster config + drain state to the new peer.
                     _sendConfigSnapshot((json) => ws.send(json));
                     _sendDrainState((json) => ws.send(json));
+                    _sendMetricSnapshot((json) => ws.send(json));
                   }
                 } catch (_) {}
               } else {
@@ -4351,6 +4389,7 @@ private val JsRuntimeAsyncB: String = """
                 _peerLastPong.delete(peerNodeId);
                 _peerPhiViews.delete(peerNodeId);
                 _drainingPeers.delete(peerNodeId);
+                for (const [, inner] of _clusterMetrics) inner.delete(peerNodeId);
                 _fireClusterEvent('NodeLeft', peerNodeId, 'disconnect');
                 if (_currentLeader === peerNodeId) {
                   _currentLeader = "";
@@ -4547,6 +4586,34 @@ private val JsRuntimeAsyncB: String = """
         _drainEventSubs.add(id);
         return { suspend: false, next: k(undefined) };
       }
+      // v1.23 — cluster metrics aggregation
+      case 'clusterMetricSet': {
+        const name = String(args[0]);
+        const value = Number(args[1]);
+        _applyMetricUpdate(name, _localNodeId, value);
+        const payload = JSON.stringify({ t: 'metric', from: _localNodeId, name, value });
+        for (const [, ch] of _peerChannels) { try { ch.send(payload); } catch (_) {} }
+        return { suspend: false, next: k(undefined) };
+      }
+      case 'clusterMetricGet': {
+        const inner = _clusterMetrics.get(String(args[0]));
+        const m = new Map();
+        if (inner) for (const [nid, v] of inner) m.set(nid, v);
+        return { suspend: false, next: k(m) };
+      }
+      case 'clusterMetricSum': {
+        const inner = _clusterMetrics.get(String(args[0]));
+        let sum = 0;
+        if (inner) for (const v of inner.values()) sum += v;
+        return { suspend: false, next: k(sum) };
+      }
+      case 'clusterMetricNames': {
+        return { suspend: false, next: k(Array.from(_clusterMetrics.keys())) };
+      }
+      case 'subscribeMetricEvents': {
+        _metricEventSubs.add(id);
+        return { suspend: false, next: k(undefined) };
+      }
       // v1.6.x — scheduled sends
       case 'sendAfter': {
         const delayMs  = args[0];
@@ -4688,6 +4755,15 @@ private val JsRuntimeAsyncB: String = """
         if (_st) { _st.mailbox.push(_dmsg); tryWakeBlocked(_sid); }
       }
     }
+    // v1.23 — deliver metric events to subscribers.
+    while (_metricEventQueue.length > 0) {
+      const _mev = _metricEventQueue.shift();
+      const _mmsg = { _type: 'MetricChanged', name: _mev.name, nodeId: _mev.nodeId, value: _mev.value };
+      for (const _sid of _metricEventSubs) {
+        const _st = actors.get(_sid);
+        if (_st) { _st.mailbox.push(_mmsg); tryWakeBlocked(_sid); }
+      }
+    }
     // Fire scheduled sends whose deadline has passed.
     if (_timers.size > 0) {
       const _nowMs = Date.now();
@@ -4729,7 +4805,8 @@ private val JsRuntimeAsyncB: String = """
         [...actors.values()].some(st => st && st.blocked !== null);
       if (!earliest && _timers.size === 0 && !hasBlockedActors &&
           !_electionInProgress && _leaderEventQueue.length === 0 &&
-          _configEventQueue.length === 0 && _drainEventQueue.length === 0) break;
+          _configEventQueue.length === 0 && _drainEventQueue.length === 0 &&
+          _metricEventQueue.length === 0) break;
       const _sleepUntil = [earliest != null ? earliest.d : null, _timerMin].filter(v => v != null);
       const _minDeadline = _sleepUntil.length > 0 ? Math.min(..._sleepUntil) : null;
       const sleepFor = _minDeadline != null ? Math.min(_minDeadline - Date.now(), 10) : 10;
@@ -5820,6 +5897,9 @@ class JsGen(
       "Actor.clusterConfigKeys", "Actor.subscribeConfigEvents",
       "Actor.setDraining", "Actor.isDraining",
       "Actor.drainingPeers", "Actor.subscribeDrainEvents",
+      "Actor.clusterMetricSet", "Actor.clusterMetricGet",
+      "Actor.clusterMetricSum", "Actor.clusterMetricNames",
+      "Actor.subscribeMetricEvents",
       "Actor.sendAfter", "Actor.sendInterval", "Actor.cancelTimer",
       "Logger.info", "Logger.warn", "Logger.error", "Logger.debug",
       "Random.nextInt", "Random.nextDouble", "Random.uuid", "Random.pick",
@@ -7129,6 +7209,24 @@ class JsGen(
     case Term.Apply.After_4_6_0(Term.Name("subscribeDrainEvents"), argClause)
         if argClause.values.isEmpty =>
       "Actor.subscribeDrainEvents()"
+    // v1.23 — cluster metrics aggregation
+    case Term.Apply.After_4_6_0(Term.Name("clusterMetricSet"), argClause)
+        if argClause.values.size == 2 =>
+      val n0 = genExpr(argClause.values(0).asInstanceOf[Term])
+      val v0 = genExpr(argClause.values(1).asInstanceOf[Term])
+      s"Actor.clusterMetricSet($n0, $v0)"
+    case Term.Apply.After_4_6_0(Term.Name("clusterMetricGet"), argClause)
+        if argClause.values.size == 1 =>
+      s"Actor.clusterMetricGet(${genExpr(argClause.values.head.asInstanceOf[Term])})"
+    case Term.Apply.After_4_6_0(Term.Name("clusterMetricSum"), argClause)
+        if argClause.values.size == 1 =>
+      s"Actor.clusterMetricSum(${genExpr(argClause.values.head.asInstanceOf[Term])})"
+    case Term.Apply.After_4_6_0(Term.Name("clusterMetricNames"), argClause)
+        if argClause.values.isEmpty =>
+      "Actor.clusterMetricNames()"
+    case Term.Apply.After_4_6_0(Term.Name("subscribeMetricEvents"), argClause)
+        if argClause.values.isEmpty =>
+      "Actor.subscribeMetricEvents()"
     // v1.23 — auto-reconnect policy
     case Term.Apply.After_4_6_0(Term.Name("setReconnectPolicy"), argClause)
         if argClause.values.size == 2 =>
@@ -7746,6 +7844,24 @@ class JsGen(
     case Term.Apply.After_4_6_0(Term.Name("subscribeDrainEvents"), argClause)
         if argClause.values.isEmpty =>
       "Actor.subscribeDrainEvents()"
+    // v1.23 — cluster metrics aggregation
+    case Term.Apply.After_4_6_0(Term.Name("clusterMetricSet"), argClause)
+        if argClause.values.size == 2 =>
+      val n0 = genExpr(argClause.values(0).asInstanceOf[Term])
+      val v0 = genExpr(argClause.values(1).asInstanceOf[Term])
+      s"Actor.clusterMetricSet($n0, $v0)"
+    case Term.Apply.After_4_6_0(Term.Name("clusterMetricGet"), argClause)
+        if argClause.values.size == 1 =>
+      s"Actor.clusterMetricGet(${genExpr(argClause.values.head.asInstanceOf[Term])})"
+    case Term.Apply.After_4_6_0(Term.Name("clusterMetricSum"), argClause)
+        if argClause.values.size == 1 =>
+      s"Actor.clusterMetricSum(${genExpr(argClause.values.head.asInstanceOf[Term])})"
+    case Term.Apply.After_4_6_0(Term.Name("clusterMetricNames"), argClause)
+        if argClause.values.isEmpty =>
+      "Actor.clusterMetricNames()"
+    case Term.Apply.After_4_6_0(Term.Name("subscribeMetricEvents"), argClause)
+        if argClause.values.isEmpty =>
+      "Actor.subscribeMetricEvents()"
     // v1.23 — auto-reconnect policy
     case Term.Apply.After_4_6_0(Term.Name("setReconnectPolicy"), argClause)
         if argClause.values.size == 2 =>
