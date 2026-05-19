@@ -83,6 +83,7 @@ private def dispatchCommand(args: List[String]): Unit =
     case "test"                => testCommand(args.tail)
     case "preview"             => previewCommand(args.tail)
     case "fmt"                 => fmtCommand(args.tail)
+    case "profile"             => profileCommand(args.tail)
     case "lsp"                 => lspCommand(args.tail)
     case "help" | "--help" | "-h" => printUsage()
     case "--list-backends"     => println(BackendRegistry.describe)
