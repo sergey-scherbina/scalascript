@@ -1,0 +1,70 @@
+#!/usr/bin/env ssc
+---
+name: rest-jetty
+version: 1.0.0
+description: Same REST routes, served via the Jetty backend instead of the default JDK one.
+---
+
+# REST on Jetty
+
+Demonstrates the v1.17.6 HTTP/WS server SPI: route registration code is
+unchanged, but the network layer is Jetty 12 (HTTP/2, mature WS,
+permessage-deflate-capable) instead of the default JDK `HttpServer`.
+
+## Running
+
+```bash
+# Interpreter — selection happens at runtime; the Jetty backend must
+# already be on the classpath.  Default ssc bundles only the JDK
+# impl; for Jetty you currently need to `sbt publishLocal` the
+# `runtime-server-jvm-jetty` module first (until Option A+ lands).
+ssc examples/rest-jetty.ssc
+
+# JVM-compiled — `ssc compile --server-backend jetty` injects the
+# `//> using dep` directive + the runtime `setHttpServerBackend`
+# call automatically.
+ssc compile --server-backend jetty examples/rest-jetty.ssc
+```
+
+The same .ssc source picks Netty by swapping `setHttpServerBackend("jetty")`
+for `setHttpServerBackend("netty")` (and `--server-backend netty` on
+compile).
+
+## Code
+
+```scalascript
+// Pick the HttpServerSpi impl BEFORE any serve(port) call.  The
+// registry caches the selection; the first serve() resolves it.
+// If "jetty" isn't on the classpath (no Jetty module on deps),
+// HttpServerBackends.setBackend throws with a clear error.
+setHttpServerBackend("jetty")
+
+// Routes are identical to the JDK-backend version — the SPI design
+// keeps user-facing API entirely backend-agnostic.
+
+route("GET", "/") { req =>
+  Response.html("""
+    <h1>REST via Jetty 12</h1>
+    <p>Same routes, different network layer.</p>
+    <ul>
+      <li>GET <code>/api/hello?name=Ada</code></li>
+      <li>POST <code>/api/echo</code> with a JSON body</li>
+    </ul>
+  """)
+}
+
+route("GET", "/api/hello") { req =>
+  val name = req.query.getOrElse("name", "world")
+  Response.json(Map("greeting" -> ("hello, " + name)))
+}
+
+route("POST", "/api/echo") { req =>
+  // req.json is auto-parsed when Content-Type is application/json
+  req.json match
+    case Some(payload) => Response.json(Map("you-sent" -> payload))
+    case None          => Response.status(400, "expected JSON body")
+}
+
+println("REST on Jetty — http://localhost:8080/")
+serve(8080)
+```
