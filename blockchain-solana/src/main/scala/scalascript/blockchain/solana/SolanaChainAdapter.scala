@@ -158,19 +158,32 @@ class SolanaChainAdapter(val chainId: ChainId)(using ec: ExecutionContext) exten
   /** Build an SPL Token TransferChecked (opcode 12) on the SPL
    *  Token program. The caller hands us the recipient's *wallet*
    *  address — we derive both source and destination Associated
-   *  Token Accounts (ATAs) from the mint. The ATAs must already
-   *  exist on-chain; a follow-on slice will prepend an idempotent
-   *  CreateAssociatedTokenAccount when the destination is missing.
+   *  Token Accounts (ATAs) from the mint.
    *
-   *  Account-keys layout:
-   *      [0] sender wallet — signer + writable (fee payer + authority)
-   *      [1] source ATA     — writable non-signer
-   *      [2] destination ATA — writable non-signer
-   *      [3] mint            — read-only non-signer
+   *  If the destination ATA doesn't exist on-chain yet (first time
+   *  this recipient receives the token), we prepend an idempotent
+   *  CreateAssociatedTokenAccount instruction (opcode 1 on the
+   *  Associated Token Account program) so the transfer succeeds in
+   *  a single tx. Idempotent means the create is a no-op if the
+   *  ATA already exists — safe even if a concurrent tx creates it
+   *  between our probe and our submission.
+   *
+   *  Account-keys layout when destination ATA already exists (5):
+   *      [0] sender — signer + writable (fee payer + authority)
+   *      [1] source ATA — writable non-signer
+   *      [2] dest ATA   — writable non-signer
+   *      [3] mint       — read-only non-signer
    *      [4] SPL Token program — read-only non-signer
    *
-   *  Instruction `accountIndexes` for TransferChecked:
-   *      [source = 1, mint = 3, destination = 2, authority = 0]. */
+   *  When the destination needs to be created (8):
+   *      [0] sender — signer + writable (fee payer + funder + authority)
+   *      [1] source ATA           — writable non-signer
+   *      [2] dest ATA             — writable non-signer (being created)
+   *      [3] mint                 — read-only non-signer
+   *      [4] SPL Token program    — read-only non-signer
+   *      [5] recipient wallet     — read-only non-signer (ATA owner)
+   *      [6] System Program       — read-only non-signer
+   *      [7] Associated Token program — read-only non-signer */
   private def buildSplTokenTransfer(
     sender: String,
     asset:  Asset,
@@ -180,31 +193,85 @@ class SolanaChainAdapter(val chainId: ChainId)(using ec: ExecutionContext) exten
   ): Future[Tx] =
     require(asset.chain == chainId, s"Asset chain ${asset.chain} ≠ adapter chain $chainId")
     require(!asset.isNative, "use NativeTransfer for SOL — TokenTransfer expects an SPL mint")
-    recentBlockhash(ctx).map { hash =>
-      val senderKey    = Base58.decode(sender)
-      val recipientKey = Base58.decode(to)
-      val mintKey      = Base58.decode(asset.address)
-      require(senderKey.length == 32 && recipientKey.length == 32 && mintKey.length == 32,
-        "Solana addresses must decode to 32 bytes")
-      val sourceAta = SplToken.associatedTokenAddress(senderKey,    mintKey)
-      val destAta   = SplToken.associatedTokenAddress(recipientKey, mintKey)
-      val accountKeys = Seq(senderKey, sourceAta, destAta, mintKey, SplToken.ProgramId)
-      val instruction = SolanaInstruction(
-        programIdIndex = 4,                                  // SPL Token program at index 4
-        accountIndexes = Array[Byte](1, 3, 2, 0),            // source, mint, dest, authority
-        data           = SplToken.transferCheckedData(amount, asset.decimals),
-      )
-      val message = SolanaMessage(
-        numRequiredSignatures        = 1,
-        numReadonlySignedAccounts    = 0,
-        // mint + token program are read-only non-signers
-        numReadonlyUnsignedAccounts  = 2,
-        accountKeys                  = accountKeys,
-        recentBlockhash              = hash,
-        instructions                 = Seq(instruction),
-      )
-      SolanaTx(message)
-    }
+    val senderKey    = Base58.decode(sender)
+    val recipientKey = Base58.decode(to)
+    val mintKey      = Base58.decode(asset.address)
+    require(senderKey.length == 32 && recipientKey.length == 32 && mintKey.length == 32,
+      "Solana addresses must decode to 32 bytes")
+    val sourceAta = SplToken.associatedTokenAddress(senderKey,    mintKey)
+    val destAta   = SplToken.associatedTokenAddress(recipientKey, mintKey)
+
+    val blockhashF = recentBlockhash(ctx)
+    val destExistsF = accountExists(Base58.encode(destAta), ctx)
+    for
+      hash         <- blockhashF
+      destExists   <- destExistsF
+    yield
+      if destExists then
+        // 5-key fast path: existing ATA, single TransferChecked instruction.
+        val accountKeys = Seq(senderKey, sourceAta, destAta, mintKey, SplToken.ProgramId)
+        val transferIx  = SolanaInstruction(
+          programIdIndex = 4,
+          accountIndexes = Array[Byte](1, 3, 2, 0),
+          data           = SplToken.transferCheckedData(amount, asset.decimals),
+        )
+        SolanaTx(SolanaMessage(
+          numRequiredSignatures        = 1,
+          numReadonlySignedAccounts    = 0,
+          numReadonlyUnsignedAccounts  = 2,
+          accountKeys                  = accountKeys,
+          recentBlockhash              = hash,
+          instructions                 = Seq(transferIx),
+        ))
+      else
+        // 8-key path: prepend a CreateAssociatedTokenAccountIdempotent.
+        val accountKeys = Seq(
+          senderKey,                       // [0] funder + authority
+          sourceAta,                       // [1]
+          destAta,                         // [2] being created
+          mintKey,                         // [3]
+          SplToken.ProgramId,              // [4]
+          recipientKey,                    // [5] ATA owner
+          SystemProgramKey,                // [6]
+          SplToken.AssociatedProgramId,    // [7]
+        )
+        val createIx = SolanaInstruction(
+          programIdIndex = 7,
+          // Associated Token Account program: [funder, ata, owner, mint, system, token]
+          accountIndexes = Array[Byte](0, 2, 5, 3, 6, 4),
+          data           = SplToken.CreateAssociatedAccountIdempotentData,
+        )
+        val transferIx = SolanaInstruction(
+          programIdIndex = 4,
+          accountIndexes = Array[Byte](1, 3, 2, 0),
+          data           = SplToken.transferCheckedData(amount, asset.decimals),
+        )
+        SolanaTx(SolanaMessage(
+          numRequiredSignatures        = 1,
+          numReadonlySignedAccounts    = 0,
+          // mint, token, recipient wallet, system, associated-token — 5 ro non-signers
+          numReadonlyUnsignedAccounts  = 5,
+          accountKeys                  = accountKeys,
+          recentBlockhash              = hash,
+          instructions                 = Seq(createIx, transferIx),
+        ))
+
+  /** Probe whether a Solana account exists on-chain via
+   *  getAccountInfo. The standard JSON-RPC shape is
+   *  `{ context, value }` where `value` is `null` for missing
+   *  accounts and an `{ owner, data, lamports, ... }` object
+   *  otherwise. */
+  private def accountExists(address: String, ctx: ChainContext): Future[Boolean] =
+    ctx.rpcCall(
+      "getAccountInfo",
+      ujson.Str(address),
+      ujson.Obj("encoding" -> ujson.Str("base64")),
+    ).map { resp =>
+      val value = resp.obj.get("value").getOrElse(resp)
+      value match
+        case ujson.Null => false
+        case _          => true
+    }.recover { case _ => false }
 
   /** Fetch the most recent finalized blockhash from the network. */
   private def recentBlockhash(ctx: ChainContext): Future[Array[Byte]] =
