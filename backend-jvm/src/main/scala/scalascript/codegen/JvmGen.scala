@@ -3652,7 +3652,7 @@ class JvmGen(
        |  /** Wall-clock time of upgrade — feeds `duration_ms` into the
        |   *  Sprint-4 close log. */
        |  private val _startedAtMs: Long = java.lang.System.currentTimeMillis()
-       |  import java.io.{BufferedInputStream, ByteArrayOutputStream, OutputStream}
+       |  import java.io.{BufferedInputStream, OutputStream}
        |  import java.nio.charset.StandardCharsets
        |  import java.util.concurrent.{LinkedBlockingQueue, ScheduledFuture, TimeUnit}
        |  import java.util.concurrent.atomic.AtomicReference
@@ -3670,14 +3670,14 @@ class JvmGen(
        |  private val DeadAfterMs:         Long = 90_000L
        |  @volatile private var lastPongAt: Long = java.lang.System.currentTimeMillis()
        |  @volatile private var heartbeatTask: ScheduledFuture[?] = null
-       |  // Fragmented-message reassembly (RFC 6455 §5.4): the first frame
-       |  // of a fragmented message carries the data opcode with FIN=0,
-       |  // follow-up frames are Continuation (opcode=0) with the rest,
-       |  // the last with FIN=1.  Control frames may interleave freely.
-       |  // Held strictly on the read-loop thread so no synchronisation
-       |  // needed beyond the loop itself.
-       |  private var fragOpcode: Int = -1
-       |  private val fragBuf     = ByteArrayOutputStream()
+       |  // Fragmented-message reassembly (RFC 6455 §5.4) delegated to
+       |  // the shared `WsReassembler` (inlined from runtime-server-common).
+       |  // The read-loop dispatches control frames (Ping/Pong/Close)
+       |  // inline and routes Text/Binary/Continuation frames through
+       |  // `_reassembler.feed(...)` — its `Event` enum is the one place
+       |  // the FIN=0 / opcode=0 / oversize logic lives.  Touched only on
+       |  // the read-loop thread, so no synchronisation needed.
+       |  private val _reassembler = new WsReassembler(_WsMaxFrameBytes)
        |  private val out: OutputStream                     = socket.getOutputStream
        |
        |  // Outbound write queue: every `send` / `close` / `pong` parks a
@@ -3888,26 +3888,22 @@ class JvmGen(
        |                    else 1000
        |                  close(status, "")
        |                  return
-       |                case 0x1 | 0x2 =>
-       |                  if !fr.fin then
-       |                    // Start of a fragmented message.
-       |                    if fragOpcode != -1 then { close(1002, "new data frame mid-fragment"); return }
-       |                    fragOpcode = fr.opcode
-       |                    fragBuf.reset()
-       |                    fragBuf.write(fr.payload)
-       |                    if fragBuf.size > _WsMaxFrameBytes then
-       |                      fragOpcode = -1; fragBuf.reset(); close(1009, "message too big"); return
-       |                  else _dispatchWsMessage(fr.opcode, fr.payload)
-       |                case 0x0 =>
-       |                  if fragOpcode == -1 then { close(1002, "continuation without prior data frame"); return }
-       |                  fragBuf.write(fr.payload)
-       |                  if fragBuf.size > _WsMaxFrameBytes then
-       |                    fragOpcode = -1; fragBuf.reset(); close(1009, "message too big"); return
-       |                  if fr.fin then
-       |                    val op    = fragOpcode
-       |                    val bytes = fragBuf.toByteArray
-       |                    fragOpcode = -1; fragBuf.reset()
-       |                    _dispatchWsMessage(op, bytes)
+       |                case 0x0 | 0x1 | 0x2 =>
+       |                  // Route data frames through the shared reassembler.
+       |                  // Its Event enum carries the FIN=0 / opcode=0 /
+       |                  // oversize protocol checks the legacy inline state
+       |                  // machine used to perform here.
+       |                  val wf = WsFraming.Frame(
+       |                    fin      = fr.fin,
+       |                    opcode   = WsFraming.Opcode.fromCode(fr.opcode).get,
+       |                    payload  = fr.payload,
+       |                    consumed = 0)
+       |                  _reassembler.feed(wf) match
+       |                    case WsReassembler.Event.Deliver(op, bytes) =>
+       |                      _dispatchWsMessage(op.code, bytes)
+       |                    case WsReassembler.Event.ProtocolError(code, reason) =>
+       |                      close(code, reason); return
+       |                    case WsReassembler.Event.Buffered => ()
        |                case _   => close(1003, ""); return
        |        if offset > 0 then
        |          System.arraycopy(buf, offset, buf, 0, len - offset)
