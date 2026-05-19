@@ -338,18 +338,20 @@ class McpServerBuilder:
     description: Option[String],
     inputSchema: ujson.Value,
     handler:     Map[String, Any] => ToolHandlerResult,
-    annotations: Option[McpProtocol.ToolAnnotations] = None
+    annotations: Option[McpProtocol.ToolAnnotations] = None,
+    meta:        Option[ujson.Value]                  = None
   ): Unit =
-    tools(name) = ToolRegistration(name, description, inputSchema, handler, annotations)
+    tools(name) = ToolRegistration(name, description, inputSchema, handler, annotations, meta)
 
   def resource(
     uri:         String,
     name:        Option[String],
     mimeType:    Option[String],
     handler:     String => ResourceHandlerResult,
-    annotations: Option[McpProtocol.ResourceAnnotations] = None
+    annotations: Option[McpProtocol.ResourceAnnotations] = None,
+    meta:        Option[ujson.Value]                      = None
   ): Unit =
-    resources(uri) = ResourceRegistration(uri, name, mimeType, handler, annotations)
+    resources(uri) = ResourceRegistration(uri, name, mimeType, handler, annotations, meta)
 
   /** Register a URI-template resource.  Concrete `resources/read` URIs
    *  matching the template (simplified RFC 6570: `{name}` placeholders
@@ -361,18 +363,20 @@ class McpServerBuilder:
     description: Option[String],
     mimeType:    Option[String],
     handler:     String => ResourceHandlerResult,
-    annotations: Option[McpProtocol.ResourceAnnotations] = None
+    annotations: Option[McpProtocol.ResourceAnnotations] = None,
+    meta:        Option[ujson.Value]                      = None
   ): Unit =
     resourceTemplates(uriTemplate) =
-      ResourceTemplateRegistration(uriTemplate, name, description, mimeType, handler, annotations)
+      ResourceTemplateRegistration(uriTemplate, name, description, mimeType, handler, annotations, meta)
 
   def prompt(
     name:        String,
     description: Option[String],
     arguments:   List[McpProtocol.PromptArgument],
-    handler:     Map[String, Any] => PromptHandlerResult
+    handler:     Map[String, Any] => PromptHandlerResult,
+    meta:        Option[ujson.Value] = None
   ): Unit =
-    prompts(name) = PromptRegistration(name, description, arguments, handler)
+    prompts(name) = PromptRegistration(name, description, arguments, handler, meta)
 
   /** v1.17.x — register an autocomplete handler for `(promptName,
    *  argumentName)`.  The handler receives the user's current partial
@@ -436,7 +440,8 @@ case class ToolRegistration(
   description: Option[String],
   inputSchema: ujson.Value,
   handler:     Map[String, Any] => ToolHandlerResult,
-  annotations: Option[McpProtocol.ToolAnnotations] = None
+  annotations: Option[McpProtocol.ToolAnnotations] = None,
+  meta:        Option[ujson.Value]                  = None
 )
 
 case class ResourceRegistration(
@@ -444,7 +449,8 @@ case class ResourceRegistration(
   name:        Option[String],
   mimeType:    Option[String],
   handler:     String => ResourceHandlerResult,
-  annotations: Option[McpProtocol.ResourceAnnotations] = None
+  annotations: Option[McpProtocol.ResourceAnnotations] = None,
+  meta:        Option[ujson.Value]                      = None
 )
 
 case class ResourceTemplateRegistration(
@@ -453,14 +459,16 @@ case class ResourceTemplateRegistration(
   description: Option[String],
   mimeType:    Option[String],
   handler:     String => ResourceHandlerResult,
-  annotations: Option[McpProtocol.ResourceAnnotations] = None
+  annotations: Option[McpProtocol.ResourceAnnotations] = None,
+  meta:        Option[ujson.Value]                      = None
 )
 
 case class PromptRegistration(
   name:        String,
   description: Option[String],
   arguments:   List[McpProtocol.PromptArgument],
-  handler:     Map[String, Any] => PromptHandlerResult
+  handler:     Map[String, Any] => PromptHandlerResult,
+  meta:        Option[ujson.Value] = None
 )
 
 object McpServerCore:
@@ -595,7 +603,7 @@ object McpServerCore:
 
       case McpProtocol.Method.ToolsList =>
         val all = builder.tools.values.toList.map { r =>
-          McpProtocol.ToolEntry(r.name, r.description, r.inputSchema, r.annotations)
+          McpProtocol.ToolEntry(r.name, r.description, r.inputSchema, r.annotations, r.meta)
         }
         val (page, next) = McpProtocol.paginate(all, cursorOf(params), builder.currentPageSize)
         JsonRpc.encodeResult(id, McpProtocol.toolsListResult(page, next))
@@ -605,14 +613,14 @@ object McpServerCore:
 
       case McpProtocol.Method.ResourcesList =>
         val all = builder.resources.values.toList.map { r =>
-          McpProtocol.ResourceEntry(r.uri, r.name, r.mimeType, r.annotations)
+          McpProtocol.ResourceEntry(r.uri, r.name, r.mimeType, r.annotations, r.meta)
         }
         val (page, next) = McpProtocol.paginate(all, cursorOf(params), builder.currentPageSize)
         JsonRpc.encodeResult(id, McpProtocol.resourcesListResult(page, next))
 
       case McpProtocol.Method.ResourcesTemplatesList =>
         val all = builder.resourceTemplates.values.toList.map { t =>
-          McpProtocol.ResourceTemplateEntry(t.uriTemplate, t.name, t.description, t.mimeType, t.annotations)
+          McpProtocol.ResourceTemplateEntry(t.uriTemplate, t.name, t.description, t.mimeType, t.annotations, t.meta)
         }
         val (page, next) = McpProtocol.paginate(all, cursorOf(params), builder.currentPageSize)
         JsonRpc.encodeResult(id, McpProtocol.resourcesTemplatesListResult(page, next))
@@ -638,7 +646,7 @@ object McpServerCore:
 
       case McpProtocol.Method.PromptsList =>
         val all = builder.prompts.values.toList.map { r =>
-          McpProtocol.PromptEntry(r.name, r.description, r.arguments)
+          McpProtocol.PromptEntry(r.name, r.description, r.arguments, r.meta)
         }
         val (page, next) = McpProtocol.paginate(all, cursorOf(params), builder.currentPageSize)
         JsonRpc.encodeResult(id, McpProtocol.promptsListResult(page, next))
