@@ -89,6 +89,59 @@ object JvmArtifactIO:
     os.makeDir.all(path / os.up)
     os.write.over(path, writeJvm(moduleId, pkg, moduleName, sourceHash, scalaSource, imports, classBundle))
 
+  // ─── Shared runtime artifact (.scjvm-runtime) ────────────────────────────
+
+  /** Serialise a `ModuleJvmRuntimeArtifact` to a pretty-printed JSON string. */
+  def writeRuntime(art: ModuleJvmRuntimeArtifact): String =
+    require(art.magic == ArtifactVersion.magic,
+      s"BUG: ModuleJvmRuntimeArtifact.magic must be '${ArtifactVersion.magic}', got '${art.magic}'")
+    require(art.abiVersion == ArtifactVersion.current,
+      s"BUG: ModuleJvmRuntimeArtifact.abiVersion must be '${ArtifactVersion.current}', got '${art.abiVersion}'")
+    write(art, indent = 2)
+
+  /** Build + serialise a `ModuleJvmRuntimeArtifact` from its constituent fields. */
+  def writeRuntime(
+      capabilities: List[String],
+      sourceHash:   String,
+      classBundle:  String
+  ): String =
+    val art = ModuleJvmRuntimeArtifact(
+      magic        = ArtifactVersion.magic,
+      abiVersion   = ArtifactVersion.current,
+      capabilities = capabilities.sorted,
+      sourceHash   = sourceHash,
+      classBundle  = classBundle
+    )
+    writeRuntime(art)
+
+  /** Deserialise a `.scjvm-runtime` JSON string into a `ModuleJvmRuntimeArtifact`. */
+  def readRuntime(json: String): Either[String, ModuleJvmRuntimeArtifact] =
+    scala.util.Try(read[ModuleJvmRuntimeArtifact](json)).toEither.left.map { e =>
+      s"Failed to parse .scjvm-runtime artifact: ${e.getMessage}"
+    }.flatMap { art =>
+      checkEnvelope(art.magic, art.abiVersion, ".scjvm-runtime").map(_ => art)
+    }
+
+  /** Read a `.scjvm-runtime` file from `path`. */
+  def readRuntimeFile(path: os.Path): Either[String, ModuleJvmRuntimeArtifact] =
+    if !os.exists(path) then Left(s"JVM runtime artifact not found: $path")
+    else readRuntime(os.read(path))
+
+  /** Write a `.scjvm-runtime` file to `path` (creates parent directories). */
+  def writeRuntimeFile(art: ModuleJvmRuntimeArtifact, path: os.Path): Unit =
+    os.makeDir.all(path / os.up)
+    os.write.over(path, writeRuntime(art))
+
+  /** Write a `.scjvm-runtime` file to `path` from constituent fields. */
+  def writeRuntimeFile(
+      capabilities: List[String],
+      sourceHash:   String,
+      classBundle:  String,
+      path:         os.Path
+  ): Unit =
+    os.makeDir.all(path / os.up)
+    os.write.over(path, writeRuntime(capabilities, sourceHash, classBundle))
+
   // ─── Envelope validation ─────────────────────────────────────────────────
 
   private def checkEnvelope(magic: String, abiVersion: String, ext: String): Either[String, Unit] =

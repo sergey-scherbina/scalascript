@@ -336,6 +336,32 @@ case class ModuleJvmArtifact(
   classBundle:  Option[String] = None
 ) derives ReadWriter
 
+/** Shared JVM runtime artifact — written as `.scjvm-runtime` JSON.
+ *
+ *  Carries the once-per-session compiled runtime preamble (the
+ *  `package _ssc_runtime` block emitted by `JvmGen.generateRuntime`).
+ *  All modules in an artifact dir reference this single bundle at link
+ *  time so the ~180 KB preamble isn't duplicated into every `.scjvm`.
+ *
+ *  `capabilities` is the union of capabilities across all modules in
+ *  the dir at the time of generation (e.g. `Set("effects", "serve")`).
+ *  When the union changes (a new module adds a capability), the runtime
+ *  is regenerated; when only the union shrinks (a module is removed),
+ *  the existing runtime stays valid.
+ *
+ *  `sourceHash` is the SHA-256 of the emitted runtime Scala source —
+ *  used by `compile-jvm --bytecode` to short-circuit recompilation when
+ *  the capability set is unchanged.
+ *
+ *  v2.0 Phase 2 — split-runtime shared classBundle. */
+case class ModuleJvmRuntimeArtifact(
+  magic:        String,         // must equal ArtifactVersion.magic
+  abiVersion:   String,         // must equal ArtifactVersion.current
+  capabilities: List[String],   // sorted, encoded capability names
+  sourceHash:   String,         // SHA-256 hex of the runtime Scala source
+  classBundle:  String          // base64 ZIP of .class + .tasty files (always present)
+) derives ReadWriter
+
 /** JS-backend cached artifact — written as `.scjs` JSON.
  *
  *  Carries the JS backend's emitted JavaScript source string for a *single*
