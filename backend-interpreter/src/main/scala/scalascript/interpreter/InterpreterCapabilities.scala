@@ -29,6 +29,8 @@ val InterpreterCapabilities: Capabilities = Capabilities(
     Feature.Auth,
     Feature.FileSystem,
     Feature.Crypto,
+    Feature.McpServer,           // v1.17 — own-impl: stdio (HTTP+SSE Phase 2)
+    Feature.McpClient,           // v1.17 — own-impl: spawn (HTTP+SSE Phase 2)
     Feature.Dataset
   ),
   outputs  = Set(OutputKind.ExecutionResult),
@@ -64,6 +66,7 @@ val InterpreterIntrinsics: Map[QualifiedName, IntrinsicImpl] =
     ++ CoreIntrinsics     // Stage 5+/E — Core:     intrinsics/Core.scala
     ++ JsonIntrinsics     // Stage 5+/E — JSON:     intrinsics/Json.scala
     ++ RequestIntrinsics  // Stage 5+/E — Request:  intrinsics/Request.scala
+    ++ McpIntrinsics      // v1.17     — MCP:       intrinsics/Mcp.scala
 
 /** Same shape as `Value.show` but works on the `Any` payload an
  *  intrinsic sees post-unwrap.  Critical: doubles render without the
