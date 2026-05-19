@@ -1,17 +1,18 @@
 # Cluster management — peer-cluster orchestration
 
-Status: **fully landed in v1.23 (except Raft)** — membership view +
-membership events + per-link + cluster-wide Phi-accrual failure
-detection + Bully leader election (with auto re-elect) +
-auto-reconnect on outbound link drops + periodic gossip re-discovery
-+ LWW cluster config distribution (snapshot on handshake) +
-rolling-restart drain protocol + cluster metrics aggregation
-(per-node gauges, snapshot on handshake) + `std.cluster.Cluster.*`
-wrapper.  The only remaining piece — alternative leader-election
-protocols (Raft, external coordinator via etcd/Consul/ZK adapters)
-— is fully specced in [`docs/cluster-raft.md`](cluster-raft.md) and
-promotes when an app needs strong-consistency guarantees Bully
-can't give (see §6).
+Status: **fully landed in v1.23** — membership view + membership
+events + per-link + cluster-wide Phi-accrual failure detection +
+Bully leader election (with auto re-elect) + auto-reconnect on
+outbound link drops + periodic gossip re-discovery + LWW cluster
+config distribution (snapshot on handshake) + rolling-restart drain
+protocol + cluster metrics aggregation (per-node gauges, snapshot
+on handshake) + `std.cluster.Cluster.*` wrapper + Raft leader
+election (opt-in via `useRaftLeaderElection`) + external-coordinator
+hook (opt-in via the 4-arg `useExternalCoordinator`) + leaderHistory
+ring buffer for auditable leadership.  Real-coordinator adapters
+(etcd, Consul, ZooKeeper) wrap their wire protocols around the 4-arg
+hook at the app level — see [`docs/cluster-raft.md`](cluster-raft.md)
+§5 for the shape.
 
 Companion to [`docs/coroutines.md`](coroutines.md) §3.4
 (v1.6 Phase 3 distributed actors — the foundation),
@@ -112,16 +113,18 @@ is fine.  For multi-tenant / untrusted networks, quorum
 | Option | Trade-off | Status |
 |--------|-----------|--------|
 | **No leader** (all nodes equal) | Simplest; coordination via consensus on every decision | App-level |
-| **Bully** | Simple but flaky on network partitions | ✓ v1.23 |
-| **Raft** | Strong consistency; well-understood; ~500 LOC of careful protocol | Specced — [`cluster-raft.md`](cluster-raft.md) |
-| **External coordinator** | Outsource to etcd/Consul leadership lease | Specced — [`cluster-raft.md`](cluster-raft.md) |
+| **Bully** | Simple but flaky on network partitions | ✓ v1.23 (default) |
+| **Raft** | Strong consistency; well-understood; ~500 LOC of careful protocol | ✓ v1.23 (opt-in via `useRaftLeaderElection`) |
+| **External coordinator** | Outsource to etcd/Consul leadership lease | ✓ v1.23 (opt-in via `useExternalCoordinator`) |
 
-For v1.23: **Bully + opt-in auto re-elect**.  Apps that hit Bully's
-split-brain edge cases promote to Raft or an external-coordinator
-adapter using the API surface specced in
-[`docs/cluster-raft.md`](cluster-raft.md) §6 (same `electLeader` /
-`currentLeader` / `subscribeLeaderEvents` intrinsics; the protocol
-is an init-time switch).
+For v1.23: **Bully is the default**; apps that hit its split-brain
+edge cases call `useRaftLeaderElection()` once to switch to Raft, or
+`useExternalCoordinator(acquire, renew, release, holder)` to delegate
+to etcd / Consul / ZooKeeper.  All three protocols share the same
+`electLeader` / `currentLeader` / `subscribeLeaderEvents` /
+`leaderHistory` surface — only the dispatch backing it changes.
+See [`docs/cluster-raft.md`](cluster-raft.md) §6 for the unified
+API and §4–5 for the per-protocol details.
 
 ### 3.4 Failure detection
 

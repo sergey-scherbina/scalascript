@@ -510,12 +510,14 @@ unblocks downstream features as early as possible.
      on outbound link drops + periodic gossip re-discovery + cluster
      config distribution (LWW per key, snapshot on handshake) +
      rolling-restart drain protocol + cluster metrics aggregation
-     (per-node gauges, snapshot on handshake).  Only deferred:
-     alternative leader-election protocols (Raft / external
-     coordinator), promote when an app needs strong-consistency
-     guarantees Bully can't give (see
-     [`docs/cluster-management.md`](docs/cluster-management.md)
-     §6).
+     (per-node gauges, snapshot on handshake) + Raft leader election
+     (opt-in via `useRaftLeaderElection`) + external-coordinator
+     dispatch (4-arg `useExternalCoordinator`, app-level adapter to
+     etcd / Consul / ZooKeeper) + bounded `leaderHistory` for
+     auditable leadership.  All three leader-election protocols
+     share `electLeader` / `currentLeader` / `subscribeLeaderEvents`;
+     see [`docs/cluster-raft.md`](docs/cluster-raft.md) for the
+     unified API and per-protocol algorithms.
  28. **6+/C — HostCallback dispatcher** (~1 week).
      Stage 6+/C from spi-followups-plan.md.  Unblocks the first
      out-of-process (.NET / WASM) backend MVP.  Parked because no
@@ -4129,15 +4131,18 @@ word-count, log-aggregation, simple join.
 Six phases, ~3 weeks end-to-end.  **Hard-blocked on v1.6
 Phase 3.**
 
-## Cluster management — fully landed in v1.23 (except Raft)
+## Cluster management — fully landed in v1.23
 
 Peer-cluster orchestration on top of v1.6 Phase 3 actors:
-peer discovery, membership view, leader election,
-configuration distribution, cluster-wide failure
-detection, rolling restarts, metrics aggregation — all landed.
+peer discovery, membership view, leader election (Bully + Raft +
+external-coordinator hook), configuration distribution, cluster-wide
+failure detection, rolling restarts, metrics aggregation — all
+landed.
 
 Full design space and explicit hard-no list in
-[`docs/cluster-management.md`](docs/cluster-management.md).
+[`docs/cluster-management.md`](docs/cluster-management.md); Raft +
+external-coordinator algorithms and API in
+[`docs/cluster-raft.md`](docs/cluster-raft.md).
 
 ### v1.23 — what shipped
 
@@ -4151,7 +4156,10 @@ Full design space and explicit hard-no list in
 | Per-link Phi-accrual suspicion (`phiOf`, `isSuspect`) | ✓ v1.23 |
 | Cluster-wide FD aggregation (`broadcastHealth`, `clusterIsDown`) | ✓ v1.23 |
 | Local node identity + health snapshot (`selfNode`, `clusterHealth`) | ✓ v1.23 |
-| Bully leader election (`electLeader`, `currentLeader`, `subscribeLeaderEvents`) | ✓ v1.23 |
+| Bully leader election (`electLeader`, `currentLeader`, `subscribeLeaderEvents`) | ✓ v1.23 (default) |
+| Raft leader election (`useRaftLeaderElection`) | ✓ v1.23 (opt-in) |
+| External-coordinator hook (4-arg `useExternalCoordinator`) | ✓ v1.23 (opt-in) |
+| Bounded `leaderHistory()` ring buffer | ✓ v1.23 |
 | Auto re-elect on leader-link loss (`setAutoReelect`) | ✓ v1.23 |
 | Auto-reconnect for outbound links (`setReconnectPolicy`) | ✓ v1.23 |
 | Periodic gossip re-discovery (`requestGossip`) | ✓ v1.23 |
@@ -4163,12 +4171,14 @@ Full design space and explicit hard-no list in
 
 ### Still deferred (promote on demand)
 
-- Alternative leader-election protocols (Raft, external coordinator
-  via etcd/Consul/ZK adapters).  Bully is enough for v1.x trusted-
-  deployment use cases; promote a stronger protocol when an app needs
-  strong consistency or partition-tolerance guarantees Bully can't give.
-  Full spec — algorithm, wire envelopes, API surface, implementation
-  phases, test plan — in [`docs/cluster-raft.md`](docs/cluster-raft.md).
+- Raft on-disk persistence of `(currentTerm, votedFor)`.  In-memory
+  only today, which means a crashed node could in theory double-vote
+  in the same term after restart.  Real consequence depends on
+  failure-rate assumptions; promote when a deployment hits it.
+- Concrete coordinator adapters (`EtcdLeaderCoordinator`,
+  `ConsulLeaderCoordinator`, `ZkLeaderCoordinator`).  The 4-arg
+  `useExternalCoordinator` hook accepts any closures, so apps wire
+  their own today; ship a curated adapter when a real consumer asks.
 
 Promote the remaining items when any of the trigger conditions fire:
 
