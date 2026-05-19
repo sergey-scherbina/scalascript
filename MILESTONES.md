@@ -4604,11 +4604,12 @@ all green.
 **v2.0 separate compilation is now ALL-DELIVERABLES-LANDED.**  The
 documented "remaining post-Phase-3 directions" are now done.
 
-Phase 4 / honesty-pass follow-ups (in flight 2026-05-19):
+Phase 4 / honesty-pass follow-ups (landed 2026-05-19):
 
-The "ALL-DELIVERABLES-LANDED" line above hides a few sharp edges that
+The "ALL-DELIVERABLES-LANDED" line above hid a few sharp edges that
 the implementing agents flagged in code comments as `TODO`s.  An
-honesty-pass round addresses the most-impactful ones:
+honesty-pass round addressed the most-impactful ones (all five
+landed, 50+ new tests, 546 core + ~75 CLI subprocess green):
 
 1. **LSP positional accuracy** — `ExportedSymbol` gets `definitionLine`
    + `definitionColumn` fields populated by `InterfaceExtractor` from
