@@ -442,11 +442,12 @@ unblocks downstream features as early as possible.
      v1.17.1 hardening ✓ Landed; v1.17.2 SSE/JS ✓ Landed;
      v1.17.3 prompts/JVM ✓ Landed; v1.17.4-min Http/Ws/JVM (minimal
      wiring, echo placeholder) ✓ Landed; v1.17.4-runtime consolidation
-     Phase 1 (a + b + c) + Phase 2 (a + b + c + d + e — pure helpers
-     + POJO HTTP model + RequestBuilder / ResponseWriter /
+     Phase 1 (a + b + c) + Phase 2 (a + b + c + d + e + f — pure
+     helpers + POJO HTTP model + RequestBuilder / ResponseWriter /
      StreamResponseWriter + StaticAssetServer + WsHandshake /
-     Reassembler / RateLimiter + HttpDispatchLoop + WsFrameDispatch,
-     29 inlined files) ✓ Landed; v1.17.4 full (real
+     Reassembler / RateLimiter + HttpDispatchLoop + WsFrameDispatch
+     + HttpHelpers.parseCookieHeader/readHttpHead + TlsProxy
+     migration, 29 inlined files) ✓ Landed; v1.17.4 full (real
      `McpServerSession` dispatch + SDK import fixes) ✓ Landed (all
      2026-05-19).
      Anthropic's Model Context Protocol via REST-shaped API
@@ -3223,6 +3224,40 @@ the codegen output.
   WS dispatch") is the real win over raw LOC.
   `runtime-server-common` now packages **29** Scala files inlined
   into the codegen output.
+
+- **Phase 2f** — small dedup wins that the trait extractions in
+  2a–2e left around the edges.  Three sub-commits, no new files
+  in runtime-server-common — only new helpers on `HttpHelpers`:
+
+  | Helper | Replaces |
+  | --- | --- |
+  | `HttpHelpers.parseCookieHeader(raw)` | six copies of the same `raw.split(';')` trim+split=Map block across RequestBuilder / TlsProxy / WsProxy (×2) / serveRuntime (×2) |
+  | `HttpHelpers.readHttpHead(in)`       | byte-identical `prev3/prev2/prev1` sentinel loop in JvmGen `_readHttpHead` + interp `TlsProxy.readHttpHead` |
+
+  **Phase 2f-1** — `parseCookieHeader` consolidation; one canonical
+  Cookie parser left in the tree.  Local `TlsProxy.parseCookies`
+  helper deleted.  Net −36 LOC across the two backends, +12 LOC in
+  HttpHelpers.
+
+  **Phase 2f-2** — `readHttpHead` extraction.  Bonus dedup: the
+  local `TlsProxy.parseQuery` (byte-identical to
+  `HttpHelpers.parseQuery`) deleted and call sites switched to the
+  shared one.  Net −26 LOC.
+
+  **Phase 2f-3** — closes the last Phase 2d gap: `TlsProxy`'s
+  inline subprotocol negotiation + 101 Switching Protocols
+  response builder migrated to `WsHandshake.negotiateSubprotocol`
+  + `WsHandshake.upgradeResponse`, so all three WS upgrade paths
+  (TlsProxy, WsProxy, JvmGen) emit byte-identical wire bytes from
+  one source of truth.  In the same pass, the Request snapshot
+  used for the pre-upgrade auth hook and `ws.request` was being
+  built twice across the upgrade boundary even though the
+  headers / path / params / cookies don't change there — collapsed
+  to a single snapshot in each of the three upgrade sites.  Net
+  −56 LOC.
+
+  Phase 2f total: −74 LOC across the two backends, +37 LOC in
+  HttpHelpers (no new file count change in `runtime-server-common`).
 
 ### Deferred follow-ups (v1.17.x backlog, ordered by priority)
 
