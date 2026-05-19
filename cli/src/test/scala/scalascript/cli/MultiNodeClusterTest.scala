@@ -125,6 +125,11 @@ class MultiNodeClusterTest extends AnyFunSuite:
        |    val s = self()
        |    setReconnectPolicy(300, 1500)
        |    setAutoReelect(true)
+       |    // Tight heartbeat — 1.5 s ping, dead at >2.5 s of silence —
+       |    // so the failover test runs in ~10 s instead of 75+ s of
+       |    // the default 30/40 s cadence.  Production deployments
+       |    // should leave the defaults (or pick tens of seconds).
+       |    setHeartbeatTimeout(1500, 2500)
        |    sendAfter(800, s, "join")
        |    receive { case "join" =>
        |      $joinStmt
@@ -134,15 +139,10 @@ class MultiNodeClusterTest extends AnyFunSuite:
        |        sendAfter(2500, s, "rep1")
        |        receive { case "rep1" =>
        |          println("LEADER1:" + currentLeader())
-       |          // Allow plenty of time for: (a) external killer to
-       |          // SIGKILL the elected node, (b) heartbeat timeout to
-       |          // detect the loss (the heartbeat thread pings every
-       |          // 30 s and gives up at >40 s of silence — TCP RST
-       |          // alone doesn't reliably unblock the WS read, and
-       |          // worst-case age-since-last-pong = 60 s), (c) auto
-       |          // re-elect to pick a winner and propagate.  75 s
-       |          // gives the heartbeat path comfortable headroom.
-       |          sendAfter(75000, s, "rep2")
+       |          // Heartbeat tuned to 1.5 / 2.5 s above — survivors
+       |          // detect the killed leader and re-elect within ~5 s.
+       |          // 12 s budget here gives headroom for slow CI.
+       |          sendAfter(12000, s, "rep2")
        |          receive { case "rep2" =>
        |            println("LEADER2:" + currentLeader())
        |            stop()
@@ -293,10 +293,11 @@ class MultiNodeClusterTest extends AnyFunSuite:
       info(s"killed leader $leaderId (idx=$killIdx)")
 
       // Wait for both survivors to settle and print LEADER2.
-      // Survivors print LEADER2 ~75 s after their initial LEADER1
-      // (sendAfter(75000) above) — bound the wait at 120 s.
+      // Survivors print LEADER2 ~12 s after their initial LEADER1
+      // (sendAfter(12000) above, with the tightened heartbeat) —
+      // bound the wait at 25 s.
       val survivorIdxs = nodeIds.indices.filter(_ != killIdx)
-      val deadline2 = System.currentTimeMillis() + 120_000L
+      val deadline2 = System.currentTimeMillis() + 25_000L
       def survivorTexts() = survivorIdxs.map(i =>
         scala.io.Source.fromFile(outFiles(i)).mkString
       )

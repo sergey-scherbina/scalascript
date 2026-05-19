@@ -34,6 +34,7 @@ exports:
   - leaderProtocol
   - leaderHistory
   - setReconnectPolicy
+  - setHeartbeatTimeout
   - requestGossip
   - ConfigChanged
   - clusterConfigSet
@@ -285,6 +286,13 @@ extern def setReconnectPolicy(initialMs: Long, maxMs: Long): Unit
 // thread — guards against a permanently-dead peer accumulating sockets
 // (and FDs) forever.  0 = no cap (legacy behaviour from the 2-arg form).
 extern def setReconnectPolicy(initialMs: Long, maxMs: Long, giveUpAfterMs: Long): Unit
+
+// Tune the per-link heartbeat cadence and dead-link threshold.
+// `intervalMs` is how often we ping a peer (default 30 000); the link
+// is treated as dead and `peerLost` fires once `deadAfterMs` (default
+// 40 000) elapses with no pong reply.  Lower both for sub-second
+// failure detection in low-latency clusters; raise for noisy WANs.
+extern def setHeartbeatTimeout(intervalMs: Long, deadAfterMs: Long): Unit
 
 // ─── Periodic gossip re-discovery (v1.23) ────────────────────────────────────
 
