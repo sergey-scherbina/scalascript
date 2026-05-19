@@ -4958,17 +4958,48 @@ worth a separate fix when somebody has cycles.
      fully collapses. Group key is `(indent, name)` so siblings at
      different depths don't accidentally merge.
 
-  Still pending for the v1.22 distributed-* tests:
-  - dep-block `receive { case … }` rewriting (the matcher-builder
-    in `emitExpr` doesn't fire on verbatim dep source — same root
-    cause as the bare actor names but harder because the rewrite
-    target is a runtime helper call, not a simple `Actor.<n>(…)`).
-  - dep-block `receiveWithTimeout(t) { case … }` (same — needs to
-    reach emitExpr).
-  - user-code `result.results.asInstanceOf[List[Int]]` failing on
-    `Any`-typed `val result = runDistributed(…)`. The JVM backend
-    emits `result: Any` for the val even though
-    `runDistributed: DistributedResult[Any]` is declared in the dep.
+  Further attempts 2026-05-19 (compile-clean, but runtime still blocked):
+  - `rewriteActorAstCallsInSource` — scalameta-based AST walk inside
+    dep blocks for shapes the string-regex can't handle: `pid ! msg`
+    (`Term.ApplyInfix.After_4_6_0`), `receive { case … }` and
+    `receiveWithTimeout(t) { case … }`. Splices computed
+    right-to-left from `pos.start/end` so offsets stay valid. Source
+    parses tried first, then Term-fallback so block-shaped case
+    bodies also walk. Tuple-arg `pid ! (a, b)` is reconstructed
+    syntactically because Scala parses it as 2-arg infix, not as a
+    tuple send.
+  - `emitReceiveMatcherOpt(cases, cpsBody)` — the dep path passes
+    `cpsBody = false` and recursively rewrites each case body via
+    `qualifyBareActorCallsInSource`, otherwise the outer receive's
+    splice clobbers inner `Actor.send(…)` rewrites.
+  - `emitCpsBindWithType` — widens typed lambda to `Any => Any` so
+    `_bind(rhs, (x: T) => …)` accepts user-side typed vals. Without
+    this the user-code workaround `val result: DistributedResult[…]
+    = runDistributed(…)` won't compile.
+
+  With those three plus the earlier layers, `distributed-map.ssc`
+  compiles cleanly (was 27 errors → 0). But it now fails at runtime
+  with `ClassCastException: _Perform cannot be cast to String` at
+  `val jobId: String = Random.uuid().asInstanceOf[String]` in the
+  dep. Root cause is **architectural**: dep code is emitted as
+  regular Scala, but all actor/effect primitives (`Random.uuid()`,
+  `Actor.self()`, `Actor.link()`, `pid ! msg`, `receive { … }`)
+  produce `_Perform` Free-monad nodes that only mean anything inside
+  a CPS chain. User code goes through the CPS rewriter that wraps
+  these in `_bind`; dep code does not. So the dep gets `_Perform`
+  values back and uses them as raw values → CCE the first time one
+  is read, dropped silently the rest of the time.
+
+  Fixing this properly requires CPS-rewriting dep function bodies
+  that call effect primitives — essentially porting the user-code
+  rewriter onto dep blocks. Earlier attempt at that (see "reverted"
+  paragraph above) was too broad and regressed `info.links`. A
+  tighter dep-mode predicate is needed (only wrap calls whose
+  callee is in the effect-primitive set), plus deciding how dep
+  functions advertise their async-ness to callers (return type
+  becomes `_Perform`, callers' user-code `_bind` already handles
+  the wait). Estimated 2–3 days of careful work — not a one-pass
+  fix. Track in v2.x or a dedicated `feature/dep-cps` branch.
 
 - **WS test cross-suite isolation goes through a process-global
   `WsRoutes` table + `WsTestLock` monitor.**  Works, but the lock
