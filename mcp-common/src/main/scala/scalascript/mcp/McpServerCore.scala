@@ -39,6 +39,27 @@ class McpServerBuilder:
   private[mcp] val subscribedResources =
     java.util.concurrent.ConcurrentHashMap.newKeySet[String]()
 
+  // v1.17.x — cancellation.  Each in-flight request (tools/call, etc.)
+  // registers its id → AtomicBoolean(false) in `inflightCancel` for
+  // the duration of handler execution.  `notifications/cancelled` with
+  // `params.requestId` flips the matching flag to true; the user's
+  // handler can poll `srv.isCancelled` (which reads currentReqIdTL +
+  // looks up the flag) to bail out cooperatively.  MCP cancellation
+  // is cooperative — the server may honour or ignore.
+  private[mcp] val inflightCancel =
+    java.util.concurrent.ConcurrentHashMap[Long, java.util.concurrent.atomic.AtomicBoolean]()
+  private[mcp] val currentReqIdTL: ThreadLocal[java.lang.Long] = new ThreadLocal[java.lang.Long]()
+
+  /** Returns true iff the currently-executing handler's request has been
+   *  cancelled via `notifications/cancelled`.  Read this at safe points
+   *  inside long-running tool handlers and return early when set. */
+  def isCancelled: Boolean =
+    val id = currentReqIdTL.get()
+    if id == null then false
+    else
+      val flag = inflightCancel.get(id.longValue())
+      flag != null && flag.get()
+
   /** Active server→client subscribers — one per persistent connection.
    *  Stdio/Spawn keep exactly one (the writer captured by `serve()`); Ws
    *  adds/removes one per WS connection.  HTTP request/response transport
@@ -227,10 +248,12 @@ object McpServerCore:
                 // server-initiated `srv.request(...)`.  Route into the
                 // server-side pending map so the caller unblocks.
                 builder.routeInboundResponse(resp)
-              case Right(JsonRpc.Message.Notification(m, _))  =>
+              case Right(JsonRpc.Message.Notification(m, p))  =>
                 if m == McpProtocol.Method.Initialized && !initialized then
                   initialized = true
                   try builder.onConnected() catch case _: Throwable => ()
+                else if m == McpProtocol.Method.Cancelled then
+                  routeCancelled(builder, p)
               case Right(JsonRpc.Message.Request(method, params, id)) =>
                 write(dispatch(builder, method, params, id, serverName, serverVersion))
       try builder.onDisconnected() catch case _: Throwable => ()
@@ -255,11 +278,13 @@ object McpServerCore:
       case Left(err) =>
         // Per JSON-RPC: parse errors return a response with id=null.
         JsonRpc.encodeError(ujson.Null, JsonRpc.ErrorCode.ParseError, err)
-      case Right(JsonRpc.Message.Notification(method, _)) =>
+      case Right(JsonRpc.Message.Notification(method, params)) =>
         // Spec-mandated initialized notification fires the connected hook
         // once per "session"; for HTTP, "session" = first notif we see.
         if method == McpProtocol.Method.Initialized then
           try builder.onConnected() catch case _: Throwable => ()
+        else if method == McpProtocol.Method.Cancelled then
+          routeCancelled(builder, params)
         ""
       case Right(resp: JsonRpc.Message.Response) =>
         // v1.17.x bidirectional sampling over HTTP: a client may POST a
@@ -339,16 +364,18 @@ object McpServerCore:
           builder.tools.get(name) match
             case None => JsonRpc.encodeError(id, JsonRpc.ErrorCode.MethodNotFound, s"unknown tool: $name")
             case Some(reg) =>
-              try
-                val result = reg.handler(args)
-                JsonRpc.encodeResult(id, McpProtocol.toolsCallResult(result.content, result.isError))
-              catch case e: Throwable =>
-                // Handler threw — wrap the message into an isError=true result so
-                // the client surfaces it like the JS/JVM SDKs do.
-                JsonRpc.encodeResult(id, McpProtocol.toolsCallResult(
-                  List(McpProtocol.textContent(Option(e.getMessage).getOrElse(e.getClass.getSimpleName))),
-                  isError = true
-                ))
+              withCancelTracking(builder, id) {
+                try
+                  val result = reg.handler(args)
+                  JsonRpc.encodeResult(id, McpProtocol.toolsCallResult(result.content, result.isError))
+                catch case e: Throwable =>
+                  // Handler threw — wrap the message into an isError=true result so
+                  // the client surfaces it like the JS/JVM SDKs do.
+                  JsonRpc.encodeResult(id, McpProtocol.toolsCallResult(
+                    List(McpProtocol.textContent(Option(e.getMessage).getOrElse(e.getClass.getSimpleName))),
+                    isError = true
+                  ))
+              }
 
   private def readResource(builder: McpServerBuilder, params: ujson.Value, id: ujson.Value): String =
     params.objOpt match
@@ -359,12 +386,42 @@ object McpServerCore:
           builder.resources.get(uri) match
             case None => JsonRpc.encodeError(id, JsonRpc.ErrorCode.MethodNotFound, s"unknown resource: $uri")
             case Some(reg) =>
-              try
-                val result = reg.handler(uri)
-                JsonRpc.encodeResult(id, McpProtocol.resourcesReadResult(result.contents))
-              catch case e: Throwable =>
-                JsonRpc.encodeError(id, JsonRpc.ErrorCode.InternalError,
-                  Option(e.getMessage).getOrElse(e.getClass.getSimpleName))
+              withCancelTracking(builder, id) {
+                try
+                  val result = reg.handler(uri)
+                  JsonRpc.encodeResult(id, McpProtocol.resourcesReadResult(result.contents))
+                catch case e: Throwable =>
+                  JsonRpc.encodeError(id, JsonRpc.ErrorCode.InternalError,
+                    Option(e.getMessage).getOrElse(e.getClass.getSimpleName))
+              }
+
+  /** Find the in-flight entry matching `params.requestId` and set its
+   *  cancel flag.  Best-effort: unknown / completed ids are silently
+   *  ignored — matches the spec's "cancellation may not arrive in time". */
+  private def routeCancelled(builder: McpServerBuilder, params: ujson.Value): Unit =
+    params.objOpt.flatMap(_.get("requestId")).flatMap(_.numOpt).map(_.toLong) match
+      case Some(id) =>
+        val flag = builder.inflightCancel.get(id)
+        if flag != null then flag.set(true)
+      case None => ()
+
+  /** Run a tool/resource/prompt handler with cancellation plumbing wired
+   *  in.  Reads the numeric id off the JSON-RPC frame, registers a cancel
+   *  flag, threads the id into `currentReqIdTL`, runs `body`, and tears
+   *  the entry down regardless of outcome. */
+  private inline def withCancelTracking[A](
+    builder: McpServerBuilder,
+    id:      ujson.Value
+  )(body: => A): A =
+    val numId = id.numOpt.map(_.toLong)
+    numId.foreach { n =>
+      builder.inflightCancel.put(n, new java.util.concurrent.atomic.AtomicBoolean(false))
+      builder.currentReqIdTL.set(java.lang.Long.valueOf(n))
+    }
+    try body
+    finally
+      numId.foreach { n => builder.inflightCancel.remove(n) }
+      builder.currentReqIdTL.remove()
 
   private def subscribeResource(builder: McpServerBuilder, params: ujson.Value, id: ujson.Value): String =
     params.objOpt.flatMap(_.get("uri").flatMap(_.strOpt)) match
@@ -394,12 +451,14 @@ object McpServerCore:
           builder.prompts.get(name) match
             case None => JsonRpc.encodeError(id, JsonRpc.ErrorCode.MethodNotFound, s"unknown prompt: $name")
             case Some(reg) =>
-              try
-                val result = reg.handler(args)
-                JsonRpc.encodeResult(id, McpProtocol.promptsGetResult(result.description, result.messages))
-              catch case e: Throwable =>
-                JsonRpc.encodeError(id, JsonRpc.ErrorCode.InternalError,
-                  Option(e.getMessage).getOrElse(e.getClass.getSimpleName))
+              withCancelTracking(builder, id) {
+                try
+                  val result = reg.handler(args)
+                  JsonRpc.encodeResult(id, McpProtocol.promptsGetResult(result.description, result.messages))
+                catch case e: Throwable =>
+                  JsonRpc.encodeError(id, JsonRpc.ErrorCode.InternalError,
+                    Option(e.getMessage).getOrElse(e.getClass.getSimpleName))
+              }
 
   private def invalidParams(id: ujson.Value, msg: String): String =
     JsonRpc.encodeError(id, JsonRpc.ErrorCode.InvalidParams, msg)

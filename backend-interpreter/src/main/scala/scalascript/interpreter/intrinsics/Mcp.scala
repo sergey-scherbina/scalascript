@@ -506,6 +506,13 @@ private object Mcp:
       Computation.pureFn { _ => builder.notifyResourcesListChanged(); Value.UnitV })
     def notifyPromptsLCFn = Value.NativeFnV("McpServer.notifyPromptsListChanged",
       Computation.pureFn { _ => builder.notifyPromptsListChanged(); Value.UnitV })
+    // v1.17.x — cancellation.  Long-running tool handlers poll
+    // `srv.isCancelled` at safe points and return early (typically with
+    // an isError=true ToolResult) when the client has sent
+    // notifications/cancelled for the current request.  MCP cancellation
+    // is cooperative — honoring it is up to the handler.
+    def isCancelledFn = Value.NativeFnV("McpServer.isCancelled",
+      Computation.pureFn { _ => Value.BoolV(builder.isCancelled) })
     // v1.17.x — server-initiated notifications.  `srv.notify(method, params)`
     // broadcasts a JSON-RPC notification frame to every currently-active
     // subscriber (Stdio/Spawn: one writer; Ws: one per connected client;
@@ -548,6 +555,7 @@ private object Mcp:
       "notifyToolsListChanged"        -> notifyToolsLCFn,
       "notifyResourcesListChanged"    -> notifyResourcesLCFn,
       "notifyPromptsListChanged"      -> notifyPromptsLCFn,
+      "isCancelled"                   -> isCancelledFn,
       "onConnected"            -> onConnFn,
       "onDisconnected"         -> onDisconnFn,
       "onResourceSubscribe"    -> onResSubFn,

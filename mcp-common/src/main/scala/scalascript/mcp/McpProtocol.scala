@@ -33,6 +33,7 @@ object McpProtocol:
     val PromptsList           = "prompts/list"
     val PromptsGet            = "prompts/get"
     val PromptsListChanged    = "notifications/prompts/list_changed"
+    val Cancelled             = "notifications/cancelled"
 
   /** Protocol version we advertise.  MCP spec uses a date-stamped version
    *  string; bump when we add notification/sampling/etc. support. */
