@@ -18,38 +18,18 @@ service deployments prefer **RS256** (RSA-SHA256):
   - The shared secret is gone — compromising one RS doesn't compromise
     the AS
 
-This example shows how to wire RSA signing.  Inspect the JWT after
-launch:
-
-```bash
-curl http://localhost:8080/.well-known/jwks.json
-# {"keys":[{"kty":"RSA","use":"sig","alg":"RS256","kid":"prod-key-1","n":"...","e":"AQAB"}]}
-
-TOKEN=$(curl -s -X POST http://localhost:8080/token \
-  -d 'grant_type=client_credentials&client_id=svc&client_secret=svc-secret&scope=read' \
-  | jq -r .access_token)
-
-# Decode the header — alg is RS256, kid points at the JWKS entry
-echo $TOKEN | cut -d. -f1 | base64 -d
-```
-
-Note: this example uses the JVM-only intrinsic side via Scala embedding.
-For pure-script use today, instantiate the AS through `oauth.authServer`
-and let the default HS256 signer apply; the RSA pathway is exercised
-from Scala test code (`OAuthRsaJwksTest`).  A future script intrinsic
-for `oauth.rsaAuthServer(...)` is queued.
+Pass `signer: "RS256"` in the config and a fresh 2048-bit RSA key pair
+is generated automatically.  `signingKid` (optional) sets the JWT
+header `kid` claim + the JWKS entry id so clients can pick the right
+key when you rotate.
 
 ```scalascript
-// HMAC-mode AS for now — RSA AS configuration exposed at the
-// Scala API level (`new AuthServer(cfg, customSigner = Some(
-// OAuth.RsaTokenSigner.generate("prod-key-1")))`).  See
-// docs/oauth.md for the JVM-side recipe + a step-by-step migration
-// path from HS256 to RS256.
-
 val as = oauth.authServer(Map(
   "issuer"        -> "http://localhost:8080",
-  "signingSecret" -> "interim-hmac-secret",
-  "scopes"        -> List("read")
+  "signingSecret" -> "unused-with-rsa-but-still-required-by-config-shape",
+  "scopes"        -> List("read"),
+  "signer"        -> "RS256",
+  "signingKid"    -> "prod-key-1"
 ))
 
 val client = as.registerClient(Map(
@@ -57,11 +37,42 @@ val client = as.registerClient(Map(
   "grant_types"   -> List("client_credentials"),
   "scope"         -> "read"
 ))
-println("client_id: " + client("client_id"))
+println("client_id: "     + client("client_id"))
 println("client_secret: " + client("client_secret"))
 
 oauth.serveAuthServer(as)
 
-println("OAuth AS ready on http://localhost:8080")
+println("OAuth AS (RS256) ready on http://localhost:8080")
+println("JWKS: http://localhost:8080/.well-known/jwks.json")
+println("Discovery: http://localhost:8080/.well-known/oauth-authorization-server")
 serve(8080)
 ```
+
+Inspect the AS after launch:
+
+```bash
+# JWKS publishes the public key (with kid=prod-key-1)
+curl http://localhost:8080/.well-known/jwks.json
+# {"keys":[{"kty":"RSA","use":"sig","alg":"RS256","kid":"prod-key-1","n":"...","e":"AQAB"}]}
+
+# Metadata advertises jwks_uri + RS256
+curl http://localhost:8080/.well-known/oauth-authorization-server | jq .
+
+# Mint a token via client_credentials
+TOKEN=$(curl -s -X POST http://localhost:8080/token \
+  -d "grant_type=client_credentials&client_id=<id>&client_secret=<sec>&scope=read" \
+  | jq -r .access_token)
+
+# Decode the JWT header — alg=RS256, kid=prod-key-1
+echo $TOKEN | cut -d. -f1 | base64 -d
+```
+
+Resource servers validate via the JWKS:
+
+  1. Fetch `/.well-known/jwks.json`
+  2. Find the entry whose `kid` matches the token's header `kid`
+  3. Construct a public key from `n` + `e`
+  4. Verify the signature with `Signature.getInstance("SHA256withRSA")`
+
+The OIDC `id_token` is automatically RS256-signed too when the AS uses
+an RSA signer — `oidc.server(as)` reuses the same signing key.
