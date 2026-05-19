@@ -199,115 +199,65 @@ object WebServer:
       ex:     HttpExchange
   ): Unit =
     import scalascript.interpreter.Value
-    val query = parseQuery(Option(ex.getRequestURI.getRawQuery).getOrElse(""))
-    // Lowercase keys for portable lookup — Node's req.headers is already
-    // lowercased, the WS path (WsProxy / JvmGen WS handshake) also uses
-    // lowercase ("upgrade", "cookie", "sec-websocket-key", …), so REST
-    // matches.  Existing handlers that do `headers.get("authorization") ||
-    // headers.get("Authorization")` still find the value via the first
-    // arm.
-    val headers: Map[Value, Value] =
-      ex.getRequestHeaders.entrySet.iterator.asScala.flatMap { e =>
-        if e.getValue.isEmpty then None
-        else Some(Value.StringV(e.getKey.toLowerCase) -> Value.StringV(e.getValue.get(0)))
-      }.toMap
-    // Read the body as raw bytes (the only byte-clean source for multipart
-    // file parts).  `req.body` exposes the UTF-8 view for back-compat; the
-    // parsers below see a Latin-1 view that is byte-equivalent and works
-    // with String operations.
-    val _clHdr = Option(ex.getRequestHeaders.getFirst("Content-Length"))
-      .flatMap(s => scala.util.Try(s.toLong).toOption).getOrElse(0L)
-    if _clHdr > _maxBodySizeBytes then
-      val _msg = "Request Entity Too Large".getBytes("UTF-8")
-      ex.sendResponseHeaders(413, _msg.length.toLong)
-      ex.getResponseBody.write(_msg)
-      return
-    val bodyBytes  = ex.getRequestBody.readAllBytes()
-    if bodyBytes.length.toLong > _maxBodySizeBytes then
-      val _msg = "Request Entity Too Large".getBytes("UTF-8")
-      ex.sendResponseHeaders(413, _msg.length.toLong)
-      ex.getResponseBody.write(_msg)
-      return
-    val body       = new String(bodyBytes, "UTF-8")
-    val bodyLatin1 = new String(bodyBytes, "ISO-8859-1")
-    val contentType = headers.collectFirst {
-      case (Value.StringV(k), Value.StringV(v)) if k.equalsIgnoreCase("Content-Type") => v
-    }.getOrElse("")
-    // Eagerly parse a few common form encodings so `req.form("name")` works
-    // without the handler having to know the encoding.  Other bodies surface
-    // as an empty map; handlers can still read the raw `req.body`.
-    //   - application/x-www-form-urlencoded  → key=value&… via parseQuery
-    //   - multipart/form-data; boundary=…    → text parts to req.form,
-    //                                          file parts to req.files
-    val ctLower = contentType.toLowerCase
-    val (form, files, _spooledTmps): (Map[String, String], Map[String, Value], List[java.io.File]) =
-      if ctLower.startsWith("application/x-www-form-urlencoded") then
-        (parseQuery(body), Map.empty[String, Value], Nil)
-      else if ctLower.startsWith("multipart/form-data") then
-        parseMultipart(contentType, bodyLatin1)
-      else
-        (Map.empty[String, String], Map.empty[String, Value], Nil)
-    val cookieHeader = headers.collectFirst {
-      case (Value.StringV(k), Value.StringV(v)) if k.equalsIgnoreCase("Cookie") => v
-    }.getOrElse("")
-    val rawCookieSession =
-      if cookieHeader.isEmpty then Map.empty[String, String]
-      else SessionCookie.fromHeader(cookieHeader).getOrElse(Map.empty)
-    // Generic cookie map for handler convenience (parallels the
-    // WS-side `ws.request.cookies`).  Separate from the signed
-    // `session` map above.
-    val cookies: Map[String, String] =
-      if cookieHeader.isEmpty then Map.empty
-      else cookieHeader.split(';').iterator.flatMap { pair =>
-        val t = pair.trim
-        val i = t.indexOf('=')
-        if i < 0 then None else Some(t.substring(0, i).trim -> t.substring(i + 1).trim)
-      }.toMap
-    // In store mode the cookie payload is just `{"_ssid": "..."}`; we
-    // dereference the SSID against the in-memory store and surface the
-    // full payload to the handler.  In stateless mode the cookie *is*
-    // the payload.
-    val session: Map[String, String] =
-      if SessionStore.isEnabled then
-        rawCookieSession.get("_ssid").flatMap(SessionStore.get).getOrElse(Map.empty)
-      else rawCookieSession
-    val authHeader = headers.collectFirst {
-      case (Value.StringV(k), Value.StringV(v)) if k.equalsIgnoreCase("Authorization") => v
-    }.getOrElse("")
-    val bearer  = Jwt.fromAuthHeader(authHeader)
-    val claims  = bearer.flatMap(Jwt.verify)
-    // HTTP Basic: Authorization: Basic <b64(user:password)>
-    val basicAuth: Option[(String, String)] =
-      val t = authHeader.trim
-      if t.length < 6 || !t.substring(0, 6).equalsIgnoreCase("Basic ") then None
-      else
-        try
-          val decoded = String(java.util.Base64.getDecoder.decode(t.substring(6).trim), "UTF-8")
-          val colon   = decoded.indexOf(':')
-          if colon < 0 then None
-          else Some(decoded.substring(0, colon) -> decoded.substring(colon + 1))
-        catch case _: Throwable => None
+    // Parse the JDK HttpExchange through the shared RequestBuilder
+    // (runtime-server-common) so the interpreter and the codegen output
+    // emit byte-identical Requests for the same inputs.  413 on
+    // BodyTooLargeError is written here (the codegen side throws its
+    // local `_BodyTooLarge` to climb out of the dispatch loop).
+    val (pojoReq, rawCookieSession, _spooledTmps) =
+      try RequestBuilder.parse(
+        ex, ex.getRequestMethod, ex.getRequestURI.getPath, params,
+        RequestBuilder.Config(
+          maxBodySize         = _maxBodySizeBytes,
+          spoolThreshold      = _spoolThreshold,
+          uploadDir           = _uploadDir,
+          sessionStoreEnabled = SessionStore.isEnabled,
+          sessionStoreGet     = SessionStore.get,
+          jwtVerify           = Jwt.verify
+        )
+      )
+      catch case _: RequestBuilder.BodyTooLargeError =>
+        val msg = "Request Entity Too Large".getBytes("UTF-8")
+        ex.sendResponseHeaders(413, msg.length.toLong)
+        ex.getResponseBody.write(msg)
+        return
+
+    // Lift the POJO Request into the `Value.InstanceV("Request", …)`
+    // shape user-defined route handlers expect.  `files` carry the
+    // shared POJO `UploadedFile` records, which need their own
+    // wrap into `Value.InstanceV("UploadedFile", …)`.
     val req = Value.InstanceV("Request", Map(
-      "method"  -> Value.StringV(ex.getRequestMethod),
-      "path"    -> Value.StringV(ex.getRequestURI.getPath),
-      "params"  -> Value.MapV(params.map((k, v) => Value.StringV(k) -> Value.StringV(v))),
-      "query"   -> Value.MapV(query.map((k, v) => Value.StringV(k) -> Value.StringV(v))),
-      "headers" -> Value.MapV(headers),
-      "body"    -> Value.StringV(body),
+      "method"  -> Value.StringV(pojoReq.method),
+      "path"    -> Value.StringV(pojoReq.path),
+      "params"  -> Value.MapV(pojoReq.params.map((k, v) => Value.StringV(k) -> Value.StringV(v))),
+      "query"   -> Value.MapV(pojoReq.query.map((k, v) => Value.StringV(k) -> Value.StringV(v))),
+      "headers" -> Value.MapV(pojoReq.headers.map((k, v) => Value.StringV(k) -> Value.StringV(v))),
+      "body"    -> Value.StringV(pojoReq.body),
       // Lenient `req.json` — Some(parsed) on success, None on parse
-      // failure or empty body.  Handlers decide whether to short-
-      // circuit (Response.status(400)) or proceed.
-      "json"    -> Value.OptionV(if body.isEmpty then None else scalascript.interpreter.JsonParser.parseOption(body)),
-      "form"    -> Value.MapV(form.map((k, v) => Value.StringV(k) -> Value.StringV(v))),
-      "files"   -> Value.MapV(files.map((k, v) => Value.StringV(k) -> v)),
-      "session" -> Value.MapV(session.map((k, v) => Value.StringV(k) -> Value.StringV(v))),
-      "cookies" -> Value.MapV(cookies.map((k, v) => Value.StringV(k) -> Value.StringV(v))),
-      "bearerToken" -> bearer.map(t => Value.OptionV(Some(Value.StringV(t))))
+      // failure or empty body.
+      "json"    -> Value.OptionV(
+        if pojoReq.body.isEmpty then None
+        else scalascript.interpreter.JsonParser.parseOption(pojoReq.body)
+      ),
+      "form"    -> Value.MapV(pojoReq.form.map((k, v) => Value.StringV(k) -> Value.StringV(v))),
+      "files"   -> Value.MapV(pojoReq.files.map { case (k, f) =>
+        Value.StringV(k) -> Value.InstanceV("UploadedFile", Map(
+          "name"        -> Value.StringV(f.name),
+          "filename"    -> Value.StringV(f.filename),
+          "contentType" -> Value.StringV(f.contentType),
+          "size"        -> Value.IntV(f.size),
+          "bytes"       -> Value.StringV(f.bytes),
+          "path"        -> Value.StringV(f.path)
+        ))
+      }),
+      "session" -> Value.MapV(pojoReq.session.map((k, v) => Value.StringV(k) -> Value.StringV(v))),
+      "cookies" -> Value.MapV(pojoReq.cookies.map((k, v) => Value.StringV(k) -> Value.StringV(v))),
+      "bearerToken" -> pojoReq.bearerToken.map(t => Value.OptionV(Some(Value.StringV(t))))
         .getOrElse(Value.OptionV(None)),
-      "jwtClaims"   -> claims.map(c =>
+      "jwtClaims"   -> pojoReq.jwtClaims.map(c =>
           Value.OptionV(Some(Value.MapV(c.map((k, v) => Value.StringV(k) -> Value.StringV(v))))))
         .getOrElse(Value.OptionV(None)),
-      "basicAuth"   -> basicAuth.map((u, p) =>
+      "basicAuth"   -> pojoReq.basicAuth.map((u, p) =>
           Value.OptionV(Some(Value.TupleV(List(Value.StringV(u), Value.StringV(p))))))
         .getOrElse(Value.OptionV(None))
     ))
@@ -453,42 +403,10 @@ object WebServer:
    *  `application/octet-stream`. */
   private def contentTypeFor(name: String): String = HttpHelpers.contentTypeFor(name)
 
-  /** Parse `multipart/form-data` into text + file parts.
-   *
-   *  `bodyLatin1` is the request body decoded as ISO-8859-1, where each
-   *  Java char is byte-equivalent to the original input byte — boundary
-   *  matching and part splitting therefore work byte-exactly on Strings.
-   *
-   *  Text parts (no `filename=`) become String values in `form`, UTF-8
-   *  decoded from their byte representation.
-   *
-   *  File parts (with `filename=`) become an `UploadedFile` instance in
-   *  `files`, where `bytes` is the raw part body still in its Latin-1
-   *  String form.  Round-trip back to bytes with `bytes.getBytes("ISO-8859-1")`.
-   */
-  /** Bridge from the POJO `Multipart.parse` (in runtime-server-common) to
-   *  the interpreter's `Value` model.  The actual MIME / boundary / spool
-   *  logic is in `Multipart` — this just lifts the resulting
-   *  `UploadedFile` records into `Value.InstanceV`. */
-  private def parseMultipart(
-      contentType: String,
-      bodyLatin1:  String
-  ): (Map[String, String], Map[String, scalascript.interpreter.Value], List[java.io.File]) =
-    import scalascript.interpreter.Value
-    val (form, pojoFiles, spooled) = Multipart.parse(contentType, bodyLatin1, _spoolThreshold, _uploadDir)
-    val files = pojoFiles.map { case (k, f) =>
-      k -> Value.InstanceV("UploadedFile", Map(
-        "name"        -> Value.StringV(f.name),
-        "filename"    -> Value.StringV(f.filename),
-        "contentType" -> Value.StringV(f.contentType),
-        "size"        -> Value.IntV(f.size),
-        "bytes"       -> Value.StringV(f.bytes),
-        "path"        -> Value.StringV(f.path)
-      ))
-    }
-    (form, files, spooled)
-
-  private def parseQuery(q: String): Map[String, String] = HttpHelpers.parseQuery(q)
+  // `parseMultipart` and `parseQuery` (previously local Value-bridge
+  // wrappers) collapsed into `RequestBuilder.parse` — see `dispatchRoute`
+  // above for the single call site that now does the POJO → Value lift
+  // inline on the `pojoReq.files` map.
 
   private def resolveSsc(root: String, urlPath: String): String =
     val clean = urlPath.stripSuffix("/").stripSuffix(".ssc")

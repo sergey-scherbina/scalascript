@@ -2651,7 +2651,8 @@ class JvmGen(
       "RateLimit", "Password", "Totp", "Jwt", "JwtRsa",
       "SessionCookie", "SessionStore", "OAuth", "WebAuthn",
       "UploadedFile", "HttpHelpers", "Multipart", "TlsContextBuilder",
-      "CorsHelpers", "HttpModel", "BasicAuth", "ResponseWriter"
+      "CorsHelpers", "HttpModel", "BasicAuth", "ResponseWriter",
+      "RequestBuilder"
     )
     val header =
       "\n// ── runtime-server-common (inlined from classpath resources) ──────────\n" +
@@ -3378,60 +3379,20 @@ class JvmGen(
        |      .nextOption()
        |    matched match
        |      case Some((r, params)) =>
-       |        import scala.jdk.CollectionConverters.*
-       |        // Lowercase keys for portable lookup — matches Node's
-       |        // `req.headers` and the WS handshake convention.
-       |        val headers = ex.getRequestHeaders.entrySet.iterator.asScala.flatMap { e =>
-       |          if e.getValue.isEmpty then None
-       |          else Some(e.getKey.toLowerCase -> e.getValue.get(0))
-       |        }.toMap
-       |        // Body size guard — reject before buffering when Content-Length is known.
-       |        val _clHdr = try Option(ex.getRequestHeaders.getFirst("Content-Length")).map(_.toLong).getOrElse(0L) catch case _: Throwable => 0L
-       |        if _clHdr > _maxBodySizeBytes then throw _BodyTooLarge()
-       |        // Read body as bytes so multipart file parts round-trip byte-exact.
-       |        // `body` is the UTF-8 view (back-compat); `bodyLatin1` is a
-       |        // byte-equivalent String for multipart parsing.
-       |        val bodyBytes  = ex.getRequestBody.readAllBytes()
-       |        if bodyBytes.length.toLong > _maxBodySizeBytes then throw _BodyTooLarge()
-       |        val body       = new String(bodyBytes, "UTF-8")
-       |        val bodyLatin1 = new String(bodyBytes, "ISO-8859-1")
-       |        val ct   = headers.collectFirst {
-       |          case (k, v) if k.equalsIgnoreCase("Content-Type") => v
-       |        }.getOrElse("")
-       |        val (form, files, _spooledTmps) =
-       |          if ct.toLowerCase.startsWith("application/x-www-form-urlencoded") then
-       |            (_parseQuery(body), Map.empty[String, UploadedFile], Nil)
-       |          else if ct.toLowerCase.startsWith("multipart/form-data") then
-       |            _parseMultipart(ct, bodyLatin1)
-       |          else
-       |            (Map.empty[String, String], Map.empty[String, UploadedFile], Nil)
-       |        val cookieHeader = headers.collectFirst {
-       |          case (k, v) if k.equalsIgnoreCase("Cookie") => v
-       |        }.getOrElse("")
-       |        val rawCookieSession = _parseCookieSession(cookieHeader)
-       |        // Generic cookie map for handler convenience (parallels
-       |        // the WS-side `ws.request.cookies`).  Separate from the
-       |        // signed `session` map above.
-       |        val cookies: Map[String, String] =
-       |          if cookieHeader.isEmpty then Map.empty
-       |          else cookieHeader.split(';').iterator.flatMap { pair =>
-       |            val t = pair.trim
-       |            val i = t.indexOf('=')
-       |            if i < 0 then None else Some(t.substring(0, i).trim -> t.substring(i + 1).trim)
-       |          }.toMap
-       |        val session =
-       |          if _sessionStoreEnabled then
-       |            rawCookieSession.get("_ssid").flatMap(_sessionStoreGet).getOrElse(Map.empty)
-       |          else rawCookieSession
-       |        val authHeader = headers.collectFirst {
-       |          case (k, v) if k.equalsIgnoreCase("Authorization") => v
-       |        }.getOrElse("")
-       |        val bearer    = _bearerFromAuth(authHeader)
-       |        val claims    = bearer.flatMap(jwtVerify)
-       |        val basicAuth = _basicFromAuth(authHeader)
-       |        val req  = Request(method, path, params,
-       |          _parseQuery(ex.getRequestURI.getRawQuery), headers, body,
-       |          form, files, session, bearer, claims, basicAuth, cookies)
+       |        // Parse the JDK HttpExchange into the shared POJO `Request` via
+       |        // RequestBuilder (inlined from runtime-server-common).  Per-server
+       |        // config — body cap, opt-in session store, JWT verify — flows in
+       |        // through the Config record's callbacks.
+       |        val (req, rawCookieSession, _spooledTmps) =
+       |          try RequestBuilder.parse(ex, method, path, params, RequestBuilder.Config(
+       |            maxBodySize         = _maxBodySizeBytes,
+       |            spoolThreshold      = _spoolThreshold,
+       |            uploadDir           = _uploadDir,
+       |            sessionStoreEnabled = _sessionStoreEnabled,
+       |            sessionStoreGet     = _sessionStoreGet,
+       |            jwtVerify           = jwtVerify
+       |          ))
+       |          catch case _: RequestBuilder.BodyTooLargeError => throw _BodyTooLarge()
        |        // Tier 5 #20 — validation primitives short-circuit by
        |        // throwing RestValidationError; convert to 400.
        |        // D′.2 — build middleware chain: first registered = outermost.
