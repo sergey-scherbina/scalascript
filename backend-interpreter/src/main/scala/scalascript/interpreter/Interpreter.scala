@@ -423,6 +423,7 @@ class Interpreter(
               peerUrls.put(peerNodeId, url)
               peerChannels.put(peerNodeId, { text => sess.sendText(text) })
               peerLastPong.put(peerNodeId, System.currentTimeMillis())
+              enqueueClusterEvent("NodeJoined", peerNodeId)
               // If joinCluster is active, request this peer's peer list.
               if joinMode then
                 try peerChannels.get(peerNodeId)(s"""{"t":"peers_req","from":${jsonStr(localNodeId)}}""")
@@ -452,6 +453,7 @@ class Interpreter(
               peerLastPong.remove(peerNodeId)
               peerUrls.remove(peerNodeId)
               nodeDownQueue.offer(peerNodeId)
+              enqueueClusterEvent("NodeLeft", peerNodeId, "disconnect")
               val t = schedulerThread; if t != null then t.interrupt()
       catch case e: Throwable =>
         out.println(s"connectNode error [$url]: ${e.getMessage}")
@@ -1271,6 +1273,15 @@ class Interpreter(
     globals("globalWhereis") = Value.NativeFnV("globalWhereis", {
       case List(Value.StringV(name)) => Perform("Actor", "globalWhereis", List(Value.StringV(name)))
       case _ => throw InterpretError("globalWhereis(name: String): Option[Pid]")
+    })
+    // v1.23 — cluster visibility
+    globals("clusterMembers") = Value.NativeFnV("clusterMembers", {
+      case Nil => Perform("Actor", "clusterMembers", Nil)
+      case _ => throw InterpretError("clusterMembers(): List[String]")
+    })
+    globals("subscribeClusterEvents") = Value.NativeFnV("subscribeClusterEvents", {
+      case Nil => Perform("Actor", "subscribeClusterEvents", Nil)
+      case _ => throw InterpretError("subscribeClusterEvents(): Unit")
     })
     // v1.6.x — scheduled sends
     globals("sendAfter") = Value.NativeFnV("sendAfter", {
@@ -4048,6 +4059,7 @@ class Interpreter(
 
       def hasWork = rt.ready.nonEmpty || rt.blocked.exists(_._2._4.isDefined) ||
                     !remoteInbox.isEmpty || !nodeDownQueue.isEmpty ||
+                    !clusterEventQueue.isEmpty ||
                     rt.timers.nonEmpty ||
                     (isDistributed && rt.blocked.nonEmpty)
 
@@ -4063,6 +4075,16 @@ class Interpreter(
         // Fire EXIT/Down for any nodes that just went down (heartbeat timeout or disconnect).
         while !nodeDownQueue.isEmpty do
           fireNodeDown(rt, nodeDownQueue.poll())
+        // v1.23 — deliver cluster events (NodeJoined/NodeLeft) to subscribers.
+        while !clusterEventQueue.isEmpty do
+          val ev = clusterEventQueue.poll()
+          val it = clusterEventSubs.iterator
+          while it.hasNext do
+            val aid = it.next().toLong
+            rt.mailboxes.get(aid).foreach { mb =>
+              mb.offer(ev)
+              wakeBlocked(rt, aid)
+            }
         // Fire scheduled sends whose deadline has passed.
         if rt.timers.nonEmpty then
           val nowMs = System.currentTimeMillis()
@@ -4443,6 +4465,7 @@ class Interpreter(
           wsSend(s"""{"nodeId":${jsonStr(localNodeId)}}""")
           peerChannels.put(pnId, wsSend)
           peerLastPong.put(pnId, System.currentTimeMillis())
+          enqueueClusterEvent("NodeJoined", pnId)
           // Heartbeat: ping every 30 s, drop if no pong for 40 s.
           val hbThread = Thread.ofVirtual().start { () =>
             try
@@ -4466,6 +4489,7 @@ class Interpreter(
           peerLastPong.remove(pnId)
           peerUrls.remove(pnId)
           nodeDownQueue.offer(pnId)
+          enqueueClusterEvent("NodeLeft", pnId, "disconnect")
           val t = schedulerThread; if t != null then t.interrupt()
         }
         Pure(Value.UnitV)
@@ -4534,6 +4558,18 @@ class Interpreter(
           case None      => Value.OptionV(None)
         Right(k(result))
       case _ => throw InterpretError("globalWhereis(name)")
+
+    // v1.23 — cluster visibility
+    case "clusterMembers" =>
+      val keys = peerChannels.keySet().iterator
+      val buf  = scala.collection.mutable.ListBuffer[Value]()
+      while keys.hasNext do buf += Value.StringV(keys.next())
+      Right(k(Value.ListV(buf.toList)))
+
+    case "subscribeClusterEvents" =>
+      val boxed = java.lang.Long.valueOf(id)
+      if !clusterEventSubs.contains(boxed) then clusterEventSubs.add(boxed)
+      Right(k(Value.UnitV))
 
     // v1.6.x — scheduled sends
     case "sendAfter" => args match

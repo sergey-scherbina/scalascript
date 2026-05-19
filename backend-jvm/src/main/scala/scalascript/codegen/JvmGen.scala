@@ -5708,6 +5708,7 @@ class JvmGen(
        |            _peerUrls.put(pnId, url)
        |            _peerChannels.put(pnId, sendFn)
        |            _peerLastPong.put(pnId, System.currentTimeMillis())
+       |            _fireClusterEvent("NodeJoined", pnId)
        |            if _joinMode then try sendFn("{\"t\":\"peers_req\",\"from\":" + _jstr(_localNodeId) + "}") catch case _: Throwable => ()
        |            val hbThread = Thread.ofVirtual().start { () =>
        |              try
@@ -5731,6 +5732,7 @@ class JvmGen(
        |            _peerLastPong.remove(pnId)
        |            _peerUrls.remove(pnId)
        |            _nodeDownQueue.offer(pnId)
+       |            _fireClusterEvent("NodeLeft", pnId, "disconnect")
        |      catch case e: Throwable => System.err.println("connectNode error [" + url + "]: " + e.getMessage)
        |    }
        |
@@ -6120,6 +6122,7 @@ class JvmGen(
        |            wsSend("{\"nodeId\":" + _jstr(_localNodeId) + "}")
        |            _peerChannels.put(pnId, wsSend)
        |            _peerLastPong.put(pnId, System.currentTimeMillis())
+       |            _fireClusterEvent("NodeJoined", pnId)
        |            val hbThread = Thread.ofVirtual().start { () =>
        |              try
        |                while _peerChannels.containsKey(pnId) do
@@ -6139,6 +6142,7 @@ class JvmGen(
        |            _peerLastPong.remove(pnId)
        |            _peerUrls.remove(pnId)
        |            _nodeDownQueue.offer(pnId)
+       |            _fireClusterEvent("NodeLeft", pnId, "disconnect")
        |      }
        |      Right(k(()))
        |    case "connectNode" =>
@@ -6179,6 +6183,15 @@ class JvmGen(
        |      val gwName = args(0).toString
        |      val result = Option(_globalRegistry.get(gwName))
        |      Right(k(result))
+       |    // v1.23 — cluster visibility
+       |    case "clusterMembers" =>
+       |      val buf = scala.collection.mutable.ListBuffer.empty[String]
+       |      _peerChannels.keySet().forEach(k0 => buf += k0)
+       |      Right(k(buf.toList))
+       |    case "subscribeClusterEvents" =>
+       |      val boxed = java.lang.Long.valueOf(id)
+       |      if !_clusterEventSubs.contains(boxed) then _clusterEventSubs.add(boxed)
+       |      Right(k(()))
        |    // v1.6.x — scheduled sends
        |    case "sendAfter" =>
        |      val delayMs  = args(0).asInstanceOf[Long]
@@ -6263,6 +6276,7 @@ class JvmGen(
        |
        |  while ready.nonEmpty ||
        |        !_nodeDownQueue.isEmpty ||
+       |        !_clusterEventQueue.isEmpty ||
        |        _timers.nonEmpty ||
        |        actors.exists { (_, st) => st != null && st.blocked != null && st.blocked._3.isDefined } ||
        |        (_isDistributed && actors.nonEmpty && actors.exists { (_, st) => st != null && st.blocked != null })
@@ -6277,6 +6291,22 @@ class JvmGen(
        |    // Drain node-down notifications
        |    while !_nodeDownQueue.isEmpty do
        |      _fireNodeDown(_nodeDownQueue.poll())
+       |    // v1.23 — deliver cluster events to subscribers.
+       |    while !_clusterEventQueue.isEmpty do
+       |      val _ev = _clusterEventQueue.poll()
+       |      val _tag    = _ev("tag")
+       |      val _nid    = _ev("nodeId")
+       |      val _reason = _ev("reason")
+       |      val _msg: Any =
+       |        if _tag == "NodeJoined" then NodeJoined(_nid)
+       |        else NodeLeft(_nid, _reason)
+       |      val _it = _clusterEventSubs.iterator
+       |      while _it.hasNext do
+       |        val _aid = _it.next().longValue()
+       |        actors.get(_aid).foreach { ts =>
+       |          ts.mailbox.offer(_msg)
+       |          tryWakeBlocked(_aid)
+       |        }
        |    // Fire scheduled sends whose deadline has passed.
        |    if _timers.nonEmpty then
        |      val _nowMs = System.currentTimeMillis()

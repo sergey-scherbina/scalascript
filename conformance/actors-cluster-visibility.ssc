@@ -1,0 +1,18 @@
+---
+backends: [interpreter]
+description: "v1.23 — clusterMembers + subscribeClusterEvents: single-node snapshot"
+---
+
+// Single-node: clusterMembers() returns an empty list because no peers are
+// connected.  subscribeClusterEvents() can be called safely; no events fire.
+
+val members = clusterMembers()
+println(members.length == 0)
+
+val monitored = spawn {
+  subscribeClusterEvents()
+  println("subscribed")
+}
+
+// Let the actor run and subscribe; then confirm program completes normally.
+println("ok")

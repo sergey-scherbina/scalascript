@@ -1,7 +1,7 @@
 ---
 name: std-actors
-version: 1.3.0
-description: "Erlang-style actor supervision + bounded mailboxes + process introspection + cluster registry — v1.6 Phase 2 + v1.6.x"
+version: 1.4.0
+description: "Erlang-style actor supervision + bounded mailboxes + process introspection + cluster registry + cluster visibility — v1.6 Phase 2 + v1.6.x + v1.23"
 package: std.actors
 exports:
   - ChildSpec
@@ -13,6 +13,10 @@ exports:
   - processInfo
   - globalRegister
   - globalWhereis
+  - NodeJoined
+  - NodeLeft
+  - clusterMembers
+  - subscribeClusterEvents
 ---
 
 # std.actors — Actor supervision
@@ -103,6 +107,23 @@ extern def globalRegister(name: String, pid: Any): Unit
 // Look up a cluster-wide name.  Returns Some(pid) if registered locally or
 // received via gossip; None otherwise.
 extern def globalWhereis(name: String): Option[Any]
+
+// ─── Cluster visibility (v1.23) ───────────────────────────────────────────────
+
+// Cluster membership events delivered to actors that have called
+// `subscribeClusterEvents()`.  `reason` is "disconnect" for clean shutdown
+// or "timeout" for heartbeat failure.
+case class NodeJoined(nodeId: String)
+case class NodeLeft(nodeId: String, reason: String)
+
+// Snapshot of the currently-connected peer node IDs.  Does NOT include the
+// local nodeId; query `startNode` configuration if you need it.
+extern def clusterMembers(): List[String]
+
+// Add the calling actor to the cluster-event subscriber list.  From this
+// point on the actor's mailbox receives `NodeJoined` / `NodeLeft` messages
+// as peers come and go.  No unsubscribe API — exit the actor to stop.
+extern def subscribeClusterEvents(): Unit
 
 // ─── Supervision tree ─────────────────────────────────────────────────────────
 

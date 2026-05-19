@@ -3492,6 +3492,9 @@ const Actor = {
   spawnBounded:(cap, overflow, thunk) => _perform('Actor', 'spawnBounded', [cap, overflow, thunk]),
   // v1.6.x — process introspection
   processInfo: (pid) => _perform('Actor', 'processInfo', [pid]),
+  // v1.23 — cluster visibility
+  clusterMembers:         ()  => _perform('Actor', 'clusterMembers',         []),
+  subscribeClusterEvents: ()  => _perform('Actor', 'subscribeClusterEvents', []),
 };
 
 // `receive { case … }` lowers to a registered matcher function whose
@@ -3537,6 +3540,13 @@ function _runActors(bodyFn) {
   let _joinMode = false;       // true once joinCluster has been called
   let _joinToken = '';         // token for auto-connect to gossip'd peers
   const _peerUrls = new Map(); // nodeId -> url (populated from connectNode + peers_resp)
+  // v1.23 — cluster visibility
+  const _clusterEventSubs  = new Set();   // actor ids subscribed to NodeJoined/NodeLeft
+  const _clusterEventQueue = [];          // {tag, nodeId, reason} pending delivery
+  function _fireClusterEvent(tag, nodeId, reason) {
+    if (_clusterEventSubs.size === 0) return;
+    _clusterEventQueue.push({ tag, nodeId, reason: reason || '' });
+  }
 
   // Drain all peer ring buffers into _remoteRawInbox.
   function _drainPeerBuffers() {
@@ -3651,6 +3661,7 @@ function _runActors(bodyFn) {
               _peerChannels.delete(key);
               _peerChannels.set(peerNodeId, { sab: peer.sab, send: peer.send, worker: peer.worker });
               _peerUrls.set(peerNodeId, peer.url || '');
+              _fireClusterEvent('NodeJoined', peerNodeId);
               // If in joinCluster mode, request this peer's peer list.
               if (_joinMode) {
                 peer.send(JSON.stringify({ t: 'peers_req', from: _localNodeId }));
@@ -3675,6 +3686,7 @@ function _runActors(bodyFn) {
           _nodeDownQueue.push(env.nodeId);
           _peerChannels.delete(env.nodeId);
           _peerUrls.delete(env.nodeId);
+          _fireClusterEvent('NodeLeft', env.nodeId, 'disconnect');
         } else if (env.t === 'peers_req') {
           // Respond with our known peer URLs + self URL.
           const myPeers = [];
@@ -4035,6 +4047,7 @@ function _runActors(bodyFn) {
                     ws.send(JSON.stringify({ nodeId: _localNodeId }));
                     // Register send channel for this inbound peer.
                     _peerChannels.set(peerNodeId, { sab: null, send: (json) => ws.send(json) });
+                    _fireClusterEvent('NodeJoined', peerNodeId);
                   }
                 } catch (_) {}
               } else {
@@ -4046,6 +4059,7 @@ function _runActors(bodyFn) {
                 _nodeDownQueue.push(peerNodeId);
                 _peerChannels.delete(peerNodeId);
                 _peerUrls.delete(peerNodeId);
+                _fireClusterEvent('NodeLeft', peerNodeId, 'disconnect');
               }
             });
           });
@@ -4094,6 +4108,18 @@ function _runActors(bodyFn) {
         const gwPid  = _globalRegistry.get(gwName);
         const found  = gwPid ? { _type: 'Some', value: gwPid } : { _type: 'None' };
         return { suspend: false, next: k(found) };
+      }
+      // v1.23 — cluster visibility
+      case 'clusterMembers': {
+        const mems = [];
+        for (const [nid, peer] of _peerChannels) {
+          if (peer && !peer.pending) mems.push(nid);
+        }
+        return { suspend: false, next: k(mems) };
+      }
+      case 'subscribeClusterEvents': {
+        _clusterEventSubs.add(id);
+        return { suspend: false, next: k(undefined) };
       }
       // v1.6.x — scheduled sends
       case 'sendAfter': {
@@ -4186,6 +4212,17 @@ function _runActors(bodyFn) {
       _processRemoteInbox();
     }
     while (_nodeDownQueue.length > 0) _fireNodeDown(_nodeDownQueue.shift());
+    // v1.23 — deliver cluster events to subscribers.
+    while (_clusterEventQueue.length > 0) {
+      const _ev = _clusterEventQueue.shift();
+      const _msg = _ev.tag === 'NodeJoined'
+        ? { _type: 'NodeJoined', nodeId: _ev.nodeId }
+        : { _type: 'NodeLeft',   nodeId: _ev.nodeId, reason: _ev.reason };
+      for (const _sid of _clusterEventSubs) {
+        const _st = actors.get(_sid);
+        if (_st) { _st.mailbox.push(_msg); tryWakeBlocked(_sid); }
+      }
+    }
     // Fire scheduled sends whose deadline has passed.
     if (_timers.size > 0) {
       const _nowMs = Date.now();
@@ -5293,6 +5330,7 @@ class JsGen(
       "Actor.link", "Actor.monitor", "Actor.demonitor", "Actor.trapExit",
       "Actor.startNode", "Actor.connectNode", "Actor.joinCluster", "Actor.register", "Actor.whereis",
       "Actor.globalRegister", "Actor.globalWhereis",
+      "Actor.clusterMembers", "Actor.subscribeClusterEvents",
       "Actor.sendAfter", "Actor.sendInterval", "Actor.cancelTimer",
       "Logger.info", "Logger.warn", "Logger.error", "Logger.debug",
       "Random.nextInt", "Random.nextDouble", "Random.uuid", "Random.pick",
@@ -6543,6 +6581,13 @@ class JsGen(
     case Term.Apply.After_4_6_0(Term.Name("globalWhereis"), argClause)
         if argClause.values.size == 1 =>
       s"Actor.globalWhereis(${genExpr(argClause.values.head.asInstanceOf[Term])})"
+    // v1.23 — cluster visibility
+    case Term.Apply.After_4_6_0(Term.Name("clusterMembers"), argClause)
+        if argClause.values.isEmpty =>
+      "Actor.clusterMembers()"
+    case Term.Apply.After_4_6_0(Term.Name("subscribeClusterEvents"), argClause)
+        if argClause.values.isEmpty =>
+      "Actor.subscribeClusterEvents()"
     // v1.6.x — scheduled sends
     case Term.Apply.After_4_6_0(Term.Name("sendAfter"), argClause)
         if argClause.values.size == 3 =>
@@ -7045,6 +7090,13 @@ class JsGen(
     case Term.Apply.After_4_6_0(Term.Name("globalWhereis"), argClause)
         if argClause.values.size == 1 =>
       s"Actor.globalWhereis(${genExpr(argClause.values.head.asInstanceOf[Term])})"
+    // v1.23 — cluster visibility
+    case Term.Apply.After_4_6_0(Term.Name("clusterMembers"), argClause)
+        if argClause.values.isEmpty =>
+      "Actor.clusterMembers()"
+    case Term.Apply.After_4_6_0(Term.Name("subscribeClusterEvents"), argClause)
+        if argClause.values.isEmpty =>
+      "Actor.subscribeClusterEvents()"
     // v1.6.x — scheduled sends (inside CPS body)
     case Term.Apply.After_4_6_0(Term.Name("sendAfter"), argClause)
         if argClause.values.size == 3 =>
