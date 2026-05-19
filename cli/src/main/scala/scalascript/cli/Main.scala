@@ -538,15 +538,18 @@ def incrementalBuildCommand(args: List[String]): Unit =
             // Only re-run JsGen if the .scjs itself is stale.
             if jsStale || !os.exists(scjsPath) then
               val baseDir    = Some(node.path / os.up)
-              val userJs     = JsGen.generate(module, baseDir)
-              val jsSource   = buildScjsSource(userJs)
+              // v2.0 Phase 2: user-code-only emit; shared runtime ships
+              // separately as `_runtime.scjs-runtime` in the artifact dir.
+              val jsSource   = JsGen.generateUserOnly(module, baseDir)
               val rawImports = collectImports(module.sections)
               val depAliases = module.manifest.toList.flatMap(_.dependencies.keys)
               val imports    = (rawImports ++ depAliases).distinct.toList
               val moduleId   = module.manifest.flatMap(_.name).getOrElse(baseName)
+              val moduleCaps: Set[String] =
+                JsGen.detectCapabilities(module, baseDir).map(JsGen.Capability.encode)
               JsArtifactIO.writeJsFile(
                 moduleId, node.pkg, module.manifest.flatMap(_.name),
-                sourceHash, jsSource, imports, scjsPath
+                sourceHash, jsSource, imports, scjsPath, moduleCaps.toList.sorted
               )
         } finally
           capturedPs.flush()
@@ -578,6 +581,16 @@ def incrementalBuildCommand(args: List[String]): Unit =
           // the module summary.
           seen.foreach(line => println("    " + line))
           failed += 1
+
+  // v2.0 Phase 2 — ensure the shared `_runtime.scjs-runtime` covers the
+  // union of capabilities across every `.scjs` in `artDir`.  Runs after
+  // the per-module loop so a single regeneration handles the whole batch.
+  if emitJs && failed == 0 then
+    val unionCaps = unionDepCapabilitiesJs(artDir)
+    try ensureJsRuntimeArtifact(artDir, unionCaps)
+    catch case e: Throwable =>
+      System.err.println(s"build: shared JS runtime regeneration failed: ${e.getMessage}")
+      failed += 1
 
   println()
   println(s"Done: $compiled compiled, $skipped up-to-date, $failed failed")
@@ -1846,7 +1859,18 @@ def compileRuntimeCommand(args: List[String]): Unit =
         System.err.println(s"compile-runtime: unrecognised argument '$other'")
         System.exit(1)
 
-  if !JvmBytecode.scalaCliAvailable then
+  // `--backend <id>` is a GLOBAL flag stripped by `GlobalFlags.parse`
+  // before the command handler sees its args; read it from the active
+  // flags snapshot instead.  Defaults to "jvm" to preserve the existing
+  // pre-v2.0-Phase-2 CLI shape.
+  val backend = ActiveFlags.current.backend.getOrElse("jvm")
+
+  if backend != "jvm" && backend != "js" then
+    System.err.println(s"compile-runtime: --backend must be 'jvm' or 'js'; got '$backend'")
+    System.exit(1)
+
+  // scala-cli is only needed for the JVM backend — JS is source-only.
+  if backend == "jvm" && !JvmBytecode.scalaCliAvailable then
     System.err.println(s"compile-runtime: ${JvmBytecode.scalaCliMissingMessage}")
     System.exit(1)
 
@@ -1857,14 +1881,17 @@ def compileRuntimeCommand(args: List[String]): Unit =
       System.exit(1)
       Set.empty
     case Some("all") =>
-      JvmGen.Capability.all.map(JvmGen.Capability.encode)
+      if backend == "jvm" then JvmGen.Capability.all.map(JvmGen.Capability.encode)
+      else                     JsGen.Capability.all.map(JsGen.Capability.encode)
     case Some(csv) =>
       csv.split(",").iterator.map(_.trim).filter(_.nonEmpty).toSet
 
   val dir = artifactDir.getOrElse(os.pwd)
   try
-    val path = ensureRuntimeArtifact(dir, caps)
-    println(s"Shared runtime written to $path " +
+    val path =
+      if backend == "jvm" then ensureRuntimeArtifact(dir, caps)
+      else                     ensureJsRuntimeArtifact(dir, caps)
+    println(s"Shared $backend runtime written to $path " +
       s"(capabilities: ${caps.toList.sorted.mkString(", ")})")
   catch case e: Throwable =>
     System.err.println(s"compile-runtime: ${e.getMessage}")
@@ -2071,6 +2098,67 @@ private def ensureRuntimeArtifact(
       case Left(err) =>
         throw new RuntimeException(s"--bytecode: shared runtime compile failed:\n$err")
 
+/** v2.0 Phase 2 (JS) — read every `.scjs` in `artifactDir` and return the
+ *  union of their `capabilities` fields.  Used by `compile-js` to compute
+ *  whether the existing `_runtime.scjs-runtime` covers the capability set
+ *  the current build needs. */
+private def unionDepCapabilitiesJs(artifactDir: os.Path): Set[String] =
+  if !os.isDir(artifactDir) then Set.empty
+  else
+    val acc = scala.collection.mutable.Set.empty[String]
+    for p <- os.list(artifactDir).filter(_.ext == "scjs") do
+      JsArtifactIO.readJsFile(p) match
+        case Right(a) => acc ++= a.capabilities
+        case Left(_)  => ()
+    acc.toSet
+
+/** v2.0 Phase 2 (JS) — ensure the shared `_runtime.scjs-runtime` in
+ *  `artifactDir` covers `requiredCapabilities`.  Regenerates it via
+ *  `JsGen.generateRuntime` when missing or when the existing runtime's
+ *  capability set is a strict subset of the required set.  No-op when
+ *  the existing runtime already covers (≥) the required capabilities.
+ *
+ *  Returns the path of the (possibly freshly-written) runtime artifact. */
+private def ensureJsRuntimeArtifact(
+    artifactDir:          os.Path,
+    requiredCapabilities: Set[String]
+): os.Path =
+  os.makeDir.all(artifactDir)
+  val runtimePath = artifactDir / "_runtime.scjs-runtime"
+  val existing: Option[scalascript.ir.ModuleJsRuntimeArtifact] =
+    if !os.exists(runtimePath) then None
+    else JsArtifactIO.readRuntimeFile(runtimePath).toOption
+
+  // Decode required strings to capabilities.  Unknown strings are a hard
+  // error — better to fail loudly than silently emit a runtime missing a
+  // block the module assumes is present.
+  val requiredCaps: Set[scalascript.codegen.JsGen.Capability] =
+    requiredCapabilities.map { s =>
+      scalascript.codegen.JsGen.Capability.decode(s).getOrElse(
+        throw new RuntimeException(s"Unknown JS capability: '$s' " +
+          "(.scjs written by a newer compiler version?)")
+      )
+    }
+
+  val needsRegen = existing match
+    case None      => true
+    case Some(art) =>
+      val have = art.capabilities.toSet
+      !requiredCapabilities.subsetOf(have)
+
+  if !needsRegen then runtimePath
+  else
+    val runtimeSource = scalascript.codegen.JsGen.generateRuntime(requiredCaps)
+    val sourceHash    = scalascript.artifact.InterfaceExtractor.sha256(
+                          runtimeSource.getBytes("UTF-8"))
+    JsArtifactIO.writeRuntimeFile(
+      capabilities = requiredCapabilities.toList.sorted,
+      sourceHash   = sourceHash,
+      jsSource     = runtimeSource,
+      path         = runtimePath
+    )
+    runtimePath
+
 // ─────────────────────────────────────────────────────────────────────────────
 // ssc compile-js  —  v2.0 JS-backend incremental codegen cache
 // ─────────────────────────────────────────────────────────────────────────────
@@ -2193,14 +2281,11 @@ def compileJsCommand(args: List[String]): Unit =
         System.exit(1)
 
       // Run the JS backend codegen on THIS module only (no merged dep code).
-      // The link step textually concatenates per-module sources in dep order
-      // and strips the shared runtime preamble.
+      // v2.0 Phase 2: emit user-code-only JS (no preamble).  The shared
+      // runtime preamble is persisted once per artifact dir as
+      // `_runtime.scjs-runtime` and concatenated at link time.
       val baseDir   = Some(path / os.up)
-      val userJs    = JsGen.generate(module, baseDir)
-      // Self-contained JS: runtime preamble + user code.  The linker strips
-      // the longest common prefix across all `.scjs` files so the preamble
-      // is emitted exactly once in the combined output.
-      val jsSource  = buildScjsSource(userJs)
+      val jsSource  = JsGen.generateUserOnly(module, baseDir)
       val pkg       = module.manifest.flatMap(_.pkg).getOrElse(Nil)
       val moduleName = module.manifest.flatMap(_.name)
       val sourceHash = InterfaceExtractor.sha256(sourceBytes)
@@ -2215,7 +2300,29 @@ def compileJsCommand(args: List[String]): Unit =
 
       val moduleId = moduleName.getOrElse(path.last.stripSuffix(".ssc"))
 
-      val json = JsArtifactIO.writeJs(moduleId, pkg, moduleName, sourceHash, jsSource, imports)
+      // The `.scjs-runtime` lands in the SAME directory as the `.scjs`
+      // it accompanies — the linker picks it up by scanning the artifact
+      // dirs.  When the user passes `-o some/path/a.scjs`, the runtime
+      // belongs in `some/path/`; otherwise the runtime sits next to the
+      // source file (default `-o` resolves there).  Auto-resolved deps
+      // landed in `effectiveArtifactDir` and the dep's `.scjs` files are
+      // already there, so the runtime covers them too when that dir is
+      // the eventual output dir.
+      val runtimeDir: os.Path = outputArg match
+        case Some("-")                              => effectiveArtifactDir
+        case Some(out) if out.endsWith(".scjs")     =>
+          val outPath = os.Path(out, os.pwd)
+          outPath / os.up
+        case Some(_)                                => effectiveArtifactDir
+        case None                                   => path / os.up
+
+      // v2.0 Phase 2 — detect capabilities for THIS module, then ensure
+      // the shared runtime artifact in the artifact dir covers the union
+      // across all `.scjs` files seen so far (existing + this module).
+      val moduleCaps: Set[String] =
+        JsGen.detectCapabilities(module, baseDir).map(JsGen.Capability.encode)
+
+      val json = JsArtifactIO.writeJs(moduleId, pkg, moduleName, sourceHash, jsSource, imports, moduleCaps.toList.sorted)
       outputArg match
         case Some("-") => println(json)
         case Some(out) =>
@@ -2228,6 +2335,16 @@ def compileJsCommand(args: List[String]): Unit =
           os.makeDir.all(outPath / os.up)
           os.write.over(outPath, json)
           println(s"JS artifact written to ${outPath.relativeTo(os.pwd)}")
+
+      // Ensure the shared runtime AFTER writing this module's `.scjs` so
+      // `unionDepCapabilitiesJs(runtimeDir)` sees this module's caps too.
+      val depCaps   = unionDepCapabilitiesJs(runtimeDir) ++
+                      unionDepCapabilitiesJs(effectiveArtifactDir)
+      val unionCaps = depCaps ++ moduleCaps
+      try ensureJsRuntimeArtifact(runtimeDir, unionCaps)
+      catch case e: Throwable =>
+        System.err.println(s"compile-js: shared runtime regeneration failed: ${e.getMessage}")
+        System.exit(1)
     catch case e: Exception =>
       System.err.println(s"compile-js error: ${e.getMessage}")
       System.exit(1)
@@ -2262,8 +2379,8 @@ private def compileJsDepInto(
   ArtifactIO.writeInterfaceFile(iface, scimPath)
 
   val baseDir    = Some(dep.path / os.up)
-  val userJs     = JsGen.generate(module, baseDir)
-  val jsSource   = buildScjsSource(userJs)
+  // v2.0 Phase 2: user-code-only emit; shared runtime ships separately.
+  val jsSource   = JsGen.generateUserOnly(module, baseDir)
   val pkg        = module.manifest.flatMap(_.pkg).getOrElse(Nil)
   val moduleName = module.manifest.flatMap(_.name)
   val sourceHash = InterfaceExtractor.sha256(dep.sourceBytes)
@@ -2272,7 +2389,14 @@ private def compileJsDepInto(
   val depAliases = module.manifest.toList.flatMap(_.dependencies.keys)
   val imports    = (rawImports ++ depAliases).distinct.toList
   val moduleId   = moduleName.getOrElse(baseName)
-  JsArtifactIO.writeJsFile(moduleId, pkg, moduleName, sourceHash, jsSource, imports, scjsPath)
+  val moduleCaps: Set[String] =
+    JsGen.detectCapabilities(module, baseDir).map(JsGen.Capability.encode)
+  // Top-level caller (`compileJsCommand`) regenerates the shared
+  // `_runtime.scjs-runtime` once per build using the union of every
+  // module's capabilities.  Here we only persist this dep's capability
+  // list — the runtime ensure step happens after all deps + the target
+  // have been compiled.
+  JsArtifactIO.writeJsFile(moduleId, pkg, moduleName, sourceHash, jsSource, imports, scjsPath, moduleCaps.toList.sorted)
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ssc deps <file.ssc>  —  show the resolved import graph (topo-sorted)
@@ -3077,8 +3201,16 @@ def linkCommand(args: List[String]): Unit =
       if !os.isDir(p) then Nil
       else os.list(p).filter(_.ext == "scjs").toList.sorted
     }
+    // v2.0 Phase 2 — discover any `_runtime.scjs-runtime` artifacts
+    // sitting next to the `.scjs` files.  Multiple dirs may each carry
+    // one; we union their preambles by capability set at link time.
+    val runtimeFiles = artifactDirs.toList.flatMap { dir =>
+      val p = os.Path(dir, os.pwd)
+      if !os.isDir(p) then Nil
+      else os.list(p).filter(_.last.endsWith(".scjs-runtime")).toList.sorted
+    }
     if scjsFiles.nonEmpty then
-      linkJsFromScjs(scjsFiles, outputArg)
+      linkJsFromScjs(scjsFiles, runtimeFiles, outputArg)
       return
   // Fall through to standard IR-link mode if no .scjs files were found.
 
@@ -3445,8 +3577,9 @@ private def mergeScalaSources(sources: List[String]): String =
  *
  *  v2.0 — JS incremental codegen cache. */
 private def linkJsFromScjs(
-    scjsFiles: List[os.Path],
-    outputArg: Option[String]
+    scjsFiles:    List[os.Path],
+    runtimeFiles: List[os.Path],
+    outputArg:    Option[String]
 ): Unit =
   // Read all artifacts; bail on the first envelope mismatch so a stale
   // artifact can't silently pollute the combined source.
@@ -3463,14 +3596,60 @@ private def linkJsFromScjs(
     System.err.println("link --backend js: no .scjs artifacts found")
     System.exit(1)
 
-  // MVP: textual concat with longest-common-prefix dedup.  Same approach as
-  // `linkJvmFromScjvm`/`mergeScalaSources` — the runtime preamble emitted
-  // by `JsGen.generate` is deterministic across modules from the same
-  // compiler version, so content-hash identity makes the prefix lift safe.
-  val combined = mergeJsSources(artifacts.toList.map(_.jsSource))
+  // v2.0 Phase 2 — runtime-aware link path.  When at least one
+  // `_runtime.scjs-runtime` exists in the artifact dirs, all `.scjs`
+  // files are expected to carry user-only `jsSource` (post-split-runtime
+  // emit).  Concatenate the runtime preamble ONCE at the head of the
+  // output, then each module's user-only `jsSource` in path-sorted order.
+  //
+  // When NO runtime artifact is present, fall back to the legacy LCP
+  // dedup path — older `.scjs` files were emitted by v2.0 MVP and ship
+  // the full preamble inside `jsSource`.
+  val runtimeArts = scala.collection.mutable.ArrayBuffer.empty[scalascript.ir.ModuleJsRuntimeArtifact]
+  for p <- runtimeFiles do
+    JsArtifactIO.readRuntimeFile(p) match
+      case Right(rt) => runtimeArts += rt
+      case Left(e)   =>
+        System.err.println(s"link: failed to read ${p.last}: $e")
+        hasError = true
+  if hasError then System.exit(1)
 
-  println(s"Linked ${artifacts.size} .scjs artifact(s) into combined JS source " +
-    s"(${combined.linesIterator.length} lines)")
+  val combined =
+    if runtimeArts.nonEmpty then
+      // Pick the runtime with the widest capability set — when multiple
+      // artifact dirs each ship one, the one covering everyone's needs
+      // wins.  When two cover disjoint subsets, fall back to LCP-dedup
+      // of their `jsSource` strings to recover the shared core.
+      val widest = runtimeArts.maxBy(_.capabilities.size)
+      val sb     = new StringBuilder
+      sb.append(widest.jsSource)
+      if !widest.jsSource.endsWith("\n") then sb.append('\n')
+      sb.append("// ── scalascript user code ───────────────────────────────────────────\n")
+      artifacts.toList.foreach { a =>
+        if a.jsSource.nonEmpty then
+          sb.append(a.jsSource)
+          if !a.jsSource.endsWith("\n") then sb.append('\n')
+      }
+      // Flush the `_output` buffer at the end of the combined script —
+      // `_println` appends to `_output` rather than printing directly so
+      // a final emit-time flush is required (mirrors the per-segment
+      // flush that `emit-js` injects after each ScalaScript block).  On
+      // Node this writes to stdout; in a browser SPA the patch overrides
+      // `serve(...)` and flushes via `console.log` on each route render.
+      sb.append("process.stdout.write(_output.join('\\n') + (_output.length ? '\\n' : '')); _output = [];\n")
+      sb.toString
+    else
+      // Legacy v2.0 MVP path — every `.scjs` carries the full preamble.
+      // LCP-dedup lifts the shared prefix.
+      mergeJsSources(artifacts.toList.map(_.jsSource))
+
+  if runtimeArts.nonEmpty then
+    println(s"Linked ${artifacts.size} .scjs + 1 shared runtime " +
+      s"(capabilities: ${runtimeArts.maxBy(_.capabilities.size).capabilities.mkString(", ")}) " +
+      s"into combined JS source (${combined.linesIterator.length} lines)")
+  else
+    println(s"Linked ${artifacts.size} .scjs artifact(s) into combined JS source " +
+      s"(${combined.linesIterator.length} lines)")
 
   outputArg match
     case Some("-") =>

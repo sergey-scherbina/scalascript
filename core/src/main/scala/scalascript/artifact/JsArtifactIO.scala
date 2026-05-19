@@ -29,22 +29,24 @@ object JsArtifactIO:
 
   /** Build + serialise a `ModuleJsArtifact` from its constituent fields. */
   def writeJs(
-      moduleId:    String,
-      pkg:         List[String],
-      moduleName:  Option[String],
-      sourceHash:  String,
-      jsSource:    String,
-      imports:     List[String]
+      moduleId:     String,
+      pkg:          List[String],
+      moduleName:   Option[String],
+      sourceHash:   String,
+      jsSource:     String,
+      imports:      List[String],
+      capabilities: List[String] = Nil
   ): String =
     val art = ModuleJsArtifact(
-      magic       = ArtifactVersion.magic,
-      abiVersion  = ArtifactVersion.current,
-      moduleId    = moduleId,
-      pkg         = pkg,
-      moduleName  = moduleName,
-      sourceHash  = sourceHash,
-      jsSource    = jsSource,
-      imports     = imports
+      magic        = ArtifactVersion.magic,
+      abiVersion   = ArtifactVersion.current,
+      moduleId     = moduleId,
+      pkg          = pkg,
+      moduleName   = moduleName,
+      sourceHash   = sourceHash,
+      jsSource     = jsSource,
+      imports      = imports,
+      capabilities = capabilities.sorted
     )
     writeJs(art)
 
@@ -75,16 +77,70 @@ object JsArtifactIO:
 
   /** Write a `.scjs` file to `path` from constituent fields. */
   def writeJsFile(
-      moduleId:    String,
-      pkg:         List[String],
-      moduleName:  Option[String],
-      sourceHash:  String,
-      jsSource:    String,
-      imports:     List[String],
-      path:        os.Path
+      moduleId:     String,
+      pkg:          List[String],
+      moduleName:   Option[String],
+      sourceHash:   String,
+      jsSource:     String,
+      imports:      List[String],
+      path:         os.Path,
+      capabilities: List[String] = Nil
   ): Unit =
     os.makeDir.all(path / os.up)
-    os.write.over(path, writeJs(moduleId, pkg, moduleName, sourceHash, jsSource, imports))
+    os.write.over(path, writeJs(moduleId, pkg, moduleName, sourceHash, jsSource, imports, capabilities))
+
+  // ─── Shared runtime artifact (.scjs-runtime) ─────────────────────────────
+
+  /** Serialise a `ModuleJsRuntimeArtifact` to a pretty-printed JSON string. */
+  def writeRuntime(art: ModuleJsRuntimeArtifact): String =
+    require(art.magic == ArtifactVersion.magic,
+      s"BUG: ModuleJsRuntimeArtifact.magic must be '${ArtifactVersion.magic}', got '${art.magic}'")
+    require(art.abiVersion == ArtifactVersion.current,
+      s"BUG: ModuleJsRuntimeArtifact.abiVersion must be '${ArtifactVersion.current}', got '${art.abiVersion}'")
+    write(art, indent = 2)
+
+  /** Build + serialise a `ModuleJsRuntimeArtifact` from its constituent fields. */
+  def writeRuntime(
+      capabilities: List[String],
+      sourceHash:   String,
+      jsSource:     String
+  ): String =
+    val art = ModuleJsRuntimeArtifact(
+      magic        = ArtifactVersion.magic,
+      abiVersion   = ArtifactVersion.current,
+      capabilities = capabilities.sorted,
+      sourceHash   = sourceHash,
+      jsSource     = jsSource
+    )
+    writeRuntime(art)
+
+  /** Deserialise a `.scjs-runtime` JSON string into a `ModuleJsRuntimeArtifact`. */
+  def readRuntime(json: String): Either[String, ModuleJsRuntimeArtifact] =
+    scala.util.Try(read[ModuleJsRuntimeArtifact](json)).toEither.left.map { e =>
+      s"Failed to parse .scjs-runtime artifact: ${e.getMessage}"
+    }.flatMap { art =>
+      checkEnvelope(art.magic, art.abiVersion, ".scjs-runtime").map(_ => art)
+    }
+
+  /** Read a `.scjs-runtime` file from `path`. */
+  def readRuntimeFile(path: os.Path): Either[String, ModuleJsRuntimeArtifact] =
+    if !os.exists(path) then Left(s"JS runtime artifact not found: $path")
+    else readRuntime(os.read(path))
+
+  /** Write a `.scjs-runtime` file to `path` (creates parent directories). */
+  def writeRuntimeFile(art: ModuleJsRuntimeArtifact, path: os.Path): Unit =
+    os.makeDir.all(path / os.up)
+    os.write.over(path, writeRuntime(art))
+
+  /** Write a `.scjs-runtime` file to `path` from constituent fields. */
+  def writeRuntimeFile(
+      capabilities: List[String],
+      sourceHash:   String,
+      jsSource:     String,
+      path:         os.Path
+  ): Unit =
+    os.makeDir.all(path / os.up)
+    os.write.over(path, writeRuntime(capabilities, sourceHash, jsSource))
 
   // ─── Envelope validation ─────────────────────────────────────────────────
 

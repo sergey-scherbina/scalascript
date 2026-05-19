@@ -45,6 +45,118 @@ object JsGen:
       case _                     => false
     } || s.subsections.exists(sectionHas)
 
+  // ─── v2.0 Phase 2 — split-runtime emit (JS) ────────────────────────────
+  //
+  // Mirrors `JvmGen.{generateRuntime, generateUserOnly, detectCapabilities}`.
+  //
+  // The legacy `generate(module)` returns user code only (no preamble).  The
+  // CLI's `buildScjsSource` historically prepended the full runtime preamble
+  // before persisting to `.scjs`, so every module artifact carried ~80 KB
+  // of duplicate runtime JS.  Phase 2 factors the preamble into a separate
+  // `_runtime.scjs-runtime` artifact compiled once per artifact dir and
+  // textually concatenated before each module's user code at link time.
+  //
+  // For JS the equivalent of JVM's `package _ssc_runtime` is just textual
+  // concatenation: classic-script JS has a single global namespace, so
+  // emitting `function _show(...) { … }` at the top of `out.js` makes the
+  // symbol reachable from every later module without imports or namespacing.
+  // An IIFE wrapper (`const _ssc_runtime = (function(){ … return { … }; })();`)
+  // was considered but rejected — the runtime exports 200+ identifiers and
+  // wrapping/destructuring each one is fragile (typed-tag DSL, `Console`,
+  // `attr`, `Async`, `Logger`, `Random`, etc. would all need explicit
+  // re-exports).  Flat-scope concatenation keeps the runtime body verbatim.
+
+  /** Identifier for a runtime capability that the user module depends on.
+   *  Drives the `generateRuntime` capability switch and determines which
+   *  helper blocks (effects, async, mcp, dataset) are emitted. */
+  sealed trait Capability
+  object Capability:
+    /** Core runtime: `_show`, `_println`, HTML DSL, given registry, signals,
+     *  storage, generators, routes/serve, JSON, ALL the unconditionally-emitted
+     *  helpers from `JsRuntime`.  Always present.  Listed as a capability so
+     *  the encode/decode round-trip is total. */
+    case object Core    extends Capability
+    case object Async   extends Capability  // `JsRuntimeAsync` — Async + Actor + Storage
+    case object Effects extends Capability  // `JsRuntimeV14Effects` — Logger/Random/Clock/Env/Auth
+    case object Mcp     extends Capability  // `JsRuntimeMcp` — MCP server / client
+    case object Dataset extends Capability  // `JsRuntimeDataset` — Dataset[T] lazy pipeline
+
+    val all: Set[Capability] = Set(Core, Async, Effects, Mcp, Dataset)
+
+    /** Encode a capability as a stable, persistence-safe string.
+     *  These strings appear in `.scjs-runtime` envelopes — do not rename. */
+    def encode(c: Capability): String = c match
+      case Core    => "core"
+      case Async   => "async"
+      case Effects => "effects"
+      case Mcp     => "mcp"
+      case Dataset => "dataset"
+
+    def decode(s: String): Option[Capability] = s match
+      case "core"    => Some(Core)
+      case "async"   => Some(Async)
+      case "effects" => Some(Effects)
+      case "mcp"     => Some(Mcp)
+      case "dataset" => Some(Dataset)
+      case _         => None
+
+  /** Inspect `module` and return the capability set its emitted JS would
+   *  depend on.  `Core` is always included.  Other capabilities are
+   *  toggled by scanning the parsed scalascript blocks for references
+   *  to the corresponding effect / DSL names (`Async.*`, `Actor.*`,
+   *  `Logger.*` / `Random.*` / `Clock.*` / `Env.*`, `mcpServer` /
+   *  `serveMcp`, `Dataset.*`). */
+  def detectCapabilities(
+      module:     Module,
+      baseDir:    Option[os.Path] = None,
+      intrinsics: Map[scalascript.ir.QualifiedName, scalascript.backend.spi.IntrinsicImpl] = Map.empty,
+      lockPath:   Option[os.Path] = None
+  ): Set[Capability] =
+    new JsGen(baseDir, intrinsics, lockPath).detectCapabilities(module)
+
+  /** Emit the runtime preamble for the given capability set.  No user code
+   *  is included.  Capability `Core` is always added regardless of input —
+   *  the per-module emit relies on `_show` / `_println` / HTML DSL helpers
+   *  that live in the core block.
+   *
+   *  v2.0 Phase 2 — split-runtime emit. */
+  def generateRuntime(capabilities: Set[Capability]): String =
+    val caps = capabilities + Capability.Core
+    val sb   = new StringBuilder
+    sb.append("// ── scalascript JS runtime ──────────────────────────────────────────\n")
+    // Core is always first — every other block uses `_show`, `_perform`,
+    // `_handle`, etc., from the core preamble.
+    sb.append(JsRuntime)
+    if !JsRuntime.endsWith("\n") then sb.append('\n')
+    if caps.contains(Capability.Async) then
+      sb.append(JsRuntimeAsync)
+      if !JsRuntimeAsync.endsWith("\n") then sb.append('\n')
+    if caps.contains(Capability.Effects) then
+      sb.append(JsRuntimeV14Effects)
+      if !JsRuntimeV14Effects.endsWith("\n") then sb.append('\n')
+    if caps.contains(Capability.Mcp) then
+      sb.append(JsRuntimeMcp)
+      if !JsRuntimeMcp.endsWith("\n") then sb.append('\n')
+    if caps.contains(Capability.Dataset) then
+      sb.append(JsRuntimeDataset)
+      if !JsRuntimeDataset.endsWith("\n") then sb.append('\n')
+    sb.toString
+
+  /** Emit user code only — no runtime preamble.  In JS this is a synonym
+   *  for [[generate]] today (`genModule` never prepended the preamble; the
+   *  preamble was concatenated by the CLI's `buildScjsSource`).  The alias
+   *  exists so call sites read symmetrically with the JVM split-runtime
+   *  emit (`JvmGen.generateUserOnly`).
+   *
+   *  v2.0 Phase 2 — split-runtime emit. */
+  def generateUserOnly(
+      module:     Module,
+      baseDir:    Option[os.Path] = None,
+      intrinsics: Map[scalascript.ir.QualifiedName, scalascript.backend.spi.IntrinsicImpl] = Map.empty,
+      lockPath:   Option[os.Path] = None
+  ): String =
+    generate(module, baseDir, intrinsics, lockPath)
+
 /** JS runtime preamble embedded in every generated page.  Split into
  *  two triple-quoted halves because the combined source exceeds the
  *  JVM's 64 KB string-literal limit; the `val JsRuntime` concatenation
@@ -5983,6 +6095,67 @@ class JsGen(
     if usesRunAsyncParallel then
       line("})().catch(e => { if (typeof process !== 'undefined') { process.stderr.write(String(e) + '\\n'); process.exit(1); } });")
     sb.toString
+
+  // ─── v2.0 Phase 2 — capability detection ─────────────────────────────
+  //
+  // The split-runtime emit uses this to decide which optional preamble
+  // blocks (`JsRuntimeAsync`, `JsRuntimeV14Effects`, `JsRuntimeMcp`,
+  // `JsRuntimeDataset`) to include in the shared `_runtime.scjs-runtime`
+  // artifact.  Heuristic: scan the module's scalascript blocks for
+  // textual references to the corresponding effect/DSL namespaces.
+  // Conservative — when the heuristic is unsure we include the block;
+  // a missing-block false negative would surface as a `ReferenceError`
+  // at runtime, far worse than the few KB of extra runtime size.
+  def detectCapabilities(module: Module): Set[JsGen.Capability] =
+    import JsGen.Capability.*
+    moduleDeps = module.manifest.map(_.dependencies).getOrElse(Map.empty)
+    // Run the existing effect analysis to populate `effectOps` /
+    // `effectfulFuns`.  `analyzeEffects` seeds `effectOps` with the
+    // built-in `Async.*` / `Actor.*` / `Logger.*` / … names so the
+    // CPS-emit pipeline recognises them, so we can't rely on the size
+    // of that set — only on whether a user-declared `effect E:` block
+    // appeared (those names won't be in the builtin seed).
+    analyzeEffects(module)
+    val caps = scala.collection.mutable.Set.empty[JsGen.Capability]
+    caps += Core
+    // Collect all parsed scalascript block sources (textual) so we can
+    // grep for capability markers without rebuilding the AST traversal.
+    def collectSources(s: Section): List[String] =
+      s.content.collect {
+        case cb: Content.CodeBlock if Lang.isScalaScript(cb.lang) => cb.source
+      } ++ s.subsections.flatMap(collectSources)
+    val sources = module.sections.flatMap(collectSources)
+    val allText = sources.mkString("\n")
+    // True iff the user declared their own `effect E:` block in this
+    // module — `EffectAnalysis.analyze(builtins=…)` seeds `effectOps`
+    // with the builtin names, so size alone is not a signal.  We use a
+    // textual marker: an `effect ` keyword at the start of a line (the
+    // language's effect-declaration syntax).
+    val userEffectDecl = sources.exists { s =>
+      s.linesIterator.exists(l => l.stripLeading.startsWith("effect "))
+    }
+    // Async / Actor / Storage live in `JsRuntimeAsync`.  `effect E:` blocks
+    // also need the Free Monad runtime that ships in `JsRuntimeAsync`.
+    val hasAsync = allText.contains("Async.") || allText.contains("Actor.") ||
+                   allText.contains("Storage.") || userEffectDecl ||
+                   allText.contains("runAsync") || allText.contains("handle(") ||
+                   allText.contains("_perform") || allText.contains("perform ")
+    if hasAsync then caps += Async
+    // v1.4 effects: Logger / Random / Clock / Env / Auth — `JsRuntimeV14Effects`.
+    val hasV14 = allText.contains("Logger.") || allText.contains("Random.") ||
+                 allText.contains("Clock.")  || allText.contains("Env.")    ||
+                 allText.contains("Auth.")   || allText.contains("runLogger") ||
+                 allText.contains("runRandom") || allText.contains("runClock") ||
+                 allText.contains("runEnv")  || allText.contains("runAuth")
+    if hasV14 then caps += Effects
+    // MCP — `JsRuntimeMcp`.
+    val hasMcp = allText.contains("mcpServer") || allText.contains("serveMcp") ||
+                 allText.contains("mcpConnect")
+    if hasMcp then caps += Mcp
+    // Dataset[T] — `JsRuntimeDataset`.
+    val hasDataset = allText.contains("Dataset.") || allText.contains("Dataset(")
+    if hasDataset then caps += Dataset
+    caps.toSet
 
   /** Emit `route(method, path)(handler)` registrations for every
    *  `routes:` entry in the module's front-matter. */

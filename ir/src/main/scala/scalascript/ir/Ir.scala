@@ -387,13 +387,16 @@ case class ModuleJvmRuntimeArtifact(
  *  feed the combined source to node / a browser — bypassing the per-link
  *  re-codegen of unchanged modules.
  *
- *  MVP: textual concat.  This is sound for JS because there is no module-
- *  level scoping in classic script mode (single global namespace in
- *  browser / node `--input-type=commonjs`).  The runtime preamble emitted
- *  by `JsGen.generate` is deterministic across modules from the same
- *  compiler version, so the linker can strip the longest common prefix
- *  and emit it exactly once.  Phase 2 will replace this with proper
- *  ES module imports / bytecode-level symbol mangling.
+ *  v2.0 MVP shipped the full runtime preamble (~80 KB) inside every
+ *  `.scjs`'s `jsSource`.  v2.0 Phase 2 splits the preamble into a
+ *  separate `.scjs-runtime` artifact (`ModuleJsRuntimeArtifact`) compiled
+ *  once per artifact dir; user `.scjs` files carry user code only and
+ *  list their required `capabilities`.  The link path detects which
+ *  shape it's looking at by whether a `_runtime.scjs-runtime` exists:
+ *  when one does, the modules are user-only and the runtime is
+ *  concatenated once at the head of `out.js`; when none exists, the
+ *  legacy longest-common-prefix dedup runs over preamble-bearing
+ *  `.scjs` files (full backward compat with v2.0 MVP artifacts).
  *
  *  The `.scjs` magic + ABI envelope follows the same versioning discipline
  *  as `.scim` / `.scir` / `.scjvm` so mismatched artifacts are detected at
@@ -408,7 +411,56 @@ case class ModuleJsArtifact(
   moduleName:   Option[String],
   sourceHash:   String,        // SHA-256 hex of the source bytes
   jsSource:     String,        // JsGen.generate(module) output — JS source for THIS module
-  imports:      List[String]   // FQNs of foreign-module symbols this artifact references
+  imports:      List[String],  // FQNs of foreign-module symbols this artifact references
+  /** Capability set required by this module's emitted JS.
+   *
+   *  Populated by `ssc compile-js` from `JsGen.detectCapabilities`.  The
+   *  linker / runtime-staleness check unions every module's
+   *  `capabilities` into the runtime's capability set so the shared
+   *  `_runtime.scjs-runtime` is regenerated whenever a module needs a new
+   *  capability the existing runtime doesn't carry.
+   *
+   *  Encoded as the stable strings emitted by `JsGen.Capability.encode`
+   *  (`"core"`, `"async"`, `"effects"`, `"mcp"`, `"dataset"`).
+   *
+   *  Default `Nil` preserves backward compatibility with v2.0 MVP `.scjs`
+   *  artifacts emitted before this field existed.  When a `.scjs` carries
+   *  an empty capability list AND there's no companion `.scjs-runtime`
+   *  in the artifact dir, the linker treats it as a legacy artifact
+   *  (the `jsSource` ships the full preamble) and skips runtime-bundle
+   *  injection at link time. */
+  capabilities: List[String] = Nil
+) derives ReadWriter
+
+/** Shared JS runtime artifact — written as `.scjs-runtime` JSON.
+ *
+ *  Carries the once-per-artifact-dir generated JS runtime preamble (the
+ *  output of `JsGen.generateRuntime(capabilities)`).  All modules in an
+ *  artifact dir reference this single bundle at link time so the ~80 KB
+ *  preamble isn't duplicated into every `.scjs`.
+ *
+ *  `capabilities` is the union of capabilities across all modules in the
+ *  dir at the time of generation (e.g. `Set("async", "effects")`).  When
+ *  the union changes (a new module adds a capability), the runtime is
+ *  regenerated; when only the union shrinks (a module is removed), the
+ *  existing runtime stays valid.
+ *
+ *  `sourceHash` is the SHA-256 of the generated runtime JS — used by
+ *  `compile-js` to short-circuit regeneration when the capability set is
+ *  unchanged.
+ *
+ *  `jsSource` is the literal runtime JS body that the link path
+ *  concatenates ONCE at the head of `out.js`.  Unlike the JVM split
+ *  runtime there's no `.class` / `.tasty` bundle to ship: JS is already
+ *  source, so the runtime artifact IS the runtime.
+ *
+ *  v2.0 Phase 2 — split-runtime shared JS preamble. */
+case class ModuleJsRuntimeArtifact(
+  magic:        String,         // must equal ArtifactVersion.magic
+  abiVersion:   String,         // must equal ArtifactVersion.current
+  capabilities: List[String],   // sorted, encoded capability names
+  sourceHash:   String,         // SHA-256 hex of the runtime JS source
+  jsSource:     String          // runtime preamble emitted by JsGen.generateRuntime
 ) derives ReadWriter
 
 // ─── Context types passed to backend intrinsics ────────────────────────────
