@@ -72,14 +72,16 @@ object InterfaceExtractor:
           // (best-effort: look at the parent type list).
           d.templ.inits.headOption.foreach { init =>
             init.tpe match
-              case Type.Apply(Type.Name(tc), args) =>
-                val typeParam = args.headOption.map(_.toString).getOrElse("_")
-                instances += InstanceDecl(
-                  typeclass   = tc,
-                  typeParam   = typeParam,
-                  witnessName = witnessName,
-                  fqn         = fqn(witnessName)
-                )
+              case ta: Type.Apply =>
+                val tc = ta.tpe match { case Type.Name(n) => n; case _ => "" }
+                if tc.nonEmpty then
+                  val typeParam = ta.argClause.values.headOption.map(_.toString).getOrElse("_")
+                  instances += InstanceDecl(
+                    typeclass   = tc,
+                    typeParam   = typeParam,
+                    witnessName = witnessName,
+                    fqn         = fqn(witnessName)
+                  )
               case Type.Name(tc) =>
                 instances += InstanceDecl(
                   typeclass   = tc,

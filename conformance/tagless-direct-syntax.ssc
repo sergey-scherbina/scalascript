@@ -46,19 +46,19 @@ println(r3)
 ## FT helper combined with direct block
 
 ```scalascript
-def validate(n: Int): Option[Int] =
+def checkPos(n: Int): Option[Int] =
   if n > 0 then Some(n) else None
 
 val r4 = direct[Option] {
-  a = validate(5)
-  b = validate(3)
+  a = checkPos(5)
+  b = checkPos(3)
   Some(a + b)
 }
 println(r4)
 
 val r5 = direct[Option] {
-  a = validate(-1)
-  b = validate(3)
+  a = checkPos(-1)
+  b = checkPos(3)
   Some(a + b)
 }
 println(r5)

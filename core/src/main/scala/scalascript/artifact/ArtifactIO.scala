@@ -1,7 +1,7 @@
 package scalascript.artifact
 
 import scalascript.ir.*
-import upickle.default.{read, write, ReadWriter}
+import upickle.default.{read, write}
 
 /** Serialise / deserialise `.scim` (interface) and `.scir` (IR) artifacts.
  *

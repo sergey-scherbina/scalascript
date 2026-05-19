@@ -1,8 +1,7 @@
 package scalascript.artifact
 
 import scalascript.parser.Parser
-import scalascript.ir.ModuleInterface
-import scala.collection.mutable.{ListBuffer, Queue, Map as MMap, Set as MSet}
+import scala.collection.mutable.{ListBuffer, Queue, Map as MMap}
 
 /** Dependency graph for a collection of `.ssc` modules.
  *
