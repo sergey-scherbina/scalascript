@@ -409,13 +409,35 @@ private object Mcp:
         Value.UnitV
       case _ => throw InterpretError("srv.notify(method[, params])")
     })
+    // v1.17.x — bidirectional sampling.  Server can call into a connected
+    // client (typical use: `srv.request("sampling/createMessage", args)`
+    // to ask the client's LLM to produce a completion).  Blocks until
+    // the matching client.onRequest handler replies or `timeoutMs`
+    // fires.  Returns the result Value on success, throws InterpretError
+    // on timeout / error.
+    def requestFn = Value.NativeFnV("McpServer.request", Computation.pureFn {
+      case List(Value.StringV(method), paramsV, Value.IntV(timeoutMs)) =>
+        builder.request(method, Mcp.valueToJson(paramsV), timeoutMs) match
+          case Left(e)     => throw InterpretError(s"srv.request($method): ${e.message}")
+          case Right(json) => Mcp.jsonToValue(json)
+      case List(Value.StringV(method), paramsV) =>
+        builder.request(method, Mcp.valueToJson(paramsV), 30_000L) match
+          case Left(e)     => throw InterpretError(s"srv.request($method): ${e.message}")
+          case Right(json) => Mcp.jsonToValue(json)
+      case List(Value.StringV(method)) =>
+        builder.request(method, ujson.Obj(), 30_000L) match
+          case Left(e)     => throw InterpretError(s"srv.request($method): ${e.message}")
+          case Right(json) => Mcp.jsonToValue(json)
+      case _ => throw InterpretError("srv.request(method[, params[, timeoutMs]])")
+    })
     Value.InstanceV("McpServer", Map(
       "tool"           -> toolFn,
       "resource"       -> resourceFn,
       "prompt"         -> promptFn,
       "onConnected"    -> onConnFn,
       "onDisconnected" -> onDisconnFn,
-      "notify"         -> notifyFn
+      "notify"         -> notifyFn,
+      "request"        -> requestFn
     ))
 
   private def registerTool(
@@ -647,6 +669,19 @@ private object Mcp:
         Value.UnitV
       case _ => throw InterpretError("client.onNotification(handler)")
     })
+    // v1.17.x — bidirectional sampling.  Handler returns the result Value;
+    // exceptions become JSON-RPC error responses sent back via the writer
+    // so the server-side pending map unblocks.
+    fields("onRequest") = Value.NativeFnV("McpClient.onRequest", Computation.pureFn {
+      case List(handler) =>
+        client.setRequestHandler { (method, params) =>
+          ctx.invokeCallback(handler, List(Value.StringV(method), Mcp.jsonToValue(params))) match
+            case v: Value => Mcp.valueToJson(v)
+            case other    => ujson.Str(String.valueOf(other))
+        }
+        Value.UnitV
+      case _ => throw InterpretError("client.onRequest(handler)")
+    })
     Value.InstanceV("McpClient", fields.toMap)
 
   /** Same shape as `makeClientInstance` but routes through `McpHttpClient`
@@ -714,6 +749,16 @@ private object Mcp:
         Value.UnitV
       case _ => throw InterpretError("client.onNotification(handler)")
     })
+    // Bidirectional sampling over HTTP needs separate request/response
+    // POST plumbing — the SSE GET stream is one-way for notifications.
+    // Accept the handler for API portability but never invoke it; full
+    // bidirectional HTTP requires server-side pending-id correlation
+    // across two endpoints (SSE GET pushes the request, POST carries
+    // the response).  Deferred to a future iteration.
+    fields("onRequest") = Value.NativeFnV("McpClient.onRequest", Computation.pureFn {
+      case List(_) => Value.UnitV
+      case _       => throw InterpretError("client.onRequest(handler)")
+    })
     Value.InstanceV("McpClient", fields.toMap)
 
   /** Same shape as `makeHttpClientInstance` / `makeClientInstance` but
@@ -777,6 +822,16 @@ private object Mcp:
         }
         Value.UnitV
       case _ => throw InterpretError("client.onNotification(handler)")
+    })
+    fields("onRequest") = Value.NativeFnV("McpClient.onRequest", Computation.pureFn {
+      case List(handler) =>
+        client.setRequestHandler { (method, params) =>
+          ctx.invokeCallback(handler, List(Value.StringV(method), Mcp.jsonToValue(params))) match
+            case v: Value => Mcp.valueToJson(v)
+            case other    => ujson.Str(String.valueOf(other))
+        }
+        Value.UnitV
+      case _ => throw InterpretError("client.onRequest(handler)")
     })
     Value.InstanceV("McpClient", fields.toMap)
 

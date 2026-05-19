@@ -3389,19 +3389,35 @@ the codegen output.
      `McpClient` flavours.  HTTP is now fully push-capable in parity
      with Stdio/Spawn/Ws.
 
-   55 tests across nine suites all pass (McpRuntimeTest 18,
+   - **Bidirectional sampling** — server-initiated JSON-RPC requests
+     (e.g. `sampling/createMessage`).  `McpClientCore`/`McpWsClient`
+     gain `setRequestHandler((method, params) => result)`; the
+     dispatcher routes inbound Request frames to it and ships the
+     result/error back as a Response.  `McpServerBuilder` tracks
+     outstanding ids in `serverPending`; `request(method, params,
+     timeoutMs)` broadcasts to subscribers and blocks on the first
+     matching reply.  Stdio `serve()` and `handleHttpRequest` route
+     inbound Response frames into `routeInboundResponse(resp)`.
+     User-facing `srv.request(...)` + `client.onRequest(handler)`
+     exposed on Spawn / Ws / Stdio.  HTTP onRequest accepts the
+     handler but stays no-op (would need separate POST-back-with-id
+     correlation — deferred).
+
+   62 tests across ten suites all pass (McpRuntimeTest 18,
    McpEndToEndTest 2, McpInterpreterIntegrationTest 3, McpHttpTransportTest
    5, JsRuntimeMcpBrowserTest 13, McpWsTransportTest 2,
-   McpNotificationTest 5, McpServerNotifyTest 6, McpHttpSseNotifyTest 1).
+   McpNotificationTest 5, McpServerNotifyTest 6, McpHttpSseNotifyTest 1,
+   McpBidiSamplingTest 7).
 
-   **Still deferred**: bidirectional sampling (server-initiated
-   *requests* with id expecting a reply, not just notifications);
+   **Still deferred**: HTTP-side bidirectional sampling (client POSTs
+   the response back with the matching id — needs a server-side
+   router arm at `/mcp` for inbound Response frames);
    SSE-as-response-body for Streamable-HTTP multi-response tools
    (currently only synchronous JSON responses).
 2. **Type-class layer** (`given McpTool[A, R]`, `derives McpSchema`)
    — depends on v1.14 `derives`.
 3. **Streaming resources** — depends on v1.10 Generators.
-4. **Bidirectional sampling** — MCP advanced feature.
+4. ~~**Bidirectional sampling**~~ — landed 2026-05-19 (above).
 5. **`using mcpConnect(...) { client => … }` RAII** — needs
    `using`-resource language feature.
 6. **MCP protocol version negotiation** when v2 emerges.

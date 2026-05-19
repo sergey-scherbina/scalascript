@@ -29,12 +29,20 @@ class McpWsClient(url: String, timeoutMs: Long):
   private val pending = ConcurrentHashMap[Long, LinkedBlockingQueue[JsonRpc.Message.Response]]()
   @volatile private var closed: Boolean = false
   @volatile private var notificationHandler: ((String, ujson.Value) => Unit) | Null = null
+  @volatile private var requestHandler: ((String, ujson.Value) => ujson.Value) | Null = null
 
   /** Register a callback for server-initiated notifications (`notify` method
    *  frames with no id).  Same shape / semantics as
    *  `McpClientCore.setNotificationHandler`.  Pass `null` to unregister. */
   def setNotificationHandler(h: ((String, ujson.Value) => Unit) | Null): Unit =
     notificationHandler = h
+
+  /** Register a callback for server-initiated requests (e.g.
+   *  `sampling/createMessage`).  Handler returns the result value;
+   *  exceptions become JSON-RPC error responses sent back via the
+   *  WS writer so the server's pending map unblocks. */
+  def setRequestHandler(h: ((String, ujson.Value) => ujson.Value) | Null): Unit =
+    requestHandler = h
 
   private val textBuf  = new StringBuilder()
   private val handshakeLatch = CountDownLatch(1)
@@ -79,9 +87,9 @@ class McpWsClient(url: String, timeoutMs: Long):
 
   /** One inbound line from the WS — could be a response, notification, or
    *  server-initiated request.  Responses pair with pending requests
-   *  by id; notifications dispatch to the registered handler if any;
-   *  server-initiated requests are still dropped (bidirectional
-   *  sampling is a larger follow-up). */
+   *  by id; notifications dispatch to the notification handler;
+   *  requests dispatch to the request handler and the result/error
+   *  is sent back via the WS writer. */
   private def dispatchInboundLine(line: String): Unit =
     JsonRpc.parse(line) match
       case Right(resp @ JsonRpc.Message.Response(idJson, _, _)) =>
@@ -93,6 +101,21 @@ class McpWsClient(url: String, timeoutMs: Long):
       case Right(JsonRpc.Message.Notification(method, params)) =>
         val h = notificationHandler
         if h != null then try h(method, params) catch case _: Throwable => ()
+      case Right(JsonRpc.Message.Request(method, params, id)) =>
+        val h = requestHandler
+        val frame =
+          if h != null then
+            try
+              val result = h(method, params)
+              JsonRpc.encodeResult(id, result).stripSuffix("\n")
+            catch case e: Throwable =>
+              JsonRpc.encodeError(id, JsonRpc.ErrorCode.InternalError,
+                Option(e.getMessage).getOrElse(e.getClass.getSimpleName)).stripSuffix("\n")
+          else
+            JsonRpc.encodeError(id, JsonRpc.ErrorCode.MethodNotFound,
+              s"client has no handler for server-initiated method: $method").stripSuffix("\n")
+        try webSocket.sendText(frame, true)
+        catch case _: Throwable => ()
       case _ => ()
 
   private def closeAllPending(message: String): Unit =

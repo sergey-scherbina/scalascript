@@ -55,6 +55,54 @@ class McpServerBuilder:
     val frame = JsonRpc.encodeNotification(method, params)
     subscribers.forEach { s => s(frame) }
 
+  // v1.17.x — bidirectional sampling.  Server can issue a JSON-RPC
+  // Request to a client (e.g. `sampling/createMessage`); the
+  // client's onRequest handler computes a result and ships it back
+  // as a Response frame on the same writer.  We track outstanding
+  // ids in `serverPending` and the per-transport `dispatch...`
+  // helpers route inbound Response frames into the matching queue.
+  private val nextRequestId = java.util.concurrent.atomic.AtomicLong(1L)
+  private val serverPending =
+    java.util.concurrent.ConcurrentHashMap[Long, java.util.concurrent.LinkedBlockingQueue[JsonRpc.Message.Response]]()
+
+  /** Sends a server-initiated request to every connected subscriber
+   *  and returns the first matching response.  Useful for single-
+   *  client deployments (Stdio / Spawn / single-Ws) where "broadcast"
+   *  has only one recipient anyway; for multi-client Ws the first
+   *  response wins (semantically: any one of the clients can fulfill
+   *  the request).  Timeout fires if no client replies in time. */
+  def request(method: String, params: ujson.Value, timeoutMs: Long): Either[JsonRpc.Error, ujson.Value] =
+    if subscribers.isEmpty then
+      return Left(JsonRpc.Error(JsonRpc.ErrorCode.InternalError,
+        "srv.request: no active client subscribers"))
+    val id    = nextRequestId.getAndIncrement()
+    val q     = java.util.concurrent.LinkedBlockingQueue[JsonRpc.Message.Response]()
+    serverPending.put(id, q)
+    try
+      val frame = JsonRpc.encodeRequest(method, params, id)
+      subscribers.forEach { s => s(frame) }
+      val resp = q.poll(timeoutMs, java.util.concurrent.TimeUnit.MILLISECONDS)
+      if resp == null then
+        Left(JsonRpc.Error(JsonRpc.ErrorCode.InternalError,
+          s"srv.request '$method' timed out after ${timeoutMs}ms"))
+      else
+        resp.error match
+          case Some(e) => Left(e)
+          case None    => Right(resp.result.getOrElse(ujson.Null))
+    finally serverPending.remove(id)
+
+  /** Per-transport dispatchers call this when they parse an inbound
+   *  Response frame so the matching `request(...)` caller unblocks.
+   *  Returns true when the response was routed; false for stray
+   *  responses (e.g. id we don't recognise — typically a client
+   *  replying after our timeout fired and removed the entry). */
+  def routeInboundResponse(resp: JsonRpc.Message.Response): Boolean =
+    resp.id.numOpt.map(_.toLong) match
+      case Some(id) =>
+        val q = serverPending.get(id)
+        if q != null then { q.offer(resp); true } else false
+      case None => false
+
   def tool(
     name:        String,
     description: Option[String],
@@ -139,7 +187,11 @@ object McpServerCore:
           case Some(line) =>
             JsonRpc.parse(line) match
               case Left(_)                                    => ()  // can't even reply (no id)
-              case Right(JsonRpc.Message.Response(_, _, _))   => ()  // we're the server — drop stray responses
+              case Right(resp: JsonRpc.Message.Response)      =>
+                // v1.17.x bidirectional sampling — client replying to a
+                // server-initiated `srv.request(...)`.  Route into the
+                // server-side pending map so the caller unblocks.
+                builder.routeInboundResponse(resp)
               case Right(JsonRpc.Message.Notification(m, _))  =>
                 if m == McpProtocol.Method.Initialized && !initialized then
                   initialized = true
@@ -174,7 +226,12 @@ object McpServerCore:
         if method == McpProtocol.Method.Initialized then
           try builder.onConnected() catch case _: Throwable => ()
         ""
-      case Right(JsonRpc.Message.Response(_, _, _)) => ""
+      case Right(resp: JsonRpc.Message.Response) =>
+        // v1.17.x bidirectional sampling over HTTP: a client may POST a
+        // response back to a server-initiated request.  Route it into
+        // the pending map; the HTTP response itself is empty 204.
+        builder.routeInboundResponse(resp)
+        ""
       case Right(JsonRpc.Message.Request(method, params, id)) =>
         dispatch(builder, method, params, id, serverName, serverVersion)
 
