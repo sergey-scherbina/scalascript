@@ -1813,16 +1813,20 @@ def compileJvmCommand(args: List[String]): Unit =
 def compileRuntimeCommand(args: List[String]): Unit =
   var capsArg:     Option[String]  = None
   var artifactDir: Option[os.Path] = None
-  var backend:     String          = "jvm"  // default — preserves existing CLI shape
   val it = args.iterator
   while it.hasNext do
     it.next() match
       case "--capabilities" if it.hasNext   => capsArg     = Some(it.next())
       case "--artifact-dir" if it.hasNext   => artifactDir = Some(os.Path(it.next(), os.pwd))
-      case "--backend"      if it.hasNext   => backend     = it.next()
       case other =>
         System.err.println(s"compile-runtime: unrecognised argument '$other'")
         System.exit(1)
+
+  // `--backend <id>` is a GLOBAL flag stripped by `GlobalFlags.parse`
+  // before the command handler sees its args; read it from the active
+  // flags snapshot instead.  Defaults to "jvm" to preserve the existing
+  // pre-v2.0-Phase-2 CLI shape.
+  val backend = ActiveFlags.current.backend.getOrElse("jvm")
 
   if backend != "jvm" && backend != "js" then
     System.err.println(s"compile-runtime: --backend must be 'jvm' or 'js'; got '$backend'")
