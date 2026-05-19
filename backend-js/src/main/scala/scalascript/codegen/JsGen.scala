@@ -3548,6 +3548,11 @@ const Actor = {
   setReconnectPolicy: (ini, mx) => _perform('Actor', 'setReconnectPolicy', [ini, mx]),
   // v1.23 — periodic gossip re-discovery
   requestGossip: () => _perform('Actor', 'requestGossip', []),
+  // v1.23 — cluster configuration distribution
+  clusterConfigSet:      (key, value) => _perform('Actor', 'clusterConfigSet',      [key, value]),
+  clusterConfigGet:      (key)        => _perform('Actor', 'clusterConfigGet',      [key]),
+  clusterConfigKeys:     ()           => _perform('Actor', 'clusterConfigKeys',     []),
+  subscribeConfigEvents: ()           => _perform('Actor', 'subscribeConfigEvents', []),
 };
 
 // `receive { case … }` lowers to a registered matcher function whose
@@ -3622,6 +3627,24 @@ function _runActors(bodyFn) {
   // disconnect.  Both 0 ⇒ disabled (default).
   let _reconnectInitialMs = 0;
   let _reconnectMaxMs     = 0;
+  // v1.23 — cluster configuration distribution.  LWW per key by (ts, origin).
+  const _clusterConfig    = new Map();   // key -> { value, ts, origin }
+  const _configEventSubs  = new Set();
+  const _configEventQueue = [];
+  function _fireConfigEvent(key, value) {
+    if (_configEventSubs.size === 0) return;
+    _configEventQueue.push({ key, value });
+  }
+  function _applyConfigUpdate(key, value, ts, origin) {
+    const prev = _clusterConfig.get(key);
+    const accept =
+      !prev || ts > prev.ts || (ts === prev.ts && origin > prev.origin);
+    if (accept) {
+      _clusterConfig.set(key, { value, ts, origin });
+      _fireConfigEvent(key, value);
+    }
+    return accept;
+  }
   function _scheduleReconnect(rurl, rtok) {
     let delay = Math.max(_reconnectInitialMs, 1);
     const attempt = () => {
@@ -3900,6 +3923,12 @@ function _runActors(bodyFn) {
             _electionInProgress = false;
             if (prev !== env.from) _fireLeaderEvent("LeaderElected", env.from);
           }
+        } else if (env.t === 'config_set') {
+          const k = env.key != null ? String(env.key) : '';
+          const v = env.value != null ? String(env.value) : '';
+          const o = env.origin != null ? String(env.origin) : '';
+          const t = env.ts != null ? Number(env.ts) : 0;
+          if (k) _applyConfigUpdate(k, v, t, o);
         }
       } catch (_e) {}
     }
@@ -4405,6 +4434,28 @@ function _runActors(bodyFn) {
         for (const [, ch] of _peerChannels) { try { ch.send(payload); } catch (_) {} }
         return { suspend: false, next: k(undefined) };
       }
+      // v1.23 — cluster configuration distribution
+      case 'clusterConfigSet': {
+        const key   = String(args[0]);
+        const value = String(args[1]);
+        const ts    = Date.now();
+        _applyConfigUpdate(key, value, ts, _localNodeId);
+        const payload = JSON.stringify({ t: 'config_set', key, value, ts, origin: _localNodeId });
+        for (const [, ch] of _peerChannels) { try { ch.send(payload); } catch (_) {} }
+        return { suspend: false, next: k(undefined) };
+      }
+      case 'clusterConfigGet': {
+        const entry = _clusterConfig.get(String(args[0]));
+        const result = entry ? { _type: 'Some', value: entry.value } : { _type: 'None' };
+        return { suspend: false, next: k(result) };
+      }
+      case 'clusterConfigKeys': {
+        return { suspend: false, next: k(Array.from(_clusterConfig.keys())) };
+      }
+      case 'subscribeConfigEvents': {
+        _configEventSubs.add(id);
+        return { suspend: false, next: k(undefined) };
+      }
       // v1.6.x — scheduled sends
       case 'sendAfter': {
         const delayMs  = args[0];
@@ -4528,6 +4579,15 @@ function _runActors(bodyFn) {
         if (_st) { _st.mailbox.push(_lmsg); tryWakeBlocked(_sid); }
       }
     }
+    // v1.23 — deliver config-change events to subscribers.
+    while (_configEventQueue.length > 0) {
+      const _cev = _configEventQueue.shift();
+      const _cmsg = { _type: 'ConfigChanged', key: _cev.key, value: _cev.value };
+      for (const _sid of _configEventSubs) {
+        const _st = actors.get(_sid);
+        if (_st) { _st.mailbox.push(_cmsg); tryWakeBlocked(_sid); }
+      }
+    }
     // Fire scheduled sends whose deadline has passed.
     if (_timers.size > 0) {
       const _nowMs = Date.now();
@@ -4568,7 +4628,8 @@ function _runActors(bodyFn) {
       const hasBlockedActors = isDistributed && actors.size > 0 &&
         [...actors.values()].some(st => st && st.blocked !== null);
       if (!earliest && _timers.size === 0 && !hasBlockedActors &&
-          !_electionInProgress && _leaderEventQueue.length === 0) break;
+          !_electionInProgress && _leaderEventQueue.length === 0 &&
+          _configEventQueue.length === 0) break;
       const _sleepUntil = [earliest != null ? earliest.d : null, _timerMin].filter(v => v != null);
       const _minDeadline = _sleepUntil.length > 0 ? Math.min(..._sleepUntil) : null;
       const sleepFor = _minDeadline != null ? Math.min(_minDeadline - Date.now(), 10) : 10;
@@ -5654,6 +5715,8 @@ class JsGen(
       "Actor.broadcastHealth", "Actor.clusterIsDown",
       "Actor.electLeader", "Actor.currentLeader", "Actor.subscribeLeaderEvents",
       "Actor.setReconnectPolicy", "Actor.requestGossip",
+      "Actor.clusterConfigSet", "Actor.clusterConfigGet",
+      "Actor.clusterConfigKeys", "Actor.subscribeConfigEvents",
       "Actor.sendAfter", "Actor.sendInterval", "Actor.cancelTimer",
       "Logger.info", "Logger.warn", "Logger.error", "Logger.debug",
       "Random.nextInt", "Random.nextDouble", "Random.uuid", "Random.pick",
@@ -6957,6 +7020,22 @@ class JsGen(
     case Term.Apply.After_4_6_0(Term.Name("requestGossip"), argClause)
         if argClause.values.isEmpty =>
       "Actor.requestGossip()"
+    // v1.23 — cluster configuration distribution
+    case Term.Apply.After_4_6_0(Term.Name("clusterConfigSet"), argClause)
+        if argClause.values.size == 2 =>
+      val k0 = genExpr(argClause.values(0).asInstanceOf[Term])
+      val v0 = genExpr(argClause.values(1).asInstanceOf[Term])
+      s"Actor.clusterConfigSet($k0, $v0)"
+    case Term.Apply.After_4_6_0(Term.Name("clusterConfigGet"), argClause)
+        if argClause.values.size == 1 =>
+      val k0 = genExpr(argClause.values(0).asInstanceOf[Term])
+      s"Actor.clusterConfigGet($k0)"
+    case Term.Apply.After_4_6_0(Term.Name("clusterConfigKeys"), argClause)
+        if argClause.values.isEmpty =>
+      "Actor.clusterConfigKeys()"
+    case Term.Apply.After_4_6_0(Term.Name("subscribeConfigEvents"), argClause)
+        if argClause.values.isEmpty =>
+      "Actor.subscribeConfigEvents()"
     // v1.6.x — scheduled sends
     case Term.Apply.After_4_6_0(Term.Name("sendAfter"), argClause)
         if argClause.values.size == 3 =>
@@ -7512,6 +7591,22 @@ class JsGen(
     case Term.Apply.After_4_6_0(Term.Name("requestGossip"), argClause)
         if argClause.values.isEmpty =>
       "Actor.requestGossip()"
+    // v1.23 — cluster configuration distribution
+    case Term.Apply.After_4_6_0(Term.Name("clusterConfigSet"), argClause)
+        if argClause.values.size == 2 =>
+      val k0 = genExpr(argClause.values(0).asInstanceOf[Term])
+      val v0 = genExpr(argClause.values(1).asInstanceOf[Term])
+      s"Actor.clusterConfigSet($k0, $v0)"
+    case Term.Apply.After_4_6_0(Term.Name("clusterConfigGet"), argClause)
+        if argClause.values.size == 1 =>
+      val k0 = genExpr(argClause.values(0).asInstanceOf[Term])
+      s"Actor.clusterConfigGet($k0)"
+    case Term.Apply.After_4_6_0(Term.Name("clusterConfigKeys"), argClause)
+        if argClause.values.isEmpty =>
+      "Actor.clusterConfigKeys()"
+    case Term.Apply.After_4_6_0(Term.Name("subscribeConfigEvents"), argClause)
+        if argClause.values.isEmpty =>
+      "Actor.subscribeConfigEvents()"
     // v1.6.x — scheduled sends (inside CPS body)
     case Term.Apply.After_4_6_0(Term.Name("sendAfter"), argClause)
         if argClause.values.size == 3 =>
