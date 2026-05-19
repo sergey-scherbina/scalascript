@@ -1391,7 +1391,8 @@ Spark backend).  The user does not rewrite the pipeline to switch.
 | **B.1 — Master URL parameterisation** | `--spark-master <url>` CLI flag + `spark-master:` front-matter key threaded through `BackendOptions.extra("sparkMaster")` into `SparkGen`.  Same source compiles to `local[*]` (default), `local[N]`, `spark://...`, `yarn`, `k8s://...`. | Unblocks running against an existing Spark cluster from the same source that runs locally. | landed |
 | **B.2 — `spark-submit` packaging** | `ssc submit file.ssc --spark-master spark://...` packages a fat JAR and shells out to `spark-submit`. | B.1 ships the driver via `scala-cli` which works for Spark Standalone but not for YARN/K8s production deployments. | open (~1 week) |
 | **C.1 — `sql` block → `spark.sql(...)`** | `sql` declared in `SparkCapabilities.blockLanguages`; the shared `SqlBindRewriter` produces `:bind<N>` placeholders consumed by Spark SQL 3.4+'s parameterised `sql(text, args)`.  Each `sql` block binds to a sequential `val _sqlBlock_<n>: org.apache.spark.sql.DataFrame` in the `@main` scope, accessible from subsequent `scalascript` blocks. | Reuses the same `sql` surface as the JDBC target (§ 3.3.1) — same source, different runtime. | landed |
-| **C.2 — DataFrame ergonomics + schema bridge** | Expose `DataFrame` as `Dataset[Row]` more thoroughly; map `std/parsing` schemas to Spark `StructType`; section-based naming (`<sectionId>.sql` instead of `_sqlBlock_<n>`); `>10` binds via `Map.ofEntries`. | C.1 ships the runtime contract; C.2 polishes the ergonomics. | open |
+| **C.2 — Section-based binding** | Each `sql` block whose enclosing section has a usable identifier (`# Users`, `# Active Users`, …) ALSO emits `object <sectionId>: lazy val sql: org.apache.spark.sql.DataFrame = _sqlBlock_<n>`.  Friendly access: `Users.sql.show()` instead of `_sqlBlock_0.show()`. | Mirrors the existing `html`/`css` → `<sectionId>.html/css` convention so authoring rules are uniform across opaque blocks. | landed |
+| **C.3 — DataFrame ergonomics + schema bridge** | Expose `DataFrame` as `Dataset[Row]` more thoroughly; map `std/parsing` schemas to Spark `StructType`; `>10` binds via `Map.ofEntries`. | C.1+C.2 ship the binding/runtime contract; C.3 polishes the typed surface. | open |
 
 #### Spark vs JDBC `sql` blocks
 
@@ -1412,10 +1413,31 @@ identical across both targets.
 
 Phase C.1 emits each `sql` block as a sequential
 `val _sqlBlock_<n>: DataFrame = spark.sql(...)` in the generated
-`@main def runSparkJob` scope.  Subsequent `scalascript` blocks in the
-same module reference the DataFrame by name (`_sqlBlock_0.show()`,
-`val rows = _sqlBlock_0.collect().toList`, etc.).  Section-based
-binding (e.g. `<sectionId>.sql`) is Phase C.2 polish.
+`@main def runSparkJob` scope.  Phase C.2 layers on top: whenever
+the enclosing section has a usable identifier, the same value is
+ALSO re-bound under an `object <sectionId>` alias mirroring the
+`html` / `css` convention from `JvmGen`:
+
+```scalascript
+# Active Users
+
+```sql
+SELECT id, name FROM users WHERE active = ${true}
+```
+
+# Page
+
+```scalascript
+ActiveUsers.sql.show()             // friendly Phase C.2 alias
+_sqlBlock_0.show()                 // internal C.1 name — still works
+```
+
+The section identifier follows the standard ScalaScript rule
+(camelCased alphanumeric runs, first word's casing preserved).
+Multiple `sql` blocks in the same section get only the first one
+aliased — a second `lazy val sql` inside the same `object` would be
+a Scala compile error.  Punctuation-only headings produce no alias;
+the internal name remains the only handle.
 
 Lexer-level behaviour pinned by the rewriter:
 

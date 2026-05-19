@@ -169,6 +169,110 @@ class SparkGenTest extends AnyFunSuite:
       s"document order broken: before@$beforeIdx, sql@$sqlIdx, after@$afterIdx")
   }
 
+  // ── Phase C.2: section-based binding ─────────────────────────────────────
+
+  test("single sql block in a section gets <sectionId>.sql alias") {
+    val src =
+      """|# Users
+         |
+         |```sql
+         |SELECT id, name FROM users
+         |```
+         |""".stripMargin
+    val code = gen(src)
+    assert(code.contains("_sqlBlock_0"))
+    // Friendly alias scoped under the section name.
+    assert(code.contains("object Users:"))
+    assert(code.contains("lazy val sql: org.apache.spark.sql.DataFrame = _sqlBlock_0"),
+      s"expected Users.sql alias, got:\n$code")
+  }
+
+  test("section heading is camelCased into a valid identifier") {
+    // Mirrors JvmGen.sectionIdent: the head word preserves its casing;
+    // subsequent words are upper-cased.  `User Stats` → `UserStats`,
+    // `user stats` → `userStats`, `Page` → `Page`.
+    val capCode = gen("# User Stats\n\n```sql\nSELECT 1\n```\n")
+    assert(capCode.contains("object UserStats:"),
+      s"expected UserStats object for headcase head word, got:\n$capCode")
+    val lowCode = gen("# user stats\n\n```sql\nSELECT 1\n```\n")
+    assert(lowCode.contains("object userStats:"),
+      s"expected userStats object for lowercase head word, got:\n$lowCode")
+  }
+
+  test("multiple sql blocks in one section — only the first gets the alias") {
+    val src =
+      """|# Reports
+         |
+         |```sql
+         |SELECT 1
+         |```
+         |
+         |```sql
+         |SELECT 2
+         |```
+         |""".stripMargin
+    val code = gen(src)
+    // Both blocks still emit internal names.
+    assert(code.contains("_sqlBlock_0"))
+    assert(code.contains("_sqlBlock_1"))
+    // Section alias must reference the FIRST block only — no duplicate
+    // `lazy val sql` (which would be a Scala compile error inside one object).
+    assert(code.contains("object Reports:"))
+    val aliasOccurrences =
+      "lazy val sql: org.apache.spark.sql.DataFrame".r.findAllIn(code).size
+    assert(aliasOccurrences == 1,
+      s"expected exactly one `lazy val sql` (only the first block aliases), got $aliasOccurrences")
+    // The alias must point at _sqlBlock_0, not _sqlBlock_1.
+    assert(code.contains("lazy val sql: org.apache.spark.sql.DataFrame = _sqlBlock_0"))
+  }
+
+  test("sql blocks in different sections get separate aliases") {
+    val src =
+      """|# Users
+         |
+         |```sql
+         |SELECT id FROM users
+         |```
+         |
+         |# Posts
+         |
+         |```sql
+         |SELECT id FROM posts
+         |```
+         |""".stripMargin
+    val code = gen(src)
+    assert(code.contains("object Users:"))
+    assert(code.contains("object Posts:"))
+    // Users.sql → _sqlBlock_0, Posts.sql → _sqlBlock_1.
+    val usersStart = code.indexOf("object Users:")
+    val postsStart = code.indexOf("object Posts:")
+    assert(usersStart < postsStart, "Users alias should come before Posts alias")
+    assert(code.substring(usersStart, postsStart).contains("= _sqlBlock_0"))
+    assert(code.substring(postsStart).contains("= _sqlBlock_1"))
+  }
+
+  test("punctuation-only section heading — no alias emitted, internal name only") {
+    // `***` has no alphanumeric runs, so sectionIdent returns None.
+    // The datasetShim contains its own `object Dataset` — what we're
+    // pinning is that there's no NEW `object <X>:` emitted around the
+    // sql block.
+    val src =
+      """|# ***
+         |
+         |```sql
+         |SELECT 1
+         |```
+         |""".stripMargin
+    val code = gen(src)
+    assert(code.contains("_sqlBlock_0"))
+    // The only `object` declarations should be the datasetShim's
+    // `object Dataset`.  No sql-block-driven alias must appear.
+    val aliasMatches =
+      """object \w+:\s*\n\s*lazy val sql:""".r.findAllIn(code).size
+    assert(aliasMatches == 0,
+      s"expected no sql section alias when sectionIdent returns None, got $aliasMatches:\n$code")
+  }
+
   test("generated header documents Spark version and run instructions") {
     val code = gen(
       """|# Test

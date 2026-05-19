@@ -145,8 +145,16 @@ private class SparkGen(
    *  bind to a distinct DataFrame in the @main scope. */
   private var sqlBlockCounter: Int = 0
 
+  /** Tracks how many sql blocks each section identifier has already
+   *  consumed — only the first one in a section gets the friendly
+   *  `<sectionId>.sql` alias (per Phase C.2 contract).  Subsequent
+   *  sql blocks in the same section are reachable only by their
+   *  internal `_sqlBlock_<N>` name. */
+  private val sqlPerSection = scala.collection.mutable.Map.empty[String, Int]
+
   private def collectBlocks(sections: List[Section]): List[SparkGen.Block] =
     sections.flatMap { s =>
+      val secId = sectionIdent(s.heading.text)
       val own = s.content.flatMap {
         case cb: Content.CodeBlock if Lang.isParseable(cb.lang) =>
           List(SparkGen.Block(cb.source))
@@ -154,16 +162,42 @@ private class SparkGen(
         // rewriter walks the source once and produces a (sqlText, binds)
         // pair; the emitted Scala captures the DataFrame so subsequent
         // scalascript blocks in the @main body can reference it.
+        //
+        // Phase C.2: if the enclosing section has a usable identifier
+        // and this is the first sql block in that section, also emit a
+        // `object <sectionId>: lazy val sql: DataFrame = _sqlBlock_<N>`
+        // alias for friendly user-facing access (e.g. `Users.sql.show()`).
+        // Second-and-later sql blocks in the same section retain only
+        // their internal name — a `lazy val sql` re-declaration would be
+        // a Scala compile error.
         case cb: Content.CodeBlock if Lang.isSql(cb.lang) =>
           val n = sqlBlockCounter
           sqlBlockCounter += 1
-          List(SparkGen.Block(sqlBlockToScala(cb.source, n)))
+          val aliasable = secId.filter { id =>
+            val prior = sqlPerSection.getOrElse(id, 0)
+            sqlPerSection(id) = prior + 1
+            prior == 0
+          }
+          List(SparkGen.Block(sqlBlockToScala(cb.source, n, aliasable)))
         case imp: Content.Import =>
           inlineImport(imp.path)._1
         case _ => Nil
       }
       own ++ collectBlocks(s.subsections)
     }
+
+  /** Mirror Interpreter / JsGen / JvmGen `sectionIdent`: words
+   *  (alphanumeric runs) become camelCase; the first word preserves
+   *  its original casing.  Returns None when the heading is empty
+   *  or all-punctuation. */
+  private def sectionIdent(text: String): Option[String] =
+    val parts = text.split("[^A-Za-z0-9]+").filter(_.nonEmpty)
+    if parts.isEmpty then None
+    else
+      val head = parts.head
+      val tail = parts.tail.map(p => s"${p.head.toUpper}${p.tail}")
+      val raw  = head + tail.mkString
+      Some(if raw.head.isDigit then "_" + raw else raw)
 
   /** Translate an `sql` fenced block to its Scala equivalent.  Runs the
    *  shared `SqlBindRewriter` to produce a `:bind<i>` placeholdered SQL
@@ -178,26 +212,44 @@ private class SparkGen(
    *  When the block has no binds, the `Map.of(...)` argument is omitted
    *  and the single-argument `spark.sql(query)` overload is used.
    *
+   *  When `sectionAlias` is `Some("Users")` the emitted snippet ALSO
+   *  appends a friendly object alias:
+   *
+   *    object Users:
+   *      lazy val sql: org.apache.spark.sql.DataFrame = _sqlBlock_<n>
+   *
+   *  Subsequent sql blocks in the same section pass `None` here (the
+   *  caller's `sqlPerSection` book-keeping decides), so we never
+   *  generate a duplicate `lazy val sql` inside the same `object`.
+   *
    *  The triple-quoted Scala string literal contains the rewritten SQL
-   *  verbatim; embedded `"""` triggers a runtime error during compile
-   *  (rare in practice — Spark SQL doesn't use triple quotes). */
-  private def sqlBlockToScala(source: String, n: Int): String =
+   *  verbatim; embedded `"""` would break the literal (rare in practice
+   *  — Spark SQL doesn't use triple quotes). */
+  private def sqlBlockToScala(source: String, n: Int, sectionAlias: Option[String]): String =
     import scalascript.transform.SqlBindRewriter
     val r       = SqlBindRewriter.rewriteSparkSql(source)
     val valName = s"_sqlBlock_$n"
     val sqlLit  = "\"\"\"" + r.sql + "\"\"\""
-    if r.binds.isEmpty then
-      s"val $valName: org.apache.spark.sql.DataFrame = spark.sql($sqlLit)"
-    else
-      val pairs = r.binds.zipWithIndex.map { (expr, idx) =>
-        s"""  "bind$idx", $expr"""
-      }.mkString(",\n")
-      s"""|val $valName: org.apache.spark.sql.DataFrame = spark.sql(
-          |  $sqlLit,
-          |  java.util.Map.of(
-          |$pairs
-          |  )
-          |)""".stripMargin
+    val defDecl =
+      if r.binds.isEmpty then
+        s"val $valName: org.apache.spark.sql.DataFrame = spark.sql($sqlLit)"
+      else
+        val pairs = r.binds.zipWithIndex.map { (expr, idx) =>
+          s"""  "bind$idx", $expr"""
+        }.mkString(",\n")
+        s"""|val $valName: org.apache.spark.sql.DataFrame = spark.sql(
+            |  $sqlLit,
+            |  java.util.Map.of(
+            |$pairs
+            |  )
+            |)""".stripMargin
+    sectionAlias match
+      case None        => defDecl
+      case Some(secId) =>
+        defDecl +
+        s"""
+           |object $secId:
+           |  lazy val sql: org.apache.spark.sql.DataFrame = $valName""".stripMargin
 
   private def inlineImport(path: String): (List[SparkGen.Block], List[String]) =
     import scalascript.parser.Parser

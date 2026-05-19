@@ -38,7 +38,11 @@ val users = Dataset.fromList(List(
 users.toDF().createOrReplaceTempView("users")
 ```
 
-## Query active users via Spark SQL
+## Active users
+
+The single `sql` block in this section binds to `ActiveUsers.sql`
+(Phase C.2 friendly alias) on top of its always-emitted internal
+`_sqlBlock_0` name.
 
 ```sql
 SELECT id, name FROM users WHERE active = ${true} ORDER BY name
@@ -48,10 +52,12 @@ SELECT id, name FROM users WHERE active = ${true} ORDER BY name
 
 ```scalascript
 println("active users:")
-_sqlBlock_0.show()
+ActiveUsers.sql.show()
 ```
 
-## A parameterised lookup
+## Headcount
+
+A parameterised lookup, captured under `Headcount.sql`.
 
 ```scalascript
 val cutoff = 2
@@ -63,5 +69,5 @@ SELECT COUNT(*) AS n FROM users WHERE id > ${cutoff}
 
 ```scalascript
 println(s"users with id > $cutoff:")
-_sqlBlock_1.show()
+Headcount.sql.show()
 ```
