@@ -48,12 +48,16 @@ object Denormalize:
       routes       = m.routes.map(routeDecl),
       pkg          = m.pkg,
       translations = Map.empty,
+      databases    = m.databases.map(databaseDecl),
       raw          = Map.empty,
       span         = m.span.map(span)
     )
 
   private def routeDecl(r: ir.RouteDecl): ast.RouteDecl =
     ast.RouteDecl(r.method, r.path, r.handler, r.span.map(span))
+
+  private def databaseDecl(d: ir.DatabaseDecl): ast.DatabaseDecl =
+    ast.DatabaseDecl(d.name, d.url, d.user, d.password, d.driver, d.span.map(span))
 
   private def section(s: ir.Section): ast.Section =
     ast.Section(

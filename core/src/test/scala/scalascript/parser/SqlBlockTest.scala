@@ -147,6 +147,52 @@ class SqlBlockTest extends AnyFunSuite:
     assert(sql.binds.isEmpty)
   }
 
+  test("sql fence `@db=name` populates ir.Content.SqlBlock.dbName") {
+    val src =
+      """|# Reports
+         |
+         |```sql @db=reports
+         |SELECT count(*) FROM events WHERE day = ${today}
+         |```
+         |""".stripMargin
+    val sql = Normalize(Parser.parse(src)).sections
+      .flatMap(_.content)
+      .collectFirst { case sb: ir.Content.SqlBlock => sb }
+      .getOrElse(fail("Normalize did not produce a SqlBlock"))
+    assert(sql.dbName == Some("reports"))
+    assert(sql.binds  == List("today"))
+  }
+
+  test("sql fence without `@db=` → dbName = None (registry default applies)") {
+    val src =
+      """|# Reports
+         |
+         |```sql
+         |SELECT 1
+         |```
+         |""".stripMargin
+    val sql = Normalize(Parser.parse(src)).sections
+      .flatMap(_.content)
+      .collectFirst { case sb: ir.Content.SqlBlock => sb }
+      .getOrElse(fail("no SqlBlock"))
+    assert(sql.dbName.isEmpty)
+  }
+
+  test("sql fence with multiple attrs — `@db=` key is lower-cased, value case preserved") {
+    val src =
+      """|# X
+         |
+         |```sql @DB=Reports @other=v
+         |SELECT 1
+         |```
+         |""".stripMargin
+    val sql = Normalize(Parser.parse(src)).sections
+      .flatMap(_.content)
+      .collectFirst { case sb: ir.Content.SqlBlock => sb }
+      .getOrElse(fail("no SqlBlock"))
+    assert(sql.dbName == Some("Reports"))
+  }
+
   test("malformed sql falls back to EmbeddedBlock (front-end stays robust)") {
     // Lone `$` is a static error in the rewriter, but Normalize catches
     // it and falls back to EmbeddedBlock so the rest of the pipeline

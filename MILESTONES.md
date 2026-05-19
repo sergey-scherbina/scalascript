@@ -6463,20 +6463,46 @@ from JvmGen-emitted code.
 
 ### Phase 5 — Connection plumbing
 
-- [ ] `schemas/frontmatter.yaml`: add `databases:` property — map of
-      `name → { url, user?, password?, driver? }` with `${env:VAR}`
-      references in value strings.
-- [ ] `ConnectionRegistry`: resolves env refs at module load, opens
-      JDBC connections lazily, caches per-module, closes on module
-      teardown.  Missing env var → fatal diagnostic at load time.
-- [ ] Block-level `@db=name` attribute on the `sql` fence selects a
-      named connection; absent → `default`.
-- [ ] `given Connection` (or `given DataSource`) in lexical scope at
-      the block site overrides the registry — registry isn't even
-      consulted.
-- [ ] Tests: YAML config path, given-override path, missing-env
-      diagnostic, two distinct `@db=` blocks share or don't share
-      caches as expected.
+- [x] `schemas/frontmatter.yaml`: `databases:` map — keys are
+      connection names referenced by `@db=`, values carry
+      `{url, user?, password?, driver?}`.  Strings may contain
+      `${env:VAR}` references.
+- [x] `ast.Manifest` / `ir.Manifest`: new `databases:
+      List[DatabaseDecl]` field with default `Nil`.  Parser pulls
+      entries out of the YAML map (missing `url` skips silently —
+      runtime surfaces a precise diagnostic later).  Normalize +
+      Denormalize forward the list.
+- [x] `core/.../parser/Parser.scala`: fence-line attribute syntax
+      `@key=value` (also accepts `@key="quoted value"`).  Keys
+      lower-cased, values case-preserved.  Carried on
+      `ast.Content.CodeBlock.attrs: Map[String, String]`.  General
+      slot — `sql` uses it for `@db=` today; other tags can adopt
+      it without an AST change.
+- [x] `Normalize`: `sql` blocks read `attrs("db")` into
+      `ir.Content.SqlBlock.dbName`; absent → `None`, registry
+      default applies at execution time.
+- [x] `backend-sql-runtime`: `EnvResolver.resolve(template,
+      configKey, dbName, lookup)` expands `${env:NAME}` substrings
+      at runtime (not at parse), raising `MissingEnv` with the
+      variable / config field / db name on miss.
+- [x] `backend-sql-runtime`: `ConnectionRegistry(specs, envLookup)`
+      — lazy-open + cached `connect(name)`, identity on second
+      call, `fresh(name)` for uncached opens, idempotent `close()`,
+      `UnknownDatabase` lists available names on miss.
+- [x] Tests: `DatabasesFrontmatterTest` (7 cases — YAML parsing,
+      env-ref preservation, malformed-entry skip,
+      Normalize/Denormalize round-trip).  `ConnectionRegistryTest`
+      (16 cases — `EnvResolver` happy/error paths,
+      regex-special-char escape, registry connect-and-cache,
+      fresh-no-cache, close idempotency, post-close reopen,
+      unknown-name diagnostic).  `SqlBlockTest` extended with
+      `@db=name` parsing + key-lowercasing cases.
+
+The `given Connection` / `given DataSource` override path is
+implemented in Phase 6 alongside the interpreter wiring — the
+registry already accepts pre-built `Connection`s through `fresh`,
+so Phase 6 just routes the `given`-resolved connection straight
+to `SqlRuntime.execute` and bypasses the registry.
 
 ### Phase 6 — Interpreter + JvmGen integration
 

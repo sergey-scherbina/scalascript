@@ -185,6 +185,42 @@ properties:
           path: /api/todos
           handler: addTodo
 
+  databases:
+    type: object
+    description: |
+      Named JDBC connections consumed by `sql` fenced code blocks
+      (SPEC § 3.3.1, v1.26).  Map keys are connection names referenced
+      by `@db=name` on the fence line; the conventional default is
+      `default`.  String values may contain `${env:VAR}` references —
+      resolved at runtime when the connection is opened, not at parse
+      time, so a `.ssc` file declaring secret-referencing entries
+      still parses on a machine that doesn't have the secrets set.
+    additionalProperties:
+      type: object
+      required: [url]
+      additionalProperties: false
+      properties:
+        url:
+          type: string
+          description: JDBC URL (`jdbc:h2:mem:...`, `jdbc:postgresql://...`, etc.)
+        user:
+          type: string
+        password:
+          type: string
+        driver:
+          type: string
+          description: |
+            Fully-qualified JDBC driver class.  Usually omitted — the
+            JDBC `ServiceLoader` picks bundled drivers (H2, SQLite)
+            and any `dep:`-imported driver up automatically.
+    examples:
+      - default:
+          url: jdbc:h2:mem:dev;DB_CLOSE_DELAY=-1
+        reports:
+          url: jdbc:postgresql://reports.internal:5432/warehouse
+          user: ${env:RPT_USER}
+          password: ${env:RPT_PASSWORD}
+
   keywords:
     type: array
     items:

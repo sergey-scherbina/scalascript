@@ -49,11 +49,15 @@ object Normalize:
       targets      = m.targets,
       routes       = m.routes.map(routeDecl),
       pkg          = m.pkg,
+      databases    = m.databases.map(databaseDecl),
       span         = m.span.map(span)
     )
 
   private def routeDecl(r: ast.RouteDecl): ir.RouteDecl =
     ir.RouteDecl(r.method, r.path, r.handler, r.span.map(span))
+
+  private def databaseDecl(d: ast.DatabaseDecl): ir.DatabaseDecl =
+    ir.DatabaseDecl(d.name, d.url, d.user, d.password, d.driver, d.span.map(span))
 
   private def section(s: ast.Section): ir.Section =
     ir.Section(
@@ -69,7 +73,7 @@ object Normalize:
   private def content(c: ast.Content): ir.Content = c match
     case ast.Content.Prose(text, sp) =>
       ir.Content.Prose(text, sp.map(span))
-    case ast.Content.CodeBlock(lang, source, tree, sp, _, _) =>
+    case ast.Content.CodeBlock(lang, source, tree, sp, _, _, attrs) =>
       if ast.Lang.isScalaScript(lang) then
         // v2.0 / Stage 5+ — populate `body` with translated `IrExpr`
         // trees so `Linker.rewriteExpr` has real data to walk for
@@ -105,7 +109,7 @@ object Normalize:
           ir.Content.SqlBlock(
             source = source,
             binds  = rewritten.binds,
-            dbName = None,
+            dbName = attrs.get("db"),
             span   = sp.map(span)
           )
         catch case _: SqlBindRewriter.RewriteError =>

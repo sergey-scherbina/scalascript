@@ -194,6 +194,7 @@ object Parser:
             locale -> (v.asScala.collect { case (k: String, vv) => k -> vv.toString }.toMap: Map[String, String])
           }.toMap
       }.getOrElse(Map.empty),
+      databases = parseDatabases(raw),
       raw = raw
     )
 
@@ -218,6 +219,54 @@ object Parser:
               case _                            => None
           case _ => None
         }
+    }.getOrElse(Nil)
+
+  /** Pull `databases: { name: { url, user?, password?, driver? } }` out
+   *  of the raw YAML map (SPEC § 3.3.1, v1.26).  Entries that lack a
+   *  `url` are silently skipped — the runtime's `ConnectionRegistry`
+   *  surfaces a more specific diagnostic when an `sql` block actually
+   *  tries to resolve a missing connection.  `${env:NAME}` references
+   *  inside the values are *preserved verbatim* here and resolved at
+   *  runtime — keeping env access out of parse time means a `.ssc`
+   *  file with the right schema parses on any machine, even one that
+   *  doesn't have the secrets set. */
+  /** Parse `@key=value` markers that may follow the lang tag on a
+   *  fence line.  Values may be unquoted (whitespace-delimited) or
+   *  double-quoted (allowing whitespace and equals signs inside).
+   *  Keys are lower-cased — `@DB=x` is `db -> x`.
+   *
+   *  Used today by `sql` blocks to read `@db=name` (v1.26).  The
+   *  syntax is general; future tags can pick up their own attrs
+   *  without changing the parser. */
+  private val FenceAttrPat = """@([A-Za-z_][A-Za-z0-9_-]*)=(?:"([^"]*)"|(\S+))""".r
+
+  private def parseFenceAttrs(tail: String): Map[String, String] =
+    if tail.isEmpty then Map.empty
+    else
+      FenceAttrPat.findAllMatchIn(tail).map { m =>
+        val key   = m.group(1).toLowerCase
+        val value = Option(m.group(2)).getOrElse(m.group(3))
+        key -> value
+      }.toMap
+
+  private def parseDatabases(raw: Map[String, Any]): List[DatabaseDecl] =
+    raw.get("databases").collect {
+      case m: java.util.Map[?, ?] =>
+        m.asScala.iterator.collect {
+          case (k: String, v: java.util.Map[?, ?]) =>
+            val mm: Map[String, Any] = v.asScala.iterator.collect {
+              case (kk: String, vv) => kk -> (vv: Any)
+            }.toMap
+            mm.get("url").collect { case s: String => s }.map { url =>
+              DatabaseDecl(
+                name     = k,
+                url      = url,
+                user     = mm.get("user").collect { case s: String => s },
+                password = mm.get("password").collect { case s: String => s },
+                driver   = mm.get("driver").collect { case s: String => s }
+              )
+            }
+        }.flatten.toList
     }.getOrElse(Nil)
 
   // ─── Section extraction from the flat CommonMark tree ────────────
@@ -271,7 +320,10 @@ object Parser:
 
   private def toContent(node: CmNode, mdLineToFileLine: Int => Int): Option[Content] = node match
     case f: CmFenced =>
-      val lang = Option(f.getInfo).map(_.trim.takeWhile(!_.isWhitespace)).getOrElse("").toLowerCase
+      val info     = Option(f.getInfo).getOrElse("").trim
+      val lang     = info.takeWhile(!_.isWhitespace).toLowerCase
+      val tailAttrs = info.drop(lang.length).trim
+      val attrs    = parseFenceAttrs(tailAttrs)
       val src  = Option(f.getLiteral).getOrElse("")
       val (tree, parseError) =
         if Lang.isParseable(lang) then parseScalaWithDiagnostic(src)
@@ -286,7 +338,7 @@ object Parser:
         if spans != null && !spans.isEmpty then spans.get(0).getLineIndex
         else 0
       val lineOffset = mdLineToFileLine(fenceStart0 + 1)
-      Some(Content.CodeBlock(lang, src, tree, None, parseError, lineOffset))
+      Some(Content.CodeBlock(lang, src, tree, None, parseError, lineOffset, attrs))
 
     case p: CmParagraph =>
       asImport(p).orElse {

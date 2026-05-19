@@ -34,6 +34,21 @@ case class SymbolRef(qualifiedName: QualifiedName, span: Option[Span] = None) de
 
 case class RouteDecl(method: String, path: String, handler: String, span: Option[Span] = None) derives ReadWriter
 
+/** Named JDBC connection declaration carried over from the front-matter
+ *  `databases:` map (SPEC § 3.3.1, v1.26).  Consumed by the JVM target's
+ *  `ConnectionRegistry` to materialise a real `java.sql.Connection` on
+ *  demand for `sql` fenced blocks.  `${env:NAME}` substrings are
+ *  preserved verbatim through the IR — they're resolved at runtime
+ *  when the connection actually opens, not at parse / Normalize time. */
+case class DatabaseDecl(
+  name:     String,
+  url:      String,
+  user:     Option[String]  = None,
+  password: Option[String]  = None,
+  driver:   Option[String]  = None,
+  span:     Option[Span]    = None
+) derives ReadWriter
+
 case class Manifest(
   name:         Option[String],
   version:      Option[String],
@@ -43,6 +58,7 @@ case class Manifest(
   targets:      List[String],
   routes:       List[RouteDecl],
   pkg:          Option[List[String]],
+  databases:    List[DatabaseDecl] = Nil,
   span:         Option[Span] = None
 ) derives ReadWriter
 

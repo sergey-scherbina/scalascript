@@ -31,6 +31,14 @@ case class Manifest(
   /** Inline translation table: locale → (key → value). Populated from the
    *  `translations:` front-matter YAML section. */
   translations: Map[String, Map[String, String]],
+  /** Named JDBC connections declared in front-matter `databases:`.
+   *  Consumed by `sql` fenced blocks (SPEC § 3.3.1, v1.26).  Each
+   *  block resolves its connection by name (`@db=foo`) against this
+   *  list; the default name is `"default"`.  Strings may contain
+   *  `${env:NAME}` references resolved at module-load time.
+   *  Default `Nil` so existing `Manifest` construction sites in tests
+   *  / older artifacts continue to compile without an explicit value. */
+  databases: List[DatabaseDecl] = Nil,
   raw: Map[String, Any],
   span: Option[Span] = None
 )
@@ -40,6 +48,22 @@ case class Manifest(
  *  level function defined elsewhere in the module that takes a `Request`
  *  and returns a `Response`. */
 case class RouteDecl(method: String, path: String, handler: String, span: Option[Span] = None)
+
+/** A `databases:` entry in front-matter declares a named JDBC
+ *  connection consumed by `sql` blocks.  `url` is mandatory;
+ *  `user` / `password` / `driver` are optional (drivers register via
+ *  the JDBC `ServiceLoader` for the bundled H2 + SQLite and any
+ *  `dep:`-imported PostgreSQL / MySQL / etc.).  Values may contain
+ *  `${env:NAME}` references — resolved at runtime when the runtime
+ *  actually opens the connection (not at parse time). */
+case class DatabaseDecl(
+  name:     String,
+  url:      String,
+  user:     Option[String]  = None,
+  password: Option[String]  = None,
+  driver:   Option[String]  = None,
+  span:     Option[Span]    = None
+)
 
 case class Section(
   heading: Heading,
@@ -76,7 +100,15 @@ enum Content:
     tree: Option[ScalaNode],
     span: Option[Span] = None,
     parseError: Option[CodeBlockParseError] = None,
-    lineOffset: Int = 0
+    lineOffset: Int = 0,
+    /** Fence-line attributes parsed from `@key=value` markers after
+     *  the lang tag.  Example: ```` ```sql @db=reports @id=foo ````
+     *  becomes `attrs = Map("db" -> "reports", "id" -> "foo")`.
+     *  Empty by default; only the SQL fence parser uses this today
+     *  (v1.26 — `@db=name` selects a named connection from front-
+     *  matter `databases:`), but the slot is general so other tags
+     *  can adopt the same syntax without an AST change. */
+    attrs: Map[String, String] = Map.empty
   )
   /** Markdown link that acts as a module import: `[Name, …](path)`. */
   case Import(path: String, bindings: List[ImportBinding], span: Option[Span] = None)
