@@ -5373,6 +5373,14 @@ class JvmGen(
        |  val _clusterEventQueue = new java.util.concurrent.ConcurrentLinkedQueue[(String, String, String)]()
        |  def _fireClusterEvent(tag: String, nodeId: String, reason: String = ""): Unit =
        |    if !_clusterEventSubs.isEmpty then _clusterEventQueue.offer((tag, nodeId, reason))
+       |  // JSON string-escape helper — hoisted above all subsequent vals so
+       |  // nested defs can forward-reference it without Scala 3 flagging the
+       |  // ref as "extending over" a val initialiser.
+       |  def _jstr(s: String): String =
+       |    val sb = new StringBuilder(s.length + 2).append('"')
+       |    s.foreach { case '"' => sb.append("\\\""); case '\\' => sb.append("\\\\")
+       |                case '\n' => sb.append("\\n"); case c => sb.append(c) }
+       |    sb.append('"').toString
        |  // v1.23 — phi-accrual failure detector: sliding window of inter-pong intervals.
        |  val _PHI_HIST_MAX  = 100
        |  val _peerPongHist  = new java.util.concurrent.ConcurrentHashMap[String,
@@ -5802,12 +5810,8 @@ class JvmGen(
        |        _Pid(nid, lid)
        |      case _ => json
        |
-       |  def _jstr(s: String): String =
-       |    val sb = new StringBuilder(s.length + 2).append('"')
-       |    s.foreach { case '"' => sb.append("\\\""); case '\\' => sb.append("\\\\")
-       |                case '\n' => sb.append("\\n"); case c => sb.append(c) }
-       |    sb.append('"').toString
-       |
+       |""".stripMargin +
+    """|
        |  def _resumeBlockedSender(state: _ActorState): Unit =
        |    if state.cap <= 0 || state.blockedSends.isEmpty then return
        |    if state.mailbox.size >= state.cap then return

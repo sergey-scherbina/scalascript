@@ -3308,8 +3308,11 @@ val JsRuntime: String =
  *  it overflows the JVM's 65 535-byte string-literal limit.  Same
  *  semantics as the interpreter and JvmGen: `delay` blocks via
  *  Atomics on Node, thunks passed to `async` / `parallel` run
- *  synchronously, results come back in declared order. */
-val JsRuntimeAsync: String = """
+ *  synchronously, results come back in declared order.  Itself split
+ *  into two halves to stay under that 65 KiB string-literal cap. */
+lazy val JsRuntimeAsync: String = JsRuntimeAsyncA + JsRuntimeAsyncB
+
+private val JsRuntimeAsyncA: String = """
 
 // ── Async — built-in effect on top of the Free Monad ───────────────────────
 //
@@ -4184,6 +4187,9 @@ function _runActors(bodyFn) {
         state.blocked = { matcher, k, wrapSome: true, deadline: Date.now() + args[1] };
         return { suspend: true };
       }
+"""
+
+private val JsRuntimeAsyncB: String = """
       // ── v1.6 Phase 2 — supervision ────────────────────────────────────
       case 'link': {
         const target = args[0];
