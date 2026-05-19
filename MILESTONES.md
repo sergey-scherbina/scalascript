@@ -3907,7 +3907,7 @@ link → build --incremental`); the JVM backend produces per-module `.scjvm`
 artifacts that the linker combines incrementally.  Tracking doc:
 `docs/separate-compilation-plan.md`.
 
-Test coverage: 389 core tests + 35 CLI subprocess smoke tests, all green.
+Test coverage: 401 core tests + 45 CLI subprocess smoke tests, all green.
 
 Stage 5.4 / final round (landed 2026-05-19):
 - `parseSType` and `SType.show` round-trip now handle union types
@@ -3952,13 +3952,52 @@ Stage 5.5 / robustness + ergonomics (landed 2026-05-19):
   Failure modes (missing file, unknown extension, magic/ABI mismatch)
   exit non-zero with clear diagnostics.
 
-**Known gaps (still TODO post-MVP):**
-1. JVM/JS linker still does textual concat + dedup.  Phase 2 = real
+Stage 5.6 / battle-test + JvmGen fixes (landed 2026-05-19):
+- **Battle-test against real std/ modules**: 10 new tests against
+  `std/eq.ssc`, `std/show.ssc`, `std/hash.ssc`, `std/order.ssc`,
+  `std/dsl/*.ssc`, `std/parsing/*.ssc`.  ~50 % of std/ compiles and links
+  end-to-end (the typeclass + ADT + dsl combinator idiom).  Surfaced
+  4 concrete bugs documented in test TODO markers — see "Known gaps".
+- **JvmGen effect-runtime emission fixes**:
+  - Bare-name actor intrinsics (`subscribeClusterEvents()`, `clusterMembers()`)
+    at `val rhs` now route through `emitExpr` and rewrite to `Actor.*`.
+  - `blocksUseActors` now also fires on pattern-only modules — a module
+    that only does `case NodeJoined(id) => ...` correctly pulls in the
+    effects runtime and emits the matching case-class definitions.
+  - Overloads of `serve` and `onWebSocket` collapsed into single defs with
+    default arguments, so the v2.0 linker dedup pass doesn't drop them.
+- **`ssc deps <file.ssc> [--graph]`**: prints the resolved import-closure
+  in topo order (with optional `from → to` edges).  Useful for CI and
+  for understanding what `compile-jvm`/`compile-js` will recursively
+  compile before invocation.
+- **Deep Select chains in strict mode**: `Typer` now recursively resolves
+  `a.b.c` qualifier chains.  Single diagnostic at first break (no cascade).
+  `ExportedSymbol.nested: List[ExportedSymbol]` field added to the IR
+  (backward-compat default `Nil`); extractor population is `TODO(v2.x)` —
+  until then, opaque sub-namespaces fall to permissive.
+
+**Known gaps (post-Stage-5 follow-up):**
+1. JVM/JS linker still textual concat + dedup.  Phase 2 = real
    bytecode-level mangling.
-2. Strict-mode `Select` check covers 2-level chains only; `a.b.c` still
-   permissive (deep chains rare in practice).
-3. Refinement types `A { def foo: Int }` and match types still degrade to
+2. Refinement types `A { def foo: Int }` and match types still degrade to
    `SType.Any` in `parseSType` (intentional — out of v2.0 scope).
+3. Anonymous given instances (`given Eq[Int] with { ... }`) currently
+   write empty `witnessName` and a truncated `fqn` (`std_eq_`) in `.scim`
+   — typer + extractor fix needed to surface a stable witness identity
+   for every typeclass instance in std/.
+4. Code-block parse-failure diagnostics are opaque ("Failed to parse
+   scalascript code block") — no line/column/snippet.  Bisecting a real
+   parse error in a 100-line block is painful.
+5. YAML front-matter loader rejects unquoted colons inside `description:`
+   values; SnakeYAML's "mapping values are not allowed here" is correct
+   but unhelpful for non-YAML-experts.  Fix: quote-tolerant loader or
+   better error message pinpointing the offending key.
+6. `InterfaceExtractor.ExportedSymbol.nested` is always `Nil` — deep
+   Select chains through `.scim` artifacts fall to permissive until the
+   extractor descends into nested `object` namespaces.
+7. `build --incremental` splits compile-failure summary (stdout) and root
+   cause (stderr); consumers capturing only stdout get failure markers
+   without context.
 
 What landed:
 - `ir/Ir.scala`: `ArtifactVersion` (magic `SSCART` + ABI `2.0`),
