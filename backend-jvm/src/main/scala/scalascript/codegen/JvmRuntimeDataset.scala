@@ -52,6 +52,24 @@ val JvmRuntimeDataset: String =
      |      xs => xs,
      |      _parallel)
      |
+     |  // Element-wise pairing — stops at shorter side (Scala zip semantics).
+     |  def zip[U](other: _Dataset[U]): _Dataset[(T, U)] =
+     |    new _Dataset(
+     |      () =>
+     |        val ls = _pipeline(_sourceFn()).asInstanceOf[List[T]]
+     |        val rs = other._pipeline(other._sourceFn()).asInstanceOf[List[U]]
+     |        ls.zip(rs).asInstanceOf[List[Any]],
+     |      xs => xs,
+     |      _parallel)
+     |
+     |  def zipWithIndex: _Dataset[(T, Int)] =
+     |    new _Dataset(
+     |      () =>
+     |        _pipeline(_sourceFn()).asInstanceOf[List[T]]
+     |          .zipWithIndex.asInstanceOf[List[Any]],
+     |      xs => xs,
+     |      _parallel)
+     |
      |  def groupBy[K](key: T => K): _Dataset[(K, List[T])] =
      |    new _Dataset(() => _sourceFn(), xs =>
      |      _pipeline(xs)

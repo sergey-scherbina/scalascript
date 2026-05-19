@@ -1,0 +1,35 @@
+---
+name: dataset-zip
+---
+
+# Dataset — zip / zipWithIndex
+
+Element-wise pairing. `zip(other)` stops at the shorter side;
+`zipWithIndex` pairs each value with its 0-based position. Output is a
+Dataset of 2-tuples.
+
+```scalascript
+val xs = Dataset.of(1, 2, 3, 4)
+val ys = Dataset.of("a", "b", "c", "d", "e")
+
+// zip — stops at shorter side (4 pairs, not 5)
+xs.zip(ys).collect().foreach { case (n, s) => println(s"$n -> $s") }
+
+println("---")
+
+// zipWithIndex on a small dataset
+Dataset.of("alpha", "beta", "gamma").zipWithIndex.collect()
+  .foreach { case (v, i) => println(s"$i: $v") }
+
+println("---")
+
+// zip + map — round-trip through transformations
+val sums = xs.zip(Dataset.of(10, 20, 30, 40)).map { case (a, b) => a + b }
+println(sums.collect().mkString(", "))
+
+println("---")
+
+// Empty zips
+println(xs.zip(Dataset.of[Int]()).count())
+println(Dataset.of[Int]().zipWithIndex.count())
+```

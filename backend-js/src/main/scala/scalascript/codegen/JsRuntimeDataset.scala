@@ -82,6 +82,28 @@ class _Dataset {
       return out;
     }, xs => xs, this._parallel);
   }
+  zip(other) {
+    // Pair element-wise; stops at the shorter side. Emits 2-tuples that
+    // round-trip through the rest of the runtime (the _isTuple flag is
+    // what `case (a, b) =>` destructuring keys off).
+    const self = this;
+    return new _Dataset(() => {
+      const ls = self.collect(), rs = other.collect();
+      const n  = Math.min(ls.length, rs.length);
+      const out = new Array(n);
+      for (let i = 0; i < n; i++) {
+        const t = [ls[i], rs[i]]; t._isTuple = true; out[i] = t;
+      }
+      return out;
+    }, xs => xs, this._parallel);
+  }
+  get zipWithIndex() {
+    const self = this;
+    return new _Dataset(() => {
+      const ls = self.collect();
+      return ls.map((v, i) => { const t = [v, i]; t._isTuple = true; return t; });
+    }, xs => xs, this._parallel);
+  }
   groupBy(key) {
     const prev = this._pipeline;
     return new _Dataset(this._sourceFn, xs => {
