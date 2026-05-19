@@ -431,4 +431,24 @@ private class SparkGen(
        |    /** `.toScalaList` alias for when `.toList` conflicts. */
        |    def toScalaList: List[T] = ds.collect().toList
        |
+       |    // Writer convenience shims (v1.25 § 9.5 Phase C.3 slice 7).
+       |    // Symmetric to the `Dataset.fromX(path, opts*)` readers from
+       |    // slices 5–6 — same name pattern, same option-pair tail.
+       |    // Each delegates to Spark's `DataFrameWriter.options(...).X(path)`
+       |    // and returns `Unit` since the actual side-effect is the write.
+       |    //
+       |    // The `mode` knob (overwrite / append / error / ignore) is NOT
+       |    // exposed through the options map — Spark treats `mode` as a
+       |    // dedicated writer method.  Users who need it chain
+       |    // `ds.write.mode("overwrite").parquet(path)` directly; the shim
+       |    // covers the 80%-case ad-hoc dump.
+       |    def toParquet(path: String, options: (String, String)*): Unit =
+       |      ds.write.options(options.toMap).parquet(path)
+       |
+       |    def toJson(path: String, options: (String, String)*): Unit =
+       |      ds.write.options(options.toMap).json(path)
+       |
+       |    def toCsv(path: String, options: (String, String)*): Unit =
+       |      ds.write.options(options.toMap).csv(path)
+       |
        |""".stripMargin

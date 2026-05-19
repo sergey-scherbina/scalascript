@@ -606,6 +606,46 @@ class SparkGenTest extends AnyFunSuite:
     assert(code.contains("spark.read.options(options.toMap).csv(path)"))
   }
 
+  // ── Phase C.3 slice 7: writer extension methods ──────────────────────────
+
+  test("Dataset.toParquet extension delegates to ds.write.options(...).parquet") {
+    val code = gen("# Test\n```scalascript\nval df = Dataset.fromList(List(1,2,3))\ndf.toParquet(\"/out\")\n```\n")
+    assert(code.contains("def toParquet(path: String, options: (String, String)*): Unit ="),
+      s"missing toParquet extension signature, got:\n$code")
+    assert(code.contains("ds.write.options(options.toMap).parquet(path)"),
+      s"toParquet must delegate to ds.write.options(...).parquet, got:\n$code")
+  }
+
+  test("Dataset.toJson extension delegates to ds.write.options(...).json") {
+    val code = gen("# Test\n```scalascript\nval df = Dataset.fromList(List(1,2,3))\ndf.toJson(\"/out\")\n```\n")
+    assert(code.contains("def toJson(path: String, options: (String, String)*): Unit ="))
+    assert(code.contains("ds.write.options(options.toMap).json(path)"))
+  }
+
+  test("Dataset.toCsv extension delegates to ds.write.options(...).csv") {
+    val code = gen("# Test\n```scalascript\nval df = Dataset.fromList(List(1,2,3))\ndf.toCsv(\"/out\")\n```\n")
+    assert(code.contains("def toCsv(path: String, options: (String, String)*): Unit ="))
+    assert(code.contains("ds.write.options(options.toMap).csv(path)"))
+  }
+
+  test("writer extension methods accept inline option pairs verbatim") {
+    val code = gen(
+      """|# Round-trip
+         |```scalascript
+         |val df = Dataset.fromCsv("/in", "header" -> "true")
+         |df.toCsv("/out", "header" -> "true", "compression" -> "gzip")
+         |```
+         |""".stripMargin
+    )
+    // The user's multi-option write call survives verbatim — varargs
+    // resolution happens at scala-cli compile time, not in SparkGen.
+    assert(code.contains("""df.toCsv("/out", "header" -> "true", "compression" -> "gzip")"""),
+      s"user multi-option write call must survive verbatim, got:\n$code")
+    // Reader + writer coexist in the same extension block.
+    assert(code.contains("def fromCsv"))
+    assert(code.contains("def toCsv"))
+  }
+
   test("Reader user call with options pairs survives verbatim in user block") {
     // The varargs option pairs are user-written Scala; SparkGen passes
     // the source through, so a multi-option call lands in the generated
