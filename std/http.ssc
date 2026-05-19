@@ -6,6 +6,7 @@ package: std.http
 exports:
   - route
   - serve
+  - serveAsync
   - stop
   - tls
   - httpGet
@@ -47,6 +48,11 @@ extern def tls(certPath: String, keyPath: String): TlsContext
 // Lifecycle
 extern def serve(port: Int): Unit
 extern def serve(port: Int, tlsCtx: TlsContext): Unit
+// Non-blocking variant of `serve` — fires the WS/HTTP server on a
+// virtual thread and returns immediately.  Required for multi-node
+// clusters where the same process must bind a WS server AND keep an
+// actor scheduler running (Bully election needs both alive).
+extern def serveAsync(port: Int): Unit
 extern def stop(): Unit
 
 // Route registration — curried: route(method, path) { handler }

@@ -83,7 +83,8 @@ class Typer(
     // Doc / render / serve
     s.define(Symbol("doc",     SType.Function(List(SType.Any), SType.Any), SymbolKind.Def))
     s.define(Symbol("render",  SType.Function(List(SType.Any), SType.Unit), SymbolKind.Def))
-    s.define(Symbol("serve",   SType.Function(List(SType.Any), SType.Unit), SymbolKind.Def))
+    s.define(Symbol("serve",      SType.Function(List(SType.Any), SType.Unit), SymbolKind.Def))
+    s.define(Symbol("serveAsync", SType.Function(List(SType.Any), SType.Unit), SymbolKind.Def))
     // Effect / actor / runtime intrinsics — the interpreter recognises these
     // by name (see backend-interpreter/Interpreter.scala).  Seeding them here
     // prevents strict-mode false-positives for code that uses real ScalaScript

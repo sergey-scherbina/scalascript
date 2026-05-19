@@ -374,6 +374,26 @@ Unit-level (single-process simulation):
 - **Heartbeat resets election timer.**  Followers do not start an
   election while heartbeats arrive.
 
+### Multi-process integration test — current state
+
+Real multi-node testing (two `ssc.jar` subprocesses on distinct
+loopback ports, joined via the v1.6 actor WS, verifying they
+converge on a single Bully leader) currently hits a runtime
+limitation: `serve(port)` blocks the caller thread, and the actor
+scheduler runs in that same thread, so `runActors { ... serve(p) }`
+deadlocks before the actor scheduler can drain inbound peer
+envelopes.  Concrete fix needs one of:
+
+1. A non-blocking `serveAsync(port)` intrinsic that returns
+   immediately and runs the WS server on a virtual thread.
+2. An option for `runActors` to release the calling thread to a
+   background scheduler so user code can call `serve` after it.
+
+Until then the conformance tests cover single-node behaviour and
+the e2e ping-pong tests cover three-backend agreement.  Real-WS
+multi-node integration testing is deferred to a follow-up release
+that ships the non-blocking-serve intrinsic.
+
 Integration (real WS, multiple processes, killed at the kernel
 level so we exercise the real Phase 3 distributed actor stack):
 

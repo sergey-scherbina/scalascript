@@ -33,6 +33,24 @@ val HttpIntrinsics: Map[QualifiedName, IntrinsicImpl] = Map(
       case _ => throw InterpretError("tls(certPath, keyPath)")
   ),
 
+  // Non-blocking variant of `serve` — fires the WS/HTTP server on a
+  // virtual thread and returns immediately, so the caller (an actor
+  // body, typically) can keep doing useful work.  Required for
+  // multi-node clusters where each node needs to both bind its WS
+  // server AND run an actor scheduler in the same process.
+  QualifiedName("serveAsync") -> NativeImpl((ctx, args) =>
+    args match
+      case List(port: Long) =>
+        ctx.registerHealthDefaults()
+        if !ctx.headless then
+          Thread.ofVirtual().start { () =>
+            try scalascript.server.WebServer.start(port.toInt, ".", ctx.out)
+            catch case _: Throwable => ()
+          }
+        ()
+      case _ => throw InterpretError("serveAsync(port)")
+  ),
+
   QualifiedName("serve") -> NativeImpl((ctx, args) =>
     args match
       case List(port: Long) =>
