@@ -1334,6 +1334,8 @@ class Interpreter(
             val name   = m.get(Value.StringV("name")).collect { case Value.StringV(s) => s }.getOrElse("")
             val nodeId = m.get(Value.StringV("nodeId")).collect { case Value.StringV(s) => s }.getOrElse("")
             val localId = m.get(Value.StringV("localId")).collect { case Value.StringV(s) => s.toLongOption.getOrElse(0L) }.getOrElse(0L)
+            if clusterDebug then out.println(
+              s"[cluster:dbg] $localNodeId recv global_reg name=$name from=$nodeId localId=$localId")
             if name.nonEmpty && nodeId.nonEmpty then
               globalRegistry.put(name, mkPid(nodeId, localId))
           case "phi_vector" =>
@@ -6681,16 +6683,24 @@ class Interpreter(
 
     // v1.6.x — cluster-wide registry
     case "globalRegister" => args match
-      case List(Value.StringV(name), pid @ Value.InstanceV("Pid", _)) =>
-        globalRegistry.put(name, pid)
-        val payload = pid match
-          case Value.InstanceV("Pid", fields) =>
-            val nid = fields.get("nodeId").collect { case Value.StringV(s) => s }.getOrElse(localNodeId)
-            val lid = fields.get("localId").collect { case Value.IntV(n) => n }.getOrElse(0L)
-            s"""{"t":"global_reg","name":${jsonStr(name)},"nodeId":${jsonStr(nid)},"localId":${jsonStr(lid.toString)}}"""
-          case _ => ""
-        if payload.nonEmpty then
-          peerChannels.forEach { (_, send) => try send(payload) catch case _: Throwable => () }
+      case List(Value.StringV(name), Value.InstanceV("Pid", fields)) =>
+        // Local-spawn Pids carry an empty nodeId.  Stamp the local
+        // node identity onto the registered Pid so cross-node
+        // lookups can route back here.  Without this, remote nodes
+        // store a Pid with nodeId="" and `send` falls through to the
+        // local mailbox lookup, which is empty.
+        val rawNid = fields.get("nodeId").collect { case Value.StringV(s) => s }.getOrElse("")
+        val nid    = if rawNid.nonEmpty then rawNid else localNodeId
+        val lid    = fields.get("localId").collect { case Value.IntV(n) => n }.getOrElse(0L)
+        val stampedPid = mkPid(nid, lid)
+        globalRegistry.put(name, stampedPid)
+        val payload =
+          s"""{"t":"global_reg","name":${jsonStr(name)},"nodeId":${jsonStr(nid)},"localId":${jsonStr(lid.toString)}}"""
+        val peers = scala.collection.mutable.ListBuffer.empty[String]
+        peerChannels.keySet().forEach(peers += _)
+        if clusterDebug then out.println(
+          s"[cluster:dbg] $localNodeId globalRegister($name) nid=$nid lid=$lid → ${peers.mkString(",")}")
+        peerChannels.forEach { (_, send) => try send(payload) catch case _: Throwable => () }
         Right(k(Value.UnitV))
       case _ => throw InterpretError("globalRegister(name, pid)")
 
