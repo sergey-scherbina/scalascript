@@ -3806,6 +3806,31 @@ function _runActors(bodyFn) {
     }, _COORD_RENEW_INTERVAL_MS);
     if (_coordTickHandle && typeof _coordTickHandle.unref === 'function') _coordTickHandle.unref();
   }
+  // v1.23 — drain-aware step-down (cluster-raft.md §7).
+  function _stepDownIfLeader() {
+    if (_leaderProtocol === 'raft') {
+      if (_raftStateName === 'leader') {
+        _raftStateName = 'follower';
+        _raftLeaderId  = '';
+        const prev = _currentLeader; _currentLeader = '';
+        if (prev) _fireLeaderEvent("LeaderLost", prev);
+      }
+    } else if (_leaderProtocol === 'coord') {
+      if (_coordIsLeader) {
+        _coordIsLeader = false;
+        if (_coordReleaseFn) {
+          try { _coordReleaseFn(_localNodeId); } catch (_) {}
+        }
+        const prev = _currentLeader; _currentLeader = '';
+        if (prev) _fireLeaderEvent("LeaderLost", prev);
+      }
+    } else {
+      if (_currentLeader === _localNodeId) {
+        _currentLeader = '';
+        _fireLeaderEvent("LeaderLost", _localNodeId);
+      }
+    }
+  }
   // v1.23 — bounded leader-claim history.
   const _LEADER_HIST_MAX     = 100;
   let   _leaderHistTermSeq   = 0;
@@ -4910,6 +4935,7 @@ private val JsRuntimeAsyncB: String = """
           const payload = JSON.stringify({ t: 'drain', from: _localNodeId, draining: b });
           for (const [, ch] of _peerChannels) { try { ch.send(payload); } catch (_) {} }
           _fireDrainEvent(_localNodeId, b);
+          if (b) _stepDownIfLeader();
         }
         return { suspend: false, next: k(undefined) };
       }

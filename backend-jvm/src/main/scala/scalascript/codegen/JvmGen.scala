@@ -4378,6 +4378,30 @@ class JvmGen(
        |      catch case _: InterruptedException => ()
        |    }
        |    if !_raftTickThread.compareAndSet(null, t) then t.interrupt()
+       |  // v1.23 — drain-aware step-down (cluster-raft.md §7).  Called when
+       |  // `setDraining(true)` flips while this node holds leadership.
+       |  // Releases the lease (coord), reverts to follower (Raft), or just
+       |  // clears the cached leader (Bully); always fires LeaderLost(self).
+       |  def _stepDownIfLeader(): Unit =
+       |    _leaderProtocol.get() match
+       |      case "raft" =>
+       |        if _raftState == "leader" then
+       |          _raftState    = "follower"
+       |          _raftLeaderId = ""
+       |          val prev = _currentLeader.getAndSet("")
+       |          if prev.nonEmpty then _fireLeaderEvent("LeaderLost", prev)
+       |      case "coord" =>
+       |        if _coordIsLeader then
+       |          _coordIsLeader = false
+       |          val rel = _coordReleaseFn
+       |          if rel != null then
+       |            try rel.asInstanceOf[String => Unit](_localNodeId)
+       |            catch case _: Throwable => ()
+       |          val prev = _currentLeader.getAndSet("")
+       |          if prev.nonEmpty then _fireLeaderEvent("LeaderLost", prev)
+       |      case _ =>
+       |        if _currentLeader.compareAndSet(_localNodeId, "") then
+       |          _fireLeaderEvent("LeaderLost", _localNodeId)
        |  // v1.23 — auto-reconnect: exponential-backoff retry per peer URL after a
        |  // disconnect.  Both fields 0 ⇒ disabled (default).  `setReconnectPolicy`
        |  // sets them at runtime.
@@ -5421,6 +5445,9 @@ class JvmGen(
        |                      ",\"draining\":" + b.toString + "}"
        |        _peerChannels.forEach { (_, send) => try send(payload) catch case _: Throwable => () }
        |        _fireDrainEvent(_localNodeId, b)
+       |        // v1.23 — drain-aware step-down: if we just flipped to
+       |        // draining and we're the leader, release leadership.
+       |        if b then _stepDownIfLeader()
        |      Right(k(()))
        |    case "isDraining" =>
        |      Right(k(_isDrainingSelf.get()))

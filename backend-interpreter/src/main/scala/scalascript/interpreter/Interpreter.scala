@@ -322,6 +322,27 @@ class Interpreter(
       catch case _: Throwable => ()
     }
     if !coordTickThread.compareAndSet(null, t) then t.interrupt()
+  // v1.23 — drain-aware step-down (cluster-raft.md §7).
+  private def stepDownIfLeader(): Unit =
+    leaderProtocolRef.get() match
+      case "raft" =>
+        if raftStateName == "leader" then
+          raftStateName = "follower"
+          raftLeaderId  = ""
+          val prev = currentLeader.getAndSet("")
+          if prev.nonEmpty then enqueueLeaderEvent("LeaderLost", prev)
+      case "coord" =>
+        if coordIsLeader then
+          coordIsLeader = false
+          coordReleaseFn match
+            case Value.NativeFnV(_, _) | _: Value.FunV =>
+              callCoordFn(coordReleaseFn, List(Value.StringV(localNodeId)))
+            case _ => ()
+          val prev = currentLeader.getAndSet("")
+          if prev.nonEmpty then enqueueLeaderEvent("LeaderLost", prev)
+      case _ =>
+        if currentLeader.compareAndSet(localNodeId, "") then
+          enqueueLeaderEvent("LeaderLost", localNodeId)
   // v1.23 — bounded leader-claim history.
   private val LeaderHistMax = 100
   private val leaderHistTermSeq =
@@ -5898,6 +5919,7 @@ class Interpreter(
           val payload = s"""{"t":"drain","from":${jsonStr(localNodeId)},"draining":$b}"""
           peerChannels.forEach { (_, send) => try send(payload) catch case _: Throwable => () }
           enqueueDrainEvent(localNodeId, b)
+          if b then stepDownIfLeader()
         Right(k(Value.UnitV))
       case _ => throw InterpretError("setDraining(enabled: Boolean)")
 

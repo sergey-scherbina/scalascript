@@ -1,0 +1,26 @@
+#!/usr/bin/env ssc
+---
+name: actors-cluster-drain-stepdown
+description: Actor v1.23 — setDraining(true) steps the leader down (cluster-raft.md §7)
+---
+
+# Drain-aware leader step-down — single-node
+
+Single-node Bully claims self as leader (no higher peers).  Then
+`setDraining(true)` releases leadership: `currentLeader()` returns
+the empty string, and a follow-up `electLeader()` re-claims it once
+the app un-drains.  Multi-node behaviour (peer takes over the
+lease, leader drains for graceful restart) is exercised by the
+integration suite; this test pins the local step-down across
+INT/JS/JVM.
+
+```scalascript
+runActors {
+  electLeader()
+  println("leaderBefore='" + currentLeader() + "'")
+  setDraining(true)
+  println("draining=" + isDraining())
+  println("leaderAfter='" + currentLeader() + "'")
+  println("ok")
+}
+```
