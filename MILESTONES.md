@@ -5273,9 +5273,9 @@ fast-path.
 Re-check only the changed block and its transitive dependents.  Snapshot
 `TypedEnv` per section; restore from last unchanged section on re-check.
 
-- [ ] `TypedEnv` snapshot per section
-- [ ] Restore snapshot, re-run typer from changed section forward
-- [ ] Test: changing a leaf section does not re-check unrelated sections
+- [x] `TypedEnv` snapshot per section — Landed 2026-05-19
+- [x] Restore snapshot, re-run typer from changed section forward — Landed 2026-05-19
+- [x] Test: changing a leaf section does not re-check unrelated sections — Landed 2026-05-19
 
 ### New tool — REPL web-aware mode
 

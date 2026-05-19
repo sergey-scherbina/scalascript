@@ -2,7 +2,7 @@ package scalascript.cli.lsp
 
 import scalascript.ast.Module
 import scalascript.parser.Parser
-import scalascript.typer.{Typer, TypedModule, TypeError}
+import scalascript.typer.{Typer, TypedModule, TypeError, SectionSnapshot}
 import scalascript.ir.ModuleInterface
 
 import java.net.URI
@@ -17,7 +17,11 @@ case class DocumentState(
     module:  Option[Module],
     typed:   Option[TypedModule],
     /** Diagnostics aggregated from parse + type-check phases. */
-    diagnostics: List[LspDiagnostic]
+    diagnostics: List[LspDiagnostic],
+    /** Per-section snapshots from the last successful type-check run.
+     *  Threaded into [[Typer.typeCheckIncremental]] on the next `didChange`
+     *  so that unchanged sections are not re-typed. */
+    snapshots: List[SectionSnapshot] = Nil
 )
 
 /** A diagnostic at LSP precision — 0-indexed line / character. */
@@ -56,12 +60,14 @@ class Documents:
   def sourceUriForHash(hash: String): Option[String] = sourceByHash.get(hash)
 
   def open(uri: String, version: Int, text: String): DocumentState =
-    val state = parseAndCheck(uri, version, text)
+    val prev  = docs.get(uri)
+    val state = parseAndCheck(uri, version, text, prev.map(_.snapshots).getOrElse(Nil))
     docs(uri) = state
     state
 
   def change(uri: String, version: Int, text: String): DocumentState =
-    val state = parseAndCheck(uri, version, text)
+    val prev  = docs.get(uri)
+    val state = parseAndCheck(uri, version, text, prev.map(_.snapshots).getOrElse(Nil))
     docs(uri) = state
     state
 
@@ -75,7 +81,12 @@ class Documents:
 
   // ─── Internals ──────────────────────────────────────────────────────
 
-  private def parseAndCheck(uri: String, version: Int, text: String): DocumentState =
+  private def parseAndCheck(
+      uri:           String,
+      version:       Int,
+      text:          String,
+      prevSnapshots: List[SectionSnapshot]
+  ): DocumentState =
     val (mod, parseDiags) =
       try
         val m = Parser.parse(text)
@@ -83,16 +94,21 @@ class Documents:
       catch case e: Exception =>
         (None, List(LspDiagnostic(0, 0, 0, 1, 1, s"parse failure: ${e.getMessage}", "parser")))
 
-    val (typed, typerDiags) = mod match
-      case None    => (None, Nil)
+    val (typed, newSnapshots, typerDiags) = mod match
+      case None    => (None, Nil, Nil)
       case Some(m) =>
         try
-          val tm = Typer.typeCheckWithInterfaces(m, interfaces, strict = true)
-          (Some(tm), tm.errors.map(typeErrorToDiagnostic))
+          val (tm, snaps) = Typer.typeCheckIncrementalModule(
+            m,
+            prevSnapshots,
+            interfaces,
+            strict = true
+          )
+          (Some(tm), snaps, tm.errors.map(typeErrorToDiagnostic))
         catch case e: Exception =>
-          (None, List(LspDiagnostic(0, 0, 0, 1, 1, s"type-check failure: ${e.getMessage}", "typer")))
+          (None, Nil, List(LspDiagnostic(0, 0, 0, 1, 1, s"type-check failure: ${e.getMessage}", "typer")))
 
-    DocumentState(uri, version, text, mod, typed, parseDiags ++ typerDiags)
+    DocumentState(uri, version, text, mod, typed, parseDiags ++ typerDiags, newSnapshots)
 
   /** Walk a parsed module's sections and collect parse-error diagnostics
    *  from `Content.CodeBlock.parseError` (positions in block-local

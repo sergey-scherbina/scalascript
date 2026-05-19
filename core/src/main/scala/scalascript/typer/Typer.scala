@@ -3,6 +3,7 @@ package scalascript.typer
 import scalascript.ast.*
 import scala.collection.mutable.ListBuffer
 import scala.meta.*
+import java.security.MessageDigest
 
 /** Optionally-populated map of pre-compiled module interfaces.
  *  Key is the import alias (or the last segment of the package name).
@@ -56,6 +57,79 @@ class Typer(
       sections = sections,
       errors   = errors.toList
     )
+
+  /** Incremental type-check variant.
+   *
+   *  Compares a content hash for each section against the previous run's
+   *  [[SectionSnapshot]] list.  Re-types only from the first changed
+   *  section forward; sections before it reuse their previously computed
+   *  [[TypedSection]] results and the snapshot restores the typer's mutable
+   *  state (typeAliases / opaqueTypes) to the value it had just before that
+   *  section was originally typed.
+   *
+   *  @param module        freshly-parsed module (may differ from the previous run)
+   *  @param prevSnapshots snapshots produced by the previous call (or `Nil` for
+   *                       a cold first run, which re-types all sections)
+   *  @return a pair of (TypedModule, new snapshots aligned with module.sections)
+   */
+  def typeCheckIncremental(
+      module: Module,
+      prevSnapshots: List[SectionSnapshot]
+  ): (TypedModule, List[SectionSnapshot]) =
+    val prelude = createPrelude()
+    val baseScope =
+      if importedInterfaces.isEmpty then prelude
+      else
+        import scalascript.artifact.InterfaceScope
+        InterfaceScope.fromInterfaces(importedInterfaces.toList, parent = Some(prelude))
+
+    // Build hashes for every section in the current parse.
+    val currentHashes = module.sections.map(SectionSnapshot.hashSection)
+
+    // Find the first section whose hash differs from the previous snapshot.
+    // `firstChangedIdx` == module.sections.length when nothing changed.
+    val prevHashList = prevSnapshots.map(_.sectionHash)
+    val firstChangedIdx = currentHashes.zipWithIndex.collectFirst {
+      case (hash, idx) if prevHashList.lift(idx).forall(_ != hash) => idx
+    }.getOrElse(module.sections.length)
+
+    // Restore typer state from the snapshot *before* the first changed section.
+    // If firstChangedIdx == 0, we start from an empty state (already the
+    // default after construction).
+    if firstChangedIdx > 0 then
+      val snapBefore = prevSnapshots(firstChangedIdx - 1)
+      typeAliases.clear()
+      typeAliases ++= snapBefore.typeAliases
+      opaqueTypes.clear()
+      opaqueTypes ++= snapBefore.opaqueTypes
+    // else: typeAliases / opaqueTypes start empty (constructor defaults).
+
+    errors.clear()
+
+    // Carry forward unchanged TypedSection results.
+    val unchangedTyped = prevSnapshots.take(firstChangedIdx).map(_.typedSection)
+
+    // Re-type sections from firstChangedIdx onward, building new snapshots.
+    val newSnapshots = ListBuffer[SectionSnapshot](prevSnapshots.take(firstChangedIdx)*)
+    val reTyped = module.sections.zipWithIndex.drop(firstChangedIdx).map { (section, _) =>
+      val ts = typeCheckSection(section, baseScope)
+      newSnapshots += SectionSnapshot(
+        sectionHash  = SectionSnapshot.hashSection(section),
+        typedSection = ts,
+        typeAliases  = typeAliases.toMap,
+        opaqueTypes  = opaqueTypes.toSet
+      )
+      ts
+    }
+
+    val allSections = unchangedTyped ++ reTyped
+    val typedModule = TypedModule(
+      name     = module.manifest.flatMap(_.name).getOrElse("<anonymous>"),
+      version  = module.manifest.flatMap(_.version).getOrElse("0.0.0"),
+      sections = allSections,
+      errors   = errors.toList
+    )
+    (typedModule, newSnapshots.toList)
 
   private def createPrelude(): Scope =
     val s = Scope()
@@ -816,6 +890,46 @@ enum TypedDef:
   case CodeBlock(lang: String, parsed: Boolean, defs: List[DefSummary])
   case Import(path: String, bindings: List[String])
 
+/** Snapshot of the typer's mutable state after processing a single top-level
+ *  section.  Stored alongside the [[TypedSection]] result so that
+ *  [[Typer.typeCheckIncremental]] can skip re-typing unchanged sections on
+ *  subsequent runs.
+ *
+ *  @param sectionHash  SHA-256 hex digest of the section's source content
+ *                      (heading text + concatenated code-block sources).
+ *                      Used to detect whether the section has changed between
+ *                      two parse runs.
+ *  @param typedSection the typed IR produced for this section on the previous run.
+ * @param typeAliases  snapshot of `Typer.typeAliases` immediately after typing
+ *                      this section (i.e. accumulated up to and including it).
+ *  @param opaqueTypes  snapshot of `Typer.opaqueTypes` after this section.
+ */
+case class SectionSnapshot(
+    sectionHash:  String,
+    typedSection: TypedSection,
+    typeAliases:  Map[String, (List[String], SType)],
+    opaqueTypes:  Set[String]
+)
+
+object SectionSnapshot:
+  /** Compute a stable SHA-256 hash for a [[Section]]'s source content.
+   *
+   *  The hash covers the section's heading text and, in order, the raw
+   *  `source` of every [[Content.CodeBlock]] inside `section.content`.
+   *  Subsections are intentionally excluded — a subsection change is
+   *  detected via its own snapshot entry; the parent section's hash should
+   *  not change when only a child changes.
+   */
+  def hashSection(section: scalascript.ast.Section): String =
+    val md  = MessageDigest.getInstance("SHA-256")
+    def feed(s: String): Unit = md.update(s.getBytes("UTF-8"))
+    feed(section.heading.text)
+    section.content.foreach {
+      case cb: scalascript.ast.Content.CodeBlock => feed(cb.source)
+      case _                                     => ()
+    }
+    md.digest().map("%02x".format(_)).mkString
+
 object Typer:
   def typeCheck(module: Module): TypedModule = Typer().typeCheck(module)
 
@@ -853,3 +967,32 @@ object Typer:
    */
   def typeCheckStrict(module: Module): TypedModule =
     Typer(Map.empty, strict = true).typeCheck(module)
+
+  /** Incremental type-check — companion factory (no imported interfaces, non-strict).
+   *
+   *  Delegates to [[Typer.typeCheckIncremental]] on a fresh [[Typer]] instance.
+   *  The caller is responsible for threading the returned snapshot list into
+   *  the next call.
+   *
+   *  @param module        freshly-parsed [[Module]]
+   *  @param prevSnapshots snapshots from the previous run; pass `Nil` to force
+   *                       a full re-check (cold start).
+   */
+  def typeCheckIncrementalModule(
+      module:        Module,
+      prevSnapshots: List[SectionSnapshot]
+  ): (TypedModule, List[SectionSnapshot]) =
+    Typer().typeCheckIncremental(module, prevSnapshots)
+
+  /** Incremental type-check with pre-compiled interface scopes (strict mode).
+   *
+   *  Use this overload in the LSP server so cross-module name resolution is
+   *  preserved across incremental runs.
+   */
+  def typeCheckIncrementalModule(
+      module:        Module,
+      prevSnapshots: List[SectionSnapshot],
+      interfaces:    Map[String, scalascript.ir.ModuleInterface],
+      strict:        Boolean
+  ): (TypedModule, List[SectionSnapshot]) =
+    Typer(interfaces, strict).typeCheckIncremental(module, prevSnapshots)
