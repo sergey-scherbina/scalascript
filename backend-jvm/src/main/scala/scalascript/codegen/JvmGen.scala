@@ -2753,7 +2753,7 @@ class JvmGen(
       "SessionCookie", "SessionStore", "OAuth", "WebAuthn",
       "UploadedFile", "HttpHelpers", "Multipart", "TlsContextBuilder",
       "CorsHelpers", "HttpModel", "BasicAuth", "ResponseWriter",
-      "RequestBuilder", "StreamResponseWriter"
+      "RequestBuilder", "StreamResponseWriter", "StaticAssetServer"
     )
     val header =
       "\n// ── runtime-server-common (inlined from classpath resources) ──────────\n" +
@@ -3577,23 +3577,11 @@ class JvmGen(
        |    buildSetCookie      = _buildSetCookie
        |  ))
        |
-       |/** Try to serve a static asset (non-.ssc file) under the cwd; returns
-       | *  Some when handled, None when the file is missing / disqualified.
-       | *  Path-traversal is blocked by canonical-path checks. */
+       |/** Try to serve a static asset under the cwd — delegates to the
+       | *  shared `StaticAssetServer.tryServe` (resolve + traversal guard +
+       | *  .ssc skip + mime-typed write). */
        |private def _serveStatic(ex: com.sun.net.httpserver.HttpExchange, urlPath: String): Option[Unit] =
-       |  val cleaned = urlPath.stripPrefix("/")
-       |  if cleaned.isEmpty then return None
-       |  val rootDir = new java.io.File(".").getCanonicalFile
-       |  val target  = new java.io.File(rootDir, cleaned).getCanonicalFile
-       |  if !target.exists() || !target.isFile() then None
-       |  else if !target.getPath.startsWith(rootDir.getPath) then None
-       |  else if target.getName.endsWith(".ssc") then None
-       |  else
-       |    val bytes = java.nio.file.Files.readAllBytes(target.toPath)
-       |    ex.getResponseHeaders.add("Content-Type", _contentTypeFor(target.getName))
-       |    ex.sendResponseHeaders(200, bytes.length.toLong)
-       |    ex.getResponseBody.write(bytes)
-       |    Some(())
+       |  StaticAssetServer.tryServe(ex, urlPath)
        |
        |private def _contentTypeFor(name: String): String = HttpHelpers.contentTypeFor(name)
        |""".stripMargin

@@ -385,21 +385,10 @@ object WebServer:
    *  `.ssc` files are deliberately excluded so route dispatch + the `.ssc`
    *  rendering path keep ownership of them. */
   private def resolveStatic(root: String, urlPath: String): Option[java.io.File] =
-    val cleaned = urlPath.stripPrefix("/")
-    if cleaned.isEmpty then return None
-    val rootDir = java.io.File(root).getCanonicalFile
-    val target  = java.io.File(rootDir, cleaned).getCanonicalFile
-    val name    = target.getName
-    if !target.exists() || !target.isFile() then None
-    else if !target.getPath.startsWith(rootDir.getPath) then None    // escaped root
-    else if name.endsWith(".ssc") then None
-    else Some(target)
+    StaticAssetServer.resolve(root, urlPath)
 
   private def serveStatic(file: java.io.File, ex: HttpExchange): Unit =
-    val bytes = java.nio.file.Files.readAllBytes(file.toPath)
-    ex.getResponseHeaders.add("Content-Type", contentTypeFor(file.getName))
-    ex.sendResponseHeaders(200, bytes.length.toLong)
-    ex.getResponseBody.write(bytes)
+    StaticAssetServer.serve(file, ex)
 
   /** Map a filename suffix to a Content-Type.  Probe Files.probeContentType
    *  first (covers many less-common types via the platform mime DB), fall
