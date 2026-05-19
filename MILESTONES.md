@@ -4675,6 +4675,20 @@ worth a separate fix when somebody has cycles.
   `JvmRuntimeDataset`). See `docs/modularity.md` §12 for design
   discussion.
 
+  Attempted (a) end-to-end 2026-05-19, **reverted**: the structural
+  recursion (`statsUseEffects` → `Defn.Object/Class/Trait` body walk,
+  matching `emitObjectLike` / `emitClassLike` /
+  `emitDefWithRewrittenBody` arms in `emitStat`) is mechanically
+  straightforward but the rewriting predicate `termNeedsCustomEmit`
+  is too broad in dep contexts. Once dep-class method bodies start
+  flowing through `emitExpr`, `actors-process-info.ssc` regresses:
+  `info.links` inside a `case Some(info) => info.links.length` becomes
+  `_bind(info.links, …)` because the CPS-wrap path doesn't see static
+  `info: Some` typing and wraps everything as `Any`. A real fix
+  needs either a tighter dep-mode predicate (only rewrite the
+  `actorBareNames` / intrinsic shapes, not the whole effectful
+  surface) or a separate dep-mode emit path. Pending careful design.
+
 - **WS test cross-suite isolation goes through a process-global
   `WsRoutes` table + `WsTestLock` monitor.**  Works, but the lock
   serialises ScalaTest's default parallel suite execution for every

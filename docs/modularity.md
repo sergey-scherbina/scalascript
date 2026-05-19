@@ -420,6 +420,29 @@ unqualified. Two problems sit inside this otherwise-working flow:
    know which helpers exist — currently that knowledge is implicit in
    the preamble template).
 
+   **Why option (a) didn't drop in cleanly** (attempted 2026-05-19,
+   reverted): widening `statsUseEffects` to recurse through
+   `Defn.Object` / `Defn.Class` / `Defn.Trait` bodies and adding
+   matching emit cases (`emitObjectLike` / `emitClassLike` /
+   `emitTraitLike`) is straightforward enough. So is adding a
+   `Defn.Def if termNeedsCustomEmit(body)` arm to route method bodies
+   through `emitDefWithRewrittenBody`. But the rewriting pipeline
+   was built around top-level user-code shapes — once dep-block
+   members start flowing through it, `actors-process-info.ssc` and
+   similar regress: `info.links` becomes `_bind(info.links, …)`
+   because the CPS-wrapping arm now fires on subterms whose receiver
+   is `Any`-typed inside a case class body (no static `info: Some` to
+   prove `.links` resolves). A real fix needs:
+   - a stronger filter on `termNeedsCustomEmit` for dep contexts
+     (only rewrite the specific shapes that benefit — `actorBareNames`
+     and bare intrinsic calls — not the whole `termUsesEffects`
+     blanket); or
+   - a separate `dep-mode` emit path that rewrites bare-name actor
+     calls only and leaves the rest of the source verbatim.
+
+   Pending design pass; conformance suite still uses the `pending:`
+   marker to keep the v1.22 tests out of the FAIL count.
+
    Tracked in `MILESTONES.md` "Known issues / latent flakes". The six
    v1.22 distributed-* conformance tests carry `pending: needs std/
    mapreduce/* auto-resolution in \`ssc compile\`` until this lands;
