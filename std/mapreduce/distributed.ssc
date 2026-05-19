@@ -186,7 +186,8 @@ def runDistributed(
     failures     = Nil,
     retries      = retries,
     allowPartial = allowPartial,
-    cluster      = cluster
+    cluster      = cluster,
+    retried      = Set()
   )
 
 // Split data into (at most) n partitions.
@@ -197,6 +198,13 @@ def partitionData(data: List[Any], n: Int): List[List[Any]] =
     data.grouped(size).toList
 
 // Recursive result collector.
+//
+// `retried`: set of partIds for which a retry has been dispatched
+//            and is in flight.  Used to deduplicate failure signals:
+//            a faulty worker may emit both `PartitionFailed` and a
+//            subsequent linked `Exit`, but only the FIRST should be
+//            acted on — the rest are ignored until the retry's
+//            PartitionResult arrives.
 def collectResults(
   jobId:        String,
   assignments:  List[(Int, Any, Node)],
@@ -207,7 +215,8 @@ def collectResults(
   failures:     List[DistributedError],
   retries:      Int,
   allowPartial: Boolean,
-  cluster:      Cluster
+  cluster:      Cluster,
+  retried:      Set[Int]
 ): DistributedResult[Any] =
   if pending.isEmpty then
     val ordered = assignments.map(_._1).flatMap(i => results.getOrElse(i, Nil))
@@ -219,7 +228,8 @@ def collectResults(
           jobId, assignments, partitionMap, stage,
           pending - partId,
           results + (partId -> result),
-          failures, retries, allowPartial, cluster
+          failures, retries, allowPartial, cluster,
+          retried - partId
         )
 
       case PartitionFailed(jid, partId, reason) if jid == jobId =>
@@ -227,7 +237,8 @@ def collectResults(
           jobId, assignments, partitionMap, stage,
           pending, results, failures,
           partId, reason,
-          retries, allowPartial, cluster
+          retries, allowPartial, cluster,
+          retried
         )
 
       // Link failure — worker actor died
@@ -238,14 +249,16 @@ def collectResults(
             collectResults(
               jobId, assignments, partitionMap, stage,
               pending, results, failures,
-              retries, allowPartial, cluster
+              retries, allowPartial, cluster,
+              retried
             )
           case Some((partId, _, node)) =>
             handleFailure(
               jobId, assignments, partitionMap, stage,
               pending, results, failures,
               partId, reason.toString,
-              retries, allowPartial, cluster
+              retries, allowPartial, cluster,
+              retried
             )
     }).asInstanceOf[DistributedResult[Any]]
 
@@ -262,12 +275,30 @@ def handleFailure(
   reason:       String,
   retries:      Int,
   allowPartial: Boolean,
-  cluster:      Cluster
+  cluster:      Cluster,
+  retried:      Set[Int]
 ): DistributedResult[Any] =
-  val failedNode = assignments.find(_._1 == partId).map(_._3)
-    .getOrElse(Node("unknown@unknown:0"))
-
-  if retries > 0 then
+  // De-duplication: a faulty worker emits both an explicit
+  // `PartitionFailed` and a subsequent linked `Exit` for the same
+  // partId.  The FIRST call dispatches the retry (or records the
+  // partial failure); subsequent calls for the same partId must be
+  // ignored so we don't double-fail or double-retry.
+  if retried.contains(partId) then
+    // A retry is already in flight for this partId — wait for its
+    // PartitionResult/PartitionFailed before acting again.
+    collectResults(
+      jobId, assignments, partitionMap, stage,
+      pending, results, failures,
+      retries, allowPartial, cluster, retried
+    )
+  else if !pending.contains(partId) then
+    // Already finalised (partial-error recorded earlier).
+    collectResults(
+      jobId, assignments, partitionMap, stage,
+      pending, results, failures,
+      retries, allowPartial, cluster, retried
+    )
+  else if retries > 0 then
     // Retry on first available worker (round-robin fallback).
     val me        = self()
     val partition = partitionMap.getOrElse(partId, Nil)
@@ -276,16 +307,21 @@ def handleFailure(
     collectResults(
       jobId, assignments, partitionMap, stage,
       pending, results, failures,
-      retries - 1, allowPartial, cluster
+      retries - 1, allowPartial, cluster,
+      retried + partId
     )
   else if allowPartial then
+    val failedNode = assignments.find(_._1 == partId).map(_._3)
+      .getOrElse(Node("unknown@unknown:0"))
     val err = DistributedError(failedNode, reason)
     collectResults(
       jobId, assignments, partitionMap, stage,
       pending - partId, results,
       err :: failures,
-      0, allowPartial, cluster
+      0, allowPartial, cluster, retried
     )
   else
+    val failedNode = assignments.find(_._1 == partId).map(_._3)
+      .getOrElse(Node("unknown@unknown:0"))
     throw DistributedError(failedNode, reason)
 ```

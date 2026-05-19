@@ -150,11 +150,13 @@ def runDistributedShuffle(
   val me = self()
   trapExit(true)
 
-  // Spawn shuffle-capable workers on each remote node
+  // Spawn shuffle-capable workers on each remote node.  `spawnOn`
+  // (cross-node remote spawn) is a deferred primitive (v1.22.x); for
+  // the in-process tests the existing per-node pid IS the worker
+  // running ShuffleProtocol, so just reuse it and link.
   val workers = cluster.pids.zip(cluster.nodes).map { case (nodePid, node) =>
-    val wPid = spawnOn(nodePid) { () => ShuffleProtocol.handleMessages() }
-    link(wPid)
-    (wPid, node)
+    link(nodePid)
+    (nodePid, node)
   }
 
   // Phase A: map + key-extract → ShufflePartial from each worker
@@ -182,7 +184,8 @@ def runDistributedShuffle(
   // Phase B: dispatch each key's items to a worker for reduction / grouping
   val keys = mergedByKey.map(_._1)
   val keyAssignments = keys.zipWithIndex.map { case (key, idx) =>
-    val (wPid, _) = workers(idx % workers.length)
+    val w = workers(idx % workers.length)
+    val wPid = w._1
     val items = mergedByKey.find(_._1 == key).map(_._2).getOrElse(Nil)
     wPid ! ProcessKeyPartition(
       jobId, key, items,

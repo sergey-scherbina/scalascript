@@ -3,7 +3,6 @@
 name: distributed-failure-partial
 description: v1.22 — Worker fails; allowPartial = true surfaces partial result + failure summary
 backends: [jvm]
-pending: needs std/mapreduce/* auto-resolution in `ssc compile`
 ---
 
 # Distributed failure — allowPartial
@@ -16,7 +15,7 @@ summary alongside, without throwing.
 
 [NamedHandler, HandlerRegistry](../std/mapreduce/handlers.ssc)
 
-[MapOp, Stage, WorkerProtocol, runDistributed, DistributedResult, DistributedError](../std/mapreduce/distributed.ssc)
+[MapOp, Stage, WorkerProtocol, runDistributed, DistributedResult, DistributedError, ProcessPartition, PartitionFailed](../std/mapreduce/distributed.ssc)
 
 ```scalascript
 runActors {

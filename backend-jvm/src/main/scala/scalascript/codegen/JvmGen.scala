@@ -3321,7 +3321,15 @@ class JvmGen(
         val tmp   = freshTmp()
         val cases = pf.cases.map { c =>
           val guard = c.cond.map(g => s" if ${g.syntax}").getOrElse("")
-          s"case ${c.pat.syntax}${guard} => ${emitCpsExpr(c.body)}"
+          // Pattern-bound names (`case (k, vs) => …`, `case Some(info)
+          // => …`) come from destructuring an `Any` value, so they're
+          // also Any-typed.  Register them so the case body's
+          // `.method` accesses (`vs.sorted`, `info.links`) route via
+          // _dispatch instead of failing on `value sorted is not a
+          // member of Any`.
+          val boundNames = c.pat.collect { case scala.meta.Pat.Var(n) => n.value }.toSet
+          val body = withAnyBoundNames(boundNames)(emitCpsExpr(c.body))
+          s"case ${c.pat.syntax}${guard} => $body"
         }.mkString(" ")
         s"((${tmp}: Any) => ${tmp} match { $cases })"
       // Chunk 6 — Term.Function mirroring the PF treatment above.  A
@@ -3780,6 +3788,9 @@ class JvmGen(
                "<" | ">" | "<=" | ">="          => s"""_binOp("${op.value}", $vl, $vr)"""
           case "::"                              => s"$vl :: $vr.asInstanceOf[List[Any]]"
           case "++" | ":::"                      => s"$vl.asInstanceOf[List[Any]] ++ $vr.asInstanceOf[List[Any]]"
+          case ":+"                              => s"$vl.asInstanceOf[List[Any]] :+ $vr"
+          case "+:"                              => s"$vl +: $vr.asInstanceOf[List[Any]]"
+          case "->"                              => s"($vl, $vr)"
           case other                             => s"($vl $other $vr)"
         case _ => "/* infix arity */"
       }
@@ -3881,7 +3892,19 @@ class JvmGen(
           val castedVs = funName match
             case None    => vs
             case Some(n) => applyCalleeCasts(n, args, vs)
-          s"${fun.syntax}(${castedVs.mkString(", ")})"
+          // Chunk 9 — when `fun` is an Any-bound name (e.g.
+          // `workers` from a CPS continuation, accessed as
+          // `workers(idx)`), Scala won't apply Any as a function.
+          // Cast through `List[Any]` so the call typechecks
+          // (positional element access on Any-typed collections is
+          // the dominant shape; reflection-call would be heavier).
+          funName match
+            case Some(n) if anyBoundNames(n) =>
+              // Index args also come in Any-typed; List.apply needs Int.
+              val intArgs = castedVs.map(v => s"$v.asInstanceOf[Int]")
+              s"${fun.syntax}.asInstanceOf[List[Any]](${intArgs.mkString(", ")})"
+            case _ =>
+              s"${fun.syntax}(${castedVs.mkString(", ")})"
         }
 
   /** Look up the declared param type for a call to a known dep def
@@ -4998,16 +5021,17 @@ class JvmGen(
        |
        |def _seqFlatMap(xs: List[Any], fn: Any => Any): Any =
        |  val s = _seqMap(xs, fn)
+       |  // Option-returning fns flatten via .toList (Some(v) → [v];
+       |  // None → []) so `xs.flatMap(x => Option[v])` works at
+       |  // runtime like the Scala stdlib does.
+       |  def flatten(v: Any): List[Any] = v match
+       |    case ys: List[_]   => ys.asInstanceOf[List[Any]]
+       |    case opt: Option[_] => opt.toList.asInstanceOf[List[Any]]
+       |    case other         => List(other)
        |  s match
        |    case c: _Computation =>
-       |      _bind(c, (rs: Any) => rs.asInstanceOf[List[Any]].flatMap {
-       |        case ys: List[_] => ys.asInstanceOf[List[Any]]
-       |        case v           => List(v)
-       |      })
-       |    case rs: List[_] => rs.asInstanceOf[List[Any]].flatMap {
-       |      case ys: List[_] => ys.asInstanceOf[List[Any]]
-       |      case v           => List(v)
-       |    }
+       |      _bind(c, (rs: Any) => rs.asInstanceOf[List[Any]].flatMap(flatten))
+       |    case rs: List[_] => rs.asInstanceOf[List[Any]].flatMap(flatten)
        |    case _ => s
        |
        |def _seqFilter(xs: List[Any], fn: Any => Any, neg: Boolean): Any =
@@ -5143,6 +5167,16 @@ class JvmGen(
        |    case (s: String,   "toInt",    Nil)       => s.toInt
        |    case (s: String,   "toLong",   Nil)       => s.toLong
        |    case (s: String,   "toDouble", Nil)       => s.toDouble
+       |    case (s: String,   "take",     List(n: Int))  => s.take(n)
+       |    case (s: String,   "drop",     List(n: Int))  => s.drop(n)
+       |    case (s: String,   "head",     Nil)       => s.head
+       |    case (s: String,   "tail",     Nil)       => s.tail
+       |    case (s: String,   "isEmpty",  Nil)       => s.isEmpty
+       |    case (s: String,   "nonEmpty", Nil)       => s.nonEmpty
+       |    case (s: String,   "trim",     Nil)       => s.trim
+       |    case (s: String,   "toLowerCase", Nil)    => s.toLowerCase
+       |    case (s: String,   "toUpperCase", Nil)    => s.toUpperCase
+       |    case (s: String,   "split",    List(sep: String)) => s.split(sep).toList
        |    // Option — `getOrElse` takes a by-name param which Java
        |    // reflection can't resolve directly from a String arg.
        |    case (opt: Option[_], "get",        Nil)       => opt.get

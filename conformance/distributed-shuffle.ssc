@@ -3,7 +3,6 @@
 name: distributed-shuffle
 description: v1.22 — .groupBy with shuffle across 3 nodes; word-count pattern
 backends: [jvm]
-pending: needs std/mapreduce/* auto-resolution in `ssc compile`
 ---
 
 # Distributed shuffle — groupBy across 3 nodes
@@ -11,12 +10,23 @@ pending: needs std/mapreduce/* auto-resolution in `ssc compile`
 Word-count via distributed `groupBy` with coordinator-mediated all-to-all
 shuffle.  The key extractor groups words by first letter.
 
+[Node, Cluster](../std/mapreduce/cluster.ssc)
+
+[NamedHandler, HandlerRegistry](../std/mapreduce/handlers.ssc)
+
+[Stage, DistributedResult](../std/mapreduce/distributed.ssc)
+
+[ShuffleStage, ShuffleProtocol, runDistributedShuffle](../std/mapreduce/shuffle.ssc)
+
 ```scalascript
 runActors {
   // Named handlers: key extractor and combiner
   HandlerRegistry.register(NamedHandler("firstLetter", (w: String) => w.take(1)))
-  HandlerRegistry.register(NamedHandler("countCombine", (pair: (String, Int), b: (String, Int)) =>
-    (pair._1, pair._2 + b._2)
+  // `applyCombine(name, a, b)` tuples (a, b) and applies fn — so the
+  // registered handler is a 1-arg function taking the tuple, NOT a
+  // 2-arg function.
+  HandlerRegistry.register(NamedHandler("countCombine", (ab: ((String, Int), (String, Int))) =>
+    (ab._1._1, ab._1._2 + ab._2._2)
   ))
 
   // Spawn workers using ShuffleProtocol

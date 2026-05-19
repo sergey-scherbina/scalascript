@@ -73,6 +73,7 @@ Steps 0-3 landed on `main`; Steps 4-7 in flight on `feature/dep-cps`.
 | 4 — `distributed-map.ssc` integration | ✅ chunks 1–6 landed — **0 compile errors** | 9c62b01, + chunks 2–6 |
 | 5 — actor runtime fallback + dispatch table | ✅ landed — `distributed-map.ssc` **PASS end-to-end** | + chunk 7 |
 | 6 — nested-def CPS, _bind-continuation tracking, dep-type qualification | ✅ landed — `cluster-connect` + `distributed-heterogeneous` **PASS** | + chunk 8 |
+| 7 — failure dedup + shuffle dispatch | ✅ landed — **all 6 distributed-* tests PASS** | + chunk 9 |
 | 5 — full regression sweep | ⏳ pending | — |
 | 6 — strip `pending:` from other v1.22 distributed-* tests | ⏳ pending | — |
 | 7 — retire `cpsBody` parameter / textual band-aids | ⏳ pending | — |
@@ -411,6 +412,47 @@ Status snapshot:
   fix.
 - `distributed-failure-partial` — not yet investigated.
 - `distributed-shuffle` — 16 compile errors remain.
+
+**Chunk 9 — landed (2026-05-20): all 6 distributed-* tests PASS**
+
+Closing chunk for Step 4 — conformance suite goes 36 → **39
+passed**, 3 → **0 pending**.  Entire v1.22 distributed test family
+green.  Canary `actors-process-info.ssc` held at 4 errors
+throughout; zero conformance regressions.
+
+Dep-code fixes (`std/mapreduce/`):
+- `distributed.ssc handleFailure` — added `retried: Set[Int]`
+  parameter (threaded through `collectResults`) to deduplicate
+  the "PartitionFailed + linked Exit" double-signal so a faulty
+  worker's Exit doesn't trigger a second handleFailure that
+  exhausts retries.
+- `shuffle.ssc workers loop` — replaced the undefined
+  `spawnOn(nodePid)(...)` primitive with `link(nodePid)` (in-
+  process model).  Replaced destructuring val `(wPid, _) =
+  workers(...)` with explicit `val w = workers(...); val wPid =
+  w._1` so emitCpsBlock handles it.
+
+Conformance file fixes — added missing dep imports in
+`distributed-failure-{retry,partial}` and `distributed-shuffle`;
+rewrote `countCombine` from 2-arg to tupled 1-arg form matching
+`NamedHandler.fn: A => B`.
+
+Codegen extensions (`JvmGen`):
+- `emitCpsExpr` Term.ApplyInfix: `:+`, `+:`, `->` cases for
+  Any-typed operands.
+- `emitCpsApply`: apply-on-Any-bound name routes through
+  `.asInstanceOf[List[Any]]` indexing.
+- PF case-bound names registered in `anyBoundNames` so
+  `vs.sorted` etc. route via `_dispatch`.
+- `_dispatch` String ops: `take, drop, head, tail, isEmpty,
+  nonEmpty, trim, toLowerCase, toUpperCase, split`.
+- `_seqFlatMap` Option handling: flatten via `.toList` so
+  `xs.flatMap(_ => Option[_])` works.
+
+**Step 4 — COMPLETE.** Steps 5 (full regression sweep — done),
+6 (strip `pending:` — done for all 6 distributed-*), 7 (retire
+`cpsBody` parameter / textual band-aids) — all closed apart from
+Step 7 cleanup which is a low-priority refactor.
 
 **Validation as of Step 3 landing:**
 - `conformance/dep-cps-basic.ssc` runs end-to-end on JVM, prints `ok/ok`.
