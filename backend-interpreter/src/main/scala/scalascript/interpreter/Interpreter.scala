@@ -51,7 +51,7 @@ class Interpreter(
      *  synthetic requests. */
     headless: Boolean              = false,
     lockPath: Option[os.Path]      = None):
-  private val globals      = mutable.Map.empty[String, Value]
+  private[interpreter] val globals      = mutable.Map.empty[String, Value]
   private val extensions   = mutable.Map.empty[(String, String), Value.FunV]
   // Concrete type → declared parent type (from `extends` clause).  Used by
   // extensionDispatch to find extension methods registered on a sealed parent.
@@ -862,8 +862,8 @@ class Interpreter(
   // `suspend(v)` inside the body does queue.put(Some(v)), blocking until
   // the consumer calls .next() / .foreach() / .toList.
   // Combinators (map/filter/take/drop) chain virtual threads in a pipeline.
-  private type GenQueue = java.util.concurrent.SynchronousQueue[Option[Value]]
-  private val _genQueueTL = new ThreadLocal[GenQueue]()
+  private[interpreter] type GenQueue = java.util.concurrent.SynchronousQueue[Option[Value]]
+  private[interpreter] val _genQueueTL = new ThreadLocal[GenQueue]()
 
   // ── v1.9 Coroutines — two-way suspend/resume via virtual threads ──────
   // Protocol (lazy-start):
@@ -882,7 +882,7 @@ class Interpreter(
   private val coHandles       = new java.util.concurrent.ConcurrentHashMap[Long, CoHandle]()
   private val nextCoId        = new java.util.concurrent.atomic.AtomicLong(0L)
 
-  private def makeGeneratorV(queue: GenQueue): Value =
+  private[interpreter] def makeGeneratorV(queue: GenQueue): Value =
     import scala.collection.mutable.ListBuffer
 
     def startChained(bodyFn: GenQueue => Unit): Value =
@@ -1005,276 +1005,7 @@ class Interpreter(
     ))
 
 
-  // ── v1.21 Dataset — lazy, reusable map-reduce pipeline ────────────────
-  private def compareValues(a: Value, b: Value): Int = (a, b) match
-    case (Value.IntV(x),    Value.IntV(y))    => x.compareTo(y)
-    case (Value.DoubleV(x), Value.DoubleV(y)) => x.compareTo(y)
-    case (Value.IntV(x),    Value.DoubleV(y)) => x.toDouble.compareTo(y)
-    case (Value.DoubleV(x), Value.IntV(y))    => x.compareTo(y.toDouble)
-    case (Value.StringV(x), Value.StringV(y)) => x.compareTo(y)
-    case (Value.BoolV(x),   Value.BoolV(y))   => x.compareTo(y)
-    case _                                    => Value.show(a).compareTo(Value.show(b))
-
-  private def makeDatasetV(run: () => List[Value]): Value =
-    Value.InstanceV("Dataset", Map(
-      "map" -> Value.NativeFnV("Dataset.map", {
-        case List(f) => Pure(makeDatasetV(() =>
-          run().map(item => Computation.run(callValue(f, List(item), Map.empty)))
-        ))
-        case _ => throw InterpretError("Dataset.map(f: T => U): Dataset[U]")
-      }),
-      "filter" -> Value.NativeFnV("Dataset.filter", {
-        case List(pred) => Pure(makeDatasetV(() =>
-          run().filter(item => Computation.run(callValue(pred, List(item), Map.empty)) == Value.BoolV(true))
-        ))
-        case _ => throw InterpretError("Dataset.filter(p: T => Boolean): Dataset[T]")
-      }),
-      "flatMap" -> Value.NativeFnV("Dataset.flatMap", {
-        case List(f) => Pure(makeDatasetV(() =>
-          run().flatMap { item =>
-            Computation.run(callValue(f, List(item), Map.empty)) match
-              case Value.ListV(items) => items
-              case _ => throw InterpretError("Dataset.flatMap: function must return List[U]")
-          }
-        ))
-        case _ => throw InterpretError("Dataset.flatMap(f: T => List[U]): Dataset[U]")
-      }),
-      "take" -> Value.NativeFnV("Dataset.take", {
-        case List(Value.IntV(n)) => Pure(makeDatasetV(() => run().take(n.toInt)))
-        case _ => throw InterpretError("Dataset.take(n: Int): Dataset[T]")
-      }),
-      "drop" -> Value.NativeFnV("Dataset.drop", {
-        case List(Value.IntV(n)) => Pure(makeDatasetV(() => run().drop(n.toInt)))
-        case _ => throw InterpretError("Dataset.drop(n: Int): Dataset[T]")
-      }),
-      "distinct" -> Value.NativeFnV("Dataset.distinct", Computation.pureFn(_ =>
-        makeDatasetV(() => run().distinct)
-      )),
-      // Set-like binary ops between datasets.  `other` must be another
-      // Dataset InstanceV; we pull its lazy thunk and compose at terminal time.
-      "union" -> Value.NativeFnV("Dataset.union", {
-        case List(Value.InstanceV("Dataset", otherFields)) =>
-          val otherRun = otherFields("collect") match
-            case Value.NativeFnV(_, f) => () => Computation.run(f(Nil)) match
-              case Value.ListV(xs) => xs
-              case other           => List(other)
-            case _ => () => Nil
-          Pure(makeDatasetV(() => run() ++ otherRun()))
-        case _ => throw InterpretError("Dataset.union(other: Dataset[T]): Dataset[T]")
-      }),
-      "intersect" -> Value.NativeFnV("Dataset.intersect", {
-        case List(Value.InstanceV("Dataset", otherFields)) =>
-          val otherRun = otherFields("collect") match
-            case Value.NativeFnV(_, f) => () => Computation.run(f(Nil)) match
-              case Value.ListV(xs) => xs
-              case other           => List(other)
-            case _ => () => Nil
-          Pure(makeDatasetV(() => run().intersect(otherRun())))
-        case _ => throw InterpretError("Dataset.intersect(other: Dataset[T]): Dataset[T]")
-      }),
-      // Element-wise pairing — stops at the shorter side (Scala zip semantics).
-      "zip" -> Value.NativeFnV("Dataset.zip", {
-        case List(Value.InstanceV("Dataset", otherFields)) =>
-          val otherRun = otherFields("collect") match
-            case Value.NativeFnV(_, f) => () => Computation.run(f(Nil)) match
-              case Value.ListV(xs) => xs
-              case other           => List(other)
-            case _ => () => Nil
-          Pure(makeDatasetV(() => run().zip(otherRun()).map { case (a, b) =>
-            Value.TupleV(List(a, b))
-          }))
-        case _ => throw InterpretError("Dataset.zip(other: Dataset[U]): Dataset[(T, U)]")
-      }),
-      "zipWithIndex" -> Value.NativeFnV("Dataset.zipWithIndex",
-        Computation.pureFn(_ => makeDatasetV(() =>
-          run().zipWithIndex.map { case (v, i) => Value.TupleV(List(v, Value.IntV(i.toLong))) }
-        ))
-      ),
-      // Numeric / ordered terminal aggregations.
-      // min / max — natural ordering via compareValues; throw on empty
-      // (matches List.min/max semantics on Scala).
-      "min" -> Value.NativeFnV("Dataset.min", Computation.pureFn { _ =>
-        val xs = run()
-        if xs.isEmpty then
-          throw ScriptException(Value.InstanceV("RuntimeException",
-            Map("message" -> Value.StringV("Dataset.min: empty dataset"))))
-        else xs.reduce((a, b) => if compareValues(a, b) <= 0 then a else b)
-      }),
-      "max" -> Value.NativeFnV("Dataset.max", Computation.pureFn { _ =>
-        val xs = run()
-        if xs.isEmpty then
-          throw ScriptException(Value.InstanceV("RuntimeException",
-            Map("message" -> Value.StringV("Dataset.max: empty dataset"))))
-        else xs.reduce((a, b) => if compareValues(a, b) >= 0 then a else b)
-      }),
-      // sum — additive reduce starting from int 0; empty returns 0.
-      // Mixed Int/Double promote to Double via infix("+"), matching how
-      // user-written `_ + _` would behave.
-      "sum" -> Value.NativeFnV("Dataset.sum", Computation.pureFn { _ =>
-        val xs = run()
-        xs.foldLeft(Value.IntV(0L): Value) { (acc, v) =>
-          Computation.run(infix(acc, "+", List(v), Map.empty))
-        }
-      }),
-      // avg — sum / count, always Double. Throws on empty.
-      "avg" -> Value.NativeFnV("Dataset.avg", Computation.pureFn { _ =>
-        val xs = run()
-        if xs.isEmpty then
-          throw ScriptException(Value.InstanceV("RuntimeException",
-            Map("message" -> Value.StringV("Dataset.avg: empty dataset"))))
-        else
-          val total = xs.foldLeft(Value.DoubleV(0.0): Value) { (acc, v) =>
-            Computation.run(infix(acc, "+", List(v), Map.empty))
-          }
-          Computation.run(infix(total, "/", List(Value.DoubleV(xs.length.toDouble)), Map.empty))
-      }),
-      // top(n) — n largest values in descending order; uses natural ordering.
-      // takeOrdered(n) — n smallest values in ascending order.
-      // Both Spark-style terminals — collect-sort-take.
-      "top" -> Value.NativeFnV("Dataset.top", {
-        case List(Value.IntV(n)) =>
-          Pure(Value.ListV(run().sortWith((a, b) => compareValues(a, b) > 0).take(n.toInt)))
-        case _ => throw InterpretError("Dataset.top(n: Int): List[T]")
-      }),
-      "takeOrdered" -> Value.NativeFnV("Dataset.takeOrdered", {
-        case List(Value.IntV(n)) =>
-          Pure(Value.ListV(run().sortWith((a, b) => compareValues(a, b) < 0).take(n.toInt)))
-        case _ => throw InterpretError("Dataset.takeOrdered(n: Int): List[T]")
-      }),
-      // countByValue — Map[T, Long] of element frequencies. Useful for
-      // word-count style pipelines without writing the full groupBy/reduceByKey.
-      "countByValue" -> Value.NativeFnV("Dataset.countByValue", Computation.pureFn { _ =>
-        val items = run()
-        val grouped = items.groupBy(identity).map { case (k, vs) => (k, Value.IntV(vs.length.toLong)) }
-        Value.MapV(grouped)
-      }),
-      // partition(p) — splits into (matching, non-matching) as a tuple of two
-      // List[T] values (not Datasets — Scala List.partition semantics).
-      "partition" -> Value.NativeFnV("Dataset.partition", {
-        case List(predFn) =>
-          val (yes, no) = run().partition(item =>
-            Computation.run(callValue(predFn, List(item), Map.empty)) match
-              case Value.BoolV(b) => b
-              case _              => false
-          )
-          Pure(Value.TupleV(List(Value.ListV(yes), Value.ListV(no))))
-        case _ => throw InterpretError("Dataset.partition(p: T => Boolean): (List[T], List[T])")
-      }),
-      // mkString — shortcut for collect().mkString. Three overloads
-      // matching Scala's List.mkString.
-      "mkString" -> Value.NativeFnV("Dataset.mkString", {
-        case Nil =>
-          Pure(Value.StringV(run().map(v => Value.show(v)).mkString))
-        case List(Value.StringV(sep)) =>
-          Pure(Value.StringV(run().map(v => Value.show(v)).mkString(sep)))
-        case List(Value.StringV(start), Value.StringV(sep), Value.StringV(end)) =>
-          Pure(Value.StringV(run().map(v => Value.show(v)).mkString(start, sep, end)))
-        case _ => throw InterpretError("Dataset.mkString[(sep)|(start, sep, end)]")
-      }),
-      // toMap — works if elements are 2-tuples (TupleV of length 2).
-      "toMap" -> Value.NativeFnV("Dataset.toMap", Computation.pureFn { _ =>
-        val pairs = run().map {
-          case Value.TupleV(List(k, v)) => (k, v)
-          case other => throw InterpretError(s"Dataset.toMap: element is not a 2-tuple: ${Value.show(other)}")
-        }
-        Value.MapV(pairs.toMap)
-      }),
-      // toSet — collect into a deduped list value (no dedicated Set type).
-      "toSet" -> Value.NativeFnV("Dataset.toSet", Computation.pureFn { _ =>
-        Value.ListV(run().distinct)
-      }),
-      // saveToFile(path) — write each element via Value.show, one per line.
-      // Counterpart to Dataset.fromFile.
-      "saveToFile" -> Value.NativeFnV("Dataset.saveToFile", {
-        case List(Value.StringV(path)) =>
-          val text = run().map(v => Value.show(v)).mkString("", "\n", "\n")
-          java.nio.file.Files.write(java.nio.file.Paths.get(path),
-            text.getBytes(java.nio.charset.StandardCharsets.UTF_8))
-          Pure(Value.UnitV)
-        case _ => throw InterpretError("Dataset.saveToFile(path: String): Unit")
-      }),
-      "groupBy" -> Value.NativeFnV("Dataset.groupBy", {
-        case List(keyFn) => Pure(makeDatasetV(() => {
-          val items = run()
-          val grouped = items.groupBy(item => Computation.run(callValue(keyFn, List(item), Map.empty)))
-          grouped.toList.map { case (k, vs) => Value.TupleV(List(k, Value.ListV(vs))) }
-        }))
-        case _ => throw InterpretError("Dataset.groupBy(key: T => K): Dataset[(K, List[T])]")
-      }),
-      "reduceByKey" -> Value.NativeFnV("Dataset.reduceByKey", {
-        case List(keyFn) => Pure(Value.NativeFnV("Dataset.reduceByKey$combine", {
-          case List(combineFn) => Pure(makeDatasetV(() => {
-            val items = run()
-            val grouped = items.groupBy(item => Computation.run(callValue(keyFn, List(item), Map.empty)))
-            grouped.toList.map { case (k, vs) =>
-              val reduced = vs.reduce((a, b) => Computation.run(callValue(combineFn, List(a, b), Map.empty)))
-              Value.TupleV(List(k, reduced))
-            }
-          }))
-          case _ => throw InterpretError("Dataset.reduceByKey$combine")
-        }))
-        case _ => throw InterpretError("Dataset.reduceByKey(key: T => K)(combine: (T, T) => T): Dataset[(K, T)]")
-      }),
-      "sortBy" -> Value.NativeFnV("Dataset.sortBy", {
-        case List(keyFn) => Pure(makeDatasetV(() => {
-          val items = run()
-          val keyed = items.map(item => item -> Computation.run(callValue(keyFn, List(item), Map.empty)))
-          keyed.sortWith { (p1, p2) =>
-            compareValues(p1._2, p2._2) < 0
-          }.map(_._1)
-        }))
-        case _ => throw InterpretError("Dataset.sortBy(key: T => K): Dataset[T]")
-      }),
-      "runLocal"    -> Value.NativeFnV("Dataset.runLocal",    Computation.pureFn(_ => makeDatasetV(run))),
-      "runParallel" -> Value.NativeFnV("Dataset.runParallel", Computation.pureFn(_ => makeDatasetV(run))),
-      "collect"     -> Value.NativeFnV("Dataset.collect",     Computation.pureFn(_ => Value.ListV(run()))),
-      "count"       -> Value.NativeFnV("Dataset.count",       Computation.pureFn(_ => Value.IntV(run().length.toLong))),
-      "reduce" -> Value.NativeFnV("Dataset.reduce", {
-        case List(combineFn) =>
-          val items = run()
-          if items.isEmpty then
-            // Throw as a user-catchable RuntimeException so `try ... catch
-            // case e: RuntimeException` can match — InterpretError would only
-            // match the JVM-class fallback in Term.Try (typeName="InterpretError").
-            throw ScriptException(Value.InstanceV("RuntimeException",
-              Map("message" -> Value.StringV("Dataset.reduce: empty dataset"))))
-          val result = items.tail.foldLeft(items.head) { (acc, item) =>
-            Computation.run(callValue(combineFn, List(acc, item), Map.empty))
-          }
-          Pure(result)
-        case _ => throw InterpretError("Dataset.reduce(combine: (T, T) => T): T")
-      }),
-      "fold" -> Value.NativeFnV("Dataset.fold", {
-        case List(z) => Pure(Value.NativeFnV("Dataset.fold$combine", {
-          case List(combineFn) =>
-            val items = run()
-            val result = items.foldLeft(z) { (acc, item) =>
-              Computation.run(callValue(combineFn, List(acc, item), Map.empty))
-            }
-            Pure(result)
-          case _ => throw InterpretError("Dataset.fold$combine")
-        }))
-        case _ => throw InterpretError("Dataset.fold(z: U)(combine: (U, T) => U): U")
-      }),
-      "foreach" -> Value.NativeFnV("Dataset.foreach", {
-        case List(action) =>
-          run().foreach(item => Computation.run(callValue(action, List(item), Map.empty)))
-          Pure(Value.UnitV)
-        case _ => throw InterpretError("Dataset.foreach(action: T => Unit): Unit")
-      }),
-      "first"  -> Value.NativeFnV("Dataset.first",  Computation.pureFn(_ => Value.OptionV(run().headOption))),
-      "toGenerator" -> Value.NativeFnV("Dataset.toGenerator", Computation.pureFn(_ => {
-        val items = run()
-        val queue = new GenQueue()
-        Thread.ofVirtual().start { () =>
-          _genQueueTL.set(queue)
-          try items.foreach(item => queue.put(Some(item)))
-          catch case _: Throwable => ()
-          finally try queue.put(None) catch case _ => ()
-        }
-        makeGeneratorV(queue)
-      })),
-    ))
+  // ── v1.21 Dataset — see DatasetRuntime.scala ──────────────────────────
 
   private def mkPid(nodeId: String, localId: Long): Value =
     Value.InstanceV("Pid", Map("nodeId" -> Value.StringV(nodeId), "localId" -> Value.IntV(localId)))
@@ -3189,36 +2920,7 @@ class Interpreter(
     })
 
     // ── v1.21 Dataset — lazy local map-reduce pipeline ──────────────────
-    globals("Dataset") = Value.InstanceV("Dataset$", Map(
-      "of" -> Value.NativeFnV("Dataset.of", {
-        case items => Pure(makeDatasetV(() => items))
-      }),
-      "fromList" -> Value.NativeFnV("Dataset.fromList", {
-        case List(Value.ListV(items)) => Pure(makeDatasetV(() => items))
-        case _ => throw InterpretError("Dataset.fromList(list: List[T]): Dataset[T]")
-      }),
-      "fromGenerator" -> Value.NativeFnV("Dataset.fromGenerator", {
-        case List(Value.InstanceV("Generator", fields)) =>
-          val nextFn = fields("next")
-          val buf    = scala.collection.mutable.ListBuffer[Value]()
-          var optV   = Computation.run(callValue(nextFn, Nil, Map.empty))
-          while optV != Value.OptionV(None) do
-            optV match
-              case Value.OptionV(Some(v)) => buf += v
-              case _ =>
-            optV = Computation.run(callValue(nextFn, Nil, Map.empty))
-          val items = buf.toList
-          Pure(makeDatasetV(() => items))
-        case _ => throw InterpretError("Dataset.fromGenerator(gen: Generator[T]): Dataset[T]")
-      }),
-      "fromFile" -> Value.NativeFnV("Dataset.fromFile", {
-        case List(Value.StringV(path)) =>
-          val src   = scala.io.Source.fromFile(path)
-          val lines = try src.getLines().toList.map(Value.StringV.apply) finally src.close()
-          Pure(makeDatasetV(() => lines))
-        case _ => throw InterpretError("Dataset.fromFile(path: String): Dataset[String]")
-      }),
-    ))
+    DatasetRuntime.install(this)
 
     // ── v2.x std.fs — synchronous file primitives ───────────────────────
     // Gated by Feature.FileSystem; mirrors the JS Node fs.* and JVM
@@ -5553,7 +5255,7 @@ class Interpreter(
 
   // ─── Call helpers ─────────────────────────────────────────────────
 
-  private def callValue(fn: Value, args: List[Value], env: Env): Computation = fn match
+  private[interpreter] def callValue(fn: Value, args: List[Value], env: Env): Computation = fn match
     case f: Value.FunV      => callFun(f, args)
     case f: Value.NativeFnV => f.f(args)
     case Value.InstanceV(_, fields) =>
@@ -8157,7 +7859,7 @@ class Interpreter(
 
   // ─── Infix operators ──────────────────────────────────────────────
 
-  private def infix(lhs: Value, op: String, args: List[Value], env: Env): Computation =
+  private[interpreter] def infix(lhs: Value, op: String, args: List[Value], env: Env): Computation =
     val rhs = args.headOption.getOrElse(Value.UnitV)
     (lhs, op, rhs) match
       // HTML DSL: `cls := "hero"` builds an Attr instance that tag fns
