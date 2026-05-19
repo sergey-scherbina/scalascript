@@ -710,6 +710,51 @@ class Interpreter(
         val grouped = items.groupBy(identity).map { case (k, vs) => (k, Value.IntV(vs.length.toLong)) }
         Value.MapV(grouped)
       }),
+      // partition(p) — splits into (matching, non-matching) as a tuple of two
+      // List[T] values (not Datasets — Scala List.partition semantics).
+      "partition" -> Value.NativeFnV("Dataset.partition", {
+        case List(predFn) =>
+          val (yes, no) = run().partition(item =>
+            Computation.run(callValue(predFn, List(item), Map.empty)) match
+              case Value.BoolV(b) => b
+              case _              => false
+          )
+          Pure(Value.TupleV(List(Value.ListV(yes), Value.ListV(no))))
+        case _ => throw InterpretError("Dataset.partition(p: T => Boolean): (List[T], List[T])")
+      }),
+      // mkString — shortcut for collect().mkString. Three overloads
+      // matching Scala's List.mkString.
+      "mkString" -> Value.NativeFnV("Dataset.mkString", {
+        case Nil =>
+          Pure(Value.StringV(run().map(v => Value.show(v)).mkString))
+        case List(Value.StringV(sep)) =>
+          Pure(Value.StringV(run().map(v => Value.show(v)).mkString(sep)))
+        case List(Value.StringV(start), Value.StringV(sep), Value.StringV(end)) =>
+          Pure(Value.StringV(run().map(v => Value.show(v)).mkString(start, sep, end)))
+        case _ => throw InterpretError("Dataset.mkString[(sep)|(start, sep, end)]")
+      }),
+      // toMap — works if elements are 2-tuples (TupleV of length 2).
+      "toMap" -> Value.NativeFnV("Dataset.toMap", Computation.pureFn { _ =>
+        val pairs = run().map {
+          case Value.TupleV(List(k, v)) => (k, v)
+          case other => throw InterpretError(s"Dataset.toMap: element is not a 2-tuple: ${Value.show(other)}")
+        }
+        Value.MapV(pairs.toMap)
+      }),
+      // toSet — collect into a deduped list value (no dedicated Set type).
+      "toSet" -> Value.NativeFnV("Dataset.toSet", Computation.pureFn { _ =>
+        Value.ListV(run().distinct)
+      }),
+      // saveToFile(path) — write each element via Value.show, one per line.
+      // Counterpart to Dataset.fromFile.
+      "saveToFile" -> Value.NativeFnV("Dataset.saveToFile", {
+        case List(Value.StringV(path)) =>
+          val text = run().map(v => Value.show(v)).mkString("", "\n", "\n")
+          java.nio.file.Files.write(java.nio.file.Paths.get(path),
+            text.getBytes(java.nio.charset.StandardCharsets.UTF_8))
+          Pure(Value.UnitV)
+        case _ => throw InterpretError("Dataset.saveToFile(path: String): Unit")
+      }),
       "groupBy" -> Value.NativeFnV("Dataset.groupBy", {
         case List(keyFn) => Pure(makeDatasetV(() => {
           val items = run()

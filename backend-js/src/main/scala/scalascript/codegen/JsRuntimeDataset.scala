@@ -144,6 +144,50 @@ class _Dataset {
     for (const { key, count } of m.values()) out.set(key, count);
     return out;
   }
+  // partition(p) — (matching, non-matching) as a tuple of two lists.
+  // Matches Scala List.partition.
+  partition(p) {
+    const yes = [], no = [];
+    for (const x of this.collect()) { (p(x) ? yes : no).push(x); }
+    const t = [yes, no]; t._isTuple = true; return t;
+  }
+  // mkString — variadic: () / (sep) / (start, sep, end).
+  mkString(...args) {
+    const xs = this.collect().map(v => _show(v));
+    if (args.length === 0) return xs.join('');
+    if (args.length === 1) return xs.join(args[0]);
+    if (args.length === 3) return args[0] + xs.join(args[1]) + args[2];
+    throw new Error('Dataset.mkString: expected 0, 1, or 3 args');
+  }
+  // toMap — elements must be 2-tuples (the _isTuple flag from Term.Tuple
+  // codegen). Returns an _Map preserving last-wins on duplicate keys.
+  toMap() {
+    const m = _Map();
+    for (const x of this.collect()) {
+      if (!x || !x._isTuple || x.length !== 2)
+        throw new Error('Dataset.toMap: element is not a 2-tuple: ' + _show(x));
+      m.set(x[0], x[1]);
+    }
+    return m;
+  }
+  // toSet — deduped list (no dedicated Set type in the runtime).
+  toSet() {
+    const seen = new Set();
+    const out = [];
+    for (const x of this.collect()) {
+      const k = JSON.stringify(x);
+      if (!seen.has(k)) { seen.add(k); out.push(x); }
+    }
+    return out;
+  }
+  // saveToFile(path) — write one element per line via _show.
+  saveToFile(path) {
+    if (typeof require === 'undefined')
+      throw new Error('Dataset.saveToFile: require not available in this environment');
+    const fs   = require('fs');
+    const body = this.collect().map(v => _show(v)).join('\n') + '\n';
+    fs.writeFileSync(path, body);
+  }
   groupBy(key) {
     const prev = this._pipeline;
     return new _Dataset(this._sourceFn, xs => {
