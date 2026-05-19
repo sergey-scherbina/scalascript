@@ -3283,8 +3283,9 @@ class JvmGen(
        |def lookupOpt(v: Any, k: Any): Option[Any] = _lookupKey(v, k)
        |
        |// Tier 5 #20 — typed request validation primitives.  `requireX`
-       |// throws a `_RestValidationError` on missing/invalid input that
-       |// the route dispatcher catches and turns into a 400 Bad Request.
+       |// throws a `RestValidationError` (inlined from runtime-server-common)
+       |// on missing/invalid input that the route dispatcher catches and
+       |// turns into a 400 Bad Request.
        |//
        |// `validate { body }` flips a thread-local flag so `require*`
        |// records the error and returns a safe default instead of
@@ -3294,7 +3295,6 @@ class JvmGen(
        |// The argument is typed `Any` (not the bundled `Request` class)
        |// so unit tests can pass any case class with `form` / `query`
        |// maps; matches the dynamic semantics on the other two backends.
-       |final class _RestValidationError(msg: String) extends RuntimeException(msg)
        |val _validationStack = new java.util.concurrent.atomic.AtomicReference[List[scala.collection.mutable.LinkedHashMap[String, String]]](Nil)
        |private def _recordOrThrow(name: String, msg: String, default: Any): Any =
        |  val cur = _validationStack.get()
@@ -3302,7 +3302,7 @@ class JvmGen(
        |    case Some(buf) =>
        |      buf.put(name, msg); default
        |    case None =>
-       |      throw new _RestValidationError(msg)
+       |      throw new RestValidationError(msg)
        |private def _restFieldOf(req: Any, name: String): Option[String] =
        |  def look(field: String): Option[String] = req match
        |    case r: Request => field match
@@ -3671,11 +3671,11 @@ class JvmGen(
        |          _parseQuery(ex.getRequestURI.getRawQuery), headers, body,
        |          form, files, session, bearer, claims, basicAuth, cookies)
        |        // Tier 5 #20 — validation primitives short-circuit by
-       |        // throwing _RestValidationError; convert to 400.
+       |        // throwing RestValidationError; convert to 400.
        |        // D′.2 — build middleware chain: first registered = outermost.
        |        def _baseHandler(): Any =
        |          try r.handler(req)
-       |          catch case ve: _RestValidationError =>
+       |          catch case ve: RestValidationError =>
        |            Response(400, Map("Content-Type" -> "text/plain; charset=utf-8"), ve.getMessage)
        |        var _chain: () => Any = () => _baseHandler()
        |        _middlewares.reverseIterator.foreach { mw =>
