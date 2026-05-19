@@ -4646,7 +4646,7 @@ class JvmGen(
        |      item = queue.take().asInstanceOf[Option[A]]
        |  })
        |
-       |def generator(body: => Unit): _Generator[Any] = new _Generator[Any](() => body)
+       |def generator[T](body: () => Unit): _Generator[T] = new _Generator[T](body)
        |
        |// ── v1.9 Coroutine primitive — virtual-thread handshake ──────────────────
        |// Two-way suspend/resume via a pair of SynchronousQueues.
