@@ -72,6 +72,7 @@ Steps 0-3 landed on `main`; Steps 4-7 in flight on `feature/dep-cps`.
 | 3 — dep-mode CPS emit (`Defn.Object` recursion, `isEffectfulFun` ext, infix tuple-arg fix) | ✅ landed | 3b3ca95 |
 | 4 — `distributed-map.ssc` integration | ✅ chunks 1–6 landed — **0 compile errors** | 9c62b01, + chunks 2–6 |
 | 5 — actor runtime fallback + dispatch table | ✅ landed — `distributed-map.ssc` **PASS end-to-end** | + chunk 7 |
+| 6 — nested-def CPS, _bind-continuation tracking, dep-type qualification | ✅ landed — `cluster-connect` + `distributed-heterogeneous` **PASS** | + chunk 8 |
 | 5 — full regression sweep | ⏳ pending | — |
 | 6 — strip `pending:` from other v1.22 distributed-* tests | ⏳ pending | — |
 | 7 — retire `cpsBody` parameter / textual band-aids | ⏳ pending | — |
@@ -355,6 +356,61 @@ Remaining work (orthogonal to dep-cps, deferred):
   needs its own focused investigation.
 - Retire `cpsBody` parameter / textual band-aids obsoleted by
   the Steps 0–4 + chunks 2–6 architecture.
+
+**Chunk 8 — landed (2026-05-20):**
+
+Five surgical changes that take two more distributed-* tests to
+PASS (`cluster-connect`, `distributed-heterogeneous`).  Conformance
+count: 34 → **36 passed**, 6 → 3 pending.  Canary
+`actors-process-info.ssc` held at 4 throughout.
+
+1. **`emitDefMaybeCps` in `emitCpsBlock`** — a nested `def f =
+   receive { ... }` inside `runActors` body now CPS-emits its
+   body when it contains effect primitives (using the existing
+   `containsEffectPrimitive` predicate).  Pure nested defs stay
+   verbatim — no impact on user code that doesn't use effects.
+
+2. **`anyBoundNames` extended to `_bind` continuation params** in
+   `emitCpsBindWithType`.  When the user wrote
+   `val cluster = Cluster(...)` without a type annotation, the
+   continuation `(cluster: Any) => ...` is registered as Any-bound
+   for its body's lifetime, so `cluster.nodes` inside routes via
+   `_dispatch` (chunk 6 plumbing).  Implemented by changing the
+   `body: String` param to by-name (`body: => String`) and
+   wrapping the build call with `withAnyBoundNames(Set(name))`.
+
+3. **Named-arg stripping in `_dispatch` arg lists.**  When
+   `cluster.healthCheck(timeoutMs = 1000)` becomes
+   `_dispatch(cluster, "healthCheck", List(...))`, the named arg
+   `timeoutMs = 1000` would land inside `List(...)` and Scala
+   would reject it (List has no such param).  Strip the
+   `name = ` prefix conservatively (only when LHS looks like
+   an identifier).  Runtime reflection is positional anyway.
+
+4. **`depTypeNames` registry** + dep-type **qualification** in
+   `calleeParamType`.  Collected from `Defn.Class`/`Defn.Trait`/
+   `Defn.Enum` in inlined deps with their pkg path; the
+   `substituteTparams` pass now also prefixes dep type names
+   with their package (`List[StageOp]` →
+   `List[std.mapreduce.StageOp]`) so casts compile regardless
+   of which dep types the user explicitly imported.  Word-
+   boundary anchored; skips already-qualified occurrences.
+
+5. **`_dispatch` `List.sorted` case** — implicit Ordering param
+   foils the reflection fallback (same pattern as `sortBy`).
+   Inline `Ordering[Any]` with the same numeric/String
+   specialisation + `toString.compare` fallback.
+
+Status snapshot:
+- `cluster-connect` — PASS (compile + runtime).
+- `distributed-heterogeneous` — PASS (compile + runtime).
+- `distributed-failure-retry` — compile clean; runtime hits a
+  dep logic issue (double-failure handling: w2's
+  `PartitionFailed` and subsequent `Exit` both fire
+  `handleFailure`, exhausting retries).  Separate dep-design
+  fix.
+- `distributed-failure-partial` — not yet investigated.
+- `distributed-shuffle` — 16 compile errors remain.
 
 **Validation as of Step 3 landing:**
 - `conformance/dep-cps-basic.ssc` runs end-to-end on JVM, prints `ok/ok`.

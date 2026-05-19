@@ -16,7 +16,7 @@ and the job completes with the correct result.
 
 [NamedHandler, HandlerRegistry](../std/mapreduce/handlers.ssc)
 
-[MapOp, Stage, WorkerProtocol, runDistributed, DistributedResult](../std/mapreduce/distributed.ssc)
+[MapOp, Stage, WorkerProtocol, runDistributed, DistributedResult, ProcessPartition, PartitionFailed](../std/mapreduce/distributed.ssc)
 
 ```scalascript
 runActors {

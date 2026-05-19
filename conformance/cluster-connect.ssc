@@ -3,7 +3,6 @@
 name: cluster-connect
 description: v1.22 — Open a 3-node cluster, health-check, close
 backends: [jvm]
-pending: needs std/mapreduce/cluster.ssc auto-resolution in `ssc compile`
 ---
 
 # Cluster — connect / healthCheck / close

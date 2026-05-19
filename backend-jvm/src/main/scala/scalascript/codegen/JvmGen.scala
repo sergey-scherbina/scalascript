@@ -207,6 +207,15 @@ class JvmGen(
   // `inlineImport`.
   private val depClasses = mutable.Map.empty[String, scala.meta.Defn.Class]
 
+  // `depTypeNames` — every type-defining decl (Defn.Class, Defn.Trait,
+  // Defn.Enum) found in an inlined dep, mapped to its package path.
+  // Used by `calleeParamType` to qualify dep type names in injected
+  // `asInstanceOf[…]` so they resolve at the user call site even when
+  // the user didn't explicitly import that type (e.g. `StageOp` is the
+  // sealed trait extended by `MapOp` / `FilterOp` — users only import
+  // the concrete cases).
+  private val depTypeNames = mutable.Map.empty[String, List[String]]
+
   // Test hooks — Step 2 unit tests populate `depDefs` via
   // `seedDepDefsForTest` (which mirrors what `inlineImport` does
   // post-rewrite) and read back `globalEffectfulDeps` after
@@ -1088,12 +1097,19 @@ class JvmGen(
       // or nested in object/class) so the fixpoint can analyse its body.
       // Also index every Defn.Class so chunk 3's call-site cast injection
       // can look up constructor param types when emitting `Cluster(...)`
-      // and similar inside a CPS continuation.
+      // and similar inside a CPS continuation.  Plus every type-defining
+      // decl (class/trait/enum) goes into `depTypeNames` with its pkg
+      // so qualifier prefixing in `calleeParamType` can keep dep types
+      // resolvable at user call sites regardless of explicit imports.
       rewrittenBlocks.foreach { b =>
         ScalaNode.fold(b.node) { tree =>
           tree.collect {
             case d: Defn.Def   => depDefs(d.name.value)    = d
-            case d: Defn.Class => depClasses(d.name.value) = d
+            case d: Defn.Class =>
+              depClasses(d.name.value)   = d
+              depTypeNames(d.name.value) = pkg
+            case d: Defn.Trait => depTypeNames(d.name.value) = pkg
+            case d: Defn.Enum  => depTypeNames(d.name.value) = pkg
           }
         }
       }
@@ -3739,8 +3755,22 @@ class JvmGen(
       // HOFs whose callbacks may produce a Free tree.
       case Term.Select(qual, Term.Name(method)) =>
         bindArgsCps(qual :: args) { vs =>
-          val argList = vs.tail.mkString(", ")
-          val argSeq  = if vs.tail.isEmpty then "Nil" else s"List($argList)"
+          // Strip `name = ` prefix from named args before they enter
+          // `List(...)`.  Runtime `_dispatch` is positional (Java
+          // reflection doesn't see param names anyway), and a literal
+          // `List(timeoutMs = 1000)` would be parsed as
+          // `List.apply(timeoutMs = 1000)` — `List` has no such param.
+          val cleaned = vs.tail.map { v =>
+            val eq = v.indexOf('=')
+            // Conservative: only strip if the LHS of the first `=`
+            // looks like a Scala identifier (avoid mangling expressions
+            // that contain `=` such as `x == y` or `_ => …`).
+            if eq > 0 && v.substring(0, eq).trim.matches("[A-Za-z_][A-Za-z0-9_]*") then
+              v.substring(eq + 1).trim
+            else v
+          }
+          val argList = cleaned.mkString(", ")
+          val argSeq  = if cleaned.isEmpty then "Nil" else s"List($argList)"
           s"""_dispatch(${vs.head}, "${method}", $argSeq)"""
         }
 
@@ -3791,17 +3821,32 @@ class JvmGen(
     // Names of any class-level type params we need to exclude from
     // the cast (caller isn't inside the class scope so `T` is unbound).
     val tparamNames: Set[String] = classDef.map(_.tparamClause.values.map(_.name.value).toSet).getOrElse(Set.empty)
-    /** Substitute class-scoped tparam names with `Any` so a cast like
-     *  `ordered.asInstanceOf[List[T]]` (where `T` would be out of scope
-     *  at the call site) becomes `ordered.asInstanceOf[List[Any]]` —
-     *  semantically what the dep runtime sees anyway since everything
-     *  in CPS context is Any-typed at the JVM/erasure level. */
+    /** Substitute class-scoped tparam names with `Any` (chunk 5) AND
+     *  qualify dep-defined type names with their package path (chunk 8)
+     *  so casts emitted at user call sites compile regardless of which
+     *  dep types the user explicitly imported.  E.g.
+     *  `List[StageOp]` → `List[std.mapreduce.StageOp]` when StageOp is
+     *  a sealed trait in `std/mapreduce/distributed.ssc` and the user
+     *  only imported `MapOp`, `FilterOp`, …. */
     def substituteTparams(t: scala.meta.Type): String =
-      if tparamNames.isEmpty then t.syntax
-      else
-        tparamNames.foldLeft(t.syntax) { (acc, tp) =>
-          acc.replaceAll(s"\\b${java.util.regex.Pattern.quote(tp)}\\b", "Any")
-        }
+      // Step 1: class-tparam substitution (chunk 5).
+      val afterTparams =
+        if tparamNames.isEmpty then t.syntax
+        else
+          tparamNames.foldLeft(t.syntax) { (acc, tp) =>
+            acc.replaceAll(s"\\b${java.util.regex.Pattern.quote(tp)}\\b", "Any")
+          }
+      // Step 2: qualify any dep type name (chunk 8).  Word-boundary
+      // anchored; skip names that already appear qualified
+      // (`std.mapreduce.X.Y` shouldn't get re-prefixed).
+      depTypeNames.foldLeft(afterTparams) { case (acc, (name, pkg)) =>
+        if pkg.isEmpty then acc
+        else
+          val qualified = (pkg :+ name).mkString(".")
+          // Negative lookbehind for `.` so we don't re-prefix an
+          // already-qualified occurrence.
+          acc.replaceAll(s"(?<![.A-Za-z0-9_])${java.util.regex.Pattern.quote(name)}(?![A-Za-z0-9_])", qualified)
+      }
     ps.flatMap { params =>
       val targetOpt = argName match
         case Some(n) => params.find(_.name.value == n)
@@ -3846,6 +3891,19 @@ class JvmGen(
   private def emitCpsBlock(stats: List[Stat]): String =
     if stats.isEmpty then "()"
     else
+      // Nested `def f = receive { ... }` inside a runActors body —
+      // emit with CPS body so `receive` / `!` reach their CPS arms
+      // instead of staying raw and failing `Not found: receive`.
+      // Conservative trigger: only when the def's body transitively
+      // contains an effect primitive (same predicate dep-mode uses).
+      def emitDefMaybeCps(d: Defn.Def): String =
+        if containsEffectPrimitive(d.body) then
+          val params = d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values).map { p =>
+            p.decltpe.map(t => s"${p.name.value}: ${t.syntax}")
+              .getOrElse(s"${p.name.value}: Any")
+          }.mkString(", ")
+          s"def ${d.name.value}($params): Any = ${emitCpsExpr(d.body)}"
+        else d.syntax
       def build(remaining: List[Stat]): String = remaining match
         case Nil => "()"
         case List(s) =>
@@ -3853,6 +3911,7 @@ class JvmGen(
             case t: Term => emitCpsExpr(t)
             case Defn.Val(_, List(Pat.Var(n)), tpe, rhs) =>
               emitCpsBindWithType(rhs, n.value, tpe, "()")
+            case d: Defn.Def => s"{ ${emitDefMaybeCps(d)}; () }"
             case other => s"{ ${other.syntax}; () }"
         case s :: rest =>
           s match
@@ -3860,6 +3919,8 @@ class JvmGen(
               emitCpsBindWithType(rhs, n.value, tpe, build(rest))
             case Defn.Var.After_4_7_2(_, List(Pat.Var(n)), tpe, rhs) =>
               emitCpsBindWithType(rhs, n.value, tpe, build(rest))
+            case d: Defn.Def =>
+              s"{ ${emitDefMaybeCps(d)}; ${build(rest)} }"
             case t: Term =>
               if isSimpleCps(t) then s"{ ${t.syntax}; ${build(rest)} }"
               else
@@ -3886,14 +3947,20 @@ class JvmGen(
       rhs:  Term,
       name: String,
       tpe:  Option[scala.meta.Type],
-      body: String
+      body: => String
   ): String =
+    // Pre-emit `rhs` so its tmp names (if any) come from the OUTER
+    // scope's freshTmp counter, then build the continuation `body`
+    // with `name` registered as Any-bound if tpe was None — so
+    // `name.member` inside `body` routes via _dispatch (chunk 8).
+    val rhsEmit = emitCpsExpr(rhs)
     tpe match
       case None =>
-        s"_bind(${emitCpsExpr(rhs)}, (${name}: Any) => ${body})"
+        val bodyStr = withAnyBoundNames(Set(name))(body)
+        s"_bind($rhsEmit, (${name}: Any) => ${bodyStr})"
       case Some(t) =>
         val tSyntax = t.syntax
-        s"_bind(${emitCpsExpr(rhs)}, ((${name}: ${tSyntax}) => ${body}).asInstanceOf[Any => Any])"
+        s"_bind($rhsEmit, ((${name}: ${tSyntax}) => ${body}).asInstanceOf[Any => Any])"
 
   // ─── Preamble + runtime ───────────────────────────────────────────
 
@@ -4955,7 +5022,7 @@ class JvmGen(
        |    // `.sortBy(fn)` carries an implicit Ordering — like toMap,
        |    // reflection-arity check rejects the 2-arg signature.
        |    case (xs: List[_], "sortBy",  List(fn))   =>
-       |      given Ordering[Any] = new Ordering[Any]:
+       |      given _ordAny: Ordering[Any] = new Ordering[Any]:
        |        def compare(a: Any, b: Any): Int = (a, b) match
        |          case (x: Int,    y: Int)    => x.compare(y)
        |          case (x: Long,   y: Long)   => x.compare(y)
@@ -4963,6 +5030,15 @@ class JvmGen(
        |          case (x: String, y: String) => x.compare(y)
        |          case _ => a.toString.compare(b.toString)
        |      xs.asInstanceOf[List[Any]].sortBy(fn.asInstanceOf[Any => Any])
+       |    case (xs: List[_], "sorted", Nil) =>
+       |      given _ordAny: Ordering[Any] = new Ordering[Any]:
+       |        def compare(a: Any, b: Any): Int = (a, b) match
+       |          case (x: Int,    y: Int)    => x.compare(y)
+       |          case (x: Long,   y: Long)   => x.compare(y)
+       |          case (x: Double, y: Double) => x.compare(y)
+       |          case (x: String, y: String) => x.compare(y)
+       |          case _ => a.toString.compare(b.toString)
+       |      xs.asInstanceOf[List[Any]].sorted
        |    case (xs: List[_], "groupBy", List(fn))   =>
        |      xs.asInstanceOf[List[Any]].groupBy(fn.asInstanceOf[Any => Any])
        |    case (xs: List[_], "headOption", Nil)     => xs.headOption

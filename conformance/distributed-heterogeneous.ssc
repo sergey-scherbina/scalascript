@@ -3,7 +3,6 @@
 name: distributed-heterogeneous
 description: v1.22 — 2 JVM + 1 INT worker actors, cross-backend named-handler round-trip
 backends: [jvm]
-pending: needs std/mapreduce/* auto-resolution in `ssc compile`
 ---
 
 # Distributed heterogeneous — cross-backend workers
