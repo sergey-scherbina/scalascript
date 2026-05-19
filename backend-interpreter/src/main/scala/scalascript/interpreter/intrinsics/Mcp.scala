@@ -44,7 +44,7 @@ val McpIntrinsics: Map[QualifiedName, IntrinsicImpl] = Map(
 
   // ─── serveMcp(transport) ────────────────────────────────────────────
 
-  QualifiedName("serveMcp") -> NativeImpl((_, args) =>
+  QualifiedName("serveMcp") -> NativeImpl((ctx, args) =>
     args match
       case List(transport) =>
         val builder = Option(Mcp.builderTL.get).getOrElse(
@@ -61,8 +61,17 @@ val McpIntrinsics: Map[QualifiedName, IntrinsicImpl] = Map(
             def write(s: String): Unit =
               writer.write(s); writer.flush()
             McpServerCore.serve(builder, read, write, "ssc-mcp-int", "1.0.0")
-          case "Http" | "Ws" =>
-            throw InterpretError(s"serveMcp: ${Mcp.transportTag(transport)} transport deferred to Phase 2/3")
+          case "Http" =>
+            // Phase 2: register a POST route on the existing WebServer.
+            // The handler decodes req.body, calls handleHttpRequest, returns
+            // the JSON-RPC reply as the HTTP response body.  Then start the
+            // WebServer on the requested port.
+            val (port, path) = Mcp.httpArgs(transport)
+            Mcp.installHttpRoute(builder, path, ctx)
+            if !ctx.headless then
+              scalascript.server.WebServer.start(port, ".", ctx.out)
+          case "Ws" =>
+            throw InterpretError("serveMcp: Ws transport deferred to a future phase")
           case other =>
             throw InterpretError(s"serveMcp: unsupported transport '$other'")
       case _ => throw InterpretError("serveMcp(transport)")
@@ -80,10 +89,13 @@ val McpIntrinsics: Map[QualifiedName, IntrinsicImpl] = Map(
       case "Spawn" =>
         val (cmd, cmdArgs) = Mcp.spawnArgs(transport)
         Mcp.makeSpawnClient(cmd, cmdArgs, timeoutMs)
+      case "Http" =>
+        val url = Mcp.httpClientUrl(transport)
+        Mcp.makeHttpClient(url, timeoutMs)
       case "Stdio" =>
         throw InterpretError("mcpConnect: Transport.Stdio makes sense for servers, not clients — use Transport.Spawn")
-      case "Http" | "Ws" =>
-        throw InterpretError(s"mcpConnect: ${Mcp.transportTag(transport)} transport deferred to Phase 2/3")
+      case "Ws" =>
+        throw InterpretError("mcpConnect: Ws transport deferred to a future phase")
       case other =>
         throw InterpretError(s"mcpConnect: unsupported transport '$other'")
   )
@@ -112,6 +124,72 @@ private object Mcp:
       }.getOrElse(Nil)
       (cmd, args)
     case _ => ("", Nil)
+
+  /** Extract `(port, path)` from a `Transport.Http(port, path)` — server-side. */
+  def httpArgs(v: Any): (Int, String) = v match
+    case Value.InstanceV("Http", fields) =>
+      val port = fields.get("port").collect {
+        case Value.IntV(i) => i.toInt
+      }.getOrElse(8080)
+      val path = fields.get("path").collect { case Value.StringV(s) => s }.getOrElse("/mcp")
+      (port, path)
+    case _ => (8080, "/mcp")
+
+  /** Client-side: a Transport.Http on the client side carries `url`
+   *  (not port+path).  std/mcp/types.ssc keeps a single `Http(port, path)`
+   *  variant for symmetry; client code passes the full URL via `path`
+   *  (e.g. `Transport.Http(0, "http://localhost:8080/mcp")`) — port is
+   *  ignored on the client.  Alternatively the user can construct a
+   *  one-off Transport.Http(port, "/mcp") and rely on default host
+   *  resolution; we look at `path` first and fall back to `http://localhost:<port><path>`. */
+  def httpClientUrl(v: Any): String = v match
+    case Value.InstanceV("Http", fields) =>
+      val path = fields.get("path").collect { case Value.StringV(s) => s }.getOrElse("/mcp")
+      if path.startsWith("http://") || path.startsWith("https://") then path
+      else
+        val port = fields.get("port").collect { case Value.IntV(i) => i.toInt }.getOrElse(8080)
+        s"http://localhost:$port$path"
+    case _ => "http://localhost:8080/mcp"
+
+  /** Register a POST handler for `<path>` on the existing WebServer that
+   *  pipes the body through `McpServerCore.handleHttpRequest`.  Called by
+   *  `serveMcp(Transport.Http(port, path))` before the server starts. */
+  def installHttpRoute(builder: McpServerBuilder, path: String, ctx: NativeContext): Unit =
+    val handler = Value.NativeFnV("mcp.http.handler", Computation.pureFn {
+      case List(Value.InstanceV("Request", fields)) =>
+        val body = fields.get("body").collect { case Value.StringV(s) => s }.getOrElse("")
+        val reply = McpServerCore.handleHttpRequest(builder, body, "ssc-mcp-int", "1.0.0")
+        val (status, respBody) =
+          if reply.isEmpty then (204, "")
+          else (200, reply)
+        Value.InstanceV("Response", Map(
+          "status"  -> Value.IntV(status.toLong),
+          "headers" -> Value.MapV(Map(
+            Value.StringV("Content-Type") -> Value.StringV("application/json")
+          )),
+          "body"    -> Value.StringV(respBody)
+        ))
+      case _ => Value.InstanceV("Response", Map(
+        "status"  -> Value.IntV(400L),
+        "headers" -> Value.MapV(Map.empty),
+        "body"    -> Value.StringV("expected Request")
+      ))
+    })
+    ctx.registerRoute("POST", path, handler)
+
+  /** Build an `McpClient` Value backed by `McpHttpClient`. */
+  def makeHttpClient(url: String, timeoutMs: Long): Value =
+    val client = new McpHttpClient(url, timeoutMs)
+    // Spec-mandated initialize handshake — same shape as the Spawn path.
+    val initParams = ujson.Obj(
+      "protocolVersion" -> McpProtocol.ProtocolVersion,
+      "capabilities"    -> ujson.Obj(),
+      "clientInfo"      -> ujson.Obj("name" -> "ssc-mcp-int", "version" -> "1.0.0")
+    )
+    client.request(McpProtocol.Method.Initialize, initParams) match
+      case Left(e)  => throw InterpretError(s"mcpConnect(Http): initialize failed: ${e.message}")
+      case Right(_) => client.notify("notifications/initialized", ujson.Obj())
+    makeHttpClientInstance(client, timeoutMs)
 
   /** Build the `srv` instance the user-side `mcpServer { srv => ... }`
    *  block receives.  Each method-field is a `NativeFnV` that returns
@@ -409,6 +487,60 @@ private object Mcp:
       client.close()
       try proc.destroy()    catch case _: Throwable => ()
       Value.UnitV
+    })
+    fields("isClosed") = Value.NativeFnV("McpClient.isClosed", Computation.pureFn { _ =>
+      Value.BoolV(client.isClosed)
+    })
+    Value.InstanceV("McpClient", fields.toMap)
+
+  /** Same shape as `makeClientInstance` but routes through `McpHttpClient`
+   *  instead of the stdio-backed `McpClientCore`.  Code duplication is
+   *  intentional: both clients expose identical method surfaces but the
+   *  request bodies differ in transport semantics (stdio is async with a
+   *  pending-id table; HTTP is synchronous request/response). */
+  def makeHttpClientInstance(client: McpHttpClient, timeoutMs: Long): Value.InstanceV =
+    val fields = mutable.LinkedHashMap.empty[String, Value]
+    fields("listTools") = Value.NativeFnV("McpClient.listTools", Computation.pureFn { _ =>
+      client.request(McpProtocol.Method.ToolsList, ujson.Obj(), timeoutMs) match
+        case Left(e)     => throw InterpretError(s"listTools: ${e.message}")
+        case Right(json) => Mcp.descriptorsListFromJson(json, "tools", Mcp.toolDescriptorFromJson)
+    })
+    fields("listResources") = Value.NativeFnV("McpClient.listResources", Computation.pureFn { _ =>
+      client.request(McpProtocol.Method.ResourcesList, ujson.Obj(), timeoutMs) match
+        case Left(e)     => throw InterpretError(s"listResources: ${e.message}")
+        case Right(json) => Mcp.descriptorsListFromJson(json, "resources", Mcp.resourceDescriptorFromJson)
+    })
+    fields("listPrompts") = Value.NativeFnV("McpClient.listPrompts", Computation.pureFn { _ =>
+      client.request(McpProtocol.Method.PromptsList, ujson.Obj(), timeoutMs) match
+        case Left(e)     => throw InterpretError(s"listPrompts: ${e.message}")
+        case Right(json) => Mcp.descriptorsListFromJson(json, "prompts", Mcp.promptDescriptorFromJson)
+    })
+    fields("callTool") = Value.NativeFnV("McpClient.callTool", Computation.pureFn {
+      case List(Value.StringV(name), argsV) =>
+        val params = ujson.Obj("name" -> name, "arguments" -> Mcp.valueToJson(argsV))
+        client.request(McpProtocol.Method.ToolsCall, params, timeoutMs) match
+          case Left(e)     => throw InterpretError(s"callTool: ${e.message}")
+          case Right(json) => Mcp.toolResultFromJson(json)
+      case _ => throw InterpretError("client.callTool(name, args)")
+    })
+    fields("readResource") = Value.NativeFnV("McpClient.readResource", Computation.pureFn {
+      case List(Value.StringV(uri)) =>
+        val params = ujson.Obj("uri" -> uri)
+        client.request(McpProtocol.Method.ResourcesRead, params, timeoutMs) match
+          case Left(e)     => throw InterpretError(s"readResource: ${e.message}")
+          case Right(json) => Mcp.resourceResultFromJson(json, uri)
+      case _ => throw InterpretError("client.readResource(uri)")
+    })
+    fields("getPrompt") = Value.NativeFnV("McpClient.getPrompt", Computation.pureFn {
+      case List(Value.StringV(name), argsV) =>
+        val params = ujson.Obj("name" -> name, "arguments" -> Mcp.valueToJson(argsV))
+        client.request(McpProtocol.Method.PromptsGet, params, timeoutMs) match
+          case Left(e)     => throw InterpretError(s"getPrompt: ${e.message}")
+          case Right(json) => Mcp.promptResultFromJson(json)
+      case _ => throw InterpretError("client.getPrompt(name, args)")
+    })
+    fields("close") = Value.NativeFnV("McpClient.close", Computation.pureFn { _ =>
+      client.close(); Value.UnitV
     })
     fields("isClosed") = Value.NativeFnV("McpClient.isClosed", Computation.pureFn { _ =>
       Value.BoolV(client.isClosed)
