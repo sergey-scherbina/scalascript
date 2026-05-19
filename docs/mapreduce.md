@@ -50,6 +50,14 @@ trait Dataset[T]:
   def drop(n: Int): Dataset[T]
   def distinct: Dataset[T]
 
+  // Set-style binary ops between two datasets (v1.21 follow-up)
+  def union(other: Dataset[T]): Dataset[T]      // concat; multiplicities preserved
+  def intersect(other: Dataset[T]): Dataset[T]  // common elements; dedups; left order
+
+  // Element-wise pairing (v1.21 follow-up)
+  def zip[U](other: Dataset[U]): Dataset[(T, U)]  // stops at shorter side
+  def zipWithIndex: Dataset[(T, Int)]
+
   // Key-based (introduces shuffle in distributed mode)
   def groupBy[K](key: T => K): Dataset[(K, List[T])]
   def reduceByKey[K](key: T => K)(combine: (T, T) => T): Dataset[(K, T)]
@@ -63,6 +71,15 @@ trait Dataset[T]:
   def foreach(action: T => Unit): Unit
   def first(): Option[T]
   def toGenerator: Generator[T]    // streaming output (v1.10)
+
+  // Numeric / ordered aggregations (v1.21 follow-up)
+  def min(): T           // throws on empty
+  def max(): T           // throws on empty
+  def sum(): T           // additive identity (0) on empty
+  def avg(): Double      // throws on empty
+  def top(n: Int): List[T]            // n largest, descending
+  def takeOrdered(n: Int): List[T]    // n smallest, ascending
+  def countByValue(): Map[T, Long]    // element-frequency histogram
 
 object Dataset:
   // Constructors
