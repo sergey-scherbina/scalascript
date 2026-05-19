@@ -5979,41 +5979,55 @@ What's BLOCKED on a separate JvmGen refactor:
   not under `_ssc_runtime` — so the Tier-1 facade table's
   `_ssc_runtime.<name>` mangling doesn't match the JVM symbol either.
 
-### Tier 5 — JvmGen `package`-clause emission (NEW, BLOCKS Tier 4 compile)
+### Tier 5 — JvmGen `package`-clause emission — ✓ LANDED
 
-Currently `JvmGen.generateUserOnly` for `package: a.b` emits:
+`JvmGen.generateUserOnly` now produces Scala 3 source with a real
+`package` clause for `package:`-decorated modules:
 
 ```scala
 import _ssc_runtime.{given, *}
-object a:
-  object b:
-    def f(...) = ...
+
+package a.b:
+
+  def f(...) = ...
 ```
 
-To make user code naturally importable from regular Scala consumers
-(and to unblock the Tier-4 facade `.class` emit), this must become:
+(previously: empty-package `object a: object b: def f(...) = ...`).
 
-```scala
-package a.b
+Implementation: post-emit transform `unwrapPackageObjects` in JvmGen
+detects the parser-introduced `object pkg: object sub:` wrap (still
+present in the AST because `Parser.wrapSectionInPackage` runs first
+for typer/interpreter scoping) and rewrites it to a `package pkg.sub:`
+block clause, dedenting the body by `2 × pkg.size` spaces.  No-op for
+modules without `package:`.
 
-import _ssc_runtime.{given, *}
-
-def f(...) = ...
-```
-
-- [ ] Refactor `JvmGen.generateUserOnly` to emit a proper `package`
-      clause instead of nested objects.
-- [ ] Update `Linker.mergeScalaSources` dedup logic (currently keys on
-      top-level `def`/`val`/`class`/`object` names; with the new
-      package-clause shape, dedup must group by package + name).
-- [ ] Re-emit the Tier-1 `scalaFacade` table to map to natural FQN
-      (`a.b.f` → `a.b.f`) — identity in the common case; facade
-      `export` becomes a one-liner.
-- [ ] Re-run the v2.0 scale benchmark to confirm no regression in
-      std/ pass rate (currently 47/49 = 96 %).
-- [ ] Once Tier 5 lands, `ssc link --emit-scala-facade` produces a JAR
-      with working `.class` facades AND META-INF resources — a Scala
-      consumer can `import a.b.f` directly without any plugin.
+What landed:
+- [x] `JvmGen.unwrapPackageObjects` — string-level transform applied
+      to `genUserOnlyWithLineMap` output.
+- [x] `JvmBytecode.{packBundlesAsJar, packBundlesAsJarWithSmap,
+      packBundlesAsJarWithFacade}` now include `.tasty` files alongside
+      `.class` so Scala 3 consumers can cross-compile against the JAR.
+      Per-module .tasty is ~1-3 KB; runtime tasty adds ~150 KB to a
+      ~300 KB JAR — acceptable for the first-class JVM library use case.
+- [x] `InterfaceExtractor.buildScalaFacade` updated to emit IDENTITY
+      mapping (`natural FQN → natural FQN`) for `package:`-decorated
+      modules; empty map for no-package modules (their top-level defs
+      live in Scala 3's `<file>_sc$package$` wrapper at the empty
+      package, unreachable from named-package consumers).
+- [x] `FacadeGenerator` skips identity entries (no `export` needed —
+      natural FQN works directly via `import a.b.f`).  Legacy entries
+      starting with `_ssc_runtime.` still emit re-exports for
+      pre-Tier-5 artifacts on disk.
+- [x] Scale benchmark held: 47/49 → 48/49 std/ modules cleared (one
+      more passed after the `package`-clause change).
+- [x] 7 CLI subprocess tests in `EmitScalaFacadeCliTest` (incl. new
+      Tier-5 layout-pinning test that asserts `demo/a/*.class` +
+      `demo/a/*.tasty` entries land in the linked JAR).
+- [x] 36 interop unit tests + 97 ABI/extractor tests green.
+- [x] End-to-end smoke verified: a Scala 3 consumer can write
+      `import demo.a.{add, double}` against a ScalaScript-built JAR
+      via `scala-cli run --jar lib.jar --scala 3.8.3` — no facade
+      classes, no plugin, no manual demangling.
 
 ### Implementation order
 
@@ -6048,7 +6062,7 @@ Sorted by priority.  Run one agent per track simultaneously.
 | 11 | ~~Scala ↔ ScalaScript interop (Tier 2)~~ ✓ landed | H | 1 week | Tier 1 ✓ |
 | 12 | ~~Scala interop (Tier 3 sbt plugin)~~ — deferred, no demand | H | 1 week | Tier 2 ✓ |
 | 13 | ~~Scala interop (Tier 4 metadata + flag)~~ ✓ landed | H | 2 days | Tier 2 ✓ |
-| 14 | Scala interop Tier 5 — JvmGen package-clause emit | H | 2-3 days | — |
+| 14 | ~~Scala interop Tier 5 — JvmGen package-clause emit~~ ✓ landed | H | 2-3 days | — |
 
 Track D is serial.  All other tracks can run in parallel.
 

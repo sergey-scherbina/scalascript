@@ -360,48 +360,45 @@ class InterfaceExtractorTest extends AnyFunSuite:
     assert(names == Set("DocLine"),
       s"expected only `DocLine` (HiddenHelper filtered out), got: $names")
 
-  // ── scalaFacade — Tier 1 of the Scala interop spec ──────────────────────
+  // ── scalaFacade — Tier 1 + Tier 5 of the Scala interop spec ────────────
+  //
+  // Tier 5 made JvmGen emit real `package X.Y:` clauses (instead of nested
+  // `object X: object Y:` wraps), so the JVM symbol for a `package:`-decorated
+  // module's `def add` is now `X.Y.add` directly — natural FQN = JVM FQN.
+  // The scalaFacade table is therefore the IDENTITY for `pkg`-decorated
+  // modules; no-`package:` modules emit an empty facade (their top-level
+  // defs live in Scala 3's `<file>_sc$package$` wrapper at the empty
+  // package, unreachable from named-package consumers).
 
-  test("scalaFacade — every top-level export gets a `_ssc_runtime.<mangled>` entry"):
+  test("scalaFacade — every top-level export maps to identity (natural == JVM)"):
     val iface = extractWithFrontMatter(
       frontMatter = "package: std.eq",
       scalascriptSource =
         """def eqv(a: Int, b: Int): Boolean = a == b
           |def neqv(a: Int, b: Int): Boolean = a != b""".stripMargin
     )
-    // For each exported symbol, the facade must contain natural → mangled.
     iface.exports.foreach { sym =>
-      val natural = (iface.pkg :+ sym.name).mkString(".")
-      val mangled = "_ssc_runtime." + Linker.mangle(iface.pkg, sym.name)
-      assert(iface.scalaFacade.get(natural).contains(mangled),
-        s"facade entry missing or wrong for $natural; expected '$mangled', got ${iface.scalaFacade.get(natural)}")
+      val fqn = (iface.pkg :+ sym.name).mkString(".")
+      assert(iface.scalaFacade.get(fqn).contains(fqn),
+        s"facade should be identity for $fqn; got: ${iface.scalaFacade.get(fqn)}")
     }
-    // Sanity: the table is exactly the export set (no spurious entries at top
-    // level — nested may add more).
-    val topLevelKeys = iface.exports.map(s => (iface.pkg :+ s.name).mkString(".")).toSet
-    val facadeTopLevel = iface.scalaFacade.keySet.filter(k => !k.split('.').toList.drop(iface.pkg.length + 1).nonEmpty)
-    assert(topLevelKeys subsetOf iface.scalaFacade.keySet,
-      s"facade keys $facadeTopLevel must cover every export $topLevelKeys")
 
-  test("scalaFacade — package: pkg is reflected on the natural side"):
+  test("scalaFacade — package: pkg is reflected on both sides (identity)"):
     val iface = extractWithFrontMatter(
       frontMatter = "package: org.example.ui",
       scalascriptSource = "def render(): Unit = ()"
     )
     assert(iface.scalaFacade.contains("org.example.ui.render"),
       s"expected `org.example.ui.render` key, got: ${iface.scalaFacade.keySet}")
-    assert(iface.scalaFacade("org.example.ui.render") ==
-      "_ssc_runtime.org_example_ui_render")
+    assert(iface.scalaFacade("org.example.ui.render") == "org.example.ui.render",
+      s"expected identity; got: ${iface.scalaFacade("org.example.ui.render")}")
 
-  test("scalaFacade — no `package:` ⇒ natural side is just the bare name"):
+  test("scalaFacade — no `package:` ⇒ empty facade (no usable JVM path)"):
     val iface = extract("def hello(): Int = 42")
-    assert(iface.scalaFacade.get("hello").contains("_ssc_runtime.hello"),
-      s"expected `hello` → `_ssc_runtime.hello`, got: ${iface.scalaFacade}")
+    assert(iface.scalaFacade.isEmpty,
+      s"empty `pkg` should produce empty facade; got: ${iface.scalaFacade}")
 
-  test("scalaFacade — nested members get joined with `.` natural / `_` mangled"):
-    // ExportedSymbol.nested is populated by InterfaceExtractor for `object`
-    // exports up to MaxNestedDepth=3.  Each nested member must appear in the
-    // facade as `parent.child` (natural) → `parent_child` (mangled).
+  test("scalaFacade — nested members get joined with `.` on both sides (identity)"):
     val iface = extractWithFrontMatter(
       frontMatter = "package: std.foo",
       scalascriptSource =
@@ -409,22 +406,15 @@ class InterfaceExtractorTest extends AnyFunSuite:
           |  def apply(x: Int): Int = x
           |  val zero: Int = 0""".stripMargin
     )
-    // Find the Bar export.
     val bar = iface.exports.find(_.name == "Bar").getOrElse {
       fail(s"expected `Bar` export, got: ${iface.exports.map(_.name)}")
     }
-    // Bar should appear at top level.
-    assert(iface.scalaFacade.get("std.foo.Bar").contains("_ssc_runtime.std_foo_Bar"))
-    // Nested members — only check when the extractor actually populates them
-    // (depth-3 walk).  This pins the facade convention; if the extractor stops
-    // populating nested for some shape, the assertion documents the regression.
+    assert(iface.scalaFacade.get("std.foo.Bar").contains("std.foo.Bar"))
     if bar.nested.nonEmpty then
       bar.nested.foreach { child =>
-        val natural = s"std.foo.Bar.${child.name}"
-        val mangled = s"_ssc_runtime.std_foo_Bar_${child.name}"
-        assert(iface.scalaFacade.get(natural).contains(mangled),
-          s"nested facade entry missing for $natural; expected $mangled, " +
-          s"got ${iface.scalaFacade.get(natural)}")
+        val fqn = s"std.foo.Bar.${child.name}"
+        assert(iface.scalaFacade.get(fqn).contains(fqn),
+          s"nested facade should be identity for $fqn; got: ${iface.scalaFacade.get(fqn)}")
       }
 
   test("scalaFacade — manifest `exports:` filter applies to the facade too"):

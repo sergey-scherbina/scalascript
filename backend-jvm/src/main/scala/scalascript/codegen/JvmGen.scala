@@ -575,6 +575,105 @@ class JvmGen(
   def genUserOnly(module: Module): String =
     genUserOnlyWithLineMap(module)._1
 
+  /** Tier 5 — rewrite the parser's `object pkg: object sub: <body>` wrap
+   *  emitted into each block back into a Scala `package pkg.sub:` block,
+   *  so the resulting `.class` files live in a real Scala package and
+   *  Scala consumers can `import pkg.sub.x` directly.
+   *
+   *  The wrap originates in `Parser.wrapSectionInPackage`, applied
+   *  uniformly so the typer / interpreter / JS / interpreter backends
+   *  can keep using nested-object scoping.  JvmGen alone benefits from
+   *  the package-clause form because the JVM ABI hands consumers
+   *  package-qualified symbols and the runtime is a separate bundle.
+   *
+   *  This transform recognises the wrap by structure:
+   *    - `pkg` non-empty (front-matter declared a `package:`)
+   *    - body lines indented 2 × pkg.size beneath nested `object N:` headers
+   *  and rewrites to:
+   *    - a single `package <pkg.dotted>:` block at the top of the body,
+   *    - inner statements dedented by 2 × pkg.size to live directly
+   *      under the new package clause.
+   *
+   *  No-op when `pkg.isEmpty`. */
+  private def unwrapPackageObjects(src: String, pkg: List[String]): String =
+    if pkg.isEmpty then return src
+    val depth = pkg.size
+    val unwrapIndent = "  " * depth   // wrap-introduced indentation per Parser.scala:86-88
+    val lines = src.linesIterator.toIndexedSeq
+
+    // Scan once: split into (header up to and including the `import _ssc_runtime.*` line)
+    // + (body — the rest containing the wraps).  We rewrite only the body.
+    val headerEnd = lines.indexWhere(l => l.startsWith("import _ssc_runtime")) + 1
+    if headerEnd <= 0 then return src
+
+    val (header, body) = lines.splitAt(headerEnd)
+    val out = new StringBuilder
+    header.foreach(l => out.append(l).append('\n'))
+    out.append('\n')
+    out.append(s"package ${pkg.mkString(".")}:\n")
+
+    // Walk the body and rewrite.  The body looks like, repeatedly:
+    //
+    //   object <p0>:
+    //     object <p1>:
+    //       <stats indented 2*depth>
+    //
+    // Drop the wrap-introduction lines (`object <pX>:`) and the deepest
+    // `depth` levels of indentation from the stats.  Anything that's
+    // already at outer indentation (top-level `//> using ...` etc.) is
+    // preserved as-is.
+    var i = 0
+    while i < body.length do
+      val line = body(i)
+      // Drop a chain of `object pkgN:` opener lines matching `pkg`.  If the
+      // pattern doesn't start at this line, we just emit and advance.
+      val matchedOpener = matchObjectWrapOpeners(body, i, pkg)
+      if matchedOpener > 0 then
+        // Skip the `pkg.size` opener lines.  The lines that follow (until
+        // we leave the wrap, signalled by a blank line or by hitting an
+        // outer-scope `object pkg0:` opener again) are dedented by
+        // `unwrapIndent` and emitted under the `package … :` block.
+        i += matchedOpener
+        // Loop until end of wrap body (blank or end-of-body or next wrap-opener).
+        while i < body.length && !isWrapOpener(body, i, pkg) do
+          val l = body(i)
+          if l.isEmpty then out.append('\n')
+          else if l.startsWith(unwrapIndent) then
+            // Two-space indent under the new package: clause.
+            out.append("  ").append(l.substring(unwrapIndent.length)).append('\n')
+          else
+            // Line at outer indent — could be a stray comment / blank.
+            out.append(l).append('\n')
+          i += 1
+      else
+        // Lines outside any wrap pass through unchanged.  Pre-existing
+        // emit semantics: //> using / route directives / etc.
+        out.append(line).append('\n')
+        i += 1
+
+    out.toString.stripTrailing() + "\n"
+
+  /** Returns the number of wrap-opener lines (1 per pkg segment) starting
+   *  at `body(start)` and matching `pkg`; 0 if the pattern doesn't match. */
+  private def matchObjectWrapOpeners(
+      body: IndexedSeq[String],
+      start: Int,
+      pkg: List[String]
+  ): Int =
+    var idx = start
+    var depth = 0
+    while depth < pkg.size && idx < body.length do
+      val expected = ("  " * depth) + s"object ${pkg(depth)}:"
+      if body(idx) == expected then
+        depth += 1
+        idx += 1
+      else
+        return 0
+    if depth == pkg.size then depth else 0
+
+  private def isWrapOpener(body: IndexedSeq[String], idx: Int, pkg: List[String]): Boolean =
+    matchObjectWrapOpeners(body, idx, pkg) > 0
+
   /** Emit user code plus a generated-line → original-`.ssc`-line map.
    *  See [[JvmGen.generateUserOnlyWithLineMap]] for semantics. */
   def genUserOnlyWithLineMap(module: Module): (String, Map[Int, Int]) =
@@ -659,7 +758,9 @@ class JvmGen(
       .collect { case s: String => s }
     mainEntry.foreach { name => sb.append(s"$name()\n") }
 
-    val src = sb.toString.stripTrailing() + "\n"
+    val rawSrc     = sb.toString.stripTrailing() + "\n"
+    val modulePkg  = module.manifest.flatMap(_.pkg).getOrElse(Nil)
+    val src        = unwrapPackageObjects(rawSrc, modulePkg)
     (src, lineMap.toMap)
 
   /** Count the number of newlines emitted into `sb` so far.  Used to

@@ -206,3 +206,41 @@ class EmitScalaFacadeCliTest extends AnyFunSuite:
       assert(combined.contains("META-INF/.scim resource"),
         s"summary should report META-INF resource count; got: $combined")
     finally os.remove.all(sb)
+
+  // ── Tier 5 — `package:` clause emission lands user code in a real
+  //  Scala package, so the JAR carries `demo/a/...class` entries that a
+  //  Scala consumer can `import demo.a.*` against directly.  This pins
+  //  the on-disk layout so the consumer-side import contract doesn't
+  //  silently regress to the empty-package wrap.
+
+  test("Tier 5 — `package: demo.a` produces JAR entries under demo/a/"):
+    val sb = os.temp.dir(prefix = "ssc-facade-cli-")
+    try
+      os.write(sb / "demo.ssc",
+        """---
+          |name: demo
+          |package: demo.a
+          |---
+          |
+          |# Demo
+          |
+          |```scalascript
+          |def add(x: Int, y: Int): Int = x + y
+          |```
+          |""".stripMargin)
+      os.makeDir.all(sb / "arts")
+      assert(runSsc(sb, "compile-jvm", "--bytecode", "demo.ssc",
+        "-o", "arts/demo.scjvm").exitCode == 0)
+      val jar = sb / "lib.jar"
+      val r = runSsc(sb, "link", "--backend", "jvm", "--bytecode",
+        "arts", "-o", jar.toString)
+      assert(r.exitCode == 0, s"link failed: ${r.err.text()}")
+      val entries = jarEntries(jar)
+      // Real package directory hierarchy:
+      assert(entries.exists(_.startsWith("demo/a/")),
+        s"expected demo/a/* JAR entries; got: ${entries.filter(_.startsWith("demo")).take(10).mkString(", ")}")
+      // Scala 3 cross-compile metadata must ship alongside the .class:
+      assert(entries.exists(e => e.startsWith("demo/a/") && e.endsWith(".tasty")),
+        s"expected demo/a/*.tasty for Scala 3 consumers; got: ${entries.filter(_.startsWith("demo/a/")).mkString(", ")}")
+    finally os.remove.all(sb)
+

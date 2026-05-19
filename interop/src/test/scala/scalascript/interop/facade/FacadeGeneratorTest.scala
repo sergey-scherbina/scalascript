@@ -154,10 +154,12 @@ class FacadeGeneratorTest extends AnyFunSuite:
 
   // ── Legacy fallback (no scalaFacade field) ─────────────────────────────
 
-  test("legacy .scim without scalaFacade still produces a facade via Linker.mangle"):
-    // Tier-1 .scim has the table; older artifacts predate the field.
-    // The generator's `facadeEntriesOf` recomputes via `Linker.mangle`
-    // so consumers can adopt the library without recompiling sources.
+  test("legacy .scim without scalaFacade falls back to identity (Tier-5 semantics)"):
+    // Tier-5 update: when `scalaFacade` is absent (pre-Tier-1 artifact),
+    // we recompute it as the IDENTITY map (natural FQN == JVM symbol,
+    // matching the new `package` clause emission).  The generator then
+    // skips emission since no `export` is needed — the consumer's
+    // `import std.legacy.hello` resolves directly against the JAR.
     val pkg = List("std", "legacy")
     val legacy = iface(
       pkg = pkg,
@@ -166,11 +168,14 @@ class FacadeGeneratorTest extends AnyFunSuite:
       facade = Map.empty    // ← legacy artifact: no table
     )
     val sources = FacadeGenerator.generateFromInterfaces(List(legacy))
-    assert(sources.contains("std/legacy.scala"),
-      s"legacy should fall back via Linker.mangle; got: ${sources.keySet}")
-    val src = sources("std/legacy.scala")
-    assert(src.contains("export Ssc.std_legacy_hello as hello"),
-      s"fallback should mangle through Linker; got:\n$src")
+    // No facade file emitted — natural FQN works directly.
+    assert(sources.isEmpty,
+      s"Tier-5 identity facade should not emit a source file; got: ${sources.keySet}")
+    // The fallback table IS available via facadeEntriesOf for tooling
+    // that needs the natural-FQN list (e.g. ScalascriptLoader).
+    val entries = FacadeGenerator.facadeEntriesOf(legacy)
+    assert(entries == Map("std.legacy.hello" -> "std.legacy.hello"),
+      s"recomputed facade should be identity; got: $entries")
 
   // ── Generated source carries the runtime import alias ─────────────────
 

@@ -2,22 +2,27 @@
 
 Status:
 - **Tier 1** ✓ landed — compiler-emitted `scalaFacade` field on
-  `ModuleInterface`.
+  `ModuleInterface` (now an identity mapping for `package:`-decorated
+  modules, since Tier 5 made natural FQN == JVM symbol).
 - **Tier 2** ✓ landed — `scalascript-interop` library
   (`interop/` subproject): `FacadeGenerator`, `ScalascriptLoader`,
   `Effects`, `Actors`.
-- **Tier 4 v0.1** ✓ landed (partial) — `ssc link --backend jvm
-  --bytecode --emit-scala-facade` flag, plumbing, and META-INF/.scim
-  embedding work.  The reflective `ScalascriptLoader.fromJar` path is
-  fully operational against produced JARs.  The compile-time `.class`
-  facade emission is graceful-degradation only, pending a v2.0 JvmGen
-  refactor (Tier 5 below) to emit real Scala `package` clauses
-  instead of `object pkg: object subpkg:` wrappers.
-- **Tier 3** deferred — sbt/Mill/scala-cli plugin.  No external demand
-  yet; Tier 4 covers the self-contained-JAR use case.
-- **Tier 5** open — JvmGen `package`-clause emission.  Unblocks
-  Tier 4's `.class` facade emit; lets Scala consumers `import a.b.f`
-  directly without facade scaffolding.  See `MILESTONES.md`.
+- **Tier 4** ✓ landed — `ssc link --backend jvm --bytecode
+  --emit-scala-facade` produces a JAR with embedded META-INF/.scim
+  resources (for `ScalascriptLoader.fromJar`) plus, when applicable,
+  compiled facade `.class` files for legacy artifacts.  Post-Tier-5
+  the facade compile is largely redundant (natural FQN works
+  directly) — META-INF embedding remains useful for the reflective
+  loader path.
+- **Tier 5** ✓ landed — JvmGen emits real `package a.b:` clauses
+  instead of empty-package `object a: object b:` wraps.  Scala
+  consumers can now `import demo.a.add` against a ScalaScript-built
+  JAR directly via `scala-cli run --jar lib.jar --scala 3.8.3` —
+  no facade `.class` files, no plugin, no manual demangling.
+- **Tier 3** deferred — sbt/Mill/scala-cli plugin.  No external
+  demand yet, and with Tier 5 the natural-FQN path is so direct
+  that a build-tool plugin's value is mostly cosmetic (avoiding the
+  `unmanagedJars` wiring).
 
 Tracking: see "Scala ↔ ScalaScript interop" milestone in `MILESTONES.md`.
 

@@ -655,37 +655,37 @@ object InterfaceExtractor:
       scalaFacade   = buildScalaFacade(pkg, exports)
     )
 
-  /** Prefix every mangled FQN in the Scala-facade table with this object
-   *  name — the JVM-backend runtime wrapping introduced by JvmGen's
-   *  Phase-2 runtime/user split (`object _ssc_runtime: …`).
-   *
-   *  A Scala consumer types `import _ssc_runtime.std_eq_Eq` (or, via the
-   *  Tier-2 interop library, an `export` aliased to `std.eq.Eq`); this
-   *  prefix is what makes the mangled side line up with the bytecode
-   *  consumers actually see on the classpath. */
-  private val FacadeRuntimePrefix = "_ssc_runtime."
-
   /** Build the natural-FQN → mangled-FQN map for a module's exports.
    *
-   *  Top-level natural form: `pkg.segments.joined(".") + "." + name`.
-   *  Mangled form: `_ssc_runtime.` + `Linker.mangle(pkg, name)`.
-   *  Nested entries (depth ≤ `MaxNestedDepth` via `ExportedSymbol.nested`)
-   *  join `.` on the natural side and `_` on the mangled side, recursively.
+   *  After Tier 5 (`package`-clause emission in JvmGen), the JVM symbol
+   *  for a `package: x.y` module's `def add` is `x.y.add` directly —
+   *  the natural FQN IS the JVM path, no mangling needed.  This map
+   *  becomes the identity for `pkg`-decorated modules.
    *
-   *  Respects `exports:` front-matter implicitly — the caller passes the
-   *  already-filtered `exports` list, so private helpers stay out.
+   *  For top-level `package: x.y`, nested members (depth ≤
+   *  `MaxNestedDepth` via `ExportedSymbol.nested`) join `.` on both
+   *  sides; e.g. `x.y.Card.apply` → `x.y.Card.apply`.
    *
-   *  Tier 1 of the Scala ↔ ScalaScript interop spec (`docs/scala-interop.md`). */
+   *  For modules WITHOUT `package:` (empty `pkg`), exports land in
+   *  Scala 3's empty-package top-level wrapper (`<scriptName>_sc$package$`)
+   *  which is unreachable from named-package consumers — these
+   *  entries are SKIPPED to avoid surfacing a JVM symbol that can't
+   *  actually be imported.
+   *
+   *  Respects `exports:` front-matter implicitly — the caller passes
+   *  the already-filtered `exports` list, so private helpers stay out.
+   *
+   *  Tier 1 of the Scala ↔ ScalaScript interop spec
+   *  (`docs/scala-interop.md`); updated for Tier 5 (Phase-2 split-runtime
+   *  emission rewrites `object pkg: object sub:` → `package pkg.sub:`). */
   private def buildScalaFacade(pkg: List[String], exports: List[ExportedSymbol]): Map[String, String] =
+    if pkg.isEmpty then return Map.empty
     val table = scala.collection.mutable.LinkedHashMap.empty[String, String]
-    def emit(sym: ExportedSymbol, parentNatural: List[String], parentMangled: String): Unit =
-      val natural = (parentNatural :+ sym.name).mkString(".")
-      val mangled =
-        if parentMangled.isEmpty then FacadeRuntimePrefix + Linker.mangle(pkg, sym.name)
-        else parentMangled + "_" + sym.name
-      table(natural) = mangled
-      sym.nested.foreach(child => emit(child, parentNatural :+ sym.name, mangled))
-    exports.foreach(sym => emit(sym, pkg, ""))
+    def emit(sym: ExportedSymbol, parentPath: List[String]): Unit =
+      val fqn = (parentPath :+ sym.name).mkString(".")
+      table(fqn) = fqn   // identity — JVM symbol == natural FQN
+      sym.nested.foreach(child => emit(child, parentPath :+ sym.name))
+    exports.foreach(sym => emit(sym, pkg))
     table.toMap
 
   /** Detect well-known capability markers by structurally walking the

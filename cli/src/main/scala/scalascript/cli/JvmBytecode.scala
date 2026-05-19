@@ -491,15 +491,19 @@ object JvmBytecode:
         val safeId = moduleId.replaceAll("[^A-Za-z0-9_.-]", "_")
         val modDir = workDir / safeId
         extractBundleTo(base64Zip, modDir)
-        // The bundle may also carry `.tasty` files (needed when compiling
-        // downstream modules); strip them here so they don't bloat the
-        // final runtime JAR — `java -cp out.jar` only needs `.class`.
-        for classFile <- collectClassFiles(modDir) do
-          val entryName = classFile.relativeTo(modDir).toString.replace('\\', '/')
+        // Tier 5 — include `.tasty` files so the linked JAR works as a
+        // Scala 3 compile-time dependency (otherwise scalac compiling
+        // against it errors with "Loading Scala 3 binary from X.class.
+        // It should have been loaded from `.tasty` file").
+        // Per-module .tasty is tiny (~1-3 KB); the runtime's .tasty
+        // adds ~150 KB to a ~300 KB JAR — acceptable for the
+        // first-class-Scala-library use case.
+        for file <- collectCompileOutputs(modDir) do
+          val entryName = file.relativeTo(modDir).toString.replace('\\', '/')
           if winners.contains(entryName) then
             duplicates += (entryName -> moduleId)
           else
-            winners(entryName) = (moduleId, classFile)
+            winners(entryName) = (moduleId, file)
 
       // Stage 2: write the JAR.  Add an empty manifest so `java -jar` still
       // works when callers later set Main-Class via `jar uf` (out of scope
@@ -556,12 +560,14 @@ object JvmBytecode:
           JvmSmapInjector.injectAll(modDir, smap)
         }
 
-        for classFile <- collectClassFiles(modDir) do
-          val entryName = classFile.relativeTo(modDir).toString.replace('\\', '/')
+        // Tier 5 — see comment in `packBundlesAsJar`.  Include `.tasty`
+        // for Scala 3 cross-compile support.
+        for file <- collectCompileOutputs(modDir) do
+          val entryName = file.relativeTo(modDir).toString.replace('\\', '/')
           if winners.contains(entryName) then
             duplicates += (entryName -> moduleId)
           else
-            winners(entryName) = (moduleId, classFile)
+            winners(entryName) = (moduleId, file)
 
       val manifest = new JarManifest()
       manifest.getMainAttributes.put(Attributes.Name.MANIFEST_VERSION, "1.0")
@@ -656,22 +662,22 @@ object JvmBytecode:
         smapByModule.get(moduleId).filter(_.nonEmpty).foreach { smap =>
           JvmSmapInjector.injectAll(modDir, smap)
         }
-        for classFile <- collectClassFiles(modDir) do
-          val entryName = classFile.relativeTo(modDir).toString.replace('\\', '/')
+        for file <- collectCompileOutputs(modDir) do
+          val entryName = file.relativeTo(modDir).toString.replace('\\', '/')
           if winners.contains(entryName) then
             duplicates += (entryName -> moduleId)
           else
-            winners(entryName) = (moduleId, classFile)
+            winners(entryName) = (moduleId, file)
 
       // Facade classes — added after user bundles so a duplicate FQN
       // (shouldn't happen, but defensive) loses to the real module class.
       facadeClassDir.foreach { fdir =>
-        for classFile <- collectClassFiles(fdir) do
-          val entryName = classFile.relativeTo(fdir).toString.replace('\\', '/')
+        for file <- collectCompileOutputs(fdir) do
+          val entryName = file.relativeTo(fdir).toString.replace('\\', '/')
           if winners.contains(entryName) then
             duplicates += (entryName -> "<facade>")
           else
-            winners(entryName) = ("<facade>", classFile)
+            winners(entryName) = ("<facade>", file)
       }
 
       val manifest = new JarManifest()

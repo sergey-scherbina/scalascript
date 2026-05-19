@@ -59,11 +59,14 @@ class ArtifactAbiCompatibilityTest extends AnyFunSuite:
         ExportedSymbol("nowMs", "org_example_ui_nowMs", "extern", "Long")
       ),
       dependencies  = Map("std" -> "1.0.0", "http" -> "0.3.2"),
+      // Tier 5 — facade is identity (natural FQN == JVM FQN since the
+      // package-clause emission lands user code directly under its
+      // declared `package:`).
       scalaFacade   = Map(
-        "org.example.ui.Card"         -> "_ssc_runtime.org_example_ui_Card",
-        "org.example.ui.Button"       -> "_ssc_runtime.org_example_ui_Button",
-        "org.example.ui.Button.apply" -> "_ssc_runtime.org_example_ui_Button_apply",
-        "org.example.ui.render"       -> "_ssc_runtime.org_example_ui_render"
+        "org.example.ui.Card"         -> "org.example.ui.Card",
+        "org.example.ui.Button"       -> "org.example.ui.Button",
+        "org.example.ui.Button.apply" -> "org.example.ui.Button.apply",
+        "org.example.ui.render"       -> "org.example.ui.render"
       )
     )
 
@@ -846,11 +849,15 @@ class ArtifactAbiCompatibilityTest extends AnyFunSuite:
       case Left(err) => fail(s".scim should tolerate stripped scalaFacade: $err")
 
   test(".scim scalaFacade keys preserve case sensitivity through round-trip"):
+    // Tier 5 — facade is identity; both sides carry the same case-distinct
+    // FQN.  Round-trip must preserve key-side case-distinctness regardless
+    // of the values' specific shape (the ABI guarantee is byte-stability,
+    // not a particular value convention).
     val iface = sampleInterface.copy(
       scalaFacade = Map(
-        "org.acme.MyClass"   -> "_ssc_runtime.org_acme_MyClass",
-        "org.acme.myclass"   -> "_ssc_runtime.org_acme_myclass",  // distinct
-        "ORG.ACME.MyClass"   -> "_ssc_runtime.ORG_ACME_MyClass"   // distinct
+        "org.acme.MyClass"   -> "org.acme.MyClass",
+        "org.acme.myclass"   -> "org.acme.myclass",  // distinct lowercase
+        "ORG.ACME.MyClass"   -> "ORG.ACME.MyClass"   // distinct uppercase
       )
     )
     val json = ArtifactIO.writeInterface(iface)
@@ -858,9 +865,9 @@ class ArtifactAbiCompatibilityTest extends AnyFunSuite:
     assert(read.scalaFacade.keySet ==
       Set("org.acme.MyClass", "org.acme.myclass", "ORG.ACME.MyClass"),
       s"case-distinct keys must round-trip distinctly, got: ${read.scalaFacade.keySet}")
-    assert(read.scalaFacade("org.acme.MyClass") == "_ssc_runtime.org_acme_MyClass")
-    assert(read.scalaFacade("org.acme.myclass") == "_ssc_runtime.org_acme_myclass")
-    assert(read.scalaFacade("ORG.ACME.MyClass") == "_ssc_runtime.ORG_ACME_MyClass")
+    assert(read.scalaFacade("org.acme.MyClass") == "org.acme.MyClass")
+    assert(read.scalaFacade("org.acme.myclass") == "org.acme.myclass")
+    assert(read.scalaFacade("ORG.ACME.MyClass") == "ORG.ACME.MyClass")
 
   test(".scim with empty scalaFacade round-trips byte-stably (canonical)"):
     // upickle's `derives ReadWriter` omits a field when its value equals the
