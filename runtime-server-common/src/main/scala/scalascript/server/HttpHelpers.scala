@@ -43,6 +43,43 @@ object HttpHelpers:
       )
     }.toMap
 
+  /** Drain bytes from `in` up to and including the terminating
+   *  `\r\n\r\n` sentinel that marks the end of an HTTP request /
+   *  response head.  Returns the head as a byte array (caller
+   *  decodes ISO-8859-1).  On EOF before the sentinel arrives,
+   *  returns whatever was read — caller decides whether to treat
+   *  a short head as an error.
+   *
+   *  Used by both the codegen-side proxy and the interpreter
+   *  `TlsProxy` to peel off the request line + headers before
+   *  deciding HTTP-vs-WS routing.  Linear in the head size; one
+   *  byte per `read()` is fine here because heads are tiny
+   *  (typically < 4 KB) and the caller wraps in a `BufferedInputStream`. */
+  def readHttpHead(in: java.io.InputStream): Array[Byte] =
+    val sb = scala.collection.mutable.ArrayBuffer.empty[Byte]
+    var prev3 = 0; var prev2 = 0; var prev1 = 0
+    var done  = false
+    while !done do
+      val b = in.read()
+      if b < 0 then return sb.toArray
+      sb += b.toByte
+      if prev3 == 13 && prev2 == 10 && prev1 == 13 && b == 10 then done = true
+      prev3 = prev2; prev2 = prev1; prev1 = b
+    sb.toArray
+
+  /** Parse a `Cookie:` header value like `a=1; b=2; c=3` into a Map.
+   *  Whitespace around `=` and `;` is trimmed.  Pairs without `=` are
+   *  dropped silently — same lenient parser the REST request pipeline
+   *  and the WS-upgrade path both used to inline. */
+  def parseCookieHeader(raw: String): Map[String, String] =
+    if raw == null || raw.isEmpty then Map.empty
+    else raw.split(';').iterator.flatMap { pair =>
+      val t = pair.trim
+      val i = t.indexOf('=')
+      if i < 0 then None
+      else Some(t.substring(0, i).trim -> t.substring(i + 1).trim)
+    }.toMap
+
   /** Best-effort MIME type for a file name.  Recognises the handful of
    *  extensions the static-asset server actually sees; for anything else
    *  falls back to JDK's `Files.probeContentType` and finally to

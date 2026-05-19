@@ -26,7 +26,7 @@ object TlsProxy:
       client.setKeepAlive(true)
       val cin  = java.io.BufferedInputStream(client.getInputStream)
       val cout = client.getOutputStream
-      val head = readHttpHead(cin)
+      val head = HttpHelpers.readHttpHead(cin)
       if head.isEmpty then { client.close(); return }
 
       val headText = new String(head, java.nio.charset.StandardCharsets.ISO_8859_1)
@@ -77,20 +77,23 @@ object TlsProxy:
             cout.flush(); client.close()
             Metrics.wsRejected.incrementAndGet(); return
 
-        val q0 = parseQuery(rawQuery)
-        val cookies0 = parseCookies(headers.getOrElse("cookie", ""))
-        val authReq: Value = Value.InstanceV("Request", Map(
+        // Pre-upgrade Request snapshot — built once, reused as
+        // `ws.request` after the upgrade since the headers / path /
+        // params / cookies don't change across the upgrade boundary.
+        val query   = HttpHelpers.parseQuery(rawQuery)
+        val cookies = HttpHelpers.parseCookieHeader(headers.getOrElse("cookie", ""))
+        val request: Value = Value.InstanceV("Request", Map(
           "method"  -> Value.StringV("GET"),
           "path"    -> Value.StringV(path),
           "params"  -> Value.MapV(params.map((k, v) => Value.StringV(k) -> Value.StringV(v))),
-          "query"   -> Value.MapV(q0.map((k, v)  => Value.StringV(k) -> Value.StringV(v))),
+          "query"   -> Value.MapV(query.map((k, v)  => Value.StringV(k) -> Value.StringV(v))),
           "headers" -> Value.MapV(headers.map((k, v) => Value.StringV(k) -> Value.StringV(v))),
-          "cookies" -> Value.MapV(cookies0.map((k, v) => Value.StringV(k) -> Value.StringV(v)))
+          "cookies" -> Value.MapV(cookies.map((k, v) => Value.StringV(k) -> Value.StringV(v)))
         ))
         var userPayload: Option[Value] = None
         var authRejected               = false
         entry.auth.foreach { fn =>
-          try entry.interpreter.invoke(fn, List(authReq)) match
+          try entry.interpreter.invoke(fn, List(request)) match
             case Value.OptionV(Some(v)) => userPayload = Some(v)
             case Value.OptionV(None)    => authRejected = true
             case other                  => userPayload = Some(other)
@@ -114,39 +117,23 @@ object TlsProxy:
           cout.flush(); client.close()
           Metrics.wsRejected.incrementAndGet(); return
 
-        val chosenProtocol: String =
-          if entry.protocols.isEmpty then ""
-          else
-            val offered = headers.getOrElse("sec-websocket-protocol", "")
-              .split(',').iterator.map(_.trim).filter(_.nonEmpty).toSet
-            entry.protocols.find(offered.contains) match
-              case Some(p) => p
-              case None =>
-                WsConnection.releaseSlot(); entry.release()
-                cout.write(httpResp(400, "Bad Request",
-                  s"No matching Sec-WebSocket-Protocol; server offers: ${entry.protocols.mkString(", ")}"))
-                cout.flush(); client.close()
-                Metrics.wsRejected.incrementAndGet(); return
+        // Subprotocol negotiation (RFC 6455 §1.9) and 101 upgrade
+        // wire shape delegated to the shared `WsHandshake` — same
+        // path WsProxy / JvmGen take since Phase 2d.
+        val chosenProtocol: String = WsHandshake.negotiateSubprotocol(
+          headers.getOrElse("sec-websocket-protocol", ""), entry.protocols
+        ) match
+          case Some(p) => p
+          case None =>
+            WsConnection.releaseSlot(); entry.release()
+            cout.write(httpResp(400, "Bad Request",
+              s"No matching Sec-WebSocket-Protocol; server offers: ${entry.protocols.mkString(", ")}"))
+            cout.flush(); client.close()
+            Metrics.wsRejected.incrementAndGet(); return
 
-        val accept   = WsFraming.acceptKey(key)
-        val protoHdr = if chosenProtocol.isEmpty then "" else s"Sec-WebSocket-Protocol: $chosenProtocol\r\n"
-        val respLine =
-          "HTTP/1.1 101 Switching Protocols\r\n" +
-          "Upgrade: websocket\r\nConnection: Upgrade\r\n" +
-          s"Sec-WebSocket-Accept: $accept\r\n" + protoHdr + "\r\n"
-        cout.write(respLine.getBytes(java.nio.charset.StandardCharsets.US_ASCII))
+        cout.write(WsHandshake.upgradeResponse(key, chosenProtocol))
         cout.flush()
 
-        val query   = parseQuery(rawQuery)
-        val cookies = parseCookies(headers.getOrElse("cookie", ""))
-        val request = Value.InstanceV("Request", Map(
-          "method"  -> Value.StringV("GET"),
-          "path"    -> Value.StringV(path),
-          "params"  -> Value.MapV(params.map((k, v) => Value.StringV(k) -> Value.StringV(v))),
-          "query"   -> Value.MapV(query.map((k, v)  => Value.StringV(k) -> Value.StringV(v))),
-          "headers" -> Value.MapV(headers.map((k, v) => Value.StringV(k) -> Value.StringV(v))),
-          "cookies" -> Value.MapV(cookies.map((k, v) => Value.StringV(k) -> Value.StringV(v)))
-        ))
         Metrics.wsUpgraded.incrementAndGet()
 
         // Build a NIO SocketChannel wrapping the existing Socket so we can
@@ -210,36 +197,6 @@ object TlsProxy:
     t1.join(); t2.join()
 
   // ── Helpers ────────────────────────────────────────────────────────
-
-  private def readHttpHead(in: java.io.InputStream): Array[Byte] =
-    val sb   = scala.collection.mutable.ArrayBuffer.empty[Byte]
-    var prev3, prev2, prev1 = 0
-    var done = false
-    while !done do
-      val b = in.read()
-      if b < 0 then return sb.toArray
-      sb += b.toByte
-      if prev3 == 13 && prev2 == 10 && prev1 == 13 && b == 10 then done = true
-      prev3 = prev2; prev2 = prev1; prev1 = b
-    sb.toArray
-
-  private def parseQuery(q: String): Map[String, String] =
-    if q.isEmpty then Map.empty
-    else q.split('&').iterator.flatMap { pair =>
-      val i = pair.indexOf('=')
-      if i < 0 then Some(java.net.URLDecoder.decode(pair, "UTF-8") -> "")
-      else Some(
-        java.net.URLDecoder.decode(pair.substring(0, i), "UTF-8") ->
-        java.net.URLDecoder.decode(pair.substring(i + 1), "UTF-8")
-      )
-    }.toMap
-
-  private def parseCookies(raw: String): Map[String, String] =
-    if raw.isEmpty then Map.empty
-    else raw.split(';').iterator.flatMap { pair =>
-      val t = pair.trim; val i = t.indexOf('=')
-      if i < 0 then None else Some(t.substring(0, i).trim -> t.substring(i + 1).trim)
-    }.toMap
 
   private def httpResp(status: Int, reason: String, body: String): Array[Byte] =
     val bb = body.getBytes(java.nio.charset.StandardCharsets.UTF_8)
