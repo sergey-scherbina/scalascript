@@ -73,7 +73,30 @@ class WebSocket(
      *  routes without one).  Surfaced to handlers as
      *  `ws.user` so authenticated routes don't re-parse
      *  headers / claims / sessions inside the body. */
-    val user: Option[Any] = None):
+    val user: Option[Any] = None,
+    /** Single-thread executor for user-callback dispatch.  Both
+     *  backends pass a single-thread executor here so user-state
+     *  mutations stay serial.  Defaults to the codegen-side
+     *  `_serverExecutor`; the interpreter passes its own
+     *  per-server executor so HTTP and WS handlers share the same
+     *  serial queue. */
+    private val _executor: java.util.concurrent.Executor = _serverExecutor,
+    /** Scheduled executor for the periodic Ping heartbeat.
+     *  Defaults to the codegen-side shared `_wsHeartbeats`; the
+     *  interpreter passes its own scheduler so the WsProxy can
+     *  shut it down cleanly between test runs. */
+    private val _heartbeats: java.util.concurrent.ScheduledExecutorService = _wsHeartbeats,
+    /** Heartbeat tuning, hoisted so tests can shrink the interval
+     *  and assert dead-peer drop without sitting through the real
+     *  30 s ping / 90 s timeout. */
+    private val _heartbeatIntervalMs: Long = 30_000L,
+    private val _deadAfterMs:         Long = 90_000L,
+    /** Stream sink for the structured `ws.connect` / `ws.close`
+     *  access log.  Defaults to `System.out` to match the
+     *  codegen-side `println(...)` calls; the interpreter passes
+     *  its server's `log: PrintStream` so test captures pick up
+     *  the lines. */
+    private val _log: java.io.PrintStream = System.out):
   /** Stable per-connection identifier.  UUID-v4 generated at
    *  upgrade time; surfaced to user code as `ws.id` and used to
    *  tag every log line for a single session. */
@@ -95,8 +118,10 @@ class WebSocket(
   // Server-initiated heartbeat: empty Ping every 30 s, drop the
   // connection if no Pong arrives within 90 s.  Catches NAT-dropped
   // and silently-half-closed peers well before OS keepalive does.
-  private val HeartbeatIntervalMs: Long = 30_000L
-  private val DeadAfterMs:         Long = 90_000L
+  // Tunable via the `_heartbeatIntervalMs` / `_deadAfterMs` ctor
+  // params so tests can drop both to the millisecond range.
+  private val HeartbeatIntervalMs: Long = _heartbeatIntervalMs
+  private val DeadAfterMs:         Long = _deadAfterMs
   @volatile private var lastPongAt: Long = java.lang.System.currentTimeMillis()
   @volatile private var heartbeatTask: ScheduledFuture[?] = null
   // Fragmented-message reassembly (RFC 6455 §5.4) delegated to
@@ -154,15 +179,21 @@ class WebSocket(
       // Structured close log (Sprint 4 #13).  One tab-separated
       // line per teardown, regardless of who initiated.
       val _durMs = java.lang.System.currentTimeMillis() - _startedAtMs
-      println("ws.close\tid=" + id + "\tduration_ms=" + _durMs)
+      _log.println("ws.close\tid=" + id + "\tduration_ms=" + _durMs)
       // Per-route cleanup (e.g. decrement the route's activeCount).
       // No-op when the route had no per-route cap.
       try _onTerminate() catch case _: Throwable => ()
       val cb = onCloseCb.getAndSet(null)
-      if cb != null then _serverExecutor.execute { () =>
-        try cb() catch case e: Throwable =>
-          System.err.println(s"WS close handler: ${e.getMessage}")
-      }
+      if cb != null then
+        // Guard the dispatch itself — tests race a `shutdownNow()`
+        // against in-flight writer VTs that haven't finished teardown,
+        // and a `RejectedExecutionException` here would spam stderr
+        // for tests that have already torn down their executor.
+        try _executor.execute { () =>
+          try cb() catch case e: Throwable =>
+            System.err.println(s"WS close handler: ${e.getMessage}")
+        }
+        catch case _: java.util.concurrent.RejectedExecutionException => ()
       // Wake any parked recv consumers with a sentinel `null`.
       _deliverRecv(null)
 
@@ -249,7 +280,7 @@ class WebSocket(
     * `_proxyConnection` right after the upgrade. */
   def _startHeartbeat(): Unit =
     lastPongAt = java.lang.System.currentTimeMillis()
-    heartbeatTask = _wsHeartbeats.scheduleAtFixedRate(() => {
+    heartbeatTask = _heartbeats.scheduleAtFixedRate(() => {
       try
         if java.lang.System.currentTimeMillis() - lastPongAt > DeadAfterMs then
           close(1001, "ping timeout")
@@ -293,7 +324,7 @@ class WebSocket(
                   val cb = onPongCb
                   if cb != null then
                     val payload = new String(p, "ISO-8859-1")
-                    _serverExecutor.execute { () =>
+                    _executor.execute { () =>
                       try cb(payload) catch case e: Throwable =>
                         System.err.println(s"WS onPong handler: ${e.getMessage}")
                     }
@@ -336,7 +367,7 @@ class WebSocket(
       else                  new String(payload, "ISO-8859-1")
     // Async-style recv path: parked consumers wake on the next take.
     _deliverRecv(msg)
-    _serverExecutor.execute { () =>
+    _executor.execute { () =>
       val cb = onMessageCb
       if cb != null then try cb(msg) catch case e: Throwable =>
         System.err.println(s"WS message handler: ${e.getMessage}")
@@ -387,16 +418,21 @@ def metrics(): Map[String, Long] = _Metrics.snapshot()
 
 // Process-wide cap on active WS sessions.  Tuned with
 // `setMaxWsConnections(n)`; default = unlimited.  Upgrades past
-// the cap are refused with 503.  `closeNow` decrements via the
-// per-connection `_releaseSlot` helper.
-private val _wsMaxActive    = java.util.concurrent.atomic.AtomicInteger(Int.MaxValue)
-private val _wsActiveCount  = java.util.concurrent.atomic.AtomicInteger(0)
+// the cap are refused with 503.  Decremented in the writer-VT
+// teardown via `_wsReleaseSlot` (interpreter side delegates here
+// through `scalascript.server.WsConnection` so both backends
+// share one process-wide cap).
+val _wsMaxActive    = java.util.concurrent.atomic.AtomicInteger(Int.MaxValue)
+val _wsActiveCount  = java.util.concurrent.atomic.AtomicInteger(0)
 def setMaxWsConnections(n: Int): Unit =
   _wsMaxActive.set(if n < 0 then Int.MaxValue else n)
-private def _wsTryReserve(): Boolean =
+def _wsTryReserve(): Boolean =
   val after = _wsActiveCount.incrementAndGet()
   if after > _wsMaxActive.get then { _wsActiveCount.decrementAndGet(); false }
   else { _Metrics.wsActive.incrementAndGet(); true }
+def _wsReleaseSlot(): Unit =
+  _wsActiveCount.decrementAndGet()
+  _Metrics.wsActive.decrementAndGet()
 
 /** WsRoom — thread-safe registry of WebSocket clients with a
   * built-in `broadcast(msg)` helper.  Spawn one per logical

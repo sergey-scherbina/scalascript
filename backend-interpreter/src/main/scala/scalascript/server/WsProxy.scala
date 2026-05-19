@@ -144,8 +144,21 @@ final class WsProxy(
             return
         // Pre-upgrade Request snapshot — same shape REST handlers see
         // (sans body / form / files; the upgrade is a GET with no body).
+        // Built once and shared: the POJO `req` feeds the shared
+        // `scalascript.server.jvm.WebSocket` ctor (which expects a
+        // `Request` case class), while the Value form goes to the
+        // interpreter handler as `ws.request`.
         val query   = HttpHelpers.parseQuery(rawQuery)
         val cookies = HttpHelpers.parseCookieHeader(headers.getOrElse("cookie", ""))
+        val req = Request(
+          method  = "GET",
+          path    = path,
+          params  = params,
+          query   = query,
+          headers = headers,
+          body    = "",
+          cookies = cookies
+        )
         val request: Value = Value.InstanceV("Request", Map(
           "method"  -> Value.StringV("GET"),
           "path"    -> Value.StringV(path),
@@ -223,29 +236,34 @@ final class WsProxy(
           try client.close() catch case _: Throwable => ()
           return
         Metrics.wsUpgraded.incrementAndGet()
-        // Build the WsConnection.  Its constructor spawns the writer VT.
-        val ws = WsConnection(
+        // Build the shared `scalascript.server.jvm.WebSocket`.  Its
+        // ctor spawns the writer VT; we hand it the interpreter's
+        // single-thread `wsExecutor` and the proxy's `heartbeats`
+        // scheduler so user-callback dispatch + ping cadence stay
+        // serial with the rest of the interpreter.
+        val ws = _root_.scalascript.server.jvm.WebSocket(
           socket              = client,
-          interp              = entry.interpreter,
-          executor            = wsExecutor,
-          log                 = log,
-          request             = request,
-          scheduler           = heartbeats,
-          heartbeatIntervalMs = heartbeatIntervalMs,
-          deadAfterMs         = heartbeatDeadAfterMs,
+          request             = req,
           subprotocol         = chosenProtocol,
-          onTerminate         = () => entry.release(),
-          maxMessagesPerSec   = entry.maxMessagesPerSec,
-          user                = userPayload
+          _onTerminate        = () => entry.release(),
+          _maxMessagesPerSec  = entry.maxMessagesPerSec,
+          user                = userPayload,
+          _executor           = wsExecutor,
+          _heartbeats         = heartbeats,
+          _heartbeatIntervalMs = heartbeatIntervalMs,
+          _deadAfterMs        = heartbeatDeadAfterMs,
+          _log                = log
         )
         // Structured connect log (Sprint 4 #13).
         val accessIp     = try client.getRemoteSocketAddress.toString catch case _: Throwable => "?"
         val accessOrigin = headers.getOrElse("origin", "")
         log.println(s"ws.connect\tid=${ws.id}\tip=$accessIp\troute=$path\torigin=$accessOrigin\tproto=$chosenProtocol")
-        // Hand the WebSocket value to the user's onWebSocket block.
-        // Runs on the interpreter executor so global state stays serial.
+        // Build the user-facing Value via the bridge, then hand it to
+        // the user's onWebSocket block.  Runs on the interpreter
+        // executor so global state stays serial.
+        val wsValue = WsConnection.asValue(ws, entry.interpreter, log, request)
         wsExecutor.execute { () =>
-          try entry.interpreter.invoke(entry.handler, List(ws.asValue))
+          try entry.interpreter.invoke(entry.handler, List(wsValue))
           catch case e: Throwable =>
             log.println(s"WS upgrade handler error: ${e.getMessage}")
         }
@@ -253,8 +271,8 @@ final class WsProxy(
         // When the read loop returns (peer close / EOF / protocol error)
         // it enqueues a SENTINEL on the writer's queue; the writer VT
         // owns the teardown sequence.
-        ws.startHeartbeat()
-        ws.runReadLoop()
+        ws._startHeartbeat()
+        ws._runReadLoop()
 
   // ─── Plain HTTP forwarding path ───────────────────────────────────
 
