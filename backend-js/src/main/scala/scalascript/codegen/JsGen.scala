@@ -110,6 +110,20 @@ function collectJs(...parts) {
     .join('\n');
 }
 
+// i18n runtime — t(key) / setLocale(code) / wc(tag, component, ...args)
+let _i18nLocale = 'en';
+let _i18nTable  = {};
+function setLocale(code) { _i18nLocale = code; }
+function t(key) {
+  const tbl = _i18nTable[_i18nLocale];
+  return (tbl && tbl[key] !== undefined) ? tbl[key] : key;
+}
+function wc(tag, component, ...args) {
+  const css  = (typeof component.css === 'string') ? component.css : '';
+  const html = (typeof component.render === 'function') ? component.render(...args) : '';
+  return _Raw('<' + tag + '-component><template shadowrootmode="open"><style>' + css + '</style>' + _show(html) + '</template></' + tag + '-component>');
+}
+
 // `scope("Card")` returns a small object with two helpers used by
 // component-style .ssc files to suffix class names so two components
 // can both use bare class names like `.title` without conflict.
@@ -5277,6 +5291,7 @@ class JsGen(
     // them already registered.  JS function declarations are hoisted, so
     // forward references to the handler defs resolve at call time.
     emitFrontmatterRoutes(module)
+    emitI18nTable(module)
     // When `runAsyncParallel` is used, wrap the entire user-code body in a
     // top-level async IIFE so `await _runAsyncParallel(...)` is legal.
     if usesRunAsyncParallel then line("(async () => {")
@@ -5295,6 +5310,17 @@ class JsGen(
       val m = jsQuote(r.method)
       val p = jsQuote(r.path)
       line(s"route($m, $p)(${r.handler});")
+    }
+
+  /** Emit `_i18nTable = { ... }` from the module's front-matter translations. */
+  private def emitI18nTable(module: Module): Unit =
+    module.manifest.foreach { m =>
+      if m.translations.nonEmpty then
+        val entries = m.translations.map { (locale, kvs) =>
+          val pairs = kvs.map { (k, v) => s"${jsQuote(k)}: ${jsQuote(v)}" }.mkString(", ")
+          s"${jsQuote(locale)}: {$pairs}"
+        }.mkString(", ")
+        line(s"_i18nTable = {$entries};")
     }
 
   private def jsQuote(s: String): String =
@@ -5388,6 +5414,7 @@ class JsGen(
     // sees them already registered.  JS function declarations are hoisted,
     // so forward references to handler defs resolve at call time.
     emitFrontmatterRoutes(module)
+    emitI18nTable(module)
     val result    = mutable.ListBuffer[JsGen.Segment]()
     val scalaBuf  = mutable.ListBuffer[String]()
     var ssStart   = 0

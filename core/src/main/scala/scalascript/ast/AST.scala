@@ -28,6 +28,9 @@ case class Manifest(
    *  `object` declarations matching the segments so the module's
    *  top-level names become accessible as `<pkg>.<Name>` from importers. */
   pkg: Option[List[String]],
+  /** Inline translation table: locale → (key → value). Populated from the
+   *  `translations:` front-matter YAML section. */
+  translations: Map[String, Map[String, String]],
   raw: Map[String, Any],
   span: Option[Span] = None
 )

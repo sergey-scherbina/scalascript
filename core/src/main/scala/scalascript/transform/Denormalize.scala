@@ -47,6 +47,7 @@ object Denormalize:
       targets      = m.targets,
       routes       = m.routes.map(routeDecl),
       pkg          = m.pkg,
+      translations = Map.empty,
       raw          = Map.empty,
       span         = m.span.map(span)
     )

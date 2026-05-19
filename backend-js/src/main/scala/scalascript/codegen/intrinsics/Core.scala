@@ -24,4 +24,7 @@ val JsCoreIntrinsics: Map[QualifiedName, IntrinsicImpl] = Map(
   QualifiedName("collectCss") -> RuntimeCall("collectCss"),
   QualifiedName("collectJs")  -> RuntimeCall("collectJs"),
   QualifiedName("scope")      -> RuntimeCall("scope"),
+  QualifiedName("t")          -> RuntimeCall("t"),
+  QualifiedName("setLocale")  -> RuntimeCall("setLocale"),
+  QualifiedName("wc")         -> RuntimeCall("wc"),
 )

@@ -713,35 +713,48 @@ styled wrapper), `DatePicker` (popover calendar polyfill with JS),
 image slider with optional arrows + dot indicators, no-JS default).
 Covered by `conformance/std-ui-extended-d.ssc` (40 assertions).
 
-## v0.11 — i18n / l10n
+## v0.11 — i18n / l10n ✓ Landed (2026-05-19)
 
-Many real apps need translatable strings before they need much else.
-Today every component embeds English labels directly in `def
-render`.  Need a non-leaky way to thread a locale through.
+Front-matter `translations:` table + `t(key)` / `setLocale(code)` intrinsics.
 
-Shape under consideration:
+  - **`translations:`** — YAML nested map `locale → (key → value)` in
+    front-matter; parsed into `ast.Manifest.translations` and available
+    to all three backends.
+  - **`t(key)`** — looks up `key` in the active locale table; falls back
+    to the key string when no translation is registered.
+  - **`setLocale(code)`** — switches the active locale at runtime.
+  - **Interpreter:** `i18nTranslations` / `i18nLocale` state vars loaded
+    from the manifest; `t`, `setLocale`, `wc` registered as builtins.
+  - **JsGen:** `_i18nLocale` / `_i18nTable` / `setLocale` / `t` /  `wc`
+    added to `JsRuntime` preamble; `_i18nTable = {...}` injected after
+    front-matter route registrations when translations are non-empty.
+  - **JvmGen:** same helpers as Scala `def`s in the generated preamble;
+    `_i18nTable = Map(...)` injected before user blocks when non-empty.
+  - Both backend `intrinsics/Core.scala` files updated (`t`, `setLocale`,
+    `wc` → `RuntimeCall`).
 
-  - **`Locale` global** — a thread-local-like singleton with the
-    current locale code; components call `t("submit")` to look up
-    the active translation.  Falls back to the key string if no
-    translation registered.
-  - **Front-matter `translations:`** — per-page or per-component
-    YAML map keyed by locale code.  Aggregated into a global table
-    at boot.
-  - **Number / date formatting** — defer to ICU only on JVM; ship a
-    tiny built-in formatter for interpreter + JS.
+Number / date formatting deferred (ICU is a large dep); ship when needed.
 
-Defer until a multilingual app surfaces.  ~1 week if we keep it
-opinionated.
+## v0.12 — SSR + client hydration story ✓ Landed (2026-05-19)
 
-## v0.12 — SSR + client hydration story
+Declarative Shadow DOM rendering via `wc()` + zero-JS-rerender hydration guard.
 
-We already render server-side and we can ship `val js` that finds
-elements via querySelector.  But once we ship Web Components (v0.8)
-the question is: how do server-rendered light-DOM + client-side
-shadow-DOM cohabit without one wiping the other?
-
-Investigation, not implementation, until v0.8 lands.
+  - **`wc(tag, component, args*)`** — server-side intrinsic that calls
+    `component.render(args*)` and wraps the result in:
+    ```html
+    <tag-component>
+      <template shadowrootmode="open"><style>…css…</style>…html…</template>
+    </tag-component>
+    ```
+    Browser deserialises the shadow root before JS runs — no flash of
+    unstyled content, no client re-render on first load.
+  - **`emit-wc` hydration guard** — `connectedCallback` now checks
+    `this.shadowRoot && this.shadowRoot.childNodes.length > 0` and returns
+    early when the declarative shadow DOM is already present; `attachShadow`
+    is only called for purely client-side renders.
+  - **All three backends** implement `wc()`: interpreter (native builtin),
+    JsGen (JS function in `JsRuntime`), JvmGen (reflection-based Scala def
+    following the same pattern as `collectCss`).
 
 ## v0.13 — Component theming variants
 
