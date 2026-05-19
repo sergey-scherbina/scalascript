@@ -862,6 +862,19 @@ lazy val walletSpi = project
     Test    / scalacOptions ++= sharedScalacOptions,
   )
 
+lazy val walletVaultEncrypted = project
+  .in(file("wallet-vault-encrypted"))
+  .dependsOn(walletSpi, cryptoSpi, cryptoBouncycastle)
+  .settings(
+    name := "scalascript-wallet-vault-encrypted",
+    libraryDependencies ++= Seq(
+      "com.lihaoyi" %% "upickle" % "3.3.1",
+      scalatestTest,
+    ),
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions,
+  )
+
 lazy val walletStrategyEoa = project
   .in(file("wallet-strategy-eoa"))
   .dependsOn(walletSpi, blockchainSpi, cryptoSpi)
@@ -1087,7 +1100,7 @@ lazy val root = project
     x402Core, x402Server, x402Client,
     x402FacilitatorCoinbase, x402FacilitatorEvm, x402FacilitatorCardano,
     x402QueueKafka, x402QueuePostgres, x402NoncePostgres, x402NonceRedis,
-    cryptoSpi, cryptoBouncycastle, blockchainSpi, blockchainEvm, blockchainEvmAbi, blockchainSolana, walletSpi, walletStrategyEoa, walletConnectorEip1193, walletConnect, mcpWallet, mcpX402,
+    cryptoSpi, cryptoBouncycastle, blockchainSpi, blockchainEvm, blockchainEvmAbi, blockchainSolana, walletSpi, walletVaultEncrypted, walletStrategyEoa, walletConnectorEip1193, walletConnect, mcpWallet, mcpX402,
     micropaymentSpi, micropaymentThreshold, micropaymentServer, micropaymentClient, micropaymentProbabilistic, micropaymentChannelEvm, micropaymentHydra,
     frontendCore, frontendCustom, frontendReact, frontendSolid, frontendVue,
   )
