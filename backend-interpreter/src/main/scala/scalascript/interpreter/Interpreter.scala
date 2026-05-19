@@ -5079,24 +5079,37 @@ class Interpreter(
       if !hasFreeVar then
         candidateFor(typeKey, newResolving + typeKey)
       else
-        // Try runtimeValueType key first (e.g. Ordering[List[Int]])
         val valueKey = regularArgValues.iterator
           .map(runtimeValueType)
           .find(t => t != "_" && !t.endsWith("[_]"))
           .map(t => s"$tc[$t]")
+        val elemKey = regularArgValues.iterator
+          .map(runtimeElemType)
+          .find(_ != "_")
+          .map(t => s"$tc[$t]")
         val valueCandidates = valueKey.toList.flatMap(ck => candidateFor(ck, newResolving + ck))
-        if valueCandidates.nonEmpty then valueCandidates
+        // If the value-type given resolves only because it leaked into callEnv via the
+        // function's closure (concrete in callEnv, absent from globals), while the
+        // elem-type given IS present in globals, prefer the elem-type candidate.
+        // Covers combineAll[A: Monoid](xs: List[A]) called with List(1,2,3): listConcat
+        // leaks as Monoid[List[Int]] from the std closure, but intSum is properly
+        // imported as Monoid[Int] in globals.  Factory-based givens live in
+        // givenFactories, not callEnv/globals directly, so they are unaffected.
+        val shouldPreferElem =
+          valueCandidates.nonEmpty &&
+          valueKey.flatMap(callEnv.get).isDefined &&
+          valueKey.flatMap(globals.get).isEmpty &&
+          elemKey.flatMap(globals.get).isDefined
+        if shouldPreferElem then
+          elemKey.toList.flatMap(k => globals.get(k).toList.filter {
+            case Value.InstanceV(_, fs) => !fs.contains("__factory__")
+            case _                      => true
+          })
+        else if valueCandidates.nonEmpty then valueCandidates
         else
-          // Fall back to runtimeElemType key (e.g. Ordering[Int] from List[Int] arg)
-          val elemKey = regularArgValues.iterator
-            .map(runtimeElemType)
-            .find(_ != "_")
-            .map(t => s"$tc[$t]")
           val elemCandidates = elemKey.toList.flatMap(ck => candidateFor(ck, newResolving + ck))
           if elemCandidates.nonEmpty then elemCandidates
-          else
-            // Last resort: raw typeKey (may have free type var — try factory match)
-            candidateFor(typeKey, newResolving + typeKey)
+          else candidateFor(typeKey, newResolving + typeKey)
 
     // ── Step 4: ambiguity check ───────────────────────────────────────────
     // `allCandidates` may contain duplicates (same value multiple times) when
