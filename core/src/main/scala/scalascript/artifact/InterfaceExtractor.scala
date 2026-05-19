@@ -174,7 +174,13 @@ object InterfaceExtractor:
       stats.foreach {
         // given instance: `given eqInt: Eq[Int] = ...`  or `given Eq[Int] = ...`
         case d: Defn.Given =>
-          val witnessName = d.name.value
+          // Scalameta surfaces an empty `name.value` for anonymous givens
+          // (`given Eq[Int] with …`).  Detect that here and synthesize a
+          // deterministic witness identity from the typeclass + type-param
+          // below.  Don't trust the raw name — even for "named" forms,
+          // some scalameta versions inject auto-synthesized names that
+          // start with `given_`, which we want to regenerate stably.
+          val explicitName = d.name.value
           // Attempt to pull the typeclass + type-param from the template
           // (best-effort: look at the parent type list).
           d.templ.inits.headOption.foreach { init =>
@@ -183,6 +189,9 @@ object InterfaceExtractor:
                 val tc = ta.tpe match { case Type.Name(n) => n; case _ => "" }
                 if tc.nonEmpty then
                   val typeParam = ta.argClause.values.headOption.map(_.toString).getOrElse("_")
+                  val witnessName =
+                    if explicitName.nonEmpty then explicitName
+                    else synthGivenName(tc, ta.argClause.values.headOption)
                   instances += InstanceDecl(
                     typeclass   = tc,
                     typeParam   = typeParam,
@@ -190,6 +199,9 @@ object InterfaceExtractor:
                     fqn         = fqn(witnessName)
                   )
               case Type.Name(tc) =>
+                val witnessName =
+                  if explicitName.nonEmpty then explicitName
+                  else synthGivenName(tc, None)
                 instances += InstanceDecl(
                   typeclass   = tc,
                   typeParam   = "_",
@@ -368,6 +380,53 @@ object InterfaceExtractor:
 
     trees.foreach(walk)
     caps.toList.sorted.map(CapabilityDecl(_))
+
+  /** Reduce a type expression to a stable, identifier-safe "head name"
+   *  for use inside a synthesized witness identifier.
+   *
+   *  Convention (must be deterministic — same source → same name):
+   *    - `Int`             → `"Int"`
+   *    - `List[A]`         → `"List"`             (drop type-var arguments)
+   *    - `Map[K, V]`       → `"Map"`              (head only)
+   *    - `Pair[Int, Str]`  → `"Pair"`             (head only — same module's
+   *                                               `given Eq[Pair[Int,Str]]`
+   *                                               and `given Eq[Pair[A,B]]`
+   *                                               share the witness slot
+   *                                               by design; only one such
+   *                                               instance is valid per
+   *                                               typeclass per module)
+   *    - `A.B`             → `"A_B"`              (qualified type names
+   *                                               flattened with `_`)
+   *    - anything weirder  → fall back to `"Any"` (kept stable across
+   *                                               builds; no hashes,
+   *                                               no random ids).
+   */
+  private def typeHeadName(t: Type): String = t match
+    case Type.Name(n)              => n
+    case Type.Apply.After_4_6_0(head, _) => typeHeadName(head)
+    case Type.Select(qual, name)   =>
+      // qual is Term.Ref — best-effort flatten to "A_B"
+      s"${qual.toString.replace('.', '_')}_${name.value}"
+    case Type.Project(qual, name)  => s"${typeHeadName(qual)}_${name.value}"
+    case _                         => "Any"
+
+  /** Synthesize a deterministic witness name for an anonymous `given`.
+   *
+   *  Examples:
+   *    - `given Eq[Int] with …`     → `"given_Eq_Int"`
+   *    - `given Eq[String] with …`  → `"given_Eq_String"`
+   *    - `given [A] => Eq[List[A]]` → `"given_Eq_List"`  (drops type vars)
+   *    - `given Show with …`        → `"given_Show"`
+   *
+   *  Identity is structural — same `(typeclass, type-arg head)` always
+   *  produces the same witness name across builds.  No hashes, no
+   *  random suffixes; two anonymous givens for the same `(Tc, T)` will
+   *  collide on purpose (Scala-style: only one such instance is valid
+   *  per module anyway). */
+  private def synthGivenName(typeclass: String, typeArg: Option[Type]): String =
+    typeArg match
+      case Some(t) => s"given_${typeclass}_${typeHeadName(t)}"
+      case None    => s"given_$typeclass"
 
   private def kindString(k: TSymbolKind): String = k match
     case TSymbolKind.Val     => "val"

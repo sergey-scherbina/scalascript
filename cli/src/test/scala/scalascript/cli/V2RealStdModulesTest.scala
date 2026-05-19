@@ -125,17 +125,27 @@ class V2RealStdModulesTest extends AnyFunSuite:
       assert(instTypes.contains("Int")    && instTypes.contains("String"),
         s"expected Int+String Eq instances; got: $instTypes")
 
-      // TODO(v2.0): anonymous `given Eq[Int] with …` instances are recorded
-      // with empty `witnessName` and truncated `fqn` (e.g. "std_eq_").  The
-      // typer's iface-lookup probably still finds the typeclass instance,
-      // but downstream tools that key by witness FQN would not.  Hint: see
-      // V2 .scim writer in core/IfaceArtifact — synthesise a deterministic
-      // synthetic name (e.g. `given$Eq$Int`) for unnamed givens.
-      val anonWitness = instances.exists(i =>
-        i("typeclass").str == "Eq" && i("witnessName").str.isEmpty)
-      assert(anonWitness,
-        "expected at least one anonymous Eq instance (empty witnessName) — " +
-        "if this fails, the v2.0 .scim writer started naming anonymous givens")
+      // Anonymous `given Eq[Int] with …` instances are now recorded with a
+      // synthesized deterministic witness name (`given_Eq_Int`) and a
+      // matching FQN (`std_eq_given_Eq_Int`), so downstream tools that key
+      // by witness FQN can resolve them.  See InterfaceExtractor.synthGivenName.
+      val anonWitnesses = instances.collect {
+        case i if i("typeclass").str == "Eq" => i("witnessName").str -> i("fqn").str
+      }
+      assert(anonWitnesses.nonEmpty, "expected at least one Eq instance")
+      // No witness should have an empty name anymore.
+      assert(anonWitnesses.forall(_._1.nonEmpty),
+        s"expected all Eq witnesses to have a synthesized name; got: $anonWitnesses")
+      // No FQN should end in a trailing `_` — that was the v2.0 bug symptom.
+      assert(anonWitnesses.forall(!_._2.endsWith("_")),
+        s"expected no FQNs ending in `_`; got: $anonWitnesses")
+      // Specifically: the Int instance is named `given_Eq_Int`.
+      val intInst = instances.find(i =>
+        i("typeclass").str == "Eq" && i("typeParam").str == "Int").get
+      assert(intInst("witnessName").str == "given_Eq_Int",
+        s"expected `given_Eq_Int`; got: ${intInst("witnessName").str}")
+      assert(intInst("fqn").str == "std_eq_given_Eq_Int",
+        s"expected `std_eq_given_Eq_Int`; got: ${intInst("fqn").str}")
 
       // Now: real JVM codegen.
       val compile = runSsc(sandbox, "compile-jvm", "eq.ssc")
