@@ -38,10 +38,8 @@ class LspServerIntegrationTest extends AnyFunSuite:
       case Right(None)    => fail("unexpected EOF reading frame")
       case Left(err)      => fail(s"frame error: $err")
 
-  /** Read frames from `in` until one whose JSON has `field` set to
-   *  `value` (e.g. `id -> 1` for the response to request id 1).  This
-   *  lets a test wait for the matching response while ignoring server
-   *  push notifications (`publishDiagnostics`) that may come first. */
+  /** Read frames from `in` until one matching the predicate.
+   *  Lets tests skip `publishDiagnostics` push notifications. */
   private def readUntil(in: InputStream, predicate: ujson.Value => Boolean): ujson.Value =
     var attempts = 0
     while attempts < 50 do
@@ -54,90 +52,239 @@ class LspServerIntegrationTest extends AnyFunSuite:
   private def send(out: OutputStream, msg: LspProtocol.Message): Unit =
     LspProtocol.writeFrame(out, LspProtocol.encode(msg))
 
-  // ── The integration test ──────────────────────────────────────────
+  // ── Session helper ────────────────────────────────────────────────
 
-  test("ssc lsp: initialize → didOpen → hover → shutdown → exit") {
+  /** Lifecycle wrapper for one `ssc lsp` subprocess.  Opens the process,
+   *  runs `body`, then sends shutdown + exit and asserts exit code 0. */
+  private def withLspServer[A](body: (OutputStream, BufferedInputStream) => A): A =
     val jar = requireJar()
     val pb  = new ProcessBuilder("java", "-jar", jar.toString, "lsp")
     pb.redirectErrorStream(false)
     val proc = pb.start()
     val out  = proc.getOutputStream
     val in   = new BufferedInputStream(proc.getInputStream)
-
     try
-      // 1) initialize
-      send(out, LspProtocol.Request(ujson.Num(1), "initialize", ujson.Obj(
-        "processId"           -> ujson.Null,
-        "rootUri"             -> ujson.Null,
-        "capabilities"        -> ujson.Obj(),
-        "workspaceFolders"    -> ujson.Null
-      )))
-      val initResp = readUntil(in, v =>
-        v.obj.get("id").contains(ujson.Num(1)))
-      val caps = initResp("result")("capabilities")
+      val result = body(out, in)
+      send(out, LspProtocol.Request(ujson.Num(99), "shutdown", ujson.Null))
+      readUntil(in, v => v.obj.get("id").contains(ujson.Num(99)))
+      send(out, LspProtocol.Notification("exit", ujson.Null))
+      val exited = proc.waitFor(15, java.util.concurrent.TimeUnit.SECONDS)
+      assert(exited, "server did not exit within 15s")
+      assert(proc.exitValue() == 0, s"expected exit 0, got ${proc.exitValue()}")
+      result
+    finally
+      if proc.isAlive then proc.destroyForcibly()
+      scala.util.Try(out.close())
+      scala.util.Try(in.close())
+
+  /** Initialize the server (request id=1) and send `initialized`. */
+  private def initialize(out: OutputStream, in: BufferedInputStream): ujson.Value =
+    send(out, LspProtocol.Request(ujson.Num(1), "initialize", ujson.Obj(
+      "processId"        -> ujson.Null,
+      "rootUri"          -> ujson.Null,
+      "capabilities"     -> ujson.Obj(),
+      "workspaceFolders" -> ujson.Null
+    )))
+    val resp = readUntil(in, v => v.obj.get("id").contains(ujson.Num(1)))
+    send(out, LspProtocol.Notification("initialized", ujson.Obj()))
+    resp("result")("capabilities")
+
+  /** Open a document and drain the resulting publishDiagnostics frame. */
+  private def didOpen(out: OutputStream, in: BufferedInputStream,
+                      uri: String, text: String): Unit =
+    send(out, LspProtocol.Notification(
+      "textDocument/didOpen",
+      ujson.Obj("textDocument" -> ujson.Obj(
+        "uri" -> uri, "languageId" -> "scalascript", "version" -> 1, "text" -> text
+      ))
+    ))
+    readUntil(in, v =>
+      v.obj.get("method").exists(_.strOpt.contains("textDocument/publishDiagnostics")))
+
+  private def req(out: OutputStream, in: BufferedInputStream,
+                  id: Int, method: String, params: ujson.Value): ujson.Value =
+    send(out, LspProtocol.Request(ujson.Num(id), method, params))
+    readUntil(in, v => v.obj.get("id").contains(ujson.Num(id)))
+
+  // ── Tests ─────────────────────────────────────────────────────────
+
+  test("ssc lsp: initialize → didOpen → hover → shutdown → exit") {
+    withLspServer { (out, in) =>
+      val caps = initialize(out, in)
       assert(caps("hoverProvider").bool == true)
       assert(caps("definitionProvider").bool == true)
       assert(caps("textDocumentSync").num == 1)
 
-      // 2) initialized
-      send(out, LspProtocol.Notification("initialized", ujson.Obj()))
-
-      // 3) didOpen
-      val docText = """# Hello
-                     |
-                     |```scala
-                     |val x: Int = 42
-                     |```
-                     |""".stripMargin
       val uri = "file:///tmp/integration.ssc"
-      send(out, LspProtocol.Notification(
-        "textDocument/didOpen",
-        ujson.Obj("textDocument" -> ujson.Obj(
-          "uri"        -> uri,
-          "languageId" -> "scalascript",
-          "version"    -> 1,
-          "text"       -> docText
-        ))
-      ))
+      val docText =
+        """# Hello
+          |
+          |```scala
+          |val x: Int = 42
+          |```
+          |""".stripMargin
+      didOpen(out, in, uri, docText)
 
-      // 4) Expect publishDiagnostics with the matching uri.
-      val diagFrame = readUntil(in, v =>
-        v.obj.get("method").exists(_.strOpt.contains("textDocument/publishDiagnostics")))
-      assert(diagFrame("params")("uri").str == uri)
-
-      // 5) hover at the "x" position
-      send(out, LspProtocol.Request(ujson.Num(2), "textDocument/hover", ujson.Obj(
+      val hoverResp = req(out, in, 2, "textDocument/hover", ujson.Obj(
         "textDocument" -> ujson.Obj("uri" -> uri),
         "position"     -> ujson.Obj("line" -> 3, "character" -> 4)
-      )))
-      val hoverResp = readUntil(in, v =>
-        v.obj.get("id").contains(ujson.Num(2)))
-      val hoverResult = hoverResp("result")
-      // Hover result may be null if we missed the name; the important
-      // thing is that the server replied to id=2 with a result field
-      // (not an error).
+      ))
       assert(hoverResp.obj.contains("result"), s"expected result, got: $hoverResp")
-      // Best-effort: when populated, the value should mention Int.
+      val hoverResult = hoverResp("result")
       if hoverResult != ujson.Null then
         val s = hoverResult("contents")("value").str
         assert(s.toLowerCase.contains("int") || s.nonEmpty)
+    }
+  }
 
-      // 6) shutdown + exit
-      send(out, LspProtocol.Request(ujson.Num(3), "shutdown", ujson.Null))
-      val shutdownResp = readUntil(in, v =>
-        v.obj.get("id").contains(ujson.Num(3)))
-      assert(shutdownResp.obj.contains("result"))
-      send(out, LspProtocol.Notification("exit", ujson.Null))
+  test("ssc lsp: initialize advertises documentSymbol, workspaceSymbol, signatureHelp") {
+    withLspServer { (out, in) =>
+      val caps = initialize(out, in)
+      assert(caps("documentSymbolProvider").bool  == true, "documentSymbolProvider")
+      assert(caps("workspaceSymbolProvider").bool  == true, "workspaceSymbolProvider")
+      val shp = caps("signatureHelpProvider")
+      val triggers = shp("triggerCharacters").arr.map(_.str).toSet
+      assert(triggers.contains("("), "'(' trigger")
+      assert(triggers.contains(","), "',' trigger")
+    }
+  }
 
-      // 7) Wait for the process to terminate; expect exit code 0.
-      val exited = proc.waitFor(15, java.util.concurrent.TimeUnit.SECONDS)
-      assert(exited, "server did not exit within 15s")
-      assert(proc.exitValue() == 0,
-        s"expected exit 0 after shutdown, got ${proc.exitValue()}")
+  test("ssc lsp: textDocument/documentSymbol returns symbols for open doc") {
+    withLspServer { (out, in) =>
+      initialize(out, in)
+      val uri = "file:///tmp/ds-test.ssc"
+      val docText =
+        """# MyMod
+          |
+          |```scala
+          |def greet(name: String): String = name
+          |val answer: Int = 42
+          |```
+          |""".stripMargin
+      didOpen(out, in, uri, docText)
 
-    finally
-      // Hard cleanup if the test failed mid-flight.
-      if proc.isAlive then proc.destroyForcibly()
-      scala.util.Try(out.close())
-      scala.util.Try(in.close())
+      val dsResp = req(out, in, 2, "textDocument/documentSymbol",
+        ujson.Obj("textDocument" -> ujson.Obj("uri" -> uri)))
+      assert(dsResp.obj.contains("result"), s"no result: $dsResp")
+      val syms = dsResp("result").arr
+      assert(syms.nonEmpty, "expected at least one symbol")
+      val names = syms.map(_("name").str).toSet
+      assert(names.contains("MyMod"), s"expected 'MyMod', got: $names")
+    }
+  }
+
+  test("ssc lsp: workspace/symbol returns symbols across open docs") {
+    withLspServer { (out, in) =>
+      initialize(out, in)
+      val uri = "file:///tmp/ws-sym-test.ssc"
+      val docText =
+        """# WsMod
+          |
+          |```scala
+          |def compute(x: Int): Int = x * 2
+          |```
+          |""".stripMargin
+      didOpen(out, in, uri, docText)
+
+      val wsResp = req(out, in, 2, "workspace/symbol",
+        ujson.Obj("query" -> "compute"))
+      assert(wsResp.obj.contains("result"), s"no result: $wsResp")
+      val syms = wsResp("result").arr
+      assert(syms.nonEmpty, s"expected symbols for 'compute'")
+      val names = syms.map(_("name").str).toSet
+      assert(names.contains("compute"), s"expected 'compute', got: $names")
+    }
+  }
+
+  test("ssc lsp: textDocument/signatureHelp returns signature for open doc") {
+    withLspServer { (out, in) =>
+      initialize(out, in)
+      val uri = "file:///tmp/sig-test.ssc"
+      val docText =
+        """# SigMod
+          |
+          |```scala
+          |def add(x: Int, y: Int): Int = x + y
+          |val r = add(1,
+          |```
+          |""".stripMargin
+      didOpen(out, in, uri, docText)
+
+      // Cursor after the comma on the call line (line 4, char 14)
+      val shResp = req(out, in, 2, "textDocument/signatureHelp", ujson.Obj(
+        "textDocument" -> ujson.Obj("uri" -> uri),
+        "position"     -> ujson.Obj("line" -> 4, "character" -> 14)
+      ))
+      assert(shResp.obj.contains("result"), s"no result: $shResp")
+      val result = shResp("result")
+      if result != ujson.Null then
+        val sigs = result("signatures").arr
+        assert(sigs.nonEmpty, "expected at least one signature")
+        val label = sigs.head("label").str
+        assert(label.contains("add"), s"signature label should mention 'add': $label")
+    }
+  }
+
+  test("ssc lsp: textDocument/references returns locations") {
+    withLspServer { (out, in) =>
+      initialize(out, in)
+      val uri = "file:///tmp/refs-test.ssc"
+      val docText =
+        """# RefMod
+          |
+          |```scala
+          |val count: Int = 1
+          |val total: Int = count + count
+          |```
+          |""".stripMargin
+      didOpen(out, in, uri, docText)
+
+      // References to "count"
+      val refsResp = req(out, in, 2, "textDocument/references", ujson.Obj(
+        "textDocument" -> ujson.Obj("uri" -> uri),
+        "position"     -> ujson.Obj("line" -> 3, "character" -> 4),
+        "context"      -> ujson.Obj("includeDeclaration" -> true)
+      ))
+      assert(refsResp.obj.contains("result"), s"no result: $refsResp")
+      val locs = refsResp("result").arr
+      assert(locs.nonEmpty, "expected at least one reference location")
+      assert(locs.forall(_("uri").str == uri), "all refs should be in the same doc")
+    }
+  }
+
+  test("ssc lsp: textDocument/prepareRename + rename round-trip") {
+    withLspServer { (out, in) =>
+      initialize(out, in)
+      val uri = "file:///tmp/rename-test.ssc"
+      val docText =
+        """# RenMod
+          |
+          |```scala
+          |val myVar: Int = 10
+          |val doubled: Int = myVar * 2
+          |```
+          |""".stripMargin
+      didOpen(out, in, uri, docText)
+
+      // prepareRename at "myVar" definition
+      val prResp = req(out, in, 2, "textDocument/prepareRename", ujson.Obj(
+        "textDocument" -> ujson.Obj("uri" -> uri),
+        "position"     -> ujson.Obj("line" -> 3, "character" -> 4)
+      ))
+      assert(prResp.obj.contains("result"), s"no prepareRename result: $prResp")
+
+      // rename to "myValue"
+      val renResp = req(out, in, 3, "textDocument/rename", ujson.Obj(
+        "textDocument" -> ujson.Obj("uri" -> uri),
+        "position"     -> ujson.Obj("line" -> 3, "character" -> 4),
+        "newName"      -> "myValue"
+      ))
+      assert(renResp.obj.contains("result"), s"no rename result: $renResp")
+      val edit = renResp("result")
+      if edit != ujson.Null then
+        val changes = edit("changes").obj
+        assert(changes.contains(uri), "rename edits should target the open doc")
+        val edits = changes(uri).arr
+        assert(edits.nonEmpty, "expected at least one text edit")
+    }
   }
