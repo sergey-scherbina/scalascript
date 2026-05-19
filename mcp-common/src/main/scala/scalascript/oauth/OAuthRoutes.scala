@@ -34,7 +34,10 @@ object OAuthRoutes:
    *  may come via HTTP Basic in `Authorization` (RFC 6749 §2.3.1) or via
    *  `client_id` + `client_secret` form fields (§2.3.1 alternative). */
   def handleToken(as: AuthServer, body: String, headers: Map[String, String]): RouteOutcome =
-    if isInsecureRequest(as, headers) then return withCors(tlsRequired(), as, headers)
+    if isPayloadTooLarge(as, body) then
+      return withSecurity(withCors(payloadTooLarge(), as, headers), as)
+    if isInsecureRequest(as, headers) then
+      return withSecurity(withCors(tlsRequired(), as, headers), as)
     val form        = parseForm(body)
     val basicCreds  = extractBasicAuth(headers)
     val grantType   = form.getOrElse("grant_type", "")
@@ -97,7 +100,7 @@ object OAuthRoutes:
         as.emit(AuthEvent.TokenRefused(clientId, grantType, err, descr))
         val status = if err == "invalid_client" then 401 else 400
         jsonError(status, err, descr)
-    withCors(outRoute, as, headers)
+    withSecurity(withCors(outRoute, as, headers), as)
 
   // ─── /introspect (RFC 7662) ─────────────────────────────────────────
 
@@ -143,6 +146,70 @@ object OAuthRoutes:
     RouteOutcome.Json(200,
       ujson.Obj("challenge" -> as.passkeyChallenge()),
       Map("Cache-Control" -> "no-store"))
+
+  // ─── Body size guard ────────────────────────────────────────────────
+
+  /** True iff the body exceeds the AS's configured max.  Used by
+   *  every endpoint that parses untrusted input to defeat OOM-via-
+   *  large-payload attacks. */
+  def isPayloadTooLarge(as: AuthServer, body: String): Boolean =
+    body != null && body.length > as.config.maxRequestBytes
+
+  def payloadTooLarge(): RouteOutcome =
+    RouteOutcome.Json(413,
+      ujson.Obj("error" -> "invalid_request",
+        "error_description" -> "request body exceeds maximum allowed size"))
+
+  // ─── Security response headers ─────────────────────────────────────
+
+  /** Standard browser-security headers attached to every AS response
+   *  when `config.securityHeaders` is on (default).  `Strict-Transport-
+   *  Security` only emitted when TLS is required (no point asking a
+   *  user-agent to remember HTTPS for an AS that admits plain HTTP). */
+  def securityHeaderMap(as: AuthServer): Map[String, String] =
+    if !as.config.securityHeaders then Map.empty
+    else
+      val base = Map(
+        "X-Content-Type-Options" -> "nosniff",
+        "X-Frame-Options"        -> "DENY",
+        "Referrer-Policy"        -> "no-referrer")
+      if as.config.requireTls then
+        base + ("Strict-Transport-Security" -> "max-age=31536000; includeSubDomains")
+      else base
+
+  /** Wrap an outcome with the standard security headers when enabled.
+   *  Composable: `withSecurity(withCors(outcome, as, hdrs), as)`. */
+  def withSecurity(outcome: RouteOutcome, as: AuthServer): RouteOutcome =
+    val sec = securityHeaderMap(as)
+    if sec.isEmpty then outcome
+    else outcome match
+      case RouteOutcome.Json(s, b, h) => RouteOutcome.Json(s, b, h ++ sec)
+      case _                           => outcome
+
+  // ─── Log scrubbing ─────────────────────────────────────────────────
+
+  /** Redact sensitive tokens from a string before it goes to a log
+   *  sink.  Operates on common shapes: `Authorization: Bearer <X>`,
+   *  `access_token=<X>`, `refresh_token=<X>`, `client_secret=<X>`,
+   *  `code_verifier=<X>`.  Replaces the value with `<redacted>` so
+   *  the surrounding structure stays readable.
+   *
+   *  Use in audit hook implementations + ad-hoc debug prints to
+   *  avoid leaking bearer tokens through stdout / SIEM. */
+  def scrubSensitive(s: String): String =
+    if s == null then ""
+    else
+      val patterns = List(
+        ("(?i)(authorization\\s*:\\s*bearer\\s+)([^\\s,]+)".r, "$1<redacted>"),
+        ("(?i)(access_token=)[^&\\s\"]+".r,   "$1<redacted>"),
+        ("(?i)(refresh_token=)[^&\\s\"]+".r,  "$1<redacted>"),
+        ("(?i)(client_secret=)[^&\\s\"]+".r,  "$1<redacted>"),
+        ("(?i)(code_verifier=)[^&\\s\"]+".r,  "$1<redacted>"),
+        ("(?i)(\"access_token\"\\s*:\\s*\")[^\"]+(\")".r,  "$1<redacted>$2"),
+        ("(?i)(\"refresh_token\"\\s*:\\s*\")[^\"]+(\")".r, "$1<redacted>$2"),
+        ("(?i)(\"client_secret\"\\s*:\\s*\")[^\"]+(\")".r, "$1<redacted>$2")
+      )
+      patterns.foldLeft(s)((acc, p) => p._1.replaceAllIn(acc, p._2))
 
   // ─── TLS enforcement helper ─────────────────────────────────────────
 
