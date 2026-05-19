@@ -1,0 +1,136 @@
+---
+name: std-cluster-singleton
+version: 0.1.0
+description: "Cluster-wide singleton actor — runs on the current leader, migrates on failover.  Built on top of subscribeLeaderEvents + globalRegister, no interpreter changes."
+package: std.cluster
+exports:
+  - Singleton
+---
+
+# `std.cluster.singleton`
+
+A *cluster-wide singleton* is an actor that runs on **exactly one** node
+at any time — namely the current leader.  When the leader changes (clean
+hand-over, drain, or crash failover), the singleton stops on the old
+leader and starts on the new one; its cluster-wide name is stable, so
+callers always reach the live instance regardless of which physical
+node holds it.
+
+Built entirely on top of existing primitives — `subscribeLeaderEvents`,
+`selfNode`, `currentLeader`, `globalRegister`, `globalWhereis`, `spawn`,
+`receive`, `exit`.  No interpreter changes; the heavy lifting is
+isolated in this module.
+
+## Quick start
+
+```text
+[Singleton](std/cluster/singleton.ssc)
+
+runActors {
+  startNode("node-a", "ws://127.0.0.1:9000/_ssc-actors")
+  serveAsync(9000)
+  setAutoReelect(true)
+
+  // Define the singleton: a counter that increments on every "tick".
+  Singleton.use("global-counter", { () =>
+    spawn { () =>
+      var n: Int = 0
+      while true do
+        receive {
+          case "tick" => n = n + 1; println("counter=" + n)
+        }
+    }
+  })
+
+  // Any node in the cluster can send to it by name — runtime routes
+  // the message to whichever node is currently the leader.
+  Singleton.send("global-counter", "tick")
+}
+```
+
+When `node-a` is the leader, `factory()` runs locally and the counter
+actor accepts ticks.  If `node-a` dies and `node-b` is elected, the
+supervisor on `node-b` notices the LeaderElected event, calls
+`factory()` there, and re-registers the global name — subsequent
+`Singleton.send` from any node lands on `node-b`'s instance.
+
+## Semantics
+
+- **At-most-one** liveness: at any instant only one node believes it
+  owns the singleton.  During a leader transition there is a brief
+  gap (between LeaderLost on the old leader and LeaderElected on the
+  new one) where no instance is running; sends during that window
+  drop on the floor (return `false`).
+- **No state migration**: the new instance starts fresh from
+  `factory()`.  Persistent state is the caller's responsibility —
+  pair the singleton with cluster config (`clusterConfigSet`) or an
+  external store.
+- **Bully + Raft + coord** all work; `Singleton` only cares about
+  `LeaderElected` / `LeaderLost` events, which every protocol fires.
+
+## Implementation
+
+```scalascript
+object Singleton:
+
+  // Register a factory for the singleton named `name`.  Idempotent
+  // across calls with the same name on different nodes — only the
+  // leader will spawn the actor; others wait.
+  def use(name: String, factory: () => Any): Unit =
+    spawn { () =>
+      subscribeLeaderEvents()
+      var pidOpt: Option[Any] = None
+      val self = selfNode()
+
+      def startIfNeeded(): Unit =
+        if pidOpt.isEmpty then
+          val p = factory()
+          globalRegister(name, p)
+          pidOpt = Some(p)
+
+      def stopIfRunning(): Unit =
+        pidOpt match
+          case Some(p) =>
+            exit(p, "singleton_stop")
+            pidOpt = None
+          case None => ()
+
+      // Bootstrap: if we are already the leader at registration time,
+      // start immediately (subscribe wakes only on future transitions).
+      if currentLeader() == self then startIfNeeded()
+
+      while true do
+        receive {
+          case LeaderElected(nid) =>
+            if nid == self then startIfNeeded()
+            else stopIfRunning()
+          case LeaderLost(_) =>
+            // We may or may not have been the leader — `stopIfRunning`
+            // is a no-op when we weren't.
+            stopIfRunning()
+        }
+    }
+    ()
+
+  // Send a message to the singleton named `name`, wherever it lives.
+  // Returns true on a best-effort delivery (the runtime forwards to
+  // the leader node if needed); false when no leader has registered
+  // the name yet (e.g. mid-failover or before first election).
+  def send(name: String, msg: Any): Boolean =
+    globalWhereis(name) match
+      case Some(pid) =>
+        pid ! msg
+        true
+      case None =>
+        false
+```
+
+## Caveats
+
+- `factory` should return a `Pid` (the value of `spawn { ... }`) — the
+  signature is `() => Any` only to dodge generic-type plumbing in std.
+- If two nodes briefly disagree on who the leader is (network
+  partition), each may run its own singleton instance — that's the
+  classic split-brain caveat and is the cluster protocol's problem,
+  not this module's.  For partition resistance pair with a quorum-
+  aware Bully or an external coordinator (`Etcd.use` / `Consul.use`).
