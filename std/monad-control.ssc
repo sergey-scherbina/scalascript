@@ -1,7 +1,7 @@
 ---
 name: std-monad-control
 version: 1.0.0
-description: Control-flow combinators over Monad — whileM_, untilM_, forM_
+description: Control-flow combinators over Monad — whileM_, untilM_, forM_, untilM, iterateWhileM
 package: std.monad_control
 exports:
   - whileMOption
@@ -12,16 +12,18 @@ exports:
   - forMList
   - replicateMOption
   - replicateMList
+  - untilMResultOption
+  - untilMResultEither
   - iterateWhileMOption
-  - iterateWhileMList
+  - iterateWhileMEither
 ---
 
-# Monad Control — `whileM_`, `untilM_`, `forM_`
+# Monad Control — `whileM_`, `untilM_`, `forM_`, `untilM`, `iterateWhileM`
 
-Loop combinators for `Option` and `List` monads.  These are free
-functions (monomorphic per instance) rather than typeclass members,
-following the same convention as `pureList`/`pureOption` in
-`functor-applicative-monad.ssc`.
+Loop combinators for `Option`, `List`, and `Either` monads.  These
+are free functions (monomorphic per instance) rather than typeclass
+members, following the same convention as `pureList`/`pureOption`
+in `functor-applicative-monad.ssc`.
 
 The `cond` / `body` parameters are `() => M[A]` thunks so that
 each iteration re-evaluates the condition and body fresh — mirroring
@@ -84,20 +86,49 @@ def replicateMList(n: Int, body: () => List[Unit]): List[Unit] =
   else body().flatMap(_ => replicateMList(n - 1, body))
 ```
 
-## iterateWhileM_ — thread state through a monadic step while condition holds
+## untilM — run body until cond holds, return last result
 
-Unlike `whileM_`, which discards results and focuses on side effects,
-`iterateWhileM_` **threads a value through each step** and returns the
-final value when the condition no longer holds.
+`do { a <- body } while !cond` — body runs **at least once**.  The
+returned `F[A]` carries the last successful body result.  Short-
+circuits if any body produces a monadic failure (`None` for Option,
+`Left` for Either).  Contrast with `untilM_` above which discards
+results and is check-first; `untilM` here is do-while.
+
+```scalascript
+def untilMResultOption[A](cond: () => Boolean, body: () => Option[A]): Option[A] =
+  body() match
+    case None    => None
+    case Some(a) =>
+      if cond() then Some(a)
+      else untilMResultOption(cond, body)
+
+def untilMResultEither[E, A](cond: () => Boolean, body: () => Either[E, A]): Either[E, A] =
+  body() match
+    case Left(e)  => Left(e)
+    case Right(a) =>
+      if cond() then Right(a)
+      else untilMResultEither(cond, body)
+```
+
+## iterateWhileM — Kleisli iteration while predicate on state holds
+
+`iterateWhileM(init)(step)(cond)` — start with `init`; while
+`cond(current)` is true, compute `current = step(current)` (a
+monadic step); return the final state wrapped in `F`.  Check-first:
+if `cond(init)` is false the initial value is returned via `pure`
+and `step` never runs.  Short-circuits if `step` produces a
+monadic failure.
 
 ```scalascript
 def iterateWhileMOption[A](init: A, step: A => Option[A], cond: A => Boolean): Option[A] =
   if !cond(init) then Some(init)
   else step(init) match
-    case None       => None
-    case Some(next) => iterateWhileMOption(next, step, cond)
+    case None    => None
+    case Some(a) => iterateWhileMOption(a, step, cond)
 
-def iterateWhileMList[A](init: A, step: A => List[A], cond: A => Boolean): List[A] =
-  if !cond(init) then List(init)
-  else step(init).flatMap(next => iterateWhileMList(next, step, cond))
+def iterateWhileMEither[E, A](init: A, step: A => Either[E, A], cond: A => Boolean): Either[E, A] =
+  if !cond(init) then Right(init)
+  else step(init) match
+    case Left(e)  => Left(e)
+    case Right(a) => iterateWhileMEither(a, step, cond)
 ```

@@ -214,7 +214,21 @@ Monad[M].whileM_(cond)(body)
 ```
 
 `whileM_` is a stdlib helper in `std/monad-control.ssc` (lands with
-this milestone).
+this milestone).  The v1.8.x follow-up adds two complementary
+combinators in the same module:
+
+- `untilM(cond)(body)` — do-while: runs `body` at least once, then
+  loops while `!cond`.  Returns the last successful body result
+  wrapped in `F`.  Stdlib spellings: `untilMResultOption`,
+  `untilMResultEither`.
+- `iterateWhileM(init)(step)(cond)` — Kleisli iteration: starts at
+  `init`, while `cond(current)` is true threads `current` through
+  the monadic `step`.  Check-first: if `cond(init)` is false the
+  initial value is returned via `pure`.  Stdlib spellings:
+  `iterateWhileMOption`, `iterateWhileMEither`.
+
+Both short-circuit on monadic failure (`None` for Option,
+`Left` for Either), matching the contract of `whileM_`.
 
 `for x <- xs do body` where `body: M[Unit]`:
 
@@ -397,9 +411,10 @@ code drives the question:
   for blocks that need multiple effects without nested directs.
 - **Transformer-aware lift** — automatic `OptionT.liftF` when an inner
   block of type `Option[A]` appears in an outer `Async` direct block.
-- **`std/monad-control.ssc` expansion** — `iterateWhileM` ✓ landed
-  (`iterateWhileMOption`, `iterateWhileMList`); further loop combinators
-  beyond `whileM_` deferred to v1.8.x follow-ups.
+- ~~**`std/monad-control.ssc` expansion** — `untilM`,
+  `iterateWhileM`, loop combinators beyond `whileM_`.~~  Landed
+  v1.8.x as `untilMResult{Option,Either}` and
+  `iterateWhileM{Option,Either}` — see §5 control flow above.
 - **Capture checking interaction** — verify direct blocks don't
   leak `var`-captures across `Async.parallel`, once Scala 3.x
   capture checking matures.

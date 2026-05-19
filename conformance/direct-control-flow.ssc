@@ -8,7 +8,9 @@ version: 1.0.0
 Exercises v1.8 Phase 4: `whileM_`, `untilM_`, `forM_`, `replicateM_`
 from `std/monad-control.ssc`.
 
-[whileMOption, whileMList, untilMOption, untilMList, forMOption, forMList, replicateMOption, replicateMList, iterateWhileMOption, iterateWhileMList](../std/monad-control.ssc)
+[whileMOption, whileMList, untilMOption, untilMList, forMOption, forMList, replicateMOption, replicateMList, untilMResultOption, untilMResultEither, iterateWhileMOption, iterateWhileMEither](../std/monad-control.ssc)
+
+[Left, Right](../std/either.ssc)
 
 ## whileMOption — count to 3
 
@@ -95,30 +97,83 @@ println(r8)
 println(listTotal)
 ```
 
-## iterateWhileMOption — step until n reaches 5
+## untilMResultOption — do-while: body runs, then cond
 
 ```scalascript
-val r9 = iterateWhileMOption(0, (n: Int) => Some(n + 1), (n: Int) => n < 5)
+var p = 0
+val r9 = untilMResultOption(
+  () => p >= 3,
+  () => { p = p + 1; Some(p) }
+)
 println(r9)
+println(p)
 ```
 
-## iterateWhileMOption — cond false at init returns Some(init)
+## untilMResultOption — short-circuits on None
 
 ```scalascript
-val r10 = iterateWhileMOption(10, (n: Int) => Some(n + 1), (n: Int) => n < 5)
+var q = 0
+val r10 = untilMResultOption(
+  () => q >= 10,
+  () => { q = q + 1; if q < 3 then Some(q) else None }
+)
 println(r10)
+println(q)
 ```
 
-## iterateWhileMOption — short-circuits on None from step
+## untilMResultOption — zero-iteration is impossible (do-while)
 
 ```scalascript
-val r11 = iterateWhileMOption(0, (n: Int) => if n >= 2 then None else Some(n + 1), (n: Int) => n < 5)
+var s = 0
+val r11 = untilMResultOption(
+  () => true,
+  () => { s = s + 1; Some(s * 10) }
+)
 println(r11)
+println(s)
 ```
 
-## iterateWhileMList — deterministic single-branch step
+## untilMResultEither — short-circuits on Left
 
 ```scalascript
-val r12 = iterateWhileMList(0, (n: Int) => List(n + 1), (n: Int) => n < 3)
+var t = 0
+val r12 = untilMResultEither[String, Int](
+  () => t >= 5,
+  () => { t = t + 1; if t < 3 then Right(t) else Left("boom") }
+)
 println(r12)
+println(t)
+```
+
+## iterateWhileMOption — step until cond becomes false
+
+```scalascript
+val r13 = iterateWhileMOption[Int](
+  1,
+  (n: Int) => Some(n * 2),
+  (n: Int) => n < 100
+)
+println(r13)
+```
+
+## iterateWhileMOption — zero-iteration, returns init in pure
+
+```scalascript
+val r14 = iterateWhileMOption[Int](
+  42,
+  (n: Int) => Some(n + 1),
+  (n: Int) => n < 0
+)
+println(r14)
+```
+
+## iterateWhileMEither — short-circuits on Left from step
+
+```scalascript
+val r15 = iterateWhileMEither[String, Int](
+  1,
+  (n: Int) => if n < 4 then Right(n + 1) else Left("stop at " + n),
+  (n: Int) => n < 10
+)
+println(r15)
 ```

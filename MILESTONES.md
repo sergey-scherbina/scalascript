@@ -1771,7 +1771,10 @@ drives the question:
 2. **Effect-row union types** — `direct[Async | Random]`.
 3. **Transformer-aware lift** — auto `OptionT.liftF` inside an
    outer `Async` direct block.
-4. **`std/monad-control.ssc` expansion** — `untilM`, `iterateWhileM`.
+4. ~~**`std/monad-control.ssc` expansion** — `untilM`,
+   `iterateWhileM`.~~  Landed v1.8.x: `untilMResult{Option,Either}`
+   and `iterateWhileM{Option,Either}`, plus 7 conformance cases in
+   `direct-control-flow.ssc`.
 5. **Capture-checking interaction** — verify direct blocks don't
    leak `var`-captures across `Async.parallel`, once Scala 3.x
    capture checking matures.

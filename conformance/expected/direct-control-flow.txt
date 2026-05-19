@@ -13,3 +13,14 @@ Some(())
 Some(110)
 List(())
 60
+Some(3)
+3
+None
+3
+Some(10)
+1
+Left(boom)
+3
+Some(128)
+Some(42)
+Left(stop at 4)
