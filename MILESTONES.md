@@ -4721,6 +4721,141 @@ Release workflow (GitHub Actions):
 
 ---
 
+## Optimization and modularity roadmap
+
+Full planning document: [`docs/optimization-roadmap.md`](docs/optimization-roadmap.md).
+Items below are the actionable milestones extracted from that document.
+
+### Runtime — Project Loom (virtual threads)
+
+**Status: open. Effort: ~2 hours. Priority: 1.**
+
+Switch the HTTP/WS server executor to `Executors.newVirtualThreadPerTaskExecutor()`
+(Java 21 LTS, stable).  Removes the one-thread-per-connection bottleneck without
+a full NIO migration.  Affects `runtime-server-common` + `runtimeServerJvm`.
+
+- [ ] Replace executor in `runtime-server-common` and `runtimeServerJvm`
+- [ ] Smoke test: 10 000 concurrent WS connections without OOM
+- [ ] Note Java 21 requirement in docs
+
+### Tooling — `ssc check` standalone type-checker
+
+**Status: open. Effort: ~1 day. Priority: 2.**
+
+`ssc check src/**/*.ssc` — run the typer without interpreting, exit non-zero on
+diagnostics.  For CI.  Generalises existing `check-with-iface` to standalone.
+
+- [ ] Add `check` command to CLI dispatch
+- [ ] Print diagnostics to stderr in `file:line:col: message` format
+- [ ] Exit non-zero when any error found
+
+### Runtime — Interpreter split (lazy capability loading)
+
+**Status: open. Effort: ~1 week. Priority: 3.**
+
+`Interpreter.scala` is 7 567 lines containing core eval + HTTP + Actors + MCP +
+Dataset + Signals + Coroutines — all loaded on every `ssc run hello.ssc`.
+
+Split into per-capability files, each installing via a registration hook in
+`CoreInterpreter`.  Cold-start for pure scripts drops significantly.
+
+| File | Content |
+|------|---------|
+| `CoreInterpreter.scala` | `eval`, `dispatch`, `callValue`, base intrinsics |
+| `HttpRuntime.scala` | `serve`, `route`, `onWebSocket`, `sse`, TLS |
+| `ActorRuntime.scala` | `spawn`, `receive`, cluster, Phi-accrual FD |
+| `McpRuntime.scala` | `mcpServer`, `mcpConnect` |
+| `DatasetRuntime.scala` | `Dataset[T]`, MapReduce |
+| `SignalRuntime.scala` | `Signal`, `computed`, `effect` |
+| `CoroutineRuntime.scala` | `coroutineCreate`, `coroutineResume`, generators |
+
+- [ ] Extract each runtime file with registration hook
+- [ ] Wire lazy loading in `CoreInterpreter`
+- [ ] All existing tests green after split
+
+### Compiler — AST cache between watch cycles
+
+**Status: open. Effort: ~3 days. Priority: 4.**
+
+`ssc watch` re-parses the full file on every save.  Cache
+`(path, mtime, hash) → ParsedModule`; diff at section granularity and
+re-evaluate only changed sections and their dependents.
+
+- [ ] `ParseCache` — key by path + mtime + content hash
+- [ ] Section-level diff by heading text
+- [ ] Re-evaluate only changed + dependent sections
+- [ ] Target: watch cycle on `rest-api.ssc` drops < 100 ms
+
+### Generated code — JS tree-shaking
+
+**Status: open. Effort: ~1 week. Priority: 5.**
+
+JS runtime preamble (~500 lines) is emitted into every output even when the
+module uses none of its features.  Partition into named groups (base, effects,
+actors, MCP, Dataset, signals) and emit only referenced ones.
+
+- [ ] Partition `JsRuntime` string into named groups
+- [ ] Scan emitted JS for group-marker symbols
+- [ ] Emit only referenced groups
+- [ ] Verify: `hello.ssc` JS output size drops ≥ 50 %
+
+### Library modularity
+
+**Status: open. Effort: ~3 days. Priority: 6. Depends on: Interpreter split.**
+
+1. Fix `backendInterpreter / backendJvm` dependency to `% Test` only.
+2. Publish `scalascript-core` artifact (`ir + backendSpi + core`) for linters
+   and tool builders.
+3. Publish `scalascript-interpreter` (core eval, no HTTP/actors) for embedding.
+
+- [ ] Fix test-scope dep leak
+- [ ] Add `scalascript-core` aggregate in `build.sbt`
+- [ ] Add `scalascript-interpreter` aggregate
+
+### New tool — `ssc profile file.ssc`
+
+**Status: open. Effort: ~3 days. Priority: 7.**
+
+Built-in profiler: invocation counts per function, wall time per section.
+Output: top-20 hotspots, simple call graph, `--profile-output profile.json`.
+
+- [ ] Add `profile` command to CLI
+- [ ] Instrument `eval` / `callValue` with per-function counters
+- [ ] Print top-20 hotspots by wall time on exit
+
+### Runtime — Numeric value specialization
+
+**Status: open. Effort: ~1 week. Priority: 8 (do after profiling).**
+
+`IntV(n)`, `DoubleV(d)`, `BoolV(b)` are heap-allocated on every arithmetic
+operation.  Pool small `IntV` instances; specialize `Computation[A]` for `Int`
+fast-path.
+
+- [ ] Pool common small `IntV` (−128..1024)
+- [ ] Specialize arithmetic fast-path in `Computation`
+- [ ] Target: fib(28) and sum(1e6) improve ≥ 20 % over current baseline
+
+### Compiler — Incremental type-checking
+
+**Status: open. Effort: ~1 week. Priority: 9. Depends on: AST cache.**
+
+Re-check only the changed block and its transitive dependents.  Snapshot
+`TypedEnv` per section; restore from last unchanged section on re-check.
+
+- [ ] `TypedEnv` snapshot per section
+- [ ] Restore snapshot, re-run typer from changed section forward
+- [ ] Test: changing a leaf section does not re-check unrelated sections
+
+### New tool — REPL web-aware mode
+
+**Status: open. Effort: ~3 days.**
+
+- `:mount GET /hello { req => Response.text("hi") }` — register a route live
+- `:routes` — print the live route table
+- `:http GET /hello` — fire a synthetic request and print the response
+
+---
+
 ## Beyond
 
 Larger features that aren't on the critical path but are worth keeping in
@@ -4729,8 +4864,7 @@ view so they shape near-term decisions.
 - **Hot reload in `serve` mode.** ✅ **LANDED** — see `watchCommand` in
   `cli/src/main/scala/scalascript/cli/Main.scala`; port stays bound, route
   table cleared and rebuilt on each save.
-- **REPL: web-aware mode.**  `bin/ssc repl` that lets you mount routes
-  interactively and inspect the route table.
+- **REPL: web-aware mode.**  Tracked above in optimization roadmap.
 - **`html"..."` precision.** ✅ **LANDED** — `findClosingBrace` in the
   interpreter is now string-aware: double-quoted, triple-quoted, and
   single-quoted literals are skipped so a `}` inside `${ a + "}" }`
