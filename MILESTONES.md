@@ -718,14 +718,26 @@ unblocks downstream features as early as possible.
          `aud` (string or array) MUST include expected, optional
          `nonce` exact match.
 
-     4. **Iter MM — Production hardening**: TLS-only enforcement
-        flag on AS routes (reject `http://` outside of `localhost`
-        loopback); CORS policy on every OAuth endpoint (defaults to
-        same-origin; user opens up); audit-logging hook
-        (`onAuthEvent: AuthEvent => Unit`) firing on every
-        token-issuance / failure / revocation; MCP-client 401 → RS-
-        metadata-discovery → AS-discovery → re-auth bootstrap chain
-        so connect() can recover from an expired bearer.
+     **Iter MM — Production hardening** ✓ — three of the four
+     planned bits landed (MCP-client 401→re-auth deferred to a
+     separate iteration to keep this one focused on AS-side
+     hardening that the audit flagged).
+
+       - **TLS enforcement** via `AuthServerConfig.requireTls`:
+         when true, OAuthRoutes.handleToken refuses requests whose
+         `X-Forwarded-Proto` isn't `https` AND whose Host isn't a
+         loopback (`localhost` / `127.0.0.1` / `[::1]`).  Dev
+         workflow unaffected — loopback always passes.
+       - **CORS** via `AuthServerConfig.corsOrigins: Set[String]`:
+         empty (default) disables; non-empty advertises ACAO +
+         allowed-methods + allowed-headers + `Vary: Origin` to
+         matching origins; `"*"` reflects any origin (use carefully).
+       - **AuthEvent audit hook** (`onAuthEvent: AuthEvent => Unit`)
+         fires on every security-relevant event: TokenIssued,
+         TokenRefused, ClientRegistered, AuthorizationCodeIssued,
+         RefreshFamilyBurned, PasskeyAccepted/Rejected, TokenRevoked.
+         Listener exceptions are swallowed so a poisoned hook can't
+         break the hot path.
 
      5. **Iter NN — OAuth client script intrinsics**: `oauth.client`
         namespace mirroring `OAuthClient` so `.ssc` apps can run
