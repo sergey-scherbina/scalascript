@@ -150,6 +150,13 @@ enum Value:
   case TupleV(elems: List[Value])
   case MapV(entries: Map[Value, Value])
   case DocV(parts: List[Value])
+  /** Opaque JVM-handle bridge.  Wraps a Java object that the interpreter
+   *  cannot inspect structurally but needs to thread through user code
+   *  (e.g. `java.sql.Connection` for v1.26 sql blocks).  `typeName` is
+   *  the human-readable Scala type name (`"Connection"`,
+   *  `"DataSource"`, …) used by `resolveGiven` keyed lookups; `handle`
+   *  is the JVM object passed verbatim to / from intrinsics. */
+  case Foreign(typeName: String, handle: Any)
 
 object Value:
   def show(v: Value): String = v match
@@ -199,6 +206,9 @@ object Value:
     case FunV(ps, _, _, _, _, _, _, _) => s"<function(${ps.length})>"
     case NativeFnV(name, _)   => s"<native:$name>"
     case DocV(parts)          => parts.map(show).mkString("\n")
+    case Foreign(tn, h)       =>
+      val short = Option(h).map(_.getClass.getSimpleName).getOrElse("null")
+      s"<foreign:$tn ($short)>"
 
   /** Render an optic's `_steps` array as a dotted path with `.some` / `.each` /
    *  `.index(i)` / `.at(k)` markers replaced by their source syntax. */

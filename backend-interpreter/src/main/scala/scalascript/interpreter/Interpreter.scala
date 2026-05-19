@@ -1587,11 +1587,29 @@ class Interpreter(
   private var i18nTranslations: Map[String, Map[String, String]] = Map.empty
   private var i18nLocale: String = "en"
 
+  /** v1.26 — JDBC connections declared in front-matter `databases:`,
+   *  materialised lazily and cached.  `sql` fenced blocks resolve their
+   *  connection through this registry unless a `given`-style override
+   *  (a `Value.Foreign("Connection", _)` bound to the `Connection`
+   *  global) is in scope.  Empty by default — modules without any
+   *  `databases:` section pay no JDBC cost. */
+  private var sqlRegistry: scalascript.sql.ConnectionRegistry =
+    scalascript.sql.ConnectionRegistry.empty
+  private var sqlBlockCounter: Int = 0
+
   def run(module: Module): Unit =
     initBuiltins()
     moduleDeps = module.manifest.map(_.dependencies).getOrElse(Map.empty)
     modulePkg  = module.manifest.flatMap(_.pkg).getOrElse(Nil)
     module.manifest.foreach(m => i18nTranslations = m.translations)
+    module.manifest.foreach { m =>
+      if m.databases.nonEmpty then
+        sqlRegistry = scalascript.sql.ConnectionRegistry(
+          m.databases.map { d =>
+            scalascript.sql.DatabaseSpec(d.name, d.url, d.user, d.password, d.driver)
+          }
+        )
+    }
     registerFrontmatterRoutes(module)
     module.sections.foreach(runSection)
     if !mainCalled then
@@ -1775,6 +1793,17 @@ class Interpreter(
     // bypasses the Normalize pass (tests, runSnippet, direct Interpreter.run calls).
     globals("println") = globals("Console.println")
     globals("print")   = globals("Console.print")
+
+    // v1.26 — DriverManager companion so user code can write
+    // `DriverManager.getConnection("jdbc:h2:mem:test")` directly (resolves
+    // through the Select-on-globals path).  The actual native impl is
+    // registered as `QualifiedName("DriverManager.getConnection")` via
+    // `JdbcIntrinsics`; the companion just routes the name lookup.
+    globals.get("DriverManager.getConnection").foreach { impl =>
+      globals("DriverManager") = Value.InstanceV("DriverManager", Map(
+        "getConnection" -> impl
+      ))
+    }
 
     // assert / require / nanoTime / getenv / doc / render / Some / List now
     // live in CoreIntrinsics (Stage 5+/E); installNativeIntrinsics routes them.
@@ -2998,11 +3027,120 @@ class Interpreter(
         cb.tree.foreach(execBlock)
       case cb: Content.CodeBlock if Lang.isStringBlock(cb.lang) =>
         runStringBlock(cb, section)
+      case cb: Content.CodeBlock if Lang.isSql(cb.lang) =>
+        runSqlBlock(cb, section)
       case imp: Content.Import =>
         runImport(imp)
       case _ => ()
     }
     section.subsections.foreach(runSection)
+
+  /** v1.26 — execute a `sql` fenced block.
+   *
+   *  Pipeline:
+   *    1. Re-apply `SqlBindRewriter.rewriteJdbc` to lift `${expr}`
+   *       interpolations from the preserved `cb.source` into a
+   *       JDBC `?`-templated SQL string + an ordered list of bind
+   *       expression source strings.
+   *    2. Parse + evaluate each bind expression in the current globals
+   *       scope, unwrapping the resulting `Value` to a JDBC-bindable
+   *       `Any`.
+   *    3. Resolve the `java.sql.Connection`:
+   *       - First, an override: a `Value.Foreign("Connection", _)`
+   *         bound to the global named `Connection` (typical when the
+   *         user wrote `val Connection = DriverManager.getConnection(...)`
+   *         earlier in the module).
+   *       - Otherwise, the `ConnectionRegistry` built from front-matter
+   *         `databases:`, keyed by the fence's `@db=name` attr (or
+   *         `"default"` when absent).
+   *    4. Invoke `SqlRuntime.execute` and wrap the result back to
+   *       `Value`: `Rows(seq)` → `ListV(MapV-per-row)`,
+   *       `UpdateCount(n)` → `IntV(n)`.
+   *    5. Bind the result as a global at `<sectionId>.sql` (the
+   *       section-based naming convention shared with the Spark
+   *       backend) and at `_sqlBlock_<N>` for ordinal access. */
+  private def runSqlBlock(cb: Content.CodeBlock, section: Section): Unit =
+    val rewritten = scalascript.transform.SqlBindRewriter.rewriteJdbc(cb.source)
+    val binds: List[Any] = rewritten.binds.map { exprSrc =>
+      val expr = scala.meta.dialects.Scala3(scala.meta.Input.VirtualFile(
+        "<sql-bind>", exprSrc
+      )).parse[scala.meta.Term].get
+      val v = Computation.run(eval(expr, globals.toMap))
+      unwrapForJdbc(v)
+    }
+    val conn: java.sql.Connection = resolveSqlConnection(cb)
+    val sqlResult = scalascript.sql.SqlRuntime.execute(conn, rewritten.sql, binds)
+    val resultValue: Value = sqlResult match
+      case scalascript.sql.SqlResult.Rows(rows) =>
+        Value.ListV(rows.map(rowToValue).toList)
+      case scalascript.sql.SqlResult.UpdateCount(n) =>
+        Value.IntV(n.toLong)
+    val ordinal = sqlBlockCounter
+    sqlBlockCounter += 1
+    globals(s"_sqlBlock_$ordinal") = resultValue
+    sectionIdent(section.heading.text).foreach { id =>
+      val existing = globals.get(id) match
+        case Some(Value.InstanceV(_, fields)) => fields
+        case _                                => Map.empty[String, Value]
+      globals(id) = Value.InstanceV(id, existing + ("sql" -> resultValue))
+    }
+
+  /** Resolve a `java.sql.Connection` for `cb`.  Override path: a
+   *  `Foreign("Connection", _)` bound to the global `Connection`
+   *  (typical after `val Connection = DriverManager.getConnection(...)`).
+   *  Registry path: lookup by `cb.attrs.getOrElse("db", "default")` in
+   *  the per-module `sqlRegistry`. */
+  private def resolveSqlConnection(cb: Content.CodeBlock): java.sql.Connection =
+    globals.get("Connection") match
+      case Some(Value.Foreign("Connection", c: java.sql.Connection)) => c
+      case Some(Value.Foreign("DataSource", ds: javax.sql.DataSource)) => ds.getConnection
+      case _ =>
+        val dbName = cb.attrs.getOrElse("db", "default")
+        sqlRegistry.connect(dbName)
+
+  /** Wrap a single JDBC row into a `Value.MapV` keyed by column label.
+   *  Each cell value is normalised to the interpreter's `Value`
+   *  alphabet — primitives map to their direct cases, `null` to
+   *  `NullV`, JDK time / numeric / opaque types pass through as
+   *  `Foreign(<short-class-name>, v)`. */
+  private def rowToValue(row: scalascript.sql.Row): Value =
+    val pairs = row.columns.zip(row.values).map { case (col, v) =>
+      Value.StringV(col) -> wrapJdbcValue(v)
+    }
+    Value.MapV(pairs.toMap)
+
+  private def wrapJdbcValue(v: Any): Value = v match
+    case null            => Value.NullV
+    case s: String       => Value.StringV(s)
+    case b: Boolean      => Value.BoolV(b)
+    case n: Int          => Value.IntV(n.toLong)
+    case n: Long         => Value.IntV(n)
+    case n: Short        => Value.IntV(n.toLong)
+    case n: Byte         => Value.IntV(n.toLong)
+    case d: Double       => Value.DoubleV(d)
+    case f: Float        => Value.DoubleV(f.toDouble)
+    case bi: java.math.BigInteger => Value.IntV(bi.longValueExact)
+    case bd: java.math.BigDecimal => Value.DoubleV(bd.doubleValue)
+    case other           =>
+      Value.Foreign(Option(other).map(_.getClass.getSimpleName).getOrElse("?"), other)
+
+  /** Reverse of `wrapJdbcValue` for the bind-side: convert a `Value`
+   *  produced by `eval` into a JDBC-friendly `Any` that
+   *  `SqlRuntime.bindOne` can handle.  Foreign handles pass through
+   *  unwrapped — useful for `${myUuid}` style binds where the value
+   *  is already a JDK object. */
+  private def unwrapForJdbc(v: Value): Any = v match
+    case Value.IntV(n)            => n
+    case Value.DoubleV(d)         => d
+    case Value.StringV(s)         => s
+    case Value.BoolV(b)           => b
+    case Value.CharV(c)           => c
+    case Value.UnitV              => null
+    case Value.NullV              => null
+    case Value.OptionV(None)      => null
+    case Value.OptionV(Some(inner)) => unwrapForJdbc(inner)
+    case Value.Foreign(_, h)      => h
+    case other                    => Value.show(other)
 
   /** Evaluate an `html` or `css` block: ${expr} interpolations are resolved
    *  in the current globals scope, html-escaped where appropriate, and the
