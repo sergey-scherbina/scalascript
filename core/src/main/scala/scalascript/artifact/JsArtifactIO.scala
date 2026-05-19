@@ -35,18 +35,20 @@ object JsArtifactIO:
       sourceHash:   String,
       jsSource:     String,
       imports:      List[String],
-      capabilities: List[String] = Nil
+      capabilities: List[String]        = Nil,
+      sectionHashes: Map[String, String] = Map.empty
   ): String =
     val art = ModuleJsArtifact(
-      magic        = ArtifactVersion.magic,
-      abiVersion   = ArtifactVersion.current,
-      moduleId     = moduleId,
-      pkg          = pkg,
-      moduleName   = moduleName,
-      sourceHash   = sourceHash,
-      jsSource     = jsSource,
-      imports      = imports,
-      capabilities = capabilities.sorted
+      magic         = ArtifactVersion.magic,
+      abiVersion    = ArtifactVersion.current,
+      moduleId      = moduleId,
+      pkg           = pkg,
+      moduleName    = moduleName,
+      sourceHash    = sourceHash,
+      jsSource      = jsSource,
+      imports       = imports,
+      capabilities  = capabilities.sorted,
+      sectionHashes = sectionHashes
     )
     writeJs(art)
 
@@ -84,10 +86,11 @@ object JsArtifactIO:
       jsSource:     String,
       imports:      List[String],
       path:         os.Path,
-      capabilities: List[String] = Nil
+      capabilities: List[String]        = Nil,
+      sectionHashes: Map[String, String] = Map.empty
   ): Unit =
     os.makeDir.all(path / os.up)
-    os.write.over(path, writeJs(moduleId, pkg, moduleName, sourceHash, jsSource, imports, capabilities))
+    os.write.over(path, writeJs(moduleId, pkg, moduleName, sourceHash, jsSource, imports, capabilities, sectionHashes))
 
   // ─── Shared runtime artifact (.scjs-runtime) ─────────────────────────────
 

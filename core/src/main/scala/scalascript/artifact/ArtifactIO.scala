@@ -59,16 +59,18 @@ object ArtifactIO:
       nm:         scalascript.ir.NormalizedModule,
       pkg:        List[String],
       moduleName: Option[String],
-      sourceHash: String
+      sourceHash: String,
+      sectionHashes: Map[String, String] = Map.empty
   ): String =
     val bodyJson = write(nm)
     val artifact = ModuleIrArtifact(
-      magic      = ArtifactVersion.magic,
-      abiVersion = ArtifactVersion.current,
-      pkg        = pkg,
-      moduleName = moduleName,
-      sourceHash = sourceHash,
-      body       = bodyJson
+      magic         = ArtifactVersion.magic,
+      abiVersion    = ArtifactVersion.current,
+      pkg           = pkg,
+      moduleName    = moduleName,
+      sourceHash    = sourceHash,
+      body          = bodyJson,
+      sectionHashes = sectionHashes
     )
     write(artifact, indent = 2)
 
@@ -101,10 +103,11 @@ object ArtifactIO:
       pkg:        List[String],
       moduleName: Option[String],
       sourceHash: String,
-      path:       os.Path
+      path:       os.Path,
+      sectionHashes: Map[String, String] = Map.empty
   ): Unit =
     os.makeDir.all(path / os.up)
-    os.write.over(path, writeIr(nm, pkg, moduleName, sourceHash))
+    os.write.over(path, writeIr(nm, pkg, moduleName, sourceHash, sectionHashes))
 
   // ─── Envelope validation ─────────────────────────────────────────────────
 

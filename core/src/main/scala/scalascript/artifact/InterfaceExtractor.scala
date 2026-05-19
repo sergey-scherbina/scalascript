@@ -30,6 +30,73 @@ object InterfaceExtractor:
     val md = java.security.MessageDigest.getInstance("SHA-256")
     md.digest(bytes).map("%02x".format(_)).mkString
 
+  /** Stable identifier for a section in `sectionHashes`.  Built from the
+   *  heading text + 0-based index in `module.sections` so duplicate
+   *  headings (`"# Examples"` appearing twice) still get distinct keys.
+   *  Pair-reads with [[computeSectionHashes]]. */
+  def sectionId(s: ast.Section, idx: Int): String =
+    s"${s.heading.text}:$idx"
+
+  /** Cumulative per-section SHA-256 chain (Option A).
+   *
+   *  For each top-level section in `module.sections` the hash digests the
+   *  *raw section source bytes* joined with the hashes of every prior
+   *  section via `\n`.  Encoding: UTF-8.
+   *
+   *  Rationale: sections in a single `.ssc` share one module-level scope —
+   *  a definition in section 1 is visible in section 3.  An isolated
+   *  per-section hash would let consumers skip codegen on section 3 even
+   *  when section 1 changed (broken: a renamed identifier in section 1 no
+   *  longer resolves in section 3).  Cumulative hashing closes that hole
+   *  while still letting the *last* section be cached when only it
+   *  changed — common in tutorial-style `.ssc` files where the bottom
+   *  hosts the "main" example block.
+   *
+   *  The section's source is reconstructed from its `Content.CodeBlock`
+   *  bodies (other content kinds — prose, lists, imports — don't affect
+   *  the compiled output and are intentionally excluded so a typo fix in
+   *  a comment paragraph doesn't invalidate every downstream section).
+   *  Headings ARE folded into the digest so re-titling a section is
+   *  treated as a change (consumers may resolve `${section.title}` at
+   *  compile time).
+   *
+   *  Returns a `Map[sectionId -> hex hash]`.  Empty when `module.sections`
+   *  is empty (e.g. a manifest-only `.ssc`). */
+  def computeSectionHashes(module: ast.Module): Map[String, String] =
+    val out = scala.collection.mutable.LinkedHashMap.empty[String, String]
+    var accum: String = "" // running chain of prior section hashes
+    module.sections.zipWithIndex.foreach { case (sec, idx) =>
+      val raw = sectionRawSource(sec)
+      val payload =
+        if accum.isEmpty then raw
+        else accum + "\n" + raw
+      val h = sha256(payload.getBytes("UTF-8"))
+      out(sectionId(sec, idx)) = h
+      accum = if accum.isEmpty then h else accum + "\n" + h
+    }
+    out.toMap
+
+  /** Reconstruct the load-bearing source of a section for the section-
+   *  hash chain: heading text + every `Content.CodeBlock` source body
+   *  (recursing into `subsections`).  Prose / lists / imports are
+   *  excluded — they don't influence the compiled artifact.  Imports
+   *  ARE included as their literal path string so a re-pointed import
+   *  still invalidates the section. */
+  private def sectionRawSource(sec: ast.Section): String =
+    val sb = new StringBuilder
+    sb.append("#" * sec.heading.level).append(' ').append(sec.heading.text).append('\n')
+    sec.content.foreach {
+      case cb: ast.Content.CodeBlock =>
+        sb.append("```").append(cb.lang).append('\n')
+          .append(cb.source).append('\n')
+          .append("```\n")
+      case imp: ast.Content.Import =>
+        sb.append("[import](").append(imp.path).append(")\n")
+      case _ => () // prose / data lists don't influence codegen
+    }
+    sec.subsections.foreach(sub => sb.append(sectionRawSource(sub)))
+    sb.toString
+
   /** Extract a `ModuleInterface` from a parsed AST module + its source bytes.
    *
    *  @param module     The parsed AST module (from `Parser.parse`).
@@ -395,7 +462,8 @@ object InterfaceExtractor:
       instances     = instances.toList,
       capabilities  = capabilities,
       externDefs    = externDefs.toList,
-      dependencies  = deps
+      dependencies  = deps,
+      sectionHashes = computeSectionHashes(module)
     )
 
   /** Detect well-known capability markers by structurally walking the

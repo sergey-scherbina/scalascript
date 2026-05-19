@@ -35,20 +35,22 @@ object JvmArtifactIO:
       sourceHash:   String,
       scalaSource:  String,
       imports:      List[String],
-      classBundle:  Option[String] = None,
-      capabilities: List[String]   = Nil
+      classBundle:  Option[String]      = None,
+      capabilities: List[String]        = Nil,
+      sectionHashes: Map[String, String] = Map.empty
   ): String =
     val art = ModuleJvmArtifact(
-      magic        = ArtifactVersion.magic,
-      abiVersion   = ArtifactVersion.current,
-      moduleId     = moduleId,
-      pkg          = pkg,
-      moduleName   = moduleName,
-      sourceHash   = sourceHash,
-      scalaSource  = scalaSource,
-      imports      = imports,
-      classBundle  = classBundle,
-      capabilities = capabilities.sorted
+      magic         = ArtifactVersion.magic,
+      abiVersion    = ArtifactVersion.current,
+      moduleId      = moduleId,
+      pkg           = pkg,
+      moduleName    = moduleName,
+      sourceHash    = sourceHash,
+      scalaSource   = scalaSource,
+      imports       = imports,
+      classBundle   = classBundle,
+      capabilities  = capabilities.sorted,
+      sectionHashes = sectionHashes
     )
     writeJvm(art)
 
@@ -86,11 +88,12 @@ object JvmArtifactIO:
       scalaSource:  String,
       imports:      List[String],
       path:         os.Path,
-      classBundle:  Option[String] = None,
-      capabilities: List[String]   = Nil
+      classBundle:  Option[String]      = None,
+      capabilities: List[String]        = Nil,
+      sectionHashes: Map[String, String] = Map.empty
   ): Unit =
     os.makeDir.all(path / os.up)
-    os.write.over(path, writeJvm(moduleId, pkg, moduleName, sourceHash, scalaSource, imports, classBundle, capabilities))
+    os.write.over(path, writeJvm(moduleId, pkg, moduleName, sourceHash, scalaSource, imports, classBundle, capabilities, sectionHashes))
 
   // ─── Shared runtime artifact (.scjvm-runtime) ────────────────────────────
 

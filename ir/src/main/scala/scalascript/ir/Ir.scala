@@ -276,7 +276,23 @@ case class ModuleInterface(
   instances:    List[InstanceDecl]    = Nil,
   capabilities: List[CapabilityDecl]  = Nil,
   externDefs:   List[ExportedSymbol]  = Nil,  // extern def declarations only
-  dependencies: Map[String, String]   = Map.empty  // dep alias → resolved path/id
+  dependencies: Map[String, String]   = Map.empty,  // dep alias → resolved path/id
+  /** Per-section cumulative SHA-256 hashes for selective re-emit.
+   *
+   *  Key format: `"<heading-text>:<index>"` where `index` is the 0-based
+   *  position of the section in `module.sections` (titles can repeat, the
+   *  index disambiguates).  Value is a 64-char hex SHA-256 digest computed
+   *  cumulatively: each section's hash digests its own raw source bytes
+   *  joined with every prior section's hash via `\n` (Option A — shared-
+   *  module-scope safety: a change in section N cascades to N+1, N+2, …).
+   *
+   *  Empty default preserves backward compatibility with v2.0 `.scim`
+   *  artifacts emitted before this field existed.  A consumer that sees
+   *  `sectionHashes.isEmpty` falls back to the full-module-SHA path
+   *  (treats every section as stale).  v2.0 Phase 3 — section-level
+   *  incremental cache, opt-in via `--section-cache`.
+   */
+  sectionHashes: Map[String, String]   = Map.empty
 ) derives ReadWriter
 
 /** Module IR artifact envelope — wraps a `NormalizedModule` as `.scir` JSON.
@@ -293,7 +309,11 @@ case class ModuleIrArtifact(
   pkg:          List[String],  // package segments
   moduleName:   Option[String],
   sourceHash:   String,        // SHA-256 hex of the source bytes
-  body:         String         // upickle.default.write(NormalizedModule) — JSON string
+  body:         String,        // upickle.default.write(NormalizedModule) — JSON string
+  /** Per-section cumulative SHA-256 hashes.  See `ModuleInterface.sectionHashes`
+   *  for semantics.  Default `Map.empty` preserves backward compatibility
+   *  with `.scir` artifacts emitted before this field existed. */
+  sectionHashes: Map[String, String] = Map.empty
 ) derives ReadWriter
 
 /** JVM-backend cached artifact — written as `.scjvm` JSON.
@@ -350,7 +370,11 @@ case class ModuleJvmArtifact(
    *  capability list AND a non-empty `classBundle`, the linker treats it as
    *  a pre-split-runtime artifact (the classBundle ships the full runtime
    *  preamble) and skips runtime-bundle injection at link time. */
-  capabilities: List[String] = Nil
+  capabilities: List[String] = Nil,
+  /** Per-section cumulative SHA-256 hashes.  See `ModuleInterface.sectionHashes`
+   *  for semantics.  Default `Map.empty` preserves backward compatibility
+   *  with `.scjvm` artifacts emitted before this field existed. */
+  sectionHashes: Map[String, String] = Map.empty
 ) derives ReadWriter
 
 /** Shared JVM runtime artifact — written as `.scjvm-runtime` JSON.
@@ -429,7 +453,11 @@ case class ModuleJsArtifact(
    *  in the artifact dir, the linker treats it as a legacy artifact
    *  (the `jsSource` ships the full preamble) and skips runtime-bundle
    *  injection at link time. */
-  capabilities: List[String] = Nil
+  capabilities: List[String] = Nil,
+  /** Per-section cumulative SHA-256 hashes.  See `ModuleInterface.sectionHashes`
+   *  for semantics.  Default `Map.empty` preserves backward compatibility
+   *  with `.scjs` artifacts emitted before this field existed. */
+  sectionHashes: Map[String, String] = Map.empty
 ) derives ReadWriter
 
 /** Shared JS runtime artifact — written as `.scjs-runtime` JSON.
