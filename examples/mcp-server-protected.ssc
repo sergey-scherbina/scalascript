@@ -1,0 +1,79 @@
+#!/usr/bin/env ssc
+---
+name: mcp-server-protected
+version: 1.0.0
+description: MCP server protected by an embedded OAuth Authorization Server — only clients with a valid bearer token can call tools.  Same process serves both /mcp and the OAuth endpoints.
+---
+
+# MCP Server Protected by OAuth
+
+Real MCP deployments need bearer-token auth.  This example boots an
+OAuth AS in the same process as the MCP server, points the MCP server
+at it via `srv.useAuthServer(as)`, then registers both on the same
+HTTP origin.
+
+Clients now MUST:
+  1. Acquire a token from `POST /token` (any grant flow)
+  2. Pass it in `Authorization: Bearer <token>` on every `/mcp` POST
+     and on the `/mcp/events` SSE GET
+
+Without a token the MCP server replies 401 with a `WWW-Authenticate`
+header pointing the client at the AS via the
+`/.well-known/oauth-protected-resource` metadata document.
+
+```scalascript
+[mcpServer, serveMcp, Tool, requireString, Transport](../std/mcp/server.ssc)
+
+// ─── OAuth Authorization Server ──────────────────────────────────────
+val as = oauth.authServer(Map(
+  "issuer"        -> "http://localhost:8080",
+  "signingSecret" -> "rotate-me-in-prod",
+  "scopes"        -> List("mcp:read", "mcp:invoke")
+))
+val mcpClient = as.registerClient(Map(
+  "redirect_uris" -> List("http://localhost/cb"),
+  "grant_types"   -> List("client_credentials"),
+  "scope"         -> "mcp:read mcp:invoke"
+))
+println("MCP client_id: " + mcpClient("client_id"))
+println("MCP client_secret: " + mcpClient("client_secret"))
+oauth.serveAuthServer(as)
+
+// ─── MCP server pointed at the embedded AS ───────────────────────────
+mcpServer { srv =>
+  srv.useAuthServer(as)  // every /mcp request now requires a valid bearer
+
+  srv.tool("ping", "Round-trip test") { args =>
+    Tool.text("pong")
+  }
+
+  srv.tool("echo", "Return the input unchanged") { args =>
+    val msg = requireString(args, "message")
+    Tool.text(s"Echo: $msg")
+  }
+
+  srv.onConnected(() => println("MCP client connected (auth: " + srv.authEnabled + ")"))
+}
+
+println("MCP server protected at http://localhost:8080/mcp")
+println("OAuth AS at the same origin — /token + discovery doc")
+serveMcp(Transport.Http(8080, "/mcp"))
+```
+
+After launch, a client session looks like:
+
+```bash
+# 1. Mint a token
+TOKEN=$(curl -s -X POST http://localhost:8080/token \
+  -d "grant_type=client_credentials&client_id=<id>&client_secret=<sec>&scope=mcp:read+mcp:invoke" \
+  | jq -r .access_token)
+
+# 2. Talk MCP
+curl -X POST http://localhost:8080/mcp \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $TOKEN" \
+  -d '{"jsonrpc":"2.0","method":"tools/list","id":1}'
+
+# 3. Discovery doc tells clients where to find the AS
+curl http://localhost:8080/.well-known/oauth-protected-resource
+```

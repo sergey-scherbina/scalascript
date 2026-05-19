@@ -1,0 +1,57 @@
+#!/usr/bin/env ssc
+---
+name: oauth-as-standalone
+version: 1.0.0
+description: Standalone OAuth 2.1 Authorization Server on HTTP — issues access tokens for registered clients via client_credentials grant.  Fully framework-agnostic; no MCP dependency.
+---
+
+# OAuth 2.1 Authorization Server — Standalone
+
+Brings up an OAuth 2.1 AS on port 8080.  Endpoints:
+
+  - `POST /token`                                         — token endpoint
+  - `POST /introspect`                                    — RFC 7662 introspection
+  - `POST /revoke`                                        — RFC 7009 revocation
+  - `POST /register`                                      — RFC 7591 dynamic client registration
+  - `GET  /authorize`                                     — authorization endpoint (PKCE)
+  - `GET  /.well-known/oauth-authorization-server`        — RFC 8414 discovery doc
+  - `GET  /.well-known/jwks.json`                         — JWK Set (HMAC mode → empty `keys`)
+
+Test it after launch:
+
+```bash
+# Register a confidential client
+curl -X POST http://localhost:8080/register -H 'Content-Type: application/json' \
+  -d '{"redirect_uris":["http://localhost/cb"],"grant_types":["client_credentials"],"scope":"read"}'
+
+# Mint a token via client_credentials
+curl -X POST http://localhost:8080/token \
+  -d "grant_type=client_credentials&client_id=<id>&client_secret=<secret>&scope=read"
+```
+
+```scalascript
+val as = oauth.authServer(Map(
+  "issuer"        -> "http://localhost:8080",
+  "signingSecret" -> "change-me-in-production-please",
+  "scopes"        -> List("read", "write")
+))
+
+// Pre-register a known client so the example is testable from a script.
+val client = as.registerClient(Map(
+  "redirect_uris"             -> List("http://localhost/cb"),
+  "grant_types"               -> List("client_credentials"),
+  "token_endpoint_auth_method" -> "client_secret_basic",
+  "scope"                     -> "read"
+))
+println("Pre-registered client_id     : " + client("client_id"))
+println("Pre-registered client_secret : " + client("client_secret"))
+
+// Mount every OAuth endpoint on the embedded WebServer.
+oauth.serveAuthServer(as)
+
+println("OAuth AS ready on http://localhost:8080")
+println("Discovery: http://localhost:8080/.well-known/oauth-authorization-server")
+
+// Start the HTTP server (blocking).
+serve(8080)
+```

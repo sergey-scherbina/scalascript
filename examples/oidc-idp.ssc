@@ -1,0 +1,62 @@
+#!/usr/bin/env ssc
+---
+name: oidc-idp
+version: 1.0.0
+description: OpenID Connect Identity Provider — issues id_token alongside access_token when the `openid` scope is granted, serves /userinfo for client lookups.
+---
+
+# OpenID Connect Identity Provider
+
+Builds on the standalone OAuth AS to add OIDC.  Extra endpoints:
+
+  - `POST /token`                                — id_token-aware (returns id_token when scope=openid)
+  - `GET  /userinfo`                             — bearer-validated user claims (scope-filtered)
+  - `GET  /.well-known/openid-configuration`     — OIDC discovery document
+
+A typical "Sign in with X" client uses these in this order:
+
+  1. Browser → `GET /authorize?response_type=code&client_id=...&scope=openid+profile+email&...`
+  2. User completes login (your UI runs the auth step; the AS issues an
+     authorization code in the redirect).
+  3. Client back-end → `POST /token` with the code → access_token + id_token
+  4. Client back-end decodes id_token to get the user's identity claims
+     (sub / name / email / picture / locale), or calls `/userinfo` with
+     the access_token to fetch them fresh.
+
+```scalascript
+val as = oauth.authServer(Map(
+  "issuer"        -> "http://localhost:8080",
+  "signingSecret" -> "change-me-in-production-please",
+  "scopes"        -> List("openid", "profile", "email")
+))
+
+val idp = oidc.server(as)
+
+// Populate the user store — in real deployments this comes from your
+// auth backend (LDAP, database, third-party SSO, …).
+idp.addUser(Map(
+  "subject"       -> "alice",
+  "name"          -> "Alice Anderson",
+  "email"         -> "alice@example.com",
+  "emailVerified" -> true,
+  "picture"       -> "https://example.com/alice.png",
+  "locale"        -> "en-US"
+))
+
+// Register a public client (PKCE-only, no client secret).
+val webapp = as.registerClient(Map(
+  "redirect_uris"             -> List("http://localhost:3000/callback"),
+  "grant_types"               -> List("authorization_code", "refresh_token"),
+  "token_endpoint_auth_method" -> "none",
+  "scope"                     -> "openid profile email"
+))
+println("Webapp client_id: " + webapp("client_id"))
+
+// Install the full OIDC route set (also serves all OAuth endpoints).
+oidc.serve(idp)
+
+println("OIDC IdP ready on http://localhost:8080")
+println("Discovery: http://localhost:8080/.well-known/openid-configuration")
+
+serve(8080)
+```

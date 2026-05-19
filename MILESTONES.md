@@ -561,10 +561,19 @@ unblocks downstream features as early as possible.
      for script use.  MCP server's RS logic is the same `check` —
      unified codepath.
 
+     **Examples + documentation** (Iter DD) ✓ — comprehensive
+     `docs/oauth.md` (big-picture map, AS recipe, RS-guard recipe,
+     OIDC recipe, RSA+JWKS migration path, MCP integration, spec
+     compliance table covering 13 RFCs + OIDC Core / Discovery) plus
+     four runnable `.ssc` examples: `oauth-as-standalone`,
+     `oidc-idp`, `oauth-rs-guard`, `oauth-rsa-jwks`,
+     `mcp-server-protected`.
+
      **Still open in MCP** (deferred): generic `_meta` field
      propagation across primitives.
-     **Still open in OAuth** (post-v1.17): examples + documentation
-     pass.
+     **Still open in OAuth** (post-v1.17): `oauth.rsaAuthServer(...)`
+     script intrinsic (RSA AS is JVM-only today); WebAuthn /
+     passkey grant.
  22. **v1.18 — `package` keyword + std layout migration** ✓ Landed (all phases, 2026-05-19).
  23. **v1.19 — URL / dep imports** ✓ Landed.
      `[X](https://...)` URL fetch + `[X](dep:org/lib:1.2)`
