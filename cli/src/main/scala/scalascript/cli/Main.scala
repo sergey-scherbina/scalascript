@@ -2170,6 +2170,29 @@ def compileJvmCommand(args: List[String]): Unit =
           // resolution but deps still land in --artifact-dir.
           Some(ifaceDir.getOrElse(effectiveArtifactDir))
 
+      val sourceBytes = os.read.bytes(path)
+      val src         = new String(sourceBytes, "UTF-8")
+      val module      = Parser.parse(src)
+
+      // Bail out early with a structured diagnostic if any scalascript block
+      // failed to parse.  Without this, the typer would emit the opaque
+      // "Failed to parse scalascript code block" — useless for bisecting.
+      if reportCodeBlockParseErrors(module, file) then
+        System.exit(1)
+
+      // v2.0 Phase 5 — discover and stage pre-compiled artifacts shipped
+      // alongside any `dep:` imports' cached `.ssc`.  Each `.sscpkg` built
+      // with `--with-artifacts` carries a `.ssc-artifacts/<basename>.<ext>`
+      // sibling; when found, copy it into the consumer's artifact dir so
+      // the typer + linker pick it up without re-parsing the dep source.
+      // No-op when no dep: imports or no artifacts ship — source-parse
+      // path still works.
+      val precompiledDeps =
+        stagePrecompiledDepArtifacts(module, path, effectiveArtifactDir, List("scim", "scjvm"))
+      if precompiledDeps.nonEmpty then
+        val summary = precompiledDeps.toList.sortBy(_._1).map((e, n) => s"$n $e").mkString(", ")
+        println(s"compile-jvm: staged pre-compiled dep artifacts ($summary)")
+
       // Pre-load interfaces from the iface dir (auto-resolved or
       // user-supplied) for type-checking the target.
       val interfaces: Map[String, scalascript.ir.ModuleInterface] =
@@ -2190,16 +2213,6 @@ def compileJvmCommand(args: List[String]): Unit =
                     System.err.println(s"  [warn] skipping ${p.last}: $err")
                     Nil
               }.toMap
-
-      val sourceBytes = os.read.bytes(path)
-      val src         = new String(sourceBytes, "UTF-8")
-      val module      = Parser.parse(src)
-
-      // Bail out early with a structured diagnostic if any scalascript block
-      // failed to parse.  Without this, the typer would emit the opaque
-      // "Failed to parse scalascript code block" — useless for bisecting.
-      if reportCodeBlockParseErrors(module, file) then
-        System.exit(1)
 
       // Type-check (optionally against pre-compiled interfaces).  Errors are
       // surfaced as a non-zero exit code so the build orchestrator can stop
@@ -2735,6 +2748,25 @@ def compileJsCommand(args: List[String]): Unit =
               compileJsDepInto(dep, effectiveArtifactDir, scimPath, scjsPath)
           Some(ifaceDir.getOrElse(effectiveArtifactDir))
 
+      val sourceBytes = os.read.bytes(path)
+      val src         = new String(sourceBytes, "UTF-8")
+      val module      = Parser.parse(src)
+
+      // Bail out early with a structured diagnostic if any scalascript block
+      // failed to parse — same rationale as compile-jvm.
+      if reportCodeBlockParseErrors(module, file) then
+        System.exit(1)
+
+      // v2.0 Phase 5 — stage pre-compiled artifacts shipped alongside any
+      // `dep:` imports' cached `.ssc`.  See `compileJvmCommand` for the
+      // detailed rationale.  Discovered `.scim` + `.scjs` end up in the
+      // effective artifact dir; the typer + linker pick them up directly.
+      val precompiledDeps =
+        stagePrecompiledDepArtifacts(module, path, effectiveArtifactDir, List("scim", "scjs"))
+      if precompiledDeps.nonEmpty then
+        val summary = precompiledDeps.toList.sortBy(_._1).map((e, n) => s"$n $e").mkString(", ")
+        println(s"compile-js: staged pre-compiled dep artifacts ($summary)")
+
       // Pre-load interfaces from the iface dir (auto-resolved or
       // user-supplied) for type-checking the target.
       val interfaces: Map[String, scalascript.ir.ModuleInterface] =
@@ -2752,15 +2784,6 @@ def compileJsCommand(args: List[String]): Unit =
                     System.err.println(s"  [warn] skipping ${p.last}: $err")
                     Nil
               }.toMap
-
-      val sourceBytes = os.read.bytes(path)
-      val src         = new String(sourceBytes, "UTF-8")
-      val module      = Parser.parse(src)
-
-      // Bail out early with a structured diagnostic if any scalascript block
-      // failed to parse — same rationale as compile-jvm.
-      if reportCodeBlockParseErrors(module, file) then
-        System.exit(1)
 
       // Type-check (optionally against pre-compiled interfaces).  Errors are
       // surfaced as a non-zero exit code so the build orchestrator can stop
@@ -3927,6 +3950,68 @@ private def collectImports(sections: List[Section]): List[String] =
     s.content.collect { case imp: Content.Import => imp.path } ++
       collectImports(s.subsections)
   }
+
+/** v2.0 Phase 5 — discover pre-compiled artifacts shipped alongside cached
+ *  `dep:` sources and stage them into the consumer's artifact dir.
+ *
+ *  For every `dep:` import in `module`:
+ *  - Resolve the cached `.ssc` via `ImportResolver`.
+ *  - Look for `.ssc-artifacts/<basename>.<ext>` alongside it.
+ *  - If found, copy into `targetArtifactDir` so the typer (and the linker)
+ *    see the dep's pre-compiled `.scim` / `.scjvm` / `.scjs` directly.
+ *
+ *  Returns the count of artifacts staged per extension (for logging).
+ *  Source-fallback: when no artifacts ship alongside, the dep's source is
+ *  parsed via the regular `JvmGen.inlineImport` / `JsGen` path later, so
+ *  callers can be unconditional in invoking this helper.
+ *
+ *  Corrupt artifacts (bad magic / abi mismatch) surface a clear error and
+ *  the file is skipped — the caller can choose to fall back to source. */
+private def stagePrecompiledDepArtifacts(
+    module:             Module,
+    sourcePath:         os.Path,
+    targetArtifactDir:  os.Path,
+    desiredExts:        List[String]
+): Map[String, Int] =
+  import scalascript.imports.ImportResolver
+  val deps = module.manifest.map(_.dependencies).getOrElse(Map.empty)
+  val baseDir = sourcePath / os.up
+  val depImports = collectImports(module.sections).filter(_.startsWith("dep:"))
+  if depImports.isEmpty then return Map.empty
+  os.makeDir.all(targetArtifactDir)
+  val tallies = scala.collection.mutable.Map.empty[String, Int]
+  for depUri <- depImports.distinct do
+    val resolved =
+      try Some(ImportResolver.resolve(depUri, baseDir, deps, lockPath = None))
+      catch case _: Throwable => None
+    resolved match
+      case Some(sscPath) =>
+        for ext <- desiredExts do
+          ImportResolver.findArtifactAlongside(sscPath, ext) match
+            case Some(art) =>
+              // Validate envelope before staging — bad magic must surface
+              // a clear error so the user knows the .sscpkg is broken.
+              val checkResult: Either[String, Unit] = ext match
+                case "scim"  =>
+                  scalascript.artifact.ArtifactIO.readInterfaceFile(art).map(_ => ())
+                case "scjvm" =>
+                  scalascript.artifact.JvmArtifactIO.readJvmFile(art).map(_ => ())
+                case "scjs"  =>
+                  scalascript.artifact.JsArtifactIO.readJsFile(art).map(_ => ())
+                case _       => Right(())
+              checkResult match
+                case Right(_) =>
+                  val dest = targetArtifactDir / art.last
+                  if !os.exists(dest) then
+                    os.copy.over(art, dest, createFolders = true)
+                  tallies(ext) = tallies.getOrElse(ext, 0) + 1
+                case Left(err) =>
+                  throw new RuntimeException(
+                    s"compile: corrupt pre-compiled dep artifact $art: $err"
+                  )
+            case None => ()
+      case None => ()
+  tallies.toMap
 
 def compileCommand(args: List[String]): Unit =
   if args.isEmpty then { println("Error: No files specified"); System.exit(1) }
