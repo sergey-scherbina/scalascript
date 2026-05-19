@@ -7489,6 +7489,9 @@ class Interpreter(
         if matches then matchPat(inner, scrutinee, env) else None
     case Pat.Alternative(lhs, rhs) =>
       List(lhs, rhs).iterator.flatMap(p => matchPat(p, scrutinee, env)).nextOption()
+    // @ binder: `xs @ pattern` — bind `xs` to the whole scrutinee, then match `pattern`
+    case Pat.Bind(lhs: Pat.Var, rhs) =>
+      matchPat(rhs, scrutinee, env).map(e => e + (lhs.name.value -> scrutinee))
     case t: Term.Name =>
       env.get(t.value).orElse(globals.get(t.value))
         .flatMap(v => Option.when(v == scrutinee)(env))
@@ -7511,6 +7514,7 @@ class Interpreter(
     case Pat.Tuple(pats)      => pats.flatMap(patVarNames).toSet
     case Pat.Extract.After_4_6_0(_, argClause) => argClause.values.flatMap(patVarNames).toSet
     case Pat.Typed(inner, _)  => patVarNames(inner)
+    case Pat.Bind(lhs: Pat.Var, rhs) => patVarNames(rhs) + lhs.name.value
     case _                    => Set.empty
 
   private def evalForYield(enums: List[Enumerator], body: Term, env: Env): Computation =

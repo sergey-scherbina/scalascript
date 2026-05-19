@@ -5270,10 +5270,12 @@ case x if x > 0 =>                   // guard
 case xs @ (h :: _) =>                // @ binder
 ```
 
-- [ ] Nested patterns in `Parser` + `Typer` + all 3 backends
-- [ ] Guard expressions (`if` in case arm)
-- [ ] `@` binder: bind the whole match target and a sub-pattern simultaneously
-- [ ] Regression tests across INT / JS / JVM
+- [x] Nested patterns in `Parser` + `Typer` + all 3 backends
+- [x] Guard expressions (`if` in case arm)
+- [x] `@` binder: bind the whole match target and a sub-pattern simultaneously
+- [x] Regression tests across INT / JS / JVM
+
+**Landed 2026-05-19.** `Pat.Bind` added to `matchPat` (Interpreter) and `genPattern` / `genForPatBinding` (JsGen). Nested patterns were already handled recursively; guards were already implemented. 17 new tests in `PatternMatchTest.scala` — all green.
 
 ### 2. Type aliases — ✓ Landed (v1.24)
 

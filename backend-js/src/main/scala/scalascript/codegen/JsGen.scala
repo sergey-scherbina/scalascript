@@ -8693,6 +8693,11 @@ class JsGen(
       val (rCond, _) = genPattern(scrutVar, rhs)
       (s"($lCond || $rCond)", Nil)
 
+    // @ binder: `xs @ pattern` — bind `xs` to the whole scrutinee, then match `pattern`
+    case Pat.Bind(lhs: Pat.Var, rhs) =>
+      val (cond, bindings) = genPattern(scrutVar, rhs)
+      (cond, (lhs.name.value -> scrutVar) :: bindings)
+
     // Enum singleton reference: case Red => or case Color.Red =>
     case t: Term.Name =>
       t.value match
@@ -8827,6 +8832,11 @@ class JsGen(
           case Pat.Var(n) => s"const ${n.value} = Object.values($scrutVar).slice(1)[$i];"
           case _ => ""
       }.mkString(" ")
+    // @ binder: bind the whole scrutinee to the name, then destructure rhs
+    case Pat.Bind(lhs: Pat.Var, rhs) =>
+      val rhsBindings = genForPatBinding(rhs, scrutVar)
+      val lhsBinding  = if lhs.name.value == scrutVar then "" else s"const ${lhs.name.value} = $scrutVar;"
+      s"$lhsBinding $rhsBindings".trim
     case _ => ""
 
   private def mapName(name: String): String = name match
