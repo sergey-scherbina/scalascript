@@ -1,0 +1,24 @@
+---
+name: std-cluster-types
+version: 0.1.0
+description: "Cluster primitives — re-exports NodeJoined / NodeLeft from std.actors"
+package: std.cluster
+exports:
+  - NodeJoined
+  - NodeLeft
+---
+
+# `std.cluster.types`
+
+Thin re-export layer over the `NodeJoined` / `NodeLeft` events that
+`std.actors` already exposes for cluster visibility (v1.23).  Lives in
+`std.cluster` so application code that talks about clusters never has to
+import from `std.actors`.
+
+A `NodeId` is just the string identifier passed to `startNode(nodeId, url)`
+on each peer — no wrapping type to avoid friction with the underlying
+intrinsics that take plain strings.
+
+```scalascript
+[NodeJoined, NodeLeft](../actors.ssc)
+```
