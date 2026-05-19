@@ -460,9 +460,17 @@ class Interpreter(
     peerChannels.forEach { (_, send) => try send(payload) catch case _: Throwable => () }
   private def raftAdoptLeader(newLeader: String): Unit =
     val prev = currentLeader.getAndSet(newLeader)
+    // Record every accepted claim in leaderHistory, per v1.23 §
+    // "leader-protocol" doc — single-node mode has both `prev` and
+    // `newLeader` empty strings, and the old `prev != newLeader`
+    // guard around the history write conflated "no change" with
+    // "first claim by an empty-id node", silently dropping the
+    // initial entry.  `enqueueLeaderEvent` stays guarded so multi-
+    // adopt-of-same-leader doesn't fire duplicate `LeaderElected`
+    // notifications.
+    recordLeaderHist(newLeader)
     if prev != newLeader then
       enqueueLeaderEvent("LeaderElected", newLeader)
-      recordLeaderHist(newLeader)
   private def startRaftElection(): Unit =
     raftStateName    = "candidate"
     raftCurrentTerm  = raftCurrentTerm + 1
@@ -609,9 +617,12 @@ class Interpreter(
       out.println(s"[cluster:dbg] $localNodeId startElection peers=${peers.mkString(",")} quorum=$quorumSize visible=${peerChannels.size + 1}")
     if localNodeId.isEmpty then
       val prev = currentLeader.getAndSet(localNodeId)
+      // Record every accepted claim — single-node mode has empty
+      // `localNodeId`, the old `prev != localNodeId` guard skipped
+      // the initial history entry.  Notification stays guarded.
+      recordLeaderHist(localNodeId)
       if prev != localNodeId then
         enqueueLeaderEvent("LeaderElected", localNodeId)
-        recordLeaderHist(localNodeId)
     else
       val higher = scala.collection.mutable.ListBuffer.empty[String]
       peerChannels.keySet().forEach(nid => if nid > localNodeId then higher += nid)
@@ -625,9 +636,11 @@ class Interpreter(
         else
           val prev = currentLeader.getAndSet(localNodeId)
           broadcastCoordinator()
+          // Record on every accepted claim (symmetric with the
+          // empty-id branch above + the Raft / coordinator paths).
+          recordLeaderHist(localNodeId)
           if prev != localNodeId then
             enqueueLeaderEvent("LeaderElected", localNodeId)
-            recordLeaderHist(localNodeId)
       else
         electionInProgress = true
         electionStartedAt  = System.currentTimeMillis()
@@ -7202,9 +7215,13 @@ class Interpreter(
               case Value.BoolV(true) =>
                 coordIsLeader = true
                 val prev = currentLeader.getAndSet(localNodeId)
+                // Record every accepted claim — same reasoning as in
+                // `raftAdoptLeader`: single-node mode has empty
+                // `localNodeId`, the old guard skipped the initial
+                // history entry.  `enqueueLeaderEvent` stays guarded.
+                recordLeaderHist(localNodeId)
                 if prev != localNodeId then
                   enqueueLeaderEvent("LeaderElected", localNodeId)
-                  recordLeaderHist(localNodeId)
               case _ => ()
             ensureCoordTickThread()
           case _ => ()
