@@ -160,6 +160,51 @@ lazy val runtimeServerJvm = project
     }.taskValue
   )
 
+// v1.17.6 / Phase S2 (HTTP server SPI) — Jetty 12 backend.  Optional;
+// pulls Jetty as a runtime dependency.  Enables HTTP/2 + mature WS +
+// permessage-deflate.  Discovered via ServiceLoader[HttpServerSpi]
+// when on the classpath.  Currently a stub — `start` throws
+// NotImplementedError; module declaration + dep + ServiceLoader
+// registration in place so the SPI is discoverable.  S2 fills in
+// the actual Jetty integration.
+lazy val runtimeServerJvmJetty = project
+  .in(file("runtime-server-jvm-jetty"))
+  .dependsOn(runtimeServerSpi, runtimeServerCommon)
+  .settings(
+    name := "scalascript-runtime-server-jvm-jetty",
+    libraryDependencies ++= Seq(
+      // Jetty 12 — modern API, HTTP/2 + WS + servlet-compat.
+      "org.eclipse.jetty"           %  "jetty-server"             % "12.0.13",
+      "org.eclipse.jetty.ee10"      %  "jetty-ee10-servlet"       % "12.0.13",
+      "org.eclipse.jetty.websocket" %  "jetty-websocket-jetty-api" % "12.0.13",
+      "org.eclipse.jetty.websocket" %  "jetty-websocket-jetty-server" % "12.0.13",
+      scalatestTest
+    ),
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions
+  )
+
+// v1.17.6 / Phase S3 (HTTP server SPI) — Netty 4 backend.  Optional;
+// pulls Netty as a runtime dependency.  Highest throughput per core,
+// HTTP/3 incubator, custom protocol support.  Discovered via
+// ServiceLoader[HttpServerSpi] when on the classpath.  Currently a
+// stub — module declaration + dep + ServiceLoader registration in
+// place.  S3 fills in the actual Netty integration.
+lazy val runtimeServerJvmNetty = project
+  .in(file("runtime-server-jvm-netty"))
+  .dependsOn(runtimeServerSpi, runtimeServerCommon)
+  .settings(
+    name := "scalascript-runtime-server-jvm-netty",
+    libraryDependencies ++= Seq(
+      "io.netty" %  "netty-codec-http"   % "4.1.118.Final",
+      "io.netty" %  "netty-codec-http2"  % "4.1.118.Final",
+      "io.netty" %  "netty-handler-ssl-ocsp" % "4.1.118.Final",
+      scalatestTest
+    ),
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions
+  )
+
 lazy val backendJvm = project
   .in(file("backend-jvm"))
   .dependsOn(backendSpi, core, runtimeServerCommon, runtimeServerJvm)
@@ -421,7 +466,9 @@ lazy val cli = project
 lazy val root = project
   .in(file("."))
   .aggregate(
-    backendSpi, ir, core, runtimeServerCommon, runtimeServerSpi, runtimeServerJvm, mcpCommon,
+    backendSpi, ir, core,
+    runtimeServerCommon, runtimeServerSpi, runtimeServerJvm,
+    runtimeServerJvmJetty, runtimeServerJvmNetty, mcpCommon,
     backendJvm, backendJs, backendNode, backendScalajs, backendWasm, backendInterpreter,
     backendScalaSource, backendHtml, backendCss, backendSpark,
     cli
