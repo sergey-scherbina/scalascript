@@ -7559,10 +7559,12 @@ class Interpreter(
               while p.isDefined && !ok do { ok = p.get == typeName; p = parentTypes.get(p.get) }
               ok
             }
-          case _: Value.IntV    => typeName == "Int"
-          case _: Value.DoubleV => typeName == "Double"
+          // IntV represents both Int and Long (stored as JVM Long internally).
+          case _: Value.IntV    => typeName == "Int" || typeName == "Long"
+          case _: Value.DoubleV => typeName == "Double" || typeName == "Float" || typeName == "Number"
           case _: Value.StringV => typeName == "String"
           case _: Value.BoolV   => typeName == "Boolean"
+          case _: Value.CharV   => typeName == "Char"
           case _: Value.ListV   => typeName == "List"
           case _: Value.OptionV => typeName == "Option"
           case _: Value.MapV    => typeName == "Map"

@@ -438,7 +438,17 @@ class Typer(
     (actual == SType.Null && isNullable(expected)) ||
     // Numeric widening: Int literal is valid where Long or Double is expected
     (actual == SType.Int  && (expected == SType.Long || expected == SType.Double)) ||
-    (actual == SType.Long && expected == SType.Double)
+    (actual == SType.Long && expected == SType.Double) ||
+    // Union subtyping: `A <: A | B` — actual is assignable to a union if it
+    // is assignable to at least one member of the union.
+    (expected match
+      case SType.Union(alts) => alts.exists(isCompatible(actual, _))
+      case _                 => false) ||
+    // Union on the actual side: `A | B <: C` — every alternative must be
+    // assignable to `expected` (conservative; handles `Union <: Union`).
+    (actual match
+      case SType.Union(alts) => alts.forall(isCompatible(_, expected))
+      case _                 => false)
 
   private def isNullable(t: SType): Boolean = t match
     case SType.Named(_, _) => true

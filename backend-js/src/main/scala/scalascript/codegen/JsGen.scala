@@ -8715,8 +8715,26 @@ class JsGen(
         case _              => "undefined"
       (s"$scrutVar === $litJs", Nil)
 
-    case Pat.Typed(inner, _) =>
-      genPattern(scrutVar, inner)
+    case Pat.Typed(inner, tpe) =>
+      // Emit a type-test guard for union-type narrowing: `case s: String =>`.
+      // Map the declared type name to a JS typeof / instanceof check.
+      val typeName = tpe match
+        case Type.Name(n)   => n
+        case ta: Type.Apply => ta.tpe match { case Type.Name(n) => n; case _ => "" }
+        case _              => ""
+      val typeCond = typeName match
+        case "String"  => s"(typeof $scrutVar === 'string')"
+        case "Int" | "Long" | "Double" | "Float" | "Number" =>
+          s"(typeof $scrutVar === 'number')"
+        case "Boolean" => s"(typeof $scrutVar === 'boolean')"
+        case ""        => "true"    // unknown type — fall through
+        case _         => s"($scrutVar && $scrutVar._type === '$typeName')"
+      val (innerCond, bindings) = genPattern(scrutVar, inner)
+      val cond =
+        if typeCond == "true" then innerCond
+        else if innerCond == "true" then typeCond
+        else s"$typeCond && $innerCond"
+      (cond, bindings)
 
     case Pat.Tuple(pats) =>
       val subConditions = pats.zipWithIndex.map { (p, i) =>

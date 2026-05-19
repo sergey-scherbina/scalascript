@@ -5336,9 +5336,9 @@ as unrelated outside the defining scope.
 - [x] All 3 backends — interpreter registers synthetic companion; JsGen / JvmGen fall through to existing catch-all / `other.syntax` (zero runtime change)
 - [x] Tests: `OpaqueTypeTest.scala` — 8 tests, all green (v1.24)
 
-### 4. Union types
+### 4. Union types ✓ Landed
 
-**Effort: ~1 week.**
+**Effort: ~1 week. Landed 2026-05-19.**
 
 ```scalascript
 def show(x: String | Int): String = x match
@@ -5346,12 +5346,12 @@ def show(x: String | Int): String = x match
   case n: Int    => n.toString
 ```
 
-- [ ] `A | B` syntax in type parser
-- [ ] Typer: union subtyping rules, narrowing in match arms
-- [ ] Interpreter: no runtime change (dynamically typed)
-- [ ] JS backend: type-only, no emit change
-- [ ] JVM backend: emit `Object` + instanceof checks
-- [ ] Tests
+- [x] `A | B` syntax in type parser — scalameta parses Scala 3 union types natively; `typeAnnotToSType` already flattens `Type.ApplyInfix(lhs, |, rhs)` to `SType.Union`
+- [x] Typer: union subtyping rules — `isCompatible` extended: `A <: A | B`, `A | B <: C` (all alts must hold)
+- [x] Interpreter: extended `Pat.Typed` dispatch to also match `Long`, `Float/Number`, `Char`
+- [x] JS backend: `Pat.Typed` in `genPattern` now emits `typeof x === 'string'` / `typeof x === 'number'` / `typeof x === 'boolean'` for primitive types; instance types emit `_type` check
+- [x] JVM backend: no change needed — JvmGen emits Scala source and Scala 3 union types + type-test patterns are natively supported
+- [x] Tests — `UnionTypeTest.scala` (12 cases): `show(String | Int)`, mixed `List[String | Int]`, three-way union, wildcard arm, union return type
 
 ### 5. Extension methods on user-defined types ✓ Landed
 
