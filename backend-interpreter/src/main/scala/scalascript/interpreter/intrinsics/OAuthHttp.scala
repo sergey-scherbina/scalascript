@@ -77,6 +77,10 @@ object OAuthHttp:
     register(ctx, "GET", prefix + "/.well-known/oauth-authorization-server",
              "oauth.http.metadata") { _ => OAuthRoutes.handleMetadata(as) }
 
+    // ─── GET /.well-known/jwks.json — JWKS for asymmetric signers ────
+    register(ctx, "GET", prefix + "/.well-known/jwks.json",
+             "oauth.http.jwks") { _ => OAuthRoutes.handleJwks(as) }
+
   // ─── helpers ────────────────────────────────────────────────────────
 
   /** Register one route that maps a Request → RouteOutcome. */

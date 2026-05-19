@@ -1,7 +1,8 @@
 package scalascript.oauth
 
 import java.nio.charset.StandardCharsets
-import java.security.MessageDigest
+import java.security.{KeyPairGenerator, MessageDigest, Signature}
+import java.security.interfaces.{RSAPrivateKey, RSAPublicKey}
 import java.util.Base64
 import javax.crypto.Mac
 import javax.crypto.spec.SecretKeySpec
@@ -94,6 +95,126 @@ object OAuth:
     errorDescription.foreach(d => sb.append(s""", error_description="${escapeQ(d)}""""))
     scope.foreach(s            => sb.append(s""", scope="$s""""))
     sb.toString
+
+  // ─── Pluggable JWT signers ─────────────────────────────────────────
+
+  /** v1.17.x — JWT signing abstraction.  Default deployments use the
+   *  HS256 (HMAC) signer; production cross-service deployments wire in
+   *  RS256 (RSA-SHA256) so resource servers can validate via the AS's
+   *  published JWKS without sharing a symmetric secret. */
+  trait TokenSigner:
+    def alg: String
+    /** Optional key id — embedded in the JWT header so multi-key
+     *  validators (JWKS clients) can pick the matching public key. */
+    def kid: Option[String] = None
+    /** Sign the supplied JWT claims payload, returning the wire-ready
+     *  `header.payload.signature` string. */
+    def sign(payload: ujson.Value): String
+    /** Verify a presented JWT.  Returns Right(payload) on success;
+     *  Left(reason) on bad signature / malformed / expired. */
+    def verify(token: String): Either[String, ujson.Value]
+    /** Public JWK representation for this signer.  None for symmetric
+     *  signers — HMAC keys MUST NOT be published. */
+    def publicJwk: Option[ujson.Value] = None
+
+  /** HS256 HMAC-SHA256 signer.  Symmetric — both AS and RS must share
+   *  the secret.  Suitable for single-process deployments and tests. */
+  class HmacTokenSigner(
+    val secret:       String,
+    override val kid: Option[String] = None
+  ) extends TokenSigner:
+    val alg = "HS256"
+    def sign(payload: ujson.Value): String =
+      val header = ujson.Obj("alg" -> "HS256", "typ" -> "JWT")
+      kid.foreach(k => header("kid") = k)
+      val signingInput = b64u(header.render()) + "." + b64u(payload.render())
+      val sig          = hmacSha256(secret, signingInput)
+      signingInput + "." + b64u(sig)
+    def verify(token: String): Either[String, ujson.Value] =
+      decodeHmacToken(secret, token)
+
+  /** RS256 RSA-SHA256 signer.  Asymmetric — only the AS holds the
+   *  private key; resource servers fetch the public key via JWKS.
+   *  Generate via `RsaTokenSigner.generate(kid)` for a fresh 2048-bit
+   *  RSA key pair, or wire in your own KMS-managed pair. */
+  class RsaTokenSigner(
+    val privateKey:   RSAPrivateKey,
+    val publicKey:    RSAPublicKey,
+    override val kid: Option[String] = None
+  ) extends TokenSigner:
+    val alg = "RS256"
+    def sign(payload: ujson.Value): String =
+      val header = ujson.Obj("alg" -> "RS256", "typ" -> "JWT")
+      kid.foreach(k => header("kid") = k)
+      val signingInput = b64u(header.render()) + "." + b64u(payload.render())
+      val sig          = rsaSign(privateKey, signingInput)
+      signingInput + "." + b64u(sig)
+    def verify(token: String): Either[String, ujson.Value] =
+      try
+        val parts = token.split('.')
+        if parts.length != 3 then Left("malformed token")
+        else
+          val signingInput = parts(0) + "." + parts(1)
+          val sigBytes     = Base64.getUrlDecoder.decode(parts(2))
+          if !rsaVerify(publicKey, signingInput, sigBytes) then
+            Left("signature mismatch")
+          else
+            val payload = ujson.read(decodeB64u(parts(1)))
+            val now     = java.time.Instant.now.getEpochSecond
+            val exp     = payload.obj.get("exp").flatMap(_.numOpt).getOrElse(0.0).toLong
+            if exp != 0 && now > exp then Left("token expired")
+            else Right(payload)
+      catch case _: Throwable => Left("validation failure")
+    override def publicJwk: Option[ujson.Value] =
+      Some(rsaPublicJwk(publicKey, kid))
+
+  object RsaTokenSigner:
+    /** Generate a fresh 2048-bit RSA key pair and wrap as a signer.
+     *  `kid` controls the key id embedded in the JWT header + JWK
+     *  published via the JWKS endpoint. */
+    def generate(kid: String = "rsa-key-1"): RsaTokenSigner =
+      val gen = KeyPairGenerator.getInstance("RSA")
+      gen.initialize(2048)
+      val kp = gen.generateKeyPair()
+      new RsaTokenSigner(
+        kp.getPrivate.asInstanceOf[RSAPrivateKey],
+        kp.getPublic.asInstanceOf[RSAPublicKey],
+        Some(kid))
+
+  /** JWKS (JSON Web Key Set) document — collects the public JWKs from
+   *  one or more signers.  RFC 7517.  Symmetric signers (HMAC)
+   *  contribute nothing — their keys MUST NOT leave the AS. */
+  def jwksDocument(signers: List[TokenSigner]): ujson.Value =
+    ujson.Obj("keys" -> ujson.Arr.from(signers.flatMap(_.publicJwk)))
+
+  // ─── Standard JWT payload helpers ───────────────────────────────────
+
+  /** Build the standard access-token claim set — the same shape used by
+   *  the OAuth issuer regardless of signing algorithm.  Caller supplies
+   *  the signer separately. */
+  def buildAccessTokenPayload(
+    subject:          String,
+    scopes:           Set[String],
+    expiresInSeconds: Long,
+    issuer:           Option[String] = None,
+    audience:         Option[String] = None,
+    clientId:         Option[String] = None,
+    extra:            ujson.Value    = ujson.Obj()
+  ): ujson.Value =
+    val now = java.time.Instant.now.getEpochSecond
+    val payload = ujson.Obj(
+      "sub"   -> subject,
+      "scope" -> scopes.toList.sorted.mkString(" "),
+      "iat"   -> ujson.Num(now.toDouble),
+      "exp"   -> ujson.Num((now + expiresInSeconds).toDouble)
+    )
+    issuer.foreach   (i => payload("iss")       = i)
+    audience.foreach (a => payload("aud")       = a)
+    clientId.foreach (c => payload("client_id") = c)
+    extra match
+      case obj: ujson.Obj => obj.value.foreach((k, v) => payload(k) = v)
+      case _              => ()
+    payload
 
   // ─── HMAC JWT-ish tokens (test + trusted-internal use) ──────────────
 
@@ -201,6 +322,37 @@ object OAuth:
     val mac = Mac.getInstance("HmacSHA256")
     mac.init(SecretKeySpec(secret.getBytes(StandardCharsets.UTF_8), "HmacSHA256"))
     mac.doFinal(message.getBytes(StandardCharsets.UTF_8))
+
+  private[oauth] def rsaSign(key: RSAPrivateKey, message: String): Array[Byte] =
+    val sig = Signature.getInstance("SHA256withRSA")
+    sig.initSign(key)
+    sig.update(message.getBytes(StandardCharsets.UTF_8))
+    sig.sign()
+
+  private[oauth] def rsaVerify(key: RSAPublicKey, message: String, signature: Array[Byte]): Boolean =
+    val sig = Signature.getInstance("SHA256withRSA")
+    sig.initVerify(key)
+    sig.update(message.getBytes(StandardCharsets.UTF_8))
+    sig.verify(signature)
+
+  /** RFC 7517 JWK serialisation of an RSA public key.  `n` and `e` are
+   *  unpadded base64url; `kty/use/alg` are constants per RFC 7518. */
+  private[oauth] def rsaPublicJwk(key: RSAPublicKey, kid: Option[String]): ujson.Value =
+    val obj = ujson.Obj(
+      "kty" -> "RSA",
+      "use" -> "sig",
+      "alg" -> "RS256",
+      "n"   -> b64u(stripLeadingZero(key.getModulus.toByteArray)),
+      "e"   -> b64u(stripLeadingZero(key.getPublicExponent.toByteArray))
+    )
+    kid.foreach(k => obj("kid") = k)
+    obj
+
+  /** Java's BigInteger.toByteArray emits a leading zero byte when the
+   *  high bit is set (so it stays non-negative); JWK n/e MUST NOT carry
+   *  that padding (RFC 7518 §6.3.1). */
+  private[oauth] def stripLeadingZero(bs: Array[Byte]): Array[Byte] =
+    if bs.length > 1 && bs(0) == 0 then bs.drop(1) else bs
 
   private[oauth] def b64u(s: String): String =
     b64u(s.getBytes(StandardCharsets.UTF_8))

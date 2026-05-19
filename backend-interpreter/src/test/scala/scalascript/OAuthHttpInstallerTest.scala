@@ -58,7 +58,7 @@ class OAuthHttpInstallerTest extends AnyFunSuite with Matchers:
 
   // ─── installRoutes ───────────────────────────────────────────────
 
-  test("installRoutes registers all six OAuth endpoints"):
+  test("installRoutes registers all OAuth endpoints"):
     val ctx = new CapturingCtx
     OAuthHttp.installRoutes(newAs, ctx)
     ctx.routes.keys.toSet shouldBe Set(
@@ -67,7 +67,8 @@ class OAuthHttpInstallerTest extends AnyFunSuite with Matchers:
       ("POST", "/revoke"),
       ("POST", "/register"),
       ("GET",  "/authorize"),
-      ("GET",  "/.well-known/oauth-authorization-server")
+      ("GET",  "/.well-known/oauth-authorization-server"),
+      ("GET",  "/.well-known/jwks.json")
     )
 
   test("installRoutes honours the basePath prefix"):
@@ -79,7 +80,8 @@ class OAuthHttpInstallerTest extends AnyFunSuite with Matchers:
       ("POST", "/oauth/revoke"),
       ("POST", "/oauth/register"),
       ("GET",  "/oauth/authorize"),
-      ("GET",  "/oauth/.well-known/oauth-authorization-server")
+      ("GET",  "/oauth/.well-known/oauth-authorization-server"),
+      ("GET",  "/oauth/.well-known/jwks.json")
     )
 
   // ─── /token route through the adapter ───────────────────────────
