@@ -6640,18 +6640,24 @@ Thin `backend-wasm-contract/` layer on top of `backend-wasm/` for Near or Polkad
 > and Phase 3 (Spark SQL / DataFrames including typed readers,
 > case-class schema derivation, and SQL-callable UDFs).
 >
-> **Phase E (open / roadmap) — Scala 3 native Spark `Encoder` derivation.**
-> Spark publishes only `_2.13` JARs; its `Encoder` derivation for product
-> types needs Scala 2.13's `TypeTag` macro which Scala 3 cannot synthesise.
-> This blocks the typed paths landed in C.3 #9 + D from actually compiling
-> against a real `_2.13` Spark install — they compile only against Spark
-> Connect or once we ship our own `Mirror`/`scala.quoted`-based encoder
-> derivation.  Workarounds in place (SQL `VALUES` seeding, manual Java
-> `UDF1` registration) keep every `examples/spark-*-demo.ssc` compiling
-> against `_2.13` Spark today, at the cost of authors writing more
-> verbose source than the typed C.3 surface promises.  See § 9.5 in
-> SPEC.md for the full interop table and the planned `ExpressionEncoder`
-> derivation shape.
+> **Phase E (landed 2026-05-20) — Scala 3 native Spark `Encoder` derivation.**
+> Inline `given derived[T <: Product]` in `SscSparkEncoders` (emitted at
+> the top of every Spark source) builds `AgnosticEncoders.ProductEncoder[T]`
+> from a Scala 3 `Mirror.ProductOf[T]` and wraps via `ExpressionEncoder(...)`.
+> No TypeTag, no macros, no third-party libs.  Primitive encoders surfaced
+> as plain givens that wrap `Encoders.STRING/scalaInt/...`;
+> `import spark.implicits._` dropped from the emit (its TypeTag-bound
+> `newProductEncoder` poisons implicit search) and replaced by
+> `import SscSparkEncoders.given`.  Emitted source pins
+> `//> using scala 3.7.1` (Scala 3.8.x has a TASTy-bridge regression that
+> breaks Spark `_2.13` runtime reflection) and the standard Spark JDK 17+
+> add-opens flags as `//> using javaOpt` directives, so
+> `scala-cli run <file>` works with zero command-line args.
+> Verified end-to-end: `examples/spark-encoder-demo.ssc` runs under
+> Scala 3.7.1 + Spark 4.0.0 + JVM 21 producing a typed `Dataset[User]`
+> with the expected schema and `.filter`/`.collect` round-trip.
+> Follow-ups (open): `Option[T]`, nested case classes, collection fields,
+> revival of `@SqlFn` auto-emit via Java `UDF1`/... wrappers.
 >
 > Natural fit: ScalaScript's existing `Dataset[T]` API maps directly to Spark.
 

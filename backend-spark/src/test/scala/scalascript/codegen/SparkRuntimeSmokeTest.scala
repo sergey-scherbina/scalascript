@@ -31,6 +31,10 @@ import scalascript.parser.Parser
  */
 class SparkRuntimeSmokeTest extends AnyFunSuite:
 
+  // sparkVersion is no longer used directly — Phase E moved dep
+  // declarations into `//> using` directives baked into the source.
+  // The name is left as a private val to flag the historical pin.
+  @annotation.unused
   private val sparkVersion = SparkGen.DefaultVersion
 
   private def integrationEnabled: Boolean =
@@ -63,12 +67,12 @@ class SparkRuntimeSmokeTest extends AnyFunSuite:
     val hash     = java.lang.Integer.toHexString(code.hashCode & 0x7fffffff)
     val out      = os.Path(s"/tmp/ssc-smoke-${rel.replaceAll("[^a-zA-Z0-9]", "_")}-$hash.scala")
     os.write.over(out, code)
-    val cmd      = List(
-      "scala-cli", "compile", out.toString,
-      "--dep", s"org.apache.spark:spark-core_2.13:$sparkVersion",
-      "--dep", s"org.apache.spark:spark-sql_2.13:$sparkVersion",
-      "--scala", "3"
-    )
+    // Phase E (v1.25 § 9.5): the emitted source carries `//> using
+    // scala`, `//> using dep`, and `//> using javaOpt` directives —
+    // scala-cli reads everything from the file itself, so the test
+    // invocation is identical to what a user runs locally:
+    //   scala-cli compile <file>
+    val cmd = List("scala-cli", "compile", out.toString)
     val res = sys.process.Process(cmd).!
     assert(res == 0,
       s"scala-cli compile of generated $rel source failed (exit $res); inspect $out")
@@ -96,6 +100,13 @@ class SparkRuntimeSmokeTest extends AnyFunSuite:
 
   test("spark-config-demo.ssc compiles under scala-cli + Spark _2.13") {
     compileExample("spark-config-demo.ssc")
+  }
+
+  test("spark-encoder-demo.ssc compiles under Phase E derivation") {
+    // Phase E demo — exercises `Dataset[CaseClass]` via the inline
+    // `SscSparkEncoders.derived[User]` given.  If this test passes,
+    // the Mirror-based encoder derivation is wired end-to-end.
+    compileExample("spark-encoder-demo.ssc")
   }
 
   test("spark-udf-demo.ssc compiles under scala-cli + Spark _2.13") {

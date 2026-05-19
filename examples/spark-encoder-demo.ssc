@@ -1,0 +1,48 @@
+---
+name: spark-encoder-demo
+backend: spark
+spark-app-name: Phase E Encoder Demo
+description: Scala 3 native Spark Encoder derivation for case classes (v1.25 § 9.5 Phase E)
+---
+
+# Phase E — Scala 3 native Spark Encoder derivation
+
+Demonstrates that `Dataset[CaseClass]` works end-to-end under
+Scala 3 + Spark `_2.13` thanks to our `SscSparkEncoders.derived[T]`
+inline given.  Without Phase E, Spark's `Encoders.product[T]`
+requires a Scala 2.13 `TypeTag[T]` macro that Scala 3 cannot
+synthesise — so case classes were unusable in `createDataset(...)`.
+
+Phase E sidesteps that by building Spark's `AgnosticEncoders.ProductEncoder[T]`
+straight from a Scala 3 `Mirror.ProductOf[T]`: no TypeTag, no macros,
+no third-party libraries.  See SPEC § 9.5 "Phase E" for the design.
+
+Run with:
+
+```
+ssc run --backend spark examples/spark-encoder-demo.ssc
+```
+
+## Pipeline
+
+```scalascript
+case class User(id: Int, name: String, active: Boolean)
+
+val users = List(
+  User(1, "Alice", true),
+  User(2, "Bob",   false),
+  User(3, "Carol", true),
+  User(4, "Dave",  true)
+)
+
+// `SscSparkEncoders.derived[User]` is in scope from the top-of-file
+// import; `createDataset` finds it and lifts the List into a typed
+// `Dataset[User]` whose schema mirrors the case class structure.
+val ds = spark.createDataset(users)
+ds.printSchema()
+println(s"USER_COUNT=${ds.count()}")
+
+ds.filter(_.active).collect().foreach { u =>
+  println(s"ACTIVE id=${u.id} name=${u.name}")
+}
+```

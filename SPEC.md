@@ -1396,7 +1396,7 @@ Spark backend).  The user does not rewrite the pipeline to switch.
 | **C.2 — Section-based binding** | Each `sql` block whose enclosing section has a usable identifier (`# Users`, `# Active Users`, …) ALSO emits `object <sectionId>: lazy val sql: org.apache.spark.sql.DataFrame = _sqlBlock_<n>`.  Friendly access: `Users.sql.show()` instead of `_sqlBlock_0.show()`. | Mirrors the existing `html`/`css` → `<sectionId>.html/css` convention so authoring rules are uniform across opaque blocks. | landed |
 | **C.3 — DataFrame ergonomics + schema bridge** | All nine slices landed: (1) `>10` binds via `Map.ofEntries[String, Object]` once `SparkGen.MapOfMaxPairs = 10` is exceeded; (2) widen `sparkImports` with `Row`, `DataFrame`, `types._`; (3) `spark-config:` front-matter → sorted `.config(k, v)` lines on `SparkSession.builder()`; (4) `spark-app-name:` overrides `.appName(...)`; (5)+(6) typed reader shims `Dataset.{fromParquet,fromJson,fromCsv}(path, options*): DataFrame`; (7) writer extensions `ds.{toParquet,toJson,toCsv}(path, opts*): Unit`; (8) adaptive defaults (`spark.ui.enabled=false`, `spark.sql.shuffle.partitions=4`, log4j WARN) emitted ONLY on `local*` masters; (9) schema bridge — `Dataset.schemaOf[T : Encoder]: StructType` + typed reader cousins `Dataset.{fromParquetAs,fromJsonAs,fromCsvAs}[T : Encoder](path, opts*): Dataset[T]` chain `spark.read.schema(schemaOf[T]).options(opts.toMap).X(path).as[T]` so a case-class declaration IS the schema specification.  For CSV the typed reader is the only path to typed columns (Spark's bare `.csv(path)` returns every column as `String`); for JSON it skips the inference scan; for Parquet it acts as column projection. | C.1+C.2 ship the binding/runtime contract; C.3 polishes the typed surface. | landed |
 | **D — UDF bridge** | `@SqlFn` marker on a `def` or `val` inside a `scalascript` block makes it visible to subsequent `sql` blocks as a Spark UDF: `SparkGen.extractSqlFns` strips the annotation and `genModule` injects `spark.udf.register("name", name)` immediately after the cleaned declaration.  Registration happens INSIDE the `@main def runSparkJob` scope so the UDF is on the session catalog before any later sql block tries to call it.  **Current limitation:** under `_2.13` Spark JARs (= default install), the typed `register` overload requires a Scala 2.13 `TypeTag[T]` that Scala 3 cannot synthesise — so the auto-emit compiles only against Spark Connect or once Phase E (custom Scala 3 encoder derivation) lands.  Workaround for now: skip `@SqlFn` and write the registration manually via Spark's Java `UDF1`/`UDF2`/… functional-interface form which takes an explicit `DataType` and needs no TypeTag — see `examples/spark-udf-demo.ssc`.  The marker scan and stripping logic are still landed and forward-compatible. | Without this, `scalascript` and `sql` blocks could share data (via `_sqlBlock_<N>` / section aliases) but not behaviour — a scalascript helper couldn't be referenced inside a sql query, forcing users back into `df.selectExpr(...)` chains. | landed (auto-emit blocked on Phase E) |
-| **E — Scala 3 native Spark Encoder derivation** *(roadmap)* | Spark publishes only `_2.13` JARs on Maven Central, and its `Encoder` derivation for product types (case classes, tuples) uses Scala 2.13's `scala.reflect.runtime.universe.TypeTag` — synthesised by a Scala 2 macro that Scala 3 cannot provide.  Result: today the *only* `Encoder`s usable from a ScalaScript Spark module are the pre-baked primitives (`Encoders.STRING`, `Encoders.INT`, …); `Dataset[CaseClass]`, `Dataset[(A, B)]`, the typed `spark.udf.register("name", fn)` form, and `spark.implicits.newProductEncoder[T]` all fail compile.  Phase E lands our own Scala 3 macro / `inline given` derivation of `Encoder[T]` for case classes and tuples — same `ExpressionEncoder` shape Spark expects, but synthesised from Scala 3's `scala.deriving.Mirror` / `scala.quoted` instead of `TypeTag`.  Once it ships, `Dataset.schemaOf[T]` (Phase C.3 #9), the typed `fromXAs[T]` readers, `@SqlFn` auto-emit, and direct `case class` use in `Dataset.fromList` all start working with no source changes from authors.  Alternative: when Spark itself ships Scala 3 cross-builds (rumoured for the Spark Connect path), this phase can be dropped — but we cannot wait. | The encoder gap is the single biggest constraint on the Spark backend's day-to-day usability: every example in `examples/spark-*-demo.ssc` currently dodges typed `Dataset[T]` via SQL `VALUES` tables or `.toDF("col")` because the encoder path doesn't compile.  Phase E is the one item that unlocks the "case-class = schema" story the C.3 milestone half-shipped. | roadmap |
+| **E — Scala 3 native Spark Encoder derivation** | Inline `given derived[T <: Product]` in `SscSparkEncoders` (emitted at top of every Spark source) builds `AgnosticEncoders.ProductEncoder[T]` from a Scala 3 `Mirror.ProductOf[T]` and wraps it via `ExpressionEncoder(...)`.  Bypasses Scala 2.13's `scala.reflect.runtime.universe.TypeTag` machinery entirely — no macros, no `scala-reflect` consumption, no third-party libraries.  Primitive encoders are surfaced as plain `given Encoder[String/Int/Long/...]` instances that wrap `Encoders.STRING`/`scalaInt`/etc.; `import spark.implicits._` is dropped from the emit (its TypeTag-bound `newProductEncoder` poisons implicit search) and replaced by `import SscSparkEncoders.given`.  Generated source pins `//> using scala 3.7.1` because Scala 3.8.x has a TASTy-bridge regression that breaks Spark `_2.13` runtime reflection in `ExpressionEncoder` — 3.7.1 is the latest series that works end-to-end.  JVM `--add-opens` flags Spark needs on JDK 17+ are baked in as `//> using javaOpt` directives so `scala-cli run <file>` works without extra args.  Result: `Dataset[CaseClass]` runs end-to-end on Scala 3 + Spark 4 + JVM 21 — `printSchema`, `count`, `filter`, `collect` all preserve the case-class structure.  See `examples/spark-encoder-demo.ssc` for the canonical demo. | The encoder gap was the single biggest constraint on the Spark backend's day-to-day usability; Phase E unblocks the "case-class = schema" story C.3 half-shipped.  Next steps (open follow-ups): `Option[T]` field support, nested case classes, `Seq[T]`/`Array[T]` collection fields, and `@SqlFn` auto-emit revival via Java `UDF1`/`UDF2`/... wrapping. | landed |
 
 #### Spark vs JDBC `sql` blocks
 
@@ -1629,73 +1629,95 @@ a deliberate ScalaScript convention; collisions with prose are
 vanishingly unlikely, and a triple-quoted literal sidesteps any
 match.
 
-#### Scala 3 / Spark 2.13 interop (current constraint, Phase E roadmap)
+#### Scala 3 / Spark 2.13 interop (Phase E landed)
 
 Apache Spark is still a Scala 2.13 codebase (its own Scala 3
 cross-build is on the rumoured Spark Connect path but not in the
 mainline `_2.13` JARs).  Scala 3 reads those `_2.13` JARs via
-the TASTy bridge, so `--scala 3` plus
+the TASTy bridge, so `--scala 3.7.1` plus
 `--dep org.apache.spark:spark-core_2.13:<v>` is the working
 combination — note the explicit `_2.13` suffix instead of
 scala-cli's `::` shortcut (which would expand to `_3:` and fail
-Coursier resolution).
+Coursier resolution).  Both directives are baked into the emitted
+source as `//> using` so `scala-cli run <file>` works without
+command-line arguments.
+
+**Scala version pin.**  Scala 3.8.x has a regression in its
+TASTy-bridge to Scala 2.13 that breaks `ExpressionEncoder` at
+runtime — `scala.reflect.internal.FatalError: class Array does
+not have a member apply` from inside Spark's codegen.  Scala
+3.7.1 is the latest series that works end-to-end and is the
+`SparkGen.DefaultScalaVersion`.
 
 The TASTy bridge handles bytecode interop fine, but it does NOT
 synthesise `scala.reflect.runtime.universe.TypeTag` — that's a
-Scala 2 macro from `scala-reflect`, with no Scala 3 equivalent.
-Several Spark APIs depend on `TypeTag`:
+Scala 2 macro from `scala-reflect` with no Scala 3 equivalent.
+Several Spark APIs depend on `TypeTag` at *compile* time:
 
 | API                                          | Needs `TypeTag`? | Works under Scala 3 + Spark 2.13? |
 |----------------------------------------------|------------------|-----------------------------------|
-| `spark.implicits.newProductEncoder[T]`       | yes (`T : TypeTag`) | ✗ |
-| `Encoders.product[T]`                        | yes              | ✗ |
-| `spark.udf.register[RT, A1, …](name, func)`  | yes (each `: TypeTag`) | ✗ |
-| `spark.createDataset(List[CaseClass])`       | yes (via encoder) | ✗ |
-| `spark.createDataset(List[(A, B)])`          | yes              | ✗ |
-| `Encoders.STRING`, `Encoders.INT`, …         | no (pre-baked)   | ✓ |
+| `spark.implicits.newProductEncoder[T]`       | yes (`T : TypeTag`) | ✗ — dropped from emit; Phase E `SscSparkEncoders.derived[T]` covers it |
+| `Encoders.product[T]`                        | yes              | ✗ — Phase E uses `AgnosticEncoders.ProductEncoder` directly |
+| `spark.udf.register[RT, A1, …](name, func)`  | yes (each `: TypeTag`) | ✗ — use the Java `UDF1`/... form (see `examples/spark-udf-demo.ssc`) |
+| `Encoders.product[T]` (any product)          | yes              | ✗ — same; routed through Phase E |
+| `Encoders.STRING`, `Encoders.INT`, …         | no (pre-baked)   | ✓ — exposed as `given` in `SscSparkEncoders` |
 | `spark.createDataset(List[String])`          | no               | ✓ |
+| **`spark.createDataset(List[CaseClass])`**   | yes (via encoder) | **✓ — Phase E `SscSparkEncoders.derived[T]` synthesises an encoder from `Mirror.ProductOf[T]`** |
 | `spark.udf.register(name, UDF1, returnType)` | no (Java interface) | ✓ |
 | `spark.sql("...")`, `spark.read.X(path)`     | no               | ✓ |
 | `df.toDF("col")`, `df.createOrReplaceTempView` | no             | ✓ |
 | `df.write.X(path)`                           | no               | ✓ |
 
-Practical consequences in `examples/spark-*-demo.ssc`:
+**Phase E — Scala 3 native `Encoder` derivation (landed).**
+Emitted at top of every Spark source as `object SscSparkEncoders`:
 
-- `Dataset.fromList(List(CaseClass(...)))` won't compile.  Seed
-  tables with a `sql` block + `VALUES` clause instead — see
-  `examples/spark-sql-demo.ssc`.
-- The Phase D `@SqlFn` auto-emit (which produces
-  `spark.udf.register("name", name)`) won't compile.  Register
-  UDFs manually via Spark's Java functional-interface form:
+```scala
+object SscSparkEncoders:
+  import scala.deriving.Mirror
+  import scala.compiletime.{erasedValue, constValueTuple}
+  import scala.reflect.ClassTag
+  import org.apache.spark.sql.catalyst.encoders.AgnosticEncoder
+  import org.apache.spark.sql.catalyst.encoders.AgnosticEncoders.*
+  import org.apache.spark.sql.catalyst.encoders.ExpressionEncoder
+  import org.apache.spark.sql.types.Metadata
 
-  ```scalascript
-  spark.udf.register(
-    "normalize",
-    new org.apache.spark.sql.api.java.UDF1[String, String] {
-      def call(s: String): String = s.trim.toLowerCase
-    },
-    org.apache.spark.sql.types.StringType
-  )
-  ```
+  // Primitive givens — bypass `spark.implicits.newProductEncoder`.
+  given Encoder[String]  = Encoders.STRING
+  given Encoder[Int]     = Encoders.scalaInt
+  // ... (Long, Double, Boolean, Float, Short, Byte)
 
-  Verbose but TypeTag-free — see `examples/spark-udf-demo.ssc`.
-- `Dataset.schemaOf[T]` and the `fromXAs[T]` typed readers
-  (Phase C.3 slice 9) compile but throw at runtime when `T` is
-  a product type, because `summon[Encoder[T]]` hits the same
-  TypeTag wall.  Their declarations remain in the shim as
-  forward-compatible APIs that start working once Phase E lands.
+  // Case-class encoder via Scala 3 `Mirror` — no TypeTag.
+  inline given derived[T <: Product](using m: Mirror.ProductOf[T], ct: ClassTag[T]): Encoder[T] =
+    val labels = constValueTuple[m.MirroredElemLabels].toList.map(_.asInstanceOf[String])
+    val encs   = summonEncoders [m.MirroredElemTypes]
+    val nulls  = summonNullables[m.MirroredElemTypes]
+    val fields = labels.zip(encs).zip(nulls).map { case ((n, e), nl) =>
+      EncoderField(n, e, nl, Metadata.empty)
+    }
+    ExpressionEncoder(ProductEncoder[T](ct, fields, None))
+```
 
-**Phase E — custom Scala 3 encoder derivation (roadmap).**  Plan
-is to ship a `scalascript.spark.encoders` package (in the
-generated Spark source, emitted by SparkGen) that uses Scala 3's
-`scala.deriving.Mirror` and `scala.quoted` macros to synthesise
-`org.apache.spark.sql.catalyst.encoders.ExpressionEncoder[T]`
-instances for case classes and tuples — bypassing the Scala 2
-`TypeTag` path entirely.  The output is binary-compatible with
-the encoders Spark's own runtime builds, so the rest of Spark
-treats them as native.  Once Phase E ships, the workarounds above
-become unnecessary; the existing C.3 #9 / Phase D APIs start
-working with no source changes from authors.
+User code:
+
+```scalascript
+case class User(id: Int, name: String, active: Boolean)
+val users = List(User(1, "Alice", true), User(2, "Bob", false))
+val ds = spark.createDataset(users)        // <- Phase E derived encoder
+ds.printSchema()                            // schema mirrors case class
+ds.filter(_.active).collect().foreach(...)
+```
+
+The `@main def runSparkJob` scope imports `SscSparkEncoders.given`
+instead of `spark.implicits._` — the latter brings in a
+TypeTag-bound `newProductEncoder` that poisons implicit search.
+
+**Open follow-ups for Phase E:**
+- `Option[T]` field support via `AgnosticEncoders.OptionEncoder`.
+- Nested case classes (recursive `ProductEncoder` derivation).
+- Collection fields: `Seq[T]`, `Array[T]`, `Map[K, V]`.
+- Revive `@SqlFn` auto-emit (Phase D) by routing through Java
+  `UDF1`/`UDF2`/... wrappers with a derived `DataType` for the
+  return type — sidesteps the TypeTag-bound `udf.register` overload.
 
 ## Appendix A: Reserved Words
 

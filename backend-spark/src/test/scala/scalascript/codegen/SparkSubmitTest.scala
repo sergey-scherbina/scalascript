@@ -14,7 +14,7 @@ class SparkSubmitTest extends AnyFunSuite:
 
   // ── packageCommand ────────────────────────────────────────────────────────
 
-  test("packageCommand emits scala-cli --power package with both Spark deps") {
+  test("packageCommand emits scala-cli --power package with no inline deps") {
     val cmd = SparkSubmit.packageCommand(
       srcPath      = os.Path("/tmp/x.scala"),
       outJar       = os.Path("/tmp/x.jar"),
@@ -28,25 +28,27 @@ class SparkSubmitTest extends AnyFunSuite:
     assert(cmd.contains("--assembly"))
     assert(cmd.containsSlice(List("-o", "/tmp/x.jar")))
     assert(cmd.contains("--force"))
-    // `_2.13` suffix pinned explicitly — Spark publishes only `_2.13`
-    // cross-builds; `::` would expand to `_3:` and fail Coursier
-    // resolution.  Scala 3 reads `_2.13` JARs via the TASTy bridge.
-    assert(cmd.containsSlice(List("--dep", "org.apache.spark:spark-core_2.13:4.0.0")))
-    assert(cmd.containsSlice(List("--dep", "org.apache.spark:spark-sql_2.13:4.0.0")))
-    assert(cmd.containsSlice(List("--scala", "3")))
+    // Phase E (v1.25 § 9.5): dep coords + Scala version now live as
+    // `//> using` directives in the emitted source, so the package
+    // command doesn't need inline `--dep` / `--scala` overrides.
+    // Scala-cli reads everything from the file.
+    assert(!cmd.contains("--dep"),
+      s"--dep flag should be absent (deps come from //> using in source), got: $cmd")
+    assert(!cmd.contains("--scala"),
+      s"--scala flag should be absent (Scala version comes from //> using in source), got: $cmd")
   }
 
-  test("packageCommand reflects custom Spark version in both deps") {
+  test("packageCommand sparkVersion parameter is preserved for backward compat") {
+    // The `sparkVersion` param is kept on the signature so older callers
+    // don't break, but it no longer affects the output — Phase E moved
+    // dep emission into `//> using` directives baked into the source.
     val cmd = SparkSubmit.packageCommand(
       srcPath      = os.Path("/tmp/y.scala"),
       outJar       = os.Path("/tmp/y.jar"),
       sparkVersion = "3.5.1"
     )
-    assert(cmd.containsSlice(List("--dep", "org.apache.spark:spark-core_2.13:3.5.1")))
-    assert(cmd.containsSlice(List("--dep", "org.apache.spark:spark-sql_2.13:3.5.1")))
-    // No reference to the default version leaks through.
-    assert(!cmd.exists(_.contains("4.0.0")),
-      s"custom 3.5.1 version should not coexist with 4.0.0 default, got: $cmd")
+    assert(!cmd.exists(_.contains("3.5.1")),
+      s"sparkVersion is informational only post-Phase E, must not appear in argv: $cmd")
   }
 
   // ── submitCommand ─────────────────────────────────────────────────────────

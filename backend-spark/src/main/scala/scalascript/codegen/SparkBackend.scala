@@ -127,16 +127,12 @@ class SparkBackend extends Backend:
     val tmpFile      = os.Path(s"/tmp/ssc-spark-$hash.scala")
     os.write.over(tmpFile, code)
     System.err.println(s"[spark] Spark $sparkVersion (master=$sparkMaster) — generated: $tmpFile")
-    // Spark publishes only `_2.13` JARs on Maven Central — scala-cli's
-    // `::` shortcut would expand to `_3:` (non-existent) when paired
-    // with `--scala 3`, so we pin the suffix explicitly.  Scala 3
-    // consumes the Scala 2.13 Spark API via the TASTy bridge.
-    val cmd = List(
-      "scala-cli", "run", tmpFile.toString,
-      "--dep", s"org.apache.spark:spark-core_2.13:$sparkVersion",
-      "--dep", s"org.apache.spark:spark-sql_2.13:$sparkVersion",
-      "--scala", "3"
-    )
+    // The emitted source carries `//> using scala`, `//> using dep`, and
+    // `//> using javaOpt` directives (v1.25 § 9.5 Phase E) — scala-cli
+    // picks up everything from the file itself, so the command line
+    // stays empty of dep/scala overrides.  Means `ssc run --backend spark`
+    // and `scala-cli run /tmp/ssc-spark-<hash>.scala` behave identically.
+    val cmd = List("scala-cli", "run", tmpFile.toString)
     // Run scala-cli inheriting stdout/stderr — Spark's own logging and the
     // user program's println go straight to the terminal; capturing into
     // CompileResult.Executed strings would buffer indefinitely and lose

@@ -52,20 +52,18 @@ object SparkSubmit:
   def packageCommand(
       srcPath:      os.Path,
       outJar:       os.Path,
-      sparkVersion: String
+      @annotation.unused sparkVersion: String
   ): List[String] =
+    // The emitted source already carries `//> using scala`, `//> using
+    // dep`, and `//> using javaOpt` directives (v1.25 § 9.5 Phase E),
+    // so scala-cli pulls dependencies + Scala version from the file
+    // itself.  `sparkVersion` is kept on the signature for compatibility
+    // with older call sites that still pass it; it has no effect today.
     List(
       "scala-cli", "--power", "package", srcPath.toString,
       "--assembly",
       "-o", outJar.toString,
-      "--force",
-      // `_2.13` suffix is pinned explicitly — Spark publishes only
-      // `_2.13` cross-builds; scala-cli's `::` shortcut would expand
-      // to `_3:` and fail Coursier resolution.  Scala 3 reads the
-      // `_2.13` JARs via the TASTy bridge.
-      "--dep", s"org.apache.spark:spark-core_2.13:$sparkVersion",
-      "--dep", s"org.apache.spark:spark-sql_2.13:$sparkVersion",
-      "--scala", "3"
+      "--force"
     )
 
   /** Build the argv that launches the fat JAR on a Spark master.
