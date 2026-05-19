@@ -157,6 +157,98 @@ enum PatternLiteral derives ReadWriter:
   case BoolLit(value: Boolean)
   case NullLit
 
+// ─── v2.0 Separate-compilation artifact format ─────────────────────────────
+//
+// Each `.ssc` file compiles into two artifacts:
+//   .scim  — module interface (types, extern sigs, no bodies)
+//   .scir  — module IR body (NormalizedModule JSON, with ABI envelope)
+//
+// Both share the ArtifactEnvelope wrapper which carries a magic number and
+// compiler version string so mismatched artifacts are detected at read time,
+// not silently miscompiled.
+
+/** ABI version guard.  Bump `current` on any incompatible change to the
+ *  `.scim` / `.scir` wire format.  Readers reject artifacts whose version
+ *  does not equal `current`. */
+object ArtifactVersion:
+  /** Magic bytes embedded at the start of every artifact envelope. */
+  val magic: String = "SSCART"
+  /** Current ABI version.  Follows `major.minor` — minor is backward-
+   *  compatible additions; major is breaking changes. */
+  val current: String = "2.0"
+  /** Human-readable description for error messages. */
+  val description: String = s"ScalaScript artifact ABI $current"
+
+/** Exported symbol entry in a `.scim` interface.
+ *
+ *  `kind` is one of: `val`, `def`, `object`, `type`, `given`, `extern`.
+ *  `tpe` is a best-effort human-readable type string (e.g. `"Int => String"`);
+ *  the typer currently produces `Any` for most names — richer types will land
+ *  when the typer is extended in a later sprint. */
+case class ExportedSymbol(
+  name:     String,
+  fqn:      String,           // fully-qualified mangled name: pkg segments + name
+  kind:     String,           // val | def | object | type | given | extern
+  tpe:      String = "Any",   // type annotation (best-effort)
+  span:     Option[Span] = None
+) derives ReadWriter
+
+/** Typeclass instance entry in a `.scim` interface.
+ *  Recorded so consumers can resolve `given` instances without re-parsing
+ *  the source.  Stage 4 will use these during interface-based type checking. */
+case class InstanceDecl(
+  typeclass:  String,         // e.g. "Eq"
+  typeParam:  String,         // e.g. "Int"
+  witnessName: String,        // name of the `given` val / def
+  fqn:        String          // fully-qualified mangled name
+) derives ReadWriter
+
+/** Capability declared by this module (e.g. `Http`, `WebSocket`).
+ *  Consumers can check whether a dependency requires a capability their
+ *  target backend does not support, without loading the full `.scir`. */
+case class CapabilityDecl(
+  name: String                // e.g. "Http", "WebSocket", "FileSystem"
+) derives ReadWriter
+
+/** Module interface artifact — written as `.scim` JSON.
+ *
+ *  Contains only the information a consumer needs to type-check against
+ *  this module without re-parsing its source.  No expression bodies.
+ *
+ *  The envelope fields (`magic`, `abiVersion`) are checked before the
+ *  payload is deserialised — a mismatched `abiVersion` produces a clear
+ *  error pointing to `ssc emit-interface`. */
+case class ModuleInterface(
+  magic:        String,                  // must equal ArtifactVersion.magic
+  abiVersion:   String,                  // must equal ArtifactVersion.current
+  pkg:          List[String],            // package segments from front-matter
+  moduleName:   Option[String],          // from manifest `name:` field
+  moduleVersion: Option[String],         // from manifest `version:` field
+  sourceHash:   String,                  // SHA-256 hex of the source `.ssc` bytes
+  exports:      List[ExportedSymbol],
+  instances:    List[InstanceDecl]    = Nil,
+  capabilities: List[CapabilityDecl]  = Nil,
+  externDefs:   List[ExportedSymbol]  = Nil,  // extern def declarations only
+  dependencies: Map[String, String]   = Map.empty  // dep alias → resolved path/id
+) derives ReadWriter
+
+/** Module IR artifact envelope — wraps a `NormalizedModule` as `.scir` JSON.
+ *
+ *  The envelope allows consumers to validate the ABI version and source hash
+ *  before deserialising the (potentially large) body payload.
+ *
+ *  `body` is the `NormalizedModule` serialised to a JSON string and embedded
+ *  as a string field rather than inlined, so the envelope can be read cheaply
+ *  without parsing the full body tree. */
+case class ModuleIrArtifact(
+  magic:        String,        // must equal ArtifactVersion.magic
+  abiVersion:   String,        // must equal ArtifactVersion.current
+  pkg:          List[String],  // package segments
+  moduleName:   Option[String],
+  sourceHash:   String,        // SHA-256 hex of the source bytes
+  body:         String         // upickle.default.write(NormalizedModule) — JSON string
+) derives ReadWriter
+
 // ─── Context types passed to backend intrinsics ────────────────────────────
 //
 // EmitContext / TargetCode / Value carry runtime references that are not

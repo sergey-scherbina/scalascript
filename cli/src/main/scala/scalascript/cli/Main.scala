@@ -14,6 +14,8 @@ import scalascript.transform.Normalize
 import scalascript.validate.CapabilityCheck
 import scalascript.plugin.{BackendRegistry, SourceLanguageRegistry}
 import scalascript.backend.spi.{BackendOptions, CompileResult, Segment}
+// v2.0 separate-compilation artifact commands
+import scalascript.artifact.{InterfaceExtractor, ArtifactIO}
 
 @main def ssc(rawArgs: String*): Unit =
   // Strip global plugin-management flags from anywhere in the
@@ -58,6 +60,9 @@ private def dispatchCommand(args: List[String]): Unit =
     case "emit-spa"            => emitSpaCommand(args.tail)
     case "emit-scala"          => emitScalaCommand(args.tail)
     case "emit-wc"             => emitWcCommand(args.tail)
+    // v2.0 separate-compilation commands
+    case "emit-interface"      => emitInterfaceCommand(args.tail)
+    case "emit-ir"             => emitIrCommand(args.tail)
     case "compile"             => compileCommand(args.tail)
     case "package"             => packageCommand(args.tail)
     case "serve"               => serveCommand(args.tail)
@@ -200,6 +205,8 @@ def printUsage(): Unit =
     |  emit-js                Transpile .ssc to JavaScript (Node server) and print to stdout
     |  emit-spa               Wrap .ssc as a browser SPA (HTML + embedded JS) and print to stdout
     |  emit-wc                Emit each component object as a W3C Custom Element bundle
+    |  emit-interface         Extract module interface to .scim artifact (v2.0)
+    |  emit-ir                Emit normalised module IR to .scir artifact (v2.0)
     |  serve                  Start HTTP server serving .ssc files as web pages
     |  parse                  Parse .ssc files and print AST
     |  check                  Type-check .ssc files
@@ -1169,6 +1176,115 @@ def emitScalaCommand(args: List[String]): Unit =
       catch case e: Exception =>
         System.err.println(s"Scala generation error: ${e.getMessage}")
         System.exit(1)
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ssc emit-interface  —  v2.0 separate compilation
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** `ssc emit-interface <file.ssc> [-o <file.scim>]`
+ *
+ *  Compiles the `.ssc` file and extracts its module interface (exported
+ *  names, extern defs, typeclass instances, capability declarations).
+ *  Writes the interface as a `.scim` JSON artifact.
+ *
+ *  If `-o` is not specified the output is written to `<file>.scim` in the
+ *  same directory as the source.  Pass `-` as the output path to print to
+ *  stdout instead.
+ *
+ *  v2.0 / Stage 2.
+ */
+def emitInterfaceCommand(args: List[String]): Unit =
+  var outputArg: Option[String] = None
+  val files = scala.collection.mutable.ArrayBuffer.empty[String]
+  val it = args.iterator
+  while it.hasNext do
+    it.next() match
+      case "-o" | "--output" if it.hasNext => outputArg = Some(it.next())
+      case f => files += f
+
+  if files.isEmpty then
+    System.err.println("Usage: ssc emit-interface <file.ssc> [-o <file.scim>]")
+    System.exit(1)
+
+  for file <- files.toList do
+    val path = os.Path(file, os.pwd)
+    if !os.exists(path) then
+      System.err.println(s"Error: File not found: $file"); System.exit(1)
+    try
+      val sourceBytes = os.read.bytes(path)
+      val module      = Parser.parse(new String(sourceBytes, "UTF-8"))
+      val iface       = InterfaceExtractor.extract(module, sourceBytes)
+      val json        = ArtifactIO.writeInterface(iface)
+      outputArg match
+        case Some("-") => println(json)
+        case Some(out) =>
+          val outPath = os.Path(out, os.pwd)
+          ArtifactIO.writeInterfaceFile(iface, outPath)
+          println(s"Interface written to $outPath")
+        case None =>
+          val outPath = path / os.up / (path.last.stripSuffix(".ssc") + ".scim")
+          ArtifactIO.writeInterfaceFile(iface, outPath)
+          println(s"Interface written to ${outPath.relativeTo(os.pwd)}")
+    catch case e: Exception =>
+      System.err.println(s"emit-interface error: ${e.getMessage}")
+      System.exit(1)
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ssc emit-ir  —  v2.0 separate compilation
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** `ssc emit-ir <file.ssc> [-o <file.scir>]`
+ *
+ *  Parses and normalises the `.ssc` file, then writes the resulting
+ *  `NormalizedModule` as a `.scir` JSON artifact (wrapped in the ABI
+ *  envelope with magic number + version guard + source hash).
+ *
+ *  If `-o` is not specified the output is written to `<file>.scir` in the
+ *  same directory as the source.  Pass `-` as the output path to print to
+ *  stdout instead.
+ *
+ *  v2.0 / Stage 3.
+ */
+def emitIrCommand(args: List[String]): Unit =
+  var outputArg: Option[String] = None
+  val files = scala.collection.mutable.ArrayBuffer.empty[String]
+  val it = args.iterator
+  while it.hasNext do
+    it.next() match
+      case "-o" | "--output" if it.hasNext => outputArg = Some(it.next())
+      case f => files += f
+
+  if files.isEmpty then
+    System.err.println("Usage: ssc emit-ir <file.ssc> [-o <file.scir>]")
+    System.exit(1)
+
+  for file <- files.toList do
+    val path = os.Path(file, os.pwd)
+    if !os.exists(path) then
+      System.err.println(s"Error: File not found: $file"); System.exit(1)
+    try
+      val sourceBytes = os.read.bytes(path)
+      val module      = Parser.parse(new String(sourceBytes, "UTF-8"))
+      val ir          = Normalize(module)
+      val pkg         = module.manifest.flatMap(_.pkg).getOrElse(Nil)
+      val moduleName  = module.manifest.flatMap(_.name)
+      val sourceHash  = InterfaceExtractor.sha256(sourceBytes)
+      val json        = ArtifactIO.writeIr(ir, pkg, moduleName, sourceHash)
+      outputArg match
+        case Some("-") => println(json)
+        case Some(out) =>
+          val outPath = os.Path(out, os.pwd)
+          os.makeDir.all(outPath / os.up)
+          os.write.over(outPath, json)
+          println(s"IR artifact written to $outPath")
+        case None =>
+          val outPath = path / os.up / (path.last.stripSuffix(".ssc") + ".scir")
+          os.makeDir.all(outPath / os.up)
+          os.write.over(outPath, json)
+          println(s"IR artifact written to ${outPath.relativeTo(os.pwd)}")
+    catch case e: Exception =>
+      System.err.println(s"emit-ir error: ${e.getMessage}")
+      System.exit(1)
 
 def compileCommand(args: List[String]): Unit =
   if args.isEmpty then { println("Error: No files specified"); System.exit(1) }
