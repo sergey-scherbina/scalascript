@@ -438,15 +438,17 @@ def incrementalBuildCommand(args: List[String]): Unit =
   var artifactDirArg: Option[String] = None
   var backendArg:     Option[String] = None
   var srcDirArg:      Option[String] = None
+  var sectionCache:   Boolean        = false
   val it = args.iterator
   while it.hasNext do
     it.next() match
       case "--artifact-dir" if it.hasNext => artifactDirArg = Some(it.next())
       case "--backend"      if it.hasNext => backendArg     = Some(it.next())
+      case "--section-cache"               => sectionCache  = true
       case d => srcDirArg = Some(d)
 
   if srcDirArg.isEmpty then
-    System.err.println("Usage: ssc build --incremental <src-dir> [--artifact-dir <dir>] [--backend <id>]")
+    System.err.println("Usage: ssc build --incremental <src-dir> [--artifact-dir <dir>] [--backend <id>] [--section-cache]")
     System.exit(1)
 
   val srcDir     = os.Path(srcDirArg.get, os.pwd)
@@ -494,7 +496,28 @@ def incrementalBuildCommand(args: List[String]): Unit =
       println(s"  [skip]     $relPath (up-to-date)")
       skipped += 1
     else
-      print(s"  [compile]  $relPath ... ")
+      // ── Section-level diagnostic (opt-in via --section-cache) ────────
+      //
+      // When the flag is set, surface a per-module summary of which
+      // sections are stale so users can verify the cumulative-hash
+      // chain is doing what they expect.  The number does NOT change
+      // codegen behaviour for the MVP — JvmGen / JsGen still process
+      // the full module because sections share scope — but the line
+      // gives operators a window into the cache.  Empty stored hashes
+      // (pre-Phase-3 artifact) ⇒ "fully stale" wording.
+      val sectionDiag: String =
+        if !sectionCache then ""
+        else
+          val sectionIds = ModuleGraph.staleSections(node.path, artDir)
+          val srcBytes   = scala.util.Try(os.read.bytes(node.path)).getOrElse(Array.emptyByteArray)
+          val parsed     =
+            scala.util.Try(Parser.parse(new String(srcBytes, "UTF-8")))
+              .getOrElse(scalascript.ast.Module(manifest = None, sections = Nil))
+          val total = parsed.sections.length
+          if total == 0 then ""
+          else if sectionIds.length == total then s" [$total/$total sections stale]"
+          else s" [${sectionIds.length}/$total sections stale, ${total - sectionIds.length} cached]"
+      print(s"  [compile]  $relPath$sectionDiag ... ")
       // Unified-diagnostic capture: inner helpers (e.g.
       // `reportCodeBlockParseErrors`) emit structured diagnostics on
       // `System.err` because the standalone CLI surfaces (`compile-jvm
@@ -524,14 +547,28 @@ def incrementalBuildCommand(args: List[String]): Unit =
           val ir          = Normalize(module)
           val iface       = InterfaceExtractor.extract(module, sourceBytes)
           val sourceHash  = iface.sourceHash
+          // When --section-cache is on, propagate the section-hash map
+          // into every artifact (.scim already carries it from the extract
+          // call above; .scir / .scjvm / .scjs need it explicitly).  When
+          // off, persist an empty map so consumers see "no section data"
+          // and fall through to the full-module-SHA path.
+          val sectionHashes: Map[String, String] =
+            if sectionCache then iface.sectionHashes else Map.empty
 
           val scimPath = artDir / (baseName + ".scim")
           val scirPath = artDir / (baseName + ".scir")
 
           // Always (re)write .scim + .scir if those are stale.
           if coreStale then
-            ArtifactIO.writeInterfaceFile(iface, scimPath)
-            ArtifactIO.writeIrFile(ir, node.pkg, module.manifest.flatMap(_.name), sourceHash, scirPath)
+            // .scim already has sectionHashes populated by InterfaceExtractor.
+            // When --section-cache is OFF, strip them so the on-disk artifact
+            // doesn't carry data the user hasn't opted into yet (keeps the
+            // wire shape identical to pre-Phase-3 for default builds).
+            val ifaceToWrite =
+              if sectionCache then iface
+              else iface.copy(sectionHashes = Map.empty)
+            ArtifactIO.writeInterfaceFile(ifaceToWrite, scimPath)
+            ArtifactIO.writeIrFile(ir, node.pkg, module.manifest.flatMap(_.name), sourceHash, scirPath, sectionHashes)
 
           if emitJvm then
             val scjvmPath = artDir / (baseName + ".scjvm")
@@ -548,7 +585,8 @@ def incrementalBuildCommand(args: List[String]): Unit =
               val moduleId    = module.manifest.flatMap(_.name).getOrElse(baseName)
               JvmArtifactIO.writeJvmFile(
                 moduleId, node.pkg, module.manifest.flatMap(_.name),
-                sourceHash, scalaSource, imports, scjvmPath
+                sourceHash, scalaSource, imports, scjvmPath,
+                sectionHashes = sectionHashes
               )
 
           if emitJs then
@@ -567,7 +605,9 @@ def incrementalBuildCommand(args: List[String]): Unit =
                 JsGen.detectCapabilities(module, baseDir).map(JsGen.Capability.encode)
               JsArtifactIO.writeJsFile(
                 moduleId, node.pkg, module.manifest.flatMap(_.name),
-                sourceHash, jsSource, imports, scjsPath, moduleCaps.toList.sorted
+                sourceHash, jsSource, imports, scjsPath,
+                capabilities = moduleCaps.toList.sorted,
+                sectionHashes = sectionHashes
               )
         } finally
           capturedPs.flush()
@@ -2570,13 +2610,15 @@ def depsCommand(args: List[String]): Unit =
  *  v2.0 — artifact introspection. */
 def infoCommand(args: List[String]): Unit =
   var jsonMode = false
+  var sectionsMode = false
   val files = scala.collection.mutable.ArrayBuffer.empty[String]
   args.foreach {
-    case "--json" => jsonMode = true
-    case f        => files += f
+    case "--json"      => jsonMode = true
+    case "--sections"  => sectionsMode = true
+    case f             => files += f
   }
   if files.isEmpty then
-    System.err.println("Usage: ssc info <artifact> [--json]")
+    System.err.println("Usage: ssc info <artifact> [--json] [--sections]")
     System.err.println("Supported extensions: .scim, .scir, .scjvm, .scjs")
     System.exit(1)
   // Single-argument MVP — process the first file only.  Multiple files
@@ -2602,16 +2644,16 @@ def infoCommand(args: List[String]): Unit =
     val bytes   = os.read.bytes(path)
     val fileSize = bytes.length
     ext match
-      case "scim"  => printScimInfo(path, raw, fileSize, jsonMode)
-      case "scir"  => printScirInfo(path, raw, fileSize, jsonMode)
-      case "scjvm" => printScjvmInfo(path, raw, fileSize, jsonMode)
-      case "scjs"  => printScjsInfo(path, raw, fileSize, jsonMode)
+      case "scim"  => printScimInfo(path, raw, fileSize, jsonMode, sectionsMode)
+      case "scir"  => printScirInfo(path, raw, fileSize, jsonMode, sectionsMode)
+      case "scjvm" => printScjvmInfo(path, raw, fileSize, jsonMode, sectionsMode)
+      case "scjs"  => printScjsInfo(path, raw, fileSize, jsonMode, sectionsMode)
       case _       => () // unreachable — extension already validated above
   catch case e: Exception =>
     System.err.println(s"info: ${e.getMessage}")
     System.exit(1)
 
-private def printScimInfo(path: os.Path, json: String, fileSize: Long, jsonMode: Boolean): Unit =
+private def printScimInfo(path: os.Path, json: String, fileSize: Long, jsonMode: Boolean, sectionsMode: Boolean = false): Unit =
   ArtifactIO.readInterface(json) match
     case Left(err) =>
       System.err.println(s"info: $err")
@@ -2650,37 +2692,66 @@ private def printScimInfo(path: os.Path, json: String, fileSize: Long, jsonMode:
           iface.dependencies.toList.sortBy(_._1).foreach { (alias, target) =>
             println(s"  - $alias → $target")
           }
+        if sectionsMode then
+          printSectionHashes(iface.sectionHashes)
 
-private def printScirInfo(path: os.Path, json: String, fileSize: Long, jsonMode: Boolean): Unit =
-  ArtifactIO.readIr(json) match
+/** Pretty-print the `sectionHashes` map (shared across .scim/.scir/.scjvm/.scjs).
+ *
+ *  Entries are emitted in iteration order — which is insertion order
+ *  for the `LinkedHashMap`-derived map persisted by
+ *  `InterfaceExtractor.computeSectionHashes` and any subsequent
+ *  `.copy(sectionHashes = ...)` calls.  When the field is empty (pre-
+ *  Phase-3 artifact or `--section-cache` was off at write time) the line
+ *  reports "sectionHashes: 0 (none — section cache off or pre-Phase-3)"
+ *  so users diagnose missing data, not just absence.
+ *
+ *  v2.0 Phase 3 — `ssc info <artifact> --sections` extension. */
+private def printSectionHashes(map: Map[String, String]): Unit =
+  if map.isEmpty then
+    println("sectionHashes: 0 (none — section cache off or pre-Phase-3 artifact)")
+  else
+    println(s"sectionHashes: ${map.size}")
+    map.toList.foreach { case (id, h) =>
+      println(s"  - $id: $h")
+    }
+
+private def printScirInfo(path: os.Path, json: String, fileSize: Long, jsonMode: Boolean, sectionsMode: Boolean = false): Unit =
+  // Decode the artifact directly so we have access to the sectionHashes map
+  // for `--sections`; the legacy `readIr` returns a tuple that drops it.
+  val artEither =
+    scala.util.Try(upickle.default.read[scalascript.ir.ModuleIrArtifact](json)).toEither.left.map { e =>
+      s"Failed to parse .scir artifact: ${e.getMessage}"
+    }
+  artEither match
     case Left(err) =>
       System.err.println(s"info: $err")
       System.exit(1)
-    case Right((nm, pkg, moduleName, sourceHash)) =>
+    case Right(art) =>
       if jsonMode then
-        // Re-emit the envelope as pretty JSON.  We've already validated
-        // the envelope; pass through the original payload bytes which
-        // are already pretty-printed by ArtifactIO.writeIr at write
-        // time.  For consistency with --json on other formats, re-encode
-        // through ArtifactIO so we always emit the canonical form.
-        println(ArtifactIO.writeIr(nm, pkg, moduleName, sourceHash))
+        // Round-trip through writeIr so the canonical pretty form is
+        // emitted (matches pre-Phase-3 behaviour).
+        val nm = scala.util.Try(upickle.default.read[scalascript.ir.NormalizedModule](art.body)).getOrElse(
+          scalascript.ir.NormalizedModule(manifest = None, sections = Nil))
+        println(ArtifactIO.writeIr(nm, art.pkg, art.moduleName, art.sourceHash, art.sectionHashes))
       else
-        // Body byte size — parse the raw JSON envelope to read the
-        // `body` field length without re-serialising.
-        val bodyBytes =
-          scala.util.Try(ujson.read(json)("body").str.length).getOrElse(0)
+        // Body byte size — `art.body` is the embedded JSON string.
+        val bodyBytes = art.body.length
+        val sectionCount =
+          scala.util.Try(upickle.default.read[scalascript.ir.NormalizedModule](art.body).sections.length).getOrElse(0)
         println(s"file: $path")
         println(s"format: .scir (module IR artifact)")
-        println(s"magic: SSCART")
-        println(s"abiVersion: ${scalascript.ir.ArtifactVersion.current}")
-        println(s"moduleId: ${moduleName.getOrElse("<unnamed>")}")
-        println(s"package: ${if pkg.isEmpty then "<none>" else pkg.mkString(".")}")
-        println(s"sourceHash: $sourceHash")
+        println(s"magic: ${art.magic}")
+        println(s"abiVersion: ${art.abiVersion}")
+        println(s"moduleId: ${art.moduleName.getOrElse("<unnamed>")}")
+        println(s"package: ${if art.pkg.isEmpty then "<none>" else art.pkg.mkString(".")}")
+        println(s"sourceHash: ${art.sourceHash}")
         println(s"size: $fileSize bytes")
-        println(s"sections: ${nm.sections.length}")
+        println(s"sections: $sectionCount")
         println(s"bodyBytes: $bodyBytes")
+        if sectionsMode then
+          printSectionHashes(art.sectionHashes)
 
-private def printScjvmInfo(path: os.Path, json: String, fileSize: Long, jsonMode: Boolean): Unit =
+private def printScjvmInfo(path: os.Path, json: String, fileSize: Long, jsonMode: Boolean, sectionsMode: Boolean = false): Unit =
   JvmArtifactIO.readJvm(json) match
     case Left(err) =>
       System.err.println(s"info: $err")
@@ -2700,8 +2771,10 @@ private def printScjvmInfo(path: os.Path, json: String, fileSize: Long, jsonMode
         println(s"scalaSourceBytes: ${art.scalaSource.length}")
         println(s"imports: ${art.imports.length}")
         art.imports.foreach { imp => println(s"  - $imp") }
+        if sectionsMode then
+          printSectionHashes(art.sectionHashes)
 
-private def printScjsInfo(path: os.Path, json: String, fileSize: Long, jsonMode: Boolean): Unit =
+private def printScjsInfo(path: os.Path, json: String, fileSize: Long, jsonMode: Boolean, sectionsMode: Boolean = false): Unit =
   JsArtifactIO.readJs(json) match
     case Left(err) =>
       System.err.println(s"info: $err")
@@ -2721,6 +2794,8 @@ private def printScjsInfo(path: os.Path, json: String, fileSize: Long, jsonMode:
         println(s"jsSourceBytes: ${art.jsSource.length}")
         println(s"imports: ${art.imports.length}")
         art.imports.foreach { imp => println(s"  - $imp") }
+        if sectionsMode then
+          printSectionHashes(art.sectionHashes)
 
 
 // ─────────────────────────────────────────────────────────────────────────────
