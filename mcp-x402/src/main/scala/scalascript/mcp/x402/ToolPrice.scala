@@ -32,16 +32,51 @@ object PaymentScope:
   val oneShot: PaymentScope = PaymentScope(oneShot = true, ttlSec = 0)
   def session(ttlSec: Int): PaymentScope = PaymentScope(oneShot = false, ttlSec = ttlSec)
 
-/** Configuration for one priced MCP tool. The full set of fields the
- *  enclosing host needs in order to register it onto its
- *  `McpServerBuilder` and run the verify/dispatch dance via
- *  `Mcp402Dispatcher`. */
+/** Common surface for priced MCP operations — tools, resources,
+ *  prompts. Each carries a price + scope; `resourceLabel` is what
+ *  goes into the `requirements.resource` field of the -32402 error,
+ *  letting clients distinguish tool / resource / prompt charges.
+ *
+ *  Concrete subtypes:
+ *    - PricedToolConfig     — `tool:<name>`
+ *    - PricedResourceConfig — `resource:<uri>`
+ *    - PricedPromptConfig   — `prompt:<name>` */
+sealed trait PricedOperationConfig:
+  def resourceLabel: String
+  def description:   String
+  def price:         ToolPrice
+  def scope:         PaymentScope
+
+/** Configuration for one priced MCP tool. */
 case class PricedToolConfig(
   name:        String,
   description: String,
   price:       ToolPrice,
   scope:       PaymentScope = PaymentScope.oneShot,
-)
+) extends PricedOperationConfig:
+  def resourceLabel: String = s"tool:$name"
+
+/** Configuration for a priced MCP resource (`resources/read`).
+ *  `uri` is the MCP resource URI (e.g. `data://premium/feed`).
+ *  `mimeType` is exposed in the -32402 error data so the client
+ *  knows what it's buying. */
+case class PricedResourceConfig(
+  uri:         String,
+  description: String,
+  price:       ToolPrice,
+  scope:       PaymentScope   = PaymentScope.oneShot,
+  mimeType:    Option[String] = None,
+) extends PricedOperationConfig:
+  def resourceLabel: String = s"resource:$uri"
+
+/** Configuration for a priced MCP prompt (`prompts/get`). */
+case class PricedPromptConfig(
+  name:        String,
+  description: String,
+  price:       ToolPrice,
+  scope:       PaymentScope = PaymentScope.oneShot,
+) extends PricedOperationConfig:
+  def resourceLabel: String = s"prompt:$name"
 
 /** A successfully-verified payment, returned to the host so it can
  *  log it / emit `_meta.x402.settled` in the eventual response. */

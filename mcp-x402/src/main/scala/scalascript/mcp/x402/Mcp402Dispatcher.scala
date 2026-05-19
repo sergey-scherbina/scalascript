@@ -28,12 +28,37 @@ class Mcp402Dispatcher(
    *  payment header that the facilitator accepted; Left(errorJson)
    *  with code -32402 otherwise. The Left error is in the JSON-RPC
    *  shape so the host can attach it as-is to its response. */
+  /** Dispatch a priced `tools/call`. Returns Right(VerifiedPayment)
+   *  when the request carries a payment the facilitator accepts;
+   *  Left(errorJson) with code -32402 otherwise. The Left error is
+   *  in JSON-RPC error shape so the host attaches it as-is. */
+  def dispatchTool(config: PricedToolConfig, params: ujson.Value): Future[Either[ujson.Value, VerifiedPayment]] =
+    dispatchAny(config, params)
+
+  /** Dispatch a priced `resources/read`. Same -32402 / payment flow
+   *  as tools — the only difference is the `resource` label in the
+   *  emitted requirements (`resource:<uri>` vs `tool:<name>`). */
+  def dispatchResource(config: PricedResourceConfig, params: ujson.Value): Future[Either[ujson.Value, VerifiedPayment]] =
+    dispatchAny(config, params)
+
+  /** Dispatch a priced `prompts/get`. */
+  def dispatchPrompt(config: PricedPromptConfig, params: ujson.Value): Future[Either[ujson.Value, VerifiedPayment]] =
+    dispatchAny(config, params)
+
+  /** Backwards-compat alias for the original `dispatch(toolConfig,
+   *  params)` shape from Phase 3 — old callers keep working. */
   def dispatch(config: PricedToolConfig, params: ujson.Value): Future[Either[ujson.Value, VerifiedPayment]] =
+    dispatchTool(config, params)
+
+  /** Type-agnostic core. The operation kind is encoded in
+   *  `config.resourceLabel`; everything else is identical across
+   *  tools / resources / prompts. */
+  private def dispatchAny(config: PricedOperationConfig, params: ujson.Value): Future[Either[ujson.Value, VerifiedPayment]] =
     extractPaymentHeader(params) match
       case None =>
         Future.successful(Left(
           Mcp402Protocol.paymentRequiredError(
-            message      = s"payment required for ${config.name}",
+            message      = s"payment required for ${config.resourceLabel}",
             requirements = renderRequirements(config),
           )
         ))
@@ -146,9 +171,9 @@ class Mcp402Dispatcher(
       case other =>
         throw new IllegalArgumentException(s"Unsupported scheme in payment: $other")
 
-  private def renderRequirements(config: PricedToolConfig): ujson.Value =
-    val req = config.price.toRequirements(s"tool:${config.name}", config.description)
-    ujson.Obj(
+  private def renderRequirements(config: PricedOperationConfig): ujson.Value =
+    val req = config.price.toRequirements(config.resourceLabel, config.description)
+    val base = ujson.Obj(
       "x402Version" -> ujson.Num(1),
       "scheme"      -> ujson.Obj("type" -> ujson.Str("exact"), "amount" -> ujson.Str(config.price.amount.toString)),
       "network"     -> ujson.Str(req.network.toString),
@@ -167,3 +192,13 @@ class Mcp402Dispatcher(
         "ttlSec"  -> ujson.Num(config.scope.ttlSec.toDouble),
       ),
     )
+    // Resource-kind hint so clients can tell tool-priced from
+    // resource-priced from prompt-priced calls without re-parsing
+    // the `resource` field's prefix.
+    config match
+      case _: PricedToolConfig     => base("kind") = ujson.Str("tool")
+      case r: PricedResourceConfig =>
+        base("kind") = ujson.Str("resource")
+        r.mimeType.foreach(mt => base("mimeType") = ujson.Str(mt))
+      case _: PricedPromptConfig   => base("kind") = ujson.Str("prompt")
+    base
