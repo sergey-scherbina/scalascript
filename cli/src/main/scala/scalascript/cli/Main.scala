@@ -1484,8 +1484,10 @@ def emitIrCommand(args: List[String]): Unit =
  *  v2.0 — JVM incremental codegen cache.
  */
 def compileJvmCommand(args: List[String]): Unit =
-  var outputArg: Option[String] = None
-  var ifaceDir:  Option[os.Path] = None
+  var outputArg:    Option[String]  = None
+  var ifaceDir:     Option[os.Path] = None
+  var artifactDir:  Option[os.Path] = None
+  var noAutoDeps:   Boolean         = false
   val files = scala.collection.mutable.ArrayBuffer.empty[String]
   val it = args.iterator
   while it.hasNext do
@@ -1493,35 +1495,81 @@ def compileJvmCommand(args: List[String]): Unit =
       case "-o" | "--output" if it.hasNext => outputArg = Some(it.next())
       case "--iface-dir" | "-I" if it.hasNext =>
         ifaceDir = Some(os.Path(it.next(), os.pwd))
+      case "--artifact-dir" if it.hasNext =>
+        artifactDir = Some(os.Path(it.next(), os.pwd))
+      case "--no-auto-deps" => noAutoDeps = true
       case f => files += f
 
   if files.isEmpty then
-    System.err.println("Usage: ssc compile-jvm <file.ssc> [-o <file.scjvm>] [--iface-dir <dir>]")
+    System.err.println("Usage: ssc compile-jvm <file.ssc> [-o <file.scjvm>] [--iface-dir <dir>] [--artifact-dir <dir>] [--no-auto-deps]")
     System.exit(1)
-
-  // Pre-load interfaces from --iface-dir for type-checking, if specified.
-  val interfaces: Map[String, scalascript.ir.ModuleInterface] =
-    ifaceDir match
-      case None => Map.empty
-      case Some(dir) =>
-        if !os.isDir(dir) then
-          System.err.println(s"compile-jvm: --iface-dir '$dir' is not a directory")
-          System.exit(1)
-        os.list(dir).filter(_.ext == "scim").flatMap { p =>
-          ArtifactIO.readInterfaceFile(p) match
-            case Right(iface) =>
-              val alias = p.last.stripSuffix(".scim")
-              List(alias -> iface)
-            case Left(err) =>
-              System.err.println(s"  [warn] skipping ${p.last}: $err")
-              Nil
-        }.toMap
 
   for file <- files.toList do
     val path = os.Path(file, os.pwd)
     if !os.exists(path) then
       System.err.println(s"Error: File not found: $file"); System.exit(1)
     try
+      // ── Auto-resolve transitive local-path imports ────────────────────
+      //
+      // Walk `Content.Import` edges from the target, parse each, build a
+      // DAG, topo-sort, and recursively compile every dep that's stale
+      // (missing or SHA-256-mismatched `.scim` / `.scjvm`).  Dependency
+      // artifacts are written to the artifact-dir (defaults to
+      // `<target-dir>/.ssc-artifacts/`).  `--no-auto-deps` reproduces
+      // the pre-v2.0 behaviour: don't touch deps; rely on `--iface-dir`.
+      val effectiveArtifactDir: os.Path =
+        artifactDir.getOrElse:
+          ifaceDir.getOrElse(AutoResolve.defaultArtifactDir(path))
+
+      val autoResolvedIfaceDir: Option[os.Path] =
+        if noAutoDeps then ifaceDir
+        else
+          val resolution = AutoResolve.resolve(path)
+          if resolution.cycles.nonEmpty then
+            System.err.println("compile-jvm: circular dependencies detected:")
+            resolution.cycles.foreach { cycle =>
+              System.err.println("  " + cycle.map(_.last).mkString(" → "))
+            }
+            System.exit(1)
+          // The target itself appears in `orderedNodes`; only deps
+          // need pre-compilation.
+          val deps = resolution.orderedNodes.filter(_.path != path)
+          if deps.nonEmpty then os.makeDir.all(effectiveArtifactDir)
+          for dep <- deps do
+            val baseName = dep.path.last.stripSuffix(".ssc")
+            val scimPath = effectiveArtifactDir / (baseName + ".scim")
+            val scjvmPath = effectiveArtifactDir / (baseName + ".scjvm")
+            val fresh = AutoResolve.isScimFresh(dep, effectiveArtifactDir) &&
+                        AutoResolve.isScjvmFresh(dep, effectiveArtifactDir)
+            if !fresh then
+              compileJvmDepInto(dep, effectiveArtifactDir, scimPath, scjvmPath)
+          // Either return the explicit --iface-dir (so its `.scim`
+          // files participate too) or our newly populated artifact dir.
+          // When the user gave both flags, --iface-dir wins for
+          // resolution but deps still land in --artifact-dir.
+          Some(ifaceDir.getOrElse(effectiveArtifactDir))
+
+      // Pre-load interfaces from the iface dir (auto-resolved or
+      // user-supplied) for type-checking the target.
+      val interfaces: Map[String, scalascript.ir.ModuleInterface] =
+        autoResolvedIfaceDir match
+          case None => Map.empty
+          case Some(dir) =>
+            if !os.isDir(dir) then
+              // No interfaces to load (e.g. the target has no deps and we
+              // never created the dir).  Fall through to an empty map.
+              Map.empty
+            else
+              os.list(dir).filter(_.ext == "scim").flatMap { p =>
+                ArtifactIO.readInterfaceFile(p) match
+                  case Right(iface) =>
+                    val alias = p.last.stripSuffix(".scim")
+                    List(alias -> iface)
+                  case Left(err) =>
+                    System.err.println(s"  [warn] skipping ${p.last}: $err")
+                    Nil
+              }.toMap
+
       val sourceBytes = os.read.bytes(path)
       val src         = new String(sourceBytes, "UTF-8")
       val module      = Parser.parse(src)
@@ -1572,6 +1620,58 @@ def compileJvmCommand(args: List[String]): Unit =
       System.err.println(s"compile-jvm error: ${e.getMessage}")
       System.exit(1)
 
+/** Compile a single dependency module into `.scim` + `.scjvm` artifacts
+ *  living in `artifactDir`.  Used by `compile-jvm` auto-resolution to
+ *  pre-build every transitive dep before the target.
+ *
+ *  Type-checks the dep against the interfaces already present in
+ *  `artifactDir` (so chains like `c → b → a` see `a`'s interface when
+ *  type-checking `b`).
+ *
+ *  Throws on type-check failures or codegen exceptions; the caller
+ *  catches and surfaces a non-zero exit code. */
+private def compileJvmDepInto(
+    dep:         AutoResolve.Node,
+    artifactDir: os.Path,
+    scimPath:    os.Path,
+    scjvmPath:   os.Path
+): Unit =
+  val module     = dep.module
+  // Build the interfaces map from `.scim` files already in the artifact
+  // dir.  Deeper deps will have been compiled first (topo order) so
+  // their interfaces are available when type-checking this one.
+  val interfaces: Map[String, scalascript.ir.ModuleInterface] =
+    if os.exists(artifactDir) && os.isDir(artifactDir) then
+      os.list(artifactDir).filter(_.ext == "scim").flatMap { p =>
+        ArtifactIO.readInterfaceFile(p) match
+          case Right(iface) => List(p.last.stripSuffix(".scim") -> iface)
+          case Left(_)      => Nil
+      }.toMap
+    else Map.empty
+  val typed =
+    if interfaces.isEmpty then Typer.typeCheck(module)
+    else Typer.typeCheckWithInterfaces(module, interfaces)
+  if typed.hasErrors then
+    val msgs = typed.errors.map(_.msg).mkString("; ")
+    throw new RuntimeException(s"type errors in dep ${dep.path.last}: $msgs")
+
+  // .scim first so siblings parsed in topo order pick it up.
+  val iface = InterfaceExtractor.extract(module, dep.sourceBytes)
+  ArtifactIO.writeInterfaceFile(iface, scimPath)
+
+  // Now the .scjvm.
+  val baseDir     = Some(dep.path / os.up)
+  val scalaSource = JvmGen.generate(module, baseDir)
+  val pkg         = module.manifest.flatMap(_.pkg).getOrElse(Nil)
+  val moduleName  = module.manifest.flatMap(_.name)
+  val sourceHash  = InterfaceExtractor.sha256(dep.sourceBytes)
+  val baseName    = dep.path.last.stripSuffix(".ssc")
+  val rawImports  = collectImports(module.sections)
+  val depAliases  = module.manifest.toList.flatMap(_.dependencies.keys)
+  val imports     = (rawImports ++ depAliases).distinct.toList
+  val moduleId    = moduleName.getOrElse(baseName)
+  JvmArtifactIO.writeJvmFile(moduleId, pkg, moduleName, sourceHash, scalaSource, imports, scjvmPath)
+
 // ─────────────────────────────────────────────────────────────────────────────
 // ssc compile-js  —  v2.0 JS-backend incremental codegen cache
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1602,8 +1702,10 @@ def compileJvmCommand(args: List[String]): Unit =
  *  v2.0 — JS incremental codegen cache.
  */
 def compileJsCommand(args: List[String]): Unit =
-  var outputArg: Option[String] = None
-  var ifaceDir:  Option[os.Path] = None
+  var outputArg:   Option[String]  = None
+  var ifaceDir:    Option[os.Path] = None
+  var artifactDir: Option[os.Path] = None
+  var noAutoDeps:  Boolean         = false
   val files = scala.collection.mutable.ArrayBuffer.empty[String]
   val it = args.iterator
   while it.hasNext do
@@ -1611,35 +1713,67 @@ def compileJsCommand(args: List[String]): Unit =
       case "-o" | "--output" if it.hasNext => outputArg = Some(it.next())
       case "--iface-dir" | "-I" if it.hasNext =>
         ifaceDir = Some(os.Path(it.next(), os.pwd))
+      case "--artifact-dir" if it.hasNext =>
+        artifactDir = Some(os.Path(it.next(), os.pwd))
+      case "--no-auto-deps" => noAutoDeps = true
       case f => files += f
 
   if files.isEmpty then
-    System.err.println("Usage: ssc compile-js <file.ssc> [-o <file.scjs>] [--iface-dir <dir>]")
+    System.err.println("Usage: ssc compile-js <file.ssc> [-o <file.scjs>] [--iface-dir <dir>] [--artifact-dir <dir>] [--no-auto-deps]")
     System.exit(1)
-
-  // Pre-load interfaces from --iface-dir for type-checking, if specified.
-  val interfaces: Map[String, scalascript.ir.ModuleInterface] =
-    ifaceDir match
-      case None => Map.empty
-      case Some(dir) =>
-        if !os.isDir(dir) then
-          System.err.println(s"compile-js: --iface-dir '$dir' is not a directory")
-          System.exit(1)
-        os.list(dir).filter(_.ext == "scim").flatMap { p =>
-          ArtifactIO.readInterfaceFile(p) match
-            case Right(iface) =>
-              val alias = p.last.stripSuffix(".scim")
-              List(alias -> iface)
-            case Left(err) =>
-              System.err.println(s"  [warn] skipping ${p.last}: $err")
-              Nil
-        }.toMap
 
   for file <- files.toList do
     val path = os.Path(file, os.pwd)
     if !os.exists(path) then
       System.err.println(s"Error: File not found: $file"); System.exit(1)
     try
+      // ── Auto-resolve transitive local-path imports ────────────────────
+      // (See `compile-jvm` for the design.  Same shape, `.scjs` instead
+      // of `.scjvm` for the backend cache.)
+      val effectiveArtifactDir: os.Path =
+        artifactDir.getOrElse:
+          ifaceDir.getOrElse(AutoResolve.defaultArtifactDir(path))
+
+      val autoResolvedIfaceDir: Option[os.Path] =
+        if noAutoDeps then ifaceDir
+        else
+          val resolution = AutoResolve.resolve(path)
+          if resolution.cycles.nonEmpty then
+            System.err.println("compile-js: circular dependencies detected:")
+            resolution.cycles.foreach { cycle =>
+              System.err.println("  " + cycle.map(_.last).mkString(" → "))
+            }
+            System.exit(1)
+          val deps = resolution.orderedNodes.filter(_.path != path)
+          if deps.nonEmpty then os.makeDir.all(effectiveArtifactDir)
+          for dep <- deps do
+            val baseName = dep.path.last.stripSuffix(".ssc")
+            val scimPath = effectiveArtifactDir / (baseName + ".scim")
+            val scjsPath = effectiveArtifactDir / (baseName + ".scjs")
+            val fresh = AutoResolve.isScimFresh(dep, effectiveArtifactDir) &&
+                        AutoResolve.isScjsFresh(dep, effectiveArtifactDir)
+            if !fresh then
+              compileJsDepInto(dep, effectiveArtifactDir, scimPath, scjsPath)
+          Some(ifaceDir.getOrElse(effectiveArtifactDir))
+
+      // Pre-load interfaces from the iface dir (auto-resolved or
+      // user-supplied) for type-checking the target.
+      val interfaces: Map[String, scalascript.ir.ModuleInterface] =
+        autoResolvedIfaceDir match
+          case None => Map.empty
+          case Some(dir) =>
+            if !os.isDir(dir) then Map.empty
+            else
+              os.list(dir).filter(_.ext == "scim").flatMap { p =>
+                ArtifactIO.readInterfaceFile(p) match
+                  case Right(iface) =>
+                    val alias = p.last.stripSuffix(".scim")
+                    List(alias -> iface)
+                  case Left(err) =>
+                    System.err.println(s"  [warn] skipping ${p.last}: $err")
+                    Nil
+              }.toMap
+
       val sourceBytes = os.read.bytes(path)
       val src         = new String(sourceBytes, "UTF-8")
       val module      = Parser.parse(src)
@@ -1693,6 +1827,46 @@ def compileJsCommand(args: List[String]): Unit =
     catch case e: Exception =>
       System.err.println(s"compile-js error: ${e.getMessage}")
       System.exit(1)
+
+/** Compile a single dependency module into `.scim` + `.scjs` artifacts
+ *  living in `artifactDir`.  Mirror of `compileJvmDepInto`. */
+private def compileJsDepInto(
+    dep:         AutoResolve.Node,
+    artifactDir: os.Path,
+    scimPath:    os.Path,
+    scjsPath:    os.Path
+): Unit =
+  val module = dep.module
+  val interfaces: Map[String, scalascript.ir.ModuleInterface] =
+    if os.exists(artifactDir) && os.isDir(artifactDir) then
+      os.list(artifactDir).filter(_.ext == "scim").flatMap { p =>
+        ArtifactIO.readInterfaceFile(p) match
+          case Right(iface) => List(p.last.stripSuffix(".scim") -> iface)
+          case Left(_)      => Nil
+      }.toMap
+    else Map.empty
+  val typed =
+    if interfaces.isEmpty then Typer.typeCheck(module)
+    else Typer.typeCheckWithInterfaces(module, interfaces)
+  if typed.hasErrors then
+    val msgs = typed.errors.map(_.msg).mkString("; ")
+    throw new RuntimeException(s"type errors in dep ${dep.path.last}: $msgs")
+
+  val iface = InterfaceExtractor.extract(module, dep.sourceBytes)
+  ArtifactIO.writeInterfaceFile(iface, scimPath)
+
+  val baseDir    = Some(dep.path / os.up)
+  val userJs     = JsGen.generate(module, baseDir)
+  val jsSource   = buildScjsSource(userJs)
+  val pkg        = module.manifest.flatMap(_.pkg).getOrElse(Nil)
+  val moduleName = module.manifest.flatMap(_.name)
+  val sourceHash = InterfaceExtractor.sha256(dep.sourceBytes)
+  val baseName   = dep.path.last.stripSuffix(".ssc")
+  val rawImports = collectImports(module.sections)
+  val depAliases = module.manifest.toList.flatMap(_.dependencies.keys)
+  val imports    = (rawImports ++ depAliases).distinct.toList
+  val moduleId   = moduleName.getOrElse(baseName)
+  JsArtifactIO.writeJsFile(moduleId, pkg, moduleName, sourceHash, jsSource, imports, scjsPath)
 
 /** Build the self-contained JS source written to a `.scjs` artifact.
  *
