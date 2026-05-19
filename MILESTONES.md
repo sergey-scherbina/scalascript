@@ -5554,7 +5554,7 @@ Different chains have very different VM models:
 |-------|----|-----------------|-------|
 | Ethereum / EVM chains | EVM (stack machine) | Solidity, Vyper | Largest ecosystem; custom IR needed |
 | Solana | SBF (BPF variant) | Rust | High throughput; no WASM path |
-| Cardano | UPLC (lambda calculus) | Haskell / Plutus | Strongest FP alignment; small ecosystem |
+| Cardano | UPLC (lambda calculus) | Haskell / Plutus / **Scalus** | Strongest FP alignment; use **Scalus** — no custom VM backend needed |
 | Polkadot / ink! | WASM | Rust | WASM backend would cover this |
 | Near | WASM | Rust, JS | WASM backend would cover this |
 | Cosmos / CosmWasm | WASM | Rust | WASM backend would cover this |
@@ -5566,11 +5566,14 @@ CosmWasm** — zero extra VM work once WASM is stable.
 **Highest ecosystem value**: **EVM** — but needs a dedicated EVM bytecode
 backend (different from WASM).
 
-**Strongest type-theory alignment**: **Cardano/Plutus** — UPLC is a typed
-lambda calculus, very close to ScalaScript's IR.
+**Fastest path with strongest type-theory alignment**: **Cardano via Scalus** —
+[Scalus](https://github.com/nau/scalus) is a Scala 3 library that compiles Scala
+code to Plutus UPLC on the JVM.  ScalaScript already targets the JVM; `JvmGen`
+can emit Scala 3 + Scalus annotations for `kind: contract` / `chain: cardano`
+modules.  No new VM backend needed.
 
-The realistic first target is probably one WASM chain (Near or Polkadot)
-plus optional EVM via a separate `backend-evm/` module.
+**Decision (2026-05-19):** Cardano target uses **Scalus**.  WASM chains to be
+decided when the WASM backend ships.
 
 ### Open question 2 — contract model
 
@@ -5629,10 +5632,22 @@ discharge?  The typed IR already has enough structure.  This is PhD-level
 research territory — keep it in mind when designing the contract annotation
 model, don't build for it yet.
 
-### Suggested first step (when WASM lands)
+### Suggested first step — Cardano/Scalus (no WASM needed)
 
-1. Write 3 sample contracts in pseudo-ScalaScript (token, auction, multisig).
-2. Decide: Near or Polkadot as the first target.
-3. Prototype a `backend-wasm-contract/` thin layer on top of `backend-wasm/`
-   that enforces `@contract` purity and emits the chain's ABI JSON.
-4. No new language features needed for step 3 — reuse existing type system.
+The fastest concrete path to a working smart contract:
+
+1. Add `scalus` as a dependency to `backend-jvm/` (or a new `backend-cardano/` module).
+2. In `JvmGen`, when `kind: contract` + `chain: cardano` appear in front-matter,
+   emit Scala 3 code with Scalus `@Validator` annotation wrapping the user logic.
+3. Map `@state`, `@view`, `@call` annotations to Scalus's `Data` encoding.
+4. Write 3 sample contracts: token transfer, simple auction, multisig.
+5. Test on Cardano preview testnet.
+
+No new language features needed — reuse existing type system + JVM backend.
+`direct[State[TokenState]]` do-notation already maps to Scalus's state model.
+
+**Prerequisite:** none — can start after v1.24 language features land.
+
+### Suggested second step — WASM chain (when WASM backend ships)
+
+Thin `backend-wasm-contract/` layer on top of `backend-wasm/` for Near or Polkadot.
