@@ -371,6 +371,13 @@ private final class InterpreterWsListener(
       case Nil => Value.BoolV(controls.isClosed)
       case _   => throw scalascript.interpreter.InterpretError("ws.isClosed")
     })
+    // Blocking-recv exposure — handshake-driven server flows (e.g.
+    // the cluster's `/_ssc-actors` route) need a parked-on-VT
+    // read primitive in addition to the onMessage callback path.
+    val recv = Value.NativeFnV("WebSocket.recv", Computation.pureFn {
+      case Nil => Value.OptionV(controls.recv().map(Value.StringV(_)))
+      case _   => throw scalascript.interpreter.InterpretError("ws.recv()")
+    })
     val userValue: Value = userPayload match
       case Some(v) => Value.OptionV(Some(v))
       case None    => Value.OptionV(None)
@@ -383,6 +390,7 @@ private final class InterpreterWsListener(
       "onClose"     -> onClose,
       "onPong"      -> onPong,
       "isClosed"    -> isClosed,
+      "recv"        -> recv,
       "request"     -> requestValue,
       "id"          -> Value.StringV(controls.id),
       "subprotocol" -> Value.StringV(controls.subprotocol),

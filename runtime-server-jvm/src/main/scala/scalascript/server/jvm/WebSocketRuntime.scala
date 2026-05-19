@@ -244,7 +244,13 @@ class WebSocket(
   // virtual thread (Loom), so a parked recv blocks just that VT.
   // `_recvQueue` is lazily populated by `_deliverMessage` once
   // `recv` (or `recvBytes`) is first called.
-  private val _recvQueue: LinkedBlockingQueue[String | Null] = LinkedBlockingQueue()
+  // Reference-identity sentinel for "close" on the recv path.
+  // `LinkedBlockingQueue` rejects literal `null` with a NPE, so we
+  // route the close signal through a distinguished `String` instance
+  // and `eq`-check it on the consumer side.  An empty user message
+  // is a *value-equal* "" String, never the same object.
+  private val RECV_CLOSE_SENTINEL: String = new String("__ssc_ws_recv_close__")
+  private val _recvQueue: LinkedBlockingQueue[String] = LinkedBlockingQueue()
   @volatile private var _recvEnabled: Boolean = false
 
   /** Block the calling thread until a message arrives or the WS
@@ -253,7 +259,7 @@ class WebSocket(
   def recv(): Option[String] =
     _recvEnabled = true
     val v = _recvQueue.take()
-    if v == null then None else Some(v.asInstanceOf[String])
+    if v eq RECV_CLOSE_SENTINEL then None else Some(v)
 
   /** True once the close-frame has been sent or received. */
   def isClosed: Boolean = closing
@@ -264,7 +270,11 @@ class WebSocket(
    *  through to the callback-style API.  Cost when nobody calls
    *  recv: a single volatile read. */
   def _deliverRecv(payload: String | Null): Unit =
-    if _recvEnabled then _recvQueue.offer(payload)
+    if _recvEnabled then
+      // Java's LinkedBlockingQueue.offer rejects null with a NPE,
+      // so translate "close" (null payload) into the sentinel.
+      val v: String = if payload == null then RECV_CLOSE_SENTINEL else payload
+      _recvQueue.offer(v)
 
   /** ping([payload]): empty Ping or Latin-1-byte-view payload that
     * the peer echoes back as a Pong (delivered via `onPong`).

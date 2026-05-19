@@ -49,6 +49,7 @@ class HttpServerSpiTest extends AnyFunSuite with Matchers:
       override def ping(payload: Array[Byte]): Unit = ()
       override def close(code: Int, reason: String): Unit = ()
       override def isClosed: Boolean = false
+      override def recv(): Option[String] = None
     assert(controls.id == "test-id")
 
     val listener = new WsListener:
