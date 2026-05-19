@@ -2754,7 +2754,7 @@ class JvmGen(
       "UploadedFile", "HttpHelpers", "Multipart", "TlsContextBuilder",
       "CorsHelpers", "HttpModel", "BasicAuth", "ResponseWriter",
       "RequestBuilder", "StreamResponseWriter", "StaticAssetServer",
-      "WsHandshake"
+      "WsHandshake", "WsReassembler", "WsRateLimiter"
     )
     val header =
       "\n// ── runtime-server-common (inlined from classpath resources) ──────────\n" +
@@ -3927,20 +3927,14 @@ class JvmGen(
        |   *  unconditionally — the `onWebSocket` body also runs on the
        |   *  executor, so reading the callback inside the task gives us
        |   *  the up-to-date value. */
-       |  // Rate-limit state — fixed 1-second window.  Only the read loop
-       |  // touches these, so no synchronisation needed.
-       |  private var _rateWindowStartMs: Long = 0L
-       |  private var _rateMsgsInWindow:  Int  = 0
+       |  // Rate-limit state — fixed 1-second window, delegated to the
+       |  // shared `WsRateLimiter`.  Only the read loop touches it, so
+       |  // no synchronisation needed.
+       |  private val _rateLimiter = new WsRateLimiter(_maxMessagesPerSec)
        |
        |  private def _dispatchWsMessage(opcode: Int, payload: Array[Byte]): Unit =
-       |    if _maxMessagesPerSec > 0 then
-       |      val now = java.lang.System.currentTimeMillis()
-       |      if now - _rateWindowStartMs >= 1000L then
-       |        _rateWindowStartMs = now
-       |        _rateMsgsInWindow  = 0
-       |      _rateMsgsInWindow += 1
-       |      if _rateMsgsInWindow > _maxMessagesPerSec then
-       |        close(1008, "rate limit exceeded"); return
+       |    if !_rateLimiter.admit(java.lang.System.currentTimeMillis()) then
+       |      close(1008, "rate limit exceeded"); return
        |    _Metrics.wsMessagesIn.incrementAndGet()
        |    _Metrics.wsBytesIn.addAndGet(payload.length.toLong)
        |    val msg =

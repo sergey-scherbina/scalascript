@@ -130,16 +130,11 @@ final class WsConnection(
   private var inBuf: Array[Byte] = new Array[Byte](4096)
   private var inLen: Int = 0
 
-  // Fragmented-message reassembly (RFC 6455 §5.4).  Real browsers split
-  // large text/binary messages across multiple frames: the first frame
-  // carries the opcode with FIN=0, followed by Continuation frames
-  // (opcode=0x0) with the rest, the last one with FIN=1.  Control frames
-  // (Ping/Pong/Close) are never fragmented and may interleave freely.
-  // Buffer until FIN=1 lands, then dispatch the joined payload using
-  // the originating opcode.
-  private var fragOpcode: WsFraming.Opcode | Null = null
-  private val fragBuf:    java.io.ByteArrayOutputStream =
-    new java.io.ByteArrayOutputStream()
+  // Fragmented-message reassembly (RFC 6455 §5.4) — delegated to the
+  // shared `WsReassembler` state machine in runtime-server-common.
+  // Control frames (Ping / Pong / Close) still dispatch directly
+  // below; only Text / Binary / Continuation go through the reassembler.
+  private val reassembler = new WsReassembler(WsFraming.MaxFrameBytes)
 
   // User-side callbacks — registered from the handler thread, fired from
   // the interpreter executor.  `onCloseCb` uses AtomicReference so the
@@ -240,36 +235,17 @@ final class WsConnection(
             else 1000
           sendClose(status, "")
         else closeNow()
-      case Opcode.Text | Opcode.Binary =>
-        if !frame.fin then
-          // Start of a fragmented message — stash the opcode and the
-          // first chunk, wait for Continuations.
-          if fragOpcode != null then
-            sendClose(1002, "new data frame mid-fragment")
-            return
-          fragOpcode = frame.opcode
-          fragBuf.reset()
-          fragBuf.write(frame.payload)
-          checkFragLimit()
-        else dispatchMessage(frame.opcode, frame.payload)
-      case Opcode.Continuation =>
-        if fragOpcode == null then
-          sendClose(1002, "continuation without prior data frame")
-          return
-        fragBuf.write(frame.payload)
-        if !checkFragLimit() then return
-        if frame.fin then
-          val op    = fragOpcode.asInstanceOf[Opcode] // safe: non-null
-          val bytes = fragBuf.toByteArray
-          fragOpcode = null
-          fragBuf.reset()
-          dispatchMessage(op, bytes)
+      case Opcode.Text | Opcode.Binary | Opcode.Continuation =>
+        reassembler.feed(frame) match
+          case WsReassembler.Event.Deliver(op, bytes) => dispatchMessage(op, bytes)
+          case WsReassembler.Event.ProtocolError(code, reason) => sendClose(code, reason)
+          case WsReassembler.Event.Buffered            => ()
 
   // Rate-limit state — fixed 1-second window, reset on first message
-  // of each second.  No synchronisation needed: `dispatchMessage` runs
-  // on the selector thread, which is the only writer.
-  private var rateWindowStartMs: Long = 0L
-  private var rateMsgsInWindow:  Int  = 0
+  // of each second.  Delegated to the shared `WsRateLimiter` in
+  // runtime-server-common.  No synchronisation needed: `dispatchMessage`
+  // runs on the selector thread, which is the only writer.
+  private val rateLimiter = new WsRateLimiter(maxMessagesPerSec)
 
   /** Dispatch a fully-reassembled text/binary message to the user
    *  `onMessage` callback through the executor.  Queued
@@ -278,15 +254,9 @@ final class WsConnection(
    *  the selector parses the first frame.  Reading `onMessageCb` inside
    *  the task gives us the latest value. */
   private def dispatchMessage(opcode: WsFraming.Opcode, payload: Array[Byte]): Unit =
-    if maxMessagesPerSec > 0 then
-      val now = System.currentTimeMillis()
-      if now - rateWindowStartMs >= 1000L then
-        rateWindowStartMs = now
-        rateMsgsInWindow  = 0
-      rateMsgsInWindow += 1
-      if rateMsgsInWindow > maxMessagesPerSec then
-        sendClose(1008, "rate limit exceeded")
-        return
+    if !rateLimiter.admit(System.currentTimeMillis()) then
+      sendClose(1008, "rate limit exceeded")
+      return
     Metrics.wsMessagesIn.incrementAndGet()
     val s: String =
       if opcode == WsFraming.Opcode.Text then
@@ -303,15 +273,10 @@ final class WsConnection(
       }
     }
 
-  /** Cap on the total reassembled-message size, same threshold as a
-   *  single frame.  Returns true when still under budget. */
-  private def checkFragLimit(): Boolean =
-    if fragBuf.size > WsFraming.MaxFrameBytes then
-      fragOpcode = null
-      fragBuf.reset()
-      sendClose(1009, "message too big")
-      false
-    else true
+  // checkFragLimit collapsed into WsReassembler's ProtocolError(1009, …)
+  // branch — the reassembler tracks its own buffer size against
+  // `WsFraming.MaxFrameBytes` and emits a ProtocolError event when the
+  // budget is exhausted; the dispatcher routes that to `sendClose`.
 
   /** Soft cap on bytes parked on the outbox.  A slow client that fails
    *  to drain its socket would otherwise let a chatty broadcaster pile
