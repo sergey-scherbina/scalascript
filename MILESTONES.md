@@ -3308,16 +3308,36 @@ the codegen output.
    command) splices the preamble in only when user JS references
    `mcpConnect` / `mcpServer`.
 
-   34 tests across five suites all pass (McpRuntimeTest 18,
-   McpEndToEndTest 2, McpInterpreterIntegrationTest 3, McpHttpTransportTest
-   5, JsRuntimeMcpBrowserTest 6).
+   **Phase-2 follow-ups landed 2026-05-19** in the same series:
+   - **Browser async client** (`mcpConnectAsync(transport, timeoutMs)`)
+     in `JsRuntimeMcpBrowser` using `fetch` + `AbortController`.  Same
+     wire format and adapters as the sync `mcpConnect`, but every
+     method returns a Promise — doesn't block the main thread.
+   - **`Transport.Ws`** for both server and client on the interpreter.
+     Server reuses `ctx.registerWsRoute` and pipes inbound text frames
+     through `McpServerCore.handleHttpRequest`.  Client is a new
+     `mcp-common/McpWsClient` built on Java's `HttpClient` WebSocket
+     builder; same async pending-request pattern as `McpClientCore`
+     but routed over a single persistent WS instead of subprocess
+     stdio.
+   - **Server→client notifications** for transports with a persistent
+     channel (Stdio / Spawn / Ws).  Both `McpClientCore` and
+     `McpWsClient` gain a `setNotificationHandler` hook; the
+     user-facing `McpClient` value exposes `onNotification(handler)`
+     that the user-side block can register `(method, params) => Unit`
+     callbacks against.  HTTP transport accepts the handler but never
+     invokes it (no push channel).
 
-   **Deferred**: SSE-streamed server→client notifications (would need a
-   persistent GET stream + reader thread on INT, EventSource on browser);
-   `Transport.Ws(...)` for both sides; async-Promise variant of the
-   browser client (current sync XHR blocks the main thread —
-   acceptable trade-off for v1 of Phase 3 since it matches the
-   `std/mcp/client.ssc` synchronous API).
+   45 tests across seven suites all pass (McpRuntimeTest 18,
+   McpEndToEndTest 2, McpInterpreterIntegrationTest 3, McpHttpTransportTest
+   5, JsRuntimeMcpBrowserTest 10, McpWsTransportTest 2,
+   McpNotificationTest 5).
+
+   **Still deferred**: a separate persistent SSE GET stream for HTTP
+   notifications (would let the HTTP transport push too); bidirectional
+   sampling (server-initiated *requests* with id expecting a reply,
+   not just notifications); SSE-as-response-body for Streamable-HTTP
+   multi-response tools.
 2. **Type-class layer** (`given McpTool[A, R]`, `derives McpSchema`)
    — depends on v1.14 `derives`.
 3. **Streaming resources** — depends on v1.10 Generators.

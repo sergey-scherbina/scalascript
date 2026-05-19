@@ -86,7 +86,7 @@ val McpIntrinsics: Map[QualifiedName, IntrinsicImpl] = Map(
 
   // ─── mcpConnect(transport[, timeoutMs]) ────────────────────────────
 
-  QualifiedName("mcpConnect") -> NativeImpl((_, args) =>
+  QualifiedName("mcpConnect") -> NativeImpl((ctx, args) =>
     val (transport, timeoutMs) = args match
       case List(t)                  => (t, 30000L)
       case List(t, ms: Long)        => (t, ms)
@@ -95,13 +95,13 @@ val McpIntrinsics: Map[QualifiedName, IntrinsicImpl] = Map(
     Mcp.transportTag(transport) match
       case "Spawn" =>
         val (cmd, cmdArgs) = Mcp.spawnArgs(transport)
-        Mcp.makeSpawnClient(cmd, cmdArgs, timeoutMs)
+        Mcp.makeSpawnClient(cmd, cmdArgs, timeoutMs, ctx)
       case "Http" =>
         val url = Mcp.httpClientUrl(transport)
         Mcp.makeHttpClient(url, timeoutMs)
       case "Ws" =>
         val url = Mcp.wsClientUrl(transport)
-        Mcp.makeWsClient(url, timeoutMs)
+        Mcp.makeWsClient(url, timeoutMs, ctx)
       case "Stdio" =>
         throw InterpretError("mcpConnect: Transport.Stdio makes sense for servers, not clients — use Transport.Spawn")
       case other =>
@@ -238,7 +238,7 @@ private object Mcp:
     ctx.registerWsRoute(path, Nil, Nil, 0, 0, handler)
 
   /** Build an `McpClient` Value backed by `McpWsClient`. */
-  def makeWsClient(url: String, timeoutMs: Long): Value =
+  def makeWsClient(url: String, timeoutMs: Long, ctx: NativeContext): Value =
     val client = new McpWsClient(url, timeoutMs)
     val initParams = ujson.Obj(
       "protocolVersion" -> McpProtocol.ProtocolVersion,
@@ -250,7 +250,7 @@ private object Mcp:
         client.close()
         throw InterpretError(s"mcpConnect(Ws): initialize failed: ${e.message}")
       case Right(_) => client.notify("notifications/initialized", ujson.Obj())
-    makeWsClientInstance(client, timeoutMs)
+    makeWsClientInstance(client, timeoutMs, ctx)
 
   /** Build the `srv` instance the user-side `mcpServer { srv => ... }`
    *  block receives.  Each method-field is a `NativeFnV` that returns
@@ -460,7 +460,7 @@ private object Mcp:
 
   /** Spawn `cmd args*` as a subprocess and return a Value.InstanceV
    *  exposing the McpClient API — listTools / callTool / etc. */
-  def makeSpawnClient(cmd: String, cmdArgs: List[String], timeoutMs: Long): Value =
+  def makeSpawnClient(cmd: String, cmdArgs: List[String], timeoutMs: Long, ctx: NativeContext): Value =
     val pb = new ProcessBuilder((cmd :: cmdArgs).asJavaList).redirectErrorStream(false)
     val proc = pb.start()
     val stdin  = BufferedWriter(OutputStreamWriter(proc.getOutputStream, "UTF-8"))
@@ -496,12 +496,13 @@ private object Mcp:
       case Right(_) =>
         client.notify("notifications/initialized", ujson.Obj())
 
-    makeClientInstance(client, proc, timeoutMs)
+    makeClientInstance(client, proc, timeoutMs, ctx)
 
   private def makeClientInstance(
     client:    McpClientCore,
     proc:      Process,
-    timeoutMs: Long
+    timeoutMs: Long,
+    ctx:       NativeContext
   ): Value.InstanceV =
     val fields = mutable.LinkedHashMap.empty[String, Value]
 
@@ -551,6 +552,18 @@ private object Mcp:
     })
     fields("isClosed") = Value.NativeFnV("McpClient.isClosed", Computation.pureFn { _ =>
       Value.BoolV(client.isClosed)
+    })
+    // v1.17.x — server→client notification subscription.  Handler receives
+    // (method: String, params: Value).  Replaces any previously-registered
+    // handler.  Stdio/Spawn transports deliver notifications natively
+    // (frames just arrive on the same stdout the reader thread pulls).
+    fields("onNotification") = Value.NativeFnV("McpClient.onNotification", Computation.pureFn {
+      case List(handler) =>
+        client.setNotificationHandler { (method, params) =>
+          ctx.invokeCallback(handler, List(Value.StringV(method), Mcp.jsonToValue(params)))
+        }
+        Value.UnitV
+      case _ => throw InterpretError("client.onNotification(handler)")
     })
     Value.InstanceV("McpClient", fields.toMap)
 
@@ -606,12 +619,22 @@ private object Mcp:
     fields("isClosed") = Value.NativeFnV("McpClient.isClosed", Computation.pureFn { _ =>
       Value.BoolV(client.isClosed)
     })
+    // HTTP transport has no persistent server→client channel — there's no
+    // place to push notifications.  Accept the handler so user code is
+    // portable across transports, but never invoke it.  Real SSE-based
+    // notifications would need a separate persistent GET /mcp/events
+    // stream — that's a future iteration.
+    fields("onNotification") = Value.NativeFnV("McpClient.onNotification", Computation.pureFn {
+      case List(_) => Value.UnitV
+      case _       => throw InterpretError("client.onNotification(handler)")
+    })
     Value.InstanceV("McpClient", fields.toMap)
 
   /** Same shape as `makeHttpClientInstance` / `makeClientInstance` but
    *  routes through `McpWsClient`.  Persistent WS connection — the
-   *  pending-request map handles id correlation server→client. */
-  def makeWsClientInstance(client: McpWsClient, timeoutMs: Long): Value.InstanceV =
+   *  pending-request map handles id correlation server→client; the
+   *  same channel delivers server→client notifications. */
+  def makeWsClientInstance(client: McpWsClient, timeoutMs: Long, ctx: NativeContext): Value.InstanceV =
     val fields = mutable.LinkedHashMap.empty[String, Value]
     fields("listTools") = Value.NativeFnV("McpClient.listTools", Computation.pureFn { _ =>
       client.request(McpProtocol.Method.ToolsList, ujson.Obj(), timeoutMs) match
@@ -657,6 +680,17 @@ private object Mcp:
     })
     fields("isClosed") = Value.NativeFnV("McpClient.isClosed", Computation.pureFn { _ =>
       Value.BoolV(client.isClosed)
+    })
+    // Same notification-subscription mechanism as the Spawn/Stdio path:
+    // WS is a persistent bidirectional channel, server-initiated frames
+    // dispatch through the reader thread.
+    fields("onNotification") = Value.NativeFnV("McpClient.onNotification", Computation.pureFn {
+      case List(handler) =>
+        client.setNotificationHandler { (method, params) =>
+          ctx.invokeCallback(handler, List(Value.StringV(method), Mcp.jsonToValue(params)))
+        }
+        Value.UnitV
+      case _ => throw InterpretError("client.onNotification(handler)")
     })
     Value.InstanceV("McpClient", fields.toMap)
 

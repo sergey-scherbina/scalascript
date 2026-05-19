@@ -28,6 +28,13 @@ class McpWsClient(url: String, timeoutMs: Long):
   private val nextId  = AtomicLong(1L)
   private val pending = ConcurrentHashMap[Long, LinkedBlockingQueue[JsonRpc.Message.Response]]()
   @volatile private var closed: Boolean = false
+  @volatile private var notificationHandler: ((String, ujson.Value) => Unit) | Null = null
+
+  /** Register a callback for server-initiated notifications (`notify` method
+   *  frames with no id).  Same shape / semantics as
+   *  `McpClientCore.setNotificationHandler`.  Pass `null` to unregister. */
+  def setNotificationHandler(h: ((String, ujson.Value) => Unit) | Null): Unit =
+    notificationHandler = h
 
   private val textBuf  = new StringBuilder()
   private val handshakeLatch = CountDownLatch(1)
@@ -71,9 +78,10 @@ class McpWsClient(url: String, timeoutMs: Long):
     ws
 
   /** One inbound line from the WS — could be a response, notification, or
-   *  server-initiated request.  Phase-2-Ws scope only handles responses;
-   *  server-initiated traffic is dropped (bidirectional sampling is a
-   *  larger follow-up). */
+   *  server-initiated request.  Responses pair with pending requests
+   *  by id; notifications dispatch to the registered handler if any;
+   *  server-initiated requests are still dropped (bidirectional
+   *  sampling is a larger follow-up). */
   private def dispatchInboundLine(line: String): Unit =
     JsonRpc.parse(line) match
       case Right(resp @ JsonRpc.Message.Response(idJson, _, _)) =>
@@ -82,6 +90,9 @@ class McpWsClient(url: String, timeoutMs: Long):
             val q = pending.get(id)
             if q != null then q.offer(resp)
           case None => ()
+      case Right(JsonRpc.Message.Notification(method, params)) =>
+        val h = notificationHandler
+        if h != null then try h(method, params) catch case _: Throwable => ()
       case _ => ()
 
   private def closeAllPending(message: String): Unit =

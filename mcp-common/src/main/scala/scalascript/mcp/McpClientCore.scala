@@ -21,6 +21,21 @@ class McpClientCore(write: String => Unit):
   private val pending = ConcurrentHashMap[Long, LinkedBlockingQueue[JsonRpc.Message.Response]]()
   @volatile private var closed = false
 
+  // v1.17.x — server→client notification dispatch.  When the inbound
+  // line is a JSON-RPC notification (no id, no result) and a handler
+  // is registered, the reader thread invokes it with the parsed
+  // (method, params).  Server-initiated *requests* (those with an id
+  // expecting a reply, e.g. bidirectional sampling) are still dropped
+  // — Phase 1 scope.
+  @volatile private var notificationHandler: ((String, ujson.Value) => Unit) | Null = null
+
+  /** Register a callback for server-initiated notifications.  Called
+   *  on the reader thread for every inbound notification frame; the
+   *  handler should be cheap and non-blocking.  Pass `null` to
+   *  unregister.  Only the most recent handler is invoked. */
+  def setNotificationHandler(h: ((String, ujson.Value) => Unit) | Null): Unit =
+    notificationHandler = h
+
   /** Send a request and block until the matching response arrives or
    *  the timeout fires.  Returns `Right(result)` on success, `Left(error)`
    *  on protocol error / timeout / handler-side McpError. */
@@ -45,9 +60,10 @@ class McpClientCore(write: String => Unit):
     if !closed then write(JsonRpc.encodeNotification(method, params))
 
   /** Called by the reader thread for every inbound line.  Returns true
-   *  if the line was routed to a waiting caller, false if it was a
-   *  server-initiated request/notification (ignored by Phase 1 — we
-   *  don't yet support bidirectional sampling). */
+   *  if the line was routed (response paired with pending request, or
+   *  notification dispatched to a registered handler), false if it
+   *  couldn't be matched (stray response, server-initiated request,
+   *  or notification with no handler registered). */
   def dispatchResponse(line: String): Boolean =
     JsonRpc.parse(line) match
       case Right(resp @ JsonRpc.Message.Response(idJson, _, _)) =>
@@ -56,6 +72,12 @@ class McpClientCore(write: String => Unit):
             val q = pending.get(id)
             if q != null then { q.offer(resp); true } else false
           case None => false
+      case Right(JsonRpc.Message.Notification(method, params)) =>
+        val h = notificationHandler
+        if h != null then
+          try { h(method, params); true }
+          catch case _: Throwable => false  // handler exceptions don't kill the reader
+        else false
       case _ => false
 
   def close(): Unit =
