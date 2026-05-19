@@ -666,6 +666,57 @@ lazy val x402FacilitatorCardano = project
     Test    / scalacOptions ++= sharedScalacOptions,
   )
 
+// ---------------------------------------------------------------------------
+// Wallet / blockchain SPI tracks (docs/blockchain-spi.md + docs/wallet-spi.md)
+//
+// Phase 1 lands four pure-trait modules below. Phase 2 adds
+// crypto-bouncycastle (JVM CryptoBackend impl) and blockchain-evm.
+// All modules are JVM-only for now; Scala.js cross-compile follows in
+// Phase 3 (crypto-noble-js) per the spec.
+// ---------------------------------------------------------------------------
+
+lazy val cryptoSpi = project
+  .in(file("crypto-spi"))
+  .settings(
+    name := "scalascript-crypto-spi",
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions,
+  )
+
+lazy val blockchainSpi = project
+  .in(file("blockchain-spi"))
+  .dependsOn(cryptoSpi)
+  .settings(
+    name := "scalascript-blockchain-spi",
+    libraryDependencies ++= Seq(
+      "com.lihaoyi" %% "upickle" % "4.4.2",
+    ),
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions,
+  )
+
+lazy val walletSpi = project
+  .in(file("wallet-spi"))
+  .dependsOn(blockchainSpi, cryptoSpi)
+  .settings(
+    name := "scalascript-wallet-spi",
+    libraryDependencies ++= Seq(
+      "com.lihaoyi" %% "upickle" % "4.4.2",
+    ),
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions,
+  )
+
+lazy val walletStrategyEoa = project
+  .in(file("wallet-strategy-eoa"))
+  .dependsOn(walletSpi, blockchainSpi, cryptoSpi)
+  .settings(
+    name := "scalascript-wallet-strategy-eoa",
+    libraryDependencies ++= Seq(scalatestTest),
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions,
+  )
+
 lazy val root = project
   .in(file("."))
   .aggregate(
@@ -678,7 +729,8 @@ lazy val root = project
     clientBlockfrost,
     x402Core, x402Server, x402Client,
     x402FacilitatorCoinbase, x402FacilitatorEvm, x402FacilitatorCardano,
-    x402QueueKafka, x402QueuePostgres, x402NoncePostgres, x402NonceRedis
+    x402QueueKafka, x402QueuePostgres, x402NoncePostgres, x402NonceRedis,
+    cryptoSpi, blockchainSpi, walletSpi, walletStrategyEoa
   )
   .settings(
     publish / skip := true
