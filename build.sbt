@@ -477,6 +477,24 @@ lazy val clientPostgres = project
     Test    / scalacOptions ++= sharedScalacOptions,
   )
 
+// v1.26 — JDBC execution runtime consumed by interpreter + JvmGen.
+// Self-contained (no `ir` / `backend-spi` / `core` deps): takes a
+// `java.sql.Connection`, a `?`-templated SQL string, and an ordered
+// bind list, returns a `Row`-based result.  Bundles H2 + SQLite so
+// the standard examples / quickstarts work with zero configuration.
+lazy val backendSqlRuntime = project
+  .in(file("backend-sql-runtime"))
+  .settings(
+    name := "scalascript-backend-sql-runtime",
+    libraryDependencies ++= Seq(
+      "com.h2database"     %  "h2"              % "2.2.224",
+      "org.xerial"         %  "sqlite-jdbc"     % "3.45.3.0",
+      scalatestTest,
+    ),
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions,
+  )
+
 lazy val clientRedis = project
   .in(file("client-redis"))
   .settings(
@@ -725,7 +743,7 @@ lazy val root = project
     runtimeServerJvmJetty, runtimeServerJvmNetty, mcpCommon,
     backendJvm, backendJs, backendNode, backendScalajs, backendWasm, backendInterpreter,
     backendScalaSource, backendHtml, backendCss, backendSpark,
-    cli, clientPostgres, clientRedis, clientEvm, clientKafka, clientCoinbase,
+    cli, clientPostgres, clientRedis, clientEvm, clientKafka, clientCoinbase, backendSqlRuntime,
     clientBlockfrost,
     x402Core, x402Server, x402Client,
     x402FacilitatorCoinbase, x402FacilitatorEvm, x402FacilitatorCardano,

@@ -6314,21 +6314,36 @@ New sbt module `backend-sql-runtime/` with no dependency on any
 backend SPI — pure runtime library, callable from interpreter and
 from JvmGen-emitted code.
 
-- [ ] `SqlRuntime.execute(conn, sqlWithQ, binds): SqlResult`.
+- [x] `SqlRuntime.execute(conn, sql, binds): SqlResult`.
       `SqlResult = Rows(Seq[Row]) | UpdateCount(Int)`.
-      Statement-type detection by leading keyword (§ 3.3.1 table).
-- [ ] `Row` type: backed by `Array[Any]` + a `Map[String, Int]`
-      column index.  `row(i)`, `row(name)`, `row.toMap`,
-      `row.as[T]` (case class projection via Scala 3 Mirror, by
-      field name — error if a non-Option field is missing or null).
-- [ ] Bundled deps: `com.h2database % h2`, `org.xerial % sqlite-jdbc`.
-- [ ] JDBC binding: `setObject(i, v)` for primitives + boxed types;
-      `setNull` for `null` / `None`; `setBigDecimal`, `setBytes` for
-      `BigDecimal` / `Array[Byte]`; `Instant`/`LocalDate` via
-      `setObject` with `JDBCType` hint.
-- [ ] Tests against in-memory H2 covering each statement family,
-      `null` binds, `Option[T]` binds, `.as[CaseClass]` happy + error
-      paths, parallel-connection isolation.
+      Statement-type detection by leading keyword
+      (`isResultSetProducer`: SELECT / WITH / VALUES / SHOW / EXPLAIN).
+- [x] `Row` type: positional + name-indexed (case-insensitive),
+      `row(i)`, `row(name)`, `row.toMap`, `inline row.as[T]` for case
+      class projection via `Mirror.ProductOf`, by field name.  Per-
+      field runtime coercion with named diagnostics
+      (`RowProjectionError`) on missing column, NULL into non-Option,
+      or type mismatch.
+- [x] Bundled deps: `com.h2database % h2 % 2.2.224`,
+      `org.xerial % sqlite-jdbc % 3.45.3.0`.  No `dependsOn` — module
+      is standalone so both backend-interpreter and backend-jvm can
+      pick it up later without circular deps.
+- [x] JDBC binding: explicit dispatch on runtime type for primitives,
+      `BigDecimal` / `BigInt`, `Array[Byte]`, `java.time.*`
+      (`LocalDate` / `LocalTime` / `LocalDateTime` / `Instant` /
+      `OffsetDateTime` / `ZonedDateTime`), `java.util.UUID`.
+      `None` / `null` → `setNull(Types.NULL)`; `Some` unwraps
+      recursively.  Time-typed binds use the typed
+      `setObject(i, value, JDBCType)` form for driver portability.
+- [x] Legacy `java.sql.{Date, Time, Timestamp}` ResultSet values are
+      normalised to `java.time.*` at materialisation so user code
+      sees one consistent vocabulary.
+- [x] Tests in `backend-sql-runtime/src/test/...`: 16 cases against
+      in-memory H2 + a bundled-driver smoke test on SQLite.  Covers
+      every statement family, `null` / `None` binds, `Option[T]`
+      projection, `.as[CaseClass]` happy + diagnostic paths,
+      LocalDate / Instant round-trips, multi-row order preservation,
+      name lookup case-insensitivity, `Row.toMap`.
 
 ### Phase 5 — Connection plumbing
 
