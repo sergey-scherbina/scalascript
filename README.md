@@ -78,6 +78,15 @@ bin/sscc examples/hello.ssc
 bin/http.ssc
 ```
 
+## Documentation
+
+| | |
+|---|---|
+| [User Guide](docs/user-guide.md) | Installation, CLI commands, language basics, HTTP, effects, actors, data processing — practical day-to-day reference |
+| [Tutorial](docs/tutorial.md) | Build a collaborative todo API from scratch — data model → REST → auth → WebSocket → TLS → MCP |
+| [Language Specification](SPEC.md) | Formal grammar, type system, semantics, all language constructs |
+| [Architecture](docs/architecture.md) | Compiler pipeline, module structure, backend SPI |
+
 ## What Works
 
 All three backends support `scalascript` blocks.  `scala` blocks (standard
