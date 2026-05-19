@@ -141,7 +141,7 @@ object WebServer:
     // If the PEM was PKCS#1 (RSA), wrap it in a PKCS#8 DER envelope.
     val pkcs8Der =
       if keyPem.contains("BEGIN RSA") || !new String(keyBytes).contains("BEGIN PRIVATE KEY") then
-        wrapPkcs1InPkcs8(rawDer)
+        DerCodec.wrapPkcs1InPkcs8(rawDer)
       else rawDer
     val keySpec  = java.security.spec.PKCS8EncodedKeySpec(pkcs8Der)
     val keyFact  = KeyFactory.getInstance("RSA")
@@ -161,28 +161,6 @@ object WebServer:
     val ctx = SSLContext.getInstance("TLS")
     ctx.init(kmf.getKeyManagers, null, null)
     ctx
-
-  /** Wrap a PKCS#1 RSA key (no envelope) into the PKCS#8 DER structure
-   *  that `PKCS8EncodedKeySpec` expects.  The RSA OID is 1.2.840.113549.1.1.1. */
-  private[server] def wrapPkcs1InPkcs8(pkcs1: Array[Byte]): Array[Byte] =
-    // AlgorithmIdentifier sequence: OID rsaEncryption + NULL
-    val oidSeq = Array[Byte](
-      0x30, 0x0d,                                     // SEQUENCE (13 bytes)
-      0x06, 0x09,                                     // OID (9 bytes)
-      0x2a, 0x86.toByte, 0x48, 0x86.toByte, 0xf7.toByte, 0x0d, 0x01, 0x01, 0x01,
-      0x05, 0x00                                      // NULL
-    )
-    val octetStr = encodeDerTlv(0x04, pkcs1)          // OCTET STRING wrapping PKCS#1
-    // Outer SEQUENCE
-    encodeDerTlv(0x30, Array[Byte](0x02, 0x01, 0x00) ++ oidSeq ++ octetStr)
-
-  private def encodeDerTlv(tag: Byte, value: Array[Byte]): Array[Byte] =
-    val len = value.length
-    val lenBytes =
-      if len < 128 then Array(len.toByte)
-      else if len < 256 then Array(0x81.toByte, len.toByte)
-      else Array(0x82.toByte, (len >> 8).toByte, (len & 0xff).toByte)
-    Array(tag) ++ lenBytes ++ value
 
   /** Build a virtual-thread executor if JDK 21+ is available, fall back
    *  to a cached thread pool so the emit also compiles on Java 17. */

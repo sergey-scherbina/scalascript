@@ -45,7 +45,7 @@ object JwtRsa:
 
   private def parsePrivate(pem: String): PrivateKey =
     val raw  = pemBytes(pem)
-    val der8 = if pem.contains("BEGIN RSA PRIVATE KEY") then WebServer.wrapPkcs1InPkcs8(raw) else raw
+    val der8 = if pem.contains("BEGIN RSA PRIVATE KEY") then DerCodec.wrapPkcs1InPkcs8(raw) else raw
     KeyFactory.getInstance("RSA").generatePrivate(PKCS8EncodedKeySpec(der8))
 
   private def parsePublic(pem: String): PublicKey =

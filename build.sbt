@@ -53,6 +53,20 @@ lazy val core = project
     scalacOptions ++= sharedScalacOptions
   )
 
+// Phase 1a of the runtime-consolidation refactor (see
+// PLAN-runtime-consolidation.md): pure protocol primitives extracted out
+// of backend-interpreter so they can later be reused by the JVM codegen
+// runtime instead of being duplicated as a string template inside
+// JvmGen.serveRuntime.  No interpreter coupling — all definitions are
+// self-contained Scala classes / objects.
+lazy val runtimeServerCommon = project
+  .in(file("runtime-server-common"))
+  .settings(
+    name := "scalascript-runtime-server-common",
+    libraryDependencies ++= Seq(scalatestTest),
+    scalacOptions ++= sharedScalacOptions
+  )
+
 lazy val backendJvm = project
   .in(file("backend-jvm"))
   .dependsOn(backendSpi, core)
@@ -123,7 +137,7 @@ lazy val backendCss = project
 // backends no longer reference each other.
 lazy val backendInterpreter = project
   .in(file("backend-interpreter"))
-  .dependsOn(backendSpi, core, backendJs, backendJvm % Test)
+  .dependsOn(backendSpi, core, runtimeServerCommon, backendJs, backendJvm % Test)
   .settings(
     name := "scalascript-backend-interpreter",
     libraryDependencies ++= Seq(scalatestTest),
