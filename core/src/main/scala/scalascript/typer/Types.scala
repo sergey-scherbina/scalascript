@@ -17,12 +17,26 @@ enum SType:
     case Named(name, Nil)     => name
     case Named(name, args)    => s"$name[${args.map(_.show).mkString(", ")}]"
     case Var(id)              => s"?$id"
-    case Function(List(p), r) => s"${p.show} => ${r.show}"
+    // Function-type parameters and tuples must be parenthesised on the
+    // left of `=>` so the printed form round-trips: `Int => String => Boolean`
+    // is right-associative, so a function-as-param needs explicit parens.
+    case Function(List(p), r) => s"${showFnParam(p)} => ${r.show}"
     case Function(params, r)  => s"(${params.map(_.show).mkString(", ")}) => ${r.show}"
     case Tuple(elems)         => s"(${elems.map(_.show).mkString(", ")})"
     case Union(types)         => types.map(_.show).mkString(" | ")
     case Intersection(types)  => types.map(_.show).mkString(" & ")
     case Error(msg)           => s"<error: $msg>"
+
+  /** Render a type that appears as the *parameter* of a unary function
+   *  arrow.  Both `Function` and `Tuple` need an outer set of parens to
+   *  disambiguate on the way back:
+   *   - without parens, `Int => String => Boolean` is right-associative
+   *     and would lose the (Int => String) grouping;
+   *   - without an extra pair, `(Int, String) => Boolean` reads as a
+   *     two-argument function rather than a unary one taking a tuple. */
+  private def showFnParam(t: SType): String = t match
+    case _: Function | _: Tuple => s"(${t.show})"
+    case _                      => t.show
 
   def isError: Boolean = this match
     case Error(_) => true
