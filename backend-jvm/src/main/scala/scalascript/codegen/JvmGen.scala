@@ -450,23 +450,55 @@ class JvmGen(
       found
     }
 
+  /** Bare-name intrinsics that route through the v1.6 actor model and
+   *  must be rewritten to `Actor.<name>(...)` at emission time.  Listed
+   *  once here so the analysis (`blocksUseActors`) and the rewrite-gate
+   *  (`termUsesEffects`) stay in sync — a call like
+   *  `val sub = subscribeClusterEvents()` needs the gate to fire so the
+   *  rhs goes through `emitExpr` (which performs the rewrite).
+   *
+   *  Without this, top-level `val`-bound calls fall through to the
+   *  scalameta verbatim printer and the unqualified `subscribeClusterEvents`
+   *  is unresolved at scala-cli compile time (the runtime exposes it
+   *  as `Actor.subscribeClusterEvents`). */
+  private val actorBareNames: Set[String] =
+    Set("runActors", "spawn", "spawn_link", "spawnBounded", "self", "exit", "receive",
+        "link", "monitor", "demonitor", "trapExit",
+        "startNode", "connectNode", "joinCluster", "register", "whereis",
+        "globalRegister", "globalWhereis",
+        "clusterMembers", "subscribeClusterEvents",
+        "phiOf", "isSuspect", "selfNode", "clusterHealth",
+        "broadcastHealth", "clusterIsDown",
+        "sendAfter", "sendInterval", "cancelTimer", "processInfo")
+
+  /** Case-class names defined inside `effectsRuntime` whose presence in
+   *  patterns or expressions should also pull in the runtime.  Without
+   *  this, a module that does e.g.
+   *  ```
+   *  def describe(e: Any) = e match { case NodeJoined(id) => ... }
+   *  ```
+   *  would compile-error with "no pattern match extractor named NodeJoined". */
+  private val actorRuntimeCaseClasses: Set[String] =
+    Set("NodeJoined", "NodeLeft", "Exit", "Down")
+
   /** True if any block references the v1.6 actor model — via
    *  `runActors`, `spawn`, `self`, `exit`, `receive`, `link`, `monitor`,
-   *  `demonitor`, `trapExit`, or Phase 3 distributed primitives. */
+   *  `demonitor`, `trapExit`, Phase 3 distributed primitives, or a
+   *  pattern/expression that mentions one of the actor-runtime case
+   *  classes (`NodeJoined` / `NodeLeft` / `Exit` / `Down`). */
   private def blocksUseActors(blocks: List[JvmGen.Block]): Boolean =
-    val names = Set("runActors", "spawn", "spawnBounded", "self", "exit", "receive",
-                    "link", "monitor", "demonitor", "trapExit",
-                    "startNode", "connectNode", "joinCluster", "register", "whereis",
-                    "globalRegister", "globalWhereis",
-                    "clusterMembers", "subscribeClusterEvents",
-                    "phiOf", "isSuspect", "selfNode", "clusterHealth",
-                    "broadcastHealth", "clusterIsDown",
-                    "sendAfter", "sendInterval", "cancelTimer", "processInfo")
     blocks.exists { b =>
       var found = false
       ScalaNode.fold(b.node) { tree =>
         if !found then tree.collect {
-          case Term.Apply.After_4_6_0(Term.Name(n), _) if names(n) => found = true
+          case Term.Apply.After_4_6_0(Term.Name(n), _) if actorBareNames(n) => found = true
+          // Pattern match: `case NodeJoined(id) => ...` lowers to
+          // `Pat.Extract(Term.Name("NodeJoined"), ...)`.  Detect those.
+          case scala.meta.Pat.Extract.After_4_6_0(Term.Name(n), _) if actorRuntimeCaseClasses(n) => found = true
+          // Bare expression reference (companion or constructor):
+          // `NodeJoined`, `Exit(pid, "stop")` — covers both `Term.Name`
+          // (apply target) and lone references.
+          case Term.Name(n) if actorRuntimeCaseClasses(n) => found = true
         }
       }
       found
@@ -874,6 +906,13 @@ class JvmGen(
     case Term.Apply.After_4_6_0(Term.Name("runEphemeralStorage"), _)              => true
     case Term.Select(Term.Name(eff), Term.Name(op)) if isEffectOpRef(eff, op)     => true
     case Term.Apply.After_4_6_0(Term.Name(n), _) if isEffectfulFun(n)             => true
+    // Bare-name actor intrinsics — `subscribeClusterEvents()`,
+    // `clusterMembers()`, `spawn { ... }`, etc.  Without this case the
+    // val-rhs path emits the syntax verbatim and the unqualified name
+    // is unresolved at scala-cli compile time (the runtime exposes them
+    // as `Actor.subscribeClusterEvents`, and the rewriter only fires
+    // when the rhs goes through `emitExpr`).
+    case Term.Apply.After_4_6_0(Term.Name(n), _) if actorBareNames(n)             => true
     case _ => t.children.exists {
       case tt: Term => termUsesEffects(tt)
       case _        => false
@@ -4000,37 +4039,31 @@ class JvmGen(
        |/** Companion `WsRoom()` factory so user code reads naturally. */
        |def WsRoom(): WsRoom = new WsRoom
        |
-       |def onWebSocket(path: String): (WebSocket => Unit) => Unit = (handler) => {
-       |  _wsRoutes += _WsRoute(_parsePath(path), handler)
-       |}
-       |
-       |/** Two-arg form: only accept upgrades whose `Origin:` header is in
-       |  * `origins`.  Browser CSRF guard — same-origin policy does NOT
-       |  * block cross-site `new WebSocket(...)` calls. */
-       |def onWebSocket(path: String, origins: List[String]): (WebSocket => Unit) => Unit = (handler) => {
-       |  _wsRoutes += _WsRoute(_parsePath(path), handler, origins)
-       |}
-       |
-       |/** Three-arg form: also negotiate Sec-WebSocket-Protocol.  Server
-       |  * picks the first protocol from its `protocols` list that's in
-       |  * the client's request; no match refuses with 400.  Required
-       |  * for `socket.io` / `graphql-ws` clients. */
-       |def onWebSocket(path: String, origins: List[String], protocols: List[String]): (WebSocket => Unit) => Unit = (handler) => {
-       |  _wsRoutes += _WsRoute(_parsePath(path), handler, origins, protocols)
-       |}
-       |
-       |/** Four-arg form adds a per-route active-connection cap.
-       |  * 0 = unlimited; positive values refuse upgrades past the cap
-       |  * with 503.  Composes with the process-wide
-       |  * `setMaxWsConnections`. */
-       |def onWebSocket(path: String, origins: List[String], protocols: List[String], maxConnections: Int): (WebSocket => Unit) => Unit = (handler) => {
-       |  _wsRoutes += _WsRoute(_parsePath(path), handler, origins, protocols, maxConnections)
-       |}
-       |
-       |/** Five-arg form also caps inbound messages per second per
-       |  * connection.  Overrun closes the offending client with code
-       |  * 1008 ("policy violation").  0 = unlimited. */
-       |def onWebSocket(path: String, origins: List[String], protocols: List[String], maxConnections: Int, maxMessagesPerSec: Int): (WebSocket => Unit) => Unit = (handler) => {
+       |/** Single `onWebSocket` def with defaulted args — the trailing
+       |  * `origins`, `protocols`, `maxConnections`, `maxMessagesPerSec`
+       |  * arguments default to "no restriction".  Collapsing five
+       |  * overloads into one avoids the v2.0 linker's same-name dedup
+       |  * pass dropping all but the first when modules concatenate.
+       |  *
+       |  *  - `origins` (default `Nil`)        — only accept upgrades whose
+       |  *    `Origin:` header is in the list.  Browser CSRF guard.
+       |  *  - `protocols` (default `Nil`)      — Sec-WebSocket-Protocol
+       |  *    negotiation; server picks the first protocol in its list
+       |  *    that's in the request, no match → 400.
+       |  *  - `maxConnections` (default `0`)   — per-route active-connection
+       |  *    cap; 0 = unlimited; positive values refuse upgrades past
+       |  *    the cap with 503.  Composes with the process-wide
+       |  *    `setMaxWsConnections`.
+       |  *  - `maxMessagesPerSec` (default `0`) — per-connection inbound
+       |  *    message rate cap; overrun closes the offending client with
+       |  *    code 1008 ("policy violation").  0 = unlimited. */
+       |def onWebSocket(
+       |    path:              String,
+       |    origins:           List[String] = Nil,
+       |    protocols:         List[String] = Nil,
+       |    maxConnections:    Int          = 0,
+       |    maxMessagesPerSec: Int          = 0
+       |): (WebSocket => Unit) => Unit = (handler) => {
        |  _wsRoutes += _WsRoute(_parsePath(path), handler, origins, protocols, maxConnections, maxMessagesPerSec)
        |}
        |
@@ -4279,9 +4312,10 @@ class JvmGen(
        |  try { _internalHttp match { case h if h != null => h.stop(0); case _ => () } } catch { case _: Throwable => () }
        |  _stopLatch.countDown()
        |
-       |def serve(port: Int): Unit = serve(port, null.asInstanceOf[_TlsConfig])
-       |
-       |def serve(port: Int, tlsCfg: _TlsConfig): Unit =
+       |// Single `serve` def with a defaulted tls config — collapsing two
+       |// overloads into one avoids the v2.0 linker's same-name dedup pass
+       |// dropping the 2-arg overload when multiple modules concatenate.
+       |def serve(port: Int, tlsCfg: _TlsConfig = null.asInstanceOf[_TlsConfig]): Unit =
        |  _registerHealthDefaults()
        |  val internal = com.sun.net.httpserver.HttpServer.create(
        |    java.net.InetSocketAddress("127.0.0.1", 0), 0)
