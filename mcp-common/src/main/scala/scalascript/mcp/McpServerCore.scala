@@ -337,17 +337,19 @@ class McpServerBuilder:
     name:        String,
     description: Option[String],
     inputSchema: ujson.Value,
-    handler:     Map[String, Any] => ToolHandlerResult
+    handler:     Map[String, Any] => ToolHandlerResult,
+    annotations: Option[McpProtocol.ToolAnnotations] = None
   ): Unit =
-    tools(name) = ToolRegistration(name, description, inputSchema, handler)
+    tools(name) = ToolRegistration(name, description, inputSchema, handler, annotations)
 
   def resource(
-    uri:      String,
-    name:     Option[String],
-    mimeType: Option[String],
-    handler:  String => ResourceHandlerResult
+    uri:         String,
+    name:        Option[String],
+    mimeType:    Option[String],
+    handler:     String => ResourceHandlerResult,
+    annotations: Option[McpProtocol.ResourceAnnotations] = None
   ): Unit =
-    resources(uri) = ResourceRegistration(uri, name, mimeType, handler)
+    resources(uri) = ResourceRegistration(uri, name, mimeType, handler, annotations)
 
   /** Register a URI-template resource.  Concrete `resources/read` URIs
    *  matching the template (simplified RFC 6570: `{name}` placeholders
@@ -358,10 +360,11 @@ class McpServerBuilder:
     name:        Option[String],
     description: Option[String],
     mimeType:    Option[String],
-    handler:     String => ResourceHandlerResult
+    handler:     String => ResourceHandlerResult,
+    annotations: Option[McpProtocol.ResourceAnnotations] = None
   ): Unit =
     resourceTemplates(uriTemplate) =
-      ResourceTemplateRegistration(uriTemplate, name, description, mimeType, handler)
+      ResourceTemplateRegistration(uriTemplate, name, description, mimeType, handler, annotations)
 
   def prompt(
     name:        String,
@@ -432,14 +435,16 @@ case class ToolRegistration(
   name:        String,
   description: Option[String],
   inputSchema: ujson.Value,
-  handler:     Map[String, Any] => ToolHandlerResult
+  handler:     Map[String, Any] => ToolHandlerResult,
+  annotations: Option[McpProtocol.ToolAnnotations] = None
 )
 
 case class ResourceRegistration(
-  uri:      String,
-  name:     Option[String],
-  mimeType: Option[String],
-  handler:  String => ResourceHandlerResult
+  uri:         String,
+  name:        Option[String],
+  mimeType:    Option[String],
+  handler:     String => ResourceHandlerResult,
+  annotations: Option[McpProtocol.ResourceAnnotations] = None
 )
 
 case class ResourceTemplateRegistration(
@@ -447,7 +452,8 @@ case class ResourceTemplateRegistration(
   name:        Option[String],
   description: Option[String],
   mimeType:    Option[String],
-  handler:     String => ResourceHandlerResult
+  handler:     String => ResourceHandlerResult,
+  annotations: Option[McpProtocol.ResourceAnnotations] = None
 )
 
 case class PromptRegistration(
@@ -589,7 +595,7 @@ object McpServerCore:
 
       case McpProtocol.Method.ToolsList =>
         val all = builder.tools.values.toList.map { r =>
-          McpProtocol.ToolEntry(r.name, r.description, r.inputSchema)
+          McpProtocol.ToolEntry(r.name, r.description, r.inputSchema, r.annotations)
         }
         val (page, next) = McpProtocol.paginate(all, cursorOf(params), builder.currentPageSize)
         JsonRpc.encodeResult(id, McpProtocol.toolsListResult(page, next))
@@ -599,14 +605,14 @@ object McpServerCore:
 
       case McpProtocol.Method.ResourcesList =>
         val all = builder.resources.values.toList.map { r =>
-          McpProtocol.ResourceEntry(r.uri, r.name, r.mimeType)
+          McpProtocol.ResourceEntry(r.uri, r.name, r.mimeType, r.annotations)
         }
         val (page, next) = McpProtocol.paginate(all, cursorOf(params), builder.currentPageSize)
         JsonRpc.encodeResult(id, McpProtocol.resourcesListResult(page, next))
 
       case McpProtocol.Method.ResourcesTemplatesList =>
         val all = builder.resourceTemplates.values.toList.map { t =>
-          McpProtocol.ResourceTemplateEntry(t.uriTemplate, t.name, t.description, t.mimeType)
+          McpProtocol.ResourceTemplateEntry(t.uriTemplate, t.name, t.description, t.mimeType, t.annotations)
         }
         val (page, next) = McpProtocol.paginate(all, cursorOf(params), builder.currentPageSize)
         JsonRpc.encodeResult(id, McpProtocol.resourcesTemplatesListResult(page, next))

@@ -91,14 +91,16 @@ object McpProtocol:
 
   // ─── Envelope builders for result payloads ──────────────────────────
 
-  /** `tools/list` result: `{tools: [{name, description, inputSchema}, ...]}`.
-   *  Pass `nextCursor = Some(...)` to indicate there are more pages. */
+  /** `tools/list` result: `{tools: [{name, description, inputSchema,
+   *  annotations?}, ...]}`.  Pass `nextCursor = Some(...)` to indicate
+   *  there are more pages. */
   def toolsListResult(tools: List[ToolEntry], nextCursor: Option[String] = None): ujson.Value =
     val obj = ujson.Obj(
       "tools" -> ujson.Arr.from(tools.map { t =>
         val o = ujson.Obj("name" -> t.name)
         t.description.foreach(d => o("description") = d)
         o("inputSchema") = t.inputSchema
+        t.annotations.filterNot(_.isEmpty).foreach(a => o("annotations") = a.toJson)
         o
       })
     )
@@ -119,6 +121,7 @@ object McpProtocol:
         val o = ujson.Obj("uri" -> r.uri)
         r.name.foreach(n     => o("name")     = n)
         r.mimeType.foreach(m => o("mimeType") = m)
+        r.annotations.filterNot(_.isEmpty).foreach(a => o("annotations") = a.toJson)
         o
       })
     )
@@ -132,6 +135,7 @@ object McpProtocol:
         t.name.foreach(n        => o("name")        = n)
         t.description.foreach(d => o("description") = d)
         t.mimeType.foreach(m    => o("mimeType")    = m)
+        t.annotations.filterNot(_.isEmpty).foreach(a => o("annotations") = a.toJson)
         o
       })
     )
@@ -170,9 +174,65 @@ object McpProtocol:
 
   // ─── Catalog entries the server registry holds ──────────────────────
 
-  case class ToolEntry(name: String, description: Option[String], inputSchema: ujson.Value)
-  case class ResourceEntry(uri: String, name: Option[String], mimeType: Option[String])
-  case class ResourceTemplateEntry(uriTemplate: String, name: Option[String], description: Option[String], mimeType: Option[String])
+  /** v1.17.x — MCP 2025-03 tool annotations.  Pure UI hints for the
+   *  client; servers SHOULD set whichever are accurate.
+   *    title           — display name shown to the user
+   *    readOnlyHint    — tool does not modify the environment
+   *    destructiveHint — tool may perform destructive updates
+   *    idempotentHint  — repeat calls with same args produce no extra effect
+   *    openWorldHint   — tool reaches uncontrolled / external systems */
+  case class ToolAnnotations(
+    title:           Option[String]  = None,
+    readOnlyHint:    Option[Boolean] = None,
+    destructiveHint: Option[Boolean] = None,
+    idempotentHint:  Option[Boolean] = None,
+    openWorldHint:   Option[Boolean] = None
+  ):
+    def toJson: ujson.Value =
+      val obj = ujson.Obj()
+      title.foreach          (t => obj("title")           = t)
+      readOnlyHint.foreach   (b => obj("readOnlyHint")    = ujson.Bool(b))
+      destructiveHint.foreach(b => obj("destructiveHint") = ujson.Bool(b))
+      idempotentHint.foreach (b => obj("idempotentHint")  = ujson.Bool(b))
+      openWorldHint.foreach  (b => obj("openWorldHint")   = ujson.Bool(b))
+      obj
+    def isEmpty: Boolean =
+      title.isEmpty && readOnlyHint.isEmpty && destructiveHint.isEmpty &&
+      idempotentHint.isEmpty && openWorldHint.isEmpty
+
+  /** v1.17.x — MCP 2025-03 resource annotations.  `audience` is the
+   *  intended consumer(s) ("user" / "assistant"); `priority` is a hint
+   *  between 0.0 and 1.0 for ranking. */
+  case class ResourceAnnotations(
+    audience: List[String]  = Nil,
+    priority: Option[Double] = None
+  ):
+    def toJson: ujson.Value =
+      val obj = ujson.Obj()
+      if audience.nonEmpty then obj("audience") = ujson.Arr.from(audience.map(ujson.Str(_)))
+      priority.foreach(p => obj("priority") = ujson.Num(p))
+      obj
+    def isEmpty: Boolean = audience.isEmpty && priority.isEmpty
+
+  case class ToolEntry(
+    name:        String,
+    description: Option[String],
+    inputSchema: ujson.Value,
+    annotations: Option[ToolAnnotations] = None
+  )
+  case class ResourceEntry(
+    uri:         String,
+    name:        Option[String],
+    mimeType:    Option[String],
+    annotations: Option[ResourceAnnotations] = None
+  )
+  case class ResourceTemplateEntry(
+    uriTemplate: String,
+    name:        Option[String],
+    description: Option[String],
+    mimeType:    Option[String],
+    annotations: Option[ResourceAnnotations] = None
+  )
   case class PromptEntry(name: String, description: Option[String], arguments: List[PromptArgument])
   case class PromptArgument(name: String, description: String, required: Boolean)
 
