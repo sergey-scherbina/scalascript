@@ -6302,15 +6302,21 @@ Thin `backend-wasm-contract/` layer on top of `backend-wasm/` for Near or Polkad
 > `.toJson(...)`, `.toCsv(...)` — delegate to
 > `ds.write.options(opts.toMap).X(path)`; `mode` is intentionally
 > NOT in the options map and users chain `.write.mode(...)` directly when
-> they need overwrite/append), and C.3 slice 8 (adaptive default configs —
+> they need overwrite/append), C.3 slice 8 (adaptive default configs —
 > `spark.ui.enabled=false`, `spark.sql.shuffle.partitions=4`, and the
 > log4j WARN override are emitted ONLY when `sparkMaster.startsWith("local")`;
-> cluster targets get Spark's own defaults instead) all landed.  CLI side:
-> `--describe-backend` also grew `capabilities.options` +
-> `capabilities.blockLanguages` lines so the Spark surface is fully
+> cluster targets get Spark's own defaults instead), and C.3 slice 9
+> (schema bridge — `Dataset.schemaOf[T : Encoder]: StructType` plus typed
+> reader cousins `Dataset.{fromParquetAs,fromJsonAs,fromCsvAs}[T : Encoder]`
+> that chain `spark.read.schema(schemaOf[T]).options(opts.toMap).X(path).as[T]`
+> so a case-class declaration IS the schema specification — closes C.3)
+> all landed.  CLI side: `--describe-backend` also grew `capabilities.options`
+> + `capabilities.blockLanguages` lines so the Spark surface is fully
 > discoverable from the command line.
-> Remaining: `std/parsing` → `StructType` schema bridge — speculative until
-> use cases surface.
+> v1.25 § 9.5 milestone is now complete end-to-end (Phases A, B.1, B.2, C.1,
+> C.2, all of C.3); the Spark backend covers Phase 1 (local), Phase 2
+> (cluster submission), and Phase 3 (Spark SQL / DataFrames including
+> typed readers and case-class schema derivation).
 >
 > Natural fit: ScalaScript's existing `Dataset[T]` API maps directly to Spark.
 
@@ -6399,13 +6405,23 @@ Same source, same semantics, different scale.
    used by shell integration tests and useful for users inspecting what
    `ssc submit` is about to do.
 
-**Phase 3 — Spark SQL and DataFrames (~1 week):**
+**Phase 3 — Spark SQL and DataFrames (~1 week): ✓ LANDED (2026-05-19)**
 
-7. Expose `DataFrame` as `Dataset[Row]` with a typed schema.
-8. ScalaScript's DSL primitives (`std/parsing`) map table schemas to Spark
-   `StructType` automatically.
-9. `sql"SELECT word, count(*) FROM words GROUP BY word"` — inline SQL via
-   existing string interpolation.
+7. ✓ Expose `DataFrame` as `Dataset[Row]` with a typed schema — `DataFrame`
+   and `Row` widened into the emitted `sparkImports`, `_sqlBlock_<N>: DataFrame`
+   bindings from sql blocks, typed `fromXAs[T : Encoder]` cousins of the
+   readers return real `Dataset[T]`.
+8. ✓ Case-class declarations map to Spark `StructType` via
+   `Dataset.schemaOf[T : Encoder] = summon[Encoder[T]].schema`.  This
+   subsumes the original "map `std/parsing` schemas" goal: case classes
+   are the canonical schema declaration in Scala, and Spark's existing
+   Encoder mechanism already derives the StructType from them — a custom
+   parser-combinator → StructType layer would have been wasted work
+   duplicating Spark's own derivation.
+9. ✓ Inline SQL via `sql` fenced blocks — see Phase C.1 / C.2 above.
+   String-interpolated `sql"..."` was the original sketch; the fenced-
+   block path turned out cleaner (whole-block parameterisation via the
+   shared `SqlBindRewriter`, alias-able by section).
 
 ### Key design decisions
 

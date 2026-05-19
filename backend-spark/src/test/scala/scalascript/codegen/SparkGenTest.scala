@@ -677,6 +677,64 @@ class SparkGenTest extends AnyFunSuite:
     assert(code.contains("spark.read.options(options.toMap).csv(path)"))
   }
 
+  // ── Phase C.3 slice 9: schema bridge (case class → StructType) ──────────
+
+  test("Dataset.schemaOf[T] delegates to summon[Encoder[T]].schema") {
+    val code = gen("# Test\n```scalascript\nval x = 1\n```\n")
+    // `Encoder[T]` is the right constraint — `spark.implicits._` brings
+    // the case-class encoder into scope, and `.schema` is part of the
+    // Encoder ABI in Spark 3.x+.
+    assert(code.contains("def schemaOf[T : Encoder]: StructType ="),
+      s"missing schemaOf signature, got:\n$code")
+    assert(code.contains("summon[Encoder[T]].schema"),
+      s"schemaOf must delegate to Encoder[T].schema, got:\n$code")
+  }
+
+  test("Dataset.fromParquetAs[T] reads with explicit schema and returns Dataset[T]") {
+    val code = gen("# Test\n```scalascript\nval df = Dataset.fromParquetAs[Int](\"/data\")\n```\n")
+    assert(code.contains("def fromParquetAs[T : Encoder](path: String, options: (String, String)*): Dataset[T] ="),
+      s"missing fromParquetAs signature, got:\n$code")
+    // The pipeline: schema(...) → options(...) → parquet(path) → as[T].
+    // Schema-first because Spark needs to know the projection before
+    // opening the file (column pruning on Parquet).
+    assert(code.contains("spark.read.schema(schemaOf[T]).options(options.toMap).parquet(path).as[T]"),
+      s"fromParquetAs must chain schema → options → parquet → as[T], got:\n$code")
+  }
+
+  test("Dataset.fromJsonAs[T] reads with explicit schema and returns Dataset[T]") {
+    val code = gen("# Test\n```scalascript\nval df = Dataset.fromJsonAs[Int](\"/data\")\n```\n")
+    assert(code.contains("def fromJsonAs[T : Encoder](path: String, options: (String, String)*): Dataset[T] ="))
+    assert(code.contains("spark.read.schema(schemaOf[T]).options(options.toMap).json(path).as[T]"))
+  }
+
+  test("Dataset.fromCsvAs[T] is the only correct way to read typed CSV") {
+    // Spark's `.csv(path)` returns every column as String when no
+    // schema is set.  The typed reader's schema() is the only way to
+    // get a real `Dataset[T]` without a follow-up `.withColumn(...)
+    // .cast(...)` chain.
+    val code = gen("# Test\n```scalascript\nval df = Dataset.fromCsvAs[Int](\"/data\", \"header\" -> \"true\")\n```\n")
+    assert(code.contains("def fromCsvAs[T : Encoder](path: String, options: (String, String)*): Dataset[T] ="))
+    assert(code.contains("spark.read.schema(schemaOf[T]).options(options.toMap).csv(path).as[T]"))
+    // User's option pair survives verbatim (header=true is essential for
+    // typed CSV reads — without it the first row is treated as data).
+    assert(code.contains("""Dataset.fromCsvAs[Int]("/data", "header" -> "true")"""),
+      s"user call must survive verbatim, got:\n$code")
+  }
+
+  test("schema bridge + typed readers coexist with the untyped fromX shims") {
+    // The typed `fromXAs[T]` and untyped `fromX` shims live side-by-side
+    // in the same `object Dataset`; both should be discoverable in a
+    // single generated source.
+    val code = gen("# Test\n```scalascript\nval x = 1\n```\n")
+    assert(code.contains("def fromParquet("))
+    assert(code.contains("def fromParquetAs["))
+    assert(code.contains("def fromJson("))
+    assert(code.contains("def fromJsonAs["))
+    assert(code.contains("def fromCsv("))
+    assert(code.contains("def fromCsvAs["))
+    assert(code.contains("def schemaOf["))
+  }
+
   // ── Phase C.3 slice 7: writer extension methods ──────────────────────────
 
   test("Dataset.toParquet extension delegates to ds.write.options(...).parquet") {

@@ -432,6 +432,37 @@ private class SparkGen(
        |    def fromCsv(path: String, options: (String, String)*): DataFrame =
        |      spark.read.options(options.toMap).csv(path)
        |
+       |    // Schema bridge — closes v1.25 § 9.5 Phase C.3 slice 9.
+       |    //
+       |    // `schemaOf[T]` derives a Spark `StructType` from a case-class
+       |    // declaration via the standard `Encoder[T]` instance that
+       |    // `spark.implicits._` (in scope inside `@main def runSparkJob`)
+       |    // already brings in.  Equivalent to writing
+       |    // `Encoders.product[T].schema` directly, but discoverable
+       |    // alongside the `Dataset` constructors and parametric on
+       |    // any Encoder, not just `Product` types.
+       |    //
+       |    // `fromXAs[T]` are the typed cousins of `fromX`: instead of
+       |    // returning a schema-less DataFrame and forcing the caller to
+       |    // chain `.as[T]`, they pin the schema at read time
+       |    // (`.schema(schemaOf[T])`) AND apply `.as[T]` so the result
+       |    // is a real typed `Dataset[T]`.  For CSV the explicit schema
+       |    // is the only correct path (Spark otherwise reads every
+       |    // column as `String`); for JSON it bypasses Spark's two-pass
+       |    // schema-inference scan; for Parquet it acts as a column
+       |    // projection (only the case-class fields are read off disk).
+       |    def schemaOf[T : Encoder]: StructType =
+       |      summon[Encoder[T]].schema
+       |
+       |    def fromParquetAs[T : Encoder](path: String, options: (String, String)*): Dataset[T] =
+       |      spark.read.schema(schemaOf[T]).options(options.toMap).parquet(path).as[T]
+       |
+       |    def fromJsonAs[T : Encoder](path: String, options: (String, String)*): Dataset[T] =
+       |      spark.read.schema(schemaOf[T]).options(options.toMap).json(path).as[T]
+       |
+       |    def fromCsvAs[T : Encoder](path: String, options: (String, String)*): Dataset[T] =
+       |      spark.read.schema(schemaOf[T]).options(options.toMap).csv(path).as[T]
+       |
        |  // Extension methods that bridge ScalaScript Dataset idioms to Spark
        |  // Dataset ops.  Defined here so they're in scope throughout the @main
        |  // body without requiring any import by the user.
