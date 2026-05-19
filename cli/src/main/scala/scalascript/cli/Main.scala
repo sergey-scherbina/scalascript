@@ -36,15 +36,8 @@ import scalascript.codegen.SparkSubmit
   else if globalFlags.describeBackend.isDefined then
     val id = globalFlags.describeBackend.get
     BackendRegistry.lookup(id) match
-      case Some(b) =>
-        println(s"id:          ${b.id}")
-        println(s"displayName: ${b.displayName}")
-        println(s"spiVersion:  ${b.spiVersion}")
-        println(s"acceptedSources: ${b.acceptedSources.mkString(", ")}")
-        println(s"capabilities.features: ${b.capabilities.features.toList.sortBy(_.toString).mkString(", ")}")
-        println(s"capabilities.outputs:  ${b.capabilities.outputs.toList.sortBy(_.toString).mkString(", ")}")
-        println(s"intrinsics:  ${b.intrinsics.size} registered")
-      case None =>
+      case Some(b) => println(describeBackend(b))
+      case None    =>
         System.err.println(s"Unknown backend: $id")
         System.exit(2)
   else if args.isEmpty then
@@ -147,6 +140,51 @@ object ActiveFlags:
   @volatile private var snapshot: GlobalFlags = GlobalFlags()
   def set(f: GlobalFlags): Unit = snapshot = f
   def current: GlobalFlags      = snapshot
+
+/** The text body printed for `ssc --describe-backend <id>`.
+ *
+ *  Sorted/deterministic for every enumerable Capabilities field so the
+ *  output is stable across JVM HashSet iteration orderings — important
+ *  because the value is what user-facing tests and shell scripts
+ *  diff against.
+ *
+ *  Fields shown:
+ *    - `id`, `displayName`, `spiVersion` — identity / wire compat.
+ *    - `acceptedSources`                 — alternative source dialects.
+ *    - `capabilities.features`           — language features the backend
+ *                                          declares it can emit / run.
+ *    - `capabilities.outputs`            — what the backend's `compile`
+ *                                          returns (file vs. text vs.
+ *                                          ExecutionResult).
+ *    - `capabilities.options`            — `BackendOptions.extra` keys
+ *                                          the backend understands —
+ *                                          e.g. `sparkVersion`,
+ *                                          `sparkMaster` for Spark.
+ *    - `capabilities.blockLanguages`     — opaque-executable fenced-
+ *                                          block tags consumed — e.g.
+ *                                          `sql` on Spark (§ 9.5 C.1),
+ *                                          `node.js` on the Node target.
+ *                                          What `CapabilityCheck`'s
+ *                                          `UnknownBlockLanguage`
+ *                                          diagnostic checks against.
+ *    - `intrinsics`                      — count of registered runtime
+ *                                          intrinsic implementations.
+ *
+ *  Kept as a pure function (no I/O, no side effects, no exits) so it
+ *  can be tested without driving the whole `ssc` entry point. */
+def describeBackend(b: scalascript.backend.spi.Backend): String =
+  val lines = List(
+    s"id:          ${b.id}",
+    s"displayName: ${b.displayName}",
+    s"spiVersion:  ${b.spiVersion}",
+    s"acceptedSources: ${b.acceptedSources.toList.sorted.mkString(", ")}",
+    s"capabilities.features: ${b.capabilities.features.toList.sortBy(_.toString).mkString(", ")}",
+    s"capabilities.outputs:  ${b.capabilities.outputs.toList.sortBy(_.toString).mkString(", ")}",
+    s"capabilities.options:  ${b.capabilities.options.toList.sorted.mkString(", ")}",
+    s"capabilities.blockLanguages: ${b.capabilities.blockLanguages.toList.sorted.mkString(", ")}",
+    s"intrinsics:  ${b.intrinsics.size} registered"
+  )
+  lines.mkString("\n")
 
 // ─── Backend dispatch helpers (Stage 5.3) ─────────────────────────────
 
