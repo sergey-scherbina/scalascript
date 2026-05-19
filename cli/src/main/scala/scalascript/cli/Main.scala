@@ -83,6 +83,7 @@ private def dispatchCommand(args: List[String]): Unit =
     case "test"                => testCommand(args.tail)
     case "preview"             => previewCommand(args.tail)
     case "fmt"                 => fmtCommand(args.tail)
+    case "lsp"                 => lspCommand(args.tail)
     case "help" | "--help" | "-h" => printUsage()
     case "--list-backends"     => println(BackendRegistry.describe)
     case _                     => runCommand(args)
@@ -243,6 +244,7 @@ def printUsage(): Unit =
     |                         Format .ssc files in-place (default).
     |                         --check  Exit non-zero if any file needs formatting (CI mode).
     |                         --stdout Print formatted output to stdout (single file only).
+    |  lsp                    Run the Language Server Protocol server over stdio (v2.0)
     |  help                   Show this help message
     |
     |Package flags (passed through to scala-cli package):
@@ -4786,6 +4788,19 @@ def fmtCommand(args: List[String]): Unit =
 
   if checkMode && anyNeedsFormatting then
     System.exit(1)
+
+/** `ssc lsp` — run the Language Server Protocol server over stdio.
+ *
+ *  No options for now.  Reads framed JSON-RPC from stdin, writes to stdout,
+ *  logs to stderr.  Exits with the JSON-RPC negotiated exit code (0 if
+ *  `shutdown` preceded `exit`, 1 otherwise). */
+def lspCommand(args: List[String]): Unit =
+  import scalascript.cli.lsp.LspServer
+  // Currently unused — reserved for future flags (`--log-file <path>`,
+  // `--artifact-dir <dir>`, …).  Ignored silently in MVP.
+  val _ = args
+  val code = LspServer.runStdio()
+  System.exit(code)
 
 def printSection(s: Section, indent: Int): Unit =
   val prefix = "  " * indent
