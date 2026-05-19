@@ -1,5 +1,6 @@
-# Hidden files — catch-all; only .github/, .gitignore, .gitattributes are whitelisted
+# Hidden files and directories — catch-all; only .github/ is whitelisted
 .*
+.*/
 !.github/
 !.gitignore
 !.gitattributes

@@ -827,11 +827,14 @@ class Interpreter(
    *  can rewrite its scheme through `ImportResolver`. */
   private var moduleDeps: Map[String, String] = Map.empty
   private var modulePkg: List[String] = Nil
+  private var i18nTranslations: Map[String, Map[String, String]] = Map.empty
+  private var i18nLocale: String = "en"
 
   def run(module: Module): Unit =
     initBuiltins()
     moduleDeps = module.manifest.map(_.dependencies).getOrElse(Map.empty)
     modulePkg  = module.manifest.flatMap(_.pkg).getOrElse(Nil)
+    module.manifest.foreach(m => i18nTranslations = m.translations)
     registerFrontmatterRoutes(module)
     module.sections.foreach(runSection)
     if !mainCalled then
@@ -1062,6 +1065,43 @@ class Interpreter(
 
     // escape / collectCss / collectJs / scope now live in CoreIntrinsics
     // (Stage 5+/E–F); installNativeIntrinsics routes them.
+
+    // ─── i18n intrinsics: t / setLocale / wc ────────────────────────────
+    globals("t") = Value.NativeFnV("t", {
+      case List(Value.StringV(key)) =>
+        val v = i18nTranslations.get(i18nLocale).flatMap(_.get(key)).getOrElse(key)
+        Pure(Value.StringV(v))
+      case _ => Pure(Value.StringV(""))
+    })
+    globals("setLocale") = Value.NativeFnV("setLocale", {
+      case List(Value.StringV(code)) => i18nLocale = code; Pure(Value.UnitV)
+      case _                         => Pure(Value.UnitV)
+    })
+    globals("wc") = Value.NativeFnV("wc", {
+      case tag :: component :: rest =>
+        val tagStr = Value.show(tag)
+        val css = component match
+          case Value.InstanceV(_, fields) =>
+            fields.get("css").map(Value.show).getOrElse("")
+          case _ => ""
+        val renderFn = component match
+          case Value.InstanceV(_, fields) => fields.get("render")
+          case _                          => None
+        renderFn match
+          case Some(fn) =>
+            callValue(fn, rest, Map.empty).map { inner =>
+              val innerHtml = inner match
+                case Value.InstanceV("_Raw", fields) =>
+                  fields.get("html").map(Value.show).getOrElse("")
+                case v => Value.show(v)
+              val shadow = s"<template shadowrootmode=\"open\"><style>$css</style>$innerHtml</template>"
+              Value.InstanceV("_Raw", Map("html" -> Value.StringV(s"<$tagStr-component>$shadow</$tagStr-component>")))
+            }
+          case None =>
+            Pure(Value.InstanceV("_Raw", Map("html" ->
+              Value.StringV(s"<$tagStr-component></$tagStr-component>"))))
+      case _ => Pure(Value.UnitV)
+    })
 
     // ─── Typed HTML DSL — `div(cls := "x", h1("hi"))` style ───────────
     //

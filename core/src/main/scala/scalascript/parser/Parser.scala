@@ -106,6 +106,12 @@ object Parser:
       pkg = raw.get("package").collect {
         case s: String if s.nonEmpty => s.split('.').toList.filter(_.nonEmpty)
       },
+      translations = raw.get("translations").collect {
+        case m: java.util.Map[?, ?] =>
+          m.asScala.collect { case (locale: String, v: java.util.Map[?, ?]) =>
+            locale -> (v.asScala.collect { case (k: String, vv) => k -> vv.toString }.toMap: Map[String, String])
+          }.toMap
+      }.getOrElse(Map.empty),
       raw = raw
     )
 

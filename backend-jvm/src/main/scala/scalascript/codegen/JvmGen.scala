@@ -108,6 +108,20 @@ class JvmGen(
     }
     if frontmatterRoutes.nonEmpty then sb.append("\n")
 
+    // i18n table injection — emitted once before user blocks so t(key) resolves correctly.
+    module.manifest.foreach { m =>
+      if m.translations.nonEmpty then
+        val entries = m.translations.map { (locale, kvs) =>
+          val pairs = kvs.map { (k, v) =>
+            val ek = k.replace("\\", "\\\\").replace("\"", "\\\"")
+            val ev = v.replace("\\", "\\\\").replace("\"", "\\\"")
+            s""""$ek" -> "$ev""""
+          }.mkString(", ")
+          s""""$locale" -> Map($pairs)"""
+        }.mkString(", ")
+        sb.append(s"_i18nTable = Map($entries)\n\n")
+    }
+
     blocks.foreach { block =>
       sb.append(emitBlock(block).stripTrailing())
       sb.append("\n\n")
@@ -2405,6 +2419,35 @@ class JvmGen(
        |  def cls(n: String): String = n + "__" + name
        |
        |def scope(name: String): _Scope = _Scope(name)
+       |
+       |// i18n runtime helpers
+       |var _i18nLocale: String = "en"
+       |var _i18nTable: Map[String, Map[String, String]] = Map.empty
+       |def setLocale(code: String): Unit = { _i18nLocale = code }
+       |def t(key: String): String = _i18nTable.get(_i18nLocale).flatMap(_.get(key)).getOrElse(key)
+       |/** `wc(tag, Component, args*)` — server-side render with declarative shadow DOM.
+       | *  Uses reflection to call `Component.css` and `Component.render(args*)`,
+       | *  following the same convention as `collectCss`. */
+       |def wc(tag: String, component: Any, args: Any*): String =
+       |  val cssStr =
+       |    try component.getClass.getMethod("css").invoke(component) match
+       |      case s: String => s
+       |      case _         => ""
+       |    catch case _: Throwable => ""
+       |  val innerHtml =
+       |    try
+       |      val cls = component.getClass
+       |      val methods = cls.getMethods.filter(_.getName == "render")
+       |      val renderM = methods.find(m => m.getParameterCount == args.length)
+       |        .orElse(methods.headOption)
+       |      renderM match
+       |        case Some(m) =>
+       |          m.invoke(component, args.map(_.asInstanceOf[AnyRef])*) match
+       |            case r: _Raw => r.html
+       |            case v       => _show(v)
+       |        case None => ""
+       |    catch case _: Throwable => ""
+       |  s"<$tag-component><template shadowrootmode=\"open\"><style>$cssStr</style>$innerHtml</template></$tag-component>"
        |
        |// Used by heading-bound html-block emission: escape unless raw(...).
        |def _html_interp(v: Any): String = v match

@@ -1325,15 +1325,24 @@ def emitWcCommand(args: List[String]): Unit =
       try { if (typeof ${c.name}.js === 'string' && ${c.name}.js.trim().length > 0) new Function(${c.name}.js).call(shadow); }
       catch (e) { console.error('${c.name}.js failed:', e); }"""
             else ""
+          val jsHookIndented = jsHook.replace("\n", "\n  ")
           // Anonymous class via `customElements.define(tag, class extends … {})`
           // — avoids clashing with the heading-bound `<section>Component` object
           // JsGen synthesises for the markdown section that introduces the
           // component.
+          // SSR hydration guard: if the element was rendered server-side with
+          // declarative shadow DOM (`<template shadowrootmode="open">`), the
+          // browser deserialises the shadow root before JS runs — skip
+          // attachShadow/innerHTML so the pre-rendered content isn't wiped.
           println(s"""
 customElements.define('$tag', class extends HTMLElement {
   static get observedAttributes() { return [$paramsArr]; }
   connectedCallback() {
-    const shadow = this.shadowRoot || this.attachShadow({mode: 'open'});
+    if (this.shadowRoot && this.shadowRoot.childNodes.length > 0) {
+      const shadow = this.shadowRoot;$jsHookIndented
+      return;
+    }
+    const shadow = this.attachShadow({mode: 'open'});
     const css  = (typeof ${c.name}.css === 'string') ? ${c.name}.css : '';
     const html = ${c.name}.render($argsExpr);
     shadow.innerHTML = '<style>' + css + '</style>' + _show(html);$jsHook
@@ -2103,6 +2112,7 @@ private def printScjsInfo(path: os.Path, json: String, fileSize: Long, jsonMode:
         println(s"jsSourceBytes: ${art.jsSource.length}")
         println(s"imports: ${art.imports.length}")
         art.imports.foreach { imp => println(s"  - $imp") }
+
 
 /** Build the self-contained JS source written to a `.scjs` artifact.
  *
