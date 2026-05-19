@@ -4269,6 +4269,50 @@ class JvmGen(
        |    val term = _leaderHistTermSeq.incrementAndGet()
        |    _leaderHist.offer((term, leaderId, System.currentTimeMillis()))
        |    while _leaderHist.size() > _LEADER_HIST_MAX do _leaderHist.pollFirst()
+       |  // v1.23 — external-coordinator lease state (cluster-raft.md §5).
+       |  // Pulled out via `productElement` so the runtime can call them
+       |  // without structural types or reflection.
+       |  @volatile var _coordAcquireFn: AnyRef = null  // (String, Long) => Boolean
+       |  @volatile var _coordRenewFn:   AnyRef = null  // String => Boolean
+       |  @volatile var _coordReleaseFn: AnyRef = null  // String => Unit
+       |  @volatile var _coordHolderFn:  AnyRef = null  // () => Option[String]
+       |  @volatile var _coordIsLeader:  Boolean = false
+       |  val _coordTickThread = new java.util.concurrent.atomic.AtomicReference[Thread](null)
+       |  val _COORD_LEASE_TIMEOUT_MS  = 5000L
+       |  val _COORD_RENEW_INTERVAL_MS = 1000L
+       |  def _ensureCoordTickThread(): Unit =
+       |    if _coordTickThread.get() != null then return
+       |    val t = Thread.ofVirtual().start { () =>
+       |      try
+       |        var done = false
+       |        while !done && _leaderProtocol.get() == "coord" do
+       |          try
+       |            if !_coordIsLeader then
+       |              val acq = _coordAcquireFn
+       |              if acq != null then
+       |                val got = try acq.asInstanceOf[(String, Long) => Boolean](_localNodeId, _COORD_LEASE_TIMEOUT_MS)
+       |                          catch case _: Throwable => false
+       |                if got then
+       |                  _coordIsLeader = true
+       |                  val prev = _currentLeader.getAndSet(_localNodeId)
+       |                  if prev != _localNodeId then
+       |                    _fireLeaderEvent("LeaderElected", _localNodeId)
+       |                    _recordLeaderHist(_localNodeId)
+       |            else
+       |              val ren = _coordRenewFn
+       |              if ren != null then
+       |                val ok = try ren.asInstanceOf[String => Boolean](_localNodeId)
+       |                         catch case _: Throwable => false
+       |                if !ok then
+       |                  _coordIsLeader = false
+       |                  val prev = _currentLeader.getAndSet("")
+       |                  if prev.nonEmpty then _fireLeaderEvent("LeaderLost", prev)
+       |          catch case _: Throwable => ()
+       |          try Thread.sleep(_COORD_RENEW_INTERVAL_MS)
+       |          catch case _: InterruptedException => done = true
+       |      catch case _: Throwable => ()
+       |    }
+       |    if !_coordTickThread.compareAndSet(null, t) then t.interrupt()
        |  // v1.23 — Raft state (cluster-raft.md §4.1).
        |  @volatile var _raftCurrentTerm: Long   = 0L
        |  @volatile var _raftVotedFor:    String = ""        // "" = None
@@ -5264,8 +5308,16 @@ class JvmGen(
        |      Right(k(()))
        |    case "currentLeader" =>
        |      _leaderProtocol.get() match
-       |        case "raft" => Right(k(_raftLeaderId))
-       |        case _      => Right(k(_currentLeader.get()))
+       |        case "raft"  => Right(k(_raftLeaderId))
+       |        case "coord" =>
+       |          val holderFn = _coordHolderFn
+       |          val held: Option[String] =
+       |            if holderFn != null then
+       |              try holderFn.asInstanceOf[() => Option[String]]()
+       |              catch case _: Throwable => None
+       |            else None
+       |          Right(k(held.getOrElse("")))
+       |        case _       => Right(k(_currentLeader.get()))
        |    case "subscribeLeaderEvents" =>
        |      val boxed = java.lang.Long.valueOf(id)
        |      if !_leaderEventSubs.contains(boxed) then _leaderEventSubs.add(boxed)
@@ -5285,6 +5337,23 @@ class JvmGen(
        |    case "useExternalCoordinator" =>
        |      _leaderProtocol.set("coord")
        |      _leaderCoordinator = args(0)
+       |      args(0) match
+       |        case p: Product if p.productArity == 4 =>
+       |          _coordAcquireFn = p.productElement(0).asInstanceOf[AnyRef]
+       |          _coordRenewFn   = p.productElement(1).asInstanceOf[AnyRef]
+       |          _coordReleaseFn = p.productElement(2).asInstanceOf[AnyRef]
+       |          _coordHolderFn  = p.productElement(3).asInstanceOf[AnyRef]
+       |          // Try once synchronously so callers don't wait a tick.
+       |          val got = try _coordAcquireFn.asInstanceOf[(String, Long) => Boolean](_localNodeId, _COORD_LEASE_TIMEOUT_MS)
+       |                    catch case _: Throwable => false
+       |          if got then
+       |            _coordIsLeader = true
+       |            val prev = _currentLeader.getAndSet(_localNodeId)
+       |            if prev != _localNodeId then
+       |              _fireLeaderEvent("LeaderElected", _localNodeId)
+       |              _recordLeaderHist(_localNodeId)
+       |          _ensureCoordTickThread()
+       |        case _ => ()
        |      Right(k(()))
        |    case "leaderProtocol" =>
        |      Right(k(_leaderProtocol.get()))

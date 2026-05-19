@@ -3761,6 +3761,50 @@ function _runActors(bodyFn) {
   //   Phase 3a flips to "raft", Phase 3b flips to "coord".
   let   _leaderProtocol      = "bully";
   let   _leaderCoordinator   = null;
+  // v1.23 — coordinator lease state (cluster-raft.md §5).
+  let   _coordAcquireFn      = null;
+  let   _coordRenewFn        = null;
+  let   _coordReleaseFn      = null;
+  let   _coordHolderFn       = null;
+  let   _coordIsLeader       = false;
+  let   _coordTickHandle     = null;
+  const _COORD_LEASE_TIMEOUT_MS  = 5000;
+  const _COORD_RENEW_INTERVAL_MS = 1000;
+  function _ensureCoordTickThread() {
+    if (_coordTickHandle != null) return;
+    _coordTickHandle = setInterval(() => {
+      if (_leaderProtocol !== 'coord') { clearInterval(_coordTickHandle); _coordTickHandle = null; return; }
+      try {
+        if (!_coordIsLeader) {
+          if (_coordAcquireFn) {
+            let got = false;
+            try { got = !!_coordAcquireFn(_localNodeId, _COORD_LEASE_TIMEOUT_MS); } catch (_) {}
+            if (got) {
+              _coordIsLeader = true;
+              const prev = _currentLeader;
+              _currentLeader = _localNodeId;
+              if (prev !== _localNodeId) {
+                _fireLeaderEvent("LeaderElected", _localNodeId);
+                _recordLeaderHist(_localNodeId);
+              }
+            }
+          }
+        } else {
+          if (_coordRenewFn) {
+            let ok = false;
+            try { ok = !!_coordRenewFn(_localNodeId); } catch (_) {}
+            if (!ok) {
+              _coordIsLeader = false;
+              const prev = _currentLeader;
+              _currentLeader = "";
+              if (prev) _fireLeaderEvent("LeaderLost", prev);
+            }
+          }
+        }
+      } catch (_) {}
+    }, _COORD_RENEW_INTERVAL_MS);
+    if (_coordTickHandle && typeof _coordTickHandle.unref === 'function') _coordTickHandle.unref();
+  }
   // v1.23 — bounded leader-claim history.
   const _LEADER_HIST_MAX     = 100;
   let   _leaderHistTermSeq   = 0;
@@ -4759,7 +4803,19 @@ private val JsRuntimeAsyncB: String = """
         return { suspend: false, next: k(undefined) };
       }
       case 'currentLeader': {
-        return { suspend: false, next: k(_leaderProtocol === 'raft' ? _raftLeaderId : _currentLeader) };
+        if (_leaderProtocol === 'raft') return { suspend: false, next: k(_raftLeaderId) };
+        if (_leaderProtocol === 'coord') {
+          let held = "";
+          if (_coordHolderFn) {
+            try {
+              const opt = _coordHolderFn();
+              // Option emits as { _type: 'Some', value } or { _type: 'None' }.
+              if (opt && opt._type === 'Some') held = String(opt.value || "");
+            } catch (_) {}
+          }
+          return { suspend: false, next: k(held) };
+        }
+        return { suspend: false, next: k(_currentLeader) };
       }
       case 'subscribeLeaderEvents': {
         _leaderEventSubs.add(id);
@@ -4780,6 +4836,31 @@ private val JsRuntimeAsyncB: String = """
       case 'useExternalCoordinator': {
         _leaderProtocol = 'coord';
         _leaderCoordinator = args[0];
+        // LeaderCoordinator emits as { _type: 'LeaderCoordinator',
+        //   acquireLease, renewLease, releaseLease, currentHolder } —
+        // pluck the four function fields out.
+        const c = args[0];
+        if (c && typeof c === 'object') {
+          _coordAcquireFn = typeof c.acquireLease  === 'function' ? c.acquireLease  : null;
+          _coordRenewFn   = typeof c.renewLease    === 'function' ? c.renewLease    : null;
+          _coordReleaseFn = typeof c.releaseLease  === 'function' ? c.releaseLease  : null;
+          _coordHolderFn  = typeof c.currentHolder === 'function' ? c.currentHolder : null;
+          if (_coordAcquireFn) {
+            // Initial sync acquire so callers see the leader immediately.
+            let got = false;
+            try { got = !!_coordAcquireFn(_localNodeId, _COORD_LEASE_TIMEOUT_MS); } catch (_) {}
+            if (got) {
+              _coordIsLeader = true;
+              const prev = _currentLeader;
+              _currentLeader = _localNodeId;
+              if (prev !== _localNodeId) {
+                _fireLeaderEvent("LeaderElected", _localNodeId);
+                _recordLeaderHist(_localNodeId);
+              }
+            }
+            _ensureCoordTickThread();
+          }
+        }
         return { suspend: false, next: k(undefined) };
       }
       case 'leaderProtocol': {

@@ -270,6 +270,58 @@ class Interpreter(
     new java.util.concurrent.atomic.AtomicReference[String]("bully")
   @scala.annotation.unused
   @volatile private var leaderCoordinator: Value = Value.UnitV
+  // v1.23 — coordinator lease state (cluster-raft.md §5).  The four
+  // `LeaderCoordinator` function fields, captured at switch time.
+  @volatile private var coordAcquireFn: Value = Value.UnitV
+  @volatile private var coordRenewFn:   Value = Value.UnitV
+  @scala.annotation.unused
+  @volatile private var coordReleaseFn: Value = Value.UnitV
+  @volatile private var coordHolderFn:  Value = Value.UnitV
+  @volatile private var coordIsLeader:  Boolean = false
+  private val coordTickThread =
+    new java.util.concurrent.atomic.AtomicReference[Thread](null)
+  private val CoordLeaseTimeoutMs  = 5000L
+  private val CoordRenewIntervalMs = 1000L
+  private def callCoordFn(fn: Value, args: List[Value]): Value =
+    fn match
+      case Value.NativeFnV(_, body) =>
+        try Computation.run(body(args)) catch case _: Throwable => Value.UnitV
+      case _: Value.FunV =>
+        try Computation.run(callValue(fn, args, Map.empty))
+        catch case _: Throwable => Value.UnitV
+      case _ => Value.UnitV
+  private def ensureCoordTickThread(): Unit =
+    if coordTickThread.get() != null then return
+    val t = Thread.ofVirtual().start { () =>
+      try
+        var done = false
+        while !done && leaderProtocolRef.get() == "coord" do
+          try
+            if !coordIsLeader then
+              val ret = callCoordFn(coordAcquireFn,
+                List(Value.StringV(localNodeId), Value.IntV(CoordLeaseTimeoutMs)))
+              ret match
+                case Value.BoolV(true) =>
+                  coordIsLeader = true
+                  val prev = currentLeader.getAndSet(localNodeId)
+                  if prev != localNodeId then
+                    enqueueLeaderEvent("LeaderElected", localNodeId)
+                    recordLeaderHist(localNodeId)
+                case _ => ()
+            else
+              val ret = callCoordFn(coordRenewFn, List(Value.StringV(localNodeId)))
+              ret match
+                case Value.BoolV(false) =>
+                  coordIsLeader = false
+                  val prev = currentLeader.getAndSet("")
+                  if prev.nonEmpty then enqueueLeaderEvent("LeaderLost", prev)
+                case _ => ()
+          catch case _: Throwable => ()
+          try Thread.sleep(CoordRenewIntervalMs)
+          catch case _: InterruptedException => done = true
+      catch case _: Throwable => ()
+    }
+    if !coordTickThread.compareAndSet(null, t) then t.interrupt()
   // v1.23 — bounded leader-claim history.
   private val LeaderHistMax = 100
   private val leaderHistTermSeq =
@@ -5718,6 +5770,16 @@ class Interpreter(
     case "currentLeader" =>
       leaderProtocolRef.get() match
         case "raft" => Right(k(Value.StringV(raftLeaderId)))
+        case "coord" =>
+          val held = coordHolderFn match
+            case Value.NativeFnV(_, _) | _: Value.FunV =>
+              callCoordFn(coordHolderFn, Nil) match
+                case Value.OptionV(Some(Value.StringV(s))) => s
+                case Value.InstanceV("Some", m)            =>
+                  m.get("value").collect { case Value.StringV(s) => s }.getOrElse("")
+                case _ => ""
+            case _ => ""
+          Right(k(Value.StringV(held)))
         case _      => Right(k(Value.StringV(currentLeader.get())))
 
     case "subscribeLeaderEvents" =>
@@ -5743,6 +5805,27 @@ class Interpreter(
       case List(adapter) =>
         leaderProtocolRef.set("coord")
         leaderCoordinator = adapter
+        adapter match
+          case Value.InstanceV("LeaderCoordinator", fields) =>
+            coordAcquireFn = fields.getOrElse("acquireLease",  Value.UnitV)
+            coordRenewFn   = fields.getOrElse("renewLease",    Value.UnitV)
+            coordReleaseFn = fields.getOrElse("releaseLease",  Value.UnitV)
+            coordHolderFn  = fields.getOrElse("currentHolder", Value.UnitV)
+            coordAcquireFn match
+              case Value.NativeFnV(_, _) | _: Value.FunV =>
+                // Initial sync acquire so callers see the leader immediately.
+                callCoordFn(coordAcquireFn,
+                  List(Value.StringV(localNodeId), Value.IntV(CoordLeaseTimeoutMs))) match
+                  case Value.BoolV(true) =>
+                    coordIsLeader = true
+                    val prev = currentLeader.getAndSet(localNodeId)
+                    if prev != localNodeId then
+                      enqueueLeaderEvent("LeaderElected", localNodeId)
+                      recordLeaderHist(localNodeId)
+                  case _ => ()
+                ensureCoordTickThread()
+              case _ => ()
+          case _ => ()
         Right(k(Value.UnitV))
       case _ => throw InterpretError("useExternalCoordinator(adapter: Any): Unit")
 
