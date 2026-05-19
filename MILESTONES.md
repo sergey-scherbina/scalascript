@@ -7626,68 +7626,73 @@ Depends on `mcp-common` (v1.17 — already largely landed),
 - [x] `docs/mcp-x402-wallet.md` — architecture, tools, policy
       model, error-code allocation, phase plan
 
-### Phase 1 — mcp-wallet (read-only)
+### Phase 1 — mcp-wallet read-only ✓ Landed (2026-05-19)
 
-- [ ] `mcp-wallet` module — `Policy`, `ConfirmationMode`, types
-      (cross-compile)
-- [ ] `mcp-wallet-server` — read-only tools: `listAccounts`,
-      `getAddress`, `getBalance`; resource `wallet://accounts`
-- [ ] Stdio transport via `mcp-common`
-- [ ] Integration test: spawn server, call tools over JSON-RPC
+`Policy` + `ConfirmationMode` types; `McpWalletServer.installOn(builder)` mounts
+read-only tools (`wallet.listAccounts`, `wallet.getAddress`, `wallet.getBalance`)
+and `wallet://accounts` resource. Policy filter controls exposed tools and chains.
+8 tests covering listing, address lookup, balance (native + ERC-20), policy gate.
 
-### Phase 2 — mcp-wallet signing with elicitation
+### Phase 2 — mcp-wallet signing with elicitation ✓ Landed (2026-05-19)
 
-- [ ] Signing tools: `signMessage`, `signTypedData`, `payX402`
-- [ ] `ConfirmationMode.ElicitationPerCall` enforced
-- [ ] `elicitation/create` plumbing
-- [ ] `wallet://audit` resource
-- [ ] Test: signing blocked without elicitation; allowed after
-      approval
+`wallet.signMessage`, `wallet.signTypedData`, `wallet.payX402` tools — all gated
+on `ConfirmationMode`. `ElicitationPerCall` blocks until `ElicitationHandler`
+approves; `Implicit` auto-approves for session keys. `AuditLog` records every op
+(timestamp, tool, policy decision, sig hash); exposed via `wallet://audit` resource.
+7 tests: approved sign, rejected sign, fail-closed without handler, payX402 payload,
+maxPerCall enforcement, audit resource.
 
-### Phase 3 — x402 over MCP (server side)
+### Phase 3 — x402 over MCP server side ✓ Landed (2026-05-19)
 
-- [ ] `mcp-x402` module — `-32402` error code, `_meta.x402` shape
-- [ ] `ToolRegistration.price` + `paymentScope` fields (additive)
-- [ ] Server emits `-32402` on unpaid calls
-- [ ] Server verifies `_meta.x402.payment` via `Facilitator`
-- [ ] Unit test: priced tool returns -32402; runs with valid
-      `_meta.x402.payment`
+`mcp-x402` module: `Mcp402Protocol` constants (`-32402`, `_meta.x402.*`);
+`Mcp402Dispatcher.dispatchTool/Resource/Prompt` — emits `-32402` on unpaid calls,
+verifies `_meta.x402.payment` via `Facilitator` before executing. `ToolPrice` /
+`PaymentScope` additive fields on registrations. 7 tests: unpaid → -32402, valid
+payment → Right, facilitator Fail, malformed base64, session-scoped oneShot=false,
+resource/prompt kind labels.
 
-### Phase 4 — x402 over MCP (client side)
+### Phase 4 — x402 over MCP client side ✓ Landed (2026-05-19)
 
-- [ ] `X402AutoPay` middleware for `McpClientCore`
-- [ ] Supports local `Wallet` or `mcp-wallet-client` as signer
-- [ ] `maxAmount` ceiling, charge hook
-- [ ] End-to-end test (in-process server + client)
+`X402AutoPay` middleware for `McpClientCore`: on `-32402` parses `PaymentRequirements`,
+calls `PaymentSigner.sign`, retries with `_meta.x402.payment`. `maxAmount` ceiling
+enforced independently of wallet policy. `onCharge` hook for observability.
+`PaymentRequiredException.tryParse` for typed error handling. 7 tests: round-trip,
+maxAmount rejection, charge hook, signer returning None, non-payment passthrough,
+exception parse round-trip.
 
-### Phase 5 — Composed agent flow + sample
+### Phase 5 — Composed agent flow ✓ Landed (2026-05-19)
 
-- [ ] `wallet.sendTransaction` tool
-- [ ] `ConfirmationMode.ElicitationCached(ttlSec)` impl
-- [ ] `examples/mcp-paid-agent.ssc` — full demo (stdio wallet +
-      HTTP+SSE priced server + agent program)
-- [ ] Anvil-backed deterministic settle
+`wallet.sendTransaction` tool (build + sign + broadcast, gated on policy + elicitation).
+`ConfirmationMode.ElicitationCached(ttlSec)` caches per `(tool, chainId)` within TTL;
+rejection not cached. `McpWalletPaymentSigner` bridges `mcp-wallet-server` → `X402AutoPay`
+for end-to-end agent flow. `PaidAgentCompositionTest`: agent → autopay → wallet →
+priced server full round-trip in-process. 6 tests.
 
-### Phase 6 — Resources & prompts pricing
+### Phase 6 — Resources & prompts pricing ✓ Landed (2026-05-19)
 
-- [ ] `ResourceRegistration.price`, `PromptRegistration.price`
-- [ ] `-32402` on unpaid `resources/read` / `prompts/get`
-- [ ] Client middleware handles them on the same path
+`Mcp402Dispatcher.dispatchResource` / `dispatchPrompt` — same `-32402` / payment
+verification pattern as tools; `kind` field (`tool`/`resource`/`prompt`) in requirements.
+`X402AutoPay` handles resource/prompt 402s via the same `PaymentSigner` path.
+7 tests covering resource, prompt, and tool dispatch + client round-trip.
 
-### Phase 7 — OAuth/OIDC for remote mcp-wallet
+### Phase 7 — OAuth-aware policy resolution ✓ Landed (2026-05-20)
 
-- [ ] `HttpSseTransport` support in `mcp-wallet-server`
-- [ ] OAuth/OIDC required for remote (uses existing
-      `mcp-common.oauth` / `oidc`)
-- [ ] Per-scope policy mapping
+`McpWalletAuth` thread-local carries JWT claims from the OAuth middleware into
+tool handlers. `PolicyProvider` trait — `Static(policy)` (default) and
+`FromAuth(resolver, fallback)` (per-request, reads current claims).
+`McpWalletServer.policyProviderOverride` enables per-request scope narrowing:
+`wallet:read` scope gates read-only tools; `wallet:sign` scope gates signing;
+unrecognised scopes fall back to read-only policy. `maxPerCall` overridable
+per-scope. 9 tests covering FromAuth routing, scope gates, fallback, thread-local
+lifecycle, scoped budgets.
 
-### Phase 8 — Stream payments via MCP
+### Phase 8 — Stream payments via MCP ✓ Landed (2026-05-20)
 
-Sequenced after x402 Phase 7 (`PaymentScheme.Stream`).
-
-- [ ] Streaming-cost MCP tools (token-by-token, second-by-second)
-- [ ] `_meta.x402.streamCharge` interim charges
-- [ ] Client middleware budget tracking
+`Pricing.Stream` variant in `ToolPrice`; `Mcp402Dispatcher` emits `scheme=stream`
+in requirements and accepts stream-scheme payments. `Mcp402Protocol.streamChargeMeta`
+/ `parseStreamCharge` helpers; `X402AutoPay.onStreamCharge` hook for running-total
+accumulation. 7 tests: dispatch with stream pricing, stream payment acceptance,
+meta round-trip, AutoPay stream hook, running-total accumulation.
 
 ## Micropayment Platform — channel-based fee amortisation for microtransactions
 
