@@ -11,6 +11,7 @@ import scalascript.interpreter.Interpreter
 import scalascript.codegen.{JsGen, JsRuntime, JsRuntimeAsync, JsRuntimeV14Effects, JsRuntimeBrowserPatch, JsRuntimeMcp, JsRuntimeDataset, ScalaJsBackend}
 import scalascript.ast.*
 import scalascript.transform.Normalize
+import scalascript.validate.CapabilityCheck
 import scalascript.plugin.{BackendRegistry, SourceLanguageRegistry}
 import scalascript.backend.spi.{BackendOptions, CompileResult, Segment}
 
@@ -140,13 +141,17 @@ private def compileViaBackend(
     file:      os.Path,
     extras:    Map[String, String] = Map.empty
 ): CompileResult =
-  val module = Parser.parse(os.read(file))
-  val ir     = Normalize(module)
-  val opts   = BackendOptions(
-    baseDir = Some((file / os.up).toNIO),
-    extra   = extras
-  )
-  resolveBackend(backendId).compile(ir, opts)
+  val module  = Parser.parse(os.read(file))
+  val ir      = Normalize(module)
+  val backend = resolveBackend(backendId)
+  val diags   = CapabilityCheck.validate(ir, backend.capabilities, backendId)
+  if diags.nonEmpty then CompileResult.Failed(diags)
+  else
+    val opts = BackendOptions(
+      baseDir = Some((file / os.up).toNIO),
+      extra   = extras
+    )
+    backend.compile(ir, opts)
 
 private def expectText(r: CompileResult, what: String): String = r match
   case CompileResult.TextOutput(code, _, _) => code

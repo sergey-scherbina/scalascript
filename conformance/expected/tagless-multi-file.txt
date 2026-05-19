@@ -1,0 +1,4 @@
+List(42)
+List([log] started)
+List([log] step1, [log] step2)
+Some([log] option-step)

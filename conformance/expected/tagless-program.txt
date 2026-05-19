@@ -1,0 +1,4 @@
+Some(greeted:Alice)
+List(greeted:Bob)
+Some(done:Carol)
+Some(done:Dave)

@@ -110,109 +110,109 @@ val JvmRuntimeMcp: String =
      |                new io.modelcontextprotocol.sdk.messages.TextResourceContents(
      |                  rm.getOrElse("uri", req.uri()).toString, mimeType.nonEmpty match { case true => mimeType; case _ => "text/plain" },
      |                  c.asInstanceOf[Map[String, Any]].getOrElse("text", "").toString
-                    |                )
-                    |              ).asJava
-                    |              case _ => java.util.List.of()
-                    |            new ReadResourceResult(contents)
-                    |          case _ =>
-                    |            new ReadResourceResult(java.util.List.of(
-                    |              new io.modelcontextprotocol.sdk.messages.TextResourceContents(uri, "text/plain", result.toString)
-                    |            ))
-                    |      })
-                    |    }
-                    |    specBuilder.resources(resourceSpecs.toList.asJava)
-                    |    specBuilder.build()
-                    |
-                    |// Global server builder state
-                    |private val _mcpBuilder = new McpServerBuilder()
-                    |
-                    |def mcpServer(setup: McpServerBuilder => Unit): Unit = setup(_mcpBuilder)
-                    |
-                    |// Enum-like Transport value check helpers
-                    |private def _mcpTransportType(t: Any): String = t match
-                    |  case m: scala.collection.immutable.Map[?, ?] => m.asInstanceOf[Map[String, Any]].getOrElse("_type", "").toString
-                    |  case _ => ""
-                    |private def _mcpTransportField(t: Any, field: String): Any = t match
-                    |  case m: scala.collection.immutable.Map[?, ?] => m.asInstanceOf[Map[String, Any]].getOrElse(field, "")
-                    |  case _ => ""
-                    |
-                    |def serveMcp(transport: Any): Unit =
-                    |  val spec  = _mcpBuilder.buildSpec()
-                    |  val jSrv  = JMcpServer.sync(spec)
-                    |  val trans = _mcpTransportType(transport) match
-                    |    case "Stdio" => new StdioServerTransport()
-                    |    case "Http"  =>
-                    |      throw McpError("Transport.Http not yet supported on JVM (use Transport.Stdio)")
-                    |    case "Ws" =>
-                    |      throw McpError("Transport.Ws not yet supported on JVM (use Transport.Stdio)")
-                    |    case t => throw McpError(s"Unknown transport: $t")
-                    |  jSrv.connect(trans)
-                    |
-                    |// ── MCP client ───────────────────────────────────────────────────────────
-                    |
-                    |class McpClientImpl(private val jClient: io.modelcontextprotocol.sdk.McpSyncClient):
-                    |  private var _closed = false
-                    |  def isClosed: Boolean = _closed
-                    |  def listTools(): List[Any] =
-                    |    jClient.listTools(null).tools().asScala.map(t =>
-                    |      Map("_type" -> "ToolDescriptor", "name" -> t.name(), "description" -> t.description(), "schema" -> Map.empty[String, Any])
-                    |    ).toList
-                    |  def listResources(): List[Any] =
-                    |    jClient.listResources(null).resources().asScala.map(r =>
-                    |      Map("_type" -> "ResourceDescriptor", "uri" -> r.uri(), "name" -> r.name(), "mimeType" -> r.mimeType())
-                    |    ).toList
-                    |  def listPrompts(): List[Any] =
-                    |    jClient.listPrompts(null).prompts().asScala.map(p =>
-                    |      Map("_type" -> "PromptDescriptor", "name" -> p.name(), "description" -> p.description(), "args" -> List.empty[Any])
-                    |    ).toList
-                    |  def callTool(name: String, args: Map[String, Any]): Any =
-                    |    val result = jClient.callTool(new CallToolRequest(name, args.asJava.asInstanceOf[java.util.Map[String, Object]]))
-                    |    val contents = result.content().asScala.map {
-                    |      case tc: io.modelcontextprotocol.sdk.messages.TextContent =>
-                    |        Map("_type" -> "Text", "text" -> tc.text())
-                    |      case other => Map("_type" -> "Text", "text" -> other.toString)
-                    |    }.toList
-                    |    Map("_type" -> "ToolResult", "content" -> contents, "isError" -> result.isError)
-                    |  def readResource(uri: String): Any =
-                    |    val result = jClient.readResource(new ReadResourceRequest(uri))
-                    |    val contents = result.contents().asScala.map(c => Map("_type" -> "Text", "text" -> c.toString)).toList
-                    |    Map("_type" -> "ResourceResult", "uri" -> uri, "contents" -> contents)
-                    |  def getPrompt(name: String, args: Map[String, Any]): Any =
-                    |    val result = jClient.getPrompt(new GetPromptRequest(name, args.asJava.asInstanceOf[java.util.Map[String, String]]))
-                    |    val messages = result.messages().asScala.map { m =>
-                    |      val role = m.role().toString.toLowerCase match
-                    |        case "user"      => Map("_type" -> "User")
-                    |        case "assistant" => Map("_type" -> "Assistant")
-                    |        case _           => Map("_type" -> "System")
-                    |      val content = m.content() match
-                    |        case tc: io.modelcontextprotocol.sdk.messages.TextContent =>
-                    |          Map("_type" -> "Text", "text" -> tc.text())
-                    |        case other => Map("_type" -> "Text", "text" -> other.toString)
-                    |      Map("_type" -> "Message", "role" -> role, "content" -> content)
-                    |    }.toList
-                    |    Map("_type" -> "PromptResult", "messages" -> messages)
-                    |  def close(): Unit =
-                    |    if !_closed then { _closed = true; jClient.closeGracefully() }
-                    |
-                    |def mcpConnect(transport: Any, timeoutMs: Long = 10000L): McpClientImpl =
-                    |  val trans = _mcpTransportType(transport) match
-                    |    case "Spawn" =>
-                    |      val cmd  = _mcpTransportField(transport, "cmd").toString
-                    |      val args = _mcpTransportField(transport, "args") match
-                    |        case lst: List[?] => lst.map(_.toString)
-                    |        case _ => List.empty[String]
-                    |      val params = ServerParameters.builder(cmd).args(args.asJava).build()
-                    |      new StdioClientTransport(params)
-                    |    case "Http" =>
-                    |      val port = _mcpTransportField(transport, "port").toString.toIntOption.getOrElse(3000)
-                    |      val path = _mcpTransportField(transport, "path").toString
-                    |      new HttpSseClientTransport(s"http://localhost:$port$path")
-                    |    case t => throw McpError(s"Unsupported client transport: $t")
-                    |  val spec = McpSyncClientSpec.builder()
-                    |    .clientInfo(new Implementation("scalascript-mcp-client", "1.0.0"))
-                    |    .transport(trans)
-                    |    .build()
-                    |  val jClient = JMcpClient.sync(spec)
-                    |  jClient.initialize()
-                    |  new McpClientImpl(jClient)
-                    |""".stripMargin
+     |                )
+     |              ).asJava
+     |              case _ => java.util.List.of()
+     |            new ReadResourceResult(contents)
+     |          case _ =>
+     |            new ReadResourceResult(java.util.List.of(
+     |              new io.modelcontextprotocol.sdk.messages.TextResourceContents(uri, "text/plain", result.toString)
+     |            ))
+     |      })
+     |    }
+     |    specBuilder.resources(resourceSpecs.toList.asJava)
+     |    specBuilder.build()
+     |
+     |// Global server builder state
+     |private val _mcpBuilder = new McpServerBuilder()
+     |
+     |def mcpServer(setup: McpServerBuilder => Unit): Unit = setup(_mcpBuilder)
+     |
+     |// Enum-like Transport value check helpers
+     |private def _mcpTransportType(t: Any): String = t match
+     |  case m: scala.collection.immutable.Map[?, ?] => m.asInstanceOf[Map[String, Any]].getOrElse("_type", "").toString
+     |  case _ => ""
+     |private def _mcpTransportField(t: Any, field: String): Any = t match
+     |  case m: scala.collection.immutable.Map[?, ?] => m.asInstanceOf[Map[String, Any]].getOrElse(field, "")
+     |  case _ => ""
+     |
+     |def serveMcp(transport: Any): Unit =
+     |  val spec  = _mcpBuilder.buildSpec()
+     |  val jSrv  = JMcpServer.sync(spec)
+     |  val trans = _mcpTransportType(transport) match
+     |    case "Stdio" => new StdioServerTransport()
+     |    case "Http"  =>
+     |      throw McpError("Transport.Http not yet supported on JVM (use Transport.Stdio)")
+     |    case "Ws" =>
+     |      throw McpError("Transport.Ws not yet supported on JVM (use Transport.Stdio)")
+     |    case t => throw McpError(s"Unknown transport: $t")
+     |  jSrv.connect(trans)
+     |
+     |// ── MCP client ───────────────────────────────────────────────────────────
+     |
+     |class McpClientImpl(private val jClient: io.modelcontextprotocol.sdk.McpSyncClient):
+     |  private var _closed = false
+     |  def isClosed: Boolean = _closed
+     |  def listTools(): List[Any] =
+     |    jClient.listTools(null).tools().asScala.map(t =>
+     |      Map("_type" -> "ToolDescriptor", "name" -> t.name(), "description" -> t.description(), "schema" -> Map.empty[String, Any])
+     |    ).toList
+     |  def listResources(): List[Any] =
+     |    jClient.listResources(null).resources().asScala.map(r =>
+     |      Map("_type" -> "ResourceDescriptor", "uri" -> r.uri(), "name" -> r.name(), "mimeType" -> r.mimeType())
+     |    ).toList
+     |  def listPrompts(): List[Any] =
+     |    jClient.listPrompts(null).prompts().asScala.map(p =>
+     |      Map("_type" -> "PromptDescriptor", "name" -> p.name(), "description" -> p.description(), "args" -> List.empty[Any])
+     |    ).toList
+     |  def callTool(name: String, args: Map[String, Any]): Any =
+     |    val result = jClient.callTool(new CallToolRequest(name, args.asJava.asInstanceOf[java.util.Map[String, Object]]))
+     |    val contents = result.content().asScala.map {
+     |      case tc: io.modelcontextprotocol.sdk.messages.TextContent =>
+     |        Map("_type" -> "Text", "text" -> tc.text())
+     |      case other => Map("_type" -> "Text", "text" -> other.toString)
+     |    }.toList
+     |    Map("_type" -> "ToolResult", "content" -> contents, "isError" -> result.isError)
+     |  def readResource(uri: String): Any =
+     |    val result = jClient.readResource(new ReadResourceRequest(uri))
+     |    val contents = result.contents().asScala.map(c => Map("_type" -> "Text", "text" -> c.toString)).toList
+     |    Map("_type" -> "ResourceResult", "uri" -> uri, "contents" -> contents)
+     |  def getPrompt(name: String, args: Map[String, Any]): Any =
+     |    val result = jClient.getPrompt(new GetPromptRequest(name, args.asJava.asInstanceOf[java.util.Map[String, String]]))
+     |    val messages = result.messages().asScala.map { m =>
+     |      val role = m.role().toString.toLowerCase match
+     |        case "user"      => Map("_type" -> "User")
+     |        case "assistant" => Map("_type" -> "Assistant")
+     |        case _           => Map("_type" -> "System")
+     |      val content = m.content() match
+     |        case tc: io.modelcontextprotocol.sdk.messages.TextContent =>
+     |          Map("_type" -> "Text", "text" -> tc.text())
+     |        case other => Map("_type" -> "Text", "text" -> other.toString)
+     |      Map("_type" -> "Message", "role" -> role, "content" -> content)
+     |    }.toList
+     |    Map("_type" -> "PromptResult", "messages" -> messages)
+     |  def close(): Unit =
+     |    if !_closed then { _closed = true; jClient.closeGracefully() }
+     |
+     |def mcpConnect(transport: Any, timeoutMs: Long = 10000L): McpClientImpl =
+     |  val trans = _mcpTransportType(transport) match
+     |    case "Spawn" =>
+     |      val cmd  = _mcpTransportField(transport, "cmd").toString
+     |      val args = _mcpTransportField(transport, "args") match
+     |        case lst: List[?] => lst.map(_.toString)
+     |        case _ => List.empty[String]
+     |      val params = ServerParameters.builder(cmd).args(args.asJava).build()
+     |      new StdioClientTransport(params)
+     |    case "Http" =>
+     |      val port = _mcpTransportField(transport, "port").toString.toIntOption.getOrElse(3000)
+     |      val path = _mcpTransportField(transport, "path").toString
+     |      new HttpSseClientTransport(s"http://localhost:$port$path")
+     |    case t => throw McpError(s"Unsupported client transport: $t")
+     |  val spec = McpSyncClientSpec.builder()
+     |    .clientInfo(new Implementation("scalascript-mcp-client", "1.0.0"))
+     |    .transport(trans)
+     |    .build()
+     |  val jClient = JMcpClient.sync(spec)
+     |  jClient.initialize()
+     |  new McpClientImpl(jClient)
+     |""".stripMargin

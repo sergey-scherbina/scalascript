@@ -438,16 +438,17 @@ unblocks downstream features as early as possible.
      Full design in [`docs/metaprogramming.md`](docs/metaprogramming.md).
      User-defined macros (`quoted.Expr`) explicitly out of scope —
      deferred to v2.x.  Depends on v1.13 (`Mirror` resolution).
- 21. **v1.17 — MCP support (client + server)** ✓ Landed (Phases 1–7).
+ 21. **v1.17 — MCP support (client + server)** ✓ Landed (Phases 1–7);
+     v1.17.1 hardening ✓ Landed (2026-05-19).
      Anthropic's Model Context Protocol via REST-shaped API
      in a separate namespace (`std/mcp/*`).  Intrinsic-first:
      wraps `@modelcontextprotocol/sdk` on Node and
      `io.modelcontextprotocol:sdk` on JVM; interpreter +
      scalajs-spa reject at typecheck via SPI feature flags.
      Full design in [`docs/mcp.md`](docs/mcp.md).  Optional
-     v1.17.1 follow-ups: type-class layer (depends v1.14),
-     own implementation for INT (defer), streaming resources
-     (depends v1.10).
+     v1.17.2+ follow-ups: SSE transport on JS, prompts on JVM,
+     type-class layer (depends v1.14), own implementation for
+     INT (defer), streaming resources (depends v1.10).
  22. **v1.18 — `package` keyword + std layout migration** ✓ Landed.
      Phases 1, 2, 4 landed (parser, codegen, conformance); Phase 3 (std migration) deferred.
  23. **v1.19 — URL / dep imports** ✓ Landed.
@@ -2821,20 +2822,55 @@ client and server in one script).  `docs/mcp.md` walkthroughs.
   for now; versioned namespaces when MCP protocol diverges
 - **Bidirectional sampling** — MCP advanced feature; defer
 
-### Deferred follow-ups (carry into v1.17.x)
+### v1.17.1 — MCP hardening ✓ Landed (2026-05-19)
 
-1. **Own implementation for INT / scalajs-spa** (~1500 LOC
-   JSON-RPC 2.0 stack)
-2. **Type-class layer** (`given McpTool[A, R]`, `derives
-   McpSchema`) — depends on v1.14
-3. **Streaming resources** — depends on v1.10 Generators
-4. **Bidirectional sampling** — MCP advanced feature
-5. **`using mcpConnect(...) { client => … }` RAII** — needs
-   `using`-resource language feature
-6. **MCP protocol version negotiation** when v2 emerges
+Four post-audit fixes that close the gap between "landed in v1.17"
+and "actually reliable":
 
-### Open questions (carry into v1.17 implementation; see
-`docs/mcp.md` §11)
+1. ✓ **`CapabilityCheck.validate` wired into CLI** — `compileViaBackend`
+   in `cli/Main.scala` now calls `CapabilityCheck.validate` between
+   `Normalize` and `backend.compile`; programs using `std/mcp/*` on
+   INT now produce `[error] Unsupported(McpServer, int)` instead of
+   crashing at runtime.
+2. ✓ **Conformance runner `requires:` parsing** — `conformance/run.sc`
+   now reads `requires:` from each test's YAML frontmatter and
+   skips per-backend with an explanatory message rather than running
+   into a crash.  Static feature map mirrors all three backends'
+   `Capabilities`.
+3. ✓ **`JvmRuntimeMcp.scala` preamble indentation** — re-aligned the
+   misindented `|`-prefix on lines 113-218 of the resource-handler
+   and everything that followed; cosmetic, no change to generated code
+   (stripMargin is invariant to leading whitespace before `|`).
+4. ✓ **MILESTONES.md** — v1.17.1 landing entry; deferred list
+   reordered by priority (see below).
+
+Note on MCP conformance tests: `mcp-server-{tool,resource}.ssc` and
+`mcp-client-invoke.ssc` are **integration tests** that require a live
+MCP transport (stdio blocking, or an external node subprocess).  They
+cannot produce deterministic expected output in the automated
+conformance runner.  The `requires:` gate now shows a clear SKIP
+reason; they are manually smoke-tested (see examples/mcp-*.ssc demos).
+
+### Deferred follow-ups (v1.17.x backlog, ordered by priority)
+
+1. **SSE transport on JS** — `JsRuntimeMcp.scala:97` has a
+   `/* res stub */ null` placeholder; closest to working, highest
+   user impact after stdio.
+2. **Prompts on JVM** — currently silently dropped in `buildSpec()`
+   (no `specBuilder.prompts(...)` call); correctness bug, small fix.
+3. **Http/Ws transports on JVM** — both throw `McpError("not yet
+   supported")`; needs Jetty / Vert.x event-loop integration.
+4. **Own implementation for INT / scalajs-spa** — ~1500 LOC
+   JSON-RPC 2.0 stack; blocked until INT becomes a priority target.
+5. **Type-class layer** (`given McpTool[A, R]`, `derives McpSchema`)
+   — depends on v1.14 `derives`.
+6. **Streaming resources** — depends on v1.10 Generators.
+7. **Bidirectional sampling** — MCP advanced feature.
+8. **`using mcpConnect(...) { client => … }` RAII** — needs
+   `using`-resource language feature.
+9. **MCP protocol version negotiation** when v2 emerges.
+
+### Open questions
 
 - Typed tool args via v1.14 derives — when to layer in
 - `throws[ToolResult, McpError]` integration with v1.15 — wait
