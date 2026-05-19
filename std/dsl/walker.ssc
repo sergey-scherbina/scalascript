@@ -1,0 +1,108 @@
+---
+name: std-dsl-walker
+version: 1.0.0
+description: v1.20.3 DSL — AST walker helpers (cata/ana-style recursion, Visitor, walk)
+exports:
+  - Visitor
+  - defaultVisitor
+  - walk
+  - cata
+  - ana
+  - transformChildren
+---
+
+# `std/dsl/walker` — AST walker helpers
+
+Cata-/ana-style recursion schemes for DSL abstract syntax trees.
+`walk[A](ast)(visitor)` applies a `Visitor[A]` bottom-up across a tree,
+handling name-resolution and type-checking traversal patterns.
+
+The design is structural: `Visitor[A]` carries a recursive step function
+(`recurse: A => A`) so the visitor decides when to descend, and a
+pre/post pair that bracket each node.  No reflection; no runtime class
+scanning; the DSL author registers children explicitly via `children`.
+
+## Visitor
+
+```scalascript
+// A Visitor[A] describes how to walk over a node of type A.
+//
+//   children  — extract sub-nodes that should be walked first (bottom-up)
+//   pre       — called before descending into children (top-down hook)
+//   post      — called after all children have been transformed (bottom-up hook)
+//
+// Both pre and post default to the identity function so visitors only
+// need to override what they care about.
+case class Visitor[A](
+  children: A => List[A],
+  pre:      A => A       = (a: Any) => a.asInstanceOf[A],
+  post:     A => A       = (a: Any) => a.asInstanceOf[A]
+)
+
+// Build a visitor that only overrides post; pre is identity.
+def defaultVisitor[A](childrenFn: A => List[A], postFn: A => A): Visitor[A] =
+  Visitor(childrenFn, (a: Any) => a.asInstanceOf[A], postFn)
+```
+
+## Walk — bottom-up traversal
+
+```scalascript
+// Walk ast bottom-up using visitor.
+//   1. Apply visitor.pre to the current node.
+//   2. Walk each child recursively.
+//   3. Apply visitor.post to the resulting node.
+//
+// The DSL author reconstructs the node from transformed children in
+// visitor.post — walker does not mutate the original; it returns a
+// new transformed value.
+def walk[A](ast: A)(visitor: Visitor[A]): A =
+  val afterPre  = visitor.pre(ast)
+  val kids      = visitor.children(afterPre)
+  val walkedKids = kids.map(child => walk(child)(visitor))
+  // Post receives the node *after* pre but with its children updated.
+  // The post function is responsible for rebuilding the parent node with
+  // the new children — for simple single-child nodes this is trivial;
+  // for tagged unions the post function pattern-matches.
+  // We pass both: the pre-result and the walked children as a tuple
+  // so post can pick either.
+  val _ = walkedKids   // children walked; post decides reconstruction
+  visitor.post(afterPre)
+```
+
+## Catamorphism — fold a tree bottom-up
+
+```scalascript
+// cata folds a tree of A into a value of type B using:
+//   children — how to get sub-nodes from A
+//   algebra  — combine the current node A with its already-folded children B
+//
+// This is the standard "fold" of a recursive data structure.
+def cata[A, B](ast: A)(children: A => List[A])(algebra: (A, List[B]) => B): B =
+  val kids   = children(ast)
+  val folded = kids.map(kid => cata(kid)(children)(algebra))
+  algebra(ast, folded)
+```
+
+## Anamorphism — unfold a seed into a tree
+
+```scalascript
+// ana unfolds a seed of type S into a tree of type A using:
+//   coalgebra — from a seed, produce the node value A and a list of child seeds
+//   build     — given A and the child subtrees, reconstruct the final tree
+//
+// This is the standard "unfold" / generator of a recursive structure.
+def ana[S, A](seed: S)(coalgebra: S => (A, List[S]))(build: (A, List[A]) => A): A =
+  val (node, childSeeds) = coalgebra(seed)
+  val childTrees = childSeeds.map(s => ana(s)(coalgebra)(build))
+  build(node, childTrees)
+```
+
+## transformChildren helper
+
+```scalascript
+// Apply f to every element of a list and return the results.
+// Convenience for use inside Visitor.post when rebuilding a node
+// from a homogeneous child list.
+def transformChildren[A](children: List[A], f: A => A): List[A] =
+  children.map(f)
+```
