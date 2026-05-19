@@ -1030,6 +1030,16 @@ lazy val micropaymentProbabilistic = project
     Test    / scalacOptions ++= sharedScalacOptions,
   )
 
+lazy val micropaymentChannelEvm = project
+  .in(file("micropayment-channel-evm"))
+  .dependsOn(micropaymentSpi, blockchainSpi, blockchainEvm, walletSpi, cryptoBouncycastle % Test)
+  .settings(
+    name := "scalascript-micropayment-channel-evm",
+    libraryDependencies ++= Seq(scalatestTest),
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions,
+  )
+
 lazy val root = project
   .in(file("."))
   .aggregate(
@@ -1044,7 +1054,7 @@ lazy val root = project
     x402FacilitatorCoinbase, x402FacilitatorEvm, x402FacilitatorCardano,
     x402QueueKafka, x402QueuePostgres, x402NoncePostgres, x402NonceRedis,
     cryptoSpi, cryptoBouncycastle, blockchainSpi, blockchainEvm, blockchainEvmAbi, walletSpi, walletStrategyEoa, walletConnectorEip1193, walletConnect, mcpWallet, mcpX402,
-    micropaymentSpi, micropaymentThreshold, micropaymentServer, micropaymentClient, micropaymentProbabilistic,
+    micropaymentSpi, micropaymentThreshold, micropaymentServer, micropaymentClient, micropaymentProbabilistic, micropaymentChannelEvm,
     frontendCore, frontendCustom, frontendReact, frontendSolid, frontendVue,
   )
   .settings(
