@@ -7483,3 +7483,45 @@ Sequenced after x402 Phase 7 (`PaymentScheme.Stream`).
 ## Micropayment Platform — channel-based fee amortisation for microtransactions
 
 Spec in [`docs/micropayment-spi.md`](docs/micropayment-spi.md). Sits above `blockchain-spi` and `wallet-spi`; peer of x402. Five strategies: ThresholdBatching (x402 Facilitator backend), EVM StateChannel, Cardano HydraHead, Probabilistic lottery, and L2Native pass-through.
+
+### Phase 1 — `micropayment-spi` core traits ✓ Landed (2026-05-19)
+
+`ChannelId`, `ChannelConfig`, `ChannelState`, `PaymentReceipt`, `SettlementResult`,
+`MicropaymentChannel`, `SettlementPolicy` combinators, `ChannelKind`, `ChannelProvider`.
+
+### Phase 2 — ThresholdBatching + server middleware + HTTP client ✓ Landed (2026-05-19)
+
+EIP-712 cumulative-receipt signing, `ReceiptStore`, `withMicropayment` server middleware,
+`ReceiptCodec`, `MicropaymentHttpClient`. 9 integration tests.
+
+### Phase 3 — Probabilistic lottery (`micropayment-probabilistic`) ✓ Landed (2026-05-19)
+
+Pure `LotteryMath` (win-condition, HMAC-seeded salt, commitment), `LotteryTicket`,
+`LotteryReveal`, `WinningTicketStore`, `ProbabilisticChannel`, `ProbabilisticProvider`.
+11 math test vectors + 10 integration tests. Settlement accumulates won amounts
+in-memory; on-chain batch redemption deferred to Phase 4.
+
+### Phase 6 — Multi-chain ThresholdBatching via `blockchain-spi` ChainAdapter ✓ Landed (2026-05-19)
+
+Removed x402 `Facilitator`/`NonceStore` from `ThresholdChannel`; settlement now uses
+`chain.buildTransaction(TxIntent.TokenTransferAuthorized)` + `strategy.signTransaction` +
+`chain.broadcast`. Removed `x402Core` build dependency; unified upickle to 3.3.1.
+
+### Phase 4 — EVM state channels (`micropayment-channel-evm`)
+
+Depends on: Phase 1, `blockchain-spi` Phase 2 (`buildTransaction` + `broadcast`), `blockchain-evm` Phase 2.
+
+- [ ] `PaymentChannel` Solidity contract (compiled via smart-contracts toolchain; deploy via `TxIntent.Deploy`)
+- [ ] `micropayment-channel-evm` — `StateChannelProvider`
+- [ ] Cooperative close path + unilateral close path
+- [ ] Dispute window enforcement (local timer + chain query)
+- [ ] Tests: Anvil local node, full open → pay × N → close cycle, dispute scenario
+
+### Phase 5 — Cardano Hydra heads (`micropayment-hydra`)
+
+Depends on: Phase 1, `blockchain-spi` Phase 6 (`blockchain-cardano`), Hydra node WebSocket API.
+
+- [ ] `micropayment-hydra` — `HydraHeadProvider`
+- [ ] Hydra node WebSocket client (Scala JVM, `java.net.http.WebSocket`)
+- [ ] Head commit / open / tx-submission / close / contest lifecycle
+- [ ] Tests: Hydra devnet (Docker-based)
