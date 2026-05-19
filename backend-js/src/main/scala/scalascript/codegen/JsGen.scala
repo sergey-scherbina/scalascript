@@ -1,7 +1,7 @@
 package scalascript.codegen
 
 import scalascript.ast.*
-import scalascript.transform.EffectAnalysis
+import scalascript.transform.{DirectAnorm, DirectTypeUtils, EffectAnalysis}
 import scala.collection.mutable
 
 /** JavaScript code generator for ScalaScript modules.
@@ -3473,10 +3473,15 @@ const Actor = {
   demonitor: (ref)         => _perform('Actor', 'demonitor', [ref]),
   trapExit:  (b)           => _perform('Actor', 'trapExit',  [b]),
   // v1.6 Phase 3 — distributed nodes
-  startNode:   (nodeId)       => _perform('Actor', 'startNode',   [nodeId]),
+  startNode:   (nodeId, url)  => _perform('Actor', 'startNode',   [nodeId, url || '']),
   connectNode: (url, token)   => _perform('Actor', 'connectNode', [url, token]),
   register:    (name, pid)    => _perform('Actor', 'register',    [name, pid]),
   whereis:     (name)         => _perform('Actor', 'whereis',     [name]),
+  // v1.6.x — cluster discovery
+  joinCluster:     (seeds, token) => _perform('Actor', 'joinCluster',     [seeds, token || '']),
+  // v1.6.x — cluster-wide registry
+  globalRegister:  (name, pid)   => _perform('Actor', 'globalRegister',  [name, pid]),
+  globalWhereis:   (name)        => _perform('Actor', 'globalWhereis',   [name]),
   // v1.6.x — scheduled sends
   sendAfter:   (delayMs, pid, msg)  => _perform('Actor', 'sendAfter',   [delayMs, pid, msg]),
   sendInterval:(periodMs, pid, msg) => _perform('Actor', 'sendInterval',[periodMs, pid, msg]),
@@ -3513,7 +3518,8 @@ function _runActors(bodyFn) {
   let   _nextTimerId = 0;
   // Phase 3 distributed node state
   let   _localNodeId  = "";
-  const _nodeRegistry = new Map();   // name -> localId
+  const _nodeRegistry   = new Map();  // name -> localId
+  const _globalRegistry = new Map();  // cluster-wide name -> Pid
   // Node-down tracking — drained by the scheduler loop.
   const _nodeDownQueue   = [];
   const _remoteLinks     = new Map();  // nodeId -> [[localActorId, remotePid], ...]
@@ -3524,6 +3530,11 @@ function _runActors(bodyFn) {
   const _remoteRawInbox = [];
   // Ring buffer constants (shared with workers via workerData).
   const _RING_SLOTS = 64, _RING_SLOT_BYTES = 2048, _RING_HDR = 8;
+  // v1.6.x cluster discovery state
+  let _selfUrl  = '';          // set by startNode(nodeId, url)
+  let _joinMode = false;       // true once joinCluster has been called
+  let _joinToken = '';         // token for auto-connect to gossip'd peers
+  const _peerUrls = new Map(); // nodeId -> url (populated from connectNode + peers_resp)
 
   // Drain all peer ring buffers into _remoteRawInbox.
   function _drainPeerBuffers() {
@@ -3579,6 +3590,51 @@ function _runActors(bodyFn) {
     return '{"$t":"s","v":' + JSON.stringify(String(v)) + '}';
   }
 
+  // Establish a new outbound peer connection (shared by connectNode op and joinCluster gossip).
+  function _connectNodeAsync(peerUrl, token) {
+    if (_peerChannels.has('__pending__' + peerUrl)) return; // already connecting
+    const sab = new SharedArrayBuffer(_RING_HDR + _RING_SLOTS * _RING_SLOT_BYTES);
+    const ownNodeId = _localNodeId;
+    const ringSlots = _RING_SLOTS, ringSlotBytes = _RING_SLOT_BYTES, ringHdr = _RING_HDR;
+    const workerSrc = [
+      "const { workerData, parentPort } = require('worker_threads');",
+      "const { url, token, sab, ownNodeId, RS, RSB, RH } = workerData;",
+      "let WsClass; try { WsClass = require('ws'); } catch(_) { throw new Error('connectNode requires the ws npm package'); }",
+      "const hdr  = new Int32Array(sab, 0, 2);",
+      "function ringWrite(json) {",
+      "  const wc = Atomics.load(hdr, 0), rc = Atomics.load(hdr, 1);",
+      "  if (((wc - rc + RS) % RS) >= RS - 1) return;",
+      "  const bytes = Buffer.from(json, 'utf8');",
+      "  if (bytes.length + 4 > RSB) return;",
+      "  const off = RH + (wc % RS) * RSB;",
+      "  new DataView(sab).setInt32(off, bytes.length, true);",
+      "  new Uint8Array(sab).set(bytes, off + 4);",
+      "  Atomics.store(hdr, 0, wc + 1);",
+      "}",
+      "const hdrs = token ? { Authorization: 'Bearer ' + token } : {};",
+      "const ws = new WsClass(url, ['ssc-actors-v1'], { headers: hdrs });",
+      "let peerNodeId = '';",
+      "ws.on('open', () => ws.send(JSON.stringify({ nodeId: ownNodeId })));",
+      "ws.on('message', (data) => {",
+      "  const msg = Buffer.isBuffer(data) ? data.toString('utf8') : String(data);",
+      "  if (!peerNodeId) {",
+      "    try { const h = JSON.parse(msg); if (h.nodeId) { peerNodeId = h.nodeId; ringWrite(JSON.stringify({ t: 'handshake', nodeId: peerNodeId })); } } catch(_) {}",
+      "  } else {",
+      "    ringWrite(msg);",
+      "  }",
+      "});",
+      "ws.on('close', () => { if (peerNodeId) ringWrite(JSON.stringify({ t: 'down', nodeId: peerNodeId })); });",
+      "ws.on('error', (e) => { console.error('ssc-actors connectNode error [' + url + ']:', e.message); if (peerNodeId) ringWrite(JSON.stringify({ t: 'down', nodeId: peerNodeId })); });",
+      "parentPort.on('message', ({ json }) => { try { if (ws.readyState === 1) ws.send(json); } catch(_) {} });",
+      "setInterval(() => { try { if (ws.readyState === 1) ws.send(JSON.stringify({ t: 'ping' })); } catch(_) {} }, 30000);"
+    ].join('\n');
+    const { Worker } = require('worker_threads');
+    const worker = new Worker(workerSrc, { eval: true,
+      workerData: { url: peerUrl, token, sab, ownNodeId, RS: ringSlots, RSB: ringSlotBytes, RH: ringHdr } });
+    const sendFn = (json) => worker.postMessage({ json });
+    _peerChannels.set('__pending__' + peerUrl, { sab, send: sendFn, worker, pending: true, url: peerUrl });
+  }
+
   // Process _remoteRawInbox: deliver messages, handle handshakes, node-downs.
   function _processRemoteInbox() {
     while (_remoteRawInbox.length > 0) {
@@ -3592,6 +3648,11 @@ function _runActors(bodyFn) {
             if (peer.pending) {
               _peerChannels.delete(key);
               _peerChannels.set(peerNodeId, { sab: peer.sab, send: peer.send, worker: peer.worker });
+              _peerUrls.set(peerNodeId, peer.url || '');
+              // If in joinCluster mode, request this peer's peer list.
+              if (_joinMode) {
+                peer.send(JSON.stringify({ t: 'peers_req', from: _localNodeId }));
+              }
               break;
             }
           }
@@ -3611,6 +3672,30 @@ function _runActors(bodyFn) {
         } else if (env.t === 'down') {
           _nodeDownQueue.push(env.nodeId);
           _peerChannels.delete(env.nodeId);
+          _peerUrls.delete(env.nodeId);
+        } else if (env.t === 'peers_req') {
+          // Respond with our known peer URLs + self URL.
+          const myPeers = [];
+          if (_selfUrl) myPeers.push({ nodeId: _localNodeId, url: _selfUrl });
+          for (const [nid] of _peerChannels) {
+            const u = _peerUrls.get(nid);
+            if (u) myPeers.push({ nodeId: nid, url: u });
+          }
+          const reqFrom = env.from;
+          const reqChan = reqFrom ? _peerChannels.get(reqFrom) : null;
+          if (reqChan) reqChan.send(JSON.stringify({ t: 'peers_resp', peers: myPeers }));
+        } else if (env.t === 'peers_resp') {
+          // Connect to any peers we don't yet know.
+          const peers = env.peers || [];
+          for (const { nodeId: pnid, url: purl } of peers) {
+            if (pnid && purl && pnid !== _localNodeId && !_peerChannels.has(pnid)) {
+              _connectNodeAsync(purl, _joinToken);
+            }
+          }
+        } else if (env.t === 'global_reg') {
+          if (env.name && env.nodeId != null) {
+            _globalRegistry.set(env.name, Pid(env.nodeId, Number(env.localId)));
+          }
         }
       } catch (_e) {}
     }
@@ -3933,6 +4018,7 @@ function _runActors(bodyFn) {
       // ── v1.6 Phase 3 — distributed node primitives ────────────────────
       case 'startNode': {
         _localNodeId = String(args[0]);
+        if (args[1] != null) _selfUrl = String(args[1]);
         // Register /_ssc-actors WS handler for inbound peer connections.
         // Peers connect, exchange nodeId handshake, then send actor messages.
         if (typeof onWebSocket === 'function') {
@@ -3946,8 +4032,6 @@ function _runActors(bodyFn) {
                     peerNodeId = h.nodeId;
                     ws.send(JSON.stringify({ nodeId: _localNodeId }));
                     // Register send channel for this inbound peer.
-                    // Use a stub — real ring buffer approach would need shared memory,
-                    // but inbound WS handler runs in same event loop here.
                     _peerChannels.set(peerNodeId, { sab: null, send: (json) => ws.send(json) });
                   }
                 } catch (_) {}
@@ -3959,6 +4043,7 @@ function _runActors(bodyFn) {
               if (peerNodeId) {
                 _nodeDownQueue.push(peerNodeId);
                 _peerChannels.delete(peerNodeId);
+                _peerUrls.delete(peerNodeId);
               }
             });
           });
@@ -3968,50 +4053,15 @@ function _runActors(bodyFn) {
       case 'connectNode': {
         const peerUrl = String(args[0]);
         const token   = args[1] != null ? String(args[1]) : '';
-        const sab     = new SharedArrayBuffer(_RING_HDR + _RING_SLOTS * _RING_SLOT_BYTES);
-        const ownNodeId = _localNodeId;
-        const ringSlots = _RING_SLOTS, ringSlotBytes = _RING_SLOT_BYTES, ringHdr = _RING_HDR;
-        // Worker code: WS connection + ring-buffer writes.
-        // Requires the 'ws' npm package.
-        const workerSrc = [
-          "const { workerData, parentPort } = require('worker_threads');",
-          "const { url, token, sab, ownNodeId, RS, RSB, RH } = workerData;",
-          "let WsClass; try { WsClass = require('ws'); } catch(_) { throw new Error('connectNode requires the ws npm package'); }",
-          "const hdr  = new Int32Array(sab, 0, 2);",
-          "function ringWrite(json) {",
-          "  const wc = Atomics.load(hdr, 0), rc = Atomics.load(hdr, 1);",
-          "  if (((wc - rc + RS) % RS) >= RS - 1) return;",
-          "  const bytes = Buffer.from(json, 'utf8');",
-          "  if (bytes.length + 4 > RSB) return;",
-          "  const off = RH + (wc % RS) * RSB;",
-          "  new DataView(sab).setInt32(off, bytes.length, true);",
-          "  new Uint8Array(sab).set(bytes, off + 4);",
-          "  Atomics.store(hdr, 0, wc + 1);",
-          "}",
-          "const hdrs = token ? { Authorization: 'Bearer ' + token } : {};",
-          "const ws = new WsClass(url, ['ssc-actors-v1'], { headers: hdrs });",
-          "let peerNodeId = '';",
-          "ws.on('open', () => ws.send(JSON.stringify({ nodeId: ownNodeId })));",
-          "ws.on('message', (data) => {",
-          "  const msg = Buffer.isBuffer(data) ? data.toString('utf8') : String(data);",
-          "  if (!peerNodeId) {",
-          "    try { const h = JSON.parse(msg); if (h.nodeId) { peerNodeId = h.nodeId; ringWrite(JSON.stringify({ t: 'handshake', nodeId: peerNodeId })); } } catch(_) {}",
-          "  } else {",
-          "    ringWrite(msg);",
-          "  }",
-          "});",
-          "ws.on('close', () => { if (peerNodeId) ringWrite(JSON.stringify({ t: 'down', nodeId: peerNodeId })); });",
-          "ws.on('error', (e) => { console.error('ssc-actors connectNode error [' + url + ']:', e.message); if (peerNodeId) ringWrite(JSON.stringify({ t: 'down', nodeId: peerNodeId })); });",
-          "parentPort.on('message', ({ json }) => { try { if (ws.readyState === 1) ws.send(json); } catch(_) {} });",
-          "setInterval(() => { try { if (ws.readyState === 1) ws.send(JSON.stringify({ t: 'ping' })); } catch(_) {} }, 30000);"
-        ].join('\n');
-        const { Worker } = require('worker_threads');
-        const worker = new Worker(workerSrc, { eval: true,
-          workerData: { url: peerUrl, token, sab, ownNodeId, RS: ringSlots, RSB: ringSlotBytes, RH: ringHdr } });
-        const sendFn = (json) => worker.postMessage({ json });
-        // Store with a placeholder nodeId; handshake message will confirm it.
-        // Use URL as temporary key; replaced on first handshake drain.
-        _peerChannels.set('__pending__' + peerUrl, { sab, send: sendFn, worker, pending: true, url: peerUrl });
+        _connectNodeAsync(peerUrl, token);
+        return { suspend: false, next: k(undefined) };
+      }
+      case 'joinCluster': {
+        _joinMode  = true;
+        _joinToken = args[1] != null ? String(args[1]) : '';
+        const seeds = args[0];
+        const urls  = Array.isArray(seeds) ? seeds : [];
+        for (const u of urls) { if (typeof u === 'string' && u) _connectNodeAsync(u, _joinToken); }
         return { suspend: false, next: k(undefined) };
       }
       case 'register': {
@@ -4025,6 +4075,22 @@ function _runActors(bodyFn) {
         const found = _nodeRegistry.has(lookName)
           ? { _type: 'Some', value: Pid(_localNodeId, _nodeRegistry.get(lookName)) }
           : { _type: 'None' };
+        return { suspend: false, next: k(found) };
+      }
+      case 'globalRegister': {
+        const grName = args[0];
+        const grPid  = args[1];
+        if (grPid && grPid._type === 'Pid') {
+          _globalRegistry.set(grName, grPid);
+          const payload = JSON.stringify({ t: 'global_reg', name: grName, nodeId: grPid.nodeId, localId: String(grPid.localId) });
+          for (const [, peer] of _peerChannels) { try { peer.send(payload); } catch (_) {} }
+        }
+        return { suspend: false, next: k(undefined) };
+      }
+      case 'globalWhereis': {
+        const gwName = args[0];
+        const gwPid  = _globalRegistry.get(gwName);
+        const found  = gwPid ? { _type: 'Some', value: gwPid } : { _type: 'None' };
         return { suspend: false, next: k(found) };
       }
       // v1.6.x — scheduled sends
@@ -5223,7 +5289,8 @@ class JsGen(
       "Actor.spawn", "Actor.spawn_link", "Actor.self", "Actor.send", "Actor.exit",
       "Actor.receive", "Actor.receive_t",
       "Actor.link", "Actor.monitor", "Actor.demonitor", "Actor.trapExit",
-      "Actor.startNode", "Actor.connectNode", "Actor.register", "Actor.whereis",
+      "Actor.startNode", "Actor.connectNode", "Actor.joinCluster", "Actor.register", "Actor.whereis",
+      "Actor.globalRegister", "Actor.globalWhereis",
       "Actor.sendAfter", "Actor.sendInterval", "Actor.cancelTimer",
       "Logger.info", "Logger.warn", "Logger.error", "Logger.debug",
       "Random.nextInt", "Random.nextDouble", "Random.uuid", "Random.pick",
@@ -6448,19 +6515,32 @@ class JsGen(
       s"Actor.trapExit(${genExpr(argClause.values.head.asInstanceOf[Term])})"
     // v1.6 Phase 3 — distributed node primitives
     case Term.Apply.After_4_6_0(Term.Name("startNode"), argClause)
-        if argClause.values.size == 1 =>
-      s"Actor.startNode(${genExpr(argClause.values.head.asInstanceOf[Term])})"
+        if argClause.values.size >= 1 =>
+      val nodeId = genExpr(argClause.values(0).asInstanceOf[Term])
+      val url    = if argClause.values.size >= 2 then genExpr(argClause.values(1).asInstanceOf[Term]) else "\"\""
+      s"Actor.startNode($nodeId, $url)"
     case Term.Apply.After_4_6_0(Term.Name("connectNode"), argClause)
         if argClause.values.size >= 1 =>
       val url   = genExpr(argClause.values(0).asInstanceOf[Term])
       val token = if argClause.values.size >= 2 then genExpr(argClause.values(1).asInstanceOf[Term]) else "\"\""
       s"Actor.connectNode($url, $token)"
+    case Term.Apply.After_4_6_0(Term.Name("joinCluster"), argClause)
+        if argClause.values.size >= 1 =>
+      val seeds = genExpr(argClause.values(0).asInstanceOf[Term])
+      val token = if argClause.values.size >= 2 then genExpr(argClause.values(1).asInstanceOf[Term]) else "\"\""
+      s"Actor.joinCluster($seeds, $token)"
     case Term.Apply.After_4_6_0(Term.Name("register"), argClause)
         if argClause.values.size == 2 =>
       s"Actor.register(${genExpr(argClause.values(0).asInstanceOf[Term])}, ${genExpr(argClause.values(1).asInstanceOf[Term])})"
     case Term.Apply.After_4_6_0(Term.Name("whereis"), argClause)
         if argClause.values.size == 1 =>
       s"Actor.whereis(${genExpr(argClause.values.head.asInstanceOf[Term])})"
+    case Term.Apply.After_4_6_0(Term.Name("globalRegister"), argClause)
+        if argClause.values.size == 2 =>
+      s"Actor.globalRegister(${genExpr(argClause.values(0).asInstanceOf[Term])}, ${genExpr(argClause.values(1).asInstanceOf[Term])})"
+    case Term.Apply.After_4_6_0(Term.Name("globalWhereis"), argClause)
+        if argClause.values.size == 1 =>
+      s"Actor.globalWhereis(${genExpr(argClause.values.head.asInstanceOf[Term])})"
     // v1.6.x — scheduled sends
     case Term.Apply.After_4_6_0(Term.Name("sendAfter"), argClause)
         if argClause.values.size == 3 =>
@@ -6596,7 +6676,9 @@ class JsGen(
 
     // direct[M] { stmts } — v1.8 do-notation sugar
     app.fun match
-      case Term.ApplyType.After_4_6_0(Term.Name("direct"), _) if app.argClause.values.size == 1 =>
+      case Term.ApplyType.After_4_6_0(Term.Name("direct"), typeArgClause) if app.argClause.values.size == 1 =>
+        val typeArg = typeArgClause.values.headOption.getOrElse(Type.Name("?"))
+        DirectTypeUtils.validateDirectTypeArg(typeArg)
         return (app.argClause.values.head match
           case block: Term.Block => genDirectBlock(block.stats)
           case single: Term      => genExpr(single)
@@ -6935,19 +7017,32 @@ class JsGen(
       s"Actor.trapExit(${genExpr(argClause.values.head.asInstanceOf[Term])})"
     // v1.6 Phase 3 — distributed node primitives (inside CPS body)
     case Term.Apply.After_4_6_0(Term.Name("startNode"), argClause)
-        if argClause.values.size == 1 =>
-      s"Actor.startNode(${genExpr(argClause.values.head.asInstanceOf[Term])})"
+        if argClause.values.size >= 1 =>
+      val nodeId = genExpr(argClause.values(0).asInstanceOf[Term])
+      val url    = if argClause.values.size >= 2 then genExpr(argClause.values(1).asInstanceOf[Term]) else "\"\""
+      s"Actor.startNode($nodeId, $url)"
     case Term.Apply.After_4_6_0(Term.Name("connectNode"), argClause)
         if argClause.values.size >= 1 =>
       val url   = genExpr(argClause.values(0).asInstanceOf[Term])
       val token = if argClause.values.size >= 2 then genExpr(argClause.values(1).asInstanceOf[Term]) else "\"\""
       s"Actor.connectNode($url, $token)"
+    case Term.Apply.After_4_6_0(Term.Name("joinCluster"), argClause)
+        if argClause.values.size >= 1 =>
+      val seeds = genExpr(argClause.values(0).asInstanceOf[Term])
+      val token = if argClause.values.size >= 2 then genExpr(argClause.values(1).asInstanceOf[Term]) else "\"\""
+      s"Actor.joinCluster($seeds, $token)"
     case Term.Apply.After_4_6_0(Term.Name("register"), argClause)
         if argClause.values.size == 2 =>
       s"Actor.register(${genExpr(argClause.values(0).asInstanceOf[Term])}, ${genExpr(argClause.values(1).asInstanceOf[Term])})"
     case Term.Apply.After_4_6_0(Term.Name("whereis"), argClause)
         if argClause.values.size == 1 =>
       s"Actor.whereis(${genExpr(argClause.values.head.asInstanceOf[Term])})"
+    case Term.Apply.After_4_6_0(Term.Name("globalRegister"), argClause)
+        if argClause.values.size == 2 =>
+      s"Actor.globalRegister(${genExpr(argClause.values(0).asInstanceOf[Term])}, ${genExpr(argClause.values(1).asInstanceOf[Term])})"
+    case Term.Apply.After_4_6_0(Term.Name("globalWhereis"), argClause)
+        if argClause.values.size == 1 =>
+      s"Actor.globalWhereis(${genExpr(argClause.values.head.asInstanceOf[Term])})"
     // v1.6.x — scheduled sends (inside CPS body)
     case Term.Apply.After_4_6_0(Term.Name("sendAfter"), argClause)
         if argClause.values.size == 3 =>
@@ -7339,9 +7434,10 @@ class JsGen(
 
   private def genDirectBlock(stats: List[Stat]): String =
     checkDirectBlockStatics(stats)
-    if stats.isEmpty then "undefined"
+    val expanded = DirectAnorm.expand(stats)
+    if expanded.isEmpty then "undefined"
     else
-      val varNames: Set[String] = stats.collect {
+      val varNames: Set[String] = expanded.collect {
         case Defn.Var.After_4_7_2(_, List(Pat.Var(n)), _, _) => n.value
       }.toSet
       def go(remaining: List[Stat]): String = remaining match
@@ -7361,7 +7457,7 @@ class JsGen(
         case (t: Term) :: rest =>
           s"(() => { ${genExpr(t)}; return ${go(rest)}; })()"
         case _ :: rest => go(rest)
-      go(stats)
+      go(expanded)
 
   private def genForPatBinding(pat: Pat, scrutVar: String): String = pat match
     case Pat.Var(n) if n.value == scrutVar => ""

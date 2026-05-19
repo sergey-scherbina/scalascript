@@ -1,6 +1,7 @@
 package scalascript.interpreter
 
 import scalascript.ast.*
+import scalascript.transform.{DirectAnorm, DirectTypeUtils}
 import scala.collection.mutable
 import scala.meta.*
 import Computation.{Pure, Perform, FlatMap}
@@ -66,6 +67,14 @@ class Interpreter(
   private val _insideDirectBlock = new java.lang.ThreadLocal[Boolean] {
     override def initialValue() = false
   }
+
+  // ─── direct[M] monad tag — resolved from the type argument ───────────
+  private enum DirectMonadTag:
+    case OptionM // direct[Option]
+    case EitherM // direct[Either[E, *]]
+    case AsyncM  // direct[Async]  — supports OptionT / EitherT lift
+    case ListM   // direct[List]
+    case OtherM  // direct[SomeUserMonad] — duck-typed only
 
   // ─── Reactive signals (fine-grained reactivity) ──────────────────────
   //
@@ -162,6 +171,13 @@ class Interpreter(
   // ── Phase 3 — distributed node state ────────────────────────────────
   // "" means this process has not called startNode and is local-only.
   @volatile private var localNodeId: String = ""
+  @volatile private var localNodeUrl: String = ""   // set by startNode(nodeId, url); shared in peers_resp
+  // join-cluster mode: when true, each new handshake auto-requests peer list
+  @volatile private var joinMode:  Boolean = false
+  @volatile private var joinToken: String  = ""
+  // nodeId → URL we dialled (for gossip in peers_resp)
+  private val peerUrls =
+    new java.util.concurrent.ConcurrentHashMap[String, String]()
   // nodeId → send-function (delivers serialized JSON envelope to peer)
   private val peerChannels =
     new java.util.concurrent.ConcurrentHashMap[String, String => Unit]()
@@ -173,6 +189,9 @@ class Interpreter(
   // Per-node name → localId registry (ConcurrentHashMap default 0 means absent).
   private val nodeRegistry =
     new java.util.concurrent.ConcurrentHashMap[String, Long]()
+  // Cluster-wide name → Pid registry, populated by globalRegister broadcasts.
+  private val globalRegistry =
+    new java.util.concurrent.ConcurrentHashMap[String, Value]()
   // Heartbeat: last pong timestamp per peer (epoch ms); initialised to connect time.
   private val peerLastPong =
     new java.util.concurrent.ConcurrentHashMap[String, Long]()
@@ -380,8 +399,13 @@ class Interpreter(
                 m.get(Value.StringV("nodeId")).collect { case Value.StringV(n) => n }.getOrElse("")
               case _ => ""
             if peerNodeId.nonEmpty then
+              peerUrls.put(peerNodeId, url)
               peerChannels.put(peerNodeId, { text => sess.sendText(text) })
               peerLastPong.put(peerNodeId, System.currentTimeMillis())
+              // If joinCluster is active, request this peer's peer list.
+              if joinMode then
+                try peerChannels.get(peerNodeId)(s"""{"t":"peers_req","from":${jsonStr(localNodeId)}}""")
+                catch case _ => ()
               // Heartbeat: ping every 30 s, abort if no pong for 40 s.
               val hbThread = Thread.ofVirtual().start { () =>
                 try
@@ -405,6 +429,7 @@ class Interpreter(
               hbThread.interrupt()
               peerChannels.remove(peerNodeId)
               peerLastPong.remove(peerNodeId)
+              peerUrls.remove(peerNodeId)
               nodeDownQueue.offer(peerNodeId)
               val t = schedulerThread; if t != null then t.interrupt()
       catch case e: Throwable =>
@@ -434,6 +459,42 @@ class Interpreter(
             Option(peerChannels.get(peerNodeId)).foreach(_.apply("""{"t":"pong"}"""))
           case "pong" =>
             peerLastPong.put(peerNodeId, System.currentTimeMillis())
+          case "peers_req" =>
+            // Respond with our known peer URLs + self URL.
+            val sb = new StringBuilder("""{"t":"peers_resp","peers":[""")
+            var first = true
+            if localNodeUrl.nonEmpty then
+              sb.append(s"""{"nodeId":${jsonStr(localNodeId)},"url":${jsonStr(localNodeUrl)}}""")
+              first = false
+            peerUrls.forEach { (nid, u) =>
+              if u.nonEmpty then
+                if !first then sb.append(',')
+                sb.append(s"""{"nodeId":${jsonStr(nid)},"url":${jsonStr(u)}}""")
+                first = false
+            }
+            sb.append("]}")
+            Option(peerChannels.get(peerNodeId)).foreach(_.apply(sb.toString))
+          case "peers_resp" =>
+            val pi = m.get(Value.StringV("peers"))
+            pi.foreach {
+              case Value.ListV(items) =>
+                items.foreach {
+                  case Value.MapV(pm) =>
+                    val peerUrl2 = pm.get(Value.StringV("url")).collect { case Value.StringV(s) => s }.getOrElse("")
+                    val peerNid  = pm.get(Value.StringV("nodeId")).collect { case Value.StringV(s) => s }.getOrElse("")
+                    if peerUrl2.nonEmpty && peerNid.nonEmpty &&
+                       peerNid != localNodeId && !peerChannels.containsKey(peerNid) then
+                      connectPeer(peerUrl2, joinToken)
+                  case _ => ()
+                }
+              case _ => ()
+            }
+          case "global_reg" =>
+            val name   = m.get(Value.StringV("name")).collect { case Value.StringV(s) => s }.getOrElse("")
+            val nodeId = m.get(Value.StringV("nodeId")).collect { case Value.StringV(s) => s }.getOrElse("")
+            val localId = m.get(Value.StringV("localId")).collect { case Value.StringV(s) => s.toLongOption.getOrElse(0L) }.getOrElse(0L)
+            if name.nonEmpty && nodeId.nonEmpty then
+              globalRegistry.put(name, mkPid(nodeId, localId))
           case _ => ()
       case _ => ()
 
@@ -1156,7 +1217,9 @@ class Interpreter(
     // Phase 3 — distributed node primitives
     globals("startNode") = Value.NativeFnV("startNode", {
       case List(Value.StringV(nodeId)) => Perform("Actor", "startNode", List(Value.StringV(nodeId)))
-      case _ => throw InterpretError("startNode(nodeId: String): Unit")
+      case List(Value.StringV(nodeId), Value.StringV(url)) =>
+        Perform("Actor", "startNode", List(Value.StringV(nodeId), Value.StringV(url)))
+      case _ => throw InterpretError("startNode(nodeId: String, url: String = \"\"): Unit")
     })
     globals("connectNode") = Value.NativeFnV("connectNode", {
       case List(Value.StringV(url)) => Perform("Actor", "connectNode", List(Value.StringV(url)))
@@ -1172,6 +1235,21 @@ class Interpreter(
     globals("whereis") = Value.NativeFnV("whereis", {
       case List(Value.StringV(name)) => Perform("Actor", "whereis", List(Value.StringV(name)))
       case _ => throw InterpretError("whereis(name: String): Option[Pid]")
+    })
+    globals("joinCluster") = Value.NativeFnV("joinCluster", {
+      case List(seeds) => Perform("Actor", "joinCluster", List(seeds, Value.StringV("")))
+      case List(seeds, Value.StringV(tok)) => Perform("Actor", "joinCluster", List(seeds, Value.StringV(tok)))
+      case _ => throw InterpretError("joinCluster(seeds: List[String], token: String = \"\"): Unit")
+    })
+    // v1.6.x — cluster-wide registry
+    globals("globalRegister") = Value.NativeFnV("globalRegister", {
+      case List(Value.StringV(name), pid @ Value.InstanceV("Pid", _)) =>
+        Perform("Actor", "globalRegister", List(Value.StringV(name), pid))
+      case _ => throw InterpretError("globalRegister(name: String, pid: Pid): Unit")
+    })
+    globals("globalWhereis") = Value.NativeFnV("globalWhereis", {
+      case List(Value.StringV(name)) => Perform("Actor", "globalWhereis", List(Value.StringV(name)))
+      case _ => throw InterpretError("globalWhereis(name: String): Option[Pid]")
     })
     // v1.6.x — scheduled sends
     globals("sendAfter") = Value.NativeFnV("sendAfter", {
@@ -2140,9 +2218,12 @@ class Interpreter(
         case Term.Name("Focus") =>
           evalFocus(app.argClause.values)
         // ── direct[M] { stmts } — v1.8 do-notation sugar ─────────────
-        case Term.ApplyType.After_4_6_0(Term.Name("direct"), _) =>
+        case Term.ApplyType.After_4_6_0(Term.Name("direct"), typeArgClause) =>
+          val typeArg = typeArgClause.values.headOption.getOrElse(Type.Name("?"))
+          DirectTypeUtils.validateDirectTypeArg(typeArg)
+          val tag = extractDirectMonadTag(typeArgClause.values)
           app.argClause.values match
-            case List(block: Term.Block) => evalDirectBlock(block.stats, env)
+            case List(block: Term.Block) => evalDirectBlock(block.stats, env, tag)
             case List(single: Term)      => eval(single, env)
             case _                       => located("direct[M] expects a single block argument")
         case Term.Select(qual, Term.Name(method)) =>
@@ -2195,6 +2276,10 @@ class Interpreter(
         case _ =>
           FlatMap(lhsC, lhsV =>
             threadValues(argComps)(argVs => infix(lhsV, op.value, argVs, env)))
+
+    // '.!' outside a direct block (or inside a lambda/block in a direct block) — error
+    case Term.Select(_, Term.Name("!")) =>
+      located("'.!' can only appear in expression position directly inside a direct[M] block body; not inside lambdas or nested blocks")
 
     // Field / method selection: a.b  (no-arg call)
     case Term.Select(qual, name) =>
@@ -3098,6 +3183,44 @@ class Interpreter(
 
   // ─── direct[M] { ... } — v1.8 do-notation ───────────────────────────
 
+  private def extractDirectMonadTag(typeArgs: List[scala.meta.Type]): DirectMonadTag =
+    import DirectMonadTag.*
+    val name = typeArgs.headOption.flatMap(DirectTypeUtils.extractPrimaryMonad).getOrElse("?")
+    name match
+      case "Option" => OptionM
+      case "List"   => ListM
+      case "Either" => EitherM
+      case "Async"  => AsyncM
+      case _        => OtherM
+
+  /** Intercept monadic bind to auto-lift foreign monad values.
+   *
+   *  When `direct[Async]` (tag = AsyncM) and the bound value is an `Option`
+   *  or `Either`, the block uses OptionT/EitherT semantics automatically:
+   *  `Some(a)` / `Right(a)` → continue with `a`; `None` / `Left(e)` →
+   *  short-circuit the entire block. */
+  private def liftBindValue(
+    monadValue: Value,
+    tag:        DirectMonadTag,
+    cont:       Value => Computation,
+    cur:        Env
+  ): Computation =
+    import DirectMonadTag.*
+    (tag, monadValue) match
+      case (AsyncM,  Value.OptionV(Some(inner)))                  => cont(inner)
+      case (AsyncM,  Value.OptionV(None))                         => Pure(Value.OptionV(None))
+      case (AsyncM,  Value.InstanceV("Right", f)) if f.contains("value") => cont(f("value"))
+      case (AsyncM,  Value.InstanceV("Left", _))                  => Pure(monadValue)
+      case (EitherM, Value.OptionV(Some(inner)))                  => cont(inner)
+      case (EitherM, Value.OptionV(None))                         =>
+        Pure(Value.InstanceV("Left", Map("value" -> Value.UnitV)))
+      case (OptionM, Value.InstanceV("Right", f)) if f.contains("value") => cont(f("value"))
+      case (OptionM, Value.InstanceV("Left", _))                  => Pure(Value.OptionV(None))
+      // ListM, OtherM, and unhandled monad/value combos — standard duck-typed flatMap
+      case (ListM | OtherM, _) | _ =>
+        val contFn = Value.NativeFnV("direct-lift-cont", args => cont(args.head))
+        dispatch(monadValue, "flatMap", List(contFn), cur)
+
   /** Evaluate a `direct[M] { stmts }` block by desugaring bind-forms
    *  (`x = expr`) into `monadValue.flatMap { x => rest }` calls.
    *
@@ -3124,9 +3247,14 @@ class Interpreter(
       case other => other.children.foreach(go)
     stats.foreach(go)
 
-  private def evalDirectBlock(stats: List[Stat], env: Env): Computation =
+  private def evalDirectBlock(
+    stats: List[Stat],
+    env:   Env,
+    tag:   DirectMonadTag = DirectMonadTag.OtherM
+  ): Computation =
     checkDirectBlockStatics(stats)
-    val varNames: Set[String] = stats.collect {
+    val expanded = DirectAnorm.expand(stats)
+    val varNames: Set[String] = expanded.collect {
       case Defn.Var.After_4_7_2(_, List(Pat.Var(n)), _, _) => n.value
     }.toSet
     val prevInsideDirect = _insideDirectBlock.get()
@@ -3151,20 +3279,16 @@ class Interpreter(
       case Term.Assign(Term.Name(x), rhs) :: rest if varNames.contains(x) =>
         eval(rhs, cur).flatMap { v => step(rest, cur + (x -> v)) }
 
-      // x = expr — monadic bind
+      // x = expr — monadic bind (with optional auto-lift for transformer semantics)
       case Term.Assign(Term.Name(x), rhs) :: rest =>
         FlatMap(eval(rhs, cur), { monadValue =>
-          val cont = Value.NativeFnV(s"direct-bind-$x", args =>
-            step(rest, cur + (x -> args.head))
-          )
-          dispatch(monadValue, "flatMap", List(cont), cur)
+          liftBindValue(monadValue, tag, innerVal => step(rest, cur + (x -> innerVal)), cur)
         })
 
-      // val _ = expr — monadic bind-and-discard
+      // val _ = expr — monadic bind-and-discard (with optional auto-lift)
       case Defn.Val(_, List(_: Pat.Wildcard), _, rhs) :: rest =>
         FlatMap(eval(rhs, cur), { monadValue =>
-          val cont = Value.NativeFnV("direct-bind-_", _ => step(rest, cur))
-          dispatch(monadValue, "flatMap", List(cont), cur)
+          liftBindValue(monadValue, tag, _ => step(rest, cur), cur)
         })
 
       // val x = expr — pure binding
@@ -3225,7 +3349,7 @@ class Interpreter(
       case _ :: rest =>
         step(rest, cur)
 
-    try step(stats, env)
+    try step(expanded, env)
     finally _insideDirectBlock.set(prevInsideDirect)
 
   // ─── Call helpers ─────────────────────────────────────────────────
@@ -4252,73 +4376,89 @@ class Interpreter(
 
     // ── Phase 3 — distributed actor ops ─────────────────────────────────
 
-    case "startNode" => args match
-      case List(Value.StringV(nodeId)) =>
-        localNodeId = nodeId
-        // Register /_ssc-actors WS route so inbound peer connections are accepted.
-        val peersRoute = Value.NativeFnV("_ssc-actors.handler", args => {
-          val ws = args.head
-          val wsFields = ws match
-            case Value.InstanceV(_, flds) => flds
-            case _ => Map.empty[String, Value]
-          def wsRecv(): Option[String] = wsFields.get("recv").flatMap { f =>
-            invoke(f, Nil) match
-              case Value.OptionV(Some(Value.StringV(s))) => Some(s)
-              case _ => None
+    case "startNode" =>
+      val (nodeId, url) = args match
+        case List(Value.StringV(n))                       => (n, "")
+        case List(Value.StringV(n), Value.StringV(u))     => (n, u)
+        case _ => throw InterpretError("startNode(nodeId, url?)")
+      localNodeId  = nodeId
+      localNodeUrl = url
+      // Register /_ssc-actors WS route so inbound peer connections are accepted.
+      val peersRoute = Value.NativeFnV("_ssc-actors.handler", args => {
+        val ws = args.head
+        val wsFields = ws match
+          case Value.InstanceV(_, flds) => flds
+          case _ => Map.empty[String, Value]
+        def wsRecv(): Option[String] = wsFields.get("recv").flatMap { f =>
+          invoke(f, Nil) match
+            case Value.OptionV(Some(Value.StringV(s))) => Some(s)
+            case _ => None
+        }
+        def wsSend(text: String): Unit = wsFields.get("send").foreach { f =>
+          invoke(f, List(Value.StringV(text)))
+        }
+        // Receive handshake from peer: {"nodeId":"..."}
+        val peerNodeId = wsRecv().flatMap { first =>
+          JsonParser.parseOption(first).collect {
+            case Value.MapV(m) =>
+              m.get(Value.StringV("nodeId")).collect { case Value.StringV(n) => n }.getOrElse("")
+          }.filter(_.nonEmpty)
+        }
+        peerNodeId.foreach { pnId =>
+          wsSend(s"""{"nodeId":${jsonStr(localNodeId)}}""")
+          peerChannels.put(pnId, wsSend)
+          peerLastPong.put(pnId, System.currentTimeMillis())
+          // Heartbeat: ping every 30 s, drop if no pong for 40 s.
+          val hbThread = Thread.ofVirtual().start { () =>
+            try
+              while peerChannels.containsKey(pnId) do
+                Thread.sleep(30_000L)
+                if peerChannels.containsKey(pnId) then
+                  val age = System.currentTimeMillis() - peerLastPong.getOrDefault(pnId, 0L)
+                  if age > 40_000L then
+                    peerChannels.remove(pnId)
+                  else
+                    try peerChannels.get(pnId)("""{"t":"ping"}""") catch case _ => ()
+            catch case _: InterruptedException => ()
           }
-          def wsSend(text: String): Unit = wsFields.get("send").foreach { f =>
-            invoke(f, List(Value.StringV(text)))
-          }
-          // Receive handshake from peer: {"nodeId":"..."}
-          val peerNodeId = wsRecv().flatMap { first =>
-            JsonParser.parseOption(first).collect {
-              case Value.MapV(m) =>
-                m.get(Value.StringV("nodeId")).collect { case Value.StringV(n) => n }.getOrElse("")
-            }.filter(_.nonEmpty)
-          }
-          peerNodeId.foreach { pnId =>
-            wsSend(s"""{"nodeId":${jsonStr(localNodeId)}}""")
-            peerChannels.put(pnId, wsSend)
-            peerLastPong.put(pnId, System.currentTimeMillis())
-            // Heartbeat: ping every 30 s, drop if no pong for 40 s.
-            val hbThread = Thread.ofVirtual().start { () =>
-              try
-                while peerChannels.containsKey(pnId) do
-                  Thread.sleep(30_000L)
-                  if peerChannels.containsKey(pnId) then
-                    val age = System.currentTimeMillis() - peerLastPong.getOrDefault(pnId, 0L)
-                    if age > 40_000L then
-                      peerChannels.remove(pnId)
-                    else
-                      try peerChannels.get(pnId)("""{"t":"ping"}""") catch case _ => ()
-              catch case _: InterruptedException => ()
-            }
-            var running = true
-            while running do
-              wsRecv() match
-                case None      => running = false
-                case Some(msg) => dispatchPeerEnvelope(pnId, msg)
-            hbThread.interrupt()
-            peerChannels.remove(pnId)
-            peerLastPong.remove(pnId)
-            nodeDownQueue.offer(pnId)
-            val t = schedulerThread; if t != null then t.interrupt()
-          }
-          Pure(Value.UnitV)
-        })
-        scalascript.server.WsRoutes.register(
-          path      = "/_ssc-actors",
-          handler   = peersRoute,
-          interp    = this,
-          protocols = List("ssc-actors-v1")
-        )
-        Right(k(Value.UnitV))
-      case _ => throw InterpretError("startNode(nodeId)")
+          var running = true
+          while running do
+            wsRecv() match
+              case None      => running = false
+              case Some(msg) => dispatchPeerEnvelope(pnId, msg)
+          hbThread.interrupt()
+          peerChannels.remove(pnId)
+          peerLastPong.remove(pnId)
+          peerUrls.remove(pnId)
+          nodeDownQueue.offer(pnId)
+          val t = schedulerThread; if t != null then t.interrupt()
+        }
+        Pure(Value.UnitV)
+      })
+      scalascript.server.WsRoutes.register(
+        path      = "/_ssc-actors",
+        handler   = peersRoute,
+        interp    = this,
+        protocols = List("ssc-actors-v1")
+      )
+      Right(k(Value.UnitV))
 
     case "connectNode" => args match
       case List(Value.StringV(url)) => connectPeer(url, ""); Right(k(Value.UnitV))
       case List(Value.StringV(url), Value.StringV(token)) => connectPeer(url, token); Right(k(Value.UnitV))
       case _ => throw InterpretError("connectNode(url)")
+
+    case "joinCluster" => args match
+      case List(seedsVal, Value.StringV(tok)) =>
+        joinMode  = true
+        joinToken = tok
+        def collectUrls(v: Value): List[String] = v match
+          case Value.ListV(items) => items.flatMap(collectUrls)
+          case Value.StringV(s)  => List(s)
+          case _                 => Nil
+        collectUrls(seedsVal).foreach(url => connectPeer(url, tok))
+        Right(k(Value.UnitV))
+      case _ => throw InterpretError("joinCluster(seeds, token)")
 
     case "register" => args match
       case List(Value.StringV(name), Value.InstanceV("Pid", fields)) =>
@@ -4336,6 +4476,29 @@ class Interpreter(
             Value.OptionV(None)
         Right(k(result))
       case _ => throw InterpretError("whereis(name)")
+
+    // v1.6.x — cluster-wide registry
+    case "globalRegister" => args match
+      case List(Value.StringV(name), pid @ Value.InstanceV("Pid", _)) =>
+        globalRegistry.put(name, pid)
+        val payload = pid match
+          case Value.InstanceV("Pid", fields) =>
+            val nid = fields.get("nodeId").collect { case Value.StringV(s) => s }.getOrElse(localNodeId)
+            val lid = fields.get("localId").collect { case Value.IntV(n) => n }.getOrElse(0L)
+            s"""{"t":"global_reg","name":${jsonStr(name)},"nodeId":${jsonStr(nid)},"localId":${jsonStr(lid.toString)}}"""
+          case _ => ""
+        if payload.nonEmpty then
+          peerChannels.forEach { (_, send) => try send(payload) catch case _: Throwable => () }
+        Right(k(Value.UnitV))
+      case _ => throw InterpretError("globalRegister(name, pid)")
+
+    case "globalWhereis" => args match
+      case List(Value.StringV(name)) =>
+        val result = Option(globalRegistry.get(name)) match
+          case Some(pid) => Value.OptionV(Some(pid))
+          case None      => Value.OptionV(None)
+        Right(k(result))
+      case _ => throw InterpretError("globalWhereis(name)")
 
     // v1.6.x — scheduled sends
     case "sendAfter" => args match

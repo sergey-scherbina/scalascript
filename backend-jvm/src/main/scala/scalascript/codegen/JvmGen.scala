@@ -1,7 +1,7 @@
 package scalascript.codegen
 
 import scalascript.ast.*
-import scalascript.transform.EffectAnalysis
+import scalascript.transform.{DirectAnorm, DirectTypeUtils, EffectAnalysis}
 import scala.collection.mutable
 import scala.meta.*
 
@@ -438,7 +438,7 @@ class JvmGen(
   private def blocksUseActors(blocks: List[JvmGen.Block]): Boolean =
     val names = Set("runActors", "spawn", "spawnBounded", "self", "exit", "receive",
                     "link", "monitor", "demonitor", "trapExit",
-                    "startNode", "connectNode", "register", "whereis",
+                    "startNode", "connectNode", "joinCluster", "register", "whereis",
                     "sendAfter", "sendInterval", "cancelTimer", "processInfo")
     blocks.exists { b =>
       var found = false
@@ -1320,14 +1320,21 @@ class JvmGen(
       s"Actor.trapExit(${emitExpr(argClause.values.head.asInstanceOf[Term])})"
     // v1.6 Phase 3 — distributed node primitives
     case Term.Apply.After_4_6_0(Term.Name("startNode"), argClause)
-        if argClause.values.size == 1 =>
-      s"Actor.startNode(${emitExpr(argClause.values.head.asInstanceOf[Term])})"
+        if argClause.values.size >= 1 =>
+      val nodeId = emitExpr(argClause.values(0).asInstanceOf[Term])
+      val url    = if argClause.values.size >= 2 then emitExpr(argClause.values(1).asInstanceOf[Term]) else "\"\""
+      s"Actor.startNode($nodeId, $url)"
     case Term.Apply.After_4_6_0(Term.Name("connectNode"), argClause)
         if argClause.values.size == 1 =>
       s"Actor.connectNode(${emitExpr(argClause.values.head.asInstanceOf[Term])})"
     case Term.Apply.After_4_6_0(Term.Name("connectNode"), argClause)
         if argClause.values.size == 2 =>
       s"Actor.connectNode(${emitExpr(argClause.values(0).asInstanceOf[Term])}, ${emitExpr(argClause.values(1).asInstanceOf[Term])})"
+    case Term.Apply.After_4_6_0(Term.Name("joinCluster"), argClause)
+        if argClause.values.size >= 1 =>
+      val seeds = emitExpr(argClause.values(0).asInstanceOf[Term])
+      val token = if argClause.values.size >= 2 then emitExpr(argClause.values(1).asInstanceOf[Term]) else "\"\""
+      s"Actor.joinCluster($seeds, $token)"
     case Term.Apply.After_4_6_0(Term.Name("register"), argClause)
         if argClause.values.size == 2 =>
       s"Actor.register(${emitExpr(argClause.values(0).asInstanceOf[Term])}, ${emitExpr(argClause.values(1).asInstanceOf[Term])})"
@@ -1362,8 +1369,10 @@ class JvmGen(
 
     // direct[M] { stmts } — v1.8 do-notation sugar
     case Term.Apply.After_4_6_0(
-        Term.ApplyType.After_4_6_0(Term.Name("direct"), _), argClause)
+        Term.ApplyType.After_4_6_0(Term.Name("direct"), typeArgClause), argClause)
         if argClause.values.size == 1 =>
+      val typeArg = typeArgClause.values.headOption.getOrElse(Type.Name("?"))
+      DirectTypeUtils.validateDirectTypeArg(typeArg)
       argClause.values.head match
         case block: Term.Block => emitDirectBlock(block.stats)
         case single: Term      => emitExpr(single)
@@ -1691,9 +1700,10 @@ class JvmGen(
 
   private def emitDirectBlock(stats: List[Stat]): String =
     checkDirectBlockStatics(stats)
-    if stats.isEmpty then "()"
+    val expanded = DirectAnorm.expand(stats)
+    if expanded.isEmpty then "()"
     else
-      val varNames: Set[String] = stats.collect {
+      val varNames: Set[String] = expanded.collect {
         case Defn.Var.After_4_7_2(_, List(Pat.Var(n)), _, _) => n.value
       }.toSet
       def go(remaining: List[Stat]): String = remaining match
@@ -1713,7 +1723,7 @@ class JvmGen(
         case (t: Term) :: rest =>
           s"{ ${emitExpr(t)}\n${go(rest)} }"
         case _ :: rest => go(rest)
-      go(stats)
+      go(expanded)
 
   /** Emit a Scala matcher closure for a `receive { case … }` block.
    *  Type: `(msg: Any) => Option[Any]` — `Some(bodyComputation)` on
@@ -1982,14 +1992,21 @@ class JvmGen(
       s"Actor.trapExit(${emitExpr(argClause.values.head.asInstanceOf[Term])})"
     // v1.6 Phase 3 — distributed node primitives (inside CPS body)
     case Term.Apply.After_4_6_0(Term.Name("startNode"), argClause)
-        if argClause.values.size == 1 =>
-      s"Actor.startNode(${emitExpr(argClause.values.head.asInstanceOf[Term])})"
+        if argClause.values.size >= 1 =>
+      val nodeId = emitExpr(argClause.values(0).asInstanceOf[Term])
+      val url    = if argClause.values.size >= 2 then emitExpr(argClause.values(1).asInstanceOf[Term]) else "\"\""
+      s"Actor.startNode($nodeId, $url)"
     case Term.Apply.After_4_6_0(Term.Name("connectNode"), argClause)
         if argClause.values.size == 1 =>
       s"Actor.connectNode(${emitExpr(argClause.values.head.asInstanceOf[Term])})"
     case Term.Apply.After_4_6_0(Term.Name("connectNode"), argClause)
         if argClause.values.size == 2 =>
       s"Actor.connectNode(${emitExpr(argClause.values(0).asInstanceOf[Term])}, ${emitExpr(argClause.values(1).asInstanceOf[Term])})"
+    case Term.Apply.After_4_6_0(Term.Name("joinCluster"), argClause)
+        if argClause.values.size >= 1 =>
+      val seeds = emitExpr(argClause.values(0).asInstanceOf[Term])
+      val token = if argClause.values.size >= 2 then emitExpr(argClause.values(1).asInstanceOf[Term]) else "\"\""
+      s"Actor.joinCluster($seeds, $token)"
     case Term.Apply.After_4_6_0(Term.Name("register"), argClause)
         if argClause.values.size == 2 =>
       s"Actor.register(${emitExpr(argClause.values(0).asInstanceOf[Term])}, ${emitExpr(argClause.values(1).asInstanceOf[Term])})"
@@ -5861,10 +5878,14 @@ class JvmGen(
        |  def demonitor(ref: Any): Any                  = _perform("Actor", "demonitor",   ref)
        |  def trapExit(b: Any): Any                     = _perform("Actor", "trapExit",    b)
        |  // v1.6 Phase 3 — distributed
-       |  def startNode(nodeId: Any): Any               = _perform("Actor", "startNode",   nodeId)
-       |  def connectNode(url: Any, tok: Any = ""): Any = _perform("Actor", "connectNode", url, tok)
-       |  def register(name: Any, pid: Any): Any        = _perform("Actor", "register",    name, pid)
-       |  def whereis(name: Any): Any                   = _perform("Actor", "whereis",     name)
+       |  def startNode(nodeId: Any, url: Any = ""): Any = _perform("Actor", "startNode",   nodeId, url)
+       |  def connectNode(url: Any, tok: Any = ""): Any  = _perform("Actor", "connectNode", url, tok)
+       |  def joinCluster(seeds: Any, tok: Any = ""): Any = _perform("Actor", "joinCluster", seeds, tok)
+       |  def register(name: Any, pid: Any): Any             = _perform("Actor", "register",       name, pid)
+       |  def whereis(name: Any): Any                        = _perform("Actor", "whereis",        name)
+       |  // v1.6.x — cluster-wide registry
+       |  def globalRegister(name: Any, pid: Any): Any       = _perform("Actor", "globalRegister", name, pid)
+       |  def globalWhereis(name: Any): Any                  = _perform("Actor", "globalWhereis",  name)
        |  // v1.6.x — scheduled sends
        |  def sendAfter(delayMs: Any, pid: Any, msg: Any): Any   = _perform("Actor", "sendAfter",   delayMs, pid, msg)
        |  def sendInterval(periodMs: Any, pid: Any, msg: Any): Any = _perform("Actor", "sendInterval", periodMs, pid, msg)
@@ -5895,9 +5916,14 @@ class JvmGen(
        |  val _timers      = scala.collection.mutable.LongMap.empty[(Long, Option[Long], Long, Any)]
        |  var _nextTimerId: Long = 0L
        |  // Phase 3 distributed state
-       |  var _localNodeId: String = ""
-       |  val _nodeRegistry   = new java.util.concurrent.ConcurrentHashMap[String, Long]()
-       |  val _peerChannels   = new java.util.concurrent.ConcurrentHashMap[String, String => Unit]()
+       |  var _localNodeId:  String  = ""
+       |  var _localNodeUrl: String  = ""
+       |  @volatile var _joinMode:  Boolean = false
+       |  @volatile var _joinToken: String  = ""
+       |  val _peerUrls       = new java.util.concurrent.ConcurrentHashMap[String, String]()
+       |  val _nodeRegistry    = new java.util.concurrent.ConcurrentHashMap[String, Long]()
+       |  val _globalRegistry  = new java.util.concurrent.ConcurrentHashMap[String, _Pid]()
+       |  val _peerChannels    = new java.util.concurrent.ConcurrentHashMap[String, String => Unit]()
        |  val _remoteInbox    = new java.util.concurrent.ConcurrentLinkedQueue[(Long, Any)]()
        |  val _peerLastPong   = new java.util.concurrent.ConcurrentHashMap[String, Long]()
        |  val _nodeDownQueue  = new java.util.concurrent.ConcurrentLinkedQueue[String]()
@@ -5978,8 +6004,10 @@ class JvmGen(
        |        if first != null then
        |          val pnId = _parseNodeId(first)
        |          if pnId.nonEmpty then
+       |            _peerUrls.put(pnId, url)
        |            _peerChannels.put(pnId, sendFn)
        |            _peerLastPong.put(pnId, System.currentTimeMillis())
+       |            if _joinMode then try sendFn("{\"t\":\"peers_req\",\"from\":" + _jstr(_localNodeId) + "}") catch case _: Throwable => ()
        |            val hbThread = Thread.ofVirtual().start { () =>
        |              try
        |                while _peerChannels.containsKey(pnId) do
@@ -6000,6 +6028,7 @@ class JvmGen(
        |            hbThread.interrupt()
        |            _peerChannels.remove(pnId)
        |            _peerLastPong.remove(pnId)
+       |            _peerUrls.remove(pnId)
        |            _nodeDownQueue.offer(pnId)
        |      catch case e: Throwable => System.err.println("connectNode error [" + url + "]: " + e.getMessage)
        |    }
@@ -6026,7 +6055,65 @@ class JvmGen(
        |            _remoteInbox.offer((toId, msg))
        |      case "ping" => try Option(_peerChannels.get(pnId)).foreach(_.apply("{\"t\":\"pong\"}")) catch case _: Throwable => ()
        |      case "pong" => _peerLastPong.put(pnId, System.currentTimeMillis())
+       |      case "peers_req" =>
+       |        val sb = new StringBuilder("{\"t\":\"peers_resp\",\"peers\":[")
+       |        var first = true
+       |        if _localNodeUrl.nonEmpty then
+       |          sb.append("{\"nodeId\":" + _jstr(_localNodeId) + ",\"url\":" + _jstr(_localNodeUrl) + "}")
+       |          first = false
+       |        _peerUrls.forEach { (nid, u) =>
+       |          if u.nonEmpty then
+       |            if !first then sb.append(',')
+       |            sb.append("{\"nodeId\":" + _jstr(nid) + ",\"url\":" + _jstr(u) + "}")
+       |            first = false
+       |        }
+       |        sb.append("]}")
+       |        try Option(_peerChannels.get(pnId)).foreach(_.apply(sb.toString)) catch case _: Throwable => ()
+       |      case "peers_resp" =>
+       |        _extractPeersList(json).foreach { case (pnid, purl) =>
+       |          if pnid.nonEmpty && purl.nonEmpty && pnid != _localNodeId && !_peerChannels.containsKey(pnid) then
+       |            _connectPeer(purl, _joinToken)
+       |        }
+       |      case "global_reg" =>
+       |        val grName   = _extractJsonStr(json, "\"name\"")
+       |        val grNodeId = _extractJsonStr(json, "\"nodeId\"")
+       |        val grLidS   = _extractJsonStr(json, "\"localId\"")
+       |        val grLocalId = try grLidS.toLong catch case _: NumberFormatException => 0L
+       |        if grName.nonEmpty && grNodeId.nonEmpty then
+       |          _globalRegistry.put(grName, _Pid(grNodeId, grLocalId))
        |      case _      => ()
+       |
+       |  def _extractJsonStr(json: String, key: String, fromIdx: Int = 0): String =
+       |    val ki = json.indexOf(key, fromIdx); if ki < 0 then return ""
+       |    val vi = json.indexOf('"', ki + key.length + 1); if vi < 0 then return ""
+       |    val ve = json.indexOf('"', vi + 1); if ve < 0 then return ""
+       |    json.substring(vi + 1, ve)
+       |
+       |  def _extractPeersList(json: String): List[(String, String)] =
+       |    val ak = "\"peers\""; val ai = json.indexOf(ak); if ai < 0 then return Nil
+       |    val ab = json.indexOf('[', ai + ak.length); if ab < 0 then return Nil
+       |    var ae = ab + 1; var depth = 1
+       |    while ae < json.length && depth > 0 do
+       |      if json(ae) == '[' then depth += 1
+       |      else if json(ae) == ']' then depth -= 1
+       |      ae += 1
+       |    val arr = json.substring(ab + 1, ae - 1)
+       |    val buf = scala.collection.mutable.ListBuffer.empty[(String, String)]
+       |    var pos = 0
+       |    while pos < arr.length do
+       |      val ob = arr.indexOf('{', pos); if ob < 0 then pos = arr.length
+       |      else
+       |        var oe = ob + 1; var d2 = 1
+       |        while oe < arr.length && d2 > 0 do
+       |          if arr(oe) == '{' then d2 += 1
+       |          else if arr(oe) == '}' then d2 -= 1
+       |          oe += 1
+       |        val obj = arr.substring(ob, oe)
+       |        val nid = _extractJsonStr(obj, "\"nodeId\"")
+       |        val url = _extractJsonStr(obj, "\"url\"")
+       |        if nid.nonEmpty && url.nonEmpty then buf += ((nid, url))
+       |        pos = oe
+       |    buf.toList
        |
        |  def _extractToLocalId(json: String): Long =
        |    val toKey = "\"to\""; val ti = json.indexOf(toKey); if ti < 0 then return -1L
@@ -6318,7 +6405,8 @@ class JvmGen(
        |      Right(k(()))
        |    // ── Phase 3 — distributed ────────────────────────────────────────────
        |    case "startNode" =>
-       |      _localNodeId = args(0).toString
+       |      _localNodeId  = args(0).toString
+       |      _localNodeUrl = if args.length > 1 then args(1).toString else ""
        |      // Register /_ssc-actors WS route for inbound peer connections.
        |      onWebSocket("/_ssc-actors") { ws =>
        |        def wsSend(t: String): Unit = ws.send(t)
@@ -6349,6 +6437,7 @@ class JvmGen(
        |            hbThread.interrupt()
        |            _peerChannels.remove(pnId)
        |            _peerLastPong.remove(pnId)
+       |            _peerUrls.remove(pnId)
        |            _nodeDownQueue.offer(pnId)
        |      }
        |      Right(k(()))
@@ -6356,6 +6445,14 @@ class JvmGen(
        |      val url = args(0).toString
        |      val tok = if args.length > 1 then args(1).toString else ""
        |      _connectPeer(url, tok)
+       |      Right(k(()))
+       |    case "joinCluster" =>
+       |      _joinMode  = true
+       |      _joinToken = if args.length > 1 then args(1).toString else ""
+       |      val seeds = args(0) match
+       |        case lst: List[?] => lst.collect { case s: String => s }
+       |        case _            => Nil
+       |      seeds.foreach(u => _connectPeer(u, _joinToken))
        |      Right(k(()))
        |    case "register" =>
        |      val name = args(0).toString
@@ -6369,6 +6466,18 @@ class JvmGen(
        |          Some(_Pid(_localNodeId, _nodeRegistry.get(name)))
        |        else
        |          None
+       |      Right(k(result))
+       |    // v1.6.x — cluster-wide registry
+       |    case "globalRegister" =>
+       |      val grName = args(0).toString
+       |      val grPid  = args(1).asInstanceOf[_Pid]
+       |      _globalRegistry.put(grName, grPid)
+       |      val payload = "{\"t\":\"global_reg\",\"name\":" + _jstr(grName) + ",\"nodeId\":" + _jstr(grPid.nodeId) + ",\"localId\":" + grPid.localId + "}"
+       |      _peerChannels.forEach { (_, send) => try send(payload) catch case _: Throwable => () }
+       |      Right(k(()))
+       |    case "globalWhereis" =>
+       |      val gwName = args(0).toString
+       |      val result = Option(_globalRegistry.get(gwName))
        |      Right(k(result))
        |    // v1.6.x — scheduled sends
        |    case "sendAfter" =>

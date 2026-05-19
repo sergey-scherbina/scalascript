@@ -133,3 +133,97 @@ class DirectSyntaxTest extends AnyFunSuite with Matchers:
       val r = direct[Option] { Some(99) }
       println(r)
     """) shouldBe "Some(99)"
+
+  // ── v1.8.1 Feature 1: postfix .! bind operator ────────────────────
+
+  test(".! operator — inline in function argument"):
+    run("""
+      val result = direct[Option] {
+        println(Some(42).!)
+        Some(())
+      }
+      println(result)
+    """) shouldBe "42\nSome(())"
+
+  test(".! operator — inline expression combining two binds"):
+    run("""
+      val result = direct[Option] {
+        Some(Some(10).! + Some(32).!)
+      }
+      println(result)
+    """) shouldBe "Some(42)"
+
+  test(".! operator — short-circuits on None"):
+    run("""
+      val result = direct[Option] {
+        val x = None.!
+        Some(x + 1)
+      }
+      println(result)
+    """) shouldBe "None"
+
+  test(".! operator — chained method calls"):
+    run("""
+      def wrap(n: Int): Option[Int] = Some(n)
+      val result = direct[Option] {
+        Some(wrap(7).! * wrap(6).!)
+      }
+      println(result)
+    """) shouldBe "Some(42)"
+
+  // ── v1.8.1 Feature 2: effect-row union type ───────────────────────
+
+  test("effect-row union type direct[Option | List] is accepted"):
+    run("""
+      val result = direct[Option | List] {
+        x = Some(21)
+        Some(x * 2)
+      }
+      println(result)
+    """) shouldBe "Some(42)"
+
+  // ── v1.8.1 Feature 3: transformer-aware lift ──────────────────────
+
+  test("transformer lift — direct[Option] auto-lifts Right to Some track"):
+    run("""
+      case class Right[A](value: A)
+      case class Left[A](value: A)
+      val result = direct[Option] {
+        x = Right(42)
+        Some(x * 2)
+      }
+      println(result)
+    """) shouldBe "Some(84)"
+
+  test("transformer lift — direct[Option] auto-lifts Left to None"):
+    run("""
+      case class Right[A](value: A)
+      case class Left[A](value: A)
+      val result = direct[Option] {
+        x = Left("error")
+        Some(x)
+      }
+      println(result)
+    """) shouldBe "None"
+
+  test("transformer lift — direct[Either] auto-lifts Some to Right track"):
+    run("""
+      case class Right[A](value: A)
+      case class Left[A](value: A)
+      val result = direct[Either] {
+        x = Some(21)
+        Right(x * 2)
+      }
+      println(result)
+    """) shouldBe "Right(42)"
+
+  test("transformer lift — direct[Either] auto-lifts None to Left"):
+    run("""
+      case class Right[A](value: A)
+      case class Left[A](value: A)
+      val result = direct[Either] {
+        x = None
+        Right(x)
+      }
+      println(result)
+    """) shouldBe "Left(())"

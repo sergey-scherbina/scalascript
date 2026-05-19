@@ -1768,13 +1768,10 @@ demo.ssc` to direct syntax as the canonical demos.
 
 ### Deferred follow-ups (carry into v1.8.1)
 
-Parked deliberately — re-evaluate after v1.8 ships and real code
-drives the question:
-
-1. **Postfix `.!` explicit-bind operator** (DS-6 follow-up).
-2. **Effect-row union types** — `direct[Async | Random]`.
-3. **Transformer-aware lift** — auto `OptionT.liftF` inside an
-   outer `Async` direct block.
+1. ~~**Postfix `.!` explicit-bind operator** (DS-6 follow-up).~~  Landed v1.8.1.
+2. ~~**Effect-row union types** — `direct[Async | Random]`.~~  Landed v1.8.1.
+3. ~~**Transformer-aware lift** — auto `OptionT.liftF` inside an
+   outer `Async` direct block.~~  Landed v1.8.1.
 4. ~~**`std/monad-control.ssc` expansion** — `untilM`,
    `iterateWhileM`.~~  Landed v1.8.x: `untilMResult{Option,Either}`
    and `iterateWhileM{Option,Either}`, plus 7 conformance cases in
@@ -1793,6 +1790,48 @@ Cross-backend behaviour is identical — direct syntax is pure
 source-to-source rewriting before the backend split, so INT / JS /
 JVM see the same desugared `for { x <- e } yield body` and the
 existing v1.1 `Monad` machinery handles emission.
+
+## v1.8.1 — Direct-syntax extensions ✓ Landed
+
+Three follow-ups deferred from v1.8, all landed together:
+
+### Feature 1 — Postfix `.!` explicit-bind operator
+
+`fa.!` inside a `direct[M]` block forces a monadic bind at that
+expression position and returns the unwrapped value inline.
+Implemented as an A-normalization pre-pass (`DirectAnorm.expand` in
+`core/transform/DirectAnorm.scala`) that rewrites each `.!` occurrence
+into a fresh `_bN = fa` bind prepended before the containing statement.
+The pre-pass runs on all three backends (interpreter, JVM, JS).
+
+```scala
+direct[Option] { Some(Some(10).! + Some(32).!) }  // => Some(42)
+```
+
+### Feature 2 — Effect-row union types
+
+`direct[Async | Random]` is now accepted.  `DirectTypeUtils.validateDirectTypeArg`
+permits `|`-separated union types in the type argument position; the
+leftmost type name is used as the primary monad for duck-typed dispatch.
+
+### Feature 3 — Transformer-aware lift (interpreter)
+
+When a `direct[M]` block binds a value of a compatible foreign monad,
+the interpreter auto-lifts instead of failing:
+- `direct[Option]` + `Right(v)` → extract `v`; `Left(_)` → `None`
+- `direct[Either]` + `Some(v)` → extract `v`; `None` → `Left(())`
+Same rules apply inside `direct[Async]`.
+
+Implementation: `DirectMonadTag` enum + `liftBindValue` in
+`backend-interpreter/Interpreter.scala`.
+
+### Deliverables
+
+- `core/transform/DirectAnorm.scala` — new shared A-normalization utility
+- All three backends updated to call `DirectAnorm.expand` and
+  `DirectTypeUtils.validateDirectTypeArg`
+- 9 new interpreter tests in `DirectSyntaxTest` (19 total, all green)
+- `docs/direct-syntax.md` §10 updated with full feature descriptions
 
 ## v1.9 — Coroutine primitive ✓ Landed
 

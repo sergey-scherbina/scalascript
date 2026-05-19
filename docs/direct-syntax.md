@@ -1,7 +1,8 @@
 # Direct-syntax do-notation
 
-Status: **design / planning**.  Implementation parked behind
-**Stage 5+/B `std.http` extraction** — see MILESTONES.md `v1.8`.
+Status: **Implemented — v1.8 (core) + v1.8.1 (extensions)**.  All three
+backends (interpreter, JVM, JS) ship the feature.  See MILESTONES.md
+`v1.8` / `v1.8.1` for landing notes.
 Companion to [`docs/spi-intrinsics-design.md`](spi-intrinsics-design.md)
 (which sketched the core decisions DS-1, DS-2, DS-3, DS-7 inline)
 and [`docs/backend-spi.md`](backend-spi.md) §6 (effect lowering).
@@ -393,28 +394,87 @@ Total: ~16 days (~3 weeks).
 
 | Feature | Reason |
 |---------|--------|
-| Effect-row type tracking (`Async \| Random \| Logger`) | Out of scope; deferred to v2.  v1 ships one monad per block. |
-| Monad transformers (`OptionT`, `EitherT`, `StateT`) | Out of scope; requires v1.1 std extensions.  Cross-monad needs explicit lift today. |
+| Full effect-row composition (`Async \| Random` sharing a single monad) | Out of scope for v1; `direct[Async \| Random]` is accepted syntactically (v1.8.1) and duck-typed but does not compose two monads. |
+| Fully general monad transformers (`StateT`, `WriterT`, …) | Out of scope; cross-monad lifting is limited to Option↔Either in v1.8.1. |
 | **Silent** auto-wrap of any `Throwable` into `M.fail` | The two-fault-model trap — DS-7 (refined 2026-05-18) only auto-wraps when the user explicitly typed the throw AND `MonadError[F, E]` is in scope; never on bare `throw new RuntimeException(...)` |
 | Capability-checked `direct[Pure] { ... }` | No `Monad[Pure]` in std today; would need its own foundation. |
 | `await`-style keyword (`val x = await(expr)`) | Locked under DS-6 — pure type-directed, no marker. |
 | Non-local `return` from inside a direct block | Bypasses bind chain; use `M.fail`. |
 
-## 10. Open follow-ups (v1.8.1+)
+## 10. v1.8.1 extensions — landed
 
-Parked deliberately — re-evaluate after v1.8 ships and real
-code drives the question:
+Three follow-ups from v1.8 shipped in v1.8.1:
 
-- **Postfix `.!` explicit-bind operator** (DS-6 follow-up) — useful
-  when an expression's `M[*]` type is ambiguous because of overloading.
-- **Effect-row union types** (DS-1 follow-up) — `direct[Async | Random]`
-  for blocks that need multiple effects without nested directs.
-- **Transformer-aware lift** — automatic `OptionT.liftF` when an inner
-  block of type `Option[A]` appears in an outer `Async` direct block.
+### 10.1 Postfix `.!` explicit-bind operator (DS-6 follow-up)
+
+Inside any `direct[M]` block, appending `.!` to an expression forces a
+monadic bind at that point and returns the unwrapped value in-place:
+
+```scala
+direct[Option] {
+  println(Some(42).!)          // prints 42; result discarded
+  Some(Some(10).! + Some(32).!)  // => Some(42)
+}
+```
+
+`fa.!` desugars via A-normalization in `DirectAnorm.expand`: each `.!`
+occurrence is lifted into a fresh `_bN = fa` bind statement prepended
+before the enclosing statement, and replaced by `_bN` at the original
+position.  The A-normalization pre-pass runs on all three backends
+(interpreter, JVM codegen, JS codegen) via `core/transform/DirectAnorm.scala`.
+
+Boundaries where `.!` is **not** lifted: nested `direct[M]` blocks,
+lambda bodies, and `Term.Block` sub-expressions — each of these forms
+its own scope.
+
+### 10.2 Effect-row union types
+
+`direct[Async | Random]` is now accepted without a parse or validation
+error.  `DirectTypeUtils.validateDirectTypeArg` permits `|`-connected
+union types and rejects any other infix type operator.  At runtime the
+leftmost type name (`Async` in the example) is used as the primary monad
+for duck-typed `flatMap` dispatch — full multi-monad composition is still
+out of scope for v1 (see §9 hard-no).
+
+### 10.3 Transformer-aware lift (interpreter)
+
+When a `direct[M]` block binds a value of a *different* compatible monad,
+the interpreter auto-lifts it instead of dispatching `flatMap` on the
+wrong type:
+
+| Outer `M` | Bound value | Lift |
+|-----------|-------------|------|
+| `Option` | `Right(v)` | extract `v`, continue |
+| `Option` | `Left(_)` | short-circuit to `None` |
+| `Either` | `Some(v)` | extract `v`, continue |
+| `Either` | `None` | short-circuit to `Left(())` |
+| `Async` / other | `Option`/`Either` values | same rules as above |
+
+```scala
+case class Right[A](value: A)
+case class Left[A](value: A)
+
+val r = direct[Option] {
+  x = Right(42)         // auto-lifted: x = 42
+  Some(x * 2)
+}
+// => Some(84)
+```
+
+Implementation: `DirectMonadTag` enum (OptionM / EitherM / AsyncM /
+ListM / OtherM) is extracted from the `direct[M]` type argument;
+`liftBindValue` in the interpreter selects the lift rule before falling
+back to duck-typed `flatMap`.
+
+### Earlier follow-ups
+
 - ~~**`std/monad-control.ssc` expansion** — `untilM`,
   `iterateWhileM`, loop combinators beyond `whileM_`.~~  Landed
   v1.8.x as `untilMResult{Option,Either}` and
   `iterateWhileM{Option,Either}` — see §5 control flow above.
+
+### Still open
+
 - **Capture checking interaction** — verify direct blocks don't
   leak `var`-captures across `Async.parallel`, once Scala 3.x
   capture checking matures.
