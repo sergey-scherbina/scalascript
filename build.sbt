@@ -238,6 +238,14 @@ lazy val cli = project
     name := "scalascript-cli",
     libraryDependencies ++= Seq(
       "com.lihaoyi" %% "pprint" % "0.9.6",
+      // v2.0 Phase 3 — in-process Scala 3 compiler driver
+      // (`scalascript.cli.Scala3Driver`).  Replaces the per-module
+      // `scala-cli compile` subprocess (~1 s JVM startup × N modules) with
+      // a single in-JVM `dotty.tools.dotc.Driver` invocation per module.
+      // Pinned to ThisBuild/scalaVersion (3.8.3) so the API we depend on
+      // (`Driver.process(String[], Reporter)`, `Reporter.doReport`,
+      // `Diagnostic`/`SourcePosition`) matches the compiler we link.
+      "org.scala-lang" %% "scala3-compiler" % scalaVersion.value,
       scalatestTest
     ),
     Compile / scalacOptions ++= sharedScalacOptionsStrict,
