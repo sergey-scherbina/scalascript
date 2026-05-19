@@ -653,6 +653,34 @@ private object Mcp:
     def clientSupportsElicitationFn =
       Value.NativeFnV("McpServer.clientSupportsElicitation",
         Computation.pureFn { _ => Value.BoolV(builder.clientSupportsElicitation) })
+    // v1.17.x — completion handlers.  The handler is a function
+    // `String => List[String]` (current partial value → suggestions).
+    // Two registration entry points for the two ref shapes the spec
+    // supports: `ref/prompt` keyed by prompt name, `ref/resource` keyed
+    // by URI-template string.  Spec caps results at 100; the wire-layer
+    // applies the cap so user handlers can return as many as they want.
+    def completionForPromptFn = Value.NativeFnV("McpServer.completionForPrompt",
+      Computation.pureFn {
+        case List(Value.StringV(promptName), Value.StringV(argName), handler) =>
+          builder.completionForPrompt(promptName, argName, value =>
+            ctx.invokeCallback(handler, List(Value.StringV(value))) match
+              case v: Value => Mcp.valueToStringList(v)
+              case _        => Nil
+          )
+          Value.UnitV
+        case _ => throw InterpretError("srv.completionForPrompt(promptName, argName, handler)")
+      })
+    def completionForResourceFn = Value.NativeFnV("McpServer.completionForResource",
+      Computation.pureFn {
+        case List(Value.StringV(uriTemplate), Value.StringV(argName), handler) =>
+          builder.completionForResource(uriTemplate, argName, value =>
+            ctx.invokeCallback(handler, List(Value.StringV(value))) match
+              case v: Value => Mcp.valueToStringList(v)
+              case _        => Nil
+          )
+          Value.UnitV
+        case _ => throw InterpretError("srv.completionForResource(uriTemplate, argName, handler)")
+      })
     Value.InstanceV("McpServer", Map(
       "tool"                          -> toolFn,
       "toolWithSchema"                -> toolWithSchemaFn,
@@ -677,7 +705,9 @@ private object Mcp:
       "onRootsListChanged"         -> onRootsLCFn,
       "clientSupportsRoots"        -> clientSupportsRootsFn,
       "elicit"                     -> elicitFn,
-      "clientSupportsElicitation"  -> clientSupportsElicitationFn
+      "clientSupportsElicitation"  -> clientSupportsElicitationFn,
+      "completionForPrompt"        -> completionForPromptFn,
+      "completionForResource"      -> completionForResourceFn
     ))
 
   private def registerTool(
@@ -1192,6 +1222,17 @@ private object Mcp:
    *  User scripts pattern-match on `action` and read `content`
    *  conditionally, or use the spec-recommended pattern of treating
    *  decline+cancel identically. */
+  /** Adapt a `ListV` of `StringV` (or anything renderable) into a
+   *  `List[String]` for completion handlers.  Non-string elements
+   *  fall back to their `show` representation — defensive but
+   *  preserves user intent better than dropping them silently. */
+  def valueToStringList(v: Value): List[String] = v match
+    case Value.ListV(xs) => xs.map {
+      case Value.StringV(s) => s
+      case other            => Value.show(other)
+    }
+    case _ => Nil
+
   def elicitationResultToValue(r: McpProtocol.ElicitationResult): Value = r match
     case McpProtocol.ElicitationResult.Accept(content) =>
       Value.InstanceV("ElicitationResult", Map(
