@@ -20,7 +20,7 @@ class PluginCliTest extends AnyFunSuite with Matchers with BeforeAndAfterEach:
 
   // Helpers
 
-  private def makePackage(id: String, version: String = "1.0.0", entries: (String, String)*): os.Path =
+  private def makePackage(id: String, version: String, entries: (String, String)*): os.Path =
     val tmp = os.temp(suffix = ".sscpkg")
     val zos = new ZipOutputStream(new java.io.FileOutputStream(tmp.toIO))
     try
@@ -35,8 +35,6 @@ class PluginCliTest extends AnyFunSuite with Matchers with BeforeAndAfterEach:
       }
     finally zos.close()
     tmp
-
-  private def withHome[A](f: os.Path => A): A = f(tmpHome / "plugins")
 
   // ── install ──────────────────────────────────────────────────────────
 

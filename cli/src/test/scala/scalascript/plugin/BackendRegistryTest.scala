@@ -1,7 +1,6 @@
 package scalascript.plugin
 
 import org.scalatest.funsuite.AnyFunSuite
-import scalascript.backend.spi.Backend
 
 /** Exercises ServiceLoader discovery against the bundled backends.
  *  Lives in the `cli` module because that's the only module whose

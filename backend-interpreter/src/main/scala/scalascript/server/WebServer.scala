@@ -7,7 +7,6 @@ import com.sun.net.httpserver.{HttpServer as JHttpServer, HttpExchange}
 import org.commonmark.parser.{Parser as CmParser}
 import org.commonmark.renderer.html.HtmlRenderer
 import java.net.InetSocketAddress
-import scala.jdk.CollectionConverters.*
 
 /** Minimal HTTP server that serves .ssc files as HTML pages.
  *
@@ -389,12 +388,6 @@ object WebServer:
 
   private def serveStatic(file: java.io.File, ex: HttpExchange): Unit =
     StaticAssetServer.serve(file, ex)
-
-  /** Map a filename suffix to a Content-Type.  Probe Files.probeContentType
-   *  first (covers many less-common types via the platform mime DB), fall
-   *  back to a small explicit table for the web essentials, then a safe
-   *  `application/octet-stream`. */
-  private def contentTypeFor(name: String): String = HttpHelpers.contentTypeFor(name)
 
   // `parseMultipart` and `parseQuery` (previously local Value-bridge
   // wrappers) collapsed into `RequestBuilder.parse` — see `dispatchRoute`

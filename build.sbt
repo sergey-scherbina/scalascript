@@ -11,7 +11,11 @@ ThisBuild / version      := "0.1.0-SNAPSHOT"
 ThisBuild / Test / javaOptions += "-Xss8m"
 ThisBuild / Test / fork         := true
 
-val sharedScalacOptions = Seq("-Wunused:all", "-deprecation", "-feature")
+// Production code is held to fatal-warnings; test code stays warning-tolerant
+// because scalatest macros, mocks, and intentional unused vals are common
+// patterns that aren't worth silencing one-by-one.
+val sharedScalacOptions       = Seq("-Wunused:all", "-deprecation", "-feature")
+val sharedScalacOptionsStrict = sharedScalacOptions :+ "-Werror"
 val scalatestTest       = "org.scalatest" %% "scalatest" % "3.2.18" % Test
 
 // ---------------------------------------------------------------------------
@@ -27,7 +31,8 @@ lazy val ir = project
     libraryDependencies ++= Seq(
       "com.lihaoyi" %% "upickle" % "4.4.2"
     ),
-    scalacOptions ++= sharedScalacOptions
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions
   )
 
 lazy val backendSpi = project
@@ -35,7 +40,8 @@ lazy val backendSpi = project
   .dependsOn(ir)
   .settings(
     name := "scalascript-backend-spi",
-    scalacOptions ++= sharedScalacOptions
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions
   )
 
 lazy val core = project
@@ -50,7 +56,8 @@ lazy val core = project
       "org.commonmark" %  "commonmark" % "0.28.0",
       scalatestTest
     ),
-    scalacOptions ++= sharedScalacOptions
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions
   )
 
 // Phase 1a of the runtime-consolidation refactor (see
@@ -64,7 +71,8 @@ lazy val runtimeServerCommon = project
   .settings(
     name := "scalascript-runtime-server-common",
     libraryDependencies ++= Seq(scalatestTest),
-    scalacOptions ++= sharedScalacOptions,
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions,
     // Phase 1b: copy our own .scala sources into the classpath under
     // `runtime-server-common-sources/scalascript/server/*.scala` so the JVM
     // codegen backend can read them at codegen time and inline them into
@@ -87,7 +95,8 @@ lazy val backendJvm = project
   .dependsOn(backendSpi, core, runtimeServerCommon)
   .settings(
     name := "scalascript-backend-jvm",
-    scalacOptions ++= sharedScalacOptions
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions
   )
 
 lazy val backendJs = project
@@ -95,7 +104,8 @@ lazy val backendJs = project
   .dependsOn(backendSpi, core)
   .settings(
     name := "scalascript-backend-js",
-    scalacOptions ++= sharedScalacOptions
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions
   )
 
 lazy val backendScalajs = project
@@ -103,7 +113,8 @@ lazy val backendScalajs = project
   .dependsOn(backendSpi, core)
   .settings(
     name := "scalascript-backend-scalajs",
-    scalacOptions ++= sharedScalacOptions
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions
   )
 
 // SourceLanguage plugin for `scala` fence blocks (docs/backend-spi.md §9 / Phase 9).
@@ -115,7 +126,8 @@ lazy val backendScalaSource = project
   .dependsOn(backendSpi, core)
   .settings(
     name := "scalascript-backend-scala-source",
-    scalacOptions ++= sharedScalacOptions
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions
   )
 
 // SourceLanguage plugin for `html` fence blocks + (eventually) the
@@ -131,7 +143,8 @@ lazy val backendHtml = project
   .dependsOn(backendSpi, core)
   .settings(
     name := "scalascript-backend-html",
-    scalacOptions ++= sharedScalacOptions
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions
   )
 
 // SourceLanguage plugin for `css` fence blocks + (eventually) the
@@ -142,7 +155,8 @@ lazy val backendCss = project
   .dependsOn(backendSpi, core)
   .settings(
     name := "scalascript-backend-css",
-    scalacOptions ++= sharedScalacOptions
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions
   )
 
 // TRANSITIONAL DEPENDENCY: backend-interpreter → backend-js.
@@ -156,7 +170,8 @@ lazy val backendInterpreter = project
   .settings(
     name := "scalascript-backend-interpreter",
     libraryDependencies ++= Seq(scalatestTest),
-    scalacOptions ++= sharedScalacOptions
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions
   )
 
 // ── ProGuard shrink task (run: sbt cli/shrinkJar) ──────────────────────────
@@ -174,7 +189,8 @@ lazy val cli = project
       "com.lihaoyi" %% "pprint" % "0.9.6",
       scalatestTest
     ),
-    scalacOptions ++= sharedScalacOptions,
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions,
     assembly / mainClass       := Some("scalascript.cli.ssc"),
     assembly / assemblyJarName := "ssc.jar",
     assembly / assemblyMergeStrategy := {

@@ -68,11 +68,11 @@ object RequestBuilder:
     val ctLower = contentType.toLowerCase
     val (form, files, spooledTmps): (Map[String, String], Map[String, UploadedFile], List[java.io.File]) =
       if ctLower.startsWith("application/x-www-form-urlencoded") then
-        (HttpHelpers.parseQuery(body), Map.empty, Nil)
+        (HttpHelpers.parseQuery(body), Map.empty[String, UploadedFile], List.empty[java.io.File])
       else if ctLower.startsWith("multipart/form-data") then
         Multipart.parse(contentType, bodyLatin1, cfg.spoolThreshold, cfg.uploadDir)
       else
-        (Map.empty, Map.empty, Nil)
+        (Map.empty[String, String], Map.empty[String, UploadedFile], List.empty[java.io.File])
 
     val cookieHeader = headers.collectFirst {
       case (k, v) if k.equalsIgnoreCase("Cookie") => v

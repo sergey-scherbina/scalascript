@@ -43,7 +43,7 @@ object AstToIr:
    *  else is delegated to `term`. */
   def toIrExpr(t: Tree): ir.IrExpr = t match
     case Source(stats)         => ir.Block(stats.map(stat))
-    case Pkg(_, stats)         => ir.Block(stats.map(stat))
+    case Pkg.After_4_9_9(_, body) => ir.Block(body.stats.map(stat))
     case Term.Block(stats)     => ir.Block(stats.map(stat))
     case term: Term            => translateTerm(term)
     case other                 => ir.Unsupported(other.syntax)
@@ -75,7 +75,9 @@ object AstToIr:
     else ir.Block(names.map(n => ir.Apply(ir.VarRef("val"), List(ir.VarRef(n), rhs))))
 
   private def defnVar(dv: Defn.Var): ir.IrExpr =
-    val rhs = dv.rhs.map(translateTerm).getOrElse(ir.Lit(ir.LitValue.UnitL))
+    val rhs = dv match
+      case Defn.Var.After_4_7_2(_, _, _, body: Term) => translateTerm(body)
+      case _                                          => ir.Lit(ir.LitValue.UnitL)
     val names = dv.pats.flatMap(extractPatNames)
     if names.isEmpty then ir.Apply(ir.VarRef("var"), List(rhs))
     else ir.Block(names.map(n => ir.Apply(ir.VarRef("var"), List(ir.VarRef(n), rhs))))
@@ -107,18 +109,18 @@ object AstToIr:
   private def translateTerm(t: Term): ir.IrExpr = t match
     case Term.Name(n)                  => ir.VarRef(n)
     case Term.Select(qual, name)       => ir.Select(translateTerm(qual), name.value)
-    case Term.Apply(fn, args)          => ir.Apply(translateTerm(fn), args.map(translateTerm))
-    case Term.ApplyInfix(lhs, op, _, args) =>
+    case Term.Apply.After_4_6_0(fn, argClause)          => ir.Apply(translateTerm(fn), argClause.values.map(translateTerm))
+    case Term.ApplyInfix.After_4_6_0(lhs, op, _, argClause) =>
       // a + b   →   Apply(Select(a, "+"), [b])
       // Two-arg infix collapses to ordinary application against the operator name.
-      ir.Apply(ir.Select(translateTerm(lhs), op.value), args.map(translateTerm))
+      ir.Apply(ir.Select(translateTerm(lhs), op.value), argClause.values.map(translateTerm))
     case Term.ApplyUnary(op, arg)      =>
       ir.Apply(ir.Select(translateTerm(arg), s"unary_${op.value}"), Nil)
     case Term.Block(stats)             => ir.Block(stats.map(stat))
     case t: Term.If =>
       ir.If(translateTerm(t.cond), translateTerm(t.thenp), Some(translateTerm(t.elsep)))
-    case Term.Function(params, body)   =>
-      ir.Lambda(params.map(_.name.value), translateTerm(body))
+    case Term.Function.After_4_6_0(paramClause, body)   =>
+      ir.Lambda(paramClause.values.map(_.name.value), translateTerm(body))
     case Term.AnonymousFunction(body)  =>
       // `_ + 1` / `foo(_)` — best effort: wrap the body opaquely.
       ir.Lambda(Nil, translateTerm(body))

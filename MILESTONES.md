@@ -4265,15 +4265,20 @@ worth a separate fix when somebody has cycles.
   in.  Half-day refactor.  Worth it if a third WS-touching suite
   lands.
 
-- **Scala compiler warnings in our own code.**  `build.sbt` already
-  enables `-Wunused:all -deprecation -feature`, but the warnings
-  haven't been routinely fixed as they accumulated.  A one-pass
-  cleanup: triage the current backlog, fix the ones that point at
-  real issues (unused vals, deprecated stdlib calls, missing
-  `language:` imports), and silence-with-comment the ones that are
-  intentional.  Then bump to `-Xfatal-warnings` so the next batch
-  can't accumulate silently.  Tighten as `Compile / scalacOptions`
-  so test code can stay slightly looser if needed.  Half-day.
+- ~~**Scala compiler warnings in our own code.**~~  ✓ Landed (2026-05-19).
+  All 13 warnings fixed across 8 files (5 scalameta `After_X_Y_Z` migrations
+  in `AstToIr`, 1 match-exhaustiveness fix in `RequestBuilder`, removed
+  unused symbols in `Linker`/`Interpreter`/`WebServer`/2 plugin tests,
+  removed unused default param in `evalDirectBlock`).  `Compile / scalacOptions`
+  bumped to `-Werror` (the non-deprecated alias of `-Xfatal-warnings`);
+  `Test / scalacOptions` kept at warning-tolerant for scalatest macros /
+  intentional mocks.  Future warnings now fail the build before they
+  accumulate.
+
+- **`SupervisorTest` — 4 pre-existing failures.**  `OneForOne` permanent /
+  transient / temporary restart specs and the `MaxRestarts` budget spec
+  all fail on clean `main` (independent of the warnings cleanup).  Not
+  blocking landed work — worth a dedicated fix when somebody has cycles.
 
 ## CLI — native binary (GraalVM native-image) — BLOCKED (not doing this)
 

@@ -156,7 +156,7 @@ object Linker:
       MatchTree(rewriteExpr(scrutinee, symTable, ownPkg), rewriteNode(root, symTable, ownPkg))
     case Apply(fn, args) =>
       Apply(rewriteExpr(fn, symTable, ownPkg), args.map(a => rewriteExpr(a, symTable, ownPkg)))
-    case s @ Select(qual, name) =>
+    case Select(qual, name) =>
       // If the Select forms a package-qualified reference like `a.bar` or
       // `std.dsl.foo` and the joined path matches a foreign export's FQN,
       // collapse the entire chain into a single `VarRef(fqn)`.
