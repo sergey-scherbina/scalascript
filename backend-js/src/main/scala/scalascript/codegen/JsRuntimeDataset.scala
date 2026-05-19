@@ -59,6 +59,29 @@ class _Dataset {
       return out;
     }, this._parallel);
   }
+  union(other) {
+    // Concatenate this dataset's materialised output with `other`'s.
+    // Both pipelines run at terminal time; multiplicities preserved
+    // (Spark semantics — use .distinct after if dedup is wanted).
+    const self = this;
+    return new _Dataset(() => [...self.collect(), ...other.collect()],
+                        xs => xs, this._parallel);
+  }
+  intersect(other) {
+    // Set intersection; preserves left order, dedups. Uses JSON.stringify
+    // for value equality so case-class instances compare structurally.
+    const self = this;
+    return new _Dataset(() => {
+      const otherKeys = new Set(other.collect().map(v => JSON.stringify(v)));
+      const seen = new Set();
+      const out = [];
+      for (const x of self.collect()) {
+        const k = JSON.stringify(x);
+        if (otherKeys.has(k) && !seen.has(k)) { seen.add(k); out.push(x); }
+      }
+      return out;
+    }, xs => xs, this._parallel);
+  }
   groupBy(key) {
     const prev = this._pipeline;
     return new _Dataset(this._sourceFn, xs => {

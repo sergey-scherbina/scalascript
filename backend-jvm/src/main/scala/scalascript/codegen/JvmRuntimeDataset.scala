@@ -35,6 +35,23 @@ val JvmRuntimeDataset: String =
      |  def distinct: _Dataset[T] =
      |    new _Dataset(() => _sourceFn(), xs => _pipeline(xs).distinct, _parallel)
      |
+     |  // Spark-style set ops between two datasets. Both pipelines fire at
+     |  // terminal time; multiplicities preserved by union (use .distinct
+     |  // after for set semantics). Intersect dedups + preserves left order.
+     |  def union(other: _Dataset[T]): _Dataset[T] =
+     |    new _Dataset(
+     |      () => _pipeline(_sourceFn()) ++ other._pipeline(other._sourceFn()),
+     |      xs => xs,
+     |      _parallel)
+     |
+     |  def intersect(other: _Dataset[T]): _Dataset[T] =
+     |    new _Dataset(
+     |      () =>
+     |        val rs = other._pipeline(other._sourceFn()).toSet
+     |        _pipeline(_sourceFn()).distinct.filter(rs.contains),
+     |      xs => xs,
+     |      _parallel)
+     |
      |  def groupBy[K](key: T => K): _Dataset[(K, List[T])] =
      |    new _Dataset(() => _sourceFn(), xs =>
      |      _pipeline(xs)

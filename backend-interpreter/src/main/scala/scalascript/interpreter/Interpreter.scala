@@ -592,6 +592,28 @@ class Interpreter(
       "distinct" -> Value.NativeFnV("Dataset.distinct", Computation.pureFn(_ =>
         makeDatasetV(() => run().distinct)
       )),
+      // Set-like binary ops between datasets.  `other` must be another
+      // Dataset InstanceV; we pull its lazy thunk and compose at terminal time.
+      "union" -> Value.NativeFnV("Dataset.union", {
+        case List(Value.InstanceV("Dataset", otherFields)) =>
+          val otherRun = otherFields("collect") match
+            case Value.NativeFnV(_, f) => () => Computation.run(f(Nil)) match
+              case Value.ListV(xs) => xs
+              case other           => List(other)
+            case _ => () => Nil
+          Pure(makeDatasetV(() => run() ++ otherRun()))
+        case _ => throw InterpretError("Dataset.union(other: Dataset[T]): Dataset[T]")
+      }),
+      "intersect" -> Value.NativeFnV("Dataset.intersect", {
+        case List(Value.InstanceV("Dataset", otherFields)) =>
+          val otherRun = otherFields("collect") match
+            case Value.NativeFnV(_, f) => () => Computation.run(f(Nil)) match
+              case Value.ListV(xs) => xs
+              case other           => List(other)
+            case _ => () => Nil
+          Pure(makeDatasetV(() => run().intersect(otherRun())))
+        case _ => throw InterpretError("Dataset.intersect(other: Dataset[T]): Dataset[T]")
+      }),
       "groupBy" -> Value.NativeFnV("Dataset.groupBy", {
         case List(keyFn) => Pure(makeDatasetV(() => {
           val items = run()

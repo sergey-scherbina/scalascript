@@ -1,0 +1,35 @@
+---
+name: dataset-union-intersect
+---
+
+# Dataset — union / intersect
+
+Spark-style set operations between two datasets. `union` concatenates and
+preserves multiplicities; `intersect` keeps elements in both, dedups, and
+preserves left-side order.
+
+```scalascript
+val a = Dataset.of(1, 2, 3, 4)
+val b = Dataset.of(3, 4, 5, 6)
+
+// union — concatenation, multiplicities preserved
+println(a.union(b).collect().mkString(", "))
+
+// union + distinct — set-style union
+println(a.union(b).distinct.collect().mkString(", "))
+
+// intersect — common elements, dedups, left order
+println(a.intersect(b).collect().mkString(", "))
+
+// intersect with duplicates on left
+val c = Dataset.of(1, 2, 2, 3, 3, 3)
+val d = Dataset.of(2, 3, 4)
+println(c.intersect(d).collect().mkString(", "))
+
+// Empty intersect
+val e = Dataset.of(10, 20)
+println(a.intersect(e).collect().mkString(", "))
+
+// union with empty
+println(a.union(Dataset.of[Int]()).collect().mkString(", "))
+```
