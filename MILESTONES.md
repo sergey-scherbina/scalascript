@@ -6652,20 +6652,58 @@ to `SqlRuntime.execute` and bypasses the registry.
 
 ### Phase 6 — Interpreter + JvmGen integration
 
-- [ ] Interpreter: `SqlBlock` IR node evaluates via
-      `SqlRuntime.execute` against the resolved `Connection`.  The
-      block's value is `Seq[Row]` or `Int` as per § 3.3.1.
-- [ ] `JvmGen`: emit Scala code that calls `SqlRuntime.execute(...)`
-      with the same `(sqlWithQ, binds, conn)` triple.  Bind exprs
-      are spliced as Scala expressions; the SQL string is a string
-      literal — no runtime rewriting on the JVM hot path.
-- [ ] `JsGen`, `NodeBackend`, `WasmBackend`: emit a
-      `Diagnostic.UnknownBlockLanguage("sql")` referencing the block
-      position; do not fail other blocks in the module.
-- [ ] End-to-end test (`backend-interpreter/.../InterpreterTest.scala`
-      + a JvmGen test): same `.ssc` source — `CREATE`, `INSERT` with
-      binds, `SELECT` with binds, `.as[CaseClass]` — runs identically
-      under interpreter and under JvmGen-compiled code.
+#### Phase 6.A — Capability declarations + Denormalize round-trip (landed)
+
+- [x] `JvmCapabilities` / `InterpreterCapabilities` declare
+      `blockLanguages = Set(Lang.Sql)`.
+- [x] `backend-jvm` and `backend-interpreter` `dependsOn(backendSqlRuntime)`.
+- [x] `Denormalize` carries `ir.Content.SqlBlock.dbName` through
+      `ast.Content.CodeBlock.attrs("db")` so consumers read the
+      database selector through the same channel the parser
+      populates it.
+
+#### Phase 6.B — Interpreter executes sql blocks (landed)
+
+- [x] `Value.Foreign(typeName, handle)` — opaque JVM-handle bridge.
+- [x] `intrinsics/Jdbc.scala` — `DriverManager.getConnection` in
+      both 1-arg and 3-arg overloads; returns
+      `Foreign("Connection", conn)`.  `globals("DriverManager")`
+      companion built in `initBuiltins`.
+- [x] `Interpreter.run` materialises a per-module
+      `ConnectionRegistry` from `manifest.databases` at module-init.
+- [x] `Interpreter.runSection` dispatches `sql` blocks to a new
+      `runSqlBlock` that:
+      re-runs `SqlBindRewriter.rewriteJdbc` on `cb.source`, evals
+      each bind expression in the current scope (`unwrapForJdbc`
+      projects `Value` → JDBC `Any`), resolves the `Connection`
+      via the override path (`Foreign("Connection", _)` bound to
+      the `Connection` global) with the registry as fallback,
+      calls `SqlRuntime.execute`, wraps the result (`Rows` →
+      `ListV(MapV-per-row)`, `UpdateCount` → `IntV`), and binds it
+      under both `<sectionId>.sql` and `_sqlBlock_<ordinal>`.
+- [x] `SqlBlockInterpreterTest` (5 cases): registry-path DDL +
+      INSERT + SELECT, dual surfacing, 1-arg + 3-arg override
+      path, UPDATE returns affected-row count.
+
+#### Phase 6.C — JvmGen codegen (open)
+
+- [ ] `JvmGen.collectBlocks` recognises `ir.Content.SqlBlock` and
+      emits Scala source that mirrors the interpreter shape:
+      `val _sqlBlock_<N>: SqlResult =
+         scalascript.sql.SqlRuntime.execute(<conn>, "<?-templated>", List(<binds>))`
+      + a `<sectionId>.sql` alias per the Spark precedent.
+- [ ] Front-matter `databases:` materialises in emitted code as a
+      `_ssc_sql_registry: ConnectionRegistry` constructor that
+      runs once at script entrypoint.
+- [ ] Tests: `JvmGenTest` text-shape assertions + one scala-cli
+      runtime smoke-test executing CREATE / INSERT / SELECT via
+      the emitted code.
+
+The `JsGen` / `NodeBackend` / `WasmBackend` `UnknownBlockLanguage`
+diagnostic is **already wired generically** via
+`validate/CapabilityCheck.unknownBlockLanguages` matching
+`Lang.isOpaqueExec` (Phase 3 / 5).  An explicit end-to-end test for
+each non-JVM backend is a Phase 7 conformance item.
 
 ### Phase 7 — Examples + conformance
 
