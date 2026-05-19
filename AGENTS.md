@@ -80,9 +80,20 @@ To stay out of each other's way — five rules, all mandatory:
 
 `EnterWorktree(<descriptive-name>)` on a `feature/<name>` branch off
 `origin/main`. All edits, commits, and `sbt compile` / `sbt test` runs
-happen inside that worktree. Never work directly in the main checkout
-when other agents may be running in parallel — you'll trample each
-other's uncommitted state.
+happen inside that worktree.  **Never edit, commit, or run tests
+directly on `main`** — in this repo other agents are essentially
+always running in parallel, and they will switch the shared checkout's
+HEAD, stash your uncommitted state, and `git clean` your untracked
+files (it has happened repeatedly).  Even "small" changes to `AGENTS.md`
+/ `MILESTONES.md` / a one-line bug fix go through a worktree on a
+feature branch.
+
+The shared `main` checkout is only ever for two things:
+
+1. Reading state (`git log`, `git status`, file viewing).
+2. Fast-forward merge of *your* `feature/<name>` branch into `main`
+   followed immediately by `git push origin main` (Rule 3).  No
+   stops, no edits in between.
 
 ### 2. Before starting — sync + check (≤ 5 seconds)
 
@@ -107,22 +118,29 @@ If your item already landed on `origin/main` (search recent commits),
 mark it done in `MILESTONES.md` and move on.
 
 **Returning to an existing branch / worktree between iterations.**  If
-you're continuing work in a branch you already opened (or in a worktree
-from a previous turn), do the same sync at the start of *every*
-iteration, then rebase your branch on the freshly-fetched
-`origin/main` before touching anything:
+you're continuing work in a `feature/<name>` worktree you opened in a
+previous turn, do the same sync at the start of *every* iteration,
+then rebase your branch on the freshly-fetched `origin/main` before
+touching anything:
 
 ```bash
 git fetch origin
-git pull --ff-only origin main      # if you're on main
-# OR, if you're on a feature/<name> branch:
-git fetch origin && git rebase origin/main
+git rebase origin/main
 ```
 
 Parallel agents may have pushed runtime / API / SPI changes that your
 in-flight edits depend on; skipping the rebase means you're building
 on stale assumptions and will hit merge conflicts later.  Cheap to do,
 expensive to skip.
+
+If your worktree was switched to `main` between turns (this happens —
+other agents do `git checkout main` in the shared repo), **don't start
+editing on main**.  Switch back to your feature branch first per Rule 1:
+
+```bash
+git checkout feature/<name>           # back to your branch
+git fetch origin && git rebase origin/main
+```
 
 ### 3. Every finished piece → straight to `origin/main`
 
