@@ -1,0 +1,67 @@
+#!/usr/bin/env ssc
+---
+name: oauth-rsa-jwks
+version: 1.0.0
+description: Production-grade OAuth AS with RSA-signed tokens and a published JWKS endpoint — resource servers validate tokens via the public key, never sharing a secret with the AS.
+---
+
+# OAuth AS with RSA Signing + JWKS
+
+The default `oauth.authServer(...)` uses HS256 (HMAC-SHA256) — both the
+AS and the resource server need the same secret.  Production cross-
+service deployments prefer **RS256** (RSA-SHA256):
+
+  - AS holds the private key, signs tokens with it
+  - AS publishes the **public** key as a JWKS at
+    `/.well-known/jwks.json`
+  - Resource servers fetch the public key, validate tokens locally
+  - The shared secret is gone — compromising one RS doesn't compromise
+    the AS
+
+This example shows how to wire RSA signing.  Inspect the JWT after
+launch:
+
+```bash
+curl http://localhost:8080/.well-known/jwks.json
+# {"keys":[{"kty":"RSA","use":"sig","alg":"RS256","kid":"prod-key-1","n":"...","e":"AQAB"}]}
+
+TOKEN=$(curl -s -X POST http://localhost:8080/token \
+  -d 'grant_type=client_credentials&client_id=svc&client_secret=svc-secret&scope=read' \
+  | jq -r .access_token)
+
+# Decode the header — alg is RS256, kid points at the JWKS entry
+echo $TOKEN | cut -d. -f1 | base64 -d
+```
+
+Note: this example uses the JVM-only intrinsic side via Scala embedding.
+For pure-script use today, instantiate the AS through `oauth.authServer`
+and let the default HS256 signer apply; the RSA pathway is exercised
+from Scala test code (`OAuthRsaJwksTest`).  A future script intrinsic
+for `oauth.rsaAuthServer(...)` is queued.
+
+```scalascript
+// HMAC-mode AS for now — RSA AS configuration exposed at the
+// Scala API level (`new AuthServer(cfg, customSigner = Some(
+// OAuth.RsaTokenSigner.generate("prod-key-1")))`).  See
+// docs/oauth.md for the JVM-side recipe + a step-by-step migration
+// path from HS256 to RS256.
+
+val as = oauth.authServer(Map(
+  "issuer"        -> "http://localhost:8080",
+  "signingSecret" -> "interim-hmac-secret",
+  "scopes"        -> List("read")
+))
+
+val client = as.registerClient(Map(
+  "redirect_uris" -> List("http://localhost/cb"),
+  "grant_types"   -> List("client_credentials"),
+  "scope"         -> "read"
+))
+println("client_id: " + client("client_id"))
+println("client_secret: " + client("client_secret"))
+
+oauth.serveAuthServer(as)
+
+println("OAuth AS ready on http://localhost:8080")
+serve(8080)
+```

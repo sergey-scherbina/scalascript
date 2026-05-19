@@ -1,0 +1,81 @@
+#!/usr/bin/env ssc
+---
+name: oauth-rs-guard
+version: 1.0.0
+description: Generic Resource Server — protects HTTP routes with OAuth bearer-token validation via `oauth.guard`.  Independent of MCP.
+---
+
+# OAuth Resource Server with `oauth.guard`
+
+Shows the generic RS pattern: an HTTP service that requires OAuth bearer
+tokens on its endpoints.  `oauth.guard(as, scopes)` wraps any route
+handler so that:
+
+  - missing / malformed `Authorization` header → 401 invalid_request
+  - bad / expired / revoked token              → 401 invalid_token
+  - insufficient token scopes                  → 403 insufficient_scope
+  - happy path                                 → handler runs with the
+                                                 decoded `AuthClaims`
+
+A separate Authorization Server (this same process for the demo) issues
+the tokens.  In production these are usually separate services.
+
+To test:
+
+```bash
+# 1. Mint a token via the AS embedded in this script
+TOKEN=$(curl -s -X POST http://localhost:8080/token \
+  -d "grant_type=client_credentials&client_id=demo&client_secret=demo-secret&scope=read" \
+  | jq -r .access_token)
+
+# 2. Hit the protected endpoint
+curl -H "Authorization: Bearer $TOKEN" http://localhost:8080/api/data
+
+# 3. Or without a token → 401
+curl -i http://localhost:8080/api/data
+```
+
+```scalascript
+// ─── Authorization Server (embedded for demo) ─────────────────────────
+val as = oauth.authServer(Map(
+  "issuer"        -> "http://localhost:8080",
+  "signingSecret" -> "demo-secret-rotate-me",
+  "scopes"        -> List("read", "write")
+))
+val client = as.registerClient(Map(
+  "redirect_uris"             -> List("http://localhost/cb"),
+  "grant_types"               -> List("client_credentials"),
+  "scope"                     -> "read write"
+))
+println("Client " + client("client_id") + " / " + client("client_secret"))
+oauth.serveAuthServer(as)
+
+// ─── Resource Server endpoints — guarded by OAuth ────────────────────
+
+// `oauth.guard(as, scopes)` returns a curried wrapper.  Inside, the
+// handler signature gains a second `claims` parameter — the decoded
+// AuthClaims for the validated bearer token.
+val readGuard  = oauth.guard(as, List("read"))
+val writeGuard = oauth.guard(as, List("write"))
+
+route("GET", "/api/data", readGuard { (req, claims) =>
+  Response.json(Map(
+    "data"    -> List("alpha", "beta", "gamma"),
+    "viewedBy" -> claims.subject
+  ))
+})
+
+route("POST", "/api/data", writeGuard { (req, claims) =>
+  Response.json(Map(
+    "ok"        -> true,
+    "writtenBy" -> claims.subject
+  )).withHeader("X-Auth-Subject", claims.subject)
+})
+
+println("Resource Server ready on http://localhost:8080")
+println("  GET  /api/data  (scope: read)")
+println("  POST /api/data  (scope: write)")
+println("  + all OAuth endpoints at the same origin")
+
+serve(8080)
+```
