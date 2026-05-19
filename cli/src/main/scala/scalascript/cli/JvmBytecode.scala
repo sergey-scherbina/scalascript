@@ -86,7 +86,15 @@ object JvmBytecode:
         "scala-cli",
         "compile",
         srcFile.toString,
-        "--compilation-output", outDir.toString
+        "--compilation-output", outDir.toString,
+        // `--server=false` disables Bloop daemon reuse across invocations.
+        // Without it, parallel sbt test runs share a single Bloop daemon
+        // that serialises compile requests; under load the daemon's
+        // socket queue stalls and a compile hangs indefinitely (observed
+        // in `cli/testOnly *V2Artifact* *JvmBytecode*` when both suites
+        // hit scala-cli concurrently).  Each invocation pays a ~1 s
+        // JVM-start tax but the parallel-safe property is worth it.
+        "--server=false"
       )
       val jarArgs: Seq[os.Shellable] = classpathDirs.flatMap(d =>
         Seq[os.Shellable]("--jar", d.toString)

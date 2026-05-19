@@ -2320,7 +2320,7 @@ def compileCommand(args: List[String]): Unit =
         val script = expectText(compileViaBackend("jvm", path), "compile")
         val tmp    = os.temp(script, suffix = ".sc", deleteOnExit = true)
         try
-          val result = os.proc("scala-cli", "run", tmp).call(
+          val result = os.proc("scala-cli", "run", tmp, "--server=false").call(
             stdout = os.Inherit,
             stderr = os.Inherit,
             check  = false
@@ -2354,6 +2354,7 @@ def packageCommand(args: List[String]): Unit =
             else List("--output", path.last.stripSuffix(".ssc"))
           val result = os.proc(
             "scala-cli", "--power", "package", tmp,
+            "--server=false",
             outputFlags,
             scalaCliFlags
           ).call(stdout = os.Inherit, stderr = os.Inherit, cwd = os.pwd, check = false)
@@ -3059,7 +3060,8 @@ private def linkJvmFromScjvm(
       try
         val res = os.proc(
           "scala-cli", "--power", "package", tmp.toString,
-          "-o", outPath.toString, "--assembly", "--force"
+          "-o", outPath.toString, "--assembly", "--force",
+          "--server=false"
         ).call(stdout = os.Inherit, stderr = os.Inherit, check = false)
         if res.exitCode != 0 then
           System.err.println(s"link --backend jvm: scala-cli package failed with exit ${res.exitCode}")
@@ -3077,7 +3079,7 @@ private def linkJvmFromScjvm(
       // No output: run the combined source via scala-cli run.
       val tmp = os.temp(combined, suffix = ".sc", deleteOnExit = true)
       try
-        val res = os.proc("scala-cli", "run", tmp).call(
+        val res = os.proc("scala-cli", "run", tmp, "--server=false").call(
           stdout = os.Inherit, stderr = os.Inherit, check = false
         )
         if res.exitCode != 0 then System.exit(res.exitCode)
