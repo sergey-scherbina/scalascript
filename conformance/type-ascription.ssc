@@ -1,0 +1,17 @@
+---
+name: conformance-type-ascription
+description: Type ascription (expr: T) — interpreter, JS, JVM must all evaluate the inner expression and ignore the type
+backends: [js, jvm, interpreter]
+---
+
+# Type ascription
+
+```scalascript
+println((42: Int))
+println(("hello": String))
+println(((1 + 2): Int) + 1)
+val x: Option[Int] = (None: Option[Int])
+println(x)
+val xs: List[Int] = (Nil: List[Int])
+println(xs)
+```

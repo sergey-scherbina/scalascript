@@ -927,3 +927,17 @@ def main(): Unit =
     ex.getMessage should include ("missing argument")
   }
 
+  test("type ascription — bare expression") {
+    captured("println((42: Int))") shouldBe "42"
+    captured("println((\"hi\": String))") shouldBe "hi"
+  }
+
+  test("type ascription — inside larger expression") {
+    captured("println(((1 + 2): Int) + 1)") shouldBe "4"
+  }
+
+  test("type ascription — None / Nil disambiguation") {
+    captured("val x: Option[Int] = (None: Option[Int]); println(x)") shouldBe "None"
+    captured("val xs: List[Int] = (Nil: List[Int]); println(xs)") shouldBe "List()"
+  }
+
