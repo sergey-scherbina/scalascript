@@ -44,6 +44,11 @@ object McpProtocol:
     // client → server push when its roots change.
     val RootsList             = "roots/list"
     val RootsListChanged      = "notifications/roots/list_changed"
+    // v1.17.x — elicitation (server → client request for user input).
+    // Sent during a tool call to ask the user for additional info; the
+    // client replies with one of: accept (content matches schema),
+    // decline (user said no), cancel (user dismissed the dialog).
+    val ElicitationCreate     = "elicitation/create"
 
   /** Syslog levels per MCP spec, ordered by severity (low to high). */
   val LogLevels: List[String] = List(
@@ -184,6 +189,42 @@ object McpProtocol:
           }.toList
         case None => Nil
     catch case _: Throwable => Nil
+
+  // ─── Elicitation ────────────────────────────────────────────────────
+
+  /** v1.17.x — three-way response shape for `elicitation/create`.
+   *  `Accept(content)`: the user filled in the schema; payload is the
+   *    structured ujson object — typed parsing is the caller's job.
+   *  `Decline`: the user explicitly refused (e.g. clicked "No").
+   *  `Cancel`:  the user dismissed the dialog without deciding (e.g.
+   *    closed it, hit Escape).  Servers usually treat decline+cancel
+   *    the same — see `isAccepted` / `acceptedContent`. */
+  enum ElicitationResult:
+    case Accept(content: ujson.Value)
+    case Decline
+    case Cancel
+
+    def isAccepted: Boolean = this.isInstanceOf[Accept]
+    def acceptedContent: Option[ujson.Value] = this match
+      case Accept(c) => Some(c)
+      case _         => None
+
+  /** Build the params for an outgoing `elicitation/create` request. */
+  def elicitationCreateParams(message: String, requestedSchema: ujson.Value): ujson.Value =
+    ujson.Obj("message" -> message, "requestedSchema" -> requestedSchema)
+
+  /** Parse the client's reply.  Unknown / malformed shapes resolve to
+   *  `Cancel` so user code defaults to the safe "user didn't agree"
+   *  branch instead of crashing. */
+  def parseElicitationResult(js: ujson.Value): ElicitationResult =
+    try
+      js.obj.get("action").flatMap(_.strOpt) match
+        case Some("accept") =>
+          val content = js.obj.get("content").getOrElse(ujson.Obj())
+          ElicitationResult.Accept(content)
+        case Some("decline") => ElicitationResult.Decline
+        case _               => ElicitationResult.Cancel
+    catch case _: Throwable => ElicitationResult.Cancel
 
   // ─── Content variants — the protocol's polymorphic value type ──────
 

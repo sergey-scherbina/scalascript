@@ -632,6 +632,27 @@ private object Mcp:
     })
     def clientSupportsRootsFn = Value.NativeFnV("McpServer.clientSupportsRoots",
       Computation.pureFn { _ => Value.BoolV(builder.clientSupportsRoots) })
+    // v1.17.x — elicitation.  `srv.elicit(message, schema[, timeoutMs])`
+    // pops a prompt on the client side asking for user input matching
+    // the supplied JSON Schema.  Returns an ElicitationResult instance:
+    //   - Accept(content) → user filled in the form
+    //   - Decline         → user clicked No
+    //   - Cancel          → user dismissed the dialog
+    // Treat the latter two as the safe "user didn't agree" branch.
+    def elicitFn = Value.NativeFnV("McpServer.elicit", Computation.pureFn {
+      case List(Value.StringV(message), schemaV, Value.IntV(timeoutMs)) =>
+        builder.elicit(message, Mcp.valueToJson(schemaV), timeoutMs) match
+          case Left(e)  => throw InterpretError(s"srv.elicit: ${e.message}")
+          case Right(r) => Mcp.elicitationResultToValue(r)
+      case List(Value.StringV(message), schemaV) =>
+        builder.elicit(message, Mcp.valueToJson(schemaV)) match
+          case Left(e)  => throw InterpretError(s"srv.elicit: ${e.message}")
+          case Right(r) => Mcp.elicitationResultToValue(r)
+      case _ => throw InterpretError("srv.elicit(message, schema[, timeoutMs])")
+    })
+    def clientSupportsElicitationFn =
+      Value.NativeFnV("McpServer.clientSupportsElicitation",
+        Computation.pureFn { _ => Value.BoolV(builder.clientSupportsElicitation) })
     Value.InstanceV("McpServer", Map(
       "tool"                          -> toolFn,
       "toolWithSchema"                -> toolWithSchemaFn,
@@ -652,9 +673,11 @@ private object Mcp:
       "notifyResourceUpdate"   -> notifyResUpdateFn,
       "notify"                 -> notifyFn,
       "request"                -> requestFn,
-      "listRoots"              -> listRootsFn,
-      "onRootsListChanged"     -> onRootsLCFn,
-      "clientSupportsRoots"    -> clientSupportsRootsFn
+      "listRoots"                  -> listRootsFn,
+      "onRootsListChanged"         -> onRootsLCFn,
+      "clientSupportsRoots"        -> clientSupportsRootsFn,
+      "elicit"                     -> elicitFn,
+      "clientSupportsElicitation"  -> clientSupportsElicitationFn
     ))
 
   private def registerTool(
@@ -1162,6 +1185,29 @@ private object Mcp:
         "name" -> Value.OptionV(r.name.map(s => Value.StringV(s)))
       ))
     })
+
+  /** v1.17.x — adapt the three-way ElicitationResult into a single
+   *  InstanceV with two fields: `action` (one of "accept"/"decline"/"cancel")
+   *  and `content` (`Option[Map[...]]` — `Some(...)` only for accept).
+   *  User scripts pattern-match on `action` and read `content`
+   *  conditionally, or use the spec-recommended pattern of treating
+   *  decline+cancel identically. */
+  def elicitationResultToValue(r: McpProtocol.ElicitationResult): Value = r match
+    case McpProtocol.ElicitationResult.Accept(content) =>
+      Value.InstanceV("ElicitationResult", Map(
+        "action"  -> Value.StringV("accept"),
+        "content" -> Value.OptionV(Some(jsonToValue(content)))
+      ))
+    case McpProtocol.ElicitationResult.Decline =>
+      Value.InstanceV("ElicitationResult", Map(
+        "action"  -> Value.StringV("decline"),
+        "content" -> Value.OptionV(None)
+      ))
+    case McpProtocol.ElicitationResult.Cancel =>
+      Value.InstanceV("ElicitationResult", Map(
+        "action"  -> Value.StringV("cancel"),
+        "content" -> Value.OptionV(None)
+      ))
 
   def jsonToValue(v: ujson.Value): Value = v match
     case ujson.Null    => Value.OptionV(None)
