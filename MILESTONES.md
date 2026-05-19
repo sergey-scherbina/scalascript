@@ -5464,7 +5464,7 @@ view so they shape near-term decisions.
 
 ## v1.25 — JavaScript / Node.js fenced code blocks
 
-**Status: Phases 1+2 landed; Phases 3+ open. Branch `worktree-js-node-blocks`.**
+**Status: Phases 1–3 landed; Phases 4–5 open. Branch `worktree-js-node-blocks`.**
 
 Symmetry fix and new target.  Pre-v1.25, `html` and `css` were
 first-class string blocks (§ 3.3 of `SPEC.md`) but `javascript` was
@@ -5505,30 +5505,47 @@ semantics arrive with Phase 3.
       `EmbeddedBlock` with source intact, full
       Parse → Normalize → Denormalize round-trip preserves the body
       character-for-character with no JS parser invoked.
-- **Deferred to Phase 3**: emitting `Diagnostic.UnknownBlockLanguage`
-  on non-Node backends.  Requires extending `Capabilities` with a
-  block-language axis alongside `features` — designed together with
-  the first consumer (the Node backend) rather than ahead of time.
+### Phase 3a — `Capabilities.blockLanguages` axis + `CapabilityCheck` ✓ Landed
 
-### Phase 3 — `backend-node` module — open
+Shape-only SPI extension: a new optional `blockLanguages: Set[String]`
+field on `Capabilities` (default `Set.empty`).  A backend lists the
+opaque-executable lang tags it consumes.  `CapabilityCheck.validate`
+now also walks every `EmbeddedBlock` and emits
+`Diagnostic.UnknownBlockLanguage(lang)` for any lang satisfying
+`Lang.isOpaqueExec` that isn't in the backend's declared set.  String
+blocks (`html` / `css` / `javascript`) and inert tags (`python`,
+`yaml`, …) are not affected.  Six new tests pin the contract.
 
-New SPI backend with target id `"node"`.  Pipeline:
+### Phase 3b — `backend-node` module ✓ Landed
 
-1. Collect `node.js` blocks in document order → glue prefix.
-2. Run `JsGen` over `scalascript` / `scala` blocks (reuse existing
-   code generator unchanged).
-3. Concatenate `<glue>\n<jsgen output>\n<entrypoint>` into one `.mjs`.
-4. Execute via `node <bundle>.mjs` for `CompileResult.Executed`, or
-   return `CompileResult.TextOutput(language = "javascript")`.
+New SPI backend with target id `"node"`, registered via
+`META-INF/services` so `--list-backends` discovers it.  Pipeline:
 
-- [ ] New sbt module `backend-node/` mirroring `backend-js/` layout.
-- [ ] `NodeBackend.scala` (Backend SPI adapter), `NodeCapabilities.scala`
-      (declare `node.js` as a supported block language — add the
-      block-language axis to the `Capabilities` SPI).
-- [ ] `META-INF/services/scalascript.backend.spi.Backend` entry.
-- [ ] `CapabilityCheck`: emit `Diagnostic.UnknownBlockLanguage` on
-      backends whose capabilities don't list `node.js`.
-- [ ] CLI registration; `--list-backends` shows `node`.
+1. Walk the IR collecting every `node.js` / `node` `EmbeddedBlock`
+   in document order → verbatim glue prefix.
+2. `JsGen.detectCapabilities(...)` → `JsGen.generateRuntime(caps)`
+   for the full JS runtime preamble.
+3. `JsGen.generate(...)` produces the user code (scalascript/scala +
+   string blocks).
+4. Append a Node-specific flush epilogue that pumps the JsRuntime's
+   `_output` buffer to `process.stdout`.
+5. Return `CompileResult.TextOutput(code, "javascript", Nil)`.
+
+`NodeCapabilities` mirrors `JsCapabilities`' feature set plus
+`blockLanguages = Set("node.js", "node")`.  Intrinsic table is
+shared with JsBackend.  No JS parser anywhere in the pipeline.
+
+Eight tests in `NodeBackendTest`: identity / capabilities / glue
+ordering / multiple-block ordering / `node` alias / CapabilityCheck
+acceptance — plus an end-to-end integration that actually compiles
+a `.ssc` document and runs the emitted bundle under `node`,
+asserting on stdout.  (CI without Node on PATH skips the
+integration via `assume(hasNode, ...)`.)
+
+Note: emitted bundles are CommonJS-compatible (`.cjs`) — JsRuntime
+uses `require('fs')` for FileSystem helpers; ESM-mode `.mjs`
+emission is deferred until a follow-up rewrites the runtime in
+import form.
 
 ### Phase 4 — `extern def` ↔ `globalThis` bridging — open
 

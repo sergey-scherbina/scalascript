@@ -159,6 +159,20 @@ lazy val backendJs = project
     Test    / scalacOptions ++= sharedScalacOptions
   )
 
+// v1.25 Phase 3b — Node.js target.  Reuses JsGen for the
+// `scalascript` / `scala` body and concatenates `node.js` opaque-exec
+// blocks verbatim as a glue prefix.  Depends on backendJs to share
+// JsGen + JsCapabilities helpers and intrinsic tables.
+lazy val backendNode = project
+  .in(file("backend-node"))
+  .dependsOn(backendSpi, core, backendJs)
+  .settings(
+    name := "scalascript-backend-node",
+    libraryDependencies ++= Seq(scalatestTest),
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions
+  )
+
 lazy val backendScalajs = project
   .in(file("backend-scalajs"))
   .dependsOn(backendSpi, core)
@@ -258,7 +272,7 @@ val shrinkJar = taskKey[File]("Shrink the assembled ssc.jar with ProGuard 7.5 (1
 lazy val cli = project
   .in(file("cli"))
   .enablePlugins(SbtProguard)
-  .dependsOn(core, backendJvm, backendJs, backendScalajs, backendWasm, backendInterpreter, backendScalaSource, backendHtml, backendCss, backendSpark)
+  .dependsOn(core, backendJvm, backendJs, backendNode, backendScalajs, backendWasm, backendInterpreter, backendScalaSource, backendHtml, backendCss, backendSpark)
   .settings(
     name := "scalascript-cli",
     libraryDependencies ++= Seq(
@@ -384,7 +398,7 @@ lazy val root = project
   .in(file("."))
   .aggregate(
     backendSpi, ir, core, runtimeServerCommon, runtimeServerJvm, mcpCommon,
-    backendJvm, backendJs, backendScalajs, backendWasm, backendInterpreter,
+    backendJvm, backendJs, backendNode, backendScalajs, backendWasm, backendInterpreter,
     backendScalaSource, backendHtml, backendCss, backendSpark,
     cli
   )
