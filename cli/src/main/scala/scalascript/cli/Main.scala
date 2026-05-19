@@ -84,6 +84,7 @@ private def dispatchCommand(args: List[String]): Unit =
     case "fmt"                 => fmtCommand(args.tail)
     case "profile"             => profileCommand(args.tail)
     case "lsp"                 => lspCommand(args.tail)
+    case "cluster"             => clusterCommand(args.tail)
     case "help" | "--help" | "-h" => printUsage()
     case "--list-backends"     => println(BackendRegistry.describe)
     case _                     => runCommand(args)
@@ -5904,6 +5905,115 @@ def lspCommand(args: List[String]): Unit =
   val _ = args
   val code = LspServer.runStdio()
   System.exit(code)
+
+/** `ssc cluster status <url>` — fetch GET <url>/_ssc-cluster/status
+ *  from a running ssc node and pretty-print the JSON snapshot.  The
+ *  endpoint is registered automatically when the node calls
+ *  `startNode(...)`.  Output is a human-readable summary; raw JSON
+ *  is available via `--json`. */
+def clusterCommand(args: List[String]): Unit =
+  args match
+    case "status" :: rest => clusterStatusCommand(rest)
+    case ("help" | "--help" | "-h") :: _ =>
+      println("Usage: ssc cluster <subcommand>")
+      println("  status <url> [--json]   show a JSON snapshot from a running node")
+    case _ =>
+      System.err.println("Usage: ssc cluster status <url> [--json]")
+      System.exit(2)
+
+private def clusterStatusCommand(args: List[String]): Unit =
+  val (raw, urlOpt) = args.partition(_.startsWith("--"))
+  val rawJson = raw.contains("--json")
+  if urlOpt.isEmpty then
+    System.err.println("Usage: ssc cluster status <url> [--json]")
+    System.err.println("  e.g. ssc cluster status http://localhost:8080")
+    System.exit(2)
+  else
+    val url = urlOpt.head
+    val statusUrl =
+      if url.endsWith("/_ssc-cluster/status") then url
+      else url.stripSuffix("/") + "/_ssc-cluster/status"
+    val client = java.net.http.HttpClient.newBuilder()
+      .connectTimeout(java.time.Duration.ofSeconds(5)).build()
+    val req = java.net.http.HttpRequest.newBuilder()
+      .uri(java.net.URI.create(statusUrl))
+      .timeout(java.time.Duration.ofSeconds(10))
+      .GET().build()
+    val respOpt: Option[java.net.http.HttpResponse[String]] =
+      try Some(client.send(req, java.net.http.HttpResponse.BodyHandlers.ofString()))
+      catch case e: Throwable =>
+        System.err.println(s"failed to GET $statusUrl: ${e.getMessage}")
+        System.exit(1)
+        None
+    respOpt.foreach { resp =>
+      if resp.statusCode() != 200 then
+        System.err.println(s"unexpected status ${resp.statusCode()} from $statusUrl")
+        System.err.println(resp.body())
+        System.exit(1)
+      else if rawJson then
+        println(resp.body())
+      else
+        printClusterStatusHuman(resp.body())
+    }
+
+private def printClusterStatusHuman(body: String): Unit =
+  // Hand-rolled JSON extraction — keeps the CLI free of a JSON dep.
+  // Reads only what we emit on the server side (flat object, scalar
+  // values + two string arrays).
+  def strField(key: String): String =
+    val pat = "\"" + key + "\":\""
+    val i = body.indexOf(pat)
+    if i < 0 then ""
+    else
+      val start = i + pat.length
+      val end   = body.indexOf("\"", start)
+      if end < 0 then "" else body.substring(start, end)
+  def boolField(key: String): String =
+    val pat = "\"" + key + "\":"
+    val i = body.indexOf(pat)
+    if i < 0 then ""
+    else
+      val start = i + pat.length
+      if body.startsWith("true",  start) then "true"
+      else if body.startsWith("false", start) then "false"
+      else ""
+  def intField(key: String): String =
+    val pat = "\"" + key + "\":"
+    val i = body.indexOf(pat)
+    if i < 0 then ""
+    else
+      val start = i + pat.length
+      val end   = body.indexOf(',', start) match
+        case -1 => body.indexOf('}', start)
+        case n  => n
+      if end < 0 then "" else body.substring(start, end).trim
+  def arrField(key: String): List[String] =
+    val pat = "\"" + key + "\":["
+    val i = body.indexOf(pat)
+    if i < 0 then Nil
+    else
+      val start = i + pat.length
+      val end   = body.indexOf(']', start)
+      if end < 0 then Nil
+      else
+        val inside = body.substring(start, end).trim
+        if inside.isEmpty then Nil
+        else inside.split(',').toList.map(_.trim.stripPrefix("\"").stripSuffix("\""))
+  println(s"node:        ${strField("nodeId")}")
+  println(s"protocol:    ${strField("protocol")}")
+  val leader = strField("leader")
+  println(s"leader:      ${if leader.isEmpty then "<none>" else leader}")
+  val members = arrField("members")
+  println(s"members:     ${if members.isEmpty then "<none>" else members.mkString(", ")}")
+  println(s"drainingSelf: ${boolField("drainingSelf")}")
+  val drainPeers = arrField("drainingPeers")
+  if drainPeers.nonEmpty then
+    println(s"drainingPeers: ${drainPeers.mkString(", ")}")
+  val rt = intField("raftTerm")
+  val rs = strField("raftState")
+  if strField("protocol") == "raft" || rt != "0" then
+    println(s"raftTerm:    $rt")
+    println(s"raftState:   $rs")
 
 def printSection(s: Section, indent: Int): Unit =
   val prefix = "  " * indent
