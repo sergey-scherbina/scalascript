@@ -4343,6 +4343,8 @@ external-coordinator algorithms and API in
 | Cluster metrics aggregation (`clusterMetricSet/Get/Sum/Names`, `MetricChanged`) | ✓ v1.23 |
 | Config + drain + metric snapshots on peer handshake | ✓ v1.23 |
 | `std.cluster.Cluster.*` namespace wrapper | ✓ v1.23 |
+| Multi-node integration tests (2-, 5-, 3-node-with-leader-kill failover) | ✓ v1.23 |
+| Concrete `Etcd.use` + `Consul.use` coordinator adapters | ✓ v1.23 |
 
 ### Still deferred (promote on demand)
 
@@ -4350,10 +4352,11 @@ external-coordinator algorithms and API in
   only today, which means a crashed node could in theory double-vote
   in the same term after restart.  Real consequence depends on
   failure-rate assumptions; promote when a deployment hits it.
-- Concrete coordinator adapters (`EtcdLeaderCoordinator`,
-  `ConsulLeaderCoordinator`, `ZkLeaderCoordinator`).  The 4-arg
-  `useExternalCoordinator` hook accepts any closures, so apps wire
-  their own today; ship a curated adapter when a real consumer asks.
+- ZooKeeper coordinator adapter (`ZkLeaderCoordinator`).  The
+  client-side wire protocol is binary-only (no HTTP gateway), so the
+  pure-`std.http` strategy used for `Etcd.use` / `Consul.use` doesn't
+  apply — ships when a real consumer brings either a Java-client
+  intrinsic or a ZK-over-HTTP shim.
 
 Promote the remaining items when any of the trigger conditions fire:
 
