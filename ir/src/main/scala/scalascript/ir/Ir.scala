@@ -319,7 +319,21 @@ case class ModuleJvmArtifact(
   moduleName:   Option[String],
   sourceHash:   String,        // SHA-256 hex of the source bytes
   scalaSource:  String,        // JvmGen.generate(module) output — Scala 3 source for THIS module
-  imports:      List[String]   // FQNs of foreign-module symbols this artifact references
+  imports:      List[String],  // FQNs of foreign-module symbols this artifact references
+  /** Optional base64-encoded ZIP of `.class` files compiled from `scalaSource`.
+   *
+   *  Populated by `ssc compile-jvm --bytecode` (which drives scala-cli on the
+   *  emitted Scala source and packs the resulting `.class` outputs).  Consumed
+   *  by `ssc link --backend jvm --bytecode` to produce a real JAR without
+   *  re-running scala-cli at link time — Phase 2 of v2.0 separate compilation.
+   *
+   *  When `None`, the artifact is source-only (the pre-Phase-2 behaviour) and
+   *  `link --backend jvm` falls back to textual source concatenation.
+   *
+   *  Default `None` preserves backward compatibility with `.scjvm` artifacts
+   *  emitted before this field existed; upickle's `derives ReadWriter` picks
+   *  the default up automatically on read. */
+  classBundle:  Option[String] = None
 ) derives ReadWriter
 
 /** JS-backend cached artifact — written as `.scjs` JSON.

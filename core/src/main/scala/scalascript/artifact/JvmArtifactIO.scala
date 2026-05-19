@@ -34,7 +34,8 @@ object JvmArtifactIO:
       moduleName:  Option[String],
       sourceHash:  String,
       scalaSource: String,
-      imports:     List[String]
+      imports:     List[String],
+      classBundle: Option[String] = None
   ): String =
     val art = ModuleJvmArtifact(
       magic       = ArtifactVersion.magic,
@@ -44,7 +45,8 @@ object JvmArtifactIO:
       moduleName  = moduleName,
       sourceHash  = sourceHash,
       scalaSource = scalaSource,
-      imports     = imports
+      imports     = imports,
+      classBundle = classBundle
     )
     writeJvm(art)
 
@@ -81,10 +83,11 @@ object JvmArtifactIO:
       sourceHash:  String,
       scalaSource: String,
       imports:     List[String],
-      path:        os.Path
+      path:        os.Path,
+      classBundle: Option[String] = None
   ): Unit =
     os.makeDir.all(path / os.up)
-    os.write.over(path, writeJvm(moduleId, pkg, moduleName, sourceHash, scalaSource, imports))
+    os.write.over(path, writeJvm(moduleId, pkg, moduleName, sourceHash, scalaSource, imports, classBundle))
 
   // ─── Envelope validation ─────────────────────────────────────────────────
 
