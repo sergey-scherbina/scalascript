@@ -748,6 +748,19 @@ lazy val walletStrategyEoa = project
     Test    / scalacOptions ++= sharedScalacOptions,
   )
 
+lazy val blockchainEvm = project
+  .in(file("blockchain-evm"))
+  .dependsOn(blockchainSpi, cryptoSpi, cryptoBouncycastle % Test)
+  .settings(
+    name := "scalascript-blockchain-evm",
+    libraryDependencies ++= Seq(
+      "com.lihaoyi" %% "upickle" % "4.4.2",
+      scalatestTest,
+    ),
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions,
+  )
+
 lazy val root = project
   .in(file("."))
   .aggregate(
@@ -761,7 +774,7 @@ lazy val root = project
     x402Core, x402Server, x402Client,
     x402FacilitatorCoinbase, x402FacilitatorEvm, x402FacilitatorCardano,
     x402QueueKafka, x402QueuePostgres, x402NoncePostgres, x402NonceRedis,
-    cryptoSpi, cryptoBouncycastle, blockchainSpi, walletSpi, walletStrategyEoa
+    cryptoSpi, cryptoBouncycastle, blockchainSpi, blockchainEvm, walletSpi, walletStrategyEoa
   )
   .settings(
     publish / skip := true
