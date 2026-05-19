@@ -28,7 +28,8 @@ val InterpreterCapabilities: Capabilities = Capabilities(
     Feature.WebSockets,
     Feature.Auth,
     Feature.FileSystem,
-    Feature.Crypto
+    Feature.Crypto,
+    Feature.Dataset
   ),
   outputs  = Set(OutputKind.ExecutionResult),
   options  = Set("emitAssertions"),

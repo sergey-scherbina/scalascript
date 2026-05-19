@@ -1,6 +1,6 @@
 ---
 name: std-mapreduce-distributed
-version: 0.1.0
+version: 0.2.0
 description: Coordinator + worker actors for distributed Dataset[T] execution. v1.22.
 package: std.mapreduce
 exports:
@@ -8,6 +8,17 @@ exports:
   - DistributedResult
   - runDistributed
   - WorkerProtocol
+  - StageOp
+  - MapOp
+  - FilterOp
+  - FlatMapOp
+  - Stage
+  - ProcessPartition
+  - PartitionResult
+  - PartitionFailed
+  - HealthCheckRequest
+  - HealthCheckOk
+  - ShutdownWorker
 ---
 
 # `std.mapreduce.distributed` — coordinator + worker actors
@@ -19,27 +30,30 @@ Single-coordinator, N-worker model built on v1.6 Phase 3 actor primitives
 
 ```
 coordinator (local node)
-    │  spawns workers on remote nodes via connectNode + spawn
-    ├─ worker-1 (remote node 1)
-    ├─ worker-2 (remote node 2)
-    └─ worker-n (remote node n)
+    │  sends ProcessPartition to pre-spawned workers
+    ├─ worker-1 (runs WorkerProtocol.handleMessages())
+    ├─ worker-2 (runs WorkerProtocol.handleMessages())
+    └─ worker-n (runs WorkerProtocol.handleMessages())
 ```
 
+Workers are persistent actors running `WorkerProtocol.handleMessages()`
+that the caller places in `cluster.pids`.  For in-process testing, use
+`spawn { () => WorkerProtocol.handleMessages() }`.  For real distributed
+execution, start a node, spawn a worker actor there, and obtain its pid
+via `globalWhereis` or out-of-band coordination.
+
 Each worker:
-1. Receives a `ProcessPartition` message with a partition of input data and
+1. Receives a `ProcessPartition` message with a slice of input data and
    the named handler chain.
-2. Applies the chain locally using v1.21 sequential runner (local-parallel
-   is in-worker speedup; deferred to v1.22.x).
+2. Applies the chain locally using `HandlerRegistry`.
 3. Sends `PartitionResult` back to the coordinator.
 
 The coordinator:
-1. Splits the input into N partitions (one per worker node).
-2. Dispatches `ProcessPartition` to each worker.
-3. Collects `PartitionResult` or `PartitionFailed` messages.
+1. Splits the input into N partitions (one per worker).
+2. Links to each worker for failure detection, then dispatches
+   `ProcessPartition` to each.
+3. Collects `PartitionResult` / `PartitionFailed` / `Exit` messages.
 4. Merges results and returns to the caller.
-
-Shuffle (`groupBy` / `reduceByKey`) is handled via coordinator-mediated
-all-to-all: see `shuffleCoordinator` below (Phase 4 of v1.22).
 
 ## Protocol messages
 
@@ -48,8 +62,8 @@ all-to-all: see `shuffleCoordinator` below (Phase 4 of v1.22).
 // A Stage is a list of named operations to apply in sequence.
 // All names are resolved via HandlerRegistry on the worker.
 sealed trait StageOp
-case class MapOp(handlerName: String)    extends StageOp
-case class FilterOp(handlerName: String) extends StageOp
+case class MapOp(handlerName: String)     extends StageOp
+case class FilterOp(handlerName: String)  extends StageOp
 case class FlatMapOp(handlerName: String) extends StageOp
 
 case class Stage(ops: List[StageOp])
@@ -94,7 +108,7 @@ case class DistributedResult[T](
   failures: List[DistributedError]
 )
 
-// ── Worker protocol alias (re-exported for worker-side startup) ────────
+// ── Worker protocol — run this on every worker node ────────────────────
 object WorkerProtocol:
   def handleMessages(): Unit =
     receive {
@@ -122,8 +136,11 @@ object WorkerProtocol:
 // ── Coordinator ────────────────────────────────────────────────────────
 
 // Entry point: run a Stage across all workers in the cluster.
+// `cluster.pids` must be pids of actors already running
+// `WorkerProtocol.handleMessages()`.
 // Returns the merged collected results.
-// Throws DistributedError on failure (respects retries / allowPartial).
+// Throws DistributedError on fail-whole; returns partial results if
+// allowPartial = true.
 def runDistributed(
   data:         List[Any],
   stage:        Stage,
@@ -131,31 +148,35 @@ def runDistributed(
   retries:      Int,
   allowPartial: Boolean
 ): DistributedResult[Any] =
-  val jobId     = nanoTime().toString
-  val numNodes  = cluster.nodes.length
+  val jobId      = Random.uuid()
+  val numNodes   = cluster.nodes.length
   val partitions = partitionData(data, numNodes)
 
-  // Spawn remote workers and link for failure detection
   val me = self()
   trapExit(true)
 
-  val workers = cluster.pids.zip(cluster.nodes).map { case (nodePid, node) =>
-    val wPid = spawnOn(nodePid) { () => WorkerProtocol.handleMessages() }
+  // Link to each worker for failure detection.
+  val workers = cluster.pids.zip(cluster.nodes).map { case (wPid, node) =>
     link(wPid)
     (wPid, node)
   }
 
-  // Dispatch partitions
+  // Build a map from partitionId → partition data for retry use.
+  val partitionMap = workers.zip(partitions).zipWithIndex.map {
+    case (((wPid, node), partition), idx) => (idx, partition)
+  }.toMap
+
+  // Dispatch partitions to workers.
   val assignments = workers.zip(partitions).zipWithIndex.map {
     case (((wPid, node), partition), idx) =>
       wPid ! ProcessPartition(jobId, idx, partition, stage, me)
       (idx, wPid, node)
   }
 
-  // Collect results with retry / partial support
   collectResults(
     jobId        = jobId,
     assignments  = assignments,
+    partitionMap = partitionMap,
     stage        = stage,
     pending      = assignments.map(_._1).toSet,
     results      = Map(),
@@ -169,13 +190,14 @@ def runDistributed(
 def partitionData(data: List[Any], n: Int): List[List[Any]] =
   if n <= 0 || data.isEmpty then List(data)
   else
-    val size  = (data.length + n - 1) / n   // ceiling division
+    val size = (data.length + n - 1) / n   // ceiling division
     data.grouped(size).toList
 
 // Recursive result collector.
 def collectResults(
   jobId:        String,
   assignments:  List[(Int, Any, Node)],
+  partitionMap: Map[Int, List[Any]],
   stage:        Stage,
   pending:      Set[Int],
   results:      Map[Int, List[Any]],
@@ -185,13 +207,13 @@ def collectResults(
   cluster:      Cluster
 ): DistributedResult[Any] =
   if pending.isEmpty then
-    val ordered = assignments.map(_._1).flatMap(i => results.get(i).getOrElse(Nil))
+    val ordered = assignments.map(_._1).flatMap(i => results.getOrElse(i, Nil))
     DistributedResult(ordered, failures)
   else
     receive {
       case PartitionResult(jid, partId, result) if jid == jobId =>
         collectResults(
-          jobId, assignments, stage,
+          jobId, assignments, partitionMap, stage,
           pending - partId,
           results + (partId -> result),
           failures, retries, allowPartial, cluster
@@ -199,7 +221,7 @@ def collectResults(
 
       case PartitionFailed(jid, partId, reason) if jid == jobId =>
         handleFailure(
-          jobId, assignments, stage,
+          jobId, assignments, partitionMap, stage,
           pending, results, failures,
           partId, reason,
           retries, allowPartial, cluster
@@ -210,15 +232,14 @@ def collectResults(
         val maybeAssignment = assignments.find(_._2 == deadPid)
         maybeAssignment match
           case None() =>
-            // Unknown pid — ignore and keep collecting
             collectResults(
-              jobId, assignments, stage,
+              jobId, assignments, partitionMap, stage,
               pending, results, failures,
               retries, allowPartial, cluster
             )
           case Some((partId, _, node)) =>
             handleFailure(
-              jobId, assignments, stage,
+              jobId, assignments, partitionMap, stage,
               pending, results, failures,
               partId, reason.toString,
               retries, allowPartial, cluster
@@ -229,6 +250,7 @@ def collectResults(
 def handleFailure(
   jobId:        String,
   assignments:  List[(Int, Any, Node)],
+  partitionMap: Map[Int, List[Any]],
   stage:        Stage,
   pending:      Set[Int],
   results:      Map[Int, List[Any]],
@@ -243,26 +265,24 @@ def handleFailure(
     .getOrElse(Node("unknown@unknown:0"))
 
   if retries > 0 then
-    // Retry on a healthy node (round-robin fallback)
-    val me = self()
-    val partition = assignments.find(_._1 == partId).map(_ => Nil).getOrElse(Nil)
-    // Pick a different worker pid (first available from cluster pids list)
-    val altPid = cluster.pids.headOption.getOrElse(cluster.pids.head)
+    // Retry on first available worker (round-robin fallback).
+    val me        = self()
+    val partition = partitionMap.getOrElse(partId, Nil)
+    val altPid    = cluster.pids.headOption.getOrElse(cluster.pids.head)
     altPid ! ProcessPartition(jobId, partId, partition, stage, me)
     collectResults(
-      jobId, assignments, stage,
+      jobId, assignments, partitionMap, stage,
       pending, results, failures,
       retries - 1, allowPartial, cluster
     )
   else if allowPartial then
     val err = DistributedError(failedNode, reason)
     collectResults(
-      jobId, assignments, stage,
+      jobId, assignments, partitionMap, stage,
       pending - partId, results,
       err :: failures,
       0, allowPartial, cluster
     )
   else
-    // Fail the whole job
     throw DistributedError(failedNode, reason)
 ```

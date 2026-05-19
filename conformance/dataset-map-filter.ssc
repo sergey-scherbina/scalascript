@@ -1,5 +1,6 @@
 ---
 name: dataset-map-filter
+requires: Feature.Dataset
 ---
 
 # Dataset — map / filter / flatMap / take / drop / distinct

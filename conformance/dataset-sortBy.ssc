@@ -1,5 +1,6 @@
 ---
 name: dataset-sortBy
+requires: Feature.Dataset
 ---
 
 # Dataset — sortBy

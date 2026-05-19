@@ -1,5 +1,6 @@
 ---
 name: dataset-reduce
+requires: Feature.Dataset
 ---
 
 # Dataset — reduce / fold / foreach / first

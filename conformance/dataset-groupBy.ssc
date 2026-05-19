@@ -1,5 +1,6 @@
 ---
 name: dataset-groupBy
+requires: Feature.Dataset
 ---
 
 # Dataset — groupBy and reduceByKey

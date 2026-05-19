@@ -1,5 +1,6 @@
 ---
 name: dataset-of
+requires: Feature.Dataset
 ---
 
 # Dataset.of — basic round-trip

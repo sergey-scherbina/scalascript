@@ -61,7 +61,8 @@ val backendFeatures: Map[String, Set[String]] = Map(
     "AlgebraicEffects", "MutableState", "PatternMatching", "TypeClasses",
     "ExtensionMethods", "DefaultParameters", "ForComprehensions", "WhileLoops",
     "TailCallOptimization", "StringInterpolators", "ModuleImports",
-    "ConsoleIO", "HttpServer", "WebSockets", "Auth", "FileSystem", "Crypto"
+    "ConsoleIO", "HttpServer", "WebSockets", "Auth", "FileSystem", "Crypto",
+    "Dataset"
   ),
   "js" -> Set(
     "AlgebraicEffects", "MutableState", "PatternMatching", "TypeClasses",

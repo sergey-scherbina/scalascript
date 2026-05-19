@@ -1,0 +1,6 @@
+apple: 3
+banana: 2
+cherry: 1
+a -> 3
+b -> 2
+c -> 1

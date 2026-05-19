@@ -484,7 +484,7 @@ unblocks downstream features as early as possible.
      for name resolution / type check / evaluation.
      Foundation for full external DSLs.  Independent — can
      ship in any order after v1.20.
- 25. **v1.21 — Local map-reduce (`Dataset[T]`)** (~2 weeks).
+ 25. **v1.21 — Local map-reduce (`Dataset[T]`)** ✓ Landed.
      Lazy `Dataset[T]` fluent API with sequential + parallel
      local execution (v1.3 Async.parallel on JVM; sequential
      fallback on JS pending v1.3 Node parallel).  Streaming
@@ -3634,13 +3634,20 @@ parallel deferred); cooperative on INT.  Streaming interop via
   `fold`, `foreach`, `first`, `toGenerator`, `runLocal`, `runParallel`;
   constructors `of`, `fromList`, `fromGenerator`, `fromFile`.
 - `Feature.Dataset` in SPI; detected by `CapabilityCheck`; declared in
-  JS + JVM capabilities.
+  JS + JVM + INT capabilities.
 - `JsRuntimeDataset` — class-based lazy pipeline, `runParallel()` warns
   once and falls back to sequential on Node.
 - `JvmRuntimeDataset` — Scala `_Dataset[T]` class; `runParallel()` partitions
   into `availableProcessors` chunks and processes each in a Loom virtual thread.
 - `JvmGen.blocksUseDataset` — injects preamble when Dataset is used.
-- 10 conformance tests + 2 examples.
+- `makeDatasetV` + `compareValues` in the tree-walking interpreter — lazy thunk
+  pipeline; `runParallel()` is cooperative (same semantics as sequential for pure
+  pipelines); `fromGenerator` eagerly drains the generator once on construction.
+  Landed 2026-05-19.
+- Compound-assignment operators (`+=`, `-=`, `*=`, `/=`, `%=`) added to the
+  interpreter eval dispatcher and evalBlock step, enabling while-loop generators.
+  Landed 2026-05-19.
+- 10 conformance tests + 2 examples; INT PASS on 6 core dataset tests.
 
 Full design: [`docs/mapreduce.md`](docs/mapreduce.md) §3.
 

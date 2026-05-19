@@ -1,5 +1,6 @@
 ---
 name: dataset-from-generator
+requires: Feature.Dataset
 ---
 
 # Dataset — fromGenerator and toGenerator
