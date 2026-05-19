@@ -422,7 +422,18 @@ lazy val backendInterpreter = project
     name := "scalascript-backend-interpreter",
     libraryDependencies ++= Seq(scalatestTest),
     Compile / scalacOptions ++= sharedScalacOptionsStrict,
-    Test    / scalacOptions ++= sharedScalacOptions
+    Test    / scalacOptions ++= sharedScalacOptions,
+    // v1.26 — JvmGen scala-cli runtime smoke test reads this resource
+    // to find the locally-built backend-sql-runtime JAR.  Generating
+    // the resource depends on `backendSqlRuntime/Compile/packageBin`
+    // so the jar is always fresh when the test reads its path.
+    Test / resourceGenerators += Def.task {
+      val jar  = (backendSqlRuntime / Compile / packageBin).value
+      val out  = (Test / resourceManaged).value / "scalascript" / "sql-runtime-jar.path"
+      IO.createDirectory(out.getParentFile)
+      IO.write(out, jar.getAbsolutePath)
+      Seq(out)
+    }.taskValue
   )
 
 // Apache Spark backend — Phase 1 (local SparkSession).
