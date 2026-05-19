@@ -245,6 +245,108 @@ class InterfaceExtractorTest extends AnyFunSuite:
     assert(fqn == "std_dsl_doRead",
       s"expected extern FQN `std_dsl_doRead`, got: $fqn")
 
+  // ── anonymous given identity (v2.0 fix) ─────────────────────────────────
+  //
+  // Anonymous `given Eq[Int] with …` previously produced an InstanceDecl
+  // with an empty `witnessName` and a truncated `fqn` like `"std_eq_"`.
+  // The synthesized convention now is `given_<Typeclass>_<TypeHead>` —
+  // deterministic, no hashes, identifier-safe, and round-trips identically
+  // across builds.  See InterfaceExtractor.synthGivenName.
+
+  test("anonymous given — `given Eq[Int] with …` synthesizes `given_Eq_Int`"):
+    val iface = extract(
+      """given Eq[Int] with
+        |  def eqv(a: Int, b: Int): Boolean = a == b""".stripMargin)
+    assert(iface.instances.size == 1,
+      s"expected exactly one instance; got: ${iface.instances}")
+    val i = iface.instances.head
+    assert(i.typeclass   == "Eq",                 s"typeclass: ${i.typeclass}")
+    assert(i.typeParam   == "Int",                s"typeParam: ${i.typeParam}")
+    assert(i.witnessName == "given_Eq_Int",
+      s"expected `given_Eq_Int`; got: ${i.witnessName}")
+    assert(i.fqn         == "given_Eq_Int",
+      s"expected `given_Eq_Int` (no pkg); got: ${i.fqn}")
+
+  test("anonymous given — under `package: pkg`, FQN is `pkg_given_Eq_Int`"):
+    val iface = extractWithFrontMatter(
+      frontMatter = "package: pkg",
+      scalascriptSource =
+        """given Eq[Int] with
+          |  def eqv(a: Int, b: Int): Boolean = a == b""".stripMargin)
+    assert(iface.instances.size == 1, s"got: ${iface.instances}")
+    val i = iface.instances.head
+    assert(i.witnessName == "given_Eq_Int", s"witnessName: ${i.witnessName}")
+    assert(i.fqn         == "pkg_given_Eq_Int", s"fqn: ${i.fqn}")
+
+  test("named given — `given intShow: Show[Int] with …` keeps the explicit name"):
+    // Named givens with a `with`-body (the form `Defn.Given` recognises)
+    // must NOT be renamed — only the empty-name anonymous case is
+    // synthesized.  This is the regression guard against accidentally
+    // overriding user-chosen identifiers.
+    val iface = extract(
+      """trait Show[A]:
+        |  def show(x: A): String
+        |
+        |given intShow: Show[Int] with
+        |  def show(x: Int): String = x.toString""".stripMargin)
+    val inst = iface.instances.find(_.typeclass == "Show").getOrElse(
+      fail(s"expected Show instance; got: ${iface.instances}"))
+    assert(inst.witnessName == "intShow",
+      s"expected explicit name `intShow`; got: ${inst.witnessName}")
+    assert(inst.fqn == "intShow",
+      s"expected fqn `intShow`; got: ${inst.fqn}")
+
+  test("anonymous given — multiple instances for different types don't collide"):
+    val iface = extract(
+      """given Eq[Int] with
+        |  def eqv(a: Int, b: Int): Boolean = a == b
+        |
+        |given Eq[String] with
+        |  def eqv(a: String, b: String): Boolean = a == b
+        |
+        |given Eq[Boolean] with
+        |  def eqv(a: Boolean, b: Boolean): Boolean = a == b""".stripMargin)
+    val witnessNames = iface.instances.map(_.witnessName).toSet
+    assert(witnessNames == Set("given_Eq_Int", "given_Eq_String", "given_Eq_Boolean"),
+      s"expected three distinct synthesized names; got: $witnessNames")
+    // And the FQN set matches (no `_` truncation).
+    val fqns = iface.instances.map(_.fqn).toSet
+    assert(fqns == Set("given_Eq_Int", "given_Eq_String", "given_Eq_Boolean"),
+      s"expected matching FQN set; got: $fqns")
+
+  test("anonymous given — parametric type drops type-var arg in the head name"):
+    // `given Eq[List[Int]] with …` should synthesize `given_Eq_List` —
+    // type-arg arguments are dropped from the head-name for stability
+    // (the full type expression remains in `typeParam`).
+    val iface = extract(
+      """trait Eq[A]:
+        |  def eqv(a: A, b: A): Boolean
+        |
+        |given Eq[List[Int]] with
+        |  def eqv(a: List[Int], b: List[Int]): Boolean = a == b""".stripMargin)
+    val inst = iface.instances.find(_.typeclass == "Eq").getOrElse(
+      fail(s"expected Eq instance; got: ${iface.instances}"))
+    assert(inst.witnessName == "given_Eq_List",
+      s"expected synthesized `given_Eq_List`; got: ${inst.witnessName}")
+    // The recorded typeParam still keeps the full type expression for
+    // diagnostic/round-trip purposes.
+    assert(inst.typeParam.startsWith("List["),
+      s"expected typeParam to start with `List[`; got: ${inst.typeParam}")
+
+  test("anonymous given — determinism: same source → same synthesized name"):
+    // Round-trip the extractor twice over the same source; the synthesized
+    // witness name must be byte-identical.  Guards against any future
+    // accidental use of hashing or random ids.
+    val src =
+      """given Eq[Int] with
+        |  def eqv(a: Int, b: Int): Boolean = a == b""".stripMargin
+    val a = extract(src).instances.head.witnessName
+    val b = extract(src).instances.head.witnessName
+    assert(a == b, s"witness name must be deterministic; got: a=$a, b=$b")
+    assert(a == "given_Eq_Int", s"expected `given_Eq_Int`; got: $a")
+
+  // ── original `package: …` exports filter test (continues below) ─────────
+
   test("package walk — manifest `exports:` filter still applies inside the package"):
     // Both fixes compose: the package walk surfaces inner names, then the
     // `exports:` filter narrows the public surface.
