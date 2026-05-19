@@ -2688,50 +2688,62 @@ blocks).  Phase 6 (stack traces) is still the only piece
 with meaningful per-backend variance; Phases 8-9 are pure
 stdlib + helper work that lands uniformly.
 
-## v1.16 — Restartable errors via algebraic effects — BLOCKED
-
-**Do not start this until all milestones through v2.0 are
-complete** (same block as the algebraic-effects study below).
+## v1.16 — Restartable errors via algebraic effects — LANDED
 
 Common Lisp condition-system style restartable handlers.  A
 handler can choose to resume the suspended computation at the
 throw point with a replacement value, rather than only being
 able to abort or rewrap.
 
-```scala
+```scalascript
 val config = restartable {
   case FileNotFound(path) => Restart.useDefault
-  case PermissionDenied(p) => Restart.retry(sudo(p))
-  case other => Restart.abort(other)
+  case PermissionDenied(p) => Restart.resume(sudo(p))
+  case other => Restart.rethrow
 } {
   parseConfig(readFile("/etc/app.conf"))
 }
 ```
 
-If the algebraic-effects study (see end of file) eventually
-commits to "go", v1.16 reduces to: `throw e` becomes
-`suspend(ErrorTag(e))`; handler stack catches the tag and
-resumes with a replacement value.  Direct mapping onto v1.9
-coroutines.
+### What landed
 
-If the study says "no-go" (or stays blocked indefinitely),
-v1.16 retires — the path becomes `M.recover` + retry-loops,
-no compile-time restart support.
+- `restartable { handlers } { body }` — special form in the interpreter.
+  The body runs in a virtual thread; `throw e` suspends via a
+  synchronous-queue handshake so the handler on the caller thread
+  can decide the outcome.
+- `Restart.resume(v)` — body's throw-expression evaluates to `v`
+  and execution continues.
+- `Restart.useDefault` — body's throw-expression evaluates to `()`
+  and execution continues.
+- `Restart.rethrow` — exception propagates out of the `restartable`
+  frame as a normal `ScriptException`.
+- Nested `restartable` blocks: each virtual thread owns its own
+  handler stack; unmatched throws from inner blocks propagate to the
+  outer handler correctly.
+- `RestartableRethrow` sentinel exception type prevents
+  `try/catch` blocks from intercepting terminal rethrows mid-flight.
+- 17 conformance tests in `RestartableTest.scala` — all green.
 
-### Sketch
+### Implementation
 
-- New `Restart[A]` ADT: `UseValue(a)`, `Retry(args)`, `Abort(e)`,
-  `Transform(e2)`.
-- `restartable[E, A](handler: E => Restart[A])(body: => A): A` —
-  catches `E`, applies the handler decision, resumes/aborts
-  accordingly.
-- Sits on the v1.9 coroutine primitive: `suspend(ErrorTag(e))`
-  pauses the computation, handler interprets, resume.
+- Thread-local `_restartableTL` stack of `RestartableHandle(errorQ,
+  resumeQ)` pairs. Body pushes a handle, `Term.Throw` checks the
+  head of the stack; if found, routes through the queue protocol
+  instead of throwing `ScriptException`.
+- Handler loop polls both errChan and doneChan (1 ms alternating
+  poll) to avoid the need for a select-like primitive.
+- `ScriptException` escaping a virtual thread body is routed through
+  `errChan` so the outer restartable handler can match and resume.
 
-### Effort
+### Known limitations / follow-up
 
-~1 week if the algebraic-effects study (blocked — see end of
-file) eventually commits to "go"; ~0 otherwise.
+- Handler case bodies read variables from the captured env (closure
+  semantics); they do not observe globals mutations from previous
+  handler invocations for the same variable.  This is consistent
+  with how closures and try/catch handlers work in the interpreter.
+- JS backend: not implemented.  Follows the same coroutine-per-body
+  pattern but requires a JS generator-based shim.
+- Algebraic-effects study (v1.12) remains BLOCKED.
 
 ## v1.12 / Algebraic effects feasibility study — BLOCKED (no version assigned)
 

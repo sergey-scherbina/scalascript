@@ -114,6 +114,32 @@ class Interpreter(
     mutable.Stack.empty
   private var reactiveFlushing = false
 
+  // ── v1.16 Restartable errors — Common Lisp condition-system style ───
+  // Each active `restartable { pf } { body }` frame runs the body in a
+  // virtual thread.  When `throw e` fires inside the body thread, it puts
+  // the error on `errorQ` and waits on `resumeQ`.  The outer (handler)
+  // thread receives the error, matches the pf cases, and either sends back
+  // Right(resumeValue) (body resumes with that value) or Left(rethrowVal)
+  // (body rethrows the original exception).
+  private case class RestartableHandle(
+    errorQ:  java.util.concurrent.SynchronousQueue[Value],        // body → handler
+    resumeQ: java.util.concurrent.SynchronousQueue[Either[Value, Value]] // handler → body
+  )
+  // Stack of active restartable handles for the *current* virtual thread.
+  // Each thread carries its own deque (pushed/popped by restartable blocks).
+  private val _restartableTL =
+    new ThreadLocal[java.util.ArrayDeque[RestartableHandle]]()
+  private def restartableStack(): java.util.ArrayDeque[RestartableHandle] =
+    var s = _restartableTL.get()
+    if s == null then { s = new java.util.ArrayDeque(); _restartableTL.set(s) }
+    s
+  // Thrown by Term.Throw when the restartable handler decided to rethrow.
+  // Distinct from ScriptException so the body thread's wrapper catch can
+  // tell "terminal rethrow (handler decided Left)" apart from "fresh
+  // exception that bubbled up from a nested computation (route to handler)".
+  private class RestartableRethrow(val value: Value)
+    extends RuntimeException(null, null, true, false)
+
   /** Per-FunV cache of the TCO classification — three full body walks
    *  (`tailCallTargets`, `callsInTailPos`, `hasNonTailSelfCall`) used to
    *  cost a tail-recursive call up-front on every invocation. The body is
@@ -1598,6 +1624,19 @@ class Interpreter(
             Pure(Value.InstanceV(t.getClass.getSimpleName, Map("message" -> Value.StringV(msg))))
       case _ => located("attemptCatchRaw(thunk)")
     })
+
+    // ── v1.16 Restart object — decisions for restartable { } { } ────────
+    // Restart.resume(v)  — resume the suspended computation with value v
+    // Restart.useDefault — resume with Unit (null/default)
+    // Restart.rethrow    — re-throw the original error as a ScriptException
+    globals("Restart") = Value.InstanceV("Restart$", Map(
+      "resume" -> Value.NativeFnV("Restart.resume", {
+        case List(v) => Pure(Value.InstanceV("Restart$resume", Map("value" -> v)))
+        case _       => throw InterpretError("Restart.resume(value)")
+      }),
+      "useDefault" -> Value.InstanceV("Restart$useDefault", Map.empty),
+      "rethrow"    -> Value.InstanceV("Restart$rethrow",    Map.empty)
+    ))
 
     // ── currentStackTrace — returns call stack as List[Frame] ────────────
     // By default filters out anonymous (<anon>) and _-prefixed synthetic frames.
@@ -3388,6 +3427,23 @@ class Interpreter(
       makeEffect(thunk)
       Pure(Value.UnitV)
 
+    // ── v1.16 restartable { handlers } { body } ───────────────────────────
+    // Common Lisp condition-system style handler: the body runs in a virtual
+    // thread; when `throw e` fires inside it, the error is handed to the
+    // handler partial function which returns a `Restart` decision:
+    //   Restart.resume(v)   — body continues with `v` as the throw-expression result
+    //   Restart.useDefault  — body continues with Value.UnitV (null/unit)
+    //   Restart.rethrow     — exception propagates normally from this restartable frame
+    case Term.Apply.After_4_6_0(
+        Term.Apply.After_4_6_0(Term.Name("restartable"), pfArgClause),
+        bodyArgClause)
+        if pfArgClause.values.size == 1 && bodyArgClause.values.size == 1 =>
+      pfArgClause.values.head match
+        case pf: Term.PartialFunction =>
+          evalRestartable(bodyArgClause.values.head.asInstanceOf[Term], pf.cases, env)
+        case _ =>
+          located("restartable expects a partial function { case Error(…) => Restart.… }")
+
     // Function application: detect obj.method(args) and dispatch directly.
     // All sub-terms are evaluated eagerly here; the FlatMap chain composes
     // already-built Computations so placeholderIdx and other eval-time state
@@ -3763,11 +3819,25 @@ class Interpreter(
       eval(t.expr, env).flatMap { v =>
         if _insideDirectBlock.get() then Pure(Value.InstanceV("Left", Map("value" -> v)))
         else
-          val isNoTrace = v match
-            case Value.InstanceV(typeName, _) => noTraceTypes.contains(typeName)
-            case _ => false
-          if isNoTrace then throw ScriptExceptionNoTrace(v)
-          else throw ScriptException(v)
+          // v1.16: check for an active restartable frame on this thread.
+          // If present, suspend the body and let the handler decide.
+          val rsStack = restartableStack()
+          val rsHandle = rsStack.peekFirst()
+          if rsHandle != null then
+            rsHandle.errorQ.put(v)   // send error to handler thread
+            rsHandle.resumeQ.take() match  // wait for handler's decision
+              case Right(resumeVal) => Pure(resumeVal)   // resume with replacement
+              case Left(rethrowVal) =>
+                // Throw RestartableRethrow (not ScriptException) so the
+                // body thread's catch wrapper knows this is a terminal rethrow
+                // and doesn't route it back through the handler again.
+                throw RestartableRethrow(rethrowVal)
+          else
+            val isNoTrace = v match
+              case Value.InstanceV(typeName, _) => noTraceTypes.contains(typeName)
+              case _ => false
+            if isNoTrace then throw ScriptExceptionNoTrace(v)
+            else throw ScriptException(v)
       }
 
     case t: Term.Try =>
@@ -3781,6 +3851,7 @@ class Interpreter(
       val tryResult: Value =
         try Computation.run(eval(t.expr, env))
         catch
+          case rr: RestartableRethrow => throw rr  // v1.16: let terminal rethrows pass through
           case se: ScriptException  => tryCatch(se.value, se)
           case th: Throwable =>
             // Convert any JVM exception (NumberFormatException, InterpretError, etc.)
@@ -5054,6 +5125,142 @@ class Interpreter(
       throw InterpretError("unreachable")
 
     interp(eval(body, env))
+
+  // ─── v1.16 restartable — Common Lisp condition-system style ─────────
+  // Protocol (mirrors the v1.9 coroutine handshake):
+  //
+  //   fromBody (cap=1 LinkedBlockingQueue):
+  //     InstanceV("RSYielded",  {value: thrownVal}) — body threw; waiting for resume
+  //     InstanceV("RSReturned", {value: resultVal}) — body finished normally
+  //     InstanceV("RSErrored",  {value: exnVal})    — body propagated uncaught throw
+  //
+  //   toBody (SynchronousQueue):
+  //     Right(resumeVal) — resume with this value
+  //     Left(rethrowVal) — rethrow from the throw site
+  //     (encoded as InstanceV("RSResume"/{value}) and InstanceV("RSRethrow"/{value}))
+  //
+  // The handler thread (this one) drives:
+  //   1. Take from fromBody.
+  //   2. If RSYielded: match handler cases → send decision on toBody → goto 1.
+  //   3. If RSReturned: return the result.
+  //   4. If RSErrored:  throw the exception.
+  //
+  // Term.Throw (body thread side):
+  //   - puts RSYielded on fromBody
+  //   - takes decision from toBody
+  //   - if RSResume → returns resumeVal as the result of `throw e`
+  //   - if RSRethrow → throws ScriptException normally
+  //
+  // Nested restartable: inner block runs in its own virtual thread and
+  // pushes its own handle onto that thread's _restartableTL stack.
+  // The outer restartable's handler never sees the inner block's throws
+  // unless they propagate past the inner restartable as uncaught exceptions.
+  private def evalRestartable(body: Term, cases: List[Case], env: Env): Computation =
+    // errChan: body → handler (one error at a time; body blocks waiting for resume)
+    // resChan: handler → body (Right(v) = resume with v; Left(v) = rethrow v)
+    // doneChan: body → handler (Right(v) = normal return; Left(v) = uncaught exception value)
+    val errChan  = new java.util.concurrent.SynchronousQueue[Value]()
+    val resChan  = new java.util.concurrent.SynchronousQueue[Either[Value, Value]]()
+    val doneChan = new java.util.concurrent.SynchronousQueue[Either[Value, Value]]()
+
+    val handle = new RestartableHandle(errChan, resChan)
+
+    Thread.ofVirtual().start { () =>
+      restartableStack().addFirst(handle)
+      try
+        val result = Computation.run(eval(body, env))
+        restartableStack().pollFirst()
+        doneChan.put(Right(result))
+      catch
+        case rr: RestartableRethrow =>
+          // Terminal rethrow: Term.Throw already consulted the handler (which
+          // said Left/rethrow).  Don't route through errChan again; just
+          // report as uncaught so the outer loop throws it as ScriptException.
+          restartableStack().pollFirst()
+          doneChan.put(Left(rr.value))
+        case se: ScriptException =>
+          // A ScriptException that escaped from a nested computation (e.g. an
+          // inner restartable that rethrew, or an unguarded throw inside a
+          // try/catch that didn't match).  Route through errChan so THIS
+          // restartable's handler gets a chance to handle it.  This enables:
+          //   restartable { case Outer(n) => Restart.resume(n) } {
+          //     restartable { case Inner(n) => Restart.rethrow } { throw Outer(1) }
+          //   }
+          // The inner block rethrows Outer(1) → ScriptException propagates to
+          // the outer virtual thread → outer handler matches Outer → resumes.
+          restartableStack().pollFirst()
+          errChan.put(se.value)
+          resChan.take() match
+            case Right(resumeVal) =>
+              // Handler matched and resumed — since we're in the catch block
+              // the "resume value" becomes the body's final result.
+              doneChan.put(Right(resumeVal))
+            case Left(rethrowVal) =>
+              doneChan.put(Left(rethrowVal))
+        case t: Throwable =>
+          restartableStack().pollFirst()
+          val msg = Option(t.getMessage).getOrElse(t.getClass.getSimpleName)
+          doneChan.put(Left(Value.InstanceV("RuntimeException",
+            Map("message" -> Value.StringV(msg)))))
+    }
+
+    // Handler loop on the caller's thread.
+    // The body sends on errChan (throw) XOR doneChan (finish); never both at once.
+    // We must accept from whichever channel sends first.  Since we can't select
+    // across two SynchronousQueues directly, we use a short-polling approach:
+    // try errChan first (non-blocking), then doneChan (non-blocking), repeat with
+    // small waits until one delivers.  Virtual threads make the 1ms spin cheap.
+    @annotation.tailrec
+    def waitForSignal(): Either[Value, Either[Value, Value]] =
+      val errNow  = errChan.poll(1, java.util.concurrent.TimeUnit.MILLISECONDS)
+      if errNow != null then Left(errNow)       // error arrived
+      else
+        val doneNow = doneChan.poll(1, java.util.concurrent.TimeUnit.MILLISECONDS)
+        if doneNow != null then Right(doneNow)  // body finished
+        else waitForSignal()
+
+    def loop(): Computation =
+      waitForSignal() match
+        case Right(Right(v)) => Pure(v)     // normal return
+        case Right(Left(se)) =>             // uncaught exception
+          throw ScriptException(se)
+        case Left(errVal) =>
+          handleErr(errVal)
+
+    def handleErr(errVal: Value): Computation =
+      val handlerResultOpt: Option[Value] =
+        cases.iterator.flatMap { c =>
+          matchPat(c.pat, errVal, env).map(bound => (c, bound))
+        }.nextOption().map { case (matchedCase, bound) =>
+          Computation.run(eval(matchedCase.body, env ++ bound))
+        }
+      handlerResultOpt match
+        case None =>
+          // No handler case matched — rethrow: body thread will throw ScriptException
+          resChan.put(Left(errVal))
+          loop()  // body will put its result on doneChan
+        case Some(restartDecision) =>
+          decodeRestart(restartDecision, errVal)
+
+    def decodeRestart(decision: Value, errVal: Value): Computation =
+      decision match
+        case Value.InstanceV("Restart$resume", fields) =>
+          val v = fields.getOrElse("value", Value.UnitV)
+          resChan.put(Right(v))  // Right = resume
+          loop()
+        case Value.InstanceV("Restart$useDefault", _) =>
+          resChan.put(Right(Value.UnitV))
+          loop()
+        case Value.InstanceV("Restart$rethrow", fields) =>
+          val rethrowVal = fields.getOrElse("value", errVal)
+          resChan.put(Left(rethrowVal))
+          loop()
+        case _ =>
+          // Unrecognised Restart value — treat as rethrow
+          resChan.put(Left(errVal))
+          loop()
+
+    loop()
 
   // ─── Reactive primitives: implementation helpers ───────────────────
 
