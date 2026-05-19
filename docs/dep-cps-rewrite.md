@@ -70,7 +70,7 @@ Steps 0-3 landed on `main`; Steps 4-7 in flight on `feature/dep-cps`.
 | 1 — `containsEffectPrimitive` whitelist predicate + 43 unit tests | ✅ landed | 71cefd0 |
 | 2 — cross-dep fixpoint (`analyzeDepEffectfulness`) + 14 unit tests | ✅ landed | ac93940 |
 | 3 — dep-mode CPS emit (`Defn.Object` recursion, `isEffectfulFun` ext, infix tuple-arg fix) | ✅ landed | 3b3ca95 |
-| 4 — `distributed-map.ssc` integration | 🔧 chunks 1–3 landed, more chunks pending | 9c62b01, + chunks 2–3 |
+| 4 — `distributed-map.ssc` integration | 🔧 chunks 1–4 landed, more chunks pending | 9c62b01, + chunks 2–4 |
 | 5 — full regression sweep | ⏳ pending | — |
 | 6 — strip `pending:` from other v1.22 distributed-* tests | ⏳ pending | — |
 | 7 — retire `cpsBody` parameter / textual band-aids | ⏳ pending | — |
@@ -179,27 +179,77 @@ Numbers after chunk 3:
 - Wider conformance suite: same 26/89 JVM fails, 0 INT, 0 JS as
   baseline — zero regressions.
 
-**Step 4 chunks 4-N — pending:**
+**Step 4 chunk 4 — landed (2026-05-19):**
 
-Remaining 17 errors in `distributed-map.ssc` are concentrated in
-the case-class method path (`case class Cluster.healthCheck`,
-`Cluster.close`). Two related fixes:
+Two narrow changes that mirror the dep-mode plumbing onto class
+bodies and PF case bodies — both safe against the
+`actors-process-info.ssc` regression that bit the earlier reverted
+attempt (canary held at 4 errors throughout):
 
-- **`Defn.Class` / `Defn.Trait` recursion** mirroring chunk 1's
-  `Defn.Object` arm — for dep blocks that transitively contain
-  an effectful dep def, walk class/trait bodies and emit their
-  effectful methods through the CPS path.
+1. **`Defn.Class` recursion arm** in `emitStat`, mirroring the
+   existing `Defn.Object` arm.  Conservative trigger: only when
+   the class body transitively names a globally-effectful dep
+   def — plain data classes fall through to `.syntax` untouched.
+   Implementation via `emitClassWithRewrittenBody`, which slices
+   scalameta's syntax up to the first body brace to preserve the
+   original class signature (modifiers, type params, primary ctor,
+   extends clause) and substitutes the body emitted member-by-member
+   through `emitStat`.
 
-- **Selective `rewriteActorAstCallsInSource` for class-method
-  bodies** — chunk 1 intentionally split this rewriter off effectful
-  dep blocks because it conflicts with Step 3's CPS emit for
-  top-level defs. Re-enable it scoped to class-method bodies once
-  the recursion above gives us per-method emit, so `pid ! msg` and
-  `receive[WithTimeout]` get the same AST rewrite that top-level
-  pure-dep code receives.
+2. **CPS-emit PartialFunction case bodies in `bindArgsCps`'s wrap.**
+   Chunk 2 wrapped PFs as `((_x: Any) => _x match { case … })` with
+   the case bodies left as raw syntax.  Chunk 4 routes each case
+   body through `emitCpsExpr` (mirroring the Term.Match arm) so
+   `pid ! msg` inside a `case (wPid, node) => wPid ! msg` reaches
+   the existing `Term.ApplyInfix("!")` arm and becomes
+   `Actor.send(wPid, msg)`.  Pure case bodies (`case x => f(x)`)
+   re-emit unchanged because emitCpsApply's `case fun` arm
+   produces the same `f(${vs})` form when there's nothing to bind.
 
-Each is a small focused chunk on top of chunks 1–3's foundation.
-None blocks the architectural correctness of Steps 0-3.
+Numbers after chunk 4:
+- `distributed-map.ssc`: 17 → 13 errors (–24% on top of chunk 3;
+  –76% total from baseline 54).
+- `dep-cps-basic.ssc`: still passes end-to-end.
+- `actors-process-info.ssc`: 4 → 4 (canary held — the reverted
+  earlier broad approach went from 4 → many; this narrower mirror
+  doesn't touch user-code class bodies).
+- 65 unit tests + full conformance: same 26/89 JVM, 0 INT, 0 JS as
+  chunk 3 — zero regressions.
+
+**Step 4 chunks 5-N — pending:**
+
+Remaining 13 errors in `distributed-map.ssc` fall into four small
+clusters that need careful one-at-a-time fixes:
+
+- **`receiveWithTimeout(t) { case … }.asInstanceOf[Boolean]`** in
+  `Cluster.healthCheck` — the CPS receive arm matches the bare
+  `Apply(Apply(receive, t), pf)` shape but our actual tree is
+  wrapped in `Term.ApplyType(Term.Select(_, asInstanceOf), [T])`.
+  Add a Term.ApplyType arm (or recognize the wrapped shape) so the
+  receive emit fires through the cast.
+
+- **`Term.Function { pid => pid ! "__shutdown__" }`** in
+  `Cluster.close` — Term.Function is `isSimpleCps` and emits
+  verbatim, so the body's `!` isn't rewritten. Mirror the PF body
+  CPS emit onto Term.Function bodies (with the same conservative
+  test against `actors-process-info.ssc` to ensure user-code
+  lambdas don't regress).
+
+- **`Term.AnonymousFunction(_._1)`** placeholder shorthand in
+  `pending.map(_._1).toSet` — emits as raw `_._1` which Scala can't
+  resolve when the surrounding type is `Any`.  Wrap as
+  `((_x: Any) => _x._1)` — but `._1` on `Any` would also fail
+  without a runtime dispatch; needs `_dispatch(_x, "_1", Nil)` to
+  go through reflection.
+
+- **Constructor cast injection skips class-scoped type params** —
+  `DistributedResult[T](ordered: List[T], failures: List[E])`
+  with class-level `[T]` causes my chunk-3 cast injection to emit
+  `ordered.asInstanceOf[List[T]]` where `T` is out of scope at the
+  call site.  Guard `calleeParamType` against type names that
+  appear in the callee class's `tparamClause`.
+
+Each is one focused fix.
 
 **Validation as of Step 3 landing:**
 - `conformance/dep-cps-basic.ssc` runs end-to-end on JVM, prints `ok/ok`.

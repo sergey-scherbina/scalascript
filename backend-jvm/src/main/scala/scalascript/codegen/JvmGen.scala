@@ -1940,10 +1940,39 @@ class JvmGen(
       // come from the verbatim emit path for pure dep code).
       s"object ${d.name.value} {\n$indented\n}"
 
+    // Chunk 4 — same recursion for Defn.Class so a `case class Cluster`
+    // body containing `def healthCheck = … pid ! msg …` reaches the
+    // `Defn.Def if isEffectfulFun` CPS arm.  Conservative trigger: only
+    // when the class body transitively names a globally-effectful dep
+    // def.  Plain data classes fall through to .syntax untouched
+    // (avoids the broad regression that bit the earlier reverted
+    // attempt — e.g. `info.links` in actors-process-info.ssc stays
+    // outside this path because that file has no effectful dep class).
+    case d: Defn.Class if
+        d.collect { case dd: Defn.Def if globalEffectfulDeps(dd.name.value) => () }.nonEmpty =>
+      emitClassWithRewrittenBody(d)
+
     case t: Term => emitExpr(t)
 
     // Everything else: emit as-is via scalameta's printer.
     case other => other.syntax
+
+  /** Build a Defn.Class with the body re-emitted via emitStat per
+   *  member (so its effectful `Defn.Def` methods reach the dep-mode
+   *  CPS arm).  Reuses the original class signature by string-slicing
+   *  scalameta's syntax up to the first body brace.  Falls back to
+   *  `d.syntax` verbatim if no body brace is detected (parameter-only
+   *  case classes / structural anomalies). */
+  private def emitClassWithRewrittenBody(d: Defn.Class): String =
+    val raw       = d.syntax
+    val bodyStart = raw.indexOf('{')
+    if bodyStart < 0 then d.syntax
+    else
+      val signature = raw.substring(0, bodyStart).trim
+      val stats     = d.templ.body.stats
+      val inner     = stats.map(emitStat).filter(_.nonEmpty).mkString("\n")
+      val indented  = inner.linesIterator.map("  " + _).mkString("\n")
+      s"$signature {\n$indented\n}"
 
   private def emitDefWithOverloads(d: Defn.Def): String =
     val groups = d.paramClauseGroups
@@ -2919,9 +2948,20 @@ class JvmGen(
       // when the expected type is `Any`, so wrap it ourselves with an
       // explicit `Any` parameter.  The destructuring inside still works
       // (`case (a, b) => …` binds against the runtime tuple).
+      //
+      // Chunk 4 — case bodies are CPS-emitted (mirroring the Term.Match
+      // arm in emitCpsExpr).  Without this, an effectful expression
+      // inside a case body — `pid ! msg`, `receive`, `nested.method` —
+      // stays as raw syntax and skips the CPS rewrites it needs.  Side
+      // effects on pure case bodies are nil: `case x => f(x)` re-emits
+      // as `case x => f(x)` (`f(x)` is `emitCpsApply` whose `case fun`
+      // arm produces `f(${vs})` when there's nothing to bind).
       case pf: Term.PartialFunction =>
         val tmp   = freshTmp()
-        val cases = pf.cases.map(_.syntax).mkString(" ")
+        val cases = pf.cases.map { c =>
+          val guard = c.cond.map(g => s" if ${g.syntax}").getOrElse("")
+          s"case ${c.pat.syntax}${guard} => ${emitCpsExpr(c.body)}"
+        }.mkString(" ")
         s"((${tmp}: Any) => ${tmp} match { $cases })"
       case _ => t.syntax
     def loop(remaining: List[Term], acc: List[String]): String = remaining match
