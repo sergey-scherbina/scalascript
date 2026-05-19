@@ -1795,6 +1795,9 @@ existing v1.1 `Monad` machinery handles emission.
 - Phase 3 ✓: `Step[Y,T]` ADT (`Yielded` / `Returned` / `Errored`); `std/coroutine.ssc` spec
 - Phase 4 ✓: 19 conformance tests (`CoroutineTest`, `CoroutineCodegenTest`); error diagnostics
 - `docs/coroutines.md` — full design doc
+- **v1.9.x — cancellation (2026-05-19)** ✓: `coroutineCancel(co)` primitive on INT backend;
+  `Step.Cancelled` added to the ADT; `fromBody` queue changed to `LinkedBlockingQueue(1)` so
+  cancel never deadlocks.  4 conformance tests in `CoroutineCancellationTest`.
 
 A single shared runtime primitive for paused-and-resumable
 computation, replacing the three parallel implementations that
@@ -1859,7 +1862,7 @@ infrastructure with `Async`.
 
 - Symmetric coroutines (`transfer(other)`) → asymmetric suffices
 - User-visible scheduler API → backend-specific, not portable
-- Coroutine cancellation in v1.9 → defer to v1.9.x
+- Coroutine cancellation in v1.9 → **landed in v1.9.x (2026-05-19)**
 - Synchronous cross-coroutine `transfer` → conflates scheduling
   with control flow
 

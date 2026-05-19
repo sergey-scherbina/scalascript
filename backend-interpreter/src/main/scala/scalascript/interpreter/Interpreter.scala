@@ -221,10 +221,13 @@ class Interpreter(
   //   coroutineCreate: starts T but T immediately blocks on toBody.take()
   //   coroutineResume: toBody.put(in); result = fromBody.take()
   //   suspend(out):    fromBody.put(Yielded(out)); toBody.take()
-  // This ensures the puts/takes interleave without deadlock.
+  // fromBody is a capacity-1 LinkedBlockingQueue so the body can always put
+  // without blocking — prevents deadlock when coroutineCancel removes the
+  // handle before the body has a chance to drain.
   private case class CoHandle(
-    fromBody: java.util.concurrent.SynchronousQueue[Value],
-    toBody:   java.util.concurrent.SynchronousQueue[Value]
+    fromBody:   java.util.concurrent.LinkedBlockingQueue[Value],
+    toBody:     java.util.concurrent.SynchronousQueue[Value],
+    bodyThread: java.util.concurrent.atomic.AtomicReference[Thread]
   )
   private val _coHandleTL    = new ThreadLocal[CoHandle]()
   private val coHandles       = new java.util.concurrent.ConcurrentHashMap[Long, CoHandle]()
@@ -1199,21 +1202,24 @@ class Interpreter(
     // ── v1.9 Coroutines — coroutineCreate / coroutineResume ──────────────
     globals("coroutineCreate") = Value.NativeFnV("coroutineCreate", {
       case List(thunk) =>
-        val fromBody = new java.util.concurrent.SynchronousQueue[Value]()
-        val toBody   = new java.util.concurrent.SynchronousQueue[Value]()
-        val handle   = CoHandle(fromBody, toBody)
-        val id       = nextCoId.getAndIncrement()
+        val fromBody   = new java.util.concurrent.LinkedBlockingQueue[Value](1)
+        val toBody     = new java.util.concurrent.SynchronousQueue[Value]()
+        val threadRef  = new java.util.concurrent.atomic.AtomicReference[Thread](null)
+        val handle     = CoHandle(fromBody, toBody, threadRef)
+        val id         = nextCoId.getAndIncrement()
         coHandles.put(id, handle)
-        Thread.ofVirtual().start { () =>
+        val vt = Thread.ofVirtual().start { () =>
+          threadRef.set(Thread.currentThread())
           _coHandleTL.set(handle)
-          toBody.take()  // lazy start: block until first coroutineResume
           try
+            toBody.take()  // lazy start: block until first coroutineResume
             val result = Computation.run(callValue(thunk, Nil, Map.empty))
             fromBody.put(Value.InstanceV("Returned", Map("value" -> result)))
           catch case t: Throwable =>
             val msg = Option(t.getMessage).getOrElse(t.getClass.getSimpleName)
-            try fromBody.put(Value.InstanceV("Errored", Map("message" -> Value.StringV(msg))))
-            catch case _: Throwable => ()
+            // offer instead of put: if handle was removed (cancelled) nobody
+            // reads fromBody, so we must not block the virtual thread forever.
+            fromBody.offer(Value.InstanceV("Errored", Map("message" -> Value.StringV(msg))))
         }
         Pure(Value.InstanceV("Coroutine", Map("_id" -> Value.IntV(id))))
       case _ => throw InterpretError("coroutineCreate(body: () => T)")
@@ -1225,14 +1231,29 @@ class Interpreter(
           case Some(Value.IntV(n)) => n
           case _ => throw InterpretError("coroutineResume: invalid coroutine handle")
         val handle = coHandles.get(id)
-        if handle == null then throw InterpretError("coroutineResume: coroutine already completed")
+        if handle == null then throw InterpretError("coroutineResume: coroutine already completed or cancelled")
         handle.toBody.put(in)
         val step = handle.fromBody.take()
         step match
-          case Value.InstanceV("Returned" | "Errored", _) => coHandles.remove(id)
+          case Value.InstanceV("Returned" | "Errored" | "Cancelled", _) => coHandles.remove(id)
           case _ => ()
         Pure(step)
       case _ => throw InterpretError("coroutineResume(co, in)")
+    })
+
+    globals("coroutineCancel") = Value.NativeFnV("coroutineCancel", {
+      case List(Value.InstanceV("Coroutine", fields)) =>
+        val id = fields.get("_id") match
+          case Some(Value.IntV(n)) => n
+          case _ => throw InterpretError("coroutineCancel: invalid coroutine handle")
+        val handle = coHandles.remove(id)
+        if handle != null then
+          val thread = handle.bodyThread.get()
+          if thread != null then
+            thread.interrupt()
+            thread.join(500)
+        Pure(Value.UnitV)
+      case _ => throw InterpretError("coroutineCancel(co)")
     })
 
     // ── Reactive primitives: Signal / computed / effect ────────────────

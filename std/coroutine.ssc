@@ -1,13 +1,14 @@
 ---
 name: std-coroutine
-version: 1.0.0
-description: v1.9 coroutine primitive — coroutineCreate / coroutineResume / suspend
+version: 1.1.0
+description: v1.9 coroutine primitive — coroutineCreate / coroutineResume / suspend / coroutineCancel
 package: std.coroutine
 exports:
   - Step
   - coroutineCreate
   - coroutineResume
   - suspend
+  - coroutineCancel
 ---
 
 # `std.coroutine` — Coroutine primitive
@@ -27,10 +28,12 @@ enum Step[Y, T]:
   case Yielded(value: Y)
   case Returned(value: T)
   case Errored(message: String)
+  case Cancelled
 
 extern def coroutineCreate[Y, R, T](body: () => T): Any
 extern def coroutineResume[Y, R, T](co: Any, in: R): Step[Y, T]
 extern def suspend[Y, R](out: Y): R
+extern def coroutineCancel(co: Any): Unit
 ```
 
 ## Example — ping-pong (two-way value passing)

@@ -442,7 +442,7 @@ breakdown of new code, new conformance tests, and dependencies:
 | User-visible scheduler API | The scheduler is per-backend, not a portable concept.  Users get `Async.parallel`, `actor.spawn`, etc. — never raw scheduler control |
 | Stackful symmetric jumps (longjmp-style) | Unsafe; defeats supervisor semantics |
 | Synchronous cross-coroutine `transfer` | Conflates scheduling with control flow.  Use channels |
-| Coroutine cancellation in v1.9 | Defer to v1.9.x with Actor refactor — actors' supervision signals provide the right model.  Until then: stop resuming, let GC reclaim |
+| Coroutine cancellation in v1.9 | **Landed in v1.9.x (2026-05-19)**: `coroutineCancel(co)` invalidates the handle and interrupts the body thread; `Step.Cancelled` added to the ADT |
 | `awaitWithin(timeout)` baked into coroutine primitive | Higher-level concern; lives in `Async`, not the primitive |
 
 ## 10. Conformance plan (v1.9)
@@ -465,11 +465,13 @@ Each test asserts cross-backend identical observable output.
 Decisions not blocking v1.9, but need answers before specific
 follow-up milestones land.
 
-- **Cancellation semantics** — when v1.9.x rebuilds actors, a
-  supervisor must be able to kill a child coroutine mid-execution.
-  Options: (a) inject a `CancelledException` at the next suspend
-  point (cooperative); (b) explicit `coroutine.cancel()` that the
-  body must check (`Interrupt.check()`).  Decide before v1.9.x.
+- **Cancellation semantics** — **resolved (2026-05-19)**.
+  `coroutineCancel(co)` uses `Thread.interrupt()` on the body's
+  virtual thread; the body thread sees `InterruptedException`
+  at the next blocking point.  Handle is removed from the live-
+  coroutines map; subsequent `coroutineResume` calls throw.
+  `Step.Cancelled` is added to the ADT for future use when actors
+  need to observe a controlled-shutdown signal.
 
 - **Stack-trace fidelity on INT** — the CPS transform on the
   interpreter may obscure user-visible stack frames.  Need a
