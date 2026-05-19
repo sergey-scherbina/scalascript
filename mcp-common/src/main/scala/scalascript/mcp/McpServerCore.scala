@@ -85,6 +85,17 @@ class McpServerBuilder:
   @volatile private[mcp] var clientCapabilities: ujson.Value = ujson.Obj()
   private[mcp] var onRootsListChanged: () => Unit = () => ()
 
+  // v1.17.x — completion handlers keyed by (prompt name, argument name)
+  // and (resource uriTemplate, argument name).  Dispatching `completion/
+  // complete` looks up the handler by the ref + argument name and
+  // invokes it with the current partial value.  Missing handlers reply
+  // with an empty values list (not an error) — spec-mandated graceful
+  // degradation: clients always render zero suggestions, never failure.
+  private[mcp] val promptCompletions   =
+    mutable.LinkedHashMap.empty[(String, String), String => List[String]]
+  private[mcp] val resourceCompletions =
+    mutable.LinkedHashMap.empty[(String, String), String => List[String]]
+
   /** Register a callback fired when the connected client emits
    *  `notifications/roots/list_changed`.  Typical use: re-fetch via
    *  `srv.listRoots(...)` and update any cached workspace state. */
@@ -286,6 +297,27 @@ class McpServerBuilder:
     handler:     Map[String, Any] => PromptHandlerResult
   ): Unit =
     prompts(name) = PromptRegistration(name, description, arguments, handler)
+
+  /** v1.17.x — register an autocomplete handler for `(promptName,
+   *  argumentName)`.  The handler receives the user's current partial
+   *  value and returns up to 100 suggestion strings; the dispatcher
+   *  trims + sets `hasMore`. */
+  def completionForPrompt(
+    promptName: String,
+    argName:    String,
+    handler:    String => List[String]
+  ): Unit =
+    promptCompletions((promptName, argName)) = handler
+
+  /** v1.17.x — register an autocomplete handler for `(uriTemplate,
+   *  argumentName)`.  The handler receives the user's current partial
+   *  value for the named template variable and returns suggestions. */
+  def completionForResource(
+    uriTemplate: String,
+    argName:     String,
+    handler:     String => List[String]
+  ): Unit =
+    resourceCompletions((uriTemplate, argName)) = handler
 
   def setOnConnected(f: () => Unit):    Unit = onConnected    = f
   def setOnDisconnected(f: () => Unit): Unit = onDisconnected = f
@@ -509,6 +541,9 @@ object McpServerCore:
       case McpProtocol.Method.PromptsGet =>
         getPrompt(builder, params, id)
 
+      case McpProtocol.Method.CompletionComplete =>
+        completeArgument(builder, params, id)
+
       case unknown =>
         JsonRpc.encodeError(id, JsonRpc.ErrorCode.MethodNotFound, s"method not found: $unknown")
 
@@ -657,6 +692,32 @@ object McpServerCore:
                   JsonRpc.encodeError(id, JsonRpc.ErrorCode.InternalError,
                     Option(e.getMessage).getOrElse(e.getClass.getSimpleName))
               }
+
+  /** v1.17.x — `completion/complete` dispatcher.  Looks up a handler by
+   *  the inbound `ref` shape (prompt name vs resource template uri) and
+   *  the argument name, invokes it with the current partial value, and
+   *  wraps the result in the spec envelope.  Missing handlers reply
+   *  with an empty values list (per spec: graceful degradation —
+   *  clients always render zero suggestions, never a hard error). */
+  private def completeArgument(builder: McpServerBuilder, params: ujson.Value, id: ujson.Value): String =
+    params.objOpt match
+      case None      => invalidParams(id, "completion/complete params not an object")
+      case Some(obj) =>
+        val refOpt = obj.get("ref").flatMap(McpProtocol.parseCompletionRef)
+        val argObj = obj.get("argument").flatMap(_.objOpt)
+        val argName = argObj.flatMap(_.get("name").flatMap(_.strOpt))
+        val argValue = argObj.flatMap(_.get("value").flatMap(_.strOpt)).getOrElse("")
+        (refOpt, argName) match
+          case (None, _) => invalidParams(id, "completion/complete: missing/invalid 'ref'")
+          case (_, None) => invalidParams(id, "completion/complete: missing 'argument.name'")
+          case (Some(ref), Some(name)) =>
+            val handler = ref match
+              case McpProtocol.CompletionRef.PromptRef(p)   => builder.promptCompletions.get((p,   name))
+              case McpProtocol.CompletionRef.ResourceRef(u) => builder.resourceCompletions.get((u, name))
+            val values =
+              try handler.map(_(argValue)).getOrElse(Nil)
+              catch case _: Throwable => Nil  // handler exceptions → empty completions
+            JsonRpc.encodeResult(id, McpProtocol.completionResult(values))
 
   private def invalidParams(id: ujson.Value, msg: String): String =
     JsonRpc.encodeError(id, JsonRpc.ErrorCode.InvalidParams, msg)

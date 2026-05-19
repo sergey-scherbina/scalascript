@@ -49,6 +49,11 @@ object McpProtocol:
     // client replies with one of: accept (content matches schema),
     // decline (user said no), cancel (user dismissed the dialog).
     val ElicitationCreate     = "elicitation/create"
+    // v1.17.x — completion (autocomplete suggestions for prompt args and
+    // resource-template parameters).  Client → server request with a
+    // `ref` discriminating prompt vs resource and the current partial
+    // value; server replies with up to 100 suggestions.
+    val CompletionComplete    = "completion/complete"
 
   /** Syslog levels per MCP spec, ordered by severity (low to high). */
   val LogLevels: List[String] = List(
@@ -72,10 +77,11 @@ object McpProtocol:
     ujson.Obj(
       "protocolVersion" -> ProtocolVersion,
       "capabilities" -> ujson.Obj(
-        "tools"     -> ujson.Obj("listChanged" -> true),
-        "resources" -> ujson.Obj("subscribe" -> true, "listChanged" -> true),
-        "prompts"   -> ujson.Obj("listChanged" -> true),
-        "logging"   -> ujson.Obj()
+        "tools"       -> ujson.Obj("listChanged" -> true),
+        "resources"   -> ujson.Obj("subscribe" -> true, "listChanged" -> true),
+        "prompts"     -> ujson.Obj("listChanged" -> true),
+        "logging"     -> ujson.Obj(),
+        "completions" -> ujson.Obj()
       ),
       "serverInfo" -> ujson.Obj(
         "name"    -> serverName,
@@ -212,6 +218,47 @@ object McpProtocol:
   /** Build the params for an outgoing `elicitation/create` request. */
   def elicitationCreateParams(message: String, requestedSchema: ujson.Value): ujson.Value =
     ujson.Obj("message" -> message, "requestedSchema" -> requestedSchema)
+
+  // ─── Completion ─────────────────────────────────────────────────────
+
+  /** Spec caps completion results at 100 entries.  Helper applies the
+   *  cap consistently and computes the `hasMore` flag. */
+  val CompletionMaxValues = 100
+
+  /** Build a `completion/complete` result envelope from a raw list of
+   *  suggestion strings.  Trims to `CompletionMaxValues`; sets `hasMore`
+   *  iff the original list exceeded that cap; reports `total` so clients
+   *  can show "X of Y" hints. */
+  def completionResult(values: List[String]): ujson.Value =
+    val total   = values.length
+    val capped  = values.take(CompletionMaxValues)
+    val hasMore = total > CompletionMaxValues
+    ujson.Obj("completion" -> ujson.Obj(
+      "values"  -> ujson.Arr.from(capped.map(ujson.Str(_))),
+      "total"   -> ujson.Num(total.toDouble),
+      "hasMore" -> ujson.Bool(hasMore)
+    ))
+
+  /** Discriminator for `completion/complete` requests.  Per spec, `ref`
+   *  is either `{type: "ref/prompt", name}` (autocomplete a prompt
+   *  argument) or `{type: "ref/resource", uri}` (autocomplete a URI-
+   *  template variable). */
+  enum CompletionRef:
+    case PromptRef(name: String)
+    case ResourceRef(uri:  String)
+
+  /** Defensive parser for the `ref` object — unknown shapes return None
+   *  so the server can reply MethodNotFound / InvalidParams instead of
+   *  crashing. */
+  def parseCompletionRef(js: ujson.Value): Option[CompletionRef] =
+    try
+      js.obj.get("type").flatMap(_.strOpt) match
+        case Some("ref/prompt") =>
+          js.obj.get("name").flatMap(_.strOpt).map(CompletionRef.PromptRef(_))
+        case Some("ref/resource") =>
+          js.obj.get("uri").flatMap(_.strOpt).map(CompletionRef.ResourceRef(_))
+        case _ => None
+    catch case _: Throwable => None
 
   /** Parse the client's reply.  Unknown / malformed shapes resolve to
    *  `Cancel` so user code defaults to the safe "user didn't agree"
