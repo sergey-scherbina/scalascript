@@ -36,7 +36,7 @@ object WasmGen:
 
   private def collectSection(s: Section, sb: StringBuilder): Unit =
     s.content.foreach {
-      case Content.CodeBlock(lang, src, _, _, _) if Lang.isStandardScala(lang) =>
+      case Content.CodeBlock(lang, src, _, _, _, _) if Lang.isStandardScala(lang) =>
         sb.append(src.stripTrailing()).append("\n\n")
       case _ => ()
     }

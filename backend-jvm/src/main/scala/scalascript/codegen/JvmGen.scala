@@ -120,7 +120,37 @@ object JvmGen:
   ): String =
     JvmGen(baseDir, intrinsics, lockPath).genUserOnly(module)
 
-  private case class Block(node: ScalaNode, src: String)
+  /** Emit user code only AND a generated-Scala-line → original-`.ssc`-line
+   *  map suitable for JSR-45 SMAP injection.  Returns the same Scala
+   *  source as [[generateUserOnly]] (which is a thin wrapper that
+   *  discards the map for callers that don't need it).
+   *
+   *  The map is best-effort, block-granular: each block's emitted line
+   *  range maps to a contiguous stretch of original `.ssc` lines
+   *  starting at the block's `span.start.line`.  Lines outside any
+   *  user block (the `import _ssc_runtime.*` prefix, front-matter
+   *  `//> using` lines, route registrations) are NOT in the map —
+   *  stack traces resolving against those lines fall through to the
+   *  base `LineNumberTable` (the JVM keeps the original line on no
+   *  match, which is what users want for the link-emitted preamble
+   *  anyway).
+   *
+   *  v2.0 Phase 4 (Option A) — SMAP line mapping. */
+  def generateUserOnlyWithLineMap(
+      module:     Module,
+      baseDir:    Option[os.Path] = None,
+      intrinsics: Map[scalascript.ir.QualifiedName, scalascript.backend.spi.IntrinsicImpl] = Map.empty,
+      lockPath:   Option[os.Path] = None
+  ): (String, Map[Int, Int]) =
+    JvmGen(baseDir, intrinsics, lockPath).genUserOnlyWithLineMap(module)
+
+  /** Block carries its original `.ssc` source-line offset so the emitter
+   *  can build a JSR-45 SMAP line map.  `lineOffset` is the 1-based line
+   *  in the `.ssc` where the block's `src` content begins (the line
+   *  immediately after the opening fence ```scalascript line).  When
+   *  unknown (synthesised blocks, imports), `lineOffset` is 0 and the
+   *  block contributes no entries to the line map. */
+  private case class Block(node: ScalaNode, src: String, lineOffset: Int = 0)
   /** A heading-bound `html` / `css` code block: render to a string in the
    *  same source position as the surrounding parsed blocks, then bind to
    *  `<sectionId>.<lang>` (html or css) at the end of the module. */
@@ -479,11 +509,17 @@ class JvmGen(
    *  the wildcard-imported helpers from the shared runtime resolve at
    *  compile time.  No runtime preamble is included. */
   def genUserOnly(module: Module): String =
+    genUserOnlyWithLineMap(module)._1
+
+  /** Emit user code plus a generated-line → original-`.ssc`-line map.
+   *  See [[JvmGen.generateUserOnlyWithLineMap]] for semantics. */
+  def genUserOnlyWithLineMap(module: Module): (String, Map[Int, Int]) =
     moduleDeps = module.manifest.map(_.dependencies).getOrElse(Map.empty)
     val blocks = collectBlocks(module.sections)
     analyzeEffects(blocks)
     analyzeMutualRecursion(blocks)
     val sb = StringBuilder()
+    val lineMap = scala.collection.mutable.LinkedHashMap.empty[Int, Int]
 
     // Carry the same `//> using dep` directives the legacy emit would
     // produce; scala-cli treats them as no-ops in non-script files but
@@ -523,8 +559,31 @@ class JvmGen(
         sb.append(s"_i18nTable = Map($entries)\n\n")
     }
 
+    // Emit each block while recording where it landed in the output so
+    // we can build the SMAP line map.  `currentGenLine` is the 1-based
+    // line in `sb` where the NEXT character would go.  After wrapping
+    // by the JvmBytecode driver into `object <name>_sc { … }`, the
+    // emitted source gets ONE additional line at the top, shifting
+    // every gen-line by +1.  We bake that +1 in here so callers don't
+    // have to know about the wrapper detail.
+    val WrapperShift = 1
     blocks.foreach { block =>
-      sb.append(emitBlock(block).stripTrailing())
+      val emitted = emitBlock(block).stripTrailing()
+      val genStart = countLines(sb) + WrapperShift
+      // Map each non-blank line of the block's emitted output to a
+      // matching .ssc line.  We use a 1:1 stride: line N of the emit
+      // ⇒ line N + lineOffset of the .ssc.  This is approximate when
+      // emitBlock rewrites a block (effects / mutual-TCO transforms
+      // can balloon or contract line counts) but every JVM stack-trace
+      // tool we've checked tolerates an approximate mapping — it just
+      // picks the closest preceding entry.
+      if block.lineOffset > 0 then
+        val emittedLines = emitted.linesIterator.length
+        var i = 0
+        while i < emittedLines do
+          lineMap.update(genStart + i, block.lineOffset + i)
+          i += 1
+      sb.append(emitted)
       sb.append("\n\n")
     }
 
@@ -535,7 +594,20 @@ class JvmGen(
       .collect { case s: String => s }
     mainEntry.foreach { name => sb.append(s"$name()\n") }
 
-    sb.toString.stripTrailing() + "\n"
+    val src = sb.toString.stripTrailing() + "\n"
+    (src, lineMap.toMap)
+
+  /** Count the number of newlines emitted into `sb` so far.  Used to
+   *  compute the 1-based generated-line position the next emit would
+   *  land on.  Linear scan; the StringBuilder is rebuilt fresh per
+   *  module so the cost is bounded. */
+  private def countLines(sb: StringBuilder): Int =
+    var n = 1; var i = 0
+    val len = sb.length
+    while i < len do
+      if sb.charAt(i) == '\n' then n += 1
+      i += 1
+    n
 
   /** Strip top-level `private` access modifiers from a Scala source block.
    *  Used by `genRuntime` so wildcard-imported user code can reach helper
@@ -615,7 +687,15 @@ class JvmGen(
       val sectionId = sectionIdent(s.heading.text)
       val own = s.content.flatMap {
         case cb: Content.CodeBlock if Lang.isParseable(cb.lang) =>
-          cb.tree.map(t => JvmGen.Block(t, cb.source)).toList
+          // CommonMark's `getSourceSpans` returns the span of the WHOLE
+          // fenced block including the opening ``` ` ``` fence line.  The
+          // first line of the block's `source` content sits on
+          // `span.start.line + 1` (skip past the fence open).  When the
+          // span is missing — happens for synthesised blocks injected by
+          // `inlineImport` etc. — `lineOffset` defaults to 0 and the
+          // block contributes nothing to the SMAP.
+          val origStart = cb.span.fold(0)(_.start.line + 1)
+          cb.tree.map(t => JvmGen.Block(t, cb.source, origStart)).toList
         case cb: Content.CodeBlock if Lang.isStringBlock(cb.lang) =>
           // Reserve a position in the eventual emission order so the
           // String val lands between the surrounding parsed blocks.

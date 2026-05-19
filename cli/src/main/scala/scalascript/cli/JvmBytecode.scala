@@ -519,3 +519,62 @@ object JvmBytecode:
       (winners.size, duplicates.toList)
     finally
       scala.util.Try(os.remove.all(workDir))
+
+  /** Variant of [[packBundlesAsJar]] that also injects a JSR-45
+   *  `SourceDebugExtension` attribute into each module's `.class` files
+   *  before they get packed into the JAR.
+   *
+   *  `smapByModule` is keyed on the same `moduleId` used in `bundles`; a
+   *  module that has no SMAP entry (or an empty SMAP) is skipped — its
+   *  classes are packed as-is.  This lets the linker enable SMAP per
+   *  module (only the user-code modules get it; the shared `_ssc_runtime`
+   *  bundle and pre-Phase-4 `.scjvm` artifacts without a `lineMap`
+   *  field pack unmodified).
+   *
+   *  v2.0 Phase 4 (Option A) — SMAP injection at link time. */
+  def packBundlesAsJarWithSmap(
+      bundles:      List[(String, String)],
+      smapByModule: Map[String, String],
+      outJar:       os.Path
+  ): (Int, List[(String, String)]) =
+    os.makeDir.all(outJar / os.up)
+
+    val workDir = os.temp.dir(prefix = "ssc-jar-build-")
+    val duplicates = scala.collection.mutable.ListBuffer.empty[(String, String)]
+    try
+      val winners = scala.collection.mutable.LinkedHashMap.empty[String, (String, os.Path)]
+
+      for (moduleId, base64Zip) <- bundles do
+        val safeId = moduleId.replaceAll("[^A-Za-z0-9_.-]", "_")
+        val modDir = workDir / safeId
+        extractBundleTo(base64Zip, modDir)
+
+        // Inject SMAP into THIS module's `.class` files before any
+        // bookkeeping picks them up.  Skipping when no SMAP is present
+        // for the module (e.g. shared runtime, pre-Phase-4 artifacts).
+        smapByModule.get(moduleId).filter(_.nonEmpty).foreach { smap =>
+          JvmSmapInjector.injectAll(modDir, smap)
+        }
+
+        for classFile <- collectClassFiles(modDir) do
+          val entryName = classFile.relativeTo(modDir).toString.replace('\\', '/')
+          if winners.contains(entryName) then
+            duplicates += (entryName -> moduleId)
+          else
+            winners(entryName) = (moduleId, classFile)
+
+      val manifest = new JarManifest()
+      manifest.getMainAttributes.put(Attributes.Name.MANIFEST_VERSION, "1.0")
+      val fos = java.nio.file.Files.newOutputStream(outJar.toNIO)
+      val jos = new JarOutputStream(fos, manifest)
+      try
+        for (entryName, (_, sourcePath)) <- winners do
+          val entry = new JarEntry(entryName)
+          jos.putNextEntry(entry)
+          jos.write(os.read.bytes(sourcePath))
+          jos.closeEntry()
+      finally jos.close()
+
+      (winners.size, duplicates.toList)
+    finally
+      scala.util.Try(os.remove.all(workDir))

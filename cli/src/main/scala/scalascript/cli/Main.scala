@@ -2045,9 +2045,13 @@ def compileJvmCommand(args: List[String]): Unit =
       //    `import _ssc_runtime.*` prefix, so the shared runtime
       //    classBundle from `_runtime.scjvm-runtime` covers the helpers.
       val baseDir     = Some(path / os.up)
-      val scalaSource =
-        if bytecode then JvmGen.generateUserOnly(module, baseDir)
-        else             JvmGen.generate(module, baseDir)
+      // In bytecode mode we also need the generated→original .ssc line
+      // map so `link --source-map` can build a JSR-45 SMAP.  The
+      // source-only path doesn't need it (no `.class` files are produced
+      // here for SMAP injection at link time).
+      val (scalaSource, userLineMap): (String, Map[Int, Int]) =
+        if bytecode then JvmGen.generateUserOnlyWithLineMap(module, baseDir)
+        else            (JvmGen.generate(module, baseDir), Map.empty[Int, Int])
       val pkg         = module.manifest.flatMap(_.pkg).getOrElse(Nil)
       val moduleName  = module.manifest.flatMap(_.name)
       val sourceHash  = InterfaceExtractor.sha256(sourceBytes)
@@ -2113,9 +2117,14 @@ def compileJvmCommand(args: List[String]): Unit =
           finally
             depClasspathDir.foreach(d => scala.util.Try(os.remove.all(d)))
 
+      // Stringify the line map for upickle (Map[String, Int] round-trips
+      // cleanly; Map[Int, Int] would land as a 2-element array).
+      val lineMapStr: Map[String, Int] = userLineMap.map { (g, o) => g.toString -> o }
       val json = JvmArtifactIO.writeJvm(
         moduleId, pkg, moduleName, sourceHash, scalaSource, imports,
-        classBundleOpt, moduleCaps.toList.sorted)
+        classBundleOpt, moduleCaps.toList.sorted,
+        sectionHashes = Map.empty,
+        lineMap       = lineMapStr)
       outputArg match
         case Some("-") => println(json)
         case Some(out) =>
@@ -2248,9 +2257,11 @@ private def compileJvmDepInto(
   // bytecode mode the dep emits user-code-only with `import _ssc_runtime.*`
   // and the shared `_runtime.scjvm-runtime` covers the helpers.
   val baseDir     = Some(dep.path / os.up)
-  val scalaSource =
-    if bytecode then JvmGen.generateUserOnly(module, baseDir)
-    else             JvmGen.generate(module, baseDir)
+  // Bytecode mode also produces the gen→orig .ssc line map for SMAP
+  // injection at link time (see compileJvmCommand for context).
+  val (scalaSource, userLineMap): (String, Map[Int, Int]) =
+    if bytecode then JvmGen.generateUserOnlyWithLineMap(module, baseDir)
+    else            (JvmGen.generate(module, baseDir), Map.empty[Int, Int])
   val pkg         = module.manifest.flatMap(_.pkg).getOrElse(Nil)
   val moduleName  = module.manifest.flatMap(_.name)
   val sourceHash  = InterfaceExtractor.sha256(dep.sourceBytes)
@@ -2284,7 +2295,11 @@ private def compileJvmDepInto(
       finally
         scala.util.Try(os.remove.all(depCpDir))
 
-  JvmArtifactIO.writeJvmFile(moduleId, pkg, moduleName, sourceHash, scalaSource, imports, scjvmPath, classBundleOpt, moduleCaps.toList.sorted)
+  val lineMapStr: Map[String, Int] = userLineMap.map { (g, o) => g.toString -> o }
+  JvmArtifactIO.writeJvmFile(
+    moduleId, pkg, moduleName, sourceHash, scalaSource, imports, scjvmPath,
+    classBundleOpt, moduleCaps.toList.sorted,
+    sectionHashes = Map.empty, lineMap = lineMapStr)
 
 /** True when `scjvmPath` exists and its `classBundle` is non-empty.
  *  Used by `compile-jvm --bytecode` to detect that an existing source-only
@@ -4562,7 +4577,40 @@ private def linkJvmFromBytecode(
   //    matters when a module accidentally redefines `_show` etc.), then
   //    the per-module bundles in the order given.
   val bundles = runtimeBundles.toList ++ artifacts.toList.map(a => a.moduleId -> a.classBundle.get)
-  val (uniqueClasses, duplicates) = JvmBytecode.packBundlesAsJar(bundles, outPath)
+
+  // v2.0 Phase 4 (Option A) — when `--source-map` is set, build a JSR-45
+  // SMAP for every module that has a populated `lineMap` and inject it
+  // into the module's `.class` files just before they're packed into
+  // the JAR.  Modules without a `lineMap` (pre-Phase-4 artifacts) skip
+  // the rewrite — the linker continues to ship Option B sidecar
+  // `.ssc.scala` files alongside the JAR as the IDE-friendly fallback.
+  val smapByModule: Map[String, String] =
+    if !sourceMap then Map.empty
+    else
+      val builder = scala.collection.mutable.Map.empty[String, String]
+      var warned  = false
+      for a <- artifacts.toList do
+        val safeName = a.moduleId.replaceAll("[^A-Za-z0-9_.-]", "_") match
+          case ""   => "Main"
+          case s    => if s.head.isDigit then "M" + s else s
+        if a.lineMap.isEmpty then
+          if !warned then
+            System.err.println(s"link --backend jvm --bytecode --source-map: " +
+              s"${a.moduleId} has no lineMap (pre-Phase-4 artifact); " +
+              s"recompile with `ssc compile-jvm --bytecode` for SMAP support.")
+            warned = true
+        else
+          val intMap: Map[Int, Int] = a.lineMap.flatMap { (k, v) =>
+            scala.util.Try(k.toInt).toOption.map(_ -> v)
+          }
+          val sscFileName = s"${safeName}.ssc"
+          val smap = JvmSmap.build(safeName, sscFileName, intMap)
+          builder(a.moduleId) = smap
+      builder.toMap
+
+  val (uniqueClasses, duplicates) =
+    if smapByModule.isEmpty then JvmBytecode.packBundlesAsJar(bundles, outPath)
+    else JvmBytecode.packBundlesAsJarWithSmap(bundles, smapByModule, outPath)
 
   val rtNote = if runtimeBundles.isEmpty then ""
                else s" (incl. ${runtimeBundles.length} shared runtime bundle(s))"
@@ -4571,19 +4619,19 @@ private def linkJvmFromBytecode(
   if duplicates.nonEmpty then
     println(s"  (deduplicated ${duplicates.size} duplicate class entries; first-write-wins)")
 
-  // v2.0 Phase 4 — Option B source-map support.  When `--source-map` is
-  // set, write each module's `scalaSource` to `<outDir>/<moduleId>.ssc.scala`
-  // alongside the linked JAR.  Users can drop these files next to the
-  // JAR in an IDE (or attach them via "Attach Sources" in IntelliJ) for
-  // navigable stack traces.
+  // v2.0 Phase 4 — source-map support.
   //
-  // We chose Option B (sibling source files) over Option A (ASM-injected
-  // SourceDebugExtension + SMAP) because it requires no bytecode rewrite,
-  // no third-party dep, and IDE source navigation Just Works against a
-  // `.scala` file whose name matches the `.class` files' SourceFile
-  // attribute (which is `<moduleId>_sc.scala` today — close enough that
-  // IntelliJ falls back to whole-file source navigation).  Option A is
-  // a Phase 5 follow-up.
+  // Option B (sidecar `.ssc.scala` next to the JAR): kept on by default
+  // whenever `--source-map` is set.  IDE source-attachment works against
+  // a `.scala` file whose name matches the `.class` files' SourceFile
+  // attribute (`<moduleId>_sc.scala` today) — IntelliJ falls back to
+  // whole-file source navigation.
+  //
+  // Option A (JSR-45 `SourceDebugExtension` injection): wired through
+  // `packBundlesAsJarWithSmap` above when modules carry a `lineMap`.
+  // After Option A injection, `java -jar out.jar` stack traces resolve
+  // to `<moduleId>.ssc:<line>` instead of `<moduleId>_sc.scala:<line>`
+  // — even WITHOUT the sidecar present.
   if sourceMap then
     val outDir = outPath / os.up
     var written = 0
@@ -4594,8 +4642,11 @@ private def linkJvmFromBytecode(
       val sidecar = outDir / s"$safeName.ssc.scala"
       os.write.over(sidecar, a.scalaSource)
       written += 1
+    val smapNote =
+      if smapByModule.isEmpty then ""
+      else s"; ${smapByModule.size} module(s) carry SMAP for SourceDebugExtension stack traces"
     println(s"  Source-map sidecars written ($written .ssc.scala file(s) " +
-      s"next to ${outPath.last}) for IDE source attachment.")
+      s"next to ${outPath.last}) for IDE source attachment$smapNote.")
 
 private def linkJvmFromScjvm(
     scjvmFiles: List[os.Path],
