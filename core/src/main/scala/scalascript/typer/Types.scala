@@ -1,5 +1,17 @@
 package scalascript.typer
 
+/** A single member declaration inside a structural `Refinement`.
+ *  We don't capture the full Scala member body — only the declaration
+ *  shape (kind + name + signature) is sufficient for interface round-trip.
+ *
+ *  `kind` is one of `def`, `val`, `type`.
+ */
+case class RefMember(kind: String, name: String, sig: SType)
+
+/** A single case of a match-type — `case pattern => rhs`.
+ *  Surface-only: the typer / interpreter never reduces these. */
+case class MatchCase(pattern: SType, rhs: SType)
+
 /** Internal type representation for type-checking.
  *  Kept separate from the AST so the typer can introduce unification variables
  *  and apply substitutions without modifying source trees.
@@ -16,6 +28,16 @@ enum SType:
    *  unification or runtime semantics, but round-trips through
    *  `show` / `parseSType` so interface artifacts stay structural. */
   case HigherKinded(name: String, arity: Int)
+  /** Structural refinement type — `Base { def foo: Int; val bar: String }`.
+   *  Surface-only: the typer / interpreter never inspect the members,
+   *  they exist purely so an interface artifact can round-trip the
+   *  declared shape through `show` / `parseSType`. */
+  case Refinement(base: SType, members: List[RefMember])
+  /** Match-type — `T match { case Int => String; case _ => Any }`.
+   *  Surface-only: never reduced, never unified.  Round-trips through
+   *  `show` / `parseSType` so interface artifacts retain the declared
+   *  shape verbatim. */
+  case Match(scrutinee: SType, cases: List[MatchCase])
   case Error(msg: String)
 
   def show: String = this match
@@ -35,6 +57,12 @@ enum SType:
     case Intersection(types)  => types.map(showInterAlt).mkString(" & ")
     case HigherKinded(name, arity) =>
       s"$name[${List.fill(arity)("_").mkString(", ")}]"
+    case Refinement(base, members) =>
+      val body = members.map(m => s"${m.kind} ${m.name}: ${m.sig.show}").mkString("; ")
+      s"${showRefBase(base)} { $body }"
+    case Match(scrutinee, cases) =>
+      val body = cases.map(c => s"case ${c.pattern.show} => ${c.rhs.show}").mkString("; ")
+      s"${showMatchScrutinee(scrutinee)} match { $body }"
     case Error(msg)           => s"<error: $msg>"
 
   /** Render a type that appears as the *parameter* of a unary function
@@ -63,6 +91,21 @@ enum SType:
     case _: Function | _: Union => s"(${t.show})"
     case _                      => t.show
 
+  /** Base of a `Refinement`: needs parens when the base itself contains
+   *  a looser-binding construct (function arrow, union, intersection,
+   *  another refinement or match), otherwise the printed form would
+   *  re-parse with the wrong grouping. */
+  private def showRefBase(t: SType): String = t match
+    case _: Function | _: Union | _: Intersection | _: Refinement | _: Match =>
+      s"(${t.show})"
+    case _ => t.show
+
+  /** Scrutinee of a `Match`: same parenthesisation as a refinement base. */
+  private def showMatchScrutinee(t: SType): String = t match
+    case _: Function | _: Union | _: Intersection | _: Refinement | _: Match =>
+      s"(${t.show})"
+    case _ => t.show
+
   def isError: Boolean = this match
     case Error(_) => true
     case _        => false
@@ -74,6 +117,10 @@ enum SType:
     case Tuple(elems)             => Tuple(elems.map(_.subst(m)))
     case Union(types)             => Union(types.map(_.subst(m)))
     case Intersection(types)      => Intersection(types.map(_.subst(m)))
+    case Refinement(base, mem)    =>
+      Refinement(base.subst(m), mem.map(rm => RefMember(rm.kind, rm.name, rm.sig.subst(m))))
+    case Match(scrut, cs)         =>
+      Match(scrut.subst(m), cs.map(c => MatchCase(c.pattern.subst(m), c.rhs.subst(m))))
     case _                        => this
 
   def freeVars: Set[Int] = this match
@@ -83,6 +130,9 @@ enum SType:
     case Tuple(elems)             => elems.flatMap(_.freeVars).toSet
     case Union(types)             => types.flatMap(_.freeVars).toSet
     case Intersection(types)      => types.flatMap(_.freeVars).toSet
+    case Refinement(base, mem)    => base.freeVars ++ mem.flatMap(_.sig.freeVars).toSet
+    case Match(scrut, cs)         =>
+      scrut.freeVars ++ cs.flatMap(c => c.pattern.freeVars ++ c.rhs.freeVars).toSet
     case _                        => Set.empty
 
 object SType:
