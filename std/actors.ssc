@@ -30,6 +30,11 @@ exports:
   - subscribeLeaderEvents
   - setReconnectPolicy
   - requestGossip
+  - ConfigChanged
+  - clusterConfigSet
+  - clusterConfigGet
+  - clusterConfigKeys
+  - subscribeConfigEvents
 ---
 
 # std.actors — Actor supervision
@@ -225,6 +230,34 @@ extern def setReconnectPolicy(initialMs: Long, maxMs: Long): Unit
 // up nodes that joined elsewhere in the cluster after our initial
 // `joinCluster` handshake.  No-op when there are no peers.
 extern def requestGossip(): Unit
+
+// ─── Cluster configuration distribution (v1.23) ──────────────────────────────
+
+// Config-change events delivered to actors that have called
+// `subscribeConfigEvents()`.  Fires once per accepted update (whether
+// it originated locally or arrived from a peer).
+case class ConfigChanged(key: String, value: String)
+
+// Write `key=value` into the cluster-wide config view and broadcast to
+// every connected peer.  Conflict resolution is last-write-wins by
+// `(timestamp, originNodeId)` — ties on timestamp break by lex-greatest
+// origin so all peers converge.  This is *eventual* consistency: peers
+// that are temporarily disconnected pick up the change on their next
+// re-handshake (or via a leader-driven re-sync if the app uses one).
+extern def clusterConfigSet(key: String, value: String): Unit
+
+// Local view of a cluster-wide config key.  Returns `None` when the key
+// has never been set or no `config_set` envelope has reached this node
+// yet.  Snapshot — call again for a refreshed view.
+extern def clusterConfigGet(key: String): Option[String]
+
+// Locally-known cluster-config keys.  Useful for ops dashboards.
+extern def clusterConfigKeys(): List[String]
+
+// Register the calling actor for `ConfigChanged(key, value)` mailbox
+// deliveries.  Fires for every accepted update — local or remote.
+// No unsubscribe API; exit the actor to stop.
+extern def subscribeConfigEvents(): Unit
 
 // ─── Supervision tree ─────────────────────────────────────────────────────────
 

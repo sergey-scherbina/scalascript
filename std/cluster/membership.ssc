@@ -123,4 +123,21 @@ object Cluster:
   // (the seed-list `Cluster.join` already does this on initial handshake).
   def gossip(): Unit =
     requestGossip()
+
+  // Write a cluster-wide config entry; last-write-wins by timestamp and
+  // origin nodeId.  Broadcast to every connected peer.
+  def configSet(key: String, value: String): Unit =
+    clusterConfigSet(key, value)
+
+  // Read the locally-known value for `key`, or None if never seen.
+  def configGet(key: String): Option[String] =
+    clusterConfigGet(key)
+
+  // Snapshot of locally-known config keys.
+  def configKeys(): List[String] =
+    clusterConfigKeys()
+
+  // Register the calling actor for ConfigChanged delivery.
+  def subscribeConfig(): Unit =
+    subscribeConfigEvents()
 ```

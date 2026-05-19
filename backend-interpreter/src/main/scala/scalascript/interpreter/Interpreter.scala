@@ -227,6 +227,28 @@ class Interpreter(
   // disconnect.  Both 0 ⇒ disabled (default).
   @volatile private var reconnectInitialMs: Long = 0L
   @volatile private var reconnectMaxMs:     Long = 0L
+  // v1.23 — cluster configuration distribution.  LWW per key by (ts, origin).
+  private val clusterConfig =
+    new java.util.concurrent.ConcurrentHashMap[String, (String, Long, String)]()
+  private val configEventSubs =
+    new java.util.concurrent.CopyOnWriteArrayList[java.lang.Long]()
+  private val configEventQueue =
+    new java.util.concurrent.ConcurrentLinkedQueue[Value]()
+  private def enqueueConfigEvent(key: String, value: String): Unit =
+    if !configEventSubs.isEmpty then
+      val ev = Value.InstanceV("ConfigChanged",
+        Map("key" -> Value.StringV(key), "value" -> Value.StringV(value)))
+      configEventQueue.offer(ev)
+      val t = schedulerThread; if t != null then t.interrupt()
+  private def applyConfigUpdate(key: String, value: String, ts: Long, origin: String): Boolean =
+    val prev = clusterConfig.get(key)
+    val accept =
+      prev == null || ts > prev._2 ||
+      (ts == prev._2 && origin > prev._3)
+    if accept then
+      clusterConfig.put(key, (value, ts, origin))
+      enqueueConfigEvent(key, value)
+    accept
   private val leaderEventSubs =
     new java.util.concurrent.CopyOnWriteArrayList[java.lang.Long]()
   private val leaderEventQueue =
@@ -797,6 +819,15 @@ class Interpreter(
               val prev = currentLeader.getAndSet(from)
               electionInProgress = false
               if prev != from then enqueueLeaderEvent("LeaderElected", from)
+          case "config_set" =>
+            val key   = m.get(Value.StringV("key")).collect { case Value.StringV(s) => s }.getOrElse("")
+            val value = m.get(Value.StringV("value")).collect { case Value.StringV(s) => s }.getOrElse("")
+            val orig  = m.get(Value.StringV("origin")).collect { case Value.StringV(s) => s }.getOrElse("")
+            val ts    = m.get(Value.StringV("ts")) match
+              case Some(Value.IntV(n))    => n
+              case Some(Value.DoubleV(d)) => d.toLong
+              case _                      => 0L
+            if key.nonEmpty then applyConfigUpdate(key, value, ts, orig)
           case _ => ()
       case _ => ()
 
@@ -1662,6 +1693,25 @@ class Interpreter(
     globals("requestGossip") = Value.NativeFnV("requestGossip", {
       case Nil => Perform("Actor", "requestGossip", Nil)
       case _   => throw InterpretError("requestGossip(): Unit")
+    })
+    // v1.23 — cluster configuration distribution
+    globals("clusterConfigSet") = Value.NativeFnV("clusterConfigSet", {
+      case List(Value.StringV(k), Value.StringV(v)) =>
+        Perform("Actor", "clusterConfigSet", List(Value.StringV(k), Value.StringV(v)))
+      case _ => throw InterpretError("clusterConfigSet(key: String, value: String): Unit")
+    })
+    globals("clusterConfigGet") = Value.NativeFnV("clusterConfigGet", {
+      case List(Value.StringV(k)) =>
+        Perform("Actor", "clusterConfigGet", List(Value.StringV(k)))
+      case _ => throw InterpretError("clusterConfigGet(key: String): Option[String]")
+    })
+    globals("clusterConfigKeys") = Value.NativeFnV("clusterConfigKeys", {
+      case Nil => Perform("Actor", "clusterConfigKeys", Nil)
+      case _   => throw InterpretError("clusterConfigKeys(): List[String]")
+    })
+    globals("subscribeConfigEvents") = Value.NativeFnV("subscribeConfigEvents", {
+      case Nil => Perform("Actor", "subscribeConfigEvents", Nil)
+      case _   => throw InterpretError("subscribeConfigEvents(): Unit")
     })
     // v1.6.x — scheduled sends
     globals("sendAfter") = Value.NativeFnV("sendAfter", {
@@ -4553,6 +4603,7 @@ class Interpreter(
                     !remoteInbox.isEmpty || !nodeDownQueue.isEmpty ||
                     !clusterEventQueue.isEmpty ||
                     !leaderEventQueue.isEmpty || electionInProgress ||
+                    !configEventQueue.isEmpty ||
                     rt.timers.nonEmpty ||
                     (isDistributed && rt.blocked.nonEmpty)
 
@@ -4590,6 +4641,16 @@ class Interpreter(
         while !leaderEventQueue.isEmpty do
           val ev = leaderEventQueue.poll()
           val it = leaderEventSubs.iterator
+          while it.hasNext do
+            val aid = it.next().toLong
+            rt.mailboxes.get(aid).foreach { mb =>
+              mb.offer(ev)
+              wakeBlocked(rt, aid)
+            }
+        // v1.23 — deliver config-change events to subscribers.
+        while !configEventQueue.isEmpty do
+          val ev = configEventQueue.poll()
+          val it = configEventSubs.iterator
           while it.hasNext do
             val aid = it.next().toLong
             rt.mailboxes.get(aid).foreach { mb =>
@@ -5178,6 +5239,38 @@ class Interpreter(
     case "requestGossip" =>
       val payload = s"""{"t":"peers_req","from":${jsonStr(localNodeId)}}"""
       peerChannels.forEach { (_, send) => try send(payload) catch case _: Throwable => () }
+      Right(k(Value.UnitV))
+
+    // v1.23 — cluster configuration distribution
+    case "clusterConfigSet" => args match
+      case List(Value.StringV(key), Value.StringV(value)) =>
+        val ts   = System.currentTimeMillis()
+        val orig = localNodeId
+        applyConfigUpdate(key, value, ts, orig)
+        val payload =
+          s"""{"t":"config_set","key":${jsonStr(key)},"value":${jsonStr(value)},""" +
+          s""""ts":$ts,"origin":${jsonStr(orig)}}"""
+        peerChannels.forEach { (_, send) => try send(payload) catch case _: Throwable => () }
+        Right(k(Value.UnitV))
+      case _ => throw InterpretError("clusterConfigSet(key: String, value: String)")
+
+    case "clusterConfigGet" => args match
+      case List(Value.StringV(key)) =>
+        val entry = clusterConfig.get(key)
+        val result =
+          if entry == null then Value.OptionV(None)
+          else Value.OptionV(Some(Value.StringV(entry._1)))
+        Right(k(result))
+      case _ => throw InterpretError("clusterConfigGet(key: String): Option[String]")
+
+    case "clusterConfigKeys" =>
+      val buf = scala.collection.mutable.ListBuffer.empty[Value]
+      clusterConfig.keySet().forEach(s => buf += Value.StringV(s))
+      Right(k(Value.ListV(buf.toList)))
+
+    case "subscribeConfigEvents" =>
+      val boxed = java.lang.Long.valueOf(id)
+      if !configEventSubs.contains(boxed) then configEventSubs.add(boxed)
       Right(k(Value.UnitV))
 
     // v1.6.x — scheduled sends

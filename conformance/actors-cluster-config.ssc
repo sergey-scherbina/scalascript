@@ -1,0 +1,28 @@
+#!/usr/bin/env ssc
+---
+name: actors-cluster-config
+description: Actor v1.23 — cluster config distribution single-node round-trip
+---
+
+# Cluster config distribution — single-node
+
+`clusterConfigSet(k, v)` stamps the local store and broadcasts to
+peers; in a single-node process the broadcast is a no-op but the local
+update still lands so `clusterConfigGet(k)` returns `Some(v)`.
+Multi-node propagation (LWW by timestamp, then by origin nodeId for
+tie-break) is exercised by the integration suite; this conformance
+test pins the local-side round-trip across INT/JS/JVM.
+
+```scalascript
+runActors {
+  clusterConfigSet("feature.x", "on")
+  clusterConfigGet("feature.x") match
+    case Some(v) => println("get=" + v)
+    case None    => println("get=missing")
+  clusterConfigGet("absent") match
+    case Some(v) => println("absent=" + v)
+    case None    => println("absent=none")
+  println("keys=" + clusterConfigKeys().length)
+  println("ok")
+}
+```

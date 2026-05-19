@@ -99,6 +99,8 @@ class Typer(
       "broadcastHealth", "clusterIsDown",
       "electLeader", "currentLeader", "subscribeLeaderEvents",
       "setReconnectPolicy", "requestGossip",
+      "clusterConfigSet", "clusterConfigGet", "clusterConfigKeys",
+      "subscribeConfigEvents",
       "sendAfter", "sendInterval", "cancelTimer",
       "delay", "async", "await", "parallel", "recvFrom",
       // tests / DSL helpers
