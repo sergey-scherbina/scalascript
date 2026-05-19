@@ -1,0 +1,265 @@
+#!/usr/bin/env ssc
+---
+name: dsl-mini-language
+version: 1.0.0
+description: v1.20.3 — toy language with parse → name-resolve → type-check → evaluate using multi-pass pipeline
+---
+
+# Mini-Language: multi-pass pipeline demo
+
+A tiny arithmetic DSL that goes through four passes:
+
+1. **parse** — text → `MiniExpr` AST
+2. **name-resolve** — check every variable is bound in the environment
+3. **type-check** — reject division by the literal zero
+4. **evaluate** — fold the AST to an `Int`
+
+The pipeline is built from `std/dsl/passes.ssc` combinators.
+
+## Imports
+
+[Pass, PassError, passOf, passFail, andThen, withPhase, PipelineReport, pipelineReport, formatReport, runPass](std/dsl/passes.ssc)
+
+## AST
+
+```scalascript
+// Tokens / AST nodes for the mini language.
+case class MiniNum(value: Int)
+case class MiniVar(name: String)
+case class MiniAdd(l: Any, r: Any)
+case class MiniSub(l: Any, r: Any)
+case class MiniMul(l: Any, r: Any)
+case class MiniDiv(l: Any, r: Any)
+```
+
+## Phase 1 — Parser
+
+Accepts expressions of the form `<num>`, `<var>`, or `<expr> + <expr>` etc.
+This is a minimal hand-written recursive parser; not using `std/parsing`
+so this file has no additional import dependency.
+
+```scalascript
+// Input: trimmed string.  Returns the AST or a parse error.
+def miniParse(source: String): Either[List[PassError], Any] =
+  // Helper: strip outer whitespace.
+  def trim(s: String): String = s.trim()
+
+  // Try to parse a single token from a trimmed string.
+  def parseAtom(s: String): Either[List[PassError], Any] =
+    if s.isEmpty then Left(List(PassError("parse", "unexpected end of input")))
+    else if s.forall(c => c >= '0' && c <= '9') then Right(MiniNum(s.toInt))
+    else if s.forall(c => (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_') then Right(MiniVar(s))
+    else Left(List(PassError("parse", "cannot parse atom: " + s)))
+
+  // Split on last + or - (lowest precedence, right to left).
+  def splitBinary(s: String): Option[(String, Char, String)] =
+    var depth = 0
+    var i = s.length - 1
+    var found: Option[(String, Char, String)] = None
+    while i >= 0 && found.isEmpty do
+      val c = s.charAt(i)
+      if (c == '+' || c == '-') && depth == 0 then
+        found = Some((s.substring(0, i).trim(), c, s.substring(i + 1).trim()))
+      i = i - 1
+    found
+
+  def splitMulDiv(s: String): Option[(String, Char, String)] =
+    var depth = 0
+    var i = s.length - 1
+    var found: Option[(String, Char, String)] = None
+    while i >= 0 && found.isEmpty do
+      val c = s.charAt(i)
+      if (c == '*' || c == '/') && depth == 0 then
+        found = Some((s.substring(0, i).trim(), c, s.substring(i + 1).trim()))
+      i = i - 1
+    found
+
+  def parseExpr(s: String): Either[List[PassError], Any] =
+    val t = trim(s)
+    splitBinary(t) match
+      case Some((l, '+', r)) =>
+        parseExpr(l) match
+          case Left(e)  => Left(e)
+          case Right(la) =>
+            parseExpr(r) match
+              case Left(e)  => Left(e)
+              case Right(ra) => Right(MiniAdd(la, ra))
+      case Some((l, '-', r)) =>
+        parseExpr(l) match
+          case Left(e)  => Left(e)
+          case Right(la) =>
+            parseExpr(r) match
+              case Left(e)  => Left(e)
+              case Right(ra) => Right(MiniSub(la, ra))
+      case _ =>
+        splitMulDiv(t) match
+          case Some((l, '*', r)) =>
+            parseExpr(l) match
+              case Left(e)  => Left(e)
+              case Right(la) =>
+                parseExpr(r) match
+                  case Left(e)  => Left(e)
+                  case Right(ra) => Right(MiniMul(la, ra))
+          case Some((l, '/', r)) =>
+            parseExpr(l) match
+              case Left(e)  => Left(e)
+              case Right(la) =>
+                parseExpr(r) match
+                  case Left(e)  => Left(e)
+                  case Right(ra) => Right(MiniDiv(la, ra))
+          case _ => parseAtom(t)
+
+  parseExpr(source.trim())
+
+// Wrap as a Pass.
+val parsePass: Pass[String, Any] =
+  source => miniParse(source)
+```
+
+## Phase 2 — Name resolution
+
+```scalascript
+// Env maps variable names to their values.
+type Env = Map[String, Int]
+
+// Walk the AST and report every variable not present in env.
+def nameResolvePass(env: Env): Pass[Any, Any] =
+  ast =>
+    def check(node: Any): List[PassError] =
+      node match
+        case MiniNum(_)    => Nil
+        case MiniVar(name) =>
+          if env.contains(name) then Nil
+          else List(PassError("name-resolve", "undefined variable: " + name))
+        case MiniAdd(l, r) => check(l) ++ check(r)
+        case MiniSub(l, r) => check(l) ++ check(r)
+        case MiniMul(l, r) => check(l) ++ check(r)
+        case MiniDiv(l, r) => check(l) ++ check(r)
+        case _             => Nil
+    val errs = check(ast)
+    if errs.isEmpty then Right(ast)
+    else Left(errs)
+```
+
+## Phase 3 — Type check
+
+```scalascript
+// Reject literal division by zero at the AST level.
+def typeCheckPass: Pass[Any, Any] =
+  ast =>
+    def check(node: Any): List[PassError] =
+      node match
+        case MiniNum(_)    => Nil
+        case MiniVar(_)    => Nil
+        case MiniAdd(l, r) => check(l) ++ check(r)
+        case MiniSub(l, r) => check(l) ++ check(r)
+        case MiniMul(l, r) => check(l) ++ check(r)
+        case MiniDiv(l, r) =>
+          r match
+            case MiniNum(0) => List(PassError("type-check", "division by zero"))
+            case _          => check(l) ++ check(r)
+        case _ => Nil
+    val errs = check(ast)
+    if errs.isEmpty then Right(ast)
+    else Left(errs)
+```
+
+## Phase 4 — Evaluator
+
+```scalascript
+def evaluatePass(env: Env): Pass[Any, Int] =
+  ast =>
+    def eval(node: Any): Either[List[PassError], Int] =
+      node match
+        case MiniNum(v)    => Right(v)
+        case MiniVar(name) =>
+          env.get(name) match
+            case Some(v) => Right(v)
+            case None    => Left(List(PassError("evaluate", "variable not in env: " + name)))
+        case MiniAdd(l, r) =>
+          eval(l) match
+            case Left(e)  => Left(e)
+            case Right(lv) =>
+              eval(r) match
+                case Left(e)  => Left(e)
+                case Right(rv) => Right(lv + rv)
+        case MiniSub(l, r) =>
+          eval(l) match
+            case Left(e)  => Left(e)
+            case Right(lv) =>
+              eval(r) match
+                case Left(e)  => Left(e)
+                case Right(rv) => Right(lv - rv)
+        case MiniMul(l, r) =>
+          eval(l) match
+            case Left(e)  => Left(e)
+            case Right(lv) =>
+              eval(r) match
+                case Left(e)  => Left(e)
+                case Right(rv) => Right(lv * rv)
+        case MiniDiv(l, r) =>
+          eval(l) match
+            case Left(e)  => Left(e)
+            case Right(lv) =>
+              eval(r) match
+                case Left(e)  => Left(e)
+                case Right(rv) =>
+                  if rv == 0 then Left(List(PassError("evaluate", "runtime division by zero")))
+                  else Right(lv / rv)
+        case _ => Left(List(PassError("evaluate", "unknown node")))
+    eval(ast)
+```
+
+## Pipeline builder
+
+```scalascript
+def buildPipeline(env: Env): Pass[String, Int] =
+  parsePass
+    .andThen(nameResolvePass(env))
+    .andThen(typeCheckPass)
+    .andThen(evaluatePass(env))
+```
+
+## Demo runs
+
+```scalascript
+val env: Env = Map("x" -> 10, "y" -> 3)
+
+val pipeline = buildPipeline(env)
+
+// --- Success through all phases ---
+println("=== success: 2 * x + y ===")
+pipeline("2 * x + y") match
+  case Right(v) => println("result: " + v)
+  case Left(es) => es.foreach(e => println(e.toString))
+
+// --- Error at name-resolve only: unknown variable z ---
+println("=== name-resolve error: x + z ===")
+pipeline("x + z") match
+  case Right(v) => println("result: " + v)
+  case Left(es) => es.foreach(e => println(e.toString))
+
+// --- Error at type-check only: division by literal zero ---
+println("=== type-check error: x / 0 ===")
+pipeline("x / 0") match
+  case Right(v) => println("result: " + v)
+  case Left(es) => es.foreach(e => println(e.toString))
+
+// --- Error at parse only: bad token ---
+println("=== parse error: 1 @ 2 ===")
+pipeline("1 @ 2") match
+  case Right(v) => println("result: " + v)
+  case Left(es) => es.foreach(e => println(e.toString))
+
+// --- PipelineReport: shows phase-by-phase outcome ---
+println("=== pipeline report: 2 * x + y ===")
+val stages: List[(String, Pass[String, String])] =
+  List(
+    ("parse",        (s: String) => parsePass(s).map(_ => s)),
+    ("name-resolve", (s: String) => nameResolvePass(env)(parsePass(s).getOrElse(MiniNum(0))).map(_ => s)),
+    ("type-check",   (s: String) => typeCheckPass(parsePass(s).getOrElse(MiniNum(0))).map(_ => s)),
+    ("evaluate",     (s: String) => evaluatePass(env)(parsePass(s).getOrElse(MiniNum(0))).map(v => s + " = " + v))
+  )
+val report = pipelineReport("2 * x + y", stages)
+println(formatReport(report))
+```

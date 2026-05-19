@@ -1,0 +1,156 @@
+---
+name: conformance-dsl-multi-pass
+version: 1.0.0
+---
+
+# DSL multi-pass pipeline — conformance
+
+Three scenarios:
+
+1. Error at **every** phase (bad parse propagates; name/type/eval skipped).
+2. Error at **exactly one** phase (name-resolve only: unknown variable).
+3. **Success** through all phases (valid expression, all variables bound).
+
+## Imports
+
+```scalascript
+// Inline Pass types and helpers used directly.
+type Pass[A, B] = A => Either[List[Any], B]
+
+case class PassError(
+  phase:   String,
+  message: String,
+  source:  String = "<unknown>",
+  line:    Int    = 0,
+  col:     Int    = 0
+):
+  override def toString: String =
+    if line == 0 then s"[$phase] $message"
+    else s"[$phase] $source:$line:$col — $message"
+```
+
+## Mini AST
+
+```scalascript
+case class Num(v: Int)
+case class Var(name: String)
+case class Add(l: Any, r: Any)
+case class Div(l: Any, r: Any)
+```
+
+## Passes
+
+```scalascript
+type Env = Map[String, Int]
+
+def parseExpr(src: String): Either[List[PassError], Any] =
+  val t = src.trim()
+  if t.isEmpty then Left(List(PassError("parse", "empty input")))
+  else
+    val plusIdx = t.lastIndexOf('+')
+    val divIdx  = t.lastIndexOf('/')
+    if plusIdx > 0 then
+      val l = t.substring(0, plusIdx).trim()
+      val r = t.substring(plusIdx + 1).trim()
+      parseExpr(l) match
+        case Left(e)  => Left(e)
+        case Right(la) =>
+          parseExpr(r) match
+            case Left(e)  => Left(e)
+            case Right(ra) => Right(Add(la, ra))
+    else if divIdx > 0 then
+      val l = t.substring(0, divIdx).trim()
+      val r = t.substring(divIdx + 1).trim()
+      parseExpr(l) match
+        case Left(e)  => Left(e)
+        case Right(la) =>
+          parseExpr(r) match
+            case Left(e)  => Left(e)
+            case Right(ra) => Right(Div(la, ra))
+    else if t.forall(c => c >= '0' && c <= '9') then Right(Num(t.toInt))
+    else if t.forall(c => (c >= 'a' && c <= 'z') || c == '_') then Right(Var(t))
+    else Left(List(PassError("parse", "unrecognised token: " + t)))
+
+def nameResolve(env: Env): Any => Either[List[PassError], Any] =
+  ast =>
+    def check(n: Any): List[PassError] = n match
+      case Num(_)    => Nil
+      case Var(name) => if env.contains(name) then Nil else List(PassError("name-resolve", "undefined: " + name))
+      case Add(l, r) => check(l) ++ check(r)
+      case Div(l, r) => check(l) ++ check(r)
+      case _         => Nil
+    val errs = check(ast)
+    if errs.isEmpty then Right(ast) else Left(errs)
+
+def typeCheck: Any => Either[List[PassError], Any] =
+  ast =>
+    def check(n: Any): List[PassError] = n match
+      case Div(_, Num(0)) => List(PassError("type-check", "division by literal zero"))
+      case Add(l, r)      => check(l) ++ check(r)
+      case Div(l, r)      => check(l) ++ check(r)
+      case _              => Nil
+    val errs = check(ast)
+    if errs.isEmpty then Right(ast) else Left(errs)
+
+def evaluate(env: Env): Any => Either[List[PassError], Int] =
+  ast =>
+    def eval(n: Any): Either[List[PassError], Int] = n match
+      case Num(v)    => Right(v)
+      case Var(name) => env.get(name).map(Right(_)).getOrElse(Left(List(PassError("evaluate", "missing: " + name))))
+      case Add(l, r) =>
+        eval(l) match
+          case Left(e)   => Left(e)
+          case Right(lv) => eval(r) match
+            case Left(e)   => Left(e)
+            case Right(rv) => Right(lv + rv)
+      case Div(l, r) =>
+        eval(l) match
+          case Left(e)   => Left(e)
+          case Right(lv) => eval(r) match
+            case Left(e)   => Left(e)
+            case Right(rv) => if rv == 0 then Left(List(PassError("evaluate", "division by zero at runtime"))) else Right(lv / rv)
+      case _ => Left(List(PassError("evaluate", "unknown node")))
+    eval(ast)
+
+def pipeline(env: Env)(src: String): Either[List[PassError], Int] =
+  parseExpr(src) match
+    case Left(e)    => Left(e)
+    case Right(ast) =>
+      nameResolve(env)(ast) match
+        case Left(e)  => Left(e)
+        case Right(a) =>
+          typeCheck(a) match
+            case Left(e)   => Left(e)
+            case Right(a2) => evaluate(env)(a2)
+```
+
+## Scenario 1 — error at every phase
+
+Parse fails; downstream passes are never reached.
+
+```scalascript
+val env1: Env = Map("x" -> 5)
+pipeline(env1)("1 @ 2") match
+  case Left(errs) => errs.foreach(e => println(e.toString))
+  case Right(v)   => println("ok: " + v)
+```
+
+## Scenario 2 — error at exactly one phase (name-resolve)
+
+Parse succeeds; name-resolve detects an unbound variable.
+
+```scalascript
+val env2: Env = Map("x" -> 5)
+pipeline(env2)("x + z") match
+  case Left(errs) => errs.foreach(e => println(e.toString))
+  case Right(v)   => println("ok: " + v)
+```
+
+## Scenario 3 — success through all phases
+
+```scalascript
+val env3: Env = Map("x" -> 5, "y" -> 3)
+pipeline(env3)("x + y") match
+  case Left(errs) => errs.foreach(e => println(e.toString))
+  case Right(v)   => println("ok: " + v)
+```

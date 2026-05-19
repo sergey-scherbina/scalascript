@@ -3291,62 +3291,31 @@ Two phases, ~3-5 days.  Pure stdlib work.  Depends on
 v1.20 Phase 2 (context ADT nodes); ships independently
 once v1.20 lands.
 
-## v1.20.3 — DSL: multi-pass pipeline
+## v1.20.3 — DSL: multi-pass pipeline ✓ Landed (Phases 1–4)
 
 Full external-DSL story typically requires more than just
 parse — name resolution, type-check, optimisation,
 codegen.  This milestone ships pipeline combinators that
-formalise the multi-pass pattern.  `std/dsl/passes.ssc`.
+formalise the multi-pass pattern.
 
-```scala
-type Pass[A, B] = A => Either[List[Error], B]
+**What landed:**
 
-extension [A, B](p: Pass[A, B])
-  def andThen[C](next: Pass[B, C]): Pass[A, C]
-  def parallel[C, D](other: Pass[C, D]): Pass[(A, C), (B, D)]
-
-// Worked example — full CalcDSL pipeline
-val calc: Pass[String, Int] =
-  parse(exprParser)
-    .andThen(resolveNames(symtab))
-    .andThen(typeCheck(typing))
-    .andThen(evaluate(env))
-```
-
-### Phase 1 — `Pass[A, B]` core (~2 days)
-
-`std/dsl/passes.ssc`: `Pass[A, B]` type alias, `andThen` /
-`parallel` / `recover` / `traceAll` combinators.  Standard
-short-circuit-on-first-error semantics by default;
-opt-in accumulation via `accumulate`.
-
-### Phase 2 — AST walker helpers (~2 days)
-
-`std/dsl/walker.ssc`: `walk[A](ast: A)(visitor:
-Visitor[A]): A` for name resolution / type-checking
-recursion patterns.  Cata-/ana-style based on v1.1
-`Foldable`.
-
-### Phase 3 — Pipeline-aware error reporting (~2 days)
-
-Multi-pass error reporting: each `Pass` annotates errors
-with its phase name; final report shows `phase: error
-at span`.  Integrates with v1.20 §5.6 `Span` for cross-
-pass position tracking.
-
-### Phase 4 — Worked example + conformance (~1 day)
-
-End-to-end DSL with pipeline:
-
-  - `examples/dsl-mini-language.ssc` — toy language with
-    parse → name-resolve → type-check → evaluate
-  - Conformance: error at every phase; error at exactly
-    one phase; success through all phases
-
-### Effort
-
-Four phases, ~1 week.  Pure stdlib work.  Independent of
-v1.20.1 and v1.20.2 — can ship in any order after v1.20.
+- **`std/dsl/passes.ssc`** — `type Pass[A, B] = A => Either[List[PassError], B]`;
+  `PassError(phase, message, source, line, col)`; combinators `andThen`
+  (fail-fast sequential), `parallel` (fan-out, errors unioned), `recover`
+  (fallback on failure), `traceAll` (log errors + success); `accumulate`
+  (collect all errors from a list of passes without short-circuit);
+  `withPhase` (annotate errors with a phase name); `PipelineReport` +
+  `pipelineReport` + `formatReport` for phase-by-phase diagnostics.
+- **`std/dsl/walker.ssc`** — `Visitor[A]` (pre/post hooks + children
+  extractor); `walk[A](ast)(visitor)` (bottom-up traversal); `cata`
+  (catamorphism / fold); `ana` (anamorphism / unfold); `transformChildren`.
+- **`examples/dsl-mini-language.ssc`** — toy language (Num/Var/Add/Sub/Mul/Div)
+  with four passes: parse → name-resolve → type-check → evaluate; shows
+  `PipelineReport` formatted output.
+- **`conformance/dsl-multi-pass.ssc`** — three scenarios: error at every
+  phase (parse failure); error at exactly one phase (name-resolve: unbound
+  variable); success through all phases.
 
 ## v1.21 — Local map-reduce (`Dataset[T]`) ✓ Landed (Phases 1–6)
 

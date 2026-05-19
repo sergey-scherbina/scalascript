@@ -1,0 +1,3 @@
+[parse] unrecognised token: 1 @ 2
+[name-resolve] undefined: z
+ok: 8
