@@ -1,3 +1,9 @@
+# Hidden files — catch-all; only .github/, .gitignore, .gitattributes are whitelisted
+.*
+!.github/
+!.gitignore
+!.gitattributes
+
 # Build outputs
 target/
 out/
