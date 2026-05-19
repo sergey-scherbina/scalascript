@@ -390,24 +390,26 @@ private class SparkGen(
        |    def fromPath[T : Encoder](glob: String)(implicit ev: String => T): Dataset[T] =
        |      spark.read.textFile(glob).map(ev)
        |
-       |    // Reader convenience shims (v1.25 § 9.5 Phase C.3 slice 5).
+       |    // Reader convenience shims (v1.25 § 9.5 Phase C.3 slices 5–6).
        |    // Each delegates to Spark's typed reader for a well-known
        |    // serialization format.  Return type is `DataFrame` (= `Dataset[Row]`)
-       |    // because Spark's readers infer schema at load time rather than
-       |    // requiring a static `T` parameter; users who want a typed view can
-       |    // chain `.as[CaseClass]` themselves once they've inspected `.schema`.
+       |    // because Spark's readers infer schema at load time; users who want
+       |    // a typed view chain `.as[CaseClass]` themselves after inspecting
+       |    // `.schema`.
        |    //
-       |    // For format-specific options (`header=true`, `inferSchema=true`,
-       |    // partition pruning, …) users drop to `spark.read.option(...).X(path)`
-       |    // directly — this shim covers the 80%-case one-shot read.
-       |    def fromParquet(path: String): DataFrame =
-       |      spark.read.parquet(path)
+       |    // Variadic `(String, String)*` option pairs let users set common
+       |    // reader flags inline:
+       |    //   Dataset.fromCsv("/data.csv", "header" -> "true", "inferSchema" -> "true")
+       |    // Zero options collapses to the bare reader — `Dataset.fromCsv(path)`
+       |    // still works exactly like the pre-slice-6 shape.
+       |    def fromParquet(path: String, options: (String, String)*): DataFrame =
+       |      spark.read.options(options.toMap).parquet(path)
        |
-       |    def fromJson(path: String): DataFrame =
-       |      spark.read.json(path)
+       |    def fromJson(path: String, options: (String, String)*): DataFrame =
+       |      spark.read.options(options.toMap).json(path)
        |
-       |    def fromCsv(path: String): DataFrame =
-       |      spark.read.csv(path)
+       |    def fromCsv(path: String, options: (String, String)*): DataFrame =
+       |      spark.read.options(options.toMap).csv(path)
        |
        |  // Extension methods that bridge ScalaScript Dataset idioms to Spark
        |  // Dataset ops.  Defined here so they're in scope throughout the @main

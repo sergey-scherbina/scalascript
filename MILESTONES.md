@@ -6292,10 +6292,12 @@ Thin `backend-wasm-contract/` layer on top of `backend-wasm/` for Near or Polkad
 > (`spark-config:` front-matter map → sorted `.config(k, v)` on
 > `SparkSession.builder()`), C.3 slice 4 (`spark-app-name:` front-matter
 > overrides `.appName(...)` so the Spark UI / history server / driver+executor
-> logs show a human-readable per-job name), and C.3 slice 5 (typed reader
+> logs show a human-readable per-job name), C.3 slice 5 (typed reader
 > convenience shims `Dataset.{fromParquet,fromJson,fromCsv}(path): DataFrame`
-> for one-shot reads — format-specific options still require dropping to
-> `spark.read.option(...).X(...)` directly) all landed.  CLI side:
+> for one-shot reads), and C.3 slice 6 (same readers gain variadic
+> `options: (String, String)*` pairs so `Dataset.fromCsv("/p", "header" ->
+> "true", "inferSchema" -> "true")` works inline — chains
+> `spark.read.options(options.toMap).X(path)`) all landed.  CLI side:
 > `--describe-backend` also grew `capabilities.options` +
 > `capabilities.blockLanguages` lines so the Spark surface is fully
 > discoverable from the command line.

@@ -580,43 +580,56 @@ class SparkGenTest extends AnyFunSuite:
     assert(code.contains("spark.read.textFile"), "expected spark.read.textFile in fromFile impl")
   }
 
-  // ── Phase C.3 slice 5: typed reader convenience shims ────────────────────
+  // ── Phase C.3 slices 5–6: typed reader convenience shims ────────────────
 
-  test("Dataset.fromParquet shim delegates to spark.read.parquet and returns DataFrame") {
+  test("Dataset.fromParquet shim delegates to spark.read.options(...).parquet") {
     val code = gen("# Test\n```scalascript\nval df = Dataset.fromParquet(\"/data\")\n```\n")
-    // Shim signature is present in the @main scope (no `import` line — the
-    // shim is emitted inline INSIDE @main so users never need to import it).
-    assert(code.contains("def fromParquet(path: String): DataFrame ="),
-      s"missing fromParquet signature in shim, got:\n$code")
-    assert(code.contains("spark.read.parquet(path)"),
-      s"fromParquet must delegate to spark.read.parquet, got:\n$code")
+    // Slice 6: signature gained `options: (String, String)*` varargs so
+    // callers can pass `"mergeSchema" -> "true"` etc.  Zero options
+    // collapses to `.options(Map())` which is a Spark no-op, so the
+    // bare `Dataset.fromParquet(path)` call still works.
+    assert(code.contains("def fromParquet(path: String, options: (String, String)*): DataFrame ="),
+      s"missing fromParquet varargs signature in shim, got:\n$code")
+    assert(code.contains("spark.read.options(options.toMap).parquet(path)"),
+      s"fromParquet must delegate to spark.read.options(...).parquet, got:\n$code")
   }
 
-  test("Dataset.fromJson shim delegates to spark.read.json") {
+  test("Dataset.fromJson shim delegates to spark.read.options(...).json") {
     val code = gen("# Test\n```scalascript\nval df = Dataset.fromJson(\"/data\")\n```\n")
-    assert(code.contains("def fromJson(path: String): DataFrame ="))
-    assert(code.contains("spark.read.json(path)"))
+    assert(code.contains("def fromJson(path: String, options: (String, String)*): DataFrame ="))
+    assert(code.contains("spark.read.options(options.toMap).json(path)"))
   }
 
-  test("Dataset.fromCsv shim delegates to spark.read.csv") {
+  test("Dataset.fromCsv shim delegates to spark.read.options(...).csv") {
     val code = gen("# Test\n```scalascript\nval df = Dataset.fromCsv(\"/data\")\n```\n")
-    assert(code.contains("def fromCsv(path: String): DataFrame ="))
-    assert(code.contains("spark.read.csv(path)"))
+    assert(code.contains("def fromCsv(path: String, options: (String, String)*): DataFrame ="))
+    assert(code.contains("spark.read.options(options.toMap).csv(path)"))
   }
 
-  test("All three reader shims coexist (single emit, multiple users)") {
+  test("Reader user call with options pairs survives verbatim in user block") {
+    // The varargs option pairs are user-written Scala; SparkGen passes
+    // the source through, so a multi-option call lands in the generated
+    // file unchanged.  The Spark compile then resolves `options.toMap`
+    // to a real `Map[String, String]` at runtime.
     val code = gen(
       """|# Multi-format
          |```scalascript
          |val p = Dataset.fromParquet("/p")
-         |val j = Dataset.fromJson("/j")
-         |val c = Dataset.fromCsv("/c")
+         |val j = Dataset.fromJson("/j", "multiLine" -> "true")
+         |val c = Dataset.fromCsv("/c", "header" -> "true", "inferSchema" -> "true")
          |```
          |""".stripMargin
     )
     assert(code.contains("def fromParquet"))
     assert(code.contains("def fromJson"))
     assert(code.contains("def fromCsv"))
+    assert(code.contains("""Dataset.fromCsv("/c", "header" -> "true", "inferSchema" -> "true")"""),
+      s"user multi-option call must survive verbatim, got:\n$code")
+    assert(code.contains("""Dataset.fromJson("/j", "multiLine" -> "true")"""),
+      s"user single-option call must survive verbatim, got:\n$code")
+    // Bare 0-options form coexists with the variadic-options form.
+    assert(code.contains("""Dataset.fromParquet("/p")"""),
+      s"bare 0-options reader call must still work, got:\n$code")
   }
 
   test("filter and distinct pass through as Spark ops") {
