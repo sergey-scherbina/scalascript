@@ -21,10 +21,190 @@ class VueFrameworkBackendTest extends AnyFunSuite:
     assert(depNames.contains("vue"))
   }
 
-  test("emit — stub today, throws NotImplementedError") {
+  test("emit — unknown entryPoint throws with helpful message") {
     val backend = new VueFrameworkBackend
-    val ex = intercept[NotImplementedError] {
-      backend.emit(FrontendModule(Nil, "App", "/"))
+    val ex = intercept[IllegalArgumentException] {
+      backend.emit(FrontendModule(Nil, "Missing", "/"))
     }
-    assert(ex.getMessage.contains("Phase A5"))
+    assert(ex.getMessage.contains("Missing"))
+  }
+
+  test("emit — minimal SPA produces Vue setup + render functions") {
+    val backend = new VueFrameworkBackend
+    val app = ComponentDef("App", Nil, _ => View.Element(
+      "div",
+      Map("class" -> AttrValue.Str("hello")),
+      Map.empty,
+      Seq(View.TextNode(() => "Hello, world!"))
+    ))
+    val emitted = backend.emit(FrontendModule(List(app), "App", "/"))
+
+    // HTML shell uses importmap pointing at esm.sh.
+    assert(emitted.html.contains("importmap"))
+    assert(emitted.html.contains("vue"))
+
+    // JS imports vue 3 primitives.
+    assert(emitted.js.contains("import { ref, h, Fragment, createApp } from 'vue';"))
+
+    // Component is an options object with setup + render.
+    assert(emitted.js.contains("const App = {"))
+    assert(emitted.js.contains("setup() {"))
+    assert(emitted.js.contains("render() {"))
+    // Vue uses `class` natively (like Solid, unlike React).
+    assert(emitted.js.contains("'class': 'hello'"),
+      s"Vue must keep 'class', not remap to 'className':\n${emitted.js}")
+    assert(!emitted.js.contains("className"),
+      s"Vue must NOT use 'className':\n${emitted.js}")
+    // Mounted via createApp + mount.
+    assert(emitted.js.contains("createApp(App).mount('#app')"))
+  }
+
+  test("emit — ReactiveSignal lowers to ref() in setup, returned for proxy") {
+    val backend = new VueFrameworkBackend
+    val count = new ReactiveSignal[Int]("count", 0)
+    val app = ComponentDef("App", Nil, _ => View.Element(
+      "div", Map.empty, Map.empty,
+      Seq(View.SignalText(count))
+    ))
+    val js = backend.emit(FrontendModule(List(app), "App", "/")).js
+    assert(js.contains("const count = ref(0);"),
+      s"expected ref(0) in setup:\n$js")
+    assert(js.contains("return { count };"),
+      s"setup must return ref for proxy unwrap:\n$js")
+    // SignalText interpolates this.count (auto-unwrapped by proxy).
+    assert(js.contains("[this.count]"),
+      s"SignalText must read via this.count, embedded in children array:\n$js")
+  }
+
+  test("emit — IncrementSignal lowers to this.x = this.x + by (with proxy this)") {
+    val backend = new VueFrameworkBackend
+    val count = new ReactiveSignal[Int]("count", 5)
+    val app = ComponentDef("App", Nil, _ => View.Element(
+      "button",
+      Map.empty,
+      Map("click" -> EventHandler.IncrementSignal(count, by = 2)),
+      Seq.empty
+    ))
+    val js = backend.emit(FrontendModule(List(app), "App", "/")).js
+    assert(js.contains("const count = ref(5);"))
+    // Arrow function — captures render()'s `this` (the proxy) lexically.
+    assert(js.contains("'onClick': () => { this.count = this.count + 2; }"),
+      s"expected this.x = this.x + by with arrow function:\n$js")
+  }
+
+  test("emit — SetSignalLiteral lowers to this.x = value") {
+    val backend = new VueFrameworkBackend
+    val greeting = new ReactiveSignal[String]("greeting", "Hello")
+    val app = ComponentDef("App", Nil, _ => View.Element(
+      "button",
+      Map.empty,
+      Map("click" -> EventHandler.SetSignalLiteral(greeting, "world")),
+      Seq.empty
+    ))
+    val js = backend.emit(FrontendModule(List(app), "App", "/")).js
+    assert(js.contains("const greeting = ref('Hello');"))
+    assert(js.contains("'onClick': () => { this.greeting = 'world'; }"))
+  }
+
+  test("emit — Fragment becomes Vue Fragment element") {
+    val backend = new VueFrameworkBackend
+    val app = ComponentDef("App", Nil, _ => View.Fragment(Seq(
+      View.Element("span", Map.empty, Map.empty, Seq(View.TextNode(() => "a"))),
+      View.Element("span", Map.empty, Map.empty, Seq(View.TextNode(() => "b")))
+    )))
+    val js = backend.emit(FrontendModule(List(app), "App", "/")).js
+    assert(js.contains("h(Fragment"),
+      s"Vue Fragment must use the Fragment symbol:\n$js")
+  }
+
+  test("emit — Show takes the cond() snapshot branch") {
+    val backend = new VueFrameworkBackend
+    val app = ComponentDef("App", Nil, _ => View.Show(
+      cond      = () => true,
+      whenTrue  = () => View.TextNode(() => "shown"),
+      whenFalse = () => View.TextNode(() => "hidden")
+    ))
+    val js = backend.emit(FrontendModule(List(app), "App", "/")).js
+    assert(js.contains("'shown'"))
+    assert(!js.contains("'hidden'"))
+  }
+
+  test("emit — For becomes array of children") {
+    val backend = new VueFrameworkBackend
+    val list = ComponentDef("App", Nil, _ => View.Element(
+      "ul", Map.empty, Map.empty,
+      Seq(View.For[String](
+        items  = () => Seq("a", "b"),
+        render = name => View.Element("li", Map.empty, Map.empty,
+                          Seq(View.TextNode(() => name)))
+      ))
+    ))
+    val js = backend.emit(FrontendModule(List(list), "App", "/")).js
+    assert(js.contains("h('ul', null, [[h('li'"),
+      s"For must produce array of children inside ul:\n$js")
+  }
+
+  test("emit — signal referenced ONLY in event handler still gets ref") {
+    val backend = new VueFrameworkBackend
+    val count = new ReactiveSignal[Int]("count", 0)
+    val app = ComponentDef("App", Nil, _ => View.Element(
+      "button",
+      Map.empty,
+      Map("click" -> EventHandler.IncrementSignal(count)),
+      Seq(View.TextNode(() => "Click"))
+    ))
+    val js = backend.emit(FrontendModule(List(app), "App", "/")).js
+    assert(js.contains("const count = ref(0);"),
+      s"signals referenced only in handlers must be hoisted to setup:\n$js")
+  }
+
+  test("emit — duplicate signal name + different initial throws loudly") {
+    val backend = new VueFrameworkBackend
+    val a = new ReactiveSignal[String]("x", "alpha")
+    val b = new ReactiveSignal[String]("x", "beta")
+    val app = ComponentDef("App", Nil, _ => View.Element(
+      "div", Map.empty, Map.empty,
+      Seq(View.SignalText(a), View.SignalText(b))
+    ))
+    val ex = intercept[IllegalArgumentException] {
+      backend.emit(FrontendModule(List(app), "App", "/"))
+    }
+    assert(ex.getMessage.contains("twice"))
+  }
+
+  test("emit — JVM-closure events emit a marker, no real handler") {
+    val backend = new VueFrameworkBackend
+    val app = ComponentDef("App", Nil, _ => View.Element(
+      "button",
+      Map.empty,
+      Map("click" -> EventHandler.Simple(() => ())),
+      Seq.empty
+    ))
+    val js = backend.emit(FrontendModule(List(app), "App", "/")).js
+    assert(js.contains("JVM closure"),
+      s"expected JVM-closure marker:\n$js")
+  }
+
+  test("emit — XSS-y text content is escaped") {
+    val backend = new VueFrameworkBackend
+    val sneaky = ComponentDef("App", Nil, _ => View.Element(
+      "div", Map.empty, Map.empty,
+      Seq(View.TextNode(() => "</script><script>alert(1)</script>"))
+    ))
+    val js = backend.emit(FrontendModule(List(sneaky), "App", "/")).js
+    assert(!js.contains("</script>"))
+  }
+
+  test("emit — DOM event name maps to camelCase Vue handler prop") {
+    val backend = new VueFrameworkBackend
+    val x = new ReactiveSignal[Int]("x", 0)
+    val app = ComponentDef("App", Nil, _ => View.Element(
+      "input",
+      Map.empty,
+      Map("mousedown" -> EventHandler.IncrementSignal(x)),
+      Seq.empty
+    ))
+    val js = backend.emit(FrontendModule(List(app), "App", "/")).js
+    assert(js.contains("'onMousedown'"),
+      s"expected onMousedown camelCase prop:\n$js")
   }
