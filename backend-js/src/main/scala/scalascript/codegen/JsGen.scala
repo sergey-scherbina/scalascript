@@ -3498,6 +3498,9 @@ const Actor = {
   // v1.23 — phi-accrual failure detector
   phiOf:     (nid)              => _perform('Actor', 'phiOf',     [nid]),
   isSuspect: (nid, thr)         => _perform('Actor', 'isSuspect', [nid, thr == null ? 8.0 : thr]),
+  // v1.23 — local node identity + phi vector
+  selfNode:      ()             => _perform('Actor', 'selfNode',      []),
+  clusterHealth: ()             => _perform('Actor', 'clusterHealth', []),
 };
 
 // `receive { case … }` lowers to a registered matcher function whose
@@ -4185,6 +4188,18 @@ function _runActors(bodyFn) {
       case 'isSuspect': {
         const thr = args[1] == null ? 8.0 : Number(args[1]);
         return { suspend: false, next: k(_computePhi(String(args[0])) >= thr) };
+      }
+      // v1.23 — local node identity
+      case 'selfNode': {
+        return { suspend: false, next: k(_localNodeId) };
+      }
+      // v1.23 — cluster health (phi vector for connected peers)
+      case 'clusterHealth': {
+        const m = new Map();
+        for (const [nid, peer] of _peerChannels) {
+          if (peer && !peer.pending) m.set(nid, _computePhi(nid));
+        }
+        return { suspend: false, next: k(m) };
       }
       // v1.6.x — scheduled sends
       case 'sendAfter': {
@@ -5397,6 +5412,7 @@ class JsGen(
       "Actor.globalRegister", "Actor.globalWhereis",
       "Actor.clusterMembers", "Actor.subscribeClusterEvents",
       "Actor.phiOf", "Actor.isSuspect",
+      "Actor.selfNode", "Actor.clusterHealth",
       "Actor.sendAfter", "Actor.sendInterval", "Actor.cancelTimer",
       "Logger.info", "Logger.warn", "Logger.error", "Logger.debug",
       "Random.nextInt", "Random.nextDouble", "Random.uuid", "Random.pick",
@@ -6663,6 +6679,13 @@ class JsGen(
       val nid = genExpr(argClause.values(0).asInstanceOf[Term])
       val thr = if argClause.values.size >= 2 then genExpr(argClause.values(1).asInstanceOf[Term]) else "8.0"
       s"Actor.isSuspect($nid, $thr)"
+    // v1.23 — local node identity + phi vector
+    case Term.Apply.After_4_6_0(Term.Name("selfNode"), argClause)
+        if argClause.values.isEmpty =>
+      "Actor.selfNode()"
+    case Term.Apply.After_4_6_0(Term.Name("clusterHealth"), argClause)
+        if argClause.values.isEmpty =>
+      "Actor.clusterHealth()"
     // v1.6.x — scheduled sends
     case Term.Apply.After_4_6_0(Term.Name("sendAfter"), argClause)
         if argClause.values.size == 3 =>
@@ -7181,6 +7204,13 @@ class JsGen(
       val nid = genExpr(argClause.values(0).asInstanceOf[Term])
       val thr = if argClause.values.size >= 2 then genExpr(argClause.values(1).asInstanceOf[Term]) else "8.0"
       s"Actor.isSuspect($nid, $thr)"
+    // v1.23 — local node identity + phi vector
+    case Term.Apply.After_4_6_0(Term.Name("selfNode"), argClause)
+        if argClause.values.isEmpty =>
+      "Actor.selfNode()"
+    case Term.Apply.After_4_6_0(Term.Name("clusterHealth"), argClause)
+        if argClause.values.isEmpty =>
+      "Actor.clusterHealth()"
     // v1.6.x — scheduled sends (inside CPS body)
     case Term.Apply.After_4_6_0(Term.Name("sendAfter"), argClause)
         if argClause.values.size == 3 =>

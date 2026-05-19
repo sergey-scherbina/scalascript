@@ -1,0 +1,23 @@
+#!/usr/bin/env ssc
+---
+name: actors-cluster-self-health
+description: Actor v1.23 — selfNode() + clusterHealth() single-node snapshot
+---
+
+# selfNode + clusterHealth — single-node
+
+In a single-node process `selfNode()` returns the empty string (no
+`startNode` was called) and `clusterHealth()` returns an empty map
+(no connected peers).  Multi-node behaviour is exercised by the
+integration suite; this conformance test pins the no-cluster branch
+across INT/JS/JVM.
+
+```scalascript
+runActors {
+  println("self='" + selfNode() + "'")
+  // Pattern-match yields a typed binding so `.size` resolves on JVM.
+  clusterHealth() match
+    case m: Map[String, Double] => println("healthSize=" + m.size)
+  println("ok")
+}
+```

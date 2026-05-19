@@ -445,7 +445,7 @@ class JvmGen(
                     "startNode", "connectNode", "joinCluster", "register", "whereis",
                     "globalRegister", "globalWhereis",
                     "clusterMembers", "subscribeClusterEvents",
-                    "phiOf", "isSuspect",
+                    "phiOf", "isSuspect", "selfNode", "clusterHealth",
                     "sendAfter", "sendInterval", "cancelTimer", "processInfo")
     blocks.exists { b =>
       var found = false
@@ -1386,6 +1386,13 @@ class JvmGen(
       val nid = emitExpr(argClause.values(0).asInstanceOf[Term])
       val thr = if argClause.values.size >= 2 then emitExpr(argClause.values(1).asInstanceOf[Term]) else "8.0"
       s"Actor.isSuspect($nid, $thr)"
+    // v1.23 — local node identity + phi vector
+    case Term.Apply.After_4_6_0(Term.Name("selfNode"), argClause)
+        if argClause.values.isEmpty =>
+      "Actor.selfNode()"
+    case Term.Apply.After_4_6_0(Term.Name("clusterHealth"), argClause)
+        if argClause.values.isEmpty =>
+      "Actor.clusterHealth()"
 
     // Focus[T](_.a.b) / Focus(_.a.b) — lower to a Lens(get, set) literal.
     // The lambda body's field-access chain becomes nested get + nested copy.
@@ -2080,6 +2087,13 @@ class JvmGen(
       val nid = emitExpr(argClause.values(0).asInstanceOf[Term])
       val thr = if argClause.values.size >= 2 then emitExpr(argClause.values(1).asInstanceOf[Term]) else "8.0"
       s"Actor.isSuspect($nid, $thr)"
+    // v1.23 — local node identity + phi vector
+    case Term.Apply.After_4_6_0(Term.Name("selfNode"), argClause)
+        if argClause.values.isEmpty =>
+      "Actor.selfNode()"
+    case Term.Apply.After_4_6_0(Term.Name("clusterHealth"), argClause)
+        if argClause.values.isEmpty =>
+      "Actor.clusterHealth()"
 
     case app: Term.Apply => emitCpsApply(app)
 
@@ -5298,6 +5312,9 @@ class JvmGen(
        |  // v1.23 — phi-accrual failure detector
        |  def phiOf(nid: Any): Any           = _perform("Actor", "phiOf", nid)
        |  def isSuspect(nid: Any, thr: Any = 8.0): Any = _perform("Actor", "isSuspect", nid, thr)
+       |  // v1.23 — local node identity + phi vector
+       |  def selfNode(): Any      = _perform("Actor", "selfNode")
+       |  def clusterHealth(): Any = _perform("Actor", "clusterHealth")
        |
        |class _ActorState:
        |  val mailbox = new java.util.concurrent.LinkedBlockingQueue[Any]()
@@ -5951,6 +5968,14 @@ class JvmGen(
        |        case i: Int    => i.toDouble
        |        case _         => 8.0
        |      Right(k(_computePhi(args(0).toString) >= thr))
+       |    // v1.23 — local node identity
+       |    case "selfNode" =>
+       |      Right(k(_localNodeId))
+       |    // v1.23 — cluster health (phi vector for connected peers)
+       |    case "clusterHealth" =>
+       |      val m = scala.collection.mutable.Map.empty[String, Double]
+       |      _peerChannels.keySet().forEach(k0 => m(k0) = _computePhi(k0))
+       |      Right(k(m.toMap))
        |    // v1.6.x — scheduled sends
        |    case "sendAfter" =>
        |      val delayMs  = args(0).asInstanceOf[Long]

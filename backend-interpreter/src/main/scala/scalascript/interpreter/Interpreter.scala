@@ -1472,6 +1472,15 @@ class Interpreter(
         Perform("Actor", "isSuspect", List(Value.StringV(nid), Value.DoubleV(thr.toDouble)))
       case _ => throw InterpretError("isSuspect(nodeId: String, threshold: Double = 8.0): Boolean")
     })
+    // v1.23 — local node identity + phi vector
+    globals("selfNode") = Value.NativeFnV("selfNode", {
+      case Nil => Perform("Actor", "selfNode", Nil)
+      case _   => throw InterpretError("selfNode(): String")
+    })
+    globals("clusterHealth") = Value.NativeFnV("clusterHealth", {
+      case Nil => Perform("Actor", "clusterHealth", Nil)
+      case _   => throw InterpretError("clusterHealth(): Map[String, Double]")
+    })
     // v1.6.x — scheduled sends
     globals("sendAfter") = Value.NativeFnV("sendAfter", {
       case List(Value.IntV(delayMs), pid @ Value.InstanceV("Pid", _), msg) =>
@@ -4836,6 +4845,19 @@ class Interpreter(
       case List(Value.StringV(nid), Value.DoubleV(thr)) =>
         Right(k(Value.BoolV(computePhi(nid) >= thr)))
       case _ => throw InterpretError("isSuspect(nodeId, threshold)")
+
+    // v1.23 — local node identity
+    case "selfNode" =>
+      Right(k(Value.StringV(localNodeId)))
+
+    // v1.23 — cluster health (phi vector for connected peers)
+    case "clusterHealth" =>
+      val m = scala.collection.mutable.Map[Value, Value]()
+      val it = peerChannels.keySet().iterator
+      while it.hasNext do
+        val nid = it.next()
+        m += (Value.StringV(nid) -> Value.DoubleV(computePhi(nid)))
+      Right(k(Value.MapV(m.toMap)))
 
     // v1.6.x — scheduled sends
     case "sendAfter" => args match
