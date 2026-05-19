@@ -569,11 +569,18 @@ unblocks downstream features as early as possible.
      `oidc-idp`, `oauth-rs-guard`, `oauth-rsa-jwks`,
      `mcp-server-protected`.
 
-     **Still open in MCP** (deferred): generic `_meta` field
-     propagation across primitives.
-     **Still open in OAuth** (post-v1.17): `oauth.rsaAuthServer(...)`
-     script intrinsic (RSA AS is JVM-only today); WebAuthn /
-     passkey grant.
+     **Generic `_meta` propagation** (Iter EE) ✓ — final MCP spec
+     gap closed.  Optional `meta: Option[ujson.Value]` on tool /
+     resource / resource template / prompt registrations; emitted
+     under the `_meta` JSON key on every list endpoint when non-
+     empty.  Coexists cleanly with annotations + pagination;
+     legacy registrations without a `meta` arg work unchanged.
+
+     **MCP is now fully spec-compliant** against MCP 2025-03 +
+     OAuth 2.1 + OIDC + the relevant RFCs.
+
+     **Still open** (post-v1.17): `oauth.rsaAuthServer(...)` script
+     intrinsic (RSA AS is JVM-only today); WebAuthn / passkey grant.
  22. **v1.18 — `package` keyword + std layout migration** ✓ Landed (all phases, 2026-05-19).
  23. **v1.19 — URL / dep imports** ✓ Landed.
      `[X](https://...)` URL fetch + `[X](dep:org/lib:1.2)`

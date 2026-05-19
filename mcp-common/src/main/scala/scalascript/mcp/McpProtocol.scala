@@ -101,6 +101,7 @@ object McpProtocol:
         t.description.foreach(d => o("description") = d)
         o("inputSchema") = t.inputSchema
         t.annotations.filterNot(_.isEmpty).foreach(a => o("annotations") = a.toJson)
+        t.meta.filter(metaNonEmpty).foreach(m => o("_meta") = m)
         o
       })
     )
@@ -122,6 +123,7 @@ object McpProtocol:
         r.name.foreach(n     => o("name")     = n)
         r.mimeType.foreach(m => o("mimeType") = m)
         r.annotations.filterNot(_.isEmpty).foreach(a => o("annotations") = a.toJson)
+        r.meta.filter(metaNonEmpty).foreach(m => o("_meta") = m)
         o
       })
     )
@@ -136,6 +138,7 @@ object McpProtocol:
         t.description.foreach(d => o("description") = d)
         t.mimeType.foreach(m    => o("mimeType")    = m)
         t.annotations.filterNot(_.isEmpty).foreach(a => o("annotations") = a.toJson)
+        t.meta.filter(metaNonEmpty).foreach(m => o("_meta") = m)
         o
       })
     )
@@ -159,6 +162,7 @@ object McpProtocol:
               "required"    -> a.required
             )
           })
+        p.meta.filter(metaNonEmpty).foreach(m => o("_meta") = m)
         o
       })
     )
@@ -218,23 +222,41 @@ object McpProtocol:
     name:        String,
     description: Option[String],
     inputSchema: ujson.Value,
-    annotations: Option[ToolAnnotations] = None
+    annotations: Option[ToolAnnotations] = None,
+    /** v1.17.x — MCP generic `_meta` field: implementation-defined
+     *  metadata.  Per spec, MAY be attached to any object; clients
+     *  ignore keys they don't recognise. */
+    meta:        Option[ujson.Value]     = None
   )
   case class ResourceEntry(
     uri:         String,
     name:        Option[String],
     mimeType:    Option[String],
-    annotations: Option[ResourceAnnotations] = None
+    annotations: Option[ResourceAnnotations] = None,
+    meta:        Option[ujson.Value]         = None
   )
   case class ResourceTemplateEntry(
     uriTemplate: String,
     name:        Option[String],
     description: Option[String],
     mimeType:    Option[String],
-    annotations: Option[ResourceAnnotations] = None
+    annotations: Option[ResourceAnnotations] = None,
+    meta:        Option[ujson.Value]         = None
   )
-  case class PromptEntry(name: String, description: Option[String], arguments: List[PromptArgument])
+  case class PromptEntry(
+    name:        String,
+    description: Option[String],
+    arguments:   List[PromptArgument],
+    meta:        Option[ujson.Value] = None
+  )
   case class PromptArgument(name: String, description: String, required: Boolean)
+
+  /** True iff a `_meta` payload has content worth emitting on the wire.
+   *  Empty objects collapse to suppressed (matches annotation-emission
+   *  policy for tool/resource hints). */
+  private def metaNonEmpty(m: ujson.Value): Boolean = m match
+    case obj: ujson.Obj => obj.value.nonEmpty
+    case _              => false
 
   /** v1.17.x — workspace root advertised by the client during `roots/list`.
    *  Per spec, `uri` MUST be a `file://` URI; `name` is a display hint. */
