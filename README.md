@@ -55,7 +55,7 @@ cd scalascript
 # One-time setup: builds the self-contained ssc launcher and symlinks the
 # scripts/launchers/* wrappers into bin/.  The entire bin/ is generated
 # and gitignored — sources live in scripts/launchers/.
-./scripts/install.sh bin/ssc
+./install.sh
 
 # Interpreter (tree-walking, no compilation step)
 bin/ssc examples/hello.ssc
@@ -498,17 +498,17 @@ docs/            # Architecture, spec, design docs
   targets.md             # Target Backends
   user-guide.md          # Practical user reference
   tutorial.md            # Step-by-step todo-list application tutorial
-scripts/         # setup.sh (install scala-cli), install.sh (build binary)
+scripts/         # launchers/ and validate-frontmatter.scala
 ```
 
 ## Installing as a Binary
 
 ```bash
 # Install scala-cli first (if needed)
-scripts/setup.sh
+./setup.sh
 
-# Build and install ssc to /usr/local/bin
-scripts/install.sh
+# Build ssc into bin/
+./install.sh
 ```
 
 After installation:

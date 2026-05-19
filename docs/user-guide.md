@@ -19,13 +19,10 @@ git clone https://github.com/sergey-scherbina/scalascript
 cd scalascript
 
 # Optional: install scala-cli
-scripts/setup.sh
+./setup.sh
 
 # Build the ssc launcher and helper scripts into bin/
-./scripts/install.sh bin/ssc
-
-# Or install system-wide to /usr/local/bin
-scripts/install.sh
+./install.sh
 ```
 
 After installation:

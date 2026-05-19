@@ -1,5 +1,5 @@
 #!/usr/bin/env scala-cli
-//> using toolkit latest
+//> using toolkit default
 
 // Cross-backend benchmark driver.
 //
@@ -20,29 +20,22 @@ val root = dir / os.up
 
 val nRuns = 5
 
-val sscBin   = root / "bin" / "ssc"
-val jsscBin  = root / "bin" / "jssc"
-val ssccBin  = root / "bin" / "sscc"
-val compiler = root / "compiler"
+val sscBin  = root / "bin" / "ssc"
+val jsscBin = root / "bin" / "jssc"
+val ssccBin = root / "bin" / "sscc"
 
-// `bin/` is gitignored (built by scripts/install.sh).  Fall back to
-// invoking the compiler module via scala-cli when a launcher isn't
-// present, so the bench script works in a fresh checkout / worktree.
+// `bin/` is gitignored (built by install.sh). jssc/sscc are thin shells
+// around `ssc emit-js` and `ssc compile`, so we emulate them via sscBin.
 def sscProc(file: os.Path): os.proc =
-  if os.exists(sscBin) then os.proc(sscBin.toString, file.toString)
-  else os.proc("scala-cli", "run", compiler.toString, "--", file.toString)
+  os.proc(sscBin.toString, file.toString)
 
 def jsscProc(file: os.Path): os.proc =
   if os.exists(jsscBin) then os.proc(jsscBin.toString, file.toString)
-  else
-    // Emulate `bin/jssc`: emit-js → node, piping through stdin.
-    val src = os.proc("scala-cli", "run", compiler.toString, "--", "emit-js", file.toString)
-      .call(stderr = os.Pipe).out.text()
-    os.proc("node", "-e", src)
+  else os.proc("bash", "-c", """"$0" emit-js "$1" | node""", sscBin.toString, file.toString)
 
 def ssccProc(file: os.Path): os.proc =
   if os.exists(ssccBin) then os.proc(ssccBin.toString, file.toString)
-  else os.proc("scala-cli", "run", compiler.toString, "--", "compile", file.toString)
+  else os.proc(sscBin.toString, "compile", file.toString)
 
 case class Target(label: String, run: os.Path => os.proc)
 
@@ -67,16 +60,19 @@ val BENCH = """^BENCH_MS:\s*([\d.]+)\s*$""".r
 val RES   = """^result=(.*)$""".r
 
 def runOne(t: Target, file: os.Path): Option[Sample] =
-  val r = t.run(file).call(stderr = os.Pipe, check = false)
-  if r.exitCode != 0 then return None
-  var ms: Option[Long]    = None
-  var res: Option[String] = None
-  r.out.lines().foreach {
-    case BENCH(v) => ms = Some(v.toDouble.round)
-    case RES(v)   => res = Some(v)
-    case _        => ()
-  }
-  for m <- ms; s <- res yield Sample(m, s)
+  try
+    val r = t.run(file).call(stderr = os.Pipe, check = false)
+    if r.exitCode != 0 then None
+    else
+      var ms: Option[Long]    = None
+      var res: Option[String] = None
+      r.out.lines().foreach {
+        case BENCH(v) => ms = Some(v.toDouble.round)
+        case RES(v)   => res = Some(v)
+        case _        => ()
+      }
+      for m <- ms; s <- res yield Sample(m, s)
+  catch case _: Exception => None
 
 def median(xs: Seq[Long]): Long =
   val sorted = xs.sorted
