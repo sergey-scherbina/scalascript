@@ -3973,8 +3973,15 @@ Stage 5.6 / battle-test + JvmGen fixes (landed 2026-05-19):
 - **Deep Select chains in strict mode**: `Typer` now recursively resolves
   `a.b.c` qualifier chains.  Single diagnostic at first break (no cascade).
   `ExportedSymbol.nested: List[ExportedSymbol]` field added to the IR
-  (backward-compat default `Nil`); extractor population is `TODO(v2.x)` —
-  until then, opaque sub-namespaces fall to permissive.
+  (backward-compat default `Nil`).
+- **Extractor populates `ExportedSymbol.nested`** (follow-up, 2026-05-19):
+  `InterfaceExtractor` recursively walks `Defn.Object` bodies up to
+  `MaxNestedDepth = 3` and emits `nested` entries for inner `def` / `val` /
+  `class` / `object` / `trait` / `enum` members (names + FQNs exact, types
+  best-effort `Any`).  Strict-mode deep-Select checks now reject unknown
+  members through real `.scim` sub-namespaces instead of falling to
+  permissive.  Package-shell walks also produce correctly-populated
+  `nested` for sub-namespaces inside the shell.
 
 **Known gaps (post-Stage-5 follow-up):**
 1. JVM/JS linker still textual concat + dedup.  Phase 2 = real
@@ -3992,9 +3999,11 @@ Stage 5.6 / battle-test + JvmGen fixes (landed 2026-05-19):
    values; SnakeYAML's "mapping values are not allowed here" is correct
    but unhelpful for non-YAML-experts.  Fix: quote-tolerant loader or
    better error message pinpointing the offending key.
-6. `InterfaceExtractor.ExportedSymbol.nested` is always `Nil` — deep
+6. ~~`InterfaceExtractor.ExportedSymbol.nested` is always `Nil` — deep
    Select chains through `.scim` artifacts fall to permissive until the
-   extractor descends into nested `object` namespaces.
+   extractor descends into nested `object` namespaces.~~ Landed in the
+   2026-05-19 follow-up (see "Extractor populates `ExportedSymbol.nested`"
+   above).  Depth cap is `MaxNestedDepth = 3`; lift if needed.
 7. `build --incremental` splits compile-failure summary (stdout) and root
    cause (stderr); consumers capturing only stdout get failure markers
    without context.
