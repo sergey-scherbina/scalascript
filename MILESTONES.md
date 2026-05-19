@@ -3809,19 +3809,39 @@ link → build --incremental`); the JVM backend produces per-module `.scjvm`
 artifacts that the linker combines incrementally.  Tracking doc:
 `docs/separate-compilation-plan.md`.
 
-Test coverage: 364 core tests + 11 CLI subprocess smoke tests, all green.
+Test coverage: 384 core tests + 14 CLI subprocess smoke tests, all green.
 
-**Known gaps (TODO post-MVP):**
-1. `check-with-iface` is permissive on undefined names because the typer
-   still produces `Any` for many shapes; tightening requires extending
-   `Typer.inferType` beyond top-level signatures.
-2. JS backend incremental output (`.scjs`) — JVM is done; JS would mirror.
-3. JVM linker MVP uses textual concat + longest-common-prefix dedup of the
+Stage 5.4 / final round (landed 2026-05-19):
+- `parseSType` and `SType.show` round-trip now handle union types
+  `A | B`, intersection types `A & B` (with `&` binding tighter than `|`),
+  and higher-kinded `F[_]` / `F[_, _]`.  Refinement types and match types
+  still degrade to `SType.Any` (intentionally out of scope).
+- `Typer` strict mode (`Typer(strict = true)`): when set, references to
+  undefined `Term.Name` identifiers record a diagnostic on `Typer.errors`
+  without crashing.  Scoped down conservatively: only flags bare
+  camelCase / underscore-led identifiers; skips operators, method
+  selectors, `Term.New`, lambdas, partial functions.
+- `ssc check-with-iface` now uses strict mode + exits non-zero on
+  diagnostics — actually catches undefined references in consumer code.
+  Closes the `references to undefined names currently pass (TODO)`.
+- JS backend incremental output: `.scjs` artifact + `ssc compile-js` +
+  `ssc link --backend js [-o out.js]` + `ssc build --incremental --backend js`.
+  Same shape as the JVM pipeline; longest-common-prefix dedup of the JS
+  runtime preamble.  Node execution when `node` is on PATH; falls back to
+  stdout when not.
+
+**Known gaps (still TODO post-MVP):**
+1. JVM linker MVP uses textual concat + longest-common-prefix dedup of the
    JvmGen runtime preamble.  Robust against same-compiler-version modules
    only; conditional-runtime variation (e.g. one module using effects and
    another not) requires bytecode-level mangling.  Phase 2.
-4. Higher-kinded types, refinement types, intersection/union types still
-   degrade to `SType.Any` in `parseSType`.
+2. JS linker has the same textual-concat limitation as JVM.
+3. Strict-mode undefined-name check covers only bare `Term.Name`; method
+   selectors against unknown receivers and unbound type names are still
+   permissive (skipped to avoid false positives in dynamic interpreter
+   intrinsic contexts).
+4. Refinement types `A { def foo: Int }` and match types still degrade to
+   `SType.Any` in `parseSType` (intentional — out of v2.0 scope).
 
 What landed:
 - `ir/Ir.scala`: `ArtifactVersion` (magic `SSCART` + ABI `2.0`),
