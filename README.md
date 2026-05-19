@@ -8,7 +8,8 @@ Scala 3 code blocks.
 
 | Annotation | Language | Backends |
 |------------|----------|----------|
-| ` ```scalascript` (alias: ` ```ssc`) | ScalaScript dialect — effects, handlers, content helpers, TCO | interpreter · JS transpiler · JVM |
+| ` ```scalascript` | ScalaScript dialect — effects, handlers, content helpers, TCO | interpreter · JS transpiler · JVM |
+| ` ```ssc` | Alias for `scalascript` | interpreter · JS transpiler · JVM |
 | ` ```scala` | Standard Scala 3 — no ScalaScript extensions | interpreter · **Scala.js** (JS) · JVM |
 
 ````ssc
