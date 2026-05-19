@@ -6974,20 +6974,62 @@ Fixes four concrete bugs in current x402:
       EIP-55 checksum + RFC 6070 PBKDF2 + AES-GCM tamper detection.
       67 tests across the five new modules.
 
-### Phase 2 — blockchain-evm full ChainAdapter + real x402 settle
+### Phase 2 — blockchain-evm full ChainAdapter + real x402 settle ✓ Landed (2026-05-19)
 
-- [ ] `EvmChainAdapter` gains `buildTransaction` for `NativeTransfer`
-      / `TokenTransfer` / `ContractCall` / `TokenTransferAuthorized`
-      using `EvmClient` for nonce / gas estimation
-- [ ] EIP-1559 + legacy tx encoding (RLP)
-- [ ] `broadcast` via `eth_sendRawTransaction`; `waitForReceipt`
-      polling
-- [ ] x402 settle fix (covers all 6 EVM chains):
-  - [ ] `EvmFacilitator.settle` default settler does real
-        `transferWithAuthorization` via `blockchain-evm`
-  - [ ] `Option[settler]` escape hatch retained
-  - [ ] End-to-end Anvil integration test: 402 → sign → verify →
-        settle → on-chain confirmation
+Shipped as four slices: RLP+broadcast (29344e6), ABI codec
+(3679e68), typed Erc20 proxy + event decoder (a97e7e6), real
+relayer-backed x402 settle (cbec71c). ~40 new tests, full Phase 1
+regression test green.
+
+- [x] `Rlp` encoder (Yellow Paper appendix B): single-byte, short /
+      long strings, lists, length-of-length headers.
+- [x] `EvmTx` / `EvmSignedTx` — EIP-1559 (type 0x02) envelopes with
+      RLP body, sighash, signed raw-hex serialisation. Legacy tx is
+      not implemented; every EVM chain x402 currently targets
+      supports EIP-1559.
+- [x] `EvmChainAdapter` write-side:
+  - [x] `buildTransaction(NativeTransfer / TokenTransfer /
+        ContractCall / TokenTransferAuthorized / Deploy(CREATE))`
+        queries nonce + estimates gas (eth_estimateGas + 10% margin)
+        + reads fee market (eth_maxPriorityFeePerGas with
+        eth_gasPrice fallback, base fee from latest block).
+  - [x] `prepareSigningPayload` / `assembleSignedTransaction`
+        normalising v ∈ {0,1,27,28} → yParity.
+  - [x] `broadcast` via `eth_sendRawTransaction`.
+  - [x] `waitForReceipt` polling with deadline.
+  - [x] `predictDeployAddress` for CREATE (
+        keccak256(rlp([sender,nonce]))[12..32]). CREATE2 deferred —
+        needs a deployer factory contract.
+- [x] `ChainAdapter.buildTransaction` SPI gained an explicit
+      `sender: String` parameter (needed for nonce + gas estimation).
+- [x] `blockchain-evm-abi` sub-module — pure-Scala Solidity ABI v2
+      codec: encode/decode for uint*/int*/address/bool/bytesN/
+      bytes/string/T[]/T[k]/tuple, function selector helper, event
+      topic0 helper. Vector tests against published reference
+      encodings (ERC-20 transfer calldata byte-identical, ERC-3009
+      selector 0xe3ee160e, head/tail layout for mixed
+      static/dynamic tuples).
+- [x] `Erc20` typed proxy in `blockchain-evm` — typed reads
+      (balanceOf / allowance / decimals / symbol / name) and write
+      intents (transfer / approve / transferWithAuthorization).
+- [x] `Erc20.Transfer` / `Approval` event decoders. `topic0` for
+      Transfer matches the canonical
+      0xddf252ad… hash.
+- [x] `blockchain-spi.TxReceipt` gained a `logs: Seq[Log]` field
+      (default empty, additive); `EvmChainAdapter.getReceipt` parses
+      the JSON-RPC logs array into typed `Log` triples.
+- [x] x402 settle fix (covers all 6 EVM chains):
+  - [x] `EvmFacilitatorConfig.relayerKeyHex` — relayer wallet for
+        on-chain settlement
+  - [x] `EvmFacilitator.withRelayer(evm, key)` — convenience factory
+  - [x] `settleOnChain` path: builds via `Erc20.transferWithAuthorization`,
+        signs with EoaStrategy, broadcasts via EvmChainAdapter
+  - [x] Custom `settler` escape hatch retained
+  - [x] Backwards-compatible default: no relayer + no settler →
+        Ok(0x000…000) stub (kept for testnet examples)
+  - [ ] End-to-end Anvil integration test deferred — mock-RPC test
+        exercises the exact JSON-RPC sequence an Anvil node would
+        receive; real network round-trip is a follow-on slice.
 
 ### Phase 3 — blockchain-solana
 
