@@ -2476,7 +2476,15 @@ private def mergeScalaSources(sources: List[String]): String =
       if !unique.endsWith("\n") then sb.append('\n')
       sb.append('\n')
   }
-  sb.toString
+
+  // Step 3 — safety-net dedup of duplicate top-level declarations.  The
+  // longest-common-prefix pass only works when every module's preamble is
+  // byte-identical.  As soon as module A uses `effect Foo:` (so its
+  // `.scjvm` includes `effectsRuntime`) and module B doesn't, the shared
+  // prefix is truncated and the runtime helpers (e.g., `_handle`) appear
+  // twice in the concatenated tail.  Walk the combined source and drop
+  // any top-level `def`/`val`/`class`/… whose name has already been seen.
+  dedupTopLevelDefs(sb.toString, lang = "scala")
 
 /** Link a set of `.scjs` artifacts by textually concatenating their
  *  `jsSource` strings (in path-sorted order) into a single JS source.
@@ -2594,7 +2602,188 @@ private def mergeJsSources(sources: List[String]): String =
         sb.append(unique)
         if !unique.endsWith("\n") then sb.append('\n')
     }
-    sb.toString
+    // Safety-net dedup — see `mergeScalaSources` for rationale.  Modules
+    // with divergent runtime preambles (effects vs. plain, async vs.
+    // sync, …) cause the prefix-dedup to leave duplicate top-level
+    // `function`/`const`/`class` declarations in the concatenated tail.
+    dedupTopLevelDefs(sb.toString, lang = "js")
+
+/** Safety-net deduplicator for the textually-concatenated link output.
+ *
+ *  The longest-common-prefix pass in [[mergeScalaSources]] /
+ *  [[mergeJsSources]] only lifts the runtime preamble cleanly when every
+ *  module's preamble is byte-identical.  As soon as one module uses
+ *  `effect Foo:` (triggering `effectsRuntime`) and another doesn't, the
+ *  shared prefix is truncated and the runtime helpers — `_handle`,
+ *  `_perform`, `_Computation`, … — end up duplicated in the concatenated
+ *  tail.  scalac / node then refuses the source with "Double definition".
+ *
+ *  This pass walks the combined source line-by-line, tracks which
+ *  top-level declarations (column-0 `def`/`val`/`class`/`object`/`trait`/
+ *  `enum`/`type` for Scala; `function`/`const`/`let`/`var`/`class` for
+ *  JS) have already been emitted, and skips every subsequent definition
+ *  with the same leading name.  Inner declarations (anything indented) are
+ *  left untouched — they're scoped under their enclosing block and can't
+ *  collide at the file level.
+ *
+ *  Skip strategy per top-level decl:
+ *   1. If the def-opening line contains `{`, track brace depth from that
+ *      point and skip until depth returns to 0.
+ *   2. Otherwise (Scala 3 indentation syntax), skip until the next
+ *      column-0 non-blank line — which is either another top-level decl
+ *      or the end of file.
+ *
+ *  This is conservative: when a line doesn't match any known top-level
+ *  pattern it's emitted verbatim.  False positives only fire when two
+ *  modules genuinely declare the same top-level name, in which case the
+ *  later definition is silently dropped (the JVM/JS scoping rules would
+ *  have rejected the duplicate anyway). */
+private def dedupTopLevelDefs(source: String, lang: String): String =
+  val lines = source.linesWithSeparators.toArray
+  val seen  = scala.collection.mutable.HashSet.empty[String]
+  val out   = new StringBuilder
+
+  // Recogniser: given the leading non-whitespace portion of a column-0
+  // line, return Some(declaredName) iff this is a top-level decl we know
+  // how to dedup.  None otherwise — emit verbatim.
+  val scalaKinds = Set(
+    "def", "val", "var", "lazy",
+    "class", "object", "trait", "enum", "type",
+    "given", "extension"
+  )
+  val jsKinds = Set("function", "const", "let", "var", "class")
+  // Modifier keywords that precede a real decl-kind; we strip them off.
+  // `async` is included for JS so `async function foo` parses.
+  val modifierKeywords = Set(
+    "private", "protected", "public",
+    "implicit", "final", "sealed", "abstract", "open",
+    "case", "lazy", "inline", "transparent", "override",
+    "export", "async"
+  )
+  val delimChars = "([:={ \t,;".toSet
+
+  def declName(line: String): Option[String] =
+    if line.isEmpty || line.charAt(0).isWhitespace then None
+    else
+      val trimmed = line.stripLineEnd
+      // Strip a leading modifier chain — we still match on the next
+      // token after.
+      var rest = trimmed
+      var changed = true
+      while changed do
+        changed = false
+        val sp = rest.indexOf(' ')
+        if sp > 0 then
+          val tok = rest.substring(0, sp)
+          if modifierKeywords.contains(tok) then
+            rest = rest.substring(sp + 1).stripLeading()
+            changed = true
+
+      // Now `rest` begins with what should be the decl-kind keyword.
+      val sp = rest.indexOf(' ')
+      if sp <= 0 then None
+      else
+        val kind = rest.substring(0, sp)
+        val after = rest.substring(sp + 1).stripLeading()
+        var end = 0
+        while end < after.length && !delimChars.contains(after.charAt(end)) do
+          end += 1
+        val name = after.substring(0, end)
+        if name.isEmpty then None
+        else
+          val recognised = lang match
+            case "scala" => scalaKinds.contains(kind)
+            case "js"    => jsKinds.contains(kind)
+            case _       => false
+          if recognised then Some(s"$kind:$name") else None
+
+  // Skip strategy: when we encounter a duplicate top-level decl, consume
+  // its full body and return the index of the next line to keep.
+  def skipBody(startIdx: Int): Int =
+    val startLine = lines(startIdx)
+    // Count brace balance starting from startLine.
+    var braces = 0
+    var hasSeenBrace = false
+    def count(s: String): Unit =
+      var i = 0
+      // Skip line/block comments and strings approximately — for
+      // generated code this is good enough.  We treat `//` as line-end.
+      while i < s.length do
+        val c = s.charAt(i)
+        if c == '/' && i + 1 < s.length && s.charAt(i + 1) == '/' then
+          i = s.length
+        else if c == '"' then
+          // skip until matching unescaped quote
+          i += 1
+          while i < s.length && s.charAt(i) != '"' do
+            if s.charAt(i) == '\\' && i + 1 < s.length then i += 2 else i += 1
+          if i < s.length then i += 1
+        else
+          if c == '{' then { braces += 1; hasSeenBrace = true }
+          else if c == '}' then braces -= 1
+          i += 1
+    count(startLine)
+
+    var i = startIdx + 1
+    if hasSeenBrace then
+      // Brace-counting mode: skip until braces return to 0.
+      while i < lines.length && braces > 0 do
+        count(lines(i))
+        i += 1
+      i
+    else
+      // Indentation mode (Scala 3 `def foo: …` / `class Foo:`).  Skip
+      // every blank line and every line that begins with whitespace.
+      // Stop at the next column-0 non-blank line that looks like a new
+      // top-level decl.  Column-0 lines starting with `)`, `}`, `]`, or
+      // an operator are signature/expression continuations of the
+      // current def — keep skipping past them.  If such a continuation
+      // opens a `{` we promote to brace-mode for the rest of the body.
+      var done = false
+      var result = i
+      while i < lines.length && !done do
+        val ln = lines(i)
+        val stripped = ln.stripLineEnd
+        if stripped.isEmpty then
+          i += 1
+        else if ln.charAt(0).isWhitespace then
+          i += 1
+        else
+          val firstCh = stripped.charAt(0)
+          if firstCh == ')' || firstCh == '}' || firstCh == ']' ||
+             firstCh == ',' || firstCh == '.' then
+            count(ln)
+            if braces > 0 then
+              // Promote to brace mode for the rest of this body.
+              i += 1
+              while i < lines.length && braces > 0 do
+                count(lines(i))
+                i += 1
+              done = true
+              result = i
+            else
+              i += 1
+          else
+            result = i
+            done = true
+      if done then result else i
+
+  var i = 0
+  while i < lines.length do
+    val line = lines(i)
+    declName(line) match
+      case Some(key) =>
+        if seen.contains(key) then
+          // Duplicate — skip the entire definition body.
+          i = skipBody(i)
+        else
+          seen += key
+          out.append(line)
+          i += 1
+      case None =>
+        out.append(line)
+        i += 1
+  out.toString
 
 /** Longest common string prefix across a non-empty list of strings.  Returns
  *  the empty string when the inputs share nothing or the list is empty.
