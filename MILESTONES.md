@@ -3280,21 +3280,28 @@ the codegen output.
 
 ### Deferred follow-ups (v1.17.x backlog, ordered by priority)
 
-1. ~~**Own implementation for INT / scalajs-spa**~~ — Phase 1
-   landed 2026-05-19: pure-Scala JSON-RPC 2.0 + dispatch in
-   `backend-interpreter/.../mcp/` (JsonRpc + McpProtocol +
-   McpServerCore + McpClientCore = 583 LOC) plus `intrinsics/Mcp.scala`
-   (532 LOC) wiring `mcpServer` / `serveMcp(Transport.Stdio)` /
-   `mcpConnect(Transport.Spawn)` as native intrinsics.
-   `Feature.McpServer` + `Feature.McpClient` added to
-   `InterpreterCapabilities`; the typer no longer rejects
-   `std/mcp/*` imports on INT.  23 new tests (`McpRuntimeTest`
-   covers framing/dispatch/client, `McpEndToEndTest` runs both
-   halves over an in-process pipe, `McpInterpreterIntegrationTest`
-   smoke-tests the user-facing API).  **Phase 2 — Http+SSE on INT**
-   and **Phase 3 — scalajs-spa client over EventSource** remain;
-   `serveMcp(Transport.Http(...))` raises an actionable "deferred to
-   Phase 2/3" error today.
+1. ~~**Own implementation for INT**~~ — Phase 1 + Phase 2 landed
+   2026-05-19.  **Phase 1** (Stdio + Spawn): pure-Scala JSON-RPC 2.0 +
+   dispatch extracted into new sbt module `mcp-common`
+   (`scalascript.mcp.{JsonRpc, McpProtocol, McpServerCore,
+   McpClientCore}`); `Feature.McpServer` + `Feature.McpClient` added
+   to `InterpreterCapabilities`; intrinsics `mcpServer` /
+   `serveMcp(Transport.Stdio)` / `mcpConnect(Transport.Spawn)` wired
+   via `intrinsics/Mcp.scala`.  **Phase 2** (HTTP+SSE):
+   `mcp-common/McpHttpClient` (Java HttpClient wrapper) +
+   `McpServerCore.handleHttpRequest`; `serveMcp(Transport.Http(port,
+   path))` registers a POST handler on the existing WebServer;
+   `mcpConnect(Transport.Http("http://host:port/path"))` returns a
+   client backed by HTTP roundtrip.  28 tests across four suites all
+   pass.  **Phase 3 — scalajs-spa MCP client** remains pending: needs
+   either a browser-compatible JsRuntimeMcp variant (using
+   `fetch` + `EventSource` instead of `@modelcontextprotocol/sdk`) or a
+   Scala-source preamble for `scala` blocks compiled via scala-cli
+   --js using `org.scalajs.dom` APIs.  Open implementation question:
+   how to filter the `extern def __extern__` stubs from the inlined
+   `std/mcp/client.ssc` source so the preamble's real impl doesn't
+   collide (JvmGen has `blockContainsExternDef` for this; ScalaJsBackend
+   currently has no such filter).
 2. **Type-class layer** (`given McpTool[A, R]`, `derives McpSchema`)
    — depends on v1.14 `derives`.
 3. **Streaming resources** — depends on v1.10 Generators.
