@@ -24,6 +24,29 @@ trait Signal[T]:
   /** Syntactic sugar — `signal := 42` is `signal.set(42)`. */
   inline def `:=`(value: T): Unit = set(value)
 
+/** v1.18 / Phase A2b — minimal **reactive** signal cell that
+ *  backends can wire to a JS-side observable.  Sits alongside the
+ *  abstract `Signal[T]` trait because the trait alone is not enough
+ *  for emit-time codegen: emit needs (a) a stable, JS-safe **name**
+ *  to refer to the cell across the bundle and (b) the **initial
+ *  value** to embed.
+ *
+ *  Naming contract: `jsName` becomes the value-cell variable
+ *  (`__sig_<jsName>_value`) and the subscriber-Set
+ *  (`__sig_<jsName>_subs`) in the emitted JS.  Names must match
+ *  `[A-Za-z_][A-Za-z0-9_]*`; the emitter validates this and throws
+ *  if not.  Two `ReactiveSignal`s with the same name collide — one
+ *  ID per signal across a module is the user's responsibility.
+ *
+ *  Phase A2b restricts the value type to a primitive JSON literal
+ *  (`String | Int | Long | Double | Boolean`) so the initial value
+ *  can be embedded into JS without an `upickle`-style serialiser.
+ *  Phase A3+ will broaden once we have a portable encoder. */
+final class ReactiveSignal[T](val jsName: String, initial: T) extends Signal[T]:
+  private var _value: T = initial
+  override def apply(): T            = _value
+  override def set(value: T): Unit   = _value = value
+
 /** Memoised derived value.  Re-derived only when one of the
  *  signals it reads from changes.  Maps to React `useMemo`,
  *  Vue `computed`, Solid `createMemo`, Svelte `$:`. */
@@ -59,6 +82,12 @@ object View:
    *  it on signal change without re-rendering the whole parent.
    *  Pull-based backends (React) call it once per render. */
   final case class TextNode(value: () => String) extends View
+
+  /** v1.18 / Phase A2b — text node whose value is bound to a
+   *  `ReactiveSignal[String]`.  Backends generate a subscription
+   *  so the DOM text updates whenever the signal is set.  Use
+   *  `TextNode` for static / snapshot-only text. */
+  final case class SignalText(signal: ReactiveSignal[String]) extends View
 
   /** Logical grouping with no DOM wrapper.  Like React `<>...</>`
    *  or Vue / Solid Fragment. */
