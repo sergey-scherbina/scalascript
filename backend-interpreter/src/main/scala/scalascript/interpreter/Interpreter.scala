@@ -234,6 +234,12 @@ class Interpreter(
   // join-cluster mode: when true, each new handshake auto-requests peer list
   @volatile private var joinMode:  Boolean = false
   @volatile private var joinToken: String  = ""
+  // v1.23 — flip via -Dssc.cluster.debug=1 (or env SSC_CLUSTER_DEBUG=1) to
+  // get per-link connect/handshake traces.  Disabled by default; intended
+  // for multi-node integration tests and field debugging.
+  private val clusterDebug: Boolean =
+    sys.props.get("ssc.cluster.debug").exists(_.nonEmpty) ||
+    sys.env.get("SSC_CLUSTER_DEBUG").exists(_.nonEmpty)
   // nodeId → URL we dialled (for gossip in peers_resp)
   private val peerUrls =
     new java.util.concurrent.ConcurrentHashMap[String, String]()
@@ -562,6 +568,10 @@ class Interpreter(
     val payload = s"""{"t":"coordinator","from":${jsonStr(localNodeId)}}"""
     peerChannels.forEach { (_, send) => try send(payload) catch case _: Throwable => () }
   private def startElection(): Unit =
+    if clusterDebug then
+      val peers = scala.collection.mutable.ListBuffer.empty[String]
+      peerChannels.keySet().forEach(peers += _)
+      out.println(s"[cluster:dbg] $localNodeId startElection peers=${peers.mkString(",")}")
     if localNodeId.isEmpty then
       val prev = currentLeader.getAndSet(localNodeId)
       if prev != localNodeId then
@@ -585,7 +595,14 @@ class Interpreter(
           try Option(peerChannels.get(nid)).foreach(_.apply(payload))
           catch case _: Throwable => ()
         }
+  // v1.23 — URL-keyed dedupe so concurrent peer-loss events (e.g.
+  // heartbeat-timeout + recv-loop exit fighting over the same link)
+  // don't each spin up an independent exponential-backoff loop.
+  private val reconnectActive =
+    java.util.concurrent.ConcurrentHashMap.newKeySet[String]()
+
   private def scheduleReconnect(rurl: String, rtok: String): Unit =
+    if !reconnectActive.add(rurl) then return
     Thread.ofVirtual().start { () =>
       var delay = reconnectInitialMs.max(1L)
       var done  = false
@@ -601,6 +618,7 @@ class Interpreter(
               val cap = if reconnectMaxMs > 0L then reconnectMaxMs else delay
               delay = math.min(delay * 2L, cap.max(delay))
       catch case _: Throwable => ()
+      finally reconnectActive.remove(rurl)
     }
   // Cross-node monitors: nodeId → [(localActorId, monRef, remotePid.localId)]
   private val remoteMonitors =
@@ -1115,22 +1133,70 @@ class Interpreter(
   private def mkPid(nodeId: String, localId: Long): Value =
     Value.InstanceV("Pid", Map("nodeId" -> Value.StringV(nodeId), "localId" -> Value.IntV(localId)))
 
+  /** v1.23 — shared peer-loss cleanup.  Runs from three sites that
+   *  notice a peer is gone: outbound recv-loop exit, inbound recv-loop
+   *  exit, and the heartbeat thread's timeout branch.  Idempotent: all
+   *  the state mutations are remove / compareAndSet-style, so a second
+   *  call after a first one completed is a no-op.  Returns true if
+   *  this call was the one that actually saw the peer leave (used to
+   *  avoid double-scheduling reconnects). */
+  private def peerLost(peerNodeId: String, urlForReconnect: String, tokenForReconnect: String): Boolean =
+    val wasPresent = peerChannels.remove(peerNodeId) != null
+    if clusterDebug then
+      out.println(s"[cluster:dbg] $localNodeId peerLost($peerNodeId) wasPresent=$wasPresent currentLeader=${currentLeader.get()} autoReelect=$autoReelect")
+    peerLastPong.remove(peerNodeId)
+    peerUrls.remove(peerNodeId)
+    peerPongHist.remove(peerNodeId)
+    peerPhiViews.remove(peerNodeId)
+    drainingPeers.remove(peerNodeId)
+    clusterMetrics.forEach { (_, inner) => inner.remove(peerNodeId) }
+    if wasPresent then
+      nodeDownQueue.offer(peerNodeId)
+      enqueueClusterEvent("NodeLeft", peerNodeId, "disconnect")
+      val before = currentLeader.get()
+      val wasLeader = currentLeader.compareAndSet(peerNodeId, "")
+      if clusterDebug then
+        out.println(s"[cluster:dbg] $localNodeId peerLost($peerNodeId) before=$before wasLeader=$wasLeader after=${currentLeader.get()}")
+      // v1.23 — handle the race where another peer beat us to noticing
+      // the leader's death and already broadcast a new "coordinator":
+      // currentLeader has been *replaced* with the new leader, so our
+      // compareAndSet(oldLeader, "") fails.  That's fine — the cluster
+      // already picked someone — but we still need to fire `startElection`
+      // on the path where the leader genuinely left without a successor
+      // (e.g. the only remaining node is us).
+      if wasLeader || before == peerNodeId then
+        enqueueLeaderEvent("LeaderLost", peerNodeId)
+        if autoReelect then startElection()
+      if reconnectInitialMs > 0L && urlForReconnect.nonEmpty then
+        scheduleReconnect(urlForReconnect, tokenForReconnect)
+      val t = schedulerThread; if t != null then t.interrupt()
+    wasPresent
+
   private def connectPeer(url: String, token: String): Unit =
     val hdrs = if token.nonEmpty then Map("Authorization" -> s"Bearer $token") else Map.empty[String, String]
     Thread.ofVirtual().start { () =>
       try
+        if clusterDebug then out.println(s"[cluster:dbg] $localNodeId -> connectPeer($url) starting")
         val sess = scalascript.server.WsClientSession(url, hdrs, List("ssc-actors-v1"), this, out)
         sess.connect()
+        if clusterDebug then out.println(s"[cluster:dbg] $localNodeId -> connectPeer($url) connected")
         // Send our handshake frame first
         sess.sendText(s"""{"nodeId":${jsonStr(localNodeId)}}""")
         // Recv handshake reply: peer sends {"nodeId":"..."}
         sess.recvText() match
-          case None => () // closed during handshake
+          case None =>
+            if clusterDebug then out.println(s"[cluster:dbg] $localNodeId -> connectPeer($url) closed during handshake")
+            // v1.23 — handshake recv returned None (peer closed before
+            // replying).  Schedule a reconnect just like dial-failure
+            // and connection-loss paths do.
+            if reconnectInitialMs > 0L && !peerUrls.containsValue(url) then
+              scheduleReconnect(url, token)
           case Some(firstMsg) =>
             val peerNodeId = JsonParser.parseOption(firstMsg) match
               case Some(Value.MapV(m)) =>
                 m.get(Value.StringV("nodeId")).collect { case Value.StringV(n) => n }.getOrElse("")
               case _ => ""
+            if clusterDebug then out.println(s"[cluster:dbg] $localNodeId -> connectPeer($url) handshake peerNodeId='$peerNodeId'")
             if peerNodeId.nonEmpty then
               peerUrls.put(peerNodeId, url)
               peerChannels.put(peerNodeId, { text => sess.sendText(text) })
@@ -1152,7 +1218,15 @@ class Interpreter(
                     if peerChannels.containsKey(peerNodeId) then
                       val age = System.currentTimeMillis() - peerLastPong.getOrDefault(peerNodeId, 0L)
                       if age > 40_000L then
-                        peerChannels.remove(peerNodeId)
+                        // v1.23 — full peer-loss cleanup, not just
+                        // peerChannels.remove.  Without this the
+                        // currentLeader / autoReelect / scheduleReconnect
+                        // wiring only runs from the recv-loop-exit
+                        // path, and a stalled recv() (which the
+                        // heartbeat exists to handle in the first
+                        // place) means we never re-elect after the
+                        // current leader dies.
+                        peerLost(peerNodeId, url, token)
                         sess.abort()
                       else
                         try peerChannels.get(peerNodeId)("""{"t":"ping"}""") catch case _ => ()
@@ -1165,22 +1239,15 @@ class Interpreter(
                   case None      => running = false
                   case Some(msg) => dispatchPeerEnvelope(peerNodeId, msg)
               hbThread.interrupt()
-              peerChannels.remove(peerNodeId)
-              peerLastPong.remove(peerNodeId)
-              peerUrls.remove(peerNodeId)
-              peerPongHist.remove(peerNodeId)
-              peerPhiViews.remove(peerNodeId)
-              drainingPeers.remove(peerNodeId)
-              clusterMetrics.forEach { (_, inner) => inner.remove(peerNodeId) }
-              nodeDownQueue.offer(peerNodeId)
-              enqueueClusterEvent("NodeLeft", peerNodeId, "disconnect")
-              if currentLeader.compareAndSet(peerNodeId, "") then
-                enqueueLeaderEvent("LeaderLost", peerNodeId)
-                if autoReelect then startElection()
-              if reconnectInitialMs > 0L then scheduleReconnect(url, token)
-              val t = schedulerThread; if t != null then t.interrupt()
+              peerLost(peerNodeId, url, token)
       catch case e: Throwable =>
         out.println(s"connectNode error [$url]: ${e.getMessage}")
+        // v1.23 — if the initial dial failed (peer not yet bound), schedule
+        // a reconnect just like we do after a previously-up link drops.
+        // Without this, non-seed nodes that race against each other only
+        // ever reach the seed and the cluster stays fragmented.
+        if reconnectInitialMs > 0L && !peerUrls.containsValue(url) then
+          scheduleReconnect(url, token)
     }
 
   private def dispatchPeerEnvelope(peerNodeId: String, rawJson: String): Unit =
@@ -6406,13 +6473,24 @@ class Interpreter(
         def wsSend(text: String): Unit = wsFields.get("send").foreach { f =>
           invoke(f, List(Value.StringV(text)))
         }
+        // v1.23 — WsProxy dispatches every upgraded WS handler onto a
+        // single-thread `wsExecutor`.  If we ran the blocking handshake
+        // + recv loop directly here, the FIRST inbound peer monopolises
+        // the executor and all subsequent inbound peers stall in the
+        // queue, never completing their handshake — fragmenting the
+        // cluster.  Spawn a virtual thread so the executor returns
+        // immediately and remains free to process the next upgrade.
+        Thread.ofVirtual().start { () =>
         // Receive handshake from peer: {"nodeId":"..."}
-        val peerNodeId = wsRecv().flatMap { first =>
+        val firstMsgOpt = wsRecv()
+        if clusterDebug then out.println(s"[cluster:dbg] $localNodeId <- inbound handshake recv=${firstMsgOpt.map(s => if s.length > 80 then s.take(80) + "…" else s).getOrElse("<none>")}")
+        val peerNodeId = firstMsgOpt.flatMap { first =>
           JsonParser.parseOption(first).collect {
             case Value.MapV(m) =>
               m.get(Value.StringV("nodeId")).collect { case Value.StringV(n) => n }.getOrElse("")
           }.filter(_.nonEmpty)
         }
+        if clusterDebug then out.println(s"[cluster:dbg] $localNodeId <- inbound peerNodeId=${peerNodeId.getOrElse("<none>")}")
         peerNodeId.foreach { pnId =>
           wsSend(s"""{"nodeId":${jsonStr(localNodeId)}}""")
           peerChannels.put(pnId, wsSend)
@@ -6429,7 +6507,12 @@ class Interpreter(
                 if peerChannels.containsKey(pnId) then
                   val age = System.currentTimeMillis() - peerLastPong.getOrDefault(pnId, 0L)
                   if age > 40_000L then
-                    peerChannels.remove(pnId)
+                    // v1.23 — same rationale as the outbound side:
+                    // run the full peer-loss cleanup so currentLeader
+                    // / autoReelect fire even when the recv loop is
+                    // stuck on a half-open socket.  Inbound has no
+                    // URL/token so reconnect-from-here is a no-op.
+                    peerLost(pnId, "", "")
                   else
                     try peerChannels.get(pnId)("""{"t":"ping"}""") catch case _ => ()
             catch case _: InterruptedException => ()
@@ -6440,20 +6523,9 @@ class Interpreter(
               case None      => running = false
               case Some(msg) => dispatchPeerEnvelope(pnId, msg)
           hbThread.interrupt()
-          peerChannels.remove(pnId)
-          peerLastPong.remove(pnId)
-          peerUrls.remove(pnId)
-          peerPongHist.remove(pnId)
-          peerPhiViews.remove(pnId)
-          drainingPeers.remove(pnId)
-          clusterMetrics.forEach { (_, inner) => inner.remove(pnId) }
-          nodeDownQueue.offer(pnId)
-          enqueueClusterEvent("NodeLeft", pnId, "disconnect")
-          if currentLeader.compareAndSet(pnId, "") then
-            enqueueLeaderEvent("LeaderLost", pnId)
-            if autoReelect then startElection()
-          val t = schedulerThread; if t != null then t.interrupt()
+          peerLost(pnId, "", "")
         }
+        } // close Thread.ofVirtual().start
         Pure(Value.UnitV)
       })
       scalascript.server.WsRoutes.register(
