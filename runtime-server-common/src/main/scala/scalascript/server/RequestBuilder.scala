@@ -82,13 +82,7 @@ object RequestBuilder:
       else SessionCookie.fromHeader(cookieHeader).getOrElse(Map.empty)
     // Generic cookie map for handler convenience (parallels the WS-side
     // `ws.request.cookies`).  Separate from the signed `session` map.
-    val cookies: Map[String, String] =
-      if cookieHeader.isEmpty then Map.empty
-      else cookieHeader.split(';').iterator.flatMap { pair =>
-        val t = pair.trim
-        val i = t.indexOf('=')
-        if i < 0 then None else Some(t.substring(0, i).trim -> t.substring(i + 1).trim)
-      }.toMap
+    val cookies: Map[String, String] = HttpHelpers.parseCookieHeader(cookieHeader)
     val session: Map[String, String] =
       if cfg.sessionStoreEnabled then
         rawCookieSession.get("_ssid").flatMap(cfg.sessionStoreGet).getOrElse(Map.empty)

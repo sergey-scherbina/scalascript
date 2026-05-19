@@ -78,7 +78,7 @@ object TlsProxy:
             Metrics.wsRejected.incrementAndGet(); return
 
         val q0 = parseQuery(rawQuery)
-        val cookies0 = parseCookies(headers.getOrElse("cookie", ""))
+        val cookies0 = HttpHelpers.parseCookieHeader(headers.getOrElse("cookie", ""))
         val authReq: Value = Value.InstanceV("Request", Map(
           "method"  -> Value.StringV("GET"),
           "path"    -> Value.StringV(path),
@@ -138,7 +138,7 @@ object TlsProxy:
         cout.flush()
 
         val query   = parseQuery(rawQuery)
-        val cookies = parseCookies(headers.getOrElse("cookie", ""))
+        val cookies = HttpHelpers.parseCookieHeader(headers.getOrElse("cookie", ""))
         val request = Value.InstanceV("Request", Map(
           "method"  -> Value.StringV("GET"),
           "path"    -> Value.StringV(path),
@@ -232,13 +232,6 @@ object TlsProxy:
         java.net.URLDecoder.decode(pair.substring(0, i), "UTF-8") ->
         java.net.URLDecoder.decode(pair.substring(i + 1), "UTF-8")
       )
-    }.toMap
-
-  private def parseCookies(raw: String): Map[String, String] =
-    if raw.isEmpty then Map.empty
-    else raw.split(';').iterator.flatMap { pair =>
-      val t = pair.trim; val i = t.indexOf('=')
-      if i < 0 then None else Some(t.substring(0, i).trim -> t.substring(i + 1).trim)
     }.toMap
 
   private def httpResp(status: Int, reason: String, body: String): Array[Byte] =

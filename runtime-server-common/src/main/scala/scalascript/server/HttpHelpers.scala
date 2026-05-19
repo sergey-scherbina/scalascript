@@ -43,6 +43,19 @@ object HttpHelpers:
       )
     }.toMap
 
+  /** Parse a `Cookie:` header value like `a=1; b=2; c=3` into a Map.
+   *  Whitespace around `=` and `;` is trimmed.  Pairs without `=` are
+   *  dropped silently — same lenient parser the REST request pipeline
+   *  and the WS-upgrade path both used to inline. */
+  def parseCookieHeader(raw: String): Map[String, String] =
+    if raw == null || raw.isEmpty then Map.empty
+    else raw.split(';').iterator.flatMap { pair =>
+      val t = pair.trim
+      val i = t.indexOf('=')
+      if i < 0 then None
+      else Some(t.substring(0, i).trim -> t.substring(i + 1).trim)
+    }.toMap
+
   /** Best-effort MIME type for a file name.  Recognises the handful of
    *  extensions the static-asset server actually sees; for anything else
    *  falls back to JDK's `Files.probeContentType` and finally to

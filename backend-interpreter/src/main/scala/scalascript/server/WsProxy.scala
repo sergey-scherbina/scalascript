@@ -276,15 +276,7 @@ final class WsProxy(
         // payload through to `WsConnection.user`.
         val rawQ0 = parseQueryString(rawQuery)
         val cookies0: Map[String, String] =
-          headers.get("cookie") match
-            case None => Map.empty
-            case Some(raw) =>
-              raw.split(';').iterator.flatMap { pair =>
-                val t = pair.trim
-                val i = t.indexOf('=')
-                if i < 0 then None
-                else Some(t.substring(0, i).trim -> t.substring(i + 1).trim)
-              }.toMap
+          HttpHelpers.parseCookieHeader(headers.getOrElse("cookie", ""))
         val authReq: Value = Value.InstanceV("Request", Map(
           "method"  -> Value.StringV("GET"),
           "path"    -> Value.StringV(path),
@@ -375,18 +367,11 @@ final class WsProxy(
         // upgrade) and session/JWT (no eager pre-parsing here — the
         // handler can derive them from the raw headers if it wants to).
         val query = parseQueryString(rawQuery)
-        // Cookie header: `name1=value1; name2=value2; …` → Map.
-        // Same convention REST handlers use.
+        // Cookie header parsed via the shared HttpHelpers helper —
+        // same convention REST handlers + the WS pre-upgrade auth
+        // request use.
         val cookies: Map[String, String] =
-          headers.get("cookie") match
-            case None => Map.empty
-            case Some(raw) =>
-              raw.split(';').iterator.flatMap { pair =>
-                val t = pair.trim
-                val i = t.indexOf('=')
-                if i < 0 then None
-                else Some(t.substring(0, i).trim -> t.substring(i + 1).trim)
-              }.toMap
+          HttpHelpers.parseCookieHeader(headers.getOrElse("cookie", ""))
         val request = Value.InstanceV("Request", Map(
           "method"  -> Value.StringV("GET"),
           "path"    -> Value.StringV(path),

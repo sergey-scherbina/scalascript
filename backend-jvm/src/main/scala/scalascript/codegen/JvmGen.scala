@@ -4063,13 +4063,8 @@ class JvmGen(
        |        // path: read-only over headers / cookies / Origin.
        |        // None → reject with 401; Some(v) → carry v to ws.user.
        |        val _authRawQ  = request.split(' ').lift(1).getOrElse("/").split('?').lift(1).getOrElse("")
-       |        val _authCookies: Map[String, String] = headers.get("cookie") match
-       |          case None => Map.empty
-       |          case Some(raw) => raw.split(';').iterator.flatMap { pair =>
-       |            val t = pair.trim
-       |            val i = t.indexOf('=')
-       |            if i < 0 then None else Some(t.substring(0, i).trim -> t.substring(i + 1).trim)
-       |          }.toMap
+       |        val _authCookies: Map[String, String] =
+       |          HttpHelpers.parseCookieHeader(headers.getOrElse("cookie", ""))
        |        val _authReq = Request(
        |          method  = "GET",
        |          path    = path,
@@ -4125,14 +4120,9 @@ class JvmGen(
        |        // with no body) so WS-side auth can read cookies /
        |        // Authorization / Origin from `ws.request.headers`.
        |        val rawQ  = request.split(' ').lift(1).getOrElse("/").split('?').lift(1).getOrElse("")
-       |        // Cookie header: `name=value; name=value; …` → Map.
-       |        val wsCookies: Map[String, String] = headers.get("cookie") match
-       |          case None => Map.empty
-       |          case Some(raw) => raw.split(';').iterator.flatMap { pair =>
-       |            val t = pair.trim
-       |            val i = t.indexOf('=')
-       |            if i < 0 then None else Some(t.substring(0, i).trim -> t.substring(i + 1).trim)
-       |          }.toMap
+       |        // Cookie header parsed via the shared HttpHelpers helper.
+       |        val wsCookies: Map[String, String] =
+       |          HttpHelpers.parseCookieHeader(headers.getOrElse("cookie", ""))
        |        val wsReq = Request(
        |          method  = "GET",
        |          path    = path,
