@@ -5793,7 +5793,11 @@ class JvmGen(
        |  // v1.23 — URL-keyed dedupe so concurrent peer-loss + dial-failure
        |  // events for the same URL don't each spin up an independent
        |  // exponential-backoff loop (FD exhaustion under sustained churn).
-       |  val _reconnectActive =
+       |  // `lazy` is required: `killActor` is referenced earlier in the
+       |  // emitted preamble (`_connectPeer`'s catch) than where it's
+       |  // defined, and a regular val here would block the forward
+       |  // reference per Scala's init-order rule.
+       |  lazy val _reconnectActive =
        |    java.util.concurrent.ConcurrentHashMap.newKeySet[String]()
        |
        |  def _scheduleReconnect(rurl: String, rtok: String): Unit =
