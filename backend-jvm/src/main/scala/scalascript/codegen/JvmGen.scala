@@ -84,6 +84,7 @@ class JvmGen(
     sb.append(preamble)
     sb.append(commonRuntime)
     sb.append(generatorRuntime)
+    sb.append(fsRuntime)
     sb.append(htmlDslTagBindings(collectUserTopNames(blocks)))
     if effectOps.nonEmpty                                  then sb.append(effectsRuntime)
     if mutualGroups.nonEmpty                               then sb.append(mutualTcoRuntime)
@@ -4540,6 +4541,28 @@ class JvmGen(
        |  handler(sess.wsMap)
        |  sess.awaitClose()
        |  ()
+       |
+       |""".stripMargin
+
+  private val fsRuntime: String =
+    """|
+       |// ── std.fs — synchronous file primitives (java.nio.file) ─────────────────
+       |// Defined under the user-facing names so nested calls like
+       |// `println(readFile(path))` resolve directly without intrinsic
+       |// dispatch (dispatch only fires for top-level Apply, not args).
+       |def writeFile(path: String, contents: String): Unit =
+       |  java.nio.file.Files.write(
+       |    java.nio.file.Paths.get(path),
+       |    contents.getBytes(java.nio.charset.StandardCharsets.UTF_8))
+       |  ()
+       |def readFile(path: String): String =
+       |  new String(java.nio.file.Files.readAllBytes(java.nio.file.Paths.get(path)),
+       |             java.nio.charset.StandardCharsets.UTF_8)
+       |def deleteFile(path: String): Unit =
+       |  java.nio.file.Files.deleteIfExists(java.nio.file.Paths.get(path))
+       |  ()
+       |def exists(path: String): Boolean =
+       |  java.nio.file.Files.exists(java.nio.file.Paths.get(path))
        |
        |""".stripMargin
 

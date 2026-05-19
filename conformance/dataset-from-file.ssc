@@ -1,6 +1,5 @@
 ---
 name: dataset-from-file
-backends: [jvm, js]
 ---
 
 # Dataset — fromFile
@@ -8,9 +7,11 @@ backends: [jvm, js]
 `Dataset.fromFile(path)` reads lines lazily; the thunk fires only when a
 terminal op is called.  Uses a small fixture written to a temp file.
 
-```scalascript
-import std/fs.{writeFile, deleteFile}
+`writeFile` / `deleteFile` are intrinsics from `std.fs` (gated by
+`Feature.FileSystem`) — implemented on all three backends via
+java.nio.file (INT, JVM) and Node `fs.*` (JS).
 
+```scalascript
 val tmpPath = "./conformance-dataset-file-test.tmp"
 writeFile(tmpPath, "alpha\nbeta\ngamma\ndelta\nepsilon\n")
 

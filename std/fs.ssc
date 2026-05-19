@@ -1,0 +1,24 @@
+---
+name: std-fs
+version: 1.0.0
+description: File-system primitives — writeFile, readFile, deleteFile, exists
+package: std.fs
+exports:
+  - writeFile
+  - readFile
+  - deleteFile
+  - exists
+---
+
+# std.fs — File-system primitives
+
+Synchronous file-system operations gated by `Feature.FileSystem`.
+All three backends (interpreter, JS via Node `fs`, JVM via `java.nio.file`)
+implement the same blocking contract.
+
+```scalascript
+extern def writeFile(path: String, contents: String): Unit
+extern def readFile(path: String): String
+extern def deleteFile(path: String): Unit
+extern def exists(path: String): Boolean
+```

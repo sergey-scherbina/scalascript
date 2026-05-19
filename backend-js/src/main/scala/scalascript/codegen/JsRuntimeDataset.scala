@@ -154,7 +154,12 @@ _Dataset.fromFile = function(path) {
   return new _Dataset(() => {
     if (typeof require === 'undefined') throw new Error('Dataset.fromFile: require not available in this environment');
     const fs = require('fs');
-    return fs.readFileSync(path, 'utf-8').split('\n');
+    const text = fs.readFileSync(path, 'utf-8');
+    const lines = text.split('\n');
+    // Match Scala's getLines() / Java's BufferedReader.lines() — the
+    // trailing empty after a final '\n' is not a line.
+    if (lines.length > 0 && lines[lines.length - 1] === '') lines.pop();
+    return lines;
   }, xs => xs, false);
 };
 

@@ -1711,6 +1711,34 @@ class Interpreter(
       }),
     ))
 
+    // ── v2.x std.fs — synchronous file primitives ───────────────────────
+    // Gated by Feature.FileSystem; mirrors the JS Node fs.* and JVM
+    // java.nio.file calls so the same script works on all three backends.
+    globals("writeFile") = Value.NativeFnV("writeFile", {
+      case List(Value.StringV(path), Value.StringV(contents)) =>
+        val p = java.nio.file.Paths.get(path)
+        java.nio.file.Files.write(p, contents.getBytes(java.nio.charset.StandardCharsets.UTF_8))
+        Pure(Value.UnitV)
+      case _ => throw InterpretError("writeFile(path: String, contents: String): Unit")
+    })
+    globals("readFile") = Value.NativeFnV("readFile", {
+      case List(Value.StringV(path)) =>
+        val bytes = java.nio.file.Files.readAllBytes(java.nio.file.Paths.get(path))
+        Pure(Value.StringV(new String(bytes, java.nio.charset.StandardCharsets.UTF_8)))
+      case _ => throw InterpretError("readFile(path: String): String")
+    })
+    globals("deleteFile") = Value.NativeFnV("deleteFile", {
+      case List(Value.StringV(path)) =>
+        java.nio.file.Files.deleteIfExists(java.nio.file.Paths.get(path))
+        Pure(Value.UnitV)
+      case _ => throw InterpretError("deleteFile(path: String): Unit")
+    })
+    globals("exists") = Value.NativeFnV("exists", {
+      case List(Value.StringV(path)) =>
+        Pure(Value.BoolV(java.nio.file.Files.exists(java.nio.file.Paths.get(path))))
+      case _ => throw InterpretError("exists(path: String): Boolean")
+    })
+
   /** Invoke an interpreter Value (closure or native fn) from outside —
    *  used by WebServer to call route handlers in response to HTTP requests. */
   def invoke(fn: Value, args: List[Value]): Value =
