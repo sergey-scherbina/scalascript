@@ -106,6 +106,24 @@ Don't coordinate through chat; the worktree state is the contract.
 If your item already landed on `origin/main` (search recent commits),
 mark it done in `MILESTONES.md` and move on.
 
+**Returning to an existing branch / worktree between iterations.**  If
+you're continuing work in a branch you already opened (or in a worktree
+from a previous turn), do the same sync at the start of *every*
+iteration, then rebase your branch on the freshly-fetched
+`origin/main` before touching anything:
+
+```bash
+git fetch origin
+git pull --ff-only origin main      # if you're on main
+# OR, if you're on a feature/<name> branch:
+git fetch origin && git rebase origin/main
+```
+
+Parallel agents may have pushed runtime / API / SPI changes that your
+in-flight edits depend on; skipping the rebase means you're building
+on stale assumptions and will hit merge conflicts later.  Cheap to do,
+expensive to skip.
+
 ### 3. Every finished piece → straight to `origin/main`
 
 The moment a piece is independently shippable (compile clean + tests pass
