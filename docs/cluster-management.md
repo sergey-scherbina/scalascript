@@ -244,3 +244,64 @@ Three reasons to write this before we need it:
 
 It is **not** a commitment to build cluster management.
 It's a commitment to know what we'd build if and when.
+
+## 10. Operational interfaces (v1.23)
+
+Once `startNode(...)` runs, the local HTTP server registers two
+cluster control routes alongside `/_health` and `/_ready`:
+
+- `GET /_ssc-cluster/status` — JSON snapshot of this node's view of
+  the cluster.  Fields: `nodeId`, `leader`, `protocol` (`"bully"` /
+  `"raft"` / `"coord"`), `members`, `drainingSelf`, `drainingPeers`,
+  `raftTerm`, `raftState`.  Reads volatile / concurrent state with
+  no locks — values are observation-grade.
+- `POST /_ssc-cluster/drain` — toggle local drain state remotely.
+  Body `{"enabled":true}` (or empty) enables draining; `{"enabled":false}`
+  disables.  Mirrors the in-process `setDraining` intrinsic — broadcasts
+  `DrainStateChanged` to peers and steps down leadership if enabled.
+
+CLI wrapper (`ssc cluster`):
+
+```text
+ssc cluster status http://node-a:8080            # human-readable
+ssc cluster status http://node-a:8080 --json     # raw JSON
+ssc cluster drain  http://node-a:8080            # enable drain
+ssc cluster drain  http://node-a:8080 --off      # disable drain
+```
+
+The CLI uses `java.net.http` only — no external dependency — and
+hand-parses the small JSON object so the binary stays lean.
+
+### Cluster-wide singleton actor
+
+`std/cluster/singleton.ssc` exposes `Singleton.use(name, factory)` and
+`Singleton.send(name, msg)` — an actor that runs on exactly one node
+(the current leader) and migrates on failover.  Built entirely on top
+of `subscribeLeaderEvents` + `globalRegister` + `globalWhereis` + the
+existing cross-node `send`, so it has no interpreter-level surface.
+
+```scalascript
+[Singleton](std/cluster/singleton.ssc)
+
+runActors {
+  startNode("node-a", "ws://127.0.0.1:9000/_ssc-actors")
+  serveAsync(9000)
+  setAutoReelect(true)
+
+  Singleton.use("global-counter", { () =>
+    spawn { () =>
+      var n: Int = 0
+      while true do receive { case "tick" => n = n + 1; println(n) }
+    }
+  })
+
+  // Any node may send — runtime routes to the current leader's instance.
+  Singleton.send("global-counter", "tick")
+}
+```
+
+Semantics: at-most-one liveness, brief mid-failover gap, no state
+migration (the new instance starts from zero — pair with cluster
+config for durable state).  Validated by `SingletonFailoverTest`:
+3-node cluster, kill the leader, survivor receives ticks on a fresh
+counter.
