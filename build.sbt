@@ -234,6 +234,21 @@ lazy val backendInterpreter = project
     Test    / scalacOptions ++= sharedScalacOptions
   )
 
+// Apache Spark backend — Phase 1 (local SparkSession).
+// SparkGen is a pure code-emitter (generates Scala 3 source strings) — it
+// does not import any Spark classes itself.  Spark JARs are therefore NOT
+// needed on the sbt compile classpath; they are resolved at runtime via
+// `scala-cli --dep` flags when the generated program is executed.
+lazy val backendSpark = project
+  .in(file("backend-spark"))
+  .dependsOn(backendSpi, core)
+  .settings(
+    name := "scalascript-backend-spark",
+    libraryDependencies ++= Seq(scalatestTest),
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions
+  )
+
 // ── ProGuard shrink task (run: sbt cli/shrinkJar) ──────────────────────────
 // sbt-proguard is used ONLY for config generation + ProGuard JAR resolution;
 // we bypass its runner (hardcoded -Xmx256M) and fork java with -Xmx1G.
@@ -242,7 +257,7 @@ val shrinkJar = taskKey[File]("Shrink the assembled ssc.jar with ProGuard 7.5 (1
 lazy val cli = project
   .in(file("cli"))
   .enablePlugins(SbtProguard)
-  .dependsOn(core, backendJvm, backendJs, backendScalajs, backendWasm, backendInterpreter, backendScalaSource, backendHtml, backendCss)
+  .dependsOn(core, backendJvm, backendJs, backendScalajs, backendWasm, backendInterpreter, backendScalaSource, backendHtml, backendCss, backendSpark)
   .settings(
     name := "scalascript-cli",
     libraryDependencies ++= Seq(
@@ -369,7 +384,7 @@ lazy val root = project
   .aggregate(
     backendSpi, ir, core, runtimeServerCommon, runtimeServerJvm, mcpCommon,
     backendJvm, backendJs, backendScalajs, backendWasm, backendInterpreter,
-    backendScalaSource, backendHtml, backendCss,
+    backendScalaSource, backendHtml, backendCss, backendSpark,
     cli
   )
   .settings(

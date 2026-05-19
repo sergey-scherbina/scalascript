@@ -5780,7 +5780,10 @@ Thin `backend-wasm-contract/` layer on top of `backend-wasm/` for Near or Polkad
 
 ## Speculative — Apache Spark backend
 
-> Not scheduled. No concrete timeline. Revisit after v1.24 language features land.
+> Phase 1 landed (2026-05-19): `backend-spark/` sbt module + `SparkGen.scala` +
+> `ssc emit-spark` + `ssc run --backend spark` CLI wiring + `examples/word-count.ssc`.
+> Phase 2 (cluster submission) and Phase 3 (Spark SQL/DataFrames) remain speculative.
+>
 > Natural fit: ScalaScript's existing `Dataset[T]` API maps directly to Spark.
 
 ### Why it fits
@@ -5837,15 +5840,21 @@ Same source, same semantics, different scale.
 
 ### Implementation path
 
-**Phase 1 — Local Spark session (~1 week):**
+**Phase 1 — Local Spark session (~1 week): ✓ LANDED (2026-05-19)**
 
-1. New `backend-spark/` sbt module, depends on `spark-core` + `spark-sql`.
-2. `SparkGen.scala` — walks the Dataset IR and emits `SparkSession` + Dataset
-   operations.  The JVM backend already emits Scala 3; Spark backend emits
-   Scala 3 + Spark imports.
-3. `ssc run --backend spark file.ssc` starts a local `SparkSession` in-process
-   (no cluster needed for development).
-4. `Dataset.fromPath[String](glob)` maps to `spark.read.textFile(glob)`.
+1. ✓ New `backend-spark/` sbt module — pure code-emitter, no Spark JARs on sbt
+   classpath; Spark is resolved at runtime via `scala-cli --dep`.
+2. ✓ `SparkGen.scala` — emits `SparkSession.builder().master("local[*]")` +
+   `Dataset` companion shim + extension methods (`toList`, `top`, `takeOrdered`).
+   Spark 4.0.0 default version (configurable via `--spark-version` flag or
+   `spark-version:` front-matter key).
+3. ✓ `ssc run --backend spark file.ssc` — generates Spark source, writes to
+   `/tmp/ssc-spark-<hash>.scala`, runs via `scala-cli run --dep spark-*`.
+4. ✓ `ssc emit-spark` command — emits generated Spark source to stdout or `-o file`.
+5. ✓ `Dataset.fromPath[String](glob)` → `spark.read.textFile(glob).map(ev)`.
+6. ✓ `examples/word-count.ssc` — example with `backend: spark` front-matter.
+7. ✓ 21 unit tests in `SparkGenTest.scala` (no Spark runtime needed — structural
+   source checks only).
 
 **Phase 2 — Cluster submission (~1 week):**
 

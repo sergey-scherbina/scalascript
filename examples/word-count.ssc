@@ -1,0 +1,66 @@
+---
+name: word-count
+description: Classic word count via Apache Spark backend (Phase 1 — local SparkSession)
+backend: spark
+spark-version: 4.0.0
+---
+
+# Word Count
+
+Classic MapReduce word count: split lines into words, count occurrences, show the top 10.
+
+Run with:
+
+```
+ssc run --backend spark examples/word-count.ssc
+```
+
+Or generate the Spark source and run directly:
+
+```
+ssc emit-spark examples/word-count.ssc -o /tmp/word-count.spark.scala
+scala-cli run /tmp/word-count.spark.scala \
+  --dep "org.apache.spark::spark-core:4.0.0" \
+  --dep "org.apache.spark::spark-sql:4.0.0"
+```
+
+To target a different cluster's Spark version:
+
+```
+ssc run --backend spark --spark-version 3.5.1 examples/word-count.ssc
+```
+
+## Pipeline
+
+The full word-count pipeline in ScalaScript — same source, Spark backend.
+
+```scalascript
+val words = Dataset.of("hello world", "hello spark", "world of spark")
+  .flatMap(line => line.split(" ").toList)
+  .map(word => (word, 1))
+
+val counts = words
+  .groupBy(_._1)
+  .flatMap { case (word, pairs) =>
+    List((word, pairs.length))
+  }
+  .top(10)
+
+counts.foreach { case (word, n) => println(s"$word: $n") }
+```
+
+## From a file
+
+To count words in a real text file, replace `Dataset.of(...)` with:
+
+```scalascript
+val lines = Dataset.fromFile("path/to/text.txt")
+val words2 = lines
+  .flatMap(line => line.split("\\s+").toList)
+  .filter(_.nonEmpty)
+  .map(_.toLowerCase.replaceAll("[^a-z]", ""))
+  .filter(_.nonEmpty)
+  .map(w => (w, 1))
+
+words2.count()
+```

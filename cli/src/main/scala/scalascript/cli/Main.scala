@@ -17,6 +17,7 @@ import scalascript.backend.spi.{BackendOptions, CompileResult, Segment}
 // v2.0 separate-compilation artifact commands
 import scalascript.artifact.{InterfaceExtractor, ArtifactIO, JvmArtifactIO, JsArtifactIO}
 import scalascript.codegen.JvmGen
+import scalascript.codegen.SparkGen
 
 @main def ssc(rawArgs: String*): Unit =
   // Strip global plugin-management flags from anywhere in the
@@ -61,6 +62,7 @@ private def dispatchCommand(args: List[String]): Unit =
     case "emit-wasm"           => emitWasmCommand(args.tail)
     case "emit-spa"            => emitSpaCommand(args.tail)
     case "emit-scala"          => emitScalaCommand(args.tail)
+    case "emit-spark"          => emitSparkCommand(args.tail)
     case "emit-wc"             => emitWcCommand(args.tail)
     // v2.0 separate-compilation commands
     case "emit-interface"      => emitInterfaceCommand(args.tail)
@@ -216,6 +218,7 @@ def printUsage(): Unit =
     |  compile                Compile and run .ssc on JVM via scala-cli
     |  package [flags] <f>    Package .ssc via scala-cli package (see flags below)
     |  emit-scala             Print generated Scala 3 script to stdout
+    |  emit-spark             Print generated Scala 3 + Spark program to stdout (Phase 1: local)
     |  emit-js                Transpile .ssc to JavaScript (Node server) and print to stdout
     |  emit-wasm              Compile .ssc scala blocks to WebAssembly via Scala.js (writes .wasm + .js)
     |  emit-spa               Wrap .ssc as a browser SPA (HTML + embedded JS) and print to stdout
@@ -1247,26 +1250,90 @@ def parseCommand(args: List[String]): Unit =
 
 def runCommand(args: List[String]): Unit =
   if args.isEmpty then { println("Error: No files specified"); System.exit(1) }
+  // Parse --spark-version <v> from args before processing files.
+  var sparkVersionFlag: Option[String] = None
+  val fileArgs = scala.collection.mutable.ArrayBuffer.empty[String]
+  val it = args.iterator
+  while it.hasNext do
+    it.next() match
+      case "--spark-version" if it.hasNext => sparkVersionFlag = Some(it.next())
+      case f                               => fileArgs += f
   val backendId = ActiveFlags.current.backend.getOrElse("int")
-  for file <- args do
+  for file <- fileArgs.toList do
     val path = os.Path(file, os.pwd)
     if !os.exists(path) then { println(s"Error: File not found: $file"); System.exit(1) }
     else
       try
-        compileViaBackend(backendId, path) match
-          case CompileResult.Executed(_, _, 0)    => ()
-          case CompileResult.Executed(_, _, exit) => System.exit(exit)
-          case CompileResult.TextOutput(code, _, _) =>
-            // Non-interpreter backends produce text — print it to stdout.
-            println(code)
-          case CompileResult.Failed(diags)        =>
-            diags.foreach(d => System.err.println(s"[error] $d")); System.exit(1)
-          case other =>
-            System.err.println(s"Unexpected result: ${other.getClass.getSimpleName}")
-            System.exit(1)
+        // ── Spark backend ─────────────────────────────────────────────────
+        // `--backend spark` or `backend: spark` in front-matter: generate
+        // Scala 3 + Spark source, write to a temp file, run via scala-cli.
+        val module = Parser.parse(os.read(path))
+        val effectiveBackend =
+          if backendId == "int" then
+            // Check front-matter backend field for per-file override.
+            module.manifest.flatMap(_.raw.get("backend"))
+              .collect { case s: String => s }
+              .getOrElse("int")
+          else backendId
+        if effectiveBackend == "spark" then
+          // Version resolution: CLI flag > front-matter > default.
+          val sparkVersion =
+            sparkVersionFlag
+              .orElse(
+                module.manifest.flatMap(_.raw.get("spark-version"))
+                  .collect { case s: String => s }
+              )
+              .getOrElse(SparkGen.DefaultVersion)
+          runViaSparkBackend(path, module, sparkVersion)
+        else
+          compileViaBackend(effectiveBackend, path) match
+            case CompileResult.Executed(_, _, 0)    => ()
+            case CompileResult.Executed(_, _, exit) => System.exit(exit)
+            case CompileResult.TextOutput(code, _, _) =>
+              // Non-interpreter backends produce text — print it to stdout.
+              println(code)
+            case CompileResult.Failed(diags)        =>
+              diags.foreach(d => System.err.println(s"[error] $d")); System.exit(1)
+            case other =>
+              System.err.println(s"Unexpected result: ${other.getClass.getSimpleName}")
+              System.exit(1)
       catch case e: Exception =>
         System.err.println(s"Runtime error: ${e.getMessage}")
         System.exit(1)
+
+/** Run a `.ssc` file via the Spark backend.
+ *
+ *  Steps:
+ *  1. Generate the Scala 3 + Spark source via [[SparkGen]] with `sparkVersion`.
+ *  2. Write the source to a temp file (`/tmp/ssc-spark-<hash>.scala`).
+ *  3. Run it via `scala-cli run <tempfile>
+ *       --dep org.apache.spark::spark-core:<sparkVersion>
+ *       --dep org.apache.spark::spark-sql:<sparkVersion>`.
+ *
+ *  Requires `scala-cli` on PATH and network access to resolve Spark JARs
+ *  on first run (cached by Coursier afterwards).
+ *
+ *  Phase 1 — local `master("local[*]")` only.
+ *  Phase 2 — `--spark-master` flag + `ssc submit` for cluster submission.
+ */
+private def runViaSparkBackend(
+    path:         os.Path,
+    module:       scalascript.ast.Module,
+    sparkVersion: String
+): Unit =
+  val code    = SparkGen.generate(module, baseDir = Some(path / os.up), sparkVersion = sparkVersion)
+  val hash    = java.lang.Integer.toHexString(code.hashCode & 0x7fffffff)
+  val tmpFile = os.Path(s"/tmp/ssc-spark-$hash.scala")
+  os.write.over(tmpFile, code)
+  System.err.println(s"[spark] Spark $sparkVersion — generated: $tmpFile")
+  val cmd = List(
+    "scala-cli", "run", tmpFile.toString,
+    "--dep", s"org.apache.spark::spark-core:$sparkVersion",
+    "--dep", s"org.apache.spark::spark-sql:$sparkVersion",
+    "--scala", "3"
+  )
+  val exit = scala.sys.process.Process(cmd).!
+  if exit != 0 then System.exit(exit)
 
 def replCommand(@annotation.unused args: List[String]): Unit =
   import scala.io.StdIn
@@ -1645,6 +1712,69 @@ def emitScalaCommand(args: List[String]): Unit =
       try   println(expectText(compileViaBackend("jvm", path), "emit-scala"))
       catch case e: Exception =>
         System.err.println(s"Scala generation error: ${e.getMessage}")
+        System.exit(1)
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ssc emit-spark  —  Apache Spark backend (Phase 1: local SparkSession)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** `ssc emit-spark [--spark-version <v>] <file.ssc> [-o <file.scala>]`
+ *
+ *  Parses and type-checks the `.ssc` file, then emits a Scala 3 + Spark
+ *  program to stdout (or to `-o <file>` if specified).
+ *
+ *  The generated program uses `SparkSession.builder().master("local[*]")`
+ *  so it can be run locally without a cluster.  To run it:
+ *
+ *  ```
+ *  ssc emit-spark myfile.ssc -o myfile.spark.scala
+ *  scala-cli run myfile.spark.scala \
+ *    --dep org.apache.spark::spark-core:4.0.0 \
+ *    --dep org.apache.spark::spark-sql:4.0.0
+ *  ```
+ *
+ *  Spark version resolution (highest priority first):
+ *  1. `--spark-version <v>` CLI flag
+ *  2. `spark-version:` in front-matter YAML
+ *  3. [[SparkGen.DefaultVersion]] (currently `4.0.0`)
+ *
+ *  Phase 1: `master("local[*]")` is hardcoded.
+ *  Phase 2: `--spark-master` flag + `ssc submit` for cluster submission.
+ */
+def emitSparkCommand(args: List[String]): Unit =
+  var outputArg:       Option[String] = None
+  var sparkVersionArg: Option[String] = None
+  val files = scala.collection.mutable.ArrayBuffer.empty[String]
+  val it = args.iterator
+  while it.hasNext do
+    it.next() match
+      case "-o" if it.hasNext              => outputArg = Some(it.next())
+      case "--spark-version" if it.hasNext => sparkVersionArg = Some(it.next())
+      case f                               => files += f
+  if files.isEmpty then { println("Error: No files specified"); System.exit(1) }
+  for file <- files do
+    val path = os.Path(file, os.pwd)
+    if !os.exists(path) then { println(s"Error: File not found: $file"); System.exit(1) }
+    else
+      try
+        val module = Parser.parse(os.read(path))
+        // Version resolution: CLI flag > front-matter > default.
+        val sparkVersion =
+          sparkVersionArg
+            .orElse(
+              module.manifest.flatMap(_.raw.get("spark-version"))
+                .collect { case s: String => s }
+            )
+            .getOrElse(SparkGen.DefaultVersion)
+        val code = SparkGen.generate(module, baseDir = Some(path / os.up), sparkVersion = sparkVersion)
+        outputArg match
+          case Some("-") | None => println(code)
+          case Some(out)        =>
+            val outPath = os.Path(out, os.pwd)
+            os.write.over(outPath, code)
+            System.err.println(s"Spark source written to $out")
+      catch case e: Exception =>
+        System.err.println(s"Spark generation error: ${e.getMessage}")
         System.exit(1)
 
 // ─────────────────────────────────────────────────────────────────────────────
