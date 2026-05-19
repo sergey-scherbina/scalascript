@@ -739,15 +739,21 @@ unblocks downstream features as early as possible.
          Listener exceptions are swallowed so a poisoned hook can't
          break the hot path.
 
-     5. **Iter NN — OAuth client script intrinsics**: `oauth.client`
-        namespace mirroring `OAuthClient` so `.ssc` apps can run
-        the full auth-code+PKCE flow + token exchange + holder
-        without dropping to Scala.
+     **Iter NN — MCP client 401 → re-auth handler** ✓ —
+     `McpHttpClient.setOn401Handler(fn: () => Option[String])`.
+     When a request comes back 401 and a handler is wired, the
+     client calls it for a fresh bearer + retries the same request
+     once.  Returning None propagates the original 401 to the
+     caller.  Single-retry budget prevents tight loops against a
+     permanently-401 endpoint.  Typical wiring is
+     `client.setOn401Handler(() => holder.current())` against an
+     `OAuthClient.TokenHolder` that knows how to refresh.
 
-     6. **Iter OO — Advanced OAuth specs (optional)**: DPoP (RFC 9449
-        sender-constrained tokens); PAR (RFC 9126 Pushed Authorization
-        Requests); MTLS client auth (RFC 8705 — depends on ALPN /
-        client-cert chains, gated behind cert-store availability).
+     **Iter OO — Advanced OAuth specs (optional, post-v1.17)**:
+     DPoP (RFC 9449 sender-constrained tokens); PAR (RFC 9126 Pushed
+     Authorization Requests); MTLS client auth (RFC 8705 — depends
+     on ALPN / client-cert chains, gated behind cert-store
+     availability); script intrinsics for OAuthClient namespace.
  22. **v1.18 — `package` keyword + std layout migration** ✓ Landed (all phases, 2026-05-19).
  23. **v1.19 — URL / dep imports** ✓ Landed.
      `[X](https://...)` URL fetch + `[X](dep:org/lib:1.2)`
