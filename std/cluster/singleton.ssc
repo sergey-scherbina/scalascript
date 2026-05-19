@@ -123,7 +123,70 @@ object Singleton:
         true
       case None =>
         false
+
+  // Stateful variant: the factory receives the last-known state as a
+  // String argument (or `initialState` on first start).  Pair with
+  // `Singleton.saveState(name, state)` to checkpoint progress before
+  // the next failover.  State lives in `clusterConfig` under
+  // `<name>__state` — the same LWW gossip + handshake snapshot path
+  // every node already uses, so new leaders see the latest checkpoint
+  // even after the original owner is gone.
+  //
+  // Caller is responsible for serializing the state to String
+  // (JSON, base64, etc.) and parsing on the other side.
+  def useStateful(name: String, initialState: String, factory: String => Any): Unit =
+    use(name, { () =>
+      val state = clusterConfigGet(name + "__state") match
+        case Some(s) => s
+        case None    => initialState
+      factory(state)
+    })
+
+  // Persist the singleton's current state cluster-wide.  Idempotent:
+  // a same-value write is a LWW no-op on receivers.  Call from inside
+  // the singleton's loop on every state-changing event for
+  // crash-consistent recovery on the new owner.
+  def saveState(name: String, state: String): Unit =
+    clusterConfigSet(name + "__state", state)
+
+  // Read the last persisted state without bootstrapping a singleton.
+  // Useful for diagnostics and dashboards.
+  def peekState(name: String): Option[String] =
+    clusterConfigGet(name + "__state")
 ```
+
+## Stateful singleton example
+
+```text
+[Singleton](std/cluster/singleton.ssc)
+
+runActors {
+  startNode("node-a", "ws://127.0.0.1:9000/_ssc-actors")
+  serveAsync(9000)
+  setAutoReelect(true)
+
+  // Counter that survives leader-kill failover.
+  Singleton.useStateful("global-counter", "0", { (state: String) =>
+    spawn { () =>
+      var n: Int = state.toInt
+      println("counter resumes from " + n)
+      while true do
+        receive {
+          case "tick" =>
+            n = n + 1
+            println("counter=" + n)
+            // Checkpoint every change.  Real apps batch.
+            Singleton.saveState("global-counter", n.toString)
+        }
+    }
+  })
+}
+```
+
+When the current leader dies, the new leader's `useStateful` reads
+`clusterConfigGet("global-counter__state")` — which has been gossipped
+to every node already — and resumes counting from the last value
+instead of restarting from zero.
 
 ## Caveats
 
@@ -134,3 +197,8 @@ object Singleton:
   classic split-brain caveat and is the cluster protocol's problem,
   not this module's.  For partition resistance pair with a quorum-
   aware Bully or an external coordinator (`Etcd.use` / `Consul.use`).
+- `useStateful` state is LWW-gossiped via `clusterConfig`, so during a
+  network partition the minority side may save state that's later
+  superseded by the majority's checkpoint when the partition heals.
+  Apps where every increment must persist should write to an external
+  store from inside the singleton instead.
