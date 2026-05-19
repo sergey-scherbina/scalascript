@@ -1,7 +1,7 @@
 package scalascript.cli
 
 import scalascript.parser.Parser
-import scalascript.typer.{Typer, SectionSnapshot}
+import scalascript.typer.{Typer, SectionSnapshot, SectionDiff}
 // Stage 5.4 will phase these direct imports out via HTTP intrinsics +
 // concrete ir.Value bridging.  Until then, render / build / serve / repl
 // commands need Interpreter + JsRuntime preamble strings directly;
@@ -1626,12 +1626,23 @@ def watchCommand(args: List[String]): Unit =
 
   def runOnce(headless: Boolean): Unit =
     try
-      val module = ParseCache.getOrParse(osPath)
-      // Incremental type-check: re-type only changed sections, surface errors.
-      val (typed, newSnaps) = Typer.typeCheckIncrementalModule(module, prevTyperSnapshots)
+      val module      = ParseCache.getOrParse(osPath)
+      val oldSnaps    = prevTyperSnapshots
+      // Incremental type-check: re-type only sections whose hash changed.
+      val (typed, newSnaps) = Typer.typeCheckIncrementalModule(module, oldSnaps)
+      // Section-level diff: which sections were added / modified / removed?
+      val diff = SectionDiff.compute(oldSnaps, newSnaps)
       prevTyperSnapshots = newSnaps
       if typed.errors.nonEmpty then
         typed.errors.foreach(e => System.err.println(s"[${timestamp()}] type: ${e.show}"))
+      // Skip interpreter re-run on false-positive watch events (editor touched
+      // mtime without changing content — ParseCache already de-duped the parse,
+      // and SectionDiff confirms nothing actually changed).
+      if diff.isEmpty && oldSnaps.nonEmpty then
+        System.err.println(s"[${timestamp()}] (no section changes — skipping re-run)")
+        return
+      if !diff.isEmpty && oldSnaps.nonEmpty then
+        System.err.println(s"[${timestamp()}] changed: ${diff.show}")
       if headless then
         // Hot-reload path: clear old routes, re-run in headless mode so
         // `serve(port)` is a no-op.  Routes are freshly re-registered
