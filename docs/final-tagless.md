@@ -303,7 +303,7 @@ Verify across the three backends with one conformance test.
   Same observable behaviour, less boilerplate at the call site.
 - Update `MILESTONES.md` carryover section: items 1 (`using` auto-
   resolution) and 4 (sealed-trait dispatch) marked as landed here;
-  item 2 (`Term.Ascribe`) stays as separate carryover work.
+  item 3 (`Term.Ascribe`) ✓ landed 2026-05-19 as standalone fix.
 
 ## 7. Hard-no list (closed by design)
 
@@ -378,7 +378,7 @@ v1.1` section in MILESTONES.md needs three edits:
 - Item 1 (`using` auto-resolution) → marked **landed** with v1.13.
 - Item 4 (sealed-trait extension dispatch in interpreter) → marked
   **landed** with v1.13.
-- Item 2 (`Term.Ascribe`) → stays open as separate carryover work,
+- Item 3 (`Term.Ascribe`) → ✓ landed 2026-05-19 as standalone fix,
   unrelated to FT.
 
 The two items that move out aren't deleted; they reference v1.13's

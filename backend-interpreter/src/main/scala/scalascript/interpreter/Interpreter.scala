@@ -2459,6 +2459,9 @@ class Interpreter(
       t.finallyp.foreach(f => Computation.run(eval(f, env)))
       Pure(tryResult)
 
+    case t: Term.Ascribe =>
+      eval(t.expr, env)
+
     case other => located(s"Cannot eval: ${other.productPrefix}")
 
   // ─── Lenses / Focus / .copy ──────────────────────────────────────

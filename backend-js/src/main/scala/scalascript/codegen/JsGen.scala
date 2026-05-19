@@ -6483,6 +6483,9 @@ class JsGen(
         case "~" => s"~($argJs)"
         case op  => s"/* unsupported unary $op */"
 
+    case Term.Ascribe(inner, _) =>
+      genExpr(inner)
+
     case other =>
       s"/* unsupported: ${other.productPrefix} */"
 

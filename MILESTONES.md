@@ -217,10 +217,10 @@ don't re-propose them without new evidence.
        architectural payoff — typeclasses are the right place for
        generic abstraction, not re-implementations of `.map`.
     3. The real friction users hit (sealed-trait extension dispatch,
-       `summon` auto-resolution, `Term.Ascribe`) lives in the
+       `summon` auto-resolution, `Term.Ascribe` ✓) lives in the
        interpreter's type-system / dispatch logic, not in its method
        table.  That work is tracked under **Interpreter ergonomics
-       — carried over from v1.1** (further down in this file).
+       — carried over from v1.1** (further down in this file; all items now landed).
 
 ## Compiler extensibility roadmap
 
@@ -2185,8 +2185,7 @@ MILESTONES.md gets three edits:
 - Item 1 (`using` auto-resolution) → marked **landed** with v1.13.
 - Item 4 (sealed-trait extension dispatch) → marked **landed**
   with v1.13.
-- Item 2 (`Term.Ascribe`) → stays open as separate work; not
-  FT-related.
+- Item 3 (`Term.Ascribe`) → ✓ Landed 2026-05-19 as standalone fix.
 
 ### Effort
 
@@ -3624,12 +3623,11 @@ that uses them lands.
    all wired in the interpreter.  `combineAll[A: Monoid]` resolves
    `given` instances from scope without explicit passing.
 
-3. **`Term.Ascribe`.**  Type ascriptions like `(None: Option[Int])`
-   aren't handled by the interpreter — it errors with `Cannot
-   eval: Term.Ascribe`.  Worked around throughout the std lib and
-   conformance tests by binding to a typed `val` first.  Smallest
-   of the three: the interpreter just needs to evaluate the inner
-   term and discard the type.  ~20 LOC.
+3. **`Term.Ascribe`.** ✓ Landed 2026-05-19.  Added
+   `case t: Term.Ascribe => eval(t.expr, env)` to the interpreter's
+   `eval` dispatcher and `case Term.Ascribe(inner, _) => genExpr(inner)`
+   to JsGen (closing the latent footgun there too).  New conformance
+   file `conformance/type-ascription.ssc` locks in three-backend parity.
 
 ## Known issues / latent flakes
 
