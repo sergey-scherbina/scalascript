@@ -2,6 +2,7 @@
 ---
 name: distributed-heterogeneous
 description: v1.22 — 2 JVM + 1 INT worker actors, cross-backend named-handler round-trip
+backends: [jvm]
 ---
 
 # Distributed heterogeneous — cross-backend workers

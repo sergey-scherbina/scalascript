@@ -2,6 +2,7 @@
 ---
 name: cluster-connect
 description: v1.22 — Open a 3-node cluster, health-check, close
+backends: [jvm]
 ---
 
 # Cluster — connect / healthCheck / close

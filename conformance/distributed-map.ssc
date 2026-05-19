@@ -2,6 +2,7 @@
 ---
 name: distributed-map
 description: v1.22 — .map(named("double")).collect() round-trip across 3 nodes
+backends: [jvm]
 ---
 
 # Distributed map — named handler round-trip
