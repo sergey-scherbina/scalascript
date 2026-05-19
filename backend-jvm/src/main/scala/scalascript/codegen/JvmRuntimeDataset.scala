@@ -142,6 +142,26 @@ val JvmRuntimeDataset: String =
      |  def countByValue(): Map[T, Long] =
      |    collect().groupBy(identity).map { case (k, vs) => (k, vs.length.toLong) }
      |
+     |  // Shape / conversion ops. partition returns Scala's (List[T], List[T])
+     |  // tuple. mkString has three overloads matching Scala's List.mkString.
+     |  // toMap / toSet / mkString use `()` so user code can call them with
+     |  // or without parentheses without colliding with String/Map.apply(i).
+     |  def partition(p: T => Boolean): (List[T], List[T]) = collect().partition(p)
+     |  def mkString(): String                                                = collect().mkString
+     |  def mkString(sep: String): String                                     = collect().mkString(sep)
+     |  def mkString(start: String, sep: String, end: String): String         = collect().mkString(start, sep, end)
+     |  def toMap[K, V]()(using ev: T <:< (K, V)): Map[K, V]                  = collect().map(ev).toMap
+     |  def toSet(): Set[T]                                                   = collect().toSet
+     |
+     |  // saveToFile(path) — write each element on its own line via _show.
+     |  // Counterpart to Dataset.fromFile.
+     |  def saveToFile(path: String): Unit =
+     |    val body = collect().map(v => _show(v)).mkString("", "\n", "\n")
+     |    java.nio.file.Files.write(
+     |      java.nio.file.Paths.get(path),
+     |      body.getBytes(java.nio.charset.StandardCharsets.UTF_8))
+     |    ()
+     |
      |  def fold[U](z: U)(combine: (U, T) => U): U =
      |    val xs = if _parallel then _runParallel() else _pipeline(_sourceFn()).asInstanceOf[List[T]]
      |    xs.foldLeft(z)(combine)

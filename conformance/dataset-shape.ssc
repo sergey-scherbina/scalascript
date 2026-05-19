@@ -1,0 +1,38 @@
+---
+name: dataset-shape
+---
+
+# Dataset — shape / conversion ops
+
+`partition`, `mkString`, `toMap`, `toSet`, `saveToFile`.
+
+```scalascript
+val xs = Dataset.of(1, 2, 3, 4, 5, 6, 7, 8, 9, 10)
+
+// partition — (matching, non-matching)
+val (evens, odds) = xs.partition(_ % 2 == 0)
+println(s"evens: ${evens.mkString(", ")}")
+println(s"odds:  ${odds.mkString(", ")}")
+
+// mkString — three forms
+println(xs.mkString())
+println(xs.mkString(", "))
+println(xs.mkString("[", " | ", "]"))
+
+// toMap from 2-tuples
+val kv = Dataset.of(("a", 1), ("b", 2), ("c", 3))
+val m  = kv.toMap()
+List("a", "b", "c").foreach(k => println(s"$k=${m(k)}"))
+
+// toSet dedups
+val dupes = Dataset.of(1, 2, 2, 3, 3, 3, 4)
+println(dupes.toSet().toList.sorted.mkString(", "))
+
+// saveToFile — round-trip through Dataset.fromFile
+val tmp = "./conformance-dataset-shape-test.tmp"
+Dataset.of("alpha", "bravo", "charlie").saveToFile(tmp)
+val read = Dataset.fromFile(tmp)
+println(read.count())
+println(read.collect().mkString(", "))
+deleteFile(tmp)
+```
