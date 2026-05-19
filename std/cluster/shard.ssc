@@ -91,8 +91,37 @@ object Shard:
     // Non-negative for `% positive-int`.
     if h < 0L then -h else h
 
+  // Number of virtual nodes per real node on the ring.  Tunable:
+  // higher = more even key distribution + smaller churn fraction on
+  // membership change, lower = cheaper `owner` calls.  16 is a
+  // reasonable middle ground for clusters of 3..50 nodes.
+  val _VNODES_PER_NODE: Int = 16
+
+  // Build the consistent-hashing ring for `nodes` — `_VNODES_PER_NODE`
+  // virtual entries per node, sorted by hash.  Recomputed on every
+  // `owner` call (cheap for moderate cluster sizes; cache if profiling
+  // shows it dominating).
+  def _ring(nodes: List[String]): List[(Long, String)] =
+    def vnodesFor(n: String, i: Int, acc: List[(Long, String)]): List[(Long, String)] =
+      if i >= _VNODES_PER_NODE then acc
+      else vnodesFor(n, i + 1, (_hash(n + ":" + i.toString), n) :: acc)
+    val all = nodes.flatMap(n => vnodesFor(n, 0, Nil))
+    all.sortBy(_._1)
+
+  // Walk the sorted ring to find the first vnode whose hash is >= h,
+  // wrapping to ring.head when none.  Returns the owning nodeId.
+  def _ringLookup(ring: List[(Long, String)], h: Long): String =
+    def go(xs: List[(Long, String)]): String = xs match
+      case Nil          => ring.head._2
+      case (vh, n) :: t => if vh >= h then n else go(t)
+    go(ring)
+
   // The deterministic owner for `key` given the current membership
   // view.  Returns the nodeId; empty if no nodes are visible yet.
+  //
+  // Uses a consistent-hashing ring (16 vnodes/node by default) so
+  // membership changes shift only ~1/N keys instead of the ~100%
+  // a naive `hash % N` would.
   def owner(key: String): String =
     val members = clusterMembers()
     val all     =
@@ -100,10 +129,7 @@ object Shard:
       else (selfNode() :: members).distinct
     if all.isEmpty then ""
     else
-      // Sort so every node picks the same index for the same key.
-      val sorted = all.sorted
-      val idx    = (_hash(key) % sorted.length.toLong).toInt
-      sorted(idx)
+      _ringLookup(_ring(all.sorted), _hash(key))
 
   // True iff this node currently owns the shard for `key`.
   def isOwner(key: String): Boolean = owner(key) == selfNode()
@@ -138,13 +164,18 @@ object Shard:
 
 ## Caveats
 
-- Hash distribution is `hashCode % n` — uniform enough for moderate
-  keyspaces, but pathological keys can pile on one node.  Swap in
-  a better hash (xxHash, MurmurHash3) if observed unevenness.
-- Pure modulo-based routing is *not* consistent hashing — a single
-  node addition reshuffles every key whose modulo index changes.
-  Acceptable for stateless workers; if you need actor identity to
-  follow membership stably, layer on a virtual-node ring (deferred).
+- Hash function is Java-style `31*h + c` over code points (no
+  bitwise XOR available in ScalaScript's IntV).  Distribution is
+  uniform enough for moderate keyspaces — if observed unevenness
+  is a real problem, swap in MurmurHash3 (would require either an
+  interpreter intrinsic or a longer ScalaScript implementation).
+- Routing uses a virtual-node consistent-hashing ring (16 vnodes
+  per real node by default — see `_VNODES_PER_NODE`).  Membership
+  changes shift ownership for ~1/N of keys, not all of them.  For
+  very large clusters where the per-call `O(N×K)` ring rebuild
+  starts hurting, cache the ring keyed by sorted membership; the
+  primitive's cheap construction is deliberate (no global mutable
+  state in std modules).
 - The owner's `spawnIfOwner` registration happens at call time only.
   If membership changes after the call, the old owner keeps its
   instance running and the new owner has no instance — `Shard.send`

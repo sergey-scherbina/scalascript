@@ -52,3 +52,5 @@ that land in `std.actors`.
 | Cluster-wide pub/sub (`publish` / `subscribePublish` / `unsubscribePublish`) | ✓ v1.23 |
 | Partition-healing integration test (5-node split + cross-side `connectNode`) | ✓ v1.23 |
 | Cluster-wide atomic counters (`clusterAtomicGet/Set/Add/CompareAndSet`) — LWW gossip + handshake snapshot | ✓ v1.23 |
+| Stateful singleton (`Singleton.useStateful` / `Singleton.saveState`) — warm-start state via clusterConfig | ✓ v1.23 |
+| Sharded actor topology — virtual-node consistent-hashing ring (16 vnodes/node) | ✓ v1.23 (Shard) |
