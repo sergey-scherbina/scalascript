@@ -463,6 +463,20 @@ lazy val cli = project
 // `WsStress` lives under backend-interpreter/.../bench/ since it
 // stresses the interpreter's WS runtime.
 
+lazy val clientPostgres = project
+  .in(file("client-postgres"))
+  .settings(
+    name := "scalascript-client-postgres",
+    libraryDependencies ++= Seq(
+      "org.postgresql"     %  "postgresql"      % "42.7.3",
+      "com.zaxxer"         %  "HikariCP"        % "5.1.0",
+      "com.h2database"     %  "h2"              % "2.2.224"   % Test,
+      scalatestTest,
+    ),
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions,
+  )
+
 lazy val root = project
   .in(file("."))
   .aggregate(
@@ -471,7 +485,7 @@ lazy val root = project
     runtimeServerJvmJetty, runtimeServerJvmNetty, mcpCommon,
     backendJvm, backendJs, backendNode, backendScalajs, backendWasm, backendInterpreter,
     backendScalaSource, backendHtml, backendCss, backendSpark,
-    cli
+    cli, clientPostgres
   )
   .settings(
     publish / skip := true
