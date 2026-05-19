@@ -1,9 +1,8 @@
 package scalascript.server
 
-import java.nio.ByteBuffer
-import java.nio.channels.{SocketChannel, SelectionKey}
-import java.util.concurrent.{ConcurrentLinkedQueue, Executor, ScheduledExecutorService, ScheduledFuture, TimeUnit}
-import java.util.concurrent.atomic.AtomicInteger
+import java.net.Socket
+import java.util.concurrent.{Executor, LinkedBlockingQueue, ScheduledExecutorService, ScheduledFuture, TimeUnit}
+import java.util.concurrent.atomic.{AtomicInteger, AtomicReference}
 import scalascript.interpreter.{Interpreter, Value, Computation}
 
 /** Process-global counters for active WS connections + the configurable
@@ -38,28 +37,41 @@ object WsConnection:
     activeCount.decrementAndGet()
     Metrics.wsActive.decrementAndGet()
 
-/** Live WebSocket session: parser state on the inbound side, write queue on
- *  the outbound side, plus the user-facing `WebSocket` value the handler
- *  receives.
+/** Live WebSocket session: blocking-IO model with one writer virtual
+ *  thread draining an outbound frame queue, plus a read loop that the
+ *  caller runs on its own per-connection virtual thread.  Mirrors
+ *  the JvmGen `WebSocket` runtime — same shape, same close orchestration,
+ *  same heartbeat scheduler.
  *
  *  Lifecycle:
- *    1. [[WsProxy]] finishes the HTTP upgrade and constructs this object.
+ *    1. [[WsProxy.proxyConnection]] finishes the HTTP upgrade and
+ *       constructs this object.  The constructor spawns one writer
+ *       VT that drains [[outQ]] → `socket.getOutputStream`.
  *    2. The user `onWebSocket` handler runs once on the interpreter
  *       executor, called with [[asValue]] — typically the handler registers
  *       `onMessage` / `onClose` callbacks via the methods exposed there.
- *    3. As frames arrive, the proxy calls [[onFrame]] from the selector
- *       thread; control-frame replies (pong) go straight out, app messages
- *       (text/binary) are dispatched to the interpreter executor.
- *    4. On EOF / close / error, [[closed]] is invoked exactly once.
+ *    3. The proxy then calls [[runReadLoop]] on its per-connection VT.
+ *       Read-loop blocks on `socket.getInputStream`, parses frames
+ *       via `WsFraming.tryParse`, dispatches via `WsFrameDispatch.handle`.
+ *    4. On EOF / Close frame / error, the read loop's `finally` either
+ *       enqueues a sentinel or hard-closes the socket; the writer VT's
+ *       `finally` runs the cleanup (`closeNow`-equivalent) exactly once.
  *
- *  Thread model: read-side ([[onFrame]]) runs on the proxy's selector
- *  thread.  Write-side ([[enqueue]]) can be called from anywhere — it
- *  parks bytes on a lock-free queue and asks the proxy to flush them.
- *  User callbacks always run on the interpreter executor. */
+ *  Thread model:
+ *    - Read loop: per-connection VT, owned by [[runReadLoop]]'s caller.
+ *    - Writer:    per-connection VT, spawned in the constructor.
+ *    - Heartbeat: shared `ScheduledExecutorService` (one daemon thread).
+ *    - User callbacks: dispatched via `executor` (a single-thread
+ *      executor) so interpreter globals stay serial.
+ *
+ *  `synchronized` on the write path is avoided in favour of an
+ *  asynchronous queue: on JDK 21 a `synchronized` block pins the carrier
+ *  thread of any virtual thread that enters it.  The single-writer-VT
+ *  design also lets a slow peer park its own writer without affecting
+ *  any other connection.
+ */
 final class WsConnection(
-    private val channel:    SocketChannel,
-    private val key:        SelectionKey,
-    private val selector:   java.nio.channels.Selector,
+    private val socket:     Socket,
     private val interp:     Interpreter,
     private val executor:   Executor,
     private val log:        java.io.PrintStream,
@@ -93,10 +105,7 @@ final class WsConnection(
     private val onTerminate: () => Unit = () => (),
     /** Cap on inbound messages per second on this connection.
      *  0 = unlimited.  Overrun closes with code 1008 ("policy
-     *  violation").  Implemented as a fixed-window counter: every
-     *  second of wall clock the bucket resets to 0; the
-     *  `maxMessagesPerSec+1`-th message in any second trips the
-     *  close. */
+     *  violation"). */
     private val maxMessagesPerSec: Int = 0,
     /** Payload returned by the route's auth hook (or `None` for
      *  routes without one).  Surfaced to the handler as
@@ -104,6 +113,8 @@ final class WsConnection(
      *  session info without re-parsing headers. */
     val user: Option[Value] = None
 ):
+  import java.io.{BufferedInputStream, OutputStream}
+
   /** Stable per-connection identifier.  UUID-v4 generated at upgrade
    *  time so it's globally unique even across restarts, but short
    *  enough to grep for in logs.  Surfaced to the handler as `ws.id`
@@ -111,29 +122,14 @@ final class WsConnection(
    *  for a single session. */
   val id: String = java.util.UUID.randomUUID().toString
 
-  /** Wall-clock time the connection was upgraded.  Used by
-   *  `closeNow` to compute the `duration_ms` field of the
-   *  `ws.close` access log line. */
+  /** Wall-clock time the connection was upgraded.  Used by the
+   *  writer-VT teardown path to compute the `duration_ms` field of
+   *  the `ws.close` access log line. */
   private val startedAtMs: Long = System.currentTimeMillis()
-  // Outgoing frames waiting to be written.  Drained by the selector thread
-  // in [[flush]]; new bytes appended from any thread via [[enqueue]].
-  private val outbox: ConcurrentLinkedQueue[ByteBuffer] =
-    new ConcurrentLinkedQueue[ByteBuffer]()
-  // Cumulative bytes parked on the outbox waiting to be written.  When
-  // the peer reads slowly we shouldn't queue indefinitely — a hostile or
-  // dead client could otherwise let a chatty broadcaster eat the heap.
-  private val outboxBytes: java.util.concurrent.atomic.AtomicLong =
-    java.util.concurrent.atomic.AtomicLong(0L)
-
-  // Partial inbound frame buffer.  Bytes that didn't form a complete frame
-  // last time around stay here for the next [[onBytes]] call.
-  private var inBuf: Array[Byte] = new Array[Byte](4096)
-  private var inLen: Int = 0
 
   // Fragmented-message reassembly (RFC 6455 §5.4) — delegated to the
   // shared `WsReassembler` state machine in runtime-server-common.
-  // Control frames (Ping / Pong / Close) still dispatch directly
-  // below; only Text / Binary / Continuation go through the reassembler.
+  // Touched only on the read loop thread, so no synchronisation needed.
   private val reassembler = new WsReassembler(WsFraming.MaxFrameBytes)
 
   // User-side callbacks — registered from the handler thread, fired from
@@ -144,104 +140,148 @@ final class WsConnection(
   @volatile private var onPongCb:    Option[Value] = None
   // Async-style recv queue — populated by `dispatchMessage` once any
   // consumer flips `recvEnabled` via the first `ws.recv()` call.  Null
-  // sentinel signals "WS closed".  Lets a user handler read messages
-  // with a sync `while !ws.isClosed do ws.recv()` loop instead of
-  // installing an inverted-control `onMessage` callback.
-  private val recvQueue: java.util.concurrent.LinkedBlockingQueue[String | Null] =
-    java.util.concurrent.LinkedBlockingQueue()
+  // sentinel signals "WS closed".
+  private val recvQueue: LinkedBlockingQueue[String | Null] =
+    LinkedBlockingQueue[String | Null]()
   @volatile private var recvEnabled: Boolean = false
-  private val onCloseCb:
-    java.util.concurrent.atomic.AtomicReference[Value | Null] =
-      java.util.concurrent.atomic.AtomicReference[Value | Null](null)
-  @volatile private var closing:     Boolean       = false
+  private val onCloseCb: AtomicReference[Value | Null] =
+    AtomicReference[Value | Null](null)
+  @volatile private var closing: Boolean = false
 
   // ─── Server-initiated heartbeat ──────────────────────────────────
   // We send an empty Ping every `heartbeatIntervalMs` and expect a
   // Pong back within `deadAfterMs` of our last successful Pong (or
-  // the upgrade time, for the first round).  This catches connections
-  // whose TCP path silently drops — NAT timeouts, mobile-to-WiFi
-  // handoff, half-closed peers — well before OS keepalive (~2 h)
-  // would notice.
+  // the upgrade time, for the first round).
   @volatile private var lastPongAt: Long = System.currentTimeMillis()
-  // Held so we can cancel on close; volatile because the close-thread
-  // reads it after the scheduler thread set it.
   @volatile private var heartbeatTask: ScheduledFuture[?] = null
 
-  /** Append more inbound bytes to the parser buffer and drain whole frames
-   *  into [[onFrame]].  Called by the selector thread after a successful
-   *  read; safe to call repeatedly. */
-  def onBytes(src: ByteBuffer): Unit =
-    val n = src.remaining
-    Metrics.wsBytesIn.addAndGet(n.toLong)
-    ensureInCapacity(inLen + n)
-    src.get(inBuf, inLen, n)
-    inLen += n
-    drainFrames()
+  // ─── Outbound write queue (mirrors codegen WebSocketRuntime) ─────
+  // Every `send` / `close` / `pong` parks a ready-encoded frame on
+  // [[outQ]] and returns immediately.  A dedicated writer VT drains
+  // the queue and writes to the socket — so a broadcast
+  // `clients.foreach { _.send(msg) }` never blocks on the slowest
+  // peer.  Bounded (`MaxOutQDepth` frames): if a peer can't keep up
+  // the offers start returning false, and we force-close.
+  private val MaxOutQDepth: Int = 1024
+  private val outQ: LinkedBlockingQueue[Array[Byte]] =
+    LinkedBlockingQueue(MaxOutQDepth)
+  // Reference-identity sentinel for "drain and exit".  Zero-length
+  // payload is distinguishable by `eq` (the encoder always emits
+  // at least 2 bytes of header).
+  private val SENTINEL: Array[Byte] = new Array[Byte](0)
 
-  private def drainFrames(): Unit =
-    var offset = 0
-    var done   = false
-    while !done do
-      try WsFraming.tryParse(inBuf, offset, inLen) match
-        case Some(frame) =>
-          offset += frame.consumed
-          onFrame(frame)
-        case None =>
-          done = true
-      catch case _: WsFraming.WsProtocolError =>
-        // Malformed frame on the wire: close the connection.
-        sendClose(1002, "protocol error")
-        done = true
-    if offset > 0 then
-      System.arraycopy(inBuf, offset, inBuf, 0, inLen - offset)
-      inLen -= offset
+  private val out: OutputStream = socket.getOutputStream
 
-  /** Dispatch a complete frame.  The opcode match + reassembler
-   *  hand-off + close-status decode are delegated to the shared
-   *  `WsFrameDispatch` so the codegen output carries byte-identical
-   *  per-frame semantics.  Hooks here own the selector-side IO
-   *  (`writeFrame`), the executor dispatch into user callbacks, and
-   *  the `closing`-aware close-echo decision (RFC 6455 §5.5.1). */
-  private def onFrame(frame: WsFraming.Frame): Unit =
-    WsFrameDispatch.handle(frame, reassembler,
-      onPing      = p => writeFrame(WsFraming.encodePong(p)),
-      onPong      = p => {
-        // Peer is alive — refresh liveness so the heartbeat task
-        // doesn't tear down the connection.  Also fire user-side
-        // `onPong` if registered (payload is the bytes the peer
-        // echoed verbatim, surfaced as a Latin-1 byte-view String).
-        lastPongAt = System.currentTimeMillis()
-        onPongCb.foreach { cb =>
-          val payload = Value.StringV(new String(p, "ISO-8859-1"))
-          executor.execute { () =>
-            try interp.invoke(cb, List(payload))
-            catch case e: Throwable =>
-              log.println(s"WS onPong handler error: ${e.getMessage}")
-          }
+  // Writer virtual thread — cheap with Loom (~few KB stack).  A
+  // parked write-loop costs ~few KB of heap vs ~1 MB for a platform
+  // thread stack.  The writer owns the entire teardown sequence in
+  // its `finally`, so closing the socket from anywhere unwinds
+  // cleanly: both `out.write` (writer) and `in.read` (read loop)
+  // throw IOException, both fall into their `finally` clauses, and
+  // the writer's tidy-up runs exactly once.
+  @scala.annotation.unused private val writerThread: Thread =
+    Thread.ofVirtual().name(s"ws-writer-$id").start(() => writeLoop())
+
+  private def writeLoop(): Unit =
+    try
+      var done = false
+      while !done do
+        val bytes = outQ.take()
+        if bytes eq SENTINEL then done = true
+        else
+          out.write(bytes)
+          out.flush()
+          Metrics.wsBytesOut.addAndGet(bytes.length.toLong)
+    catch case _: Throwable => () // socket closed mid-write etc.
+    finally
+      // Stop the heartbeat first so it can't fire after we close.
+      val task = heartbeatTask; heartbeatTask = null
+      if task != null then task.cancel(false)
+      try socket.close() catch case _: Throwable => ()
+      // Release the global-cap slot reserved at upgrade time.
+      WsConnection.releaseSlot()
+      // Per-route cleanup (e.g. decrement WsRoutes.Entry.activeCount).
+      try onTerminate() catch case _: Throwable => ()
+      // Structured close log (Sprint 4 #13) — one tab-separated line
+      // per teardown, regardless of who initiated.
+      val durMs = System.currentTimeMillis() - startedAtMs
+      log.println(s"ws.close\tid=$id\tduration_ms=$durMs")
+      // Atomic getAndSet — at most one caller can win the right to
+      // fire onClose.  Guard the `execute` itself with a try because
+      // tests can race a `shutdownNow()` against in-flight writer
+      // VTs that haven't finished their teardown yet.
+      val cb = onCloseCb.getAndSet(null)
+      if cb != null then
+        try executor.execute { () =>
+          try interp.invoke(cb, Nil)
+          catch case e: Throwable =>
+            log.println(s"WS close handler error: ${e.getMessage}")
         }
-      },
-      onPeerClose = (status, _) =>
-        // Echo Close back if we haven't sent one yet; otherwise
-        // tear down right away (the peer acknowledged our Close).
-        // `sendClose` schedules teardown after a short grace so the
-        // selector has time to flush our echo onto the wire.
-        // `closeNow()` is idempotent.
-        if !closing then sendClose(status, "") else closeNow(),
-      onDeliver   = (op, bytes) => dispatchMessage(op, bytes),
-      onProtocolError = (code, reason) => sendClose(code, reason))
+        catch case _: java.util.concurrent.RejectedExecutionException => ()
+      // Wake any parked recv consumers with a null sentinel.
+      if recvEnabled then recvQueue.offer(null)
 
-  // Rate-limit state — fixed 1-second window, reset on first message
-  // of each second.  Delegated to the shared `WsRateLimiter` in
-  // runtime-server-common.  No synchronisation needed: `dispatchMessage`
-  // runs on the selector thread, which is the only writer.
+  /** Force the writer loop to exit promptly when the queue can't
+   *  drain.  Used by `send`-overflow and by the read-loop when EOF
+   *  arrives.  Idempotent. */
+  private def forceShutdown(): Unit =
+    if !closing then closing = true
+    // Closing the socket breaks both `out.write` (in writer) and
+    // `in.read` (in read-loop) with an IOException — both fall
+    // into their `catch / finally` clauses and tidy up.
+    try socket.close() catch case _: Throwable => ()
+
+  /** Enqueue an already-encoded frame for the writer VT to send.
+   *  No-op if the connection is already closing.  Returns silently
+   *  on a full queue after a force-shutdown — the writer's finally
+   *  is the single source of truth for teardown. */
+  private def enqueue(bytes: Array[Byte]): Unit =
+    if closing then return
+    if !outQ.offer(bytes) then forceShutdown()
+
+  /** Public, thread-safe write: enqueue a pre-encoded frame.
+   *  Used by [[asValue]] natives (`ws.send`, `ws.sendBytes`, `ws.ping`). */
+  def enqueueFrame(bytes: Array[Byte]): Unit = enqueue(bytes)
+
+  /** Send a Close control frame, then mark the connection as closing.
+   *  Enqueues the close frame followed by the SENTINEL so the writer
+   *  drains and runs its teardown.  Idempotent. */
+  def sendClose(status: Int, reason: String): Unit =
+    if !closing then
+      closing = true
+      val frame = WsFraming.encodeClose(status, reason)
+      val queued = outQ.offer(frame) && outQ.offer(SENTINEL)
+      if !queued then forceShutdown()
+
+  /** Arm the periodic Ping → Pong heartbeat.  Called by [[WsProxy]]
+   *  right after the upgrade so the first ping lands one interval
+   *  later. */
+  def startHeartbeat(): Unit =
+    lastPongAt = System.currentTimeMillis()
+    heartbeatTask = scheduler.scheduleAtFixedRate(() => {
+      try
+        if !closing then
+          val now = System.currentTimeMillis()
+          if now - lastPongAt > deadAfterMs then
+            // Peer hasn't echoed our pings — assume dead.  Queue a
+            // Close(1001) + sentinel via sendClose; writer VT does
+            // the rest.
+            sendClose(1001, "ping timeout")
+          else
+            // Empty Ping — drop on full outQ (peer too slow); the
+            // dead-after timer will then trigger close in a later
+            // tick.
+            outQ.offer(WsFraming.encodePing())
+            ()
+      catch case _: Throwable => ()
+    }, heartbeatIntervalMs, heartbeatIntervalMs, TimeUnit.MILLISECONDS)
+
+  // Rate-limit state — fixed 1-second window, delegated to the shared
+  // `WsRateLimiter`.  Only the read loop touches it, so no sync needed.
   private val rateLimiter = new WsRateLimiter(maxMessagesPerSec)
 
   /** Dispatch a fully-reassembled text/binary message to the user
-   *  `onMessage` callback through the executor.  Queued
-   *  unconditionally — the user's `onWebSocket` block runs on the same
-   *  single-thread executor and may not have set the callback yet when
-   *  the selector parses the first frame.  Reading `onMessageCb` inside
-   *  the task gives us the latest value. */
+   *  `onMessage` callback through the executor. */
   private def dispatchMessage(opcode: WsFraming.Opcode, payload: Array[Byte]): Unit =
     if !rateLimiter.admit(System.currentTimeMillis()) then
       sendClose(1008, "rate limit exceeded")
@@ -251,7 +291,6 @@ final class WsConnection(
       if opcode == WsFraming.Opcode.Text then
         new String(payload, java.nio.charset.StandardCharsets.UTF_8)
       else new String(payload, "ISO-8859-1")
-    // Async-style recv path: parked consumers wake on the next take.
     if recvEnabled then recvQueue.offer(s)
     val v: Value = Value.StringV(s)
     executor.execute { () =>
@@ -262,141 +301,69 @@ final class WsConnection(
       }
     }
 
-  // checkFragLimit collapsed into WsReassembler's ProtocolError(1009, …)
-  // branch — the reassembler tracks its own buffer size against
-  // `WsFraming.MaxFrameBytes` and emits a ProtocolError event when the
-  // budget is exhausted; the dispatcher routes that to `sendClose`.
-
-  /** Soft cap on bytes parked on the outbox.  A slow client that fails
-   *  to drain its socket would otherwise let a chatty broadcaster pile
-   *  data into the heap unbounded — at the cap we drop the connection
-   *  rather than risk OOM. */
-  private val MaxOutboxBytes: Long = 4L * 1024L * 1024L
-
-  /** Low-level queue + wake.  No `closing` check — used by [[sendClose]]
-   *  too, which must be allowed to write the close control frame even
-   *  after setting `closing = true`. */
-  private def writeFrame(bytes: Array[Byte]): Unit =
-    if !key.isValid then return
-    outboxBytes.addAndGet(bytes.length.toLong)
-    outbox.add(ByteBuffer.wrap(bytes))
-    key.interestOpsOr(SelectionKey.OP_WRITE)
-    selector.wakeup()
-
-  /** Public, thread-safe write: parks bytes on the outbox and wakes the
-   *  selector so it picks them up.  Called from the interpreter thread
-   *  via the `ws.send` native.  When the outbox is already over
-   *  [[MaxOutboxBytes]] we tear the connection down rather than queue
-   *  yet another frame onto a backlog the peer can't drain. */
-  def enqueue(bytes: Array[Byte]): Unit =
-    if closing || !key.isValid then return
-    if outboxBytes.get + bytes.length.toLong > MaxOutboxBytes then
-      // Don't bother sending a Close frame — its bytes would just join
-      // the same stalled outbox.  The peer is gone for our purposes.
-      closeNow()
-    else writeFrame(bytes)
-
-  /** Drain pending writes into the channel.  Called by the selector loop
-   *  when the channel is writable.  Returns once the outbox is empty or
-   *  the channel can't accept more (partial write). */
-  def flush(): Unit =
-    while !outbox.isEmpty do
-      val buf = outbox.peek()
-      val before = buf.remaining
-      channel.write(buf)
-      // Decrement outboxBytes by the amount actually written this round,
-      // so backpressure unwinds as the socket drains.
-      val written = before - buf.remaining
-      if written > 0 then
-        outboxBytes.addAndGet(-written.toLong)
-        Metrics.wsBytesOut.addAndGet(written.toLong)
-      if buf.hasRemaining then return
-      outbox.poll()
-    // Outbox empty: stop selecting for OP_WRITE.
-    if key.isValid then key.interestOpsAnd(~SelectionKey.OP_WRITE)
-
-  /** Send a Close control frame, then mark the connection as closing.
-   *  Uses [[writeFrame]] directly (not [[enqueue]]) so the close frame
-   *  itself isn't rejected by the `closing` flag we just set.
-   *
-   *  After queueing the Close frame, schedules a fallback `closeNow`
-   *  on the heartbeat scheduler so the channel doesn't sit open
-   *  indefinitely if the peer never echoes Close — RFC 6455 §7.1.1
-   *  recommends a brief wait, not an infinite one.  The first
-   *  trigger wins: peer echo (`onFrame(Close) → closeNow`), peer
-   *  half-close (read EOF → closeChain → closeNow), or this 500 ms
-   *  fallback.  `closeNow` is idempotent via `key.isValid`. */
-  def sendClose(status: Int, reason: String): Unit =
-    if !closing then
-      closing = true
-      writeFrame(WsFraming.encodeClose(status, reason))
-      scheduler.schedule(
-        new Runnable { def run(): Unit = closeNow() },
-        500L, TimeUnit.MILLISECONDS
-      )
-
-  /** Arm the periodic Ping → Pong heartbeat.  Called by [[WsProxy]]
-   *  right after the upgrade so the first ping lands one interval
-   *  later.  Stays armed until [[closeNow]] cancels the task. */
-  @annotation.nowarn("msg=Non local returns")
-  def startHeartbeat(): Unit =
-    lastPongAt = System.currentTimeMillis()
-    heartbeatTask = scheduler.scheduleAtFixedRate(() => {
-      try
-        if closing then return
-        val now = System.currentTimeMillis()
-        if now - lastPongAt > deadAfterMs then
-          // Peer hasn't echoed our pings — assume dead.  Queue a Close
-          // frame, then defer the hard channel teardown so the
-          // selector has a chance to flush our Close onto the wire
-          // first (otherwise we send FIN with the Close still in our
-          // outbox and the peer sees an abrupt drop).
-          sendClose(1001, "ping timeout")
-          scheduler.schedule(
-            new Runnable { def run(): Unit = closeNow() },
-            200L, TimeUnit.MILLISECONDS
-          )
+  /** Blocking read loop — called by the proxy on its per-connection
+   *  virtual thread after the handshake completes.  Pulls bytes through
+   *  the parser, dispatches frames inline.  Returns when the peer
+   *  closes or a protocol error occurs.  The `finally` enqueues a
+   *  SENTINEL so the writer VT runs the teardown sequence. */
+  def runReadLoop(): Unit =
+    val in   = BufferedInputStream(socket.getInputStream)
+    var buf  = new Array[Byte](4096)
+    var len  = 0
+    try
+      var stop = false
+      while !stop && !closing && !socket.isClosed do
+        if len == buf.length then
+          val grown = new Array[Byte](buf.length * 2)
+          System.arraycopy(buf, 0, grown, 0, len)
+          buf = grown
+        val n = in.read(buf, len, buf.length - len)
+        if n < 0 then stop = true
         else
-          writeFrame(WsFraming.encodePing())
-      catch case _: Throwable => closeNow()
-    }, heartbeatIntervalMs, heartbeatIntervalMs, TimeUnit.MILLISECONDS)
-
-  /** Force-close immediately (after a fatal error or the peer's Close).
-   *  Idempotent. */
-  def closeNow(): Unit =
-    // Cancel the heartbeat task first — otherwise it might still fire
-    // once after we've closed the channel and try to write to it.
-    val task = heartbeatTask; heartbeatTask = null
-    if task != null then task.cancel(false)
-    if key.isValid then
-      key.cancel()
-      try channel.close() catch case _: Throwable => ()
-      // Release the global-cap slot we reserved during the upgrade.
-      // Guarded by `key.isValid` so duplicate `closeNow` calls (peer
-      // close + reader EOF) don't double-decrement.
-      WsConnection.releaseSlot()
-      // Per-route cleanup (e.g. decrement WsRoutes.Entry.activeCount).
-      // Same idempotency: only fires once per connection because the
-      // `key.isValid` guard above keeps the close path single-shot.
-      try onTerminate() catch case _: Throwable => ()
-      // Structured close log (Sprint 4 #13) — one tab-separated
-      // line on every session teardown.  `duration_ms` is wall
-      // clock from upgrade.
-      val durMs = System.currentTimeMillis() - startedAtMs
-      log.println(s"ws.close\tid=$id\tduration_ms=$durMs")
-      // Atomic getAndSet — at most one caller can win the right to fire
-      // onClose.  Without this both the read-loop's drainFrames (on EOF
-      // or a peer-initiated close frame) and a user-side `ws.close()`
-      // could read the same non-null and invoke the callback twice.
-      val cb = onCloseCb.getAndSet(null)
-      if cb != null then
-        executor.execute { () =>
-          try interp.invoke(cb, Nil)
-          catch case e: Throwable =>
-            log.println(s"WS close handler error: ${e.getMessage}")
-        }
-      // Wake any parked recv consumers with a null sentinel.
-      if recvEnabled then recvQueue.offer(null)
+          len += n
+          Metrics.wsBytesIn.addAndGet(n.toLong)
+          var offset    = 0
+          var more      = true
+          while more && !stop do
+            try WsFraming.tryParse(buf, offset, len) match
+              case None     => more = false
+              case Some(fr) =>
+                offset += fr.consumed
+                val outcome = WsFrameDispatch.handle(fr, reassembler,
+                  onPing      = p => { outQ.offer(WsFraming.encodePong(p)); () },
+                  onPong      = p => {
+                    lastPongAt = System.currentTimeMillis()
+                    onPongCb.foreach { cb =>
+                      val payload = Value.StringV(new String(p, "ISO-8859-1"))
+                      executor.execute { () =>
+                        try interp.invoke(cb, List(payload))
+                        catch case e: Throwable =>
+                          log.println(s"WS onPong handler error: ${e.getMessage}")
+                      }
+                    }
+                  },
+                  onPeerClose = (status, _) =>
+                    // Echo Close back if we haven't sent one yet
+                    // (RFC 6455 §5.5.1).  sendClose is idempotent.
+                    if !closing then sendClose(status, "") else (),
+                  onDeliver   = (op, bytes) => dispatchMessage(op, bytes),
+                  onProtocolError = (code, reason) => sendClose(code, reason))
+                if outcome == WsFrameDispatch.Outcome.Stop then stop = true
+            catch case _: WsFraming.WsProtocolError =>
+              sendClose(1002, "protocol error")
+              stop = true
+          if offset > 0 then
+            System.arraycopy(buf, offset, buf, 0, len - offset)
+            len -= offset
+    catch case _: Throwable => ()
+    finally
+      // Tell the writer VT to drain and exit; its `finally` runs the
+      // actual `socket.close()` + onClose dispatch.  If the sentinel
+      // can't be queued (full backlog) we force-close the socket so
+      // the writer's blocking `out.write` throws and runs its cleanup.
+      closing = true
+      if !outQ.offer(SENTINEL) then
+        try socket.close() catch case _: Throwable => ()
 
   /** The `WebSocket` Value passed to the user's handler.  All four methods
    *  capture `this` so callbacks fire on the live connection. */
@@ -408,10 +375,6 @@ final class WsConnection(
         Value.UnitV
       case _ => throw scalascript.interpreter.InterpretError("ws.send(text)")
     })
-    // Binary frames take the same Latin-1 byte-view string convention
-    // that `req.files(...).bytes` and inbound binary frames already use
-    // — one Java `char` per wire byte, round-trips via
-    // `bytes.getBytes("ISO-8859-1")` without escape-mangling.
     val sendBytes = Value.NativeFnV("WebSocket.sendBytes", Computation.pureFn {
       case List(Value.StringV(s)) =>
         Metrics.wsMessagesOut.incrementAndGet()
@@ -438,11 +401,6 @@ final class WsConnection(
         onCloseCb.set(cb); Value.UnitV
       case _ => throw scalascript.interpreter.InterpretError("ws.onClose { () => … }")
     })
-    // ping / onPong: liveness probe.  ping() sends an empty Ping;
-    // ping(s) sends with a Latin-1 byte-view payload that the peer
-    // echoes verbatim in its Pong.  Doesn't interact with the
-    // server's own 30 s heartbeat — both call sites refresh the
-    // same lastPongAt.
     val ping = Value.NativeFnV("WebSocket.ping", Computation.pureFn {
       case Nil =>
         enqueue(WsFraming.encodePing()); Value.UnitV
@@ -455,12 +413,6 @@ final class WsConnection(
         onPongCb = Some(cb); Value.UnitV
       case _ => throw scalascript.interpreter.InterpretError("ws.onPong { payload => … }")
     })
-    // Async-style sync recv — block the calling thread until the next
-    // message arrives (Some) or the WS closes (None).  Activates the
-    // recv-queue on first use; before that messages flow only through
-    // `onMessage`.  Calling thread must be off the WS executor (the
-    // user's `onWebSocket` block runs there; recv there would deadlock
-    // — fork a Thread / executor for the loop).
     val recv = Value.NativeFnV("WebSocket.recv", Computation.pureFn {
       case Nil =>
         recvEnabled = true
@@ -488,11 +440,3 @@ final class WsConnection(
       "subprotocol" -> Value.StringV(subprotocol),
       "user"        -> Value.OptionV(user)
     ))
-
-  private def ensureInCapacity(target: Int): Unit =
-    if target > inBuf.length then
-      var cap = inBuf.length
-      while cap < target do cap *= 2
-      val grown = new Array[Byte](cap)
-      System.arraycopy(inBuf, 0, grown, 0, inLen)
-      inBuf = grown
