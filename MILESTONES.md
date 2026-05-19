@@ -442,8 +442,9 @@ unblocks downstream features as early as possible.
      v1.17.1 hardening ✓ Landed; v1.17.2 SSE/JS ✓ Landed;
      v1.17.3 prompts/JVM ✓ Landed; v1.17.4-min Http/Ws/JVM (minimal
      wiring, echo placeholder) ✓ Landed; v1.17.4-runtime consolidation
-     Phase 1 (a + b + c) + Phase 2 (a + b — pure HTTP / TLS / CORS
-     helpers extracted, 19 inlined files) ✓ Landed; v1.17.4 full (real
+     Phase 1 (a + b + c) + Phase 2 (a + b + initial c — pure HTTP /
+     TLS / CORS helpers + POJO HTTP model + BasicAuth, 21 inlined files)
+     ✓ Landed; v1.17.4 full (real
      `McpServerSession` dispatch + SDK import fixes) ✓ Landed (all
      2026-05-19).
      Anthropic's Model Context Protocol via REST-shaped API
@@ -3117,30 +3118,43 @@ same source of truth for these primitives:
   CORS state stays on each side (mutable globals); the helper takes
   the values as parameters so it's purely stateless.
 
-Net additional dedup: ~340 LOC removed across the two backends,
-replaced with ~25 LOC of one-line shims; `runtime-server-common` now
-packages **19** Scala files inlined into the codegen output.
+- **Phase 2c (initial slice)** — POJO HTTP model + Basic-auth parser:
+  `HttpModel.scala` defines `Request` / `Response` / `StreamResponse`
+  case classes with `Response.withHeader` / `withSession` /
+  `clearSession`; `BasicAuth.fromHeader` mirrors `Jwt.fromAuthHeader`
+  for `Authorization: Basic …` headers.  JvmGen.serveRuntime drops
+  its three case-class definitions (replaced by inline from common)
+  plus the duplicate `_basicFromAuth` (one-line delegate); `req.json`
+  remains an extension at the serveRuntime level since the JSON parser
+  it calls (`_fromJson`) lives downstream of `commonRuntime` in the
+  emit.
+
+Net additional dedup: ~390 LOC removed across the two backends,
+replaced with ~30 LOC of one-line shims / aliases; `runtime-server-common`
+now packages **21** Scala files inlined into the codegen output.
 
 ### Deferred follow-ups (v1.17.x backlog, ordered by priority)
 
-1. **Phase 2c of runtime consolidation** — the final piece: define
-   `Request` / `Response` POJOs + `RouteDispatcher` trait in
-   runtime-server-common and split the HTTP dispatch loop itself
+1. **Phase 2c (remaining) — dispatch-loop split** — with the POJO HTTP
+   model now in runtime-server-common, the remaining work is the
+   `RouteDispatcher` trait plus the HTTP / WS dispatch loops themselves
    (`WebServer.handle` / `dispatchRoute` / `writeResponse` ~400 LOC on
    the interpreter side, `_handle` / `_dispatchRoute` / `_writeResponse`
-   ~600 LOC on the codegen side) so both backends share the same
-   protocol-level code.  Same shape for the WS dispatcher
-   (`WsConnection` / `WsProxy` interpreter-side, the WS read-loop in
+   ~600 LOC on the codegen side; same shape for the WS dispatcher —
+   `WsConnection` / `WsProxy` interpreter-side, the WS read-loop in
    serveRuntime codegen-side).  The coupling is structural — the
    dispatcher invokes user handlers as `Value.Closure`s via
    `Interpreter.eval` in the interpreter backend, as plain Scala
    closures in the codegen output — so a clean split requires the
    `RouteDispatcher.dispatch(req: Request, params: Map[String, String]):
-   Any` boundary plus per-backend adapters that bridge Request POJO ↔
-   `Value.InstanceV` and Response / StreamResponse POJO ↔ Value pattern
-   matches.  Estimated 6–12 hours focused work with regression risk on
-   every existing WS / REST conformance test.  After this lands,
-   `serveRuntime` shrinks from the current ~1 200 LOC of glue to ~300
+   Any` boundary plus per-backend adapters that bridge POJO ↔
+   `Value.InstanceV` for Request and Response / StreamResponse pattern
+   matches.  Per-server config plumbing (`maxBodySize`,
+   `sessionStoreEnabled`, `gzipEnabled`, `cors*`, JWT secret) needs
+   to be passed in via a `ServerConfig` record or per-call closures.
+   Estimated 4–8 more hours focused work with regression risk on every
+   existing WS / REST conformance test.  After this lands,
+   `serveRuntime` shrinks from the current ~1 150 LOC of glue to ~250
    LOC of `RouteDispatcher` adapter + the user-facing `route()` /
    `serve()` / `onWebSocket()` aliases.
 2. **Own implementation for INT / scalajs-spa** — ~1500 LOC
