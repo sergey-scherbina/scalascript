@@ -3990,6 +3990,28 @@ Stage 5.3 / typer / JVM-incremental (landed 2026-05-19):
   + `.scjvm` per stale module; SHA-256 staleness check makes the build
   truly incremental (untouched modules skip codegen).
 
+Auto-resolve for per-module compile (landed 2026-05-19):
+- `ssc compile-jvm <file.ssc>` and `ssc compile-js <file.ssc>` now walk
+  the target's `Content.Import` closure, topo-sort the local-path
+  dependency DAG, and recursively compile every stale dep into a
+  shared artifact dir before compiling the target.  Dep artifacts
+  default to `<target-dir>/.ssc-artifacts/` and are reused on
+  subsequent runs (SHA-256 freshness check on both `.scim` and the
+  backend-cache file).  No more "compile a first, then b" topo dance.
+- New flags: `--artifact-dir <dir>` overrides where dep artifacts
+  land; `--no-auto-deps` reverts to the old per-module behaviour
+  (still relies on `--iface-dir` for cross-module type-checking).
+- Cycles are detected before any codegen runs; the command exits
+  non-zero with a `→`-joined cycle message naming the modules.
+- New helper: `cli/AutoResolve.scala` (~190 LOC).  Reuses
+  `InterfaceExtractor.sha256` + `ArtifactIO` / `JvmArtifactIO` /
+  `JsArtifactIO` for freshness checks; does its own DFS-then-Kahn
+  pass rather than reusing `ModuleGraph.build` so traversal starts
+  at a single file rather than a whole directory.
+- Tests: `AutoResolveCliTest` (9 cases) — two-module, three-module,
+  idempotency, cycle, `--no-auto-deps`, JS-side parity, and
+  `--artifact-dir` override.
+
 Default `ssc compile` / `ssc build` / `ssc run` are completely unchanged.
 The new commands are additive; the ABI commitment is in place from day one.
 
