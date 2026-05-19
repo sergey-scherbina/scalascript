@@ -280,6 +280,67 @@ class Interpreter(
     val term = leaderHistTermSeq.incrementAndGet()
     leaderHist.offer((term, leaderId, System.currentTimeMillis()))
     while leaderHist.size() > LeaderHistMax do leaderHist.pollFirst()
+  // v1.23 — Raft state (cluster-raft.md §4.1).
+  @volatile private var raftCurrentTerm: Long   = 0L
+  @volatile private var raftVotedFor:    String = ""
+  @volatile private var raftStateName:   String = "follower"
+  @volatile private var raftLeaderId:    String = ""
+  @volatile private var raftElectionDue: Long   = 0L
+  @volatile private var raftVotes:       Int    = 0
+  private val RaftElectionLo  = 150L
+  private val RaftElectionHi  = 300L
+  private val RaftHeartbeatMs = 50L
+  private val raftTickThread =
+    new java.util.concurrent.atomic.AtomicReference[Thread](null)
+  private val raftRand = new scala.util.Random()
+  private def raftRandTimeout: Long =
+    RaftElectionLo + raftRand.nextInt((RaftElectionHi - RaftElectionLo).toInt + 1)
+  private def raftBroadcastHeartbeat(): Unit =
+    val payload = s"""{"t":"raft_append","from":${jsonStr(localNodeId)},"term":$raftCurrentTerm}"""
+    peerChannels.forEach { (_, send) => try send(payload) catch case _: Throwable => () }
+  private def raftAdoptLeader(newLeader: String): Unit =
+    val prev = currentLeader.getAndSet(newLeader)
+    if prev != newLeader then
+      enqueueLeaderEvent("LeaderElected", newLeader)
+      recordLeaderHist(newLeader)
+  private def startRaftElection(): Unit =
+    raftStateName    = "candidate"
+    raftCurrentTerm  = raftCurrentTerm + 1
+    raftVotedFor     = localNodeId
+    raftVotes        = 1
+    raftElectionDue  = System.currentTimeMillis() + raftRandTimeout
+    val peerIds = scala.collection.mutable.ListBuffer.empty[String]
+    peerChannels.keySet().forEach(p => peerIds += p)
+    val total = peerIds.size + 1
+    if raftVotes > total / 2 then
+      raftStateName = "leader"
+      raftLeaderId  = localNodeId
+      raftAdoptLeader(localNodeId)
+      raftBroadcastHeartbeat()
+    else
+      val payload =
+        s"""{"t":"raft_vote_req","from":${jsonStr(localNodeId)},"term":$raftCurrentTerm,"lastLogTerm":0}"""
+      peerIds.foreach { nid =>
+        try Option(peerChannels.get(nid)).foreach(_.apply(payload))
+        catch case _: Throwable => ()
+      }
+  private def ensureRaftTickThread(): Unit =
+    if raftTickThread.get() != null then return
+    val t = Thread.ofVirtual().start { () =>
+      try
+        var done = false
+        while !done && leaderProtocolRef.get() == "raft" do
+          try Thread.sleep(RaftHeartbeatMs) catch case _: InterruptedException => done = true
+          if !done then
+            val now = System.currentTimeMillis()
+            raftStateName match
+              case "leader" => raftBroadcastHeartbeat()
+              case "follower" | "candidate" =>
+                if now >= raftElectionDue then startRaftElection()
+              case _ => ()
+      catch case _: Throwable => ()
+    }
+    if !raftTickThread.compareAndSet(null, t) then t.interrupt()
   // v1.23 — drain / rolling-restart state.
   private val isDrainingSelf =
     new java.util.concurrent.atomic.AtomicBoolean(false)
@@ -1077,6 +1138,57 @@ class Interpreter(
               case Some(Value.IntV(n))    => n.toDouble
               case _                      => 0.0
             if from.nonEmpty && name.nonEmpty then applyMetricUpdate(name, from, value)
+          // v1.23 — Raft RPCs (cluster-raft.md §4.2)
+          case "raft_vote_req" =>
+            val from = m.get(Value.StringV("from")).collect { case Value.StringV(s) => s }.getOrElse("")
+            val term = m.get(Value.StringV("term")) match
+              case Some(Value.IntV(n))    => n
+              case Some(Value.DoubleV(d)) => d.toLong
+              case _                      => 0L
+            if from.nonEmpty then
+              val granted =
+                if term < raftCurrentTerm then false
+                else
+                  if term > raftCurrentTerm then
+                    raftCurrentTerm = term
+                    raftVotedFor    = ""
+                    raftStateName   = "follower"
+                  if raftVotedFor.isEmpty || raftVotedFor == from then
+                    raftVotedFor    = from
+                    raftElectionDue = System.currentTimeMillis() + raftRandTimeout
+                    true
+                  else false
+              val reply =
+                s"""{"t":"raft_vote_resp","from":${jsonStr(localNodeId)},"term":$raftCurrentTerm,"granted":$granted}"""
+              try Option(peerChannels.get(from)).foreach(_.apply(reply))
+              catch case _: Throwable => ()
+          case "raft_vote_resp" =>
+            val term = m.get(Value.StringV("term")) match
+              case Some(Value.IntV(n))    => n
+              case Some(Value.DoubleV(d)) => d.toLong
+              case _                      => 0L
+            val granted = m.get(Value.StringV("granted")).collect { case Value.BoolV(b) => b }.getOrElse(false)
+            if term == raftCurrentTerm && raftStateName == "candidate" && granted then
+              raftVotes = raftVotes + 1
+              val total = peerChannels.size() + 1
+              if raftVotes > total / 2 then
+                raftStateName = "leader"
+                raftLeaderId  = localNodeId
+                raftAdoptLeader(localNodeId)
+                raftBroadcastHeartbeat()
+          case "raft_append" =>
+            val from = m.get(Value.StringV("from")).collect { case Value.StringV(s) => s }.getOrElse("")
+            val term = m.get(Value.StringV("term")) match
+              case Some(Value.IntV(n))    => n
+              case Some(Value.DoubleV(d)) => d.toLong
+              case _                      => 0L
+            if from.nonEmpty && term >= raftCurrentTerm then
+              raftCurrentTerm = term
+              raftStateName   = "follower"
+              val prevLeader  = raftLeaderId
+              raftLeaderId    = from
+              raftElectionDue = System.currentTimeMillis() + raftRandTimeout
+              if prevLeader != from then raftAdoptLeader(from)
           case _ => ()
       case _ => ()
 
@@ -5554,13 +5666,17 @@ class Interpreter(
         Right(k(Value.BoolV(total > 0 && votes >= majority)))
       case _ => throw InterpretError("clusterIsDown(nodeId, threshold)")
 
-    // v1.23 — leader election (Bully)
+    // v1.23 — leader election (Bully or Raft, picked by leaderProtocolRef)
     case "electLeader" =>
-      startElection()
+      leaderProtocolRef.get() match
+        case "raft" => startRaftElection()
+        case _      => startElection()
       Right(k(Value.UnitV))
 
     case "currentLeader" =>
-      Right(k(Value.StringV(currentLeader.get())))
+      leaderProtocolRef.get() match
+        case "raft" => Right(k(Value.StringV(raftLeaderId)))
+        case _      => Right(k(Value.StringV(currentLeader.get())))
 
     case "subscribeLeaderEvents" =>
       val boxed = java.lang.Long.valueOf(id)
@@ -5576,6 +5692,9 @@ class Interpreter(
     // v1.23 — protocol switch + history (cluster-raft.md §6)
     case "useRaftLeaderElection" =>
       leaderProtocolRef.set("raft")
+      raftStateName   = "follower"
+      raftElectionDue = System.currentTimeMillis() + raftRandTimeout
+      ensureRaftTickThread()
       Right(k(Value.UnitV))
 
     case "useExternalCoordinator" => args match

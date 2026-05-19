@@ -3658,6 +3658,70 @@ function _runActors(bodyFn) {
     _leaderHist.push([_leaderHistTermSeq, leaderId, Date.now()]);
     while (_leaderHist.length > _LEADER_HIST_MAX) _leaderHist.shift();
   }
+  // v1.23 — Raft state (cluster-raft.md §4.1).
+  let _raftCurrentTerm = 0;
+  let _raftVotedFor    = "";
+  let _raftStateName   = "follower"; // follower | candidate | leader
+  let _raftLeaderId    = "";
+  let _raftElectionDue = 0;
+  let _raftVotes       = 0;
+  const _RAFT_ELECTION_LO  = 150;
+  const _RAFT_ELECTION_HI  = 300;
+  const _RAFT_HEARTBEAT_MS = 50;
+  let _raftTickHandle = null;
+  function _raftRandTimeout() {
+    return _RAFT_ELECTION_LO + Math.floor(Math.random() * (_RAFT_ELECTION_HI - _RAFT_ELECTION_LO + 1));
+  }
+  function _raftBroadcastHeartbeat() {
+    const payload = JSON.stringify({ t: 'raft_append', from: _localNodeId, term: _raftCurrentTerm });
+    for (const [, ch] of _peerChannels) { try { ch.send(payload); } catch (_) {} }
+  }
+  function _raftAdoptLeader(newLeader) {
+    const prev = _currentLeader;
+    _currentLeader = newLeader;
+    if (prev !== newLeader) {
+      _fireLeaderEvent("LeaderElected", newLeader);
+      _recordLeaderHist(newLeader);
+    }
+  }
+  function _startRaftElection() {
+    _raftStateName    = "candidate";
+    _raftCurrentTerm  = _raftCurrentTerm + 1;
+    _raftVotedFor     = _localNodeId;
+    _raftVotes        = 1;
+    _raftElectionDue  = Date.now() + _raftRandTimeout();
+    const peerIds = [];
+    for (const nid of _peerChannels.keys()) peerIds.push(nid);
+    const total = peerIds.length + 1;
+    if (_raftVotes > Math.floor(total / 2)) {
+      _raftStateName = "leader";
+      _raftLeaderId  = _localNodeId;
+      _raftAdoptLeader(_localNodeId);
+      _raftBroadcastHeartbeat();
+    } else {
+      const payload = JSON.stringify({
+        t: 'raft_vote_req', from: _localNodeId, term: _raftCurrentTerm, lastLogTerm: 0
+      });
+      for (const nid of peerIds) {
+        const ch = _peerChannels.get(nid);
+        if (ch) { try { ch.send(payload); } catch (_) {} }
+      }
+    }
+  }
+  function _ensureRaftTickThread() {
+    if (_raftTickHandle != null) return;
+    _raftTickHandle = setInterval(() => {
+      if (_leaderProtocol !== 'raft') { clearInterval(_raftTickHandle); _raftTickHandle = null; return; }
+      const now = Date.now();
+      if (_raftStateName === 'leader') {
+        _raftBroadcastHeartbeat();
+      } else if (now >= _raftElectionDue) {
+        _startRaftElection();
+      }
+    }, _RAFT_HEARTBEAT_MS);
+    // Don't keep the Node event loop alive on the timer — apps end naturally.
+    if (_raftTickHandle && typeof _raftTickHandle.unref === 'function') _raftTickHandle.unref();
+  }
   const _leaderEventSubs    = new Set();
   const _leaderEventQueue   = [];
   function _fireLeaderEvent(tag, leaderId) {
@@ -4039,6 +4103,54 @@ function _runActors(bodyFn) {
           const name  = env.name != null ? String(env.name) : '';
           const value = env.value != null ? Number(env.value) : 0;
           if (from && name) _applyMetricUpdate(name, from, value);
+        } else if (env.t === 'raft_vote_req') {
+          const from = env.from != null ? String(env.from) : '';
+          const term = env.term != null ? Number(env.term) : 0;
+          if (from) {
+            let granted = false;
+            if (term < _raftCurrentTerm) granted = false;
+            else {
+              if (term > _raftCurrentTerm) {
+                _raftCurrentTerm = term;
+                _raftVotedFor    = "";
+                _raftStateName   = "follower";
+              }
+              if (_raftVotedFor === "" || _raftVotedFor === from) {
+                _raftVotedFor    = from;
+                _raftElectionDue = Date.now() + _raftRandTimeout();
+                granted = true;
+              }
+            }
+            const reply = JSON.stringify({
+              t: 'raft_vote_resp', from: _localNodeId, term: _raftCurrentTerm, granted
+            });
+            const ch = _peerChannels.get(from);
+            if (ch) { try { ch.send(reply); } catch (_) {} }
+          }
+        } else if (env.t === 'raft_vote_resp') {
+          const term = env.term != null ? Number(env.term) : 0;
+          const granted = !!env.granted;
+          if (term === _raftCurrentTerm && _raftStateName === "candidate" && granted) {
+            _raftVotes = _raftVotes + 1;
+            const total = _peerChannels.size + 1;
+            if (_raftVotes > Math.floor(total / 2)) {
+              _raftStateName = "leader";
+              _raftLeaderId  = _localNodeId;
+              _raftAdoptLeader(_localNodeId);
+              _raftBroadcastHeartbeat();
+            }
+          }
+        } else if (env.t === 'raft_append') {
+          const from = env.from != null ? String(env.from) : '';
+          const term = env.term != null ? Number(env.term) : 0;
+          if (from && term >= _raftCurrentTerm) {
+            _raftCurrentTerm = term;
+            _raftStateName   = "follower";
+            const prevLeader = _raftLeaderId;
+            _raftLeaderId    = from;
+            _raftElectionDue = Date.now() + _raftRandTimeout();
+            if (prevLeader !== from) _raftAdoptLeader(from);
+          }
         }
       } catch (_e) {}
     }
@@ -4528,13 +4640,14 @@ private val JsRuntimeAsyncB: String = """
         const majority = Math.floor((total + 1) / 2);
         return { suspend: false, next: k(total > 0 && votes >= majority) };
       }
-      // v1.23 — leader election (Bully)
+      // v1.23 — leader election (Bully or Raft, picked by _leaderProtocol)
       case 'electLeader': {
-        _startElection();
+        if (_leaderProtocol === 'raft') _startRaftElection();
+        else _startElection();
         return { suspend: false, next: k(undefined) };
       }
       case 'currentLeader': {
-        return { suspend: false, next: k(_currentLeader) };
+        return { suspend: false, next: k(_leaderProtocol === 'raft' ? _raftLeaderId : _currentLeader) };
       }
       case 'subscribeLeaderEvents': {
         _leaderEventSubs.add(id);
@@ -4547,6 +4660,9 @@ private val JsRuntimeAsyncB: String = """
       // v1.23 — protocol switch + history (cluster-raft.md §6)
       case 'useRaftLeaderElection': {
         _leaderProtocol = 'raft';
+        _raftStateName  = 'follower';
+        _raftElectionDue = Date.now() + _raftRandTimeout();
+        _ensureRaftTickThread();
         return { suspend: false, next: k(undefined) };
       }
       case 'useExternalCoordinator': {

@@ -1,0 +1,29 @@
+#!/usr/bin/env ssc
+---
+name: actors-cluster-raft
+description: Actor v1.23 — Raft single-node election (cluster-raft.md Phase 3a)
+---
+
+# Raft — single-node
+
+`useRaftLeaderElection()` flips dispatch off Bully onto Raft.
+`electLeader()` then triggers a Raft candidate transition; with no
+peers, the candidate's single vote is already a strict majority of
+the cluster-of-one, so the node claims leadership synchronously.
+`currentLeader()` returns the local nodeId (empty string in
+single-node mode, since `startNode` was never called).
+Multi-node Raft behaviour (vote requests, partitions, term
+increments) is exercised by the integration suite.
+
+```scalascript
+runActors {
+  useRaftLeaderElection()
+  println("proto=" + leaderProtocol())
+  electLeader()
+  // Single-node Raft majority is 1; the candidate self-promotes
+  // and history records one (term, leaderId, ms) entry.
+  println("histSize=" + leaderHistory().length)
+  println("leader='" + currentLeader() + "'")
+  println("ok")
+}
+```

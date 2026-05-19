@@ -5768,6 +5768,8 @@ class JvmGen(
        |  val _ELECTION_TIMEOUT_MS  = 2000L
        |  val _leaderEventSubs      = new java.util.concurrent.CopyOnWriteArrayList[java.lang.Long]()
        |  val _leaderEventQueue     = new java.util.concurrent.ConcurrentLinkedQueue[(String, String)]()
+       |  def _fireLeaderEvent(tag: String, leaderId: String): Unit =
+       |    if !_leaderEventSubs.isEmpty then _leaderEventQueue.offer((tag, leaderId))
        |  @volatile var _autoReelect: Boolean = false
        |  // v1.23 — protocol dispatch (cluster-raft.md §6).  "bully" today;
        |  //   Phase 3a flips to "raft", Phase 3b flips to "coord".
@@ -5782,6 +5784,67 @@ class JvmGen(
        |    val term = _leaderHistTermSeq.incrementAndGet()
        |    _leaderHist.offer((term, leaderId, System.currentTimeMillis()))
        |    while _leaderHist.size() > _LEADER_HIST_MAX do _leaderHist.pollFirst()
+       |  // v1.23 — Raft state (cluster-raft.md §4.1).
+       |  @volatile var _raftCurrentTerm: Long   = 0L
+       |  @volatile var _raftVotedFor:    String = ""        // "" = None
+       |  @volatile var _raftState:       String = "follower" // follower | candidate | leader
+       |  @volatile var _raftLeaderId:    String = ""
+       |  @volatile var _raftElectionDue: Long   = 0L
+       |  @volatile var _raftVotes:       Int    = 0
+       |  val _RAFT_ELECTION_LO  = 150L
+       |  val _RAFT_ELECTION_HI  = 300L
+       |  val _RAFT_HEARTBEAT_MS = 50L
+       |  val _raftTickThread = new java.util.concurrent.atomic.AtomicReference[Thread](null)
+       |  val _raftRand       = new scala.util.Random()
+       |  def _raftRandTimeout: Long =
+       |    _RAFT_ELECTION_LO + _raftRand.nextInt((_RAFT_ELECTION_HI - _RAFT_ELECTION_LO).toInt + 1)
+       |  def _raftBroadcastHeartbeat(): Unit =
+       |    val payload = "{\"t\":\"raft_append\",\"from\":" + _jstr(_localNodeId) +
+       |                  ",\"term\":" + _raftCurrentTerm.toString + "}"
+       |    _peerChannels.forEach { (_, send) => try send(payload) catch case _: Throwable => () }
+       |  def _raftAdoptLeader(newLeader: String): Unit =
+       |    val prev = _currentLeader.getAndSet(newLeader)
+       |    if prev != newLeader then
+       |      _fireLeaderEvent("LeaderElected", newLeader)
+       |      _recordLeaderHist(newLeader)
+       |  def _startRaftElection(): Unit =
+       |    _raftState       = "candidate"
+       |    _raftCurrentTerm = _raftCurrentTerm + 1
+       |    _raftVotedFor    = _localNodeId
+       |    _raftVotes       = 1
+       |    _raftElectionDue = System.currentTimeMillis() + _raftRandTimeout
+       |    val peerIds = scala.collection.mutable.ListBuffer.empty[String]
+       |    _peerChannels.keySet().forEach(p => peerIds += p)
+       |    val total = peerIds.size + 1
+       |    // Single-node majority is trivially us — claim immediately.
+       |    if _raftVotes > total / 2 then
+       |      _raftState    = "leader"
+       |      _raftLeaderId = _localNodeId
+       |      _raftAdoptLeader(_localNodeId)
+       |      _raftBroadcastHeartbeat()
+       |    else
+       |      val payload = "{\"t\":\"raft_vote_req\",\"from\":" + _jstr(_localNodeId) +
+       |                    ",\"term\":" + _raftCurrentTerm.toString + ",\"lastLogTerm\":0}"
+       |      peerIds.foreach { nid =>
+       |        try Option(_peerChannels.get(nid)).foreach(_.apply(payload))
+       |        catch case _: Throwable => ()
+       |      }
+       |  def _ensureRaftTickThread(): Unit =
+       |    if _raftTickThread.get() != null then return
+       |    val t = Thread.ofVirtual().start { () =>
+       |      try
+       |        while _leaderProtocol.get() == "raft" do
+       |          Thread.sleep(_RAFT_HEARTBEAT_MS)
+       |          val now = System.currentTimeMillis()
+       |          _raftState match
+       |            case "leader" =>
+       |              _raftBroadcastHeartbeat()
+       |            case "follower" | "candidate" =>
+       |              if now >= _raftElectionDue then _startRaftElection()
+       |            case _ => ()
+       |      catch case _: InterruptedException => ()
+       |    }
+       |    if !_raftTickThread.compareAndSet(null, t) then t.interrupt()
        |  // v1.23 — auto-reconnect: exponential-backoff retry per peer URL after a
        |  // disconnect.  Both fields 0 ⇒ disabled (default).  `setReconnectPolicy`
        |  // sets them at runtime.
@@ -5855,8 +5918,6 @@ class JvmGen(
        |                      ",\"value\":" + localVal.doubleValue().toString + "}"
        |        try targetSend(payload) catch case _: Throwable => ()
        |    }
-       |  def _fireLeaderEvent(tag: String, leaderId: String): Unit =
-       |    if !_leaderEventSubs.isEmpty then _leaderEventQueue.offer((tag, leaderId))
        |  def _broadcastCoordinator(): Unit =
        |    val payload = "{\"t\":\"coordinator\",\"from\":" + _jstr(_localNodeId) + "}"
        |    _peerChannels.forEach { (_, send) => try send(payload) catch case _: Throwable => () }
@@ -6147,6 +6208,49 @@ class JvmGen(
        |        val name  = _extractJsonStr(json, "\"name\"")
        |        val value = _extractJsonDouble(json, "\"value\"")
        |        if from.nonEmpty && name.nonEmpty then _applyMetricUpdate(name, from, value)
+       |      // v1.23 — Raft RPCs (cluster-raft.md §4.2).
+       |      case "raft_vote_req" =>
+       |        val from = _extractJsonStr(json, "\"from\"")
+       |        val term = _extractJsonLong(json, "\"term\"")
+       |        if from.nonEmpty then
+       |          val granted =
+       |            if term < _raftCurrentTerm then false
+       |            else
+       |              if term > _raftCurrentTerm then
+       |                _raftCurrentTerm = term
+       |                _raftVotedFor    = ""
+       |                _raftState       = "follower"
+       |              if _raftVotedFor.isEmpty || _raftVotedFor == from then
+       |                _raftVotedFor    = from
+       |                _raftElectionDue = System.currentTimeMillis() + _raftRandTimeout
+       |                true
+       |              else false
+       |          val reply = "{\"t\":\"raft_vote_resp\",\"from\":" + _jstr(_localNodeId) +
+       |                      ",\"term\":" + _raftCurrentTerm.toString +
+       |                      ",\"granted\":" + granted.toString + "}"
+       |          try Option(_peerChannels.get(from)).foreach(_.apply(reply))
+       |          catch case _: Throwable => ()
+       |      case "raft_vote_resp" =>
+       |        val term = _extractJsonLong(json, "\"term\"")
+       |        val granted = json.contains("\"granted\":true")
+       |        if term == _raftCurrentTerm && _raftState == "candidate" && granted then
+       |          _raftVotes = _raftVotes + 1
+       |          val total = _peerChannels.size() + 1
+       |          if _raftVotes > total / 2 then
+       |            _raftState    = "leader"
+       |            _raftLeaderId = _localNodeId
+       |            _raftAdoptLeader(_localNodeId)
+       |            _raftBroadcastHeartbeat()
+       |      case "raft_append" =>
+       |        val from = _extractJsonStr(json, "\"from\"")
+       |        val term = _extractJsonLong(json, "\"term\"")
+       |        if from.nonEmpty && term >= _raftCurrentTerm then
+       |          _raftCurrentTerm = term
+       |          _raftState       = "follower"
+       |          val prevLeader   = _raftLeaderId
+       |          _raftLeaderId    = from
+       |          _raftElectionDue = System.currentTimeMillis() + _raftRandTimeout
+       |          if prevLeader != from then _raftAdoptLeader(from)
        |      case _      => ()
        |
        |  def _extractJsonStr(json: String, key: String, fromIdx: Int = 0): String =
@@ -6667,12 +6771,16 @@ class JvmGen(
        |      }
        |      val majority = (total + 1) / 2
        |      Right(k(total > 0 && votes >= majority))
-       |    // v1.23 — leader election (Bully)
+       |    // v1.23 — leader election (Bully or Raft, picked by _leaderProtocol)
        |    case "electLeader" =>
-       |      _startElection()
+       |      _leaderProtocol.get() match
+       |        case "raft" => _startRaftElection()
+       |        case _      => _startElection()
        |      Right(k(()))
        |    case "currentLeader" =>
-       |      Right(k(_currentLeader.get()))
+       |      _leaderProtocol.get() match
+       |        case "raft" => Right(k(_raftLeaderId))
+       |        case _      => Right(k(_currentLeader.get()))
        |    case "subscribeLeaderEvents" =>
        |      val boxed = java.lang.Long.valueOf(id)
        |      if !_leaderEventSubs.contains(boxed) then _leaderEventSubs.add(boxed)
@@ -6685,6 +6793,9 @@ class JvmGen(
        |    // v1.23 — protocol switch + history (cluster-raft.md §6).
        |    case "useRaftLeaderElection" =>
        |      _leaderProtocol.set("raft")
+       |      _raftState       = "follower"
+       |      _raftElectionDue = System.currentTimeMillis() + _raftRandTimeout
+       |      _ensureRaftTickThread()
        |      Right(k(()))
        |    case "useExternalCoordinator" =>
        |      _leaderProtocol.set("coord")
