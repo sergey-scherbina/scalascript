@@ -5223,6 +5223,12 @@ private val JsRuntimeAsyncB: String = """
       }
     }
   }
+  // v1.23 — graceful cluster shutdown: release the coord lease if we
+  // hold it, so the next leader can claim immediately.
+  if (_leaderProtocol === 'coord' && _coordIsLeader && _coordReleaseFn) {
+    try { _coordReleaseFn(_localNodeId); } catch (_) {}
+    _coordIsLeader = false;
+  }
   return rootResult;
 }
 

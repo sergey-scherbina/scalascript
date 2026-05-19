@@ -5317,6 +5317,14 @@ class Interpreter(
 
       // Drain dead-letter logging for messages stuck in completed
       // actors' mailboxes — informational only, doesn't fail the run.
+      // v1.23 — graceful cluster shutdown: release the coord lease if we
+      // hold it, so the next leader can claim immediately.
+      if leaderProtocolRef.get() == "coord" && coordIsLeader then
+        coordReleaseFn match
+          case Value.NativeFnV(_, _) | _: Value.FunV =>
+            callCoordFn(coordReleaseFn, List(Value.StringV(localNodeId)))
+          case _ => ()
+        coordIsLeader = false
       Pure(rootResult.getOrElse(rootId, Value.UnitV))
     finally
       actorRt = savedRt

@@ -5753,6 +5753,16 @@ class JvmGen(
        |          stepActor(id, initial)
        |      }
        |
+       |  // v1.23 — graceful cluster shutdown: release the coord lease if we
+       |  // hold it, so the next leader can claim immediately instead of
+       |  // waiting for the TTL.  Raft's final (term, votedFor) is already
+       |  // on disk via _raftPersist().
+       |  if _leaderProtocol.get() == "coord" && _coordIsLeader then
+       |    val rel = _coordReleaseFn
+       |    if rel != null then
+       |      try rel.asInstanceOf[String => Unit](_localNodeId)
+       |      catch case _: Throwable => ()
+       |    _coordIsLeader = false
        |  rootResult
        |""".stripMargin +
     """|
