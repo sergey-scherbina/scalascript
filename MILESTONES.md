@@ -442,9 +442,10 @@ unblocks downstream features as early as possible.
      v1.17.1 hardening ✓ Landed; v1.17.2 SSE/JS ✓ Landed;
      v1.17.3 prompts/JVM ✓ Landed; v1.17.4-min Http/Ws/JVM (minimal
      wiring, echo placeholder) ✓ Landed; v1.17.4-runtime consolidation
-     Phase 1 (a + b + c — `runtime-server-common`) ✓ Landed; v1.17.4
-     full (real `McpServerSession` dispatch + SDK import fixes) ✓
-     Landed (all 2026-05-19).
+     Phase 1 (a + b + c) + Phase 2 (a + b — pure HTTP / TLS helpers
+     extracted, 18 inlined files) ✓ Landed; v1.17.4 full (real
+     `McpServerSession` dispatch + SDK import fixes) ✓ Landed (all
+     2026-05-19).
      Anthropic's Model Context Protocol via REST-shaped API
      in a separate namespace (`std/mcp/*`).  Intrinsic-first:
      wraps `@modelcontextprotocol/sdk` on Node and
@@ -3091,22 +3092,53 @@ runtime dispatcher already pattern-matches on `_StreamResponse | Response
 runtime behaviour and stays compatible with existing `Request => Response`
 callers (Response is a subtype of Any).
 
+### v1.17.4-runtime — runtime-server-common consolidation Phase 2 (partial) ✓ Landed (2026-05-19)
+
+Phase 2 of `PLAN-runtime-consolidation.md` — pulled every pure HTTP /
+TLS helper that did not require the dispatcher refactor.  Both server
+stacks (interpreter `WebServer` + JvmGen `serveRuntime`) now share the
+same source of truth for these primitives:
+
+- **Phase 2a** — `HttpHelpers` (path parser + matcher, query parser,
+  MIME sniffer), `Multipart` (form / file part parser returning POJO
+  `UploadedFile`s), and the `UploadedFile` POJO itself moved to
+  runtime-server-common.  JvmGen's `_parsePath` / `_matchPath` /
+  `_parseQuery` / `_parseMultipart` / `_contentTypeFor` collapsed to
+  one-line delegates; `WebServer.parseQuery` / `contentTypeFor` ditto;
+  `WebServer.parseMultipart` is a 15-line Value-conversion wrapper on
+  top of the shared parser (vs the previous 60-line duplicate).  Both
+  case-class definitions of `UploadedFile` (one on each side) collapsed
+  into the single inlined POJO.
+- **Phase 2b** — `TlsContextBuilder` (TLS SSLContext builder + virtual-
+  thread executor builder).  PEM handling unified — PKCS#1 RSA keys
+  go through `DerCodec.wrapPkcs1InPkcs8` on both sides; EC fallback
+  preserved.
+
+Net additional dedup: ~310 LOC removed across the two backends,
+replaced with ~20 LOC of one-line shims; `runtime-server-common` now
+packages **18** Scala files inlined into the codegen output.
+
 ### Deferred follow-ups (v1.17.x backlog, ordered by priority)
 
-1. **Phase 2 of runtime consolidation** — split the remaining
-   interpreter-coupled classes (`WebServer` ~720 LOC, `WsConnection`
-   ~540 LOC, `WsRoutes` ~120 LOC, `WsProxy` ~500 LOC, `BlockingWsSession`
-   ~230 LOC, `WsClientSession` ~200 LOC, `TlsProxy` ~250 LOC — total
-   ~2 560 LOC) behind a `RouteDispatcher` trait so the protocol layer
-   can also move to `runtime-server-common`.  This is genuinely a 2–3
-   day refactor: the coupling is structural (the dispatcher invokes user
-   handlers as `Value.Closure`s via `Interpreter.eval` in one backend,
-   as plain Scala closures in the other), so a clean split requires
-   unifying the `Request` / `Response` case-class shape, JSON dispatch,
-   gzip, CORS, session cookie, and rate-limit middleware behind a
-   `RouteDispatcher.dispatch(req: Request): Any` boundary.  After this
-   lands, `serveRuntime` shrinks from the current ~1 200 LOC of glue to
-   ~300 LOC of `RouteDispatcher` glue + the user-facing `route()` /
+1. **Phase 2c of runtime consolidation** — the final piece: define
+   `Request` / `Response` POJOs + `RouteDispatcher` trait in
+   runtime-server-common and split the HTTP dispatch loop itself
+   (`WebServer.handle` / `dispatchRoute` / `writeResponse` ~400 LOC on
+   the interpreter side, `_handle` / `_dispatchRoute` / `_writeResponse`
+   ~600 LOC on the codegen side) so both backends share the same
+   protocol-level code.  Same shape for the WS dispatcher
+   (`WsConnection` / `WsProxy` interpreter-side, the WS read-loop in
+   serveRuntime codegen-side).  The coupling is structural — the
+   dispatcher invokes user handlers as `Value.Closure`s via
+   `Interpreter.eval` in the interpreter backend, as plain Scala
+   closures in the codegen output — so a clean split requires the
+   `RouteDispatcher.dispatch(req: Request, params: Map[String, String]):
+   Any` boundary plus per-backend adapters that bridge Request POJO ↔
+   `Value.InstanceV` and Response / StreamResponse POJO ↔ Value pattern
+   matches.  Estimated 6–12 hours focused work with regression risk on
+   every existing WS / REST conformance test.  After this lands,
+   `serveRuntime` shrinks from the current ~1 200 LOC of glue to ~300
+   LOC of `RouteDispatcher` adapter + the user-facing `route()` /
    `serve()` / `onWebSocket()` aliases.
 2. **Own implementation for INT / scalajs-spa** — ~1500 LOC
    JSON-RPC 2.0 stack; blocked until INT becomes a priority target.
