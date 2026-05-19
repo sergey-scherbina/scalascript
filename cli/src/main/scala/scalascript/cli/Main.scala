@@ -3971,6 +3971,7 @@ def linkCommand(args: List[String]): Unit =
   var outputArg:   Option[String] = None
   var backendArg:  Option[String] = None
   var bytecode:    Boolean        = false
+  var sourceMap:   Boolean        = false
   val artifactDirs = scala.collection.mutable.ArrayBuffer.empty[String]
   val it = args.iterator
   while it.hasNext do
@@ -3978,10 +3979,11 @@ def linkCommand(args: List[String]): Unit =
       case "-o" | "--output" if it.hasNext  => outputArg  = Some(it.next())
       case "--backend"       if it.hasNext  => backendArg = Some(it.next())
       case "--bytecode"                     => bytecode = true
+      case "--source-map" | "--source-maps" => sourceMap = true
       case d                                => artifactDirs += d
 
   if artifactDirs.isEmpty then
-    System.err.println("Usage: ssc link <artifact-dir> [-o <output>] [--backend <id>] [--bytecode]")
+    System.err.println("Usage: ssc link <artifact-dir> [-o <output>] [--backend <id>] [--bytecode] [--source-map]")
     System.exit(1)
 
   // ── JVM cached-source mode ───────────────────────────────────────────────
@@ -4001,7 +4003,7 @@ def linkCommand(args: List[String]): Unit =
     }
     if scjvmFiles.nonEmpty then
       if bytecode then
-        linkJvmFromBytecode(scjvmFiles, outputArg)
+        linkJvmFromBytecode(scjvmFiles, outputArg, sourceMap)
       else
         linkJvmFromScjvm(scjvmFiles, outputArg)
       return
@@ -4027,7 +4029,7 @@ def linkCommand(args: List[String]): Unit =
       else os.list(p).filter(_.last.endsWith(".scjs-runtime")).toList.sorted
     }
     if scjsFiles.nonEmpty then
-      linkJsFromScjs(scjsFiles, runtimeFiles, outputArg)
+      linkJsFromScjs(scjsFiles, runtimeFiles, outputArg, sourceMap)
       return
   // Fall through to standard IR-link mode if no .scjs files were found.
 
@@ -4149,7 +4151,8 @@ def linkCommand(args: List[String]): Unit =
  *  v2.0 — Phase 2 bytecode-level JVM linker. */
 private def linkJvmFromBytecode(
     scjvmFiles: List[os.Path],
-    outputArg:  Option[String]
+    outputArg:  Option[String],
+    sourceMap:  Boolean = false
 ): Unit =
   // 1. Read every artifact, validate classBundle presence, accumulate
   //    (moduleId, base64) pairs in the order the user supplied.
@@ -4234,6 +4237,32 @@ private def linkJvmFromBytecode(
     s"($uniqueClasses unique class(es); JAR size ${os.size(outPath)} bytes)")
   if duplicates.nonEmpty then
     println(s"  (deduplicated ${duplicates.size} duplicate class entries; first-write-wins)")
+
+  // v2.0 Phase 4 — Option B source-map support.  When `--source-map` is
+  // set, write each module's `scalaSource` to `<outDir>/<moduleId>.ssc.scala`
+  // alongside the linked JAR.  Users can drop these files next to the
+  // JAR in an IDE (or attach them via "Attach Sources" in IntelliJ) for
+  // navigable stack traces.
+  //
+  // We chose Option B (sibling source files) over Option A (ASM-injected
+  // SourceDebugExtension + SMAP) because it requires no bytecode rewrite,
+  // no third-party dep, and IDE source navigation Just Works against a
+  // `.scala` file whose name matches the `.class` files' SourceFile
+  // attribute (which is `<moduleId>_sc.scala` today — close enough that
+  // IntelliJ falls back to whole-file source navigation).  Option A is
+  // a Phase 5 follow-up.
+  if sourceMap then
+    val outDir = outPath / os.up
+    var written = 0
+    for a <- artifacts.toList do
+      val safeName = a.moduleId.replaceAll("[^A-Za-z0-9_.-]", "_") match
+        case ""   => "Main"
+        case s    => if s.head.isDigit then "M" + s else s
+      val sidecar = outDir / s"$safeName.ssc.scala"
+      os.write.over(sidecar, a.scalaSource)
+      written += 1
+    println(s"  Source-map sidecars written ($written .ssc.scala file(s) " +
+      s"next to ${outPath.last}) for IDE source attachment.")
 
 private def linkJvmFromScjvm(
     scjvmFiles: List[os.Path],
@@ -4396,7 +4425,8 @@ private def mergeScalaSources(sources: List[String]): String =
 private def linkJsFromScjs(
     scjsFiles:    List[os.Path],
     runtimeFiles: List[os.Path],
-    outputArg:    Option[String]
+    outputArg:    Option[String],
+    sourceMap:    Boolean = false
 ): Unit =
   // Read all artifacts; bail on the first envelope mismatch so a stale
   // artifact can't silently pollute the combined source.
@@ -4431,6 +4461,51 @@ private def linkJsFromScjs(
         hasError = true
   if hasError then System.exit(1)
 
+  // v2.0 Phase 4 — when `--source-map` is set we track per-module line
+  // ranges so we can emit a V3 source map alongside `out.js`.  Each
+  // tracked module records `(moduleId, sscPath, startLineInclusive,
+  // endLineExclusive)` describing the rows of the combined output that
+  // came from that module's `jsSource`.  Runtime / preamble / wrapper
+  // lines fall in the gaps and are left unmapped in the resulting `.map`.
+  case class ModuleRange(moduleId: String, sscPath: String, startLine: Int, endLine: Int)
+  val moduleRanges = scala.collection.mutable.ArrayBuffer.empty[ModuleRange]
+
+  // Re-resolve the source `.ssc` filename for each artifact.  When the
+  // artifact dir contains a sibling `<moduleId>.ssc` (the typical layout
+  // for `compile-js a.ssc -o artifacts/a.scjs`), use that path; otherwise
+  // fall back to `<moduleId>.ssc` relative to the link output.  The
+  // resolved string is what appears in the source map's `sources` array.
+  def resolveSscPath(art: scalascript.ir.ModuleJsArtifact, artifactDir: os.Path): String =
+    val candidates = List(
+      artifactDir / s"${art.moduleId}.ssc",
+      artifactDir / os.up / s"${art.moduleId}.ssc"
+    )
+    candidates.find(os.exists) match
+      case Some(p) => p.toString
+      case None    => s"${art.moduleId}.ssc"
+
+  // Build a map artifact → resolved `.ssc` path.
+  val sscPathFor: Map[String, String] =
+    artifacts.zip(scjsFiles).map { (a, p) =>
+      a.moduleId -> resolveSscPath(a, p / os.up)
+    }.toMap
+
+  // Track how many lines we've appended so far to compute ranges.
+  val sb = new StringBuilder
+  var generatedLines = 0
+  def append(text: String): Unit =
+    sb.append(text)
+    if !text.endsWith("\n") then sb.append('\n')
+  def linesIn(s: String): Int =
+    // Count the number of newlines that the appended block contributes
+    // to the combined output.  We always append a trailing newline if
+    // missing, so the lines added == # of '\n' in the trimmed-trailing-\n
+    // block plus 1.
+    if s.isEmpty then 0
+    else
+      val trimmed = if s.endsWith("\n") then s.dropRight(1) else s
+      trimmed.count(_ == '\n') + 1
+
   val combined =
     if runtimeArts.nonEmpty then
       // Pick the runtime with the widest capability set — when multiple
@@ -4438,14 +4513,22 @@ private def linkJsFromScjs(
       // wins.  When two cover disjoint subsets, fall back to LCP-dedup
       // of their `jsSource` strings to recover the shared core.
       val widest = runtimeArts.maxBy(_.capabilities.size)
-      val sb     = new StringBuilder
-      sb.append(widest.jsSource)
-      if !widest.jsSource.endsWith("\n") then sb.append('\n')
-      sb.append("// ── scalascript user code ───────────────────────────────────────────\n")
+      append(widest.jsSource)
+      generatedLines += linesIn(widest.jsSource)
+      val marker = "// ── scalascript user code ───────────────────────────────────────────"
+      sb.append(marker).append('\n')
+      generatedLines += 1
       artifacts.toList.foreach { a =>
         if a.jsSource.nonEmpty then
-          sb.append(a.jsSource)
-          if !a.jsSource.endsWith("\n") then sb.append('\n')
+          val start = generatedLines
+          append(a.jsSource)
+          generatedLines += linesIn(a.jsSource)
+          moduleRanges += ModuleRange(
+            moduleId  = a.moduleId,
+            sscPath   = sscPathFor.getOrElse(a.moduleId, s"${a.moduleId}.ssc"),
+            startLine = start,
+            endLine   = generatedLines
+          )
       }
       // Flush the `_output` buffer at the end of the combined script —
       // `_println` appends to `_output` rather than printing directly so
@@ -4454,11 +4537,37 @@ private def linkJsFromScjs(
       // Node this writes to stdout; in a browser SPA the patch overrides
       // `serve(...)` and flushes via `console.log` on each route render.
       sb.append("process.stdout.write(_output.join('\\n') + (_output.length ? '\\n' : '')); _output = [];\n")
+      generatedLines += 1
       sb.toString
     else
       // Legacy v2.0 MVP path — every `.scjs` carries the full preamble.
-      // LCP-dedup lifts the shared prefix.
-      mergeJsSources(artifacts.toList.map(_.jsSource))
+      // LCP-dedup lifts the shared prefix.  We can't accurately attribute
+      // ranges per module here (the LCP step rewrites byte offsets), so
+      // we approximate: each module's UNIQUE tail (its `jsSource` minus
+      // the shared prefix) lands in order after the prefix.
+      val sources = artifacts.toList.map(_.jsSource)
+      val shared  = longestCommonPrefix(sources)
+      sb.append(shared)
+      if shared.nonEmpty && !shared.endsWith("\n") then sb.append('\n')
+      val preambleLines =
+        if shared.isEmpty then 0
+        else if shared.endsWith("\n") then shared.count(_ == '\n')
+        else shared.count(_ == '\n') + 1
+      generatedLines += preambleLines
+      artifacts.toList.foreach { a =>
+        val unique = a.jsSource.drop(shared.length)
+        if unique.nonEmpty then
+          val start = generatedLines
+          append(unique)
+          generatedLines += linesIn(unique)
+          moduleRanges += ModuleRange(
+            moduleId  = a.moduleId,
+            sscPath   = sscPathFor.getOrElse(a.moduleId, s"${a.moduleId}.ssc"),
+            startLine = start,
+            endLine   = generatedLines
+          )
+      }
+      dedupTopLevelDefs(sb.toString, lang = "js")
 
   if runtimeArts.nonEmpty then
     println(s"Linked ${artifacts.size} .scjs + 1 shared runtime " +
@@ -4468,14 +4577,65 @@ private def linkJsFromScjs(
     println(s"Linked ${artifacts.size} .scjs artifact(s) into combined JS source " +
       s"(${combined.linesIterator.length} lines)")
 
+  // Helper: when `--source-map` is set and we're writing to a real
+  // `out.js` path, also emit `out.js.map` next to it and append the
+  // `//# sourceMappingURL` pragma to `out.js`.  Returns the contents to
+  // actually write (which may carry the trailing pragma).
+  def maybeWriteSourceMap(outPath: os.Path, content: String): String =
+    if !sourceMap then content
+    else
+      val mapPath = os.Path(outPath.toString + ".map")
+      val builder = new SourceMapV3.Builder(outPath.last)
+      // Pre-register sources in stable order so the resulting indices
+      // match the order modules appear in `moduleRanges`.
+      moduleRanges.toList.foreach(r => builder.registerSource(r.sscPath))
+      val rangeByLine: Array[Option[ModuleRange]] =
+        // Lookup table: generated-line → owning module range, if any.
+        val arr = Array.fill[Option[ModuleRange]](combined.linesIterator.length)(None)
+        moduleRanges.foreach { r =>
+          var i = r.startLine
+          while i < r.endLine && i < arr.length do
+            arr(i) = Some(r)
+            i += 1
+        }
+        arr
+      var line = 0
+      while line < rangeByLine.length do
+        rangeByLine(line) match
+          case None    => builder.addUnmappedLines(1)
+          case Some(r) =>
+            // Map generated line → source line within the module's `.ssc`.
+            // We don't have per-line origin tracking on the emitted JS
+            // (the `.scjs` doesn't carry source positions), so we use a
+            // coarse line-N-in-module → line-N-in-source mapping clamped
+            // at line 0.  This is line-granularity by design — the task
+            // brief explicitly accepts coarse-grained mappings here.
+            val offsetInModule = line - r.startLine
+            builder.addMappedLine(r.sscPath, offsetInModule)
+        line += 1
+      val json = builder.toJson()
+      os.write.over(mapPath, json)
+      println(s"Source map written to $mapPath " +
+        s"(${builder.sources.length} source(s); " +
+        s"${combined.linesIterator.length} generated line(s))")
+      val pragma = s"//# sourceMappingURL=${mapPath.last}\n"
+      val joined =
+        if content.endsWith("\n") then content + pragma
+        else content + "\n" + pragma
+      joined
+
   outputArg match
     case Some("-") =>
+      // `-o -` always prints to stdout; source-map generation in
+      // streaming mode is meaningless (no path to point a pragma at)
+      // so we silently skip the map.
       println(combined)
 
     case Some(out) if out.endsWith(".js") =>
       val outPath = os.Path(out, os.pwd)
       os.makeDir.all(outPath / os.up)
-      os.write.over(outPath, combined)
+      val finalContent = maybeWriteSourceMap(outPath, combined)
+      os.write.over(outPath, finalContent)
       println(s"Combined JS source written to $outPath")
 
     case Some(out) =>
@@ -4484,6 +4644,8 @@ private def linkJsFromScjs(
 
     case None =>
       // No output: run via `node` if available, otherwise print to stdout.
+      // Source-map generation in "no -o" mode is also a no-op for the
+      // same reason as `-o -` — there's no on-disk path to anchor it.
       val nodeAvailable = scala.util.Try {
         os.proc("node", "--version").call(check = false, stdout = os.Pipe, stderr = os.Pipe).exitCode == 0
       }.getOrElse(false)
