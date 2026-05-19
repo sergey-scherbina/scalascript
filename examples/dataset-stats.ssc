@@ -1,0 +1,34 @@
+---
+name: dataset-stats
+description: End-to-end Dataset pipeline using the v1.21 follow-up API — union, zip, top, sum, avg
+---
+
+# Dataset stats — showcasing the post-v1.21 API
+
+A small "weather log analytics" pipeline using
+`union` / `zipWithIndex` / `top` / `min` / `max` / `sum` / `avg` /
+`countByValue`. Runs on all three backends.
+
+```scalascript
+// Two days of recorded temperatures (°C)
+val day1 = Dataset.of(8, 12, 15, 14, 11, 9, 7)
+val day2 = Dataset.of(10, 13, 17, 18, 16, 12, 10)
+
+// Combined sample
+val all = day1.union(day2)
+
+println(s"samples: ${all.count()}")
+println(s"min: ${all.min()}, max: ${all.max()}")
+println(s"sum: ${all.sum()}, avg: ${all.avg()}")
+
+// Top-3 hottest readings across both days
+println(s"top-3: ${all.top(3).mkString(", ")}")
+
+// Index each reading from day1 so you can tell where extremes happened
+day1.zipWithIndex.collect().foreach { case (t, h) => println(s"hour $h: $t°C") }
+
+// Count readings ≥ 15°C ("hot") via countByValue + map
+println("---hot vs cool---")
+val labels = all.map(t => if t >= 15 then "hot" else "cool").countByValue()
+List("cool", "hot").foreach(k => println(s"$k: ${labels(k)}"))
+```
