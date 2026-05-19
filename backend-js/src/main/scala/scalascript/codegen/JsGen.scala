@@ -3673,8 +3673,15 @@ const Actor = {
                               _perform('Actor', 'useExternalCoordinator', [acq, ren, rel, hol]),
   leaderProtocol:        ()  => _perform('Actor', 'leaderProtocol', []),
   leaderHistory:         ()  => _perform('Actor', 'leaderHistory', []),
-  // v1.23 — auto-reconnect policy
-  setReconnectPolicy: (ini, mx) => _perform('Actor', 'setReconnectPolicy', [ini, mx]),
+  // v1.23 — auto-reconnect policy (2- or 3-arg form)
+  setReconnectPolicy: function() {
+    const args = Array.prototype.slice.call(arguments);
+    return _perform('Actor', 'setReconnectPolicy', args);
+  },
+  // v1.23 — per-link heartbeat tuning
+  setHeartbeatTimeout: (iv, dead) => _perform('Actor', 'setHeartbeatTimeout', [iv, dead]),
+  // v1.23 — quorum-aware Bully threshold (split-brain guard)
+  setQuorumSize: (n) => _perform('Actor', 'setQuorumSize', [n]),
   // v1.23 — periodic gossip re-discovery
   requestGossip: () => _perform('Actor', 'requestGossip', []),
   // v1.23 — cluster configuration distribution
@@ -3939,9 +3946,20 @@ function _runActors(bodyFn) {
     _leaderEventQueue.push({ tag, leaderId });
   }
   // v1.23 — auto-reconnect: exponential-backoff retry per peer URL after a
-  // disconnect.  Both 0 ⇒ disabled (default).
+  // disconnect.  Both 0 ⇒ disabled (default).  giveUp caps wall-clock
+  // retry budget per URL (0 = retry forever).
   let _reconnectInitialMs = 0;
   let _reconnectMaxMs     = 0;
+  let _reconnectGiveUpMs  = 0;
+  // v1.23 — per-link heartbeat cadence + dead-after.  Defaults match
+  // pre-v1.23 hardcoded 30s/40s; `setHeartbeatTimeout` tunes them.
+  let _peerHeartbeatIntervalMs  = 30000;
+  let _peerHeartbeatDeadAfterMs = 40000;
+  // v1.23 — quorum-aware Bully threshold.  0 = no quorum check.
+  let _quorumSize = 0;
+  function _hasQuorum() {
+    return _quorumSize <= 0 || (_peerChannels.size + 1) >= _quorumSize;
+  }
   // v1.23 — cluster configuration distribution.  LWW per key by (ts, origin).
   const _clusterConfig    = new Map();   // key -> { value, ts, origin }
   const _configEventSubs  = new Set();
@@ -4016,11 +4034,16 @@ function _runActors(bodyFn) {
   function _scheduleReconnect(rurl, rtok) {
     if (_reconnectActive.has(rurl)) return;
     _reconnectActive.add(rurl);
+    const startedAt = Date.now();
     let delay = Math.max(_reconnectInitialMs, 1);
     const attempt = () => {
       if (_reconnectInitialMs <= 0) { _reconnectActive.delete(rurl); return; }
       // Already reconnected?  `_peerUrls` is populated on successful handshake.
       for (const u of _peerUrls.values()) if (u === rurl) { _reconnectActive.delete(rurl); return; }
+      // v1.23 — give-up budget: stop after the configured wall-clock.
+      if (_reconnectGiveUpMs > 0 && (Date.now() - startedAt) >= _reconnectGiveUpMs) {
+        _reconnectActive.delete(rurl); return;
+      }
       try { _connectNodeAsync(rurl, rtok); } catch (_) {}
       const cap = _reconnectMaxMs > 0 ? _reconnectMaxMs : delay;
       delay = Math.min(delay * 2, Math.max(cap, delay));
@@ -4041,9 +4064,13 @@ function _runActors(bodyFn) {
     const higher = [];
     for (const nid of _peerChannels.keys()) if (nid > _localNodeId) higher.push(nid);
     if (higher.length === 0) {
-      const prev = _currentLeader; _currentLeader = _localNodeId;
-      _broadcastCoordinator();
-      if (prev !== _localNodeId) { _fireLeaderEvent("LeaderElected", _localNodeId); _recordLeaderHist(_localNodeId); }
+      // v1.23 — quorum gate: refuse self-claim when below quorum
+      // (split-brain guard).  No-op when `_quorumSize = 0`.
+      if (_hasQuorum()) {
+        const prev = _currentLeader; _currentLeader = _localNodeId;
+        _broadcastCoordinator();
+        if (prev !== _localNodeId) { _fireLeaderEvent("LeaderElected", _localNodeId); _recordLeaderHist(_localNodeId); }
+      }
     } else {
       _electionInProgress = true;
       _electionStartedAt  = Date.now();
@@ -4941,8 +4968,26 @@ private val JsRuntimeAsyncB: String = """
       case 'setReconnectPolicy': {
         const ini = Number(args[0]) | 0;
         const mx  = Number(args[1]) | 0;
+        // v1.23 — optional 3rd arg: total wall-clock retry budget per
+        // URL; 0 = no cap (retry forever).
+        const giveUp = args.length > 2 ? (Number(args[2]) | 0) : 0;
         _reconnectInitialMs = Math.max(0, ini);
         _reconnectMaxMs     = Math.max(_reconnectInitialMs, mx);
+        _reconnectGiveUpMs  = Math.max(0, giveUp);
+        return { suspend: false, next: k(undefined) };
+      }
+      // v1.23 — heartbeat cadence + dead-after
+      case 'setHeartbeatTimeout': {
+        const iv   = Number(args[0]) | 0;
+        const dead = Number(args[1]) | 0;
+        _peerHeartbeatIntervalMs  = Math.max(1, iv);
+        _peerHeartbeatDeadAfterMs = Math.max(_peerHeartbeatIntervalMs, dead);
+        return { suspend: false, next: k(undefined) };
+      }
+      // v1.23 — quorum-aware Bully threshold
+      case 'setQuorumSize': {
+        const n = Number(args[0]) | 0;
+        _quorumSize = Math.max(0, n);
         return { suspend: false, next: k(undefined) };
       }
       // v1.23 — periodic gossip re-discovery
@@ -5131,7 +5176,10 @@ private val JsRuntimeAsyncB: String = """
     // v1.23 — Bully election timeout: claim self if no higher-id peer responded.
     if (_electionInProgress && Date.now() - _electionStartedAt >= _ELECTION_TIMEOUT_MS) {
       _electionInProgress = false;
-      if (!_gotAliveResponse) {
+      // v1.23 — quorum gate: same as `_startElection.higher.length === 0`
+      // branch — even though no higher peer responded, decline self-
+      // claim when below quorum.
+      if (!_gotAliveResponse && _hasQuorum()) {
         const _prev = _currentLeader;
         _currentLeader = _localNodeId;
         _broadcastCoordinator();

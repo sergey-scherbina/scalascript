@@ -1354,7 +1354,7 @@ class JvmGen(
         "setAutoReelect",
         "useRaftLeaderElection", "useExternalCoordinator", "leaderProtocol",
         "leaderHistory",
-        "setReconnectPolicy", "requestGossip",
+        "setReconnectPolicy", "setHeartbeatTimeout", "setQuorumSize", "requestGossip",
         "clusterConfigSet", "clusterConfigGet", "clusterConfigKeys",
         "subscribeConfigEvents",
         "setDraining", "isDraining", "drainingPeers", "subscribeDrainEvents",
@@ -2553,12 +2553,29 @@ class JvmGen(
     case Term.Apply.After_4_6_0(Term.Name("subscribeMetricEvents"), argClause)
         if argClause.values.isEmpty =>
       "Actor.subscribeMetricEvents()"
-    // v1.23 — auto-reconnect policy
+    // v1.23 — auto-reconnect policy (2- or 3-arg form)
     case Term.Apply.After_4_6_0(Term.Name("setReconnectPolicy"), argClause)
         if argClause.values.size == 2 =>
       val ini = emitExpr(argClause.values(0).asInstanceOf[Term])
       val mx  = emitExpr(argClause.values(1).asInstanceOf[Term])
       s"Actor.setReconnectPolicy($ini, $mx)"
+    case Term.Apply.After_4_6_0(Term.Name("setReconnectPolicy"), argClause)
+        if argClause.values.size == 3 =>
+      val ini    = emitExpr(argClause.values(0).asInstanceOf[Term])
+      val mx     = emitExpr(argClause.values(1).asInstanceOf[Term])
+      val giveUp = emitExpr(argClause.values(2).asInstanceOf[Term])
+      s"Actor.setReconnectPolicy($ini, $mx, $giveUp)"
+    // v1.23 — per-link heartbeat tuning
+    case Term.Apply.After_4_6_0(Term.Name("setHeartbeatTimeout"), argClause)
+        if argClause.values.size == 2 =>
+      val iv   = emitExpr(argClause.values(0).asInstanceOf[Term])
+      val dead = emitExpr(argClause.values(1).asInstanceOf[Term])
+      s"Actor.setHeartbeatTimeout($iv, $dead)"
+    // v1.23 — quorum-aware Bully threshold
+    case Term.Apply.After_4_6_0(Term.Name("setQuorumSize"), argClause)
+        if argClause.values.size == 1 =>
+      val n = emitExpr(argClause.values(0).asInstanceOf[Term])
+      s"Actor.setQuorumSize($n)"
     // v1.23 — periodic gossip re-discovery
     case Term.Apply.After_4_6_0(Term.Name("requestGossip"), argClause)
         if argClause.values.isEmpty =>
@@ -3464,12 +3481,29 @@ class JvmGen(
     case Term.Apply.After_4_6_0(Term.Name("subscribeMetricEvents"), argClause)
         if argClause.values.isEmpty =>
       "Actor.subscribeMetricEvents()"
-    // v1.23 — auto-reconnect policy
+    // v1.23 — auto-reconnect policy (2- or 3-arg form)
     case Term.Apply.After_4_6_0(Term.Name("setReconnectPolicy"), argClause)
         if argClause.values.size == 2 =>
       val ini = emitExpr(argClause.values(0).asInstanceOf[Term])
       val mx  = emitExpr(argClause.values(1).asInstanceOf[Term])
       s"Actor.setReconnectPolicy($ini, $mx)"
+    case Term.Apply.After_4_6_0(Term.Name("setReconnectPolicy"), argClause)
+        if argClause.values.size == 3 =>
+      val ini    = emitExpr(argClause.values(0).asInstanceOf[Term])
+      val mx     = emitExpr(argClause.values(1).asInstanceOf[Term])
+      val giveUp = emitExpr(argClause.values(2).asInstanceOf[Term])
+      s"Actor.setReconnectPolicy($ini, $mx, $giveUp)"
+    // v1.23 — per-link heartbeat tuning
+    case Term.Apply.After_4_6_0(Term.Name("setHeartbeatTimeout"), argClause)
+        if argClause.values.size == 2 =>
+      val iv   = emitExpr(argClause.values(0).asInstanceOf[Term])
+      val dead = emitExpr(argClause.values(1).asInstanceOf[Term])
+      s"Actor.setHeartbeatTimeout($iv, $dead)"
+    // v1.23 — quorum-aware Bully threshold
+    case Term.Apply.After_4_6_0(Term.Name("setQuorumSize"), argClause)
+        if argClause.values.size == 1 =>
+      val n = emitExpr(argClause.values(0).asInstanceOf[Term])
+      s"Actor.setQuorumSize($n)"
     // v1.23 — periodic gossip re-discovery
     case Term.Apply.After_4_6_0(Term.Name("requestGossip"), argClause)
         if argClause.values.isEmpty =>
@@ -5159,6 +5193,13 @@ class JvmGen(
        |  def leaderHistory(): Any                              = _perform("Actor", "leaderHistory")
        |  // v1.23 — auto-reconnect policy (exponential backoff per peer)
        |  def setReconnectPolicy(initialMs: Any, maxMs: Any): Any = _perform("Actor", "setReconnectPolicy", initialMs, maxMs)
+       |  def setReconnectPolicy(initialMs: Any, maxMs: Any, giveUpAfterMs: Any): Any =
+       |    _perform("Actor", "setReconnectPolicy", initialMs, maxMs, giveUpAfterMs)
+       |  // v1.23 — per-link heartbeat cadence + dead-after threshold
+       |  def setHeartbeatTimeout(intervalMs: Any, deadAfterMs: Any): Any =
+       |    _perform("Actor", "setHeartbeatTimeout", intervalMs, deadAfterMs)
+       |  // v1.23 — quorum-aware Bully threshold (split-brain guard)
+       |  def setQuorumSize(n: Any): Any = _perform("Actor", "setQuorumSize", n)
        |  // v1.23 — periodic gossip re-discovery (ask peers for their peer list)
        |  def requestGossip(): Any = _perform("Actor", "requestGossip")
        |  // v1.23 — cluster configuration distribution
@@ -5427,9 +5468,20 @@ class JvmGen(
        |          _fireLeaderEvent("LeaderLost", _localNodeId)
        |  // v1.23 — auto-reconnect: exponential-backoff retry per peer URL after a
        |  // disconnect.  Both fields 0 ⇒ disabled (default).  `setReconnectPolicy`
-       |  // sets them at runtime.
+       |  // sets them at runtime.  `_reconnectGiveUpMs` caps the total
+       |  // wall-clock retry budget per URL (0 = retry forever).
        |  @volatile var _reconnectInitialMs: Long = 0L
        |  @volatile var _reconnectMaxMs:     Long = 0L
+       |  @volatile var _reconnectGiveUpMs:  Long = 0L
+       |  // v1.23 — per-link heartbeat tuning.  Defaults 30s ping / 40s dead
+       |  // match the pre-v1.23 hardcoded values; `setHeartbeatTimeout` tunes
+       |  // them for low-latency / test clusters.
+       |  @volatile var _peerHeartbeatIntervalMs:  Long = 30000L
+       |  @volatile var _peerHeartbeatDeadAfterMs: Long = 40000L
+       |  // v1.23 — quorum-aware Bully threshold.  0 = no quorum check;
+       |  // set to N/2+1 of expected cluster size for split-brain guard.
+       |  @volatile var _quorumSize: Long = 0L
+       |  def _hasQuorum: Boolean = _quorumSize <= 0L || (_peerChannels.size + 1L) >= _quorumSize
        |  // v1.23 — cluster configuration distribution.  LWW per key by timestamp;
        |  // ties broken by lex-greatest nodeId so all nodes converge.
        |  val _clusterConfig    = new java.util.concurrent.ConcurrentHashMap[String, (String, Long, String)]()
@@ -5509,11 +5561,15 @@ class JvmGen(
        |      val higher = scala.collection.mutable.ListBuffer.empty[String]
        |      _peerChannels.keySet().forEach(nid => if nid > _localNodeId then higher += nid)
        |      if higher.isEmpty then
-       |        val prev = _currentLeader.getAndSet(_localNodeId)
-       |        _broadcastCoordinator()
-       |        if prev != _localNodeId then
-       |          _fireLeaderEvent("LeaderElected", _localNodeId)
-       |          _recordLeaderHist(_localNodeId)
+       |        // v1.23 — quorum gate: refuse self-claim when below quorum
+       |        // (split-brain guard).  No-op when `_quorumSize = 0`.
+       |        if !_hasQuorum then ()
+       |        else
+       |          val prev = _currentLeader.getAndSet(_localNodeId)
+       |          _broadcastCoordinator()
+       |          if prev != _localNodeId then
+       |            _fireLeaderEvent("LeaderElected", _localNodeId)
+       |            _recordLeaderHist(_localNodeId)
        |      else
        |        _electionInProgress = true
        |        _electionStartedAt  = System.currentTimeMillis()
@@ -5640,10 +5696,10 @@ class JvmGen(
        |            val hbThread = Thread.ofVirtual().start { () =>
        |              try
        |                while _peerChannels.containsKey(pnId) do
-       |                  Thread.sleep(30000L)
+       |                  Thread.sleep(_peerHeartbeatIntervalMs)
        |                  if _peerChannels.containsKey(pnId) then
        |                    val age = System.currentTimeMillis() - _peerLastPong.getOrDefault(pnId, 0L)
-       |                    if age > 40000L then
+       |                    if age > _peerHeartbeatDeadAfterMs then
        |                      _peerChannels.remove(pnId)
        |                      try if _ws2 != null then _ws2.abort() catch case _: Throwable => ()
        |                    else try _peerChannels.get(pnId)("{\"t\":\"ping\"}") catch case _: Throwable => ()
@@ -5688,6 +5744,7 @@ class JvmGen(
        |  def _scheduleReconnect(rurl: String, rtok: String): Unit =
        |    if !_reconnectActive.add(rurl) then return
        |    Thread.ofVirtual().start { () =>
+       |      val startedAt = System.currentTimeMillis()
        |      var delay = _reconnectInitialMs.max(1L)
        |      var done  = false
        |      try
@@ -5695,6 +5752,11 @@ class JvmGen(
        |          try Thread.sleep(delay) catch case _: InterruptedException => done = true
        |          if !done && _reconnectInitialMs <= 0L then done = true
        |          if !done && _peerUrls.containsValue(rurl) then done = true
+       |          // v1.23 — give-up budget: stop retrying after the
+       |          // configured wall-clock elapsed.  0 ⇒ retry forever.
+       |          if !done && _reconnectGiveUpMs > 0L &&
+       |             (System.currentTimeMillis() - startedAt) >= _reconnectGiveUpMs then
+       |            done = true
        |          if !done then
        |            try _connectPeer(rurl, rtok) catch case _: Throwable => ()
        |            if _peerUrls.containsValue(rurl) then done = true
@@ -6250,10 +6312,10 @@ class JvmGen(
        |              val hbThread = Thread.ofVirtual().start { () =>
        |                try
        |                  while _peerChannels.containsKey(pnId) do
-       |                    Thread.sleep(30000L)
+       |                    Thread.sleep(_peerHeartbeatIntervalMs)
        |                    if _peerChannels.containsKey(pnId) then
        |                      val age = System.currentTimeMillis() - _peerLastPong.getOrDefault(pnId, 0L)
-       |                      if age > 40000L then _peerChannels.remove(pnId)
+       |                      if age > _peerHeartbeatDeadAfterMs then _peerChannels.remove(pnId)
        |                      else try _peerChannels.get(pnId)("{\"t\":\"ping\"}") catch case _: Throwable => ()
        |                catch case _: InterruptedException => ()
        |              }
@@ -6448,18 +6510,41 @@ class JvmGen(
        |      Right(k(buf.toList))
        |    // v1.23 — auto-reconnect policy
        |    case "setReconnectPolicy" =>
-       |      val ini = args(0) match
+       |      def _argL(i: Int): Long = if args.length > i then args(i) match
+       |        case l: Long   => l
+       |        case i2: Int   => i2.toLong
+       |        case d: Double => d.toLong
+       |        case _         => 0L
+       |      else 0L
+       |      _reconnectInitialMs = _argL(0).max(0L)
+       |      _reconnectMaxMs     = _argL(1).max(_reconnectInitialMs)
+       |      // v1.23 — optional 3rd arg: total wall-clock retry budget (ms)
+       |      // per URL; 0 = no cap (retry forever).
+       |      _reconnectGiveUpMs  = _argL(2).max(0L)
+       |      Right(k(()))
+       |    // v1.23 — heartbeat cadence + dead-after threshold
+       |    case "setHeartbeatTimeout" =>
+       |      val iv = args(0) match
+       |        case l: Long   => l
+       |        case i: Int    => i.toLong
+       |        case d: Double => d.toLong
+       |        case _         => 30000L
+       |      val dead = args(1) match
+       |        case l: Long   => l
+       |        case i: Int    => i.toLong
+       |        case d: Double => d.toLong
+       |        case _         => 40000L
+       |      _peerHeartbeatIntervalMs  = iv.max(1L)
+       |      _peerHeartbeatDeadAfterMs = dead.max(_peerHeartbeatIntervalMs)
+       |      Right(k(()))
+       |    // v1.23 — quorum-aware Bully threshold
+       |    case "setQuorumSize" =>
+       |      val n = args(0) match
        |        case l: Long   => l
        |        case i: Int    => i.toLong
        |        case d: Double => d.toLong
        |        case _         => 0L
-       |      val max = args(1) match
-       |        case l: Long   => l
-       |        case i: Int    => i.toLong
-       |        case d: Double => d.toLong
-       |        case _         => 0L
-       |      _reconnectInitialMs = ini.max(0L)
-       |      _reconnectMaxMs     = max.max(_reconnectInitialMs)
+       |      _quorumSize = n.max(0L)
        |      Right(k(()))
        |    // v1.23 — periodic gossip re-discovery: ask every connected peer
        |    // for their peer-URL list.  Replies come back via the existing
@@ -6676,7 +6761,10 @@ class JvmGen(
        |    // responded with `alive` within the window.
        |    if _electionInProgress && System.currentTimeMillis() - _electionStartedAt >= _ELECTION_TIMEOUT_MS then
        |      _electionInProgress = false
-       |      if !_gotAliveResponse then
+       |      // v1.23 — quorum gate: same as `_startElection.higher.isEmpty`
+       |      // branch — even though no higher peer responded, decline to
+       |      // self-claim when below quorum.
+       |      if !_gotAliveResponse && _hasQuorum then
        |        val _prev = _currentLeader.getAndSet(_localNodeId)
        |        _broadcastCoordinator()
        |        if _prev != _localNodeId then
