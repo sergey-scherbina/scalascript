@@ -2581,9 +2581,15 @@ class JvmGen(
     // Drop the leading `package scalascript.server` declaration.  The
     // generated scala-cli script is top-level; mixing a package decl with
     // top-level statements would be invalid.  Leading blank line(s) after
-    // the package line are also dropped for readability.
+    // the package line are also dropped for readability.  Also rewrite
+    // `private[server]` / `protected[server]` access modifiers (which
+    // refer to the no-longer-present package) to bare `private` /
+    // `protected` — at top level the qualified form has no referent and
+    // file-local visibility is sufficient since all inlined sources end
+    // up in the same compilation unit.
     raw.linesIterator
       .dropWhile(l => l.trim.startsWith("package ") || l.trim.isEmpty)
+      .map(_.replace("private[server]", "private").replace("protected[server]", "protected"))
       .mkString("\n", "\n", "\n")
 
   /** Concatenate the pure-primitive sources from runtime-server-common in
@@ -2595,7 +2601,7 @@ class JvmGen(
     val files = List(
       "RestValidationError", "DerCodec", "WsFraming", "Metrics",
       "RateLimit", "Password", "Totp", "Jwt", "JwtRsa",
-      "SessionCookie", "SessionStore"
+      "SessionCookie", "SessionStore", "OAuth", "WebAuthn"
     )
     val header =
       "\n// ── runtime-server-common (inlined from classpath resources) ──────────\n" +
@@ -2783,208 +2789,21 @@ class JvmGen(
        |def jwtVerifyRsa(token: String): Option[Map[String, String]] = JwtRsa.verify(token)
        |private def _bearerFromAuth(h: String): Option[String] = Jwt.fromAuthHeader(h)
        |
-       |// ── OAuth2 helpers ────────────────────────────────────────────
-       |// Same surface as scalascript.server.OAuth: pure URL builder +
-       |// blocking token exchange via java.net.http.HttpClient.
-       |// Builtin presets + a mutable registry for user-supplied providers.
-       |private val _oauthProviders = new java.util.concurrent.ConcurrentHashMap[String, Map[String, String]](
-       |  java.util.Map.of(
-       |    "google", Map(
-       |      "authorizeUrl" -> "https://accounts.google.com/o/oauth2/v2/auth",
-       |      "tokenUrl"     -> "https://oauth2.googleapis.com/token",
-       |      "userinfoUrl"  -> "https://www.googleapis.com/oauth2/v3/userinfo",
-       |      "defaultScope" -> "openid email profile",
-       |    ),
-       |    "github", Map(
-       |      "authorizeUrl" -> "https://github.com/login/oauth/authorize",
-       |      "tokenUrl"     -> "https://github.com/login/oauth/access_token",
-       |      "userinfoUrl"  -> "https://api.github.com/user",
-       |      "defaultScope" -> "user:email",
-       |    ),
-       |  )
-       |)
-       |private def _oauthCfg(provider: String): Option[Map[String, String]] =
-       |  Option(_oauthProviders.get(provider))
+       |// ── OAuth2 — adapter shims ───────────────────────────────────
+       |// Implementation lives in scalascript.server.OAuth (inlined from
+       |// runtime-server-common, with built-in provider presets for google
+       |// / github and a mutable registry).  Shims preserve the existing
+       |// `oauth*` top-level API.
        |def oauthRegisterProvider(name: String, cfg: Map[String, String]): Unit =
-       |  _oauthProviders.put(name, _oauthCfg(name).getOrElse(Map.empty) ++ cfg)
-       |private def _oauthEnc(s: String): String =
-       |  java.net.URLEncoder.encode(s, "UTF-8")
+       |  OAuth.registerProvider(name, cfg)
        |def oauthAuthorizeUrl(provider: String, clientId: String, redirectUri: String, state: String, scope: String = ""): String =
-       |  val cfg = _oauthCfg(provider).getOrElse(throw IllegalArgumentException(s"unknown OAuth provider: $provider"))
-       |  val eff = if scope.nonEmpty then scope else cfg.getOrElse("defaultScope", "")
-       |  val base = cfg("authorizeUrl")
-       |  val params = scala.collection.mutable.LinkedHashMap[String, String]()
-       |  params("response_type") = "code"
-       |  params("client_id")     = clientId
-       |  params("redirect_uri")  = redirectUri
-       |  params("state")         = state
-       |  if eff.nonEmpty then params("scope") = eff
-       |  val qs = params.iterator.map((k, v) => _oauthEnc(k) + "=" + _oauthEnc(v)).mkString("&")
-       |  base + "?" + qs
-       |// More permissive JSON-object parser than `_sessionJsonDec`: handles
-       |// nested objects / arrays by surfacing them as raw JSON strings.
-       |// Needed for userinfo responses (e.g. GitHub's `plan: {...}`).
-       |private def _oauthJsonFlat(s: String): Option[Map[String, String]] =
-       |  val t = s.trim
-       |  if !t.startsWith("{") || !t.endsWith("}") then None
-       |  else
-       |    val inner = t.substring(1, t.length - 1).trim
-       |    if inner.isEmpty then Some(Map.empty)
-       |    else try
-       |      val out = scala.collection.mutable.LinkedHashMap.empty[String, String]
-       |      var i = 0
-       |      def skipWs(): Unit = while i < inner.length && inner.charAt(i).isWhitespace do i += 1
-       |      def readStr(): String =
-       |        if inner.charAt(i) != '"' then throw RuntimeException("expected quote")
-       |        i += 1
-       |        val sb = StringBuilder()
-       |        while i < inner.length && inner.charAt(i) != '"' do
-       |          val c = inner.charAt(i)
-       |          if c == '\\' && i + 1 < inner.length then
-       |            inner.charAt(i + 1) match
-       |              case '"'  => sb.append('"');  i += 2
-       |              case '\\' => sb.append('\\'); i += 2
-       |              case 'n'  => sb.append('\n'); i += 2
-       |              case 'r'  => sb.append('\r'); i += 2
-       |              case 't'  => sb.append('\t'); i += 2
-       |              case _    => sb.append(c); i += 1
-       |          else { sb.append(c); i += 1 }
-       |        i += 1
-       |        sb.toString
-       |      def readScalar(): String =
-       |        val sb = StringBuilder()
-       |        while i < inner.length && inner.charAt(i) != ',' && inner.charAt(i) != '}' do
-       |          sb.append(inner.charAt(i)); i += 1
-       |        sb.toString.trim
-       |      def readNested(open: Char, close: Char): String =
-       |        val sb = StringBuilder().append(inner.charAt(i)); i += 1
-       |        var depth = 1
-       |        while i < inner.length && depth > 0 do
-       |          val c = inner.charAt(i)
-       |          sb.append(c)
-       |          if c == '"' then
-       |            i += 1
-       |            while i < inner.length && inner.charAt(i) != '"' do
-       |              if inner.charAt(i) == '\\' && i + 1 < inner.length then
-       |                sb.append(inner.charAt(i)).append(inner.charAt(i + 1)); i += 2
-       |              else { sb.append(inner.charAt(i)); i += 1 }
-       |            if i < inner.length then { sb.append('"'); i += 1 }
-       |          else
-       |            if c == open  then depth += 1
-       |            if c == close then depth -= 1
-       |            i += 1
-       |        sb.toString
-       |      while i < inner.length do
-       |        skipWs(); val k = readStr()
-       |        skipWs()
-       |        if inner.charAt(i) != ':' then throw RuntimeException("expected colon")
-       |        i += 1
-       |        skipWs()
-       |        val v =
-       |          if inner.charAt(i) == '"' then readStr()
-       |          else if inner.charAt(i) == '{' then readNested('{', '}')
-       |          else if inner.charAt(i) == '[' then readNested('[', ']')
-       |          else readScalar()
-       |        out(k) = v
-       |        skipWs()
-       |        if i < inner.length then
-       |          if inner.charAt(i) != ',' then throw RuntimeException("expected comma")
-       |          i += 1; skipWs()
-       |      Some(out.toMap)
-       |    catch case _: Throwable => None
+       |  OAuth.authorizeUrl(provider, clientId, redirectUri, state, scope)
        |def oauthUserinfo(provider: String, accessToken: String): Option[Map[String, String]] =
-       |  _oauthCfg(provider).flatMap(_.get("userinfoUrl")).flatMap { url =>
-       |    try
-       |      val client = java.net.http.HttpClient.newBuilder()
-       |        .connectTimeout(java.time.Duration.ofSeconds(10)).build()
-       |      val req = java.net.http.HttpRequest.newBuilder()
-       |        .uri(java.net.URI.create(url))
-       |        .timeout(java.time.Duration.ofSeconds(30))
-       |        .header("Authorization", s"Bearer $accessToken")
-       |        .header("Accept",        "application/json")
-       |        .header("User-Agent",    "scalascript-oauth/0.6")
-       |        .GET().build()
-       |      val resp = client.send(req, java.net.http.HttpResponse.BodyHandlers.ofString())
-       |      if resp.statusCode() < 200 || resp.statusCode() >= 300 then None
-       |      else _oauthJsonFlat(resp.body())
-       |    catch case _: Throwable => None
-       |  }
-       |
+       |  OAuth.userinfo(provider, accessToken)
        |def oauthExchangeCode(provider: String, code: String, clientId: String, clientSecret: String, redirectUri: String): Option[Map[String, String]] =
-       |  _oauthCfg(provider).flatMap { cfg =>
-       |    val tokenUrl = cfg("tokenUrl")
-       |    val form = Map(
-       |      "grant_type"    -> "authorization_code",
-       |      "code"          -> code,
-       |      "client_id"     -> clientId,
-       |      "client_secret" -> clientSecret,
-       |      "redirect_uri"  -> redirectUri,
-       |    )
-       |    val body = form.iterator.map((k, v) => _oauthEnc(k) + "=" + _oauthEnc(v)).mkString("&")
-       |    try
-       |      val client = java.net.http.HttpClient.newBuilder().connectTimeout(java.time.Duration.ofSeconds(10)).build()
-       |      val req = java.net.http.HttpRequest.newBuilder()
-       |        .uri(java.net.URI.create(tokenUrl))
-       |        .timeout(java.time.Duration.ofSeconds(30))
-       |        .header("Content-Type", "application/x-www-form-urlencoded")
-       |        .header("Accept", "application/json")
-       |        .POST(java.net.http.HttpRequest.BodyPublishers.ofString(body))
-       |        .build()
-       |      val resp = client.send(req, java.net.http.HttpResponse.BodyHandlers.ofString())
-       |      if resp.statusCode() < 200 || resp.statusCode() >= 300 then None
-       |      else
-       |        val text = resp.body()
-       |        val ct   = resp.headers().firstValue("content-type").orElse("").toLowerCase
-       |        if ct.contains("application/json") || text.trim.startsWith("{") then
-       |          _sessionJsonDec(text)
-       |        else
-       |          Some(text.split('&').iterator.flatMap { pair =>
-       |            val i = pair.indexOf('=')
-       |            if i < 0 then None
-       |            else Some(
-       |              java.net.URLDecoder.decode(pair.substring(0, i), "UTF-8") ->
-       |              java.net.URLDecoder.decode(pair.substring(i + 1), "UTF-8"))
-       |          }.toMap)
-       |    catch case _: Throwable => None
-       |  }
-       |
-       |// `oauthRefreshToken(provider, refresh, clientId, clientSecret)` —
-       |// trade a long-lived refresh token for a fresh access token.
+       |  OAuth.exchangeCode(provider, code, clientId, clientSecret, redirectUri)
        |def oauthRefreshToken(provider: String, refresh: String, clientId: String, clientSecret: String): Option[Map[String, String]] =
-       |  _oauthCfg(provider).flatMap { cfg =>
-       |    val tokenUrl = cfg("tokenUrl")
-       |    val form = Map(
-       |      "grant_type"    -> "refresh_token",
-       |      "refresh_token" -> refresh,
-       |      "client_id"     -> clientId,
-       |      "client_secret" -> clientSecret,
-       |    )
-       |    val body = form.iterator.map((k, v) => _oauthEnc(k) + "=" + _oauthEnc(v)).mkString("&")
-       |    try
-       |      val client = java.net.http.HttpClient.newBuilder().connectTimeout(java.time.Duration.ofSeconds(10)).build()
-       |      val req = java.net.http.HttpRequest.newBuilder()
-       |        .uri(java.net.URI.create(tokenUrl))
-       |        .timeout(java.time.Duration.ofSeconds(30))
-       |        .header("Content-Type", "application/x-www-form-urlencoded")
-       |        .header("Accept", "application/json")
-       |        .POST(java.net.http.HttpRequest.BodyPublishers.ofString(body))
-       |        .build()
-       |      val resp = client.send(req, java.net.http.HttpResponse.BodyHandlers.ofString())
-       |      if resp.statusCode() < 200 || resp.statusCode() >= 300 then None
-       |      else
-       |        val text = resp.body()
-       |        val ct   = resp.headers().firstValue("content-type").orElse("").toLowerCase
-       |        if ct.contains("application/json") || text.trim.startsWith("{") then _oauthJsonFlat(text)
-       |        else
-       |          Some(text.split('&').iterator.flatMap { pair =>
-       |            val i = pair.indexOf('=')
-       |            if i < 0 then None
-       |            else Some(
-       |              java.net.URLDecoder.decode(pair.substring(0, i), "UTF-8") ->
-       |              java.net.URLDecoder.decode(pair.substring(i + 1), "UTF-8"))
-       |          }.toMap)
-       |    catch case _: Throwable => None
-       |  }
+       |  OAuth.refreshToken(provider, refresh, clientId, clientSecret)
        |
        |// HTTP Basic: Authorization: Basic <b64(user:pass)>
        |private def _basicFromAuth(h: String): Option[(String, String)] =
