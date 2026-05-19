@@ -176,15 +176,11 @@ class LinkerRewriteTest extends AnyFunSuite:
 
   // ── Test 2: Select rewrite (qualified call) ────────────────────────────
 
-  test("rewrite — qualified `a.bar()` is currently NOT rewritten (Select traversal does not match)"):
-    // The current rewriter recurses into Select.qual (`VarRef("a")`) but
-    // there is no symbol called "a" in the symbol table — only "bar" and
-    // its mangled "a_bar".  So `Select(VarRef("a"), "bar")` is left as-is.
-    // This is the documented current behaviour; a full Select rewrite
-    // (e.g. `a.bar` → `VarRef("a_bar")`) requires the linker to track
-    // package paths as qualifiers, which Stage 5.3 has not yet landed.
-    // TODO(v2.0 Stage 5.3): teach the rewriter to fold Select chains that
-    // resolve to a known export FQN into a bare `VarRef(fqn)`.
+  test("rewrite — qualified `a.bar()` is folded to VarRef(\"a_bar\")"):
+    // Stage 5.3: the rewriter now folds Select chains whose joined path
+    // matches a foreign export's FQN.  `Select(VarRef("a"), "bar")` where
+    // module A (pkg=["a"]) exports `bar` (fqn="a_bar") collapses to
+    // `VarRef("a_bar")` so downstream emitters get a single bare reference.
     val a = buildModule(
       src     = "def bar(): String = \"hi\"",
       pkg     = List("a"),
@@ -200,25 +196,48 @@ class LinkerRewriteTest extends AnyFunSuite:
     val merged = Linker.link(List(a, b))
     val bSecs  = sectionsOf(merged, 1)
 
-    // The Select chain should still be present — qualifier `a`, member `bar`.
+    // Select chain must be gone; a single VarRef("a_bar") must remain.
     var foundSelect = false
+    var foundFqn    = false
     def walk(x: IrExpr): Unit = x match
       case Select(VarRef("a"), "bar") => foundSelect = true
-      case Apply(fn, args) => walk(fn); args.foreach(walk)
-      case Select(q, _)    => walk(q)
-      case Lambda(_, body) => walk(body)
-      case If(c, t, e)     => walk(c); walk(t); e.foreach(walk)
-      case Block(stmts)    => stmts.foreach(walk)
-      case _               => ()
+      case VarRef("a_bar")            => foundFqn = true
+      case Apply(fn, args)            => walk(fn); args.foreach(walk)
+      case Select(q, _)               => walk(q)
+      case Lambda(_, body)            => walk(body)
+      case If(c, t, e)                => walk(c); walk(t); e.foreach(walk)
+      case Block(stmts)               => stmts.foreach(walk)
+      case _                          => ()
     bSecs.foreach { s =>
       s.content.foreach {
         case cb: Content.CodeBlock => cb.body.foreach(walk)
         case _ => ()
       }
     }
-    assert(foundSelect,
-      s"expected Select(VarRef(\"a\"), \"bar\") to survive (current behaviour); " +
-        s"refs = ${collectVarRefsFromSections(bSecs)}")
+    val refs = collectVarRefsFromSections(bSecs)
+    assert(!foundSelect, s"Select(VarRef(\"a\"),\"bar\") should have been folded; refs = $refs")
+    assert(foundFqn,     s"expected VarRef(\"a_bar\") after fold; refs = $refs")
+
+  test("rewrite — multi-segment package `std.dsl.foo()` is folded to VarRef(\"std_dsl_foo\")"):
+    // Same fold applies to deeper Select chains: Select(Select(VarRef("std"),"dsl"),"foo")
+    // where module A (pkg=["std","dsl"]) exports `foo` (fqn="std_dsl_foo")
+    // collapses to a single `VarRef("std_dsl_foo")`.
+    val a = buildModule(
+      src     = "def foo(): Int = 42",
+      pkg     = List("std", "dsl"),
+      exports = List("foo"),
+      moduleName = "A"
+    )
+    val b = buildModule(
+      src     = "val z = std.dsl.foo()",
+      pkg     = List("b"),
+      exports = List("z"),
+      moduleName = "B"
+    )
+    val merged = Linker.link(List(a, b))
+    val bSecs  = sectionsOf(merged, 1)
+    val refs   = collectVarRefsFromSections(bSecs)
+    assert(refs.contains("std_dsl_foo"), s"expected VarRef(\"std_dsl_foo\"); refs = $refs")
 
   // ── Test 3: Lambda parameter shadowing ─────────────────────────────────
 
