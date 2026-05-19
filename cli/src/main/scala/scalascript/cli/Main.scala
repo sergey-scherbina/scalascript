@@ -1,7 +1,7 @@
 package scalascript.cli
 
 import scalascript.parser.Parser
-import scalascript.typer.Typer
+import scalascript.typer.{Typer, SectionSnapshot}
 // Stage 5.4 will phase these direct imports out via HTTP intrinsics +
 // concrete ir.Value bridging.  Until then, render / build / serve / repl
 // commands need Interpreter + JsRuntime preamble strings directly;
@@ -1602,6 +1602,9 @@ def watchCommand(args: List[String]): Unit =
   var isServerFile  = false
   // Whether the server has already been started (bound port + blocking thread).
   var serverStarted = false
+  // Section snapshots from the previous type-check run, enabling incremental
+  // re-checking: only sections whose content hash changed are re-typed.
+  var prevTyperSnapshots: List[SectionSnapshot] = Nil
 
   def timestamp(): String =
     val now = java.time.LocalTime.now()
@@ -1610,6 +1613,11 @@ def watchCommand(args: List[String]): Unit =
   def runOnce(headless: Boolean): Unit =
     try
       val module = ParseCache.getOrParse(osPath)
+      // Incremental type-check: re-type only changed sections, surface errors.
+      val (typed, newSnaps) = Typer.typeCheckIncrementalModule(module, prevTyperSnapshots)
+      prevTyperSnapshots = newSnaps
+      if typed.errors.nonEmpty then
+        typed.errors.foreach(e => System.err.println(s"[${timestamp()}] type: ${e.show}"))
       if headless then
         // Hot-reload path: clear old routes, re-run in headless mode so
         // `serve(port)` is a no-op.  Routes are freshly re-registered
