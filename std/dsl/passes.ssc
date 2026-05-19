@@ -1,0 +1,123 @@
+---
+name: std-dsl-passes
+version: 1.0.0
+description: v1.20.3 DSL — multi-pass pipeline combinators (Pass[A,B], andThen, parallel, recover, traceAll, accumulate)
+exports:
+  - Pass
+  - PassError
+  - passOf
+  - passFail
+  - andThen
+  - parallel
+  - recover
+  - traceAll
+  - accumulate
+  - runPass
+---
+
+# `std/dsl/passes` — multi-pass pipeline combinators
+
+A `Pass[A, B]` is a single compiler/analyser stage that transforms `A`
+into `B` or produces a list of errors.  Combinators chain, fan-out, and
+accumulate passes into full multi-pass pipelines.
+
+## Core types
+
+```scalascript
+// A single pipeline stage: transform A into B, or collect errors.
+type Pass[A, B] = A => Either[List[PassError], B]
+
+// A named, positioned error produced by a pass.
+case class PassError(
+  phase:   String,   // pass name, e.g. "name-resolve"
+  message: String,
+  source:  String = "<unknown>",
+  line:    Int    = 0,
+  col:     Int    = 0
+):
+  override def toString: String =
+    if line == 0 then s"[$phase] $message"
+    else s"[$phase] $source:$line:$col — $message"
+```
+
+## Smart constructors
+
+```scalascript
+// Lift a pure total function into a pass (never fails).
+def passOf[A, B](f: A => B): Pass[A, B] =
+  a => Right(f(a))
+
+// A pass that always fails with a single error.
+def passFail[A, B](phase: String, message: String): Pass[A, B] =
+  _ => Left(List(PassError(phase, message)))
+
+// Run a pass and return its result.
+def runPass[A, B](p: Pass[A, B], a: A): Either[List[PassError], B] =
+  p(a)
+```
+
+## Combinators
+
+```scalascript
+// Sequential composition: pipe the output of p into q.
+// Short-circuits on first failure (standard fail-fast behaviour).
+extension [A, B](p: Pass[A, B])
+  def andThen[C](q: Pass[B, C]): Pass[A, C] =
+    a => p(a) match
+      case Left(errs)  => Left(errs)
+      case Right(b)    => q(b)
+
+// Fan-out: run p on the first component and q on the second, independently.
+// Both are run; errors are unioned.
+  def parallel[C, D](q: Pass[C, D]): Pass[(A, C), (B, D)] =
+    ac =>
+      val (a, c) = ac
+      (p(a), q(c)) match
+        case (Right(b), Right(d))   => Right((b, d))
+        case (Left(e1), Left(e2))   => Left(e1 ++ e2)
+        case (Left(e1), _)          => Left(e1)
+        case (_, Left(e2))          => Left(e2)
+
+// Error recovery: if p fails, transform the errors and produce a fallback B.
+// Useful for continuing a pipeline past a non-fatal phase.
+  def recover(fallback: List[PassError] => B): Pass[A, B] =
+    a => p(a) match
+      case Right(b) => Right(b)
+      case Left(es) => Right(fallback(es))
+
+// Trace all errors *and* the success value: always succeeds but logs internally.
+// Appends a phase annotation to every error message for debugging.
+  def traceAll(onError: PassError => Unit, onOk: B => Unit): Pass[A, B] =
+    a => p(a) match
+      case Right(b) =>
+        onOk(b)
+        Right(b)
+      case Left(es) =>
+        es.foreach(onError)
+        Left(es)
+```
+
+## Error accumulation
+
+```scalascript
+// Run a list of passes over the same A and collect ALL errors (not short-circuit).
+// Returns Right(results) only if every pass succeeds; Left of all errors otherwise.
+def accumulate[A, B](passes: List[Pass[A, B]], a: A): Either[List[PassError], List[B]] =
+  val results = passes.map(p => p(a))
+  val errors  = results.flatMap {
+    case Left(es) => es
+    case Right(_) => Nil
+  }
+  if errors.nonEmpty then Left(errors)
+  else Right(results.flatMap {
+    case Right(b) => List(b)
+    case Left(_)  => Nil
+  })
+
+// Annotate every error from pass p with the given phase name.
+// Useful when composing passes that may not set their own phase.
+def withPhase[A, B](phase: String, p: Pass[A, B]): Pass[A, B] =
+  a => p(a) match
+    case Right(b) => Right(b)
+    case Left(es) => Left(es.map(e => PassError(phase, e.message, e.source, e.line, e.col)))
+```
