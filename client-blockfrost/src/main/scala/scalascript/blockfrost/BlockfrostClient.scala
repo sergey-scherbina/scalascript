@@ -17,11 +17,20 @@ case class AddressInfo(
   assets:          Map[String, BigInt],   // unit → quantity
 )
 
+case class BlockfrostUtxo(
+  txHash:   String,
+  index:    Int,
+  lovelace: BigInt,
+  assets:   Map[String, BigInt],          // unit → quantity
+)
+
 // ── Trait ─────────────────────────────────────────────────────────────────────
 
 trait BlockfrostClient:
   def getAddressInfo(address: String): Future[AddressInfo]
   def isTxConfirmed(txHash: String): Future[Boolean]
+  def getUtxos(address: String): Future[Seq[BlockfrostUtxo]]
+  def submitTx(cbor: Array[Byte]): Future[String]
 
 // ── HTTP implementation ───────────────────────────────────────────────────────
 
@@ -55,6 +64,34 @@ private class BlockfrostClientImpl(config: BlockfrostConfig)(using ec: Execution
       val resp = basicRequest.headers(authHeaders).get(uri"$url")
         .response(asStringAlways).send(backend)
       resp.code.code == 200
+    }
+
+  def getUtxos(address: String): Future[Seq[BlockfrostUtxo]] =
+    Future {
+      val url  = s"${config.baseUrl}/addresses/$address/utxos"
+      val resp = basicRequest.headers(authHeaders).get(uri"$url")
+        .response(asStringAlways).send(backend)
+      if resp.code.code != 200 then
+        throw RuntimeException(s"Blockfrost UTxO ${resp.code}: ${resp.body}")
+      ujson.read(resp.body).arr.toSeq.map { u =>
+        val amounts  = u("amount").arr
+        val lovelace = amounts.find(_("unit").str == "lovelace")
+          .map(a => BigInt(a("quantity").str)).getOrElse(BigInt(0))
+        val assets   = amounts.filterNot(_("unit").str == "lovelace")
+          .map(a => a("unit").str -> BigInt(a("quantity").str)).toMap
+        BlockfrostUtxo(u("tx_hash").str, u("tx_index").num.toInt, lovelace, assets)
+      }
+    }
+
+  def submitTx(cbor: Array[Byte]): Future[String] =
+    Future {
+      val url  = s"${config.baseUrl}/tx/submit"
+      val resp = basicRequest.headers(authHeaders ++ Map("Content-Type" -> "application/cbor"))
+        .body(cbor).post(uri"$url")
+        .response(asStringAlways).send(backend)
+      if resp.code.code != 200 then
+        throw RuntimeException(s"Blockfrost submit ${resp.code}: ${resp.body}")
+      ujson.read(resp.body).str
     }
 
 // ── Factory ───────────────────────────────────────────────────────────────────

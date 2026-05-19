@@ -23,3 +23,7 @@ object ChainId:
   val Polygon:          ChainId = ChainId("eip155:137")
   val Arbitrum:         ChainId = ChainId("eip155:42161")
   val Optimism:         ChainId = ChainId("eip155:10")
+
+  // Cardano (CAIP-2 namespace "cardano")
+  val CardanoMainnet: ChainId = ChainId("cardano:mainnet")
+  val CardanoPreprod: ChainId = ChainId("cardano:preprod")
