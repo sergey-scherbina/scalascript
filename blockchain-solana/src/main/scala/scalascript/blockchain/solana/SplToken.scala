@@ -31,6 +31,12 @@ private[solana] object SplToken:
     val (addr, _) = Pda.findProgramAddress(Seq(owner, ProgramId, mint), AssociatedProgramId)
     addr
 
+  /** Associated Token Account program opcode 1: idempotent create —
+   *  succeeds whether or not the target ATA already exists, so it
+   *  is safe to prepend to any transfer without a pre-check race.
+   *  The instruction body is just the single opcode byte. */
+  val CreateAssociatedAccountIdempotentData: Array[Byte] = Array[Byte](1)
+
   /** Build the data payload for a TransferChecked instruction
    *  (opcode 12) — preferred over the legacy `Transfer` (opcode 3)
    *  because it checks the mint and decimal places on-chain,

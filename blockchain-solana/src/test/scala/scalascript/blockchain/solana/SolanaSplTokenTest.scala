@@ -122,6 +122,17 @@ class SolanaSplTokenTest extends AnyFunSuite:
           case "sendTransaction" =>
             lastBroadcastBase64 = Some(params.head.str)
             Future.successful(ujson.Str("4xK7…"))
+          case "getAccountInfo" =>
+            // Mock destination ATA as already existing (fast path).
+            Future.successful(ujson.Obj(
+              "value" -> ujson.Obj(
+                "owner"     -> ujson.Str("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"),
+                "lamports"  -> ujson.Num(2039280),
+                "data"      -> ujson.Arr(ujson.Str(""), ujson.Str("base64")),
+                "executable"-> ujson.Bool(false),
+                "rentEpoch" -> ujson.Num(0),
+              ),
+            ))
           case other =>
             Future.failed(new RuntimeException(s"unmocked: $other"))
       def nowSeconds: Long = 1700000000L
