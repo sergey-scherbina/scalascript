@@ -2,7 +2,7 @@ package scalascript.interpreter
 
 import scalascript.backend.spi.*
 import scalascript.ir.QualifiedName
-import scalascript.interpreter.mcp.*
+import scalascript.mcp.*
 import java.io.{BufferedReader, BufferedWriter, InputStreamReader, OutputStreamWriter}
 import scala.collection.mutable
 

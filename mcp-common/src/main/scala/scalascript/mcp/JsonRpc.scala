@@ -1,4 +1,4 @@
-package scalascript.interpreter.mcp
+package scalascript.mcp
 
 /** Pure-Scala JSON-RPC 2.0 framing for v1.17 MCP own-implementation
  *  on the interpreter backend.

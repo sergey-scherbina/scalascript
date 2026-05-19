@@ -1,4 +1,4 @@
-package scalascript.interpreter.mcp
+package scalascript.mcp
 
 import java.util.concurrent.{ConcurrentHashMap, LinkedBlockingQueue, TimeUnit}
 import java.util.concurrent.atomic.AtomicLong

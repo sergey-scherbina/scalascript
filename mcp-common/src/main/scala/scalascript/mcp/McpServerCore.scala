@@ -1,4 +1,4 @@
-package scalascript.interpreter.mcp
+package scalascript.mcp
 
 import scala.collection.mutable
 
