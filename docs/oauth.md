@@ -211,11 +211,44 @@ For multi-service production, switch to RS256 (RSA-SHA256):
   - Resource servers fetch the public key, validate locally
   - Compromising one RS doesn't compromise the AS
 
+### From a script
+
+Pass `signer: "RS256"` in the config; a fresh 2048-bit RSA key pair
+is generated automatically.  `signingKid` (optional) controls the
+JWT header `kid` + the JWKS entry id.
+
+```ssc
+val as = oauth.authServer(Map(
+  "issuer"        -> "https://auth.example.com",
+  "signingSecret" -> "unused-with-rsa-but-config-shape-requires-it",
+  "scopes"        -> List("read", "write"),
+  "signer"        -> "RS256",
+  "signingKid"    -> "prod-key-1"
+))
+oauth.serveAuthServer(as)
+```
+
+Discovery + JWKS metadata automatically pick up:
+
+```
+GET /.well-known/oauth-authorization-server
+  →  ..., "token_endpoint_auth_signing_alg_values_supported": ["RS256"],
+     "jwks_uri": "https://auth.example.com/.well-known/jwks.json"
+
+GET /.well-known/jwks.json
+  →  {"keys":[{"kty":"RSA","use":"sig","alg":"RS256","kid":"prod-key-1","n":"…","e":"AQAB"}]}
+```
+
+### From Scala
+
+If you need to bring your own key pair (e.g. loaded from PEM or
+a KMS), drop down to the Scala constructor:
+
 ```scala
-// JVM side (today — script intrinsic queued):
 import scalascript.oauth.*
 
-val signer = OAuth.RsaTokenSigner.generate("prod-key-1")  // 2048-bit RSA
+val signer = OAuth.RsaTokenSigner.generate("prod-key-1")
+// or: new RsaTokenSigner(privateKey, publicKey, Some("prod-key-1"))
 
 val as = new AuthServer(
   AuthServerConfig(
@@ -225,13 +258,6 @@ val as = new AuthServer(
   ),
   customSigner = Some(signer)
 )
-
-// Now as.metadataJson() advertises:
-//   "token_endpoint_auth_signing_alg_values_supported": ["RS256"]
-//   "jwks_uri": "https://auth.example.com/.well-known/jwks.json"
-//
-// And /.well-known/jwks.json publishes signer.publicJwk:
-//   {"keys":[{"kty":"RSA","use":"sig","alg":"RS256","kid":"prod-key-1","n":"…","e":"AQAB"}]}
 ```
 
 The OIDC `id_token` is automatically signed with the same RSA key when

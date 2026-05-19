@@ -199,8 +199,15 @@ object OAuthIntrinsicHelpers:
     case _ => None
 
   /** Decode an AuthServer config from the script side.  Accepts:
-   *    - MapV { issuer, signingSecret, scopes?, accessTokenTtl?, ... }
-   *    - InstanceV (any tag) with the same field names */
+   *    - MapV { issuer, signingSecret?, scopes?, accessTokenTtl?, ... }
+   *    - InstanceV (any tag) with the same field names
+   *
+   *  Signer selection:
+   *    - `signer: "HS256"` (default) — uses `signingSecret` as the HMAC key
+   *    - `signer: "RS256"` — generates a 2048-bit RSA key pair on the fly;
+   *      `signingKid` (optional, default "rsa-key-1") controls the JWT
+   *      kid + JWKS entry id.  `signingSecret` is still required for
+   *      config-shape symmetry but becomes unused. */
   def buildAuthServer(cfg: Any): AuthServer =
     val fields = cfg match
       case Value.MapV(m) =>
@@ -209,14 +216,27 @@ object OAuthIntrinsicHelpers:
       case _ => throw InterpretError("oauth.authServer: config must be a Map or record")
     val issuer = fields.get("issuer").collect { case Value.StringV(s) => s }
       .getOrElse(throw InterpretError("oauth.authServer: missing 'issuer'"))
-    val secret = fields.get("signingSecret").collect { case Value.StringV(s) => s }
-      .getOrElse(throw InterpretError("oauth.authServer: missing 'signingSecret'"))
+    val signerAlg = fields.get("signer").collect { case Value.StringV(s) => s }.getOrElse("HS256")
+    val secret    = fields.get("signingSecret").collect { case Value.StringV(s) => s }.getOrElse {
+      // HS256 needs a real secret; RS256 doesn't care about this field.
+      if signerAlg == "HS256" then
+        throw InterpretError("oauth.authServer: missing 'signingSecret' (required for HS256)")
+      else
+        "unused-rsa-mode"
+    }
     val scopes = fields.get("scopes").map(toStringSet).getOrElse(Set.empty)
     val accessTtl  = fields.get("accessTokenTtl").collect { case Value.IntV(i) => i }.getOrElse(3600L)
     val refreshTtl = fields.get("refreshTokenTtl").collect { case Value.IntV(i) => i }.getOrElse(86400L * 30)
     val codeTtl    = fields.get("authorizationCodeTtl").collect { case Value.IntV(i) => i }.getOrElse(600L)
     val pkce       = fields.get("requirePkce").collect { case Value.BoolV(b) => b }.getOrElse(true)
     val allowDcr   = fields.get("allowDynamicClientRegistration").collect { case Value.BoolV(b) => b }.getOrElse(true)
+    val customSigner: Option[OAuth.TokenSigner] = signerAlg match
+      case "HS256" => None  // AuthServer builds HmacTokenSigner from signingSecret
+      case "RS256" =>
+        val kid = fields.get("signingKid").collect { case Value.StringV(s) => s }.getOrElse("rsa-key-1")
+        Some(OAuth.RsaTokenSigner.generate(kid))
+      case other =>
+        throw InterpretError(s"oauth.authServer: unknown signer '$other' (supported: HS256, RS256)")
     new AuthServer(AuthServerConfig(
       issuer                          = issuer,
       signingSecret                   = secret,
@@ -226,7 +246,7 @@ object OAuthIntrinsicHelpers:
       supportedScopes                 = scopes,
       requirePkce                     = pkce,
       allowDynamicClientRegistration  = allowDcr
-    ))
+    ), customSigner = customSigner)
 
   def toStringSet(v: Value): Set[String] = v match
     case Value.ListV(xs) => xs.collect { case Value.StringV(s) => s }.toSet

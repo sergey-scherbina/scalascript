@@ -579,8 +579,17 @@ unblocks downstream features as early as possible.
      **MCP is now fully spec-compliant** against MCP 2025-03 +
      OAuth 2.1 + OIDC + the relevant RFCs.
 
-     **Still open** (post-v1.17): `oauth.rsaAuthServer(...)` script
-     intrinsic (RSA AS is JVM-only today); WebAuthn / passkey grant.
+     **RSA AS from scripts** (Iter FF) ✓ — `oauth.authServer(...)`
+     now accepts `signer: "HS256" | "RS256"` (+ optional
+     `signingKid`).  When `signer = "RS256"` a fresh 2048-bit RSA
+     key pair is generated automatically; metadata picks up `RS256`
+     in `token_endpoint_auth_signing_alg_values_supported` and the
+     `jwks_uri` field; `/.well-known/jwks.json` publishes the
+     public key with the supplied `kid`.  OIDC `id_token`
+     automatically RS256-signed when AS uses RSA.  HS256 mode
+     stays the default with full backwards compat.
+
+     **Still open** (post-v1.17): WebAuthn / passkey grant.
  22. **v1.18 — `package` keyword + std layout migration** ✓ Landed (all phases, 2026-05-19).
  23. **v1.19 — URL / dep imports** ✓ Landed.
      `[X](https://...)` URL fetch + `[X](dep:org/lib:1.2)`
