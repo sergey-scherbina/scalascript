@@ -791,6 +791,45 @@ lazy val micropaymentSpi = project
     Test    / scalacOptions ++= sharedScalacOptions,
   )
 
+lazy val micropaymentThreshold = project
+  .in(file("micropayment-threshold"))
+  .dependsOn(micropaymentSpi, x402Core, walletSpi, blockchainSpi)
+  .settings(
+    name := "scalascript-micropayment-threshold",
+    libraryDependencies ++= Seq(
+      "com.lihaoyi" %% "upickle" % "4.4.2",
+      scalatestTest,
+    ),
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions,
+  )
+
+lazy val micropaymentServer = project
+  .in(file("micropayment-server"))
+  .dependsOn(micropaymentSpi, runtimeServerCommon)
+  .settings(
+    name := "scalascript-micropayment-server",
+    libraryDependencies ++= Seq(
+      "com.lihaoyi" %% "upickle" % "4.4.2",
+      scalatestTest,
+    ),
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions,
+  )
+
+lazy val micropaymentClient = project
+  .in(file("micropayment-client"))
+  .dependsOn(micropaymentSpi)
+  .settings(
+    name := "scalascript-micropayment-client",
+    libraryDependencies ++= Seq(
+      "com.lihaoyi" %% "upickle" % "4.4.2",
+      scalatestTest,
+    ),
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions,
+  )
+
 lazy val root = project
   .in(file("."))
   .aggregate(
@@ -805,7 +844,7 @@ lazy val root = project
     x402FacilitatorCoinbase, x402FacilitatorEvm, x402FacilitatorCardano,
     x402QueueKafka, x402QueuePostgres, x402NoncePostgres, x402NonceRedis,
     cryptoSpi, cryptoBouncycastle, blockchainSpi, blockchainEvm, walletSpi, walletStrategyEoa,
-    micropaymentSpi,
+    micropaymentSpi, micropaymentThreshold, micropaymentServer, micropaymentClient,
   )
   .settings(
     publish / skip := true
