@@ -73,6 +73,7 @@ private def dispatchCommand(args: List[String]): Unit =
     case "check-with-iface"    => checkWithInterfaceCommand(args.tail)
     case "link"                => linkCommand(args.tail)
     case "info"                => infoCommand(args.tail)
+    case "clean"               => cleanCommand(args.tail)
     case "verify"              => verifyCommand(args.tail)
     case "deps"                => depsCommand(args.tail)
     case "compile"             => compileCommand(args.tail)
@@ -231,6 +232,8 @@ def printUsage(): Unit =
     |  link                   Link .scim/.scir artifact pairs into a merged module (v2.0)
     |  info <artifact>        Inspect a .scim/.scir/.scjvm/.scjs file (envelope + key fields)
     |                         Pass --json to dump the full envelope as pretty-printed JSON
+    |  clean <dir>            Remove stale v2.0 artifacts whose source .ssc no longer exists.
+    |                         Flags: --dry-run (print, don't delete), --all (wipe everything).
     |  verify <artifact-dir>  Health-check every v2.0 artifact in a directory.
     |                         Validates envelope, sourceHash shape, cross-refs, and runtime
     |                         coverage.  Flags: --strict (also re-hash source files),
@@ -2756,6 +2759,168 @@ def depsCommand(args: List[String]): Unit =
         println(s"  ${node.path.last} → ${dep.last}")
       }
     }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ssc clean <artifact-dir>  —  v2.0 artifact garbage collector
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** `ssc clean <dir> [--dry-run] [--all]`
+ *
+ *  Walk an artifact directory and remove stale v2.0 artifacts.  Two modes:
+ *
+ *   - **Default (garbage collection):** for each artifact (`*.scim`,
+ *     `*.scir`, `*.scjvm`, `*.scjs`), check whether the corresponding
+ *     `.ssc` source still exists under `<dir>/..` (the conventional
+ *     "source dir is one level above artifact dir" layout).  Artifacts
+ *     whose source has been deleted are removed.  Companion runtime
+ *     artifacts (`*.scjvm-runtime`, `*.scjs-runtime`) are NEVER removed
+ *     in this mode — they're keyed by capabilities, not source, so a
+ *     no-longer-referenced runtime is fine to leave alone (it will be
+ *     overwritten on the next compile that needs the same caps).
+ *
+ *   - **`--all`:** unconditionally remove every artifact in `<dir>`
+ *     matching the v2.0 extension set.  Includes runtime artifacts.
+ *
+ *  `--dry-run` prints what would be removed without touching the FS.
+ *  Output: one line per artifact (with action: REMOVE / DRY-RUN /
+ *  KEEP), followed by a summary line.
+ *
+ *  Idempotent: running twice on the same state is a no-op (the second
+ *  run reports zero removals).
+ *
+ *  v2.0 Phase 3 follow-up — artifact GC for users who manually
+ *  manage their artifact dirs without re-running a full `build`. */
+def cleanCommand(args: List[String]): Unit =
+  var dryRun = false
+  var all    = false
+  val dirs   = scala.collection.mutable.ArrayBuffer.empty[String]
+  args.foreach {
+    case "--dry-run" => dryRun = true
+    case "--all"     => all    = true
+    case d           => dirs += d
+  }
+  if dirs.isEmpty then
+    System.err.println("Usage: ssc clean <dir> [--dry-run] [--all]")
+    System.err.println("  Default: remove artifacts whose source .ssc no longer exists in <dir>/..")
+    System.err.println("  --dry-run  Print actions; don't delete.")
+    System.err.println("  --all      Remove every v2.0 artifact (incl. runtimes) under <dir>.")
+    System.exit(1)
+  if dirs.length > 1 then
+    System.err.println(
+      s"Warning: ssc clean currently processes a single directory; ignoring ${dirs.length - 1} extra path(s).")
+
+  val dir = os.Path(dirs.head, os.pwd)
+  if !os.exists(dir) then
+    System.err.println(s"clean: directory not found: $dir")
+    System.exit(1)
+  if !os.isDir(dir) then
+    System.err.println(s"clean: not a directory: $dir")
+    System.exit(1)
+
+  // The v2.0 artifact extensions we manage.  Two flavours:
+  //  - Per-module artifacts (keyed by <moduleId>.scXX → look for
+  //    <moduleId>.ssc in `srcDir`).
+  //  - Runtime artifacts (".scjvm-runtime", ".scjs-runtime") — keyed
+  //    by capability set, not source; only --all touches them.
+  val moduleExts  = Set("scim", "scir", "scjvm", "scjs")
+  val runtimeExts = Set("scjvm-runtime", "scjs-runtime")
+
+  val srcDir = dir / os.up
+
+  // Walk dir non-recursively — artifacts live in a flat dir per the
+  // conventional layout (build → `artifacts/`).  Recursive walk would
+  // surprise users who symlink a `src/` tree under `artifacts/`.
+  val entries =
+    if !os.isDir(dir) then Nil
+    else os.list(dir).filter(p => os.isFile(p)).toList.sortBy(_.last)
+
+  /** True when `path` looks like a per-module artifact (e.g. `foo.scjvm`,
+   *  not `_runtime.scjvm-runtime`). */
+  def isModuleArtifact(path: os.Path): Boolean =
+    val name = path.last
+    moduleExts.exists(ext => name.endsWith("." + ext)) &&
+      !runtimeExts.exists(ext => name.endsWith("." + ext))
+
+  def isRuntimeArtifact(path: os.Path): Boolean =
+    val name = path.last
+    runtimeExts.exists(ext => name.endsWith("." + ext))
+
+  /** Strip the artifact extension off `name` to recover the module id
+   *  (`foo.scjvm` → `foo`, `bar.scim` → `bar`).  Returns None for non-
+   *  artifact filenames. */
+  def moduleIdOf(name: String): Option[String] =
+    moduleExts.collectFirst {
+      case ext if name.endsWith("." + ext) => name.stripSuffix("." + ext)
+    }
+
+  /** True when a `<moduleId>.ssc` exists somewhere we can find it.  We
+   *  check the conventional `<dir>/..` first, then `<dir>` itself (in
+   *  case the user keeps sources next to artifacts), then a recursive
+   *  walk of `<dir>/..` as a last resort — modulo skipping `<dir>` to
+   *  avoid loops. */
+  def sourceExists(moduleId: String): Boolean =
+    val target = moduleId + ".ssc"
+    // Cheap checks first.
+    if os.exists(srcDir / target) then true
+    else if os.exists(dir / target) then true
+    else
+      // Recursive fallback under srcDir; cap the walk so a huge tree
+      // doesn't make `clean` painful.  Skip the artifact dir itself.
+      val cap = 5000
+      val it  = os.walk(srcDir, skip = p => p == dir, maxDepth = 6).iterator
+      var seen = 0
+      var found = false
+      while it.hasNext && !found && seen < cap do
+        val p = it.next()
+        seen += 1
+        if p.last == target && os.isFile(p) then found = true
+      found
+
+  // Stage 1 — classify every entry.
+  sealed trait Action
+  case object Remove extends Action  // artifact is stale → delete
+  case object Keep   extends Action  // artifact is fresh → leave alone
+  case object Skip   extends Action  // not an artifact we manage
+
+  case class Decision(path: os.Path, action: Action, reason: String)
+
+  val decisions = entries.map { p =>
+    val name = p.last
+    val isMod = isModuleArtifact(p)
+    val isRt  = isRuntimeArtifact(p)
+    if !isMod && !isRt then Decision(p, Skip, "not a v2.0 artifact")
+    else if all then
+      Decision(p, Remove,
+        if isRt then "runtime artifact (--all)"
+        else        "module artifact (--all)")
+    else if isRt then
+      Decision(p, Keep, "runtime artifact — only removed with --all")
+    else
+      moduleIdOf(name) match
+        case None     => Decision(p, Skip, "unrecognised artifact name")
+        case Some(id) =>
+          if sourceExists(id) then
+            Decision(p, Keep, s"source $id.ssc exists")
+          else
+            Decision(p, Remove, s"source $id.ssc no longer exists")
+  }
+
+  // Stage 2 — apply (or pretend to).  Print one line per non-Skip action.
+  val toRemove = decisions.filter(_.action == Remove)
+  toRemove.foreach { d =>
+    val tag = if dryRun then "DRY-RUN" else "REMOVE"
+    println(s"$tag ${d.path.last}  (${d.reason})")
+    if !dryRun then
+      try os.remove(d.path)
+      catch case e: Throwable =>
+        System.err.println(s"clean: failed to remove ${d.path.last}: ${e.getMessage}")
+  }
+
+  val keptCount    = decisions.count(_.action == Keep)
+  val skippedCount = decisions.count(_.action == Skip)
+  val removedCount = toRemove.size
+  val verb         = if dryRun then "would remove" else "removed"
+  println(s"Summary: $verb $removedCount; kept $keptCount; skipped $skippedCount (non-artifact files).")
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ssc info <artifact>  —  v2.0 artifact envelope inspector
