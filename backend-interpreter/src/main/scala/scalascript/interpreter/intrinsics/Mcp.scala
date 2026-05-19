@@ -71,7 +71,14 @@ val McpIntrinsics: Map[QualifiedName, IntrinsicImpl] = Map(
             if !ctx.headless then
               scalascript.server.WebServer.start(port, ".", ctx.out)
           case "Ws" =>
-            throw InterpretError("serveMcp: Ws transport deferred to a future phase")
+            // WebSocket transport: register a WS route that pipes every
+            // incoming text frame through McpServerCore.handleHttpRequest
+            // and pushes the reply back via ws.send.  Reuses the existing
+            // WS server infrastructure via ctx.registerWsRoute.
+            val (port, path) = Mcp.httpArgs(transport)
+            Mcp.installWsRoute(builder, path, ctx)
+            if !ctx.headless then
+              scalascript.server.WebServer.start(port, ".", ctx.out)
           case other =>
             throw InterpretError(s"serveMcp: unsupported transport '$other'")
       case _ => throw InterpretError("serveMcp(transport)")
@@ -92,10 +99,11 @@ val McpIntrinsics: Map[QualifiedName, IntrinsicImpl] = Map(
       case "Http" =>
         val url = Mcp.httpClientUrl(transport)
         Mcp.makeHttpClient(url, timeoutMs)
+      case "Ws" =>
+        val url = Mcp.wsClientUrl(transport)
+        Mcp.makeWsClient(url, timeoutMs)
       case "Stdio" =>
         throw InterpretError("mcpConnect: Transport.Stdio makes sense for servers, not clients — use Transport.Spawn")
-      case "Ws" =>
-        throw InterpretError("mcpConnect: Ws transport deferred to a future phase")
       case other =>
         throw InterpretError(s"mcpConnect: unsupported transport '$other'")
   )
@@ -190,6 +198,59 @@ private object Mcp:
       case Left(e)  => throw InterpretError(s"mcpConnect(Http): initialize failed: ${e.message}")
       case Right(_) => client.notify("notifications/initialized", ujson.Obj())
     makeHttpClientInstance(client, timeoutMs)
+
+  /** Transport.Ws(port, path) → `ws://localhost:port/path`.  Same `path`
+   *  override rule as Http: a full ws://...  / wss://... URL passes through. */
+  def wsClientUrl(v: Any): String = v match
+    case Value.InstanceV("Ws", fields) =>
+      val path = fields.get("path").collect { case Value.StringV(s) => s }.getOrElse("/mcp")
+      if path.startsWith("ws://") || path.startsWith("wss://") then path
+      else
+        val port = fields.get("port").collect { case Value.IntV(i) => i.toInt }.getOrElse(8080)
+        s"ws://localhost:$port$path"
+    case _ => "ws://localhost:8080/mcp"
+
+  /** Register a WS route on the WebServer that dispatches every inbound
+   *  text frame through `McpServerCore.handleHttpRequest` (which already
+   *  handles request / notification / parse-error variants) and ships
+   *  the reply back via `ws.send`.  The user-side ws value is what
+   *  `ctx.registerWsRoute`'s handler receives. */
+  def installWsRoute(builder: McpServerBuilder, path: String, ctx: NativeContext): Unit =
+    val handler = Value.NativeFnV("mcp.ws.handler", Computation.pureFn {
+      case List(Value.InstanceV("WebSocket", wsFields)) =>
+        val sendV: Option[Value]      = wsFields.get("send")
+        val onMessageV: Option[Value] = wsFields.get("onMessage")
+        // Register a NativeFnV as the onMessage callback.  When called by
+        // the WS infra with a Value.StringV(line) payload, we feed it to
+        // McpServerCore.handleHttpRequest and write the reply via ws.send.
+        val onMessageCb = Value.NativeFnV("mcp.ws.onMessage", Computation.pureFn {
+          case List(Value.StringV(line)) =>
+            val reply = McpServerCore.handleHttpRequest(builder, line, "ssc-mcp-int", "1.0.0")
+            if reply.nonEmpty then
+              sendV.foreach(sendFn => ctx.invokeCallback(sendFn, List(Value.StringV(reply.stripSuffix("\n")))))
+            Value.UnitV
+          case _ => Value.UnitV
+        })
+        onMessageV.foreach(om => ctx.invokeCallback(om, List(onMessageCb)))
+        Value.UnitV
+      case _ => Value.UnitV
+    })
+    ctx.registerWsRoute(path, Nil, Nil, 0, 0, handler)
+
+  /** Build an `McpClient` Value backed by `McpWsClient`. */
+  def makeWsClient(url: String, timeoutMs: Long): Value =
+    val client = new McpWsClient(url, timeoutMs)
+    val initParams = ujson.Obj(
+      "protocolVersion" -> McpProtocol.ProtocolVersion,
+      "capabilities"    -> ujson.Obj(),
+      "clientInfo"      -> ujson.Obj("name" -> "ssc-mcp-int", "version" -> "1.0.0")
+    )
+    client.request(McpProtocol.Method.Initialize, initParams) match
+      case Left(e)  =>
+        client.close()
+        throw InterpretError(s"mcpConnect(Ws): initialize failed: ${e.message}")
+      case Right(_) => client.notify("notifications/initialized", ujson.Obj())
+    makeWsClientInstance(client, timeoutMs)
 
   /** Build the `srv` instance the user-side `mcpServer { srv => ... }`
    *  block receives.  Each method-field is a `NativeFnV` that returns
@@ -499,6 +560,58 @@ private object Mcp:
    *  request bodies differ in transport semantics (stdio is async with a
    *  pending-id table; HTTP is synchronous request/response). */
   def makeHttpClientInstance(client: McpHttpClient, timeoutMs: Long): Value.InstanceV =
+    val fields = mutable.LinkedHashMap.empty[String, Value]
+    fields("listTools") = Value.NativeFnV("McpClient.listTools", Computation.pureFn { _ =>
+      client.request(McpProtocol.Method.ToolsList, ujson.Obj(), timeoutMs) match
+        case Left(e)     => throw InterpretError(s"listTools: ${e.message}")
+        case Right(json) => Mcp.descriptorsListFromJson(json, "tools", Mcp.toolDescriptorFromJson)
+    })
+    fields("listResources") = Value.NativeFnV("McpClient.listResources", Computation.pureFn { _ =>
+      client.request(McpProtocol.Method.ResourcesList, ujson.Obj(), timeoutMs) match
+        case Left(e)     => throw InterpretError(s"listResources: ${e.message}")
+        case Right(json) => Mcp.descriptorsListFromJson(json, "resources", Mcp.resourceDescriptorFromJson)
+    })
+    fields("listPrompts") = Value.NativeFnV("McpClient.listPrompts", Computation.pureFn { _ =>
+      client.request(McpProtocol.Method.PromptsList, ujson.Obj(), timeoutMs) match
+        case Left(e)     => throw InterpretError(s"listPrompts: ${e.message}")
+        case Right(json) => Mcp.descriptorsListFromJson(json, "prompts", Mcp.promptDescriptorFromJson)
+    })
+    fields("callTool") = Value.NativeFnV("McpClient.callTool", Computation.pureFn {
+      case List(Value.StringV(name), argsV) =>
+        val params = ujson.Obj("name" -> name, "arguments" -> Mcp.valueToJson(argsV))
+        client.request(McpProtocol.Method.ToolsCall, params, timeoutMs) match
+          case Left(e)     => throw InterpretError(s"callTool: ${e.message}")
+          case Right(json) => Mcp.toolResultFromJson(json)
+      case _ => throw InterpretError("client.callTool(name, args)")
+    })
+    fields("readResource") = Value.NativeFnV("McpClient.readResource", Computation.pureFn {
+      case List(Value.StringV(uri)) =>
+        val params = ujson.Obj("uri" -> uri)
+        client.request(McpProtocol.Method.ResourcesRead, params, timeoutMs) match
+          case Left(e)     => throw InterpretError(s"readResource: ${e.message}")
+          case Right(json) => Mcp.resourceResultFromJson(json, uri)
+      case _ => throw InterpretError("client.readResource(uri)")
+    })
+    fields("getPrompt") = Value.NativeFnV("McpClient.getPrompt", Computation.pureFn {
+      case List(Value.StringV(name), argsV) =>
+        val params = ujson.Obj("name" -> name, "arguments" -> Mcp.valueToJson(argsV))
+        client.request(McpProtocol.Method.PromptsGet, params, timeoutMs) match
+          case Left(e)     => throw InterpretError(s"getPrompt: ${e.message}")
+          case Right(json) => Mcp.promptResultFromJson(json)
+      case _ => throw InterpretError("client.getPrompt(name, args)")
+    })
+    fields("close") = Value.NativeFnV("McpClient.close", Computation.pureFn { _ =>
+      client.close(); Value.UnitV
+    })
+    fields("isClosed") = Value.NativeFnV("McpClient.isClosed", Computation.pureFn { _ =>
+      Value.BoolV(client.isClosed)
+    })
+    Value.InstanceV("McpClient", fields.toMap)
+
+  /** Same shape as `makeHttpClientInstance` / `makeClientInstance` but
+   *  routes through `McpWsClient`.  Persistent WS connection — the
+   *  pending-request map handles id correlation server→client. */
+  def makeWsClientInstance(client: McpWsClient, timeoutMs: Long): Value.InstanceV =
     val fields = mutable.LinkedHashMap.empty[String, Value]
     fields("listTools") = Value.NativeFnV("McpClient.listTools", Computation.pureFn { _ =>
       client.request(McpProtocol.Method.ToolsList, ujson.Obj(), timeoutMs) match

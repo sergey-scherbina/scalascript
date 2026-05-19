@@ -60,18 +60,16 @@ class McpInterpreterIntegrationTest extends AnyFunSuite with Matchers:
     val ex = intercept[InterpretError] { run(src) }
     ex.getMessage should include ("Spawn")
 
-  test("serveMcp with Ws transport raises a deferred error"):
+  test("mcpConnect: unknown transport raises a clear error"):
     val src =
       """# Test
         |
         |```scalascript
         |enum Transport:
-        |  case Stdio
-        |  case Ws(port: Int, path: String)
+        |  case Unknown
         |
-        |mcpServer { srv => () }
-        |serveMcp(Transport.Ws(8080, "/mcp"))
+        |val client = mcpConnect(Transport.Unknown)
         |```
         |""".stripMargin
     val ex = intercept[InterpretError] { run(src) }
-    ex.getMessage should include ("Ws transport")
+    ex.getMessage should include ("unsupported transport")
