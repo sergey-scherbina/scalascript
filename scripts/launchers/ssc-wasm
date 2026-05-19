@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+# ssc-wasm — ScalaScript WASM runner
+# Compiles .ssc scala blocks to WebAssembly via Scala.js and runs with Node.js.
+#
+# Usage:
+#   ssc-wasm file.ssc              # compile and run
+#   ssc-wasm file1.ssc file2.ssc   # compile and run each in sequence
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SSC="$SCRIPT_DIR/ssc"
+
+if ! command -v node &>/dev/null; then
+  echo "error: node not found — install Node.js to run WASM bundles" >&2
+  exit 2
+fi
+
+if [[ $# -eq 0 ]]; then
+  echo "Usage: ssc-wasm <file.ssc> [file2.ssc ...]" >&2
+  exit 1
+fi
+
+run_one() {
+  local FILE STEM TMPDIR
+  FILE="$(cd "$(dirname "$1")" && pwd)/$(basename "$1")"
+  STEM="$(basename "$FILE" .ssc)"
+  TMPDIR="$(mktemp -d)"
+  trap 'rm -rf "$TMPDIR"' RETURN
+  (cd "$TMPDIR" && "$SSC" emit-wasm "$FILE")
+  node "$TMPDIR/$STEM.js"
+}
+
+for file in "$@"; do
+  run_one "$file"
+done
