@@ -3574,6 +3574,32 @@ Until then: stays deferred.  Each release revisits the
 
 ## v2.0 — Separate compilation of modules
 
+**Status: MVP infrastructure landed 2026-05-19.**  All six stages from
+the spec are implemented and smoke-tested.  Tracking doc:
+`docs/separate-compilation-plan.md`.
+
+What landed:
+- `ir/Ir.scala`: `ArtifactVersion` (magic `SSCART` + ABI `2.0`),
+  `ModuleInterface`, `ExportedSymbol`, `InstanceDecl`, `CapabilityDecl`,
+  `ModuleIrArtifact` — all `derives ReadWriter`, JSON round-trip from day one.
+- `core/artifact/InterfaceExtractor.scala`: extracts `ModuleInterface` from
+  a parsed AST module; SHA-256 source hash in every artifact.
+- `core/artifact/ArtifactIO.scala`: `.scim` / `.scir` read/write with ABI
+  version guard on every read.
+- `core/artifact/InterfaceScope.scala`: populates a `Typer.Scope` from a
+  pre-compiled interface; used by `ssc check-with-iface`.
+- `core/artifact/Linker.scala`: merges compiled modules in dep order; FQN
+  mangling and cross-module collision detection.
+- `core/artifact/ModuleGraph.scala`: Kahn's topo-sort of `.ssc` files;
+  `isStale` compares SHA-256 source hash vs artifact.
+- `core/typer/Typer.scala`: `Typer(importedInterfaces)` constructor + 
+  `Typer.typeCheckWithInterfaces` factory — backward-compatible.
+- `cli/Main.scala`: six new commands — `emit-interface`, `emit-ir`,
+  `check-with-iface`, `link`, and `build --incremental`.
+
+Default `ssc compile` / `ssc build` / `ssc run` are completely unchanged.
+The new commands are additive; the ABI commitment is in place from day one.
+
 Today every `ssc compile` parses, types, normalises, and emits the
 entire reachable module-tree in a single pass.  Separate compilation
 means each module compiles independently into an IR artifact +
