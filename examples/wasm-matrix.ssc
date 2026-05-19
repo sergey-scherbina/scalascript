@@ -1,0 +1,47 @@
+#!/usr/bin/env ssc
+---
+name: wasm-matrix
+description: Matrix multiplication and transpose compiled to WebAssembly via Scala.js.
+---
+
+# WebAssembly — Matrix Operations
+
+Matrix multiply and transpose compiled to `.wasm` via Scala.js.
+
+```
+ssc emit-wasm examples/wasm-matrix.ssc
+node wasm-matrix.js
+```
+
+## Implementation
+
+```scala
+type Matrix = Vector[Vector[Double]]
+
+def matrix(rows: Int, cols: Int)(f: (Int, Int) => Double): Matrix =
+  Vector.tabulate(rows, cols)(f)
+
+def multiply(a: Matrix, b: Matrix): Matrix =
+  val cols = b(0).length
+  matrix(a.length, cols): (i, j) =>
+    a(i).indices.map(k => a(i)(k) * b(k)(j)).sum
+
+def transpose(m: Matrix): Matrix =
+  matrix(m(0).length, m.length)((i, j) => m(j)(i))
+
+def show(m: Matrix): String =
+  m.map(row => row.map(v => f"$v%6.1f").mkString(" ")).mkString("\n")
+
+@main def run(): Unit =
+  val a = matrix(2, 3)((i, j) => (i * 3 + j + 1).toDouble)
+  val b = matrix(3, 2)((i, j) => (i * 2 + j + 1).toDouble)
+
+  println("A =")
+  println(show(a))
+  println("B =")
+  println(show(b))
+  println("A × B =")
+  println(show(multiply(a, b)))
+  println("Aᵀ =")
+  println(show(transpose(a)))
+```

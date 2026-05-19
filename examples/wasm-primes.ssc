@@ -1,0 +1,36 @@
+#!/usr/bin/env ssc
+---
+name: wasm-primes
+description: Sieve of Eratosthenes compiled to WebAssembly via Scala.js.
+---
+
+# WebAssembly — Sieve of Eratosthenes
+
+Prime number sieve compiled to `.wasm` via Scala.js.
+
+```
+ssc emit-wasm examples/wasm-primes.ssc
+node wasm-primes.js
+```
+
+## Implementation
+
+```scala
+def sieve(limit: Int): List[Int] =
+  val composite = Array.fill(limit + 1)(false)
+  var p = 2
+  while p * p <= limit do
+    if !composite(p) then
+      var j = p * p
+      while j <= limit do
+        composite(j) = true
+        j += p
+    p += 1
+  (2 to limit).filter(!composite(_)).toList
+
+@main def run(): Unit =
+  val primes100 = sieve(100)
+  println(s"primes up to 100 (${primes100.length} total):")
+  println(primes100.mkString(", "))
+  println(s"10 000th prime: ${sieve(104730)(9999)}")
+```

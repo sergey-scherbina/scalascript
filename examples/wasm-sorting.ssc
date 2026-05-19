@@ -1,0 +1,42 @@
+#!/usr/bin/env ssc
+---
+name: wasm-sorting
+description: Sorting algorithms (quicksort, merge sort) via the WebAssembly backend.
+---
+
+# WebAssembly — Sorting Algorithms
+
+Quicksort and merge sort compiled to `.wasm` via Scala.js.
+
+```
+ssc emit-wasm examples/wasm-sorting.ssc
+node wasm-sorting.js
+```
+
+## Implementation
+
+```scala
+def quicksort(xs: List[Int]): List[Int] = xs match
+  case Nil => Nil
+  case pivot :: rest =>
+    val smaller = rest.filter(_ <= pivot)
+    val larger  = rest.filter(_ > pivot)
+    quicksort(smaller) ::: pivot :: quicksort(larger)
+
+def mergesort(xs: List[Int]): List[Int] =
+  def merge(a: List[Int], b: List[Int]): List[Int] = (a, b) match
+    case (Nil, _) => b
+    case (_, Nil) => a
+    case (x :: xs, y :: ys) =>
+      if x <= y then x :: merge(xs, b) else y :: merge(a, ys)
+  if xs.length <= 1 then xs
+  else
+    val (l, r) = xs.splitAt(xs.length / 2)
+    merge(mergesort(l), mergesort(r))
+
+@main def run(): Unit =
+  val input = List(42, 7, 19, 3, 55, 1, 28, 14, 6, 33)
+  println(s"input:      ${input.mkString(", ")}")
+  println(s"quicksort:  ${quicksort(input).mkString(", ")}")
+  println(s"mergesort:  ${mergesort(input).mkString(", ")}")
+```

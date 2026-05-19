@@ -1,0 +1,50 @@
+#!/usr/bin/env ssc
+---
+name: wasm-collections
+description: Scala standard collections (map, filter, fold, groupBy) compiled to WebAssembly.
+---
+
+# WebAssembly — Collections
+
+Standard Scala collection operations compiled to `.wasm` via Scala.js.
+
+```
+ssc emit-wasm examples/wasm-collections.ssc
+node wasm-collections.js
+```
+
+## Implementation
+
+```scala
+case class Student(name: String, grade: Int, score: Double)
+
+@main def run(): Unit =
+  val students = List(
+    Student("Alice",  10, 92.5),
+    Student("Bob",    11, 78.0),
+    Student("Carol",  10, 88.0),
+    Student("Dave",   11, 95.5),
+    Student("Eve",    10, 74.0),
+    Student("Frank",  11, 81.0),
+  )
+
+  // top scorers per grade
+  val byGrade = students.groupBy(_.grade)
+  byGrade.toList.sortBy(_._1).foreach: (grade, ss) =>
+    val best = ss.maxBy(_.score)
+    val avg  = ss.map(_.score).sum / ss.length
+    println(s"Grade $grade — best: ${best.name} (${best.score}), avg: ${"%.1f".format(avg)}")
+
+  // passing students sorted by score descending
+  println("\nPassing (score ≥ 80), ranked:")
+  students
+    .filter(_.score >= 80)
+    .sortBy(-_.score)
+    .zipWithIndex
+    .foreach: (s, i) =>
+      println(s"  ${i + 1}. ${s.name} — ${s.score}")
+
+  // total and mean
+  val total = students.foldLeft(0.0)(_ + _.score)
+  println(s"\nClass mean: ${"%.2f".format(total / students.length)}")
+```
