@@ -288,9 +288,11 @@ class Interpreter(
   @volatile private var gotAliveResponse:   Boolean = false
   private val ElectionTimeoutMs: Long = 2000L
   // v1.23 — auto-reconnect: exponential-backoff retry per peer URL after a
-  // disconnect.  Both 0 ⇒ disabled (default).
+  // disconnect.  initial/max both 0 ⇒ disabled (default).  giveUpAfterMs
+  // bounds the total wall-clock retry budget — 0 ⇒ no cap (retry forever).
   @volatile private var reconnectInitialMs: Long = 0L
   @volatile private var reconnectMaxMs:     Long = 0L
+  @volatile private var reconnectGiveUpMs:  Long = 0L
   // v1.23 — cluster configuration distribution.  LWW per key by (ts, origin).
   private val clusterConfig =
     new java.util.concurrent.ConcurrentHashMap[String, (String, Long, String)]()
@@ -604,6 +606,7 @@ class Interpreter(
   private def scheduleReconnect(rurl: String, rtok: String): Unit =
     if !reconnectActive.add(rurl) then return
     Thread.ofVirtual().start { () =>
+      val startedAt = System.currentTimeMillis()
       var delay = reconnectInitialMs.max(1L)
       var done  = false
       try
@@ -611,6 +614,16 @@ class Interpreter(
           try Thread.sleep(delay) catch case _: InterruptedException => done = true
           if !done && reconnectInitialMs <= 0L then done = true
           if !done && peerUrls.containsValue(rurl) then done = true
+          // v1.23 — bail out when the total wall-clock retry budget is
+          // exhausted (`giveUpAfterMs` arg of setReconnectPolicy).
+          // Keeps a permanently-dead peer's URL from spinning a virtual
+          // thread forever — and exhausting the FD table under repeated
+          // dial-failures over hours of test/cluster lifetime.
+          if !done && reconnectGiveUpMs > 0L &&
+             (System.currentTimeMillis() - startedAt) >= reconnectGiveUpMs then
+            done = true
+            if clusterDebug then out.println(
+              s"[cluster:dbg] $localNodeId reconnect gave up on $rurl after ${reconnectGiveUpMs}ms")
           if !done then
             try connectPeer(rurl, rtok) catch case _: Throwable => ()
             if peerUrls.containsValue(rurl) then done = true
@@ -1241,9 +1254,14 @@ class Interpreter(
               hbThread.interrupt()
               peerLost(peerNodeId, url, token)
       catch case e: Throwable =>
-        out.println(s"connectNode error [$url]: ${e.getMessage}")
-        // v1.23 — if the initial dial failed (peer not yet bound), schedule
-        // a reconnect just like we do after a previously-up link drops.
+        // v1.23 — gate the per-attempt error log behind clusterDebug so
+        // a permanently-dead peer's retry loop doesn't spam stdout with
+        // identical "ConnectException" lines.  The terminal "gave up"
+        // log (in scheduleReconnect) still appears for postmortem.
+        if clusterDebug then
+          out.println(s"connectNode error [$url]: ${e.getMessage}")
+        // If the initial dial failed (peer not yet bound), schedule a
+        // reconnect just like we do after a previously-up link drops.
         // Without this, non-seed nodes that race against each other only
         // ever reach the seed and the cluster stays fragmented.
         if reconnectInitialMs > 0L && !peerUrls.containsValue(url) then
@@ -2410,11 +2428,19 @@ class Interpreter(
       case Nil => Perform("Actor", "leaderHistory", Nil)
       case _   => throw InterpretError("leaderHistory(): List[(Long, String, Long)]")
     })
-    // v1.23 — auto-reconnect policy
+    // v1.23 — auto-reconnect policy.  Two- or three-arg form: the
+    // optional third arg is `giveUpAfterMs`, the wall-clock budget
+    // after which the retry loop bails and stops dialing the dead
+    // peer.  0 (default) = never give up.
     globals("setReconnectPolicy") = Value.NativeFnV("setReconnectPolicy", {
       case List(Value.IntV(ini), Value.IntV(mx)) =>
-        Perform("Actor", "setReconnectPolicy", List(Value.IntV(ini), Value.IntV(mx)))
-      case _ => throw InterpretError("setReconnectPolicy(initialMs: Long, maxMs: Long): Unit")
+        Perform("Actor", "setReconnectPolicy",
+          List(Value.IntV(ini), Value.IntV(mx), Value.IntV(0L)))
+      case List(Value.IntV(ini), Value.IntV(mx), Value.IntV(giveUp)) =>
+        Perform("Actor", "setReconnectPolicy",
+          List(Value.IntV(ini), Value.IntV(mx), Value.IntV(giveUp)))
+      case _ => throw InterpretError(
+        "setReconnectPolicy(initialMs: Long, maxMs: Long, giveUpAfterMs: Long = 0): Unit")
     })
     // v1.23 — periodic gossip re-discovery
     globals("requestGossip") = Value.NativeFnV("requestGossip", {
@@ -6762,8 +6788,15 @@ class Interpreter(
       case List(Value.IntV(ini), Value.IntV(mx)) =>
         reconnectInitialMs = ini.max(0L)
         reconnectMaxMs     = mx.max(reconnectInitialMs)
+        reconnectGiveUpMs  = 0L
         Right(k(Value.UnitV))
-      case _ => throw InterpretError("setReconnectPolicy(initialMs: Long, maxMs: Long)")
+      case List(Value.IntV(ini), Value.IntV(mx), Value.IntV(giveUp)) =>
+        reconnectInitialMs = ini.max(0L)
+        reconnectMaxMs     = mx.max(reconnectInitialMs)
+        reconnectGiveUpMs  = giveUp.max(0L)
+        Right(k(Value.UnitV))
+      case _ => throw InterpretError(
+        "setReconnectPolicy(initialMs: Long, maxMs: Long, giveUpAfterMs: Long = 0)")
 
     // v1.23 — periodic gossip re-discovery: ask every connected peer for
     // its peer-URL list.  Replies come back via the existing `peers_resp`
