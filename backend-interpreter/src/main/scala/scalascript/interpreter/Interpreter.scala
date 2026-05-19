@@ -216,6 +216,45 @@ class Interpreter(
   //   last broadcast its health vector.  Cleared on disconnect.
   private val peerPhiViews =
     new java.util.concurrent.ConcurrentHashMap[String, java.util.concurrent.ConcurrentHashMap[String, java.lang.Double]]()
+  // v1.23 — leader election (Bully) state.
+  private val currentLeader =
+    new java.util.concurrent.atomic.AtomicReference[String]("")
+  @volatile private var electionInProgress: Boolean = false
+  @volatile private var electionStartedAt:  Long    = 0L
+  @volatile private var gotAliveResponse:   Boolean = false
+  private val ElectionTimeoutMs: Long = 2000L
+  private val leaderEventSubs =
+    new java.util.concurrent.CopyOnWriteArrayList[java.lang.Long]()
+  private val leaderEventQueue =
+    new java.util.concurrent.ConcurrentLinkedQueue[Value]()
+  private def enqueueLeaderEvent(tag: String, leaderId: String): Unit =
+    if !leaderEventSubs.isEmpty then
+      val ev = Value.InstanceV(tag, Map("nodeId" -> Value.StringV(leaderId)))
+      leaderEventQueue.offer(ev)
+      val t = schedulerThread; if t != null then t.interrupt()
+  private def broadcastCoordinator(): Unit =
+    val payload = s"""{"t":"coordinator","from":${jsonStr(localNodeId)}}"""
+    peerChannels.forEach { (_, send) => try send(payload) catch case _: Throwable => () }
+  private def startElection(): Unit =
+    if localNodeId.isEmpty then
+      val prev = currentLeader.getAndSet(localNodeId)
+      if prev != localNodeId then enqueueLeaderEvent("LeaderElected", localNodeId)
+    else
+      val higher = scala.collection.mutable.ListBuffer.empty[String]
+      peerChannels.keySet().forEach(nid => if nid > localNodeId then higher += nid)
+      if higher.isEmpty then
+        val prev = currentLeader.getAndSet(localNodeId)
+        broadcastCoordinator()
+        if prev != localNodeId then enqueueLeaderEvent("LeaderElected", localNodeId)
+      else
+        electionInProgress = true
+        electionStartedAt  = System.currentTimeMillis()
+        gotAliveResponse   = false
+        val payload = s"""{"t":"election","from":${jsonStr(localNodeId)}}"""
+        higher.foreach { nid =>
+          try Option(peerChannels.get(nid)).foreach(_.apply(payload))
+          catch case _: Throwable => ()
+        }
   // Cross-node monitors: nodeId → [(localActorId, monRef, remotePid.localId)]
   private val remoteMonitors =
     new java.util.concurrent.ConcurrentHashMap[String,
@@ -639,6 +678,8 @@ class Interpreter(
               peerPhiViews.remove(peerNodeId)
               nodeDownQueue.offer(peerNodeId)
               enqueueClusterEvent("NodeLeft", peerNodeId, "disconnect")
+              if currentLeader.compareAndSet(peerNodeId, "") then
+                enqueueLeaderEvent("LeaderLost", peerNodeId)
               val t = schedulerThread; if t != null then t.interrupt()
       catch case e: Throwable =>
         out.println(s"connectNode error [$url]: ${e.getMessage}")
@@ -721,6 +762,22 @@ class Interpreter(
                   }
                 case _ => ()
               peerPhiViews.put(from, view)
+          case "election" =>
+            // v1.23 — Bully: lower-id peer is calling an election.
+            val from = m.get(Value.StringV("from")).collect { case Value.StringV(s) => s }.getOrElse("")
+            if from.nonEmpty && from < localNodeId then
+              val reply = s"""{"t":"alive","from":${jsonStr(localNodeId)}}"""
+              try Option(peerChannels.get(from)).foreach(_.apply(reply))
+              catch case _: Throwable => ()
+              if !electionInProgress then startElection()
+          case "alive" =>
+            gotAliveResponse = true
+          case "coordinator" =>
+            val from = m.get(Value.StringV("from")).collect { case Value.StringV(s) => s }.getOrElse("")
+            if from.nonEmpty then
+              val prev = currentLeader.getAndSet(from)
+              electionInProgress = false
+              if prev != from then enqueueLeaderEvent("LeaderElected", from)
           case _ => ()
       case _ => ()
 
@@ -1562,6 +1619,19 @@ class Interpreter(
       case List(Value.StringV(nid), Value.IntV(thr)) =>
         Perform("Actor", "clusterIsDown", List(Value.StringV(nid), Value.DoubleV(thr.toDouble)))
       case _ => throw InterpretError("clusterIsDown(nodeId: String, threshold: Double = 8.0): Boolean")
+    })
+    // v1.23 — leader election (Bully)
+    globals("electLeader") = Value.NativeFnV("electLeader", {
+      case Nil => Perform("Actor", "electLeader", Nil)
+      case _   => throw InterpretError("electLeader(): Unit")
+    })
+    globals("currentLeader") = Value.NativeFnV("currentLeader", {
+      case Nil => Perform("Actor", "currentLeader", Nil)
+      case _   => throw InterpretError("currentLeader(): String")
+    })
+    globals("subscribeLeaderEvents") = Value.NativeFnV("subscribeLeaderEvents", {
+      case Nil => Perform("Actor", "subscribeLeaderEvents", Nil)
+      case _   => throw InterpretError("subscribeLeaderEvents(): Unit")
     })
     // v1.6.x — scheduled sends
     globals("sendAfter") = Value.NativeFnV("sendAfter", {
@@ -4452,6 +4522,7 @@ class Interpreter(
       def hasWork = rt.ready.nonEmpty || rt.blocked.exists(_._2._4.isDefined) ||
                     !remoteInbox.isEmpty || !nodeDownQueue.isEmpty ||
                     !clusterEventQueue.isEmpty ||
+                    !leaderEventQueue.isEmpty || electionInProgress ||
                     rt.timers.nonEmpty ||
                     (isDistributed && rt.blocked.nonEmpty)
 
@@ -4471,6 +4542,24 @@ class Interpreter(
         while !clusterEventQueue.isEmpty do
           val ev = clusterEventQueue.poll()
           val it = clusterEventSubs.iterator
+          while it.hasNext do
+            val aid = it.next().toLong
+            rt.mailboxes.get(aid).foreach { mb =>
+              mb.offer(ev)
+              wakeBlocked(rt, aid)
+            }
+        // v1.23 — Bully election timeout: claim self if no `alive` received.
+        if electionInProgress &&
+           System.currentTimeMillis() - electionStartedAt >= ElectionTimeoutMs then
+          electionInProgress = false
+          if !gotAliveResponse then
+            val prev = currentLeader.getAndSet(localNodeId)
+            broadcastCoordinator()
+            if prev != localNodeId then enqueueLeaderEvent("LeaderElected", localNodeId)
+        // v1.23 — deliver leader events (LeaderElected/LeaderLost) to subscribers.
+        while !leaderEventQueue.isEmpty do
+          val ev = leaderEventQueue.poll()
+          val it = leaderEventSubs.iterator
           while it.hasNext do
             val aid = it.next().toLong
             rt.mailboxes.get(aid).foreach { mb =>
@@ -4884,6 +4973,8 @@ class Interpreter(
           peerPhiViews.remove(pnId)
           nodeDownQueue.offer(pnId)
           enqueueClusterEvent("NodeLeft", pnId, "disconnect")
+          if currentLeader.compareAndSet(pnId, "") then
+            enqueueLeaderEvent("LeaderLost", pnId)
           val t = schedulerThread; if t != null then t.interrupt()
         }
         Pure(Value.UnitV)
@@ -5029,6 +5120,19 @@ class Interpreter(
         val majority = (total + 1) / 2
         Right(k(Value.BoolV(total > 0 && votes >= majority)))
       case _ => throw InterpretError("clusterIsDown(nodeId, threshold)")
+
+    // v1.23 — leader election (Bully)
+    case "electLeader" =>
+      startElection()
+      Right(k(Value.UnitV))
+
+    case "currentLeader" =>
+      Right(k(Value.StringV(currentLeader.get())))
+
+    case "subscribeLeaderEvents" =>
+      val boxed = java.lang.Long.valueOf(id)
+      if !leaderEventSubs.contains(boxed) then leaderEventSubs.add(boxed)
+      Right(k(Value.UnitV))
 
     // v1.6.x — scheduled sends
     case "sendAfter" => args match
