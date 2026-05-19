@@ -2,6 +2,7 @@
 name: std-eq
 version: 1.0.0
 description: Eq typeclass — structural equality
+package: std.eq
 exports:
   - Eq
   - eqv

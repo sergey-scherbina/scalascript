@@ -2,6 +2,7 @@
 name: std-order
 version: 1.0.0
 description: Order typeclass — total ordering
+package: std.order
 exports:
   - Order
   - compare

@@ -2,6 +2,7 @@
 name: std-dsl-passes
 version: 1.0.0
 description: v1.20.3 DSL — multi-pass pipeline combinators (Pass[A,B], andThen, parallel, recover, traceAll, accumulate)
+package: std.dsl
 exports:
   - Pass
   - PassError

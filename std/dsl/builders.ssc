@@ -2,6 +2,7 @@
 name: std-dsl-builders
 version: 1.0.0
 description: v1.20 std/dsl — phantom-type builder template (§3.5)
+package: std.dsl
 exports:
   - Builder
   - builder

@@ -2,6 +2,7 @@
 name: std-parsing-layout
 version: 1.0.0
 description: v1.20.2 std/parsing — indentation-aware (layout-sensitive) parsing built on ParserContext
+package: std.parsing
 exports:
   - IndentContext
   - withIndent

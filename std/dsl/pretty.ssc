@@ -2,6 +2,7 @@
 name: std-dsl-pretty
 version: 1.0.0
 description: v1.20 std/dsl — Doc pretty-printer combinator ADT and renderer
+package: std.dsl
 exports:
   - DocNil
   - DocText

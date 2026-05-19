@@ -2,6 +2,7 @@
 name: std-hash
 version: 1.0.0
 description: Hash typeclass — structural hashing
+package: std.hash
 exports:
   - Hash
   - hash

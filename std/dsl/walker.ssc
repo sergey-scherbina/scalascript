@@ -2,6 +2,7 @@
 name: std-dsl-walker
 version: 1.0.0
 description: v1.20.3 DSL — AST walker helpers (cata/ana-style recursion, Visitor, walk)
+package: std.dsl
 exports:
   - Visitor
   - defaultVisitor

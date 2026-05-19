@@ -2,6 +2,7 @@
 name: std-parsing-core
 version: 1.1.0
 description: v1.20.2 std/parsing — Parser[A] ADT, Position, Span, ParseResult, ParseError, primitive constructors, ParserContext nodes
+package: std.parsing
 exports:
   - Position
   - Span

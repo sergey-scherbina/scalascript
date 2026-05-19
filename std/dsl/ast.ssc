@@ -2,6 +2,7 @@
 name: std-dsl-ast
 version: 1.0.0
 description: v1.20 std/dsl — Span, HasSpan, and Node[A] wrapper for position-annotated AST nodes
+package: std.dsl
 exports:
   - Span
   - spanEmpty

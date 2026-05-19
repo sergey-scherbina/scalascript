@@ -3063,30 +3063,46 @@ emission changes needed.  Import resolution updated:
 - **JsGen** (`genImport`): generates `const Card = org.example.ui.Card;`
   for all bindings when pkg is non-empty.
 
-### Phase 3 — Std layout migration ✓ Landed
+### Phase 3 — Std layout migration ✓ Landed (all std files)
 
-All 16 std files (excluding `actors.ssc` deferred to v1.6 Phase 2
-and the not-yet-created `std/mcp/` waiting for v1.17) now carry a
-`package:` declaration in their frontmatter.  Packages assigned:
+All std files carry a `package:` declaration in their frontmatter.
+Packages assigned:
 
 | file | package |
 |------|---------|
+| `actors.ssc` | `std.actors` |
 | `bifunctor.ssc` | `std.bifunctor` |
 | `coroutine.ssc` | `std.coroutine` |
+| `dsl/ast.ssc` | `std.dsl` |
+| `dsl/builders.ssc` | `std.dsl` |
+| `dsl/passes.ssc` | `std.dsl` |
+| `dsl/pretty.ssc` | `std.dsl` |
+| `dsl/walker.ssc` | `std.dsl` |
 | `either.ssc` | `std.either` |
+| `eq.ssc` | `std.eq` |
 | `error-handling.ssc` | `std.error_handling` |
 | `foldable-traversable.ssc` | `std.foldable_traversable` |
 | `free.ssc` | `std.free` |
 | `functor-applicative-monad.ssc` | `std.functor_applicative_monad` |
 | `generators.ssc` | `std.generators` |
+| `hash.ssc` | `std.hash` |
 | `http.ssc` | `std.http` |
 | `index.ssc` | `std` |
+| `mapreduce/*.ssc` | `std.mapreduce` |
+| `mcp/*.ssc` | `std.mcp` |
 | `middleware.ssc` | `std.middleware` |
 | `monad-control.ssc` | `std.monad_control` |
 | `monaderror.ssc` | `std.monaderror` |
 | `nodes.ssc` | `std.nodes` |
+| `order.ssc` | `std.order` |
+| `parsing/combinators.ssc` | `std.parsing` |
+| `parsing/core.ssc` | `std.parsing` |
+| `parsing/helpers.ssc` | `std.parsing` |
+| `parsing/layout.ssc` | `std.parsing` |
+| `parsing/recovery.ssc` | `std.parsing` |
 | `selective.ssc` | `std.selective` |
 | `semigroup-monoid.ssc` | `std.semigroup_monoid` |
+| `show.ssc` | `std.show` |
 
 The Phase 2 aliasing (Interpreter `lookupExport`, JvmGen
 `aliasBlock`, JsGen `genImport`) makes all existing short-name

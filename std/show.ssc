@@ -2,6 +2,7 @@
 name: std-show
 version: 1.0.0
 description: Show typeclass — string representation
+package: std.show
 exports:
   - Show
   - show

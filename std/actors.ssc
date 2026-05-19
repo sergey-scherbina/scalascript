@@ -2,6 +2,7 @@
 name: std-actors
 version: 1.3.0
 description: "Erlang-style actor supervision + bounded mailboxes + process introspection + cluster registry — v1.6 Phase 2 + v1.6.x"
+package: std.actors
 exports:
   - ChildSpec
   - MaxRestarts
