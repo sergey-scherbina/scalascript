@@ -3,7 +3,6 @@
 name: distributed-map
 description: v1.22 — .map(named("double")).collect() round-trip across 3 nodes
 backends: [jvm]
-pending: needs std/mapreduce/* auto-resolution in `ssc compile`
 ---
 
 # Distributed map — named handler round-trip

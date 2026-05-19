@@ -4659,6 +4659,13 @@ class JvmGen(
        |  case (">=", x: Int,    y: Int)    => x >= y
        |  case (">=", x: Long,   y: Long)   => x >= y
        |  case (">=", x: Double, y: Double) => x >= y
+       |  // Collection ops — `+`/`-` on Set/Map for membership update,
+       |  // `+` on List/Map for cons/insert (CPS dep code uses these
+       |  // via _binOp when operands' static types are Any).
+       |  case ("+", xs: Set[_], y)         => xs.asInstanceOf[Set[Any]] + y
+       |  case ("-", xs: Set[_], y)         => xs.asInstanceOf[Set[Any]] - y
+       |  case ("+", xs: Map[_, _], y: (_, _)) =>
+       |    xs.asInstanceOf[Map[Any, Any]] + y.asInstanceOf[(Any, Any)]
        |  case _ => sys.error(s"Cannot $op on $a, $b")
        |
        |// ── Built-in `Async` effect + v1.11 coroutine-based `runAsync` ─────────
@@ -4836,6 +4843,34 @@ class JvmGen(
        |    case (xs: List[_], "isEmpty",  Nil)       => xs.isEmpty
        |    case (xs: List[_], "nonEmpty", Nil)       => xs.nonEmpty
        |    case (xs: List[_], "reverse",  Nil)       => xs.reverse
+       |    // `.toMap` / `.toSet` carry implicit evidence — reflection
+       |    // sees them as 1-arg methods that don't match a Nil call.
+       |    case (xs: List[_], "toMap",    Nil)       =>
+       |      xs.asInstanceOf[List[(Any, Any)]].toMap
+       |    case (xs: List[_], "toSet",    Nil)       => xs.toSet
+       |    case (xs: List[_], "zip",      List(other)) =>
+       |      xs.zip(other.asInstanceOf[Iterable[Any]])
+       |    case (xs: List[_], "zipWithIndex", Nil)   => xs.zipWithIndex
+       |    // `.sortBy(fn)` carries an implicit Ordering — like toMap,
+       |    // reflection-arity check rejects the 2-arg signature.
+       |    case (xs: List[_], "sortBy",  List(fn))   =>
+       |      given Ordering[Any] = new Ordering[Any]:
+       |        def compare(a: Any, b: Any): Int = (a, b) match
+       |          case (x: Int,    y: Int)    => x.compare(y)
+       |          case (x: Long,   y: Long)   => x.compare(y)
+       |          case (x: Double, y: Double) => x.compare(y)
+       |          case (x: String, y: String) => x.compare(y)
+       |          case _ => a.toString.compare(b.toString)
+       |      xs.asInstanceOf[List[Any]].sortBy(fn.asInstanceOf[Any => Any])
+       |    case (xs: List[_], "groupBy", List(fn))   =>
+       |      xs.asInstanceOf[List[Any]].groupBy(fn.asInstanceOf[Any => Any])
+       |    case (xs: List[_], "headOption", Nil)     => xs.headOption
+       |    case (xs: List[_], "lastOption", Nil)     => xs.lastOption
+       |    case (xs: List[_], "drop",   List(n: Int))  => xs.drop(n)
+       |    case (xs: List[_], "take",   List(n: Int))  => xs.take(n)
+       |    case (xs: List[_], "distinct", Nil)       => xs.distinct
+       |    case (xs: List[_], "contains", List(x))   =>
+       |      xs.asInstanceOf[List[Any]].contains(x)
        |    case (xs: List[_], "mkString", Nil)       => xs.mkString
        |    case (xs: List[_], "mkString", List(s: String)) => xs.mkString(s)
        |    case (xs: List[_], "sum",      Nil)       => xs.asInstanceOf[List[Any]].foldLeft(0: Any)((a, b) => _binOp("+", a, b))
@@ -4857,6 +4892,26 @@ class JvmGen(
        |      opt.asInstanceOf[Option[Any]].flatMap(x => fn.asInstanceOf[Any => Option[Any]](x))
        |    case (opt: Option[_], "foreach",    List(fn))  =>
        |      opt.asInstanceOf[Option[Any]].foreach(fn.asInstanceOf[Any => Any]); ()
+       |    // Map ops — by-name default arg in `getOrElse` confuses
+       |    // the reflection fallback, so dispatch explicitly.
+       |    case (m: Map[_, _], "getOrElse", List(k, d)) =>
+       |      m.asInstanceOf[Map[Any, Any]].getOrElse(k, d)
+       |    case (m: Map[_, _], "get",       List(k))    =>
+       |      m.asInstanceOf[Map[Any, Any]].get(k)
+       |    case (m: Map[_, _], "contains",  List(k))    =>
+       |      m.asInstanceOf[Map[Any, Any]].contains(k)
+       |    case (m: Map[_, _], "size",      Nil)        => m.size
+       |    case (m: Map[_, _], "isEmpty",   Nil)        => m.isEmpty
+       |    case (m: Map[_, _], "nonEmpty",  Nil)        => m.nonEmpty
+       |    case (m: Map[_, _], "keys",      Nil)        =>
+       |      m.asInstanceOf[Map[Any, Any]].keys
+       |    case (m: Map[_, _], "values",    Nil)        =>
+       |      m.asInstanceOf[Map[Any, Any]].values
+       |    // Set ops
+       |    case (s: Set[_], "contains",  List(x)) => s.asInstanceOf[Set[Any]].contains(x)
+       |    case (s: Set[_], "size",      Nil)     => s.size
+       |    case (s: Set[_], "isEmpty",   Nil)     => s.isEmpty
+       |    case (s: Set[_], "nonEmpty",  Nil)     => s.nonEmpty
        |    // Fallback: try Java reflection so non-HOF method calls still work
        |    case _ =>
        |      val cls = obj.getClass
@@ -6662,6 +6717,39 @@ class JvmGen(
        |      Right(k(()))
        |    case other => sys.error("Unknown Actor op: " + other)
        |
+       |  // Synchronous fallback handler for non-Actor effects performed
+       |  // inside an actor body — dep code like std/mapreduce/distributed
+       |  // calls `Random.uuid()` while running under `runActors`, and the
+       |  // value-producing primitives (Random.*, Clock.now/nowIso) can be
+       |  // evaluated in-place without a continuation.  Unsupported effects
+       |  // still throw with a clear message.  Blocking ops (Clock.sleep)
+       |  // intentionally don't appear here — they'd freeze the single
+       |  // actor scheduler thread.
+       |  lazy val _actorRng = new java.util.Random()
+       |  def _actorFallback(eff: String, op: String, args: List[Any]): Any =
+       |    (eff, op) match
+       |      case ("Random", "uuid") =>
+       |        val bytes = new Array[Byte](16)
+       |        _actorRng.nextBytes(bytes)
+       |        bytes(6) = ((bytes(6) & 0x0f) | 0x40).toByte
+       |        bytes(8) = ((bytes(8) & 0x3f) | 0x80).toByte
+       |        def hex(b: Byte) = f"${b & 0xff}%02x"
+       |        val u = bytes.map(hex).mkString
+       |        s"${u.take(8)}-${u.slice(8,12)}-${u.slice(12,16)}-${u.slice(16,20)}-${u.drop(20)}"
+       |      case ("Random", "nextInt") =>
+       |        val n = args(0) match { case x: Int => x; case x: Long => x.toInt; case _ => 1 }
+       |        _actorRng.nextInt(if n > 0 then n else 1)
+       |      case ("Random", "nextDouble") => _actorRng.nextDouble()
+       |      case ("Random", "pick") =>
+       |        val xs = args(0).asInstanceOf[List[Any]]
+       |        xs(_actorRng.nextInt(xs.size))
+       |      case ("Clock", "now")    => java.lang.System.currentTimeMillis()
+       |      case ("Clock", "nowIso") =>
+       |        java.time.format.DateTimeFormatter.ISO_INSTANT
+       |          .format(java.time.Instant.ofEpochMilli(java.lang.System.currentTimeMillis()))
+       |      case _ =>
+       |        throw new RuntimeException("Unhandled effect inside actor: " + eff + "." + op)
+       |
        |  def stepActor(id: Long, initial: Any): Unit =
        |    var current: Any = initial
        |    while true do
@@ -6670,15 +6758,19 @@ class JvmGen(
        |          handleActorOp(id, actors(id), op, args, (v: Any) => v) match
        |            case Right(next) => current = next
        |            case Left(_)     => return
-       |        case _Perform(eff, op, _) =>
-       |          throw new RuntimeException("Unhandled effect inside actor: " + eff + "." + op)
+       |        case _Perform(eff, op, args) =>
+       |          // Plain perform with no continuation: compute via
+       |          // fallback and use the value as the final result of
+       |          // this actor step.
+       |          current = _actorFallback(eff, op, args)
        |        case _FlatMap(sub, f) => sub match
        |          case _Perform("Actor", op, args) =>
        |            handleActorOp(id, actors(id), op, args, f.asInstanceOf[Any => Any]) match
        |              case Right(next) => current = next
        |              case Left(_)     => return
-       |          case _Perform(eff, op, _) =>
-       |            throw new RuntimeException("Unhandled effect inside actor: " + eff + "." + op)
+       |          case _Perform(eff, op, args) =>
+       |            val v = _actorFallback(eff, op, args)
+       |            current = f.asInstanceOf[Any => Any](v)
        |          case _FlatMap(s2, g) =>
        |            current = _FlatMap(s2,
        |              (x: Any) => _FlatMap(g.asInstanceOf[Any => Any](x), f))

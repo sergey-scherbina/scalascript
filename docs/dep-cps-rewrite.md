@@ -71,6 +71,7 @@ Steps 0-3 landed on `main`; Steps 4-7 in flight on `feature/dep-cps`.
 | 2 — cross-dep fixpoint (`analyzeDepEffectfulness`) + 14 unit tests | ✅ landed | ac93940 |
 | 3 — dep-mode CPS emit (`Defn.Object` recursion, `isEffectfulFun` ext, infix tuple-arg fix) | ✅ landed | 3b3ca95 |
 | 4 — `distributed-map.ssc` integration | ✅ chunks 1–6 landed — **0 compile errors** | 9c62b01, + chunks 2–6 |
+| 5 — actor runtime fallback + dispatch table | ✅ landed — `distributed-map.ssc` **PASS end-to-end** | + chunk 7 |
 | 5 — full regression sweep | ⏳ pending | — |
 | 6 — strip `pending:` from other v1.22 distributed-* tests | ⏳ pending | — |
 | 7 — retire `cpsBody` parameter / textual band-aids | ⏳ pending | — |
@@ -307,21 +308,53 @@ Numbers after chunk 6:
 - 65 dep-cps unit + 629 core unit + full conformance: zero
   regressions (`async-parallel` flake oscillates as expected).
 
-**Steps 5–7 — pending:**
+**Chunk 7 — actor runtime fallback + dispatch table (landed 2026-05-19):**
 
-The architectural compile path is complete.  Remaining work:
-- **Runtime effect-handler integration** — the
-  `Unhandled effect inside actor: Random.uuid` runtime fail in
-  distributed-map needs a `Random` effect handler registered in
-  the actor runtime (or routing through `_perform` differently).
-  Orthogonal to dep-cps; track as a separate v1.22 runtime
-  followup.
-- **Step 5** — full v1.22 regression sweep across all six
-  distributed-* conformance tests.
-- **Step 6** — strip `pending:` markers from the conformance
-  files once each runs end-to-end green.
-- **Step 7** — retire `cpsBody` parameter / textual band-aids
-  obsoleted by the Steps 0–4 architecture.
+Three runtime additions that take `distributed-map.ssc` from
+"compiles clean" to **end-to-end PASS** (`pending:` marker
+removed; conformance counts 33 → 34 passed, 6 → 5 pending):
+
+1. **`_actorFallback(eff, op, args)` in `stepActor`.** Replaced
+   the `throw "Unhandled effect inside actor: …"` catchall with
+   a synchronous dispatch table.  Handles
+   `Random.{uuid,nextInt,nextDouble,pick}` (using a local
+   `lazy val _actorRng`) and `Clock.{now,nowIso}` — the
+   value-producing primitives dep code calls inside an actor
+   body.  Blocking ops (`Clock.sleep`) intentionally don't
+   appear; they'd freeze the single-thread actor scheduler.
+   Unsupported effects still throw with the same message.
+
+2. **`_binOp` collection cases** for `Set + x`, `Set - x`,
+   `Map + (k, v)`.  CPS dep code routes `pending - partId` etc.
+   through `_binOp` when the operands are statically `Any` —
+   without these cases the runtime rejected the op.
+
+3. **`_dispatch` extension cases** for the standard Scala
+   collection methods whose implicit / by-name signature
+   confuses the reflection fallback (which only accepts methods
+   with `parameterCount == args.length`):
+   - `List.{toMap, toSet, sortBy, groupBy, zip, zipWithIndex,
+     headOption, lastOption, drop, take, distinct, contains}`
+   - `Map.{getOrElse, get, contains, size, isEmpty, nonEmpty,
+     keys, values}`
+   - `Set.{contains, size, isEmpty, nonEmpty}`
+   The reflection fallback stays for everything else.  `sortBy`
+   uses an inline `Ordering[Any]` that falls back to
+   `toString.compare` for non-numeric/non-string keys (good
+   enough for the dep code's `_._1` sort).
+
+End-to-end result on JVM: `Dataset.of(1..9).map("double").collect()`
+across 3 in-process worker actors prints `2 4 6 8 10 12 14 16 18`
+— matches `conformance/expected/distributed-map.txt`.
+
+Remaining work (orthogonal to dep-cps, deferred):
+- The other five distributed-* tests
+  (`distributed-{shuffle,failure-retry,failure-partial,
+  heterogeneous}`, `cluster-connect`) still fail compile/runtime
+  with their own issues — `pending:` markers retained.  Each
+  needs its own focused investigation.
+- Retire `cpsBody` parameter / textual band-aids obsoleted by
+  the Steps 0–4 + chunks 2–6 architecture.
 
 **Validation as of Step 3 landing:**
 - `conformance/dep-cps-basic.ssc` runs end-to-end on JVM, prints `ok/ok`.
