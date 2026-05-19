@@ -176,13 +176,11 @@ class V2ArtifactCliTest extends AnyFunSuite:
         s"check-with-iface failed unexpectedly: exit=${res.exitCode}\nstdout=${res.out.text()}\nstderr=${res.err.text()}")
     finally os.remove.all(sandbox)
 
-  // TODO(v2.0): The typer currently produces `Any` for most names and does
-  // not flag references to undefined symbols (see ir/Ir.scala:217 comment on
-  // ExportedSymbol.tpe — "the typer currently produces `Any` for most
-  // names").  Once the typer is extended to actually resolve and complain
-  // about unknown identifiers, this test should be flipped to assert a
-  // non-zero exit code and an error message naming the missing symbol.
-  test("check-with-iface — references to undefined names currently pass (TODO: tighten typer)"):
+  // v2.0 — typer strict mode in `check-with-iface`.  References to names
+  // that resolve to neither the consumer's own defs, any imported `.scim`,
+  // nor the builtin prelude must surface as type errors with a non-zero
+  // exit code and a diagnostic naming the missing symbol.
+  test("check-with-iface — references to undefined names fail with diagnostic"):
     val sandbox = os.temp.dir(prefix = "ssc-v2-cli-")
     try
       val ifaceDir = sandbox / "ifaces"
@@ -206,12 +204,12 @@ class V2ArtifactCliTest extends AnyFunSuite:
           |""".stripMargin)
 
       val res = runSsc(sandbox, "check-with-iface", "--iface-dir", "ifaces", "b.ssc")
-      // Document current (permissive) behaviour: exit 0 despite the
-      // unknown reference.  Flip the assertion when the typer learns to
-      // reject undefined identifiers.
-      assert(res.exitCode == 0,
-        s"Current typer accepts undefined names; test guards regressions away from that. " +
-        s"exit=${res.exitCode}\nstderr=${res.err.text()}")
+      assert(res.exitCode != 0,
+        s"expected non-zero exit for undefined name; got exit=${res.exitCode}\n" +
+        s"stdout=${res.out.text()}\nstderr=${res.err.text()}")
+      val combined = res.out.text() + res.err.text()
+      assert(combined.contains("thisNameDoesNotExist"),
+        s"expected diagnostic to name the missing symbol; got:\n$combined")
     finally os.remove.all(sandbox)
 
   test("check-with-iface — empty iface dir is accepted (no errors from missing dir)"):

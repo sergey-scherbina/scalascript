@@ -2367,18 +2367,24 @@ def checkWithInterfaceCommand(args: List[String]): Unit =
       println(s"=== Type checking (with interfaces): $file ===")
       try
         val module = Parser.parse(os.read(path))
-        val typed  =
-          if interfaces.isEmpty then Typer.typeCheck(module)
-          else Typer.typeCheckWithInterfaces(module, interfaces)
+        // `check-with-iface` runs the typer in strict mode so that
+        // references to undefined names — names that resolve to neither
+        // the consumer's own defs, any imported `.scim`, nor the builtin
+        // prelude — surface as type errors with a non-zero exit code.
+        // Other entry points (`compile`, `emit-interface`, `emit-ir`)
+        // remain permissive for backward compatibility.
+        val typed =
+          if interfaces.isEmpty then Typer.typeCheckStrict(module)
+          else Typer.typeCheckWithInterfaces(module, interfaces, strict = true)
         if typed.hasErrors then
           hasErrors = true
-          typed.errors.foreach(e => println(s"  Error: ${e.msg}"))
+          typed.errors.foreach(e => System.err.println(s"  Error: ${e.show}"))
         else
           println("OK")
           println(typed.show)
       catch case e: Exception =>
         hasErrors = true
-        println(s"Error: ${e.getMessage}")
+        System.err.println(s"Error: ${e.getMessage}")
   if hasErrors then System.exit(1)
 
 def printModule(module: Module): Unit =
