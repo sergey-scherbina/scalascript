@@ -5001,6 +5001,12 @@ worth a separate fix when somebody has cycles.
   the wait). Estimated 2–3 days of careful work — not a one-pass
   fix. Track in v2.x or a dedicated `feature/dep-cps` branch.
 
+  **Detailed design spec**: see `docs/dep-cps-rewrite.md` for the
+  full architectural analysis, design space (4 strategies),
+  recommended 7-step implementation plan, and open questions.
+  Pick that up before starting the rewrite — captures everything
+  needed to resume cold.
+
 - **WS test cross-suite isolation goes through a process-global
   `WsRoutes` table + `WsTestLock` monitor.**  Works, but the lock
   serialises ScalaTest's default parallel suite execution for every

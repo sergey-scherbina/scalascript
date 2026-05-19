@@ -448,6 +448,13 @@ unqualified. Two problems sit inside this otherwise-working flow:
    mapreduce/* auto-resolution in \`ssc compile\`` until this lands;
    they document the intended API but don't run in the suite.
 
+   The bare-name layer (this section) is the *textual* / namespace
+   problem. The deeper *semantic* problem — dep code calling effect
+   primitives without going through CPS rewriting — is documented
+   separately in `docs/dep-cps-rewrite.md`, which captures the
+   architectural analysis and a concrete implementation plan for
+   the rewriter side.
+
 ## 13. Open questions
 
 - **`ssc.lock` format** — minimal JSON-with-SHAs, or YAML
