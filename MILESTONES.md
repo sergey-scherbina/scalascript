@@ -1535,11 +1535,13 @@ also registers `/_ssc-actors` WS handler for inbound peers.  Requires
 Pulled out so v1.6 stays focused; each is meaningfully a separate
 PR that doesn't gate the core landing.
 
-1. **Bounded mailboxes + backpressure.**  v1.6 ships unbounded
-   mailboxes (Erlang default).  Add `mailbox = bounded(n,
-   onOverflow = Block | DropOldest | DropNewest | Fail)` as a
-   `spawn` option once a real workload demands backpressure.  ~80
-   LOC per backend.
+1. **Bounded mailboxes + backpressure.**  ✓ **Landed (v1.6.x).**
+   `spawnBounded(capacity, overflow, behavior)` on all three
+   backends: `Overflow.DropOldest`, `DropNewest`, `Fail`, and
+   `Block` (cooperative sender-suspend).  Conformance test
+   `actors-bounded-mailbox.ssc` covers DropOldest / DropNewest /
+   Block; Fail is exercised via linked-actor pattern.  `std/actors.ssc`
+   bumped to v1.1.0.
 
 2. **Actor tracing & introspection.**  `processInfo(pid):
    ProcessInfo` returning mailbox size, links, monitors, current

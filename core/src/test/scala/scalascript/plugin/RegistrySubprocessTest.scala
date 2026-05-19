@@ -55,7 +55,6 @@ class RegistrySubprocessTest extends AnyFunSuite:
              |""".stripMargin)
 
         // Point env at the sandbox & reset cached state.
-        val origPath = System.getProperty("scalascript.plugin.path.test")
         BackendRegistry.reload()
         // Inject via env-var override: not supported directly, so we
         // call PluginManifest.discover() with the explicit path and

@@ -1,7 +1,7 @@
 #!/usr/bin/env ssc
 ---
 name: actors-bounded-mailbox
-description: v1.6.x bounded mailboxes — DropOldest / DropNewest / Fail / Block strategies
+description: v1.6.x bounded mailboxes — DropOldest / DropNewest / Block overflow strategies
 ---
 
 # Bounded Mailbox
@@ -10,67 +10,31 @@ description: v1.6.x bounded mailboxes — DropOldest / DropNewest / Fail / Block
 import actors.Overflow
 
 runActors {
-  // ── DropOldest ────────────────────────────────────────────────
-  val rcv1 = spawnBounded(2, Overflow.DropOldest, () => {
-    receive {
-      case s: String => println("rcv1: " + s)
-    }
-    receive {
-      case s: String => println("rcv1: " + s)
-    }
-    receive {
-      case s: String => println("rcv1: " + s)
-    }
+  // ── DropOldest: capacity=2, 3 sends → first message dropped ──────────────
+  val dropOldest = spawnBounded(2, Overflow.DropOldest, () => {
+    receive { case s: String => println("drop-oldest: " + s) }
+    receive { case s: String => println("drop-oldest: " + s) }
   })
-  // Send 3 messages to a capacity-2 mailbox → first one is dropped
-  rcv1 ! "a"
-  rcv1 ! "b"
-  rcv1 ! "c"
+  dropOldest ! "a"  // mailbox=[a]
+  dropOldest ! "b"  // mailbox=[a,b] (full)
+  dropOldest ! "c"  // overflow → drop "a", mailbox=[b,c]
 
-  // ── DropNewest ────────────────────────────────────────────────
-  val rcv2 = spawnBounded(2, Overflow.DropNewest, () => {
-    receive {
-      case s: String => println("rcv2: " + s)
-    }
-    receive {
-      case s: String => println("rcv2: " + s)
-    }
-    receive {
-      case s: String => println("rcv2: " + s)
-    }
+  // ── DropNewest: capacity=2, 3rd send is silently discarded ───────────────
+  val dropNewest = spawnBounded(2, Overflow.DropNewest, () => {
+    receive { case s: String => println("drop-newest: " + s) }
+    receive { case s: String => println("drop-newest: " + s) }
   })
-  rcv2 ! "x"
-  rcv2 ! "y"
-  rcv2 ! "z"  // dropped — mailbox full
+  dropNewest ! "x"  // mailbox=[x]
+  dropNewest ! "y"  // mailbox=[x,y] (full)
+  dropNewest ! "z"  // dropped
 
-  // ── Fail ──────────────────────────────────────────────────────
-  // Sender is killed with reason "mailbox_overflow".
-  // Wrap in a monitor to observe the failure cleanly.
-  val rcv3 = spawnBounded(1, Overflow.Fail, () => {
-    receive { case _: String => () }  // drain the one message
+  // ── Block: capacity=1 — sender suspends until receiver drains ─────────────
+  val blockTarget = spawnBounded(1, Overflow.Block, () => {
+    receive { case s: String => println("block: " + s) }
+    receive { case s: String => println("block: " + s) }
   })
-  rcv3 ! "ok"   // fits
-  val me = self()
-  val ref = monitor(rcv3)
-  val sender3 = spawn(() => {
-    trapExit(true)
-    rcv3 ! "overflow"  // kills this actor
-    // unreachable — but drain the Exit if it arrives instead of dying
-    receive { case _ => () }
-  })
-  // Observe sender3 death
-  receive {
-    case Down(_, _, r) => println("sender3 died: " + r)
-  }
-
-  // ── Block ─────────────────────────────────────────────────────
-  // Sender blocks until receiver processes a message.
-  val rcv4 = spawnBounded(1, Overflow.Block, () => {
-    receive { case s: String => println("rcv4: " + s) }
-    receive { case s: String => println("rcv4: " + s) }
-  })
-  rcv4 ! "first"    // fits immediately
-  rcv4 ! "second"   // blocks until "first" is consumed
-  println("block-send complete")
+  blockTarget ! "first"   // fits (mailbox=[first])
+  blockTarget ! "second"  // blocks root until "first" is consumed
+  println("block-done")
 }
 ```

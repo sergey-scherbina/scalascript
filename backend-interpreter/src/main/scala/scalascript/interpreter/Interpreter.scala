@@ -4041,8 +4041,8 @@ class Interpreter(
       Right(k(mkPid("", childId)))
 
     case "spawnBounded" =>
-      val Value.IntV(capL)           = args(0)
-      val Value.StringV(strategy)    = args(1)
+      val capL     = args(0) match { case Value.IntV(n) => n; case _ => 0L }
+      val strategy = args(1) match { case Value.StringV(s) => s; case _ => "DropNewest" }
       val thunk = args(2)
       val childId = rt.nextId
       rt.nextId += 1
@@ -4392,14 +4392,15 @@ class Interpreter(
       rt.mailboxes.get(receiverId).foreach { mb =>
         if mb.size < cap then
           rt.blockedSends.get(receiverId).foreach { queue =>
+            var done = false
             // Skip dead senders; resume the first live one.
-            while queue.nonEmpty do
+            while queue.nonEmpty && !done do
               val (senderId, msg, senderK) = queue.dequeue()
               if rt.mailboxes.contains(senderId) then
                 mb.enqueue(msg)
                 rt.pending(senderId) = senderK(Value.UnitV)
                 rt.ready.enqueue(senderId)
-                return
+                done = true
           }
       }
     }

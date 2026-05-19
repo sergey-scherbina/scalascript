@@ -1,0 +1,7 @@
+drop-oldest: b
+drop-oldest: c
+drop-newest: x
+drop-newest: y
+block: first
+block: second
+block-done
