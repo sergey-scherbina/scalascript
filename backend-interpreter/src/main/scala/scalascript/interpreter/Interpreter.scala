@@ -540,6 +540,21 @@ class Interpreter(
     new java.util.concurrent.ConcurrentHashMap[String, java.lang.Boolean]()
   private val drainEventSubs =
     new java.util.concurrent.CopyOnWriteArrayList[java.lang.Long]()
+  // v1.23 — cluster-wide pub/sub.  Subscribers are local (per-node);
+  // a `publish(topic, msg)` broadcasts to all peers, each of which
+  // dispatches to its own local subscribers.  Topic → list-of-actor-ids.
+  private val publishSubs =
+    new java.util.concurrent.ConcurrentHashMap[String,
+      java.util.concurrent.CopyOnWriteArrayList[java.lang.Long]]()
+  private val publishQueue =
+    new java.util.concurrent.ConcurrentLinkedQueue[(Long, Value)]()
+  private def localPublish(topic: String, msg: Value): Unit =
+    val subs = publishSubs.get(topic)
+    if subs != null && !subs.isEmpty then
+      val it = subs.iterator
+      while it.hasNext do
+        publishQueue.offer((it.next().toLong, msg))
+      val t = schedulerThread; if t != null then t.interrupt()
   private val drainEventQueue =
     new java.util.concurrent.ConcurrentLinkedQueue[Value]()
   private def enqueueDrainEvent(nodeId: String, draining: Boolean): Unit =
@@ -1386,6 +1401,16 @@ class Interpreter(
                 }
               case _ => ()
             }
+          case "pub" =>
+            // v1.23 — cluster-wide pub/sub envelope.  Body is the
+            // serialized message Value; topic is the routing key.
+            // Subscribers are local; each receiving node dispatches
+            // to its own publishSubs map.
+            val topic = m.get(Value.StringV("topic")).collect { case Value.StringV(s) => s }.getOrElse("")
+            if topic.nonEmpty then
+              m.get(Value.StringV("body")).foreach { body =>
+                localPublish(topic, body)
+              }
           case "global_reg" =>
             val name   = m.get(Value.StringV("name")).collect { case Value.StringV(s) => s }.getOrElse("")
             val nodeId = m.get(Value.StringV("nodeId")).collect { case Value.StringV(s) => s }.getOrElse("")
@@ -2720,6 +2745,23 @@ class Interpreter(
       case List(Value.StringV(t)) =>
         Perform("Actor", "setClusterAuthToken", List(Value.StringV(t)))
       case _ => throw InterpretError("setClusterAuthToken(token: String): Unit")
+    })
+    // v1.23 — cluster-wide pub/sub.  Subscribers are local; publish
+    // broadcasts to peers + delivers locally.
+    globals("publish") = Value.NativeFnV("publish", {
+      case List(Value.StringV(topic), msg) =>
+        Perform("Actor", "publish", List(Value.StringV(topic), msg))
+      case _ => throw InterpretError("publish(topic: String, msg: Any): Unit")
+    })
+    globals("subscribePublish") = Value.NativeFnV("subscribePublish", {
+      case List(Value.StringV(topic)) =>
+        Perform("Actor", "subscribePublish", List(Value.StringV(topic)))
+      case _ => throw InterpretError("subscribePublish(topic: String): Unit")
+    })
+    globals("unsubscribePublish") = Value.NativeFnV("unsubscribePublish", {
+      case List(Value.StringV(topic)) =>
+        Perform("Actor", "unsubscribePublish", List(Value.StringV(topic)))
+      case _ => throw InterpretError("unsubscribePublish(topic: String): Unit")
     })
     // v1.23 — quorum-aware Bully threshold.  Set to N/2+1 of the
     // expected cluster size to prevent split-brain on partition;
@@ -6471,7 +6513,7 @@ class Interpreter(
                     !clusterEventQueue.isEmpty ||
                     !leaderEventQueue.isEmpty || electionInProgress ||
                     !configEventQueue.isEmpty || !drainEventQueue.isEmpty ||
-                    !metricEventQueue.isEmpty ||
+                    !metricEventQueue.isEmpty || !publishQueue.isEmpty ||
                     rt.timers.nonEmpty ||
                     (isDistributed && rt.blocked.nonEmpty)
 
@@ -6549,6 +6591,13 @@ class Interpreter(
               mb.offer(ev)
               wakeBlocked(rt, aid)
             }
+        // v1.23 — deliver pub/sub messages to subscribed actors.
+        while !publishQueue.isEmpty do
+          val (aid, msg) = publishQueue.poll()
+          rt.mailboxes.get(aid).foreach { mb =>
+            mb.offer(msg)
+            wakeBlocked(rt, aid)
+          }
         // Fire scheduled sends whose deadline has passed.
         if rt.timers.nonEmpty then
           val nowMs = System.currentTimeMillis()
@@ -7233,6 +7282,36 @@ class Interpreter(
         clusterAuthToken = t
         Right(k(Value.UnitV))
       case _ => throw InterpretError("setClusterAuthToken(token: String)")
+
+    // v1.23 — cluster-wide pub/sub
+    case "publish" => args match
+      case List(Value.StringV(topic), msg) =>
+        // Deliver locally.
+        localPublish(topic, msg)
+        // Broadcast to peers — each dispatches to its own local subs.
+        val body = ValueSerializer.serialize(msg)
+        val payload = s"""{"t":"pub","topic":${jsonStr(topic)},"body":$body}"""
+        peerChannels.forEach { (_, send) =>
+          try send(payload) catch case _: Throwable => ()
+        }
+        Right(k(Value.UnitV))
+      case _ => throw InterpretError("publish(topic, msg)")
+
+    case "subscribePublish" => args match
+      case List(Value.StringV(topic)) =>
+        val boxed = java.lang.Long.valueOf(id)
+        val subs  = publishSubs.computeIfAbsent(topic, _ =>
+          new java.util.concurrent.CopyOnWriteArrayList[java.lang.Long]())
+        if !subs.contains(boxed) then subs.add(boxed)
+        Right(k(Value.UnitV))
+      case _ => throw InterpretError("subscribePublish(topic)")
+
+    case "unsubscribePublish" => args match
+      case List(Value.StringV(topic)) =>
+        val subs = publishSubs.get(topic)
+        if subs != null then subs.remove(java.lang.Long.valueOf(id))
+        Right(k(Value.UnitV))
+      case _ => throw InterpretError("unsubscribePublish(topic)")
 
     // v1.23 — quorum-aware Bully threshold
     case "setQuorumSize" => args match
