@@ -4656,9 +4656,18 @@ After Phase 4, the documented gaps are:
   path separators, CRLF line endings (for `sourceHash`), file-locks
   not covered.
 
-- **External `.sscpkg` artifact-level distribution** — `dep:` scheme
-  works for source-level deps; cross-package linking of pre-compiled
-  `.scim`+`.scjvm` from a published `.sscpkg` not tested.
+- **External `.sscpkg` artifact-level distribution** ✓ Landed (v2.0
+  Phase 5).  `ssc bundle --with-artifacts` runs `build --incremental
+  --backend jvm` + `--backend js` on the inputs, then bundles the
+  produced `.scim` / `.scjvm` / `.scjs` files under a `.ssc-artifacts/`
+  prefix inside the `.sscpkg`.  Consumer-side: `compile-jvm` and
+  `compile-js` resolve each `dep:` import via `ImportResolver`, then
+  `findArtifactAlongside(sscPath, ext)` discovers `<dir>/.ssc-artifacts/
+  <basename>.<ext>` (auto-detect, no manifest schema change) and stages
+  the artifact into the local artifact dir so the typer + linker pick
+  it up directly.  Source-fallback when no artifacts ship; bad-magic
+  artifacts surface a clear error.  5 new CLI tests in
+  `SscpkgArtifactDistributionTest`.
 
 - **Getting-started tutorial** — `docs/v2.0-artifact-format.md` is the
   wire spec; a user-facing "compile your first project with v2.0"

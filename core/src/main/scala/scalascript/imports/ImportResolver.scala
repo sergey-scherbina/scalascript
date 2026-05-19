@@ -250,6 +250,28 @@ object ImportResolver:
                     _   => out
                   )
 
+  // ─── v2.0 Phase 5 — pre-compiled artifact discovery ──────────────
+
+  /** Look for a pre-compiled artifact next to a resolved source file.
+   *
+   *  Layout (auto-detected, no manifest schema change):
+   *  {{{
+   *    <dir>/<basename>.ssc              ← `sscPath`
+   *    <dir>/.ssc-artifacts/<basename>.<ext>   ← returned
+   *  }}}
+   *
+   *  Returns `Some(artifactPath)` if the artifact file exists, else `None`.
+   *  Used by `compile-jvm` / `compile-js` to short-circuit dep parsing when
+   *  a `.sscpkg` was built with `--with-artifacts` and a `.scim` / `.scjvm`
+   *  / `.scjs` ships alongside the cached `.ssc`.
+   *
+   *  v2.0 Phase 5 — pre-compiled artifact distribution in `.sscpkg`. */
+  def findArtifactAlongside(sscPath: os.Path, ext: String): Option[os.Path] =
+    if !sscPath.last.endsWith(".ssc") then return None
+    val baseName = sscPath.last.stripSuffix(".ssc")
+    val candidate = sscPath / os.up / ".ssc-artifacts" / s"$baseName.$ext"
+    if os.exists(candidate) then Some(candidate) else None
+
   /** Perform the actual HTTP fetch, write to cache, optionally update lock. */
   private def doFetch(url: String, out: os.Path, lockPath: Option[os.Path]): os.Path =
     if sys.env.get("SSC_NO_NETWORK").contains("1") then

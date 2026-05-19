@@ -677,6 +677,110 @@ def incrementalBuildCommand(args: List[String]): Unit =
   println(s"Artifacts written to ${artDir.relativeTo(os.pwd)}")
   if failed > 0 then System.exit(1)
 
+/** v2.0 Phase 5 — programmatic separate-compilation build helper.
+ *
+ *  Same artifact emission as `build --incremental` but returns a count of
+ *  failures instead of calling `System.exit`.  Used by `bundle
+ *  --with-artifacts` to refuse on input compile errors without terminating
+ *  the outer ZIP-writing process.  Logs progress to `out` (default stdout).
+ *
+ *  Returns `(compiled, skipped, failed)`. */
+private def buildArtifactsInto(
+    srcDir:       os.Path,
+    artDir:       os.Path,
+    backend:      Option[String],
+    out:          java.io.PrintStream = System.out
+): (Int, Int, Int) =
+  import scalascript.artifact.{ModuleGraph, InterfaceExtractor, ArtifactIO}
+  import scalascript.transform.Normalize
+
+  val emitJvm = backend.contains("jvm")
+  val emitJs  = backend.contains("js")
+  os.makeDir.all(artDir)
+
+  val graph = ModuleGraph.build(srcDir)
+  if graph.cycles.nonEmpty then
+    out.println("build (artifacts): circular dependencies detected:")
+    graph.cycles.foreach { cycle =>
+      out.println("  " + cycle.map(p => p.relativeTo(srcDir).toString).mkString(" → "))
+    }
+    return (0, 0, 1)
+
+  val nodes = graph.orderedNodes
+  var compiled = 0
+  var skipped  = 0
+  var failed   = 0
+
+  for node <- nodes do
+    val relPath  = node.relPath(srcDir)
+    val baseName = node.path.last.stripSuffix(".ssc")
+    val coreStale = ModuleGraph.isStale(node.path, artDir)
+    val jvmStale  = emitJvm && ModuleGraph.isJvmStale(node.path, artDir)
+    val jsStale   = emitJs  && ModuleGraph.isJsStale(node.path, artDir)
+    val stale     = coreStale || jvmStale || jsStale
+    if !stale then
+      skipped += 1
+    else
+      val ok = scala.util.Try {
+        val sourceBytes = os.read.bytes(node.path)
+        val src         = new String(sourceBytes, "UTF-8")
+        val module      = Parser.parse(src)
+        if reportCodeBlockParseErrors(module, relPath) then
+          throw new RuntimeException(s"parse error in $relPath")
+        val ir          = Normalize(module)
+        val iface       = InterfaceExtractor.extract(module, sourceBytes)
+        val sourceHash  = iface.sourceHash
+        val scimPath = artDir / (baseName + ".scim")
+        val scirPath = artDir / (baseName + ".scir")
+        if coreStale then
+          ArtifactIO.writeInterfaceFile(iface.copy(sectionHashes = Map.empty), scimPath)
+          ArtifactIO.writeIrFile(ir, node.pkg, module.manifest.flatMap(_.name), sourceHash, scirPath)
+        if emitJvm then
+          val scjvmPath = artDir / (baseName + ".scjvm")
+          if jvmStale || !os.exists(scjvmPath) then
+            val baseDir     = Some(node.path / os.up)
+            val scalaSource = JvmGen.generate(module, baseDir)
+            val rawImports  = collectImports(module.sections)
+            val depAliases  = module.manifest.toList.flatMap(_.dependencies.keys)
+            val imports     = (rawImports ++ depAliases).distinct.toList
+            val moduleId    = module.manifest.flatMap(_.name).getOrElse(baseName)
+            JvmArtifactIO.writeJvmFile(
+              moduleId, node.pkg, module.manifest.flatMap(_.name),
+              sourceHash, scalaSource, imports, scjvmPath
+            )
+        if emitJs then
+          val scjsPath = artDir / (baseName + ".scjs")
+          if jsStale || !os.exists(scjsPath) then
+            val baseDir    = Some(node.path / os.up)
+            val jsSource   = JsGen.generateUserOnly(module, baseDir)
+            val rawImports = collectImports(module.sections)
+            val depAliases = module.manifest.toList.flatMap(_.dependencies.keys)
+            val imports    = (rawImports ++ depAliases).distinct.toList
+            val moduleId   = module.manifest.flatMap(_.name).getOrElse(baseName)
+            val moduleCaps: Set[String] =
+              JsGen.detectCapabilities(module, baseDir).map(JsGen.Capability.encode)
+            JsArtifactIO.writeJsFile(
+              moduleId, node.pkg, module.manifest.flatMap(_.name),
+              sourceHash, jsSource, imports, scjsPath,
+              capabilities = moduleCaps.toList.sorted
+            )
+      }
+      ok match
+        case scala.util.Success(_) => compiled += 1
+        case scala.util.Failure(e) =>
+          out.println(s"  [compile error] $relPath: ${Option(e.getMessage).getOrElse(e.getClass.getSimpleName)}")
+          failed += 1
+
+  // Regenerate shared JS runtime if any .scjs were produced.
+  if emitJs && failed == 0 then
+    val unionCaps = unionDepCapabilitiesJs(artDir)
+    try ensureJsRuntimeArtifact(artDir, unionCaps)
+    catch case e: Throwable =>
+      out.println(s"  [runtime error] ${e.getMessage}")
+      failed += 1
+
+  (compiled, skipped, failed)
+
 /** `ssc build <src-dir> [<out-dir>]` — batch static-site generation.
  *
  *  Walks `src-dir` for top-level `.ssc` files (subdirectories are
@@ -835,6 +939,7 @@ def bundleCommand(args: List[String]): Unit =
 
   // ─── Argument parsing ─────────────────────────────────────────
   var output: Option[String] = None
+  var withArtifacts: Boolean = false
   // backendId -> jar path pairs from --with-backend-jar backendId:path
   val backendJars = scala.collection.mutable.ArrayBuffer.empty[(String, os.Path)]
   val files = scala.collection.mutable.ArrayBuffer.empty[String]
@@ -842,6 +947,7 @@ def bundleCommand(args: List[String]): Unit =
   while it.hasNext do
     it.next() match
       case "-o" | "--output" if it.hasNext => output = Some(it.next())
+      case "--with-artifacts"              => withArtifacts = true
       case "--with-backend-jar" if it.hasNext =>
         val spec = it.next()
         spec.indexOf(':') match
@@ -856,7 +962,7 @@ def bundleCommand(args: List[String]): Unit =
             backendJars += bid -> path
       case f => files += f
   if files.isEmpty then
-    System.err.println("Usage: ssc bundle <file.ssc> [<file.ssc>...] [-o name.sscpkg] [--with-backend-jar backendId:path]")
+    System.err.println("Usage: ssc bundle <file.ssc> [<file.ssc>...] [-o name.sscpkg] [--with-artifacts] [--with-backend-jar backendId:path]")
     System.exit(1)
 
   val entryPaths = files.toList.map { f =>
@@ -968,6 +1074,55 @@ def bundleCommand(args: List[String]): Unit =
   val kind     = if isHybrid then "[library, plugin]" else "[library]"
   val targets  = if isHybrid then backendJars.map(_._1).distinct.mkString("[", ", ", "]") else "[]"
 
+  // ─── v2.0 Phase 5 — pre-compile artifacts when `--with-artifacts` ─────
+  //
+  // For every bundled `.ssc`, drive `build --incremental --backend jvm`
+  // and `--backend js` into a temporary artifact dir, then splice the
+  // produced `.scim` / `.scjvm` / `.scjs` files into the ZIP under
+  // `.ssc-artifacts/<basename>.<ext>` so a consumer can use them
+  // directly without re-parsing the source.
+  //
+  // `findArtifactAlongside` (in `ImportResolver`) discovers the layout
+  // automatically — no manifest schema change required.
+  //
+  // Refuses on compile errors: build/compile failure aborts the bundle
+  // and removes the partially-written ZIP.
+  val artifactStaging: Option[os.Path] =
+    if !withArtifacts then None
+    else
+      // Stage rewritten sources to a temp src dir so the build step sees
+      // the same archive layout the consumer will see.  Build JVM + JS
+      // artifacts in-process via `buildArtifactsInto` (the exit-safe
+      // sibling of `build --incremental`) and refuse the bundle if any
+      // input fails to compile.
+      val srcStage = os.temp.dir(prefix = "ssc-bundle-src-")
+      val artStage = os.temp.dir(prefix = "ssc-bundle-art-")
+      try
+        archivePath.toList.foreach { case (file, archive) =>
+          val dest = srcStage / os.RelPath(archive)
+          os.makeDir.all(dest / os.up)
+          os.write.over(dest, rewriteImports(file))
+        }
+        val (_, _, jvmFailed) = buildArtifactsInto(srcStage, artStage, Some("jvm"))
+        val (_, _, jsFailed)  = buildArtifactsInto(srcStage, artStage, Some("js"))
+        if jvmFailed > 0 || jsFailed > 0 then
+          os.remove.all(srcStage)
+          os.remove.all(artStage)
+          System.err.println(
+            s"bundle --with-artifacts: compile errors in inputs " +
+            s"(jvm=$jvmFailed js=$jsFailed); refusing to bundle"
+          )
+          System.exit(1)
+        Some(artStage)
+      catch case e: Throwable =>
+        scala.util.Try(os.remove.all(srcStage))
+        scala.util.Try(os.remove.all(artStage))
+        System.err.println(s"bundle --with-artifacts: ${e.getMessage}")
+        System.exit(1)
+        None
+      finally
+        scala.util.Try(os.remove.all(srcStage))
+
   val zip = new ZipOutputStream(new java.io.FileOutputStream(outPath.toIO))
   try
     // manifest.yaml (v1.7 Tier 2) — supersedes legacy bundle.yaml
@@ -991,18 +1146,37 @@ def bundleCommand(args: List[String]): Unit =
       zip.closeEntry()
     }
 
+    // .ssc-artifacts/* — pre-compiled .scim / .scjvm / .scjs (v2.0 P5).
+    // Layout in the ZIP: one .ssc-artifacts dir at the archive root, with
+    // entry names matching the source basenames (no `sources/` prefix).
+    // A consumer extracts the archive and finds the artifacts next to
+    // the sources under `.ssc-artifacts/`.
+    artifactStaging.foreach { artDir =>
+      if os.isDir(artDir) then
+        os.list(artDir).filter(os.isFile).sortBy(_.last).foreach { p =>
+          val ext = p.ext
+          if Set("scim", "scjvm", "scjs", "scjvm-runtime", "scjs-runtime").contains(ext) then
+            zip.putNextEntry(new ZipEntry(".ssc-artifacts/" + p.last))
+            zip.write(os.read.bytes(p))
+            zip.closeEntry()
+        }
+    }
+
     // intrinsics/*.jar — one per --with-backend-jar entry
     backendJars.foreach { case (_, jar) =>
       zip.putNextEntry(new ZipEntry("intrinsics/" + jar.last))
       zip.write(os.read.bytes(jar))
       zip.closeEntry()
     }
-  finally zip.close()
+  finally
+    zip.close()
+    artifactStaging.foreach(d => scala.util.Try(os.remove.all(d)))
 
   val entryList = entryPaths.map(archivePath).mkString(", ")
   val external  = archivePath.values.count(_.startsWith("_external/"))
   val jarLine   = if backendJars.isEmpty then "" else s", ${backendJars.size} intrinsic JAR(s)"
-  println(s"$outName  (${archivePath.size} sources, $external external$jarLine) — entries: $entryList")
+  val artLine   = if withArtifacts then ", with pre-compiled artifacts" else ""
+  println(s"$outName  (${archivePath.size} sources, $external external$jarLine$artLine) — entries: $entryList")
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ssc plugin <subcommand>  —  v1.7 Tier 5
@@ -1988,6 +2162,29 @@ def compileJvmCommand(args: List[String]): Unit =
           // resolution but deps still land in --artifact-dir.
           Some(ifaceDir.getOrElse(effectiveArtifactDir))
 
+      val sourceBytes = os.read.bytes(path)
+      val src         = new String(sourceBytes, "UTF-8")
+      val module      = Parser.parse(src)
+
+      // Bail out early with a structured diagnostic if any scalascript block
+      // failed to parse.  Without this, the typer would emit the opaque
+      // "Failed to parse scalascript code block" — useless for bisecting.
+      if reportCodeBlockParseErrors(module, file) then
+        System.exit(1)
+
+      // v2.0 Phase 5 — discover and stage pre-compiled artifacts shipped
+      // alongside any `dep:` imports' cached `.ssc`.  Each `.sscpkg` built
+      // with `--with-artifacts` carries a `.ssc-artifacts/<basename>.<ext>`
+      // sibling; when found, copy it into the consumer's artifact dir so
+      // the typer + linker pick it up without re-parsing the dep source.
+      // No-op when no dep: imports or no artifacts ship — source-parse
+      // path still works.
+      val precompiledDeps =
+        stagePrecompiledDepArtifacts(module, path, effectiveArtifactDir, List("scim", "scjvm"))
+      if precompiledDeps.nonEmpty then
+        val summary = precompiledDeps.toList.sortBy(_._1).map((e, n) => s"$n $e").mkString(", ")
+        println(s"compile-jvm: staged pre-compiled dep artifacts ($summary)")
+
       // Pre-load interfaces from the iface dir (auto-resolved or
       // user-supplied) for type-checking the target.
       val interfaces: Map[String, scalascript.ir.ModuleInterface] =
@@ -2008,16 +2205,6 @@ def compileJvmCommand(args: List[String]): Unit =
                     System.err.println(s"  [warn] skipping ${p.last}: $err")
                     Nil
               }.toMap
-
-      val sourceBytes = os.read.bytes(path)
-      val src         = new String(sourceBytes, "UTF-8")
-      val module      = Parser.parse(src)
-
-      // Bail out early with a structured diagnostic if any scalascript block
-      // failed to parse.  Without this, the typer would emit the opaque
-      // "Failed to parse scalascript code block" — useless for bisecting.
-      if reportCodeBlockParseErrors(module, file) then
-        System.exit(1)
 
       // Type-check (optionally against pre-compiled interfaces).  Errors are
       // surfaced as a non-zero exit code so the build orchestrator can stop
@@ -2553,6 +2740,25 @@ def compileJsCommand(args: List[String]): Unit =
               compileJsDepInto(dep, effectiveArtifactDir, scimPath, scjsPath)
           Some(ifaceDir.getOrElse(effectiveArtifactDir))
 
+      val sourceBytes = os.read.bytes(path)
+      val src         = new String(sourceBytes, "UTF-8")
+      val module      = Parser.parse(src)
+
+      // Bail out early with a structured diagnostic if any scalascript block
+      // failed to parse — same rationale as compile-jvm.
+      if reportCodeBlockParseErrors(module, file) then
+        System.exit(1)
+
+      // v2.0 Phase 5 — stage pre-compiled artifacts shipped alongside any
+      // `dep:` imports' cached `.ssc`.  See `compileJvmCommand` for the
+      // detailed rationale.  Discovered `.scim` + `.scjs` end up in the
+      // effective artifact dir; the typer + linker pick them up directly.
+      val precompiledDeps =
+        stagePrecompiledDepArtifacts(module, path, effectiveArtifactDir, List("scim", "scjs"))
+      if precompiledDeps.nonEmpty then
+        val summary = precompiledDeps.toList.sortBy(_._1).map((e, n) => s"$n $e").mkString(", ")
+        println(s"compile-js: staged pre-compiled dep artifacts ($summary)")
+
       // Pre-load interfaces from the iface dir (auto-resolved or
       // user-supplied) for type-checking the target.
       val interfaces: Map[String, scalascript.ir.ModuleInterface] =
@@ -2570,15 +2776,6 @@ def compileJsCommand(args: List[String]): Unit =
                     System.err.println(s"  [warn] skipping ${p.last}: $err")
                     Nil
               }.toMap
-
-      val sourceBytes = os.read.bytes(path)
-      val src         = new String(sourceBytes, "UTF-8")
-      val module      = Parser.parse(src)
-
-      // Bail out early with a structured diagnostic if any scalascript block
-      // failed to parse — same rationale as compile-jvm.
-      if reportCodeBlockParseErrors(module, file) then
-        System.exit(1)
 
       // Type-check (optionally against pre-compiled interfaces).  Errors are
       // surfaced as a non-zero exit code so the build orchestrator can stop
@@ -3745,6 +3942,68 @@ private def collectImports(sections: List[Section]): List[String] =
     s.content.collect { case imp: Content.Import => imp.path } ++
       collectImports(s.subsections)
   }
+
+/** v2.0 Phase 5 — discover pre-compiled artifacts shipped alongside cached
+ *  `dep:` sources and stage them into the consumer's artifact dir.
+ *
+ *  For every `dep:` import in `module`:
+ *  - Resolve the cached `.ssc` via `ImportResolver`.
+ *  - Look for `.ssc-artifacts/<basename>.<ext>` alongside it.
+ *  - If found, copy into `targetArtifactDir` so the typer (and the linker)
+ *    see the dep's pre-compiled `.scim` / `.scjvm` / `.scjs` directly.
+ *
+ *  Returns the count of artifacts staged per extension (for logging).
+ *  Source-fallback: when no artifacts ship alongside, the dep's source is
+ *  parsed via the regular `JvmGen.inlineImport` / `JsGen` path later, so
+ *  callers can be unconditional in invoking this helper.
+ *
+ *  Corrupt artifacts (bad magic / abi mismatch) surface a clear error and
+ *  the file is skipped — the caller can choose to fall back to source. */
+private def stagePrecompiledDepArtifacts(
+    module:             Module,
+    sourcePath:         os.Path,
+    targetArtifactDir:  os.Path,
+    desiredExts:        List[String]
+): Map[String, Int] =
+  import scalascript.imports.ImportResolver
+  val deps = module.manifest.map(_.dependencies).getOrElse(Map.empty)
+  val baseDir = sourcePath / os.up
+  val depImports = collectImports(module.sections).filter(_.startsWith("dep:"))
+  if depImports.isEmpty then return Map.empty
+  os.makeDir.all(targetArtifactDir)
+  val tallies = scala.collection.mutable.Map.empty[String, Int]
+  for depUri <- depImports.distinct do
+    val resolved =
+      try Some(ImportResolver.resolve(depUri, baseDir, deps, lockPath = None))
+      catch case _: Throwable => None
+    resolved match
+      case Some(sscPath) =>
+        for ext <- desiredExts do
+          ImportResolver.findArtifactAlongside(sscPath, ext) match
+            case Some(art) =>
+              // Validate envelope before staging — bad magic must surface
+              // a clear error so the user knows the .sscpkg is broken.
+              val checkResult: Either[String, Unit] = ext match
+                case "scim"  =>
+                  scalascript.artifact.ArtifactIO.readInterfaceFile(art).map(_ => ())
+                case "scjvm" =>
+                  scalascript.artifact.JvmArtifactIO.readJvmFile(art).map(_ => ())
+                case "scjs"  =>
+                  scalascript.artifact.JsArtifactIO.readJsFile(art).map(_ => ())
+                case _       => Right(())
+              checkResult match
+                case Right(_) =>
+                  val dest = targetArtifactDir / art.last
+                  if !os.exists(dest) then
+                    os.copy.over(art, dest, createFolders = true)
+                  tallies(ext) = tallies.getOrElse(ext, 0) + 1
+                case Left(err) =>
+                  throw new RuntimeException(
+                    s"compile: corrupt pre-compiled dep artifact $art: $err"
+                  )
+            case None => ()
+      case None => ()
+  tallies.toMap
 
 def compileCommand(args: List[String]): Unit =
   if args.isEmpty then { println("Error: No files specified"); System.exit(1) }
