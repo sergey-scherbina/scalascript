@@ -71,6 +71,44 @@ ScalaScript is a meta-programming / specification language with extension `.ssc`
 4. **No AI at runtime or compile time.** The language stands on its own.
 5. **Each problem keeps its own dialect.** ScalaScript's value is not replacing every language but providing a common spec/translation layer between them.
 
+## Spec-driven development
+
+All non-trivial new features start with a **spec document** in
+`docs/<feature>.md` **before** any implementation work begins. The
+spec PR lands on its own; implementation PRs reference the spec by
+path and may amend it as reality diverges — but the spec remains the
+source of truth.
+
+What counts as non-trivial (spec required):
+
+- A new module / package in `build.sbt`
+- A new SPI trait or contract other code will depend on
+- A cross-cutting refactor that touches more than one backend
+- Any new top-level milestone in `MILESTONES.md`
+
+A spec covers, at minimum:
+
+1. **Goals** — what the feature is for; what problem it solves.
+2. **Non-goals** — what is explicitly out of scope (prunes review
+   feedback, protects the spec from scope creep).
+3. **Architecture** — module layout, contract surface (trait
+   signatures, key types), composition with existing code.
+4. **Migration** — what changes for callers of related existing
+   code; how the transition happens (one-shot replace / adapter
+   shim / parallel module).
+5. **Phases** — concrete iterations, each independently shippable
+   per Rule 3 below.
+6. **Testing strategy** — what level of testing each phase needs.
+7. **Open questions** — decisions required before Phase 1 starts.
+
+Trivial changes (bug fixes, single-file refactors, dependency bumps,
+doc edits, hardcoded-value tweaks) do **not** need a spec.
+
+Existing specs to mirror in style and depth:
+[`docs/backend-spi.md`](docs/backend-spi.md),
+[`docs/x402.md`](docs/x402.md),
+[`docs/runtime-server-strategic-plan.md`](docs/runtime-server-strategic-plan.md).
+
 ## Workflow for parallel agents
 
 Multiple agents run independently in parallel, each in its own worktree.

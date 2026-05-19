@@ -6522,3 +6522,111 @@ Spec in `docs/x402.md`.
 - [x] `examples/x402-server.ssc` — payment-gated REST endpoint
 - [x] `examples/x402-client.ssc` — client auto-handles 402
 - [ ] `examples/x402-cardano.ssc` — Cardano payment flow
+
+---
+
+## Wallet SPI — multi-chain key-management + connectivity
+
+Spec in [`docs/wallet-spi.md`](docs/wallet-spi.md). Three orthogonal
+extension axes: chains (`ChainAdapter`), key management
+(`Vault` / `RawSigner` / `AccountStrategy`), and dApp connectivity
+(`DappConnector`: EIP-1193, Wallet Standard, WalletConnect v2). A
+lower-level `CryptoBackend` SPI underpins everything; BouncyCastle is
+the default JVM impl, `@noble/curves` will be the Scala.js impl.
+
+Replaces the SHA-256 stub in `x402-client` (`PrivateKeyWallet`) with
+real secp256k1 ECDSA + EIP-712 hashing via an adapter shim — x402's
+public API is unchanged.
+
+### Phase 0 — Spec ✓ Landed (2026-05-19)
+
+- [x] `docs/wallet-spi.md` — architecture, SPI surface, module
+      layout, phase plan, open questions
+- [x] `AGENTS.md` — spec-driven development workflow section
+- [x] `MILESTONES.md` — this entry
+
+### Phase 1 — Skeleton SPI + JVM crypto + x402 shim
+
+- [ ] `wallet-spi` module — `RawSigner` / `Vault` / `ChainAdapter` /
+      `AccountStrategy` / `ChainId` / `TxIntent` / `TypedData` /
+      `AccountManager` (cross-compile JVM + Scala.js)
+- [ ] `wallet-crypto-spi` — `CryptoBackend` trait + `ServiceLoader`
+      registry (JVM) + static-registry stub (Scala.js)
+- [ ] `wallet-crypto-bouncycastle` — JVM default impl (secp256k1,
+      ed25519, p256, keccak256, sha2, hmac, hkdf, pbkdf2, argon2id,
+      AES-GCM, BIP-32 / SLIP-0010)
+- [ ] `wallet-chain-evm` — `addressFromPublicKey` (keccak + last 20),
+      EIP-712 domain separator + struct hash, signature serialization
+      with recovery-id (v), `EoaSignerEvm` helper
+- [ ] x402-client refactor: `PrivateKeyWallet` becomes adapter shim
+      over `EoaStrategy`; existing `X402ClientTest` stays green with
+      real signatures (fixture bytes updated)
+- [ ] Test vectors: RFC-6979 ECDSA, EIP-712 examples, BIP-32
+      appendix C, SLIP-0010 appendix B, EIP-55 checksum
+
+### Phase 2 — Full EVM ChainAdapter
+
+- [ ] `wallet-chain-evm` gains `ChainAdapter`: `buildTransaction`
+      from `TxIntent` (ETH transfer, ERC-20 transfer, arbitrary
+      call) using `EvmClient` for nonce / gas estimation
+- [ ] EIP-1559 + legacy tx encoding (RLP)
+- [ ] `broadcast` via `eth_sendRawTransaction`
+- [ ] Round-trip integration test against local Anvil node
+
+### Phase 3 — Scala.js CryptoBackend
+
+- [ ] `wallet-crypto-noble-js` — Scala.js facade over `@noble/curves`
+      + `@noble/hashes` + `@noble/ciphers`
+- [ ] Cross-backend conformance: bit-identical outputs on JVM vs JS
+      for deterministic algorithms
+- [ ] Resolves open question #1 (Scala.js registry pattern)
+
+### Phase 4 — Encrypted Vault
+
+- [ ] BIP-39 mnemonic generation / restore (24-word default)
+- [ ] Argon2id → AES-GCM(seed) password unlock
+- [ ] `wallet-vault-encrypted-jvm` — filesystem
+      (`~/.scalascript/wallets/<id>.vault`)
+- [ ] `wallet-vault-encrypted-js` — IndexedDB
+
+### Phase 5 — Solana ChainAdapter
+
+- [ ] `wallet-chain-solana` — ed25519 signing, base58 addresses,
+      versioned-transaction encoding, address lookup tables, RPC
+      send/poll
+- [ ] Open question #3 (Network → ChainId migration in x402-core)
+      resolves here
+
+### Phase 6 — DappConnector EIP-1193 (Scala.js)
+
+- [ ] `wallet-connector-eip1193-js` — `window.ethereum` injection
+- [ ] EIP-6963 multi-injected-provider discovery
+- [ ] Translates `eth_*` JSON-RPC → `AccountManager.request`
+
+### Phase 7 — DappConnector WalletConnect v2
+
+- [ ] `wallet-connect` — cross-compile (JVM + JS)
+- [ ] JVM: ws via JDK `java.net.http.WebSocket`
+- [ ] JS: facade over `@walletconnect/sign-client`
+- [ ] Multi-chain via CAIP-2 namespaces
+- [ ] Resolves open question #4 (WC project ID for CI)
+
+### Phase 8 — ERC-4337 SmartAccountStrategy
+
+- [ ] `wallet-strategy-erc4337` — `SmartAccount.wrap(EvmChainAdapter,
+      owner, bundler, factory)`
+- [ ] UserOp construction + signing over `userOpHash`
+- [ ] Bundler client (`eth_sendUserOperation` / `eth_estimateUserOperationGas`)
+- [ ] Passkey owner via WebAuthn (Scala.js); curve = p256
+- [ ] Counterfactual CREATE2 address derivation
+
+### Phase 9 — Bitcoin ChainAdapter
+
+- [ ] `wallet-chain-bitcoin` — secp256k1 with sighash variants
+- [ ] P2WPKH addresses (bech32)
+- [ ] PSBT input/output for hardware-wallet compatibility
+
+### Phase 10 — Hardware wallet Vault
+
+- [ ] `wallet-vault-ledger` — WebHID (JS) / `hid4java` (JVM)
+- [ ] Optional `wallet-vault-trezor`
