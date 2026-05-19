@@ -58,6 +58,16 @@ class McpServerBuilder:
   // for progress — notifyProgress is a no-op in that case.
   private[mcp] val currentProgressTokenTL: ThreadLocal[ujson.Value] = new ThreadLocal[ujson.Value]()
 
+  // v1.17.x — logging.  Client sets the floor via `logging/setLevel`;
+  // server emits `notifications/message` for log lines at or above that
+  // level (syslog ranking).  Default "info" — `debug` is silenced until
+  // the client opts in.
+  @volatile private[mcp] var currentLogLevel: String = "info"
+
+  /** Current log level — set via `logging/setLevel` by the client, or
+   *  the default "info" until the client overrides. */
+  def loggingLevel: String = currentLogLevel
+
   /** Returns true iff the currently-executing handler's request has been
    *  cancelled via `notifications/cancelled`.  Read this at safe points
    *  inside long-running tool handlers and return early when set. */
@@ -82,6 +92,19 @@ class McpServerBuilder:
       )
       total.foreach(t => payload("total") = ujson.Num(t))
       notify(McpProtocol.Method.Progress, payload)
+
+  /** Push a `notifications/message` log line.  Filtered against the
+   *  client-supplied level floor (via `logging/setLevel`) — lines below
+   *  the floor are silently dropped.  `data` is an arbitrary JSON value
+   *  describing the log payload (string, structured object, etc.).
+   *  Unknown levels fall through unfiltered. */
+  def log(level: String, data: ujson.Value, logger: Option[String] = None): Unit =
+    val floor = McpProtocol.logLevelRank(currentLogLevel)
+    val rank  = McpProtocol.logLevelRank(level)
+    if rank >= 0 && floor >= 0 && rank < floor then return
+    val payload = ujson.Obj("level" -> level, "data" -> data)
+    logger.foreach(l => payload("logger") = l)
+    notify(McpProtocol.Method.LogMessage, payload)
 
   /** Active server→client subscribers — one per persistent connection.
    *  Stdio/Spawn keep exactly one (the writer captured by `serve()`); Ws
@@ -359,6 +382,16 @@ object McpServerCore:
 
       case McpProtocol.Method.ResourcesUnsubscribe =>
         unsubscribeResource(builder, params, id)
+
+      case McpProtocol.Method.LoggingSetLevel =>
+        params.objOpt.flatMap(_.get("level").flatMap(_.strOpt)) match
+          case None        => invalidParams(id, "logging/setLevel: missing 'level'")
+          case Some(level) =>
+            if McpProtocol.logLevelRank(level) < 0 then
+              invalidParams(id, s"logging/setLevel: unknown level '$level'")
+            else
+              builder.currentLogLevel = level
+              JsonRpc.encodeResult(id, ujson.Obj())
 
       case McpProtocol.Method.PromptsList =>
         val entries = builder.prompts.values.toList.map { r =>

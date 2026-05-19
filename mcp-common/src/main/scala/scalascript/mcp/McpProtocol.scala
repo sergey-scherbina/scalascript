@@ -35,23 +35,35 @@ object McpProtocol:
     val PromptsListChanged    = "notifications/prompts/list_changed"
     val Cancelled             = "notifications/cancelled"
     val Progress              = "notifications/progress"
+    val LoggingSetLevel       = "logging/setLevel"
+    val LogMessage            = "notifications/message"
+
+  /** Syslog levels per MCP spec, ordered by severity (low to high). */
+  val LogLevels: List[String] = List(
+    "debug", "info", "notice", "warning", "error", "critical", "alert", "emergency"
+  )
+
+  /** Numeric rank of a log level (-1 if unknown).  Levels >= rank pass
+   *  through `notifyMessage`; lower ranks are filtered. */
+  def logLevelRank(level: String): Int = LogLevels.indexOf(level)
 
   /** Protocol version we advertise.  MCP spec uses a date-stamped version
    *  string; bump when we add notification/sampling/etc. support. */
   val ProtocolVersion = "2024-11-05"
 
   /** `initialize` result — what the server tells the client about itself
-   *  and which capabilities it offers.  All three primitive categories now
-   *  advertise `listChanged: true` since we implement the matching
-   *  notifications/<...>/list_changed pushes; resources also advertises
-   *  `subscribe: true` for the resources/subscribe protocol. */
+   *  and which capabilities it offers.  All three primitive categories
+   *  advertise `listChanged: true`; resources also `subscribe: true`;
+   *  `logging: {}` flags client→server log-level control + matching
+   *  server→client `notifications/message` push. */
   def initializeResult(serverName: String, serverVersion: String): ujson.Value =
     ujson.Obj(
       "protocolVersion" -> ProtocolVersion,
       "capabilities" -> ujson.Obj(
         "tools"     -> ujson.Obj("listChanged" -> true),
         "resources" -> ujson.Obj("subscribe" -> true, "listChanged" -> true),
-        "prompts"   -> ujson.Obj("listChanged" -> true)
+        "prompts"   -> ujson.Obj("listChanged" -> true),
+        "logging"   -> ujson.Obj()
       ),
       "serverInfo" -> ujson.Obj(
         "name"    -> serverName,

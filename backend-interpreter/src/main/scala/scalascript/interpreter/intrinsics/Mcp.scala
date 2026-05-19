@@ -528,6 +528,19 @@ private object Mcp:
       case List(Value.IntV(p),    Value.DoubleV(t)) => builder.notifyProgress(p.toDouble, Some(t)); Value.UnitV
       case _ => throw InterpretError("srv.notifyProgress(progress[, total])")
     })
+    // v1.17.x — logging.  `srv.log(level, data[, logger])` emits a
+    // `notifications/message` frame iff the client-set log floor (via
+    // logging/setLevel) is at or below the line's severity.  Default
+    // floor is "info" — debug is silenced until the client opts in.
+    def logFn = Value.NativeFnV("McpServer.log", Computation.pureFn {
+      case List(Value.StringV(level), data) =>
+        builder.log(level, Mcp.valueToJson(data)); Value.UnitV
+      case List(Value.StringV(level), data, Value.StringV(logger)) =>
+        builder.log(level, Mcp.valueToJson(data), Some(logger)); Value.UnitV
+      case _ => throw InterpretError("srv.log(level, data[, logger])")
+    })
+    def currentLogLevelFn = Value.NativeFnV("McpServer.currentLogLevel",
+      Computation.pureFn { _ => Value.StringV(builder.loggingLevel) })
     // v1.17.x — server-initiated notifications.  `srv.notify(method, params)`
     // broadcasts a JSON-RPC notification frame to every currently-active
     // subscriber (Stdio/Spawn: one writer; Ws: one per connected client;
@@ -572,6 +585,8 @@ private object Mcp:
       "notifyPromptsListChanged"      -> notifyPromptsLCFn,
       "isCancelled"                   -> isCancelledFn,
       "notifyProgress"                -> notifyProgressFn,
+      "log"                           -> logFn,
+      "currentLogLevel"               -> currentLogLevelFn,
       "onConnected"            -> onConnFn,
       "onDisconnected"         -> onDisconnFn,
       "onResourceSubscribe"    -> onResSubFn,
