@@ -5067,6 +5067,159 @@ ssc fmt --stdout file.ssc          # print to stdout
 
 ---
 
+## v1.24 — Language features (TOP PRIORITY)
+
+**Status: open. All items parallel-safe with each other.**
+
+This milestone covers language ergonomics gaps most felt in real ScalaScript code.
+All 7 items can be assigned to parallel agents simultaneously — they touch different
+parts of the parser, typer, and all 3 backends.
+
+### 1. Pattern matching — nested / guards / `@` binders
+
+**Effort: ~1 week. High daily-use impact.**
+
+```scalascript
+case (Some(x), Some(y)) =>           // nested
+case x if x > 0 =>                   // guard
+case xs @ (h :: _) =>                // @ binder
+```
+
+- [ ] Nested patterns in `Parser` + `Typer` + all 3 backends
+- [ ] Guard expressions (`if` in case arm)
+- [ ] `@` binder: bind the whole match target and a sub-pattern simultaneously
+- [ ] Regression tests across INT / JS / JVM
+
+### 2. Type aliases
+
+**Effort: ~2 days.**
+
+```scalascript
+type UserId = String
+type Result[A] = Either[String, A]
+```
+
+- [ ] `type <Name>[<params>] = <type>` in parser
+- [ ] Typer: expand alias on use, check param arity
+- [ ] All 3 backends: emit nothing (aliases are erased at runtime)
+- [ ] Tests
+
+### 3. Opaque types
+
+**Effort: ~3 days.**
+
+```scalascript
+opaque type UserId = String
+val id: UserId = UserId("alice")   // companion constructor
+```
+
+Zero runtime overhead — same representation as underlying type, but
+distinct at type-check time.  The typer treats `UserId` and `String`
+as unrelated outside the defining scope.
+
+- [ ] `opaque type` in parser
+- [ ] Typer: two-zone rule (transparent inside module, opaque outside)
+- [ ] Auto-generated companion `apply` / `unapply`
+- [ ] All 3 backends (no runtime change — just name emission)
+- [ ] Tests
+
+### 4. Union types
+
+**Effort: ~1 week.**
+
+```scalascript
+def show(x: String | Int): String = x match
+  case s: String => s
+  case n: Int    => n.toString
+```
+
+- [ ] `A | B` syntax in type parser
+- [ ] Typer: union subtyping rules, narrowing in match arms
+- [ ] Interpreter: no runtime change (dynamically typed)
+- [ ] JS backend: type-only, no emit change
+- [ ] JVM backend: emit `Object` + instanceof checks
+- [ ] Tests
+
+### 5. Extension methods on user-defined types
+
+**Effort: ~1 week.**
+
+```scalascript
+extension (u: User)
+  def fullName: String = s"${u.first} ${u.last}"
+  def isAdmin: Boolean = u.role == "admin"
+```
+
+Currently extensions only work reliably for stdlib types.
+
+- [ ] Audit current extension dispatch in Interpreter + JsGen + JvmGen
+- [ ] Fix dispatch to work for arbitrary user `case class` / `sealed trait`
+- [ ] Tests with multi-method extension blocks
+
+### 6. Named argument call-site syntax (complete coverage)
+
+**Effort: ~3 days.**
+
+```scalascript
+createUser(name = "Alice", age = 30, role = "admin")
+```
+
+Named args exist partially.  Audit and complete:
+
+- [ ] All 3 backends accept named args in any order
+- [ ] Default argument interaction: skipping defaults by name
+- [ ] Error when unknown name is used
+- [ ] Tests covering out-of-order, partial defaults
+
+### 7. `given` / `using` auto-resolution improvements
+
+**Effort: ~1 week.**
+
+Gaps: nested givens, ambiguity resolution, `using` in anonymous functions.
+
+- [ ] Nested `given` chains resolve transitively
+- [ ] Ambiguity error with clear "found N candidates" message
+- [ ] `using` in lambda position: `xs.map(using myOrd)`
+- [ ] Tests
+
+---
+
+### Parallel-safe work plan for v1.24
+
+Each item is independent — assign one agent per item:
+
+| Agent | Item | Touches |
+|-------|------|---------|
+| A | Pattern matching | Parser, Typer, Interpreter, JsGen, JvmGen (match handling only) |
+| B | Type aliases | Parser, Typer only (no backend changes) |
+| C | Opaque types | Parser, Typer, minor backend name emit |
+| D | Union types | Parser, Typer, JvmGen (instanceof) |
+| E | Extension methods | Interpreter dispatch, JsGen dispatch, JvmGen |
+| F | Named args audit | Interpreter, JsGen, JvmGen (call sites only) |
+| G | given/using | Typer only |
+
+---
+
+## Next wave — post-v1.24 plan
+
+Sorted by priority.  Run one agent per track simultaneously.
+
+| Pri | Item | Track | Effort | Depends on |
+|-----|------|-------|--------|------------|
+| 1 | Fix SupervisorTest + v1.22 distributed tests | A | 2 days | — |
+| 2 | Incremental type-checking | B | 1 week | AST cache ✓ |
+| 3 | LSP server (`ssc lsp`) | C | 2 weeks | — |
+| 4 | Interpreter split | D | 1 week | — (serial, risky) |
+| 5 | Library modularity | D | 3 days | Interpreter split |
+| 6 | `ssc debug` (DAP debugger) | C | 2 weeks | Interpreter split |
+| 7 | Numeric value specialization | E | 1 week | Interpreter split |
+| 8 | WASM backend | F | 3 weeks | — |
+| 9 | Package registry | G | 2 weeks | — |
+
+Track D is serial.  All other tracks can run in parallel.
+
+---
+
 ## Beyond
 
 Larger features that aren't on the critical path but are worth keeping in
