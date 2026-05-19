@@ -1,0 +1,3 @@
+caught: zero!
+caught: Dataset.reduce: empty dataset
+10, 5, 3

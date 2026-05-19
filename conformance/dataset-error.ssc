@@ -1,5 +1,6 @@
 ---
 name: dataset-error
+backends: [interpreter, jvm]
 ---
 
 # Dataset — error propagation
