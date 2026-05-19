@@ -12,6 +12,17 @@ case class SigningPayload(bytes: Array[Byte], hash: HashAlgo)
 case class TxHash(value: String):
   override def toString: String = value
 
+/** A single event log emitted by a transaction. The shape mirrors
+ *  the EVM `(address, topics, data)` triple — non-EVM chains
+ *  approximate to the same shape (Solana / Cardano logs carry
+ *  similar contents, the adapter normalises). `topics(0)` is the
+ *  canonical event hash for non-anonymous events. */
+case class Log(
+  address: String,
+  topics:  Seq[Array[Byte]],
+  data:    Array[Byte],
+)
+
 /** Generic on-chain receipt. Chain adapters MAY surface richer
  *  per-chain receipts; this is the cross-chain shape callers can rely
  *  on. */
@@ -20,6 +31,7 @@ case class TxReceipt(
   success:     Boolean,
   blockNumber: BigInt,
   gasUsed:     BigInt,
+  logs:        Seq[Log] = Seq.empty,
 )
 
 /** Human-readable description of a transaction for UI / dry-run / log

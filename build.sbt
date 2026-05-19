@@ -790,25 +790,25 @@ lazy val walletStrategyEoa = project
     Test    / scalacOptions ++= sharedScalacOptions,
   )
 
-lazy val blockchainEvm = project
-  .in(file("blockchain-evm"))
-  .dependsOn(blockchainSpi, cryptoSpi, cryptoBouncycastle % Test)
-  .settings(
-    name := "scalascript-blockchain-evm",
-    libraryDependencies ++= Seq(
-      "com.lihaoyi" %% "upickle" % "3.3.1",
-      scalatestTest,
-    ),
-    Compile / scalacOptions ++= sharedScalacOptionsStrict,
-    Test    / scalacOptions ++= sharedScalacOptions,
-  )
-
 lazy val blockchainEvmAbi = project
   .in(file("blockchain-evm-abi"))
   .dependsOn(cryptoSpi, cryptoBouncycastle % Test)
   .settings(
     name := "scalascript-blockchain-evm-abi",
     libraryDependencies ++= Seq(scalatestTest),
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions,
+  )
+
+lazy val blockchainEvm = project
+  .in(file("blockchain-evm"))
+  .dependsOn(blockchainSpi, cryptoSpi, blockchainEvmAbi, cryptoBouncycastle % Test)
+  .settings(
+    name := "scalascript-blockchain-evm",
+    libraryDependencies ++= Seq(
+      "com.lihaoyi" %% "upickle" % "3.3.1",
+      scalatestTest,
+    ),
     Compile / scalacOptions ++= sharedScalacOptionsStrict,
     Test    / scalacOptions ++= sharedScalacOptions,
   )

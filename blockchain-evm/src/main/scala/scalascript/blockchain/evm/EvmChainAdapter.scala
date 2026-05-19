@@ -176,11 +176,19 @@ class EvmChainAdapter(val chainId: ChainId)(using ec: ExecutionContext) extends 
     ctx.rpcCall("eth_getTransactionReceipt", ujson.Str(hash.value)).map {
       case ujson.Null => None
       case obj        =>
+        val logs = obj.obj.get("logs").toSeq.flatMap(_.arr).map { logJson =>
+          Log(
+            address = logJson("address").str,
+            topics  = logJson("topics").arr.toSeq.map(t => Hex.decode(t.str)),
+            data    = Hex.decode(logJson("data").str),
+          )
+        }
         Some(TxReceipt(
           hash        = TxHash(obj("transactionHash").str),
           success     = BigInt(obj("status").str.stripPrefix("0x"), 16).toInt == 1,
           blockNumber = BigInt(obj("blockNumber").str.stripPrefix("0x"), 16),
           gasUsed     = BigInt(obj("gasUsed").str.stripPrefix("0x"), 16),
+          logs        = logs,
         ))
     }
 
