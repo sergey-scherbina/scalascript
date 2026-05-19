@@ -697,13 +697,26 @@ unblocks downstream features as early as possible.
          runs BEFORE any PBKDF2 verify so brute-force probes pay
          no CPU cost.
 
-     3. **Iter LL — Client SDK completeness**: CSRF-safe state
-        parameter helpers (generate + verify); JWKS-backed external
-        JWT validation (`OAuthClient.validateJwt(token, jwksUri)`)
-        with bounded cache (the matching RS path uses the same
-        cache); id_token signature + claims validation on the
-        client side; token-storage trait (in-memory + file-backed
-        defaults so users can pick).
+     **Iter LL — Client SDK completeness** ✓ — closes the
+     "client can't verify what it got" gap.
+
+       - **State CSRF helpers** — `OAuthClient.freshState()` +
+         `verifyState(expected, presented)` constant-time compare;
+         caller stashes issued state in the session cookie, matches
+         against the redirect parameter on callback.
+       - **`OAuthClient.JwksCache(jwksUri, ttlSeconds = 300)`** —
+         bounded cache backed by the AS's `/.well-known/jwks.json`
+         endpoint.  Fetches lazily, refreshes on TTL miss or
+         unknown-kid (rotation-tolerant).  Stale tolerated on
+         transport failure (best-effort).  RSA + EC (P-256) keys.
+       - **`OAuthClient.validateJwt(token, jwks)`** — verifies
+         RS256 or ES256-signed external JWTs against the cache;
+         clock-skew tolerance matches the AS-side signers.
+       - **`OAuthClient.validateIdToken(idToken, jwks,
+         expectedIssuer, expectedAudience, expectedNonce?)`** —
+         OIDC validation: signature via JWKS, `iss` exact match,
+         `aud` (string or array) MUST include expected, optional
+         `nonce` exact match.
 
      4. **Iter MM — Production hardening**: TLS-only enforcement
         flag on AS routes (reject `http://` outside of `localhost`
