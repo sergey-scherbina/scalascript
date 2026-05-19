@@ -439,7 +439,7 @@ class JvmGen(
     val names = Set("runActors", "spawn", "spawnBounded", "self", "exit", "receive",
                     "link", "monitor", "demonitor", "trapExit",
                     "startNode", "connectNode", "register", "whereis",
-                    "sendAfter", "sendInterval", "cancelTimer")
+                    "sendAfter", "sendInterval", "cancelTimer", "processInfo")
     blocks.exists { b =>
       var found = false
       ScalaNode.fold(b.node) { tree =>
@@ -1346,6 +1346,10 @@ class JvmGen(
     case Term.Apply.After_4_6_0(Term.Name("cancelTimer"), argClause)
         if argClause.values.size == 1 =>
       s"Actor.cancelTimer(${emitExpr(argClause.values.head.asInstanceOf[Term])})"
+    // v1.6.x — process introspection
+    case Term.Apply.After_4_6_0(Term.Name("processInfo"), argClause)
+        if argClause.values.size == 1 =>
+      s"Actor.processInfo(${emitExpr(argClause.values.head.asInstanceOf[Term])})"
 
     // Focus[T](_.a.b) / Focus(_.a.b) — lower to a Lens(get, set) literal.
     // The lambda body's field-access chain becomes nested get + nested copy.
@@ -2004,6 +2008,10 @@ class JvmGen(
     case Term.Apply.After_4_6_0(Term.Name("cancelTimer"), argClause)
         if argClause.values.size == 1 =>
       s"Actor.cancelTimer(${emitExpr(argClause.values.head.asInstanceOf[Term])})"
+    // v1.6.x — process introspection (inside CPS body)
+    case Term.Apply.After_4_6_0(Term.Name("processInfo"), argClause)
+        if argClause.values.size == 1 =>
+      s"Actor.processInfo(${emitExpr(argClause.values.head.asInstanceOf[Term])})"
 
     case app: Term.Apply => emitCpsApply(app)
 
@@ -5863,6 +5871,8 @@ class JvmGen(
        |  def cancelTimer(ref: Any): Any                          = _perform("Actor", "cancelTimer", ref)
        |  // v1.6.x — bounded mailbox spawn
        |  def spawnBounded(cap: Any, overflow: Any, thunk: () => Any): Any = _perform("Actor", "spawnBounded", cap, overflow, thunk)
+       |  // v1.6.x — process introspection
+       |  def processInfo(pid: Any): Any = _perform("Actor", "processInfo", pid)
        |
        |class _ActorState:
        |  val mailbox = scala.collection.mutable.ArrayDeque.empty[Any]
@@ -6181,6 +6191,18 @@ class JvmGen(
        |      val childId = spawnActor(thunk, cap, ov)
        |      Right(k(_Pid(_localNodeId, childId)))
        |    case "self" => Right(k(_Pid(_localNodeId, id)))
+       |    case "processInfo" =>
+       |      args(0) match
+       |        case _Pid(_, targetId) =>
+       |          actors.get(targetId) match
+       |            case None => Right(k(None))
+       |            case Some(ts) =>
+       |              val lnks = links.get(targetId).map(_.toList.map(lid => _Pid("", lid))).getOrElse(List.empty)
+       |              val status = if ts.blocked != null then "blocked" else "running"
+       |              val info = Map("_type" -> "ProcessInfo", "mailboxSize" -> ts.mailbox.size,
+       |                             "links" -> lnks, "status" -> status)
+       |              Right(k(Some(info)))
+       |        case _ => Right(k(None))
        |    case "send" =>
        |      args(0) match
        |        case _Pid(pidNode, targetId) =>

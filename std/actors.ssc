@@ -1,13 +1,15 @@
 ---
 name: std-actors
-version: 1.1.0
-description: Erlang-style actor supervision + bounded mailboxes — v1.6 Phase 2 + v1.6.x
+version: 1.2.0
+description: Erlang-style actor supervision + bounded mailboxes + process introspection — v1.6 Phase 2 + v1.6.x
 exports:
   - ChildSpec
   - MaxRestarts
   - Supervisor
   - Overflow
   - spawnBounded
+  - ProcessInfo
+  - processInfo
 ---
 
 # std.actors — Actor supervision
@@ -76,6 +78,18 @@ enum Overflow:
 // `overflow`  — strategy applied when the mailbox is full.
 // `behavior`  — actor body; receives nothing, communicates via `receive`.
 extern def spawnBounded(capacity: Int, overflow: Overflow, behavior: () => Unit): Any
+
+// ─── Process introspection ────────────────────────────────────────────────────
+
+// Snapshot of a live actor's scheduler state.
+case class ProcessInfo(
+  mailboxSize: Int,    // number of queued messages
+  links:       List[Any],  // PIDs this actor is bidirectionally linked to
+  status:      String  // "running" | "blocked" (on receive)
+)
+
+// Returns Some(info) for a live actor, None if the PID is dead or unknown.
+extern def processInfo(pid: Any): Option[ProcessInfo]
 
 // ─── Supervision tree ─────────────────────────────────────────────────────────
 

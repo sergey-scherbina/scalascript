@@ -3483,6 +3483,8 @@ const Actor = {
   cancelTimer: (ref)                => _perform('Actor', 'cancelTimer', [ref]),
   // v1.6.x — bounded mailbox spawn
   spawnBounded:(cap, overflow, thunk) => _perform('Actor', 'spawnBounded', [cap, overflow, thunk]),
+  // v1.6.x — process introspection
+  processInfo: (pid) => _perform('Actor', 'processInfo', [pid]),
 };
 
 // `receive { case … }` lowers to a registered matcher function whose
@@ -3775,6 +3777,19 @@ function _runActors(bodyFn) {
       }
       case 'self':
         return { suspend: false, next: k(Pid(_localNodeId, id)) };
+      case 'processInfo': {
+        const target = args[0];
+        if (!target || target._type !== 'Pid') return { suspend: false, next: k(undefined) };
+        const targetId = target.localId;
+        const ts = actors.get(targetId);
+        if (!ts) return { suspend: false, next: k(undefined) };  // dead → None
+        const lnks = links.get(targetId);
+        const linkList = lnks ? Array.from(lnks).map(lid => Pid(_localNodeId, lid)) : [];
+        const status   = ts.blocked ? 'blocked' : 'running';
+        const info = { _type: 'ProcessInfo', mailboxSize: ts.mailbox.length,
+                       links: linkList, status };
+        return { suspend: false, next: k({ _type: 'Some', value: info }) };
+      }
       case 'send': {
         const target = args[0];
         if (target && target._type === 'Pid') {
@@ -6458,6 +6473,10 @@ class JsGen(
     case Term.Apply.After_4_6_0(Term.Name("cancelTimer"), argClause)
         if argClause.values.size == 1 =>
       s"Actor.cancelTimer(${genExpr(argClause.values.head.asInstanceOf[Term])})"
+    // v1.6.x — process introspection
+    case Term.Apply.After_4_6_0(Term.Name("processInfo"), argClause)
+        if argClause.values.size == 1 =>
+      s"Actor.processInfo(${genExpr(argClause.values.head.asInstanceOf[Term])})"
     // v1.10 Generator — generator { () => body } / suspend(v)
     case Term.Apply.After_4_6_0(Term.Name("generator"), argClause)
         if argClause.values.size == 1 =>
@@ -6941,6 +6960,10 @@ class JsGen(
     case Term.Apply.After_4_6_0(Term.Name("cancelTimer"), argClause)
         if argClause.values.size == 1 =>
       s"Actor.cancelTimer(${genExpr(argClause.values.head.asInstanceOf[Term])})"
+    // v1.6.x — process introspection (inside CPS body)
+    case Term.Apply.After_4_6_0(Term.Name("processInfo"), argClause)
+        if argClause.values.size == 1 =>
+      s"Actor.processInfo(${genExpr(argClause.values.head.asInstanceOf[Term])})"
     // v1.10 Generator inside CPS body
     case Term.Apply.After_4_6_0(Term.Name("generator"), argClause)
         if argClause.values.size == 1 =>

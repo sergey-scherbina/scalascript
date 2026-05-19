@@ -1543,10 +1543,12 @@ PR that doesn't gate the core landing.
    Block; Fail is exercised via linked-actor pattern.  `std/actors.ssc`
    bumped to v1.1.0.
 
-2. **Actor tracing & introspection.**  `processInfo(pid):
-   ProcessInfo` returning mailbox size, links, monitors, current
-   behavior; opt-in hook to log every message in/out of a PID.
-   Half a day; pays back the first time something hangs.
+2. **Actor tracing & introspection.**  ✓ **Landed (v1.6.x).**
+   `processInfo(pid): Option[ProcessInfo]` returns `mailboxSize`,
+   `links`, and `status` ("running" | "blocked") for any live actor.
+   Returns `None` for dead / unknown PIDs.  All three backends.
+   Conformance test `actors-process-info.ssc`.  `std/actors.ssc`
+   bumped to v1.2.0.
 
 3. **Cluster discovery.**  v1.6 requires manual `connectNode(url)`
    per peer.  Add a seed-list or multicast helper so an N-node

@@ -1117,6 +1117,11 @@ class Interpreter(
         Perform("Actor", "spawnBounded", List(Value.IntV(cap), Value.StringV(strategy), thunk))
       case _ => throw InterpretError("spawnBounded(capacity: Int, overflow: Overflow, behavior: () => Unit)")
     })
+    // v1.6.x — process introspection
+    globals("processInfo") = Value.NativeFnV("processInfo", {
+      case List(pid @ Value.InstanceV("Pid", _)) => Perform("Actor", "processInfo", List(pid))
+      case _ => throw InterpretError("processInfo(pid)")
+    })
     // v1.6 Phase 1.x — atomic spawn + link
     globals("spawn_link") = Value.NativeFnV("spawn_link", {
       case List(thunk) => Perform("Actor", "spawnLink", List(thunk))
@@ -4060,6 +4065,25 @@ class Interpreter(
 
     case "self" =>
       Right(k(mkPid(localNodeId, id)))
+
+    case "processInfo" => args match
+      case List(Value.InstanceV("Pid", fields)) =>
+        val targetId = fields.get("localId").collect { case Value.IntV(n) => n }.getOrElse(-1L)
+        if !rt.mailboxes.contains(targetId) then
+          Right(k(Value.OptionV(None)))
+        else
+          val mailboxSize = rt.mailboxes.get(targetId).map(_.size).getOrElse(0)
+          val links = rt.links.get(targetId)
+            .map(_.toList.map(lid => mkPid("", lid)))
+            .getOrElse(Nil)
+          val status = if rt.blocked.contains(targetId) then "blocked" else "running"
+          val info = Value.InstanceV("ProcessInfo", Map(
+            "mailboxSize" -> Value.IntV(mailboxSize),
+            "links"       -> Value.ListV(links),
+            "status"      -> Value.StringV(status)
+          ))
+          Right(k(Value.OptionV(Some(info))))
+      case _ => throw InterpretError("processInfo(pid)")
 
     case "send" => args match
       case List(Value.InstanceV("Pid", fields), msg) =>

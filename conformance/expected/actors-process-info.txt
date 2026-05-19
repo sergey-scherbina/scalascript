@@ -1,0 +1,6 @@
+mailboxSize=2
+worker-alive
+root-links=1
+linked-links=1
+worker: hello
+worker: world
