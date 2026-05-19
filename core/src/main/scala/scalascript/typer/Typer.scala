@@ -336,54 +336,26 @@ class Typer(
     case Term.Interpolate(Term.Name(p), _, _) if p == "s" || p == "f" || p == "md" =>
       SType.String
 
-    // ── Strict-mode check for `q.m` where `q` is an imported module ──────────
+    // ── Strict-mode check for Select chains rooted at imported modules ──────
     //
     // The existing `Term.Name` branch flags references to undefined top-level
-    // names.  This case extends the check one level deeper: when `q` is a
-    // known imported module (alias key in `importedInterfaces`), look up `m`
-    // in that module's exported names and emit a diagnostic if it is missing.
+    // names.  This branch extends the same check to dotted selects of any
+    // depth — a chain `a.b.c.…` walks the qualifier recursively and emits
+    // exactly one diagnostic at the deepest point where resolution breaks.
     //
-    // Conservative — we deliberately only flag `Select(Term.Name(q), m)`
-    // where `q` resolves to an imported `ModuleInterface`.  This avoids
-    // false-positives for:
+    // Conservative — we only flag chains whose root is a known imported
+    // module (alias key in `importedInterfaces`).  This avoids false-
+    // positives for:
     //   - method calls on values whose type is `Any` (interpreter intrinsics);
     //   - builtins like `1.toString` / `"x".length` where the typer knows
     //     the receiver type but not its method set;
-    //   - same-module values (`val x = 42; x.toString`).
-    //
-    // Deeper select chains (`a.b.c`) are left permissive for now.
-    // TODO: extend to multi-level paths once nested module / object support
-    // is in the typer's surface model.
-    case t @ Term.Select(qual @ Term.Name(qname), Term.Name(member)) =>
-      if strict then
-        importedInterfaces.get(qname) match
-          case Some(iface) =>
-            // `q` IS a known imported module — the only conservative check
-            // we can make here is whether `member` is in its exported set.
-            // We deliberately do NOT also fall back to the bare-name
-            // "undefined name" check in this branch: `q` IS defined (as an
-            // import alias), even though `InterfaceScope.fromInterfaces`
-            // flattens its exports rather than seeding `q` itself.
-            val exported = iface.exports.iterator.map(_.name).toSet ++
-                           iface.externDefs.iterator.map(_.name).toSet
-            if !exported.contains(member) then
-              errors += TypeError(
-                s"$qname has no member $member",
-                posToSpan(t.pos)
-              )
-          case None =>
-            // `q` is not a known imported module.  Don't report a member-
-            // missing error (we don't know what `q` is statically — could
-            // be a local val, a builtin literal receiver via toString, an
-            // interpreter intrinsic, etc.).  Only fall back to the bare-
-            // name undefined check when `q` is also not in the local scope,
-            // and do it exactly once so the existing `Term.Name` undefined
-            // check doesn't double-report.
-            if scope.lookup(qname).isEmpty && isFlaggableName(qname) then
-              errors += TypeError(
-                s"Reference to undefined name: $qname",
-                posToSpan(qual.pos)
-              )
+    //   - same-module values (`val x = 42; x.toString`);
+    //   - deep selects whose sub-namespaces were not populated by the
+    //     interface extractor (see `ExportedSymbol.nested` — extractor work
+    //     is deferred; chains that hit a sub-namespace with empty `nested`
+    //     fall back to permissive).
+    case t @ Term.Select(_, Term.Name(_)) if strict =>
+      checkSelectStrict(t, scope)
       SType.Any
 
     case Term.Select(_, _)        => SType.Any
@@ -533,6 +505,141 @@ class Typer(
     else
       val c = name.head
       c.isLetter || c == '_'
+
+  // ── Deep Select-chain resolution for strict mode ────────────────────────
+  //
+  // Walks a qualifier chain `a.b.c.…` rooted (potentially) at an imported
+  // module.  Returns a [[QualResult]] describing where the chain ended up:
+  //
+  //  - Module / SubNamespace — the chain resolved cleanly; the caller can
+  //    use the resulting namespace to validate the final member name.
+  //  - SubOpaque             — chain resolved cleanly so far, but the next
+  //                            namespace level has no recorded members
+  //                            (extractor didn't populate `ExportedSymbol.nested`).
+  //                            Treat as permissive: silently accept further
+  //                            members.  TODO: lift to a real diagnostic once
+  //                            `InterfaceExtractor` records nested members.
+  //  - BrokenAt              — chain broke at a known module / sub-namespace
+  //                            because `member` is not in its export list.
+  //                            The caller emits exactly one diagnostic
+  //                            (no cascade for deeper selects).
+  //  - UndefinedRoot         — root name is not in any scope and not an
+  //                            imported module alias — equivalent to a bare
+  //                            undefined-name reference.
+  //  - NotAnalysable         — root is a local val or an unrecognised shape
+  //                            (e.g. literal receiver); strict mode skips.
+  private enum QualResult:
+    case Module(name: String, iface: scalascript.ir.ModuleInterface)
+    case Sub(path: String, members: List[scalascript.ir.ExportedSymbol])
+    case SubOpaque(path: String)
+    case BrokenAt(qualPath: String, missing: String, missingPos: scala.meta.Position)
+    case UndefinedRoot(name: String, pos: scala.meta.Position)
+    case NotAnalysable
+
+  /** Step from one namespace level to the next.  `parentPath` is the
+   *  dotted path covering the qualifier so far (for diagnostics).  Looks
+   *  up `member` in `members`; on hit, branches on whether the hit
+   *  carries `nested` (deeper analysis is possible) or is a leaf
+   *  (deeper selects fall through to permissive). */
+  private def stepNamespace(
+      parentPath: String,
+      members:    List[scalascript.ir.ExportedSymbol],
+      member:     String,
+      memberPos:  scala.meta.Position
+  ): QualResult =
+    val newPath = s"$parentPath.$member"
+    members.find(_.name == member) match
+      case None       => QualResult.BrokenAt(parentPath, member, memberPos)
+      case Some(hit)  =>
+        if hit.nested.nonEmpty then QualResult.Sub(newPath, hit.nested)
+        else QualResult.SubOpaque(newPath)
+
+  /** Resolve a qualifier term (the LHS of a Select) to a [[QualResult]]. */
+  private def resolveQualifier(qual: scala.meta.Term, scope: Scope): QualResult =
+    qual match
+      case Term.Name(qname) =>
+        importedInterfaces.get(qname) match
+          case Some(iface) =>
+            QualResult.Module(qname, iface)
+          case None =>
+            if scope.lookup(qname).isDefined then QualResult.NotAnalysable
+            else if isFlaggableName(qname) then
+              QualResult.UndefinedRoot(qname, qual.pos)
+            else QualResult.NotAnalysable
+
+      case Term.Select(inner, Term.Name(member)) =>
+        resolveQualifier(inner, scope) match
+          case QualResult.Module(name, iface) =>
+            // Look up `member` in this module's exports.  The exports
+            // are flat today, but a sub-namespace entry (kind == "object")
+            // may carry a `nested` list for deeper analysis.
+            val exports = iface.exports ++ iface.externDefs
+            exports.find(_.name == member) match
+              case None      => QualResult.BrokenAt(name, member, qual.pos)
+              case Some(hit) =>
+                val newPath = s"$name.$member"
+                if hit.nested.nonEmpty then QualResult.Sub(newPath, hit.nested)
+                else QualResult.SubOpaque(newPath)
+
+          case QualResult.Sub(path, members) =>
+            stepNamespace(path, members, member, qual.pos)
+
+          // Opaque sub-namespace: we can't introspect deeper, so any
+          // further name is permissively accepted (and the result stays
+          // opaque so still-deeper selects also pass).
+          case QualResult.SubOpaque(path) =>
+            QualResult.SubOpaque(s"$path.$member")
+
+          // Already broken — keep the original break point so we report
+          // it exactly once at the top of the chain.  Don't cascade.
+          case b: QualResult.BrokenAt    => b
+          case u: QualResult.UndefinedRoot => u
+          case QualResult.NotAnalysable  => QualResult.NotAnalysable
+
+      case _ => QualResult.NotAnalysable
+
+  /** Strict-mode entry point for a Select term.  Emits at most one
+   *  diagnostic; never cascades.  Idempotent: re-checking the same term
+   *  twice would record the same diagnostic twice, but the typer visits
+   *  each tree node exactly once. */
+  private def checkSelectStrict(t: Term.Select, scope: Scope): Unit =
+    val memberName = t.name.value
+    resolveQualifier(t.qual, scope) match
+      case QualResult.Module(name, iface) =>
+        // 2-level base case: q.m where q is an imported module.
+        val exported = iface.exports.iterator.map(_.name).toSet ++
+                       iface.externDefs.iterator.map(_.name).toSet
+        if !exported.contains(memberName) then
+          errors += TypeError(
+            s"$name has no member $memberName",
+            posToSpan(t.pos)
+          )
+
+      case QualResult.Sub(path, members) =>
+        if !members.exists(_.name == memberName) then
+          errors += TypeError(
+            s"$path has no member $memberName",
+            posToSpan(t.pos)
+          )
+
+      // Opaque sub-namespace: silently accept (permissive fallback for
+      // the deep-Select case until `InterfaceExtractor` records nested
+      // members).
+      case QualResult.SubOpaque(_) => ()
+
+      case QualResult.BrokenAt(qualPath, missing, pos) =>
+        errors += TypeError(
+          s"$qualPath has no member $missing",
+          posToSpan(pos)
+        )
+
+      case QualResult.UndefinedRoot(name, pos) =>
+        errors += TypeError(
+          s"Reference to undefined name: $name",
+          posToSpan(pos)
+        )
+
+      case QualResult.NotAnalysable => ()
 
   private def posToSpan(pos: scala.meta.Position): Option[Span] =
     if pos.isEmpty then None
