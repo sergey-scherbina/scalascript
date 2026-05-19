@@ -771,6 +771,19 @@ private object Mcp:
           Value.UnitV
         case _ => throw InterpretError("srv.useHmacValidator(secret)")
       })
+    // v1.17.x — bridge to the standalone OAuth Authorization Server.
+    // Takes the InstanceV produced by `oauth.authServer(...)` and wires
+    // its token validator + protected-resource metadata into this MCP
+    // server.  Resolves the JVM-side AS via the OAuth intrinsics registry.
+    def useAuthServerFn = Value.NativeFnV("McpServer.useAuthServer",
+      Computation.pureFn {
+        case List(asValue) =>
+          OAuthIntrinsicHelpers.resolveAuthServer(asValue) match
+            case Some(as) => builder.useAuthServer(as); Value.UnitV
+            case None     => throw InterpretError(
+              "srv.useAuthServer: argument is not an AuthServer instance (use oauth.authServer(...))")
+        case _ => throw InterpretError("srv.useAuthServer(authServer)")
+      })
     def setAuthRealmFn = Value.NativeFnV("McpServer.setAuthRealm",
       Computation.pureFn {
         case List(Value.StringV(realm)) => builder.setAuthRealm(realm); Value.UnitV
@@ -843,6 +856,7 @@ private object Mcp:
       "currentPageSize"            -> currentPageSizeFn,
       "setTokenValidator"          -> setTokenValidatorFn,
       "useHmacValidator"           -> useHmacValidatorFn,
+      "useAuthServer"              -> useAuthServerFn,
       "setAuthRealm"               -> setAuthRealmFn,
       "currentAuth"                -> currentAuthFn,
       "authEnabled"                -> authEnabledFn,

@@ -1762,6 +1762,18 @@ class Interpreter(
       "E"     -> globals("math.E")
     ))
 
+    // v1.17.x — oauth namespace: standalone OAuth 2.1 Authorization Server.
+    // Mirrors the `math` companion-object pattern: dotted QualifiedName
+    // entries from `OAuthIntrinsics` get a sibling InstanceV bound to
+    // `globals("oauth")` so scripts can write `oauth.authServer(...)`.
+    globals("oauth") = Value.InstanceV("oauth", Map(
+      "authServer"      -> globals("oauth.authServer"),
+      "serveAuthServer" -> globals("oauth.serveAuthServer"),
+      "issueHmacToken"  -> globals("oauth.issueHmacToken"),
+      "pkceVerifier"    -> globals("oauth.pkceVerifier"),
+      "pkceChallenge"   -> globals("oauth.pkceChallenge")
+    ))
+
     // escape / collectCss / collectJs / scope now live in CoreIntrinsics
     // (Stage 5+/E–F); installNativeIntrinsics routes them.
 
