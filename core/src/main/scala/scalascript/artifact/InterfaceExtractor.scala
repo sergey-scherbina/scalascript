@@ -76,6 +76,86 @@ object InterfaceExtractor:
     }
     out.toMap
 
+  /** Per-section NON-cumulative SHA-256 hashes of just this section's
+   *  own source (no chain).  Used by Option B to detect body-only changes
+   *  on a single section without the cumulative-cascade side effect of
+   *  [[computeSectionHashes]]. */
+  def computeSectionOwnHashes(module: ast.Module): Map[String, String] =
+    val out = scala.collection.mutable.LinkedHashMap.empty[String, String]
+    module.sections.zipWithIndex.foreach { case (sec, idx) =>
+      val raw = sectionRawSource(sec)
+      out(sectionId(sec, idx)) = sha256(raw.getBytes("UTF-8"))
+    }
+    out.toMap
+
+  /** Per-section PUBLIC-INTERFACE SHA-256 hashes (Option B).
+   *
+   *  Hashes a section's exported `Defn.*` shapes (names + signatures),
+   *  NOT the bodies.  Section N stays cached when its body changes if
+   *  its interface (what it exports to later sections) is unchanged.
+   *
+   *  Body-level details (the right-hand side of a `def`, the contents
+   *  of an `object` body) don't perturb this hash — only the SHAPE
+   *  surfaced to later sections matters.  Pairs with the body-level
+   *  `sectionHashes`: a consumer using `--section-cache=interface`
+   *  walks both maps and concludes a section is stale only when
+   *  (a) its own body hash changed OR (b) some prior section's
+   *  INTERFACE hash changed.
+   *
+   *  Returns a `Map[sectionId -> hex hash]`.  Empty when `module.sections`
+   *  is empty.  Sections with no top-level definitions hash to a stable
+   *  empty-list digest. */
+  def computeSectionInterfaceHashes(module: ast.Module): Map[String, String] =
+    val out = scala.collection.mutable.LinkedHashMap.empty[String, String]
+    module.sections.zipWithIndex.foreach { case (sec, idx) =>
+      val shape = sectionInterfaceShape(sec)
+      // Canonical encoding: sort entries by (kind, name) so order-only
+      // changes in scalameta's parse don't perturb the hash.
+      val sorted = shape.sortBy { case (k, n, s) => (k, n, s) }
+      val payload = sorted.iterator.map { case (k, n, s) => s"$k $n $s" }.mkString("\n")
+      out(sectionId(sec, idx)) = sha256(payload.getBytes("UTF-8"))
+    }
+    out.toMap
+
+  /** Collect a section's interface shape — list of (kind, name, signature)
+   *  triples for every top-level `Defn.*` in every code block plus every
+   *  subsection.  Externs are included with their (param-typed) signature;
+   *  other defs use `typeToString` of decltpe (else "Any"). */
+  private def sectionInterfaceShape(sec: ast.Section): List[(String, String, String)] =
+    val out = scala.collection.mutable.ListBuffer.empty[(String, String, String)]
+    def collectFromTree(node: scalascript.ast.ScalaNode): Unit =
+      scalascript.ast.ScalaNode.fold(node) {
+        case src: scala.meta.Source => src.stats.foreach(collectStat)
+        case blk: scala.meta.Term.Block => blk.stats.foreach(collectStat)
+        case other                       => collectStat(other)
+      }
+    def typeStr(t: Option[Type]): String = t.map(_.toString).getOrElse("Any")
+    def defSig(d: Defn.Def): String =
+      val ps = d.paramClauseGroups.flatMap(_.paramClauses).map { clause =>
+        clause.values.map(p => s"${p.name.value}: ${typeStr(p.decltpe)}").mkString("(", ", ", ")")
+      }.mkString
+      s"$ps: ${typeStr(d.decltpe)}"
+    def collectStat(t: scala.meta.Tree): Unit = t match
+      case d: Defn.Def =>
+        out += (("def", d.name.value, defSig(d)))
+      case d: Defn.Val =>
+        d.pats.foreach { case Pat.Var(n) => out += (("val", n.value, typeStr(d.decltpe))); case _ => () }
+      case d: Defn.Var =>
+        d.pats.foreach { case Pat.Var(n) => out += (("var", n.value, typeStr(d.decltpe))); case _ => () }
+      case d: Defn.Class  => out += (("class",  d.name.value, ""))
+      case d: Defn.Object => out += (("object", d.name.value, ""))
+      case d: Defn.Trait  => out += (("trait",  d.name.value, ""))
+      case d: Defn.Enum   => out += (("enum",   d.name.value, ""))
+      case d: Defn.Type   => out += (("type",   d.name.value, ""))
+      case _              => ()
+    sec.content.foreach {
+      case cb: ast.Content.CodeBlock =>
+        cb.tree.foreach(collectFromTree)
+      case _ => ()
+    }
+    sec.subsections.foreach { sub => out ++= sectionInterfaceShape(sub) }
+    out.toList
+
   /** Reconstruct the load-bearing source of a section for the section-
    *  hash chain: heading text + every `Content.CodeBlock` source body
    *  (recursing into `subsections`).  Prose / lists / imports are
@@ -569,7 +649,9 @@ object InterfaceExtractor:
       capabilities  = capabilities,
       externDefs    = externDefs.toList,
       dependencies  = deps,
-      sectionHashes = computeSectionHashes(module)
+      sectionHashes = computeSectionHashes(module),
+      sectionOwnHashes = computeSectionOwnHashes(module),
+      sectionInterfaceHashes = computeSectionInterfaceHashes(module)
     )
 
   /** Detect well-known capability markers by structurally walking the

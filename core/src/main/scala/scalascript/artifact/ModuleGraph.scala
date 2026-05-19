@@ -188,6 +188,58 @@ object ModuleGraph:
       before.isEmpty || before != now
     }
 
+  /** Like [[staleSections]] but using Option B — interface-based caching.
+   *
+   *  Section N is stale only when:
+   *  - its own body hash changed, OR
+   *  - some prior section's INTERFACE hash changed.
+   *
+   *  Body-only edits to an earlier section (def body changed but signature
+   *  unchanged) leave later sections cached.  Trades off: this is strictly
+   *  more permissive than Option A — never wider than Option A's stale set.
+   *
+   *  Falls back to "all sections stale" when the artifact lacks
+   *  `sectionInterfaceHashes` (legacy artifact, or extractor that didn't
+   *  record them).  Safe-default semantics: a re-emit is always correct.
+   *
+   *  v2.0 Phase 5 — interface-based per-section incremental cache. */
+  def staleSectionsInterfaceBased(srcPath: os.Path, artifactDir: os.Path): List[String] =
+    val baseName = srcPath.last.stripSuffix(".ssc")
+    val scimPath = artifactDir / (baseName + ".scim")
+
+    val srcBytes = scala.util.Try(os.read.bytes(srcPath)).getOrElse(Array.emptyByteArray)
+    val module   = scala.util.Try(Parser.parse(new String(srcBytes, "UTF-8")))
+      .getOrElse(scalascript.ast.Module(manifest = None, sections = Nil))
+    // Use OWN (non-cumulative) body hashes for Option B — a body change in
+    // section 1 must not propagate to section 2's body hash.  The artifact
+    // carries both: cumulative `sectionHashes` for Option A, non-cumulative
+    // `sectionOwnHashes` for Option B.
+    val currentBody  = InterfaceExtractor.computeSectionOwnHashes(module)
+    val currentIface = InterfaceExtractor.computeSectionInterfaceHashes(module)
+
+    val orderedIds: List[String] =
+      module.sections.zipWithIndex.map { case (s, i) => InterfaceExtractor.sectionId(s, i) }
+
+    if !os.exists(scimPath) then return orderedIds
+    val (storedBody, storedIface) = ArtifactIO.readInterfaceFile(scimPath) match
+      case Left(_)      => return orderedIds
+      case Right(iface) => (iface.sectionOwnHashes, iface.sectionInterfaceHashes)
+
+    // Legacy artifact: no interface hashes or no own-hashes → safe-default all-stale.
+    if storedIface.isEmpty || storedBody.isEmpty then return orderedIds
+
+    val stale = scala.collection.mutable.ListBuffer.empty[String]
+    var prefixIfaceStale = false
+    for id <- orderedIds do
+      val bodyChanged  = currentBody.getOrElse(id, "")  != storedBody.getOrElse(id, "")
+      val ifaceChanged = currentIface.getOrElse(id, "") != storedIface.getOrElse(id, "")
+      if prefixIfaceStale || bodyChanged then stale += id
+      // Mark prefix stale for SUBSEQUENT sections — current section's iface
+      // change only invalidates what comes after, not the current section
+      // itself (its body might still be unchanged).
+      if ifaceChanged then prefixIfaceStale = true
+    stale.toList
+
   /** Check whether a `.ssc` module's JVM-backend cached `.scjvm` artifact is
    *  stale relative to the current source.
    *

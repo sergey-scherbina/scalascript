@@ -310,7 +310,27 @@ case class ModuleInterface(
    *  (treats every section as stale).  v2.0 Phase 3 — section-level
    *  incremental cache, opt-in via `--section-cache`.
    */
-  sectionHashes: Map[String, String]   = Map.empty
+  sectionHashes: Map[String, String]   = Map.empty,
+  /** Per-section NON-cumulative own-source SHA-256.  See
+   *  `InterfaceExtractor.computeSectionOwnHashes`.  Used by Option B to
+   *  detect a section's own-body change independent of the cumulative
+   *  chain.  Empty default = legacy artifact. */
+  sectionOwnHashes: Map[String, String] = Map.empty,
+  /** Per-section PUBLIC-INTERFACE SHA-256 hashes (Option B).
+   *
+   *  For each section, hash the canonical JSON of the section's exported
+   *  defs / vals / classes / objects / traits / enums (names + signatures
+   *  via `typeToString`).  Body-only edits don't perturb this hash.
+   *
+   *  Used by `ModuleGraph.staleSectionsInterfaceBased` to allow
+   *  body-only edits of section N to keep sections N+1, N+2, … cached.
+   *
+   *  Empty default = legacy artifact (no interface hashes recorded).
+   *  When the consumer requests `--section-cache=interface` against an
+   *  artifact with empty `sectionInterfaceHashes`, it treats every
+   *  section as stale (safe fallback).  v2.0 Phase 5.
+   */
+  sectionInterfaceHashes: Map[String, String] = Map.empty
 ) derives ReadWriter
 
 /** Module IR artifact envelope — wraps a `NormalizedModule` as `.scir` JSON.
@@ -331,7 +351,9 @@ case class ModuleIrArtifact(
   /** Per-section cumulative SHA-256 hashes.  See `ModuleInterface.sectionHashes`
    *  for semantics.  Default `Map.empty` preserves backward compatibility
    *  with `.scir` artifacts emitted before this field existed. */
-  sectionHashes: Map[String, String] = Map.empty
+  sectionHashes: Map[String, String] = Map.empty,
+  /** Per-section interface SHA-256 hashes.  See `ModuleInterface.sectionInterfaceHashes`. */
+  sectionInterfaceHashes: Map[String, String] = Map.empty
 ) derives ReadWriter
 
 /** JVM-backend cached artifact — written as `.scjvm` JSON.
@@ -393,6 +415,8 @@ case class ModuleJvmArtifact(
    *  for semantics.  Default `Map.empty` preserves backward compatibility
    *  with `.scjvm` artifacts emitted before this field existed. */
   sectionHashes: Map[String, String] = Map.empty,
+  /** Per-section interface SHA-256 hashes.  See `ModuleInterface.sectionInterfaceHashes`. */
+  sectionInterfaceHashes: Map[String, String] = Map.empty,
   /** Generated-Scala-line → original-`.ssc`-line map for `--source-map`
    *  (Option A: JSR-45 SMAP injection via ASM).
    *
@@ -491,7 +515,9 @@ case class ModuleJsArtifact(
   /** Per-section cumulative SHA-256 hashes.  See `ModuleInterface.sectionHashes`
    *  for semantics.  Default `Map.empty` preserves backward compatibility
    *  with `.scjs` artifacts emitted before this field existed. */
-  sectionHashes: Map[String, String] = Map.empty
+  sectionHashes: Map[String, String] = Map.empty,
+  /** Per-section interface SHA-256 hashes.  See `ModuleInterface.sectionInterfaceHashes`. */
+  sectionInterfaceHashes: Map[String, String] = Map.empty
 ) derives ReadWriter
 
 /** Shared JS runtime artifact — written as `.scjs-runtime` JSON.

@@ -450,12 +450,19 @@ def incrementalBuildCommand(args: List[String]): Unit =
   var backendArg:     Option[String] = None
   var srcDirArg:      Option[String] = None
   var sectionCache:   Boolean        = false
+  var sectionCacheMode: String       = "cumulative" // "cumulative" (Option A) or "interface" (Option B)
   val it = args.iterator
   while it.hasNext do
     it.next() match
       case "--artifact-dir" if it.hasNext => artifactDirArg = Some(it.next())
       case "--backend"      if it.hasNext => backendArg     = Some(it.next())
-      case "--section-cache"               => sectionCache  = true
+      case "--section-cache"                            => sectionCache = true
+      case s if s.startsWith("--section-cache=")        =>
+        sectionCache = true
+        sectionCacheMode = s.stripPrefix("--section-cache=")
+        if sectionCacheMode != "cumulative" && sectionCacheMode != "interface" then
+          System.err.println(s"build --incremental: --section-cache mode must be 'cumulative' or 'interface', got: $sectionCacheMode")
+          System.exit(1)
       case d => srcDirArg = Some(d)
 
   if srcDirArg.isEmpty then
@@ -519,15 +526,19 @@ def incrementalBuildCommand(args: List[String]): Unit =
       val sectionDiag: String =
         if !sectionCache then ""
         else
-          val sectionIds = ModuleGraph.staleSections(node.path, artDir)
+          val sectionIds =
+            if sectionCacheMode == "interface"
+            then ModuleGraph.staleSectionsInterfaceBased(node.path, artDir)
+            else ModuleGraph.staleSections(node.path, artDir)
           val srcBytes   = scala.util.Try(os.read.bytes(node.path)).getOrElse(Array.emptyByteArray)
           val parsed     =
             scala.util.Try(Parser.parse(new String(srcBytes, "UTF-8")))
               .getOrElse(scalascript.ast.Module(manifest = None, sections = Nil))
           val total = parsed.sections.length
+          val modeTag = if sectionCacheMode == "interface" then " iface" else ""
           if total == 0 then ""
-          else if sectionIds.length == total then s" [$total/$total sections stale]"
-          else s" [${sectionIds.length}/$total sections stale, ${total - sectionIds.length} cached]"
+          else if sectionIds.length == total then s" [$total/$total sections stale$modeTag]"
+          else s" [${sectionIds.length}/$total sections stale, ${total - sectionIds.length} cached$modeTag]"
       print(s"  [compile]  $relPath$sectionDiag ... ")
       // Unified-diagnostic capture: inner helpers (e.g.
       // `reportCodeBlockParseErrors`) emit structured diagnostics on
