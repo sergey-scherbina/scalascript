@@ -1,6 +1,6 @@
 ---
 name: std-cluster
-version: 0.3.0
+version: 0.4.0
 description: "Cluster aggregator — re-exports std/cluster/types and std/cluster/membership"
 package: std.cluster
 exports:
@@ -9,6 +9,7 @@ exports:
   - LeaderElected
   - LeaderLost
   - ConfigChanged
+  - DrainStateChanged
   - Cluster
 ---
 
@@ -17,7 +18,7 @@ exports:
 One-stop import for cluster-shaped applications.
 
 ```scalascript
-[NodeJoined, NodeLeft, LeaderElected, LeaderLost, ConfigChanged](./types.ssc)
+[NodeJoined, NodeLeft, LeaderElected, LeaderLost, ConfigChanged, DrainStateChanged](./types.ssc)
 [Cluster](./membership.ssc)
 ```
 
@@ -25,7 +26,8 @@ One-stop import for cluster-shaped applications.
 
 This module is a thin wrapper over the actor-level intrinsics
 (`connectNode`, `joinCluster`, `clusterMembers`, `subscribeClusterEvents`,
-`electLeader`, `clusterConfigSet`, …) that land in `std.actors`.
+`electLeader`, `clusterConfigSet`, `setDraining`, …) that land in
+`std.actors`.
 
 | Piece | Status |
 |---|---|
@@ -36,6 +38,8 @@ This module is a thin wrapper over the actor-level intrinsics
 | Per-link Phi-accrual suspicion (`Cluster.phi`, `Cluster.suspect`) | ✓ v1.23 |
 | Cluster-wide failure aggregation (`Cluster.broadcast` + `Cluster.isDown`) | ✓ v1.23 |
 | Bully leader election (`Cluster.elect` / `Cluster.leader` / `Cluster.subscribeLeader`) | ✓ v1.23 |
+| Auto re-elect on leader loss (`Cluster.autoReelect`) | ✓ v1.23 |
 | Auto-reconnect on outbound link drops (`Cluster.autoReconnect`) | ✓ v1.23 |
 | Periodic gossip re-discovery (`Cluster.gossip`) | ✓ v1.23 |
 | Configuration distribution (`Cluster.configSet/Get/Keys/subscribeConfig`) | ✓ v1.23 |
+| Rolling-restart drain protocol (`Cluster.drain` / `draining` / `drainingNodes` / `subscribeDrain`) | ✓ v1.23 |

@@ -36,6 +36,11 @@ exports:
   - clusterConfigGet
   - clusterConfigKeys
   - subscribeConfigEvents
+  - DrainStateChanged
+  - setDraining
+  - isDraining
+  - drainingPeers
+  - subscribeDrainEvents
 ---
 
 # std.actors — Actor supervision
@@ -268,6 +273,32 @@ extern def clusterConfigKeys(): List[String]
 // deliveries.  Fires for every accepted update — local or remote.
 // No unsubscribe API; exit the actor to stop.
 extern def subscribeConfigEvents(): Unit
+
+// ─── Drain / rolling-restart protocol (v1.23) ────────────────────────────────
+
+// Drain-state events delivered to actors that have called
+// `subscribeDrainEvents()`.  Fires when a peer's drain state changes
+// (or when the local node toggles its own state).
+case class DrainStateChanged(nodeId: String, draining: Boolean)
+
+// Mark this node as draining or active.  Broadcasts the new state to
+// every connected peer; new peers learn it on handshake.  When draining,
+// app code that schedules work should consult `isDraining()` and stop
+// accepting new tasks, finishing in-flight work before exiting.  This
+// is a cooperative protocol — the runtime does NOT shed traffic itself.
+extern def setDraining(enabled: Boolean): Unit
+
+// Local view of whether THIS node is draining.
+extern def isDraining(): Boolean
+
+// Snapshot of peer node IDs that have announced draining (excludes self).
+// Use when assigning new cluster-wide work — route around draining peers.
+extern def drainingPeers(): List[String]
+
+// Register the calling actor for `DrainStateChanged(nodeId, draining)`
+// mailbox deliveries.  Fires both for peer announcements and for the
+// local node's own `setDraining` toggles.
+extern def subscribeDrainEvents(): Unit
 
 // ─── Supervision tree ─────────────────────────────────────────────────────────
 

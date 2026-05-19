@@ -475,6 +475,7 @@ class JvmGen(
         "setReconnectPolicy", "requestGossip",
         "clusterConfigSet", "clusterConfigGet", "clusterConfigKeys",
         "subscribeConfigEvents",
+        "setDraining", "isDraining", "drainingPeers", "subscribeDrainEvents",
         "sendAfter", "sendInterval", "cancelTimer", "processInfo")
 
   /** Case-class names defined inside `effectsRuntime` whose presence in
@@ -486,7 +487,7 @@ class JvmGen(
    *  would compile-error with "no pattern match extractor named NodeJoined". */
   private val actorRuntimeCaseClasses: Set[String] =
     Set("NodeJoined", "NodeLeft", "LeaderElected", "LeaderLost",
-        "ConfigChanged", "Exit", "Down")
+        "ConfigChanged", "DrainStateChanged", "Exit", "Down")
 
   /** True if any block references the v1.6 actor model — via
    *  `runActors`, `spawn`, `self`, `exit`, `receive`, `link`, `monitor`,
@@ -1476,6 +1477,19 @@ class JvmGen(
     case Term.Apply.After_4_6_0(Term.Name("setAutoReelect"), argClause)
         if argClause.values.size == 1 =>
       s"Actor.setAutoReelect(${emitExpr(argClause.values.head.asInstanceOf[Term])})"
+    // v1.23 — drain / rolling-restart
+    case Term.Apply.After_4_6_0(Term.Name("setDraining"), argClause)
+        if argClause.values.size == 1 =>
+      s"Actor.setDraining(${emitExpr(argClause.values.head.asInstanceOf[Term])})"
+    case Term.Apply.After_4_6_0(Term.Name("isDraining"), argClause)
+        if argClause.values.isEmpty =>
+      "Actor.isDraining()"
+    case Term.Apply.After_4_6_0(Term.Name("drainingPeers"), argClause)
+        if argClause.values.isEmpty =>
+      "Actor.drainingPeers()"
+    case Term.Apply.After_4_6_0(Term.Name("subscribeDrainEvents"), argClause)
+        if argClause.values.isEmpty =>
+      "Actor.subscribeDrainEvents()"
     // v1.23 — auto-reconnect policy
     case Term.Apply.After_4_6_0(Term.Name("setReconnectPolicy"), argClause)
         if argClause.values.size == 2 =>
@@ -2225,6 +2239,19 @@ class JvmGen(
     case Term.Apply.After_4_6_0(Term.Name("setAutoReelect"), argClause)
         if argClause.values.size == 1 =>
       s"Actor.setAutoReelect(${emitExpr(argClause.values.head.asInstanceOf[Term])})"
+    // v1.23 — drain / rolling-restart
+    case Term.Apply.After_4_6_0(Term.Name("setDraining"), argClause)
+        if argClause.values.size == 1 =>
+      s"Actor.setDraining(${emitExpr(argClause.values.head.asInstanceOf[Term])})"
+    case Term.Apply.After_4_6_0(Term.Name("isDraining"), argClause)
+        if argClause.values.isEmpty =>
+      "Actor.isDraining()"
+    case Term.Apply.After_4_6_0(Term.Name("drainingPeers"), argClause)
+        if argClause.values.isEmpty =>
+      "Actor.drainingPeers()"
+    case Term.Apply.After_4_6_0(Term.Name("subscribeDrainEvents"), argClause)
+        if argClause.values.isEmpty =>
+      "Actor.subscribeDrainEvents()"
     // v1.23 — auto-reconnect policy
     case Term.Apply.After_4_6_0(Term.Name("setReconnectPolicy"), argClause)
         if argClause.values.size == 2 =>
@@ -5265,6 +5292,8 @@ class JvmGen(
        |case class LeaderLost(nodeId: String)
        |// v1.23 — config-distribution events
        |case class ConfigChanged(key: String, value: String)
+       |// v1.23 — drain / rolling-restart events
+       |case class DrainStateChanged(nodeId: String, draining: Boolean)
        |
        |/** Adapter: a partial-function literal becomes a total
        | *  `Any => Option[Any]`.  Used by emitReceiveMatcher so the
@@ -5337,6 +5366,11 @@ class JvmGen(
        |  def clusterConfigGet(key: Any): Any              = _perform("Actor", "clusterConfigGet", key)
        |  def clusterConfigKeys(): Any                     = _perform("Actor", "clusterConfigKeys")
        |  def subscribeConfigEvents(): Any                 = _perform("Actor", "subscribeConfigEvents")
+       |  // v1.23 — drain / rolling-restart
+       |  def setDraining(b: Any): Any                     = _perform("Actor", "setDraining", b)
+       |  def isDraining(): Any                            = _perform("Actor", "isDraining")
+       |  def drainingPeers(): Any                         = _perform("Actor", "drainingPeers")
+       |  def subscribeDrainEvents(): Any                  = _perform("Actor", "subscribeDrainEvents")
        |
        |class _ActorState:
        |  val mailbox = new java.util.concurrent.LinkedBlockingQueue[Any]()
@@ -5439,6 +5473,19 @@ class JvmGen(
        |                    ",\"origin\":" + _jstr(tuple._3) + "}"
        |      try targetSend(payload) catch case _: Throwable => ()
        |    }
+       |  // v1.23 — drain / rolling-restart state
+       |  val _isDrainingSelf  = new java.util.concurrent.atomic.AtomicBoolean(false)
+       |  val _drainingPeers   = new java.util.concurrent.ConcurrentHashMap[String, java.lang.Boolean]()
+       |  val _drainEventSubs  = new java.util.concurrent.CopyOnWriteArrayList[java.lang.Long]()
+       |  val _drainEventQueue = new java.util.concurrent.ConcurrentLinkedQueue[(String, Boolean)]()
+       |  def _fireDrainEvent(nodeId: String, draining: Boolean): Unit =
+       |    if !_drainEventSubs.isEmpty then _drainEventQueue.offer((nodeId, draining))
+       |  // Tell a freshly-handshaken peer our current drain state.  No-op when we
+       |  // are not draining (peers default-assume `false`).
+       |  def _sendDrainState(targetSend: String => Unit): Unit =
+       |    if _isDrainingSelf.get() then
+       |      val payload = "{\"t\":\"drain\",\"from\":" + _jstr(_localNodeId) + ",\"draining\":true}"
+       |      try targetSend(payload) catch case _: Throwable => ()
        |  def _fireLeaderEvent(tag: String, leaderId: String): Unit =
        |    if !_leaderEventSubs.isEmpty then _leaderEventQueue.offer((tag, leaderId))
        |  def _broadcastCoordinator(): Unit =
@@ -5576,6 +5623,7 @@ class JvmGen(
        |            // v1.23 — snapshot the cluster config to the new peer so it
        |            // sees entries set before it joined (LWW protects existing values).
        |            _sendConfigSnapshot(sendFn)
+       |            _sendDrainState(sendFn)
        |            val hbThread = Thread.ofVirtual().start { () =>
        |              try
        |                while _peerChannels.containsKey(pnId) do
@@ -5599,6 +5647,7 @@ class JvmGen(
        |            _peerUrls.remove(pnId)
        |            _peerPongHist.remove(pnId)
        |            _peerPhiViews.remove(pnId)
+       |            _drainingPeers.remove(pnId)
        |            _nodeDownQueue.offer(pnId)
        |            _fireClusterEvent("NodeLeft", pnId, "disconnect")
        |            if _currentLeader.compareAndSet(pnId, "") then
@@ -5710,6 +5759,14 @@ class JvmGen(
        |        val orig  = _extractJsonStr(json, "\"origin\"")
        |        val ts    = _extractJsonLong(json, "\"ts\"")
        |        if key.nonEmpty then _applyConfigUpdate(key, value, ts, orig)
+       |      case "drain" =>
+       |        // v1.23 — peer announced its drain state.
+       |        val from = _extractJsonStr(json, "\"from\"")
+       |        if from.nonEmpty then
+       |          val isDraining = json.contains("\"draining\":true")
+       |          val prev = _drainingPeers.put(from, java.lang.Boolean.valueOf(isDraining))
+       |          if prev == null || prev.booleanValue() != isDraining then
+       |            _fireDrainEvent(from, isDraining)
        |      case _      => ()
        |
        |  def _extractJsonStr(json: String, key: String, fromIdx: Int = 0): String =
@@ -6086,6 +6143,7 @@ class JvmGen(
        |            _peerLastPong.put(pnId, System.currentTimeMillis())
        |            _fireClusterEvent("NodeJoined", pnId)
        |            _sendConfigSnapshot(wsSend)
+       |            _sendDrainState(wsSend)
        |            val hbThread = Thread.ofVirtual().start { () =>
        |              try
        |                while _peerChannels.containsKey(pnId) do
@@ -6106,6 +6164,7 @@ class JvmGen(
        |            _peerUrls.remove(pnId)
        |            _peerPongHist.remove(pnId)
        |            _peerPhiViews.remove(pnId)
+       |            _drainingPeers.remove(pnId)
        |            _nodeDownQueue.offer(pnId)
        |            _fireClusterEvent("NodeLeft", pnId, "disconnect")
        |            if _currentLeader.compareAndSet(pnId, "") then
@@ -6279,6 +6338,28 @@ class JvmGen(
        |      val boxed = java.lang.Long.valueOf(id)
        |      if !_configEventSubs.contains(boxed) then _configEventSubs.add(boxed)
        |      Right(k(()))
+       |    // v1.23 — drain / rolling-restart
+       |    case "setDraining" =>
+       |      val b = args(0) match
+       |        case bb: Boolean => bb
+       |        case _           => false
+       |      val prev = _isDrainingSelf.getAndSet(b)
+       |      if prev != b then
+       |        val payload = "{\"t\":\"drain\",\"from\":" + _jstr(_localNodeId) +
+       |                      ",\"draining\":" + b.toString + "}"
+       |        _peerChannels.forEach { (_, send) => try send(payload) catch case _: Throwable => () }
+       |        _fireDrainEvent(_localNodeId, b)
+       |      Right(k(()))
+       |    case "isDraining" =>
+       |      Right(k(_isDrainingSelf.get()))
+       |    case "drainingPeers" =>
+       |      val buf = scala.collection.mutable.ListBuffer.empty[String]
+       |      _drainingPeers.forEach { (nid, v) => if v != null && v.booleanValue() then buf += nid }
+       |      Right(k(buf.toList))
+       |    case "subscribeDrainEvents" =>
+       |      val boxed = java.lang.Long.valueOf(id)
+       |      if !_drainEventSubs.contains(boxed) then _drainEventSubs.add(boxed)
+       |      Right(k(()))
        |    // v1.6.x — scheduled sends
        |    case "sendAfter" =>
        |      val delayMs  = args(0).asInstanceOf[Long]
@@ -6366,6 +6447,7 @@ class JvmGen(
        |        !_clusterEventQueue.isEmpty ||
        |        !_leaderEventQueue.isEmpty ||
        |        !_configEventQueue.isEmpty ||
+       |        !_drainEventQueue.isEmpty ||
        |        _electionInProgress ||
        |        _timers.nonEmpty ||
        |        actors.exists { (_, st) => st != null && st.blocked != null && st.blocked._3.isDefined } ||
@@ -6420,6 +6502,17 @@ class JvmGen(
        |      val (_key, _val) = _configEventQueue.poll()
        |      val _msg: Any = ConfigChanged(_key, _val)
        |      val _it = _configEventSubs.iterator
+       |      while _it.hasNext do
+       |        val _aid = _it.next().longValue()
+       |        actors.get(_aid).foreach { ts =>
+       |          ts.mailbox.offer(_msg)
+       |          tryWakeBlocked(_aid)
+       |        }
+       |    // v1.23 — deliver drain-state events to subscribers.
+       |    while !_drainEventQueue.isEmpty do
+       |      val (_nid, _drn) = _drainEventQueue.poll()
+       |      val _msg: Any = DrainStateChanged(_nid, _drn)
+       |      val _it = _drainEventSubs.iterator
        |      while _it.hasNext do
        |        val _aid = _it.next().longValue()
        |        actors.get(_aid).foreach { ts =>

@@ -264,6 +264,25 @@ class Interpreter(
   private val leaderEventQueue =
     new java.util.concurrent.ConcurrentLinkedQueue[Value]()
   @volatile private var autoReelect: Boolean = false
+  // v1.23 — drain / rolling-restart state.
+  private val isDrainingSelf =
+    new java.util.concurrent.atomic.AtomicBoolean(false)
+  private val drainingPeers =
+    new java.util.concurrent.ConcurrentHashMap[String, java.lang.Boolean]()
+  private val drainEventSubs =
+    new java.util.concurrent.CopyOnWriteArrayList[java.lang.Long]()
+  private val drainEventQueue =
+    new java.util.concurrent.ConcurrentLinkedQueue[Value]()
+  private def enqueueDrainEvent(nodeId: String, draining: Boolean): Unit =
+    if !drainEventSubs.isEmpty then
+      val ev = Value.InstanceV("DrainStateChanged",
+        Map("nodeId" -> Value.StringV(nodeId), "draining" -> Value.BoolV(draining)))
+      drainEventQueue.offer(ev)
+      val t = schedulerThread; if t != null then t.interrupt()
+  private def sendDrainState(target: String => Unit): Unit =
+    if isDrainingSelf.get() then
+      val payload = s"""{"t":"drain","from":${jsonStr(localNodeId)},"draining":true}"""
+      try target(payload) catch case _: Throwable => ()
   private def enqueueLeaderEvent(tag: String, leaderId: String): Unit =
     if !leaderEventSubs.isEmpty then
       val ev = Value.InstanceV(tag, Map("nodeId" -> Value.StringV(leaderId)))
@@ -782,8 +801,9 @@ class Interpreter(
               if joinMode then
                 try peerChannels.get(peerNodeId)(s"""{"t":"peers_req","from":${jsonStr(localNodeId)}}""")
                 catch case _ => ()
-              // v1.23 — snapshot the cluster config to the new peer.
+              // v1.23 — snapshot the cluster config + drain state to the new peer.
               sendConfigSnapshot(text => sess.sendText(text))
+              sendDrainState(text => sess.sendText(text))
               // Heartbeat: ping every 30 s, abort if no pong for 40 s.
               val hbThread = Thread.ofVirtual().start { () =>
                 try
@@ -810,6 +830,7 @@ class Interpreter(
               peerUrls.remove(peerNodeId)
               peerPongHist.remove(peerNodeId)
               peerPhiViews.remove(peerNodeId)
+              drainingPeers.remove(peerNodeId)
               nodeDownQueue.offer(peerNodeId)
               enqueueClusterEvent("NodeLeft", peerNodeId, "disconnect")
               if currentLeader.compareAndSet(peerNodeId, "") then
@@ -923,6 +944,12 @@ class Interpreter(
               case Some(Value.DoubleV(d)) => d.toLong
               case _                      => 0L
             if key.nonEmpty then applyConfigUpdate(key, value, ts, orig)
+          case "drain" =>
+            val from = m.get(Value.StringV("from")).collect { case Value.StringV(s) => s }.getOrElse("")
+            if from.nonEmpty then
+              val dr = m.get(Value.StringV("draining")).collect { case Value.BoolV(b) => b }.getOrElse(false)
+              val prev = drainingPeers.put(from, java.lang.Boolean.valueOf(dr))
+              if prev == null || prev.booleanValue() != dr then enqueueDrainEvent(from, dr)
           case _ => ()
       case _ => ()
 
@@ -1811,6 +1838,23 @@ class Interpreter(
     globals("subscribeConfigEvents") = Value.NativeFnV("subscribeConfigEvents", {
       case Nil => Perform("Actor", "subscribeConfigEvents", Nil)
       case _   => throw InterpretError("subscribeConfigEvents(): Unit")
+    })
+    // v1.23 — drain / rolling-restart
+    globals("setDraining") = Value.NativeFnV("setDraining", {
+      case List(Value.BoolV(b)) => Perform("Actor", "setDraining", List(Value.BoolV(b)))
+      case _ => throw InterpretError("setDraining(enabled: Boolean): Unit")
+    })
+    globals("isDraining") = Value.NativeFnV("isDraining", {
+      case Nil => Perform("Actor", "isDraining", Nil)
+      case _   => throw InterpretError("isDraining(): Boolean")
+    })
+    globals("drainingPeers") = Value.NativeFnV("drainingPeers", {
+      case Nil => Perform("Actor", "drainingPeers", Nil)
+      case _   => throw InterpretError("drainingPeers(): List[String]")
+    })
+    globals("subscribeDrainEvents") = Value.NativeFnV("subscribeDrainEvents", {
+      case Nil => Perform("Actor", "subscribeDrainEvents", Nil)
+      case _   => throw InterpretError("subscribeDrainEvents(): Unit")
     })
     // v1.6.x — scheduled sends
     globals("sendAfter") = Value.NativeFnV("sendAfter", {
@@ -4702,7 +4746,7 @@ class Interpreter(
                     !remoteInbox.isEmpty || !nodeDownQueue.isEmpty ||
                     !clusterEventQueue.isEmpty ||
                     !leaderEventQueue.isEmpty || electionInProgress ||
-                    !configEventQueue.isEmpty ||
+                    !configEventQueue.isEmpty || !drainEventQueue.isEmpty ||
                     rt.timers.nonEmpty ||
                     (isDistributed && rt.blocked.nonEmpty)
 
@@ -4750,6 +4794,16 @@ class Interpreter(
         while !configEventQueue.isEmpty do
           val ev = configEventQueue.poll()
           val it = configEventSubs.iterator
+          while it.hasNext do
+            val aid = it.next().toLong
+            rt.mailboxes.get(aid).foreach { mb =>
+              mb.offer(ev)
+              wakeBlocked(rt, aid)
+            }
+        // v1.23 — deliver drain-state events to subscribers.
+        while !drainEventQueue.isEmpty do
+          val ev = drainEventQueue.poll()
+          val it = drainEventSubs.iterator
           while it.hasNext do
             val aid = it.next().toLong
             rt.mailboxes.get(aid).foreach { mb =>
@@ -5138,6 +5192,7 @@ class Interpreter(
           peerLastPong.put(pnId, System.currentTimeMillis())
           enqueueClusterEvent("NodeJoined", pnId)
           sendConfigSnapshot(wsSend)
+          sendDrainState(wsSend)
           // Heartbeat: ping every 30 s, drop if no pong for 40 s.
           val hbThread = Thread.ofVirtual().start { () =>
             try
@@ -5162,6 +5217,7 @@ class Interpreter(
           peerUrls.remove(pnId)
           peerPongHist.remove(pnId)
           peerPhiViews.remove(pnId)
+          drainingPeers.remove(pnId)
           nodeDownQueue.offer(pnId)
           enqueueClusterEvent("NodeLeft", pnId, "disconnect")
           if currentLeader.compareAndSet(pnId, "") then
@@ -5378,6 +5434,32 @@ class Interpreter(
     case "subscribeConfigEvents" =>
       val boxed = java.lang.Long.valueOf(id)
       if !configEventSubs.contains(boxed) then configEventSubs.add(boxed)
+      Right(k(Value.UnitV))
+
+    // v1.23 — drain / rolling-restart
+    case "setDraining" => args match
+      case List(Value.BoolV(b)) =>
+        val prev = isDrainingSelf.getAndSet(b)
+        if prev != b then
+          val payload = s"""{"t":"drain","from":${jsonStr(localNodeId)},"draining":$b}"""
+          peerChannels.forEach { (_, send) => try send(payload) catch case _: Throwable => () }
+          enqueueDrainEvent(localNodeId, b)
+        Right(k(Value.UnitV))
+      case _ => throw InterpretError("setDraining(enabled: Boolean)")
+
+    case "isDraining" =>
+      Right(k(Value.BoolV(isDrainingSelf.get())))
+
+    case "drainingPeers" =>
+      val buf = scala.collection.mutable.ListBuffer.empty[Value]
+      drainingPeers.forEach { (nid, v) =>
+        if v != null && v.booleanValue() then buf += Value.StringV(nid)
+      }
+      Right(k(Value.ListV(buf.toList)))
+
+    case "subscribeDrainEvents" =>
+      val boxed = java.lang.Long.valueOf(id)
+      if !drainEventSubs.contains(boxed) then drainEventSubs.add(boxed)
       Right(k(Value.UnitV))
 
     // v1.6.x — scheduled sends

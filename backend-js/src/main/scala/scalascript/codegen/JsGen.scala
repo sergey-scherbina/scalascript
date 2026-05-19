@@ -3564,6 +3564,11 @@ const Actor = {
   clusterConfigGet:      (key)        => _perform('Actor', 'clusterConfigGet',      [key]),
   clusterConfigKeys:     ()           => _perform('Actor', 'clusterConfigKeys',     []),
   subscribeConfigEvents: ()           => _perform('Actor', 'subscribeConfigEvents', []),
+  // v1.23 — drain / rolling-restart
+  setDraining:           (b)          => _perform('Actor', 'setDraining',           [b]),
+  isDraining:            ()           => _perform('Actor', 'isDraining',            []),
+  drainingPeers:         ()           => _perform('Actor', 'drainingPeers',         []),
+  subscribeDrainEvents:  ()           => _perform('Actor', 'subscribeDrainEvents',  []),
 };
 
 // `receive { case … }` lowers to a registered matcher function whose
@@ -3667,6 +3672,20 @@ function _runActors(bodyFn) {
       });
       try { sendFn(payload); } catch (_) {}
     }
+  }
+  // v1.23 — drain / rolling-restart state
+  let _isDrainingSelf = false;
+  const _drainingPeers   = new Map(); // nodeId -> bool
+  const _drainEventSubs  = new Set();
+  const _drainEventQueue = [];
+  function _fireDrainEvent(nodeId, draining) {
+    if (_drainEventSubs.size === 0) return;
+    _drainEventQueue.push({ nodeId, draining });
+  }
+  function _sendDrainState(sendFn) {
+    if (!_isDrainingSelf) return;
+    const payload = JSON.stringify({ t: 'drain', from: _localNodeId, draining: true });
+    try { sendFn(payload); } catch (_) {}
   }
   function _scheduleReconnect(rurl, rtok) {
     let delay = Math.max(_reconnectInitialMs, 1);
@@ -3861,8 +3880,9 @@ function _runActors(bodyFn) {
               if (_joinMode) {
                 peer.send(JSON.stringify({ t: 'peers_req', from: _localNodeId }));
               }
-              // v1.23 — snapshot the cluster config to the new peer.
+              // v1.23 — snapshot the cluster config + drain state to the new peer.
               _sendConfigSnapshot(peer.send);
+              _sendDrainState(peer.send);
               break;
             }
           }
@@ -3891,6 +3911,7 @@ function _runActors(bodyFn) {
           _peerPongHist.delete(env.nodeId);
           _peerLastPong.delete(env.nodeId);
           _peerPhiViews.delete(env.nodeId);
+          _drainingPeers.delete(env.nodeId);
           _fireClusterEvent('NodeLeft', env.nodeId, 'disconnect');
           if (_currentLeader === env.nodeId) {
             _currentLeader = "";
@@ -3955,6 +3976,14 @@ function _runActors(bodyFn) {
           const o = env.origin != null ? String(env.origin) : '';
           const t = env.ts != null ? Number(env.ts) : 0;
           if (k) _applyConfigUpdate(k, v, t, o);
+        } else if (env.t === 'drain') {
+          const from = env.from != null ? String(env.from) : '';
+          if (from) {
+            const dr = !!env.draining;
+            const prev = _drainingPeers.get(from);
+            _drainingPeers.set(from, dr);
+            if (prev !== dr) _fireDrainEvent(from, dr);
+          }
         }
       } catch (_e) {}
     }
@@ -4296,8 +4325,9 @@ private val JsRuntimeAsyncB: String = """
                     // Register send channel for this inbound peer.
                     _peerChannels.set(peerNodeId, { sab: null, send: (json) => ws.send(json) });
                     _fireClusterEvent('NodeJoined', peerNodeId);
-                    // v1.23 — snapshot the cluster config to the new peer.
+                    // v1.23 — snapshot the cluster config + drain state to the new peer.
                     _sendConfigSnapshot((json) => ws.send(json));
+                    _sendDrainState((json) => ws.send(json));
                   }
                 } catch (_) {}
               } else {
@@ -4320,6 +4350,7 @@ private val JsRuntimeAsyncB: String = """
                 _peerPongHist.delete(peerNodeId);
                 _peerLastPong.delete(peerNodeId);
                 _peerPhiViews.delete(peerNodeId);
+                _drainingPeers.delete(peerNodeId);
                 _fireClusterEvent('NodeLeft', peerNodeId, 'disconnect');
                 if (_currentLeader === peerNodeId) {
                   _currentLeader = "";
@@ -4492,6 +4523,30 @@ private val JsRuntimeAsyncB: String = """
         _configEventSubs.add(id);
         return { suspend: false, next: k(undefined) };
       }
+      // v1.23 — drain / rolling-restart
+      case 'setDraining': {
+        const b = !!args[0];
+        const prev = _isDrainingSelf;
+        _isDrainingSelf = b;
+        if (prev !== b) {
+          const payload = JSON.stringify({ t: 'drain', from: _localNodeId, draining: b });
+          for (const [, ch] of _peerChannels) { try { ch.send(payload); } catch (_) {} }
+          _fireDrainEvent(_localNodeId, b);
+        }
+        return { suspend: false, next: k(undefined) };
+      }
+      case 'isDraining': {
+        return { suspend: false, next: k(_isDrainingSelf) };
+      }
+      case 'drainingPeers': {
+        const buf = [];
+        for (const [nid, dr] of _drainingPeers) if (dr) buf.push(nid);
+        return { suspend: false, next: k(buf) };
+      }
+      case 'subscribeDrainEvents': {
+        _drainEventSubs.add(id);
+        return { suspend: false, next: k(undefined) };
+      }
       // v1.6.x — scheduled sends
       case 'sendAfter': {
         const delayMs  = args[0];
@@ -4624,6 +4679,15 @@ private val JsRuntimeAsyncB: String = """
         if (_st) { _st.mailbox.push(_cmsg); tryWakeBlocked(_sid); }
       }
     }
+    // v1.23 — deliver drain-state events to subscribers.
+    while (_drainEventQueue.length > 0) {
+      const _dev = _drainEventQueue.shift();
+      const _dmsg = { _type: 'DrainStateChanged', nodeId: _dev.nodeId, draining: _dev.draining };
+      for (const _sid of _drainEventSubs) {
+        const _st = actors.get(_sid);
+        if (_st) { _st.mailbox.push(_dmsg); tryWakeBlocked(_sid); }
+      }
+    }
     // Fire scheduled sends whose deadline has passed.
     if (_timers.size > 0) {
       const _nowMs = Date.now();
@@ -4665,7 +4729,7 @@ private val JsRuntimeAsyncB: String = """
         [...actors.values()].some(st => st && st.blocked !== null);
       if (!earliest && _timers.size === 0 && !hasBlockedActors &&
           !_electionInProgress && _leaderEventQueue.length === 0 &&
-          _configEventQueue.length === 0) break;
+          _configEventQueue.length === 0 && _drainEventQueue.length === 0) break;
       const _sleepUntil = [earliest != null ? earliest.d : null, _timerMin].filter(v => v != null);
       const _minDeadline = _sleepUntil.length > 0 ? Math.min(..._sleepUntil) : null;
       const sleepFor = _minDeadline != null ? Math.min(_minDeadline - Date.now(), 10) : 10;
@@ -5754,6 +5818,8 @@ class JsGen(
       "Actor.setReconnectPolicy", "Actor.requestGossip",
       "Actor.clusterConfigSet", "Actor.clusterConfigGet",
       "Actor.clusterConfigKeys", "Actor.subscribeConfigEvents",
+      "Actor.setDraining", "Actor.isDraining",
+      "Actor.drainingPeers", "Actor.subscribeDrainEvents",
       "Actor.sendAfter", "Actor.sendInterval", "Actor.cancelTimer",
       "Logger.info", "Logger.warn", "Logger.error", "Logger.debug",
       "Random.nextInt", "Random.nextDouble", "Random.uuid", "Random.pick",
@@ -7050,6 +7116,19 @@ class JsGen(
     case Term.Apply.After_4_6_0(Term.Name("setAutoReelect"), argClause)
         if argClause.values.size == 1 =>
       s"Actor.setAutoReelect(${genExpr(argClause.values.head.asInstanceOf[Term])})"
+    // v1.23 — drain / rolling-restart
+    case Term.Apply.After_4_6_0(Term.Name("setDraining"), argClause)
+        if argClause.values.size == 1 =>
+      s"Actor.setDraining(${genExpr(argClause.values.head.asInstanceOf[Term])})"
+    case Term.Apply.After_4_6_0(Term.Name("isDraining"), argClause)
+        if argClause.values.isEmpty =>
+      "Actor.isDraining()"
+    case Term.Apply.After_4_6_0(Term.Name("drainingPeers"), argClause)
+        if argClause.values.isEmpty =>
+      "Actor.drainingPeers()"
+    case Term.Apply.After_4_6_0(Term.Name("subscribeDrainEvents"), argClause)
+        if argClause.values.isEmpty =>
+      "Actor.subscribeDrainEvents()"
     // v1.23 — auto-reconnect policy
     case Term.Apply.After_4_6_0(Term.Name("setReconnectPolicy"), argClause)
         if argClause.values.size == 2 =>
@@ -7654,6 +7733,19 @@ class JsGen(
     case Term.Apply.After_4_6_0(Term.Name("setAutoReelect"), argClause)
         if argClause.values.size == 1 =>
       s"Actor.setAutoReelect(${genExpr(argClause.values.head.asInstanceOf[Term])})"
+    // v1.23 — drain / rolling-restart
+    case Term.Apply.After_4_6_0(Term.Name("setDraining"), argClause)
+        if argClause.values.size == 1 =>
+      s"Actor.setDraining(${genExpr(argClause.values.head.asInstanceOf[Term])})"
+    case Term.Apply.After_4_6_0(Term.Name("isDraining"), argClause)
+        if argClause.values.isEmpty =>
+      "Actor.isDraining()"
+    case Term.Apply.After_4_6_0(Term.Name("drainingPeers"), argClause)
+        if argClause.values.isEmpty =>
+      "Actor.drainingPeers()"
+    case Term.Apply.After_4_6_0(Term.Name("subscribeDrainEvents"), argClause)
+        if argClause.values.isEmpty =>
+      "Actor.subscribeDrainEvents()"
     // v1.23 — auto-reconnect policy
     case Term.Apply.After_4_6_0(Term.Name("setReconnectPolicy"), argClause)
         if argClause.values.size == 2 =>

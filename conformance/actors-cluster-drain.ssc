@@ -1,0 +1,25 @@
+#!/usr/bin/env ssc
+---
+name: actors-cluster-drain
+description: Actor v1.23 — drain / rolling-restart toggles single-node behaviour
+---
+
+# Drain / rolling-restart — single-node
+
+`setDraining(true)` flips the local flag and would broadcast to peers;
+in a single-node process there are no peers, so the broadcast is a
+no-op but the local query still reflects the state.  Multi-node
+propagation is exercised by the integration suite; this conformance
+test pins the local round-trip across INT/JS/JVM.
+
+```scalascript
+runActors {
+  println("before=" + isDraining())
+  setDraining(true)
+  println("after=" + isDraining())
+  println("peers=" + drainingPeers().length)
+  setDraining(false)
+  println("reset=" + isDraining())
+  println("ok")
+}
+```

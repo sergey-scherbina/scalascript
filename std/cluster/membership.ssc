@@ -144,4 +144,10 @@ object Cluster:
   // Register the calling actor for ConfigChanged delivery.
   def subscribeConfig(): Unit =
     subscribeConfigEvents()
+
+  // Drain / rolling-restart helpers.  See `setDraining` in `std.actors`.
+  def drain(enabled: Boolean): Unit = setDraining(enabled)
+  def draining(): Boolean           = isDraining()
+  def drainingNodes(): List[String] = drainingPeers()
+  def subscribeDrain(): Unit        = subscribeDrainEvents()
 ```

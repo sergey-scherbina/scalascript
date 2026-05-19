@@ -101,6 +101,7 @@ class Typer(
       "setReconnectPolicy", "requestGossip",
       "clusterConfigSet", "clusterConfigGet", "clusterConfigKeys",
       "subscribeConfigEvents",
+      "setDraining", "isDraining", "drainingPeers", "subscribeDrainEvents",
       "sendAfter", "sendInterval", "cancelTimer",
       "delay", "async", "await", "parallel", "recvFrom",
       // tests / DSL helpers
