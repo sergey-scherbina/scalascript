@@ -3,6 +3,8 @@
 > Status: DRAFT — not implemented. This document explores the design space.
 > Target backends: Cardano/Scalus (priority), WASM chains (future).
 > Last updated: 2026-05-19.
+> Decision: both UTxO (Cardano) and account (Near, EVM) models are supported
+> via platform sub-packages in `std/contracts/`. Local simulation for both.
 
 ---
 
@@ -331,22 +333,183 @@ These require unit tests + formal verification (future: Lean 4 proof obligations
 
 ---
 
+## Execution models — UTxO and Account
+
+**Decision (2026-05-19):** Support both models. Do not hide the distinction —
+surface both via platform sub-packages. Contracts can be written against the
+chain-agnostic `std/contracts/core` API, or use platform packages for
+chain-specific features. Both models are simulatable locally.
+
+### The two models
+
+| | UTxO (Cardano) | Account (Near, EVM) |
+|-|---------------|---------------------|
+| State lives in | UTxOs locked at script address | Account storage keyed by address |
+| Transaction | Consumes inputs, produces outputs | Mutates account state in-place |
+| Validator role | "Can this UTxO be spent?" | "Run this function, update state" |
+| Concurrency | Parallel (no shared mutable state) | Sequential per account |
+| Main advantage | Predictable, parallelizable | Simpler mental model |
+
+### Standard library layout
+
+```
+std/
+  contracts/
+    core.ssc          # chain-agnostic: State, Event, require, Contract monad
+    cardano.ssc       # UTxO model: Cardano.*, TxInfo, Datum, Redeemer, ScriptHash
+    near.ssc          # account model: Near.*, Promise, Gas, StorageUsage
+    evm.ssc           # account model: Evm.*, Solidity-compat events, ABI encoding
+    simulate.ssc      # local simulator intrinsics: simulateCall, assertReverts, etc.
+    token.ssc         # std Fungible / NonFungible interfaces (chain-agnostic)
+```
+
+A contract imports what it needs:
+
+```scalascript
+import [State, require, Event, Contract](std/contracts/core.ssc)
+// chain-agnostic contract — compiles to any chain
+
+import [State, require, Event, Contract](std/contracts/core.ssc)
+import [Cardano, TxInfo, Datum](std/contracts/cardano.ssc)
+// Cardano-specific contract — uses UTxO intrinsics
+```
+
+### Chain-agnostic contracts (account-style abstraction)
+
+For most contracts (token, auction, voting), the account model abstraction works
+on both UTxO and account chains. The backend maps it:
+
+```scalascript
+// Works on Near, EVM, AND Cardano (Scalus wraps it in a spending validator)
+@state
+case class TokenState(balances: Map[String, Int], totalSupply: Int)
+
+@call
+def transfer(to: String, amount: Int): Unit =
+  direct[Contract[TokenState]] {
+    val from = Tx.caller.!
+    val s    = State.get[TokenState].!
+    require(s.balances.getOrElse(from, 0) >= amount, "insufficient")
+    State.set(s.copy(balances =
+      s.balances.updated(from, s.balances(from) - amount)
+               .updated(to, s.balances.getOrElse(to, 0) + amount))).!
+  }
+```
+
+On Cardano, `Tx.caller` maps to the first required signer in `TxInfo.signatories`.
+On Near, it maps to `env::predecessor_account_id()`.
+On EVM, it maps to `msg.sender`.
+
+### UTxO-native contracts (Cardano-specific)
+
+For contracts that need full UTxO power (multi-asset, reference inputs,
+inline datums, Plutus V3 features):
+
+```scalascript
+import [Cardano, TxInfo, ScriptHash, Value](std/contracts/cardano.ssc)
+
+// A spending validator: "can this UTxO be spent?"
+@validator
+def spend(datum: MyDatum, redeemer: MyRedeemer, ctx: TxInfo): Boolean =
+  val sigs = ctx.signatories
+  redeemer match
+    case Withdraw(amount) =>
+      sigs.contains(datum.owner) && amount <= datum.locked
+    case Close =>
+      sigs.contains(datum.owner)
+
+// A minting policy: "can these tokens be minted/burned?"
+@mintingPolicy
+def mint(redeemer: MintAction, ctx: TxInfo): Boolean =
+  redeemer match
+    case MintTokens(n) => n > 0 && ctx.signatories.contains(adminKey)
+    case BurnTokens(n) => true
+```
+
+- `@validator` replaces `@call` for UTxO-native contracts
+- `datum` and `redeemer` are typed (serialized via Scalus's `Data` encoding)
+- Returns `Boolean` — the validator either approves or rejects the spend
+- No `State.get/set` — UTxO state is explicit in datum/outputs
+
+### Local simulation
+
+Both models are simulatable locally without a blockchain node:
+
+```scalascript
+import [simulateAccount, simulateUTxO, assertReverts](std/contracts/simulate.ssc)
+
+// Simulate account model
+test("token transfer"):
+  val sim = simulateAccount[TokenState](
+    initial  = TokenState(Map("alice" -> 100), 100),
+    network  = Network.local
+  )
+  sim.call(transfer("bob", 40), caller = "alice")
+  assert(sim.state.balances("alice") == 60)
+
+// Simulate UTxO model
+test("spending validator"):
+  val utxo = UTxO(datum = MyDatum(owner = "alice", locked = 50))
+  val ctx  = TxInfo.mock(signatories = List("alice"))
+  assert(spend(utxo.datum, Withdraw(30), ctx) == true)
+  assert(spend(utxo.datum, Withdraw(999), ctx) == false)
+```
+
+The simulator tracks:
+- **Account model**: account state map, caller, attached value, block number, events log
+- **UTxO model**: UTxO set, transaction inputs/outputs, redeemer, signatories
+
+`ssc run token.ssc` starts an interactive REPL against the local simulator:
+
+```
+$ ssc run token.ssc --model account
+Contract: token  Chain: local-simulator  Model: account
+> call transfer("bob", 40) as "alice"
+  ✓ Transfer("alice", "bob", 40) emitted
+  State: TokenState(balances = Map(alice -> 60, bob -> 40), totalSupply = 100)
+> view balanceOf("alice")
+  60
+> ^C
+```
+
+### Platform intrinsics summary
+
+| Intrinsic | core | cardano | near | evm |
+|-----------|------|---------|------|-----|
+| `Tx.caller` | ✓ | (mapped) | (mapped) | (mapped) |
+| `Tx.value` | ✓ | (mapped) | (mapped) | (mapped) |
+| `Tx.blockNumber` | ✓ | (mapped) | (mapped) | (mapped) |
+| `Cardano.datum` | — | ✓ | — | — |
+| `Cardano.redeemer` | — | ✓ | — | — |
+| `Cardano.txInfo` | — | ✓ | — | — |
+| `Near.promise` | — | — | ✓ | — |
+| `Near.storageUsage` | — | — | ✓ | — |
+| `Evm.gasLeft` | — | — | — | ✓ |
+| `Evm.abiEncode` | — | — | — | ✓ |
+| `Crypto.sha256` | ✓ | ✓ | ✓ | ✓ |
+| `Crypto.verify` | ✓ | ✓ | ✓ | ✓ |
+
+---
+
 ## Open questions
 
-1. **UTxO vs account model**: Cardano's UTxO model is fundamentally different from
-   account-based chains (Near, EVM). How much abstraction should the `Contract` monad
-   provide? Option A: expose UTxO natively for Cardano, account natively for others
-   (chain-specific API). Option B: abstract both into a "state + caller + value" model
-   and hide the UTxO/account distinction in the backend.
-
-2. **Multi-validator contracts**: Cardano often uses multiple validators together
+1. **Multi-validator contracts**: Cardano often uses multiple validators together
    (minting policy + spending validator). How to express this in a single `.ssc` file?
+   Candidate: multiple `@validator` / `@mintingPolicy` annotations in one module,
+   each compiled to a separate UPLC script with a shared datum type.
 
-3. **Token standards**: ERC-20/ERC-721 equivalents. Define standard interfaces
-   (`Fungible`, `NonFungible`) that contract authors implement.
+2. **Token standards**: ERC-20/ERC-721 equivalents. Define standard interfaces
+   (`Fungible`, `NonFungible`) in `std/contracts/token.ssc` that contract authors
+   implement. Chain backends enforce the correct serialization.
 
-4. **Upgradability**: Can a deployed contract be upgraded? Cardano validators are
-   immutable by design; Near supports upgradeable contracts. How to surface this?
+3. **Upgradability**: Cardano validators are immutable by design. Near supports
+   upgradeable contracts via a privileged `upgrade` call. How to surface this?
+   Candidate: `@upgradeable` annotation on the `@state` type — only valid for
+   chains that support it; compile error on Cardano.
+
+4. **Cross-chain contracts**: A contract that spans Cardano + Near (e.g., a bridge).
+   Out of scope for now — document as a non-goal.
 
 5. **Formal verification hooks**: Long-term — can the typer emit Lean 4 proof
-   obligations for `require` conditions? Keep the design open for this.
+   obligations for `require` conditions and validator return values?
+   Keep the design open for this — don't encode anything that blocks it.
