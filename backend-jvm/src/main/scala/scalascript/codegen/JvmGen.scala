@@ -444,6 +444,8 @@ class JvmGen(
                     "link", "monitor", "demonitor", "trapExit",
                     "startNode", "connectNode", "joinCluster", "register", "whereis",
                     "globalRegister", "globalWhereis",
+                    "clusterMembers", "subscribeClusterEvents",
+                    "phiOf", "isSuspect",
                     "sendAfter", "sendInterval", "cancelTimer", "processInfo")
     blocks.exists { b =>
       var found = false
@@ -1368,6 +1370,22 @@ class JvmGen(
     case Term.Apply.After_4_6_0(Term.Name("processInfo"), argClause)
         if argClause.values.size == 1 =>
       s"Actor.processInfo(${emitExpr(argClause.values.head.asInstanceOf[Term])})"
+    // v1.23 — cluster visibility
+    case Term.Apply.After_4_6_0(Term.Name("clusterMembers"), argClause)
+        if argClause.values.isEmpty =>
+      "Actor.clusterMembers()"
+    case Term.Apply.After_4_6_0(Term.Name("subscribeClusterEvents"), argClause)
+        if argClause.values.isEmpty =>
+      "Actor.subscribeClusterEvents()"
+    // v1.23 — phi-accrual failure detector
+    case Term.Apply.After_4_6_0(Term.Name("phiOf"), argClause)
+        if argClause.values.size == 1 =>
+      s"Actor.phiOf(${emitExpr(argClause.values.head.asInstanceOf[Term])})"
+    case Term.Apply.After_4_6_0(Term.Name("isSuspect"), argClause)
+        if argClause.values.size >= 1 =>
+      val nid = emitExpr(argClause.values(0).asInstanceOf[Term])
+      val thr = if argClause.values.size >= 2 then emitExpr(argClause.values(1).asInstanceOf[Term]) else "8.0"
+      s"Actor.isSuspect($nid, $thr)"
 
     // Focus[T](_.a.b) / Focus(_.a.b) — lower to a Lens(get, set) literal.
     // The lambda body's field-access chain becomes nested get + nested copy.
@@ -2046,6 +2064,22 @@ class JvmGen(
     case Term.Apply.After_4_6_0(Term.Name("processInfo"), argClause)
         if argClause.values.size == 1 =>
       s"Actor.processInfo(${emitExpr(argClause.values.head.asInstanceOf[Term])})"
+    // v1.23 — cluster visibility
+    case Term.Apply.After_4_6_0(Term.Name("clusterMembers"), argClause)
+        if argClause.values.isEmpty =>
+      "Actor.clusterMembers()"
+    case Term.Apply.After_4_6_0(Term.Name("subscribeClusterEvents"), argClause)
+        if argClause.values.isEmpty =>
+      "Actor.subscribeClusterEvents()"
+    // v1.23 — phi-accrual failure detector
+    case Term.Apply.After_4_6_0(Term.Name("phiOf"), argClause)
+        if argClause.values.size == 1 =>
+      s"Actor.phiOf(${emitExpr(argClause.values.head.asInstanceOf[Term])})"
+    case Term.Apply.After_4_6_0(Term.Name("isSuspect"), argClause)
+        if argClause.values.size >= 1 =>
+      val nid = emitExpr(argClause.values(0).asInstanceOf[Term])
+      val thr = if argClause.values.size >= 2 then emitExpr(argClause.values(1).asInstanceOf[Term]) else "8.0"
+      s"Actor.isSuspect($nid, $thr)"
 
     case app: Term.Apply => emitCpsApply(app)
 
@@ -5209,6 +5243,9 @@ class JvmGen(
        |case class Exit(from: Any, reason: Any)
        |case class Down(ref: Any, from: Any, reason: Any)
        |case object noproc
+       |// v1.23 — cluster visibility events
+       |case class NodeJoined(nodeId: String)
+       |case class NodeLeft(nodeId: String, reason: String)
        |
        |/** Adapter: a partial-function literal becomes a total
        | *  `Any => Option[Any]`.  Used by emitReceiveMatcher so the
@@ -5255,6 +5292,12 @@ class JvmGen(
        |  def spawnBounded(cap: Any, overflow: Any, thunk: () => Any): Any = _perform("Actor", "spawnBounded", cap, overflow, thunk)
        |  // v1.6.x — process introspection
        |  def processInfo(pid: Any): Any = _perform("Actor", "processInfo", pid)
+       |  // v1.23 — cluster visibility
+       |  def clusterMembers(): Any         = _perform("Actor", "clusterMembers")
+       |  def subscribeClusterEvents(): Any = _perform("Actor", "subscribeClusterEvents")
+       |  // v1.23 — phi-accrual failure detector
+       |  def phiOf(nid: Any): Any           = _perform("Actor", "phiOf", nid)
+       |  def isSuspect(nid: Any, thr: Any = 8.0): Any = _perform("Actor", "isSuspect", nid, thr)
        |
        |class _ActorState:
        |  val mailbox = new java.util.concurrent.LinkedBlockingQueue[Any]()
@@ -5294,6 +5337,48 @@ class JvmGen(
        |  // cross-node links:   nodeId → [(localActorId, remotePid.localId)]
        |  val _remoteLinks    = new java.util.concurrent.ConcurrentHashMap[String,
        |    java.util.concurrent.CopyOnWriteArrayList[(Long, Long)]]()
+       |  // v1.23 — cluster visibility
+       |  val _clusterEventSubs  = new java.util.concurrent.CopyOnWriteArrayList[java.lang.Long]()
+       |  val _clusterEventQueue = new java.util.concurrent.ConcurrentLinkedQueue[(String, String, String)]()
+       |  def _fireClusterEvent(tag: String, nodeId: String, reason: String = ""): Unit =
+       |    if !_clusterEventSubs.isEmpty then _clusterEventQueue.offer((tag, nodeId, reason))
+       |  // v1.23 — phi-accrual failure detector: sliding window of inter-pong intervals.
+       |  val _PHI_HIST_MAX  = 100
+       |  val _peerPongHist  = new java.util.concurrent.ConcurrentHashMap[String,
+       |    java.util.concurrent.ConcurrentLinkedDeque[java.lang.Long]]()
+       |  def _recordPongInterval(nid: String): Unit =
+       |    val now  = System.currentTimeMillis()
+       |    val last = _peerLastPong.getOrDefault(nid, 0L)
+       |    if last > 0L then
+       |      val delta = java.lang.Long.valueOf(now - last)
+       |      val dq    = _peerPongHist.computeIfAbsent(nid, _ =>
+       |        new java.util.concurrent.ConcurrentLinkedDeque[java.lang.Long]())
+       |      dq.offer(delta)
+       |      while dq.size() > _PHI_HIST_MAX do dq.pollFirst()
+       |  def _computePhi(nid: String): Double =
+       |    val hist = _peerPongHist.get(nid)
+       |    if hist == null || hist.isEmpty then return Double.PositiveInfinity
+       |    val n = hist.size
+       |    var s = 0.0
+       |    val it = hist.iterator
+       |    while it.hasNext do s += it.next().longValue().toDouble
+       |    val mean = s / n
+       |    var sq = 0.0
+       |    val it2 = hist.iterator
+       |    while it2.hasNext do
+       |      val d = it2.next().longValue().toDouble - mean
+       |      sq += d * d
+       |    val variance = if n > 1 then sq / (n - 1) else 1.0
+       |    val stddev   = math.sqrt(variance).max(50.0)
+       |    val now      = System.currentTimeMillis()
+       |    val last     = _peerLastPong.getOrDefault(nid, now)
+       |    val elapsed  = (now - last).toDouble
+       |    if elapsed <= mean then 0.0
+       |    else
+       |      val z    = (elapsed - mean) / stddev
+       |      val tail = math.exp(-z * z / 2.0) / (z * math.sqrt(2.0 * math.Pi))
+       |      if tail <= 0.0 then Double.PositiveInfinity
+       |      else -math.log10(tail.min(1.0))
        |
        |  val ready  = scala.collection.mutable.ArrayDeque.empty[Long]
        |  var nextId: Long = 0L
@@ -5391,6 +5476,7 @@ class JvmGen(
        |            _peerChannels.remove(pnId)
        |            _peerLastPong.remove(pnId)
        |            _peerUrls.remove(pnId)
+       |            _peerPongHist.remove(pnId)
        |            _nodeDownQueue.offer(pnId)
        |            _fireClusterEvent("NodeLeft", pnId, "disconnect")
        |      catch case e: Throwable => System.err.println("connectNode error [" + url + "]: " + e.getMessage)
@@ -5417,7 +5503,9 @@ class JvmGen(
        |            val msg = _deserializeValue(body)
        |            _remoteInbox.offer((toId, msg))
        |      case "ping" => try Option(_peerChannels.get(pnId)).foreach(_.apply("{\"t\":\"pong\"}")) catch case _: Throwable => ()
-       |      case "pong" => _peerLastPong.put(pnId, System.currentTimeMillis())
+       |      case "pong" =>
+       |        _recordPongInterval(pnId)
+       |        _peerLastPong.put(pnId, System.currentTimeMillis())
        |      case "peers_req" =>
        |        val sb = new StringBuilder("{\"t\":\"peers_resp\",\"peers\":[")
        |        var first = true
@@ -5801,6 +5889,7 @@ class JvmGen(
        |            _peerChannels.remove(pnId)
        |            _peerLastPong.remove(pnId)
        |            _peerUrls.remove(pnId)
+       |            _peerPongHist.remove(pnId)
        |            _nodeDownQueue.offer(pnId)
        |            _fireClusterEvent("NodeLeft", pnId, "disconnect")
        |      }
@@ -5852,6 +5941,16 @@ class JvmGen(
        |      val boxed = java.lang.Long.valueOf(id)
        |      if !_clusterEventSubs.contains(boxed) then _clusterEventSubs.add(boxed)
        |      Right(k(()))
+       |    // v1.23 — phi-accrual failure detector
+       |    case "phiOf" =>
+       |      Right(k(_computePhi(args(0).toString)))
+       |    case "isSuspect" =>
+       |      val thr = args(1) match
+       |        case d: Double => d
+       |        case l: Long   => l.toDouble
+       |        case i: Int    => i.toDouble
+       |        case _         => 8.0
+       |      Right(k(_computePhi(args(0).toString) >= thr))
        |    // v1.6.x — scheduled sends
        |    case "sendAfter" =>
        |      val delayMs  = args(0).asInstanceOf[Long]
@@ -5953,10 +6052,7 @@ class JvmGen(
        |      _fireNodeDown(_nodeDownQueue.poll())
        |    // v1.23 — deliver cluster events to subscribers.
        |    while !_clusterEventQueue.isEmpty do
-       |      val _ev = _clusterEventQueue.poll()
-       |      val _tag    = _ev("tag")
-       |      val _nid    = _ev("nodeId")
-       |      val _reason = _ev("reason")
+       |      val (_tag, _nid, _reason) = _clusterEventQueue.poll()
        |      val _msg: Any =
        |        if _tag == "NodeJoined" then NodeJoined(_nid)
        |        else NodeLeft(_nid, _reason)
@@ -6291,7 +6387,8 @@ class JvmGen(
        |def runRetryNoSleep(bodyThunk: () => Any): Any =
        |  val ops = Set("Retry.attempt")
        |  _handle(bodyThunk, ops, _retryHandlers(doSleep = false))
-       |
+       |""".stripMargin +
+    """|
        |// ── v1.4 Cache effect ─────────────────────────────────────────────────────
        |//
        |// Cache.memoize(key, ttlSeconds)(thunk)  — process-local TTL memoization

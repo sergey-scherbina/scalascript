@@ -31,6 +31,7 @@ that land in `std.actors`.  Future v1.23 follow-ups (per
 | Membership view (current peers) | ✓ via `Cluster.members()` |
 | Membership events (joined / left) | ✓ via `Cluster.subscribeEvents()` + receive |
 | Per-link failure detection | ✓ via 40 s heartbeat timeout (v1.6 Phase 3) |
-| Cluster-wide failure detection (Phi accrual) | deferred |
+| Per-link Phi-accrual suspicion (`Cluster.phi`, `Cluster.suspect`) | ✓ v1.23 |
+| Cluster-wide failure aggregation (quorum vote) | deferred |
 | Leader election | deferred |
 | Configuration distribution | deferred |

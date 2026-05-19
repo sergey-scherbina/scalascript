@@ -205,6 +205,12 @@ class Interpreter(
   // WS threads post NodeJoined/NodeLeft Values; scheduler drains and delivers to subs.
   private val clusterEventQueue =
     new java.util.concurrent.ConcurrentLinkedQueue[Value]()
+  // v1.23 — Phi-accrual failure detector: sliding window of inter-pong intervals
+  // (epoch ms deltas) per peer.  Bounded to PhiHistMax samples per peer; older
+  // samples are discarded once the window is full.  Cleared on disconnect.
+  private val PhiHistMax = 100
+  private val peerPongHist =
+    new java.util.concurrent.ConcurrentHashMap[String, java.util.concurrent.ConcurrentLinkedDeque[java.lang.Long]]()
   // Cross-node monitors: nodeId → [(localActorId, monRef, remotePid.localId)]
   private val remoteMonitors =
     new java.util.concurrent.ConcurrentHashMap[String,
@@ -213,6 +219,49 @@ class Interpreter(
   private val remoteLinks =
     new java.util.concurrent.ConcurrentHashMap[String,
       java.util.concurrent.CopyOnWriteArrayList[(Long, Long)]]()
+
+  /** v1.23 — record a pong arrival; appends the inter-arrival delta to the
+   *  phi-accrual history for `nodeId`.  Call BEFORE updating `peerLastPong`. */
+  private def recordPongInterval(nodeId: String): Unit =
+    val now  = System.currentTimeMillis()
+    val last = peerLastPong.getOrDefault(nodeId, 0L)
+    if last > 0L then
+      val delta = java.lang.Long.valueOf(now - last)
+      val dq    = peerPongHist.computeIfAbsent(nodeId, _ =>
+        new java.util.concurrent.ConcurrentLinkedDeque[java.lang.Long]())
+      dq.offer(delta)
+      while dq.size() > PhiHistMax do dq.pollFirst()
+
+  /** v1.23 — phi-accrual suspicion level for `nodeId`.  Higher = more likely
+   *  the peer is down.  Returns +∞ for unknown peers and when no history is
+   *  available yet.  Threshold of ~8 is the standard "definitely down" cut
+   *  (matches Akka/Cassandra defaults). */
+  private def computePhi(nodeId: String): Double =
+    val hist = peerPongHist.get(nodeId)
+    if hist == null || hist.isEmpty then return Double.PositiveInfinity
+    val n  = hist.size
+    var s  = 0.0
+    val it = hist.iterator
+    while it.hasNext do s += it.next().longValue().toDouble
+    val mean = s / n
+    var sq = 0.0
+    val it2 = hist.iterator
+    while it2.hasNext do
+      val d = it2.next().longValue().toDouble - mean
+      sq += d * d
+    val variance = if n > 1 then sq / (n - 1) else 1.0
+    val stddev   = math.sqrt(variance).max(50.0)  // floor at 50 ms
+    val now      = System.currentTimeMillis()
+    val last     = peerLastPong.getOrDefault(nodeId, now)
+    val elapsed  = (now - last).toDouble
+    if elapsed <= mean then 0.0
+    else
+      // Right-tail Normal-distribution approximation (Akka / Cassandra style):
+      //   phi = -log10( exp(-z² / 2) / (z · √(2π)) )  with  z = (elapsed - μ) / σ
+      val z    = (elapsed - mean) / stddev
+      val tail = math.exp(-z * z / 2.0) / (z * math.sqrt(2.0 * math.Pi))
+      if tail <= 0.0 then Double.PositiveInfinity
+      else -math.log10(tail.min(1.0))
 
   /** v1.23 — enqueue NodeJoined/NodeLeft event; scheduler drains and delivers. */
   private def enqueueClusterEvent(tag: String, nodeId: String, reason: String = ""): Unit =
@@ -576,6 +625,7 @@ class Interpreter(
               peerChannels.remove(peerNodeId)
               peerLastPong.remove(peerNodeId)
               peerUrls.remove(peerNodeId)
+              peerPongHist.remove(peerNodeId)
               nodeDownQueue.offer(peerNodeId)
               enqueueClusterEvent("NodeLeft", peerNodeId, "disconnect")
               val t = schedulerThread; if t != null then t.interrupt()
@@ -605,6 +655,7 @@ class Interpreter(
           case "ping" =>
             Option(peerChannels.get(peerNodeId)).foreach(_.apply("""{"t":"pong"}"""))
           case "pong" =>
+            recordPongInterval(peerNodeId)
             peerLastPong.put(peerNodeId, System.currentTimeMillis())
           case "peers_req" =>
             // Respond with our known peer URLs + self URL.
@@ -1406,6 +1457,20 @@ class Interpreter(
     globals("subscribeClusterEvents") = Value.NativeFnV("subscribeClusterEvents", {
       case Nil => Perform("Actor", "subscribeClusterEvents", Nil)
       case _ => throw InterpretError("subscribeClusterEvents(): Unit")
+    })
+    // v1.23 — phi-accrual failure detector
+    globals("phiOf") = Value.NativeFnV("phiOf", {
+      case List(Value.StringV(nid)) => Perform("Actor", "phiOf", List(Value.StringV(nid)))
+      case _ => throw InterpretError("phiOf(nodeId: String): Double")
+    })
+    globals("isSuspect") = Value.NativeFnV("isSuspect", {
+      case List(Value.StringV(nid)) =>
+        Perform("Actor", "isSuspect", List(Value.StringV(nid), Value.DoubleV(8.0)))
+      case List(Value.StringV(nid), Value.DoubleV(thr)) =>
+        Perform("Actor", "isSuspect", List(Value.StringV(nid), Value.DoubleV(thr)))
+      case List(Value.StringV(nid), Value.IntV(thr)) =>
+        Perform("Actor", "isSuspect", List(Value.StringV(nid), Value.DoubleV(thr.toDouble)))
+      case _ => throw InterpretError("isSuspect(nodeId: String, threshold: Double = 8.0): Boolean")
     })
     // v1.6.x — scheduled sends
     globals("sendAfter") = Value.NativeFnV("sendAfter", {
@@ -4677,6 +4742,7 @@ class Interpreter(
           peerChannels.remove(pnId)
           peerLastPong.remove(pnId)
           peerUrls.remove(pnId)
+          peerPongHist.remove(pnId)
           nodeDownQueue.offer(pnId)
           enqueueClusterEvent("NodeLeft", pnId, "disconnect")
           val t = schedulerThread; if t != null then t.interrupt()
@@ -4759,6 +4825,17 @@ class Interpreter(
       val boxed = java.lang.Long.valueOf(id)
       if !clusterEventSubs.contains(boxed) then clusterEventSubs.add(boxed)
       Right(k(Value.UnitV))
+
+    // v1.23 — phi-accrual failure detector
+    case "phiOf" => args match
+      case List(Value.StringV(nid)) =>
+        Right(k(Value.DoubleV(computePhi(nid))))
+      case _ => throw InterpretError("phiOf(nodeId)")
+
+    case "isSuspect" => args match
+      case List(Value.StringV(nid), Value.DoubleV(thr)) =>
+        Right(k(Value.BoolV(computePhi(nid) >= thr)))
+      case _ => throw InterpretError("isSuspect(nodeId, threshold)")
 
     // v1.6.x — scheduled sends
     case "sendAfter" => args match

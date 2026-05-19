@@ -59,4 +59,17 @@ object Cluster:
   // Register the calling actor for NodeJoined / NodeLeft delivery.
   def subscribeEvents(): Unit =
     subscribeClusterEvents()
+
+  // Phi-accrual suspicion level for a peer.  Higher = more likely down.
+  // +∞ for unknown peers or peers without enough heartbeat history.
+  // Name differs from the free intrinsic (`phiOf`) to avoid lexical
+  // shadowing inside the object body.
+  def phi(nodeId: String): Double =
+    phiOf(nodeId)
+
+  // Phi >= threshold ⇒ peer is considered down.  Default threshold 8.0
+  // matches the Akka / Cassandra "definitely dead" cut-off.  Method named
+  // `suspect` (vs free intrinsic `isSuspect`) for the same shadowing reason.
+  def suspect(nodeId: String, threshold: Double = 8.0): Boolean =
+    isSuspect(nodeId, threshold)
 ```
