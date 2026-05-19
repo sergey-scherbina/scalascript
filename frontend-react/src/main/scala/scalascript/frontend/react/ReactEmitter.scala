@@ -73,6 +73,7 @@ private[react] object ReactEmitter:
           handler match
             case EventHandler.SetSignalLiteral(signal, _) => register(signal)
             case EventHandler.IncrementSignal(signal, _)  => register(signal)
+            case EventHandler.ToggleSignal(signal)        => register(signal)
             case _ => ()
         }
         children.foreach(walk)
@@ -85,6 +86,10 @@ private[react] object ReactEmitter:
         walk(whenTrue())
         walk(whenFalse())
         val _ = cond  // cond is just a JVM thunk
+      case View.ShowSignal(cond, whenTrue, whenFalse) =>
+        register(cond)
+        walk(whenTrue)
+        walk(whenFalse)
       case View.For(items, render) =>
         // Render once with the realised items to discover signals
         // referenced inside.  If the list is empty no signals get
@@ -122,11 +127,16 @@ private[react] object ReactEmitter:
       renderView(component.render(props.asInstanceOf[Nothing]))
 
     case View.Show(cond, whenTrue, whenFalse) =>
-      // Snapshot the condition AT EMIT TIME — the IR doesn't carry
-      // a reactive condition yet.  Phase A4+ will lift this to a
-      // ReactiveSignal[Boolean] so the branch swaps live.
+      // Snapshot the condition AT EMIT TIME — `Show` is the
+      // non-reactive variant.  Use `ShowSignal` for live swap.
       val branch = if cond() then whenTrue() else whenFalse()
       renderView(branch)
+
+    case View.ShowSignal(cond, whenTrue, whenFalse) =>
+      // Ternary inside render — React re-runs render on useState
+      // change, the ternary re-evaluates, reconciliation handles
+      // the DOM swap.  Idiomatic React conditional rendering.
+      s"(${cond.jsName} ? ${renderView(whenTrue)} : ${renderView(whenFalse)})"
 
     case View.For(items, render) =>
       // Emit a literal array; React handles list rendering.
@@ -174,6 +184,9 @@ private[react] object ReactEmitter:
         val setter = setterName(signal.jsName)
         // Functional setState — avoids stale-closure read of `count`.
         Some(s"${jsString(onKey)}: () => $setter(c => c + $by)")
+      case EventHandler.ToggleSignal(signal) =>
+        val setter = setterName(signal.jsName)
+        Some(s"${jsString(onKey)}: () => $setter(c => !c)")
       case EventHandler.Simple(_) | EventHandler.WithEvent(_) =>
         // JVM closure — emit a comment-prop that doesn't bind anything.
         // The presence of the marker tells dev "you wrote Simple/WithEvent

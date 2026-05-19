@@ -82,6 +82,7 @@ private[vue] object VueEmitter:
           handler match
             case EventHandler.SetSignalLiteral(signal, _) => register(signal)
             case EventHandler.IncrementSignal(signal, _)  => register(signal)
+            case EventHandler.ToggleSignal(signal)        => register(signal)
             case _ => ()
         }
         children.foreach(walk)
@@ -91,6 +92,10 @@ private[vue] object VueEmitter:
       case View.Show(_, whenTrue, whenFalse) =>
         walk(whenTrue())
         walk(whenFalse())
+      case View.ShowSignal(cond, whenTrue, whenFalse) =>
+        register(cond)
+        walk(whenTrue)
+        walk(whenFalse)
       case View.For(items, render) =>
         items().foreach(item => walk(render(item)))
       case _: View.TextNode => ()
@@ -122,6 +127,11 @@ private[vue] object VueEmitter:
     case View.Show(cond, whenTrue, whenFalse) =>
       val branch = if cond() then whenTrue() else whenFalse()
       renderView(branch)
+
+    case View.ShowSignal(cond, whenTrue, whenFalse) =>
+      // Ternary inside render — Vue re-runs render when the ref
+      // (read via proxy) changes; the ternary re-evaluates.
+      s"(this.${cond.jsName} ? ${renderView(whenTrue)} : ${renderView(whenFalse)})"
 
     case View.For(items, render) =>
       val realised = items().toList
@@ -162,6 +172,8 @@ private[vue] object VueEmitter:
         Some(s"${jsString(onKey)}: () => { this.${signal.jsName} = $v; }")
       case EventHandler.IncrementSignal(signal, by) =>
         Some(s"${jsString(onKey)}: () => { this.${signal.jsName} = this.${signal.jsName} + $by; }")
+      case EventHandler.ToggleSignal(signal) =>
+        Some(s"${jsString(onKey)}: () => { this.${signal.jsName} = !this.${signal.jsName}; }")
       case EventHandler.Simple(_) | EventHandler.WithEvent(_) =>
         Some(s"/* '$eventName' is a JVM closure — A5 can't translate (richer IR coming later) */")
 

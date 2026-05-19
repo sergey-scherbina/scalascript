@@ -104,11 +104,33 @@ object View:
 
   /** Conditional sub-tree — `if (cond()) view else otherView`.
    *  Backends with fine-grained subscriptions can swap the
-   *  subtree without re-rendering the parent. */
+   *  subtree without re-rendering the parent.
+   *
+   *  **Snapshot semantics.**  `cond` is evaluated at emit time;
+   *  subsequent signal changes do NOT swap the rendered subtree.
+   *  Use `ShowSignal` for reactive show/hide. */
   final case class Show(
       cond:     () => Boolean,
       whenTrue: () => View,
       whenFalse: () => View = () => Fragment(Nil)
+  ) extends View
+
+  /** v1.18 / Phase A2d — reactive conditional sub-tree.  `cond`
+   *  is a `ReactiveSignal[Boolean]`; backends generate a
+   *  subscription so the subtree swaps whenever the signal
+   *  changes.
+   *
+   *  Lowerings per backend:
+   *    - Custom: subscribe-and-swap via `__ssc_signals[...].subs`
+   *    - React : ternary inside `render()` — useState change
+   *              triggers component re-render
+   *    - Solid : `createEffect` that swaps DOM children
+   *    - Vue   : ternary inside `render()` — proxy change
+   *              triggers component re-render */
+  final case class ShowSignal(
+      cond:      ReactiveSignal[Boolean],
+      whenTrue:  View,
+      whenFalse: View = Fragment(Nil)
   ) extends View
 
   /** Repeated sub-trees — `items.map(item => view(item))`.  Same
@@ -157,6 +179,10 @@ object EventHandler:
    *  to JS: emit generates an `addEventListener` that reads the
    *  current cell value, adds `by`, and calls `__setSignal`. */
   final case class IncrementSignal(signal: ReactiveSignal[Int], by: Int = 1) extends EventHandler
+
+  /** v1.18 / Phase A2d — flip a Boolean reactive signal.  Pairs
+   *  with `ShowSignal` for click-to-toggle / show-hide UIs. */
+  final case class ToggleSignal(signal: ReactiveSignal[Boolean]) extends EventHandler
 
 /** Composable UI unit — a function from props to a View that
  *  may close over signals + effects.  Backends interpret the

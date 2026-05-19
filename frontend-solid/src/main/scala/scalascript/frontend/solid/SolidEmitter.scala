@@ -130,10 +130,30 @@ private[solid] object SolidEmitter:
         compile(component.render(props.asInstanceOf[Nothing]))
 
       case View.Show(cond, whenTrue, whenFalse) =>
-        // Emit-time snapshot.  Reactive <Show> arrives with the
-        // richer-IR phase.
+        // Emit-time snapshot — use ShowSignal for reactive swap.
         val branch = if cond() then whenTrue() else whenFalse()
         compile(branch)
+
+      case View.ShowSignal(cond, whenTrue, whenFalse) =>
+        // Subscribe-and-swap, same shape as Custom but driven by
+        // createEffect.  Wrapper span holds the currently-mounted
+        // branch.  Pre-build both branches up front so nested
+        // signal subscribers wire correctly.
+        registerSignal(cond)
+        val wrap = freshVar()
+        statements += s"const $wrap = document.createElement('span');"
+        val tVar = compile(whenTrue)
+        val fVar = compile(whenFalse)
+        val tNode = if tVar != null then tVar else placeholderNode()
+        val fNode = if fVar != null then fVar else placeholderNode()
+        val currentVar = s"__show_${wrap}_current"
+        statements += s"let $currentVar = ${cond.jsName}() ? $tNode : $fNode;"
+        statements += s"$wrap.appendChild($currentVar);"
+        statements += s"createEffect(() => {"
+        statements += s"  const next = ${cond.jsName}() ? $tNode : $fNode;"
+        statements += s"  if (next !== $currentVar) { $wrap.replaceChild(next, $currentVar); $currentVar = next; }"
+        statements += s"});"
+        wrap
 
       case View.For(items, render) =>
         val realised = items().toList
@@ -162,6 +182,16 @@ private[solid] object SolidEmitter:
           registerSignal(signal)
           val setter = setterName(signal.jsName)
           statements += s"$targetVar.addEventListener(${jsString(eventName)}, () => $setter(c => c + $by));"
+        case EventHandler.ToggleSignal(signal) =>
+          registerSignal(signal)
+          val setter = setterName(signal.jsName)
+          statements += s"$targetVar.addEventListener(${jsString(eventName)}, () => $setter(c => !c));"
+
+    /** Empty-branch placeholder for ShowSignal — empty text node. */
+    private def placeholderNode(): String =
+      val v = freshVar()
+      statements += s"const $v = document.createTextNode('');"
+      v
 
     private def attrValueJs(av: AttrValue): Option[String] = av match
       case AttrValue.Str(value)    => Some(jsString(value))

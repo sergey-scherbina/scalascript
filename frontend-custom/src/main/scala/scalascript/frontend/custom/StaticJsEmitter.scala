@@ -164,10 +164,36 @@ private[custom] object StaticJsEmitter:
         compile(component.render(props))
 
       case View.Show(cond, whenTrue, whenFalse) =>
-        // Snapshot: pick the branch that cond() returns NOW.  Phase
-        // A2b: emit conditional reactive subscription.
+        // Snapshot: pick the branch that cond() returns NOW.  Use
+        // ShowSignal for reactive swap.
         val branch = if cond() then whenTrue() else whenFalse()
         compile(branch)
+
+      case View.ShowSignal(cond, whenTrue, whenFalse) =>
+        // Build a <span> wrapper, pre-compile BOTH branches up
+        // front (so all nested signal subscribers register), and
+        // subscribe to cond: on change, replaceChild swaps the
+        // currently mounted branch.  The wrapper is the variable
+        // returned to the parent.
+        registerSignal(cond)
+        val wrap     = freshVar()
+        statements += s"const $wrap = document.createElement('span');"
+        val tVar = compile(whenTrue)
+        val fVar = compile(whenFalse)
+        // Some branches may be empty Fragments — fall back to a
+        // hidden text node so replaceChild always has something
+        // to swap.  Use null-coalesce at JS layer via document fragment.
+        val tNode = if tVar != null then tVar else placeholderNode()
+        val fNode = if fVar != null then fVar else placeholderNode()
+        val currentVar = s"__show_${wrap}_current"
+        val condJs = jsString(cond.jsName)
+        statements += s"let $currentVar = __ssc_signals[$condJs].value ? $tNode : $fNode;"
+        statements += s"$wrap.appendChild($currentVar);"
+        statements += s"__ssc_signals[$condJs].subs.add((v) => {"
+        statements += s"  const next = v ? $tNode : $fNode;"
+        statements += s"  if (next !== $currentVar) { $wrap.replaceChild(next, $currentVar); $currentVar = next; }"
+        statements += s"});"
+        wrap
 
       case View.For(items, render) =>
         // Snapshot iteration: realise items() once and inline each
@@ -183,6 +209,14 @@ private[custom] object StaticJsEmitter:
             if childVar != null then statements += s"$v.appendChild($childVar);"
           }
           v
+
+    /** Empty-branch placeholder for ShowSignal — an empty text
+     *  node so `replaceChild` always has a real Node to swap.
+     *  Phase A2d: a hidden no-op. */
+    private def placeholderNode(): String =
+      val v = freshVar()
+      statements += s"const $v = document.createTextNode('');"
+      v
 
     private def attrValueJs(av: AttrValue): Option[String] = av match
       case AttrValue.Str(value)     => Some(jsString(value))
@@ -216,6 +250,11 @@ private[custom] object StaticJsEmitter:
           val nameJs = jsString(signal.jsName)
           statements += s"$targetVar.addEventListener(${jsString(eventName)}, () => " +
                         s"__setSignal($nameJs, __ssc_signals[$nameJs].value + $by));"
+        case EventHandler.ToggleSignal(signal) =>
+          registerSignal(signal)
+          val nameJs = jsString(signal.jsName)
+          statements += s"$targetVar.addEventListener(${jsString(eventName)}, () => " +
+                        s"__setSignal($nameJs, !__ssc_signals[$nameJs].value));"
 
   /** JS literal for a signal value or SetSignalLiteral payload.
    *  Dispatches on runtime class because the trait surface is
