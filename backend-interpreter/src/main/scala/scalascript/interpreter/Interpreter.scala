@@ -294,6 +294,12 @@ class Interpreter(
   // nodes will decline to elect a leader, leaving the cluster
   // leaderless until the partition heals.  0 (default) = no quorum.
   @volatile private var quorumSize: Long = 0L
+  // v1.23 — shared-secret Bearer token for /_ssc-cluster/* endpoints.
+  // Default reads `SSC_CLUSTER_TOKEN` env at construction; runtime
+  // override via the `setClusterAuthToken` intrinsic.  Empty string ⇒
+  // endpoints are open (backwards compatible).
+  @volatile private var clusterAuthToken: String =
+    sys.env.getOrElse("SSC_CLUSTER_TOKEN", "")
   // v1.23 — auto-reconnect: exponential-backoff retry per peer URL after a
   // disconnect.  initial/max both 0 ⇒ disabled (default).  giveUpAfterMs
   // bounds the total wall-clock retry budget — 0 ⇒ no cap (retry forever).
@@ -1714,6 +1720,38 @@ class Interpreter(
    *  locks — values are observation-grade, not a transactional
    *  snapshot.  Used by `ssc cluster status` and ops dashboards. */
 
+  /** v1.23 — Bearer-token check shared by every cluster control
+   *  route (status / drain / events).  Returns either `None` (caller
+   *  proceeds) or `Some(401-resp)` (route handler short-circuits with
+   *  the rejection).  When `clusterAuthToken` is empty the endpoints
+   *  are open. */
+  private def clusterAuthReject(args: List[Value]): Option[Value] =
+    val token = clusterAuthToken
+    if token.isEmpty then None
+    else
+      val hdr = args.headOption.flatMap {
+        case Value.InstanceV("Request", fs) =>
+          fs.get("headers") match
+            case Some(Value.MapV(m)) =>
+              m.collectFirst {
+                case (Value.StringV(k), Value.StringV(v))
+                    if k.equalsIgnoreCase("authorization") => v
+              }
+            case _ => None
+        case _ => None
+      }.getOrElse("")
+      val expected = "Bearer " + token
+      if hdr == expected then None
+      else
+        Some(Value.InstanceV("Response", Map(
+          "status"  -> Value.IntV(401),
+          "headers" -> Value.MapV(Map(
+            Value.StringV("Content-Type") -> Value.StringV("application/json")
+          )),
+          "body"    -> Value.StringV(
+            """{"error":"unauthorized","hint":"set Authorization: Bearer <token>"}""")
+        )))
+
   /** v1.23 — register `POST /_ssc-cluster/drain` toggling local drain
    *  state.  Body is JSON `{"enabled":true|false}` (or empty body =
    *  enable).  Mirrors the in-process `setDraining` intrinsic's
@@ -1726,36 +1764,38 @@ class Interpreter(
       e.method == "POST" && e.path == path)
     if already then return
     val handler = Value.NativeFnV("_clusterDrain", Computation.pureFn { args =>
-      val body = args.headOption.flatMap {
-        case Value.InstanceV("Request", fs) =>
-          fs.get("body").collect { case Value.StringV(s) => s }
-        case _ => None
-      }.getOrElse("")
-      val enabled: Boolean =
-        if body.trim.isEmpty then true
-        else
-          val needle = "\"enabled\":"
-          val i = body.indexOf(needle)
-          if i < 0 then true
+      clusterAuthReject(args).getOrElse {
+        val body = args.headOption.flatMap {
+          case Value.InstanceV("Request", fs) =>
+            fs.get("body").collect { case Value.StringV(s) => s }
+          case _ => None
+        }.getOrElse("")
+        val enabled: Boolean =
+          if body.trim.isEmpty then true
           else
-            val rest = body.substring(i + needle.length).trim
-            !rest.startsWith("false")
-      val prev = isDrainingSelf.getAndSet(enabled)
-      if prev != enabled then
-        val payload = s"""{"t":"drain","from":${jsonStr(localNodeId)},"draining":$enabled}"""
-        peerChannels.forEach { (_, send) =>
-          try send(payload) catch case _: Throwable => ()
-        }
-        enqueueDrainEvent(localNodeId, enabled)
-        if enabled then stepDownIfLeader()
-      Value.InstanceV("Response", Map(
-        "status"  -> Value.IntV(200),
-        "headers" -> Value.MapV(Map(
-          Value.StringV("Content-Type") -> Value.StringV("application/json")
-        )),
-        "body"    -> Value.StringV(
-          s"""{"drainingSelf":${if enabled then "true" else "false"}}""")
-      ))
+            val needle = "\"enabled\":"
+            val i = body.indexOf(needle)
+            if i < 0 then true
+            else
+              val rest = body.substring(i + needle.length).trim
+              !rest.startsWith("false")
+        val prev = isDrainingSelf.getAndSet(enabled)
+        if prev != enabled then
+          val payload = s"""{"t":"drain","from":${jsonStr(localNodeId)},"draining":$enabled}"""
+          peerChannels.forEach { (_, send) =>
+            try send(payload) catch case _: Throwable => ()
+          }
+          enqueueDrainEvent(localNodeId, enabled)
+          if enabled then stepDownIfLeader()
+        Value.InstanceV("Response", Map(
+          "status"  -> Value.IntV(200),
+          "headers" -> Value.MapV(Map(
+            Value.StringV("Content-Type") -> Value.StringV("application/json")
+          )),
+          "body"    -> Value.StringV(
+            s"""{"drainingSelf":${if enabled then "true" else "false"}}""")
+        ))
+      }
     })
     scalascript.server.Routes.register("POST", path, handler, this)
 
@@ -1770,47 +1810,49 @@ class Interpreter(
       e.method == "GET" && e.path == path)
     if already then return
     val handler = Value.NativeFnV("_clusterEvents", Computation.pureFn { args =>
-      // Pull `since` from Request.query["since"] if present.
-      val sinceMs: Long = args.headOption.flatMap {
-        case Value.InstanceV("Request", fs) =>
-          fs.get("query") match
-            case Some(Value.MapV(m)) =>
-              m.collectFirst {
-                case (Value.StringV("since"), Value.StringV(v)) => v
-              }.flatMap(_.toLongOption)
-            case _ => None
-        case _ => None
-      }.getOrElse(0L)
-      val sb = new StringBuilder("[")
-      var first = true
-      val it = clusterEventLog.iterator()
-      while it.hasNext do
-        val line = it.next()
-        // Each line is a `{"ts":<n>,...}` literal; cheap filter on
-        // the leading prefix avoids parsing JSON.
-        val tsMatch =
-          if sinceMs <= 0L then true
-          else
-            val tsPrefix = "{\"ts\":"
-            if line.startsWith(tsPrefix) then
-              val end = line.indexOf(',', tsPrefix.length)
-              if end > 0 then
-                line.substring(tsPrefix.length, end).toLongOption
-                  .exists(_ > sinceMs)
+      clusterAuthReject(args).getOrElse {
+        // Pull `since` from Request.query["since"] if present.
+        val sinceMs: Long = args.headOption.flatMap {
+          case Value.InstanceV("Request", fs) =>
+            fs.get("query") match
+              case Some(Value.MapV(m)) =>
+                m.collectFirst {
+                  case (Value.StringV("since"), Value.StringV(v)) => v
+                }.flatMap(_.toLongOption)
+              case _ => None
+          case _ => None
+        }.getOrElse(0L)
+        val sb = new StringBuilder("[")
+        var first = true
+        val it = clusterEventLog.iterator()
+        while it.hasNext do
+          val line = it.next()
+          // Each line is a `{"ts":<n>,...}` literal; cheap filter on
+          // the leading prefix avoids parsing JSON.
+          val tsMatch =
+            if sinceMs <= 0L then true
+            else
+              val tsPrefix = "{\"ts\":"
+              if line.startsWith(tsPrefix) then
+                val end = line.indexOf(',', tsPrefix.length)
+                if end > 0 then
+                  line.substring(tsPrefix.length, end).toLongOption
+                    .exists(_ > sinceMs)
+                else false
               else false
-            else false
-        if tsMatch then
-          if !first then sb.append(',')
-          sb.append(line)
-          first = false
-      sb.append(']')
-      Value.InstanceV("Response", Map(
-        "status"  -> Value.IntV(200),
-        "headers" -> Value.MapV(Map(
-          Value.StringV("Content-Type") -> Value.StringV("application/json")
-        )),
-        "body"    -> Value.StringV(sb.toString)
-      ))
+          if tsMatch then
+            if !first then sb.append(',')
+            sb.append(line)
+            first = false
+        sb.append(']')
+        Value.InstanceV("Response", Map(
+          "status"  -> Value.IntV(200),
+          "headers" -> Value.MapV(Map(
+            Value.StringV("Content-Type") -> Value.StringV("application/json")
+          )),
+          "body"    -> Value.StringV(sb.toString)
+        ))
+      }
     })
     scalascript.server.Routes.register("GET", path, handler, this)
 
@@ -1819,41 +1861,43 @@ class Interpreter(
     val already = scalascript.server.Routes.all.exists(e =>
       e.method == "GET" && e.path == path)
     if already then return
-    val handler = Value.NativeFnV("_clusterStatus", Computation.pureFn { _ =>
-      val sb = new StringBuilder("{")
-      def kv(k: String, jsonVal: String, first: Boolean = false): Unit =
-        if !first then sb.append(',')
-        sb.append('"').append(k).append("\":").append(jsonVal)
-      def jsonStrLit(s: String): String =
-        "\"" + s.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
-      def jsonStrArr(xs: Iterable[String]): String =
-        xs.map(jsonStrLit).mkString("[", ",", "]")
-      val members = scala.collection.mutable.ListBuffer.empty[String]
-      peerChannels.keySet().forEach(members += _)
-      val drainPeers = scala.collection.mutable.ListBuffer.empty[String]
-      drainingPeers.forEach { (nid, dr) =>
-        if dr.booleanValue() then drainPeers += nid
+    val handler = Value.NativeFnV("_clusterStatus", Computation.pureFn { args =>
+      clusterAuthReject(args).getOrElse {
+        val sb = new StringBuilder("{")
+        def kv(k: String, jsonVal: String, first: Boolean = false): Unit =
+          if !first then sb.append(',')
+          sb.append('"').append(k).append("\":").append(jsonVal)
+        def jsonStrLit(s: String): String =
+          "\"" + s.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
+        def jsonStrArr(xs: Iterable[String]): String =
+          xs.map(jsonStrLit).mkString("[", ",", "]")
+        val members = scala.collection.mutable.ListBuffer.empty[String]
+        peerChannels.keySet().forEach(members += _)
+        val drainPeers = scala.collection.mutable.ListBuffer.empty[String]
+        drainingPeers.forEach { (nid, dr) =>
+          if dr.booleanValue() then drainPeers += nid
+        }
+        val leaderNow =
+          leaderProtocolRef.get() match
+            case "raft" => raftLeaderId
+            case _      => currentLeader.get()
+        kv("nodeId",    jsonStrLit(localNodeId), first = true)
+        kv("leader",    jsonStrLit(leaderNow))
+        kv("protocol",  jsonStrLit(leaderProtocolRef.get()))
+        kv("members",   jsonStrArr(members.toList))
+        kv("drainingSelf", if isDrainingSelf.get() then "true" else "false")
+        kv("drainingPeers", jsonStrArr(drainPeers.toList))
+        kv("raftTerm",  raftCurrentTerm.toString)
+        kv("raftState", jsonStrLit(raftStateName))
+        sb.append('}')
+        Value.InstanceV("Response", Map(
+          "status"  -> Value.IntV(200),
+          "headers" -> Value.MapV(Map(
+            Value.StringV("Content-Type") -> Value.StringV("application/json")
+          )),
+          "body"    -> Value.StringV(sb.toString)
+        ))
       }
-      val leaderNow =
-        leaderProtocolRef.get() match
-          case "raft" => raftLeaderId
-          case _      => currentLeader.get()
-      kv("nodeId",    jsonStrLit(localNodeId), first = true)
-      kv("leader",    jsonStrLit(leaderNow))
-      kv("protocol",  jsonStrLit(leaderProtocolRef.get()))
-      kv("members",   jsonStrArr(members.toList))
-      kv("drainingSelf", if isDrainingSelf.get() then "true" else "false")
-      kv("drainingPeers", jsonStrArr(drainPeers.toList))
-      kv("raftTerm",  raftCurrentTerm.toString)
-      kv("raftState", jsonStrLit(raftStateName))
-      sb.append('}')
-      Value.InstanceV("Response", Map(
-        "status"  -> Value.IntV(200),
-        "headers" -> Value.MapV(Map(
-          Value.StringV("Content-Type") -> Value.StringV("application/json")
-        )),
-        "body"    -> Value.StringV(sb.toString)
-      ))
     })
     scalascript.server.Routes.register("GET", path, handler, this)
 
@@ -2668,6 +2712,14 @@ class Interpreter(
     globals("leaderHistory") = Value.NativeFnV("leaderHistory", {
       case Nil => Perform("Actor", "leaderHistory", Nil)
       case _   => throw InterpretError("leaderHistory(): List[(Long, String, Long)]")
+    })
+    // v1.23 — shared-secret Bearer token for the /_ssc-cluster/*
+    // routes.  Default reads `SSC_CLUSTER_TOKEN` env at startup; this
+    // intrinsic overrides at runtime.  Empty string ⇒ endpoints open.
+    globals("setClusterAuthToken") = Value.NativeFnV("setClusterAuthToken", {
+      case List(Value.StringV(t)) =>
+        Perform("Actor", "setClusterAuthToken", List(Value.StringV(t)))
+      case _ => throw InterpretError("setClusterAuthToken(token: String): Unit")
     })
     // v1.23 — quorum-aware Bully threshold.  Set to N/2+1 of the
     // expected cluster size to prevent split-brain on partition;
@@ -7174,6 +7226,13 @@ class Interpreter(
         buf += Value.ListV(t.toList)
       }
       Right(k(Value.ListV(buf.toList)))
+
+    // v1.23 — cluster-endpoint shared-secret
+    case "setClusterAuthToken" => args match
+      case List(Value.StringV(t)) =>
+        clusterAuthToken = t
+        Right(k(Value.UnitV))
+      case _ => throw InterpretError("setClusterAuthToken(token: String)")
 
     // v1.23 — quorum-aware Bully threshold
     case "setQuorumSize" => args match
