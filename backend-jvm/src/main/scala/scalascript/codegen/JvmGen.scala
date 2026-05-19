@@ -2602,7 +2602,8 @@ class JvmGen(
       "RestValidationError", "DerCodec", "WsFraming", "Metrics",
       "RateLimit", "Password", "Totp", "Jwt", "JwtRsa",
       "SessionCookie", "SessionStore", "OAuth", "WebAuthn",
-      "UploadedFile", "HttpHelpers", "Multipart", "TlsContextBuilder"
+      "UploadedFile", "HttpHelpers", "Multipart", "TlsContextBuilder",
+      "CorsHelpers"
     )
     val header =
       "\n// ── runtime-server-common (inlined from classpath resources) ──────────\n" +
@@ -3337,17 +3338,7 @@ class JvmGen(
        |  r.copy(headers = r.headers + ("Cache-Control" -> "no-store, no-cache, must-revalidate"))
        |
        |private def _applyCors(ex: com.sun.net.httpserver.HttpExchange): Unit =
-       |  if _corsOrigins.nonEmpty then
-       |    val origin  = Option(ex.getRequestHeaders.getFirst("Origin")).getOrElse("")
-       |    val allowed = if _corsOrigins.contains("*") then "*"
-       |                  else if _corsOrigins.contains(origin) then origin else ""
-       |    if allowed.nonEmpty then
-       |      ex.getResponseHeaders.add("Access-Control-Allow-Origin", allowed)
-       |      if _corsMethods.nonEmpty then
-       |        ex.getResponseHeaders.add("Access-Control-Allow-Methods", _corsMethods.mkString(", "))
-       |      if _corsHeaders.nonEmpty then
-       |        ex.getResponseHeaders.add("Access-Control-Allow-Headers", _corsHeaders.mkString(", "))
-       |      ex.getResponseHeaders.add("Vary", "Origin")
+       |  CorsHelpers(ex, _corsOrigins, _corsMethods, _corsHeaders)
        |
        |private def _handle(ex: com.sun.net.httpserver.HttpExchange): Unit =
        |  _Metrics.httpRequests.incrementAndGet()

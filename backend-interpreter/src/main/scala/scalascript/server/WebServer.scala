@@ -128,17 +128,7 @@ object WebServer:
     TlsContextBuilder.vthreadPool()
 
   private def applyCorsHeaders(ex: HttpExchange): Unit =
-    if _corsOrigins.nonEmpty then
-      val origin  = Option(ex.getRequestHeaders.getFirst("Origin")).getOrElse("")
-      val allowed = if _corsOrigins.contains("*") then "*"
-                    else if _corsOrigins.contains(origin) then origin else ""
-      if allowed.nonEmpty then
-        ex.getResponseHeaders.add("Access-Control-Allow-Origin", allowed)
-        if _corsMethods.nonEmpty then
-          ex.getResponseHeaders.add("Access-Control-Allow-Methods", _corsMethods.mkString(", "))
-        if _corsHeaders.nonEmpty then
-          ex.getResponseHeaders.add("Access-Control-Allow-Headers", _corsHeaders.mkString(", "))
-        ex.getResponseHeaders.add("Vary", "Origin")
+    CorsHelpers(ex, _corsOrigins, _corsMethods, _corsHeaders)
 
   private def handle(root: String, log: java.io.PrintStream, ex: HttpExchange): Unit =
     Metrics.httpRequests.incrementAndGet()
