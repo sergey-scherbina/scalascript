@@ -9,7 +9,8 @@ import scalascript.interpreter.Value
  *  Mirrors JvmGen's `_proxyConnection`: reads the HTTP head, detects
  *  `Upgrade: websocket`, and either forwards plain HTTP to the internal
  *  loopback server or performs a WS upgrade using the existing
- *  `WsRoutes` / `WsConnection` infrastructure.
+ *  `WsRoutes` registry + the shared `scalascript.server.jvm.WebSocket`
+ *  class (same blocking-IO + per-VT class WsProxy uses for non-TLS).
  *
  *  Called from `WebServer.start` when `certPath` / `keyPath` are
  *  provided.  Each accepted SSLSocket lands on its own virtual thread
@@ -31,7 +32,7 @@ object TlsProxy:
 
       val parsed = HttpHelpers.parseHttpHead(head)
       if parsed.isUpgradeWebSocket then
-        handleWsUpgrade(client, cin, cout, parsed.path, parsed.rawQuery, parsed.headers, wsExecutor, log)
+        handleWsUpgrade(client, cout, parsed.path, parsed.rawQuery, parsed.headers, wsExecutor, log)
       else
         forwardHttp(client, cin, cout, head, internalPort)
     catch case _: Throwable => try client.close() catch case _: Throwable => ()
@@ -40,7 +41,9 @@ object TlsProxy:
 
   private def handleWsUpgrade(
       client:     Socket,
-      cin:        java.io.InputStream,
+      // `cin` argument dropped post-Option-B: the shared WebSocket
+      // reads from `socket.getInputStream` directly, no need for an
+      // already-buffered stream to be threaded through.
       cout:       java.io.OutputStream,
       path:       String,
       rawQuery:   String,
@@ -65,11 +68,22 @@ object TlsProxy:
             cout.flush(); client.close()
             Metrics.wsRejected.incrementAndGet(); return
 
-        // Pre-upgrade Request snapshot — built once, reused as
-        // `ws.request` after the upgrade since the headers / path /
-        // params / cookies don't change across the upgrade boundary.
+        // Pre-upgrade Request snapshot — built once in two forms.  The
+        // POJO `req` is what the shared `scalascript.server.jvm.WebSocket`
+        // ctor expects; the Value form goes to the interpreter handler
+        // as `ws.request`.  Same headers / path / params / cookies on
+        // both sides.
         val query   = HttpHelpers.parseQuery(rawQuery)
         val cookies = HttpHelpers.parseCookieHeader(headers.getOrElse("cookie", ""))
+        val req = Request(
+          method  = "GET",
+          path    = path,
+          params  = params,
+          query   = query,
+          headers = headers,
+          body    = "",
+          cookies = cookies
+        )
         val request: Value = Value.InstanceV("Request", Map(
           "method"  -> Value.StringV("GET"),
           "path"    -> Value.StringV(path),
@@ -124,35 +138,33 @@ object TlsProxy:
 
         Metrics.wsUpgraded.incrementAndGet()
 
-        // Build a NIO SocketChannel wrapping the existing Socket so we can
-        // hand it to WsConnection, which expects a SelectionKey + Selector.
-        // Since WsConnection uses NIO internally, we adapt via a SocketChannel
-        // obtained from the socket (available on JDK 9+ via Socket.getChannel;
-        // for SSLSocket there's no channel — use a thin adaptor).
-        //
-        // Fallback: wrap in a pair of virtual threads doing read + write,
-        // bridged through an in-process ByteBuffer queue.  This avoids a
-        // dependency on undocumented APIs.
-        // For now, use the simpler blocking WsSession adaptor.
-        val ws = BlockingWsSession(
-          socket     = client,
-          in         = cin,
-          out        = cout,
-          interpreter = entry.interpreter,
-          request    = request,
-          onTerminate = () => entry.release(),
-          maxMessagesPerSec = entry.maxMessagesPerSec,
-          user       = userPayload,
-          subprotocol = chosenProtocol,
-          log        = log
+        // Build the shared `scalascript.server.jvm.WebSocket` directly —
+        // same per-VT blocking-IO class WsProxy uses for non-TLS.  The
+        // ctor spawns the writer VT; we pass the interpreter's
+        // single-thread `wsExecutor` so user-callback dispatch stays
+        // serial with the rest of the interpreter.  Heartbeat scheduler
+        // + timing default to the codegen-side `_wsHeartbeats` / 30 s
+        // ping / 90 s dead-after (matches WsProxy when no explicit
+        // override is needed).
+        val ws = _root_.scalascript.server.jvm.WebSocket(
+          socket             = client,
+          request            = req,
+          subprotocol        = chosenProtocol,
+          _onTerminate       = () => entry.release(),
+          _maxMessagesPerSec = entry.maxMessagesPerSec,
+          user               = userPayload,
+          _executor          = wsExecutor,
+          _log               = log
         )
         log.println(s"ws.connect\tid=${ws.id}\tip=${client.getRemoteSocketAddress}\troute=$path\tproto=$chosenProtocol")
+        val wsValue = WsConnection.asValue(ws, entry.interpreter, log, request)
         wsExecutor.execute { () =>
-          try entry.interpreter.invoke(entry.handler, List(ws.asValue))
+          try entry.interpreter.invoke(entry.handler, List(wsValue))
           catch case e: Throwable =>
             log.println(s"TLS WS upgrade handler error: ${e.getMessage}")
         }
-        ws.runReadLoop()
+        ws._startHeartbeat()
+        ws._runReadLoop()
 
   // ── Plain HTTP forwarding ──────────────────────────────────────────
 

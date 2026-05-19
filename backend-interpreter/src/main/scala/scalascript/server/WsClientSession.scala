@@ -17,7 +17,8 @@ import scalascript.interpreter.{Interpreter, Value, Computation, InterpretError}
  *   - The user's handler is invoked on the calling thread.
  *   - Listener callbacks (onText / onClose / onPong) arrive on the JDK
  *     HttpClient's thread pool and call interpreter.invoke() directly,
- *     matching BlockingWsSession's dispatch approach.
+ *     matching the per-connection executor-dispatch convention the
+ *     server-side `WsConnection` / shared `WebSocket` use.
  *   - awaitClose() blocks the calling thread until onClose fires. */
 final class WsClientSession(
     url:         String,
