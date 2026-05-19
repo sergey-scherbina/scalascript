@@ -287,6 +287,13 @@ class Interpreter(
   @volatile private var electionStartedAt:  Long    = 0L
   @volatile private var gotAliveResponse:   Boolean = false
   private val ElectionTimeoutMs: Long = 2000L
+  // v1.23 — quorum-aware Bully.  When > 0, a node only self-claims
+  // leadership if `peerChannels.size + 1 >= quorumSize`.  Set to
+  // N/2+1 of the total expected cluster size to prevent split-brain
+  // — each side of a network partition with fewer than `quorumSize`
+  // nodes will decline to elect a leader, leaving the cluster
+  // leaderless until the partition heals.  0 (default) = no quorum.
+  @volatile private var quorumSize: Long = 0L
   // v1.23 — auto-reconnect: exponential-backoff retry per peer URL after a
   // disconnect.  initial/max both 0 ⇒ disabled (default).  giveUpAfterMs
   // bounds the total wall-clock retry budget — 0 ⇒ no cap (retry forever).
@@ -575,11 +582,17 @@ class Interpreter(
   private def broadcastCoordinator(): Unit =
     val payload = s"""{"t":"coordinator","from":${jsonStr(localNodeId)}}"""
     peerChannels.forEach { (_, send) => try send(payload) catch case _: Throwable => () }
+  /** v1.23 — true when quorum is disabled or the visible cluster
+   *  (self + peers) meets the configured quorum threshold.  Gates
+   *  self-claim paths in Bully to prevent split-brain. */
+  private def hasQuorum: Boolean =
+    quorumSize <= 0L || (peerChannels.size + 1L) >= quorumSize
+
   private def startElection(): Unit =
     if clusterDebug then
       val peers = scala.collection.mutable.ListBuffer.empty[String]
       peerChannels.keySet().forEach(peers += _)
-      out.println(s"[cluster:dbg] $localNodeId startElection peers=${peers.mkString(",")}")
+      out.println(s"[cluster:dbg] $localNodeId startElection peers=${peers.mkString(",")} quorum=$quorumSize visible=${peerChannels.size + 1}")
     if localNodeId.isEmpty then
       val prev = currentLeader.getAndSet(localNodeId)
       if prev != localNodeId then
@@ -589,11 +602,18 @@ class Interpreter(
       val higher = scala.collection.mutable.ListBuffer.empty[String]
       peerChannels.keySet().forEach(nid => if nid > localNodeId then higher += nid)
       if higher.isEmpty then
-        val prev = currentLeader.getAndSet(localNodeId)
-        broadcastCoordinator()
-        if prev != localNodeId then
-          enqueueLeaderEvent("LeaderElected", localNodeId)
-          recordLeaderHist(localNodeId)
+        // v1.23 — quorum gate: decline to self-claim when below quorum,
+        // even though no higher peer is visible.  Caller must retry
+        // the election after more peers reconnect.
+        if !hasQuorum then
+          if clusterDebug then out.println(
+            s"[cluster:dbg] $localNodeId declined self-claim (below quorum ${peerChannels.size + 1}/$quorumSize)")
+        else
+          val prev = currentLeader.getAndSet(localNodeId)
+          broadcastCoordinator()
+          if prev != localNodeId then
+            enqueueLeaderEvent("LeaderElected", localNodeId)
+            recordLeaderHist(localNodeId)
       else
         electionInProgress = true
         electionStartedAt  = System.currentTimeMillis()
@@ -2534,6 +2554,14 @@ class Interpreter(
     globals("leaderHistory") = Value.NativeFnV("leaderHistory", {
       case Nil => Perform("Actor", "leaderHistory", Nil)
       case _   => throw InterpretError("leaderHistory(): List[(Long, String, Long)]")
+    })
+    // v1.23 — quorum-aware Bully threshold.  Set to N/2+1 of the
+    // expected cluster size to prevent split-brain on partition;
+    // 0 (default) disables the check entirely.
+    globals("setQuorumSize") = Value.NativeFnV("setQuorumSize", {
+      case List(Value.IntV(n)) =>
+        Perform("Actor", "setQuorumSize", List(Value.IntV(n)))
+      case _ => throw InterpretError("setQuorumSize(n: Long): Unit")
     })
     // v1.23 — per-link heartbeat tuning.  `intervalMs` is the ping
     // cadence; `deadAfterMs` is the max gap from last pong before
@@ -6195,10 +6223,12 @@ class Interpreter(
               wakeBlocked(rt, aid)
             }
         // v1.23 — Bully election timeout: claim self if no `alive` received.
+        // Quorum-gated: even though no higher peer responded, decline
+        // self-claim if we don't see enough peers (split-brain guard).
         if electionInProgress &&
            System.currentTimeMillis() - electionStartedAt >= ElectionTimeoutMs then
           electionInProgress = false
-          if !gotAliveResponse then
+          if !gotAliveResponse && hasQuorum then
             val prev = currentLeader.getAndSet(localNodeId)
             broadcastCoordinator()
             if prev != localNodeId then
@@ -6918,6 +6948,13 @@ class Interpreter(
         buf += Value.ListV(t.toList)
       }
       Right(k(Value.ListV(buf.toList)))
+
+    // v1.23 — quorum-aware Bully threshold
+    case "setQuorumSize" => args match
+      case List(Value.IntV(n)) =>
+        quorumSize = n.max(0L)
+        Right(k(Value.UnitV))
+      case _ => throw InterpretError("setQuorumSize(n: Long)")
 
     // v1.23 — heartbeat cadence + deadline
     case "setHeartbeatTimeout" => args match
