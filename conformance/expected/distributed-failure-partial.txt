@@ -1,0 +1,3 @@
+failures: 1
+failed node: w2, reason: disk_io_error
+partial results: 4

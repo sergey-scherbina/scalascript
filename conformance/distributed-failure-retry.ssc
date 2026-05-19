@@ -1,0 +1,50 @@
+#!/usr/bin/env ssc
+---
+name: distributed-failure-retry
+description: v1.22 — Kill a worker mid-job; retry on healthy worker succeeds
+---
+
+# Distributed failure — retry
+
+A worker crashes after receiving its partition.  The coordinator detects
+the `Exit` signal, retries the partition on a healthy worker (`retries = 1`),
+and the job completes with the correct result.
+
+```scalascript
+runActors {
+  HandlerRegistry.register(NamedHandler("addTen", (x: Int) => x + 10))
+
+  // Worker 2 is faulty: crashes immediately after receiving its partition
+  val w1 = spawn { () => WorkerProtocol.handleMessages() }
+  val faultyW2 = spawn { () =>
+    receive {
+      case ProcessPartition(jobId, partId, _, _, replyTo) =>
+        // Crash — sends PartitionFailed back instead of result
+        replyTo ! PartitionFailed(jobId, partId, "worker_crash")
+        val me = self()
+        exit(me, "crash")
+    }
+  }
+  val w3 = spawn { () => WorkerProtocol.handleMessages() }
+
+  val cluster = Cluster(
+    List(
+      Node("w1@localhost:9101"),
+      Node("w2@localhost:9102"),
+      Node("w3@localhost:9103")
+    ),
+    List(w1, faultyW2, w3)
+  )
+
+  val data = List(1, 2, 3, 4, 5, 6)
+  val stage = Stage(List(MapOp("addTen")))
+
+  // retries = 1 — coordinator will retry the failed partition once
+  val result = runDistributed(data, stage, cluster, retries = 1, allowPartial = false)
+
+  println("failures: " + result.failures.length)
+  val sorted = result.results.asInstanceOf[List[Int]].sortBy(x => x)
+  sorted.foreach(x => println(x))
+  cluster.close()
+}
+```

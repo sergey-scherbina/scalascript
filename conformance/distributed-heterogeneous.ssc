@@ -1,0 +1,51 @@
+#!/usr/bin/env ssc
+---
+name: distributed-heterogeneous
+description: v1.22 — 2 JVM + 1 INT worker actors, cross-backend named-handler round-trip
+---
+
+# Distributed heterogeneous — cross-backend workers
+
+Simulates a 2-JVM + 1-INT cluster within a single `runActors` block.
+All three workers are in the same actor runtime in this in-process test,
+but each is annotated with its conceptual backend type to validate that
+the named-handler protocol is backend-agnostic.
+
+The handler `"stringify"` converts integers to strings.
+
+```scalascript
+runActors {
+  // All backends register the same named handler (shared codebase)
+  HandlerRegistry.register(NamedHandler("stringify", (x: Int) => "item-" + x.toString))
+  HandlerRegistry.register(NamedHandler("isEven", (x: Int) => x % 2 == 0))
+
+  // Spawn 2 JVM workers + 1 INT worker (labels are conceptual in-process)
+  val jvmW1 = spawn { () => WorkerProtocol.handleMessages() }  // JVM backend
+  val jvmW2 = spawn { () => WorkerProtocol.handleMessages() }  // JVM backend
+  val intW3  = spawn { () => WorkerProtocol.handleMessages() }  // INT backend
+
+  val cluster = Cluster(
+    List(
+      Node("jvm-worker-1@10.0.0.10:9100"),
+      Node("jvm-worker-2@10.0.0.11:9100"),
+      Node("int-worker-3@10.0.0.12:9100")
+    ),
+    List(jvmW1, jvmW2, intW3)
+  )
+
+  val data = List(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12)
+
+  // Chain: filter even, then stringify — tests two-op stage
+  val stage = Stage(List(
+    FilterOp("isEven"),
+    MapOp("stringify")
+  ))
+
+  val result = runDistributed(data, stage, cluster, retries = 0, allowPartial = false)
+
+  val sorted = result.results.asInstanceOf[List[String]].sorted
+  sorted.foreach(s => println(s))
+  println("backends: jvm, jvm, int")
+  cluster.close()
+}
+```

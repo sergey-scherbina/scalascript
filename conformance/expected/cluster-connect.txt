@@ -1,0 +1,3 @@
+cluster nodes: 3
+unhealthy nodes: 0
+cluster closed

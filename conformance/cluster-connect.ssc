@@ -1,0 +1,54 @@
+#!/usr/bin/env ssc
+---
+name: cluster-connect
+description: v1.22 — Open a 3-node cluster, health-check, close
+---
+
+# Cluster — connect / healthCheck / close
+
+Tests `Cluster.connect`, `cluster.healthCheck`, and `cluster.close`
+on a simulated 3-node cluster within a single `runActors` block.
+Uses in-process `startNode` to set up node identities.
+
+```scalascript
+runActors {
+  // Simulate 3 worker nodes in-process (Phase 3 registered actors)
+  startNode("coordinator@localhost:9100")
+
+  // Spawn 3 actors that simulate remote worker runners
+  def workerLoop(): Unit =
+    receive {
+      case ("__healthCheck__", replyTo: Any) =>
+        replyTo ! "__healthCheckOk__"
+        workerLoop()
+      case "__shutdown__" =>
+        ()
+    }
+
+  val w1 = spawn { () => workerLoop() }
+  val w2 = spawn { () => workerLoop() }
+  val w3 = spawn { () => workerLoop() }
+
+  register("worker-1", w1)
+  register("worker-2", w2)
+  register("worker-3", w3)
+
+  val n1 = Node("worker-1@10.0.0.10:9100")
+  val n2 = Node("worker-2@10.0.0.11:9100")
+  val n3 = Node("worker-3@10.0.0.12:9100")
+
+  // Build cluster handle with resolved pids (in-process: use whereis)
+  val pids = List(w1, w2, w3)
+  val cluster = Cluster(List(n1, n2, n3), pids)
+
+  println("cluster nodes: " + cluster.nodes.length)
+
+  // Health-check: all 3 should respond
+  val unhealthy = cluster.healthCheck(timeoutMs = 1000)
+  println("unhealthy nodes: " + unhealthy.length)
+
+  // Close cluster
+  cluster.close()
+  println("cluster closed")
+}
+```

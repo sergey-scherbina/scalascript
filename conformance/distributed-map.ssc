@@ -1,0 +1,41 @@
+#!/usr/bin/env ssc
+---
+name: distributed-map
+description: v1.22 — .map(named("double")).collect() round-trip across 3 nodes
+---
+
+# Distributed map — named handler round-trip
+
+Tests a `map` with a named handler dispatched across a 3-node in-process
+cluster.  The handler doubles integers.  Result is collected and sorted
+for deterministic output.
+
+```scalascript
+runActors {
+  // Register the named handler on every worker (same codebase deployment)
+  HandlerRegistry.register(NamedHandler("double", (x: Int) => x * 2))
+
+  // Simulate 3 worker actors using WorkerProtocol
+  val w1 = spawn { () => WorkerProtocol.handleMessages() }
+  val w2 = spawn { () => WorkerProtocol.handleMessages() }
+  val w3 = spawn { () => WorkerProtocol.handleMessages() }
+
+  val cluster = Cluster(
+    List(
+      Node("w1@localhost:9101"),
+      Node("w2@localhost:9102"),
+      Node("w3@localhost:9103")
+    ),
+    List(w1, w2, w3)
+  )
+
+  val data = List(1, 2, 3, 4, 5, 6, 7, 8, 9)
+  val stage = Stage(List(MapOp("double")))
+
+  val result = runDistributed(data, stage, cluster, retries = 0, allowPartial = false)
+
+  val sorted = result.results.asInstanceOf[List[Int]].sortBy(x => x)
+  sorted.foreach(x => println(x))
+  cluster.close()
+}
+```
