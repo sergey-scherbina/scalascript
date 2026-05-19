@@ -14,24 +14,57 @@ import org.commonmark.node.{
   Text            as CmText,
   Code            as CmCode,
 }
-import org.commonmark.parser.{Parser as CmParser}
+import org.commonmark.parser.{Parser as CmParser, IncludeSourceSpans}
 import org.yaml.snakeyaml.Yaml
 import scala.collection.mutable.{ListBuffer, Stack}
 import scala.jdk.CollectionConverters.*
 
 object Parser:
-  private val mdParser  = CmParser.builder().build()
+  // `includeSourceSpans(BLOCKS)` makes CommonMark populate `Node.getSourceSpans()`
+  // with the input-file (0-indexed) line ranges of every block node, including
+  // fenced code blocks.  We use this in `extractSections` to compute the
+  // file-level line offset of each `Content.CodeBlock` so the LSP server can
+  // translate block-local scalameta positions back to file-level coordinates.
+  private val mdParser  = CmParser.builder()
+    .includeSourceSpans(IncludeSourceSpans.BLOCKS)
+    .build()
   private val snakeYaml = Yaml()
 
   def parse(source: String): Module =
     // Strip shebang line so files can be self-executing: #!/usr/bin/env ssc
-    val noShebang = if source.startsWith("#!") then source.dropWhile(_ != '\n').drop(1) else source
-    val (fmOpt, body) = splitFrontMatter(noShebang)
+    val shebangLines = if source.startsWith("#!") then 1 else 0
+    val noShebang =
+      if shebangLines == 1 then source.dropWhile(_ != '\n').drop(1)
+      else source
+    val (fmOpt, body, fmStripped) = splitFrontMatterCounting(noShebang)
+    val isWrapped = isPureScala(body)
     // Pure-Scala script (no Markdown headings or fences): wrap in a synthetic section
-    val mdSrc = if isPureScala(body) then s"# Script\n\n```scala\n${body.trim}\n```\n" else body
+    val mdSrc =
+      if isWrapped then s"# Script\n\n```scala\n${body.trim}\n```\n"
+      else body
     val doc = mdParser.parse(mdSrc).asInstanceOf[CmDocument]
     val manifest = fmOpt.map(parseManifest)
-    val sections = extractSections(doc)
+    // Map a CommonMark 0-indexed line in `mdSrc` back to a 0-indexed line in
+    // the ORIGINAL `source` file.  For the standard path this is a simple
+    // additive offset (shebang lines + front-matter lines that were stripped
+    // before parsing).  For the pure-Scala-wrap path we have to subtract the
+    // 3 synthetic header lines (`# Script`, blank, ```` ```scala ```` ) we
+    // prepended AND add the count of leading whitespace lines in `body` that
+    // `.trim` discarded, so the first code line still maps to the user's
+    // original source line.
+    val mdLineToFileLine: Int => Int =
+      if isWrapped then
+        // Number of leading newline-terminated whitespace lines in `body`
+        // that `.trim` collapsed.  Lines wholly consumed by `dropWhile(_ ==
+        // '\n')` plus any whitespace-only prefix lines.
+        val leadingWs = body.takeWhile(c => c == '\n' || c == ' ' || c == '\t' || c == '\r')
+        val leadingWsLines = leadingWs.count(_ == '\n')
+        val base = shebangLines + fmStripped + leadingWsLines
+        (mdLine: Int) => base + math.max(0, mdLine - 3)
+      else
+        val base = shebangLines + fmStripped
+        (mdLine: Int) => base + mdLine
+    val sections = extractSections(doc, mdLineToFileLine)
     val pkg      = manifest.flatMap(_.pkg).getOrElse(Nil)
     if pkg.isEmpty then Module(manifest, sections)
     else Module(manifest, sections.map(wrapSectionInPackage(_, pkg)))
@@ -63,7 +96,15 @@ object Parser:
         // a positional diagnostic for blocks that even the package-wrap retry
         // failed to rescue.
         val pe = if tree.isEmpty then cb.parseError else None
-        Content.CodeBlock(cb.lang, nested, tree, cb.span, pe)
+        // Carry the ORIGINAL block's `lineOffset` through the wrap.  The
+        // wrap rewrites `cb.source` into a synthetic `object pkg: …` body
+        // that no longer corresponds line-for-line with the user's `.ssc`,
+        // but downstream consumers (LSP, error reporting) want the file
+        // line of the user's first code line — not a position into the
+        // synthesized wrapper.  Preserving the field here means
+        // `extractor` + LSP can keep using `cb.lineOffset` as the single
+        // source of truth regardless of whether `package:` is set.
+        Content.CodeBlock(cb.lang, nested, tree, cb.span, pe, cb.lineOffset)
       case other => other
     }
     section.copy(
@@ -80,14 +121,28 @@ object Parser:
 
   // ─── Front-matter ────────────────────────────────────────────────
 
-  private def splitFrontMatter(src: String): (Option[String], String) =
-    if !src.startsWith("---") then return (None, src)
+  /** Returns the number of lines from the start of `src` that were consumed
+   *  before `body` begins.  Used by [[parse]] to translate CommonMark's
+   *  (mdSrc-local) line indices back to file-level lines for
+   *  [[Content.CodeBlock.lineOffset]]. */
+  private def splitFrontMatterCounting(src: String): (Option[String], String, Int) =
+    if !src.startsWith("---") then return (None, src, 0)
     val nl = src.indexOf('\n')
-    if nl < 0 then return (None, src)
+    if nl < 0 then return (None, src, 0)
     val rest = src.substring(nl + 1)
     val end  = rest.indexOf("\n---")
-    if end < 0 then return (None, src)
-    (Some(rest.substring(0, end)), rest.substring(end + 4).dropWhile(_ == '\n'))
+    if end < 0 then return (None, src, 0)
+    val tail = rest.substring(end + 4).dropWhile(_ == '\n')
+    val body = tail
+    // Lines consumed = everything from start of `src` up to (but not
+    // including) the first character of `body`.  Equivalently: total
+    // newlines in `src` − total newlines in `body`, when `body` is what
+    // remains.  Compute directly from substring lengths to stay correct
+    // when the front-matter is empty or has trailing whitespace.
+    val stripped     = src.length - body.length
+    val strippedText = src.substring(0, stripped)
+    val lines = strippedText.count(_ == '\n')
+    (Some(rest.substring(0, end)), body, lines)
 
   /** SnakeYAML's "mapping values are not allowed here" surfaces with the
    *  line/column of the offending construct but with no hint about which
@@ -177,7 +232,10 @@ object Parser:
     subsections: ListBuffer[Section]
   )
 
-  private def extractSections(doc: CmDocument): List[Section] =
+  private def extractSections(
+      doc:              CmDocument,
+      mdLineToFileLine: Int => Int
+  ): List[Section] =
     val roots = ListBuffer[Section]()
     val stack = Stack[Frame]()
 
@@ -200,7 +258,7 @@ object Parser:
             subsections = ListBuffer.empty
           ))
         case other =>
-          toContent(other).foreach { c =>
+          toContent(other, mdLineToFileLine).foreach { c =>
             if stack.nonEmpty then stack.top.content += c
           }
       node = node.getNext
@@ -210,14 +268,24 @@ object Parser:
 
   // ─── Node → Content ──────────────────────────────────────────────
 
-  private def toContent(node: CmNode): Option[Content] = node match
+  private def toContent(node: CmNode, mdLineToFileLine: Int => Int): Option[Content] = node match
     case f: CmFenced =>
       val lang = Option(f.getInfo).map(_.trim.takeWhile(!_.isWhitespace)).getOrElse("").toLowerCase
       val src  = Option(f.getLiteral).getOrElse("")
       val (tree, parseError) =
         if Lang.isParseable(lang) then parseScalaWithDiagnostic(src)
         else (None, None)
-      Some(Content.CodeBlock(lang, src, tree, None, parseError))
+      // CommonMark's source span on a `FencedCodeBlock` covers the whole
+      // block including the opening + closing fence rows.  The first line
+      // of code INSIDE the fence is one row past the fence open, so the
+      // 0-indexed file-level line of `src`'s first row is
+      // `fenceStartLine + 1` (translated through the mdSrc→file mapping).
+      val fenceStart0 =
+        val spans = f.getSourceSpans
+        if spans != null && !spans.isEmpty then spans.get(0).getLineIndex
+        else 0
+      val lineOffset = mdLineToFileLine(fenceStart0 + 1)
+      Some(Content.CodeBlock(lang, src, tree, None, parseError, lineOffset))
 
     case p: CmParagraph =>
       asImport(p).orElse {

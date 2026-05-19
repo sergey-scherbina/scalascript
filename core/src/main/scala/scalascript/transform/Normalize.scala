@@ -69,7 +69,7 @@ object Normalize:
   private def content(c: ast.Content): ir.Content = c match
     case ast.Content.Prose(text, sp) =>
       ir.Content.Prose(text, sp.map(span))
-    case ast.Content.CodeBlock(lang, source, tree, sp, _) =>
+    case ast.Content.CodeBlock(lang, source, tree, sp, _, _) =>
       if ast.Lang.isScalaScript(lang) then
         // v2.0 / Stage 5+ — populate `body` with translated `IrExpr`
         // trees so `Linker.rewriteExpr` has real data to walk for

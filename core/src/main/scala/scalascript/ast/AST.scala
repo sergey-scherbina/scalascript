@@ -61,13 +61,22 @@ enum Content:
    *  carries scalameta's positional diagnostic (line/column inside `source`
    *  plus a short snippet) so the CLI can surface a structured failure.
    *  `parseError = None` is the historical behaviour (no info available
-   *  beyond "tree is empty"). */
+   *  beyond "tree is empty").
+   *
+   *  `lineOffset` is the 0-indexed file-level line number of the FIRST
+   *  code line inside the fence (the line immediately after the opening
+   *  ```` ``` ```` row).  Populated by `Parser.extractSections` from the
+   *  CommonMark node's source spans.  Used by the LSP server to translate
+   *  block-local scalameta positions back into file-level positions for
+   *  hover and definition responses.  Default `0` preserves backward
+   *  compatibility with callers that construct `CodeBlock` directly. */
   case CodeBlock(
     lang: String,
     source: String,
     tree: Option[ScalaNode],
     span: Option[Span] = None,
-    parseError: Option[CodeBlockParseError] = None
+    parseError: Option[CodeBlockParseError] = None,
+    lineOffset: Int = 0
   )
   /** Markdown link that acts as a module import: `[Name, …](path)`. */
   case Import(path: String, bindings: List[ImportBinding], span: Option[Span] = None)
