@@ -146,7 +146,7 @@ object WebServer:
       else
       Routes.matchRequest(method, rawPath) match
         case Some((entry, params)) =>
-          dispatchRoute(entry, params, ex)
+          dispatchRoute(entry, params, ex, log)
         case None =>
           // No route matched.  Try, in order:
           //   1. A static asset (any non-.ssc file under the root) — serve
@@ -190,161 +190,87 @@ object WebServer:
       log.println(s"http\tip=$accessIp\tmethod=$accessMethod\tpath=$accessPath\tstatus=$effCode\tduration_ms=$durMs\tua=\"${accessUa.replace('"', '\'')}\"")
       ex.close()
 
-  /** Invoke the user's route handler closure with a `Request` value, then
-   *  serialise its returned `Response` value back to the HTTP exchange. */
+  /** Adapt the user's `Value.Closure` route handler + registered Value-
+   *  middleware into the POJO-shape `HttpDispatchLoop.run` expects, then
+   *  delegate the per-request envelope (parse + chain + RestValidationError
+   *  → 400 + StreamResponse / Response dispatch + cleanup) to the shared
+   *  loop.  The interpreter-only work that remains here is exactly the
+   *  POJO ↔ `Value` conversion at the dispatcher boundary. */
   private def dispatchRoute(
       entry:  Routes.Entry,
       params: Map[String, String],
-      ex:     HttpExchange
+      ex:     HttpExchange,
+      log:    java.io.PrintStream
   ): Unit =
-    import scalascript.interpreter.Value
-    // Parse the JDK HttpExchange through the shared RequestBuilder
-    // (runtime-server-common) so the interpreter and the codegen output
-    // emit byte-identical Requests for the same inputs.  413 on
-    // BodyTooLargeError is written here (the codegen side throws its
-    // local `_BodyTooLarge` to climb out of the dispatch loop).
-    val (pojoReq, rawCookieSession, _spooledTmps) =
-      try RequestBuilder.parse(
-        ex, ex.getRequestMethod, ex.getRequestURI.getPath, params,
-        RequestBuilder.Config(
-          maxBodySize         = _maxBodySizeBytes,
-          spoolThreshold      = _spoolThreshold,
-          uploadDir           = _uploadDir,
-          sessionStoreEnabled = SessionStore.isEnabled,
-          sessionStoreGet     = SessionStore.get,
-          jwtVerify           = Jwt.verify
-        )
-      )
-      catch case _: RequestBuilder.BodyTooLargeError =>
-        val msg = "Request Entity Too Large".getBytes("UTF-8")
-        ex.sendResponseHeaders(413, msg.length.toLong)
-        ex.getResponseBody.write(msg)
-        return
+    import scalascript.interpreter.{Value, Computation}
+    val interp = entry.interpreter
 
-    // Lift the POJO Request into the `Value.InstanceV("Request", …)`
-    // shape user-defined route handlers expect.  `files` carry the
-    // shared POJO `UploadedFile` records, which need their own
-    // wrap into `Value.InstanceV("UploadedFile", …)`.
-    val req = Value.InstanceV("Request", Map(
-      "method"  -> Value.StringV(pojoReq.method),
-      "path"    -> Value.StringV(pojoReq.path),
-      "params"  -> Value.MapV(pojoReq.params.map((k, v) => Value.StringV(k) -> Value.StringV(v))),
-      "query"   -> Value.MapV(pojoReq.query.map((k, v) => Value.StringV(k) -> Value.StringV(v))),
-      "headers" -> Value.MapV(pojoReq.headers.map((k, v) => Value.StringV(k) -> Value.StringV(v))),
-      "body"    -> Value.StringV(pojoReq.body),
-      // Lenient `req.json` — Some(parsed) on success, None on parse
-      // failure or empty body.
-      "json"    -> Value.OptionV(
-        if pojoReq.body.isEmpty then None
-        else scalascript.interpreter.JsonParser.parseOption(pojoReq.body)
-      ),
-      "form"    -> Value.MapV(pojoReq.form.map((k, v) => Value.StringV(k) -> Value.StringV(v))),
-      "files"   -> Value.MapV(pojoReq.files.map { case (k, f) =>
-        Value.StringV(k) -> Value.InstanceV("UploadedFile", Map(
-          "name"        -> Value.StringV(f.name),
-          "filename"    -> Value.StringV(f.filename),
-          "contentType" -> Value.StringV(f.contentType),
-          "size"        -> Value.IntV(f.size),
-          "bytes"       -> Value.StringV(f.bytes),
-          "path"        -> Value.StringV(f.path)
-        ))
-      }),
-      "session" -> Value.MapV(pojoReq.session.map((k, v) => Value.StringV(k) -> Value.StringV(v))),
-      "cookies" -> Value.MapV(pojoReq.cookies.map((k, v) => Value.StringV(k) -> Value.StringV(v))),
-      "bearerToken" -> pojoReq.bearerToken.map(t => Value.OptionV(Some(Value.StringV(t))))
-        .getOrElse(Value.OptionV(None)),
-      "jwtClaims"   -> pojoReq.jwtClaims.map(c =>
-          Value.OptionV(Some(Value.MapV(c.map((k, v) => Value.StringV(k) -> Value.StringV(v))))))
-        .getOrElse(Value.OptionV(None)),
-      "basicAuth"   -> pojoReq.basicAuth.map((u, p) =>
-          Value.OptionV(Some(Value.TupleV(List(Value.StringV(u), Value.StringV(p))))))
-        .getOrElse(Value.OptionV(None))
-    ))
-    // Tier 5 #20 — typed-validation primitives short-circuit by
-    // throwing RestValidationError, which we catch here and convert
-    // into a 400 Bad Request.  Handlers can stay linear:
-    //   val email = requireString(req, "email")
-    //   val age   = requireInt(req, "age")
-    //   ...
-    // Build middleware chain: innermost = route handler, outermost = first registered middleware.
-    val mws = Routes.middlewares
-    def baseHandler(): Value =
-      try entry.interpreter.invoke(entry.handler, List(req))
-      catch case ve: RestValidationError =>
-        Value.InstanceV("Response", Map(
-          "status"  -> Value.IntV(400),
-          "headers" -> Value.MapV(Map(
-            Value.StringV("Content-Type") -> Value.StringV("text/plain; charset=utf-8")
-          )),
-          "body"    -> Value.StringV(ve.getMessage)
-        ))
-    var chain: () => Value = () => baseHandler()
-    mws.reverse.foreach { (fn, interp) =>
-      val nextChain = chain
-      val nextFn = scalascript.interpreter.Value.NativeFnV("next",
-        scalascript.interpreter.Computation.pureFn { _ => nextChain() })
-      chain = () => interp.invoke(fn, List(req, nextFn))
-    }
-    try
-      val result = chain()
-      result match
-        case Value.InstanceV("StreamResponse", fields) =>
-          handleStreamResponse(fields, ex, rawCookieSession, entry.interpreter)
-        case _ =>
-          writeResponse(result, ex, rawCookieSession)
-    finally
-      _spooledTmps.foreach(f => try f.delete() catch case _: Throwable => ())
+    // POJO Request → `Value.InstanceV("Request", …)`.  Files lift to
+    // their own `Value.InstanceV("UploadedFile", …)` records.  `req.json`
+    // is lenient: `Some(parsed)` on success, `None` on parse failure
+    // or empty body.
+    def liftRequest(r: Request): Value =
+      Value.InstanceV("Request", Map(
+        "method"  -> Value.StringV(r.method),
+        "path"    -> Value.StringV(r.path),
+        "params"  -> Value.MapV(r.params.map((k, v) => Value.StringV(k) -> Value.StringV(v))),
+        "query"   -> Value.MapV(r.query.map((k, v) => Value.StringV(k) -> Value.StringV(v))),
+        "headers" -> Value.MapV(r.headers.map((k, v) => Value.StringV(k) -> Value.StringV(v))),
+        "body"    -> Value.StringV(r.body),
+        "json"    -> Value.OptionV(
+          if r.body.isEmpty then None
+          else scalascript.interpreter.JsonParser.parseOption(r.body)
+        ),
+        "form"    -> Value.MapV(r.form.map((k, v) => Value.StringV(k) -> Value.StringV(v))),
+        "files"   -> Value.MapV(r.files.map { case (k, f) =>
+          Value.StringV(k) -> Value.InstanceV("UploadedFile", Map(
+            "name"        -> Value.StringV(f.name),
+            "filename"    -> Value.StringV(f.filename),
+            "contentType" -> Value.StringV(f.contentType),
+            "size"        -> Value.IntV(f.size),
+            "bytes"       -> Value.StringV(f.bytes),
+            "path"        -> Value.StringV(f.path)
+          ))
+        }),
+        "session" -> Value.MapV(r.session.map((k, v) => Value.StringV(k) -> Value.StringV(v))),
+        "cookies" -> Value.MapV(r.cookies.map((k, v) => Value.StringV(k) -> Value.StringV(v))),
+        "bearerToken" -> r.bearerToken.map(t => Value.OptionV(Some(Value.StringV(t))))
+          .getOrElse(Value.OptionV(None)),
+        "jwtClaims"   -> r.jwtClaims.map(c =>
+            Value.OptionV(Some(Value.MapV(c.map((k, v) => Value.StringV(k) -> Value.StringV(v))))))
+          .getOrElse(Value.OptionV(None)),
+        "basicAuth"   -> r.basicAuth.map((u, p) =>
+            Value.OptionV(Some(Value.TupleV(List(Value.StringV(u), Value.StringV(p))))))
+          .getOrElse(Value.OptionV(None))
+      ))
 
-  private def handleStreamResponse(
-      fields:  Map[String, scalascript.interpreter.Value],
-      ex:      HttpExchange,
-      @annotation.unused _unused: Map[String, String],
-      interp:  Interpreter
-  ): Unit =
-    import scalascript.interpreter.Value
-    val status = fields.get("status") match
-      case Some(Value.IntV(n)) => n.toInt
-      case _                   => 200
-    val hdrs = fields.get("headers") match
-      case Some(Value.MapV(m)) => m.collect { case (Value.StringV(k), Value.StringV(v)) => k -> v }.toMap
-      case _                   => Map.empty[String, String]
-    val callback = fields.getOrElse("callback",
-      throw new RuntimeException("StreamResponse missing callback"))
-    // Delegate to the shared `StreamResponseWriter` (CORS + headers +
-    // chunked write).  The interpreter-specific `runWriter` builds a
-    // `Value.NativeFnV` that forwards each `write` call back into the
-    // user closure via `Interpreter.invoke`.
-    StreamResponseWriter.write(ex, status, hdrs,
-      ResponseWriter.Config(
-        corsOrigins = _corsOrigins,
-        corsMethods = _corsMethods,
-        corsHeaders = _corsHeaders
-      ),
-      { write =>
-        val writeNative = Value.NativeFnV("streamWrite",
-          scalascript.interpreter.Computation.pureFn { args =>
-            val chunk = args match
-              case List(Value.StringV(s)) => s
-              case List(other)            => Value.show(other)
-              case _                      => ""
-            write(chunk)
-            Value.UnitV
-          })
-        interp.invoke(callback, List(writeNative))
-      }
-    )
-
-  /** Convert a `Value.InstanceV("Response", …)` (or string / unit) into
-   *  the POJO `Response` and hand off to the shared `ResponseWriter`
-   *  (in runtime-server-common) which performs CORS / setSession / 304
-   *  / gzip / body write. */
-  private def writeResponse(
-      v:                scalascript.interpreter.Value,
-      ex:               HttpExchange,
-      rawCookieSession: Map[String, String]
-  ): Unit =
-    import scalascript.interpreter.Value
-    val resp = v match
+    // `Value` user-handler result → POJO `Response` / `StreamResponse` /
+    // text auto-wrap.  The StreamResponse case carries a `writer` closure
+    // that bridges chunked writes back into the user's `callback: Closure`
+    // via `interp.invoke`.
+    def unwrap(v: Value): Any = v match
+      case Value.InstanceV("StreamResponse", fields) =>
+        val status = fields.get("status") match
+          case Some(Value.IntV(n)) => n.toInt
+          case _                   => 200
+        val hdrs = fields.get("headers") match
+          case Some(Value.MapV(m)) =>
+            m.collect { case (Value.StringV(k), Value.StringV(v)) => k -> v }.toMap
+          case _ => Map.empty[String, String]
+        val callback = fields.getOrElse("callback",
+          throw new RuntimeException("StreamResponse missing callback"))
+        StreamResponse(status, hdrs, { write =>
+          val writeNative = Value.NativeFnV("streamWrite",
+            Computation.pureFn { args =>
+              val chunk = args match
+                case List(Value.StringV(s)) => s
+                case List(other)            => Value.show(other)
+                case _                      => ""
+              write(chunk)
+              Value.UnitV
+            })
+          interp.invoke(callback, List(writeNative))
+        })
       case Value.InstanceV("Response", fields) =>
         val s = fields.get("status") match
           case Some(Value.IntV(n)) => n.toInt
@@ -357,9 +283,6 @@ object WebServer:
           case Some(Value.StringV(s)) => s
           case Some(other)            => Value.show(other)
           case None                   => ""
-        // `withSession`/`clearSession` attach a `setSession: Map[String, String]`
-        // field — Some(empty) means clear, Some(non-empty) means write,
-        // None means leave the client's cookie alone.
         val ss = fields.get("setSession") match
           case Some(Value.MapV(m)) =>
             Some(m.collect { case (Value.StringV(k), Value.StringV(v)) => k -> v }.toMap)
@@ -368,15 +291,58 @@ object WebServer:
       case Value.StringV(s) => Response(200, Map("Content-Type" -> "text/plain; charset=utf-8"), s)
       case Value.UnitV      => Response(204, Map.empty, "")
       case other            => Response(200, Map("Content-Type" -> "text/plain; charset=utf-8"), Value.show(other))
-    ResponseWriter.write(ex, resp, rawCookieSession, ResponseWriter.Config(
-      corsOrigins         = _corsOrigins,
-      corsMethods         = _corsMethods,
-      corsHeaders         = _corsHeaders,
-      gzipEnabled         = _gzipEnabled,
-      sessionStoreEnabled = SessionStore.isEnabled,
-      sessionStoreDelete  = SessionStore.delete,
-      sessionStorePut     = SessionStore.put
-    ))
+
+    // Re-lift the POJO result of `next()` (inner middleware / handler
+    // output) back into a `Value` the user-middleware body can read
+    // `.status` / `.body` / `.headers` from.  StreamResponse lifts to a
+    // stub with no callback — middlewares typically only inspect or
+    // mutate headers, not re-run stream writers.
+    def reliftAnyToValue(any: Any): Value = any match
+      case sr: StreamResponse =>
+        Value.InstanceV("StreamResponse", Map(
+          "status"  -> Value.IntV(sr.status),
+          "headers" -> Value.MapV(sr.headers.map((k, v) => Value.StringV(k) -> Value.StringV(v)))))
+      case r: Response =>
+        Value.InstanceV("Response", Map(
+          "status"  -> Value.IntV(r.status),
+          "headers" -> Value.MapV(r.headers.map((k, v) => Value.StringV(k) -> Value.StringV(v))),
+          "body"    -> Value.StringV(r.body)))
+      case other => Value.StringV(String.valueOf(other))
+
+    val pojoHandler: Request => Any =
+      req => unwrap(interp.invoke(entry.handler, List(liftRequest(req))))
+
+    val pojoMws: Vector[(Request, () => Any) => Any] =
+      Routes.middlewares.iterator.map { (fn, mwInterp) =>
+        val adapt: (Request, () => Any) => Any = (req, next) =>
+          val nextFn = Value.NativeFnV("next",
+            Computation.pureFn(_ => reliftAnyToValue(next())))
+          unwrap(mwInterp.invoke(fn, List(liftRequest(req), nextFn)))
+        adapt
+      }.toVector
+
+    HttpDispatchLoop.run(
+      ex, ex.getRequestMethod, ex.getRequestURI.getPath, params,
+      pojoHandler, pojoMws,
+      HttpDispatchLoop.Config(
+        reqBuilder = RequestBuilder.Config(
+          maxBodySize         = _maxBodySizeBytes,
+          spoolThreshold      = _spoolThreshold,
+          uploadDir           = _uploadDir,
+          sessionStoreEnabled = SessionStore.isEnabled,
+          sessionStoreGet     = SessionStore.get,
+          jwtVerify           = Jwt.verify),
+        respWriter = ResponseWriter.Config(
+          corsOrigins         = _corsOrigins,
+          corsMethods         = _corsMethods,
+          corsHeaders         = _corsHeaders,
+          gzipEnabled         = _gzipEnabled,
+          sessionStoreEnabled = SessionStore.isEnabled,
+          sessionStoreDelete  = SessionStore.delete,
+          sessionStorePut     = SessionStore.put),
+        fiveXxCounter = Metrics.http5xx),
+      onError = e => log.println(s"Error: ${e.getMessage}")
+    )
 
   /** Resolve a static (non-`.ssc`) file under `root` from the URL path.
    *  Returns the file only if it exists, is a regular file, lies inside
@@ -389,10 +355,10 @@ object WebServer:
   private def serveStatic(file: java.io.File, ex: HttpExchange): Unit =
     StaticAssetServer.serve(file, ex)
 
-  // `parseMultipart` and `parseQuery` (previously local Value-bridge
-  // wrappers) collapsed into `RequestBuilder.parse` — see `dispatchRoute`
-  // above for the single call site that now does the POJO → Value lift
-  // inline on the `pojoReq.files` map.
+  // `parseMultipart`, `parseQuery`, `contentTypeFor` (previously local
+  // Value-bridge wrappers) collapsed into `RequestBuilder.parse` /
+  // `HttpHelpers` calls — the consolidated runtime-server-common
+  // helpers are the single source of truth.
 
   private def resolveSsc(root: String, urlPath: String): String =
     val clean = urlPath.stripSuffix("/").stripSuffix(".ssc")

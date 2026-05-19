@@ -2754,8 +2754,9 @@ class JvmGen(
       "SessionCookie", "SessionStore", "OAuth", "WebAuthn",
       "UploadedFile", "HttpHelpers", "Multipart", "TlsContextBuilder",
       "CorsHelpers", "HttpModel", "BasicAuth", "ResponseWriter",
-      "RequestBuilder", "StreamResponseWriter", "StaticAssetServer",
-      "WsHandshake", "WsReassembler", "WsRateLimiter"
+      "RequestBuilder", "StreamResponseWriter", "HttpDispatchLoop",
+      "StaticAssetServer", "WsHandshake", "WsReassembler",
+      "WsFrameDispatch", "WsRateLimiter"
     )
     val header =
       "\n// ── runtime-server-common (inlined from classpath resources) ──────────\n" +
@@ -3403,7 +3404,6 @@ class JvmGen(
        |// ── Body size limit ───────────────────────────────────────────────────
        |@volatile private var _maxBodySizeBytes: Long = Long.MaxValue
        |def maxBodySize(n: Int): Unit = _maxBodySizeBytes = n.toLong
-       |private class _BodyTooLarge extends Exception("Request Entity Too Large")
        |
        |// ── Upload spool-to-disk ──────────────────────────────────────────────
        |@volatile private var _spoolThreshold: Long = 1024L * 1024L
@@ -3482,53 +3482,31 @@ class JvmGen(
        |      .nextOption()
        |    matched match
        |      case Some((r, params)) =>
-       |        // Parse the JDK HttpExchange into the shared POJO `Request` via
-       |        // RequestBuilder (inlined from runtime-server-common).  Per-server
-       |        // config — body cap, opt-in session store, JWT verify — flows in
-       |        // through the Config record's callbacks.
-       |        val (req, rawCookieSession, _spooledTmps) =
-       |          try RequestBuilder.parse(ex, method, path, params, RequestBuilder.Config(
-       |            maxBodySize         = _maxBodySizeBytes,
-       |            spoolThreshold      = _spoolThreshold,
-       |            uploadDir           = _uploadDir,
-       |            sessionStoreEnabled = _sessionStoreEnabled,
-       |            sessionStoreGet     = _sessionStoreGet,
-       |            jwtVerify           = jwtVerify
-       |          ))
-       |          catch case _: RequestBuilder.BodyTooLargeError => throw _BodyTooLarge()
-       |        // Tier 5 #20 — validation primitives short-circuit by
-       |        // throwing RestValidationError; convert to 400.
-       |        // D′.2 — build middleware chain: first registered = outermost.
-       |        def _baseHandler(): Any =
-       |          try r.handler(req)
-       |          catch case ve: RestValidationError =>
-       |            Response(400, Map("Content-Type" -> "text/plain; charset=utf-8"), ve.getMessage)
-       |        var _chain: () => Any = () => _baseHandler()
-       |        _middlewares.reverseIterator.foreach { mw =>
-       |          val _inner = _chain
-       |          _chain = () => mw(req, _inner)
-       |        }
-       |        try
-       |          val _rawResult: Any = _chain()
-       |          _rawResult match
-       |            case sr: _StreamResponse =>
-       |              // Delegate to the shared StreamResponseWriter (CORS +
-       |              // headers + chunked write).  The user's `sr.writer` is
-       |              // invoked with the wire-write closure.
-       |              StreamResponseWriter.write(ex, sr.status, sr.headers,
-       |                ResponseWriter.Config(
-       |                  corsOrigins = _corsOrigins,
-       |                  corsMethods = _corsMethods,
-       |                  corsHeaders = _corsHeaders
-       |                ),
-       |                write => { sr.writer(write); () }
-       |              )
-       |            case resp: Response =>
-       |              _writeResponse(ex, resp, rawCookieSession)
-       |            case other =>
-       |              _writeResponse(ex, Response(200, Map("Content-Type" -> "text/plain; charset=utf-8"), String.valueOf(other)), rawCookieSession)
-       |        finally
-       |          _spooledTmps.foreach { f => try f.delete() catch case _: Throwable => () }
+       |        // Delegate the per-request envelope (parse + middleware
+       |        // chain + RestValidationError → 400 + StreamResponse /
+       |        // Response dispatch + tmpfile cleanup) to the shared
+       |        // `HttpDispatchLoop` (inlined from runtime-server-common).
+       |        HttpDispatchLoop.run(ex, method, path, params,
+       |          r.handler, _middlewares.toSeq,
+       |          HttpDispatchLoop.Config(
+       |            reqBuilder = RequestBuilder.Config(
+       |              maxBodySize         = _maxBodySizeBytes,
+       |              spoolThreshold      = _spoolThreshold,
+       |              uploadDir           = _uploadDir,
+       |              sessionStoreEnabled = _sessionStoreEnabled,
+       |              sessionStoreGet     = _sessionStoreGet,
+       |              jwtVerify           = jwtVerify),
+       |            respWriter = ResponseWriter.Config(
+       |              corsOrigins         = _corsOrigins,
+       |              corsMethods         = _corsMethods,
+       |              corsHeaders         = _corsHeaders,
+       |              gzipEnabled         = _gzipEnabled,
+       |              sessionStoreEnabled = _sessionStoreEnabled,
+       |              sessionStoreDelete  = _sessionStoreDelete,
+       |              sessionStorePut     = _sessionStorePut,
+       |              buildSetCookie      = _buildSetCookie),
+       |            fiveXxCounter = _Metrics.http5xx),
+       |          onError = e => System.err.println(s"route error: ${e.getMessage}"))
        |      case None =>
        |        // Fall through to a static file under the current directory
        |        // before 404'ing — mirrors the interpreter's WebServer.
@@ -3541,10 +3519,6 @@ class JvmGen(
        |            ex.getResponseBody.write(msg)
        |    }
        |  catch
-       |    case _: _BodyTooLarge =>
-       |      val _m = "Request Entity Too Large".getBytes("UTF-8")
-       |      ex.sendResponseHeaders(413, _m.length.toLong)
-       |      ex.getResponseBody.write(_m)
        |    case e: Exception =>
        |      System.err.println(s"route error: ${e.getMessage}")
        |      _Metrics.http5xx.incrementAndGet()
@@ -3562,22 +3536,6 @@ class JvmGen(
        |            "\tduration_ms="      + _durMs +
        |            "\tua=\""             + _uaSan + "\"")
        |    ex.close()
-       |
-       |private def _writeResponse(
-       |    ex:               com.sun.net.httpserver.HttpExchange,
-       |    r:                Response,
-       |    rawCookieSession: Map[String, String] = Map.empty
-       |): Unit =
-       |  ResponseWriter.write(ex, r, rawCookieSession, ResponseWriter.Config(
-       |    corsOrigins         = _corsOrigins,
-       |    corsMethods         = _corsMethods,
-       |    corsHeaders         = _corsHeaders,
-       |    gzipEnabled         = _gzipEnabled,
-       |    sessionStoreEnabled = _sessionStoreEnabled,
-       |    sessionStoreDelete  = _sessionStoreDelete,
-       |    sessionStorePut     = _sessionStorePut,
-       |    buildSetCookie      = _buildSetCookie
-       |  ))
        |
        |/** Try to serve a static asset under the cwd — delegates to the
        | *  shared `StaticAssetServer.tryServe` (resolve + traversal guard +
@@ -3652,7 +3610,7 @@ class JvmGen(
        |  /** Wall-clock time of upgrade — feeds `duration_ms` into the
        |   *  Sprint-4 close log. */
        |  private val _startedAtMs: Long = java.lang.System.currentTimeMillis()
-       |  import java.io.{BufferedInputStream, ByteArrayOutputStream, OutputStream}
+       |  import java.io.{BufferedInputStream, OutputStream}
        |  import java.nio.charset.StandardCharsets
        |  import java.util.concurrent.{LinkedBlockingQueue, ScheduledFuture, TimeUnit}
        |  import java.util.concurrent.atomic.AtomicReference
@@ -3670,14 +3628,14 @@ class JvmGen(
        |  private val DeadAfterMs:         Long = 90_000L
        |  @volatile private var lastPongAt: Long = java.lang.System.currentTimeMillis()
        |  @volatile private var heartbeatTask: ScheduledFuture[?] = null
-       |  // Fragmented-message reassembly (RFC 6455 §5.4): the first frame
-       |  // of a fragmented message carries the data opcode with FIN=0,
-       |  // follow-up frames are Continuation (opcode=0) with the rest,
-       |  // the last with FIN=1.  Control frames may interleave freely.
-       |  // Held strictly on the read-loop thread so no synchronisation
-       |  // needed beyond the loop itself.
-       |  private var fragOpcode: Int = -1
-       |  private val fragBuf     = ByteArrayOutputStream()
+       |  // Fragmented-message reassembly (RFC 6455 §5.4) delegated to
+       |  // the shared `WsReassembler` (inlined from runtime-server-common).
+       |  // The read-loop dispatches control frames (Ping/Pong/Close)
+       |  // inline and routes Text/Binary/Continuation frames through
+       |  // `_reassembler.feed(...)` — its `Event` enum is the one place
+       |  // the FIN=0 / opcode=0 / oversize logic lives.  Touched only on
+       |  // the read-loop thread, so no synchronisation needed.
+       |  private val _reassembler = new WsReassembler(_WsMaxFrameBytes)
        |  private val out: OutputStream                     = socket.getOutputStream
        |
        |  // Outbound write queue: every `send` / `close` / `pong` parks a
@@ -3861,54 +3819,30 @@ class JvmGen(
        |        var offset = 0
        |        var more   = true
        |        while more do
-       |          _wsParseFrame(buf, offset, len) match
-       |            case null => more = false
-       |            case (fr, consumed) =>
-       |              offset += consumed
-       |              fr.opcode match
-       |                case 0x9 =>
-       |                  // Drop the pong if the write queue is full — peer
-       |                  // is too slow to keep up with the data flow we're
-       |                  // trying to send them anyway; the next ping will
-       |                  // time out and the writer will force-close.
-       |                  outQ.offer(_wsEncodePong(fr.payload))
-       |                case 0xA =>
+       |          WsFraming.tryParse(buf, offset, len) match
+       |            case None     => more = false
+       |            case Some(fr) =>
+       |              offset += fr.consumed
+       |              val outcome = WsFrameDispatch.handle(fr, _reassembler,
+       |                // Drop the pong if the write queue is full — peer is too
+       |                // slow to keep up with the data flow we're trying to
+       |                // send them anyway; the next ping will time out and the
+       |                // writer will force-close.
+       |                onPing      = p => { outQ.offer(_wsEncodePong(p)); () },
+       |                onPong      = p => {
        |                  lastPongAt = java.lang.System.currentTimeMillis()
        |                  val cb = onPongCb
        |                  if cb != null then
-       |                    val payload = new String(fr.payload, "ISO-8859-1")
+       |                    val payload = new String(p, "ISO-8859-1")
        |                    _serverExecutor.execute { () =>
        |                      try cb(payload) catch case e: Throwable =>
        |                        System.err.println(s"WS onPong handler: ${e.getMessage}")
        |                    }
-       |                case 0x8 =>
-       |                  val status =
-       |                    if fr.payload.length >= 2
-       |                    then ((fr.payload(0) & 0xFF) << 8) | (fr.payload(1) & 0xFF)
-       |                    else 1000
-       |                  close(status, "")
-       |                  return
-       |                case 0x1 | 0x2 =>
-       |                  if !fr.fin then
-       |                    // Start of a fragmented message.
-       |                    if fragOpcode != -1 then { close(1002, "new data frame mid-fragment"); return }
-       |                    fragOpcode = fr.opcode
-       |                    fragBuf.reset()
-       |                    fragBuf.write(fr.payload)
-       |                    if fragBuf.size > _WsMaxFrameBytes then
-       |                      fragOpcode = -1; fragBuf.reset(); close(1009, "message too big"); return
-       |                  else _dispatchWsMessage(fr.opcode, fr.payload)
-       |                case 0x0 =>
-       |                  if fragOpcode == -1 then { close(1002, "continuation without prior data frame"); return }
-       |                  fragBuf.write(fr.payload)
-       |                  if fragBuf.size > _WsMaxFrameBytes then
-       |                    fragOpcode = -1; fragBuf.reset(); close(1009, "message too big"); return
-       |                  if fr.fin then
-       |                    val op    = fragOpcode
-       |                    val bytes = fragBuf.toByteArray
-       |                    fragOpcode = -1; fragBuf.reset()
-       |                    _dispatchWsMessage(op, bytes)
-       |                case _   => close(1003, ""); return
+       |                },
+       |                onPeerClose = (status, _) => close(status, ""),
+       |                onDeliver   = (op, bytes) => _dispatchWsMessage(op.code, bytes),
+       |                onProtocolError = (code, reason) => close(code, reason))
+       |              if outcome == WsFrameDispatch.Outcome.Stop then return
        |        if offset > 0 then
        |          System.arraycopy(buf, offset, buf, 0, len - offset)
        |          len -= offset
@@ -4061,19 +3995,14 @@ class JvmGen(
        |}
        |
        |// ── Framing — adapter shims around WsFraming ─────────────────────────
-       |// RFC 6455 frame codec lives in scalascript.server.WsFraming (inlined
-       |// from runtime-server-common).  The shims keep the legacy local API
-       |// (`_WsFrame(fin, opcode: Int, payload)`, `_wsParseFrame → ... | Null`,
-       |// `_wsEncodeText/Pong/Ping/Close`, `_wsAcceptKey`) so the surrounding
-       |// `_proxyConnection` / read-loop code keeps using bare Int opcodes
-       |// (0x0/0x1/0x2/0x8/0x9/0xA) for its pattern matches.
+       |// RFC 6455 frame codec + per-frame dispatch live in
+       |// scalascript.server.WsFraming / WsFrameDispatch (inlined from
+       |// runtime-server-common).  The shims here just re-export the
+       |// frequently-used `_wsEncode*` / `_wsAcceptKey` names; the read
+       |// loop calls `WsFraming.tryParse` + `WsFrameDispatch.handle`
+       |// directly so it carries no legacy bare-Int opcode matches.
        |private val _WsMaxFrameBytes: Int = WsFraming.MaxFrameBytes
        |def _wsAcceptKey(clientKey: String): String = WsFraming.acceptKey(clientKey)
-       |private final case class _WsFrame(fin: Boolean, opcode: Int, payload: Array[Byte])
-       |private def _wsParseFrame(buf: Array[Byte], offset: Int, until: Int): (_WsFrame, Int) | Null =
-       |  WsFraming.tryParse(buf, offset, until) match
-       |    case None    => null
-       |    case Some(f) => (_WsFrame(f.fin, f.opcode.code, f.payload), f.consumed)
        |def _wsEncodeText(s: String): Array[Byte]      = WsFraming.encodeText(s)
        |def _wsEncodePong(p: Array[Byte]): Array[Byte] = WsFraming.encodePong(p)
        |def _wsEncodePing(p: Array[Byte]): Array[Byte] = WsFraming.encodePing(p)
