@@ -3209,57 +3209,35 @@ Six phases, ~2.5 weeks end-to-end.  Mostly stdlib work;
 no compiler changes beyond Phase 1 interpolator
 verification.
 
-## v1.20.1 — DSL: parser error recovery
+## v1.20.1 — DSL: parser error recovery ✓ Landed (Phases 1–4)
 
 Closes the "DSL fail-fasts on first parse error → useless
 for IDE / config files" gap.  Independent from v1.20 core
 parser; opt-in extensions on the same `Parser[A]` ADT.
 Ships as `std/parsing/recovery.ssc`.
 
-Full design in [`docs/dsl.md`](docs/dsl.md) §10 (still-open
-recovery section); design lock for this milestone happens
-at milestone start.  Three recovery strategies:
+What landed (2026-05-19):
 
-  - **Skip-to-sync-token** — `parser.recoverUntil(syncOn)`:
-    on error, advance input to next sync character / token,
-    continue parsing
-  - **Error nodes in AST** — `parser.errorNode(default)`:
-    insert `ErrorNode(message, span)` into the result AST,
-    keep parsing; LSP-friendly
-  - **Multi-error accumulation** — `parser.parseAll(input):
-    (Option[A], List[ParseError])`: never short-circuit;
-    collect every error encountered
-
-### Phase 1 — Skip-to-sync-token extension (~1 day)
-
-`extension [A](p: Parser[A]) def recoverUntil(syncOn:
-Parser[Unit]): Parser[A]`.  Conformance: malformed input
-recovers and continues parsing at next sync token.
-
-### Phase 2 — Error nodes in AST (~2 days)
-
-`ErrorNode` AST shape via `std/dsl/types.ssc`; user opts
-in by ADT subclassing.  `parser.errorNode(default)`
-extension produces `ErrorNode` on parse failure.  Used
-by IDE-friendly DSLs.
-
-### Phase 3 — Multi-error accumulation (~2 days)
-
-`parser.parseAll(input)` runs to end-of-input collecting
-errors; partial AST + error list.  Useful for batch
-validation (config files, type checking).
-
-### Phase 4 — Conformance + docs (~1 day)
-
-Three conformance tests, one per strategy.  Worked
-example: IDE-style SQL parser that builds partial AST with
-error nodes for completion.
-
-### Effort
-
-Four phases, ~1 week.  Pure stdlib work, no compiler
-changes.  Independent of v1.20.2 and v1.20.3 — can ship
-in any order after v1.20.
+- **Phase 1 — `PRecoverUntil` node + `recoverUntil` extension** —
+  `parser.recoverUntil(syncOn, default)` advances to the next sync
+  token on failure and returns the sentinel default value.
+  `advanceToSync` helper walks input character by character until
+  the sync parser matches.
+- **Phase 2 — `ErrorNode` + `PErrorNode`** — `ErrorNode(message,
+  span)` is a first-class AST node carrying a positioned parse
+  error.  `parser.errorNode(default)` inserts an `ErrorNode` on
+  failure and keeps position unchanged so outer combinators
+  continue parsing.
+- **Phase 3 — `PParseAll` + `parseAll` extension** —
+  `parser.parseAll(input)` wraps the tree in `PParseAll` and drives
+  `runParserAll`, which collects every `ParseError` into a list
+  without short-circuiting.  Returns `(Option[A], List[ParseError])`.
+- **Phase 4 — 3 conformance tests + IDE SQL example** —
+  `conformance/parsing-recover-until.ssc`,
+  `conformance/parsing-error-node.ssc`,
+  `conformance/parsing-parse-all.ssc` (one per strategy);
+  `examples/dsl-sql-recovery.ssc` — IDE-style SQL parser that builds
+  a partial AST with error nodes for completion.
 
 ## v1.20.2 — DSL: indentation-aware parsing
 

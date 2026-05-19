@@ -1,0 +1,6 @@
+result-present:true
+errors:0
+result-present:false
+errors:1
+error-msg-contains:true
+sql-errors-gte-1:true

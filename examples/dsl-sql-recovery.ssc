@@ -1,0 +1,130 @@
+#!/usr/bin/env ssc
+---
+name: dsl-sql-recovery
+version: 1.0.0
+description: v1.20.1 — IDE-style SQL parser with partial AST and error nodes; demonstrates all three recovery strategies
+---
+
+# IDE-style SQL parser with partial AST + error recovery
+
+Shows how `std/parsing/recovery.ssc` enables an IDE-friendly SQL parser that
+never halts on a single bad token: it builds the best possible partial AST,
+attaches `ErrorNode` markers at each failed site, and returns the full error
+list alongside the partial result.
+
+The parser supports a strict subset of SELECT:
+
+```
+query ::= SELECT columns FROM table [WHERE condition]
+columns ::= '*' | ident (',' ident)*
+table ::= ident
+condition ::= ident '=' quoted-string
+```
+
+## Imports
+
+[Position, Span, ParseError, ParseOk, ParseErr, Parser,
+ PChar, PString, PRegex, PSatisfy, PSucceed, PFail](../std/parsing/core.ssc)
+
+[PSequence, PChoice, PMany, POpt, PMapped, PFlatMapped, PNamed,
+ runParser](../std/parsing/combinators.ssc)
+
+[whitespace, whitespace1, identifier, integer, number, stringLit,
+ skip, keyword, token](../std/parsing/helpers.ssc)
+
+[PRecoverUntil, PErrorNode, PParseAll, ErrorNode, ParseErrors,
+ runParserAll, advanceToSync](../std/parsing/recovery.ssc)
+
+## SQL AST
+
+```scalascript
+// Columns clause: either star or a list of named columns.
+case class SqlStar()
+case class SqlColumns(names: List[Any])
+
+// WHERE condition (simplified: ident = 'string').
+case class SqlWhere(column: Any, value: Any)
+
+// Complete SELECT query — any field may be an ErrorNode on bad input.
+case class SqlQuery(
+  columns:  Any,          // SqlStar | SqlColumns | ErrorNode
+  table:    Any,          // String | ErrorNode
+  where:    Any           // Some(SqlWhere) | None | Some(ErrorNode)
+)
+```
+
+## Parsers
+
+```scalascript
+val pWs: Parser[Any]    = Parser.regex("[ \t]*")
+val pIdent: Parser[Any] = Parser.regex("[a-zA-Z_][a-zA-Z0-9_]*")
+
+// Columns: '*' or comma-separated identifiers.
+val pStar: Parser[Any] = Parser.string("*").map(_ => SqlStar())
+val pColList: Parser[Any] =
+  (pIdent ~ (Parser.string(",") ~> pWs ~> pIdent).many())
+    .map((first, rest) => SqlColumns(first :: rest))
+val pColumns: Parser[Any] = pStar | pColList
+
+// FROM <table>.
+val pFrom: Parser[Any] = Parser.string("FROM") ~> pWs ~> pIdent
+
+// Optional WHERE ident = 'value'.
+val pQuoted: Parser[Any] =
+  Parser.char('\'') ~> Parser.regex("[^']*") <~ Parser.char('\'')
+val pWhere: Parser[Any] =
+  (Parser.string("WHERE") ~> pWs ~>
+    (pIdent ~ (pWs ~> Parser.string("=") ~> pWs ~> pQuoted)))
+      .map((col, value) => SqlWhere(col, value))
+
+// Full SELECT query — each clause wrapped in errorNode for recovery.
+val pSelectKw: Parser[Any] =
+  (Parser.string("SELECT") ~> pWs).errorNode("<missing-SELECT>")
+
+val pColumnsR: Parser[Any] =
+  pColumns.errorNode(ErrorNode("missing columns", Span(Position(0), Position(0))))
+
+val pFromR: Parser[Any] =
+  (pWs ~> pFrom).errorNode(ErrorNode("missing FROM clause", Span(Position(0), Position(0))))
+
+val pWhereR: Parser[Any] =
+  (pWs ~> pWhere).opt()
+```
+
+## Running the parser
+
+```scalascript
+def parseSql(input: String): Unit =
+  // Build the combined parser tree.
+  val p: Parser[Any] = PSequence(
+    PSequence(
+      PErrorNode(Parser.string("SELECT") ~> pWs, ""),
+      PErrorNode(pColumns, ErrorNode("bad columns", Span(Position(0), Position(0))))
+    ),
+    PSequence(
+      PErrorNode(pWs ~> pFrom, ErrorNode("bad FROM", Span(Position(0), Position(0)))),
+      (pWs ~> pWhere).opt()
+    )
+  )
+
+  val (result, errors) = p.parseAll(input)
+
+  println("--- input: " + input)
+  println("parse-succeeded: " + result.isDefined)
+  println("error-count: " + errors.length)
+  errors.foreach(e => println("  error @ " + e.pos.offset + ": " + e.message))
+
+// ── Test cases ────────────────────────────────────────────────────────────
+
+// 1. Valid query.
+parseSql("SELECT * FROM users")
+
+// 2. Missing FROM clause — column parse succeeds, FROM fails.
+parseSql("SELECT name BORKED users")
+
+// 3. Completely malformed — both columns and FROM fail.
+parseSql("BOGUS QUERY HERE")
+
+// 4. Valid with WHERE clause.
+parseSql("SELECT id FROM orders WHERE status = 'open'")
+```

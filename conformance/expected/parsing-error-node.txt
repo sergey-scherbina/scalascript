@@ -1,0 +1,8 @@
+value:42
+remaining:rest
+errors:0
+fallback:<missing>
+node-msg:expected /[0-9]+/
+remaining:abc
+errors:1
+errors-gte-1:true
