@@ -477,69 +477,106 @@ def incrementalBuildCommand(args: List[String]): Unit =
       skipped += 1
     else
       print(s"  [compile]  $relPath ... ")
-      val ok = scala.util.Try {
-        val sourceBytes = os.read.bytes(node.path)
-        val src         = new String(sourceBytes, "UTF-8")
-        val module      = Parser.parse(src)
-        // Structured parse-error diagnostic: bail BEFORE Normalize / Typer
-        // emit their own opaque secondary messages.  Returning a recognisable
-        // exception keeps the `[compile] ... FAIL` line + the structured
-        // diagnostic that `reportCodeBlockParseErrors` already wrote.
-        if reportCodeBlockParseErrors(module, relPath) then
-          throw new RuntimeException("parse error (see diagnostic above)")
-        val ir          = Normalize(module)
-        val iface       = InterfaceExtractor.extract(module, sourceBytes)
-        val sourceHash  = iface.sourceHash
+      // Unified-diagnostic capture: inner helpers (e.g.
+      // `reportCodeBlockParseErrors`) emit structured diagnostics on
+      // `System.err` because the standalone CLI surfaces (`compile-jvm
+      // a.ssc`) want them on stderr.  But for `build --incremental`, a
+      // CI consumer that pipes only stdout to a log should still see
+      // both the "what" (FAIL) and the "why" (the diagnostic) — so we
+      // redirect stderr to a buffer for the duration of the per-module
+      // work, then on failure splice the buffer onto stdout under the
+      // FAIL line (indented by 2 spaces).  MVP: redirect-stderr-to-buf
+      // — keeps inner helpers untouched.  Long-term: refactor inner
+      // helpers to return `Either[Diagnostic, _]` and format here.
+      val capturedErr = new java.io.ByteArrayOutputStream()
+      val savedErr    = System.err
+      val capturedPs  = new java.io.PrintStream(capturedErr, true, "UTF-8")
+      System.setErr(capturedPs)
+      val ok =
+        try scala.util.Try {
+          val sourceBytes = os.read.bytes(node.path)
+          val src         = new String(sourceBytes, "UTF-8")
+          val module      = Parser.parse(src)
+          // Structured parse-error diagnostic: bail BEFORE Normalize / Typer
+          // emit their own opaque secondary messages.  Returning a recognisable
+          // exception keeps the `[compile] ... FAIL` line + the structured
+          // diagnostic that `reportCodeBlockParseErrors` already wrote.
+          if reportCodeBlockParseErrors(module, relPath) then
+            throw new RuntimeException("parse error (see diagnostic above)")
+          val ir          = Normalize(module)
+          val iface       = InterfaceExtractor.extract(module, sourceBytes)
+          val sourceHash  = iface.sourceHash
 
-        val scimPath = artDir / (baseName + ".scim")
-        val scirPath = artDir / (baseName + ".scir")
+          val scimPath = artDir / (baseName + ".scim")
+          val scirPath = artDir / (baseName + ".scir")
 
-        // Always (re)write .scim + .scir if those are stale.
-        if coreStale then
-          ArtifactIO.writeInterfaceFile(iface, scimPath)
-          ArtifactIO.writeIrFile(ir, node.pkg, module.manifest.flatMap(_.name), sourceHash, scirPath)
+          // Always (re)write .scim + .scir if those are stale.
+          if coreStale then
+            ArtifactIO.writeInterfaceFile(iface, scimPath)
+            ArtifactIO.writeIrFile(ir, node.pkg, module.manifest.flatMap(_.name), sourceHash, scirPath)
 
-        if emitJvm then
-          val scjvmPath = artDir / (baseName + ".scjvm")
-          // Only re-run JvmGen if the .scjvm itself is stale; if only the
-          // .scim/.scir went stale (impossible without source change here,
-          // since both share the SHA-256 check, but defensive) skip the
-          // expensive codegen.
-          if jvmStale || !os.exists(scjvmPath) then
-            val baseDir     = Some(node.path / os.up)
-            val scalaSource = JvmGen.generate(module, baseDir)
-            val rawImports  = collectImports(module.sections)
-            val depAliases  = module.manifest.toList.flatMap(_.dependencies.keys)
-            val imports     = (rawImports ++ depAliases).distinct.toList
-            val moduleId    = module.manifest.flatMap(_.name).getOrElse(baseName)
-            JvmArtifactIO.writeJvmFile(
-              moduleId, node.pkg, module.manifest.flatMap(_.name),
-              sourceHash, scalaSource, imports, scjvmPath
-            )
+          if emitJvm then
+            val scjvmPath = artDir / (baseName + ".scjvm")
+            // Only re-run JvmGen if the .scjvm itself is stale; if only the
+            // .scim/.scir went stale (impossible without source change here,
+            // since both share the SHA-256 check, but defensive) skip the
+            // expensive codegen.
+            if jvmStale || !os.exists(scjvmPath) then
+              val baseDir     = Some(node.path / os.up)
+              val scalaSource = JvmGen.generate(module, baseDir)
+              val rawImports  = collectImports(module.sections)
+              val depAliases  = module.manifest.toList.flatMap(_.dependencies.keys)
+              val imports     = (rawImports ++ depAliases).distinct.toList
+              val moduleId    = module.manifest.flatMap(_.name).getOrElse(baseName)
+              JvmArtifactIO.writeJvmFile(
+                moduleId, node.pkg, module.manifest.flatMap(_.name),
+                sourceHash, scalaSource, imports, scjvmPath
+              )
 
-        if emitJs then
-          val scjsPath = artDir / (baseName + ".scjs")
-          // Only re-run JsGen if the .scjs itself is stale.
-          if jsStale || !os.exists(scjsPath) then
-            val baseDir    = Some(node.path / os.up)
-            val userJs     = JsGen.generate(module, baseDir)
-            val jsSource   = buildScjsSource(userJs)
-            val rawImports = collectImports(module.sections)
-            val depAliases = module.manifest.toList.flatMap(_.dependencies.keys)
-            val imports    = (rawImports ++ depAliases).distinct.toList
-            val moduleId   = module.manifest.flatMap(_.name).getOrElse(baseName)
-            JsArtifactIO.writeJsFile(
-              moduleId, node.pkg, module.manifest.flatMap(_.name),
-              sourceHash, jsSource, imports, scjsPath
-            )
-      }
+          if emitJs then
+            val scjsPath = artDir / (baseName + ".scjs")
+            // Only re-run JsGen if the .scjs itself is stale.
+            if jsStale || !os.exists(scjsPath) then
+              val baseDir    = Some(node.path / os.up)
+              val userJs     = JsGen.generate(module, baseDir)
+              val jsSource   = buildScjsSource(userJs)
+              val rawImports = collectImports(module.sections)
+              val depAliases = module.manifest.toList.flatMap(_.dependencies.keys)
+              val imports    = (rawImports ++ depAliases).distinct.toList
+              val moduleId   = module.manifest.flatMap(_.name).getOrElse(baseName)
+              JsArtifactIO.writeJsFile(
+                moduleId, node.pkg, module.manifest.flatMap(_.name),
+                sourceHash, jsSource, imports, scjsPath
+              )
+        } finally
+          capturedPs.flush()
+          System.setErr(savedErr)
       ok match
         case scala.util.Success(_) =>
           println("OK")
           compiled += 1
         case scala.util.Failure(e) =>
-          println(s"FAIL")
-          System.err.println(s"    ${e.getMessage}")
+          println("FAIL")
+          // Splice both the captured inner-helper stderr (e.g. the
+          // YAML / parse diagnostic) and the catch-all exception
+          // message onto stdout under the FAIL line, indented by 2
+          // spaces so each line visually belongs to that module.
+          val msg     = Option(e.getMessage).getOrElse(e.getClass.getSimpleName)
+          val errText = new String(capturedErr.toByteArray, "UTF-8")
+          val seen    = new scala.collection.mutable.LinkedHashSet[String]
+          // Captured stderr lines first — that's where structured
+          // line/col/snippet output lives.
+          errText.linesIterator.foreach(seen += _)
+          // Then exception message lines (skip the "see diagnostic
+          // above" placeholder when the structured diagnostic was
+          // already captured).
+          val msgLines = msg.linesIterator.toList
+          val redundant = msg.contains("parse error (see diagnostic above)") && errText.nonEmpty
+          if !redundant then msgLines.foreach(seen += _)
+          // Indent each cause line by 4 spaces — 2 more than the
+          // FAIL line's leading indent — so it visually nests under
+          // the module summary.
+          seen.foreach(line => println("    " + line))
           failed += 1
 
   println()
