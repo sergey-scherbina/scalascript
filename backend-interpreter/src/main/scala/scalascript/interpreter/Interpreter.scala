@@ -539,7 +539,12 @@ class Interpreter(
       "reduce" -> Value.NativeFnV("Dataset.reduce", {
         case List(combineFn) =>
           val items = run()
-          if items.isEmpty then throw InterpretError("Dataset.reduce: empty dataset")
+          if items.isEmpty then
+            // Throw as a user-catchable RuntimeException so `try ... catch
+            // case e: RuntimeException` can match — InterpretError would only
+            // match the JVM-class fallback in Term.Try (typeName="InterpretError").
+            throw ScriptException(Value.InstanceV("RuntimeException",
+              Map("message" -> Value.StringV("Dataset.reduce: empty dataset"))))
           val result = items.tail.foldLeft(items.head) { (acc, item) =>
             Computation.run(callValue(combineFn, List(acc, item), Map.empty))
           }
@@ -2584,6 +2589,25 @@ class Interpreter(
           // Named args (Term.Assign) must evaluate only the RHS; the full
           // Term.Assign path at line 2338 treats them as var-assignments and
           // returns UnitV, destroying the actual value.
+          val argComps = app.argClause.values.map {
+            case Term.Assign(_, rhs) => eval(rhs, env)
+            case other               => eval(other, env)
+          }
+          qualC match
+            case Pure(qualV) if argComps.forall(_.isInstanceOf[Pure]) =>
+              val argVs = argComps.map { case Pure(v) => v; case _ => Value.UnitV }
+              dispatch(qualV, method, argVs, env)
+            case _ =>
+              FlatMap(qualC, qualV =>
+                threadValues(argComps)(argVals => dispatch(qualV, method, argVals, env)))
+        // ── obj.method[T](args) — type args erased, dispatch with actual args
+        // Mirrors the bare Term.Select(qual, method) path above so that
+        // type-parameterised method calls like `Dataset.of[Int]()` reach
+        // the dispatcher with the right argument list (otherwise the
+        // standalone `Dataset.of` would auto-call as a no-arg NativeFnV
+        // and then the outer `()` would fail on the resulting value).
+        case Term.ApplyType.After_4_6_0(Term.Select(qual, Term.Name(method)), _) =>
+          val qualC    = eval(qual, env)
           val argComps = app.argClause.values.map {
             case Term.Assign(_, rhs) => eval(rhs, env)
             case other               => eval(other, env)
