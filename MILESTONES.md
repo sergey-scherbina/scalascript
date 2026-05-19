@@ -6709,3 +6709,93 @@ Depends on blockchain-spi Phase 1.
 
 - [ ] `wallet-vault-mpc` — HTTP client to external MPC provider
 - [ ] Curve-specific (one backend per curve)
+
+---
+
+## MCP × x402 × Wallet — agentic payments
+
+Spec in [`docs/mcp-x402-wallet.md`](docs/mcp-x402-wallet.md). Layers
+three integrations on top of `mcp-common`, `wallet-spi`,
+`blockchain-spi`, and `x402-*`:
+
+1. `mcp-wallet-server` — exposes `wallet-spi` operations as MCP
+   tools (sign / send / balance / accounts) under a host-controlled
+   `Policy` with `elicitation`-based consent.
+2. `mcp-x402` — lifts HTTP 402 into MCP: a new `-32402` error code
+   carrying `PaymentRequirements`, `_meta.x402.payment` field on
+   `tools/call` params, `X402AutoPay` middleware on the client.
+3. Composed flow: agent connects to a local stdio wallet server +
+   a remote priced server; on `-32402` the client middleware signs
+   via the wallet server and retries, transparently to the agent.
+
+Depends on `mcp-common` (v1.17 — already largely landed),
+`wallet-spi` Phase 1, `blockchain-spi` Phase 1, and `x402-core` /
+`x402-server`.
+
+### Phase 0 — Spec ✓ Landed (2026-05-19)
+
+- [x] `docs/mcp-x402-wallet.md` — architecture, tools, policy
+      model, error-code allocation, phase plan
+
+### Phase 1 — mcp-wallet (read-only)
+
+- [ ] `mcp-wallet` module — `Policy`, `ConfirmationMode`, types
+      (cross-compile)
+- [ ] `mcp-wallet-server` — read-only tools: `listAccounts`,
+      `getAddress`, `getBalance`; resource `wallet://accounts`
+- [ ] Stdio transport via `mcp-common`
+- [ ] Integration test: spawn server, call tools over JSON-RPC
+
+### Phase 2 — mcp-wallet signing with elicitation
+
+- [ ] Signing tools: `signMessage`, `signTypedData`, `payX402`
+- [ ] `ConfirmationMode.ElicitationPerCall` enforced
+- [ ] `elicitation/create` plumbing
+- [ ] `wallet://audit` resource
+- [ ] Test: signing blocked without elicitation; allowed after
+      approval
+
+### Phase 3 — x402 over MCP (server side)
+
+- [ ] `mcp-x402` module — `-32402` error code, `_meta.x402` shape
+- [ ] `ToolRegistration.price` + `paymentScope` fields (additive)
+- [ ] Server emits `-32402` on unpaid calls
+- [ ] Server verifies `_meta.x402.payment` via `Facilitator`
+- [ ] Unit test: priced tool returns -32402; runs with valid
+      `_meta.x402.payment`
+
+### Phase 4 — x402 over MCP (client side)
+
+- [ ] `X402AutoPay` middleware for `McpClientCore`
+- [ ] Supports local `Wallet` or `mcp-wallet-client` as signer
+- [ ] `maxAmount` ceiling, charge hook
+- [ ] End-to-end test (in-process server + client)
+
+### Phase 5 — Composed agent flow + sample
+
+- [ ] `wallet.sendTransaction` tool
+- [ ] `ConfirmationMode.ElicitationCached(ttlSec)` impl
+- [ ] `examples/mcp-paid-agent.ssc` — full demo (stdio wallet +
+      HTTP+SSE priced server + agent program)
+- [ ] Anvil-backed deterministic settle
+
+### Phase 6 — Resources & prompts pricing
+
+- [ ] `ResourceRegistration.price`, `PromptRegistration.price`
+- [ ] `-32402` on unpaid `resources/read` / `prompts/get`
+- [ ] Client middleware handles them on the same path
+
+### Phase 7 — OAuth/OIDC for remote mcp-wallet
+
+- [ ] `HttpSseTransport` support in `mcp-wallet-server`
+- [ ] OAuth/OIDC required for remote (uses existing
+      `mcp-common.oauth` / `oidc`)
+- [ ] Per-scope policy mapping
+
+### Phase 8 — Stream payments via MCP
+
+Sequenced after x402 Phase 7 (`PaymentScheme.Stream`).
+
+- [ ] Streaming-cost MCP tools (token-by-token, second-by-second)
+- [ ] `_meta.x402.streamCharge` interim charges
+- [ ] Client middleware budget tracking
