@@ -3930,7 +3930,7 @@ worth a separate fix when somebody has cycles.
   can't accumulate silently.  Tighten as `Compile / scalacOptions`
   so test code can stay slightly looser if needed.  Half-day.
 
-## CLI — native binary (GraalVM native-image)
+## CLI — native binary (GraalVM native-image) — BLOCKED (not doing this)
 
 Produce a self-contained `ssc` native executable via GraalVM native-image:
 no JVM installation required, cold-start drops from ~1-2 s → ~50-100 ms.
