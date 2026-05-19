@@ -3546,6 +3546,8 @@ const Actor = {
   subscribeLeaderEvents: ()  => _perform('Actor', 'subscribeLeaderEvents', []),
   // v1.23 — auto-reconnect policy
   setReconnectPolicy: (ini, mx) => _perform('Actor', 'setReconnectPolicy', [ini, mx]),
+  // v1.23 — periodic gossip re-discovery
+  requestGossip: () => _perform('Actor', 'requestGossip', []),
 };
 
 // `receive { case … }` lowers to a registered matcher function whose
@@ -4395,6 +4397,12 @@ function _runActors(bodyFn) {
         const mx  = Number(args[1]) | 0;
         _reconnectInitialMs = Math.max(0, ini);
         _reconnectMaxMs     = Math.max(_reconnectInitialMs, mx);
+        return { suspend: false, next: k(undefined) };
+      }
+      // v1.23 — periodic gossip re-discovery
+      case 'requestGossip': {
+        const payload = '{"t":"peers_req","from":' + JSON.stringify(_localNodeId) + '}';
+        for (const [, ch] of _peerChannels) { try { ch.send(payload); } catch (_) {} }
         return { suspend: false, next: k(undefined) };
       }
       // v1.6.x — scheduled sends
@@ -5645,7 +5653,7 @@ class JsGen(
       "Actor.selfNode", "Actor.clusterHealth",
       "Actor.broadcastHealth", "Actor.clusterIsDown",
       "Actor.electLeader", "Actor.currentLeader", "Actor.subscribeLeaderEvents",
-      "Actor.setReconnectPolicy",
+      "Actor.setReconnectPolicy", "Actor.requestGossip",
       "Actor.sendAfter", "Actor.sendInterval", "Actor.cancelTimer",
       "Logger.info", "Logger.warn", "Logger.error", "Logger.debug",
       "Random.nextInt", "Random.nextDouble", "Random.uuid", "Random.pick",
@@ -6945,6 +6953,10 @@ class JsGen(
       val ini = genExpr(argClause.values(0).asInstanceOf[Term])
       val mx  = genExpr(argClause.values(1).asInstanceOf[Term])
       s"Actor.setReconnectPolicy($ini, $mx)"
+    // v1.23 — periodic gossip re-discovery
+    case Term.Apply.After_4_6_0(Term.Name("requestGossip"), argClause)
+        if argClause.values.isEmpty =>
+      "Actor.requestGossip()"
     // v1.6.x — scheduled sends
     case Term.Apply.After_4_6_0(Term.Name("sendAfter"), argClause)
         if argClause.values.size == 3 =>
@@ -7496,6 +7508,10 @@ class JsGen(
       val ini = genExpr(argClause.values(0).asInstanceOf[Term])
       val mx  = genExpr(argClause.values(1).asInstanceOf[Term])
       s"Actor.setReconnectPolicy($ini, $mx)"
+    // v1.23 — periodic gossip re-discovery
+    case Term.Apply.After_4_6_0(Term.Name("requestGossip"), argClause)
+        if argClause.values.isEmpty =>
+      "Actor.requestGossip()"
     // v1.6.x — scheduled sends (inside CPS body)
     case Term.Apply.After_4_6_0(Term.Name("sendAfter"), argClause)
         if argClause.values.size == 3 =>

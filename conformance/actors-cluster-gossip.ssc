@@ -1,0 +1,21 @@
+#!/usr/bin/env ssc
+---
+name: actors-cluster-gossip
+description: Actor v1.23 — requestGossip is a no-op in single-node mode
+---
+
+# Gossip re-discovery — single-node
+
+`requestGossip()` broadcasts a `peers_req` envelope to every currently
+connected peer.  In a single-node process there are no peers, so this
+is a no-op that must not crash.  Multi-node behaviour (peers reply with
+their URL list and unknown URLs auto-connect) is exercised by the
+integration suite; this conformance test pins the no-peers branch
+across INT/JS/JVM.
+
+```scalascript
+runActors {
+  requestGossip()
+  println("ok")
+}
+```

@@ -37,4 +37,5 @@ This module is a thin wrapper over the actor-level intrinsics
 | Cluster-wide failure aggregation (`Cluster.broadcast` + `Cluster.isDown`) | ✓ v1.23 |
 | Bully leader election (`Cluster.elect` / `Cluster.leader` / `Cluster.subscribeLeader`) | ✓ v1.23 |
 | Auto-reconnect on outbound link drops (`Cluster.autoReconnect`) | ✓ v1.23 |
+| Periodic gossip re-discovery (`Cluster.gossip`) | ✓ v1.23 |
 | Configuration distribution | deferred |

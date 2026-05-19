@@ -98,7 +98,7 @@ class Typer(
       "phiOf", "isSuspect", "selfNode", "clusterHealth",
       "broadcastHealth", "clusterIsDown",
       "electLeader", "currentLeader", "subscribeLeaderEvents",
-      "setReconnectPolicy",
+      "setReconnectPolicy", "requestGossip",
       "sendAfter", "sendInterval", "cancelTimer",
       "delay", "async", "await", "parallel", "recvFrom",
       // tests / DSL helpers

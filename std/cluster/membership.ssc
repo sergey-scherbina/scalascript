@@ -117,4 +117,10 @@ object Cluster:
   // from `initialMs` up to `maxMs`).  Pass 0/0 to disable.
   def autoReconnect(initialMs: Long, maxMs: Long): Unit =
     setReconnectPolicy(initialMs, maxMs)
+
+  // Ask every connected peer for its peer-URL list and auto-connect to
+  // any unknown URLs.  Apps call from a timer for periodic re-discovery
+  // (the seed-list `Cluster.join` already does this on initial handshake).
+  def gossip(): Unit =
+    requestGossip()
 ```

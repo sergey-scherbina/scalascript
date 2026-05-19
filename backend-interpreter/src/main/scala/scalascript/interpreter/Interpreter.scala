@@ -1658,6 +1658,11 @@ class Interpreter(
         Perform("Actor", "setReconnectPolicy", List(Value.IntV(ini), Value.IntV(mx)))
       case _ => throw InterpretError("setReconnectPolicy(initialMs: Long, maxMs: Long): Unit")
     })
+    // v1.23 — periodic gossip re-discovery
+    globals("requestGossip") = Value.NativeFnV("requestGossip", {
+      case Nil => Perform("Actor", "requestGossip", Nil)
+      case _   => throw InterpretError("requestGossip(): Unit")
+    })
     // v1.6.x — scheduled sends
     globals("sendAfter") = Value.NativeFnV("sendAfter", {
       case List(Value.IntV(delayMs), pid @ Value.InstanceV("Pid", _), msg) =>
@@ -5166,6 +5171,14 @@ class Interpreter(
         reconnectMaxMs     = mx.max(reconnectInitialMs)
         Right(k(Value.UnitV))
       case _ => throw InterpretError("setReconnectPolicy(initialMs: Long, maxMs: Long)")
+
+    // v1.23 — periodic gossip re-discovery: ask every connected peer for
+    // its peer-URL list.  Replies come back via the existing `peers_resp`
+    // handler and feed `connectPeer` for any unknown URL.
+    case "requestGossip" =>
+      val payload = s"""{"t":"peers_req","from":${jsonStr(localNodeId)}}"""
+      peerChannels.forEach { (_, send) => try send(payload) catch case _: Throwable => () }
+      Right(k(Value.UnitV))
 
     // v1.6.x — scheduled sends
     case "sendAfter" => args match

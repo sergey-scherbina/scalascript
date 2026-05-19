@@ -471,7 +471,7 @@ class JvmGen(
         "phiOf", "isSuspect", "selfNode", "clusterHealth",
         "broadcastHealth", "clusterIsDown",
         "electLeader", "currentLeader", "subscribeLeaderEvents",
-        "setReconnectPolicy",
+        "setReconnectPolicy", "requestGossip",
         "sendAfter", "sendInterval", "cancelTimer", "processInfo")
 
   /** Case-class names defined inside `effectsRuntime` whose presence in
@@ -1475,6 +1475,10 @@ class JvmGen(
       val ini = emitExpr(argClause.values(0).asInstanceOf[Term])
       val mx  = emitExpr(argClause.values(1).asInstanceOf[Term])
       s"Actor.setReconnectPolicy($ini, $mx)"
+    // v1.23 — periodic gossip re-discovery
+    case Term.Apply.After_4_6_0(Term.Name("requestGossip"), argClause)
+        if argClause.values.isEmpty =>
+      "Actor.requestGossip()"
 
     // Focus[T](_.a.b) / Focus(_.a.b) — lower to a Lens(get, set) literal.
     // The lambda body's field-access chain becomes nested get + nested copy.
@@ -2201,6 +2205,10 @@ class JvmGen(
       val ini = emitExpr(argClause.values(0).asInstanceOf[Term])
       val mx  = emitExpr(argClause.values(1).asInstanceOf[Term])
       s"Actor.setReconnectPolicy($ini, $mx)"
+    // v1.23 — periodic gossip re-discovery
+    case Term.Apply.After_4_6_0(Term.Name("requestGossip"), argClause)
+        if argClause.values.isEmpty =>
+      "Actor.requestGossip()"
 
     case app: Term.Apply => emitCpsApply(app)
 
@@ -5277,6 +5285,8 @@ class JvmGen(
        |  def subscribeLeaderEvents(): Any                      = _perform("Actor", "subscribeLeaderEvents")
        |  // v1.23 — auto-reconnect policy (exponential backoff per peer)
        |  def setReconnectPolicy(initialMs: Any, maxMs: Any): Any = _perform("Actor", "setReconnectPolicy", initialMs, maxMs)
+       |  // v1.23 — periodic gossip re-discovery (ask peers for their peer list)
+       |  def requestGossip(): Any = _perform("Actor", "requestGossip")
        |
        |class _ActorState:
        |  val mailbox = new java.util.concurrent.LinkedBlockingQueue[Any]()
@@ -6122,6 +6132,13 @@ class JvmGen(
        |        case _         => 0L
        |      _reconnectInitialMs = ini.max(0L)
        |      _reconnectMaxMs     = max.max(_reconnectInitialMs)
+       |      Right(k(()))
+       |    // v1.23 — periodic gossip re-discovery: ask every connected peer
+       |    // for their peer-URL list.  Replies come back via the existing
+       |    // `peers_resp` handler and feed `_connectPeer` for unknown URLs.
+       |    case "requestGossip" =>
+       |      val payload = "{\"t\":\"peers_req\",\"from\":" + _jstr(_localNodeId) + "}"
+       |      _peerChannels.forEach { (_, send) => try send(payload) catch case _: Throwable => () }
        |      Right(k(()))
        |    // v1.6.x — scheduled sends
        |    case "sendAfter" =>

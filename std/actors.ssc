@@ -29,6 +29,7 @@ exports:
   - currentLeader
   - subscribeLeaderEvents
   - setReconnectPolicy
+  - requestGossip
 ---
 
 # std.actors — Actor supervision
@@ -215,6 +216,15 @@ extern def subscribeLeaderEvents(): Unit
 // outbound links (the side that called `connectNode` / `joinCluster`);
 // inbound links are the other peer's responsibility to re-establish.
 extern def setReconnectPolicy(initialMs: Long, maxMs: Long): Unit
+
+// ─── Periodic gossip re-discovery (v1.23) ────────────────────────────────────
+
+// Ask every currently-connected peer for its peer-URL list.  Replies feed
+// the existing `peers_resp` handler, which auto-connects to unknown URLs
+// using the cluster's join token.  Apps call this from a timer to pick
+// up nodes that joined elsewhere in the cluster after our initial
+// `joinCluster` handshake.  No-op when there are no peers.
+extern def requestGossip(): Unit
 
 // ─── Supervision tree ─────────────────────────────────────────────────────────
 
