@@ -29,6 +29,7 @@ class McpHttpClient(url: String, timeoutMs: Long):
   private val nextId  = AtomicLong(1L)
   @volatile private var closed = false
   @volatile private var notificationHandler: ((String, ujson.Value) => Unit) | Null = null
+  @volatile private var requestHandler:      ((String, ujson.Value) => ujson.Value) | Null = null
   @volatile private var sseThread: Thread | Null = null
 
   // Provided for API parity with McpClientCore — HTTP transport is
@@ -37,55 +38,102 @@ class McpHttpClient(url: String, timeoutMs: Long):
   // in-flight requests to complete (best-effort).
   private val pending = ConcurrentHashMap[Long, java.lang.Boolean]()
 
-  /** Register a callback for server-initiated notifications.  Spins up a
-   *  daemon reader thread that opens `<url>/events` as an SSE stream and
-   *  dispatches each parsed `data: {jsonrpc...}\n\n` frame.  Subsequent
-   *  calls replace the handler in place; the SSE thread keeps running.
-   *  Pass `null` to unregister and tear the SSE thread down.
-   *
-   *  Best-effort connection: if the server doesn't expose `/events` the
-   *  thread will keep trying to reconnect with a 1-second back-off until
-   *  the client is closed. */
+  /** Register a callback for server-initiated notifications.  Lazily
+   *  spins up the SSE reader thread on the first registration; the
+   *  thread also handles inbound Request frames if
+   *  `setRequestHandler` is registered. */
   def setNotificationHandler(h: ((String, ujson.Value) => Unit) | Null): Unit =
     notificationHandler = h
-    if h != null && sseThread == null then
-      val eventsUrl = url + "/events"
-      val t = new Thread((() => {
-        while !closed && notificationHandler != null do
-          try
-            val req = HttpRequest.newBuilder()
-              .uri(URI.create(eventsUrl))
-              .header("Accept", "text/event-stream")
-              .GET()
-              .build()
-            val resp = client.send(req, HttpResponse.BodyHandlers.ofInputStream())
-            if resp.statusCode() == 200 then
-              val reader = new java.io.BufferedReader(
-                new java.io.InputStreamReader(resp.body(), "UTF-8"))
-              // Minimal SSE parse: collect `data: ...` lines until blank
-              // line, concat, dispatch as one JSON-RPC frame.  Event
-              // names (`event: foo`) are ignored — we only use `data:`.
-              val buf = new StringBuilder()
-              var line: String | Null = null
-              while !closed && { line = reader.readLine(); line != null } do
-                if line.isEmpty then
-                  if buf.nonEmpty then
-                    val h2 = notificationHandler
-                    if h2 != null then
-                      JsonRpc.parse(buf.toString()) match
-                        case Right(JsonRpc.Message.Notification(m, p)) =>
-                          try h2(m, p) catch case _: Throwable => ()
-                        case _ => ()
-                    buf.clear()
-                else if line.startsWith("data: ") then
-                  if buf.nonEmpty then buf.append('\n')
-                  buf.append(line.substring(6))
-                // else: ignore other SSE fields (event:, id:, retry:, comments)
-          catch case _: Throwable =>
-            try Thread.sleep(1_000L) catch case _: InterruptedException => Thread.currentThread().interrupt()
-      }): Runnable, s"mcp-http-sse-reader")
-      t.setDaemon(true); t.start()
-      sseThread = t
+    ensureSseReader()
+
+  /** Register a callback for server-initiated Requests (bidirectional
+   *  sampling).  The SSE reader thread dispatches inbound Request
+   *  frames to the handler and POSTs the JSON-RPC Response back to
+   *  the same `/mcp` URL — `handleHttpRequest` server-side routes
+   *  inbound Response frames into the broadcaster's pending map.
+   *
+   *  Handler exceptions become InternalError responses; if no handler
+   *  is registered the SSE reader sends a MethodNotFound response so
+   *  the server unblocks. */
+  def setRequestHandler(h: ((String, ujson.Value) => ujson.Value) | Null): Unit =
+    requestHandler = h
+    ensureSseReader()
+
+  /** Lazily start the SSE reader thread; idempotent across multiple
+   *  setNotificationHandler / setRequestHandler calls.  Reconnects
+   *  with 1s back-off on transient transport errors. */
+  private def ensureSseReader(): Unit =
+    if sseThread != null then return
+    if notificationHandler == null && requestHandler == null then return
+    val eventsUrl = url + "/events"
+    val t = new Thread((() => {
+      while !closed && (notificationHandler != null || requestHandler != null) do
+        try
+          val req = HttpRequest.newBuilder()
+            .uri(URI.create(eventsUrl))
+            .header("Accept", "text/event-stream")
+            .GET()
+            .build()
+          val resp = client.send(req, HttpResponse.BodyHandlers.ofInputStream())
+          if resp.statusCode() == 200 then
+            val reader = new java.io.BufferedReader(
+              new java.io.InputStreamReader(resp.body(), "UTF-8"))
+            val buf = new StringBuilder()
+            var line: String | Null = null
+            while !closed && { line = reader.readLine(); line != null } do
+              if line.isEmpty then
+                if buf.nonEmpty then
+                  dispatchSseFrame(buf.toString())
+                  buf.clear()
+              else if line.startsWith("data: ") then
+                if buf.nonEmpty then buf.append('\n')
+                buf.append(line.substring(6))
+              // ignore other SSE fields (event:, id:, retry:, comments)
+        catch case _: Throwable =>
+          try Thread.sleep(1_000L) catch case _: InterruptedException => Thread.currentThread().interrupt()
+    }): Runnable, "mcp-http-sse-reader")
+    t.setDaemon(true); t.start()
+    sseThread = t
+
+  /** Route one parsed SSE-data payload (a single JSON-RPC frame).
+   *  Notification → notification handler if any.
+   *  Request      → request handler, result/error POSTed back as
+   *                 a Response frame to the same `/mcp` URL. */
+  private def dispatchSseFrame(payload: String): Unit =
+    JsonRpc.parse(payload) match
+      case Right(JsonRpc.Message.Notification(method, params)) =>
+        val h = notificationHandler
+        if h != null then try h(method, params) catch case _: Throwable => ()
+      case Right(JsonRpc.Message.Request(method, params, id)) =>
+        val h = requestHandler
+        val responseFrame =
+          if h != null then
+            try
+              val result = h(method, params)
+              JsonRpc.encodeResult(id, result)
+            catch case e: Throwable =>
+              JsonRpc.encodeError(id, JsonRpc.ErrorCode.InternalError,
+                Option(e.getMessage).getOrElse(e.getClass.getSimpleName))
+          else
+            JsonRpc.encodeError(id, JsonRpc.ErrorCode.MethodNotFound,
+              s"client has no handler for server-initiated method: $method")
+        postResponseBack(responseFrame)
+      case _ => ()  // stray Response / parse error — drop
+
+  /** POST a JSON-RPC Response frame to the server.  Fire-and-forget:
+   *  the server's `handleHttpRequest` routes responses through
+   *  `routeInboundResponse(resp)` and replies 204; we don't read
+   *  the HTTP response body. */
+  private def postResponseBack(frame: String): Unit =
+    try
+      val req = HttpRequest.newBuilder()
+        .uri(URI.create(url))
+        .timeout(Duration.ofMillis(timeoutMs))
+        .header("Content-Type", "application/json")
+        .POST(HttpRequest.BodyPublishers.ofString(frame))
+        .build()
+      client.send(req, HttpResponse.BodyHandlers.discarding())
+    catch case _: Throwable => ()  // best-effort
 
   /** Send a request and block until the HTTP response arrives. */
   def request(method: String, params: ujson.Value, customTimeoutMs: Long = 0L): Either[JsonRpc.Error, ujson.Value] =
@@ -136,6 +184,7 @@ class McpHttpClient(url: String, timeoutMs: Long):
   def close(): Unit =
     closed = true
     notificationHandler = null
+    requestHandler      = null
     // Wait briefly for in-flight requests; HttpClient itself doesn't
     // need explicit shutdown on JDK 21+ (background threads are daemon).
     val deadline = java.lang.System.currentTimeMillis() + 200L

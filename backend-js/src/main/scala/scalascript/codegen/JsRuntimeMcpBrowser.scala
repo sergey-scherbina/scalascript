@@ -164,9 +164,50 @@ function mcpConnect(transport, timeoutMs) {
   _mcpRpcNotify(url, 'notifications/initialized', {});
 
   let _closed = false;
-  let _es     = null;  // active EventSource for SSE notifications
-  let _notif  = null;  // user's onNotification handler
+  let _es     = null;   // active EventSource for SSE notifications
+  let _notif  = null;   // user's onNotification handler
+  let _onReq  = null;   // user's onRequest handler (bidirectional sampling)
   function _guard() { if (_closed) throw McpError('McpClient is closed'); }
+
+  // Lazily open one EventSource per McpClient that dispatches both
+  // Notification frames (no id) and Request frames (with id; POST
+  // the response back to the same `/mcp` URL — server's
+  // handleHttpRequest routes it through routeInboundResponse so
+  // srv.request unblocks).  Idempotent across multiple set* calls.
+  function _ensureES() {
+    if (_es || typeof EventSource === 'undefined') return;
+    const es = new EventSource(url + '/events');
+    es.onmessage = (ev) => {
+      let frame;
+      try { frame = JSON.parse(ev.data); } catch (_) { return; }
+      if (!frame || !frame.method) return;
+      if (frame.id === undefined) {
+        if (_notif) try { _notif(frame.method, frame.params || {}); } catch (_) {}
+      } else {
+        let resp;
+        try {
+          if (_onReq) {
+            const result = _onReq(frame.method, frame.params || {});
+            resp = { jsonrpc: '2.0', id: frame.id, result: result };
+          } else {
+            resp = { jsonrpc: '2.0', id: frame.id,
+                     error: { code: -32601, message: 'client has no handler for server-initiated method: ' + frame.method } };
+          }
+        } catch (e) {
+          resp = { jsonrpc: '2.0', id: frame.id,
+                   error: { code: -32603, message: (e && e.message) || String(e) } };
+        }
+        try {
+          const xhr = new XMLHttpRequest();
+          xhr.open('POST', url, true);
+          xhr.setRequestHeader('Content-Type', 'application/json');
+          xhr.send(JSON.stringify(resp));
+        } catch (_) {}
+      }
+    };
+    es.onerror = () => {};
+    _es = es;
+  }
 
   return {
     _type: 'McpClient',
@@ -176,27 +217,8 @@ function mcpConnect(transport, timeoutMs) {
     callTool:      (name, args) => { _guard(); return _mcpToolResultB    (_mcpRpcRequest(url, 'tools/call',     { name, arguments: _mcpArgsToObj(args) },               tms));            },
     readResource:  (uri)        => { _guard(); return _mcpResourceResultB(_mcpRpcRequest(url, 'resources/read', { uri },                                                tms), uri);        },
     getPrompt:     (name, args) => { _guard(); return _mcpPromptResultB  (_mcpRpcRequest(url, 'prompts/get',    { name, arguments: _mcpArgsToObj(args) },               tms));            },
-    onNotification: (handler) => {
-      // Browser-native EventSource subscribes to `<url>/events` (matches
-      // the interpreter server's SSE endpoint registered by
-      // serveMcp(Transport.Http(...))).  Each `data: <json>\n\n` frame
-      // dispatches as a notification.  EventSource auto-reconnects on
-      // network drops — no manual loop needed.
-      if (_es) { try { _es.close(); } catch (_) {} _es = null; }
-      _notif = handler;
-      if (typeof EventSource === 'undefined') return;  // no fallback in non-browser host
-      const es = new EventSource(url + '/events');
-      es.onmessage = (ev) => {
-        try {
-          const frame = JSON.parse(ev.data);
-          if (frame && frame.method && frame.id === undefined && _notif) {
-            _notif(frame.method, frame.params || {});
-          }
-        } catch (_) {}
-      };
-      es.onerror = () => {};  // EventSource auto-retries; suppress noise
-      _es = es;
-    },
+    onNotification: (handler) => { _notif = handler; _ensureES(); },
+    onRequest:      (handler) => { _onReq = handler; _ensureES(); },
     close: () => { _closed = true; if (_es) { try { _es.close(); } catch (_) {} _es = null; } },
     isClosed: () => _closed
   };
@@ -271,9 +293,43 @@ async function mcpConnectAsync(transport, timeoutMs) {
   let _closed = false;
   let _esA    = null;  // EventSource
   let _notifA = null;  // handler
+  let _onReqA = null;  // request handler (bidirectional sampling)
   function _guardA() {
     if (_closed) return Promise.reject(McpError('McpClient is closed'));
     return null;
+  }
+
+  // Lazily open one EventSource per McpClientAsync; same dispatch
+  // shape as the sync variant — notifications fan out to _notifA;
+  // requests invoke _onReqA, the result is POSTed back via fetch.
+  function _ensureESA() {
+    if (_esA || typeof EventSource === 'undefined') return;
+    const es = new EventSource(url + '/events');
+    es.onmessage = (ev) => {
+      let frame;
+      try { frame = JSON.parse(ev.data); } catch (_) { return; }
+      if (!frame || !frame.method) return;
+      if (frame.id === undefined) {
+        if (_notifA) try { _notifA(frame.method, frame.params || {}); } catch (_) {}
+      } else {
+        // Request — handler may return a Promise; await it.  Result or
+        // error becomes a Response frame fetch-POSTed back to /mcp.
+        Promise.resolve()
+          .then(() => _onReqA ? _onReqA(frame.method, frame.params || {})
+                              : Promise.reject(new Error('client has no handler for server-initiated method: ' + frame.method)))
+          .then(result => ({ jsonrpc: '2.0', id: frame.id, result: result }))
+          .catch(e => ({ jsonrpc: '2.0', id: frame.id,
+                         error: { code: _onReqA ? -32603 : -32601,
+                                  message: (e && e.message) || String(e) } }))
+          .then(resp => fetch(url, {
+            method:  'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body:    JSON.stringify(resp)
+          }).catch(() => {}));
+      }
+    };
+    es.onerror = () => {};
+    _esA = es;
   }
 
   return {
@@ -302,22 +358,8 @@ async function mcpConnectAsync(transport, timeoutMs) {
       const g = _guardA(); if (g) return g;
       return _mcpPromptResultB(await _mcpRpcRequestAsync(url, 'prompts/get', { name, arguments: _mcpArgsToObj(args) }, tms));
     },
-    onNotification: (handler) => {
-      if (_esA) { try { _esA.close(); } catch (_) {} _esA = null; }
-      _notifA = handler;
-      if (typeof EventSource === 'undefined') return;
-      const es = new EventSource(url + '/events');
-      es.onmessage = (ev) => {
-        try {
-          const frame = JSON.parse(ev.data);
-          if (frame && frame.method && frame.id === undefined && _notifA) {
-            _notifA(frame.method, frame.params || {});
-          }
-        } catch (_) {}
-      };
-      es.onerror = () => {};
-      _esA = es;
-    },
+    onNotification: (handler) => { _notifA = handler; _ensureESA(); },
+    onRequest:      (handler) => { _onReqA = handler; _ensureESA(); },
     close:    () => { _closed = true; if (_esA) { try { _esA.close(); } catch (_) {} _esA = null; } },
     isClosed: () => _closed
   };

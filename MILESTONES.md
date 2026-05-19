@@ -3399,21 +3399,29 @@ the codegen output.
      matching reply.  Stdio `serve()` and `handleHttpRequest` route
      inbound Response frames into `routeInboundResponse(resp)`.
      User-facing `srv.request(...)` + `client.onRequest(handler)`
-     exposed on Spawn / Ws / Stdio.  HTTP onRequest accepts the
-     handler but stays no-op (would need separate POST-back-with-id
-     correlation — deferred).
+     exposed on Spawn / Ws / Stdio.
 
-   62 tests across ten suites all pass (McpRuntimeTest 18,
+   - **HTTP-side bidirectional sampling** — McpHttpClient's SSE
+     reader now also parses Request frames (in addition to
+     Notifications); the registered `onRequest` handler runs and
+     the result/error is POSTed back to the same `/mcp` URL as a
+     Response frame.  Server-side `handleHttpRequest` already
+     handles Response frames via `routeInboundResponse(resp)`, so
+     no new server endpoint is needed.  Browser preamble
+     (`JsRuntimeMcpBrowser`) gets the same treatment: both
+     `mcpConnect` (XHR) and `mcpConnectAsync` (fetch) variants
+     dispatch EventSource-delivered requests through the handler
+     and POST the response back.  HTTP is now fully symmetric
+     with Stdio/Spawn/Ws for bidirectional sampling.
+
+   63 tests across eleven suites all pass (McpRuntimeTest 18,
    McpEndToEndTest 2, McpInterpreterIntegrationTest 3, McpHttpTransportTest
    5, JsRuntimeMcpBrowserTest 13, McpWsTransportTest 2,
    McpNotificationTest 5, McpServerNotifyTest 6, McpHttpSseNotifyTest 1,
-   McpBidiSamplingTest 7).
+   McpBidiSamplingTest 7, McpHttpBidiTest 1).
 
-   **Still deferred**: HTTP-side bidirectional sampling (client POSTs
-   the response back with the matching id — needs a server-side
-   router arm at `/mcp` for inbound Response frames);
-   SSE-as-response-body for Streamable-HTTP multi-response tools
-   (currently only synchronous JSON responses).
+   **Still deferred**: SSE-as-response-body for Streamable-HTTP
+   multi-response tools (currently only synchronous JSON responses).
 2. **Type-class layer** (`given McpTool[A, R]`, `derives McpSchema`)
    — depends on v1.14 `derives`.
 3. **Streaming resources** — depends on v1.10 Generators.

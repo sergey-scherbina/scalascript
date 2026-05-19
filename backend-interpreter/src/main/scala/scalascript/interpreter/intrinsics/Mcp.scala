@@ -749,15 +749,21 @@ private object Mcp:
         Value.UnitV
       case _ => throw InterpretError("client.onNotification(handler)")
     })
-    // Bidirectional sampling over HTTP needs separate request/response
-    // POST plumbing — the SSE GET stream is one-way for notifications.
-    // Accept the handler for API portability but never invoke it; full
-    // bidirectional HTTP requires server-side pending-id correlation
-    // across two endpoints (SSE GET pushes the request, POST carries
-    // the response).  Deferred to a future iteration.
+    // Bidirectional sampling over HTTP: the SSE GET stream now also
+    // delivers Request frames; McpHttpClient.setRequestHandler runs
+    // the handler and POSTs the JSON-RPC Response back to the same
+    // `/mcp` URL — handleHttpRequest server-side routes it through
+    // builder.routeInboundResponse so the broadcaster's pending map
+    // unblocks.  Same API shape as the Stdio/Spawn/Ws paths.
     fields("onRequest") = Value.NativeFnV("McpClient.onRequest", Computation.pureFn {
-      case List(_) => Value.UnitV
-      case _       => throw InterpretError("client.onRequest(handler)")
+      case List(handler) =>
+        client.setRequestHandler { (method, params) =>
+          ctx.invokeCallback(handler, List(Value.StringV(method), Mcp.jsonToValue(params))) match
+            case v: Value => Mcp.valueToJson(v)
+            case other    => ujson.Str(String.valueOf(other))
+        }
+        Value.UnitV
+      case _ => throw InterpretError("client.onRequest(handler)")
     })
     Value.InstanceV("McpClient", fields.toMap)
 
