@@ -101,10 +101,8 @@ class SolanaChainAdapter(val chainId: ChainId)(using ec: ExecutionContext) exten
     intent match
       case TxIntent.NativeTransfer(to, lamports) =>
         buildNativeTransfer(sender, to, lamports, ctx)
-      case TxIntent.TokenTransfer(_, _, _) =>
-        Future.failed(new NotImplementedError(
-          "SolanaChainAdapter SPL Token transfers land in a later slice (need ATA derivation)",
-        ))
+      case TxIntent.TokenTransfer(asset, to, amount) =>
+        buildSplTokenTransfer(sender, asset, to, amount, ctx)
       case TxIntent.ContractCall(_, _, _) =>
         Future.failed(new NotImplementedError(
           "Solana program calls (TxIntent.InvokeProgram) land in a later slice",
@@ -156,6 +154,57 @@ class SolanaChainAdapter(val chainId: ChainId)(using ec: ExecutionContext) exten
       v = v >> 8
       i += 1
     out
+
+  /** Build an SPL Token TransferChecked (opcode 12) on the SPL
+   *  Token program. The caller hands us the recipient's *wallet*
+   *  address — we derive both source and destination Associated
+   *  Token Accounts (ATAs) from the mint. The ATAs must already
+   *  exist on-chain; a follow-on slice will prepend an idempotent
+   *  CreateAssociatedTokenAccount when the destination is missing.
+   *
+   *  Account-keys layout:
+   *      [0] sender wallet — signer + writable (fee payer + authority)
+   *      [1] source ATA     — writable non-signer
+   *      [2] destination ATA — writable non-signer
+   *      [3] mint            — read-only non-signer
+   *      [4] SPL Token program — read-only non-signer
+   *
+   *  Instruction `accountIndexes` for TransferChecked:
+   *      [source = 1, mint = 3, destination = 2, authority = 0]. */
+  private def buildSplTokenTransfer(
+    sender: String,
+    asset:  Asset,
+    to:     String,
+    amount: BigInt,
+    ctx:    ChainContext,
+  ): Future[Tx] =
+    require(asset.chain == chainId, s"Asset chain ${asset.chain} ≠ adapter chain $chainId")
+    require(!asset.isNative, "use NativeTransfer for SOL — TokenTransfer expects an SPL mint")
+    recentBlockhash(ctx).map { hash =>
+      val senderKey    = Base58.decode(sender)
+      val recipientKey = Base58.decode(to)
+      val mintKey      = Base58.decode(asset.address)
+      require(senderKey.length == 32 && recipientKey.length == 32 && mintKey.length == 32,
+        "Solana addresses must decode to 32 bytes")
+      val sourceAta = SplToken.associatedTokenAddress(senderKey,    mintKey)
+      val destAta   = SplToken.associatedTokenAddress(recipientKey, mintKey)
+      val accountKeys = Seq(senderKey, sourceAta, destAta, mintKey, SplToken.ProgramId)
+      val instruction = SolanaInstruction(
+        programIdIndex = 4,                                  // SPL Token program at index 4
+        accountIndexes = Array[Byte](1, 3, 2, 0),            // source, mint, dest, authority
+        data           = SplToken.transferCheckedData(amount, asset.decimals),
+      )
+      val message = SolanaMessage(
+        numRequiredSignatures        = 1,
+        numReadonlySignedAccounts    = 0,
+        // mint + token program are read-only non-signers
+        numReadonlyUnsignedAccounts  = 2,
+        accountKeys                  = accountKeys,
+        recentBlockhash              = hash,
+        instructions                 = Seq(instruction),
+      )
+      SolanaTx(message)
+    }
 
   /** Fetch the most recent finalized blockhash from the network. */
   private def recentBlockhash(ctx: ChainContext): Future[Array[Byte]] =

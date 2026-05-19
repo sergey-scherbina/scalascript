@@ -148,18 +148,19 @@ class SolanaTxTest extends AnyFunSuite:
 
   // ── unsupported intents still error cleanly ──────────────────────────
 
-  test("buildTransaction(TokenTransfer) errors with the deferred message") {
+  test("buildTransaction(ContractCall) errors with the deferred message") {
+    // SPL Token transfers landed in Slice 3 — but generic program calls
+    // (TxIntent.ContractCall → InvokeProgram on a Solana program) are
+    // still deferred to a later slice.
     val ctx: ChainContext = new ChainContext:
       def rpcCall(method: String, params: ujson.Value*) = Future.failed(new RuntimeException(s"$method"))
       def nowSeconds: Long = 0L
-    val usdc   = Asset(SolanaChainAdapter.Mainnet, "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v", "USDC", 6)
-    val intent = TxIntent.TokenTransfer(usdc, recipient, BigInt(1_000_000))
+    val intent = TxIntent.ContractCall(recipient, Array.emptyByteArray, BigInt(0))
     val ex = intercept[Throwable] {
       Await.result(adapter.buildTransaction(intent, sender, ctx), 5.seconds)
     }
-    // The Future-wrapped NotImplementedError surfaces as the cause.
     val cause = Option(ex.getCause).getOrElse(ex)
-    assert(cause.getMessage.toLowerCase.contains("spl"))
+    assert(cause.getMessage.toLowerCase.contains("program"))
   }
 
   // ── util ──────────────────────────────────────────────────────────────
