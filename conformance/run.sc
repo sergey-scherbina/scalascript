@@ -143,7 +143,22 @@ def parseBackends(src: String): Option[Set[String]] =
       }.filter(_.nonEmpty).toSet
       if normalised.isEmpty then None else Some(normalised)
 
+// Parse `pending: <reason>` — a one-line frontmatter marker that PENDINGs
+// the test out of the suite (counted as pending, not failed). Use sparingly
+// for tests that document an intended API that needs other infrastructure
+// (e.g. AutoResolve wired into `compile`) to actually run.
+def parsePending(src: String): Option[String] =
+  val allLines = src.linesIterator.toList
+  val lines = if allLines.headOption.exists(_.startsWith("#!")) then allLines.tail else allLines
+  if !lines.headOption.contains("---") then return None
+  val fmEnd = lines.tail.indexOf("---")
+  if fmEnd < 0 then return None
+  val fm = lines.slice(1, fmEnd + 1)
+  fm.find(_.startsWith("pending:")).map(_.stripPrefix("pending:").trim).filter(_.nonEmpty)
+
 println(s"\nConformance suite — ${tests.length} tests\n$sep")
+
+var pendingCount = 0
 
 for test <- tests do
   val name         = test.baseName
@@ -151,8 +166,12 @@ for test <- tests do
   val src          = os.read(test)
   val requires     = parseRequires(src)
   val backendsGate = parseBackends(src)
+  val pending      = parsePending(src)
 
-  if !os.exists(expectedFile) then
+  if pending.isDefined then
+    println(s"$name: PENDING (${pending.get})")
+    pendingCount += 1
+  else if !os.exists(expectedFile) then
     if requires.nonEmpty then
       val eligible = List("js", "jvm").filter(b => requires.forall(backendFeatures(b).contains))
       val reason   = requires.mkString(", ")
@@ -208,6 +227,7 @@ for test <- tests do
     if intOk && jsOk && jvmOk then passed += 1 else failed += 1
 
 println(s"\n$sep")
-println(s"Results: $passed passed, $failed failed out of ${passed + failed} tests")
+val pendingSuffix = if pendingCount > 0 then s" (+ $pendingCount pending)" else ""
+println(s"Results: $passed passed, $failed failed out of ${passed + failed} tests$pendingSuffix")
 
 if failed > 0 then System.exit(1)

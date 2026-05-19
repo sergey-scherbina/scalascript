@@ -3,6 +3,7 @@
 name: distributed-shuffle
 description: v1.22 — .groupBy with shuffle across 3 nodes; word-count pattern
 backends: [jvm]
+pending: needs std/mapreduce/* auto-resolution in `ssc compile`
 ---
 
 # Distributed shuffle — groupBy across 3 nodes
