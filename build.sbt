@@ -701,6 +701,19 @@ lazy val cryptoSpi = project
     Test    / scalacOptions ++= sharedScalacOptions,
   )
 
+lazy val cryptoBouncycastle = project
+  .in(file("crypto-bouncycastle"))
+  .dependsOn(cryptoSpi)
+  .settings(
+    name := "scalascript-crypto-bouncycastle",
+    libraryDependencies ++= Seq(
+      "org.bouncycastle" % "bcprov-jdk18on" % "1.78.1",
+      scalatestTest,
+    ),
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions,
+  )
+
 lazy val blockchainSpi = project
   .in(file("blockchain-spi"))
   .dependsOn(cryptoSpi)
@@ -748,7 +761,7 @@ lazy val root = project
     x402Core, x402Server, x402Client,
     x402FacilitatorCoinbase, x402FacilitatorEvm, x402FacilitatorCardano,
     x402QueueKafka, x402QueuePostgres, x402NoncePostgres, x402NonceRedis,
-    cryptoSpi, blockchainSpi, walletSpi, walletStrategyEoa
+    cryptoSpi, cryptoBouncycastle, blockchainSpi, walletSpi, walletStrategyEoa
   )
   .settings(
     publish / skip := true
