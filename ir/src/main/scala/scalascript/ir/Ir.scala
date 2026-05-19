@@ -237,7 +237,25 @@ case class ExportedSymbol(
    *  descend into objects); the names, FQNs, and kinds are exact, which
    *  is sufficient for strict-mode deep-Select validation.
    */
-  nested:   List[ExportedSymbol] = Nil
+  nested:   List[ExportedSymbol] = Nil,
+  /** File-level 0-indexed line of the symbol's definition (the `def` /
+   *  `val` / `class` / `given` keyword) in the originating `.ssc` source.
+   *
+   *  Populated by `InterfaceExtractor` from the scalameta tree's
+   *  `pos.startLine`, then translated to file coordinates by adding the
+   *  enclosing `Content.CodeBlock.lineOffset`.  Consumed by the LSP
+   *  server's `textDocument/definition` handler so cross-module
+   *  go-to-definition jumps to the actual definition line, not the
+   *  document's first line.
+   *
+   *  Default `0` preserves backward compatibility with `.scim` artifacts
+   *  emitted before this field existed; in that case the LSP falls back
+   *  to the documented MVP behaviour of pointing at (0, 0).  v2.0 Phase 3+.
+   */
+  definitionLine:   Int = 0,
+  /** File-level 0-indexed column of the symbol's definition name.  Pair
+   *  with [[definitionLine]] — same lifecycle and backward-compat policy. */
+  definitionColumn: Int = 0
 ) derives ReadWriter
 
 /** Typeclass instance entry in a `.scim` interface.
