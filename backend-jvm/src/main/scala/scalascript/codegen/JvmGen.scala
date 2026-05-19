@@ -2602,7 +2602,7 @@ class JvmGen(
       "RestValidationError", "DerCodec", "WsFraming", "Metrics",
       "RateLimit", "Password", "Totp", "Jwt", "JwtRsa",
       "SessionCookie", "SessionStore", "OAuth", "WebAuthn",
-      "UploadedFile", "HttpHelpers", "Multipart"
+      "UploadedFile", "HttpHelpers", "Multipart", "TlsContextBuilder"
     )
     val header =
       "\n// ── runtime-server-common (inlined from classpath resources) ──────────\n" +
@@ -4262,41 +4262,8 @@ class JvmGen(
        |def tls(cert: String, key: String): _TlsConfig = _TlsConfig(cert, key)
        |
        |def _buildSslContext(certPath: String, keyPath: String): javax.net.ssl.SSLContext =
-       |  import java.security.{KeyStore, KeyFactory}
-       |  import java.security.cert.CertificateFactory
-       |  import javax.net.ssl.{KeyManagerFactory, SSLContext}
-       |  val certBytes  = java.nio.file.Files.readAllBytes(java.nio.file.Paths.get(certPath))
-       |  val keyBytes   = java.nio.file.Files.readAllBytes(java.nio.file.Paths.get(keyPath))
-       |  val certFactory = CertificateFactory.getInstance("X.509")
-       |  val cert = certFactory.generateCertificate(java.io.ByteArrayInputStream(certBytes))
-       |  val keyPemRaw  = new String(keyBytes, "UTF-8")
-       |  val isPkcs1    = keyPemRaw.contains("BEGIN RSA PRIVATE KEY")
-       |  val keyPem     = keyPemRaw.replaceAll("-----[^-]+-----", "").replaceAll("\\s", "")
-       |  val der        = java.util.Base64.getDecoder.decode(keyPem)
-       |  // PKCS#1 keys (openssl genrsa) need wrapping in a PKCS#8 envelope.
-       |  val der8       = if isPkcs1 then DerCodec.wrapPkcs1InPkcs8(der) else der
-       |  val keySpec    = java.security.spec.PKCS8EncodedKeySpec(der8)
-       |  val privateKey =
-       |    try java.security.KeyFactory.getInstance("RSA").generatePrivate(keySpec)
-       |    catch case _: Throwable =>
-       |      java.security.KeyFactory.getInstance("EC").generatePrivate(keySpec)
-       |  val ks = KeyStore.getInstance("JKS")
-       |  ks.load(null, null)
-       |  ks.setCertificateEntry("cert", cert)
-       |  ks.setKeyEntry("key", privateKey, Array.emptyCharArray, Array(cert))
-       |  val kmf = KeyManagerFactory.getInstance(KeyManagerFactory.getDefaultAlgorithm)
-       |  kmf.init(ks, Array.emptyCharArray)
-       |  val ctx = SSLContext.getInstance("TLS")
-       |  ctx.init(kmf.getKeyManagers, null, null)
-       |  ctx
-       |
-       |def _vThreadPool(): java.util.concurrent.ExecutorService =
-       |  try
-       |    classOf[java.util.concurrent.Executors]
-       |      .getMethod("newVirtualThreadPerTaskExecutor")
-       |      .invoke(null).asInstanceOf[java.util.concurrent.ExecutorService]
-       |  catch case _: Throwable =>
-       |    java.util.concurrent.Executors.newCachedThreadPool()
+       |  TlsContextBuilder.build(certPath, keyPath)
+       |def _vThreadPool(): java.util.concurrent.ExecutorService = TlsContextBuilder.vthreadPool()
        |
        |private val _stopLatch = java.util.concurrent.CountDownLatch(1)
        |@volatile private var _pubSocket: java.net.ServerSocket | Null = null

@@ -119,58 +119,13 @@ object WebServer:
    *  and decodes the DER payload.  For RSA keys the raw bytes are
    *  wrapped in a minimal PKCS#8 envelope so `PKCS8EncodedKeySpec`
    *  accepts them without extra dependencies. */
+  /** TLS SSLContext + virtual-thread pool builders delegate to the
+   *  shared `TlsContextBuilder` in runtime-server-common — same logic
+   *  for the interpreter HTTP server and the JvmGen-emitted runtime. */
   def buildSslContext(certPath: String, keyPath: String): javax.net.ssl.SSLContext =
-    import java.security.{KeyStore, KeyFactory}
-    import java.security.cert.CertificateFactory
-    import javax.net.ssl.{KeyManagerFactory, SSLContext}
-
-    val certBytes = java.nio.file.Files.readAllBytes(java.nio.file.Paths.get(certPath))
-    val keyBytes  = java.nio.file.Files.readAllBytes(java.nio.file.Paths.get(keyPath))
-
-    val certFactory = CertificateFactory.getInstance("X.509")
-    val cert = certFactory.generateCertificate(java.io.ByteArrayInputStream(certBytes))
-
-    val keyPem = new String(keyBytes, "UTF-8")
-      .replace("-----BEGIN PRIVATE KEY-----", "")
-      .replace("-----END PRIVATE KEY-----", "")
-      .replace("-----BEGIN RSA PRIVATE KEY-----", "")
-      .replace("-----END RSA PRIVATE KEY-----", "")
-      .replaceAll("\\s", "")
-    val rawDer = java.util.Base64.getDecoder.decode(keyPem)
-
-    // If the PEM was PKCS#1 (RSA), wrap it in a PKCS#8 DER envelope.
-    val pkcs8Der =
-      if keyPem.contains("BEGIN RSA") || !new String(keyBytes).contains("BEGIN PRIVATE KEY") then
-        DerCodec.wrapPkcs1InPkcs8(rawDer)
-      else rawDer
-    val keySpec  = java.security.spec.PKCS8EncodedKeySpec(pkcs8Der)
-    val keyFact  = KeyFactory.getInstance("RSA")
-    val privateKey =
-      try keyFact.generatePrivate(keySpec)
-      catch case _: Throwable =>
-        KeyFactory.getInstance("EC").generatePrivate(keySpec)
-
-    val ks = KeyStore.getInstance("JKS")
-    ks.load(null, null)
-    ks.setCertificateEntry("cert", cert)
-    ks.setKeyEntry("key", privateKey, Array.emptyCharArray, Array(cert))
-
-    val kmf = KeyManagerFactory.getInstance(KeyManagerFactory.getDefaultAlgorithm)
-    kmf.init(ks, Array.emptyCharArray)
-
-    val ctx = SSLContext.getInstance("TLS")
-    ctx.init(kmf.getKeyManagers, null, null)
-    ctx
-
-  /** Build a virtual-thread executor if JDK 21+ is available, fall back
-   *  to a cached thread pool so the emit also compiles on Java 17. */
+    TlsContextBuilder.build(certPath, keyPath)
   private def buildVThreadPool(): java.util.concurrent.ExecutorService =
-    try
-      classOf[java.util.concurrent.Executors]
-        .getMethod("newVirtualThreadPerTaskExecutor")
-        .invoke(null).asInstanceOf[java.util.concurrent.ExecutorService]
-    catch case _: Throwable =>
-      java.util.concurrent.Executors.newCachedThreadPool()
+    TlsContextBuilder.vthreadPool()
 
   private def applyCorsHeaders(ex: HttpExchange): Unit =
     if _corsOrigins.nonEmpty then
