@@ -128,19 +128,27 @@ class Typer(importedInterfaces: Map[String, scalascript.ir.ModuleInterface] = Ma
         .toList
       val paramSTypes = allParamVals
         .map(p => p.decltpe.map(typeAnnotToSType).getOrElse(SType.Any))
-      val retType = d.decltpe.map(typeAnnotToSType).getOrElse(SType.Any)
-      val fnType  = SType.Function(paramSTypes, retType)
-      scope.define(Symbol(d.name.value, fnType, SymbolKind.Def))
-      out += DefSummary(d.name.value, SymbolKind.Def, fnType, paramSTypes)
-      // Type-check body in a child scope with params bound
+      // Type-check body in a child scope with params bound, so we can infer
+      // the return type when no explicit annotation is given.
       val bodyScope = scope.child(d.name.value)
       d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values).foreach { p =>
         val pt = p.decltpe.map(typeAnnotToSType).getOrElse(SType.Any)
         bodyScope.define(Symbol(p.name.value, pt, SymbolKind.Param))
       }
-      val bodyType = inferType(d.body, bodyScope)
-      if retType != SType.Any then
-        checkAssignable(bodyType, retType, d.body.pos)
+      // Prefer the declared return type when present; otherwise infer from
+      // the body.  Inference is signature-level only (literals, var refs,
+      // simple arithmetic, blocks, if/else) — anything richer falls back to
+      // SType.Any.
+      val declaredRet = d.decltpe.map(typeAnnotToSType)
+      val bodyType    = inferType(d.body, bodyScope)
+      val retType     = declaredRet.getOrElse(bodyType)
+      val fnType      = SType.Function(paramSTypes, retType)
+      scope.define(Symbol(d.name.value, fnType, SymbolKind.Def))
+      out += DefSummary(d.name.value, SymbolKind.Def, fnType, paramSTypes)
+      declaredRet.foreach { declared =>
+        if declared != SType.Any then
+          checkAssignable(bodyType, declared, d.body.pos)
+      }
 
     // class Name(params...)
     case d: Defn.Class =>
@@ -150,7 +158,10 @@ class Typer(importedInterfaces: Map[String, scalascript.ir.ModuleInterface] = Ma
       val classType = SType.Named(d.name.value, Nil)
       val ctorType  = SType.Function(paramSTypes, classType)
       scope.define(Symbol(d.name.value, ctorType, SymbolKind.Class))
-      out += DefSummary(d.name.value, SymbolKind.Class, classType, paramSTypes)
+      // DefSummary records the *constructor* signature so consumers of the
+      // `.scim` interface see `(Int, String) => Foo` for `case class Foo(x, y)`,
+      // not just `Foo`.  This matches what the typer stores in the scope.
+      out += DefSummary(d.name.value, SymbolKind.Class, ctorType, paramSTypes)
 
     // object Name
     case d: Defn.Object =>
@@ -320,29 +331,54 @@ class Typer(importedInterfaces: Map[String, scalascript.ir.ModuleInterface] = Ma
 
   /** Convert a scalameta type annotation to our internal SType. */
   private def typeAnnotToSType(tpe: scala.meta.Type): SType = tpe match
-    case Type.Name(name) => name match
-      case "Int"     => SType.Int
-      case "Long"    => SType.Long
-      case "Double"  => SType.Double
-      case "Float"   => SType.Double
-      case "String"  => SType.String
-      case "Boolean" => SType.Boolean
-      case "Char"    => SType.Char
-      case "Unit"    => SType.Unit
-      case "Any"     => SType.Any
-      case "Nothing" => SType.Nothing
-      case "Null"    => SType.Null
-      case other     => SType.Named(other, Nil)
+    case Type.Name(name) => primitiveOrNamed(name)
+    // Generic application: handle the well-known constructors first so the
+    // returned `SType.Named(name, args)` lines up with `SType.list/option/map`
+    // — then fall through to a generic `Named(head, args)` for any other
+    // user-defined parameterised type (`Set[Int]`, `Vector[A]`, etc.).
     case Type.Apply.After_4_6_0(Type.Name("List"),   argClause) =>
       SType.list(typeAnnotToSType(argClause.values.head))
     case Type.Apply.After_4_6_0(Type.Name("Option"), argClause) =>
       SType.option(typeAnnotToSType(argClause.values.head))
     case Type.Apply.After_4_6_0(Type.Name("Map"), argClause) if argClause.values.length == 2 =>
       SType.map(typeAnnotToSType(argClause.values.head), typeAnnotToSType(argClause.values(1)))
+    case Type.Apply.After_4_6_0(Type.Name(other), argClause) =>
+      SType.Named(other, argClause.values.map(typeAnnotToSType).toList)
+    case Type.Apply.After_4_6_0(sel: Type.Select, argClause) =>
+      SType.Named(showTypePath(sel), argClause.values.map(typeAnnotToSType).toList)
     case Type.Function.After_4_6_0(params, ret) =>
       SType.Function(params.values.map(typeAnnotToSType).toList, typeAnnotToSType(ret))
     case Type.Tuple(elems) => SType.Tuple(elems.map(typeAnnotToSType))
-    case _                 => SType.Any
+    // Qualified type names: `scala.collection.Map`, `std.actors.Spec` etc.
+    // Preserve the dotted path verbatim so `SType.show` / `parseSType` can
+    // round-trip the interface entry.
+    case sel: Type.Select => SType.Named(showTypePath(sel), Nil)
+    case _                => SType.Any
+
+  private def primitiveOrNamed(name: String): SType = name match
+    case "Int"     => SType.Int
+    case "Long"    => SType.Long
+    case "Double"  => SType.Double
+    case "Float"   => SType.Double
+    case "String"  => SType.String
+    case "Boolean" => SType.Boolean
+    case "Char"    => SType.Char
+    case "Unit"    => SType.Unit
+    case "Any"     => SType.Any
+    case "Nothing" => SType.Nothing
+    case "Null"    => SType.Null
+    case other     => SType.Named(other, Nil)
+
+  /** Render a `Type.Select` / `Type.Name` chain as a dotted path string. */
+  private def showTypePath(t: scala.meta.Type): String = t match
+    case Type.Name(n)         => n
+    case Type.Select(qual, n) => s"${showTermPath(qual)}.${n.value}"
+    case _                    => t.toString
+
+  private def showTermPath(t: scala.meta.Term): String = t match
+    case Term.Name(n)         => n
+    case Term.Select(qual, n) => s"${showTermPath(qual)}.${n.value}"
+    case _                    => t.toString
 
   private def posToSpan(pos: scala.meta.Position): Option[Span] =
     if pos.isEmpty then None
