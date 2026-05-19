@@ -171,64 +171,17 @@ private object Mcp:
     val handler = Value.NativeFnV("mcp.http.handler", Computation.pureFn {
       case List(Value.InstanceV("Request", fields)) =>
         val body = fields.get("body").collect { case Value.StringV(s) => s }.getOrElse("")
-        // Streamable-HTTP: if the client sets `Accept: text/event-stream`,
-        // return the response body as an SSE stream.  Progress
-        // notifications emitted via `srv.notify(...)` during the tool's
-        // execution are written to this stream (the SSE writer is
-        // registered as a subscriber for the duration of dispatch),
-        // followed by the final JSON-RPC response as the last frame.
-        // Otherwise — plain JSON request/response (existing behavior).
-        val acceptsSse = fields.get("headers").collect {
-          case Value.MapV(m) =>
-            m.iterator.exists {
-              case (Value.StringV(k), Value.StringV(v)) =>
-                k.equalsIgnoreCase("Accept") && v.toLowerCase.contains("text/event-stream")
-              case _ => false
-            }
-        }.getOrElse(false)
-        if acceptsSse then
-          val sseHeaders = Value.MapV(Map(
-            (Value.StringV("Content-Type"):  Value) -> (Value.StringV("text/event-stream"):  Value),
-            (Value.StringV("Cache-Control"): Value) -> (Value.StringV("no-cache"):           Value)
-          ))
-          val callback = Value.NativeFnV("mcp.http.post.sse", Computation.pureFn {
-            case List(writeFn) =>
-              // Subscribe for the lifetime of dispatch so srv.notify(...)
-              // frames stream out as SSE data: ...\n\n.  Then run dispatch,
-              // write the final response as one more SSE frame, and
-              // unsubscribe.
-              val unsubscribe = builder.addSubscriber { line =>
-                try ctx.invokeCallback(writeFn,
-                  List(Value.StringV(s"data: ${line.stripSuffix("\n")}\n\n")))
-                catch case _: Throwable => ()
-              }
-              try
-                val reply = McpServerCore.handleHttpRequest(
-                  builder, body, "ssc-mcp-int", "1.0.0")
-                if reply.nonEmpty then
-                  ctx.invokeCallback(writeFn,
-                    List(Value.StringV(s"data: ${reply.stripSuffix("\n")}\n\n")))
-              finally unsubscribe()
-              Value.UnitV
-            case _ => Value.UnitV
-          })
-          Value.InstanceV("StreamResponse", Map(
-            "status"   -> Value.IntV(200L),
-            "headers"  -> sseHeaders,
-            "callback" -> callback
-          ))
-        else
-          val reply = McpServerCore.handleHttpRequest(builder, body, "ssc-mcp-int", "1.0.0")
-          val (status, respBody) =
-            if reply.isEmpty then (204, "")
-            else (200, reply)
-          Value.InstanceV("Response", Map(
-            "status"  -> Value.IntV(status.toLong),
-            "headers" -> Value.MapV(Map(
-              Value.StringV("Content-Type") -> Value.StringV("application/json")
-            )),
-            "body"    -> Value.StringV(respBody)
-          ))
+        // v1.17.x — auth gate.  Extract the bearer token from the request
+        // headers and run it through the registered validator; on
+        // reject, return 401 with WWW-Authenticate before any dispatch.
+        // When no validator is registered, this is a no-op pass-through.
+        val headerMap = Mcp.extractHeaderMap(fields)
+        val bearer    = McpAuth.extractBearer(headerMap)
+        McpServerCore.authorizeHttp(builder, bearer) match
+          case McpServerCore.AuthOutcome.Reject(code, descr) =>
+            Mcp.unauthorizedResponse(builder, code, descr)
+          case McpServerCore.AuthOutcome.Allowed(claims) =>
+            Mcp.dispatchAuthorized(builder, body, fields, claims, ctx)
       case _ => Value.InstanceV("Response", Map(
         "status"  -> Value.IntV(400L),
         "headers" -> Value.MapV(Map.empty),
@@ -237,44 +190,162 @@ private object Mcp:
     })
     ctx.registerRoute("POST", path, handler)
 
-    // SSE GET endpoint at `<path>/events` — clients subscribe here to
-    // receive server-pushed notifications.  Returns a StreamResponse
-    // whose callback registers a builder subscriber and keeps the
-    // connection open until either the client closes (writer throws)
-    // or the server shuts down.
+    // v1.17.x — RFC 9728 protected-resource metadata.  Exposed only if
+    // the user populated it via `srv.setProtectedResourceMetadata(...)`.
+    // Clients fetch this to discover the matching authorization server.
+    val metadataPath = "/.well-known/oauth-protected-resource"
+    val metadataHandler = Value.NativeFnV("mcp.auth.prm", Computation.pureFn {
+      case List(Value.InstanceV("Request", _)) =>
+        builder.protectedResourceMetadata match
+          case Some(m) => Value.InstanceV("Response", Map(
+            "status"  -> Value.IntV(200L),
+            "headers" -> Value.MapV(Map(
+              Value.StringV("Content-Type") -> Value.StringV("application/json")
+            )),
+            "body"    -> Value.StringV(m.toJson.render())
+          ))
+          case None => Value.InstanceV("Response", Map(
+            "status"  -> Value.IntV(404L),
+            "headers" -> Value.MapV(Map.empty),
+            "body"    -> Value.StringV("")
+          ))
+      case _ => Value.InstanceV("Response", Map(
+        "status"  -> Value.IntV(400L),
+        "headers" -> Value.MapV(Map.empty),
+        "body"    -> Value.StringV("expected Request")
+      ))
+    })
+    ctx.registerRoute("GET", metadataPath, metadataHandler)
+    installSseRoute(builder, path, ctx)
+
+  /** v1.17.x — extract the headers MapV from a Request InstanceV into a
+   *  plain `Map[String, String]` for the auth helpers.  Non-string
+   *  entries fall through silently — defensive against weird header
+   *  encodings (e.g. byte arrays). */
+  def extractHeaderMap(fields: Map[String, Value]): Map[String, String] =
+    fields.get("headers").collect {
+      case Value.MapV(m) => m.iterator.collect {
+        case (Value.StringV(k), Value.StringV(v)) => k -> v
+      }.toMap
+    }.getOrElse(Map.empty)
+
+  /** v1.17.x — assemble a 401 Response with WWW-Authenticate per RFC 6750. */
+  def unauthorizedResponse(builder: McpServerBuilder, code: String, descr: String): Value =
+    val www = McpAuth.wwwAuthenticate(builder.authRealm, code, Some(descr))
+    val body = ujson.Obj("error" -> code, "error_description" -> descr).render()
+    Value.InstanceV("Response", Map(
+      "status"  -> Value.IntV(401L),
+      "headers" -> Value.MapV(Map(
+        (Value.StringV("WWW-Authenticate"): Value) -> (Value.StringV(www):                  Value),
+        (Value.StringV("Content-Type"):    Value) -> (Value.StringV("application/json"):    Value)
+      )),
+      "body"    -> Value.StringV(body)
+    ))
+
+  /** v1.17.x — original dispatch body extracted into a helper.  Runs
+   *  inside `withAuth(claims)` so handlers can read `srv.currentAuth`.
+   *  Streamable-HTTP: when the client sets `Accept: text/event-stream`,
+   *  the response body becomes an SSE stream — progress notifications
+   *  emitted via `srv.notify(...)` during dispatch are interleaved with
+   *  the final JSON-RPC reply. */
+  def dispatchAuthorized(
+    builder: McpServerBuilder,
+    body:    String,
+    fields:  Map[String, Value],
+    claims:  Option[McpAuth.AuthClaims],
+    ctx:     NativeContext
+  ): Value = builder.withAuth(claims) {
+    val acceptsSse = fields.get("headers").collect {
+      case Value.MapV(m) =>
+        m.iterator.exists {
+          case (Value.StringV(k), Value.StringV(v)) =>
+            k.equalsIgnoreCase("Accept") && v.toLowerCase.contains("text/event-stream")
+          case _ => false
+        }
+    }.getOrElse(false)
+    if acceptsSse then
+      val sseHeaders = Value.MapV(Map(
+        (Value.StringV("Content-Type"):  Value) -> (Value.StringV("text/event-stream"):  Value),
+        (Value.StringV("Cache-Control"): Value) -> (Value.StringV("no-cache"):           Value)
+      ))
+      val callback = Value.NativeFnV("mcp.http.post.sse", Computation.pureFn {
+        case List(writeFn) =>
+          val unsubscribe = builder.addSubscriber { line =>
+            try ctx.invokeCallback(writeFn,
+              List(Value.StringV(s"data: ${line.stripSuffix("\n")}\n\n")))
+            catch case _: Throwable => ()
+          }
+          try
+            val reply = builder.withAuth(claims) {
+              McpServerCore.handleHttpRequest(builder, body, "ssc-mcp-int", "1.0.0")
+            }
+            if reply.nonEmpty then
+              ctx.invokeCallback(writeFn,
+                List(Value.StringV(s"data: ${reply.stripSuffix("\n")}\n\n")))
+          finally unsubscribe()
+          Value.UnitV
+        case _ => Value.UnitV
+      })
+      Value.InstanceV("StreamResponse", Map(
+        "status"   -> Value.IntV(200L),
+        "headers"  -> sseHeaders,
+        "callback" -> callback
+      ))
+    else
+      val reply = McpServerCore.handleHttpRequest(builder, body, "ssc-mcp-int", "1.0.0")
+      val (status, respBody) =
+        if reply.isEmpty then (204, "")
+        else (200, reply)
+      Value.InstanceV("Response", Map(
+        "status"  -> Value.IntV(status.toLong),
+        "headers" -> Value.MapV(Map(
+          Value.StringV("Content-Type") -> Value.StringV("application/json")
+        )),
+        "body"    -> Value.StringV(respBody)
+      ))
+  }
+
+  /** SSE GET endpoint at `<path>/events` — clients subscribe here to
+   *  receive server-pushed notifications.  Returns a StreamResponse
+   *  whose callback registers a builder subscriber and keeps the
+   *  connection open until either the client closes (writer throws)
+   *  or the server shuts down.  v1.17.x: the GET is also auth-gated
+   *  when a validator is registered — same WWW-Authenticate path as
+   *  the POST handler. */
+  def installSseRoute(builder: McpServerBuilder, path: String, ctx: NativeContext): Unit =
     val sseEndpoint = path + "/events"
     val sseHandler = Value.NativeFnV("mcp.http.sse", Computation.pureFn {
-      case List(Value.InstanceV("Request", _)) =>
-        val sseHeaders = Value.MapV(Map(
-          (Value.StringV("Content-Type"):  Value) -> (Value.StringV("text/event-stream"):  Value),
-          (Value.StringV("Cache-Control"): Value) -> (Value.StringV("no-cache"):           Value),
-          (Value.StringV("Connection"):    Value) -> (Value.StringV("keep-alive"):         Value)
-        ))
-        val callback = Value.NativeFnV("mcp.http.sse.writer", Computation.pureFn {
-          case List(writeFn) =>
-            // Track this subscriber for the lifetime of the SSE write.
-            // The connection stays open until writeFn throws (peer
-            // dropped) or the server shuts down — the caller's stream
-            // dispatch loop catches and unsubscribes.
-            val done = new java.util.concurrent.atomic.AtomicBoolean(false)
-            val unsubscribe = builder.addSubscriber { line =>
-              if !done.get() then
-                try ctx.invokeCallback(writeFn, List(Value.StringV(s"data: ${line.stripSuffix("\n")}\n\n")))
-                catch case _: Throwable => done.set(true)
-            }
-            // Block until the writer signals done (peer closed).  Without
-            // this the stream would close immediately after returning.
-            try
-              while !done.get() do Thread.sleep(100)
-            finally unsubscribe()
-            Value.UnitV
-          case _ => Value.UnitV
-        })
-        Value.InstanceV("StreamResponse", Map(
-          "status"   -> Value.IntV(200L),
-          "headers"  -> sseHeaders,
-          "callback" -> callback
-        ))
+      case List(Value.InstanceV("Request", fields)) =>
+        val headerMap = Mcp.extractHeaderMap(fields)
+        val bearer    = McpAuth.extractBearer(headerMap)
+        McpServerCore.authorizeHttp(builder, bearer) match
+          case McpServerCore.AuthOutcome.Reject(code, descr) =>
+            Mcp.unauthorizedResponse(builder, code, descr)
+          case McpServerCore.AuthOutcome.Allowed(_) =>
+            val sseHeaders = Value.MapV(Map(
+              (Value.StringV("Content-Type"):  Value) -> (Value.StringV("text/event-stream"):  Value),
+              (Value.StringV("Cache-Control"): Value) -> (Value.StringV("no-cache"):           Value),
+              (Value.StringV("Connection"):    Value) -> (Value.StringV("keep-alive"):         Value)
+            ))
+            val callback = Value.NativeFnV("mcp.http.sse.writer", Computation.pureFn {
+              case List(writeFn) =>
+                val done = new java.util.concurrent.atomic.AtomicBoolean(false)
+                val unsubscribe = builder.addSubscriber { line =>
+                  if !done.get() then
+                    try ctx.invokeCallback(writeFn, List(Value.StringV(s"data: ${line.stripSuffix("\n")}\n\n")))
+                    catch case _: Throwable => done.set(true)
+                }
+                try
+                  while !done.get() do Thread.sleep(100)
+                finally unsubscribe()
+                Value.UnitV
+              case _ => Value.UnitV
+            })
+            Value.InstanceV("StreamResponse", Map(
+              "status"   -> Value.IntV(200L),
+              "headers"  -> sseHeaders,
+              "callback" -> callback
+            ))
       case _ => Value.InstanceV("Response", Map(
         "status"  -> Value.IntV(400L),
         "headers" -> Value.MapV(Map.empty),
@@ -673,6 +744,56 @@ private object Mcp:
     // v1.17.x — pagination.  `srv.setPageSize(N)` caps every list
     // endpoint at N items per page; nextCursor opaque-encodes the offset
     // for the next page.  N <= 0 disables pagination (default).
+    // v1.17.x — authorization.  `srv.setTokenValidator(handler)` wires
+    // a `token: String => InstanceV("AuthResult", ...)` checker.  The
+    // user-facing shape mirrors `McpAuth.AuthResult`: either
+    //   InstanceV("Valid",   { subject, scopes: List[String], extra })
+    // or
+    //   InstanceV("Invalid", { code, description })
+    // The HTTP route then gates every request through this validator.
+    // `srv.useHmacValidator(secret)` is a convenience for tests +
+    // trusted-internal deployments.
+    def setTokenValidatorFn = Value.NativeFnV("McpServer.setTokenValidator",
+      Computation.pureFn {
+        case List(handler) =>
+          builder.setTokenValidator(Some(token =>
+            ctx.invokeCallback(handler, List(Value.StringV(token))) match
+              case v: Value => Mcp.valueToAuthResult(v)
+              case _        => McpAuth.AuthResult.Invalid("invalid_token", "validator returned non-Value")
+          ))
+          Value.UnitV
+        case _ => throw InterpretError("srv.setTokenValidator(handler)")
+      })
+    def useHmacValidatorFn = Value.NativeFnV("McpServer.useHmacValidator",
+      Computation.pureFn {
+        case List(Value.StringV(secret)) =>
+          builder.setTokenValidator(Some(McpAuth.hmacValidator(secret)))
+          Value.UnitV
+        case _ => throw InterpretError("srv.useHmacValidator(secret)")
+      })
+    def setAuthRealmFn = Value.NativeFnV("McpServer.setAuthRealm",
+      Computation.pureFn {
+        case List(Value.StringV(realm)) => builder.setAuthRealm(realm); Value.UnitV
+        case _ => throw InterpretError("srv.setAuthRealm(realm)")
+      })
+    def currentAuthFn = Value.NativeFnV("McpServer.currentAuth",
+      Computation.pureFn { _ => Mcp.authClaimsToValueOpt(builder.currentAuth) })
+    def authEnabledFn = Value.NativeFnV("McpServer.authEnabled",
+      Computation.pureFn { _ => Value.BoolV(builder.authEnabled) })
+    def setPrmFn = Value.NativeFnV("McpServer.setProtectedResourceMetadata",
+      Computation.pureFn {
+        case List(metadataV) =>
+          builder.setProtectedResourceMetadata(Mcp.valueToPrm(metadataV))
+          Value.UnitV
+        case _ => throw InterpretError("srv.setProtectedResourceMetadata(metadata)")
+      })
+    def issueHmacTokenFn = Value.NativeFnV("McpServer.issueHmacToken",
+      Computation.pureFn {
+        case List(Value.StringV(secret), Value.StringV(subject), scopesV, Value.IntV(expSec)) =>
+          Value.StringV(McpAuth.issueHmacToken(secret, subject,
+            Mcp.valueToStringList(scopesV).toSet, expSec))
+        case _ => throw InterpretError("srv.issueHmacToken(secret, subject, scopes, expiresInSeconds)")
+      })
     def setPageSizeFn = Value.NativeFnV("McpServer.setPageSize",
       Computation.pureFn {
         case List(Value.IntV(n)) => builder.setPageSize(n.toInt); Value.UnitV
@@ -719,7 +840,14 @@ private object Mcp:
       "completionForPrompt"        -> completionForPromptFn,
       "completionForResource"      -> completionForResourceFn,
       "setPageSize"                -> setPageSizeFn,
-      "currentPageSize"            -> currentPageSizeFn
+      "currentPageSize"            -> currentPageSizeFn,
+      "setTokenValidator"          -> setTokenValidatorFn,
+      "useHmacValidator"           -> useHmacValidatorFn,
+      "setAuthRealm"               -> setAuthRealmFn,
+      "currentAuth"                -> currentAuthFn,
+      "authEnabled"                -> authEnabledFn,
+      "setProtectedResourceMetadata" -> setPrmFn,
+      "issueHmacToken"             -> issueHmacTokenFn
     ))
 
   private def registerTool(
@@ -1244,6 +1372,55 @@ private object Mcp:
       case other            => Value.show(other)
     }
     case _ => Nil
+
+  /** v1.17.x — auth helpers: adapt to/from the user-facing `AuthResult`
+   *  / `AuthClaims` / `ProtectedResourceMetadata` shapes.
+   *
+   *  AuthResult discriminator:
+   *    InstanceV("Valid",   { subject: String, scopes: List[String], extra: Map })
+   *    InstanceV("Invalid", { code: String, description: String })
+   *  Anything else collapses to Invalid("invalid_token", ...). */
+  def valueToAuthResult(v: Value): McpAuth.AuthResult = v match
+    case Value.InstanceV("Valid", fs) =>
+      val sub = fs.get("subject").collect { case Value.StringV(s) => s }.getOrElse("")
+      val scopes = fs.get("scopes").map(valueToStringList).getOrElse(Nil).toSet
+      val extra  = fs.get("extra").map(valueToJson).getOrElse(ujson.Obj())
+      McpAuth.AuthResult.Valid(McpAuth.AuthClaims(sub, scopes, extra))
+    case Value.InstanceV("Invalid", fs) =>
+      val code  = fs.get("code").collect { case Value.StringV(s) => s }.getOrElse("invalid_token")
+      val descr = fs.get("description").collect { case Value.StringV(s) => s }.getOrElse("")
+      McpAuth.AuthResult.Invalid(code, descr)
+    case _ =>
+      McpAuth.AuthResult.Invalid("invalid_token", s"validator returned unexpected: ${Value.show(v)}")
+
+  def authClaimsToValueOpt(c: Option[McpAuth.AuthClaims]): Value = c match
+    case None => Value.OptionV(None)
+    case Some(claims) =>
+      Value.OptionV(Some(Value.InstanceV("AuthClaims", Map(
+        "subject" -> Value.StringV(claims.subject),
+        "scopes"  -> Value.ListV(claims.scopes.toList.sorted.map(s => Value.StringV(s))),
+        "extra"   -> jsonToValue(claims.extra)
+      ))))
+
+  /** Decode a user-supplied `Map` / `InstanceV` describing the metadata
+   *  document.  Missing fields fall to spec defaults. */
+  def valueToPrm(v: Value): McpAuth.ProtectedResourceMetadata =
+    val obj = v match
+      case Value.InstanceV(_, fs) => fs
+      case Value.MapV(m)          => m.iterator.collect {
+        case (Value.StringV(k), vv) => k -> vv
+      }.toMap
+      case _ => Map.empty[String, Value]
+    val resource = obj.get("resource").collect { case Value.StringV(s) => s }.getOrElse("")
+    val authSrvs = obj.get("authorizationServers").map(valueToStringList).getOrElse(Nil)
+    val scopes   = obj.get("scopesSupported").map(valueToStringList).getOrElse(Nil)
+    val doc      = obj.get("resourceDocumentation").collect { case Value.StringV(s) => s }
+    McpAuth.ProtectedResourceMetadata(
+      resource              = resource,
+      authorizationServers  = authSrvs,
+      scopesSupported       = scopes,
+      resourceDocumentation = doc
+    )
 
   def elicitationResultToValue(r: McpProtocol.ElicitationResult): Value = r match
     case McpProtocol.ElicitationResult.Accept(content) =>

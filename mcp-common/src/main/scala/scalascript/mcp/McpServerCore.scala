@@ -99,6 +99,50 @@ class McpServerBuilder:
   /** Current page size — `<= 0` means pagination is disabled. */
   def currentPageSize: Int = pageSize
 
+  // v1.17.x — authorization.  When `tokenValidator` is set, the HTTP
+  // route runs every inbound request through it before dispatch.  Failed
+  // validation → 401 with WWW-Authenticate; success captures the
+  // resulting `AuthClaims` in `currentAuthTL` so handlers can read it
+  // via `srv.currentAuth`.  Non-HTTP transports ignore the validator
+  // (Stdio / Spawn / WS run on a trusted local channel by definition).
+  @volatile private[mcp] var tokenValidator: Option[McpAuth.TokenValidator] = None
+  @volatile var authRealm: String = "mcp"
+  @volatile var protectedResourceMetadata: Option[McpAuth.ProtectedResourceMetadata] = None
+  private val currentAuthTL: ThreadLocal[McpAuth.AuthClaims] = new ThreadLocal[McpAuth.AuthClaims]()
+
+  /** Register the bearer-token validator.  Pass `None` to disable
+   *  authorization (the default — transport-trusted setups need no
+   *  auth layer at all). */
+  def setTokenValidator(v: Option[McpAuth.TokenValidator]): Unit = tokenValidator = v
+
+  /** Realm advertised in the `WWW-Authenticate` header on 401 responses. */
+  def setAuthRealm(realm: String): Unit = authRealm = realm
+
+  /** Publish a `/.well-known/oauth-protected-resource` metadata document
+   *  per RFC 9728.  Clients use this to discover the matching
+   *  authorization server. */
+  def setProtectedResourceMetadata(m: McpAuth.ProtectedResourceMetadata): Unit =
+    protectedResourceMetadata = Some(m)
+
+  /** True iff a `tokenValidator` has been registered. */
+  def authEnabled: Boolean = tokenValidator.isDefined
+
+  /** Claims attached to the currently-executing request, if any.  Only
+   *  populated when a validator is registered AND the request bore a
+   *  valid bearer token — handlers should treat `None` as anonymous. */
+  def currentAuth: Option[McpAuth.AuthClaims] = Option(currentAuthTL.get())
+
+  /** Wrap an action with the given claims bound to `currentAuthTL`.
+   *  Restores the prior value on exit (defensive — Stdio + HTTP run on
+   *  different threads; HTTP can recycle threads across requests). */
+  def withAuth[A](claims: Option[McpAuth.AuthClaims])(body: => A): A =
+    val prior = currentAuthTL.get()
+    claims.foreach(c => currentAuthTL.set(c))
+    try body
+    finally
+      if prior == null then currentAuthTL.remove()
+      else currentAuthTL.set(prior)
+
   // v1.17.x — completion handlers keyed by (prompt name, argument name)
   // and (resource uriTemplate, argument name).  Dispatching `completion/
   // complete` looks up the handler by the ref + argument name and
@@ -442,6 +486,28 @@ object McpServerCore:
                 write(dispatch(builder, method, params, id, serverName, serverVersion))
       try builder.onDisconnected() catch case _: Throwable => ()
     finally unsubscribe()
+
+  /** v1.17.x — outcome of the HTTP auth gate.  `Allowed(claims)` means
+   *  dispatch may proceed with the bound claims; the four `Reject*`
+   *  variants carry the data the HTTP route needs to assemble a 401. */
+  enum AuthOutcome:
+    case Allowed(claims: Option[McpAuth.AuthClaims])
+    case Reject(errorCode: String, description: String)
+
+  /** Run the inbound request through the registered validator (if any)
+   *  and return the typed outcome.  Pass `None` for `bearer` to
+   *  represent "no Authorization header"; the caller is responsible for
+   *  extracting it via `McpAuth.extractBearer`.  When no validator is
+   *  registered, every request is `Allowed(None)` — auth-disabled mode. */
+  def authorizeHttp(builder: McpServerBuilder, bearer: Either[String, String]): AuthOutcome =
+    builder.tokenValidator match
+      case None    => AuthOutcome.Allowed(None)  // auth disabled
+      case Some(v) => bearer match
+        case Left(errorCode) =>
+          AuthOutcome.Reject(errorCode, "missing or malformed Authorization header")
+        case Right(token) => v(token) match
+          case McpAuth.AuthResult.Valid(claims)        => AuthOutcome.Allowed(Some(claims))
+          case McpAuth.AuthResult.Invalid(code, descr) => AuthOutcome.Reject(code, descr)
 
   /** One POST body containing one JSON-RPC frame → one response body
    *  (or empty string when the frame was a notification that needs no
