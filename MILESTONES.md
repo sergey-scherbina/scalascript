@@ -4590,13 +4590,18 @@ Phase 3+ / final tooling round (landed 2026-05-19):
     third-party LSP libs.
   - Methods: `initialize`, `initialized`, `shutdown`, `exit`,
     `textDocument/{didOpen,didChange,didClose,definition,hover,
-    publishDiagnostics}`.
+    publishDiagnostics,completion}`.
   - Capabilities: full text-document sync, `definitionProvider`,
-    `hoverProvider`.
+    `hoverProvider`, `completionProvider` (triggerCharacters: `.` ` `).
   - Loads `.scim` artifacts from `initializationOptions.artifactDir`
     (or workspace scan) for cross-module symbol resolution.
   - 25 LSP tests pass (16 protocol + 8 handlers + 1 integration
     spawning `ssc lsp` subprocess for full handshake).
+  - **`textDocument/completion` landed (2026-05-19)**: prefix-filtered
+    `CompletionList` combining user-defined symbols (from `TypedModule`),
+    imported `.scim` interface symbols, and 27 built-in keywords.
+    Item kinds: Function(3)/Constructor(4)/Variable(6)/Keyword(14).
+    7 new handler tests; all 19 `LspHandlersTest` + 113 cli tests green.
 
 **Final test coverage**: **531 core + ~115 CLI subprocess smoke tests**,
 all green.

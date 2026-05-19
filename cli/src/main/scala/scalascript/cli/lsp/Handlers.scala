@@ -45,9 +45,12 @@ class Handlers(docs: Documents):
 
     ujson.Obj(
       "capabilities" -> ujson.Obj(
-        "textDocumentSync"  -> 1,    // full sync
+        "textDocumentSync"   -> 1,    // full sync
         "definitionProvider" -> true,
-        "hoverProvider"      -> true
+        "hoverProvider"      -> true,
+        "completionProvider" -> ujson.Obj(
+          "triggerCharacters" -> ujson.Arr(".", " ")
+        )
       ),
       "serverInfo" -> ujson.Obj(
         "name"    -> "scalascript-lsp",
@@ -236,6 +239,94 @@ class Handlers(docs: Documents):
           .map(s => s"${s.kind} ${s.name}: ${s.tpe}")
       }.nextOption()
     }
+
+  // ─── completion ─────────────────────────────────────────────────────
+
+  /** LSP completion item kinds used by this server. */
+  private object CompletionItemKind:
+    val Function    = 3
+    val Constructor = 4
+    val Variable    = 6
+    val Keyword     = 14
+
+  /** ScalaScript keywords surfaced as completion candidates. */
+  private val keywords: List[String] = List(
+    "def", "val", "var", "if", "else", "match", "case", "for", "yield",
+    "while", "trait", "given", "using", "object", "class", "sealed",
+    "enum", "type", "extension", "opaque", "extern", "async", "await",
+    "import", "export", "println", "print", "summon"
+  )
+
+  /** `textDocument/completion`.  Returns a `CompletionList`. */
+  def completion(params: ujson.Value): ujson.Value =
+    val (uri, line, character) = extractCursor(params)
+
+    // Walk back from cursor to find the identifier prefix being typed.
+    def isIdentPart(c: Char): Boolean = c.isLetterOrDigit || c == '_'
+    val prefix: String = docs.get(uri) match
+      case None        => ""
+      case Some(state) =>
+        val lines = state.text.linesIterator.toIndexedSeq
+        if line < 0 || line >= lines.length then ""
+        else
+          val lineText = lines(line)
+          val col = math.min(character, lineText.length)
+          var start = col
+          while start > 0 && isIdentPart(lineText.charAt(start - 1)) do start -= 1
+          lineText.substring(start, col)
+
+    // Collect all user-defined symbol names from the typed module.
+    def collectNames(state: DocumentState): List[(String, Int)] =
+      state.typed.toList.flatMap { tm =>
+        def fromSection(sec: scalascript.typer.TypedSection): List[(String, Int)] =
+          val local = sec.definitions.flatMap {
+            case scalascript.typer.TypedDef.CodeBlock(_, _, defs) =>
+              defs.map { d =>
+                val kind = d.kind match
+                  case scalascript.typer.SymbolKind.Def   => CompletionItemKind.Function
+                  case scalascript.typer.SymbolKind.Class => CompletionItemKind.Constructor
+                  case _                                  => CompletionItemKind.Variable
+                (d.name, kind)
+              }
+            case _ => Nil
+          }
+          local ++ sec.subsections.flatMap(fromSection)
+        tm.sections.flatMap(fromSection)
+      }
+
+    // Collect names from the current document (if open) or yield nothing.
+    val docNames: List[(String, Int)] =
+      docs.get(uri).map(collectNames).getOrElse(Nil)
+
+    // Collect names from imported interfaces.
+    val ifaceNames: List[(String, Int)] =
+      docs.importedInterfaces.values.toList.flatMap { iface =>
+        (iface.exports ++ iface.externDefs).map { sym =>
+          val kind = if sym.kind == "def" then CompletionItemKind.Function
+                     else CompletionItemKind.Variable
+          (sym.name, kind)
+        }
+      }
+
+    // Keyword items.
+    val kwItems: List[(String, Int)] =
+      keywords.map(k => (k, CompletionItemKind.Keyword))
+
+    // Merge, deduplicate (keep first occurrence), filter by prefix.
+    val all = (docNames ++ ifaceNames ++ kwItems)
+      .distinctBy(_._1)
+      .filter { case (name, _) =>
+        prefix.isEmpty || name.toLowerCase.startsWith(prefix.toLowerCase)
+      }
+
+    val items = ujson.Arr.from(all.map { case (name, kind) =>
+      ujson.Obj("label" -> name, "kind" -> kind)
+    })
+
+    ujson.Obj(
+      "isIncomplete" -> false,
+      "items"        -> items
+    )
 
   // ─── Position / name lookup ────────────────────────────────────────
 

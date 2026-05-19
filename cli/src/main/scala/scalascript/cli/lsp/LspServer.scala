@@ -105,6 +105,10 @@ class LspServer(
           val result = handlers.hover(params)
           reply(LspProtocol.success(id, result))
 
+        case "textDocument/completion" =>
+          val result = handlers.completion(params)
+          reply(LspProtocol.success(id, result))
+
         case other =>
           reply(LspProtocol.failure(id, ErrorCodes.MethodNotFound, s"method not found: $other"))
     catch case e: Exception =>

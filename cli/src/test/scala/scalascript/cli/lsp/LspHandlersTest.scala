@@ -472,3 +472,157 @@ class LspHandlersTest extends AnyFunSuite:
     h.didClose(ujson.Obj("textDocument" -> ujson.Obj("uri" -> uri)))
     assert(docs.get(uri).isEmpty)
   }
+
+  // ─── completion ────────────────────────────────────────────────────
+
+  /** Helper: open a document and call textDocument/completion at position. */
+  private def openAndComplete(
+      h: Handlers,
+      uri: String,
+      text: String,
+      line: Int,
+      character: Int
+  ): ujson.Value =
+    h.didOpen(ujson.Obj(
+      "textDocument" -> ujson.Obj(
+        "uri" -> uri, "languageId" -> "scalascript", "version" -> 1, "text" -> text
+      )
+    ))
+    h.completion(ujson.Obj(
+      "textDocument" -> ujson.Obj("uri" -> uri),
+      "position"     -> ujson.Obj("line" -> line, "character" -> character)
+    ))
+
+  test("completion always returns isIncomplete = false") {
+    val (_, h) = newHandlers()
+    h.initialize(ujson.Obj())
+    val uri  = "file:///tmp/compl-incomplete.ssc"
+    val text = """# H
+                 |
+                 |```scala
+                 |val x: Int = 42
+                 |```
+                 |""".stripMargin
+    val result = openAndComplete(h, uri, text, line = 3, character = 4)
+    assert(result("isIncomplete").bool == false)
+  }
+
+  test("completion with empty prefix returns all symbols and keywords") {
+    val (_, h) = newHandlers()
+    h.initialize(ujson.Obj())
+    val uri  = "file:///tmp/compl-empty.ssc"
+    val text = """# H
+                 |
+                 |```scala
+                 |val myVal: Int = 1
+                 |def myFun(n: Int): Int = n
+                 |```
+                 |""".stripMargin
+    // Position at end of line 5 (blank line after the block is at line 5).
+    // Place cursor on line 5 char 0 — outside the identifiers, prefix is "".
+    val result = openAndComplete(h, uri, text, line = 3, character = 0)
+    val labels = result("items").arr.map(_("label").str).toSet
+    // User-defined symbols must appear.
+    assert(labels.contains("myVal"), s"expected myVal in completions: $labels")
+    assert(labels.contains("myFun"), s"expected myFun in completions: $labels")
+    // Keywords must appear.
+    assert(labels.contains("def"),   s"expected keyword 'def' in completions: $labels")
+    assert(labels.contains("val"),   s"expected keyword 'val' in completions: $labels")
+    assert(labels.contains("println"), s"expected 'println' in completions: $labels")
+  }
+
+  test("completion with prefix 'pri' returns only prefix-matching items") {
+    val (_, h) = newHandlers()
+    h.initialize(ujson.Obj())
+    val uri  = "file:///tmp/compl-prefix.ssc"
+    val text = """# H
+                 |
+                 |```scala
+                 |val priority: Int = 1
+                 |val other: String = "x"
+                 |pri
+                 |```
+                 |""".stripMargin
+    // Cursor is at end of "pri" on line 5.
+    val result = openAndComplete(h, uri, text, line = 5, character = 3)
+    val labels = result("items").arr.map(_("label").str).toList
+    // All returned labels must start with "pri" (case-insensitive).
+    assert(labels.forall(_.toLowerCase.startsWith("pri")),
+      s"expected all labels to start with 'pri', got: $labels")
+    // "println" and "print" and user-defined "priority" must be in there.
+    assert(labels.contains("println"),  s"expected println, got: $labels")
+    assert(labels.contains("print"),    s"expected print, got: $labels")
+    assert(labels.contains("priority"), s"expected priority, got: $labels")
+    // "val", "def", etc. must NOT appear.
+    assert(!labels.contains("val"),  s"'val' should be filtered out, got: $labels")
+    assert(!labels.contains("other"), s"'other' should be filtered out, got: $labels")
+  }
+
+  test("completion in empty document returns only keywords") {
+    val (_, h) = newHandlers()
+    h.initialize(ujson.Obj())
+    val uri  = "file:///tmp/compl-empty-doc.ssc"
+    // A valid-structure doc with an empty code block.
+    val text = """# H
+                 |
+                 |```scala
+                 |
+                 |```
+                 |""".stripMargin
+    val result = openAndComplete(h, uri, text, line = 3, character = 0)
+    val labels = result("items").arr.map(_("label").str).toSet
+    // No user-defined names; all returned items must be keywords.
+    val expectedKw = Set("def", "val", "var", "if", "else", "match", "case",
+      "for", "yield", "while", "trait", "given", "using", "object", "class",
+      "sealed", "enum", "type", "extension", "opaque", "extern", "async",
+      "await", "import", "export", "println", "print", "summon")
+    assert(labels == expectedKw,
+      s"expected exactly keywords, got: $labels")
+  }
+
+  test("initialize advertises completionProvider capability") {
+    val (_, h) = newHandlers()
+    val result = h.initialize(ujson.Obj("processId" -> ujson.Null))
+    val caps = result("capabilities")
+    assert(caps.obj.contains("completionProvider"),
+      "expected completionProvider in capabilities")
+    val triggers = caps("completionProvider")("triggerCharacters").arr.map(_.str).toSet
+    assert(triggers.contains("."), "expected '.' in triggerCharacters")
+    assert(triggers.contains(" "), "expected ' ' in triggerCharacters")
+  }
+
+  test("completion item kinds: def -> 3 (Function), val/var -> 6 (Variable)") {
+    val (_, h) = newHandlers()
+    h.initialize(ujson.Obj())
+    val uri  = "file:///tmp/compl-kinds.ssc"
+    val text = """# H
+                 |
+                 |```scala
+                 |val myVar: Int = 1
+                 |def myFun(n: Int): Int = n
+                 |```
+                 |""".stripMargin
+    val result = openAndComplete(h, uri, text, line = 3, character = 0)
+    val items  = result("items").arr.map(i => i("label").str -> i("kind").num.toInt).toMap
+    assert(items.get("myFun").contains(3),
+      s"expected def kind=3 (Function), got ${items.get("myFun")}")
+    assert(items.get("myVar").contains(6),
+      s"expected val kind=6 (Variable), got ${items.get("myVar")}")
+    // Keyword kind should be 14.
+    assert(items.get("def").contains(14),
+      s"expected keyword kind=14, got ${items.get("def")}")
+  }
+
+  test("completion for unknown URI returns only keywords (empty prefix)") {
+    val (_, h) = newHandlers()
+    h.initialize(ujson.Obj())
+    // Call completion without ever opening the document.
+    val result = h.completion(ujson.Obj(
+      "textDocument" -> ujson.Obj("uri" -> "file:///tmp/never-opened.ssc"),
+      "position"     -> ujson.Obj("line" -> 0, "character" -> 0)
+    ))
+    assert(result("isIncomplete").bool == false)
+    val labels = result("items").arr.map(_("label").str).toSet
+    assert(labels.contains("def"),  s"expected keyword 'def', got: $labels")
+    assert(labels.contains("val"),  s"expected keyword 'val', got: $labels")
+  }
