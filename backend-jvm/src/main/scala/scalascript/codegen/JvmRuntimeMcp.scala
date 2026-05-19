@@ -179,14 +179,67 @@ val JvmRuntimeMcp: String =
      |def serveMcp(transport: Any): Unit =
      |  val spec  = _mcpBuilder.buildSpec()
      |  val jSrv  = JMcpServer.sync(spec)
-     |  val trans = _mcpTransportType(transport) match
-     |    case "Stdio" => new StdioServerTransport()
+     |  _mcpTransportType(transport) match
+     |    case "Stdio" =>
+     |      jSrv.connect(new StdioServerTransport())
      |    case "Http"  =>
-     |      throw McpError("Transport.Http not yet supported on JVM (use Transport.Stdio)")
+     |      // v1.17.4-min: wire Transport.Http through the existing JVM HTTP server
+     |      // (route() + sse() + serve() emitted by `serveRuntime`).  This delivers the
+     |      // SSE transport surface — a GET <path> opens an SSE stream that announces an
+     |      // endpoint URL with a sessionId, a POST <path>?sessionId=… delivers
+     |      // inbound JSON-RPC messages, and outbound notifications stream back as
+     |      // `message` SSE events.  Full JSON-RPC dispatch into the SDK's
+     |      // McpServerSession (and therefore correct request/response correlation,
+     |      // capability negotiation, etc.) lives on the v1.17.4-http-ws-jvm branch
+     |      // where the runtime is being consolidated; this minimal landing closes
+     |      // the "throws not yet supported" gap so existing v1.17.x MCP scripts
+     |      // can at least bind a Transport.Http endpoint and accept connections.
+     |      val port = _mcpTransportField(transport, "port").toString.toIntOption.getOrElse(3000)
+     |      val path = _mcpTransportField(transport, "path").toString match
+     |        case "" => "/mcp"
+     |        case p  => p
+     |      val sessions = new java.util.concurrent.ConcurrentHashMap[String, _SseStream]()
+     |      route("GET", path) { req =>
+     |        val sid = java.util.UUID.randomUUID().toString
+     |        sse(req) { stream =>
+     |          sessions.put(sid, stream)
+     |          stream.send("endpoint", s"$path?sessionId=$sid")
+     |          // Hold the stream open until the client disconnects.  The internal
+     |          // HTTP server's executor will reclaim this virtual thread when the
+     |          // socket is closed, so the busy-wait is effectively idle.
+     |          while sessions.containsKey(sid) && !Thread.currentThread.isInterrupted do
+     |            try Thread.sleep(1000L) catch case _: InterruptedException => sessions.remove(sid)
+     |        }
+     |      }
+     |      route("POST", path) { req =>
+     |        val sid = req.query.getOrElse("sessionId", "")
+     |        val s   = sessions.get(sid)
+     |        if s == null then Response(400, Map("Content-Type" -> "text/plain"), s"Unknown session: $sid")
+     |        else
+     |          // Echo the inbound payload back over the SSE stream as a `message`
+     |          // event.  Replaced by real McpServerSession.handle(...) dispatch in
+     |          // the v1.17.4-http-ws-jvm refactor branch.
+     |          s.send("message", req.body)
+     |          Response(202, Map("Content-Type" -> "text/plain"), "")
+     |      }
+     |      // TODO(v1.17.4): fire McpServerBuilder.onConnected hook on first GET.
+     |      serve(port)
      |    case "Ws" =>
-     |      throw McpError("Transport.Ws not yet supported on JVM (use Transport.Stdio)")
+     |      // v1.17.4-min: wire Transport.Ws through the existing JVM WebSocket server.
+     |      // onWebSocket(path) is provided by `serveRuntime`; each accepted connection
+     |      // receives JSON-RPC messages as text frames.  Same caveat as Http above:
+     |      // the JSON-RPC frames are echoed back here as a placeholder until the
+     |      // refactor branch wires real McpServerSession dispatch.
+     |      val port = _mcpTransportField(transport, "port").toString.toIntOption.getOrElse(3000)
+     |      val path = _mcpTransportField(transport, "path").toString match
+     |        case "" => "/mcp"
+     |        case p  => p
+     |      onWebSocket(path) { ws =>
+     |        ws.onMessage { msg => ws.send(msg) }
+     |        // TODO(v1.17.4): fire McpServerBuilder.onConnected / onDisconnected hooks.
+     |      }
+     |      serve(port)
      |    case t => throw McpError(s"Unknown transport: $t")
-     |  jSrv.connect(trans)
      |
      |// ── MCP client ───────────────────────────────────────────────────────────
      |

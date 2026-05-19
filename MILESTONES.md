@@ -440,15 +440,18 @@ unblocks downstream features as early as possible.
      deferred to v2.x.  Depends on v1.13 (`Mirror` resolution).
  21. **v1.17 — MCP support (client + server)** ✓ Landed (Phases 1–7);
      v1.17.1 hardening ✓ Landed; v1.17.2 SSE/JS ✓ Landed;
-     v1.17.3 prompts/JVM ✓ Landed (all 2026-05-19).
+     v1.17.3 prompts/JVM ✓ Landed; v1.17.4-min Http/Ws/JVM (minimal
+     wiring, echo placeholder) ✓ Landed (all 2026-05-19).
      Anthropic's Model Context Protocol via REST-shaped API
      in a separate namespace (`std/mcp/*`).  Intrinsic-first:
      wraps `@modelcontextprotocol/sdk` on Node and
      `io.modelcontextprotocol:sdk` on JVM; interpreter +
      scalajs-spa reject at typecheck via SPI feature flags.
      Full design in [`docs/mcp.md`](docs/mcp.md).  Remaining
-     v1.17.x work: Http/Ws on JVM, INT own-impl, type-class layer,
-     streaming resources.
+     v1.17.x work: full v1.17.4 (real `McpServerSession` dispatch +
+     runtime consolidation, see `feature/v1.17.4-http-ws-jvm` branch
+     and `PLAN-runtime-consolidation.md`), INT own-impl, type-class
+     layer, streaming resources.
  22. **v1.18 — `package` keyword + std layout migration** ✓ Landed.
      Phases 1, 2, 4 landed (parser, codegen, conformance); Phase 3 (std migration) deferred.
  23. **v1.19 — URL / dep imports** ✓ Landed.
@@ -2934,10 +2937,47 @@ block mirroring the tools/resources pattern:
 - Role mapping: `"assistant"` → `PromptMessageRole.ASSISTANT`, all
   others → `PromptMessageRole.USER`.
 
+### v1.17.4-min — Http/Ws transports on JVM (minimal wiring) ✓ Landed (2026-05-19)
+
+The two `Transport.Http` / `Transport.Ws` arms of `serveMcp` no longer
+throw `McpError("not yet supported")`.  Instead they bind to the existing
+JVM HTTP / WS server runtime (`route` + `sse` + `serve` + `onWebSocket`,
+emitted by `JvmGen.serveRuntime`).  `JvmGen` now also emits `serveRuntime`
+when MCP is detected, so MCP-only scripts pick up the dispatcher.
+
+What this minimal landing covers:
+
+- `serveMcp(Transport.Http(port, path))` registers `GET <path>` (opens an
+  SSE stream, assigns a `sessionId`, sends an `endpoint` event with the
+  POST URL) and `POST <path>?sessionId=…` (delivers inbound JSON-RPC),
+  then calls `serve(port)` — identical surface to the JS-side v1.17.2.
+- `serveMcp(Transport.Ws(port, path))` registers `onWebSocket(path) { … }`
+  and `serve(port)`; each text frame is one JSON-RPC message.
+
+What this minimal landing does NOT cover (deferred to the proper v1.17.4,
+on branch `feature/v1.17.4-http-ws-jvm`):
+
+- Real `McpServerSession.handle(…)` dispatch into the SDK's request /
+  response correlation, capability negotiation, and tool/resource/prompt
+  invocation.  Inbound JSON-RPC is currently echoed back as a placeholder.
+- `McpServerBuilder.onConnected` / `onDisconnected` hook firing on the
+  HTTP / WS code paths.
+- Consolidation of the duplicated HTTP/WS server stack (~2 250 LOC string
+  template in `JvmGen.serveRuntime` vs ~4 500 LOC of real classes in
+  `backend-interpreter/server/`).  See `PLAN-runtime-consolidation.md` on
+  the `feature/v1.17.4-http-ws-jvm` branch — Phase 1a (extract pure
+  primitives to new `runtime-server-common` module) has already landed
+  there; Phase 1b (JvmGen reads from the new module instead of duplicating)
+  and Phase 2 (split interpreter-coupled WebServer / WsConnection behind a
+  `RouteDispatcher` trait) are the next two steps that make the full v1.17.4
+  ~50 LOC of adapter rather than a new HTTP/WS stack.
+
 ### Deferred follow-ups (v1.17.x backlog, ordered by priority)
 
-1. **Http/Ws transports on JVM** — both throw `McpError("not yet
-   supported")`; needs Jetty / Vert.x event-loop integration.
+1. **Full v1.17.4** — replace the minimal echo with real
+   `McpServerSession` dispatch; finish runtime consolidation per
+   `PLAN-runtime-consolidation.md` on the `feature/v1.17.4-http-ws-jvm`
+   branch.
 2. **Own implementation for INT / scalajs-spa** — ~1500 LOC
    JSON-RPC 2.0 stack; blocked until INT becomes a priority target.
 3. **Type-class layer** (`given McpTool[A, R]`, `derives McpSchema`)

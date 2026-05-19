@@ -87,7 +87,10 @@ class JvmGen(
     if effectOps.nonEmpty                                  then sb.append(effectsRuntime)
     if mutualGroups.nonEmpty                               then sb.append(mutualTcoRuntime)
     if blocksUseReactive(blocks)                           then sb.append(reactiveRuntime)
-    if effectOps.nonEmpty || blocksUseRoutes(blocks) || frontmatterRoutes.nonEmpty || blocksUseJson(blocks) then sb.append(serveRuntime)
+    // serveRuntime is also emitted when MCP is used so that `serveMcp(Transport.Http|Ws(...))`
+    // can drive the JVM HTTP+WS server via route() / onWebSocket() / serve() instead of
+    // throwing "not yet supported".  See JvmRuntimeMcp serveMcp(Transport.Http/Ws) arms.
+    if effectOps.nonEmpty || blocksUseRoutes(blocks) || frontmatterRoutes.nonEmpty || blocksUseJson(blocks) || blocksUseMcp(blocks) then sb.append(serveRuntime)
     if blocksUseMcp(blocks)                                                          then sb.append(JvmRuntimeMcp)
     if blocksUseDataset(blocks)                                                      then sb.append(JvmRuntimeDataset)
 
