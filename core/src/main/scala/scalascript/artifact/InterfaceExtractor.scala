@@ -3,7 +3,7 @@ package scalascript.artifact
 import scalascript.ir.*
 import scalascript.ast
 import scalascript.transform.EffectAnalysis
-import scalascript.typer.{Typer, DefSummary, SymbolKind as TSymbolKind}
+import scalascript.typer.{Typer, DefSummary, SType, SymbolKind as TSymbolKind}
 import scala.meta.*
 import scala.collection.mutable.ListBuffer
 
@@ -56,6 +56,21 @@ object InterfaceExtractor:
       s.subsections.foreach(gatherSection)
     typed.sections.foreach(gatherSection)
 
+    // When `package: foo.bar` is set in the front-matter, the parser wraps
+    // every code block in nested `object foo: object bar: <body>` shells
+    // (see `Parser.wrapSectionInPackage`).  The typer's top-level walk then
+    // sees only `object foo` as a top-level definition, NOT the inner defs
+    // that consumers actually want to import.  Strip the outer-shell
+    // objects from the typer-derived list here; we re-collect the inner
+    // user defs from the AST below (`scalaTrees` is populated next).
+    if pkg.nonEmpty then
+      val shellNames = pkg.toSet
+      val filtered = allDefs.filterNot { d =>
+        d.kind == TSymbolKind.Object && shellNames.contains(d.name)
+      }
+      allDefs.clear()
+      allDefs ++= filtered
+
     // Also scan for `given` instances and `extern def` by walking the AST.
     val instances  = ListBuffer.empty[InstanceDecl]
     val externDefs = ListBuffer.empty[ExportedSymbol]
@@ -73,6 +88,66 @@ object InterfaceExtractor:
       }
       sec.subsections.foreach(collectTrees)
     module.sections.foreach(collectTrees)
+
+    // ── Package-shell walk ──────────────────────────────────────────────
+    //
+    // `Parser.wrapSectionInPackage` wraps every code block in
+    // `object pkg(0): object pkg(1): ... <body>` when the manifest sets
+    // `package: foo.bar`.  Descend through the matching `Defn.Object`
+    // shells in each parsed `Source` and surface the inner top-level
+    // user definitions — without this step, a `case class DocLine`
+    // under `package: std.dsl` is invisible to consumers of the `.scim`.
+    //
+    // Inner stats are also fed back into `allDefs` so they appear in the
+    // exports list with the right `fqn` (joined via `_` by `fqn(name)`).
+    def unwrapPackage(stats: List[Stat], remaining: List[String]): List[Stat] =
+      remaining match
+        case Nil => stats
+        case head :: tail =>
+          stats.collectFirst {
+            case obj: Defn.Object if obj.name.value == head =>
+              unwrapPackage(obj.templ.body.stats, tail)
+          }.getOrElse(Nil)
+
+    /** Inner top-level stats reached after stripping the package shell.
+     *  Empty when no `package:` is set, so the rest of the pipeline
+     *  (extern / given walks below) sees the original trees unchanged. */
+    val packageInnerStats: List[Stat] =
+      if pkg.isEmpty then Nil
+      else
+        scalaTrees.toList.collect { case s: Source => s.stats }
+          .flatMap(stats => unwrapPackage(stats, pkg))
+
+    // Synthesize DefSummary entries for the package-inner top-level defs
+    // so they flow through the normal `exports` pipeline (including the
+    // manifest `exports:` filter).  Types are best-effort `Any` — the
+    // typer doesn't currently descend into objects, so we cannot recover
+    // richer types without re-running it on the inner stats.
+    if pkg.nonEmpty then
+      packageInnerStats.foreach {
+        case d: Defn.Val =>
+          d.pats.foreach {
+            case Pat.Var(n) =>
+              allDefs += DefSummary(n.value, TSymbolKind.Val, SType.Any, Nil)
+            case _ => ()
+          }
+        case d: Defn.Var =>
+          d.pats.foreach {
+            case Pat.Var(n) =>
+              allDefs += DefSummary(n.value, TSymbolKind.Var, SType.Any, Nil)
+            case _ => ()
+          }
+        case d: Defn.Def =>
+          // Skip extern markers — they are reported via `externDefs`, not
+          // the generic exports list.
+          if !EffectAnalysis.isExternDef(d.body) then
+            allDefs += DefSummary(d.name.value, TSymbolKind.Def, SType.Any, Nil)
+        case d: Defn.Class  => allDefs += DefSummary(d.name.value, TSymbolKind.Class,  SType.Any, Nil)
+        case d: Defn.Object => allDefs += DefSummary(d.name.value, TSymbolKind.Object, SType.Any, Nil)
+        case d: Defn.Trait  => allDefs += DefSummary(d.name.value, TSymbolKind.Trait,  SType.Any, Nil)
+        case d: Defn.Enum   => allDefs += DefSummary(d.name.value, TSymbolKind.Enum,   SType.Any, Nil)
+        case _              => ()
+      }
 
     def fqn(name: String): String =
       if pkg.isEmpty then name
@@ -139,7 +214,12 @@ object InterfaceExtractor:
       }
 
     scalaTrees.foreach {
-      case Source(stats)     => scanStats(stats)
+      case Source(stats)     =>
+        // When a package shell wraps the body, scan the inner stats so
+        // `extern def` / `given` declarations below the shell are still
+        // discovered.  Otherwise scan the top-level stats as before.
+        if pkg.nonEmpty then scanStats(unwrapPackage(stats, pkg))
+        else scanStats(stats)
       case Term.Block(stats) => scanStats(stats)
       case other             => other.children.foreach {
         case s: Source     => scanStats(s.stats)
@@ -149,12 +229,22 @@ object InterfaceExtractor:
     }
 
     // Build exports from DefSummary list (excluding prelude builtins and params).
+    //
+    // The prelude-name filter only applies to non-packaged modules.  When
+    // `package: foo` is set, the typer's top-level scan saw only the
+    // shell `object foo` (already stripped above) — the remaining entries
+    // come from the explicit AST package walk, so they are user defs by
+    // construction and must NOT be confused with the typer's auto-injected
+    // prelude names like `render` or `serve`.
     val preludeNames = Set(
       "println", "print", "assert", "require", "Some", "None",
       "List", "Map", "math", "doc", "render", "serve"
     )
-    val exports = allDefs
-      .filterNot(d => preludeNames.contains(d.name) || d.kind == TSymbolKind.Param)
+    val rawExports = allDefs
+      .filterNot { d =>
+        d.kind == TSymbolKind.Param ||
+          (pkg.isEmpty && preludeNames.contains(d.name))
+      }
       .map { d =>
         ExportedSymbol(
           name = d.name,
@@ -164,6 +254,17 @@ object InterfaceExtractor:
         )
       }
       .toList
+
+    // Respect `exports:` in the manifest: if non-empty, expose ONLY those
+    // names in the interface so private helpers stay hidden from consumers.
+    // An absent / empty `exports:` keeps the default behaviour (export
+    // everything top-level).
+    val manifestExports = module.manifest.map(_.exports).getOrElse(Nil)
+    val exports =
+      if manifestExports.isEmpty then rawExports
+      else
+        val allow = manifestExports.toSet
+        rawExports.filter(s => allow.contains(s.name))
 
     // Detect capabilities by walking the parsed scalameta trees.  This
     // is the v2.0 AST-based replacement for the prior string-grep heuristic
