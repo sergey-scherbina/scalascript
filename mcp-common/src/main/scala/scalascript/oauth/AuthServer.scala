@@ -43,7 +43,15 @@ class AuthServer(
    *  override with `OAuth.RsaTokenSigner.generate(kid)` (or a custom
    *  asymmetric signer) for production deployments that want a JWKS
    *  endpoint instead of a shared symmetric secret. */
-  customSigner: Option[OAuth.TokenSigner] = None
+  customSigner: Option[OAuth.TokenSigner] = None,
+  /** v1.17.x — passkey credential store.  Empty by default; populate
+   *  via the registration ceremony (out of band) before clients can
+   *  use the `urn:ietf:params:oauth:grant-type:passkey` grant. */
+  val passkeys:   Passkey.PasskeyStore  = new Passkey.InMemoryPasskeyStore,
+  /** v1.17.x — single-use challenge store for passkey assertion
+   *  flows.  Same pattern as authorization codes — issue, consume
+   *  once, refuse replay. */
+  val passkeyChallenges: Passkey.ChallengeStore = new Passkey.InMemoryChallengeStore()
 ):
   import OAuth._
 
@@ -100,6 +108,46 @@ class AuthServer(
     case g: TokenRequest.AuthorizationCodeGrant => handleAuthCode(g)
     case g: TokenRequest.RefreshTokenGrant      => handleRefresh(g)
     case g: TokenRequest.ClientCredentialsGrant => handleClientCreds(g)
+    case g: TokenRequest.PasskeyAssertionGrant  => handlePasskey(g)
+
+  /** v1.17.x — issue a fresh single-use passkey challenge.  Callers
+   *  hand the challenge to the user's browser, which feeds it into
+   *  `navigator.credentials.get(...)`; the resulting assertion is
+   *  then redeemed at the token endpoint via the passkey grant. */
+  def passkeyChallenge(): String = passkeyChallenges.issue()
+
+  private def handlePasskey(g: TokenRequest.PasskeyAssertionGrant): TokenOutcome =
+    authenticateClient(g.clientId, g.clientSecret) match
+      case Left(err) => TokenOutcome.Error(err, "client authentication failed")
+      case Right(client) =>
+        verifyPasskey(g) match
+          case Passkey.AssertionOutcome.Verified(subject, _) =>
+            if !g.scope.subsetOf(client.scopes) then
+              TokenOutcome.Error("invalid_scope", "requested scopes not granted to client")
+            else
+              TokenOutcome.Issued(mintTokens(client, subject, g.scope))
+          case Passkey.AssertionOutcome.UnknownCredential(cid) =>
+            TokenOutcome.Error("invalid_grant", s"unknown credential: $cid")
+          case Passkey.AssertionOutcome.ChallengeMismatch =>
+            TokenOutcome.Error("invalid_grant", "challenge unknown / expired / replayed")
+          case Passkey.AssertionOutcome.SignatureInvalid =>
+            TokenOutcome.Error("invalid_grant", "passkey signature verification failed")
+          case Passkey.AssertionOutcome.InvalidGrant(descr) =>
+            TokenOutcome.Error("invalid_grant", descr)
+
+  /** Decision logic for passkey assertion — kept separate so callers
+   *  can verify out-of-band (e.g. step-up auth) without going through
+   *  the token endpoint. */
+  def verifyPasskey(g: TokenRequest.PasskeyAssertionGrant): Passkey.AssertionOutcome =
+    passkeys.find(g.credentialId) match
+      case None       => Passkey.AssertionOutcome.UnknownCredential(g.credentialId)
+      case Some(cred) =>
+        if !passkeyChallenges.consume(g.challenge) then
+          Passkey.AssertionOutcome.ChallengeMismatch
+        else if !Passkey.verifySignature(cred, g.signedData, g.signature) then
+          Passkey.AssertionOutcome.SignatureInvalid
+        else
+          Passkey.AssertionOutcome.Verified(cred.subject, cred.credentialId)
 
   private def handleAuthCode(g: TokenRequest.AuthorizationCodeGrant): TokenOutcome =
     authenticateClient(g.clientId, g.clientSecret) match
@@ -367,7 +415,8 @@ class AuthServer(
       "grant_types_supported"   -> ujson.Arr(
         ujson.Str("authorization_code"),
         ujson.Str("refresh_token"),
-        ujson.Str("client_credentials")
+        ujson.Str("client_credentials"),
+        ujson.Str(TokenRequest.PasskeyGrantType)
       ),
       "token_endpoint_auth_methods_supported" -> ujson.Arr(
         ujson.Str("client_secret_basic"),
@@ -501,6 +550,26 @@ enum TokenRequest:
     clientSecret: String,
     scope:        Set[String]    = Set.empty
   )
+  /** v1.17.x — passkey assertion grant.  Wire form:
+   *  `grant_type=urn:ietf:params:oauth:grant-type:passkey
+   *   &client_id=…&credential_id=…&challenge=…&signed_data=…
+   *   &signature=…&scope=…`.
+   *  All base64 fields are base64url (no padding).  `signedData` is
+   *  whatever the caller chose to sign — typically
+   *  `authenticatorData || sha256(clientDataJSON)` for WebAuthn. */
+  case PasskeyAssertionGrant(
+    credentialId: String,
+    challenge:    String,
+    signedData:   Array[Byte],
+    signature:    Array[Byte],
+    scope:        Set[String]    = Set.empty,
+    clientId:     String,
+    clientSecret: Option[String] = None
+  )
+
+object TokenRequest:
+  /** Spec grant_type URI for the passkey assertion. */
+  val PasskeyGrantType = "urn:ietf:params:oauth:grant-type:passkey"
 
 case class TokenResponse(
   accessToken:  String,

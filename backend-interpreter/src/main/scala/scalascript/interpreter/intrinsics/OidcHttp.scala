@@ -64,6 +64,8 @@ object OidcHttp:
              "oauth.http.metadata") { (_, _, _) => OAuthRoutes.handleMetadata(as) }
     register(ctx, "GET", prefix + "/.well-known/jwks.json",
              "oauth.http.jwks") { (_, _, _) => OAuthRoutes.handleJwks(as) }
+    register(ctx, "GET", prefix + "/passkey/challenge",
+             "oauth.http.passkey-challenge") { (_, _, _) => OAuthRoutes.handlePasskeyChallenge(as) }
 
   // ─── helpers ────────────────────────────────────────────────────────
 

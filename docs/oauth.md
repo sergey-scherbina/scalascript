@@ -91,9 +91,72 @@ Endpoints registered by `oauth.serveAuthServer`:
   Narrower scope on refresh allowed; wider scopes rejected.
 - **`client_credentials`** for machine-to-machine.  Requires a
   confidential client.
+- **`urn:ietf:params:oauth:grant-type:passkey`** — passwordless
+  WebAuthn-style flow.  Server hands out a challenge at
+  `GET /passkey/challenge`; user's browser signs it with their
+  enrolled credential (`navigator.credentials.get(...)`); AS verifies
+  the signature against the stored public key and issues tokens.
+  See "Passkey assertions" below for the enrollment + verification
+  ceremony.
 
 The implicit and password grants are **not** supported — OAuth 2.1
 forbids them.
+
+## Passkey assertions
+
+Passwordless authentication via WebAuthn-style assertion exchange.
+The AS holds `(credentialId → publicKey)` mappings; clients prove
+possession of the private key to mint OAuth tokens.
+
+### From Scala
+
+```scala
+import scalascript.oauth.*
+
+// Out-of-band registration (typically after WebAuthn registration
+// ceremony — the browser hands you a public key in COSE or JWK form,
+// you decode it via Passkey.decodeRsaJwk / decodeEcJwk / decodeSpki
+// and store the credential).
+val pubKey = Passkey.decodeRsaJwk(jwk("n").str, jwk("e").str)
+as.passkeys.register(Passkey.PasskeyCredential(
+  credentialId = "AAAA...",       // base64url of the credentialId
+  subject      = "alice",
+  publicKey    = pubKey,
+  alg          = "RS256"          // or "ES256"
+))
+
+// At sign-in time, the browser fetches GET /passkey/challenge, calls
+// navigator.credentials.get({ challenge }), and the resulting
+// assertion is POSTed back to /token as the passkey grant.
+```
+
+Wire format on `/token` for the passkey grant:
+
+```
+POST /token
+Content-Type: application/x-www-form-urlencoded
+
+grant_type=urn:ietf:params:oauth:grant-type:passkey
+&client_id=...
+&credential_id=...
+&challenge=...
+&signed_data=<base64url(authenticatorData || sha256(clientDataJSON))>
+&signature=<base64url(...)>
+&scope=...
+```
+
+What the AS verifies (out-of-scope items in italics):
+
+  - credentialId is registered → maps to `(subject, publicKey, alg)`
+  - challenge was issued by this AS + hasn't been consumed yet
+  - signature checks against the stored public key for the supplied
+    `signedData` (RS256 or ES256 supported)
+  - *origin / rpId verification is the caller's job* — they vary per
+    deployment; we just verify the cryptographic signature
+
+Tokens minted by the passkey grant carry the user's subject (the one
+recorded at registration time) and the requested scopes, just like
+any other grant.
 
 ### From Scala
 

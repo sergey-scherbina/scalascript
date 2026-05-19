@@ -81,6 +81,10 @@ object OAuthHttp:
     register(ctx, "GET", prefix + "/.well-known/jwks.json",
              "oauth.http.jwks") { _ => OAuthRoutes.handleJwks(as) }
 
+    // ─── GET /passkey/challenge — single-use nonce for assertion flow ─
+    register(ctx, "GET", prefix + "/passkey/challenge",
+             "oauth.http.passkey-challenge") { _ => OAuthRoutes.handlePasskeyChallenge(as) }
+
   // ─── helpers ────────────────────────────────────────────────────────
 
   /** Register one route that maps a Request → RouteOutcome. */

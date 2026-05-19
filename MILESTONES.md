@@ -589,7 +589,22 @@ unblocks downstream features as early as possible.
      automatically RS256-signed when AS uses RSA.  HS256 mode
      stays the default with full backwards compat.
 
-     **Still open** (post-v1.17): WebAuthn / passkey grant.
+     **Passkey / WebAuthn assertion grant** (Iter GG) ✓ —
+     `scalascript.oauth.Passkey` + new
+     `urn:ietf:params:oauth:grant-type:passkey` OAuth grant.
+     `PasskeyStore` maps credentialId → (subject, publicKey, alg);
+     `Passkey.verifySignature` validates RS256 / ES256 assertions;
+     `GET /passkey/challenge` issues a single-use nonce; `/token`
+     accepts the grant with form fields `credential_id / challenge /
+     signed_data / signature / scope`.  Public-key decoders for
+     X.509 SPKI, RSA JWK (n/e), and EC JWK (x/y).  Registration
+     ceremony + clientDataJSON / origin / rpId verification stay
+     with the caller — we focus on the cryptographic core +
+     OAuth-integration plumbing.  Metadata + installer routes
+     auto-pick-up the new grant + endpoint.
+
+     **v1.17.x is now feature-complete** for MCP + OAuth + OIDC +
+     all the spec-grade auth surface a real production AS needs.
  22. **v1.18 — `package` keyword + std layout migration** ✓ Landed (all phases, 2026-05-19).
  23. **v1.19 — URL / dep imports** ✓ Landed.
      `[X](https://...)` URL fetch + `[X](dep:org/lib:1.2)`

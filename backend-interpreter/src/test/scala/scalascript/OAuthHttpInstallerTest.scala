@@ -68,7 +68,8 @@ class OAuthHttpInstallerTest extends AnyFunSuite with Matchers:
       ("POST", "/register"),
       ("GET",  "/authorize"),
       ("GET",  "/.well-known/oauth-authorization-server"),
-      ("GET",  "/.well-known/jwks.json")
+      ("GET",  "/.well-known/jwks.json"),
+      ("GET",  "/passkey/challenge")
     )
 
   test("installRoutes honours the basePath prefix"):
@@ -81,7 +82,8 @@ class OAuthHttpInstallerTest extends AnyFunSuite with Matchers:
       ("POST", "/oauth/register"),
       ("GET",  "/oauth/authorize"),
       ("GET",  "/oauth/.well-known/oauth-authorization-server"),
-      ("GET",  "/oauth/.well-known/jwks.json")
+      ("GET",  "/oauth/.well-known/jwks.json"),
+      ("GET",  "/oauth/passkey/challenge")
     )
 
   // ─── /token route through the adapter ───────────────────────────
