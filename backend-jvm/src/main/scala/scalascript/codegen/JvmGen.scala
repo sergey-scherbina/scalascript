@@ -2745,85 +2745,32 @@ class JvmGen(
        |          i += 1
        |      Some(out.toMap)
        |    catch case _: Throwable => None
-       |private def _packSession(m: Map[String, String]): String =
-       |  val body = _b64urlEnc(_sessionJsonEnc(m).getBytes("UTF-8"))
-       |  val sig  = _b64urlEnc(_hmacSha256(body.getBytes("UTF-8")))
-       |  body + "." + sig
+       |// ── SessionCookie / SessionStore — adapter shims ────────────────
+       |// Implementations live in scalascript.server.{SessionCookie,
+       |// SessionStore} (inlined from runtime-server-common); these
+       |// thin wrappers preserve the existing internal API surface that
+       |// the surrounding routing code uses.
+       |private def _packSession(m: Map[String, String]): String = SessionCookie.pack(m)
        |private def _unpackSession(cookieValue: String): Map[String, String] =
-       |  val dot = cookieValue.indexOf('.')
-       |  if dot <= 0 || dot == cookieValue.length - 1 then Map.empty
-       |  else
-       |    val body = cookieValue.substring(0, dot)
-       |    val sig  = cookieValue.substring(dot + 1)
-       |    try
-       |      val expected = _b64urlEnc(_hmacSha256(body.getBytes("UTF-8")))
-       |      if !java.security.MessageDigest.isEqual(
-       |          expected.getBytes("UTF-8"), sig.getBytes("UTF-8")) then Map.empty
-       |      else _sessionJsonDec(String(_b64urlDec(body), "UTF-8")).getOrElse(Map.empty)
-       |    catch case _: Throwable => Map.empty
+       |  SessionCookie.unpack(cookieValue).getOrElse(Map.empty)
        |private def _parseCookieSession(cookieHeader: String): Map[String, String] =
-       |  if cookieHeader == null || cookieHeader.isEmpty then Map.empty
-       |  else cookieHeader.split(';').iterator.map(_.trim)
-       |    .find(_.startsWith("session="))
-       |    .map(p => _unpackSession(p.substring("session=".length)))
-       |    .getOrElse(Map.empty)
-       |// Cookie security config — secure flag + SameSite policy, set
-       |// via the top-level `cookieConfig(secure, sameSite)` call.
-       |@volatile private var _cookieSecure: Boolean = false
-       |@volatile private var _cookieSameSite: String = "Lax"
+       |  if cookieHeader == null then Map.empty
+       |  else SessionCookie.fromHeader(cookieHeader).getOrElse(Map.empty)
        |def cookieConfig(secure: Boolean, sameSite: String = "Lax"): Unit =
-       |  _cookieSecure = secure
-       |  _cookieSameSite = sameSite match
+       |  SessionCookie.setCookieConfig(secure, sameSite match
        |    case s @ ("Strict" | "Lax" | "None") => s
-       |    case _                               => "Lax"
+       |    case _                               => "Lax")
        |private def _buildSetCookie(payload: Map[String, String]): String =
-       |  val base = s"Path=/; HttpOnly; SameSite=${_cookieSameSite}" +
-       |    (if _cookieSecure then "; Secure" else "")
-       |  if payload.isEmpty then s"session=; $base; Max-Age=0"
-       |  else s"session=${_packSession(payload)}; $base"
+       |  SessionCookie.toSetCookie(payload)
        |
-       |// ── Opt-in server-side session store ────────────────────────────
-       |// Same semantics as scalascript.server.SessionStore: process-local
-       |// ConcurrentHashMap keyed by random SSID, lazy TTL sweep.  When
-       |// enabled the cookie payload is `{"_ssid": "..."}` and the real
-       |// data lives on the server.
-       |private case class _StoreEntry(payload: Map[String, String], lastAccess: Long)
-       |private val _sessionStore = new java.util.concurrent.ConcurrentHashMap[String, _StoreEntry]()
-       |@volatile private var _sessionStoreEnabled = false
-       |@volatile private var _sessionStoreTtlMs   = 30L * 60L * 1000L
-       |private val _sessionAccessCount = new java.util.concurrent.atomic.AtomicLong(0L)
+       |// Opt-in server-side session store — sweep-on-access, env-controlled TTL.
+       |@volatile private var _sessionStoreEnabled: Boolean = false
        |def useSessionStore(ttlSeconds: Long = 30L * 60L): Unit =
-       |  _sessionStoreTtlMs = ttlSeconds * 1000L
+       |  SessionStore.useStore(ttlSeconds)
        |  _sessionStoreEnabled = true
-       |private def _sessionStoreSweep(): Unit =
-       |  val cutoff = java.lang.System.currentTimeMillis() - _sessionStoreTtlMs
-       |  val it = _sessionStore.entrySet().iterator()
-       |  while it.hasNext do
-       |    val e = it.next()
-       |    if e.getValue.lastAccess < cutoff then it.remove()
-       |private def _sessionStoreMaybeSweep(): Unit =
-       |  if (_sessionAccessCount.incrementAndGet() & 0xFF) == 0L then _sessionStoreSweep()
-       |private def _sessionStorePut(payload: Map[String, String]): String =
-       |  val bytes = new Array[Byte](24)
-       |  java.security.SecureRandom().nextBytes(bytes)
-       |  val ssid = _b64urlEnc(bytes)
-       |  _sessionStore.put(ssid, _StoreEntry(payload, java.lang.System.currentTimeMillis()))
-       |  _sessionStoreMaybeSweep()
-       |  ssid
-       |private def _sessionStoreGet(ssid: String): Option[Map[String, String]] =
-       |  Option(_sessionStore.get(ssid)) match
-       |    case None    => None
-       |    case Some(e) =>
-       |      val now = java.lang.System.currentTimeMillis()
-       |      if now - e.lastAccess > _sessionStoreTtlMs then
-       |        _sessionStore.remove(ssid, e)
-       |        None
-       |      else
-       |        _sessionStore.put(ssid, e.copy(lastAccess = now))
-       |        _sessionStoreMaybeSweep()
-       |        Some(e.payload)
-       |private def _sessionStoreDelete(ssid: String): Unit =
-       |  _sessionStore.remove(ssid)
+       |private def _sessionStorePut(payload: Map[String, String]): String = SessionStore.put(payload)
+       |private def _sessionStoreGet(ssid: String): Option[Map[String, String]] = SessionStore.get(ssid)
+       |private def _sessionStoreDelete(ssid: String): Unit = SessionStore.delete(ssid)
        |
        |// ── JWT (HS256 + RS256) — adapter shims ───────────────────────
        |// Implementations live in scalascript.server.{Jwt, JwtRsa} (inlined
