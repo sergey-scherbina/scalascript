@@ -13,6 +13,10 @@ exports:
   - traceAll
   - accumulate
   - runPass
+  - withPhase
+  - PipelineReport
+  - pipelineReport
+  - formatReport
 ---
 
 # `std/dsl/passes` — multi-pass pipeline combinators
@@ -120,4 +124,45 @@ def withPhase[A, B](phase: String, p: Pass[A, B]): Pass[A, B] =
   a => p(a) match
     case Right(b) => Right(b)
     case Left(es) => Left(es.map(e => PassError(phase, e.message, e.source, e.line, e.col)))
+```
+
+## Pipeline-aware error reporting
+
+```scalascript
+// Collects the outcome of every named pass in the pipeline.
+// Each entry records the pass name + either the errors or a success marker.
+case class PipelineReport(
+  phases: List[(String, Either[List[PassError], String])]
+):
+  // True when every phase succeeded.
+  def allOk: Boolean = phases.forall(_._2.isRight)
+
+  // All errors from all phases, in phase order.
+  def errors: List[PassError] = phases.flatMap(_._2.left.getOrElse(Nil))
+
+// Build a PipelineReport by running each named pass in sequence.
+// Execution is *fail-fast per entry*: a failed pass stops the chain but
+// every pass run up to that point is recorded.
+def pipelineReport[A](input: A, stages: List[(String, Pass[A, A])]): PipelineReport =
+  def loop(current: A, remaining: List[(String, Pass[A, A])], acc: List[(String, Either[List[PassError], String])]): PipelineReport =
+    remaining match
+      case Nil => PipelineReport(acc.reverse)
+      case (name, pass) :: rest =>
+        pass(current) match
+          case Right(next) =>
+            loop(next, rest, (name, Right("ok")) :: acc)
+          case Left(errs) =>
+            val remaining2 = rest.map((n, _) => (n, Left(List(PassError(n, "skipped — earlier phase failed")))))
+            PipelineReport((acc.reverse) ++ List((name, Left(errs))) ++ remaining2.map((n, e) => (n, e)))
+  loop(input, stages, Nil)
+
+// Format a PipelineReport as a human-readable string.
+// Each line: "  [phase] ok" or "  [phase] source:line:col — message".
+def formatReport(report: PipelineReport): String =
+  val lines = report.phases.flatMap { (phase, outcome) =>
+    outcome match
+      case Right(_)   => List("  [" + phase + "] ok")
+      case Left(errs) => errs.map(e => "  " + e.toString)
+  }
+  lines.mkString("\n")
 ```
