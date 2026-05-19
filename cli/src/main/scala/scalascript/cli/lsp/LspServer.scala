@@ -121,6 +121,10 @@ class LspServer(
           val result = handlers.rename(params)
           reply(LspProtocol.success(id, result))
 
+        case "textDocument/documentSymbol" =>
+          val result = handlers.documentSymbol(params)
+          reply(LspProtocol.success(id, result))
+
         case other =>
           reply(LspProtocol.failure(id, ErrorCodes.MethodNotFound, s"method not found: $other"))
     catch case e: Exception =>

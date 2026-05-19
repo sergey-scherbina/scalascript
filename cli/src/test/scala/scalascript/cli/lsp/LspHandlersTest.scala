@@ -830,3 +830,112 @@ class LspHandlersTest extends AnyFunSuite:
     val rp = caps("renameProvider")
     assert(rp("prepareProvider").bool == true)
   }
+
+  // ─── textDocument/documentSymbol ───────────────────────────────────
+
+  private val dsUri = "file:///tmp/doc-sym-test.ssc"
+
+  private def openSymDoc(h: Handlers, text: String): Unit =
+    h.initialize(ujson.Obj())
+    h.didOpen(ujson.Obj(
+      "textDocument" -> ujson.Obj(
+        "uri" -> dsUri, "languageId" -> "scalascript", "version" -> 1, "text" -> text
+      )
+    ))
+
+  private def docSymbols(h: Handlers) =
+    h.documentSymbol(ujson.Obj(
+      "textDocument" -> ujson.Obj("uri" -> dsUri)
+    )).arr
+
+  test("documentSymbol returns empty array for unknown URI") {
+    val (_, h) = newHandlers()
+    h.initialize(ujson.Obj())
+    val result = h.documentSymbol(ujson.Obj(
+      "textDocument" -> ujson.Obj("uri" -> "file:///tmp/no-such.ssc")
+    )).arr
+    assert(result.isEmpty)
+  }
+
+  test("documentSymbol includes a section heading as Module symbol") {
+    val (_, h) = newHandlers()
+    val text =
+      """# MySection
+        |
+        |```scala
+        |val x: Int = 1
+        |```
+        |""".stripMargin
+    openSymDoc(h, text)
+    val syms = docSymbols(h)
+    val names = syms.map(_("name").str).toList
+    assert(names.contains("MySection"), s"expected 'MySection' in symbols, got: $names")
+    val headingSym = syms.find(_("name").str == "MySection").get
+    assert(headingSym("kind").num.toInt == 2, "section heading should have kind=2 (Module)")
+  }
+
+  test("documentSymbol includes val and def definitions") {
+    val (_, h) = newHandlers()
+    val text =
+      """# Section
+        |
+        |```scala
+        |val myConst: Int = 42
+        |def myFun(n: Int): Int = n + 1
+        |```
+        |""".stripMargin
+    openSymDoc(h, text)
+    val syms = docSymbols(h)
+    val byName = syms.map(s => s("name").str -> s("kind").num.toInt).toMap
+    assert(byName.contains("myConst"), s"expected 'myConst', got: ${byName.keys}")
+    assert(byName.contains("myFun"),   s"expected 'myFun', got: ${byName.keys}")
+    assert(byName("myFun") == 12,   s"def should be kind=12 (Function), got ${byName("myFun")}")
+    assert(byName("myConst") == 13, s"val should be kind=13 (Variable), got ${byName("myConst")}")
+  }
+
+  test("documentSymbol includes class and object definitions") {
+    val (_, h) = newHandlers()
+    val text =
+      """# Section
+        |
+        |```scala
+        |class MyClass(x: Int)
+        |object MyObj
+        |```
+        |""".stripMargin
+    openSymDoc(h, text)
+    val syms = docSymbols(h)
+    val byName = syms.map(s => s("name").str -> s("kind").num.toInt).toMap
+    assert(byName.contains("MyClass"), s"expected 'MyClass', got: ${byName.keys}")
+    assert(byName.contains("MyObj"),   s"expected 'MyObj', got: ${byName.keys}")
+    assert(byName("MyClass") == 5,  s"class should be kind=5, got ${byName("MyClass")}")
+    assert(byName("MyObj")   == 19, s"object should be kind=19, got ${byName("MyObj")}")
+  }
+
+  test("documentSymbol each symbol carries a uri and range") {
+    val (_, h) = newHandlers()
+    val text =
+      """# S
+        |
+        |```scala
+        |val z: Int = 0
+        |```
+        |""".stripMargin
+    openSymDoc(h, text)
+    val syms = docSymbols(h)
+    assert(syms.nonEmpty, "expected at least one symbol")
+    syms.foreach { sym =>
+      val loc = sym("location")
+      assert(loc("uri").str == dsUri, "symbol uri must match doc uri")
+      val range = loc("range")
+      assert(range.obj.contains("start"), "range must have 'start'")
+      assert(range.obj.contains("end"),   "range must have 'end'")
+    }
+  }
+
+  test("initialize advertises documentSymbolProvider capability") {
+    val (_, h) = newHandlers()
+    val caps = h.initialize(ujson.Obj())("capabilities")
+    assert(caps("documentSymbolProvider").bool == true,
+      "expected documentSymbolProvider: true in capabilities")
+  }

@@ -48,9 +48,10 @@ class Handlers(docs: Documents):
         "textDocumentSync"   -> 1,    // full sync
         "definitionProvider" -> true,
         "hoverProvider"      -> true,
-        "referencesProvider" -> true,
-        "renameProvider"     -> ujson.Obj("prepareProvider" -> true),
-        "completionProvider" -> ujson.Obj(
+        "referencesProvider"       -> true,
+        "renameProvider"           -> ujson.Obj("prepareProvider" -> true),
+        "documentSymbolProvider"   -> true,
+        "completionProvider"       -> ujson.Obj(
           "triggerCharacters" -> ujson.Arr(".", " ")
         )
       ),
@@ -328,6 +329,118 @@ class Handlers(docs: Documents):
     ujson.Obj(
       "isIncomplete" -> false,
       "items"        -> items
+    )
+
+  // ─── documentSymbol ─────────────────────────────────────────────────
+
+  /** LSP symbol kinds used in `textDocument/documentSymbol`. */
+  private object SymbolKindLsp:
+    val Module    = 2
+    val Class     = 5
+    val Method    = 6
+    val Field     = 8
+    val Enum      = 10
+    val Interface = 11
+    val Function  = 12
+    val Variable  = 13
+    val Object    = 19
+
+  /** `textDocument/documentSymbol`.  Returns a flat `SymbolInformation[]`
+   *  listing every named symbol visible at the top level of each code block,
+   *  plus one entry per Markdown section heading.
+   *
+   *  Each element has `{ name, kind, location: { uri, range } }`. */
+  def documentSymbol(params: ujson.Value): ujson.Value =
+    val td  = params.obj("textDocument")
+    val uri = td("uri").str
+    docs.get(uri) match
+      case None => ujson.Arr()
+      case Some(state) =>
+        val buf = List.newBuilder[ujson.Value]
+
+        // One entry per section heading.
+        state.module.foreach { mod =>
+          def walkSections(sections: List[Section]): Unit =
+            sections.foreach { sec =>
+              val text = sec.heading.text
+              if text.nonEmpty then
+                val (sl, sc, el, ec) = sec.heading.span match
+                  case Some(sp) => (sp.start.line, sp.start.column, sp.end.line, sp.end.column)
+                  case None     => (0, 0, 0, text.length)
+                buf += symbolInfo(text, SymbolKindLsp.Module, uri, sl, sc, el, ec)
+              walkSections(sec.subsections)
+            }
+          walkSections(mod.sections)
+        }
+
+        // One entry per scalameta definition in code blocks.
+        val blocksForSymbols = state.module.toList.flatMap(collectBlocks)
+        if blocksForSymbols.nonEmpty then
+          import scala.meta.*
+          for (cb, blockLine0) <- blocksForSymbols do
+            cb.tree.foreach { node =>
+              ScalaNode.fold(node) { tree =>
+                tree.traverse {
+                  case d: Defn.Def =>
+                    val pos = d.name.pos
+                    buf += symbolInfo(d.name.value, SymbolKindLsp.Function, uri,
+                                     pos.startLine + blockLine0, pos.startColumn,
+                                     pos.endLine   + blockLine0, pos.endColumn)
+                  case d: Defn.Val =>
+                    d.pats.foreach {
+                      case Pat.Var(n) =>
+                        val pos = n.pos
+                        buf += symbolInfo(n.value, SymbolKindLsp.Variable, uri,
+                                         pos.startLine + blockLine0, pos.startColumn,
+                                         pos.endLine   + blockLine0, pos.endColumn)
+                      case _ => ()
+                    }
+                  case d: Defn.Var =>
+                    d.pats.foreach {
+                      case Pat.Var(n) =>
+                        val pos = n.pos
+                        buf += symbolInfo(n.value, SymbolKindLsp.Variable, uri,
+                                         pos.startLine + blockLine0, pos.startColumn,
+                                         pos.endLine   + blockLine0, pos.endColumn)
+                      case _ => ()
+                    }
+                  case d: Defn.Class =>
+                    val pos = d.name.pos
+                    buf += symbolInfo(d.name.value, SymbolKindLsp.Class, uri,
+                                     pos.startLine + blockLine0, pos.startColumn,
+                                     pos.endLine   + blockLine0, pos.endColumn)
+                  case d: Defn.Object =>
+                    val pos = d.name.pos
+                    buf += symbolInfo(d.name.value, SymbolKindLsp.Object, uri,
+                                     pos.startLine + blockLine0, pos.startColumn,
+                                     pos.endLine   + blockLine0, pos.endColumn)
+                  case d: Defn.Trait =>
+                    val pos = d.name.pos
+                    buf += symbolInfo(d.name.value, SymbolKindLsp.Interface, uri,
+                                     pos.startLine + blockLine0, pos.startColumn,
+                                     pos.endLine   + blockLine0, pos.endColumn)
+                  case d: Defn.Enum =>
+                    val pos = d.name.pos
+                    buf += symbolInfo(d.name.value, SymbolKindLsp.Enum, uri,
+                                     pos.startLine + blockLine0, pos.startColumn,
+                                     pos.endLine   + blockLine0, pos.endColumn)
+                }
+              }
+            }
+
+        ujson.Arr.from(buf.result())
+
+  private def symbolInfo(
+      name: String, kind: Int, uri: String,
+      sl: Int, sc: Int, el: Int, ec: Int
+  ): ujson.Value =
+    ujson.Obj(
+      "name"     -> name,
+      "kind"     -> kind,
+      "location" -> ujson.Obj(
+        "uri"   -> uri,
+        "range" -> rangeJson(sl, sc, el, ec)
+      )
     )
 
   // ─── references ─────────────────────────────────────────────────────
