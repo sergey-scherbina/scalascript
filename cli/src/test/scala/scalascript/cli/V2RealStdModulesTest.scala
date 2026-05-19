@@ -403,33 +403,16 @@ class V2RealStdModulesTest extends AnyFunSuite:
   //     <space-padded ^>
   //     <context+1>
   //
-  // This test pins the new format against the real `std/actors.ssc`
-  // fixture.  If/when the codegen catches up to handle every `extern def`
-  // in actors.ssc, the parse step will succeed and this test will need
-  // to flip to assert success.  Until then, the goal is: a developer
-  // seeing the failure should be able to jump straight to the line.
-  test("compile-jvm std/actors.ssc — structured parse diagnostic with line/col/snippet"):
-    val sandbox = os.temp.dir(prefix = "ssc-real-std-")
+  // actors.ssc now compiles cleanly (all `extern def` constructs handled).
+  // The test was previously asserting parse failure — flipped to assert success.
+  test("compile-jvm std/actors.ssc — compiles to .scjvm artifact"):
+    val sandbox = os.temp.dir(prefix = "ssc-real-std-actors-")
     try
       copyStd("actors.ssc", sandbox)
       val res = runSsc(sandbox, "compile-jvm", "actors.ssc")
-      val combined = res.out.text() + res.err.text()
-
-      assert(res.exitCode != 0,
-        s"expected non-zero exit on parse failure; got ${res.exitCode}")
-
-      // Structured header: `error: failed to parse scalascript block in <path>:<line>:<col>`.
-      // We don't pin the exact (line, col) — they may shift if the std module
-      // is edited — but we DO require a digit-bearing reference so a developer
-      // can jump straight to it.
-      val headerRe = """error: failed to parse scalascript block in \S*actors\.ssc:\d+:\d+""".r
-      assert(headerRe.findFirstIn(combined).isDefined,
-        s"expected structured 'error: failed to parse ... actors.ssc:<line>:<col>' header; got:\n$combined")
-
-      // Snippet must include a `^` caret marker line.
-      assert(combined.linesIterator.exists(_.trim == "^"),
-        s"expected a `^` caret line in the snippet; got:\n$combined")
-
-      assert(!os.exists(sandbox / "actors.scjvm"),
-        "actors.scjvm should NOT exist after parse failure")
+      assert(res.exitCode == 0,
+        s"expected exit 0 for actors.ssc; got ${res.exitCode}\n" +
+        s"stdout: ${res.out.text()}\nstderr: ${res.err.text()}")
+      assert(os.exists(sandbox / "actors.scjvm"),
+        "expected actors.scjvm to be produced")
     finally os.remove.all(sandbox)
