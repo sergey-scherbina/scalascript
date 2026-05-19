@@ -165,3 +165,84 @@ class X402ClientTest extends AnyFunSuite:
     assert(callCount   == 2)
     assert(lastBody    == """{"data":"test"}""")
   }
+
+  // ── Stream scheme ─────────────────────────────────────────────────────────────
+
+  private def stream402Body(ratePerUnit: Long, maxAmount: Long): String =
+    ujson.Obj(
+      "error" -> "Payment Required",
+      "requirements" -> ujson.Obj(
+        "x402Version"       -> 1,
+        "scheme"            -> ujson.Obj(
+          "type"        -> "stream",
+          "ratePerUnit" -> ratePerUnit.toString,
+          "unitName"    -> "request",
+          "maxUnits"    -> 10,
+          "maxAmount"   -> maxAmount.toString,
+        ),
+        "network"           -> "Base",
+        "chainId"           -> 8453,
+        "asset"             -> ujson.Obj("address" -> Assets.USDC_BASE.address, "symbol" -> "USDC", "decimals" -> 6),
+        "payTo"             -> "0xpayTo",
+        "resource"          -> "/api/stream",
+        "description"       -> "Metered access",
+        "maxTimeoutSeconds" -> 300,
+      ),
+    ).toString
+
+  test("Stream: PayloadBuilder uses ratePerUnit as authorization value") {
+    val req = PaymentRequirements(
+      scheme      = PaymentScheme.Stream(BigInt(500_000), "request", 10, BigInt(5_000_000)),
+      network     = Network.Base,
+      asset       = Assets.USDC_BASE,
+      payTo       = "0xpayTo",
+      resource    = "/api/stream",
+      description = "Metered access",
+    )
+    val payload = Await.result(PayloadBuilder.build(testWallet, req), 5.seconds)
+    assert(payload.authorization.value == BigInt(500_000))  // ratePerUnit, not maxAmount
+  }
+
+  test("Stream: client sends ratePerUnit in authorization") {
+    var lastAuthValue: Option[String] = None
+    val backend: (String, String, Map[String, String], String) => Future[HttpResponse] =
+      (_, _, headers, _) =>
+        headers.get("X-Payment").foreach { enc =>
+          val json = String(Base64.getDecoder.decode(enc), "UTF-8")
+          lastAuthValue = Some(ujson.read(json)("authorization")("value").str)
+        }
+        if headers.contains("X-Payment") then Future.successful(HttpResponse(200, Map.empty, "ok"))
+        else Future.successful(HttpResponse(402, Map.empty, stream402Body(500_000, 5_000_000)))
+    val client = X402Client(testWallet, BigInt(5_000_000), backend)
+    Await.result(client.get("http://example.com/api"), 5.seconds)
+    assert(lastAuthValue.contains("500000"))
+  }
+
+  test("Stream: budget exhaustion stops payment after maxAmount spent") {
+    val backend: (String, String, Map[String, String], String) => Future[HttpResponse] =
+      (_, _, headers, _) =>
+        if headers.contains("X-Payment") then Future.successful(HttpResponse(200, Map.empty, "ok"))
+        else Future.successful(HttpResponse(402, Map.empty, stream402Body(500_000, 5_000_000)))
+    // maxAmount = 1_000_000 → can pay 2 requests at 500_000 each
+    val client = X402Client(testWallet, BigInt(1_000_000), backend)
+
+    val resp1 = Await.result(client.get("http://example.com/api"), 5.seconds)
+    assert(resp1.status == 200)   // first: ok (spent = 500_000)
+
+    val resp2 = Await.result(client.get("http://example.com/api"), 5.seconds)
+    assert(resp2.status == 200)   // second: ok (spent = 1_000_000)
+
+    val resp3 = Await.result(client.get("http://example.com/api"), 5.seconds)
+    assert(resp3.status == 402)   // third: budget exhausted (1_000_000 + 500_000 > 1_000_000)
+  }
+
+  test("Stream: ratePerUnit > maxAmount → refuses immediately") {
+    val backend: (String, String, Map[String, String], String) => Future[HttpResponse] =
+      (_, _, headers, _) =>
+        if headers.contains("X-Payment") then Future.successful(HttpResponse(200, Map.empty, "ok"))
+        else Future.successful(HttpResponse(402, Map.empty, stream402Body(2_000_000, 5_000_000)))
+    // maxAmount = 1_000_000, ratePerUnit = 2_000_000 → refuses on first request
+    val client = X402Client(testWallet, BigInt(1_000_000), backend)
+    val resp   = Await.result(client.get("http://example.com/api"), 5.seconds)
+    assert(resp.status == 402)
+  }

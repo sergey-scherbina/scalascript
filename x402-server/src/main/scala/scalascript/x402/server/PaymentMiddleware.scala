@@ -110,6 +110,26 @@ private def paymentRequired(req: PaymentRequirements, reason: String = ""): Resp
     body    = body.toString,
   )
 
+// ── Stream scheme validation ──────────────────────────────────────────────────
+
+private def validateStream(
+  req:     PaymentRequirements,
+  httpReq: Request,
+  payload: PaymentPayload,
+): Option[Response] =
+  req.scheme match
+    case PaymentScheme.Stream(ratePerUnit, _, _, maxAmount) =>
+      val units    = httpReq.headers.get("x-units").flatMap(_.toIntOption).getOrElse(1)
+      val expected = ratePerUnit * units
+      if payload.authorization.value != expected then
+        Some(paymentRequired(req,
+          s"Stream: authorization ${payload.authorization.value} != expected $expected for $units unit(s)"))
+      else if expected > maxAmount then
+        Some(paymentRequired(req,
+          s"Stream: charge $expected exceeds maxAmount $maxAmount"))
+      else None
+    case _ => None
+
 // ── withPayment middleware ────────────────────────────────────────────────────
 
 def withPayment(config: PaymentConfig)(
@@ -128,30 +148,44 @@ def withPayment(config: PaymentConfig)(
         val result: Future[Response] =
           Future(Json.parse(String(Base64.getDecoder.decode(encoded), "UTF-8")))
             .flatMap { payload =>
-              config.nonceStore.claim(payload.authorization.nonce, payload.authorization.validBefore)
-                .flatMap {
-                  case false =>
-                    Future.successful(paymentRequired(config.requirements, "Nonce already used"))
-                  case true =>
-                    config.facilitator.verify(payload, config.requirements).flatMap {
-                      case VerifyResult.Fail(reason) =>
-                        Future.successful(paymentRequired(config.requirements, reason))
-                      case VerifyResult.Ok =>
-                        config.settlementMode match
-                          case SettlementMode.Synchronous =>
-                            config.facilitator.settle(payload, config.requirements).flatMap {
-                              case SettleResult.Fail(reason) =>
-                                Future.successful(paymentRequired(config.requirements, reason))
-                              case SettleResult.Ok(_) =>
-                                config.onSettled(payload, req).flatMap(_ => handler(req))
-                            }
-                          case SettlementMode.Async(queue) =>
-                            queue.enqueue(payload, config.requirements)
-                              .flatMap(_ => config.onSettled(payload, req))
-                              .flatMap(_ => handler(req))
+              validateStream(config.requirements, req, payload) match
+                case Some(errResp) => Future.successful(errResp)
+                case None =>
+                  config.nonceStore.claim(payload.authorization.nonce, payload.authorization.validBefore)
+                    .flatMap {
+                      case false =>
+                        Future.successful(paymentRequired(config.requirements, "Nonce already used"))
+                      case true =>
+                        config.facilitator.verify(payload, config.requirements).flatMap {
+                          case VerifyResult.Fail(reason) =>
+                            Future.successful(paymentRequired(config.requirements, reason))
+                          case VerifyResult.Ok =>
+                            config.settlementMode match
+                              case SettlementMode.Synchronous =>
+                                config.facilitator.settle(payload, config.requirements).flatMap {
+                                  case SettleResult.Fail(reason) =>
+                                    Future.successful(paymentRequired(config.requirements, reason))
+                                  case SettleResult.Ok(_) =>
+                                    config.onSettled(payload, req).flatMap(_ => handler(req))
+                                }
+                              case SettlementMode.Async(queue) =>
+                                queue.enqueue(payload, config.requirements)
+                                  .flatMap(_ => config.onSettled(payload, req))
+                                  .flatMap(_ => handler(req))
+                        }
                     }
-                }
             }
         result.recover { case ex =>
           paymentRequired(config.requirements, s"Payment parse error: ${ex.getMessage}")
         }
+
+// ── withStreamPayment convenience wrapper ─────────────────────────────────────
+
+def withStreamPayment(config: PaymentConfig, defaultUnits: Int = 1)(
+  handler: (Request, Int) => Future[Response]
+)(using ExecutionContext): Request => Future[Response] =
+  req =>
+    val units = req.headers.get("x-units").flatMap(_.toIntOption).getOrElse(defaultUnits)
+    // Inject x-units so validateStream sees the resolved count
+    val reqWithUnits = req.copy(headers = req.headers + ("x-units" -> units.toString))
+    withPayment(config)(r => handler(r, units))(reqWithUnits)

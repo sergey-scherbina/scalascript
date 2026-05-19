@@ -58,10 +58,11 @@ private object PayloadBuilder:
   private val rng = SecureRandom()
 
   def build(wallet: Wallet, req: PaymentRequirements)(using ec: ExecutionContext): Future[PaymentPayload] =
+    // For Stream: authorize ratePerUnit (one unit per request)
     val amount      = req.scheme match
-      case PaymentScheme.Exact(amt)              => amt
-      case PaymentScheme.Stream(_, _, _, maxAmt) => maxAmt
-      case PaymentScheme.CardanoExact(love, _)   => love
+      case PaymentScheme.Exact(amt)                    => amt
+      case PaymentScheme.Stream(ratePerUnit, _, _, _)  => ratePerUnit
+      case PaymentScheme.CardanoExact(love, _)         => love
     val nonce       = new Array[Byte](32)
     rng.nextBytes(nonce)
     val nonceHex    = "0x" + nonce.map(b => f"${b & 0xff}%02x").mkString
@@ -150,6 +151,8 @@ class X402HttpClient(
   backend:   (String, String, Map[String, String], String) => Future[HttpResponse],
 )(using ec: ExecutionContext):
 
+  private var sessionSpent: BigInt = BigInt(0)
+
   def get(url: String, headers: Map[String, String] = Map.empty): Future[HttpResponse] =
     doRequest("GET", url, headers, "")
 
@@ -178,17 +181,23 @@ class X402HttpClient(
   ): Future[HttpResponse] =
     val j = try ujson.read(resp402.body) catch case _ => return Future.successful(resp402)
     val req = parseRequirements(j("requirements"))
-    val amount = req.scheme match
-      case PaymentScheme.Exact(amt)              => amt
-      case PaymentScheme.Stream(_, _, _, maxAmt) => maxAmt
-      case PaymentScheme.CardanoExact(love, _)   => love
-    if amount > maxAmount then
-      Future.successful(resp402)   // refuse to pay more than configured max
+    // For Stream: charge ratePerUnit per request; for others: the scheme amount
+    val chargePerRequest = req.scheme match
+      case PaymentScheme.Exact(amt)                   => amt
+      case PaymentScheme.Stream(ratePerUnit, _, _, _) => ratePerUnit
+      case PaymentScheme.CardanoExact(love, _)        => love
+    if chargePerRequest > maxAmount then
+      Future.successful(resp402)   // single charge exceeds per-request cap
+    else if sessionSpent + chargePerRequest > maxAmount then
+      Future.successful(resp402)   // session budget exhausted
     else
       PayloadBuilder.build(wallet, req).flatMap { payload =>
-        val encoded     = PayloadBuilder.encode(payload)
-        val newHeaders  = headers + ("X-Payment" -> encoded)
-        backend(method, url, newHeaders, body)
+        val encoded    = PayloadBuilder.encode(payload)
+        val newHeaders = headers + ("X-Payment" -> encoded)
+        backend(method, url, newHeaders, body).map { resp =>
+          if resp.status != 402 then sessionSpent += chargePerRequest
+          resp
+        }
       }
 
   private def parseRequirements(j: ujson.Value): PaymentRequirements =

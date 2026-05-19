@@ -6508,12 +6508,12 @@ Spec in `docs/x402.md`.
 - [x] Settlement: Blockfrost path — optimistic Ok after verify; Scalus — stub Fail
 - [x] Tests: MiniCbor round-trips, CIP-8 verify, balance check, native assets, settlement
 
-### Phase 7 — Stream scheme (metered billing)
+### Phase 7 — Stream scheme (metered billing) ✓ Landed
 
-- [ ] `PaymentScheme.Stream`: rate-per-unit, maxUnits, maxAmount
-- [ ] Server: track unit consumption, charge at configured rate
-- [ ] Client: pre-authorize budget, track spend
-- [ ] Tests: unit counting, budget exhaustion → 402
+- [x] `PaymentScheme.Stream`: rate-per-unit, maxUnits, maxAmount
+- [x] Server: validate `authorization.value == ratePerUnit * X-Units`; `withStreamPayment` wrapper
+- [x] Client: authorizes `ratePerUnit` per request; session budget tracking; exhaustion → 402
+- [x] Tests: unit counting, multi-unit, budget exhaustion, ratePerUnit > maxAmount guard
 
 ### Phase 8 — Test mode + examples ✓ Landed
 
