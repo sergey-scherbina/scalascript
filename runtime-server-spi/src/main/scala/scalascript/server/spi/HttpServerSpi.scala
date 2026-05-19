@@ -147,6 +147,17 @@ trait WsControls:
   def close(code: Int = 1000, reason: String = ""): Unit
   def isClosed: Boolean
 
+  /** Blocking receive — pulls the next text frame from the connection,
+   *  parked on a virtual thread until one arrives or the peer closes.
+   *  Returns `None` on close.  Mutually independent from `WsListener`
+   *  callbacks: both fire on every frame.
+   *
+   *  Used by handshake-driven server-side flows (e.g. the cluster's
+   *  `/_ssc-actors` route, where the protocol reads a `{"nodeId":…}`
+   *  frame then replies) that are more naturally expressed as a
+   *  blocking read than as a callback state machine. */
+  def recv(): Option[String]
+
 /** Where to find the certificate + key for HTTPS.  PEM-encoded paths;
  *  PKCS#1 keys are wrapped to PKCS#8 inside the impl via
  *  `runtime-server-common.TlsContextBuilder`. */

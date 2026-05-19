@@ -350,3 +350,4 @@ final class JdkWsControls(ws: WebSocket) extends WsControls:
     else ws.ping(new String(payload, "ISO-8859-1"))
   override def close(code: Int, reason: String): Unit = ws.close(code, reason)
   override def isClosed: Boolean = ws.isClosed
+  override def recv(): Option[String] = ws.recv()
