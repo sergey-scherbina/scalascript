@@ -1767,11 +1767,14 @@ class Interpreter(
     // entries from `OAuthIntrinsics` get a sibling InstanceV bound to
     // `globals("oauth")` so scripts can write `oauth.authServer(...)`.
     globals("oauth") = Value.InstanceV("oauth", Map(
-      "authServer"      -> globals("oauth.authServer"),
-      "serveAuthServer" -> globals("oauth.serveAuthServer"),
-      "issueHmacToken"  -> globals("oauth.issueHmacToken"),
-      "pkceVerifier"    -> globals("oauth.pkceVerifier"),
-      "pkceChallenge"   -> globals("oauth.pkceChallenge")
+      "authServer"          -> globals("oauth.authServer"),
+      "serveAuthServer"     -> globals("oauth.serveAuthServer"),
+      "issueHmacToken"      -> globals("oauth.issueHmacToken"),
+      "pkceVerifier"        -> globals("oauth.pkceVerifier"),
+      "pkceChallenge"       -> globals("oauth.pkceChallenge"),
+      "guard"               -> globals("oauth.guard"),
+      "guardWithValidator"  -> globals("oauth.guardWithValidator"),
+      "hmacValidator"       -> globals("oauth.hmacValidator")
     ))
     // v1.17.x — oidc namespace: OpenID Connect Identity Provider on top
     // of the OAuth Authorization Server.

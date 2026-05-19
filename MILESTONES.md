@@ -546,12 +546,25 @@ unblocks downstream features as early as possible.
      only when non-empty; backwards-compatible (registration calls
      without an `annotations` arg still work).
 
+     **Generic Resource Server SDK** (Iter CC) ✓ —
+     `scalascript.oauth.OAuthGuard` lets any HTTP service wrap route
+     handlers in bearer-token validation with one call.  Pure
+     `OAuthGuard.check(headers, validator, requiredScopes?, realm?)`
+     returns `GuardDecision { Allow(claims) | Deny(routeOutcome) }`;
+     401 carries WWW-Authenticate; 403 carries `insufficient_scope`
+     + the required-scope list (so clients know what to request).
+     Script API: `oauth.guard(authServer, scopes?)(handler)` curries
+     into a `req => Response` wrapped handler; alternative
+     `oauth.guardWithValidator(validatorFn, scopes?)(handler)` for
+     non-AS validators (JWKS / custom).  Companion
+     `oauth.hmacValidator(secret)` exposes a stand-alone validator
+     for script use.  MCP server's RS logic is the same `check` —
+     unified codepath.
+
      **Still open in MCP** (deferred): generic `_meta` field
      propagation across primitives.
-     **Still open in OAuth** (post-v1.17): generic Resource Server
-     SDK (`oauth.guard(...)` helper) so any HTTP service can wrap
-     route handlers in bearer-token validation.  Examples +
-     documentation pass for v1.17.x.
+     **Still open in OAuth** (post-v1.17): examples + documentation
+     pass.
  22. **v1.18 — `package` keyword + std layout migration** ✓ Landed (all phases, 2026-05-19).
  23. **v1.19 — URL / dep imports** ✓ Landed.
      `[X](https://...)` URL fetch + `[X](dep:org/lib:1.2)`
