@@ -3905,7 +3905,8 @@ class JvmGen(
        |def _freshFutureId(): Long = _parallelFutureSeq.incrementAndGet()
        |
        |def _runAsyncParallel(bodyThunk: () => Any): Any =
-       |  val _ex = java.util.concurrent.Executors.newCachedThreadPool()
+       |  // Java 21 requirement: virtual threads (Project Loom) for lightweight parallelism.
+       |  val _ex = java.util.concurrent.Executors.newVirtualThreadPerTaskExecutor()
        |  try
        |    def dispatch(op: String, args: List[Any], resume: Any => Any): Any = op match
        |      case "delay" =>

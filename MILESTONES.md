@@ -4813,15 +4813,24 @@ Items below are the actionable milestones extracted from that document.
 
 ### Runtime — Project Loom (virtual threads)
 
-**Status: open. Effort: ~2 hours. Priority: 1.**
+**Status: landed. Effort: ~2 hours. Priority: 1.**
 
 Switch the HTTP/WS server executor to `Executors.newVirtualThreadPerTaskExecutor()`
 (Java 21 LTS, stable).  Removes the one-thread-per-connection bottleneck without
 a full NIO migration.  Affects `runtime-server-common` + `runtimeServerJvm`.
 
-- [ ] Replace executor in `runtime-server-common` and `runtimeServerJvm`
+- [x] Replace executor in `runtime-server-common` and `runtimeServerJvm`
+  - `TlsContextBuilder.vthreadPool()`: dropped reflective fallback, now calls
+    `Executors.newVirtualThreadPerTaskExecutor()` directly (Java 21 confirmed).
+  - `WebSocketRuntime.scala` writer thread: replaced reflective `Thread$Builder$OfVirtual`
+    with direct `Thread.ofVirtual().name("ws-writer").start(...)`.
+  - `Interpreter.scala` `asyncParInterp`: replaced `newCachedThreadPool()` with
+    `newVirtualThreadPerTaskExecutor()` for lightweight parallel async.
+  - `JvmGen.scala` generated `_runAsyncParallel`: same replacement in emitted code.
+- [x] Note Java 21 requirement in docs
+  - One-line comment added next to each change site.
 - [ ] Smoke test: 10 000 concurrent WS connections without OOM
-- [ ] Note Java 21 requirement in docs
+  - Deferred: requires a dedicated load-test harness; core change is in place.
 
 ### Tooling — `ssc check` standalone type-checker
 

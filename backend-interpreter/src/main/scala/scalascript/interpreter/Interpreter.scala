@@ -6153,7 +6153,8 @@ class Interpreter(
   // thread is the right thread to block on the JVM.
 
   private def asyncParInterp(initial: Computation): Computation =
-    val ex = java.util.concurrent.Executors.newCachedThreadPool()
+    // Java 21 requirement: virtual threads (Project Loom) for lightweight parallelism.
+    val ex = java.util.concurrent.Executors.newVirtualThreadPerTaskExecutor()
     try
       // Inner driver re-used for thunks-inside-thunks (the future's
       // body itself may use `Async.*`); shares the executor with the

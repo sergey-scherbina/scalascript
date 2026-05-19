@@ -50,13 +50,9 @@ object TlsContextBuilder:
     ctx.init(kmf.getKeyManagers, null, null)
     ctx
 
-  /** Build a virtual-thread-per-task executor when running on JDK 21+,
-   *  fall back to a cached thread pool on older JDKs.  Reflective so
-   *  the call also compiles on Java 17 toolchains. */
+  /** One virtual thread per accepted connection — requires Java 21 LTS (Project Loom).
+   *  Eliminates the one-thread-per-connection OS-thread overhead; a parked virtual
+   *  thread costs ~few KB of heap vs ~1 MB for a platform thread stack. */
   def vthreadPool(): java.util.concurrent.ExecutorService =
-    try
-      classOf[java.util.concurrent.Executors]
-        .getMethod("newVirtualThreadPerTaskExecutor")
-        .invoke(null).asInstanceOf[java.util.concurrent.ExecutorService]
-    catch case _: Throwable =>
-      java.util.concurrent.Executors.newCachedThreadPool()
+    // Java 21 requirement: virtual threads are stable in JDK 21 LTS (Project Loom).
+    java.util.concurrent.Executors.newVirtualThreadPerTaskExecutor()
