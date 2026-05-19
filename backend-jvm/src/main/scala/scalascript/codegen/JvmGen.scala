@@ -2755,7 +2755,8 @@ class JvmGen(
       "UploadedFile", "HttpHelpers", "Multipart", "TlsContextBuilder",
       "CorsHelpers", "HttpModel", "BasicAuth", "ResponseWriter",
       "RequestBuilder", "StreamResponseWriter", "HttpDispatchLoop",
-      "StaticAssetServer", "WsHandshake", "WsReassembler", "WsRateLimiter"
+      "StaticAssetServer", "WsHandshake", "WsReassembler",
+      "WsFrameDispatch", "WsRateLimiter"
     )
     val header =
       "\n// ── runtime-server-common (inlined from classpath resources) ──────────\n" +
@@ -3818,50 +3819,30 @@ class JvmGen(
        |        var offset = 0
        |        var more   = true
        |        while more do
-       |          _wsParseFrame(buf, offset, len) match
-       |            case null => more = false
-       |            case (fr, consumed) =>
-       |              offset += consumed
-       |              fr.opcode match
-       |                case 0x9 =>
-       |                  // Drop the pong if the write queue is full — peer
-       |                  // is too slow to keep up with the data flow we're
-       |                  // trying to send them anyway; the next ping will
-       |                  // time out and the writer will force-close.
-       |                  outQ.offer(_wsEncodePong(fr.payload))
-       |                case 0xA =>
+       |          WsFraming.tryParse(buf, offset, len) match
+       |            case None     => more = false
+       |            case Some(fr) =>
+       |              offset += fr.consumed
+       |              val outcome = WsFrameDispatch.handle(fr, _reassembler,
+       |                // Drop the pong if the write queue is full — peer is too
+       |                // slow to keep up with the data flow we're trying to
+       |                // send them anyway; the next ping will time out and the
+       |                // writer will force-close.
+       |                onPing      = p => { outQ.offer(_wsEncodePong(p)); () },
+       |                onPong      = p => {
        |                  lastPongAt = java.lang.System.currentTimeMillis()
        |                  val cb = onPongCb
        |                  if cb != null then
-       |                    val payload = new String(fr.payload, "ISO-8859-1")
+       |                    val payload = new String(p, "ISO-8859-1")
        |                    _serverExecutor.execute { () =>
        |                      try cb(payload) catch case e: Throwable =>
        |                        System.err.println(s"WS onPong handler: ${e.getMessage}")
        |                    }
-       |                case 0x8 =>
-       |                  val status =
-       |                    if fr.payload.length >= 2
-       |                    then ((fr.payload(0) & 0xFF) << 8) | (fr.payload(1) & 0xFF)
-       |                    else 1000
-       |                  close(status, "")
-       |                  return
-       |                case 0x0 | 0x1 | 0x2 =>
-       |                  // Route data frames through the shared reassembler.
-       |                  // Its Event enum carries the FIN=0 / opcode=0 /
-       |                  // oversize protocol checks the legacy inline state
-       |                  // machine used to perform here.
-       |                  val wf = WsFraming.Frame(
-       |                    fin      = fr.fin,
-       |                    opcode   = WsFraming.Opcode.fromCode(fr.opcode).get,
-       |                    payload  = fr.payload,
-       |                    consumed = 0)
-       |                  _reassembler.feed(wf) match
-       |                    case WsReassembler.Event.Deliver(op, bytes) =>
-       |                      _dispatchWsMessage(op.code, bytes)
-       |                    case WsReassembler.Event.ProtocolError(code, reason) =>
-       |                      close(code, reason); return
-       |                    case WsReassembler.Event.Buffered => ()
-       |                case _   => close(1003, ""); return
+       |                },
+       |                onPeerClose = (status, _) => close(status, ""),
+       |                onDeliver   = (op, bytes) => _dispatchWsMessage(op.code, bytes),
+       |                onProtocolError = (code, reason) => close(code, reason))
+       |              if outcome == WsFrameDispatch.Outcome.Stop then return
        |        if offset > 0 then
        |          System.arraycopy(buf, offset, buf, 0, len - offset)
        |          len -= offset
@@ -4014,19 +3995,14 @@ class JvmGen(
        |}
        |
        |// ── Framing — adapter shims around WsFraming ─────────────────────────
-       |// RFC 6455 frame codec lives in scalascript.server.WsFraming (inlined
-       |// from runtime-server-common).  The shims keep the legacy local API
-       |// (`_WsFrame(fin, opcode: Int, payload)`, `_wsParseFrame → ... | Null`,
-       |// `_wsEncodeText/Pong/Ping/Close`, `_wsAcceptKey`) so the surrounding
-       |// `_proxyConnection` / read-loop code keeps using bare Int opcodes
-       |// (0x0/0x1/0x2/0x8/0x9/0xA) for its pattern matches.
+       |// RFC 6455 frame codec + per-frame dispatch live in
+       |// scalascript.server.WsFraming / WsFrameDispatch (inlined from
+       |// runtime-server-common).  The shims here just re-export the
+       |// frequently-used `_wsEncode*` / `_wsAcceptKey` names; the read
+       |// loop calls `WsFraming.tryParse` + `WsFrameDispatch.handle`
+       |// directly so it carries no legacy bare-Int opcode matches.
        |private val _WsMaxFrameBytes: Int = WsFraming.MaxFrameBytes
        |def _wsAcceptKey(clientKey: String): String = WsFraming.acceptKey(clientKey)
-       |private final case class _WsFrame(fin: Boolean, opcode: Int, payload: Array[Byte])
-       |private def _wsParseFrame(buf: Array[Byte], offset: Int, until: Int): (_WsFrame, Int) | Null =
-       |  WsFraming.tryParse(buf, offset, until) match
-       |    case None    => null
-       |    case Some(f) => (_WsFrame(f.fin, f.opcode.code, f.payload), f.consumed)
        |def _wsEncodeText(s: String): Array[Byte]      = WsFraming.encodeText(s)
        |def _wsEncodePong(p: Array[Byte]): Array[Byte] = WsFraming.encodePong(p)
        |def _wsEncodePing(p: Array[Byte]): Array[Byte] = WsFraming.encodePing(p)

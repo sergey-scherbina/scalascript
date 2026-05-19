@@ -196,50 +196,39 @@ final class WsConnection(
       System.arraycopy(inBuf, offset, inBuf, 0, inLen - offset)
       inLen -= offset
 
-  /** Dispatch a complete frame.  Control frames (ping / close) are
-   *  handled on the spot; application frames (text / binary) are routed
-   *  to the user's `onMessage` callback via the interpreter executor.
-   *  Fragmented messages (FIN=0 followed by Continuations) buffer until
-   *  the final fragment, then dispatch the joined payload. */
+  /** Dispatch a complete frame.  The opcode match + reassembler
+   *  hand-off + close-status decode are delegated to the shared
+   *  `WsFrameDispatch` so the codegen output carries byte-identical
+   *  per-frame semantics.  Hooks here own the selector-side IO
+   *  (`writeFrame`), the executor dispatch into user callbacks, and
+   *  the `closing`-aware close-echo decision (RFC 6455 §5.5.1). */
   private def onFrame(frame: WsFraming.Frame): Unit =
-    import WsFraming.Opcode
-    frame.opcode match
-      case Opcode.Ping =>
-        writeFrame(WsFraming.encodePong(frame.payload))
-      case Opcode.Pong =>
-        // Peer is alive — refresh the liveness timestamp so the
-        // heartbeat task doesn't tear down the connection.
+    WsFrameDispatch.handle(frame, reassembler,
+      onPing      = p => writeFrame(WsFraming.encodePong(p)),
+      onPong      = p => {
+        // Peer is alive — refresh liveness so the heartbeat task
+        // doesn't tear down the connection.  Also fire user-side
+        // `onPong` if registered (payload is the bytes the peer
+        // echoed verbatim, surfaced as a Latin-1 byte-view String).
         lastPongAt = System.currentTimeMillis()
-        // Also fire user-side `onPong` if registered — payload is the
-        // bytes the peer echoed verbatim, surfaced as a Latin-1
-        // byte-view String (same convention as `onMessage` binary).
         onPongCb.foreach { cb =>
-          val payload = Value.StringV(new String(frame.payload, "ISO-8859-1"))
+          val payload = Value.StringV(new String(p, "ISO-8859-1"))
           executor.execute { () =>
             try interp.invoke(cb, List(payload))
             catch case e: Throwable =>
               log.println(s"WS onPong handler error: ${e.getMessage}")
           }
         }
-      case Opcode.Close =>
-        // Echo a close back if we haven't sent one yet (RFC 6455
-        // §5.5.1).  `sendClose` schedules the channel teardown
-        // after a short grace so the selector has time to flush our
-        // echo onto the wire; if we already sent Close (we
-        // initiated), tear down right away — the peer has just
-        // acknowledged.  Either way `closeNow()` is idempotent.
-        if !closing then
-          val status =
-            if frame.payload.length >= 2 then
-              ((frame.payload(0) & 0xFF) << 8) | (frame.payload(1) & 0xFF)
-            else 1000
-          sendClose(status, "")
-        else closeNow()
-      case Opcode.Text | Opcode.Binary | Opcode.Continuation =>
-        reassembler.feed(frame) match
-          case WsReassembler.Event.Deliver(op, bytes) => dispatchMessage(op, bytes)
-          case WsReassembler.Event.ProtocolError(code, reason) => sendClose(code, reason)
-          case WsReassembler.Event.Buffered            => ()
+      },
+      onPeerClose = (status, _) =>
+        // Echo Close back if we haven't sent one yet; otherwise
+        // tear down right away (the peer acknowledged our Close).
+        // `sendClose` schedules teardown after a short grace so the
+        // selector has time to flush our echo onto the wire.
+        // `closeNow()` is idempotent.
+        if !closing then sendClose(status, "") else closeNow(),
+      onDeliver   = (op, bytes) => dispatchMessage(op, bytes),
+      onProtocolError = (code, reason) => sendClose(code, reason))
 
   // Rate-limit state — fixed 1-second window, reset on first message
   // of each second.  Delegated to the shared `WsRateLimiter` in
