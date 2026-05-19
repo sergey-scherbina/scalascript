@@ -1,0 +1,71 @@
+package scalascript.server
+
+/** Pure HTTP helpers shared between the interpreter's `WebServer` and the
+ *  JvmGen-emitted `serveRuntime` template.  Every function here is
+ *  side-effect free and depends only on the JDK — no interpreter Values,
+ *  no Scala-cli runtime imports. */
+object HttpHelpers:
+
+  /** Path-segment ADT for `parsePath` / `matchPath`. */
+  enum Seg:
+    case Lit(s: String)
+    case Cap(name: String)
+
+  /** Parse a route pattern like `/users/:id/posts` into a list of segments. */
+  def parsePath(p: String): List[Seg] =
+    p.split('/').toList.filter(_.nonEmpty).map { s =>
+      if s.startsWith(":") then Seg.Cap(s.tail) else Seg.Lit(s)
+    }
+
+  /** Match a parsed path pattern against the path segments of a request.
+   *  Returns `Some(captures)` on match, `None` on mismatch. */
+  def matchPath(pat: List[Seg], segs: List[String]): Option[Map[String, String]] =
+    if pat.length != segs.length then None
+    else
+      val ps = scala.collection.mutable.Map.empty[String, String]
+      val ok = pat.zip(segs).forall {
+        case (Seg.Lit(p), a)  => p == a
+        case (Seg.Cap(n), a)  => ps(n) = a; true
+      }
+      if ok then Some(ps.toMap) else None
+
+  /** Parse a URL query string `k1=v1&k2=v2` into a Map.  Both keys and
+   *  values are `URLDecoder.decode`-d.  An empty / null input yields
+   *  `Map.empty`.  Values without `=` become `key -> ""`. */
+  def parseQuery(q: String): Map[String, String] =
+    if q == null || q.isEmpty then Map.empty
+    else q.split('&').iterator.flatMap { pair =>
+      val i = pair.indexOf('=')
+      if i < 0 then Some(java.net.URLDecoder.decode(pair, "UTF-8") -> "")
+      else Some(
+        java.net.URLDecoder.decode(pair.substring(0, i), "UTF-8") ->
+        java.net.URLDecoder.decode(pair.substring(i + 1), "UTF-8")
+      )
+    }.toMap
+
+  /** Best-effort MIME type for a file name.  Recognises the handful of
+   *  extensions the static-asset server actually sees; for anything else
+   *  falls back to JDK's `Files.probeContentType` and finally to
+   *  `application/octet-stream`. */
+  def contentTypeFor(name: String): String =
+    val lower = name.toLowerCase
+    val explicit: Option[String] = lower match
+      case n if n.endsWith(".html") || n.endsWith(".htm") => Some("text/html; charset=utf-8")
+      case n if n.endsWith(".css")  => Some("text/css; charset=utf-8")
+      case n if n.endsWith(".js") || n.endsWith(".mjs") => Some("application/javascript; charset=utf-8")
+      case n if n.endsWith(".json") => Some("application/json; charset=utf-8")
+      case n if n.endsWith(".txt") || n.endsWith(".md") => Some("text/plain; charset=utf-8")
+      case n if n.endsWith(".svg")  => Some("image/svg+xml")
+      case n if n.endsWith(".png")  => Some("image/png")
+      case n if n.endsWith(".jpg") || n.endsWith(".jpeg") => Some("image/jpeg")
+      case n if n.endsWith(".gif")  => Some("image/gif")
+      case n if n.endsWith(".webp") => Some("image/webp")
+      case n if n.endsWith(".ico")  => Some("image/x-icon")
+      case n if n.endsWith(".woff") => Some("font/woff")
+      case n if n.endsWith(".woff2") => Some("font/woff2")
+      case n if n.endsWith(".wasm") => Some("application/wasm")
+      case _                        => None
+    explicit.orElse {
+      try Option(java.nio.file.Files.probeContentType(java.nio.file.Paths.get(name)))
+      catch case _: Throwable => None
+    }.getOrElse("application/octet-stream")

@@ -2601,7 +2601,8 @@ class JvmGen(
     val files = List(
       "RestValidationError", "DerCodec", "WsFraming", "Metrics",
       "RateLimit", "Password", "Totp", "Jwt", "JwtRsa",
-      "SessionCookie", "SessionStore", "OAuth", "WebAuthn"
+      "SessionCookie", "SessionStore", "OAuth", "WebAuthn",
+      "UploadedFile", "HttpHelpers", "Multipart"
     )
     val header =
       "\n// ── runtime-server-common (inlined from classpath resources) ──────────\n" +
@@ -2621,17 +2622,8 @@ class JvmGen(
   private val serveRuntimePart1: String =
     """|
        |// ── REST routing + serve(port) ─────────────────────────────────────────
-       |case class UploadedFile(
-       |  name:        String,
-       |  filename:    String,
-       |  contentType: String,
-       |  size:        Int,
-       |  // ISO-8859-1 view of the original bytes (1 char = 1 byte). Round-trip
-       |  // back to a byte array with `bytes.getBytes("ISO-8859-1")`.
-       |  // Empty when the part was spooled to disk; use `path` then.
-       |  bytes:       String,
-       |  path:        String = "" // temp-file path when spooled; "" otherwise
-       |)
+       |// `UploadedFile` is inlined from runtime-server-common via commonRuntime —
+       |// the case class definition lives there as the single source of truth.
        |
        |case class Request(
        |  method:      String,
@@ -3245,14 +3237,13 @@ class JvmGen(
        |    val safe = realm.replace("\\", "\\\\").replace("\"", "\\\"")
        |    Response(401, Map("WWW-Authenticate" -> ("Basic realm=\"" + safe + "\"")), "Authentication required")
        |
-       |private enum _Seg:
-       |  case Lit(s: String)
-       |  case Cap(name: String)
-       |
-       |private def _parsePath(p: String): List[_Seg] =
-       |  p.split('/').toList.filter(_.nonEmpty).map { s =>
-       |    if s.startsWith(":") then _Seg.Cap(s.tail) else _Seg.Lit(s)
-       |  }
+       |// `_Seg` / `_parsePath` / `_matchPath` / `_parseQuery` / `_contentTypeFor` /
+       |// `_parseMultipart` delegate to HttpHelpers (inlined from runtime-server-common).
+       |// The underscore-prefixed local names are kept as one-line shims so existing
+       |// dispatch / route-matching call sites elsewhere in serveRuntime stay untouched.
+       |private type _Seg = HttpHelpers.Seg
+       |private val _Seg  = HttpHelpers.Seg
+       |private def _parsePath(p: String): List[_Seg] = HttpHelpers.parsePath(p)
        |
        |// Route handler returns Any (Response | _StreamResponse | primitive auto-wrapped) — the
        |// runtime dispatcher in `_handle` pattern-matches on the actual type and writes the wire
@@ -3279,75 +3270,14 @@ class JvmGen(
        |  if !has("/_ready")  then _routes += _Route("GET", "/_ready",  _parsePath("/_ready"),  ok)
        |
        |private def _matchPath(pat: List[_Seg], segs: List[String]): Option[Map[String, String]] =
-       |  if pat.length != segs.length then None
-       |  else
-       |    val ps = scala.collection.mutable.Map.empty[String, String]
-       |    val ok = pat.zip(segs).forall {
-       |      case (_Seg.Lit(p), a)  => p == a
-       |      case (_Seg.Cap(n), a)  => ps(n) = a; true
-       |    }
-       |    if ok then Some(ps.toMap) else None
+       |  HttpHelpers.matchPath(pat, segs)
+       |private def _parseQuery(q: String): Map[String, String] = HttpHelpers.parseQuery(q)
        |
-       |private def _parseQuery(q: String): Map[String, String] =
-       |  if q == null || q.isEmpty then Map.empty
-       |  else q.split('&').iterator.flatMap { pair =>
-       |    val i = pair.indexOf('=')
-       |    if i < 0 then Some(java.net.URLDecoder.decode(pair, "UTF-8") -> "")
-       |    else Some(
-       |      java.net.URLDecoder.decode(pair.substring(0, i), "UTF-8") ->
-       |      java.net.URLDecoder.decode(pair.substring(i + 1), "UTF-8")
-       |    )
-       |  }.toMap
-       |
-       |/** Multipart parser — see WebServer.parseMultipart for the design notes.
-       | *  `bodyLatin1` is byte-equivalent to the wire body so split/index are
-       | *  byte-exact even when parts carry binary content. */
        |private def _parseMultipart(
        |    contentType: String,
        |    bodyLatin1:  String
        |): (Map[String, String], Map[String, UploadedFile], List[java.io.File]) =
-       |  val boundary = "boundary=([^;]+)".r.findFirstMatchIn(contentType).map { m =>
-       |    val raw = m.group(1).trim
-       |    if raw.startsWith("\"") && raw.endsWith("\"") then raw.substring(1, raw.length - 1) else raw
-       |  }
-       |  boundary.fold((Map.empty[String, String], Map.empty[String, UploadedFile], List.empty[java.io.File])) { b =>
-       |    val sep     = "--" + b
-       |    val parts   = bodyLatin1.split(java.util.regex.Pattern.quote(sep), -1)
-       |    val form    = scala.collection.mutable.Map.empty[String, String]
-       |    val files   = scala.collection.mutable.Map.empty[String, UploadedFile]
-       |    val spooled = scala.collection.mutable.ListBuffer.empty[java.io.File]
-       |    parts.drop(1).dropRight(1).foreach { raw =>
-       |      val part   = raw.stripPrefix("\r\n").stripSuffix("\r\n")
-       |      val sepIdx = part.indexOf("\r\n\r\n")
-       |      if sepIdx >= 0 then
-       |        val headerText = part.substring(0, sepIdx)
-       |        val partBody   = part.substring(sepIdx + 4)
-       |        val disp = headerText.linesIterator
-       |          .find(_.toLowerCase.startsWith("content-disposition"))
-       |          .getOrElse("")
-       |        val ctype = headerText.linesIterator
-       |          .find(_.toLowerCase.startsWith("content-type"))
-       |          .map(_.split(":", 2).lift(1).getOrElse("").trim)
-       |          .getOrElse("application/octet-stream")
-       |        val name     = "name=\"([^\"]*)\"".r.findFirstMatchIn(disp).map(_.group(1))
-       |        val filename = "filename=\"([^\"]*)\"".r.findFirstMatchIn(disp).map(_.group(1))
-       |        (name, filename) match
-       |          case (Some(n), Some(fn)) =>
-       |            val (bytesStr, pathStr) =
-       |              if partBody.length.toLong > _spoolThreshold then
-       |                val tmp = java.nio.file.Files.createTempFile(
-       |                  java.nio.file.Paths.get(_uploadDir), "ssc-upload-", "").toFile
-       |                java.nio.file.Files.write(tmp.toPath, partBody.getBytes("ISO-8859-1"))
-       |                spooled += tmp
-       |                ("", tmp.getAbsolutePath)
-       |              else (partBody, "")
-       |            files(n) = UploadedFile(n, fn, ctype, partBody.length, bytesStr, pathStr)
-       |          case (Some(n), None) =>
-       |            form(n) = new String(partBody.getBytes("ISO-8859-1"), "UTF-8")
-       |          case _ => ()
-       |    }
-       |    (form.toMap, files.toMap, spooled.toList)
-       |  }
+       |  Multipart.parse(contentType, bodyLatin1, _spoolThreshold, _uploadDir)
        |
        |// ── Body size limit ───────────────────────────────────────────────────
        |@volatile private var _maxBodySizeBytes: Long = Long.MaxValue
@@ -3621,28 +3551,7 @@ class JvmGen(
        |    ex.getResponseBody.write(bytes)
        |    Some(())
        |
-       |private def _contentTypeFor(name: String): String =
-       |  val lower = name.toLowerCase
-       |  val explicit: Option[String] = lower match
-       |    case n if n.endsWith(".html") || n.endsWith(".htm") => Some("text/html; charset=utf-8")
-       |    case n if n.endsWith(".css")  => Some("text/css; charset=utf-8")
-       |    case n if n.endsWith(".js") || n.endsWith(".mjs") => Some("application/javascript; charset=utf-8")
-       |    case n if n.endsWith(".json") => Some("application/json; charset=utf-8")
-       |    case n if n.endsWith(".txt") || n.endsWith(".md") => Some("text/plain; charset=utf-8")
-       |    case n if n.endsWith(".svg")  => Some("image/svg+xml")
-       |    case n if n.endsWith(".png")  => Some("image/png")
-       |    case n if n.endsWith(".jpg") || n.endsWith(".jpeg") => Some("image/jpeg")
-       |    case n if n.endsWith(".gif")  => Some("image/gif")
-       |    case n if n.endsWith(".webp") => Some("image/webp")
-       |    case n if n.endsWith(".ico")  => Some("image/x-icon")
-       |    case n if n.endsWith(".woff") => Some("font/woff")
-       |    case n if n.endsWith(".woff2") => Some("font/woff2")
-       |    case n if n.endsWith(".wasm") => Some("application/wasm")
-       |    case _ => None
-       |  explicit.orElse {
-       |    try Option(java.nio.file.Files.probeContentType(java.nio.file.Paths.get(name)))
-       |    catch case _: Throwable => None
-       |  }.getOrElse("application/octet-stream")
+       |private def _contentTypeFor(name: String): String = HttpHelpers.contentTypeFor(name)
        |""".stripMargin
 
   private val serveRuntimePart2: String =

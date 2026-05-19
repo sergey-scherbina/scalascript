@@ -535,28 +535,7 @@ object WebServer:
    *  first (covers many less-common types via the platform mime DB), fall
    *  back to a small explicit table for the web essentials, then a safe
    *  `application/octet-stream`. */
-  private def contentTypeFor(name: String): String =
-    val lower = name.toLowerCase
-    val explicit: Option[String] = lower match
-      case n if n.endsWith(".html") || n.endsWith(".htm") => Some("text/html; charset=utf-8")
-      case n if n.endsWith(".css")  => Some("text/css; charset=utf-8")
-      case n if n.endsWith(".js") || n.endsWith(".mjs") => Some("application/javascript; charset=utf-8")
-      case n if n.endsWith(".json") => Some("application/json; charset=utf-8")
-      case n if n.endsWith(".txt") || n.endsWith(".md") => Some("text/plain; charset=utf-8")
-      case n if n.endsWith(".svg")  => Some("image/svg+xml")
-      case n if n.endsWith(".png")  => Some("image/png")
-      case n if n.endsWith(".jpg") || n.endsWith(".jpeg") => Some("image/jpeg")
-      case n if n.endsWith(".gif")  => Some("image/gif")
-      case n if n.endsWith(".webp") => Some("image/webp")
-      case n if n.endsWith(".ico")  => Some("image/x-icon")
-      case n if n.endsWith(".woff") => Some("font/woff")
-      case n if n.endsWith(".woff2") => Some("font/woff2")
-      case n if n.endsWith(".wasm") => Some("application/wasm")
-      case _                        => None
-    explicit.orElse {
-      try Option(java.nio.file.Files.probeContentType(java.nio.file.Paths.get(name)))
-      catch case _: Throwable => None
-    }.getOrElse("application/octet-stream")
+  private def contentTypeFor(name: String): String = HttpHelpers.contentTypeFor(name)
 
   /** Parse `multipart/form-data` into text + file parts.
    *
@@ -571,75 +550,29 @@ object WebServer:
    *  `files`, where `bytes` is the raw part body still in its Latin-1
    *  String form.  Round-trip back to bytes with `bytes.getBytes("ISO-8859-1")`.
    */
+  /** Bridge from the POJO `Multipart.parse` (in runtime-server-common) to
+   *  the interpreter's `Value` model.  The actual MIME / boundary / spool
+   *  logic is in `Multipart` — this just lifts the resulting
+   *  `UploadedFile` records into `Value.InstanceV`. */
   private def parseMultipart(
       contentType: String,
       bodyLatin1:  String
   ): (Map[String, String], Map[String, scalascript.interpreter.Value], List[java.io.File]) =
     import scalascript.interpreter.Value
-    val boundary = "boundary=([^;]+)".r.findFirstMatchIn(contentType).map { m =>
-      val raw = m.group(1).trim
-      if raw.startsWith("\"") && raw.endsWith("\"") then raw.substring(1, raw.length - 1) else raw
+    val (form, pojoFiles, spooled) = Multipart.parse(contentType, bodyLatin1, _spoolThreshold, _uploadDir)
+    val files = pojoFiles.map { case (k, f) =>
+      k -> Value.InstanceV("UploadedFile", Map(
+        "name"        -> Value.StringV(f.name),
+        "filename"    -> Value.StringV(f.filename),
+        "contentType" -> Value.StringV(f.contentType),
+        "size"        -> Value.IntV(f.size),
+        "bytes"       -> Value.StringV(f.bytes),
+        "path"        -> Value.StringV(f.path)
+      ))
     }
-    boundary.fold((Map.empty[String, String], Map.empty[String, Value], List.empty[java.io.File])) { b =>
-      val sep     = "--" + b
-      val parts   = bodyLatin1.split(java.util.regex.Pattern.quote(sep), -1)
-      val form    = scala.collection.mutable.Map.empty[String, String]
-      val files   = scala.collection.mutable.Map.empty[String, Value]
-      val spooled = scala.collection.mutable.ListBuffer.empty[java.io.File]
-      // First chunk before the first boundary and the trailing "--" chunk
-      // contain no part data — skip both.
-      parts.drop(1).dropRight(1).foreach { raw =>
-        val part   = raw.stripPrefix("\r\n").stripSuffix("\r\n")
-        val sepIdx = part.indexOf("\r\n\r\n")
-        if sepIdx >= 0 then
-          val headerText = part.substring(0, sepIdx)
-          val partBody   = part.substring(sepIdx + 4) // still ISO-8859-1
-          val disp = headerText.linesIterator
-            .find(_.toLowerCase.startsWith("content-disposition"))
-            .getOrElse("")
-          val ctype = headerText.linesIterator
-            .find(_.toLowerCase.startsWith("content-type"))
-            .map(_.split(":", 2).lift(1).getOrElse("").trim)
-            .getOrElse("application/octet-stream")
-          val name     = """name="([^"]*)"""".r.findFirstMatchIn(disp).map(_.group(1))
-          val filename = """filename="([^"]*)"""".r.findFirstMatchIn(disp).map(_.group(1))
-          (name, filename) match
-            case (Some(n), Some(fn)) =>
-              val (bytesVal, pathVal) =
-                if partBody.length.toLong > _spoolThreshold then
-                  val tmp = java.nio.file.Files.createTempFile(
-                    java.nio.file.Paths.get(_uploadDir), "ssc-upload-", "").toFile
-                  java.nio.file.Files.write(tmp.toPath, partBody.getBytes("ISO-8859-1"))
-                  spooled += tmp
-                  (Value.StringV(""), Value.StringV(tmp.getAbsolutePath))
-                else
-                  (Value.StringV(partBody), Value.StringV(""))
-              files(n) = Value.InstanceV("UploadedFile", Map(
-                "name"        -> Value.StringV(n),
-                "filename"    -> Value.StringV(fn),
-                "contentType" -> Value.StringV(ctype),
-                "size"        -> Value.IntV(partBody.length),
-                "bytes"       -> bytesVal,
-                "path"        -> pathVal
-              ))
-            case (Some(n), None) =>
-              // text part: re-decode as UTF-8 from its byte view
-              form(n) = new String(partBody.getBytes("ISO-8859-1"), "UTF-8")
-            case _ => ()
-      }
-      (form.toMap, files.toMap, spooled.toList)
-    }
+    (form, files, spooled)
 
-  private def parseQuery(q: String): Map[String, String] =
-    if q.isEmpty then Map.empty
-    else q.split('&').iterator.flatMap { pair =>
-      val i = pair.indexOf('=')
-      if i < 0 then Some(java.net.URLDecoder.decode(pair, "UTF-8") -> "")
-      else Some(
-        java.net.URLDecoder.decode(pair.substring(0, i), "UTF-8") ->
-        java.net.URLDecoder.decode(pair.substring(i + 1), "UTF-8")
-      )
-    }.toMap
+  private def parseQuery(q: String): Map[String, String] = HttpHelpers.parseQuery(q)
 
   private def resolveSsc(root: String, urlPath: String): String =
     val clean = urlPath.stripSuffix("/").stripSuffix(".ssc")
