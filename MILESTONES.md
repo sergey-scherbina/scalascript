@@ -463,6 +463,95 @@ unblocks downstream features as early as possible.
      Full design in [`docs/mcp.md`](docs/mcp.md).  Remaining
      v1.17.x work: INT own-impl, type-class layer,
      streaming resources.
+
+     **v1.17.x interpreter own-impl + OAuth/OIDC layer** ✓ Landed
+     (Iterations J–AA, 2026-05-19):
+
+     **MCP spec completion (J–R)** — `notifications/<cat>/list_changed`
+     (J); cancellation via `notifications/cancelled` + cooperative
+     `srv.isCancelled` polling (K); progress notifications with
+     `_meta.progressToken` (L); `logging/setLevel` + `notifications/
+     message` with syslog levels (M); `resources/templates/list` +
+     RFC 6570 URI templates (N); `roots/list` server→client request +
+     `notifications/roots/list_changed` (O); `elicitation/create`
+     three-way reply (P); `completion/complete` for prompt args +
+     resource template params (Q); cursor pagination on all four
+     list endpoints (R).
+
+     **OAuth 2.1 Authorization Server** — standalone
+     `scalascript.oauth.*` package, fully decoupled from MCP, usable
+     from any HTTP service:
+     - **Iter S**: pluggable `TokenValidator` + `currentAuth`
+       thread-local + RFC 9728 protected-resource metadata +
+       WWW-Authenticate on 401; HTTP transport gates every request.
+     - **Iter T**: standalone `AuthServer` — authorization-code grant
+       with mandatory PKCE (OAuth 2.1), refresh-token grant with
+       single-use rotation (§6.1), client-credentials grant,
+       Dynamic Client Registration (RFC 7591), token introspection
+       (RFC 7662), AS metadata (RFC 8414).  `McpAuth` reduced to a
+       re-export shim over `oauth.OAuth`; bridge via
+       `builder.useAuthServer(as)`.
+     - **Iter U**: framework-agnostic HTTP route handlers
+       (`OAuthRoutes`) for `/token`, `/introspect`, `/register`,
+       `/authorize`, `/.well-known/oauth-authorization-server` —
+       returns typed `RouteOutcome { Json | Redirect | Empty }`.
+     - **Iter V**: token revocation (RFC 7009) — `/revoke` endpoint,
+       access-token deny-list via JWT `jti` claim, refresh-token
+       lookup; honoured by introspection + tokenValidator.
+     - **Iter W**: backend-interpreter installer `OAuthHttp.installRoutes`
+       wires all OAuth routes into the embedded WebServer.
+     - **Iter X**: script-side intrinsics (`oauth.*` namespace) —
+       `authServer(config)` + handle methods (`registerClient`,
+       `issueClientCredentialsToken`, `introspect`, `revokeToken`,
+       `metadata`), `serveAuthServer`, `issueHmacToken`,
+       `pkceVerifier` / `pkceChallenge`, `srv.useAuthServer(asValue)`
+       for MCP integration.  JVM bridging via stable-id registry.
+
+     **OpenID Connect (OIDC)** Identity Provider layer on top of AS:
+     - **Iter Y**: `scalascript.oidc.*` — `OidcServer` composes
+       AuthServer, mints `id_token` (JWT with iss/sub/aud/exp/iat +
+       scope-gated profile/email claims) when granted scope includes
+       `openid`, serves `/userinfo` (bearer-validated, claim filter),
+       extends discovery JSON.  `UserClaims` + `UserInfoStore`.
+     - **Iter Z**: `OidcHttp.installRoutes` registers full
+       OIDC + OAuth route set in one call (POST/GET `/userinfo`,
+       `/.well-known/openid-configuration`).  Script API:
+       `oidc.server(as)`, `oidc.serve(idp, basePath?)`, handle methods
+       (`addUser`, `userInfo`, `mintIdToken`, `discovery`).
+
+     **JWKS + RSA signing for production OAuth** (Iter AA):
+     - Pluggable `TokenSigner` trait (alg / kid / sign / verify /
+       publicJwk).  `HmacTokenSigner` (HS256) — default, symmetric.
+       `RsaTokenSigner` (RS256) — asymmetric, 2048-bit RSA pairs.
+     - `jwksDocument(signers)` — RFC 7517 JWK Set; symmetric signers
+       contribute no public material.
+     - AS accepts `customSigner` constructor param; all internal
+       mint/verify paths route through `signer`.  Metadata advertises
+       `token_endpoint_auth_signing_alg_values_supported` and (when
+       asymmetric) `jwks_uri`.  GET `/.well-known/jwks.json` route
+       in both `OAuthHttp` and `OidcHttp` installers.  OIDC
+       `id_token` automatically RS256-signed when AS uses RSA signer.
+
+     **Test coverage**: 270 tests across 32 suites covering all the
+     above — MCP (143), OAuth core (29), OAuth routes (23), MCP↔OAuth
+     bridge (5), OAuth revocation (9), OAuth HTTP installer (11),
+     OAuth script intrinsics (6), OIDC server (18), OIDC script + HTTP
+     installer (8), Auth/RSA/JWKS (18), plus older MCP suites.
+
+     **Tool + resource annotations** (Iter BB) ✓ — MCP 2025-03 UI
+     hints: `ToolAnnotations(title, readOnlyHint, destructiveHint,
+     idempotentHint, openWorldHint)` and
+     `ResourceAnnotations(audience, priority)`.  All optional,
+     emitted in tools/list + resources/list + resources/templates/list
+     only when non-empty; backwards-compatible (registration calls
+     without an `annotations` arg still work).
+
+     **Still open in MCP** (deferred): generic `_meta` field
+     propagation across primitives.
+     **Still open in OAuth** (post-v1.17): generic Resource Server
+     SDK (`oauth.guard(...)` helper) so any HTTP service can wrap
+     route handlers in bearer-token validation.  Examples +
+     documentation pass for v1.17.x.
  22. **v1.18 — `package` keyword + std layout migration** ✓ Landed (all phases, 2026-05-19).
  23. **v1.19 — URL / dep imports** ✓ Landed.
      `[X](https://...)` URL fetch + `[X](dep:org/lib:1.2)`
