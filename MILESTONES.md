@@ -6279,3 +6279,133 @@ from JvmGen-emitted code.
   large-result use case.
 - Browser-side SQL (sql.js / DuckDB-Wasm).  IR preserves the source
   so this can be added without a spec change.
+
+---
+
+## Infrastructure clients — general-purpose ScalaScript libraries
+
+Specs in `docs/`: `postgres.md`, `kafka.md`, `evm.md`, `coinbase.md`, `redis.md`.
+
+### `postgres` — PostgreSQL client (JDBC + HikariCP)
+
+- [ ] `PgConfig` + HikariCP connection pool setup
+- [ ] `PgClient`: `query[A]`, `queryOne[A]`, `execute`, `transaction`, `stream`, `close`
+- [ ] `RowDecoder[A]` typeclass + `given` instances for primitives
+- [ ] Auto-derive `RowDecoder` for case classes via Scala 3 Mirror
+- [ ] Wrap JDBC calls in `Async.blocking`
+- [ ] Tests against in-memory H2
+
+### `kafka` — Kafka client (kafka-clients)
+
+- [ ] `KafkaConfig`, `KafkaRecord`, `RecordMeta`
+- [ ] `KafkaProducer`: `send`, `sendBytes`, `flush`, `close`
+- [ ] `KafkaConsumer`: `subscribe`, `poll`, `commit`, `stream`, `close`
+- [ ] Wrap kafka-clients in `Async`
+- [ ] Tests with embedded Kafka (Testcontainers)
+
+### `evm` — EVM / JSON-RPC client
+
+- [ ] `EvmConfig` + `EvmNetworks` registry (Base, Ethereum, Polygon, Arbitrum, Optimism)
+- [ ] `EvmClient`: `blockNumber`, `getBalance`, `erc20Balance`, `erc20Allowance`
+- [ ] Transaction queries: `getTransaction`, `getReceipt`, `waitForReceipt`
+- [ ] `call` (eth_call) + raw `rpc` escape hatch
+- [ ] Implemented over HTTP JSON-RPC (no external Web3 library)
+- [ ] Tests against a local Anvil / Hardhat node
+
+### `coinbase` — Coinbase API client
+
+- [ ] `CoinbaseConfig` + JWT/HMAC auth
+- [ ] `CoinbaseTrade`: products, candles, accounts, orders
+- [ ] `CoinbaseCdp`: wallet create/get, transfer, list balances
+- [ ] `CoinbaseFacilitator`: `verify`, `settle` (x402 facilitator API)
+- [ ] Tests with mocked HTTP
+
+### `redis` — Redis client (Lettuce)
+
+- [ ] `RedisConfig` + Lettuce async connection pool
+- [ ] Strings: `get`, `set` (+ TTL), `setNx`, `del`, `exists`, `expire`, `incr`
+- [ ] Hashes: `hget`, `hset`, `hgetAll`, `hdel`
+- [ ] Lists: `lpush`, `rpush`, `lpop`, `rpop`, `lrange`
+- [ ] Sets: `sadd`, `srem`, `smembers`, `sismember`
+- [ ] Sorted sets: `zadd`, `zrange`, `zscore`, `zrank`, `zrem`
+- [ ] Pub/Sub: `publish`, `subscribe` → `AsyncStream[PubSubMessage]`
+- [ ] Transactions / pipelining: `transaction[A]`
+- [ ] Key ops: `keys`, `scan`, `flushDb`
+- [ ] Tests against embedded Redis (Testcontainers)
+
+---
+
+## x402 — HTTP payment protocol
+
+Spec in `docs/x402.md`.
+
+### Phase 1 — Core (`x402-core`)
+
+- [ ] `PaymentScheme`: `Exact`, `Stream`, `CardanoExact`
+- [ ] `PaymentRequirements`, `TransferAuthorization`, `PaymentPayload`
+- [ ] `CardanoAsset`, `CardanoPaymentProof`
+- [ ] `Network`, `Asset`, `Assets` registry
+- [ ] `Facilitator` trait + `VerifyResult` / `SettleResult`
+- [ ] `NonceStore` trait + in-memory implementation
+- [ ] `SettlementMode`: `Synchronous` / `Async(queue)`
+- [ ] `SettlementQueue` trait + in-memory implementation
+
+### Phase 2 — Server middleware (`x402-server`)
+
+- [ ] `PaymentConfig` + `withPayment(config) { routes }` DSL
+- [ ] 402 response with `requirements` JSON body
+- [ ] `X-Payment` header parsing + base64 decode
+- [ ] Nonce claim before facilitator call (double-spend guard)
+- [ ] Sync settlement path (verify + settle in request)
+- [ ] Async settlement path (verify in request, enqueue settle)
+- [ ] `onSettled` callback hook
+- [ ] Tests: no-payment → 402, valid payment → 200, replay → 402
+
+### Phase 3 — Client interceptor (`x402-client`)
+
+- [ ] `Wallet` trait + `Eip712Domain`
+- [ ] `Wallets.metaMask()` (browser / window.ethereum)
+- [ ] `Wallets.privateKey(hex, network)` + `Wallets.envKey(envVar, network)`
+- [ ] `Http.client.withX402(wallet, maxAmount)` interceptor
+- [ ] Auto-retry on 402: parse requirements, sign, add `X-Payment`, retry
+- [ ] Refuse if `maxAmountRequired > maxAmount`
+- [ ] Tests: 402 → sign → 200 round-trip (mocked server)
+
+### Phase 4 — EVM facilitators
+
+- [ ] `x402-facilitator-coinbase`: delegates to `CoinbaseClient.x402`
+- [ ] `x402-facilitator-evm`: on-chain verify via `EvmClient` (EIP-3009 check)
+- [ ] `Facilitators.withFallback(primary, fallback)`
+- [ ] `Facilitators.testnet()` — always Ok, no real settlement
+- [ ] Tests: verify Ok / Fail paths, settlement happy path
+
+### Phase 5 — Durable queues and nonce stores
+
+- [ ] `x402-queue-kafka`: `SettlementQueue` via `KafkaProducer/Consumer`
+- [ ] `x402-queue-postgres`: `SettlementQueue` backed by `PgClient`
+- [ ] `x402-nonce-postgres`: `NonceStore` backed by `PgClient`
+- [ ] `x402-nonce-redis`: `NonceStore` backed by `RedisClient` (`setNx` with TTL)
+
+### Phase 6 — Cardano facilitator (`x402-facilitator-cardano`)
+
+- [ ] `CardanoFacilitatorConfig` + `CardanoProvider` enum
+- [ ] `CardanoProvider.Blockfrost`: verify via Blockfrost API (balance check + CIP-8 verify)
+- [ ] `CardanoProvider.Scalus`: server-side Tx building via Scalus + cardano-client-lib (bloxbean)
+- [ ] CIP-8 signature verification (COSE_Sign1 + COSE_Key)
+- [ ] Settlement: Blockfrost path — poll for Tx confirmation; Scalus path — build + submit Tx
+- [ ] Tests: CIP-8 verify, balance check, settlement confirmation
+
+### Phase 7 — Stream scheme (metered billing)
+
+- [ ] `PaymentScheme.Stream`: rate-per-unit, maxUnits, maxAmount
+- [ ] Server: track unit consumption, charge at configured rate
+- [ ] Client: pre-authorize budget, track spend
+- [ ] Tests: unit counting, budget exhaustion → 402
+
+### Phase 8 — Test mode + examples
+
+- [ ] `X402.testConfig(payTo)` — auto BaseSepolia + testnet facilitator
+- [ ] `X402.isTestMode` from `X402_ENV` env var
+- [ ] `examples/x402-server.ssc` — payment-gated REST endpoint
+- [ ] `examples/x402-client.ssc` — client auto-handles 402
+- [ ] `examples/x402-cardano.ssc` — Cardano payment flow
