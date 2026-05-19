@@ -165,3 +165,62 @@ class NodeBackendTest extends AnyFunSuite:
     val out  = runUnderNode(code)
     assert(out == "Hello from node.js, Sergiy!", s"expected greeting, got:\n$out")
   }
+
+  // ── Phase 4: extern def ↔ globalThis bridging ───────────────────────────
+
+  test("integration: `extern def` on ssc side resolves against globalThis at runtime") {
+    assume(hasNode, "node not on PATH — skipping integration test")
+    // The ScalaScript side declares the FFI signature with `extern def` — JsGen
+    // skips emission of the stub (EffectAnalysis.isExternDef path).  The
+    // ```node.js``` block defines the symbol on globalThis.  At runtime, JS's
+    // free-name resolution finds the global and the call goes through.  No
+    // intrinsic-table entry is required; the contract is purely "name + arity"
+    // between the two sides.
+    val src =
+      """|# Tools
+         |
+         |```node.js
+         |globalThis.add = (a, b) => a + b;
+         |globalThis.fileBaseName = (p) => require('path').basename(p);
+         |```
+         |
+         |```scalascript
+         |extern def add(a: Int, b: Int): Int
+         |extern def fileBaseName(path: String): String
+         |
+         |println(add(40, 2))
+         |println(fileBaseName("/tmp/foo/bar.txt"))
+         |```
+         |""".stripMargin
+    val code = compile(src)
+    val out  = runUnderNode(code)
+    assert(out == "42\nbar.txt",
+      s"expected '42\\nbar.txt', got:\n$out")
+  }
+
+  test("integration: extern def signature mismatch fails at runtime, not compile") {
+    assume(hasNode, "node not on PATH — skipping integration test")
+    // The contract is name+arity; if the JS side returns the wrong type,
+    // the ssc compiler does NOT catch it — diagnosis surfaces at runtime.
+    // Pin this behaviour so any future "typecheck extern signatures" work
+    // is a deliberate decision rather than an accidental regression.
+    val src =
+      """|# Tools
+         |
+         |```node.js
+         |globalThis.lieAboutType = () => "not-a-number";
+         |```
+         |
+         |```scalascript
+         |extern def lieAboutType(): Int
+         |val x: Int = lieAboutType()
+         |println(x)
+         |```
+         |""".stripMargin
+    val code = compile(src)
+    val out  = runUnderNode(code)
+    // No compile-time error.  JS runtime prints the string verbatim — the
+    // `Int` annotation on the ssc side is a contract, not a derivation.
+    assert(out == "not-a-number",
+      s"expected 'not-a-number' (untyped runtime), got:\n$out")
+  }

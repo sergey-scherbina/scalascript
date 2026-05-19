@@ -5464,7 +5464,7 @@ view so they shape near-term decisions.
 
 ## v1.25 — JavaScript / Node.js fenced code blocks
 
-**Status: Phases 1–3 landed; Phases 4–5 open. Branch `worktree-js-node-blocks`.**
+**Status: Phases 1–4 landed; Phase 5 open. Branch `worktree-js-node-blocks`.**
 
 Symmetry fix and new target.  Pre-v1.25, `html` and `css` were
 first-class string blocks (§ 3.3 of `SPEC.md`) but `javascript` was
@@ -5547,21 +5547,34 @@ uses `require('fs')` for FileSystem helpers; ESM-mode `.mjs`
 emission is deferred until a follow-up rewrites the runtime in
 import form.
 
-### Phase 4 — `extern def` ↔ `globalThis` bridging — open
+### Phase 4 — `extern def` ↔ `globalThis` bridging ✓ Landed
 
-Surface for ScalaScript to call into JS-defined symbols.  Reuse the
-existing `extern def` preprocessor (`Parser.scala`,
-`preprocessExtern`) — no new syntax.  Node backend resolves
-`extern def fooFromJs(...)` to `globalThis.fooFromJs(...)` in the
-emitted JS.
+Surface for ScalaScript to call into JS-defined symbols.  Turned out
+to require **no codegen changes**: JsGen already skips emission of
+`extern def` stubs (`JsGen.scala` line 6685 — the existing
+`EffectAnalysis.isExternDef` path drops the def entirely), and JS's
+free-name resolution at call sites picks up the `globalThis.<name>`
+assignment from the linked `node.js` glue block.
 
-- [ ] `JsGen` (or a Node-only wrapper) maps `ExternCall` IR nodes to
-      `globalThis.<name>` invocation.
-- [ ] Signature mismatches are a runtime concern; document the
-      contract in `docs/targets.md`.
-- [ ] Tests: ssc `extern def add(a: Int, b: Int): Int` + `node.js`
-      block defining `globalThis.add` → executes under Node, returns
-      `42`.
+The full bridging contract therefore reduces to:
+
+  - **ssc side** declares the FFI with `extern def name(...): T`.
+    Provides type information to the typer; JsGen emits no body.
+  - **`node.js` block side** assigns `globalThis.<name> = ...`.
+    Linked verbatim into the bundle by the Node backend (Phase 3b).
+  - **Runtime resolution** is name + arity.  Signature mismatches
+    surface as plain JS runtime values — the `Int` on the ssc side
+    is a contract, not a derivation.
+
+Two new integration tests in `NodeBackendTest` pin this end-to-end:
+one happy-path with `extern def add(...)` + `extern def fileBaseName(...)`
+calling into Node's `require('path').basename`; one regression guard
+asserting that a deliberate signature mismatch executes anyway,
+documenting the "runtime contract" semantics.
+
+No spec or `JsGen` code changes were required — the existing
+infrastructure was already shaped for this once Phase 3b put the
+glue blocks in front of the user code.
 
 ### Phase 5 — examples + conformance — open
 
