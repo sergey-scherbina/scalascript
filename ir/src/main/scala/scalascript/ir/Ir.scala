@@ -230,15 +230,12 @@ case class ExportedSymbol(
    *  re-parsing source.  Default empty preserves backward compatibility
    *  with `.scim` artifacts emitted before this field existed.
    *
-   *  NOTE (v2.0): `InterfaceExtractor` does not currently populate this
-   *  field — the typer doesn't descend into objects so we cannot recover
-   *  the nested member list from a typed module today.  Until that lands,
-   *  `nested` is only populated when callers (or tests) construct
-   *  `ExportedSymbol` directly.  Strict-mode deep-Select checks therefore
-   *  fall back to permissive behaviour for any sub-namespace whose
-   *  `nested` is empty — see `Typer.resolveQualifierChain`.
-   *  TODO(v2.x): extend `InterfaceExtractor` to recursively collect
-   *  inner-object exports into `nested`.
+   *  As of v2.0 Stage 5.6+ `InterfaceExtractor` populates this for
+   *  top-level `Defn.Object` exports by walking the object's body stats
+   *  (up to a small depth — see `InterfaceExtractor.MaxNestedDepth`).
+   *  Member types are best-effort `Any` for now (the typer does not yet
+   *  descend into objects); the names, FQNs, and kinds are exact, which
+   *  is sufficient for strict-mode deep-Select validation.
    */
   nested:   List[ExportedSymbol] = Nil
 ) derives ReadWriter

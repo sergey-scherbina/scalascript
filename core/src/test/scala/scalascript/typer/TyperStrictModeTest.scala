@@ -366,28 +366,53 @@ class TyperStrictModeTest extends AnyFunSuite:
       s"Select chain on a local value should not be flagged; got errors:\n" +
       typed.errors.map(_.show).mkString("\n"))
 
-  test("strict + deep Select — sub-namespace with empty `nested` (extractor TODO): permissive"):
-    // Today, `InterfaceExtractor` does NOT populate `ExportedSymbol.nested`,
-    // so any sub-namespace export has an empty nested list.  Until that
-    // lands, deep selects through such a sub-namespace fall back to
-    // permissive behaviour (no diagnostic, no false positive).  This test
-    // pins down the current behaviour so a future change that flips it
-    // can re-baseline explicitly.
-    // TODO(v2.x): once `InterfaceExtractor` records nested members, flip
-    // this test's expectation to assert that `pkg.sub.unknown` is rejected.
-    val opaqueSub = ExportedSymbol(
-      name   = "sub",
-      fqn    = "pkg_sub",
-      kind   = "object",
-      tpe    = "Any",
-      nested = Nil   // <-- the extractor's current output shape
-    )
-    val iface = ifaceWithNested(alias = "pkg", topLevel = List(opaqueSub))
-    val typed = Typer.typeCheckWithInterfaces(
-      moduleOf("""def use(): Any = pkg.sub.anyMember"""),
+  test("strict + deep Select — sub-namespace from REAL extractor output: missing member is rejected"):
+    // Stage 5.6+: `InterfaceExtractor` now populates `ExportedSymbol.nested`
+    // for top-level `Defn.Object` exports, so a sub-namespace coming out of
+    // the extractor is no longer opaque — deep Selects through it can be
+    // validated strictly.  Build the interface end-to-end from source via
+    // the extractor (not by hand) to verify that the extractor + typer
+    // collaboration rejects an unknown member like `pkg.sub.unknown`.
+    val producerSrc =
+      """# Producer
+        |
+        |```scalascript
+        |object sub:
+        |  def known(): Int = 1
+        |```
+        |""".stripMargin
+    val producerMod = scalascript.parser.Parser.parse(producerSrc)
+    val iface = scalascript.artifact.InterfaceExtractor
+      .extract(producerMod, producerSrc.getBytes("UTF-8"))
+
+    // Sanity: the extractor must populate `sub.nested`, otherwise this
+    // test would silently degenerate to the old permissive path.
+    val sub = iface.exports.find(_.name == "sub").getOrElse(
+      fail(s"expected `sub` in producer exports, got: ${iface.exports.map(_.name)}"))
+    assert(sub.nested.nonEmpty,
+      s"expected extractor to populate sub.nested; got empty (regression in nested extraction)")
+    assert(sub.nested.exists(_.name == "known"),
+      s"expected sub.nested to contain `known`; got: ${sub.nested.map(_.name)}")
+
+    // Valid deep Select: `pkg.sub.known` resolves cleanly.
+    val typedOk = Typer.typeCheckWithInterfaces(
+      moduleOf("""def use(): Any = pkg.sub.known"""),
       interfaces = Map("pkg" -> iface),
       strict     = true
     )
-    assert(!typed.hasErrors,
-      s"opaque sub-namespace should be permissive today; got errors:\n" +
-      typed.errors.map(_.show).mkString("\n"))
+    assert(!typedOk.hasErrors,
+      s"`pkg.sub.known` should resolve via real extractor data; got errors:\n" +
+      typedOk.errors.map(_.show).mkString("\n"))
+
+    // Invalid deep Select: `pkg.sub.unknown` is now strictly rejected,
+    // naming the break point `pkg.sub` and the missing member `unknown`.
+    val typedBad = Typer.typeCheckWithInterfaces(
+      moduleOf("""def use(): Any = pkg.sub.unknown"""),
+      interfaces = Map("pkg" -> iface),
+      strict     = true
+    )
+    assert(typedBad.hasErrors,
+      "expected `pkg.sub.unknown` to be rejected once the extractor populates nested")
+    val msgs = typedBad.errors.map(_.msg).mkString(" | ")
+    assert(msgs.contains("pkg.sub") && msgs.contains("unknown"),
+      s"expected diagnostic naming `pkg.sub` and `unknown`; got: $msgs")

@@ -170,6 +170,94 @@ object InterfaceExtractor:
       val ret = typeToString(d.decltpe)
       if paramText.isEmpty then ret else s"$paramText: $ret"
 
+    // ── Recursive nested-member extraction ────────────────────────────────
+    //
+    // Maximum depth for walking nested `Defn.Object` stats.  An object at
+    // depth N may carry `nested` entries; an object at depth `MaxNestedDepth`
+    // is treated as opaque (its `nested` stays `Nil`).  Three levels cover
+    // the common cases (`pkg.sub.member`, `pkg.outer.inner.member`) without
+    // unbounded recursion on pathological inputs.
+    //
+    // TODO(v2.x): lift to unbounded depth once we measure the .scim size /
+    // typer cost; the strict-mode resolver doesn't need a hard cap.
+    val MaxNestedDepth = 3
+
+    /** Build an `ExportedSymbol` for a single top-level-ish stat, recursing
+     *  into `Defn.Object` bodies up to `MaxNestedDepth - depth` further
+     *  levels.  Returns `None` for stats that are not user-facing exports
+     *  (e.g. `Defn.Given`, extern defs, bare expressions).  `parentFqn`
+     *  is the dotted-then-underscore-joined FQN prefix of the enclosing
+     *  symbol (e.g. `"pkg_Foo"`); the returned symbol's `fqn` is
+     *  `s"${parentFqn}_${name}"` (or just `name` when `parentFqn` is empty). */
+    def buildNestedSymbol(stat: Stat, parentFqn: String, depth: Int): Option[ExportedSymbol] =
+      def joinFqn(name: String): String =
+        if parentFqn.isEmpty then name else s"${parentFqn}_$name"
+      stat match
+        case d: Defn.Def if !EffectAnalysis.isExternDef(d.body) =>
+          Some(ExportedSymbol(
+            name = d.name.value,
+            fqn  = joinFqn(d.name.value),
+            kind = "def",
+            tpe  = "Any"
+          ))
+        case d: Defn.Val =>
+          // Multi-pat `val (a, b) = …` is rare here; surface each Pat.Var.
+          d.pats.collectFirst { case Pat.Var(n) => n.value }.map { n =>
+            ExportedSymbol(name = n, fqn = joinFqn(n), kind = "val", tpe = "Any")
+          }
+        case d: Defn.Var =>
+          d.pats.collectFirst { case Pat.Var(n) => n.value }.map { n =>
+            ExportedSymbol(name = n, fqn = joinFqn(n), kind = "var", tpe = "Any")
+          }
+        case d: Defn.Class =>
+          Some(ExportedSymbol(
+            name = d.name.value,
+            fqn  = joinFqn(d.name.value),
+            kind = "class",
+            tpe  = "Any"
+          ))
+        case d: Defn.Trait =>
+          Some(ExportedSymbol(
+            name = d.name.value,
+            fqn  = joinFqn(d.name.value),
+            kind = "trait",
+            tpe  = "Any"
+          ))
+        case d: Defn.Enum =>
+          Some(ExportedSymbol(
+            name = d.name.value,
+            fqn  = joinFqn(d.name.value),
+            kind = "enum",
+            tpe  = "Any"
+          ))
+        case d: Defn.Object =>
+          val nested =
+            if depth + 1 >= MaxNestedDepth then Nil
+            else d.templ.body.stats.flatMap(s =>
+              buildNestedSymbol(s, joinFqn(d.name.value), depth + 1)
+            )
+          Some(ExportedSymbol(
+            name   = d.name.value,
+            fqn    = joinFqn(d.name.value),
+            kind   = "object",
+            tpe    = "Any",
+            nested = nested
+          ))
+        case _ => None
+
+    /** Resolve, in `stats`, the nested-member list for a `Defn.Object`
+     *  named `objName`.  Used to back-fill `nested` on top-level exports
+     *  whose source-form is `object Foo: …` — the surrounding `rawExports`
+     *  build path emits the parent as a flat `ExportedSymbol`, then we
+     *  look up its body here and populate `nested` from the AST. */
+    def nestedForObject(stats: List[Stat], objName: String, parentFqn: String): List[ExportedSymbol] =
+      stats.collectFirst {
+        case obj: Defn.Object if obj.name.value == objName =>
+          obj.templ.body.stats.flatMap(s =>
+            buildNestedSymbol(s, parentFqn, depth = 1)
+          )
+      }.getOrElse(Nil)
+
     def scanStats(stats: List[Stat]): Unit =
       stats.foreach {
         // given instance: `given eqInt: Eq[Int] = ...`  or `given Eq[Int] = ...`
@@ -252,17 +340,30 @@ object InterfaceExtractor:
       "println", "print", "assert", "require", "Some", "None",
       "List", "Map", "math", "doc", "render", "serve"
     )
+    // Source-level top-level stats from which we recover nested-object
+    // member lists.  With `package: foo.bar`, the user's defs live under
+    // the synthetic shell and were already unwrapped above; without it,
+    // walk every parsed `Source` directly.
+    val topLevelStats: List[Stat] =
+      if pkg.nonEmpty then packageInnerStats
+      else scalaTrees.toList.collect { case s: Source => s.stats }.flatten
+
     val rawExports = allDefs
       .filterNot { d =>
         d.kind == TSymbolKind.Param ||
           (pkg.isEmpty && preludeNames.contains(d.name))
       }
       .map { d =>
+        val nested =
+          if d.kind == TSymbolKind.Object then
+            nestedForObject(topLevelStats, d.name, fqn(d.name))
+          else Nil
         ExportedSymbol(
-          name = d.name,
-          fqn  = fqn(d.name),
-          kind = kindString(d.kind),
-          tpe  = d.tpe.show
+          name   = d.name,
+          fqn    = fqn(d.name),
+          kind   = kindString(d.kind),
+          tpe    = d.tpe.show,
+          nested = nested
         )
       }
       .toList
