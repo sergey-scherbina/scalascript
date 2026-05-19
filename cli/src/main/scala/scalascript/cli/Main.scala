@@ -6155,20 +6155,63 @@ def lspCommand(args: List[String]): Unit =
  *  is available via `--json`. */
 def clusterCommand(args: List[String]): Unit =
   args match
-    case "status" :: rest => clusterStatusCommand(rest)
-    case "drain"  :: rest => clusterDrainCommand(rest)
-    case "events" :: rest => clusterEventsCommand(rest)
+    case "status"   :: rest => clusterStatusCommand(rest)
+    case "drain"    :: rest => clusterDrainCommand(rest)
+    case "events"   :: rest => clusterEventsCommand(rest)
+    case "step-down" :: rest => clusterStepDownCommand(rest)
     case ("help" | "--help" | "-h") :: _ =>
       println("Usage: ssc cluster <subcommand>")
-      println("  status <url> [--json] [--token=<t>]            show JSON snapshot")
-      println("  drain  <url> [--off]  [--token=<t>]            toggle drain mode")
-      println("  events <url> [--since=<ms>] [--token=<t>]      dump events ring")
+      println("  status    <url> [--json] [--token=<t>]            show JSON snapshot")
+      println("  drain     <url> [--off]  [--token=<t>]            toggle drain mode")
+      println("  events    <url> [--since=<ms>] [--token=<t>]      dump events ring")
+      println("  step-down <url> [--token=<t>]                     graceful leader step-down")
       println()
       println("Auth: --token=<t> or SSC_CLUSTER_TOKEN env.  Sends")
       println("`Authorization: Bearer <token>` on every request.")
     case _ =>
-      System.err.println("Usage: ssc cluster {status|drain|events} <url> [opts]")
+      System.err.println("Usage: ssc cluster {status|drain|events|step-down} <url> [opts]")
       System.exit(2)
+
+private def clusterStepDownCommand(args: List[String]): Unit =
+  val (flags, urlOpt) = args.partition(_.startsWith("--"))
+  if urlOpt.isEmpty then
+    System.err.println("Usage: ssc cluster step-down <url> [--token=<t>]")
+    System.exit(2)
+  else
+    val url = urlOpt.head
+    val target =
+      if url.endsWith("/_ssc-cluster/step-down") then url
+      else url.stripSuffix("/") + "/_ssc-cluster/step-down"
+    val token  = clusterAuthTokenFor(flags)
+    val client = java.net.http.HttpClient.newBuilder()
+      .connectTimeout(java.time.Duration.ofSeconds(5)).build()
+    val req = applyClusterAuth(
+      java.net.http.HttpRequest.newBuilder()
+        .uri(java.net.URI.create(target))
+        .timeout(java.time.Duration.ofSeconds(10))
+        .header("Content-Type", "application/json"),
+      token
+    ).POST(java.net.http.HttpRequest.BodyPublishers.noBody()).build()
+    val respOpt: Option[java.net.http.HttpResponse[String]] =
+      try Some(client.send(req, java.net.http.HttpResponse.BodyHandlers.ofString()))
+      catch case e: Throwable =>
+        System.err.println(s"failed to POST $target: ${e.getMessage}")
+        System.exit(1)
+        None
+    respOpt.foreach { resp =>
+      resp.statusCode() match
+        case 200 =>
+          println(resp.body())
+        case 409 =>
+          // Not leader — surface the body's `"leader":"..."` field so
+          // the operator knows where to point the next attempt.
+          System.err.println("not leader — current leader: " + resp.body())
+          System.exit(1)
+        case other =>
+          System.err.println(s"unexpected status $other from $target")
+          System.err.println(resp.body())
+          System.exit(1)
+    }
 
 /** Pull the shared-secret Bearer token from a `--token=<t>` flag (if
  *  present) or the `SSC_CLUSTER_TOKEN` env var.  Empty result ⇒ skip
