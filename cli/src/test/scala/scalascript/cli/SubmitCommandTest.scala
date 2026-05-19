@@ -136,3 +136,31 @@ class SubmitCommandTest extends AnyFunSuite:
     assert(masterOccurrences == 1,
       s"expected exactly one --master in output, got $masterOccurrences:\n$out")
   }
+
+  test("front-matter spark-config bakes .config(k, v) into the generated source") {
+    // The submit pipeline writes the generated Spark Scala to
+    // /tmp/ssc-spark-<hash>.scala (printed in --dry-run output);
+    // we can read that file back to verify the configs survived.
+    val tmp = os.temp.dir()
+    val fm =
+      """spark-config:
+        |  spark.executor.memory: 4g
+        |  spark.executor.cores: 2""".stripMargin
+    val ssc = writeFixture(tmp, frontMatter = fm)
+    val out = captureStdout {
+      scalascript.cli.submitCommand(List("--dry-run", ssc.toString))
+    }
+    // Pull the source path out of the "# source: ..." marker the
+    // dry-run header prints, then read it.  Independent of hash
+    // value so changes in unrelated source bits don't break the test.
+    val sourceLine = out.linesIterator.find(_.startsWith("# source:")).getOrElse(
+      fail(s"submit dry-run did not print source path, got:\n$out")
+    )
+    val sourcePath = os.Path(sourceLine.stripPrefix("# source:").trim)
+    assert(os.exists(sourcePath), s"submit must write the source file even in dry-run: $sourcePath")
+    val source = os.read(sourcePath)
+    assert(source.contains(""".config("spark.executor.memory", "4g")"""),
+      s"spark-config entry not baked into source:\n$source")
+    assert(source.contains(""".config("spark.executor.cores", "2")"""),
+      s"spark-config entry not baked into source:\n$source")
+  }

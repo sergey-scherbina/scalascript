@@ -22,12 +22,77 @@ class SparkBackendTest extends AnyFunSuite:
     assert(backend.spiVersion == SpiVersion.Current)
   }
 
-  test("capabilities: ExecutionResult output, Dataset feature, sparkVersion + sparkMaster options") {
+  test("capabilities: ExecutionResult output, Dataset feature, sparkVersion + sparkMaster + sparkConfig options") {
     assert(backend.capabilities.outputs.contains(OutputKind.ExecutionResult))
     assert(backend.capabilities.features.contains(Feature.Dataset))
     assert(backend.capabilities.options.contains("sparkVersion"))
     // Phase B — Spark master URL parameterisation.
     assert(backend.capabilities.options.contains("sparkMaster"))
+    // Phase C.3 slice 3 — encoded spark-config front-matter map.
+    assert(backend.capabilities.options.contains("sparkConfig"))
+  }
+
+  // ── Phase C.3 slice 3: spark-config codec ────────────────────────────────
+
+  test("encodeSparkConfig sorts entries for stable encoding") {
+    val out = SparkBackend.encodeSparkConfig(Map(
+      "spark.executor.memory" -> "4g",
+      "spark.executor.cores"  -> "2"
+    ))
+    // Same input map iterated in different orders by a JVM HashSet
+    // would otherwise emit a different `extras("sparkConfig")` value,
+    // breaking command de-duplication and the temp-file hash.
+    assert(out == "spark.executor.cores=2\nspark.executor.memory=4g",
+      s"expected sorted-key newline-separated encoding, got: $out")
+  }
+
+  test("decodeSparkConfig is the inverse of encodeSparkConfig") {
+    val m = Map(
+      "spark.executor.memory"           -> "4g",
+      "spark.dynamicAllocation.enabled" -> "true",
+      "spark.sql.shuffle.partitions"    -> "200"
+    )
+    assert(SparkBackend.decodeSparkConfig(SparkBackend.encodeSparkConfig(m)) == m)
+  }
+
+  test("decodeSparkConfig handles empty string") {
+    assert(SparkBackend.decodeSparkConfig("") == Map.empty)
+  }
+
+  test("decodeSparkConfig preserves `=` in values (split on first `=` only)") {
+    // Some Spark JVM options legitimately contain `=` in the value
+    // (e.g. `-Dprop=value`); the codec must not eat them.
+    val decoded = SparkBackend.decodeSparkConfig("spark.driver.extraJavaOptions=-Dfoo=bar")
+    assert(decoded == Map("spark.driver.extraJavaOptions" -> "-Dfoo=bar"),
+      s"expected `=` preserved in value, got: $decoded")
+  }
+
+  test("decodeSparkConfig drops lines without `=` and lines starting with `=`") {
+    // Defensive: malformed entries (missing separator, or empty key)
+    // are silently dropped rather than throwing — preserves
+    // forward-compat if we ever add a different control-prefix.
+    val decoded = SparkBackend.decodeSparkConfig("ok=value\nnoseparator\n=emptykey\nok2=val2")
+    assert(decoded == Map("ok" -> "value", "ok2" -> "val2"),
+      s"expected malformed lines dropped, got: $decoded")
+  }
+
+  test("fromYamlMap converts a java.util.Map[String, Any] into Map[String, String]") {
+    val ju = new java.util.LinkedHashMap[String, Object]()
+    ju.put("spark.executor.memory", "4g")
+    ju.put("spark.executor.cores", java.lang.Integer.valueOf(2))     // numeric YAML
+    ju.put("spark.dynamicAllocation.enabled", java.lang.Boolean.TRUE) // boolean YAML
+    val m = SparkBackend.fromYamlMap(ju)
+    assert(m == Map(
+      "spark.executor.memory" -> "4g",
+      "spark.executor.cores" -> "2",
+      "spark.dynamicAllocation.enabled" -> "true"
+    ), s"expected non-string YAML scalars coerced via toString, got: $m")
+  }
+
+  test("fromYamlMap returns empty for non-map input (defensive)") {
+    assert(SparkBackend.fromYamlMap("not a map") == Map.empty)
+    assert(SparkBackend.fromYamlMap(42)           == Map.empty)
+    assert(SparkBackend.fromYamlMap(null)         == Map.empty)
   }
 
   test("capabilities: blockLanguages = {sql} (Phase C — wires sql block to spark.sql)") {

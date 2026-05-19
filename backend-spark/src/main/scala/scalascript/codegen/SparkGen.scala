@@ -66,22 +66,43 @@ object SparkGen:
       module:       Module,
       baseDir:      Option[os.Path] = None,
       sparkVersion: String          = DefaultVersion,
-      sparkMaster:  String          = DefaultMaster
+      sparkMaster:  String          = DefaultMaster,
+      extraConfig:  Map[String, String] = Map.empty
   ): String =
-    SparkGen(baseDir, sparkVersion, sparkMaster).genModule(module)
+    SparkGen(baseDir, sparkVersion, sparkMaster, extraConfig).genModule(module)
 
   /** A collected ScalaScript code block ready for emission. */
   private[codegen] case class Block(src: String)
 
 private class SparkGen(
-    baseDir:      Option[os.Path] = None,
-    sparkVersion: String          = SparkGen.DefaultVersion,
-    sparkMaster:  String          = SparkGen.DefaultMaster
+    baseDir:      Option[os.Path]     = None,
+    sparkVersion: String              = SparkGen.DefaultVersion,
+    sparkMaster:  String              = SparkGen.DefaultMaster,
+    extraConfig:  Map[String, String] = Map.empty
 ):
 
   // Resolved paths already inlined via Content.Import (diamond-safe).
   private val importedFiles = mutable.Set.empty[String]
   private var moduleDeps: Map[String, String] = Map.empty
+
+  /** Escape a string for embedding inside a Scala double-quoted literal.
+   *  Used by the `spark-config:` front-matter emitter (§ 9.5 C.3) — keys
+   *  are dotted identifiers (no special chars) but values can contain
+   *  backslashes, double quotes, or newlines (e.g. file paths on
+   *  Windows-style classpath configs), and we don't want to break the
+   *  emitted source on those.  Conservative: escape `\`, `"`, `\n`,
+   *  `\r`, `\t`; everything else passes through. */
+  private def escape(s: String): String =
+    val sb = StringBuilder(s.length + 4)
+    s.foreach {
+      case '\\' => sb.append("\\\\")
+      case '"'  => sb.append("\\\"")
+      case '\n' => sb.append("\\n")
+      case '\r' => sb.append("\\r")
+      case '\t' => sb.append("\\t")
+      case c    => sb.append(c)
+    }
+    sb.toString
 
   // ── Module entry ──────────────────────────────────────────────────────────
 
@@ -118,6 +139,15 @@ private class SparkGen(
     sb.append(s"""    .master("$sparkMaster")\n""")
     sb.append("    .config(\"spark.ui.enabled\", \"false\")\n")
     sb.append("    .config(\"spark.sql.shuffle.partitions\", \"4\")\n")
+    // User-supplied `spark-config:` front-matter map (v1.25 § 9.5 Phase C.3
+    // slice 3) — emit one `.config(k, v)` per entry, sorted by key for
+    // deterministic source.  Values are passed through verbatim and
+    // escaped for embedding in a Scala string literal.  A user's entry
+    // for `spark.ui.enabled` / `spark.sql.shuffle.partitions` overrides
+    // the defaults above because Spark's builder takes last-write-wins.
+    extraConfig.toList.sortBy(_._1).foreach { (k, v) =>
+      sb.append(s"""    .config("${escape(k)}", "${escape(v)}")\n""")
+    }
     sb.append("    .getOrCreate()\n")
     sb.append("  import spark.implicits._\n")
     // Suppress verbose Spark logging in local mode.

@@ -44,6 +44,55 @@ import scalascript.transform.Denormalize
  *  `scala-cli run` and rely on the driver being able to ship classes
  *  to executors itself (works for thin-classpath Spark Standalone but
  *  not YARN / K8s in production). */
+/** Codec for the `sparkConfig` entry in `BackendOptions.extra`.
+ *
+ *  Phase C.3 slice 3 lets users declare ad-hoc Spark configuration in
+ *  front-matter:
+ *
+ *    ---
+ *    backend: spark
+ *    spark-config:
+ *      spark.executor.memory: 4g
+ *      spark.sql.shuffle.partitions: 200
+ *    ---
+ *
+ *  `BackendOptions.extra` is `Map[String, String]` (free-form, per the
+ *  SPI), so the whole config map travels as a single value under the
+ *  `sparkConfig` key.  Encoding is one entry per newline, key and value
+ *  separated by the first `=` — robust because Spark config keys are
+ *  dotted identifiers that never contain `=` and the format survives
+ *  values with `=` in them (rare but legal). */
+object SparkBackend:
+
+  val SparkConfigOption: String = "sparkConfig"
+
+  def encodeSparkConfig(m: Map[String, String]): String =
+    m.toList.sortBy(_._1).map { case (k, v) => s"$k=$v" }.mkString("\n")
+
+  def decodeSparkConfig(encoded: String): Map[String, String] =
+    if encoded.isEmpty then Map.empty
+    else
+      encoded.linesIterator.flatMap { line =>
+        val idx = line.indexOf('=')
+        if idx <= 0 then None
+        else Some(line.substring(0, idx) -> line.substring(idx + 1))
+      }.toMap
+
+  /** Convert a `spark-config:` YAML map (as it lands in
+   *  `Manifest.raw["spark-config"]` — `java.util.Map[?, ?]` from
+   *  SnakeYAML) into the `Map[String, String]` shape this codec
+   *  understands.  Non-string keys are dropped; non-string values are
+   *  coerced via `toString` so numeric YAML literals
+   *  (`spark.sql.shuffle.partitions: 200`) survive intact. */
+  def fromYamlMap(raw: Any): Map[String, String] =
+    raw match
+      case m: java.util.Map[?, ?] =>
+        import scala.jdk.CollectionConverters.*
+        m.asScala.iterator.collect {
+          case (k: String, v) if v != null => k -> v.toString
+        }.toMap
+      case _ => Map.empty
+
 class SparkBackend extends Backend:
   def id:              String                               = "spark"
   def displayName:     String                               = "Apache Spark (Scala 3 + scala-cli)"
@@ -56,12 +105,16 @@ class SparkBackend extends Backend:
     val astModule    = Denormalize(module)
     val sparkVersion = opts.extra.getOrElse("sparkVersion", SparkGen.DefaultVersion)
     val sparkMaster  = opts.extra.getOrElse("sparkMaster",  SparkGen.DefaultMaster)
+    val extraConfig  = opts.extra.get(SparkBackend.SparkConfigOption)
+      .map(SparkBackend.decodeSparkConfig)
+      .getOrElse(Map.empty)
     val baseDir      = opts.baseDir.map(p => os.Path(p.toAbsolutePath.toString))
     val code         = SparkGen.generate(
       astModule,
       baseDir      = baseDir,
       sparkVersion = sparkVersion,
-      sparkMaster  = sparkMaster
+      sparkMaster  = sparkMaster,
+      extraConfig  = extraConfig
     )
     val hash         = java.lang.Integer.toHexString(code.hashCode & 0x7fffffff)
     val tmpFile      = os.Path(s"/tmp/ssc-spark-$hash.scala")

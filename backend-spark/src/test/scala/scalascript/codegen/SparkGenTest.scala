@@ -55,6 +55,70 @@ class SparkGenTest extends AnyFunSuite:
     assert(gen(src).contains(""".master("local[*]")"""))
   }
 
+  // ── Phase C.3 slice 3: spark-config front-matter → .config(k, v) ─────────
+
+  private def genWithConfig(src: String, cfg: Map[String, String]): String =
+    val module = Parser.parse(src)
+    SparkGen.generate(module, extraConfig = cfg)
+
+  test("extraConfig empty — no extra .config calls beyond the defaults") {
+    val code = genWithConfig("# Test\n```scalascript\nval x = 1\n```\n", Map.empty)
+    // The defaults are two: spark.ui.enabled, spark.sql.shuffle.partitions.
+    val configCount = "\\.config\\(".r.findAllIn(code).size
+    assert(configCount == 2,
+      s"empty extraConfig should leave exactly the 2 defaults, got $configCount in:\n$code")
+  }
+
+  test("extraConfig entries become .config(k, v) lines in sorted order") {
+    val code = genWithConfig(
+      "# Test\n```scalascript\nval x = 1\n```\n",
+      Map(
+        "spark.executor.memory"          -> "4g",
+        "spark.executor.cores"           -> "2",
+        "spark.dynamicAllocation.enabled" -> "true"
+      )
+    )
+    assert(code.contains(""".config("spark.dynamicAllocation.enabled", "true")"""))
+    assert(code.contains(""".config("spark.executor.cores", "2")"""))
+    assert(code.contains(""".config("spark.executor.memory", "4g")"""))
+    // Order: sorted-by-key, which puts dynamicAllocation < executor.cores
+    // < executor.memory alphabetically.
+    val idxA = code.indexOf("spark.dynamicAllocation.enabled")
+    val idxB = code.indexOf("spark.executor.cores")
+    val idxC = code.indexOf("spark.executor.memory")
+    assert(idxA >= 0 && idxA < idxB && idxB < idxC,
+      s"extraConfig must emit in sorted-key order, got A=$idxA B=$idxB C=$idxC")
+  }
+
+  test("extraConfig values with special chars are escaped for the Scala literal") {
+    val code = genWithConfig(
+      "# Test\n```scalascript\nval x = 1\n```\n",
+      Map("spark.driver.extraJavaOptions" -> """-Dfoo="bar" -Dbaz=qux""")
+    )
+    // The double quote in the value must end up backslash-escaped so
+    // the surrounding Scala "..." literal is well-formed.  Without
+    // escaping the emitted source would not even parse.
+    assert(code.contains("""\"bar\""""),
+      s"unescaped quote breaks Scala literal, got:\n$code")
+  }
+
+  test("user overriding a default key wins (Spark's last-write semantics)") {
+    val code = genWithConfig(
+      "# Test\n```scalascript\nval x = 1\n```\n",
+      Map("spark.sql.shuffle.partitions" -> "200")
+    )
+    // The default `.config("spark.sql.shuffle.partitions", "4")` is
+    // still emitted (we don't shadow defaults).  The user's "200"
+    // entry appears AFTER it; Spark's builder takes last-write-wins
+    // so 200 is the effective value at runtime.
+    val defaultPos  = code.indexOf("shuffle.partitions\", \"4\"")
+    val overridePos = code.indexOf("shuffle.partitions\", \"200\"")
+    assert(defaultPos >= 0,  s"default line missing in:\n$code")
+    assert(overridePos >= 0, s"override line missing in:\n$code")
+    assert(overridePos > defaultPos,
+      s"user override must come after default for last-write-wins, got default=$defaultPos override=$overridePos in:\n$code")
+  }
+
   // ── Phase C: sql blocks → spark.sql(...) ─────────────────────────────────
 
   test("sql block with no binds emits single-arg spark.sql call") {

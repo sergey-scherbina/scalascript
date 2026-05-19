@@ -41,7 +41,11 @@ val SparkCapabilities: Capabilities = Capabilities(
     Feature.Dataset
   ),
   outputs        = Set(OutputKind.ExecutionResult),
-  options        = Set("sparkVersion", "sparkMaster"),
+  // `sparkConfig` carries the encoded `Map[String, String]` of
+  // `spark-config:` front-matter entries (Phase C.3 slice 3), surfaced
+  // here so `--describe-backend spark` advertises it alongside the
+  // existing version/master knobs.
+  options        = Set("sparkVersion", "sparkMaster", "sparkConfig"),
   spiRange       = SpiVersionRange(SpiVersion.Current, SpiVersion.Current),
   // Phase C: `sql` fenced blocks (SPEC.md § 3.3.1) compile to
   // `spark.sql(sqlText, namedParams)` on Spark targets — see SparkGen

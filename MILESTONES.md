@@ -6158,9 +6158,14 @@ Thin `backend-wasm-contract/` layer on top of `backend-wasm/` for Near or Polkad
 > shell-out to `spark-submit --master <url> --class runSparkJob <jar>` with
 > `--` pass-through for cluster-specific tuning),
 > C.1 (`sql` block → `spark.sql(text, args)`), C.2 (section-based `<sectionId>.sql`
-> alias), and C.3 slice 1 (`>10` binds → `java.util.Map.ofEntries`) all landed.
-> Remaining: rest of C.3 (DataFrame ergonomics, `std/parsing` → `StructType`
-> bridge) — speculative until use cases surface.
+> alias), C.3 slice 1 (`>10` binds → `java.util.Map.ofEntries`), C.3 slice 2
+> (widen `sparkImports` with `Row`, `DataFrame`, `types._`), and C.3 slice 3
+> (`spark-config:` front-matter map → sorted `.config(k, v)` on
+> `SparkSession.builder()`) all landed.  CLI side: `--describe-backend` also
+> grew `capabilities.options` + `capabilities.blockLanguages` lines so the
+> Spark surface is fully discoverable from the command line.
+> Remaining: codegen-level DataFrame/Dataset[Row] ergonomics, `std/parsing` →
+> `StructType` bridge — speculative until use cases surface.
 >
 > Natural fit: ScalaScript's existing `Dataset[T]` API maps directly to Spark.
 

@@ -19,6 +19,7 @@ import scalascript.artifact.{InterfaceExtractor, ArtifactIO, JvmArtifactIO, JsAr
 import scalascript.codegen.JvmGen
 import scalascript.codegen.SparkGen
 import scalascript.codegen.SparkSubmit
+import scalascript.codegen.SparkBackend
 
 @main def ssc(rawArgs: String*): Unit =
   // Strip global plugin-management flags from anywhere in the
@@ -1545,7 +1546,19 @@ def runCommand(args: List[String]): Unit =
                     .collect { case s: String => s }
                 )
                 .getOrElse(SparkGen.DefaultMaster)
-            Map("sparkVersion" -> version, "sparkMaster" -> master)
+            // `spark-config:` front-matter map (v1.25 § 9.5 Phase C.3
+            // slice 3): read the YAML map, encode into a single
+            // BackendOptions.extra string entry under "sparkConfig".
+            // SparkBackend.compile decodes and forwards to SparkGen
+            // which emits one `.config(k, v)` per pair.
+            val configMap = module.manifest
+              .flatMap(_.raw.get("spark-config"))
+              .map(SparkBackend.fromYamlMap)
+              .getOrElse(Map.empty)
+            val base = Map("sparkVersion" -> version, "sparkMaster" -> master)
+            if configMap.isEmpty then base
+            else base + (SparkBackend.SparkConfigOption ->
+                         SparkBackend.encodeSparkConfig(configMap))
           else Map.empty
         compileViaBackend(effectiveBackend, path, extras) match
           case CompileResult.Executed(stdout, stderr, exit) =>
@@ -2003,7 +2016,24 @@ def emitSparkCommand(args: List[String]): Unit =
                 .collect { case s: String => s }
             )
             .getOrElse(SparkGen.DefaultVersion)
-        val code = SparkGen.generate(module, baseDir = Some(path / os.up), sparkVersion = sparkVersion)
+        // Pull the `spark-master` and `spark-config:` front-matter so the
+        // emitted source matches `ssc run --backend spark` and `ssc submit`
+        // for the same input.  `emit-spark` has no CLI master flag of its
+        // own — the front-matter is the only override path here.
+        val sparkMaster = module.manifest.flatMap(_.raw.get("spark-master"))
+          .collect { case s: String => s }
+          .getOrElse(SparkGen.DefaultMaster)
+        val sparkConfig = module.manifest
+          .flatMap(_.raw.get("spark-config"))
+          .map(SparkBackend.fromYamlMap)
+          .getOrElse(Map.empty[String, String])
+        val code = SparkGen.generate(
+          module,
+          baseDir      = Some(path / os.up),
+          sparkVersion = sparkVersion,
+          sparkMaster  = sparkMaster,
+          extraConfig  = sparkConfig
+        )
         outputArg match
           case Some("-") | None => println(code)
           case Some(out)        =>
@@ -2084,11 +2114,20 @@ def submitCommand(args: List[String]): Unit =
       sparkMasterArg
         .orElse(module.manifest.flatMap(_.raw.get("spark-master")).collect { case s: String => s })
         .getOrElse(SparkGen.DefaultMaster)
+    // `spark-config:` front-matter map (v1.25 § 9.5 Phase C.3 slice 3):
+    // baked into the SparkSession.builder so the same configs apply
+    // whether the user runs `ssc run --backend spark` or submits the
+    // fat JAR via `spark-submit` from the cluster side.
+    val sparkConfig = module.manifest
+      .flatMap(_.raw.get("spark-config"))
+      .map(SparkBackend.fromYamlMap)
+      .getOrElse(Map.empty[String, String])
     val code = SparkGen.generate(
       module,
       baseDir      = Some(path / os.up),
       sparkVersion = sparkVersion,
-      sparkMaster  = sparkMaster
+      sparkMaster  = sparkMaster,
+      extraConfig  = sparkConfig
     )
     val hash    = java.lang.Integer.toHexString(code.hashCode & 0x7fffffff)
     val srcPath = os.Path(s"/tmp/ssc-spark-$hash.scala")

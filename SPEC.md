@@ -82,6 +82,7 @@ Recognized front-matter keys:
 | `backend` | String | Preferred backend id for `ssc run` when no `--backend` flag is supplied (`int` / `jvm` / `js` / `node` / `scalajs-spa` / `wasm` / `spark`). § 9.2. |
 | `spark-version` | String | Apache Spark version pinned for the Spark backend.  Resolution order: CLI `--spark-version` flag → this key → `SparkGen.DefaultVersion`. § 9.5. |
 | `spark-master` | String | Spark master URL passed to `SparkSession.builder().master(...)` (`local[*]` / `local[N]` / `spark://...` / `yarn` / `k8s://...`).  Resolution order: CLI `--spark-master` flag → this key → `SparkGen.DefaultMaster` (= `local[*]`). § 9.5. |
+| `spark-config` | Map[String, String] | Ad-hoc Spark configuration entries.  Each pair emits one `.config(key, value)` line on `SparkSession.builder()` in sorted-key order, between the fixed defaults and `.getOrCreate()`.  User keys that collide with fixed defaults win (Spark's builder is last-write).  Values are coerced via `toString` so YAML scalars (`200`, `true`) survive intact. § 9.5. |
 
 `routes:` entries are equivalent to writing `route(method, path) { req => handler(req) }` inline.
 
@@ -1392,7 +1393,7 @@ Spark backend).  The user does not rewrite the pipeline to switch.
 | **B.2 — `spark-submit` packaging** | `ssc submit file.ssc [--spark-master <url>] [--spark-version <v>] [--dry-run] [-- <extra spark-submit args>]` builds a fat JAR via `scala-cli --power package --assembly` and shells out to `spark-submit --master <url> --class runSparkJob <jar>`.  Pure command builders live in `SparkSubmit.{packageCommand, submitCommand}` so the exact argv is unit-test pinnable; orchestration in `Main.submitCommand` adds file I/O and shell-out.  Args after a literal `--` flow through to `spark-submit` verbatim for cluster-specific tuning (`--executor-memory`, `--num-executors`, `--deploy-mode cluster`, …). | B.1 ships the driver via `scala-cli` which works for Spark Standalone but not for YARN/K8s production deployments. | landed |
 | **C.1 — `sql` block → `spark.sql(...)`** | `sql` declared in `SparkCapabilities.blockLanguages`; the shared `SqlBindRewriter` produces `:bind<N>` placeholders consumed by Spark SQL 3.4+'s parameterised `sql(text, args)`.  Each `sql` block binds to a sequential `val _sqlBlock_<n>: org.apache.spark.sql.DataFrame` in the `@main` scope, accessible from subsequent `scalascript` blocks. | Reuses the same `sql` surface as the JDBC target (§ 3.3.1) — same source, different runtime. | landed |
 | **C.2 — Section-based binding** | Each `sql` block whose enclosing section has a usable identifier (`# Users`, `# Active Users`, …) ALSO emits `object <sectionId>: lazy val sql: org.apache.spark.sql.DataFrame = _sqlBlock_<n>`.  Friendly access: `Users.sql.show()` instead of `_sqlBlock_0.show()`. | Mirrors the existing `html`/`css` → `<sectionId>.html/css` convention so authoring rules are uniform across opaque blocks. | landed |
-| **C.3 — DataFrame ergonomics + schema bridge** | Expose `DataFrame` as `Dataset[Row]` more thoroughly; map `std/parsing` schemas to Spark `StructType`; `>10` binds via `Map.ofEntries` (landed — JDK's `java.util.Map.of` caps at 10 pairs, so `SparkGen` switches to `java.util.Map.ofEntries[String, Object](Map.entry(...), …)` above `SparkGen.MapOfMaxPairs = 10`). | C.1+C.2 ship the binding/runtime contract; C.3 polishes the typed surface. | partially landed (`>10` binds) |
+| **C.3 — DataFrame ergonomics + schema bridge** | Three landed slices so far: (1) `>10` binds via `Map.ofEntries[String, Object]` once `SparkGen.MapOfMaxPairs = 10` is exceeded — the JDK `Map.of` overloads only go up to 10 pairs; (2) widen the emitted `sparkImports` to include `Row`, `DataFrame`, and `types._` so user `scalascript` blocks after a `sql` block can pattern-match results and reach schema types without FQNs; (3) `spark-config:` front-matter map → one `.config(k, v)` line each in `SparkSession.builder()`, sorted, between the fixed defaults and `.getOrCreate()` — discoverable in `--describe-backend spark` under `capabilities.options` as `sparkConfig`.  Still open: expose `DataFrame` as `Dataset[Row]` more thoroughly in the codegen, and map `std/parsing` schemas to Spark `StructType`. | C.1+C.2 ship the binding/runtime contract; C.3 polishes the typed surface. | partially landed (slices 1–3) |
 
 #### Spark vs JDBC `sql` blocks
 
@@ -1501,6 +1502,41 @@ ssc-spark --spark-version 3.5.1 --spark-master local[4] file.ssc
 ssc-spark file.ssc                                # uses front-matter
 ssc-spark --spark-master local[*] file.ssc        # CLI wins
 ```
+
+#### Ad-hoc Spark configuration (`spark-config:`, Phase C.3)
+
+`spark-config:` carries a YAML map of arbitrary `key: value` entries
+that compile to `.config(key, value)` lines on `SparkSession.builder()`,
+sorted alphabetically by key, between the fixed defaults
+(`spark.ui.enabled`, `spark.sql.shuffle.partitions`) and the closing
+`.getOrCreate()`:
+
+```yaml
+---
+backend: spark
+spark-config:
+  spark.executor.memory: 4g
+  spark.executor.cores: 2
+  spark.sql.shuffle.partitions: 200
+  spark.dynamicAllocation.enabled: true
+---
+```
+
+The map travels through `BackendOptions.extra` as a single newline-
+separated `key=value` string under the `sparkConfig` entry
+(`SparkBackend.{encode,decode}SparkConfig` is the codec) and is
+visible to `--describe-backend spark` under `capabilities.options`.
+Values are coerced via `toString` so numeric and boolean YAML
+scalars survive intact.  User keys that collide with the fixed
+defaults override them — Spark's builder is last-write-wins.
+
+The configs are baked into the generated Scala source itself rather
+than passed as CLI flags, so the same configuration applies whether
+the user runs `ssc run --backend spark`, `ssc emit-spark`, or
+packages a fat JAR via `ssc submit` (Phase B.2).  This is the
+preferred path for cluster tuning that needs to round-trip with the
+source — `--` pass-through to `spark-submit` is still the right
+escape hatch for one-off driver-side tuning.
 
 #### Cluster submission (`ssc submit`, Phase B.2)
 

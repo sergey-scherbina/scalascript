@@ -1,0 +1,23 @@
+---
+name: spark-config-demo
+backend: spark
+spark-version: 4.0.0
+spark-master: yarn
+spark-config:
+  spark.executor.memory: 4g
+  spark.executor.cores: 2
+  spark.sql.shuffle.partitions: 100
+  spark.dynamicAllocation.enabled: true
+---
+
+# Spark config demo
+
+Demonstrates the `spark-config:` front-matter map landing in
+`SparkSession.builder().config(...)` calls (v1.25 § 9.5 Phase C.3
+slice 3).  Each entry becomes a single `.config(key, value)` line in
+the generated source, sorted by key for deterministic output.
+
+```scalascript
+val xs = Dataset.fromList(List(1, 2, 3))
+xs.toDF().show()
+```
