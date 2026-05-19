@@ -22,7 +22,11 @@ class Typer(
     importedInterfaces: Map[String, scalascript.ir.ModuleInterface] = Map.empty,
     strict: Boolean = false
 ):
-  private val errors = ListBuffer[TypeError]()
+  private val errors      = ListBuffer[TypeError]()
+  /** Registry of user-defined type aliases: name → (typeParams, expandedRhs).
+   *  Populated by `checkStat` when it encounters a `type Name[...] = T` declaration.
+   *  Consulted by `typeAnnotToSType` to expand alias names at use-sites. */
+  private val typeAliases = collection.mutable.Map.empty[String, (List[String], SType)]
 
   /** Diagnostics accumulated so far.  Stable view into the running buffer —
    *  callers should snapshot to a `List` when they need persistence. */
@@ -251,6 +255,21 @@ class Typer(
       }
       out += DefSummary(d.name.value, SymbolKind.Enum, enumType, Nil)
 
+    // type Name[A, B] = T  — compile-time only; erased at runtime
+    case d: Defn.Type =>
+      val typeParamNames = d.tparamClause.values.map(_.name.value).toList
+      // Parse the RHS in a temporary context where the type params are known as
+      // plain named types (so `type Opt[A] = Option[A]` resolves `A` to `SType.Named("A")`).
+      val rhsSType = typeAnnotToSType(d.body)
+      // Prevent trivially recursive aliases (name appears in its own rhs at top level).
+      val name = d.name.value
+      if isDirectlyRecursive(name, rhsSType) then
+        errors += TypeError(s"Recursive type alias: $name", None)
+      else
+        typeAliases(name) = (typeParamNames, rhsSType)
+        scope.defineType(name, TypeScheme(Nil, rhsSType))
+        out += DefSummary(name, SymbolKind.Type, rhsSType, Nil)
+
     // Top-level expressions
     case t: Term => val _ = inferType(t, scope)
 
@@ -429,13 +448,56 @@ class Typer(
         SType.Error(s"${l.show} $op2 ${r.show}")
       case _ => SType.Any
 
+  /** Returns true if `name` appears directly as a `Named` inside `t` at any depth.
+   *  Used to detect trivially recursive type aliases like `type A = List[A]`. */
+  private def isDirectlyRecursive(name: String, t: SType): Boolean = t match
+    case SType.Named(`name`, _) => true
+    case SType.Named(_, args)   => args.exists(isDirectlyRecursive(name, _))
+    case SType.Function(ps, r)  => ps.exists(isDirectlyRecursive(name, _)) || isDirectlyRecursive(name, r)
+    case SType.Tuple(elems)     => elems.exists(isDirectlyRecursive(name, _))
+    case SType.Union(ts)        => ts.exists(isDirectlyRecursive(name, _))
+    case SType.Intersection(ts) => ts.exists(isDirectlyRecursive(name, _))
+    case _                      => false
+
   private def isArith(op: String): Boolean = Set("+", "-", "*", "/", "%").contains(op)
   private def isNumericOrString(t: SType): Boolean =
     t == SType.Int || t == SType.Long || t == SType.Double || t == SType.String
 
+  /** Expand a type alias if `name` is registered in `typeAliases`.
+   *  For a parameterized alias `type Opt[A] = Option[A]`, `args` holds the
+   *  concrete type arguments and we substitute `A → args(0)` in the rhs.
+   *  For a simple alias `type UserId = String`, `args` must be empty. */
+  private def expandAlias(name: String, args: List[SType]): Option[SType] =
+    typeAliases.get(name).map { (params, rhs) =>
+      if params.isEmpty then rhs
+      else if params.length != args.length then
+        // Arity mismatch — record error and return the rhs unexpanded
+        errors += TypeError(
+          s"Type alias $name expects ${params.length} type parameter(s), got ${args.length}",
+          None
+        )
+        rhs
+      else
+        // Substitute each param with the corresponding arg.  We use a simple
+        // name-based substitution: any `Named(param, Nil)` in the rhs is replaced
+        // with the corresponding arg SType.
+        val subst: Map[String, SType] = params.zip(args).toMap
+        def applySubst(t: SType): SType = t match
+          case SType.Named(n, Nil) if subst.contains(n) => subst(n)
+          case SType.Named(n, as)  => SType.Named(n, as.map(applySubst))
+          case SType.Function(ps, r) => SType.Function(ps.map(applySubst), applySubst(r))
+          case SType.Tuple(elems)  => SType.Tuple(elems.map(applySubst))
+          case SType.Union(ts)     => SType.Union(ts.map(applySubst))
+          case SType.Intersection(ts) => SType.Intersection(ts.map(applySubst))
+          case other               => other
+        applySubst(rhs)
+    }
+
   /** Convert a scalameta type annotation to our internal SType. */
   private def typeAnnotToSType(tpe: scala.meta.Type): SType = tpe match
-    case Type.Name(name) => primitiveOrNamed(name)
+    case Type.Name(name) =>
+      // Check if this is a known type alias before falling through to primitives.
+      expandAlias(name, Nil).getOrElse(primitiveOrNamed(name))
     // Generic application: handle the well-known constructors first so the
     // returned `SType.Named(name, args)` lines up with `SType.list/option/map`
     // — then fall through to a generic `Named(head, args)` for any other
@@ -447,7 +509,9 @@ class Typer(
     case Type.Apply.After_4_6_0(Type.Name("Map"), argClause) if argClause.values.length == 2 =>
       SType.map(typeAnnotToSType(argClause.values.head), typeAnnotToSType(argClause.values(1)))
     case Type.Apply.After_4_6_0(Type.Name(other), argClause) =>
-      SType.Named(other, argClause.values.map(typeAnnotToSType).toList)
+      // Check if `other` is a parameterized type alias (e.g. `type Opt[A] = Option[A]`).
+      val typeArgs = argClause.values.map(typeAnnotToSType).toList
+      expandAlias(other, typeArgs).getOrElse(SType.Named(other, typeArgs))
     case Type.Apply.After_4_6_0(sel: Type.Select, argClause) =>
       SType.Named(showTypePath(sel), argClause.values.map(typeAnnotToSType).toList)
     case Type.Function.After_4_6_0(params, ret) =>

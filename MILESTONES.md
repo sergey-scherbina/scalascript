@@ -5216,7 +5216,7 @@ case xs @ (h :: _) =>                // @ binder
 - [ ] `@` binder: bind the whole match target and a sub-pattern simultaneously
 - [ ] Regression tests across INT / JS / JVM
 
-### 2. Type aliases
+### 2. Type aliases — ✓ Landed (v1.24)
 
 **Effort: ~2 days.**
 
@@ -5225,10 +5225,10 @@ type UserId = String
 type Result[A] = Either[String, A]
 ```
 
-- [ ] `type <Name>[<params>] = <type>` in parser
-- [ ] Typer: expand alias on use, check param arity
-- [ ] All 3 backends: emit nothing (aliases are erased at runtime)
-- [ ] Tests
+- [x] `type <Name>[<params>] = <type>` in parser (scalameta `Defn.Type`, no source change needed)
+- [x] Typer: expand alias on use, check param arity, detect direct recursion
+- [x] All 3 backends: emit nothing (aliases are erased at runtime — fallthrough cases already present)
+- [x] Tests (`backend-interpreter/src/test/scala/scalascript/TypeAliasTest.scala`, 13 tests)
 
 ### 3. Opaque types
 
