@@ -496,10 +496,12 @@ unblocks downstream features as early as possible.
      registry (no closure serialisation), coordinator-mediated
      shuffle, configurable failure handling.  Closure
      serialisation + worker-to-worker shuffle in v1.22.x.
- 27. **Cluster management** — *deferred, no version assigned*.
-     Peer discovery, membership view, leader election,
-     configuration distribution.  Promote when any of three
-     trigger conditions fire (see
+ 27. **Cluster management** — partial landing in v1.23
+     (membership view + events + `std.cluster.Cluster.*` wrapper).
+     Remaining pieces (Phi-accrual cluster-wide failure detection,
+     leader election, configuration distribution, rolling restarts,
+     metrics aggregation) stay deferred.  Promote each when any of
+     the three trigger conditions fire (see
      [`docs/cluster-management.md`](docs/cluster-management.md)
      §6).
  28. **6+/C — HostCallback dispatcher** (~1 week).
@@ -1574,6 +1576,15 @@ PR that doesn't gate the core landing.
 6. **Persistent mailboxes / event sourcing.**  Far-future v2-class
    feature; mention only.  Replay state from a journal on
    supervisor restart, like Akka Persistence.
+
+7. **Cluster visibility.**  ✓ **Landed (v1.23).**
+   `clusterMembers(): List[String]` snapshots the connected peer node IDs;
+   `subscribeClusterEvents()` registers the calling actor for `NodeJoined` /
+   `NodeLeft` delivery as peers come and go.  All three backends.
+   `std/actors.ssc` bumped to v1.4.0.  Conformance test
+   `actors-cluster-visibility.ssc`.  `std/cluster/*` module skeleton
+   (`types.ssc` / `membership.ssc` / `index.ssc`) provides a `Cluster.*`
+   namespace on top.
 
 ### Effort
 
@@ -3769,7 +3780,7 @@ word-count, log-aggregation, simple join.
 Six phases, ~3 weeks end-to-end.  **Hard-blocked on v1.6
 Phase 3.**
 
-## Cluster management — deferred (no version assigned)
+## Cluster management — partially landed in v1.23, rest still deferred
 
 Peer-cluster orchestration on top of v1.6 Phase 3 actors:
 peer discovery, membership view, leader election,
@@ -3778,8 +3789,29 @@ detection, rolling restarts, metrics aggregation.
 
 Full design space and explicit hard-no list in
 [`docs/cluster-management.md`](docs/cluster-management.md).
-**No milestone version assigned** — promote when any of
-the trigger conditions fire:
+
+### v1.23 — what shipped
+
+| Piece | Status |
+|---|---|
+| Static seed-list discovery (`joinCluster`) | ✓ v1.6.x |
+| Cluster-wide registry (`globalRegister` / `globalWhereis`) | ✓ v1.6.x |
+| Membership view (`clusterMembers()`) | ✓ v1.23 |
+| Membership events (`subscribeClusterEvents()` → `NodeJoined` / `NodeLeft`) | ✓ v1.23 |
+| Per-link failure detection (40 s heartbeat) | ✓ v1.6 Phase 3 |
+| `std.cluster.Cluster.*` namespace wrapper | ✓ v1.23 |
+
+### Still deferred (promote on demand)
+
+- Cluster-wide failure detection (Phi-accrual aggregation of
+  per-link suspicion across N peers) — design is in
+  `docs/cluster-management.md` §3.4; promote when an
+  application needs "node N is down according to ≥2/3 peers".
+- Leader election (Raft / Bully / external coordinator).
+- Configuration distribution.
+- Rolling restarts, metrics aggregation.
+
+Promote the remaining items when any of the trigger conditions fire:
 
 1. A real .ssc application running on 5+ nodes asks
 2. v1.22 distributed map-reduce gets 10+ user workloads
