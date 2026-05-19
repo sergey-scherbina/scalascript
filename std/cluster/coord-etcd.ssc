@@ -1,0 +1,163 @@
+---
+name: std-cluster-coord-etcd
+version: 0.1.0
+description: "etcd leader-coordinator adapter — pure scalascript HTTP wrapper over etcd v3 gRPC-gateway lease + txn KV CAS"
+package: std.cluster
+exports:
+  - Etcd
+---
+
+# `std.cluster.coord-etcd`
+
+Concrete `LeaderCoordinator` adapter that delegates leader-election
+to an etcd cluster via its v3 gRPC-gateway HTTP API.  See
+[`docs/cluster-raft.md`](../../docs/cluster-raft.md) §5 for the
+adapter shape; this module wires the four function fields to etcd's
+`/v3/lease/*` and `/v3/kv/*` endpoints.
+
+etcd model:
+
+- One **lease** per node (TTL seconds; auto-released on expiry).
+- One **KV entry** per cluster (`/scalascript/cluster/leader = nodeId`)
+  attached to the lease.  Atomic acquire via a transaction with
+  `compare: create_revision == 0` (the key has never been written).
+
+Quick start:
+
+```text
+[Etcd](std/cluster/coord-etcd.ssc)
+
+Etcd.use(
+  addr    = "http://localhost:2379",
+  lockKey = "scalascript/cluster/leader",
+  ttlSec  = 15
+)
+// `currentLeader()` now reflects the etcd lease holder.
+```
+
+## Implementation
+
+Uses `httpGet` / `httpPost` from `std.http` and `base64UrlEncode` /
+`base64UrlDecode` from `std.auth` — etcd's gRPC-gateway requires
+all binary fields (`key`, `value`, lease `ID`) base64-encoded; we
+post-process the URL-safe output back to standard base64 with
+padding so the gateway accepts it.
+
+```scalascript
+object Etcd:
+
+  // URL-safe base64 → standard base64 with padding (what etcd's
+  // gRPC-gateway wants).  Replaces `-_` with `+/` and pads with `=`.
+  def b64Std(s: String): String =
+    val urlSafe = base64UrlEncode(s)
+    val stdAlpha = urlSafe.replace("-", "+").replace("_", "/")
+    val pad = (4 - stdAlpha.length % 4) % 4
+    var i = 0
+    var out = stdAlpha
+    while i < pad do { out = out + "="; i = i + 1 }
+    out
+
+  // Standard base64 → URL-safe (strip padding) before calling the
+  // std-lib decoder, which is URL-safe only.
+  def b64Decode(s: String): String =
+    val stripped = s.replace("=", "")
+    val urlSafe  = stripped.replace("+", "-").replace("/", "_")
+    base64UrlDecode(urlSafe)
+
+  // Body-JSON string extractor: returns the value (without quotes)
+  // for `"<key>":...` in a small JSON object, or "" if absent.
+  def extractStr(body: String, key: String): String =
+    val needle = "\"" + key + "\""
+    val ki = body.indexOf(needle)
+    if ki < 0 then ""
+    else
+      val qi = body.indexOf("\"", ki + needle.length + 1)
+      val qe = if qi > 0 then body.indexOf("\"", qi + 1) else -1
+      if qe > qi then body.substring(qi + 1, qe) else ""
+
+  def use(addr: String, lockKey: String, ttlSec: Int = 15): Unit =
+    var leaseId = ""
+
+    def safePost(url: String, body: String): Option[Any] =
+      try Some(httpPost(url, body)) catch case _: Throwable => None
+
+    def respStatus(r: Any): Int = r match
+      case x: Product if x.productArity >= 1 =>
+        x.productElement(0) match
+          case n: Int => n
+          case _      => 0
+      case _ => 0
+
+    def respBody(r: Any): String = r match
+      case x: Product if x.productArity >= 3 =>
+        x.productElement(2) match
+          case s: String => s
+          case _         => ""
+      case _ => ""
+
+    def grantLease(): String =
+      // POST /v3/lease/grant {"TTL":<sec>}
+      val req = "{\"TTL\":" + ttlSec.toString + ",\"ID\":0}"
+      safePost(addr + "/v3/lease/grant", req) match
+        case Some(r) if respStatus(r) == 200 => extractStr(respBody(r), "ID")
+        case _                               => ""
+
+    def doAcquire(nodeId: String, timeoutMs: Long): Boolean =
+      if leaseId == "" then leaseId = grantLease()
+      if leaseId == "" then false
+      else
+        // POST /v3/kv/txn — CAS-if-empty acquire under our lease.
+        val k = b64Std(lockKey)
+        val v = b64Std(nodeId)
+        val req =
+          "{\"compare\":[{\"key\":\"" + k + "\"," +
+          "\"target\":\"CREATE\",\"result\":\"EQUAL\"," +
+          "\"create_revision\":\"0\"}]," +
+          "\"success\":[{\"request_put\":{\"key\":\"" + k + "\"," +
+          "\"value\":\"" + v + "\",\"lease\":\"" + leaseId + "\"}}]}"
+        safePost(addr + "/v3/kv/txn", req) match
+          case Some(r) if respStatus(r) == 200 =>
+            // `"succeeded":true` when the compare matched (we got the key).
+            respBody(r).contains("\"succeeded\":true")
+          case _ => false
+
+    def doRenew(nodeId: String): Boolean =
+      if leaseId == "" then false
+      else
+        val req = "{\"ID\":\"" + leaseId + "\"}"
+        safePost(addr + "/v3/lease/keepalive", req) match
+          case Some(r) if respStatus(r) == 200 =>
+            // Body shape: `{"result":{"ID":"<id>","TTL":"<sec>"}}`.
+            // TTL absent / 0 ⇒ lease lost.
+            val ttlStr = extractStr(respBody(r), "TTL")
+            ttlStr.nonEmpty && ttlStr != "0"
+          case _ =>
+            leaseId = ""
+            false
+
+    def doRelease(nodeId: String): Unit =
+      if leaseId != "" then
+        val lid = leaseId
+        leaseId = ""
+        val req = "{\"ID\":\"" + lid + "\"}"
+        safePost(addr + "/v3/lease/revoke", req)
+        ()
+      else ()
+
+    def doHolder(): Option[String] =
+      val k = b64Std(lockKey)
+      val req = "{\"key\":\"" + k + "\"}"
+      safePost(addr + "/v3/kv/range", req) match
+        case Some(r) if respStatus(r) == 200 =>
+          // Body shape: `{"kvs":[{"key":"<b64>","value":"<b64>",...}]}`.
+          // Empty `kvs` (no array entry) ⇒ no holder.
+          val body  = respBody(r)
+          val vEnc  = extractStr(body, "value")
+          if vEnc.isEmpty then None
+          else
+            val decoded = b64Decode(vEnc)
+            if decoded.isEmpty then None else Some(decoded)
+        case _ => None
+
+    useExternalCoordinator(doAcquire, doRenew, doRelease, doHolder)
+```

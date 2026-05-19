@@ -45,4 +45,5 @@ that land in `std.actors`.
 | Configuration distribution (`Cluster.configSet/Get/Keys/subscribeConfig`) | ✓ v1.23 |
 | Rolling-restart drain protocol (`Cluster.drain` / `draining` / `drainingNodes` / `subscribeDrain`) | ✓ v1.23 |
 | Metrics aggregation (`Cluster.metricSet/Get/Sum/Names/subscribeMetrics`) | ✓ v1.23 |
-| Consul leader-coordinator adapter (`useConsulCoordinator`) | ✓ v1.23 (opt-in module) |
+| Consul leader-coordinator adapter (`Consul.use`) | ✓ v1.23 (opt-in module) |
+| etcd leader-coordinator adapter (`Etcd.use`) | ✓ v1.23 (opt-in module) |
