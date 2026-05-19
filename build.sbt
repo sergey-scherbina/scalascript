@@ -640,6 +640,32 @@ lazy val x402NonceRedis = project
     Test    / scalacOptions ++= sharedScalacOptions,
   )
 
+lazy val clientBlockfrost = project
+  .in(file("client-blockfrost"))
+  .settings(
+    name := "scalascript-client-blockfrost",
+    libraryDependencies ++= Seq(
+      "com.softwaremill.sttp.client4" %% "core"    % "4.0.0-M17",
+      "com.lihaoyi"                   %% "upickle" % "3.3.1",
+      scalatestTest,
+    ),
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions,
+  )
+
+lazy val x402FacilitatorCardano = project
+  .in(file("x402-facilitator-cardano"))
+  .dependsOn(x402Core, clientBlockfrost)
+  .settings(
+    name := "scalascript-x402-facilitator-cardano",
+    libraryDependencies ++= Seq(
+      "org.bouncycastle" % "bcprov-jdk18on" % "1.78.1",
+      scalatestTest,
+    ),
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions,
+  )
+
 lazy val root = project
   .in(file("."))
   .aggregate(
@@ -649,8 +675,9 @@ lazy val root = project
     backendJvm, backendJs, backendNode, backendScalajs, backendWasm, backendInterpreter,
     backendScalaSource, backendHtml, backendCss, backendSpark,
     cli, clientPostgres, clientRedis, clientEvm, clientKafka, clientCoinbase,
+    clientBlockfrost,
     x402Core, x402Server, x402Client,
-    x402FacilitatorCoinbase, x402FacilitatorEvm,
+    x402FacilitatorCoinbase, x402FacilitatorEvm, x402FacilitatorCardano,
     x402QueueKafka, x402QueuePostgres, x402NoncePostgres, x402NonceRedis
   )
   .settings(

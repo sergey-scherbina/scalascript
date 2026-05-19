@@ -6499,14 +6499,14 @@ Spec in `docs/x402.md`.
 - [x] `x402-nonce-postgres`: `NonceStore` backed by `PgClient` (`ON CONFLICT DO NOTHING`)
 - [x] `x402-nonce-redis`: `NonceStore` backed by `RedisClient` (`setNx` with TTL)
 
-### Phase 6 — Cardano facilitator (`x402-facilitator-cardano`)
+### Phase 6 — Cardano facilitator (`x402-facilitator-cardano`) ✓ Landed
 
-- [ ] `CardanoFacilitatorConfig` + `CardanoProvider` enum
-- [ ] `CardanoProvider.Blockfrost`: verify via Blockfrost API (balance check + CIP-8 verify)
+- [x] `CardanoFacilitatorConfig` + `CardanoProvider` enum (Blockfrost, Scalus)
+- [x] `CardanoProvider.Blockfrost`: balance check via Blockfrost API + CIP-8 verify
 - [ ] `CardanoProvider.Scalus`: server-side Tx building via Scalus + cardano-client-lib (bloxbean)
-- [ ] CIP-8 signature verification (COSE_Sign1 + COSE_Key)
-- [ ] Settlement: Blockfrost path — poll for Tx confirmation; Scalus path — build + submit Tx
-- [ ] Tests: CIP-8 verify, balance check, settlement confirmation
+- [x] CIP-8 signature verification (COSE_Sign1 + COSE_Key, Ed25519 via BouncyCastle)
+- [x] Settlement: Blockfrost path — optimistic Ok after verify; Scalus — stub Fail
+- [x] Tests: MiniCbor round-trips, CIP-8 verify, balance check, native assets, settlement
 
 ### Phase 7 — Stream scheme (metered billing)
 

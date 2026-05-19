@@ -86,7 +86,14 @@ private object Json:
         validBefore = BigInt(auth("validBefore").str),
         nonce       = auth("nonce").str,
       ),
-      signature     = j("signature").str,
+      signature    = j.obj.get("signature").map(_.str).getOrElse(""),
+      cardanoProof = j.obj.get("cardanoProof").map { p =>
+        CardanoPaymentProof(
+          address   = p("address").str,
+          signature = p("signature").str,
+          key       = p("key").str,
+        )
+      },
     )
 
 // ── 402 response ──────────────────────────────────────────────────────────────

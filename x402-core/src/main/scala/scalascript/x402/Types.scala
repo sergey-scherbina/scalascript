@@ -86,20 +86,21 @@ case class TransferAuthorization(
   nonce:       Bytes32,
 )
 
+// ── Cardano payment proof ─────────────────────────────────────────────────────
+
+case class CardanoPaymentProof(
+  address:   String,
+  signature: String,   // CIP-8 COSE_Sign1 hex
+  key:       String,   // CIP-8 COSE_Key hex
+)
+
 case class PaymentPayload(
   x402Version:   Int = 1,
   scheme:        PaymentScheme,
   network:       Network,
   authorization: TransferAuthorization,
   signature:     String,
-)
-
-// ── Cardano payment proof ─────────────────────────────────────────────────────
-
-case class CardanoPaymentProof(
-  address:   String,
-  signature: String,
-  key:       String,
+  cardanoProof:  Option[CardanoPaymentProof] = None,
 )
 
 // ── Facilitator SPI ───────────────────────────────────────────────────────────
