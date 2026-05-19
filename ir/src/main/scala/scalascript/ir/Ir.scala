@@ -392,7 +392,23 @@ case class ModuleJvmArtifact(
   /** Per-section cumulative SHA-256 hashes.  See `ModuleInterface.sectionHashes`
    *  for semantics.  Default `Map.empty` preserves backward compatibility
    *  with `.scjvm` artifacts emitted before this field existed. */
-  sectionHashes: Map[String, String] = Map.empty
+  sectionHashes: Map[String, String] = Map.empty,
+  /** Generated-Scala-line → original-`.ssc`-line map for `--source-map`
+   *  (Option A: JSR-45 SMAP injection via ASM).
+   *
+   *  Keys are emitted-Scala line numbers (1-based, as the bytecode's
+   *  `LineNumberTable` sees them) stringified — upickle handles
+   *  `Map[String, _]` more cleanly than `Map[Int, _]` (where it would
+   *  fall back to a 2-element array encoding that's awkward to read).
+   *
+   *  Values are the corresponding original `.ssc` line numbers (1-based).
+   *
+   *  Default `Map.empty` preserves backward compatibility with `.scjvm`
+   *  artifacts emitted before this field existed; the linker treats an
+   *  empty map as "no SMAP injection requested" and skips ASM rewrite.
+   *
+   *  v2.0 Phase 4 (Option A) — JSR-45 SMAP / `SourceDebugExtension`. */
+  lineMap: Map[String, Int] = Map.empty
 ) derives ReadWriter
 
 /** Shared JVM runtime artifact — written as `.scjvm-runtime` JSON.

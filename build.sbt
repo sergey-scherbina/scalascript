@@ -285,6 +285,11 @@ lazy val cli = project
       // (`Driver.process(String[], Reporter)`, `Reporter.doReport`,
       // `Diagnostic`/`SourcePosition`) matches the compiler we link.
       "org.scala-lang" %% "scala3-compiler" % scalaVersion.value,
+      // v2.0 Phase 4 (Option A) — JSR-45 SMAP source-map injection.  ASM
+      // is used by `JvmSmapInjector` to walk packed `.class` files and
+      // attach a `SourceDebugExtension` attribute carrying the .ssc → .class
+      // line mapping.  ~150 KB; no transitive deps.
+      "org.ow2.asm"    %  "asm"             % "9.7",
       scalatestTest
     ),
     Compile / scalacOptions ++= sharedScalacOptionsStrict,

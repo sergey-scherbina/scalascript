@@ -37,7 +37,8 @@ object JvmArtifactIO:
       imports:      List[String],
       classBundle:  Option[String]      = None,
       capabilities: List[String]        = Nil,
-      sectionHashes: Map[String, String] = Map.empty
+      sectionHashes: Map[String, String] = Map.empty,
+      lineMap:       Map[String, Int]    = Map.empty
   ): String =
     val art = ModuleJvmArtifact(
       magic         = ArtifactVersion.magic,
@@ -50,7 +51,8 @@ object JvmArtifactIO:
       imports       = imports,
       classBundle   = classBundle,
       capabilities  = capabilities.sorted,
-      sectionHashes = sectionHashes
+      sectionHashes = sectionHashes,
+      lineMap       = lineMap
     )
     writeJvm(art)
 
@@ -90,10 +92,11 @@ object JvmArtifactIO:
       path:         os.Path,
       classBundle:  Option[String]      = None,
       capabilities: List[String]        = Nil,
-      sectionHashes: Map[String, String] = Map.empty
+      sectionHashes: Map[String, String] = Map.empty,
+      lineMap:       Map[String, Int]    = Map.empty
   ): Unit =
     os.makeDir.all(path / os.up)
-    os.write.over(path, writeJvm(moduleId, pkg, moduleName, sourceHash, scalaSource, imports, classBundle, capabilities, sectionHashes))
+    os.write.over(path, writeJvm(moduleId, pkg, moduleName, sourceHash, scalaSource, imports, classBundle, capabilities, sectionHashes, lineMap))
 
   // ─── Shared runtime artifact (.scjvm-runtime) ────────────────────────────
 
