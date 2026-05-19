@@ -36,7 +36,10 @@ val JvmCapabilities: Capabilities = Capabilities(
   ),
   outputs  = Set(OutputKind.ScalaSource),
   options  = Set("optimizationLevel", "emitAssertions"),
-  spiRange = SpiVersionRange(SpiVersion.Current, SpiVersion.Current)
+  spiRange = SpiVersionRange(SpiVersion.Current, SpiVersion.Current),
+  // v1.26 Phase 6 — JvmGen emits JDBC execution via
+  // `scalascript.sql.SqlRuntime` for `sql` fenced blocks.
+  blockLanguages = Set(scalascript.ast.Lang.Sql)
 )
 
 /** Stage 5+/A.3 — `RuntimeCall` intrinsics surfaced as `def`

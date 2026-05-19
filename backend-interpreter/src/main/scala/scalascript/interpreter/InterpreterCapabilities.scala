@@ -35,7 +35,12 @@ val InterpreterCapabilities: Capabilities = Capabilities(
   ),
   outputs  = Set(OutputKind.ExecutionResult),
   options  = Set("emitAssertions"),
-  spiRange = SpiVersionRange(SpiVersion.Current, SpiVersion.Current)
+  spiRange = SpiVersionRange(SpiVersion.Current, SpiVersion.Current),
+  // v1.26 Phase 6 — Interpreter runs `sql` fenced blocks against a
+  // `java.sql.Connection` resolved from the surrounding
+  // `given Connection` scope, falling back to the
+  // ConnectionRegistry built from front-matter `databases:`.
+  blockLanguages = Set(scalascript.ast.Lang.Sql)
 )
 
 /** Intrinsics the interpreter routes through `Backend.intrinsics`
