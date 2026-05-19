@@ -4578,6 +4578,65 @@ all green.
 **v2.0 separate compilation is now ALL-DELIVERABLES-LANDED.**  The
 documented "remaining post-Phase-3 directions" are now done.
 
+Phase 4 / honesty-pass follow-ups (in flight 2026-05-19):
+
+The "ALL-DELIVERABLES-LANDED" line above hides a few sharp edges that
+the implementing agents flagged in code comments as `TODO`s.  An
+honesty-pass round addresses the most-impactful ones:
+
+1. **LSP positional accuracy** — `ExportedSymbol` gets `definitionLine`
+   + `definitionColumn` fields populated by `InterfaceExtractor` from
+   scalameta positions; `Content.CodeBlock` gets `lineOffset` populated
+   by `Parser` from CommonMark line numbers.  LSP cross-module
+   go-to-definition stops returning `(0,0)`; multi-block hover/definition
+   no longer reports block-local lines as if blocks start at 1.
+
+2. **JVM source-maps Option A** — Phase 3+ landed Option B (sidecar
+   `.ssc.scala` next to JAR; IDE source-attach via filename).  Option A
+   injects JSR-45 SMAP into `SourceDebugExtension` attribute of each
+   `.class` via ASM, so `java -jar out.jar` stack traces resolve to
+   `.ssc` line numbers, not synthetic Scala lines.  Adds `lineMap`
+   field to `ModuleJvmArtifact` (string-keyed for upickle reliability)
+   and new `JvmSmap` + `JvmSmapInjector` modules.
+
+3. **3 pre-existing `JvmBytecodeLink` failures** — `Main method not
+   found in class a_sc` when `java -cp out.jar a_sc` runs.  Multiple
+   agents constatated "not our regressions" without diagnosing.  The
+   final-polish round looks at scala-cli's script-mode `<Name>$package`
+   companion-vs-direct main-emit convention.
+
+4. **`ssc clean <dir>`** — garbage-collect artifacts for sources that
+   no longer exist.  `--dry-run`, `--all` flags.  Closes the "no GC"
+   UX gap.
+
+5. **Reproducibility tests** — pin byte-identical output across two
+   `compile-jvm` invocations.  ZIP entries' timestamps fixed to epoch,
+   sorted alphabetically.  Any non-deterministic source surfaced gets
+   fixed in lockstep.
+
+After Phase 4, the documented gaps are:
+
+- **Per-section Option B (interface-based)** — current cumulative-hash
+  chain cascades on first-section edit; an interface-aware variant
+  would only re-emit sections whose public API changed.  Deferred —
+  needs per-section interface extraction infrastructure.
+
+- **Scale benchmark** — perf measured on trivial 2-module fixture.
+  A real benchmark over 30+ `std/` modules at full `--bytecode
+  --section-cache --source-map --strict` toggles is owed.
+
+- **Cross-platform smoke** — all tests assume Unix paths.  Windows
+  path separators, CRLF line endings (for `sourceHash`), file-locks
+  not covered.
+
+- **External `.sscpkg` artifact-level distribution** — `dep:` scheme
+  works for source-level deps; cross-package linking of pre-compiled
+  `.scim`+`.scjvm` from a published `.sscpkg` not tested.
+
+- **Getting-started tutorial** — `docs/v2.0-artifact-format.md` is the
+  wire spec; a user-facing "compile your first project with v2.0"
+  doc is owed.
+
 What landed:
 - `ir/Ir.scala`: `ArtifactVersion` (magic `SSCART` + ABI `2.0`),
   `ModuleInterface`, `ExportedSymbol`, `InstanceDecl`, `CapabilityDecl`,

@@ -213,6 +213,62 @@ Out of scope for this MVP (later phases):
 - Share the runtime preamble as a separate `.scjvm-runtime` artifact.
 - TASTy-based dep resolution (re-use Scala 3's incremental machinery).
 
+(All three above landed in the subsequent Phase 2 deep refactor + Phase 3.)
+
+---
+
+## Phase 3 — Operational hardening (landed)
+
+After Phase 2's deep JvmGen split, Phase 3 addressed perf + safety:
+
+- **TASTy-direct scalac driver** — `dotty.tools.dotc.Driver` invoked
+  in-process; warm per-module compile time drops from 1410 ms to 119 ms
+  (~11.8× speedup).  `cli/Scala3Driver` wraps the API; scala-cli kept
+  as fallback via `SSC_EXTERNAL_SCALA_CLI=1`.
+- **ABI compatibility test suite** — 64 forensic tests pin the
+  compatibility contract: strict-equality on envelope, additive-friendly
+  on payload.  See `docs/v2.0-artifact-format.md`.
+- **`ssc verify <dir>`** — operational health-check.  Validates envelope,
+  ABI version, sourceHash shape, cross-refs, runtime coverage.
+  `--strict` adds source-freshness check; `--json` for CI.
+
+## Phase 3+ — Tooling round (landed)
+
+- **Source maps** (opt-in `--source-map`): JVM Option B (sidecar
+  `.ssc.scala` file next to JAR); JS V3 source maps via hand-rolled
+  VLQ writer + `//# sourceMappingURL=` reference.
+- **Per-section incremental** (opt-in `--section-cache`):
+  cumulative-hash chain on `sectionHashes: Map[String, String]`
+  field across all 4 artifact types.  Edit last section → only
+  it is stale; edit first → full cascade.
+- **LSP server** (new `ssc lsp` command): minimal Language Server
+  over stdio.  `initialize/didOpen/didChange/didClose/definition/
+  hover/publishDiagnostics`.  Cross-module resolution via `.scim`.
+
+## Phase 4 — Honesty pass (in flight)
+
+The Phase 3+ "complete" line hides documented `TODO`s in code:
+
+- **LSP positional accuracy** — `ExportedSymbol.definitionLine` +
+  `.definitionColumn` populated by `InterfaceExtractor`;
+  `Content.CodeBlock.lineOffset` populated by `Parser`; LSP
+  cross-module definition + multi-block hover work correctly.
+- **JVM source maps Option A** — JSR-45 SMAP injected via ASM into
+  `SourceDebugExtension` of each `.class`.  Adds `lineMap` field
+  to `ModuleJvmArtifact`.  Stack traces resolve to `.ssc` lines.
+- **Fix `Main method not found in class a_sc`** — 3 pre-existing
+  `JvmBytecodeLinkCliTest` failures multiple agents constatated.
+- **`ssc clean <dir>`** — garbage-collect artifacts whose source
+  `.ssc` no longer exists.  `--dry-run`, `--all` flags.
+- **Reproducibility tests** — pin byte-identical output across
+  two `compile-jvm` invocations.  Fix any non-deterministic source.
+
+After Phase 4, the remaining (deferred) directions are documented
+in `MILESTONES.md` under the v2.0 section: per-section Option B
+(interface-based), scale benchmark over real std/, cross-platform
+(Windows) smoke, external `.sscpkg` artifact-level distribution,
+and a user-facing getting-started tutorial.
+
 ---
 
 ## Open questions
@@ -271,4 +327,9 @@ Out of scope for this MVP (later phases):
 | 2026-05-19 | 5.5 | – | auto-resolve imports; linker dedup duplicate defs; strict Select; `ssc info` |
 | 2026-05-19 | 5.6 | – | battle-test real std/; JvmGen effect-runtime fixes; deep `a.b.c` Select; `ssc deps` |
 | 2026-05-19 | 5.7 | – | anonymous given identity; structured parse diagnostics; YAML hint; `ExportedSymbol.nested` populated |
-| 2026-05-19 | Phase 2 | MVP | per-module `.class` bytecode in `.scjvm`; `link --backend jvm --bytecode` packs JAR (in progress) |
+| 2026-05-19 | Phase 2 | MVP | per-module `.class` bytecode in `.scjvm`; `link --backend jvm --bytecode` packs JAR |
+| 2026-05-19 | Phase 2 | deep | JvmGen split into `generateRuntime` + `generateUserOnly`; `.scjvm-runtime` shared artifact; per-module 515 KB → 10 KB (51×) |
+| 2026-05-19 | Phase 2 | follow-up | Refinement/match types in `parseSType`; unified `build --incremental` stdout/stderr; JS runtime split (200× per-module `.scjs` reduction) |
+| 2026-05-19 | Phase 3 | – | TASTy-direct scalac driver (11.8× speedup); 64-test ABI compat suite; `docs/v2.0-artifact-format.md`; `ssc verify` |
+| 2026-05-19 | Phase 3+ | – | `--source-map` (JVM sidecar `.ssc.scala` + JS V3 maps); `--section-cache` (per-section cumulative hash); `ssc lsp` (819 LoC server, 25 tests) |
+| 2026-05-19 | Phase 4 | in flight | LSP positional accuracy; JVM SMAP via ASM (Option A); fix `Main not found` in JvmBytecodeLink; `ssc clean`; reproducibility tests |
