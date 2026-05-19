@@ -1,7 +1,7 @@
 ---
 name: std-cluster-membership
-version: 0.1.0
-description: "Cluster membership — join, members, subscribe.  Thin handle over v1.6 connectNode + v1.23 cluster visibility"
+version: 0.2.0
+description: "Cluster membership — join, members, subscribe, elect.  Thin handle over v1.6 connectNode + v1.23 cluster visibility + Bully leader election"
 package: std.cluster
 exports:
   - Cluster
@@ -95,4 +95,21 @@ object Cluster:
   // delivered a view that mentions `nodeId`.
   def isDown(nodeId: String, threshold: Double = 8.0): Boolean =
     clusterIsDown(nodeId, threshold)
+
+  // Start a Bully leader-election round.  See `electLeader` in
+  // `std.actors` for the protocol.  Call after observing
+  // `NodeLeft(currentLeader, _)` or whenever the app needs to refresh
+  // the cluster's leadership view.
+  def elect(): Unit =
+    electLeader()
+
+  // Locally-known cluster leader's nodeId, or empty string if none.
+  // Renamed from the free intrinsic `currentLeader` to avoid lexical
+  // shadowing inside the object body (same pattern as `phi` / `suspect`).
+  def leader(): String =
+    currentLeader()
+
+  // Register the calling actor for LeaderElected / LeaderLost delivery.
+  def subscribeLeader(): Unit =
+    subscribeLeaderEvents()
 ```

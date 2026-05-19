@@ -1,0 +1,25 @@
+#!/usr/bin/env ssc
+---
+name: actors-cluster-leader
+description: Actor v1.23 — Bully leader election single-node behaviour
+---
+
+# Leader election (Bully) — single-node
+
+In a single-node process there are no peers.  `currentLeader()` is the
+empty string until `electLeader()` is called, at which point the node
+claims itself (no higher-id peers exist).  Multi-node Bully behaviour
+is exercised by the integration suite; this conformance test pins the
+no-peers branch across INT/JS/JVM.
+
+```scalascript
+runActors {
+  println("leaderBefore='" + currentLeader() + "'")
+  electLeader()
+  // Single-node selfNode() is empty, so the claim is "I am the leader
+  // with id ''" — `currentLeader()` reflects that immediately because
+  // the no-higher-peer branch is synchronous.
+  println("leaderAfter='" + currentLeader() + "'")
+  println("ok")
+}
+```

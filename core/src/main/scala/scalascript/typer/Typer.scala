@@ -95,6 +95,9 @@ class Typer(
       "startNode", "connectNode", "joinCluster",
       "register", "whereis", "globalRegister", "globalWhereis",
       "clusterMembers", "subscribeClusterEvents",
+      "phiOf", "isSuspect", "selfNode", "clusterHealth",
+      "broadcastHealth", "clusterIsDown",
+      "electLeader", "currentLeader", "subscribeLeaderEvents",
       "sendAfter", "sendInterval", "cancelTimer",
       "delay", "async", "await", "parallel", "recvFrom",
       // tests / DSL helpers

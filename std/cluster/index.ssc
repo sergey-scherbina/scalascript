@@ -1,11 +1,13 @@
 ---
 name: std-cluster
-version: 0.1.0
+version: 0.2.0
 description: "Cluster aggregator — re-exports std/cluster/types and std/cluster/membership"
 package: std.cluster
 exports:
   - NodeJoined
   - NodeLeft
+  - LeaderElected
+  - LeaderLost
   - Cluster
 ---
 
@@ -14,15 +16,15 @@ exports:
 One-stop import for cluster-shaped applications.
 
 ```scalascript
-[NodeJoined, NodeLeft](./types.ssc)
+[NodeJoined, NodeLeft, LeaderElected, LeaderLost](./types.ssc)
 [Cluster](./membership.ssc)
 ```
 
 ## Status — v1.23
 
 This module is a thin wrapper over the actor-level intrinsics
-(`connectNode`, `joinCluster`, `clusterMembers`, `subscribeClusterEvents`)
-that land in `std.actors`.  Future v1.23 follow-ups (per
+(`connectNode`, `joinCluster`, `clusterMembers`, `subscribeClusterEvents`,
+`electLeader`) that land in `std.actors`.  Future v1.23 follow-ups (per
 `docs/cluster-management.md`):
 
 | Piece | Status |
@@ -33,5 +35,5 @@ that land in `std.actors`.  Future v1.23 follow-ups (per
 | Per-link failure detection | ✓ via 40 s heartbeat timeout (v1.6 Phase 3) |
 | Per-link Phi-accrual suspicion (`Cluster.phi`, `Cluster.suspect`) | ✓ v1.23 |
 | Cluster-wide failure aggregation (`Cluster.broadcast` + `Cluster.isDown`) | ✓ v1.23 |
-| Leader election | deferred |
+| Bully leader election (`Cluster.elect` / `Cluster.leader` / `Cluster.subscribeLeader`) | ✓ v1.23 |
 | Configuration distribution | deferred |

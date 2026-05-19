@@ -1,7 +1,7 @@
 ---
 name: std-actors
-version: 1.7.0
-description: "Erlang-style actor supervision + bounded mailboxes + process introspection + cluster registry + cluster visibility + per-link + cluster-wide phi-accrual failure detection + self / health snapshot — v1.6 Phase 2 + v1.6.x + v1.23"
+version: 1.8.0
+description: "Erlang-style actor supervision + bounded mailboxes + process introspection + cluster registry + cluster visibility + per-link + cluster-wide phi-accrual failure detection + self / health snapshot + Bully leader election — v1.6 Phase 2 + v1.6.x + v1.23"
 package: std.actors
 exports:
   - ChildSpec
@@ -23,6 +23,11 @@ exports:
   - clusterHealth
   - broadcastHealth
   - clusterIsDown
+  - LeaderElected
+  - LeaderLost
+  - electLeader
+  - currentLeader
+  - subscribeLeaderEvents
 ---
 
 # std.actors — Actor supervision
@@ -171,6 +176,34 @@ extern def broadcastHealth(): Unit
 // is no data (no peers have reported), so apps must run periodic
 // `broadcastHealth()` to populate the views.
 extern def clusterIsDown(nodeId: String, threshold: Double = 8.0): Boolean
+
+// ─── Leader election — Bully algorithm (v1.23) ───────────────────────────────
+
+// Leader-change events delivered to actors that have called
+// `subscribeLeaderEvents()`.  `LeaderElected(nodeId)` fires whenever the
+// locally-known leader transitions to a new node; `LeaderLost(nodeId)`
+// fires when the current leader's peer link drops.
+case class LeaderElected(nodeId: String)
+case class LeaderLost(nodeId: String)
+
+// Start a Bully election round.  Sends `election` envelopes to every peer
+// whose nodeId sorts strictly higher than `selfNode()`.  If no higher
+// peer responds with `alive` within ~2 s, this node claims leadership
+// and broadcasts `coordinator` to every peer.  Idempotent: calling it
+// again while a round is still in progress is a no-op.  Trigger from
+// app code on cluster-event signals (e.g. `NodeLeft(currentLeader, _)`).
+extern def electLeader(): Unit
+
+// Locally-known cluster leader's nodeId, or empty string if no leader
+// has been elected yet.  Snapshot — updated by incoming `coordinator`
+// envelopes and by this node's own election decisions.
+extern def currentLeader(): String
+
+// Add the calling actor to the leader-event subscriber list.  From this
+// point on the actor's mailbox receives `LeaderElected(nodeId)` and
+// `LeaderLost(nodeId)` messages.  No unsubscribe API — exit the actor
+// to stop.
+extern def subscribeLeaderEvents(): Unit
 
 // ─── Supervision tree ─────────────────────────────────────────────────────────
 
