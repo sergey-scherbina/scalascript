@@ -45,7 +45,12 @@ object Parser:
   private def wrapSectionInPackage(section: Section, pkg: List[String]): Section =
     val newContent = section.content.map {
       case cb: Content.CodeBlock if Lang.isParseable(cb.lang) =>
-        val nested = pkg.foldRight(cb.source) { (seg, body) =>
+        // Preprocess `extern def` / `effect` syntax BEFORE wrapping in objects.
+        // Otherwise the surface forms survive into the nested code that scalameta
+        // sees and the whole block silently fails to parse (cb.tree = None →
+        // imports from this file see no symbols).
+        val preprocessed = preprocessExtern(preprocessEffects(cb.source))
+        val nested = pkg.foldRight(preprocessed) { (seg, body) =>
           val indented = body.linesIterator.map("  " + _).mkString("\n")
           s"object $seg:\n$indented"
         }

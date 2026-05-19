@@ -1752,8 +1752,14 @@ class Interpreter(
       // inside the object body can see imported symbols.  This matters when
       // wrapSectionInPackage wraps module code in `object std { object pkg { … } }`:
       // without this, functions/extensions miss anything in globals (e.g. imports).
+      // Also unfold any existing same-named object's fields so separate code
+      // blocks all wrapped in `object std { object dsl { ... } }` can reference
+      // symbols defined by earlier blocks during evaluation, not only after merge.
       val outerSnap  = globals.toMap ++ env.toMap
-      val members    = mutable.Map.from(outerSnap)
+      val existingFields = env.get(objectName) match
+        case Some(Value.InstanceV(_, fs)) => fs
+        case _                            => Map.empty[String, Value]
+      val members    = mutable.Map.from(outerSnap ++ existingFields)
       d.templ.body.stats.foreach {
         case dd: Defn.Def if isEffectOpDef(dd.body) =>
           val effName = objectName
