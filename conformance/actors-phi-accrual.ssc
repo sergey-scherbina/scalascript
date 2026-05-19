@@ -1,0 +1,23 @@
+#!/usr/bin/env ssc
+---
+name: actors-phi-accrual
+description: Actor v1.23 — phi-accrual failure detector single-node behaviour
+---
+
+# Phi-accrual failure detector — single-node
+
+In a single-node process there are no peer links and no heartbeat
+history, so `phiOf(nodeId)` returns `+Infinity` for any nodeId and
+`isSuspect(nodeId)` returns `true` (no data ⇒ unconditionally suspect,
+fail-safe).  Connected-cluster behaviour is exercised in the
+integration suite (multi-node tests); this conformance test just
+verifies the no-data branch is consistent across backends.
+
+```scalascript
+runActors {
+  val phi = phiOf("never-connected")
+  println("highPhi=" + (phi > 1.0e100))
+  println("suspect=" + isSuspect("never-connected"))
+  println("ok")
+}
+```

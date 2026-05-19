@@ -3495,6 +3495,9 @@ const Actor = {
   // v1.23 — cluster visibility
   clusterMembers:         ()  => _perform('Actor', 'clusterMembers',         []),
   subscribeClusterEvents: ()  => _perform('Actor', 'subscribeClusterEvents', []),
+  // v1.23 — phi-accrual failure detector
+  phiOf:     (nid)              => _perform('Actor', 'phiOf',     [nid]),
+  isSuspect: (nid, thr)         => _perform('Actor', 'isSuspect', [nid, thr == null ? 8.0 : thr]),
 };
 
 // `receive { case … }` lowers to a registered matcher function whose
@@ -3546,6 +3549,41 @@ function _runActors(bodyFn) {
   function _fireClusterEvent(tag, nodeId, reason) {
     if (_clusterEventSubs.size === 0) return;
     _clusterEventQueue.push({ tag, nodeId, reason: reason || '' });
+  }
+  // v1.23 — phi-accrual failure detector
+  const _PHI_HIST_MAX  = 100;
+  const _peerPongHist  = new Map();   // nodeId -> [intervalMs, ...] up to PHI_HIST_MAX
+  const _peerLastPong  = new Map();   // nodeId -> epoch ms of last pong (mirrors INT/JVM)
+  function _recordPongInterval(nid) {
+    const now = Date.now();
+    const last = _peerLastPong.get(nid);
+    if (last != null && last > 0) {
+      let hist = _peerPongHist.get(nid);
+      if (!hist) { hist = []; _peerPongHist.set(nid, hist); }
+      hist.push(now - last);
+      while (hist.length > _PHI_HIST_MAX) hist.shift();
+    }
+    _peerLastPong.set(nid, now);
+  }
+  function _computePhi(nid) {
+    const hist = _peerPongHist.get(nid);
+    if (!hist || hist.length === 0) return Number.POSITIVE_INFINITY;
+    const n = hist.length;
+    let s = 0; for (let i = 0; i < n; i++) s += hist[i];
+    const mean = s / n;
+    let sq = 0; for (let i = 0; i < n; i++) { const d = hist[i] - mean; sq += d * d; }
+    const variance = n > 1 ? sq / (n - 1) : 1.0;
+    const stddev   = Math.max(Math.sqrt(variance), 50.0);
+    const last     = _peerLastPong.get(nid);
+    const now      = Date.now();
+    const elapsed  = last == null ? Number.POSITIVE_INFINITY : now - last;
+    if (elapsed <= mean) return 0.0;
+    // Right-tail Normal approximation (Akka / Cassandra style):
+    //   phi = -log10( exp(-z² / 2) / (z * sqrt(2π)) )  with  z = (elapsed - μ) / σ
+    const z    = (elapsed - mean) / stddev;
+    const tail = Math.exp(-z * z / 2) / (z * Math.sqrt(2 * Math.PI));
+    if (tail <= 0) return Number.POSITIVE_INFINITY;
+    return -Math.log10(Math.min(tail, 1.0));
   }
 
   // Drain all peer ring buffers into _remoteRawInbox.
@@ -3632,6 +3670,9 @@ function _runActors(bodyFn) {
       "  if (!peerNodeId) {",
       "    try { const h = JSON.parse(msg); if (h.nodeId) { peerNodeId = h.nodeId; ringWrite(JSON.stringify({ t: 'handshake', nodeId: peerNodeId })); } } catch(_) {}",
       "  } else {",
+      "    // v1.23 — inject peer nodeId into 'pong' frames so the main thread can",
+      "    // attribute the inter-arrival sample to the right peer (phi-accrual).",
+      "    try { const p = JSON.parse(msg); if (p && p.t === 'pong') { ringWrite(JSON.stringify({ t: 'pong', from: peerNodeId })); return; } } catch(_) {}",
       "    ringWrite(msg);",
       "  }",
       "});",
@@ -3682,10 +3723,16 @@ function _runActors(bodyFn) {
         } else if (env.t === 'ping') {
           const peer = _peerChannels.get(env.from);
           if (peer) peer.send(JSON.stringify({ t: 'pong' }));
+        } else if (env.t === 'pong') {
+          // v1.23 — phi-accrual: record inter-pong interval.  The worker
+          // injects `from: peerNodeId` so we can attribute the sample.
+          if (env.from) _recordPongInterval(env.from);
         } else if (env.t === 'down') {
           _nodeDownQueue.push(env.nodeId);
           _peerChannels.delete(env.nodeId);
           _peerUrls.delete(env.nodeId);
+          _peerPongHist.delete(env.nodeId);
+          _peerLastPong.delete(env.nodeId);
           _fireClusterEvent('NodeLeft', env.nodeId, 'disconnect');
         } else if (env.t === 'peers_req') {
           // Respond with our known peer URLs + self URL.
@@ -4051,6 +4098,14 @@ function _runActors(bodyFn) {
                   }
                 } catch (_) {}
               } else {
+                // v1.23 — tag pongs inbound on this server-side channel.
+                try {
+                  const p = JSON.parse(msg);
+                  if (p && p.t === 'pong') {
+                    _remoteRawInbox.push(JSON.stringify({ t: 'pong', from: peerNodeId }));
+                    return;
+                  }
+                } catch (_) {}
                 _remoteRawInbox.push(msg);
               }
             });
@@ -4059,6 +4114,8 @@ function _runActors(bodyFn) {
                 _nodeDownQueue.push(peerNodeId);
                 _peerChannels.delete(peerNodeId);
                 _peerUrls.delete(peerNodeId);
+                _peerPongHist.delete(peerNodeId);
+                _peerLastPong.delete(peerNodeId);
                 _fireClusterEvent('NodeLeft', peerNodeId, 'disconnect');
               }
             });
@@ -4120,6 +4177,14 @@ function _runActors(bodyFn) {
       case 'subscribeClusterEvents': {
         _clusterEventSubs.add(id);
         return { suspend: false, next: k(undefined) };
+      }
+      // v1.23 — phi-accrual failure detector
+      case 'phiOf': {
+        return { suspend: false, next: k(_computePhi(String(args[0]))) };
+      }
+      case 'isSuspect': {
+        const thr = args[1] == null ? 8.0 : Number(args[1]);
+        return { suspend: false, next: k(_computePhi(String(args[0])) >= thr) };
       }
       // v1.6.x — scheduled sends
       case 'sendAfter': {
@@ -5331,6 +5396,7 @@ class JsGen(
       "Actor.startNode", "Actor.connectNode", "Actor.joinCluster", "Actor.register", "Actor.whereis",
       "Actor.globalRegister", "Actor.globalWhereis",
       "Actor.clusterMembers", "Actor.subscribeClusterEvents",
+      "Actor.phiOf", "Actor.isSuspect",
       "Actor.sendAfter", "Actor.sendInterval", "Actor.cancelTimer",
       "Logger.info", "Logger.warn", "Logger.error", "Logger.debug",
       "Random.nextInt", "Random.nextDouble", "Random.uuid", "Random.pick",
@@ -6588,6 +6654,15 @@ class JsGen(
     case Term.Apply.After_4_6_0(Term.Name("subscribeClusterEvents"), argClause)
         if argClause.values.isEmpty =>
       "Actor.subscribeClusterEvents()"
+    // v1.23 — phi-accrual failure detector
+    case Term.Apply.After_4_6_0(Term.Name("phiOf"), argClause)
+        if argClause.values.size == 1 =>
+      s"Actor.phiOf(${genExpr(argClause.values.head.asInstanceOf[Term])})"
+    case Term.Apply.After_4_6_0(Term.Name("isSuspect"), argClause)
+        if argClause.values.size >= 1 =>
+      val nid = genExpr(argClause.values(0).asInstanceOf[Term])
+      val thr = if argClause.values.size >= 2 then genExpr(argClause.values(1).asInstanceOf[Term]) else "8.0"
+      s"Actor.isSuspect($nid, $thr)"
     // v1.6.x — scheduled sends
     case Term.Apply.After_4_6_0(Term.Name("sendAfter"), argClause)
         if argClause.values.size == 3 =>
@@ -7097,6 +7172,15 @@ class JsGen(
     case Term.Apply.After_4_6_0(Term.Name("subscribeClusterEvents"), argClause)
         if argClause.values.isEmpty =>
       "Actor.subscribeClusterEvents()"
+    // v1.23 — phi-accrual failure detector
+    case Term.Apply.After_4_6_0(Term.Name("phiOf"), argClause)
+        if argClause.values.size == 1 =>
+      s"Actor.phiOf(${genExpr(argClause.values.head.asInstanceOf[Term])})"
+    case Term.Apply.After_4_6_0(Term.Name("isSuspect"), argClause)
+        if argClause.values.size >= 1 =>
+      val nid = genExpr(argClause.values(0).asInstanceOf[Term])
+      val thr = if argClause.values.size >= 2 then genExpr(argClause.values(1).asInstanceOf[Term]) else "8.0"
+      s"Actor.isSuspect($nid, $thr)"
     // v1.6.x — scheduled sends (inside CPS body)
     case Term.Apply.After_4_6_0(Term.Name("sendAfter"), argClause)
         if argClause.values.size == 3 =>
