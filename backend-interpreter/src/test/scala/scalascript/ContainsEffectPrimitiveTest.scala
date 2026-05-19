@@ -197,7 +197,10 @@ class ContainsEffectPrimitiveTest extends AnyFunSuite with Matchers:
   // ── Edge cases ────────────────────────────────────────────────────
 
   test("primitive inside object body — IS effectful") {
-    // Walking enters object/class body — primitives anywhere in the tree count.
+    // The predicate walks the entire tree including nested object/def
+    // bodies. The fixpoint then ALSO sees `f` as a separate entry and
+    // marks it independently. Over-approximation on the enclosing
+    // tree is harmless — see `containsEffectPrimitive` docstring.
     yes("object Helpers { def f(): Any = self() }")
   }
 

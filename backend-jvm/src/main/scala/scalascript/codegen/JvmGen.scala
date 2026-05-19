@@ -175,6 +175,36 @@ class JvmGen(
   // even when a file was already inlined (diamond import case).
   private val importedPkgs  = mutable.Map.empty[String, List[String]]
 
+  // ─── Strategy D, Step 2 — dep-mode CPS fixpoint state ─────────────
+  //
+  // `depDefs` — every `Defn.Def` found inside an inlined dep (top-level
+  // or nested in an object/class), keyed by its simple name.
+  // `globalEffectfulDeps` — names from `depDefs` whose bodies transitively
+  // reach an effect primitive.  Populated by `analyzeDepEffectfulness`
+  // after all `inlineImport` calls finish (i.e. after `collectBlocks`
+  // returns for the user module).  Consumed by Step 3's emit path.
+  //
+  // Simple-name keying (no FQN) means two dep defs with the same name
+  // in different objects/files would collide.  Acceptable for the
+  // current dep corpus (std/mapreduce, std/actors, etc.) — names are
+  // unique by convention.  Track FQN promotion as a v2.x follow-up
+  // once `.scim` artifacts persist `isEffectful` (see §8.2 of the spec).
+  private val depDefs = mutable.Map.empty[String, scala.meta.Defn.Def]
+  private val globalEffectfulDeps = mutable.Set.empty[String]
+
+  // Test hooks — Step 2 unit tests populate `depDefs` via
+  // `seedDepDefsForTest` (which mirrors what `inlineImport` does
+  // post-rewrite) and read back `globalEffectfulDeps` after
+  // `analyzeDepEffectfulness()` runs.
+  private[scalascript] def globalEffectfulDepsForTest: mutable.Set[String] = globalEffectfulDeps
+  private[scalascript] def seedDepDefsForTest(module: Module): Unit =
+    val blocks = collectBlocks(module.sections)
+    blocks.foreach { b =>
+      ScalaNode.fold(b.node) { tree =>
+        tree.collect { case d: Defn.Def => depDefs(d.name.value) = d }
+      }
+    }
+
   // ─── Module entry ─────────────────────────────────────────────────
 
   /** Module-level `dependencies:` from the front-matter; threaded into
@@ -187,6 +217,10 @@ class JvmGen(
     // Collect blocks first — including those pulled in by `[..](./x.ssc)`
     // imports — so the effect / mutual-TCO analysis sees the full picture.
     val blocks = collectBlocks(module.sections)
+    // Strategy D, Step 2 — fixpoint over the dep call graph runs AFTER
+    // collectBlocks (all `inlineImport` calls have populated `depDefs`)
+    // and BEFORE emit so Step 3 can consult `globalEffectfulDeps`.
+    analyzeDepEffectfulness()
     analyzeEffects(blocks)
     analyzeMutualRecursion(blocks)
     val sb = StringBuilder()
@@ -445,6 +479,7 @@ class JvmGen(
     import JvmGen.Capability.*
     moduleDeps = module.manifest.map(_.dependencies).getOrElse(Map.empty)
     val blocks = collectBlocks(module.sections)
+    analyzeDepEffectfulness()
     analyzeEffects(blocks)
     analyzeMutualRecursion(blocks)
     val frontmatterRoutes = module.manifest.toList.flatMap(_.routes)
@@ -516,6 +551,7 @@ class JvmGen(
   def genUserOnlyWithLineMap(module: Module): (String, Map[Int, Int]) =
     moduleDeps = module.manifest.map(_.dependencies).getOrElse(Map.empty)
     val blocks = collectBlocks(module.sections)
+    analyzeDepEffectfulness()
     analyzeEffects(blocks)
     analyzeMutualRecursion(blocks)
     val sb = StringBuilder()
@@ -779,6 +815,14 @@ class JvmGen(
       // so non-actor code in deps still emits as-is.
       val rewrittenBlocks = nested.collectBlocks(importedModule.sections)
         .map(b => qualifyBareActorCallsInBlock(b))
+      // Strategy D, Step 2 — index every Defn.Def in this dep (top-level
+      // or nested in object/class) so the fixpoint can analyse its body.
+      // Walks the post-rewrite block to match what Step 3 will emit.
+      rewrittenBlocks.foreach { b =>
+        ScalaNode.fold(b.node) { tree =>
+          tree.collect { case d: Defn.Def => depDefs(d.name.value) = d }
+        }
+      }
       (rewrittenBlocks, pkg)
 
   private def qualifyBareActorCallsInBlock(block: JvmGen.Block): JvmGen.Block =
@@ -1327,10 +1371,27 @@ class JvmGen(
   private val loggerPrimitiveOps:  Set[String] = Set("info", "warn", "error", "debug")
   private val asyncPrimitiveOps:   Set[String] = Set("delay", "async", "await", "parallel")
 
-  private[scalascript] def containsEffectPrimitive(tree: scala.meta.Tree): Boolean =
+  /** Step 1 — intrinsic-only predicate (default `crossDepEffectful = empty`).
+   *  Step 2 — cross-dep aware variant: also matches `Term.Apply(Term.Name(n), _)`
+   *  where `n` is a dep-defined function already marked effectful by the
+   *  fixpoint pass.
+   *
+   *  Walks the entire tree (nested objects, nested defs, lambda bodies,
+   *  case bodies, pattern guards, default params).  Over-approximation:
+   *  `def outer = { def inner = self(); 42 }` marks BOTH `inner` and
+   *  `outer` even though `outer` itself only returns `42`.  That's a
+   *  safe false positive: Step 3 CPS-emits both, the extra wrapping on
+   *  `outer` is correct (a pure `42` CPS-emits to `42` via `_bind`'s
+   *  value branch).  Avoids needing a custom traversal. */
+  private[scalascript] def containsEffectPrimitive(
+      tree: scala.meta.Tree,
+      crossDepEffectful: Set[String] = Set.empty
+  ): Boolean =
     tree.collect {
       // Bare actor primitives: `self()`, `link(pid)`, `receive { ... }`, etc.
       case Term.Apply.After_4_6_0(Term.Name(n), _) if actorBareNames(n) => ()
+      // Cross-dep: bare call to a known-effectful dep function.
+      case Term.Apply.After_4_6_0(Term.Name(n), _) if crossDepEffectful(n) => ()
       // Actor send sugar: `pid ! msg` (any infix `!`).
       case Term.ApplyInfix.After_4_6_0(_, Term.Name("!"), _, _) => ()
       // Qualified primitive Selects + Apply: `Actor.send(...)`, etc.
@@ -1341,6 +1402,36 @@ class JvmGen(
       case Term.Apply.After_4_6_0(Term.Select(Term.Name("Logger"),  Term.Name(op)), _) if loggerPrimitiveOps(op)  => ()
       case Term.Apply.After_4_6_0(Term.Select(Term.Name("Async"),   Term.Name(op)), _) if asyncPrimitiveOps(op)   => ()
     }.nonEmpty
+
+  // ─── Strategy D, Step 2 ──────────────────────────────────────────
+  //
+  // `analyzeDepEffectfulness` — runs the global fixpoint over all
+  // dep-defined `Defn.Def` nodes collected by `inlineImport`.
+  // Populates `globalEffectfulDeps` for Step 3 to consume.
+  //
+  // Algorithm:
+  //   1. SEED: every dep def whose body contains an intrinsic
+  //      primitive → mark effectful.
+  //   2. ITERATE: rescan each unmarked def with `crossDepEffectful =
+  //      globalEffectfulDeps`; new marks → keep iterating.
+  //   3. TERMINATE: when a pass adds nothing.
+  //
+  // O(deps × defs × calls) — <1 ms for the std corpus.
+
+  private[scalascript] def analyzeDepEffectfulness(): Unit =
+    globalEffectfulDeps.clear()
+    // Seed
+    for ((name, defn) <- depDefs)
+      if containsEffectPrimitive(defn.body) then
+        globalEffectfulDeps += name
+    // Iterate to fixpoint
+    var changed = true
+    while changed do
+      changed = false
+      for ((name, defn) <- depDefs if !globalEffectfulDeps(name))
+        if containsEffectPrimitive(defn.body, globalEffectfulDeps.toSet) then
+          globalEffectfulDeps += name
+          changed = true
 
   // ─── Mutual-recursion analysis ────────────────────────────────────
   //
