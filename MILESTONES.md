@@ -3325,19 +3325,31 @@ the codegen output.
      `McpWsClient` gain a `setNotificationHandler` hook; the
      user-facing `McpClient` value exposes `onNotification(handler)`
      that the user-side block can register `(method, params) => Unit`
-     callbacks against.  HTTP transport accepts the handler but never
-     invokes it (no push channel).
+     callbacks against.
+   - **Server-side `srv.notify(method, params)`** broadcasts to every
+     currently-active subscriber via a thread-safe set on the
+     builder.  Each transport registers its writer on connection and
+     unregisters on close (Stdio/Spawn: serve() addSubscriber; Ws:
+     per-connection ws.send + onClose teardown).
+   - **HTTP SSE GET stream** — `serveMcp(Transport.Http(port, path))`
+     additionally registers `GET <path>/events` which subscribes the
+     SSE writer to `builder.notify` broadcasts.  Matching client side:
+     `McpHttpClient.setNotificationHandler` spins up a daemon reader
+     thread that opens `<url>/events`, parses `data: <json>\n\n`
+     frames, and dispatches them.  Browser side: `JsRuntimeMcpBrowser`
+     subscribes via native `EventSource` in both sync and async
+     `McpClient` flavours.  HTTP is now fully push-capable in parity
+     with Stdio/Spawn/Ws.
 
-   45 tests across seven suites all pass (McpRuntimeTest 18,
+   55 tests across nine suites all pass (McpRuntimeTest 18,
    McpEndToEndTest 2, McpInterpreterIntegrationTest 3, McpHttpTransportTest
-   5, JsRuntimeMcpBrowserTest 10, McpWsTransportTest 2,
-   McpNotificationTest 5).
+   5, JsRuntimeMcpBrowserTest 13, McpWsTransportTest 2,
+   McpNotificationTest 5, McpServerNotifyTest 6, McpHttpSseNotifyTest 1).
 
-   **Still deferred**: a separate persistent SSE GET stream for HTTP
-   notifications (would let the HTTP transport push too); bidirectional
-   sampling (server-initiated *requests* with id expecting a reply,
-   not just notifications); SSE-as-response-body for Streamable-HTTP
-   multi-response tools.
+   **Still deferred**: bidirectional sampling (server-initiated
+   *requests* with id expecting a reply, not just notifications);
+   SSE-as-response-body for Streamable-HTTP multi-response tools
+   (currently only synchronous JSON responses).
 2. **Type-class layer** (`given McpTool[A, R]`, `derives McpSchema`)
    — depends on v1.14 `derives`.
 3. **Streaming resources** — depends on v1.10 Generators.

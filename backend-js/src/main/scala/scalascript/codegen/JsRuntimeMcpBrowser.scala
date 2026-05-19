@@ -164,6 +164,8 @@ function mcpConnect(transport, timeoutMs) {
   _mcpRpcNotify(url, 'notifications/initialized', {});
 
   let _closed = false;
+  let _es     = null;  // active EventSource for SSE notifications
+  let _notif  = null;  // user's onNotification handler
   function _guard() { if (_closed) throw McpError('McpClient is closed'); }
 
   return {
@@ -174,8 +176,29 @@ function mcpConnect(transport, timeoutMs) {
     callTool:      (name, args) => { _guard(); return _mcpToolResultB    (_mcpRpcRequest(url, 'tools/call',     { name, arguments: _mcpArgsToObj(args) },               tms));            },
     readResource:  (uri)        => { _guard(); return _mcpResourceResultB(_mcpRpcRequest(url, 'resources/read', { uri },                                                tms), uri);        },
     getPrompt:     (name, args) => { _guard(); return _mcpPromptResultB  (_mcpRpcRequest(url, 'prompts/get',    { name, arguments: _mcpArgsToObj(args) },               tms));            },
-    close:         () => { _closed = true; },
-    isClosed:      () => _closed
+    onNotification: (handler) => {
+      // Browser-native EventSource subscribes to `<url>/events` (matches
+      // the interpreter server's SSE endpoint registered by
+      // serveMcp(Transport.Http(...))).  Each `data: <json>\n\n` frame
+      // dispatches as a notification.  EventSource auto-reconnects on
+      // network drops — no manual loop needed.
+      if (_es) { try { _es.close(); } catch (_) {} _es = null; }
+      _notif = handler;
+      if (typeof EventSource === 'undefined') return;  // no fallback in non-browser host
+      const es = new EventSource(url + '/events');
+      es.onmessage = (ev) => {
+        try {
+          const frame = JSON.parse(ev.data);
+          if (frame && frame.method && frame.id === undefined && _notif) {
+            _notif(frame.method, frame.params || {});
+          }
+        } catch (_) {}
+      };
+      es.onerror = () => {};  // EventSource auto-retries; suppress noise
+      _es = es;
+    },
+    close: () => { _closed = true; if (_es) { try { _es.close(); } catch (_) {} _es = null; } },
+    isClosed: () => _closed
   };
 }
 
@@ -246,6 +269,8 @@ async function mcpConnectAsync(transport, timeoutMs) {
   _mcpRpcNotifyAsync(url, 'notifications/initialized', {});
 
   let _closed = false;
+  let _esA    = null;  // EventSource
+  let _notifA = null;  // handler
   function _guardA() {
     if (_closed) return Promise.reject(McpError('McpClient is closed'));
     return null;
@@ -277,7 +302,23 @@ async function mcpConnectAsync(transport, timeoutMs) {
       const g = _guardA(); if (g) return g;
       return _mcpPromptResultB(await _mcpRpcRequestAsync(url, 'prompts/get', { name, arguments: _mcpArgsToObj(args) }, tms));
     },
-    close:    () => { _closed = true; },
+    onNotification: (handler) => {
+      if (_esA) { try { _esA.close(); } catch (_) {} _esA = null; }
+      _notifA = handler;
+      if (typeof EventSource === 'undefined') return;
+      const es = new EventSource(url + '/events');
+      es.onmessage = (ev) => {
+        try {
+          const frame = JSON.parse(ev.data);
+          if (frame && frame.method && frame.id === undefined && _notifA) {
+            _notifA(frame.method, frame.params || {});
+          }
+        } catch (_) {}
+      };
+      es.onerror = () => {};
+      _esA = es;
+    },
+    close:    () => { _closed = true; if (_esA) { try { _esA.close(); } catch (_) {} _esA = null; } },
     isClosed: () => _closed
   };
 }

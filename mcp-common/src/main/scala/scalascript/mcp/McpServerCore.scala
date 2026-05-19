@@ -28,6 +28,33 @@ class McpServerBuilder:
   private[mcp] var onConnected:    () => Unit = () => ()
   private[mcp] var onDisconnected: () => Unit = () => ()
 
+  /** Active server→client subscribers — one per persistent connection.
+   *  Stdio/Spawn keep exactly one (the writer captured by `serve()`); Ws
+   *  adds/removes one per WS connection.  HTTP request/response transport
+   *  doesn't add any (no persistent channel — push delivery for Http is
+   *  deferred to the SSE GET stream variant). */
+  private val subscribers =
+    java.util.concurrent.ConcurrentHashMap.newKeySet[String => Unit]()
+
+  /** Wire a new push subscriber for the lifetime of one transport
+   *  connection.  Returns a thunk the transport calls on disconnect
+   *  to remove its writer from the broadcast set.
+   *  Best-effort: writer-side exceptions are swallowed so a single
+   *  dead connection doesn't tear the whole broadcaster down. */
+  def addSubscriber(write: String => Unit): () => Unit =
+    val wrap: String => Unit = s => try write(s) catch case _: Throwable => ()
+    subscribers.add(wrap)
+    () => { subscribers.remove(wrap); () }
+
+  /** Broadcast a server-initiated notification to every active
+   *  subscriber.  No id (notifications never expect a reply).  Frames
+   *  are JSON-RPC notifications terminated by a newline — matches the
+   *  framing every reader (`McpClientCore.dispatchResponse` /
+   *  `McpWsClient.dispatchInboundLine`) already understands. */
+  def notify(method: String, params: ujson.Value): Unit =
+    val frame = JsonRpc.encodeNotification(method, params)
+    subscribers.forEach { s => s(frame) }
+
   def tool(
     name:        String,
     description: Option[String],
@@ -98,22 +125,29 @@ object McpServerCore:
     serverName:    String,
     serverVersion: String
   ): Unit =
-    var initialized = false
-    var running     = true
-    while running do
-      read() match
-        case None       => running = false
-        case Some(line) =>
-          JsonRpc.parse(line) match
-            case Left(_)                                    => ()  // can't even reply (no id)
-            case Right(JsonRpc.Message.Response(_, _, _))   => ()  // we're the server — drop stray responses
-            case Right(JsonRpc.Message.Notification(m, _))  =>
-              if m == McpProtocol.Method.Initialized && !initialized then
-                initialized = true
-                try builder.onConnected() catch case _: Throwable => ()
-            case Right(JsonRpc.Message.Request(method, params, id)) =>
-              write(dispatch(builder, method, params, id, serverName, serverVersion))
-    try builder.onDisconnected() catch case _: Throwable => ()
+    // Register the writer as a notification subscriber for the lifetime
+    // of this serve loop so `builder.notify(method, params)` reaches the
+    // connected peer.  Stdio is single-connection — exactly one
+    // subscriber active while serve() runs.
+    val unsubscribe = builder.addSubscriber(write)
+    try
+      var initialized = false
+      var running     = true
+      while running do
+        read() match
+          case None       => running = false
+          case Some(line) =>
+            JsonRpc.parse(line) match
+              case Left(_)                                    => ()  // can't even reply (no id)
+              case Right(JsonRpc.Message.Response(_, _, _))   => ()  // we're the server — drop stray responses
+              case Right(JsonRpc.Message.Notification(m, _))  =>
+                if m == McpProtocol.Method.Initialized && !initialized then
+                  initialized = true
+                  try builder.onConnected() catch case _: Throwable => ()
+              case Right(JsonRpc.Message.Request(method, params, id)) =>
+                write(dispatch(builder, method, params, id, serverName, serverVersion))
+      try builder.onDisconnected() catch case _: Throwable => ()
+    finally unsubscribe()
 
   /** One POST body containing one JSON-RPC frame → one response body
    *  (or empty string when the frame was a notification that needs no

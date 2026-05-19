@@ -81,3 +81,16 @@ class JsRuntimeMcpBrowserTest extends AnyFunSuite with Matchers:
     // used by both mcpConnect (sync) and mcpConnectAsync.
     JsRuntimeMcpBrowser should include ("_mcpToolResultB(await")
     JsRuntimeMcpBrowser should include ("_mcpDescriptorsToListB(await")
+
+  // ── EventSource-based onNotification ────────────────────────────────
+
+  test("onNotification: both variants subscribe via EventSource to <url>/events"):
+    JsRuntimeMcpBrowser should include ("new EventSource(url + '/events')")
+    JsRuntimeMcpBrowser should include ("onNotification: (handler) =>")
+
+  test("onNotification: skips when EventSource is undefined (non-browser host)"):
+    JsRuntimeMcpBrowser should include ("typeof EventSource === 'undefined'")
+
+  test("onNotification: close cleans up the active EventSource"):
+    JsRuntimeMcpBrowser should include ("_es.close()")
+    JsRuntimeMcpBrowser should include ("_esA.close()")

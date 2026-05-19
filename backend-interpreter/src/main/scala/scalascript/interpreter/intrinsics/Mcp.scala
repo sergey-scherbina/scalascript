@@ -98,7 +98,7 @@ val McpIntrinsics: Map[QualifiedName, IntrinsicImpl] = Map(
         Mcp.makeSpawnClient(cmd, cmdArgs, timeoutMs, ctx)
       case "Http" =>
         val url = Mcp.httpClientUrl(transport)
-        Mcp.makeHttpClient(url, timeoutMs)
+        Mcp.makeHttpClient(url, timeoutMs, ctx)
       case "Ws" =>
         val url = Mcp.wsClientUrl(transport)
         Mcp.makeWsClient(url, timeoutMs, ctx)
@@ -161,7 +161,12 @@ private object Mcp:
 
   /** Register a POST handler for `<path>` on the existing WebServer that
    *  pipes the body through `McpServerCore.handleHttpRequest`.  Called by
-   *  `serveMcp(Transport.Http(port, path))` before the server starts. */
+   *  `serveMcp(Transport.Http(port, path))` before the server starts.
+   *
+   *  Also registers a GET `<path>/events` SSE endpoint: clients that
+   *  open it subscribe to server→client notifications via the same
+   *  `builder.addSubscriber` mechanism that Stdio/Spawn/Ws use.  Each
+   *  notification is wrapped as `data: <json>\n\n`. */
   def installHttpRoute(builder: McpServerBuilder, path: String, ctx: NativeContext): Unit =
     val handler = Value.NativeFnV("mcp.http.handler", Computation.pureFn {
       case List(Value.InstanceV("Request", fields)) =>
@@ -185,8 +190,54 @@ private object Mcp:
     })
     ctx.registerRoute("POST", path, handler)
 
+    // SSE GET endpoint at `<path>/events` — clients subscribe here to
+    // receive server-pushed notifications.  Returns a StreamResponse
+    // whose callback registers a builder subscriber and keeps the
+    // connection open until either the client closes (writer throws)
+    // or the server shuts down.
+    val sseEndpoint = path + "/events"
+    val sseHandler = Value.NativeFnV("mcp.http.sse", Computation.pureFn {
+      case List(Value.InstanceV("Request", _)) =>
+        val sseHeaders = Value.MapV(Map(
+          (Value.StringV("Content-Type"):  Value) -> (Value.StringV("text/event-stream"):  Value),
+          (Value.StringV("Cache-Control"): Value) -> (Value.StringV("no-cache"):           Value),
+          (Value.StringV("Connection"):    Value) -> (Value.StringV("keep-alive"):         Value)
+        ))
+        val callback = Value.NativeFnV("mcp.http.sse.writer", Computation.pureFn {
+          case List(writeFn) =>
+            // Track this subscriber for the lifetime of the SSE write.
+            // The connection stays open until writeFn throws (peer
+            // dropped) or the server shuts down — the caller's stream
+            // dispatch loop catches and unsubscribes.
+            val done = new java.util.concurrent.atomic.AtomicBoolean(false)
+            val unsubscribe = builder.addSubscriber { line =>
+              if !done.get() then
+                try ctx.invokeCallback(writeFn, List(Value.StringV(s"data: ${line.stripSuffix("\n")}\n\n")))
+                catch case _: Throwable => done.set(true)
+            }
+            // Block until the writer signals done (peer closed).  Without
+            // this the stream would close immediately after returning.
+            try
+              while !done.get() do Thread.sleep(100)
+            finally unsubscribe()
+            Value.UnitV
+          case _ => Value.UnitV
+        })
+        Value.InstanceV("StreamResponse", Map(
+          "status"   -> Value.IntV(200L),
+          "headers"  -> sseHeaders,
+          "callback" -> callback
+        ))
+      case _ => Value.InstanceV("Response", Map(
+        "status"  -> Value.IntV(400L),
+        "headers" -> Value.MapV(Map.empty),
+        "body"    -> Value.StringV("expected Request")
+      ))
+    })
+    ctx.registerRoute("GET", sseEndpoint, sseHandler)
+
   /** Build an `McpClient` Value backed by `McpHttpClient`. */
-  def makeHttpClient(url: String, timeoutMs: Long): Value =
+  def makeHttpClient(url: String, timeoutMs: Long, ctx: NativeContext): Value =
     val client = new McpHttpClient(url, timeoutMs)
     // Spec-mandated initialize handshake — same shape as the Spawn path.
     val initParams = ujson.Obj(
@@ -197,7 +248,7 @@ private object Mcp:
     client.request(McpProtocol.Method.Initialize, initParams) match
       case Left(e)  => throw InterpretError(s"mcpConnect(Http): initialize failed: ${e.message}")
       case Right(_) => client.notify("notifications/initialized", ujson.Obj())
-    makeHttpClientInstance(client, timeoutMs)
+    makeHttpClientInstance(client, timeoutMs, ctx)
 
   /** Transport.Ws(port, path) → `ws://localhost:port/path`.  Same `path`
    *  override rule as Http: a full ws://...  / wss://... URL passes through. */
@@ -218,8 +269,25 @@ private object Mcp:
   def installWsRoute(builder: McpServerBuilder, path: String, ctx: NativeContext): Unit =
     val handler = Value.NativeFnV("mcp.ws.handler", Computation.pureFn {
       case List(Value.InstanceV("WebSocket", wsFields)) =>
-        val sendV: Option[Value]      = wsFields.get("send")
+        val sendV:      Option[Value] = wsFields.get("send")
         val onMessageV: Option[Value] = wsFields.get("onMessage")
+        val onCloseV:   Option[Value] = wsFields.get("onClose")
+        // Per-connection broadcaster slot: every ws.send that this
+        // connection exposes joins the server's subscriber set, so
+        // srv.notify(method, params) reaches this client too.  The
+        // unsubscribe is wired through ws.onClose so a dropped client
+        // doesn't leave a stale writer behind.
+        val unsubscribe = sendV.map(sendFn =>
+          builder.addSubscriber(line =>
+            ctx.invokeCallback(sendFn, List(Value.StringV(line.stripSuffix("\n"))))
+          )
+        ).getOrElse(() => ())
+        onCloseV.foreach { oc =>
+          val onCloseCb = Value.NativeFnV("mcp.ws.onClose", Computation.pureFn {
+            case _ => unsubscribe(); Value.UnitV
+          })
+          ctx.invokeCallback(oc, List(onCloseCb))
+        }
         // Register a NativeFnV as the onMessage callback.  When called by
         // the WS infra with a Value.StringV(line) payload, we feed it to
         // McpServerCore.handleHttpRequest and write the reply via ws.send.
@@ -328,12 +396,26 @@ private object Mcp:
         Value.UnitV
       case _ => throw InterpretError("srv.onDisconnected(() => ...)")
     })
+    // v1.17.x — server-initiated notifications.  `srv.notify(method, params)`
+    // broadcasts a JSON-RPC notification frame to every currently-active
+    // subscriber (Stdio/Spawn: one writer; Ws: one per connected client;
+    // Http without SSE: no-op since no persistent push channel exists).
+    def notifyFn = Value.NativeFnV("McpServer.notify", Computation.pureFn {
+      case List(Value.StringV(method)) =>
+        builder.notify(method, ujson.Obj())
+        Value.UnitV
+      case List(Value.StringV(method), paramsV) =>
+        builder.notify(method, Mcp.valueToJson(paramsV))
+        Value.UnitV
+      case _ => throw InterpretError("srv.notify(method[, params])")
+    })
     Value.InstanceV("McpServer", Map(
       "tool"           -> toolFn,
       "resource"       -> resourceFn,
       "prompt"         -> promptFn,
       "onConnected"    -> onConnFn,
-      "onDisconnected" -> onDisconnFn
+      "onDisconnected" -> onDisconnFn,
+      "notify"         -> notifyFn
     ))
 
   private def registerTool(
@@ -572,7 +654,7 @@ private object Mcp:
    *  intentional: both clients expose identical method surfaces but the
    *  request bodies differ in transport semantics (stdio is async with a
    *  pending-id table; HTTP is synchronous request/response). */
-  def makeHttpClientInstance(client: McpHttpClient, timeoutMs: Long): Value.InstanceV =
+  def makeHttpClientInstance(client: McpHttpClient, timeoutMs: Long, ctx: NativeContext): Value.InstanceV =
     val fields = mutable.LinkedHashMap.empty[String, Value]
     fields("listTools") = Value.NativeFnV("McpClient.listTools", Computation.pureFn { _ =>
       client.request(McpProtocol.Method.ToolsList, ujson.Obj(), timeoutMs) match
@@ -619,14 +701,18 @@ private object Mcp:
     fields("isClosed") = Value.NativeFnV("McpClient.isClosed", Computation.pureFn { _ =>
       Value.BoolV(client.isClosed)
     })
-    // HTTP transport has no persistent server→client channel — there's no
-    // place to push notifications.  Accept the handler so user code is
-    // portable across transports, but never invoke it.  Real SSE-based
-    // notifications would need a separate persistent GET /mcp/events
-    // stream — that's a future iteration.
+    // HTTP push via SSE GET `/events` — the client opens a daemon reader
+    // thread that parses `data: <json>\n\n` frames and dispatches them
+    // as notifications.  The server side (installHttpRoute) registers the
+    // matching `/events` GET endpoint when `serveMcp(Transport.Http(...))`
+    // is called.
     fields("onNotification") = Value.NativeFnV("McpClient.onNotification", Computation.pureFn {
-      case List(_) => Value.UnitV
-      case _       => throw InterpretError("client.onNotification(handler)")
+      case List(handler) =>
+        client.setNotificationHandler { (method, params) =>
+          ctx.invokeCallback(handler, List(Value.StringV(method), Mcp.jsonToValue(params)))
+        }
+        Value.UnitV
+      case _ => throw InterpretError("client.onNotification(handler)")
     })
     Value.InstanceV("McpClient", fields.toMap)
 
