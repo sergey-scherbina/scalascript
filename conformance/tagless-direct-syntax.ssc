@@ -1,0 +1,52 @@
+---
+name: conformance-tagless-direct-syntax
+version: 1.0.0
+---
+
+# Final Tagless — direct-syntax synergy (§5)
+
+Exercises §5: `direct[F] { … }` inside a function that is
+polymorphic over `F[_]: Monad`.  The direct block's monad is
+resolved from the context bound rather than named at the call site.
+
+[listMonad, optionMonad](../std/functor-applicative-monad.ssc)
+
+## Polymorphic direct block — Option path
+
+```scalascript
+def addEffectful[F[_]: Monad](fa: F[Int], fb: F[Int]): F[Int] =
+  direct[F] {
+    x = fa
+    y = fb
+    summon[Monad[F]].pure(x + y)
+  }
+
+val r1: Option[Int] = addEffectful[Option](Some(3), Some(4))
+println(r1)
+
+val r2: Option[Int] = addEffectful[Option](Some(3), None)
+println(r2)
+```
+
+## Polymorphic direct block — List path (Cartesian product)
+
+```scalascript
+val r3: List[Int] = addEffectful[List](List(1, 2), List(10, 20))
+println(r3)
+```
+
+## Context-bound resolution inside direct block
+
+```scalascript
+def replicateM[F[_]: Monad](n: Int, fa: F[Int]): F[List[Int]] =
+  if n <= 0 then summon[Monad[F]].pure(List())
+  else
+    direct[F] {
+      head = fa
+      tail = replicateM(n - 1, fa)
+      summon[Monad[F]].pure(head :: tail)
+    }
+
+println(replicateM(3, Some(7)))
+println(replicateM(2, List(1, 2)))
+```

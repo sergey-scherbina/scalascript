@@ -1,0 +1,46 @@
+---
+name: conformance-tagless-sealed-dispatch
+version: 1.0.0
+---
+
+# Final Tagless — sealed-trait extension dispatch (§3.4)
+
+Exercises Phase 5 of v1.13: extension methods registered on a sealed
+trait (`Either`) are reachable from a subtype value (`Right`, `Left`).
+The interpreter walks the parent chain on miss.
+
+[Left, Right, mapRight, flatMapRight](../std/either.ssc)
+
+[tupleBifunctor, eitherBifunctor](../std/bifunctor.ssc)
+
+[optionUnitError, handleEither](../std/monaderror.ssc)
+
+## `bimap` extension on Either — dispatched from Right and Left values
+
+```scalascript
+val r: Either[String, Int] = Right(10)
+val l: Either[String, Int] = Left("err")
+
+println(r.bimap((s: String) => s.length, (n: Int) => n * 2))
+println(l.bimap((s: String) => s.length, (n: Int) => n * 2))
+```
+
+## `leftMap` / `rightMap` extensions
+
+```scalascript
+println(r.leftMap((s: String) => "[" + s + "]"))
+println(l.leftMap((s: String) => "[" + s + "]"))
+println(r.rightMap((n: Int) => n.toString + "!"))
+println(l.rightMap((n: Int) => n.toString + "!"))
+```
+
+## `handleError` extension — sealed dispatch from Right / Left
+
+```scalascript
+val ok:  Either[String, Int] = Right(42)
+val err: Either[String, Int] = Left("boom")
+
+println(ok.handleError((e: String) => Right(0)))
+println(err.handleError((e: String) => Right(0)))
+println(err.handleError((e: String) => Left("re:" + e)))
+```

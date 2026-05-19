@@ -1,0 +1,55 @@
+---
+name: conformance-tagless-resolution
+version: 1.0.0
+---
+
+# Final Tagless — `using` auto-resolution (§3.1)
+
+Exercises Phase 1/2/3 of v1.13: `using` clause auto-resolution from
+in-scope `given` instances.  Three scenarios: single given resolved
+automatically, chained resolution (one `using` depends on another),
+and explicit-pass still accepted.
+
+## Typeclass scaffolding
+
+```scalascript
+trait Show[A]:
+  def show(a: A): String
+
+trait Eq[A]:
+  def eqv(a: A, b: A): Boolean
+
+given showInt: Show[Int] with
+  def show(a: Int): String = a.toString
+
+given showString: Show[String] with
+  def show(a: String): String = a
+
+given eqInt: Eq[Int] with
+  def eqv(a: Int, b: Int): Boolean = a == b
+```
+
+## Single `using` — auto-resolved
+
+```scalascript
+def display[A](a: A)(using s: Show[A]): String = s.show(a)
+
+println(display(42))
+println(display("hello"))
+```
+
+## Chain: outer uses inner `using`
+
+```scalascript
+def showIfEq[A](a: A, b: A)(using eq: Eq[A], s: Show[A]): String =
+  if eq.eqv(a, b) then "equal: " + s.show(a) else "not-equal"
+
+println(showIfEq(7, 7))
+println(showIfEq(1, 2))
+```
+
+## Explicit-pass still accepted
+
+```scalascript
+println(display(99)(using showInt))
+```

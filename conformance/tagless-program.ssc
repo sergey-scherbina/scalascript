@@ -1,0 +1,66 @@
+---
+name: conformance-tagless-program
+version: 1.0.0
+---
+
+# Final Tagless — full algebra program (§4)
+
+Exercises §4 of the design: a `Console[F]` algebra with two
+interpreters (an identity-style `List`-based collector and a
+direct `Option`-based one).  The same program runs against both.
+
+[listMonad, optionMonad](../std/functor-applicative-monad.ssc)
+
+## Console algebra
+
+```scalascript
+trait Console[F[_]]:
+  def writeLine(s: String): F[Unit]
+  def readLine: F[String]
+
+object Console:
+  def apply[F[_]](using c: Console[F]): Console[F] = c
+```
+
+## List interpreter — collects output, supplies fixed input
+
+```scalascript
+given consoleList: Console[List] with
+  def writeLine(s: String): List[Unit] = List(())
+  def readLine: List[String]           = List("Alice")
+```
+
+## Option interpreter — successful path
+
+```scalascript
+given consoleOption: Console[Option] with
+  def writeLine(s: String): Option[Unit] = Some(())
+  def readLine: Option[String]           = Some("Bob")
+```
+
+## Program polymorphic over F[_]
+
+```scalascript
+def greet[F[_]: Console: Monad]: F[String] =
+  Console[F].writeLine("What is your name?").flatMap((_: Unit) =>
+    Console[F].readLine.flatMap((name: String) =>
+      Console[F].writeLine("Hello, " + name + "!").flatMap((_: Unit) =>
+        summon[Monad[F]].pure(name)
+      )
+    )
+  )
+```
+
+## Run with List interpreter
+
+```scalascript
+val listResult: List[String] = greet[List]
+println(listResult)
+```
+
+## Run with Option interpreter
+
+```scalascript
+val optResult: Option[String] = greet[Option]
+println(optResult)
+```

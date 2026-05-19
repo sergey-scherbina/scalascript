@@ -1,0 +1,57 @@
+---
+name: conformance-tagless-multi-file
+version: 1.0.0
+---
+
+# Final Tagless — cross-file trait inheritance with HKT (§3.3)
+
+Exercises Phase 4 of v1.13: a user-defined algebra extends a
+typeclass from a separate std file, and the constraint propagates
+correctly across the import boundary.
+
+[listMonad, optionMonad](../std/functor-applicative-monad.ssc)
+
+## Algebra extending an imported typeclass
+
+```scalascript
+trait Logged[F[_]] extends Monad[F]:
+  def log(msg: String): F[Unit]
+```
+
+## Instance for List (accumulates log entries as singleton lists)
+
+```scalascript
+given listLogged: Logged[List] with
+  def pure[A](a: A): List[A] = List(a)
+  extension [A](fa: List[A])
+    def map[B](f: A => B): List[B] = fa.map(f)
+    def ap[B](ff: List[A => B]): List[B] =
+      for { g <- ff; x <- fa } yield g(x)
+    def flatMap[B](f: A => List[B]): List[B] = fa.flatMap(f)
+  def log(msg: String): List[Unit] = List(())
+```
+
+## Program polymorphic over `F[_]: Logged`
+
+```scalascript
+def greetLogged[F[_]: Logged](name: String): F[String] =
+  val L = summon[Logged[F]]
+  L.log("greeting " + name).flatMap((_: Unit) =>
+    L.pure("hello, " + name)
+  )
+```
+
+## Run with List interpreter
+
+```scalascript
+val result: List[String] = greetLogged[List]("world")
+println(result)
+```
+
+## Inherited Monad methods resolve through parent chain
+
+```scalascript
+val chained: List[Int] =
+  listLogged.pure(10).flatMap((x: Int) => List(x, x + 1))
+println(chained)
+```

@@ -1,0 +1,48 @@
+---
+name: conformance-tagless-context-bounds
+version: 1.0.0
+---
+
+# Final Tagless — context-bound desugaring (§3.2)
+
+Exercises Phase 3 of v1.13: `[A: TC]` desugars to `(using TC[A])`.
+Single-bound and chained-bound cases.
+
+[intSum, stringConcat, combineAll](../std/semigroup-monoid.ssc)
+
+## Single context bound via std `Monoid`
+
+```scalascript
+def emptyOf[A: Monoid]: A = summon[Monoid[A]].empty
+
+println(emptyOf[Int])
+println(emptyOf[String])
+```
+
+## Double context bound (Semigroup + identity check)
+
+```scalascript
+trait HasDefault[A]:
+  def default: A
+
+given intDefault: HasDefault[Int] with
+  def default: Int = -1
+
+def combineWithDefault[A: Monoid: HasDefault](xs: List[A]): A =
+  if xs.isEmpty then summon[HasDefault[A]].default
+  else combineAll(xs)
+
+println(combineWithDefault(List(1, 2, 3)))
+println(combineWithDefault(List[Int]()))
+```
+
+## Context-bound summon inside body
+
+```scalascript
+def describeMonoid[A: Monoid](a: A): String =
+  val m = summon[Monoid[A]]
+  "combine(" + m.combine(a, m.empty).toString + ")"
+
+println(describeMonoid(5))
+println(describeMonoid("hi"))
+```
