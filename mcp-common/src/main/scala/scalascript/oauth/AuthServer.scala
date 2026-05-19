@@ -216,28 +216,66 @@ class AuthServer(
 
   /** Decode a presented bearer token (signed by this server) and decide
    *  whether it is still active.  Implements both directions of RFC 7662
-   *  shape: `active: false` for any unparseable/expired token, otherwise
-   *  the full claim set. */
+   *  shape: `active: false` for any unparseable/expired/revoked token,
+   *  otherwise the full claim set. */
   def introspect(token: String): IntrospectionResponse =
     OAuth.decodeHmacToken(config.signingSecret, token) match
       case Left(_) => IntrospectionResponse(active = false)
       case Right(payload) =>
-        IntrospectionResponse(
-          active    = true,
-          subject   = payload.obj.get("sub").flatMap(_.strOpt),
-          scope     = payload.obj.get("scope").flatMap(_.strOpt),
-          clientId  = payload.obj.get("client_id").flatMap(_.strOpt),
-          exp       = payload.obj.get("exp").flatMap(_.numOpt).map(_.toLong),
-          iat       = payload.obj.get("iat").flatMap(_.numOpt).map(_.toLong),
-          tokenType = Some("Bearer")
-        )
+        val jti = payload.obj.get("jti").flatMap(_.strOpt).getOrElse(token)
+        if tokens.isAccessRevoked(jti) then IntrospectionResponse(active = false)
+        else
+          IntrospectionResponse(
+            active    = true,
+            subject   = payload.obj.get("sub").flatMap(_.strOpt),
+            scope     = payload.obj.get("scope").flatMap(_.strOpt),
+            clientId  = payload.obj.get("client_id").flatMap(_.strOpt),
+            exp       = payload.obj.get("exp").flatMap(_.numOpt).map(_.toLong),
+            iat       = payload.obj.get("iat").flatMap(_.numOpt).map(_.toLong),
+            tokenType = Some("Bearer")
+          )
 
   /** A `TokenValidator` (Resource Server side) backed by this AS.
    *  Resource servers wire this in to validate inbound tokens locally
    *  (without a network round-trip), assuming they share the signing
-   *  secret with the AS.  For cross-service deployments use the
-   *  introspection endpoint instead. */
-  def tokenValidator: OAuth.TokenValidator = OAuth.hmacValidator(config.signingSecret)
+   *  secret with the AS.  Honours the access-token revocation list.
+   *  For cross-service deployments use the introspection endpoint
+   *  instead. */
+  def tokenValidator: OAuth.TokenValidator = token =>
+    OAuth.decodeHmacToken(config.signingSecret, token) match
+      case Left(reason) => OAuth.AuthResult.Invalid("invalid_token", reason)
+      case Right(payload) =>
+        val jti = payload.obj.get("jti").flatMap(_.strOpt).getOrElse(token)
+        if tokens.isAccessRevoked(jti) then
+          OAuth.AuthResult.Invalid("invalid_token", "token revoked")
+        else
+          val sub    = payload.obj.get("sub").flatMap(_.strOpt).getOrElse("")
+          val scope  = payload.obj.get("scope").flatMap(_.strOpt).getOrElse("")
+          val scopes = scope.split(' ').iterator.filter(_.nonEmpty).toSet
+          OAuth.AuthResult.Valid(OAuth.AuthClaims(sub, scopes, payload))
+
+  // ─── Token revocation (RFC 7009) ────────────────────────────────────
+
+  /** Revoke a refresh OR access token.  `hint` lets clients optimise
+   *  the lookup; we still fall back to trying the other type when the
+   *  hint comes up empty (RFC 7009 §2.1). */
+  def revokeToken(token: String, hint: TokenTypeHint = TokenTypeHint.Unknown): RevocationOutcome =
+    def tryRefresh: Boolean =
+      tokens.findRefreshToken(token) match
+        case Some(_) => tokens.revokeRefreshToken(token); true
+        case None    => false
+    def tryAccess: Boolean =
+      OAuth.decodeHmacToken(config.signingSecret, token) match
+        case Right(payload) =>
+          val jti = payload.obj.get("jti").flatMap(_.strOpt).getOrElse(token)
+          tokens.revokeAccessToken(jti)
+          true
+        case Left(_) => false
+    val ok = hint match
+      case TokenTypeHint.RefreshToken => tryRefresh || tryAccess
+      case TokenTypeHint.AccessToken  => tryAccess  || tryRefresh
+      case TokenTypeHint.Unknown      => tryRefresh || tryAccess
+    if ok then RevocationOutcome.Revoked else RevocationOutcome.Unknown
 
   // ─── Dynamic Client Registration (RFC 7591) ─────────────────────────
 
@@ -307,7 +345,8 @@ class AuthServer(
     authorizationEndpoint: String = "/authorize",
     tokenEndpoint:         String = "/token",
     introspectionEndpoint: String = "/introspect",
-    registrationEndpoint:  String = "/register"
+    registrationEndpoint:  String = "/register",
+    revocationEndpoint:    String = "/revoke"
   ): ujson.Value =
     val base = config.issuer.stripSuffix("/")
     val obj = ujson.Obj(
@@ -315,6 +354,7 @@ class AuthServer(
       "authorization_endpoint"  -> (base + authorizationEndpoint),
       "token_endpoint"          -> (base + tokenEndpoint),
       "introspection_endpoint"  -> (base + introspectionEndpoint),
+      "revocation_endpoint"     -> (base + revocationEndpoint),
       "response_types_supported" -> ujson.Arr(ujson.Str("code")),
       "grant_types_supported"   -> ujson.Arr(
         ujson.Str("authorization_code"),
@@ -322,6 +362,11 @@ class AuthServer(
         ujson.Str("client_credentials")
       ),
       "token_endpoint_auth_methods_supported" -> ujson.Arr(
+        ujson.Str("client_secret_basic"),
+        ujson.Str("client_secret_post"),
+        ujson.Str("none")
+      ),
+      "revocation_endpoint_auth_methods_supported" -> ujson.Arr(
         ujson.Str("client_secret_basic"),
         ujson.Str("client_secret_post"),
         ujson.Str("none")
@@ -461,6 +506,19 @@ enum TokenOutcome:
   case Issued(response: TokenResponse)
   case Error(error: String, description: String)
 
+/** Hint provided by clients on `/revoke` (`token_type_hint=` form field). */
+enum TokenTypeHint:
+  case AccessToken, RefreshToken, Unknown
+
+/** Revocation outcome.  Per RFC 7009 §2.2 servers MUST respond 200 OK
+ *  even when the token is unknown or already revoked — so the wire
+ *  reply is uniform.  This enum lets callers log what actually
+ *  happened for telemetry without exposing it on the wire. */
+enum RevocationOutcome:
+  case Revoked
+  case Unknown
+  case ClientError(code: String, description: String)
+
 object TokenOutcome:
   extension (o: Error)
     def toJson: ujson.Value =
@@ -529,10 +587,20 @@ trait TokenStore:
   def saveRefreshToken(rec: RefreshTokenRecord): Unit
   def findRefreshToken(token: String): Option[RefreshTokenRecord]
   def revokeRefreshToken(token: String): Unit
+  /** v1.17.x — access-token blacklist for RFC 7009.  Access tokens are
+   *  stateless JWTs in our design; revocation adds the token's `jti`
+   *  claim (or full token when no jti) to a deny-list that
+   *  introspection / validation consult.  Empty by default. */
+  def revokeAccessToken(jtiOrToken: String): Unit
+  /** True iff the supplied identifier was previously passed to
+   *  `revokeAccessToken`.  Callers normally lift the `jti` claim from
+   *  the JWT payload before calling. */
+  def isAccessRevoked(jtiOrToken: String): Boolean
 
 class InMemoryTokenStore extends TokenStore:
-  private val codes    = ConcurrentHashMap[String, AuthorizationCodeRecord]()
-  private val refresh  = ConcurrentHashMap[String, RefreshTokenRecord]()
+  private val codes        = ConcurrentHashMap[String, AuthorizationCodeRecord]()
+  private val refresh      = ConcurrentHashMap[String, RefreshTokenRecord]()
+  private val accessDeny   = ConcurrentHashMap.newKeySet[String]()
   def saveAuthorizationCode(rec: AuthorizationCodeRecord): Unit = codes.put(rec.code, rec)
   def consumeAuthorizationCode(code: String): Option[AuthorizationCodeRecord] =
     Option(codes.remove(code))
@@ -540,3 +608,5 @@ class InMemoryTokenStore extends TokenStore:
   def findRefreshToken(token: String): Option[RefreshTokenRecord] =
     Option(refresh.get(token))
   def revokeRefreshToken(token: String): Unit = { refresh.remove(token); () }
+  def revokeAccessToken(jti: String): Unit    = { accessDeny.add(jti); () }
+  def isAccessRevoked(jti: String): Boolean   = accessDeny.contains(jti)
