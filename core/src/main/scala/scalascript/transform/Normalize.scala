@@ -69,9 +69,18 @@ object Normalize:
   private def content(c: ast.Content): ir.Content = c match
     case ast.Content.Prose(text, sp) =>
       ir.Content.Prose(text, sp.map(span))
-    case ast.Content.CodeBlock(lang, source, _, sp) =>
+    case ast.Content.CodeBlock(lang, source, tree, sp) =>
       if ast.Lang.isScalaScript(lang) then
-        ir.Content.CodeBlock(source = rewriteConsole(source), body = Nil, span = sp.map(span))
+        // v2.0 / Stage 5+ — populate `body` with translated `IrExpr`
+        // trees so `Linker.rewriteExpr` has real data to walk for
+        // cross-module symbol rewriting.  The original `source` is
+        // still emitted unchanged: backends today re-parse from it
+        // (via `Denormalize` → `Parser.parseScalaSource`).
+        val rewrittenSrc = rewriteConsole(source)
+        val bodyIr = tree.toList.map(t =>
+          ast.ScalaNode.fold(t)(AstToIr.toIrExpr)
+        )
+        ir.Content.CodeBlock(source = rewrittenSrc, body = bodyIr, span = sp.map(span))
       else
         // Stage 9+/A — ask the SourceLanguage registry first.  A
         // plugin claiming this fence tag produces the IR fragment
