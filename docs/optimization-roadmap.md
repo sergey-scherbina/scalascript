@@ -7,10 +7,9 @@
 
 ## 1. Deferred items now unblocked
 
-Two milestones were explicitly blocked until v2.0 separate compilation.
-v2.0 landed on 2026-05-19, so both blocks are lifted.
-
 ### v1.16 — Restartable errors
+
+Was blocked until v2.0; **block lifted 2026-05-19** (v2.0 landed).
 
 Common Lisp condition-system style restartable handlers.  A handler
 can choose to resume the suspended computation at the throw point with
@@ -29,15 +28,16 @@ Maps directly onto the v1.9 coroutine primitive: `throw e` becomes
 `suspend(ErrorTag(e))`; the handler stack catches the tag and resumes
 with a replacement value.  Estimated effort: ~1 week.
 
-### v1.12 — Algebraic effects feasibility study
+### v1.12 — Algebraic effects feasibility study — BLOCKED
 
-Investigate OCaml-5 / Koka-style typed effect rows.  Not a shipping
-feature — a design doc + working prototype + go/no-go decision.
-Key open question: can the existing typer carry effect-row information
-(`(Async | Random)[A]`) without a rewrite?
+**Do not start.** Remains blocked by explicit decision — not enough
+concrete demand to justify the research cost right now.  Revisit when
+a real user asks for typed effect rows.
 
-Deliverables: prototype, type-system audit, `docs/algebraic-effects.md`,
-go/no-go decision.  Estimated effort: ~1 week.
+Background: investigates OCaml-5 / Koka-style typed effect rows on top
+of the existing typer.  The question is whether `(Async | Random)[A]`
+can be tracked without a typer rewrite.  Not a shipping feature — would
+produce a design doc + prototype + go/no-go decision.
 
 ---
 
@@ -254,4 +254,3 @@ standalone (without interface files) is straightforward.  Effort: ~1 day.
 | 7 | v1.16 Restartable errors | Language feature, unblocked |
 | 8 | Numeric specialization (2b) | Benchmark-driven, do after profiling |
 | 9 | Incremental type-checking (3b) | Depends on 3a |
-| 10 | v1.12 Effects study | Research, not a feature |
