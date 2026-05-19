@@ -165,3 +165,35 @@ class TyperRealTypesTest extends AnyFunSuite:
     )
     assert(d.tpe == SType.Function(List(SType.Int), SType.Any),
       s"expected (Int) => Any, got ${d.tpe.show}")
+
+  // ── Union / intersection annotations ────────────────────────────────────
+
+  test("declared union return type — `def pick(): Int | String`"):
+    val d = summaryOf(
+      """def pick(): Int | String = 1""",
+      "pick"
+    )
+    assert(d.tpe == SType.Function(
+      Nil,
+      SType.Union(List(SType.Int, SType.String))),
+      s"expected () => Int | String, got ${d.tpe.show}")
+
+  test("declared intersection return type — `def both(): A & B`"):
+    val d = summaryOf(
+      """def both(): A & B = ???""",
+      "both"
+    )
+    val expected = SType.Function(
+      Nil,
+      SType.Intersection(List(SType.Named("A", Nil), SType.Named("B", Nil))))
+    assert(d.tpe == expected,
+      s"expected () => A & B, got ${d.tpe.show}")
+
+  test("declared chained union — `val x: A | B | C`"):
+    val d = summaryOf("""val x: A | B | C = ???""", "x")
+    val expected = SType.Union(List(
+      SType.Named("A", Nil),
+      SType.Named("B", Nil),
+      SType.Named("C", Nil)))
+    assert(d.tpe == expected,
+      s"expected A | B | C, got ${d.tpe.show}")

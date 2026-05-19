@@ -11,6 +11,11 @@ enum SType:
   case Tuple(elems: List[SType])
   case Union(types: List[SType])
   case Intersection(types: List[SType])
+  /** A higher-kinded type parameter such as `F[_]` (arity 1) or
+   *  `F[_, _]` (arity 2).  Surface-only — never participates in
+   *  unification or runtime semantics, but round-trips through
+   *  `show` / `parseSType` so interface artifacts stay structural. */
+  case HigherKinded(name: String, arity: Int)
   case Error(msg: String)
 
   def show: String = this match
@@ -23,8 +28,13 @@ enum SType:
     case Function(List(p), r) => s"${showFnParam(p)} => ${r.show}"
     case Function(params, r)  => s"(${params.map(_.show).mkString(", ")}) => ${r.show}"
     case Tuple(elems)         => s"(${elems.map(_.show).mkString(", ")})"
-    case Union(types)         => types.map(_.show).mkString(" | ")
-    case Intersection(types)  => types.map(_.show).mkString(" & ")
+    // `&` binds tighter than `|`, so nested `Intersection` inside `Union`
+    // prints without parens; the reverse needs them so the precedence
+    // round-trips correctly.
+    case Union(types)         => types.map(showUnionAlt).mkString(" | ")
+    case Intersection(types)  => types.map(showInterAlt).mkString(" & ")
+    case HigherKinded(name, arity) =>
+      s"$name[${List.fill(arity)("_").mkString(", ")}]"
     case Error(msg)           => s"<error: $msg>"
 
   /** Render a type that appears as the *parameter* of a unary function
@@ -35,7 +45,22 @@ enum SType:
    *   - without an extra pair, `(Int, String) => Boolean` reads as a
    *     two-argument function rather than a unary one taking a tuple. */
   private def showFnParam(t: SType): String = t match
-    case _: Function | _: Tuple => s"(${t.show})"
+    case _: Function | _: Tuple | _: Union | _: Intersection => s"(${t.show})"
+    case _                                                   => t.show
+
+  /** Alternative of a top-level `Union`: a nested `Function` or another
+   *  `Union` does not need parens (function arrows bind looser than `|`,
+   *  and `|` is associative-by-flattening here).  A nested `Intersection`
+   *  is fine without parens since `&` binds tighter than `|`. */
+  private def showUnionAlt(t: SType): String = t match
+    case _: Function => s"(${t.show})"
+    case _           => t.show
+
+  /** Alternative of an `Intersection`: a nested `Union` must be
+   *  parenthesised since `&` binds tighter than `|`; a nested `Function`
+   *  similarly needs parens since `=>` is even looser. */
+  private def showInterAlt(t: SType): String = t match
+    case _: Function | _: Union => s"(${t.show})"
     case _                      => t.show
 
   def isError: Boolean = this match

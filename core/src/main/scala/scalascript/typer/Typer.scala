@@ -349,6 +349,23 @@ class Typer(importedInterfaces: Map[String, scalascript.ir.ModuleInterface] = Ma
     case Type.Function.After_4_6_0(params, ret) =>
       SType.Function(params.values.map(typeAnnotToSType).toList, typeAnnotToSType(ret))
     case Type.Tuple(elems) => SType.Tuple(elems.map(typeAnnotToSType))
+    // Surface-level `A | B` / `A & B` — scalameta exposes them as a
+    // `Type.ApplyInfix` whose op is the literal `|` / `&` token.  We
+    // flatten chains so `A | B | C` becomes a single `SType.Union(A, B, C)`
+    // matching the canonical form the parser produces from `.scim`
+    // round-trips.
+    case Type.ApplyInfix(lhs, Type.Name("|"), rhs) =>
+      val l = typeAnnotToSType(lhs)
+      val r = typeAnnotToSType(rhs)
+      val left  = l match { case SType.Union(xs) => xs; case other => List(other) }
+      val right = r match { case SType.Union(xs) => xs; case other => List(other) }
+      SType.Union(left ++ right)
+    case Type.ApplyInfix(lhs, Type.Name("&"), rhs) =>
+      val l = typeAnnotToSType(lhs)
+      val r = typeAnnotToSType(rhs)
+      val left  = l match { case SType.Intersection(xs) => xs; case other => List(other) }
+      val right = r match { case SType.Intersection(xs) => xs; case other => List(other) }
+      SType.Intersection(left ++ right)
     // Qualified type names: `scala.collection.Map`, `std.actors.Spec` etc.
     // Preserve the dotted path verbatim so `SType.show` / `parseSType` can
     // round-trip the interface entry.
