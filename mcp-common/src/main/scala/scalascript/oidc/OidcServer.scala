@@ -65,6 +65,11 @@ class OidcServer(
     val claims = userInfo.find(subject) match
       case Some(u) => u.toClaims(scope).obj
       case None    => ujson.Obj("sub" -> subject).obj
+    // v1.17.x — surface the OIDC `nonce` captured at /authorize time.
+    // Required by the spec when the client supplied one; defeats
+    // replay of the id_token against a different authorize request.
+    val extra = ujson.Obj.from(claims.iterator.filter((k, _) => k != "sub").toMap)
+    as.consumeNonceForSubject(subject, scope).foreach(n => extra("nonce") = n)
     // Identity claims live alongside the JWT-mandatory iss/aud/exp/iat
     // pair.  Signs via the AS's `signer` so an RSA-backed AS produces
     // RS256 id_tokens automatically.
@@ -74,7 +79,7 @@ class OidcServer(
       expiresInSeconds = as.config.accessTokenTtlSeconds,
       issuer           = Some(as.config.issuer),
       audience         = Some(clientId),
-      extra            = ujson.Obj.from(claims.iterator.filter((k, _) => k != "sub").toMap)
+      extra            = extra
     ))
 
   /** Handle a `/userinfo` request.  Validates the bearer token via the

@@ -207,7 +207,8 @@ object OAuthRoutes:
       scope               = parseScope(query.get("scope")),
       state               = query.get("state"),
       codeChallenge       = query.get("code_challenge"),
-      codeChallengeMethod = query.get("code_challenge_method")
+      codeChallengeMethod = query.get("code_challenge_method"),
+      nonce               = query.get("nonce")
     )
     subjectFor(headers) match
       case None =>

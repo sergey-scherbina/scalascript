@@ -160,10 +160,9 @@ object OAuth:
             Left("signature mismatch")
           else
             val payload = ujson.read(decodeB64u(parts(1)))
-            val now     = java.time.Instant.now.getEpochSecond
-            val exp     = payload.obj.get("exp").flatMap(_.numOpt).getOrElse(0.0).toLong
-            if exp != 0 && now > exp then Left("token expired")
-            else Right(payload)
+            validateJwtTimestamps(payload, DefaultClockSkewSeconds) match
+              case Some(reason) => Left(reason)
+              case None         => Right(payload)
       catch case _: Throwable => Left("validation failure")
     override def publicJwk: Option[ujson.Value] =
       Some(rsaPublicJwk(publicKey, kid))
@@ -266,10 +265,22 @@ object OAuth:
       case Left(reason) =>
         AuthResult.Invalid("invalid_token", reason)
 
+  /** v1.17.x — default clock-skew tolerance window for JWT exp / iat /
+   *  nbf checks.  Mirrors common library defaults (Okta / Auth0 / Keycloak
+   *  all use ±60s).  Callers can override via the explicit decode
+   *  helpers below. */
+  val DefaultClockSkewSeconds: Long = 60L
+
   /** Lower-level decode that exposes the payload to callers that need
    *  more than `AuthClaims`.  Returns `Left(reason)` for any structural
-   *  / cryptographic / expiry failure. */
-  def decodeHmacToken(secret: String, token: String): Either[String, ujson.Value] =
+   *  / cryptographic / expiry failure.  Honours `clockSkewSeconds`
+   *  tolerance on the `exp` check so legitimate tokens don't silently
+   *  fail across a tiny clock drift between AS and RS. */
+  def decodeHmacToken(
+    secret:           String,
+    token:            String,
+    clockSkewSeconds: Long = DefaultClockSkewSeconds
+  ): Either[String, ujson.Value] =
     try
       val parts = token.split('.')
       if parts.length != 3 then Left("malformed token")
@@ -280,11 +291,34 @@ object OAuth:
           Left("signature mismatch")
         else
           val payloadJson = ujson.read(decodeB64u(parts(1)))
-          val now         = java.time.Instant.now.getEpochSecond
-          val exp         = payloadJson.obj.get("exp").flatMap(_.numOpt).getOrElse(0.0).toLong
-          if exp != 0 && now > exp then Left("token expired")
-          else Right(payloadJson)
+          validateJwtTimestamps(payloadJson, clockSkewSeconds) match
+            case Some(reason) => Left(reason)
+            case None         => Right(payloadJson)
     catch case _: Throwable => Left("validation failure")
+
+  /** Validate the standard JWT timestamp claims (`exp`, `nbf`, `iat`)
+   *  against the current clock with a tolerance window.  Returns
+   *  `Some(reason)` on any failure or `None` when the token is within
+   *  bounds.  Missing claims are not enforced — only enforce what's
+   *  present (matches typical OAuth ecosystem behaviour). */
+  def validateJwtTimestamps(payload: ujson.Value, clockSkewSeconds: Long): Option[String] =
+    try
+      val now  = java.time.Instant.now.getEpochSecond
+      val exp  = payload.obj.get("exp").flatMap(_.numOpt).map(_.toLong)
+      val nbf  = payload.obj.get("nbf").flatMap(_.numOpt).map(_.toLong)
+      val iat  = payload.obj.get("iat").flatMap(_.numOpt).map(_.toLong)
+      // `exp` is past now + skew → expired.  Zero is treated as "not set".
+      if exp.exists(e => e != 0 && now > e + clockSkewSeconds) then
+        Some("token expired")
+      // `nbf` is future, beyond the skew window → not-yet-valid.
+      else if nbf.exists(n => now < n - clockSkewSeconds) then
+        Some("token not yet valid (nbf in the future)")
+      // `iat` is far in the future — a sign of a clock-skewed AS or a
+      // forged token.  Allow 1h of grace before flagging.
+      else if iat.exists(i => now < i - 3600L) then
+        Some("token issued in the future")
+      else None
+    catch case _: Throwable => Some("malformed timestamps")
 
   // ─── PKCE (RFC 7636) ────────────────────────────────────────────────
 

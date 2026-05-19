@@ -645,6 +645,61 @@ unblocks downstream features as early as possible.
 
      **v1.17.x is now feature-complete** for MCP + OAuth + OIDC +
      all the spec-grade auth surface a real production AS needs.
+
+     **Iter JJ — Security correctness** ✓ — closed three critical
+     security holes the audit flagged.
+
+       - **`aud` audience validation** in `OAuthGuard.check(...,
+         expectedAudience = Some("api-a"))`.  RS now refuses tokens
+         whose `aud` claim doesn't include its identifier — defeats
+         the "token issued for RS-A used at RS-B" attack.  Accepts
+         both string and array forms of `aud` per RFC 7519 §4.1.3.
+       - **OIDC `nonce` claim** round-trip: `AuthorizationRequest`
+         + `/authorize` route + `AuthorizationCodeRecord` carry it
+         from the authorize step to the AS's nonce side-map; OIDC
+         `mintIdToken` pulls it out + embeds in the id_token —
+         defeats id_token replay against a different request.
+       - **Clock-skew tolerance** (`DefaultClockSkewSeconds = 60`)
+         on JWT `exp` / `nbf` / `iat` checks.  Single
+         `validateJwtTimestamps(payload, skew)` helper shared by
+         the HMAC + RSA signer paths.  Defeats spurious failures
+         from sub-second clock drift between AS and RS; far-future
+         `iat` is rejected as a forgery signal.
+
+     **Security hardening backlog** (remaining iterations):
+
+     **Iter KK — Refresh-token reuse detection + rate limiting**:
+        token-family tracking so a stolen refresh token can be
+        detected on second-use (RFC OAuth 2.1 §4.14.2); per-IP +
+        per-client rate limits on `/token` to defeat brute-force
+        credential probing (sliding-window token bucket).
+
+     3. **Iter LL — Client SDK completeness**: CSRF-safe state
+        parameter helpers (generate + verify); JWKS-backed external
+        JWT validation (`OAuthClient.validateJwt(token, jwksUri)`)
+        with bounded cache (the matching RS path uses the same
+        cache); id_token signature + claims validation on the
+        client side; token-storage trait (in-memory + file-backed
+        defaults so users can pick).
+
+     4. **Iter MM — Production hardening**: TLS-only enforcement
+        flag on AS routes (reject `http://` outside of `localhost`
+        loopback); CORS policy on every OAuth endpoint (defaults to
+        same-origin; user opens up); audit-logging hook
+        (`onAuthEvent: AuthEvent => Unit`) firing on every
+        token-issuance / failure / revocation; MCP-client 401 → RS-
+        metadata-discovery → AS-discovery → re-auth bootstrap chain
+        so connect() can recover from an expired bearer.
+
+     5. **Iter NN — OAuth client script intrinsics**: `oauth.client`
+        namespace mirroring `OAuthClient` so `.ssc` apps can run
+        the full auth-code+PKCE flow + token exchange + holder
+        without dropping to Scala.
+
+     6. **Iter OO — Advanced OAuth specs (optional)**: DPoP (RFC 9449
+        sender-constrained tokens); PAR (RFC 9126 Pushed Authorization
+        Requests); MTLS client auth (RFC 8705 — depends on ALPN /
+        client-cert chains, gated behind cert-store availability).
  22. **v1.18 — `package` keyword + std layout migration** ✓ Landed (all phases, 2026-05-19).
  23. **v1.19 — URL / dep imports** ✓ Landed.
      `[X](https://...)` URL fetch + `[X](dep:org/lib:1.2)`

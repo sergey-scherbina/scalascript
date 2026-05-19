@@ -63,7 +63,7 @@ class OAuthRsaJwksTest extends AnyFunSuite with Matchers:
   test("RsaTokenSigner rejects expired tokens"):
     val s = OAuth.RsaTokenSigner.generate()
     val expired = s.sign(OAuth.buildAccessTokenPayload(
-      "u", Set("x"), -1L))  // exp in the past
+      "u", Set("x"), -120L))  // exp 2 min in the past — beyond 60s skew tolerance
     s.verify(expired) match
       case Left(reason) => reason should include ("expired")
       case other        => fail(s"got $other")

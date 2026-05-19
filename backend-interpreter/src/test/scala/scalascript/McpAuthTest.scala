@@ -22,7 +22,8 @@ class McpAuthTest extends AnyFunSuite with Matchers:
       case other => fail(s"expected Valid, got $other")
 
   test("HMAC validator rejects expired tokens"):
-    val token = McpAuth.issueHmacToken("s", "x", Set.empty, -10L)  // already past exp
+    // -120s — well past the 60s clock-skew tolerance (Iter JJ)
+    val token = McpAuth.issueHmacToken("s", "x", Set.empty, -120L)
     McpAuth.hmacValidator("s")(token) match
       case McpAuth.AuthResult.Invalid(code, _) => code shouldBe "invalid_token"
       case other => fail(s"expected Invalid, got $other")

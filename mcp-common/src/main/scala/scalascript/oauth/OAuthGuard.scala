@@ -38,10 +38,15 @@ object OAuthGuard:
    *    - Deny(401 invalid_token)   when validator rejects the token
    *    - Deny(403 insufficient_scope) when scopes don't cover requiredScopes */
   def check(
-    headers:        Map[String, String],
-    validator:      OAuth.TokenValidator,
-    requiredScopes: Set[String]  = Set.empty,
-    realm:          String        = "api"
+    headers:           Map[String, String],
+    validator:         OAuth.TokenValidator,
+    requiredScopes:    Set[String]    = Set.empty,
+    realm:             String          = "api",
+    /** v1.17.x — expected `aud` (audience) claim.  When set, the token's
+     *  `aud` MUST match — defeats the "token issued for another RS gets
+     *  honoured at this RS" attack.  None = no audience check (the
+     *  default, for tokens that don't carry an audience). */
+    expectedAudience:  Option[String] = None
   ): GuardDecision =
     OAuth.extractBearer(headers) match
       case Left(code) =>
@@ -50,11 +55,30 @@ object OAuthGuard:
         case OAuth.AuthResult.Invalid(code, descr) =>
           GuardDecision.Deny(unauthorized(realm, code, descr))
         case OAuth.AuthResult.Valid(claims) =>
-          val missing = requiredScopes -- claims.scopes
-          if missing.nonEmpty then
-            GuardDecision.Deny(insufficientScope(realm, requiredScopes, missing))
+          // v1.17.x — audience binding check.  Refuses tokens whose
+          // `aud` doesn't match this RS's identifier.
+          val audOk = expectedAudience match
+            case Some(expected) => audienceOf(claims.extra).contains(expected)
+            case None           => true
+          if !audOk then
+            GuardDecision.Deny(unauthorized(realm, "invalid_token",
+              "token audience does not match this resource server"))
           else
-            GuardDecision.Allow(claims)
+            val missing = requiredScopes -- claims.scopes
+            if missing.nonEmpty then
+              GuardDecision.Deny(insufficientScope(realm, requiredScopes, missing))
+            else
+              GuardDecision.Allow(claims)
+
+  /** Extract the set of audiences a JWT's payload declares.  Per RFC
+   *  7519 §4.1.3, `aud` MAY be either a string or an array of strings;
+   *  callers MUST accept both. */
+  private def audienceOf(payload: ujson.Value): Set[String] =
+    try payload.obj.get("aud") match
+      case Some(ujson.Str(s))  => Set(s)
+      case Some(ujson.Arr(xs)) => xs.iterator.flatMap(_.strOpt).toSet
+      case _                    => Set.empty
+    catch case _: Throwable => Set.empty
 
   /** Convenience: just say yes/no without surfacing the claims.  Useful
    *  for boolean middleware-style checks where the handler doesn't need

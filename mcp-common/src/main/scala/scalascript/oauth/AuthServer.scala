@@ -58,6 +58,28 @@ class AuthServer(
   val signer: OAuth.TokenSigner =
     customSigner.getOrElse(new OAuth.HmacTokenSigner(config.signingSecret))
 
+  /** v1.17.x — OIDC nonce captured at the authorize step is exposed to
+   *  the OidcServer for inclusion in the id_token at /token time.
+   *  Single-use, consumed when the matching code is redeemed.  Storage
+   *  lives here so the AS can clear it alongside the code regardless
+   *  of whether an OidcServer wraps this AS or not. */
+  private val pendingNonces =
+    new java.util.concurrent.ConcurrentHashMap[String, String]()
+
+  /** Look up the nonce stashed at issueAuthorizationCode time + remove
+   *  it from the pending map.  Called by OidcServer.mintIdToken when
+   *  it knows the matching subject + token but needs the nonce from
+   *  the original authorize step. */
+  def consumeNonceForSubject(subject: String, scope: Set[String]): Option[String] =
+    // Look for any pending nonce keyed by `<subject>:<sorted-scope>` — we
+    // record under that key at issueAuthorizationCode time so OidcServer
+    // can pull it out without re-correlating by code.
+    val key = nonceKey(subject, scope)
+    Option(pendingNonces.remove(key))
+
+  private def nonceKey(subject: String, scope: Set[String]): String =
+    subject + ":" + scope.toList.sorted.mkString(",")
+
   // ─── Authorization endpoint ─────────────────────────────────────────
 
   /** Decision logic for the authorization endpoint AFTER the user has
@@ -93,9 +115,13 @@ class AuthServer(
             subject             = subject,
             codeChallenge       = req.codeChallenge,
             codeChallengeMethod = req.codeChallengeMethod.orElse(req.codeChallenge.map(_ => "plain")),
-            expiresAt           = java.time.Instant.now.getEpochSecond + config.authorizationCodeTtlSeconds
+            expiresAt           = java.time.Instant.now.getEpochSecond + config.authorizationCodeTtlSeconds,
+            nonce               = req.nonce
           )
           tokens.saveAuthorizationCode(rec)
+          // v1.17.x — stash the nonce for the matching subject+scope
+          // so the OIDC layer can pull it out at id_token mint time.
+          req.nonce.foreach(n => pendingNonces.put(nonceKey(subject, req.scope), n))
           AuthorizationOutcome.CodeRedirect(req.redirectUri, code, req.state)
 
   // ─── Token endpoint ─────────────────────────────────────────────────
@@ -502,7 +528,11 @@ case class AuthorizationRequest(
   scope:               Set[String]    = Set.empty,
   state:               Option[String] = None,
   codeChallenge:       Option[String] = None,
-  codeChallengeMethod: Option[String] = None
+  codeChallengeMethod: Option[String] = None,
+  /** v1.17.x — OIDC `nonce` parameter.  Echoed verbatim into the
+   *  id_token so the client can correlate the response with its
+   *  original authorization request and defeat replay attacks. */
+  nonce:               Option[String] = None
 )
 
 enum AuthorizationOutcome:
@@ -652,7 +682,10 @@ case class AuthorizationCodeRecord(
   subject:             String,
   codeChallenge:       Option[String],
   codeChallengeMethod: Option[String],
-  expiresAt:           Long
+  expiresAt:           Long,
+  /** v1.17.x — OIDC nonce captured at the authorize step; echoed
+   *  verbatim into the id_token at /token redemption. */
+  nonce:               Option[String] = None
 )
 
 case class RefreshTokenRecord(
