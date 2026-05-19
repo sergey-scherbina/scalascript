@@ -778,6 +778,19 @@ lazy val blockchainEvm = project
     Test    / scalacOptions ++= sharedScalacOptions,
   )
 
+// Micropayment platform SPI (docs/micropayment-spi.md)
+// ---------------------------------------------------------------------------
+
+lazy val micropaymentSpi = project
+  .in(file("micropayment-spi"))
+  .dependsOn(blockchainSpi, walletSpi)
+  .settings(
+    name := "scalascript-micropayment-spi",
+    libraryDependencies ++= Seq(scalatestTest),
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions,
+  )
+
 lazy val root = project
   .in(file("."))
   .aggregate(
@@ -791,7 +804,8 @@ lazy val root = project
     x402Core, x402Server, x402Client,
     x402FacilitatorCoinbase, x402FacilitatorEvm, x402FacilitatorCardano,
     x402QueueKafka, x402QueuePostgres, x402NoncePostgres, x402NonceRedis,
-    cryptoSpi, cryptoBouncycastle, blockchainSpi, blockchainEvm, walletSpi, walletStrategyEoa
+    cryptoSpi, cryptoBouncycastle, blockchainSpi, blockchainEvm, walletSpi, walletStrategyEoa,
+    micropaymentSpi,
   )
   .settings(
     publish / skip := true
