@@ -25,6 +25,101 @@ object JvmGen:
   ): String =
     JvmGen(baseDir, intrinsics, lockPath).genModule(module)
 
+  // ─── v2.0 Phase 2 — split-runtime emit ──────────────────────────────────
+  //
+  // The full `generate` above emits a self-contained Scala 3 script with
+  // ~180 KB of runtime preamble baked in front of the user code.  When
+  // shipping `.scjvm` artifacts with `classBundle`s, this preamble is
+  // compiled into EVERY module's bundle — a 2-module JAR balloons to
+  // 500+ KB even though the user code is ~10 KB.
+  //
+  // The split emit factors the preamble into a separate compilation unit
+  // wrapped in `package _ssc_runtime` so that the runtime classes can be
+  // compiled once per session and shared across modules.  User modules
+  // emit only their own code with `import _ssc_runtime.{*, given}`
+  // prepended so the same identifiers (`_show`, `_handle`, `route`, …)
+  // resolve at compile time.
+  //
+  // The textual concat result of `generateRuntime(allCapabilities) +
+  // generateUserOnly(module, …)` produces a single source equivalent to
+  // the legacy `generate` output, modulo the surrounding `package` block.
+
+  /** Identifier for a runtime capability that the user module depends on.
+   *  Drives the `generateRuntime` capability switch and determines which
+   *  helper blocks (effects, actors, reactive, dataset, …) are emitted. */
+  sealed trait Capability
+  object Capability:
+    case object Effects     extends Capability  // Free-Monad runtime; gated by `effectOps.nonEmpty`
+    case object MutualTco   extends Capability  // mutual tail-call trampoline
+    case object Reactive    extends Capability  // Signal / computed / effect
+    case object Serve       extends Capability  // REST routing + HTTP / WS server
+    case object Mcp         extends Capability  // MCP server / client runtime
+    case object Dataset     extends Capability  // Dataset[T] lazy pipeline
+    case object Json        extends Capability  // standalone JSON helpers
+    case object Reserved    extends Capability  // placeholder for backward-compat union
+
+    val all: Set[Capability] = Set(Effects, MutualTco, Reactive, Serve, Mcp, Dataset, Json)
+
+    /** Encode a capability as a stable, persistence-safe string.
+     *  These strings appear in `.scjvm-runtime` envelopes — do not rename. */
+    def encode(c: Capability): String = c match
+      case Effects   => "effects"
+      case MutualTco => "mutual-tco"
+      case Reactive  => "reactive"
+      case Serve     => "serve"
+      case Mcp       => "mcp"
+      case Dataset   => "dataset"
+      case Json      => "json"
+      case Reserved  => "reserved"
+
+    def decode(s: String): Option[Capability] = s match
+      case "effects"    => Some(Effects)
+      case "mutual-tco" => Some(MutualTco)
+      case "reactive"   => Some(Reactive)
+      case "serve"      => Some(Serve)
+      case "mcp"        => Some(Mcp)
+      case "dataset"    => Some(Dataset)
+      case "json"       => Some(Json)
+      case "reserved"   => Some(Reserved)
+      case _            => None
+
+  /** Inspect `module` (parsing imports under `baseDir`) and return the
+   *  capability set its emitted code would depend on.  Used by
+   *  `compile-jvm --bytecode` to compute the union of capabilities across
+   *  all modules before compiling the shared runtime. */
+  def detectCapabilities(
+      module:     Module,
+      baseDir:    Option[os.Path] = None,
+      intrinsics: Map[scalascript.ir.QualifiedName, scalascript.backend.spi.IntrinsicImpl] = Map.empty,
+      lockPath:   Option[os.Path] = None
+  ): Set[Capability] =
+    JvmGen(baseDir, intrinsics, lockPath).detectCapabilities(module)
+
+  /** Emit the runtime preamble for the given capability set, wrapped in
+   *  `package _ssc_runtime`.  No user code is included.
+   *
+   *  The output is valid Scala 3 source suitable for one-shot compilation
+   *  into a classBundle that is shared across modules.  `private` access
+   *  modifiers in the preamble are dropped so wildcard-imported user code
+   *  can still reach helper names like `_toJson` / `_lookupKey`.
+   *
+   *  v2.0 Phase 2 — split-runtime emit. */
+  def generateRuntime(capabilities: Set[Capability]): String =
+    JvmGen(None, Map.empty, None).genRuntime(capabilities)
+
+  /** Emit user code only — no runtime preamble — prepended with
+   *  `import _ssc_runtime.{given, *}` so the wildcard-imported helpers
+   *  from the shared runtime resolve at compile time.
+   *
+   *  v2.0 Phase 2 — split-runtime emit. */
+  def generateUserOnly(
+      module:     Module,
+      baseDir:    Option[os.Path] = None,
+      intrinsics: Map[scalascript.ir.QualifiedName, scalascript.backend.spi.IntrinsicImpl] = Map.empty,
+      lockPath:   Option[os.Path] = None
+  ): String =
+    JvmGen(baseDir, intrinsics, lockPath).genUserOnly(module)
+
   private case class Block(node: ScalaNode, src: String)
   /** A heading-bound `html` / `css` code block: render to a string in the
    *  same source position as the surrounding parsed blocks, then bind to
@@ -141,6 +236,146 @@ class JvmGen(
     mainEntry.foreach { name => sb.append(s"$name()\n") }
 
     sb.toString.stripTrailing() + "\n"
+
+  // ─── v2.0 Phase 2 — split-runtime emit helpers ──────────────────────────
+
+  /** Capability detection — mirrors the gating predicates used inside
+   *  `genModule` (effects, mutual TCO, reactive, …) but returns a stable
+   *  `Set[Capability]` instead of toggling internal flags. */
+  def detectCapabilities(module: Module): Set[JvmGen.Capability] =
+    import JvmGen.Capability.*
+    moduleDeps = module.manifest.map(_.dependencies).getOrElse(Map.empty)
+    val blocks = collectBlocks(module.sections)
+    analyzeEffects(blocks)
+    analyzeMutualRecursion(blocks)
+    val frontmatterRoutes = module.manifest.toList.flatMap(_.routes)
+    val caps = scala.collection.mutable.Set.empty[JvmGen.Capability]
+    if effectOps.nonEmpty                                  then caps += Effects
+    if mutualGroups.nonEmpty                               then caps += MutualTco
+    if blocksUseReactive(blocks)                           then caps += Reactive
+    if effectOps.nonEmpty || blocksUseRoutes(blocks) ||
+       frontmatterRoutes.nonEmpty || blocksUseJson(blocks) ||
+       blocksUseMcp(blocks)                                then caps += Serve
+    if blocksUseMcp(blocks)                                then caps += Mcp
+    if blocksUseDataset(blocks)                            then caps += Dataset
+    if blocksUseJson(blocks)                               then caps += Json
+    caps.toSet
+
+  /** Emit the runtime preamble wrapped in `package _ssc_runtime`, gated by
+   *  `capabilities`.  The contents mirror the gating logic of `genModule`
+   *  but emit a self-contained Scala 3 file with no user code. */
+  def genRuntime(capabilities: Set[JvmGen.Capability]): String =
+    import JvmGen.Capability.*
+    val body = StringBuilder()
+    body.append(preamble)
+    body.append(commonRuntime)
+    body.append(generatorRuntime)
+    body.append(fsRuntime)
+    // HTML tag bindings: emit all of them — the runtime doesn't know which
+    // names the user shadows, so we drop tags into the runtime package and
+    // user code shadows via its own top-level definitions where it wants
+    // to (Scala 3 resolves the local binding over the wildcard import).
+    body.append(htmlDslTagBindings(Set.empty))
+    if capabilities.contains(Effects)   then body.append(effectsRuntime)
+    if capabilities.contains(MutualTco) then body.append(mutualTcoRuntime)
+    if capabilities.contains(Reactive)  then body.append(reactiveRuntime)
+    if capabilities.contains(Serve)     then body.append(serveRuntime)
+    if capabilities.contains(Mcp)       then body.append(JvmRuntimeMcp)
+    if capabilities.contains(Dataset)   then body.append(JvmRuntimeDataset)
+
+    // Wrap in package + drop `private` modifiers so user code with
+    // `import _ssc_runtime.*` can reach helper names like `_toJson` /
+    // `_lookupKey` / `_renderChild`.  At the top of the runtime source
+    // we also add an MCP-dep directive when the runtime carries the
+    // MCP block (matches what `genModule` would prepend).
+    val header = StringBuilder()
+    if capabilities.contains(Mcp) then
+      header.append(s"""//> using dep "$JvmMcpDep"\n""")
+    header.append("package _ssc_runtime\n\n")
+
+    val depinned = stripPrivateModifiers(body.toString)
+    header.append(depinned)
+    header.toString.stripTrailing() + "\n"
+
+  /** Emit user code only, prepending `import _ssc_runtime.{given, *}` so
+   *  the wildcard-imported helpers from the shared runtime resolve at
+   *  compile time.  No runtime preamble is included. */
+  def genUserOnly(module: Module): String =
+    moduleDeps = module.manifest.map(_.dependencies).getOrElse(Map.empty)
+    val blocks = collectBlocks(module.sections)
+    analyzeEffects(blocks)
+    analyzeMutualRecursion(blocks)
+    val sb = StringBuilder()
+
+    // Carry the same `//> using dep` directives the legacy emit would
+    // produce; scala-cli treats them as no-ops in non-script files but
+    // a `.sc` script needs them for any non-stdlib deps.
+    module.manifest.foreach { m =>
+      m.dependencies.foreach { (dep, version) =>
+        if !version.startsWith("http://") && !version.startsWith("https://") then
+          sb.append(s"""//> using dep "$dep:$version"\n""")
+      }
+    }
+    if blocksUseMcp(blocks) then
+      sb.append(s"""//> using dep "$JvmMcpDep"\n""")
+
+    // Bring the shared runtime symbols into scope.  `given` is needed for
+    // any extension methods / typeclass instances the runtime exposes,
+    // and `*` covers values / defs / classes / objects.
+    sb.append("import _ssc_runtime.{given, *}\n\n")
+
+    val frontmatterRoutes = module.manifest.toList.flatMap(_.routes)
+    frontmatterRoutes.foreach { r =>
+      val esc = r.path.replace("\\", "\\\\").replace("\"", "\\\"")
+      sb.append(s"""route("${r.method}", "$esc") { req => ${r.handler}(req) }\n""")
+    }
+    if frontmatterRoutes.nonEmpty then sb.append("\n")
+
+    // i18n table injection — same as `genModule`.
+    module.manifest.foreach { m =>
+      if m.translations.nonEmpty then
+        val entries = m.translations.map { (locale, kvs) =>
+          val pairs = kvs.map { (k, v) =>
+            val ek = k.replace("\\", "\\\\").replace("\"", "\\\"")
+            val ev = v.replace("\\", "\\\\").replace("\"", "\\\"")
+            s""""$ek" -> "$ev""""
+          }.mkString(", ")
+          s""""$locale" -> Map($pairs)"""
+        }.mkString(", ")
+        sb.append(s"_i18nTable = Map($entries)\n\n")
+    }
+
+    blocks.foreach { block =>
+      sb.append(emitBlock(block).stripTrailing())
+      sb.append("\n\n")
+    }
+
+    emitStringBlocks(sb)
+
+    val mainEntry = module.manifest
+      .flatMap(_.raw.get("main"))
+      .collect { case s: String => s }
+    mainEntry.foreach { name => sb.append(s"$name()\n") }
+
+    sb.toString.stripTrailing() + "\n"
+
+  /** Strip top-level `private` access modifiers from a Scala source block.
+   *  Used by `genRuntime` so wildcard-imported user code can reach helper
+   *  names the legacy script-mode emit kept private.  Conservative pattern:
+   *  only strip `private ` (with trailing space) at the start of a line —
+   *  in-line `private` qualifiers (e.g. `class C: private val x = …`)
+   *  stay intact because changing class-private visibility could break
+   *  the runtime's own internal contracts. */
+  private def stripPrivateModifiers(src: String): String =
+    src.linesIterator
+      .map { l =>
+        // Match leading whitespace then `private ` (NOT `private[`, NOT
+        // a comment) — only at indent depth 0 (top-level inside the
+        // wrapping `package _ssc_runtime` block).
+        if l.startsWith("private ") then l.drop("private ".length)
+        else l
+      }
+      .mkString("\n") + (if src.endsWith("\n") then "\n" else "")
 
   private def emitStringBlocks(sb: StringBuilder): Unit =
     if stringBlocks.isEmpty then return
