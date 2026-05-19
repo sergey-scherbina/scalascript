@@ -1040,6 +1040,16 @@ lazy val micropaymentChannelEvm = project
     Test    / scalacOptions ++= sharedScalacOptions,
   )
 
+lazy val micropaymentHydra = project
+  .in(file("micropayment-hydra"))
+  .dependsOn(micropaymentSpi, blockchainSpi)
+  .settings(
+    name := "scalascript-micropayment-hydra",
+    libraryDependencies ++= Seq("com.lihaoyi" %% "upickle" % "3.3.1", scalatestTest),
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions,
+  )
+
 lazy val root = project
   .in(file("."))
   .aggregate(
@@ -1054,7 +1064,7 @@ lazy val root = project
     x402FacilitatorCoinbase, x402FacilitatorEvm, x402FacilitatorCardano,
     x402QueueKafka, x402QueuePostgres, x402NoncePostgres, x402NonceRedis,
     cryptoSpi, cryptoBouncycastle, blockchainSpi, blockchainEvm, blockchainEvmAbi, walletSpi, walletStrategyEoa, walletConnectorEip1193, walletConnect, mcpWallet, mcpX402,
-    micropaymentSpi, micropaymentThreshold, micropaymentServer, micropaymentClient, micropaymentProbabilistic, micropaymentChannelEvm,
+    micropaymentSpi, micropaymentThreshold, micropaymentServer, micropaymentClient, micropaymentProbabilistic, micropaymentChannelEvm, micropaymentHydra,
     frontendCore, frontendCustom, frontendReact, frontendSolid, frontendVue,
   )
   .settings(

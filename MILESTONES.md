@@ -7679,21 +7679,20 @@ Removed x402 `Facilitator`/`NonceStore` from `ThresholdChannel`; settlement now 
 `chain.buildTransaction(TxIntent.TokenTransferAuthorized)` + `strategy.signTransaction` +
 `chain.broadcast`. Removed `x402Core` build dependency; unified upickle to 3.3.1.
 
-### Phase 4 — EVM state channels (`micropayment-channel-evm`)
+### Phase 4 — EVM state channels (`micropayment-channel-evm`) ✓ Landed (2026-05-20)
 
-Depends on: Phase 1, `blockchain-spi` Phase 2 (`buildTransaction` + `broadcast`), `blockchain-evm` Phase 2.
+`PaymentChannel` Solidity contract (`submitFinalState`, `challenge`, `cooperativeClose`, `finalise`).
+`StateChannel` — payer-side `pay()` (EIP-712 personal_sign), payee-side `receive()` (sig recovery),
+`settle()` / `challenge()` / `cooperativeClose()`. ABI encoding via `PaymentChannelAbi`.
+`StateChannelProvider` — deploys contract via `TxIntent.Deploy` + `predictDeployAddress`, or
+wraps existing contract. 16 tests (lifecycle, cooperative close, dispute path, provider, ABI helpers).
 
-- [ ] `PaymentChannel` Solidity contract (compiled via smart-contracts toolchain; deploy via `TxIntent.Deploy`)
-- [ ] `micropayment-channel-evm` — `StateChannelProvider`
-- [ ] Cooperative close path + unilateral close path
-- [ ] Dispute window enforcement (local timer + chain query)
-- [ ] Tests: Anvil local node, full open → pay × N → close cycle, dispute scenario
+### Phase 5 — Cardano Hydra heads (`micropayment-hydra`) ✓ Landed (2026-05-20)
 
-### Phase 5 — Cardano Hydra heads (`micropayment-hydra`)
-
-Depends on: Phase 1, `blockchain-spi` Phase 6 (`blockchain-cardano`), Hydra node WebSocket API.
-
-- [ ] `micropayment-hydra` — `HydraHeadProvider`
-- [ ] Hydra node WebSocket client (Scala JVM, `java.net.http.WebSocket`)
-- [ ] Head commit / open / tx-submission / close / contest lifecycle
-- [ ] Tests: Hydra devnet (Docker-based)
+`HydraNodeClient` trait — Java 11 `java.net.http.WebSocket` live impl + in-process `StubHydraNodeClient`.
+`HydraMessage` — `HydraServerMsg` (HeadIsOpen, TxValid, TxInvalid, HeadIsClosed, HeadIsFinalized, …)
++ `HydraClientMsg` (NewTx, Close, Fanout) with JSON parsing/serialisation.
+`HydraChannel` — payer-side `pay()` (NewTx → waits TxValid via Promise), payee-side `receive()`
+(waits TxValid for txId from receipt), `settle()` (Close → HeadIsClosed → Fanout → HeadIsFinalized).
+`HydraHeadProvider` — opens channel against a connected Hydra node; `stub()` helper for tests.
+18 tests (pay/receive lifecycle, TxInvalid error, settle path, threshold policy, provider, message parsing).
