@@ -11,11 +11,16 @@ class X402ClientTest extends AnyFunSuite:
 
   private val testWallet = Wallets.privateKey("0x" + "ab" * 32, Network.Base)
 
+  // 20-byte hex address — required since signEip712 now does real ABI-style
+  // encoding of `address` fields (Eip712.encodeValue) and rejects malformed
+  // hex. Pre-Phase-1 the SHA-256 stub accepted arbitrary "0x..." strings.
+  private val testPayTo = "0x1111111111111111111111111111111111111111"
+
   private val testReq = PaymentRequirements(
     scheme      = PaymentScheme.Exact(1_000_000L),
     network     = Network.Base,
     asset       = Assets.USDC_BASE,
-    payTo       = "0xpayTo",
+    payTo       = testPayTo,
     resource    = "/api/premium",
     description = "Test access",
   )
@@ -29,7 +34,7 @@ class X402ClientTest extends AnyFunSuite:
         "network"           -> "Base",
         "chainId"           -> 8453,
         "asset"             -> ujson.Obj("address" -> Assets.USDC_BASE.address, "symbol" -> "USDC", "decimals" -> 6),
-        "payTo"             -> "0xpayTo",
+        "payTo"             -> testPayTo,
         "resource"          -> "/api/premium",
         "description"       -> "Test access",
         "maxTimeoutSeconds" -> 300,
@@ -52,10 +57,30 @@ class X402ClientTest extends AnyFunSuite:
     assert(testWallet.network == Network.Base)
   }
 
-  test("signEip712 returns a hex string") {
-    val domain = Eip712Domain("USD Coin", "2", 8453, "0xcontract")
-    val sig    = Await.result(testWallet.signEip712(domain, Map.empty, Map.empty), 5.seconds)
+  test("signEip712 returns a real 65-byte ECDSA hex signature") {
+    val domain = Eip712Domain("USD Coin", "2", 8453, "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913")
+    val types  = Map(
+      "TransferWithAuthorization" -> Seq(
+        "address" -> "from",
+        "address" -> "to",
+        "uint256" -> "value",
+        "uint256" -> "validAfter",
+        "uint256" -> "validBefore",
+        "bytes32" -> "nonce",
+      ),
+    )
+    val value  = Map[String, Any](
+      "from"        -> testWallet.address,
+      "to"          -> testPayTo,
+      "value"       -> "1000000",
+      "validAfter"  -> "0",
+      "validBefore" -> "9999999999",
+      "nonce"       -> ("0x" + "01" * 32),
+    )
+    val sig = Await.result(testWallet.signEip712(domain, types, value), 5.seconds)
     assert(sig.startsWith("0x"))
+    // 65-byte signature (r||s||v) → 130 hex chars + "0x" prefix
+    assert(sig.length == 2 + 130, s"unexpected signature length: ${sig.length}")
   }
 
   // ── Wallets.envKey ───────────────────────────────────────────────────────────
@@ -71,7 +96,7 @@ class X402ClientTest extends AnyFunSuite:
   test("PayloadBuilder.build produces valid payload") {
     val payload = Await.result(PayloadBuilder.build(testWallet, testReq), 5.seconds)
     assert(payload.network       == Network.Base)
-    assert(payload.authorization.to == "0xpayTo")
+    assert(payload.authorization.to == testPayTo)
     assert(payload.authorization.value == BigInt(1_000_000))
     assert(payload.signature.startsWith("0x"))
   }
@@ -183,7 +208,7 @@ class X402ClientTest extends AnyFunSuite:
         "network"           -> "Base",
         "chainId"           -> 8453,
         "asset"             -> ujson.Obj("address" -> Assets.USDC_BASE.address, "symbol" -> "USDC", "decimals" -> 6),
-        "payTo"             -> "0xpayTo",
+        "payTo"             -> testPayTo,
         "resource"          -> "/api/stream",
         "description"       -> "Metered access",
         "maxTimeoutSeconds" -> 300,
@@ -195,7 +220,7 @@ class X402ClientTest extends AnyFunSuite:
       scheme      = PaymentScheme.Stream(BigInt(500_000), "request", 10, BigInt(5_000_000)),
       network     = Network.Base,
       asset       = Assets.USDC_BASE,
-      payTo       = "0xpayTo",
+      payTo       = testPayTo,
       resource    = "/api/stream",
       description = "Metered access",
     )

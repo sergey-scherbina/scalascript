@@ -589,7 +589,7 @@ lazy val x402Server = project
 
 lazy val x402Client = project
   .in(file("x402-client"))
-  .dependsOn(x402Core)
+  .dependsOn(x402Core, walletStrategyEoa, blockchainEvm, cryptoBouncycastle)
   .settings(
     name := "scalascript-x402-client",
     libraryDependencies ++= Seq(
@@ -615,7 +615,7 @@ lazy val x402FacilitatorCoinbase = project
 
 lazy val x402FacilitatorEvm = project
   .in(file("x402-facilitator-evm"))
-  .dependsOn(x402Core, clientEvm)
+  .dependsOn(x402Core, clientEvm, blockchainEvm, cryptoBouncycastle)
   .settings(
     name := "scalascript-x402-facilitator-evm",
     libraryDependencies ++= Seq(
@@ -737,7 +737,7 @@ lazy val blockchainSpi = project
   .settings(
     name := "scalascript-blockchain-spi",
     libraryDependencies ++= Seq(
-      "com.lihaoyi" %% "upickle" % "4.4.2",
+      "com.lihaoyi" %% "upickle" % "3.3.1",
     ),
     Compile / scalacOptions ++= sharedScalacOptionsStrict,
     Test    / scalacOptions ++= sharedScalacOptions,
@@ -749,7 +749,7 @@ lazy val walletSpi = project
   .settings(
     name := "scalascript-wallet-spi",
     libraryDependencies ++= Seq(
-      "com.lihaoyi" %% "upickle" % "4.4.2",
+      "com.lihaoyi" %% "upickle" % "3.3.1",
     ),
     Compile / scalacOptions ++= sharedScalacOptionsStrict,
     Test    / scalacOptions ++= sharedScalacOptions,
@@ -771,7 +771,7 @@ lazy val blockchainEvm = project
   .settings(
     name := "scalascript-blockchain-evm",
     libraryDependencies ++= Seq(
-      "com.lihaoyi" %% "upickle" % "4.4.2",
+      "com.lihaoyi" %% "upickle" % "3.3.1",
       scalatestTest,
     ),
     Compile / scalacOptions ++= sharedScalacOptionsStrict,

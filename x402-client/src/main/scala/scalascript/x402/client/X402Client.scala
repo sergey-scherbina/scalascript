@@ -1,10 +1,17 @@
 package scalascript.x402.client
 
 import scalascript.x402.*
-import scala.concurrent.{ExecutionContext, Future}
+import scala.concurrent.{Await, ExecutionContext, Future}
+import scala.concurrent.duration.Duration
 import java.util.Base64
-import java.security.{MessageDigest, SecureRandom}
+import java.security.SecureRandom
 import ujson.*
+
+import scalascript.blockchain.spi.{ChainId, TypedData}
+import scalascript.blockchain.evm.EvmChainAdapter
+import scalascript.crypto.Curve
+import scalascript.wallet.spi.RawSigner
+import scalascript.wallet.strategy.eoa.{EoaStrategy, RawPrivateKeyVault}
 
 // ── EIP-712 domain (used by EVM wallets for typed signing) ────────────────────
 
@@ -20,35 +27,94 @@ case class Eip712Domain(
 trait Wallet:
   def address: String
   def network: Network
-  def signEip712(domain: Eip712Domain, types: Map[String, Seq[(String, String)]], value: Map[String, Any]): Future[String]
+  def signEip712(
+    domain: Eip712Domain,
+    types:  Map[String, Seq[(String, String)]],
+    value:  Map[String, Any],
+  ): Future[String]
 
 // ── Private-key wallet (JVM / Node.js automation) ─────────────────────────────
+//
+// Thin adapter over wallet-spi + blockchain-evm. The public API
+// (`Wallet`, `Wallets.privateKey`, `Wallets.envKey`) stays stable; the
+// implementation produces real secp256k1 ECDSA signatures over real
+// EIP-712 digests instead of the SHA-256 stub that lived here pre-
+// Phase-1 of the wallet-spi milestone (see docs/wallet-spi.md §9).
 
 private class PrivateKeyWallet(privateKeyHex: String, val network: Network)
-    extends Wallet:
+    (using ec: ExecutionContext) extends Wallet:
 
-  private val keyBytes: Array[Byte] =
-    privateKeyHex.stripPrefix("0x").grouped(2).map(h => Integer.parseInt(h, 16).toByte).toArray
+  private val vault    = RawPrivateKeyVault.fromHex("x402-pkwallet", privateKeyHex, Curve.Secp256k1)
+  private val signer: RawSigner = Await.result(
+    vault.getSigner(Curve.Secp256k1, "raw"),
+    Duration.Inf,
+  )
+  private val strategy = new EoaStrategy(signer)
+  private val adapter  = new EvmChainAdapter(ChainId(s"eip155:${network.chainId}"))
 
-  val address: String =
-    val md   = MessageDigest.getInstance("SHA-256")
-    val hash = md.digest(keyBytes)
-    "0x" + hash.take(20).map(b => f"${b & 0xff}%02x").mkString
+  val address: String = adapter.addressFromPublicKey(signer.publicKey)
 
-  def signEip712(domain: Eip712Domain, types: Map[String, Seq[(String, String)]], value: Map[String, Any]): Future[String] =
-    Future.successful {
-      // Deterministic stub signature: HMAC-like over domain + value for testability
-      val input = s"${domain.chainId}:${domain.verifyingContract}:${value.toSeq.sortBy(_._1).mkString}"
-      val md    = MessageDigest.getInstance("SHA-256")
-      val hash  = md.digest(input.getBytes("UTF-8"))
-      "0x" + hash.map(b => f"${b & 0xff}%02x").mkString + "00"
+  def signEip712(
+    domain: Eip712Domain,
+    types:  Map[String, Seq[(String, String)]],
+    value:  Map[String, Any],
+  ): Future[String] =
+    val typedData = PrivateKeyWallet.buildTypedData(domain, types, value)
+    strategy.signTypedData(adapter, typedData).map(PrivateKeyWallet.encodeEthereumSignature)
+
+private object PrivateKeyWallet:
+
+  private val EthDomainFields: Seq[(String, String)] = Seq(
+    "string"  -> "name",
+    "string"  -> "version",
+    "uint256" -> "chainId",
+    "address" -> "verifyingContract",
+  )
+
+  def buildTypedData(
+    domain:    Eip712Domain,
+    userTypes: Map[String, Seq[(String, String)]],
+    userValue: Map[String, Any],
+  ): TypedData.Eip712 =
+    val primaryType = (userTypes.keys.toSet - "EIP712Domain").headOption.getOrElse(
+      throw new IllegalArgumentException("signEip712: types map must include at least one non-EIP712Domain entry"),
+    )
+    val allTypes  = userTypes + ("EIP712Domain" -> EthDomainFields)
+    val domainMap = Map[String, ujson.Value](
+      "name"              -> ujson.Str(domain.name),
+      "version"           -> ujson.Str(domain.version),
+      "chainId"           -> ujson.Str(domain.chainId.toString),
+      "verifyingContract" -> ujson.Str(domain.verifyingContract),
+    )
+    val valueMap = userValue.map { case (k, v) =>
+      k -> (v match
+        case s: String  => ujson.Str(s)
+        case bi: BigInt => ujson.Str(bi.toString)
+        case i: Int     => ujson.Str(i.toString)
+        case l: Long    => ujson.Str(l.toString)
+        case other      => ujson.Str(other.toString))
     }
+    TypedData.Eip712(
+      domain      = domainMap,
+      types       = allTypes,
+      value       = valueMap,
+      primaryType = primaryType,
+    )
+
+  /** Wallet-spi `EoaStrategy.signTypedData` returns the 65-byte raw
+   *  `r||s||recId` produced by `crypto-bouncycastle`. Ethereum / x402
+   *  callers want `r||s||v` with `v = recId + 27`. */
+  def encodeEthereumSignature(raw: Array[Byte]): String =
+    require(raw.length == 65, s"Expected 65-byte signature, got ${raw.length}")
+    val out = raw.clone()
+    out(64) = (raw(64) + 27).toByte
+    "0x" + out.map(b => f"${b & 0xff}%02x").mkString
 
 object Wallets:
-  def privateKey(hex: String, network: Network): Wallet =
+  def privateKey(hex: String, network: Network)(using ExecutionContext): Wallet =
     new PrivateKeyWallet(hex, network)
 
-  def envKey(envVar: String, network: Network): Wallet =
+  def envKey(envVar: String, network: Network)(using ExecutionContext): Wallet =
     val hex = sys.env.getOrElse(envVar, throw RuntimeException(s"Env var $envVar not set"))
     new PrivateKeyWallet(hex, network)
 

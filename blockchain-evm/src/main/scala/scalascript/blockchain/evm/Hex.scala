@@ -1,6 +1,9 @@
 package scalascript.blockchain.evm
 
-private[evm] object Hex:
+/** Hex encoding / decoding utilities shared across `blockchain-evm`.
+ *  Public so consumers (x402 facilitators, ABI codec, future wallet
+ *  UX) can use a single canonical helper. */
+object Hex:
 
   private val HexChars = "0123456789abcdef".toCharArray
 
