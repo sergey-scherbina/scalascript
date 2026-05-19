@@ -38,6 +38,12 @@ object McpProtocol:
     val LoggingSetLevel       = "logging/setLevel"
     val LogMessage            = "notifications/message"
     val ResourcesTemplatesList = "resources/templates/list"
+    // v1.17.x — roots (client → server workspace info).  `roots/list` is
+    // a server-initiated request; the client replies with a list of
+    // workspace roots.  `notifications/roots/list_changed` is a
+    // client → server push when its roots change.
+    val RootsList             = "roots/list"
+    val RootsListChanged      = "notifications/roots/list_changed"
 
   /** Syslog levels per MCP spec, ordered by severity (low to high). */
   val LogLevels: List[String] = List(
@@ -149,6 +155,35 @@ object McpProtocol:
   case class ResourceTemplateEntry(uriTemplate: String, name: Option[String], description: Option[String], mimeType: Option[String])
   case class PromptEntry(name: String, description: Option[String], arguments: List[PromptArgument])
   case class PromptArgument(name: String, description: String, required: Boolean)
+
+  /** v1.17.x — workspace root advertised by the client during `roots/list`.
+   *  Per spec, `uri` MUST be a `file://` URI; `name` is a display hint. */
+  case class Root(uri: String, name: Option[String])
+
+  /** Client-side `roots/list` response builder, for symmetry. */
+  def rootsListResult(roots: List[Root]): ujson.Value =
+    ujson.Obj(
+      "roots" -> ujson.Arr.from(roots.map { r =>
+        val obj = ujson.Obj("uri" -> r.uri)
+        r.name.foreach(n => obj("name") = n)
+        obj
+      })
+    )
+
+  /** Parse a `roots/list` response into typed `Root` records.  Returns
+   *  `Nil` when the shape doesn't match (defensive — bad clients shouldn't
+   *  crash the server). */
+  def parseRootsListResult(js: ujson.Value): List[Root] =
+    try
+      js.obj.get("roots") match
+        case Some(arr) =>
+          arr.arr.iterator.flatMap { v =>
+            v.obj.get("uri").flatMap(_.strOpt).map { uri =>
+              Root(uri, v.obj.get("name").flatMap(_.strOpt))
+            }
+          }.toList
+        case None => Nil
+    catch case _: Throwable => Nil
 
   // ─── Content variants — the protocol's polymorphic value type ──────
 

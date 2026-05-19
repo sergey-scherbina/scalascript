@@ -75,6 +75,43 @@ class McpServerBuilder:
    *  the default "info" until the client overrides. */
   def loggingLevel: String = currentLogLevel
 
+  // v1.17.x — roots (workspace info from the client).  The server can
+  // pull the current roots on demand via `srv.listRoots(...)` and react
+  // to `notifications/roots/list_changed` via the registered callback.
+  // `clientCapabilities` is captured from the inbound `initialize` so
+  // user code can check `srv.clientSupportsRoots` before calling
+  // `listRoots(...)` — saves a round-trip for clients that don't
+  // advertise the capability at all.
+  @volatile private[mcp] var clientCapabilities: ujson.Value = ujson.Obj()
+  private[mcp] var onRootsListChanged: () => Unit = () => ()
+
+  /** Register a callback fired when the connected client emits
+   *  `notifications/roots/list_changed`.  Typical use: re-fetch via
+   *  `srv.listRoots(...)` and update any cached workspace state. */
+  def setOnRootsListChanged(f: () => Unit): Unit = onRootsListChanged = f
+
+  /** Snapshot of the `capabilities` object the client sent on
+   *  `initialize`.  Use `clientSupportsRoots` for the common case. */
+  def currentClientCapabilities: ujson.Value = clientCapabilities
+
+  /** True iff the connected client advertised `roots` in its initialize
+   *  capabilities.  Calling `listRoots(...)` on a client that didn't
+   *  advertise the capability is allowed but typically yields
+   *  MethodNotFound. */
+  def clientSupportsRoots: Boolean =
+    try clientCapabilities.obj.contains("roots")
+    catch case _: Throwable => false
+
+  /** Send `roots/list` to the connected client and parse the typed
+   *  response.  Returns `Left(error)` on timeout / MethodNotFound /
+   *  client error; `Right(roots)` on success.  Convenience over the
+   *  generic `request(...)` mechanism so user scripts don't have to
+   *  hand-parse the response shape. */
+  def listRoots(timeoutMs: Long = 5000L): Either[JsonRpc.Error, List[McpProtocol.Root]] =
+    request(McpProtocol.Method.RootsList, ujson.Obj(), timeoutMs) match
+      case Left(e)   => Left(e)
+      case Right(js) => Right(McpProtocol.parseRootsListResult(js))
+
   /** Returns true iff the currently-executing handler's request has been
    *  cancelled via `notifications/cancelled`.  Read this at safe points
    *  inside long-running tool handlers and return early when set. */
@@ -329,6 +366,8 @@ object McpServerCore:
                   try builder.onConnected() catch case _: Throwable => ()
                 else if m == McpProtocol.Method.Cancelled then
                   routeCancelled(builder, p)
+                else if m == McpProtocol.Method.RootsListChanged then
+                  try builder.onRootsListChanged() catch case _: Throwable => ()
               case Right(JsonRpc.Message.Request(method, params, id)) =>
                 write(dispatch(builder, method, params, id, serverName, serverVersion))
       try builder.onDisconnected() catch case _: Throwable => ()
@@ -360,6 +399,8 @@ object McpServerCore:
           try builder.onConnected() catch case _: Throwable => ()
         else if method == McpProtocol.Method.Cancelled then
           routeCancelled(builder, params)
+        else if method == McpProtocol.Method.RootsListChanged then
+          try builder.onRootsListChanged() catch case _: Throwable => ()
         ""
       case Right(resp: JsonRpc.Message.Response) =>
         // v1.17.x bidirectional sampling over HTTP: a client may POST a
@@ -383,6 +424,13 @@ object McpServerCore:
   ): String =
     method match
       case McpProtocol.Method.Initialize =>
+        // v1.17.x — record the client's advertised capabilities so user
+        // code can guard server→client requests like `listRoots()` /
+        // `elicitation/create` on the matching feature flag.  Defensive
+        // parsing: malformed `params` simply leaves capabilities empty.
+        try
+          params.obj.get("capabilities").foreach(c => builder.clientCapabilities = c)
+        catch case _: Throwable => ()
         JsonRpc.encodeResult(id, McpProtocol.initializeResult(serverName, serverVersion))
 
       case McpProtocol.Method.Ping =>
