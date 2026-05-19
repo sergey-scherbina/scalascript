@@ -249,6 +249,13 @@ must be explicitly enabled per app). For our flows:
   approval required, security warning shown).
 - **Solana** — most common instructions decoded natively in the
   Solana app; SPL token transfers shown with amount + recipient.
+- **Contracts authored in `.ssc`** — the authoring stack
+  ([`docs/smart-contracts.md`](smart-contracts.md)) emits a
+  clear-signing descriptor at compile time. The host attaches it
+  to the signing request, the device renders parameter names and
+  decoded values — no separate Clear Signing registry submission
+  needed. See [`docs/blockchain-spi.md`](blockchain-spi.md) §6.1
+  for the cross-layer integration.
 
 #### Session and reconnection model
 

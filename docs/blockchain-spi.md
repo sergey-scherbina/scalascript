@@ -204,6 +204,19 @@ trait ChainAdapter:
   def getReceipt(hash: TxHash, ctx: ChainContext): Future[Option[TxReceipt]]
   def waitForReceipt(hash: TxHash, ctx: ChainContext, timeoutMs: Long): Future[TxReceipt]
 
+  // ── contract reads ──────────────────────────────────────────────
+  /** Read-only contract execution. On EVM this is `eth_call`; on
+   *  Solana this is a simulated program invoke; on Cardano this is
+   *  script-context evaluation. Returns raw bytes — the caller is
+   *  responsible for decoding (typically via the ABI codec for that
+   *  chain's contract model). */
+  def call(target: String, calldata: Array[Byte], ctx: ChainContext): Future[Array[Byte]]
+
+  /** Predict the address a Deploy intent would produce. EVM CREATE:
+   *  derives from sender + nonce. EVM CREATE2: from deployer + salt
+   *  + codehash. Solana: PDA from seeds. */
+  def predictDeployAddress(deploy: TxIntent.Deploy, deployer: String, ctx: ChainContext): Future[String]
+
 case class SigningPayload(bytes: Array[Byte], hash: HashAlgo)
 case class TxHash(value: String)
 case class TxReceipt(hash: TxHash, success: Boolean, blockNumber: BigInt, gasUsed: BigInt)
@@ -227,6 +240,17 @@ object TxIntent:
     signature:   Array[Byte],
   ) extends TxIntent
 
+  /** Deploy a contract. `bytecode` is the chain-native binary
+   *  (EVM bytecode, UPLC for Cardano, BPF for Solana, WASM for
+   *  WASM chains). `args` are ABI-encoded constructor arguments
+   *  (chain-specific encoding). `salt = Some(_)` selects CREATE2
+   *  on EVM (counterfactual address). */
+  case class Deploy(
+    bytecode: Array[Byte],
+    args:     Array[Byte]         = Array.empty,
+    salt:     Option[Array[Byte]] = None,
+  ) extends TxIntent
+
 trait ChainContext:
   def rpcCall(method: String, params: ujson.Value*): Future[ujson.Value]
   def nowSeconds: Long
@@ -235,6 +259,161 @@ trait ChainContext:
 `Tx` and `SignedTx` are path-dependent: each adapter keeps its native
 representation (`EvmTx`, `SolanaTx`, `BtcTx`) but generic code flows
 through `ChainAdapter` polymorphically.
+
+### 6.1 Smart contract interaction
+
+Three primitives in the trait above carry the full interaction surface:
+
+| Operation | Primitive |
+|---|---|
+| Read state from a deployed contract | `ChainAdapter.call(target, calldata)` |
+| Send tx invoking a contract function | `TxIntent.ContractCall(target, calldata, value)` |
+| Deploy a new contract | `TxIntent.Deploy(bytecode, args, salt)` |
+| Sign off-chain payload for on-chain verify | `ChainAdapter.typedDataDigest(TypedData.Eip712(...))` |
+| Recover signer from a contract-verified signature | `ChainAdapter.recoverAddress(digest, sig)` |
+| ERC-20-style token balance (read shortcut) | `ChainAdapter.tokenBalance(asset, holder)` |
+| ERC-3009 / x402 payment authorization | `TxIntent.TokenTransferAuthorized(...)` |
+
+#### Ergonomic typed proxies
+
+For the ten or so universally-deployed contract interfaces (ERC-20 /
+721 / 1155, Permit / Permit2, Multicall3, ERC-4337 EntryPoint), the
+per-chain adapter module ships typed proxies built on these
+primitives:
+
+```scala
+val usdc = blockchain.evm.Erc20(address = "0x833…", chain = baseEvm)
+val balance: BigInt = await(usdc.balanceOf("0xAlice..."))
+val tx = await(adapter.buildTransaction(
+  usdc.transfer.intent(to = "0xBob...", amount = BigInt(1_000_000)),
+  ctx,
+))
+```
+
+Each proxy is a thin object over `Read[A]` / `TxIntent.ContractCall`
+— no reflection, no codegen, hand-written, audited.
+
+#### ABI codec submodule
+
+Beyond the well-known interfaces, the ABI codec lives in a
+dedicated sub-module so it's auditable on its own and reusable by
+non-RPC contexts (e.g. compile-time codegen, tx introspection):
+
+```
+blockchain-evm-abi    # cross-compile; pure-Scala Solidity ABI v2 codec.
+                      # Encodes / decodes:
+                      #   uint*, int*, bool, address, bytes, bytesN,
+                      #   string, T[], (T1, T2, …), nested dynamic structs.
+                      # Function selector helper: keccak256(sig)[0..4].
+```
+
+The codec is **pure** — no chain access, no async, no Future. Safe
+to use from contract authoring stacks (see
+[`docs/smart-contracts.md`](smart-contracts.md)) as well.
+
+Solana's analog (Borsh) and Cardano's analog (PlutusData CBOR) live
+in `blockchain-solana-borsh` and `blockchain-cardano-plutus` when
+those adapters land.
+
+#### Event log decoding
+
+`TxReceipt.logs` carries raw `(address, topics, data)` triples.
+Typed events:
+
+```scala
+val transfers: Seq[Erc20.TransferEvent] =
+  Erc20.Transfer.from(receipt.logs)
+```
+
+Each typed event has a known `topic0 = keccak256(signature)` and
+ABI-decodes the remaining indexed + non-indexed args.
+
+Realtime event subscription (`adapter.subscribe(filter, handler)`
+over WS) — Phase 2 of `blockchain-evm`. Not required for x402 or
+basic wallet UX.
+
+#### Multicall
+
+EVM's `Multicall3` contract (at the canonical
+`0xcA11bde05977b3631167028862bE2a173976CA11` on every major EVM
+chain) lets `N` reads execute in one RPC round-trip:
+
+```scala
+val results = await(adapter.multicall(Seq(
+  usdc.balanceOf.read("0xAlice..."),
+  usdc.balanceOf.read("0xBob..."),
+  weth.balanceOf.read("0xAlice..."),
+)))
+```
+
+Single fallback to per-read execution if Multicall3 is unreachable
+on a given chain.
+
+#### Smart-contract wallets
+
+ERC-4337 smart accounts **are** contracts. The wallet-spi Phase 6
+`SmartAccountStrategy` (see [`wallet-spi.md`](wallet-spi.md) §6.1)
+wraps an EVM `ChainAdapter` to use a contract-wallet at the chain
+layer. Inside the wrapper, `buildTransaction(ContractCall(...))`
+becomes a `UserOperation` packaged for the EntryPoint contract.
+
+#### Authored contracts (.ssc)
+
+Contracts authored in `.ssc` per
+[`docs/smart-contracts.md`](smart-contracts.md) integrate here at
+deploy and interaction time:
+
+1. `.ssc` source + `kind: contract` front-matter → backend
+   (Scalus / WASM / EVM-future) → chain-native bytecode.
+2. CLI deploy: `ssc deploy <module> --chain <id>` builds a
+   `TxIntent.Deploy(bytecode, args)`, signs via the configured
+   wallet-spi `Vault`, broadcasts via the chain's adapter, returns
+   the deployed address.
+3. Interaction from `.ssc` code: imported contract module exposes
+   strongly-typed wrappers that lower to `ChainAdapter.call` (for
+   `@view` methods) and `TxIntent.ContractCall` (for `@call`
+   methods). The ABI / interface schema is known at compile time
+   from the contract's own source.
+4. Clear-signing metadata (Ledger): the contract authoring stack
+   can emit a clear-signing descriptor at compile time, listing
+   parameter names + types + display labels per `@call`. Hardware
+   wallets that load this descriptor show structured fields to the
+   user when signing tx that invoke the contract.
+
+This makes the contract / wallet / chain triangle reflexive: a
+`.ssc` user can author the contract, deploy it, and interact with
+it without ever writing ABI JSON by hand or leaving the
+ScalaScript toolchain.
+
+#### Non-EVM contract models
+
+Each chain adapter exposes additional `TxIntent` variants that
+reflect its native model — these are **chain-specific** and live
+in the chain adapter's own module rather than `blockchain-spi`:
+
+- **Solana** — `TxIntent.InvokeProgram(programId, accounts, data)`
+  (programs + account inputs/outputs). SPL Token has its typed
+  wrapper alongside `Erc20`.
+- **Cardano (Plutus)** — UTXO + datum + redeemer; the adapter
+  exposes `TxIntent.ConsumeWithRedeemer(...)` and related variants.
+  No analog to `ContractCall` because Plutus doesn't have function
+  invocations.
+- **Bitcoin (Taproot)** — `TxIntent.SpendScriptPath(...)` for
+  Taproot script-path spends; the leaf script is plain Bitcoin
+  Script.
+
+The top-level `TxIntent` enum keeps just the cross-chain shapes
+(`NativeTransfer`, `TokenTransfer`, `ContractCall`, `Deploy`,
+`TokenTransferAuthorized`). Chain-specific variants extend
+`TxIntent` from their own modules — the `sealed trait` is sealed
+within `blockchain-spi`'s file, but Scala 3 allows extension via
+case-class membership of the same hierarchy from any module that
+imports `TxIntent` (effectively open at the SPI level for the
+chain adapters that own each variant).
+
+If the language semantics here are tighter than expected at impl
+time (sealed-trait rules), we fall back to a `TxIntent.ChainSpecific(payload: Any)`
+escape hatch — flagged in Phase 1 open questions.
 
 ## 7. Registry + discovery
 
@@ -401,10 +580,13 @@ Modules:
 - `crypto-spi` — `CryptoBackend` trait + registry (cross-compile)
 - `crypto-bouncycastle` — JVM default impl
 - `blockchain-spi` — `ChainAdapter` / `ChainId` / `Asset` /
-  `TypedData` / `TxIntent` / registry (cross-compile)
+  `TypedData` / `TxIntent` (incl. `Deploy` and the contract-call
+  primitives) / registry (cross-compile)
 - `blockchain-evm` — EVM impl: `addressFromPublicKey` +
-  `typedDataDigest` + `recoverAddress` + `tokenBalance`. **No**
-  `buildTransaction` / `broadcast` yet (Phase 2).
+  `typedDataDigest` + `recoverAddress` + `tokenBalance` + `call`.
+  **No** `buildTransaction` / `broadcast` yet (Phase 2). `call`
+  is included because `EvmFacilitator.verify` needs read-only RPC
+  for balance checks.
 - `x402-facilitator-evm` refactor:
   - `verify` now calls `blockchain-evm.recoverAddress` + checks
     against `auth.from`
@@ -422,17 +604,27 @@ Tests:
 Out of scope: real on-chain settle (Phase 2); Scala.js crypto
 (Phase 4); non-EVM chains (Phase 3+).
 
-### Phase 2 — blockchain-evm full ChainAdapter + real x402 settle
+### Phase 2 — blockchain-evm full ChainAdapter + ABI codec + real x402 settle
 
-- `EvmChainAdapter.buildTransaction(NativeTransfer | TokenTransfer |
-  ContractCall | TokenTransferAuthorized)` with RLP encoding
-  (EIP-1559 + legacy).
-- `broadcast` via `eth_sendRawTransaction`; `waitForReceipt` polling.
+- `EvmChainAdapter.buildTransaction(NativeTransfer | TokenTransfer
+  | ContractCall | TokenTransferAuthorized | Deploy)` with RLP
+  encoding (EIP-1559 + legacy).
+- `broadcast` via `eth_sendRawTransaction`; `waitForReceipt`
+  polling. `predictDeployAddress` for CREATE / CREATE2.
+- `blockchain-evm-abi` — Solidity ABI v2 codec (encode/decode for
+  all standard types + tuples + dynamic structs). Pure-Scala,
+  cross-compile, no chain access. Vector-tested against published
+  reference encodings.
+- Typed proxies in `blockchain-evm`: `Erc20`, `Erc721`, `Erc1155`,
+  `Permit2`, `Multicall3`, `Eip3009` typed-data helper. x402
+  internals refactored to use `Eip3009` instead of inline EIP-712
+  hashing — no public API change.
 - `x402-facilitator-evm.settle` default settler becomes a real
-  `transferWithAuthorization` call; the `Option[settler]` escape
-  hatch stays for custom settlers.
+  `transferWithAuthorization` call via `Erc20.transferWithAuthorization.intent(...)`;
+  the `Option[settler]` escape hatch stays.
 - Integration test against local Anvil node: full x402 flow
-  end-to-end (verify Ok, settle, receipt returned).
+  end-to-end (verify Ok, settle, receipt returned); plus deploy +
+  interact round-trip for ABI codec.
 
 ### Phase 3 — blockchain-solana
 

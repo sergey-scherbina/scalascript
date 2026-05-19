@@ -294,6 +294,113 @@ Or for testing:
 ssc deploy token.uplc --network local     # local cardano-node / ogmios
 ```
 
+### Integration with wallet-spi + blockchain-spi
+
+The `ssc deploy` and `ssc invoke` CLIs are thin orchestrations over
+the runtime SPIs:
+
+```
+.ssc source
+    │
+    │  ssc compile  (this spec — authoring stack)
+    ▼
+chain-native bytecode (UPLC / WASM / EVM / …)
+    │
+    │  ssc deploy  ─────────────────────────────────────────┐
+    │                                                       │
+    │  builds:  TxIntent.Deploy(bytecode, args, salt?)      │
+    │  signs:   wallet-spi.AccountStrategy.signTransaction  │  see
+    │  sends:   blockchain-spi.ChainAdapter.broadcast       │  docs/
+    │  yields:  deployed address                            │  wallet-spi.md
+    │                                                       │  docs/
+    ▼                                                       │  blockchain-spi.md
+deployed contract                                           │
+    │                                                       │
+    │  ssc invoke / app code  ──────────────────────────────┤
+    │                                                       │
+    │  read:    ChainAdapter.call(addr, calldata)           │
+    │  write:   TxIntent.ContractCall(addr, calldata, val)  │
+    │  off-chain sign:  ChainAdapter.typedDataDigest(...)   │
+    │                                                       │
+    ▼                                                       │
+host application (wallet UI, agent, x402 facilitator, …)    │
+                                                            │
+                                                  signs via │
+                                                            ▼
+                                                  Vault     (encrypted /
+                                                             passkey / MPC /
+                                                             Ledger hardware)
+```
+
+The CLI doesn't reimplement signing or RPC — it composes the
+existing wallet + blockchain stack. The signing key flag
+(`--signing-key payment.skey`) corresponds to a
+`wallet-vault-encrypted` instance unlocked with the file's
+password; you can equivalently pass `--wallet ledger` to use a
+connected hardware device, or `--wallet mpc=https://provider`
+for a managed-key provider.
+
+### Clear-signing metadata (hardware wallets)
+
+The contract authoring stack emits, **at compile time**, a
+clear-signing descriptor alongside the bytecode:
+
+```
+token.uplc
+token.clearsigning.json    ← parameter names + display labels per @call
+```
+
+When a Ledger wallet (or other clear-signing-capable hardware)
+signs a transaction that invokes the deployed contract, the host
+software passes the descriptor along with the calldata. The
+device decodes parameters natively and shows the user "transfer
+500.00 TOKEN to alice.eth" rather than "Sign opaque blob 0xa9059cbb...".
+
+This makes contracts authored in ScalaScript automatically
+compatible with hardware-wallet clear-signing — without the
+contract author shipping a separate clear-signing PR to Ledger /
+Trezor registries (though they can if they want broader
+recognition; the on-device app accepts the descriptor at runtime
+when the host provides it).
+
+Integration spec details: [`docs/wallet-spi.md`](wallet-spi.md)
+§5.1 (Ledger transport + app routing) and
+[`docs/blockchain-spi.md`](blockchain-spi.md) §6.1 (smart contract
+interaction primitives).
+
+### .ssc app interacts with .ssc contract
+
+If both the contract and the consuming application are written in
+ScalaScript, the import mechanism gives the application a typed
+interface to the contract at compile time:
+
+```scalascript
+---
+name: my-app
+---
+
+# Import the contract module — produces a typed proxy
+
+[token](./token.ssc)
+
+# Call `@view` methods directly
+
+```scala
+val balance = token.balanceOf(myAddress)    // lowers to ChainAdapter.call
+```
+
+# Build a transaction for `@call` methods
+
+```scala
+val intent = token.transfer.intent(to = bobAddress, amount = 100)
+val signed = await(wallet.signTransaction(chain)(intent))
+await(chain.broadcast(signed))
+```
+```
+
+No ABI JSON glue, no manual encoding. The same type system that
+checked the contract's source also checks the app's calls to it.
+
 ---
 
 ## Security model
