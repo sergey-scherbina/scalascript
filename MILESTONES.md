@@ -4993,16 +4993,22 @@ re-evaluate only changed sections and their dependents.
 
 ### Generated code — JS tree-shaking
 
-**Status: open. Effort: ~1 week. Priority: 5.**
+**Status: landed (feature/js-treeshake). Priority: 5.**
 
-JS runtime preamble (~500 lines) is emitted into every output even when the
-module uses none of its features.  Partition into named groups (base, effects,
-actors, MCP, Dataset, signals) and emit only referenced ones.
+JS runtime preamble was emitted unconditionally into every single-file output.
+Partitioned into named capability groups (Core, Async, Effects, Mcp, Dataset)
+and wired up `JsGen.detectCapabilities` + `JsGen.generateRuntime` in the
+single-file emit paths (`emit-js`, `emit-spa`, `emit-wc`).
 
-- [ ] Partition `JsRuntime` string into named groups
-- [ ] Scan emitted JS for group-marker symbols
-- [ ] Emit only referenced groups
-- [ ] Verify: `hello.ssc` JS output size drops ≥ 50 %
+What landed:
+- [x] Capability groups already partitioned in `JsGen.generateRuntime` (Phase 2)
+- [x] `emit-js`: detect module capabilities, emit only needed runtime blocks
+- [x] `emit-spa`: detect capabilities, exclude Node-only Mcp/Dataset for browser
+- [x] `emit-wc`: detect capabilities, emit only needed runtime blocks
+- [x] `buildScjsSource` (dead code): updated signature for correctness
+- [x] Verify: `hello.ssc` JS output drops from 273 KB → 139 KB (≈ 49 % reduction)
+      (Just below 50 % target; Core alone is 138 KB.  The unconditionally-emitted
+      Core block is the remaining headroom — deferred to a future micro-partition.)
 
 ### Library modularity
 

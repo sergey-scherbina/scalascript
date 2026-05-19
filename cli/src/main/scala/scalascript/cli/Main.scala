@@ -8,7 +8,7 @@ import scalascript.typer.Typer
 // emit-spa needs ScalaJsBackend.compileSourceToJs for per-segment
 // Scala source compilation.
 import scalascript.interpreter.Interpreter
-import scalascript.codegen.{JsGen, JsRuntime, JsRuntimeAsync, JsRuntimeV14Effects, JsRuntimeBrowserPatch, JsRuntimeMcp, JsRuntimeMcpBrowser, JsRuntimeDataset, ScalaJsBackend}
+import scalascript.codegen.{JsGen, JsRuntimeBrowserPatch, JsRuntimeMcpBrowser, ScalaJsBackend}
 import scalascript.ast.*
 import scalascript.transform.Normalize
 import scalascript.validate.CapabilityCheck
@@ -1345,6 +1345,7 @@ def emitJsCommand(args: List[String]): Unit =
     if !os.exists(path) then { println(s"Error: File not found: $file"); System.exit(1) }
     else
       try
+        val module   = Parser.parse(os.read(path))
         val segments = compileViaBackend("js", path, Map("mode" -> "segmented")) match
           case CompileResult.Segmented(segs) => segs
           case CompileResult.Failed(diags) =>
@@ -1356,7 +1357,9 @@ def emitJsCommand(args: List[String]): Unit =
           case Segment.Code("javascript", _) => true
           case _                             => false
         }
-        if hasSSBlocks then { println(JsRuntime); println(JsRuntimeAsync); println(JsRuntimeV14Effects); println(JsRuntimeMcp); println(JsRuntimeDataset) }
+        if hasSSBlocks then
+          val caps = JsGen.detectCapabilities(module, baseDir)
+          print(JsGen.generateRuntime(caps))
         for seg <- segments do seg match
           case Segment.Code("javascript", code) =>
             println(code)
@@ -1403,6 +1406,12 @@ def emitSpaCommand(args: List[String]): Unit =
           if userJs.contains("mcpConnect") || userJs.contains("mcpServer") then
             "\n" + JsRuntimeMcpBrowser
           else ""
+        // Tree-shake: detect which runtime blocks are actually needed,
+        // then exclude Node-only capabilities (Mcp, Dataset) that would
+        // crash in a browser environment.
+        val allCaps    = JsGen.detectCapabilities(module, baseDir)
+        val spaCaps    = allCaps - JsGen.Capability.Mcp - JsGen.Capability.Dataset
+        val spaRuntime = JsGen.generateRuntime(spaCaps)
         println(s"""<!doctype html>
                    |<html lang="en">
                    |<head>
@@ -1412,9 +1421,7 @@ def emitSpaCommand(args: List[String]): Unit =
                    |</head>
                    |<body>
                    |<script>
-                   |$JsRuntime
-                   |$JsRuntimeAsync
-                   |$JsRuntimeV14Effects
+                   |$spaRuntime
                    |$JsRuntimeBrowserPatch$mcpPreamble
                    |$userJs
                    |</script>
@@ -1507,7 +1514,8 @@ def emitWcCommand(args: List[String]): Unit =
           case JsGen.Segment.ScalaSource(src)    =>
             ScalaJsBackend.compileSourceToJs(src, baseDir)
         }.filter(_.nonEmpty).mkString("\n")
-        println(JsRuntime); println(JsRuntimeAsync); println(JsRuntimeV14Effects); println(JsRuntimeMcp); println(JsRuntimeDataset)
+        val wcCaps = JsGen.detectCapabilities(module, baseDir)
+        print(JsGen.generateRuntime(wcCaps))
         println(userJs)
         components.foreach { c =>
           val tag       = wcKebab(c.name) + "-component"
@@ -3298,25 +3306,17 @@ private object VerifyReport:
 
 /** Build the self-contained JS source written to a `.scjs` artifact.
  *
- *  Concatenates the deterministic runtime preamble (identical across modules)
- *  with the per-module user JS so the result can be linked by simple textual
- *  concat + longest-common-prefix dedup.  Marker lines separate the preamble
- *  and user-code regions to make the runtime strip deterministic.
+ *  Concatenates a capability-filtered runtime preamble with the per-module
+ *  user JS.  Only runtime blocks actually needed by the module are emitted,
+ *  reducing output size substantially for modules that don't use actors,
+ *  MCP, Dataset, etc.
  *
- *  v2.0 — JS incremental codegen cache. */
-private def buildScjsSource(userJs: String): String =
-  val sb = new StringBuilder
-  sb.append("// ── scalascript JS runtime ──────────────────────────────────────────\n")
-  sb.append(JsRuntime)
-  if !JsRuntime.endsWith("\n") then sb.append('\n')
-  sb.append(JsRuntimeAsync)
-  if !JsRuntimeAsync.endsWith("\n") then sb.append('\n')
-  sb.append(JsRuntimeV14Effects)
-  if !JsRuntimeV14Effects.endsWith("\n") then sb.append('\n')
-  sb.append(JsRuntimeMcp)
-  if !JsRuntimeMcp.endsWith("\n") then sb.append('\n')
-  sb.append(JsRuntimeDataset)
-  if !JsRuntimeDataset.endsWith("\n") then sb.append('\n')
+ *  v2.0 — JS incremental codegen cache + JS tree-shaking. */
+private def buildScjsSource(module: scalascript.ast.Module, userJs: String,
+                             baseDir: Option[os.Path] = None): String =
+  val caps = JsGen.detectCapabilities(module, baseDir)
+  val sb   = new StringBuilder
+  sb.append(JsGen.generateRuntime(caps))
   sb.append("// ── scalascript user code ───────────────────────────────────────────\n")
   sb.append(userJs)
   if !userJs.endsWith("\n") then sb.append('\n')

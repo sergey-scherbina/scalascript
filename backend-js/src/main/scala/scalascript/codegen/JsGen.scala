@@ -6279,9 +6279,14 @@ class JsGen(
     }
     // Async / Actor / Storage live in `JsRuntimeAsync`.  `effect E:` blocks
     // also need the Free Monad runtime that ships in `JsRuntimeAsync`.
+    // Include bare actor API calls (`runActors`, `spawn`, `receive`, `send`)
+    // in addition to the qualified `Actor.*` / `Async.*` namespace markers.
     val hasAsync = allText.contains("Async.") || allText.contains("Actor.") ||
                    allText.contains("Storage.") || userEffectDecl ||
-                   allText.contains("runAsync") || allText.contains("handle(") ||
+                   allText.contains("runAsync") || allText.contains("runActors") ||
+                   allText.contains("handle(") || allText.contains("spawn {") ||
+                   allText.contains("spawn{") || allText.contains("receive {") ||
+                   allText.contains("receive{") || allText.contains("receive(") ||
                    allText.contains("_perform") || allText.contains("perform ")
     if hasAsync then caps += Async
     // v1.4 effects: Logger / Random / Clock / Env / Auth — `JsRuntimeV14Effects`.
