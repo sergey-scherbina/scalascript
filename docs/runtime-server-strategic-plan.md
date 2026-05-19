@@ -11,9 +11,17 @@ bottom.
 **TL;DR**: Option A (in-tree real modules — eliminate the
 `JvmGen.serveRuntime` string template by moving its content into
 real `.scala` files inlined the same way `runtime-server-common`
-already is) is the recommended next phase.  ~4 days, zero
-distribution change, low risk, unlocks every other strategic move
-cheaply.  See the Option A section for the Phase 3a–3f plan.
+already is) **landed 2026-05-19** as Phase 3a–3f.  Remaining
+strategic options are **B / C / D** (see sections below) — pick
+based on the driving need: B if WS concurrency edges in the
+interpreter start mattering, C if HTTP/2 or HTTPS perf hits the
+critical path, D once v2.0 separate-compilation stabilises.
+
+**Note: A "Maven-publish the runtime" plan is explicitly NOT on
+the strategic options list.**  Publishing would be a distribution-
+model change, not a structural-problem fix — none of the remaining
+problems (P2/P3/P4) get solved by it.  Per-run compile-speed gains
+belong in a separate per-session-cache project.
 
 Audience: future-me when the next "продолжай" lands and we need to
 decide whether to keep dripping dedup or take a bigger swing.
@@ -176,7 +184,9 @@ distribution shape.
   ssc; every ssc release carries its own runtime; no "user pinned
   v0.3 of the runtime against ssc v0.5" failure mode.
 - − scala-cli still recompiles the runtime from source per user-script
-  run — same perf as today.  No improvement until Option A+ ships.
+  run — same per-run compile time as today.  Building a per-session
+  cache (so the second run reuses the first compile) is independent of
+  this work; not in scope.
 - − Adds one new sbt module to the build.  Trivial maintenance cost.
 
 **Unlocks.**  Phase 2h+ dedup becomes trivial (just edit real Scala
@@ -184,40 +194,7 @@ files).  Option B (thread-model unification) drops from "duplicate
 work across two impls" to "edit one file."  Option C (Jetty/Netty)
 becomes easier because the runtime is structured.  Option D (dual-impl
 elimination) lines up naturally — interpreter would call into the same
-real Scala module the codegen inlines.  Option A+ (below) becomes a
-follow-up perf optimisation, not a refactor.
-
-### Option A+ — Maven-published runtime (perf follow-up to A)
-
-**What.**  After Option A lands, optionally publish
-`runtime-server-jvm` (and `runtime-server-common`) to Maven Central
-or a private repo.  Codegen output then emits a `//> using lib …`
-directive instead of inlining the runtime source, so scala-cli
-resolves a pre-compiled jar.  Massive scala-cli per-run compile-time
-improvement for hot reloads.
-
-**Trade-offs.**
-- + scala-cli per-run compile drops from ~5 s of runtime-source
-  compilation to ~0 s (jar fetch from local cache).  Big win for
-  iterative development with `ssc run foo.ssc` cycles.
-- − Requires publishing infra (Sonatype + GPG signing OR GitHub
-  Packages).  Real ops cost.
-- − Version-compatibility surface: every backward-incompatible runtime
-  change requires a new version.  ssc pins a known-good version per
-  ssc release.
-- − Loses self-contained scripts for the first run — generated `.scala`
-  files require network access for the initial scala-cli jar fetch
-  (then cached).  Workaround: bundle offline cache with `ssc compile`.
-
-**Effort.** ~2–3 days once Option A is in place — mostly publishing
-infra setup; the actual code change is just swapping `loadJvmRuntimeSources`
-emission for a `using lib` emission.
-
-**Depends on.** Option A.  Doesn't make sense before — without A you'd
-publish the string-template-emitting tarpit.
-
-**Unlocks.** External users could write their own routes on top of the
-published runtime jar without going through ssc at all.
+real Scala module the codegen inlines.
 
 ### Option B — Unify the thread model (`P2`)
 
@@ -370,29 +347,30 @@ the full suite including mock-driven `HttpDispatchLoop` tests.
 
 ## Recommended sequencing
 
-**Status as of writing**: Option E (unit tests) is **done** —
-five test files in `runtime-server-common/src/test/`, 60/60 passing.
-That paid the safety debt for everything below.
-
-**Primary recommendation**: **Option A** (in-tree real modules).
-Single biggest ROI on accumulated friction, ~4 days of focused work,
-zero distribution change, low risk thanks to incremental sub-phases
-that the conformance suite validates.  Concrete plan in the Option A
-section (Phase 3a–3f).
+**Status as of writing**: Options E (unit tests) and A (in-tree
+real modules) are **done** — E in `runtime-server-common/src/test/`
+(60+28 tests), A in five sub-commits Phase 3a–3f landed 2026-05-19.
 
 **After A, pick one of**:
-- **A+** (Maven publishing) if scala-cli per-run compile time becomes
-  a real iteration-speed pain point.
 - **B** (thread-model unification) if WS concurrency edges in the
-  interpreter start mattering — A first makes B trivial.
+  interpreter start mattering — A first makes B much cheaper.
 - **C** (Jetty/Netty) if HTTP/2 or HTTPS perf hits the critical path
   — A first makes C structured rather than a rewrite.
 - **D** (dual-impl elimination) once v2.0 separate compilation
   stabilises — A first lines up the target shape.
 
-A locks in the foundation; A+/B/C/D are independent choices on top.
-Doing more than one of A+/B/C/D at once is not recommended — the test
-surface and conformance regression risk compound.
+A was the foundation; B/C/D are independent choices on top.  Doing
+more than one of B/C/D at once is not recommended — the test surface
+and conformance regression risk compound.
+
+**Maven publishing — explicitly OFF the strategic options list.**
+Going from in-tree resource-bundle inlining to a published jar would
+be a distribution-model change, not a structural-problem fix.  None
+of the remaining problems (P2 two thread models, P3 TlsProxy drift,
+P4 test coverage) get solved by publishing.  If scala-cli per-run
+compile becomes a real iteration-speed pain, address that with a
+per-session compile cache (independent project), not by trading the
+self-contained-script property for an external runtime dependency.
 
 ## Open decisions
 
@@ -409,22 +387,6 @@ These need a call before we start cutting:
    could the JS backend share more with the JVM runtime via a SPI?
    Probably not for HTTP/WS specifically (Node primitives are too
    different), but worth a design pass.
-
-**Decisions specific to Option A+ (Maven publishing)** — only matter
-if/when A+ is on the table:
-
-A1. **Publishing infrastructure** — Sonatype + GPG signing for Maven
-    Central, or GitHub Packages (private to begin with)?
-A2. **External runtime dependencies allowed?** — current ssc has zero
-    external deps at runtime.  A+ keeps a self-contained ssc but adds
-    a network dep for first-run of generated scripts (until scala-cli
-    caches the jar).  Bundle offline cache with `ssc compile`?
-A3. **Backward-compatibility horizon for the runtime jar** — once
-    published, the API becomes a real contract.  Ship 0.x with
-    breakage then 1.x with semver?  Or keep the runtime tightly
-    coupled to ssc releases (every ssc upgrade requires a runtime
-    upgrade)?  The default after A (no publishing) sidesteps this
-    entirely.
 
 ## Out of scope
 
