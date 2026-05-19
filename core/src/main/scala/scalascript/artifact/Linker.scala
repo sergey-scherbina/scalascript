@@ -154,7 +154,25 @@ object Linker:
       ExternCall(name, args.map(a => rewriteExpr(a, symTable, ownPkg)), span)
     case MatchTree(scrutinee, root) =>
       MatchTree(rewriteExpr(scrutinee, symTable, ownPkg), rewriteNode(root, symTable, ownPkg))
-    case other => other  // Lit, literals, PatWildcard, etc. — no sub-exprs
+    case Apply(fn, args) =>
+      Apply(rewriteExpr(fn, symTable, ownPkg), args.map(a => rewriteExpr(a, symTable, ownPkg)))
+    case Select(qual, name) =>
+      Select(rewriteExpr(qual, symTable, ownPkg), name)
+    case Lambda(params, body) =>
+      // Lambda parameters shadow module-level names; don't rewrite a name
+      // that's bound as a parameter of this lambda.
+      val shadowed = params.toSet
+      val newTable = if shadowed.isEmpty then symTable else symTable -- shadowed
+      Lambda(params, rewriteExpr(body, newTable, ownPkg))
+    case If(cond, thenp, elsep) =>
+      If(
+        rewriteExpr(cond, symTable, ownPkg),
+        rewriteExpr(thenp, symTable, ownPkg),
+        elsep.map(e => rewriteExpr(e, symTable, ownPkg))
+      )
+    case Block(stmts) =>
+      Block(stmts.map(e => rewriteExpr(e, symTable, ownPkg)))
+    case other => other  // Lit, Unsupported, literals — no sub-exprs to rewrite
 
   private def rewriteNode(
       node:     DecisionNode,

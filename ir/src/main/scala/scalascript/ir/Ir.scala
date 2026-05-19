@@ -110,6 +110,37 @@ case class VarRef(name: String) extends IrExpr derives ReadWriter
  *  absolute symbol reference. */
 case class Call(target: SymbolRef, args: List[IrExpr]) extends IrExpr derives ReadWriter
 
+/** Generic application — function position is itself an expression
+ *  (e.g. `f(1)`, `obj.method(x)`, `(lambda)(arg)`).  Used by
+ *  `Normalize` when translating scalameta `Term.Apply` whose target
+ *  has not yet been resolved to a `SymbolRef`.  The Linker treats it
+ *  as opaque (recurses into `fn` and `args` for `VarRef` rewriting). */
+case class Apply(fn: IrExpr, args: List[IrExpr]) extends IrExpr derives ReadWriter
+
+/** Member selection `qual.name` — produced by scalameta `Term.Select`.
+ *  Used to model `Console.println`, `obj.field`, package paths, etc.
+ *  The Linker recurses into `qual` for `VarRef` rewriting. */
+case class Select(qual: IrExpr, name: String) extends IrExpr derives ReadWriter
+
+/** Anonymous function `(p1, …) => body`.  Parameter names only (no
+ *  types) since the IR doesn't yet carry a type system at this layer. */
+case class Lambda(params: List[String], body: IrExpr) extends IrExpr derives ReadWriter
+
+/** Conditional `if (cond) thenp else elsep`.  `elsep` is `None` for
+ *  the bare `if … then …` form. */
+case class If(cond: IrExpr, thenp: IrExpr, elsep: Option[IrExpr]) extends IrExpr derives ReadWriter
+
+/** Sequence of statements / expressions — the tail value is the
+ *  block's result.  Used for `Term.Block` and as the root container
+ *  for a code block's body. */
+case class Block(stmts: List[IrExpr]) extends IrExpr derives ReadWriter
+
+/** Catch-all for scalameta nodes that the `AstToIr` translator does
+ *  not yet model (definitions, complex patterns, advanced types, …).
+ *  Carries the original source snippet so downstream consumers can
+ *  reconstruct or report the node; the Linker treats it as opaque. */
+case class Unsupported(syntax: String) extends IrExpr derives ReadWriter
+
 /** A primitive literal payload — concrete variant of `Lit`.
  *  Numeric kinds split so round-trip preserves type. */
 enum LitValue derives ReadWriter:
