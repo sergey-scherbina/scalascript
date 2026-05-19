@@ -131,6 +131,30 @@ object ModuleGraph:
         val currentHash = InterfaceExtractor.sha256(os.read.bytes(srcPath))
         iface.sourceHash != currentHash
 
+  /** Check whether a `.ssc` module's JVM-backend cached `.scjvm` artifact is
+   *  stale relative to the current source.
+   *
+   *  A `.scjvm` is stale if:
+   *  - The `.scjvm` artifact does not exist, OR
+   *  - The artifact's envelope is invalid (wrong magic / ABI), OR
+   *  - The SHA-256 of the current source bytes does not match the
+   *    `sourceHash` stored in the `.scjvm` artifact.
+   *
+   *  v2.0 — JVM incremental codegen cache.
+   *
+   *  @param srcPath    Path to the `.ssc` source file.
+   *  @param artifactDir Directory where `.scjvm` artifacts live.
+   *  @return `true` if the JVM artifact needs regeneration. */
+  def isJvmStale(srcPath: os.Path, artifactDir: os.Path): Boolean =
+    val baseName = srcPath.last.stripSuffix(".ssc")
+    val scjvmPath = artifactDir / (baseName + ".scjvm")
+    if !os.exists(scjvmPath) then return true
+    JvmArtifactIO.readJvmFile(scjvmPath) match
+      case Left(_) => true
+      case Right(art) =>
+        val currentHash = InterfaceExtractor.sha256(os.read.bytes(srcPath))
+        art.sourceHash != currentHash
+
   /** Collect raw import paths from a section recursively. */
   private def collectImports(s: scalascript.ast.Section): List[String] =
     s.content.collect {
