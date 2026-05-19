@@ -280,6 +280,32 @@ case class ModuleIrArtifact(
   body:         String         // upickle.default.write(NormalizedModule) — JSON string
 ) derives ReadWriter
 
+/** JVM-backend cached artifact — written as `.scjvm` JSON.
+ *
+ *  Carries the JVM backend's emitted Scala 3 source string for a *single*
+ *  module (no merged transitive-dep code).  Consumers (`ssc link --backend
+ *  jvm`) concatenate the `scalaSource` of every `.scjvm` in dependency order
+ *  and feed the combined source to scala-cli / scalac — bypassing the per-
+ *  link re-codegen of unchanged modules.
+ *
+ *  MVP: textual concat.  Real bytecode-level caching is deferred (see
+ *  `MILESTONES.md` v2.0 § "Considered alternatives").  The `.scjvm` magic +
+ *  ABI envelope follows the same versioning discipline as `.scim` / `.scir`
+ *  so mismatched artifacts are detected at read time, not silently spliced
+ *  into a broken combined source.
+ *
+ *  v2.0 — JVM incremental codegen cache. */
+case class ModuleJvmArtifact(
+  magic:        String,        // must equal ArtifactVersion.magic
+  abiVersion:   String,        // must equal ArtifactVersion.current
+  moduleId:     String,        // source path or FQN prefix (display id; not load-bearing)
+  pkg:          List[String],  // package segments from front-matter
+  moduleName:   Option[String],
+  sourceHash:   String,        // SHA-256 hex of the source bytes
+  scalaSource:  String,        // JvmGen.generate(module) output — Scala 3 source for THIS module
+  imports:      List[String]   // FQNs of foreign-module symbols this artifact references
+) derives ReadWriter
+
 // ─── Context types passed to backend intrinsics ────────────────────────────
 //
 // EmitContext / TargetCode / Value carry runtime references that are not
