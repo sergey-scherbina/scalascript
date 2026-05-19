@@ -441,17 +441,19 @@ unblocks downstream features as early as possible.
  21. **v1.17 — MCP support (client + server)** ✓ Landed (Phases 1–7);
      v1.17.1 hardening ✓ Landed; v1.17.2 SSE/JS ✓ Landed;
      v1.17.3 prompts/JVM ✓ Landed; v1.17.4-min Http/Ws/JVM (minimal
-     wiring, echo placeholder) ✓ Landed; v1.17.4 runtime consolidation
-     Phase 1 (a + b — `runtime-server-common`) ✓ Landed (all 2026-05-19).
+     wiring, echo placeholder) ✓ Landed; v1.17.4-runtime consolidation
+     Phase 1 (a + b + c — `runtime-server-common`) ✓ Landed; v1.17.4
+     full (real `McpServerSession` dispatch + SDK import fixes) ✓
+     Landed (all 2026-05-19).
      Anthropic's Model Context Protocol via REST-shaped API
      in a separate namespace (`std/mcp/*`).  Intrinsic-first:
      wraps `@modelcontextprotocol/sdk` on Node and
      `io.modelcontextprotocol:sdk` on JVM; interpreter +
      scalajs-spa reject at typecheck via SPI feature flags.
      Full design in [`docs/mcp.md`](docs/mcp.md).  Remaining
-     v1.17.x work: full v1.17.4 (real `McpServerSession` dispatch +
-     Phase 2 RouteDispatcher split), INT own-impl, type-class layer,
-     streaming resources.
+     v1.17.x work: Phase 2 RouteDispatcher split (WebServer /
+     WsConnection extraction — ~2 day refactor), INT own-impl,
+     type-class layer, streaming resources.
  22. **v1.18 — `package` keyword + std layout migration** ✓ Landed (all phases, 2026-05-19).
  23. **v1.19 — URL / dep imports** ✓ Landed.
      `[X](https://...)` URL fetch + `[X](dep:org/lib:1.2)`
@@ -3018,25 +3020,84 @@ duplicated HTTP/WS server stack — was previously tracked on branch
   code replaced with ~70 LOC of adapter shims; the implementations now
   live in 11 properly-tested Scala files in `runtime-server-common`.
 
-Phase 2 (split `WebServer` / `WsConnection` behind a `RouteDispatcher`
-trait to make the full v1.17.4 ~50 LOC of adapter) remains deferred.
+- **Phase 1c** — `OAuth` (~290 LOC) and `WebAuthn` (~450 LOC) turned out
+  to be pure too (no actual interpreter coupling — initial scan flagged
+  them as coupled on false positives from `Value` / `Interpreter`
+  identifier hits in unrelated contexts).  Both moved to
+  `runtime-server-common`; OAuth has a serveRuntime duplicate that
+  collapsed to 5 adapter shims (~200 LOC → 5 LOC); WebAuthn was
+  interpreter-only, so it moved without a shim and is now available for
+  the codegen runtime to consume in follow-up commits.
+
+  `loadCommonSource` now rewrites `private[server]` / `protected[server]`
+  qualified-access modifiers to plain `private` / `protected` on inline
+  (the `[server]` referent disappears once the `package scalascript.server`
+  line is stripped; file-local visibility is preserved because every
+  inlined source ends up in the same top-level scope of the generated
+  script).
+
+### v1.17.4 — full Http/Ws transports on JVM ✓ Landed (2026-05-19)
+
+The v1.17.4-min echo placeholder is replaced with real
+`McpServerSession.handle(...)` dispatch.  Two pieces of work landed here:
+
+1. **`JvmRuntimeMcp.scala` rewrite** — every SDK import path corrected
+   from the previously-broken `io.modelcontextprotocol.sdk.*` to the
+   actual `io.modelcontextprotocol.{server,client,spec}.*` layout (the
+   SDK jar never had a `.sdk.` segment, so the prior template never
+   compiled against a real classpath).  The API shape is realigned:
+   `McpServer.sync(provider)` accepts the transport provider directly and
+   returns a `SyncSpecification` builder — `.serverInfo(...).tools(list)
+   .resources(list).prompts(list).build()` yields the live `McpSyncServer`;
+   the `_mcpBuilder.buildSpec()` / `jSrv.connect(transport)` shape used
+   previously does not exist in the SDK.
+
+2. **Custom `McpServerTransportProvider`s** for Http and Ws, bridging
+   the SDK's reactor-based protocol layer to the consolidated `route()`
+   / `sse()` / `onWebSocket()` helpers emitted by `serveRuntime`:
+
+   - `_HttpSseSessionTransport` writes outbound JSON-RPC as SSE
+     `message` events; `_HttpSseMcpProvider.setSessionFactory` lazily
+     registers GET (SSE upgrade — sends `endpoint` event with the POST
+     URL, holds the stream open) and POST handlers (deserialises via
+     `McpSchema.deserializeJsonRpcMessage`, routes through
+     `session.handle(msg).subscribe()`).
+   - `_WsSessionTransport` writes outbound text frames; `_WsMcpProvider`
+     registers `onWebSocket(basePath) { ws => … }` and pipes inbound text
+     frames through the same `deserialize → session.handle` flow.
+   - Both providers implement `notifyClients` for SDK-driven broadcast
+     and `closeGracefully` for shutdown.  Inbound exceptions surface as
+     HTTP 500 / stderr WS errors instead of silent drops.
+   - `onConnected` / `onDisconnected` builder hooks fire on session
+     create / close (Stdio: on serveMcp entry/exit; Http: SSE open/close;
+     Ws: WebSocket connect/disconnect).
+
+Supporting change: `route(method, path)(handler: Request => Any)` — the
+prior `Request => Response` signature was a compile-time lie since the
+runtime dispatcher already pattern-matches on `_StreamResponse | Response
+| other`; the narrower type just blocked MCP transports from returning
+`sse(req) { … }` from a route handler.  Widening to `Any` matches the
+runtime behaviour and stays compatible with existing `Request => Response`
+callers (Response is a subtype of Any).
 
 ### Deferred follow-ups (v1.17.x backlog, ordered by priority)
 
-1. **Full v1.17.4** — replace the minimal echo (v1.17.4-min) with real
-   `McpServerSession.handle(...)` dispatch.  Blocker: the existing
-   `JvmRuntimeMcp.scala` imports `io.modelcontextprotocol.sdk.*` but the
-   actual SDK jar exposes `io.modelcontextprotocol.{server,client,spec}.*`
-   (no `.sdk.` segment) — fix the imports, then plug a custom
-   `McpServerTransportProvider` that bridges to the consolidated
-   `route()` / `onWebSocket()` helpers.
-2. **Phase 2 of runtime consolidation** — split the interpreter-coupled
-   classes (`WebServer`, `WsConnection`, `WsRoutes`, `WsProxy`,
-   `BlockingWsSession`, `OAuth`, `WebAuthn`, `TlsProxy` — ~3 400 LOC)
-   behind a `RouteDispatcher` trait so the protocol layer can also move
-   to `runtime-server-common`.  After this, `serveRuntime` shrinks from
-   the current ~1 700 LOC of glue to ~300 LOC.
-3. **Own implementation for INT / scalajs-spa** — ~1500 LOC
+1. **Phase 2 of runtime consolidation** — split the remaining
+   interpreter-coupled classes (`WebServer` ~720 LOC, `WsConnection`
+   ~540 LOC, `WsRoutes` ~120 LOC, `WsProxy` ~500 LOC, `BlockingWsSession`
+   ~230 LOC, `WsClientSession` ~200 LOC, `TlsProxy` ~250 LOC — total
+   ~2 560 LOC) behind a `RouteDispatcher` trait so the protocol layer
+   can also move to `runtime-server-common`.  This is genuinely a 2–3
+   day refactor: the coupling is structural (the dispatcher invokes user
+   handlers as `Value.Closure`s via `Interpreter.eval` in one backend,
+   as plain Scala closures in the other), so a clean split requires
+   unifying the `Request` / `Response` case-class shape, JSON dispatch,
+   gzip, CORS, session cookie, and rate-limit middleware behind a
+   `RouteDispatcher.dispatch(req: Request): Any` boundary.  After this
+   lands, `serveRuntime` shrinks from the current ~1 200 LOC of glue to
+   ~300 LOC of `RouteDispatcher` glue + the user-facing `route()` /
+   `serve()` / `onWebSocket()` aliases.
+2. **Own implementation for INT / scalajs-spa** — ~1500 LOC
    JSON-RPC 2.0 stack; blocked until INT becomes a priority target.
 3. **Type-class layer** (`given McpTool[A, R]`, `derives McpSchema`)
    — depends on v1.14 `derives`.
