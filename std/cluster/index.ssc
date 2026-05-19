@@ -47,3 +47,4 @@ that land in `std.actors`.
 | Metrics aggregation (`Cluster.metricSet/Get/Sum/Names/subscribeMetrics`) | ✓ v1.23 |
 | Consul leader-coordinator adapter (`Consul.use`) | ✓ v1.23 (opt-in module) |
 | etcd leader-coordinator adapter (`Etcd.use`) | ✓ v1.23 (opt-in module) |
+| Cluster-wide singleton actor (`Singleton.use` / `Singleton.send`) | ✓ v1.23 (opt-in module) |

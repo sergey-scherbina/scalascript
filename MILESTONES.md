@@ -4507,6 +4507,10 @@ external-coordinator algorithms and API in
 | `std.cluster.Cluster.*` namespace wrapper | ✓ v1.23 |
 | Multi-node integration tests (2-, 5-, 3-node-with-leader-kill failover) | ✓ v1.23 |
 | Concrete `Etcd.use` + `Consul.use` coordinator adapters | ✓ v1.23 |
+| Operational status endpoint (`GET /_ssc-cluster/status` + `ssc cluster status` CLI) | ✓ v1.23 |
+| Cluster-wide singleton actor (`Singleton.use` / `Singleton.send`) | ✓ v1.23 (opt-in module) |
+| Tunable per-link heartbeat (`setHeartbeatTimeout(intervalMs, deadAfterMs)`) | ✓ v1.23 |
+| Bounded auto-reconnect (`setReconnectPolicy(initial, max, giveUpAfterMs)`) | ✓ v1.23 |
 
 ### Still deferred (promote on demand)
 
