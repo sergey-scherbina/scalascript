@@ -178,4 +178,107 @@ function mcpConnect(transport, timeoutMs) {
     isClosed:      () => _closed
   };
 }
+
+// ── Async / Promise-based variant ──────────────────────────────────────────
+//
+// `mcpConnectAsync(transport, timeoutMs)` returns a `Promise<McpClientAsync>`
+// whose methods (`listTools`, `callTool`, ...) all return Promises.  Uses
+// `fetch()` instead of sync XHR — doesn't block the main thread, which is
+// what production browser UIs actually want.
+//
+// API divergence from std/mcp/client.ssc: every method returns a Promise.
+// Users writing scalajs-spa code typically already work with Promises (DOM
+// events, fetch, etc.), so this is a natural fit.  Caller-side: chain
+// `.then()` / `.catch()` or use Scala.js's `Future` interop.
+
+async function _mcpRpcRequestAsync(url, method, params, timeoutMs) {
+  const id   = _mcpClientNextId++;
+  const body = JSON.stringify({ jsonrpc: '2.0', method, params: params || {}, id });
+  const ctrl = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+  const timer = (ctrl && timeoutMs)
+    ? setTimeout(() => { try { ctrl.abort(); } catch (_) {} }, timeoutMs)
+    : null;
+  let resp;
+  try {
+    resp = await fetch(url, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+      body,
+      signal:  ctrl ? ctrl.signal : undefined
+    });
+  } catch (e) {
+    throw McpError('mcpConnectAsync: fetch failed: ' + (e && e.message || e));
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+  if (!resp.ok) {
+    const txt = await resp.text().catch(() => '');
+    throw McpError('mcpConnectAsync HTTP ' + resp.status + ': ' + txt.slice(0, 200));
+  }
+  const text = await resp.text();
+  let json;
+  try { json = JSON.parse(text); }
+  catch (e) { throw McpError('mcpConnectAsync: invalid JSON-RPC response: ' + (e && e.message || e)); }
+  if (json.error) throw McpError(json.error.message || 'unknown error');
+  return json.result;
+}
+
+function _mcpRpcNotifyAsync(url, method, params) {
+  try {
+    // Fire-and-forget; ignore the returned promise so the caller doesn't
+    // have to await notification-style sends.
+    fetch(url, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ jsonrpc: '2.0', method, params: params || {} })
+    }).catch(() => {});
+  } catch (_) {}
+}
+
+async function mcpConnectAsync(transport, timeoutMs) {
+  const url = _mcpHttpUrl(transport);
+  const tms = timeoutMs || 30000;
+  await _mcpRpcRequestAsync(url, 'initialize', {
+    protocolVersion: '2024-11-05',
+    capabilities:    {},
+    clientInfo:      { name: 'ssc-scalajs-spa-async', version: '1.0.0' }
+  }, tms);
+  _mcpRpcNotifyAsync(url, 'notifications/initialized', {});
+
+  let _closed = false;
+  function _guardA() {
+    if (_closed) return Promise.reject(McpError('McpClient is closed'));
+    return null;
+  }
+
+  return {
+    _type: 'McpClientAsync',
+    listTools:     async () => {
+      const g = _guardA(); if (g) return g;
+      return _mcpDescriptorsToListB(await _mcpRpcRequestAsync(url, 'tools/list',     {}, tms), 'tool');
+    },
+    listResources: async () => {
+      const g = _guardA(); if (g) return g;
+      return _mcpDescriptorsToListB(await _mcpRpcRequestAsync(url, 'resources/list', {}, tms), 'resource');
+    },
+    listPrompts:   async () => {
+      const g = _guardA(); if (g) return g;
+      return _mcpDescriptorsToListB(await _mcpRpcRequestAsync(url, 'prompts/list',   {}, tms), 'prompt');
+    },
+    callTool: async (name, args) => {
+      const g = _guardA(); if (g) return g;
+      return _mcpToolResultB(await _mcpRpcRequestAsync(url, 'tools/call', { name, arguments: _mcpArgsToObj(args) }, tms));
+    },
+    readResource: async (uri) => {
+      const g = _guardA(); if (g) return g;
+      return _mcpResourceResultB(await _mcpRpcRequestAsync(url, 'resources/read', { uri }, tms), uri);
+    },
+    getPrompt: async (name, args) => {
+      const g = _guardA(); if (g) return g;
+      return _mcpPromptResultB(await _mcpRpcRequestAsync(url, 'prompts/get', { name, arguments: _mcpArgsToObj(args) }, tms));
+    },
+    close:    () => { _closed = true; },
+    isClosed: () => _closed
+  };
+}
 """

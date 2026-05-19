@@ -56,3 +56,28 @@ class JsRuntimeMcpBrowserTest extends AnyFunSuite with Matchers:
     JsRuntimeMcpBrowser should include ("'initialize'")
     JsRuntimeMcpBrowser should include ("'2024-11-05'")
     JsRuntimeMcpBrowser should include ("'notifications/initialized'")
+
+  // ── Async / Promise variant ─────────────────────────────────────────
+
+  test("async variant — mcpConnectAsync uses fetch + returns Promise-based client"):
+    JsRuntimeMcpBrowser should include ("async function mcpConnectAsync")
+    JsRuntimeMcpBrowser should include ("await fetch(")
+    JsRuntimeMcpBrowser should include ("McpClientAsync")
+
+  test("async variant — every client method is async"):
+    JsRuntimeMcpBrowser should include ("listTools:     async ()")
+    JsRuntimeMcpBrowser should include ("listResources: async ()")
+    JsRuntimeMcpBrowser should include ("listPrompts:   async ()")
+    JsRuntimeMcpBrowser should include ("callTool: async (name, args)")
+    JsRuntimeMcpBrowser should include ("readResource: async (uri)")
+    JsRuntimeMcpBrowser should include ("getPrompt: async (name, args)")
+
+  test("async variant — supports request abort via AbortController on timeout"):
+    JsRuntimeMcpBrowser should include ("AbortController")
+    JsRuntimeMcpBrowser should include ("ctrl.abort()")
+
+  test("async variant — sync and async share the wire-shape adapters"):
+    // _mcpToolResultB / _mcpDescriptorsToListB / etc. are defined once and
+    // used by both mcpConnect (sync) and mcpConnectAsync.
+    JsRuntimeMcpBrowser should include ("_mcpToolResultB(await")
+    JsRuntimeMcpBrowser should include ("_mcpDescriptorsToListB(await")
