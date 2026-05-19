@@ -76,18 +76,20 @@ compiles them via Scala.js.
 | Functions | `def f(x: Int): Int = x * 2` |
 | Lambdas and closures | `val double = (x: Int) => x * 2` |
 | Higher-order functions | `xs.map(double)`, `xs.filter(_ > 0)` |
+| Default parameters | `def f(x: Int, step: Int = 1)`, also on class/enum constructors |
 | Case classes | `case class Point(x: Double, y: Double)` |
 | Enums / sealed traits | `enum Color { case Red; case Green; case Blue }` |
 | Recursive ADTs | `enum Tree { case Leaf(v: Int); case Branch(l: Tree, r: Tree) }` |
 | Pattern matching | `x match { case Some(n) => n; case None => 0 }` |
 | For comprehensions | `for x <- xs if x > 0 yield x * x` |
 | While loops | `while n > 0 do { ... }` |
-| Collections | `List`, `Map`, `Option` with full method dispatch |
+| Collections | `List`, `Map`, `Option`, `Set` with full method dispatch |
 | Tuples | `val t = (1, "hello"); t._1` |
 | String interpolation | `` s"Hello, $name" ``, `` md"..." `` (strips indent) |
 | Math | `math.sqrt`, `math.abs`, `math.pow`, `math.Pi`, … |
 | Extension methods | `extension (n: Int) def squared: Int = n * n` |
-| Typeclasses | `trait Show[A]`, `given`, `summon[Show[Int]]` |
+| Typeclasses | `trait Show[A]`, `given`, `summon[Show[Int]]`, context bounds |
+| Higher-kinded types (HKT) | `trait Functor[F[_]]`, sealed dispatch, auto-resolution |
 | Recursion | factorial, Fibonacci, tree traversal |
 | Tail-call optimisation | self-TCO and mutual TCO — no `@tailrec` required |
 | Case-class `.copy` | `p.copy(field = newValue, ...)` |
@@ -95,24 +97,65 @@ compiles them via Scala.js.
 | Prisms | `Prism[Sum, Variant]` → `getOption` / `set` / `modify` / `reverseGet` |
 | Optionals | `Focus[T](_.maybe.some.field)` → `Optional` for paths through `Option` fields |
 | Traversals | `Focus[T](_.items.each.field)` → `Traversal` — multi-foci `getAll` / `modify` / `set` |
-| Algebraic effects | `effect E:`, `handle(body) { case E.op(arg, resume) => ... }` |
-| Built-in `Async` effect | `runAsync { Async.async(...) ; Async.await(...) ; Async.parallel(...) ; Async.delay(ms) }` |
-| Real-thread `runAsyncParallel` | swap the handler for genuine JVM concurrency without touching call sites |
+| Algebraic effects | `effect E:`, `handle(body) { case E.op(arg, resume) => ... }`, multi-shot |
+| Standard effects — Logger | `Logger.info(msg)`, `runConsoleLogger`, `runTestLogger` |
+| Standard effects — Random | `Random.nextInt(n)`, `runSeededRandom(seed)` |
+| Standard effects — Clock | `Clock.now()`, `Clock.millis()`, `runSystemClock` |
+| Standard effects — State | `State.get`, `State.set(v)`, `State.modify(f)`, `runState(init)` |
+| Standard effects — Env | `Env.get(key)`, `runEnv(map)` |
+| Standard effects — Http | `Http.get(url)`, `Http.post(url, body)`, `runHttpClient` |
+| Standard effects — Retry | `Retry.attempt(n)(body)`, `runRetry(policy)` |
+| Standard effects — Cache | `Cache.getOrSet(key)(body)`, `runCache` |
+| Standard effects — Tx | `Tx.begin`, `Tx.commit`, `Tx.rollback`, `runTx` |
+| Standard effects — Auth | `Auth.check(claims)`, `runAuth(verifier)` |
+| Direct syntax (do-notation) | `direct[M] { x = expr; y = expr2 }`, `.!` postfix bind |
+| Effect-row unions | `direct[Async \| Random] { ... }` |
+| Built-in `Async` effect | `runAsync { Async.delay(ms); Async.parallel(...) }` |
+| Real-thread `runAsyncParallel` | genuine JVM concurrency without touching call sites |
 | Built-in `Storage` effect | `runStorage { Storage.put(k, v); Storage.get(k) }` — JSON file-backed or ephemeral |
-| WebSocket sync `recv` | `ws.recv(): Option[String]` and `ws.isClosed` — alternative to inverted-control `onMessage` callbacks (JVM backends) |
-| Reactive signals | `Signal(0)`, `s.get` / `s.set(v)`, `computed { … }`, `effect { … }` with scheduled flush |
-| Default parameters | `def f(x: Int, step: Int = 1)`, also on class/enum constructors |
+| Coroutines | `coroutineCreate`, `coroutineResume`, `suspend`, `Step[Y,T]` ADT, `coroutineCancel` |
+| Generators | `generator[T] { yield(v) }`, `fromGenerator`, streaming interop |
+| Reactive signals | `Signal(0)`, `s.get` / `s.set(v)`, `computed { … }`, `effect { … }` with diamond-dedup flush |
+| Free monad | `Free[F,A]`, `liftF`, `foldMap`, `runM` — in `std/free.ssc` |
+| Standard typeclasses | Functor, Applicative, Monad, Foldable, Traversable, Either, Eq, Show, Hash, Order, Semigroup, Monoid, Bifunctor, MonadError, Selective |
+| Metaprogramming | `inline def/val/if/match`, `compiletime.constValue/summonInline/error` |
+| Derives | `derives Eq/Show/Hash/Order/Foldable/Traversable/Functor` |
+| Checked errors | `throws[A, E] = Either[E, A]`, `throwsRaw[A, E] = A \| E`, `attemptCatch`, `HasStackTrace` |
+| Actors | `spawn`, `self()`, `pid ! msg`, `receive { case ... }`, `link`, `exit`, supervision |
+| Distributed actors | actor cluster over WS, bully leader election, Phi-accrual FD, gossip, membership events |
+| HTTP server | `route(method, path)(handler)`, `serve(port)`, `Request`/`Response` |
+| HTTP streaming | `streamResponse`, SSE via `sse(req)` |
+| HTTP middleware | CORS, gzip, cache headers, `/_health` / `/_ready` |
+| WebSocket server | `onWebSocket(path)`, `ws.send/recv/close/ping`, rate limiting, per-route `maxConnections` |
+| TLS | `tls("cert.pem", "key.pem")`, `serve(443, tls=...)`, `wss://` |
+| HTTP client | `httpGet/httpPost`, `httpClient { }`, `httpGetStream` for SSE/LLM streaming |
+| WebSocket client | `wsConnect(url) { ws => }`, `wss://` |
+| REST ergonomics | `jsonParse/jsonStringify/jsonRead`, `req.json`, `JsonValue`, `validate { }`, middleware |
+| Sessions + CSRF | `req.session`, `withSession(Map(...))`, `csrfToken()` / `csrfValid(req)` |
+| JWT bearer tokens | `jwtSign(Map(...))`, `jwtVerify(token)`, RS256 and HS256 |
+| Password hashing | `hashPassword`/`verifyPassword` (PBKDF2) |
+| TOTP 2FA | `totpGenerateSecret`, `totpVerify(secret, code)` |
+| WebAuthn / passkeys | `webAuthnRegisterChallenge`, `webAuthnVerify` |
+| OAuth2 | `oauthAuthorizeUrl(...)`, `oauthExchangeCode(...)`, `oauthUserinfo(...)`, Google + GitHub presets |
+| MCP server | `mcpServer { srv => srv.tool(...) }`, `serveMcp(Transport.stdio/Http/Ws)` |
+| MCP client | `mcpConnect(url) { client => client.callTool(...) }` |
+| Dataset / MapReduce | `Dataset[T]` with map/filter/flatMap/groupBy/reduceByKey/top/countByValue + `runLocal/runParallel/runDistributed` |
+| DSL / Parser combinators | `std/parsing/*` — Parser ADT, `~/~>/~<`, rep, opt, sep, error recovery, indentation-aware |
+| Multi-pass pipelines | `std/dsl/*` — `Pass[A,B]`, `andThen/parallel/recover`, `Visitor`, `cata`, `ana` |
+| Package system | `package: org.example.ui` in frontmatter, namespaced exports, collision-safe imports |
 | Module imports | `[name](./lib.ssc)` markdown links bring definitions into scope |
+| URL imports | `[X](https://...)` URL fetch, cached at `~/.cache/ssc/` |
+| Dependency imports | `[X](dep:org/lib:1.2)` resolver, `ssc.lock` |
+| Plugin system | `.sscpkg` format, `ssc plugin install/list/uninstall/check/pack`, `~/.scalascript/registry.yaml` |
+| Separate compilation | `ssc emit-interface`, `ssc compile-jvm/compile-js`, `ssc link`, `ssc build --incremental`, `.scim/.scir/.scjvm/.scjs` |
+| i18n | `translations:` frontmatter, `t(key)`, `setLocale(code)` |
+| SSR + hydration | `wc(tag, component, args*)` declarative shadow DOM |
+| Web Components | `ssc emit-wc`, `customElements.define` |
+| Component library | `std/ui/*` — Button, Input, Select, Modal, Card, Spinner, Alert, DatePicker, Combobox, and more |
+| Browser SPA target | `ssc emit-spa file.ssc` — same `route()` source runs as a single-page app |
+| Env access | `getenv(key)` / `getenv(key, default)` |
 | Content helpers | `doc(...)` / `render(...)` structured output |
 | HTML / CSS interpolators | `html"..."` (auto-escaping) and `css"..."` with `${expr}` |
-| REST primitives | `route(method, path)(handler)` + `Request`/`Response` + `serve(port)` |
-| Browser SPA target | `ssc emit-spa file.ssc > spa.html` — same `route()` source runs as a single-page app |
-| Sessions + CSRF | `req.session`, `Response.html(...).withSession(Map(...))`, `csrfToken()` / `csrfValid(req)` |
-| JWT bearer tokens | `jwtSign(Map(...))`, `jwtVerify(token)`, `req.bearerToken`, `req.jwtClaims` (HS256) |
-| Server-side sessions | `useSessionStore(ttlSeconds)` — opt-in, cookie carries an SSID, payload lives in process |
-| HTTP Basic auth | `req.basicAuth`, `Response.basicAuthChallenge(realm)` — for dev/internal endpoints |
-| OAuth2 / OIDC | `oauthAuthorizeUrl(...)`, `oauthExchangeCode(...)`, `oauthUserinfo(...)`, presets for `google` and `github` |
-| Env access | `getenv(key)` / `getenv(key, default)` — `process.env` on Node, `System.getenv` on JVM |
 
 ## Examples
 
@@ -131,10 +174,17 @@ compiles them via Scala.js.
 | [content.ssc](examples/content.ssc) | `md` interpolator, auto-output, `doc`/`render` |
 | [recursion.ssc](examples/recursion.ssc) | Self-TCO, mutual TCO, Collatz — deep recursion without overflow |
 | [effects.ssc](examples/effects.ssc) | Algebraic effects — Console routing, nondeterminism, early return |
+| [std-effects-demo.ssc](examples/std-effects-demo.ssc) | Logger, Random, Clock, State, Env standard effects |
+| [direct-demo.ssc](examples/direct-demo.ssc) | `direct[M]` do-notation, `.!` postfix bind, effect-row unions |
 | [async-demo.ssc](examples/async-demo.ssc) | Built-in `Async` effect — `runAsync`, `async`, `await`, `parallel`, `delay` |
+| [coroutine-demo.ssc](examples/coroutine-demo.ssc) | `coroutineCreate`, `coroutineResume`, `suspend`, generators |
 | [signals-demo.ssc](examples/signals-demo.ssc) | Reactive signals — `Signal`, `computed`, `effect`, diamond dedup |
 | [storage-demo.ssc](examples/storage-demo.ssc) | Built-in `Storage` effect — JSON-backed and ephemeral handlers |
+| [actors-demo.ssc](examples/actors-demo.ssc) | Actors — spawn, send, receive, supervision, cluster |
 | [ws-recv-demo.ssc](examples/ws-recv-demo.ssc) | Sync-style `ws.recv()` loop alternative to `onMessage` callbacks |
+| [mcp-demo.ssc](examples/mcp-demo.ssc) | MCP server with tools and resources; MCP client usage |
+| [dataset-stats.ssc](examples/dataset-stats.ssc) | Dataset MapReduce — `runLocal`, `runParallel`, aggregations |
+| [dsl-demo.ssc](examples/dsl-demo.ssc) | Parser combinators, error recovery, multi-pass compilation pipeline |
 | [lenses.ssc](examples/lenses.ssc) | `.copy(field = v)`, `Focus[T](_.a.b)`, `get` / `set` / `modify` / `andThen` |
 | [default-params.ssc](examples/default-params.ssc) | Default parameter values on defs, classes, and enum cases |
 | [lang-split.ssc](examples/lang-split.ssc) | `scala` vs `scalascript` block annotations side by side |
@@ -143,6 +193,8 @@ compiles them via Scala.js.
 | [spa-demo.ssc](examples/spa-demo.ssc) | Same `route()` / `serve()` source, browser SPA via `ssc emit-spa` |
 | [auth-demo.ssc](examples/auth-demo.ssc) | Login / logout with signed cookie sessions + CSRF tokens |
 | [oauth-demo.ssc](examples/oauth-demo.ssc) | Full OAuth2 sign-in (GitHub or Google) — state, exchange, userinfo |
+| [tls-demo.ssc](examples/tls-demo.ssc) | HTTPS + WSS server with `tls(cert, key)` |
+| [wc-demo.ssc](examples/wc-demo.ssc) | Web Components via `ssc emit-wc`, SSR + hydration |
 
 Run them all at once:
 
@@ -201,14 +253,27 @@ scala-cli conformance/run.sc
 | list-companion | `List.fill`, `List.tabulate`, `List.range` |
 | modules | `[name](./path.ssc)` imports — bind definitions from another file |
 | effects | Algebraic effects: Console routing, Choose nondeterminism, Fail early-return |
+| std-effects | Logger, Random, Clock, State, Env standard effects with default + test handlers |
 | async | Built-in `Async` effect — `runAsync` drives `async` / `await` / `parallel` / `delay` |
-| async-parallel | `runAsyncParallel` — real-thread Async on JVM, declared-order parallel for deterministic output |
+| async-parallel | `runAsyncParallel` — real-thread Async on JVM |
 | storage | Built-in `Storage` effect — `get` / `put` / `remove` / `has` / `keys` via ephemeral or file-backed handler |
+| direct | Direct-syntax do-notation: `direct[M]`, `.!` bind, pure lift, control flow |
+| coroutines | `coroutineCreate`, `coroutineResume`, `suspend`, `Step[Y,T]`, `coroutineCancel` |
+| generators | `generator[T] { yield(v) }`, pipeline composition, lazy streams |
 | signals | Reactive `Signal` / `computed` / `effect` with diamond-dedup flush |
 | lenses | `.copy(field = v)` and `Focus[T](_.a.b)` — get / set / modify / andThen |
 | prisms | `Prism[Sum, Variant]` — getOption / set / modify on enum / sealed-trait cases |
 | optional | `Focus[T](_.maybe.some.field)` — Optional optic with getOption / set / modify / andThen |
 | traversal | `Focus[T](_.items.each.field)` — Traversal with getAll / modify / set / andThen |
+| actors | spawn / send / receive / supervision / link / exit |
+| actors-dist | Distributed actor cluster, WS transport, gossip, leader election |
+| mcp | MCP server tools + resources; MCP client callTool |
+| dataset | `Dataset[T]` local sequential, parallel, distributed MapReduce |
+| dsl | Parser combinators, error recovery, indentation-aware, multi-pass pipeline |
+| metaprogramming | `inline`, `derives`, `compiletime.*` |
+| checked-errors | `throws[A, E]`, `attemptCatch`, `HasStackTrace` |
+| websocket | `onWebSocket`, `ws.send/recv`, rate limiting, `wss://` |
+| tls | `tls(cert, key)`, HTTPS, WSS |
 
 ## Backends
 
@@ -248,17 +313,29 @@ The JavaScript backend handles two block types differently:
 When a `.ssc` file contains both, the Scala.js-compiled section runs first, followed by
 the ScalaScript transpiled section.
 
-The `ssc-js` script is a lower-level tool for the JS backend:
+## CLI Commands
 
 ```bash
-# Emit combined JS to stdout (Scala.js bundle + ScalaScript runtime)
-bin/ssc-js examples/hello.ssc
-
-# Transpile and run in one step (same as jssc)
-bin/ssc-js --run examples/hello.ssc
-
-# Pipe to Node.js manually
-bin/ssc-js examples/hello.ssc | node
+ssc run file.ssc              # interpret
+ssc watch file.ssc            # watch mode (re-run on change)
+ssc repl                      # interactive REPL
+ssc compile-jvm file.ssc      # compile to .scjvm artifact
+ssc compile-js file.ssc       # compile to .scjs artifact
+ssc emit-interface file.ssc   # emit .scim interface
+ssc emit-ir file.ssc          # emit .scir normalized IR
+ssc link --backend jvm dir/   # link artifacts
+ssc build --incremental dir/  # incremental build
+ssc emit-js file.ssc          # transpile to JS
+ssc emit-spa file.ssc         # SPA HTML bundle
+ssc emit-wc file.ssc          # Web Components bundle
+ssc test file.ssc             # run tests
+ssc preview file.ssc          # preview component variants
+ssc deps file.ssc             # show import closure
+ssc info artifact.scjvm       # inspect artifact
+ssc plugin install/list/uninstall/check/pack/registry
+ssc --list-backends / --describe-backend <id>
+jssc file.ssc                 # JS transpiler runner
+sscc file.ssc                 # JVM runner
 ```
 
 ## Project Layout
@@ -280,14 +357,18 @@ core/
     ast/       # AST types
     imports/   # Cross-file import resolver
     interpreter/Value.scala  # Computation Free monad (used by interpreter+codegens)
+    transform/ # Normalize, DirectDesugar, EffectAnalysis
+    plugin/    # BackendRegistry, SubprocessBackend, WireProtocol
 backend-jvm/      # JvmGen — emits Scala 3 source
 backend-js/       # JsGen — transpiles to JavaScript
 backend-scalajs/  # ScalaJsBackend — emits SPA via Scala.js
 backend-interpreter/
   src/main/scala/scalascript/
     interpreter/    # Tree-walking interpreter
-    server/         # Built-in HTTP / WebSocket runtime
+    server/         # Built-in HTTP / WebSocket / Actor / MCP runtime
     bench/          # WsStress benchmark
+runtime-server-common/      # Shared HTTP/WS server primitives (all backends)
+mcp-common/                 # Shared MCP protocol types + codec
 cli/                        # Main entry point (ssc command)
 
 conformance/     # Cross-backend conformance test suite
@@ -295,6 +376,7 @@ conformance/     # Cross-backend conformance test suite
 
 examples/        # Runnable .ssc files
   run-all.sc     # Runs all examples in order
+  plugins/       # Worked backend plugin examples
 
 build.sbt        # sbt build — multi-module per spec §4.1
 project/
@@ -302,8 +384,21 @@ project/
   plugins.sbt    # sbt-assembly for fat-jar packaging
 
 docs/            # Architecture, spec, design docs
-  backend-spi.md       # Backend SPI v0.1 design (source of truth)
-  backend-spi-plan.md  # Execution plan for the SPI rollout (this branch only)
+  architecture.md        # Compiler pipeline and module structure
+  backend-spi.md         # Backend SPI design (source of truth)
+  direct-syntax.md       # Direct do-notation (v1.8+)
+  coroutines.md          # Coroutine primitive (v1.9+)
+  dsl.md                 # DSL authoring and parser combinators (v1.20)
+  mapreduce.md           # Dataset / MapReduce API (v1.21–1.22)
+  mcp.md                 # MCP server + client (v1.17)
+  actors-dist.md         # Distributed actors design
+  metaprogramming.md     # inline/derives (v1.14)
+  error-handling.md      # Checked errors / throws (v1.15)
+  modularity.md          # Package system and separate compilation
+  markdown-as-syntax.md  # Markdown as Syntax design
+  targets.md             # Target Backends
+  user-guide.md          # Practical user reference
+  tutorial.md            # Step-by-step todo-list application tutorial
 scripts/         # setup.sh (install scala-cli), install.sh (build binary)
 ```
 
@@ -358,9 +453,19 @@ val scala = JvmGen.generate(module)          // emit Scala 3 script
 ## Documentation
 
 - [Language Specification](SPEC.md)
+- [User Guide](docs/user-guide.md)
+- [Tutorial — Collaborative Todo API](docs/tutorial.md)
 - [Markdown as Syntax](docs/markdown-as-syntax.md)
 - [Architecture](docs/architecture.md)
 - [Target Backends](docs/targets.md)
+- [Direct Syntax](docs/direct-syntax.md)
+- [Coroutines](docs/coroutines.md)
+- [DSL Authoring](docs/dsl.md)
+- [Dataset / MapReduce](docs/mapreduce.md)
+- [MCP Support](docs/mcp.md)
+- [Actors (Distributed)](docs/actors-dist.md)
+- [Metaprogramming](docs/metaprogramming.md)
+- [Error Handling](docs/error-handling.md)
 
 ## License
 
