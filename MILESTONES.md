@@ -3734,9 +3734,26 @@ Until then: stays deferred.  Each release revisits the
 
 ## v2.0 — Separate compilation of modules
 
-**Status: MVP infrastructure landed 2026-05-19.**  All six stages from
-the spec are implemented and smoke-tested.  Tracking doc:
+**Status: working separate compilation landed 2026-05-19.**  All six
+stages from the spec are implemented; the pipeline is exercised end-to-end
+via CLI subprocess tests (`emit-interface → check-with-iface → emit-ir →
+link → build --incremental`); the JVM backend produces per-module `.scjvm`
+artifacts that the linker combines incrementally.  Tracking doc:
 `docs/separate-compilation-plan.md`.
+
+Test coverage: 364 core tests + 11 CLI subprocess smoke tests, all green.
+
+**Known gaps (TODO post-MVP):**
+1. `check-with-iface` is permissive on undefined names because the typer
+   still produces `Any` for many shapes; tightening requires extending
+   `Typer.inferType` beyond top-level signatures.
+2. JS backend incremental output (`.scjs`) — JVM is done; JS would mirror.
+3. JVM linker MVP uses textual concat + longest-common-prefix dedup of the
+   JvmGen runtime preamble.  Robust against same-compiler-version modules
+   only; conditional-runtime variation (e.g. one module using effects and
+   another not) requires bytecode-level mangling.  Phase 2.
+4. Higher-kinded types, refinement types, intersection/union types still
+   degrade to `SType.Any` in `parseSType`.
 
 What landed:
 - `ir/Ir.scala`: `ArtifactVersion` (magic `SSCART` + ABI `2.0`),
@@ -3779,6 +3796,30 @@ Post-MVP additions (also landed 2026-05-19):
 - `wrapSectionInPackage` now applies `preprocessExtern` / `preprocessEffects`
   before wrapping — fixes silent parse failures for `std/*` files with
   both `package:` frontmatter and `extern def` surface forms.
+
+Stage 5.3 / typer / JVM-incremental (landed 2026-05-19):
+- `Linker.rewriteExpr` folds `Select` chains: `Select(VarRef("a"), "bar")`
+  where module A (pkg=`["a"]`) exports `bar` collapses to `VarRef("a_bar")`.
+  Handles multi-segment packages too (`std.dsl.foo` → `VarRef("std_dsl_foo")`).
+- `ssc link -o foo.scir` now writes a deterministic composite SHA-256
+  (joined input hashes) instead of the literal string `"linked"`.
+- `Typer` real type inference for top-level signatures (`Defn.Def`,
+  `Defn.Val`, `Defn.Class`): declared return types parse via `parseSType`;
+  inferred return types use simple bidirectional propagation (literals,
+  arithmetic on Int, block last-stat, converging if/else).  Complex
+  bodies still fall back to `SType.Any`.  Closes the "everything is `Any`"
+  gap that made `.scim` interfaces near-useless.
+- `ssc compile-jvm <file.ssc> [-o out.scjvm] [--iface-dir <dir>]` — single-
+  module JVM compile, emits a `.scjvm` artifact (SSCART-framed JSON wrapping
+  per-module emitted Scala 3 source + SHA-256 + import hints).
+- `ssc link --backend jvm <dir> [-o out.jar | out.scala]` — combines
+  per-module `.scjvm` artifacts via textual concat + runtime-prefix dedup.
+  MVP limitation: each `.scjvm` carries the full JvmGen runtime preamble;
+  the linker finds the longest common whole-line prefix and emits it once.
+  Real bytecode-level mangling is Phase 2.
+- `ssc build --incremental --backend jvm <dir>` — emits `.scim` + `.scir`
+  + `.scjvm` per stale module; SHA-256 staleness check makes the build
+  truly incremental (untouched modules skip codegen).
 
 Default `ssc compile` / `ssc build` / `ssc run` are completely unchanged.
 The new commands are additive; the ABI commitment is in place from day one.
