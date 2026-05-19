@@ -790,6 +790,19 @@ lazy val walletStrategyEoa = project
     Test    / scalacOptions ++= sharedScalacOptions,
   )
 
+lazy val walletConnectorEip1193 = project
+  .in(file("wallet-connector-eip1193"))
+  .dependsOn(walletSpi, blockchainSpi, walletStrategyEoa % Test, blockchainEvm % Test, cryptoBouncycastle % Test)
+  .settings(
+    name := "scalascript-wallet-connector-eip1193",
+    libraryDependencies ++= Seq(
+      "com.lihaoyi" %% "upickle" % "3.3.1",
+      scalatestTest,
+    ),
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions,
+  )
+
 lazy val blockchainEvmAbi = project
   .in(file("blockchain-evm-abi"))
   .dependsOn(cryptoSpi, cryptoBouncycastle % Test)
@@ -877,7 +890,7 @@ lazy val root = project
     x402Core, x402Server, x402Client,
     x402FacilitatorCoinbase, x402FacilitatorEvm, x402FacilitatorCardano,
     x402QueueKafka, x402QueuePostgres, x402NoncePostgres, x402NonceRedis,
-    cryptoSpi, cryptoBouncycastle, blockchainSpi, blockchainEvm, blockchainEvmAbi, walletSpi, walletStrategyEoa,
+    cryptoSpi, cryptoBouncycastle, blockchainSpi, blockchainEvm, blockchainEvmAbi, walletSpi, walletStrategyEoa, walletConnectorEip1193,
     micropaymentSpi, micropaymentThreshold, micropaymentServer, micropaymentClient,
   )
   .settings(
