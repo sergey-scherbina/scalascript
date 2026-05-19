@@ -120,21 +120,21 @@ class Interpreter(
   // / `InstanceV("Effect", {id})`.  Cross-backend semantics line up
   // because all three backends use the same registry-based push model.
 
-  private class SignalState(var value: Value, val subs: mutable.HashSet[Long])
-  private class EffectState(val thunk: Value, val deps: mutable.HashSet[Long])
+  private[interpreter] class SignalState(var value: Value, val subs: mutable.HashSet[Long])
+  private[interpreter] class EffectState(val thunk: Value, val deps: mutable.HashSet[Long])
 
-  private val signals = mutable.HashMap.empty[Long, SignalState]
-  private val effects = mutable.HashMap.empty[Long, EffectState]
-  private var reactiveCounter: Long = 0L
+  private[interpreter] val signals = mutable.HashMap.empty[Long, SignalState]
+  private[interpreter] val effects = mutable.HashMap.empty[Long, EffectState]
+  private[interpreter] var reactiveCounter: Long = 0L
   // Stack of currently-tracking effect ids.  An effect-thunk that calls
   // another effect (rare but legal) pushes its own id while running.
-  private val effectStack = mutable.Stack.empty[Long]
+  private[interpreter] val effectStack = mutable.Stack.empty[Long]
   // Pending effect reruns queued by `signalSet` while we're inside an
   // active flush.  A LinkedHashSet so each effect runs at most once per
   // synchronous transaction (deduplicates the diamond — derived signal
   // and final consumer both react to the same root change) and reruns
   // happen in registration order for determinism.
-  private val pendingEffects = mutable.LinkedHashSet.empty[Long]
+  private[interpreter] val pendingEffects = mutable.LinkedHashSet.empty[Long]
 
   // v1.5 Tier 5 #20 — validation collector stack.  Each `validate { … }`
   // block pushes a fresh ordered map; the `require*` natives check the
@@ -144,7 +144,7 @@ class Interpreter(
   // outside a validate block) the call throws as before.
   private val validationStack: mutable.Stack[mutable.LinkedHashMap[String, String]] =
     mutable.Stack.empty
-  private var reactiveFlushing = false
+  private[interpreter] var reactiveFlushing = false
 
   // ── v1.16 Restartable errors — Common Lisp condition-system style ───
   // Each active `restartable { pf } { body }` frame runs the body in a
@@ -2906,18 +2906,7 @@ class Interpreter(
     })
 
     // ── Reactive primitives: Signal / computed / effect ────────────────
-    globals("Signal") = Value.NativeFnV("Signal", {
-      case List(init) => Pure(makeSignal(init))
-      case _          => throw InterpretError("Signal(initial)")
-    })
-    globals("computed") = Value.NativeFnV("computed", {
-      case List(thunk) => Pure(makeComputed(thunk))
-      case _           => throw InterpretError("computed { ... }")
-    })
-    globals("effect") = Value.NativeFnV("effect", {
-      case List(thunk) => makeEffect(thunk); Pure(Value.UnitV)
-      case _           => throw InterpretError("effect { ... }")
-    })
+    SignalRuntime.install(this)
 
     // ── v1.21 Dataset — lazy local map-reduce pipeline ──────────────────
     DatasetRuntime.install(this)
@@ -3990,12 +3979,12 @@ class Interpreter(
         if bodyArgClause.values.size == 1 =>
       val body  = bodyArgClause.values.head.asInstanceOf[Term]
       val thunk = Value.FunV(Nil, body, env, "")
-      Pure(makeComputed(thunk))
+      Pure(SignalRuntime.makeComputed(this, thunk))
     case Term.Apply.After_4_6_0(Term.Name("effect"), bodyArgClause)
         if bodyArgClause.values.size == 1 =>
       val body  = bodyArgClause.values.head.asInstanceOf[Term]
       val thunk = Value.FunV(Nil, body, env, "")
-      makeEffect(thunk)
+      SignalRuntime.makeEffect(this, thunk)
       Pure(Value.UnitV)
 
     // ── v1.16 restartable { handlers } { body } ───────────────────────────
@@ -6220,95 +6209,7 @@ class Interpreter(
 
   // ─── Reactive primitives: implementation helpers ───────────────────
 
-  private def freshReactiveId(): Long =
-    reactiveCounter += 1; reactiveCounter
-
-  private def signalInstance(id: Long): Value.InstanceV =
-    Value.InstanceV("Signal", Map("id" -> Value.IntV(id)))
-
-  /** Allocate a new Signal cell and return its user-facing handle. */
-  private def makeSignal(init: Value): Value.InstanceV =
-    val id = freshReactiveId()
-    signals(id) = SignalState(init, mutable.HashSet.empty)
-    signalInstance(id)
-
-  /** Read a signal, registering a subscription with the active effect (if any). */
-  private def signalGet(id: Long): Value =
-    val s = signals.getOrElse(id, throw InterpretError("Signal disposed or unknown id"))
-    if effectStack.nonEmpty then
-      val eid = effectStack.top
-      s.subs += eid
-      effects.get(eid).foreach(_.deps += id)
-    s.value
-
-  /** Write a signal: replace its value and queue its subscribers for
-   *  rerun.  Reruns are deduplicated within the surrounding flush so a
-   *  diamond (root → derived → consumer; consumer also reads root) sees
-   *  each effect exactly once per transaction, matching Solid-style
-   *  fine-grained reactivity.  Subscribers currently on the effect
-   *  stack are skipped — without this guard an effect that writes to
-   *  a signal it also reads infinite-loops itself. */
-  private def signalSet(id: Long, v: Value): Unit =
-    val s = signals.getOrElse(id, throw InterpretError("Signal disposed or unknown id"))
-    s.value = v
-    s.subs.foreach { eid =>
-      if !effectStack.contains(eid) then pendingEffects += eid
-    }
-    if !reactiveFlushing then reactiveFlush()
-
-  private def reactiveFlush(): Unit =
-    reactiveFlushing = true
-    try
-      while pendingEffects.nonEmpty do
-        val eid = pendingEffects.head
-        pendingEffects -= eid
-        runEffect(eid)
-    finally reactiveFlushing = false
-
-  /** Detach an effect from all signals it currently depends on.  Called
-   *  before each rerun so a freshly-evaluated dependency set replaces
-   *  the previous one (handles `if` branches that read different
-   *  signals on different runs). */
-  private def clearEffectDeps(eid: Long): Unit =
-    effects.get(eid).foreach { e =>
-      e.deps.foreach { sid => signals.get(sid).foreach(_.subs -= eid) }
-      e.deps.clear()
-    }
-
-  /** Run an effect's thunk under tracking — pushes its id on the stack
-   *  so signal reads inside the thunk register as deps. */
-  private def runEffect(eid: Long): Unit =
-    effects.get(eid).foreach { e =>
-      clearEffectDeps(eid)
-      effectStack.push(eid)
-      try Computation.run(callValue(e.thunk, Nil, Map.empty))
-      finally effectStack.pop()
-    }
-
-  /** Create a side-effecting reactive block; runs once immediately then
-   *  re-runs whenever any signal it read changes. */
-  private def makeEffect(thunk: Value): Value =
-    val id = freshReactiveId()
-    effects(id) = EffectState(thunk, mutable.HashSet.empty)
-    runEffect(id)
-    Value.UnitV
-
-  /** Derived signal: runs `thunk` under tracking, stores the result in a
-   *  fresh signal, and re-runs (updating the signal) when its deps
-   *  change.  Reading the returned signal subscribes to *its* changes,
-   *  so downstream effects/computeds compose naturally. */
-  private def makeComputed(thunk: Value): Value.InstanceV =
-    val sid = freshReactiveId()
-    val eid = freshReactiveId()
-    signals(sid) = SignalState(Value.UnitV, mutable.HashSet.empty)
-    val updater = Value.NativeFnV("computed.update", Computation.pureFn { _ =>
-      val v = Computation.run(callValue(thunk, Nil, Map.empty))
-      signalSet(sid, v)
-      Value.UnitV
-    })
-    effects(eid) = EffectState(updater, mutable.HashSet.empty)
-    runEffect(eid)
-    signalInstance(sid)
+  // ── v1.x Signals — see SignalRuntime.scala ────────────────────────────
 
   /** Driver for the built-in `Async` effect — same Free-Monad walk as
    *  `evalHandle` but with a fixed dispatch table for `Async.*` ops
@@ -8257,16 +8158,16 @@ class Interpreter(
       // field-access paths so `.get`/`.set` don't fall into them. ──
       case (Value.InstanceV("Signal", fields), "get", Nil) =>
         fields.get("id") match
-          case Some(Value.IntV(id)) => Pure(signalGet(id))
+          case Some(Value.IntV(id)) => Pure(SignalRuntime.signalGet(this, id))
           case _                    => located("Signal handle missing id")
       case (Value.InstanceV("Signal", fields), "set", List(v)) =>
         fields.get("id") match
-          case Some(Value.IntV(id)) => signalSet(id, v); Pure(Value.UnitV)
+          case Some(Value.IntV(id)) => SignalRuntime.signalSet(this, id, v); Pure(Value.UnitV)
           case _                    => located("Signal handle missing id")
       case (Value.InstanceV("Signal", fields), "apply", Nil) =>
         // s() — sugar for s.get
         fields.get("id") match
-          case Some(Value.IntV(id)) => Pure(signalGet(id))
+          case Some(Value.IntV(id)) => Pure(SignalRuntime.signalGet(this, id))
           case _                    => located("Signal handle missing id")
       // ── Class method (declared inside `class`/`case class` body) ──
       case (Value.InstanceV(typeName, fields), fname, fargs)
