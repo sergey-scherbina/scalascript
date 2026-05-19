@@ -1,0 +1,75 @@
+#!/usr/bin/env ssc
+---
+name: sql-basic
+description: v1.26 — `sql` fenced blocks via JDBC, basic CRUD against H2
+backends: [int]
+databases:
+  default:
+    url: "jdbc:h2:mem:sql-basic;DB_CLOSE_DELAY=-1"
+---
+
+# SQL conformance — basic CRUD over H2
+
+Pins the v1.26 `sql` fenced-block contract on the interpreter
+target: zero-config H2 in-memory, CREATE + INSERT (with `${expr}`
+binds, including a `String` and a `Boolean`) + SELECT + UPDATE.
+
+The interpreter exposes `<sectionId>.sql` as the most natural
+value type per statement kind:
+
+  - SELECT  → `List[Map[String, Any]]` (row indexed by JDBC column label)
+  - DML/DDL → `Int` (affected-row count)
+
+`backends: [int]` — JS and WASM lack a JDBC runtime entirely; the
+JVM target's emitted code declares
+`//> using lib "io.scalascript::scalascript-backend-sql-runtime:…"`
+which doesn't resolve from Maven Central until the artifact is
+published (the dedicated `JvmGenSqlRuntimeTest` exercises JVM
+emission via a local-JAR override).  Gating sql conformance to the
+interpreter for now keeps the cross-target suite green.
+
+## Schema
+
+```sql
+CREATE TABLE users (id BIGINT PRIMARY KEY, name VARCHAR(64) NOT NULL, active BOOLEAN NOT NULL)
+```
+
+## Seed
+
+```scala
+val newId   = 1L
+val newName = "Alice"
+val onlyActive = true
+```
+
+```sql
+INSERT INTO users (id, name, active) VALUES (${newId}, ${newName}, ${onlyActive})
+```
+
+```sql
+INSERT INTO users (id, name, active) VALUES (2, 'Bob', false)
+```
+
+## Read
+
+```sql
+SELECT id, name FROM users WHERE active = ${onlyActive} ORDER BY id
+```
+
+```scala
+val rows = Read.sql
+println("count=" + rows.length)
+val first = rows.head
+println("id=" + first("ID"))
+println("name=" + first("NAME"))
+```
+
+## Update
+
+```sql
+UPDATE users SET active = false WHERE id = ${newId}
+```
+
+```scala
+println("updated=" + Update.sql)
+```

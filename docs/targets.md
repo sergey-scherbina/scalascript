@@ -246,6 +246,52 @@ targets:
   - js
 ```
 
+## Block Language Support
+
+ScalaScript code blocks carry a language tag on the fence
+(```` ```scalascript ````, ```` ```sql ````, etc.) that determines
+how each backend processes the block.  The table below tracks
+per-backend support for every block language currently in `Lang.scala`.
+
+| Block lang        | Interpreter | JVM | JS / Scala.js | Node | WASM | Spark |
+|-------------------|:-----------:|:---:|:-------------:|:----:|:----:|:-----:|
+| `scalascript` / `ssc` | ✅          | ✅  | ✅            | ✅   | ✅   | ✅    |
+| `scala`           | ✅          | ✅  | ✅            | ✅   | ✅   | ✅    |
+| `html`            | ✅ (`<id>.html` String binding) | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `css`             | ✅ (`<id>.css` String binding)  | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `javascript` / `js` | ✅ (String value) | ✅ | ✅ (spliced into output) | ✅ | ✅ | ✅ |
+| `node.js` / `node` | ❌ (`UnknownBlockLanguage`) | ❌ | ❌ | ✅ (linked into bundle) | ❌ | ❌ |
+| `sql`             | ✅ (JDBC via `backend-sql-runtime`) | ✅ (emits `SqlRuntime.execute`) | ❌ | ❌ | ❌ | ✅ (Spark SQL) |
+
+When a backend doesn't claim a block language, `CapabilityCheck`
+emits a `Diagnostic.UnknownBlockLanguage(<lang>)` so the user gets a
+precise diagnostic at compile time instead of silently dropping the
+block.  The mechanism is wired generically via `Lang.isOpaqueExec` —
+adding a new opaque-exec block lang only requires updating
+`ast.Lang.scala` plus the producing backend's
+`Capabilities.blockLanguages`; every other backend automatically
+starts rejecting it.
+
+### v1.26 — `sql` block specifics
+
+The `sql` block is parameterised executable (SPEC § 3.3.1):
+every `${expr}` is rewritten to a JDBC `?` bind parameter by the
+shared `transform/SqlBindRewriter`, with no string-substitution
+escape hatch.  Two backends consume the same rewriter:
+
+  - **Interpreter / JVM** — `SqlBindRewriter.rewriteJdbc` → JDBC
+    `PreparedStatement` via `scalascript.sql.SqlRuntime.execute`.
+    H2 + SQLite drivers ship bundled; Postgres / MySQL / Oracle /
+    MSSQL come in via `dep:` front-matter imports.
+  - **Spark** — `SqlBindRewriter.rewriteSparkSql` → named
+    `:bind<N>` placeholders consumed by `spark.sql(text, args)`.
+
+Connection resolution on the JVM/Interpreter path: front-matter
+`databases:` map → `ConnectionRegistry`; `given Connection` in scope
+overrides the registry.  See `docs/postgres.md` for the
+`client-postgres` library that complements this with a Future-based
+async API for end-user scalascript code.
+
 ## Adding New Backends
 
 To add a new backend:

@@ -120,6 +120,28 @@ class NodeBackendTest extends AnyFunSuite:
       s"node backend must accept node.js blocks, got: $diags")
   }
 
+  test("CapabilityCheck: node backend rejects sql blocks → UnknownBlockLanguage('sql')") {
+    // v1.26 — sql blocks are JVM-only.  The node backend doesn't
+    // declare `sql` in its `blockLanguages`, so `validate` must
+    // surface a `UnknownBlockLanguage("sql")` diagnostic on any
+    // module containing a sql fence.  Wired generically via
+    // `Lang.isOpaqueExec` matching on `ir.Content.SqlBlock`.
+    import scalascript.validate.CapabilityCheck
+    val src =
+      """|# Query
+         |
+         |```sql
+         |SELECT 1
+         |```
+         |""".stripMargin
+    val module = Normalize(Parser.parse(src))
+    val diags  = CapabilityCheck.validate(module, backend.capabilities, backend.id)
+    assert(diags.exists {
+      case Diagnostic.UnknownBlockLanguage("sql") => true
+      case _                                      => false
+    }, s"node backend must reject sql blocks, got: $diags")
+  }
+
   // ── Integration: actually run the emitted bundle under `node` ────────────
 
   /** `true` when `node` is on PATH — guard for the integration test below.

@@ -7207,24 +7207,33 @@ each non-JVM backend is a Phase 7 conformance item.
       regressions when parser / runtime changes silently break the
       documented usage shapes.
 
-Deferred to a follow-up sprint:
+Phase 7 deferred items — all landed v1.26.2:
 
-- Conformance-suite entry — adds `conformance/expected/sql-*.txt`
-  fixtures and wires JVM-target dispatch to read them.  Needs the
-  JvmGen runtime smoke-test landing first (which depends on
-  publishing `scalascript-backend-sql-runtime` or inlining its
-  source into the JvmGen preamble — see Phase 6.C deferred note).
-- JS / Node / Wasm `UnknownBlockLanguage` per-backend explicit test.
-  The diagnostic is already wired generically in
-  `validate/CapabilityCheck.unknownBlockLanguages` via
-  `Lang.isOpaqueExec` and pinned by `CapabilityCheckTest`'s
-  sql-gating cases — an additional per-backend test would only
-  cover the dispatch loop wiring, which already runs through the
-  generic path.
-- `docs/targets.md` capability column.  Current file is a general
-  backends overview, not a per-feature matrix; introducing a
-  `sql` column would be a doc-restructuring PR rather than a code
-  change.
+- [x] `conformance/sql-basic.ssc` + `conformance/expected/sql-basic.txt` +
+      `SqlConformanceCaptureTest` (in-process scalatest harness that
+      bypasses the bin/ssc + scala-cli + node toolchain `run.sc`
+      requires, so `sbt test` enforces the regression).  Gated to
+      `backends: [int]` — the JVM target's emitted code still
+      references the unpublished `scalascript-backend-sql-runtime`
+      artifact; the dedicated `JvmGenSqlRuntimeTest` covers the JVM
+      path via a local-JAR override.
+- [x] JS / Node / Wasm explicit `UnknownBlockLanguage` cases — added
+      to `NodeBackendTest` and `WasmBackendTest` directly against
+      each backend's real `Capabilities` instance (not a synthesised
+      `Set.empty` stub).  Documents the dispatch path so a future
+      backend that accidentally claims `sql` would fail loudly.
+- [x] `docs/targets.md` block-language support matrix — new
+      "Block Language Support" section with a per-block-lang × per-
+      backend table (✅ / ❌), plus a v1.26-specific subsection
+      explaining the dual rewriter (`rewriteJdbc` for JVM/Interpreter,
+      `rewriteSparkSql` for Spark) and connection resolution.
+
+JvmGen scala-cli runtime smoke-test landed earlier in v1.26.2 —
+`JvmGenSqlRuntimeTest` rewrites the emitted `//> using lib` directive
+to `//> using jar "<absolute-path>"` against the locally-built jar
+plumbed through `Test / resourceGenerators`, so end-to-end coverage
+exists without requiring the artifact to be published to Maven
+Central.
 
 ### Follow-ups discovered during work
 
