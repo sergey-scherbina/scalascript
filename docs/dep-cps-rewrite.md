@@ -70,7 +70,7 @@ Steps 0-3 landed on `main`; Steps 4-7 in flight on `feature/dep-cps`.
 | 1 — `containsEffectPrimitive` whitelist predicate + 43 unit tests | ✅ landed | 71cefd0 |
 | 2 — cross-dep fixpoint (`analyzeDepEffectfulness`) + 14 unit tests | ✅ landed | ac93940 |
 | 3 — dep-mode CPS emit (`Defn.Object` recursion, `isEffectfulFun` ext, infix tuple-arg fix) | ✅ landed | 3b3ca95 |
-| 4 — `distributed-map.ssc` integration | 🔧 chunks 1–4 landed, more chunks pending | 9c62b01, + chunks 2–4 |
+| 4 — `distributed-map.ssc` integration | 🔧 chunks 1–5 landed, more chunks pending | 9c62b01, + chunks 2–5 |
 | 5 — full regression sweep | ⏳ pending | — |
 | 6 — strip `pending:` from other v1.22 distributed-* tests | ⏳ pending | — |
 | 7 — retire `cpsBody` parameter / textual band-aids | ⏳ pending | — |
@@ -216,40 +216,66 @@ Numbers after chunk 4:
 - 65 unit tests + full conformance: same 26/89 JVM, 0 INT, 0 JS as
   chunk 3 — zero regressions.
 
-**Step 4 chunks 5-N — pending:**
+**Step 4 chunk 5 — landed (2026-05-19):**
 
-Remaining 13 errors in `distributed-map.ssc` fall into four small
-clusters that need careful one-at-a-time fixes:
+Two narrow plumbing changes that close the receive-through-cast
+and the class-scoped tparam cast-injection holes — both surgical
+and risk-bounded, with the `actors-process-info.ssc` canary held
+at 4 errors.
 
-- **`receiveWithTimeout(t) { case … }.asInstanceOf[Boolean]`** in
-  `Cluster.healthCheck` — the CPS receive arm matches the bare
-  `Apply(Apply(receive, t), pf)` shape but our actual tree is
-  wrapped in `Term.ApplyType(Term.Select(_, asInstanceOf), [T])`.
-  Add a Term.ApplyType arm (or recognize the wrapped shape) so the
-  receive emit fires through the cast.
+1. **Term.ApplyType arm in `emitCpsExpr`** for the
+   `expr.asInstanceOf[T]` shape only.  Unwraps the cast: emits the
+   inner expression through CPS, then attaches the type ascription
+   inside a `_bind(<cps-emit>, ($v: Any) => $v.asInstanceOf[T])`.
+   Without this, the receive/match shapes inside a cast (e.g.
+   `receiveWithTimeout(t) { case … }.asInstanceOf[Boolean]` in
+   `Cluster.healthCheck`) fell through to `other.syntax` and the
+   inner `receiveWithTimeout` stayed as a bare-name call that
+   Scala couldn't resolve.  General `f[T]` Term.ApplyType (without
+   the `.asInstanceOf` Select) keeps its verbatim path.
+
+2. **Class-scoped tparam substitution in `calleeParamType`**.
+   Constructor cast injection (chunk 3) emitted
+   `ordered.asInstanceOf[List[T]]` where `T` was a class-level
+   tparam (e.g. `case class DistributedResult[T](items: List[T])`)
+   that's out of scope at the call site.  New
+   `substituteTparams(t)` walks the param type and rewrites every
+   class-tparam occurrence to `Any` (word-boundary regex), so the
+   cast becomes `ordered.asInstanceOf[List[Any]]` — semantically
+   what the dep runtime sees anyway since everything in CPS context
+   is Any-typed at the JVM erasure level.
+
+Numbers after chunk 5:
+- `distributed-map.ssc`: 13 → 9 errors (–31% on top of chunk 4;
+  –83% total from baseline 54).
+- `dep-cps-basic.ssc`: still passes end-to-end.
+- `actors-process-info.ssc`: 4 → 4 (canary held).
+- 65 unit tests + 601 core + full conformance: same 26/89 JVM as
+  baseline; `async-parallel` confirmed timing-flake (oscillates
+  between INT and JS PASS independently of dep-cps changes) — not
+  a real regression.
+
+**Step 4 chunks 6-N — pending:**
+
+Remaining 9 errors in `distributed-map.ssc` are concentrated in
+three shapes:
 
 - **`Term.Function { pid => pid ! "__shutdown__" }`** in
-  `Cluster.close` — Term.Function is `isSimpleCps` and emits
-  verbatim, so the body's `!` isn't rewritten. Mirror the PF body
-  CPS emit onto Term.Function bodies (with the same conservative
-  test against `actors-process-info.ssc` to ensure user-code
-  lambdas don't regress).
+  `Cluster.close` — Term.Function is `isSimpleCps` so it's
+  emitted verbatim.  Need a similar CPS-emit-of-body treatment as
+  PF in chunk 4, scoped narrowly to avoid the user-code lambda
+  regression.
 
 - **`Term.AnonymousFunction(_._1)`** placeholder shorthand in
-  `pending.map(_._1).toSet` — emits as raw `_._1` which Scala can't
-  resolve when the surrounding type is `Any`.  Wrap as
-  `((_x: Any) => _x._1)` — but `._1` on `Any` would also fail
-  without a runtime dispatch; needs `_dispatch(_x, "_1", Nil)` to
-  go through reflection.
+  `assignments.map(_._1).toSet` — emits raw and Scala can't infer
+  the `_$N` parameter type when surrounded by `Any`.
 
-- **Constructor cast injection skips class-scoped type params** —
-  `DistributedResult[T](ordered: List[T], failures: List[E])`
-  with class-level `[T]` causes my chunk-3 cast injection to emit
-  `ordered.asInstanceOf[List[T]]` where `T` is out of scope at the
-  call site.  Guard `calleeParamType` against type names that
-  appear in the callee class's `tparamClause`.
+- **`node.address` inside `(node: Any) => …`** — Term.Function
+  param is `Any`, `.address` fails.  Same root cause as the
+  Term.Function body issue; the lambda's param type isn't widened
+  to declared in the verbatim emit.
 
-Each is one focused fix.
+Each is a focused micro-fix.
 
 **Validation as of Step 3 landing:**
 - `conformance/dep-cps-basic.ssc` runs end-to-end on JVM, prints `ok/ok`.

@@ -3286,6 +3286,21 @@ class JvmGen(
 
     case app: Term.Apply => emitCpsApply(app)
 
+    // Chunk 5 — `expr.asInstanceOf[T]` wraps the inner emit so the
+    // receive/match shapes that live inside the cast (e.g.
+    // `receiveWithTimeout(t) { case … }.asInstanceOf[Boolean]` in
+    // dep code) reach their CPS arms instead of falling through to
+    // `other.syntax`.  Without this, the inner `receiveWithTimeout`
+    // stays as a raw bare-name call and Scala reports `Not found:
+    // receiveWithTimeout`.  General `f[T]` (Term.ApplyType without
+    // the `.asInstanceOf` Select) keeps its verbatim path via the
+    // fallback below — we only fire on the cast shape.
+    case Term.ApplyType.After_4_6_0(
+            Term.Select(qual, Term.Name("asInstanceOf")), tparams) =>
+      val tStr = tparams.values.map(_.syntax).mkString(", ")
+      val v    = freshTmp()
+      s"_bind(${emitCpsExpr(qual)}, ($v: Any) => $v.asInstanceOf[$tStr])"
+
     case Term.ApplyInfix.After_4_6_0(lhs, op, _, argClause) =>
       // Scala parses `pid ! (a, b)` as `pid.!(a, b)` (2-arg infix) NOT as
       // `pid.!((a, b))` (1-arg tuple).  For `!` (actor send), reconstruct
@@ -3398,19 +3413,37 @@ class JvmGen(
    *  or dep class constructor, by position (`argIdx`) or by name
    *  (when the arg is `Term.Assign(Term.Name(n), _)`).  Returns the
    *  type's `syntax` form when present, `None` otherwise — including
-   *  for varargs (`T*`) where `asInstanceOf[T*]` isn't a legal cast. */
+   *  for varargs (`T*`) where `asInstanceOf[T*]` isn't a legal cast,
+   *  and for types that reference a class-scoped type param (e.g.
+   *  `List[T]` on `case class DistributedResult[T](items: List[T])`),
+   *  where `T` is out of scope at the call site. */
   private def calleeParamType(
       callee:  String,
       argIdx:  Int,
       argName: Option[String]
   ): Option[String] =
+    val classDef = depClasses.get(callee)
     val ps: Option[List[scala.meta.Term.Param]] =
-      depClasses.get(callee).map(_.ctor.paramClauses.flatMap(_.values).toList)
+      classDef.map(_.ctor.paramClauses.flatMap(_.values).toList)
         .orElse(
           depDefs.get(callee).map(d =>
             d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values).toList
           )
         )
+    // Names of any class-level type params we need to exclude from
+    // the cast (caller isn't inside the class scope so `T` is unbound).
+    val tparamNames: Set[String] = classDef.map(_.tparamClause.values.map(_.name.value).toSet).getOrElse(Set.empty)
+    /** Substitute class-scoped tparam names with `Any` so a cast like
+     *  `ordered.asInstanceOf[List[T]]` (where `T` would be out of scope
+     *  at the call site) becomes `ordered.asInstanceOf[List[Any]]` —
+     *  semantically what the dep runtime sees anyway since everything
+     *  in CPS context is Any-typed at the JVM/erasure level. */
+    def substituteTparams(t: scala.meta.Type): String =
+      if tparamNames.isEmpty then t.syntax
+      else
+        tparamNames.foldLeft(t.syntax) { (acc, tp) =>
+          acc.replaceAll(s"\\b${java.util.regex.Pattern.quote(tp)}\\b", "Any")
+        }
     ps.flatMap { params =>
       val targetOpt = argName match
         case Some(n) => params.find(_.name.value == n)
@@ -3419,7 +3452,7 @@ class JvmGen(
         p.decltpe match
           // Skip varargs — `asInstanceOf[Node*]` doesn't parse.
           case Some(_: scala.meta.Type.Repeated) => None
-          case Some(t)                           => Some(t.syntax)
+          case Some(t)                           => Some(substituteTparams(t))
           case None                              => None
       }
     }
