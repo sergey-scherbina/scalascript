@@ -1,0 +1,128 @@
+---
+name: std-cluster-coord-consul
+version: 0.1.0
+description: "Consul leader-coordinator adapter — pure scalascript HTTP wrapper over Consul session + KV-lock"
+package: std.cluster
+exports:
+  - Consul
+---
+
+# `std.cluster.coord-consul`
+
+Concrete `LeaderCoordinator` adapter that delegates leader-election to
+a Consul agent via its HTTP API (session + KV lock).  See
+[`docs/cluster-raft.md`](../../docs/cluster-raft.md) §5 for the
+adapter shape; this module wires the four function fields to Consul's
+`/v1/session/*` and `/v1/kv/*` endpoints.
+
+Consul model:
+
+- One **session** per node (TTL-bounded; auto-deleted on expiry).
+- One **KV lock** per cluster (`acquire` is atomic CAS-if-empty).
+- The session holding the lock is the leader; renewing the session
+  extends the lock; expiry releases it for the next contender.
+
+Quick start:
+
+```text
+[Consul](std/cluster/coord-consul.ssc)
+
+Consul.use(
+  addr    = "http://localhost:8500",
+  lockKey = "scalascript/cluster/leader",
+  ttlSec  = 15                                   // session TTL
+)
+// `currentLeader()` now reflects the Consul lock holder.
+```
+
+## Implementation
+
+Uses `httpGet` / `httpPut` from `std.http` — already top-level
+intrinsics on every backend that runs the actor runtime, no explicit
+import needed.
+
+```scalascript
+object Consul:
+
+  // Body-JSON string extractor: returns the string value for
+  // `"<key>":...` in a small JSON object, or "" if absent.  Used to
+  // pull session IDs out of Consul's `/v1/session/create` response
+  // without dragging in a real JSON parser.
+  def extractStr(body: String, key: String): String =
+    val needle = "\"" + key + "\""
+    val ki = body.indexOf(needle)
+    if ki < 0 then ""
+    else
+      val qi = body.indexOf("\"", ki + needle.length + 1)
+      val qe = if qi > 0 then body.indexOf("\"", qi + 1) else -1
+      if qe > qi then body.substring(qi + 1, qe) else ""
+
+  // Single shared session ID across the four closures; mutated by
+  // `acquireLease` (creates) and `releaseLease` (drops); failed `renew`
+  // clears it so the next `acquire` recreates.
+  def use(addr: String, lockKey: String, ttlSec: Int = 15): Unit =
+    var sessionId = ""
+
+    // All HTTP calls wrapped in try/catch so network blips don't crash
+    // the runtime tick thread — they just return None/false.  We type
+    // the response as `Any` and pluck status / body via Product accessors
+    // so we don't need to import `Response` from `std.http`.
+    def safePut(url: String, body: String): Option[Any] =
+      try Some(httpPut(url, body)) catch case _: Throwable => None
+
+    def safeGet(url: String): Option[Any] =
+      try Some(httpGet(url)) catch case _: Throwable => None
+
+    def respStatus(r: Any): Int = r match
+      case x: Product if x.productArity >= 1 =>
+        x.productElement(0) match
+          case n: Int => n
+          case _      => 0
+      case _ => 0
+
+    def respBody(r: Any): String = r match
+      case x: Product if x.productArity >= 3 =>
+        x.productElement(2) match
+          case s: String => s
+          case _         => ""
+      case _ => ""
+
+    def createSession(): String =
+      val req = "{\"TTL\":\"" + ttlSec.toString + "s\",\"Behavior\":\"delete\"}"
+      safePut(addr + "/v1/session/create", req) match
+        case Some(r) if respStatus(r) == 200 => extractStr(respBody(r), "ID")
+        case _                               => ""
+
+    def doAcquire(nodeId: String, timeoutMs: Long): Boolean =
+      if sessionId == "" then sessionId = createSession()
+      if sessionId == "" then false
+      else
+        safePut(addr + "/v1/kv/" + lockKey + "?acquire=" + sessionId, nodeId) match
+          case Some(r) if respStatus(r) == 200 && respBody(r).contains("true") => true
+          case _                                                               => false
+
+    def doRenew(nodeId: String): Boolean =
+      if sessionId == "" then false
+      else
+        safePut(addr + "/v1/session/renew/" + sessionId, "") match
+          case Some(r) if respStatus(r) == 200 => true
+          case _ =>
+            sessionId = ""
+            false
+
+    def doRelease(nodeId: String): Unit =
+      if sessionId != "" then
+        val sid = sessionId
+        sessionId = ""
+        safePut(addr + "/v1/kv/" + lockKey + "?release=" + sid, nodeId)
+        safePut(addr + "/v1/session/destroy/" + sid, "")
+        ()
+      else ()
+
+    def doHolder(): Option[String] =
+      safeGet(addr + "/v1/kv/" + lockKey + "?raw") match
+        case Some(r) if respStatus(r) == 200 && respBody(r).nonEmpty => Some(respBody(r))
+        case _                                                       => None
+
+    useExternalCoordinator(doAcquire, doRenew, doRelease, doHolder)
+```
