@@ -198,6 +198,12 @@ class Interpreter(
   // WS threads post dead nodeIds here; scheduler drains and fires EXIT/Down.
   private val nodeDownQueue =
     new java.util.concurrent.ConcurrentLinkedQueue[String]()
+  // v1.23 — cluster visibility: actor localIds subscribed to NodeJoined/NodeLeft events.
+  private val clusterEventSubs =
+    new java.util.concurrent.CopyOnWriteArrayList[java.lang.Long]()
+  // WS threads post NodeJoined/NodeLeft Values; scheduler drains and delivers to subs.
+  private val clusterEventQueue =
+    new java.util.concurrent.ConcurrentLinkedQueue[Value]()
   // Cross-node monitors: nodeId → [(localActorId, monRef, remotePid.localId)]
   private val remoteMonitors =
     new java.util.concurrent.ConcurrentHashMap[String,
@@ -206,6 +212,20 @@ class Interpreter(
   private val remoteLinks =
     new java.util.concurrent.ConcurrentHashMap[String,
       java.util.concurrent.CopyOnWriteArrayList[(Long, Long)]]()
+
+  /** v1.23 — enqueue NodeJoined/NodeLeft event; scheduler drains and delivers. */
+  private def enqueueClusterEvent(tag: String, nodeId: String, reason: String = ""): Unit =
+    if !clusterEventSubs.isEmpty then
+      val ev =
+        if tag == "NodeJoined" then
+          Value.InstanceV("NodeJoined", Map("nodeId" -> Value.StringV(nodeId)))
+        else
+          Value.InstanceV("NodeLeft", Map(
+            "nodeId" -> Value.StringV(nodeId),
+            "reason" -> Value.StringV(reason)
+          ))
+      clusterEventQueue.offer(ev)
+      val t = schedulerThread; if t != null then t.interrupt()
 
   /** Fire EXIT/Down for all local actors that linked/monitored actors on `nodeId`. */
   private def fireNodeDown(rt: ActorRuntime, nodeId: String): Unit =
@@ -1727,7 +1747,12 @@ class Interpreter(
 
     case d: Defn.Object =>
       val objectName = d.name.value
-      val members = mutable.Map.empty[String, Value]
+      // Seed members with the outer scope so closures and extension methods defined
+      // inside the object body can see imported symbols.  This matters when
+      // wrapSectionInPackage wraps module code in `object std { object pkg { … } }`:
+      // without this, functions/extensions miss anything in globals (e.g. imports).
+      val outerSnap  = globals.toMap ++ env.toMap
+      val members    = mutable.Map.from(outerSnap)
       d.templ.body.stats.foreach {
         case dd: Defn.Def if isEffectOpDef(dd.body) =>
           val effName = objectName
@@ -1738,7 +1763,10 @@ class Interpreter(
             args => Perform(effName, opName, args))
         case s => execStat(s, members)
       }
-      val newObj: Value.InstanceV = Value.InstanceV(objectName, members.toMap)
+      // Only expose fields that are NEW or CHANGED relative to the outer scope,
+      // so the InstanceV doesn't carry inherited globals as object members.
+      val newFields = members.toMap.filter { (k, v) => outerSnap.get(k).forall(old => !(old eq v)) }
+      val newObj: Value.InstanceV = Value.InstanceV(objectName, newFields)
       env.get(objectName) match
         case Some(existing: Value.InstanceV) => env(objectName) = mergeDeep(existing, newObj)
         case _                               => env(objectName) = newObj
