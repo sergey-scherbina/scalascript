@@ -56,7 +56,11 @@ case class Policy(
     if allowedChains.isEmpty then supported else allowedChains.intersect(supported)
 
 object Policy:
-  /** Reasonable read-only default for local-stdio deploys. */
+  /** Reasonable read-only default — only the three read-only tools
+   *  are exposed; signing tools are explicitly excluded. Suitable as
+   *  the `fallback` for `PolicyProvider.FromAuth` when an
+   *  unauthenticated / unrecognised request reaches the server. */
   def readOnly: Policy = Policy(
+    allowedTools = Set("wallet.listAccounts", "wallet.getAddress", "wallet.getBalance"),
     confirmation = ConfirmationMode.Implicit, // no signing surface to confirm
   )

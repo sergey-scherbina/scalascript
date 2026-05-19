@@ -27,13 +27,48 @@ import scalascript.wallet.spi.{AccountManager, Vault}
 class McpWalletServer(
   val vault:        Vault,
   val manager:      AccountManager,
+  /** Static maximum policy: gates which tools are *registered* on
+   *  the builder. For static deploys (local stdio, single client)
+   *  this is also the per-call policy. For dynamic deploys
+   *  (HTTP+SSE + OAuth) pass a `PolicyProvider` via
+   *  `policyProviderOverride` — `policy` remains the upper-bound
+   *  set of capabilities that any per-request resolver can grant. */
   val policy:       Policy,
   ctxFor:           ChainId => ChainContext,
   val elicitation:  Option[ElicitationHandler] = None,
   val auditLog:     AuditLog                   = new AuditLog(),
+  /** Per-request policy strategy (Phase 7). When None, defaults to
+   *  `PolicyProvider.Static(policy)`. When set to
+   *  `PolicyProvider.FromAuth(resolver, fallback)`, every tool
+   *  handler reads `McpWalletAuth.currentClaims()` and resolves the
+   *  effective policy for the in-flight request. */
+  val policyProviderOverride: Option[PolicyProvider] = None,
 )(using ec: ExecutionContext):
 
   private val rng = new SecureRandom()
+
+  /** Per-request policy resolver. The static `policy` is the
+   *  install-time MAX; this is the per-call effective policy. */
+  private val policyProvider: PolicyProvider =
+    policyProviderOverride.getOrElse(PolicyProvider.Static(policy))
+
+  /** Read the policy that applies to the in-flight request. For
+   *  static providers this is the constructor-supplied policy; for
+   *  FromAuth providers it's resolved from
+   *  `McpWalletAuth.currentClaims()`. */
+  private def effectivePolicy: Policy =
+    policyProvider.policyFor(McpWalletAuth.currentClaims())
+
+  /** Runtime gate. Install-time uses the static `policy` to decide
+   *  which tools to register (so `tools/list` reflects the maximum
+   *  capability). A FromAuth provider may further narrow at call
+   *  time — `gated` runs the handler iff the effective policy still
+   *  exposes the tool. */
+  private def gated(toolName: String)(body: => Future[ToolHandlerResult]): Future[ToolHandlerResult] =
+    if !effectivePolicy.exposes(toolName) then
+      Future.successful(errorResult(s"tool $toolName not exposed in current context"))
+    else
+      body
 
   /** Mount this wallet onto an `McpServerBuilder`. Idempotent only
    *  per-builder — calling twice on the same builder doubles the
@@ -61,7 +96,7 @@ class McpWalletServer(
         "type"       -> ujson.Str("object"),
         "properties" -> ujson.Obj(),
       ),
-      handler     = _ => awaitTool(handleListAccounts()),
+      handler     = _ => awaitTool(gated("wallet.listAccounts")(handleListAccounts())),
     )
 
   private def handleListAccounts(): Future[ToolHandlerResult] =
@@ -94,7 +129,7 @@ class McpWalletServer(
         ),
         "required" -> ujson.Arr(ujson.Str("chainId")),
       ),
-      handler = args => awaitTool(handleGetAddress(args)),
+      handler = args => awaitTool(gated("wallet.getAddress")(handleGetAddress(args))),
     )
 
   private def handleGetAddress(args: Map[String, Any]): Future[ToolHandlerResult] =
@@ -103,7 +138,7 @@ class McpWalletServer(
         Future.successful(errorResult("chainId is required"))
       case Some(chainStr) =>
         val chain = ChainId(chainStr)
-        if !policy.visibleChains(manager.chains).contains(chain) then
+        if !effectivePolicy.visibleChains(manager.chains).contains(chain) then
           Future.successful(errorResult(s"chain $chain not exposed by policy"))
         else
           (manager.strategyFor(chain), manager.adapterFor(chain)) match
@@ -140,7 +175,7 @@ class McpWalletServer(
         ),
         "required" -> ujson.Arr(ujson.Str("chainId")),
       ),
-      handler = args => awaitTool(handleGetBalance(args)),
+      handler = args => awaitTool(gated("wallet.getBalance")(handleGetBalance(args))),
     )
 
   private def handleGetBalance(args: Map[String, Any]): Future[ToolHandlerResult] =
@@ -149,7 +184,7 @@ class McpWalletServer(
         Future.successful(errorResult("chainId is required"))
       case Some(chainStr) =>
         val chain = ChainId(chainStr)
-        if !policy.visibleChains(manager.chains).contains(chain) then
+        if !effectivePolicy.visibleChains(manager.chains).contains(chain) then
           Future.successful(errorResult(s"chain $chain not exposed by policy"))
         else
           (manager.strategyFor(chain), manager.adapterFor(chain)) match
@@ -193,7 +228,7 @@ class McpWalletServer(
         ),
         "required" -> ujson.Arr(ujson.Str("chainId"), ujson.Str("message")),
       ),
-      handler = args => awaitTool(handleSignMessage(args)),
+      handler = args => awaitTool(gated("wallet.signMessage")(handleSignMessage(args))),
     )
 
   private def handleSignMessage(args: Map[String, Any]): Future[ToolHandlerResult] =
@@ -244,7 +279,7 @@ class McpWalletServer(
         ),
         "required" -> ujson.Arr(ujson.Str("chainId"), ujson.Str("typedData")),
       ),
-      handler = args => awaitTool(handleSignTypedData(args)),
+      handler = args => awaitTool(gated("wallet.signTypedData")(handleSignTypedData(args))),
     )
 
   private def handleSignTypedData(args: Map[String, Any]): Future[ToolHandlerResult] =
@@ -298,7 +333,7 @@ class McpWalletServer(
         ),
         "required" -> ujson.Arr(ujson.Str("chainId"), ujson.Str("requirements")),
       ),
-      handler = args => awaitTool(handlePayX402(args)),
+      handler = args => awaitTool(gated("wallet.payX402")(handlePayX402(args))),
     )
 
   private def handlePayX402(args: Map[String, Any]): Future[ToolHandlerResult] =
@@ -309,7 +344,7 @@ class McpWalletServer(
           case Left(reason) =>
             Future.successful(errorResult(reason))
           case Right(req) =>
-            policy.maxPerCall.get(chain) match
+            effectivePolicy.maxPerCall.get(chain) match
               case Some(cap) if req.amount > cap =>
                 recordError("wallet.payX402", Some(chain), s"amount ${req.amount} exceeds policy cap $cap")
                 Future.successful(errorResult(s"amount ${req.amount} exceeds policy cap for $chain"))
@@ -416,7 +451,7 @@ class McpWalletServer(
         ),
         "required" -> ujson.Arr(ujson.Str("chainId")),
       ),
-      handler = args => awaitTool(handleSendTransaction(args)),
+      handler = args => awaitTool(gated("wallet.sendTransaction")(handleSendTransaction(args))),
     )
 
   private def handleSendTransaction(args: Map[String, Any]): Future[ToolHandlerResult] =
@@ -427,11 +462,11 @@ class McpWalletServer(
         val value    = args.get("value").map(v => BigInt(v.toString)).getOrElse(BigInt(0))
         val data     = args.get("data").map(d => hexDecode(d.toString)).getOrElse(Array.emptyByteArray)
         // Cap check: total native value moved must not exceed
-        // policy.maxPerCall for this chain. Calls that move only
+        // effectivePolicy.maxPerCall for this chain. Calls that move only
         // calldata (value=0) are not capped — the call's contract-
         // level economic effect is the responsibility of higher
         // layers, since the wallet can't reason about it generically.
-        policy.maxPerCall.get(chain) match
+        effectivePolicy.maxPerCall.get(chain) match
           case Some(cap) if value > cap =>
             recordError("wallet.sendTransaction", Some(chain), s"value $value exceeds policy cap $cap")
             Future.successful(errorResult(s"value $value exceeds policy cap for $chain"))
@@ -517,7 +552,7 @@ class McpWalletServer(
         Left(errorResult("chainId is required"))
       case Some(chainStr) =>
         val chain = ChainId(chainStr)
-        if !policy.visibleChains(manager.chains).contains(chain) then
+        if !effectivePolicy.visibleChains(manager.chains).contains(chain) then
           recordError(tool, Some(chain), "chain not exposed by policy")
           Left(errorResult(s"chain $chain not exposed by policy"))
         else
@@ -610,7 +645,7 @@ class McpWalletServer(
    *  ElicitationCached(ttl). Returns Future[Boolean] — true =
    *  proceed, false = rejected. */
   private def confirm(req: ElicitationRequest): Future[Boolean] =
-    policy.confirmation match
+    effectivePolicy.confirmation match
       case ConfirmationMode.Implicit =>
         Future.successful(true)
 
@@ -645,7 +680,7 @@ class McpWalletServer(
       timestamp    = System.currentTimeMillis(),
       tool         = tool,
       chainId      = chain,
-      decision     = if policy.confirmation == ConfirmationMode.Implicit then "auto" else "approved",
+      decision     = if effectivePolicy.confirmation == ConfirmationMode.Implicit then "auto" else "approved",
       details      = extra,
       resultDigest = Some(sha256Hex(sig).take(16)),
     ))

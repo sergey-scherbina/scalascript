@@ -56,14 +56,23 @@ class McpWalletServerTest extends AnyFunSuite:
 
   // ── tool registration ────────────────────────────────────────────────
 
-  test("installOn registers read-only + signing + tx tools by default") {
-    val (_, builder) = newServer()
+  test("installOn registers read-only + signing + tx tools when policy permits all") {
+    // Phase 7 changed Policy.readOnly to explicitly list only the
+    // three read-only tools. To exercise the full surface here we
+    // pass an open policy (allowedTools = Set.empty meaning "all").
+    val (_, builder) = newServer(Policy())
     val names = builder.tools.keys.toSet
     assert(names == Set(
       "wallet.listAccounts", "wallet.getAddress", "wallet.getBalance",
       "wallet.signMessage", "wallet.signTypedData", "wallet.payX402",
       "wallet.sendTransaction",
     ))
+  }
+
+  test("Policy.readOnly exposes only the three read-only tools") {
+    val (_, builder) = newServer(Policy.readOnly)
+    val names = builder.tools.keys.toSet
+    assert(names == Set("wallet.listAccounts", "wallet.getAddress", "wallet.getBalance"))
   }
 
   test("policy.allowedTools = {wallet.getAddress} exposes only that tool") {
