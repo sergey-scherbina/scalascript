@@ -62,6 +62,8 @@ object OidcHttp:
     }
     register(ctx, "GET", prefix + "/.well-known/oauth-authorization-server",
              "oauth.http.metadata") { (_, _, _) => OAuthRoutes.handleMetadata(as) }
+    register(ctx, "GET", prefix + "/.well-known/jwks.json",
+             "oauth.http.jwks") { (_, _, _) => OAuthRoutes.handleJwks(as) }
 
   // ─── helpers ────────────────────────────────────────────────────────
 

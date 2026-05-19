@@ -50,7 +50,7 @@ class OidcServer(
    *  OIDC isn't supported for those in v1) or those without a `client_id`
    *  claim (e.g. client_credentials grant — no end user). */
   def identityFor(accessToken: String): Option[(String, String)] =
-    OAuth.decodeHmacToken(as.config.signingSecret, accessToken).toOption.flatMap { p =>
+    as.signer.verify(accessToken).toOption.flatMap { p =>
       for
         sub <- p.obj.get("sub").flatMap(_.strOpt)
         cid <- p.obj.get("client_id").flatMap(_.strOpt)
@@ -66,17 +66,16 @@ class OidcServer(
       case Some(u) => u.toClaims(scope).obj
       case None    => ujson.Obj("sub" -> subject).obj
     // Identity claims live alongside the JWT-mandatory iss/aud/exp/iat
-    // pair, which `OAuth.issueHmacToken` adds when we pass them through
-    // the `issuer` and `audience` params.
-    OAuth.issueHmacToken(
-      secret           = as.config.signingSecret,
+    // pair.  Signs via the AS's `signer` so an RSA-backed AS produces
+    // RS256 id_tokens automatically.
+    as.signer.sign(OAuth.buildAccessTokenPayload(
       subject          = subject,
       scopes           = Set.empty,              // id_token doesn't carry the OAuth scope claim
       expiresInSeconds = as.config.accessTokenTtlSeconds,
       issuer           = Some(as.config.issuer),
       audience         = Some(clientId),
       extra            = ujson.Obj.from(claims.iterator.filter((k, _) => k != "sub").toMap)
-    )
+    ))
 
   /** Handle a `/userinfo` request.  Validates the bearer token via the
    *  AS's token validator (so revocation + expiry are honoured), looks
@@ -101,7 +100,7 @@ class OidcServer(
     val obj  = as.metadataJson()
     obj("userinfo_endpoint")                       = base + userInfoEndpoint
     obj("subject_types_supported")                 = ujson.Arr(ujson.Str("public"))
-    obj("id_token_signing_alg_values_supported")   = ujson.Arr(ujson.Str("HS256"))
+    obj("id_token_signing_alg_values_supported")   = ujson.Arr(ujson.Str(as.signer.alg))
     obj("claims_supported") = ujson.Arr.from(
       ("iss" +: "aud" +: "exp" +: "iat" +: supportedClaims.toList).distinct.sorted.map(ujson.Str(_))
     )

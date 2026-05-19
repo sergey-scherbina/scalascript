@@ -120,7 +120,8 @@ class OidcScriptTest extends AnyFunSuite with Matchers:
       ("POST", "/revoke"),
       ("POST", "/register"),
       ("GET",  "/authorize"),
-      ("GET",  "/.well-known/oauth-authorization-server")
+      ("GET",  "/.well-known/oauth-authorization-server"),
+      ("GET",  "/.well-known/jwks.json")
     )
 
   test("OidcHttp /userinfo: bearer-validated, returns claims"):

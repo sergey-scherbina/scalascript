@@ -140,6 +140,17 @@ object OAuthRoutes:
     RouteOutcome.Json(200, as.metadataJson(),
       Map("Cache-Control" -> "public, max-age=3600"))
 
+  // ─── /.well-known/jwks.json (RFC 7517) ──────────────────────────────
+
+  /** Publishes the AS's public keys as a JSON Web Key Set.  Symmetric
+   *  signers (HS256) produce an empty `keys` array — they have no
+   *  public material to share.  RS256 / ES256 signers contribute their
+   *  public JWK so resource servers can validate tokens locally.
+   *  Cache-Control matches typical AS practice. */
+  def handleJwks(as: AuthServer): RouteOutcome =
+    RouteOutcome.Json(200, as.jwksJson,
+      Map("Cache-Control" -> "public, max-age=3600"))
+
   // ─── /authorize ─────────────────────────────────────────────────────
 
   /** Authorization endpoint.  RFC 6749 §4.1.1.  Query params drive

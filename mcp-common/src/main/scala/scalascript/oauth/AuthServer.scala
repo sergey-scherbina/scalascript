@@ -38,9 +38,17 @@ import java.util.concurrent.ConcurrentHashMap
 class AuthServer(
   val config: AuthServerConfig,
   val clients: ClientStore = new InMemoryClientStore,
-  val tokens:  TokenStore  = new InMemoryTokenStore
+  val tokens:  TokenStore  = new InMemoryTokenStore,
+  /** v1.17.x — JWT signer.  Defaults to HS256 from `config.signingSecret`;
+   *  override with `OAuth.RsaTokenSigner.generate(kid)` (or a custom
+   *  asymmetric signer) for production deployments that want a JWKS
+   *  endpoint instead of a shared symmetric secret. */
+  customSigner: Option[OAuth.TokenSigner] = None
 ):
   import OAuth._
+
+  val signer: OAuth.TokenSigner =
+    customSigner.getOrElse(new OAuth.HmacTokenSigner(config.signingSecret))
 
   // ─── Authorization endpoint ─────────────────────────────────────────
 
@@ -153,14 +161,14 @@ class AuthServer(
           TokenOutcome.Error("invalid_scope", "requested scopes not granted to client")
         else
           // Client-credentials issues an access token only (no refresh — RFC 6749 §4.4.3).
-          val access  = issueHmacToken(
-            secret           = config.signingSecret,
+          val access = signer.sign(buildAccessTokenPayload(
             subject          = client.id,
             scopes           = g.scope,
             expiresInSeconds = config.accessTokenTtlSeconds,
             issuer           = Some(config.issuer),
-            clientId         = Some(client.id)
-          )
+            clientId         = Some(client.id),
+            extra            = ujson.Obj("jti" -> randomOpaqueToken(12))
+          ))
           TokenOutcome.Issued(TokenResponse(
             accessToken  = access,
             expiresIn    = config.accessTokenTtlSeconds,
@@ -171,15 +179,14 @@ class AuthServer(
   private def mintTokens(client: Client, subject: String, scope: Set[String]): TokenResponse =
     // jti distinguishes back-to-back issuances that share iat/exp/scope —
     // matters for rotation tests + revocation lists.
-    val access = issueHmacToken(
-      secret           = config.signingSecret,
+    val access = signer.sign(buildAccessTokenPayload(
       subject          = subject,
       scopes           = scope,
       expiresInSeconds = config.accessTokenTtlSeconds,
       issuer           = Some(config.issuer),
       clientId         = Some(client.id),
       extra            = ujson.Obj("jti" -> randomOpaqueToken(12))
-    )
+    ))
     val refresh = randomOpaqueToken(32)
     tokens.saveRefreshToken(RefreshTokenRecord(
       token     = refresh,
@@ -219,7 +226,7 @@ class AuthServer(
    *  shape: `active: false` for any unparseable/expired/revoked token,
    *  otherwise the full claim set. */
   def introspect(token: String): IntrospectionResponse =
-    OAuth.decodeHmacToken(config.signingSecret, token) match
+    signer.verify(token) match
       case Left(_) => IntrospectionResponse(active = false)
       case Right(payload) =>
         val jti = payload.obj.get("jti").flatMap(_.strOpt).getOrElse(token)
@@ -242,7 +249,7 @@ class AuthServer(
    *  For cross-service deployments use the introspection endpoint
    *  instead. */
   def tokenValidator: OAuth.TokenValidator = token =>
-    OAuth.decodeHmacToken(config.signingSecret, token) match
+    signer.verify(token) match
       case Left(reason) => OAuth.AuthResult.Invalid("invalid_token", reason)
       case Right(payload) =>
         val jti = payload.obj.get("jti").flatMap(_.strOpt).getOrElse(token)
@@ -265,7 +272,7 @@ class AuthServer(
         case Some(_) => tokens.revokeRefreshToken(token); true
         case None    => false
     def tryAccess: Boolean =
-      OAuth.decodeHmacToken(config.signingSecret, token) match
+      signer.verify(token) match
         case Right(payload) =>
           val jti = payload.obj.get("jti").flatMap(_.strOpt).getOrElse(token)
           tokens.revokeAccessToken(jti)
@@ -355,6 +362,7 @@ class AuthServer(
       "token_endpoint"          -> (base + tokenEndpoint),
       "introspection_endpoint"  -> (base + introspectionEndpoint),
       "revocation_endpoint"     -> (base + revocationEndpoint),
+      "token_endpoint_auth_signing_alg_values_supported" -> ujson.Arr(ujson.Str(signer.alg)),
       "response_types_supported" -> ujson.Arr(ujson.Str("code")),
       "grant_types_supported"   -> ujson.Arr(
         ujson.Str("authorization_code"),
@@ -379,7 +387,17 @@ class AuthServer(
       obj("scopes_supported") = ujson.Arr.from(config.supportedScopes.toList.sorted.map(ujson.Str(_)))
     if config.allowDynamicClientRegistration then
       obj("registration_endpoint") = base + registrationEndpoint
+    // v1.17.x — JWKS endpoint advertised when the signer is asymmetric.
+    // Symmetric (HS256) signers have no public key to publish, so the
+    // doc omits the field entirely.
+    if signer.publicJwk.isDefined then
+      obj("jwks_uri") = base + "/.well-known/jwks.json"
     obj
+
+  /** v1.17.x — JWKS document for this AS.  Contains every signer's
+   *  public JWK; HMAC signers contribute nothing (their key MUST NOT
+   *  be published).  Use as the wire body for `/.well-known/jwks.json`. */
+  def jwksJson: ujson.Value = OAuth.jwksDocument(List(signer))
 
 // ─── Configuration ────────────────────────────────────────────────────
 
