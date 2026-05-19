@@ -4154,7 +4154,7 @@ link → build --incremental`); the JVM backend produces per-module `.scjvm`
 artifacts that the linker combines incrementally.  Tracking doc:
 `docs/separate-compilation-plan.md`.
 
-Test coverage: 434 core tests + 53 CLI subprocess smoke tests, all green.
+Test coverage: 454 core tests + 65 CLI subprocess smoke tests, all green.
 
 Stage 5.4 / final round (landed 2026-05-19):
 - `parseSType` and `SType.show` round-trip now handle union types
@@ -4279,15 +4279,43 @@ Phase 2 / bytecode linker (landed 2026-05-19):
     (51× reduction).  2-module out.jar: 554 KB → 301 KB (45% reduction).
     Per-additional-module cost: ~250 KB → ~3 KB of unique user classes.
 
-**Known gaps (post-Phase-2 follow-up):**
-1. Refinement types `A { def foo: Int }` and match types still degrade to
-   `SType.Any` in `parseSType` (intentional — out of v2.0 scope).
-2. `build --incremental` splits compile-failure summary (stdout) and root
-   cause (stderr); consumers capturing only stdout get failure markers
-   without context.
-3. JS backend incremental still uses source-level concat (no bytecode
-   equivalent for JS yet — `.scjs` ships emitted JS source, linker just
-   concatenates + dedups).  The `--bytecode` pipeline is JVM-only.
+Phase 2 follow-up (landed 2026-05-19, closes the last 3 known gaps):
+- **Refinement + match types in `parseSType`**: `A { def foo: Int }`,
+  `A { type T = Int }`, `T match { case Int => String; case _ => Any }`
+  now parse to `SType.Refinement(base, members)` / `SType.Match(scrutinee,
+  cases)` with full round-trip via `SType.show`.  11 new tests; all
+  existing `SType` match sites stayed permissive via catch-all arms.
+- **`build --incremental` unified diagnostic flow**: per-module work is
+  wrapped in a stderr-redirect-to-buffer block; on failure the captured
+  cause (YAML diagnostic, parse error position, etc.) is spliced onto
+  stdout under the `... FAIL` line, indented 4 spaces.  Standalone
+  `ssc compile-jvm` still emits to stderr.  CI scripts capturing only
+  stdout now see both summary and cause.
+- **JS-side runtime separation** (mirror of JVM Phase 2 deep refactor):
+  `JsGen.generateRuntime(capabilities)` + `generateUserOnly(module)`
+  emit module-only JS.  `.scjs-runtime` artifact format stores the
+  shared runtime; modules ship only their unique JS.  Flat-scope concat
+  (not IIFE) because runtime exports 200+ identifiers user code
+  references unqualified.  5 capabilities: Core, Async, Effects, Mcp,
+  Dataset.
+  - **Size impact**: per-module `.scjs` shrinks from 80–150 KB to
+    ~500 bytes (**200× reduction**); `_runtime.scjs-runtime` is 142 KB
+    compiled once.  `out.js` stays at 139 KB (runtime needed at runtime).
+    The win is incremental-rebuild bandwidth, not link output size.
+  - **3 JS-specific edge cases** fixed: `EffectAnalysis` was seeding
+    effectOps with builtin names (always non-empty), `_println` needs
+    explicit flush at end of linked `out.js`, `--backend` is a global
+    flag stripped by `GlobalFlags.parse` before command handlers see it.
+
+**v2.0 separate compilation is now feature-complete** for the planned
+scope.  Phase 3 (post-v2.0) would deepen:
+- TASTy-based dep resolution (re-use Scala 3's incremental machinery
+  instead of textual scala-cli driver)
+- Backwards-compat ABI versioning (the magic + version envelope is
+  already in place; a real ABI break test suite would lock down what
+  changes are breaking vs additive)
+- Source-map / location preservation through linker dedup (today
+  the `_runtime` preamble is one big synthetic blob with no positions)
 
 What landed:
 - `ir/Ir.scala`: `ArtifactVersion` (magic `SSCART` + ABI `2.0`),
