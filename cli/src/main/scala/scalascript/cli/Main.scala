@@ -1707,7 +1707,7 @@ def compileJvmCommand(args: List[String]): Unit =
             case None => None
             case Some(dir) => Some(extractDepBundlesForCompile(dir))
           try
-            JvmBytecode.compileAndPack(scalaSource, depClasspathDir.toList) match
+            JvmBytecode.compileAndPack(scalaSource, depClasspathDir.toList, scriptName = moduleId) match
               case Right(b64) => Some(b64)
               case Left(err)  =>
                 System.err.println(s"compile-jvm --bytecode: $err")
@@ -1800,7 +1800,7 @@ private def compileJvmDepInto(
     else
       val depCpDir = extractDepBundlesForCompile(artifactDir)
       try
-        JvmBytecode.compileAndPack(scalaSource, List(depCpDir)) match
+        JvmBytecode.compileAndPack(scalaSource, List(depCpDir), scriptName = moduleId) match
           case Right(b64) => Some(b64)
           case Left(err)  =>
             throw new RuntimeException(s"--bytecode dep ${dep.path.last}: $err")

@@ -62,14 +62,21 @@ object JvmBytecode:
    */
   def compileAndPack(
       scalaSource:   String,
-      classpathDirs: List[os.Path] = Nil
+      classpathDirs: List[os.Path] = Nil,
+      scriptName:    String        = "Main"
   ): Either[String, String] =
     val workDir = os.temp.dir(prefix = "ssc-bytecode-")
     try
       // Write the Scala source as a `.sc` script.  scala-cli treats `.sc`
       // and `.scala` differently; `.sc` wraps top-level statements in an
-      // enclosing object, matching what JvmGen.generate emits.
-      val srcFile = workDir / "Main.sc"
+      // enclosing object.  The file's base name becomes the generated
+      // wrapper class name (`<scriptName>_sc`), so giving each module a
+      // unique base name prevents the per-module script wrappers from
+      // colliding when packed into a single JAR.
+      val safeName = scriptName.replaceAll("[^A-Za-z0-9_]", "_") match
+        case ""   => "Main"
+        case s    => if s.head.isDigit then "M" + s else s
+      val srcFile = workDir / s"$safeName.sc"
       os.write(srcFile, scalaSource)
 
       val outDir = workDir / "out"
@@ -96,14 +103,17 @@ object JvmBytecode:
           s"stdout:\n${res.out.text()}\nstderr:\n${res.err.text()}"
         )
       else
-        // Walk outDir for *.class files and pack them into a ZIP whose
-        // entries are FQN-shaped (`pkg/sub/Name.class`) so the linker can
-        // dedupe by entry name.
+        // Walk outDir for *.class AND *.tasty files and pack them into a
+        // ZIP whose entries are FQN-shaped (`pkg/sub/Name.{class,tasty}`).
+        // Downstream modules' scala-cli invocations need the `.tasty`
+        // files to resolve cross-module references; the linker strips
+        // them when assembling the final runtime JAR.
         val classFiles = collectClassFiles(outDir)
         if classFiles.isEmpty then
           Left(s"scala-cli compile produced no .class files in $outDir")
         else
-          val zipBytes = packAsZip(outDir, classFiles)
+          val allFiles = collectCompileOutputs(outDir)
+          val zipBytes = packAsZip(outDir, allFiles)
           Right(Base64.getEncoder.encodeToString(zipBytes))
     finally
       scala.util.Try(os.remove.all(workDir))
@@ -114,6 +124,19 @@ object JvmBytecode:
     if !os.exists(root) then Nil
     else
       os.walk(root).filter(p => os.isFile(p) && p.last.endsWith(".class")).toList
+
+  /** Walk `root` recursively for the scala-cli outputs we want to ship
+   *  in a class bundle — both `.class` and `.tasty` files.
+   *
+   *  The `.tasty` files are required at COMPILE time by downstream modules
+   *  (otherwise scala-cli fails with "Loading Scala 3 binary from
+   *  X.class.  It should have been loaded from `.tasty`").  The linker
+   *  strips them when assembling the final runtime JAR. */
+  def collectCompileOutputs(root: os.Path): List[os.Path] =
+    if !os.exists(root) then Nil
+    else os.walk(root).filter { p =>
+      os.isFile(p) && (p.last.endsWith(".class") || p.last.endsWith(".tasty"))
+    }.toList
 
   /** Pack a list of `.class` file paths (under `root`) into an in-memory ZIP
    *  whose entries are `pkg/sub/Name.class` keyed on `path.relativeTo(root)`. */
@@ -194,6 +217,9 @@ object JvmBytecode:
         val safeId = moduleId.replaceAll("[^A-Za-z0-9_.-]", "_")
         val modDir = workDir / safeId
         extractBundleTo(base64Zip, modDir)
+        // The bundle may also carry `.tasty` files (needed when compiling
+        // downstream modules); strip them here so they don't bloat the
+        // final runtime JAR — `java -cp out.jar` only needs `.class`.
         for classFile <- collectClassFiles(modDir) do
           val entryName = classFile.relativeTo(modDir).toString.replace('\\', '/')
           if winners.contains(entryName) then
