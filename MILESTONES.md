@@ -5987,7 +5987,11 @@ Thin `backend-wasm-contract/` layer on top of `backend-wasm/` for Near or Polkad
 
 > Phase 1 landed (2026-05-19): `backend-spark/` sbt module + `SparkGen.scala` +
 > `ssc emit-spark` + `ssc run --backend spark` CLI wiring + `examples/word-count.ssc`.
-> Phase 2 (cluster submission) and Phase 3 (Spark SQL/DataFrames) remain speculative.
+> v1.25 § 9.5 Phase A (SPI wrap), B.1 (`--spark-master` / `spark-master:`),
+> C.1 (`sql` block → `spark.sql(text, args)`), C.2 (section-based `<sectionId>.sql`
+> alias), and C.3 slice 1 (`>10` binds → `java.util.Map.ofEntries`) all landed.
+> Phase 2 (`spark-submit` packaging) and the rest of C.3 (DataFrame ergonomics,
+> `std/parsing` → `StructType` bridge) remain speculative.
 >
 > Natural fit: ScalaScript's existing `Dataset[T]` API maps directly to Spark.
 

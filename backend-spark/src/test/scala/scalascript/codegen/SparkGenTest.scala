@@ -98,6 +98,68 @@ class SparkGenTest extends AnyFunSuite:
     assert(code.contains(""""bind1", status"""))
   }
 
+  // ── Phase C.3: >10 binds switch to Map.ofEntries ─────────────────────────
+  //
+  // JDK's `java.util.Map.of` has overloads for 0..10 key/value pairs only.
+  // An 11th bind would produce a call with 22 arguments that no `Map.of`
+  // overload matches, so the emitter falls back to the varargs
+  // `Map.ofEntries(Map.entry(...), ...)` form above the threshold.
+
+  test("exactly 10 binds still use Map.of (boundary kept)") {
+    val varDefs = (0 until 10).map(i => s"val v$i = $i").mkString("\n")
+    val conds   = (0 until 10).map(i => s"c$i = $${v$i}").mkString(" AND ")
+    val src =
+      s"""|# Test
+          |
+          |```scalascript
+          |$varDefs
+          |```
+          |
+          |```sql
+          |SELECT 1 WHERE $conds
+          |```
+          |""".stripMargin
+    val code = gen(src)
+    assert(code.contains("java.util.Map.of("),
+      s"10 binds should still route through Map.of, got:\n$code")
+    assert(!code.contains("java.util.Map.ofEntries"),
+      s"10 binds should not trigger Map.ofEntries fallback:\n$code")
+    assert(code.contains(""""bind9", v9"""))
+  }
+
+  test("11+ binds switch to Map.ofEntries fallback") {
+    val varDefs = (0 until 11).map(i => s"val v$i = $i").mkString("\n")
+    val conds   = (0 until 11).map(i => s"c$i = $${v$i}").mkString(" AND ")
+    val src =
+      s"""|# Test
+          |
+          |```scalascript
+          |$varDefs
+          |```
+          |
+          |```sql
+          |SELECT 1 WHERE $conds
+          |```
+          |""".stripMargin
+    val code = gen(src)
+    assert(code.contains("java.util.Map.ofEntries[String, Object]("),
+      s"11 binds should switch to Map.ofEntries, got:\n$code")
+    // The narrow Map.of path must NOT appear — Scala would otherwise pick
+    // an overload that does not exist (22-arg).
+    assert(!code.contains("java.util.Map.of("),
+      s"Map.ofEntries path must not also emit Map.of:\n$code")
+    // Every bind survives as a Map.entry pair.
+    for i <- 0 until 11 do
+      assert(code.contains(s"""java.util.Map.entry("bind$i", v$i)"""),
+        s"missing Map.entry for bind$i in:\n$code")
+    // :bind<N> placeholders likewise reach the rewriter output.
+    assert(code.contains(":bind10"), s"expected :bind10 placeholder, got:\n$code")
+  }
+
+  test("MapOfMaxPairs constant pins the Map.of upper bound to 10") {
+    assert(SparkGen.MapOfMaxPairs == 10)
+  }
+
   test("multiple sql blocks get sequential _sqlBlock_<N> names") {
     val src =
       """|# Test

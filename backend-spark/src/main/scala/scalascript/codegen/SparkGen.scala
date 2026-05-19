@@ -56,6 +56,12 @@ object SparkGen:
    *  or the front-matter `spark-master:` key. */
   val DefaultMaster: String = "local[*]"
 
+  /** Maximum number of `${expr}` binds in a single `sql` block that the
+   *  emitter routes through `java.util.Map.of(...)`.  Above this threshold
+   *  (Phase C.3, v1.25 § 9.5) it switches to `java.util.Map.ofEntries(...)`
+   *  because the JDK `Map.of` overloads only go up to 10 key/value pairs. */
+  val MapOfMaxPairs: Int = 10
+
   def generate(
       module:       Module,
       baseDir:      Option[os.Path] = None,
@@ -233,7 +239,7 @@ private class SparkGen(
     val defDecl =
       if r.binds.isEmpty then
         s"val $valName: org.apache.spark.sql.DataFrame = spark.sql($sqlLit)"
-      else
+      else if r.binds.size <= SparkGen.MapOfMaxPairs then
         val pairs = r.binds.zipWithIndex.map { (expr, idx) =>
           s"""  "bind$idx", $expr"""
         }.mkString(",\n")
@@ -241,6 +247,16 @@ private class SparkGen(
             |  $sqlLit,
             |  java.util.Map.of(
             |$pairs
+            |  )
+            |)""".stripMargin
+      else
+        val entries = r.binds.zipWithIndex.map { (expr, idx) =>
+          s"""  java.util.Map.entry("bind$idx", $expr)"""
+        }.mkString(",\n")
+        s"""|val $valName: org.apache.spark.sql.DataFrame = spark.sql(
+            |  $sqlLit,
+            |  java.util.Map.ofEntries[String, Object](
+            |$entries
             |  )
             |)""".stripMargin
     sectionAlias match

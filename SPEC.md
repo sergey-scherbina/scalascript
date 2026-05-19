@@ -1392,7 +1392,7 @@ Spark backend).  The user does not rewrite the pipeline to switch.
 | **B.2 — `spark-submit` packaging** | `ssc submit file.ssc --spark-master spark://...` packages a fat JAR and shells out to `spark-submit`. | B.1 ships the driver via `scala-cli` which works for Spark Standalone but not for YARN/K8s production deployments. | open (~1 week) |
 | **C.1 — `sql` block → `spark.sql(...)`** | `sql` declared in `SparkCapabilities.blockLanguages`; the shared `SqlBindRewriter` produces `:bind<N>` placeholders consumed by Spark SQL 3.4+'s parameterised `sql(text, args)`.  Each `sql` block binds to a sequential `val _sqlBlock_<n>: org.apache.spark.sql.DataFrame` in the `@main` scope, accessible from subsequent `scalascript` blocks. | Reuses the same `sql` surface as the JDBC target (§ 3.3.1) — same source, different runtime. | landed |
 | **C.2 — Section-based binding** | Each `sql` block whose enclosing section has a usable identifier (`# Users`, `# Active Users`, …) ALSO emits `object <sectionId>: lazy val sql: org.apache.spark.sql.DataFrame = _sqlBlock_<n>`.  Friendly access: `Users.sql.show()` instead of `_sqlBlock_0.show()`. | Mirrors the existing `html`/`css` → `<sectionId>.html/css` convention so authoring rules are uniform across opaque blocks. | landed |
-| **C.3 — DataFrame ergonomics + schema bridge** | Expose `DataFrame` as `Dataset[Row]` more thoroughly; map `std/parsing` schemas to Spark `StructType`; `>10` binds via `Map.ofEntries`. | C.1+C.2 ship the binding/runtime contract; C.3 polishes the typed surface. | open |
+| **C.3 — DataFrame ergonomics + schema bridge** | Expose `DataFrame` as `Dataset[Row]` more thoroughly; map `std/parsing` schemas to Spark `StructType`; `>10` binds via `Map.ofEntries` (landed — JDK's `java.util.Map.of` caps at 10 pairs, so `SparkGen` switches to `java.util.Map.ofEntries[String, Object](Map.entry(...), …)` above `SparkGen.MapOfMaxPairs = 10`). | C.1+C.2 ship the binding/runtime contract; C.3 polishes the typed surface. | partially landed (`>10` binds) |
 
 #### Spark vs JDBC `sql` blocks
 
@@ -1450,6 +1450,20 @@ rewrites to (Spark SQL flavour) `SELECT * FROM users WHERE name = ':bind0'`
 so Spark treats `:bind0` as a literal string inside the quoted SQL
 literal.  Users wanting parameter binding should drop the quotes:
 `WHERE name = ${name}` → `WHERE name = :bind0` (a real bind).
+
+The bind map handed to `spark.sql(text, args)` uses two different JDK
+factories depending on bind count, because `java.util.Map.of` only has
+overloads for 0..10 key/value pairs:
+
+| Binds | Emitted factory | Why |
+|-------|-----------------|-----|
+| 0 | none — single-arg `spark.sql(text)` | no map needed |
+| 1..10 | `java.util.Map.of("bind0", e0, …, "bind<n−1>", e<n−1>)` | matches an existing overload |
+| 11..∞ | `java.util.Map.ofEntries[String, Object](java.util.Map.entry("bind0", e0), …)` | varargs, no upper bound |
+
+The threshold is pinned by `SparkGen.MapOfMaxPairs = 10` (Phase C.3,
+landed).  Crossing it is a code-generation detail — call sites and
+`:bind<N>` placeholders are unchanged.
 
 #### Spark configuration resolution
 
