@@ -176,16 +176,23 @@ class Handlers(docs: Documents):
               case None =>
                 // 2) Try imported interface — look up name in any loaded .scim,
                 //    then back-resolve sourceHash to a workspace file URI.
-                docs.importedInterfaces.values.find { iface =>
-                  iface.exports.exists(_.name == name) ||
-                  iface.externDefs.exists(_.name == name)
-                } match
-                  case Some(iface) =>
+                //    Use the symbol's recorded (definitionLine, definitionColumn)
+                //    when present; fall back to (0,0) for .scim artifacts emitted
+                //    before that field existed (backward-compat MVP behaviour).
+                docs.importedInterfaces.values.flatMap { iface =>
+                  (iface.exports ++ iface.externDefs)
+                    .find(_.name == name)
+                    .map(sym => (iface, sym))
+                }.headOption match
+                  case Some((iface, sym)) =>
                     docs.sourceUriForHash(iface.sourceHash) match
                       case Some(srcUri) =>
+                        val line = sym.definitionLine
+                        val col  = sym.definitionColumn
+                        val endCol = col + sym.name.length
                         ujson.Obj(
                           "uri"   -> srcUri,
-                          "range" -> rangeJson(0, 0, 0, 0)
+                          "range" -> rangeJson(line, col, line, endCol)
                         )
                       case None => ujson.Null
                   case None => ujson.Null
@@ -307,11 +314,12 @@ class Handlers(docs: Documents):
      pos.endLine   + blockLine0, pos.endColumn)
 
   /** Walk the parsed module, returning every code block paired with its
-   *  approximate first-content-line offset in the file.
+   *  file-level first-content-line offset.
    *
-   *  We don't have a precise per-block line offset in `Content.CodeBlock`
-   *  today (it's `None`), so we scan the raw text for fenced opens and
-   *  associate them in order with the blocks we encounter via the AST. */
+   *  Uses the `Content.CodeBlock.lineOffset` field populated by
+   *  `Parser.extractSections` from CommonMark source spans.  For .scim
+   *  artifacts / `Module` instances built before that field existed the
+   *  default `0` keeps the legacy (block-local) behaviour. */
   private def collectBlocks(m: Module): List[(Content.CodeBlock, Int)] =
     val cbs = scala.collection.mutable.ListBuffer.empty[Content.CodeBlock]
     def walk(s: Section): Unit =
@@ -321,9 +329,7 @@ class Handlers(docs: Documents):
       }
       s.subsections.foreach(walk)
     m.sections.foreach(walk)
-    // For an MVP, return all blocks at offset 0.  Position accuracy can
-    // be tightened in a follow-up.
-    cbs.toList.map(cb => (cb, 0))
+    cbs.toList.map(cb => (cb, cb.lineOffset))
 
   private def rangeJson(sl: Int, sc: Int, el: Int, ec: Int): ujson.Value =
     ujson.Obj(
