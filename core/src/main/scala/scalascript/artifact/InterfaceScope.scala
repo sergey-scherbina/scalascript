@@ -79,21 +79,29 @@ object InterfaceScope:
    *  value.  The grammar handled is a small Scala-flavoured type language:
    *
    *    Type    ::= Func
-   *    Func    ::= Primary `=>` Func | Primary             // right-assoc
+   *    Func    ::= Union `=>` Func | Union                  // right-assoc
+   *    Union   ::= Inter { `|` Inter }                      // flat, lower-prec
+   *    Inter   ::= Primary { `&` Primary }                  // flat, tighter
    *    Primary ::= `(` `)`                                  // Unit / nullary fn params
    *              | `(` Type `,` Type {`,` Type} `)`         // tuple / multi-arg fn params
    *              | `(` Type `)`                             // parenthesised
-   *              | Path [ `[` Type {`,` Type} `]` ]         // named / type application
+   *              | Path [ `[` TArg {`,` TArg} `]` ]         // named / type app / HK
+   *    TArg    ::= `_` | Type                               // `_` only inside `[...]`
    *    Path    ::= Ident { `.` Ident }
+   *
+   *  Precedence (Scala-3 official): `&` binds tighter than `|`; both are
+   *  tighter than `=>` (function arrow).  Inside `[...]`, a bare `_`
+   *  marks a higher-kinded slot, so `F[_]` becomes
+   *  `SType.HigherKinded("F", 1)` and `F[_, _]` becomes arity 2.
    *
    *  Unrecognised input collapses to `SType.Any` so that a malformed
    *  interface artifact never crashes the typer — it simply offers no
    *  type information for the affected symbol.
    *
-   *  v2.0 / Stage 4 — round-trips with `SType.show` for every shape the
-   *  current typer emits (`Named`, `Function`, `Tuple`).  Higher-kinded
-   *  types, refinements, unions / intersections and match types remain
-   *  out of scope and fall back to `SType.Any`.
+   *  v2.0 — round-trips with `SType.show` for `Named`, `Function`,
+   *  `Tuple`, `Union`, `Intersection`, and `HigherKinded`.  Refinement
+   *  types (`A { def foo: Int }`) and match types remain out of scope
+   *  and fall back to `SType.Any`.
    */
   private[artifact] def parseSType(tpeStr: String): SType =
     val parser = TypeParser(tpeStr)
@@ -171,9 +179,19 @@ object InterfaceScope:
       c.isLetterOrDigit || c == '_'
 
     /** Entry point — a full type (function arrow has the lowest
-     *  precedence and is right-associative). */
+     *  precedence and is right-associative).
+     *
+     *  We start by parsing a `Union`-level expression and only then
+     *  decide whether a `=>` follows.  This gives the intended
+     *  precedence: `&` < `|` < `=>` — so `Int | String => Boolean`
+     *  is `Function(List(Union(Int, String)), Boolean)`.
+     *
+     *  A parenthesised primary that wasn't promoted to a function
+     *  param/tuple keeps its `Primary` flavour through the `Union`
+     *  level only when it stands alone (no `|` / `&` follows).
+     */
     def parseType(): Option[SType] =
-      parsePrimary().flatMap { lhs =>
+      parseUnion().flatMap { lhs =>
         skipWs()
         if consumeArrow() then
           parseType().map { rhs =>
@@ -188,6 +206,59 @@ object InterfaceScope:
             case Primary.Empty         => Some(SType.Unit)
             case Primary.Single(inner) => Some(inner)
       }
+
+    /** Parse a Union-level expression — a chain of `|`-separated
+     *  Intersection terms.  Returns a `Primary` so the caller can
+     *  still distinguish a paren-shaped prefix waiting for an `=>`. */
+    private def parseUnion(): Option[Primary] =
+      parseIntersection().flatMap { first =>
+        skipWs()
+        if peek != '|' then Some(first)
+        else
+          val firstS = primaryToSType(first)
+          val parts  = scala.collection.mutable.ListBuffer(firstS)
+          var ok     = true
+          while ok && consumePipe() do
+            parseIntersection() match
+              case Some(p) => parts += primaryToSType(p)
+              case None    => ok = false
+          if !ok then None
+          else Some(Primary.Single(SType.Union(parts.toList)))
+      }
+
+    /** Parse an Intersection-level expression — a chain of
+     *  `&`-separated Primaries. */
+    private def parseIntersection(): Option[Primary] =
+      parsePrimary().flatMap { first =>
+        skipWs()
+        if peek != '&' then Some(first)
+        else
+          val firstS = primaryToSType(first)
+          val parts  = scala.collection.mutable.ListBuffer(firstS)
+          var ok     = true
+          while ok && consume('&') do
+            parsePrimary() match
+              case Some(p) => parts += primaryToSType(p)
+              case None    => ok = false
+          if !ok then None
+          else Some(Primary.Single(SType.Intersection(parts.toList)))
+      }
+
+    /** Lift a `Primary` (which may still be a paren-shape) into a
+     *  concrete `SType` for use as a `Union` / `Intersection` member.
+     *  An empty paren `()` becomes `Unit`; a group becomes a `Tuple`. */
+    private def primaryToSType(p: Primary): SType = p match
+      case Primary.Single(t)     => t
+      case Primary.Empty         => SType.Unit
+      case Primary.Group(elems)  => SType.Tuple(elems)
+
+    /** Match a single `|` (but not `||`) preceded by optional ws. */
+    private def consumePipe(): Boolean =
+      skipWs()
+      if pos < len && s.charAt(pos) == '|' &&
+         (pos + 1 >= len || s.charAt(pos + 1) != '|')
+      then { pos += 1; true }
+      else false
 
     /** Primary — either a real `SType` (`Single`) or a paren-shaped
      *  prefix (`Group` / `Empty`) whose meaning depends on whether
@@ -229,19 +300,43 @@ object InterfaceScope:
           skipWs()
           if pos < len && s.charAt(pos) == '[' then
             pos += 1
-            parseType() match
+            parseTypeArg() match
               case None => None
               case Some(firstArg) =>
                 val args = scala.collection.mutable.ListBuffer(firstArg)
                 var ok   = true
                 while ok && consume(',') do
-                  parseType() match
+                  parseTypeArg() match
                     case Some(t) => args += t
                     case None    => ok = false
                 if !ok || !consume(']') then None
-                else Some(Primary.Single(SType.Named(name, args.toList)))
+                else
+                  // All-`_` args ⇒ higher-kinded placeholder; otherwise
+                  // a regular type application.  A `_` mixed with other
+                  // args is preserved as `Named("_", Nil)` so partial
+                  // shapes like `Map[String, _]` keep their structure.
+                  val argList = args.toList
+                  val isWild  = (t: SType) => t == SType.Named("_", Nil)
+                  if argList.nonEmpty && argList.forall(isWild) then
+                    Some(Primary.Single(SType.HigherKinded(name, argList.length)))
+                  else
+                    Some(Primary.Single(SType.Named(name, argList)))
           else
             Some(Primary.Single(SType.Named(name, Nil)))
+
+    /** A single type argument inside `[...]`.  A bare `_` is recognised
+     *  as the higher-kinded placeholder marker (rendered as
+     *  `SType.Named("_", Nil)` here; the enclosing app collapses it
+     *  into `HigherKinded` when all arguments are wildcards). */
+    private def parseTypeArg(): Option[SType] =
+      skipWs()
+      if pos < len && s.charAt(pos) == '_' &&
+         (pos + 1 >= len || !isIdentPart(s.charAt(pos + 1)))
+      then
+        pos += 1
+        Some(SType.Named("_", Nil))
+      else
+        parseType()
   end TypeParser
 
   private def parseKind(kind: String): TSymbolKind = kind match

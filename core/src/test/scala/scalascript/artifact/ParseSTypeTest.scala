@@ -144,11 +144,68 @@ class ParseSTypeTest extends AnyFunSuite:
     assert(parse("Int =>")  == SType.Any)
   }
 
-  test("union and intersection shapes are not parsed yet — fall back to Any") {
-    // These would need richer grammar; ensure the parser doesn't claim
-    // success and produce a malformed Named like "Int |".
-    assert(parse("Int | String") == SType.Any)
-    assert(parse("Eq[A] & Show[A]") == SType.Any)
+  // ── Union, intersection, higher-kinded ─────────────────────────────────
+
+  test("simple union: A | B") {
+    assert(parse("A | B") ==
+      SType.Union(List(SType.Named("A", Nil), SType.Named("B", Nil))))
+  }
+
+  test("union flattens left-to-right: A | B | C") {
+    assert(parse("A | B | C") == SType.Union(List(
+      SType.Named("A", Nil),
+      SType.Named("B", Nil),
+      SType.Named("C", Nil))))
+  }
+
+  test("simple intersection: A & B") {
+    assert(parse("A & B") ==
+      SType.Intersection(List(SType.Named("A", Nil), SType.Named("B", Nil))))
+  }
+
+  test("intersection of typeclass apps: Eq[A] & Show[A]") {
+    assert(parse("Eq[A] & Show[A]") == SType.Intersection(List(
+      SType.Named("Eq",   List(SType.Named("A", Nil))),
+      SType.Named("Show", List(SType.Named("A", Nil))))))
+  }
+
+  test("`&` binds tighter than `|`: A | B & C") {
+    assert(parse("A | B & C") == SType.Union(List(
+      SType.Named("A", Nil),
+      SType.Intersection(List(SType.Named("B", Nil), SType.Named("C", Nil))))))
+  }
+
+  test("`|` and `&` bind tighter than `=>`: Int | String => Boolean") {
+    assert(parse("Int | String => Boolean") == SType.Function(
+      List(SType.Union(List(SType.Int, SType.String))),
+      SType.Boolean))
+  }
+
+  test("parens override default precedence: (A | B) & C") {
+    assert(parse("(A | B) & C") == SType.Intersection(List(
+      SType.Union(List(SType.Named("A", Nil), SType.Named("B", Nil))),
+      SType.Named("C", Nil))))
+  }
+
+  test("higher-kinded type parameter: F[_]") {
+    assert(parse("F[_]") == SType.HigherKinded("F", 1))
+  }
+
+  test("higher-kinded with concrete name: Eq[_]") {
+    assert(parse("Eq[_]") == SType.HigherKinded("Eq", 1))
+  }
+
+  test("higher-kinded arity 2: F[_, _]") {
+    assert(parse("F[_, _]") == SType.HigherKinded("F", 2))
+  }
+
+  test("mixed `_` with concrete arg stays a Named app — not higher-kinded") {
+    // Decision: only when ALL type args are `_` do we collapse to
+    // `HigherKinded`.  A partial wildcard like `Map[String, _]` keeps
+    // its structure as `Named("Map", List(String, Named("_", Nil)))`
+    // so the wildcard slot is still observable.
+    assert(parse("Map[String, _]") == SType.Named("Map",
+      List(SType.String, SType.Named("_", Nil))))
   }
 
   // ── Round-trip across the full SType.show grammar ─────────────────────
@@ -170,7 +227,31 @@ class ParseSTypeTest extends AnyFunSuite:
       SType.Tuple(List(SType.Int, SType.String, SType.Boolean)),
       // Qualified path retained verbatim — Named already supports dots.
       SType.Named("std.actors.ChildSpec", Nil),
-      SType.Named("scala.Option", List(SType.Int))
+      SType.Named("scala.Option", List(SType.Int)),
+      // Union / intersection / higher-kinded — surface-type round-trip.
+      SType.Union(List(SType.Named("A", Nil), SType.Named("B", Nil))),
+      SType.Union(List(SType.Int, SType.String, SType.Boolean)),
+      SType.Intersection(List(
+        SType.Named("Eq",   List(SType.Named("A", Nil))),
+        SType.Named("Show", List(SType.Named("A", Nil))))),
+      // `&` binds tighter than `|`: print and re-parse must preserve
+      // the `Union(A, Intersection(B, C))` shape.
+      SType.Union(List(
+        SType.Named("A", Nil),
+        SType.Intersection(List(SType.Named("B", Nil), SType.Named("C", Nil))))),
+      // `Intersection` containing a `Union` — must be parenthesised by
+      // `show` so re-parsing keeps the precedence right.
+      SType.Intersection(List(
+        SType.Union(List(SType.Named("A", Nil), SType.Named("B", Nil))),
+        SType.Named("C", Nil))),
+      // Function whose param is a `Union` — show must parenthesise the
+      // union since `=>` is the loosest construct.
+      SType.Function(
+        List(SType.Union(List(SType.Int, SType.String))),
+        SType.Boolean),
+      SType.HigherKinded("F", 1),
+      SType.HigherKinded("Eq", 1),
+      SType.HigherKinded("Functor", 2)
     )
     samples.foreach { t =>
       val rendered = t.show
