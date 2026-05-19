@@ -813,11 +813,24 @@ class JvmGen(
       // is purely textual: bare actor names become `Actor.<n>`, the `!`
       // infix becomes `Actor.send(…)`. Other identifiers are untouched
       // so non-actor code in deps still emits as-is.
-      val rewrittenBlocks = nested.collectBlocks(importedModule.sections)
-        .map(b => qualifyBareActorCallsInBlock(b))
+      // Strategy D — for dep blocks that contain effect primitives, skip
+      // the textual band-aid (qualifyBareActorCallsInBlock).  Step 3's
+      // CPS emit handles `self()`, `pid ! msg`, `receive { case … }`
+      // natively via the existing emitCpsExpr / emitReceiveMatcher
+      // infrastructure.  Running the textual rewrite first produces
+      // shapes (`Actor.receive_(_registerReceive(_pfToFun{…}))`) that
+      // the CPS emit then wraps in nonsensical _bind chains over
+      // runtime helpers.  Only fall back to the band-aid for dep blocks
+      // with no effect primitives (the rare case where a dep's pure
+      // helper happens to mention an actor name).
+      val rawBlocks = nested.collectBlocks(importedModule.sections)
+      val rewrittenBlocks = rawBlocks.map { b =>
+        val hasEffect = ScalaNode.fold(b.node)(tree => containsEffectPrimitive(tree))
+        if hasEffect then b
+        else qualifyBareActorCallsInBlock(b)
+      }
       // Strategy D, Step 2 — index every Defn.Def in this dep (top-level
       // or nested in object/class) so the fixpoint can analyse its body.
-      // Walks the post-rewrite block to match what Step 3 will emit.
       rewrittenBlocks.foreach { b =>
         ScalaNode.fold(b.node) { tree =>
           tree.collect { case d: Defn.Def => depDefs(d.name.value) = d }
@@ -1018,7 +1031,13 @@ class JvmGen(
   private def isEffectOpRef(eff: String, op: String): Boolean =
     effectOps.contains(s"$eff.$op")
 
-  private def isEffectfulFun(name: String): Boolean = effectfulFuns.contains(name)
+  /** True for user-code effectful functions (populated by `analyzeEffects`)
+   *  AND for dep-defined functions marked effectful by Strategy D's
+   *  fixpoint (Step 2, `analyzeDepEffectfulness`). Both kinds need the
+   *  same downstream treatment: params widened to `Any`, body routed
+   *  through `emitCpsExpr`. */
+  private def isEffectfulFun(name: String): Boolean =
+    effectfulFuns.contains(name) || globalEffectfulDeps.contains(name)
 
   // ─── Routing detection ───────────────────────────────────────────
   //
@@ -1668,7 +1687,12 @@ class JvmGen(
         d.templ.body.stats.exists {
           case dd: Defn.Def => isEffectOpDef(dd.body)
           case _            => false
-        }
+        } ||
+        // Strategy D — recurse into nested objects to find dep defs marked
+        // effectful by the fixpoint.  Without this, deps wrapped as
+        // `object std { object pkg { def f = … } }` bypass emit and are
+        // returned as `block.src` verbatim, skipping Step 3's CPS emit.
+        d.collect { case dd: Defn.Def if globalEffectfulDeps(dd.name.value) => () }.nonEmpty
       case d: Defn.Def =>
         isEffectfulFun(d.name.value) || termUsesEffects(d.body) || hasInterParamDefault(d)
       case _: Defn.Enum => true
@@ -1848,6 +1872,17 @@ class JvmGen(
     // plus a thin public wrapper.
     case d: Defn.Def if isInMutualClique(d.name.value) =>
       emitMutualTcoFun(d)
+
+    // Strategy D, Step 3 — Defn.Object wrapping dep blocks may contain
+    // effectful dep defs (marked by analyzeDepEffectfulness).  Recurse
+    // into the body so the `Defn.Def if isEffectfulFun` arm above fires
+    // for those defs.  Only triggers when the body TRANSITIVELY contains
+    // a dep def name we marked — non-dep objects fall through to .syntax.
+    case d: Defn.Object if
+        d.collect { case dd: Defn.Def if globalEffectfulDeps(dd.name.value) => () }.nonEmpty =>
+      val inner = d.templ.body.stats.map(emitStat).filter(_.nonEmpty).mkString("\n")
+      val indented = inner.linesIterator.map("  " + _).mkString("\n")
+      s"object ${d.name.value}:\n$indented"
 
     case t: Term => emitExpr(t)
 
@@ -3131,7 +3166,16 @@ class JvmGen(
     case app: Term.Apply => emitCpsApply(app)
 
     case Term.ApplyInfix.After_4_6_0(lhs, op, _, argClause) =>
-      val rhs = argClause.values.head
+      // Scala parses `pid ! (a, b)` as `pid.!(a, b)` (2-arg infix) NOT as
+      // `pid.!((a, b))` (1-arg tuple).  For `!` (actor send), reconstruct
+      // the tuple syntactically when multiple values are present, so the
+      // CPS-emitted Actor.send receives exactly one msg argument.
+      val rhs = argClause.values match
+        case List(single) => single
+        case many         =>
+          import scala.meta.{dialects, *}
+          val tupleSrc = many.map(_.syntax).mkString("(", ", ", ")")
+          dialects.Scala3(Input.String(tupleSrc)).parse[Term].get
       bindArgsCps(List(lhs, rhs)) { case List(vl, vr) =>
         op.value match
           case "==" | "!="    => s"($vl ${op.value} $vr)"
