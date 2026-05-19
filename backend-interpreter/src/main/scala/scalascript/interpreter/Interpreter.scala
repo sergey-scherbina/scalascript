@@ -1371,6 +1371,12 @@ class Interpreter(
   private[interpreter] val _cacheStore  = new java.util.concurrent.ConcurrentHashMap[String, (Long, Value)]()
   private[interpreter] val _cacheBypass = ThreadLocal.withInitial[Boolean](() => false)
 
+  // ── Async parallel driver — future table (see AsyncRuntime.scala) ─────
+  private[interpreter] val parallelFutures =
+    new java.util.concurrent.ConcurrentHashMap[Long, java.util.concurrent.Future[Value]]()
+  private val parallelFutureSeq = new java.util.concurrent.atomic.AtomicLong(0L)
+  private[interpreter] def freshFutureId(): Long = parallelFutureSeq.incrementAndGet()
+
   // ── v1.4 Auth effect — current user (thread-local) ────────────────────
   private[interpreter] val _authUser = ThreadLocal.withInitial[Option[Value]](() => None)
   // Receive-spec boxing: we can't squeeze AST cases into `Value`, so
@@ -3177,7 +3183,7 @@ class Interpreter(
     // into the Computation tree before the driver walks them.
     case Term.Apply.After_4_6_0(Term.Name("runAsync"), bodyArgClause)
         if bodyArgClause.values.size == 1 =>
-      asyncInterp(eval(bodyArgClause.values.head, env))
+      AsyncRuntime.asyncInterp(eval(bodyArgClause.values.head, env), this)
 
     // Special form: runAsyncParallel(body) — alternate Async handler
     // that executes thunks passed to `async` / `parallel` on real
@@ -3187,7 +3193,7 @@ class Interpreter(
     // value-deterministic code still produces byte-identical output.
     case Term.Apply.After_4_6_0(Term.Name("runAsyncParallel"), bodyArgClause)
         if bodyArgClause.values.size == 1 =>
-      asyncParInterp(eval(bodyArgClause.values.head, env))
+      AsyncRuntime.asyncParInterp(eval(bodyArgClause.values.head, env), this)
 
     // Special forms: runStorage / runEphemeralStorage — Storage-effect
     // handlers.  The former hydrates from / persists to a JSON file
@@ -5666,82 +5672,9 @@ class Interpreter(
 
   // ── v1.x Signals — see SignalRuntime.scala ────────────────────────────
 
-  /** Driver for the built-in `Async` effect — same Free-Monad walk as
-   *  `evalHandle` but with a fixed dispatch table for `Async.*` ops
-   *  (delay / async / await / parallel).  Non-Async Performs propagate
-   *  outward so an enclosing `handle` can pick them up.  Single-threaded
-   *  semantics: a thunk passed to `async` / `parallel` runs immediately
-   *  on the calling thread, so the resulting output is deterministic
-   *  and identical to the JS / JvmGen backends. */
-  private def asyncInterp(initial: Computation): Computation =
-    var current: Computation = initial
-    while true do
-      current match
-        case Pure(_) => return current
-        case Perform("Async", op, args) =>
-          // Bare Perform — no continuation; dispatch with identity resume.
-          current = asyncDispatch(op, args, v => Pure(v))
-        case Perform(_, _, _) => return current  // unhandled, propagate
-        case FlatMap(sub, f) => sub match
-          case Pure(v) =>
-            current = f(v)
-          case FlatMap(sub2, g) =>
-            current = FlatMap(sub2, x => FlatMap(g(x), f))
-          case Perform("Async", op, args) =>
-            current = asyncDispatch(op, args, v => asyncInterp(f(v)))
-          case Perform(_, _, _) =>
-            return FlatMap(sub, v => asyncInterp(f(v)))
-    throw InterpretError("unreachable")
+  // ── Async driver — see AsyncRuntime.scala ────────────────────────────
 
-  private def asyncDispatch(
-    op:     String,
-    args:   List[Value],
-    resume: Value => Computation
-  ): Computation = op match
-    case "delay" => args match
-      case List(Value.IntV(ms)) =>
-        if ms > 0 then Thread.sleep(ms)
-        resume(Value.UnitV)
-      case _ => throw InterpretError("Async.delay(ms: Int)")
-    case "async" => args match
-      case List(thunk) =>
-        asyncInterp(callValue(thunk, Nil, Map.empty)) match
-          case Pure(v) =>
-            resume(Value.InstanceV("Future", Map("value" -> v)))
-          case _ => throw InterpretError(
-            "Async.async thunk leaked an unhandled non-Async effect")
-      case _ => throw InterpretError("Async.async(thunk)")
-    case "await" => args match
-      case List(Value.InstanceV("Future", fields)) =>
-        resume(fields.getOrElse("value", Value.UnitV))
-      case _ => throw InterpretError("Async.await(future)")
-    case "parallel" => args match
-      case List(Value.ListV(thunks)) =>
-        // Single-threaded: run each thunk through this driver, in declared
-        // order, collect results.  A real-concurrent backend can swap this
-        // for an executor without changing observable output (results are
-        // returned in input order regardless of completion order).
-        val results = thunks.map { t =>
-          asyncInterp(callValue(t, Nil, Map.empty)) match
-            case Pure(v) => v
-            case _ => throw InterpretError(
-              "Async.parallel thunk leaked an unhandled non-Async effect")
-        }
-        resume(Value.ListV(results))
-      case _ => throw InterpretError("Async.parallel(thunks: List[() => A])")
-    case "recvFrom" => args match
-      case List(ws) =>
-        val recvFn = ws match
-          case Value.InstanceV(_, fields) =>
-            fields.getOrElse("recv", throw InterpretError("Async.recvFrom: ws has no recv"))
-          case other => throw InterpretError(s"Async.recvFrom: expected ws, got $other")
-        callValue(recvFn, Nil, Map.empty) match
-          case Pure(v) => resume(v)
-          case comp    => FlatMap(comp, resume)
-      case _ => throw InterpretError("Async.recvFrom(ws)")
-    case _ => throw InterpretError(s"Unknown Async operation: $op")
-
-  // ── v1.6 Actors Phase 1 — cooperative scheduler ────────────────────
+    // ── v1.6 Actors Phase 1 — cooperative scheduler ────────────────────
   //
   // Single-threaded green-thread scheduler over Computation.  Each
   // actor's "current frame" lives in `pending(id)`.  Stepping an actor
@@ -6955,125 +6888,6 @@ class Interpreter(
             rt.ready.enqueue(id)
           case None => ()
       case None => ()
-
-  // ── runAsyncParallel — real-thread driver for the same Async API ──
-  //
-  // Same Free Monad walk as `asyncInterp` but `async` / `parallel`
-  // dispatch their thunks to a per-driver `ExecutorService` instead
-  // of running them inline.  `await` blocks the calling thread on the
-  // future; `parallel` returns results in declared order regardless
-  // of completion order so value-deterministic code retains
-  // byte-identical output across the single- and parallel-handler
-  // variants.  `delay` still uses `Thread.sleep` because the calling
-  // thread is the right thread to block on the JVM.
-
-  private def asyncParInterp(initial: Computation): Computation =
-    // Java 21 requirement: virtual threads (Project Loom) for lightweight parallelism.
-    val ex = java.util.concurrent.Executors.newVirtualThreadPerTaskExecutor()
-    try
-      // Inner driver re-used for thunks-inside-thunks (the future's
-      // body itself may use `Async.*`); shares the executor with the
-      // outer call so worker threads recursively submit to the same
-      // pool instead of allocating a fresh one per nesting level.
-      def driver(c: Computation): Computation =
-        var current: Computation = c
-        while true do
-          current match
-            case Pure(_) => return current
-            case Perform("Async", op, args) =>
-              current = asyncParDispatch(op, args, v => Pure(v), ex, driver)
-            case Perform(_, _, _) => return current
-            case FlatMap(sub, f) => sub match
-              case Pure(v)          => current = f(v)
-              case FlatMap(s2, g)   => current = FlatMap(s2, x => FlatMap(g(x), f))
-              case Perform("Async", op, args) =>
-                current = asyncParDispatch(op, args, v => driver(f(v)), ex, driver)
-              case Perform(_, _, _) =>
-                return FlatMap(sub, v => driver(f(v)))
-        throw InterpretError("unreachable")
-      driver(initial)
-    finally ex.shutdown()
-
-  private def asyncParDispatch(
-    op:     String,
-    args:   List[Value],
-    resume: Value => Computation,
-    ex:     java.util.concurrent.ExecutorService,
-    driver: Computation => Computation
-  ): Computation = op match
-    case "delay" => args match
-      case List(Value.IntV(ms)) =>
-        if ms > 0 then Thread.sleep(ms)
-        resume(Value.UnitV)
-      case _ => throw InterpretError("Async.delay(ms: Int)")
-    case "async" => args match
-      case List(thunk) =>
-        // Submit the thunk to the pool; the future holds whatever
-        // value its computation reduces to (driven through the same
-        // inner driver so nested Async.* ops still hit this handler).
-        val fut: java.util.concurrent.Future[Value] = ex.submit(
-          new java.util.concurrent.Callable[Value]:
-            def call(): Value = driver(callValue(thunk, Nil, Map.empty)) match
-              case Pure(v) => v
-              case _ => throw InterpretError(
-                "Async.async thunk leaked an unhandled non-Async effect")
-        )
-        // Stash the Java Future inside the InstanceV through a
-        // synthetic NativeFnV whose closure carries it — keeps the
-        // Value ADT untouched while letting us round-trip the ref.
-        val carrier = Value.NativeFnV("_futureRef", _ => {
-          throw InterpretError("Future ref is opaque")
-        })
-        val fid = freshFutureId()
-        parallelFutures.put(fid, fut)
-        resume(Value.InstanceV("Future", Map(
-          "_parId" -> Value.IntV(fid),
-          "value"  -> carrier
-        )))
-      case _ => throw InterpretError("Async.async(thunk)")
-    case "await" => args match
-      case List(Value.InstanceV("Future", fields)) =>
-        fields.get("_parId") match
-          case Some(Value.IntV(fid)) =>
-            val fut = parallelFutures.remove(fid)
-            if fut == null then throw InterpretError("Async.await: stale Future")
-            resume(fut.get())
-          case _ =>
-            // Single-thread Future (from runAsync) — unwrap directly.
-            resume(fields.getOrElse("value", Value.UnitV))
-      case _ => throw InterpretError("Async.await(future)")
-    case "parallel" => args match
-      case List(Value.ListV(thunks)) =>
-        // Submit all thunks first, then block on each in declared
-        // order so the result list mirrors input order regardless of
-        // completion order.
-        val futs = thunks.map { t =>
-          ex.submit(new java.util.concurrent.Callable[Value]:
-            def call(): Value = driver(callValue(t, Nil, Map.empty)) match
-              case Pure(v) => v
-              case _ => throw InterpretError(
-                "Async.parallel thunk leaked an unhandled non-Async effect")
-          )
-        }
-        val results = futs.map(_.get())
-        resume(Value.ListV(results))
-      case _ => throw InterpretError("Async.parallel(thunks: List[() => A])")
-    case "recvFrom" => args match
-      case List(ws) =>
-        val recvFn = ws match
-          case Value.InstanceV(_, fields) =>
-            fields.getOrElse("recv", throw InterpretError("Async.recvFrom: ws has no recv"))
-          case other => throw InterpretError(s"Async.recvFrom: expected ws, got $other")
-        callValue(recvFn, Nil, Map.empty) match
-          case Pure(v) => resume(v)
-          case comp    => FlatMap(comp, resume)
-      case _ => throw InterpretError("Async.recvFrom(ws)")
-    case _ => throw InterpretError(s"Unknown Async operation: $op")
-
-  private val parallelFutures =
-    new java.util.concurrent.ConcurrentHashMap[Long, java.util.concurrent.Future[Value]]()
-  private val parallelFutureSeq = new java.util.concurrent.atomic.AtomicLong(0L)
-  private def freshFutureId(): Long = parallelFutureSeq.incrementAndGet()
 
   // ── Storage handler — see StorageRuntime.scala ──────────────────────
 
