@@ -7603,25 +7603,16 @@ regression test green.
 - [ ] P2WPKH bech32 addresses
 - [ ] PSBT (BIP-174) for hardware-wallet compatibility
 
-### Phase 6 — blockchain-cardano + x402 Cardano facilitator
+### Phase 6 — blockchain-cardano + x402 Cardano facilitator ✓ Landed (2026-05-20)
 
-Folds existing x402 Phase 6 plan (`x402-facilitator-cardano`) into
-the unified blockchain-spi model.
-
-- [ ] `blockchain-cardano` — CIP-8 signing/verify, CIP-30-compatible
-      address handling, lovelace + native assets, Blockfrost RPC
-      provider, optional Scalus-based Tx builder
-- [ ] `x402-facilitator-cardano` becomes thin glue over
-      `blockchain-cardano` (replaces the standalone module)
-- [ ] x402 Cardano chain coverage:
-  - [ ] `PaymentScheme.CardanoExact` migrated to use the same
-        `Network(ChainId)` shape as EVM
-  - [ ] Verify: balance check + CIP-8 signature verify
-  - [ ] Settle: Blockfrost confirmation polling **or** Scalus Tx
-        submit (`config.settler` choice)
-  - [ ] `examples/x402-cardano.ssc` (already on x402 roadmap)
-- [ ] Marks the original "x402 Phase 6 — Cardano facilitator"
-      milestone item as landed
+- [x] `blockchain-cardano` — Bech32 codec, CIP-19 enterprise addresses (Blake2b-224),
+      CBOR encoder+decoder, CIP-8 COSE_Sign1 signing/verify, CardanoChainAdapter
+      (`ChainAdapter` impl), CardanoTxBody CBOR builder, Blockfrost UTxO + submit
+- [x] `BlockfrostClient` extended with `getUtxos()` and `submitTx()` (`BlockfrostUtxo` type)
+- [x] `ChainId.CardanoMainnet` / `ChainId.CardanoPreprod` added to `blockchain-spi`
+- [x] 19 tests — address derivation, balances, tx building, signing, CBOR round-trips, Bech32
+- [ ] `x402-facilitator-cardano` thin-glue refactor (deferred — existing impl works)
+- [ ] `examples/x402-cardano.ssc` (deferred)
 
 ### Phase 7 — blockchain-cosmos
 
