@@ -8,6 +8,13 @@ and reversible up to a point; the sections describe what each costs
 and unlocks.  Concrete sequencing and decision points are at the
 bottom.
 
+**TL;DR**: Option A (in-tree real modules — eliminate the
+`JvmGen.serveRuntime` string template by moving its content into
+real `.scala` files inlined the same way `runtime-server-common`
+already is) is the recommended next phase.  ~4 days, zero
+distribution change, low risk, unlocks every other strategic move
+cheaply.  See the Option A section for the Phase 3a–3f plan.
+
 Audience: future-me when the next "продолжай" lands and we need to
 decide whether to keep dripping dedup or take a bigger swing.
 
@@ -106,54 +113,111 @@ helpers in pure-JS-compatible Scala (no JDK), which they're not.
 
 ## Strategic options
 
-### Option A — Eliminate the string template (`P1`)
+### Option A — Eliminate the string template via in-tree real modules (`P1`)
 
-**What.** Turn `JvmGen.serveRuntime` from a `"""|..."""` blob into
-imports of a published `scalascript-runtime-server-jvm` jar.  Codegen
-output emits a thin `using lib …:scalascript-runtime-server-jvm:VERSION`
-plus the user's `route { … }` calls; the runtime is real Scala code
-in the jar, type-checked at our build time, not at the user's run time.
+**Recommended next phase.**  Move `serveRuntime`'s content out of the
+`"""|..."""` triple-quoted string and into real `.scala` source files
+in a new sbt module `runtime-server-jvm`.  Codegen inlines those
+sources as text into the generated script, exactly the way
+`runtime-server-common`'s 29 files are already inlined.  No Maven
+publishing, no external runtime dependency, no change to ssc
+distribution shape.
 
 **How.**
-1. Promote `runtime-server-common` from "sources inlined as strings"
-   to "consumed as a real dependency".  Already a real sbt module —
-   just needs publishing.
-2. Create `runtime-server-jvm` containing what's currently in the
-   template (server lifecycle, route registration, WS state mgmt).
-   It depends on `runtime-server-common`.
-3. Publish both to Maven Central (or a private repo) on each release.
-4. `JvmGen.serveRuntime` collapses to a small emitter producing:
+1. Create `runtime-server-jvm` sbt module mirroring the
+   `runtime-server-common` setup: same `resourceGenerators` task that
+   copies `*.scala` sources into a classpath resource bundle.  Depends
+   on `runtime-server-common`.
+2. Generalise `JvmGen.loadCommonSource` to also read from the
+   `runtime-server-jvm` bundle.
+3. Migrate the template content section by section (route registration,
+   server lifecycle, WS support, proxy, TLS, outbound clients) into
+   `runtime-server-jvm/src/main/scala/scalascript/runtime/server/*.scala`
+   files.  Each section is independently shippable and validated by the
+   conformance suite.
+4. After the migration, `JvmGen.serveRuntime` collapses to a small
+   list of source-name calls:
    ```scala
-   //> using lib com.scalascript::scalascript-runtime-server-jvm:VERSION
-   import scalascript.runtime.server.*
-   // user's route/serve/onWebSocket calls translated verbatim
+   private lazy val serveRuntime: String =
+     loadJvmRuntimeSources("RouteRegistry", "Server", "WebSocket",
+                           "Proxy", "TlsServer", "OutboundClients", …)
    ```
 
+**Phase plan** (~4 days focused work):
+
+- **3a** — `runtime-server-jvm` sbt module + resource-bundle loader.
+  Empty module initially.  ~0.5 day.
+- **3b** — Migrate the REST routing + `serve(port)` section (currently
+  `serveRuntimePart1`'s first ~700 lines) into `Server.scala` +
+  `RouteRegistry.scala`.  ~1 day.
+- **3c** — Migrate the WebSocket section (~800 lines) into
+  `WebSocketServer.scala` + `WebSocketConnection.scala`.  ~1 day.
+- **3d** — Migrate the Proxy + TLS sections (~250 lines) into
+  `Proxy.scala`.  ~0.5 day.
+- **3e** — Migrate outbound HTTP/WS clients (~220 lines) into
+  `OutboundClients.scala`.  ~0.5 day.
+- **3f** — Cleanup: `JvmGen.serveRuntime` becomes a ~50-line emitter,
+  `serveRuntimePart1` / `Part1b` / `Part2` strings deleted.  ~0.5 day.
+
 **Trade-offs.**
-- + Loses **all** the string-template friction in one move.
-- + Codegen runtime becomes a first-class module with tests, IDE
-  support, types, refactors.
-- + scala-cli's per-run compile drops dramatically (depends on a jar
-  instead of compiling 4 000 lines from source).
-- − Requires publishing infra (Maven Central + signing keys + release
-  process).  Can mitigate with GitHub Packages first.
-- − Version compatibility surface: every backward-incompatible runtime
-  change requires a new version and either upgrading user scripts or
-  pinning.  ssc itself can pin a known-good version per ssc release.
-- − Loses the "single self-contained script" property of generated
-  output — generated `.scala` files now require Internet for the first
-  build (until scala-cli caches the jar).  Workaround: bundled offline
-  cache for `ssc compile`.
-- − Distribution becomes a real concern; today ssc is a fat jar with
-  zero external deps at runtime.
+- + Loses **all** the string-template friction (manual `|`-prefix,
+  64 KB literal limit, no type checking, no IDE support, no refactor
+  tooling).
+- + Codegen runtime becomes a first-class Scala module with full
+  type-checking at *our* build time, IDE support, refactor tooling,
+  and (with Phase E in place) unit tests.
+- + Generated scripts remain **self-contained** — the runtime source
+  is still inlined as text, just sourced from real `.scala` files
+  rather than from `"""|..."""` strings.
+- + Zero distribution change: ssc is still a fat jar with zero
+  external runtime deps; users still don't need Internet to run a
+  generated script after `ssc compile`.
+- + Zero version-compatibility surface — runtime ships embedded in
+  ssc; every ssc release carries its own runtime; no "user pinned
+  v0.3 of the runtime against ssc v0.5" failure mode.
+- − scala-cli still recompiles the runtime from source per user-script
+  run — same perf as today.  No improvement until Option A+ ships.
+- − Adds one new sbt module to the build.  Trivial maintenance cost.
 
-**Effort.** ~1 week.  Publishing infra is the slow part; the actual
-code refactor is mostly mechanical (move template content into real
-.scala files, fix the imports).
+**Unlocks.**  Phase 2h+ dedup becomes trivial (just edit real Scala
+files).  Option B (thread-model unification) drops from "duplicate
+work across two impls" to "edit one file."  Option C (Jetty/Netty)
+becomes easier because the runtime is structured.  Option D (dual-impl
+elimination) lines up naturally — interpreter would call into the same
+real Scala module the codegen inlines.  Option A+ (below) becomes a
+follow-up perf optimisation, not a refactor.
 
-**Unlocks.** Phase 2h+ dedup becomes trivial.  Option B becomes much
-cheaper to attempt.  External users could write their own routes on
-top of the runtime without ssc at all.
+### Option A+ — Maven-published runtime (perf follow-up to A)
+
+**What.**  After Option A lands, optionally publish
+`runtime-server-jvm` (and `runtime-server-common`) to Maven Central
+or a private repo.  Codegen output then emits a `//> using lib …`
+directive instead of inlining the runtime source, so scala-cli
+resolves a pre-compiled jar.  Massive scala-cli per-run compile-time
+improvement for hot reloads.
+
+**Trade-offs.**
+- + scala-cli per-run compile drops from ~5 s of runtime-source
+  compilation to ~0 s (jar fetch from local cache).  Big win for
+  iterative development with `ssc run foo.ssc` cycles.
+- − Requires publishing infra (Sonatype + GPG signing OR GitHub
+  Packages).  Real ops cost.
+- − Version-compatibility surface: every backward-incompatible runtime
+  change requires a new version.  ssc pins a known-good version per
+  ssc release.
+- − Loses self-contained scripts for the first run — generated `.scala`
+  files require network access for the initial scala-cli jar fetch
+  (then cached).  Workaround: bundle offline cache with `ssc compile`.
+
+**Effort.** ~2–3 days once Option A is in place — mostly publishing
+infra setup; the actual code change is just swapping `loadJvmRuntimeSources`
+emission for a `using lib` emission.
+
+**Depends on.** Option A.  Doesn't make sense before — without A you'd
+publish the string-template-emitting tarpit.
+
+**Unlocks.** External users could write their own routes on top of the
+published runtime jar without going through ssc at all.
 
 ### Option B — Unify the thread model (`P2`)
 
@@ -306,51 +370,61 @@ the full suite including mock-driven `HttpDispatchLoop` tests.
 
 ## Recommended sequencing
 
-1. **Option E first** — pay the test debt.  Cheap, blocks nothing,
-   buys safety for everything below.  ~2 days.
-2. **Option A second** — eliminate the string template.  Highest
-   ROI on accumulated friction.  ~1 week.  Cleanest version is to do
-   E before A so the new real-Scala modules are test-covered as they
-   land.
-3. **One of B / C / D** — pick based on what's driving you:
-   - B (thread-model unification) if the next major user is hitting
-     WS concurrency edges in the interpreter.
-   - C (Jetty/Netty) if HTTP/2 or HTTPS performance is on the
-     critical path.
-   - D (dual-impl elimination) if v2.0 separate compilation lands and
-     we want the simplification.
+**Status as of writing**: Option E (unit tests) is **done** —
+five test files in `runtime-server-common/src/test/`, 60/60 passing.
+That paid the safety debt for everything below.
 
-A locks in the foundation; B/C/D are independent choices on top.
-Doing more than one of B/C/D at once is not recommended — the test
+**Primary recommendation**: **Option A** (in-tree real modules).
+Single biggest ROI on accumulated friction, ~4 days of focused work,
+zero distribution change, low risk thanks to incremental sub-phases
+that the conformance suite validates.  Concrete plan in the Option A
+section (Phase 3a–3f).
+
+**After A, pick one of**:
+- **A+** (Maven publishing) if scala-cli per-run compile time becomes
+  a real iteration-speed pain point.
+- **B** (thread-model unification) if WS concurrency edges in the
+  interpreter start mattering — A first makes B trivial.
+- **C** (Jetty/Netty) if HTTP/2 or HTTPS perf hits the critical path
+  — A first makes C structured rather than a rewrite.
+- **D** (dual-impl elimination) once v2.0 separate compilation
+  stabilises — A first lines up the target shape.
+
+A locks in the foundation; A+/B/C/D are independent choices on top.
+Doing more than one of A+/B/C/D at once is not recommended — the test
 surface and conformance regression risk compound.
 
 ## Open decisions
 
 These need a call before we start cutting:
 
-1. **Maven publishing infrastructure** — required for Option A.  Are we
-   willing to set up Sonatype + GPG signing, or do we start with
-   GitHub Packages (private to begin with)?
-2. **External runtime dependencies allowed?** — current ssc has zero
-   external deps at runtime.  Option C explicitly breaks this for
-   Jetty.  Option A breaks it for the runtime jar itself (unless we
-   bundle it via scala-cli's offline cache).
-3. **Backward compatibility horizon for the runtime jar** — once
-   published, the API becomes a real contract.  Are we willing to
-   ship a 0.x with breakage, then 1.x with semver?  Or keep the
-   runtime tightly coupled to ssc releases (any ssc upgrade requires
-   a runtime upgrade)?
-4. **Interpreter perf budget** — Option B accepts a global lock on
-   `Interpreter.invoke`.  How much WS throughput regression is OK?
+1. **Interpreter perf budget for Option B** — accepts a global lock
+   on `Interpreter.invoke`.  How much WS throughput regression is OK?
    Need a baseline measurement first.
-5. **TLS strategy** — if not Option C, do we still want to eliminate
+2. **TLS strategy** — if not Option C, do we still want to eliminate
    the `TlsProxy → internal HttpServer` detour?  Possible without
    Jetty by switching to `HttpsServer` and writing a thin WS shim,
    but that's its own project.
-6. **JS backend evolution** — when v2.0 lands a unified codegen IR,
+3. **JS backend evolution** — when v2.0 lands a unified codegen IR,
    could the JS backend share more with the JVM runtime via a SPI?
    Probably not for HTTP/WS specifically (Node primitives are too
    different), but worth a design pass.
+
+**Decisions specific to Option A+ (Maven publishing)** — only matter
+if/when A+ is on the table:
+
+A1. **Publishing infrastructure** — Sonatype + GPG signing for Maven
+    Central, or GitHub Packages (private to begin with)?
+A2. **External runtime dependencies allowed?** — current ssc has zero
+    external deps at runtime.  A+ keeps a self-contained ssc but adds
+    a network dep for first-run of generated scripts (until scala-cli
+    caches the jar).  Bundle offline cache with `ssc compile`?
+A3. **Backward-compatibility horizon for the runtime jar** — once
+    published, the API becomes a real contract.  Ship 0.x with
+    breakage then 1.x with semver?  Or keep the runtime tightly
+    coupled to ssc releases (every ssc upgrade requires a runtime
+    upgrade)?  The default after A (no publishing) sidesteps this
+    entirely.
 
 ## Out of scope
 
@@ -364,18 +438,22 @@ These need a call before we start cutting:
 
 ## Open follow-ups from Phase 2
 
-These didn't make it into Phase 2a–g but are still on the table as
-quick tactical wins regardless of which strategic option we pick:
+These didn't make it into Phase 2a–g.  Most of them get **absorbed
+into Option A** when the string template becomes real Scala files —
+once `WebSocket` state-mgmt lives in one file, the dedup is just an
+edit instead of a cross-template refactor.  Listed here so they don't
+get lost:
 
 - **WsSlotManager extraction** — `_wsActiveCount` / `_wsMaxActive` +
   `tryReserve` / `release` static state duplicated between
   `WsConnection.tryReserveSlot` (interp) and codegen `_wsTryReserve`.
-  One shared object, ~30 LOC saved.  Low risk.  Could land before A.
+  ~30 LOC saved.  **Absorbed by A** (Phase 3c) — when WS state lives
+  in `WebSocketServer.scala`, the slot manager is one file edit.
 - **Semantic renaming of `serveRuntime` parts** — `Part1` / `Part1b`
-  / `Part2` → `serveRuntimeRest` / `serveRuntimeWs` / `serveRuntimeTls`.
-  No logic change; readability win.  Useful if we end up staying with
-  the string template longer than expected.
+  / `Part2` → `serveRuntimeRest` / etc.  **Obviated by A** — those
+  strings get deleted, not renamed.
 - **WS client refactor** — `WsClientSession` + `BlockingWsSession` +
   the codegen outbound WS client.  Could share more framing/reassembly
   via `WsFraming` + `WsReassembler` (already shared, but not used by
-  the client paths).  ~100 LOC potential.
+  the client paths).  ~100 LOC potential.  **Independent of A** but
+  much cheaper after A lands (codegen client becomes a real file).
