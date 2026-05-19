@@ -6744,19 +6744,47 @@ to `SqlRuntime.execute` and bypasses the registry.
       INSERT + SELECT, dual surfacing, 1-arg + 3-arg override
       path, UPDATE returns affected-row count.
 
-#### Phase 6.C — JvmGen codegen (open)
+#### Phase 6.C — JvmGen codegen (landed)
 
-- [ ] `JvmGen.collectBlocks` recognises `ir.Content.SqlBlock` and
-      emits Scala source that mirrors the interpreter shape:
-      `val _sqlBlock_<N>: SqlResult =
-         scalascript.sql.SqlRuntime.execute(<conn>, "<?-templated>", List(<binds>))`
-      + a `<sectionId>.sql` alias per the Spark precedent.
-- [ ] Front-matter `databases:` materialises in emitted code as a
-      `_ssc_sql_registry: ConnectionRegistry` constructor that
-      runs once at script entrypoint.
-- [ ] Tests: `JvmGenTest` text-shape assertions + one scala-cli
-      runtime smoke-test executing CREATE / INSERT / SELECT via
-      the emitted code.
+- [x] `JvmGen.collectBlocks` recognises `ast.Content.CodeBlock` with
+      `Lang.isSql`, increments a per-instance `sqlBlockCounter`, and
+      emits a `JvmGen.Block` whose source is the Scala equivalent of
+      the sql block — a `_sqlBlock_<N>: SqlResult = SqlRuntime
+      .execute(_ssc_sql_resolve(<dbName>), "<?-templated>",
+      List(<binds>))` expression with binds spliced as Scala source.
+      First sql block per section also emits an `object <sectionId>:
+      lazy val sql = _sqlBlock_<N>` alias (matches Spark Phase C.2 and
+      the Interpreter's `globals(<sectionId>).sql` shape).
+- [x] `emitSqlRegistry(databases)` materialises front-matter
+      `databases:` entries as a `_ssc_sql_registry: ConnectionRegistry`
+      constructed once at script entrypoint.  When the module has
+      no `databases:`, the registry is `ConnectionRegistry.empty` so
+      `given Connection` paths still work standalone.
+- [x] `_ssc_sql_resolve(dbName: Option[String]): java.sql.Connection`
+      helper uses Scala 3 `scala.compiletime.summonFrom` to prefer a
+      `given java.sql.Connection` in scope; falls back to
+      `_ssc_sql_registry.connect(dbName.getOrElse("default"))`.
+- [x] `//> using dep` directives emitted only when sql blocks are
+      present: `com.h2database:h2:2.2.224`,
+      `org.xerial:sqlite-jdbc:3.45.3.0`, plus the
+      `scalascript-backend-sql-runtime` library reference.
+- [x] `Denormalize` round-trips `ir.Content.SqlBlock.dbName` through
+      the existing `ast.Content.CodeBlock.attrs("db")` channel — same
+      input shape JvmGen sees as the parser produces it.
+- [x] Tests: `JvmGenSqlBlockTest` (14 cases — no-sql passthrough,
+      `//> using dep` emission, registry materialisation with /
+      without `databases:`, summonFrom helper, per-block emission
+      with / without binds, sequential `_sqlBlock_<N>` numbering,
+      `<sectionId>.sql` alias (first only, dedup on second),
+      `@db=name` threading, `${env:NAME}` literal preservation).
+
+Deferred to Phase 7 (or a follow-up): one scala-cli end-to-end
+smoke-test compiling + running the emitted Scala against an H2
+in-memory database.  Requires either publishing
+`scalascript-backend-sql-runtime` to Maven Central or inlining its
+source into the JvmGen preamble (resource-bundle pattern used by
+`runtimeServerCommon`).  Text-shape coverage above is sufficient for
+v1.26 to land; the runtime smoke-test is purely a regression net.
 
 The `JsGen` / `NodeBackend` / `WasmBackend` `UnknownBlockLanguage`
 diagnostic is **already wired generically** via

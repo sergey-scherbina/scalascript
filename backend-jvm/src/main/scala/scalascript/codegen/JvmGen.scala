@@ -171,6 +171,12 @@ class JvmGen(
   // Resolved paths of files already inlined via Content.Import, so a diamond
   // import doesn't emit the same definitions twice.
   private val importedFiles = mutable.Set.empty[String]
+  // v1.26 — sequential counter driving emitted `_sqlBlock_<N>` value names,
+  // and per-section book-keeping so only the first sql block in each section
+  // gets the friendly `<sectionId>.sql` alias (Phase 6.C, mirrors Spark
+  // Phase C.2 convention).
+  private var sqlBlockCounter: Int = 0
+  private val sqlPerSection = mutable.Map.empty[String, Int]
   // Maps resolved path → pkg segments so the alias generator can qualify names
   // even when a file was already inlined (diamond import case).
   private val importedPkgs  = mutable.Map.empty[String, List[String]]
@@ -249,6 +255,14 @@ class JvmGen(
     if blocksUseMcp(blocks) then
       sb.append(s"""//> using dep "$JvmMcpDep"\n""")
 
+    // v1.26 — JDBC runtime + bundled H2/SQLite drivers.  Emitted only
+    // when the module actually contains sql blocks; modules without
+    // sql don't pull these onto their scala-cli classpath.
+    if sqlBlockCounter > 0 then
+      sb.append("""//> using dep "com.h2database:h2:2.2.224"""" + "\n")
+      sb.append("""//> using dep "org.xerial:sqlite-jdbc:3.45.3.0"""" + "\n")
+      sb.append("""//> using lib "io.scalascript::scalascript-backend-sql-runtime:0.1.0-SNAPSHOT"""" + "\n")
+
     sb.append(preamble)
     sb.append(commonRuntime)
     sb.append(generatorRuntime)
@@ -290,6 +304,12 @@ class JvmGen(
         }.mkString(", ")
         sb.append(s"_i18nTable = Map($entries)\n\n")
     }
+
+    // v1.26 Phase 6.C — JDBC connection registry + resolver helper.
+    // Emitted only when the module actually has sql blocks; modules
+    // that don't use sql pay nothing.
+    if sqlBlockCounter > 0 then
+      sb.append(emitSqlRegistry(module.manifest.toList.flatMap(_.databases)))
 
     blocks.foreach { block =>
       sb.append(emitBlock(block).stripTrailing())
@@ -747,6 +767,27 @@ class JvmGen(
             stringBlocks += JvmGen.StringBlockEntry(cb.lang, cb.source, id, stringBlocks.length)
           }
           Nil
+        // v1.26 Phase 6.C — sql blocks compile to a `scalascript.sql.SqlRuntime
+        // .execute(...)` call returning `SqlResult`.  Connection resolution at
+        // codegen time: the emitted helper `_ssc_sql_resolve(name)` consults
+        // a `given java.sql.Connection` in scope first, then falls back to
+        // `_ssc_sql_registry.connect(name)`.  First sql block per section
+        // also gets a friendly `<sectionId>.sql` alias (Phase C.2 convention).
+        case cb: Content.CodeBlock if Lang.isSql(cb.lang) =>
+          val n = sqlBlockCounter
+          sqlBlockCounter += 1
+          val aliasable = sectionId.filter { id =>
+            val prior = sqlPerSection.getOrElse(id, 0)
+            sqlPerSection(id) = prior + 1
+            prior == 0
+          }
+          val sqlSrc = sqlBlockToScala(cb.source, cb.attrs.get("db"), n, aliasable)
+          // Parse the emitted Scala back to a tree so downstream rewrites
+          // (effect lowering, etc.) treat it like any other parseable block.
+          import scala.meta.{dialects, *}
+          val tree = dialects.Scala3(Input.VirtualFile(s"<sql-block-$n>", sqlSrc))
+            .parse[Source].toOption.map(scalascript.ast.ScalaNode(_))
+          tree.map(t => JvmGen.Block(t, sqlSrc)).toList
         case imp: Content.Import =>
           val (blocks, importedPkg) = inlineImport(imp.path)
           blocks ++ aliasBlock(imp.bindings, importedPkg).toList
@@ -754,6 +795,105 @@ class JvmGen(
       }
       own ++ collectBlocks(s.subsections)
     }
+
+  /** Emit the per-module SQL connection registry + the
+   *  `_ssc_sql_resolve(dbName: Option[String])` helper that every
+   *  emitted sql block routes through.
+   *
+   *  Resolution policy (same shape as the interpreter's
+   *  `resolveSqlConnection`):
+   *
+   *    1. If a `given java.sql.Connection` is in scope at the call
+   *       site, use it.  This is the override path — typical for
+   *       tests that inject an H2 connection.
+   *    2. Otherwise, resolve via the registry keyed by the fence's
+   *       `@db=name` attribute (or `"default"` when absent).
+   *
+   *  The registry is built once at script entrypoint from the
+   *  front-matter `databases:` map; `${env:NAME}` references in URL /
+   *  user / password are resolved at connect time, not here. */
+  private def emitSqlRegistry(databases: List[scalascript.ast.DatabaseDecl]): String =
+    val sb = StringBuilder()
+    sb.append("// ── v1.26 — JDBC sql-block runtime support ────────────────────────\n")
+    if databases.isEmpty then
+      sb.append("val _ssc_sql_registry: scalascript.sql.ConnectionRegistry =\n")
+      sb.append("  scalascript.sql.ConnectionRegistry.empty\n\n")
+    else
+      sb.append("val _ssc_sql_registry: scalascript.sql.ConnectionRegistry = {\n")
+      sb.append("  scalascript.sql.ConnectionRegistry(List(\n")
+      val specs = databases.map { d =>
+        val name = escapeStringLit(d.name)
+        val url  = escapeStringLit(d.url)
+        val user = d.user.map(u => s"""Some("${escapeStringLit(u)}")""").getOrElse("None")
+        val pass = d.password.map(p => s"""Some("${escapeStringLit(p)}")""").getOrElse("None")
+        val drv  = d.driver.map(c => s"""Some("${escapeStringLit(c)}")""").getOrElse("None")
+        s"""    scalascript.sql.DatabaseSpec("$name", "$url", $user, $pass, $drv)"""
+      }.mkString(",\n")
+      sb.append(specs).append("\n")
+      sb.append("  ))\n")
+      sb.append("}\n\n")
+    sb.append("/** Resolve a connection for a sql block: `given Connection` in\n")
+    sb.append(" *  scope wins (Scala 3 `summonFrom` picks it up), registry\n")
+    sb.append(" *  fallback otherwise. */\n")
+    sb.append("inline def _ssc_sql_resolve(dbName: Option[String]): java.sql.Connection =\n")
+    sb.append("  scala.compiletime.summonFrom {\n")
+    sb.append("    case c: java.sql.Connection => c\n")
+    sb.append("    case _                       => _ssc_sql_registry.connect(dbName.getOrElse(\"default\"))\n")
+    sb.append("  }\n")
+    sb.append("\n")
+    sb.toString
+
+  /** Minimal escape for emitted Scala string literals. */
+  private def escapeStringLit(s: String): String =
+    s.replace("\\", "\\\\").replace("\"", "\\\"")
+
+  /** Translate a `sql` fenced block to its emitted Scala source.  Walks
+   *  the block through `SqlBindRewriter.rewriteJdbc` to get a
+   *  `?`-templated SQL string + an ordered bind-expression list, then
+   *  emits a `val _sqlBlock_<n>` bound to the `SqlRuntime.execute`
+   *  result.  Bind expressions are spliced as Scala source — they're
+   *  evaluated in the surrounding scope at runtime, exactly like the
+   *  interpreter does.
+   *
+   *  When `sectionAlias` is `Some("Users")` and this is the first sql
+   *  block in the section, appends a friendly object alias:
+   *
+   *    object Users:
+   *      lazy val sql: scalascript.sql.SqlResult = _sqlBlock_<n>
+   *
+   *  Subsequent sql blocks in the same section pass `None` (the
+   *  caller's `sqlPerSection` book-keeping enforces "first only"), so
+   *  no duplicate `lazy val sql` ever lands in the same `object`. */
+  private def sqlBlockToScala(
+    source:        String,
+    dbName:        Option[String],
+    n:             Int,
+    sectionAlias:  Option[String]
+  ): String =
+    val r       = scalascript.transform.SqlBindRewriter.rewriteJdbc(source)
+    val valName = s"_sqlBlock_$n"
+    // Escape `"""` if it appears in the SQL (rare — but defensive).
+    val sqlLit  =
+      if r.sql.contains("\"\"\"") then
+        "\"" + r.sql.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
+      else
+        "\"\"\"" + r.sql + "\"\"\""
+    val bindsArg =
+      if r.binds.isEmpty then "Nil"
+      else "List(" + r.binds.mkString(", ") + ")"
+    val dbArg = dbName match
+      case Some(n) => s"""Some("$n")"""
+      case None    => "None"
+    val execLine =
+      s"val $valName: scalascript.sql.SqlResult = " +
+        s"_ssc_sql_resolve($dbArg) match { case _ssc_conn => " +
+        s"scalascript.sql.SqlRuntime.execute(_ssc_conn, $sqlLit, $bindsArg) }"
+    sectionAlias match
+      case None        => execLine
+      case Some(secId) =>
+        execLine + "\n" +
+        s"object $secId:\n" +
+        s"  lazy val sql: scalascript.sql.SqlResult = $valName"
 
   /** Mirror Interpreter / JsGen `sectionIdent`. */
   private def sectionIdent(text: String): Option[String] =
