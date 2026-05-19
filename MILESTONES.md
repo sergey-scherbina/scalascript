@@ -3890,7 +3890,7 @@ link → build --incremental`); the JVM backend produces per-module `.scjvm`
 artifacts that the linker combines incrementally.  Tracking doc:
 `docs/separate-compilation-plan.md`.
 
-Test coverage: 384 core tests + 14 CLI subprocess smoke tests, all green.
+Test coverage: 389 core tests + 35 CLI subprocess smoke tests, all green.
 
 Stage 5.4 / final round (landed 2026-05-19):
 - `parseSType` and `SType.show` round-trip now handle union types
@@ -3904,24 +3904,43 @@ Stage 5.4 / final round (landed 2026-05-19):
   selectors, `Term.New`, lambdas, partial functions.
 - `ssc check-with-iface` now uses strict mode + exits non-zero on
   diagnostics — actually catches undefined references in consumer code.
-  Closes the `references to undefined names currently pass (TODO)`.
 - JS backend incremental output: `.scjs` artifact + `ssc compile-js` +
   `ssc link --backend js [-o out.js]` + `ssc build --incremental --backend js`.
   Same shape as the JVM pipeline; longest-common-prefix dedup of the JS
-  runtime preamble.  Node execution when `node` is on PATH; falls back to
-  stdout when not.
+  runtime preamble.
+
+Stage 5.5 / robustness + ergonomics (landed 2026-05-19):
+- **Auto-resolve**: `ssc compile-jvm/compile-js <target.ssc>` now walks
+  the target's import closure, topo-sorts via Kahn, emits cycle traces
+  on detection, and compiles each stale dep in order before the target.
+  Default artifact dir: `<target-dir>/.ssc-artifacts/`; `--artifact-dir
+  <dir>` override; `--no-auto-deps` for back-compat single-module behavior.
+- **Linker dedup pass**: after the existing longest-common-prefix dedup
+  of runtime preambles, both `mergeScalaSources` and `mergeJsSources` now
+  drop duplicate top-level `def` / `val` / `class` / `object` declarations
+  by name (first occurrence wins).  Defensive against conditional-runtime
+  variation (module A uses effects, module B doesn't → different preambles
+  → tail-dup of `_handle` etc.).  Strips modifier chains (`private`,
+  `implicit`, `final`, `sealed`, `case`, `inline`, `lazy`, `async`),
+  handles brace AND indentation-based bodies, string/comment-aware.
+- **Strict-mode Select check**: extended `Typer` strict to also flag
+  `Select(VarRef(importedModule), missingMember)` when the qualifier
+  resolves to a known interface and the member is not exported.  Skips
+  local-value receivers and dynamic-typed selectors; one diagnostic per
+  miss (no double-report when qualifier itself is undefined).
+- **`ssc info <artifact>`**: inspector for any `.scim` / `.scir` /
+  `.scjvm` / `.scjs` envelope.  Plain-text mode dumps key=value lines
+  with exports, hashes, byte counts; `--json` mode re-emits the
+  canonical envelope through the same writer used to produce it.
+  Failure modes (missing file, unknown extension, magic/ABI mismatch)
+  exit non-zero with clear diagnostics.
 
 **Known gaps (still TODO post-MVP):**
-1. JVM linker MVP uses textual concat + longest-common-prefix dedup of the
-   JvmGen runtime preamble.  Robust against same-compiler-version modules
-   only; conditional-runtime variation (e.g. one module using effects and
-   another not) requires bytecode-level mangling.  Phase 2.
-2. JS linker has the same textual-concat limitation as JVM.
-3. Strict-mode undefined-name check covers only bare `Term.Name`; method
-   selectors against unknown receivers and unbound type names are still
-   permissive (skipped to avoid false positives in dynamic interpreter
-   intrinsic contexts).
-4. Refinement types `A { def foo: Int }` and match types still degrade to
+1. JVM/JS linker still does textual concat + dedup.  Phase 2 = real
+   bytecode-level mangling.
+2. Strict-mode `Select` check covers 2-level chains only; `a.b.c` still
+   permissive (deep chains rare in practice).
+3. Refinement types `A { def foo: Int }` and match types still degrade to
    `SType.Any` in `parseSType` (intentional — out of v2.0 scope).
 
 What landed:
