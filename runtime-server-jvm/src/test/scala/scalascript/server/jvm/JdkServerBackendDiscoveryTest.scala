@@ -26,10 +26,22 @@ class JdkServerBackendDiscoveryTest extends AnyFunSuite:
              "META-INF/services file missing or wrong class name?")
   }
 
-  test("JdkServerBackend — start throws NotImplementedError (S1b TODO)") {
+  test("JdkServerBackend — start binds an ephemeral port and stop() is idempotent") {
     val backend = new JdkServerBackend
-    val ex = intercept[NotImplementedError] {
-      backend.start(0, None, null)
-    }
-    assert(ex.getMessage.contains("S1b"))
+    val handler = new scalascript.server.spi.HttpHandler:
+      override def onHttpRequest(req: scalascript.server.Request)
+          : scalascript.server.spi.HttpResult =
+        scalascript.server.spi.HttpResult.Reject(404, "no routes")
+      override def onWsUpgrade(req: scalascript.server.Request)
+          : scalascript.server.spi.WsUpgradeResult =
+        scalascript.server.spi.WsUpgradeResult.Reject(404, "no routes")
+    try
+      backend.start(0, None, handler)
+      assert(backend.isRunning)
+      assert(backend.localPort > 0)
+    finally
+      backend.stop()
+      // Idempotent — second stop is a no-op.
+      backend.stop()
+      assert(!backend.isRunning)
   }
