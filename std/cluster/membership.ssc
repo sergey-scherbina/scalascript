@@ -1,0 +1,62 @@
+---
+name: std-cluster-membership
+version: 0.1.0
+description: "Cluster membership — join, members, subscribe.  Thin handle over v1.6 connectNode + v1.23 cluster visibility"
+package: std.cluster
+exports:
+  - Cluster
+---
+
+# `std.cluster.membership`
+
+Object-style handle that bundles the existing actor cluster primitives
+under a coherent `Cluster.*` namespace.  Everything below delegates to
+free functions already exposed by `std.actors`; the wrapper exists so
+application code uses a single mental model — "talk to the cluster" —
+instead of remembering which intrinsic lives where.
+
+## Quick start
+
+```text
+import cluster.Cluster
+
+Cluster.join(List("ws://seed-1:9100/_ssc-actors",
+                   "ws://seed-2:9100/_ssc-actors"))
+
+spawn { () =>
+  Cluster.subscribeEvents()
+  receive {
+    case NodeJoined(id)         => println("joined: " + id)
+    case NodeLeft(id, reason)   => println("left: " + id + " (" + reason + ")")
+  }
+}
+
+val live = Cluster.members()
+```
+
+## Implementation
+
+`Cluster` is a value object, not a class — there's exactly one cluster
+view per node and no constructor argument worth carrying around.  Each
+method is a one-line forwarder to the underlying v1.6 / v1.23 intrinsic.
+
+```scalascript
+object Cluster:
+  // Connect to a seed list and gossip peer URLs (v1.6.x joinCluster).
+  // `token`, when non-empty, is sent as the `Authorization: Bearer …`
+  // header on every outbound peer handshake.
+  def join(seeds: List[String], token: String = ""): Unit =
+    joinCluster(seeds, token)
+
+  // Single point-to-point peer link.  Use `join` for multi-node clusters.
+  def connect(url: String, token: String = ""): Unit =
+    connectNode(url, token)
+
+  // Snapshot of currently-connected peer node IDs (does NOT include self).
+  def members(): List[String] =
+    clusterMembers()
+
+  // Register the calling actor for NodeJoined / NodeLeft delivery.
+  def subscribeEvents(): Unit =
+    subscribeClusterEvents()
+```

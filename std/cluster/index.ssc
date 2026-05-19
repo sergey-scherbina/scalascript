@@ -1,0 +1,36 @@
+---
+name: std-cluster
+version: 0.1.0
+description: "Cluster aggregator — re-exports std/cluster/types and std/cluster/membership"
+package: std.cluster
+exports:
+  - NodeJoined
+  - NodeLeft
+  - Cluster
+---
+
+# `std.cluster`
+
+One-stop import for cluster-shaped applications.
+
+```scalascript
+[NodeJoined, NodeLeft](./types.ssc)
+[Cluster](./membership.ssc)
+```
+
+## Status — v1.23
+
+This module is a thin wrapper over the actor-level intrinsics
+(`connectNode`, `joinCluster`, `clusterMembers`, `subscribeClusterEvents`)
+that land in `std.actors`.  Future v1.23 follow-ups (per
+`docs/cluster-management.md`):
+
+| Piece | Status |
+|---|---|
+| Static seed-list discovery | ✓ via `Cluster.join` |
+| Membership view (current peers) | ✓ via `Cluster.members()` |
+| Membership events (joined / left) | ✓ via `Cluster.subscribeEvents()` + receive |
+| Per-link failure detection | ✓ via 40 s heartbeat timeout (v1.6 Phase 3) |
+| Cluster-wide failure detection (Phi accrual) | deferred |
+| Leader election | deferred |
+| Configuration distribution | deferred |
