@@ -477,6 +477,18 @@ lazy val clientPostgres = project
     Test    / scalacOptions ++= sharedScalacOptions,
   )
 
+lazy val clientRedis = project
+  .in(file("client-redis"))
+  .settings(
+    name := "scalascript-client-redis",
+    libraryDependencies ++= Seq(
+      "io.lettuce"  %  "lettuce-core"  % "6.3.2.RELEASE",
+      scalatestTest,
+    ),
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions,
+  )
+
 lazy val root = project
   .in(file("."))
   .aggregate(
@@ -485,7 +497,7 @@ lazy val root = project
     runtimeServerJvmJetty, runtimeServerJvmNetty, mcpCommon,
     backendJvm, backendJs, backendNode, backendScalajs, backendWasm, backendInterpreter,
     backendScalaSource, backendHtml, backendCss, backendSpark,
-    cli, clientPostgres
+    cli, clientPostgres, clientRedis
   )
   .settings(
     publish / skip := true
