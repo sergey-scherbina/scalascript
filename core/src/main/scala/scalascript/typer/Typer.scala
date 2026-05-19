@@ -28,6 +28,13 @@ class Typer(
    *  Consulted by `typeAnnotToSType` to expand alias names at use-sites. */
   private val typeAliases = collection.mutable.Map.empty[String, (List[String], SType)]
 
+  /** Names of opaque types defined in the current module.
+   *  Opaque types are nominal — `String` is NOT assignable to `UserId` outside
+   *  the defining scope.  The typer records them here so `isCompatible` can
+   *  enforce the sealing rule.  This is a conservative MVP: we treat all
+   *  access as outside the defining scope (no two-zone rule yet). */
+  private val opaqueTypes = collection.mutable.Set.empty[String]
+
   /** Diagnostics accumulated so far.  Stable view into the running buffer —
    *  callers should snapshot to a `List` when they need persistence. */
   def diagnostics: List[TypeError] = errors.toList
@@ -256,19 +263,29 @@ class Typer(
       out += DefSummary(d.name.value, SymbolKind.Enum, enumType, Nil)
 
     // type Name[A, B] = T  — compile-time only; erased at runtime
+    // `opaque type UserId = String` → Defn.Type with Mod.Opaque() in mods
     case d: Defn.Type =>
-      val typeParamNames = d.tparamClause.values.map(_.name.value).toList
-      // Parse the RHS in a temporary context where the type params are known as
-      // plain named types (so `type Opt[A] = Option[A]` resolves `A` to `SType.Named("A")`).
-      val rhsSType = typeAnnotToSType(d.body)
-      // Prevent trivially recursive aliases (name appears in its own rhs at top level).
-      val name = d.name.value
-      if isDirectlyRecursive(name, rhsSType) then
-        errors += TypeError(s"Recursive type alias: $name", None)
+      val typeName = d.name.value
+      val isOpaque = d.mods.exists(_.isInstanceOf[Mod.Opaque])
+      if isOpaque then
+        // Opaque types are nominal — NOT transparent to the underlying type
+        // outside the defining scope (MVP: single-zone, no transparency inside).
+        val opaqueNominalType = SType.Named(typeName, Nil)
+        opaqueTypes += typeName
+        scope.define(Symbol(typeName, opaqueNominalType, SymbolKind.Type))
+        out += DefSummary(typeName, SymbolKind.Type, opaqueNominalType, Nil)
       else
-        typeAliases(name) = (typeParamNames, rhsSType)
-        scope.defineType(name, TypeScheme(Nil, rhsSType))
-        out += DefSummary(name, SymbolKind.Type, rhsSType, Nil)
+        val typeParamNames = d.tparamClause.values.map(_.name.value).toList
+        // Parse the RHS in a temporary context where the type params are known as
+        // plain named types (so `type Opt[A] = Option[A]` resolves `A` to `SType.Named("A")`).
+        val rhsSType = typeAnnotToSType(d.body)
+        // Prevent trivially recursive aliases (name appears in its own rhs at top level).
+        if isDirectlyRecursive(typeName, rhsSType) then
+          errors += TypeError(s"Recursive type alias: $typeName", None)
+        else
+          typeAliases(typeName) = (typeParamNames, rhsSType)
+          scope.defineType(typeName, TypeScheme(Nil, rhsSType))
+          out += DefSummary(typeName, SymbolKind.Type, rhsSType, Nil)
 
     // Top-level expressions
     case t: Term => val _ = inferType(t, scope)
@@ -406,6 +423,15 @@ class Typer(
       )
 
   private def isCompatible(actual: SType, expected: SType): Boolean =
+    // Opaque-type sealing: if the expected type is an opaque type and the
+    // actual type is the underlying primitive, they are NOT compatible outside
+    // the defining scope.  We require the user to go through the companion
+    // constructor (`UserId.apply`, `UserId("alice")`) so the types align.
+    val expectedIsOpaque = expected match
+      case SType.Named(name, Nil) => opaqueTypes.contains(name)
+      case _ => false
+    if expectedIsOpaque && actual != expected && actual != SType.Any && actual != SType.Nothing then
+      return false
     actual == expected ||
     actual == SType.Nothing ||
     expected == SType.Any   ||

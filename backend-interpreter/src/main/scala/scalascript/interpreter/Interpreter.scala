@@ -3114,6 +3114,25 @@ class Interpreter(
       if printResult then autoOutput(result)
       else result: @annotation.nowarn("msg=Discarded")
 
+    // opaque type declaration — zero runtime overhead (same rep as underlying).
+    // Auto-generate a companion singleton with `apply` / `unapply` if no
+    // explicit companion object has been defined yet.  When the user writes
+    //   object UserId:
+    //     def apply(s: String): UserId = s
+    // that Defn.Object is processed later and will OVERWRITE our synthetic
+    // entry via the normal mergeDeep path, so there is no conflict.
+    case d: Defn.Type if d.mods.exists(_.isInstanceOf[Mod.Opaque]) =>
+      val typeName = d.name.value
+      // Only synthesize if no companion already registered.
+      if !env.contains(typeName) then
+        // apply: identity — opaque type has same runtime rep as underlying
+        val applyFn = Value.NativeFnV(s"$typeName.apply",
+          args => Pure(args.headOption.getOrElse(Value.UnitV)))
+        // unapply: wrap value in Some(...)
+        val unapplyFn = Value.NativeFnV(s"$typeName.unapply",
+          args => Pure(Value.InstanceV("Some", Map("value" -> args.headOption.getOrElse(Value.UnitV)))))
+        env(typeName) = Value.InstanceV(typeName, Map("apply" -> applyFn, "unapply" -> unapplyFn))
+
     case _ => () // type aliases, imports, exports, etc.
 
   // ─── Expression evaluation ───────────────────────────────────────

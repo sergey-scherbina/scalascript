@@ -5302,11 +5302,11 @@ Zero runtime overhead — same representation as underlying type, but
 distinct at type-check time.  The typer treats `UserId` and `String`
 as unrelated outside the defining scope.
 
-- [ ] `opaque type` in parser
-- [ ] Typer: two-zone rule (transparent inside module, opaque outside)
-- [ ] Auto-generated companion `apply` / `unapply`
-- [ ] All 3 backends (no runtime change — just name emission)
-- [ ] Tests
+- [x] `opaque type` in parser (scalameta parses `opaque type` natively as `Defn.Type` with `Mod.Opaque`)
+- [x] Typer: nominal type check — raw underlying type is NOT assignable to opaque type outside defining scope (MVP; single-zone, no transparency inside module)
+- [x] Auto-generated companion `apply` / `unapply` (interpreter synthesizes if no explicit companion)
+- [x] All 3 backends — interpreter registers synthetic companion; JsGen / JvmGen fall through to existing catch-all / `other.syntax` (zero runtime change)
+- [x] Tests: `OpaqueTypeTest.scala` — 8 tests, all green (v1.24)
 
 ### 4. Union types
 
