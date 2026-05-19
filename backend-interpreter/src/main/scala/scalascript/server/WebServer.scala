@@ -311,25 +311,29 @@ object WebServer:
       case _                   => Map.empty[String, String]
     val callback = fields.getOrElse("callback",
       throw new RuntimeException("StreamResponse missing callback"))
-    hdrs.foreach((k, v) => ex.getResponseHeaders.add(k, v))
-    if !hdrs.contains("Content-Type") then
-      ex.getResponseHeaders.add("Content-Type", "text/plain; charset=utf-8")
-    applyCorsHeaders(ex)
-    ex.sendResponseHeaders(status, 0)  // 0 = chunked / unknown length
-    val out = ex.getResponseBody
-    try
-      val writeNative = Value.NativeFnV("streamWrite", scalascript.interpreter.Computation.pureFn { args =>
-        val chunk = args match
-          case List(Value.StringV(s)) => s
-          case List(other)            => Value.show(other)
-          case _                      => ""
-        out.write(chunk.getBytes("UTF-8"))
-        out.flush()
-        Value.UnitV
-      })
-      interp.invoke(callback, List(writeNative))
-    finally
-      out.close()
+    // Delegate to the shared `StreamResponseWriter` (CORS + headers +
+    // chunked write).  The interpreter-specific `runWriter` builds a
+    // `Value.NativeFnV` that forwards each `write` call back into the
+    // user closure via `Interpreter.invoke`.
+    StreamResponseWriter.write(ex, status, hdrs,
+      ResponseWriter.Config(
+        corsOrigins = _corsOrigins,
+        corsMethods = _corsMethods,
+        corsHeaders = _corsHeaders
+      ),
+      { write =>
+        val writeNative = Value.NativeFnV("streamWrite",
+          scalascript.interpreter.Computation.pureFn { args =>
+            val chunk = args match
+              case List(Value.StringV(s)) => s
+              case List(other)            => Value.show(other)
+              case _                      => ""
+            write(chunk)
+            Value.UnitV
+          })
+        interp.invoke(callback, List(writeNative))
+      }
+    )
 
   /** Convert a `Value.InstanceV("Response", …)` (or string / unit) into
    *  the POJO `Response` and hand off to the shared `ResponseWriter`

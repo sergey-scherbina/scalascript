@@ -2652,7 +2652,7 @@ class JvmGen(
       "SessionCookie", "SessionStore", "OAuth", "WebAuthn",
       "UploadedFile", "HttpHelpers", "Multipart", "TlsContextBuilder",
       "CorsHelpers", "HttpModel", "BasicAuth", "ResponseWriter",
-      "RequestBuilder"
+      "RequestBuilder", "StreamResponseWriter"
     )
     val header =
       "\n// ── runtime-server-common (inlined from classpath resources) ──────────\n" +
@@ -3409,15 +3409,17 @@ class JvmGen(
        |          val _rawResult: Any = _chain()
        |          _rawResult match
        |            case sr: _StreamResponse =>
-       |              sr.headers.foreach((k, v) => ex.getResponseHeaders.add(k, v))
-       |              if !sr.headers.contains("Content-Type") then
-       |                ex.getResponseHeaders.add("Content-Type", "text/plain; charset=utf-8")
-       |              _applyCors(ex)
-       |              ex.sendResponseHeaders(sr.status, 0)
-       |              val _out = ex.getResponseBody
-       |              try sr.writer { chunk =>
-       |                val _b = chunk.getBytes("UTF-8"); _out.write(_b); _out.flush()
-       |              } finally _out.close()
+       |              // Delegate to the shared StreamResponseWriter (CORS +
+       |              // headers + chunked write).  The user's `sr.writer` is
+       |              // invoked with the wire-write closure.
+       |              StreamResponseWriter.write(ex, sr.status, sr.headers,
+       |                ResponseWriter.Config(
+       |                  corsOrigins = _corsOrigins,
+       |                  corsMethods = _corsMethods,
+       |                  corsHeaders = _corsHeaders
+       |                ),
+       |                write => { sr.writer(write); () }
+       |              )
        |            case resp: Response =>
        |              _writeResponse(ex, resp, rawCookieSession)
        |            case other =>
