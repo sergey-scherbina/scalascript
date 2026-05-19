@@ -5530,10 +5530,23 @@ class JvmGen(
        |            // v1.23 — auto-reconnect: schedule exponential-backoff retries
        |            // for this URL until the peer reappears.
        |            if _reconnectInitialMs > 0L then _scheduleReconnect(url, token)
-       |      catch case e: Throwable => System.err.println("connectNode error [" + url + "]: " + e.getMessage)
+       |      catch case e: Throwable =>
+       |        System.err.println("connectNode error [" + url + "]: " + e.getMessage)
+       |        // v1.23 — schedule reconnect from the dial-failure path too.
+       |        // Without this, non-seed nodes racing each other only ever
+       |        // reach the seed and the cluster stays fragmented.
+       |        if _reconnectInitialMs > 0L && !_peerUrls.containsValue(url) then
+       |          _scheduleReconnect(url, token)
        |    }
        |
+       |  // v1.23 — URL-keyed dedupe so concurrent peer-loss + dial-failure
+       |  // events for the same URL don't each spin up an independent
+       |  // exponential-backoff loop (FD exhaustion under sustained churn).
+       |  val _reconnectActive =
+       |    java.util.concurrent.ConcurrentHashMap.newKeySet[String]()
+       |
        |  def _scheduleReconnect(rurl: String, rtok: String): Unit =
+       |    if !_reconnectActive.add(rurl) then return
        |    Thread.ofVirtual().start { () =>
        |      var delay = _reconnectInitialMs.max(1L)
        |      var done  = false
@@ -5549,6 +5562,7 @@ class JvmGen(
        |              val cap = if _reconnectMaxMs > 0L then _reconnectMaxMs else delay
        |              delay = math.min(delay * 2L, cap.max(delay))
        |      catch case _: Throwable => ()
+       |      finally _reconnectActive.remove(rurl)
        |    }
        |
        |  def _parseNodeId(json: String): String =
@@ -6069,49 +6083,58 @@ class JvmGen(
        |      _localNodeId  = args(0).toString
        |      _localNodeUrl = if args.length > 1 then args(1).toString else ""
        |      // Register /_ssc-actors WS route for inbound peer connections.
+       |      // v1.23 — the blocking handshake + recv loop is wrapped in a
+       |      // virtual thread so the WS server's single-thread dispatch
+       |      // executor returns immediately and stays free to process the
+       |      // next peer.  Without this the FIRST inbound peer's recv loop
+       |      // monopolises the executor and subsequent handshakes stall
+       |      // in the queue — fragmented clusters where every node only
+       |      // sees the seed.
        |      onWebSocket("/_ssc-actors") { ws =>
-       |        def wsSend(t: String): Unit = ws.send(t)
-       |        def wsRecv(): String | Null  = ws.recv() match
-       |          case Some(s) => s
-       |          case None    => null
-       |        val first = wsRecv()
-       |        if first != null then
-       |          val pnId = _parseNodeId(first)
-       |          if pnId.nonEmpty then
-       |            wsSend("{\"nodeId\":" + _jstr(_localNodeId) + "}")
-       |            _peerChannels.put(pnId, wsSend)
-       |            _peerLastPong.put(pnId, System.currentTimeMillis())
-       |            _fireClusterEvent("NodeJoined", pnId)
-       |            _sendConfigSnapshot(wsSend)
-       |            _sendDrainState(wsSend)
-       |            _sendMetricSnapshot(wsSend)
-       |            val hbThread = Thread.ofVirtual().start { () =>
-       |              try
-       |                while _peerChannels.containsKey(pnId) do
-       |                  Thread.sleep(30000L)
-       |                  if _peerChannels.containsKey(pnId) then
-       |                    val age = System.currentTimeMillis() - _peerLastPong.getOrDefault(pnId, 0L)
-       |                    if age > 40000L then _peerChannels.remove(pnId)
-       |                    else try _peerChannels.get(pnId)("{\"t\":\"ping\"}") catch case _: Throwable => ()
-       |              catch case _: InterruptedException => ()
-       |            }
-       |            var running = true
-       |            while running do
-       |              val msg = wsRecv()
-       |              if msg == null then running = false else _dispatchPeerEnv(pnId, msg)
-       |            hbThread.interrupt()
-       |            _peerChannels.remove(pnId)
-       |            _peerLastPong.remove(pnId)
-       |            _peerUrls.remove(pnId)
-       |            _peerPongHist.remove(pnId)
-       |            _peerPhiViews.remove(pnId)
-       |            _drainingPeers.remove(pnId)
-       |            _clusterMetrics.forEach { (_, inner) => inner.remove(pnId) }
-       |            _nodeDownQueue.offer(pnId)
-       |            _fireClusterEvent("NodeLeft", pnId, "disconnect")
-       |            if _currentLeader.compareAndSet(pnId, "") then
-       |              _fireLeaderEvent("LeaderLost", pnId)
-       |              if _autoReelect then _startElection()
+       |        Thread.ofVirtual().start { () =>
+       |          def wsSend(t: String): Unit = ws.send(t)
+       |          def wsRecv(): String | Null  = ws.recv() match
+       |            case Some(s) => s
+       |            case None    => null
+       |          val first = wsRecv()
+       |          if first != null then
+       |            val pnId = _parseNodeId(first)
+       |            if pnId.nonEmpty then
+       |              wsSend("{\"nodeId\":" + _jstr(_localNodeId) + "}")
+       |              _peerChannels.put(pnId, wsSend)
+       |              _peerLastPong.put(pnId, System.currentTimeMillis())
+       |              _fireClusterEvent("NodeJoined", pnId)
+       |              _sendConfigSnapshot(wsSend)
+       |              _sendDrainState(wsSend)
+       |              _sendMetricSnapshot(wsSend)
+       |              val hbThread = Thread.ofVirtual().start { () =>
+       |                try
+       |                  while _peerChannels.containsKey(pnId) do
+       |                    Thread.sleep(30000L)
+       |                    if _peerChannels.containsKey(pnId) then
+       |                      val age = System.currentTimeMillis() - _peerLastPong.getOrDefault(pnId, 0L)
+       |                      if age > 40000L then _peerChannels.remove(pnId)
+       |                      else try _peerChannels.get(pnId)("{\"t\":\"ping\"}") catch case _: Throwable => ()
+       |                catch case _: InterruptedException => ()
+       |              }
+       |              var running = true
+       |              while running do
+       |                val msg = wsRecv()
+       |                if msg == null then running = false else _dispatchPeerEnv(pnId, msg)
+       |              hbThread.interrupt()
+       |              _peerChannels.remove(pnId)
+       |              _peerLastPong.remove(pnId)
+       |              _peerUrls.remove(pnId)
+       |              _peerPongHist.remove(pnId)
+       |              _peerPhiViews.remove(pnId)
+       |              _drainingPeers.remove(pnId)
+       |              _clusterMetrics.forEach { (_, inner) => inner.remove(pnId) }
+       |              _nodeDownQueue.offer(pnId)
+       |              _fireClusterEvent("NodeLeft", pnId, "disconnect")
+       |              if _currentLeader.compareAndSet(pnId, "") then
+       |                _fireLeaderEvent("LeaderLost", pnId)
+       |                if _autoReelect then _startElection()
+       |        }
        |      }
        |      Right(k(()))
        |    case "connectNode" =>
@@ -6142,10 +6165,17 @@ class JvmGen(
        |      Right(k(result))
        |    // v1.6.x — cluster-wide registry
        |    case "globalRegister" =>
-       |      val grName = args(0).toString
-       |      val grPid  = args(1).asInstanceOf[_Pid]
+       |      val grName    = args(0).toString
+       |      val grPidRaw  = args(1).asInstanceOf[_Pid]
+       |      // v1.23 — local-spawn Pids carry an empty nodeId.  Stamp the
+       |      // local node identity onto the registered Pid so cross-node
+       |      // lookups can route back here; without this the broadcast
+       |      // payload's `nodeId` is "" and remote nodes silently drop
+       |      // every cross-node send to this name.
+       |      val grNid     = if grPidRaw.nodeId.nonEmpty then grPidRaw.nodeId else _localNodeId
+       |      val grPid     = _Pid(grNid, grPidRaw.localId)
        |      _globalRegistry.put(grName, grPid)
-       |      val payload = "{\"t\":\"global_reg\",\"name\":" + _jstr(grName) + ",\"nodeId\":" + _jstr(grPid.nodeId) + ",\"localId\":" + _jstr(grPid.localId.toString) + "}"
+       |      val payload = "{\"t\":\"global_reg\",\"name\":" + _jstr(grName) + ",\"nodeId\":" + _jstr(grNid) + ",\"localId\":" + _jstr(grPid.localId.toString) + "}"
        |      _peerChannels.forEach { (_, send) => try send(payload) catch case _: Throwable => () }
        |      Right(k(()))
        |    case "globalWhereis" =>
