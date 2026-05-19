@@ -442,9 +442,10 @@ unblocks downstream features as early as possible.
      v1.17.1 hardening ✓ Landed; v1.17.2 SSE/JS ✓ Landed;
      v1.17.3 prompts/JVM ✓ Landed; v1.17.4-min Http/Ws/JVM (minimal
      wiring, echo placeholder) ✓ Landed; v1.17.4-runtime consolidation
-     Phase 1 (a + b + c) + Phase 2 (a + b + c — pure helpers + POJO
-     HTTP model + RequestBuilder / ResponseWriter / StreamResponseWriter,
-     24 inlined files) ✓ Landed; v1.17.4 full (real
+     Phase 1 (a + b + c) + Phase 2 (a + b + c + d — pure helpers + POJO
+     HTTP model + RequestBuilder / ResponseWriter / StreamResponseWriter
+     + StaticAssetServer + WsHandshake / Reassembler / RateLimiter,
+     28 inlined files) ✓ Landed; v1.17.4 full (real
      `McpServerSession` dispatch + SDK import fixes) ✓ Landed (all
      2026-05-19).
      Anthropic's Model Context Protocol via REST-shaped API
@@ -3156,24 +3157,47 @@ replaced with ~120 LOC of `Config(...)` calls + `Value` bridge code;
 `runtime-server-common` now packages **24** Scala files inlined into
 the codegen output.
 
+- **Phase 2d** — remaining pure helpers that don't require the full
+  RouteDispatcher trait yet:
+
+  | File | What it owns |
+  | --- | --- |
+  | `StaticAssetServer.scala` | `resolve(root, urlPath)` + `serve(file, ex)` (canonical-path traversal guard + `.ssc`-skip + MIME-sniffed write) + a `tryServe(ex, urlPath)` convenience.  Drops the duplicated `_serveStatic` codegen / `resolveStatic` + `serveStatic` interpreter helpers. |
+  | `WsHandshake.scala` | RFC 6455 §4 upgrade wire shape — `negotiateSubprotocol(clientOffer, serverProtocols): Option[String]`, `upgradeResponse(key, chosenProtocol): Array[Byte]`, `rejectResponse(status, reason): Array[Byte]`.  Drops the inline 101 / 4xx / 503 reject builders in both backends. |
+  | `WsReassembler.scala` | Pure state machine for RFC 6455 §5.4 fragmented-message reassembly. `feed(frame): Event` emits `Deliver(opcode, payload)` / `ProtocolError(code, reason)` / `Buffered`. |
+  | `WsRateLimiter.scala` | Per-connection 1-second-window inbound message rate cap; `admit(nowMs): Boolean`. |
+
+  backend-interpreter `WsConnection.onFrame` collapses to a 3-case
+  match on the reassembler event; the standalone `checkFragLimit`
+  helper goes away.  JvmGen.serveRuntime's `_dispatchWsMessage`
+  rate-limit prelude collapses to a one-liner against the shared
+  `WsRateLimiter`.  Subprotocol negotiation + all five reject
+  responses (404 / 403 / 401 / 503 / 400) on both backends route
+  through `WsHandshake.*`.
+
+  Net additional dedup: ~140 LOC removed across the two backends,
+  replaced with ~30 LOC of one-line shims; `runtime-server-common`
+  now packages **28** Scala files inlined into the codegen output.
+
 ### Deferred follow-ups (v1.17.x backlog, ordered by priority)
 
-1. **Phase 2d — RouteDispatcher trait + WS dispatch split** — the
-   remaining HTTP / WS dispatch shapes that cross the user-handler
-   boundary: the middleware-chain builder + handler invocation in
-   `_handle` (codegen, calls `r.handler(req)`) vs `dispatchRoute`
-   (interpreter, calls `entry.interpreter.invoke(entry.handler,
-   List(valueReq))`), plus the entire WS upgrade + read loop
-   (`WsConnection` / `WsProxy` ~1 000 LOC interpreter-side, the WS
-   read-loop in serveRuntime ~700 LOC codegen-side).  A
-   `RouteDispatcher.dispatch(route: Token, req: Request): Any` trait
-   would let the shared loop call into each backend's user-handler
-   invocation; same shape for `WsDispatcher.onMessage / onClose / …`.
-   Estimated 4–8 hours focused work with regression risk on every
-   existing WS / REST conformance test.  After this lands,
-   `serveRuntime` shrinks from the current ~900 LOC of glue to ~200
-   LOC of `RouteDispatcher` / `WsDispatcher` adapter + the
-   user-facing `route()` / `serve()` / `onWebSocket()` aliases.
+1. **Phase 2e — RouteDispatcher trait + dispatch-loop split** — the
+   last structural piece: the middleware-chain builder + user-handler
+   invocation in `_handle` (codegen, calls `r.handler(req)`) vs
+   `dispatchRoute` (interpreter, calls
+   `entry.interpreter.invoke(entry.handler, List(valueReq))`), plus
+   the WS read-loop orchestration (`WsConnection` /
+   `WsProxy` interpreter-side, the per-VT loop in serveRuntime
+   codegen-side).  A `RouteDispatcher.dispatch(route: Token, req:
+   Request): Any` trait would let the shared loop call into each
+   backend's user-handler invocation; same shape for
+   `WsDispatcher.onMessage / onClose / …`.  Estimated 3–5 hours
+   focused work (the helpers above did most of the parsing /
+   writing); regression risk on every existing WS / REST conformance
+   test.  After this lands, `serveRuntime` shrinks from the current
+   ~800 LOC of glue to ~200 LOC of `RouteDispatcher` /
+   `WsDispatcher` adapter + the user-facing `route()` / `serve()` /
+   `onWebSocket()` aliases.
 2. **Own implementation for INT / scalajs-spa** — ~1500 LOC
    JSON-RPC 2.0 stack; blocked until INT becomes a priority target.
 3. **Type-class layer** (`given McpTool[A, R]`, `derives McpSchema`)
