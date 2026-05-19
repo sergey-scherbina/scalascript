@@ -5673,9 +5673,10 @@ Each item is independent — assign one agent per item:
 
 ---
 
-## Scala ↔ ScalaScript interop — open
+## Scala ↔ ScalaScript interop — Tiers 1 + 2 landed
 
-**Status: spec written, no implementation yet.**  Full design doc:
+**Status: Tiers 1 and 2 landed; Tier 3 (sbt plugin) and Tier 4
+(`--emit-scala-facade` compiler flag) still open.**  Full design doc:
 [`docs/scala-interop.md`](docs/scala-interop.md).
 
 Goal: make ScalaScript-built JAR a first-class JVM-library citizen, so a
@@ -5683,47 +5684,60 @@ regular Scala 3 project can `import std.foo.add` (natural FQN) instead
 of `import _ssc_runtime.std_foo_add` (the v2.0 mangling).  Architected
 as four independent tiers; each is shippable on its own.
 
-### Tier 1 — compiler-emitted facade metadata (~½ day)
+### Tier 1 — compiler-emitted facade metadata — ✓ LANDED
 
-Foundation for every other tier.  Adds one optional field to the
+Foundation for every other tier.  Optional field added to the
 existing `.scim` envelope; everything else is library/plugin code.
 
-- [ ] Add `scalaFacade: Map[String, String] = Map.empty` to
+- [x] `scalaFacade: Map[String, String] = Map.empty` field on
       `ModuleInterface` in `ir/Ir.scala`.
-- [ ] Populate it in `InterfaceExtractor` using `Linker.mangle`
-      (already exists) so the table is exactly the linker's truth.
-      Recurse via `ExportedSymbol.nested` (depth 3, existing cap).
-- [ ] Respect `exports:` front-matter — private helpers stay out.
-- [ ] 4 new tests in `ArtifactAbiCompatibilityTest`: round-trip,
+- [x] Populated by `InterfaceExtractor` using `Linker.mangle`.
+      Recurses via `ExportedSymbol.nested` (depth 3, existing cap).
+- [x] `_ssc_runtime.` prefix on the mangled side mirrors JvmGen's
+      Phase-2 runtime-wrapping object.
+- [x] Respects `exports:` front-matter — private helpers stay out
+      (we build facade from the already-filtered `exports` list).
+- [x] 4 new tests in `ArtifactAbiCompatibilityTest`: round-trip,
       legacy-absent-tolerant, case-sensitive keys, empty-map canonical.
-- [ ] 1 new `InterfaceExtractorTest` case (extracted facade matches
-      `Linker.mangle` for every export).
+- [x] 5 new `InterfaceExtractorTest` cases (top-level entries,
+      package: reflected, empty-pkg bare names, nested join rules,
+      `exports:` filter passes through).
 
 ABI policy: additive optional field, absent-tolerant — fits the
-current 2.0 strict-equality / additive-payload contract; no
-`abiVersion` bump.
+2.0 strict-equality / additive-payload contract; no `abiVersion` bump.
 
-### Tier 2 — `scalascript-interop` library (~1 week)
+### Tier 2 — `scalascript-interop` library — ✓ LANDED
 
 Pure Scala 3 module providing the runtime glue + facade-source
-generator that Tier 3 will consume.
+generator that Tier 3 will consume.  Lives in this repo as
+`interop/` subproject (dependsOn ir + core only — no backend deps so
+downstream consumers don't pull in JvmGen / scalameta etc.).
 
-Three source files (~500 LoC total):
-- [ ] `scalascript.interop.facade.FacadeGenerator` — reads `.scim`,
-      emits `export`-based Scala source per package.  `inline`
-      term-level wrappers so the bridge call is elided at use site.
-- [ ] `scalascript.interop.runtime.{Effects, Actors}` — Scala-friendly
-      wrappers around `_ssc_runtime._handle` / `runActors` / `spawn`,
-      returning `Either[EffectError, A]` / `Future[A]` / typed
-      `ActorRef[T]`.
-- [ ] `scalascript.interop.loader.ScalascriptLoader` — dynamic
-      JAR + reflection path for plugin-style use cases.
-
-~30 unit tests + 5 integration tests against a 2-module ScalaScript
-fixture.
-
-Open: lives in this repo as `interop/` subproject, OR in a new
-`scalascript-interop` repo.  Decide at start of Tier 2.
+- [x] `scalascript.interop.facade.FacadeGenerator` — reads `.scim`,
+      emits one Scala 3 source per package with `export _ssc_runtime.<mangled>
+      as <name>` lines.  Pure compile-time alias, zero runtime overhead.
+      Multi-module packages merge.  Conservative v0.1: nested entries
+      (depth > 1 beyond pkg) skipped pending JvmGen-shape pin.  Legacy
+      `.scim` without `scalaFacade` falls back via `Linker.mangle`.
+- [x] `scalascript.interop.loader.ScalascriptLoader` — `fromArtifactDir`
+      and `fromJar` factories build a natural→mangled index; `call[A]`
+      does reflective dispatch through the loaded classloader.  Two
+      named exceptions surface the error cases
+      (`NoSuchScalascriptSymbol`, `UnresolvedJvmMember`).  Reads
+      `META-INF/scalascript/{module}.scim` resources from a JAR for
+      Tier-4 self-contained mode.
+- [x] `scalascript.interop.runtime.Effects` — `runEffects(...)` /
+      `runEffectsAsync(...)` wrap an `Effectful[A]` thunk, returning
+      `Either[EffectError, A]` / `Future[A]`.  v0.1 uses class-name
+      heuristic to recognise `UnhandledEffect`; v0.2 will wire real
+      handler registration once the runtime types stabilise.
+- [x] `scalascript.interop.runtime.Actors` — typed `ActorRef[T]` with
+      `send(msg: T)` routed through an installable `SendHook`
+      dispatcher.  `wrap[T](rawRef)` for actors handed across the
+      boundary.  `spawn` is a placeholder (NotImplementedError + v0.1
+      message) — true spawn waits on the runtime-type bridge.
+- [x] 34 tests: 10 FacadeGenerator + 4 integration + 6 Effects +
+      4 Actors + 10 ScalascriptLoader.  All green.
 
 ### Tier 3 — `sbt-scalascript-interop` plugin (~1 week)
 
@@ -5784,8 +5798,10 @@ Sorted by priority.  Run one agent per track simultaneously.
 | 7 | Numeric value specialization | E | 1 week | Interpreter split |
 | 8 | WASM backend | F | 3 weeks | — | ✅ skeleton landed (backend-wasm, emit-wasm CLI command, Scala.js --js-wasm) |
 | 9 | Package registry | G | 2 weeks | — |
-| 10 | Scala ↔ ScalaScript interop (Tier 1) | H | ½ day | — |
-| 11 | Scala ↔ ScalaScript interop (Tier 2-3) | H | 2 weeks | Tier 1 |
+| 10 | ~~Scala ↔ ScalaScript interop (Tier 1)~~ ✓ landed | H | ½ day | — |
+| 11 | ~~Scala ↔ ScalaScript interop (Tier 2)~~ ✓ landed | H | 1 week | Tier 1 ✓ |
+| 12 | Scala ↔ ScalaScript interop (Tier 3 sbt plugin) | H | 1 week | Tier 2 ✓ |
+| 13 | Scala ↔ ScalaScript interop (Tier 4 compiler flag) | H | 2 days | Tier 2 ✓ |
 
 Track D is serial.  All other tracks can run in parallel.
 

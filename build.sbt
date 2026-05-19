@@ -60,6 +60,31 @@ lazy val core = project
     Test    / scalacOptions ++= sharedScalacOptions
   )
 
+// v2.0 / Tier 2 of Scala ↔ ScalaScript interop — see docs/scala-interop.md.
+//
+// A small Scala 3 library that lets regular Scala projects consume
+// `.ssc`-compiled JARs with natural-FQN imports (`import std.foo.add`)
+// instead of the v2.0 mangling (`_ssc_runtime.std_foo_add`).
+//
+// Depends only on `ir` (for `ModuleInterface` round-trip) and `core`
+// (for `ArtifactIO.readInterfaceFile`).  Deliberately NOT depending on
+// any backend module — the interop library is meant to be classpath-
+// friendly for downstream Scala consumers, who shouldn't pull in
+// JvmGen / Interpreter / scalameta when all they need is the facade
+// table + reflection helpers.
+lazy val interop = project
+  .in(file("interop"))
+  .dependsOn(ir, core)
+  .settings(
+    name := "scalascript-interop",
+    libraryDependencies ++= Seq(
+      "com.lihaoyi" %% "os-lib" % "0.11.4",
+      scalatestTest
+    ),
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions
+  )
+
 // Phase 1a of the runtime-consolidation refactor (see
 // PLAN-runtime-consolidation.md): pure protocol primitives extracted out
 // of backend-interpreter so they can later be reused by the JVM codegen
@@ -833,7 +858,7 @@ lazy val micropaymentClient = project
 lazy val root = project
   .in(file("."))
   .aggregate(
-    backendSpi, ir, core,
+    backendSpi, ir, core, interop,
     runtimeServerCommon, runtimeServerSpi, runtimeServerJvm,
     runtimeServerJvmJetty, runtimeServerJvmNetty, mcpCommon,
     backendJvm, backendJs, backendNode, backendScalajs, backendWasm, backendInterpreter,

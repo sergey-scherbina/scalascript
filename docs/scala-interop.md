@@ -1,7 +1,12 @@
 # Scala ↔ ScalaScript Interop — Specification
 
-Status: **Specification stage** — design only, no implementation yet.
-Tracking: see "Scala ↔ ScalaScript interop" milestone in `MILESTONES.md`.
+Status: **Tiers 1 and 2 landed.**  Tier 1 = compiler-emitted
+`scalaFacade` field on `ModuleInterface`.  Tier 2 = the
+`scalascript-interop` library (`interop/` subproject) — `FacadeGenerator`,
+`ScalascriptLoader`, `Effects`, `Actors`; 34 tests green.
+Tier 3 (sbt plugin) and Tier 4 (`--emit-scala-facade` compiler flag) are
+still open.  Tracking: see "Scala ↔ ScalaScript interop" milestone in
+`MILESTONES.md`.
 
 This document specifies how a regular Scala 3 project (sbt, Mill, Maven,
 plain `scala-cli`) consumes code that was authored and compiled in
