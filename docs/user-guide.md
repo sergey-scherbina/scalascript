@@ -72,6 +72,22 @@ All three print `Hello, World!` with byte-identical output.
 ssc watch hello.ssc     # re-runs on every file save
 ```
 
+`ssc watch` supports **hot reload** for both plain scripts and HTTP servers:
+
+- **Scripts**: on each file save the script is re-run from scratch; any
+  error is printed and the watcher continues.
+- **HTTP servers** (files that call `serve(port)`): the server starts on
+  the first run and keeps its port bound.  On subsequent saves, only the
+  route table is cleared and rebuilt — no port rebind, no downtime.
+  Use `ssc serve file.ssc` as a more intent-revealing alias:
+
+```bash
+ssc serve server.ssc    # starts server, hot-reloads routes on every save
+```
+
+Each reload prints a timestamp (`[HH:mm:ss] Reloading ...`) and clears
+the terminal so you always see fresh output at the top.
+
 ### REPL
 
 ```bash
@@ -543,6 +559,16 @@ serve(443, tls = tlsCfg)
 ssc render server.ssc /about   # print response body for GET /about
 ssc build src/ dist/           # full static site generator
 ```
+
+### Development Server with Hot Reload
+
+```bash
+ssc serve server.ssc   # start server + watch for changes; routes reload live
+ssc watch server.ssc   # identical — use whichever reads more naturally
+```
+
+On each save the route table is cleared and rebuilt from the new source; the
+TCP port stays bound so in-flight requests are not dropped.
 
 ---
 
@@ -1017,6 +1043,62 @@ Each test runs on all three backends and compares output. Add new tests under `c
 
 ---
 
+## 12. Formatting (`ssc fmt`)
+
+`ssc fmt` is the canonical formatter for `.ssc` files. It normalises
+front-matter key order, heading style, blank lines around code blocks,
+and trailing whitespace — all without touching code block contents.
+
+### Basic usage
+
+```bash
+ssc fmt file.ssc              # format in-place
+ssc fmt src/*.ssc             # format multiple files
+ssc fmt --check file.ssc      # exit non-zero if file needs formatting (CI)
+ssc fmt --stdout file.ssc     # print formatted output to stdout
+```
+
+### What is normalised
+
+**Front-matter** (YAML block between `---` delimiters):
+
+- Key order: `name`, `version`, `description`, `main`, `package`, `exports`,
+  `dependencies`, `routes`, then remaining keys alphabetically.
+- Trailing spaces removed from every line.
+- Exactly one blank line after the closing `---`.
+
+**Markdown body**:
+
+- Heading style: `##Title` becomes `## Title` (exactly one space after `#`s).
+- Exactly one blank line before and after each fenced code block.
+- Exactly one blank line before each heading (except the first line of the body).
+- Trailing whitespace stripped from all lines.
+- LF line endings; file ends with exactly one newline.
+
+**Code block contents** are never touched — they are preserved verbatim.
+
+**Shebang** (`#!/usr/bin/env ssc`) is kept at position 0 unchanged.
+
+### CI integration
+
+Add `ssc fmt --check` to your CI pipeline to enforce consistent formatting:
+
+```yaml
+- name: Check .ssc formatting
+  run: find src -name '*.ssc' -exec ssc fmt --check {} +
+```
+
+The command exits 0 if every file is already formatted, non-zero otherwise
+(with a message per offending file on stderr).
+
+### Idempotency
+
+`ssc fmt` is idempotent: running it twice produces the same result as running
+it once. A file that passes `--check` will always pass `--check` again after
+being formatted.
+
+---
+
 ## Quick Reference
 
 ### CLI
@@ -1026,6 +1108,7 @@ ssc run file.ssc          # interpret
 ssc watch file.ssc        # watch mode
 ssc repl                  # REPL
 ssc test file.ssc         # run tests
+ssc fmt file.ssc          # format .ssc files
 ssc emit-js file.ssc      # transpile to JS
 ssc emit-spa file.ssc     # SPA bundle
 ssc emit-wc file.ssc      # Web Components

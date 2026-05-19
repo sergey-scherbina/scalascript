@@ -259,9 +259,14 @@ def printUsage(): Unit =
     |""".stripMargin)
 
 def serveCommand(args: List[String]): Unit =
-  val port = args.headOption.flatMap(_.toIntOption).getOrElse(8080)
-  val dir  = args.drop(1).headOption.getOrElse(".")
-  scalascript.server.WebServer.start(port, dir, System.out)
+  // `ssc serve file.ssc` — run a .ssc server script with hot-reload.
+  // `ssc serve [port] [dir]` — serve static files from a directory.
+  args.headOption match
+    case Some(f) if f.endsWith(".ssc") => watchCommand(args)
+    case _ =>
+      val port = args.headOption.flatMap(_.toIntOption).getOrElse(8080)
+      val dir  = args.drop(1).headOption.getOrElse(".")
+      scalascript.server.WebServer.start(port, dir, System.out)
 
 /** `ssc render <file> [path]` — runs the .ssc file in headless mode
  *  (skipping the blocking `serve(port)` call), then invokes the
@@ -1234,23 +1239,90 @@ def watchCommand(args: List[String]): Unit =
   val file    = args.head
   val absPath = Paths.get(file).toAbsolutePath.normalize
   val dir     = absPath.getParent
+  val osPath  = os.Path(absPath)
 
-  def runOnce(): Unit =
-    try compileViaBackend("int", os.Path(absPath))
-    catch case e: Exception => System.err.println(s"Error: ${e.getMessage}")
+  // ── Hot-reload state ─────────────────────────────────────────────────
+  // `isServerFile` is set to true on first run if the source contains a
+  // top-level `serve(` call.  Once true, subsequent reloads use headless
+  // mode so the already-running server port is not rebound; only the
+  // route table is refreshed.
+  var isServerFile  = false
+  // Whether the server has already been started (bound port + blocking thread).
+  var serverStarted = false
 
-  runOnce()
+  def timestamp(): String =
+    val now = java.time.LocalTime.now()
+    f"${now.getHour}%02d:${now.getMinute}%02d:${now.getSecond}%02d"
+
+  def runOnce(headless: Boolean): Unit =
+    try
+      val source = os.read(osPath)
+      val module = scalascript.parser.Parser.parse(source)
+      if headless then
+        // Hot-reload path: clear old routes, re-run in headless mode so
+        // `serve(port)` is a no-op.  Routes are freshly re-registered
+        // from the new evaluation; the HTTP server keeps its port bound.
+        scalascript.server.Routes.clear()
+        scalascript.server.WsRoutes.clear()
+        Interpreter(baseDir = Some(osPath / os.up), headless = true).run(module)
+      else
+        // First run: execute normally.  `serve(port)` starts the listener
+        // and blocks the calling thread.
+        Interpreter(baseDir = Some(osPath / os.up), headless = false).run(module)
+    catch
+      case e: Exception =>
+        System.err.println(s"[${timestamp()}] Error: ${e.getMessage}")
+
+  // Detect whether the raw source contains a `serve(` call so we can
+  // choose the right reload strategy without modifying the AST pipeline.
+  def detectServerFile(): Boolean =
+    try
+      val src = os.read(osPath)
+      // Match `serve(` that is not inside a line comment.  Simple heuristic:
+      // strip everything after `//` on each line, then look for `serve(`.
+      src.linesIterator.exists { line =>
+        val stripped = line.replaceAll("//.*", "").trim
+        stripped.contains("serve(")
+      }
+    catch case _: Exception => false
+
+  System.err.println(s"[${timestamp()}] Watching ${absPath.getFileName}... (Ctrl+C to stop)")
+
+  // ── First run ────────────────────────────────────────────────────────
+  isServerFile = detectServerFile()
+  System.err.println(
+    s"[${timestamp()}] Running ${absPath.getFileName}" +
+    (if isServerFile then " (server mode — hot reload enabled)" else "") + "..."
+  )
+  if isServerFile then
+    // Start the server on a background thread so the watch loop can continue.
+    val t = Thread(() => runOnce(headless = false))
+    t.setDaemon(false)
+    t.start()
+    serverStarted = true
+    // Give the server a moment to bind before we start watching.
+    Thread.sleep(500)
+  else
+    runOnce(headless = false)
+
+  // ── Watch loop ───────────────────────────────────────────────────────
   val watcher = FileSystems.getDefault.newWatchService()
   dir.register(watcher, StandardWatchEventKinds.ENTRY_MODIFY)
-  System.err.println(s"Watching ${absPath.getFileName}... (Ctrl+C to stop)")
   while true do
     val key     = watcher.take()
     val changed = key.pollEvents().asScala.exists { ev =>
       ev.context().asInstanceOf[java.nio.file.Path].getFileName == absPath.getFileName
     }
     if changed then
-      System.err.println(s"\n--- ${absPath.getFileName} ---")
-      runOnce()
+      // Small debounce: editors often fire two ENTRY_MODIFY events in
+      // quick succession (content write + metadata update).
+      Thread.sleep(50)
+      System.err.println(s"\n[2J[H[${timestamp()}] Reloading ${absPath.getFileName}...")
+      if isServerFile && serverStarted then
+        runOnce(headless = true)
+        System.err.println(s"[${timestamp()}] Routes reloaded.")
+      else
+        runOnce(headless = false)
     key.reset()
 
 def emitJsCommand(args: List[String]): Unit =

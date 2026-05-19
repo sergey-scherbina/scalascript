@@ -1066,8 +1066,9 @@ middleware, end-to-end `examples/auth-full.ssc`.
   cancelled per Loom-convergence decision) — eliminates the
   loopback hop in JvmGen WS proxy.  Measurable overhead under
   scale, not functional.
-- **Hot reload in `serve` mode** — routes pinned at start.
-  Restart-to-deploy works in prod; dev UX issue.
+- **Hot reload in `serve` mode** ✅ **LANDED** — `ssc watch`/`ssc serve`
+  keep the port bound across reloads; only the route table is cleared and
+  rebuilt from the new source.  Timestamped output; error-tolerant.
 - **`extern def` / `Backend.runtimePreamble` SPI gap** — see
   Stage 5+/A.5 in [`docs/spi-followups-plan.md`](docs/spi-followups-plan.md).
   Prerequisite to migrating `route` / `serve` / `onWebSocket`
@@ -4725,8 +4726,9 @@ Release workflow (GitHub Actions):
 Larger features that aren't on the critical path but are worth keeping in
 view so they shape near-term decisions.
 
-- **Hot reload in `serve` mode.**  Reparse and re-register routes when a
-  `.ssc` file changes on disk; today the server pins them at start.
+- **Hot reload in `serve` mode.** ✅ **LANDED** — see `watchCommand` in
+  `cli/src/main/scala/scalascript/cli/Main.scala`; port stays bound, route
+  table cleared and rebuilt on each save.
 - **REPL: web-aware mode.**  `bin/ssc repl` that lets you mount routes
   interactively and inspect the route table.
 - **`html"..."` precision.** ✅ **LANDED** — `findClosingBrace` in the
