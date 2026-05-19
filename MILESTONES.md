@@ -5266,7 +5266,7 @@ def show(x: String | Int): String = x match
 - [ ] JVM backend: emit `Object` + instanceof checks
 - [ ] Tests
 
-### 5. Extension methods on user-defined types
+### 5. Extension methods on user-defined types ✓ Landed
 
 **Effort: ~1 week.**
 
@@ -5276,11 +5276,17 @@ extension (u: User)
   def isAdmin: Boolean = u.role == "admin"
 ```
 
-Currently extensions only work reliably for stdlib types.
+All three backends correctly dispatch extension methods on user-defined case
+class types. The interpreter uses `Value.InstanceV(typeName, _)` as the key;
+JsGen registers typed extensions via `_registerExt('method', fn, 'TypeName')`;
+JvmGen passes `extension` blocks through as-is to Scala 3.
 
-- [ ] Audit current extension dispatch in Interpreter + JsGen + JvmGen
-- [ ] Fix dispatch to work for arbitrary user `case class` / `sealed trait`
-- [ ] Tests with multi-method extension blocks
+- [x] Audit current extension dispatch in Interpreter + JsGen + JvmGen
+- [x] Fix dispatch to work for arbitrary user `case class` / `sealed trait`
+- [x] Tests with multi-method extension blocks
+  - `ExtensionMethodTest` — 13 tests covering interpreter, JS codegen, JVM codegen:
+    no-arg extensions, multi-method blocks, extensions with additional args,
+    no-collision between same-named extensions on different case classes.
 
 ### 6. Named argument call-site syntax (complete coverage)
 
