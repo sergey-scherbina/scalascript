@@ -46,6 +46,170 @@ object OAuthClient:
     val v = OAuth.randomOpaqueToken(48)
     PkcePair(v, OAuth.pkceS256(v))
 
+  // ─── State parameter (CSRF defence) ────────────────────────────────
+
+  /** v1.17.x — `state` parameter helpers for the authorization-code
+   *  redirect (CSRF defence per RFC 6749 §10.12).  Caller generates
+   *  a fresh state at /authorize-redirect time, stashes it in the
+   *  user's session, then matches it against the `state` parameter
+   *  echoed back to the redirect URI.  Constant-time compare to
+   *  defeat timing attacks on the verification path. */
+  def freshState(): String = OAuth.randomOpaqueToken(24)
+
+  /** Constant-time comparison of an inbound state against the one
+   *  originally generated.  Returns false on length mismatch +
+   *  empty inputs as a defence-in-depth measure. */
+  def verifyState(expected: String, presented: String): Boolean =
+    if expected.isEmpty || presented.isEmpty then false
+    else
+      var diff = 0
+      var i = 0
+      if expected.length != presented.length then return false
+      while i < expected.length do
+        diff |= (expected.charAt(i) ^ presented.charAt(i))
+        i += 1
+      diff == 0
+
+  // ─── JWKS-backed external JWT validation ───────────────────────────
+
+  /** v1.17.x — bounded JWKS cache.  Fetches `<jwks_uri>` and refreshes
+   *  every `ttlSeconds` (default 5 min).  Indexed by `kid` so verifiers
+   *  can pick the right key when the AS rotates.  Multi-AS deployments
+   *  use one `JwksCache` per AS URL. */
+  class JwksCache(val jwksUri: String, val ttlSeconds: Long = 300L):
+    @volatile private var keys: Map[String, java.security.PublicKey] = Map.empty
+    @volatile private var fetchedAt: Long = 0L
+
+    /** Force a fresh fetch.  Quietly tolerates transport errors by
+     *  keeping the current cache (callers see stale-but-best-effort). */
+    def refresh(): Unit =
+      try
+        val raw = fetchJson(jwksUri, 5000L)
+        val parsed = raw.obj.get("keys").flatMap(_.arrOpt).map(_.toList).getOrElse(Nil)
+        keys = parsed.flatMap(jwkToKey).toMap
+        fetchedAt = java.time.Instant.now.getEpochSecond
+      catch case _: Throwable => ()  // keep stale cache
+
+    /** Resolve a JWK by `kid`.  Triggers a refresh when the cache is
+     *  stale OR the supplied kid is unknown (covers the rotation case
+     *  where the AS swapped in a new key just before this verification). */
+    def keyFor(kid: Option[String]): Option[java.security.PublicKey] =
+      val now = java.time.Instant.now.getEpochSecond
+      if keys.isEmpty || now - fetchedAt > ttlSeconds then refresh()
+      kid.flatMap(keys.get) match
+        case Some(k) => Some(k)
+        case None =>
+          // Unknown kid → maybe just rotated.  Refresh + retry once.
+          if now - fetchedAt > 5L then  // throttle to once per 5s
+            refresh()
+            kid.flatMap(keys.get)
+          else None
+
+  /** Decode a single JWK entry into a JCA `PublicKey`.  Supports
+   *  RS256 (RSA `n`/`e`) and ES256 (EC `x`/`y` on P-256).  Returns
+   *  None for unsupported algorithms or malformed entries. */
+  private def jwkToKey(jwk: ujson.Value): Option[(String, java.security.PublicKey)] =
+    try
+      val kid = jwk.obj.get("kid").flatMap(_.strOpt).getOrElse("")
+      val kty = jwk.obj.get("kty").flatMap(_.strOpt).getOrElse("")
+      kty match
+        case "RSA" =>
+          val n = jwk("n").str
+          val e = jwk("e").str
+          Some(kid -> Passkey.decodeRsaJwk(n, e))
+        case "EC" =>
+          val x = jwk("x").str
+          val y = jwk("y").str
+          Some(kid -> Passkey.decodeEcJwk(x, y))
+        case _ => None
+    catch case _: Throwable => None
+
+  /** Validate a presented JWT (typically an access token from an
+   *  external AS) using a JWKS cache.  Returns the parsed payload on
+   *  success; `Left(reason)` on any structural / signature / timestamp
+   *  failure.  Accepts both RS256 and ES256 algs; clock skew respects
+   *  `OAuth.DefaultClockSkewSeconds`. */
+  def validateJwt(token: String, jwks: JwksCache): Either[String, ujson.Value] =
+    try
+      val parts = token.split('.')
+      if parts.length != 3 then Left("malformed token")
+      else
+        val headerJson = ujson.read(decodeB64uString(parts(0)))
+        val alg        = headerJson.obj.get("alg").flatMap(_.strOpt).getOrElse("")
+        val kid        = headerJson.obj.get("kid").flatMap(_.strOpt)
+        jwks.keyFor(kid) match
+          case None => Left(s"no matching JWKS key for kid=${kid.getOrElse("(none)")}")
+          case Some(key) =>
+            val signingInput = parts(0) + "." + parts(1)
+            val sigBytes     = java.util.Base64.getUrlDecoder.decode(parts(2))
+            val verifyOk = alg match
+              case "RS256" =>
+                key match
+                  case rk: java.security.interfaces.RSAPublicKey =>
+                    OAuth.rsaVerify(rk, signingInput, sigBytes)
+                  case _ => false
+              case "ES256" =>
+                ecVerify(key, signingInput, sigBytes)
+              case _ => false
+            if !verifyOk then Left("signature mismatch")
+            else
+              val payload = ujson.read(decodeB64uString(parts(1)))
+              OAuth.validateJwtTimestamps(payload, OAuth.DefaultClockSkewSeconds) match
+                case Some(reason) => Left(reason)
+                case None         => Right(payload)
+    catch case _: Throwable => Left("validation failure")
+
+  private def decodeB64uString(s: String): String =
+    new String(java.util.Base64.getUrlDecoder.decode(s),
+      java.nio.charset.StandardCharsets.UTF_8)
+
+  private def ecVerify(key: java.security.PublicKey, message: String, signature: Array[Byte]): Boolean =
+    try
+      val sig = java.security.Signature.getInstance("SHA256withECDSA")
+      sig.initVerify(key)
+      sig.update(message.getBytes(java.nio.charset.StandardCharsets.UTF_8))
+      sig.verify(signature)
+    catch case _: Throwable => false
+
+  // ─── id_token validation (OIDC) ────────────────────────────────────
+
+  /** Outcome of an id_token validation.  `Valid(claims)` returns the
+   *  parsed JWT payload (so callers can read `sub`, `email`, etc.);
+   *  `Invalid(reason)` carries a human-readable error. */
+  enum IdTokenResult:
+    case Valid(claims: ujson.Value)
+    case Invalid(reason: String)
+
+  /** Validate an OIDC id_token against the expected issuer + audience
+   *  + nonce.  Signature is verified via the supplied JWKS cache;
+   *  timestamp checks honour the standard clock skew window. */
+  def validateIdToken(
+    idToken:          String,
+    jwks:             JwksCache,
+    expectedIssuer:   String,
+    expectedAudience: String,
+    expectedNonce:    Option[String]  = None
+  ): IdTokenResult =
+    validateJwt(idToken, jwks) match
+      case Left(reason) => IdTokenResult.Invalid(reason)
+      case Right(claims) =>
+        // iss MUST match — defeats id_token mix-up attacks
+        val iss = claims.obj.get("iss").flatMap(_.strOpt).getOrElse("")
+        if iss != expectedIssuer then
+          IdTokenResult.Invalid(s"iss mismatch: expected $expectedIssuer, got $iss")
+        else
+          // aud MUST contain expectedAudience (string or array form)
+          val audOk = claims.obj.get("aud") match
+            case Some(ujson.Str(a))  => a == expectedAudience
+            case Some(ujson.Arr(xs)) => xs.exists(_.strOpt.contains(expectedAudience))
+            case _                    => false
+          if !audOk then
+            IdTokenResult.Invalid(s"aud claim does not include $expectedAudience")
+          else if expectedNonce.isDefined && claims.obj.get("nonce").flatMap(_.strOpt) != expectedNonce then
+            IdTokenResult.Invalid("nonce mismatch")
+          else
+            IdTokenResult.Valid(claims)
+
   // ─── Authorization endpoint URL ───────────────────────────────────
 
   /** Build the URL the user-agent navigates to for the
