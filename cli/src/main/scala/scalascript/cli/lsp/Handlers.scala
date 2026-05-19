@@ -49,6 +49,7 @@ class Handlers(docs: Documents):
         "definitionProvider" -> true,
         "hoverProvider"      -> true,
         "referencesProvider" -> true,
+        "renameProvider"     -> ujson.Obj("prepareProvider" -> true),
         "completionProvider" -> ujson.Obj(
           "triggerCharacters" -> ujson.Arr(".", " ")
         )
@@ -386,6 +387,48 @@ class Handlers(docs: Documents):
             buf += ((lineIdx, idx, lineIdx, idx + nameLen))
           col = idx + 1
     buf.result()
+
+  // ─── rename / prepareRename ─────────────────────────────────────────
+
+  /** `textDocument/prepareRename`.  Returns the range of the identifier under
+   *  the cursor (so the editor can pre-fill the rename prompt), or `null` if
+   *  there is no renameable identifier at that position. */
+  def prepareRename(params: ujson.Value): ujson.Value =
+    val (uri, line, character) = extractCursor(params)
+    docs.get(uri) match
+      case None => ujson.Null
+      case Some(state) =>
+        findNameAt(state, line, character) match
+          case None => ujson.Null
+          case Some(name) =>
+            // Locate the exact column span of the name on this line.
+            val lineText = state.text.linesIterator.toIndexedSeq.applyOrElse(line, (_: Int) => "")
+            val col = lineText.indexOf(name, math.max(0, character - name.length))
+            if col < 0 then ujson.Null
+            else rangeJson(line, col, line, col + name.length)
+
+  /** `textDocument/rename`.  Applies a whole-word find-and-replace of the
+   *  identifier under the cursor throughout the document, returning a
+   *  `WorkspaceEdit` with `TextEdit` objects for each occurrence.
+   *
+   *  Only renames within the currently-open document (single-file scope).
+   *  Cross-file rename is out of scope for the MVP. */
+  def rename(params: ujson.Value): ujson.Value =
+    val (uri, line, character) = extractCursor(params)
+    val newName = params.objOpt.flatMap(_.get("newName")).flatMap(_.strOpt).getOrElse("")
+    if newName.isEmpty then return ujson.Null
+    docs.get(uri) match
+      case None => ujson.Null
+      case Some(state) =>
+        findNameAt(state, line, character) match
+          case None => ujson.Null
+          case Some(oldName) =>
+            val edits = findAllOccurrences(state, oldName).map { case (sl, sc, el, ec) =>
+              ujson.Obj("range" -> rangeJson(sl, sc, el, ec), "newText" -> newName)
+            }
+            ujson.Obj(
+              "changes" -> ujson.Obj(uri -> ujson.Arr.from(edits))
+            )
 
   // ─── Position / name lookup ────────────────────────────────────────
 

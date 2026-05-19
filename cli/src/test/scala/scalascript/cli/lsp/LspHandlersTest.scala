@@ -727,3 +727,106 @@ class LspHandlersTest extends AnyFunSuite:
     val result = h.initialize(ujson.Obj())
     assert(result("capabilities")("referencesProvider").bool == true)
   }
+
+  // ─── textDocument/prepareRename + rename ────────────────────────────
+
+  private val renameUri = "file:///tmp/rename-test.ssc"
+
+  private def openRenameDoc(h: Handlers, text: String): Unit =
+    h.initialize(ujson.Obj())
+    h.didOpen(ujson.Obj(
+      "textDocument" -> ujson.Obj(
+        "uri" -> renameUri, "languageId" -> "scalascript", "version" -> 1, "text" -> text
+      )
+    ))
+
+  private val renameDoc =
+    """# Section
+      |
+      |```scala
+      |val score = 10
+      |val total = score + score
+      |val max   = score * 2
+      |```
+      |""".stripMargin
+
+  test("prepareRename returns the identifier range at cursor") {
+    val (_, h) = newHandlers()
+    openRenameDoc(h, renameDoc)
+    // "score" starts at col 4 on line 3 (0-indexed)
+    val result = h.prepareRename(ujson.Obj(
+      "textDocument" -> ujson.Obj("uri" -> renameUri),
+      "position"     -> ujson.Obj("line" -> 3, "character" -> 5)
+    ))
+    assert(result != ujson.Null, s"expected a range, got null")
+    assert(result("start")("line").num.toInt   == 3)
+    assert(result("start")("character").num.toInt == 4)
+    assert(result("end")("character").num.toInt   == 9)  // "score" = 5 chars
+  }
+
+  test("prepareRename returns null for unknown URI") {
+    val (_, h) = newHandlers()
+    h.initialize(ujson.Obj())
+    val result = h.prepareRename(ujson.Obj(
+      "textDocument" -> ujson.Obj("uri" -> "file:///tmp/no-doc.ssc"),
+      "position"     -> ujson.Obj("line" -> 0, "character" -> 0)
+    ))
+    assert(result == ujson.Null)
+  }
+
+  test("rename returns WorkspaceEdit with TextEdits for every occurrence") {
+    val (_, h) = newHandlers()
+    openRenameDoc(h, renameDoc)
+    val result = h.rename(ujson.Obj(
+      "textDocument" -> ujson.Obj("uri" -> renameUri),
+      "position"     -> ujson.Obj("line" -> 3, "character" -> 5),
+      "newName"      -> "points"
+    ))
+    assert(result != ujson.Null, "expected WorkspaceEdit, got null")
+    val edits = result("changes")(renameUri).arr
+    // "score" appears 4 times: definition + 2 uses on line 4 + 1 use on line 5
+    assert(edits.length == 4, s"expected 4 edits, got ${edits.length}: $edits")
+    edits.foreach { edit =>
+      assert(edit("newText").str == "points")
+      assert(edit.obj.contains("range"))
+    }
+  }
+
+  test("rename with empty newName returns null") {
+    val (_, h) = newHandlers()
+    openRenameDoc(h, renameDoc)
+    val result = h.rename(ujson.Obj(
+      "textDocument" -> ujson.Obj("uri" -> renameUri),
+      "position"     -> ujson.Obj("line" -> 3, "character" -> 5),
+      "newName"      -> ""
+    ))
+    assert(result == ujson.Null)
+  }
+
+  test("rename does not affect partial matches") {
+    val (_, h) = newHandlers()
+    val text =
+      """# Section
+        |
+        |```scala
+        |val x = 1
+        |val xx = x + 2
+        |```
+        |""".stripMargin
+    openRenameDoc(h, text)
+    val result = h.rename(ujson.Obj(
+      "textDocument" -> ujson.Obj("uri" -> renameUri),
+      "position"     -> ujson.Obj("line" -> 3, "character" -> 4),
+      "newName"      -> "y"
+    ))
+    val edits = result("changes")(renameUri).arr
+    // "x" as standalone: line 3 col 4 (def) and line 4 col 9 (use), NOT "xx"
+    assert(edits.length == 2, s"expected 2 edits (not 3), got ${edits.length}: $edits")
+  }
+
+  test("initialize advertises renameProvider with prepareProvider") {
+    val (_, h) = newHandlers()
+    val caps = h.initialize(ujson.Obj())("capabilities")
+    val rp = caps("renameProvider")
+    assert(rp("prepareProvider").bool == true)
+  }
