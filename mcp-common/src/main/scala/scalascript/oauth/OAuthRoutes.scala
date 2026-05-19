@@ -34,17 +34,20 @@ object OAuthRoutes:
    *  may come via HTTP Basic in `Authorization` (RFC 6749 §2.3.1) or via
    *  `client_id` + `client_secret` form fields (§2.3.1 alternative). */
   def handleToken(as: AuthServer, body: String, headers: Map[String, String]): RouteOutcome =
+    if isInsecureRequest(as, headers) then return withCors(tlsRequired(), as, headers)
     val form        = parseForm(body)
     val basicCreds  = extractBasicAuth(headers)
     val grantType   = form.getOrElse("grant_type", "")
     val clientId    = basicCreds.map(_._1).orElse(form.get("client_id")).getOrElse("")
     val clientSec   = basicCreds.map(_._2).orElse(form.get("client_secret"))
     if grantType.isEmpty || clientId.isEmpty then
-      return jsonError(400, "invalid_request", "missing grant_type or client_id")
+      return withCors(
+        jsonError(400, "invalid_request", "missing grant_type or client_id"),
+        as, headers)
     // v1.17.x — rate limit by client_id before doing any work that
     // touches stores or runs PBKDF2.  Defeats brute-force probing.
     if !as.rateLimiter.allow(s"token:$clientId") then
-      return rateLimited()
+      return withCors(rateLimited(), as, headers)
     val outcome: TokenOutcome = grantType match
       case "authorization_code" =>
         as.issueToken(TokenRequest.AuthorizationCodeGrant(
@@ -85,14 +88,16 @@ object OAuthRoutes:
             "passkey grant: missing or malformed signed_data / signature (expected base64url)")
       case other =>
         TokenOutcome.Error("unsupported_grant_type", s"unsupported grant: $other")
-    outcome match
+    val outRoute = outcome match
       case TokenOutcome.Issued(resp) =>
         RouteOutcome.Json(200, resp.toJson,
           // RFC 6749 §5.1: prevent intermediaries from caching token responses
           Map("Cache-Control" -> "no-store", "Pragma" -> "no-cache"))
       case TokenOutcome.Error(err, descr) =>
+        as.emit(AuthEvent.TokenRefused(clientId, grantType, err, descr))
         val status = if err == "invalid_client" then 401 else 400
         jsonError(status, err, descr)
+    withCors(outRoute, as, headers)
 
   // ─── /introspect (RFC 7662) ─────────────────────────────────────────
 
@@ -138,6 +143,65 @@ object OAuthRoutes:
     RouteOutcome.Json(200,
       ujson.Obj("challenge" -> as.passkeyChallenge()),
       Map("Cache-Control" -> "no-store"))
+
+  // ─── TLS enforcement helper ─────────────────────────────────────────
+
+  /** v1.17.x — when `requireTls` is set in the AS config, reject
+   *  requests that didn't reach us over HTTPS.  Honours
+   *  `X-Forwarded-Proto: https` for AS deployments behind a TLS-
+   *  terminating proxy.  Loopback hosts (localhost / 127.0.0.1 /
+   *  ::1) are always allowed — dev workflow stays unchanged. */
+  def isInsecureRequest(as: AuthServer, headers: Map[String, String]): Boolean =
+    if !as.config.requireTls then false
+    else
+      val xfp = headers.iterator.find((k, _) =>
+        k.equalsIgnoreCase("X-Forwarded-Proto")).map((_, v) => v.toLowerCase)
+      if xfp.contains("https") then false
+      else
+        val host = headers.iterator.find((k, _) =>
+          k.equalsIgnoreCase("Host")).map((_, v) => v.toLowerCase).getOrElse("")
+        val loopback = host.startsWith("localhost") || host.startsWith("127.0.0.1") ||
+                       host.startsWith("[::1]")    || host.startsWith("::1")
+        !loopback
+
+  /** 400 invalid_request shaped reply for TLS-mismatched calls. */
+  def tlsRequired(): RouteOutcome =
+    RouteOutcome.Json(400,
+      ujson.Obj("error" -> "invalid_request",
+        "error_description" -> "TLS required (X-Forwarded-Proto: https or loopback host)"))
+
+  // ─── CORS helper ─────────────────────────────────────────────────
+
+  /** Apply CORS response headers when the AS is configured with allowed
+   *  origins and the request's `Origin` header matches.  Returns the
+   *  outcome unchanged when CORS is disabled / origin not allowed. */
+  def withCors(
+    outcome: RouteOutcome,
+    as:      AuthServer,
+    headers: Map[String, String]
+  ): RouteOutcome =
+    if as.config.corsOrigins.isEmpty then outcome
+    else
+      val origin = headers.iterator.find((k, _) => k.equalsIgnoreCase("Origin"))
+        .map((_, v) => v).getOrElse("")
+      val allowOrigin =
+        if as.config.corsOrigins.contains("*") then Some("*")
+        else if as.config.corsOrigins.contains(origin) then Some(origin)
+        else None
+      allowOrigin match
+        case None => outcome
+        case Some(o) =>
+          val cors = Map(
+            "Access-Control-Allow-Origin"  -> o,
+            "Access-Control-Allow-Methods" -> "GET, POST, OPTIONS",
+            "Access-Control-Allow-Headers" -> "Authorization, Content-Type",
+            "Vary"                          -> "Origin")
+          outcome match
+            case RouteOutcome.Json(s, b, h) => RouteOutcome.Json(s, b, h ++ cors)
+            // Redirect + Empty: leave unchanged.  Redirects bounce the
+            // user-agent to a new origin which runs CORS on the next
+            // hop; Empty responses have no headers to attach.
+            case _                           => outcome
 
   // ─── /revoke (RFC 7009) ─────────────────────────────────────────────
 

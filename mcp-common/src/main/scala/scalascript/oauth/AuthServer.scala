@@ -63,6 +63,19 @@ class AuthServer(
   val signer: OAuth.TokenSigner =
     customSigner.getOrElse(new OAuth.HmacTokenSigner(config.signingSecret))
 
+  // ─── Audit logging hook ─────────────────────────────────────────
+
+  /** v1.17.x — fired on every security-relevant event the AS handles:
+   *  token issued / refused, client registered, refresh family burned,
+   *  passkey assertion accepted/rejected.  Default no-op; production
+   *  deployments wire it to their telemetry / SIEM pipeline. */
+  @volatile var onAuthEvent: AuthEvent => Unit = _ => ()
+
+  /** Emit an audit event.  Exception-safe — listener failures don't
+   *  break the hot path. */
+  private[oauth] def emit(e: AuthEvent): Unit =
+    try onAuthEvent(e) catch case _: Throwable => ()
+
   /** v1.17.x — OIDC nonce captured at the authorize step is exposed to
    *  the OidcServer for inclusion in the id_token at /token time.
    *  Single-use, consumed when the matching code is redeemed.  Storage
@@ -127,6 +140,7 @@ class AuthServer(
           // v1.17.x — stash the nonce for the matching subject+scope
           // so the OIDC layer can pull it out at id_token mint time.
           req.nonce.foreach(n => pendingNonces.put(nonceKey(subject, req.scope), n))
+          emit(AuthEvent.AuthorizationCodeIssued(client.id, subject, req.scope))
           AuthorizationOutcome.CodeRedirect(req.redirectUri, code, req.state)
 
   // ─── Token endpoint ─────────────────────────────────────────────────
@@ -219,7 +233,8 @@ class AuthServer(
             // too.  OAuth 2.1 §4.14.2.
             tokens.graveyardLookup(g.refreshToken) match
               case Some(familyId) =>
-                tokens.revokeRefreshFamily(familyId)
+                val burned = tokens.revokeRefreshFamily(familyId)
+                emit(AuthEvent.RefreshFamilyBurned(familyId, "reuse_detected", burned))
                 TokenOutcome.Error("invalid_grant",
                   "refresh token reuse detected — family revoked")
               case None =>
@@ -249,7 +264,7 @@ class AuthServer(
                 tokens.revokeRefreshToken(g.refreshToken)
                 tokens.graveyardAdd(g.refreshToken, rec.familyId)
                 TokenOutcome.Issued(mintTokens(client, rec.subject, newScope,
-                  familyId = Some(rec.familyId)))
+                  familyId = Some(rec.familyId), grantType = "refresh_token"))
 
   private def handleClientCreds(g: TokenRequest.ClientCredentialsGrant): TokenOutcome =
     authenticateClient(g.clientId, Some(g.clientSecret)) match
@@ -271,6 +286,7 @@ class AuthServer(
             clientId         = Some(client.id),
             extra            = ujson.Obj("jti" -> randomOpaqueToken(12))
           ))
+          emit(AuthEvent.TokenIssued(client.id, client.id, g.scope, "client_credentials"))
           TokenOutcome.Issued(TokenResponse(
             accessToken  = access,
             expiresIn    = config.accessTokenTtlSeconds,
@@ -283,7 +299,9 @@ class AuthServer(
     /** v1.17.x — when refreshing an existing token, the new token
      *  inherits the original family id so reuse detection covers the
      *  whole chain.  None on initial issue → a fresh family is born. */
-    familyId: Option[String] = None
+    familyId: Option[String] = None,
+    /** Audit-event tag identifying which grant produced these tokens. */
+    grantType: String = "authorization_code"
   ): TokenResponse =
     // jti distinguishes back-to-back issuances that share iat/exp/scope —
     // matters for rotation tests + revocation lists.
@@ -305,6 +323,7 @@ class AuthServer(
       expiresAt = java.time.Instant.now.getEpochSecond + config.refreshTokenTtlSeconds,
       familyId  = fid
     ))
+    emit(AuthEvent.TokenIssued(client.id, subject, scope, grantType))
     TokenResponse(
       accessToken  = access,
       expiresIn    = config.accessTokenTtlSeconds,
@@ -441,6 +460,7 @@ class AuthServer(
           name          = name
         )
         clients.register(storedClient)
+        emit(AuthEvent.ClientRegistered(id, redirectUris))
         Right(storedClient.copy(secret = plainSecret))
       catch case _: Throwable => Left("invalid_client_metadata")
 
@@ -535,7 +555,17 @@ case class AuthServerConfig(
    *  legacy compatibility. */
   requirePkce:                     Boolean = true,
   /** Whether the /register endpoint accepts new clients at runtime. */
-  allowDynamicClientRegistration:  Boolean = true
+  allowDynamicClientRegistration:  Boolean = true,
+  /** v1.17.x — when true, only accept requests whose `X-Forwarded-Proto`
+   *  is `https` or whose Host is a loopback (127.0.0.1 / ::1 / localhost).
+   *  Defeats the "AS accidentally exposed over plain HTTP through a
+   *  proxy" footgun.  Default off for dev-friendliness — flip on in
+   *  production. */
+  requireTls:                      Boolean = false,
+  /** v1.17.x — origins allowed via CORS preflight + Access-Control-
+   *  Allow-Origin on responses.  Empty list disables CORS (same-origin
+   *  only).  `Set("*")` reflects any origin (use cautiously). */
+  corsOrigins:                     Set[String] = Set.empty
 )
 
 // ─── Domain types ─────────────────────────────────────────────────────
@@ -668,6 +698,20 @@ case class TokenResponse(
 enum TokenOutcome:
   case Issued(response: TokenResponse)
   case Error(error: String, description: String)
+
+/** v1.17.x — security-event payload for the audit hook.  Production
+ *  deployments map this to their telemetry shape (JSON-line log /
+ *  SIEM events / metrics).  Eight variants cover the spec-grade
+ *  events; deployments add more by wrapping the hook. */
+enum AuthEvent:
+  case TokenIssued(clientId: String, subject: String, scope: Set[String], grantType: String)
+  case TokenRefused(clientId: String, grantType: String, error: String, description: String)
+  case TokenRevoked(jtiOrToken: String, hint: String)
+  case ClientRegistered(clientId: String, redirectUris: Set[String])
+  case AuthorizationCodeIssued(clientId: String, subject: String, scope: Set[String])
+  case PasskeyAccepted(credentialId: String, subject: String)
+  case PasskeyRejected(credentialId: String, reason: String)
+  case RefreshFamilyBurned(familyId: String, reason: String, tokensRevoked: Int)
 
 /** Hint provided by clients on `/revoke` (`token_type_hint=` form field). */
 enum TokenTypeHint:
