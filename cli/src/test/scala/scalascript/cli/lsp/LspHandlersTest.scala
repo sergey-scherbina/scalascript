@@ -189,6 +189,272 @@ class LspHandlersTest extends AnyFunSuite:
 
   // ─── didClose ──────────────────────────────────────────────────────
 
+  // ─── v2.0 Phase 3+ position fidelity ──────────────────────────────
+
+  test("cross-module definition uses ExportedSymbol.definitionLine") {
+    // Build a .scim with a known `definitionLine` for a symbol named `add`,
+    // place it in a temp artifact dir alongside a .ssc whose hash the
+    // interface points to.  `handleDefinition` on a consumer document that
+    // references `add` must return that line.
+    val tmp  = os.temp.dir(prefix = "ssc-lsp-defline-")
+    val src  = """---
+                 |name: providerA
+                 |---
+                 |
+                 |# A
+                 |
+                 |Some prose before the code block — pushes the def below.
+                 |
+                 |```scala
+                 |def add(x: Int, y: Int): Int = x + y
+                 |val one: Int = 1
+                 |```
+                 |""".stripMargin
+    val srcPath = tmp / "a.ssc"
+    os.write(srcPath, src)
+    // Compute SHA of the bytes the LSP indexes by.
+    val srcHash = scalascript.artifact.InterfaceExtractor.sha256(os.read.bytes(srcPath))
+
+    // Synthesize a .scim pointing at line 9 (0-indexed) for `add`.
+    // (Front-matter is 3 lines + 1 blank + heading + 2 blanks + prose + 1
+    // blank + ```scala fence = line 9 for `def add`.)
+    val iface = scalascript.ir.ModuleInterface(
+      magic         = scalascript.ir.ArtifactVersion.magic,
+      abiVersion    = scalascript.ir.ArtifactVersion.current,
+      pkg           = Nil,
+      moduleName    = Some("providerA"),
+      moduleVersion = None,
+      sourceHash    = srcHash,
+      exports       = List(
+        scalascript.ir.ExportedSymbol(
+          name = "add", fqn = "add", kind = "def", tpe = "Int",
+          definitionLine = 9, definitionColumn = 4
+        )
+      )
+    )
+    scalascript.artifact.ArtifactIO.writeInterfaceFile(iface, tmp / "a.scim")
+
+    val (_, h) = newHandlers()
+    h.initialize(ujson.Obj(
+      "initializationOptions" -> ujson.Obj("artifactDir" -> tmp.toString)
+    ))
+
+    // Consumer .ssc that references `add` (imported via the loaded interface).
+    val consumer = """# C
+                     |
+                     |```scala
+                     |val z = add(1, 2)
+                     |```
+                     |""".stripMargin
+    val cUri = "file:///tmp/consumer.ssc"
+    h.didOpen(ujson.Obj(
+      "textDocument" -> ujson.Obj(
+        "uri" -> cUri, "languageId" -> "scalascript", "version" -> 1, "text" -> consumer
+      )
+    ))
+    // Cursor on `add` (line 3, char 9 — the `a` of `add(...)`).
+    val result = h.definition(ujson.Obj(
+      "textDocument" -> ujson.Obj("uri" -> cUri),
+      "position"     -> ujson.Obj("line" -> 3, "character" -> 9)
+    ))
+    assert(result != ujson.Null, "expected a location for cross-module reference")
+    val r = result("range")
+    assert(r("start")("line").num.toInt == 9,
+      s"expected line 9, got ${r("start")("line").num}")
+    assert(r("start")("character").num.toInt == 4,
+      s"expected column 4, got ${r("start")("character").num}")
+    // endColumn = 4 + "add".length == 7.
+    assert(r("end")("character").num.toInt == 7,
+      s"expected endColumn 7, got ${r("end")("character").num}")
+  }
+
+  test("hover on a symbol in the SECOND code block returns file-level line") {
+    // Two code blocks; block 1 has padding lines, block 2 starts deep in
+    // the file.  We exercise the `collectBlocks` translation by checking
+    // that local-def lookup of a name defined in block 2 returns its
+    // file-level line (>= the block-2 fence).
+    val (_, h) = newHandlers()
+    h.initialize(ujson.Obj())
+    val text =
+      """# H1
+        |
+        |```scala
+        |val a: Int = 1
+        |val b: Int = 2
+        |val c: Int = 3
+        |```
+        |
+        |Some prose between blocks.
+        |
+        |More prose.
+        |
+        |# H2
+        |
+        |```scala
+        |def laterDef(x: Int): Int = x * 2
+        |```
+        |""".stripMargin
+    val uri = "file:///tmp/multi.ssc"
+    h.didOpen(ujson.Obj(
+      "textDocument" -> ujson.Obj(
+        "uri" -> uri, "languageId" -> "scalascript", "version" -> 1, "text" -> text
+      )
+    ))
+    // The `def laterDef` line in the source is line 15 (0-indexed) — count
+    // from `# H1` (0) down to it.  Cursor on `laterDef` in its own
+    // declaration also resolves to itself; the meaningful check is that
+    // the returned line is >= the block-2 fence line (12 or higher), NOT
+    // the block-local `0`.
+    val result = h.definition(ujson.Obj(
+      "textDocument" -> ujson.Obj("uri" -> uri),
+      "position"     -> ujson.Obj("line" -> 15, "character" -> 4)
+    ))
+    assert(result != ujson.Null, "expected a definition location")
+    val startLine = result("range")("start")("line").num.toInt
+    assert(startLine >= 13,
+      s"expected file-level line >= 13 (post block-2 fence), got $startLine")
+    // And specifically: the `def` keyword sits on the same row as
+    // `laterDef`, so the start line should equal 15 (where `def laterDef`
+    // lives in the source).
+    assert(startLine == 15, s"expected start line 15, got $startLine")
+  }
+
+  test("cross-module definition with package: preserves lineOffset") {
+    // `package: foo.bar` causes the parser to wrap the block in
+    // `object foo: object bar: <body>`.  The extractor's positionFor
+    // subtracts pkg.size lines + 2*pkg.size cols, so the recorded
+    // `definitionLine` still corresponds to the user's original source
+    // line — not to a position inside the synthesized wrapper.
+    val tmp  = os.temp.dir(prefix = "ssc-lsp-pkg-")
+    val src  = """---
+                 |name: providerB
+                 |package: foo.bar
+                 |---
+                 |
+                 |# A
+                 |
+                 |```scala
+                 |def hello(): String = "hi"
+                 |```
+                 |""".stripMargin
+    val srcPath = tmp / "b.ssc"
+    os.write(srcPath, src)
+
+    // Use the REAL extractor + parser to produce the .scim — we want to
+    // verify the position math, not hand-roll the expected value.
+    val mod   = scalascript.parser.Parser.parse(src)
+    val bytes = os.read.bytes(srcPath)
+    val iface = scalascript.artifact.InterfaceExtractor.extract(mod, bytes)
+    scalascript.artifact.ArtifactIO.writeInterfaceFile(iface, tmp / "b.scim")
+
+    val helloDef = iface.exports.find(_.name == "hello").orElse(
+      // With package-wrap, `hello` lives nested under the shell object.
+      // The extractor surfaces user defs into exports either via the
+      // top-level filter (post-strip) or via `nested` on the shell.  Try
+      // both code paths so the test doesn't depend on which layer surfaces it.
+      iface.exports.flatMap(_.nested).find(_.name == "hello")
+    )
+    assert(helloDef.isDefined,
+      s"expected `hello` in exports / nested, got: ${iface.exports.map(_.name)}")
+    // The fence opens at line 7 (0-indexed: front-matter is 4 lines + blank
+    // + `# A` heading + blank); first inside-fence line is 8 → `def hello`.
+    assert(helloDef.get.definitionLine == 8,
+      s"expected definitionLine 8 (under package wrap), got ${helloDef.get.definitionLine}")
+    // `def ` is 4 chars, so the identifier `hello` starts at column 4.
+    assert(helloDef.get.definitionColumn == 4,
+      s"expected definitionColumn 4, got ${helloDef.get.definitionColumn}")
+
+    // Now drive the LSP through the cross-module path and assert it
+    // surfaces the same coordinates back to the editor.
+    val (_, h) = newHandlers()
+    h.initialize(ujson.Obj(
+      "initializationOptions" -> ujson.Obj("artifactDir" -> tmp.toString)
+    ))
+    val consumer = """# C
+                     |
+                     |```scala
+                     |val z = hello()
+                     |```
+                     |""".stripMargin
+    val cUri = "file:///tmp/consumer-pkg.ssc"
+    h.didOpen(ujson.Obj(
+      "textDocument" -> ujson.Obj(
+        "uri" -> cUri, "languageId" -> "scalascript", "version" -> 1, "text" -> consumer
+      )
+    ))
+    val result = h.definition(ujson.Obj(
+      "textDocument" -> ujson.Obj("uri" -> cUri),
+      "position"     -> ujson.Obj("line" -> 3, "character" -> 9)
+    ))
+    assert(result != ujson.Null)
+    assert(result("range")("start")("line").num.toInt == 8,
+      s"expected file-level line 8, got ${result("range")("start")("line").num}")
+  }
+
+  test("cross-module definition: backward-compat .scim (definitionLine=0)") {
+    // Synthesize an OLD-style .scim with default 0 positions, so the LSP
+    // path falls through to the documented MVP behaviour of returning
+    // (0,0).  This is the "loaded an artifact emitted before this fix"
+    // scenario — the field defaults preserve compat.
+    val tmp  = os.temp.dir(prefix = "ssc-lsp-compat-")
+    val src  = """---
+                 |name: legacy
+                 |---
+                 |
+                 |# A
+                 |
+                 |```scala
+                 |def legacyName(): Int = 1
+                 |```
+                 |""".stripMargin
+    val srcPath = tmp / "legacy.ssc"
+    os.write(srcPath, src)
+    val srcHash = scalascript.artifact.InterfaceExtractor.sha256(os.read.bytes(srcPath))
+
+    val iface = scalascript.ir.ModuleInterface(
+      magic         = scalascript.ir.ArtifactVersion.magic,
+      abiVersion    = scalascript.ir.ArtifactVersion.current,
+      pkg           = Nil,
+      moduleName    = Some("legacy"),
+      moduleVersion = None,
+      sourceHash    = srcHash,
+      exports       = List(
+        // Note: no `definitionLine` — picks up default 0.
+        scalascript.ir.ExportedSymbol(
+          name = "legacyName", fqn = "legacyName", kind = "def", tpe = "Int"
+        )
+      )
+    )
+    scalascript.artifact.ArtifactIO.writeInterfaceFile(iface, tmp / "legacy.scim")
+
+    val (_, h) = newHandlers()
+    h.initialize(ujson.Obj(
+      "initializationOptions" -> ujson.Obj("artifactDir" -> tmp.toString)
+    ))
+    val consumer = """# C
+                     |
+                     |```scala
+                     |val z = legacyName()
+                     |```
+                     |""".stripMargin
+    val cUri = "file:///tmp/consumer-legacy.ssc"
+    h.didOpen(ujson.Obj(
+      "textDocument" -> ujson.Obj(
+        "uri" -> cUri, "languageId" -> "scalascript", "version" -> 1, "text" -> consumer
+      )
+    ))
+    val result = h.definition(ujson.Obj(
+      "textDocument" -> ujson.Obj("uri" -> cUri),
+      "position"     -> ujson.Obj("line" -> 3, "character" -> 11)
+    ))
+    assert(result != ujson.Null, "expected a location (legacy .scim still resolves)")
+    val r = result("range")
+    assert(r("start")("line").num.toInt == 0,
+      s"expected legacy fallback line 0, got ${r("start")("line").num}")
+    assert(r("start")("character").num.toInt == 0,
+      s"expected legacy fallback column 0, got ${r("start")("character").num}")
+  }
+
   test("didClose removes the document from the store") {
     val (docs, h) = newHandlers()
     h.initialize(ujson.Obj())
