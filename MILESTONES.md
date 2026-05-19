@@ -6729,8 +6729,19 @@ Thin `backend-wasm-contract/` layer on top of `backend-wasm/` for Near or Polkad
 > Verified end-to-end: `examples/spark-encoder-demo.ssc` runs under
 > Scala 3.7.1 + Spark 4.0.0 + JVM 21 producing a typed `Dataset[User]`
 > with the expected schema and `.filter`/`.collect` round-trip.
-> Follow-ups (open): `Option[T]`, nested case classes, collection fields,
-> revival of `@SqlFn` auto-emit via Java `UDF1`/... wrappers.
+>
+> **Phase E follow-ups landed (2026-05-20):**
+> - ✓ `Option[T]` fields via `AgnosticEncoders.OptionEncoder` — schema
+>   shows `nullable = true` and `Some`/`None` survives the round trip.
+> - ✓ Nested case classes — recursive AgnosticEncoder summon via
+>   `summonInline[AgnosticEncoder[t]]` for each field; nested products
+>   land as Spark `struct` columns.  Verified end-to-end with
+>   `examples/spark-nested-demo.ssc` (`Person` with `Option[Int]` age
+>   + nested `Address`).
+>
+> Remaining (still open): collection fields (`Seq`/`List`/`Vector`/`Array`/`Map`)
+> via `IterableEncoder`/`ArrayEncoder`/`MapEncoder`; revival of `@SqlFn`
+> auto-emit via Java `UDF1`/`UDF2`/... wrappers with a derived `DataType`.
 >
 > Natural fit: ScalaScript's existing `Dataset[T]` API maps directly to Spark.
 

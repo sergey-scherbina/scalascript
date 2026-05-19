@@ -541,15 +541,55 @@ class SparkGenTest extends AnyFunSuite:
 
   test("Phase E shim provides Mirror-based product encoder derivation") {
     val code = gen("# Test\n```scalascript\nval x = 1\n```\n")
-    // The derived inline-given is the heart of Phase E — synthesises
-    // `AgnosticEncoders.ProductEncoder[T]` from `Mirror.ProductOf[T]`
-    // without ever touching `scala.reflect.runtime.universe.TypeTag`.
+    // `derived` is the user-facing `Encoder[T]` entry point — it
+    // wraps the recursive `AgnosticEncoder[T]` resolution via
+    // `ExpressionEncoder(ae)`.
     assert(code.contains("inline given derived[T <: Product]"),
       s"Phase E derived given missing, got:\n$code")
+    // The recursive AgnosticEncoder layer that does the actual
+    // work: builds `ProductEncoder[T](ct, fields, None)` from a
+    // `Mirror.ProductOf[T]`.
+    assert(code.contains("inline given aenc_Product[T <: Product]"),
+      s"aenc_Product recursive given missing, got:\n$code")
     assert(code.contains("Mirror.ProductOf[T]"),
-      "expected Mirror.ProductOf[T] in derived signature")
-    assert(code.contains("ExpressionEncoder(ProductEncoder[T]"),
-      "expected ExpressionEncoder(ProductEncoder[T](...)) wrap")
+      "expected Mirror.ProductOf[T] in aenc_Product signature")
+    assert(code.contains("ProductEncoder[T](ct, fields, None)"),
+      "expected ProductEncoder[T](ct, fields, None) construction")
+    assert(code.contains("ExpressionEncoder(ae)"),
+      "expected ExpressionEncoder(ae) wrap in `derived`")
+  }
+
+  test("Phase E shim provides Option[U] recursive encoder") {
+    val code = gen("# Test\n```scalascript\nval x = 1\n```\n")
+    // `aenc_Option[U]` is what makes `Option[Int]` etc. work as case
+    // class fields.  Spark's `OptionEncoder` wraps the inner.
+    assert(code.contains("given aenc_Option[U](using inner: AgnosticEncoder[U]): AgnosticEncoder[Option[U]]"),
+      s"aenc_Option given missing, got:\n$code")
+    assert(code.contains("OptionEncoder(inner)"),
+      "expected OptionEncoder(inner) construction")
+  }
+
+  test("Phase E shim emits primitive AgnosticEncoder givens for field-level use") {
+    val code = gen("# Test\n```scalascript\nval x = 1\n```\n")
+    // The aenc_* givens are how `summonInline[AgnosticEncoder[t]]`
+    // resolves primitive field types during case-class derivation.
+    // Spot-check the most common ones.
+    assert(code.contains("given aenc_String : AgnosticEncoder[String]  = StringEncoder"))
+    assert(code.contains("given aenc_Int    : AgnosticEncoder[Int]     = PrimitiveIntEncoder"))
+    assert(code.contains("given aenc_Boolean: AgnosticEncoder[Boolean] = PrimitiveBooleanEncoder"))
+  }
+
+  test("Phase E shim uses recursive summonFieldEncoders, not eager primitives") {
+    val code = gen("# Test\n```scalascript\nval x = 1\n```\n")
+    // Each field type is resolved via `summonInline[AgnosticEncoder[t]]`,
+    // which routes through normal implicit search — primitives via
+    // `aenc_*`, `Option[U]` via `aenc_Option`, nested case classes
+    // via recursive `aenc_Product`.  The eager `primitiveEncoderOf`
+    // approach from Phase E v1 is gone.
+    assert(code.contains("summonInline[AgnosticEncoder[t]]"),
+      "expected summonInline-based per-field encoder lookup")
+    assert(!code.contains("inline def primitiveEncoderOf["),
+      s"old eager primitiveEncoderOf must be replaced, got:\n$code")
   }
 
   test("@main scope imports SscSparkEncoders.given instead of spark.implicits._") {

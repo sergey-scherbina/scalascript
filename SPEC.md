@@ -1711,10 +1711,48 @@ The `@main def runSparkJob` scope imports `SscSparkEncoders.given`
 instead of `spark.implicits._` — the latter brings in a
 TypeTag-bound `newProductEncoder` that poisons implicit search.
 
-**Open follow-ups for Phase E:**
-- `Option[T]` field support via `AgnosticEncoders.OptionEncoder`.
-- Nested case classes (recursive `ProductEncoder` derivation).
-- Collection fields: `Seq[T]`, `Array[T]`, `Map[K, V]`.
+**Phase E follow-ups landed (2026-05-20):**
+- ✓ `Option[T]` field support via `AgnosticEncoders.OptionEncoder` —
+  Spark sees the column as nullable of the inner type.
+- ✓ Nested case classes — recursive AgnosticEncoder lookup through
+  `summonInline[AgnosticEncoder[t]]` for each field type; nested
+  products land as Spark `struct` columns, primitives as flat fields,
+  `Option[U]` as nullable of `U`.
+
+Both work via the same recursive structure: top-level
+`derived[T <: Product]` summons an `AgnosticEncoder[T]` which is
+produced either by `aenc_Product[T]` (recursive Mirror walk), by
+`aenc_Option[U]` (wraps the inner), or by a primitive `aenc_*` given.
+Resolution is unambiguous because `Option` is a sealed sum (only
+`Mirror.SumOf`, not `Mirror.ProductOf`), so the Product path can't
+accidentally absorb `Option` types.
+
+User-facing recipe:
+
+```scalascript
+case class Address(city: String, zip: Int)
+case class Person(id: Int, name: String, age: Option[Int], addr: Address)
+
+val people = List(
+  Person(1, "Alice", Some(30), Address("Kyiv", 1000)),
+  Person(2, "Bob",   None,     Address("Lviv", 7900))
+)
+val ds = spark.createDataset(people)
+ds.printSchema()    // root
+                    //  |-- id: integer (nullable = false)
+                    //  |-- name: string (nullable = true)
+                    //  |-- age: integer (nullable = true)
+                    //  |-- addr: struct (nullable = true)
+                    //  |    |-- city: string (nullable = true)
+                    //  |    |-- zip: integer (nullable = false)
+```
+
+See `examples/spark-nested-demo.ssc` for the canonical demo.
+
+**Phase E still-open follow-ups:**
+- Collection fields: `Seq[T]`, `List[T]`, `Vector[T]`, `Array[T]` via
+  `AgnosticEncoders.IterableEncoder` / `ArrayEncoder`; `Map[K, V]`
+  via `AgnosticEncoders.MapEncoder`.
 - Revive `@SqlFn` auto-emit (Phase D) by routing through Java
   `UDF1`/`UDF2`/... wrappers with a derived `DataType` for the
   return type — sidesteps the TypeTag-bound `udf.register` overload.

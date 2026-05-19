@@ -109,6 +109,15 @@ class SparkRuntimeSmokeTest extends AnyFunSuite:
     compileExample("spark-encoder-demo.ssc")
   }
 
+  test("spark-nested-demo.ssc compiles under Phase E Option + nested derivation") {
+    // Exercises the recursive `aenc_Option[U]` + `aenc_Product[T]`
+    // path: `Person` has an `Option[Int]` field plus a nested
+    // `Address` case class.  Both resolve via `summonInline` during
+    // derivation — if this test passes, the recursive Mirror walk
+    // works for both Option and nested case classes.
+    compileExample("spark-nested-demo.ssc")
+  }
+
   test("spark-udf-demo.ssc compiles under scala-cli + Spark _2.13") {
     // This example uses the *manual* Java `UDF1` registration form
     // documented in SPEC § 9.5 — not the `@SqlFn` auto-emit (blocked

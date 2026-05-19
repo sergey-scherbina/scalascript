@@ -542,41 +542,54 @@ private class SparkGen(
        |  given Encoder[Byte]    = Encoders.scalaByte
        |  given Encoder[Boolean] = Encoders.scalaBoolean
        |
-       |  inline def primitiveEncoderOf[T]: AgnosticEncoder[T] =
-       |    inline erasedValue[T] match
-       |      case _: Boolean => PrimitiveBooleanEncoder.asInstanceOf[AgnosticEncoder[T]]
-       |      case _: Byte    => PrimitiveByteEncoder   .asInstanceOf[AgnosticEncoder[T]]
-       |      case _: Short   => PrimitiveShortEncoder  .asInstanceOf[AgnosticEncoder[T]]
-       |      case _: Int     => PrimitiveIntEncoder    .asInstanceOf[AgnosticEncoder[T]]
-       |      case _: Long    => PrimitiveLongEncoder   .asInstanceOf[AgnosticEncoder[T]]
-       |      case _: Float   => PrimitiveFloatEncoder  .asInstanceOf[AgnosticEncoder[T]]
-       |      case _: Double  => PrimitiveDoubleEncoder .asInstanceOf[AgnosticEncoder[T]]
-       |      case _: String  => StringEncoder          .asInstanceOf[AgnosticEncoder[T]]
+       |  import scala.compiletime.summonInline
        |
-       |  inline def isNullableOf[T]: Boolean =
-       |    inline erasedValue[T] match
-       |      case _: String => true
-       |      case _         => false
+       |  // ── Field-level AgnosticEncoder givens ────────────────────────────────
+       |  //
+       |  // The encoder for a case-class field is found via normal Scala 3
+       |  // implicit search.  Primitive types resolve to pre-baked
+       |  // AgnosticEncoders; `Option[U]` recurses through `aenc_Option`;
+       |  // nested case classes recurse through `aenc_Product` via Mirror.
+       |  // `Option` is a sealed sum (not a Product), so the Option vs
+       |  // Product givens are unambiguous — Option types have only
+       |  // `Mirror.SumOf`, not `Mirror.ProductOf`.
        |
-       |  inline def summonEncoders[Ts <: Tuple]: List[AgnosticEncoder[?]] =
-       |    inline erasedValue[Ts] match
-       |      case _: EmptyTuple => Nil
-       |      case _: (t *: ts)  => primitiveEncoderOf[t] :: summonEncoders[ts]
+       |  given aenc_String : AgnosticEncoder[String]  = StringEncoder
+       |  given aenc_Boolean: AgnosticEncoder[Boolean] = PrimitiveBooleanEncoder
+       |  given aenc_Byte   : AgnosticEncoder[Byte]    = PrimitiveByteEncoder
+       |  given aenc_Short  : AgnosticEncoder[Short]   = PrimitiveShortEncoder
+       |  given aenc_Int    : AgnosticEncoder[Int]     = PrimitiveIntEncoder
+       |  given aenc_Long   : AgnosticEncoder[Long]    = PrimitiveLongEncoder
+       |  given aenc_Float  : AgnosticEncoder[Float]   = PrimitiveFloatEncoder
+       |  given aenc_Double : AgnosticEncoder[Double]  = PrimitiveDoubleEncoder
        |
-       |  inline def summonNullables[Ts <: Tuple]: List[Boolean] =
-       |    inline erasedValue[Ts] match
-       |      case _: EmptyTuple => Nil
-       |      case _: (t *: ts)  => isNullableOf[t] :: summonNullables[ts]
+       |  /** `Option[U]` → Spark `OptionEncoder` wrapping the inner. */
+       |  given aenc_Option[U](using inner: AgnosticEncoder[U]): AgnosticEncoder[Option[U]] =
+       |    OptionEncoder(inner)
        |
-       |  /** Case-class encoder via Scala 3 `Mirror` — no TypeTag. */
-       |  inline given derived[T <: Product](using m: Mirror.ProductOf[T], ct: ClassTag[T]): Encoder[T] =
+       |  /** Nested case-class encoder.  The field walk recursively
+       |   *  `summonInline[AgnosticEncoder[t]]` for each element type —
+       |   *  primitives resolve from the givens above, `Option` from
+       |   *  `aenc_Option`, and nested case classes recurse back here. */
+       |  inline given aenc_Product[T <: Product](
+       |      using m: Mirror.ProductOf[T], ct: ClassTag[T]
+       |  ): AgnosticEncoder[T] =
        |    val labels = constValueTuple[m.MirroredElemLabels].toList.map(_.asInstanceOf[String])
-       |    val encs   = summonEncoders [m.MirroredElemTypes]
-       |    val nulls  = summonNullables[m.MirroredElemTypes]
-       |    val fields = labels.zip(encs).zip(nulls).map { case ((n, e), nl) =>
-       |      EncoderField(n, e, nl, Metadata.empty)
+       |    val encs   = summonFieldEncoders[m.MirroredElemTypes]
+       |    val fields = labels.zip(encs).map { case (n, e) =>
+       |      EncoderField(n, e, e.nullable, Metadata.empty)
        |    }
-       |    ExpressionEncoder(ProductEncoder[T](ct, fields, None))
+       |    ProductEncoder[T](ct, fields, None)
+       |
+       |  inline def summonFieldEncoders[Ts <: Tuple]: List[AgnosticEncoder[?]] =
+       |    inline erasedValue[Ts] match
+       |      case _: EmptyTuple => Nil
+       |      case _: (t *: ts)  => summonInline[AgnosticEncoder[t]] :: summonFieldEncoders[ts]
+       |
+       |  /** Top-level `Encoder[T]` for case classes — wraps the
+       |   *  AgnosticEncoder the recursive product derivation produces. */
+       |  inline given derived[T <: Product](using ae: AgnosticEncoder[T]): Encoder[T] =
+       |    ExpressionEncoder(ae)
        |""".stripMargin
 
   /** Shim that makes `Dataset.of(...)`, `Dataset.fromList(...)`, and

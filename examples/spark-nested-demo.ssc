@@ -1,0 +1,45 @@
+---
+name: spark-nested-demo
+backend: spark
+spark-app-name: Phase E — Option + Nested Demo
+description: Option[T] fields and nested case classes via Phase E derivation (v1.25 § 9.5)
+---
+
+# Phase E — Option + nested case-class derivation
+
+Extends `spark-encoder-demo.ssc` to cover the two most common
+real-world Dataset patterns: optional fields (`Option[Int]`) and
+nested case classes (`Address` inside `Person`).  Both work via the
+same `SscSparkEncoders.derived[T]` inline given as the basic case —
+the recursive AgnosticEncoder lookup resolves them automatically.
+
+Spark sees `Option[U]` as a nullable column of `U` and a nested
+case class as a `struct` column; the schema is what you'd write by
+hand with `StructType(StructField(...) :: ...)` for the whole tree.
+
+Run with:
+
+```
+ssc run --backend spark examples/spark-nested-demo.ssc
+```
+
+## Pipeline
+
+```scalascript
+case class Address(city: String, zip: Int)
+case class Person(id: Int, name: String, age: Option[Int], addr: Address)
+
+val people = List(
+  Person(1, "Alice", Some(30), Address("Kyiv", 1000)),
+  Person(2, "Bob",   None,     Address("Lviv", 7900)),
+  Person(3, "Carol", Some(25), Address("Odesa", 6500))
+)
+
+val ds = spark.createDataset(people)
+ds.printSchema()
+println(s"PEOPLE_COUNT=${ds.count()}")
+
+ds.collect().foreach { p =>
+  println(s"PERSON id=${p.id} name=${p.name} age=${p.age} city=${p.addr.city} zip=${p.addr.zip}")
+}
+```
