@@ -4,6 +4,7 @@ import scalascript.backend.spi.{IntrinsicImpl, NativeImpl, NativeContext}
 import scalascript.ir.QualifiedName
 import scalascript.interpreter.intrinsics.OAuthHttp
 import scalascript.oauth.*
+import scalascript.oidc.OidcServer
 import java.util.concurrent.ConcurrentHashMap
 import scala.collection.mutable
 
@@ -75,6 +76,37 @@ val OAuthIntrinsics: Map[QualifiedName, IntrinsicImpl] = Map(
     args match
       case List(v: String) => Value.StringV(OAuth.pkceS256(v))
       case _               => throw InterpretError("oauth.pkceChallenge(verifier)")
+  ),
+
+  // ─── oidc.server(as) — wrap an AuthServer with an Identity Provider ─
+
+  QualifiedName("oidc.server") -> NativeImpl((_, args) =>
+    args match
+      case List(asValue) =>
+        val v: Value = asValue match
+          case v: Value => v
+          case _ => throw InterpretError(
+            "oidc.server: argument is not an AuthServer (use oauth.authServer(...) first)")
+        OAuthIntrinsicHelpers.resolveAuthServer(v) match
+          case None => throw InterpretError(
+            "oidc.server: argument is not an AuthServer (use oauth.authServer(...) first)")
+          case Some(as) =>
+            val idp = new OidcServer(as)
+            OidcIntrinsicHelpers.makeOidcServerInstance(idp)
+      case _ => throw InterpretError("oidc.server(authServer)")
+  ),
+
+  // ─── oidc.serve(idp[, basePath]) — install all OIDC + OAuth routes ──
+
+  QualifiedName("oidc.serve") -> NativeImpl((ctx, args) =>
+    args match
+      case List(idpValue: Value)                          =>
+        OidcIntrinsicHelpers.serveOidc(idpValue, "", ctx); Value.UnitV
+      case List(idpValue: Value, basePath: String)        =>
+        OidcIntrinsicHelpers.serveOidc(idpValue, basePath, ctx); Value.UnitV
+      case List(idpValue: Value, Value.StringV(bp))       =>
+        OidcIntrinsicHelpers.serveOidc(idpValue, bp, ctx); Value.UnitV
+      case _ => throw InterpretError("oidc.serve(idp[, basePath])")
   )
 )
 

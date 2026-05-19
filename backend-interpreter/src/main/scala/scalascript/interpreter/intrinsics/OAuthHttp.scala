@@ -130,7 +130,7 @@ object OAuthHttp:
   private def stringField(fields: Map[String, Value], name: String): Option[String] =
     fields.get(name).collect { case Value.StringV(s) => s }
 
-  private def extractHeaderMap(fields: Map[String, Value]): Map[String, String] =
+  def extractHeaderMap(fields: Map[String, Value]): Map[String, String] =
     fields.get("headers").collect {
       case Value.MapV(m) => m.iterator.collect {
         case (Value.StringV(k), Value.StringV(v)) => k -> v
