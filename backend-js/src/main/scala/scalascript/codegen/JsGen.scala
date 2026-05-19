@@ -3501,6 +3501,10 @@ const Actor = {
   // v1.23 — local node identity + phi vector
   selfNode:      ()             => _perform('Actor', 'selfNode',      []),
   clusterHealth: ()             => _perform('Actor', 'clusterHealth', []),
+  // v1.23 — cluster-wide failure detector
+  broadcastHealth: ()           => _perform('Actor', 'broadcastHealth', []),
+  clusterIsDown:   (nid, thr)   => _perform('Actor', 'clusterIsDown',
+                                            [nid, thr == null ? 8.0 : thr]),
 };
 
 // `receive { case … }` lowers to a registered matcher function whose
@@ -3557,6 +3561,8 @@ function _runActors(bodyFn) {
   const _PHI_HIST_MAX  = 100;
   const _peerPongHist  = new Map();   // nodeId -> [intervalMs, ...] up to PHI_HIST_MAX
   const _peerLastPong  = new Map();   // nodeId -> epoch ms of last pong (mirrors INT/JVM)
+  // v1.23 — cluster-wide FD: peerNodeId -> Map<targetNodeId, phi>
+  const _peerPhiViews  = new Map();
   function _recordPongInterval(nid) {
     const now = Date.now();
     const last = _peerLastPong.get(nid);
@@ -3736,6 +3742,7 @@ function _runActors(bodyFn) {
           _peerUrls.delete(env.nodeId);
           _peerPongHist.delete(env.nodeId);
           _peerLastPong.delete(env.nodeId);
+          _peerPhiViews.delete(env.nodeId);
           _fireClusterEvent('NodeLeft', env.nodeId, 'disconnect');
         } else if (env.t === 'peers_req') {
           // Respond with our known peer URLs + self URL.
@@ -3759,6 +3766,17 @@ function _runActors(bodyFn) {
         } else if (env.t === 'global_reg') {
           if (env.name && env.nodeId != null) {
             _globalRegistry.set(env.name, Pid(env.nodeId, Number(env.localId)));
+          }
+        } else if (env.t === 'phi_vector') {
+          // v1.23 — peer broadcasted its phi vector; record its view.
+          if (env.from && Array.isArray(env.view)) {
+            const m = new Map();
+            for (const pair of env.view) {
+              if (Array.isArray(pair) && pair.length === 2) {
+                m.set(String(pair[0]), Number(pair[1]));
+              }
+            }
+            _peerPhiViews.set(env.from, m);
           }
         }
       } catch (_e) {}
@@ -4119,6 +4137,7 @@ function _runActors(bodyFn) {
                 _peerUrls.delete(peerNodeId);
                 _peerPongHist.delete(peerNodeId);
                 _peerLastPong.delete(peerNodeId);
+                _peerPhiViews.delete(peerNodeId);
                 _fireClusterEvent('NodeLeft', peerNodeId, 'disconnect');
               }
             });
@@ -4200,6 +4219,39 @@ function _runActors(bodyFn) {
           if (peer && !peer.pending) m.set(nid, _computePhi(nid));
         }
         return { suspend: false, next: k(m) };
+      }
+      // v1.23 — cluster-wide FD: broadcast phi vector to peers.
+      case 'broadcastHealth': {
+        const view = [];
+        for (const [nid, peer] of _peerChannels) {
+          if (peer && !peer.pending) {
+            const phi = _computePhi(nid);
+            if (Number.isFinite(phi)) view.push([nid, phi]);
+          }
+        }
+        const payload = JSON.stringify({ t: 'phi_vector', from: _localNodeId, view });
+        for (const [, peer] of _peerChannels) {
+          if (peer && !peer.pending) { try { peer.send(payload); } catch (_) {} }
+        }
+        return { suspend: false, next: k(undefined) };
+      }
+      // v1.23 — cluster-wide FD: majority vote of phi >= threshold across peers.
+      case 'clusterIsDown': {
+        const target = String(args[0]);
+        const thr    = args[1] == null ? 8.0 : Number(args[1]);
+        let votes = 0;
+        let total = 0;
+        if (_peerChannels.has(target) && _peerChannels.get(target) && !_peerChannels.get(target).pending) {
+          total += 1;
+          if (_computePhi(target) >= thr) votes += 1;
+        }
+        for (const [peerNid, peerView] of _peerPhiViews) {
+          if (peerNid === target) continue;
+          const p = peerView.get(target);
+          if (p != null) { total += 1; if (p >= thr) votes += 1; }
+        }
+        const majority = Math.floor((total + 1) / 2);
+        return { suspend: false, next: k(total > 0 && votes >= majority) };
       }
       // v1.6.x — scheduled sends
       case 'sendAfter': {
@@ -5413,6 +5465,7 @@ class JsGen(
       "Actor.clusterMembers", "Actor.subscribeClusterEvents",
       "Actor.phiOf", "Actor.isSuspect",
       "Actor.selfNode", "Actor.clusterHealth",
+      "Actor.broadcastHealth", "Actor.clusterIsDown",
       "Actor.sendAfter", "Actor.sendInterval", "Actor.cancelTimer",
       "Logger.info", "Logger.warn", "Logger.error", "Logger.debug",
       "Random.nextInt", "Random.nextDouble", "Random.uuid", "Random.pick",
@@ -6686,6 +6739,15 @@ class JsGen(
     case Term.Apply.After_4_6_0(Term.Name("clusterHealth"), argClause)
         if argClause.values.isEmpty =>
       "Actor.clusterHealth()"
+    // v1.23 — cluster-wide failure detector
+    case Term.Apply.After_4_6_0(Term.Name("broadcastHealth"), argClause)
+        if argClause.values.isEmpty =>
+      "Actor.broadcastHealth()"
+    case Term.Apply.After_4_6_0(Term.Name("clusterIsDown"), argClause)
+        if argClause.values.size >= 1 =>
+      val nid = genExpr(argClause.values(0).asInstanceOf[Term])
+      val thr = if argClause.values.size >= 2 then genExpr(argClause.values(1).asInstanceOf[Term]) else "8.0"
+      s"Actor.clusterIsDown($nid, $thr)"
     // v1.6.x — scheduled sends
     case Term.Apply.After_4_6_0(Term.Name("sendAfter"), argClause)
         if argClause.values.size == 3 =>
@@ -7212,6 +7274,15 @@ class JsGen(
     case Term.Apply.After_4_6_0(Term.Name("clusterHealth"), argClause)
         if argClause.values.isEmpty =>
       "Actor.clusterHealth()"
+    // v1.23 — cluster-wide failure detector
+    case Term.Apply.After_4_6_0(Term.Name("broadcastHealth"), argClause)
+        if argClause.values.isEmpty =>
+      "Actor.broadcastHealth()"
+    case Term.Apply.After_4_6_0(Term.Name("clusterIsDown"), argClause)
+        if argClause.values.size >= 1 =>
+      val nid = genExpr(argClause.values(0).asInstanceOf[Term])
+      val thr = if argClause.values.size >= 2 then genExpr(argClause.values(1).asInstanceOf[Term]) else "8.0"
+      s"Actor.clusterIsDown($nid, $thr)"
     // v1.6.x — scheduled sends (inside CPS body)
     case Term.Apply.After_4_6_0(Term.Name("sendAfter"), argClause)
         if argClause.values.size == 3 =>

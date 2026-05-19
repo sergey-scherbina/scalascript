@@ -1,0 +1,24 @@
+#!/usr/bin/env ssc
+---
+name: actors-cluster-isdown
+description: Actor v1.23 — broadcastHealth + clusterIsDown single-node behaviour
+---
+
+# Cluster-wide failure detector — single-node
+
+In single-node mode there are no peers, no phi vectors arrive, and so
+`clusterIsDown(nodeId)` returns `false` for any candidate (no data ⇒
+not enough votes for "down").  `broadcastHealth()` is a no-op when
+there are no peers but must not crash.
+
+Multi-node aggregation (majority vote across delivered phi vectors)
+is exercised by the integration suite; this conformance test pins the
+no-data branch across all three backends.
+
+```scalascript
+runActors {
+  broadcastHealth()  // no-op
+  println("down=" + clusterIsDown("never-connected"))
+  println("ok")
+}
+```

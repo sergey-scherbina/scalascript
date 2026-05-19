@@ -84,4 +84,15 @@ object Cluster:
   // but produced atomically inside the actor scheduler.
   def health(): Map[String, Double] =
     clusterHealth()
+
+  // Broadcast our current health vector to every peer.  Apps decide how
+  // often (e.g. via `sendInterval(2000, ...)` ticking a "broadcast" actor).
+  def broadcast(): Unit =
+    broadcastHealth()
+
+  // Majority-vote answer to "is `nodeId` down?".  Builds on the views
+  // shipped via `broadcast()`; returns false until at least one peer has
+  // delivered a view that mentions `nodeId`.
+  def isDown(nodeId: String, threshold: Double = 8.0): Boolean =
+    clusterIsDown(nodeId, threshold)
 ```

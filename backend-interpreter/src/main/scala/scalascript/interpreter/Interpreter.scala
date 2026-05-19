@@ -211,6 +211,11 @@ class Interpreter(
   private val PhiHistMax = 100
   private val peerPongHist =
     new java.util.concurrent.ConcurrentHashMap[String, java.util.concurrent.ConcurrentLinkedDeque[java.lang.Long]]()
+  // v1.23 — cluster-wide FD: per-peer view of every other peer's phi.
+  //   peerPhiViews(fromNodeId)(targetNodeId) = phi at the time `fromNodeId`
+  //   last broadcast its health vector.  Cleared on disconnect.
+  private val peerPhiViews =
+    new java.util.concurrent.ConcurrentHashMap[String, java.util.concurrent.ConcurrentHashMap[String, java.lang.Double]]()
   // Cross-node monitors: nodeId → [(localActorId, monRef, remotePid.localId)]
   private val remoteMonitors =
     new java.util.concurrent.ConcurrentHashMap[String,
@@ -626,6 +631,7 @@ class Interpreter(
               peerLastPong.remove(peerNodeId)
               peerUrls.remove(peerNodeId)
               peerPongHist.remove(peerNodeId)
+              peerPhiViews.remove(peerNodeId)
               nodeDownQueue.offer(peerNodeId)
               enqueueClusterEvent("NodeLeft", peerNodeId, "disconnect")
               val t = schedulerThread; if t != null then t.interrupt()
@@ -693,6 +699,23 @@ class Interpreter(
             val localId = m.get(Value.StringV("localId")).collect { case Value.StringV(s) => s.toLongOption.getOrElse(0L) }.getOrElse(0L)
             if name.nonEmpty && nodeId.nonEmpty then
               globalRegistry.put(name, mkPid(nodeId, localId))
+          case "phi_vector" =>
+            // v1.23 — peer broadcasted its phi vector.  Replace our stored
+            // view of that peer's perspective on the rest of the cluster.
+            val from = m.get(Value.StringV("from")).collect { case Value.StringV(s) => s }.getOrElse("")
+            if from.nonEmpty then
+              val view = new java.util.concurrent.ConcurrentHashMap[String, java.lang.Double]()
+              m.get(Value.StringV("view")) match
+                case Some(Value.ListV(items)) =>
+                  items.foreach {
+                    case Value.ListV(List(Value.StringV(nid), Value.DoubleV(p))) =>
+                      view.put(nid, java.lang.Double.valueOf(p))
+                    case Value.ListV(List(Value.StringV(nid), Value.IntV(p))) =>
+                      view.put(nid, java.lang.Double.valueOf(p.toDouble))
+                    case _ => ()
+                  }
+                case _ => ()
+              peerPhiViews.put(from, view)
           case _ => ()
       case _ => ()
 
@@ -1480,6 +1503,20 @@ class Interpreter(
     globals("clusterHealth") = Value.NativeFnV("clusterHealth", {
       case Nil => Perform("Actor", "clusterHealth", Nil)
       case _   => throw InterpretError("clusterHealth(): Map[String, Double]")
+    })
+    // v1.23 — cluster-wide failure detector
+    globals("broadcastHealth") = Value.NativeFnV("broadcastHealth", {
+      case Nil => Perform("Actor", "broadcastHealth", Nil)
+      case _   => throw InterpretError("broadcastHealth(): Unit")
+    })
+    globals("clusterIsDown") = Value.NativeFnV("clusterIsDown", {
+      case List(Value.StringV(nid)) =>
+        Perform("Actor", "clusterIsDown", List(Value.StringV(nid), Value.DoubleV(8.0)))
+      case List(Value.StringV(nid), Value.DoubleV(thr)) =>
+        Perform("Actor", "clusterIsDown", List(Value.StringV(nid), Value.DoubleV(thr)))
+      case List(Value.StringV(nid), Value.IntV(thr)) =>
+        Perform("Actor", "clusterIsDown", List(Value.StringV(nid), Value.DoubleV(thr.toDouble)))
+      case _ => throw InterpretError("clusterIsDown(nodeId: String, threshold: Double = 8.0): Boolean")
     })
     // v1.6.x — scheduled sends
     globals("sendAfter") = Value.NativeFnV("sendAfter", {
@@ -4752,6 +4789,7 @@ class Interpreter(
           peerLastPong.remove(pnId)
           peerUrls.remove(pnId)
           peerPongHist.remove(pnId)
+          peerPhiViews.remove(pnId)
           nodeDownQueue.offer(pnId)
           enqueueClusterEvent("NodeLeft", pnId, "disconnect")
           val t = schedulerThread; if t != null then t.interrupt()
@@ -4858,6 +4896,47 @@ class Interpreter(
         val nid = it.next()
         m += (Value.StringV(nid) -> Value.DoubleV(computePhi(nid)))
       Right(k(Value.MapV(m.toMap)))
+
+    // v1.23 — cluster-wide failure detector
+    case "broadcastHealth" =>
+      // Build current phi vector and send to every connected peer.
+      val sb = new StringBuilder("""{"t":"phi_vector","from":""")
+      sb.append(jsonStr(localNodeId)).append(""","view":[""")
+      var first = true
+      val it = peerChannels.keySet().iterator
+      while it.hasNext do
+        val nid = it.next()
+        val phi = computePhi(nid)
+        // Skip non-finite phi to keep the JSON valid (Infinity / NaN aren't legal).
+        if !phi.isInfinite && !phi.isNaN then
+          if !first then sb.append(',')
+          sb.append("[").append(jsonStr(nid)).append(',').append(phi).append(']')
+          first = false
+      sb.append("]}")
+      val payload = sb.toString
+      peerChannels.forEach { (_, send) => try send(payload) catch case _: Throwable => () }
+      Right(k(Value.UnitV))
+
+    case "clusterIsDown" => args match
+      case List(Value.StringV(target), Value.DoubleV(thr)) =>
+        var votes = 0
+        var total = 0
+        // Local view.
+        if peerChannels.containsKey(target) then
+          total += 1
+          if computePhi(target) >= thr then votes += 1
+        // Each peer's view of `target` (excluding `target` itself).
+        peerPhiViews.forEach { (peerNid, peerView) =>
+          if peerNid != target then
+            val p = peerView.get(target)
+            if p != null then
+              total += 1
+              if p.doubleValue() >= thr then votes += 1
+        }
+        // Majority of available votes.
+        val majority = (total + 1) / 2
+        Right(k(Value.BoolV(total > 0 && votes >= majority)))
+      case _ => throw InterpretError("clusterIsDown(nodeId, threshold)")
 
     // v1.6.x — scheduled sends
     case "sendAfter" => args match
