@@ -1024,3 +1024,62 @@ def main(): Unit =
     capturedDoc(src) shouldBe "<b>10</b>"
   }
 
+  // ── javascript block: string-valued, no html-escape (v1.25 Phase 1) ───────
+
+  test("javascript block: bound to <section>.javascript as raw String") {
+    // The `javascript` tag is treated like `css` — no html-escaping. The body
+    // is captured as a String with `${expr}` interpolation against the
+    // surrounding scalascript scope.
+    val src =
+      """|# Widget
+         |
+         |```javascript
+         |const x = ${ 1 + 2 };
+         |```
+         |
+         |# Test
+         |
+         |```scala
+         |println(Widget.javascript)
+         |```
+         |""".stripMargin
+    capturedDoc(src) shouldBe "const x = 3;"
+  }
+
+  test("js alias: bound to <section>.js as raw String") {
+    val src =
+      """|# Widget
+         |
+         |```js
+         |console.log(${ "\"hello\"" });
+         |```
+         |
+         |# Test
+         |
+         |```scala
+         |println(Widget.js)
+         |```
+         |""".stripMargin
+    capturedDoc(src) shouldBe "console.log(\"hello\");"
+  }
+
+  test("javascript block: angle brackets are not html-escaped") {
+    // A regression guard: `javascript` must NOT route through the html-escape
+    // branch of renderStringBlock, even though it lives next to html in the
+    // Lang object.
+    val src =
+      """|# Widget
+         |
+         |```javascript
+         |if (a < b && b > c) { /* ${ 42 } */ }
+         |```
+         |
+         |# Test
+         |
+         |```scala
+         |println(Widget.javascript)
+         |```
+         |""".stripMargin
+    capturedDoc(src) shouldBe "if (a < b && b > c) { /* 42 */ }"
+  }
+
