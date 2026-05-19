@@ -17,6 +17,7 @@ package scalascript.server.jvm
 // inline time.
 import scalascript.server.*
 import scalascript.server.WsFraming
+import scalascript.server.spi.WsControls
 // BUILD-ONLY:end
 
 // ── WebSocket support (RFC 6455) ───────────────────────────────────────
@@ -54,7 +55,11 @@ private val _wsHeartbeats: java.util.concurrent.ScheduledExecutorService =
   })
 
 class WebSocket(
-    private val socket: java.net.Socket,
+    /** Per-connection socket (TLS or plain).  `null` in SPI mode
+     *  (`_spiControls != null`) — the SPI impl owns the socket and
+     *  drives the read/write loops itself; this instance is just a
+     *  thin user-facing delegator over `_spiControls`. */
+    private val socket: java.net.Socket | Null,
     val request: Request,
     /** The subprotocol the server selected during upgrade
      *  negotiation (RFC 6455 §1.9), or "" when no negotiation
@@ -96,7 +101,23 @@ class WebSocket(
      *  codegen-side `println(...)` calls; the interpreter passes
      *  its server's `log: PrintStream` so test captures pick up
      *  the lines. */
-    private val _log: java.io.PrintStream = System.out):
+    private val _log: java.io.PrintStream = System.out,
+    /** v1.17.6 / Phase S1c — when non-null, this WebSocket is an
+     *  SPI-mode delegator: every public method (send / sendBytes /
+     *  close / ping / recv / isClosed) routes through the SPI's
+     *  `WsControls` and the I/O loops in this class are inert.
+     *  Used by the codegen-emitted `serve(port, tls)` to bridge an
+     *  SPI-managed connection back into the `WebSocket` shape that
+     *  user `onWebSocket { ws => … }` handlers expect.  `null` in
+     *  socket-driven JdkServerBackend internal use + interpreter
+     *  WsProxy.
+     *
+     *  The type is referenced unqualified (`WsControls`) so the
+     *  loader's package-strip doesn't break the inlined script — the
+     *  SPI's `WsControls` trait is inlined just above in the
+     *  serveRuntime block and lives at top level in the generated
+     *  script. */
+    private val _spiControls: WsControls | Null = null):
   /** Stable per-connection identifier.  UUID-v4 generated at
    *  upgrade time; surfaced to user code as `ws.id` and used to
    *  tag every log line for a single session. */
@@ -132,7 +153,12 @@ class WebSocket(
   // the FIN=0 / opcode=0 / oversize logic lives.  Touched only on
   // the read-loop thread, so no synchronisation needed.
   private val _reassembler = new WsReassembler(_WsMaxFrameBytes)
-  private val out: OutputStream                     = socket.getOutputStream
+  // In socket mode (`_spiControls == null`) we grab the OutputStream
+  // up front so the writer-VT can park on it.  In SPI mode the
+  // `_spiControls` impl owns the socket, so `out` is null and the
+  // writer-VT is never started.
+  private val out: OutputStream | Null              =
+    if _spiControls != null then null else socket.getOutputStream
 
   // Outbound write queue: every `send` / `close` / `pong` parks a
   // ready-encoded frame here and returns immediately.  A dedicated
@@ -151,8 +177,12 @@ class WebSocket(
   // Writer virtual thread — cheap with Loom (~few KB stack).
   // Java 21 requirement: Thread.ofVirtual() is stable in JDK 21 LTS (Project Loom).
   // A parked write-loop costs ~few KB of heap vs ~1 MB for a platform thread stack.
-  @scala.annotation.unused private val writerThread: Thread =
-    Thread.ofVirtual().name("ws-writer").start(() => _writeLoop())
+  // In SPI mode the writer-VT is unnecessary (sends go through
+  // `_spiControls.send(...)` directly); skip it to avoid a parked VT
+  // that would never see traffic.
+  @scala.annotation.unused private val writerThread: Thread | Null =
+    if _spiControls != null then null
+    else Thread.ofVirtual().name("ws-writer").start(() => _writeLoop())
 
   private def _writeLoop(): Unit =
     try
@@ -208,33 +238,66 @@ class WebSocket(
     try socket.close() catch case _: Throwable => ()
 
   def send(s: String): Unit =
-    if closing then return
-    val frame = _wsEncodeText(s)
-    if !outQ.offer(frame) then _forceShutdown()
-    else { _Metrics.wsMessagesOut.incrementAndGet(); _Metrics.wsBytesOut.addAndGet(frame.length.toLong) }
+    val c = _spiControls
+    if c != null then c.send(s)
+    else
+      if closing then return
+      val frame = _wsEncodeText(s)
+      if !outQ.offer(frame) then _forceShutdown()
+      else { _Metrics.wsMessagesOut.incrementAndGet(); _Metrics.wsBytesOut.addAndGet(frame.length.toLong) }
 
   // Binary frames take the Latin-1 byte-view convention the rest
   // of the runtime already uses (UploadedFile.bytes, inbound
   // binary frames): one Java char per wire byte.
   def sendBytes(s: String): Unit =
-    if closing then return
-    val frame = WsFraming.encodeBinary(s.getBytes("ISO-8859-1"))
-    if !outQ.offer(frame) then _forceShutdown()
-    else { _Metrics.wsMessagesOut.incrementAndGet(); _Metrics.wsBytesOut.addAndGet(frame.length.toLong) }
+    val c = _spiControls
+    if c != null then c.sendBytes(s.getBytes("ISO-8859-1"))
+    else
+      if closing then return
+      val frame = WsFraming.encodeBinary(s.getBytes("ISO-8859-1"))
+      if !outQ.offer(frame) then _forceShutdown()
+      else { _Metrics.wsMessagesOut.incrementAndGet(); _Metrics.wsBytesOut.addAndGet(frame.length.toLong) }
 
   def close(code: Int = 1000, reason: String = ""): Unit =
-    if closing then return
-    closing = true
-    // Best-effort: enqueue the close frame, then a sentinel so
-    // the writer drains and exits cleanly.  If the queue is full
-    // (slow peer), fall through to a hard socket close — the
-    // writer's finally handles onClose dispatch either way.
-    val queued = outQ.offer(_wsEncodeClose(code, reason)) && outQ.offer(SENTINEL)
-    if !queued then _forceShutdown()
+    val c = _spiControls
+    if c != null then c.close(code, reason)
+    else
+      if closing then return
+      closing = true
+      // Best-effort: enqueue the close frame, then a sentinel so
+      // the writer drains and exits cleanly.  If the queue is full
+      // (slow peer), fall through to a hard socket close — the
+      // writer's finally handles onClose dispatch either way.
+      val queued = outQ.offer(_wsEncodeClose(code, reason)) && outQ.offer(SENTINEL)
+      if !queued then _forceShutdown()
 
   def onMessage(cb: String => Unit): Unit = onMessageCb = cb
   def onClose(cb: () => Unit): Unit       = onCloseCb.set(cb)
   def onPong(cb: String => Unit): Unit    = onPongCb   = cb
+
+  /** SPI-mode dispatch hooks — called by `_CodegenWsListener` (in
+   *  ProxyRuntime) when the SPI delivers an incoming message / pong /
+   *  close.  They mirror the socket-mode `_dispatchWsMessage` /
+   *  read-loop close path but skip the rate-limiting + metrics layer
+   *  (the SPI impl already enforced those before delivery).  No-op in
+   *  socket mode (the regular read loop drives the callbacks
+   *  directly).
+   *
+   *  Public (rather than `private[jvm]`) because the loader rewrites
+   *  the qualified-private form to bare `private` at inline time,
+   *  which would prevent `_CodegenWsListener` from reaching them. */
+  def _spiFireMessage(s: String): Unit =
+    val cb = onMessageCb
+    if cb != null then try cb(s) catch case e: Throwable =>
+      System.err.println(s"WS message handler: ${e.getMessage}")
+  def _spiFirePong(p: String): Unit =
+    val cb = onPongCb
+    if cb != null then try cb(p) catch case e: Throwable =>
+      System.err.println(s"WS onPong handler: ${e.getMessage}")
+  def _spiFireClose(): Unit =
+    val cb = onCloseCb.getAndSet(null)
+    if cb != null then try cb() catch case e: Throwable =>
+      System.err.println(s"WS close handler: ${e.getMessage}")
 
   // ── Async-style blocking recv (alternative to onMessage cb) ────
   //
@@ -257,12 +320,17 @@ class WebSocket(
    *  closes.  Returns Some(msg) on a text/binary message, None on
    *  close. */
   def recv(): Option[String] =
-    _recvEnabled = true
-    val v = _recvQueue.take()
-    if v eq RECV_CLOSE_SENTINEL then None else Some(v)
+    val c = _spiControls
+    if c != null then c.recv()
+    else
+      _recvEnabled = true
+      val v = _recvQueue.take()
+      if v eq RECV_CLOSE_SENTINEL then None else Some(v)
 
   /** True once the close-frame has been sent or received. */
-  def isClosed: Boolean = closing
+  def isClosed: Boolean =
+    val c = _spiControls
+    if c != null then c.isClosed else closing
 
   /** Called by the read-loop after each fully-reassembled message
    *  (and once with `null` on close).  Pushes into the recv-queue
@@ -282,9 +350,12 @@ class WebSocket(
     * both call sites refresh the same `lastPongAt`. */
   def ping(): Unit = ping("")
   def ping(payload: String): Unit =
-    if closing then return
+    val c = _spiControls
     val bytes = if payload.isEmpty then Array.emptyByteArray else payload.getBytes("ISO-8859-1")
-    if !outQ.offer(_wsEncodePing(bytes)) then _forceShutdown()
+    if c != null then c.ping(bytes)
+    else
+      if closing then return
+      if !outQ.offer(_wsEncodePing(bytes)) then _forceShutdown()
 
   /** Arm the periodic Ping → Pong heartbeat.  Called once by
     * `_proxyConnection` right after the upgrade. */

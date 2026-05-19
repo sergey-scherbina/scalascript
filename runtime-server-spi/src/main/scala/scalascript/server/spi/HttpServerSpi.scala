@@ -1,6 +1,11 @@
 package scalascript.server.spi
 
+// BUILD-ONLY:start
+// At codegen-inline time `Request` / `Response` / `StreamResponse`
+// are inlined from runtime-server-common above this file, so the
+// package-qualified import has no referent in the generated script.
 import scalascript.server.{Request, Response, StreamResponse}
+// BUILD-ONLY:end
 
 /** A pluggable HTTP/WS network-layer backend.  Three production impls
  *  exist:

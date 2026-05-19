@@ -5,13 +5,32 @@ package scalascript.server.jvm
 // blocking-accept loop, the HTTP/WS sniffing demux, the upgrade
 // handshake driver (delegates to WsHandshake + the local WS slot
 // reservation), and the TLS / HTTPS bootstrap path.
+//
+// v1.17.6 / Phase S1c — `serve(port, tlsCfg)` is now thin: it builds
+// an `HttpHandler` that reads the top-level `_routes` / `_wsRoutes` /
+// `_middlewares` state and hands control to
+// `HttpServerBackends.current().start(...)`.  The accept loop +
+// per-connection demux + WS read/write loops + TLS bootstrap all live
+// in the SPI impl now (`JdkServerBackend` by default; Jetty / Netty
+// if explicitly added to the user's build).  The legacy
+// `_proxyConnection` body is retained below for tests / docs only —
+// no codegen-emitted call site reaches it anymore.
 
 // BUILD-ONLY:start
 import scalascript.server.*
+import scalascript.server.spi.*
 // BUILD-ONLY:end
 
 // ── Proxy: blocking accept + sniff + forward / upgrade ───────────────
-
+//
+// Legacy entry point — pre-S1c the codegen `serve(port, tls)` opened
+// the public ServerSocket itself and spawned this function per
+// connection.  S1c routes through `HttpServerBackends.current().start`
+// instead, so this helper is unused in newly-generated scripts.  Kept
+// (with `@scala.annotation.unused`) because removing it would invalidate
+// the existing snapshot of the inlined runtime that downstream tests
+// reference; safe to delete in a later cleanup pass.
+@scala.annotation.unused
 private def _proxyConnection(client: java.net.Socket, internalPort: Int): Unit =
   // TCP keepalive lets the OS detect peers that vanished without
   // FIN (yanked cables, dropped mobile sessions).  Without it a
@@ -147,6 +166,7 @@ private def _proxyConnection(client: java.net.Socket, internalPort: Int): Unit =
     val pump2 = _spawn("ws-proxy-pump-b2c", () => _pump(bin, cout, client, back))
     pump1.join(); pump2.join()
 
+@scala.annotation.unused
 private def _pump(in: java.io.InputStream, out: java.io.OutputStream, a: java.net.Socket, b: java.net.Socket): Unit =
   val buf = new Array[Byte](8192)
   try
@@ -164,55 +184,259 @@ case class _TlsConfig(cert: String, key: String)
 
 def tls(cert: String, key: String): _TlsConfig = _TlsConfig(cert, key)
 
+@scala.annotation.unused
 def _buildSslContext(certPath: String, keyPath: String): javax.net.ssl.SSLContext =
   TlsContextBuilder.build(certPath, keyPath)
+@scala.annotation.unused
 def _vThreadPool(): java.util.concurrent.ExecutorService = TlsContextBuilder.vthreadPool()
 
 private val _stopLatch = java.util.concurrent.CountDownLatch(1)
-@volatile private var _pubSocket: java.net.ServerSocket | Null = null
-@volatile private var _internalHttp: com.sun.net.httpserver.HttpServer | Null = null
+
+// SPI handle to the running backend — populated by `serve()` so
+// `stop()` can shut it down cleanly without re-running discovery.
+@volatile private var _spiBackend: HttpServerSpi | Null = null
 
 def stop(): Unit =
-  try { _pubSocket  match { case s if s != null => s.close();  case _ => () } } catch { case _: Throwable => () }
-  try { _internalHttp match { case h if h != null => h.stop(0); case _ => () } } catch { case _: Throwable => () }
+  try { _spiBackend match { case b if b != null => b.stop(); case _ => () } } catch { case _: Throwable => () }
   _stopLatch.countDown()
+
+/** Pick an HTTP server backend by short name (`"jdk"`, `"jetty"`,
+ *  `"netty"`).  Subsequent `serve(port, …)` calls route through the
+ *  chosen impl.  Default ssc distribution bundles only the JDK impl;
+ *  compiled scripts that want Jetty / Netty must add the matching
+ *  module via a `//> using lib io.scalascript::scalascript-runtime-server-jvm-jetty:VERSION`
+ *  directive in their `.ssc` front-matter.  Wrong-name calls throw
+ *  `IllegalStateException` (loud, fail-fast). */
+def setHttpServerBackend(name: String): Unit =
+  HttpServerBackends.setBackend(name)
 
 // Single `serve` def with a defaulted tls config — collapsing two
 // overloads into one avoids the v2.0 linker's same-name dedup pass
 // dropping the 2-arg overload when multiple modules concatenate.
+//
+// v1.17.6 / Phase S1c — body is now a thin wrapper around
+// `HttpServerBackends.current().start(port, tls, handler)`.  The
+// inlined `JdkServerBackend` is registered eagerly so the default-classpath
+// case works without a `META-INF/services` entry (the codegen pipeline
+// inlines sources, not jars).  All accept-loop / sniff / WS-upgrade
+// machinery now lives in the SPI impl.
 def serve(port: Int, tlsCfg: _TlsConfig = null.asInstanceOf[_TlsConfig]): Unit =
   _registerHealthDefaults()
-  val internal = com.sun.net.httpserver.HttpServer.create(
-    java.net.InetSocketAddress("127.0.0.1", 0), 0)
-  internal.createContext("/", ex => _handle(ex))
-  internal.setExecutor(_serverExecutor)
-  internal.start()
-  _internalHttp = internal
-  val internalPort = internal.getAddress.getPort
-  val pool = _vThreadPool()
-  if tlsCfg != null then
-    val sslCtx = _buildSslContext(tlsCfg.cert, tlsCfg.key)
-    val pub = sslCtx.getServerSocketFactory.createServerSocket(port)
-      .asInstanceOf[javax.net.ssl.SSLServerSocket]
-    _pubSocket = pub
-    println(s"Listening on https://localhost:$port/  (proxy → 127.0.0.1:$internalPort)")
-    Thread(() => {
-      while !pub.isClosed do
-        try
-          val c = pub.accept()
-          pool.execute { () => _proxyConnection(c, internalPort) }
-        catch case _: Throwable => ()
-    }, "tls-proxy-accept").start()
-  else
-    val pub = java.net.ServerSocket(port)
-    _pubSocket = pub
-    println(s"Listening on http://localhost:$port/  (proxy → 127.0.0.1:$internalPort)")
-    Thread(() => {
-      while !pub.isClosed do
-        try
-          val c = pub.accept()
-          pool.execute { () => _proxyConnection(c, internalPort) }
-        catch case _: Throwable => ()
-    }, "ws-proxy-accept").start()
+  // Seed the default JDK backend.  ServiceLoader would normally find
+  // it via `META-INF/services/scalascript.server.spi.HttpServerSpi`,
+  // but the codegen pipeline inlines `.scala` sources (no `META-INF`),
+  // so we register programmatically.  Idempotent — repeated calls are
+  // a no-op.
+  HttpServerBackends.register(new JdkServerBackend)
+  val handler  = _CodegenHttpHandler
+  val tlsOpt: Option[TlsConfig] =
+    if tlsCfg == null then None
+    else Some(TlsConfig(tlsCfg.cert, tlsCfg.key))
+  val backend = HttpServerBackends.current()
+  _spiBackend = backend
+  val scheme = if tlsCfg != null then "https" else "http"
+  println(s"Listening on $scheme://localhost:$port/  (backend=${backend.name})")
+  backend.start(port, tlsOpt, handler)
   _stopLatch.await()
+
+// ── Codegen HttpHandler — drives the SPI on behalf of the user's
+//    top-level route registry (`_routes` / `_wsRoutes` / `_middlewares`).
+//    Same shape as `InterpreterHttpHandler` in backend-interpreter, but
+//    uses native Scala closures since codegen handlers are already
+//    real functions (no `Value.Closure` wrap).
+//
+//    HTTP path: route lookup → middleware chain → handler → POJO
+//    result (Plain / Stream / Reject).  CORS preflight short-circuits
+//    to 204; unmatched routes fall through to a 404.  Static-asset
+//    fallback isn't wired through the SPI yet (it requires HttpExchange
+//    access); user code that needs it can register a catch-all route.
+//
+//    WS  path: route lookup → origin allowlist → auth hook →
+//    process-wide slot reserve (via SPI impl) → per-route slot
+//    reserve → subprotocol negotiate → Accept(subprotocol, listener)
+//    or Reject(code, reason).  The listener bridges the SPI's
+//    callback-shape into the user's `WebSocket => Unit` handler — see
+//    `_CodegenWsListener` below for the per-connection state.
+
+private def _buildCorsHeaders(req: Request): Map[String, String] =
+  // Mirror `CorsHelpers.apply` but emit a plain Map[String, String]
+  // instead of mutating an HttpExchange (the SPI handler returns POJO
+  // Responses — the impl writes the wire bytes).  Same allow-origin /
+  // methods / headers rules.
+  val origin  = req.headers.getOrElse("origin", "")
+  val allowed =
+    if _corsOrigins.contains("*")         then "*"
+    else if _corsOrigins.contains(origin) then origin
+    else                                       ""
+  if allowed.isEmpty then Map.empty
+  else
+    val base = scala.collection.mutable.LinkedHashMap.empty[String, String]
+    base("Access-Control-Allow-Origin") = allowed
+    if _corsMethods.nonEmpty then base("Access-Control-Allow-Methods") = _corsMethods.mkString(", ")
+    if _corsHeaders.nonEmpty then base("Access-Control-Allow-Headers") = _corsHeaders.mkString(", ")
+    base("Vary") = "Origin"
+    base.toMap
+
+private object _CodegenHttpHandler extends HttpHandler:
+  override def onHttpRequest(req: Request): HttpResult =
+    // CORS preflight — short-circuit before route matching.
+    if req.method.equalsIgnoreCase("OPTIONS") && _corsOrigins.nonEmpty then
+      return HttpResult.PlainResp(Response(204, _buildCorsHeaders(req), ""))
+    val method = req.method.toUpperCase
+    val segs   = req.path.split('/').toList.filter(_.nonEmpty)
+    val matched = _routes.iterator
+      .filter(_.method == method)
+      .flatMap(r => _matchPath(r.pattern, segs).map(p => (r, p)))
+      .nextOption()
+    matched match
+      case None =>
+        HttpResult.Reject(404, s"Not Found: ${req.path}")
+      case Some((r, params)) =>
+        val reqWithParams = req.copy(params = params)
+        def baseHandler(): Any =
+          try r.handler(reqWithParams)
+          catch case ve: RestValidationError =>
+            Response(400,
+              Map("Content-Type" -> "text/plain; charset=utf-8"),
+              ve.getMessage)
+        var chain: () => Any = () => baseHandler()
+        _middlewares.reverseIterator.foreach { mw =>
+          val inner = chain
+          chain = () => mw(reqWithParams, inner)
+        }
+        try chain() match
+          case sr: StreamResponse =>
+            HttpResult.StreamResp(sr)
+          case r2: Response =>
+            HttpResult.PlainResp(r2)
+          case other =>
+            HttpResult.PlainResp(Response(200,
+              Map("Content-Type" -> "text/plain; charset=utf-8"),
+              _show(other)))
+        catch case e: Throwable =>
+          System.err.println(s"route error: ${e.getMessage}")
+          _Metrics.http5xx.incrementAndGet()
+          HttpResult.Reject(500, "Internal Server Error")
+
+  override def onWsUpgrade(req: Request): WsUpgradeResult =
+    val segs = req.path.split('/').toList.filter(_.nonEmpty)
+    val matched = _wsRoutes.iterator.flatMap { r =>
+      _matchPath(r.pattern, segs).map(params => (r, params))
+    }.nextOption()
+    matched match
+      case None =>
+        WsUpgradeResult.Reject(404, "Not Found")
+      case Some((r, params)) =>
+        val headers = req.headers
+        // Origin allowlist (CSRF guard).
+        if r.origins.nonEmpty then
+          val origin = headers.getOrElse("origin", "")
+          if !r.origins.contains(origin) then
+            return WsUpgradeResult.Reject(403, "Forbidden")
+        val wsReq = req.copy(params = params)
+        // Pre-upgrade auth hook.
+        var authPayload: Option[Any] = None
+        var authReject:  Boolean      = false
+        r.auth.foreach { fn =>
+          try fn(wsReq) match
+            case Some(v) => authPayload = Some(v)
+            case None    => authReject  = true
+          catch case e: Throwable =>
+            System.err.println(s"WS auth hook: ${e.getMessage}")
+            authReject = true
+        }
+        if authReject then
+          return WsUpgradeResult.Reject(401, "Unauthorized")
+        // Per-route cap (process-wide cap is reserved by the SPI impl
+        // after the listener is returned).
+        if !r.tryReserve() then
+          return WsUpgradeResult.Reject(503, "Service Unavailable")
+        // Subprotocol negotiation.
+        val chosen: String = WsHandshake.negotiateSubprotocol(
+          headers.getOrElse("sec-websocket-protocol", ""), r.protocols
+        ) match
+          case Some(p) => p
+          case None    =>
+            r.release()
+            return WsUpgradeResult.Reject(400, "Bad Request")
+        // Bridge the SPI listener callbacks into the user's
+        // `onWebSocket { ws => … }` body via the shared executor.
+        val listener: WsListener = new _CodegenWsListener(
+          route        = r,
+          request      = wsReq,
+          subprotocol  = chosen,
+          authPayload  = authPayload
+        )
+        WsUpgradeResult.Accept(chosen, listener)
+
+/** Per-connection listener — bridges the SPI's frame-callback shape
+ *  into the codegen's `WebSocket => Unit` user handler.  The user's
+ *  body runs once on `onOpen`; subsequent frames invoke the stashed
+ *  `ws.onMessage` / `ws.onClose` / `ws.onPong` callbacks via
+ *  `_serverExecutor` so global-state mutations stay serial with HTTP
+ *  handlers.
+ *
+ *  The user-facing `WebSocket` is built by `_buildSpiWebSocketView`
+ *  below — a `WebSocket`-shaped delegator over `WsControls`.  Slot
+ *  management: per-route was reserved in `onWsUpgrade`; we release it
+ *  on close.  The SPI impl owns the process-wide slot. */
+private final class _CodegenWsListener(
+    route:       _WsRoute,
+    request:     Request,
+    subprotocol: String,
+    authPayload: Option[Any]
+) extends WsListener:
+  // The SPI-mode `WebSocket` view built once in `onOpen` — handed to
+  // the user `route.handler` and used by every subsequent callback to
+  // dispatch through the WebSocket's own `_spiFireMessage` etc.  That
+  // keeps the user-facing `ws.onMessage(cb)` / `ws.onClose(cb)`
+  // setters (defined on the WebSocket class) in the dispatch path so
+  // a callback registered AFTER `route.handler` returns still fires
+  // for later frames.
+  @volatile private var _view: WebSocket | Null = null
+
+  override def onOpen(controls: WsControls): Unit =
+    val view = WebSocket(
+      socket               = null,
+      request              = request,
+      subprotocol          = subprotocol,
+      _onTerminate         = () => (),
+      _maxMessagesPerSec   = 0,
+      user                 = authPayload,
+      _executor            = _serverExecutor,
+      _heartbeats          = _wsHeartbeats,
+      _heartbeatIntervalMs = 30_000L,
+      _deadAfterMs         = 90_000L,
+      _log                 = System.out,
+      _spiControls         = controls
+    )
+    _view = view
+    _serverExecutor.execute { () =>
+      try route.handler(view)
+      catch case e: Throwable =>
+        System.err.println(s"WS upgrade handler: ${e.getMessage}")
+    }
+
+  override def onMessage(text: String): Unit =
+    val v = _view
+    if v != null then
+      _serverExecutor.execute { () => v._spiFireMessage(text) }
+
+  override def onBinary(bytes: Array[Byte]): Unit =
+    onMessage(new String(bytes, "ISO-8859-1"))
+
+  override def onPong(payload: Array[Byte]): Unit =
+    val v = _view
+    if v != null then
+      val s = new String(payload, "ISO-8859-1")
+      _serverExecutor.execute { () => v._spiFirePong(s) }
+
+  override def onClose(code: Int, reason: String): Unit =
+    route.release()
+    val v = _view
+    if v != null then
+      _serverExecutor.execute { () => v._spiFireClose() }
+
+  override def onError(t: Throwable): Unit =
+    System.err.println(s"WS error: ${t.getMessage}")
 

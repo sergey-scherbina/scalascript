@@ -4010,6 +4010,14 @@ class JvmGen(
   private def loadJvmRuntimeSource(name: String): String =
     loadRuntimeSource("runtime-server-jvm-sources", "scalascript/server/jvm", name)
 
+  /** v1.17.6 / Phase S1c loader — pulls SPI traits from
+   *  `runtime-server-spi`.  Same shape as the common / JVM loaders
+   *  above; emitted at the top of `serveRuntime` so the codegen
+   *  `serve(port, tls)` can route through `HttpServerBackends.current()`
+   *  exactly like the interpreter does. */
+  private def loadSpiRuntimeSource(name: String): String =
+    loadRuntimeSource("runtime-server-spi-sources", "scalascript/server/spi", name)
+
   /** Concatenate the pure-primitive sources from runtime-server-common in
    *  a deterministic order.  Emitted as a `commonRuntime` block at the
    *  top of the generated script (before `serveRuntime`) so the inlined
@@ -4039,13 +4047,26 @@ class JvmGen(
    *  now it's four real Scala source files in
    *  `runtime-server-jvm/src/main/scala/scalascript/server/jvm/`,
    *  type-checked at our build time and inlined into the codegen
-   *  output via `loadJvmRuntimeSource`. */
+   *  output via `loadJvmRuntimeSource`.
+   *
+   *  v1.17.6 / Phase S1c: the SPI traits + `HttpServerBackends`
+   *  registry + `JdkServerBackend` impl are inlined at the top so
+   *  `serve(port, tls)` resolves through `HttpServerBackends.current()`
+   *  instead of constructing its own accept loop.  Wire-equivalent
+   *  to the interpreter's S1b flow (`WebServer.start` →
+   *  `HttpServerBackends.current().start(port, tls, handler)`). */
   private val serveRuntime: String =
+    val spiHeader =
+      "\n// ── runtime-server-spi (inlined from classpath resources) ────────────\n" +
+      "// Source of truth: runtime-server-spi/src/main/scala/scalascript/server/spi/*.scala\n"
     val jvmHeader =
       "\n// ── runtime-server-jvm (inlined from classpath resources) ─────────────\n" +
       "// Source of truth: runtime-server-jvm/src/main/scala/scalascript/server/jvm/*.scala\n"
+    spiHeader + loadSpiRuntimeSource("HttpServerSpi") +
+                loadSpiRuntimeSource("HttpServerBackends") +
     jvmHeader + loadJvmRuntimeSource("RestRuntime") +
                 loadJvmRuntimeSource("WebSocketRuntime") +
+                loadJvmRuntimeSource("JdkServerBackend") +
                 loadJvmRuntimeSource("ProxyRuntime") +
                 loadJvmRuntimeSource("OutboundClients")
 

@@ -31,11 +31,40 @@ object HttpServerBackends:
 
   @volatile private var _selectedName: Option[String]   = None
   @volatile private var _cached:       HttpServerSpi | Null = null
+  // Programmatic registry — populated either by `register(impl)` from
+  // user / codegen code, or implicitly by `ServiceLoader`-discovery in
+  // sbt-driven JVM apps.  The codegen-emitted scala-cli script ends up
+  // without `META-INF/services` (the resource is in
+  // `runtime-server-jvm`'s jar but the generated script links sources,
+  // not jars), so the inlined `_main` calls `register(JdkServerBackend)`
+  // to seed the default.
+  private val _registered: java.util.concurrent.ConcurrentLinkedQueue[HttpServerSpi] =
+    java.util.concurrent.ConcurrentLinkedQueue[HttpServerSpi]()
 
-  /** All discovered backends, in classpath order.  Re-runs the
-   *  ServiceLoader each call (cheap; the loader is cached internally). */
+  /** Explicitly register an `HttpServerSpi` impl.  Used by the
+   *  codegen-emitted runtime (where `META-INF/services` doesn't survive
+   *  the source-inlining pipeline) to seed the default `JdkServerBackend`
+   *  at startup.  Production sbt apps don't need this — ServiceLoader
+   *  discovery already covers them.  Idempotent for the same impl
+   *  instance. */
+  def register(impl: HttpServerSpi): Unit =
+    if !_registered.contains(impl) then
+      _registered.add(impl)
+      _cached = null  // re-resolve on next current()
+
+  /** All discovered backends, in (registered-then-ServiceLoader) order.
+   *  Re-runs the ServiceLoader each call (cheap; the loader is cached
+   *  internally). */
   def all(): List[HttpServerSpi] =
-    ServiceLoader.load(classOf[HttpServerSpi]).iterator().asScala.toList
+    val explicit = _registered.iterator().asScala.toList
+    val viaSpi   = ServiceLoader.load(classOf[HttpServerSpi]).iterator().asScala.toList
+    // De-dup by class name in case the same impl is both registered
+    // and ServiceLoader-discovered.
+    val seen = scala.collection.mutable.Set.empty[String]
+    (explicit ++ viaSpi).filter { impl =>
+      val cls = impl.getClass.getName
+      if seen.contains(cls) then false else { seen.add(cls); true }
+    }
 
   /** Pick a backend by name.  Subsequent `current` calls return the
    *  matching impl.  If no impl with that name is on the classpath,

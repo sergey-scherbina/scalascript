@@ -1,7 +1,14 @@
 package scalascript.server.jvm
 
+// BUILD-ONLY:start
+// At scala-cli inline time the SPI traits + POJOs / helpers are
+// all at top level in the generated script (inlined from the SPI
+// and runtime-server-common bundles just above this file), so the
+// imports must be stripped or they'd reference packages that no
+// longer exist in the standalone script.
 import scalascript.server.*
 import scalascript.server.spi.*
+// BUILD-ONLY:end
 import com.sun.net.httpserver.{HttpServer as JHttpServer, HttpExchange}
 import java.net.{InetSocketAddress, ServerSocket, Socket}
 import javax.net.ssl.SSLServerSocket

@@ -399,6 +399,11 @@ final class NettyWsControls(
   override def subprotocol: String =
     if _subprotocol == null then "" else _subprotocol
 
+  // Async-style recv() is unsupported on the Netty path — the channel
+  // is event-loop-driven, not pull-driven.  User code that wants pull
+  // semantics should stick with the JDK backend.
+  override def recv(): Option[String] = None
+
   override def send(text: String): Unit =
     try
       ch.writeAndFlush(new TextWebSocketFrame(text))

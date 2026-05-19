@@ -124,7 +124,24 @@ lazy val runtimeServerSpi = project
     name := "scalascript-runtime-server-spi",
     libraryDependencies ++= Seq(scalatestTest),
     Compile / scalacOptions ++= sharedScalacOptionsStrict,
-    Test    / scalacOptions ++= sharedScalacOptions
+    Test    / scalacOptions ++= sharedScalacOptions,
+    // v1.17.6 / Phase S1c — copy SPI sources into the classpath under
+    // `runtime-server-spi-sources/scalascript/server/spi/` so JvmGen can
+    // inline them into generated scala-cli scripts.  Mirrors the
+    // `runtimeServerCommon` / `runtimeServerJvm` resource-bundle pattern.
+    // The inlined SPI traits let the codegen-emitted `serve(port, tls)`
+    // route through `HttpServerBackends.current().start(...)` like the
+    // interpreter does.
+    Compile / resourceGenerators += Def.task {
+      val srcDir  = (Compile / scalaSource).value / "scalascript" / "server" / "spi"
+      val outBase = (Compile / resourceManaged).value / "runtime-server-spi-sources" / "scalascript" / "server" / "spi"
+      IO.createDirectory(outBase)
+      (srcDir ** "*.scala").get.map { f =>
+        val target = outBase / f.getName
+        IO.copyFile(f, target)
+        target
+      }
+    }.taskValue
   )
 
 // Phase 3 (Option A from docs/runtime-server-strategic-plan.md) —
@@ -207,7 +224,7 @@ lazy val runtimeServerJvmNetty = project
 
 lazy val backendJvm = project
   .in(file("backend-jvm"))
-  .dependsOn(backendSpi, core, runtimeServerCommon, runtimeServerJvm)
+  .dependsOn(backendSpi, core, runtimeServerCommon, runtimeServerSpi, runtimeServerJvm)
   .settings(
     name := "scalascript-backend-jvm",
     Compile / scalacOptions ++= sharedScalacOptionsStrict,
