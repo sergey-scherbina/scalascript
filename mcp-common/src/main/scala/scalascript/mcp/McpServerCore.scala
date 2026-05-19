@@ -50,6 +50,14 @@ class McpServerBuilder:
     java.util.concurrent.ConcurrentHashMap[Long, java.util.concurrent.atomic.AtomicBoolean]()
   private[mcp] val currentReqIdTL: ThreadLocal[java.lang.Long] = new ThreadLocal[java.lang.Long]()
 
+  // v1.17.x — progress notifications.  Clients opt in by including
+  // `_meta.progressToken` on the original request; the server captures
+  // it before invoking the handler.  `srv.notifyProgress(p[, total])`
+  // reads this thread-local to assemble the matching
+  // `notifications/progress` frame.  Null means the client didn't ask
+  // for progress — notifyProgress is a no-op in that case.
+  private[mcp] val currentProgressTokenTL: ThreadLocal[ujson.Value] = new ThreadLocal[ujson.Value]()
+
   /** Returns true iff the currently-executing handler's request has been
    *  cancelled via `notifications/cancelled`.  Read this at safe points
    *  inside long-running tool handlers and return early when set. */
@@ -59,6 +67,21 @@ class McpServerBuilder:
     else
       val flag = inflightCancel.get(id.longValue())
       flag != null && flag.get()
+
+  /** Push a `notifications/progress` frame for the current handler's
+   *  progressToken.  No-op when the client didn't include
+   *  `_meta.progressToken` on the originating request.  `progress` is a
+   *  Double (the spec allows either int or fraction); `total` is the
+   *  optional grand total. */
+  def notifyProgress(progress: Double, total: Option[Double] = None): Unit =
+    val tok = currentProgressTokenTL.get()
+    if tok != null then
+      val payload = ujson.Obj(
+        "progressToken" -> tok,
+        "progress"      -> ujson.Num(progress)
+      )
+      total.foreach(t => payload("total") = ujson.Num(t))
+      notify(McpProtocol.Method.Progress, payload)
 
   /** Active server→client subscribers — one per persistent connection.
    *  Stdio/Spawn keep exactly one (the writer captured by `serve()`); Ws
@@ -364,7 +387,7 @@ object McpServerCore:
           builder.tools.get(name) match
             case None => JsonRpc.encodeError(id, JsonRpc.ErrorCode.MethodNotFound, s"unknown tool: $name")
             case Some(reg) =>
-              withCancelTracking(builder, id) {
+              withRequestTracking(builder, id, params) {
                 try
                   val result = reg.handler(args)
                   JsonRpc.encodeResult(id, McpProtocol.toolsCallResult(result.content, result.isError))
@@ -386,7 +409,7 @@ object McpServerCore:
           builder.resources.get(uri) match
             case None => JsonRpc.encodeError(id, JsonRpc.ErrorCode.MethodNotFound, s"unknown resource: $uri")
             case Some(reg) =>
-              withCancelTracking(builder, id) {
+              withRequestTracking(builder, id, params) {
                 try
                   val result = reg.handler(uri)
                   JsonRpc.encodeResult(id, McpProtocol.resourcesReadResult(result.contents))
@@ -405,23 +428,34 @@ object McpServerCore:
         if flag != null then flag.set(true)
       case None => ()
 
-  /** Run a tool/resource/prompt handler with cancellation plumbing wired
-   *  in.  Reads the numeric id off the JSON-RPC frame, registers a cancel
-   *  flag, threads the id into `currentReqIdTL`, runs `body`, and tears
-   *  the entry down regardless of outcome. */
-  private inline def withCancelTracking[A](
+  /** Run a tool/resource/prompt handler with cancellation + progress
+   *  plumbing wired in.  Reads:
+   *   - the numeric id off the JSON-RPC frame → register a cancel flag +
+   *     thread the id into `currentReqIdTL` (so `srv.isCancelled` works).
+   *   - the `_meta.progressToken` off the params (if any) → thread into
+   *     `currentProgressTokenTL` (so `srv.notifyProgress` reaches the
+   *     matching client request).
+   *  Tears all thread-locals down regardless of handler outcome. */
+  private inline def withRequestTracking[A](
     builder: McpServerBuilder,
-    id:      ujson.Value
+    id:      ujson.Value,
+    params:  ujson.Value
   )(body: => A): A =
     val numId = id.numOpt.map(_.toLong)
+    val progressToken = params.objOpt
+      .flatMap(_.get("_meta"))
+      .flatMap(_.objOpt)
+      .flatMap(_.get("progressToken"))
     numId.foreach { n =>
       builder.inflightCancel.put(n, new java.util.concurrent.atomic.AtomicBoolean(false))
       builder.currentReqIdTL.set(java.lang.Long.valueOf(n))
     }
+    progressToken.foreach(t => builder.currentProgressTokenTL.set(t))
     try body
     finally
       numId.foreach { n => builder.inflightCancel.remove(n) }
       builder.currentReqIdTL.remove()
+      builder.currentProgressTokenTL.remove()
 
   private def subscribeResource(builder: McpServerBuilder, params: ujson.Value, id: ujson.Value): String =
     params.objOpt.flatMap(_.get("uri").flatMap(_.strOpt)) match
@@ -451,7 +485,7 @@ object McpServerCore:
           builder.prompts.get(name) match
             case None => JsonRpc.encodeError(id, JsonRpc.ErrorCode.MethodNotFound, s"unknown prompt: $name")
             case Some(reg) =>
-              withCancelTracking(builder, id) {
+              withRequestTracking(builder, id, params) {
                 try
                   val result = reg.handler(args)
                   JsonRpc.encodeResult(id, McpProtocol.promptsGetResult(result.description, result.messages))

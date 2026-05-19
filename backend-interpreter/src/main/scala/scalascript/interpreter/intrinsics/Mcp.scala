@@ -513,6 +513,21 @@ private object Mcp:
     // is cooperative — honoring it is up to the handler.
     def isCancelledFn = Value.NativeFnV("McpServer.isCancelled",
       Computation.pureFn { _ => Value.BoolV(builder.isCancelled) })
+    // v1.17.x — progress notifications.  Inside a tool/resource/prompt
+    // handler, `srv.notifyProgress(progress[, total])` emits a
+    // `notifications/progress` frame with the current handler's
+    // progressToken (captured from the client's `_meta.progressToken`
+    // on the originating request).  No-op when the client didn't ask
+    // for progress.
+    def notifyProgressFn = Value.NativeFnV("McpServer.notifyProgress", Computation.pureFn {
+      case List(Value.DoubleV(p)) => builder.notifyProgress(p); Value.UnitV
+      case List(Value.IntV(p))    => builder.notifyProgress(p.toDouble); Value.UnitV
+      case List(Value.DoubleV(p), Value.DoubleV(t)) => builder.notifyProgress(p, Some(t)); Value.UnitV
+      case List(Value.IntV(p),    Value.IntV(t))    => builder.notifyProgress(p.toDouble, Some(t.toDouble)); Value.UnitV
+      case List(Value.DoubleV(p), Value.IntV(t))    => builder.notifyProgress(p, Some(t.toDouble)); Value.UnitV
+      case List(Value.IntV(p),    Value.DoubleV(t)) => builder.notifyProgress(p.toDouble, Some(t)); Value.UnitV
+      case _ => throw InterpretError("srv.notifyProgress(progress[, total])")
+    })
     // v1.17.x — server-initiated notifications.  `srv.notify(method, params)`
     // broadcasts a JSON-RPC notification frame to every currently-active
     // subscriber (Stdio/Spawn: one writer; Ws: one per connected client;
@@ -556,6 +571,7 @@ private object Mcp:
       "notifyResourcesListChanged"    -> notifyResourcesLCFn,
       "notifyPromptsListChanged"      -> notifyPromptsLCFn,
       "isCancelled"                   -> isCancelledFn,
+      "notifyProgress"                -> notifyProgressFn,
       "onConnected"            -> onConnFn,
       "onDisconnected"         -> onDisconnFn,
       "onResourceSubscribe"    -> onResSubFn,
