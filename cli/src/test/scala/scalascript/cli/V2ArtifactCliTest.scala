@@ -366,3 +366,35 @@ class V2ArtifactCliTest extends AnyFunSuite:
       assert(os.mtime(bScir1) == bScirMtime1,
         s"b.scir should NOT have been rebuilt (b's source unchanged)")
     finally os.remove.all(sandbox)
+
+  // ── 6. build --incremental — package collision detection ────────────────
+
+  test("build --incremental rejects two files claiming the same `package:`"):
+    val sandbox = os.temp.dir(prefix = "ssc-v2-cli-")
+    try
+      val srcDir = sandbox / "src"
+      os.makeDir.all(srcDir)
+
+      val both =
+        """---
+          |package: acme.dup
+          |---
+          |
+          |# Dup
+          |
+          |```scalascript
+          |def v(): Int = 1
+          |```
+          |""".stripMargin
+      os.write(srcDir / "x.ssc", both)
+      os.write(srcDir / "y.ssc", both)
+
+      val r = runSsc(sandbox, "build", "--incremental", "src")
+      assert(r.exitCode != 0,
+        s"build should fail on package collision; stdout=${r.out.text()} stderr=${r.err.text()}")
+      val combined = r.err.text() + r.out.text()
+      assert(combined.contains("acme.dup"),
+        s"diagnostic should mention the colliding package; got: $combined")
+      assert(combined.contains("x.ssc") && combined.contains("y.ssc"),
+        s"diagnostic should name both colliding files; got: $combined")
+    finally os.remove.all(sandbox)

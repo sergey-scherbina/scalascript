@@ -26,10 +26,23 @@ object ModuleGraph:
     /** Relative display path for log messages. */
     def relPath(base: os.Path): String = path.relativeTo(base).toString
 
-  /** The result of `build` — nodes in topological order + any detected cycles. */
+  /** Two or more `.ssc` files declare the same non-empty `package:` value.
+   *
+   *  Under separate compilation each `package:` value maps to a single
+   *  `.scim` symbol namespace; two files claiming the same package would
+   *  silently overwrite each other's artifacts (`std.foo.scim` gets
+   *  written twice).  `build` surfaces this so the consumer can resolve
+   *  the conflict instead of getting a corrupt artifact dir.
+   *
+   *  v2.0 — `package:` collision detection. */
+  case class PkgCollision(pkg: List[String], paths: List[os.Path])
+
+  /** The result of `build` — nodes in topological order, plus any
+   *  detected cycles and any `package:` collisions. */
   case class GraphResult(
-    orderedNodes: List[Node],
-    cycles:       List[List[os.Path]]   // each cycle is a list of paths
+    orderedNodes:  List[Node],
+    cycles:        List[List[os.Path]],   // each cycle is a list of paths
+    pkgCollisions: List[PkgCollision] = Nil
   )
 
   /** Walk `root` for `.ssc` files, parse their imports, and return a
@@ -108,7 +121,22 @@ object ModuleGraph:
     val cyclicPaths = inDegree.filter(_._2 > 0).keys.toList.sorted
     val cycles = if cyclicPaths.nonEmpty then List(cyclicPaths) else Nil
 
-    GraphResult(ordered.toList, cycles)
+    // `package:` collisions — two files claiming the same non-empty
+    // package would race on the same `.scim` / `.scir` artifact name
+    // mangle.  Empty packages (`pkg == Nil`) are allowed to coexist
+    // freely; they're files without front-matter `package:` and the
+    // artifact basename comes from the file name itself.
+    val pkgCollisions: List[PkgCollision] =
+      nodes
+        .filter(_.pkg.nonEmpty)
+        .groupBy(_.pkg)
+        .collect { case (pkg, ns) if ns.length > 1 =>
+          PkgCollision(pkg, ns.map(_.path).sortBy(_.toString))
+        }
+        .toList
+        .sortBy(_.pkg.mkString("."))
+
+    GraphResult(ordered.toList, cycles, pkgCollisions)
 
   /** Check whether a `.ssc` module is stale relative to its artifact.
    *

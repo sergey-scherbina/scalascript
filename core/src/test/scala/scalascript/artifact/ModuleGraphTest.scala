@@ -24,6 +24,18 @@ class ModuleGraphTest extends AnyFunSuite:
        |```
        |""".stripMargin
 
+  /** Markdown source with a `package:` front-matter declaration. */
+  private def moduleWithPackage(pkg: String, bodyValName: String): String =
+    s"""---
+       |package: $pkg
+       |---
+       |# M
+       |
+       |```scalascript
+       |val $bodyValName = 1
+       |```
+       |""".stripMargin
+
   // ── Topological sort ───────────────────────────────────────────────────
 
   test("build — topo-sort on a 3-module chain A → B → C returns [A, B, C]"):
@@ -80,6 +92,54 @@ class ModuleGraphTest extends AnyFunSuite:
       val ordered = res.orderedNodes.map(_.path.last).toSet
       assert(!ordered.contains("a.ssc") || !ordered.contains("b.ssc"),
         s"cyclic nodes must not all appear in topo order, got: $ordered")
+    }
+
+  // ── Package collision detection ────────────────────────────────────────
+
+  test("build — two files claiming the same `package:` are flagged"):
+    withTempDir { d =>
+      os.write(d / "x.ssc", moduleWithPackage("std.foo", "x"))
+      os.write(d / "y.ssc", moduleWithPackage("std.foo", "y"))
+      val res = ModuleGraph.build(d)
+      assert(res.pkgCollisions.length == 1,
+        s"expected one collision, got ${res.pkgCollisions}")
+      val c = res.pkgCollisions.head
+      assert(c.pkg == List("std", "foo"), s"unexpected pkg: ${c.pkg}")
+      val names = c.paths.map(_.last).toSet
+      assert(names == Set("x.ssc", "y.ssc"),
+        s"expected both files in the collision, got $names")
+    }
+
+  test("build — three files in the same package all listed in a single collision"):
+    withTempDir { d =>
+      os.write(d / "a.ssc", moduleWithPackage("acme.ui", "a"))
+      os.write(d / "b.ssc", moduleWithPackage("acme.ui", "b"))
+      os.write(d / "c.ssc", moduleWithPackage("acme.ui", "c"))
+      val res = ModuleGraph.build(d)
+      assert(res.pkgCollisions.length == 1)
+      assert(res.pkgCollisions.head.paths.length == 3,
+        s"expected 3 paths, got ${res.pkgCollisions.head.paths.length}")
+    }
+
+  test("build — distinct packages do not collide"):
+    withTempDir { d =>
+      os.write(d / "x.ssc", moduleWithPackage("std.foo", "x"))
+      os.write(d / "y.ssc", moduleWithPackage("std.bar", "y"))
+      val res = ModuleGraph.build(d)
+      assert(res.pkgCollisions.isEmpty,
+        s"expected no collisions, got ${res.pkgCollisions}")
+    }
+
+  test("build — files without `package:` front-matter are not flagged"):
+    // Two files with no front-matter both have pkg == Nil but should NOT be
+    // reported as a collision — the artifact basename comes from the file
+    // name, not the (empty) package, so they're safe.
+    withTempDir { d =>
+      os.write(d / "x.ssc", moduleWith(Nil, "x"))
+      os.write(d / "y.ssc", moduleWith(Nil, "y"))
+      val res = ModuleGraph.build(d)
+      assert(res.pkgCollisions.isEmpty,
+        s"empty-pkg files must not collide, got ${res.pkgCollisions}")
     }
 
   // ── isStale ────────────────────────────────────────────────────────────

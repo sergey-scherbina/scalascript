@@ -490,6 +490,16 @@ def incrementalBuildCommand(args: List[String]): Unit =
     }
     System.exit(1)
 
+  if graph.pkgCollisions.nonEmpty then
+    System.err.println(s"build --incremental: ${graph.pkgCollisions.length} package collision(s) detected:")
+    graph.pkgCollisions.foreach { c =>
+      System.err.println(s"  package '${c.pkg.mkString(".")}' claimed by:")
+      c.paths.foreach(p => System.err.println(s"    - ${p.relativeTo(srcDir)}"))
+    }
+    System.err.println("  Each `package:` value must be unique within the source tree;")
+    System.err.println("  artifacts share a name space, so collisions would overwrite each other.")
+    System.exit(1)
+
   val nodes = graph.orderedNodes
   println(s"Discovered ${nodes.length} module(s) in ${srcDir.relativeTo(os.pwd)}" +
     (if emitJvm then "  (--backend jvm: emitting .scjvm)"
@@ -703,6 +713,13 @@ private def buildArtifactsInto(
     out.println("build (artifacts): circular dependencies detected:")
     graph.cycles.foreach { cycle =>
       out.println("  " + cycle.map(p => p.relativeTo(srcDir).toString).mkString(" → "))
+    }
+    return (0, 0, 1)
+  if graph.pkgCollisions.nonEmpty then
+    out.println(s"build (artifacts): ${graph.pkgCollisions.length} package collision(s) detected:")
+    graph.pkgCollisions.foreach { c =>
+      out.println(s"  package '${c.pkg.mkString(".")}' claimed by:")
+      c.paths.foreach(p => out.println(s"    - ${p.relativeTo(srcDir)}"))
     }
     return (0, 0, 1)
 
