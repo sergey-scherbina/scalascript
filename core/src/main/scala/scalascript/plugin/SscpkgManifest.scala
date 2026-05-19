@@ -2,7 +2,7 @@ package scalascript.plugin
 
 import org.yaml.snakeyaml.Yaml
 import scala.jdk.CollectionConverters.*
-import scala.util.{Try, Success, Failure}
+import scala.util.Try
 
 /** Parsed `manifest.yaml` from a `.sscpkg` archive.
  *  See docs/milestones.md §v1.7 Tier 2 for the archive layout.

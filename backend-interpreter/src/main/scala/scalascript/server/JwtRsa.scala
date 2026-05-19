@@ -1,6 +1,6 @@
 package scalascript.server
 
-import java.security.{KeyFactory, MessageDigest, Signature, SecureRandom, PrivateKey, PublicKey}
+import java.security.{KeyFactory, Signature, PrivateKey, PublicKey}
 import java.security.spec.{PKCS8EncodedKeySpec, X509EncodedKeySpec}
 import java.util.Base64
 

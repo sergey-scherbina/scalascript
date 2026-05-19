@@ -2,7 +2,6 @@ package scalascript.plugin
 
 import java.util.zip.ZipFile
 import scala.jdk.CollectionConverters.*
-import scala.util.Try
 
 /** Reads a `.sscpkg` ZIP archive and extracts its contributions.
  *  See docs/milestones.md §v1.7 Tier 2.

@@ -173,8 +173,6 @@ object WebServer:
       0x05, 0x00                                      // NULL
     )
     val octetStr = encodeDerTlv(0x04, pkcs1)          // OCTET STRING wrapping PKCS#1
-    val inner    = oidSeq ++ Array[Byte](0x02, 0x01, 0x00) ++ // version = 0
-                   oidSeq ++ octetStr
     // Outer SEQUENCE
     encodeDerTlv(0x30, Array[Byte](0x02, 0x01, 0x00) ++ oidSeq ++ octetStr)
 
@@ -428,7 +426,7 @@ object WebServer:
   private def handleStreamResponse(
       fields:  Map[String, scalascript.interpreter.Value],
       ex:      HttpExchange,
-      _unused: Map[String, String],
+      @annotation.unused _unused: Map[String, String],
       interp:  Interpreter
   ): Unit =
     import scalascript.interpreter.Value
@@ -463,7 +461,7 @@ object WebServer:
   private def writeResponse(
       v:                scalascript.interpreter.Value,
       ex:               HttpExchange,
-      rawCookieSession: Map[String, String] = Map.empty
+      rawCookieSession: Map[String, String]
   ): Unit =
     import scalascript.interpreter.Value
     val (status, headers, body, setSession) = v match

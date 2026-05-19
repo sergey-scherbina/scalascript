@@ -11,7 +11,7 @@ import scalascript.ir.QualifiedName
 val WsIntrinsics: Map[QualifiedName, IntrinsicImpl] = Map(
 
   // metrics() — snapshot of process-wide counters as Map[String, Long].
-  QualifiedName("metrics") -> NativeImpl((ctx, args) =>
+  QualifiedName("metrics") -> NativeImpl((_, args) =>
     args match
       case Nil =>
         val snap = scalascript.server.Metrics.snapshot()
@@ -20,7 +20,7 @@ val WsIntrinsics: Map[QualifiedName, IntrinsicImpl] = Map(
   ),
 
   // setMaxWsConnections(n) — process-wide cap on simultaneously-open WebSocket sessions.
-  QualifiedName("setMaxWsConnections") -> NativeImpl((ctx, args) =>
+  QualifiedName("setMaxWsConnections") -> NativeImpl((_, args) =>
     args match
       case List(n: Long) =>
         scalascript.server.WsConnection.maxActive.set(
@@ -31,7 +31,7 @@ val WsIntrinsics: Map[QualifiedName, IntrinsicImpl] = Map(
   ),
 
   // WsRoom() — thread-safe registry with built-in broadcast helper.
-  QualifiedName("WsRoom") -> NativeImpl((ctx, args) =>
+  QualifiedName("WsRoom") -> NativeImpl((_, args) =>
     args match
       case Nil =>
         val members = java.util.concurrent.CopyOnWriteArrayList[Value]()

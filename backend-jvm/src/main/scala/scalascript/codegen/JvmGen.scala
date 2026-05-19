@@ -205,7 +205,7 @@ class JvmGen(
     if parts.isEmpty then None
     else
       val head = parts.head
-      val tail = parts.tail.map(p => p.head.toUpper + p.tail)
+      val tail = parts.tail.map(p => s"${p.head.toUpper}${p.tail}")
       val raw  = head + tail.mkString
       Some(if raw.head.isDigit then "_" + raw else raw)
 
@@ -214,7 +214,7 @@ class JvmGen(
    *  both trait/type definitions and given values, since `val X = pkg.X` would
    *  fail to compile for traits.
    *  When `pkg` is empty, only `as`-aliased bindings produce a `val`. */
-  private def aliasBlock(bindings: List[ImportBinding], pkg: List[String] = Nil): Option[JvmGen.Block] =
+  private def aliasBlock(bindings: List[ImportBinding], pkg: List[String]): Option[JvmGen.Block] =
     import scala.meta.{dialects, *}
     if pkg.nonEmpty then
       val pkgPath = pkg.mkString(".")
@@ -436,7 +436,7 @@ class JvmGen(
    *  `runActors`, `spawn`, `self`, `exit`, `receive`, `link`, `monitor`,
    *  `demonitor`, `trapExit`, or Phase 3 distributed primitives. */
   private def blocksUseActors(blocks: List[JvmGen.Block]): Boolean =
-    val names = Set("runActors", "spawn", "self", "exit", "receive",
+    val names = Set("runActors", "spawn", "spawnBounded", "self", "exit", "receive",
                     "link", "monitor", "demonitor", "trapExit",
                     "startNode", "connectNode", "register", "whereis",
                     "sendAfter", "sendInterval", "cancelTimer")
@@ -933,7 +933,7 @@ class JvmGen(
 
   // ─── Statement emission ───────────────────────────────────────────
 
-  private def emitStats(stats: List[Stat], out: StringBuilder, isTopLevel: Boolean = false): Unit =
+  private def emitStats(stats: List[Stat], out: StringBuilder, isTopLevel: Boolean): Unit =
     stats.zipWithIndex.foreach { (s, i) =>
       val isLast = i == stats.length - 1
       val rendered = emitStat(s)
@@ -1291,6 +1291,12 @@ class JvmGen(
     case Term.Apply.After_4_6_0(Term.Name("spawn_link"), argClause)
         if argClause.values.size == 1 =>
       s"Actor.spawn_link(${emitCpsExpr(argClause.values.head.asInstanceOf[Term])})"
+    case Term.Apply.After_4_6_0(Term.Name("spawnBounded"), argClause)
+        if argClause.values.size == 3 =>
+      val capSc      = emitExpr(argClause.values(0).asInstanceOf[Term])
+      val overflowSc = emitExpr(argClause.values(1).asInstanceOf[Term])
+      val thunkSc    = emitCpsExpr(argClause.values(2).asInstanceOf[Term])
+      s"Actor.spawnBounded($capSc, $overflowSc, $thunkSc)"
     case Term.Apply.After_4_6_0(Term.Name("self"), argClause)
         if argClause.values.isEmpty =>
       "Actor.self()"
@@ -1357,7 +1363,7 @@ class JvmGen(
       argClause.values.head match
         case block: Term.Block => emitDirectBlock(block.stats)
         case single: Term      => emitExpr(single)
-        case _                 => "??? /* direct: expected block */"
+        case null              => "??? /* direct: expected block */"
 
     // If the term has nested effect or Focus / Prism content, walk children.
     case _ if termNeedsCustomEmit(term) => emitExprDeep(term)
@@ -1943,6 +1949,12 @@ class JvmGen(
     case Term.Apply.After_4_6_0(Term.Name("spawn_link"), argClause)
         if argClause.values.size == 1 =>
       s"Actor.spawn_link(${emitCpsExpr(argClause.values.head.asInstanceOf[Term])})"
+    case Term.Apply.After_4_6_0(Term.Name("spawnBounded"), argClause)
+        if argClause.values.size == 3 =>
+      val capSc      = emitExpr(argClause.values(0).asInstanceOf[Term])
+      val overflowSc = emitExpr(argClause.values(1).asInstanceOf[Term])
+      val thunkSc    = emitCpsExpr(argClause.values(2).asInstanceOf[Term])
+      s"Actor.spawnBounded($capSc, $overflowSc, $thunkSc)"
     case Term.Apply.After_4_6_0(Term.Name("self"), argClause)
         if argClause.values.isEmpty =>
       "Actor.self()"
@@ -5849,12 +5861,18 @@ class JvmGen(
        |  def sendAfter(delayMs: Any, pid: Any, msg: Any): Any   = _perform("Actor", "sendAfter",   delayMs, pid, msg)
        |  def sendInterval(periodMs: Any, pid: Any, msg: Any): Any = _perform("Actor", "sendInterval", periodMs, pid, msg)
        |  def cancelTimer(ref: Any): Any                          = _perform("Actor", "cancelTimer", ref)
+       |  // v1.6.x — bounded mailbox spawn
+       |  def spawnBounded(cap: Any, overflow: Any, thunk: () => Any): Any = _perform("Actor", "spawnBounded", cap, overflow, thunk)
        |
        |class _ActorState:
        |  val mailbox = scala.collection.mutable.ArrayDeque.empty[Any]
        |  var pending: Any = null
        |  // (matcher, k, deadline?, wrapSome)
        |  var blocked: (Any => Option[Any], Any => Any, Option[Long], Boolean) = null
+       |  // v1.6.x bounded mailbox
+       |  var cap:      Int    = 0   // 0 = unbounded
+       |  var overflow: String = ""
+       |  val blockedSends = scala.collection.mutable.ArrayDeque.empty[(Long, Any, Any => Any)]
        |
        |def _runActors(bodyThunk: () => Any): Any =
        |  val actors    = scala.collection.mutable.LongMap.empty[_ActorState]
@@ -5884,11 +5902,13 @@ class JvmGen(
        |  var nextId: Long = 0L
        |  var rootResult: Any = ()
        |
-       |  def spawnActor(thunk: () => Any): Long =
+       |  def spawnActor(thunk: () => Any, cap: Int = 0, overflow: String = ""): Long =
        |    val id = nextId
        |    nextId += 1
        |    val st = new _ActorState
        |    st.pending = thunk()
+       |    st.cap = cap
+       |    st.overflow = overflow
        |    actors.put(id, st)
        |    ready.append(id)
        |    id
@@ -6059,18 +6079,33 @@ class JvmGen(
        |                case '\n' => sb.append("\\n"); case c => sb.append(c) }
        |    sb.append('"').toString
        |
+       |  def _resumeBlockedSender(state: _ActorState): Unit =
+       |    if state.cap <= 0 || state.blockedSends.isEmpty then return
+       |    if state.mailbox.size >= state.cap then return
+       |    while state.blockedSends.nonEmpty do
+       |      val (senderId, msg, senderK) = state.blockedSends.removeHead()
+       |      actors.get(senderId) match
+       |        case Some(ss) if ss != null =>
+       |          state.mailbox.append(msg)
+       |          ss.pending = senderK(())
+       |          ready.append(senderId)
+       |          return
+       |        case _ => ()  // dead sender — skip
+       |
        |  def tryDeliver(state: _ActorState, matcher: Any => Option[Any], wrapSome: Boolean): Option[Any] =
        |    while state.mailbox.nonEmpty do
        |      val msg = state.mailbox.head
        |      matcher(msg) match
        |        case Some(bodyC) =>
        |          state.mailbox.removeHead()
+       |          _resumeBlockedSender(state)
        |          if wrapSome then
        |            return Some(_FlatMap(bodyC, (v: Any) => Some(v)))
        |          else
        |            return Some(bodyC)
        |        case None =>
        |          state.mailbox.removeHead()
+       |          _resumeBlockedSender(state)
        |    None
        |
        |  def tryWakeBlocked(id: Long): Unit =
@@ -6087,8 +6122,18 @@ class JvmGen(
        |
        |  def killActor(targetId: Long, reason: Any): Unit =
        |    if !actors.contains(targetId) then return
+       |    val _dyingSt = actors(targetId)
        |    actors.remove(targetId)
        |    trapExitM.remove(targetId)
+       |    // Resume blocked senders: target died → send becomes silent no-op.
+       |    if _dyingSt.blockedSends.nonEmpty then
+       |      _dyingSt.blockedSends.foreach { (senderId, _, senderK) =>
+       |        actors.get(senderId).foreach { ss =>
+       |          ss.pending = senderK(())
+       |          ready.append(senderId)
+       |        }
+       |      }
+       |      _dyingSt.blockedSends.clear()
        |    val deadPid = _Pid("", targetId)
        |    links.remove(targetId).foreach { linkedSet =>
        |      linkedSet.foreach { linkedId =>
@@ -6123,6 +6168,18 @@ class JvmGen(
        |      links.getOrElseUpdate(id,      scala.collection.mutable.Set.empty) += childId
        |      links.getOrElseUpdate(childId, scala.collection.mutable.Set.empty) += id
        |      Right(k(_Pid(_localNodeId, childId)))
+       |    case "spawnBounded" =>
+       |      val cap = args(0) match
+       |        case n: Int  => n
+       |        case n: Long => n.toInt
+       |        case _       => 0
+       |      val ov = args(1) match
+       |        case m: scala.collection.immutable.Map[?, ?] =>
+       |          m.asInstanceOf[Map[String, Any]].getOrElse("_type", "DropNewest").toString
+       |        case _ => "DropNewest"
+       |      val thunk = args(2).asInstanceOf[() => Any]
+       |      val childId = spawnActor(thunk, cap, ov)
+       |      Right(k(_Pid(_localNodeId, childId)))
        |    case "self" => Right(k(_Pid(_localNodeId, id)))
        |    case "send" =>
        |      args(0) match
@@ -6134,17 +6191,31 @@ class JvmGen(
        |              sendFn(_mkMsgEnv(_localNodeId, id, pidNode, targetId, body))
        |            }
        |          else
-       |            actors.get(targetId).foreach { ts =>
-       |              ts.mailbox.append(args(1))
-       |              if ts.blocked != null then
-       |                val b = ts.blocked
-       |                tryDeliver(ts, b._1, b._4) match
-       |                  case Some(c) =>
-       |                    ts.pending = _FlatMap(c, b._2)
-       |                    ts.blocked = null
-       |                    ready.append(targetId)
-       |                  case None => ()
-       |            }
+       |            actors.get(targetId) match
+       |              case Some(ts) =>
+       |                val _delivered =
+       |                  if ts.cap > 0 && ts.mailbox.size >= ts.cap then
+       |                    ts.overflow match
+       |                      case "DropOldest" =>
+       |                        ts.mailbox.removeHead(); ts.mailbox.append(args(1)); true
+       |                      case "DropNewest" => false
+       |                      case "Fail" =>
+       |                        killActor(id, "mailbox_overflow")
+       |                        return if actors.contains(id) then Right(k(())) else Left(())
+       |                      case "Block" =>
+       |                        ts.blockedSends.append((id, args(1), k))
+       |                        return Left(())
+       |                      case _ => ts.mailbox.append(args(1)); true
+       |                  else { ts.mailbox.append(args(1)); true }
+       |                if _delivered && ts.blocked != null then
+       |                  val b = ts.blocked
+       |                  tryDeliver(ts, b._1, b._4) match
+       |                    case Some(c) =>
+       |                      ts.pending = _FlatMap(c, b._2)
+       |                      ts.blocked = null
+       |                      ready.append(targetId)
+       |                    case None => ()
+       |              case None => ()
        |        case _ => ()
        |      Right(k(()))
        |    case "exit" =>

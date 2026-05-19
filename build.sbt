@@ -11,7 +11,7 @@ ThisBuild / version      := "0.1.0-SNAPSHOT"
 ThisBuild / Test / javaOptions += "-Xss8m"
 ThisBuild / Test / fork         := true
 
-val sharedScalacOptions = Seq("-Wunused:all", "-deprecation", "-feature")
+val sharedScalacOptions = Seq("-Wunused:all", "-deprecation", "-feature", "-Werror")
 val scalatestTest       = "org.scalatest" %% "scalatest" % "3.2.18" % Test
 
 // ---------------------------------------------------------------------------

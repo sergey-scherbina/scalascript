@@ -152,6 +152,11 @@ class Interpreter(
     // v1.6.x scheduled sends — timerId → (fireAt, periodMs, targetId, msg)
     val timers     = mutable.LongMap.empty[(Long, Option[Long], Long, Value)]
     var nextTimerId = 0L
+    // v1.6.x bounded mailboxes
+    val mailboxCaps     = mutable.LongMap.empty[Int]    // capacity per bounded actor
+    val mailboxOverflow = mutable.LongMap.empty[String] // "Block"|"DropOldest"|"DropNewest"|"Fail"
+    // blocked senders: targetId → Queue[(senderId, msg, senderContinuation)]
+    val blockedSends = mutable.LongMap.empty[mutable.Queue[(Long, Value, Value => Computation)]]
   private var actorRt: ActorRuntime = null
 
   // ── Phase 3 — distributed node state ────────────────────────────────
@@ -1103,6 +1108,15 @@ class Interpreter(
       case List(thunk) => Perform("Actor", "spawn", List(thunk))
       case _           => throw InterpretError("spawn(behavior: () => Unit)")
     })
+    // v1.6.x — bounded mailbox spawn
+    globals("spawnBounded") = Value.NativeFnV("spawnBounded", {
+      case List(Value.IntV(cap), overflow, thunk) =>
+        val strategy = overflow match
+          case Value.InstanceV(name, _) => name
+          case _                        => "DropNewest"
+        Perform("Actor", "spawnBounded", List(Value.IntV(cap), Value.StringV(strategy), thunk))
+      case _ => throw InterpretError("spawnBounded(capacity: Int, overflow: Overflow, behavior: () => Unit)")
+    })
     // v1.6 Phase 1.x — atomic spawn + link
     globals("spawn_link") = Value.NativeFnV("spawn_link", {
       case List(thunk) => Perform("Actor", "spawnLink", List(thunk))
@@ -1208,7 +1222,7 @@ class Interpreter(
         val handle     = CoHandle(fromBody, toBody, threadRef)
         val id         = nextCoId.getAndIncrement()
         coHandles.put(id, handle)
-        val vt = Thread.ofVirtual().start { () =>
+        Thread.ofVirtual().start { () =>
           threadRef.set(Thread.currentThread())
           _coHandleTL.set(handle)
           try
@@ -1468,7 +1482,7 @@ class Interpreter(
     if parts.isEmpty then None
     else
       val head = parts.head
-      val tail = parts.tail.map(p => p.head.toUpper + p.tail)
+      val tail = parts.tail.map(p => s"${p.head.toUpper}${p.tail}")
       val raw  = head + tail.mkString
       Some(if raw.head.isDigit then "_" + raw else raw)
 
@@ -2440,6 +2454,7 @@ class Interpreter(
       }
 
     case t: Term.Try =>
+      @annotation.nowarn("msg=deprecated")
       def tryCatch(thrownVal: Value, cause: Throwable): Value =
         t.catchp.iterator.flatMap { c =>
           matchPat(c.pat, thrownVal, Map.empty).map(bound => (c, bound))
@@ -3164,7 +3179,7 @@ class Interpreter(
         eval(rhs, cur).flatMap { v => step(rest, cur + (n.value -> v)) }
 
       // throw inside direct block — lower to Left(...) instead of raising
-      case (t: Term.Throw) :: rest =>
+      case (t: Term.Throw) :: _ =>
         eval(t.expr, cur).flatMap { v =>
           Pure(Value.InstanceV("Left", Map("value" -> v)))
         }
@@ -3320,13 +3335,7 @@ class Interpreter(
     case ti: scala.meta.Type.ApplyInfix => ti.op.value == "throws"
     case _                              => false
 
-  /** True if a scalameta Type is `A throwsRaw E` (infix `throwsRaw`).
-   *  throwsRaw functions return values as-is (no Either boxing) — same as the default. */
-  private def isThrowsRawType(t: scala.meta.Type): Boolean = t match
-    case ti: scala.meta.Type.ApplyInfix => ti.op.value == "throwsRaw"
-    case _                              => false
-
-  /** Infer the runtime "element type" of a value — the concrete type name
+/** Infer the runtime "element type" of a value — the concrete type name
    *  that a single-letter type variable (like `A` in `Monoid[A]`) would
    *  be bound to given this argument value. For `ListV` we recurse into the
    *  head element so `List(1,2,3)` → `"Int"`. */
@@ -4031,6 +4040,24 @@ class Interpreter(
       rt.links.getOrElseUpdate(childId, mutable.Set.empty) += id
       Right(k(mkPid("", childId)))
 
+    case "spawnBounded" =>
+      val Value.IntV(capL)           = args(0)
+      val Value.StringV(strategy)    = args(1)
+      val thunk = args(2)
+      val childId = rt.nextId
+      rt.nextId += 1
+      rt.mailboxes(childId) = mutable.Queue.empty
+      rt.mailboxCaps(childId) = capL.toInt
+      rt.mailboxOverflow(childId) = strategy
+      val savedCurrent = rt.currentId
+      rt.currentId = childId
+      val childBody =
+        try callValue(thunk, Nil, Map.empty)
+        finally rt.currentId = savedCurrent
+      rt.pending(childId) = childBody
+      rt.ready.enqueue(childId)
+      Right(k(mkPid("", childId)))
+
     case "self" =>
       Right(k(mkPid(localNodeId, id)))
 
@@ -4045,18 +4072,37 @@ class Interpreter(
           case Some(Value.IntV(targetId)) =>
             rt.mailboxes.get(targetId) match
               case Some(mb) =>
-                mb.enqueue(msg)
-                // If target was blocked, try to deliver right now so
-                // it becomes runnable for the next tick.
-                rt.blocked.get(targetId) match
-                  case Some((cases, blockedEnv, blockedK, _, wrapSome)) =>
-                    tryDeliver(rt, targetId, cases, blockedEnv, blockedK, wrapSome) match
-                      case Some(newPending) =>
-                        rt.blocked.remove(targetId)
-                        rt.pending(targetId) = newPending
-                        rt.ready.enqueue(targetId)
-                      case None => ()  // head didn't match, stays blocked
-                  case None => ()
+                // Bounded mailbox: apply overflow strategy if at capacity.
+                val delivered = rt.mailboxCaps.get(targetId) match
+                  case Some(cap) if mb.size >= cap =>
+                    rt.mailboxOverflow.getOrElse(targetId, "DropNewest") match
+                      case "DropOldest" =>
+                        mb.dequeue()
+                        mb.enqueue(msg)
+                        true
+                      case "DropNewest" =>
+                        false
+                      case "Fail" =>
+                        killActor(rt, id, Value.StringV("mailbox_overflow"))
+                        return if rt.mailboxes.contains(id) then Right(k(Value.UnitV)) else Left(())
+                      case "Block" =>
+                        rt.blockedSends.getOrElseUpdate(targetId, mutable.Queue.empty)
+                          .enqueue((id, msg, k))
+                        return Left(())
+                      case _ =>
+                        mb.enqueue(msg); true
+                  case _ =>
+                    mb.enqueue(msg); true
+                if delivered then
+                  rt.blocked.get(targetId) match
+                    case Some((cases, blockedEnv, blockedK, _, wrapSome)) =>
+                      tryDeliver(rt, targetId, cases, blockedEnv, blockedK, wrapSome) match
+                        case Some(newPending) =>
+                          rt.blocked.remove(targetId)
+                          rt.pending(targetId) = newPending
+                          rt.ready.enqueue(targetId)
+                        case None => ()
+                    case None => ()
               case None =>
                 // Send to dead PID — silent no-op, Erlang semantics.
                 ()
@@ -4331,11 +4377,32 @@ class Interpreter(
           case None => ()
       if matched.isDefined then
         mb.dequeue()
+        resumeBlockedSender(rt, id)
         return matched
       // Dead letter: discard the head and try the next.
       out.println(s"[dead-letter] actor=$id msg=${Value.show(msg)}")
       mb.dequeue()
+      resumeBlockedSender(rt, id)
     None
+
+  // After consuming a message from a bounded mailbox, resume the first
+  // blocked sender (if any) so they can deliver their queued message.
+  private def resumeBlockedSender(rt: ActorRuntime, receiverId: Long): Unit =
+    rt.mailboxCaps.get(receiverId).foreach { cap =>
+      rt.mailboxes.get(receiverId).foreach { mb =>
+        if mb.size < cap then
+          rt.blockedSends.get(receiverId).foreach { queue =>
+            // Skip dead senders; resume the first live one.
+            while queue.nonEmpty do
+              val (senderId, msg, senderK) = queue.dequeue()
+              if rt.mailboxes.contains(senderId) then
+                mb.enqueue(msg)
+                rt.pending(senderId) = senderK(Value.UnitV)
+                rt.ready.enqueue(senderId)
+                return
+          }
+      }
+    }
 
   // ── Phase 2 — supervision helpers ────────────────────────────────
 
@@ -4352,6 +4419,16 @@ class Interpreter(
     rt.blocked.remove(targetId)
     rt.mailboxes.remove(targetId)
     rt.trapExit.remove(targetId)
+    // Bounded mailbox cleanup: resume blocked senders (their send becomes a silent no-op).
+    rt.mailboxCaps.remove(targetId)
+    rt.mailboxOverflow.remove(targetId)
+    rt.blockedSends.remove(targetId).foreach { queue =>
+      queue.foreach { (senderId, _, senderK) =>
+        if rt.mailboxes.contains(senderId) then
+          rt.pending(senderId) = senderK(Value.UnitV)
+          rt.ready.enqueue(senderId)
+      }
+    }
 
     val deadPid = mkPid("", targetId)
 

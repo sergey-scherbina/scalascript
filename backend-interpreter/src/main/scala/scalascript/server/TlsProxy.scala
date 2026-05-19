@@ -60,7 +60,6 @@ object TlsProxy:
       wsExecutor: Executor,
       log:        java.io.PrintStream
   ): Unit =
-    val segs = path.split('/').filter(_.nonEmpty).toList
     WsRoutes.matchPath(path) match
       case None =>
         cout.write(httpResp(404, "Not Found", s"No WebSocket route for $path"))

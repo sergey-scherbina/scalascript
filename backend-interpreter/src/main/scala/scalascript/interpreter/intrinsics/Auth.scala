@@ -13,7 +13,7 @@ val AuthIntrinsics: Map[QualifiedName, IntrinsicImpl] = Map(
 
   // ── Response.basicAuthChallenge ──────────────────────────────────────
 
-  QualifiedName("Response.basicAuthChallenge") -> NativeImpl((ctx, args) =>
+  QualifiedName("Response.basicAuthChallenge") -> NativeImpl((_, args) =>
     args match
       case List(realm: String) =>
         val safe = realm.replace("\\", "\\\\").replace("\"", "\\\"")
@@ -29,13 +29,13 @@ val AuthIntrinsics: Map[QualifiedName, IntrinsicImpl] = Map(
 
   // ── CSRF ─────────────────────────────────────────────────────────────
 
-  QualifiedName("csrfToken") -> NativeImpl((ctx, args) =>
+  QualifiedName("csrfToken") -> NativeImpl((_, _) =>
     val bytes = new Array[Byte](24)
     java.security.SecureRandom().nextBytes(bytes)
     Value.StringV(java.util.Base64.getUrlEncoder.withoutPadding.encodeToString(bytes))
   ),
 
-  QualifiedName("csrfValid") -> NativeImpl((ctx, args) =>
+  QualifiedName("csrfValid") -> NativeImpl((_, args) =>
     args match
       case List(Value.InstanceV("Request", fields)) =>
         def asMap(v: Option[Value]): Map[String, String] = v match
@@ -59,7 +59,7 @@ val AuthIntrinsics: Map[QualifiedName, IntrinsicImpl] = Map(
 
   // ── Base64-url codec ──────────────────────────────────────────────────
 
-  QualifiedName("base64UrlEncode") -> NativeImpl((ctx, args) =>
+  QualifiedName("base64UrlEncode") -> NativeImpl((_, args) =>
     args match
       case List(s: String) =>
         Value.StringV(java.util.Base64.getUrlEncoder.withoutPadding
@@ -67,7 +67,7 @@ val AuthIntrinsics: Map[QualifiedName, IntrinsicImpl] = Map(
       case _ => throw InterpretError("base64UrlEncode(s: String)")
   ),
 
-  QualifiedName("base64UrlDecode") -> NativeImpl((ctx, args) =>
+  QualifiedName("base64UrlDecode") -> NativeImpl((_, args) =>
     args match
       case List(s: String) =>
         try Value.StringV(String(java.util.Base64.getUrlDecoder.decode(s), "UTF-8"))
@@ -77,13 +77,13 @@ val AuthIntrinsics: Map[QualifiedName, IntrinsicImpl] = Map(
 
   // ── WebAuthn / passkeys ───────────────────────────────────────────────
 
-  QualifiedName("webauthnChallenge") -> NativeImpl((ctx, args) =>
+  QualifiedName("webauthnChallenge") -> NativeImpl((_, args) =>
     args match
       case List(uid: String) => Value.StringV(scalascript.server.WebAuthn.challenge(uid))
       case _ => throw InterpretError("webauthnChallenge(userId: String)")
   ),
 
-  QualifiedName("webauthnConsumeChallenge") -> NativeImpl((ctx, args) =>
+  QualifiedName("webauthnConsumeChallenge") -> NativeImpl((_, args) =>
     args match
       case List(s: String) =>
         scalascript.server.WebAuthn.consumeChallenge(s) match
@@ -92,7 +92,7 @@ val AuthIntrinsics: Map[QualifiedName, IntrinsicImpl] = Map(
       case _ => throw InterpretError("webauthnConsumeChallenge(challenge: String)")
   ),
 
-  QualifiedName("webauthnStorePut") -> NativeImpl((ctx, args) =>
+  QualifiedName("webauthnStorePut") -> NativeImpl((_, args) =>
     args match
       case List(uid: String, cid: String, pk: String, cnt: Long) =>
         scalascript.server.WebAuthn.storePut(uid,
@@ -102,7 +102,7 @@ val AuthIntrinsics: Map[QualifiedName, IntrinsicImpl] = Map(
         "webauthnStorePut(userId, credentialId, publicKeyB64, signCount)")
   ),
 
-  QualifiedName("webauthnStoreGet") -> NativeImpl((ctx, args) =>
+  QualifiedName("webauthnStoreGet") -> NativeImpl((_, args) =>
     args match
       case List(uid: String) =>
         Value.ListV(scalascript.server.WebAuthn.storeGet(uid).map { c =>
@@ -115,7 +115,7 @@ val AuthIntrinsics: Map[QualifiedName, IntrinsicImpl] = Map(
       case _ => throw InterpretError("webauthnStoreGet(userId: String)")
   ),
 
-  QualifiedName("webauthnStoreFind") -> NativeImpl((ctx, args) =>
+  QualifiedName("webauthnStoreFind") -> NativeImpl((_, args) =>
     args match
       case List(uid: String, cid: String) =>
         scalascript.server.WebAuthn.storeFind(uid, cid) match
@@ -129,7 +129,7 @@ val AuthIntrinsics: Map[QualifiedName, IntrinsicImpl] = Map(
       case _ => throw InterpretError("webauthnStoreFind(userId, credentialId)")
   ),
 
-  QualifiedName("webauthnUpdateSignCount") -> NativeImpl((ctx, args) =>
+  QualifiedName("webauthnUpdateSignCount") -> NativeImpl((_, args) =>
     args match
       case List(uid: String, cid: String, cnt: Long) =>
         Value.BoolV(scalascript.server.WebAuthn.storeUpdateSignCount(uid, cid, cnt))
@@ -137,7 +137,7 @@ val AuthIntrinsics: Map[QualifiedName, IntrinsicImpl] = Map(
         "webauthnUpdateSignCount(userId, credentialId, newSignCount)")
   ),
 
-  QualifiedName("webauthnVerifyAssertion") -> NativeImpl((ctx, args) =>
+  QualifiedName("webauthnVerifyAssertion") -> NativeImpl((_, args) =>
     args match
       case List(cd: String, ad: String, sig: String, cid: String, origin: String) =>
         scalascript.server.WebAuthn.verifyAssertion(cd, ad, sig, cid, origin) match
@@ -152,7 +152,7 @@ val AuthIntrinsics: Map[QualifiedName, IntrinsicImpl] = Map(
         "signatureB64, credentialIdB64, expectedOrigin)")
   ),
 
-  QualifiedName("webauthnVerifyRegistration") -> NativeImpl((ctx, args) =>
+  QualifiedName("webauthnVerifyRegistration") -> NativeImpl((_, args) =>
     args match
       case List(cd: String, att: String, origin: String) =>
         scalascript.server.WebAuthn.verifyRegistration(cd, att, origin) match
@@ -170,14 +170,14 @@ val AuthIntrinsics: Map[QualifiedName, IntrinsicImpl] = Map(
 
   // ── Rate limiting ─────────────────────────────────────────────────────
 
-  QualifiedName("rateLimit") -> NativeImpl((ctx, args) =>
+  QualifiedName("rateLimit") -> NativeImpl((_, args) =>
     args match
       case List(key: String, lim: Long, win: Long) =>
         Value.BoolV(scalascript.server.RateLimit.tryAcquire(key, lim, win))
       case _ => throw InterpretError("rateLimit(key: String, limit: Int, windowSeconds: Int)")
   ),
 
-  QualifiedName("rateLimitReset") -> NativeImpl((ctx, args) =>
+  QualifiedName("rateLimitReset") -> NativeImpl((_, args) =>
     args match
       case List(key: String) => scalascript.server.RateLimit.reset(key); ()
       case _ => throw InterpretError("rateLimitReset(key: String)")
@@ -185,11 +185,11 @@ val AuthIntrinsics: Map[QualifiedName, IntrinsicImpl] = Map(
 
   // ── TOTP / 2FA (RFC 6238) ─────────────────────────────────────────────
 
-  QualifiedName("totpSecret") -> NativeImpl((ctx, args) =>
+  QualifiedName("totpSecret") -> NativeImpl((_, _) =>
     Value.StringV(scalascript.server.Totp.secret())
   ),
 
-  QualifiedName("totpUri") -> NativeImpl((ctx, args) =>
+  QualifiedName("totpUri") -> NativeImpl((_, args) =>
     args match
       case List(s: String, account: String) =>
         Value.StringV(scalascript.server.Totp.uri(s, account))
@@ -198,13 +198,13 @@ val AuthIntrinsics: Map[QualifiedName, IntrinsicImpl] = Map(
       case _ => throw InterpretError("totpUri(secret, account[, issuer])")
   ),
 
-  QualifiedName("totpCode") -> NativeImpl((ctx, args) =>
+  QualifiedName("totpCode") -> NativeImpl((_, args) =>
     args match
       case List(s: String) => Value.StringV(scalascript.server.Totp.code(s))
       case _ => throw InterpretError("totpCode(secret)")
   ),
 
-  QualifiedName("totpValid") -> NativeImpl((ctx, args) =>
+  QualifiedName("totpValid") -> NativeImpl((_, args) =>
     args match
       case List(s: String, code: String) =>
         Value.BoolV(scalascript.server.Totp.valid(s, code))
@@ -215,14 +215,14 @@ val AuthIntrinsics: Map[QualifiedName, IntrinsicImpl] = Map(
 
   // ── Password hashing (PBKDF2-HMAC-SHA256) ────────────────────────────
 
-  QualifiedName("hashPassword") -> NativeImpl((ctx, args) =>
+  QualifiedName("hashPassword") -> NativeImpl((_, args) =>
     args match
       case List(pass: String)             => Value.StringV(scalascript.server.Password.hash(pass))
       case List(pass: String, iter: Long) => Value.StringV(scalascript.server.Password.hash(pass, iter.toInt))
       case _ => throw InterpretError("hashPassword(password[, iter])")
   ),
 
-  QualifiedName("verifyPassword") -> NativeImpl((ctx, args) =>
+  QualifiedName("verifyPassword") -> NativeImpl((_, args) =>
     args match
       case List(pass: String, encoded: String) =>
         Value.BoolV(scalascript.server.Password.verify(pass, encoded))
@@ -231,7 +231,7 @@ val AuthIntrinsics: Map[QualifiedName, IntrinsicImpl] = Map(
 
   // ── Cookie / session ──────────────────────────────────────────────────
 
-  QualifiedName("cookieConfig") -> NativeImpl((ctx, args) =>
+  QualifiedName("cookieConfig") -> NativeImpl((_, args) =>
     args match
       case List(secure: Boolean) =>
         scalascript.server.SessionCookie.setCookieConfig(
@@ -243,7 +243,7 @@ val AuthIntrinsics: Map[QualifiedName, IntrinsicImpl] = Map(
       case _ => throw InterpretError("cookieConfig(secure: Boolean[, sameSite: String])")
   ),
 
-  QualifiedName("useSessionStore") -> NativeImpl((ctx, args) =>
+  QualifiedName("useSessionStore") -> NativeImpl((_, args) =>
     args match
       case Nil          => scalascript.server.SessionStore.useStore(); ()
       case List(ttl: Long) => scalascript.server.SessionStore.useStore(ttl); ()
@@ -252,7 +252,7 @@ val AuthIntrinsics: Map[QualifiedName, IntrinsicImpl] = Map(
 
   // ── JWT HS256 ─────────────────────────────────────────────────────────
 
-  QualifiedName("jwtSign") -> NativeImpl((ctx, args) =>
+  QualifiedName("jwtSign") -> NativeImpl((_, args) =>
     args match
       case List(Value.MapV(m)) =>
         val claims = m.collect {
@@ -263,7 +263,7 @@ val AuthIntrinsics: Map[QualifiedName, IntrinsicImpl] = Map(
       case _ => throw InterpretError("jwtSign(Map[String, String])")
   ),
 
-  QualifiedName("jwtVerify") -> NativeImpl((ctx, args) =>
+  QualifiedName("jwtVerify") -> NativeImpl((_, args) =>
     args match
       case List(token: String) =>
         scalascript.server.Jwt.verify(token) match
@@ -275,7 +275,7 @@ val AuthIntrinsics: Map[QualifiedName, IntrinsicImpl] = Map(
 
   // ── JWT RS256 (asymmetric) ────────────────────────────────────────────
 
-  QualifiedName("jwtSignRsa") -> NativeImpl((ctx, args) =>
+  QualifiedName("jwtSignRsa") -> NativeImpl((_, args) =>
     args match
       case List(Value.MapV(m)) =>
         val claims = m.collect {
@@ -286,7 +286,7 @@ val AuthIntrinsics: Map[QualifiedName, IntrinsicImpl] = Map(
       case _ => throw InterpretError("jwtSignRsa(Map[String, String])")
   ),
 
-  QualifiedName("jwtVerifyRsa") -> NativeImpl((ctx, args) =>
+  QualifiedName("jwtVerifyRsa") -> NativeImpl((_, args) =>
     args match
       case List(token: String) =>
         scalascript.server.JwtRsa.verify(token) match
@@ -298,7 +298,7 @@ val AuthIntrinsics: Map[QualifiedName, IntrinsicImpl] = Map(
 
   // ── OAuth2 ───────────────────────────────────────────────────────────
 
-  QualifiedName("oauthAuthorizeUrl") -> NativeImpl((ctx, args) =>
+  QualifiedName("oauthAuthorizeUrl") -> NativeImpl((_, args) =>
     args match
       case List(prov: String, cid: String, redir: String, state: String) =>
         Value.StringV(scalascript.server.OAuth.authorizeUrl(prov, cid, redir, state))
@@ -308,7 +308,7 @@ val AuthIntrinsics: Map[QualifiedName, IntrinsicImpl] = Map(
         "oauthAuthorizeUrl(provider, clientId, redirectUri, state[, scope])")
   ),
 
-  QualifiedName("oauthExchangeCode") -> NativeImpl((ctx, args) =>
+  QualifiedName("oauthExchangeCode") -> NativeImpl((_, args) =>
     args match
       case List(prov: String, code: String, cid: String, csec: String, redir: String) =>
         scalascript.server.OAuth.exchangeCode(prov, code, cid, csec, redir) match
@@ -319,7 +319,7 @@ val AuthIntrinsics: Map[QualifiedName, IntrinsicImpl] = Map(
         "oauthExchangeCode(provider, code, clientId, clientSecret, redirectUri)")
   ),
 
-  QualifiedName("oauthUserinfo") -> NativeImpl((ctx, args) =>
+  QualifiedName("oauthUserinfo") -> NativeImpl((_, args) =>
     args match
       case List(prov: String, token: String) =>
         scalascript.server.OAuth.userinfo(prov, token) match
@@ -329,7 +329,7 @@ val AuthIntrinsics: Map[QualifiedName, IntrinsicImpl] = Map(
       case _ => throw InterpretError("oauthUserinfo(provider, accessToken)")
   ),
 
-  QualifiedName("oauthRefreshToken") -> NativeImpl((ctx, args) =>
+  QualifiedName("oauthRefreshToken") -> NativeImpl((_, args) =>
     args match
       case List(prov: String, refresh: String, cid: String, csec: String) =>
         scalascript.server.OAuth.refreshToken(prov, refresh, cid, csec) match
@@ -340,7 +340,7 @@ val AuthIntrinsics: Map[QualifiedName, IntrinsicImpl] = Map(
         "oauthRefreshToken(provider, refreshToken, clientId, clientSecret)")
   ),
 
-  QualifiedName("oauthRegisterProvider") -> NativeImpl((ctx, args) =>
+  QualifiedName("oauthRegisterProvider") -> NativeImpl((_, args) =>
     args match
       case List(name: String, Value.MapV(m)) =>
         val cfg = m.collect { case (Value.StringV(k), Value.StringV(v)) => k -> v }.toMap

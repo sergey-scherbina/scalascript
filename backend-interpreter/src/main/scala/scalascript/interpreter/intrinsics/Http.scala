@@ -26,7 +26,7 @@ val HttpIntrinsics: Map[QualifiedName, IntrinsicImpl] = Map(
       case _ => throw InterpretError("route(method, path) { handler }")
   ),
 
-  QualifiedName("tls") -> NativeImpl((ctx, args) =>
+  QualifiedName("tls") -> NativeImpl((_, args) =>
     args match
       case List(cert: String, key: String) =>
         Value.InstanceV("TlsContext", Map("cert" -> Value.StringV(cert), "key" -> Value.StringV(key)))
@@ -184,7 +184,7 @@ val HttpIntrinsics: Map[QualifiedName, IntrinsicImpl] = Map(
       case _   => throw InterpretError("useGzip()")
   ),
 
-  QualifiedName("cacheable") -> NativeImpl((ctx, args) =>
+  QualifiedName("cacheable") -> NativeImpl((_, args) =>
     args match
       case List(resp, n: Long) =>
         addCacheHdrs(resp, Map("Cache-Control" -> s"public, max-age=$n"))
@@ -193,7 +193,7 @@ val HttpIntrinsics: Map[QualifiedName, IntrinsicImpl] = Map(
       case _ => throw InterpretError("cacheable(response, maxAge[, etag])")
   ),
 
-  QualifiedName("noCache") -> NativeImpl((ctx, args) =>
+  QualifiedName("noCache") -> NativeImpl((_, args) =>
     args match
       case List(resp) =>
         addCacheHdrs(resp, Map("Cache-Control" -> "no-store, no-cache, must-revalidate"))
@@ -204,7 +204,7 @@ val HttpIntrinsics: Map[QualifiedName, IntrinsicImpl] = Map(
 
   // streamResponse { write => ... } — chunked streaming from a route handler.
   // Returns a StreamResponse sentinel detected by WebServer.dispatchRoute.
-  QualifiedName("streamResponse") -> NativeImpl((ctx, args) =>
+  QualifiedName("streamResponse") -> NativeImpl((_, args) =>
     args match
       case List(n: Long) =>
         Value.NativeFnV("streamResponse.block", Computation.pureFn {
@@ -227,7 +227,7 @@ val HttpIntrinsics: Map[QualifiedName, IntrinsicImpl] = Map(
   // sse(req) { stream => stream.send(data) / stream.send(event, data) / stream.close() }
   QualifiedName("sse") -> NativeImpl((ctx, args) =>
     args match
-      case List(_req) =>
+      case List(_) =>
         val sseHeaders = Map(
           "Content-Type"      -> "text/event-stream",
           "Cache-Control"     -> "no-cache",

@@ -1,7 +1,7 @@
 package scalascript.server
 
 import java.net.Socket
-import java.util.concurrent.{Executor, LinkedBlockingQueue}
+import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.atomic.AtomicReference
 import scalascript.interpreter.{Interpreter, Value, Computation, InterpretError}
 
@@ -130,7 +130,7 @@ final class BlockingWsSession(
     catch case _: Throwable => ()
     finally doClose()
 
-  private def dispatchMessage(opcode: WsFraming.Opcode, payload: Array[Byte], fin: Boolean): Unit =
+  private def dispatchMessage(opcode: WsFraming.Opcode, payload: Array[Byte], @annotation.unused fin: Boolean): Unit =
     if maxMessagesPerSec > 0 then
       val now = System.currentTimeMillis()
       if now - rateWindowStart > 1000L then

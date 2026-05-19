@@ -3481,6 +3481,8 @@ const Actor = {
   sendAfter:   (delayMs, pid, msg)  => _perform('Actor', 'sendAfter',   [delayMs, pid, msg]),
   sendInterval:(periodMs, pid, msg) => _perform('Actor', 'sendInterval',[periodMs, pid, msg]),
   cancelTimer: (ref)                => _perform('Actor', 'cancelTimer', [ref]),
+  // v1.6.x — bounded mailbox spawn
+  spawnBounded:(cap, overflow, thunk) => _perform('Actor', 'spawnBounded', [cap, overflow, thunk]),
 };
 
 // `receive { case … }` lowers to a registered matcher function whose
@@ -3644,13 +3646,29 @@ function _runActors(bodyFn) {
   let   nextId = 0;
   let   rootResult = undefined;
 
-  function spawnActor(thunk) {
+  function spawnActor(thunk, cap, overflow) {
     const id = nextId++;
-    actors.set(id, { mailbox: [], pending: thunk(), blocked: null });
+    actors.set(id, { mailbox: [], pending: thunk(), blocked: null,
+                     cap: cap || 0, overflow: overflow || '',
+                     blockedSends: [] });
     ready.push(id);
     return Pid(_localNodeId, id);
   }
   const rootId = spawnActor(bodyFn);
+
+  function _resumeBlockedSender(state) {
+    if (!state.cap || !state.blockedSends || state.blockedSends.length === 0) return;
+    if (state.mailbox.length >= state.cap) return;
+    while (state.blockedSends.length > 0) {
+      const { senderId, msg, k } = state.blockedSends.shift();
+      const ss = actors.get(senderId);
+      if (!ss) continue;  // dead sender — skip
+      state.mailbox.push(msg);
+      ss.pending = k(undefined);
+      ready.push(senderId);
+      return;
+    }
+  }
 
   function tryDeliver(state, matcher, wrapSome) {
     while (state.mailbox.length > 0) {
@@ -3658,12 +3676,14 @@ function _runActors(bodyFn) {
       const r   = matcher(msg);
       if (r && r.matched) {
         state.mailbox.shift();
+        _resumeBlockedSender(state);
         const bodyC = r.body();
         return wrapSome
           ? new _FlatMap(bodyC, (v) => _Some(v))
           : bodyC;
       }
       state.mailbox.shift();  // dead-letter
+      _resumeBlockedSender(state);
     }
     return null;
   }
@@ -3684,8 +3704,17 @@ function _runActors(bodyFn) {
   // Idempotent: if actor not in `actors` map it's already dead.
   function killActor(targetId, reason) {
     if (!actors.has(targetId)) return;
+    const _dying = actors.get(targetId);
     actors.delete(targetId);
     trapExitMap.delete(targetId);
+    // Resume blocked senders: target died → send becomes silent no-op.
+    if (_dying && _dying.blockedSends && _dying.blockedSends.length > 0) {
+      for (const { senderId, k } of _dying.blockedSends) {
+        const ss = actors.get(senderId);
+        if (ss) { ss.pending = k(undefined); ready.push(senderId); }
+      }
+      _dying.blockedSends.length = 0;
+    }
 
     const deadPid = Pid(_localNodeId, targetId);
 
@@ -3738,6 +3767,12 @@ function _runActors(bodyFn) {
         links.get(childId).add(id);
         return { suspend: false, next: k(childPid) };
       }
+      case 'spawnBounded': {
+        const cap      = args[0];
+        const overflow = args[1] && (args[1]._type || '');
+        const childPid = spawnActor(args[2], cap, overflow);
+        return { suspend: false, next: k(childPid) };
+      }
       case 'self':
         return { suspend: false, next: k(Pid(_localNodeId, id)) };
       case 'send': {
@@ -3757,7 +3792,28 @@ function _runActors(bodyFn) {
           } else {
             const ts = actors.get(target.localId);
             if (ts) {
-              ts.mailbox.push(args[1]);
+              // Bounded mailbox: apply overflow strategy when at capacity.
+              if (ts.cap > 0 && ts.mailbox.length >= ts.cap) {
+                switch (ts.overflow) {
+                  case 'DropOldest':
+                    ts.mailbox.shift();
+                    ts.mailbox.push(args[1]);
+                    break;
+                  case 'DropNewest':
+                    return { suspend: false, next: k(undefined) };
+                  case 'Fail':
+                    killActor(id, { _type: 'mailbox_overflow' });
+                    if (!actors.has(id)) return { suspend: true };
+                    return { suspend: false, next: k(undefined) };
+                  case 'Block':
+                    ts.blockedSends.push({ senderId: id, msg: args[1], k });
+                    return { suspend: true };
+                  default:
+                    ts.mailbox.push(args[1]);
+                }
+              } else {
+                ts.mailbox.push(args[1]);
+              }
               if (ts.blocked) {
                 const b = ts.blocked;
                 const delivered = tryDeliver(ts, b.matcher, b.wrapSome);
@@ -5325,7 +5381,7 @@ class JsGen(
     if parts.isEmpty then None
     else
       val head = parts.head
-      val tail = parts.tail.map(p => p.head.toUpper + p.tail)
+      val tail = parts.tail.map(p => s"${p.head.toUpper}${p.tail}")
       val raw  = head + tail.mkString
       Some(if raw.head.isDigit then "_" + raw else raw)
 
@@ -5637,13 +5693,6 @@ class JsGen(
     val regType = if recvType == "Any" then "null" else s"'$recvType'"
     line(s"_registerExt('${defn.name.value}', ($recvName, ...args) => $fnName($recvName, ...args), $regType);")
 
-  private def genObjectMember(stat: Stat): String = stat match
-    case dd: Defn.Def =>
-      s"${dd.name.value}: ${genDefAsMethod(dd)}"
-    case Defn.Val(_, List(Pat.Var(n)), _, rhs) =>
-      s"${n.value}: ${genExpr(rhs)}"
-    case _ => ""
-
   /** Emit a Scala `Defn.Object` as a JS expression — an IIFE that
    *  declares each member as a local const and returns them as an
    *  object literal.  Used both at top level (`const X = (iife)()`)
@@ -5871,7 +5920,7 @@ class JsGen(
         case s              => s"  ${genStatInline(s)}"
       if init.isEmpty then lastJs else initJs + "\n" + lastJs
     case t: Term => s"  return ${genGenExpr(t)};"
-    case s       => s"  ${genStatInline(s)}"
+    case null    => ""
 
   private def genGenStmt(t: Term): String = t match
     case Term.Block(stats) => stats.map(genGenStatItem).mkString("\n")
@@ -6352,6 +6401,15 @@ class JsGen(
         case Term.Function.After_4_6_0(_, body) =>
           s"Actor.spawn_link(() => ${genCpsExpr(body)})"
         case other => s"Actor.spawn_link(${genExpr(other)})"
+    case Term.Apply.After_4_6_0(Term.Name("spawnBounded"), argClause)
+        if argClause.values.size == 3 =>
+      val capJs      = genExpr(argClause.values(0).asInstanceOf[Term])
+      val overflowJs = genExpr(argClause.values(1).asInstanceOf[Term])
+      val thunk      = argClause.values(2).asInstanceOf[Term]
+      val thunkJs = thunk match
+        case Term.Function.After_4_6_0(_, body) => s"() => ${genCpsExpr(body)}"
+        case other => genExpr(other)
+      s"Actor.spawnBounded($capJs, $overflowJs, $thunkJs)"
     case Term.Apply.After_4_6_0(Term.Name("self"), argClause)
         if argClause.values.isEmpty =>
       "Actor.self()"
@@ -6523,7 +6581,7 @@ class JsGen(
         return (app.argClause.values.head match
           case block: Term.Block => genDirectBlock(block.stats)
           case single: Term      => genExpr(single)
-          case _                 => "undefined")
+          case null              => "undefined")
       case _ => ()
 
     val argVals = app.argClause.values.map(genExpr)
@@ -6829,6 +6887,12 @@ class JsGen(
     case Term.Apply.After_4_6_0(Term.Name("spawn_link"), argClause)
         if argClause.values.size == 1 =>
       s"Actor.spawn_link(${genCpsExpr(argClause.values.head.asInstanceOf[Term])})"
+    case Term.Apply.After_4_6_0(Term.Name("spawnBounded"), argClause)
+        if argClause.values.size == 3 =>
+      val capJs      = genExpr(argClause.values(0).asInstanceOf[Term])
+      val overflowJs = genExpr(argClause.values(1).asInstanceOf[Term])
+      val thunkJs    = genCpsExpr(argClause.values(2).asInstanceOf[Term])
+      s"Actor.spawnBounded($capJs, $overflowJs, $thunkJs)"
     case Term.Apply.After_4_6_0(Term.Name("self"), argClause)
         if argClause.values.isEmpty =>
       "Actor.self()"

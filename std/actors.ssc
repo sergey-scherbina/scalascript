@@ -1,11 +1,13 @@
 ---
 name: std-actors
-version: 1.0.0
-description: Erlang-style actor supervision — v1.6 Phase 2
+version: 1.1.0
+description: Erlang-style actor supervision + bounded mailboxes — v1.6 Phase 2 + v1.6.x
 exports:
   - ChildSpec
   - MaxRestarts
   - Supervisor
+  - Overflow
+  - spawnBounded
 ---
 
 # std.actors — Actor supervision
@@ -61,6 +63,22 @@ any) will receive the Exit signal and can escalate.
 ## Implementation
 
 ```scalascript
+// ─── Bounded mailbox overflow strategy ───────────────────────────────────────
+
+enum Overflow:
+  case Block      // Suspend sender until the mailbox has space (cooperative)
+  case DropOldest // Drop the oldest queued message to make room
+  case DropNewest // Discard the incoming message (silent)
+  case Fail       // Kill the sending actor with reason "mailbox_overflow"
+
+// Spawn an actor with a bounded mailbox.
+// `capacity`  — maximum queued messages before overflow kicks in.
+// `overflow`  — strategy applied when the mailbox is full.
+// `behavior`  — actor body; receives nothing, communicates via `receive`.
+extern def spawnBounded(capacity: Int, overflow: Overflow, behavior: () => Unit): Any
+
+// ─── Supervision tree ─────────────────────────────────────────────────────────
+
 case class ChildSpec(id: String, start: () => Any, restart: String)
 
 case class MaxRestarts(n: Int, withinMs: Long)

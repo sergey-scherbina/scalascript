@@ -154,6 +154,7 @@ object WebAuthn:
       signCount:    Long,
   )
 
+  @annotation.nowarn("msg=Non local returns")
   def verifyRegistration(
       clientDataJSONB64:   String,
       attestationObjectB64: String,
@@ -241,6 +242,7 @@ object WebAuthn:
   // monotonic counter and persisted via `storeUpdateSignCount`.
   final case class Assertion(userId: String, signCount: Long)
 
+  @annotation.nowarn("msg=Non local returns")
   def verifyAssertion(
       clientDataJSONb64:    String,
       authenticatorDataB64: String,
@@ -293,6 +295,7 @@ object WebAuthn:
    *     -1 (crv) = 1 (P-256)
    *     -2 (x)   = 32-byte big-endian X coordinate
    *     -3 (y)   = 32-byte big-endian Y coordinate */
+  @annotation.nowarn("msg=Non local returns")
   private def decodeCosePublicKey(bytes: Array[Byte]): Option[java.security.PublicKey] =
     try
       val m = Cbor.read(bytes) match

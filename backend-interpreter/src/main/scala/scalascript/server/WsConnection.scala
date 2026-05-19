@@ -384,6 +384,7 @@ final class WsConnection(
   /** Arm the periodic Ping → Pong heartbeat.  Called by [[WsProxy]]
    *  right after the upgrade so the first ping lands one interval
    *  later.  Stays armed until [[closeNow]] cancels the task. */
+  @annotation.nowarn("msg=Non local returns")
   def startHeartbeat(): Unit =
     lastPongAt = System.currentTimeMillis()
     heartbeatTask = scheduler.scheduleAtFixedRate(() => {
