@@ -6379,16 +6379,16 @@ Spec in `docs/x402.md`.
 - [x] `SettlementMode`: `Synchronous` / `Async(queue)`
 - [x] `SettlementQueue` trait + in-memory implementation
 
-### Phase 2 — Server middleware (`x402-server`)
+### Phase 2 — Server middleware (`x402-server`) ✓ Landed
 
-- [ ] `PaymentConfig` + `withPayment(config) { routes }` DSL
-- [ ] 402 response with `requirements` JSON body
-- [ ] `X-Payment` header parsing + base64 decode
-- [ ] Nonce claim before facilitator call (double-spend guard)
-- [ ] Sync settlement path (verify + settle in request)
-- [ ] Async settlement path (verify in request, enqueue settle)
-- [ ] `onSettled` callback hook
-- [ ] Tests: no-payment → 402, valid payment → 200, replay → 402
+- [x] `PaymentConfig` + `withPayment(config) { routes }` DSL
+- [x] 402 response with `requirements` JSON body
+- [x] `X-Payment` header parsing + base64 decode
+- [x] Nonce claim before facilitator call (double-spend guard)
+- [x] Sync settlement path (verify + settle in request)
+- [x] Async settlement path (verify in request, enqueue settle)
+- [x] `onSettled` callback hook
+- [x] Tests: no-payment → 402, valid payment → 200, replay → 402
 
 ### Phase 3 — Client interceptor (`x402-client`)
 
