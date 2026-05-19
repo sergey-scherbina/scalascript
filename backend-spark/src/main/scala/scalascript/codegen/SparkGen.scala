@@ -116,40 +116,102 @@ object SparkGen:
   /** A collected ScalaScript code block ready for emission. */
   private[codegen] case class Block(src: String)
 
-  /** Scan a `scalascript` block source for `@SqlFn`-marked `def`/`val`
-   *  declarations.  Returns the source with the annotation lines
-   *  stripped, plus the list of declaration names in document order.
+  /** A `@SqlFn`-marked function's signature extracted from the
+   *  source — enough information for `genModule` to emit a Java
+   *  `UDFN`-shaped `spark.udf.register` call that bypasses Spark's
+   *  TypeTag-bound register overload.
    *
-   *  Caller emits one `spark.udf.register("name", name)` line per
-   *  returned name immediately after the cleaned source — that
-   *  registers the function as a Spark SQL UDF, making it callable
-   *  from subsequent `sql` blocks by the same identifier
-   *  (v1.25 § 9.5 Phase D — UDF bridge between scalascript and sql
-   *  fenced blocks).
+   *  See `extractSqlFns` for the regex contract that populates this. */
+  case class SqlFnSig(
+      name:       String,
+      paramTypes: List[String],
+      returnType: String
+  )
+
+  /** Mapping from Scala type name (as it appears in a `def`'s return /
+   *  param ascription) to the canonical Spark `DataType` constant.
+   *  Used by Phase D's UDF auto-emit to provide the explicit
+   *  `returnType` argument that Spark's Java `UDFN.register` overload
+   *  requires (Phase E revival, v1.25 § 9.5).
    *
-   *  Pattern: `@SqlFn` on its own line (any indent), then on the next
-   *  line a `def NAME(...)` or `val NAME = ...` declaration.  Anything
-   *  after the name on the def/val line is preserved untouched, so
-   *  parameter lists, type ascriptions, and the body land in the
-   *  emitted source unchanged.
+   *  Unknown types fall back to `StringType` at codegen with a `// TODO`
+   *  comment — Spark will likely fail at runtime, but the compile is
+   *  preserved so the rest of the module isn't blocked. */
+  val SqlFnDataType: Map[String, String] = Map(
+    "String"  -> "org.apache.spark.sql.types.StringType",
+    "Boolean" -> "org.apache.spark.sql.types.BooleanType",
+    "Byte"    -> "org.apache.spark.sql.types.ByteType",
+    "Short"   -> "org.apache.spark.sql.types.ShortType",
+    "Int"     -> "org.apache.spark.sql.types.IntegerType",
+    "Long"    -> "org.apache.spark.sql.types.LongType",
+    "Float"   -> "org.apache.spark.sql.types.FloatType",
+    "Double"  -> "org.apache.spark.sql.types.DoubleType"
+  )
+
+  /** Scan a `scalascript` block source for `@SqlFn`-marked `def`
+   *  declarations and extract their signatures.  Returns the source
+   *  with the annotation lines stripped, plus a list of
+   *  `SqlFnSig(name, paramTypes, returnType)` in document order.
+   *
+   *  Caller (`genModule`) emits a `spark.udf.register("name",
+   *  new org.apache.spark.sql.api.java.UDF<N>[...] { def call(...) = name(...) },
+   *  <returnDataType>)` line per signature — Phase D's typed
+   *  `register[RT : TypeTag, ...]` overload doesn't compile under
+   *  Scala 3 + Spark `_2.13`, but the Java UDF interface form works
+   *  because it takes the `DataType` explicitly and needs no TypeTag.
+   *
+   *  Pattern: `@SqlFn` on its own line (any indent), then a
+   *  `def NAME(p1: T1, p2: T2, ...): RT = ...` declaration on the
+   *  next non-blank line.  Anything after `RT =` is preserved
+   *  verbatim (the body lands in the emitted source unchanged).
+   *
+   *  Limitations:
+   *    - `val NAME = (a: T) => ...` form is NOT recognised (the param
+   *      and return types aren't extractable from a function literal
+   *      without proper parsing).  Authors who need a `val` UDF
+   *      should rewrite as `def`.
+   *    - The return type must be a simple identifier — generic types
+   *      (`Option[String]`, `List[Int]`, etc.) fall outside the
+   *      `SqlFnDataType` map and degrade to StringType + a `// TODO`.
    *
    *  False-positive risk: `@SqlFn` appearing inside a string literal
-   *  would still match.  Accepted — the marker is a deliberate
-   *  ScalaScript convention; collisions with user prose are
-   *  vanishingly unlikely.  Anyone hitting this should switch the
-   *  literal to a triple-quoted form or split the keyword. */
-  def extractSqlFns(source: String): (String, List[String]) =
-    val pat   = """(?m)^(\s*)@SqlFn\s*\r?\n(\s*)(def|val)\s+(\w+)""".r
-    val names = scala.collection.mutable.ListBuffer.empty[String]
+   *  followed by a def would still match.  Accepted — collisions with
+   *  user prose are vanishingly unlikely. */
+  def extractSqlFns(source: String): (String, List[SqlFnSig]) =
+    // Capture: 1=outer indent, 2=def indent, 3=name, 4=raw params, 5=return type.
+    val pat = """(?m)^(\s*)@SqlFn\s*\r?\n(\s*)def\s+(\w+)\s*\(([^)]*)\)\s*:\s*(\S+)\s*=""".r
+    val sigs = scala.collection.mutable.ListBuffer.empty[SqlFnSig]
     val cleaned = pat.replaceAllIn(source, m =>
-      names += m.group(4)
-      // Drop the `@SqlFn` line entirely; keep the def/val line with
-      // its original indentation and name.  Replacement is plain text
-      // (no `$` or `\` interpolation needed) since identifiers and
-      // whitespace are the only content.
-      java.util.regex.Matcher.quoteReplacement(s"${m.group(2)}${m.group(3)} ${m.group(4)}")
+      val name        = m.group(3)
+      val paramTypes  = parseParamTypes(m.group(4))
+      val returnType  = m.group(5)
+      sigs += SqlFnSig(name, paramTypes, returnType)
+      // Drop the `@SqlFn` line; keep the def line verbatim.
+      java.util.regex.Matcher.quoteReplacement(
+        s"${m.group(2)}def ${name}(${m.group(4)}): ${returnType} ="
+      )
     )
-    (cleaned, names.toList)
+    (cleaned, sigs.toList)
+
+  /** Parse a Scala parameter list (the raw text between `(` and `)`)
+   *  into a list of type names, in declaration order.  Each entry
+   *  is the bare type identifier from a `name: Type` pair.
+   *
+   *  `"s: String, n: Int"` → `List("String", "Int")`.
+   *  Empty list (`""`) → `Nil`.
+   *
+   *  Doesn't handle default values, by-name (`=>`), or curried
+   *  parameter groups — UDFs are simple value functions and this
+   *  is enough for the cases ScalaScript needs to register. */
+  private def parseParamTypes(raw: String): List[String] =
+    val trimmed = raw.trim
+    if trimmed.isEmpty then Nil
+    else
+      trimmed.split(',').toList.map { part =>
+        val idx = part.indexOf(':')
+        if idx < 0 then part.trim
+        else part.substring(idx + 1).trim
+      }
 
 private class SparkGen(
     baseDir:      Option[os.Path]     = None,
@@ -283,23 +345,24 @@ private class SparkGen(
 
     // User blocks — indented two spaces to sit inside `@main def`.
     //
-    // Per-block, run `extractSqlFns` to find `@SqlFn`-marked defs/vals
+    // Per-block, run `extractSqlFns` to find `@SqlFn`-marked defs
     // (v1.25 § 9.5 Phase D — UDF bridge); the helper returns the
-    // source with the annotation stripped plus the names that need a
-    // `spark.udf.register("name", name)` call.  The registration is
-    // emitted right after the cleaned source so the UDF is in scope
-    // before any subsequent `sql` block that might call it by name.
+    // source with the annotation stripped plus a list of
+    // `SqlFnSig(name, paramTypes, returnType)`.  For each signature
+    // emit a Java-`UDFN`-shaped `spark.udf.register` call right
+    // after the cleaned source — Phase E revival sidesteps Spark's
+    // TypeTag-bound typed `register[RT : TypeTag, ...]` overload
+    // (which Scala 3 cannot satisfy) by using the Java functional-
+    // interface form that takes an explicit `DataType`.
     //
     // Translated sql blocks contain no `@SqlFn` markers, so
     // `extractSqlFns` is a no-op on them.
     blocks.foreach { block =>
-      val (cleaned, udfNames) = SparkGen.extractSqlFns(block.src)
+      val (cleaned, udfSigs) = SparkGen.extractSqlFns(block.src)
       val composed =
-        if udfNames.isEmpty then cleaned
+        if udfSigs.isEmpty then cleaned
         else
-          val registrations = udfNames.map(n =>
-            s"""spark.udf.register("$n", $n)"""
-          ).mkString("\n")
+          val registrations = udfSigs.map(emitUdfRegistration).mkString("\n\n")
           cleaned.stripTrailing + "\n" + registrations
       val indented = indentBlock(composed)
       sb.append(indented.stripTrailing())
@@ -463,6 +526,47 @@ private class SparkGen(
     src.linesIterator
       .map(l => if l.nonEmpty then "  " + l else l)
       .mkString("\n")
+
+  /** Emit a Java-UDFN-shaped `spark.udf.register("name", new UDF<N>[...] {
+   *  def call(...) = name(...) }, returnDataType)` call for a single
+   *  `@SqlFn`-marked declaration (v1.25 § 9.5 Phase D revival under
+   *  Phase E).
+   *
+   *  Spark's typed `register[RT : TypeTag, A1 : TypeTag, …](name,
+   *  func)` overload won't compile under Scala 3 + Spark `_2.13`
+   *  (no TypeTag synthesis), so we route through the Java functional-
+   *  interface form which takes an explicit DataType and is
+   *  TypeTag-free.  The wrapper class delegates back to the user's
+   *  Scala `def NAME` so the body of the function is authored once
+   *  in normal Scala and is callable from both Scala code and SQL.
+   *
+   *  Return DataType is looked up in `SparkGen.SqlFnDataType`.
+   *  Unknown types degrade to `StringType` with a `// TODO` comment —
+   *  the compile is preserved but Spark will likely throw at runtime;
+   *  authors get a visible cue to either narrow the return type or
+   *  register the UDF manually. */
+  private def emitUdfRegistration(sig: SparkGen.SqlFnSig): String =
+    val arity   = sig.paramTypes.size
+    val argDecl =
+      sig.paramTypes.zipWithIndex
+        .map { case (t, i) => s"a${i + 1}: $t" }
+        .mkString(", ")
+    val argRef  = (1 to arity).map(i => s"a$i").mkString(", ")
+    val typeArgs =
+      if arity == 0 then sig.returnType
+      else (sig.paramTypes :+ sig.returnType).mkString(", ")
+    val (rtFqn, todo) =
+      SparkGen.SqlFnDataType.get(sig.returnType) match
+        case Some(fqn) => (fqn, "")
+        case None      =>
+          ("org.apache.spark.sql.types.StringType",
+           s"  // TODO Phase E: no DataType mapping for return type '${sig.returnType}'\n")
+    s"""${todo}spark.udf.register("${sig.name}",
+       |  new org.apache.spark.sql.api.java.UDF$arity[$typeArgs] {
+       |    def call($argDecl): ${sig.returnType} = ${sig.name}($argRef)
+       |  },
+       |  $rtFqn
+       |)""".stripMargin
 
   // ── Emitted Scala 3 + Spark source fragments ──────────────────────────────
 

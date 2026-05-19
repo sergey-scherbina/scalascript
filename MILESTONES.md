@@ -6775,10 +6775,26 @@ Thin `backend-wasm-contract/` layer on top of `backend-wasm/` for Near or Polkad
 >   (`Post` with `Seq[String]` tags, `List[Int]` scores,
 >   `Map[String, String]` meta).
 >
-> Remaining (still open): revival of `@SqlFn` auto-emit (Phase D) via
-> Java `UDF1`/`UDF2`/... wrappers with a derived `DataType`; tuple
-> types as case-class fields (need a `Mirror`-free derivation since
-> tuples have no synth `Mirror.ProductOf`).
+> **Phase E follow-ups landed (cont., 2026-05-20, batch 3):**
+> - ✓ `@SqlFn` auto-emit revival.  `extractSqlFns` parses param types
+>   and return type from the `def` signature; emit wraps the user's
+>   function in Spark's Java `UDFN` functional-interface form
+>   (TypeTag-free) with an explicit `DataType` looked up via
+>   `SparkGen.SqlFnDataType`.  Phase D's headline UX ("`@SqlFn def fn`
+>   makes the function callable from sql blocks") now actually works
+>   end-to-end on Scala 3 + Spark `_2.13`.  Limitations: only `def`
+>   form is recognised; generic return types degrade to `StringType`
+>   + `// TODO`.  Verified with `examples/spark-udf-demo.ssc`.
+> - ✓ Tuple-as-field — `Mirror.ProductOf[(A, B, …)]` is auto-synth'd
+>   by Scala 3 since tuples are products, so the existing
+>   `aenc_Product[T <: Product]` given handles tuples as case-class
+>   fields with no extra code.  Spark emits them as
+>   `struct<_1, _2, …>` columns.  Verified with
+>   `examples/spark-tuple-demo.ssc`.
+>
+> **Phase E status: all formerly-open follow-ups landed.**  Spark
+> milestone (v1.25 § 9.5) closed end-to-end for case classes with
+> primitive, `Option`, nested, collection, tuple, and UDF features.
 >
 > Natural fit: ScalaScript's existing `Dataset[T]` API maps directly to Spark.
 

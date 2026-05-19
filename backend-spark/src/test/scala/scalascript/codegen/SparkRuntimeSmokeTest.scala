@@ -127,6 +127,14 @@ class SparkRuntimeSmokeTest extends AnyFunSuite:
     compileExample("spark-collections-demo.ssc")
   }
 
+  test("spark-tuple-demo.ssc compiles under Phase E tuple-as-field support") {
+    // Tuples (Tuple2, Tuple3, ...) work for free under Phase E —
+    // Scala 3 synthesises Mirror.ProductOf[(A, B, ...)] and the
+    // existing `aenc_Product[T <: Product]` given handles them.
+    // No tuple-specific shim code, just verify the path holds.
+    compileExample("spark-tuple-demo.ssc")
+  }
+
   test("spark-udf-demo.ssc compiles under scala-cli + Spark _2.13") {
     // This example uses the *manual* Java `UDF1` registration form
     // documented in SPEC § 9.5 — not the `@SqlFn` auto-emit (blocked

@@ -1,0 +1,40 @@
+---
+name: spark-tuple-demo
+backend: spark
+spark-app-name: Phase E — Tuple Fields
+description: Tuples (TupleN) as case-class fields via Phase E derivation (v1.25 § 9.5)
+---
+
+# Phase E — tuple fields
+
+Tuples in Scala 3 are products (`(A, B) <: Tuple <: Product`) and
+the compiler auto-synthesises `Mirror.ProductOf[(A, B)]`, so the
+existing `aenc_Product[T <: Product]` given handles them with no
+extra code.  Spark emits the tuple as a `struct` column with the
+field names `_1`, `_2`, … (the standard Scala tuple member names).
+
+Run with:
+
+```
+ssc run --backend spark examples/spark-tuple-demo.ssc
+```
+
+## Pipeline
+
+```scalascript
+case class Record(id: Int, pair: (String, Int), triple: (String, Int, Boolean))
+
+val xs = List(
+  Record(1, ("hello", 7),  ("a", 10, true)),
+  Record(2, ("world", 13), ("b", 20, false)),
+  Record(3, ("spark", 21), ("c", 30, true))
+)
+
+val ds = spark.createDataset(xs)
+ds.printSchema()
+println(s"REC_COUNT=${ds.count()}")
+
+ds.collect().foreach { r =>
+  println(s"REC id=${r.id} pair=${r.pair} triple=${r.triple}")
+}
+```

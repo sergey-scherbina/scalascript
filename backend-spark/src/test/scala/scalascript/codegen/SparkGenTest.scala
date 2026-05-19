@@ -892,32 +892,35 @@ class SparkGenTest extends AnyFunSuite:
     assert(code.contains("def schemaOf["))
   }
 
-  // ── Phase D: UDF bridge — @SqlFn → spark.udf.register ───────────────────
+  // ── Phase D/E: UDF bridge — @SqlFn → spark.udf.register via Java UDFN ───
 
-  test("extractSqlFns helper: no @SqlFn → no names, source unchanged") {
+  test("extractSqlFns helper: no @SqlFn → no sigs, source unchanged") {
     val src = "val x = 1\ndef plain(a: Int): Int = a + 1\n"
-    val (cleaned, names) = SparkGen.extractSqlFns(src)
-    assert(names.isEmpty)
+    val (cleaned, sigs) = SparkGen.extractSqlFns(src)
+    assert(sigs.isEmpty)
     assert(cleaned == src, s"unchanged source expected, got:\n$cleaned")
   }
 
-  test("extractSqlFns helper: single @SqlFn def captured and annotation stripped") {
+  test("extractSqlFns helper: single @SqlFn def captures name + params + return type") {
     val src = "@SqlFn\ndef toUpper(s: String): String = s.toUpperCase\n"
-    val (cleaned, names) = SparkGen.extractSqlFns(src)
-    assert(names == List("toUpper"))
+    val (cleaned, sigs) = SparkGen.extractSqlFns(src)
+    assert(sigs.size == 1)
+    val sig = sigs.head
+    assert(sig.name == "toUpper")
+    assert(sig.paramTypes == List("String"), s"expected [String], got ${sig.paramTypes}")
+    assert(sig.returnType == "String")
     assert(!cleaned.contains("@SqlFn"), s"@SqlFn must be stripped, got:\n$cleaned")
-    assert(cleaned.contains("def toUpper(s: String): String = s.toUpperCase"))
+    assert(cleaned.contains("def toUpper(s: String): String"))
   }
 
-  test("extractSqlFns helper: @SqlFn val (function literal) is also captured") {
-    val src = "@SqlFn\nval lenient = (s: String) => s.length\n"
-    val (cleaned, names) = SparkGen.extractSqlFns(src)
-    assert(names == List("lenient"))
-    assert(!cleaned.contains("@SqlFn"))
-    assert(cleaned.contains("val lenient = (s: String) => s.length"))
+  test("extractSqlFns helper: arity-2 def with mixed param types") {
+    val src = "@SqlFn\ndef pad(s: String, n: Int): String = s + (\" \" * n)\n"
+    val (_, sigs) = SparkGen.extractSqlFns(src)
+    assert(sigs.head.paramTypes == List("String", "Int"))
+    assert(sigs.head.returnType == "String")
   }
 
-  test("extractSqlFns helper: multiple @SqlFn entries captured in document order") {
+  test("extractSqlFns helper: multiple @SqlFn defs captured in document order") {
     val src =
       """|@SqlFn
          |def a(x: Int): Int = x + 1
@@ -925,29 +928,33 @@ class SparkGenTest extends AnyFunSuite:
          |val plain = 42
          |
          |@SqlFn
-         |val b = (s: String) => s.length
-         |
-         |@SqlFn
-         |def c(x: Int, y: Int): Int = x * y
+         |def c(x: Int, y: Int): Long = (x.toLong * y).toLong
          |""".stripMargin
-    val (cleaned, names) = SparkGen.extractSqlFns(src)
-    assert(names == List("a", "b", "c"),
-      s"document-order names expected, got: $names")
+    val (cleaned, sigs) = SparkGen.extractSqlFns(src)
+    assert(sigs.map(_.name) == List("a", "c"))
+    assert(sigs.map(_.returnType) == List("Int", "Long"))
     assert(!cleaned.contains("@SqlFn"))
-    // Unrelated `val plain = 42` survives unchanged.
     assert(cleaned.contains("val plain = 42"))
+  }
+
+  test("extractSqlFns helper: val form is NOT captured (defs only)") {
+    // `val lenient = (s: String) => s.length` doesn't expose the
+    // return type in a parsable position (it's inferred from the
+    // function literal body), so Phase E revival declines to handle
+    // it.  Users wanting a one-arg UDF rewrite as `def`.
+    val src = "@SqlFn\nval lenient = (s: String) => s.length\n"
+    val (_, sigs) = SparkGen.extractSqlFns(src)
+    assert(sigs.isEmpty, s"val should not be captured, got: $sigs")
   }
 
   test("extractSqlFns helper: indented @SqlFn preserves the def's indentation") {
     val src = "  @SqlFn\n  def nested(x: Int): Int = x + 1\n"
-    val (cleaned, names) = SparkGen.extractSqlFns(src)
-    assert(names == List("nested"))
-    // def line keeps its 2-space indent.
-    assert(cleaned.contains("  def nested(x: Int)"),
-      s"indentation must survive, got:\n$cleaned")
+    val (cleaned, sigs) = SparkGen.extractSqlFns(src)
+    assert(sigs.head.name == "nested")
+    assert(cleaned.contains("  def nested(x: Int)"))
   }
 
-  test("SparkGen emits spark.udf.register for each @SqlFn declaration") {
+  test("SparkGen emits Java UDFN wrapper for each @SqlFn declaration") {
     val code = gen(
       """|# Test
          |
@@ -956,20 +963,66 @@ class SparkGenTest extends AnyFunSuite:
          |def toUpper(s: String): String = s.toUpperCase
          |
          |@SqlFn
-         |val addOne = (x: Int) => x + 1
+         |def addOne(x: Int): Int = x + 1
          |```
          |""".stripMargin
     )
-    // Both registrations land in the same @main scope, right after the
-    // defs themselves (so they execute before any subsequent sql block).
-    assert(code.contains("""spark.udf.register("toUpper", toUpper)"""),
-      s"toUpper UDF registration missing, got:\n$code")
-    assert(code.contains("""spark.udf.register("addOne", addOne)"""),
-      s"addOne UDF registration missing, got:\n$code")
+    // Phase E revival: the emit uses Java's UDFN functional interface
+    // form (TypeTag-free) plus an explicit return DataType.  The
+    // typed `register[RT : TypeTag, ...]` overload would not compile.
+    assert(code.contains("""spark.udf.register("toUpper","""),
+      s"toUpper registration call missing, got:\n$code")
+    assert(code.contains("new org.apache.spark.sql.api.java.UDF1[String, String]"),
+      "expected UDF1[String, String] wrapper for toUpper")
+    assert(code.contains("def call(a1: String): String = toUpper(a1)"),
+      "expected call delegating to toUpper")
+    assert(code.contains("org.apache.spark.sql.types.StringType"),
+      "expected StringType for String-returning UDF")
+
+    assert(code.contains("""spark.udf.register("addOne","""))
+    assert(code.contains("new org.apache.spark.sql.api.java.UDF1[Int, Int]"))
+    assert(code.contains("def call(a1: Int): Int = addOne(a1)"))
+    assert(code.contains("org.apache.spark.sql.types.IntegerType"),
+      "expected IntegerType for Int-returning UDF")
+
     // @SqlFn marker is stripped — Scala compiler would otherwise see
     // an unknown annotation.
     assert(!code.contains("@SqlFn"),
       s"@SqlFn marker must not survive into generated source, got:\n$code")
+  }
+
+  test("SparkGen emits arity-N UDFN wrapper based on def's param count") {
+    val code = gen(
+      """|# Test
+         |```scalascript
+         |@SqlFn
+         |def pad(s: String, n: Int): String = s + (" " * n)
+         |```
+         |""".stripMargin
+    )
+    // Two-arg def → UDF2 wrapper.
+    assert(code.contains("new org.apache.spark.sql.api.java.UDF2[String, Int, String]"),
+      s"expected UDF2[String, Int, String], got:\n$code")
+    assert(code.contains("def call(a1: String, a2: Int): String = pad(a1, a2)"))
+  }
+
+  test("Unknown return type degrades to StringType with a TODO comment") {
+    // Generic / non-mapped return types (e.g. `Option[String]`) fall
+    // outside the SqlFnDataType map.  We don't refuse the compile —
+    // emit StringType + a `// TODO` comment so the user has a visible
+    // cue without blocking the rest of the module.
+    val code = gen(
+      """|# Test
+         |```scalascript
+         |@SqlFn
+         |def maybe(s: String): Option[String] = Some(s)
+         |```
+         |""".stripMargin
+    )
+    assert(code.contains("// TODO Phase E: no DataType mapping for return type 'Option[String]'"),
+      s"expected TODO comment for unmapped return type, got:\n$code")
+    assert(code.contains("org.apache.spark.sql.types.StringType"),
+      "expected StringType fallback")
   }
 
   test("Registration ordering: UDF is registered before any sql block that uses it") {
@@ -986,12 +1039,52 @@ class SparkGenTest extends AnyFunSuite:
          |```
          |""".stripMargin
     )
-    val regIdx = code.indexOf("""spark.udf.register("toUpper", toUpper)""")
+    val regIdx = code.indexOf("""spark.udf.register("toUpper",""")
     val sqlIdx = code.indexOf("SELECT toUpper(name)")
     assert(regIdx >= 0 && sqlIdx >= 0,
       s"both registration and sql block must be present, got:\n$code")
     assert(regIdx < sqlIdx,
       s"UDF registration must precede the sql block that uses it (reg@$regIdx, sql@$sqlIdx)")
+  }
+
+  test("SqlFnDataType maps the common primitive returns to Spark DataType FQNs") {
+    val map = SparkGen.SqlFnDataType
+    assert(map("String")  == "org.apache.spark.sql.types.StringType")
+    assert(map("Int")     == "org.apache.spark.sql.types.IntegerType")  // note: Int → IntegerType
+    assert(map("Long")    == "org.apache.spark.sql.types.LongType")
+    assert(map("Boolean") == "org.apache.spark.sql.types.BooleanType")
+    assert(map("Double")  == "org.apache.spark.sql.types.DoubleType")
+    // Generic / unsupported types are NOT in the map; emit falls
+    // back to StringType + TODO comment (see test above).
+    assert(!map.contains("Option[String]"))
+  }
+
+  // ── Phase E follow-up: tuple-as-field support ─────────────────────────
+
+  test("Tuples in case-class fields use the existing aenc_Product given") {
+    // Scala 3 synthesises `Mirror.ProductOf[(A, B)]` automatically;
+    // labels are `("_1", "_2", ...)` and the element types come from
+    // the tuple's type-level structure.  So `case class R(x: (String,
+    // Int))` derives without any tuple-specific given — the existing
+    // `aenc_Product[T <: Product]` handles it.  No code change needed;
+    // this test just pins the path against future regressions.
+    val code = gen(
+      """|# Test
+         |```scalascript
+         |case class WithPair(id: Int, pair: (String, Int))
+         |val xs = List(WithPair(1, ("hello", 7)))
+         |val ds = spark.createDataset(xs)
+         |```
+         |""".stripMargin
+    )
+    // The user code survives verbatim — derivation happens at the
+    // user's scala-cli compile, not in SparkGen.  Spot-check that the
+    // shim is in place (the `aenc_Product` given is what makes the
+    // tuple work end-to-end).
+    assert(code.contains("inline given aenc_Product[T <: Product]"),
+      "aenc_Product given (which handles tuples too) must be present")
+    assert(code.contains("case class WithPair(id: Int, pair: (String, Int))"),
+      "user case class survives verbatim")
   }
 
   test("Scalascript block without @SqlFn yields no registration calls") {

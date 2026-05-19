@@ -37,45 +37,34 @@ AS t(id, name, status)
 
 ## UDFs
 
-**Note on the current Scala 3 / Spark 2.13 limitation.**  The
-`@SqlFn` marker (Phase D) is recognised by SparkGen and emits
-`spark.udf.register("name", name)`, which works on Spark Connect
-and on any backend with a Scala 3 native Spark encoder.  On the
-default `_2.13` Spark JARs that scala-cli pulls today the typed
-overload of `spark.udf.register` requires a `TypeTag[T]` that
-Scala 3 cannot synthesise, so the auto-emit fails compile.
+`@SqlFn` is the ScalaScript marker that auto-registers a `def` as a
+Spark UDF callable from subsequent `sql` blocks.  Phase E revival
+(v1.25 § 9.5) wraps the user's `def` in Spark's Java
+`UDFN`-functional-interface form, which takes an explicit `DataType`
+and needs no Scala 2.13 `TypeTag` — so it works under Scala 3 +
+Spark `_2.13` where the typed overload of `register` does not.
 
-Until our own Scala 3 encoder derivation lands (see § 9.5 roadmap,
-"Phase E"), the working workaround is to register UDFs via Spark's
-Java functional-interface overload that takes an explicit
-`DataType` and needs no TypeTag:
+The auto-emit reads the param + return types from the `def`
+signature directly, so both `String` and `Int` returns get mapped
+to the right `org.apache.spark.sql.types.{StringType, IntegerType}`
+automatically.
 
 ```scalascript
+@SqlFn
 def normalize(s: String): String =
   if s == null then "" else s.trim.toLowerCase
 
-val nameLength = (s: String) => if s == null then 0 else s.length
-
-spark.udf.register("normalize",
-  new org.apache.spark.sql.api.java.UDF1[String, String] {
-    def call(s: String): String = normalize(s)
-  },
-  org.apache.spark.sql.types.StringType
-)
-
-spark.udf.register("nameLength",
-  new org.apache.spark.sql.api.java.UDF1[String, Integer] {
-    def call(s: String): Integer = Integer.valueOf(nameLength(s))
-  },
-  org.apache.spark.sql.types.IntegerType
-)
+@SqlFn
+def nameLength(s: String): Int =
+  if s == null then 0 else s.length
 ```
 
 ## Active users (normalised)
 
 The UDF names resolve inside the SQL just like built-in functions
-(`UPPER`, `LENGTH`, …).  Both forms above register through the
-session catalog before this sql block runs.
+(`UPPER`, `LENGTH`, …).  The codegen emits the `spark.udf.register`
+calls right after each `@SqlFn` declaration, so the names are on
+the session catalog before this sql block runs.
 
 ```sql
 SELECT id, normalize(name) AS name, nameLength(name) AS len
