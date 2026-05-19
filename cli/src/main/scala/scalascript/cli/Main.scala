@@ -66,6 +66,7 @@ private def dispatchCommand(args: List[String]): Unit =
     case "emit-ir"             => emitIrCommand(args.tail)
     case "compile-jvm"         => compileJvmCommand(args.tail)
     case "compile-js"          => compileJsCommand(args.tail)
+    case "compile-runtime"     => compileRuntimeCommand(args.tail)
     case "check-with-iface"    => checkWithInterfaceCommand(args.tail)
     case "link"                => linkCommand(args.tail)
     case "info"                => infoCommand(args.tail)
@@ -1674,14 +1675,27 @@ def compileJvmCommand(args: List[String]): Unit =
         typed.errors.foreach(e => System.err.println(s"  Error: ${e.msg}"))
         System.exit(1)
 
-      // Run the JVM backend codegen on THIS module only (no merged dep
-      // code).  The link step textually concatenates per-module sources
-      // in dep order.
+      // Run the JVM backend codegen on THIS module.
+      //
+      //  - Source-only mode (no --bytecode): emit the legacy full-source
+      //    (preamble + user code) for the textual link path.
+      //  - Bytecode mode (--bytecode): emit user code ONLY with an
+      //    `import _ssc_runtime.*` prefix, so the shared runtime
+      //    classBundle from `_runtime.scjvm-runtime` covers the helpers.
       val baseDir     = Some(path / os.up)
-      val scalaSource = JvmGen.generate(module, baseDir)
+      val scalaSource =
+        if bytecode then JvmGen.generateUserOnly(module, baseDir)
+        else             JvmGen.generate(module, baseDir)
       val pkg         = module.manifest.flatMap(_.pkg).getOrElse(Nil)
       val moduleName  = module.manifest.flatMap(_.name)
       val sourceHash  = InterfaceExtractor.sha256(sourceBytes)
+
+      // Detect this module's capability set up front — needed in bytecode
+      // mode to decide whether the shared runtime artifact must be
+      // regenerated.
+      val moduleCaps: Set[String] =
+        if !bytecode then Set.empty
+        else JvmGen.detectCapabilities(module, baseDir).map(JvmGen.Capability.encode)
 
       // Best-effort import discovery: collect `Content.Import` paths and
       // front-matter `dependencies:` aliases.  Used by the linker as a hint
@@ -1695,17 +1709,38 @@ def compileJvmCommand(args: List[String]): Unit =
 
       // ── Optional bytecode bundle ─────────────────────────────────────
       //
-      // When --bytecode is set, drive scala-cli on the emitted scalaSource
-      // and pack the resulting .class files as a base64 ZIP.  When this
-      // module imports peers, extract those peers' classBundles into a
-      // shared temp dir and pass it as scala-cli's classpath so cross-
-      // module references resolve at compile time.
+      // When --bytecode is set, drive scala-cli on the user-only Scala
+      // source produced above.  Two new responsibilities versus pre-Phase-2:
+      //
+      //  1. Ensure `_runtime.scjvm-runtime` covers the UNION of this
+      //     module's capabilities and any already-present deps'
+      //     capabilities — regenerating when missing or out-of-date.
+      //  2. Pass the runtime classBundle as part of scala-cli's classpath
+      //     so the wildcard-imported helpers resolve at compile time.
       val classBundleOpt: Option[String] =
         if !bytecode then None
         else
-          val depClasspathDir = autoResolvedIfaceDir match
-            case None => None
-            case Some(dir) => Some(extractDepBundlesForCompile(dir))
+          // Compute artifact dir for the runtime.  The `.scjvm-runtime`
+          // must sit next to the `.scjvm` files so `linkJvmFromBytecode`
+          // can find it.  Pick the directory of `-o <foo.scjvm>` when
+          // provided, otherwise fall back to the resolved iface/artifact
+          // dir, otherwise the source's parent dir.
+          val rtDir: os.Path = outputArg match
+            case Some(out) if out.endsWith(".scjvm") =>
+              val outAbs = os.Path(out, os.pwd)
+              os.makeDir.all(outAbs / os.up)
+              outAbs / os.up
+            case _ =>
+              autoResolvedIfaceDir.getOrElse(path / os.up)
+          val depCaps   = unionDepCapabilities(rtDir)
+          val unionCaps = depCaps ++ moduleCaps
+          try
+            ensureRuntimeArtifact(rtDir, unionCaps)
+          catch case e: Throwable =>
+            System.err.println(s"compile-jvm --bytecode: ${e.getMessage}")
+            System.exit(1)
+
+          val depClasspathDir = Some(extractDepBundlesForCompile(rtDir))
           try
             JvmBytecode.compileAndPack(scalaSource, depClasspathDir.toList, scriptName = moduleId) match
               case Right(b64) => Some(b64)
@@ -1716,7 +1751,9 @@ def compileJvmCommand(args: List[String]): Unit =
           finally
             depClasspathDir.foreach(d => scala.util.Try(os.remove.all(d)))
 
-      val json = JvmArtifactIO.writeJvm(moduleId, pkg, moduleName, sourceHash, scalaSource, imports, classBundleOpt)
+      val json = JvmArtifactIO.writeJvm(
+        moduleId, pkg, moduleName, sourceHash, scalaSource, imports,
+        classBundleOpt, moduleCaps.toList.sorted)
       outputArg match
         case Some("-") => println(json)
         case Some(out) =>
@@ -1734,6 +1771,58 @@ def compileJvmCommand(args: List[String]): Unit =
     catch case e: Exception =>
       System.err.println(s"compile-jvm error: ${e.getMessage}")
       System.exit(1)
+
+/** `ssc compile-runtime --capabilities <comma-sep> [--artifact-dir <dir>]`
+ *
+ *  v2.0 Phase 2 — explicit invocation of the shared-runtime compile step.
+ *  Generates the runtime source for the requested capability set via
+ *  `JvmGen.generateRuntime`, drives scala-cli on it, and persists the
+ *  resulting classBundle as `<artifact-dir>/_runtime.scjvm-runtime`.
+ *
+ *  Mostly useful for testing — `compile-jvm --bytecode` already invokes
+ *  the same code path implicitly when a module's capability set isn't
+ *  covered by the existing runtime.
+ *
+ *  Capability names (comma-separated, no spaces):
+ *    effects | mutual-tco | reactive | serve | mcp | dataset | json
+ *
+ *  Special value `all` requests every known capability (useful when
+ *  pre-baking a "kitchen-sink" runtime for distribution). */
+def compileRuntimeCommand(args: List[String]): Unit =
+  var capsArg:     Option[String]  = None
+  var artifactDir: Option[os.Path] = None
+  val it = args.iterator
+  while it.hasNext do
+    it.next() match
+      case "--capabilities" if it.hasNext   => capsArg     = Some(it.next())
+      case "--artifact-dir" if it.hasNext   => artifactDir = Some(os.Path(it.next(), os.pwd))
+      case other =>
+        System.err.println(s"compile-runtime: unrecognised argument '$other'")
+        System.exit(1)
+
+  if !JvmBytecode.scalaCliAvailable then
+    System.err.println(s"compile-runtime: ${JvmBytecode.scalaCliMissingMessage}")
+    System.exit(1)
+
+  val caps: Set[String] = capsArg.map(_.trim) match
+    case None | Some("") =>
+      System.err.println("compile-runtime: --capabilities is required " +
+        "(or pass --capabilities all for the full preamble)")
+      System.exit(1)
+      Set.empty
+    case Some("all") =>
+      JvmGen.Capability.all.map(JvmGen.Capability.encode)
+    case Some(csv) =>
+      csv.split(",").iterator.map(_.trim).filter(_.nonEmpty).toSet
+
+  val dir = artifactDir.getOrElse(os.pwd)
+  try
+    val path = ensureRuntimeArtifact(dir, caps)
+    println(s"Shared runtime written to $path " +
+      s"(capabilities: ${caps.toList.sorted.mkString(", ")})")
+  catch case e: Throwable =>
+    System.err.println(s"compile-runtime: ${e.getMessage}")
+    System.exit(1)
 
 /** Compile a single dependency module into `.scim` + `.scjvm` artifacts
  *  living in `artifactDir`.  Used by `compile-jvm` auto-resolution to
@@ -1779,9 +1868,13 @@ private def compileJvmDepInto(
   val iface = InterfaceExtractor.extract(module, dep.sourceBytes)
   ArtifactIO.writeInterfaceFile(iface, scimPath)
 
-  // Now the .scjvm.
+  // Now the .scjvm.  Source-only deps still get the full preamble; in
+  // bytecode mode the dep emits user-code-only with `import _ssc_runtime.*`
+  // and the shared `_runtime.scjvm-runtime` covers the helpers.
   val baseDir     = Some(dep.path / os.up)
-  val scalaSource = JvmGen.generate(module, baseDir)
+  val scalaSource =
+    if bytecode then JvmGen.generateUserOnly(module, baseDir)
+    else             JvmGen.generate(module, baseDir)
   val pkg         = module.manifest.flatMap(_.pkg).getOrElse(Nil)
   val moduleName  = module.manifest.flatMap(_.name)
   val sourceHash  = InterfaceExtractor.sha256(dep.sourceBytes)
@@ -1791,13 +1884,21 @@ private def compileJvmDepInto(
   val imports     = (rawImports ++ depAliases).distinct.toList
   val moduleId    = moduleName.getOrElse(baseName)
 
+  val moduleCaps: Set[String] =
+    if !bytecode then Set.empty
+    else JvmGen.detectCapabilities(module, baseDir).map(JvmGen.Capability.encode)
+
   // When --bytecode is set, also produce a classBundle for this dep so
   // the linker has a real .class artifact to pack.  Wire previously-built
-  // deps' classBundles in artifactDir as the classpath for this scala-cli
-  // invocation (transitive deps were compiled first in topo order).
+  // deps' classBundles + the shared `_runtime.scjvm-runtime` into the
+  // classpath for this scala-cli invocation (transitive deps were
+  // compiled first in topo order; runtime is regenerated if needed).
   val classBundleOpt: Option[String] =
     if !bytecode then None
     else
+      val depCaps   = unionDepCapabilities(artifactDir)
+      val unionCaps = depCaps ++ moduleCaps
+      ensureRuntimeArtifact(artifactDir, unionCaps)
       val depCpDir = extractDepBundlesForCompile(artifactDir)
       try
         JvmBytecode.compileAndPack(scalaSource, List(depCpDir), scriptName = moduleId) match
@@ -1807,7 +1908,7 @@ private def compileJvmDepInto(
       finally
         scala.util.Try(os.remove.all(depCpDir))
 
-  JvmArtifactIO.writeJvmFile(moduleId, pkg, moduleName, sourceHash, scalaSource, imports, scjvmPath, classBundleOpt)
+  JvmArtifactIO.writeJvmFile(moduleId, pkg, moduleName, sourceHash, scalaSource, imports, scjvmPath, classBundleOpt, moduleCaps.toList.sorted)
 
 /** True when `scjvmPath` exists and its `classBundle` is non-empty.
  *  Used by `compile-jvm --bytecode` to detect that an existing source-only
@@ -1837,7 +1938,92 @@ private def extractDepBundlesForCompile(artifactDir: os.Path): os.Path =
             if b.nonEmpty then JvmBytecode.extractBundleTo(b, dest)
           )
         case Left(_) => () // skip malformed dep artifacts silently
+    // v2.0 Phase 2 — also pull the shared `_runtime.scjvm-runtime` classBundle
+    // into the dep classpath so user code that references `_show` / `_handle`
+    // / `route` (via wildcard import of `_ssc_runtime`) resolves at compile
+    // time.  Missing or malformed runtime artifacts are skipped silently —
+    // pre-Phase-2 .scjvm files ship the full preamble in their own bundles.
+    val runtimePath = artifactDir / "_runtime.scjvm-runtime"
+    if os.exists(runtimePath) then
+      JvmArtifactIO.readRuntimeFile(runtimePath) match
+        case Right(rt) =>
+          if rt.classBundle.nonEmpty then
+            JvmBytecode.extractBundleTo(rt.classBundle, dest)
+        case Left(_) => ()
   dest
+
+/** v2.0 Phase 2 — read every `.scjvm` in `artifactDir` and return the
+ *  union of their `capabilities` fields.  Used by `compile-jvm --bytecode`
+ *  to compute whether the existing `_runtime.scjvm-runtime` covers the
+ *  capability set the current build needs. */
+private def unionDepCapabilities(artifactDir: os.Path): Set[String] =
+  if !os.isDir(artifactDir) then Set.empty
+  else
+    val acc = scala.collection.mutable.Set.empty[String]
+    for p <- os.list(artifactDir).filter(_.ext == "scjvm") do
+      JvmArtifactIO.readJvmFile(p) match
+        case Right(a) => acc ++= a.capabilities
+        case Left(_)  => ()
+    acc.toSet
+
+/** v2.0 Phase 2 — ensure the shared `_runtime.scjvm-runtime` in
+ *  `artifactDir` covers `requiredCapabilities`.  Regenerates it via
+ *  `JvmGen.generateRuntime` + `JvmBytecode.compileRuntimeAndPack` when
+ *  missing or when the existing runtime's capability set is a strict
+ *  subset of the required set.  No-op when the existing runtime already
+ *  covers (≥) the required capabilities.
+ *
+ *  Throws on scala-cli compile failure; caller catches and surfaces a
+ *  non-zero exit code.
+ *
+ *  Returns the path of the (possibly freshly-written) runtime artifact. */
+private def ensureRuntimeArtifact(
+    artifactDir:          os.Path,
+    requiredCapabilities: Set[String]
+): os.Path =
+  os.makeDir.all(artifactDir)
+  val runtimePath = artifactDir / "_runtime.scjvm-runtime"
+  val existing: Option[scalascript.ir.ModuleJvmRuntimeArtifact] =
+    if !os.exists(runtimePath) then None
+    else JvmArtifactIO.readRuntimeFile(runtimePath).toOption
+
+  // Decode required strings to capabilities.  Unknown strings are
+  // surfaced as a hard error — we'd rather fail loudly than silently
+  // emit a runtime that's missing a block the module assumes is present.
+  val requiredCaps: Set[scalascript.codegen.JvmGen.Capability] =
+    requiredCapabilities.map { s =>
+      scalascript.codegen.JvmGen.Capability.decode(s).getOrElse(
+        throw new RuntimeException(s"Unknown JVM capability: '$s' " +
+          "(.scjvm written by a newer compiler version?)")
+      )
+    }
+
+  val needsRegen = existing match
+    case None      => true
+    case Some(art) =>
+      val have = art.capabilities.toSet
+      // Regenerate when the required set is not a subset of what we
+      // already have.  Going FROM a superset to a subset is a no-op
+      // (the shared runtime stays valid; its classes are still on the
+      // classpath, and any unused ones are unused without harm).
+      !requiredCapabilities.subsetOf(have)
+
+  if !needsRegen then runtimePath
+  else
+    val runtimeSource = scalascript.codegen.JvmGen.generateRuntime(requiredCaps)
+    val sourceHash    = scalascript.artifact.InterfaceExtractor.sha256(
+                          runtimeSource.getBytes("UTF-8"))
+    JvmBytecode.compileRuntimeAndPack(runtimeSource) match
+      case Right(b64) =>
+        JvmArtifactIO.writeRuntimeFile(
+          capabilities = requiredCapabilities.toList.sorted,
+          sourceHash   = sourceHash,
+          classBundle  = b64,
+          path         = runtimePath
+        )
+        runtimePath
+      case Left(err) =>
+        throw new RuntimeException(s"--bytecode: shared runtime compile failed:\n$err")
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ssc compile-js  —  v2.0 JS-backend incremental codegen cache
@@ -3005,11 +3191,51 @@ private def linkJvmFromBytecode(
     case None =>
       os.pwd / "out.jar"
 
-  // 3. Pack.
-  val bundles = artifacts.toList.map(a => a.moduleId -> a.classBundle.get)
+  // 3. v2.0 Phase 2 — collect shared runtime bundles from every distinct
+  //    artifact dir that contains a `_runtime.scjvm-runtime` next to its
+  //    `.scjvm` files.  A `.scjvm` is "split-runtime" when its emitted
+  //    Scala source references the shared runtime package (`import
+  //    _ssc_runtime.…`); any such module REQUIRES the shared bundle
+  //    because the per-module classBundle ships only user code.
+  //    Pre-Phase-2 `.scjvm` artifacts (full preamble baked into their
+  //    own classBundle and no `_ssc_runtime` reference) work unchanged.
+  val artifactDirs: List[os.Path] = scjvmFiles.map(_ / os.up).distinct
+  val needsSharedRuntime = artifacts.exists(a =>
+    a.scalaSource.contains("_ssc_runtime") || a.capabilities.nonEmpty
+  )
+  val runtimeBundles = scala.collection.mutable.ArrayBuffer.empty[(String, String)]
+  if needsSharedRuntime then
+    for d <- artifactDirs do
+      val rtPath = d / "_runtime.scjvm-runtime"
+      if os.exists(rtPath) then
+        JvmArtifactIO.readRuntimeFile(rtPath) match
+          case Right(rt) =>
+            if rt.classBundle.nonEmpty then
+              runtimeBundles += (s"_ssc_runtime@${d.last}" -> rt.classBundle)
+          case Left(err) =>
+            System.err.println(s"link --backend jvm --bytecode: " +
+              s"failed to read ${rtPath.last}: $err")
+            System.exit(1)
+    if runtimeBundles.isEmpty then
+      val splitModules = artifacts.filter(a =>
+        a.scalaSource.contains("_ssc_runtime") || a.capabilities.nonEmpty)
+      System.err.println(s"link --backend jvm --bytecode: " +
+        s"${splitModules.length} module(s) reference the shared runtime " +
+        s"but no _runtime.scjvm-runtime was found in their artifact dir(s):")
+      artifactDirs.foreach(d => System.err.println(s"  - $d"))
+      System.err.println("  Recompile with `ssc compile-jvm --bytecode` to " +
+        "regenerate the shared runtime, or `ssc compile-runtime`.")
+      System.exit(1)
+
+  // 4. Pack runtime first (so its classes win on duplicate FQN, which
+  //    matters when a module accidentally redefines `_show` etc.), then
+  //    the per-module bundles in the order given.
+  val bundles = runtimeBundles.toList ++ artifacts.toList.map(a => a.moduleId -> a.classBundle.get)
   val (uniqueClasses, duplicates) = JvmBytecode.packBundlesAsJar(bundles, outPath)
 
-  println(s"Linked ${artifacts.size} .scjvm artifact(s) → $outPath " +
+  val rtNote = if runtimeBundles.isEmpty then ""
+               else s" (incl. ${runtimeBundles.length} shared runtime bundle(s))"
+  println(s"Linked ${artifacts.size} .scjvm artifact(s) → $outPath$rtNote " +
     s"($uniqueClasses unique class(es); JAR size ${os.size(outPath)} bytes)")
   if duplicates.nonEmpty then
     println(s"  (deduplicated ${duplicates.size} duplicate class entries; first-write-wins)")

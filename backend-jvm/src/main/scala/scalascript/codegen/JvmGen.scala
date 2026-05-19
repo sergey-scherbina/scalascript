@@ -283,18 +283,27 @@ class JvmGen(
     if capabilities.contains(Mcp)       then body.append(JvmRuntimeMcp)
     if capabilities.contains(Dataset)   then body.append(JvmRuntimeDataset)
 
-    // Wrap in package + drop `private` modifiers so user code with
-    // `import _ssc_runtime.*` can reach helper names like `_toJson` /
-    // `_lookupKey` / `_renderChild`.  At the top of the runtime source
-    // we also add an MCP-dep directive when the runtime carries the
-    // MCP block (matches what `genModule` would prepend).
+    // Wrap in an `object _ssc_runtime` (NOT a package) so the runtime's
+    // top-level `class WsRoom` + `def WsRoom()` companion pair survives
+    // — Scala 3 requires the two be defined "together" in a package,
+    // but an object body has no such restriction.  Drop top-level
+    // `private` modifiers so user code with `import _ssc_runtime.*`
+    // can reach helper names like `_toJson` / `_lookupKey` /
+    // `_renderChild`.  Also drop `package` declarations the inlined
+    // common-runtime sources may carry — the object scope handles the
+    // namespacing.
     val header = StringBuilder()
     if capabilities.contains(Mcp) then
       header.append(s"""//> using dep "$JvmMcpDep"\n""")
-    header.append("package _ssc_runtime\n\n")
+    header.append("object _ssc_runtime:\n")
 
     val depinned = stripPrivateModifiers(body.toString)
-    header.append(depinned)
+    // Indent every non-empty line by two spaces so the contents sit
+    // inside the wrapping `object _ssc_runtime:` body.
+    val indented = depinned.linesIterator
+      .map(l => if l.isEmpty then l else "  " + l)
+      .mkString("\n")
+    header.append(indented)
     header.toString.stripTrailing() + "\n"
 
   /** Emit user code only, prepending `import _ssc_runtime.{given, *}` so

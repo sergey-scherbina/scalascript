@@ -29,24 +29,26 @@ object JvmArtifactIO:
 
   /** Build + serialise a `ModuleJvmArtifact` from its constituent fields. */
   def writeJvm(
-      moduleId:    String,
-      pkg:         List[String],
-      moduleName:  Option[String],
-      sourceHash:  String,
-      scalaSource: String,
-      imports:     List[String],
-      classBundle: Option[String] = None
+      moduleId:     String,
+      pkg:          List[String],
+      moduleName:   Option[String],
+      sourceHash:   String,
+      scalaSource:  String,
+      imports:      List[String],
+      classBundle:  Option[String] = None,
+      capabilities: List[String]   = Nil
   ): String =
     val art = ModuleJvmArtifact(
-      magic       = ArtifactVersion.magic,
-      abiVersion  = ArtifactVersion.current,
-      moduleId    = moduleId,
-      pkg         = pkg,
-      moduleName  = moduleName,
-      sourceHash  = sourceHash,
-      scalaSource = scalaSource,
-      imports     = imports,
-      classBundle = classBundle
+      magic        = ArtifactVersion.magic,
+      abiVersion   = ArtifactVersion.current,
+      moduleId     = moduleId,
+      pkg          = pkg,
+      moduleName   = moduleName,
+      sourceHash   = sourceHash,
+      scalaSource  = scalaSource,
+      imports      = imports,
+      classBundle  = classBundle,
+      capabilities = capabilities.sorted
     )
     writeJvm(art)
 
@@ -77,17 +79,18 @@ object JvmArtifactIO:
 
   /** Write a `.scjvm` file to `path` from constituent fields. */
   def writeJvmFile(
-      moduleId:    String,
-      pkg:         List[String],
-      moduleName:  Option[String],
-      sourceHash:  String,
-      scalaSource: String,
-      imports:     List[String],
-      path:        os.Path,
-      classBundle: Option[String] = None
+      moduleId:     String,
+      pkg:          List[String],
+      moduleName:   Option[String],
+      sourceHash:   String,
+      scalaSource:  String,
+      imports:      List[String],
+      path:         os.Path,
+      classBundle:  Option[String] = None,
+      capabilities: List[String]   = Nil
   ): Unit =
     os.makeDir.all(path / os.up)
-    os.write.over(path, writeJvm(moduleId, pkg, moduleName, sourceHash, scalaSource, imports, classBundle))
+    os.write.over(path, writeJvm(moduleId, pkg, moduleName, sourceHash, scalaSource, imports, classBundle, capabilities))
 
   // ─── Shared runtime artifact (.scjvm-runtime) ────────────────────────────
 

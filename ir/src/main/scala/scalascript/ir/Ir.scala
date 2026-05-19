@@ -333,7 +333,24 @@ case class ModuleJvmArtifact(
    *  Default `None` preserves backward compatibility with `.scjvm` artifacts
    *  emitted before this field existed; upickle's `derives ReadWriter` picks
    *  the default up automatically on read. */
-  classBundle:  Option[String] = None
+  classBundle:  Option[String] = None,
+  /** Capability set required by this module's emitted code.
+   *
+   *  Populated by `ssc compile-jvm --bytecode` from `JvmGen.detectCapabilities`.
+   *  The linker / runtime-staleness check unions every module's
+   *  `capabilities` into the runtime's capability set so the shared
+   *  `_runtime.scjvm-runtime` is regenerated whenever a module needs a new
+   *  capability that the existing runtime doesn't carry.
+   *
+   *  Encoded as the stable strings emitted by `JvmGen.Capability.encode`
+   *  (e.g. `"effects"`, `"serve"`, `"reactive"`, `"mcp"`, `"dataset"`).
+   *
+   *  Default `Nil` preserves backward compatibility with `.scjvm` artifacts
+   *  emitted before this field existed.  When a `.scjvm` carries an empty
+   *  capability list AND a non-empty `classBundle`, the linker treats it as
+   *  a pre-split-runtime artifact (the classBundle ships the full runtime
+   *  preamble) and skips runtime-bundle injection at link time. */
+  capabilities: List[String] = Nil
 ) derives ReadWriter
 
 /** Shared JVM runtime artifact — written as `.scjvm-runtime` JSON.
