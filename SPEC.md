@@ -1,6 +1,6 @@
 # ScalaScript Language Specification
 
-**Version**: 1.23
+**Version**: 1.26
 **Status**: Normative
 
 ## 1. Introduction
@@ -78,6 +78,9 @@ Recognized front-matter keys:
 | `exports` | List[String] | Explicitly exported names (default: all top-level) |
 | `translations` | Map | Locale → key → string for `t(key)` |
 | `routes` | List | Declarative HTTP route table |
+| `databases` | Map | JDBC connection registry consumed by `sql` blocks (§ 3.3.1) |
+| `backend` | String | Preferred backend id for `ssc run` when no `--backend` flag is supplied (`int` / `jvm` / `js` / `node` / `scalajs-spa` / `wasm` / `spark`). § 9.2. |
+| `spark-version` | String | Apache Spark version pinned for the Spark backend.  Resolution order: CLI `--spark-version` flag → this key → `SparkGen.DefaultVersion`. § 9.5. |
 
 `routes:` entries are equivalent to writing `route(method, path) { req => handler(req) }` inline.
 
@@ -1306,12 +1309,18 @@ Discovery via `ServiceLoader` (in-process JARs) or `plugin.yaml` (subprocess).
 
 ### 9.2 Bundled Backends
 
-| Command | id | Output |
-|---------|----|--------|
-| `ssc run` / `bin/ssc` | `int` | Executed (tree-walking interpreter) |
-| `bin/jssc` | `js` | JavaScript source |
-| `bin/sscc` | `jvm` | Scala 3 source → compiled via scala-cli |
-| `ssc emit-spa` | `scalajs-spa` | Self-contained HTML + JS bundle |
+| id | Display name | Default invocation | Output | Notes |
+|----|--------------|--------------------|--------|-------|
+| `int` | Interpreter (tree-walking) | `ssc run` / `bin/ssc` | Executed in-process | Default when no `--backend` is supplied and front-matter has no `backend:` key. |
+| `jvm` | JVM (Scala 3 source) | `bin/sscc`, `ssc compile-jvm` | Scala 3 source → compiled via scala-cli | In-process emitter; scala-cli runs the produced `.scala` file. |
+| `js` | JavaScript (Node / SPA) | `bin/jssc`, `ssc emit-js` | JavaScript source (one-shot or segmented) | Same `JsGen` powers Node and browser builds; the latter pairs with `ssc emit-spa`. |
+| `node` | Node.js | `ssc run --backend node`, `bin/ssc-node` | Self-contained `.cjs` bundle for `node` | Extends JsGen with verbatim linking of `node.js` opaque-exec blocks (§ 3.3) and a Node-side `_output` flush epilogue. v1.25 Phase 3. |
+| `scalajs-spa` | Scala.js SPA bundle | `ssc emit-spa` | Self-contained HTML + JS bundle | Cross-compiles `scala` blocks via Scala.js for browser execution. |
+| `wasm` | WebAssembly (Scala.js) | `ssc emit-wasm` | `.wasm` module + JS glue | Re-uses Scala.js's WASM emission path. |
+| `spark` | Apache Spark | `ssc run --backend spark`, `bin/ssc-spark` | Scala 3 + Spark source → `scala-cli run --dep org.apache.spark::spark-{core,sql}:<v>` | Out-of-process — Spark JARs resolved at runtime by Coursier. v1.21 `Dataset[T]` API maps 1-to-1. § 9.5. |
+
+`ssc --list-backends` enumerates in-process bundled backends discovered via `ServiceLoader`.
+`spark` is special-cased in `Main.runCommand` until § 9.5 Phase A wraps it in a regular `Backend`.
 
 ### 9.3 Custom Backends
 
@@ -1324,9 +1333,87 @@ See [`docs/writing-a-backend.md`](docs/writing-a-backend.md).
 
 ### 9.4 Block Language Handling
 
-The JS backend handles `scalascript` and `scala` blocks differently:
-- `scalascript` → custom `JsGen` transpiler (effects, TCO, imports)
-- `scala` → Scala.js via `scala-cli --js`
+Each backend chooses how to process every fenced-block lang tag it
+encounters in a module's IR.  The contract is per-language:
+
+| Lang class (§ 3.3) | Treatment by backends |
+|--------------------|----------------------|
+| `scalascript` / `ssc` | Custom transpilation per backend (`JsGen`, `JvmGen`, `Interpreter`, `SparkGen`, …). |
+| `scala` | Passed through to scala-cli (JVM target) or Scala.js (JS / WASM / SPA targets); interpreter runs the supported Scala 3 subset. |
+| String blocks (`html`, `css`, `javascript`) | Rendered to a `String` value with `${expr}` interpolation; bound to `<sectionId>.<lang>`. Universally supported — every backend renders or stores the value. |
+| Opaque-executable blocks (`node.js`, `sql`, …) | Recognised only by the backend(s) that declare the tag in `Capabilities.blockLanguages`.  Any other backend emits `Diagnostic.UnknownBlockLanguage(<tag>)` via `CapabilityCheck`. |
+| Inert tags (`python`, `yaml`, `text`, …) | Stored in the IR verbatim; ignored by every bundled backend. |
+
+The JS backend additionally compiles `scala` blocks via Scala.js, and
+the JVM backend includes `scala` blocks as-is alongside its
+`scalascript`-derived output.
+
+### 9.5 Apache Spark backend
+
+**Status:** Phase A landed (local Spark session via `scala-cli`); Phases B + C open.  See the "Speculative — Apache Spark backend" entry in `MILESTONES.md` for the full plan and rationale.
+
+The Spark target sits at the high-volume end of the same `Dataset[T]`
+abstraction (v1.21) that drives the interpreter's in-process map-reduce.
+A module with `backend: spark` in its front-matter compiles to Scala 3
++ Spark source that `scala-cli` then runs with the right
+`org.apache.spark::spark-{core,sql}:<version>` dependencies — no Spark
+JARs on the ScalaScript sbt classpath, no compile-time coupling.
+
+```yaml
+---
+name: word-count
+backend: spark
+spark-version: 4.0.0     # optional; default is SparkGen.DefaultVersion
+---
+```
+
+```scalascript
+val words = Dataset.fromPath[String]("/data/*.txt")
+                   .flatMap(_.split("\\s+").toList)
+                   .map(w => (w.toLowerCase, 1))
+                   .groupBy(_._1, _._2)
+                   .reduce(_ + _)
+                   .top(100)
+
+words.foreach { case (w, n) => println(s"$w: $n") }
+```
+
+Identical source runs locally (`ssc run word-count.ssc`, interpreter
+backend, in-process) and at scale (`ssc-spark word-count.ssc`,
+Spark backend).  The user does not rewrite the pipeline to switch.
+
+#### Open phases
+
+| Phase | What | Why | Status |
+|-------|------|-----|--------|
+| **A — SPI integration** | Wrap the existing `SparkGen` invocation in a proper `Backend extends Backend` with `META-INF/services` registration; remove the `runViaSparkBackend` special case in `Main.runCommand`. | Today Spark is the only bundled target reached through a side-path instead of the SPI; this blocks Capabilities-driven block-language gating (§ 9.4) and `--describe-backend spark`. | open (~½ day) |
+| **B — Cluster submission** | `ssc submit file.ssc --spark-master spark://host:7077` (and `yarn://`, `k8s://...`).  Packages a fat JAR and shells out to `spark-submit`. | Without it the Spark target is strictly `local[*]` — a developer convenience, not a production deployment story. | open (~1 week) |
+| **C — Spark SQL / DataFrames** | Expose `DataFrame` as `Dataset[Row]`; map `std/parsing` schemas to Spark `StructType`; reuse the `sql` fenced block (§ 3.3.1) — when `backend: spark`, `sql` compiles to Spark SQL instead of JDBC. | Gives typed SQL atop `Dataset` without inventing new surface syntax.  Requires designing the `sql`-tag dual semantics (Spark SQL vs JDBC) — see Open Questions below. | open (~1 week + design) |
+
+#### Spark vs JDBC `sql` blocks
+
+The `sql` fenced tag (§ 3.3.1) currently compiles to a JDBC
+`PreparedStatement` with `${expr}` rewritten to positional `?` binds.
+Under Phase C the same tag, on a Spark-targeted module, compiles to
+`spark.sql("...")` — the binding rule still rewrites `${expr}` to a
+bind-safe placeholder, but the result type becomes
+`Dataset[Row]` rather than `Seq[Row]` / `Int`.  Two consumers of one
+tag is intentional: a `sql` block describes *what to ask*, not *how
+to dispatch it*, and the active backend chooses the dispatcher.
+
+#### Spark version resolution (Phase A onwards)
+
+The Spark version a Phase-A `SparkBackend` will run with is resolved
+in priority order:
+
+1. `--spark-version <v>` CLI flag (highest priority — used for ad-hoc
+   overrides during development).
+2. `spark-version:` key in the module's front-matter (declared
+   per-module; checked into version control).
+3. `SparkGen.DefaultVersion` constant (the source-of-truth fallback).
+
+The resolved string is threaded into `SparkGen.generate(..., sparkVersion)`
+and surfaces in the emitted source's `scala-cli --dep` directives.
 
 ## Appendix A: Reserved Words
 
@@ -1362,27 +1449,31 @@ See [grammar/scalascript.ebnf](grammar/scalascript.ebnf) for the complete EBNF g
 ## Appendix D: CLI Reference
 
 ```text
-ssc run file.ssc              Interpret a .ssc file
-ssc watch file.ssc            Watch mode — re-run on change
-ssc repl                      Interactive REPL
-ssc test file.ssc             Run embedded tests
-ssc preview file.ssc          Preview component variants
-ssc emit-js file.ssc          Transpile to JavaScript
-ssc emit-spa file.ssc         Emit SPA HTML bundle
-ssc emit-wc file.ssc          Emit Web Components bundle
-ssc compile-jvm file.ssc      Compile to .scjvm artifact
-ssc compile-js file.ssc       Compile to .scjs artifact
-ssc emit-interface file.ssc   Emit .scim interface
-ssc emit-ir file.ssc          Emit .scir normalized IR
-ssc link [--backend B] dir/   Link artifacts
-ssc build [--incremental] dir/ Incremental project build
-ssc deps file.ssc             Print import closure
-ssc info artifact             Inspect artifact metadata
-ssc render file.ssc [path]    Static-render a GET route
+ssc run file.ssc                Interpret a .ssc file
+ssc watch file.ssc              Watch mode — re-run on change
+ssc repl                        Interactive REPL
+ssc test file.ssc               Run embedded tests
+ssc preview file.ssc            Preview component variants
+ssc emit-js file.ssc            Transpile to JavaScript
+ssc emit-spa file.ssc           Emit SPA HTML bundle
+ssc emit-wasm file.ssc          Emit WebAssembly module via Scala.js
+ssc emit-wc file.ssc            Emit Web Components bundle
+ssc emit-spark file.ssc         Emit Scala 3 + Spark source
+ssc compile-jvm file.ssc        Compile to .scjvm artifact
+ssc compile-js file.ssc         Compile to .scjs artifact
+ssc emit-interface file.ssc     Emit .scim interface
+ssc emit-ir file.ssc            Emit .scir normalized IR
+ssc link [--backend B] dir/     Link artifacts
+ssc build [--incremental] dir/  Incremental project build
+ssc deps file.ssc               Print import closure
+ssc info artifact               Inspect artifact metadata
+ssc render file.ssc [path]      Static-render a GET route
 ssc plugin install/list/uninstall/check/pack/registry
 ssc --list-backends
 ssc --describe-backend <id>
 ssc --backend <id> run file.ssc
-jssc file.ssc                 JS runner
-sscc file.ssc                 JVM runner
+ssc --spark-version <v> ...     Override Spark version for the `spark` backend (§ 9.5)
+jssc file.ssc                   JS runner
+sscc file.ssc                   JVM runner
+ssc-spark file.ssc              Apache Spark runner (delegates to `ssc run --backend spark`)
 ```
