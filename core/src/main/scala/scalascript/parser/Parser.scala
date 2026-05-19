@@ -336,19 +336,29 @@ object Parser:
    *  — surface syntax we want, expanded into scalameta-friendly form
    *  before parsing.  Stage 5+/A.6 (Б-1). */
   private def preprocessExtern(code: String): String =
-    val externLine = """^(\s*)extern\s+def\s+(.+?)\s*$""".r
+    val externPat = """^(\s*)extern\s+def\s+(.+)$""".r
     val lines = code.linesIterator.toArray
-    if !lines.exists(l => externLine.findFirstIn(l).isDefined) then return code
+    if !lines.exists(l => externPat.findFirstIn(l).isDefined) then return code
     val result = new StringBuilder()
-    for line <- lines do
-      externLine.findFirstMatchIn(line) match
-        case Some(m) if !line.contains(" = ") && !line.endsWith("=") =>
-          result.append(m.group(1))
-                .append("def ")
-                .append(m.group(2).stripTrailing)
+    var i = 0
+    while i < lines.length do
+      val line = lines(i)
+      externPat.findFirstMatchIn(line) match
+        case Some(m) =>
+          val indent = m.group(1)
+          val sigBuf = new StringBuilder(m.group(2).stripTrailing)
+          // Multi-line extern def: collect continuation lines until paren depth reaches 0.
+          var depth = sigBuf.count(_ == '(') - sigBuf.count(_ == ')')
+          while depth > 0 && i + 1 < lines.length do
+            i += 1
+            val cont = lines(i).strip
+            sigBuf.append(" ").append(cont)
+            depth += cont.count(_ == '(') - cont.count(_ == ')')
+          result.append(indent).append("def ").append(sigBuf.toString.stripTrailing)
                 .append(" = __extern__\n")
-        case _ =>
+        case None =>
           result.append(line).append("\n")
+      i += 1
     result.toString
 
   // Preprocess `effect Name:` declarations into `object Name { def op(...) = __effectOp__ }`.
