@@ -5028,6 +5028,37 @@ Phase 3+ / final tooling round (landed 2026-05-19):
     imported `.scim` interface symbols, and 27 built-in keywords.
     Item kinds: Function(3)/Constructor(4)/Variable(6)/Keyword(14).
     7 new handler tests; all 19 `LspHandlersTest` + 113 cli tests green.
+  - **LSP Phase 2 landed (2026-05-20)** — five new methods + extended
+    integration coverage:
+    - `textDocument/references` — finds all use-sites of the name under
+      cursor in the open document; returns `Location[]`.
+    - `textDocument/prepareRename` — returns the `Range` of the
+      renameable token, or `null` if the cursor is not on a name.
+    - `textDocument/rename` — renames all occurrences in the open document;
+      returns `WorkspaceEdit { changes: { uri: TextEdit[] } }`.
+    - `textDocument/documentSymbol` — flat `SymbolInformation[]` with a
+      Module heading + all scalameta `Defn.Def` / `Defn.Val` / `Defn.Var`
+      / `Defn.Object` / `Defn.Class` / `Defn.Trait` names per block.
+    - `workspace/symbol` — cross-document + cross-`.scim` substring search
+      (case-insensitive, capped at 200); also searches pre-loaded interface
+      symbols from the artifact dir.
+    - `textDocument/signatureHelp` — backward character scan from cursor
+      locates innermost unclosed `(`; comma-counts the active parameter;
+      looks up the `def` via scalameta AST with a line-by-line text fallback
+      when the block fails to parse (cursor inside incomplete call).
+      Trigger chars: `(`, `,`.
+    - `LspServerIntegrationTest` extended from 1 to 7 end-to-end tests
+      covering all new methods; `withLspServer` / `initialize` / `didOpen`
+      / `req` helpers eliminate per-test subprocess boilerplate.
+    - 46 unit handler tests + 7 integration tests — all green.
+  - **`std/actors.ssc` compile-jvm flip (2026-05-20)** — `V2RealStdModulesTest`
+    expectation updated from "must fail" to "must succeed (exit 0, produces
+    `.scjvm`)" after the codegen caught up with every `extern def` in
+    `std/actors.ssc`.
+  - **SectionDiff / AST-cache diff (2026-05-19)** — `SectionDiff` computes
+    structural diffs between two parsed `Module`s at the section level; the
+    incremental JVM/JS build pipelines consult it to skip re-emitting
+    sections whose content hash and AST are unchanged.
 
 **Final test coverage**: **531 core + ~115 CLI subprocess smoke tests**,
 all green.
