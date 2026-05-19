@@ -7578,14 +7578,11 @@ regression test green.
         exercises the exact JSON-RPC sequence an Anvil node would
         receive; real network round-trip is a follow-on slice.
 
-### Phase 3 — blockchain-solana
+### Phase 3 — blockchain-solana ✓ Landed (2026-05-20)
 
-- [ ] `blockchain-solana` — ed25519, base58 addresses, SLIP-0010,
-      versioned transactions, address lookup tables, send/poll
-- [ ] Triggers `x402-core.Network` → `ChainId` migration:
-  - [ ] `Network` becomes `case class Network(chain: ChainId)`;
-        existing `Network.Base` etc. retained as named instances
-  - [ ] Source-compatible for all existing call sites
+- [x] `blockchain-solana` — Ed25519, Base58 addresses, SLIP-0010,
+      versioned transactions (v0 + legacy), PDA derivation, SPL token support
+- [x] 43 tests — address derivation, tx building, SPL TransferChecked, PDA, balances
 
 ### Phase 4 — Scala.js CryptoBackend
 
