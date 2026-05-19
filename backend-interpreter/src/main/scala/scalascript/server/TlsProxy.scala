@@ -77,20 +77,23 @@ object TlsProxy:
             cout.flush(); client.close()
             Metrics.wsRejected.incrementAndGet(); return
 
-        val q0 = HttpHelpers.parseQuery(rawQuery)
-        val cookies0 = HttpHelpers.parseCookieHeader(headers.getOrElse("cookie", ""))
-        val authReq: Value = Value.InstanceV("Request", Map(
+        // Pre-upgrade Request snapshot — built once, reused as
+        // `ws.request` after the upgrade since the headers / path /
+        // params / cookies don't change across the upgrade boundary.
+        val query   = HttpHelpers.parseQuery(rawQuery)
+        val cookies = HttpHelpers.parseCookieHeader(headers.getOrElse("cookie", ""))
+        val request: Value = Value.InstanceV("Request", Map(
           "method"  -> Value.StringV("GET"),
           "path"    -> Value.StringV(path),
           "params"  -> Value.MapV(params.map((k, v) => Value.StringV(k) -> Value.StringV(v))),
-          "query"   -> Value.MapV(q0.map((k, v)  => Value.StringV(k) -> Value.StringV(v))),
+          "query"   -> Value.MapV(query.map((k, v)  => Value.StringV(k) -> Value.StringV(v))),
           "headers" -> Value.MapV(headers.map((k, v) => Value.StringV(k) -> Value.StringV(v))),
-          "cookies" -> Value.MapV(cookies0.map((k, v) => Value.StringV(k) -> Value.StringV(v)))
+          "cookies" -> Value.MapV(cookies.map((k, v) => Value.StringV(k) -> Value.StringV(v)))
         ))
         var userPayload: Option[Value] = None
         var authRejected               = false
         entry.auth.foreach { fn =>
-          try entry.interpreter.invoke(fn, List(authReq)) match
+          try entry.interpreter.invoke(fn, List(request)) match
             case Value.OptionV(Some(v)) => userPayload = Some(v)
             case Value.OptionV(None)    => authRejected = true
             case other                  => userPayload = Some(other)
@@ -114,39 +117,23 @@ object TlsProxy:
           cout.flush(); client.close()
           Metrics.wsRejected.incrementAndGet(); return
 
-        val chosenProtocol: String =
-          if entry.protocols.isEmpty then ""
-          else
-            val offered = headers.getOrElse("sec-websocket-protocol", "")
-              .split(',').iterator.map(_.trim).filter(_.nonEmpty).toSet
-            entry.protocols.find(offered.contains) match
-              case Some(p) => p
-              case None =>
-                WsConnection.releaseSlot(); entry.release()
-                cout.write(httpResp(400, "Bad Request",
-                  s"No matching Sec-WebSocket-Protocol; server offers: ${entry.protocols.mkString(", ")}"))
-                cout.flush(); client.close()
-                Metrics.wsRejected.incrementAndGet(); return
+        // Subprotocol negotiation (RFC 6455 §1.9) and 101 upgrade
+        // wire shape delegated to the shared `WsHandshake` — same
+        // path WsProxy / JvmGen take since Phase 2d.
+        val chosenProtocol: String = WsHandshake.negotiateSubprotocol(
+          headers.getOrElse("sec-websocket-protocol", ""), entry.protocols
+        ) match
+          case Some(p) => p
+          case None =>
+            WsConnection.releaseSlot(); entry.release()
+            cout.write(httpResp(400, "Bad Request",
+              s"No matching Sec-WebSocket-Protocol; server offers: ${entry.protocols.mkString(", ")}"))
+            cout.flush(); client.close()
+            Metrics.wsRejected.incrementAndGet(); return
 
-        val accept   = WsFraming.acceptKey(key)
-        val protoHdr = if chosenProtocol.isEmpty then "" else s"Sec-WebSocket-Protocol: $chosenProtocol\r\n"
-        val respLine =
-          "HTTP/1.1 101 Switching Protocols\r\n" +
-          "Upgrade: websocket\r\nConnection: Upgrade\r\n" +
-          s"Sec-WebSocket-Accept: $accept\r\n" + protoHdr + "\r\n"
-        cout.write(respLine.getBytes(java.nio.charset.StandardCharsets.US_ASCII))
+        cout.write(WsHandshake.upgradeResponse(key, chosenProtocol))
         cout.flush()
 
-        val query   = HttpHelpers.parseQuery(rawQuery)
-        val cookies = HttpHelpers.parseCookieHeader(headers.getOrElse("cookie", ""))
-        val request = Value.InstanceV("Request", Map(
-          "method"  -> Value.StringV("GET"),
-          "path"    -> Value.StringV(path),
-          "params"  -> Value.MapV(params.map((k, v) => Value.StringV(k) -> Value.StringV(v))),
-          "query"   -> Value.MapV(query.map((k, v)  => Value.StringV(k) -> Value.StringV(v))),
-          "headers" -> Value.MapV(headers.map((k, v) => Value.StringV(k) -> Value.StringV(v))),
-          "cookies" -> Value.MapV(cookies.map((k, v) => Value.StringV(k) -> Value.StringV(v)))
-        ))
         Metrics.wsUpgraded.incrementAndGet()
 
         // Build a NIO SocketChannel wrapping the existing Socket so we can

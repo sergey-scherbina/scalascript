@@ -4047,25 +4047,27 @@ class JvmGen(
        |          if !r.origins.contains(origin) then
        |            cout.write(WsHandshake.rejectResponse(403, "Forbidden"))
        |            cout.flush(); client.close(); _Metrics.wsRejected.incrementAndGet(); return
-       |        // Pre-upgrade auth hook.  Same shape as the interpreter
-       |        // path: read-only over headers / cookies / Origin.
-       |        // None → reject with 401; Some(v) → carry v to ws.user.
-       |        val _authRawQ  = request.split(' ').lift(1).getOrElse("/").split('?').lift(1).getOrElse("")
-       |        val _authCookies: Map[String, String] =
-       |          HttpHelpers.parseCookieHeader(headers.getOrElse("cookie", ""))
-       |        val _authReq = Request(
+       |        // Pre-upgrade Request snapshot — same shape REST handlers
+       |        // see (sans body / form / files; the upgrade is a GET with
+       |        // no body).  Used for the auth hook AND, after the upgrade
+       |        // succeeds, as `ws.request` so handlers can read cookies /
+       |        // Authorization / Origin from `ws.request.headers`.  Built
+       |        // once because the headers / path / params don't change
+       |        // across the upgrade boundary.
+       |        val _rawQ = request.split(' ').lift(1).getOrElse("/").split('?').lift(1).getOrElse("")
+       |        val _wsReq = Request(
        |          method  = "GET",
        |          path    = path,
        |          params  = params,
-       |          query   = _parseQuery(_authRawQ),
+       |          query   = _parseQuery(_rawQ),
        |          headers = headers,
        |          body    = "",
-       |          cookies = _authCookies
+       |          cookies = HttpHelpers.parseCookieHeader(headers.getOrElse("cookie", ""))
        |        )
        |        var _authPayload: Option[Any] = None
        |        var _authReject:  Boolean      = false
        |        r.auth.foreach { fn =>
-       |          try fn(_authReq) match
+       |          try fn(_wsReq) match
        |            case Some(v) => _authPayload = Some(v)
        |            case None    => _authReject  = true
        |          catch case e: Throwable =>
@@ -4103,25 +4105,12 @@ class JvmGen(
        |            cout.write(WsHandshake.rejectResponse(400, "Bad Request"))
        |            cout.flush(); client.close(); _Metrics.wsRejected.incrementAndGet(); return
        |        cout.write(WsHandshake.upgradeResponse(key, chosenProtocol)); cout.flush()
-       |        // Build the Request snapshot — same shape as REST handlers
-       |        // see (sans body / form / files; the WS upgrade is a GET
-       |        // with no body) so WS-side auth can read cookies /
-       |        // Authorization / Origin from `ws.request.headers`.
-       |        val rawQ  = request.split(' ').lift(1).getOrElse("/").split('?').lift(1).getOrElse("")
-       |        // Cookie header parsed via the shared HttpHelpers helper.
-       |        val wsCookies: Map[String, String] =
-       |          HttpHelpers.parseCookieHeader(headers.getOrElse("cookie", ""))
-       |        val wsReq = Request(
-       |          method  = "GET",
-       |          path    = path,
-       |          params  = params,
-       |          query   = _parseQuery(rawQ),
-       |          headers = headers,
-       |          body    = "",
-       |          cookies = wsCookies
-       |        )
+       |        // Reuse the pre-upgrade `_wsReq` snapshot built above — the
+       |        // headers / path / params / cookies haven't changed across
+       |        // the upgrade boundary, so a second snapshot would be a
+       |        // verbatim copy.
        |        _Metrics.wsUpgraded.incrementAndGet()
-       |        val ws = WebSocket(client, wsReq, subprotocol = chosenProtocol, _onTerminate = () => r.release(), _maxMessagesPerSec = r.maxMessagesPerSec, user = _authPayload)
+       |        val ws = WebSocket(client, _wsReq, subprotocol = chosenProtocol, _onTerminate = () => r.release(), _maxMessagesPerSec = r.maxMessagesPerSec, user = _authPayload)
        |        // Structured connect log (Sprint 4 #13).
        |        val _accessIp     = try client.getRemoteSocketAddress.toString catch case _: Throwable => "?"
        |        val _accessOrigin = headers.getOrElse("origin", "")

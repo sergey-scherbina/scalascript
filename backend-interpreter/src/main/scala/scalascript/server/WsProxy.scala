@@ -268,22 +268,23 @@ final class WsProxy(
             conn.key.interestOpsOr(SelectionKey.OP_WRITE)
             Metrics.wsRejected.incrementAndGet()
             return
-        // Pre-upgrade auth hook (RFC-agnostic).  Runs on the proxy
-        // selector thread; must be read-only over interpreter
-        // globals.  Build the same Request snapshot the handler
-        // will eventually see and hand it to the hook; on `None`
-        // reply 401 and abort; on `Some(userValue)` carry the
-        // payload through to `WsConnection.user`.
-        val rawQ0 = parseQueryString(rawQuery)
-        val cookies0: Map[String, String] =
+        // Pre-upgrade Request snapshot — same shape REST handlers
+        // see (sans body / form / files; the upgrade is a GET with
+        // no body).  Used for the auth hook AND, after the upgrade
+        // succeeds, as `ws.request` so handlers can read cookies /
+        // Authorization / Origin from `ws.request.headers`.  Built
+        // once because the headers / path / params don't change
+        // across the upgrade boundary.
+        val query = parseQueryString(rawQuery)
+        val cookies: Map[String, String] =
           HttpHelpers.parseCookieHeader(headers.getOrElse("cookie", ""))
-        val authReq: Value = Value.InstanceV("Request", Map(
+        val request: Value = Value.InstanceV("Request", Map(
           "method"  -> Value.StringV("GET"),
           "path"    -> Value.StringV(path),
           "params"  -> Value.MapV(params.map((k, v) => Value.StringV(k) -> Value.StringV(v))),
-          "query"   -> Value.MapV(rawQ0.map((k, v)  => Value.StringV(k) -> Value.StringV(v))),
+          "query"   -> Value.MapV(query.map((k, v)  => Value.StringV(k) -> Value.StringV(v))),
           "headers" -> Value.MapV(headers.map((k, v) => Value.StringV(k) -> Value.StringV(v))),
-          "cookies" -> Value.MapV(cookies0.map((k, v) => Value.StringV(k) -> Value.StringV(v)))
+          "cookies" -> Value.MapV(cookies.map((k, v) => Value.StringV(k) -> Value.StringV(v)))
         ))
         // Auth result threads through to `WsConnection.user`.  Three
         // states: no hook (None, accept), hook returned a payload
@@ -293,7 +294,7 @@ final class WsProxy(
         var userPayload: Option[Value] = None
         var authRejected: Boolean      = false
         entry.auth.foreach { fn =>
-          try entry.interpreter.invoke(fn, List(authReq)) match
+          try entry.interpreter.invoke(fn, List(request)) match
             case Value.OptionV(Some(v)) => userPayload = Some(v)
             case Value.OptionV(None)    => authRejected = true
             case other                  => userPayload = Some(other)
@@ -361,25 +362,10 @@ final class WsProxy(
           if n < 0 then
             closeChain(conn.key); return
           written += n
-        // Build a Request-shaped Value so the handler can read auth /
-        // cookies / origin via `ws.request.headers(...)`.  Mirrors the
-        // REST Request shape minus body/form/files (no body on a GET
-        // upgrade) and session/JWT (no eager pre-parsing here — the
-        // handler can derive them from the raw headers if it wants to).
-        val query = parseQueryString(rawQuery)
-        // Cookie header parsed via the shared HttpHelpers helper —
-        // same convention REST handlers + the WS pre-upgrade auth
-        // request use.
-        val cookies: Map[String, String] =
-          HttpHelpers.parseCookieHeader(headers.getOrElse("cookie", ""))
-        val request = Value.InstanceV("Request", Map(
-          "method"  -> Value.StringV("GET"),
-          "path"    -> Value.StringV(path),
-          "params"  -> Value.MapV(params.map((k, v) => Value.StringV(k) -> Value.StringV(v))),
-          "query"   -> Value.MapV(query.map((k, v)  => Value.StringV(k) -> Value.StringV(v))),
-          "headers" -> Value.MapV(headers.map((k, v) => Value.StringV(k) -> Value.StringV(v))),
-          "cookies" -> Value.MapV(cookies.map((k, v) => Value.StringV(k) -> Value.StringV(v)))
-        ))
+        // Reuse the pre-upgrade `request` snapshot built above — the
+        // headers / path / params / cookies haven't changed across
+        // the upgrade boundary, so a second snapshot would be a
+        // verbatim copy.
         // Transition: build the WsConnection and feed any post-handshake
         // bytes already in the buffer through its parser.
         Metrics.wsUpgraded.incrementAndGet()
