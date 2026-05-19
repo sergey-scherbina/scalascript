@@ -37,6 +37,14 @@ import scala.meta.*
  *  add cases here without breaking existing consumers. */
 object AstToIr:
 
+  /** Pin the pretty-printer dialect to Scala 3 for every `.syntax` call
+   *  in this object.  `scala.meta.Tree#syntax` requires a `Dialect` in
+   *  scope; without one, scalameta defaults to Scala 2.13 and rejects
+   *  Scala-3-only modifiers when rendering a tree that was parsed
+   *  under Scala 3.  Surfaced as `"Scala213 doesn't support infix
+   *  modifiers"` for `std/error-handling.ssc`'s `infix type throws`. */
+  private given Dialect = scala.meta.dialects.Scala3
+
   /** Top-level entry: translate a scalameta tree (typically a
    *  `Source` or a `Term.Block`) to a single `IrExpr`.  A `Source`
    *  becomes an `ir.Block` of its top-level statements; everything

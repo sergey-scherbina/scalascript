@@ -97,3 +97,37 @@ class PreprocessExternTest extends AnyFunSuite:
       """def listOf[A](xs: A*): List[A] = xs.toList
         |val xs = listOf[Int](1, 2, 3)""".stripMargin)
     assert(blockTree(m).isDefined, "type applications must not be stripped")
+
+  // ── slash-style imports — last std/ fix ─────────────────────────────────
+
+  test("slash-import: `import x/y/z.{A}` rewritten to `import x.y.z.{A}`"):
+    // std/mapreduce/index.ssc uses `import std/mapreduce/dataset.{Dataset}`
+    // — a convention adopted from Python / ES module paths.  scalameta
+    // strictly expects `.` segments; preprocessSlashImports rewrites
+    // before parsing.
+    val m = parseBlock(
+      """import std/mapreduce/dataset.{Dataset}
+        |val d: Dataset = ???""".stripMargin)
+    assert(blockTree(m).isDefined,
+      "slash-form import should be rewritten to dot-form")
+
+  test("slash-import: multiple slash imports in one block all rewritten"):
+    val m = parseBlock(
+      """import std/a/b.{X}
+        |import std/c/d.{Y, Z}
+        |val x: X = ???""".stripMargin)
+    assert(blockTree(m).isDefined, "multiple slash imports should all be rewritten")
+
+  test("slash-import: regular dot-form imports left alone"):
+    val m = parseBlock(
+      """import scala.collection.immutable.List
+        |val xs = List(1, 2, 3)""".stripMargin)
+    assert(blockTree(m).isDefined, "dot-form imports must pass through unchanged")
+
+  test("slash-import: file path inside string is NOT rewritten"):
+    // Defensive: a `val path = \"a/b/c\"` shouldn't be touched.  Our regex
+    // anchors on `import` keyword, so strings are safe.
+    val m = parseBlock(
+      """val path = "a/b/c.txt"
+        |val name = "x/y/z"""".stripMargin)
+    assert(blockTree(m).isDefined, "string literals must not be touched")

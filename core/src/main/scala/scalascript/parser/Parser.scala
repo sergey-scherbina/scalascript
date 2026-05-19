@@ -83,7 +83,7 @@ object Parser:
         // that scalameta sees and the whole block silently fails to parse
         // (cb.tree = None → imports from this file see no symbols).
         val preprocessed =
-          preprocessExtern(preprocessEffects(preprocessInlineImports(cb.source)))
+          preprocessExtern(preprocessEffects(preprocessInlineImports(preprocessSlashImports(cb.source))))
         val nested = pkg.foldRight(preprocessed) { (seg, body) =>
           val indented = body.linesIterator.map("  " + _).mkString("\n")
           s"object $seg:\n$indented"
@@ -513,6 +513,43 @@ object Parser:
    *  tracking bracket depth across lines.  Lines that are not list-form
    *  imports — including ordinary Scala `[...](...)` such as type-argument
    *  applications — pass through untouched. */
+
+  /** Translate path-shaped `import` statements:
+   *
+   *    import std/mapreduce/dataset.{Dataset}        →
+   *    import std.mapreduce.dataset.{Dataset}
+   *
+   *  Some std/ modules (and external libraries written by people coming
+   *  from Python / ES module / Rust paths) use `/` as the segment
+   *  separator inside `import` clauses.  scalameta strictly expects `.`,
+   *  so the `/`-form fails parsing.  This preprocessor rewrites the
+   *  segment separator BEFORE the `.{` member selector, leaving the
+   *  selector contents untouched.
+   *
+   *  Conservative: only rewrites lines starting with `import` (allowing
+   *  leading whitespace).  String/comment-position detection isn't
+   *  needed because `import` outside a top-level position is rare enough
+   *  to be hand-fixed; this preprocessor solves the import-statement
+   *  case which is what std/ relies on. */
+  private def preprocessSlashImports(code: String): String =
+    val importPat = """^(\s*import\s+)([A-Za-z_][\w]*(?:/[A-Za-z_][\w]*)+)(\.\{.*|\..*|\s*$)""".r
+    val lines = code.linesIterator.toArray
+    if !lines.exists(l => l.startsWith("import ") || l.matches("""^\s+import\s.*""")) then
+      return code
+    val out = new StringBuilder
+    var changed = false
+    for line <- lines do
+      importPat.findFirstMatchIn(line) match
+        case Some(m) if m.group(2).contains("/") =>
+          out.append(m.group(1))
+            .append(m.group(2).replace('/', '.'))
+            .append(m.group(3))
+            .append('\n')
+          changed = true
+        case _ =>
+          out.append(line).append('\n')
+    if changed then out.toString else code
+
   private def preprocessInlineImports(code: String): String =
     val lines = code.linesIterator.toArray
     // Quick reject: only inspect files that actually contain a `]( ... .ssc)` or
@@ -623,7 +660,7 @@ object Parser:
   def parseScalaWithDiagnostic(code: String): (Option[ScalaNode], Option[CodeBlockParseError]) =
     import scala.meta.*
     given Dialect = dialects.Scala3
-    val processed = preprocessExtern(preprocessEffects(preprocessInlineImports(code)))
+    val processed = preprocessExtern(preprocessEffects(preprocessInlineImports(preprocessSlashImports(code))))
     processed.parse[Source] match
       case Parsed.Success(tree) => (Some(ScalaNode(tree)), None)
       case sourceErr: Parsed.Error =>
