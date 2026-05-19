@@ -5979,12 +5979,52 @@ def lspCommand(args: List[String]): Unit =
 def clusterCommand(args: List[String]): Unit =
   args match
     case "status" :: rest => clusterStatusCommand(rest)
+    case "drain"  :: rest => clusterDrainCommand(rest)
     case ("help" | "--help" | "-h") :: _ =>
       println("Usage: ssc cluster <subcommand>")
       println("  status <url> [--json]   show a JSON snapshot from a running node")
+      println("  drain  <url> [--off]    enable (or disable) drain mode on a node")
     case _ =>
-      System.err.println("Usage: ssc cluster status <url> [--json]")
+      System.err.println("Usage: ssc cluster {status|drain} <url> [opts]")
       System.exit(2)
+
+private def clusterDrainCommand(args: List[String]): Unit =
+  val (flags, urlOpt) = args.partition(_.startsWith("--"))
+  val off = flags.contains("--off")
+  if urlOpt.isEmpty then
+    System.err.println("Usage: ssc cluster drain <url> [--off]")
+    System.err.println("  e.g. ssc cluster drain http://localhost:8080      # enable")
+    System.err.println("       ssc cluster drain http://localhost:8080 --off  # disable")
+    System.exit(2)
+  else
+    val url = urlOpt.head
+    val drainUrl =
+      if url.endsWith("/_ssc-cluster/drain") then url
+      else url.stripSuffix("/") + "/_ssc-cluster/drain"
+    val payload = if off then """{"enabled":false}""" else """{"enabled":true}"""
+    val client = java.net.http.HttpClient.newBuilder()
+      .connectTimeout(java.time.Duration.ofSeconds(5)).build()
+    val req = java.net.http.HttpRequest.newBuilder()
+      .uri(java.net.URI.create(drainUrl))
+      .timeout(java.time.Duration.ofSeconds(10))
+      .header("Content-Type", "application/json")
+      .POST(java.net.http.HttpRequest.BodyPublishers.ofString(payload))
+      .build()
+    val respOpt: Option[java.net.http.HttpResponse[String]] =
+      try Some(client.send(req, java.net.http.HttpResponse.BodyHandlers.ofString()))
+      catch case e: Throwable =>
+        System.err.println(s"failed to POST $drainUrl: ${e.getMessage}")
+        System.exit(1)
+        None
+    respOpt.foreach { resp =>
+      if resp.statusCode() != 200 then
+        System.err.println(s"unexpected status ${resp.statusCode()} from $drainUrl")
+        System.err.println(resp.body())
+        System.exit(1)
+      else
+        println(s"${if off then "disabled" else "enabled"} drain on $url")
+        println(resp.body())
+    }
 
 private def clusterStatusCommand(args: List[String]): Unit =
   val (raw, urlOpt) = args.partition(_.startsWith("--"))

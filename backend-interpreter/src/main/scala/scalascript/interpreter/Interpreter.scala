@@ -1645,6 +1645,52 @@ class Interpreter(
    *  for the route table.  Reads volatile / concurrent state with no
    *  locks — values are observation-grade, not a transactional
    *  snapshot.  Used by `ssc cluster status` and ops dashboards. */
+
+  /** v1.23 — register `POST /_ssc-cluster/drain` toggling local drain
+   *  state.  Body is JSON `{"enabled":true|false}` (or empty body =
+   *  enable).  Mirrors the in-process `setDraining` intrinsic's
+   *  effects: flips `isDrainingSelf`, broadcasts DrainStateChanged
+   *  to peers, steps down if we were leader.  Used by
+   *  `ssc cluster drain <url> [--off]`. */
+  private def registerClusterDrainRoute(): Unit =
+    val path = "/_ssc-cluster/drain"
+    val already = scalascript.server.Routes.all.exists(e =>
+      e.method == "POST" && e.path == path)
+    if already then return
+    val handler = Value.NativeFnV("_clusterDrain", Computation.pureFn { args =>
+      val body = args.headOption.flatMap {
+        case Value.InstanceV("Request", fs) =>
+          fs.get("body").collect { case Value.StringV(s) => s }
+        case _ => None
+      }.getOrElse("")
+      val enabled: Boolean =
+        if body.trim.isEmpty then true
+        else
+          val needle = "\"enabled\":"
+          val i = body.indexOf(needle)
+          if i < 0 then true
+          else
+            val rest = body.substring(i + needle.length).trim
+            !rest.startsWith("false")
+      val prev = isDrainingSelf.getAndSet(enabled)
+      if prev != enabled then
+        val payload = s"""{"t":"drain","from":${jsonStr(localNodeId)},"draining":$enabled}"""
+        peerChannels.forEach { (_, send) =>
+          try send(payload) catch case _: Throwable => ()
+        }
+        enqueueDrainEvent(localNodeId, enabled)
+        if enabled then stepDownIfLeader()
+      Value.InstanceV("Response", Map(
+        "status"  -> Value.IntV(200),
+        "headers" -> Value.MapV(Map(
+          Value.StringV("Content-Type") -> Value.StringV("application/json")
+        )),
+        "body"    -> Value.StringV(
+          s"""{"drainingSelf":${if enabled then "true" else "false"}}""")
+      ))
+    })
+    scalascript.server.Routes.register("POST", path, handler, this)
+
   private def registerClusterStatusRoute(): Unit =
     val path = "/_ssc-cluster/status"
     val already = scalascript.server.Routes.all.exists(e =>
@@ -6645,6 +6691,9 @@ class Interpreter(
       // protocol, raft term) so operators can probe a live cluster
       // without touching the actor scheduler.
       registerClusterStatusRoute()
+      // v1.23 — POST /_ssc-cluster/drain to toggle local drain state
+      // remotely (via `ssc cluster drain <url>` or any HTTP client).
+      registerClusterDrainRoute()
       Right(k(Value.UnitV))
 
     case "connectNode" => args match
