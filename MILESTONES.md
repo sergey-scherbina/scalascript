@@ -3259,6 +3259,20 @@ the codegen output.
   Phase 2f total: −74 LOC across the two backends, +37 LOC in
   HttpHelpers (no new file count change in `runtime-server-common`).
 
+- **Phase 2g** — one more `HttpHelpers` addition:
+
+  | Helper | Replaces |
+  | --- | --- |
+  | `HttpHelpers.parseHttpHead(head)` → `HttpRequestHead` | byte-identical post-`readHttpHead` parse blocks in interp `TlsProxy.handleConnection` + JvmGen `_proxyConnection`: decode ISO-8859-1, split on `\r\n`, drop request line, lowercase-key headers Map, extract method/path/rawQuery, classify as upgrade-or-not.  The returned record carries an `isUpgradeWebSocket` predicate folding the `Upgrade:`/`Connection:` case-insensitive check both sites used inline. |
+
+  Both backends now `val parsed = HttpHelpers.parseHttpHead(head)` and
+  read `parsed.path` / `parsed.rawQuery` / `parsed.headers` /
+  `parsed.isUpgradeWebSocket`.  Codegen drops a now-redundant
+  `_rawQ = request.split(' ')…` line.
+
+  Phase 2g total: −32 LOC across the two backends, +43 LOC in
+  HttpHelpers.
+
 ### Deferred follow-ups (v1.17.x backlog, ordered by priority)
 
 1. **Own implementation for INT / scalajs-spa** — ~1500 LOC
