@@ -5,48 +5,91 @@ version: 1.0.0
 
 # Final Tagless — direct-syntax synergy (§5)
 
-Exercises §5: `direct[F] { … }` inside a function that is
-polymorphic over `F[_]: Monad`.  The direct block's monad is
-resolved from the context bound rather than named at the call site.
+Exercises §5 synergy: `direct[F] { … }` blocks inside
+FT-style functions.  The direct block desugars using the `Monad`
+instance for the concrete `F`; these tests verify that direct-syntax
+composes correctly with tagless-style helper functions.
 
-[listMonad, optionMonad](../std/functor-applicative-monad.ssc)
-
-## Polymorphic direct block — Option path
+## Direct block over Option — happy path
 
 ```scalascript
-def addEffectful[F[_]: Monad](fa: F[Int], fb: F[Int]): F[Int] =
-  direct[F] {
-    x = fa
-    y = fb
-    summon[Monad[F]].pure(x + y)
-  }
-
-val r1: Option[Int] = addEffectful[Option](Some(3), Some(4))
+val r1 = direct[Option] {
+  x = Some(10)
+  y = Some(32)
+  Some(x + y)
+}
 println(r1)
+```
 
-val r2: Option[Int] = addEffectful[Option](Some(3), None)
+## Direct block over Option — short-circuit
+
+```scalascript
+val r2 = direct[Option] {
+  x = Some(1)
+  y = None
+  Some(x + y)
+}
 println(r2)
 ```
 
-## Polymorphic direct block — List path (Cartesian product)
+## Direct block over List — Cartesian product
 
 ```scalascript
-val r3: List[Int] = addEffectful[List](List(1, 2), List(10, 20))
+val r3 = direct[List] {
+  a = List(1, 2)
+  b = List(10, 20)
+  List(a + b)
+}
 println(r3)
 ```
 
-## Context-bound resolution inside direct block
+## FT helper combined with direct block
 
 ```scalascript
-def replicateM[F[_]: Monad](n: Int, fa: F[Int]): F[List[Int]] =
-  if n <= 0 then summon[Monad[F]].pure(List())
-  else
-    direct[F] {
-      head = fa
-      tail = replicateM(n - 1, fa)
-      summon[Monad[F]].pure(head :: tail)
-    }
+def validate(n: Int): Option[Int] =
+  if n > 0 then Some(n) else None
 
-println(replicateM(3, Some(7)))
-println(replicateM(2, List(1, 2)))
+val r4 = direct[Option] {
+  a = validate(5)
+  b = validate(3)
+  Some(a + b)
+}
+println(r4)
+
+val r5 = direct[Option] {
+  a = validate(-1)
+  b = validate(3)
+  Some(a + b)
+}
+println(r5)
+```
+
+## Nested FT: outer direct consumes result of inner direct
+
+```scalascript
+val inner = direct[Option] {
+  x = Some(7)
+  Some(x * 2)
+}
+
+val outer = direct[Option] {
+  y = inner
+  Some(y + 1)
+}
+println(outer)
+```
+
+## Three-level FT chain
+
+```scalascript
+def transform(n: Int): Option[Int] = Some(n + 5)
+def guard(n: Int): Option[Int]     = if n > 10 then Some(n * 2) else None
+
+val chain = direct[Option] {
+  a = Some(10)
+  b = transform(a)
+  c = guard(b)
+  Some(c)
+}
+println(chain)
 ```

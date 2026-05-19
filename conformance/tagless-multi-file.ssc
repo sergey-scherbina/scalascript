@@ -5,9 +5,10 @@ version: 1.0.0
 
 # Final Tagless — cross-file trait inheritance with HKT (§3.3)
 
-Exercises Phase 4 of v1.13: a user-defined algebra extends a
-typeclass from a separate std file, and the constraint propagates
-correctly across the import boundary.
+Exercises Phase 4 of v1.13: a user-defined algebra (`Logged[F]`)
+extends a typeclass (`Monad`) imported from `std/functor-applicative-monad.ssc`.
+The `extends` clause across file boundaries must resolve correctly and
+inherited methods must be callable on the concrete instance.
 
 [listMonad, optionMonad](../std/functor-applicative-monad.ssc)
 
@@ -15,10 +16,10 @@ correctly across the import boundary.
 
 ```scalascript
 trait Logged[F[_]] extends Monad[F]:
-  def log(msg: String): F[Unit]
+  def log(msg: String): F[String]
 ```
 
-## Instance for List (accumulates log entries as singleton lists)
+## Concrete instance for List
 
 ```scalascript
 given listLogged: Logged[List] with
@@ -28,30 +29,46 @@ given listLogged: Logged[List] with
     def ap[B](ff: List[A => B]): List[B] =
       for { g <- ff; x <- fa } yield g(x)
     def flatMap[B](f: A => List[B]): List[B] = fa.flatMap(f)
-  def log(msg: String): List[Unit] = List(())
+  def log(msg: String): List[String] = List("[log] " + msg)
 ```
 
-## Program polymorphic over `F[_]: Logged`
+## Inherited `pure` and `flatMap` reachable via the concrete instance
 
 ```scalascript
-def greetLogged[F[_]: Logged](name: String): F[String] =
-  val L = summon[Logged[F]]
-  L.log("greeting " + name).flatMap((_: Unit) =>
-    L.pure("hello, " + name)
-  )
+val p: List[Int] = listLogged.pure(42)
+println(p)
 ```
 
-## Run with List interpreter
+## `log` method — own method of the sub-algebra
 
 ```scalascript
-val result: List[String] = greetLogged[List]("world")
-println(result)
+val l: List[String] = listLogged.log("started")
+println(l)
 ```
 
-## Inherited Monad methods resolve through parent chain
+## Chained call using inherited pure + own log
 
 ```scalascript
-val chained: List[Int] =
-  listLogged.pure(10).flatMap((x: Int) => List(x, x + 1))
+val step1: List[String] = listLogged.log("step1")
+val chained: List[String] = step1 ++ listLogged.log("step2")
 println(chained)
+```
+
+## Concrete instance for Option
+
+```scalascript
+given optionLogged: Logged[Option] with
+  def pure[A](a: A): Option[A] = Some(a)
+  extension [A](fa: Option[A])
+    def map[B](f: A => B): Option[B] = fa.map(f)
+    def ap[B](ff: Option[A => B]): Option[B] = ff match
+      case Some(g) => fa.map(g)
+      case None    => None
+    def flatMap[B](f: A => Option[B]): Option[B] = fa match
+      case Some(a) => f(a)
+      case None    => None
+  def log(msg: String): Option[String] = Some("[log] " + msg)
+
+val ol: Option[String] = optionLogged.log("option-step")
+println(ol)
 ```

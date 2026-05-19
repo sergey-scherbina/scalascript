@@ -6,34 +6,31 @@ version: 1.0.0
 # Final Tagless — context-bound desugaring (§3.2)
 
 Exercises Phase 3 of v1.13: `[A: TC]` desugars to `(using TC[A])`.
-Single-bound and chained-bound cases.
+Single-bound and chained-bound cases.  Uses `combineAll` (landed
+v1.13 in `std/semigroup-monoid.ssc`) as the canonical example.
 
 [intSum, stringConcat, combineAll](../std/semigroup-monoid.ssc)
 
 ## Single context bound via std `Monoid`
 
 ```scalascript
-def emptyOf[A: Monoid]: A = summon[Monoid[A]].empty
-
-println(emptyOf[Int])
-println(emptyOf[String])
+println(combineAll(List(1, 2, 3, 4, 5)))
+println(combineAll(List("hello", ", ", "world")))
 ```
 
-## Double context bound (Semigroup + identity check)
+## Double context bound: two type-class constraints on same type param
 
 ```scalascript
-trait HasDefault[A]:
-  def default: A
+trait Pretty[A]:
+  def pretty(a: A): String
 
-given intDefault: HasDefault[Int] with
-  def default: Int = -1
+given prettyInt: Pretty[Int] with
+  def pretty(a: Int): String = "#" + a.toString
 
-def combineWithDefault[A: Monoid: HasDefault](xs: List[A]): A =
-  if xs.isEmpty then summon[HasDefault[A]].default
-  else combineAll(xs)
+def combineAndPretty[A: Monoid: Pretty](xs: List[A]): String =
+  summon[Pretty[A]].pretty(combineAll(xs))
 
-println(combineWithDefault(List(1, 2, 3)))
-println(combineWithDefault(List[Int]()))
+println(combineAndPretty(List(10, 20, 30)))
 ```
 
 ## Context-bound summon inside body
@@ -41,8 +38,18 @@ println(combineWithDefault(List[Int]()))
 ```scalascript
 def describeMonoid[A: Monoid](a: A): String =
   val m = summon[Monoid[A]]
-  "combine(" + m.combine(a, m.empty).toString + ")"
+  "combined=" + m.combine(a, m.empty).toString
 
-println(describeMonoid(5))
+println(describeMonoid(7))
 println(describeMonoid("hi"))
+```
+
+## Explicit-pass and context-bound resolve identically
+
+```scalascript
+def doubleMonoid[A: Monoid](a: A): A =
+  summon[Monoid[A]].combine(a, a)
+
+println(doubleMonoid(21))
+println(doubleMonoid("ha"))
 ```

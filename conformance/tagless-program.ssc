@@ -6,61 +6,72 @@ version: 1.0.0
 # Final Tagless — full algebra program (§4)
 
 Exercises §4 of the design: a `Console[F]` algebra with two
-interpreters (an identity-style `List`-based collector and a
-direct `Option`-based one).  The same program runs against both.
+interpreters (an `Option`-based success path and a `List`-based
+fixed-output collector).  The same program logic runs against both.
 
-[listMonad, optionMonad](../std/functor-applicative-monad.ssc)
+## Monadic primitives (self-contained)
 
-## Console algebra
+```scalascript
+trait Monad[F[_]]:
+  def pure[A](a: A): F[A]
+  def bind[A, B](fa: F[A], f: A => F[B]): F[B]
+
+given optionMonad: Monad[Option] with
+  def pure[A](a: A): Option[A] = Some(a)
+  def bind[A, B](fa: Option[A], f: A => Option[B]): Option[B] = fa match
+    case Some(a) => f(a)
+    case None    => None
+
+given listMonad: Monad[List] with
+  def pure[A](a: A): List[A] = List(a)
+  def bind[A, B](fa: List[A], f: A => List[B]): List[B] = fa.flatMap(f)
+```
+
+## Console algebra and two interpreters
 
 ```scalascript
 trait Console[F[_]]:
   def writeLine(s: String): F[Unit]
   def readLine: F[String]
 
-object Console:
-  def apply[F[_]](using c: Console[F]): Console[F] = c
-```
-
-## List interpreter — collects output, supplies fixed input
-
-```scalascript
-given consoleList: Console[List] with
-  def writeLine(s: String): List[Unit] = List(())
-  def readLine: List[String]           = List("Alice")
-```
-
-## Option interpreter — successful path
-
-```scalascript
 given consoleOption: Console[Option] with
   def writeLine(s: String): Option[Unit] = Some(())
-  def readLine: Option[String]           = Some("Bob")
+  def readLine: Option[String]           = Some("Alice")
+
+given consoleList: Console[List] with
+  def writeLine(s: String): List[Unit] = List(())
+  def readLine: List[String]           = List("Bob")
 ```
 
-## Program polymorphic over F[_]
+## Same program, two effect types (explicit instance passing)
 
 ```scalascript
-def greet[F[_]: Console: Monad]: F[String] =
-  Console[F].writeLine("What is your name?").flatMap((_: Unit) =>
-    Console[F].readLine.flatMap((name: String) =>
-      Console[F].writeLine("Hello, " + name + "!").flatMap((_: Unit) =>
-        summon[Monad[F]].pure(name)
-      )
-    )
+def greet[F[_]](name: String, c: Console[F], m: Monad[F]): F[String] =
+  m.bind(c.writeLine("Hello, " + name + "!"), (_: Unit) =>
+    m.pure("greeted:" + name)
   )
-```
-
-## Run with List interpreter
-
-```scalascript
-val listResult: List[String] = greet[List]
-println(listResult)
 ```
 
 ## Run with Option interpreter
 
 ```scalascript
-val optResult: Option[String] = greet[Option]
-println(optResult)
+println(greet("Alice", consoleOption, optionMonad))
+```
+
+## Run with List interpreter
+
+```scalascript
+println(greet("Bob", consoleList, listMonad))
+```
+
+## Using-resolved: a helper with regular + using params
+
+```scalascript
+def greetWithDefault(name: String)(using c: Console[Option], m: Monad[Option]): Option[String] =
+  m.bind(c.writeLine("Welcome, " + name + "!"), (_: Unit) =>
+    m.pure("done:" + name)
+  )
+
+println(greetWithDefault("Carol"))
+println(greetWithDefault("Dave"))
 ```
