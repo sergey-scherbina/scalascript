@@ -41,7 +41,7 @@ val SparkCapabilities: Capabilities = Capabilities(
     Feature.Dataset
   ),
   outputs        = Set(OutputKind.ExecutionResult),
-  options        = Set("sparkVersion"),
+  options        = Set("sparkVersion", "sparkMaster"),
   spiRange       = SpiVersionRange(SpiVersion.Current, SpiVersion.Current),
   blockLanguages = Set.empty
 )

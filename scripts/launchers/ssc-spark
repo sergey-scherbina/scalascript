@@ -7,13 +7,15 @@
 # (cached by Coursier on first use).
 #
 # Usage:
-#   ssc-spark file.ssc                          # version from front-matter or default 4.0.0
-#   ssc-spark --spark-version 3.5.1 file.ssc    # override
+#   ssc-spark file.ssc                                       # defaults: 4.0.0, local[*]
+#   ssc-spark --spark-version 3.5.1 file.ssc                 # override version
+#   ssc-spark --spark-master local[4] file.ssc               # override master URL
+#   ssc-spark --spark-master spark://host:7077 file.ssc      # run against a cluster
 #
-# Spark version resolution (Main.scala:1283-1289), highest first:
-#   1. --spark-version <v> on the command line
-#   2. spark-version: <v> in the .ssc front-matter
-#   3. SparkGen.DefaultVersion (currently "4.0.0")
+# Spark version + master URL resolution (each independently), highest first:
+#   1. --spark-version <v> / --spark-master <url> on the command line
+#   2. spark-version: / spark-master: in the .ssc front-matter
+#   3. SparkGen.DefaultVersion ("4.0.0") / SparkGen.DefaultMaster ("local[*]")
 #
 # Requires `scala-cli` on PATH and (first run only) network access to
 # fetch the Spark JARs.
@@ -38,14 +40,22 @@ fi
 
 if [ "$#" -eq 0 ]; then
   cat >&2 <<EOF
-Usage: ssc-spark [--spark-version <v>] <file.ssc> [<file.ssc>...]
+Usage: ssc-spark [--spark-version <v>] [--spark-master <url>] <file.ssc> [<file.ssc>...]
 
-  --spark-version <v>   Override the Spark version (front-matter wins
-                        otherwise; default SparkGen.DefaultVersion).
+  --spark-version <v>   Override the Spark version (front-matter
+                        spark-version: wins otherwise; default
+                        SparkGen.DefaultVersion = 4.0.0).
+  --spark-master <url>  Override the Spark master URL (front-matter
+                        spark-master: wins otherwise; default
+                        SparkGen.DefaultMaster = local[*]).
+                        Accepted: local[*] / local[N] / spark://...
+                        / yarn / k8s://...
 
 Examples:
   ssc-spark examples/word-count.ssc
   ssc-spark --spark-version 3.5.1 examples/word-count.ssc
+  ssc-spark --spark-master local[4] examples/word-count.ssc
+  ssc-spark --spark-master spark://prod.example.com:7077 examples/word-count.ssc
 EOF
   exit 1
 fi

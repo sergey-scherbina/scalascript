@@ -81,6 +81,7 @@ Recognized front-matter keys:
 | `databases` | Map | JDBC connection registry consumed by `sql` blocks (§ 3.3.1) |
 | `backend` | String | Preferred backend id for `ssc run` when no `--backend` flag is supplied (`int` / `jvm` / `js` / `node` / `scalajs-spa` / `wasm` / `spark`). § 9.2. |
 | `spark-version` | String | Apache Spark version pinned for the Spark backend.  Resolution order: CLI `--spark-version` flag → this key → `SparkGen.DefaultVersion`. § 9.5. |
+| `spark-master` | String | Spark master URL passed to `SparkSession.builder().master(...)` (`local[*]` / `local[N]` / `spark://...` / `yarn` / `k8s://...`).  Resolution order: CLI `--spark-master` flag → this key → `SparkGen.DefaultMaster` (= `local[*]`). § 9.5. |
 
 `routes:` entries are equivalent to writing `route(method, path) { req => handler(req) }` inline.
 
@@ -1387,7 +1388,8 @@ Spark backend).  The user does not rewrite the pipeline to switch.
 | Phase | What | Why | Status |
 |-------|------|-----|--------|
 | **A — SPI integration** | Wrap the existing `SparkGen` invocation in a proper `Backend extends Backend` with `META-INF/services` registration; remove the `runViaSparkBackend` special case in `Main.runCommand`. | Today Spark is the only bundled target reached through a side-path instead of the SPI; this blocks Capabilities-driven block-language gating (§ 9.4) and `--describe-backend spark`. | open (~½ day) |
-| **B — Cluster submission** | `ssc submit file.ssc --spark-master spark://host:7077` (and `yarn://`, `k8s://...`).  Packages a fat JAR and shells out to `spark-submit`. | Without it the Spark target is strictly `local[*]` — a developer convenience, not a production deployment story. | open (~1 week) |
+| **B.1 — Master URL parameterisation** | `--spark-master <url>` CLI flag + `spark-master:` front-matter key threaded through `BackendOptions.extra("sparkMaster")` into `SparkGen`.  Same source compiles to `local[*]` (default), `local[N]`, `spark://...`, `yarn`, `k8s://...`. | Unblocks running against an existing Spark cluster from the same source that runs locally. | landed |
+| **B.2 — `spark-submit` packaging** | `ssc submit file.ssc --spark-master spark://...` packages a fat JAR and shells out to `spark-submit`. | B.1 ships the driver via `scala-cli` which works for Spark Standalone but not for YARN/K8s production deployments. | open (~1 week) |
 | **C — Spark SQL / DataFrames** | Expose `DataFrame` as `Dataset[Row]`; map `std/parsing` schemas to Spark `StructType`; reuse the `sql` fenced block (§ 3.3.1) — when `backend: spark`, `sql` compiles to Spark SQL instead of JDBC. | Gives typed SQL atop `Dataset` without inventing new surface syntax.  Requires designing the `sql`-tag dual semantics (Spark SQL vs JDBC) — see Open Questions below. | open (~1 week + design) |
 
 #### Spark vs JDBC `sql` blocks
@@ -1401,19 +1403,42 @@ bind-safe placeholder, but the result type becomes
 tag is intentional: a `sql` block describes *what to ask*, not *how
 to dispatch it*, and the active backend chooses the dispatcher.
 
-#### Spark version resolution (Phase A onwards)
+#### Spark configuration resolution
 
-The Spark version a Phase-A `SparkBackend` will run with is resolved
-in priority order:
+Both `spark-version` and `spark-master` follow the same three-level
+priority order:
 
-1. `--spark-version <v>` CLI flag (highest priority — used for ad-hoc
-   overrides during development).
-2. `spark-version:` key in the module's front-matter (declared
-   per-module; checked into version control).
-3. `SparkGen.DefaultVersion` constant (the source-of-truth fallback).
+1. CLI flag (`--spark-version <v>` / `--spark-master <url>`) — highest
+   priority, for ad-hoc overrides.
+2. Front-matter key (`spark-version:` / `spark-master:`) — declared
+   per-module, checked into version control.
+3. SparkGen default (`SparkGen.DefaultVersion` = `4.0.0`,
+   `SparkGen.DefaultMaster` = `local[*]`).
 
-The resolved string is threaded into `SparkGen.generate(..., sparkVersion)`
-and surfaces in the emitted source's `scala-cli --dep` directives.
+The CLI reads the front-matter from `ast.Module.manifest.raw` *before*
+`Normalize` strips it, then threads the resolved strings into
+`BackendOptions.extra("sparkVersion")` / `("sparkMaster")`.
+`SparkBackend.compile` reads the same keys and falls back to
+`SparkGen` defaults when no caller supplied a value.
+
+```bash
+# All three resolve to local[*] @ 4.0.0:
+ssc-spark file.ssc
+ssc --backend spark file.ssc
+ssc run --backend spark file.ssc
+
+# CLI overrides:
+ssc-spark --spark-version 3.5.1 --spark-master local[4] file.ssc
+
+# Front-matter:
+# ---
+# backend: spark
+# spark-version: 3.5.1
+# spark-master: spark://prod.example.com:7077
+# ---
+ssc-spark file.ssc                                # uses front-matter
+ssc-spark --spark-master local[*] file.ssc        # CLI wins
+```
 
 ## Appendix A: Reserved Words
 
@@ -1473,6 +1498,7 @@ ssc --list-backends
 ssc --describe-backend <id>
 ssc --backend <id> run file.ssc
 ssc --spark-version <v> ...     Override Spark version for the `spark` backend (§ 9.5)
+ssc --spark-master <url> ...    Override Spark master URL (`local[*]`, `local[N]`, `spark://...`, `yarn`, `k8s://...`) (§ 9.5)
 jssc file.ssc                   JS runner
 sscc file.ssc                   JVM runner
 ssc-spark file.ssc              Apache Spark runner (delegates to `ssc run --backend spark`)

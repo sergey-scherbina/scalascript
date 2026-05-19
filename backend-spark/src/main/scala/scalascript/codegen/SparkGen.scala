@@ -28,13 +28,22 @@ import scala.collection.mutable
  *  All other lazy transformations (map / filter / flatMap / distinct / union)
  *  pass through as-is — Spark Dataset has the same method names.
  *
- *  Phase 1 limitation: `master("local[*]")` is hardcoded.  Phase 2 will
- *  thread the master URL through front-matter / CLI flag.
- *
  *  The `sparkVersion` parameter controls which Spark version is referenced in
  *  the generated header comment and the `scala-cli --dep` instructions.
  *  Priority: CLI `--spark-version` flag > front-matter `spark-version:` >
  *  `SparkGen.DefaultVersion`.
+ *
+ *  The `sparkMaster` parameter controls the URL passed to
+ *  `SparkSession.builder().master(...)`.  Same three-level priority as
+ *  `sparkVersion`: CLI `--spark-master` flag > front-matter
+ *  `spark-master:` > `SparkGen.DefaultMaster` (= `local[*]`).  Phase B of
+ *  the v1.25 § 9.5 plan: same source compiles to a local Spark session
+ *  for development (`local[*]`), a worker-bounded local session for
+ *  micro-benchmarking (`local[4]`), or a cluster session against an
+ *  actual master URL (`spark://host:7077`, `yarn`, `k8s://...`).  Note
+ *  that `--spark-master spark://...` / `yarn` / `k8s://...` still relies
+ *  on `scala-cli run` to ship the driver — packaging a fat JAR and
+ *  invoking `spark-submit` is a Phase B follow-up.
  */
 object SparkGen:
 
@@ -42,19 +51,26 @@ object SparkGen:
    *  specifies one.  Targets Spark 4.x (Scala 2.13+ / Scala 3 support). */
   val DefaultVersion: String = "4.0.0"
 
+  /** Default Spark master URL — local mode, all available cores.  Phase B
+   *  of v1.25 § 9.5 lets the CLI override this via `--spark-master <url>`
+   *  or the front-matter `spark-master:` key. */
+  val DefaultMaster: String = "local[*]"
+
   def generate(
       module:       Module,
       baseDir:      Option[os.Path] = None,
-      sparkVersion: String = DefaultVersion
+      sparkVersion: String          = DefaultVersion,
+      sparkMaster:  String          = DefaultMaster
   ): String =
-    SparkGen(baseDir, sparkVersion).genModule(module)
+    SparkGen(baseDir, sparkVersion, sparkMaster).genModule(module)
 
   /** A collected ScalaScript code block ready for emission. */
   private[codegen] case class Block(src: String)
 
 private class SparkGen(
     baseDir:      Option[os.Path] = None,
-    sparkVersion: String = SparkGen.DefaultVersion
+    sparkVersion: String          = SparkGen.DefaultVersion,
+    sparkMaster:  String          = SparkGen.DefaultMaster
 ):
 
   // Resolved paths already inlined via Content.Import (diamond-safe).
@@ -93,7 +109,7 @@ private class SparkGen(
     sb.append("\n@main def runSparkJob(): Unit =\n")
     sb.append("  val spark = SparkSession.builder()\n")
     sb.append("    .appName(\"scalascript-job\")\n")
-    sb.append("    .master(\"local[*]\")\n")
+    sb.append(s"""    .master("$sparkMaster")\n""")
     sb.append("    .config(\"spark.ui.enabled\", \"false\")\n")
     sb.append("    .config(\"spark.sql.shuffle.partitions\", \"4\")\n")
     sb.append("    .getOrCreate()\n")

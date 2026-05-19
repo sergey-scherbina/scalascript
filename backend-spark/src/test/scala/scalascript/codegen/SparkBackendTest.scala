@@ -22,10 +22,12 @@ class SparkBackendTest extends AnyFunSuite:
     assert(backend.spiVersion == SpiVersion.Current)
   }
 
-  test("capabilities: ExecutionResult output, Dataset feature, sparkVersion option") {
+  test("capabilities: ExecutionResult output, Dataset feature, sparkVersion + sparkMaster options") {
     assert(backend.capabilities.outputs.contains(OutputKind.ExecutionResult))
     assert(backend.capabilities.features.contains(Feature.Dataset))
     assert(backend.capabilities.options.contains("sparkVersion"))
+    // Phase B — Spark master URL parameterisation.
+    assert(backend.capabilities.options.contains("sparkMaster"))
   }
 
   test("capabilities: blockLanguages is empty until Phase C") {

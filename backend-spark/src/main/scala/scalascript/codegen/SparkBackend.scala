@@ -27,21 +27,23 @@ import scalascript.transform.Denormalize
  *         --scala 3`.
  *    5. Return `CompileResult.Executed(stdout, stderr, exit)`.
  *
- *  Spark version resolution priority — for the SPI surface, the
- *  front-matter resolution (`spark-version:`) happens at the call site
- *  *before* Normalize strips `Manifest.raw`; the resolved string is
- *  threaded into `BackendOptions.extra("sparkVersion")`.  This backend
- *  therefore sees a single string in `extras`, falling back to
- *  `SparkGen.DefaultVersion` only when no caller supplied one:
+ *  Resolution priority for both `sparkVersion` and `sparkMaster` —
+ *  the front-matter side (`spark-version:`, `spark-master:`) is read
+ *  at the call site *before* Normalize strips `Manifest.raw`; the
+ *  resolved strings are threaded into `BackendOptions.extra`.  This
+ *  backend therefore sees them as single strings in `extras`, falling
+ *  back to defaults only when no caller supplied a value:
  *
- *    1. `opts.extra.get("sparkVersion")` — the CLI's already-resolved
- *       (`--spark-version` flag > front-matter `spark-version:`)
- *       value.
- *    2. `SparkGen.DefaultVersion` — the ground-truth fallback.
+ *    `sparkVersion` — opts.extra.get(...) → SparkGen.DefaultVersion
+ *    `sparkMaster`  — opts.extra.get(...) → SparkGen.DefaultMaster
  *
- *  Phase A limitation: still `master("local[*]")` inside `SparkGen`.
- *  Phase B (cluster submission) layers `ssc submit` on top of this
- *  same backend without changing the SPI contract. */
+ *  Phase B (this iteration) — `sparkMaster` parameterisation enables
+ *  `--spark-master local[4]`, `--spark-master spark://host:7077`, etc.
+ *  Phase B.2 (open) — `ssc submit` packages a fat JAR and invokes
+ *  `spark-submit`; today cluster master URLs still go through
+ *  `scala-cli run` and rely on the driver being able to ship classes
+ *  to executors itself (works for thin-classpath Spark Standalone but
+ *  not YARN / K8s in production). */
 class SparkBackend extends Backend:
   def id:              String                               = "spark"
   def displayName:     String                               = "Apache Spark (Scala 3 + scala-cli)"
@@ -53,12 +55,18 @@ class SparkBackend extends Backend:
   def compile(module: ir.NormalizedModule, opts: BackendOptions): CompileResult =
     val astModule    = Denormalize(module)
     val sparkVersion = opts.extra.getOrElse("sparkVersion", SparkGen.DefaultVersion)
+    val sparkMaster  = opts.extra.getOrElse("sparkMaster",  SparkGen.DefaultMaster)
     val baseDir      = opts.baseDir.map(p => os.Path(p.toAbsolutePath.toString))
-    val code         = SparkGen.generate(astModule, baseDir = baseDir, sparkVersion = sparkVersion)
+    val code         = SparkGen.generate(
+      astModule,
+      baseDir      = baseDir,
+      sparkVersion = sparkVersion,
+      sparkMaster  = sparkMaster
+    )
     val hash         = java.lang.Integer.toHexString(code.hashCode & 0x7fffffff)
     val tmpFile      = os.Path(s"/tmp/ssc-spark-$hash.scala")
     os.write.over(tmpFile, code)
-    System.err.println(s"[spark] Spark $sparkVersion — generated: $tmpFile")
+    System.err.println(s"[spark] Spark $sparkVersion (master=$sparkMaster) — generated: $tmpFile")
     val cmd = List(
       "scala-cli", "run", tmpFile.toString,
       "--dep", s"org.apache.spark::spark-core:$sparkVersion",

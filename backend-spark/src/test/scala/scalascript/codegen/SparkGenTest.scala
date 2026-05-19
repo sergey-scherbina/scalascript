@@ -12,14 +12,47 @@ import scalascript.parser.Parser
  */
 class SparkGenTest extends AnyFunSuite:
 
-  private def gen(ssc: String, sparkVersion: String = SparkGen.DefaultVersion): String =
+  private def gen(
+      ssc:          String,
+      sparkVersion: String = SparkGen.DefaultVersion,
+      sparkMaster:  String = SparkGen.DefaultMaster
+  ): String =
     val module = Parser.parse(ssc)
-    SparkGen.generate(module, sparkVersion = sparkVersion)
+    SparkGen.generate(module, sparkVersion = sparkVersion, sparkMaster = sparkMaster)
 
   // ── Basic structure ───────────────────────────────────────────────────────
 
   test("default Spark version is 4.0.0") {
     assert(SparkGen.DefaultVersion == "4.0.0")
+  }
+
+  test("default Spark master is local[*]") {
+    assert(SparkGen.DefaultMaster == "local[*]")
+  }
+
+  test("sparkMaster parameter overrides the emitted master URL (Phase B)") {
+    val src =
+      """|# Test
+         |```scalascript
+         |val x = 42
+         |```
+         |""".stripMargin
+    // local[4]: bounded executor count for micro-benchmarks
+    assert(gen(src, sparkMaster = "local[4]").contains(""".master("local[4]")"""))
+    // spark://: cluster master URL (the Spark backend ships the driver via
+    // scala-cli; production cluster submission requires Phase B.2's
+    // `ssc submit` + fat JAR).
+    assert(gen(src, sparkMaster = "spark://prod.example.com:7077")
+      .contains(""".master("spark://prod.example.com:7077")"""))
+    // yarn / k8s: same plumbing, different runtime.
+    assert(gen(src, sparkMaster = "yarn").contains(""".master("yarn")"""))
+    assert(gen(src, sparkMaster = "k8s://cluster.local:6443")
+      .contains(""".master("k8s://cluster.local:6443")"""))
+  }
+
+  test("default master local[*] still emitted when sparkMaster is not specified") {
+    val src = "# Test\n```scalascript\nval x = 1\n```\n"
+    assert(gen(src).contains(""".master("local[*]")"""))
   }
 
   test("generated header documents Spark version and run instructions") {

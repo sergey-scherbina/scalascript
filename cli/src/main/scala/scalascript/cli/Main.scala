@@ -1264,15 +1264,18 @@ def parseCommand(args: List[String]): Unit =
 
 def runCommand(args: List[String]): Unit =
   if args.isEmpty then { println("Error: No files specified"); System.exit(1) }
-  // `--spark-version <v>` plumbs into BackendOptions.extra("sparkVersion")
-  // and is consumed by `SparkBackend.compile`.  Stripped here before file
-  // dispatch so it doesn't get treated as a path.
+  // `--spark-version <v>` and `--spark-master <url>` plumb into
+  // BackendOptions.extra("sparkVersion") / ("sparkMaster") respectively,
+  // consumed by SparkBackend.compile.  Stripped here before file dispatch
+  // so they don't get treated as paths.
   var sparkVersionFlag: Option[String] = None
+  var sparkMasterFlag:  Option[String] = None
   val fileArgs = scala.collection.mutable.ArrayBuffer.empty[String]
   val it = args.iterator
   while it.hasNext do
     it.next() match
       case "--spark-version" if it.hasNext => sparkVersionFlag = Some(it.next())
+      case "--spark-master"  if it.hasNext => sparkMasterFlag  = Some(it.next())
       case f                               => fileArgs += f
   val backendId = ActiveFlags.current.backend.getOrElse("int")
   for file <- fileArgs.toList do
@@ -1294,14 +1297,21 @@ def runCommand(args: List[String]): Unit =
         // through BackendOptions.extra to the SPI backend.
         val extras: Map[String, String] =
           if effectiveBackend == "spark" then
-            val resolved =
+            val version =
               sparkVersionFlag
                 .orElse(
                   module.manifest.flatMap(_.raw.get("spark-version"))
                     .collect { case s: String => s }
                 )
                 .getOrElse(SparkGen.DefaultVersion)
-            Map("sparkVersion" -> resolved)
+            val master =
+              sparkMasterFlag
+                .orElse(
+                  module.manifest.flatMap(_.raw.get("spark-master"))
+                    .collect { case s: String => s }
+                )
+                .getOrElse(SparkGen.DefaultMaster)
+            Map("sparkVersion" -> version, "sparkMaster" -> master)
           else Map.empty
         compileViaBackend(effectiveBackend, path, extras) match
           case CompileResult.Executed(stdout, stderr, exit) =>
