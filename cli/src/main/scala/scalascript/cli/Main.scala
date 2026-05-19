@@ -3194,26 +3194,84 @@ def previewCommand(args: List[String]): Unit =
   conn.close()
   serverSocket.close()
 
+/** `ssc check [--iface-dir <dir>] <file.ssc> [...]`
+ *
+ *  Standalone type-checker for CI use.  Parses and type-checks each `.ssc`
+ *  file without running the interpreter or generating code.
+ *
+ *  Diagnostics are written to stderr in the format:
+ *    file:line:col: error: message
+ *  or (when no position is available):
+ *    file: error: message
+ *
+ *  Exit code: 0 if all files type-check cleanly, 1 if any errors were found.
+ *
+ *  `--iface-dir <dir>` (or `-I <dir>`) loads pre-compiled `.scim` interface
+ *  files from `<dir>` and checks against them (same as `check-with-iface`
+ *  but with CI-friendly output).
+ */
 def checkCommand(args: List[String]): Unit =
-  if args.isEmpty then { println("Error: No files specified"); System.exit(1) }
+  var ifaceDir: Option[os.Path] = None
+  val files = scala.collection.mutable.ArrayBuffer.empty[String]
+  val it = args.iterator
+  while it.hasNext do
+    it.next() match
+      case "--iface-dir" | "-I" if it.hasNext =>
+        ifaceDir = Some(os.Path(it.next(), os.pwd))
+      case f => files += f
+
+  if files.isEmpty then
+    System.err.println("Usage: ssc check [--iface-dir <dir>] <file.ssc> [...]")
+    System.exit(1)
+
+  // Load interface files if --iface-dir was supplied.
+  val interfaces: Map[String, scalascript.ir.ModuleInterface] =
+    ifaceDir match
+      case None => Map.empty
+      case Some(dir) =>
+        if !os.isDir(dir) then
+          System.err.println(s"ssc check: --iface-dir '$dir' is not a directory")
+          System.exit(1)
+        os.list(dir).filter(_.ext == "scim").flatMap { p =>
+          ArtifactIO.readInterfaceFile(p) match
+            case Right(iface) =>
+              List(p.last.stripSuffix(".scim") -> iface)
+            case Left(err) =>
+              System.err.println(s"ssc check: [warn] skipping interface ${p.last}: $err")
+              Nil
+        }.toMap
+
   var hasErrors = false
-  for file <- args do
+
+  for file <- files.toList do
     val path = os.Path(file, os.pwd)
-    if !os.exists(path) then { println(s"Error: File not found: $file"); hasErrors = true }
+    if !os.exists(path) then
+      System.err.println(s"$file: error: file not found")
+      hasErrors = true
     else
-      println(s"=== Type checking: $file ===")
       try
         val module = Parser.parse(os.read(path))
-        val typed  = Typer.typeCheck(module)
-        if typed.hasErrors then
+        // Report code-block parse errors (structured, with position).
+        if reportCodeBlockParseErrors(module, file) then
           hasErrors = true
-          typed.errors.foreach(e => println(s"  Error: ${e.msg}"))
         else
-          println("OK")
-          println(typed.show)
+          val typed =
+            if interfaces.isEmpty then Typer.typeCheckStrict(module)
+            else Typer.typeCheckWithInterfaces(module, interfaces, strict = true)
+          if typed.hasErrors then
+            hasErrors = true
+            typed.errors.foreach { e =>
+              val location = e.span match
+                case Some(s) => s"$file:${s.start.line}:${s.start.column}"
+                case None    => file
+              System.err.println(s"$location: error: ${e.msg}")
+            }
+          else
+            println(s"$file: OK")
       catch case e: Exception =>
         hasErrors = true
-        println(s"Error: ${e.getMessage}")
+        System.err.println(s"$file: error: ${e.getMessage}")
+
   if hasErrors then System.exit(1)
 
 // ─────────────────────────────────────────────────────────────────────────────

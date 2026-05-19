@@ -4825,14 +4825,16 @@ a full NIO migration.  Affects `runtime-server-common` + `runtimeServerJvm`.
 
 ### Tooling — `ssc check` standalone type-checker
 
-**Status: open. Effort: ~1 day. Priority: 2.**
+**Status: landed. Effort: ~1 day. Priority: 2.**
 
 `ssc check src/**/*.ssc` — run the typer without interpreting, exit non-zero on
 diagnostics.  For CI.  Generalises existing `check-with-iface` to standalone.
+Supports `--iface-dir <dir>` / `-I <dir>` for checking against pre-compiled interfaces.
 
-- [ ] Add `check` command to CLI dispatch
-- [ ] Print diagnostics to stderr in `file:line:col: message` format
-- [ ] Exit non-zero when any error found
+- [x] Add `check` command to CLI dispatch
+- [x] Print diagnostics to stderr in `file:line:col: message` format
+- [x] Exit non-zero when any error found
+- [x] Integration tests in `CheckCommandTest` (7 tests, all green)
 
 ### Runtime — Interpreter split (lazy capability loading)
 
