@@ -602,11 +602,8 @@ class JvmGen(
    *  but it inlines `std.either` blocks).  We unwrap every chain we
    *  find. */
   private def unwrapPackageObjects(src: String, pkg: List[String]): String =
-    // The chain-detection approach below ignores `pkg` entirely — it
-    // walks the source and rewrites every wrap chain it finds.  The
-    // parameter is retained for callers that want to bail out cheaply
-    // when no wrap is possible.
-    val _ = pkg
+    if pkg.isEmpty then return src
+    val maxChainDepth = pkg.size
     val lines = src.linesIterator.toIndexedSeq
     if !lines.exists(_.startsWith("object ")) then return src
 
@@ -635,7 +632,7 @@ class JvmGen(
 
     var i = 0
     while i < lines.length do
-      val chain = detectWrapChain(lines, i)
+      val chain = detectWrapChain(lines, i, maxChainDepth)
       if chain.isEmpty then
         literalBuf.append(lines(i)).append('\n')
         i += 1
@@ -672,13 +669,34 @@ class JvmGen(
 
     // Render the output: literals as-is, package refs as
     // `package X.Y:\n<collected body>`.
+    //
+    // Skip packages whose collected body has no actual definitions —
+    // only blank lines and comments.  Some std/ modules (e.g.
+    // std/cluster/types.ssc) are pure re-export shells whose only
+    // code block is a list-form import; after `preprocessInlineImports`
+    // strips it to a comment, the wrap body is comment-only.  Scala 3
+    // rejects `package X:` with an empty body ("indented definitions
+    // expected, eof found"); just omit the empty block.
     val out = new StringBuilder
     for chunk <- outOrder do chunk match
       case Left(lit)     => out.append(lit)
       case Right(pkgKey) =>
-        out.append(s"package $pkgKey:\n")
-        out.append(pkgFragments(pkgKey))
+        val body = pkgFragments(pkgKey).toString
+        if hasRealDefinitions(body) then
+          out.append(s"package $pkgKey:\n")
+          out.append(body)
+        // else: omit the empty package block entirely.
     out.toString.stripTrailing() + "\n"
+
+  /** True when a collected package-body string contains at least one
+   *  line that is neither blank nor a single-line comment.  Comments
+   *  alone don't justify emitting a `package X:` block — Scala 3
+   *  requires non-empty bodies under colon-indent syntax. */
+  private def hasRealDefinitions(body: String): Boolean =
+    body.linesIterator.exists { l =>
+      val t = l.strip
+      t.nonEmpty && !t.startsWith("//")
+    }
 
   /** Detect a parser-introduced wrap chain starting at `lines(start)`.
    *
@@ -695,39 +713,38 @@ class JvmGen(
    *  Returns `None` when no wrap chain is detected at this position. */
   private def detectWrapChain(
       lines: IndexedSeq[String],
-      start: Int
+      start: Int,
+      maxDepth: Int
   ): Option[(List[String], Int, Int)] =
     if start >= lines.length then return None
     val openerPat = """^( *)object\s+([A-Za-z_][\w]*)\s*:\s*$""".r
     val first = lines(start)
     openerPat.findFirstMatchIn(first) match
       case Some(m) if m.group(1).length == 0 =>
-        // Possible chain start: collect consecutive openers at +2 indent.
+        // Possible chain start: collect consecutive openers at +2 indent
+        // up to maxDepth.  Capping the chain depth at the module's
+        // `pkg.size` avoids over-unwrapping a user-level `object Parser:`
+        // that happens to sit at the natural-next indent of the wrap.
+        // Inlined deps with their own pkg get unwrapped too AS LONG AS
+        // their pkg depth equals or fits under the module's cap — most
+        // std/ corpus has uniform 2-segment packages so this holds.
         val segments = scala.collection.mutable.ListBuffer.empty[String]
         segments += m.group(2)
         var idx = start + 1
         var expectedIndent = 2
-        while idx < lines.length do
+        while idx < lines.length && segments.length < maxDepth do
           openerPat.findFirstMatchIn(lines(idx)) match
             case Some(mm) if mm.group(1).length == expectedIndent =>
-              // Look ahead: this `object` is a wrap-opener only if the
-              // NEXT non-blank line is either ANOTHER `object` at +2
-              // indent OR a deeper-indented body statement.  A bare
-              // `object Foo:` followed by `def …` at +2 is just a Scala
-              // object, not a wrap.
               segments += mm.group(2)
               idx += 1
               expectedIndent += 2
             case _ =>
-              // Not an opener at the expected indent — chain ends.
-              // The non-opener line is the first body line.
               if isWrapBody(lines, idx, expectedIndent) then
                 val bodyEnd = findBodyEnd(lines, idx, expectedIndent)
                 return Some((segments.toList, segments.length, bodyEnd))
               else
-                // No body or shallower — not a wrap, just stray `object`s.
                 return None
-        // Fell off end of file mid-chain.
+        // Reached maxDepth (or end-of-file mid-chain).
         if isWrapBody(lines, idx, expectedIndent) then
           val bodyEnd = findBodyEnd(lines, idx, expectedIndent)
           Some((segments.toList, segments.length, bodyEnd))
