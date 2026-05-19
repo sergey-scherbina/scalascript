@@ -5993,6 +5993,12 @@ class JsGen(
   def detectCapabilities(module: Module): Set[JsGen.Capability] =
     import JsGen.Capability.*
     moduleDeps = module.manifest.map(_.dependencies).getOrElse(Map.empty)
+    // Run the existing effect analysis to populate `effectOps` /
+    // `effectfulFuns`.  `analyzeEffects` seeds `effectOps` with the
+    // built-in `Async.*` / `Actor.*` / `Logger.*` / … names so the
+    // CPS-emit pipeline recognises them, so we can't rely on the size
+    // of that set — only on whether a user-declared `effect E:` block
+    // appeared (those names won't be in the builtin seed).
     analyzeEffects(module)
     val caps = scala.collection.mutable.Set.empty[JsGen.Capability]
     caps += Core
@@ -6004,11 +6010,20 @@ class JsGen(
       } ++ s.subsections.flatMap(collectSources)
     val sources = module.sections.flatMap(collectSources)
     val allText = sources.mkString("\n")
+    // True iff the user declared their own `effect E:` block in this
+    // module — `EffectAnalysis.analyze(builtins=…)` seeds `effectOps`
+    // with the builtin names, so size alone is not a signal.  We use a
+    // textual marker: an `effect ` keyword at the start of a line (the
+    // language's effect-declaration syntax).
+    val userEffectDecl = sources.exists { s =>
+      s.linesIterator.exists(l => l.stripLeading.startsWith("effect "))
+    }
     // Async / Actor / Storage live in `JsRuntimeAsync`.  `effect E:` blocks
     // also need the Free Monad runtime that ships in `JsRuntimeAsync`.
     val hasAsync = allText.contains("Async.") || allText.contains("Actor.") ||
-                   allText.contains("Storage.") || effectOps.nonEmpty ||
-                   allText.contains("runAsync")
+                   allText.contains("Storage.") || userEffectDecl ||
+                   allText.contains("runAsync") || allText.contains("handle(") ||
+                   allText.contains("_perform") || allText.contains("perform ")
     if hasAsync then caps += Async
     // v1.4 effects: Logger / Random / Clock / Env / Auth — `JsRuntimeV14Effects`.
     val hasV14 = allText.contains("Logger.") || allText.contains("Random.") ||
