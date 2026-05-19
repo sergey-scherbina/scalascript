@@ -5,6 +5,8 @@ import java.sql.{Connection, PreparedStatement}
 import scala.concurrent.{ExecutionContext, Future, blocking}
 import scala.util.{Try, Using}
 
+import scalascript.sql.Jdbc
+
 /** Async PostgreSQL client backed by HikariCP + JDBC.
  *  All JDBC calls run on a blocking thread pool via Future.
  */
@@ -76,33 +78,26 @@ private class HikariPgClient(ds: HikariDataSource)(using ec: ExecutionContext) e
 
   private def withStmt[A](conn: Connection, sql: String, params: Seq[Any])(f: PreparedStatement => A): A =
     Using.resource(conn.prepareStatement(sql)) { ps =>
-      params.zipWithIndex.foreach { (p, i) => bindParam(ps, i + 1, p) }
+      // v1.26.1 — delegate to the shared `Jdbc.bindAll` so PgClient
+      // picks up the full type matrix (java.time.*, BigInt, UUID,
+      // Array[Byte], boxed primitives) and any future additions
+      // without a separate edit here.
+      Jdbc.bindAll(ps, params)
       f(ps)
     }
-
-  private def bindParam(ps: PreparedStatement, i: Int, v: Any): Unit = v match
-    case null           => ps.setObject(i, null)
-    case None           => ps.setObject(i, null)
-    case Some(x)        => bindParam(ps, i, x)
-    case s: String      => ps.setString(i, s)
-    case n: Int         => ps.setInt(i, n)
-    case n: Long        => ps.setLong(i, n)
-    case n: Double      => ps.setDouble(i, n)
-    case b: Boolean     => ps.setBoolean(i, b)
-    case d: BigDecimal  => ps.setBigDecimal(i, d.bigDecimal)
-    case x              => ps.setObject(i, x)
 
 // Used inside transaction{} — shares one connection, no pool
 private class TransactionClient(conn: Connection)(using ec: ExecutionContext) extends PgClient:
   private def withStmt[A](sql: String, params: Seq[Any])(f: PreparedStatement => A): A =
     Using.resource(conn.prepareStatement(sql)) { ps =>
-      params.zipWithIndex.foreach { (p, i) =>
-        p match
-          case null       => ps.setObject(i + 1, null)
-          case None       => ps.setObject(i + 1, null)
-          case Some(x)    => ps.setObject(i + 1, x)
-          case x          => ps.setObject(i + 1, x)
-      }
+      // v1.26.1 — was using a dumber per-param `setObject` path that
+      // (a) didn't recursively unwrap nested `Some(Some(x))`, (b)
+      // skipped typed setters for String / Int / Long / Boolean /
+      // BigDecimal, and (c) didn't handle any java.time / UUID /
+      // Array[Byte] type.  Delegating to the shared `Jdbc.bindAll`
+      // makes the tx path consistent with the pooled `HikariPgClient`
+      // and inherits every type the rest of the JDBC stack supports.
+      Jdbc.bindAll(ps, params)
       f(ps)
     }
 

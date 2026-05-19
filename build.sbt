@@ -507,6 +507,7 @@ lazy val cli = project
 
 lazy val clientPostgres = project
   .in(file("client-postgres"))
+  .dependsOn(backendSqlRuntime)
   .settings(
     name := "scalascript-client-postgres",
     libraryDependencies ++= Seq(

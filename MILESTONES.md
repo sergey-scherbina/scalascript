@@ -6942,23 +6942,38 @@ Deferred to a follow-up sprint:
 
 ### Follow-ups discovered during work
 
-- **`client-postgres` reconciliation.**  A parallel agent shipped a
-  general-purpose `client-postgres` module (commit `d45a250`) at
-  `client-postgres/` with its own `RowDecoder` / `ColumnDecoder` and
-  HikariCP-backed `PgClient`.  It is JDBC-generic in spirit but
-  Postgres/Future-flavoured in shape, lives in package
-  `scalascript.db`, decodes columns *by position* (1-based) rather
-  than by name, has no `Row` class, and lacks bindings for time /
-  binary types.
-  v1.26 Phase 4 builds `backend-sql-runtime` standalone (proper `Row`
-  with name-based `.as[T]`, full type bindings, `DriverManager`-only
-  connection acquisition) — the two modules co-exist without code
-  sharing for now.  After Phase 6 is shipped, revisit the split:
-  options are (a) extract a shared `client-jdbc-common` module that
-  both depend on, (b) have `client-postgres` delegate execution to
-  `backend-sql-runtime` and add only the PG-specific pool/async
-  layer on top, or (c) keep the duplication if the surfaces diverge
-  enough.  Decide once both APIs are in real use.
+- **`client-postgres` reconciliation (landed v1.26.1).**  Originally
+  `client-postgres` (commit `d45a250`) shipped with its own bind
+  logic (poor subset of `Jdbc.bindOne`'s type matrix), and the
+  transaction-path `withStmt` had a bug — `Some(x)` was passed
+  through to `setObject` without recursive unwrap, and typed setters
+  (`setString` / `setBoolean` / …) were skipped entirely.  Resolved
+  via option (b) — `client-postgres` now `dependsOn(backendSqlRuntime)`
+  and both client paths call the shared `scalascript.sql.Jdbc.bindAll`.
+  Side effects of the consolidation:
+
+  - Tx-path bind path matches the pooled path exactly (no behavioural
+    diff between `client.execute(...)` and `client.transaction { tx
+    => tx.execute(...) }`).
+  - `ColumnDecoder` coverage expanded to match the bind side:
+    `Short`, `Byte`, `Float`, `BigInt`, `java.time.{LocalDate,
+    LocalTime, LocalDateTime, Instant, OffsetDateTime}`,
+    `java.util.UUID`, `Array[Byte]`.  Legacy `java.sql.{Date, Time,
+    Timestamp}` results auto-normalise to `java.time.*`.
+  - Hand-written `Option[String|Int|Long|Double|BigDecimal]` givens
+    replaced by a single generic `optionDecoder[A]` lift over any
+    `ColumnDecoder[A]` — uses `rs.wasNull()` so primitive defaults
+    (Int → 0, Boolean → false) correctly map to `None`.
+  - `RowDecoder` single-column givens replaced by a generic
+    `singleColumn[A]` lift over `ColumnDecoder[A]`; `queryOne[T]`
+    works for every type `ColumnDecoder` supports.
+  - `docs/postgres.md` rewritten to match the actual code (the
+    previous version described a fictional `Async` / `AsyncStream`
+    API that wasn't implemented).
+  - `PgClientTest` extended with 7 cases pinning the new type
+    coverage + tx-path consistency.  18 PgClient tests pass; both
+    downstream consumers (`x402-nonce-postgres`,
+    `x402-queue-postgres`) compile + test unchanged.
 
 ### Out of scope (deferred, not committed)
 

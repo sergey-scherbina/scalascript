@@ -101,3 +101,77 @@ class PgClientTest extends AnyFunSuite with Matchers with BeforeAndAfterAll:
     result shouldBe -1
     val after = await(db.query[Int]("SELECT id FROM users WHERE id = ?", 20))
     after shouldBe Nil
+
+  // ── v1.26.1 reconciliation: expanded type coverage ──────────────────
+
+  import java.time.{Instant, LocalDate}
+  import java.util.UUID
+
+  test("v1.26.1 — LocalDate bind + decode round-trip"):
+    await(db.execute(
+      "CREATE TABLE IF NOT EXISTS dates (id INT PRIMARY KEY, d DATE)"))
+    await(db.execute("DELETE FROM dates"))
+    val d = LocalDate.of(2026, 5, 19)
+    await(db.execute("INSERT INTO dates VALUES (?, ?)", 1, d))
+    val out = await(db.queryOne[LocalDate]("SELECT d FROM dates WHERE id = ?", 1))
+    assert(out == Some(d))
+
+  test("v1.26.1 — Instant bind + decode via TIMESTAMP WITH TIME ZONE"):
+    await(db.execute(
+      "CREATE TABLE IF NOT EXISTS events (id INT PRIMARY KEY, occurred_at TIMESTAMP WITH TIME ZONE)"))
+    await(db.execute("DELETE FROM events"))
+    val t = Instant.parse("2026-05-19T12:34:56Z")
+    await(db.execute("INSERT INTO events VALUES (?, ?)", 1, t))
+    val out = await(db.queryOne[Instant]("SELECT occurred_at FROM events WHERE id = ?", 1))
+    assert(out == Some(t))
+
+  test("v1.26.1 — UUID bind + decode round-trip"):
+    await(db.execute(
+      "CREATE TABLE IF NOT EXISTS sessions (id UUID PRIMARY KEY, user_id INT)"))
+    await(db.execute("DELETE FROM sessions"))
+    val sid = UUID.fromString("9e8a4b3c-1234-4abc-9def-abcdef012345")
+    await(db.execute("INSERT INTO sessions VALUES (?, ?)", sid, 42))
+    val out = await(db.queryOne[UUID]("SELECT id FROM sessions WHERE user_id = ?", 42))
+    assert(out == Some(sid))
+
+  test("v1.26.1 — Option[LocalDate] decodes NULL → None"):
+    await(db.execute(
+      "CREATE TABLE IF NOT EXISTS opt_dates (id INT PRIMARY KEY, d DATE)"))
+    await(db.execute("DELETE FROM opt_dates"))
+    await(db.execute("INSERT INTO opt_dates VALUES (1, NULL)"))
+    val out = await(db.queryOne[Option[LocalDate]](
+      "SELECT d FROM opt_dates WHERE id = ?", 1))
+    assert(out == Some(None))
+
+  test("v1.26.1 — Array[Byte] bind + decode"):
+    await(db.execute(
+      "CREATE TABLE IF NOT EXISTS blobs (id INT PRIMARY KEY, data VARBINARY(255))"))
+    await(db.execute("DELETE FROM blobs"))
+    val bytes = Array[Byte](1, 2, 3, 0, -1, 127, -128)
+    await(db.execute("INSERT INTO blobs VALUES (?, ?)", 1, bytes))
+    val out = await(db.queryOne[Array[Byte]]("SELECT data FROM blobs WHERE id = ?", 1))
+    assert(out.map(_.toList) == Some(bytes.toList))
+
+  // ── v1.26.1 reconciliation: tx-path bind consistency fix ───────────
+
+  test("v1.26.1 — transaction bind path handles typed values (was buggy: Some(x) was setObject'd as Some)"):
+    await(db.execute(
+      "CREATE TABLE IF NOT EXISTS tx_typed (id INT PRIMARY KEY, name VARCHAR(20), active BOOLEAN)"))
+    await(db.execute("DELETE FROM tx_typed"))
+    val result = await(db.transaction { tx =>
+      tx.execute("INSERT INTO tx_typed VALUES (?, ?, ?)",
+        Some(99), Some("Tx"), Some(true))
+        .flatMap(_ => tx.queryOne[String]("SELECT name FROM tx_typed WHERE id = ?", 99))
+    })
+    assert(result == Some("Tx"))
+
+  test("v1.26.1 — transaction bind path handles LocalDate (full type matrix shared with pooled client)"):
+    await(db.execute(
+      "CREATE TABLE IF NOT EXISTS tx_dates (id INT PRIMARY KEY, d DATE)"))
+    await(db.execute("DELETE FROM tx_dates"))
+    val d = LocalDate.of(2026, 6, 1)
+    val result = await(db.transaction { tx =>
+      tx.execute("INSERT INTO tx_dates VALUES (?, ?)", 1, d)
+        .flatMap(_ => tx.queryOne[LocalDate]("SELECT d FROM tx_dates WHERE id = ?", 1))
+    })
+    assert(result == Some(d))

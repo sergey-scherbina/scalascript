@@ -1,7 +1,6 @@
 package scalascript.sql
 
-import java.sql.{Connection, PreparedStatement, ResultSet, Types}
-import java.time.{Instant, LocalDate, LocalDateTime, LocalTime, OffsetDateTime, ZonedDateTime}
+import java.sql.{Connection, ResultSet}
 
 /** v1.26 — JDBC executor for `sql` fenced code blocks.
  *
@@ -32,7 +31,7 @@ object SqlRuntime:
   def execute(conn: Connection, sql: String, binds: List[Any]): SqlResult =
     val ps = conn.prepareStatement(sql)
     try
-      bindAll(ps, binds)
+      Jdbc.bindAll(ps, binds)
       if isResultSetProducer(sql) then
         SqlResult.Rows(collectRows(ps.executeQuery()))
       else
@@ -55,52 +54,6 @@ object SqlRuntime:
     firstWord.toUpperCase match
       case "SELECT" | "WITH" | "VALUES" | "SHOW" | "EXPLAIN" => true
       case _                                                  => false
-
-  // ─── PreparedStatement binding ──────────────────────────────────────
-
-  private def bindAll(ps: PreparedStatement, binds: List[Any]): Unit =
-    var i = 1 // JDBC positions are 1-based
-    var rem = binds
-    while rem.nonEmpty do
-      bindOne(ps, i, rem.head)
-      i   += 1
-      rem  = rem.tail
-
-  /** Bind one positional parameter.  Unwraps `Option[T]` recursively,
-   *  treats `null` / `None` as SQL NULL, dispatches on the runtime
-   *  type for known JDBC mappings, falls back to `setObject` for the
-   *  rest.  Time types use the typed `setObject(i, value, jdbcType)`
-   *  form so drivers without `JSR-310` support still get the right
-   *  SQL type. */
-  private def bindOne(ps: PreparedStatement, i: Int, v: Any): Unit = v match
-    case null | None        => ps.setNull(i, Types.NULL)
-    case Some(inner)        => bindOne(ps, i, inner)
-
-    case s: String          => ps.setString(i, s)
-    case b: Boolean         => ps.setBoolean(i, b)
-    case b: Byte            => ps.setByte(i, b)
-    case s: Short           => ps.setShort(i, s)
-    case n: Int             => ps.setInt(i, n)
-    case n: Long            => ps.setLong(i, n)
-    case f: Float           => ps.setFloat(i, f)
-    case d: Double          => ps.setDouble(i, d)
-
-    case bd: BigDecimal     => ps.setBigDecimal(i, bd.bigDecimal)
-    case bi: BigInt         => ps.setBigDecimal(i, java.math.BigDecimal(bi.bigInteger))
-    case bd: java.math.BigDecimal => ps.setBigDecimal(i, bd)
-
-    case bs: Array[Byte]    => ps.setBytes(i, bs)
-
-    case d: LocalDate       => ps.setObject(i, d, Types.DATE)
-    case t: LocalTime       => ps.setObject(i, t, Types.TIME)
-    case dt: LocalDateTime  => ps.setObject(i, dt, Types.TIMESTAMP)
-    case t: Instant         => ps.setObject(i, t, Types.TIMESTAMP_WITH_TIMEZONE)
-    case t: OffsetDateTime  => ps.setObject(i, t, Types.TIMESTAMP_WITH_TIMEZONE)
-    case t: ZonedDateTime   => ps.setObject(i, t, Types.TIMESTAMP_WITH_TIMEZONE)
-
-    case u: java.util.UUID  => ps.setObject(i, u)
-
-    case other              => ps.setObject(i, other)
 
   // ─── ResultSet → Row materialisation ────────────────────────────────
 
