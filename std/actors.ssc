@@ -35,6 +35,7 @@ exports:
   - leaderHistory
   - setReconnectPolicy
   - setHeartbeatTimeout
+  - setQuorumSize
   - requestGossip
   - ConfigChanged
   - clusterConfigSet
@@ -293,6 +294,13 @@ extern def setReconnectPolicy(initialMs: Long, maxMs: Long, giveUpAfterMs: Long)
 // 40 000) elapses with no pong reply.  Lower both for sub-second
 // failure detection in low-latency clusters; raise for noisy WANs.
 extern def setHeartbeatTimeout(intervalMs: Long, deadAfterMs: Long): Unit
+
+// Set the quorum threshold for Bully self-claim — a node will refuse
+// to become leader if it sees fewer than `n` total nodes (peers + self).
+// Set to N/2+1 of the expected cluster size to prevent split-brain on
+// partition: each side with fewer than `n` visible nodes stays leaderless
+// until the partition heals.  0 (default) disables the check.
+extern def setQuorumSize(n: Long): Unit
 
 // ─── Periodic gossip re-discovery (v1.23) ────────────────────────────────────
 
