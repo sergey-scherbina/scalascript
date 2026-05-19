@@ -503,6 +503,18 @@ lazy val clientEvm = project
     Test    / scalacOptions ++= sharedScalacOptions,
   )
 
+lazy val clientKafka = project
+  .in(file("client-kafka"))
+  .settings(
+    name := "scalascript-client-kafka",
+    libraryDependencies ++= Seq(
+      "org.apache.kafka" %  "kafka-clients" % "3.7.0",
+      scalatestTest,
+    ),
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions,
+  )
+
 lazy val root = project
   .in(file("."))
   .aggregate(
@@ -511,7 +523,7 @@ lazy val root = project
     runtimeServerJvmJetty, runtimeServerJvmNetty, mcpCommon,
     backendJvm, backendJs, backendNode, backendScalajs, backendWasm, backendInterpreter,
     backendScalaSource, backendHtml, backendCss, backendSpark,
-    cli, clientPostgres, clientRedis, clientEvm
+    cli, clientPostgres, clientRedis, clientEvm, clientKafka
   )
   .settings(
     publish / skip := true
