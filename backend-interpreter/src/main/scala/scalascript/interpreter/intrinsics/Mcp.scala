@@ -441,6 +441,38 @@ private object Mcp:
         })
       case _ => throw InterpretError("srv.resource(uri[, name[, mimeType]])(handler)")
     })
+    // v1.17.x — URI-template resources.  `srv.resourceTemplate(template[,
+    // name[, description[, mimeType]]])(handler)` registers a parameterized
+    // resource like `file:///{path}`.  Listed via resources/templates/list;
+    // a concrete `resources/read` URI matching the template (RFC 6570
+    // simplified: `{name}` → non-slash segment) flows to `handler`.
+    def resourceTemplateFn = Value.NativeFnV("McpServer.resourceTemplate", Computation.pureFn {
+      case List(Value.StringV(tpl)) =>
+        Value.NativeFnV(s"McpServer.resourceTemplate.$tpl", Computation.pureFn {
+          case List(handler) =>
+            registerResourceTemplate(builder, tpl, None, None, None, handler, ctx); Value.UnitV
+          case _ => throw InterpretError("srv.resourceTemplate(template)(handler)")
+        })
+      case List(Value.StringV(tpl), Value.StringV(name)) =>
+        Value.NativeFnV(s"McpServer.resourceTemplate.$tpl", Computation.pureFn {
+          case List(handler) =>
+            registerResourceTemplate(builder, tpl, Some(name), None, None, handler, ctx); Value.UnitV
+          case _ => throw InterpretError("srv.resourceTemplate(template, name)(handler)")
+        })
+      case List(Value.StringV(tpl), Value.StringV(name), Value.StringV(desc)) =>
+        Value.NativeFnV(s"McpServer.resourceTemplate.$tpl", Computation.pureFn {
+          case List(handler) =>
+            registerResourceTemplate(builder, tpl, Some(name), Some(desc), None, handler, ctx); Value.UnitV
+          case _ => throw InterpretError("srv.resourceTemplate(template, name, description)(handler)")
+        })
+      case List(Value.StringV(tpl), Value.StringV(name), Value.StringV(desc), Value.StringV(mime)) =>
+        Value.NativeFnV(s"McpServer.resourceTemplate.$tpl", Computation.pureFn {
+          case List(handler) =>
+            registerResourceTemplate(builder, tpl, Some(name), Some(desc), Some(mime), handler, ctx); Value.UnitV
+          case _ => throw InterpretError("srv.resourceTemplate(template, name, description, mimeType)(handler)")
+        })
+      case _ => throw InterpretError("srv.resourceTemplate(template[, name[, description[, mimeType]]])(handler)")
+    })
     def promptFn = Value.NativeFnV("McpServer.prompt", Computation.pureFn {
       case List(Value.StringV(name)) =>
         Value.NativeFnV(s"McpServer.prompt.$name", Computation.pureFn {
@@ -579,6 +611,7 @@ private object Mcp:
       "tool"                          -> toolFn,
       "toolWithSchema"                -> toolWithSchemaFn,
       "resource"                      -> resourceFn,
+      "resourceTemplate"              -> resourceTemplateFn,
       "prompt"                        -> promptFn,
       "notifyToolsListChanged"        -> notifyToolsLCFn,
       "notifyResourcesListChanged"    -> notifyResourcesLCFn,
@@ -619,6 +652,20 @@ private object Mcp:
     ctx:      NativeContext
   ): Unit =
     builder.resource(uri, name, mimeType, requestedUri =>
+      val result = ctx.invokeCallback(handler, List(Value.StringV(requestedUri)))
+      valueToResourceResult(result)
+    )
+
+  private def registerResourceTemplate(
+    builder:     McpServerBuilder,
+    uriTemplate: String,
+    name:        Option[String],
+    description: Option[String],
+    mimeType:    Option[String],
+    handler:     Value,
+    ctx:         NativeContext
+  ): Unit =
+    builder.resourceTemplate(uriTemplate, name, description, mimeType, requestedUri =>
       val result = ctx.invokeCallback(handler, List(Value.StringV(requestedUri)))
       valueToResourceResult(result)
     )

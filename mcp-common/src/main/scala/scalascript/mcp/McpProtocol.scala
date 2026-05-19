@@ -37,6 +37,7 @@ object McpProtocol:
     val Progress              = "notifications/progress"
     val LoggingSetLevel       = "logging/setLevel"
     val LogMessage            = "notifications/message"
+    val ResourcesTemplatesList = "resources/templates/list"
 
   /** Syslog levels per MCP spec, ordered by severity (low to high). */
   val LogLevels: List[String] = List(
@@ -102,6 +103,17 @@ object McpProtocol:
       })
     )
 
+  def resourcesTemplatesListResult(templates: List[ResourceTemplateEntry]): ujson.Value =
+    ujson.Obj(
+      "resourceTemplates" -> ujson.Arr.from(templates.map { t =>
+        val obj = ujson.Obj("uriTemplate" -> t.uriTemplate)
+        t.name.foreach(n        => obj("name")        = n)
+        t.description.foreach(d => obj("description") = d)
+        t.mimeType.foreach(m    => obj("mimeType")    = m)
+        obj
+      })
+    )
+
   /** `resources/read` result: `{contents: [{uri, mimeType?, text? | blob?}, ...]}` */
   def resourcesReadResult(contents: List[ujson.Value]): ujson.Value =
     ujson.Obj("contents" -> ujson.Arr.from(contents))
@@ -134,6 +146,7 @@ object McpProtocol:
 
   case class ToolEntry(name: String, description: Option[String], inputSchema: ujson.Value)
   case class ResourceEntry(uri: String, name: Option[String], mimeType: Option[String])
+  case class ResourceTemplateEntry(uriTemplate: String, name: Option[String], description: Option[String], mimeType: Option[String])
   case class PromptEntry(name: String, description: Option[String], arguments: List[PromptArgument])
   case class PromptArgument(name: String, description: String, required: Boolean)
 

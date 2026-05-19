@@ -20,8 +20,15 @@ import scala.collection.mutable
 class McpServerBuilder:
   // Tool registrations keyed by tool name.
   private[mcp] val tools = mutable.LinkedHashMap.empty[String, ToolRegistration]
-  // Resource registrations keyed by uri (Phase 1 — no template/glob matching).
+  // Resource registrations keyed by exact uri.
   private[mcp] val resources = mutable.LinkedHashMap.empty[String, ResourceRegistration]
+  // v1.17.x — URI-template resource registrations.  When `resources/read`
+  // is called with a uri that doesn't exact-match `resources`, the
+  // dispatcher iterates `resourceTemplates` and runs the handler of the
+  // first template that matches (simplified RFC 6570: `{name}` placeholders
+  // become `([^/]+)` segments).  Listed via `resources/templates/list`.
+  private[mcp] val resourceTemplates =
+    mutable.LinkedHashMap.empty[String, ResourceTemplateRegistration]
   // Prompt registrations keyed by name.
   private[mcp] val prompts = mutable.LinkedHashMap.empty[String, PromptRegistration]
   // Lifecycle hooks — fired after the `initialize` handshake / on EOF.
@@ -197,6 +204,20 @@ class McpServerBuilder:
   ): Unit =
     resources(uri) = ResourceRegistration(uri, name, mimeType, handler)
 
+  /** Register a URI-template resource.  Concrete `resources/read` URIs
+   *  matching the template (simplified RFC 6570: `{name}` placeholders
+   *  match any non-slash segment) flow into `handler`.  Listed via
+   *  `resources/templates/list`. */
+  def resourceTemplate(
+    uriTemplate: String,
+    name:        Option[String],
+    description: Option[String],
+    mimeType:    Option[String],
+    handler:     String => ResourceHandlerResult
+  ): Unit =
+    resourceTemplates(uriTemplate) =
+      ResourceTemplateRegistration(uriTemplate, name, description, mimeType, handler)
+
   def prompt(
     name:        String,
     description: Option[String],
@@ -253,6 +274,14 @@ case class ResourceRegistration(
   name:     Option[String],
   mimeType: Option[String],
   handler:  String => ResourceHandlerResult
+)
+
+case class ResourceTemplateRegistration(
+  uriTemplate: String,
+  name:        Option[String],
+  description: Option[String],
+  mimeType:    Option[String],
+  handler:     String => ResourceHandlerResult
 )
 
 case class PromptRegistration(
@@ -374,6 +403,12 @@ object McpServerCore:
         }
         JsonRpc.encodeResult(id, McpProtocol.resourcesListResult(entries))
 
+      case McpProtocol.Method.ResourcesTemplatesList =>
+        val entries = builder.resourceTemplates.values.toList.map { t =>
+          McpProtocol.ResourceTemplateEntry(t.uriTemplate, t.name, t.description, t.mimeType)
+        }
+        JsonRpc.encodeResult(id, McpProtocol.resourcesTemplatesListResult(entries))
+
       case McpProtocol.Method.ResourcesRead =>
         readResource(builder, params, id)
 
@@ -439,17 +474,41 @@ object McpServerCore:
       case Some(obj) => obj.get("uri").flatMap(_.strOpt) match
         case None      => invalidParams(id, "resources/read: missing 'uri'")
         case Some(uri) =>
-          builder.resources.get(uri) match
+          // Try exact match first; fall through to template matching
+          // (first template whose pattern matches the concrete uri wins).
+          val handler: Option[String => ResourceHandlerResult] =
+            builder.resources.get(uri).map(_.handler)
+              .orElse(builder.resourceTemplates.values.iterator
+                .find(t => uriMatchesTemplate(t.uriTemplate, uri))
+                .map(_.handler))
+          handler match
             case None => JsonRpc.encodeError(id, JsonRpc.ErrorCode.MethodNotFound, s"unknown resource: $uri")
-            case Some(reg) =>
+            case Some(h) =>
               withRequestTracking(builder, id, params) {
                 try
-                  val result = reg.handler(uri)
+                  val result = h(uri)
                   JsonRpc.encodeResult(id, McpProtocol.resourcesReadResult(result.contents))
                 catch case e: Throwable =>
                   JsonRpc.encodeError(id, JsonRpc.ErrorCode.InternalError,
                     Option(e.getMessage).getOrElse(e.getClass.getSimpleName))
               }
+
+  /** Simplified RFC 6570 template matcher: `{name}` placeholders match
+   *  any non-slash run of characters; everything else is matched
+   *  literally.  Strict-enough for typical MCP template use (file paths,
+   *  resource ids) without pulling in a full URI-template library. */
+  def uriMatchesTemplate(template: String, uri: String): Boolean =
+    val sb = new StringBuilder("^")
+    val placeholder = """\{[A-Za-z_][A-Za-z0-9_]*\}""".r
+    var idx = 0
+    placeholder.findAllMatchIn(template).foreach { m =>
+      sb.append(java.util.regex.Pattern.quote(template.substring(idx, m.start)))
+      sb.append("([^/]+)")
+      idx = m.end
+    }
+    sb.append(java.util.regex.Pattern.quote(template.substring(idx)))
+    sb.append("$")
+    uri.matches(sb.toString)
 
   /** Find the in-flight entry matching `params.requestId` and set its
    *  cancel flag.  Best-effort: unknown / completed ids are silently
