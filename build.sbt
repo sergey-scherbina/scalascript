@@ -552,6 +552,19 @@ lazy val x402Server = project
     Test    / scalacOptions ++= sharedScalacOptions,
   )
 
+lazy val x402Client = project
+  .in(file("x402-client"))
+  .dependsOn(x402Core)
+  .settings(
+    name := "scalascript-x402-client",
+    libraryDependencies ++= Seq(
+      "com.lihaoyi" %% "upickle" % "3.3.1",
+      scalatestTest,
+    ),
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions,
+  )
+
 lazy val root = project
   .in(file("."))
   .aggregate(
@@ -561,7 +574,7 @@ lazy val root = project
     backendJvm, backendJs, backendNode, backendScalajs, backendWasm, backendInterpreter,
     backendScalaSource, backendHtml, backendCss, backendSpark,
     cli, clientPostgres, clientRedis, clientEvm, clientKafka, clientCoinbase,
-    x402Core, x402Server
+    x402Core, x402Server, x402Client
   )
   .settings(
     publish / skip := true

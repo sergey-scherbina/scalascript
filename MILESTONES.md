@@ -6390,15 +6390,15 @@ Spec in `docs/x402.md`.
 - [x] `onSettled` callback hook
 - [x] Tests: no-payment → 402, valid payment → 200, replay → 402
 
-### Phase 3 — Client interceptor (`x402-client`)
+### Phase 3 — Client interceptor (`x402-client`) ✓ Landed
 
-- [ ] `Wallet` trait + `Eip712Domain`
-- [ ] `Wallets.metaMask()` (browser / window.ethereum)
-- [ ] `Wallets.privateKey(hex, network)` + `Wallets.envKey(envVar, network)`
-- [ ] `Http.client.withX402(wallet, maxAmount)` interceptor
-- [ ] Auto-retry on 402: parse requirements, sign, add `X-Payment`, retry
-- [ ] Refuse if `maxAmountRequired > maxAmount`
-- [ ] Tests: 402 → sign → 200 round-trip (mocked server)
+- [x] `Wallet` trait + `Eip712Domain`
+- [ ] `Wallets.metaMask()` (browser / window.ethereum) — deferred to JS backend
+- [x] `Wallets.privateKey(hex, network)` + `Wallets.envKey(envVar, network)`
+- [x] `X402Client(wallet, maxAmount, backend)` interceptor
+- [x] Auto-retry on 402: parse requirements, sign, add `X-Payment`, retry
+- [x] Refuse if `maxAmountRequired > maxAmount`
+- [x] Tests: 402 → sign → 200 round-trip (mocked server)
 
 ### Phase 4 — EVM facilitators
 
