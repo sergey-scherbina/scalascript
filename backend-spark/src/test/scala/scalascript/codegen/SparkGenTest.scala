@@ -735,6 +735,124 @@ class SparkGenTest extends AnyFunSuite:
     assert(code.contains("def schemaOf["))
   }
 
+  // ── Phase D: UDF bridge — @SqlFn → spark.udf.register ───────────────────
+
+  test("extractSqlFns helper: no @SqlFn → no names, source unchanged") {
+    val src = "val x = 1\ndef plain(a: Int): Int = a + 1\n"
+    val (cleaned, names) = SparkGen.extractSqlFns(src)
+    assert(names.isEmpty)
+    assert(cleaned == src, s"unchanged source expected, got:\n$cleaned")
+  }
+
+  test("extractSqlFns helper: single @SqlFn def captured and annotation stripped") {
+    val src = "@SqlFn\ndef toUpper(s: String): String = s.toUpperCase\n"
+    val (cleaned, names) = SparkGen.extractSqlFns(src)
+    assert(names == List("toUpper"))
+    assert(!cleaned.contains("@SqlFn"), s"@SqlFn must be stripped, got:\n$cleaned")
+    assert(cleaned.contains("def toUpper(s: String): String = s.toUpperCase"))
+  }
+
+  test("extractSqlFns helper: @SqlFn val (function literal) is also captured") {
+    val src = "@SqlFn\nval lenient = (s: String) => s.length\n"
+    val (cleaned, names) = SparkGen.extractSqlFns(src)
+    assert(names == List("lenient"))
+    assert(!cleaned.contains("@SqlFn"))
+    assert(cleaned.contains("val lenient = (s: String) => s.length"))
+  }
+
+  test("extractSqlFns helper: multiple @SqlFn entries captured in document order") {
+    val src =
+      """|@SqlFn
+         |def a(x: Int): Int = x + 1
+         |
+         |val plain = 42
+         |
+         |@SqlFn
+         |val b = (s: String) => s.length
+         |
+         |@SqlFn
+         |def c(x: Int, y: Int): Int = x * y
+         |""".stripMargin
+    val (cleaned, names) = SparkGen.extractSqlFns(src)
+    assert(names == List("a", "b", "c"),
+      s"document-order names expected, got: $names")
+    assert(!cleaned.contains("@SqlFn"))
+    // Unrelated `val plain = 42` survives unchanged.
+    assert(cleaned.contains("val plain = 42"))
+  }
+
+  test("extractSqlFns helper: indented @SqlFn preserves the def's indentation") {
+    val src = "  @SqlFn\n  def nested(x: Int): Int = x + 1\n"
+    val (cleaned, names) = SparkGen.extractSqlFns(src)
+    assert(names == List("nested"))
+    // def line keeps its 2-space indent.
+    assert(cleaned.contains("  def nested(x: Int)"),
+      s"indentation must survive, got:\n$cleaned")
+  }
+
+  test("SparkGen emits spark.udf.register for each @SqlFn declaration") {
+    val code = gen(
+      """|# Test
+         |
+         |```scalascript
+         |@SqlFn
+         |def toUpper(s: String): String = s.toUpperCase
+         |
+         |@SqlFn
+         |val addOne = (x: Int) => x + 1
+         |```
+         |""".stripMargin
+    )
+    // Both registrations land in the same @main scope, right after the
+    // defs themselves (so they execute before any subsequent sql block).
+    assert(code.contains("""spark.udf.register("toUpper", toUpper)"""),
+      s"toUpper UDF registration missing, got:\n$code")
+    assert(code.contains("""spark.udf.register("addOne", addOne)"""),
+      s"addOne UDF registration missing, got:\n$code")
+    // @SqlFn marker is stripped — Scala compiler would otherwise see
+    // an unknown annotation.
+    assert(!code.contains("@SqlFn"),
+      s"@SqlFn marker must not survive into generated source, got:\n$code")
+  }
+
+  test("Registration ordering: UDF is registered before any sql block that uses it") {
+    val code = gen(
+      """|# Test
+         |
+         |```scalascript
+         |@SqlFn
+         |def toUpper(s: String): String = s.toUpperCase
+         |```
+         |
+         |```sql
+         |SELECT toUpper(name) AS upper FROM users
+         |```
+         |""".stripMargin
+    )
+    val regIdx = code.indexOf("""spark.udf.register("toUpper", toUpper)""")
+    val sqlIdx = code.indexOf("SELECT toUpper(name)")
+    assert(regIdx >= 0 && sqlIdx >= 0,
+      s"both registration and sql block must be present, got:\n$code")
+    assert(regIdx < sqlIdx,
+      s"UDF registration must precede the sql block that uses it (reg@$regIdx, sql@$sqlIdx)")
+  }
+
+  test("Scalascript block without @SqlFn yields no registration calls") {
+    val code = gen(
+      """|# Test
+         |
+         |```scalascript
+         |def plain(x: Int): Int = x + 1
+         |val y = 42
+         |```
+         |""".stripMargin
+    )
+    assert(!code.contains("spark.udf.register"),
+      s"no @SqlFn → no registration calls, got:\n$code")
+    // The plain def itself still lands in the source untouched.
+    assert(code.contains("def plain(x: Int): Int = x + 1"))
+  }
+
   // ── Phase C.3 slice 7: writer extension methods ──────────────────────────
 
   test("Dataset.toParquet extension delegates to ds.write.options(...).parquet") {

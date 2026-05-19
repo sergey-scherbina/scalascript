@@ -1,0 +1,66 @@
+---
+name: spark-udf-demo
+backend: spark
+spark-app-name: UDF Bridge Demo
+description: Demonstrates @SqlFn — scalascript defs registered as Spark UDFs (v1.25 § 9.5 Phase D)
+---
+
+# Spark UDF bridge demo
+
+`@SqlFn` is a ScalaScript marker that exposes a `scalascript` block's
+`def` or `val` to subsequent `sql` blocks as a Spark UDF.  SparkGen
+strips the annotation and emits an automatic
+`spark.udf.register("name", name)` call right after the declaration,
+so the function is in scope before any SQL that references it by name.
+
+Run with:
+
+```sh
+ssc run --backend spark examples/spark-udf-demo.ssc
+```
+
+## Seed
+
+```scalascript
+case class User(id: Int, name: String, status: String)
+
+val users = Dataset.fromList(List(
+  User(1, "alice",   "ACTIVE"),
+  User(2, "BOB",     "active"),
+  User(3, "Carol",   "ARCHIVED"),
+  User(4, "dave",    "Active")
+))
+users.toDF().createOrReplaceTempView("users")
+```
+
+## UDFs
+
+A `def` and a `val` form, both marked with `@SqlFn`:
+
+```scalascript
+@SqlFn
+def normalize(s: String): String =
+  if s == null then "" else s.trim.toLowerCase
+
+@SqlFn
+val nameLength = (s: String) => if s == null then 0 else s.length
+```
+
+## Active users (normalised)
+
+The UDF names resolve inside the SQL just like built-in functions
+(`UPPER`, `LENGTH`, …); they're added to the session catalog by the
+registration calls emitted right after the `@SqlFn` decls above.
+
+```sql
+SELECT id, normalize(name) AS name, nameLength(name) AS len
+FROM users
+WHERE normalize(status) = 'active'
+ORDER BY id
+```
+
+## Show
+
+```scalascript
+ActiveUsersNormalised.sql.show()
+```

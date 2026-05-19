@@ -1395,6 +1395,7 @@ Spark backend).  The user does not rewrite the pipeline to switch.
 | **C.1 — `sql` block → `spark.sql(...)`** | `sql` declared in `SparkCapabilities.blockLanguages`; the shared `SqlBindRewriter` produces `:bind<N>` placeholders consumed by Spark SQL 3.4+'s parameterised `sql(text, args)`.  Each `sql` block binds to a sequential `val _sqlBlock_<n>: org.apache.spark.sql.DataFrame` in the `@main` scope, accessible from subsequent `scalascript` blocks. | Reuses the same `sql` surface as the JDBC target (§ 3.3.1) — same source, different runtime. | landed |
 | **C.2 — Section-based binding** | Each `sql` block whose enclosing section has a usable identifier (`# Users`, `# Active Users`, …) ALSO emits `object <sectionId>: lazy val sql: org.apache.spark.sql.DataFrame = _sqlBlock_<n>`.  Friendly access: `Users.sql.show()` instead of `_sqlBlock_0.show()`. | Mirrors the existing `html`/`css` → `<sectionId>.html/css` convention so authoring rules are uniform across opaque blocks. | landed |
 | **C.3 — DataFrame ergonomics + schema bridge** | All nine slices landed: (1) `>10` binds via `Map.ofEntries[String, Object]` once `SparkGen.MapOfMaxPairs = 10` is exceeded; (2) widen `sparkImports` with `Row`, `DataFrame`, `types._`; (3) `spark-config:` front-matter → sorted `.config(k, v)` lines on `SparkSession.builder()`; (4) `spark-app-name:` overrides `.appName(...)`; (5)+(6) typed reader shims `Dataset.{fromParquet,fromJson,fromCsv}(path, options*): DataFrame`; (7) writer extensions `ds.{toParquet,toJson,toCsv}(path, opts*): Unit`; (8) adaptive defaults (`spark.ui.enabled=false`, `spark.sql.shuffle.partitions=4`, log4j WARN) emitted ONLY on `local*` masters; (9) schema bridge — `Dataset.schemaOf[T : Encoder]: StructType` + typed reader cousins `Dataset.{fromParquetAs,fromJsonAs,fromCsvAs}[T : Encoder](path, opts*): Dataset[T]` chain `spark.read.schema(schemaOf[T]).options(opts.toMap).X(path).as[T]` so a case-class declaration IS the schema specification.  For CSV the typed reader is the only path to typed columns (Spark's bare `.csv(path)` returns every column as `String`); for JSON it skips the inference scan; for Parquet it acts as column projection. | C.1+C.2 ship the binding/runtime contract; C.3 polishes the typed surface. | landed |
+| **D — UDF bridge** | `@SqlFn` marker on a `def` or `val` inside a `scalascript` block makes it visible to subsequent `sql` blocks as a Spark UDF: `SparkGen.extractSqlFns` strips the annotation and `genModule` injects `spark.udf.register("name", name)` immediately after the cleaned declaration.  Registration happens INSIDE the `@main def runSparkJob` scope so the UDF is on the session catalog before any later sql block tries to call it.  No reflection / macro / Spark `Encoder` magic — just code-gen + Scala 3's automatic eta-expansion of method refs in function context.  Bridges the two ScalaScript block languages on Spark: scalascript writes the function, sql calls it. | Without this, `scalascript` and `sql` blocks could share data (via `_sqlBlock_<N>` / section aliases) but not behaviour — a scalascript helper couldn't be referenced inside a sql query, forcing users back into `df.selectExpr(...)` chains. | landed |
 
 #### Spark vs JDBC `sql` blocks
 
@@ -1578,6 +1579,54 @@ The fat JAR includes every transitive Spark and ScalaScript dependency,
 so YARN / K8s executors only need the same Spark version as the
 driver on their image — no ScalaScript or `scala-cli` install
 required on the cluster side.
+
+#### UDF bridge (`@SqlFn`, Phase D)
+
+`scalascript` and `sql` blocks share the same `@main` scope (so they
+can already share data via `_sqlBlock_<N>` aliases from Phase C.1/C.2),
+but `sql` block bodies are opaque strings — a plain `def` inside a
+`scalascript` block can be called from other Scala code but not from
+SQL.  The `@SqlFn` annotation closes that gap:
+
+```scalascript
+@SqlFn
+def normalize(s: String): String =
+  if s == null then "" else s.trim.toLowerCase
+
+@SqlFn
+val nameLength = (s: String) => if s == null then 0 else s.length
+```
+
+```sql
+SELECT normalize(name) AS name, nameLength(name) AS len
+FROM users
+WHERE normalize(status) = 'active'
+```
+
+`SparkGen.extractSqlFns` strips the `@SqlFn` line and emits an
+automatic `spark.udf.register("name", name)` call immediately after
+each annotated declaration.  Because registration lives inside
+`@main def runSparkJob`, it executes before any subsequent `sql`
+block dispatches against the session — so name resolution in the
+SQL parser finds the UDF in the catalog.
+
+The annotation works on both `def` and `val` (function-literal)
+forms.  Scala 3's automatic eta-expansion of method references in
+function context means a plain `def` reference suffices — no
+`def.tupled`, no manual lambda wrapping, no Spark `Encoder` (UDF
+argument and return types are derived by Spark from the function's
+own type at registration time).
+
+Arity 0 functions are not in scope: `spark.udf.register("foo", foo)`
+where `foo` is `def foo(): String` would be interpreted as `foo()`
+call rather than function reference.  Users needing a no-arg UDF
+write the val form explicitly: `@SqlFn val foo = () => "..."`.
+
+False-positive risk: an `@SqlFn` string literal that happens to
+precede a `def` would match the regex.  Acceptable — the marker is
+a deliberate ScalaScript convention; collisions with prose are
+vanishingly unlikely, and a triple-quoted literal sidesteps any
+match.
 
 ## Appendix A: Reserved Words
 

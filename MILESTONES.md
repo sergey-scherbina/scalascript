@@ -6341,9 +6341,11 @@ Thin `backend-wasm-contract/` layer on top of `backend-wasm/` for Near or Polkad
 > + `capabilities.blockLanguages` lines so the Spark surface is fully
 > discoverable from the command line.
 > v1.25 § 9.5 milestone is now complete end-to-end (Phases A, B.1, B.2, C.1,
-> C.2, all of C.3); the Spark backend covers Phase 1 (local), Phase 2
-> (cluster submission), and Phase 3 (Spark SQL / DataFrames including
-> typed readers and case-class schema derivation).
+> C.2, all of C.3, plus Phase D — `@SqlFn` UDF bridge from `scalascript`
+> declarations to `sql` blocks via auto-emitted `spark.udf.register` calls);
+> the Spark backend covers Phase 1 (local), Phase 2 (cluster submission),
+> and Phase 3 (Spark SQL / DataFrames including typed readers,
+> case-class schema derivation, and SQL-callable UDFs).
 >
 > Natural fit: ScalaScript's existing `Dataset[T]` API maps directly to Spark.
 

@@ -82,6 +82,41 @@ object SparkGen:
   /** A collected ScalaScript code block ready for emission. */
   private[codegen] case class Block(src: String)
 
+  /** Scan a `scalascript` block source for `@SqlFn`-marked `def`/`val`
+   *  declarations.  Returns the source with the annotation lines
+   *  stripped, plus the list of declaration names in document order.
+   *
+   *  Caller emits one `spark.udf.register("name", name)` line per
+   *  returned name immediately after the cleaned source — that
+   *  registers the function as a Spark SQL UDF, making it callable
+   *  from subsequent `sql` blocks by the same identifier
+   *  (v1.25 § 9.5 Phase D — UDF bridge between scalascript and sql
+   *  fenced blocks).
+   *
+   *  Pattern: `@SqlFn` on its own line (any indent), then on the next
+   *  line a `def NAME(...)` or `val NAME = ...` declaration.  Anything
+   *  after the name on the def/val line is preserved untouched, so
+   *  parameter lists, type ascriptions, and the body land in the
+   *  emitted source unchanged.
+   *
+   *  False-positive risk: `@SqlFn` appearing inside a string literal
+   *  would still match.  Accepted — the marker is a deliberate
+   *  ScalaScript convention; collisions with user prose are
+   *  vanishingly unlikely.  Anyone hitting this should switch the
+   *  literal to a triple-quoted form or split the keyword. */
+  def extractSqlFns(source: String): (String, List[String]) =
+    val pat   = """(?m)^(\s*)@SqlFn\s*\r?\n(\s*)(def|val)\s+(\w+)""".r
+    val names = scala.collection.mutable.ListBuffer.empty[String]
+    val cleaned = pat.replaceAllIn(source, m =>
+      names += m.group(4)
+      // Drop the `@SqlFn` line entirely; keep the def/val line with
+      // its original indentation and name.  Replacement is plain text
+      // (no `$` or `\` interpolation needed) since identifiers and
+      // whitespace are the only content.
+      java.util.regex.Matcher.quoteReplacement(s"${m.group(2)}${m.group(3)} ${m.group(4)}")
+    )
+    (cleaned, names.toList)
+
 private class SparkGen(
     baseDir:      Option[os.Path]     = None,
     sparkVersion: String              = SparkGen.DefaultVersion,
@@ -188,8 +223,26 @@ private class SparkGen(
     sb.append(datasetShim)
 
     // User blocks — indented two spaces to sit inside `@main def`.
+    //
+    // Per-block, run `extractSqlFns` to find `@SqlFn`-marked defs/vals
+    // (v1.25 § 9.5 Phase D — UDF bridge); the helper returns the
+    // source with the annotation stripped plus the names that need a
+    // `spark.udf.register("name", name)` call.  The registration is
+    // emitted right after the cleaned source so the UDF is in scope
+    // before any subsequent `sql` block that might call it by name.
+    //
+    // Translated sql blocks contain no `@SqlFn` markers, so
+    // `extractSqlFns` is a no-op on them.
     blocks.foreach { block =>
-      val indented = indentBlock(block.src)
+      val (cleaned, udfNames) = SparkGen.extractSqlFns(block.src)
+      val composed =
+        if udfNames.isEmpty then cleaned
+        else
+          val registrations = udfNames.map(n =>
+            s"""spark.udf.register("$n", $n)"""
+          ).mkString("\n")
+          cleaned.stripTrailing + "\n" + registrations
+      val indented = indentBlock(composed)
       sb.append(indented.stripTrailing())
       sb.append("\n\n")
     }
