@@ -442,8 +442,8 @@ unblocks downstream features as early as possible.
      v1.17.1 hardening ✓ Landed; v1.17.2 SSE/JS ✓ Landed;
      v1.17.3 prompts/JVM ✓ Landed; v1.17.4-min Http/Ws/JVM (minimal
      wiring, echo placeholder) ✓ Landed; v1.17.4-runtime consolidation
-     Phase 1 (a + b + c) + Phase 2 (a + b — pure HTTP / TLS helpers
-     extracted, 18 inlined files) ✓ Landed; v1.17.4 full (real
+     Phase 1 (a + b + c) + Phase 2 (a + b — pure HTTP / TLS / CORS
+     helpers extracted, 19 inlined files) ✓ Landed; v1.17.4 full (real
      `McpServerSession` dispatch + SDK import fixes) ✓ Landed (all
      2026-05-19).
      Anthropic's Model Context Protocol via REST-shaped API
@@ -3110,13 +3110,16 @@ same source of truth for these primitives:
   case-class definitions of `UploadedFile` (one on each side) collapsed
   into the single inlined POJO.
 - **Phase 2b** — `TlsContextBuilder` (TLS SSLContext builder + virtual-
-  thread executor builder).  PEM handling unified — PKCS#1 RSA keys
-  go through `DerCodec.wrapPkcs1InPkcs8` on both sides; EC fallback
-  preserved.
+  thread executor builder) and `CorsHelpers` (response-header CORS
+  application given per-server `origins` / `methods` / `headers`
+  config).  PEM handling unified — PKCS#1 RSA keys go through
+  `DerCodec.wrapPkcs1InPkcs8` on both sides; EC fallback preserved.
+  CORS state stays on each side (mutable globals); the helper takes
+  the values as parameters so it's purely stateless.
 
-Net additional dedup: ~310 LOC removed across the two backends,
-replaced with ~20 LOC of one-line shims; `runtime-server-common` now
-packages **18** Scala files inlined into the codegen output.
+Net additional dedup: ~340 LOC removed across the two backends,
+replaced with ~25 LOC of one-line shims; `runtime-server-common` now
+packages **19** Scala files inlined into the codegen output.
 
 ### Deferred follow-ups (v1.17.x backlog, ordered by priority)
 
