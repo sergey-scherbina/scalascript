@@ -470,6 +470,7 @@ class JvmGen(
         "clusterMembers", "subscribeClusterEvents",
         "phiOf", "isSuspect", "selfNode", "clusterHealth",
         "broadcastHealth", "clusterIsDown",
+        "electLeader", "currentLeader", "subscribeLeaderEvents",
         "sendAfter", "sendInterval", "cancelTimer", "processInfo")
 
   /** Case-class names defined inside `effectsRuntime` whose presence in
@@ -480,7 +481,7 @@ class JvmGen(
    *  ```
    *  would compile-error with "no pattern match extractor named NodeJoined". */
   private val actorRuntimeCaseClasses: Set[String] =
-    Set("NodeJoined", "NodeLeft", "Exit", "Down")
+    Set("NodeJoined", "NodeLeft", "LeaderElected", "LeaderLost", "Exit", "Down")
 
   /** True if any block references the v1.6 actor model — via
    *  `runActors`, `spawn`, `self`, `exit`, `receive`, `link`, `monitor`,
@@ -1457,6 +1458,16 @@ class JvmGen(
       val nid = emitExpr(argClause.values(0).asInstanceOf[Term])
       val thr = if argClause.values.size >= 2 then emitExpr(argClause.values(1).asInstanceOf[Term]) else "8.0"
       s"Actor.clusterIsDown($nid, $thr)"
+    // v1.23 — leader election (Bully)
+    case Term.Apply.After_4_6_0(Term.Name("electLeader"), argClause)
+        if argClause.values.isEmpty =>
+      "Actor.electLeader()"
+    case Term.Apply.After_4_6_0(Term.Name("currentLeader"), argClause)
+        if argClause.values.isEmpty =>
+      "Actor.currentLeader()"
+    case Term.Apply.After_4_6_0(Term.Name("subscribeLeaderEvents"), argClause)
+        if argClause.values.isEmpty =>
+      "Actor.subscribeLeaderEvents()"
 
     // Focus[T](_.a.b) / Focus(_.a.b) — lower to a Lens(get, set) literal.
     // The lambda body's field-access chain becomes nested get + nested copy.
@@ -2167,6 +2178,16 @@ class JvmGen(
       val nid = emitExpr(argClause.values(0).asInstanceOf[Term])
       val thr = if argClause.values.size >= 2 then emitExpr(argClause.values(1).asInstanceOf[Term]) else "8.0"
       s"Actor.clusterIsDown($nid, $thr)"
+    // v1.23 — leader election (Bully)
+    case Term.Apply.After_4_6_0(Term.Name("electLeader"), argClause)
+        if argClause.values.isEmpty =>
+      "Actor.electLeader()"
+    case Term.Apply.After_4_6_0(Term.Name("currentLeader"), argClause)
+        if argClause.values.isEmpty =>
+      "Actor.currentLeader()"
+    case Term.Apply.After_4_6_0(Term.Name("subscribeLeaderEvents"), argClause)
+        if argClause.values.isEmpty =>
+      "Actor.subscribeLeaderEvents()"
 
     case app: Term.Apply => emitCpsApply(app)
 
@@ -5176,6 +5197,9 @@ class JvmGen(
        |// v1.23 — cluster visibility events
        |case class NodeJoined(nodeId: String)
        |case class NodeLeft(nodeId: String, reason: String)
+       |// v1.23 — leader election (Bully) events
+       |case class LeaderElected(nodeId: String)
+       |case class LeaderLost(nodeId: String)
        |
        |/** Adapter: a partial-function literal becomes a total
        | *  `Any => Option[Any]`.  Used by emitReceiveMatcher so the
@@ -5234,6 +5258,10 @@ class JvmGen(
        |  // v1.23 — cluster-wide failure detector
        |  def broadcastHealth(): Any                            = _perform("Actor", "broadcastHealth")
        |  def clusterIsDown(nid: Any, thr: Any = 8.0): Any      = _perform("Actor", "clusterIsDown", nid, thr)
+       |  // v1.23 — leader election (Bully)
+       |  def electLeader(): Any                                = _perform("Actor", "electLeader")
+       |  def currentLeader(): Any                              = _perform("Actor", "currentLeader")
+       |  def subscribeLeaderEvents(): Any                      = _perform("Actor", "subscribeLeaderEvents")
        |
        |class _ActorState:
        |  val mailbox = new java.util.concurrent.LinkedBlockingQueue[Any]()
@@ -5285,6 +5313,39 @@ class JvmGen(
        |  // v1.23 — cluster-wide FD: peerNodeId -> view of (targetNodeId -> phi).
        |  val _peerPhiViews  = new java.util.concurrent.ConcurrentHashMap[String,
        |    java.util.concurrent.ConcurrentHashMap[String, java.lang.Double]]()
+       |  // v1.23 — leader election (Bully) state.  Single node-wide view.
+       |  val _currentLeader        = new java.util.concurrent.atomic.AtomicReference[String]("")
+       |  @volatile var _electionInProgress: Boolean = false
+       |  @volatile var _electionStartedAt:  Long    = 0L
+       |  @volatile var _gotAliveResponse:   Boolean = false
+       |  val _ELECTION_TIMEOUT_MS  = 2000L
+       |  val _leaderEventSubs      = new java.util.concurrent.CopyOnWriteArrayList[java.lang.Long]()
+       |  val _leaderEventQueue     = new java.util.concurrent.ConcurrentLinkedQueue[(String, String)]()
+       |  def _fireLeaderEvent(tag: String, leaderId: String): Unit =
+       |    if !_leaderEventSubs.isEmpty then _leaderEventQueue.offer((tag, leaderId))
+       |  def _broadcastCoordinator(): Unit =
+       |    val payload = "{\"t\":\"coordinator\",\"from\":" + _jstr(_localNodeId) + "}"
+       |    _peerChannels.forEach { (_, send) => try send(payload) catch case _: Throwable => () }
+       |  def _startElection(): Unit =
+       |    if _localNodeId.isEmpty then
+       |      val prev = _currentLeader.getAndSet(_localNodeId)
+       |      if prev != _localNodeId then _fireLeaderEvent("LeaderElected", _localNodeId)
+       |    else
+       |      val higher = scala.collection.mutable.ListBuffer.empty[String]
+       |      _peerChannels.keySet().forEach(nid => if nid > _localNodeId then higher += nid)
+       |      if higher.isEmpty then
+       |        val prev = _currentLeader.getAndSet(_localNodeId)
+       |        _broadcastCoordinator()
+       |        if prev != _localNodeId then _fireLeaderEvent("LeaderElected", _localNodeId)
+       |      else
+       |        _electionInProgress = true
+       |        _electionStartedAt  = System.currentTimeMillis()
+       |        _gotAliveResponse   = false
+       |        val payload = "{\"t\":\"election\",\"from\":" + _jstr(_localNodeId) + "}"
+       |        higher.foreach { nid =>
+       |          try Option(_peerChannels.get(nid)).foreach(_.apply(payload))
+       |          catch case _: Throwable => ()
+       |        }
        |  def _recordPongInterval(nid: String): Unit =
        |    val now  = System.currentTimeMillis()
        |    val last = _peerLastPong.getOrDefault(nid, 0L)
@@ -5419,6 +5480,7 @@ class JvmGen(
        |            _peerPhiViews.remove(pnId)
        |            _nodeDownQueue.offer(pnId)
        |            _fireClusterEvent("NodeLeft", pnId, "disconnect")
+       |            if _currentLeader.compareAndSet(pnId, "") then _fireLeaderEvent("LeaderLost", pnId)
        |      catch case e: Throwable => System.err.println("connectNode error [" + url + "]: " + e.getMessage)
        |    }
        |
@@ -5480,6 +5542,23 @@ class JvmGen(
        |          val m = new java.util.concurrent.ConcurrentHashMap[String, java.lang.Double]()
        |          pairs.foreach { case (nid, p) => m.put(nid, java.lang.Double.valueOf(p)) }
        |          _peerPhiViews.put(from, m)
+       |      case "election" =>
+       |        // v1.23 — Bully: lower-id peer is calling an election.  Respond
+       |        // with `alive` (we're bigger) and start our own election.
+       |        val from = _extractJsonStr(json, "\"from\"")
+       |        if from.nonEmpty && from < _localNodeId then
+       |          val reply = "{\"t\":\"alive\",\"from\":" + _jstr(_localNodeId) + "}"
+       |          try Option(_peerChannels.get(from)).foreach(_.apply(reply))
+       |          catch case _: Throwable => ()
+       |          if !_electionInProgress then _startElection()
+       |      case "alive" =>
+       |        _gotAliveResponse = true
+       |      case "coordinator" =>
+       |        val from = _extractJsonStr(json, "\"from\"")
+       |        if from.nonEmpty then
+       |          val prev = _currentLeader.getAndSet(from)
+       |          _electionInProgress = false
+       |          if prev != from then _fireLeaderEvent("LeaderElected", from)
        |      case _      => ()
        |
        |  def _extractJsonStr(json: String, key: String, fromIdx: Int = 0): String =
@@ -5874,6 +5953,7 @@ class JvmGen(
        |            _peerPhiViews.remove(pnId)
        |            _nodeDownQueue.offer(pnId)
        |            _fireClusterEvent("NodeLeft", pnId, "disconnect")
+       |            if _currentLeader.compareAndSet(pnId, "") then _fireLeaderEvent("LeaderLost", pnId)
        |      }
        |      Right(k(()))
        |    case "connectNode" =>
@@ -5979,6 +6059,16 @@ class JvmGen(
        |      }
        |      val majority = (total + 1) / 2
        |      Right(k(total > 0 && votes >= majority))
+       |    // v1.23 — leader election (Bully)
+       |    case "electLeader" =>
+       |      _startElection()
+       |      Right(k(()))
+       |    case "currentLeader" =>
+       |      Right(k(_currentLeader.get()))
+       |    case "subscribeLeaderEvents" =>
+       |      val boxed = java.lang.Long.valueOf(id)
+       |      if !_leaderEventSubs.contains(boxed) then _leaderEventSubs.add(boxed)
+       |      Right(k(()))
        |    // v1.6.x — scheduled sends
        |    case "sendAfter" =>
        |      val delayMs  = args(0).asInstanceOf[Long]
@@ -6064,6 +6154,8 @@ class JvmGen(
        |  while ready.nonEmpty ||
        |        !_nodeDownQueue.isEmpty ||
        |        !_clusterEventQueue.isEmpty ||
+       |        !_leaderEventQueue.isEmpty ||
+       |        _electionInProgress ||
        |        _timers.nonEmpty ||
        |        actors.exists { (_, st) => st != null && st.blocked != null && st.blocked._3.isDefined } ||
        |        (_isDistributed && actors.nonEmpty && actors.exists { (_, st) => st != null && st.blocked != null })
@@ -6085,6 +6177,27 @@ class JvmGen(
        |        if _tag == "NodeJoined" then NodeJoined(_nid)
        |        else NodeLeft(_nid, _reason)
        |      val _it = _clusterEventSubs.iterator
+       |      while _it.hasNext do
+       |        val _aid = _it.next().longValue()
+       |        actors.get(_aid).foreach { ts =>
+       |          ts.mailbox.offer(_msg)
+       |          tryWakeBlocked(_aid)
+       |        }
+       |    // v1.23 — Bully election timeout: claim self if no higher-id peer
+       |    // responded with `alive` within the window.
+       |    if _electionInProgress && System.currentTimeMillis() - _electionStartedAt >= _ELECTION_TIMEOUT_MS then
+       |      _electionInProgress = false
+       |      if !_gotAliveResponse then
+       |        val _prev = _currentLeader.getAndSet(_localNodeId)
+       |        _broadcastCoordinator()
+       |        if _prev != _localNodeId then _fireLeaderEvent("LeaderElected", _localNodeId)
+       |    // v1.23 — deliver leader events to subscribers.
+       |    while !_leaderEventQueue.isEmpty do
+       |      val (_tag, _lid) = _leaderEventQueue.poll()
+       |      val _msg: Any =
+       |        if _tag == "LeaderElected" then LeaderElected(_lid)
+       |        else LeaderLost(_lid)
+       |      val _it = _leaderEventSubs.iterator
        |      while _it.hasNext do
        |        val _aid = _it.next().longValue()
        |        actors.get(_aid).foreach { ts =>
