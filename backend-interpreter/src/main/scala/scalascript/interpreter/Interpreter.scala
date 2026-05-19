@@ -614,6 +614,24 @@ class Interpreter(
           Pure(makeDatasetV(() => run().intersect(otherRun())))
         case _ => throw InterpretError("Dataset.intersect(other: Dataset[T]): Dataset[T]")
       }),
+      // Element-wise pairing — stops at the shorter side (Scala zip semantics).
+      "zip" -> Value.NativeFnV("Dataset.zip", {
+        case List(Value.InstanceV("Dataset", otherFields)) =>
+          val otherRun = otherFields("collect") match
+            case Value.NativeFnV(_, f) => () => Computation.run(f(Nil)) match
+              case Value.ListV(xs) => xs
+              case other           => List(other)
+            case _ => () => Nil
+          Pure(makeDatasetV(() => run().zip(otherRun()).map { case (a, b) =>
+            Value.TupleV(List(a, b))
+          }))
+        case _ => throw InterpretError("Dataset.zip(other: Dataset[U]): Dataset[(T, U)]")
+      }),
+      "zipWithIndex" -> Value.NativeFnV("Dataset.zipWithIndex",
+        Computation.pureFn(_ => makeDatasetV(() =>
+          run().zipWithIndex.map { case (v, i) => Value.TupleV(List(v, Value.IntV(i.toLong))) }
+        ))
+      ),
       "groupBy" -> Value.NativeFnV("Dataset.groupBy", {
         case List(keyFn) => Pure(makeDatasetV(() => {
           val items = run()
