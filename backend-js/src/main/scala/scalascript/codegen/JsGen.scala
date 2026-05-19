@@ -5569,7 +5569,7 @@ class JsGen(
         case cb: Content.CodeBlock if Lang.isScalaScript(cb.lang) =>
           flushScala()
           cb.tree.foreach(genScalaNode)
-        case Content.CodeBlock(lang, src, _, _) if Lang.isStandardScala(lang) =>
+        case Content.CodeBlock(lang, src, _, _, _) if Lang.isStandardScala(lang) =>
           flushSS()
           scalaBuf += src.stripTrailing()
         case cb: Content.CodeBlock if Lang.isStringBlock(cb.lang) =>
