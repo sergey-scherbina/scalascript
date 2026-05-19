@@ -2651,7 +2651,7 @@ class JvmGen(
       "RateLimit", "Password", "Totp", "Jwt", "JwtRsa",
       "SessionCookie", "SessionStore", "OAuth", "WebAuthn",
       "UploadedFile", "HttpHelpers", "Multipart", "TlsContextBuilder",
-      "CorsHelpers", "HttpModel", "BasicAuth"
+      "CorsHelpers", "HttpModel", "BasicAuth", "ResponseWriter"
     )
     val header =
       "\n// ── runtime-server-common (inlined from classpath resources) ──────────\n" +
@@ -3502,44 +3502,16 @@ class JvmGen(
        |    r:                Response,
        |    rawCookieSession: Map[String, String] = Map.empty
        |): Unit =
-       |  r.headers.foreach((k, v) => ex.getResponseHeaders.add(k, v))
-       |  if !r.headers.contains("Content-Type") then
-       |    ex.getResponseHeaders.add("Content-Type", "text/plain; charset=utf-8")
-       |  _applyCors(ex)
-       |  r.setSession.foreach { payload =>
-       |    val cookiePayload: Map[String, String] =
-       |      if !_sessionStoreEnabled then payload
-       |      else if payload.isEmpty then
-       |        rawCookieSession.get("_ssid").foreach(_sessionStoreDelete)
-       |        Map.empty
-       |      else
-       |        rawCookieSession.get("_ssid").foreach(_sessionStoreDelete)
-       |        val ssid = _sessionStorePut(payload)
-       |        Map("_ssid" -> ssid)
-       |    ex.getResponseHeaders.add("Set-Cookie", _buildSetCookie(cookiePayload))
-       |  }
-       |  val _responseEtag   = r.headers.getOrElse("ETag", r.headers.getOrElse("etag", ""))
-       |  val _ifNoneMatch    = Option(ex.getRequestHeaders.getFirst("If-None-Match")).getOrElse("")
-       |  val _etagUnquoted   = _ifNoneMatch.stripPrefix("\"").stripSuffix("\"")
-       |  if _responseEtag.nonEmpty && _ifNoneMatch.nonEmpty &&
-       |     (_responseEtag == _ifNoneMatch || _responseEtag == _etagUnquoted) then
-       |    ex.sendResponseHeaders(304, -1L)
-       |  else
-       |    val _rawBytes    = r.body.getBytes("UTF-8")
-       |    val _acceptGzip  = Option(ex.getRequestHeaders.getFirst("Accept-Encoding")).getOrElse("").contains("gzip")
-       |    val _contentType = Option(ex.getResponseHeaders.getFirst("Content-Type")).getOrElse("")
-       |    val _compress    = _gzipEnabled && _acceptGzip && _rawBytes.nonEmpty &&
-       |                       (_contentType.startsWith("text/") || _contentType.contains("json") || _contentType.contains("javascript"))
-       |    val bytes =
-       |      if _compress then
-       |        val baos = new java.io.ByteArrayOutputStream()
-       |        val gz   = new java.util.zip.GZIPOutputStream(baos)
-       |        gz.write(_rawBytes); gz.finish()
-       |        ex.getResponseHeaders.add("Content-Encoding", "gzip")
-       |        baos.toByteArray
-       |      else _rawBytes
-       |    ex.sendResponseHeaders(r.status, if bytes.isEmpty then -1L else bytes.length.toLong)
-       |    if bytes.nonEmpty then ex.getResponseBody.write(bytes)
+       |  ResponseWriter.write(ex, r, rawCookieSession, ResponseWriter.Config(
+       |    corsOrigins         = _corsOrigins,
+       |    corsMethods         = _corsMethods,
+       |    corsHeaders         = _corsHeaders,
+       |    gzipEnabled         = _gzipEnabled,
+       |    sessionStoreEnabled = _sessionStoreEnabled,
+       |    sessionStoreDelete  = _sessionStoreDelete,
+       |    sessionStorePut     = _sessionStorePut,
+       |    buildSetCookie      = _buildSetCookie
+       |  ))
        |
        |/** Try to serve a static asset (non-.ssc file) under the cwd; returns
        | *  Some when handled, None when the file is missing / disqualified.

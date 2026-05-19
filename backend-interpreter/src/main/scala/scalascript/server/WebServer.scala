@@ -381,13 +381,17 @@ object WebServer:
     finally
       out.close()
 
+  /** Convert a `Value.InstanceV("Response", …)` (or string / unit) into
+   *  the POJO `Response` and hand off to the shared `ResponseWriter`
+   *  (in runtime-server-common) which performs CORS / setSession / 304
+   *  / gzip / body write. */
   private def writeResponse(
       v:                scalascript.interpreter.Value,
       ex:               HttpExchange,
       rawCookieSession: Map[String, String]
   ): Unit =
     import scalascript.interpreter.Value
-    val (status, headers, body, setSession) = v match
+    val resp = v match
       case Value.InstanceV("Response", fields) =>
         val s = fields.get("status") match
           case Some(Value.IntV(n)) => n.toInt
@@ -407,52 +411,19 @@ object WebServer:
           case Some(Value.MapV(m)) =>
             Some(m.collect { case (Value.StringV(k), Value.StringV(v)) => k -> v }.toMap)
           case _ => None
-        (s, h, b, ss)
-      case Value.StringV(s)  => (200, Map("Content-Type" -> "text/plain; charset=utf-8"), s, None)
-      case Value.UnitV       => (204, Map.empty[String, String], "", None)
-      case other             => (200, Map("Content-Type" -> "text/plain; charset=utf-8"), Value.show(other), None)
-    headers.foreach((k, v) => ex.getResponseHeaders.add(k, v))
-    if !headers.contains("Content-Type") then
-      ex.getResponseHeaders.add("Content-Type", "text/plain; charset=utf-8")
-    applyCorsHeaders(ex)
-    setSession.foreach { payload =>
-      val cookiePayload: Map[String, String] =
-        if !SessionStore.isEnabled then payload
-        else if payload.isEmpty then
-          // clearSession: also evict from the store so a stolen cookie
-          // stops working server-side, not just client-side.
-          rawCookieSession.get("_ssid").foreach(SessionStore.delete)
-          Map.empty
-        else
-          // Replace any prior SSID (so refresh-on-rotate is implicit) —
-          // and free the old slot so the store doesn't accumulate dead
-          // entries on every withSession call.
-          rawCookieSession.get("_ssid").foreach(SessionStore.delete)
-          val ssid = SessionStore.put(payload)
-          Map("_ssid" -> ssid)
-      ex.getResponseHeaders.add("Set-Cookie", SessionCookie.toSetCookie(cookiePayload, secureFlag = false))
-    }
-    // 304 short-circuit when client's ETag matches
-    val responseEtag = headers.getOrElse("ETag", headers.getOrElse("etag", ""))
-    val ifNoneMatch  = Option(ex.getRequestHeaders.getFirst("If-None-Match")).getOrElse("")
-    if responseEtag.nonEmpty && ifNoneMatch.nonEmpty &&
-       (responseEtag == ifNoneMatch || s""""$responseEtag"""" == ifNoneMatch) then
-      ex.sendResponseHeaders(304, -1)
-    else
-      val rawBytes = body.getBytes("UTF-8")
-      val acceptGzip   = Option(ex.getRequestHeaders.getFirst("Accept-Encoding")).getOrElse("").contains("gzip")
-      val contentType  = Option(ex.getResponseHeaders.getFirst("Content-Type")).getOrElse("")
-      val compressible = contentType.startsWith("text/") || contentType.contains("json") || contentType.contains("javascript")
-      val bytes =
-        if _gzipEnabled && acceptGzip && compressible && rawBytes.nonEmpty then
-          val baos = java.io.ByteArrayOutputStream()
-          val gz   = java.util.zip.GZIPOutputStream(baos)
-          gz.write(rawBytes); gz.finish()
-          ex.getResponseHeaders.add("Content-Encoding", "gzip")
-          baos.toByteArray
-        else rawBytes
-      ex.sendResponseHeaders(status, if bytes.isEmpty then -1 else bytes.length.toLong)
-      if bytes.nonEmpty then ex.getResponseBody.write(bytes)
+        Response(s, h, b, ss)
+      case Value.StringV(s) => Response(200, Map("Content-Type" -> "text/plain; charset=utf-8"), s)
+      case Value.UnitV      => Response(204, Map.empty, "")
+      case other            => Response(200, Map("Content-Type" -> "text/plain; charset=utf-8"), Value.show(other))
+    ResponseWriter.write(ex, resp, rawCookieSession, ResponseWriter.Config(
+      corsOrigins         = _corsOrigins,
+      corsMethods         = _corsMethods,
+      corsHeaders         = _corsHeaders,
+      gzipEnabled         = _gzipEnabled,
+      sessionStoreEnabled = SessionStore.isEnabled,
+      sessionStoreDelete  = SessionStore.delete,
+      sessionStorePut     = SessionStore.put
+    ))
 
   /** Resolve a static (non-`.ssc`) file under `root` from the URL path.
    *  Returns the file only if it exists, is a regular file, lies inside
