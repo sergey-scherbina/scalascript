@@ -81,12 +81,34 @@ bin/http.ssc
 
 ## Documentation
 
+**Getting started**
+
 | | |
 |---|---|
-| [User Guide](docs/user-guide.md) | Installation, CLI commands, language basics, HTTP, effects, actors, data processing — practical day-to-day reference |
-| [Tutorial](docs/tutorial.md) | Build a collaborative todo API from scratch — data model → REST → auth → WebSocket → TLS → MCP |
+| [User Guide](docs/user-guide.md) | Installation, CLI commands, language basics, HTTP, effects, actors — practical day-to-day reference |
+| [Tutorial](docs/tutorial.md) | Build a todo API step by step — data model → REST → auth → WebSocket → TLS → MCP |
+
+**Language reference**
+
+| | |
+|---|---|
 | [Language Specification](SPEC.md) | Formal grammar, type system, semantics, all language constructs |
+| [Direct Syntax](docs/direct-syntax.md) | Do-notation over any monad — `direct[M] { x = expr }`, `.!` postfix bind, effect-row unions |
+| [Algebraic Effects](docs/coroutines.md) | Coroutine primitive underlying effects and generators |
+| [Error Handling](docs/error-handling.md) | Checked errors via `throws[A, E]`, `attemptCatch`, `HasStackTrace` |
+| [Metaprogramming](docs/metaprogramming.md) | `inline`, `derives`, `compiletime.*` |
+| [DSL Authoring](docs/dsl.md) | Parser combinators, multi-pass pipelines, `std/parsing/*` |
+
+**Platform & runtime**
+
+| | |
+|---|---|
 | [Architecture](docs/architecture.md) | Compiler pipeline, module structure, backend SPI |
+| [Target Backends](docs/targets.md) | Interpreter · JS transpiler · JVM — capabilities and tradeoffs |
+| [Actors & Distributed](docs/actors-dist.md) | Spawn, supervise, cluster over WebSocket |
+| [Dataset / MapReduce](docs/mapreduce.md) | `Dataset[T]` — local, parallel, distributed |
+| [MCP Support](docs/mcp.md) | MCP server tools + resources, MCP client |
+| [Markdown as Syntax](docs/markdown-as-syntax.md) | How Markdown constructs map to AST nodes |
 
 ## What Works
 
@@ -526,23 +548,6 @@ val scala = JvmGen.generate(module)          // emit Scala 3 script
 2. **One source, many targets.** Source semantics are target-independent.
 3. **Human and machine readable.** Pleasant for humans, trivially parseable for machines.
 4. **No AI at runtime or compile time.** The language stands on its own.
-
-## Documentation
-
-- [Language Specification](SPEC.md)
-- [User Guide](docs/user-guide.md)
-- [Tutorial — Collaborative Todo API](docs/tutorial.md)
-- [Markdown as Syntax](docs/markdown-as-syntax.md)
-- [Architecture](docs/architecture.md)
-- [Target Backends](docs/targets.md)
-- [Direct Syntax](docs/direct-syntax.md)
-- [Coroutines](docs/coroutines.md)
-- [DSL Authoring](docs/dsl.md)
-- [Dataset / MapReduce](docs/mapreduce.md)
-- [MCP Support](docs/mcp.md)
-- [Actors (Distributed)](docs/actors-dist.md)
-- [Metaprogramming](docs/metaprogramming.md)
-- [Error Handling](docs/error-handling.md)
 
 ## License
 

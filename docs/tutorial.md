@@ -169,6 +169,39 @@ val (finalState, _) = runState(emptyState) {
 }
 ```
 
+### Aside: Direct Syntax
+
+The state operations above read like regular imperative code — that's
+`direct[State[AppState]]` do-notation at work.  Instead of chaining
+`flatMap` calls or writing `for`-comprehensions, you assign with `=`
+and the compiler desugars each assignment into a monadic bind.
+
+The same functions written explicitly with `.!` postfix bind:
+
+```scalascript
+def createTodo(title: String, owner: String): Todo =
+  direct[State[AppState]] {
+    val s    = State.get[AppState].!
+    val todo = Todo(s.nextId, title, done = false,
+      createdAt = java.time.Instant.now().toString, owner)
+    State.set(s.addTodo(todo)).!
+    todo
+  }
+```
+
+Effect-row unions let you sequence across multiple effects in one block:
+
+```scalascript
+def auditedCreate(title: String, owner: String): Todo =
+  direct[State[AppState] | Logger] {
+    Logger.info(s"Creating todo for $owner").!
+    val todo = State.get[AppState].!
+    // ...
+  }
+```
+
+See [docs/direct-syntax.md](direct-syntax.md) for the full reference.
+
 ---
 
 ## Step 4: REST API

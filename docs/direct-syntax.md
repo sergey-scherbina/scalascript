@@ -1,17 +1,12 @@
 # Direct-syntax do-notation
 
-Status: **Implemented — v1.8 (core) + v1.8.1 (extensions)**.  All three
-backends (interpreter, JVM, JS) ship the feature.  See MILESTONES.md
-`v1.8` / `v1.8.1` for landing notes.
-Companion to [`docs/spi-intrinsics-design.md`](spi-intrinsics-design.md)
-(which sketched the core decisions DS-1, DS-2, DS-3, DS-7 inline)
-and [`docs/backend-spi.md`](backend-spi.md) §6 (effect lowering).
+**Status: ✅ Landed — v1.8 (core) + v1.8.1 (extensions).**
+All three backends (interpreter, JVM, JS) ship the feature.
 
-This document is the source of truth for the user-facing syntax,
-its lowering, and the seven locked design decisions.  Implementation
-is intentionally deferred — the value of locking the surface now is
-that `std.http` / `std.ws` (Stage 5+/B) can advertise typed signatures
-without committing the compiler to a specific direct-syntax shape.
+Source of truth for the user-facing syntax, its lowering, and the
+seven locked design decisions.  See also
+[`docs/backend-spi.md`](backend-spi.md) §6 (effect lowering) and
+the worked example in [`docs/tutorial.md`](tutorial.md) §3.
 
 ## 1. Motivation
 
