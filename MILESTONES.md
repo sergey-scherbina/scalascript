@@ -4122,7 +4122,7 @@ link → build --incremental`); the JVM backend produces per-module `.scjvm`
 artifacts that the linker combines incrementally.  Tracking doc:
 `docs/separate-compilation-plan.md`.
 
-Test coverage: 418 core tests + 48 CLI subprocess smoke tests, all green.
+Test coverage: 434 core tests + 53 CLI subprocess smoke tests, all green.
 
 Stage 5.4 / final round (landed 2026-05-19):
 - `parseSType` and `SType.show` round-trip now handle union types
@@ -4219,14 +4219,43 @@ Stage 5.7 / production blockers fixed (landed 2026-05-19):
 - **`ssc deps <file.ssc> [--graph]`**: prints the resolved import
   closure in topo order with `from → to` edges.
 
-**Known gaps (post-Stage-5 follow-up):**
-1. JVM/JS linker still textual concat + dedup.  Phase 2 = real
-   bytecode-level mangling.
-2. Refinement types `A { def foo: Int }` and match types still degrade to
+Phase 2 / bytecode linker (landed 2026-05-19):
+- **MVP** (`--bytecode` opt-in): `ssc compile-jvm --bytecode` invokes
+  `scala-cli` internally to produce real `.class` files; the artifact
+  carries `classBundle` (base64-encoded ZIP of `.class` + `.tasty`).
+  `ssc link --backend jvm --bytecode <dir> -o out.jar` extracts each
+  bundle, dedups by FQN, packs into a single JAR.  Cross-module classpath
+  wired by extracting deps' classBundles into a shared temp dir passed
+  to scala-cli as `--jar`.  All scala-cli invocations use `--server=false`
+  to avoid Bloop-daemon collisions under parallel test load.
+- **Deep refactor** — runtime separated from user code:
+  - `JvmGen.generateRuntime(capabilities)` emits the ~570KB runtime
+    preamble wrapped in `object _ssc_runtime:` (top-level object — Scala 3
+    forbids companion pairs at package scope).  Compiled once per
+    artifact-dir into a `.scjvm-runtime` artifact (capabilities = union
+    of all modules').
+  - `JvmGen.generateUserOnly(module)` emits user code with
+    `import _ssc_runtime.{given, *}` prepended.  No preamble.
+  - `compile-jvm --bytecode` + `ensureRuntimeArtifact` automate runtime
+    generation; `ssc compile-runtime --capabilities <list>` lets users
+    drive it explicitly.
+  - `linkJvmFromBytecode` packs the shared runtime classBundle once +
+    each module's user classes.
+  - 7 capabilities tracked: effects, mutual-tco, reactive, serve, mcp,
+    dataset, json.
+  - **Size impact**: per-module `.scjvm` shrinks from 515 KB to **10 KB**
+    (51× reduction).  2-module out.jar: 554 KB → 301 KB (45% reduction).
+    Per-additional-module cost: ~250 KB → ~3 KB of unique user classes.
+
+**Known gaps (post-Phase-2 follow-up):**
+1. Refinement types `A { def foo: Int }` and match types still degrade to
    `SType.Any` in `parseSType` (intentional — out of v2.0 scope).
-3. `build --incremental` splits compile-failure summary (stdout) and root
+2. `build --incremental` splits compile-failure summary (stdout) and root
    cause (stderr); consumers capturing only stdout get failure markers
    without context.
+3. JS backend incremental still uses source-level concat (no bytecode
+   equivalent for JS yet — `.scjs` ships emitted JS source, linker just
+   concatenates + dedups).  The `--bytecode` pipeline is JVM-only.
 
 What landed:
 - `ir/Ir.scala`: `ArtifactVersion` (magic `SSCART` + ABI `2.0`),
