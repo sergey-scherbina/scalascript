@@ -306,6 +306,38 @@ case class ModuleJvmArtifact(
   imports:      List[String]   // FQNs of foreign-module symbols this artifact references
 ) derives ReadWriter
 
+/** JS-backend cached artifact — written as `.scjs` JSON.
+ *
+ *  Carries the JS backend's emitted JavaScript source string for a *single*
+ *  module (no merged transitive-dep code).  Consumers (`ssc link --backend
+ *  js`) concatenate the `jsSource` of every `.scjs` in dependency order and
+ *  feed the combined source to node / a browser — bypassing the per-link
+ *  re-codegen of unchanged modules.
+ *
+ *  MVP: textual concat.  This is sound for JS because there is no module-
+ *  level scoping in classic script mode (single global namespace in
+ *  browser / node `--input-type=commonjs`).  The runtime preamble emitted
+ *  by `JsGen.generate` is deterministic across modules from the same
+ *  compiler version, so the linker can strip the longest common prefix
+ *  and emit it exactly once.  Phase 2 will replace this with proper
+ *  ES module imports / bytecode-level symbol mangling.
+ *
+ *  The `.scjs` magic + ABI envelope follows the same versioning discipline
+ *  as `.scim` / `.scir` / `.scjvm` so mismatched artifacts are detected at
+ *  read time, not silently spliced into a broken combined source.
+ *
+ *  v2.0 — JS incremental codegen cache. */
+case class ModuleJsArtifact(
+  magic:        String,        // must equal ArtifactVersion.magic
+  abiVersion:   String,        // must equal ArtifactVersion.current
+  moduleId:     String,        // source path or FQN prefix (display id; not load-bearing)
+  pkg:          List[String],  // package segments from front-matter
+  moduleName:   Option[String],
+  sourceHash:   String,        // SHA-256 hex of the source bytes
+  jsSource:     String,        // JsGen.generate(module) output — JS source for THIS module
+  imports:      List[String]   // FQNs of foreign-module symbols this artifact references
+) derives ReadWriter
+
 // ─── Context types passed to backend intrinsics ────────────────────────────
 //
 // EmitContext / TargetCode / Value carry runtime references that are not

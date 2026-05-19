@@ -155,6 +155,30 @@ object ModuleGraph:
         val currentHash = InterfaceExtractor.sha256(os.read.bytes(srcPath))
         art.sourceHash != currentHash
 
+  /** Check whether a `.ssc` module's JS-backend cached `.scjs` artifact is
+   *  stale relative to the current source.
+   *
+   *  A `.scjs` is stale if:
+   *  - The `.scjs` artifact does not exist, OR
+   *  - The artifact's envelope is invalid (wrong magic / ABI), OR
+   *  - The SHA-256 of the current source bytes does not match the
+   *    `sourceHash` stored in the `.scjs` artifact.
+   *
+   *  v2.0 — JS incremental codegen cache.
+   *
+   *  @param srcPath    Path to the `.ssc` source file.
+   *  @param artifactDir Directory where `.scjs` artifacts live.
+   *  @return `true` if the JS artifact needs regeneration. */
+  def isJsStale(srcPath: os.Path, artifactDir: os.Path): Boolean =
+    val baseName = srcPath.last.stripSuffix(".ssc")
+    val scjsPath = artifactDir / (baseName + ".scjs")
+    if !os.exists(scjsPath) then return true
+    JsArtifactIO.readJsFile(scjsPath) match
+      case Left(_) => true
+      case Right(art) =>
+        val currentHash = InterfaceExtractor.sha256(os.read.bytes(srcPath))
+        art.sourceHash != currentHash
+
   /** Collect raw import paths from a section recursively. */
   private def collectImports(s: scalascript.ast.Section): List[String] =
     s.content.collect {

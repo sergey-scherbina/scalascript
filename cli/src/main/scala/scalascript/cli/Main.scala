@@ -15,7 +15,7 @@ import scalascript.validate.CapabilityCheck
 import scalascript.plugin.{BackendRegistry, SourceLanguageRegistry}
 import scalascript.backend.spi.{BackendOptions, CompileResult, Segment}
 // v2.0 separate-compilation artifact commands
-import scalascript.artifact.{InterfaceExtractor, ArtifactIO, JvmArtifactIO}
+import scalascript.artifact.{InterfaceExtractor, ArtifactIO, JvmArtifactIO, JsArtifactIO}
 import scalascript.codegen.JvmGen
 
 @main def ssc(rawArgs: String*): Unit =
@@ -65,6 +65,7 @@ private def dispatchCommand(args: List[String]): Unit =
     case "emit-interface"      => emitInterfaceCommand(args.tail)
     case "emit-ir"             => emitIrCommand(args.tail)
     case "compile-jvm"         => compileJvmCommand(args.tail)
+    case "compile-js"          => compileJsCommand(args.tail)
     case "check-with-iface"    => checkWithInterfaceCommand(args.tail)
     case "link"                => linkCommand(args.tail)
     case "compile"             => compileCommand(args.tail)
@@ -213,6 +214,7 @@ def printUsage(): Unit =
     |  emit-interface         Extract module interface to .scim artifact (v2.0)
     |  emit-ir                Emit normalised module IR to .scir artifact (v2.0)
     |  compile-jvm            Emit JVM-backend cached Scala source to .scjvm artifact (v2.0)
+    |  compile-js             Emit JS-backend cached JS source to .scjs artifact (v2.0)
     |  check-with-iface       Type-check .ssc consuming pre-compiled .scim interfaces (v2.0)
     |  link                   Link .scim/.scir artifact pairs into a merged module (v2.0)
     |  serve                  Start HTTP server serving .ssc files as web pages
@@ -342,9 +344,11 @@ private def extractResponseBody(v: scalascript.interpreter.Value): String =
  *  - default / no `--backend`: `.scim` + `.scir` (interface + IR).
  *  - `--backend jvm`:          `.scim` + `.scir` + `.scjvm` (interface + IR +
  *                              JVM-backend cached Scala source).
+ *  - `--backend js`:           `.scim` + `.scir` + `.scjs`  (interface + IR +
+ *                              JS-backend cached JavaScript source).
  *
- *  The `.scjvm` artifact carries the JVM backend's emitted Scala 3 source
- *  for the single module so `ssc link --backend jvm` can textually splice
+ *  The `.scjvm` / `.scjs` artifact carries the backend's emitted source for
+ *  the single module so `ssc link --backend jvm|js` can textually splice
  *  per-module sources without re-running codegen — the user-visible win for
  *  incremental builds.
  *
@@ -378,7 +382,9 @@ def incrementalBuildCommand(args: List[String]): Unit =
 
   val srcDir     = os.Path(srcDirArg.get, os.pwd)
   val artDir     = artifactDirArg.map(os.Path(_, os.pwd)).getOrElse(srcDir / ".ssc-artifacts")
-  val emitJvm    = backendArg.orElse(ActiveFlags.current.backend).contains("jvm")
+  val selectedBackend = backendArg.orElse(ActiveFlags.current.backend)
+  val emitJvm    = selectedBackend.contains("jvm")
+  val emitJs     = selectedBackend.contains("js")
 
   if !os.isDir(srcDir) then
     System.err.println(s"build --incremental: '$srcDir' is not a directory"); System.exit(1)
@@ -397,7 +403,9 @@ def incrementalBuildCommand(args: List[String]): Unit =
 
   val nodes = graph.orderedNodes
   println(s"Discovered ${nodes.length} module(s) in ${srcDir.relativeTo(os.pwd)}" +
-    (if emitJvm then "  (--backend jvm: emitting .scjvm)" else ""))
+    (if emitJvm then "  (--backend jvm: emitting .scjvm)"
+     else if emitJs then "  (--backend js: emitting .scjs)"
+     else ""))
 
   var compiled = 0
   var skipped  = 0
@@ -406,10 +414,12 @@ def incrementalBuildCommand(args: List[String]): Unit =
   for node <- nodes do
     val relPath  = node.relPath(srcDir)
     val baseName = node.path.last.stripSuffix(".ssc")
-    // Staleness: any of .scim, .scir, or (if emitJvm) .scjvm out of date.
+    // Staleness: any of .scim, .scir, or (if backend-specific) cached
+    // artifact out of date.
     val coreStale = ModuleGraph.isStale(node.path, artDir)
     val jvmStale  = emitJvm && ModuleGraph.isJvmStale(node.path, artDir)
-    val stale     = coreStale || jvmStale
+    val jsStale   = emitJs  && ModuleGraph.isJsStale(node.path, artDir)
+    val stale     = coreStale || jvmStale || jsStale
 
     if !stale then
       println(s"  [skip]     $relPath (up-to-date)")
@@ -448,6 +458,22 @@ def incrementalBuildCommand(args: List[String]): Unit =
             JvmArtifactIO.writeJvmFile(
               moduleId, node.pkg, module.manifest.flatMap(_.name),
               sourceHash, scalaSource, imports, scjvmPath
+            )
+
+        if emitJs then
+          val scjsPath = artDir / (baseName + ".scjs")
+          // Only re-run JsGen if the .scjs itself is stale.
+          if jsStale || !os.exists(scjsPath) then
+            val baseDir    = Some(node.path / os.up)
+            val userJs     = JsGen.generate(module, baseDir)
+            val jsSource   = buildScjsSource(userJs)
+            val rawImports = collectImports(module.sections)
+            val depAliases = module.manifest.toList.flatMap(_.dependencies.keys)
+            val imports    = (rawImports ++ depAliases).distinct.toList
+            val moduleId   = module.manifest.flatMap(_.name).getOrElse(baseName)
+            JsArtifactIO.writeJsFile(
+              moduleId, node.pkg, module.manifest.flatMap(_.name),
+              sourceHash, jsSource, imports, scjsPath
             )
       }
       ok match
@@ -1546,6 +1572,154 @@ def compileJvmCommand(args: List[String]): Unit =
       System.err.println(s"compile-jvm error: ${e.getMessage}")
       System.exit(1)
 
+// ─────────────────────────────────────────────────────────────────────────────
+// ssc compile-js  —  v2.0 JS-backend incremental codegen cache
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** `ssc compile-js <file.ssc> [-o <file.scjs>] [--iface-dir <dir>]`
+ *
+ *  Parses, normalises, and (optionally) type-checks the `.ssc` file against
+ *  pre-compiled `.scim` interfaces from `--iface-dir`.  Runs the JS backend's
+ *  source codegen (`JsGen.generate`) on this SINGLE module — not its
+ *  transitive deps — and writes the emitted JS source as a `.scjs` JSON
+ *  artifact (ABI envelope + source hash + jsSource + imports).
+ *
+ *  `ssc link --backend js` later concatenates every `.scjs`'s `jsSource` in
+ *  dep order to produce the combined source for `node` / browser script-tag
+ *  inclusion, bypassing per-link re-codegen for unchanged modules.
+ *
+ *  The emitted `jsSource` is self-contained: it includes the JS runtime
+ *  preamble (`JsRuntime` + `JsRuntimeAsync` + effects + dataset) followed by
+ *  the user-code JS from `JsGen.generate`.  Multiple `.scjs` files share the
+ *  preamble verbatim, so the linker uses a longest-common-prefix dedup pass
+ *  (identical to the JVM linker's runtime-prefix strip) before emitting the
+ *  combined output.
+ *
+ *  If `-o` is not specified the output is written to `<file>.scjs` in the
+ *  same directory as the source.  Pass `-` as the output path to print to
+ *  stdout instead.
+ *
+ *  v2.0 — JS incremental codegen cache.
+ */
+def compileJsCommand(args: List[String]): Unit =
+  var outputArg: Option[String] = None
+  var ifaceDir:  Option[os.Path] = None
+  val files = scala.collection.mutable.ArrayBuffer.empty[String]
+  val it = args.iterator
+  while it.hasNext do
+    it.next() match
+      case "-o" | "--output" if it.hasNext => outputArg = Some(it.next())
+      case "--iface-dir" | "-I" if it.hasNext =>
+        ifaceDir = Some(os.Path(it.next(), os.pwd))
+      case f => files += f
+
+  if files.isEmpty then
+    System.err.println("Usage: ssc compile-js <file.ssc> [-o <file.scjs>] [--iface-dir <dir>]")
+    System.exit(1)
+
+  // Pre-load interfaces from --iface-dir for type-checking, if specified.
+  val interfaces: Map[String, scalascript.ir.ModuleInterface] =
+    ifaceDir match
+      case None => Map.empty
+      case Some(dir) =>
+        if !os.isDir(dir) then
+          System.err.println(s"compile-js: --iface-dir '$dir' is not a directory")
+          System.exit(1)
+        os.list(dir).filter(_.ext == "scim").flatMap { p =>
+          ArtifactIO.readInterfaceFile(p) match
+            case Right(iface) =>
+              val alias = p.last.stripSuffix(".scim")
+              List(alias -> iface)
+            case Left(err) =>
+              System.err.println(s"  [warn] skipping ${p.last}: $err")
+              Nil
+        }.toMap
+
+  for file <- files.toList do
+    val path = os.Path(file, os.pwd)
+    if !os.exists(path) then
+      System.err.println(s"Error: File not found: $file"); System.exit(1)
+    try
+      val sourceBytes = os.read.bytes(path)
+      val src         = new String(sourceBytes, "UTF-8")
+      val module      = Parser.parse(src)
+
+      // Type-check (optionally against pre-compiled interfaces).  Errors are
+      // surfaced as a non-zero exit code so the build orchestrator can stop
+      // before producing a stale `.scjs`.
+      val typed =
+        if interfaces.isEmpty then Typer.typeCheck(module)
+        else Typer.typeCheckWithInterfaces(module, interfaces)
+      if typed.hasErrors then
+        typed.errors.foreach(e => System.err.println(s"  Error: ${e.msg}"))
+        System.exit(1)
+
+      // Run the JS backend codegen on THIS module only (no merged dep code).
+      // The link step textually concatenates per-module sources in dep order
+      // and strips the shared runtime preamble.
+      val baseDir   = Some(path / os.up)
+      val userJs    = JsGen.generate(module, baseDir)
+      // Self-contained JS: runtime preamble + user code.  The linker strips
+      // the longest common prefix across all `.scjs` files so the preamble
+      // is emitted exactly once in the combined output.
+      val jsSource  = buildScjsSource(userJs)
+      val pkg       = module.manifest.flatMap(_.pkg).getOrElse(Nil)
+      val moduleName = module.manifest.flatMap(_.name)
+      val sourceHash = InterfaceExtractor.sha256(sourceBytes)
+
+      // Best-effort import discovery: collect `Content.Import` paths and
+      // front-matter `dependencies:` aliases.  Used by the linker as a hint
+      // for cross-module FQN resolution.  Not load-bearing for the textual
+      // MVP — the produced source already contains every name it needs.
+      val rawImports = collectImports(module.sections)
+      val depAliases = module.manifest.toList.flatMap(_.dependencies.keys)
+      val imports    = (rawImports ++ depAliases).distinct.toList
+
+      val moduleId = moduleName.getOrElse(path.last.stripSuffix(".ssc"))
+
+      val json = JsArtifactIO.writeJs(moduleId, pkg, moduleName, sourceHash, jsSource, imports)
+      outputArg match
+        case Some("-") => println(json)
+        case Some(out) =>
+          val outPath = os.Path(out, os.pwd)
+          os.makeDir.all(outPath / os.up)
+          os.write.over(outPath, json)
+          println(s"JS artifact written to $outPath")
+        case None =>
+          val outPath = path / os.up / (path.last.stripSuffix(".ssc") + ".scjs")
+          os.makeDir.all(outPath / os.up)
+          os.write.over(outPath, json)
+          println(s"JS artifact written to ${outPath.relativeTo(os.pwd)}")
+    catch case e: Exception =>
+      System.err.println(s"compile-js error: ${e.getMessage}")
+      System.exit(1)
+
+/** Build the self-contained JS source written to a `.scjs` artifact.
+ *
+ *  Concatenates the deterministic runtime preamble (identical across modules)
+ *  with the per-module user JS so the result can be linked by simple textual
+ *  concat + longest-common-prefix dedup.  Marker lines separate the preamble
+ *  and user-code regions to make the runtime strip deterministic.
+ *
+ *  v2.0 — JS incremental codegen cache. */
+private def buildScjsSource(userJs: String): String =
+  val sb = new StringBuilder
+  sb.append("// ── scalascript JS runtime ──────────────────────────────────────────\n")
+  sb.append(JsRuntime)
+  if !JsRuntime.endsWith("\n") then sb.append('\n')
+  sb.append(JsRuntimeAsync)
+  if !JsRuntimeAsync.endsWith("\n") then sb.append('\n')
+  sb.append(JsRuntimeV14Effects)
+  if !JsRuntimeV14Effects.endsWith("\n") then sb.append('\n')
+  sb.append(JsRuntimeMcp)
+  if !JsRuntimeMcp.endsWith("\n") then sb.append('\n')
+  sb.append(JsRuntimeDataset)
+  if !JsRuntimeDataset.endsWith("\n") then sb.append('\n')
+  sb.append("// ── scalascript user code ───────────────────────────────────────────\n")
+  sb.append(userJs)
+  if !userJs.endsWith("\n") then sb.append('\n')
+  sb.toString
+
 /** Collect raw import paths from a section recursively.  Used by
  *  `compile-jvm` to populate `ModuleJvmArtifact.imports` as a hint for the
  *  linker. */
@@ -2069,6 +2243,22 @@ def linkCommand(args: List[String]): Unit =
       return
   // Fall through to standard IR-link mode if no .scjvm files were found.
 
+  // ── JS cached-source mode ────────────────────────────────────────────────
+  // If --backend js and the artifact dir(s) contain .scjs files, take the
+  // textual-concat path.  This bypasses the IR linker and the JsGen
+  // re-emission, splicing the per-module JS source strings directly and
+  // deduplicating the shared runtime preamble via longest-common-prefix.
+  if bid == "js" then
+    val scjsFiles = artifactDirs.toList.flatMap { dir =>
+      val p = os.Path(dir, os.pwd)
+      if !os.isDir(p) then Nil
+      else os.list(p).filter(_.ext == "scjs").toList.sorted
+    }
+    if scjsFiles.nonEmpty then
+      linkJsFromScjs(scjsFiles, outputArg)
+      return
+  // Fall through to standard IR-link mode if no .scjs files were found.
+
   // Collect all (interface, ir) pairs from the specified directories.
   val allModules = scala.collection.mutable.ArrayBuffer.empty[Linker.CompiledModule]
   var hasError = false
@@ -2287,6 +2477,124 @@ private def mergeScalaSources(sources: List[String]): String =
       sb.append('\n')
   }
   sb.toString
+
+/** Link a set of `.scjs` artifacts by textually concatenating their
+ *  `jsSource` strings (in path-sorted order) into a single JS source.
+ *
+ *  Output modes:
+ *  - `-o -`               : print the combined source to stdout.
+ *  - `-o <foo.js>`        : write combined source to a `.js` file.
+ *  - (no -o)              : run via `node` if available, otherwise print to
+ *                           stdout.
+ *
+ *  MVP limitation: textual concat.  This is sound for JS because there is
+ *  no module-level scoping in classic-script mode — every emitted `function`
+ *  / `const` lands in the same global namespace.  Cross-module references
+ *  rely on the per-module emitter having produced fully-qualified or shared-
+ *  global names.  Phase 2 will replace this with ES-module imports or
+ *  bytecode-level cross-module symbol mangling.
+ *
+ *  The dedup pass relies on identical runtime preambles across `.scjs`
+ *  files — every `.scjs` emitted by the same compiler version embeds the
+ *  same `JsRuntime` + `JsRuntimeAsync` + … prefix.  A longest-common-prefix
+ *  scan over the per-module sources (whole-lines only) lifts that prefix
+ *  out of the concat, emits it once at the top of the combined output,
+ *  then appends each module's distinct tail.
+ *
+ *  v2.0 — JS incremental codegen cache. */
+private def linkJsFromScjs(
+    scjsFiles: List[os.Path],
+    outputArg: Option[String]
+): Unit =
+  // Read all artifacts; bail on the first envelope mismatch so a stale
+  // artifact can't silently pollute the combined source.
+  val artifacts = scala.collection.mutable.ArrayBuffer.empty[scalascript.ir.ModuleJsArtifact]
+  var hasError  = false
+  for p <- scjsFiles do
+    JsArtifactIO.readJsFile(p) match
+      case Right(a) => artifacts += a
+      case Left(e)  =>
+        System.err.println(s"link: failed to read ${p.last}: $e")
+        hasError = true
+  if hasError then System.exit(1)
+  if artifacts.isEmpty then
+    System.err.println("link --backend js: no .scjs artifacts found")
+    System.exit(1)
+
+  // MVP: textual concat with longest-common-prefix dedup.  Same approach as
+  // `linkJvmFromScjvm`/`mergeScalaSources` — the runtime preamble emitted
+  // by `JsGen.generate` is deterministic across modules from the same
+  // compiler version, so content-hash identity makes the prefix lift safe.
+  val combined = mergeJsSources(artifacts.toList.map(_.jsSource))
+
+  println(s"Linked ${artifacts.size} .scjs artifact(s) into combined JS source " +
+    s"(${combined.linesIterator.length} lines)")
+
+  outputArg match
+    case Some("-") =>
+      println(combined)
+
+    case Some(out) if out.endsWith(".js") =>
+      val outPath = os.Path(out, os.pwd)
+      os.makeDir.all(outPath / os.up)
+      os.write.over(outPath, combined)
+      println(s"Combined JS source written to $outPath")
+
+    case Some(out) =>
+      System.err.println(s"link --backend js: -o output must end with .js or be '-', got: $out")
+      System.exit(1)
+
+    case None =>
+      // No output: run via `node` if available, otherwise print to stdout.
+      val nodeAvailable = scala.util.Try {
+        os.proc("node", "--version").call(check = false, stdout = os.Pipe, stderr = os.Pipe).exitCode == 0
+      }.getOrElse(false)
+      if nodeAvailable then
+        val tmp = os.temp(combined, suffix = ".js", deleteOnExit = true)
+        try
+          val res = os.proc("node", tmp.toString).call(
+            stdout = os.Inherit, stderr = os.Inherit, check = false
+          )
+          if res.exitCode != 0 then System.exit(res.exitCode)
+        catch case e: Exception =>
+          System.err.println(s"link --backend js: node invocation failed: ${e.getMessage}")
+          System.exit(1)
+      else
+        println(combined)
+
+/** Merge multiple JS sources produced by `JsGen.generate` (wrapped with the
+ *  runtime preamble inside `.scjs`) into a single combined source suitable
+ *  for `node` or browser script-tag inclusion.
+ *
+ *  The runtime portion of `.scjs` source is identical across modules from
+ *  the same compiler version, so a whole-line longest-common-prefix scan
+ *  lifts it out cleanly.  Concretely: the LCP across all modules' source
+ *  strings contains the runtime preamble (and the marker line that
+ *  separates it from user code).  Each module's unique tail is appended
+ *  in path-sorted order after the shared prefix is emitted once.
+ *
+ *  This works because JS has a single global namespace in classic script
+ *  mode — concatenating per-module `function add(...) { ... }` /
+ *  `const Foo = { ... }` statements puts every name in the same scope,
+ *  matching how `emit-js` already builds whole-program output today.
+ *  Phase 2: real linking would use ES modules + named exports rather
+ *  than relying on global hoisting.  v2.0 MVP. */
+private def mergeJsSources(sources: List[String]): String =
+  if sources.isEmpty then ""
+  else if sources.size == 1 then sources.head
+  else
+    val shared = longestCommonPrefix(sources)
+    val sb = new StringBuilder
+    if shared.nonEmpty then
+      sb.append(shared)
+      if !shared.endsWith("\n") then sb.append('\n')
+    sources.foreach { s =>
+      val unique = s.drop(shared.length)
+      if unique.nonEmpty then
+        sb.append(unique)
+        if !unique.endsWith("\n") then sb.append('\n')
+    }
+    sb.toString
 
 /** Longest common string prefix across a non-empty list of strings.  Returns
  *  the empty string when the inputs share nothing or the list is empty.
