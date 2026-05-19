@@ -603,6 +603,21 @@ unblocks downstream features as early as possible.
      OAuth-integration plumbing.  Metadata + installer routes
      auto-pick-up the new grant + endpoint.
 
+     **MCP late-2025 spec additions** (Iter HH) ✓ — fills the gap
+     between MCP 2025-03 and the rolling additions that landed since:
+       - `outputSchema` field on tool entries; tools/list emits it
+       - `structuredContent` field on tools/call results;
+         `ToolHandlerResult(content, isError, structuredContent)`
+         supports the typed alternative payload
+       - `audioContent(data, mimeType)` helper — `type: "audio"`
+         content variant (parallel to imageContent)
+       - `resourceLinkContent(uri, name?, description?, mimeType?)`
+         — lightweight `type: "resource_link"` reference variant
+       - direct `title` field on tool / resource / resource template /
+         prompt entries (distinct from annotations.title; clients
+         may prefer the entry-level field when both are set)
+       - all new fields are optional; legacy registrations unchanged
+
      **v1.17.x is now feature-complete** for MCP + OAuth + OIDC +
      all the spec-grade auth surface a real production AS needs.
  22. **v1.18 — `package` keyword + std layout migration** ✓ Landed (all phases, 2026-05-19).
