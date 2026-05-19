@@ -20,7 +20,8 @@ package scalascript.server.jvm
 import scalascript.server.*
 
 @scala.annotation.unused private def _show(v: Any): String = String.valueOf(v)
-@scala.annotation.unused private val _Metrics = Metrics
+// _Metrics is now a real val in WebSocketRuntime.scala (same package),
+// so no build-only stub is needed here.
 // BUILD-ONLY:end
 
 // ── REST routing + serve(port) ─────────────────────────────────────────
