@@ -4447,16 +4447,27 @@ that uses them lands.
 Things noticed in passing while landing other work — not blocking, but
 worth a separate fix when somebody has cycles.
 
-- **v1.22 distributed-* conformance tests fail on JVM** (`value results
-  is not a member of Any` in the generated Scala source). All six
-  tests — `distributed-{map,shuffle,failure-retry,failure-partial,
-  heterogeneous}` plus `cluster-connect` — were marked PASS in v1.22
-  Phase 6 landing notes but regress now. The user code does
-  `result.results.asInstanceOf[List[Int]]` and the JVM backend emits
-  it with `result: Any`, so the field-access doesn't typecheck.
-  Likely a typer/codegen regression after v1.22 landed. The tests now
-  carry `backends: [jvm]` (2026-05-19) so they don't spuriously fail
-  on INT/JS, but the JVM compile still breaks. Separate fix needed.
+- **v1.22 distributed-* conformance tests fail on JVM** — root cause:
+  `ssc compile` (used by the conformance runner) doesn't AutoResolve
+  std/* imports the way `ssc compile-jvm` does. The six v1.22 phase-6
+  tests (`distributed-{map,shuffle,failure-retry,failure-partial,
+  heterogeneous}` plus `cluster-connect`) use bare names
+  (`Node`, `Cluster`, `HandlerRegistry`, `runDistributed`, …) that
+  resolve to ScalaScript modules in `std/mapreduce/*`. The `ssc compile`
+  pipeline parses → normalises → backend, with no import resolution
+  in between; on JVM that surfaces as `Not found: Node` / `value results
+  is not a member of Any` (the latter because no `result` symbol exists
+  to give it a type). The MILESTONES "PASS [JVM]" claim from v1.22
+  Phase 6 was likely never verified end-to-end.
+
+  Mitigation landed 2026-05-19: marked `pending:` in frontmatter so the
+  conformance suite reports `PENDING` (separate from FAIL) and the
+  intended API surface stays as documentation. Real fix needs either
+  (a) `compile` to use `AutoResolve` + per-dep codegen (mirroring
+  `compile-jvm` + `link --backend jvm`), or (b) std/mapreduce/* lowered
+  to a `JvmRuntimeMapReduce` preamble injected when the IR references
+  those types (analogous to `JvmRuntimeDataset`). Substantial separate
+  iteration.
 
 - **WS test cross-suite isolation goes through a process-global
   `WsRoutes` table + `WsTestLock` monitor.**  Works, but the lock
