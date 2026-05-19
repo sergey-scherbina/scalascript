@@ -3887,6 +3887,24 @@ parallel deferred); cooperative on INT.  Streaming interop via
   - Dataset.min / max / sum / avg — numeric/ordered terminal
     aggregations. JVM via Ordering/Numeric context bounds; INT via
     compareValues + infix; JS via raw Number ops.
+  - Dataset.top(n) / takeOrdered(n) / countByValue — three more
+    Spark-style terminals. top descending, takeOrdered ascending, both
+    use natural ordering. countByValue: Map[T, Long] frequency
+    histogram (word-count shortcut without writing the groupBy chain).
+  - Dataset.partition(p) / mkString(...) / toMap() / toSet() /
+    saveToFile(path) — five shape/conversion ops. partition splits to
+    (List, List); mkString has three Scala overloads; toMap requires
+    2-tuple elements; toSet dedups; saveToFile is the fromFile
+    counterpart (one element per line via _show).
+  - examples/dataset-stats.ssc — small weather-log analytics demo
+    exercising the new API on all 3 backends.
+  - docs/mapreduce.md §2 refreshed to list the v1.21 follow-up API.
+
+  After this follow-up, the Dataset surface mirrors the core of
+  Spark/Flink: 14 conformance tests (was 10) covering 30+ ops across
+  all 3 backends. The local-parallel + distributed split documented
+  in §3 of mapreduce.md still applies — runParallel uses Loom on JVM,
+  cooperative on INT, sequential on JS.
 
 Full design: [`docs/mapreduce.md`](docs/mapreduce.md) §3.
 
@@ -4398,6 +4416,17 @@ that uses them lands.
 
 Things noticed in passing while landing other work — not blocking, but
 worth a separate fix when somebody has cycles.
+
+- **v1.22 distributed-* conformance tests fail on JVM** (`value results
+  is not a member of Any` in the generated Scala source). All six
+  tests — `distributed-{map,shuffle,failure-retry,failure-partial,
+  heterogeneous}` plus `cluster-connect` — were marked PASS in v1.22
+  Phase 6 landing notes but regress now. The user code does
+  `result.results.asInstanceOf[List[Int]]` and the JVM backend emits
+  it with `result: Any`, so the field-access doesn't typecheck.
+  Likely a typer/codegen regression after v1.22 landed. The tests now
+  carry `backends: [jvm]` (2026-05-19) so they don't spuriously fail
+  on INT/JS, but the JVM compile still breaks. Separate fix needed.
 
 - **WS test cross-suite isolation goes through a process-global
   `WsRoutes` table + `WsTestLock` monitor.**  Works, but the lock
