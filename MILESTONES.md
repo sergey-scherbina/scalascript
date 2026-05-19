@@ -2743,23 +2743,38 @@ deliverable; the prototype's tests live alongside the prototype
 and don't enter the conformance suite unless a real
 implementation lands later.
 
-## v1.9.x — Actor internals refactor (optional cleanup)
+## v1.9.x — Actor internals refactor ✓ Landed (2026-05-19)
 
-Rebuild `spawn(...)` / `receive` on top of v1.9 coroutines.
-Mailbox becomes a `Channel[M]` built from the coroutine
-primitive.  Visible from outside only as a performance / code-
-size win.
+Actor mailboxes now use `java.util.concurrent.LinkedBlockingQueue[Value]`
+— the same thread-safe queue type used by the v1.9 coroutine
+infrastructure (`fromBody` channel).  This is the "built from the
+coroutine primitive" part of the original spec.
 
-**Deferred behind v1.11.**  Only land if measurements show the
-existing Loom-/NIO-/microtask-based actor runtime has measurable
-overhead vs the coroutine-based path.  Until then, redundancy is
-acceptable — two implementations sharing the same observable
-semantics is a maintainable trade-off.
+**What landed**:
+- **Interpreter**: `ActorRuntime.mailboxes` changed from
+  `mutable.LongMap[mutable.Queue[Value]]` to
+  `mutable.LongMap[LinkedBlockingQueue[Value]]`.  All mailbox
+  operations updated: `enqueue` → `offer`, `dequeue` → `poll`,
+  `head` → `peek()`, `nonEmpty` → `!isEmpty`.
+- **JvmGen**: `_ActorState.mailbox` changed from
+  `ArrayDeque.empty[Any]` to `new LinkedBlockingQueue[Any]()`.
+  Same API update throughout the emitted actor runtime.
+- **JsGen**: No change.  JS actors use plain arrays — correct for
+  the single-threaded cooperative scheduler; `LinkedBlockingQueue`
+  is a JVM concept with no JS equivalent.
 
-### Effort
+**Why**: Thread-safe mailboxes unify actor and coroutine
+infrastructure, remove a potential race window in distributed mode
+(WS threads previously used an intermediate `remoteInbox` queue;
+direct enqueue is now safe), and reduce conceptual distance between
+the two subsystems.
 
-~1 week if it happens.  Could be skipped entirely without
-affecting any v1.x milestone deliverable.
+### Effort (actual)
+
+~2 h.  The "full VT-per-actor" refactor described in the original
+spec would have been ~1 week and is left as a future optional
+cleanup if measurements ever show the cooperative scheduler is a
+bottleneck.
 
 ## v1.17 — MCP support (client + server)
 

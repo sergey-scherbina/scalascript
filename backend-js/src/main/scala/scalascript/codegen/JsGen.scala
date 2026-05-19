@@ -3449,7 +3449,9 @@ async function _runAsyncParallel(bodyFn) {
 // Mirrors the interpreter's `actorInterp` / `handleActorOp`.  Each
 // `_runActors(bodyFn)` invocation creates a fresh actor registry,
 // spawns `bodyFn` as the root actor, and drives all spawned actors
-// cooperatively until quiescence.  Mailboxes are arrays; the
+// cooperatively until quiescence.  Mailboxes are plain JS arrays
+// (v1.9.x: JS is single-threaded so LinkedBlockingQueue N/A; array
+// IS the cooperative-mailbox equivalent for this backend); the
 // scheduler is a simple round-robin ready queue.  `receive` with a
 // non-empty matching head returns the case body's value; with an
 // empty mailbox it suspends.  `receive(timeout = N)` arms a deadline;

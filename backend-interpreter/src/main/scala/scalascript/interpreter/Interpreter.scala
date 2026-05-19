@@ -137,7 +137,8 @@ class Interpreter(
   // Each `runActors { ... }` installs a fresh ActorRuntime for its
   // duration so nested invocations don't share state.
   private class ActorRuntime:
-    val mailboxes = mutable.LongMap.empty[mutable.Queue[Value]]
+    // v1.9.x: LinkedBlockingQueue — same infrastructure as coroutines, thread-safe.
+    val mailboxes = mutable.LongMap.empty[java.util.concurrent.LinkedBlockingQueue[Value]]
     // (cases, env, continuation, optional wall-clock deadline, wrap-in-some?)
     // `wrapSome` is true for timeout-receive: matched body's value is wrapped
     // in Some(...) before being fed to the continuation so a single `receive`
@@ -236,7 +237,7 @@ class Interpreter(
           "ref"    -> Value.IntV(monRef),
           "from"   -> mkPid(nodeId, rPidLocalId),
           "reason" -> noconn))
-        rt.mailboxes.get(actorId).foreach(_.enqueue(downMsg))
+        rt.mailboxes.get(actorId).foreach(_.offer(downMsg))
         wakeBlocked(rt, actorId)
       }
     }
@@ -245,7 +246,7 @@ class Interpreter(
         val deadPid = mkPid(nodeId, rPidLocalId)
         if rt.trapExit.getOrElse(actorId, false) then
           val exitMsg = Value.InstanceV("Exit", Map("from" -> deadPid, "reason" -> noconn))
-          rt.mailboxes.get(actorId).foreach(_.enqueue(exitMsg))
+          rt.mailboxes.get(actorId).foreach(_.offer(exitMsg))
           wakeBlocked(rt, actorId)
         else
           killActor(rt, actorId, noconn)
@@ -4028,7 +4029,7 @@ class Interpreter(
     try
       val rootId = rt.nextId
       rt.nextId += 1
-      rt.mailboxes(rootId) = mutable.Queue.empty
+      rt.mailboxes(rootId) = new java.util.concurrent.LinkedBlockingQueue[Value]()
       rt.pending(rootId)   = initial
       rt.ready.enqueue(rootId)
       val rootResult = mutable.LongMap.empty[Value]
@@ -4050,7 +4051,7 @@ class Interpreter(
         while !remoteInbox.isEmpty do
           val (targetId, msg) = remoteInbox.poll()
           rt.mailboxes.get(targetId).foreach { mb =>
-            mb.enqueue(msg)
+            mb.offer(msg)
             wakeBlocked(rt, targetId)
           }
         // Fire EXIT/Down for any nodes that just went down (heartbeat timeout or disconnect).
@@ -4063,7 +4064,7 @@ class Interpreter(
           for ref <- fired; entry <- rt.timers.get(ref) do
             val (fireAt, period, targetId, msg) = entry
             rt.mailboxes.get(targetId).foreach { mb =>
-              mb.enqueue(msg)
+              mb.offer(msg)
               wakeBlocked(rt, targetId)
             }
             period match
@@ -4167,7 +4168,7 @@ class Interpreter(
       val thunk = args.head
       val childId = rt.nextId
       rt.nextId += 1
-      rt.mailboxes(childId) = mutable.Queue.empty
+      rt.mailboxes(childId) = new java.util.concurrent.LinkedBlockingQueue[Value]()
       // Eagerly build the child's initial Computation by calling the
       // thunk with no args.  Defer actually stepping it until the
       // scheduler picks the child off the ready queue.
@@ -4184,7 +4185,7 @@ class Interpreter(
       val thunk = args.head
       val childId = rt.nextId
       rt.nextId += 1
-      rt.mailboxes(childId) = mutable.Queue.empty
+      rt.mailboxes(childId) = new java.util.concurrent.LinkedBlockingQueue[Value]()
       val savedCurrent = rt.currentId
       rt.currentId = childId
       val childBody =
@@ -4203,7 +4204,7 @@ class Interpreter(
       val thunk = args(2)
       val childId = rt.nextId
       rt.nextId += 1
-      rt.mailboxes(childId) = mutable.Queue.empty
+      rt.mailboxes(childId) = new java.util.concurrent.LinkedBlockingQueue[Value]()
       rt.mailboxCaps(childId) = capL.toInt
       rt.mailboxOverflow(childId) = strategy
       val savedCurrent = rt.currentId
@@ -4250,11 +4251,11 @@ class Interpreter(
               case Some(mb) =>
                 // Bounded mailbox: apply overflow strategy if at capacity.
                 val delivered = rt.mailboxCaps.get(targetId) match
-                  case Some(cap) if mb.size >= cap =>
+                  case Some(cap) if mb.size() >= cap =>
                     rt.mailboxOverflow.getOrElse(targetId, "DropNewest") match
                       case "DropOldest" =>
-                        mb.dequeue()
-                        mb.enqueue(msg)
+                        mb.poll()
+                        mb.offer(msg)
                         true
                       case "DropNewest" =>
                         false
@@ -4266,9 +4267,9 @@ class Interpreter(
                           .enqueue((id, msg, k))
                         return Left(())
                       case _ =>
-                        mb.enqueue(msg); true
+                        mb.offer(msg); true
                   case _ =>
-                    mb.enqueue(msg); true
+                    mb.offer(msg); true
                 if delivered then
                   rt.blocked.get(targetId) match
                     case Some((cases, blockedEnv, blockedK, _, wrapSome)) =>
@@ -4334,7 +4335,7 @@ class Interpreter(
                 if rt.trapExit.getOrElse(id, false) then
                   val exitMsg = Value.InstanceV("Exit", Map(
                     "from" -> mkPid(nid, targetId), "reason" -> noproc))
-                  rt.mailboxes.get(id).foreach(_.enqueue(exitMsg))
+                  rt.mailboxes.get(id).foreach(_.offer(exitMsg))
                 else killActor(rt, id, noproc)
             else if rt.mailboxes.contains(targetId) then
               // Both alive — create bidirectional link
@@ -4347,7 +4348,7 @@ class Interpreter(
                 val exitMsg = Value.InstanceV("Exit", Map(
                   "from"   -> mkPid("", targetId),
                   "reason" -> noproc))
-                rt.mailboxes.get(id).foreach(_.enqueue(exitMsg))
+                rt.mailboxes.get(id).foreach(_.offer(exitMsg))
               else
                 killActor(rt, id, noproc)
           case _ => ()
@@ -4372,7 +4373,7 @@ class Interpreter(
                   "ref"    -> Value.IntV(monRef),
                   "from"   -> mkPid(nid, targetId),
                   "reason" -> Value.InstanceV("noconnection", Map.empty)))
-                rt.mailboxes.get(id).foreach(_.enqueue(downMsg))
+                rt.mailboxes.get(id).foreach(_.offer(downMsg))
                 wakeBlocked(rt, id)
               Right(k(Value.IntV(monRef)))
             else if rt.mailboxes.contains(targetId) then
@@ -4384,7 +4385,7 @@ class Interpreter(
                 "ref"    -> Value.IntV(monRef),
                 "from"   -> mkPid("", targetId),
                 "reason" -> Value.InstanceV("noproc", Map.empty)))
-              rt.mailboxes.get(id).foreach(_.enqueue(downMsg))
+              rt.mailboxes.get(id).foreach(_.offer(downMsg))
               wakeBlocked(rt, id)
               Right(k(Value.IntV(monRef)))
           case _ => Right(k(Value.IntV(-1L)))
@@ -4569,8 +4570,8 @@ class Interpreter(
       wrapSome:  Boolean
   ): Option[Computation] =
     val mb = rt.mailboxes(id)
-    while mb.nonEmpty do
-      val msg = mb.head
+    while !mb.isEmpty do
+      val msg = mb.peek()
       var matched: Option[Computation] = None
       val it = cases.iterator
       while matched.isEmpty && it.hasNext do
@@ -4591,12 +4592,12 @@ class Interpreter(
               )
           case None => ()
       if matched.isDefined then
-        mb.dequeue()
+        mb.poll()
         resumeBlockedSender(rt, id)
         return matched
       // Dead letter: discard the head and try the next.
       out.println(s"[dead-letter] actor=$id msg=${Value.show(msg)}")
-      mb.dequeue()
+      mb.poll()
       resumeBlockedSender(rt, id)
     None
 
@@ -4605,14 +4606,14 @@ class Interpreter(
   private def resumeBlockedSender(rt: ActorRuntime, receiverId: Long): Unit =
     rt.mailboxCaps.get(receiverId).foreach { cap =>
       rt.mailboxes.get(receiverId).foreach { mb =>
-        if mb.size < cap then
+        if mb.size() < cap then
           rt.blockedSends.get(receiverId).foreach { queue =>
             var done = false
             // Skip dead senders; resume the first live one.
             while queue.nonEmpty && !done do
               val (senderId, msg, senderK) = queue.dequeue()
               if rt.mailboxes.contains(senderId) then
-                mb.enqueue(msg)
+                mb.offer(msg)
                 rt.pending(senderId) = senderK(Value.UnitV)
                 rt.ready.enqueue(senderId)
                 done = true
@@ -4654,7 +4655,7 @@ class Interpreter(
         rt.links.get(linkedId).foreach(_.remove(targetId))
         if rt.trapExit.getOrElse(linkedId, false) then
           val exitMsg = Value.InstanceV("Exit", Map("from" -> deadPid, "reason" -> reason))
-          rt.mailboxes.get(linkedId).foreach(_.enqueue(exitMsg))
+          rt.mailboxes.get(linkedId).foreach(_.offer(exitMsg))
           wakeBlocked(rt, linkedId)
         else
           killActor(rt, linkedId, reason)
@@ -4668,7 +4669,7 @@ class Interpreter(
           "ref"    -> Value.IntV(monRef),
           "from"   -> deadPid,
           "reason" -> reason))
-        rt.mailboxes.get(observerId).foreach(_.enqueue(downMsg))
+        rt.mailboxes.get(observerId).foreach(_.offer(downMsg))
         wakeBlocked(rt, observerId)
       }
     }

@@ -5850,7 +5850,8 @@ class JvmGen(
        |// ── v1.6 Actors — Phase 1 cooperative scheduler ────────────────────────
        |//
        |// Same Computation / Free-Monad walk as `_runAsync` but the outer
-       |// loop interleaves multiple actors.  Mailboxes are `ArrayDeque`s;
+       |// loop interleaves multiple actors.  Mailboxes are `LinkedBlockingQueue`s
+       |// (v1.9.x: same infrastructure as coroutines, thread-safe);
        |// blocked-on-receive state lives on each actor along with the
        |// captured continuation.  Quiescence with timeout-armed receives
        |// sleeps until the earliest deadline and resumes that actor with
@@ -5912,7 +5913,7 @@ class JvmGen(
        |  def processInfo(pid: Any): Any = _perform("Actor", "processInfo", pid)
        |
        |class _ActorState:
-       |  val mailbox = scala.collection.mutable.ArrayDeque.empty[Any]
+       |  val mailbox = new java.util.concurrent.LinkedBlockingQueue[Any]()
        |  var pending: Any = null
        |  // (matcher, k, deadline?, wrapSome)
        |  var blocked: (Any => Option[Any], Any => Any, Option[Long], Boolean) = null
@@ -5973,7 +5974,7 @@ class JvmGen(
        |    Option(_remoteMonitors.remove(nodeId)).foreach { list =>
        |      list.forEach { (actorId, monRef, rPidLocalId) =>
        |        actors.get(actorId).foreach { st =>
-       |          st.mailbox.append(Down(monRef, _Pid(nodeId, rPidLocalId), noconn))
+       |          st.mailbox.offer(Down(monRef, _Pid(nodeId, rPidLocalId), noconn))
        |          tryWakeBlocked(actorId)
        |        }
        |      }
@@ -5982,7 +5983,7 @@ class JvmGen(
        |      list.forEach { (actorId, rPidLocalId) =>
        |        if trapExitM.getOrElse(actorId, false) then
        |          actors.get(actorId).foreach { st =>
-       |            st.mailbox.append(Exit(_Pid(nodeId, rPidLocalId), noconn))
+       |            st.mailbox.offer(Exit(_Pid(nodeId, rPidLocalId), noconn))
        |            tryWakeBlocked(actorId)
        |          }
        |        else killActor(actorId, noconn)
@@ -6198,25 +6199,25 @@ class JvmGen(
        |      val (senderId, msg, senderK) = state.blockedSends.removeHead()
        |      actors.get(senderId) match
        |        case Some(ss) if ss != null =>
-       |          state.mailbox.append(msg)
+       |          state.mailbox.offer(msg)
        |          ss.pending = senderK(())
        |          ready.append(senderId)
        |          return
        |        case _ => ()  // dead sender — skip
        |
        |  def tryDeliver(state: _ActorState, matcher: Any => Option[Any], wrapSome: Boolean): Option[Any] =
-       |    while state.mailbox.nonEmpty do
-       |      val msg = state.mailbox.head
+       |    while !state.mailbox.isEmpty do
+       |      val msg = state.mailbox.peek()
        |      matcher(msg) match
        |        case Some(bodyC) =>
-       |          state.mailbox.removeHead()
+       |          state.mailbox.poll()
        |          _resumeBlockedSender(state)
        |          if wrapSome then
        |            return Some(_FlatMap(bodyC, (v: Any) => Some(v)))
        |          else
        |            return Some(bodyC)
        |        case None =>
-       |          state.mailbox.removeHead()
+       |          state.mailbox.poll()
        |          _resumeBlockedSender(state)
        |    None
        |
@@ -6252,7 +6253,7 @@ class JvmGen(
        |        links.get(linkedId).foreach(_.remove(targetId))
        |        if trapExitM.getOrElse(linkedId, false) then
        |          actors.get(linkedId).foreach { st =>
-       |            st.mailbox.append(Exit(deadPid, reason))
+       |            st.mailbox.offer(Exit(deadPid, reason))
        |            tryWakeBlocked(linkedId)
        |          }
        |        else
@@ -6262,7 +6263,7 @@ class JvmGen(
        |    monitors.remove(targetId).foreach { monMap =>
        |      monMap.foreach { (monRef, observerId) =>
        |        actors.get(observerId).foreach { st =>
-       |          st.mailbox.append(Down(monRef, deadPid, reason))
+       |          st.mailbox.offer(Down(monRef, deadPid, reason))
        |          tryWakeBlocked(observerId)
        |        }
        |      }
@@ -6321,7 +6322,7 @@ class JvmGen(
        |                  if ts.cap > 0 && ts.mailbox.size >= ts.cap then
        |                    ts.overflow match
        |                      case "DropOldest" =>
-       |                        ts.mailbox.removeHead(); ts.mailbox.append(args(1)); true
+       |                        ts.mailbox.poll(); ts.mailbox.offer(args(1)); true
        |                      case "DropNewest" => false
        |                      case "Fail" =>
        |                        killActor(id, "mailbox_overflow")
@@ -6329,8 +6330,8 @@ class JvmGen(
        |                      case "Block" =>
        |                        ts.blockedSends.append((id, args(1), k))
        |                        return Left(())
-       |                      case _ => ts.mailbox.append(args(1)); true
-       |                  else { ts.mailbox.append(args(1)); true }
+       |                      case _ => ts.mailbox.offer(args(1)); true
+       |                  else { ts.mailbox.offer(args(1)); true }
        |                if _delivered && ts.blocked != null then
        |                  val b = ts.blocked
        |                  tryDeliver(ts, b._1, b._4) match
@@ -6374,14 +6375,14 @@ class JvmGen(
        |              _remoteLinks.computeIfAbsent(nid, _ => new java.util.concurrent.CopyOnWriteArrayList()).add((id, targetId))
        |            else
        |              if trapExitM.getOrElse(id, false) then
-       |                actors.get(id).foreach(_.mailbox.append(Exit(_Pid(nid, targetId), noproc)))
+       |                actors.get(id).foreach(_.mailbox.offer(Exit(_Pid(nid, targetId), noproc)))
        |              else killActor(id, noproc)
        |          else if actors.contains(targetId) then
        |            links.getOrElseUpdate(id,       scala.collection.mutable.Set.empty) += targetId
        |            links.getOrElseUpdate(targetId, scala.collection.mutable.Set.empty) += id
        |          else
        |            if trapExitM.getOrElse(id, false) then
-       |              actors.get(id).foreach(_.mailbox.append(Exit(_Pid("", targetId), noproc)))
+       |              actors.get(id).foreach(_.mailbox.offer(Exit(_Pid("", targetId), noproc)))
        |            else
        |              killActor(id, noproc)
        |        case _ => ()
@@ -6395,7 +6396,7 @@ class JvmGen(
        |              _remoteMonitors.computeIfAbsent(nid, _ => new java.util.concurrent.CopyOnWriteArrayList()).add((id, monRef, targetId))
        |            else
        |              actors.get(id).foreach { st =>
-       |                st.mailbox.append(Down(monRef, _Pid(nid, targetId), "noconnection"))
+       |                st.mailbox.offer(Down(monRef, _Pid(nid, targetId), "noconnection"))
        |                tryWakeBlocked(id)
        |              }
        |            Right(k(monRef))
@@ -6404,7 +6405,7 @@ class JvmGen(
        |            Right(k(monRef))
        |          else
        |            actors.get(id).foreach { st =>
-       |              st.mailbox.append(Down(monRef, _Pid("", targetId), noproc))
+       |              st.mailbox.offer(Down(monRef, _Pid("", targetId), noproc))
        |              tryWakeBlocked(id)
        |            }
        |            Right(k(monRef))
@@ -6545,7 +6546,7 @@ class JvmGen(
        |          monitors.remove(id).foreach { monMap =>
        |            monMap.foreach { (monRef, observerId) =>
        |              actors.get(observerId).foreach { st =>
-       |                st.mailbox.append(Down(monRef, myPid, "normal"))
+       |                st.mailbox.offer(Down(monRef, myPid, "normal"))
        |                tryWakeBlocked(observerId)
        |              }
        |            }
@@ -6586,7 +6587,7 @@ class JvmGen(
        |    while !_remoteInbox.isEmpty do
        |      val (targetId, msg) = _remoteInbox.poll()
        |      actors.get(targetId).foreach { ts =>
-       |        ts.mailbox.append(msg)
+       |        ts.mailbox.offer(msg)
        |        tryWakeBlocked(targetId)
        |      }
        |    // Drain node-down notifications
@@ -6599,7 +6600,7 @@ class JvmGen(
        |      for _ref <- _firedRefs; _entry <- _timers.get(_ref) do
        |        val (fireAt, period, targetId, msg) = _entry
        |        actors.get(targetId).foreach { ts =>
-       |          ts.mailbox.append(msg)
+       |          ts.mailbox.offer(msg)
        |          tryWakeBlocked(targetId)
        |        }
        |        period match
