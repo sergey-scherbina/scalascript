@@ -472,6 +472,8 @@ class JvmGen(
         "broadcastHealth", "clusterIsDown",
         "electLeader", "currentLeader", "subscribeLeaderEvents",
         "setReconnectPolicy", "requestGossip",
+        "clusterConfigSet", "clusterConfigGet", "clusterConfigKeys",
+        "subscribeConfigEvents",
         "sendAfter", "sendInterval", "cancelTimer", "processInfo")
 
   /** Case-class names defined inside `effectsRuntime` whose presence in
@@ -482,7 +484,8 @@ class JvmGen(
    *  ```
    *  would compile-error with "no pattern match extractor named NodeJoined". */
   private val actorRuntimeCaseClasses: Set[String] =
-    Set("NodeJoined", "NodeLeft", "LeaderElected", "LeaderLost", "Exit", "Down")
+    Set("NodeJoined", "NodeLeft", "LeaderElected", "LeaderLost",
+        "ConfigChanged", "Exit", "Down")
 
   /** True if any block references the v1.6 actor model — via
    *  `runActors`, `spawn`, `self`, `exit`, `receive`, `link`, `monitor`,
@@ -1479,6 +1482,22 @@ class JvmGen(
     case Term.Apply.After_4_6_0(Term.Name("requestGossip"), argClause)
         if argClause.values.isEmpty =>
       "Actor.requestGossip()"
+    // v1.23 — cluster configuration distribution
+    case Term.Apply.After_4_6_0(Term.Name("clusterConfigSet"), argClause)
+        if argClause.values.size == 2 =>
+      val k0 = emitExpr(argClause.values(0).asInstanceOf[Term])
+      val v0 = emitExpr(argClause.values(1).asInstanceOf[Term])
+      s"Actor.clusterConfigSet($k0, $v0)"
+    case Term.Apply.After_4_6_0(Term.Name("clusterConfigGet"), argClause)
+        if argClause.values.size == 1 =>
+      val k0 = emitExpr(argClause.values(0).asInstanceOf[Term])
+      s"Actor.clusterConfigGet($k0)"
+    case Term.Apply.After_4_6_0(Term.Name("clusterConfigKeys"), argClause)
+        if argClause.values.isEmpty =>
+      "Actor.clusterConfigKeys()"
+    case Term.Apply.After_4_6_0(Term.Name("subscribeConfigEvents"), argClause)
+        if argClause.values.isEmpty =>
+      "Actor.subscribeConfigEvents()"
 
     // Focus[T](_.a.b) / Focus(_.a.b) — lower to a Lens(get, set) literal.
     // The lambda body's field-access chain becomes nested get + nested copy.
@@ -2209,6 +2228,22 @@ class JvmGen(
     case Term.Apply.After_4_6_0(Term.Name("requestGossip"), argClause)
         if argClause.values.isEmpty =>
       "Actor.requestGossip()"
+    // v1.23 — cluster configuration distribution
+    case Term.Apply.After_4_6_0(Term.Name("clusterConfigSet"), argClause)
+        if argClause.values.size == 2 =>
+      val k0 = emitExpr(argClause.values(0).asInstanceOf[Term])
+      val v0 = emitExpr(argClause.values(1).asInstanceOf[Term])
+      s"Actor.clusterConfigSet($k0, $v0)"
+    case Term.Apply.After_4_6_0(Term.Name("clusterConfigGet"), argClause)
+        if argClause.values.size == 1 =>
+      val k0 = emitExpr(argClause.values(0).asInstanceOf[Term])
+      s"Actor.clusterConfigGet($k0)"
+    case Term.Apply.After_4_6_0(Term.Name("clusterConfigKeys"), argClause)
+        if argClause.values.isEmpty =>
+      "Actor.clusterConfigKeys()"
+    case Term.Apply.After_4_6_0(Term.Name("subscribeConfigEvents"), argClause)
+        if argClause.values.isEmpty =>
+      "Actor.subscribeConfigEvents()"
 
     case app: Term.Apply => emitCpsApply(app)
 
@@ -5221,6 +5256,8 @@ class JvmGen(
        |// v1.23 — leader election (Bully) events
        |case class LeaderElected(nodeId: String)
        |case class LeaderLost(nodeId: String)
+       |// v1.23 — config-distribution events
+       |case class ConfigChanged(key: String, value: String)
        |
        |/** Adapter: a partial-function literal becomes a total
        | *  `Any => Option[Any]`.  Used by emitReceiveMatcher so the
@@ -5287,6 +5324,11 @@ class JvmGen(
        |  def setReconnectPolicy(initialMs: Any, maxMs: Any): Any = _perform("Actor", "setReconnectPolicy", initialMs, maxMs)
        |  // v1.23 — periodic gossip re-discovery (ask peers for their peer list)
        |  def requestGossip(): Any = _perform("Actor", "requestGossip")
+       |  // v1.23 — cluster configuration distribution
+       |  def clusterConfigSet(key: Any, value: Any): Any  = _perform("Actor", "clusterConfigSet", key, value)
+       |  def clusterConfigGet(key: Any): Any              = _perform("Actor", "clusterConfigGet", key)
+       |  def clusterConfigKeys(): Any                     = _perform("Actor", "clusterConfigKeys")
+       |  def subscribeConfigEvents(): Any                 = _perform("Actor", "subscribeConfigEvents")
        |
        |class _ActorState:
        |  val mailbox = new java.util.concurrent.LinkedBlockingQueue[Any]()
@@ -5351,6 +5393,23 @@ class JvmGen(
        |  // sets them at runtime.
        |  @volatile var _reconnectInitialMs: Long = 0L
        |  @volatile var _reconnectMaxMs:     Long = 0L
+       |  // v1.23 — cluster configuration distribution.  LWW per key by timestamp;
+       |  // ties broken by lex-greatest nodeId so all nodes converge.
+       |  val _clusterConfig    = new java.util.concurrent.ConcurrentHashMap[String, (String, Long, String)]()
+       |  val _configEventSubs  = new java.util.concurrent.CopyOnWriteArrayList[java.lang.Long]()
+       |  val _configEventQueue = new java.util.concurrent.ConcurrentLinkedQueue[(String, String)]()
+       |  def _fireConfigEvent(key: String, value: String): Unit =
+       |    if !_configEventSubs.isEmpty then _configEventQueue.offer((key, value))
+       |  // Returns true if (ts, origin) wins over the stored (ts, origin) for key.
+       |  def _applyConfigUpdate(key: String, value: String, ts: Long, origin: String): Boolean =
+       |    val prev = _clusterConfig.get(key)
+       |    val accept =
+       |      prev == null || ts > prev._2 ||
+       |      (ts == prev._2 && origin > prev._3)
+       |    if accept then
+       |      _clusterConfig.put(key, (value, ts, origin))
+       |      _fireConfigEvent(key, value)
+       |    accept
        |  def _fireLeaderEvent(tag: String, leaderId: String): Unit =
        |    if !_leaderEventSubs.isEmpty then _leaderEventQueue.offer((tag, leaderId))
        |  def _broadcastCoordinator(): Unit =
@@ -5608,6 +5667,13 @@ class JvmGen(
        |          val prev = _currentLeader.getAndSet(from)
        |          _electionInProgress = false
        |          if prev != from then _fireLeaderEvent("LeaderElected", from)
+       |      case "config_set" =>
+       |        // v1.23 — cluster config distribution.  LWW by (ts, originNodeId).
+       |        val key   = _extractJsonStr(json, "\"key\"")
+       |        val value = _extractJsonStr(json, "\"value\"")
+       |        val orig  = _extractJsonStr(json, "\"origin\"")
+       |        val ts    = _extractJsonLong(json, "\"ts\"")
+       |        if key.nonEmpty then _applyConfigUpdate(key, value, ts, orig)
        |      case _      => ()
        |
        |  def _extractJsonStr(json: String, key: String, fromIdx: Int = 0): String =
@@ -5615,6 +5681,13 @@ class JvmGen(
        |    val vi = json.indexOf('"', ki + key.length + 1); if vi < 0 then return ""
        |    val ve = json.indexOf('"', vi + 1); if ve < 0 then return ""
        |    json.substring(vi + 1, ve)
+       |
+       |  def _extractJsonLong(json: String, key: String): Long =
+       |    val ki = json.indexOf(key); if ki < 0 then return 0L
+       |    val ci = json.indexOf(':', ki + key.length); if ci < 0 then return 0L
+       |    var i = ci + 1; while i < json.length && json(i) == ' ' do i += 1
+       |    var j = i; while j < json.length && (json(j).isDigit || json(j) == '-') do j += 1
+       |    if j > i then json.substring(i, j).toLongOption.getOrElse(0L) else 0L
        |
        |  def _extractPeersList(json: String): List[(String, String)] =
        |    val ak = "\"peers\""; val ai = json.indexOf(ak); if ai < 0 then return Nil
@@ -6140,6 +6213,32 @@ class JvmGen(
        |      val payload = "{\"t\":\"peers_req\",\"from\":" + _jstr(_localNodeId) + "}"
        |      _peerChannels.forEach { (_, send) => try send(payload) catch case _: Throwable => () }
        |      Right(k(()))
+       |    // v1.23 — cluster configuration distribution.
+       |    case "clusterConfigSet" =>
+       |      val key   = args(0).toString
+       |      val value = args(1).toString
+       |      val ts    = System.currentTimeMillis()
+       |      val orig  = _localNodeId
+       |      _applyConfigUpdate(key, value, ts, orig)
+       |      val payload = "{\"t\":\"config_set\",\"key\":" + _jstr(key) +
+       |                    ",\"value\":" + _jstr(value) +
+       |                    ",\"ts\":" + ts.toString +
+       |                    ",\"origin\":" + _jstr(orig) + "}"
+       |      _peerChannels.forEach { (_, send) => try send(payload) catch case _: Throwable => () }
+       |      Right(k(()))
+       |    case "clusterConfigGet" =>
+       |      val key = args(0).toString
+       |      val entry = _clusterConfig.get(key)
+       |      val result: Any = if entry == null then None else Some(entry._1)
+       |      Right(k(result))
+       |    case "clusterConfigKeys" =>
+       |      val buf = scala.collection.mutable.ListBuffer.empty[String]
+       |      _clusterConfig.keySet().forEach(k0 => buf += k0)
+       |      Right(k(buf.toList))
+       |    case "subscribeConfigEvents" =>
+       |      val boxed = java.lang.Long.valueOf(id)
+       |      if !_configEventSubs.contains(boxed) then _configEventSubs.add(boxed)
+       |      Right(k(()))
        |    // v1.6.x — scheduled sends
        |    case "sendAfter" =>
        |      val delayMs  = args(0).asInstanceOf[Long]
@@ -6226,6 +6325,7 @@ class JvmGen(
        |        !_nodeDownQueue.isEmpty ||
        |        !_clusterEventQueue.isEmpty ||
        |        !_leaderEventQueue.isEmpty ||
+       |        !_configEventQueue.isEmpty ||
        |        _electionInProgress ||
        |        _timers.nonEmpty ||
        |        actors.exists { (_, st) => st != null && st.blocked != null && st.blocked._3.isDefined } ||
@@ -6269,6 +6369,17 @@ class JvmGen(
        |        if _tag == "LeaderElected" then LeaderElected(_lid)
        |        else LeaderLost(_lid)
        |      val _it = _leaderEventSubs.iterator
+       |      while _it.hasNext do
+       |        val _aid = _it.next().longValue()
+       |        actors.get(_aid).foreach { ts =>
+       |          ts.mailbox.offer(_msg)
+       |          tryWakeBlocked(_aid)
+       |        }
+       |    // v1.23 — deliver config-change events to subscribers.
+       |    while !_configEventQueue.isEmpty do
+       |      val (_key, _val) = _configEventQueue.poll()
+       |      val _msg: Any = ConfigChanged(_key, _val)
+       |      val _it = _configEventSubs.iterator
        |      while _it.hasNext do
        |        val _aid = _it.next().longValue()
        |        actors.get(_aid).foreach { ts =>
