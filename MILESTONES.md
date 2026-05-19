@@ -442,10 +442,11 @@ unblocks downstream features as early as possible.
      v1.17.1 hardening ✓ Landed; v1.17.2 SSE/JS ✓ Landed;
      v1.17.3 prompts/JVM ✓ Landed; v1.17.4-min Http/Ws/JVM (minimal
      wiring, echo placeholder) ✓ Landed; v1.17.4-runtime consolidation
-     Phase 1 (a + b + c) + Phase 2 (a + b + c + d — pure helpers + POJO
-     HTTP model + RequestBuilder / ResponseWriter / StreamResponseWriter
-     + StaticAssetServer + WsHandshake / Reassembler / RateLimiter,
-     28 inlined files) ✓ Landed; v1.17.4 full (real
+     Phase 1 (a + b + c) + Phase 2 (a + b + c + d + e — pure helpers
+     + POJO HTTP model + RequestBuilder / ResponseWriter /
+     StreamResponseWriter + StaticAssetServer + WsHandshake /
+     Reassembler / RateLimiter + HttpDispatchLoop + WsFrameDispatch,
+     29 inlined files) ✓ Landed; v1.17.4 full (real
      `McpServerSession` dispatch + SDK import fixes) ✓ Landed (all
      2026-05-19).
      Anthropic's Model Context Protocol via REST-shaped API
@@ -454,9 +455,8 @@ unblocks downstream features as early as possible.
      `io.modelcontextprotocol:sdk` on JVM; interpreter +
      scalajs-spa reject at typecheck via SPI feature flags.
      Full design in [`docs/mcp.md`](docs/mcp.md).  Remaining
-     v1.17.x work: Phase 2 RouteDispatcher split (WebServer /
-     WsConnection extraction — ~2 day refactor), INT own-impl,
-     type-class layer, streaming resources.
+     v1.17.x work: INT own-impl, type-class layer,
+     streaming resources.
  22. **v1.18 — `package` keyword + std layout migration** ✓ Landed (all phases, 2026-05-19).
  23. **v1.19 — URL / dep imports** ✓ Landed.
      `[X](https://...)` URL fetch + `[X](dep:org/lib:1.2)`
@@ -3179,34 +3179,62 @@ the codegen output.
   replaced with ~30 LOC of one-line shims; `runtime-server-common`
   now packages **28** Scala files inlined into the codegen output.
 
+- **Phase 2e** — last structural piece: the per-request HTTP
+  envelope and the per-frame WS dispatcher.  Shipped as three
+  sub-commits, each independently shippable, to keep the
+  regression surface small:
+
+  | File | What it owns |
+  | --- | --- |
+  | `HttpDispatchLoop.scala` | `run(ex, method, path, params, handler, middlewares, cfg, onError)` — parse request via `RequestBuilder`, build middleware chain around a `Request => Any` base handler, trap `RestValidationError` → 400, dispatch result to `StreamResponseWriter.write` / `ResponseWriter.write`, catch generic `Exception` → `onError` + 5xx metric, cleanup spooled multipart tmpfiles in `finally`.  Backends only own the route table + handler-token lift / unwrap. |
+  | `WsFrameDispatch.scala` | `handle(frame, reassembler, onPing, onPong, onPeerClose, onDeliver, onProtocolError): Outcome` — RFC 6455 opcode match + reassembler hand-off + Close-payload status decode.  Returns `Stop` on peer-Close / protocol error (caller exits its read loop), `Continue` otherwise.  Backends keep their thread-affinity model (NIO selector vs per-VT) and supply IO / executor / interpreter-invoke hooks as plain lambdas. |
+
+  **Phase 2e-1** (warm-up): codegen `_runReadLoop` migrated to
+  the shared `WsReassembler` so its frag-state matches the
+  interpreter's onFrame post-Phase 2d.  Drops inline
+  `fragOpcode` / `fragBuf` state + unused
+  `ByteArrayOutputStream` import.
+
+  **Phase 2e-2**: `HttpDispatchLoop` extraction.
+  `JvmGen.serveRuntime._handle` shrinks from ~95 LOC of inline
+  dispatch to a ~25 LOC `HttpDispatchLoop.run` call.  The
+  codegen-only `_BodyTooLarge` exception class + `_writeResponse`
+  helper are dropped.  `WebServer.dispatchRoute` keeps the
+  interpreter-only `Value` ↔ POJO lift / unwrap / relift helpers
+  (~80 LOC of pure adapter) and hands its `pojoHandler` +
+  `pojoMws` to the shared loop.  The private
+  `handleStreamResponse` + `writeResponse` methods are deleted —
+  `HttpDispatchLoop` calls the shared writers directly.
+
+  **Phase 2e-3**: `WsFrameDispatch` extraction.  `WsConnection.onFrame`
+  collapses from a 5-arm opcode `match` to a single
+  `WsFrameDispatch.handle(...)` call with five inline hook
+  lambdas.  Codegen `_runReadLoop`'s post-2e-1 inline opcode
+  match likewise routes through the shared dispatcher.  The
+  codegen-side `_WsFrame` adapter case class + `_wsParseFrame`
+  shim are dropped — the read loop calls `WsFraming.tryParse`
+  directly and feeds the `WsFraming.Frame` POJO into
+  `WsFrameDispatch.handle`.  No more bare-Int opcode matching
+  anywhere in `serveRuntime`.
+
+  Net additional dedup: −129 LOC across the two backends, plus
+  ~175 LOC in two new shared files; the architectural cleanup
+  ("single source of truth for the per-request envelope + per-frame
+  WS dispatch") is the real win over raw LOC.
+  `runtime-server-common` now packages **29** Scala files inlined
+  into the codegen output.
+
 ### Deferred follow-ups (v1.17.x backlog, ordered by priority)
 
-1. **Phase 2e — RouteDispatcher trait + dispatch-loop split** — the
-   last structural piece: the middleware-chain builder + user-handler
-   invocation in `_handle` (codegen, calls `r.handler(req)`) vs
-   `dispatchRoute` (interpreter, calls
-   `entry.interpreter.invoke(entry.handler, List(valueReq))`), plus
-   the WS read-loop orchestration (`WsConnection` /
-   `WsProxy` interpreter-side, the per-VT loop in serveRuntime
-   codegen-side).  A `RouteDispatcher.dispatch(route: Token, req:
-   Request): Any` trait would let the shared loop call into each
-   backend's user-handler invocation; same shape for
-   `WsDispatcher.onMessage / onClose / …`.  Estimated 3–5 hours
-   focused work (the helpers above did most of the parsing /
-   writing); regression risk on every existing WS / REST conformance
-   test.  After this lands, `serveRuntime` shrinks from the current
-   ~800 LOC of glue to ~200 LOC of `RouteDispatcher` /
-   `WsDispatcher` adapter + the user-facing `route()` / `serve()` /
-   `onWebSocket()` aliases.
-2. **Own implementation for INT / scalajs-spa** — ~1500 LOC
+1. **Own implementation for INT / scalajs-spa** — ~1500 LOC
    JSON-RPC 2.0 stack; blocked until INT becomes a priority target.
-3. **Type-class layer** (`given McpTool[A, R]`, `derives McpSchema`)
+2. **Type-class layer** (`given McpTool[A, R]`, `derives McpSchema`)
    — depends on v1.14 `derives`.
-4. **Streaming resources** — depends on v1.10 Generators.
-5. **Bidirectional sampling** — MCP advanced feature.
-6. **`using mcpConnect(...) { client => … }` RAII** — needs
+3. **Streaming resources** — depends on v1.10 Generators.
+4. **Bidirectional sampling** — MCP advanced feature.
+5. **`using mcpConnect(...) { client => … }` RAII** — needs
    `using`-resource language feature.
-7. **MCP protocol version negotiation** when v2 emerges.
+6. **MCP protocol version negotiation** when v2 emerges.
 
 ### Open questions
 
