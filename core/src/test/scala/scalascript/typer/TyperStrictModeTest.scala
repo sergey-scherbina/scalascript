@@ -135,3 +135,86 @@ class TyperStrictModeTest extends AnyFunSuite:
     assert(!typed.hasErrors,
       s"function params should resolve in body; got errors:\n" +
       typed.errors.map(_.show).mkString("\n"))
+
+  // ── 7. Select against an imported module — exported member resolves ──────
+
+  /** A helper that builds a `ModuleInterface` with the given exports. */
+  private def ifaceWith(alias: String, exportNames: String*): ModuleInterface =
+    ModuleInterface(
+      magic         = scalascript.ir.ArtifactVersion.magic,
+      abiVersion    = scalascript.ir.ArtifactVersion.current,
+      pkg           = List(alias),
+      moduleName    = Some(alias),
+      moduleVersion = None,
+      sourceHash    = "0" * 64,
+      exports       = exportNames.toList.map(n => ExportedSymbol(
+        name = n,
+        fqn  = s"$alias.$n",
+        kind = "def",
+        tpe  = "Any"
+      ))
+    )
+
+  test("strict + Select — exported member of imported module resolves cleanly"):
+    val iface = ifaceWith("ImportedMod", "existing")
+    val typed = Typer.typeCheckWithInterfaces(
+      moduleOf("""def use(): Int = ImportedMod.existing"""),
+      interfaces = Map("ImportedMod" -> iface),
+      strict     = true
+    )
+    assert(!typed.hasErrors,
+      s"existing member should resolve; got errors:\n" +
+      typed.errors.map(_.show).mkString("\n"))
+
+  test("strict + Select — missing member of imported module is rejected"):
+    val iface = ifaceWith("ImportedMod", "other")
+    val typed = Typer.typeCheckWithInterfaces(
+      moduleOf("""def use(): Int = ImportedMod.missing"""),
+      interfaces = Map("ImportedMod" -> iface),
+      strict     = true
+    )
+    assert(typed.hasErrors,
+      "expected a diagnostic for ImportedMod.missing")
+    val msgs = typed.errors.map(_.msg).mkString(" | ")
+    assert(msgs.contains("ImportedMod") && msgs.contains("missing"),
+      s"expected diagnostic to mention both 'ImportedMod' and 'missing'; got: $msgs")
+
+  // ── 8. Select against a local val — never flagged (receiver isn't a module) ─
+
+  test("strict + Select — receiver is a same-module val: no error"):
+    val typed = Typer.typeCheckStrict(moduleOf(
+      """val localVal = 42
+        |def use(): Any = localVal.anyMember""".stripMargin
+    ))
+    assert(!typed.hasErrors,
+      s"Select on a local value should not be flagged; got errors:\n" +
+      typed.errors.map(_.show).mkString("\n"))
+
+  // ── 9. Select where qualifier itself is undefined — single fallback error ─
+
+  test("strict + Select — undefined qualifier falls back to bare-name check, no double-report"):
+    val typed = Typer.typeCheckStrict(moduleOf(
+      """def use(): Any = totallyUnknown.foo"""
+    ))
+    assert(typed.hasErrors,
+      "expected the bare-name undefined check to fire on the qualifier")
+    val msgs = typed.errors.map(_.msg)
+    val undefMsgs = msgs.filter(_.contains("totallyUnknown"))
+    assert(undefMsgs.length == 1,
+      s"expected exactly one diagnostic naming the missing qualifier, got ${undefMsgs.length}:\n" +
+      undefMsgs.mkString("\n"))
+    // And critically: no "has no member" error — the qualifier doesn't
+    // resolve to an imported module, so the member-missing check is silent.
+    assert(!msgs.exists(_.contains("has no member")),
+      s"unknown qualifier should not produce a member-missing error; got: ${msgs.mkString(" | ")}")
+
+  // ── 10. Builtin types: receivers with non-module types — no error ─────────
+
+  test("strict + Select — Select on a builtin literal (e.g. 1.toString) is not flagged"):
+    val typed = Typer.typeCheckStrict(moduleOf(
+      """val s1 = 1.toString
+        |val s2 = "x".length""".stripMargin
+    ))
+    assert(!typed.hasErrors,
+      s"Select on builtin literals should pass; got errors:\n" +
+      typed.errors.map(_.show).mkString("\n"))

@@ -336,6 +336,56 @@ class Typer(
     case Term.Interpolate(Term.Name(p), _, _) if p == "s" || p == "f" || p == "md" =>
       SType.String
 
+    // ── Strict-mode check for `q.m` where `q` is an imported module ──────────
+    //
+    // The existing `Term.Name` branch flags references to undefined top-level
+    // names.  This case extends the check one level deeper: when `q` is a
+    // known imported module (alias key in `importedInterfaces`), look up `m`
+    // in that module's exported names and emit a diagnostic if it is missing.
+    //
+    // Conservative — we deliberately only flag `Select(Term.Name(q), m)`
+    // where `q` resolves to an imported `ModuleInterface`.  This avoids
+    // false-positives for:
+    //   - method calls on values whose type is `Any` (interpreter intrinsics);
+    //   - builtins like `1.toString` / `"x".length` where the typer knows
+    //     the receiver type but not its method set;
+    //   - same-module values (`val x = 42; x.toString`).
+    //
+    // Deeper select chains (`a.b.c`) are left permissive for now.
+    // TODO: extend to multi-level paths once nested module / object support
+    // is in the typer's surface model.
+    case t @ Term.Select(qual @ Term.Name(qname), Term.Name(member)) =>
+      if strict then
+        importedInterfaces.get(qname) match
+          case Some(iface) =>
+            // `q` IS a known imported module — the only conservative check
+            // we can make here is whether `member` is in its exported set.
+            // We deliberately do NOT also fall back to the bare-name
+            // "undefined name" check in this branch: `q` IS defined (as an
+            // import alias), even though `InterfaceScope.fromInterfaces`
+            // flattens its exports rather than seeding `q` itself.
+            val exported = iface.exports.iterator.map(_.name).toSet ++
+                           iface.externDefs.iterator.map(_.name).toSet
+            if !exported.contains(member) then
+              errors += TypeError(
+                s"$qname has no member $member",
+                posToSpan(t.pos)
+              )
+          case None =>
+            // `q` is not a known imported module.  Don't report a member-
+            // missing error (we don't know what `q` is statically — could
+            // be a local val, a builtin literal receiver via toString, an
+            // interpreter intrinsic, etc.).  Only fall back to the bare-
+            // name undefined check when `q` is also not in the local scope,
+            // and do it exactly once so the existing `Term.Name` undefined
+            // check doesn't double-report.
+            if scope.lookup(qname).isEmpty && isFlaggableName(qname) then
+              errors += TypeError(
+                s"Reference to undefined name: $qname",
+                posToSpan(qual.pos)
+              )
+      SType.Any
+
     case Term.Select(_, _)        => SType.Any
     case Term.New(_)              => SType.Any
     case _: Term.Function         => SType.Any
