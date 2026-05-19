@@ -109,6 +109,24 @@ lazy val mcpCommon = project
     Test    / scalacOptions ++= sharedScalacOptions
   )
 
+// v1.17.6 / Phase S1 (HTTP server SPI — docs/http-server-spi-plan.md).
+// Trait definitions for pluggable HTTP/WS network-layer backends.
+// Three impl modules downstream consume this:
+//   - runtimeServerJvm                (default JDK impl)
+//   - runtimeServerJvmJetty           (optional, Jetty 12)
+//   - runtimeServerJvmNetty           (optional, Netty 4)
+// Depends on runtimeServerCommon for the POJO HTTP model
+// (Request / Response / StreamResponse) the traits reference.
+lazy val runtimeServerSpi = project
+  .in(file("runtime-server-spi"))
+  .dependsOn(runtimeServerCommon)
+  .settings(
+    name := "scalascript-runtime-server-spi",
+    libraryDependencies ++= Seq(scalatestTest),
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions
+  )
+
 // Phase 3 (Option A from docs/runtime-server-strategic-plan.md) —
 // JVM-specific server runtime that used to live inside the
 // `serveRuntime` triple-quoted string in JvmGen.scala.  Same
@@ -120,10 +138,11 @@ lazy val mcpCommon = project
 // Depends on `runtimeServerCommon` so the JVM-specific code can
 // import the POJO HTTP model + RequestBuilder / ResponseWriter /
 // HttpDispatchLoop / WsFraming / WsFrameDispatch / … helpers that
-// already live there.
+// already live there.  Now also dependsOn(runtimeServerSpi) so the
+// JdkServerBackend can implement HttpServerSpi.
 lazy val runtimeServerJvm = project
   .in(file("runtime-server-jvm"))
-  .dependsOn(runtimeServerCommon)
+  .dependsOn(runtimeServerCommon, runtimeServerSpi)
   .settings(
     name := "scalascript-runtime-server-jvm",
     libraryDependencies ++= Seq(scalatestTest),
@@ -402,7 +421,7 @@ lazy val cli = project
 lazy val root = project
   .in(file("."))
   .aggregate(
-    backendSpi, ir, core, runtimeServerCommon, runtimeServerJvm, mcpCommon,
+    backendSpi, ir, core, runtimeServerCommon, runtimeServerSpi, runtimeServerJvm, mcpCommon,
     backendJvm, backendJs, backendNode, backendScalajs, backendWasm, backendInterpreter,
     backendScalaSource, backendHtml, backendCss, backendSpark,
     cli
