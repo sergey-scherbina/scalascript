@@ -1,7 +1,7 @@
 ---
 name: std-parsing-core
-version: 1.0.0
-description: v1.20 std/parsing — Parser[A] ADT, Position, Span, ParseResult, ParseError, and primitive constructors
+version: 1.1.0
+description: v1.20.2 std/parsing — Parser[A] ADT, Position, Span, ParseResult, ParseError, primitive constructors, ParserContext nodes
 exports:
   - Position
   - Span
@@ -15,6 +15,10 @@ exports:
   - PSatisfy
   - PSucceed
   - PFail
+  - ParserContext
+  - NoContext
+  - PWithLocalContext
+  - PReadContext
 ---
 
 # `std/parsing/core` — Parser ADT and primitives
@@ -66,6 +70,26 @@ case class PSucceed[A](value: A) extends Parser[A]
 
 // Always fails with the given message.
 case class PFail(message: String) extends Parser[Any]
+
+// Run inner parser with an updated context; restore after inner completes.
+case class PWithLocalContext(inner: Any, update: Any) extends Parser[Any]
+
+// Read the current context and choose a parser dynamically.
+case class PReadContext(f: Any) extends Parser[Any]
+```
+
+## Parser context
+
+Parser-local state that travels through evaluation but is never part
+of the input position.  Used for indentation tracking, scope tracking,
+etc.  See `std/parsing/layout.ssc` for the indentation flavour.
+
+```scalascript
+// Marker trait — users subclass to carry their own context.
+trait ParserContext
+
+// Default: no context.  Evaluator fast-paths through this.
+case object NoContext extends ParserContext
 ```
 
 ## Companion constructors
@@ -78,4 +102,16 @@ object Parser:
   def satisfy(pred: Any): Parser[Any]            = PSatisfy(pred)
   def succeed[A](value: A): Parser[A]            = PSucceed(value)
   def fail(message: String): Parser[Any]         = PFail(message)
+
+  // Read the current ParserContext to produce the next parser.
+  def readCtx(f: Any): Parser[Any]              = PReadContext(f)
+```
+
+## Context extension methods
+
+```scalascript
+extension [A](p: Parser[A])
+  // Run `p` with the context replaced by `update(currentCtx)`,
+  // then restore the outer context when `p` finishes.
+  def localCtx(update: Any): Parser[Any] = PWithLocalContext(p, update)
 ```

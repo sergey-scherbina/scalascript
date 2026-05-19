@@ -1,0 +1,239 @@
+---
+name: std-parsing-layout
+version: 1.0.0
+description: v1.20.2 std/parsing — indentation-aware (layout-sensitive) parsing built on ParserContext
+exports:
+  - IndentContext
+  - withIndent
+  - sameIndent
+  - deeperIndent
+  - block
+  - line
+---
+
+# `std/parsing/layout` — indentation-aware parsing
+
+Layout-sensitive parser extensions built on the `ParserContext` mechanism
+shipped in v1.20.2.  Import this module to write DSLs where indentation
+carries syntactic meaning (config formats, scripting DSLs, YAML-like
+structures).
+
+[Position, ParseError, ParseOk, ParseErr, Parser, PChar, PString, PRegex, PSatisfy, PSucceed, PFail, ParserContext, NoContext, PWithLocalContext, PReadContext](core.ssc)
+
+[PSequence, PChoice, PMany, POpt, PMapped, PFlatMapped, PNamed, runParser](combinators.ssc)
+
+## IndentContext — the layout state
+
+```scalascript
+// Parser-local indentation state.
+//
+//   currentLevel — the column (1-based) at which items in the
+//                  current block must begin.  A `sameIndent` guard
+//                  checks that the next non-whitespace character
+//                  starts at exactly this column.
+//
+//   stack        — saved indent levels for enclosing blocks.
+//                  Push when entering a nested block; pop on exit.
+case class IndentContext(currentLevel: Int, stack: List[Int]) extends ParserContext
+
+object IndentContext:
+  // Construct a root context starting at column 1.
+  def root: IndentContext = IndentContext(1, Nil)
+
+  // Construct a root context at an explicit column.
+  def at(col: Int): IndentContext = IndentContext(col, Nil)
+```
+
+## Column-position helper
+
+`runParser` tracks character offset, not line+column.  To determine the
+column we inspect the text consumed up to the current `Position.offset`.
+
+```scalascript
+// Return the 1-based column of `pos` within `fullInput`.
+// Column 1 = first character on a line (after a newline or at offset 0).
+def columnOf(fullInput: String, pos: Position): Int =
+  val before = fullInput.substring(0, pos.offset)
+  val lastNl = before.lastIndexOf('\n')
+  if lastNl == -1 then pos.offset + 1      // first line
+  else pos.offset - lastNl                 // characters after last \n
+```
+
+## `PSameIndent` — column guard node
+
+A dedicated ADT node lets the interpreter fast-path the check without
+allocating closures on every call.
+
+```scalascript
+// Guard: succeed (consuming nothing) iff the current column equals
+// `requiredCol`.  Fails with a descriptive message otherwise.
+case class PSameIndent(requiredCol: Int) extends Parser[Any]
+
+// Guard: succeed iff current column > `minCol`.
+case class PDeeperIndent(minCol: Int) extends Parser[Any]
+```
+
+The `runParser` function in `combinators.ssc` does not know about these
+nodes.  The layout interpreter defined below handles them directly.
+
+```scalascript
+// Layout-aware interpreter — wraps runParser adding PSameIndent /
+// PDeeperIndent dispatch and threading the full input for column
+// calculations.
+def runLayout(p: Any, fullInput: String, remaining: String, pos: Position, ctx: Any): Any =
+  p match
+    case PSameIndent(required) =>
+      val col = columnOf(fullInput, pos)
+      if col == required then ParseOk((), remaining, pos)
+      else ParseErr(ParseError(
+        "indentation error: expected column " + required + ", got " + col, pos))
+    case PDeeperIndent(min) =>
+      val col = columnOf(fullInput, pos)
+      if col > min then ParseOk((), remaining, pos)
+      else ParseErr(ParseError(
+        "indentation error: expected column > " + min + ", got " + col, pos))
+    // Delegate all other nodes to the standard recursive-descent runner,
+    // but re-route recursive calls back through runLayout so that context
+    // nodes and column guards are always handled.
+    case PWithLocalContext(inner, update) =>
+      val innerCtx = update(ctx)
+      runLayout(inner, fullInput, remaining, pos, innerCtx)
+    case PReadContext(f) =>
+      val next = f(ctx)
+      runLayout(next, fullInput, remaining, pos, ctx)
+    case PSequence(left, right) =>
+      runLayout(left, fullInput, remaining, pos, ctx) match
+        case ParseOk(a, rest1, pos1) =>
+          runLayout(right, fullInput, rest1, pos1, ctx) match
+            case ParseOk(b, rest2, pos2) => ParseOk((a, b), rest2, pos2)
+            case err => err
+        case err => err
+    case PChoice(left, right) =>
+      runLayout(left, fullInput, remaining, pos, ctx) match
+        case ParseErr(_) => runLayout(right, fullInput, remaining, pos, ctx)
+        case ok          => ok
+    case PMany(inner, minCount) =>
+      def loop(inp: String, p2: Position, acc: List[Any]): Any =
+        runLayout(inner, fullInput, inp, p2, ctx) match
+          case ParseOk(v, rest, p3) => loop(rest, p3, acc :+ v)
+          case ParseErr(_)          => ParseOk(acc, inp, p2)
+      loop(remaining, pos, Nil) match
+        case ParseOk(acc, rest, p2) =>
+          if acc.length < minCount then
+            ParseErr(ParseError("expected at least " + minCount + " occurrences", pos))
+          else
+            ParseOk(acc, rest, p2)
+        case err => err
+    case POpt(inner) =>
+      runLayout(inner, fullInput, remaining, pos, ctx) match
+        case ParseOk(v, rest, pos2) => ParseOk(Some(v), rest, pos2)
+        case ParseErr(_)            => ParseOk(None, remaining, pos)
+    case PMapped(inner, f) =>
+      runLayout(inner, fullInput, remaining, pos, ctx) match
+        case ParseOk(v, rest, pos2) => ParseOk(f(v), rest, pos2)
+        case err                    => err
+    case PFlatMapped(inner, f) =>
+      runLayout(inner, fullInput, remaining, pos, ctx) match
+        case ParseOk(v, rest, pos2) => runLayout(f(v), fullInput, rest, pos2, ctx)
+        case err                    => err
+    case PNamed(inner, name) =>
+      runLayout(inner, fullInput, remaining, pos, ctx) match
+        case ParseErr(e) => ParseErr(ParseError("expected " + name, pos))
+        case ok          => ok
+    // Primitive nodes — delegate to standard runParser (no column needed).
+    case _ =>
+      runParser(p, remaining, pos, ctx)
+```
+
+## Public extension methods
+
+```scalascript
+extension [A](p: Parser[A])
+
+  // ── withIndent(n) ────────────────────────────────────────────────────────
+  // Run `p` with the current indent level set to `n`.
+  // Replaces the context for the duration of `p`; outer context restored.
+  //
+  //   val body = itemParser.block.withIndent(2)
+  def withIndent(n: Int): Parser[Any] =
+    p.localCtx {
+      case ic: IndentContext => ic.copy(currentLevel = n)
+      case _                 => IndentContext(n, Nil)
+    }
+
+  // ── sameIndent ───────────────────────────────────────────────────────────
+  // Guard: succeed (consuming nothing) iff the next character starts at the
+  // current indent level.  Used at the top of each repeated item in a block.
+  //
+  //   val items = (sameIndent ~> itemParser).many1()
+  def sameIndent: Parser[Any] =
+    Parser.readCtx {
+      case ic: IndentContext => PSameIndent(ic.currentLevel)
+      case _                 => Parser.fail("sameIndent requires IndentContext")
+    }
+
+  // ── deeperIndent ─────────────────────────────────────────────────────────
+  // Guard: succeed iff the next character is strictly to the right of the
+  // current indent level.  Used to open a child block.
+  //
+  //   val childBlock = deeperIndent ~> nested.block
+  def deeperIndent: Parser[Any] =
+    Parser.readCtx {
+      case ic: IndentContext => PDeeperIndent(ic.currentLevel)
+      case _                 => Parser.fail("deeperIndent requires IndentContext")
+    }
+
+  // ── block ─────────────────────────────────────────────────────────────────
+  // Parse one or more repetitions of `p` where each occurrence begins at
+  // the same column.  The indent level is pushed onto the stack when
+  // entering the block and popped on exit.
+  //
+  // The column of the *first* item determines the block's indent level.
+  // Subsequent items must start at the same column.
+  //
+  //   val stmtList = stmt.block   // List[Stmt]
+  def block: Parser[Any] =
+    // Use FlatMapped so we can read the position of the first item at
+    // parse time and derive the required column.
+    Parser.readCtx { ctx =>
+      val baseLevel = ctx match
+        case ic: IndentContext => ic.currentLevel
+        case _                 => 1
+      // First item: read its column, set as block level, parse one.
+      // Remaining items: each must start at the same column.
+      val firstItem: Parser[Any] = p.localCtx {
+        case ic: IndentContext => ic.copy(stack = ic.currentLevel :: ic.stack)
+        case _                 => IndentContext(baseLevel, Nil)
+      }
+      val restItem: Parser[Any] = Parser.readCtx { ctx2 =>
+        val level = ctx2 match
+          case ic: IndentContext => ic.currentLevel
+          case _                 => baseLevel
+        PSameIndent(level)
+      }.flatMap(_ => p)
+      firstItem.flatMap(first =>
+        restItem.many().map(rest => first :: rest)
+      )
+    }
+
+  // ── line ──────────────────────────────────────────────────────────────────
+  // Parse `p` followed by optional trailing spaces and a newline (or
+  // end-of-input).  Returns the result of `p`.
+  //
+  //   val kv = (identifier <~ char(':') <~ whitespace ~ identifier).line
+  def line: Parser[Any] =
+    p <~ Parser.regex("[ \t]*") <~ (Parser.string("\n") | Parser.regex("$"))
+```
+
+## Top-level parse entry points
+
+```scalascript
+// Parse `p` over `input` using layout-sensitive evaluation.
+// `ctx` defaults to `IndentContext.root` (column 1).
+extension [A](p: Parser[A])
+  def parseLayout(input: String): Any =
+    runLayout(p, input, input, Position(0), IndentContext.root)
+
+  def parseLayoutWith(input: String, ctx: IndentContext): Any =
+    runLayout(p, input, input, Position(0), ctx)
+```

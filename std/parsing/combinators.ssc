@@ -1,7 +1,7 @@
 ---
 name: std-parsing-combinators
-version: 1.0.0
-description: v1.20 std/parsing — combinator extension methods and recursive-descent interpreter
+version: 1.1.0
+description: v1.20.2 std/parsing — combinator extension methods and recursive-descent interpreter with ParserContext support
 exports:
   - PSequence
   - PChoice
@@ -19,7 +19,11 @@ Imports the core ADT from `core.ssc`, adds seven combinator case-class nodes,
 extension methods that build them (`~`, `|`, `map`, `flatMap`, `many`, `many1`,
 `opt`, `~>`, `<~`, `named`), and the default recursive-descent `parse` runner.
 
-[Position, ParseError, ParseOk, ParseErr, Parser, PChar, PString, PRegex, PSatisfy, PSucceed, PFail](core.ssc)
+The runner now carries a `ParserContext` through evaluation.  The default is
+`NoContext`, which adds no overhead.  Pass a custom context (e.g.
+`IndentContext`) to activate layout-sensitive parsing.
+
+[Position, ParseError, ParseOk, ParseErr, Parser, PChar, PString, PRegex, PSatisfy, PSucceed, PFail, ParserContext, NoContext, PWithLocalContext, PReadContext](core.ssc)
 
 ## Combinator ADT nodes
 
@@ -64,8 +68,13 @@ extension [A](p: Parser[A])
 
 ## Recursive-descent interpreter
 
+The `runParser` function carries a `ParserContext ctx` through every recursive
+call.  `PWithLocalContext` replaces the context for its subtree and restores
+it afterwards; `PReadContext` reads the current context to choose the next
+parser dynamically.
+
 ```scalascript
-def runParser(p: Any, input: String, pos: Position): Any =
+def runParser(p: Any, input: String, pos: Position, ctx: Any): Any =
   p match
     case PChar(c) =>
       if input.length == 0 then
@@ -95,19 +104,19 @@ def runParser(p: Any, input: String, pos: Position): Any =
     case PFail(msg) =>
       ParseErr(ParseError(msg, pos))
     case PSequence(left, right) =>
-      runParser(left, input, pos) match
+      runParser(left, input, pos, ctx) match
         case ParseOk(a, rest1, pos1) =>
-          runParser(right, rest1, pos1) match
+          runParser(right, rest1, pos1, ctx) match
             case ParseOk(b, rest2, pos2) => ParseOk((a, b), rest2, pos2)
             case err => err
         case err => err
     case PChoice(left, right) =>
-      runParser(left, input, pos) match
-        case ParseErr(_) => runParser(right, input, pos)
+      runParser(left, input, pos, ctx) match
+        case ParseErr(_) => runParser(right, input, pos, ctx)
         case ok          => ok
     case PMany(inner, minCount) =>
       def loop(inp: String, p2: Position, acc: List[Any]): Any =
-        runParser(inner, inp, p2) match
+        runParser(inner, inp, p2, ctx) match
           case ParseOk(v, rest, p3) => loop(rest, p3, acc :+ v)
           case ParseErr(_)          => ParseOk(acc, inp, p2)
       loop(input, pos, Nil) match
@@ -118,24 +127,37 @@ def runParser(p: Any, input: String, pos: Position): Any =
             ParseOk(acc, rest, p2)
         case err => err
     case POpt(inner) =>
-      runParser(inner, input, pos) match
+      runParser(inner, input, pos, ctx) match
         case ParseOk(v, rest, pos2) => ParseOk(Some(v), rest, pos2)
         case ParseErr(_)            => ParseOk(None, input, pos)
     case PMapped(inner, f) =>
-      runParser(inner, input, pos) match
+      runParser(inner, input, pos, ctx) match
         case ParseOk(v, rest, pos2) => ParseOk(f(v), rest, pos2)
         case err                    => err
     case PFlatMapped(inner, f) =>
-      runParser(inner, input, pos) match
-        case ParseOk(v, rest, pos2) => runParser(f(v), rest, pos2)
+      runParser(inner, input, pos, ctx) match
+        case ParseOk(v, rest, pos2) => runParser(f(v), rest, pos2, ctx)
         case err                    => err
     case PNamed(inner, name) =>
-      runParser(inner, input, pos) match
+      runParser(inner, input, pos, ctx) match
         case ParseErr(e) => ParseErr(ParseError("expected " + name, pos))
         case ok          => ok
+    // Context nodes (v1.20.2) ------------------------------------------------
+    case PWithLocalContext(inner, update) =>
+      // Apply the update function to the current context, run inner with the
+      // new context, then return the result (outer ctx is not affected).
+      val innerCtx = update(ctx)
+      runParser(inner, input, pos, innerCtx)
+    case PReadContext(f) =>
+      // f receives the current context and returns the parser to run next.
+      val next = f(ctx)
+      runParser(next, input, pos, ctx)
     case _ =>
       ParseErr(ParseError("unknown parser node", pos))
 
 extension [A](p: Parser[A])
-  def parse(input: String): Any = runParser(p, input, Position(0))
+  // Run the parser from the beginning of `input` with an optional context.
+  // Defaults to NoContext for backwards-compatibility.
+  def parse(input: String): Any                        = runParser(p, input, Position(0), NoContext)
+  def parseWith(input: String, ctx: Any): Any          = runParser(p, input, Position(0), ctx)
 ```
