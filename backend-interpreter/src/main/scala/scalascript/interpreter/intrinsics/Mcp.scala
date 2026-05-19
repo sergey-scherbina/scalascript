@@ -171,17 +171,64 @@ private object Mcp:
     val handler = Value.NativeFnV("mcp.http.handler", Computation.pureFn {
       case List(Value.InstanceV("Request", fields)) =>
         val body = fields.get("body").collect { case Value.StringV(s) => s }.getOrElse("")
-        val reply = McpServerCore.handleHttpRequest(builder, body, "ssc-mcp-int", "1.0.0")
-        val (status, respBody) =
-          if reply.isEmpty then (204, "")
-          else (200, reply)
-        Value.InstanceV("Response", Map(
-          "status"  -> Value.IntV(status.toLong),
-          "headers" -> Value.MapV(Map(
-            Value.StringV("Content-Type") -> Value.StringV("application/json")
-          )),
-          "body"    -> Value.StringV(respBody)
-        ))
+        // Streamable-HTTP: if the client sets `Accept: text/event-stream`,
+        // return the response body as an SSE stream.  Progress
+        // notifications emitted via `srv.notify(...)` during the tool's
+        // execution are written to this stream (the SSE writer is
+        // registered as a subscriber for the duration of dispatch),
+        // followed by the final JSON-RPC response as the last frame.
+        // Otherwise — plain JSON request/response (existing behavior).
+        val acceptsSse = fields.get("headers").collect {
+          case Value.MapV(m) =>
+            m.iterator.exists {
+              case (Value.StringV(k), Value.StringV(v)) =>
+                k.equalsIgnoreCase("Accept") && v.toLowerCase.contains("text/event-stream")
+              case _ => false
+            }
+        }.getOrElse(false)
+        if acceptsSse then
+          val sseHeaders = Value.MapV(Map(
+            (Value.StringV("Content-Type"):  Value) -> (Value.StringV("text/event-stream"):  Value),
+            (Value.StringV("Cache-Control"): Value) -> (Value.StringV("no-cache"):           Value)
+          ))
+          val callback = Value.NativeFnV("mcp.http.post.sse", Computation.pureFn {
+            case List(writeFn) =>
+              // Subscribe for the lifetime of dispatch so srv.notify(...)
+              // frames stream out as SSE data: ...\n\n.  Then run dispatch,
+              // write the final response as one more SSE frame, and
+              // unsubscribe.
+              val unsubscribe = builder.addSubscriber { line =>
+                try ctx.invokeCallback(writeFn,
+                  List(Value.StringV(s"data: ${line.stripSuffix("\n")}\n\n")))
+                catch case _: Throwable => ()
+              }
+              try
+                val reply = McpServerCore.handleHttpRequest(
+                  builder, body, "ssc-mcp-int", "1.0.0")
+                if reply.nonEmpty then
+                  ctx.invokeCallback(writeFn,
+                    List(Value.StringV(s"data: ${reply.stripSuffix("\n")}\n\n")))
+              finally unsubscribe()
+              Value.UnitV
+            case _ => Value.UnitV
+          })
+          Value.InstanceV("StreamResponse", Map(
+            "status"   -> Value.IntV(200L),
+            "headers"  -> sseHeaders,
+            "callback" -> callback
+          ))
+        else
+          val reply = McpServerCore.handleHttpRequest(builder, body, "ssc-mcp-int", "1.0.0")
+          val (status, respBody) =
+            if reply.isEmpty then (204, "")
+            else (200, reply)
+          Value.InstanceV("Response", Map(
+            "status"  -> Value.IntV(status.toLong),
+            "headers" -> Value.MapV(Map(
+              Value.StringV("Content-Type") -> Value.StringV("application/json")
+            )),
+            "body"    -> Value.StringV(respBody)
+          ))
       case _ => Value.InstanceV("Response", Map(
         "status"  -> Value.IntV(400L),
         "headers" -> Value.MapV(Map.empty),

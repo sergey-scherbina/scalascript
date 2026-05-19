@@ -135,7 +135,14 @@ class McpHttpClient(url: String, timeoutMs: Long):
       client.send(req, HttpResponse.BodyHandlers.discarding())
     catch case _: Throwable => ()  // best-effort
 
-  /** Send a request and block until the HTTP response arrives. */
+  /** Send a request and block until the HTTP response arrives.
+   *
+   *  Server can answer in either of two formats:
+   *    - `Content-Type: application/json` — single JSON frame in the body.
+   *    - `Content-Type: text/event-stream` — Streamable-HTTP: SSE frames
+   *       carry zero+ notifications (dispatched to setNotificationHandler
+   *       on arrival) followed by the final response frame.  Lets servers
+   *       interleave progress updates with the final tools/call result. */
   def request(method: String, params: ujson.Value, customTimeoutMs: Long = 0L): Either[JsonRpc.Error, ujson.Value] =
     if closed then return Left(JsonRpc.Error(JsonRpc.ErrorCode.InternalError, "client closed"))
     val id   = nextId.getAndIncrement()
@@ -147,19 +154,33 @@ class McpHttpClient(url: String, timeoutMs: Long):
         .uri(URI.create(url))
         .timeout(Duration.ofMillis(rt))
         .header("Content-Type", "application/json")
-        .header("Accept", "application/json")
+        .header("Accept", "application/json, text/event-stream")
         .POST(HttpRequest.BodyPublishers.ofString(body))
         .build()
-      val resp = client.send(req, HttpResponse.BodyHandlers.ofString())
+      val resp = client.send(req, HttpResponse.BodyHandlers.ofInputStream())
       if resp.statusCode() < 200 || resp.statusCode() >= 300 then
+        // Best-effort body read for the error message — read a small
+        // chunk so we don't hang on a slow stream.
+        val errBody = try
+          val r = new java.io.BufferedReader(new java.io.InputStreamReader(resp.body(), "UTF-8"))
+          val sb = new StringBuilder
+          var i = 0; var line: String | Null = r.readLine()
+          while line != null && i < 5 do { sb.append(line).append('\n'); i += 1; line = r.readLine() }
+          sb.toString()
+        catch case _: Throwable => ""
         Left(JsonRpc.Error(JsonRpc.ErrorCode.InternalError,
-          s"HTTP ${resp.statusCode()}: ${resp.body().take(200)}"))
+          s"HTTP ${resp.statusCode()}: ${errBody.take(200)}"))
       else
-        JsonRpc.parse(resp.body()) match
-          case Right(JsonRpc.Message.Response(_, Some(result), None)) => Right(result)
-          case Right(JsonRpc.Message.Response(_, None, Some(err)))    => Left(err)
-          case Right(_) => Left(JsonRpc.Error(JsonRpc.ErrorCode.InternalError, "unexpected response shape"))
-          case Left(e)  => Left(JsonRpc.Error(JsonRpc.ErrorCode.ParseError, e))
+        val ct = Option(resp.headers().firstValue("Content-Type").orElse(null)).getOrElse("")
+        if ct.toLowerCase.contains("text/event-stream") then
+          parseSseResponseStream(resp.body(), id)
+        else
+          val bodyStr = new String(resp.body().readAllBytes(), "UTF-8")
+          JsonRpc.parse(bodyStr) match
+            case Right(JsonRpc.Message.Response(_, Some(result), None)) => Right(result)
+            case Right(JsonRpc.Message.Response(_, None, Some(err)))    => Left(err)
+            case Right(_) => Left(JsonRpc.Error(JsonRpc.ErrorCode.InternalError, "unexpected response shape"))
+            case Left(e)  => Left(JsonRpc.Error(JsonRpc.ErrorCode.ParseError, e))
     catch
       case _: java.net.http.HttpTimeoutException =>
         Left(JsonRpc.Error(JsonRpc.ErrorCode.InternalError, s"request '$method' timed out after ${rt}ms"))
@@ -167,6 +188,38 @@ class McpHttpClient(url: String, timeoutMs: Long):
         Left(JsonRpc.Error(JsonRpc.ErrorCode.InternalError,
           Option(e.getMessage).getOrElse(e.getClass.getSimpleName)))
     finally pending.remove(id)
+
+  /** Parse an SSE-streamed response body inline.  Notification frames
+   *  fan out to the registered notification handler; the matching
+   *  Response frame (id == expectedId) ends the loop and is returned.
+   *  Stops on stream EOF — returns InternalError if no matching
+   *  response arrived. */
+  private def parseSseResponseStream(in: java.io.InputStream, expectedId: Long): Either[JsonRpc.Error, ujson.Value] =
+    val reader = new java.io.BufferedReader(new java.io.InputStreamReader(in, "UTF-8"))
+    val buf = new StringBuilder
+    var line: String | Null = null
+    try
+      while { line = reader.readLine(); line != null } do
+        if line.isEmpty then
+          if buf.nonEmpty then
+            val frame = buf.toString(); buf.clear()
+            JsonRpc.parse(frame) match
+              case Right(JsonRpc.Message.Notification(m, p)) =>
+                val h = notificationHandler
+                if h != null then try h(m, p) catch case _: Throwable => ()
+              case Right(JsonRpc.Message.Response(idJson, result, err)) =>
+                val idMatches = idJson.numOpt.exists(_.toLong == expectedId)
+                if idMatches then
+                  return err match
+                    case Some(e) => Left(e)
+                    case None    => Right(result.getOrElse(ujson.Null))
+              case _ => ()  // ignore stray Requests / parse errors mid-stream
+        else if line.startsWith("data: ") then
+          if buf.nonEmpty then buf.append('\n')
+          buf.append(line.substring(6))
+    catch case _: Throwable => ()
+    Left(JsonRpc.Error(JsonRpc.ErrorCode.InternalError,
+      "SSE response stream ended without a matching response frame"))
 
   /** Fire-and-forget notification — POSTs the frame and ignores the
    *  HTTP response body. */

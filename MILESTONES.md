@@ -3414,14 +3414,34 @@ the codegen output.
      and POST the response back.  HTTP is now fully symmetric
      with Stdio/Spawn/Ws for bidirectional sampling.
 
-   63 tests across eleven suites all pass (McpRuntimeTest 18,
+   - **Streamable-HTTP SSE response body** — when the client sends
+     `Accept: application/json, text/event-stream`, the HTTP POST
+     /mcp handler can stream `data: <json>\n\n` SSE frames that
+     interleave progress notifications (emitted via `srv.notify`
+     during tool execution) with the final response.  The POST
+     handler in `installHttpRoute` detects the Accept header and
+     switches to a `StreamResponse` whose callback registers the
+     SSE writer as a `builder.addSubscriber` for the duration of
+     `handleHttpRequest`, then writes the final response as one
+     more SSE frame.  Client side: `McpHttpClient.request`
+     inspects `Content-Type` and dispatches Notification frames to
+     `notificationHandler` inline while waiting for the matching
+     Response frame.  Tool authors can emit `srv.notify("progress",
+     ...)` during a long-running tool and the client sees both the
+     progress updates and the final result via a single
+     `request(...)` call.
+   65 tests across twelve suites all pass (McpRuntimeTest 18,
    McpEndToEndTest 2, McpInterpreterIntegrationTest 3, McpHttpTransportTest
    5, JsRuntimeMcpBrowserTest 13, McpWsTransportTest 2,
    McpNotificationTest 5, McpServerNotifyTest 6, McpHttpSseNotifyTest 1,
-   McpBidiSamplingTest 7, McpHttpBidiTest 1).
+   McpBidiSamplingTest 7, McpHttpBidiTest 1, McpStreamableHttpTest 2).
 
-   **Still deferred**: SSE-as-response-body for Streamable-HTTP
-   multi-response tools (currently only synchronous JSON responses).
+   v1.17.x is now feature-complete on all 5 transport surfaces
+   (Stdio / Spawn / Http / Ws / Browser-XHR + Browser-fetch) with
+   full bidirectional capability (server↔client requests +
+   notifications + streaming responses).  Remaining items in this
+   backlog are all blocked on prerequisite language features.
+
 2. **Type-class layer** (`given McpTool[A, R]`, `derives McpSchema`)
    — depends on v1.14 `derives`.
 3. **Streaming resources** — depends on v1.10 Generators.
