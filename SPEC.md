@@ -1390,18 +1390,44 @@ Spark backend).  The user does not rewrite the pipeline to switch.
 | **A — SPI integration** | Wrap the existing `SparkGen` invocation in a proper `Backend extends Backend` with `META-INF/services` registration; remove the `runViaSparkBackend` special case in `Main.runCommand`. | Today Spark is the only bundled target reached through a side-path instead of the SPI; this blocks Capabilities-driven block-language gating (§ 9.4) and `--describe-backend spark`. | open (~½ day) |
 | **B.1 — Master URL parameterisation** | `--spark-master <url>` CLI flag + `spark-master:` front-matter key threaded through `BackendOptions.extra("sparkMaster")` into `SparkGen`.  Same source compiles to `local[*]` (default), `local[N]`, `spark://...`, `yarn`, `k8s://...`. | Unblocks running against an existing Spark cluster from the same source that runs locally. | landed |
 | **B.2 — `spark-submit` packaging** | `ssc submit file.ssc --spark-master spark://...` packages a fat JAR and shells out to `spark-submit`. | B.1 ships the driver via `scala-cli` which works for Spark Standalone but not for YARN/K8s production deployments. | open (~1 week) |
-| **C — Spark SQL / DataFrames** | Expose `DataFrame` as `Dataset[Row]`; map `std/parsing` schemas to Spark `StructType`; reuse the `sql` fenced block (§ 3.3.1) — when `backend: spark`, `sql` compiles to Spark SQL instead of JDBC. | Gives typed SQL atop `Dataset` without inventing new surface syntax.  Requires designing the `sql`-tag dual semantics (Spark SQL vs JDBC) — see Open Questions below. | open (~1 week + design) |
+| **C.1 — `sql` block → `spark.sql(...)`** | `sql` declared in `SparkCapabilities.blockLanguages`; the shared `SqlBindRewriter` produces `:bind<N>` placeholders consumed by Spark SQL 3.4+'s parameterised `sql(text, args)`.  Each `sql` block binds to a sequential `val _sqlBlock_<n>: org.apache.spark.sql.DataFrame` in the `@main` scope, accessible from subsequent `scalascript` blocks. | Reuses the same `sql` surface as the JDBC target (§ 3.3.1) — same source, different runtime. | landed |
+| **C.2 — DataFrame ergonomics + schema bridge** | Expose `DataFrame` as `Dataset[Row]` more thoroughly; map `std/parsing` schemas to Spark `StructType`; section-based naming (`<sectionId>.sql` instead of `_sqlBlock_<n>`); `>10` binds via `Map.ofEntries`. | C.1 ships the runtime contract; C.2 polishes the ergonomics. | open |
 
 #### Spark vs JDBC `sql` blocks
 
-The `sql` fenced tag (§ 3.3.1) currently compiles to a JDBC
-`PreparedStatement` with `${expr}` rewritten to positional `?` binds.
-Under Phase C the same tag, on a Spark-targeted module, compiles to
-`spark.sql("...")` — the binding rule still rewrites `${expr}` to a
-bind-safe placeholder, but the result type becomes
-`Dataset[Row]` rather than `Seq[Row]` / `Int`.  Two consumers of one
-tag is intentional: a `sql` block describes *what to ask*, not *how
-to dispatch it*, and the active backend chooses the dispatcher.
+The `sql` fenced tag (§ 3.3.1) compiles to one of two runtime shapes
+depending on which backend consumes it:
+
+| Backend | Rewrite | Dispatch | Result type |
+|---------|---------|----------|-------------|
+| JVM (v1.26 follow-up) | `${expr}` → `?` (positional JDBC) | `JdbcRuntime.execute(conn, sqlWithQ, binds)` | `Seq[Row]` (SELECT-family) or `Int` (DML/DDL) |
+| Spark (Phase C.1, landed) | `${expr}` → `:bind<N>` (named Spark SQL parameter) | `spark.sql(sqlText, java.util.Map.of("bind0", e0, ...))` | `org.apache.spark.sql.DataFrame` (= `Dataset[Row]`) |
+
+The shared `SqlBindRewriter` in `core/transform/` walks the block
+source once, producing `(rewrittenSqlText, binds: List[String])`.  The
+two backends differ only in the placeholder format passed to the
+rewriter and in the dispatcher invoked on the rewritten output — the
+contract that **every `${expr}` is a bind, never a string splice** is
+identical across both targets.
+
+Phase C.1 emits each `sql` block as a sequential
+`val _sqlBlock_<n>: DataFrame = spark.sql(...)` in the generated
+`@main def runSparkJob` scope.  Subsequent `scalascript` blocks in the
+same module reference the DataFrame by name (`_sqlBlock_0.show()`,
+`val rows = _sqlBlock_0.collect().toList`, etc.).  Section-based
+binding (e.g. `<sectionId>.sql`) is Phase C.2 polish.
+
+Lexer-level behaviour pinned by the rewriter:
+
+```sql
+SELECT * FROM users WHERE name = '${name}'
+```
+
+rewrites to (Spark SQL flavour) `SELECT * FROM users WHERE name = ':bind0'`
+— the quotes are preserved verbatim (the rewriter is not SQL-aware),
+so Spark treats `:bind0` as a literal string inside the quoted SQL
+literal.  Users wanting parameter binding should drop the quotes:
+`WHERE name = ${name}` → `WHERE name = :bind0` (a real bind).
 
 #### Spark configuration resolution
 

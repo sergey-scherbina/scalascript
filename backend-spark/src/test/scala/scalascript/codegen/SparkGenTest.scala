@@ -55,6 +55,120 @@ class SparkGenTest extends AnyFunSuite:
     assert(gen(src).contains(""".master("local[*]")"""))
   }
 
+  // ── Phase C: sql blocks → spark.sql(...) ─────────────────────────────────
+
+  test("sql block with no binds emits single-arg spark.sql call") {
+    val src =
+      """|# Test
+         |
+         |```sql
+         |SELECT 1 AS one, 2 AS two
+         |```
+         |""".stripMargin
+    val code = gen(src)
+    assert(code.contains("_sqlBlock_0"))
+    assert(code.contains("spark.sql("))
+    assert(code.contains("SELECT 1 AS one, 2 AS two"))
+    // No-bind path must not emit the Map.of(...) argument.
+    assert(!code.contains("java.util.Map.of"),
+      s"no-bind sql block should not emit Map.of argument:\n$code")
+  }
+
+  test("sql block with binds emits named placeholders + java.util.Map.of") {
+    val src =
+      """|# Test
+         |
+         |```scalascript
+         |val tenantId = 42
+         |val status = "active"
+         |```
+         |
+         |```sql
+         |SELECT id, name FROM users
+         |WHERE tenant_id = ${tenantId} AND status = ${status}
+         |```
+         |""".stripMargin
+    val code = gen(src)
+    // SqlBindRewriter rewrites to :bind0 / :bind1.
+    assert(code.contains(":bind0"), s"expected :bind0 placeholder, got:\n$code")
+    assert(code.contains(":bind1"), s"expected :bind1 placeholder, got:\n$code")
+    // Named-args map captures the original Scala expressions.
+    assert(code.contains("java.util.Map.of"))
+    assert(code.contains(""""bind0", tenantId"""))
+    assert(code.contains(""""bind1", status"""))
+  }
+
+  test("multiple sql blocks get sequential _sqlBlock_<N> names") {
+    val src =
+      """|# Test
+         |
+         |```sql
+         |SELECT 1
+         |```
+         |
+         |```sql
+         |SELECT 2
+         |```
+         |
+         |```sql
+         |SELECT 3
+         |```
+         |""".stripMargin
+    val code = gen(src)
+    assert(code.contains("_sqlBlock_0"))
+    assert(code.contains("_sqlBlock_1"))
+    assert(code.contains("_sqlBlock_2"))
+  }
+
+  test("sql block bound to DataFrame type so scalascript blocks can use it") {
+    val src =
+      """|# Test
+         |
+         |```sql
+         |SELECT id, name FROM users
+         |```
+         |
+         |```scalascript
+         |_sqlBlock_0.show()
+         |val rows = _sqlBlock_0.collect().toList
+         |```
+         |""".stripMargin
+    val code = gen(src)
+    // Type annotation is essential — Spark's spark.sql returns DataFrame
+    // and we want subsequent scalascript blocks to see that type explicitly.
+    assert(code.contains("org.apache.spark.sql.DataFrame"))
+    // The scalascript block referencing _sqlBlock_0 should appear later
+    // in the same @main scope.
+    val sqlIdx  = code.indexOf("val _sqlBlock_0:")
+    val showIdx = code.indexOf("_sqlBlock_0.show()")
+    assert(sqlIdx >= 0 && showIdx > sqlIdx,
+      s"sql block (at $sqlIdx) must come before user reference (at $showIdx)")
+  }
+
+  test("sql + scalascript mixed in document order — order preserved") {
+    val src =
+      """|# Test
+         |
+         |```scalascript
+         |val before = 1
+         |```
+         |
+         |```sql
+         |SELECT * FROM t
+         |```
+         |
+         |```scalascript
+         |val after = 2
+         |```
+         |""".stripMargin
+    val code      = gen(src)
+    val beforeIdx = code.indexOf("val before = 1")
+    val sqlIdx    = code.indexOf("_sqlBlock_0")
+    val afterIdx  = code.indexOf("val after = 2")
+    assert(beforeIdx >= 0 && sqlIdx > beforeIdx && afterIdx > sqlIdx,
+      s"document order broken: before@$beforeIdx, sql@$sqlIdx, after@$afterIdx")
+  }
+
   test("generated header documents Spark version and run instructions") {
     val code = gen(
       """|# Test

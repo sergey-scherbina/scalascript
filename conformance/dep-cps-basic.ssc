@@ -3,7 +3,6 @@
 name: dep-cps-basic
 description: Canonical green target for Strategy D (dep-mode CPS rewrite) — Steps 1-4 of docs/dep-cps-rewrite.md
 backends: [jvm]
-pending: needs Strategy D from docs/dep-cps-rewrite.md (dep-mode CPS rewriter)
 ---
 
 # Dep-mode CPS rewriter — minimal fixture

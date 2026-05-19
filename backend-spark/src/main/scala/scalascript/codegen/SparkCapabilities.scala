@@ -43,5 +43,9 @@ val SparkCapabilities: Capabilities = Capabilities(
   outputs        = Set(OutputKind.ExecutionResult),
   options        = Set("sparkVersion", "sparkMaster"),
   spiRange       = SpiVersionRange(SpiVersion.Current, SpiVersion.Current),
-  blockLanguages = Set.empty
+  // Phase C: `sql` fenced blocks (SPEC.md § 3.3.1) compile to
+  // `spark.sql(sqlText, namedParams)` on Spark targets — see SparkGen
+  // for the emission logic.  The `node.js` tag is intentionally NOT
+  // declared; Spark consumes `scalascript` / `scala` / `sql` only.
+  blockLanguages = Set(scalascript.ast.Lang.Sql)
 )
