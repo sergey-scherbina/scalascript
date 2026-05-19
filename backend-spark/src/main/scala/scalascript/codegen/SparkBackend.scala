@@ -64,7 +64,8 @@ import scalascript.transform.Denormalize
  *  values with `=` in them (rare but legal). */
 object SparkBackend:
 
-  val SparkConfigOption: String = "sparkConfig"
+  val SparkConfigOption:  String = "sparkConfig"
+  val SparkAppNameOption: String = "sparkAppName"
 
   def encodeSparkConfig(m: Map[String, String]): String =
     m.toList.sortBy(_._1).map { case (k, v) => s"$k=$v" }.mkString("\n")
@@ -108,13 +109,15 @@ class SparkBackend extends Backend:
     val extraConfig  = opts.extra.get(SparkBackend.SparkConfigOption)
       .map(SparkBackend.decodeSparkConfig)
       .getOrElse(Map.empty)
+    val appName      = opts.extra.getOrElse(SparkBackend.SparkAppNameOption, SparkGen.DefaultAppName)
     val baseDir      = opts.baseDir.map(p => os.Path(p.toAbsolutePath.toString))
     val code         = SparkGen.generate(
       astModule,
       baseDir      = baseDir,
       sparkVersion = sparkVersion,
       sparkMaster  = sparkMaster,
-      extraConfig  = extraConfig
+      extraConfig  = extraConfig,
+      appName      = appName
     )
     val hash         = java.lang.Integer.toHexString(code.hashCode & 0x7fffffff)
     val tmpFile      = os.Path(s"/tmp/ssc-spark-$hash.scala")

@@ -62,14 +62,22 @@ object SparkGen:
    *  because the JDK `Map.of` overloads only go up to 10 key/value pairs. */
   val MapOfMaxPairs: Int = 10
 
+  /** Default application name emitted on `SparkSession.builder().appName(...)`.
+   *  Phase C.3 slice 4 of v1.25 § 9.5 lets a module override this via the
+   *  `spark-app-name:` front-matter key — the value shows up verbatim in
+   *  the Spark UI, history server, and driver / executor log lines, so a
+   *  human-readable per-job name is worth surfacing. */
+  val DefaultAppName: String = "scalascript-job"
+
   def generate(
       module:       Module,
-      baseDir:      Option[os.Path] = None,
-      sparkVersion: String          = DefaultVersion,
-      sparkMaster:  String          = DefaultMaster,
-      extraConfig:  Map[String, String] = Map.empty
+      baseDir:      Option[os.Path]     = None,
+      sparkVersion: String              = DefaultVersion,
+      sparkMaster:  String              = DefaultMaster,
+      extraConfig:  Map[String, String] = Map.empty,
+      appName:      String              = DefaultAppName
   ): String =
-    SparkGen(baseDir, sparkVersion, sparkMaster, extraConfig).genModule(module)
+    SparkGen(baseDir, sparkVersion, sparkMaster, extraConfig, appName).genModule(module)
 
   /** A collected ScalaScript code block ready for emission. */
   private[codegen] case class Block(src: String)
@@ -78,7 +86,8 @@ private class SparkGen(
     baseDir:      Option[os.Path]     = None,
     sparkVersion: String              = SparkGen.DefaultVersion,
     sparkMaster:  String              = SparkGen.DefaultMaster,
-    extraConfig:  Map[String, String] = Map.empty
+    extraConfig:  Map[String, String] = Map.empty,
+    appName:      String              = SparkGen.DefaultAppName
 ):
 
   // Resolved paths already inlined via Content.Import (diamond-safe).
@@ -135,7 +144,7 @@ private class SparkGen(
     // @main wrapper opens here.
     sb.append("\n@main def runSparkJob(): Unit =\n")
     sb.append("  val spark = SparkSession.builder()\n")
-    sb.append("    .appName(\"scalascript-job\")\n")
+    sb.append(s"""    .appName("${escape(appName)}")\n""")
     sb.append(s"""    .master("$sparkMaster")\n""")
     sb.append("    .config(\"spark.ui.enabled\", \"false\")\n")
     sb.append("    .config(\"spark.sql.shuffle.partitions\", \"4\")\n")

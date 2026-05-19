@@ -1555,10 +1555,17 @@ def runCommand(args: List[String]): Unit =
               .flatMap(_.raw.get("spark-config"))
               .map(SparkBackend.fromYamlMap)
               .getOrElse(Map.empty)
+            // `spark-app-name:` front-matter override for the Spark UI
+            // / driver / executor log name (Phase C.3 slice 4).
+            val appName = module.manifest
+              .flatMap(_.raw.get("spark-app-name"))
+              .collect { case s: String => s }
             val base = Map("sparkVersion" -> version, "sparkMaster" -> master)
-            if configMap.isEmpty then base
-            else base + (SparkBackend.SparkConfigOption ->
-                         SparkBackend.encodeSparkConfig(configMap))
+            val withConfig =
+              if configMap.isEmpty then base
+              else base + (SparkBackend.SparkConfigOption ->
+                           SparkBackend.encodeSparkConfig(configMap))
+            appName.fold(withConfig)(n => withConfig + (SparkBackend.SparkAppNameOption -> n))
           else Map.empty
         compileViaBackend(effectiveBackend, path, extras) match
           case CompileResult.Executed(stdout, stderr, exit) =>
@@ -2038,12 +2045,16 @@ def emitSparkCommand(args: List[String]): Unit =
           .flatMap(_.raw.get("spark-config"))
           .map(SparkBackend.fromYamlMap)
           .getOrElse(Map.empty[String, String])
+        val appName = module.manifest.flatMap(_.raw.get("spark-app-name"))
+          .collect { case s: String => s }
+          .getOrElse(SparkGen.DefaultAppName)
         val code = SparkGen.generate(
           module,
           baseDir      = Some(path / os.up),
           sparkVersion = sparkVersion,
           sparkMaster  = sparkMaster,
-          extraConfig  = sparkConfig
+          extraConfig  = sparkConfig,
+          appName      = appName
         )
         outputArg match
           case Some("-") | None => println(code)
@@ -2133,12 +2144,16 @@ def submitCommand(args: List[String]): Unit =
       .flatMap(_.raw.get("spark-config"))
       .map(SparkBackend.fromYamlMap)
       .getOrElse(Map.empty[String, String])
+    val appName = module.manifest.flatMap(_.raw.get("spark-app-name"))
+      .collect { case s: String => s }
+      .getOrElse(SparkGen.DefaultAppName)
     val code = SparkGen.generate(
       module,
       baseDir      = Some(path / os.up),
       sparkVersion = sparkVersion,
       sparkMaster  = sparkMaster,
-      extraConfig  = sparkConfig
+      extraConfig  = sparkConfig,
+      appName      = appName
     )
     val hash    = java.lang.Integer.toHexString(code.hashCode & 0x7fffffff)
     val srcPath = os.Path(s"/tmp/ssc-spark-$hash.scala")

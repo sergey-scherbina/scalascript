@@ -41,11 +41,15 @@ val SparkCapabilities: Capabilities = Capabilities(
     Feature.Dataset
   ),
   outputs        = Set(OutputKind.ExecutionResult),
-  // `sparkConfig` carries the encoded `Map[String, String]` of
-  // `spark-config:` front-matter entries (Phase C.3 slice 3), surfaced
-  // here so `--describe-backend spark` advertises it alongside the
-  // existing version/master knobs.
-  options        = Set("sparkVersion", "sparkMaster", "sparkConfig"),
+  // `sparkConfig`  carries the encoded `Map[String, String]` of
+  //                `spark-config:` front-matter entries (Phase C.3 slice 3).
+  // `sparkAppName` overrides `.appName(...)` on `SparkSession.builder`
+  //                (Phase C.3 slice 4) so the Spark UI / history server /
+  //                driver+executor logs show a human-readable per-job
+  //                name instead of the default `scalascript-job`.
+  // Both surfaced here so `--describe-backend spark` advertises them
+  // alongside the existing version/master knobs.
+  options        = Set("sparkVersion", "sparkMaster", "sparkConfig", "sparkAppName"),
   spiRange       = SpiVersionRange(SpiVersion.Current, SpiVersion.Current),
   // Phase C: `sql` fenced blocks (SPEC.md § 3.3.1) compile to
   // `spark.sql(sqlText, namedParams)` on Spark targets — see SparkGen

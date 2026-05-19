@@ -137,6 +137,24 @@ class SubmitCommandTest extends AnyFunSuite:
       s"expected exactly one --master in output, got $masterOccurrences:\n$out")
   }
 
+  test("front-matter spark-app-name bakes .appName(...) into the generated source") {
+    val tmp = os.temp.dir()
+    val ssc = writeFixture(tmp, frontMatter = "spark-app-name: My ETL Pipeline (prod)")
+    val out = captureStdout {
+      scalascript.cli.submitCommand(List("--dry-run", ssc.toString))
+    }
+    val sourceLine = out.linesIterator.find(_.startsWith("# source:")).getOrElse(
+      fail(s"submit dry-run did not print source path, got:\n$out")
+    )
+    val sourcePath = os.Path(sourceLine.stripPrefix("# source:").trim)
+    val source     = os.read(sourcePath)
+    assert(source.contains(""".appName("My ETL Pipeline (prod)")"""),
+      s"spark-app-name not baked into source:\n$source")
+    // Default name must not coexist with the override.
+    assert(!source.contains(""".appName("scalascript-job")"""),
+      s"default appName must not coexist with override, got:\n$source")
+  }
+
   test("front-matter spark-config bakes .config(k, v) into the generated source") {
     // The submit pipeline writes the generated Spark Scala to
     // /tmp/ssc-spark-<hash>.scala (printed in --dry-run output);

@@ -6288,11 +6288,14 @@ Thin `backend-wasm-contract/` layer on top of `backend-wasm/` for Near or Polkad
 > `--` pass-through for cluster-specific tuning),
 > C.1 (`sql` block → `spark.sql(text, args)`), C.2 (section-based `<sectionId>.sql`
 > alias), C.3 slice 1 (`>10` binds → `java.util.Map.ofEntries`), C.3 slice 2
-> (widen `sparkImports` with `Row`, `DataFrame`, `types._`), and C.3 slice 3
+> (widen `sparkImports` with `Row`, `DataFrame`, `types._`), C.3 slice 3
 > (`spark-config:` front-matter map → sorted `.config(k, v)` on
-> `SparkSession.builder()`) all landed.  CLI side: `--describe-backend` also
-> grew `capabilities.options` + `capabilities.blockLanguages` lines so the
-> Spark surface is fully discoverable from the command line.
+> `SparkSession.builder()`), and C.3 slice 4 (`spark-app-name:` front-matter
+> overrides `.appName(...)` so the Spark UI / history server / driver+executor
+> logs show a human-readable per-job name) all landed.  CLI side:
+> `--describe-backend` also grew `capabilities.options` +
+> `capabilities.blockLanguages` lines so the Spark surface is fully
+> discoverable from the command line.
 > Remaining: codegen-level DataFrame/Dataset[Row] ergonomics, `std/parsing` →
 > `StructType` bridge — speculative until use cases surface.
 >

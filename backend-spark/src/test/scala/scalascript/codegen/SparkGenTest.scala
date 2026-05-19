@@ -55,6 +55,35 @@ class SparkGenTest extends AnyFunSuite:
     assert(gen(src).contains(""".master("local[*]")"""))
   }
 
+  // ── Phase C.3 slice 4: spark-app-name → .appName(...) ────────────────────
+
+  test("default appName is scalascript-job") {
+    assert(SparkGen.DefaultAppName == "scalascript-job")
+    val code = gen("# Test\n```scalascript\nval x = 1\n```\n")
+    assert(code.contains(""".appName("scalascript-job")"""),
+      s"default appName must be emitted unchanged, got:\n$code")
+  }
+
+  test("explicit appName argument reaches the .appName(...) line") {
+    val module = Parser.parse("# Test\n```scalascript\nval x = 1\n```\n")
+    val code   = SparkGen.generate(module, appName = "My Pipeline")
+    assert(code.contains(""".appName("My Pipeline")"""),
+      s"custom appName must show up in builder line, got:\n$code")
+    // Default name must not leak when the caller supplied one.
+    assert(!code.contains(""".appName("scalascript-job")"""),
+      s"default appName must not coexist with custom override, got:\n$code")
+  }
+
+  test("appName with double quotes is escaped for the Scala literal") {
+    // appName values reach a "..." string literal in the emitted
+    // source.  A quote in the user's name would otherwise break the
+    // literal and the whole `scala-cli run` invocation.
+    val module = Parser.parse("# Test\n```scalascript\nval x = 1\n```\n")
+    val code   = SparkGen.generate(module, appName = """Pipeline "X" v2""")
+    assert(code.contains("""\"X\""""),
+      s"quote in appName must be backslash-escaped, got:\n$code")
+  }
+
   // ── Phase C.3 slice 3: spark-config front-matter → .config(k, v) ─────────
 
   private def genWithConfig(src: String, cfg: Map[String, String]): String =

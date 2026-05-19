@@ -30,6 +30,9 @@ class SparkBackendTest extends AnyFunSuite:
     assert(backend.capabilities.options.contains("sparkMaster"))
     // Phase C.3 slice 3 — encoded spark-config front-matter map.
     assert(backend.capabilities.options.contains("sparkConfig"))
+    // Phase C.3 slice 4 — `spark-app-name:` override for the SparkSession
+    // builder's `.appName(...)` line.
+    assert(backend.capabilities.options.contains("sparkAppName"))
   }
 
   // ── Phase C.3 slice 3: spark-config codec ────────────────────────────────
