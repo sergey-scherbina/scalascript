@@ -1,13 +1,14 @@
 ---
 name: word-count
-description: Classic word count via Apache Spark backend (Phase 1 — local SparkSession)
+description: Classic word count via Apache Spark backend — Dataset[String] + SQL bridge
 backend: spark
 spark-version: 4.0.0
 ---
 
 # Word Count
 
-Classic MapReduce word count: split lines into words, count occurrences, show the top 10.
+Classic word count via Spark — split lines into words, count
+occurrences, show the top.
 
 Run with:
 
@@ -15,52 +16,46 @@ Run with:
 ssc run --backend spark examples/word-count.ssc
 ```
 
-Or generate the Spark source and run directly:
-
-```
-ssc emit-spark examples/word-count.ssc -o /tmp/word-count.spark.scala
-scala-cli run /tmp/word-count.spark.scala \
-  --dep "org.apache.spark::spark-core:4.0.0" \
-  --dep "org.apache.spark::spark-sql:4.0.0"
-```
-
-To target a different cluster's Spark version:
-
-```
-ssc run --backend spark --spark-version 3.5.1 examples/word-count.ssc
-```
+> **Scala 3 / Spark 2.13 encoder constraint.**  Spark 4 publishes
+> only `_2.13` JARs (Scala 3 reads them via the TASTy bridge), and
+> Spark's `productEncoder` for tuple / case-class types needs a
+> `TypeTag[T]` that Scala 3 cannot synthesise.  Only the
+> pre-baked primitive `Encoder` instances (`STRING`, `INT`, `LONG`,
+> …) work today, so this example uses `Dataset[String]` for the
+> word stream and bridges to a `sql` block for the typed GROUP BY.
+> See § 9.5 "Scala 3 / Spark 2.13 interop" — a custom Scala 3
+> encoder derivation is on the roadmap to lift this constraint.
 
 ## Pipeline
 
-The full word-count pipeline in ScalaScript — same source, Spark backend.
-
 ```scalascript
-val words = Dataset.of("hello world", "hello spark", "world of spark")
-  .flatMap(line => line.split(" ").toList)
-  .map(word => (word, 1))
+val lines = Dataset.of(
+  "hello world",
+  "hello spark",
+  "world of spark"
+)
 
-val counts = words
-  .groupBy(_._1)
-  .flatMap { case (word, pairs) =>
-    List((word, pairs.length))
-  }
-  .top(10)
+val words = lines
+  .flatMap(_.split("\\s+").toList)
+  .map(_.toLowerCase)
+  .filter(_.nonEmpty)
 
-counts.foreach { case (word, n) => println(s"$word: $n") }
+// Bridge to SQL: register the single-column Dataset[String] as a
+// view named `words` with column `word`; the sql block below
+// then aggregates and orders without needing a typed encoder.
+words.toDF("word").createOrReplaceTempView("words")
 ```
 
-## From a file
+## Top words
 
-To count words in a real text file, replace `Dataset.of(...)` with:
+```sql
+SELECT word, COUNT(*) AS n
+FROM words
+GROUP BY word
+ORDER BY n DESC, word
+LIMIT 10
+```
 
 ```scalascript
-val lines = Dataset.fromFile("path/to/text.txt")
-val words2 = lines
-  .flatMap(line => line.split("\\s+").toList)
-  .filter(_.nonEmpty)
-  .map(_.toLowerCase.replaceAll("[^a-z]", ""))
-  .filter(_.nonEmpty)
-  .map(w => (w, 1))
-
-words2.count()
+TopWords.sql.show()
 ```

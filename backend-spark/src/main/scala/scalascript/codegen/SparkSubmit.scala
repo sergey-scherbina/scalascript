@@ -59,8 +59,12 @@ object SparkSubmit:
       "--assembly",
       "-o", outJar.toString,
       "--force",
-      "--dep", s"org.apache.spark::spark-core:$sparkVersion",
-      "--dep", s"org.apache.spark::spark-sql:$sparkVersion",
+      // `_2.13` suffix is pinned explicitly — Spark publishes only
+      // `_2.13` cross-builds; scala-cli's `::` shortcut would expand
+      // to `_3:` and fail Coursier resolution.  Scala 3 reads the
+      // `_2.13` JARs via the TASTy bridge.
+      "--dep", s"org.apache.spark:spark-core_2.13:$sparkVersion",
+      "--dep", s"org.apache.spark:spark-sql_2.13:$sparkVersion",
       "--scala", "3"
     )
 

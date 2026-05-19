@@ -28,8 +28,11 @@ class SparkSubmitTest extends AnyFunSuite:
     assert(cmd.contains("--assembly"))
     assert(cmd.containsSlice(List("-o", "/tmp/x.jar")))
     assert(cmd.contains("--force"))
-    assert(cmd.containsSlice(List("--dep", "org.apache.spark::spark-core:4.0.0")))
-    assert(cmd.containsSlice(List("--dep", "org.apache.spark::spark-sql:4.0.0")))
+    // `_2.13` suffix pinned explicitly — Spark publishes only `_2.13`
+    // cross-builds; `::` would expand to `_3:` and fail Coursier
+    // resolution.  Scala 3 reads `_2.13` JARs via the TASTy bridge.
+    assert(cmd.containsSlice(List("--dep", "org.apache.spark:spark-core_2.13:4.0.0")))
+    assert(cmd.containsSlice(List("--dep", "org.apache.spark:spark-sql_2.13:4.0.0")))
     assert(cmd.containsSlice(List("--scala", "3")))
   }
 
@@ -39,8 +42,8 @@ class SparkSubmitTest extends AnyFunSuite:
       outJar       = os.Path("/tmp/y.jar"),
       sparkVersion = "3.5.1"
     )
-    assert(cmd.containsSlice(List("--dep", "org.apache.spark::spark-core:3.5.1")))
-    assert(cmd.containsSlice(List("--dep", "org.apache.spark::spark-sql:3.5.1")))
+    assert(cmd.containsSlice(List("--dep", "org.apache.spark:spark-core_2.13:3.5.1")))
+    assert(cmd.containsSlice(List("--dep", "org.apache.spark:spark-sql_2.13:3.5.1")))
     // No reference to the default version leaks through.
     assert(!cmd.exists(_.contains("4.0.0")),
       s"custom 3.5.1 version should not coexist with 4.0.0 default, got: $cmd")

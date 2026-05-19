@@ -2043,8 +2043,9 @@ def emitScalaCommand(args: List[String]): Unit =
  *  ```
  *  ssc emit-spark myfile.ssc -o myfile.spark.scala
  *  scala-cli run myfile.spark.scala \
- *    --dep org.apache.spark::spark-core:4.0.0 \
- *    --dep org.apache.spark::spark-sql:4.0.0
+ *    --dep org.apache.spark:spark-core_2.13:4.0.0 \
+ *    --dep org.apache.spark:spark-sql_2.13:4.0.0 \
+ *    --scala 3
  *  ```
  *
  *  Spark version resolution (highest priority first):

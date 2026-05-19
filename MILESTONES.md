@@ -6356,6 +6356,19 @@ Thin `backend-wasm-contract/` layer on top of `backend-wasm/` for Near or Polkad
 > and Phase 3 (Spark SQL / DataFrames including typed readers,
 > case-class schema derivation, and SQL-callable UDFs).
 >
+> **Phase E (open / roadmap) — Scala 3 native Spark `Encoder` derivation.**
+> Spark publishes only `_2.13` JARs; its `Encoder` derivation for product
+> types needs Scala 2.13's `TypeTag` macro which Scala 3 cannot synthesise.
+> This blocks the typed paths landed in C.3 #9 + D from actually compiling
+> against a real `_2.13` Spark install — they compile only against Spark
+> Connect or once we ship our own `Mirror`/`scala.quoted`-based encoder
+> derivation.  Workarounds in place (SQL `VALUES` seeding, manual Java
+> `UDF1` registration) keep every `examples/spark-*-demo.ssc` compiling
+> against `_2.13` Spark today, at the cost of authors writing more
+> verbose source than the typed C.3 surface promises.  See § 9.5 in
+> SPEC.md for the full interop table and the planned `ExpressionEncoder`
+> derivation shape.
+>
 > Natural fit: ScalaScript's existing `Dataset[T]` API maps directly to Spark.
 
 ### Why it fits

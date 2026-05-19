@@ -21,36 +21,61 @@ ssc run --backend spark examples/spark-udf-demo.ssc
 
 ## Seed
 
-```scalascript
-case class User(id: Int, name: String, status: String)
+`VALUES` table is encoder-free — the case-class path would need a
+`TypeTag[User]` that Scala 3 cannot synthesise.  See § 9.5
+"Scala 3 / Spark 2.13 interop".
 
-val users = Dataset.fromList(List(
-  User(1, "alice",   "ACTIVE"),
-  User(2, "BOB",     "active"),
-  User(3, "Carol",   "ARCHIVED"),
-  User(4, "dave",    "Active")
-))
-users.toDF().createOrReplaceTempView("users")
+```sql
+CREATE OR REPLACE TEMPORARY VIEW users AS
+SELECT * FROM VALUES
+  (1, 'alice',   'ACTIVE'),
+  (2, 'BOB',     'active'),
+  (3, 'Carol',   'ARCHIVED'),
+  (4, 'dave',    'Active')
+AS t(id, name, status)
 ```
 
 ## UDFs
 
-A `def` and a `val` form, both marked with `@SqlFn`:
+**Note on the current Scala 3 / Spark 2.13 limitation.**  The
+`@SqlFn` marker (Phase D) is recognised by SparkGen and emits
+`spark.udf.register("name", name)`, which works on Spark Connect
+and on any backend with a Scala 3 native Spark encoder.  On the
+default `_2.13` Spark JARs that scala-cli pulls today the typed
+overload of `spark.udf.register` requires a `TypeTag[T]` that
+Scala 3 cannot synthesise, so the auto-emit fails compile.
+
+Until our own Scala 3 encoder derivation lands (see § 9.5 roadmap,
+"Phase E"), the working workaround is to register UDFs via Spark's
+Java functional-interface overload that takes an explicit
+`DataType` and needs no TypeTag:
 
 ```scalascript
-@SqlFn
 def normalize(s: String): String =
   if s == null then "" else s.trim.toLowerCase
 
-@SqlFn
 val nameLength = (s: String) => if s == null then 0 else s.length
+
+spark.udf.register("normalize",
+  new org.apache.spark.sql.api.java.UDF1[String, String] {
+    def call(s: String): String = normalize(s)
+  },
+  org.apache.spark.sql.types.StringType
+)
+
+spark.udf.register("nameLength",
+  new org.apache.spark.sql.api.java.UDF1[String, Integer] {
+    def call(s: String): Integer = Integer.valueOf(nameLength(s))
+  },
+  org.apache.spark.sql.types.IntegerType
+)
 ```
 
 ## Active users (normalised)
 
 The UDF names resolve inside the SQL just like built-in functions
-(`UPPER`, `LENGTH`, …); they're added to the session catalog by the
-registration calls emitted right after the `@SqlFn` decls above.
+(`UPPER`, `LENGTH`, …).  Both forms above register through the
+session catalog before this sql block runs.
 
 ```sql
 SELECT id, normalize(name) AS name, nameLength(name) AS len

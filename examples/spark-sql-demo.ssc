@@ -23,19 +23,20 @@ ssc-spark examples/spark-sql-demo.ssc
 
 ## Seed data
 
-Set up a small DataFrame in the @main scope.  Using Dataset.fromList
-which the SparkGen shim routes to `spark.createDataset(...)`.
+Set up a small `users` table via a `sql` block with a `VALUES`
+clause.  This dodges the Scala 3 / Spark 2.13 encoder constraint
+(see § 9.5 prose) — a `Dataset.fromList(List(User(...), ...))`
+would need a `TypeTag[User]` that Scala 3 cannot synthesise; the
+SQL path is encoder-free.
 
-```scalascript
-case class User(id: Int, name: String, active: Boolean)
-
-val users = Dataset.fromList(List(
-  User(1, "Alice", true),
-  User(2, "Bob",   false),
-  User(3, "Carol", true),
-  User(4, "Dave",  true)
-))
-users.toDF().createOrReplaceTempView("users")
+```sql
+CREATE OR REPLACE TEMPORARY VIEW users AS
+SELECT * FROM VALUES
+  (1, 'Alice', true),
+  (2, 'Bob',   false),
+  (3, 'Carol', true),
+  (4, 'Dave',  true)
+AS t(id, name, active)
 ```
 
 ## Active users

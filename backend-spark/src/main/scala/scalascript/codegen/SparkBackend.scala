@@ -22,9 +22,13 @@ import scalascript.transform.Denormalize
  *    3. Persist to a deterministic temp file (`/tmp/ssc-spark-<hash>.scala`)
  *       so `scala-cli` can read it and so the user can inspect it.
  *    4. Shell out to `scala-cli run <tempfile>
- *         --dep org.apache.spark::spark-core:<version>
- *         --dep org.apache.spark::spark-sql:<version>
+ *         --dep org.apache.spark:spark-core_2.13:<version>
+ *         --dep org.apache.spark:spark-sql_2.13:<version>
  *         --scala 3`.
+ *       (Spark publishes only `_2.13` JARs on Maven Central — Scala 3
+ *       reads them via the TASTy bridge, so the suffix is pinned
+ *       explicitly rather than using `::` which would expand to a
+ *       non-existent `_3` artifact.)
  *    5. Return `CompileResult.Executed(stdout, stderr, exit)`.
  *
  *  Resolution priority for both `sparkVersion` and `sparkMaster` —
@@ -123,10 +127,14 @@ class SparkBackend extends Backend:
     val tmpFile      = os.Path(s"/tmp/ssc-spark-$hash.scala")
     os.write.over(tmpFile, code)
     System.err.println(s"[spark] Spark $sparkVersion (master=$sparkMaster) — generated: $tmpFile")
+    // Spark publishes only `_2.13` JARs on Maven Central — scala-cli's
+    // `::` shortcut would expand to `_3:` (non-existent) when paired
+    // with `--scala 3`, so we pin the suffix explicitly.  Scala 3
+    // consumes the Scala 2.13 Spark API via the TASTy bridge.
     val cmd = List(
       "scala-cli", "run", tmpFile.toString,
-      "--dep", s"org.apache.spark::spark-core:$sparkVersion",
-      "--dep", s"org.apache.spark::spark-sql:$sparkVersion",
+      "--dep", s"org.apache.spark:spark-core_2.13:$sparkVersion",
+      "--dep", s"org.apache.spark:spark-sql_2.13:$sparkVersion",
       "--scala", "3"
     )
     // Run scala-cli inheriting stdout/stderr — Spark's own logging and the
