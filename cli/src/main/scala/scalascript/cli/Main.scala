@@ -68,6 +68,7 @@ private def dispatchCommand(args: List[String]): Unit =
     case "compile-js"          => compileJsCommand(args.tail)
     case "check-with-iface"    => checkWithInterfaceCommand(args.tail)
     case "link"                => linkCommand(args.tail)
+    case "info"                => infoCommand(args.tail)
     case "compile"             => compileCommand(args.tail)
     case "package"             => packageCommand(args.tail)
     case "serve"               => serveCommand(args.tail)
@@ -217,6 +218,8 @@ def printUsage(): Unit =
     |  compile-js             Emit JS-backend cached JS source to .scjs artifact (v2.0)
     |  check-with-iface       Type-check .ssc consuming pre-compiled .scim interfaces (v2.0)
     |  link                   Link .scim/.scir artifact pairs into a merged module (v2.0)
+    |  info <artifact>        Inspect a .scim/.scir/.scjvm/.scjs file (envelope + key fields)
+    |                         Pass --json to dump the full envelope as pretty-printed JSON
     |  serve                  Start HTTP server serving .ssc files as web pages
     |  parse                  Parse .ssc files and print AST
     |  check                  Type-check .ssc files
@@ -1867,6 +1870,179 @@ private def compileJsDepInto(
   val imports    = (rawImports ++ depAliases).distinct.toList
   val moduleId   = moduleName.getOrElse(baseName)
   JsArtifactIO.writeJsFile(moduleId, pkg, moduleName, sourceHash, jsSource, imports, scjsPath)
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ssc info <artifact>  —  v2.0 artifact envelope inspector
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** `ssc info <path-to-artifact> [--json]`
+ *
+ *  Inspect any v2.0 artifact (`.scim`, `.scir`, `.scjvm`, `.scjs`) and
+ *  dump its envelope plus the key contents of its body in plain text.
+ *  Useful for debugging, CI sanity checks, and ABI verification.
+ *
+ *  Format is detected by file extension.  With `--json` the entire
+ *  envelope is pretty-printed as JSON instead of the human-readable
+ *  summary.
+ *
+ *  Non-zero exit codes:
+ *    1 — file does not exist, unknown extension, or parse error
+ *    1 — magic / abiVersion mismatch (artifact corruption or ABI bump)
+ *
+ *  v2.0 — artifact introspection. */
+def infoCommand(args: List[String]): Unit =
+  var jsonMode = false
+  val files = scala.collection.mutable.ArrayBuffer.empty[String]
+  args.foreach {
+    case "--json" => jsonMode = true
+    case f        => files += f
+  }
+  if files.isEmpty then
+    System.err.println("Usage: ssc info <artifact> [--json]")
+    System.err.println("Supported extensions: .scim, .scir, .scjvm, .scjs")
+    System.exit(1)
+  // Single-argument MVP — process the first file only.  Multiple files
+  // are reserved for a follow-up; pre-warn if the user passed more.
+  if files.length > 1 then
+    System.err.println(
+      s"Warning: ssc info currently inspects a single artifact; ignoring ${files.length - 1} extra path(s).")
+
+  val file = files.head
+  val path = os.Path(file, os.pwd)
+  if !os.exists(path) then
+    System.err.println(s"info: file not found: $file")
+    System.exit(1)
+
+  val ext = path.ext
+  if !Set("scim", "scir", "scjvm", "scjs").contains(ext) then
+    System.err.println(
+      s"info: unsupported extension '.$ext' — expected .scim, .scir, .scjvm, or .scjs")
+    System.exit(1)
+
+  try
+    val raw     = os.read(path)
+    val bytes   = os.read.bytes(path)
+    val fileSize = bytes.length
+    ext match
+      case "scim"  => printScimInfo(path, raw, fileSize, jsonMode)
+      case "scir"  => printScirInfo(path, raw, fileSize, jsonMode)
+      case "scjvm" => printScjvmInfo(path, raw, fileSize, jsonMode)
+      case "scjs"  => printScjsInfo(path, raw, fileSize, jsonMode)
+      case _       => () // unreachable — extension already validated above
+  catch case e: Exception =>
+    System.err.println(s"info: ${e.getMessage}")
+    System.exit(1)
+
+private def printScimInfo(path: os.Path, json: String, fileSize: Long, jsonMode: Boolean): Unit =
+  ArtifactIO.readInterface(json) match
+    case Left(err) =>
+      System.err.println(s"info: $err")
+      System.exit(1)
+    case Right(iface) =>
+      if jsonMode then println(ArtifactIO.writeInterface(iface))
+      else
+        println(s"file: $path")
+        println(s"format: .scim (module interface)")
+        println(s"magic: ${iface.magic}")
+        println(s"abiVersion: ${iface.abiVersion}")
+        println(s"moduleId: ${iface.moduleName.getOrElse("<unnamed>")}")
+        println(s"package: ${if iface.pkg.isEmpty then "<none>" else iface.pkg.mkString(".")}")
+        println(s"moduleVersion: ${iface.moduleVersion.getOrElse("<none>")}")
+        println(s"sourceHash: ${iface.sourceHash}")
+        println(s"size: $fileSize bytes")
+        println(s"exports: ${iface.exports.length}")
+        iface.exports.foreach { e =>
+          println(s"  - ${e.kind} ${e.name}: ${e.tpe}")
+        }
+        if iface.externDefs.nonEmpty then
+          println(s"externDefs: ${iface.externDefs.length}")
+          iface.externDefs.foreach { e =>
+            println(s"  - extern ${e.name}: ${e.tpe}")
+          }
+        println(s"instances: ${iface.instances.length}")
+        iface.instances.foreach { i =>
+          println(s"  - ${i.typeclass}[${i.typeParam}] via ${i.witnessName} (${i.fqn})")
+        }
+        println(s"capabilities: ${iface.capabilities.length}")
+        iface.capabilities.foreach { c =>
+          println(s"  - ${c.name}")
+        }
+        if iface.dependencies.nonEmpty then
+          println(s"dependencies: ${iface.dependencies.size}")
+          iface.dependencies.toList.sortBy(_._1).foreach { (alias, target) =>
+            println(s"  - $alias → $target")
+          }
+
+private def printScirInfo(path: os.Path, json: String, fileSize: Long, jsonMode: Boolean): Unit =
+  ArtifactIO.readIr(json) match
+    case Left(err) =>
+      System.err.println(s"info: $err")
+      System.exit(1)
+    case Right((nm, pkg, moduleName, sourceHash)) =>
+      if jsonMode then
+        // Re-emit the envelope as pretty JSON.  We've already validated
+        // the envelope; pass through the original payload bytes which
+        // are already pretty-printed by ArtifactIO.writeIr at write
+        // time.  For consistency with --json on other formats, re-encode
+        // through ArtifactIO so we always emit the canonical form.
+        println(ArtifactIO.writeIr(nm, pkg, moduleName, sourceHash))
+      else
+        // Body byte size — parse the raw JSON envelope to read the
+        // `body` field length without re-serialising.
+        val bodyBytes =
+          scala.util.Try(ujson.read(json)("body").str.length).getOrElse(0)
+        println(s"file: $path")
+        println(s"format: .scir (module IR artifact)")
+        println(s"magic: SSCART")
+        println(s"abiVersion: ${scalascript.ir.ArtifactVersion.current}")
+        println(s"moduleId: ${moduleName.getOrElse("<unnamed>")}")
+        println(s"package: ${if pkg.isEmpty then "<none>" else pkg.mkString(".")}")
+        println(s"sourceHash: $sourceHash")
+        println(s"size: $fileSize bytes")
+        println(s"sections: ${nm.sections.length}")
+        println(s"bodyBytes: $bodyBytes")
+
+private def printScjvmInfo(path: os.Path, json: String, fileSize: Long, jsonMode: Boolean): Unit =
+  JvmArtifactIO.readJvm(json) match
+    case Left(err) =>
+      System.err.println(s"info: $err")
+      System.exit(1)
+    case Right(art) =>
+      if jsonMode then println(JvmArtifactIO.writeJvm(art))
+      else
+        println(s"file: $path")
+        println(s"format: .scjvm (JVM-backend cached source)")
+        println(s"magic: ${art.magic}")
+        println(s"abiVersion: ${art.abiVersion}")
+        println(s"moduleId: ${art.moduleId}")
+        println(s"package: ${if art.pkg.isEmpty then "<none>" else art.pkg.mkString(".")}")
+        println(s"moduleName: ${art.moduleName.getOrElse("<unnamed>")}")
+        println(s"sourceHash: ${art.sourceHash}")
+        println(s"size: $fileSize bytes")
+        println(s"scalaSourceBytes: ${art.scalaSource.length}")
+        println(s"imports: ${art.imports.length}")
+        art.imports.foreach { imp => println(s"  - $imp") }
+
+private def printScjsInfo(path: os.Path, json: String, fileSize: Long, jsonMode: Boolean): Unit =
+  JsArtifactIO.readJs(json) match
+    case Left(err) =>
+      System.err.println(s"info: $err")
+      System.exit(1)
+    case Right(art) =>
+      if jsonMode then println(JsArtifactIO.writeJs(art))
+      else
+        println(s"file: $path")
+        println(s"format: .scjs (JS-backend cached source)")
+        println(s"magic: ${art.magic}")
+        println(s"abiVersion: ${art.abiVersion}")
+        println(s"moduleId: ${art.moduleId}")
+        println(s"package: ${if art.pkg.isEmpty then "<none>" else art.pkg.mkString(".")}")
+        println(s"moduleName: ${art.moduleName.getOrElse("<unnamed>")}")
+        println(s"sourceHash: ${art.sourceHash}")
+        println(s"size: $fileSize bytes")
+        println(s"jsSourceBytes: ${art.jsSource.length}")
+        println(s"imports: ${art.imports.length}")
+        art.imports.foreach { imp => println(s"  - $imp") }
 
 /** Build the self-contained JS source written to a `.scjs` artifact.
  *
