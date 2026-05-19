@@ -3872,6 +3872,21 @@ parallel deferred); cooperative on INT.  Streaming interop via
   `backends: [jvm]` frontmatter actually limits which of int/js/jvm run
   a test (was previously ignored — every test ran on every backend,
   causing distributed-* tests to spuriously fail on INT).
+- v1.21 follow-up part 2 (2026-05-19): Spark-style API expansion +
+  JS exception support, four new conformance tests on top of the 10
+  baseline (now 14 total dataset tests, all PASS on eligible backends):
+  - JS Term.Try / Term.Throw as expressions (IIFE wrapping); plus
+    _dispatch handling for `.getMessage` on JS Errors and Instance-style
+    throwables. Was: try/catch in `val x = try …` emitted as
+    `unsupported: Term.Try` and broke parsing.
+  - Dataset.union / Dataset.intersect — set-style binary ops. Union
+    concatenates (multiplicities preserved); intersect dedups and keeps
+    left-side order.
+  - Dataset.zip / Dataset.zipWithIndex — element-wise pairing into
+    2-tuples, stops at shorter side.
+  - Dataset.min / max / sum / avg — numeric/ordered terminal
+    aggregations. JVM via Ordering/Numeric context bounds; INT via
+    compareValues + infix; JS via raw Number ops.
 
 Full design: [`docs/mapreduce.md`](docs/mapreduce.md) §3.
 

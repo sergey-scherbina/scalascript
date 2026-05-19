@@ -88,7 +88,10 @@ val backendFeatures: Map[String, Set[String]] = Map(
 //     - McpClient
 // Strips the optional "Feature." prefix so values match backendFeatures keys.
 def parseRequires(src: String): List[String] =
-  val lines = src.linesIterator.toList
+  val allLines = src.linesIterator.toList
+  // Skip an optional shebang (e.g. `#!/usr/bin/env ssc`) so the frontmatter
+  // delimiter ("---") still matches when authors prefix the file with one.
+  val lines = if allLines.headOption.exists(_.startsWith("#!")) then allLines.tail else allLines
   if !lines.headOption.contains("---") then return List.empty
   val fmEnd = lines.tail.indexOf("---")
   if fmEnd < 0 then return List.empty
@@ -115,7 +118,8 @@ def parseRequires(src: String): List[String] =
 // eligible for all three (existing behavior). Accepts "interpreter" as an
 // alias for "int" so frontmatter can use the long form for clarity.
 def parseBackends(src: String): Option[Set[String]] =
-  val lines = src.linesIterator.toList
+  val allLines = src.linesIterator.toList
+  val lines = if allLines.headOption.exists(_.startsWith("#!")) then allLines.tail else allLines
   if !lines.headOption.contains("---") then return None
   val fmEnd = lines.tail.indexOf("---")
   if fmEnd < 0 then return None
