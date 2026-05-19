@@ -38,6 +38,11 @@ val HttpIntrinsics: Map[QualifiedName, IntrinsicImpl] = Map(
   // body, typically) can keep doing useful work.  Required for
   // multi-node clusters where each node needs to both bind its WS
   // server AND run an actor scheduler in the same process.
+  //
+  // The 2-arg `serveAsync(port, tls(cert, key))` form binds HTTPS /
+  // wss:// — peers dialing the node use `wss://host:port/_ssc-actors`
+  // and the existing `java.net.http`-backed outbound WS client
+  // handles the TLS handshake transparently.
   QualifiedName("serveAsync") -> NativeImpl((ctx, args) =>
     args match
       case List(port: Long) =>
@@ -48,7 +53,17 @@ val HttpIntrinsics: Map[QualifiedName, IntrinsicImpl] = Map(
             catch case _: Throwable => ()
           }
         ()
-      case _ => throw InterpretError("serveAsync(port)")
+      case List(port: Long, Value.InstanceV("TlsContext", tlsFields)) =>
+        ctx.registerHealthDefaults()
+        val cert = tlsFields.get("cert").collect { case Value.StringV(s) => s }.getOrElse("")
+        val key  = tlsFields.get("key").collect  { case Value.StringV(s) => s }.getOrElse("")
+        if !ctx.headless then
+          Thread.ofVirtual().start { () =>
+            try ctx.startTlsServer(port.toInt, ".", cert, key)
+            catch case _: Throwable => ()
+          }
+        ()
+      case _ => throw InterpretError("serveAsync(port) or serveAsync(port, tls(cert, key))")
   ),
 
   QualifiedName("serve") -> NativeImpl((ctx, args) =>
