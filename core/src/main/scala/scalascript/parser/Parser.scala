@@ -78,11 +78,12 @@ object Parser:
   private def wrapSectionInPackage(section: Section, pkg: List[String]): Section =
     val newContent = section.content.map {
       case cb: Content.CodeBlock if Lang.isParseable(cb.lang) =>
-        // Preprocess `extern def` / `effect` syntax BEFORE wrapping in objects.
-        // Otherwise the surface forms survive into the nested code that scalameta
-        // sees and the whole block silently fails to parse (cb.tree = None →
-        // imports from this file see no symbols).
-        val preprocessed = preprocessExtern(preprocessEffects(cb.source))
+        // Preprocess `extern def` / `effect` / list-form imports BEFORE wrapping
+        // in objects.  Otherwise the surface forms survive into the nested code
+        // that scalameta sees and the whole block silently fails to parse
+        // (cb.tree = None → imports from this file see no symbols).
+        val preprocessed =
+          preprocessExtern(preprocessEffects(preprocessInlineImports(cb.source)))
         val nested = pkg.foldRight(preprocessed) { (seg, body) =>
           val indented = body.linesIterator.map("  " + _).mkString("\n")
           s"object $seg:\n$indented"
@@ -327,38 +328,194 @@ object Parser:
 
   // ─── Scala parsing via scalameta ─────────────────────────────────
 
-  /** Preprocess `extern def foo(...): T` (no body) into `def foo(...): T =
-   *  __extern__` so scalameta parses it as an ordinary def whose body the
-   *  codegens recognise as an extern stub (`EffectAnalysis.isExternDef`).
+  /** Preprocess `extern` surface forms into scalameta-friendly Scala 3:
+   *
+   *    extern def foo(...): T          → def foo(...): T = __extern__
+   *    extern class Name[T]:           → class Name[T]:
+   *      def m(...): T                 →   def m(...): T = __extern__
+   *      val v: T                      →   val v: T = __extern__.asInstanceOf[T]
+   *    extern object Name:             → object Name:
+   *      def m(...): T                 →   def m(...): T = __extern__
+   *      val v: T                      →   val v: T = __extern__.asInstanceOf[T]
    *
    *  The `extern` modifier isn't a Scala 3 keyword; this preprocess step
    *  is the same pattern as `preprocessEffects` for `effect Name:` blocks
    *  — surface syntax we want, expanded into scalameta-friendly form
-   *  before parsing.  Stage 5+/A.6 (Б-1). */
+   *  before parsing.  The codegens recognise `__extern__` stubs as
+   *  body-less declarations (`EffectAnalysis.isExternDef`).
+   *
+   *  For `extern class` / `extern object` we strip the `extern` modifier
+   *  and rewrite every body-less `def` / `val` inside the block (detected
+   *  by indentation) to use `__extern__` as a stub right-hand side.
+   *
+   *  Original: Stage 5+/A.6 (Б-1); class/object forms added 2026-05-19. */
   private def preprocessExtern(code: String): String =
-    val externPat = """^(\s*)extern\s+def\s+(.+)$""".r
+    val externDefPat   = """^(\s*)extern\s+def\s+(.+)$""".r
+    val externTypePat  = """^(\s*)extern\s+(class|object|trait)\s+(.+?:)\s*$""".r
     val lines = code.linesIterator.toArray
-    if !lines.exists(l => externPat.findFirstIn(l).isDefined) then return code
+    if !lines.exists(l =>
+         externDefPat.findFirstIn(l).isDefined ||
+         externTypePat.findFirstIn(l).isDefined
+       ) then return code
+
     val result = new StringBuilder()
+
+    // Track active `extern class/object` blocks by their declaration-line
+    // indentation; any def/val whose indentation is STRICTLY GREATER than
+    // a tracked one belongs to that block and gets `__extern__`-rewritten.
+    val externBlockIndents = scala.collection.mutable.Stack.empty[Int]
+
+    def indentOf(s: String): Int = s.takeWhile(_ == ' ').length
+    def isInsideExternBlock(ind: Int): Boolean =
+      externBlockIndents.headOption.exists(decl => ind > decl)
+
+    // Body-less member (no `=`, doesn't end with a brace/colon) — needs a stub.
+    val bodylessDefPat = """^(\s*)def\s+(.+)$""".r
+    val bodylessValPat = """^(\s*)val\s+([^=]+):\s*([^=].*)$""".r
+
     var i = 0
     while i < lines.length do
       val line = lines(i)
-      externPat.findFirstMatchIn(line) match
+
+      // Pop the indent stack when we leave the block (current line dedents
+      // back to the declaration line's level or further).  Blank lines do
+      // not pop — they're allowed inside a block.
+      if line.strip.nonEmpty then
+        val ind = indentOf(line)
+        while externBlockIndents.nonEmpty && ind <= externBlockIndents.head do
+          externBlockIndents.pop()
+
+      externTypePat.findFirstMatchIn(line) match
         case Some(m) =>
+          // `extern class Foo[T]:` / `extern object Foo:` — strip modifier,
+          // keep the rest; mark the block open by remembering its indent.
           val indent = m.group(1)
-          val sigBuf = new StringBuilder(m.group(2).stripTrailing)
-          // Multi-line extern def: collect continuation lines until paren depth reaches 0.
-          var depth = sigBuf.count(_ == '(') - sigBuf.count(_ == ')')
-          while depth > 0 && i + 1 < lines.length do
-            i += 1
-            val cont = lines(i).strip
-            sigBuf.append(" ").append(cont)
-            depth += cont.count(_ == '(') - cont.count(_ == ')')
-          result.append(indent).append("def ").append(sigBuf.toString.stripTrailing)
-                .append(" = __extern__\n")
+          val kind   = m.group(2)
+          val head   = m.group(3)
+          result.append(indent).append(kind).append(" ").append(head).append("\n")
+          externBlockIndents.push(indent.length)
+          i += 1
         case None =>
-          result.append(line).append("\n")
-      i += 1
+          externDefPat.findFirstMatchIn(line) match
+            case Some(m) =>
+              val indent = m.group(1)
+              val sigBuf = new StringBuilder(m.group(2).stripTrailing)
+              // Multi-line extern def: collect continuation until paren depth = 0.
+              var depth = sigBuf.count(_ == '(') - sigBuf.count(_ == ')')
+              while depth > 0 && i + 1 < lines.length do
+                i += 1
+                val cont = lines(i).strip
+                sigBuf.append(" ").append(cont)
+                depth += cont.count(_ == '(') - cont.count(_ == ')')
+              result.append(indent).append("def ").append(sigBuf.toString.stripTrailing)
+                    .append(" = __extern__\n")
+              i += 1
+            case None if isInsideExternBlock(indentOf(line)) && line.strip.nonEmpty =>
+              // Inside an `extern class/object` block — body-less def/val
+              // members get `= __extern__` stubs so scalameta accepts them.
+              line match
+                case bodylessDefPat(indent, sigText) if !sigText.contains("=") =>
+                  // Multi-line def signature handling.
+                  val sigBuf = new StringBuilder(sigText.stripTrailing)
+                  var depth = sigBuf.count(_ == '(') - sigBuf.count(_ == ')')
+                  while depth > 0 && i + 1 < lines.length do
+                    i += 1
+                    val cont = lines(i).strip
+                    sigBuf.append(" ").append(cont)
+                    depth += cont.count(_ == '(') - cont.count(_ == ')')
+                  result.append(indent).append("def ").append(sigBuf.toString.stripTrailing)
+                        .append(" = __extern__\n")
+                  i += 1
+                case bodylessValPat(indent, name, tpe) =>
+                  result.append(indent).append("val ").append(name.strip)
+                        .append(": ").append(tpe.strip)
+                        .append(" = __extern__.asInstanceOf[").append(tpe.strip).append("]\n")
+                  i += 1
+                case _ =>
+                  result.append(line).append("\n")
+                  i += 1
+            case None =>
+              result.append(line).append("\n")
+              i += 1
+    result.toString
+
+  /** Strip Markdown-link-style list-form imports that std/ modules write
+   *  *inside* scalascript code blocks:
+   *
+   *    [ToolResult, ResourceResult, Transport](./types.ssc)
+   *    [List, Map, Card as UICard](./std/collections.ssc)
+   *
+   *  These are documented in SPEC.md §3.2 as top-level selective imports
+   *  (Markdown links surfaced as `Content.Import` AST nodes), but the std/
+   *  library convention embeds them in fenced code blocks for grouping
+   *  with the code that uses them.  Inside a fence, the Markdown parser
+   *  doesn't see them — scalameta does, and `[X, Y](z)` isn't valid Scala.
+   *
+   *  Strategy: comment the line(s) out so scalameta sees them as Scala
+   *  comments.  The names they introduce are resolved upstream by the
+   *  linker (FQN-rewrite via `Linker.rewriteExpr`) or by the typer's
+   *  permissive default (Any fallback for undeclared names); strict-mode
+   *  flags them, which is the correct surface-level diagnostic.
+   *
+   *  Multi-line spans (continuation after the comma) are handled by
+   *  tracking bracket depth across lines.  Lines that are not list-form
+   *  imports — including ordinary Scala `[...](...)` such as type-argument
+   *  applications — pass through untouched. */
+  private def preprocessInlineImports(code: String): String =
+    val lines = code.linesIterator.toArray
+    // Quick reject: only inspect files that actually contain a `]( ... .ssc)` or
+    // `]( dep:` etc.  Cheap pre-filter.
+    if !lines.exists(l => l.contains("](") && (l.contains(".ssc") || l.contains("dep:") || l.contains("://"))) then
+      return code
+    val result = new StringBuilder()
+
+    // Match a single-line list-form import:
+    //   leading whitespace, `[Names...]`, `(path)` where path ends in `.ssc`,
+    //   contains a scheme (`://`), or starts with `dep:`.
+    val singleLine = """^(\s*)\[\s*([A-Za-z_][\w]*(?:\s+as\s+[A-Za-z_][\w]*)?(?:\s*,\s*[A-Za-z_][\w]*(?:\s+as\s+[A-Za-z_][\w]*)?)*)\s*\]\(\s*([^)]+)\s*\)\s*$""".r
+    // Match the start of a multi-line list-form import: opening `[` with names
+    // but no closing `]` on the same line.
+    val multiStart  = """^(\s*)\[\s*([A-Za-z_][\w]*(?:\s+as\s+[A-Za-z_][\w]*)?(?:\s*,\s*[A-Za-z_][\w]*(?:\s+as\s+[A-Za-z_][\w]*)?)*)\s*,\s*$""".r
+
+    var i = 0
+    while i < lines.length do
+      val line = lines(i)
+      singleLine.findFirstMatchIn(line) match
+        case Some(m) =>
+          // Replace whole line with a comment preserving indentation.
+          result.append(m.group(1)).append("// list-import: [")
+                .append(m.group(2)).append("](").append(m.group(3)).append(")\n")
+          i += 1
+        case None =>
+          multiStart.findFirstMatchIn(line) match
+            case Some(m) =>
+              // Multi-line span: gather continuation until we hit `](path)` close.
+              val buf = new StringBuilder(line)
+              var j = i + 1
+              var closed = false
+              while j < lines.length && !closed do
+                buf.append("\n").append(lines(j))
+                if lines(j).contains("](") && lines(j).indexOf(')', lines(j).indexOf("](")) >= 0 then
+                  closed = true
+                j += 1
+              if closed then
+                val joined = buf.toString.replaceAll("\\s*\n\\s*", " ")
+                singleLine.findFirstMatchIn(joined) match
+                  case Some(im) =>
+                    result.append(m.group(1)).append("// list-import: [")
+                          .append(im.group(2)).append("](").append(im.group(3)).append(")\n")
+                    i = j
+                  case None =>
+                    // Couldn't re-match as a list-import after merging; fall
+                    // through to passthrough.
+                    result.append(line).append("\n")
+                    i += 1
+              else
+                result.append(line).append("\n")
+                i += 1
+            case None =>
+              result.append(line).append("\n")
+              i += 1
     result.toString
 
   // Preprocess `effect Name:` declarations into `object Name { def op(...) = __effectOp__ }`.
@@ -414,7 +571,7 @@ object Parser:
   def parseScalaWithDiagnostic(code: String): (Option[ScalaNode], Option[CodeBlockParseError]) =
     import scala.meta.*
     given Dialect = dialects.Scala3
-    val processed = preprocessExtern(preprocessEffects(code))
+    val processed = preprocessExtern(preprocessEffects(preprocessInlineImports(code)))
     processed.parse[Source] match
       case Parsed.Success(tree) => (Some(ScalaNode(tree)), None)
       case sourceErr: Parsed.Error =>
