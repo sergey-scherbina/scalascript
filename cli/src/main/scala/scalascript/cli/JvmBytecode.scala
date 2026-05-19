@@ -43,6 +43,22 @@ object JvmBytecode:
     "Install it from https://scala-cli.virtuslab.org/install or " +
     "rerun without --bytecode to produce source-only `.scjvm` artifacts."
 
+  // ─── Backend selection: direct driver vs. external scala-cli ─────────────
+
+  /** Default to the in-process Scala 3 driver path
+   *  ([[Scala3Driver.compile]]) instead of the external `scala-cli`
+   *  subprocess.  Toggle to `false` via the `SSC_EXTERNAL_SCALA_CLI` env
+   *  var (or by passing `--external-scala-cli` at the CLI surface — see
+   *  Main.scala) when debugging or when the bundled scala3-compiler is
+   *  somehow broken.
+   *
+   *  v2.0 Phase 3 — in-process driver becomes the default. */
+  def useExternalScalaCli: Boolean =
+    sys.env.get("SSC_EXTERNAL_SCALA_CLI").exists(v =>
+      val s = v.trim.toLowerCase
+      s == "1" || s == "true" || s == "yes"
+    )
+
   // ─── Compile Scala source → .class files → base64 ZIP ────────────────────
 
   /** Compile `scalaSource` via scala-cli into a fresh temp dir, walk the
@@ -64,6 +80,29 @@ object JvmBytecode:
       scalaSource:   String,
       classpathDirs: List[os.Path] = Nil,
       scriptName:    String        = "Main"
+  ): Either[String, String] =
+    if useExternalScalaCli then compileAndPackScalaCli(scalaSource, classpathDirs, scriptName)
+    else
+      // v2.0 Phase 3 — in-process driver as the default.  Falls back to
+      // scala-cli when the bundled scala3-compiler somehow can't find the
+      // stdlib (returns a `Left(...)` mentioning "could not locate
+      // scala3-library_3 / scala-library JARs") — preserves the pre-Phase-3
+      // user experience on minimal install boxes.
+      compileAndPackDirect(scalaSource, classpathDirs, scriptName) match
+        case r @ Right(_)                                           => r
+        case Left(err) if err.contains("could not locate scala3-library") &&
+                          scalaCliAvailable =>
+          compileAndPackScalaCli(scalaSource, classpathDirs, scriptName)
+        case l @ Left(_)                                            => l
+
+  /** External `scala-cli` subprocess path — the pre-Phase-3 implementation.
+   *  Kept as a fallback (toggle via `SSC_EXTERNAL_SCALA_CLI=1`) for parity
+   *  testing and for the rare case where the in-process Driver can't locate
+   *  its stdlib. */
+  def compileAndPackScalaCli(
+      scalaSource:   String,
+      classpathDirs: List[os.Path],
+      scriptName:    String
   ): Either[String, String] =
     val workDir = os.temp.dir(prefix = "ssc-bytecode-")
     try
@@ -126,6 +165,97 @@ object JvmBytecode:
     finally
       scala.util.Try(os.remove.all(workDir))
 
+  /** In-process direct-driver path — invokes `dotty.tools.dotc.Driver`
+   *  in the running JVM via [[Scala3Driver]].  Same input contract and
+   *  same output bytes as [[compileAndPackScalaCli]] — both walk
+   *  `outDir` for `.class` + `.tasty` files and pack them into a ZIP
+   *  with FQN-shaped entry names.  Performance: roughly an
+   *  order-of-magnitude faster on small fixtures (no JVM startup, no
+   *  Bloop daemon).
+   *
+   *  Source files are written as `.scala`, not `.sc`, because the Scala
+   *  3 Driver does NOT wrap top-level statements in an implicit script
+   *  object — that's a scala-cli convenience.  We emit a real `object
+   *  <name>` wrapper instead so the produced class name still matches
+   *  `<scriptName>_sc` for binary compatibility with the scala-cli
+   *  path's output (which other parts of the linker key on). */
+  def compileAndPackDirect(
+      scalaSource:   String,
+      classpathDirs: List[os.Path],
+      scriptName:    String
+  ): Either[String, String] =
+    val workDir = os.temp.dir(prefix = "ssc-bytecode-")
+    try
+      val safeName = scriptName.replaceAll("[^A-Za-z0-9_]", "_") match
+        case ""   => "Main"
+        case s    => if s.head.isDigit then "M" + s else s
+
+      // Wrap `.sc`-style source (top-level `def`s + top-level
+      // statements) into an `object <safeName>_sc { ... }` block so:
+      //   1. Top-level statements (`println(...)`, `route(...)`) become
+      //      part of the object's static initialiser, which the Scala 3
+      //      compiler accepts.  Bare top-level statements in a `.scala`
+      //      file would be rejected.
+      //   2. The produced class name `<safeName>_sc` matches what
+      //      scala-cli's `.sc` mode would generate, so downstream
+      //      consumers (linker JAR packing, run-tests) see the same
+      //      class FQN as before.
+      // We skip wrapping when the source already declares an enclosing
+      // structure (`package`, `object`, `class`, `enum`, `trait`) at
+      // the top — typical for the shared runtime emit which has
+      // `package _ssc_runtime`.
+      val needsWrapper =
+        !scalaSource.linesIterator.exists { l =>
+          val t = l.trim
+          t.startsWith("package ") || t.startsWith("object ") ||
+          t.startsWith("class ")   || t.startsWith("enum ")   ||
+          t.startsWith("trait ")
+        }
+      val wrappedSource =
+        if needsWrapper then
+          // Use BRACED object syntax (not indented `object X:`) because
+          // the emitted source freely mixes indented and braced blocks
+          // — the optional-braces parser is sensitive to leading
+          // indentation in ways that have surprised us in the past
+          // (forward refs flipped to "not found", local class init
+          // ordering reordered).  Braces avoid that whole class of
+          // issue at the price of a slightly less idiomatic wrapper.
+          //
+          // We don't re-indent the inner source — Scala 3's parser is
+          // happy with arbitrary indentation inside `{ ... }`, and
+          // reformatting line-by-line risks corrupting multiline
+          // string literals embedded in the runtime preamble.
+          s"object ${safeName}_sc {\n$scalaSource\n}\n"
+        else scalaSource
+      val srcFile =
+        if needsWrapper then workDir / s"${safeName}_sc.scala"
+        else                 workDir / s"$safeName.scala"
+      os.write(srcFile, wrappedSource)
+
+      val outDir = workDir / "out"
+      os.makeDir.all(outDir)
+
+      // `classpathDirs` are directories of `.class` files from previously-
+      // compiled dep bundles (extracted by `extractDepBundlesForCompile`
+      // in Main.scala).  Pass through unchanged.
+      Scala3Driver.compile(
+        srcFiles  = List(srcFile),
+        outDir    = outDir,
+        classpath = classpathDirs
+      ) match
+        case Left(diagnostic) =>
+          Left(s"scala3-compiler in-process compile failed:\n$diagnostic")
+        case Right(()) =>
+          val classFiles = collectClassFiles(outDir)
+          if classFiles.isEmpty then
+            Left(s"scala3-compiler in-process compile produced no .class files in $outDir")
+          else
+            val allFiles = collectCompileOutputs(outDir)
+            val zipBytes = packAsZip(outDir, allFiles)
+            Right(Base64.getEncoder.encodeToString(zipBytes))
+    finally
+      scala.util.Try(os.remove.all(workDir))
+
   /** Compile a shared runtime source — produced by `JvmGen.generateRuntime`
    *  with a `package _ssc_runtime` wrapper — via scala-cli, then pack the
    *  resulting `.class` + `.tasty` files as a base64-encoded ZIP suitable
@@ -139,6 +269,20 @@ object JvmBytecode:
    *
    *  v2.0 Phase 2 — split-runtime shared classBundle. */
   def compileRuntimeAndPack(
+      runtimeSource: String
+  ): Either[String, String] =
+    if useExternalScalaCli then compileRuntimeAndPackScalaCli(runtimeSource)
+    else
+      compileRuntimeAndPackDirect(runtimeSource) match
+        case r @ Right(_)                                           => r
+        case Left(err) if err.contains("could not locate scala3-library") &&
+                          scalaCliAvailable =>
+          compileRuntimeAndPackScalaCli(runtimeSource)
+        case l @ Left(_)                                            => l
+
+  /** External `scala-cli` subprocess path for the shared runtime
+   *  compile — pre-Phase-3 implementation, kept as a fallback. */
+  def compileRuntimeAndPackScalaCli(
       runtimeSource: String
   ): Either[String, String] =
     val workDir = os.temp.dir(prefix = "ssc-bytecode-runtime-")
@@ -170,6 +314,40 @@ object JvmBytecode:
           val allFiles = collectCompileOutputs(outDir)
           val zipBytes = packAsZip(outDir, allFiles)
           Right(Base64.getEncoder.encodeToString(zipBytes))
+    finally
+      scala.util.Try(os.remove.all(workDir))
+
+  /** In-process direct-driver path for the shared runtime compile.
+   *  The runtime source is a real `.scala` file with a `package
+   *  _ssc_runtime` block, so no wrapper-object hoisting is needed —
+   *  unlike [[compileAndPackDirect]] which has to wrap `.sc`-style
+   *  top-level statements. */
+  def compileRuntimeAndPackDirect(
+      runtimeSource: String
+  ): Either[String, String] =
+    val workDir = os.temp.dir(prefix = "ssc-bytecode-runtime-")
+    try
+      val srcFile = workDir / "_ssc_runtime.scala"
+      os.write(srcFile, runtimeSource)
+
+      val outDir = workDir / "out"
+      os.makeDir.all(outDir)
+
+      Scala3Driver.compile(
+        srcFiles  = List(srcFile),
+        outDir    = outDir,
+        classpath = Nil
+      ) match
+        case Left(diagnostic) =>
+          Left(s"scala3-compiler in-process compile of shared runtime failed:\n$diagnostic")
+        case Right(()) =>
+          val classFiles = collectClassFiles(outDir)
+          if classFiles.isEmpty then
+            Left(s"scala3-compiler in-process compile produced no .class files in $outDir")
+          else
+            val allFiles = collectCompileOutputs(outDir)
+            val zipBytes = packAsZip(outDir, allFiles)
+            Right(Base64.getEncoder.encodeToString(zipBytes))
     finally
       scala.util.Try(os.remove.all(workDir))
 
