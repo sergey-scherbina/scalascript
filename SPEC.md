@@ -127,11 +127,29 @@ processed by each backend.
 | `scalascript` | ScalaScript | Full ScalaScript dialect: effects, handlers, tail-call optimisation, content helpers, module imports. |
 | `ssc` | ScalaScript | Legacy alias for `scalascript`. |
 | `scala` | Standard Scala 3 | No ScalaScript-specific extensions. JS backend compiles via Scala.js. |
+| `html` | HTML | String-valued block with `${expr}` interpolation; values are HTML-escaped. Not parsed. |
+| `css` | CSS | String-valued block with `${expr}` interpolation. Not parsed. |
+| `javascript` (alias `js`) | JavaScript | String-valued block with `${expr}` interpolation. Not parsed, not type-checked. The JS backend may splice the value directly into its output; other backends treat it as a plain `String` value. |
+| `node.js` (alias `node`) | Executable JavaScript for Node target | Linked verbatim into the bundle emitted by the `node` backend, alongside the JS produced from `scalascript` / `scala` blocks. Cross-language interop is by name via `extern def` declarations resolving against `globalThis`. Not type-checked. Other backends reject `node.js` blocks with a `UnknownBlockLanguage` diagnostic. |
 | `sql` | SQL / JDBC | Parameterised SQL executed via JDBC.  Every `${expr}` becomes a single positional `?` bind parameter; string substitution is never performed.  Block evaluates to `Seq[Row]` (SELECT) or `Int` update count (DDL/DML).  JVM-only target; other backends emit `UnknownBlockLanguage`. |
 
 A `.ssc` document may freely mix `scala` and `scalascript` blocks.
 Definitions are visible across blocks within the same file.
 Other tags (`json`, `yaml`, `text`, etc.) are treated as inert prose.
+
+**String blocks** (`html`, `css`, `javascript`) carry no semantics of
+their own — the source is captured as a `String` after `${expr}`
+interpolation against the surrounding ScalaScript scope.  No JS parser
+or HTML/CSS validator is invoked at compile time.
+
+**Executable JS blocks** (`node.js`) are *opaque* to the front-end: the
+source is preserved verbatim and passed to the `node` backend, which
+concatenates all such blocks with the `JsGen` output of the module into
+a single bundle and runs it under Node.  ScalaScript code calls into
+JS-defined symbols through `extern def` declarations whose names resolve
+to `globalThis.<name>` at runtime; type signatures on the ScalaScript
+side are a contract, not a derivation — mismatches surface at runtime.
+No JS parser is part of the toolchain.
 
 ### 3.3.1 SQL / JDBC blocks
 
