@@ -45,14 +45,14 @@ case class Cluster(nodes: List[Node], pids: List[Any]):
     val results = nodes.zip(pids).map { case (node, pid) =>
       val me = self()
       pid ! ("__healthCheck__", me)
-      val ok = receiveWithTimeout(timeoutMs) {
+      val ok: Boolean = receiveWithTimeout(timeoutMs) {
         case "__healthCheckOk__" => true
-      }
-      if ok then None() else Some(node)
+      }.asInstanceOf[Boolean]
+      if ok then None else Some(node)
     }
     results.flatMap {
       case Some(n) => List(n)
-      case None()  => Nil
+      case None  => Nil
     }
 
   // Tear down all connections.

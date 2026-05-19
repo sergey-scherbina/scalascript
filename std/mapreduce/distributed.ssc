@@ -100,7 +100,10 @@ case class HealthCheckOk()
 case class ShutdownWorker()
 
 // ── Error type surfaced to the caller ─────────────────────────────────
-case class DistributedError(node: Node, reason: String)
+// Extends RuntimeException so `throw DistributedError(...)` typechecks
+// where Scala expects a Throwable. The case-class accessors `.node` /
+// `.reason` are still available via the synthesised apply/unapply.
+case class DistributedError(node: Node, reason: String) extends RuntimeException(reason)
 
 // ── Partial result (when allowPartial = true) ──────────────────────────
 case class DistributedResult[T](
@@ -148,7 +151,7 @@ def runDistributed(
   retries:      Int,
   allowPartial: Boolean
 ): DistributedResult[Any] =
-  val jobId      = Random.uuid()
+  val jobId: String = Random.uuid().asInstanceOf[String]
   val numNodes   = cluster.nodes.length
   val partitions = partitionData(data, numNodes)
 
@@ -210,7 +213,7 @@ def collectResults(
     val ordered = assignments.map(_._1).flatMap(i => results.getOrElse(i, Nil))
     DistributedResult(ordered, failures)
   else
-    receive {
+    (receive {
       case PartitionResult(jid, partId, result) if jid == jobId =>
         collectResults(
           jobId, assignments, partitionMap, stage,
@@ -231,7 +234,7 @@ def collectResults(
       case Exit(deadPid, reason) =>
         val maybeAssignment = assignments.find(_._2 == deadPid)
         maybeAssignment match
-          case None() =>
+          case None =>
             collectResults(
               jobId, assignments, partitionMap, stage,
               pending, results, failures,
@@ -244,7 +247,7 @@ def collectResults(
               partId, reason.toString,
               retries, allowPartial, cluster
             )
-    }
+    }).asInstanceOf[DistributedResult[Any]]
 
 // Handle a single partition failure: retry or propagate.
 def handleFailure(

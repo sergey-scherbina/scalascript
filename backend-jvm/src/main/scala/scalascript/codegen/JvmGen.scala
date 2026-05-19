@@ -759,9 +759,17 @@ class JvmGen(
    *  applied right-to-left so earlier offsets remain valid. */
   private def rewriteActorAstCallsInSource(src: String): String =
     import scala.meta.{dialects, *}
-    val parsed = scala.util.Try(
-      dialects.Scala3(Input.VirtualFile("<dep-ast>", src)).parse[Source]
-    ).toOption.flatMap(_.toOption)
+    // Try parsing as Source first (top-level decls), then fall back to
+    // Term (so block-shaped bodies like `{ val …; replyTo ! … }` —
+    // passed in by the receive-case-body recursion — also get walked).
+    val input = Input.VirtualFile("<dep-ast>", src)
+    val parsed: Option[Tree] =
+      scala.util.Try(dialects.Scala3(input).parse[Source]).toOption
+        .flatMap(_.toOption).map(t => t: Tree)
+      .orElse(
+        scala.util.Try(dialects.Scala3(input).parse[Term]).toOption
+          .flatMap(_.toOption).map(t => t: Tree)
+      )
     parsed match
       case None => src
       case Some(tree) =>
@@ -2995,15 +3003,15 @@ class JvmGen(
         case List(s) =>
           s match
             case t: Term => emitCpsExpr(t)
-            case Defn.Val(_, List(Pat.Var(n)), _, rhs) =>
-              s"_bind(${emitCpsExpr(rhs)}, (${n.value}: Any) => ())"
+            case Defn.Val(_, List(Pat.Var(n)), tpe, rhs) =>
+              emitCpsBindWithType(rhs, n.value, tpe, "()")
             case other => s"{ ${other.syntax}; () }"
         case s :: rest =>
           s match
-            case Defn.Val(_, List(Pat.Var(n)), _, rhs) =>
-              s"_bind(${emitCpsExpr(rhs)}, (${n.value}: Any) => ${build(rest)})"
-            case Defn.Var.After_4_7_2(_, List(Pat.Var(n)), _, rhs) =>
-              s"_bind(${emitCpsExpr(rhs)}, (${n.value}: Any) => ${build(rest)})"
+            case Defn.Val(_, List(Pat.Var(n)), tpe, rhs) =>
+              emitCpsBindWithType(rhs, n.value, tpe, build(rest))
+            case Defn.Var.After_4_7_2(_, List(Pat.Var(n)), tpe, rhs) =>
+              emitCpsBindWithType(rhs, n.value, tpe, build(rest))
             case t: Term =>
               if isSimpleCps(t) then s"{ ${t.syntax}; ${build(rest)} }"
               else
@@ -3011,6 +3019,33 @@ class JvmGen(
                 s"_bind(${emitCpsExpr(t)}, (${tmp}: Any) => ${build(rest)})"
             case other => s"{ ${other.syntax}; ${build(rest)} }"
       build(stats)
+
+  /** Emit a CPS `_bind(rhs, lambda)` that preserves the user's
+   *  declared val type inside the lambda body — without breaking the
+   *  runtime's `_bind(c: Any, f: Any => Any): Any` signature.
+   *
+   *  When the user wrote `val x: T = expr`, we emit:
+   *    `_bind(rhs, ((x: T) => body).asInstanceOf[Any => Any])`
+   *
+   *  The `.asInstanceOf[Any => Any]` widens the function to the
+   *  signature `_bind` expects; inside the body `x` still has type `T`
+   *  so downstream constructor calls / field accesses typecheck the
+   *  way the user intended.
+   *
+   *  When no type ascription is present, fall back to the legacy
+   *  `(x: Any) => body` form unchanged. */
+  private def emitCpsBindWithType(
+      rhs:  Term,
+      name: String,
+      tpe:  Option[scala.meta.Type],
+      body: String
+  ): String =
+    tpe match
+      case None =>
+        s"_bind(${emitCpsExpr(rhs)}, (${name}: Any) => ${body})"
+      case Some(t) =>
+        val tSyntax = t.syntax
+        s"_bind(${emitCpsExpr(rhs)}, ((${name}: ${tSyntax}) => ${body}).asInstanceOf[Any => Any])"
 
   // ─── Preamble + runtime ───────────────────────────────────────────
 

@@ -16,33 +16,34 @@ for deterministic output.
 
 [NamedHandler, HandlerRegistry, named](../std/mapreduce/handlers.ssc)
 
-[MapOp, Stage, WorkerProtocol, runDistributed, DistributedResult](../std/mapreduce/distributed.ssc)
+[StageOp, MapOp, Stage, WorkerProtocol, runDistributed, DistributedResult](../std/mapreduce/distributed.ssc)
 
 ```scalascript
 runActors {
   // Register the named handler on every worker (same codebase deployment)
-  HandlerRegistry.register(NamedHandler("double", (x: Int) => x * 2))
+  val doubleFn: Int => Int = (x: Int) => x * 2
+  HandlerRegistry.register(NamedHandler("double", doubleFn))
 
   // Simulate 3 worker actors using WorkerProtocol
   val w1 = spawn { () => WorkerProtocol.handleMessages() }
   val w2 = spawn { () => WorkerProtocol.handleMessages() }
   val w3 = spawn { () => WorkerProtocol.handleMessages() }
 
-  val cluster = Cluster(
-    List(
-      Node("w1@localhost:9101"),
-      Node("w2@localhost:9102"),
-      Node("w3@localhost:9103")
-    ),
-    List(w1, w2, w3)
+  val nodes: List[Node] = List(
+    Node("w1@localhost:9101"),
+    Node("w2@localhost:9102"),
+    Node("w3@localhost:9103")
   )
+  val pids: List[Any] = List(w1, w2, w3)
+  val cluster: Cluster = Cluster(nodes, pids)
 
-  val data = List(1, 2, 3, 4, 5, 6, 7, 8, 9)
-  val stage = Stage(List(MapOp("double")))
+  val data: List[Any] = List(1, 2, 3, 4, 5, 6, 7, 8, 9)
+  val ops: List[StageOp] = List(MapOp("double"))
+  val stage: Stage = Stage(ops)
 
-  val result = runDistributed(data, stage, cluster, retries = 0, allowPartial = false)
+  val result: DistributedResult[Any] = runDistributed(data, stage, cluster, 0, false)
 
-  val sorted = result.asInstanceOf[DistributedResult[Any]].results.asInstanceOf[List[Int]].sortBy(x => x)
+  val sorted = result.results.asInstanceOf[List[Int]].sortBy(x => x)
   sorted.foreach(x => println(x))
   cluster.close()
 }

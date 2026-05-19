@@ -49,7 +49,7 @@ object HandlerRegistry:
   def apply(name: String, value: Any): Any =
     lookup(name) match
       case Some(fn) => fn(value)
-      case None()   => throw new RuntimeException(
+      case None   => throw new RuntimeException(
         s"HandlerRegistry: no handler registered for '$name'. " +
         "Ensure Workers.registerAll() is called at node startup.")
 

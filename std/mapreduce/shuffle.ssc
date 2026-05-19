@@ -89,7 +89,7 @@ object ShuffleProtocol:
           case Some(ReduceByKeyOp(keyName, _)) =>
             val buckets = buildBuckets(intermediate, keyName)
             replyTo ! ShufflePartial(jobId, partId, buckets)
-          case None() =>
+          case None =>
             // No shuffle op — normal path
             replyTo ! PartitionResult(jobId, partId, intermediate)
         handleMessages()
@@ -109,7 +109,7 @@ object ShuffleProtocol:
   // Returns (priorOps, Some(shuffleOp)) or (allOps, None).
   def splitAtShuffle(ops: List[StageOp]): (List[StageOp], Option[StageOp]) =
     ops match
-      case Nil => (Nil, None())
+      case Nil => (Nil, None)
       case (op @ GroupByOp(_)) :: _      => (Nil, Some(op))
       case (op @ ReduceByKeyOp(_, _)) :: _ => (Nil, Some(op))
       case head :: tail =>
