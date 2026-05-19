@@ -259,18 +259,43 @@ cluster control routes alongside `/_health` and `/_ready`:
   Body `{"enabled":true}` (or empty) enables draining; `{"enabled":false}`
   disables.  Mirrors the in-process `setDraining` intrinsic — broadcasts
   `DrainStateChanged` to peers and steps down leadership if enabled.
+- `GET /_ssc-cluster/events[?since=<epoch-ms>]` — bounded ring buffer
+  (cap 200) of every cluster event as a JSON array.  Independent of
+  in-process subscriptions, so dashboards and ops tooling can poll
+  even before any actor calls `subscribeClusterEvents`.  `since`
+  filter enables incremental long-polling.
 
 CLI wrapper (`ssc cluster`):
 
 ```text
-ssc cluster status http://node-a:8080            # human-readable
-ssc cluster status http://node-a:8080 --json     # raw JSON
-ssc cluster drain  http://node-a:8080            # enable drain
-ssc cluster drain  http://node-a:8080 --off      # disable drain
+ssc cluster status http://node-a:8080                  # human-readable
+ssc cluster status http://node-a:8080 --json           # raw JSON
+ssc cluster drain  http://node-a:8080                  # enable drain
+ssc cluster drain  http://node-a:8080 --off            # disable drain
+ssc cluster events http://node-a:8080                  # dump ring buffer
+ssc cluster events http://node-a:8080 --since=1779…    # incremental
 ```
 
 The CLI uses `java.net.http` only — no external dependency — and
-hand-parses the small JSON object so the binary stays lean.
+hand-parses the small JSON shapes so the binary stays lean.
+
+### Quorum-aware Bully (split-brain guard)
+
+`setQuorumSize(n: Long)` — a node refuses to self-claim leadership
+when it sees fewer than `n` total nodes (peers + self).  Set to
+`N/2+1` of the expected cluster size to prevent split-brain on
+partition: each side with fewer than `n` visible nodes stays
+leaderless until the partition heals.  Default 0 = no quorum
+(legacy behaviour).  Gates both the `higher.isEmpty` branch in
+`startElection` and the election-timeout `!gotAliveResponse` branch
+in the scheduler tick.
+
+### TLS for peer connections
+
+`serveAsync(port, tls(certPath, keyPath))` binds HTTPS / wss:// — the
+outbound side already handles `wss://` URLs transparently via the JDK
+WS client, so cluster TLS is end-to-end as soon as one node serves
+TLS and peers' join URLs use `wss://`.
 
 ### Cluster-wide singleton actor
 

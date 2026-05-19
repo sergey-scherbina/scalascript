@@ -4537,9 +4537,13 @@ external-coordinator algorithms and API in
 | Multi-node integration tests (2-, 5-, 3-node-with-leader-kill failover) | ✓ v1.23 |
 | Concrete `Etcd.use` + `Consul.use` coordinator adapters | ✓ v1.23 |
 | Operational status endpoint (`GET /_ssc-cluster/status` + `ssc cluster status` CLI) | ✓ v1.23 |
+| Remote drain toggle (`POST /_ssc-cluster/drain` + `ssc cluster drain` CLI) | ✓ v1.23 |
+| Events ring buffer (`GET /_ssc-cluster/events` + `ssc cluster events` CLI) | ✓ v1.23 |
 | Cluster-wide singleton actor (`Singleton.use` / `Singleton.send`) | ✓ v1.23 (opt-in module) |
 | Tunable per-link heartbeat (`setHeartbeatTimeout(intervalMs, deadAfterMs)`) | ✓ v1.23 |
 | Bounded auto-reconnect (`setReconnectPolicy(initial, max, giveUpAfterMs)`) | ✓ v1.23 |
+| Quorum-aware Bully self-claim (`setQuorumSize(n)`) — split-brain guard | ✓ v1.23 |
+| TLS for peer endpoints (`serveAsync(port, tls(...))`) — wss:// out-of-the-box | ✓ v1.23 |
 
 ### Still deferred (promote on demand)
 
