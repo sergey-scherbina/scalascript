@@ -28,6 +28,7 @@ exports:
   - electLeader
   - currentLeader
   - subscribeLeaderEvents
+  - setAutoReelect
   - setReconnectPolicy
   - requestGossip
   - ConfigChanged
@@ -211,6 +212,15 @@ extern def currentLeader(): String
 // `LeaderLost(nodeId)` messages.  No unsubscribe API — exit the actor
 // to stop.
 extern def subscribeLeaderEvents(): Unit
+
+// Enable automatic re-election on leader-link loss.  When `true`, the
+// runtime calls `electLeader()` itself the moment the current leader's
+// peer link drops (immediately after firing `LeaderLost`).  Bully
+// naturally serialises concurrent claims via higher-id wins, so several
+// nodes triggering at the same time still converge on a single leader.
+// `false` (default) keeps the policy app-driven — apps subscribe to
+// `LeaderLost` and call `electLeader()` themselves.
+extern def setAutoReelect(enabled: Boolean): Unit
 
 // ─── Auto-reconnect policy (v1.23) ────────────────────────────────────────────
 

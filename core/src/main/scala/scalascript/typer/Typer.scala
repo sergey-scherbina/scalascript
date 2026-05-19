@@ -97,7 +97,7 @@ class Typer(
       "clusterMembers", "subscribeClusterEvents",
       "phiOf", "isSuspect", "selfNode", "clusterHealth",
       "broadcastHealth", "clusterIsDown",
-      "electLeader", "currentLeader", "subscribeLeaderEvents",
+      "electLeader", "currentLeader", "subscribeLeaderEvents", "setAutoReelect",
       "setReconnectPolicy", "requestGossip",
       "clusterConfigSet", "clusterConfigGet", "clusterConfigKeys",
       "subscribeConfigEvents",

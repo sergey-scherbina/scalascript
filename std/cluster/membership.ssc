@@ -113,6 +113,10 @@ object Cluster:
   def subscribeLeader(): Unit =
     subscribeLeaderEvents()
 
+  // Toggle automatic re-election on leader-link loss.
+  def autoReelect(enabled: Boolean): Unit =
+    setAutoReelect(enabled)
+
   // Enable auto-reconnect for outbound peer links (exponential backoff
   // from `initialMs` up to `maxMs`).  Pass 0/0 to disable.
   def autoReconnect(initialMs: Long, maxMs: Long): Unit =

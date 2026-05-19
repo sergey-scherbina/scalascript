@@ -263,6 +263,7 @@ class Interpreter(
     new java.util.concurrent.CopyOnWriteArrayList[java.lang.Long]()
   private val leaderEventQueue =
     new java.util.concurrent.ConcurrentLinkedQueue[Value]()
+  @volatile private var autoReelect: Boolean = false
   private def enqueueLeaderEvent(tag: String, leaderId: String): Unit =
     if !leaderEventSubs.isEmpty then
       val ev = Value.InstanceV(tag, Map("nodeId" -> Value.StringV(leaderId)))
@@ -775,6 +776,7 @@ class Interpreter(
               enqueueClusterEvent("NodeLeft", peerNodeId, "disconnect")
               if currentLeader.compareAndSet(peerNodeId, "") then
                 enqueueLeaderEvent("LeaderLost", peerNodeId)
+                if autoReelect then startElection()
               if reconnectInitialMs > 0L then scheduleReconnect(url, token)
               val t = schedulerThread; if t != null then t.interrupt()
       catch case e: Throwable =>
@@ -1737,6 +1739,10 @@ class Interpreter(
     globals("subscribeLeaderEvents") = Value.NativeFnV("subscribeLeaderEvents", {
       case Nil => Perform("Actor", "subscribeLeaderEvents", Nil)
       case _   => throw InterpretError("subscribeLeaderEvents(): Unit")
+    })
+    globals("setAutoReelect") = Value.NativeFnV("setAutoReelect", {
+      case List(Value.BoolV(b)) => Perform("Actor", "setAutoReelect", List(Value.BoolV(b)))
+      case _ => throw InterpretError("setAutoReelect(enabled: Boolean): Unit")
     })
     // v1.23 — auto-reconnect policy
     globals("setReconnectPolicy") = Value.NativeFnV("setReconnectPolicy", {
@@ -5122,6 +5128,7 @@ class Interpreter(
           enqueueClusterEvent("NodeLeft", pnId, "disconnect")
           if currentLeader.compareAndSet(pnId, "") then
             enqueueLeaderEvent("LeaderLost", pnId)
+            if autoReelect then startElection()
           val t = schedulerThread; if t != null then t.interrupt()
         }
         Pure(Value.UnitV)
@@ -5280,6 +5287,12 @@ class Interpreter(
       val boxed = java.lang.Long.valueOf(id)
       if !leaderEventSubs.contains(boxed) then leaderEventSubs.add(boxed)
       Right(k(Value.UnitV))
+
+    case "setAutoReelect" => args match
+      case List(Value.BoolV(b)) =>
+        autoReelect = b
+        Right(k(Value.UnitV))
+      case _ => throw InterpretError("setAutoReelect(enabled: Boolean): Unit")
 
     // v1.23 — auto-reconnect policy
     case "setReconnectPolicy" => args match

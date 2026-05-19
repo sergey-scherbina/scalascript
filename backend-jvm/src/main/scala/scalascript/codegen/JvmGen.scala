@@ -471,6 +471,7 @@ class JvmGen(
         "phiOf", "isSuspect", "selfNode", "clusterHealth",
         "broadcastHealth", "clusterIsDown",
         "electLeader", "currentLeader", "subscribeLeaderEvents",
+        "setAutoReelect",
         "setReconnectPolicy", "requestGossip",
         "clusterConfigSet", "clusterConfigGet", "clusterConfigKeys",
         "subscribeConfigEvents",
@@ -1472,6 +1473,9 @@ class JvmGen(
     case Term.Apply.After_4_6_0(Term.Name("subscribeLeaderEvents"), argClause)
         if argClause.values.isEmpty =>
       "Actor.subscribeLeaderEvents()"
+    case Term.Apply.After_4_6_0(Term.Name("setAutoReelect"), argClause)
+        if argClause.values.size == 1 =>
+      s"Actor.setAutoReelect(${emitExpr(argClause.values.head.asInstanceOf[Term])})"
     // v1.23 — auto-reconnect policy
     case Term.Apply.After_4_6_0(Term.Name("setReconnectPolicy"), argClause)
         if argClause.values.size == 2 =>
@@ -2218,6 +2222,9 @@ class JvmGen(
     case Term.Apply.After_4_6_0(Term.Name("subscribeLeaderEvents"), argClause)
         if argClause.values.isEmpty =>
       "Actor.subscribeLeaderEvents()"
+    case Term.Apply.After_4_6_0(Term.Name("setAutoReelect"), argClause)
+        if argClause.values.size == 1 =>
+      s"Actor.setAutoReelect(${emitExpr(argClause.values.head.asInstanceOf[Term])})"
     // v1.23 — auto-reconnect policy
     case Term.Apply.After_4_6_0(Term.Name("setReconnectPolicy"), argClause)
         if argClause.values.size == 2 =>
@@ -5320,6 +5327,7 @@ class JvmGen(
        |  def electLeader(): Any                                = _perform("Actor", "electLeader")
        |  def currentLeader(): Any                              = _perform("Actor", "currentLeader")
        |  def subscribeLeaderEvents(): Any                      = _perform("Actor", "subscribeLeaderEvents")
+       |  def setAutoReelect(enabled: Any): Any                 = _perform("Actor", "setAutoReelect", enabled)
        |  // v1.23 — auto-reconnect policy (exponential backoff per peer)
        |  def setReconnectPolicy(initialMs: Any, maxMs: Any): Any = _perform("Actor", "setReconnectPolicy", initialMs, maxMs)
        |  // v1.23 — periodic gossip re-discovery (ask peers for their peer list)
@@ -5396,6 +5404,7 @@ class JvmGen(
        |  val _ELECTION_TIMEOUT_MS  = 2000L
        |  val _leaderEventSubs      = new java.util.concurrent.CopyOnWriteArrayList[java.lang.Long]()
        |  val _leaderEventQueue     = new java.util.concurrent.ConcurrentLinkedQueue[(String, String)]()
+       |  @volatile var _autoReelect: Boolean = false
        |  // v1.23 — auto-reconnect: exponential-backoff retry per peer URL after a
        |  // disconnect.  Both fields 0 ⇒ disabled (default).  `setReconnectPolicy`
        |  // sets them at runtime.
@@ -5592,7 +5601,9 @@ class JvmGen(
        |            _peerPhiViews.remove(pnId)
        |            _nodeDownQueue.offer(pnId)
        |            _fireClusterEvent("NodeLeft", pnId, "disconnect")
-       |            if _currentLeader.compareAndSet(pnId, "") then _fireLeaderEvent("LeaderLost", pnId)
+       |            if _currentLeader.compareAndSet(pnId, "") then
+       |              _fireLeaderEvent("LeaderLost", pnId)
+       |              if _autoReelect then _startElection()
        |            // v1.23 — auto-reconnect: schedule exponential-backoff retries
        |            // for this URL until the peer reappears.
        |            if _reconnectInitialMs > 0L then _scheduleReconnect(url, token)
@@ -6097,7 +6108,9 @@ class JvmGen(
        |            _peerPhiViews.remove(pnId)
        |            _nodeDownQueue.offer(pnId)
        |            _fireClusterEvent("NodeLeft", pnId, "disconnect")
-       |            if _currentLeader.compareAndSet(pnId, "") then _fireLeaderEvent("LeaderLost", pnId)
+       |            if _currentLeader.compareAndSet(pnId, "") then
+       |              _fireLeaderEvent("LeaderLost", pnId)
+       |              if _autoReelect then _startElection()
        |      }
        |      Right(k(()))
        |    case "connectNode" =>
@@ -6212,6 +6225,11 @@ class JvmGen(
        |    case "subscribeLeaderEvents" =>
        |      val boxed = java.lang.Long.valueOf(id)
        |      if !_leaderEventSubs.contains(boxed) then _leaderEventSubs.add(boxed)
+       |      Right(k(()))
+       |    case "setAutoReelect" =>
+       |      _autoReelect = args(0) match
+       |        case b: Boolean => b
+       |        case _          => false
        |      Right(k(()))
        |    // v1.23 — auto-reconnect policy
        |    case "setReconnectPolicy" =>

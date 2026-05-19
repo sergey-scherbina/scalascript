@@ -3554,6 +3554,7 @@ const Actor = {
   electLeader:           ()  => _perform('Actor', 'electLeader',           []),
   currentLeader:         ()  => _perform('Actor', 'currentLeader',         []),
   subscribeLeaderEvents: ()  => _perform('Actor', 'subscribeLeaderEvents', []),
+  setAutoReelect:        (b) => _perform('Actor', 'setAutoReelect', [b]),
   // v1.23 — auto-reconnect policy
   setReconnectPolicy: (ini, mx) => _perform('Actor', 'setReconnectPolicy', [ini, mx]),
   // v1.23 — periodic gossip re-discovery
@@ -3626,6 +3627,7 @@ function _runActors(bodyFn) {
   let   _electionInProgress = false;
   let   _electionStartedAt  = 0;
   let   _gotAliveResponse   = false;
+  let   _autoReelect         = false;
   const _ELECTION_TIMEOUT_MS = 2000;
   const _leaderEventSubs    = new Set();
   const _leaderEventQueue   = [];
@@ -3893,6 +3895,7 @@ function _runActors(bodyFn) {
           if (_currentLeader === env.nodeId) {
             _currentLeader = "";
             _fireLeaderEvent("LeaderLost", env.nodeId);
+            if (_autoReelect) _startElection();
           }
           if (_reconnectInitialMs > 0 && _lostUrl) _scheduleReconnect(_lostUrl, _joinToken || '');
         } else if (env.t === 'peers_req') {
@@ -4321,6 +4324,7 @@ private val JsRuntimeAsyncB: String = """
                 if (_currentLeader === peerNodeId) {
                   _currentLeader = "";
                   _fireLeaderEvent("LeaderLost", peerNodeId);
+                  if (_autoReelect) _startElection();
                 }
               }
             });
@@ -4446,6 +4450,10 @@ private val JsRuntimeAsyncB: String = """
       }
       case 'subscribeLeaderEvents': {
         _leaderEventSubs.add(id);
+        return { suspend: false, next: k(undefined) };
+      }
+      case 'setAutoReelect': {
+        _autoReelect = !!args[0];
         return { suspend: false, next: k(undefined) };
       }
       // v1.23 — auto-reconnect policy
@@ -5742,6 +5750,7 @@ class JsGen(
       "Actor.selfNode", "Actor.clusterHealth",
       "Actor.broadcastHealth", "Actor.clusterIsDown",
       "Actor.electLeader", "Actor.currentLeader", "Actor.subscribeLeaderEvents",
+      "Actor.setAutoReelect",
       "Actor.setReconnectPolicy", "Actor.requestGossip",
       "Actor.clusterConfigSet", "Actor.clusterConfigGet",
       "Actor.clusterConfigKeys", "Actor.subscribeConfigEvents",
@@ -7038,6 +7047,9 @@ class JsGen(
     case Term.Apply.After_4_6_0(Term.Name("subscribeLeaderEvents"), argClause)
         if argClause.values.isEmpty =>
       "Actor.subscribeLeaderEvents()"
+    case Term.Apply.After_4_6_0(Term.Name("setAutoReelect"), argClause)
+        if argClause.values.size == 1 =>
+      s"Actor.setAutoReelect(${genExpr(argClause.values.head.asInstanceOf[Term])})"
     // v1.23 — auto-reconnect policy
     case Term.Apply.After_4_6_0(Term.Name("setReconnectPolicy"), argClause)
         if argClause.values.size == 2 =>
@@ -7639,6 +7651,9 @@ class JsGen(
     case Term.Apply.After_4_6_0(Term.Name("subscribeLeaderEvents"), argClause)
         if argClause.values.isEmpty =>
       "Actor.subscribeLeaderEvents()"
+    case Term.Apply.After_4_6_0(Term.Name("setAutoReelect"), argClause)
+        if argClause.values.size == 1 =>
+      s"Actor.setAutoReelect(${genExpr(argClause.values.head.asInstanceOf[Term])})"
     // v1.23 — auto-reconnect policy
     case Term.Apply.After_4_6_0(Term.Name("setReconnectPolicy"), argClause)
         if argClause.values.size == 2 =>
