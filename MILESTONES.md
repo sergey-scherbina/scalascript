@@ -5462,6 +5462,115 @@ view so they shape near-term decisions.
   for prerequisites, effort estimates, and why each is on hold
   until a concrete user surfaces.
 
+## v1.25 — JavaScript / Node.js fenced code blocks
+
+**Status: Phases 1+2 landed; Phases 3+ open. Branch `worktree-js-node-blocks`.**
+
+Symmetry fix and new target.  Pre-v1.25, `html` and `css` were
+first-class string blocks (§ 3.3 of `SPEC.md`) but `javascript` was
+unknown — every ```javascript``` fence silently degraded to inert
+prose.  Bigger gap: there was no escape hatch for "use this npm
+package / call this Node-only API" from `.ssc` code.  Both addressed
+by two orthogonal additions, **same milestone, separable phases**.
+
+### Phase 1 — `javascript` (alias `js`) as string block ✓ Landed
+
+Parallel to `html` / `css`.  Body is a `String` after `${expr}`
+interpolation against the surrounding ScalaScript scope.  Not parsed,
+not type-checked.  Use cases: browser glue for the JS backend, inline
+third-party snippets, SSR-rendered client JS, documentation.
+
+- [x] `core/.../ast/Lang.scala`: `Js = "javascript"` + alias
+      `JsShort = "js"`; extended `isStringBlock` and `label`.
+- [x] Parser / Normalize / backends unchanged — existing
+      `Lang.isStringBlock` routing in `JsGen`, `JvmGen`, and the
+      interpreter picks the new tag up automatically.
+- [x] Unit tests in `LangTest` plus three regression tests in
+      `InterpreterTest` confirming `${expr}` interpolation, alias
+      handling, and that `javascript` is **not** html-escaped.
+
+### Phase 2 — `node.js` (alias `node`) lang tag — front-end recognition ✓ Landed
+
+New "opaque executable" classification — neither parseable nor a
+string block.  At this phase the tag is only *recognised*; runtime
+semantics arrive with Phase 3.
+
+- [x] `Lang.scala`: `Node = "node.js"` + `NodeShort = "node"`,
+      plus `isNode` / `isOpaqueExec(lang)` predicates.
+- [x] Parser + `Normalize` already route unknown lang tags through
+      `Content.EmbeddedBlock(language, source)` — no change needed;
+      `node.js` blocks survive verbatim into the IR.
+- [x] `NodeJsBlockTest`: lang tag preserved verbatim from the fence,
+      `node` alias classifies identically, `Normalize` produces an
+      `EmbeddedBlock` with source intact, full
+      Parse → Normalize → Denormalize round-trip preserves the body
+      character-for-character with no JS parser invoked.
+- **Deferred to Phase 3**: emitting `Diagnostic.UnknownBlockLanguage`
+  on non-Node backends.  Requires extending `Capabilities` with a
+  block-language axis alongside `features` — designed together with
+  the first consumer (the Node backend) rather than ahead of time.
+
+### Phase 3 — `backend-node` module — open
+
+New SPI backend with target id `"node"`.  Pipeline:
+
+1. Collect `node.js` blocks in document order → glue prefix.
+2. Run `JsGen` over `scalascript` / `scala` blocks (reuse existing
+   code generator unchanged).
+3. Concatenate `<glue>\n<jsgen output>\n<entrypoint>` into one `.mjs`.
+4. Execute via `node <bundle>.mjs` for `CompileResult.Executed`, or
+   return `CompileResult.TextOutput(language = "javascript")`.
+
+- [ ] New sbt module `backend-node/` mirroring `backend-js/` layout.
+- [ ] `NodeBackend.scala` (Backend SPI adapter), `NodeCapabilities.scala`
+      (declare `node.js` as a supported block language — add the
+      block-language axis to the `Capabilities` SPI).
+- [ ] `META-INF/services/scalascript.backend.spi.Backend` entry.
+- [ ] `CapabilityCheck`: emit `Diagnostic.UnknownBlockLanguage` on
+      backends whose capabilities don't list `node.js`.
+- [ ] CLI registration; `--list-backends` shows `node`.
+
+### Phase 4 — `extern def` ↔ `globalThis` bridging — open
+
+Surface for ScalaScript to call into JS-defined symbols.  Reuse the
+existing `extern def` preprocessor (`Parser.scala`,
+`preprocessExtern`) — no new syntax.  Node backend resolves
+`extern def fooFromJs(...)` to `globalThis.fooFromJs(...)` in the
+emitted JS.
+
+- [ ] `JsGen` (or a Node-only wrapper) maps `ExternCall` IR nodes to
+      `globalThis.<name>` invocation.
+- [ ] Signature mismatches are a runtime concern; document the
+      contract in `docs/targets.md`.
+- [ ] Tests: ssc `extern def add(a: Int, b: Int): Int` + `node.js`
+      block defining `globalThis.add` → executes under Node, returns
+      `42`.
+
+### Phase 5 — examples + conformance — open
+
+- [ ] `examples/node-fs-read.ssc` — ssc CLI that reads a file via a
+      `node.js` block calling `require('fs')`.
+- [ ] `examples/js-glue-component.ssc` — browser-target ssc with a
+      `javascript` block providing inline DOM glue.
+- [ ] `conformance/`: extend the suite with a Node-only category;
+      JVM/JS/Scala.js backends are expected to emit
+      `UnknownBlockLanguage` for `node.js` blocks.
+
+### Open questions
+
+- Should `node.js` blocks be allowed to appear in a non-Node bundle and
+  be silently dropped (current design: no, hard error) — revisit if
+  the literate-programming use case bites.
+- Top-level `await` in `node.js` blocks: allowed unconditionally, since
+  the emitted file is `.mjs`.  Document in `docs/targets.md`.
+- TypeScript-typed `node.js` blocks (`node.ts` tag + `tsc --noEmit`
+  validation): explicitly *out of scope* for v1.25.  Filed as a v1.26+
+  candidate if demand surfaces.
+
+### Design source of truth
+
+§ 3.3 of `SPEC.md` (table extension landed with Phase 1+2).
+
 ## v0.5 — Interpreter performance (Tier 1) — landed
 
 Closed in a series of small commits on the
