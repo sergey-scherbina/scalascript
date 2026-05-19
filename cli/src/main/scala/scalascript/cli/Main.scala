@@ -8,7 +8,7 @@ import scalascript.typer.Typer
 // emit-spa needs ScalaJsBackend.compileSourceToJs for per-segment
 // Scala source compilation.
 import scalascript.interpreter.Interpreter
-import scalascript.codegen.{JsGen, JsRuntime, JsRuntimeAsync, JsRuntimeV14Effects, JsRuntimeBrowserPatch, JsRuntimeMcp, JsRuntimeDataset, ScalaJsBackend}
+import scalascript.codegen.{JsGen, JsRuntime, JsRuntimeAsync, JsRuntimeV14Effects, JsRuntimeBrowserPatch, JsRuntimeMcp, JsRuntimeMcpBrowser, JsRuntimeDataset, ScalaJsBackend}
 import scalascript.ast.*
 import scalascript.transform.Normalize
 import scalascript.validate.CapabilityCheck
@@ -1259,6 +1259,15 @@ def emitSpaCommand(args: List[String]): Unit =
           case Segment.Source("scala", src)     =>
             ScalaJsBackend.compileSourceToJs(src, baseDir)
         }.filter(_.nonEmpty).mkString("\n")
+        // v1.17 Phase 3 — when the user's JS references `mcpConnect`,
+        // splice in the browser-compatible MCP client preamble.  The
+        // Node-side `JsRuntimeMcp` would import worker_threads etc.,
+        // which crashes in a browser; the browser variant uses sync XHR
+        // with zero deps.
+        val mcpPreamble =
+          if userJs.contains("mcpConnect") || userJs.contains("mcpServer") then
+            "\n" + JsRuntimeMcpBrowser
+          else ""
         println(s"""<!doctype html>
                    |<html lang="en">
                    |<head>
@@ -1271,7 +1280,7 @@ def emitSpaCommand(args: List[String]): Unit =
                    |$JsRuntime
                    |$JsRuntimeAsync
                    |$JsRuntimeV14Effects
-                   |$JsRuntimeBrowserPatch
+                   |$JsRuntimeBrowserPatch$mcpPreamble
                    |$userJs
                    |</script>
                    |</body>

@@ -23,7 +23,10 @@ val ScalaJsCapabilities: Capabilities = Capabilities(
     // (the browser is the client).  Crypto via SubtleCrypto; FileSystem
     // limited to download/upload via input elements (not declared here).
     Feature.ConsoleIO,
-    Feature.Crypto
+    Feature.Crypto,
+    // v1.17 Phase 3 — browser MCP client via sync XHR (JsRuntimeMcpBrowser).
+    // Server-side stays unsupported (a browser can't host a server).
+    Feature.McpClient
   ),
   outputs  = Set(OutputKind.JavaScriptSource, OutputKind.HtmlSource),
   options  = Set("optimizationLevel", "emitSourceMaps"),

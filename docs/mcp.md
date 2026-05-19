@@ -370,31 +370,39 @@ request/response covers MCP's typical workload; additive later.
 WebSocket server infrastructure; raises an actionable
 "deferred to a future phase" `InterpretError` today.
 
-### 6.4 Browser-SPA (scalajs) backend — Phase 3 still pending
+### 6.4 Browser-SPA (scalajs) backend — Phase 3 landed
 
-Server-side stays unsupported (a browser can't be an MCP server).
-**Client side (`std/mcp/client`) is deferred to v1.17.x Phase 3**.
+Server-side stays unsupported (a browser can't host a server).  **Client
+side landed 2026-05-19** as a JavaScript preamble (`JsRuntimeMcpBrowser`)
+that the CLI's `emit-spa` command splices into the generated HTML when
+user code references `mcpConnect` / `mcpServer`.
 
-Open implementation questions for Phase 3:
+| Module | Role |
+|---|---|
+| `backend-js/.../JsRuntimeMcpBrowser.scala` | Browser preamble — `mcpConnect`, `McpClient`, `mcpServer`/`serveMcp` rejection stubs |
+| `cli/.../Main.scala emitSpaCommand` | Detects `userJs.contains("mcpConnect" \| "mcpServer")` and splices the preamble alongside `JsRuntimeBrowserPatch` |
+| `backend-scalajs/.../ScalaJsCapabilities.scala` | Adds `Feature.McpClient` (server stays unsupported) |
 
-- **How to bridge the user's `scalascript`/`scala` blocks to a browser MCP
-  client**: `mcp-common` is JVM-only (uses `java.net.http.HttpClient` +
-  `java.util.concurrent`); the browser needs `fetch` / `EventSource`.
-  Options:
-  1. Write a browser-compatible variant of `JsRuntimeMcp` (raw JavaScript
-     preamble) and select it when target is the browser.  Cleanest for
-     `scalascript` blocks (they go through `JsGen`).
-  2. Write a Scala-source preamble (using `org.scalajs.dom` facades) for
-     `scala` blocks compiled via `scala-cli --js`.  Requires filtering
-     the `extern def __extern__` stubs from inlined `std/mcp/client.ssc`
-     so the preamble's real impl doesn't collide.  `JvmGen` has
-     `blockContainsExternDef` for this; `ScalaJsBackend` currently
-     doesn't.
+Design choices:
 
-- **`Feature.McpClient` not yet on `ScalaJsCapabilities`** — adding it
-  without a real impl would leave `mcpConnect` calls as runtime
-  `__extern__` errors; keep the typecheck rejection until Phase 3 lands
-  the impl.
+- **No Node deps.**  The preamble deliberately avoids `require`,
+  `worker_threads`, `SharedArrayBuffer`, and `Atomics.wait` — those
+  would crash in a browser or require COOP/COEP cross-origin isolation
+  headers.
+- **Synchronous `XMLHttpRequest`** for the HTTP roundtrip — matches the
+  synchronous `std/mcp/client.ssc` API (`def callTool(name, args):
+  ToolResult`).  Sync XHR is deprecated by browsers (blocks main
+  thread) but works without setup; an async-Promise variant
+  (`mcpConnectAsync`) is on the deferred list when a real consumer
+  surfaces.
+- **`Transport.Http` only.**  Stdio / Spawn / Ws are nonsensical in a
+  browser sandbox; `mcpConnect` throws an actionable error for them.
+
+`JsRuntimeMcpBrowserTest` (6 cases) asserts: the preamble defines the
+full client surface, contains no Node-only API references, uses sync
+XHR for the transport, raises clear "not supported" errors for server
+operations + non-HTTP transports, and runs the `initialize` handshake
+on connect.
 
 ## 7. Backend feature flags (per SPI §8)
 
@@ -410,8 +418,8 @@ enum Feature:
 |---------|-----------|-----------|
 | jvm     | ✅ (intrinsic, SDK) | ✅ (intrinsic, SDK) |
 | js (Node) | ✅ (intrinsic, SDK) | ✅ (intrinsic, SDK) |
-| interpreter | ✅ (own-impl Phase 1 — Stdio; Http+SSE Phase 2) | ✅ (own-impl Phase 1 — Spawn; Http+SSE Phase 2) |
-| scalajs-spa | ❌ | ❌ (HTTP+SSE in browser, Phase 3) |
+| interpreter | ✅ (own-impl Phase 1 — Stdio; Phase 2 — Http) | ✅ (own-impl Phase 1 — Spawn; Phase 2 — Http) |
+| scalajs-spa | ❌ (browser can't host) | ✅ (own-impl Phase 3 — Http via sync XHR) |
 
 Capability sub-flags for partial coverage:
 
