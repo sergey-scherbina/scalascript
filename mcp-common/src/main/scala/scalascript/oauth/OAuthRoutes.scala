@@ -63,6 +63,22 @@ object OAuthRoutes:
           clientSecret = clientSec.getOrElse(""),
           scope        = parseScope(form.get("scope"))
         ))
+      case TokenRequest.PasskeyGrantType =>
+        // Passkey assertion grant — all binary fields arrive as
+        // base64url strings on the wire.
+        try
+          as.issueToken(TokenRequest.PasskeyAssertionGrant(
+            credentialId = form.getOrElse("credential_id", ""),
+            challenge    = form.getOrElse("challenge", ""),
+            signedData   = Passkey.b64uDecode(form.getOrElse("signed_data", "")),
+            signature    = Passkey.b64uDecode(form.getOrElse("signature", "")),
+            scope        = parseScope(form.get("scope")),
+            clientId     = clientId,
+            clientSecret = clientSec
+          ))
+        catch case _: Throwable =>
+          TokenOutcome.Error("invalid_request",
+            "passkey grant: missing or malformed signed_data / signature (expected base64url)")
       case other =>
         TokenOutcome.Error("unsupported_grant_type", s"unsupported grant: $other")
     outcome match
@@ -107,6 +123,17 @@ object OAuthRoutes:
       case Left("registration_disabled") =>
         jsonError(403, "registration_disabled", "dynamic client registration is disabled")
       case Left(err) => jsonError(400, err, s"client metadata rejected: $err")
+
+  // ─── /passkey/challenge — server-issued nonce for assertion flow ───
+
+  /** Hand out a single-use challenge for the user's browser to feed
+   *  into `navigator.credentials.get(...)`.  Returns 200 with
+   *  `{"challenge": "<base64url>"}`; the challenge is short-lived
+   *  (default 5 minutes) and consumed on first verification. */
+  def handlePasskeyChallenge(as: AuthServer): RouteOutcome =
+    RouteOutcome.Json(200,
+      ujson.Obj("challenge" -> as.passkeyChallenge()),
+      Map("Cache-Control" -> "no-store"))
 
   // ─── /revoke (RFC 7009) ─────────────────────────────────────────────
 

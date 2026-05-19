@@ -358,7 +358,8 @@ class OAuthAuthServerTest extends AnyFunSuite with Matchers:
     js("registration_endpoint").str   shouldBe "https://auth.example.com/register"
     js("response_types_supported").arr.map(_.str).toList shouldBe List("code")
     js("grant_types_supported").arr.map(_.str).toSet shouldBe
-      Set("authorization_code", "refresh_token", "client_credentials")
+      Set("authorization_code", "refresh_token", "client_credentials",
+          "urn:ietf:params:oauth:grant-type:passkey")
     js("code_challenge_methods_supported").arr.map(_.str).toSet shouldBe
       Set("S256", "plain")
     js("scopes_supported").arr.map(_.str).toSet shouldBe Set("read", "write")
