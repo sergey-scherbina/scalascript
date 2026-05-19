@@ -235,7 +235,7 @@ object Parser:
     val result = new StringBuilder()
     for line <- lines do
       externLine.findFirstMatchIn(line) match
-        case Some(m) if !line.contains("=") =>
+        case Some(m) if !line.contains(" = ") && !line.endsWith("=") =>
           result.append(m.group(1))
                 .append("def ")
                 .append(m.group(2).stripTrailing)

@@ -2,6 +2,7 @@ package scalascript.codegen
 
 import scalascript.backend.spi.*
 import scalascript.ir.QualifiedName
+import scalascript.codegen.jvm.*
 
 /** Capabilities declared by the JvmGen backend (target id `"jvm"`).
  *

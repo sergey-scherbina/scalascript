@@ -1,6 +1,6 @@
 ---
 name: conformance-type-ascription
-description: Type ascription (expr: T) — interpreter, JS, JVM must all evaluate the inner expression and ignore the type
+description: "Type ascription (expr: T) — interpreter, JS, JVM must all evaluate the inner expression and ignore the type"
 backends: [js, jvm, interpreter]
 ---
 

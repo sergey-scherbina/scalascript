@@ -1,4 +1,4 @@
-package scalascript.codegen
+package scalascript.codegen.jvm
 
 import scalascript.backend.spi.*
 import scalascript.ir.QualifiedName
