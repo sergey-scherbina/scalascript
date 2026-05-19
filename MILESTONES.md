@@ -3275,8 +3275,21 @@ the codegen output.
 
 ### Deferred follow-ups (v1.17.x backlog, ordered by priority)
 
-1. **Own implementation for INT / scalajs-spa** — ~1500 LOC
-   JSON-RPC 2.0 stack; blocked until INT becomes a priority target.
+1. ~~**Own implementation for INT / scalajs-spa**~~ — Phase 1
+   landed 2026-05-19: pure-Scala JSON-RPC 2.0 + dispatch in
+   `backend-interpreter/.../mcp/` (JsonRpc + McpProtocol +
+   McpServerCore + McpClientCore = 583 LOC) plus `intrinsics/Mcp.scala`
+   (532 LOC) wiring `mcpServer` / `serveMcp(Transport.Stdio)` /
+   `mcpConnect(Transport.Spawn)` as native intrinsics.
+   `Feature.McpServer` + `Feature.McpClient` added to
+   `InterpreterCapabilities`; the typer no longer rejects
+   `std/mcp/*` imports on INT.  23 new tests (`McpRuntimeTest`
+   covers framing/dispatch/client, `McpEndToEndTest` runs both
+   halves over an in-process pipe, `McpInterpreterIntegrationTest`
+   smoke-tests the user-facing API).  **Phase 2 — Http+SSE on INT**
+   and **Phase 3 — scalajs-spa client over EventSource** remain;
+   `serveMcp(Transport.Http(...))` raises an actionable "deferred to
+   Phase 2/3" error today.
 2. **Type-class layer** (`given McpTool[A, R]`, `derives McpSchema`)
    — depends on v1.14 `derives`.
 3. **Streaming resources** — depends on v1.10 Generators.

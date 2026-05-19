@@ -79,11 +79,15 @@ object JsonRpc:
   /** Serialise a request to a single-line JSON frame (line-delimited
    *  framing — what stdio transport expects).  Adds the trailing `\n`. */
   def encodeRequest(method: String, params: ujson.Value, id: Long): String =
+    // Explicit ujson.Num wrap — `"id" -> (id: Long)` would otherwise serialise
+    // as a String via ujson's default Long → Str conversion (since JSON has
+    // no native Long type, ujson plays it safe).  The spec allows both
+    // numeric and string ids; our convention is numeric.
     val obj = ujson.Obj(
       "jsonrpc" -> "2.0",
       "method"  -> method,
       "params"  -> params,
-      "id"      -> id
+      "id"      -> ujson.Num(id.toDouble)
     )
     obj.render() + "\n"
 

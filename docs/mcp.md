@@ -335,31 +335,39 @@ Estimate: ~4 days.  Java SDK is heavier than the JS one
 (more setup, schema validation), but the wrapping pattern is
 straightforward.
 
-### 6.3 Interpreter backend — **deferred**
+### 6.3 Interpreter backend — own-implementation (v1.17.x Phase 1 landed)
 
-The interpreter doesn't host a standard MCP SDK and writing
-our own JSON-RPC 2.0 stack adds ~1500 LOC.  Per user
-direction, defer to v1.17.x.
+The interpreter ships with a pure-Scala JSON-RPC 2.0 + MCP runtime
+under `backend-interpreter/.../mcp/` — no SDK dependency.
 
-For v1: importing `std/mcp/server` on the interpreter
-backend raises a Feature-not-supported error at typecheck
-time (per SPI §8 capabilities).  Users see:
+**Phase 1 (landed 2026-05-19)** — `Transport.Stdio` server +
+`Transport.Spawn` client.  Both `Feature.McpServer` and
+`Feature.McpClient` are declared on `InterpreterCapabilities`; the
+typer no longer rejects `std/mcp/*` imports on the interpreter.
 
-```
-error: std/mcp/server requires Feature.McpServer.
-  Available on: jvm, js
-  Not available on: interpreter, scalajs-spa
-```
+| Module | Role |
+|---|---|
+| `JsonRpc.scala` | JSON-RPC 2.0 framing (request / notification / response, line-delimited) |
+| `McpProtocol.scala` | MCP method names + result envelope builders |
+| `McpServerCore.scala` | Tool / resource / prompt registry + transport-agnostic dispatch loop |
+| `McpClientCore.scala` | Pending-request map keyed by id; per-id BlockingQueue routing |
+| `intrinsics/Mcp.scala` | `mcpServer` / `serveMcp` / `mcpConnect` native intrinsics |
 
-This is the standard SPI feature-flag failure mode — not a
-runtime surprise.
+**Phase 2 (deferred)** — `Transport.Http(port, path)` with HTTP+SSE.
+Calling `serveMcp(Transport.Http(...))` today raises an actionable
+"deferred to Phase 2/3" `InterpretError`.
+
+**Phase 3 (deferred)** — `Transport.Ws(port, path)`.  Same actionable
+error today; would reuse the existing WS server infrastructure.
 
 ### 6.4 Browser-SPA (scalajs) backend
 
-Same as interpreter — Feature.McpServer not supported.
-Client side (`std/mcp/client`) might work in-browser over
-HTTP+SSE transport in a future iteration, but server-side
-inside a browser doesn't make sense.
+Server-side stays unsupported (a browser can't be an MCP server).
+**Client side (`std/mcp/client`) is deferred to v1.17.x Phase 3** —
+the pure-Scala `JsonRpc` / `McpProtocol` / `McpClientCore` modules
+are cross-buildable; the remaining work is a browser-side transport
+(fetch + EventSource) and a `Feature.McpClient` flag on
+`ScalaJsCapabilities`.
 
 ## 7. Backend feature flags (per SPI §8)
 
@@ -373,10 +381,10 @@ enum Feature:
 
 | Backend | McpServer | McpClient |
 |---------|-----------|-----------|
-| jvm     | ✅ (intrinsic) | ✅ (intrinsic) |
-| js (Node) | ✅ (intrinsic) | ✅ (intrinsic) |
-| interpreter | ❌ (deferred) | ❌ (deferred) |
-| scalajs-spa | ❌ | ❌ (HTTP+SSE in browser plausible later) |
+| jvm     | ✅ (intrinsic, SDK) | ✅ (intrinsic, SDK) |
+| js (Node) | ✅ (intrinsic, SDK) | ✅ (intrinsic, SDK) |
+| interpreter | ✅ (own-impl Phase 1 — Stdio; Http+SSE Phase 2) | ✅ (own-impl Phase 1 — Spawn; Http+SSE Phase 2) |
+| scalajs-spa | ❌ | ❌ (HTTP+SSE in browser, Phase 3) |
 
 Capability sub-flags for partial coverage:
 
