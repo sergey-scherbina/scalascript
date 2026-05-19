@@ -93,3 +93,95 @@ class CapabilityCheckTest extends AnyFunSuite:
     val missingFeatures = diags.collect { case Diagnostic.Unsupported(f, _) => f }.toSet
     assert(missingFeatures.contains(Feature.MutableState))
     assert(missingFeatures.contains(Feature.WhileLoops))
+
+  // ── Block-language axis (v1.25 Phase 3a) ───────────────────────────────
+
+  /** Module with a `node.js` fenced block alongside a regular scalascript
+   *  block — the latter so feature-detection has something to chew on too. */
+  private val nodeJsModule: ir.NormalizedModule =
+    val src =
+      """|# Test
+         |
+         |```node.js
+         |globalThis.add = (a, b) => a + b;
+         |```
+         |
+         |```scalascript
+         |val sum = 1 + 2
+         |```
+         |""".stripMargin
+    Normalize(Parser.parse(src))
+
+  test("validate — node.js block against backend without blockLanguages → UnknownBlockLanguage"):
+    val noBlockLangs = cap(Set.empty) // blockLanguages defaults to Set.empty
+    val diags = CapabilityCheck.validate(nodeJsModule, noBlockLangs, "js-stub")
+    assert(diags.exists {
+      case Diagnostic.UnknownBlockLanguage("node.js") => true
+      case _ => false
+    }, s"expected UnknownBlockLanguage(node.js), got: $diags")
+
+  test("validate — node.js block against backend that declares it → no diagnostic"):
+    val nodeCap = Capabilities(
+      features       = Set.empty,
+      outputs        = Set(OutputKind.ExecutionResult),
+      options        = Set.empty,
+      spiRange       = SpiVersionRange(SpiVersion.Current, SpiVersion.Current),
+      blockLanguages = Set("node.js", "node")
+    )
+    val diags = CapabilityCheck.validate(nodeJsModule, nodeCap, "node")
+    assert(!diags.exists(_.isInstanceOf[Diagnostic.UnknownBlockLanguage]),
+      s"expected no UnknownBlockLanguage, got: $diags")
+
+  test("validate — string blocks (html/css/javascript) never trigger UnknownBlockLanguage"):
+    val src =
+      """|# Widget
+         |
+         |```html
+         |<p>hi</p>
+         |```
+         |
+         |```css
+         |.x { color: red; }
+         |```
+         |
+         |```javascript
+         |const x = 1;
+         |```
+         |""".stripMargin
+    val m = Normalize(Parser.parse(src))
+    val noBlockLangs = cap(Set.empty)
+    val diags = CapabilityCheck.validate(m, noBlockLangs, "js-stub")
+    assert(!diags.exists(_.isInstanceOf[Diagnostic.UnknownBlockLanguage]),
+      s"string blocks must be universally supported, got: $diags")
+
+  test("validate — unknown inert tag (e.g. python) is ignored, not flagged"):
+    val src =
+      """|# Test
+         |
+         |```python
+         |print('hello')
+         |```
+         |""".stripMargin
+    val m = Normalize(Parser.parse(src))
+    val diags = CapabilityCheck.validate(m, cap(Set.empty), "any")
+    // python is not opaque-exec — it's inert prose.  No diagnostic.
+    assert(!diags.exists(_.isInstanceOf[Diagnostic.UnknownBlockLanguage]),
+      s"inert tags must not be flagged, got: $diags")
+
+  test("validate — duplicate node.js blocks deduplicate to one diagnostic"):
+    val src =
+      """|# Test
+         |
+         |```node.js
+         |globalThis.a = 1;
+         |```
+         |
+         |```node.js
+         |globalThis.b = 2;
+         |```
+         |""".stripMargin
+    val m = Normalize(Parser.parse(src))
+    val diags = CapabilityCheck.validate(m, cap(Set.empty), "stub")
+    val unknownBlocks = diags.collect { case d: Diagnostic.UnknownBlockLanguage => d }
+    assert(unknownBlocks.size == 1,
+      s"expected exactly one UnknownBlockLanguage per lang tag, got: $unknownBlocks")

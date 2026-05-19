@@ -1,6 +1,7 @@
 package scalascript.validate
 
 import scalascript.ir
+import scalascript.ast.Lang
 import scalascript.backend.spi.{Capabilities, Feature, Diagnostic}
 
 /** Validate a normalised module against a backend's declared capabilities.
@@ -83,8 +84,35 @@ object CapabilityCheck:
     module.sections.foreach(scanSection)
     detected.toSet
 
-  /** Compute which required features the backend doesn't declare.  Empty
-   *  list means compilation may proceed. */
+  /** Walk the module collecting every opaque-executable fenced block
+   *  whose lang tag is not declared in `cap.blockLanguages`.  Lang-tag
+   *  classes are matched via `Lang.isOpaqueExec` — today only
+   *  `node.js` / `node`; future opaque-exec languages (sql, …) plug in
+   *  by extending `Lang.isOpaqueExec`.  String blocks
+   *  (`html` / `css` / `javascript`) and unknown inert tags are
+   *  ignored. */
+  private def unknownBlockLanguages(
+    module: ir.NormalizedModule,
+    cap:    Capabilities
+  ): List[Diagnostic] =
+    val seen = scala.collection.mutable.LinkedHashSet.empty[String]
+
+    def scanContent(c: ir.Content): Unit = c match
+      case ir.Content.EmbeddedBlock(language, _, _)
+          if Lang.isOpaqueExec(language) && !cap.blockLanguages.contains(language) =>
+        seen += language
+      case _ => ()
+
+    def scanSection(s: ir.Section): Unit =
+      s.content.foreach(scanContent)
+      s.subsections.foreach(scanSection)
+
+    module.sections.foreach(scanSection)
+    seen.toList.map(Diagnostic.UnknownBlockLanguage.apply)
+
+  /** Compute which required features the backend doesn't declare and
+   *  which opaque-exec block languages it doesn't claim.  Empty list
+   *  means compilation may proceed. */
   def validate(
     module:     ir.NormalizedModule,
     cap:        Capabilities,
@@ -92,9 +120,10 @@ object CapabilityCheck:
   ): List[Diagnostic] =
     val required = detect(module)
     val missing  = required -- cap.features
-    missing.toList.sortBy(_.toString).map { f =>
+    val unsupported = missing.toList.sortBy(_.toString).map { f =>
       Diagnostic.Unsupported(f, backendId)
     }
+    unsupported ++ unknownBlockLanguages(module, cap)
 
   // ─── Internal: tiny tokenisation that ignores comments ──────────────────
 
