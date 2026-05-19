@@ -822,8 +822,8 @@ lazy val mcpWallet = project
     mcpCommon,
     walletSpi,
     blockchainSpi,
+    blockchainEvm,                    // Eip3009 typed-data helper for payX402
     walletStrategyEoa  % Test,
-    blockchainEvm      % Test,
     cryptoBouncycastle % Test,
   )
   .settings(
