@@ -2231,25 +2231,78 @@ private def linkJvmFromScjvm(
         System.exit(1)
 
 /** Merge multiple Scala 3 sources produced by `JvmGen.generate` into a single
- *  combined source suitable for scala-cli.  Deduplicates `//> using`
- *  directives (each module's preamble re-declares them) — otherwise scala-cli
- *  rejects the combined file. */
+ *  combined source suitable for scala-cli.
+ *
+ *  Two layers of deduplication, both consequences of the MVP's "textual
+ *  concat" strategy:
+ *
+ *  1. **`//> using` directives** — every module's preamble redeclares them;
+ *     concatenating verbatim makes scala-cli reject the combined file
+ *     ("duplicate directive").  Keep one copy of each, in first-seen order.
+ *
+ *  2. **Shared runtime prefix** — `JvmGen.generate` emits a large block of
+ *     identical runtime helpers (`_show`, `commonRuntime`, `generatorRuntime`,
+ *     `htmlDslTagBindings`, optional `effectsRuntime` / `mutualTcoRuntime` /
+ *     etc.) before the user code.  When concatenating multiple modules
+ *     verbatim every `val br = _Tag("br", voidTag = true)` is emitted N
+ *     times, producing "Double definition" errors.  Strip the longest
+ *     common prefix shared by every source (minus the directives), emit it
+ *     once, then append each module's distinct tail.
+ *
+ *  This works because the runtime portion of `JvmGen.generate` is
+ *  deterministic and identical across modules emitted by the same compiler
+ *  version — content-hash identity is what makes the common-prefix trick
+ *  safe.  Phase 2 will replace this with bytecode-level cross-module
+ *  symbol mangling so the runtime isn't shipped per module at all. */
 private def mergeScalaSources(sources: List[String]): String =
+  // Step 1 — directive dedup.  Strip leading `//> using` lines from each
+  // source and accumulate into a single LinkedHashSet (first-seen order).
   val seenDirectives = scala.collection.mutable.LinkedHashSet.empty[String]
-  val bodies         = scala.collection.mutable.ArrayBuffer.empty[String]
+  val tails          = scala.collection.mutable.ArrayBuffer.empty[String]
   for src <- sources do
     val (directives, rest) = src.linesWithSeparators.span(_.trim.startsWith("//>"))
     directives.foreach(d => seenDirectives += d.stripLineEnd)
-    bodies += rest.mkString
+    tails += rest.mkString
+
+  // Step 2 — common-prefix dedup across `tails`.
+  val shared = longestCommonPrefix(tails.toList)
+
   val sb = new StringBuilder
   seenDirectives.foreach(d => sb.append(d).append('\n'))
   if seenDirectives.nonEmpty then sb.append('\n')
-  bodies.foreach { b =>
-    sb.append(b)
-    if !b.endsWith("\n") then sb.append('\n')
+  if shared.nonEmpty then
+    sb.append(shared)
+    if !shared.endsWith("\n") then sb.append('\n')
     sb.append('\n')
+  tails.foreach { t =>
+    val unique = t.drop(shared.length)
+    if unique.nonEmpty then
+      sb.append(unique)
+      if !unique.endsWith("\n") then sb.append('\n')
+      sb.append('\n')
   }
   sb.toString
+
+/** Longest common string prefix across a non-empty list of strings.  Returns
+ *  the empty string when the inputs share nothing or the list is empty.
+ *  Used to strip the deterministic JvmGen runtime preamble from per-module
+ *  cached sources during linking. */
+private def longestCommonPrefix(xs: List[String]): String =
+  if xs.isEmpty then ""
+  else if xs.size == 1 then ""  // nothing to dedup against
+  else
+    val first = xs.head
+    val rest  = xs.tail
+    var i = 0
+    val limit = (first.length :: rest.map(_.length)).min
+    var ok = true
+    while ok && i < limit do
+      val c = first.charAt(i)
+      if rest.forall(_.charAt(i) == c) then i += 1 else ok = false
+    // Don't split inside a line — back up to the last newline so the shared
+    // prefix is whole-lines only.  Avoids slicing a `def` declaration in half.
+    val nl = first.lastIndexOf('\n', i - 1)
+    if nl >= 0 then first.substring(0, nl + 1) else ""
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ssc check-with-iface  —  v2.0 separate compilation
