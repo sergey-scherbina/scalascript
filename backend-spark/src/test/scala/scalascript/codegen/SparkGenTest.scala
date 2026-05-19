@@ -389,8 +389,45 @@ class SparkGenTest extends AnyFunSuite:
          |```
          |""".stripMargin
     )
-    assert(code.contains("import org.apache.spark.sql.{SparkSession, Dataset, Encoder}"))
+    // SparkSession / Dataset / Encoder remain in the same single-line
+    // brace import for grep-friendliness; DataFrame and Row are added
+    // alongside in Phase C.3 so user scalascript blocks can refer to
+    // collected results without spelling out FQNs.
+    assert(
+      code.contains("import org.apache.spark.sql.{SparkSession, Dataset, DataFrame, Row, Encoder}"),
+      s"expected SparkSession/Dataset/DataFrame/Row/Encoder import, got:\n$code"
+    )
     assert(code.contains("import org.apache.spark.sql.functions._"))
+  }
+
+  // ── Phase C.3: user-visible Spark types ────────────────────────────────
+  //
+  // After C.1 (`sql` block → DataFrame) lands, the next reasonable user
+  // move is `_sqlBlock_0.collect()` (returns Array[Row]) or
+  // `_sqlBlock_0.schema` (returns StructType).  Both `Row` and the
+  // `types` package — StructType / StructField / *Type leaves — must
+  // resolve in user scalascript blocks without FQN gymnastics.
+
+  test("Row is imported so `case Row(...)` works in user blocks") {
+    val code = gen("# Test\n```scalascript\nval x = 1\n```\n")
+    assert(code.contains(", Row,") || code.contains(", Row}"),
+      s"Row must appear in the SparkSession/Dataset/... brace import, got:\n$code")
+  }
+
+  test("DataFrame is imported so users can ascribe `val df: DataFrame = ...`") {
+    val code = gen("# Test\n```scalascript\nval x = 1\n```\n")
+    assert(code.contains("DataFrame"),
+      s"DataFrame must appear in the brace import, got:\n$code")
+  }
+
+  test("types._ wildcard imported so StructType / StructField / *Type resolve") {
+    // The wildcard import surfaces ~20 type leaves the user-facing
+    // `spark.read.schema(...)` reader path needs (StructType,
+    // StructField, StringType, IntegerType, …); a wildcard is cheaper
+    // than enumerating each leaf and matches Spark's own examples.
+    val code = gen("# Test\n```scalascript\nval x = 1\n```\n")
+    assert(code.contains("import org.apache.spark.sql.types._"),
+      s"types._ wildcard import is required for Phase C.3 schema work, got:\n$code")
   }
 
   test("generated code contains Dataset shim object") {

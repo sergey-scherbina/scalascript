@@ -294,10 +294,24 @@ private class SparkGen(
 
   // ── Emitted Scala 3 + Spark source fragments ──────────────────────────────
 
+  // Imports exposed to user `scalascript` blocks.  Beyond the bare
+  // SparkSession / Dataset / Encoder essentials, we surface:
+  //   - `Row`        — what `df.collect()` and the Phase C.1 `_sqlBlock_<N>`
+  //                    DataFrame yield when materialised; pattern matching
+  //                    `case Row(id, name, _) =>` is the standard way to
+  //                    deconstruct results in user code.
+  //   - `DataFrame`  — already used FQ in sql-block type ascriptions; the
+  //                    import lets user code write `val df: DataFrame = …`
+  //                    in scalascript blocks without spelling out the FQN.
+  //   - `types._`    — `StructType`, `StructField`, `StringType`,
+  //                    `IntegerType`, etc.  Needed for the
+  //                    `spark.read.schema(...)` reader path and for the
+  //                    forthcoming C.3 `std/parsing` → `StructType` bridge.
   private val sparkImports: String =
-    """|import org.apache.spark.sql.{SparkSession, Dataset, Encoder}
+    """|import org.apache.spark.sql.{SparkSession, Dataset, DataFrame, Row, Encoder}
        |import org.apache.spark.sql.Encoders
        |import org.apache.spark.sql.functions._
+       |import org.apache.spark.sql.types._
        |""".stripMargin
 
   /** Shim that makes `Dataset.of(...)`, `Dataset.fromList(...)`, and
