@@ -243,6 +243,9 @@ def printUsage(): Unit =
     |                         Format .ssc files in-place (default).
     |                         --check  Exit non-zero if any file needs formatting (CI mode).
     |                         --stdout Print formatted output to stdout (single file only).
+    |  profile [--top N] [--output <profile.json>] <file.ssc>
+    |                         Run with lightweight call-level profiling; print top-N
+    |                         hotspots by wall time.  --top defaults to 20.
     |  help                   Show this help message
     |
     |Package flags (passed through to scala-cli package):
@@ -4786,6 +4789,65 @@ def fmtCommand(args: List[String]): Unit =
 
   if checkMode && anyNeedsFormatting then
     System.exit(1)
+
+/** `ssc profile [--top N] [--output <file.json>] <file.ssc>`
+ *
+ *  Runs the interpreter with lightweight call-level instrumentation and
+ *  prints a table of the top-N hotspots by total wall time after the run.
+ */
+def profileCommand(args: List[String]): Unit =
+  import scalascript.interpreter.Profiler
+  var topN: Int               = 20
+  var jsonOut: Option[String] = None
+  var files: List[String]     = Nil
+  val arr = args.toArray
+  var i   = 0
+  while i < arr.length do
+    arr(i) match
+      case "--top" if i + 1 < arr.length =>
+        topN = arr(i + 1).toIntOption.getOrElse {
+          System.err.println("--top requires an integer argument"); System.exit(1); 20
+        }
+        i += 2
+      case "--output" if i + 1 < arr.length =>
+        jsonOut = Some(arr(i + 1)); i += 2
+      case f =>
+        files = files :+ f; i += 1
+  if files.isEmpty then
+    System.err.println("Usage: ssc profile [--top N] [--output profile.json] <file.ssc>")
+    System.exit(1)
+  for file <- files do
+    val path = os.Path(file, os.pwd)
+    if !os.exists(path) then
+      System.err.println(s"Error: File not found: $file"); System.exit(1)
+    else
+      System.out.println(s"Running ${path.last}...")
+      Profiler.reset()
+      Profiler.enabled = true
+      try
+        val source = os.read(path)
+        val module = scalascript.parser.Parser.parse(source)
+        val interp = scalascript.interpreter.Interpreter(
+          out     = System.out,
+          baseDir = Some(path / os.up)
+        )
+        interp.run(module)
+      catch case e: Exception =>
+        System.err.println(s"Runtime error: ${e.getMessage}")
+      finally
+        Profiler.enabled = false
+      System.out.println()
+      System.out.print(Profiler.renderTable(topN))
+      jsonOut.foreach { outPath =>
+        val rows = Profiler.topN(topN)
+        val jsonLines = rows.map { (name, calls, ns) =>
+          val ms = ns / 1_000_000.0
+          s"""  {"function":"$name","calls":$calls,"wallMs":$ms}"""
+        }
+        val json = s"[\n${jsonLines.mkString(",\n")}\n]\n"
+        os.write.over(os.Path(outPath, os.pwd), json)
+        System.out.println(s"Profile written to $outPath")
+      }
 
 def printSection(s: Section, indent: Int): Unit =
   val prefix = "  " * indent

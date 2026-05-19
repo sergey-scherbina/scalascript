@@ -4720,6 +4720,10 @@ class Interpreter(
       (globals.get(n) orElse f.closure.get(n)).exists(_.isInstanceOf[Value.FunV])
     }
     if info.noNonTailSelf && (info.isSelfTailRec || hasMutualTail) then
+      // Profile the initial TCO call; tcoTrampoline will record each
+      // subsequent tail-call iteration individually.
+      if Profiler.enabled && f.name.nonEmpty then
+        Profiler.record(f.name, 0L)
       tcoTrampoline(f, effArgs, null)
     else
       // Build callEnv as a `FrameMap` — parallel arrays of param names /
@@ -4739,9 +4743,12 @@ class Interpreter(
       val frameName = if f.name.nonEmpty then f.name else "<anon>"
       val lineNum   = currentSpan.map(_._1 + 1).getOrElse(0)
       callStack += ((frameName, lineNum))
+      val t0 = if Profiler.enabled && f.name.nonEmpty then System.nanoTime() else 0L
       val result =
         try runUntilSuspension(eval(f.body, callEnv))
         catch case r: ReturnSignal => Pure(r.value)
+      if Profiler.enabled && f.name.nonEmpty then
+        Profiler.record(f.name, System.nanoTime() - t0)
       if callStack.nonEmpty then callStack.remove(callStack.length - 1)
       if f.returnsThrows then result.map(throwsAutoWrap)
       else result
@@ -4934,11 +4941,17 @@ class Interpreter(
       catch
         case r: ReturnSignal    => return Pure(r.value)
         case tc: TailCall       =>
+          // Each TailCall is one additional recursive invocation.
+          if Profiler.enabled && curFun.name.nonEmpty then
+            Profiler.record(curFun.name, 0L)
           curArgs = tc.args
           current = null
         case mc: MutualTailCall =>
           val next = mc.f
           if next.name.nonEmpty && tcoInfoFor(next).noNonTailSelf then
+            // Mutual tail call counts as one call to `next`.
+            if Profiler.enabled && next.name.nonEmpty then
+              Profiler.record(next.name, 0L)
             curFun  = next
             curArgs = mc.args
             current = null

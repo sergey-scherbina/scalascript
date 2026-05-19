@@ -4985,14 +4985,16 @@ actors, MCP, Dataset, signals) and emit only referenced ones.
 
 ### New tool — `ssc profile file.ssc`
 
-**Status: open. Effort: ~3 days. Priority: 7.**
+**Status: landed. Effort: ~3 days. Priority: 7.**
 
 Built-in profiler: invocation counts per function, wall time per section.
 Output: top-20 hotspots, simple call graph, `--profile-output profile.json`.
 
-- [ ] Add `profile` command to CLI
-- [ ] Instrument `eval` / `callValue` with per-function counters
-- [ ] Print top-20 hotspots by wall time on exit
+- [x] Add `profile` command to CLI
+- [x] Instrument `eval` / `callValue` with per-function counters (both TCO and non-TCO paths)
+- [x] Print top-20 hotspots by wall time on exit
+- [x] `--top N` flag to limit rows, `--output file.json` for JSON export
+- [x] `ProfileCommandTest` — 5 tests, all green
 
 ### Runtime — Numeric value specialization
 
