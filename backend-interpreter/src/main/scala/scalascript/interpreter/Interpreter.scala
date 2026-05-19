@@ -1620,6 +1620,82 @@ class Interpreter(
       case _                    => Pure(Value.UnitV)
     })
 
+    // ── Using — RAII resource management (try-finally close) ─────────────
+    //
+    // `Using.resource(r) { r => block }` runs the block with the resource
+    // and unconditionally calls `r.close()` afterwards (whether the block
+    // returned normally or threw).  Mirrors `scala.util.Using.resource`
+    // semantics but without the typeclass dance — the resource is closed
+    // ducktyped: any value with a `.close` member is honoured.
+    //
+    // Typical use:
+    //
+    //   Using.resource(mcpConnect(Transport.Spawn("node", ["srv.js"]))) { client =>
+    //     client.callTool("echo", Map("msg" -> "hi"))
+    //   }
+    //
+    // Resources without a `.close` member are still supported (the
+    // resource is just released to GC at block end) — useful when the
+    // user wants the same scoping shape without commitment.
+    globals("Using") = Value.InstanceV("Using", Map(
+      "resource" -> Value.NativeFnV("Using.resource", {
+        case List(res) =>
+          Pure(Value.NativeFnV("Using.resource.block", Computation.pureFn {
+            case List(block) =>
+              // Locate the close member: works on case-class instances
+              // (InstanceV.fields("close")) and on plain Map literals
+              // (MapV with key "close") alike.
+              val closeOpt: Option[Value] = res match
+                case Value.InstanceV(_, fields) => fields.get("close")
+                case Value.MapV(m)              => m.get(Value.StringV("close"))
+                case _                          => None
+              try Computation.run(callValue(block, List(res), Map.empty))
+              finally
+                closeOpt.foreach { closeFn =>
+                  try { Computation.run(callValue(closeFn, Nil, Map.empty)); () }
+                  catch case _: Throwable => ()
+                }
+            case _ => throw InterpretError("Using.resource(r) { r => block }")
+          }))
+        case _ => throw InterpretError("Using.resource(r) { r => block }")
+      })
+    ))
+
+    // ── McpSchema — derives target for case-class → JSON Schema ────────
+    //
+    // `case class WeatherArgs(city: String, units: String) derives McpSchema`
+    // synthesises a `given McpSchema[WeatherArgs]` whose `schema` field is
+    // a Map representation of the JSON Schema:
+    //
+    //   { type: "object",
+    //     properties: { city: {}, units: {} },
+    //     required: ["city", "units"] }
+    //
+    // The v1.14 Mirror exposes only field NAMES (no types) so the
+    // properties stay loose — fine for MCP, where the LLM consumer
+    // typically infers value shapes from descriptions anyway.  When the
+    // user wants strict types, they can override the schema via
+    // `srv.toolWithSchema(name, customSchema)(handler)`.
+    globals("McpSchema") = Value.InstanceV("McpSchema", Map(
+      "derived" -> Value.NativeFnV("McpSchema.derived", {
+        case List(Value.InstanceV("Mirror", mfields)) =>
+          val fieldNames: List[String] = mfields.get("fields") match
+            case Some(Value.ListV(xs)) => xs.collect { case Value.StringV(s) => s }
+            case _                     => Nil
+          val properties = Value.MapV(fieldNames.map(n =>
+            (Value.StringV(n): Value) -> (Value.MapV(Map.empty): Value)
+          ).toMap)
+          val required = Value.ListV(fieldNames.map(Value.StringV.apply))
+          val schemaV = Value.MapV(Map(
+            (Value.StringV("type"):       Value) -> (Value.StringV("object"): Value),
+            (Value.StringV("properties"): Value) -> (properties:              Value),
+            (Value.StringV("required"):   Value) -> (required:                Value)
+          ))
+          Pure(Value.InstanceV("McpSchema", Map("schema" -> schemaV)))
+        case _ => Pure(Value.InstanceV("McpSchema", Map("schema" -> Value.MapV(Map.empty))))
+      })
+    ))
+
     // ── compiletime — metaprogramming primitives ─────────────────────────
     globals("compiletime") = Value.InstanceV("compiletime", Map(
       "error" -> Value.NativeFnV("compiletime.error", {

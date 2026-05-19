@@ -3430,24 +3430,49 @@ the codegen output.
      ...)` during a long-running tool and the client sees both the
      progress updates and the final result via a single
      `request(...)` call.
-   65 tests across twelve suites all pass (McpRuntimeTest 18,
-   McpEndToEndTest 2, McpInterpreterIntegrationTest 3, McpHttpTransportTest
-   5, JsRuntimeMcpBrowserTest 13, McpWsTransportTest 2,
-   McpNotificationTest 5, McpServerNotifyTest 6, McpHttpSseNotifyTest 1,
-   McpBidiSamplingTest 7, McpHttpBidiTest 1, McpStreamableHttpTest 2).
+   - **`derives McpSchema` + `srv.toolWithSchema`** — `McpSchema` is a
+     built-in typeclass registered as a global by `initBuiltins`; its
+     `derived(mirror)` method walks `mirror.fields` (v1.14 Mirror's
+     field-name list) to produce a JSON Schema object
+     `{type: "object", properties: {name: {}, ...}, required: [...]}`.
+     User code: `case class WeatherArgs(city: String) derives McpSchema`
+     synthesises `given McpSchema[WeatherArgs]` whose `schema` field is
+     the generated map.  `srv.toolWithSchema(name, schema)(handler)`
+     registers a tool with an explicit JSON Schema, replacing the
+     default `{type: "object"}` schema that `srv.tool` advertises.
+     Limitation: v1.14 Mirror exposes field NAMES only, so per-field
+     types are blank — the schema is loose but valid JSON Schema and
+     populates the LLM-facing tool description.
+   - **`Using.resource(r) { r => block }` RAII** — built-in generic
+     helper that runs the block and unconditionally calls `r.close()`
+     on the way out (try-finally semantics).  Works on `InstanceV`
+     (case-class instances with a `close` field) and `MapV` (plain
+     `Map` literals with a `"close"` key) alike — ducktyped.
+     Resources without a `close` member are still scoped (the
+     resource is just dropped to GC at block end).  Mirrors
+     `scala.util.Using.resource` semantics without the typeclass
+     dance.  Idiomatic for `Using.resource(mcpConnect(transport)) {
+     client => client.callTool(...) }`.
+
+   70 tests across thirteen suites all pass (added
+   McpDerivesRaiiTest 5: `Using.resource` happy-path + throws +
+   no-close resource; `derives McpSchema` schema generation;
+   `srv.toolWithSchema` registration).
 
    v1.17.x is now feature-complete on all 5 transport surfaces
    (Stdio / Spawn / Http / Ws / Browser-XHR + Browser-fetch) with
    full bidirectional capability (server↔client requests +
-   notifications + streaming responses).  Remaining items in this
-   backlog are all blocked on prerequisite language features.
+   notifications + streaming responses), typed-schema tool
+   registration, and RAII resource scoping.
 
-2. **Type-class layer** (`given McpTool[A, R]`, `derives McpSchema`)
-   — depends on v1.14 `derives`.
-3. **Streaming resources** — depends on v1.10 Generators.
+2. ~~**Type-class layer** (`derives McpSchema`)~~ — landed 2026-05-19
+   (above).
+3. **Streaming resources** — would let `srv.resource(uri)` return a
+   Generator yielding chunks for huge resources.  Niche; MCP
+   `resources/read` returns a single envelope.  Deferred.
 4. ~~**Bidirectional sampling**~~ — landed 2026-05-19 (above).
-5. **`using mcpConnect(...) { client => … }` RAII** — needs
-   `using`-resource language feature.
+5. ~~**`using mcpConnect(...) { client => … }` RAII**~~ — landed
+   2026-05-19 as `Using.resource(...)` (above).
 6. **MCP protocol version negotiation** when v2 emerges.
 
 ### Open questions

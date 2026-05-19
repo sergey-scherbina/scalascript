@@ -377,18 +377,45 @@ private object Mcp:
       case List(Value.StringV(name)) =>
         Value.NativeFnV(s"McpServer.tool.$name", Computation.pureFn {
           case List(handler) =>
-            registerTool(builder, name, None, handler, ctx)
+            registerTool(builder, name, None, ujson.Obj("type" -> "object"), handler, ctx)
             Value.UnitV
           case _ => throw InterpretError("srv.tool(name)(handler)")
         })
       case List(Value.StringV(name), Value.StringV(desc)) =>
         Value.NativeFnV(s"McpServer.tool.$name", Computation.pureFn {
           case List(handler) =>
-            registerTool(builder, name, Some(desc), handler, ctx)
+            registerTool(builder, name, Some(desc), ujson.Obj("type" -> "object"), handler, ctx)
             Value.UnitV
           case _ => throw InterpretError("srv.tool(name, desc)(handler)")
         })
       case _ => throw InterpretError("srv.tool(name[, desc])(handler)")
+    })
+    // v1.17.x — typed tool: takes an explicit JSON Schema for inputs.
+    // Combined with `case class Args(...) derives McpSchema`, the user
+    // can write:
+    //
+    //   srv.toolWithSchema("name", summon[McpSchema[Args]].schema)(handler)
+    //
+    // and have the tool advertise the auto-generated schema.  The handler
+    // still receives `Map[String, Any]` — manual decode at the boundary;
+    // a fully-typed `A => ToolResult` overload is a follow-up that needs
+    // the v1.14 Mirror to expose field constructors. */
+    def toolWithSchemaFn = Value.NativeFnV("McpServer.toolWithSchema", Computation.pureFn {
+      case List(Value.StringV(name), schemaV) =>
+        Value.NativeFnV(s"McpServer.toolWithSchema.$name", Computation.pureFn {
+          case List(handler) =>
+            registerTool(builder, name, None, Mcp.valueToJson(schemaV), handler, ctx)
+            Value.UnitV
+          case _ => throw InterpretError("srv.toolWithSchema(name, schema)(handler)")
+        })
+      case List(Value.StringV(name), Value.StringV(desc), schemaV) =>
+        Value.NativeFnV(s"McpServer.toolWithSchema.$name", Computation.pureFn {
+          case List(handler) =>
+            registerTool(builder, name, Some(desc), Mcp.valueToJson(schemaV), handler, ctx)
+            Value.UnitV
+          case _ => throw InterpretError("srv.toolWithSchema(name, desc, schema)(handler)")
+        })
+      case _ => throw InterpretError("srv.toolWithSchema(name[, desc], schema)(handler)")
     })
     def resourceFn = Value.NativeFnV("McpServer.resource", Computation.pureFn {
       case List(Value.StringV(uri)) =>
@@ -479,6 +506,7 @@ private object Mcp:
     })
     Value.InstanceV("McpServer", Map(
       "tool"           -> toolFn,
+      "toolWithSchema" -> toolWithSchemaFn,
       "resource"       -> resourceFn,
       "prompt"         -> promptFn,
       "onConnected"    -> onConnFn,
@@ -491,10 +519,11 @@ private object Mcp:
     builder: McpServerBuilder,
     name:    String,
     desc:    Option[String],
+    schema:  ujson.Value,
     handler: Value,
     ctx:     NativeContext
   ): Unit =
-    builder.tool(name, desc, ujson.Obj("type" -> "object"), args =>
+    builder.tool(name, desc, schema, args =>
       val argsValue = mapToValue(args)
       val result    = ctx.invokeCallback(handler, List(argsValue))
       valueToToolResult(result)
