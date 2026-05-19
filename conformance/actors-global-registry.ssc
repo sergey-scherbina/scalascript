@@ -1,0 +1,40 @@
+#!/usr/bin/env ssc
+---
+name: actors-global-registry
+description: Actor v1.6.x — globalRegister / globalWhereis cluster-wide name registry
+---
+
+# Cluster-wide registry
+
+`globalRegister(name, pid)` makes a PID addressable by name on every node in
+the cluster, broadcasting a `global_reg` gossip message to all connected peers.
+`globalWhereis(name)` returns `Some(pid)` if the name is known locally (either
+registered here or received via gossip), `None` otherwise.
+
+In single-node mode there are no peers, so the broadcast is a no-op; the local
+lookup should still work.
+
+```scalascript
+runActors {
+  // Single-node: register local actor globally, look it up.
+  val worker = spawn { () =>
+    receive { case "ping" => send(self(), "pong"); case _ => () }
+  }
+
+  globalRegister("worker", worker)
+
+  globalWhereis("worker") match
+    case Some(pid) =>
+      send(pid, "ping")
+      receive {
+        case "pong" => println("globalRegister ok")
+        case _      => println("unexpected")
+      }
+    case None =>
+      println("not found")
+
+  // Unknown name returns None.
+  val missing = globalWhereis("no-such-actor")
+  println(missing == None)
+}
+```

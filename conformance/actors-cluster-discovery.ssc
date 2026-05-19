@@ -1,0 +1,26 @@
+#!/usr/bin/env ssc
+---
+name: actors-cluster-discovery
+description: Actor v1.6.x — joinCluster seed-list gossip in single-node mode
+---
+
+# Cluster discovery — joinCluster
+
+`joinCluster(seeds)` connects to a list of seed nodes and, once connected,
+exchanges peer lists so the whole cluster is reachable without N² manual
+`connectNode` calls.  This test exercises single-node behaviour: an empty
+seed list succeeds silently and leaves the runtime in join-mode; actors work
+normally after the call.
+
+```scalascript
+runActors {
+  joinCluster(List())
+
+  val worker = spawn { () =>
+    receive {
+      case "ping" => println("pong")
+    }
+  }
+  worker ! "ping"
+}
+```

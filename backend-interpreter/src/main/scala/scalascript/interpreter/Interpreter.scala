@@ -3250,7 +3250,7 @@ class Interpreter(
   private def evalDirectBlock(
     stats: List[Stat],
     env:   Env,
-    tag:   DirectMonadTag = DirectMonadTag.OtherM
+    tag:   DirectMonadTag
   ): Computation =
     checkDirectBlockStatics(stats)
     val expanded = DirectAnorm.expand(stats)

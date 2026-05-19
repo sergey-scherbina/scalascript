@@ -1,7 +1,7 @@
 ---
 name: std-actors
-version: 1.2.0
-description: Erlang-style actor supervision + bounded mailboxes + process introspection — v1.6 Phase 2 + v1.6.x
+version: 1.3.0
+description: "Erlang-style actor supervision + bounded mailboxes + process introspection + cluster registry — v1.6 Phase 2 + v1.6.x"
 exports:
   - ChildSpec
   - MaxRestarts
@@ -10,6 +10,8 @@ exports:
   - spawnBounded
   - ProcessInfo
   - processInfo
+  - globalRegister
+  - globalWhereis
 ---
 
 # std.actors — Actor supervision
@@ -90,6 +92,16 @@ case class ProcessInfo(
 
 // Returns Some(info) for a live actor, None if the PID is dead or unknown.
 extern def processInfo(pid: Any): Option[ProcessInfo]
+
+// ─── Cluster-wide registry ────────────────────────────────────────────────────
+
+// Register a PID under a name visible to every node in the cluster.
+// Broadcasts {"t":"global_reg",...} to all connected peers (last-write-wins).
+extern def globalRegister(name: String, pid: Any): Unit
+
+// Look up a cluster-wide name.  Returns Some(pid) if registered locally or
+// received via gossip; None otherwise.
+extern def globalWhereis(name: String): Option[Any]
 
 // ─── Supervision tree ─────────────────────────────────────────────────────────
 

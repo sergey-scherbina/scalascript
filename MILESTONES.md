@@ -1550,15 +1550,18 @@ PR that doesn't gate the core landing.
    Conformance test `actors-process-info.ssc`.  `std/actors.ssc`
    bumped to v1.2.0.
 
-3. **Cluster discovery.**  v1.6 requires manual `connectNode(url)`
-   per peer.  Add a seed-list or multicast helper so an N-node
-   cluster doesn't need N² manual connects.  ~150 LOC.
+3. **Cluster discovery.**  ✓ **Landed (v1.6.x).**
+   `joinCluster(seeds: List[String], token: String = "")` connects to each
+   seed URL, then exchanges peer lists via `peers_req`/`peers_resp` gossip so
+   the full cluster self-assembles from a small seed list.  All three backends.
+   Conformance test `actors-cluster-discovery.ssc`.
 
-4. **Cluster-wide registry.**  v1.6 has per-node `register` /
-   `whereis` with explicit cross-node lookup.  Add an Erlang
-   `global:register_name` analogue with node-id-priority conflict
-   resolution.  Requires a small consensus protocol; defer until
-   the manual cross-node `whereis` becomes friction.
+4. **Cluster-wide registry.**  ✓ **Landed (v1.6.x).**
+   `globalRegister(name, pid)` stores a PID cluster-wide by broadcasting
+   `{"t":"global_reg",...}` to all connected peers (last-write-wins).
+   `globalWhereis(name): Option[Pid]` reads the local cache populated by
+   incoming broadcasts.  All three backends.  `std/actors.ssc` bumped to
+   v1.3.0.  Conformance test `actors-global-registry.ssc`.
 
 5. **Scheduled / delayed sends.**  `sendAfter(delayMs, pid, msg)`
    and `sendInterval(periodMs, pid, msg)` and `cancelTimer(ref)`.

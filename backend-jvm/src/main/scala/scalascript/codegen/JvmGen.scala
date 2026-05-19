@@ -439,6 +439,7 @@ class JvmGen(
     val names = Set("runActors", "spawn", "spawnBounded", "self", "exit", "receive",
                     "link", "monitor", "demonitor", "trapExit",
                     "startNode", "connectNode", "joinCluster", "register", "whereis",
+                    "globalRegister", "globalWhereis",
                     "sendAfter", "sendInterval", "cancelTimer", "processInfo")
     blocks.exists { b =>
       var found = false
@@ -1341,6 +1342,12 @@ class JvmGen(
     case Term.Apply.After_4_6_0(Term.Name("whereis"), argClause)
         if argClause.values.size == 1 =>
       s"Actor.whereis(${emitExpr(argClause.values.head.asInstanceOf[Term])})"
+    case Term.Apply.After_4_6_0(Term.Name("globalRegister"), argClause)
+        if argClause.values.size == 2 =>
+      s"Actor.globalRegister(${emitExpr(argClause.values(0).asInstanceOf[Term])}, ${emitExpr(argClause.values(1).asInstanceOf[Term])})"
+    case Term.Apply.After_4_6_0(Term.Name("globalWhereis"), argClause)
+        if argClause.values.size == 1 =>
+      s"Actor.globalWhereis(${emitExpr(argClause.values.head.asInstanceOf[Term])})"
     // v1.6.x — scheduled sends
     case Term.Apply.After_4_6_0(Term.Name("sendAfter"), argClause)
         if argClause.values.size == 3 =>
@@ -2013,6 +2020,12 @@ class JvmGen(
     case Term.Apply.After_4_6_0(Term.Name("whereis"), argClause)
         if argClause.values.size == 1 =>
       s"Actor.whereis(${emitExpr(argClause.values.head.asInstanceOf[Term])})"
+    case Term.Apply.After_4_6_0(Term.Name("globalRegister"), argClause)
+        if argClause.values.size == 2 =>
+      s"Actor.globalRegister(${emitExpr(argClause.values(0).asInstanceOf[Term])}, ${emitExpr(argClause.values(1).asInstanceOf[Term])})"
+    case Term.Apply.After_4_6_0(Term.Name("globalWhereis"), argClause)
+        if argClause.values.size == 1 =>
+      s"Actor.globalWhereis(${emitExpr(argClause.values.head.asInstanceOf[Term])})"
     // v1.6.x — scheduled sends (inside CPS body)
     case Term.Apply.After_4_6_0(Term.Name("sendAfter"), argClause)
         if argClause.values.size == 3 =>
@@ -6075,10 +6088,9 @@ class JvmGen(
        |            _connectPeer(purl, _joinToken)
        |        }
        |      case "global_reg" =>
-       |        val grName   = _extractJsonStr(json, "\"name\"")
-       |        val grNodeId = _extractJsonStr(json, "\"nodeId\"")
-       |        val grLidS   = _extractJsonStr(json, "\"localId\"")
-       |        val grLocalId = try grLidS.toLong catch case _: NumberFormatException => 0L
+       |        val grName    = _extractJsonStr(json, "\"name\"")
+       |        val grNodeId  = _extractJsonStr(json, "\"nodeId\"")
+       |        val grLocalId = _extractJsonStr(json, "\"localId\"").toLongOption.getOrElse(0L)
        |        if grName.nonEmpty && grNodeId.nonEmpty then
        |          _globalRegistry.put(grName, _Pid(grNodeId, grLocalId))
        |      case _      => ()
@@ -6472,7 +6484,7 @@ class JvmGen(
        |      val grName = args(0).toString
        |      val grPid  = args(1).asInstanceOf[_Pid]
        |      _globalRegistry.put(grName, grPid)
-       |      val payload = "{\"t\":\"global_reg\",\"name\":" + _jstr(grName) + ",\"nodeId\":" + _jstr(grPid.nodeId) + ",\"localId\":" + grPid.localId + "}"
+       |      val payload = "{\"t\":\"global_reg\",\"name\":" + _jstr(grName) + ",\"nodeId\":" + _jstr(grPid.nodeId) + ",\"localId\":" + _jstr(grPid.localId.toString) + "}"
        |      _peerChannels.forEach { (_, send) => try send(payload) catch case _: Throwable => () }
        |      Right(k(()))
        |    case "globalWhereis" =>
