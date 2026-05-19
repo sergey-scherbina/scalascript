@@ -2753,7 +2753,8 @@ class JvmGen(
       "SessionCookie", "SessionStore", "OAuth", "WebAuthn",
       "UploadedFile", "HttpHelpers", "Multipart", "TlsContextBuilder",
       "CorsHelpers", "HttpModel", "BasicAuth", "ResponseWriter",
-      "RequestBuilder", "StreamResponseWriter", "StaticAssetServer"
+      "RequestBuilder", "StreamResponseWriter", "StaticAssetServer",
+      "WsHandshake"
     )
     val header =
       "\n// ── runtime-server-common (inlined from classpath resources) ──────────\n" +
@@ -4123,7 +4124,7 @@ class JvmGen(
        |    }.nextOption()
        |    matched match
        |      case None =>
-       |        cout.write("HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".getBytes("US-ASCII"))
+       |        cout.write(WsHandshake.rejectResponse(404, "Not Found"))
        |        cout.flush(); client.close(); _Metrics.wsRejected.incrementAndGet()
        |      case Some((r, params)) =>
        |        val key = headers.getOrElse("sec-websocket-key", "")
@@ -4132,7 +4133,7 @@ class JvmGen(
        |        if r.origins.nonEmpty then
        |          val origin = headers.getOrElse("origin", "")
        |          if !r.origins.contains(origin) then
-       |            cout.write("HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".getBytes("US-ASCII"))
+       |            cout.write(WsHandshake.rejectResponse(403, "Forbidden"))
        |            cout.flush(); client.close(); _Metrics.wsRejected.incrementAndGet(); return
        |        // Pre-upgrade auth hook.  Same shape as the interpreter
        |        // path: read-only over headers / cookies / Origin.
@@ -4165,14 +4166,14 @@ class JvmGen(
        |            _authReject = true
        |        }
        |        if _authReject then
-       |          cout.write("HTTP/1.1 401 Unauthorized\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".getBytes("US-ASCII"))
+       |          cout.write(WsHandshake.rejectResponse(401, "Unauthorized"))
        |          cout.flush(); client.close(); _Metrics.wsRejected.incrementAndGet(); return
        |        // Process-wide active-connection cap.  Reserved AFTER
        |        // the Origin check so a denied-Origin attempt doesn't
        |        // briefly consume a slot.  Released in the writer-VT's
        |        // `finally` after the channel closes.
        |        if !_wsTryReserve() then
-       |          cout.write("HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".getBytes("US-ASCII"))
+       |          cout.write(WsHandshake.rejectResponse(503, "Service Unavailable"))
        |          cout.flush(); client.close(); _Metrics.wsRejected.incrementAndGet(); return
        |        // Per-route active-connection cap.  Composes with the
        |        // process-wide cap above (both must permit).  0 = no
@@ -4180,29 +4181,21 @@ class JvmGen(
        |        // via `r.release()`.
        |        if !r.tryReserve() then
        |          _wsActiveCount.decrementAndGet()
-       |          cout.write("HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".getBytes("US-ASCII"))
+       |          cout.write(WsHandshake.rejectResponse(503, "Service Unavailable"))
        |          cout.flush(); client.close(); _Metrics.wsRejected.incrementAndGet(); return
-       |        // Subprotocol negotiation (RFC 6455 §1.9).
-       |        val chosenProtocol: String =
-       |          if r.protocols.isEmpty then ""
-       |          else
-       |            val offered = headers.getOrElse("sec-websocket-protocol", "")
-       |              .split(',').iterator.map(_.trim).filter(_.nonEmpty).toSet
-       |            r.protocols.find(offered.contains).getOrElse("")
-       |        if r.protocols.nonEmpty && chosenProtocol.isEmpty then
-       |          _wsActiveCount.decrementAndGet()
-       |          r.release()
-       |          cout.write("HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".getBytes("US-ASCII"))
-       |          cout.flush(); client.close(); _Metrics.wsRejected.incrementAndGet(); return
-       |        val accept = _wsAcceptKey(key)
-       |        val protoHeader = if chosenProtocol.isEmpty then "" else s"Sec-WebSocket-Protocol: $chosenProtocol\r\n"
-       |        val resp =
-       |          "HTTP/1.1 101 Switching Protocols\r\n" +
-       |          "Upgrade: websocket\r\n" +
-       |          "Connection: Upgrade\r\n" +
-       |          s"Sec-WebSocket-Accept: $accept\r\n" +
-       |          protoHeader + "\r\n"
-       |        cout.write(resp.getBytes("US-ASCII")); cout.flush()
+       |        // Subprotocol negotiation (RFC 6455 §1.9) — delegate to
+       |        // the shared `WsHandshake.negotiateSubprotocol`.  `None`
+       |        // means the server has preferences but none overlap; we
+       |        // refuse with 400 (and release the caps reserved above).
+       |        val chosenProtocol: String = WsHandshake.negotiateSubprotocol(
+       |          headers.getOrElse("sec-websocket-protocol", ""), r.protocols
+       |        ) match
+       |          case Some(p) => p
+       |          case None    =>
+       |            _wsActiveCount.decrementAndGet(); r.release()
+       |            cout.write(WsHandshake.rejectResponse(400, "Bad Request"))
+       |            cout.flush(); client.close(); _Metrics.wsRejected.incrementAndGet(); return
+       |        cout.write(WsHandshake.upgradeResponse(key, chosenProtocol)); cout.flush()
        |        // Build the Request snapshot — same shape as REST handlers
        |        // see (sans body / form / files; the WS upgrade is a GET
        |        // with no body) so WS-side auth can read cookies /

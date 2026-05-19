@@ -341,42 +341,27 @@ final class WsProxy(
           conn.key.interestOpsOr(SelectionKey.OP_WRITE)
           Metrics.wsRejected.incrementAndGet()
           return
-        // Subprotocol negotiation (RFC 6455 §1.9).  When the route
-        // was registered with a non-empty `protocols` list, pick the
-        // first server-side protocol that also appears in the
-        // client's `Sec-WebSocket-Protocol` request header.  No
-        // match → refuse with 400 (registering protocols makes them
-        // required; if the user wants "optional", they register no
-        // protocols and read the header themselves via `ws.request`).
-        val chosenProtocol: String =
-          if entry.protocols.isEmpty then ""
-          else
-            val offered = headers.getOrElse("sec-websocket-protocol", "")
-              .split(',').iterator.map(_.trim).filter(_.nonEmpty).toSet
-            entry.protocols.find(offered.contains) match
-              case Some(p) => p
-              case None    =>
-                WsConnection.releaseSlot()
-                entry.release()
-                val resp = httpResponse(400, "Bad Request",
-                  s"No matching Sec-WebSocket-Protocol; server offers: ${entry.protocols.mkString(", ")}")
-                conn.outBufs.add(ByteBuffer.wrap(resp))
-                conn.key.interestOpsOr(SelectionKey.OP_WRITE)
-                Metrics.wsRejected.incrementAndGet()
-                return
-        val accept = WsFraming.acceptKey(key)
-        val protoHeader =
-          if chosenProtocol.isEmpty then ""
-          else s"Sec-WebSocket-Protocol: $chosenProtocol\r\n"
-        val response =
-          "HTTP/1.1 101 Switching Protocols\r\n" +
-          "Upgrade: websocket\r\n" +
-          "Connection: Upgrade\r\n" +
-          s"Sec-WebSocket-Accept: $accept\r\n" +
-          protoHeader + "\r\n"
-        // Write the handshake synchronously — it's a few hundred bytes
-        // and the socket buffer is empty.
-        val respBytes = response.getBytes(StandardCharsets.US_ASCII)
+        // Subprotocol negotiation (RFC 6455 §1.9) — delegate to shared
+        // WsHandshake.  `None` = server has preferences but none overlap;
+        // refuse with 400 (registering protocols makes them required;
+        // for "optional" the user registers no protocols and reads
+        // `ws.request.headers(...)` themselves).
+        val chosenProtocol: String = WsHandshake.negotiateSubprotocol(
+          headers.getOrElse("sec-websocket-protocol", ""), entry.protocols
+        ) match
+          case Some(p) => p
+          case None    =>
+            WsConnection.releaseSlot()
+            entry.release()
+            val resp = httpResponse(400, "Bad Request",
+              s"No matching Sec-WebSocket-Protocol; server offers: ${entry.protocols.mkString(", ")}")
+            conn.outBufs.add(ByteBuffer.wrap(resp))
+            conn.key.interestOpsOr(SelectionKey.OP_WRITE)
+            Metrics.wsRejected.incrementAndGet()
+            return
+        // Write the 101 handshake synchronously — it's a few hundred
+        // bytes and the socket buffer is empty at this point.
+        val respBytes = WsHandshake.upgradeResponse(key, chosenProtocol)
         var written   = 0
         while written < respBytes.length do
           val rem = ByteBuffer.wrap(respBytes, written, respBytes.length - written)
