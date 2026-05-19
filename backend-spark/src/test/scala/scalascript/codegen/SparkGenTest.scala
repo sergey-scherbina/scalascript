@@ -55,6 +55,77 @@ class SparkGenTest extends AnyFunSuite:
     assert(gen(src).contains(""".master("local[*]")"""))
   }
 
+  // ── Phase C.3 slice 8: adaptive defaults (local-only) ────────────────────
+
+  test("local[*] master emits laptop-friendly defaults") {
+    // Two configs are local-mode opinions: disable UI (port), small
+    // shuffle partitions count (multi-core laptop, small inputs).
+    // Both arrive verbatim with the default master.
+    val code = gen("# Test\n```scalascript\nval x = 1\n```\n")
+    assert(code.contains(""".config("spark.ui.enabled", "false")"""),
+      s"local[*] must keep spark.ui.enabled=false, got:\n$code")
+    assert(code.contains(""".config("spark.sql.shuffle.partitions", "4")"""),
+      s"local[*] must keep shuffle.partitions=4, got:\n$code")
+    // Log level suppression is also local-only.
+    assert(code.contains("org.apache.log4j.Logger.getRootLogger.setLevel(org.apache.log4j.Level.WARN)"),
+      s"local[*] must suppress log4j WARN level, got:\n$code")
+  }
+
+  test("local[4] master also gets the local-mode defaults") {
+    // Predicate is `startsWith("local")` so the worker-bounded
+    // `local[N]` variant counts as local too.
+    val code = gen("# Test\n```scalascript\nval x = 1\n```\n", sparkMaster = "local[4]")
+    assert(code.contains(""".config("spark.ui.enabled", "false")"""))
+    assert(code.contains(""".config("spark.sql.shuffle.partitions", "4")"""))
+  }
+
+  test("spark:// cluster master skips the local-mode defaults") {
+    // Spark Standalone cluster — wrong defaults (production UI hidden,
+    // parallelism capped at 4).  Adaptive emission drops both, leaving
+    // Spark's own defaults (UI on, shuffle.partitions=200).  User
+    // overrides via `spark-config:` still arrive.
+    val code = gen("# Test\n```scalascript\nval x = 1\n```\n",
+      sparkMaster = "spark://prod.example.com:7077")
+    assert(!code.contains("spark.ui.enabled"),
+      s"cluster master must NOT pin spark.ui.enabled=false, got:\n$code")
+    assert(!code.contains("spark.sql.shuffle.partitions"),
+      s"cluster master must NOT pin shuffle.partitions=4, got:\n$code")
+    // log4j level suppression must also be skipped — operator's
+    // own log config wins on a cluster.
+    assert(!code.contains("org.apache.log4j.Logger.getRootLogger.setLevel"),
+      s"cluster master must not force log4j WARN level, got:\n$code")
+  }
+
+  test("yarn master skips the local-mode defaults") {
+    val code = gen("# Test\n```scalascript\nval x = 1\n```\n", sparkMaster = "yarn")
+    assert(!code.contains("spark.ui.enabled"))
+    assert(!code.contains("spark.sql.shuffle.partitions"))
+  }
+
+  test("k8s:// master skips the local-mode defaults") {
+    val code = gen("# Test\n```scalascript\nval x = 1\n```\n",
+      sparkMaster = "k8s://cluster.local:6443")
+    assert(!code.contains("spark.ui.enabled"))
+    assert(!code.contains("spark.sql.shuffle.partitions"))
+  }
+
+  test("cluster master still routes user spark-config entries verbatim") {
+    // Adaptive default suppression must not also suppress user-supplied
+    // values for the same keys.  A user who knows what they're doing
+    // can re-enable the local-mode optimization on a cluster.
+    val module = scalascript.parser.Parser.parse("# Test\n```scalascript\nval x = 1\n```\n")
+    val code   = SparkGen.generate(
+      module,
+      sparkMaster = "yarn",
+      extraConfig = Map("spark.ui.enabled" -> "false", "spark.executor.memory" -> "4g")
+    )
+    // User-set values reach the source even though adaptive defaults
+    // are off.
+    assert(code.contains(""".config("spark.ui.enabled", "false")"""),
+      s"user spark.ui.enabled override must reach the source, got:\n$code")
+    assert(code.contains(""".config("spark.executor.memory", "4g")"""))
+  }
+
   // ── Phase C.3 slice 4: spark-app-name → .appName(...) ────────────────────
 
   test("default appName is scalascript-job") {

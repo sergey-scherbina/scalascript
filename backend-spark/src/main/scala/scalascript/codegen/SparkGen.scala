@@ -146,8 +146,23 @@ private class SparkGen(
     sb.append("  val spark = SparkSession.builder()\n")
     sb.append(s"""    .appName("${escape(appName)}")\n""")
     sb.append(s"""    .master("$sparkMaster")\n""")
-    sb.append("    .config(\"spark.ui.enabled\", \"false\")\n")
-    sb.append("    .config(\"spark.sql.shuffle.partitions\", \"4\")\n")
+    // Adaptive default configs (v1.25 § 9.5 Phase C.3 slice 8) — emit
+    // ONLY when running against a `local*` master.  These were chosen
+    // for the developer-laptop experience:
+    //   - `spark.ui.enabled=false`         — no port held for the UI;
+    //                                        terminal stays clean.
+    //   - `spark.sql.shuffle.partitions=4` — sensible at single-host scale;
+    //                                        the Spark default of 200 thrashes
+    //                                        a 4-core laptop on small inputs.
+    // On cluster masters (`spark://...`, `yarn`, `k8s://...`) both
+    // values are wrong-by-default: disabling the UI hides debugging
+    // surface in production, and `4` shuffle partitions caps
+    // parallelism brutally on multi-node clusters.  Spark's defaults
+    // are the right starting point there; users override with
+    // `spark-config:` front-matter as needed.
+    if sparkMaster.startsWith("local") then
+      sb.append("    .config(\"spark.ui.enabled\", \"false\")\n")
+      sb.append("    .config(\"spark.sql.shuffle.partitions\", \"4\")\n")
     // User-supplied `spark-config:` front-matter map (v1.25 § 9.5 Phase C.3
     // slice 3) — emit one `.config(k, v)` per entry, sorted by key for
     // deterministic source.  Values are passed through verbatim and
@@ -159,8 +174,14 @@ private class SparkGen(
     }
     sb.append("    .getOrCreate()\n")
     sb.append("  import spark.implicits._\n")
-    // Suppress verbose Spark logging in local mode.
-    sb.append("  org.apache.log4j.Logger.getRootLogger.setLevel(org.apache.log4j.Level.WARN)\n\n")
+    // Suppress verbose Spark logging — same local-vs-cluster reasoning
+    // as the adaptive configs above.  On a cluster the operator's own
+    // log4j config decides what level Spark emits at; we don't
+    // second-guess it.
+    if sparkMaster.startsWith("local") then
+      sb.append("  org.apache.log4j.Logger.getRootLogger.setLevel(org.apache.log4j.Level.WARN)\n\n")
+    else
+      sb.append("\n")
 
     // Emit the Dataset companion shim so user code `Dataset.of(...)` /
     // `Dataset.fromList(...)` resolves without any user-visible changes.
