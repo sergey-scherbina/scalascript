@@ -687,14 +687,13 @@ class JvmGen(
       val sectionId = sectionIdent(s.heading.text)
       val own = s.content.flatMap {
         case cb: Content.CodeBlock if Lang.isParseable(cb.lang) =>
-          // CommonMark's `getSourceSpans` returns the span of the WHOLE
-          // fenced block including the opening ``` ` ``` fence line.  The
-          // first line of the block's `source` content sits on
-          // `span.start.line + 1` (skip past the fence open).  When the
-          // span is missing — happens for synthesised blocks injected by
-          // `inlineImport` etc. — `lineOffset` defaults to 0 and the
-          // block contributes nothing to the SMAP.
-          val origStart = cb.span.fold(0)(_.start.line + 1)
+          // `Content.CodeBlock.lineOffset` is populated by `Parser` from
+          // CommonMark `BLOCKS` source-spans and points to the FIRST CODE
+          // LINE inside the fence (0-based in the .ssc file).  When the
+          // block was synthesised (e.g. by `inlineImport` injecting a
+          // virtual block), `lineOffset` defaults to 0 and the block
+          // contributes nothing to the SMAP.
+          val origStart = cb.lineOffset
           cb.tree.map(t => JvmGen.Block(t, cb.source, origStart)).toList
         case cb: Content.CodeBlock if Lang.isStringBlock(cb.lang) =>
           // Reserve a position in the eventual emission order so the
