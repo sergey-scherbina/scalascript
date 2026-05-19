@@ -123,6 +123,27 @@ class _Dataset {
     if (xs.length === 0) throw new Error('Dataset.avg: empty dataset');
     return xs.reduce((a, b) => a + b, 0) / xs.length;
   }
+  // top(n) — n largest values, descending. takeOrdered(n) — n smallest,
+  // ascending. countByValue — Map of element → frequency (Long count).
+  top(n) {
+    return [...this.collect()].sort((a, b) => a < b ? 1 : a > b ? -1 : 0).slice(0, n);
+  }
+  takeOrdered(n) {
+    return [...this.collect()].sort((a, b) => a < b ? -1 : a > b ? 1 : 0).slice(0, n);
+  }
+  countByValue() {
+    const m = new Map();
+    for (const x of this.collect()) {
+      const k = JSON.stringify(x);
+      const entry = m.get(k);
+      if (entry) entry.count++;
+      else m.set(k, { key: x, count: 1 });
+    }
+    // Mirror INT/JVM output — a Map of value → count
+    const out = _Map();
+    for (const { key, count } of m.values()) out.set(key, count);
+    return out;
+  }
   groupBy(key) {
     const prev = this._pipeline;
     return new _Dataset(this._sourceFn, xs => {

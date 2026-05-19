@@ -690,6 +690,26 @@ class Interpreter(
           }
           Computation.run(infix(total, "/", List(Value.DoubleV(xs.length.toDouble)), Map.empty))
       }),
+      // top(n) — n largest values in descending order; uses natural ordering.
+      // takeOrdered(n) — n smallest values in ascending order.
+      // Both Spark-style terminals — collect-sort-take.
+      "top" -> Value.NativeFnV("Dataset.top", {
+        case List(Value.IntV(n)) =>
+          Pure(Value.ListV(run().sortWith((a, b) => compareValues(a, b) > 0).take(n.toInt)))
+        case _ => throw InterpretError("Dataset.top(n: Int): List[T]")
+      }),
+      "takeOrdered" -> Value.NativeFnV("Dataset.takeOrdered", {
+        case List(Value.IntV(n)) =>
+          Pure(Value.ListV(run().sortWith((a, b) => compareValues(a, b) < 0).take(n.toInt)))
+        case _ => throw InterpretError("Dataset.takeOrdered(n: Int): List[T]")
+      }),
+      // countByValue — Map[T, Long] of element frequencies. Useful for
+      // word-count style pipelines without writing the full groupBy/reduceByKey.
+      "countByValue" -> Value.NativeFnV("Dataset.countByValue", Computation.pureFn { _ =>
+        val items = run()
+        val grouped = items.groupBy(identity).map { case (k, vs) => (k, Value.IntV(vs.length.toLong)) }
+        Value.MapV(grouped)
+      }),
       "groupBy" -> Value.NativeFnV("Dataset.groupBy", {
         case List(keyFn) => Pure(makeDatasetV(() => {
           val items = run()

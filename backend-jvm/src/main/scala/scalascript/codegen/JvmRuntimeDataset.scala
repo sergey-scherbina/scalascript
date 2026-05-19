@@ -134,6 +134,14 @@ val JvmRuntimeDataset: String =
      |    if xs.isEmpty then throw new RuntimeException("Dataset.avg: empty dataset")
      |    num.toDouble(xs.sum) / xs.length
      |
+     |  // top(n) — n largest by natural Ordering, descending.
+     |  // takeOrdered(n) — n smallest by natural Ordering, ascending.
+     |  // countByValue — Map[T, Long] of element frequencies.
+     |  def top(n: Int)(using ord: Ordering[T]): List[T] = collect().sorted(ord.reverse).take(n)
+     |  def takeOrdered(n: Int)(using ord: Ordering[T]): List[T] = collect().sorted.take(n)
+     |  def countByValue(): Map[T, Long] =
+     |    collect().groupBy(identity).map { case (k, vs) => (k, vs.length.toLong) }
+     |
      |  def fold[U](z: U)(combine: (U, T) => U): U =
      |    val xs = if _parallel then _runParallel() else _pipeline(_sourceFn()).asInstanceOf[List[T]]
      |    xs.foldLeft(z)(combine)
