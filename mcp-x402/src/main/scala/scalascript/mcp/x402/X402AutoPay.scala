@@ -21,10 +21,11 @@ import scalascript.x402.*
  *      to 1 — re-presenting a request with payment shouldn't bounce
  *      back as -32402 unless something's wrong. */
 class X402AutoPay(
-  val signer:    PaymentSigner,
-  val maxAmount: BigInt,
-  val onCharge:  (PaymentRequirements, String /* base64 header */) => Unit = (_, _) => (),
-  val maxRetries: Int = 1,
+  val signer:        PaymentSigner,
+  val maxAmount:     BigInt,
+  val onCharge:      (PaymentRequirements, String /* base64 header */) => Unit = (_, _) => (),
+  val onStreamCharge: (StreamCharge) => Unit = _ => (),
+  val maxRetries:    Int = 1,
 )(using ec: ExecutionContext):
 
   /** Wrap a JSON-RPC `request(method, params)` function with auto-pay
@@ -34,7 +35,12 @@ class X402AutoPay(
    *  The send fn must throw / fail the Future on JSON-RPC errors
    *  rather than returning an "error" envelope — that's how the
    *  middleware detects -32402. The most natural integration is
-   *  `mcp-common`'s client core, which already raises on errors. */
+   *  `mcp-common`'s client core, which already raises on errors.
+   *
+   *  On a successful response, the middleware additionally inspects
+   *  `_meta.x402.streamCharge` (Phase 8 stream-priced tools) and
+   *  fires `onStreamCharge` with the parsed metrics. The caller
+   *  receives the response unchanged. */
   def wrap(send: (String, ujson.Value) => Future[ujson.Value]): (String, ujson.Value) => Future[ujson.Value] =
     (method, params) => callWithRetries(send, method, params, retriesLeft = maxRetries)
 
@@ -44,7 +50,15 @@ class X402AutoPay(
     params:      ujson.Value,
     retriesLeft: Int,
   ): Future[ujson.Value] =
-    send(method, params).recoverWith {
+    send(method, params).map(result =>
+      // On any success, look for a streamCharge metadata block and
+      // report it to the budget tracker. The result is returned
+      // unchanged.
+      result.obj.get("_meta").foreach { meta =>
+        Mcp402Protocol.parseStreamCharge(meta).foreach(onStreamCharge)
+      }
+      result,
+    ).recoverWith {
       case ex: PaymentRequiredException if retriesLeft > 0 =>
         handle402(ex.requirements, method, params).flatMap {
           case None =>

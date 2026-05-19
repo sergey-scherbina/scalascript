@@ -173,9 +173,20 @@ class Mcp402Dispatcher(
 
   private def renderRequirements(config: PricedOperationConfig): ujson.Value =
     val req = config.price.toRequirements(config.resourceLabel, config.description)
+    val schemeJson = config.price match
+      case Pricing.Exact(amt, _, _) =>
+        ujson.Obj("type" -> ujson.Str("exact"), "amount" -> ujson.Str(amt.toString))
+      case s: Pricing.Stream =>
+        ujson.Obj(
+          "type"        -> ujson.Str("stream"),
+          "ratePerUnit" -> ujson.Str(s.ratePerUnit.toString),
+          "unitName"    -> ujson.Str(s.unitName),
+          "maxUnits"    -> ujson.Num(s.maxUnits.toDouble),
+          "maxAmount"   -> ujson.Str(s.maxAmount.toString),
+        )
     val base = ujson.Obj(
       "x402Version" -> ujson.Num(1),
-      "scheme"      -> ujson.Obj("type" -> ujson.Str("exact"), "amount" -> ujson.Str(config.price.amount.toString)),
+      "scheme"      -> schemeJson,
       "network"     -> ujson.Str(req.network.toString),
       "chainId"     -> ujson.Num(req.network.chainId.toDouble),
       "asset"       -> ujson.Obj(

@@ -14,15 +14,12 @@ object Mcp402Protocol:
    *  carries server-/protocol-defined metadata that piggy-backs on
    *  the standard JSON-RPC params/result envelope. Domain-qualified
    *  keys keep us forward-compatible with other extensions. */
-  val MetaX402Key: String        = "x402"
-  val MetaPaymentField: String   = "payment"      // base64 PaymentPayload
-  val MetaSettledField: String   = "settled"      // optional response hint
+  val MetaX402Key: String           = "x402"
+  val MetaPaymentField: String      = "payment"      // base64 PaymentPayload (Phase 3)
+  val MetaSettledField: String      = "settled"      // optional response hint (Phase 5)
+  val MetaStreamChargeField: String = "streamCharge" // Phase 8 — actual usage
 
-  /** Build the `error.data` payload that a -32402 response carries.
-   *  Mirrors the HTTP 402 response body shape — clients receive
-   *  identical fields whether they're talking to an HTTP server or
-   *  an MCP server, so an `X402AutoPay` middleware reuses the same
-   *  parser on both channels. */
+  /** Build the `error.data` payload that a -32402 response carries. */
   def paymentRequiredErrorData(
     x402Version:  Int,
     requirements: ujson.Value,
@@ -44,3 +41,42 @@ object Mcp402Protocol:
       "message" -> ujson.Str(message),
       "data"    -> paymentRequiredErrorData(x402Version, requirements),
     )
+
+  /** Render an `_meta.x402.streamCharge` payload for a stream-priced
+   *  tool's response. The server emits this to tell the client how
+   *  many units were actually consumed out of the pre-authorised
+   *  budget — clients track running totals via
+   *  X402AutoPay.onStreamCharge. */
+  def streamChargeMeta(usedUnits: Long, unitName: String, totalAmount: BigInt): ujson.Value =
+    ujson.Obj(
+      MetaX402Key -> ujson.Obj(
+        MetaStreamChargeField -> ujson.Obj(
+          "usedUnits"   -> ujson.Num(usedUnits.toDouble),
+          "unitName"    -> ujson.Str(unitName),
+          "totalAmount" -> ujson.Str(totalAmount.toString),
+        ),
+      ),
+    )
+
+  /** Parse a server-emitted `_meta.x402.streamCharge` payload from
+   *  the `_meta` object of a response. Returns None when the
+   *  response carries no streamCharge field. */
+  def parseStreamCharge(meta: ujson.Value): Option[StreamCharge] =
+    try
+      val o = meta.obj(MetaX402Key).obj(MetaStreamChargeField).obj
+      Some(StreamCharge(
+        usedUnits   = o("usedUnits").num.toLong,
+        unitName    = o("unitName").str,
+        totalAmount = BigInt(o("totalAmount").str),
+      ))
+    catch case _: Throwable => None
+
+/** Actual usage info a stream-priced tool reports on its response.
+ *  Clients use this for accounting and budget-tracking; combined
+ *  with the pre-authorised cap, the user always knows what they
+ *  actually paid vs what they authorised. */
+case class StreamCharge(
+  usedUnits:   Long,
+  unitName:    String,
+  totalAmount: BigInt,
+)
