@@ -1,0 +1,51 @@
+---
+name: conformance-parsing-recover-until
+version: 1.0.0
+---
+
+# Parser error recovery — skip-to-sync-token (`recoverUntil`)
+
+Demonstrates `PRecoverUntil`: when the inner parser fails, the runner
+advances to the next occurrence of the sync token and continues parsing.
+
+```scalascript
+[Position, ParseError, ParseOk, ParseErr, Parser,
+ PChar, PString, PRegex, PSatisfy, PSucceed, PFail](../std/parsing/core.ssc)
+[PSequence, PChoice, PMany, POpt, PMapped, PFlatMapped, PNamed,
+ runParser](../std/parsing/combinators.ssc)
+[PRecoverUntil, PErrorNode, PParseAll, ErrorNode, ParseErrors,
+ runParserAll, advanceToSync](../std/parsing/recovery.ssc)
+
+// A parser that expects the keyword "val".
+val pVal: Parser[String] = Parser.string("val")
+
+// On failure, skip to next semicolon and return the sentinel "<error>".
+val pValRecover: Parser[Any] = pVal.recoverUntil(Parser.string(";"), "<error>")
+
+// Input 1: well-formed — parser succeeds, no recovery needed.
+val ok1 = runParserAll(PRecoverUntil(pVal, Parser.string(";"), "<error>"), "val", Position(0), Nil)
+ok1 match
+  case (Some(ParseOk(v, _, _)), errs) =>
+    println("ok:" + v)
+    println("errors:" + errs.length)
+  case _ => println("unexpected")
+
+// Input 2: bad keyword, semicolon at position 3.
+// Runner skips "foo" and consumes ";", then returns default "<error>".
+val ok2 = runParserAll(PRecoverUntil(pVal, Parser.string(";"), "<error>"), "foo;rest", Position(0), Nil)
+ok2 match
+  case (Some(ParseOk(v, rest, _)), errs) =>
+    println("recovered:" + v)
+    println("remaining:" + rest)
+    println("errors:" + errs.length)
+  case _ => println("unexpected")
+
+// Input 3: bad keyword, no semicolon — exhausts input, returns default at end.
+val ok3 = runParserAll(PRecoverUntil(pVal, Parser.string(";"), "<error>"), "garbage", Position(0), Nil)
+ok3 match
+  case (Some(ParseOk(v, rest, _)), errs) =>
+    println("exhausted:" + v)
+    println("remaining-empty:" + (rest == ""))
+    println("errors:" + errs.length)
+  case _ => println("unexpected")
+```
