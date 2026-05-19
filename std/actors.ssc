@@ -36,6 +36,7 @@ exports:
   - setReconnectPolicy
   - setHeartbeatTimeout
   - setQuorumSize
+  - setClusterAuthToken
   - requestGossip
   - ConfigChanged
   - clusterConfigSet
@@ -301,6 +302,14 @@ extern def setHeartbeatTimeout(intervalMs: Long, deadAfterMs: Long): Unit
 // partition: each side with fewer than `n` visible nodes stays leaderless
 // until the partition heals.  0 (default) disables the check.
 extern def setQuorumSize(n: Long): Unit
+
+// Set the shared-secret Bearer token required to access /_ssc-cluster/*
+// endpoints (status, drain, events).  At startup the default is read
+// from the `SSC_CLUSTER_TOKEN` env var.  Empty string ⇒ endpoints are
+// open (legacy / dev-mode default).  Callers must send
+// `Authorization: Bearer <token>` on every request; mismatched or
+// missing token returns 401.
+extern def setClusterAuthToken(token: String): Unit
 
 // ─── Periodic gossip re-discovery (v1.23) ────────────────────────────────────
 

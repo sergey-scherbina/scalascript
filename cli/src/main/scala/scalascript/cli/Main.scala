@@ -6048,12 +6048,34 @@ def clusterCommand(args: List[String]): Unit =
     case "events" :: rest => clusterEventsCommand(rest)
     case ("help" | "--help" | "-h") :: _ =>
       println("Usage: ssc cluster <subcommand>")
-      println("  status <url> [--json]            show a JSON snapshot from a running node")
-      println("  drain  <url> [--off]             enable (or disable) drain mode on a node")
-      println("  events <url> [--since=<ms>]      dump the recent-events ring buffer")
+      println("  status <url> [--json] [--token=<t>]            show JSON snapshot")
+      println("  drain  <url> [--off]  [--token=<t>]            toggle drain mode")
+      println("  events <url> [--since=<ms>] [--token=<t>]      dump events ring")
+      println()
+      println("Auth: --token=<t> or SSC_CLUSTER_TOKEN env.  Sends")
+      println("`Authorization: Bearer <token>` on every request.")
     case _ =>
       System.err.println("Usage: ssc cluster {status|drain|events} <url> [opts]")
       System.exit(2)
+
+/** Pull the shared-secret Bearer token from a `--token=<t>` flag (if
+ *  present) or the `SSC_CLUSTER_TOKEN` env var.  Empty result ⇒ skip
+ *  the Authorization header — endpoints accept anonymous calls when
+ *  the server's `setClusterAuthToken` is unset. */
+private def clusterAuthTokenFor(flags: List[String]): String =
+  flags.find(_.startsWith("--token="))
+    .map(_.stripPrefix("--token="))
+    .orElse(sys.env.get("SSC_CLUSTER_TOKEN"))
+    .getOrElse("")
+
+/** Attach `Authorization: Bearer <token>` when non-empty.  Always
+ *  sets Content-Type for the POST flows. */
+private def applyClusterAuth(
+    builder: java.net.http.HttpRequest.Builder,
+    token: String
+): java.net.http.HttpRequest.Builder =
+  if token.nonEmpty then builder.header("Authorization", "Bearer " + token)
+  else builder
 
 private def clusterEventsCommand(args: List[String]): Unit =
   val (flags, urlOpt) = args.partition(_.startsWith("--"))
@@ -6072,12 +6094,15 @@ private def clusterEventsCommand(args: List[String]): Unit =
     val full = sinceMs match
       case Some(t) => base + "?since=" + t
       case None    => base
+    val token = clusterAuthTokenFor(flags)
     val client = java.net.http.HttpClient.newBuilder()
       .connectTimeout(java.time.Duration.ofSeconds(5)).build()
-    val req = java.net.http.HttpRequest.newBuilder()
-      .uri(java.net.URI.create(full))
-      .timeout(java.time.Duration.ofSeconds(10))
-      .GET().build()
+    val req = applyClusterAuth(
+      java.net.http.HttpRequest.newBuilder()
+        .uri(java.net.URI.create(full))
+        .timeout(java.time.Duration.ofSeconds(10)),
+      token
+    ).GET().build()
     val respOpt: Option[java.net.http.HttpResponse[String]] =
       try Some(client.send(req, java.net.http.HttpResponse.BodyHandlers.ofString()))
       catch case e: Throwable =>
@@ -6117,14 +6142,16 @@ private def clusterDrainCommand(args: List[String]): Unit =
       if url.endsWith("/_ssc-cluster/drain") then url
       else url.stripSuffix("/") + "/_ssc-cluster/drain"
     val payload = if off then """{"enabled":false}""" else """{"enabled":true}"""
+    val token = clusterAuthTokenFor(flags)
     val client = java.net.http.HttpClient.newBuilder()
       .connectTimeout(java.time.Duration.ofSeconds(5)).build()
-    val req = java.net.http.HttpRequest.newBuilder()
-      .uri(java.net.URI.create(drainUrl))
-      .timeout(java.time.Duration.ofSeconds(10))
-      .header("Content-Type", "application/json")
-      .POST(java.net.http.HttpRequest.BodyPublishers.ofString(payload))
-      .build()
+    val req = applyClusterAuth(
+      java.net.http.HttpRequest.newBuilder()
+        .uri(java.net.URI.create(drainUrl))
+        .timeout(java.time.Duration.ofSeconds(10))
+        .header("Content-Type", "application/json"),
+      token
+    ).POST(java.net.http.HttpRequest.BodyPublishers.ofString(payload)).build()
     val respOpt: Option[java.net.http.HttpResponse[String]] =
       try Some(client.send(req, java.net.http.HttpResponse.BodyHandlers.ofString()))
       catch case e: Throwable =>
@@ -6153,12 +6180,15 @@ private def clusterStatusCommand(args: List[String]): Unit =
     val statusUrl =
       if url.endsWith("/_ssc-cluster/status") then url
       else url.stripSuffix("/") + "/_ssc-cluster/status"
+    val token = clusterAuthTokenFor(raw)
     val client = java.net.http.HttpClient.newBuilder()
       .connectTimeout(java.time.Duration.ofSeconds(5)).build()
-    val req = java.net.http.HttpRequest.newBuilder()
-      .uri(java.net.URI.create(statusUrl))
-      .timeout(java.time.Duration.ofSeconds(10))
-      .GET().build()
+    val req = applyClusterAuth(
+      java.net.http.HttpRequest.newBuilder()
+        .uri(java.net.URI.create(statusUrl))
+        .timeout(java.time.Duration.ofSeconds(10)),
+      token
+    ).GET().build()
     val respOpt: Option[java.net.http.HttpResponse[String]] =
       try Some(client.send(req, java.net.http.HttpResponse.BodyHandlers.ofString()))
       catch case e: Throwable =>
