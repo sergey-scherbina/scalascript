@@ -515,6 +515,19 @@ lazy val clientKafka = project
     Test    / scalacOptions ++= sharedScalacOptions,
   )
 
+lazy val clientCoinbase = project
+  .in(file("client-coinbase"))
+  .settings(
+    name := "scalascript-client-coinbase",
+    libraryDependencies ++= Seq(
+      "com.softwaremill.sttp.client4" %% "core"  % "4.0.0-M17",
+      "com.lihaoyi"                   %% "upickle" % "3.3.1",
+      scalatestTest,
+    ),
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions,
+  )
+
 lazy val root = project
   .in(file("."))
   .aggregate(
@@ -523,7 +536,7 @@ lazy val root = project
     runtimeServerJvmJetty, runtimeServerJvmNetty, mcpCommon,
     backendJvm, backendJs, backendNode, backendScalajs, backendWasm, backendInterpreter,
     backendScalaSource, backendHtml, backendCss, backendSpark,
-    cli, clientPostgres, clientRedis, clientEvm, clientKafka
+    cli, clientPostgres, clientRedis, clientEvm, clientKafka, clientCoinbase
   )
   .settings(
     publish / skip := true
