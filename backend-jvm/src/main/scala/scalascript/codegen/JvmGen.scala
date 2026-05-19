@@ -4387,36 +4387,15 @@ class JvmGen(
        |private val _wsRoutes = scala.collection.mutable.ArrayBuffer.empty[_WsRoute]
        |
        |// ── Process-wide metrics (Sprint 4 #14) ─────────────────────────
-       |// Counters mirroring scalascript.server.Metrics on the
-       |// interpreter side.  Same key names so log shippers / health
-       |// checks scrape identical output across backends.
-       |private object _Metrics:
-       |  val wsActive      = java.util.concurrent.atomic.AtomicLong(0L)
-       |  val wsUpgraded    = java.util.concurrent.atomic.AtomicLong(0L)
-       |  val wsRejected    = java.util.concurrent.atomic.AtomicLong(0L)
-       |  val wsMessagesIn  = java.util.concurrent.atomic.AtomicLong(0L)
-       |  val wsMessagesOut = java.util.concurrent.atomic.AtomicLong(0L)
-       |  val wsBytesIn     = java.util.concurrent.atomic.AtomicLong(0L)
-       |  val wsBytesOut    = java.util.concurrent.atomic.AtomicLong(0L)
-       |  val httpRequests  = java.util.concurrent.atomic.AtomicLong(0L)
-       |  val http4xx       = java.util.concurrent.atomic.AtomicLong(0L)
-       |  val http5xx       = java.util.concurrent.atomic.AtomicLong(0L)
-       |  def snapshot: Map[String, Long] = Map(
-       |    "ws.active"       -> wsActive.get,
-       |    "ws.upgraded"     -> wsUpgraded.get,
-       |    "ws.rejected"     -> wsRejected.get,
-       |    "ws.messages.in"  -> wsMessagesIn.get,
-       |    "ws.messages.out" -> wsMessagesOut.get,
-       |    "ws.bytes.in"     -> wsBytesIn.get,
-       |    "ws.bytes.out"    -> wsBytesOut.get,
-       |    "http.requests"   -> httpRequests.get,
-       |    "http.4xx"        -> http4xx.get,
-       |    "http.5xx"        -> http5xx.get
-       |  )
+       |// Single source of truth lives in scalascript.server.Metrics
+       |// (inlined from runtime-server-common).  `_Metrics` is kept as a
+       |// local alias so existing internal call sites — wsActive,
+       |// wsUpgraded, httpRequests, … — keep their `_Metrics.foo` form.
+       |private val _Metrics = scalascript.server.Metrics
        |
        |/** Snapshot of process-wide counters — `Map[String, Long]`,
        |  * same key names as the interpreter's `metrics()` native. */
-       |def metrics(): Map[String, Long] = _Metrics.snapshot
+       |def metrics(): Map[String, Long] = _Metrics.snapshot()
        |
        |// Process-wide cap on active WS sessions.  Tuned with
        |// `setMaxWsConnections(n)`; default = unlimited.  Upgrades past
