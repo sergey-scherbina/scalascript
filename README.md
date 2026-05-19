@@ -4,17 +4,11 @@ A language where **Markdown is syntax, not decoration** — `.ssc` files are
 executable documents combining YAML front-matter, Markdown prose, and
 Scala 3 code blocks.
 
-```bash
-$ ssc hello.ssc        # run with the interpreter
-$ jssc hello.ssc       # transpile and run via Node.js
-$ sscc hello.ssc       # compile to JVM bytecode and run
-```
-
 `.ssc` files support two code-block languages:
 
 | Annotation | Language | Backends |
 |------------|----------|----------|
-| ` ```scalascript` | ScalaScript dialect — effects, handlers, content helpers, TCO | interpreter · JS transpiler · JVM |
+| ` ```scalascript` (alias: ` ```ssc`) | ScalaScript dialect — effects, handlers, content helpers, TCO | interpreter · JS transpiler · JVM |
 | ` ```scala` | Standard Scala 3 — no ScalaScript extensions | interpreter · **Scala.js** (JS) · JVM |
 
 ````ssc

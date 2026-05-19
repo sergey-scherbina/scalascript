@@ -81,6 +81,7 @@ private def dispatchCommand(args: List[String]): Unit =
     case "lock"                => lockCommand(args.tail)
     case "test"                => testCommand(args.tail)
     case "preview"             => previewCommand(args.tail)
+    case "fmt"                 => fmtCommand(args.tail)
     case "help" | "--help" | "-h" => printUsage()
     case "--list-backends"     => println(BackendRegistry.describe)
     case _                     => runCommand(args)
@@ -233,6 +234,10 @@ def printUsage(): Unit =
     |                         declared in the front-matter variants: list.  Storybook-lite.
     |  lock <file>            Pin all URL/dep imports in ssc.lock (SHA-256 integrity)
     |  lock check <file>      Verify all URL/dep imports match ssc.lock
+    |  fmt [--check|--stdout] <file(s)>
+    |                         Format .ssc files in-place (default).
+    |                         --check  Exit non-zero if any file needs formatting (CI mode).
+    |                         --stdout Print formatted output to stdout (single file only).
     |  help                   Show this help message
     |
     |Package flags (passed through to scala-cli package):
@@ -4100,6 +4105,44 @@ def printModule(module: Module): Unit =
     if m.dependencies.nonEmpty then println(s"  deps:    ${m.dependencies.keys.mkString(", ")}")
   }
   module.sections.foreach(s => printSection(s, 1))
+
+// ─── fmt command ────────────────────────────────────────────────────────────
+
+def fmtCommand(args: List[String]): Unit =
+  val checkMode  = args.contains("--check")
+  val stdoutMode = args.contains("--stdout")
+  val files      = args.filterNot(a => a == "--check" || a == "--stdout")
+
+  if files.isEmpty then
+    System.err.println("ssc fmt: no files specified")
+    System.exit(1)
+
+  if stdoutMode && files.length > 1 then
+    System.err.println("ssc fmt --stdout: only one file allowed")
+    System.exit(1)
+
+  var anyNeedsFormatting = false
+
+  for file <- files do
+    val path = os.Path(file, os.pwd)
+    if !os.exists(path) then
+      System.err.println(s"ssc fmt: file not found: $file")
+      System.exit(1)
+    val source    = os.read(path)
+    val formatted = Formatter.format(source)
+    if stdoutMode then
+      print(formatted)
+    else if checkMode then
+      if formatted != source then
+        System.err.println(s"$file: needs formatting")
+        anyNeedsFormatting = true
+    else
+      if formatted != source then
+        os.write.over(path, formatted)
+        println(s"formatted: $file")
+
+  if checkMode && anyNeedsFormatting then
+    System.exit(1)
 
 def printSection(s: Section, indent: Int): Unit =
   val prefix = "  " * indent

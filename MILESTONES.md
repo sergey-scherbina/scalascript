@@ -4856,6 +4856,44 @@ Re-check only the changed block and its transitive dependents.  Snapshot
 
 ---
 
+## ssc fmt — canonical `.ssc` formatter — LANDED ✅
+
+**Landed** (2026-05-19) on branch `feature/ssc-fmt`.
+
+Source-level formatter for `.ssc` files implemented as a pure string
+transformation (no AST round-trip).
+
+### What it does
+
+- **Front-matter**: normalises key order (`name`, `version`, `description`,
+  `main`, `package`, `exports`, `dependencies`, `routes`, then remaining keys
+  alphabetically), strips trailing spaces, ensures exactly one blank line
+  after the closing `---`.
+- **Headings**: `##Title` → `## Title` (exactly one space after `#`s).
+- **Code blocks**: exactly one blank line before and after each fenced block;
+  block contents preserved verbatim.
+- **General**: trailing whitespace stripped, LF endings, exactly one final
+  newline.
+- **Shebang** (`#!/usr/bin/env ssc`) preserved at position 0.
+- `format(format(x)) == format(x)` guaranteed — idempotent.
+
+### CLI flags
+
+```
+ssc fmt file.ssc [file2.ssc ...]   # format in-place
+ssc fmt --check file.ssc           # exit non-zero if file needs formatting (CI)
+ssc fmt --stdout file.ssc          # print to stdout
+```
+
+### What landed
+
+- `cli/src/main/scala/scalascript/cli/Formatter.scala` — pure transformer
+- `Main.scala` — `fmt` case in dispatch + help text
+- `cli/src/test/scala/scalascript/cli/FormatterTest.scala` — 25 unit tests
+- `docs/user-guide.md` §12 — user-facing docs
+
+---
+
 ## Beyond
 
 Larger features that aren't on the critical path but are worth keeping in
