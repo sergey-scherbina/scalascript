@@ -1638,6 +1638,54 @@ class Interpreter(
     if !isRegistered("/_ready") then
       scalascript.server.Routes.register("GET", "/_ready", handler, this)
 
+  /** v1.23 — register `GET /_ssc-cluster/status` returning a JSON
+   *  snapshot.  Idempotent: subsequent `startNode` calls are no-ops
+   *  for the route table.  Reads volatile / concurrent state with no
+   *  locks — values are observation-grade, not a transactional
+   *  snapshot.  Used by `ssc cluster status` and ops dashboards. */
+  private def registerClusterStatusRoute(): Unit =
+    val path = "/_ssc-cluster/status"
+    val already = scalascript.server.Routes.all.exists(e =>
+      e.method == "GET" && e.path == path)
+    if already then return
+    val handler = Value.NativeFnV("_clusterStatus", Computation.pureFn { _ =>
+      val sb = new StringBuilder("{")
+      def kv(k: String, jsonVal: String, first: Boolean = false): Unit =
+        if !first then sb.append(',')
+        sb.append('"').append(k).append("\":").append(jsonVal)
+      def jsonStrLit(s: String): String =
+        "\"" + s.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
+      def jsonStrArr(xs: Iterable[String]): String =
+        xs.map(jsonStrLit).mkString("[", ",", "]")
+      val members = scala.collection.mutable.ListBuffer.empty[String]
+      peerChannels.keySet().forEach(members += _)
+      val drainPeers = scala.collection.mutable.ListBuffer.empty[String]
+      drainingPeers.forEach { (nid, dr) =>
+        if dr.booleanValue() then drainPeers += nid
+      }
+      val leaderNow =
+        leaderProtocolRef.get() match
+          case "raft" => raftLeaderId
+          case _      => currentLeader.get()
+      kv("nodeId",    jsonStrLit(localNodeId), first = true)
+      kv("leader",    jsonStrLit(leaderNow))
+      kv("protocol",  jsonStrLit(leaderProtocolRef.get()))
+      kv("members",   jsonStrArr(members.toList))
+      kv("drainingSelf", if isDrainingSelf.get() then "true" else "false")
+      kv("drainingPeers", jsonStrArr(drainPeers.toList))
+      kv("raftTerm",  raftCurrentTerm.toString)
+      kv("raftState", jsonStrLit(raftStateName))
+      sb.append('}')
+      Value.InstanceV("Response", Map(
+        "status"  -> Value.IntV(200),
+        "headers" -> Value.MapV(Map(
+          Value.StringV("Content-Type") -> Value.StringV("application/json")
+        )),
+        "body"    -> Value.StringV(sb.toString)
+      ))
+    })
+    scalascript.server.Routes.register("GET", path, handler, this)
+
   // ─── Built-ins ───────────────────────────────────────────────────
 
   private def initBuiltins(): Unit =
@@ -6587,6 +6635,11 @@ class Interpreter(
         interp    = this,
         protocols = List("ssc-actors-v1")
       )
+      // v1.23 — operational status endpoint.  Returns a JSON snapshot
+      // of cluster state (this node's view of leader, members, drain,
+      // protocol, raft term) so operators can probe a live cluster
+      // without touching the actor scheduler.
+      registerClusterStatusRoute()
       Right(k(Value.UnitV))
 
     case "connectNode" => args match
