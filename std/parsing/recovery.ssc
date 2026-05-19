@@ -1,0 +1,197 @@
+---
+name: std-parsing-recovery
+version: 1.0.0
+description: v1.20.1 std/parsing — parser error recovery: skip-to-sync-token, error nodes in AST, multi-error accumulation
+exports:
+  - PRecoverUntil
+  - PErrorNode
+  - PParseAll
+  - ErrorNode
+  - ParseErrors
+---
+
+# `std/parsing/recovery` — parser error recovery strategies
+
+Three opt-in recovery strategies layered on top of the `Parser[A]` ADT from
+`std/parsing/core` and `std/parsing/combinators`.  Parsers remain pure data
+trees; recovery is implemented by adding new ADT nodes and a matching
+recursive-descent interpreter extension.
+
+[Position, Span, ParseError, ParseOk, ParseErr, Parser,
+ PChar, PString, PRegex, PSatisfy, PSucceed, PFail](core.ssc)
+[PSequence, PChoice, PMany, POpt, PMapped, PFlatMapped, PNamed,
+ runParser](combinators.ssc)
+
+---
+
+## Phase 1 — Skip-to-sync-token: `recoverUntil`
+
+`parser.recoverUntil(syncOn)` wraps `parser`.  When `parser` fails, the
+runner advances through the remaining input one character at a time until
+`syncOn` matches (consuming the sync token) or the input is exhausted, then
+returns the `ParseOk` from that position.  The recovered value carries the
+*original* `default` produced by the inner parser's success branch — because
+the inner never succeeded, the extension synthesises a sentinel via the
+companion `PRecoverUntil.default` field.
+
+### ADT node
+
+```scalascript
+// Wraps inner; on failure, skips to the first position where syncOn
+// succeeds and yields default, accumulating zero parse errors at the
+// call site (the error is swallowed — use PParseAll for accumulation).
+case class PRecoverUntil[A](
+  inner:   Any,   // Parser[A]
+  syncOn:  Any,   // Parser[Unit] — the synchronisation token parser
+  default: A      // value returned when recovery fires
+) extends Parser[A]
+```
+
+### Extension method
+
+```scalascript
+extension [A](p: Parser[A])
+  def recoverUntil(syncOn: Parser[Any], default: Any): Parser[Any] =
+    PRecoverUntil(p, syncOn, default)
+```
+
+---
+
+## Phase 2 — Error nodes in AST
+
+### `ErrorNode` — a first-class AST error carrier
+
+Users opt in by making their own ADT extend `ErrorNode`:
+
+```scalascript
+// A positioned parse error embedded directly in the result AST.
+// Users subclass this (or embed it as a case) inside their own Node ADT.
+case class ErrorNode(message: String, span: Span)
+```
+
+### `PErrorNode` — produces an `ErrorNode` on failure and keeps parsing
+
+`parser.errorNode(default)` wraps `parser`.  When `parser` fails the runner
+records an `ErrorNode`, replaces the failed value with `default`, and
+*continues* at the original position (consuming nothing).  This lets the outer
+parser keep running and build a partial AST.
+
+```scalascript
+// On failure, yields ErrorNode(message, span) paired with default,
+// and keeps position unchanged so outer combinators can continue.
+case class PErrorNode[A](
+  inner:   Any,   // Parser[A]
+  default: A      // fallback value when error node fires
+) extends Parser[A]
+```
+
+```scalascript
+extension [A](p: Parser[A])
+  def errorNode(default: Any): Parser[Any] =
+    PErrorNode(p, default)
+```
+
+---
+
+## Phase 3 — Multi-error accumulation: `parseAll`
+
+`parser.parseAll(input)` runs the full parser without short-circuiting.
+Every `PErrorNode` and `PRecoverUntil` site collects its error into the
+accumulator; `PChoice` tries the right branch regardless of success/failure
+when accumulation is active.  Returns `(Option[A], List[ParseError])`.
+
+### `PParseAll` — sentinel node for the accumulating runner
+
+```scalascript
+// Sentinel node: `runParserAll` treats this as "collect all errors".
+case class PParseAll[A](inner: Any) extends Parser[A]
+```
+
+### Extension method
+
+```scalascript
+extension [A](p: Parser[A])
+  def parseAll(input: String): Any =   // returns (Option[A], List[ParseError])
+    runParserAll(PParseAll(p), input, Position(0), Nil) match
+      case (Some(ParseOk(v, _, _)), errs) => (Some(v), errs)
+      case (None, errs)                   => (None, errs)
+      case _                              => (None, Nil)
+```
+
+---
+
+## `ParseErrors` — convenience alias for a list of errors
+
+```scalascript
+type ParseErrors = List[ParseError]
+```
+
+---
+
+## Recovery-aware recursive-descent runner
+
+`runParserAll` extends `runParser` with three new cases.  For all other
+nodes it delegates to `runParser` — recovery wrapping is transparent to
+existing combinators.
+
+```scalascript
+// Mutable accumulator carrier — passed through the recursive call stack.
+// We use a simple List-threading approach (functional accumulator) so
+// the runner stays pure / re-entrant.
+
+def advanceToSync(
+  syncOn: Any,
+  input:  String,
+  pos:    Position,
+  errs:   List[Any]
+): Any =                     // (String, Position, List[ParseError])
+  // Try sync at current position first.
+  runParser(syncOn, input, pos) match
+    case ParseOk(_, rest, pos2) =>
+      (rest, pos2, errs)
+    case ParseErr(_) =>
+      if input.length == 0 then
+        (input, pos, errs)
+      else
+        advanceToSync(syncOn, input.drop(1), Position(pos.offset + 1), errs)
+
+def runParserAll(
+  p:    Any,
+  input: String,
+  pos:   Position,
+  errs:  List[Any]
+): Any =           // (Option[ParseOk[_]], List[ParseError])
+  p match
+    // ── Phase 1: skip-to-sync ─────────────────────────────────────────────
+    case PRecoverUntil(inner, syncOn, default) =>
+      runParser(inner, input, pos) match
+        case ok @ ParseOk(_, _, _) =>
+          (Some(ok), errs)
+        case ParseErr(err) =>
+          val newErrs = errs :+ err
+          advanceToSync(syncOn, input, pos, newErrs) match
+            case (rest2, pos2, errs2) =>
+              (Some(ParseOk(default, rest2, pos2)), errs2)
+
+    // ── Phase 2: error node ───────────────────────────────────────────────
+    case PErrorNode(inner, default) =>
+      runParser(inner, input, pos) match
+        case ok @ ParseOk(_, _, _) =>
+          (Some(ok), errs)
+        case ParseErr(ParseError(msg, epos)) =>
+          val espan = Span(epos, epos)
+          val node  = ErrorNode(msg, espan)
+          val newErrs = errs :+ ParseError(msg, epos)
+          // Yield (default, node) pair; position unchanged — keep parsing.
+          (Some(ParseOk((default, node), input, pos)), newErrs)
+
+    // ── Phase 3: accumulating wrapper ─────────────────────────────────────
+    case PParseAll(inner) =>
+      runParserAll(inner, input, pos, errs)
+
+    // ── Delegate all other nodes to the standard runner ───────────────────
+    case _ =>
+      runParser(p, input, pos) match
+        case ok @ ParseOk(_, _, _) => (Some(ok), errs)
+        case ParseErr(err)         => (None, errs :+ err)
+```
