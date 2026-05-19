@@ -6400,13 +6400,13 @@ Spec in `docs/x402.md`.
 - [x] Refuse if `maxAmountRequired > maxAmount`
 - [x] Tests: 402 → sign → 200 round-trip (mocked server)
 
-### Phase 4 — EVM facilitators
+### Phase 4 — EVM facilitators ✓ Landed
 
-- [ ] `x402-facilitator-coinbase`: delegates to `CoinbaseClient.x402`
-- [ ] `x402-facilitator-evm`: on-chain verify via `EvmClient` (EIP-3009 check)
-- [ ] `Facilitators.withFallback(primary, fallback)`
-- [ ] `Facilitators.testnet()` — always Ok, no real settlement
-- [ ] Tests: verify Ok / Fail paths, settlement happy path
+- [x] `x402-facilitator-coinbase`: delegates to `CoinbaseClient.x402`
+- [x] `x402-facilitator-evm`: balance-check verify via `EvmClient` + pluggable settler
+- [x] `Facilitators.withFallback(primary, fallback)` — in x402-core
+- [x] `Facilitators.testnet()` — always Ok, no real settlement — in x402-core
+- [x] Tests: verify Ok / Fail paths, settlement happy path
 
 ### Phase 5 — Durable queues and nonce stores
 

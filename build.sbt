@@ -565,6 +565,31 @@ lazy val x402Client = project
     Test    / scalacOptions ++= sharedScalacOptions,
   )
 
+lazy val x402FacilitatorCoinbase = project
+  .in(file("x402-facilitator-coinbase"))
+  .dependsOn(x402Core, clientCoinbase)
+  .settings(
+    name := "scalascript-x402-facilitator-coinbase",
+    libraryDependencies ++= Seq(
+      "com.lihaoyi" %% "upickle" % "3.3.1",
+      scalatestTest,
+    ),
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions,
+  )
+
+lazy val x402FacilitatorEvm = project
+  .in(file("x402-facilitator-evm"))
+  .dependsOn(x402Core, clientEvm)
+  .settings(
+    name := "scalascript-x402-facilitator-evm",
+    libraryDependencies ++= Seq(
+      scalatestTest,
+    ),
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions,
+  )
+
 lazy val root = project
   .in(file("."))
   .aggregate(
@@ -574,7 +599,8 @@ lazy val root = project
     backendJvm, backendJs, backendNode, backendScalajs, backendWasm, backendInterpreter,
     backendScalaSource, backendHtml, backendCss, backendSpark,
     cli, clientPostgres, clientRedis, clientEvm, clientKafka, clientCoinbase,
-    x402Core, x402Server, x402Client
+    x402Core, x402Server, x402Client,
+    x402FacilitatorCoinbase, x402FacilitatorEvm
   )
   .settings(
     publish / skip := true
