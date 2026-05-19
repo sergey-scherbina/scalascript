@@ -590,6 +590,56 @@ lazy val x402FacilitatorEvm = project
     Test    / scalacOptions ++= sharedScalacOptions,
   )
 
+lazy val x402QueueKafka = project
+  .in(file("x402-queue-kafka"))
+  .dependsOn(x402Core, clientKafka)
+  .settings(
+    name := "scalascript-x402-queue-kafka",
+    libraryDependencies ++= Seq(
+      "com.lihaoyi" %% "upickle" % "3.3.1",
+      scalatestTest,
+    ),
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions,
+  )
+
+lazy val x402QueuePostgres = project
+  .in(file("x402-queue-postgres"))
+  .dependsOn(x402Core, clientPostgres)
+  .settings(
+    name := "scalascript-x402-queue-postgres",
+    libraryDependencies ++= Seq(
+      "com.lihaoyi" %% "upickle" % "3.3.1",
+      scalatestTest,
+    ),
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions,
+  )
+
+lazy val x402NoncePostgres = project
+  .in(file("x402-nonce-postgres"))
+  .dependsOn(x402Core, clientPostgres)
+  .settings(
+    name := "scalascript-x402-nonce-postgres",
+    libraryDependencies ++= Seq(
+      scalatestTest,
+    ),
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions,
+  )
+
+lazy val x402NonceRedis = project
+  .in(file("x402-nonce-redis"))
+  .dependsOn(x402Core, clientRedis)
+  .settings(
+    name := "scalascript-x402-nonce-redis",
+    libraryDependencies ++= Seq(
+      scalatestTest,
+    ),
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions,
+  )
+
 lazy val root = project
   .in(file("."))
   .aggregate(
@@ -600,7 +650,8 @@ lazy val root = project
     backendScalaSource, backendHtml, backendCss, backendSpark,
     cli, clientPostgres, clientRedis, clientEvm, clientKafka, clientCoinbase,
     x402Core, x402Server, x402Client,
-    x402FacilitatorCoinbase, x402FacilitatorEvm
+    x402FacilitatorCoinbase, x402FacilitatorEvm,
+    x402QueueKafka, x402QueuePostgres, x402NoncePostgres, x402NonceRedis
   )
   .settings(
     publish / skip := true

@@ -6492,12 +6492,12 @@ Spec in `docs/x402.md`.
 - [x] `Facilitators.testnet()` — always Ok, no real settlement — in x402-core
 - [x] Tests: verify Ok / Fail paths, settlement happy path
 
-### Phase 5 — Durable queues and nonce stores
+### Phase 5 — Durable queues and nonce stores ✓ Landed
 
-- [ ] `x402-queue-kafka`: `SettlementQueue` via `KafkaProducer/Consumer`
-- [ ] `x402-queue-postgres`: `SettlementQueue` backed by `PgClient`
-- [ ] `x402-nonce-postgres`: `NonceStore` backed by `PgClient`
-- [ ] `x402-nonce-redis`: `NonceStore` backed by `RedisClient` (`setNx` with TTL)
+- [x] `x402-queue-kafka`: `SettlementQueue` via `KafkaProducer` (enqueue); drain is application-side
+- [x] `x402-queue-postgres`: `SettlementQueue` backed by `PgClient` (enqueue + process)
+- [x] `x402-nonce-postgres`: `NonceStore` backed by `PgClient` (`ON CONFLICT DO NOTHING`)
+- [x] `x402-nonce-redis`: `NonceStore` backed by `RedisClient` (`setNx` with TTL)
 
 ### Phase 6 — Cardano facilitator (`x402-facilitator-cardano`)
 
