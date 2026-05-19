@@ -471,6 +471,7 @@ class JvmGen(
         "phiOf", "isSuspect", "selfNode", "clusterHealth",
         "broadcastHealth", "clusterIsDown",
         "electLeader", "currentLeader", "subscribeLeaderEvents",
+        "setReconnectPolicy",
         "sendAfter", "sendInterval", "cancelTimer", "processInfo")
 
   /** Case-class names defined inside `effectsRuntime` whose presence in
@@ -1468,6 +1469,12 @@ class JvmGen(
     case Term.Apply.After_4_6_0(Term.Name("subscribeLeaderEvents"), argClause)
         if argClause.values.isEmpty =>
       "Actor.subscribeLeaderEvents()"
+    // v1.23 — auto-reconnect policy
+    case Term.Apply.After_4_6_0(Term.Name("setReconnectPolicy"), argClause)
+        if argClause.values.size == 2 =>
+      val ini = emitExpr(argClause.values(0).asInstanceOf[Term])
+      val mx  = emitExpr(argClause.values(1).asInstanceOf[Term])
+      s"Actor.setReconnectPolicy($ini, $mx)"
 
     // Focus[T](_.a.b) / Focus(_.a.b) — lower to a Lens(get, set) literal.
     // The lambda body's field-access chain becomes nested get + nested copy.
@@ -2188,6 +2195,12 @@ class JvmGen(
     case Term.Apply.After_4_6_0(Term.Name("subscribeLeaderEvents"), argClause)
         if argClause.values.isEmpty =>
       "Actor.subscribeLeaderEvents()"
+    // v1.23 — auto-reconnect policy
+    case Term.Apply.After_4_6_0(Term.Name("setReconnectPolicy"), argClause)
+        if argClause.values.size == 2 =>
+      val ini = emitExpr(argClause.values(0).asInstanceOf[Term])
+      val mx  = emitExpr(argClause.values(1).asInstanceOf[Term])
+      s"Actor.setReconnectPolicy($ini, $mx)"
 
     case app: Term.Apply => emitCpsApply(app)
 
@@ -5262,6 +5275,8 @@ class JvmGen(
        |  def electLeader(): Any                                = _perform("Actor", "electLeader")
        |  def currentLeader(): Any                              = _perform("Actor", "currentLeader")
        |  def subscribeLeaderEvents(): Any                      = _perform("Actor", "subscribeLeaderEvents")
+       |  // v1.23 — auto-reconnect policy (exponential backoff per peer)
+       |  def setReconnectPolicy(initialMs: Any, maxMs: Any): Any = _perform("Actor", "setReconnectPolicy", initialMs, maxMs)
        |
        |class _ActorState:
        |  val mailbox = new java.util.concurrent.LinkedBlockingQueue[Any]()
@@ -5321,6 +5336,11 @@ class JvmGen(
        |  val _ELECTION_TIMEOUT_MS  = 2000L
        |  val _leaderEventSubs      = new java.util.concurrent.CopyOnWriteArrayList[java.lang.Long]()
        |  val _leaderEventQueue     = new java.util.concurrent.ConcurrentLinkedQueue[(String, String)]()
+       |  // v1.23 — auto-reconnect: exponential-backoff retry per peer URL after a
+       |  // disconnect.  Both fields 0 ⇒ disabled (default).  `setReconnectPolicy`
+       |  // sets them at runtime.
+       |  @volatile var _reconnectInitialMs: Long = 0L
+       |  @volatile var _reconnectMaxMs:     Long = 0L
        |  def _fireLeaderEvent(tag: String, leaderId: String): Unit =
        |    if !_leaderEventSubs.isEmpty then _leaderEventQueue.offer((tag, leaderId))
        |  def _broadcastCoordinator(): Unit =
@@ -5481,7 +5501,26 @@ class JvmGen(
        |            _nodeDownQueue.offer(pnId)
        |            _fireClusterEvent("NodeLeft", pnId, "disconnect")
        |            if _currentLeader.compareAndSet(pnId, "") then _fireLeaderEvent("LeaderLost", pnId)
+       |            // v1.23 — auto-reconnect: schedule exponential-backoff retries
+       |            // for this URL until the peer reappears.
+       |            if _reconnectInitialMs > 0L then _scheduleReconnect(url, token)
        |      catch case e: Throwable => System.err.println("connectNode error [" + url + "]: " + e.getMessage)
+       |    }
+       |
+       |  def _scheduleReconnect(rurl: String, rtok: String): Unit =
+       |    Thread.ofVirtual().start { () =>
+       |      var delay = _reconnectInitialMs.max(1L)
+       |      try
+       |        while !_peerUrls.containsValue(rurl) do
+       |          try Thread.sleep(delay) catch case _: InterruptedException => return
+       |          // Bail out if the policy got disabled while we were sleeping.
+       |          if _reconnectInitialMs <= 0L then return
+       |          if _peerUrls.containsValue(rurl) then return
+       |          try _connectPeer(rurl, rtok) catch case _: Throwable => ()
+       |          if _peerUrls.containsValue(rurl) then return
+       |          val cap = if _reconnectMaxMs > 0L then _reconnectMaxMs else delay
+       |          delay = math.min(delay * 2L, cap.max(delay))
+       |      catch case _: Throwable => ()
        |    }
        |
        |  def _parseNodeId(json: String): String =
@@ -6068,6 +6107,21 @@ class JvmGen(
        |    case "subscribeLeaderEvents" =>
        |      val boxed = java.lang.Long.valueOf(id)
        |      if !_leaderEventSubs.contains(boxed) then _leaderEventSubs.add(boxed)
+       |      Right(k(()))
+       |    // v1.23 — auto-reconnect policy
+       |    case "setReconnectPolicy" =>
+       |      val ini = args(0) match
+       |        case l: Long   => l
+       |        case i: Int    => i.toLong
+       |        case d: Double => d.toLong
+       |        case _         => 0L
+       |      val max = args(1) match
+       |        case l: Long   => l
+       |        case i: Int    => i.toLong
+       |        case d: Double => d.toLong
+       |        case _         => 0L
+       |      _reconnectInitialMs = ini.max(0L)
+       |      _reconnectMaxMs     = max.max(_reconnectInitialMs)
        |      Right(k(()))
        |    // v1.6.x — scheduled sends
        |    case "sendAfter" =>

@@ -223,6 +223,10 @@ class Interpreter(
   @volatile private var electionStartedAt:  Long    = 0L
   @volatile private var gotAliveResponse:   Boolean = false
   private val ElectionTimeoutMs: Long = 2000L
+  // v1.23 — auto-reconnect: exponential-backoff retry per peer URL after a
+  // disconnect.  Both 0 ⇒ disabled (default).
+  @volatile private var reconnectInitialMs: Long = 0L
+  @volatile private var reconnectMaxMs:     Long = 0L
   private val leaderEventSubs =
     new java.util.concurrent.CopyOnWriteArrayList[java.lang.Long]()
   private val leaderEventQueue =
@@ -255,6 +259,20 @@ class Interpreter(
           try Option(peerChannels.get(nid)).foreach(_.apply(payload))
           catch case _: Throwable => ()
         }
+  private def scheduleReconnect(rurl: String, rtok: String): Unit =
+    Thread.ofVirtual().start { () =>
+      var delay = reconnectInitialMs.max(1L)
+      try
+        while !peerUrls.containsValue(rurl) do
+          try Thread.sleep(delay) catch case _: InterruptedException => return
+          if reconnectInitialMs <= 0L then return
+          if peerUrls.containsValue(rurl) then return
+          try connectPeer(rurl, rtok) catch case _: Throwable => ()
+          if peerUrls.containsValue(rurl) then return
+          val cap = if reconnectMaxMs > 0L then reconnectMaxMs else delay
+          delay = math.min(delay * 2L, cap.max(delay))
+      catch case _: Throwable => ()
+    }
   // Cross-node monitors: nodeId → [(localActorId, monRef, remotePid.localId)]
   private val remoteMonitors =
     new java.util.concurrent.ConcurrentHashMap[String,
@@ -680,6 +698,7 @@ class Interpreter(
               enqueueClusterEvent("NodeLeft", peerNodeId, "disconnect")
               if currentLeader.compareAndSet(peerNodeId, "") then
                 enqueueLeaderEvent("LeaderLost", peerNodeId)
+              if reconnectInitialMs > 0L then scheduleReconnect(url, token)
               val t = schedulerThread; if t != null then t.interrupt()
       catch case e: Throwable =>
         out.println(s"connectNode error [$url]: ${e.getMessage}")
@@ -1632,6 +1651,12 @@ class Interpreter(
     globals("subscribeLeaderEvents") = Value.NativeFnV("subscribeLeaderEvents", {
       case Nil => Perform("Actor", "subscribeLeaderEvents", Nil)
       case _   => throw InterpretError("subscribeLeaderEvents(): Unit")
+    })
+    // v1.23 — auto-reconnect policy
+    globals("setReconnectPolicy") = Value.NativeFnV("setReconnectPolicy", {
+      case List(Value.IntV(ini), Value.IntV(mx)) =>
+        Perform("Actor", "setReconnectPolicy", List(Value.IntV(ini), Value.IntV(mx)))
+      case _ => throw InterpretError("setReconnectPolicy(initialMs: Long, maxMs: Long): Unit")
     })
     // v1.6.x — scheduled sends
     globals("sendAfter") = Value.NativeFnV("sendAfter", {
@@ -5133,6 +5158,14 @@ class Interpreter(
       val boxed = java.lang.Long.valueOf(id)
       if !leaderEventSubs.contains(boxed) then leaderEventSubs.add(boxed)
       Right(k(Value.UnitV))
+
+    // v1.23 — auto-reconnect policy
+    case "setReconnectPolicy" => args match
+      case List(Value.IntV(ini), Value.IntV(mx)) =>
+        reconnectInitialMs = ini.max(0L)
+        reconnectMaxMs     = mx.max(reconnectInitialMs)
+        Right(k(Value.UnitV))
+      case _ => throw InterpretError("setReconnectPolicy(initialMs: Long, maxMs: Long)")
 
     // v1.6.x — scheduled sends
     case "sendAfter" => args match

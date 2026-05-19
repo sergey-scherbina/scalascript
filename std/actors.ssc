@@ -28,6 +28,7 @@ exports:
   - electLeader
   - currentLeader
   - subscribeLeaderEvents
+  - setReconnectPolicy
 ---
 
 # std.actors — Actor supervision
@@ -204,6 +205,16 @@ extern def currentLeader(): String
 // `LeaderLost(nodeId)` messages.  No unsubscribe API — exit the actor
 // to stop.
 extern def subscribeLeaderEvents(): Unit
+
+// ─── Auto-reconnect policy (v1.23) ────────────────────────────────────────────
+
+// Enable exponential-backoff reconnection for peer URLs whose link drops.
+// `initialMs` is the first retry delay; subsequent retries double up to
+// `maxMs`.  Both 0 (the default) disables auto-reconnect — apps re-call
+// `connectNode` / `joinCluster` themselves.  The policy only affects
+// outbound links (the side that called `connectNode` / `joinCluster`);
+// inbound links are the other peer's responsibility to re-establish.
+extern def setReconnectPolicy(initialMs: Long, maxMs: Long): Unit
 
 // ─── Supervision tree ─────────────────────────────────────────────────────────
 

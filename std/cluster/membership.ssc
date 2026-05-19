@@ -112,4 +112,9 @@ object Cluster:
   // Register the calling actor for LeaderElected / LeaderLost delivery.
   def subscribeLeader(): Unit =
     subscribeLeaderEvents()
+
+  // Enable auto-reconnect for outbound peer links (exponential backoff
+  // from `initialMs` up to `maxMs`).  Pass 0/0 to disable.
+  def autoReconnect(initialMs: Long, maxMs: Long): Unit =
+    setReconnectPolicy(initialMs, maxMs)
 ```

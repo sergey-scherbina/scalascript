@@ -3544,6 +3544,8 @@ const Actor = {
   electLeader:           ()  => _perform('Actor', 'electLeader',           []),
   currentLeader:         ()  => _perform('Actor', 'currentLeader',         []),
   subscribeLeaderEvents: ()  => _perform('Actor', 'subscribeLeaderEvents', []),
+  // v1.23 — auto-reconnect policy
+  setReconnectPolicy: (ini, mx) => _perform('Actor', 'setReconnectPolicy', [ini, mx]),
 };
 
 // `receive { case … }` lowers to a registered matcher function whose
@@ -3613,6 +3615,23 @@ function _runActors(bodyFn) {
   function _fireLeaderEvent(tag, leaderId) {
     if (_leaderEventSubs.size === 0) return;
     _leaderEventQueue.push({ tag, leaderId });
+  }
+  // v1.23 — auto-reconnect: exponential-backoff retry per peer URL after a
+  // disconnect.  Both 0 ⇒ disabled (default).
+  let _reconnectInitialMs = 0;
+  let _reconnectMaxMs     = 0;
+  function _scheduleReconnect(rurl, rtok) {
+    let delay = Math.max(_reconnectInitialMs, 1);
+    const attempt = () => {
+      if (_reconnectInitialMs <= 0) return;
+      // Already reconnected?  `_peerUrls` is populated on successful handshake.
+      for (const u of _peerUrls.values()) if (u === rurl) return;
+      try { _connectNodeAsync(rurl, rtok); } catch (_) {}
+      const cap = _reconnectMaxMs > 0 ? _reconnectMaxMs : delay;
+      delay = Math.min(delay * 2, Math.max(cap, delay));
+      setTimeout(attempt, delay);
+    };
+    setTimeout(attempt, delay);
   }
   function _broadcastCoordinator() {
     const payload = '{"t":"coordinator","from":' + JSON.stringify(_localNodeId) + '}';
@@ -3816,6 +3835,7 @@ function _runActors(bodyFn) {
           if (env.from) _recordPongInterval(env.from);
         } else if (env.t === 'down') {
           _nodeDownQueue.push(env.nodeId);
+          const _lostUrl = _peerUrls.get(env.nodeId) || '';
           _peerChannels.delete(env.nodeId);
           _peerUrls.delete(env.nodeId);
           _peerPongHist.delete(env.nodeId);
@@ -3826,6 +3846,7 @@ function _runActors(bodyFn) {
             _currentLeader = "";
             _fireLeaderEvent("LeaderLost", env.nodeId);
           }
+          if (_reconnectInitialMs > 0 && _lostUrl) _scheduleReconnect(_lostUrl, _joinToken || '');
         } else if (env.t === 'peers_req') {
           // Respond with our known peer URLs + self URL.
           const myPeers = [];
@@ -4366,6 +4387,14 @@ function _runActors(bodyFn) {
       }
       case 'subscribeLeaderEvents': {
         _leaderEventSubs.add(id);
+        return { suspend: false, next: k(undefined) };
+      }
+      // v1.23 — auto-reconnect policy
+      case 'setReconnectPolicy': {
+        const ini = Number(args[0]) | 0;
+        const mx  = Number(args[1]) | 0;
+        _reconnectInitialMs = Math.max(0, ini);
+        _reconnectMaxMs     = Math.max(_reconnectInitialMs, mx);
         return { suspend: false, next: k(undefined) };
       }
       // v1.6.x — scheduled sends
@@ -5616,6 +5645,7 @@ class JsGen(
       "Actor.selfNode", "Actor.clusterHealth",
       "Actor.broadcastHealth", "Actor.clusterIsDown",
       "Actor.electLeader", "Actor.currentLeader", "Actor.subscribeLeaderEvents",
+      "Actor.setReconnectPolicy",
       "Actor.sendAfter", "Actor.sendInterval", "Actor.cancelTimer",
       "Logger.info", "Logger.warn", "Logger.error", "Logger.debug",
       "Random.nextInt", "Random.nextDouble", "Random.uuid", "Random.pick",
@@ -6909,6 +6939,12 @@ class JsGen(
     case Term.Apply.After_4_6_0(Term.Name("subscribeLeaderEvents"), argClause)
         if argClause.values.isEmpty =>
       "Actor.subscribeLeaderEvents()"
+    // v1.23 — auto-reconnect policy
+    case Term.Apply.After_4_6_0(Term.Name("setReconnectPolicy"), argClause)
+        if argClause.values.size == 2 =>
+      val ini = genExpr(argClause.values(0).asInstanceOf[Term])
+      val mx  = genExpr(argClause.values(1).asInstanceOf[Term])
+      s"Actor.setReconnectPolicy($ini, $mx)"
     // v1.6.x — scheduled sends
     case Term.Apply.After_4_6_0(Term.Name("sendAfter"), argClause)
         if argClause.values.size == 3 =>
@@ -7454,6 +7490,12 @@ class JsGen(
     case Term.Apply.After_4_6_0(Term.Name("subscribeLeaderEvents"), argClause)
         if argClause.values.isEmpty =>
       "Actor.subscribeLeaderEvents()"
+    // v1.23 — auto-reconnect policy
+    case Term.Apply.After_4_6_0(Term.Name("setReconnectPolicy"), argClause)
+        if argClause.values.size == 2 =>
+      val ini = genExpr(argClause.values(0).asInstanceOf[Term])
+      val mx  = genExpr(argClause.values(1).asInstanceOf[Term])
+      s"Actor.setReconnectPolicy($ini, $mx)"
     // v1.6.x — scheduled sends (inside CPS body)
     case Term.Apply.After_4_6_0(Term.Name("sendAfter"), argClause)
         if argClause.values.size == 3 =>

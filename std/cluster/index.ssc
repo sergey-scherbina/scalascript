@@ -36,4 +36,5 @@ This module is a thin wrapper over the actor-level intrinsics
 | Per-link Phi-accrual suspicion (`Cluster.phi`, `Cluster.suspect`) | ✓ v1.23 |
 | Cluster-wide failure aggregation (`Cluster.broadcast` + `Cluster.isDown`) | ✓ v1.23 |
 | Bully leader election (`Cluster.elect` / `Cluster.leader` / `Cluster.subscribeLeader`) | ✓ v1.23 |
+| Auto-reconnect on outbound link drops (`Cluster.autoReconnect`) | ✓ v1.23 |
 | Configuration distribution | deferred |

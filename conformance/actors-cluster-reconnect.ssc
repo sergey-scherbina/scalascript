@@ -1,0 +1,22 @@
+#!/usr/bin/env ssc
+---
+name: actors-cluster-reconnect
+description: Actor v1.23 — setReconnectPolicy is a no-op in single-node mode
+---
+
+# Auto-reconnect policy — single-node
+
+`setReconnectPolicy(initialMs, maxMs)` only affects outbound peer links
+that subsequently drop.  In a single-node process there are no peer
+links, so calling it is a parameterless no-op that must not crash.
+Multi-node behaviour (an outbound peer disappears and is reconnected
+with exponential backoff) is exercised by the integration suite; this
+conformance test pins the no-link branch across INT/JS/JVM.
+
+```scalascript
+runActors {
+  setReconnectPolicy(500, 30000)   // enable: 500 ms → 30 s
+  setReconnectPolicy(0, 0)         // disable
+  println("ok")
+}
+```
