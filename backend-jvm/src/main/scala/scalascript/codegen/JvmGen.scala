@@ -1305,6 +1305,43 @@ class JvmGen(
       found
     }
 
+  // ─── Strategy D, Step 1 ──────────────────────────────────────────
+  //
+  // `containsEffectPrimitive(tree)` — whitelist predicate used by the
+  // dep-mode CPS rewriter (Step 3) to decide which `Defn.Def` bodies
+  // need to be CPS-emitted instead of emitted verbatim.
+  //
+  // **Strict semantics:** only call-site shapes that ARE primitive
+  // count.  Selects, user-defined Applies, and type-inferred Anys
+  // are deliberately ignored — see docs/dep-cps-rewrite.md §4.4
+  // "The hard part — predicate tightness" for why broader rules
+  // regress `actors-process-info.ssc`.
+  //
+  // Step 1 handles intrinsic primitives only.  Step 2 wraps this in
+  // a cross-dep-aware predicate that also matches calls to other
+  // defs already marked effectful by the fixpoint pass.
+
+  private val randomPrimitiveOps:  Set[String] = Set("nextInt", "nextDouble", "uuid", "pick")
+  private val storagePrimitiveOps: Set[String] = Set("get", "put", "remove", "has", "keys")
+  private val clockPrimitiveOps:   Set[String] = Set("now", "nowIso", "sleep")
+  private val loggerPrimitiveOps:  Set[String] = Set("info", "warn", "error", "debug")
+  private val asyncPrimitiveOps:   Set[String] = Set("delay", "async", "await", "parallel")
+
+  private[scalascript] def containsEffectPrimitive(tree: scala.meta.Tree): Boolean =
+    tree.collect {
+      // Bare actor primitives: `self()`, `link(pid)`, `receive { ... }`, etc.
+      case Term.Apply.After_4_6_0(Term.Name(n), _) if actorBareNames(n) => ()
+      // Actor send sugar: `pid ! msg` (any infix `!`).
+      case Term.ApplyInfix.After_4_6_0(_, Term.Name("!"), _, _) => ()
+      // Qualified primitive Selects + Apply: `Actor.send(...)`, etc.
+      case Term.Apply.After_4_6_0(Term.Select(Term.Name("Actor"),   Term.Name(_)),  _) => ()
+      case Term.Apply.After_4_6_0(Term.Select(Term.Name("Random"),  Term.Name(op)), _) if randomPrimitiveOps(op)  => ()
+      case Term.Apply.After_4_6_0(Term.Select(Term.Name("Storage"), Term.Name(op)), _) if storagePrimitiveOps(op) => ()
+      case Term.Apply.After_4_6_0(Term.Select(Term.Name("Clock"),   Term.Name(op)), _) if clockPrimitiveOps(op)   => ()
+      case Term.Apply.After_4_6_0(Term.Select(Term.Name("Logger"),  Term.Name(op)), _) if loggerPrimitiveOps(op)  => ()
+      case Term.Apply.After_4_6_0(Term.Select(Term.Name("Async"),   Term.Name(op)), _) if asyncPrimitiveOps(op)   => ()
+    }.nonEmpty
+
   // ─── Mutual-recursion analysis ────────────────────────────────────
   //
   // Build a graph of tail-position calls between non-effectful, single-clause
