@@ -6348,16 +6348,16 @@ Specs in `docs/`: `postgres.md`, `kafka.md`, `evm.md`, `coinbase.md`, `redis.md`
 
 Spec in `docs/x402.md`.
 
-### Phase 1 — Core (`x402-core`)
+### Phase 1 — Core (`x402-core`) ✓ Landed
 
-- [ ] `PaymentScheme`: `Exact`, `Stream`, `CardanoExact`
-- [ ] `PaymentRequirements`, `TransferAuthorization`, `PaymentPayload`
-- [ ] `CardanoAsset`, `CardanoPaymentProof`
-- [ ] `Network`, `Asset`, `Assets` registry
-- [ ] `Facilitator` trait + `VerifyResult` / `SettleResult`
-- [ ] `NonceStore` trait + in-memory implementation
-- [ ] `SettlementMode`: `Synchronous` / `Async(queue)`
-- [ ] `SettlementQueue` trait + in-memory implementation
+- [x] `PaymentScheme`: `Exact`, `Stream`, `CardanoExact`
+- [x] `PaymentRequirements`, `TransferAuthorization`, `PaymentPayload`
+- [x] `CardanoAsset`, `CardanoPaymentProof`
+- [x] `Network`, `Asset`, `Assets` registry
+- [x] `Facilitator` trait + `VerifyResult` / `SettleResult`
+- [x] `NonceStore` trait + in-memory implementation
+- [x] `SettlementMode`: `Synchronous` / `Async(queue)`
+- [x] `SettlementQueue` trait + in-memory implementation
 
 ### Phase 2 — Server middleware (`x402-server`)
 

@@ -528,6 +528,17 @@ lazy val clientCoinbase = project
     Test    / scalacOptions ++= sharedScalacOptions,
   )
 
+lazy val x402Core = project
+  .in(file("x402-core"))
+  .settings(
+    name := "scalascript-x402-core",
+    libraryDependencies ++= Seq(
+      scalatestTest,
+    ),
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions,
+  )
+
 lazy val root = project
   .in(file("."))
   .aggregate(
@@ -536,7 +547,8 @@ lazy val root = project
     runtimeServerJvmJetty, runtimeServerJvmNetty, mcpCommon,
     backendJvm, backendJs, backendNode, backendScalajs, backendWasm, backendInterpreter,
     backendScalaSource, backendHtml, backendCss, backendSpark,
-    cli, clientPostgres, clientRedis, clientEvm, clientKafka, clientCoinbase
+    cli, clientPostgres, clientRedis, clientEvm, clientKafka, clientCoinbase,
+    x402Core
   )
   .settings(
     publish / skip := true
