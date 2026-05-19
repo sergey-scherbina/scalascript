@@ -1926,14 +1926,19 @@ def linkCommand(args: List[String]): Unit =
   val linked = Linker.link(allModules.toList)
   println(s"Linked ${allModules.size} module(s) → ${linked.sections.length} section(s)")
 
+  // Composite hash: SHA-256 of input artifact hashes joined in load order.
+  // Deterministic and reproducible; consumers can use it for staleness checks.
+  val composedHash =
+    val combined = allModules.map(_.iface.sourceHash).mkString("\n")
+    InterfaceExtractor.sha256(combined.getBytes("UTF-8"))
+
   outputArg match
     case Some(out) if out.endsWith(".scir") =>
       val outPath    = os.Path(out, os.pwd)
-      val sourceHash = "linked"  // no single source for a linked artifact
-      ArtifactIO.writeIrFile(linked, Nil, None, sourceHash, outPath)
+      ArtifactIO.writeIrFile(linked, Nil, None, composedHash, outPath)
       println(s"Linked IR written to $outPath")
     case Some("-") =>
-      val json = ArtifactIO.writeIr(linked, Nil, None, "linked")
+      val json = ArtifactIO.writeIr(linked, Nil, None, composedHash)
       println(json)
     case Some(out) =>
       System.err.println(s"link: -o output must end with .scir or be '-', got: $out")

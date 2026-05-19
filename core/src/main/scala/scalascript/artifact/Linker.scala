@@ -156,8 +156,25 @@ object Linker:
       MatchTree(rewriteExpr(scrutinee, symTable, ownPkg), rewriteNode(root, symTable, ownPkg))
     case Apply(fn, args) =>
       Apply(rewriteExpr(fn, symTable, ownPkg), args.map(a => rewriteExpr(a, symTable, ownPkg)))
-    case Select(qual, name) =>
-      Select(rewriteExpr(qual, symTable, ownPkg), name)
+    case s @ Select(qual, name) =>
+      // If the Select forms a package-qualified reference like `a.bar` or
+      // `std.dsl.foo` and the joined path matches a foreign export's FQN,
+      // collapse the entire chain into a single `VarRef(fqn)`.
+      // Otherwise just recurse into qual.
+      def qualifierPath(e: IrExpr): Option[List[String]] = e match
+        case VarRef(n)        => Some(List(n))
+        case Select(q2, n2)   => qualifierPath(q2).map(_ :+ n2)
+        case _                => None
+      qualifierPath(qual) match
+        case Some(prefix) =>
+          val candidateFqn = (prefix :+ name).mkString("_")
+          symTable.get(candidateFqn) match
+            case Some(entry) if entry.sourcePkg != ownPkg =>
+              VarRef(entry.fqn)
+            case _ =>
+              Select(rewriteExpr(qual, symTable, ownPkg), name)
+        case None =>
+          Select(rewriteExpr(qual, symTable, ownPkg), name)
     case Lambda(params, body) =>
       // Lambda parameters shadow module-level names; don't rewrite a name
       // that's bound as a parameter of this lambda.
