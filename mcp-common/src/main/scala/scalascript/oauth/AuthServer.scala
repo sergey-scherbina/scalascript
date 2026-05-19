@@ -63,6 +63,18 @@ class AuthServer(
   val signer: OAuth.TokenSigner =
     customSigner.getOrElse(new OAuth.HmacTokenSigner(config.signingSecret))
 
+  /** v1.17.x — sanity-check the signing material at startup so weak
+   *  config produces a load-time warning instead of a silent forgery
+   *  vulnerability.  RFC 7518 §3.2: HS256 keys SHOULD be at least 256
+   *  bits (32 bytes UTF-8) of entropy.  Caller can suppress by setting
+   *  a long secret. */
+  val signingSecretWarning: Option[String] =
+    if customSigner.isDefined then None
+    else if config.signingSecret.length < 32 then
+      Some(s"HS256 signing secret is only ${config.signingSecret.length} bytes — " +
+           "RFC 7518 §3.2 recommends ≥ 32 bytes for HMAC-SHA256 security.")
+    else None
+
   // ─── Audit logging hook ─────────────────────────────────────────
 
   /** v1.17.x — fired on every security-relevant event the AS handles:
@@ -565,7 +577,20 @@ case class AuthServerConfig(
   /** v1.17.x — origins allowed via CORS preflight + Access-Control-
    *  Allow-Origin on responses.  Empty list disables CORS (same-origin
    *  only).  `Set("*")` reflects any origin (use cautiously). */
-  corsOrigins:                     Set[String] = Set.empty
+  corsOrigins:                     Set[String] = Set.empty,
+  /** v1.17.x — maximum request body size for `/token`, `/introspect`,
+   *  `/revoke`, `/register`.  Larger bodies → 413 Payload Too Large.
+   *  Defaults to 64 KiB — generous for form-encoded OAuth requests
+   *  but defeats AS-side OOM from megabyte JSON bodies sent by
+   *  adversarial clients. */
+  maxRequestBytes:                 Int = 65_536,
+  /** v1.17.x — when true, OAuthRoutes attaches the standard browser
+   *  security headers on every response.  Defaults on — they hurt
+   *  nothing on machine-only API endpoints and protect browser
+   *  clients (any /authorize page rendered through the AS).
+   *  Headers: HSTS (when requireTls), X-Content-Type-Options: nosniff,
+   *  Referrer-Policy: no-referrer, X-Frame-Options: DENY. */
+  securityHeaders:                 Boolean = true
 )
 
 // ─── Domain types ─────────────────────────────────────────────────────

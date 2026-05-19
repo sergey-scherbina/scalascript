@@ -774,6 +774,34 @@ unblocks downstream features as early as possible.
          JVM TokenHolder via stable-id registry (same pattern as
          AuthServer / OidcServer handles).
 
+     **Iter PP — Final security hardening** ✓ — closes the minor
+     gaps an honest audit pass surfaced (DoS via large bodies,
+     missing browser security headers, silent weak-secret
+     acceptance, log-leakage of bearer tokens).
+
+       - **Body size limit**:
+         `AuthServerConfig.maxRequestBytes = 65_536` (64 KiB default).
+         OAuthRoutes.handleToken returns 413 Payload Too Large
+         before parsing anything — defeats AS-side OOM via megabyte
+         JSON / form bodies.
+       - **Browser security headers**: when
+         `config.securityHeaders = true` (default), every AS
+         response carries `X-Content-Type-Options: nosniff`,
+         `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`,
+         and (when `requireTls`) `Strict-Transport-Security:
+         max-age=31536000; includeSubDomains`.
+       - **HMAC secret strength check**:
+         `AuthServer.signingSecretWarning: Option[String]` surfaces
+         a startup warning for HS256 secrets shorter than 32 bytes
+         (RFC 7518 §3.2 floor); RSA / custom signers skip the
+         check.  Non-fatal — caller decides whether to refuse boot
+         or just log.
+       - **`OAuthRoutes.scrubSensitive(s)`** — log-line scrubber
+         that redacts bearer headers, `access_token`,
+         `refresh_token`, `client_secret`, `code_verifier` in
+         both form-encoded and JSON contexts.  Safe for null /
+         empty input.
+
      **Truly post-v1.17 (deferred)**: DPoP (RFC 9449
      sender-constrained tokens); PAR (RFC 9126 Pushed
      Authorization Requests); MTLS client auth (RFC 8705 —
