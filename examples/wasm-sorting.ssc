@@ -9,8 +9,7 @@ description: Sorting algorithms (quicksort, merge sort) via the WebAssembly back
 Quicksort and merge sort compiled to `.wasm` via Scala.js.
 
 ```
-ssc emit-wasm examples/wasm-sorting.ssc
-node wasm-sorting.js
+ssc-wasm examples/wasm-sorting.ssc
 ```
 
 ## Implementation

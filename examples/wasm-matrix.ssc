@@ -9,8 +9,7 @@ description: Matrix multiplication and transpose compiled to WebAssembly via Sca
 Matrix multiply and transpose compiled to `.wasm` via Scala.js.
 
 ```
-ssc emit-wasm examples/wasm-matrix.ssc
-node wasm-matrix.js
+ssc-wasm examples/wasm-matrix.ssc
 ```
 
 ## Implementation

@@ -9,8 +9,7 @@ description: Sieve of Eratosthenes compiled to WebAssembly via Scala.js.
 Prime number sieve compiled to `.wasm` via Scala.js.
 
 ```
-ssc emit-wasm examples/wasm-primes.ssc
-node wasm-primes.js
+ssc-wasm examples/wasm-primes.ssc
 ```
 
 ## Implementation

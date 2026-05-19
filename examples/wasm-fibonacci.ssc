@@ -10,9 +10,7 @@ Demonstrates the `wasm` backend: `scala` blocks are compiled by Scala.js
 to a `.wasm` binary + a JavaScript ES-module loader.
 
 ```
-ssc emit-wasm examples/wasm-fibonacci.ssc
-# → writes module.wasm + wasm-fibonacci.js to the current directory
-node wasm-fibonacci.js
+ssc-wasm examples/wasm-fibonacci.ssc
 ```
 
 ## Implementation

@@ -9,8 +9,7 @@ description: Scala standard collections (map, filter, fold, groupBy) compiled to
 Standard Scala collection operations compiled to `.wasm` via Scala.js.
 
 ```
-ssc emit-wasm examples/wasm-collections.ssc
-node wasm-collections.js
+ssc-wasm examples/wasm-collections.ssc
 ```
 
 ## Implementation
