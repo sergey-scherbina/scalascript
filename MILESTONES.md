@@ -4254,7 +4254,7 @@ link → build --incremental`); the JVM backend produces per-module `.scjvm`
 artifacts that the linker combines incrementally.  Tracking doc:
 `docs/separate-compilation-plan.md`.
 
-Test coverage: 454 core tests + 65 CLI subprocess smoke tests, all green.
+Test coverage: 522 core tests + 75 CLI subprocess smoke tests, all green.
 
 Stage 5.4 / final round (landed 2026-05-19):
 - `parseSType` and `SType.show` round-trip now handle union types
@@ -4407,15 +4407,40 @@ Phase 2 follow-up (landed 2026-05-19, closes the last 3 known gaps):
     explicit flush at end of linked `out.js`, `--backend` is a global
     flag stripped by `GlobalFlags.parse` before command handlers see it.
 
-**v2.0 separate compilation is now feature-complete** for the planned
-scope.  Phase 3 (post-v2.0) would deepen:
-- TASTy-based dep resolution (re-use Scala 3's incremental machinery
-  instead of textual scala-cli driver)
-- Backwards-compat ABI versioning (the magic + version envelope is
-  already in place; a real ABI break test suite would lock down what
-  changes are breaking vs additive)
-- Source-map / location preservation through linker dedup (today
-  the `_runtime` preamble is one big synthetic blob with no positions)
+**v2.0 separate compilation is feature-complete** for the planned scope.
+
+Phase 3 / operational hardening (landed 2026-05-19):
+- **TASTy direct scalac driver**: `cli/Scala3Driver` invokes
+  `dotty.tools.dotc.Driver` in-process; warm per-module compile drops
+  from 1410ms to **119ms (~11.8× speedup)**.  Custom `Reporter` formats
+  diagnostics scala-cli-style.  `scala3-compiler` pinned to `3.8.3`.
+  Fresh `Driver`/`Compiler` per invocation (no state leak).  scala-cli
+  path kept as fallback via `SSC_EXTERNAL_SCALA_CLI=1` env var.
+  `.scjvm` byte-identical between both paths.
+- **ABI compatibility test suite**: 64 forensic tests covering 7
+  artifact formats × 9 properties — round-trip stability, magic/version
+  mismatch rejection, optional-field defaulting, unknown-extra
+  tolerance, hash preservation.  Surfaced one sharp edge (Option[String]
+  without explicit `= None` default isn't absent-tolerant — split tests
+  into `optionalFields` vs `requiredOptionTypedFields`).
+- **`docs/v2.0-artifact-format.md`**: 333 LoC wire-format spec.
+  Compatibility policy in one phrase: "strict-equality on envelope,
+  additive-friendly on payload."
+- **`ssc verify <dir>`**: operational health-check command. Walks
+  artifact dir, validates envelope + ABI + sourceHash shape + cross-refs
+  + runtime coverage.  `--strict` adds source-freshness check;
+  `--json` for machine-readable CI output.  Output uses `[OK]/[WARN]/[FAIL]`
+  markers (safer than ✓/⚠/✗ glyphs in non-UTF8 terminals).
+
+Test coverage after Phase 3: **522 core tests + 75 CLI subprocess
+smoke tests**, all green.
+
+Remaining post-Phase-3 directions (not started):
+- Source-map / location preservation through linker dedup (today the
+  `_runtime` preamble is one big synthetic blob with no positions)
+- Per-section incremental within a single `.ssc` (today an `.ssc` is
+  one unit; if one of N code blocks changes, the whole module recompiles)
+- LSP server using `.scim` for go-to-definition / hover
 
 What landed:
 - `ir/Ir.scala`: `ArtifactVersion` (magic `SSCART` + ABI `2.0`),
