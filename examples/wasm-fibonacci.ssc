@@ -1,0 +1,27 @@
+#!/usr/bin/env ssc
+---
+name: wasm-fibonacci
+description: Fibonacci via the WebAssembly backend (scala blocks compiled by Scala.js --js-wasm).
+---
+
+# WebAssembly — Fibonacci
+
+Demonstrates the `wasm` backend: `scala` blocks are compiled by Scala.js
+to a `.wasm` binary + a JavaScript ES-module loader.
+
+```
+ssc emit-wasm examples/wasm-fibonacci.ssc
+# → writes module.wasm + wasm-fibonacci.js to the current directory
+node wasm-fibonacci.js
+```
+
+## Implementation
+
+```scala
+def fib(n: Int): Int = if n < 2 then n else fib(n - 1) + fib(n - 2)
+
+@main def run(): Unit =
+  val results = (0 to 10).map(fib)
+  println(s"fib(0..10) = ${results.mkString(", ")}")
+  println(s"fib(20)    = ${fib(20)}")
+```

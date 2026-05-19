@@ -173,6 +173,7 @@ lazy val backendWasm = project
   .dependsOn(backendSpi, core)
   .settings(
     name := "scalascript-backend-wasm",
+    libraryDependencies ++= Seq(scalatestTest),
     Compile / scalacOptions ++= sharedScalacOptionsStrict,
     Test    / scalacOptions ++= sharedScalacOptions
   )
