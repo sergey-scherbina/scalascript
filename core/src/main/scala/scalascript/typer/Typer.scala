@@ -481,8 +481,37 @@ class Typer(
       SType.Any
 
     case Term.Select(_, _)        => SType.Any
-    case Term.New(_)              => SType.Any
-    case _: Term.Function         => SType.Any
+
+    // `new Foo(...)` / `new Foo[T](...)` — infer the named-type result
+    // from the `Init`'s type annotation.  Without this, every constructor
+    // call produced `SType.Any` in the .scim, hiding the most common
+    // case-class result.  Tier-5 .scim granularity push (Open question #1).
+    case Term.New(init) => typeAnnotToSType(init.tpe)
+    case Term.NewAnonymous(tpl) =>
+      tpl.inits.headOption.map(init => typeAnnotToSType(init.tpe))
+        .getOrElse(SType.Any)
+
+    // `(x: A, y: B) => body` — if every parameter has a type annotation
+    // AND the body's type is known, produce `SType.Function(...)`.
+    // Otherwise fall back to `Any`.  Tier-5 .scim granularity push.
+    case Term.Function.After_4_6_0(paramClause, body) =>
+      val params = paramClause.values
+      val paramsOpt =
+        if params.forall(_.decltpe.isDefined) then
+          Some(params.map(p => typeAnnotToSType(p.decltpe.get)))
+        else None
+      paramsOpt match
+        case Some(paramTypes) =>
+          // Body inference under a scope where params are bound.  Avoids
+          // false-positive strict diagnostics for the params themselves.
+          val bodyScope = scope.child("<lambda>")
+          params.zip(paramTypes).foreach { (p, pt) =>
+            bodyScope.define(Symbol(p.name.value, pt, SymbolKind.Val))
+          }
+          val retType = inferType(body, bodyScope)
+          SType.Function(paramTypes, retType)
+        case None => SType.Any
+
     case _: Term.PartialFunction  => SType.Any
     case _: Term.AnonymousFunction => SType.Any
     case _                        => SType.Any

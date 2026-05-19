@@ -584,104 +584,174 @@ class JvmGen(
   def genUserOnly(module: Module): String =
     genUserOnlyWithLineMap(module)._1
 
-  /** Tier 5 — rewrite the parser's `object pkg: object sub: <body>` wrap
-   *  emitted into each block back into a Scala `package pkg.sub:` block,
-   *  so the resulting `.class` files live in a real Scala package and
+  /** Tier 5 — rewrite parser-introduced `object pkg: object sub: <body>`
+   *  wrap chains into Scala 3 `package pkg.sub:` block clauses, so the
+   *  resulting `.class` files live in real Scala packages and external
    *  Scala consumers can `import pkg.sub.x` directly.
    *
    *  The wrap originates in `Parser.wrapSectionInPackage`, applied
-   *  uniformly so the typer / interpreter / JS / interpreter backends
-   *  can keep using nested-object scoping.  JvmGen alone benefits from
-   *  the package-clause form because the JVM ABI hands consumers
-   *  package-qualified symbols and the runtime is a separate bundle.
+   *  uniformly so the typer / interpreter / JS backends keep their
+   *  nested-object scoping.  JvmGen alone unwinds the wrap because
+   *  the JVM ABI hands consumers package-qualified symbols.
    *
-   *  This transform recognises the wrap by structure:
-   *    - `pkg` non-empty (front-matter declared a `package:`)
-   *    - body lines indented 2 × pkg.size beneath nested `object N:` headers
-   *  and rewrites to:
-   *    - a single `package <pkg.dotted>:` block at the top of the body,
-   *    - inner statements dedented by 2 × pkg.size to live directly
-   *      under the new package clause.
-   *
-   *  No-op when `pkg.isEmpty`. */
+   *  Discovery is structural: any chain of `object <ident>:` lines
+   *  starting at indent 0, each next at indent +2, ending at a body
+   *  block deeper-indented — that's a wrap.  Multi-section .ssc files
+   *  produce one wrap chain per section, and inlined deps produce wrap
+   *  chains under their OWN package name (e.g. user is `std.bifunctor`
+   *  but it inlines `std.either` blocks).  We unwrap every chain we
+   *  find. */
   private def unwrapPackageObjects(src: String, pkg: List[String]): String =
-    if pkg.isEmpty then return src
-    val depth = pkg.size
-    val unwrapIndent = "  " * depth   // wrap-introduced indentation per Parser.scala:86-88
+    // The chain-detection approach below ignores `pkg` entirely — it
+    // walks the source and rewrites every wrap chain it finds.  The
+    // parameter is retained for callers that want to bail out cheaply
+    // when no wrap is possible.
+    val _ = pkg
     val lines = src.linesIterator.toIndexedSeq
+    if !lines.exists(_.startsWith("object ")) then return src
 
-    // Scan once: split into (header up to and including the `import _ssc_runtime.*` line)
-    // + (body — the rest containing the wraps).  We rewrite only the body.
-    val headerEnd = lines.indexWhere(l => l.startsWith("import _ssc_runtime")) + 1
-    if headerEnd <= 0 then return src
-
-    val (header, body) = lines.splitAt(headerEnd)
-    val out = new StringBuilder
-    header.foreach(l => out.append(l).append('\n'))
-    out.append('\n')
-    out.append(s"package ${pkg.mkString(".")}:\n")
-
-    // Walk the body and rewrite.  The body looks like, repeatedly:
+    // First pass: collect per-package body fragments.  Multiple
+    // sections (and inlined deps) may target the same package; Scala 3
+    // doesn't reliably resolve anonymous `given X with` declarations
+    // when they live in DIFFERENT `package X:` blocks in the same
+    // file (the synthetic `given_X_Int` name's lookup behaves
+    // differently across blocks).  So we MERGE all fragments targeting
+    // the same package into a single `package X.Y:` block.
     //
-    //   object <p0>:
-    //     object <p1>:
-    //       <stats indented 2*depth>
-    //
-    // Drop the wrap-introduction lines (`object <pX>:`) and the deepest
-    // `depth` levels of indentation from the stats.  Anything that's
-    // already at outer indentation (top-level `//> using ...` etc.) is
-    // preserved as-is.
+    // Preserves order: each package's first-seen position determines
+    // where its merged block lands in the output; subsequent fragments
+    // append to that block.  Non-wrap lines (header, imports, stray
+    // top-level code) emit at their original positions, mixed with
+    // package-block placeholders.
+    val pkgFragments = scala.collection.mutable.LinkedHashMap.empty[String, scala.collection.mutable.StringBuilder]
+    // Output structure: list of either Literal(String) or PackageRef(key)
+    val outOrder = scala.collection.mutable.ListBuffer.empty[Either[String, String]]
+    val literalBuf = new StringBuilder
+
+    def flushLiteral(): Unit =
+      if literalBuf.nonEmpty then
+        outOrder += Left(literalBuf.toString)
+        literalBuf.clear()
+
     var i = 0
-    while i < body.length do
-      val line = body(i)
-      // Drop a chain of `object pkgN:` opener lines matching `pkg`.  If the
-      // pattern doesn't start at this line, we just emit and advance.
-      val matchedOpener = matchObjectWrapOpeners(body, i, pkg)
-      if matchedOpener > 0 then
-        // Skip the `pkg.size` opener lines.  The lines that follow (until
-        // we leave the wrap, signalled by a blank line or by hitting an
-        // outer-scope `object pkg0:` opener again) are dedented by
-        // `unwrapIndent` and emitted under the `package … :` block.
-        i += matchedOpener
-        // Loop until end of wrap body (blank or end-of-body or next wrap-opener).
-        while i < body.length && !isWrapOpener(body, i, pkg) do
-          val l = body(i)
-          if l.isEmpty then out.append('\n')
-          else if l.startsWith(unwrapIndent) then
-            // Two-space indent under the new package: clause.
-            out.append("  ").append(l.substring(unwrapIndent.length)).append('\n')
-          else
-            // Line at outer indent — could be a stray comment / blank.
-            out.append(l).append('\n')
-          i += 1
-      else
-        // Lines outside any wrap pass through unchanged.  Pre-existing
-        // emit semantics: //> using / route directives / etc.
-        out.append(line).append('\n')
+    while i < lines.length do
+      val chain = detectWrapChain(lines, i)
+      if chain.isEmpty then
+        literalBuf.append(lines(i)).append('\n')
         i += 1
+      else
+        val (segments, openerCount, bodyEnd) = chain.get
+        val depth = segments.length
+        val unwrapIndent = "  " * depth
+        val pkgKey = segments.mkString(".")
+        // Anchor this package's emit position when first encountered.
+        if !pkgFragments.contains(pkgKey) then
+          flushLiteral()
+          outOrder += Right(pkgKey)
+          pkgFragments(pkgKey) = new StringBuilder
+        // Append this fragment's body lines to the package's collected
+        // body, dedented + re-indented to 2 under the `package X:` block.
+        val frag = pkgFragments(pkgKey)
+        var j = i + openerCount
+        while j < bodyEnd do
+          val l = lines(j)
+          if l.isEmpty || l.forall(_ == ' ') then
+            frag.append('\n')
+          else if l.startsWith(unwrapIndent) then
+            frag.append("  ").append(l.substring(unwrapIndent.length)).append('\n')
+          else
+            frag.append(l).append('\n')
+          j += 1
+        // Always end each fragment with a single blank line so the
+        // merged block has visible boundaries between sections (purely
+        // cosmetic; the compile is the same either way).
+        if !frag.toString.endsWith("\n\n") then frag.append('\n')
+        i = bodyEnd
 
+    flushLiteral()
+
+    // Render the output: literals as-is, package refs as
+    // `package X.Y:\n<collected body>`.
+    val out = new StringBuilder
+    for chunk <- outOrder do chunk match
+      case Left(lit)     => out.append(lit)
+      case Right(pkgKey) =>
+        out.append(s"package $pkgKey:\n")
+        out.append(pkgFragments(pkgKey))
     out.toString.stripTrailing() + "\n"
 
-  /** Returns the number of wrap-opener lines (1 per pkg segment) starting
-   *  at `body(start)` and matching `pkg`; 0 if the pattern doesn't match. */
-  private def matchObjectWrapOpeners(
-      body: IndexedSeq[String],
-      start: Int,
-      pkg: List[String]
-  ): Int =
-    var idx = start
-    var depth = 0
-    while depth < pkg.size && idx < body.length do
-      val expected = ("  " * depth) + s"object ${pkg(depth)}:"
-      if body(idx) == expected then
-        depth += 1
-        idx += 1
-      else
-        return 0
-    if depth == pkg.size then depth else 0
+  /** Detect a parser-introduced wrap chain starting at `lines(start)`.
+   *
+   *  A wrap chain is N >= 1 consecutive lines of the form
+   *  `(  )*object <ident>:` at increasing indent (0, 2, 4, …, 2*(N-1)),
+   *  followed by at least one non-blank body line at indent >= 2*N.
+   *
+   *  Returns `(segments, openerCount, bodyEnd)` where:
+   *  - `segments` is the list of identifiers from the opener lines,
+   *  - `openerCount` is N (number of opener lines to skip),
+   *  - `bodyEnd` is the exclusive-end index of the wrap's body —
+   *    where the next outer-indent line OR a new wrap chain starts.
+   *
+   *  Returns `None` when no wrap chain is detected at this position. */
+  private def detectWrapChain(
+      lines: IndexedSeq[String],
+      start: Int
+  ): Option[(List[String], Int, Int)] =
+    if start >= lines.length then return None
+    val openerPat = """^( *)object\s+([A-Za-z_][\w]*)\s*:\s*$""".r
+    val first = lines(start)
+    openerPat.findFirstMatchIn(first) match
+      case Some(m) if m.group(1).length == 0 =>
+        // Possible chain start: collect consecutive openers at +2 indent.
+        val segments = scala.collection.mutable.ListBuffer.empty[String]
+        segments += m.group(2)
+        var idx = start + 1
+        var expectedIndent = 2
+        while idx < lines.length do
+          openerPat.findFirstMatchIn(lines(idx)) match
+            case Some(mm) if mm.group(1).length == expectedIndent =>
+              // Look ahead: this `object` is a wrap-opener only if the
+              // NEXT non-blank line is either ANOTHER `object` at +2
+              // indent OR a deeper-indented body statement.  A bare
+              // `object Foo:` followed by `def …` at +2 is just a Scala
+              // object, not a wrap.
+              segments += mm.group(2)
+              idx += 1
+              expectedIndent += 2
+            case _ =>
+              // Not an opener at the expected indent — chain ends.
+              // The non-opener line is the first body line.
+              if isWrapBody(lines, idx, expectedIndent) then
+                val bodyEnd = findBodyEnd(lines, idx, expectedIndent)
+                return Some((segments.toList, segments.length, bodyEnd))
+              else
+                // No body or shallower — not a wrap, just stray `object`s.
+                return None
+        // Fell off end of file mid-chain.
+        if isWrapBody(lines, idx, expectedIndent) then
+          val bodyEnd = findBodyEnd(lines, idx, expectedIndent)
+          Some((segments.toList, segments.length, bodyEnd))
+        else None
+      case _ => None
 
-  private def isWrapOpener(body: IndexedSeq[String], idx: Int, pkg: List[String]): Boolean =
-    matchObjectWrapOpeners(body, idx, pkg) > 0
+  /** True when `lines(idx)` is non-blank and indented at least
+   *  `expectedIndent` spaces — i.e. it belongs inside the wrap body. */
+  private def isWrapBody(lines: IndexedSeq[String], idx: Int, expectedIndent: Int): Boolean =
+    if idx >= lines.length then return false
+    val l = lines(idx)
+    l.nonEmpty && l.startsWith(" " * expectedIndent)
+
+  /** Walk forward from `start` while lines are blank or indented at
+   *  least `bodyIndent`.  Returns the first line index at lower indent
+   *  (or end of file). */
+  private def findBodyEnd(lines: IndexedSeq[String], start: Int, bodyIndent: Int): Int =
+    var idx = start
+    while idx < lines.length do
+      val l = lines(idx)
+      if l.isEmpty then idx += 1
+      else if l.startsWith(" " * bodyIndent) then idx += 1
+      else return idx
+    idx
 
   /** Emit user code plus a generated-line → original-`.ssc`-line map.
    *  See [[JvmGen.generateUserOnlyWithLineMap]] for semantics. */

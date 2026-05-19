@@ -197,3 +197,60 @@ class TyperRealTypesTest extends AnyFunSuite:
       SType.Named("C", Nil)))
     assert(d.tpe == expected,
       s"expected A | B | C, got ${d.tpe.show}")
+
+  // ── Tier-5 .scim granularity push (Open question #1) ────────────────────
+  //
+  // Pre-Tier-5, every `new Foo(...)` body, lambda, and constructor call
+  // collapsed to `SType.Any` in the .scim — making interface-based type
+  // checking near-useless for case-class APIs and lambda combinators.
+  // These tests pin the two highest-impact inferences that now produce
+  // real types.
+
+  test("val w/o decltpe — `new Foo(...)` infers Named(\"Foo\")"):
+    val d = summaryOf(
+      """case class Foo(x: Int)
+        |val f = new Foo(42)""".stripMargin, "f")
+    assert(d.tpe == SType.Named("Foo", Nil),
+      s"expected Named(\"Foo\"), got ${d.tpe.show}")
+
+  test("val w/o decltpe — `new Foo[Int]` infers Named(\"Foo\", List(Int))"):
+    val d = summaryOf(
+      """class Foo[A]
+        |val f = new Foo[Int]""".stripMargin, "f")
+    assert(d.tpe == SType.Named("Foo", List(SType.Int)),
+      s"expected Named(\"Foo\", List(Int)), got ${d.tpe.show}")
+
+  test("val w/o decltpe — typed-param lambda infers Function(P, R)"):
+    val d = summaryOf("val f = (x: Int) => x + 1", "f")
+    assert(d.tpe == SType.Function(List(SType.Int), SType.Int),
+      s"expected (Int) => Int, got ${d.tpe.show}")
+
+  test("val w/o decltpe — multi-param typed lambda"):
+    val d = summaryOf("val f = (a: Int, b: String) => b", "f")
+    assert(d.tpe == SType.Function(List(SType.Int, SType.String), SType.String),
+      s"expected (Int, String) => String, got ${d.tpe.show}")
+
+  test("val w/o decltpe — typed-param lambda returning literal"):
+    val d = summaryOf("val const = (x: Int) => \"ok\"", "const")
+    assert(d.tpe == SType.Function(List(SType.Int), SType.String),
+      s"expected (Int) => String, got ${d.tpe.show}")
+
+  test("val w/o decltpe — lambda with untyped params still falls back to Any"):
+    // No `_.decltpe` → can't infer params → fall back, as documented.
+    val d = summaryOf("val f = x => x + 1", "f")
+    assert(d.tpe == SType.Any,
+      s"untyped lambda params should still be Any; got ${d.tpe.show}")
+
+  test("def return inferred from `new Foo()` body"):
+    val d = summaryOf(
+      """case class Box(v: Int)
+        |def boxed(n: Int) = new Box(n)""".stripMargin, "boxed")
+    // The function type's return must now be Named("Box"), not Any.
+    d.tpe match
+      case SType.Function(params, ret) =>
+        assert(params == List(SType.Int),
+          s"expected params [Int]; got $params")
+        assert(ret == SType.Named("Box", Nil),
+          s"expected return Named(\"Box\"); got ${ret.show}")
+      case other =>
+        fail(s"expected Function, got: ${other.show}")
