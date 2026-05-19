@@ -3419,6 +3419,78 @@ the codegen output.
   Option B fully closed — both thread model AND the class itself are
   unified across backends.
 
+- **v1.17.6 — HTTP/WS Server SPI (Option C extended to three backends)**
+  ✓ Landed (2026-05-19).  Full design in
+  [`docs/http-server-spi-plan.md`](docs/http-server-spi-plan.md).
+
+  Pluggable network-layer backend for HTTP + WS.  Three production
+  implementations on the same SPI:
+
+  | Module | Backend | Status | Tests |
+  | --- | --- | --- | --- |
+  | `runtime-server-jvm` | Jdk (default, zero deps) | S1b ✓ | 18 WS + 8 JvmGen |
+  | `runtime-server-jvm-jetty` | Jetty 12.0.13 | S2 ✓ | 6 smoke |
+  | `runtime-server-jvm-netty` | Netty 4.1.118 | S3 ✓ | 6 smoke |
+
+  Shape: `HttpServerSpi` (the backend) ↔ `HttpHandler` (the
+  application's route lookup + dispatch — same interface for all
+  three backends) ↔ per-connection `WsListener` + `WsControls`.
+  Selection: hybrid `ServiceLoader[HttpServerSpi]` discovery + a
+  `setHttpServerBackend(name)` intrinsic for explicit picks when
+  multiple impls are on the classpath.  Default ssc bundles only
+  the JDK impl (zero new deps); Jetty / Netty are opt-in via sbt.
+
+  Five sub-commits:
+
+  - **S1a** — `runtime-server-spi` module + trait definitions.
+    `HttpServerSpi`, `HttpHandler`, `WsListener`, `WsControls`,
+    enums `HttpResult` / `WsUpgradeResult`, case class `TlsConfig`.
+  - **S1 scaffold** — three backend modules in sbt + ServiceLoader
+    `META-INF/services/scalascript.server.spi.HttpServerSpi`
+    registration + stub impls (`NotImplementedError`).  All three
+    discover-but-stub-throw.
+  - **S1b** — `JdkServerBackend` (351 LOC) actual impl: blocking
+    `ServerSocket` + per-VT proxy + internal `HttpServer` for plain
+    HTTP routing + per-connection WS via the shared `WebSocket`
+    class wrapped as `JdkWsControls`.  Interpreter `WebServer.start`
+    wired through `HttpServerBackends.current()`; new
+    `InterpreterHttpHandler` (390 LOC) does route lookup + middleware
+    chain + auth + slot reservation.
+  - **S2** — `JettyServerBackend` (393 LOC) using Jetty 12 — full
+    HTTP path (HttpDispatchHandler translating jetty.Request ↔ POJO
+    Request) + WS upgrade via `WebSocketUpgradeHandler` +
+    `Session.Listener.AbstractAutoDemanding` endpoint + `JettyWsControls`
+    wrapping the Session.  Smoke suite covers HTTP + Reject + WS
+    echo + WS Reject.
+  - **S3** — `NettyServerBackend` (430 LOC) using Netty 4 —
+    `ServerBootstrap` on `NioEventLoopGroup` + `HttpServerCodec` +
+    `HttpObjectAggregator` + manual upgrade via
+    `WebSocketServerHandshakerFactory` (so Reject can short-circuit
+    with a custom status + `X-WS-Reject-Reason` header) + custom
+    `NettyWsFrameHandler` + `NettyWsControls` wrapping `Channel` +
+    handshaker.  Same smoke suite shape as Jetty.
+  - **S4** — `HttpServerBackends` selection registry +
+    `setHttpServerBackend(name)` intrinsic (in
+    `backend-interpreter/.../intrinsics/Ws.scala`).  Loud failure
+    when an unknown name is picked.  Docs/spec updated to reflect
+    the landing.
+
+  **SPI trait shape: zero changes across all three impls.**  The
+  design loop's biggest worry — "the trait will need to bend when a
+  real second impl arrives" — was right to flag but didn't bite.
+
+  **What's NOT done yet** (carried as open follow-ups):
+  - S1c — codegen `JvmGen.serveRuntime` still emits `ProxyRuntime`
+    as inlined Scala that constructs `WsProxy` directly.  Routing
+    the codegen through the SPI is a future pass; today
+    `setHttpServerBackend` works for interpreter only.
+  - Permessage-deflate WS compression (supported by Jetty + Netty,
+    not enabled).
+  - HTTP/2 server push (supported by Jetty + Netty, not surfaced
+    through the SPI).
+  - HTTP/3 (Netty incubator; not enabled).
+  - Benchmark suite comparing the three backends side-by-side.
+
 ### Deferred follow-ups (v1.17.x backlog, ordered by priority)
 
 1. ~~**Own implementation for INT / scalajs-spa**~~ — Phase 1 + 2 + 3

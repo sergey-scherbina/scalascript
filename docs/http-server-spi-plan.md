@@ -1,6 +1,11 @@
 # HTTP/WS Server SPI plan
 
-Design-only spec for a pluggable HTTP/WS server backend.  Three
+✅ **All four phases (S1–S4) landed 2026-05-19.**  SPI trait shape
+from S1a survived integration against all three backends with zero
+modifications.  Per-impl smoke suites all pass.  See the bottom of
+this doc for the post-landing status.
+
+Design spec for a pluggable HTTP/WS server backend.  Three
 implementations:
 
 - **`Jdk`** (default) — current code: JDK `com.sun.net.httpserver.HttpServer`
@@ -405,23 +410,48 @@ These need a call before/during S1:
    for now; users who need Jetty-specific features add them via cast
    or via the underlying library directly.
 
-## When NOT to build this
+## Status (post-S4, 2026-05-19)
 
-- Today.  We don't have a real need for HTTP/2 / Netty perf / Jetty
-  WS extensions.  YAGNI.
-- Building the SPI without a second impl validates nothing — the
-  trait shape always fits the only impl you have.  S1 alone is wasted
-  work; S1 + S2 together is the minimum useful unit.
+✅ **All four phases shipped in one session.**
 
-## When to build this
+| Phase | What landed | Tests |
+| --- | --- | --- |
+| S1a | `runtime-server-spi` sbt module + trait definitions | 9 / 9 |
+| S1 scaffold | 3 backend modules + ServiceLoader META-INF/services + stub impls | 6 / 6 (cross-module discovery) |
+| S1b | `JdkServerBackend` fully implemented; interpreter `WebServer.start` wired via SPI | 18 / 18 WS + 8 / 8 JvmGen |
+| S2 | `JettyServerBackend` (Jetty 12) — HTTP, WS upgrade, TLS, Reject path | 6 / 6 |
+| S3 | `NettyServerBackend` (Netty 4) — same shape | 6 / 6 |
+| S4 | `HttpServerBackends` registry (hybrid ServiceLoader + by-name) + `setHttpServerBackend(name)` intrinsic | 9 / 9 SPI |
 
-- When the first real user hits a JDK `HttpServer` limit: HTTP/2
-  required, no permessage-deflate, single-thread executor stalls under
-  load, etc.
-- When v2.0 separate-compilation stabilises enough that Option D
-  becomes feasible — but that's independent from this SPI (D removes
-  the interpreter's server stack; it doesn't change which library
-  the codegen uses, so the SPI question stays the same).
+**SPI trait shape: zero changes** between S1a and S4.  The design
+loop's biggest worry — "single impl validates nothing, the trait will
+need to bend when a real second impl shows up" — was right to flag
+but didn't bite.  Three real impls (one custom blocking-IO, one
+Jetty event-driven, one Netty event-loop) all consumed the same
+`HttpServerSpi` / `HttpHandler` / `WsListener` / `WsControls` traits
+without a single modification.
+
+**What's wired today:**
+- Default ssc distribution bundles `runtime-server-jvm` (the JDK
+  backend).  Generated scripts + the interpreter use it via the SPI.
+- Jetty and Netty are optional sbt modules — add them via
+  `dependsOn(runtimeServerJvmJetty)` / `dependsOn(runtimeServerJvmNetty)`.
+- User picks the backend via `setHttpServerBackend("jetty")` /
+  `setHttpServerBackend("netty")` before calling `serve(port)`.
+  Unset (the default) = first-found wins from ServiceLoader.
+
+**What's NOT done:**
+- **S1c** — codegen `JvmGen.serveRuntime` still emits ProxyRuntime as
+  inlined Scala that constructs `WsProxy` directly.  Not yet routed
+  through the SPI.  Generated scripts therefore can't pick Jetty /
+  Netty via `setHttpServerBackend(name)` from inside the script;
+  the call works at the interpreter level only.
+- Permessage-deflate WS compression (Jetty / Netty support it; we
+  don't enable it).
+- HTTP/2 server push (Jetty / Netty support; not surfaced through
+  the SPI).
+- HTTP/3 (Netty incubator; not enabled).
+- Benchmark suite comparing the three backends.
 
 ## Out of scope
 

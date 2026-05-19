@@ -30,6 +30,20 @@ val WsIntrinsics: Map[QualifiedName, IntrinsicImpl] = Map(
       case _ => throw InterpretError("setMaxWsConnections(n)")
   ),
 
+  // setHttpServerBackend(name) — pick which HttpServerSpi implementation
+  // handles the next serve(port).  Valid names are determined by which
+  // backend modules are on the classpath: default is "jdk" (zero deps);
+  // "jetty" and "netty" are available if their sbt modules are pulled in.
+  // Throws if the name doesn't match any registered impl (loud failure
+  // is better than silent fallback when the user explicitly asked).
+  QualifiedName("setHttpServerBackend") -> NativeImpl((_, args) =>
+    args match
+      case List(Value.StringV(name)) =>
+        scalascript.server.spi.HttpServerBackends.setBackend(name)
+        ()
+      case _ => throw InterpretError("setHttpServerBackend(name)")
+  ),
+
   // WsRoom() — thread-safe registry with built-in broadcast helper.
   QualifiedName("WsRoom") -> NativeImpl((_, args) =>
     args match

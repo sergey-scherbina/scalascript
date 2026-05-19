@@ -68,17 +68,12 @@ object WebServer:
     // serially across both protocols.
     val executor = java.util.concurrent.Executors.newSingleThreadExecutor()
 
-    // SPI discovery — pick the first registered HttpServerSpi.  In the
-    // default classpath that's `JdkServerBackend`; a hosted deployment
-    // can add `jetty` / `netty` modules to override.
-    val backend: HttpServerSpi = {
-      val it = java.util.ServiceLoader.load(classOf[HttpServerSpi]).iterator()
-      if !it.hasNext then
-        throw new RuntimeException(
-          "No HttpServerSpi found on the classpath — " +
-          "did the runtime-server-jvm module fail to register a ServiceLoader entry?")
-      it.next()
-    }
+    // SPI discovery — resolved via the shared `HttpServerBackends`
+    // registry which honors the most-recent `setHttpServerBackend(name)`
+    // call.  Default classpath = `JdkServerBackend` (zero deps);
+    // adding the `runtimeServerJvmJetty` / `runtimeServerJvmNetty` sbt
+    // modules puts those on the wire as alternatives.
+    val backend: HttpServerSpi = scalascript.server.spi.HttpServerBackends.current()
     _backend = backend
 
     // Build the application-layer handler.  Route lookup, middleware,
