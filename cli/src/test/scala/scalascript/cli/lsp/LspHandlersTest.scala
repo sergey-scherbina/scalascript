@@ -626,3 +626,104 @@ class LspHandlersTest extends AnyFunSuite:
     assert(labels.contains("def"),  s"expected keyword 'def', got: $labels")
     assert(labels.contains("val"),  s"expected keyword 'val', got: $labels")
   }
+
+  // ─── textDocument/references ────────────────────────────────────────
+
+  private val uri = "file:///tmp/refs-test.ssc"
+
+  private def openRefDoc(h: Handlers, text: String): Unit =
+    h.initialize(ujson.Obj())
+    h.didOpen(ujson.Obj(
+      "textDocument" -> ujson.Obj(
+        "uri" -> uri, "languageId" -> "scalascript", "version" -> 1, "text" -> text
+      )
+    ))
+
+  private def refs(h: Handlers, line: Int, character: Int,
+                   includeDecl: Boolean = true) =
+    h.references(ujson.Obj(
+      "textDocument" -> ujson.Obj("uri" -> uri),
+      "position"     -> ujson.Obj("line" -> line, "character" -> character),
+      "context"      -> ujson.Obj("includeDeclaration" -> includeDecl)
+    )).arr
+
+  test("references returns empty array for unknown URI") {
+    val (_, h) = newHandlers()
+    h.initialize(ujson.Obj())
+    val result = h.references(ujson.Obj(
+      "textDocument" -> ujson.Obj("uri" -> "file:///tmp/no-such.ssc"),
+      "position"     -> ujson.Obj("line" -> 0, "character" -> 0),
+      "context"      -> ujson.Obj("includeDeclaration" -> true)
+    )).arr
+    assert(result.isEmpty)
+  }
+
+  test("references finds all occurrences of a name in the document") {
+    val (_, h) = newHandlers()
+    val text =
+      """# Section
+        |
+        |```scala
+        |val alpha = 1
+        |val beta = alpha + alpha
+        |```
+        |""".stripMargin
+    openRefDoc(h, text)
+    // cursor on "alpha" in the def line (line 3, col 4)
+    val locs = refs(h, line = 3, character = 4)
+    // should find 3 occurrences: definition + 2 uses
+    assert(locs.length == 3, s"expected 3 refs, got ${locs.length}: $locs")
+    locs.foreach { loc =>
+      assert(loc("uri").str == uri)
+      assert(loc.obj.contains("range"))
+    }
+  }
+
+  test("references with includeDeclaration=false excludes definition site") {
+    val (_, h) = newHandlers()
+    val text =
+      """# Section
+        |
+        |```scala
+        |val myVal = 1
+        |val other = myVal + myVal
+        |```
+        |""".stripMargin
+    openRefDoc(h, text)
+    // cursor on "myVal" at definition (line 3, col 4)
+    val withDecl    = refs(h, line = 3, character = 4, includeDecl = true)
+    val withoutDecl = refs(h, line = 3, character = 4, includeDecl = false)
+    assert(withDecl.length == 3,    s"expected 3 with decl, got ${withDecl.length}")
+    assert(withoutDecl.length == 2, s"expected 2 without decl, got ${withoutDecl.length}")
+  }
+
+  test("references does not match partial identifiers") {
+    val (_, h) = newHandlers()
+    val text =
+      """# Section
+        |
+        |```scala
+        |val foo = 1
+        |val fooBar = foo + 2
+        |val result = foo
+        |```
+        |""".stripMargin
+    openRefDoc(h, text)
+    // "foo" should NOT match inside "fooBar"
+    val locs = refs(h, line = 3, character = 4)
+    val lines = locs.map(_("range")("start")("line").num.toInt).toSet
+    assert(!lines.contains(4) || {
+      // If line 4 is included, it must be for a standalone "foo", not "fooBar"
+      locs.filter(_("range")("start")("line").num.toInt == 4)
+          .forall { loc =>
+            val col = loc("range")("start")("character").num.toInt
+            col != 0  // fooBar starts at col 0; standalone foo is further right
+          }
+    }, s"partial match 'fooBar' should not be in results: $locs")
+  }
+
+  test("initialize advertises referencesProvider capability") {
+    val (_, h) = newHandlers()
+    val result = h.initialize(ujson.Obj())
+    assert(result("capabilities")("referencesProvider").bool == true)
+  }

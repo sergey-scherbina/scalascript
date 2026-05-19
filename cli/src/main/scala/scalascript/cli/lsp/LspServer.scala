@@ -109,6 +109,10 @@ class LspServer(
           val result = handlers.completion(params)
           reply(LspProtocol.success(id, result))
 
+        case "textDocument/references" =>
+          val result = handlers.references(params)
+          reply(LspProtocol.success(id, result))
+
         case other =>
           reply(LspProtocol.failure(id, ErrorCodes.MethodNotFound, s"method not found: $other"))
     catch case e: Exception =>

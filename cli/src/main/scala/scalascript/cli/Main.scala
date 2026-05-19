@@ -6069,7 +6069,7 @@ def printSection(s: Section, indent: Int): Unit =
   val prefix = "  " * indent
   println(s"$prefix${"#" * s.heading.level} ${s.heading.text}")
   s.content.foreach {
-    case Content.CodeBlock(lang, src, tree, _, _, _) =>
+    case Content.CodeBlock(lang, src, tree, _, _, _, _) =>
       val lines  = src.linesIterator.length
       val status = tree.map(_ => "parsed").getOrElse(
         if Lang.isParseable(lang) then "PARSE ERROR" else "untyped"

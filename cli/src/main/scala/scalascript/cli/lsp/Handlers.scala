@@ -48,6 +48,7 @@ class Handlers(docs: Documents):
         "textDocumentSync"   -> 1,    // full sync
         "definitionProvider" -> true,
         "hoverProvider"      -> true,
+        "referencesProvider" -> true,
         "completionProvider" -> ujson.Obj(
           "triggerCharacters" -> ujson.Arr(".", " ")
         )
@@ -327,6 +328,64 @@ class Handlers(docs: Documents):
       "isIncomplete" -> false,
       "items"        -> items
     )
+
+  // ─── references ─────────────────────────────────────────────────────
+
+  /** `textDocument/references`.  Returns a (possibly empty) JSON array of
+   *  `Location` objects for every identifier occurrence in the document that
+   *  matches the name under the cursor.
+   *
+   *  `context.includeDeclaration` (default `true`) controls whether the
+   *  definition site itself is included.  When `false`, the location returned
+   *  by [[findLocalDef]] is excluded from results. */
+  def references(params: ujson.Value): ujson.Value =
+    val (uri, line, character) = extractCursor(params)
+    val includeDecl = params.objOpt
+      .flatMap(_.get("context")).flatMap(_.objOpt)
+      .flatMap(_.get("includeDeclaration")).flatMap(_.boolOpt)
+      .getOrElse(true)
+    docs.get(uri) match
+      case None => ujson.Arr()
+      case Some(state) =>
+        findNameAt(state, line, character) match
+          case None => ujson.Arr()
+          case Some(name) =>
+            val defLoc: Option[(Int, Int)] =
+              if !includeDecl then findLocalDef(state, name).map { case (sl, sc, _, _) => (sl, sc) }
+              else None
+            val locs = findAllOccurrences(state, name).filterNot { case (sl, sc, _, _) =>
+              defLoc.exists { case (dl, dc) => sl == dl && sc == dc }
+            }
+            ujson.Arr.from(locs.map { case (sl, sc, el, ec) =>
+              ujson.Obj("uri" -> uri, "range" -> rangeJson(sl, sc, el, ec))
+            })
+
+  /** Scan every line of the document text for word-boundary occurrences of
+   *  `name`.  Returns file-level `(startLine, startCol, endLine, endCol)`
+   *  quads (0-indexed), one per occurrence.  Only returns matches where
+   *  `name` is not adjacent to another identifier character — i.e. a
+   *  whole-word match. */
+  private def findAllOccurrences(
+      state: DocumentState,
+      name:  String
+  ): List[(Int, Int, Int, Int)] =
+    def isIdentPart(c: Char): Boolean = c.isLetterOrDigit || c == '_'
+    val lines   = state.text.linesIterator.toIndexedSeq
+    val nameLen = name.length
+    val buf     = List.newBuilder[(Int, Int, Int, Int)]
+    for (lineText, lineIdx) <- lines.zipWithIndex do
+      var col = 0
+      while col <= lineText.length - nameLen do
+        val idx = lineText.indexOf(name, col)
+        if idx < 0 then col = lineText.length
+        else
+          val boundBefore = idx == 0 || !isIdentPart(lineText.charAt(idx - 1))
+          val boundAfter  = idx + nameLen >= lineText.length ||
+                            !isIdentPart(lineText.charAt(idx + nameLen))
+          if boundBefore && boundAfter then
+            buf += ((lineIdx, idx, lineIdx, idx + nameLen))
+          col = idx + 1
+    buf.result()
 
   // ─── Position / name lookup ────────────────────────────────────────
 
