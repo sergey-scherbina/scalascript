@@ -3621,17 +3621,29 @@ the codegen output.
   design loop's biggest worry — "the trait will need to bend when a
   real second impl arrives" — was right to flag but didn't bite.
 
+  **Subsequent landings (same v1.17.6 track):**
+  - **S1c** ✓ Landed — codegen `JvmGen.serveRuntime` now routes
+    through the SPI; `setHttpServerBackend` works in generated
+    scripts too.
+  - **CLI flag** ✓ Landed — `ssc compile --server-backend <jdk|jetty|netty>`
+    auto-injects `//> using dep` directive + `setHttpServerBackend`
+    init for the chosen backend.
+  - **Docs + example** ✓ Landed — `docs/http-server-backends.md`
+    + `examples/rest-jetty.ssc`.
+
   **What's NOT done yet** (carried as open follow-ups):
-  - S1c — codegen `JvmGen.serveRuntime` still emits `ProxyRuntime`
-    as inlined Scala that constructs `WsProxy` directly.  Routing
-    the codegen through the SPI is a future pass; today
-    `setHttpServerBackend` works for interpreter only.
-  - Permessage-deflate WS compression (supported by Jetty + Netty,
-    not enabled).
-  - HTTP/2 server push (supported by Jetty + Netty, not surfaced
-    through the SPI).
-  - HTTP/3 (Netty incubator; not enabled).
+  - **Per-backend features** — Capability enum + sub-package
+    tuning.  Design recorded in `docs/http-server-spi-plan.md`
+    "Per-backend features — deferred follow-up design" section.
+    Concrete sequencing: F1 (Capability + intrinsics, ~1 day)
+    → F2 (permessage-deflate impl, ~1-2 days) → F3 (HTTP/2, ~3-4
+    days) → F4 (HTTP/3, ~1 week) → F5 (server push, ~2-3 days) →
+    F6 (Jetty/Netty tuning sub-packages, ~1 day each).  ~3-4 weeks
+    total for the full roadmap; each phase independently shippable.
   - Benchmark suite comparing the three backends side-by-side.
+  - Maven publishing (Option A+ from `docs/runtime-server-strategic-plan.md`)
+    so the `//> using dep` directives the CLI injects actually
+    resolve from Maven Central — today requires `sbt publishLocal`.
 
 ### Deferred follow-ups (v1.17.x backlog, ordered by priority)
 

@@ -441,17 +441,107 @@ without a single modification.
   Unset (the default) = first-found wins from ServiceLoader.
 
 **What's NOT done:**
-- **S1c** — codegen `JvmGen.serveRuntime` still emits ProxyRuntime as
-  inlined Scala that constructs `WsProxy` directly.  Not yet routed
-  through the SPI.  Generated scripts therefore can't pick Jetty /
-  Netty via `setHttpServerBackend(name)` from inside the script;
-  the call works at the interpreter level only.
-- Permessage-deflate WS compression (Jetty / Netty support it; we
-  don't enable it).
-- HTTP/2 server push (Jetty / Netty support; not surfaced through
-  the SPI).
-- HTTP/3 (Netty incubator; not enabled).
+- ~~**S1c** — codegen `JvmGen.serveRuntime` still emits ProxyRuntime as
+  inlined Scala that constructs `WsProxy` directly.~~  ✓ Landed —
+  codegen now routes through the SPI; `setHttpServerBackend(name)`
+  works in generated scripts too.
+- Per-backend feature flags (see below).
 - Benchmark suite comparing the three backends.
+
+## Per-backend features — deferred follow-up design
+
+The S2 / S3 impls support more than the SPI currently surfaces.
+The design for routing those features through is **mixed** (sub-
+packages + capability enum), documented here so the next session can
+pick it up without re-deciding:
+
+### Cross-backend toggles → `Capability` enum (in SPI core)
+
+Features that more than one backend supports get a uniform API
+in `scalascript.server.spi`:
+
+```scala
+enum Capability:
+  case Http2                  // Jetty + Netty
+  case Http3                  // Netty (incubator)
+  case WsPermessageDeflate    // Jetty + Netty
+  case ServerPush             // Jetty + Netty
+
+trait HttpServerSpi:
+  // ... existing methods ...
+  /** What this impl can be configured to enable.  Empty for Jdk
+   *  (HTTP/1.1 only).  Querying is a static fact; configuring is
+   *  via `configure(cap, opts)` before `start`. */
+  def capabilities: Set[Capability] = Set.empty
+  /** Enable an optional feature.  Idempotent.  Throws
+   *  IllegalStateException if `cap` isn't in `capabilities` —
+   *  callers feature-test via the set first. */
+  def configure(cap: Capability, opts: Map[String, Any] = Map.empty): Unit = ()
+```
+
+User code (in `.ssc` or via codegen):
+
+```scala
+setHttpServerBackend("jetty")
+enableHttp2()                       // top-level intrinsic; throws if Jdk
+enableWsCompression(level = 6)      // permessage-deflate
+serve(8080)
+```
+
+Top-level intrinsics resolve through `HttpServerBackends.current()`,
+check the capability, call `configure(...)`, throw with a clear
+message on mismatch ("HTTP/2 is not supported by the 'jdk' backend;
+switch to 'jetty' or 'netty' first").
+
+### Backend-specific tuning → `scalascript.server.spi.{jetty,netty}.*` sub-packages
+
+Features that only ONE backend has (Jetty's acceptor / selector
+thread sizing; Netty's `EventLoopGroup` config + direct-buffer
+arenas; either's OCSP stapling config) live in backend-specific
+sub-packages.  Importing those makes the user-code's framework
+choice explicit:
+
+```scala
+import scalascript.server.spi.jetty.JettyTuning
+JettyTuning.setAcceptorThreads(4)
+JettyTuning.setSelectorThreads(8)
+setHttpServerBackend("jetty")
+serve(8080)
+```
+
+```scala
+import scalascript.server.spi.netty.NettyTuning
+NettyTuning.setEventLoopGroups(boss = 1, worker = Runtime.getRuntime.availableProcessors)
+NettyTuning.usePreferDirectBuffers(true)
+setHttpServerBackend("netty")
+serve(8080)
+```
+
+Importing `scalascript.server.spi.jetty.JettyTuning` is a compile-
+time signal that the script is Jetty-targeted; the import won't
+resolve if `runtime-server-jvm-jetty` isn't on the classpath.
+
+### Sequencing for the per-backend-features track
+
+- **Phase F1** — Capability enum + `capabilities` + `configure` on
+  `HttpServerSpi`.  All three impls return `Set.empty` initially.
+  Top-level intrinsics (`enableHttp2`, `enableHttp3`,
+  `enableWsCompression`, `enableServerPush`) defined but throw on
+  Jdk + work via configure on Jetty/Netty once their impls flip
+  `capabilities` over.  ~1 day.
+- **Phase F2** — permessage-deflate impl in Jetty + Netty (most
+  bang-for-buck; widely-used).  ~1-2 days.
+- **Phase F3** — HTTP/2 impl in Jetty + Netty (Jetty needs
+  HTTP2ServerConnectionFactory + ALPN; Netty needs Http2FrameCodec
+  + Http2MultiplexHandler).  ~3-4 days.
+- **Phase F4** — HTTP/3 impl in Netty (incubator artifact; QUIC
+  handler).  ~1 week.
+- **Phase F5** — Server push (HTTP/2 push promises).  ~2-3 days.
+  Lower priority — push is being deprecated by some browsers.
+- **Phase F6** — Jetty / Netty tuning sub-packages.  ~1 day each.
+
+Total: ~3-4 weeks focused work for the full per-backend-features
+roadmap.  Each phase is independently shippable.
 
 ## Out of scope
 
