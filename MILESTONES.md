@@ -6766,10 +6766,19 @@ Thin `backend-wasm-contract/` layer on top of `backend-wasm/` for Near or Polkad
 >   land as Spark `struct` columns.  Verified end-to-end with
 >   `examples/spark-nested-demo.ssc` (`Person` with `Option[Int]` age
 >   + nested `Address`).
+> - ✓ Collection fields (`Seq[T]`, `List[T]`, `Vector[T]`, `Set[T]`,
+>   `Array[T]`, `Map[K, V]`) via `AgnosticEncoders.IterableEncoder` /
+>   `ArrayEncoder` / `MapEncoder`.  `containsNull` /
+>   `valueContainsNull` derived from the inner encoder's `nullable`
+>   so `Seq[Option[String]]` gets `containsNull = true` automatically.
+>   Verified end-to-end with `examples/spark-collections-demo.ssc`
+>   (`Post` with `Seq[String]` tags, `List[Int]` scores,
+>   `Map[String, String]` meta).
 >
-> Remaining (still open): collection fields (`Seq`/`List`/`Vector`/`Array`/`Map`)
-> via `IterableEncoder`/`ArrayEncoder`/`MapEncoder`; revival of `@SqlFn`
-> auto-emit via Java `UDF1`/`UDF2`/... wrappers with a derived `DataType`.
+> Remaining (still open): revival of `@SqlFn` auto-emit (Phase D) via
+> Java `UDF1`/`UDF2`/... wrappers with a derived `DataType`; tuple
+> types as case-class fields (need a `Mirror`-free derivation since
+> tuples have no synth `Mirror.ProductOf`).
 >
 > Natural fit: ScalaScript's existing `Dataset[T]` API maps directly to Spark.
 

@@ -1,0 +1,56 @@
+---
+name: spark-collections-demo
+backend: spark
+spark-app-name: Phase E — Collection Encoders
+description: Seq/List/Vector/Set/Array/Map fields in case classes (v1.25 § 9.5 Phase E)
+---
+
+# Phase E — collection encoders
+
+Extends Phase E to collection-valued fields:
+
+| Scala field type    | Spark column shape    | AgnosticEncoder    |
+|---------------------|------------------------|---------------------|
+| `Seq[T]`, `List[T]` | `array<T>`             | `IterableEncoder`  |
+| `Vector[T]`         | `array<T>`             | `IterableEncoder`  |
+| `Set[T]`            | `array<T>` (no dedup)  | `IterableEncoder`  |
+| `Array[T]`          | `array<T>`             | `ArrayEncoder`     |
+| `Map[K, V]`         | `map<K, V>`            | `MapEncoder`       |
+
+`containsNull` / `valueContainsNull` are read directly from the
+inner element encoder's `nullable` flag — so `Seq[Option[String]]`
+arrives as `array<string> (containsNull = true)` automatically,
+while `Seq[String]` arrives as `array<string> (containsNull = true)`
+(Spark treats `String` as nullable since it's a reference type).
+
+Run with:
+
+```
+ssc run --backend spark examples/spark-collections-demo.ssc
+```
+
+## Pipeline
+
+```scalascript
+case class Post(
+  id:    Int,
+  title: String,
+  tags:  Seq[String],
+  scores: List[Int],
+  meta:  Map[String, String]
+)
+
+val posts = List(
+  Post(1, "Hello",   Seq("intro", "draft"),  List(10, 7, 9),  Map("author" -> "Alice")),
+  Post(2, "Goodbye", Seq.empty,                List.empty,       Map.empty),
+  Post(3, "Mixed",   Seq("scala", "spark"),  List(8),         Map("year" -> "2026"))
+)
+
+val ds = spark.createDataset(posts)
+ds.printSchema()
+println(s"POST_COUNT=${ds.count()}")
+
+ds.collect().foreach { p =>
+  println(s"POST id=${p.id} title=${p.title} #tags=${p.tags.size} #scores=${p.scores.size} #meta=${p.meta.size}")
+}
+```

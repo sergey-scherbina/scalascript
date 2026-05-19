@@ -118,6 +118,15 @@ class SparkRuntimeSmokeTest extends AnyFunSuite:
     compileExample("spark-nested-demo.ssc")
   }
 
+  test("spark-collections-demo.ssc compiles under Phase E collection derivation") {
+    // Exercises `aenc_Seq`/`aenc_List`/`aenc_Map` — Post has a Seq
+    // of String tags, a List of Int scores, and a Map<String,String>
+    // meta field.  If this compiles, IterableEncoder + MapEncoder
+    // routing through `summonInline[AgnosticEncoder[t]]` is wired
+    // correctly for all three collection categories.
+    compileExample("spark-collections-demo.ssc")
+  }
+
   test("spark-udf-demo.ssc compiles under scala-cli + Spark _2.13") {
     // This example uses the *manual* Java `UDF1` registration form
     // documented in SPEC § 9.5 — not the `@SqlFn` auto-emit (blocked

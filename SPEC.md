@@ -1749,13 +1749,33 @@ ds.printSchema()    // root
 
 See `examples/spark-nested-demo.ssc` for the canonical demo.
 
+**Phase E follow-ups landed (cont., 2026-05-20):**
+- ✓ Collection fields — `Seq[E]`, `List[E]`, `Vector[E]`, `Set[E]`
+  go through `AgnosticEncoders.IterableEncoder[C, E]` (same
+  `array<E>` wire shape, different runtime container class);
+  `Array[E]` through `AgnosticEncoders.ArrayEncoder[E]`;
+  `Map[K, V]` through `AgnosticEncoders.MapEncoder[Map[K, V], K, V]`.
+  `containsNull` / `valueContainsNull` are read directly off the
+  inner encoder's `nullable` flag, so `Seq[Option[String]]` lands
+  with `containsNull = true` automatically.  Example column shapes:
+
+  ```text
+  tags:   array<string>           (nullable = true)
+  scores: array<integer>          (nullable = true)
+  meta:   map<string, string>     (nullable = true)
+  ```
+
+  See `examples/spark-collections-demo.ssc`.
+
 **Phase E still-open follow-ups:**
-- Collection fields: `Seq[T]`, `List[T]`, `Vector[T]`, `Array[T]` via
-  `AgnosticEncoders.IterableEncoder` / `ArrayEncoder`; `Map[K, V]`
-  via `AgnosticEncoders.MapEncoder`.
 - Revive `@SqlFn` auto-emit (Phase D) by routing through Java
   `UDF1`/`UDF2`/... wrappers with a derived `DataType` for the
   return type — sidesteps the TypeTag-bound `udf.register` overload.
+- Tuple types as fields (`(A, B)` inside a case class) — Spark
+  treats tuples as `Product`, so they'd nominally hit `aenc_Product`,
+  but tuples have no synth `Mirror.ProductOf` by default in Scala 3;
+  a dedicated `aenc_Tuple2/3/...` given (or `TupleN`-shape
+  derivation) would close the gap if anyone needs it.
 
 ## Appendix A: Reserved Words
 

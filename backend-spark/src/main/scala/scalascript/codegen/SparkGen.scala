@@ -522,7 +522,7 @@ private class SparkGen(
        |object SscSparkEncoders:
        |  import scala.deriving.Mirror
        |  import scala.compiletime.{erasedValue, constValueTuple}
-       |  import scala.reflect.ClassTag
+       |  import scala.reflect.{ClassTag, classTag}
        |  import org.apache.spark.sql.catalyst.encoders.AgnosticEncoder
        |  import org.apache.spark.sql.catalyst.encoders.AgnosticEncoders.*
        |  import org.apache.spark.sql.catalyst.encoders.ExpressionEncoder
@@ -566,6 +566,35 @@ private class SparkGen(
        |  /** `Option[U]` → Spark `OptionEncoder` wrapping the inner. */
        |  given aenc_Option[U](using inner: AgnosticEncoder[U]): AgnosticEncoder[Option[U]] =
        |    OptionEncoder(inner)
+       |
+       |  // ── Collection encoders ──────────────────────────────────────────────
+       |  //
+       |  // `Seq` / `List` / `Vector` all funnel through Spark's
+       |  // `IterableEncoder[C, E]` — same wire shape (an `array` column),
+       |  // different runtime container class.  `containsNull` is read off
+       |  // the element encoder's `nullable` so `Seq[Option[String]]` says
+       |  // `containsNull = true` automatically.
+       |  // `Array[E]` uses `ArrayEncoder[E]`; `Map[K, V]` uses
+       |  // `MapEncoder[Map[K, V], K, V]`.  Spark's bytecode-level
+       |  // serializer reads these structurally — no TypeTag needed.
+       |
+       |  given aenc_Seq[E](using inner: AgnosticEncoder[E]): AgnosticEncoder[Seq[E]] =
+       |    IterableEncoder(classTag[Seq[E]], inner, inner.nullable, lenientSerialization = false)
+       |
+       |  given aenc_List[E](using inner: AgnosticEncoder[E]): AgnosticEncoder[List[E]] =
+       |    IterableEncoder(classTag[List[E]], inner, inner.nullable, lenientSerialization = false)
+       |
+       |  given aenc_Vector[E](using inner: AgnosticEncoder[E]): AgnosticEncoder[Vector[E]] =
+       |    IterableEncoder(classTag[Vector[E]], inner, inner.nullable, lenientSerialization = false)
+       |
+       |  given aenc_Set[E](using inner: AgnosticEncoder[E]): AgnosticEncoder[Set[E]] =
+       |    IterableEncoder(classTag[Set[E]], inner, inner.nullable, lenientSerialization = false)
+       |
+       |  given aenc_Array[E](using inner: AgnosticEncoder[E]): AgnosticEncoder[Array[E]] =
+       |    ArrayEncoder(inner, inner.nullable)
+       |
+       |  given aenc_Map[K, V](using k: AgnosticEncoder[K], v: AgnosticEncoder[V]): AgnosticEncoder[Map[K, V]] =
+       |    MapEncoder(classTag[Map[K, V]], k, v, valueContainsNull = v.nullable)
        |
        |  /** Nested case-class encoder.  The field walk recursively
        |   *  `summonInline[AgnosticEncoder[t]]` for each element type —

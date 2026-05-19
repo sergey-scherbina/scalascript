@@ -559,6 +559,35 @@ class SparkGenTest extends AnyFunSuite:
       "expected ExpressionEncoder(ae) wrap in `derived`")
   }
 
+  test("Phase E shim provides collection encoder givens (Seq/List/Vector/Set/Array/Map)") {
+    val code = gen("# Test\n```scalascript\nval x = 1\n```\n")
+    // `Seq[E]`/`List[E]`/`Vector[E]`/`Set[E]` → IterableEncoder.
+    assert(code.contains("given aenc_Seq[E](using inner: AgnosticEncoder[E]): AgnosticEncoder[Seq[E]]"),
+      s"aenc_Seq given missing, got:\n$code")
+    assert(code.contains("given aenc_List[E](using inner: AgnosticEncoder[E]): AgnosticEncoder[List[E]]"))
+    assert(code.contains("given aenc_Vector[E](using inner: AgnosticEncoder[E]): AgnosticEncoder[Vector[E]]"))
+    assert(code.contains("given aenc_Set[E](using inner: AgnosticEncoder[E]): AgnosticEncoder[Set[E]]"))
+    // All four delegate to IterableEncoder with the same shape.
+    assert(code.contains("IterableEncoder(classTag[Seq[E]], inner, inner.nullable, lenientSerialization = false)"))
+
+    // `Array[E]` → ArrayEncoder.  Note: ArrayEncoder doesn't take a
+    // ClassTag (it stores Object internally and recovers the runtime
+    // class via the element encoder's clsTag).
+    assert(code.contains("given aenc_Array[E](using inner: AgnosticEncoder[E]): AgnosticEncoder[Array[E]]"),
+      s"aenc_Array given missing, got:\n$code")
+    assert(code.contains("ArrayEncoder(inner, inner.nullable)"))
+
+    // `Map[K, V]` → MapEncoder with separate key/value encoders.
+    assert(code.contains("given aenc_Map[K, V](using k: AgnosticEncoder[K], v: AgnosticEncoder[V]): AgnosticEncoder[Map[K, V]]"),
+      s"aenc_Map given missing, got:\n$code")
+    assert(code.contains("MapEncoder(classTag[Map[K, V]], k, v, valueContainsNull = v.nullable)"))
+
+    // The `classTag` companion method (not just ClassTag the type) is
+    // required for the IterableEncoder / MapEncoder constructors.
+    assert(code.contains("import scala.reflect.{ClassTag, classTag}"),
+      "expected ClassTag and classTag imported")
+  }
+
   test("Phase E shim provides Option[U] recursive encoder") {
     val code = gen("# Test\n```scalascript\nval x = 1\n```\n")
     // `aenc_Option[U]` is what makes `Option[Int]` etc. work as case
