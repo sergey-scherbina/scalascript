@@ -500,15 +500,17 @@ unblocks downstream features as early as possible.
      registry (no closure serialisation), coordinator-mediated
      shuffle, configurable failure handling.  Closure
      serialisation + worker-to-worker shuffle in v1.22.x.
- 27. **Cluster management** — partial landing in v1.23.
+ 27. **Cluster management** ✓ Landed in v1.23.
      Shipped: membership view + events + per-link + cluster-wide
      Phi-accrual failure detection + `std.cluster.Cluster.*` wrapper
-     + Bully leader election + auto-reconnect on outbound link drops
-     + periodic gossip re-discovery + cluster config distribution
-     (LWW per key).  Still deferred: leader-election alternatives
-     (Raft / external coordinator), rolling restarts, metrics
-     aggregation.  Promote each when any of the three trigger
-     conditions fire (see
+     + Bully leader election (with auto re-elect) + auto-reconnect
+     on outbound link drops + periodic gossip re-discovery + cluster
+     config distribution (LWW per key, snapshot on handshake) +
+     rolling-restart drain protocol + cluster metrics aggregation
+     (per-node gauges, snapshot on handshake).  Only deferred:
+     alternative leader-election protocols (Raft / external
+     coordinator), promote when an app needs strong-consistency
+     guarantees Bully can't give (see
      [`docs/cluster-management.md`](docs/cluster-management.md)
      §6).
  28. **6+/C — HostCallback dispatcher** (~1 week).
@@ -4026,12 +4028,12 @@ word-count, log-aggregation, simple join.
 Six phases, ~3 weeks end-to-end.  **Hard-blocked on v1.6
 Phase 3.**
 
-## Cluster management — partially landed in v1.23, rest still deferred
+## Cluster management — fully landed in v1.23 (except Raft)
 
 Peer-cluster orchestration on top of v1.6 Phase 3 actors:
 peer discovery, membership view, leader election,
 configuration distribution, cluster-wide failure
-detection, rolling restarts, metrics aggregation.
+detection, rolling restarts, metrics aggregation — all landed.
 
 Full design space and explicit hard-no list in
 [`docs/cluster-management.md`](docs/cluster-management.md).
@@ -4049,9 +4051,13 @@ Full design space and explicit hard-no list in
 | Cluster-wide FD aggregation (`broadcastHealth`, `clusterIsDown`) | ✓ v1.23 |
 | Local node identity + health snapshot (`selfNode`, `clusterHealth`) | ✓ v1.23 |
 | Bully leader election (`electLeader`, `currentLeader`, `subscribeLeaderEvents`) | ✓ v1.23 |
+| Auto re-elect on leader-link loss (`setAutoReelect`) | ✓ v1.23 |
 | Auto-reconnect for outbound links (`setReconnectPolicy`) | ✓ v1.23 |
 | Periodic gossip re-discovery (`requestGossip`) | ✓ v1.23 |
 | Cluster config distribution (`clusterConfigSet/Get/Keys`, `ConfigChanged`) | ✓ v1.23 |
+| Rolling-restart drain protocol (`setDraining`, `isDraining`, `drainingPeers`, `DrainStateChanged`) | ✓ v1.23 |
+| Cluster metrics aggregation (`clusterMetricSet/Get/Sum/Names`, `MetricChanged`) | ✓ v1.23 |
+| Config + drain + metric snapshots on peer handshake | ✓ v1.23 |
 | `std.cluster.Cluster.*` namespace wrapper | ✓ v1.23 |
 
 ### Still deferred (promote on demand)
@@ -4060,7 +4066,6 @@ Full design space and explicit hard-no list in
   via etcd/Consul/ZK adapters).  Bully is enough for v1.x trusted-
   deployment use cases; promote a stronger protocol when an app needs
   strong consistency or partition-tolerance guarantees Bully can't give.
-- Rolling restarts, metrics aggregation.
 
 Promote the remaining items when any of the trigger conditions fire:
 
