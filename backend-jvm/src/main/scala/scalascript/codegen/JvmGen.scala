@@ -192,6 +192,15 @@ class JvmGen(
   private val depDefs = mutable.Map.empty[String, scala.meta.Defn.Def]
   private val globalEffectfulDeps = mutable.Set.empty[String]
 
+  // `depClasses` — every `Defn.Class` (incl. case classes) found inside
+  // an inlined dep, keyed by simple name.  Used by `emitCpsApply` to
+  // resolve constructor calls (`Cluster(nodeList, pids)`) so we can
+  // cast `_tN`-named args to the declared field types — otherwise
+  // typed constructor signatures reject Any-bound args from the
+  // surrounding CPS continuation.  Populated alongside `depDefs` in
+  // `inlineImport`.
+  private val depClasses = mutable.Map.empty[String, scala.meta.Defn.Class]
+
   // Test hooks — Step 2 unit tests populate `depDefs` via
   // `seedDepDefsForTest` (which mirrors what `inlineImport` does
   // post-rewrite) and read back `globalEffectfulDeps` after
@@ -836,9 +845,15 @@ class JvmGen(
       }
       // Strategy D, Step 2 — index every Defn.Def in this dep (top-level
       // or nested in object/class) so the fixpoint can analyse its body.
+      // Also index every Defn.Class so chunk 3's call-site cast injection
+      // can look up constructor param types when emitting `Cluster(...)`
+      // and similar inside a CPS continuation.
       rewrittenBlocks.foreach { b =>
         ScalaNode.fold(b.node) { tree =>
-          tree.collect { case d: Defn.Def => depDefs(d.name.value) = d }
+          tree.collect {
+            case d: Defn.Def   => depDefs(d.name.value)    = d
+            case d: Defn.Class => depClasses(d.name.value) = d
+          }
         }
       }
       (rewrittenBlocks, pkg)
@@ -3320,7 +3335,81 @@ class JvmGen(
         // The function reference itself is always a callable value (not a
         // Free), so we never bind on `fun` — only on its args. The call's
         // result may be a Free; the caller's bind handles that.
-        bindArgsCps(args) { vs => s"${fun.syntax}(${vs.mkString(", ")})" }
+        //
+        // Chunk 3 — cast injection for known dep callees: when `fun` is
+        // a bare name resolving to a `Defn.Def` or `Defn.Class` we
+        // indexed in `inlineImport`, look up each param's declared type
+        // and wrap the corresponding bound value as `v.asInstanceOf[T]`.
+        // Without this, calls like `Cluster(nodeList, pids)` and
+        // `collectResults(assignments = assignments, …)` fail because
+        // `nodeList` / `assignments` are `Any` in the surrounding
+        // continuation but the callee expects concrete types.
+        val funName = fun match
+          case Term.Name(n) => Some(n)
+          case _            => None
+        bindArgsCps(args) { vs =>
+          val castedVs = funName match
+            case None    => vs
+            case Some(n) => applyCalleeCasts(n, args, vs)
+          s"${fun.syntax}(${castedVs.mkString(", ")})"
+        }
+
+  /** Look up the declared param type for a call to a known dep def
+   *  or dep class constructor, by position (`argIdx`) or by name
+   *  (when the arg is `Term.Assign(Term.Name(n), _)`).  Returns the
+   *  type's `syntax` form when present, `None` otherwise — including
+   *  for varargs (`T*`) where `asInstanceOf[T*]` isn't a legal cast. */
+  private def calleeParamType(
+      callee:  String,
+      argIdx:  Int,
+      argName: Option[String]
+  ): Option[String] =
+    val ps: Option[List[scala.meta.Term.Param]] =
+      depClasses.get(callee).map(_.ctor.paramClauses.flatMap(_.values).toList)
+        .orElse(
+          depDefs.get(callee).map(d =>
+            d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values).toList
+          )
+        )
+    ps.flatMap { params =>
+      val targetOpt = argName match
+        case Some(n) => params.find(_.name.value == n)
+        case None    => params.lift(argIdx)
+      targetOpt.flatMap { p =>
+        p.decltpe match
+          // Skip varargs — `asInstanceOf[Node*]` doesn't parse.
+          case Some(_: scala.meta.Type.Repeated) => None
+          case Some(t)                           => Some(t.syntax)
+          case None                              => None
+      }
+    }
+
+  /** Apply per-arg casts in step with `vs` produced by `bindArgsCps`.
+   *  Handles both positional args (cast the bound value as a whole) and
+   *  named args (`vs(i)` looks like `"name = value"` — cast the rhs). */
+  private def applyCalleeCasts(
+      callee: String,
+      args:   List[scala.meta.Term],
+      vs:     List[String]
+  ): List[String] =
+    if depClasses.get(callee).isEmpty && depDefs.get(callee).isEmpty then vs
+    else
+      vs.zip(args).zipWithIndex.map { case ((v, arg), i) =>
+        arg match
+          case scala.meta.Term.Assign(scala.meta.Term.Name(n), _) =>
+            calleeParamType(callee, i, Some(n)) match
+              case None => v
+              case Some(t) =>
+                val eqIdx = v.indexOf('=')
+                if eqIdx < 0 then v
+                else
+                  val rhs = v.substring(eqIdx + 1).trim
+                  s"$n = $rhs.asInstanceOf[$t]"
+          case _ =>
+            calleeParamType(callee, i, None) match
+              case None    => v
+              case Some(t) => s"$v.asInstanceOf[$t]"
+      }
 
   /** Emit a Scala block in CPS form: thread vals + statements via `_bind`. */
   private def emitCpsBlock(stats: List[Stat]): String =
