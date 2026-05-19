@@ -249,6 +249,16 @@ class Interpreter(
       clusterConfig.put(key, (value, ts, origin))
       enqueueConfigEvent(key, value)
     accept
+  // Snapshot every locally-known config entry to a single peer.  Called on
+  // every successful handshake so late-joining nodes pick up entries set
+  // before they joined (LWW on the receiver protects existing values).
+  private def sendConfigSnapshot(targetSend: String => Unit): Unit =
+    clusterConfig.forEach { (key, tuple) =>
+      val payload =
+        s"""{"t":"config_set","key":${jsonStr(key)},"value":${jsonStr(tuple._1)},""" +
+        s""""ts":${tuple._2},"origin":${jsonStr(tuple._3)}}"""
+      try targetSend(payload) catch case _: Throwable => ()
+    }
   private val leaderEventSubs =
     new java.util.concurrent.CopyOnWriteArrayList[java.lang.Long]()
   private val leaderEventQueue =
@@ -693,6 +703,8 @@ class Interpreter(
               if joinMode then
                 try peerChannels.get(peerNodeId)(s"""{"t":"peers_req","from":${jsonStr(localNodeId)}}""")
                 catch case _ => ()
+              // v1.23 — snapshot the cluster config to the new peer.
+              sendConfigSnapshot(text => sess.sendText(text))
               // Heartbeat: ping every 30 s, abort if no pong for 40 s.
               val hbThread = Thread.ofVirtual().start { () =>
                 try
@@ -5041,6 +5053,7 @@ class Interpreter(
           peerChannels.put(pnId, wsSend)
           peerLastPong.put(pnId, System.currentTimeMillis())
           enqueueClusterEvent("NodeJoined", pnId)
+          sendConfigSnapshot(wsSend)
           // Heartbeat: ping every 30 s, drop if no pong for 40 s.
           val hbThread = Thread.ofVirtual().start { () =>
             try

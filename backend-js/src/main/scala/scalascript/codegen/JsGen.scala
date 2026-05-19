@@ -3655,6 +3655,17 @@ function _runActors(bodyFn) {
     }
     return accept;
   }
+  // Snapshot every locally-known config entry to a single peer.  Called on
+  // every successful handshake so late-joining nodes pick up entries set
+  // before they joined (LWW on the receiver protects existing values).
+  function _sendConfigSnapshot(sendFn) {
+    for (const [key, entry] of _clusterConfig) {
+      const payload = JSON.stringify({
+        t: 'config_set', key, value: entry.value, ts: entry.ts, origin: entry.origin
+      });
+      try { sendFn(payload); } catch (_) {}
+    }
+  }
   function _scheduleReconnect(rurl, rtok) {
     let delay = Math.max(_reconnectInitialMs, 1);
     const attempt = () => {
@@ -3848,6 +3859,8 @@ function _runActors(bodyFn) {
               if (_joinMode) {
                 peer.send(JSON.stringify({ t: 'peers_req', from: _localNodeId }));
               }
+              // v1.23 — snapshot the cluster config to the new peer.
+              _sendConfigSnapshot(peer.send);
               break;
             }
           }
@@ -4280,6 +4293,8 @@ private val JsRuntimeAsyncB: String = """
                     // Register send channel for this inbound peer.
                     _peerChannels.set(peerNodeId, { sab: null, send: (json) => ws.send(json) });
                     _fireClusterEvent('NodeJoined', peerNodeId);
+                    // v1.23 — snapshot the cluster config to the new peer.
+                    _sendConfigSnapshot((json) => ws.send(json));
                   }
                 } catch (_) {}
               } else {

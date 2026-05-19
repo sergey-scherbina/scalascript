@@ -5418,6 +5418,18 @@ class JvmGen(
        |      _clusterConfig.put(key, (value, ts, origin))
        |      _fireConfigEvent(key, value)
        |    accept
+       |  // Snapshot every locally-known config entry to a single peer.  Called
+       |  // on every successful handshake so late-joining nodes pick up entries
+       |  // set before they joined.  LWW on the receiver protects us from
+       |  // downgrading any value the new peer might already have.
+       |  def _sendConfigSnapshot(targetSend: String => Unit): Unit =
+       |    _clusterConfig.forEach { (key, tuple) =>
+       |      val payload = "{\"t\":\"config_set\",\"key\":" + _jstr(key) +
+       |                    ",\"value\":" + _jstr(tuple._1) +
+       |                    ",\"ts\":" + tuple._2.toString +
+       |                    ",\"origin\":" + _jstr(tuple._3) + "}"
+       |      try targetSend(payload) catch case _: Throwable => ()
+       |    }
        |  def _fireLeaderEvent(tag: String, leaderId: String): Unit =
        |    if !_leaderEventSubs.isEmpty then _leaderEventQueue.offer((tag, leaderId))
        |  def _broadcastCoordinator(): Unit =
@@ -5552,6 +5564,9 @@ class JvmGen(
        |            _peerLastPong.put(pnId, System.currentTimeMillis())
        |            _fireClusterEvent("NodeJoined", pnId)
        |            if _joinMode then try sendFn("{\"t\":\"peers_req\",\"from\":" + _jstr(_localNodeId) + "}") catch case _: Throwable => ()
+       |            // v1.23 — snapshot the cluster config to the new peer so it
+       |            // sees entries set before it joined (LWW protects existing values).
+       |            _sendConfigSnapshot(sendFn)
        |            val hbThread = Thread.ofVirtual().start { () =>
        |              try
        |                while _peerChannels.containsKey(pnId) do
@@ -6059,6 +6074,7 @@ class JvmGen(
        |            _peerChannels.put(pnId, wsSend)
        |            _peerLastPong.put(pnId, System.currentTimeMillis())
        |            _fireClusterEvent("NodeJoined", pnId)
+       |            _sendConfigSnapshot(wsSend)
        |            val hbThread = Thread.ofVirtual().start { () =>
        |              try
        |                while _peerChannels.containsKey(pnId) do
