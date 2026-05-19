@@ -105,12 +105,48 @@ def parseRequires(src: String): List[String] =
             .map(_.dropWhile(c => c == ' ' || c == '-').trim)
       raw.map(_.stripPrefix("Feature.").trim).filter(_.nonEmpty)
 
+// Parse `backends:` from YAML frontmatter — limits which of int/js/jvm a
+// test is allowed to run on. Supported forms:
+//   backends: [jvm, js]                  (flow sequence)
+//   backends:                            (block sequence)
+//     - jvm
+//     - js
+// Returns Some(set) when present (only those backends run); None means
+// eligible for all three (existing behavior). Accepts "interpreter" as an
+// alias for "int" so frontmatter can use the long form for clarity.
+def parseBackends(src: String): Option[Set[String]] =
+  val lines = src.linesIterator.toList
+  if !lines.headOption.contains("---") then return None
+  val fmEnd = lines.tail.indexOf("---")
+  if fmEnd < 0 then return None
+  val fm = lines.slice(1, fmEnd + 1)
+  fm.indexWhere(_.startsWith("backends:")) match
+    case -1 => None
+    case i  =>
+      val header = fm(i)
+      val scalar = header.stripPrefix("backends:").trim
+      val raw =
+        if scalar.startsWith("[") then
+          scalar.stripPrefix("[").stripSuffix("]").split(',').toList.map(_.trim)
+        else if scalar.nonEmpty then
+          List(scalar)
+        else
+          fm.drop(i + 1).takeWhile(l => l.startsWith("  -") || l.startsWith("- "))
+            .map(_.dropWhile(c => c == ' ' || c == '-').trim)
+      val normalised = raw.map(_.toLowerCase).map {
+        case "interpreter" => "int"
+        case other         => other
+      }.filter(_.nonEmpty).toSet
+      if normalised.isEmpty then None else Some(normalised)
+
 println(s"\nConformance suite — ${tests.length} tests\n$sep")
 
 for test <- tests do
   val name         = test.baseName
   val expectedFile = expectedDir / s"$name.txt"
-  val requires     = parseRequires(os.read(test))
+  val src          = os.read(test)
+  val requires     = parseRequires(src)
+  val backendsGate = parseBackends(src)
 
   if !os.exists(expectedFile) then
     if requires.nonEmpty then
@@ -124,12 +160,19 @@ for test <- tests do
     val expected = os.read(expectedFile).stripTrailing()
 
     def backendSupports(b: String): Boolean =
-      requires.isEmpty || requires.forall(backendFeatures.getOrElse(b, Set.empty).contains)
+      backendsGate.forall(_.contains(b)) &&
+      (requires.isEmpty || requires.forall(backendFeatures.getOrElse(b, Set.empty).contains))
+
+    def skipReason(b: String): String =
+      if backendsGate.exists(!_.contains(b)) then
+        s"backends: ${backendsGate.get.toList.sorted.mkString(", ")}"
+      else
+        s"requires: ${requires.mkString(", ")}"
 
     // Interpreter
     val intOk =
       if !backendSupports("int") then
-        println(s"  SKIP [INT] (requires: ${requires.mkString(", ")})")
+        println(s"  SKIP [INT] (${skipReason("int")})")
         true
       else
         val intOut = run(ssc(test.toString))
@@ -138,7 +181,7 @@ for test <- tests do
     // JS via Node.js
     val jsOk =
       if !backendSupports("js") then
-        println(s"  SKIP [JS ] (requires: ${requires.mkString(", ")})")
+        println(s"  SKIP [JS ] (${skipReason("js")})")
         true
       else
         val jsSource = run(ssc("emit-js", test.toString))
@@ -152,7 +195,7 @@ for test <- tests do
     // JVM via JvmGen + scala-cli compile
     val jvmOk =
       if !backendSupports("jvm") then
-        println(s"  SKIP [JVM] (requires: ${requires.mkString(", ")})")
+        println(s"  SKIP [JVM] (${skipReason("jvm")})")
         true
       else
         val jvmOut = run(ssc("compile", test.toString))

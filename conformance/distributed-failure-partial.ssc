@@ -2,6 +2,7 @@
 ---
 name: distributed-failure-partial
 description: v1.22 — Worker fails; allowPartial = true surfaces partial result + failure summary
+backends: [jvm]
 ---
 
 # Distributed failure — allowPartial

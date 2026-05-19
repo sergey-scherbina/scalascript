@@ -2,6 +2,7 @@
 ---
 name: distributed-shuffle
 description: v1.22 — .groupBy with shuffle across 3 nodes; word-count pattern
+backends: [jvm]
 ---
 
 # Distributed shuffle — groupBy across 3 nodes

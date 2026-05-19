@@ -3777,6 +3777,36 @@ parallel deferred); cooperative on INT.  Streaming interop via
   interpreter eval dispatcher and evalBlock step, enabling while-loop generators.
   Landed 2026-05-19.
 - 10 conformance tests + 2 examples; INT PASS on 6 core dataset tests.
+- v1.21 follow-up (2026-05-19): 10/10 dataset conformance tests now active
+  and PASS across all eligible backends. Fixes:
+  - JS `generator[T]` type-arg pattern in genExpr + genCpsExpr (the
+    `Term.ApplyType.After_4_6_0(Term.Name("generator"), _)` shape was
+    silently emitted as `unsupported` before).
+  - JVM `class _Dataset[T]` (was `[+T]` — covariance violation with
+    `reduce((T,T)=>T)`) and typed-T lambda signatures (`map[U](f: T => U)`
+    with internal `x.asInstanceOf[T]`); previously `f: Any => U` made
+    `ds.map(_ * 2)` fail with `* not a member of Any`.
+  - JVM `def generator[T](body: () => Unit)` (was `body: => Unit` by-name
+    which silently discarded the user's `() => body` lambda literal).
+  - INT `Dataset.of[Int]()` — Term.Apply(Term.ApplyType(Term.Select, _), _)
+    now dispatches with actual args, avoiding the InstanceV no-arg
+    auto-call that returned an empty Dataset before the `()`.
+  - INT `Dataset.reduce` on empty throws
+    `ScriptException(InstanceV("RuntimeException"))` so user
+    `case e: RuntimeException` matches (was InterpretError, opaque).
+  - INT `.getMessage` aliased to the `.message` field for exception
+    InstanceV, matching JVM behaviour.
+  - `std/fs.ssc` with `writeFile / readFile / deleteFile / exists`
+    externs (gated by `Feature.FileSystem`); all three backends wire
+    blocking primitives via `java.nio.file` (INT, JVM) and Node `fs.*`
+    (JS). `JsRuntimeDataset.fromFile` strips trailing empty after final
+    `\n` to match Scala `getLines()`.
+  - New expected files: `dataset-error.txt`, `dataset-parallel-int.txt`,
+    `dataset-parallel-jvm.txt`, `dataset-from-file.txt`.
+- conformance/run.sc gains `parseBackends` + per-backend SKIP gating so
+  `backends: [jvm]` frontmatter actually limits which of int/js/jvm run
+  a test (was previously ignored — every test ran on every backend,
+  causing distributed-* tests to spuriously fail on INT).
 
 Full design: [`docs/mapreduce.md`](docs/mapreduce.md) §3.
 

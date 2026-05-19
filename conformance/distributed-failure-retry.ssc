@@ -2,6 +2,7 @@
 ---
 name: distributed-failure-retry
 description: v1.22 — Kill a worker mid-job; retry on healthy worker succeeds
+backends: [jvm]
 ---
 
 # Distributed failure — retry
