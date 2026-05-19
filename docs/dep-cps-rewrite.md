@@ -341,9 +341,12 @@ coverage. Three sub-pieces:
      send sugar.
    - `Term.Apply(Term.Name("receive" | "receiveWithTimeout"), …)`
      with a `PartialFunction` argument — receive blocks.
-   - Recursive: a call to any other dep-defined `def` whose body
-     itself contained a primitive (transitively). Computed once
-     per dep via a fixpoint pass before any emit happens.
+   - Recursive: a call to any other dep-defined `def` (in *any*
+     transitively inlined dep, bare or qualified) whose body itself
+     contained a primitive. Computed once per `ssc compile` via a
+     fixpoint pass over the union of all dep call graphs, before
+     any emit happens. See §8.2 for why per-compile rather than
+     persisted-in-`.scim`.
 
 3. **CPS emit reuse.** `emitCpsExpr` is the same as today — same
    `_bind` plumbing, same `emitReceiveMatcherOpt`. Dep mode just
@@ -472,6 +475,50 @@ the string scanner is robust enough for the controlled output shape.
 Sequenced for incremental landing. Each step compiles and runs
 existing tests green; later steps build on earlier ones.
 
+### Step 0 — minimal fixture (`tests/fixtures/dep-cps-basic.ssc`)
+
+Before touching JvmGen, build a deliberately tiny fixture that
+exercises the four shapes Strategy D *must* get right and nothing
+else:
+
+1. Direct primitive call (`!`, `receive`).
+2. Transitive effectfulness (`pingTwice` → `ping`).
+3. Val binding of an effectful result.
+4. Pure tail (`first + "/" + second`) embedded in a CPS chain.
+
+Sketch (see §6.0a below for the full file):
+
+```scalascript
+def ping(pid: Any): String =
+  pid ! "ping"
+  receive { case "pong" => "ok" }
+
+def pingTwice(pid: Any): String =
+  val first  = ping(pid)
+  val second = ping(pid)
+  first + "/" + second
+```
+
+```scalascript
+runActors {
+  val responder = spawn { () =>
+    receive { case ("ping", from) => from ! "pong" }
+  }
+  println(pingTwice(responder))
+}
+```
+
+This fixture is the **canonical green target for Steps 1–4**. Only
+after it passes do we point Strategy D at `distributed-map.ssc`
+(which adds link/trapExit/recursion/3-arm-receive/mutual-recursion
+on top of the same fundament). Debugging a 15-line fixture is
+tractable; debugging 300 lines of `runDistributed` is not.
+
+Acceptance: file exists, currently fails with the same
+`_Perform cannot be cast to String` shape as `distributed-map.ssc`.
+(If it doesn't fail, the fixture isn't actually exercising the
+bug — adjust until it does.)
+
 ### Step 1 — `containsEffectPrimitive(tree)` predicate
 
 File: `backend-jvm/src/main/scala/scalascript/codegen/JvmGen.scala`.
@@ -482,34 +529,75 @@ returns true iff it contains any call-site shape from the
 predicate exhaustively before wiring it anywhere — its tightness is
 the load-bearing property.
 
+The predicate must match **both** bare and qualified call shapes
+so cross-dep calls (Step 2) feed it correctly:
+
+- `Term.Apply(Term.Name(n), …)` where `n` is a bare alias
+  (`actorBareNames`).
+- `Term.Apply(Term.Select(Term.Name(modOrObj), Term.Name(op)), …)`
+  where `(modOrObj, op)` is in the primitive whitelist
+  (`Actor.self`, `Random.uuid`, etc.) **or** where
+  `modOrObj` is another dep's package object name and `op` is in
+  the cross-dep `effectfulDefs` set (resolved at Step 2 time).
+- `Term.ApplyInfix.After_4_6_0(_, Term.Name("!"), _, _)` — actor send.
+- `Term.Apply(Term.Name("receive" | "receiveWithTimeout"), …)` with
+  a `PartialFunction` argument.
+
+Forbidden matches (regression canary, see §4.4 "The hard part"):
+
+- Bare `Term.Select(_, _)` — never effectful on its own.
+- `Term.Apply` of a user-defined function whose name is **not** in
+  any known set.
+- Anything matched by inferred type (we deliberately ignore types).
+
 Acceptance: ~50 unit tests covering positive (each primitive shape
 matches) and negative (`Select` on `Any`, `Apply` of user-defined
 function, lambda body, pattern guard, etc. — *don't* match) cases.
 
-### Step 2 — fixpoint pass over dep's internal call graph
+### Step 2 — two-phase `inlineImport` + global fixpoint
 
-In `inlineImport`, after parsing the dep and before emit, build a
-map `defName → containsEffectPrimitive(body)`. Iterate to fixpoint:
-on each pass, mark a def effectful if its body calls (transitively)
-any already-marked def. Store the result as `effectfulDefs: Set[String]`
-on the dep's emit context.
+Restructure dep ingestion into **two phases**:
 
-Acceptance: write a 3-function chain in a fixture
-(`f calls g calls Actor.self()`) and assert all three are marked.
-Write a sibling unmarked function (`pureHelper(x) = x + 1`) and
-assert it's not marked.
+1. **`collectDep(path)`** — parses, indexes all top-level `Defn.Def`
+   nodes by their fully-qualified name (`pkg.subpkg.defName`), and
+   records each def's body for later effectfulness analysis. **Does
+   not emit anything.** Recurses into transitively imported deps
+   first so the full graph is available before any emit decision.
+
+2. After all transitive `collectDep` calls finish: build a single
+   call graph over **all** ingested defs. Run fixpoint:
+   - Seed: every def whose body contains a primitive (per
+     `containsEffectPrimitive`) → mark as effectful.
+   - Iterate: any def that calls (bare or qualified) an
+     already-marked def → mark as effectful.
+   - Terminate when a full pass produces no new marks.
+   - Result: `globalEffectfulDefs: Set[String]` (FQN-keyed).
+
+3. **`emitDep(path)`** — emits using `globalEffectfulDefs` as
+   read-only context.
+
+The current `inlineImport` is a single-phase DFS; this is a
+mechanical refactor — `importedFiles: Set[String]` already tracks
+visited paths; we just split the "what to do per-file" into
+collect-then-emit.
+
+Cost is O(deps × defs × calls), <1 ms for a corpus of ~5 deps
+× ~20 defs each. No persistence needed.
+
+Acceptance: 3-function chain fixture (`f calls g (qualified
+B.g) calls Actor.self()`) — all three marked. Sibling
+`pureHelper(x) = x + 1` — not marked. Cross-dep call (dep A's
+`f` calls dep B's `g`) — both marked.
 
 ### Step 3 — dep-mode `Defn.Def` emit
 
 In the dep emit path, when emitting `Defn.Def(name, …, body)` and
-`effectfulDefs.contains(name)`, route `body` through `emitCpsExpr`
-instead of `emitExpr`. Widen the declared return type from `T` to
-`Any` (or `_Computation`; pick the one whose runtime intersection
-is cleanest with `_bind`'s argument type).
+`globalEffectfulDefs.contains(fqn)`, route `body` through
+`emitCpsExpr` instead of `emitExpr`. **Widen the declared return
+type to `Any`** (resolved per §8.1: matches existing convention,
+handles mixed pure/effectful control-flow correctly).
 
-Acceptance: the dep `runDistributed` body now compiles to a
-`_bind`-chain returning `_Perform("Random", "uuid", …)` as the
-innermost step, not as a discarded raw value.
+Acceptance: the fixture from Step 0 runs green end-to-end on JVM.
 
 ### Step 4 — caller-side type widening
 
@@ -545,14 +633,22 @@ Acceptance: all six v1.22 distributed-* tests green on JVM.
 
 ### Step 7 — clean up
 
-Remove §5.1's `qualifyBareActorCallsInSource` and §5.2's
-`rewriteActorAstCallsInSource` *only if* the dep-mode CPS emitter
-subsumes their work. They may still earn their keep as
-pre-normalisation passes (turning `pid ! msg` into a regular
-`Actor.send` call lets the CPS emitter use the existing
-`Actor.send` whitelist entry rather than special-casing infix). Keep
-them if removal causes any test failure; document the load-bearing
-ones.
+Two cleanups, both gated on Step 6 staying green:
+
+1. **Remove `cpsBody` parameter from `emitReceiveMatcherOpt`**
+   (resolved per §8.3). All call sites switch to the uniform
+   `cpsBody = true` path through `emitCpsExpr`. The `cpsBody =
+   false` branch and its recursive `qualifyBareActorCallsInSource`
+   re-application become dead code.
+
+2. **Retire §5.1's `qualifyBareActorCallsInSource` and §5.2's
+   `rewriteActorAstCallsInSource`** *only if* the dep-mode CPS
+   emitter subsumes their work. They may still earn their keep as
+   pre-normalisation passes (turning `pid ! msg` into a regular
+   `Actor.send` call lets the CPS emitter use the existing
+   `Actor.send` whitelist entry rather than special-casing infix).
+   Keep them if removal causes any test failure; document the
+   load-bearing ones explicitly.
 
 ---
 
@@ -578,42 +674,119 @@ architectural decision.
 
 ---
 
-## 8. Open questions
+## 8. Resolved decisions
 
-- **Return-type widening: `Any` vs `_Computation` vs `Free[F, T]`.**
-  The CPS preamble uses `_Computation` for Free-monad nodes. Should
-  effectful dep defs declare `_Computation` (more honest, exposes
-  the Free encoding to user code) or `Any` (simpler, matches the
-  current convention for `Actor.*` primitives)? Recommend `Any` for
-  consistency with the existing preamble surface; revisit if a
-  future user-facing effect-typing milestone (`docs/coroutines.md`
-  §v1.12) makes `_Computation` first-class.
+The four originally-open questions are settled. Rationale + chosen
+answer for each below. Each subsection is normative — Steps 0–7
+above already assume these answers; this section is the record of
+*why*.
 
-- **Predicate over `Term.Apply(Term.Name(n), …)` where `n` is a
-  user-defined function imported from another dep.** Step 2's
-  fixpoint only sees the *current* dep's call graph. A dep that
-  calls into another dep needs cross-dep effectfulness propagation.
-  Probably solvable by recording each dep's `effectfulDefs` set as
-  part of the v2.0 `.scim` interface artifact (separate-compilation
-  story) — but in the short term, run the fixpoint over the union
-  of all transitively inlined deps.
+### 8.1 Return type of effectful dep defs → `Any`
 
-- **Receive matcher in dep mode.** `emitReceiveMatcherOpt(cases,
-  cpsBody = false)` currently doesn't CPS-rewrite case bodies —
-  Step 3 will want it to. Either pass `cpsBody = true` (and have
-  `emitCpsExpr` recurse into case bodies) or thread the
-  `effectfulDefs` set deeper so the matcher knows whether to CPS
-  each body individually. Latter is more local; former is more
-  uniform. Pick during implementation after seeing how cases
-  actually unfold.
+**Decision: `Any`.**
 
-- **Should `std/mapreduce/distributed.ssc` be the canonical test
-  for Strategy D, or should we add a smaller fixture first?** The
-  full dep is ~300 lines exercising every CPS shape at once.
-  Recommend writing a deliberately tiny `tests/dep-cps-fixture.ssc`
-  (one effectful def, one receive, one `!`) and getting it green
-  end-to-end before pointing Strategy D at the full distributed
-  stack.
+Eliminated alternatives:
+
+- **`_Computation`** (sealed trait, currently used for `_Perform`,
+  `_FlatMap`). Fails because a dep function with mixed pure/effectful
+  control flow returns either kind on different dynamic paths. Trivial
+  example:
+
+  ```scalascript
+  def maybeAsk(pid: Any, useCache: Boolean): String =
+    if useCache then "cached"                      // ← plain String
+    else { pid ! Ask; receive { case s => s } }    // ← _Computation
+  ```
+
+  `"cached"` is not a `_Computation`, so declaring the function
+  `_Computation` won't compile.
+
+- **`Free[F, T]`**. Needs type-system support for effect rows
+  (`Async | Random | …`); ScalaScript doesn't have that today, see
+  `docs/coroutines.md` §v1.12. Out of scope.
+
+Why `Any` works cleanly:
+
+- `_bind: (Any, Any => Any) => Any` already pattern-matches in
+  runtime: `case _: _Computation => _FlatMap(c, f)` / `case v => f(v)`.
+  Both branches handled by the same call site.
+- Existing convention: every preamble-defined primitive
+  (`Actor.self(): Any`, `Random.uuid(): Any`, …) already returns
+  `Any`. Strategy D extends, not breaks, this convention.
+- Type information for tooling is *not* lost — `ExportedSymbol.tpe`
+  in the `.scim` artifact still records the source-level annotation
+  (`String`, `DistributedResult[Any]`, …). The widening lives only
+  in the emitted JVM target; `.ssc` source and `.scim` interface
+  keep the honest type.
+
+### 8.2 Cross-dep effectfulness → per-compile fixpoint now, `.scim` persistence later
+
+**Decision: per-compile fixpoint over the union of all transitively
+inlined deps. `.scim` persistence deferred to v2.x.**
+
+Why:
+
+- The full call graph for a `ssc compile` invocation is small
+  (single-digit deps × tens of defs × small call counts per body).
+  Fixpoint runs in <1 ms — not worth caching.
+- Separate-compilation (v2.0 artifacts) isn't yet wired into the
+  conformance runner. `ssc compile` remains the primary path; it
+  always has access to all dep sources at once.
+- `.scim` is the natural place to persist `isEffectful` for the
+  separate-compilation story (`ExportedSymbol` already exists at
+  `ir/src/main/scala/scalascript/ir/Ir.scala:219` with `tpe`,
+  `nested`, `definitionLine` — adding an `isEffectful: Boolean =
+  false` field is one-line, backward-compatible). But that's a
+  v2.x add-on once `check-with-iface`/`link` actually exercise it.
+
+Implementation detail: the predicate (Step 1) must match both
+`Term.Apply(Term.Name("ping"), …)` and
+`Term.Apply(Term.Select(Term.Name("OtherDep"), Term.Name("ping")), …)`
+shapes — easy to forget, called out explicitly in Step 1.
+
+### 8.3 Receive matcher → `cpsBody = true` uniform
+
+**Decision: drop the `cpsBody` parameter from `emitReceiveMatcherOpt`.
+All paths use `emitCpsExpr` for case bodies.**
+
+Why:
+
+- The `cpsBody = false` path exists *only* for the textual band-aid
+  (`rewriteActorAstCallsInSource`, JvmGen.scala:870, 882). Once
+  Strategy D lands and the dep CPS-emits, that band-aid path goes
+  away.
+- `emitCpsExpr` no-ops correctly on pure case bodies: `case Tick =>
+  count + 1` emits as just `count + 1`, because `_bind(value, f) ==
+  f(value)` via the `case v => f(v)` branch in `_bind`. Zero
+  overhead for non-effectful cases.
+- Threading `effectfulDefs` into the matcher (the alternative) would
+  give each case body individual emit choice — but the only thing
+  that decision controls is "CPS-rewrite or not", and CPS-rewrite is
+  always correct. So the decision is degenerate.
+
+Step 7 includes the parameter removal + dead-code cleanup.
+
+### 8.4 Canonical test target → tiny fixture first, then `distributed-map.ssc`
+
+**Decision: build `tests/fixtures/dep-cps-basic.ssc` (Step 0) as
+the canonical green target for Steps 1–4. Point at
+`distributed-map.ssc` only after the fixture passes (Step 4).**
+
+Why:
+
+- `distributed-map.ssc` simultaneously exercises: `Random.uuid`,
+  `self`, `trapExit`, `link`, `!`, 3-arm `receive` with nested
+  sends, recursive `collectResults`, mutual recursion
+  `collectResults ↔ handleFailure`, closures over `jobId` in
+  pattern guards. A single failure could be any of seven
+  Strategy-D features.
+- The fixture (~15 lines) exercises exactly four shapes — primitive
+  call, transitive effectfulness, val-bound effectful result, pure
+  tail in a CPS chain — each one mapped to a Step 1–4 requirement.
+- The fixture is **not a replacement** for `distributed-map.ssc`;
+  it's the unit test. `distributed-map.ssc` remains the integration
+  test (Step 4 acceptance), and the other four `distributed-*`
+  tests are the full coverage sweep (Step 6).
 
 ---
 
