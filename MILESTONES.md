@@ -3385,13 +3385,39 @@ the codegen output.
   `WsMaxConnectionsTest`, `WsHeartbeatTest`, `WsSubprotocolFieldTest`,
   `WsRequestTest`, `WsRouteCapTest`, `WsRateLimitTest`, `WsIdTest`).
 
-  **Follow-up not done by B**: actual *code-level* sharing of the
-  `WebSocket` class between interpreter and codegen.  Both sides now
-  have structurally identical per-VT classes (interpreter's
-  `WsConnection.scala`, codegen's `runtime-server-jvm/WebSocketRuntime.scala`);
-  merging them into one shared class is a future pass (would need
-  ctor injection of executor + scheduler so both backends pass their
-  own).  Option B's goal — unify the *thread model* — is done.
+  **Option B follow-up ✓ Landed (2026-05-19)** — actual code-level
+  sharing of the `WebSocket` class.  The structurally-identical
+  interpreter `WsConnection` and codegen `WebSocketRuntime.WebSocket`
+  are now ONE class, living in `runtime-server-jvm` and used by both
+  backends:
+
+  - `WebSocket` constructor in
+    `runtime-server-jvm/src/main/scala/scalascript/server/jvm/WebSocketRuntime.scala`
+    gains `_executor` / `_heartbeats` / `_heartbeatIntervalMs` /
+    `_deadAfterMs` / `_log` ctor params with codegen-side defaults
+    (the existing top-level `_serverExecutor` / `_wsHeartbeats`).
+    `ProxyRuntime`'s call site is unchanged (picks up defaults).
+  - `backend-interpreter/.../WsConnection.scala` shrinks from 442 LOC
+    to 136 LOC — the duplicate WS class is deleted.  File now holds
+    only `object WsConnection` as a thin bridge: slot-mgmt delegators
+    + `asValue(ws, interp, log, request): Value` that wraps a shared
+    `WebSocket` into the byte-identical `Value.InstanceV("WebSocket", …)`
+    user code expects.
+  - `WsProxy.scala` constructs the shared
+    `scalascript.server.jvm.WebSocket` directly, passing the
+    interpreter's `wsExecutor` and `heartbeats`.
+  - `backendInterpreter` gains a `dependsOn(runtimeServerJvm)` so the
+    shared class is on its classpath.
+  - `TlsProxy.scala` left as-is — it uses `BlockingWsSession`
+    (outbound-client-side blocking session), not `WsConnection`.
+
+  Net delta: −252 LOC across the four files; one `WebSocket` class,
+  two backends, identical wire behaviour.  All 18 WS conformance
+  tests + 8 JvmGenEffectsRuntimeTest (incl. scala-cli end-to-end
+  compile of `serve(8080)` modules) pass.
+
+  Option B fully closed — both thread model AND the class itself are
+  unified across backends.
 
 ### Deferred follow-ups (v1.17.x backlog, ordered by priority)
 
