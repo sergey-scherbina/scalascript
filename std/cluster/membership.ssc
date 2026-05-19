@@ -72,4 +72,16 @@ object Cluster:
   // `suspect` (vs free intrinsic `isSuspect`) for the same shadowing reason.
   def suspect(nodeId: String, threshold: Double = 8.0): Boolean =
     isSuspect(nodeId, threshold)
+
+  // Local node identifier (the string passed to `startNode`).  Empty
+  // when the process hasn't joined a cluster.
+  def self(): String =
+    selfNode()
+
+  // Map of nodeId → phi for every connected peer.  Snapshot, not live;
+  // call again for a refreshed view.  Equivalent to
+  //   members().map(n => n -> phi(n)).toMap
+  // but produced atomically inside the actor scheduler.
+  def health(): Map[String, Double] =
+    clusterHealth()
 ```

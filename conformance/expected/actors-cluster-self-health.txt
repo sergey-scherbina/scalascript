@@ -1,0 +1,3 @@
+self=''
+healthSize=0
+ok

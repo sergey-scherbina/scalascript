@@ -1,7 +1,7 @@
 ---
 name: std-actors
-version: 1.5.0
-description: "Erlang-style actor supervision + bounded mailboxes + process introspection + cluster registry + cluster visibility + phi-accrual failure detector — v1.6 Phase 2 + v1.6.x + v1.23"
+version: 1.6.0
+description: "Erlang-style actor supervision + bounded mailboxes + process introspection + cluster registry + cluster visibility + phi-accrual failure detector + self / health snapshot — v1.6 Phase 2 + v1.6.x + v1.23"
 package: std.actors
 exports:
   - ChildSpec
@@ -19,6 +19,8 @@ exports:
   - subscribeClusterEvents
   - phiOf
   - isSuspect
+  - selfNode
+  - clusterHealth
 ---
 
 # std.actors — Actor supervision
@@ -140,6 +142,17 @@ extern def phiOf(nodeId: String): Double
 // Cassandra "definitely dead" cut-off — high enough to ignore brief
 // stalls but low enough to fire within ~10 s of a wedged peer.
 extern def isSuspect(nodeId: String, threshold: Double = 8.0): Boolean
+
+// ─── Local node identity + cluster health snapshot (v1.23) ───────────────────
+
+// Local nodeId as passed to `startNode(nodeId, url?)`.  Empty string when
+// the process has not called `startNode` (single-node mode).
+extern def selfNode(): String
+
+// Map of `nodeId → phi` for every connected peer at this instant.  Useful
+// for ops dashboards and admission-control logic.  Empty in single-node
+// mode.  Equivalent to `clusterMembers().map(n => n -> phiOf(n)).toMap`.
+extern def clusterHealth(): Map[String, Double]
 
 // ─── Supervision tree ─────────────────────────────────────────────────────────
 
