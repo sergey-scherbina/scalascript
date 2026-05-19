@@ -4009,12 +4009,18 @@ function _runActors(bodyFn) {
       }
     }
   }
+  // v1.23 — URL-keyed dedupe so concurrent peer-loss + dial-failure
+  // events for the same URL don't each spin up an independent
+  // exponential-backoff loop.
+  const _reconnectActive = new Set();
   function _scheduleReconnect(rurl, rtok) {
+    if (_reconnectActive.has(rurl)) return;
+    _reconnectActive.add(rurl);
     let delay = Math.max(_reconnectInitialMs, 1);
     const attempt = () => {
-      if (_reconnectInitialMs <= 0) return;
+      if (_reconnectInitialMs <= 0) { _reconnectActive.delete(rurl); return; }
       // Already reconnected?  `_peerUrls` is populated on successful handshake.
-      for (const u of _peerUrls.values()) if (u === rurl) return;
+      for (const u of _peerUrls.values()) if (u === rurl) { _reconnectActive.delete(rurl); return; }
       try { _connectNodeAsync(rurl, rtok); } catch (_) {}
       const cap = _reconnectMaxMs > 0 ? _reconnectMaxMs : delay;
       delay = Math.min(delay * 2, Math.max(cap, delay));
@@ -4777,10 +4783,16 @@ private val JsRuntimeAsyncB: String = """
       }
       case 'globalRegister': {
         const grName = args[0];
-        const grPid  = args[1];
-        if (grPid && grPid._type === 'Pid') {
+        const grPidRaw = args[1];
+        if (grPidRaw && grPidRaw._type === 'Pid') {
+          // v1.23 — stamp local nodeId on Pids that came back from a
+          // local spawn (which sets nodeId='').  Without this the
+          // broadcast payload's `nodeId` is empty and remote nodes
+          // silently drop every cross-node send to this name.
+          const grNid = grPidRaw.nodeId ? grPidRaw.nodeId : _localNodeId;
+          const grPid = Pid(grNid, grPidRaw.localId);
           _globalRegistry.set(grName, grPid);
-          const payload = JSON.stringify({ t: 'global_reg', name: grName, nodeId: grPid.nodeId, localId: String(grPid.localId) });
+          const payload = JSON.stringify({ t: 'global_reg', name: grName, nodeId: grNid, localId: String(grPid.localId) });
           for (const [, peer] of _peerChannels) { try { peer.send(payload); } catch (_) {} }
         }
         return { suspend: false, next: k(undefined) };
