@@ -56,12 +56,13 @@ class McpWalletServerTest extends AnyFunSuite:
 
   // ── tool registration ────────────────────────────────────────────────
 
-  test("installOn registers read-only + signing tools by default") {
+  test("installOn registers read-only + signing + tx tools by default") {
     val (_, builder) = newServer()
     val names = builder.tools.keys.toSet
     assert(names == Set(
       "wallet.listAccounts", "wallet.getAddress", "wallet.getBalance",
       "wallet.signMessage", "wallet.signTypedData", "wallet.payX402",
+      "wallet.sendTransaction",
     ))
   }
 

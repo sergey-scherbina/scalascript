@@ -919,7 +919,17 @@ lazy val mcpWallet = project
 
 lazy val mcpX402 = project
   .in(file("mcp-x402"))
-  .dependsOn(mcpCommon, x402Core)
+  .dependsOn(
+    mcpCommon, x402Core,
+    // Test-scope: the composition demo wires mcp-wallet + blockchain-evm
+    // into the agent flow. Production callers don't need these on
+    // compile classpath — McpWalletPaymentSigner only needs an opaque
+    // `callTool: (name, args) => Future[ujson.Value]` function.
+    mcpWallet          % Test,
+    walletStrategyEoa  % Test,
+    blockchainEvm      % Test,
+    cryptoBouncycastle % Test,
+  )
   .settings(
     name := "scalascript-mcp-x402",
     libraryDependencies ++= Seq(

@@ -4,7 +4,7 @@ import java.security.{MessageDigest, SecureRandom}
 import scala.concurrent.{Await, ExecutionContext, Future}
 import scala.concurrent.duration.*
 import scalascript.blockchain.evm.Eip3009
-import scalascript.blockchain.spi.{Asset, ChainContext, ChainId, TypedData}
+import scalascript.blockchain.spi.{Asset, ChainContext, ChainId, TxIntent, TypedData}
 import scalascript.mcp.{McpServerBuilder, ResourceHandlerResult, ToolHandlerResult}
 import scalascript.wallet.spi.{AccountManager, Vault}
 
@@ -44,9 +44,10 @@ class McpWalletServer(
     if policy.exposes("wallet.getAddress")   then registerGetAddress(builder)
     if policy.exposes("wallet.getBalance")   then registerGetBalance(builder)
     // Signing (Phase 2) — only registered when policy.exposes() allows
-    if policy.exposes("wallet.signMessage")   then registerSignMessage(builder)
-    if policy.exposes("wallet.signTypedData") then registerSignTypedData(builder)
-    if policy.exposes("wallet.payX402")       then registerPayX402(builder)
+    if policy.exposes("wallet.signMessage")     then registerSignMessage(builder)
+    if policy.exposes("wallet.signTypedData")   then registerSignTypedData(builder)
+    if policy.exposes("wallet.payX402")         then registerPayX402(builder)
+    if policy.exposes("wallet.sendTransaction") then registerSendTransaction(builder)
     // Audit resource always available
     registerAuditResource(builder)
 
@@ -390,6 +391,105 @@ class McpWalletServer(
           )
     }
 
+  // ── sendTransaction (Phase 5) ─────────────────────────────────────────
+
+  private def registerSendTransaction(builder: McpServerBuilder): Unit =
+    builder.tool(
+      name        = "wallet.sendTransaction",
+      description = Some("Build, sign, and broadcast a transaction. Policy-gated and capped by maxPerCall."),
+      inputSchema = ujson.Obj(
+        "type"       -> ujson.Str("object"),
+        "properties" -> ujson.Obj(
+          "chainId" -> ujson.Obj("type" -> ujson.Str("string")),
+          "to" -> ujson.Obj(
+            "type"        -> ujson.Str("string"),
+            "description" -> ujson.Str("Recipient address. Absent = contract creation (deploy)."),
+          ),
+          "value" -> ujson.Obj(
+            "type"        -> ujson.Str("string"),
+            "description" -> ujson.Str("Native coin to attach, as a decimal string. Default 0."),
+          ),
+          "data" -> ujson.Obj(
+            "type"        -> ujson.Str("string"),
+            "description" -> ujson.Str("Hex-encoded calldata (0x-prefixed). Default empty."),
+          ),
+        ),
+        "required" -> ujson.Arr(ujson.Str("chainId")),
+      ),
+      handler = args => awaitTool(handleSendTransaction(args)),
+    )
+
+  private def handleSendTransaction(args: Map[String, Any]): Future[ToolHandlerResult] =
+    chainAndStrategy(args, "wallet.sendTransaction") match
+      case Left(err)            => Future.successful(err)
+      case Right((chain, s, a)) =>
+        val toOpt    = args.get("to").map(_.toString).filter(_.nonEmpty)
+        val value    = args.get("value").map(v => BigInt(v.toString)).getOrElse(BigInt(0))
+        val data     = args.get("data").map(d => hexDecode(d.toString)).getOrElse(Array.emptyByteArray)
+        // Cap check: total native value moved must not exceed
+        // policy.maxPerCall for this chain. Calls that move only
+        // calldata (value=0) are not capped — the call's contract-
+        // level economic effect is the responsibility of higher
+        // layers, since the wallet can't reason about it generically.
+        policy.maxPerCall.get(chain) match
+          case Some(cap) if value > cap =>
+            recordError("wallet.sendTransaction", Some(chain), s"value $value exceeds policy cap $cap")
+            Future.successful(errorResult(s"value $value exceeds policy cap for $chain"))
+          case _ =>
+            doSendTransaction(chain, s, a, toOpt, value, data)
+
+  private def doSendTransaction(
+    chain:    ChainId,
+    strategy: scalascript.wallet.spi.AccountStrategy,
+    adapter:  scalascript.blockchain.spi.ChainAdapter,
+    toOpt:    Option[String],
+    value:    BigInt,
+    data:     Array[Byte],
+  ): Future[ToolHandlerResult] =
+    val ctx    = ctxFor(chain)
+    val intent = toOpt match
+      case Some(t) => TxIntent.ContractCall(t, data, value)
+      case None    => TxIntent.Deploy(data)
+    val summary = toOpt match
+      case Some(t) => s"Send tx on $chain to $t (value $value, data ${data.length} bytes)"
+      case None    => s"Deploy contract on $chain (${data.length} bytes init code)"
+    confirm(ElicitationRequest(
+      tool    = "wallet.sendTransaction",
+      chainId = Some(chain),
+      summary = summary,
+      details = Map(
+        "to"        -> toOpt.getOrElse("(deploy)"),
+        "value"     -> value.toString,
+        "dataBytes" -> data.length.toString,
+      ),
+    )).flatMap {
+      case false =>
+        recordRejection("wallet.sendTransaction", Some(chain))
+        Future.successful(errorResult("User rejected transaction"))
+      case true =>
+        for
+          from   <- strategy.getAddress(adapter)
+          tx     <- adapter.buildTransaction(intent, from, ctx)
+          signed <- strategy.signTransaction(adapter)(tx.asInstanceOf[adapter.Tx])
+          hash   <- adapter.broadcast(signed.asInstanceOf[adapter.SignedTx], ctx)
+        yield
+          recordApproval("wallet.sendTransaction", Some(chain),
+            sig    = hash.value.getBytes("UTF-8"),
+            extra  = Map("to" -> toOpt.getOrElse("(deploy)"), "value" -> value.toString, "txHash" -> hash.value),
+          )
+          ToolHandlerResult(
+            content = List(ujson.Obj(
+              "chainId" -> ujson.Str(chain.caip2),
+              "from"    -> ujson.Str(from),
+              "txHash"  -> ujson.Str(hash.value),
+            )),
+            isError = false,
+          )
+    }.recover { case ex =>
+      recordError("wallet.sendTransaction", Some(chain), ex.getMessage)
+      errorResult(s"sendTransaction failed: ${ex.getMessage}")
+    }
+
   // ── audit resource ────────────────────────────────────────────────────
 
   private def registerAuditResource(builder: McpServerBuilder): Unit =
@@ -496,19 +596,46 @@ class McpWalletServer(
     case n: Double  => ujson.Num(n)
     case other      => ujson.Str(other.toString)
 
+  /** (tool, chainId) → expiry epoch ms. Populated on a fresh
+   *  approval under `ElicitationCached(ttl)`; consulted before the
+   *  next call to short-circuit elicitation while still inside the
+   *  TTL window. Coarse-grained by design — finer cache keys (per
+   *  contract / per amount / per origin) are policy decisions hosts
+   *  can layer on by subclassing. */
+  private val approvalCache =
+    scala.collection.mutable.Map.empty[(String, Option[ChainId]), Long]
+
   /** Run elicitation when policy demands it; auto-approve in Implicit
-   *  mode. Returns Future[Boolean] — true = signed, false = rejected. */
+   *  mode; consult / refresh the cache under
+   *  ElicitationCached(ttl). Returns Future[Boolean] — true =
+   *  proceed, false = rejected. */
   private def confirm(req: ElicitationRequest): Future[Boolean] =
     policy.confirmation match
       case ConfirmationMode.Implicit =>
         Future.successful(true)
-      case ConfirmationMode.ElicitationPerCall | _: ConfirmationMode.ElicitationCached =>
-        elicitation match
-          case None =>
-            // No handler — policy demands one. Fail closed.
-            Future.successful(false)
-          case Some(h) =>
-            h.confirm(req)
+
+      case ConfirmationMode.ElicitationCached(ttlSeconds) =>
+        val key = (req.tool, req.chainId)
+        val now = System.currentTimeMillis()
+        approvalCache.synchronized(approvalCache.get(key)) match
+          case Some(expiry) if expiry > now =>
+            // Within TTL — auto-approve.
+            Future.successful(true)
+          case _ =>
+            askHandler(req).map { approved =>
+              if approved then
+                approvalCache.synchronized:
+                  approvalCache(key) = now + ttlSeconds.toLong * 1000L
+              approved
+            }
+
+      case ConfirmationMode.ElicitationPerCall =>
+        askHandler(req)
+
+  private def askHandler(req: ElicitationRequest): Future[Boolean] =
+    elicitation match
+      case None    => Future.successful(false)    // fail-closed
+      case Some(h) => h.confirm(req)
 
   private def recordApproval(
     tool: String, chain: Option[ChainId], sig: Array[Byte],
