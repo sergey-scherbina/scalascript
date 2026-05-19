@@ -489,6 +489,20 @@ lazy val clientRedis = project
     Test    / scalacOptions ++= sharedScalacOptions,
   )
 
+lazy val clientEvm = project
+  .in(file("client-evm"))
+  .settings(
+    name := "scalascript-client-evm",
+    libraryDependencies ++= Seq(
+      "com.softwaremill.sttp.client4" %% "core"  % "4.0.0-M17",
+      "com.softwaremill.sttp.client4" %% "upickle" % "4.0.0-M17",
+      "com.lihaoyi"                   %% "upickle" % "3.3.1",
+      scalatestTest,
+    ),
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions,
+  )
+
 lazy val root = project
   .in(file("."))
   .aggregate(
@@ -497,7 +511,7 @@ lazy val root = project
     runtimeServerJvmJetty, runtimeServerJvmNetty, mcpCommon,
     backendJvm, backendJs, backendNode, backendScalajs, backendWasm, backendInterpreter,
     backendScalaSource, backendHtml, backendCss, backendSpark,
-    cli, clientPostgres, clientRedis
+    cli, clientPostgres, clientRedis, clientEvm
   )
   .settings(
     publish / skip := true
