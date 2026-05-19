@@ -1,0 +1,30 @@
+---
+name: dep-cps-ping
+description: Tiny fixture dep for Strategy D — exercises primitives, transitivity, val-binding, pure tail
+package: std.depCpsPing
+---
+
+# dep-cps-ping
+
+Two functions exercising the four shapes Strategy D must get right:
+
+1. `ping` — direct primitive calls (`self()`, `!`, `receive`) returning
+   a value. Includes the standard request-reply pattern (sender embeds
+   its own pid in the request so the responder can reply).
+2. `pingPair` — transitive effectfulness (`pingPair` → `ping`) +
+   val-binding of an effectful result + pure tail (`first + "/" +
+   second`) embedded inside a CPS chain.
+
+```scalascript
+def ping(pid: Any): String =
+  val me = self()
+  pid ! ("ping", me)
+  receive {
+    case "pong" => "ok"
+  }
+
+def pingPair(p1: Any, p2: Any): String =
+  val first  = ping(p1)
+  val second = ping(p2)
+  first + "/" + second
+```

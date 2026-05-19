@@ -1,0 +1,47 @@
+#!/usr/bin/env ssc
+---
+name: dep-cps-basic
+description: Canonical green target for Strategy D (dep-mode CPS rewrite) — Steps 1-4 of docs/dep-cps-rewrite.md
+backends: [jvm]
+pending: needs Strategy D from docs/dep-cps-rewrite.md (dep-mode CPS rewriter)
+---
+
+# Dep-mode CPS rewriter — minimal fixture
+
+Reproduces the architectural bug documented in `docs/dep-cps-rewrite.md`
+on the smallest possible surface area. When Strategy D Steps 1-4 land,
+this test must go green; before that, it fails with `Found: Any /
+Required: String` shape (the dep declares `String` return but the
+actor receive primitive returns `Any` in non-CPS dep context).
+
+Exercises:
+- direct primitive calls (`self()`, `!`, `receive`) — `ping`
+- transitive effectfulness (`pingPair` → `ping`) — fixpoint check
+- val-binding of an effectful result — `val first = ping(p1)`
+- pure tail in a CPS chain — `first + "/" + second`
+
+[ping, pingPair](../std/dep-cps-ping.ssc)
+
+```scalascript
+runActors {
+  val r1 = spawn { () =>
+    receive {
+      case ("ping", from) =>
+        from ! "pong"
+    }
+  }
+  val r2 = spawn { () =>
+    receive {
+      case ("ping", from) =>
+        from ! "pong"
+    }
+  }
+  println(pingPair(r1, r2))
+}
+```
+
+Expected output:
+
+```
+ok/ok
+```
