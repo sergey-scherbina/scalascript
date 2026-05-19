@@ -235,7 +235,111 @@ class JvmGen(
       .collect { case s: String => s }
     mainEntry.foreach { name => sb.append(s"$name()\n") }
 
-    sb.toString.stripTrailing() + "\n"
+    mergeDuplicatePackageObjects(sb.toString.stripTrailing()) + "\n"
+
+  /** Merge multiple `object X { object Y { ... } }` declarations sharing
+   *  the same outer chain into one — needed when several inlined imports
+   *  all declare `package: X.Y` and would otherwise produce duplicate
+   *  top-level `object X` blocks that Scala 3 refuses to compile.
+   *
+   *  Uses scala.meta to walk the source: collect top-level `Defn.Object`
+   *  by name, merge their bodies pairwise (recursively for matching
+   *  inner objects), emit the merged form back. Non-object top-level
+   *  statements pass through unchanged in their original order. */
+  /** Brace-balanced scanner. Walks `src` looking for top-level `object X { … }`
+   *  blocks (column-0 `object` keyword); groups by name; merges bodies of
+   *  same-name blocks into the FIRST occurrence and removes the rest.
+   *  Plain string-level — scala.meta can't parse the 300KB+ emitted source.
+   *  Brace counting respects double-quoted strings and `//` line comments;
+   *  triple-quoted strings and `/* */` comments are rare enough at the
+   *  outer indent level that we don't track them. */
+  private def mergeDuplicatePackageObjects(src: String): String =
+    case class Block(name: String, start: Int, end: Int, headerEnd: Int, bodyEnd: Int)
+    val blocks = scala.collection.mutable.ListBuffer.empty[Block]
+    val n = src.length
+    var i = 0
+    while i < n do
+      // Only consider object decls anchored at column 0.
+      val atCol0 = i == 0 || src.charAt(i - 1) == '\n'
+      if atCol0 && src.startsWith("object ", i) then
+        // Parse "object <Name> {"
+        var j = i + "object ".length
+        val nameStart = j
+        while j < n && (src.charAt(j).isLetterOrDigit || src.charAt(j) == '_') do j += 1
+        val name = src.substring(nameStart, j)
+        while j < n && src.charAt(j) == ' ' do j += 1
+        if j < n && src.charAt(j) == '{' then
+          // Brace-match to find the closing }.
+          var depth   = 1
+          var k       = j + 1
+          var inStr   = false
+          var inLnCmt = false
+          while k < n && depth > 0 do
+            val c = src.charAt(k)
+            if inLnCmt then
+              if c == '\n' then inLnCmt = false
+            else if inStr then
+              if c == '\\' && k + 1 < n then k += 1
+              else if c == '"' then inStr = false
+            else
+              c match
+                case '"' => inStr = true
+                case '/' if k + 1 < n && src.charAt(k + 1) == '/' => inLnCmt = true; k += 1
+                case '{' => depth += 1
+                case '}' => depth -= 1
+                case _   => ()
+            k += 1
+          blocks += Block(name, i, k, j + 1, k - 1)  // [start, end), body = (headerEnd, bodyEnd]
+          i = k
+        else i = j
+      else i += 1
+
+    // Group by name; only top-level objects (ones we discovered above) are
+    // candidates for merge. First occurrence keeps its position; later
+    // occurrences have their bodies appended to the first and are dropped
+    // from the output entirely.
+    val grouped = blocks.groupBy(_.name).filter(_._2.size > 1)
+    if grouped.isEmpty then return src
+
+    val toDrop  = scala.collection.mutable.Set.empty[Int]
+    val mergeInto = scala.collection.mutable.Map.empty[Int, StringBuilder]
+    for (_, group) <- grouped do
+      val first = group.head
+      val sb    = new StringBuilder
+      group.tail.foreach { b =>
+        // Inner body text, trimmed of leading/trailing whitespace and outer
+        // braces (we keep the original first block's outer braces).
+        val body = src.substring(b.headerEnd, b.bodyEnd).stripTrailing()
+        if body.nonEmpty then
+          sb.append("\n").append(body)
+        toDrop += b.start  // identify by start position
+      }
+      mergeInto(first.start) = sb
+
+    // Reassemble: walk blocks in order; for each block keep it (with merge
+    // appended for the first occurrence), or skip it (subsequent dupes).
+    val out = new StringBuilder
+    var cursor = 0
+    for b <- blocks.sortBy(_.start) do
+      if toDrop.contains(b.start) then
+        // Emit prefix up to b.start, then skip the block. Trim a trailing
+        // blank line if present so we don't leave a gap.
+        out.append(src.substring(cursor, b.start))
+        // Trim trailing whitespace from out so we don't accumulate blanks.
+        while out.nonEmpty && (out.last == ' ' || out.last == '\n') do out.setLength(out.length - 1)
+        out.append('\n').append('\n')
+        cursor = b.end
+      else
+        mergeInto.get(b.start) match
+          case Some(extra) if extra.nonEmpty =>
+            // Emit prefix + block-up-to-closing-brace + appended bodies + closing brace.
+            out.append(src.substring(cursor, b.bodyEnd))
+            out.append(extra)
+            out.append(src.substring(b.bodyEnd, b.end))
+            cursor = b.end
+          case _ => () // leave cursor; the block will be copied by the trailing append below
+    out.append(src.substring(cursor))
+    out.toString
 
   // ─── v2.0 Phase 2 — split-runtime emit helpers ──────────────────────────
 

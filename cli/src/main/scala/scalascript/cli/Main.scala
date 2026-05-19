@@ -2673,8 +2673,27 @@ def compileCommand(args: List[String]): Unit =
     if !os.exists(path) then { println(s"Error: File not found: $file"); System.exit(1) }
     else
       try
+        // Pre-walk the local-import graph so cycles surface as a clear
+        // error rather than a confusing duplicate-definition spam from
+        // scala-cli. JvmGen.inlineImport handles the actual inlining of
+        // `[name](path.ssc)` markdown-link imports — but it currently
+        // emits each dep's `package:` wrapper independently, so a test
+        // that pulls in multiple modules sharing a `package` prefix
+        // (e.g. several files from `std/mapreduce/*`) produces duplicate
+        // `object std { object mapreduce { … } }` blocks and won't
+        // compile. See "Known issues" in MILESTONES.md for the deeper
+        // fix; for now AutoResolve just catches cycles.
+        val resolution = AutoResolve.resolve(path)
+        if resolution.cycles.nonEmpty then
+          System.err.println(s"compile: ${resolution.cycles.length} import cycle(s) detected:")
+          resolution.cycles.foreach { cycle =>
+            System.err.println(s"  ${cycle.map(_.last).mkString(" → ")}")
+          }
+          System.exit(1)
+        @annotation.unused val _ar = resolution
         val script = expectText(compileViaBackend("jvm", path), "compile")
-        val tmp    = os.temp(script, suffix = ".sc", deleteOnExit = true)
+
+        val tmp = os.temp(script, suffix = ".sc", deleteOnExit = true)
         try
           val result = os.proc("scala-cli", "run", tmp, "--server=false").call(
             stdout = os.Inherit,
