@@ -51,7 +51,12 @@ class AuthServer(
   /** v1.17.x — single-use challenge store for passkey assertion
    *  flows.  Same pattern as authorization codes — issue, consume
    *  once, refuse replay. */
-  val passkeyChallenges: Passkey.ChallengeStore = new Passkey.InMemoryChallengeStore()
+  val passkeyChallenges: Passkey.ChallengeStore = new Passkey.InMemoryChallengeStore(),
+  /** v1.17.x — rate limiter for the `/token` + `/authorize` hot paths.
+   *  Defaults to a no-op (no throttling).  Production deployments
+   *  should wire a `RateLimiter.TokenBucket(cap, refillRatePerSec)`
+   *  with sensible budgets (10/min/client + 60/min/IP is typical). */
+  val rateLimiter: RateLimiter = RateLimiter.Disabled
 ):
   import OAuth._
 
@@ -205,23 +210,46 @@ class AuthServer(
       case Left(err)     => TokenOutcome.Error(err, "client authentication failed")
       case Right(client) =>
         tokens.findRefreshToken(g.refreshToken) match
-          case None      => TokenOutcome.Error("invalid_grant", "refresh token not found")
+          case None =>
+            // v1.17.x — refresh-token reuse detection.  When the
+            // token shows up in the graveyard (rotated-out tokens),
+            // the client just replayed a previously-used token —
+            // classic stolen-refresh-token signal.  Burn the entire
+            // family so the legitimate descendant chain is voided
+            // too.  OAuth 2.1 §4.14.2.
+            tokens.graveyardLookup(g.refreshToken) match
+              case Some(familyId) =>
+                tokens.revokeRefreshFamily(familyId)
+                TokenOutcome.Error("invalid_grant",
+                  "refresh token reuse detected — family revoked")
+              case None =>
+                TokenOutcome.Error("invalid_grant", "refresh token not found")
           case Some(rec) =>
             if rec.clientId != client.id then
               TokenOutcome.Error("invalid_grant", "refresh token was issued to a different client")
             else if rec.expiresAt < java.time.Instant.now.getEpochSecond then
               TokenOutcome.Error("invalid_grant", "refresh token expired")
+            else if tokens.isFamilyRevoked(rec.familyId) then
+              // Family already burned by a prior reuse detection — refuse.
+              TokenOutcome.Error("invalid_grant", "refresh token family revoked")
             else
               // Optional narrower scope on refresh (RFC 6749 §6).  Empty
               // request scope keeps the original.  Wider scopes rejected.
-              val newScope =
+              val newScope: Set[String] =
                 if g.scope.isEmpty then rec.scope
                 else if g.scope.subsetOf(rec.scope) then g.scope
-                else
-                  return TokenOutcome.Error("invalid_scope", "refresh scope is wider than the original")
-              // OAuth 2.1 §6.1: rotate the refresh token (single-use).
-              tokens.revokeRefreshToken(g.refreshToken)
-              TokenOutcome.Issued(mintTokens(client, rec.subject, newScope))
+                else Set.empty  // sentinel; checked below
+              if g.scope.nonEmpty && !g.scope.subsetOf(rec.scope) then
+                TokenOutcome.Error("invalid_scope", "refresh scope is wider than the original")
+              else
+                // OAuth 2.1 §6.1: rotate the refresh token (single-use).
+                // Move to graveyard rather than plain-revoke so a future
+                // replay of the same token can be detected as reuse and
+                // burn the family.
+                tokens.revokeRefreshToken(g.refreshToken)
+                tokens.graveyardAdd(g.refreshToken, rec.familyId)
+                TokenOutcome.Issued(mintTokens(client, rec.subject, newScope,
+                  familyId = Some(rec.familyId)))
 
   private def handleClientCreds(g: TokenRequest.ClientCredentialsGrant): TokenOutcome =
     authenticateClient(g.clientId, Some(g.clientSecret)) match
@@ -250,7 +278,13 @@ class AuthServer(
             scope        = g.scope
           ))
 
-  private def mintTokens(client: Client, subject: String, scope: Set[String]): TokenResponse =
+  private def mintTokens(
+    client: Client, subject: String, scope: Set[String],
+    /** v1.17.x — when refreshing an existing token, the new token
+     *  inherits the original family id so reuse detection covers the
+     *  whole chain.  None on initial issue → a fresh family is born. */
+    familyId: Option[String] = None
+  ): TokenResponse =
     // jti distinguishes back-to-back issuances that share iat/exp/scope —
     // matters for rotation tests + revocation lists.
     val access = signer.sign(buildAccessTokenPayload(
@@ -262,12 +296,14 @@ class AuthServer(
       extra            = ujson.Obj("jti" -> randomOpaqueToken(12))
     ))
     val refresh = randomOpaqueToken(32)
+    val fid     = familyId.getOrElse(refresh)  // fresh family rooted at this token
     tokens.saveRefreshToken(RefreshTokenRecord(
       token     = refresh,
       clientId  = client.id,
       subject   = subject,
       scope     = scope,
-      expiresAt = java.time.Instant.now.getEpochSecond + config.refreshTokenTtlSeconds
+      expiresAt = java.time.Instant.now.getEpochSecond + config.refreshTokenTtlSeconds,
+      familyId  = fid
     ))
     TokenResponse(
       accessToken  = access,
@@ -693,7 +729,13 @@ case class RefreshTokenRecord(
   clientId:  String,
   subject:   String,
   scope:     Set[String],
-  expiresAt: Long
+  expiresAt: Long,
+  /** v1.17.x — token family id.  All refresh tokens descended from
+   *  the same authorization grant share this id.  Detecting a reused
+   *  (already-rotated) refresh token from a family lets the AS revoke
+   *  the entire chain at once — defeats the stolen-refresh-token
+   *  attack (RFC OAuth 2.1 §4.14.2). */
+  familyId:  String        = ""
 )
 
 // ─── Pluggable stores ─────────────────────────────────────────────────
@@ -726,11 +768,41 @@ trait TokenStore:
    *  `revokeAccessToken`.  Callers normally lift the `jti` claim from
    *  the JWT payload before calling. */
   def isAccessRevoked(jtiOrToken: String): Boolean
+  /** v1.17.x — refresh-token family burn.  Revokes every refresh
+   *  token sharing the supplied familyId AND blocks future reuse of
+   *  any descended token.  Called when reuse-detection trips.
+   *  Returns the count of tokens revoked (for telemetry). */
+  def revokeRefreshFamily(familyId: String): Int
+  /** True iff this familyId has been burned.  Consulted in the
+   *  refresh-grant hot path — burned families MUST refuse all
+   *  subsequent rotations even if the AS's in-memory map "forgets"
+   *  individual revoked tokens (e.g. after a restart with persisted
+   *  family-deny but not per-token list). */
+  def isFamilyRevoked(familyId: String): Boolean
+  /** v1.17.x — graveyard lookup for previously-rotated refresh tokens.
+   *  When `findRefreshToken(t)` returns None on the hot path, the AS
+   *  calls this to check whether `t` is a stale rotation — if it is,
+   *  presenting it again is a reuse-attack signal and the whole
+   *  family should be burned.  Returns `Some(familyId)` for known
+   *  graveyard entries, None for truly unknown tokens. */
+  def graveyardLookup(token: String): Option[String]
+  /** Move a refresh token to the graveyard at rotation time.  After
+   *  this call, `findRefreshToken(t)` returns None but
+   *  `graveyardLookup(t)` returns `Some(familyId)` until the
+   *  implementation eventually GCs the entry (after a TTL or
+   *  capacity bound — InMemoryTokenStore keeps the last 10k). */
+  def graveyardAdd(token: String, familyId: String): Unit
 
-class InMemoryTokenStore extends TokenStore:
+class InMemoryTokenStore(graveyardCap: Int = 10_000) extends TokenStore:
   private val codes        = ConcurrentHashMap[String, AuthorizationCodeRecord]()
   private val refresh      = ConcurrentHashMap[String, RefreshTokenRecord]()
   private val accessDeny   = ConcurrentHashMap.newKeySet[String]()
+  private val familyDeny   = ConcurrentHashMap.newKeySet[String]()
+  /** Bounded LRU-ish graveyard.  ConcurrentLinkedDeque tracks insertion
+   *  order; we evict the oldest entry when capacity is exceeded.
+   *  Capacity 10k = ~640KB of strings — fine for in-process. */
+  private val graveyard    = ConcurrentHashMap[String, String]()
+  private val graveQueue   = java.util.concurrent.ConcurrentLinkedDeque[String]()
   def saveAuthorizationCode(rec: AuthorizationCodeRecord): Unit = codes.put(rec.code, rec)
   def consumeAuthorizationCode(code: String): Option[AuthorizationCodeRecord] =
     Option(codes.remove(code))
@@ -740,3 +812,23 @@ class InMemoryTokenStore extends TokenStore:
   def revokeRefreshToken(token: String): Unit = { refresh.remove(token); () }
   def revokeAccessToken(jti: String): Unit    = { accessDeny.add(jti); () }
   def isAccessRevoked(jti: String): Boolean   = accessDeny.contains(jti)
+  def revokeRefreshFamily(familyId: String): Int =
+    familyDeny.add(familyId)
+    var count = 0
+    val it = refresh.entrySet().iterator()
+    while it.hasNext do
+      val e = it.next()
+      if e.getValue.familyId == familyId then
+        it.remove(); count += 1
+    count
+  def isFamilyRevoked(familyId: String): Boolean = familyDeny.contains(familyId)
+  def graveyardLookup(token: String): Option[String] = Option(graveyard.get(token))
+  def graveyardAdd(token: String, familyId: String): Unit =
+    if graveyard.putIfAbsent(token, familyId) == null then
+      graveQueue.add(token)
+      // Evict oldest entries while over capacity.  Single drain loop;
+      // small competing threads may briefly overshoot — acceptable.
+      while graveyard.size > graveyardCap do
+        Option(graveQueue.pollFirst()) match
+          case Some(t) => graveyard.remove(t)
+          case None    => return ()

@@ -668,11 +668,34 @@ unblocks downstream features as early as possible.
 
      **Security hardening backlog** (remaining iterations):
 
-     **Iter KK — Refresh-token reuse detection + rate limiting**:
-        token-family tracking so a stolen refresh token can be
-        detected on second-use (RFC OAuth 2.1 §4.14.2); per-IP +
-        per-client rate limits on `/token` to defeat brute-force
-        credential probing (sliding-window token bucket).
+     **Iter KK — Refresh-token reuse detection + rate limiting** ✓ —
+     production-grade hardening on top of single-use rotation.
+
+       - **Token family tracking**: every refresh token carries a
+         `familyId` (auto-assigned at initial issuance, inherited
+         across rotations).  Lets the AS revoke a whole chain in
+         one call.  `revokeRefreshFamily(id)` burns every member +
+         marks the family as denied forever.
+       - **Rotated-token graveyard**: rotated-out refresh tokens
+         move into a bounded LRU (default 10k entries) instead of
+         vanishing.  `graveyardLookup(token)` returns the
+         familyId of any previously-rotated token.
+       - **Reuse detection in `handleRefresh`**: when the presented
+         token is not in the active store, check the graveyard;
+         a hit is the stolen-refresh-token signal → burn the
+         family immediately (RFC OAuth 2.1 §4.14.2).
+       - **Burn-list failsafe**: `isFamilyRevoked(familyId)`
+         consulted on every refresh; persists across restarts in
+         the InMemory impl + can be persisted out by custom stores
+         (per-token graveyard may be unbounded; the family deny
+         set is the durable guarantee).
+       - **`scalascript.oauth.RateLimiter`** + `TokenBucket(cap,
+         rate)` (continuous refill, key-scoped buckets) +
+         `Disabled` no-op default.  AuthServer accepts via
+         constructor.  `OAuthRoutes.handleToken` rejects with
+         429 + Retry-After when over budget, keyed by client_id;
+         runs BEFORE any PBKDF2 verify so brute-force probes pay
+         no CPU cost.
 
      3. **Iter LL — Client SDK completeness**: CSRF-safe state
         parameter helpers (generate + verify); JWKS-backed external

@@ -41,6 +41,10 @@ object OAuthRoutes:
     val clientSec   = basicCreds.map(_._2).orElse(form.get("client_secret"))
     if grantType.isEmpty || clientId.isEmpty then
       return jsonError(400, "invalid_request", "missing grant_type or client_id")
+    // v1.17.x — rate limit by client_id before doing any work that
+    // touches stores or runs PBKDF2.  Defeats brute-force probing.
+    if !as.rateLimiter.allow(s"token:$clientId") then
+      return rateLimited()
     val outcome: TokenOutcome = grantType match
       case "authorization_code" =>
         as.issueToken(TokenRequest.AuthorizationCodeGrant(
@@ -234,6 +238,16 @@ object OAuthRoutes:
   private def jsonError(status: Int, error: String, description: String): RouteOutcome =
     RouteOutcome.Json(status,
       ujson.Obj("error" -> error, "error_description" -> description))
+
+  /** RFC 6585 §4 — 429 Too Many Requests.  Carries a generic
+   *  Retry-After hint (5s); production deployments override per-key
+   *  via custom RateLimiter implementations. */
+  private def rateLimited(): RouteOutcome =
+    RouteOutcome.Json(429,
+      ujson.Obj(
+        "error"             -> "slow_down",
+        "error_description" -> "request rate limit exceeded"),
+      Map("Retry-After" -> "5"))
 
   /** Parse `application/x-www-form-urlencoded` into a `Map[String, String]`.
    *  Multi-value keys collapse to the LAST occurrence per RFC 6749 §3.2
