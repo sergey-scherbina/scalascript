@@ -3239,7 +3239,22 @@ What landed (2026-05-19):
   `examples/dsl-sql-recovery.ssc` — IDE-style SQL parser that builds
   a partial AST with error nodes for completion.
 
-## v1.20.2 — DSL: indentation-aware parsing
+## v1.20.2 — DSL: indentation-aware parsing ✓ Landed (Phases 1–2)
+
+**Landing notes (2026-05-19):**
+- Phase 1 ✓: `ParserContext` trait + `NoContext` + `PWithLocalContext` /
+  `PReadContext` ADT nodes added to `core.ssc` (v1.1.0); `localCtx` /
+  `readCtx` extension methods; `runParser` in `combinators.ssc` (v1.1.0)
+  threads context through all nodes; `parseWith` entry point added.
+  `std/parsing/layout.ssc` (new): `IndentContext(currentLevel, stack)`;
+  `columnOf` helper; `PSameIndent` / `PDeeperIndent` guard nodes;
+  `runLayout` interpreter; `withIndent` / `sameIndent` / `deeperIndent` /
+  `block` / `line` extension methods; `parseLayout` / `parseLayoutWith`
+  entry points.
+- Phase 2 ✓: `conformance/indent-config-format.ssc` — multi-level INI-style
+  config DSL with 2-space indented entries; `conformance/indent-block-statements.ssc`
+  — if/while/for block-structured scripting language; `examples/dsl-yaml-like.ssc`
+  — YAML-flavoured nested mapping/sequence parser with query helpers.
 
 Layout-sensitive parsing for DSLs with significant
 indentation (config formats, query languages, scripting

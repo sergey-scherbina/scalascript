@@ -1,0 +1,210 @@
+#!/usr/bin/env ssc
+---
+name: dsl-yaml-like
+version: 1.0.0
+description: v1.20.2 DSL — YAML-flavoured config parser built on std/parsing/layout
+---
+
+# YAML-flavoured config parser
+
+Canonical demo for `std/parsing/layout.ssc` (v1.20.2).  Parses a YAML-like
+format where structure is conveyed entirely by indentation:
+
+```
+server:
+  host: localhost
+  port: 8080
+  tls:
+    cert: /etc/tls/cert.pem
+    key:  /etc/tls/key.pem
+
+database:
+  host: db.internal
+  port: 5432
+  name: myapp
+  pool:
+    min: 2
+    max: 10
+```
+
+No braces, no commas, no delimiters other than a colon and significant whitespace.
+
+## Imports
+
+[Position, ParseError, ParseOk, ParseErr, Parser, PChar, PString, PRegex, PSatisfy, PSucceed, PFail, ParserContext, NoContext, PWithLocalContext, PReadContext](std/parsing/core.ssc)
+
+[PSequence, PChoice, PMany, POpt, PMapped, PFlatMapped, PNamed, runParser](std/parsing/combinators.ssc)
+
+[whitespace, whitespace1, identifier, integer, number, stringLit, skip, keyword, token](std/parsing/helpers.ssc)
+
+[IndentContext, withIndent, sameIndent, deeperIndent, block, line, columnOf, PSameIndent, PDeeperIndent, runLayout, parseLayout, parseLayoutWith](std/parsing/layout.ssc)
+
+## YAML-lite value ADT
+
+```scalascript
+// A scalar string value.
+case class YStr(v: String)
+
+// A mapping (ordered sequence of key-value pairs).
+case class YMap(pairs: List[Any])
+
+// A sequence (list of values).
+case class YSeq(items: List[Any])
+```
+
+## Key and scalar parsers
+
+```scalascript
+// Horizontal whitespace.
+val hspace: Parser[Any] = Parser.regex("[ \t]*")
+
+// A YAML key: identifier or quoted string, followed by a colon.
+val yamlKey: Parser[Any] =
+  (identifier <~ hspace <~ Parser.char(':'))
+    .named("yaml key")
+
+// A scalar value: everything to end-of-line, trimmed.
+val scalarValue: Parser[Any] =
+  Parser.regex("[^\n]+").map(s => YStr(s.asInstanceOf[String].trim))
+
+// Optional trailing space + newline after a scalar.
+val eol: Parser[Any] = hspace <~ Parser.char('\n')
+
+// Blank lines.
+val blankLines: Parser[Any] = Parser.regex("([ \t]*\n)*")
+```
+
+## Value parser (forward reference for recursion)
+
+```scalascript
+// Forward reference — filled in below after yamlMapping is defined.
+var yamlValueRef: Parser[Any] = Parser.fail("yamlValueRef not initialized")
+
+// A sequence item starts with "- " then a value.
+val seqItem: Parser[Any] =
+  (Parser.string("- ") ~> yamlValueRef)
+
+// A sequence block: one or more "- value" items at the same indent.
+val yamlSeq: Parser[Any] =
+  seqItem.block.map(items => YSeq(items.asInstanceOf[List[Any]]))
+
+// A mapping: one or more key-value pairs at the same indent level.
+// Each pair is:  key: <scalar>   (inline)
+//             or key:\n  <nested mapping or sequence>  (block)
+val yamlPair: Parser[Any] =
+  Parser.readCtx { ctx =>
+    val level = ctx match
+      case ic: IndentContext => ic.currentLevel
+      case _                 => 1
+    // Try block value first (no inline scalar after the colon).
+    val blockValue: Parser[Any] =
+      (Parser.char('\n') ~> blankLines ~> yamlValueRef.block.withIndent(level + 2))
+        .map(v => YMap(v.asInstanceOf[List[Any]]))
+    // Inline scalar: space + text on same line.
+    val inlineValue: Parser[Any] =
+      (hspace ~> scalarValue <~ eol)
+    (yamlKey ~ (blockValue | inlineValue))
+      .map(pair => (pair._1, pair._2))
+  }
+
+val yamlMapping: Parser[Any] =
+  yamlPair.block.map(pairs => YMap(pairs.asInstanceOf[List[Any]]))
+
+// Initialize the forward reference.
+yamlValueRef = yamlMapping | yamlSeq | scalarValue
+```
+
+## Top-level document
+
+```scalascript
+// A YAML-lite document is a mapping at column 1.
+val yamlDoc: Parser[Any] =
+  (blankLines ~> yamlMapping <~ blankLines)
+```
+
+## Pretty-printer
+
+```scalascript
+def renderYaml(v: Any, indentLevel: Int): String =
+  val pad = "  " * indentLevel
+  v match
+    case YStr(s)    => s
+    case YSeq(items) =>
+      items.asInstanceOf[List[Any]].map(i => pad + "- " + renderYaml(i, indentLevel)).mkString("\n")
+    case YMap(pairs) =>
+      pairs.asInstanceOf[List[Any]].map { p =>
+        val (k, value) = p.asInstanceOf[(Any, Any)]
+        value match
+          case YMap(_) | YSeq(_) =>
+            pad + k + ":\n" + renderYaml(value, indentLevel + 1)
+          case _ =>
+            pad + k + ": " + renderYaml(value, indentLevel)
+      }.mkString("\n")
+    case _ => v.toString
+```
+
+## Sample document
+
+```scalascript
+val sample = """server:
+  host: localhost
+  port: 8080
+  tls:
+    cert: /etc/tls/cert.pem
+    key: /etc/tls/key.pem
+
+database:
+  host: db.internal
+  port: 5432
+  name: myapp
+  pool:
+    min: 2
+    max: 10
+"""
+```
+
+## Parse and render
+
+```scalascript
+yamlDoc.parseLayoutWith(sample.trim, IndentContext.at(1)) match
+  case ParseOk(doc, _, _) =>
+    println("Parsed successfully.")
+    println(renderYaml(doc, 0))
+  case ParseErr(e) =>
+    println("Parse error at offset " + e.pos.offset + ": " + e.message)
+```
+
+## Query helpers
+
+```scalascript
+// Look up a key in a YMap, returning its value or None.
+def yGet(doc: Any, key: String): Option[Any] =
+  doc match
+    case YMap(pairs) =>
+      pairs.asInstanceOf[List[(Any, Any)]].find(_._1 == key).map(_._2)
+    case _ => None
+
+// Extract a scalar string value.
+def yStr(doc: Any, key: String): Option[String] =
+  yGet(doc, key).flatMap {
+    case YStr(s) => Some(s)
+    case _       => None
+  }
+```
+
+## Demo queries
+
+```scalascript
+yamlDoc.parseLayoutWith(sample.trim, IndentContext.at(1)) match
+  case ParseOk(doc, _, _) =>
+    val serverHost = yGet(doc, "server").flatMap(s => yStr(s, "host"))
+    val dbName     = yGet(doc, "database").flatMap(d => yStr(d, "name"))
+    val poolMax    = yGet(doc, "database")
+                       .flatMap(d => yGet(d, "pool"))
+                       .flatMap(p => yStr(p, "max"))
+    println("server.host = " + serverHost.getOrElse("?"))
+    println("database.name = " + dbName.getOrElse("?"))
+    println("database.pool.max = " + poolMax.getOrElse("?"))
+  case ParseErr(e) =>
+    println("error: " + e.message)
+```

@@ -1,0 +1,132 @@
+---
+name: conformance-indent-config-format
+version: 1.0.0
+description: v1.20.2 conformance — multi-level config DSL with significant indentation
+---
+
+# Indentation-aware config parser — conformance test
+
+Tests `IndentContext`, `withIndent`, `sameIndent`, `block`, `line`, and
+`parseLayoutWith` from `std/parsing/layout.ssc`.
+
+## Imports
+
+[Position, ParseError, ParseOk, ParseErr, Parser, PChar, PString, PRegex, PSatisfy, PSucceed, PFail, ParserContext, NoContext, PWithLocalContext, PReadContext](std/parsing/core.ssc)
+
+[PSequence, PChoice, PMany, POpt, PMapped, PFlatMapped, PNamed, runParser](std/parsing/combinators.ssc)
+
+[whitespace, whitespace1, identifier, integer, number, stringLit, skip, keyword, token](std/parsing/helpers.ssc)
+
+[IndentContext, withIndent, sameIndent, deeperIndent, block, line, columnOf, PSameIndent, PDeeperIndent, runLayout, parseLayout, parseLayoutWith](std/parsing/layout.ssc)
+
+## Config AST
+
+```scalascript
+// A config leaf: key = value
+case class ConfigEntry(key: String, value: String)
+
+// A config section: name { entries... }
+case class ConfigSection(name: String, entries: List[Any])
+
+// Top-level document: a list of sections or entries
+case class ConfigDoc(items: List[Any])
+```
+
+## Parsers
+
+```scalascript
+// Horizontal whitespace only (spaces/tabs — not newlines).
+val hspace: Parser[Any] = Parser.regex("[ \t]*")
+
+// A bare value: everything up to end-of-line.
+val bareValue: Parser[Any] = Parser.regex("[^\n]+").map(s => s.trim)
+
+// key = value  (single line)
+val configEntry: Parser[Any] =
+  (identifier <~ hspace <~ Parser.char('=') <~ hspace ~ bareValue)
+    .map(pair => ConfigEntry(pair._1.asInstanceOf[String], pair._2.asInstanceOf[String]))
+
+// Skip blank lines and their newlines.
+val blankLines: Parser[Any] = Parser.regex("([ \t]*\n)*")
+
+// A section header: "[sectionName]" on its own line.
+val sectionHeader: Parser[Any] =
+  (Parser.char('[') ~> identifier <~ Parser.char(']'))
+    .named("section header")
+
+// A section: header followed by an indented block of entries.
+// Entries must all start at column 3 (2-space indent).
+val configSection: Parser[Any] =
+  (sectionHeader <~ Parser.regex("[ \t]*\n") ~
+    blankLines ~
+    configEntry.block.withIndent(3))
+    .map(pair => ConfigSection(pair._1.asInstanceOf[String], pair._2.asInstanceOf[List[Any]]))
+
+// Top-level: one or more sections or bare entries separated by blank lines.
+val configDoc: Parser[Any] =
+  (blankLines ~> (configSection | configEntry).many1() <~ blankLines)
+    .map(items => ConfigDoc(items.asInstanceOf[List[Any]]))
+```
+
+## Test inputs
+
+```scalascript
+val input1 = """
+[database]
+  host = localhost
+  port = 5432
+  name = mydb
+"""
+
+val input2 = """
+[server]
+  host = 0.0.0.0
+  port = 8080
+
+[database]
+  host = db.internal
+  port = 5432
+"""
+```
+
+## Run tests
+
+```scalascript
+// Helper: pretty-print a config value.
+def showConfig(v: Any): String =
+  v match
+    case ConfigEntry(k, vl)     => k + " = " + vl
+    case ConfigSection(n, es)   => "[" + n + "] (" + es.length + " entries)"
+    case ConfigDoc(items)       => "ConfigDoc(" + items.length + " items)"
+    case _                      => v.toString
+
+// Test 1 — single section
+configDoc.parseLayoutWith(input1.trim, IndentContext.at(1)) match
+  case ParseOk(doc, _, _) =>
+    doc match
+      case ConfigDoc(items) =>
+        println("test1: " + items.length + " section(s)")
+        items.foreach(s => println("  " + showConfig(s)))
+  case ParseErr(e) =>
+    println("test1 FAIL: " + e.message)
+
+// Test 2 — two sections
+configDoc.parseLayoutWith(input2.trim, IndentContext.at(1)) match
+  case ParseOk(doc, _, _) =>
+    doc match
+      case ConfigDoc(items) =>
+        println("test2: " + items.length + " section(s)")
+        items.foreach(s => println("  " + showConfig(s)))
+  case ParseErr(e) =>
+    println("test2 FAIL: " + e.message)
+```
+
+## Expected output
+
+```
+test1: 1 section(s)
+  [database] (3 entries)
+test2: 2 section(s)
+  [server] (2 entries)
+  [database] (2 entries)
+```
