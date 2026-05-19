@@ -221,7 +221,26 @@ case class ExportedSymbol(
   fqn:      String,           // fully-qualified mangled name: pkg segments + name
   kind:     String,           // val | def | object | type | given | extern
   tpe:      String = "Any",   // type annotation (best-effort)
-  span:     Option[Span] = None
+  span:     Option[Span] = None,
+  /** Members nested inside this symbol when it itself is a sub-namespace
+   *  (typically `kind == "object"`).  Empty for leaf symbols.
+   *
+   *  Used by the typer's strict mode to validate deep Select chains like
+   *  `pkg.sub.member` against the consumer's `.scim` interfaces without
+   *  re-parsing source.  Default empty preserves backward compatibility
+   *  with `.scim` artifacts emitted before this field existed.
+   *
+   *  NOTE (v2.0): `InterfaceExtractor` does not currently populate this
+   *  field — the typer doesn't descend into objects so we cannot recover
+   *  the nested member list from a typed module today.  Until that lands,
+   *  `nested` is only populated when callers (or tests) construct
+   *  `ExportedSymbol` directly.  Strict-mode deep-Select checks therefore
+   *  fall back to permissive behaviour for any sub-namespace whose
+   *  `nested` is empty — see `Typer.resolveQualifierChain`.
+   *  TODO(v2.x): extend `InterfaceExtractor` to recursively collect
+   *  inner-object exports into `nested`.
+   */
+  nested:   List[ExportedSymbol] = Nil
 ) derives ReadWriter
 
 /** Typeclass instance entry in a `.scim` interface.

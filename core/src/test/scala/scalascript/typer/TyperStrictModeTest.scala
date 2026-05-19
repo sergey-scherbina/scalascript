@@ -218,3 +218,176 @@ class TyperStrictModeTest extends AnyFunSuite:
     assert(!typed.hasErrors,
       s"Select on builtin literals should pass; got errors:\n" +
       typed.errors.map(_.show).mkString("\n"))
+
+  // ── 11. Deep Select chains — `pkg.sub.member` and deeper ──────────────────
+  //
+  // v2.0 strict-mode extension: the checker walks the qualifier chain
+  // recursively.  A sub-namespace is modelled as an `ExportedSymbol` of
+  // kind "object" whose `nested` list holds its inner exports.  When
+  // every step resolves cleanly the final member is validated against
+  // the deepest namespace; otherwise a single diagnostic names the
+  // exact break point — no cascade.
+
+  /** Build a `ModuleInterface` whose top-level exports may themselves carry
+   *  nested members (a sub-namespace, e.g. an inner object).  Mirrors the
+   *  shape `InterfaceExtractor` would emit once nested-namespace
+   *  extraction is implemented (TODO in `ExportedSymbol.nested`). */
+  private def ifaceWithNested(
+      alias: String,
+      topLevel: List[ExportedSymbol]
+  ): ModuleInterface =
+    ModuleInterface(
+      magic         = scalascript.ir.ArtifactVersion.magic,
+      abiVersion    = scalascript.ir.ArtifactVersion.current,
+      pkg           = List(alias),
+      moduleName    = Some(alias),
+      moduleVersion = None,
+      sourceHash    = "0" * 64,
+      exports       = topLevel
+    )
+
+  private def subNs(name: String, members: String*): ExportedSymbol =
+    ExportedSymbol(
+      name   = name,
+      fqn    = s"pkg_$name",
+      kind   = "object",
+      tpe    = "Any",
+      nested = members.toList.map(m => ExportedSymbol(
+        name = m,
+        fqn  = s"pkg_${name}_$m",
+        kind = "def",
+        tpe  = "Any"
+      ))
+    )
+
+  test("strict + deep Select — `pkg.sub.member` with valid 3-level path: no error"):
+    val iface = ifaceWithNested(
+      alias    = "pkg",
+      topLevel = List(subNs("sub", "member"))
+    )
+    val typed = Typer.typeCheckWithInterfaces(
+      moduleOf("""def use(): Any = pkg.sub.member"""),
+      interfaces = Map("pkg" -> iface),
+      strict     = true
+    )
+    assert(!typed.hasErrors,
+      s"valid 3-level path should resolve; got errors:\n" +
+      typed.errors.map(_.show).mkString("\n"))
+
+  test("strict + deep Select — `pkg.sub.missing` flags the missing leaf, naming `pkg.sub`"):
+    val iface = ifaceWithNested(
+      alias    = "pkg",
+      topLevel = List(subNs("sub", "existing"))
+    )
+    val typed = Typer.typeCheckWithInterfaces(
+      moduleOf("""def use(): Any = pkg.sub.missing"""),
+      interfaces = Map("pkg" -> iface),
+      strict     = true
+    )
+    assert(typed.hasErrors,
+      "expected diagnostic for `pkg.sub.missing`")
+    val msgs = typed.errors.map(_.msg).mkString(" | ")
+    assert(msgs.contains("pkg.sub") && msgs.contains("missing"),
+      s"expected diagnostic to mention both `pkg.sub` and `missing`; got: $msgs")
+    // Single diagnostic — no cascade.
+    val hasNoMemberMsgs = typed.errors.map(_.msg).count(_.contains("has no member"))
+    assert(hasNoMemberMsgs == 1,
+      s"expected exactly one `has no member` diagnostic, got $hasNoMemberMsgs:\n" +
+      typed.errors.map(_.show).mkString("\n"))
+
+  test("strict + deep Select — `pkg.missingSub.anything`: single diagnostic about the first break, no cascade"):
+    val iface = ifaceWithNested(
+      alias    = "pkg",
+      topLevel = List(subNs("sub", "member"))   // `missingSub` is NOT an export
+    )
+    val typed = Typer.typeCheckWithInterfaces(
+      moduleOf("""def use(): Any = pkg.missingSub.anything"""),
+      interfaces = Map("pkg" -> iface),
+      strict     = true
+    )
+    assert(typed.hasErrors,
+      "expected diagnostic about `pkg.missingSub`")
+    val msgs = typed.errors.map(_.msg)
+    assert(msgs.exists(m => m.contains("pkg") && m.contains("missingSub")),
+      s"expected diagnostic naming `pkg` and `missingSub`; got: ${msgs.mkString(" | ")}")
+    // No cascade — should NOT also mention `anything` as missing.
+    val hasNoMemberMsgs = msgs.count(_.contains("has no member"))
+    assert(hasNoMemberMsgs == 1,
+      s"expected exactly one diagnostic, got $hasNoMemberMsgs:\n" +
+      typed.errors.map(_.show).mkString("\n"))
+    assert(!msgs.exists(_.contains("anything")),
+      s"deeper member `anything` should NOT be flagged when the chain already broke; got: ${msgs.mkString(" | ")}")
+
+  test("strict + deep Select — 4-level `pkg.sub.deeper.x` resolves when all valid, errors at first break"):
+    // Build pkg.sub with a nested sub-object `deeper` exporting `x`.
+    val deeper = ExportedSymbol(
+      name   = "deeper",
+      fqn    = "pkg_sub_deeper",
+      kind   = "object",
+      tpe    = "Any",
+      nested = List(ExportedSymbol("x", "pkg_sub_deeper_x", "def", "Any"))
+    )
+    val sub = ExportedSymbol(
+      name   = "sub",
+      fqn    = "pkg_sub",
+      kind   = "object",
+      tpe    = "Any",
+      nested = List(deeper)
+    )
+    val iface = ifaceWithNested(alias = "pkg", topLevel = List(sub))
+
+    val typedOk = Typer.typeCheckWithInterfaces(
+      moduleOf("""def use(): Any = pkg.sub.deeper.x"""),
+      interfaces = Map("pkg" -> iface),
+      strict     = true
+    )
+    assert(!typedOk.hasErrors,
+      s"valid 4-level path should resolve; got errors:\n" +
+      typedOk.errors.map(_.show).mkString("\n"))
+
+    // `pkg.sub.deeper.missingX` — break at the leaf only, naming `pkg.sub.deeper`.
+    val typedBreak = Typer.typeCheckWithInterfaces(
+      moduleOf("""def use(): Any = pkg.sub.deeper.missingX"""),
+      interfaces = Map("pkg" -> iface),
+      strict     = true
+    )
+    val breakMsgs = typedBreak.errors.map(_.msg)
+    assert(breakMsgs.exists(m => m.contains("pkg.sub.deeper") && m.contains("missingX")),
+      s"expected diagnostic naming `pkg.sub.deeper` and `missingX`; got: ${breakMsgs.mkString(" | ")}")
+    assert(breakMsgs.count(_.contains("has no member")) == 1,
+      s"expected exactly one `has no member` diagnostic; got: ${breakMsgs.mkString(" | ")}")
+
+  test("strict + deep Select — chain rooted at a local val (`localVal.x.y`): no false positive"):
+    val typed = Typer.typeCheckStrict(moduleOf(
+      """val localVal = 42
+        |def use(): Any = localVal.x.y""".stripMargin
+    ))
+    assert(!typed.hasErrors,
+      s"Select chain on a local value should not be flagged; got errors:\n" +
+      typed.errors.map(_.show).mkString("\n"))
+
+  test("strict + deep Select — sub-namespace with empty `nested` (extractor TODO): permissive"):
+    // Today, `InterfaceExtractor` does NOT populate `ExportedSymbol.nested`,
+    // so any sub-namespace export has an empty nested list.  Until that
+    // lands, deep selects through such a sub-namespace fall back to
+    // permissive behaviour (no diagnostic, no false positive).  This test
+    // pins down the current behaviour so a future change that flips it
+    // can re-baseline explicitly.
+    // TODO(v2.x): once `InterfaceExtractor` records nested members, flip
+    // this test's expectation to assert that `pkg.sub.unknown` is rejected.
+    val opaqueSub = ExportedSymbol(
+      name   = "sub",
+      fqn    = "pkg_sub",
+      kind   = "object",
+      tpe    = "Any",
+      nested = Nil   // <-- the extractor's current output shape
+    )
+    val iface = ifaceWithNested(alias = "pkg", topLevel = List(opaqueSub))
+    val typed = Typer.typeCheckWithInterfaces(
+      moduleOf("""def use(): Any = pkg.sub.anyMember"""),
+      interfaces = Map("pkg" -> iface),
+      strict     = true
+    )
+    assert(!typed.hasErrors,
+      s"opaque sub-namespace should be permissive today; got errors:\n" +
+      typed.errors.map(_.show).mkString("\n"))
