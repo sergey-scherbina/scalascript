@@ -225,6 +225,49 @@ private def expectText(r: CompileResult, what: String): String = r match
     System.err.println(s"$what: unexpected result ${other.getClass.getSimpleName}")
     System.exit(1); ""
 
+/** Inject the HTTP/WS server backend selection into a generated
+ *  scala-cli script.  See docs/http-server-spi-plan.md for the SPI
+ *  design.
+ *
+ *  - `"jdk"` (default): no change — the default JdkServerBackend is
+ *    already on the script's classpath via the inlined
+ *    runtime-server-jvm sources.
+ *  - `"jetty"` / `"netty"`: prepend a `//> using dep` directive so
+ *    scala-cli pulls the impl jar from Maven (requires the impl
+ *    module to be published — until Option A+ lands, `sbt publishLocal`
+ *    the relevant runtime-server-jvm-{jetty,netty} module first),
+ *    plus an `_ssc_init_backend()` call that ServiceLoader-registers
+ *    the impl and selects it via `setHttpServerBackend(name)`.
+ *
+ *  v1.17.6 / Phase v1.17.6 CLI work. */
+private[cli] def injectServerBackend(script: String, backend: String): String =
+  backend match
+    case "jdk" => script
+    case name @ ("jetty" | "netty") =>
+      val version  = "0.1.0-SNAPSHOT"
+      val libDirective =
+        s"//> using dep io.scalascript::scalascript-runtime-server-jvm-$name:$version\n"
+      val implClass = name match
+        case "jetty" => "scalascript.server.jvm.jetty.JettyServerBackend"
+        case "netty" => "scalascript.server.jvm.netty.NettyServerBackend"
+      // Init runs before any serve() call.  Registers the impl with
+      // HttpServerBackends (in case the script's classpath ServiceLoader
+      // doesn't discover it, which would be the case for sbt-published-
+      // SNAPSHOT scenarios) and selects by name.  Safe to call twice.
+      val initBlock =
+        s"""
+           |// ssc compile --server-backend $name — auto-injected init
+           |scalascript.server.spi.HttpServerBackends.register(new $implClass)
+           |scalascript.server.spi.HttpServerBackends.setBackend("$name")
+           |""".stripMargin
+      // Place the `//> using dep` directive at the very top (scala-cli
+      // requires `using` directives before any Scala code) and the
+      // init block right after — before any user-defined code.
+      libDirective + script + initBlock
+    case other =>
+      // Caller already validates; this is defense.
+      throw new IllegalArgumentException(s"unknown server backend '$other'")
+
 def printUsage(): Unit =
   println("""
     |ScalaScript (ssc)
@@ -259,6 +302,9 @@ def printUsage(): Unit =
     |  watch                  Run .ssc and re-run on every file change
     |  repl                   Start interactive REPL (blank line runs, :quit exits)
     |  compile                Compile and run .ssc on JVM via scala-cli
+    |                         Flags: --server-backend <jdk|jetty|netty>
+    |                                (picks the HttpServerSpi impl — defaults to jdk;
+    |                                 jetty/netty auto-add the //> using dep directive)
     |  package [flags] <f>    Package .ssc via scala-cli package (see flags below)
     |  emit-scala             Print generated Scala 3 script to stdout
     |  emit-spark             Print generated Scala 3 + Spark program to stdout (Phase 1: local)
@@ -4243,8 +4289,26 @@ private def stagePrecompiledDepArtifacts(
   tallies.toMap
 
 def compileCommand(args: List[String]): Unit =
-  if args.isEmpty then { println("Error: No files specified"); System.exit(1) }
-  for file <- args do
+  // Optional --server-backend <name> flag picks which HttpServerSpi
+  // impl the generated script will use at runtime (jdk / jetty / netty).
+  // For "jetty" / "netty" we inject a //> using dep directive so
+  // scala-cli pulls the impl jar from Maven, plus a setHttpServerBackend
+  // call at the top of the user code so HttpServerBackends.current()
+  // returns the chosen one.  v1.17.6 / Phase v1.17.6 CLI work.
+  var serverBackend: String = "jdk"
+  val files = scala.collection.mutable.ArrayBuffer.empty[String]
+  val it = args.iterator
+  while it.hasNext do
+    it.next() match
+      case "--server-backend" if it.hasNext =>
+        val name = it.next()
+        if !Set("jdk", "jetty", "netty").contains(name) then
+          System.err.println(s"compile: unknown --server-backend '$name' (valid: jdk / jetty / netty)")
+          System.exit(1)
+        serverBackend = name
+      case f => files += f
+  if files.isEmpty then { println("Error: No files specified"); System.exit(1) }
+  for file <- files.toList do
     val path = os.Path(file, os.pwd)
     if !os.exists(path) then { println(s"Error: File not found: $file"); System.exit(1) }
     else
@@ -4267,7 +4331,8 @@ def compileCommand(args: List[String]): Unit =
           }
           System.exit(1)
         @annotation.unused val _ar = resolution
-        val script = expectText(compileViaBackend("jvm", path), "compile")
+        val rawScript = expectText(compileViaBackend("jvm", path), "compile")
+        val script    = injectServerBackend(rawScript, serverBackend)
 
         val tmp = os.temp(script, suffix = ".sc", deleteOnExit = true)
         try
