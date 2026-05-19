@@ -26,7 +26,7 @@ object TlsProxy:
       client.setKeepAlive(true)
       val cin  = java.io.BufferedInputStream(client.getInputStream)
       val cout = client.getOutputStream
-      val head = readHttpHead(cin)
+      val head = HttpHelpers.readHttpHead(cin)
       if head.isEmpty then { client.close(); return }
 
       val headText = new String(head, java.nio.charset.StandardCharsets.ISO_8859_1)
@@ -77,7 +77,7 @@ object TlsProxy:
             cout.flush(); client.close()
             Metrics.wsRejected.incrementAndGet(); return
 
-        val q0 = parseQuery(rawQuery)
+        val q0 = HttpHelpers.parseQuery(rawQuery)
         val cookies0 = HttpHelpers.parseCookieHeader(headers.getOrElse("cookie", ""))
         val authReq: Value = Value.InstanceV("Request", Map(
           "method"  -> Value.StringV("GET"),
@@ -137,7 +137,7 @@ object TlsProxy:
         cout.write(respLine.getBytes(java.nio.charset.StandardCharsets.US_ASCII))
         cout.flush()
 
-        val query   = parseQuery(rawQuery)
+        val query   = HttpHelpers.parseQuery(rawQuery)
         val cookies = HttpHelpers.parseCookieHeader(headers.getOrElse("cookie", ""))
         val request = Value.InstanceV("Request", Map(
           "method"  -> Value.StringV("GET"),
@@ -210,29 +210,6 @@ object TlsProxy:
     t1.join(); t2.join()
 
   // ── Helpers ────────────────────────────────────────────────────────
-
-  private def readHttpHead(in: java.io.InputStream): Array[Byte] =
-    val sb   = scala.collection.mutable.ArrayBuffer.empty[Byte]
-    var prev3, prev2, prev1 = 0
-    var done = false
-    while !done do
-      val b = in.read()
-      if b < 0 then return sb.toArray
-      sb += b.toByte
-      if prev3 == 13 && prev2 == 10 && prev1 == 13 && b == 10 then done = true
-      prev3 = prev2; prev2 = prev1; prev1 = b
-    sb.toArray
-
-  private def parseQuery(q: String): Map[String, String] =
-    if q.isEmpty then Map.empty
-    else q.split('&').iterator.flatMap { pair =>
-      val i = pair.indexOf('=')
-      if i < 0 then Some(java.net.URLDecoder.decode(pair, "UTF-8") -> "")
-      else Some(
-        java.net.URLDecoder.decode(pair.substring(0, i), "UTF-8") ->
-        java.net.URLDecoder.decode(pair.substring(i + 1), "UTF-8")
-      )
-    }.toMap
 
   private def httpResp(status: Int, reason: String, body: String): Array[Byte] =
     val bb = body.getBytes(java.nio.charset.StandardCharsets.UTF_8)

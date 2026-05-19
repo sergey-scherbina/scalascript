@@ -4010,18 +4010,6 @@ class JvmGen(
        |
        |// ── Proxy: blocking accept + sniff + forward / upgrade ───────────────
        |
-       |private def _readHttpHead(in: java.io.BufferedInputStream): Array[Byte] =
-       |  val sb = scala.collection.mutable.ArrayBuffer.empty[Byte]
-       |  var prev3 = 0; var prev2 = 0; var prev1 = 0
-       |  var done  = false
-       |  while !done do
-       |    val b = in.read()
-       |    if b < 0 then return sb.toArray
-       |    sb += b.toByte
-       |    if prev3 == 13 && prev2 == 10 && prev1 == 13 && b == 10 then done = true
-       |    prev3 = prev2; prev2 = prev1; prev1 = b
-       |  sb.toArray
-       |
        |private def _proxyConnection(client: java.net.Socket, internalPort: Int): Unit =
        |  // TCP keepalive lets the OS detect peers that vanished without
        |  // FIN (yanked cables, dropped mobile sessions).  Without it a
@@ -4029,7 +4017,7 @@ class JvmGen(
        |  try client.setKeepAlive(true) catch case _: Throwable => ()
        |  val cin  = java.io.BufferedInputStream(client.getInputStream)
        |  val cout = client.getOutputStream
-       |  val head = _readHttpHead(cin)
+       |  val head = HttpHelpers.readHttpHead(cin)
        |  val headText = new String(head, java.nio.charset.StandardCharsets.ISO_8859_1)
        |  val lines    = headText.split("\r\n").toList
        |  val request  = lines.headOption.getOrElse("")
