@@ -885,6 +885,19 @@ lazy val walletStrategyEoa = project
     Test    / scalacOptions ++= sharedScalacOptions,
   )
 
+lazy val walletStrategyErc4337 = project
+  .in(file("wallet-strategy-erc4337"))
+  .dependsOn(walletSpi, blockchainSpi, cryptoSpi, blockchainEvm, blockchainEvmAbi, cryptoBouncycastle % Test, walletStrategyEoa % Test)
+  .settings(
+    name := "scalascript-wallet-strategy-erc4337",
+    libraryDependencies ++= Seq(
+      "com.lihaoyi" %% "upickle" % "3.3.1",
+      scalatestTest,
+    ),
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions,
+  )
+
 lazy val walletConnectorEip1193 = project
   .in(file("wallet-connector-eip1193"))
   .dependsOn(walletSpi, blockchainSpi, walletStrategyEoa % Test, blockchainEvm % Test, cryptoBouncycastle % Test)
