@@ -70,10 +70,57 @@ Steps 0-3 landed on `main`; Steps 4-7 in flight on `feature/dep-cps`.
 | 1 — `containsEffectPrimitive` whitelist predicate + 43 unit tests | ✅ landed | 71cefd0 |
 | 2 — cross-dep fixpoint (`analyzeDepEffectfulness`) + 14 unit tests | ✅ landed | ac93940 |
 | 3 — dep-mode CPS emit (`Defn.Object` recursion, `isEffectfulFun` ext, infix tuple-arg fix) | ✅ landed | 3b3ca95 |
-| 4 — `distributed-map.ssc` integration | 🔧 in progress | — |
+| 4 — `distributed-map.ssc` integration | 🔧 chunk 1 landed, more chunks pending | 9c62b01 |
 | 5 — full regression sweep | ⏳ pending | — |
 | 6 — strip `pending:` from other v1.22 distributed-* tests | ⏳ pending | — |
 | 7 — retire `cpsBody` parameter / textual band-aids | ⏳ pending | — |
+
+**Step 4 chunk 1 — landed (2026-05-19, commit 9c62b01):**
+
+Three changes that together eliminate the entire E161 "object std is
+already defined" cascade in `distributed-map.ssc`:
+
+1. `isSimpleCps` extended to recognise pure syntactic shapes that
+   shouldn't be `_bind`-wrapped: `Term.Repeated` (`xs: _*`),
+   `Term.Function`, `Term.AnonymousFunction`, `Term.PartialFunction`,
+   `Term.Assign`.
+2. Step 3's `Defn.Object` recursion emit switched from indent syntax
+   to brace syntax so the `mergeDuplicatePackageObjects` brace-balanced
+   scanner can dedup it against verbatim-emit blocks.
+3. Textual band-aid split into `qualifyBareActorCallsRegexOnly` (safe
+   bare-name rename, always applied) and `rewriteActorAstCallsInSource`
+   (receive/send AST rewrite, only for non-effectful blocks). Solves
+   the case-class-method problem: `case class Cluster { def
+   healthCheck = self() }` needs `self()` → `Actor.self()` but doesn't
+   want the receive/send rewrite that interferes with Step 3.
+
+**Step 4 chunks 2-N — pending:**
+
+Remaining ~54 errors in `distributed-map.ssc` are categorically
+different from the original blocker — they're all consequences of
+Step 3's `Any` widening cascading through the dep:
+
+- Case-class methods reaching `receive { case … }` /
+  `receiveWithTimeout(t) { case … }` aren't reached by Step 3's
+  `Defn.Def`/`Defn.Object` recursion (only top-level dep defs and
+  their enclosing objects). Need either (a) recursion into
+  `Defn.Class` bodies, or (b) per-method effect detection inside
+  case classes with selective CPS emit.
+
+- Type-mismatch cascade: dep params typed `Any` mean `ns.toList`,
+  `node.address`, `cluster.nodes` etc. don't compile because the
+  receiver type is unknown. Need either (a) keep original param
+  types instead of widening, with `.asInstanceOf[T]` injection at
+  each access, or (b) `_dispatch`-route every member access (heavy,
+  loses static typing).
+
+- Constructor type-mismatch: `Cluster(nodeList, pids)` requires
+  `List[Node]` but `nodeList: Any`. Same root cause as above.
+
+Each is a tactical fix to `emitCpsExpr` and the CPS bind plumbing.
+None blocks the architectural correctness of Steps 0-3 — they're
+the long tail of integrating CPS-emitted deps with the rest of the
+emit machinery. Estimated 1-2 more focused chunks to clear.
 
 **Validation as of Step 3 landing:**
 - `conformance/dep-cps-basic.ssc` runs end-to-end on JVM, prints `ok/ok`.
