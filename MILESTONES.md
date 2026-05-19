@@ -4540,12 +4540,43 @@ Phase 3 / operational hardening (landed 2026-05-19):
 Test coverage after Phase 3: **522 core tests + 75 CLI subprocess
 smoke tests**, all green.
 
-Remaining post-Phase-3 directions (not started):
-- Source-map / location preservation through linker dedup (today the
-  `_runtime` preamble is one big synthetic blob with no positions)
-- Per-section incremental within a single `.ssc` (today an `.ssc` is
-  one unit; if one of N code blocks changes, the whole module recompiles)
-- LSP server using `.scim` for go-to-definition / hover
+Phase 3+ / final tooling round (landed 2026-05-19):
+- **Source maps** (opt-in via `--source-map` on `ssc link`):
+  - JVM (Option B): sibling `<moduleId>.ssc.scala` source file next to
+    `out.jar`.  `.class` files' `SourceFile` attribute already names the
+    Scala wrapper; IDEs source-attach via filename match.  No ASM dep.
+  - JS: V3 source maps via hand-rolled VLQ writer (~180 LoC).  Appends
+    `//# sourceMappingURL=out.js.map` to `out.js`.  Line-granularity
+    mappings: runtime preamble unmapped, user-code lines map back to
+    their `.ssc` source.  6 tests.
+- **Per-section incremental** (opt-in via `build --incremental
+  --section-cache`):
+  - `sectionHashes: Map[String, String]` additive field on all 4
+    artifact types.  Cumulative-hash chain (Option A): section N's
+    hash includes its source + all prior sections' hashes joined.
+  - `ModuleGraph.staleSections(srcPath, artifactDir)` returns the
+    cumulative-stale list.  Edit last section → only it is stale; edit
+    first → full cascade (preserves shared-scope safety).
+  - `ssc info --sections` dumps the chain for any artifact.
+  - 9 new tests.  Backward-compat: empty map default; ABI tests pass.
+- **LSP server** (new `ssc lsp` command, 819 LoC server + 514 LoC tests):
+  - Stdio JSON-RPC over hand-rolled Content-Length framing, no
+    third-party LSP libs.
+  - Methods: `initialize`, `initialized`, `shutdown`, `exit`,
+    `textDocument/{didOpen,didChange,didClose,definition,hover,
+    publishDiagnostics}`.
+  - Capabilities: full text-document sync, `definitionProvider`,
+    `hoverProvider`.
+  - Loads `.scim` artifacts from `initializationOptions.artifactDir`
+    (or workspace scan) for cross-module symbol resolution.
+  - 25 LSP tests pass (16 protocol + 8 handlers + 1 integration
+    spawning `ssc lsp` subprocess for full handshake).
+
+**Final test coverage**: **531 core + ~115 CLI subprocess smoke tests**,
+all green.
+
+**v2.0 separate compilation is now ALL-DELIVERABLES-LANDED.**  The
+documented "remaining post-Phase-3 directions" are now done.
 
 What landed:
 - `ir/Ir.scala`: `ArtifactVersion` (magic `SSCART` + ABI `2.0`),
