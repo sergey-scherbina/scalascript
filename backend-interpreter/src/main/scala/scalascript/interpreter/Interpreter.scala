@@ -1899,6 +1899,60 @@ class Interpreter(
    *  query filters to entries strictly newer than the given epoch-ms,
    *  so dashboards can long-poll without re-streaming everything.
    *  No-op if already registered. */
+
+  /** v1.23 — register `GET /_ssc-cluster/metrics-prom`.  Returns the
+   *  `clusterMetrics` gauges in Prometheus text exposition format —
+   *  one `<sanitized-name>{nodeId="<id>"} <value>` line per
+   *  (metric, peer) pair, plus `# TYPE … gauge` declarations.
+   *  Honours the same Bearer-token gate as the other cluster routes. */
+  private def registerClusterMetricsPromRoute(): Unit =
+    val path = "/_ssc-cluster/metrics-prom"
+    val already = scalascript.server.Routes.all.exists(e =>
+      e.method == "GET" && e.path == path)
+    if already then return
+    val handler = Value.NativeFnV("_clusterMetricsProm", Computation.pureFn { args =>
+      clusterAuthReject(args).getOrElse {
+        // Prometheus metric names must match `[a-zA-Z_:][a-zA-Z0-9_:]*`.
+        // Sanitize by replacing every non-allowed char with `_`.
+        def sanitize(s: String): String =
+          val sb = new StringBuilder(s.length)
+          var i = 0
+          while i < s.length do
+            val c = s.charAt(i)
+            val ok =
+              (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+              (c >= '0' && c <= '9') || c == '_' || c == ':'
+            sb.append(if ok then c else '_')
+            i += 1
+          val out = sb.toString
+          // Names can't start with a digit.
+          if out.nonEmpty && out.charAt(0) >= '0' && out.charAt(0) <= '9'
+          then "_" + out else out
+        def escLabel(s: String): String =
+          s.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n")
+        val sb = new StringBuilder()
+        clusterMetrics.forEach { (name, inner) =>
+          val pName = sanitize(name)
+          sb.append("# TYPE ").append(pName).append(" gauge\n")
+          inner.forEach { (nodeId, value) =>
+            sb.append(pName)
+              .append("{nodeId=\"").append(escLabel(nodeId)).append("\"} ")
+              .append(value.doubleValue())
+              .append('\n')
+          }
+        }
+        Value.InstanceV("Response", Map(
+          "status"  -> Value.IntV(200),
+          "headers" -> Value.MapV(Map(
+            Value.StringV("Content-Type") ->
+              Value.StringV("text/plain; version=0.0.4; charset=utf-8")
+          )),
+          "body"    -> Value.StringV(sb.toString)
+        ))
+      }
+    })
+    scalascript.server.Routes.register("GET", path, handler, this)
+
   private def registerClusterEventsRoute(): Unit =
     val path = "/_ssc-cluster/events"
     val already = scalascript.server.Routes.all.exists(e =>
@@ -7165,6 +7219,10 @@ class Interpreter(
       // v1.23 — GET /_ssc-cluster/events returns the bounded ring
       // buffer of recent cluster events as a JSON array.
       registerClusterEventsRoute()
+      // v1.23 — GET /_ssc-cluster/metrics-prom — Prometheus
+      // exposition format for `clusterMetrics` gauges so existing
+      // scrape-based monitoring picks them up natively.
+      registerClusterMetricsPromRoute()
       Right(k(Value.UnitV))
 
     case "connectNode" => args match
