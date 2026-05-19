@@ -1368,8 +1368,8 @@ class Interpreter(
   private val _httpRetryDelayMs = ThreadLocal.withInitial[Long](() => 1_000L)
 
   // ── v1.4 Cache effect — process-local memoization store + bypass flag ──
-  private val _cacheStore  = new java.util.concurrent.ConcurrentHashMap[String, (Long, Value)]()
-  private val _cacheBypass = ThreadLocal.withInitial[Boolean](() => false)
+  private[interpreter] val _cacheStore  = new java.util.concurrent.ConcurrentHashMap[String, (Long, Value)]()
+  private[interpreter] val _cacheBypass = ThreadLocal.withInitial[Boolean](() => false)
 
   // ── v1.4 Auth effect — current user (thread-local) ────────────────────
   private[interpreter] val _authUser = ThreadLocal.withInitial[Option[Value]](() => None)
@@ -1509,7 +1509,7 @@ class Interpreter(
   // httpRun needs a NativeContext to call doHttpRequest.  This lightweight
   // factory reads the same ThreadLocals used by httpClient{} scopes.
 
-  private def mkHttpCtx(): scalascript.backend.spi.NativeContext =
+  private[interpreter] def mkHttpCtx(): scalascript.backend.spi.NativeContext =
     new scalascript.backend.spi.NativeContext:
       def out = Interpreter.this.out
       def err = System.err
@@ -3212,20 +3212,20 @@ class Interpreter(
     // runLoggerToList { body }  — collects log lines; returns (result, list)
     case Term.Apply.After_4_6_0(Term.Name("runLogger"), bodyArgClause)
         if bodyArgClause.values.size == 1 =>
-      loggerRun(eval(bodyArgClause.values.head, env), "text", out)
+      EffectHandlers.loggerRun(eval(bodyArgClause.values.head, env), "text", out)
     case Term.Apply.After_4_6_0(Term.Name("runLoggerJson"), bodyArgClause)
         if bodyArgClause.values.size == 1 =>
-      loggerRun(eval(bodyArgClause.values.head, env), "json", out)
+      EffectHandlers.loggerRun(eval(bodyArgClause.values.head, env), "json", out)
     case Term.Apply.After_4_6_0(Term.Name("runLoggerToList"), bodyArgClause)
         if bodyArgClause.values.size == 1 =>
-      loggerToListRun(eval(bodyArgClause.values.head, env))
+      EffectHandlers.loggerToListRun(eval(bodyArgClause.values.head, env))
 
     // ── v1.4 Random effect handlers ───────────────────────────────────────
     // runRandom { body }            — ThreadLocalRandom
     // runRandomSeeded(seed) { body } — deterministic LCG, seed is Long
     case Term.Apply.After_4_6_0(Term.Name("runRandom"), bodyArgClause)
         if bodyArgClause.values.size == 1 =>
-      randomRun(eval(bodyArgClause.values.head, env), None)
+      EffectHandlers.randomRun(eval(bodyArgClause.values.head, env), None)
     case Term.Apply.After_4_6_0(
         Term.Apply.After_4_6_0(Term.Name("runRandomSeeded"), seedClause),
         bodyClause)
@@ -3233,14 +3233,14 @@ class Interpreter(
       val seed = Computation.run(eval(seedClause.values.head, env)) match
         case Value.IntV(n) => n
         case _             => throw InterpretError("runRandomSeeded(seed: Long) { body }")
-      randomRun(eval(bodyClause.values.head, env), Some(seed))
+      EffectHandlers.randomRun(eval(bodyClause.values.head, env), Some(seed))
 
     // ── v1.4 Clock effect handlers ────────────────────────────────────────
     // runClock { body }        — real wall clock; Clock.sleep → Thread.sleep
     // runClockAt(t0) { body }  — frozen at t0 ms epoch; sleep is a no-op
     case Term.Apply.After_4_6_0(Term.Name("runClock"), bodyArgClause)
         if bodyArgClause.values.size == 1 =>
-      clockRun(eval(bodyArgClause.values.head, env), None)
+      EffectHandlers.clockRun(eval(bodyArgClause.values.head, env), None)
     case Term.Apply.After_4_6_0(
         Term.Apply.After_4_6_0(Term.Name("runClockAt"), t0Clause),
         bodyClause)
@@ -3248,14 +3248,14 @@ class Interpreter(
       val t0 = Computation.run(eval(t0Clause.values.head, env)) match
         case Value.IntV(n) => n
         case _             => throw InterpretError("runClockAt(t0: Long) { body }")
-      clockRun(eval(bodyClause.values.head, env), Some(t0))
+      EffectHandlers.clockRun(eval(bodyClause.values.head, env), Some(t0))
 
     // ── v1.4 Env effect handlers ──────────────────────────────────────────
     // runEnv { body }               — reads real process env; Env.set is local
     // runEnvWith(Map(...)) { body }  — fixture map; Env.set mutates overlay
     case Term.Apply.After_4_6_0(Term.Name("runEnv"), bodyArgClause)
         if bodyArgClause.values.size == 1 =>
-      envRun(eval(bodyArgClause.values.head, env), None)
+      EffectHandlers.envRun(eval(bodyArgClause.values.head, env), None)
     case Term.Apply.After_4_6_0(
         Term.Apply.After_4_6_0(Term.Name("runEnvWith"), mapClause),
         bodyClause)
@@ -3264,14 +3264,14 @@ class Interpreter(
         case Value.MapV(m) =>
           m.map { (k, v) => Value.show(k) -> Value.show(v) }.toMap
         case _ => throw InterpretError("runEnvWith(map: Map[String, String]) { body }")
-      envRun(eval(bodyClause.values.head, env), Some(overlay))
+      EffectHandlers.envRun(eval(bodyClause.values.head, env), Some(overlay))
 
     // ── v1.4 Http effect handlers ─────────────────────────────────────────
     // runHttp { body }                   — delegates to real httpGet/httpPost
     // runHttpStub(routes) { body }       — test stub: url→body map
     case Term.Apply.After_4_6_0(Term.Name("runHttp"), bodyArgClause)
         if bodyArgClause.values.size == 1 =>
-      httpRun(eval(bodyArgClause.values.head, env), None)
+      EffectHandlers.httpRun(eval(bodyArgClause.values.head, env), None, this)
     case Term.Apply.After_4_6_0(
         Term.Apply.After_4_6_0(Term.Name("runHttpStub"), routesClause),
         bodyClause)
@@ -3279,7 +3279,7 @@ class Interpreter(
       val routes = Computation.run(eval(routesClause.values.head, env)) match
         case m @ Value.MapV(_) => m
         case _ => throw InterpretError("runHttpStub(routes: Map[String, String]) { body }")
-      httpRun(eval(bodyClause.values.head, env), Some(routes))
+      EffectHandlers.httpRun(eval(bodyClause.values.head, env), Some(routes), this)
 
     // ── v1.4 State effect handlers ────────────────────────────────────────
     // runState(s0) { body }  — runs body intercepting State performs;
@@ -3289,7 +3289,7 @@ class Interpreter(
         bodyClause)
         if s0Clause.values.size == 1 && bodyClause.values.size == 1 =>
       val s0 = Computation.run(eval(s0Clause.values.head, env))
-      stateRun(eval(bodyClause.values.head, env), s0)
+      EffectHandlers.stateRun(eval(bodyClause.values.head, env), s0, this)
 
     // ── v1.4 Auth effect handlers ─────────────────────────────────────────
     // runAuthWith(user) { body }  — injects a fixed user via thread-local;
@@ -3309,20 +3309,20 @@ class Interpreter(
     // runRetryNoSleep { body } — test handler: retries without sleeping
     case Term.Apply.After_4_6_0(Term.Name("runRetry"), bodyArgClause)
         if bodyArgClause.values.size == 1 =>
-      retryRun(eval(bodyArgClause.values.head, env), sleep = true)
+      EffectHandlers.retryRun(eval(bodyArgClause.values.head, env), sleep = true, this)
     case Term.Apply.After_4_6_0(Term.Name("runRetryNoSleep"), bodyArgClause)
         if bodyArgClause.values.size == 1 =>
-      retryRun(eval(bodyArgClause.values.head, env), sleep = false)
+      EffectHandlers.retryRun(eval(bodyArgClause.values.head, env), sleep = false, this)
 
     // ── v1.4 Cache effect handlers ────────────────────────────────────────
     // runCache { body }        — explicit handler using process-local cache
     // runCacheBypass { body }  — caching disabled; always recomputes
     case Term.Apply.After_4_6_0(Term.Name("runCache"), bodyArgClause)
         if bodyArgClause.values.size == 1 =>
-      cacheRun(eval(bodyArgClause.values.head, env), bypass = false)
+      EffectHandlers.cacheRun(eval(bodyArgClause.values.head, env), bypass = false, this)
     case Term.Apply.After_4_6_0(Term.Name("runCacheBypass"), bodyArgClause)
         if bodyArgClause.values.size == 1 =>
-      cacheRun(eval(bodyArgClause.values.head, env), bypass = true)
+      EffectHandlers.cacheRun(eval(bodyArgClause.values.head, env), bypass = true, this)
 
     // ── v1.4 Tx effect handlers ───────────────────────────────────────────
     // runTx { body }  — default no-op handler (just runs body directly)
@@ -8055,432 +8055,10 @@ class Interpreter(
     val module = Parser.parse(src)
     module.sections.foreach(runSection)
 
-  // ── v1.4 Logger effect ─────────────────────────────────────────────────
+  // ── v1.4 effect handlers — see EffectHandlers.scala ────────────────────
   //
-  // Walk the Free tree; intercept Perform("Logger", …) nodes and write to
-  // the supplied PrintStream.  Non-Logger Performs propagate outward.
-  //
-  // format = "text" → "[LEVEL] msg\n"
-  // format = "json" → {"level":"…","msg":"…"}\n
-
-  private def loggerRun(
-    initial: Computation,
-    format:  String,
-    sink:    java.io.PrintStream
-  ): Computation =
-    def write(level: String, msg: String): Unit = format match
-      case "json" =>
-        sink.println(s"""{"level":"$level","msg":${loggerJsonStr(msg)}}""")
-      case _ =>
-        sink.println(s"[${level.toUpperCase}] $msg")
-    def dispatch(op: String, args: List[Value], resume: Value => Computation): Computation =
-      args match
-        case List(v) => write(op, Value.show(v)); resume(Value.UnitV)
-        case _       => throw InterpretError(s"Logger.$op(msg)")
-    var current: Computation = initial
-    while true do
-      current match
-        case Pure(_) => return current
-        case Perform("Logger", op, args) =>
-          current = dispatch(op, args, v => Pure(v))
-        case Perform(_, _, _) => return current
-        case FlatMap(sub, f) => sub match
-          case Pure(v)                      => current = f(v)
-          case FlatMap(s2, g)               => current = FlatMap(s2, x => FlatMap(g(x), f))
-          case Perform("Logger", op, args)  =>
-            current = dispatch(op, args, v => loggerRun(f(v), format, sink))
-          case Perform(_, _, _)             =>
-            return FlatMap(sub, v => loggerRun(f(v), format, sink))
-    throw InterpretError("unreachable")
-
-  // Returns (bodyResult, List((level, msg), …)) as a TupleV pair.
-  // `run` drives the body and returns the raw body result; the outer
-  // flatMap attaches the accumulated log once (avoids double-wrapping
-  // when `run` is called recursively from dispatch continuations).
-  private def loggerToListRun(initial: Computation): Computation =
-    val log = scala.collection.mutable.ListBuffer.empty[(String, String)]
-    def dispatch(op: String, args: List[Value], resume: Value => Computation): Computation =
-      args match
-        case List(v) => log += (op -> Value.show(v)); resume(Value.UnitV)
-        case _       => throw InterpretError(s"Logger.$op(msg)")
-    def run(current0: Computation): Computation =
-      var current = current0
-      while true do
-        current match
-          case Pure(_)                     => return current
-          case Perform("Logger", op, args) =>
-            current = dispatch(op, args, v => Pure(v))
-          case Perform(_, _, _)            => return current
-          case FlatMap(sub, f) => sub match
-            case Pure(v)                     => current = f(v)
-            case FlatMap(s2, g)              => current = FlatMap(s2, x => FlatMap(g(x), f))
-            case Perform("Logger", op, args) =>
-              current = dispatch(op, args, v => run(f(v)))
-            case Perform(_, _, _)            =>
-              return FlatMap(sub, v => run(f(v)))
-      throw InterpretError("unreachable")
-    run(initial).flatMap { v =>
-      val entries = Value.ListV(log.toList.map { (lv, msg) =>
-        Value.TupleV(List(Value.StringV(lv), Value.StringV(msg)))
-      })
-      Pure(Value.TupleV(List(v, entries)))
-    }
-
-  private def loggerJsonStr(s: String): String =
-    val sb = new StringBuilder("\"")
-    s.foreach {
-      case '"'  => sb.append("\\\"")
-      case '\\' => sb.append("\\\\")
-      case '\n' => sb.append("\\n")
-      case '\r' => sb.append("\\r")
-      case '\t' => sb.append("\\t")
-      case c    => sb.append(c)
-    }
-    sb.append('"').toString
-
-  // ── v1.4 Random effect ─────────────────────────────────────────────────
-  //
-  // seed = None  → ThreadLocalRandom (non-deterministic)
-  // seed = Some  → java.util.Random(seed) (deterministic / test-friendly)
-
-  private def randomRun(initial: Computation, seed: Option[Long]): Computation =
-    val rng = seed.fold(
-      new java.util.Random(): java.util.Random
-    )(s => new java.util.Random(s))
-    def dispatch(op: String, args: List[Value], resume: Value => Computation): Computation =
-      op match
-        case "nextInt" => args match
-          case List(Value.IntV(n)) =>
-            resume(Value.IntV(rng.nextInt(n.toInt).toLong))
-          case _ => throw InterpretError("Random.nextInt(n: Int)")
-        case "nextDouble" =>
-          resume(Value.DoubleV(rng.nextDouble()))
-        case "uuid" =>
-          val bytes = new Array[Byte](16)
-          rng.nextBytes(bytes)
-          bytes(6) = ((bytes(6) & 0x0f) | 0x40).toByte
-          bytes(8) = ((bytes(8) & 0x3f) | 0x80).toByte
-          def hex(b: Byte) = f"${b & 0xff}%02x"
-          val u = bytes.map(hex).mkString
-          resume(Value.StringV(s"${u.take(8)}-${u.slice(8,12)}-${u.slice(12,16)}-${u.slice(16,20)}-${u.drop(20)}"))
-        case "pick" => args match
-          case List(Value.ListV(items)) if items.nonEmpty =>
-            resume(items(rng.nextInt(items.size)))
-          case _ => throw InterpretError("Random.pick(xs: List[A]) — list must be non-empty")
-        case _ => throw InterpretError(s"Unknown Random operation: $op")
-    def run(current0: Computation): Computation =
-      var current = current0
-      while true do
-        current match
-          case Pure(_) => return current
-          case Perform("Random", op, args) =>
-            current = dispatch(op, args, v => Pure(v))
-          case Perform(_, _, _) => return current
-          case FlatMap(sub, f) => sub match
-            case Pure(v)                      => current = f(v)
-            case FlatMap(s2, g)               => current = FlatMap(s2, x => FlatMap(g(x), f))
-            case Perform("Random", op, args)  =>
-              current = dispatch(op, args, v => run(f(v)))
-            case Perform(_, _, _)             =>
-              return FlatMap(sub, v => run(f(v)))
-      throw InterpretError("unreachable")
-    run(initial)
-
-  // ── v1.4 Clock effect ──────────────────────────────────────────────────
-  //
-  // frozen = None    → real wall clock; Clock.sleep → Thread.sleep(ms)
-  // frozen = Some(t) → always returns t; Clock.sleep is a no-op
-
-  private def clockRun(initial: Computation, frozen: Option[Long]): Computation =
-    def nowMs(): Long  = frozen.getOrElse(java.lang.System.currentTimeMillis())
-    def nowIso(): String =
-      val inst = java.time.Instant.ofEpochMilli(nowMs())
-      java.time.format.DateTimeFormatter.ISO_INSTANT.format(inst)
-    def dispatch(op: String, args: List[Value], resume: Value => Computation): Computation =
-      op match
-        case "now"    => resume(Value.IntV(nowMs()))
-        case "nowIso" => resume(Value.StringV(nowIso()))
-        case "sleep"  => args match
-          case List(Value.IntV(ms)) =>
-            if frozen.isEmpty && ms > 0 then Thread.sleep(ms)
-            resume(Value.UnitV)
-          case _ => throw InterpretError("Clock.sleep(ms: Long)")
-        case _ => throw InterpretError(s"Unknown Clock operation: $op")
-    def run(current0: Computation): Computation =
-      var current = current0
-      while true do
-        current match
-          case Pure(_) => return current
-          case Perform("Clock", op, args) =>
-            current = dispatch(op, args, v => Pure(v))
-          case Perform(_, _, _) => return current
-          case FlatMap(sub, f) => sub match
-            case Pure(v)                    => current = f(v)
-            case FlatMap(s2, g)             => current = FlatMap(s2, x => FlatMap(g(x), f))
-            case Perform("Clock", op, args) =>
-              current = dispatch(op, args, v => run(f(v)))
-            case Perform(_, _, _)           =>
-              return FlatMap(sub, v => run(f(v)))
-      throw InterpretError("unreachable")
-    run(initial)
-
-  // ── v1.4 Env effect ────────────────────────────────────────────────────
-  //
-  // overlay = None      → read from real process env; Env.set mutates a
-  //                       local overlay (does not touch the real env)
-  // overlay = Some(map) → reads from map first, then process env for misses;
-  //                       Env.set mutates the overlay
-
-  private def envRun(
-    initial: Computation,
-    overlay: Option[Map[String, String]]
-  ): Computation =
-    val local = scala.collection.mutable.Map.empty[String, String]
-    overlay.foreach(m => local ++= m)
-    def lookup(key: String): Option[String] =
-      local.get(key)
-        .orElse(if overlay.isEmpty then Option(java.lang.System.getenv(key)).filter(_.nonEmpty) else None)
-    def dispatch(op: String, args: List[Value], resume: Value => Computation): Computation =
-      op match
-        case "get" => args match
-          case List(Value.StringV(k)) =>
-            resume(Value.OptionV(lookup(k).map(Value.StringV.apply)))
-          case _ => throw InterpretError("Env.get(key: String)")
-        case "set" => args match
-          case List(Value.StringV(k), v) =>
-            local(k) = Value.show(v); resume(Value.UnitV)
-          case _ => throw InterpretError("Env.set(key: String, value)")
-        case "required" => args match
-          case List(Value.StringV(k)) =>
-            lookup(k) match
-              case Some(v) => resume(Value.StringV(v))
-              case None    => throw InterpretError(s"Env.required: key '$k' not found in environment")
-          case _ => throw InterpretError("Env.required(key: String)")
-        case _ => throw InterpretError(s"Unknown Env operation: $op")
-    def run(current0: Computation): Computation =
-      var current = current0
-      while true do
-        current match
-          case Pure(_) => return current
-          case Perform("Env", op, args) =>
-            current = dispatch(op, args, v => Pure(v))
-          case Perform(_, _, _) => return current
-          case FlatMap(sub, f) => sub match
-            case Pure(v)                  => current = f(v)
-            case FlatMap(s2, g)           => current = FlatMap(s2, x => FlatMap(g(x), f))
-            case Perform("Env", op, args) =>
-              current = dispatch(op, args, v => run(f(v)))
-            case Perform(_, _, _)         =>
-              return FlatMap(sub, v => run(f(v)))
-      throw InterpretError("unreachable")
-    run(initial)
-
-  // ── v1.4 Http effect ───────────────────────────────────────────────────
-  //
-  // routes = None      → real HTTP I/O via doHttpRequest
-  // routes = Some(map) → test stub: returns Response(200, …, routes(url))
-  //                      for known URLs, Response(404, …, "") otherwise
-
-  private def httpRun(
-    initial: Computation,
-    routes:  Option[Value.MapV]
-  ): Computation =
-    def stubResponse(url: String): Value =
-      routes match
-        case Some(Value.MapV(m)) =>
-          val key = Value.StringV(url)
-          m.get(key) match
-            case Some(v) =>
-              Value.InstanceV("Response", Map(
-                "status"  -> Value.IntV(200),
-                "headers" -> Value.MapV(Map.empty),
-                "body"    -> Value.StringV(Value.show(v))
-              ))
-            case None =>
-              Value.InstanceV("Response", Map(
-                "status"  -> Value.IntV(404),
-                "headers" -> Value.MapV(Map.empty),
-                "body"    -> Value.StringV("")
-              ))
-        case _ => throw InterpretError("httpRun: stub routes must be a Map[String, String]")
-    def dispatch(op: String, args: List[Value], resume: Value => Computation): Computation =
-      val ctx = mkHttpCtx()
-      op match
-        case "get" => args match
-          case List(Value.StringV(url)) =>
-            val resp = routes.fold(
-              doHttpRequest("GET", url, "", Map.empty, ctx)
-            )(_ => stubResponse(url))
-            resume(resp)
-          case _ => throw InterpretError("Http.get(url: String)")
-        case "post" => args match
-          case List(Value.StringV(url), Value.StringV(body)) =>
-            val resp = routes.fold(
-              doHttpRequest("POST", url, body, Map.empty, ctx)
-            )(_ => stubResponse(url))
-            resume(resp)
-          case _ => throw InterpretError("Http.post(url: String, body: String)")
-        case "request" => args match
-          case List(Value.StringV(method), Value.StringV(url), hdrs, Value.StringV(body)) =>
-            val hdrMap = hdrs match
-              case Value.MapV(m) => m.collect {
-                case (Value.StringV(k), Value.StringV(v)) => k -> v
-              }.toMap
-              case _ => Map.empty[String, String]
-            val resp = routes.fold(
-              doHttpRequest(method, url, body, hdrMap, ctx)
-            )(_ => stubResponse(url))
-            resume(resp)
-          case _ => throw InterpretError("Http.request(method, url, headers, body)")
-        case _ => throw InterpretError(s"Unknown Http operation: $op")
-    def run(current0: Computation): Computation =
-      var current = current0
-      while true do
-        current match
-          case Pure(_) => return current
-          case Perform("Http", op, args) =>
-            current = dispatch(op, args, v => Pure(v))
-          case Perform(_, _, _) => return current
-          case FlatMap(sub, f) => sub match
-            case Pure(v)                    => current = f(v)
-            case FlatMap(s2, g)             => current = FlatMap(s2, x => FlatMap(g(x), f))
-            case Perform("Http", op, args)  =>
-              current = dispatch(op, args, v => run(f(v)))
-            case Perform(_, _, _)           =>
-              return FlatMap(sub, v => run(f(v)))
-      throw InterpretError("unreachable")
-    run(initial)
-
-  // ── v1.4 Retry effect ──────────────────────────────────────────────────
-  //
-  // Intercepts Perform("Retry", "attempt", [n, delayMs, thunk]) and runs
-  // the thunk up to n times, sleeping delayMs between failures.
-  // sleep = false → test mode: no Thread.sleep even when delayMs > 0
-
-  private def retryRun(initial: Computation, sleep: Boolean): Computation =
-    def dispatch(op: String, args: List[Value], resume: Value => Computation): Computation =
-      op match
-        case "attempt" => args match
-          case List(Value.IntV(n), Value.IntV(delayMs), thunk) =>
-            var lastErr: Throwable = null
-            var result: Value = Value.UnitV
-            var attempt = 0
-            var succeeded = false
-            while attempt <= n && !succeeded do
-              try
-                result = Computation.run(callValue(thunk, Nil, Map.empty))
-                succeeded = true
-              catch case e: Throwable =>
-                lastErr = e
-                attempt += 1
-                if attempt <= n && sleep && delayMs > 0 then Thread.sleep(delayMs)
-            if succeeded then resume(result)
-            else throw lastErr
-          case _ => throw InterpretError("Retry.attempt(n: Int, delayMs: Long)(thunk)")
-        case _ => throw InterpretError(s"Unknown Retry operation: $op")
-    def run(current0: Computation): Computation =
-      var current = current0
-      while true do
-        current match
-          case Pure(_) => return current
-          case Perform("Retry", op, args) =>
-            current = dispatch(op, args, v => Pure(v))
-          case Perform(_, _, _) => return current
-          case FlatMap(sub, f) => sub match
-            case Pure(v)                     => current = f(v)
-            case FlatMap(s2, g)             => current = FlatMap(s2, x => FlatMap(g(x), f))
-            case Perform("Retry", op, args)  =>
-              current = dispatch(op, args, v => run(f(v)))
-            case Perform(_, _, _)            =>
-              return FlatMap(sub, v => run(f(v)))
-      throw InterpretError("unreachable")
-    run(initial)
-
-  // ── v1.4 Cache effect ──────────────────────────────────────────────────
-  //
-  // bypass = false → uses _cacheStore (process-local ConcurrentHashMap)
-  // bypass = true  → always calls thunk; skips cache entirely
-
-  private def cacheRun(initial: Computation, bypass: Boolean): Computation =
-    val priorBypass = _cacheBypass.get()
-    _cacheBypass.set(bypass)
-    def dispatch(op: String, args: List[Value], resume: Value => Computation): Computation =
-      op match
-        case "memoize" => args match
-          case List(Value.StringV(key), Value.IntV(ttlSeconds), thunk) =>
-            val result: Value =
-              if _cacheBypass.get() then
-                Computation.run(callValue(thunk, Nil, Map.empty))
-              else
-                val nowMs = java.lang.System.currentTimeMillis()
-                val cached = Option(_cacheStore.get(key))
-                cached match
-                  case Some((expiry, v)) if nowMs < expiry => v
-                  case _ =>
-                    val v = Computation.run(callValue(thunk, Nil, Map.empty))
-                    _cacheStore.put(key, (nowMs + ttlSeconds * 1000L, v))
-                    v
-            resume(result)
-          case _ => throw InterpretError("Cache.memoize(key: String, ttlSeconds: Long)(thunk)")
-        case _ => throw InterpretError(s"Unknown Cache operation: $op")
-    def run(current0: Computation): Computation =
-      var current = current0
-      while true do
-        current match
-          case Pure(_) => return current
-          case Perform("Cache", op, args) =>
-            current = dispatch(op, args, v => Pure(v))
-          case Perform(_, _, _) => return current
-          case FlatMap(sub, f) => sub match
-            case Pure(v)                     => current = f(v)
-            case FlatMap(s2, g)              => current = FlatMap(s2, x => FlatMap(g(x), f))
-            case Perform("Cache", op, args)  =>
-              current = dispatch(op, args, v => run(f(v)))
-            case Perform(_, _, _)            =>
-              return FlatMap(sub, v => run(f(v)))
-      throw InterpretError("unreachable")
-    try run(initial)
-    finally _cacheBypass.set(priorBypass)
-
-  // ── v1.4 State effect ──────────────────────────────────────────────────
-  //
-  // Intercepts Perform("State", "get"/"set"/"modify", …) nodes.
-  // Returns (finalState, result) as a TupleV pair.
-
-  private def stateRun(initial: Computation, s0: Value): Computation =
-    var state = s0
-    def dispatch(op: String, args: List[Value], resume: Value => Computation): Computation =
-      op match
-        case "get"    =>
-          resume(state)
-        case "set"    => args match
-          case List(s) => state = s; resume(Value.UnitV)
-          case _       => throw InterpretError("State.set(s)")
-        case "modify" => args match
-          case List(f) =>
-            val newState = Computation.run(callValue(f, List(state), Map.empty))
-            state = newState; resume(Value.UnitV)
-          case _ => throw InterpretError("State.modify(f: S => S)")
-        case _ => throw InterpretError(s"Unknown State operation: $op")
-    def run(current0: Computation): Computation =
-      var current = current0
-      while true do
-        current match
-          case Pure(_) => return current
-          case Perform("State", op, args) =>
-            current = dispatch(op, args, v => Pure(v))
-          case Perform(_, _, _) => return current
-          case FlatMap(sub, f) => sub match
-            case Pure(v)                      => current = f(v)
-            case FlatMap(s2, g)               => current = FlatMap(s2, x => FlatMap(g(x), f))
-            case Perform("State", op, args)   =>
-              current = dispatch(op, args, v => run(f(v)))
-            case Perform(_, _, _)             =>
-              return FlatMap(sub, v => run(f(v)))
-      throw InterpretError("unreachable")
-    run(initial).flatMap { result =>
-      Pure(Value.TupleV(List(state, result)))
-    }
+  // loggerRun / randomRun / clockRun / envRun / httpRun /
+  // retryRun / cacheRun / stateRun are in EffectHandlers.scala.
 
 object Interpreter:
   def run(
