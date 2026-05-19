@@ -441,11 +441,17 @@ unblocks downstream features as early as possible.
  21. **v1.17 — MCP support (client + server)** ✓ Landed (Phases 1–7);
      v1.17.1 hardening ✓ Landed; v1.17.2 SSE/JS ✓ Landed;
      v1.17.3 prompts/JVM ✓ Landed; v1.17.4-min Http/Ws/JVM (minimal
-     wiring, echo placeholder) ✓ Landed; v1.17.4-runtime
-     consolidation (Phase 1a + 1b — `runtime-server-common`) ✓ Landed
-     (all 2026-05-19).  Remaining v1.17.x: full v1.17.4 (real
-     `McpServerSession` dispatch + Phase 2 RouteDispatcher split),
-     INT own-impl, type-class layer, streaming resources.
+     wiring, echo placeholder) ✓ Landed; v1.17.4 runtime consolidation
+     Phase 1 (a + b — `runtime-server-common`) ✓ Landed (all 2026-05-19).
+     Anthropic's Model Context Protocol via REST-shaped API
+     in a separate namespace (`std/mcp/*`).  Intrinsic-first:
+     wraps `@modelcontextprotocol/sdk` on Node and
+     `io.modelcontextprotocol:sdk` on JVM; interpreter +
+     scalajs-spa reject at typecheck via SPI feature flags.
+     Full design in [`docs/mcp.md`](docs/mcp.md).  Remaining
+     v1.17.x work: full v1.17.4 (real `McpServerSession` dispatch +
+     Phase 2 RouteDispatcher split), INT own-impl, type-class layer,
+     streaming resources.
  22. **v1.18 — `package` keyword + std layout migration** ✓ Landed (all phases, 2026-05-19).
  23. **v1.19 — URL / dep imports** ✓ Landed.
      `[X](https://...)` URL fetch + `[X](dep:org/lib:1.2)`
@@ -2972,27 +2978,65 @@ What this minimal landing does NOT cover (deferred to the proper v1.17.4):
 
 ### v1.17.4-runtime — runtime-server-common consolidation ✓ Landed (2026-05-19)
 
-Runtime consolidation (previously tracked on branch
-`feature/v1.17.4-http-ws-jvm`) is now fully on `main`:
+Phase 1 of `PLAN-runtime-consolidation.md` (full migration path off the
+duplicated HTTP/WS server stack — was previously tracked on branch
+`feature/v1.17.4-http-ws-jvm`):
 
-- **Phase 1a** — `runtime-server-common` module extracted: pure server
-  primitives (route table, SSE helpers, WS upgrade handling) separated from
-  the interpreter-coupled `backend-interpreter/server/` stack.
-- **Phase 1b** — JvmGen migrated to read from `runtime-server-common`
-  instead of duplicating the ~2 250 LOC string template: `Metrics`,
-  `SessionCookie`, `SessionStore`, JWT (`HS256` + `RS256`), `DerCodec` all
-  moved to the new module.
+- **Phase 1a** — new sbt module `runtime-server-common` extracted; 10
+  pure protocol primitives moved out of `backend-interpreter/server/`
+  (`WsFraming`, `Password`, `RateLimit`, `Totp`, `Jwt`, `JwtRsa`,
+  `SessionCookie`, `SessionStore`, `Metrics`, `RestValidationError`) +
+  factored out a new `DerCodec` shared between `JwtRsa` and `WebServer`.
+  `backend-interpreter` depends on the new module; all FQN call sites
+  (`scalascript.server.Password.hash` etc.) keep working unchanged.
+
+- **Phase 1b** — `runtime-server-common` packages its own .scala sources
+  as classpath resources at `runtime-server-common-sources/scalascript/server/*.scala`;
+  `JvmGen` reads each via `loadCommonSource(name)`, strips the
+  `package scalascript.server` line, and emits the body as a `commonRuntime`
+  block right after `preamble` (always emitted — used by non-server scripts
+  too via `hashPassword`/`totpSecret`/`rateLimit`).  The duplicated
+  implementations inside `JvmGen.serveRuntime` are now one-line adapter
+  shims delegating to the inlined objects:
+
+  | Replaced internal helper(s) | Now delegates to |
+  | --- | --- |
+  | `rateLimit`/`rateLimitReset` | `RateLimit.tryAcquire/reset` |
+  | `totpSecret`/`totpUri`/`totpCode`/`totpValid` | `Totp.secret/uri/code/valid` |
+  | `hashPassword`/`verifyPassword` | `Password.hash/verify` |
+  | `_jwtSecret`/`_hmacSha256Jwt`/`jwtSign`/`jwtVerify` | `Jwt.sign/verify` |
+  | `_jwtRsaPrivate/Public`/`jwtSignRsa`/`jwtVerifyRsa` | `JwtRsa.sign/verify` |
+  | `_pkcs1ToPkcs8` (used in TLS cert/key load) | `DerCodec.wrapPkcs1InPkcs8` |
+  | `_bearerFromAuth` | `Jwt.fromAuthHeader` |
+  | `_packSession`/`_unpackSession`/`_parseCookieSession`/`_buildSetCookie`/`cookieConfig` | `SessionCookie.{pack,unpack,fromHeader,toSetCookie,setCookieConfig}` |
+  | `_sessionStore`/`_sessionStorePut/Get/Delete`/`useSessionStore` | `SessionStore.{put,get,delete,useStore}` |
+  | `_Metrics` (singleton with WS/HTTP counters) | `Metrics` (val alias) |
+  | `_WS_MAGIC`/`_WsMaxFrameBytes`/`_wsAcceptKey`/`_WsFrame`/`_wsParseFrame`/`_wsEncode{Frame,Text,Pong,Ping,Close}` | `WsFraming.{acceptKey,Frame,tryParse,encode{Text,Binary,Pong,Ping,Close}}` |
+  | `_RestValidationError` | `RestValidationError` (rename + drop duplicate) |
+
+  Net reduction in `JvmGen.scala`: ~530 LOC of duplicated string-template
+  code replaced with ~70 LOC of adapter shims; the implementations now
+  live in 11 properly-tested Scala files in `runtime-server-common`.
 
 Phase 2 (split `WebServer` / `WsConnection` behind a `RouteDispatcher`
 trait to make the full v1.17.4 ~50 LOC of adapter) remains deferred.
 
 ### Deferred follow-ups (v1.17.x backlog, ordered by priority)
 
-1. **Full v1.17.4** — replace the minimal echo with real
-   `McpServerSession` dispatch; finish runtime consolidation per
-   `PLAN-runtime-consolidation.md` on the `feature/v1.17.4-http-ws-jvm`
-   branch.
-2. **Own implementation for INT / scalajs-spa** — ~1500 LOC
+1. **Full v1.17.4** — replace the minimal echo (v1.17.4-min) with real
+   `McpServerSession.handle(...)` dispatch.  Blocker: the existing
+   `JvmRuntimeMcp.scala` imports `io.modelcontextprotocol.sdk.*` but the
+   actual SDK jar exposes `io.modelcontextprotocol.{server,client,spec}.*`
+   (no `.sdk.` segment) — fix the imports, then plug a custom
+   `McpServerTransportProvider` that bridges to the consolidated
+   `route()` / `onWebSocket()` helpers.
+2. **Phase 2 of runtime consolidation** — split the interpreter-coupled
+   classes (`WebServer`, `WsConnection`, `WsRoutes`, `WsProxy`,
+   `BlockingWsSession`, `OAuth`, `WebAuthn`, `TlsProxy` — ~3 400 LOC)
+   behind a `RouteDispatcher` trait so the protocol layer can also move
+   to `runtime-server-common`.  After this, `serveRuntime` shrinks from
+   the current ~1 700 LOC of glue to ~300 LOC.
+3. **Own implementation for INT / scalajs-spa** — ~1500 LOC
    JSON-RPC 2.0 stack; blocked until INT becomes a priority target.
 3. **Type-class layer** (`given McpTool[A, R]`, `derives McpSchema`)
    — depends on v1.14 `derives`.
