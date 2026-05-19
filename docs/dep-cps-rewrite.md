@@ -1,9 +1,10 @@
 # Dep-block CPS rewriting on the JVM backend
 
-Status: **design / planning**. Captures the architectural blocker
-preventing the v1.22 `distributed-*` conformance tests from running
-end-to-end on JVM, the design space for fixing it, and the recommended
-implementation path.
+Status: **implementation in progress** — Steps 0-3 landed
+(2026-05-19), minimal fixture green end-to-end, full `distributed-*`
+suite (Steps 4-7) still in flight on `feature/dep-cps`. Spec
+captured the design; the design proved correct; remaining work is
+the long tail of integration with the existing user-code emit path.
 
 Cross-refs:
 - `docs/coroutines.md` — CPS / Free-monad infrastructure on JVM
@@ -56,6 +57,45 @@ completion.
 Estimated cost: 2–3 focused days. The blockers are subtle (overly broad
 predicates regress unrelated tests; CPS rewriting of nested case bodies
 needs care) but well-localised in `backend-jvm/src/main/scala/scalascript/codegen/JvmGen.scala`.
+
+---
+
+## 1.1 Implementation status (2026-05-19)
+
+Steps 0-3 landed on `main`; Steps 4-7 in flight on `feature/dep-cps`.
+
+| Step | Status | Commits |
+|------|--------|---------|
+| 0 — minimal fixture (`conformance/dep-cps-basic.ssc` + `std/dep-cps-ping.ssc`) | ✅ landed | 74cf0ee |
+| 1 — `containsEffectPrimitive` whitelist predicate + 43 unit tests | ✅ landed | 71cefd0 |
+| 2 — cross-dep fixpoint (`analyzeDepEffectfulness`) + 14 unit tests | ✅ landed | ac93940 |
+| 3 — dep-mode CPS emit (`Defn.Object` recursion, `isEffectfulFun` ext, infix tuple-arg fix) | ✅ landed | 3b3ca95 |
+| 4 — `distributed-map.ssc` integration | 🔧 in progress | — |
+| 5 — full regression sweep | ⏳ pending | — |
+| 6 — strip `pending:` from other v1.22 distributed-* tests | ⏳ pending | — |
+| 7 — retire `cpsBody` parameter / textual band-aids | ⏳ pending | — |
+
+**Validation as of Step 3 landing:**
+- `conformance/dep-cps-basic.ssc` runs end-to-end on JVM, prints `ok/ok`.
+- 65 unit tests pass across `ContainsEffectPrimitiveTest`,
+  `DepEffectfulnessFixpointTest`, `JvmGenEffectsRuntimeTest` —
+  zero regressions.
+- The minimal fixture exercises all four shapes from §8.4 (direct
+  primitive call, transitive effectfulness, val-binding of effectful
+  result, pure tail in CPS chain) — Steps 1-3 are demonstrably sound.
+
+**Current known blocker (Step 4):**
+`distributed-map.ssc` now fails with ~32 compile errors of the shape
+`Not found: runDistributed` and `Not found: type DistributedResult`.
+The error mode changed: it's no longer the original `_Perform`
+ClassCastException, but a name-resolution issue where the user code's
+CPS chain references dep names (`runDistributed`, `Cluster`,
+`DistributedResult`, `Stage`, `MapOp`, `WorkerProtocol`, etc.) that
+aren't being brought into scope alongside the now-CPS-emitted dep
+object. The dep emit IS firing for `std.mapreduce.*` objects, but
+either the `import std.mapreduce.{…}` alias block isn't being
+generated, or the user code is being assembled before the dep
+emits land. Diagnosis pending — likely a few-hour fix once located.
 
 ---
 
