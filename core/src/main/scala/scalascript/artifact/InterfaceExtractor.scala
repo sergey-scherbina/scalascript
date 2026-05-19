@@ -145,16 +145,68 @@ object InterfaceExtractor:
     // Collect every parsed scalameta tree across all code blocks — used by
     // both the structural extern walk and the AST capability detector.
     val scalaTrees = ListBuffer.empty[scala.meta.Tree]
+    // Per-block `lineOffset` carried alongside the scalameta `Source` tree
+    // so position queries on inner stats can translate scalameta's
+    // (block-local) line back to the originating `.ssc` line.  Keyed by
+    // identity hash of the scalameta `Source` node so multiple blocks
+    // never collide.
+    val blockLineOffsets = scala.collection.mutable.Map.empty[scala.meta.Tree, Int]
     def collectTrees(sec: ast.Section): Unit =
       sec.content.foreach {
         case cb: ast.Content.CodeBlock if ast.Lang.isParseable(cb.lang) =>
           cb.tree.foreach { node =>
-            scalascript.ast.ScalaNode.fold(node)(scalaTrees += _)
+            scalascript.ast.ScalaNode.fold(node) { t =>
+              scalaTrees += t
+              // Remember the lineOffset of the enclosing block so
+              // [[positionFor]] (below) can produce file-level lines.
+              blockLineOffsets(t) = cb.lineOffset
+            }
           }
         case _ => ()
       }
       sec.subsections.foreach(collectTrees)
     module.sections.foreach(collectTrees)
+
+    // ── Position resolution ───────────────────────────────────────────────
+    //
+    // For each top-level definition we want the file-level (line, column)
+    // of the defining-name token (the `def`/`val`/`class`/... keyword's
+    // *name identifier*).  scalameta gives us positions relative to the
+    // input it parsed, which is the (possibly package-wrapped) code-block
+    // source.  Translate:
+    //
+    //    file_line = block.lineOffset + (scalameta_line − pkg.size)
+    //    file_col  = scalameta_col      − 2 * pkg.size
+    //
+    // (each `object pkg(i):` wrap layer adds one line at the head and
+    // indents the body by two columns).  Without a package wrap both
+    // adjustments are zero.  Negative results (the wrapper objects
+    // themselves) are clamped to 0 — those symbols are filtered out of
+    // the export list anyway.
+    val wrapLines   = pkg.size
+    val wrapColumns = 2 * pkg.size
+    def positionFor(t: scala.meta.Tree): (Int, Int) =
+      // Find the nearest enclosing `Source` we recorded an offset for.
+      // scalameta's `parent` chain leads back up to the Source we folded
+      // into `blockLineOffsets`; use `Option(...).getOrElse(0)` to stay
+      // safe when the lookup misses (defensive — shouldn't happen).
+      var cursor: scala.meta.Tree = t
+      var offset = 0
+      var found = false
+      while (!found && cursor != null) do
+        blockLineOffsets.get(cursor) match
+          case Some(off) =>
+            offset = off
+            found = true
+          case None =>
+            cursor =
+              if cursor.parent.isDefined then cursor.parent.get else null
+      val pos = t.pos
+      val rawLine = pos.startLine
+      val rawCol  = pos.startColumn
+      val line = math.max(0, offset + (rawLine - wrapLines))
+      val col  = math.max(0, rawCol - wrapColumns)
+      (line, col)
 
     // ── Package-shell walk ──────────────────────────────────────────────
     //
@@ -261,43 +313,61 @@ object InterfaceExtractor:
         if parentFqn.isEmpty then name else s"${parentFqn}_$name"
       stat match
         case d: Defn.Def if !EffectAnalysis.isExternDef(d.body) =>
+          val (dl, dc) = positionFor(d.name)
           Some(ExportedSymbol(
             name = d.name.value,
             fqn  = joinFqn(d.name.value),
             kind = "def",
-            tpe  = "Any"
+            tpe  = "Any",
+            definitionLine   = dl,
+            definitionColumn = dc
           ))
         case d: Defn.Val =>
           // Multi-pat `val (a, b) = …` is rare here; surface each Pat.Var.
-          d.pats.collectFirst { case Pat.Var(n) => n.value }.map { n =>
-            ExportedSymbol(name = n, fqn = joinFqn(n), kind = "val", tpe = "Any")
+          d.pats.collectFirst { case p @ Pat.Var(n) => (n.value, p) }.map { (n, p) =>
+            val (dl, dc) = positionFor(p)
+            ExportedSymbol(
+              name = n, fqn = joinFqn(n), kind = "val", tpe = "Any",
+              definitionLine = dl, definitionColumn = dc
+            )
           }
         case d: Defn.Var =>
-          d.pats.collectFirst { case Pat.Var(n) => n.value }.map { n =>
-            ExportedSymbol(name = n, fqn = joinFqn(n), kind = "var", tpe = "Any")
+          d.pats.collectFirst { case p @ Pat.Var(n) => (n.value, p) }.map { (n, p) =>
+            val (dl, dc) = positionFor(p)
+            ExportedSymbol(
+              name = n, fqn = joinFqn(n), kind = "var", tpe = "Any",
+              definitionLine = dl, definitionColumn = dc
+            )
           }
         case d: Defn.Class =>
+          val (dl, dc) = positionFor(d.name)
           Some(ExportedSymbol(
             name = d.name.value,
             fqn  = joinFqn(d.name.value),
             kind = "class",
-            tpe  = "Any"
+            tpe  = "Any",
+            definitionLine = dl, definitionColumn = dc
           ))
         case d: Defn.Trait =>
+          val (dl, dc) = positionFor(d.name)
           Some(ExportedSymbol(
             name = d.name.value,
             fqn  = joinFqn(d.name.value),
             kind = "trait",
-            tpe  = "Any"
+            tpe  = "Any",
+            definitionLine = dl, definitionColumn = dc
           ))
         case d: Defn.Enum =>
+          val (dl, dc) = positionFor(d.name)
           Some(ExportedSymbol(
             name = d.name.value,
             fqn  = joinFqn(d.name.value),
             kind = "enum",
-            tpe  = "Any"
+            tpe  = "Any",
+            definitionLine = dl, definitionColumn = dc
           ))
         case d: Defn.Object =>
+          val (dl, dc) = positionFor(d.name)
           val nested =
             if depth + 1 >= MaxNestedDepth then Nil
             else d.templ.body.stats.flatMap(s =>
@@ -308,7 +378,9 @@ object InterfaceExtractor:
             fqn    = joinFqn(d.name.value),
             kind   = "object",
             tpe    = "Any",
-            nested = nested
+            nested = nested,
+            definitionLine   = dl,
+            definitionColumn = dc
           ))
         case _ => None
 
@@ -371,11 +443,14 @@ object InterfaceExtractor:
         // `Term.Name("__extern__")`.  `EffectAnalysis.isExternDef` is
         // the authoritative recogniser — reuse it instead of guessing.
         case dd: Defn.Def if EffectAnalysis.isExternDef(dd.body) =>
+          val (dl, dc) = positionFor(dd.name)
           externDefs += ExportedSymbol(
             name = dd.name.value,
             fqn  = fqn(dd.name.value),
             kind = "extern",
-            tpe  = defSignature(dd)
+            tpe  = defSignature(dd),
+            definitionLine   = dl,
+            definitionColumn = dc
           )
         case _ => ()
       }
@@ -415,6 +490,34 @@ object InterfaceExtractor:
       if pkg.nonEmpty then packageInnerStats
       else scalaTrees.toList.collect { case s: Source => s.stats }.flatten
 
+    // Map top-level symbol name → file-level (line, col) of its defining
+    // identifier.  Used to populate `ExportedSymbol.definitionLine` /
+    // `definitionColumn` so cross-module go-to-definition jumps to the
+    // actual line, not (0,0).  Built from `topLevelStats` so the right
+    // tree is consulted regardless of whether `package:` is set.
+    val topLevelPositions: Map[String, (Int, Int)] =
+      val out = scala.collection.mutable.LinkedHashMap.empty[String, (Int, Int)]
+      topLevelStats.foreach {
+        case d: Defn.Def    => out(d.name.value) = positionFor(d.name)
+        case d: Defn.Val    =>
+          d.pats.foreach {
+            case p @ Pat.Var(n) => out(n.value) = positionFor(p)
+            case _              => ()
+          }
+        case d: Defn.Var    =>
+          d.pats.foreach {
+            case p @ Pat.Var(n) => out(n.value) = positionFor(p)
+            case _              => ()
+          }
+        case d: Defn.Class  => out(d.name.value) = positionFor(d.name)
+        case d: Defn.Object => out(d.name.value) = positionFor(d.name)
+        case d: Defn.Trait  => out(d.name.value) = positionFor(d.name)
+        case d: Defn.Enum   => out(d.name.value) = positionFor(d.name)
+        case d: Defn.Type   => out(d.name.value) = positionFor(d.name)
+        case _              => ()
+      }
+      out.toMap
+
     val rawExports = allDefs
       .filterNot { d =>
         d.kind == TSymbolKind.Param ||
@@ -425,12 +528,15 @@ object InterfaceExtractor:
           if d.kind == TSymbolKind.Object then
             nestedForObject(topLevelStats, d.name, fqn(d.name))
           else Nil
+        val (dl, dc) = topLevelPositions.getOrElse(d.name, (0, 0))
         ExportedSymbol(
-          name   = d.name,
-          fqn    = fqn(d.name),
-          kind   = kindString(d.kind),
-          tpe    = d.tpe.show,
-          nested = nested
+          name             = d.name,
+          fqn              = fqn(d.name),
+          kind             = kindString(d.kind),
+          tpe              = d.tpe.show,
+          nested           = nested,
+          definitionLine   = dl,
+          definitionColumn = dc
         )
       }
       .toList
