@@ -2817,6 +2817,13 @@ function _dispatch(obj, method, args) {
     if (typeof val === 'function') return args.length ? val(...args) : val;
     return val;
   }
+  // Caught exception support — `case e: RuntimeException => e.getMessage`
+  // works on raw JS Errors (since Term.Throw lowers to `throw new Error(msg)`)
+  // and on ScalaScript Instance-style throwables that carry a `message` field.
+  if ((obj instanceof Error) || (obj && typeof obj === 'object' && 'message' in obj)) {
+    if (method === 'getMessage' || method === 'message') return obj.message;
+  }
+
   // Extension method fallback: first look up by (receiver type, method) —
   // this is how typeclass instances disambiguate (Functor[List].map vs
   // Functor[Option].map).  Fall back to the older method-only registry
@@ -7144,6 +7151,36 @@ class JsGen(
 
     case Term.Ascribe(inner, _) =>
       genExpr(inner)
+
+    // throw expr — JS `throw` is a statement, wrap in an IIFE so it's
+    // usable in expression position (e.g. inside a ternary). Mirrors the
+    // Term.Throw lowering in genGenStatItem.
+    case Term.Throw(expr) =>
+      val errMsg = expr match
+        case Term.New(init) =>
+          init.argClauses.headOption.flatMap(_.values.headOption)
+            .map(v => genExpr(v.asInstanceOf[Term]))
+            .getOrElse("'error'")
+        case Term.Apply.After_4_6_0(Term.Name("RuntimeException" | "Exception" | "Error"), argClause)
+            if argClause.values.size == 1 =>
+          genExpr(argClause.values.head.asInstanceOf[Term])
+        case _ => genExpr(expr)
+      s"(() => { throw new Error($errMsg); })()"
+
+    // try { body } catch { case ... => ... } finally { ... }
+    // Lowered to an IIFE so it works in expression position (val x = try …).
+    // The catch handler reuses genCase, which produces an if/else chain that
+    // returns from the IIFE; a trailing `throw errVar` rethrows when no case
+    // matches (Scala semantics). Finally runs regardless.
+    case Term.Try.After_4_9_9(bodyExpr, catchClauseOpt, finallyOpt) =>
+      val bodyJs = genExpr(bodyExpr)
+      val errVar = freshTmp()
+      val cases  = catchClauseOpt.toList.flatMap(_.cases)
+      val catchJs =
+        if cases.isEmpty then s"throw $errVar;"
+        else cases.map(c => genCase(errVar, c)).mkString(" else ") + s" else { throw $errVar; }"
+      val finallyJs = finallyOpt.map { f => s" finally { ${genExpr(f)}; }" }.getOrElse("")
+      s"(() => { try { return $bodyJs; } catch ($errVar) { $catchJs }$finallyJs })()"
 
     case other =>
       s"/* unsupported: ${other.productPrefix} */"
