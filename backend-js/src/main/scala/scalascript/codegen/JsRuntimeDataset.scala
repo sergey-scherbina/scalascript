@@ -104,6 +104,25 @@ class _Dataset {
       return ls.map((v, i) => { const t = [v, i]; t._isTuple = true; return t; });
     }, xs => xs, this._parallel);
   }
+  // Numeric / ordered terminal aggregations.
+  min() {
+    const xs = this.collect();
+    if (xs.length === 0) throw new Error('Dataset.min: empty dataset');
+    return xs.reduce((a, b) => a <= b ? a : b);
+  }
+  max() {
+    const xs = this.collect();
+    if (xs.length === 0) throw new Error('Dataset.max: empty dataset');
+    return xs.reduce((a, b) => a >= b ? a : b);
+  }
+  sum() {
+    return this.collect().reduce((a, b) => a + b, 0);
+  }
+  avg() {
+    const xs = this.collect();
+    if (xs.length === 0) throw new Error('Dataset.avg: empty dataset');
+    return xs.reduce((a, b) => a + b, 0) / xs.length;
+  }
   groupBy(key) {
     const prev = this._pipeline;
     return new _Dataset(this._sourceFn, xs => {

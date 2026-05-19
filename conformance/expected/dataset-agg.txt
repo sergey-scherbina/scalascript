@@ -1,0 +1,6 @@
+1
+9
+31
+3.875
+0
+caught: Dataset.min: empty dataset

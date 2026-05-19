@@ -113,6 +113,27 @@ val JvmRuntimeDataset: String =
      |    if xs.isEmpty then throw new RuntimeException("Dataset.reduce: empty dataset")
      |    xs.reduce(combine)
      |
+     |  // Numeric / ordered terminal aggregations. min/max use Ordering[T]
+     |  // and throw on empty. sum/avg use Numeric[T] (so Int/Long/Double
+     |  // pick up their respective stdlib instances).  All four use () to
+     |  // match the user-facing call style `ds.sum()` / `ds.min()`.
+     |  def min()(using ord: Ordering[T]): T =
+     |    val xs = collect()
+     |    if xs.isEmpty then throw new RuntimeException("Dataset.min: empty dataset")
+     |    xs.min
+     |
+     |  def max()(using ord: Ordering[T]): T =
+     |    val xs = collect()
+     |    if xs.isEmpty then throw new RuntimeException("Dataset.max: empty dataset")
+     |    xs.max
+     |
+     |  def sum()(using num: Numeric[T]): T = collect().sum
+     |
+     |  def avg()(using num: Numeric[T]): Double =
+     |    val xs = collect()
+     |    if xs.isEmpty then throw new RuntimeException("Dataset.avg: empty dataset")
+     |    num.toDouble(xs.sum) / xs.length
+     |
      |  def fold[U](z: U)(combine: (U, T) => U): U =
      |    val xs = if _parallel then _runParallel() else _pipeline(_sourceFn()).asInstanceOf[List[T]]
      |    xs.foldLeft(z)(combine)

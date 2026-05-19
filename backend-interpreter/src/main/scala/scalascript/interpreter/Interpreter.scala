@@ -633,6 +633,44 @@ class Interpreter(
           run().zipWithIndex.map { case (v, i) => Value.TupleV(List(v, Value.IntV(i.toLong))) }
         ))
       ),
+      // Numeric / ordered terminal aggregations.
+      // min / max — natural ordering via compareValues; throw on empty
+      // (matches List.min/max semantics on Scala).
+      "min" -> Value.NativeFnV("Dataset.min", Computation.pureFn { _ =>
+        val xs = run()
+        if xs.isEmpty then
+          throw ScriptException(Value.InstanceV("RuntimeException",
+            Map("message" -> Value.StringV("Dataset.min: empty dataset"))))
+        else xs.reduce((a, b) => if compareValues(a, b) <= 0 then a else b)
+      }),
+      "max" -> Value.NativeFnV("Dataset.max", Computation.pureFn { _ =>
+        val xs = run()
+        if xs.isEmpty then
+          throw ScriptException(Value.InstanceV("RuntimeException",
+            Map("message" -> Value.StringV("Dataset.max: empty dataset"))))
+        else xs.reduce((a, b) => if compareValues(a, b) >= 0 then a else b)
+      }),
+      // sum — additive reduce starting from int 0; empty returns 0.
+      // Mixed Int/Double promote to Double via infix("+"), matching how
+      // user-written `_ + _` would behave.
+      "sum" -> Value.NativeFnV("Dataset.sum", Computation.pureFn { _ =>
+        val xs = run()
+        xs.foldLeft(Value.IntV(0L): Value) { (acc, v) =>
+          Computation.run(infix(acc, "+", List(v), Map.empty))
+        }
+      }),
+      // avg — sum / count, always Double. Throws on empty.
+      "avg" -> Value.NativeFnV("Dataset.avg", Computation.pureFn { _ =>
+        val xs = run()
+        if xs.isEmpty then
+          throw ScriptException(Value.InstanceV("RuntimeException",
+            Map("message" -> Value.StringV("Dataset.avg: empty dataset"))))
+        else
+          val total = xs.foldLeft(Value.DoubleV(0.0): Value) { (acc, v) =>
+            Computation.run(infix(acc, "+", List(v), Map.empty))
+          }
+          Computation.run(infix(total, "/", List(Value.DoubleV(xs.length.toDouble)), Map.empty))
+      }),
       "groupBy" -> Value.NativeFnV("Dataset.groupBy", {
         case List(keyFn) => Pure(makeDatasetV(() => {
           val items = run()
