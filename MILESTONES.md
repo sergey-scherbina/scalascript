@@ -442,12 +442,15 @@ unblocks downstream features as early as possible.
      v1.17.1 hardening ✓ Landed; v1.17.2 SSE/JS ✓ Landed;
      v1.17.3 prompts/JVM ✓ Landed; v1.17.4-min Http/Ws/JVM (minimal
      wiring, echo placeholder) ✓ Landed; v1.17.4-runtime consolidation
-     Phase 1 (a + b + c) + Phase 2 (a + b + c + d + e + f — pure
-     helpers + POJO HTTP model + RequestBuilder / ResponseWriter /
-     StreamResponseWriter + StaticAssetServer + WsHandshake /
+     Phase 1 (a + b + c) + Phase 2 (a + b + c + d + e + f + g —
+     pure helpers + POJO HTTP model + RequestBuilder / ResponseWriter
+     / StreamResponseWriter + StaticAssetServer + WsHandshake /
      Reassembler / RateLimiter + HttpDispatchLoop + WsFrameDispatch
-     + HttpHelpers.parseCookieHeader/readHttpHead + TlsProxy
-     migration, 29 inlined files) ✓ Landed; v1.17.4 full (real
+     + HttpHelpers.{parseCookieHeader, readHttpHead, parseHttpHead}
+     + TlsProxy migration, 29 inlined files) + Phase 3 (Option A:
+     serveRuntime out of string templates — 4 real .scala files in
+     a new runtime-server-jvm module, ~1750 LOC migrated from the
+     """|..."""  template) ✓ Landed; v1.17.4 full (real
      `McpServerSession` dispatch + SDK import fixes) ✓ Landed (all
      2026-05-19).
      Anthropic's Model Context Protocol via REST-shaped API
@@ -3278,6 +3281,48 @@ the codegen output.
   Phase 2g total: −32 LOC across the two backends, +43 LOC in
   HttpHelpers.
 
+- **Phase 3 — Option A: `serveRuntime` out of string templates**
+  ✓ Landed (2026-05-19).  See
+  [`docs/runtime-server-strategic-plan.md`](docs/runtime-server-strategic-plan.md)
+  for the full design.
+
+  The entire content of `JvmGen.serveRuntime` (Part1 + Part1b +
+  Part2, ~4 180 LOC of generated source) used to live inside three
+  `"""|..."""` triple-quoted string templates concatenated together
+  (split because each piece bumped against the JVM's 64 KB
+  string-literal limit).  Phase 3 migrates that content into real
+  `.scala` files inside a new `runtime-server-jvm` sbt module,
+  inlined into the codegen output via the same resource-bundle
+  pattern `runtime-server-common` already uses (Phase 1b).
+
+  Five sub-commits:
+
+  | Sub | File | What it owns |
+  | --- | --- | --- |
+  | 3a | `package.scala` | sbt module + loader scaffolding |
+  | 3b | `RestRuntime.scala` (~800 LOC) | REST routing + `serve(port)` + signed-cookie sessions + Jwt / OAuth / CSRF shims + body-size / spool / streaming / SSE / CORS / gzip + `_handle` dispatch + static-asset fallback |
+  | 3c | `WebSocketRuntime.scala` (~480 LOC) | `WebSocket` class + `onWebSocket` / `WsRoom` + `_Metrics` adapter + framing shims |
+  | 3d | `ProxyRuntime.scala` (~220 LOC) | `_proxyConnection` blocking accept + HTTP/WS sniffing + TLS / HTTPS bootstrap |
+  | 3e+3f | `OutboundClients.scala` (~225 LOC) | `http(url)` REST client + `wsConnect(url)` WS client; `serveRuntimePart1 / Part1b / Part2` strings deleted |
+
+  Final `JvmGen.serveRuntime`: ~10 lines of glue concatenating four
+  `loadJvmRuntimeSource(...)` calls.  No more `|`-prefix gymnastics,
+  no more 64 KB literal limit, no more cross-template runtime
+  refactors blind to the type checker.
+
+  **Zero distribution change**: ssc stays a fat jar with zero
+  external runtime deps; generated scripts stay self-contained
+  (runtime source is inlined as text from the resource bundle, not
+  pulled from a published jar).  Option A+ (Maven publishing as a
+  perf follow-up) becomes a future opt-in.
+
+  **Verification**: `JvmGenEffectsRuntimeTest` 8/8 throughout the
+  five sub-commits — including scala-cli end-to-end compile of
+  `serve(8080)` + `onWebSocket` modules.  Phase 3 follow-up adds
+  4 unit-test files in `runtime-server-jvm/src/test/`, 28 tests
+  covering the public API surface (Json, validate, WsRoom, Response
+  factories).
+
 ### Deferred follow-ups (v1.17.x backlog, ordered by priority)
 
 1. ~~**Own implementation for INT / scalajs-spa**~~ — Phase 1 + 2 + 3
@@ -4684,9 +4729,11 @@ view so they shape near-term decisions.
   `.ssc` file changes on disk; today the server pins them at start.
 - **REPL: web-aware mode.**  `bin/ssc repl` that lets you mount routes
   interactively and inspect the route table.
-- **`html"..."` precision.**  Smarter `${}` parsing inside string-blocks
-  so `${ a + "}" }` doesn't fool the regex (current TODO in the inline
-  block evaluator).
+- **`html"..."` precision.** ✅ **LANDED** — `findClosingBrace` in the
+  interpreter is now string-aware: double-quoted, triple-quoted, and
+  single-quoted literals are skipped so a `}` inside `${ a + "}" }`
+  never prematurely closes the scan.  Four regression tests added to
+  `InterpreterTest`.
 - **Future web-services protocols.**  HTTP/2, gRPC, GraphQL, OpenAPI
   schema export — each questioned during v1.1 review and deferred
   with concrete reasoning.  See [`docs/future-protocols.md`](docs/future-protocols.md)
