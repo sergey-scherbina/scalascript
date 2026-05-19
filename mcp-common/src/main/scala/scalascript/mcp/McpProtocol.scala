@@ -98,8 +98,10 @@ object McpProtocol:
     val obj = ujson.Obj(
       "tools" -> ujson.Arr.from(tools.map { t =>
         val o = ujson.Obj("name" -> t.name)
-        t.description.foreach(d => o("description") = d)
+        t.title.foreach       (s => o("title")        = s)
+        t.description.foreach (d => o("description")  = d)
         o("inputSchema") = t.inputSchema
+        t.outputSchema.foreach(s => o("outputSchema") = s)
         t.annotations.filterNot(_.isEmpty).foreach(a => o("annotations") = a.toJson)
         t.meta.filter(metaNonEmpty).foreach(m => o("_meta") = m)
         o
@@ -108,19 +110,30 @@ object McpProtocol:
     nextCursor.foreach(c => obj("nextCursor") = c)
     obj
 
-  /** `tools/call` result: `{content: [...], isError: bool}` — content is
-   *  a list of `Content` records (text / image / resource refs). */
-  def toolsCallResult(content: List[ujson.Value], isError: Boolean): ujson.Value =
-    ujson.Obj(
+  /** `tools/call` result: `{content: [...], isError: bool,
+   *  structuredContent?: ...}`.  `content` is the list of `Content`
+   *  records (text / image / audio / resource refs / resource_link)
+   *  that humans render.  `structuredContent` is the optional typed
+   *  payload that matches the tool's declared `outputSchema` — clients
+   *  prefer it when present for machine-readable downstream use. */
+  def toolsCallResult(
+    content:           List[ujson.Value],
+    isError:           Boolean,
+    structuredContent: Option[ujson.Value] = None
+  ): ujson.Value =
+    val obj = ujson.Obj(
       "content" -> ujson.Arr.from(content),
       "isError" -> isError
     )
+    structuredContent.foreach(s => obj("structuredContent") = s)
+    obj
 
   def resourcesListResult(resources: List[ResourceEntry], nextCursor: Option[String] = None): ujson.Value =
     val obj = ujson.Obj(
       "resources" -> ujson.Arr.from(resources.map { r =>
         val o = ujson.Obj("uri" -> r.uri)
         r.name.foreach(n     => o("name")     = n)
+        r.title.foreach(t    => o("title")    = t)
         r.mimeType.foreach(m => o("mimeType") = m)
         r.annotations.filterNot(_.isEmpty).foreach(a => o("annotations") = a.toJson)
         r.meta.filter(metaNonEmpty).foreach(m => o("_meta") = m)
@@ -135,6 +148,7 @@ object McpProtocol:
       "resourceTemplates" -> ujson.Arr.from(templates.map { t =>
         val o = ujson.Obj("uriTemplate" -> t.uriTemplate)
         t.name.foreach(n        => o("name")        = n)
+        t.title.foreach(s       => o("title")       = s)
         t.description.foreach(d => o("description") = d)
         t.mimeType.foreach(m    => o("mimeType")    = m)
         t.annotations.filterNot(_.isEmpty).foreach(a => o("annotations") = a.toJson)
@@ -153,6 +167,7 @@ object McpProtocol:
     val obj = ujson.Obj(
       "prompts" -> ujson.Arr.from(prompts.map { p =>
         val o = ujson.Obj("name" -> p.name)
+        p.title.foreach      (t => o("title")       = t)
         p.description.foreach(d => o("description") = d)
         if p.arguments.nonEmpty then
           o("arguments") = ujson.Arr.from(p.arguments.map { a =>
@@ -226,14 +241,23 @@ object McpProtocol:
     /** v1.17.x — MCP generic `_meta` field: implementation-defined
      *  metadata.  Per spec, MAY be attached to any object; clients
      *  ignore keys they don't recognise. */
-    meta:        Option[ujson.Value]     = None
+    meta:        Option[ujson.Value]     = None,
+    /** v1.17.x late-2025: human-readable display title.  Distinct from
+     *  the machine name, distinct from `annotations.title` (clients
+     *  may prefer the entry-level field when both are set). */
+    title:       Option[String]          = None,
+    /** v1.17.x late-2025: JSON Schema describing the structured shape
+     *  the tool's `structuredContent` will conform to.  Optional —
+     *  unstructured `content` tools omit it. */
+    outputSchema: Option[ujson.Value]    = None
   )
   case class ResourceEntry(
     uri:         String,
     name:        Option[String],
     mimeType:    Option[String],
     annotations: Option[ResourceAnnotations] = None,
-    meta:        Option[ujson.Value]         = None
+    meta:        Option[ujson.Value]         = None,
+    title:       Option[String]              = None
   )
   case class ResourceTemplateEntry(
     uriTemplate: String,
@@ -241,13 +265,15 @@ object McpProtocol:
     description: Option[String],
     mimeType:    Option[String],
     annotations: Option[ResourceAnnotations] = None,
-    meta:        Option[ujson.Value]         = None
+    meta:        Option[ujson.Value]         = None,
+    title:       Option[String]              = None
   )
   case class PromptEntry(
     name:        String,
     description: Option[String],
     arguments:   List[PromptArgument],
-    meta:        Option[ujson.Value] = None
+    meta:        Option[ujson.Value] = None,
+    title:       Option[String]      = None
   )
   case class PromptArgument(name: String, description: String, required: Boolean)
 
@@ -404,3 +430,26 @@ object McpProtocol:
 
   def resourceContent(uri: String): ujson.Value =
     ujson.Obj("type" -> "resource", "resource" -> ujson.Obj("uri" -> uri))
+
+  /** v1.17.x — late-2025 MCP additions:
+   *
+   *  - `audio` content: base64-encoded audio bytes + mimeType, parallel
+   *    shape to imageContent.  Surfaces voice / audio model outputs.
+   *  - `resource_link` content: lightweight reference to a known
+   *    resource (uri + optional name/description/mimeType) — clients
+   *    look up content via resources/read instead of inlining.
+   *    Avoids ballooning tool result payloads with large blobs. */
+  def audioContent(data: String, mimeType: String): ujson.Value =
+    ujson.Obj("type" -> "audio", "data" -> data, "mimeType" -> mimeType)
+
+  def resourceLinkContent(
+    uri:         String,
+    name:        Option[String] = None,
+    description: Option[String] = None,
+    mimeType:    Option[String] = None
+  ): ujson.Value =
+    val obj = ujson.Obj("type" -> "resource_link", "uri" -> uri)
+    name.foreach       (n => obj("name")        = n)
+    description.foreach(d => obj("description") = d)
+    mimeType.foreach   (m => obj("mimeType")    = m)
+    obj
