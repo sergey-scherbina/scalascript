@@ -58,6 +58,7 @@ private def dispatchCommand(args: List[String]): Unit =
     case "watch"               => watchCommand(args.tail)
     case "repl"                => replCommand(args.tail)
     case "emit-js"             => emitJsCommand(args.tail)
+    case "emit-wasm"           => emitWasmCommand(args.tail)
     case "emit-spa"            => emitSpaCommand(args.tail)
     case "emit-scala"          => emitScalaCommand(args.tail)
     case "emit-wc"             => emitWcCommand(args.tail)
@@ -216,6 +217,7 @@ def printUsage(): Unit =
     |  package [flags] <f>    Package .ssc via scala-cli package (see flags below)
     |  emit-scala             Print generated Scala 3 script to stdout
     |  emit-js                Transpile .ssc to JavaScript (Node server) and print to stdout
+    |  emit-wasm              Compile .ssc scala blocks to WebAssembly via Scala.js (writes .wasm + .js)
     |  emit-spa               Wrap .ssc as a browser SPA (HTML + embedded JS) and print to stdout
     |  emit-wc                Emit each component object as a W3C Custom Element bundle
     |  emit-interface         Extract module interface to .scim artifact (v2.0)
@@ -1414,6 +1416,39 @@ def emitJsCommand(args: List[String]): Unit =
           case _ => ()
       catch case e: Exception =>
         System.err.println(s"JS generation error: ${e.getMessage}")
+        System.exit(1)
+
+def emitWasmCommand(args: List[String]): Unit =
+  if args.isEmpty then { println("Error: No files specified"); System.exit(1) }
+  for file <- args do
+    val path = os.Path(file, os.pwd)
+    if !os.exists(path) then { println(s"Error: File not found: $file"); System.exit(1) }
+    else
+      try
+        val stem = path.last.stripSuffix(".ssc")
+        compileViaBackend("wasm", path) match
+          case CompileResult.Segmented(segs) =>
+            if segs.isEmpty then
+              System.err.println("emit-wasm: no scala blocks found in source")
+              System.exit(1)
+            for seg <- segs do seg match
+              case Segment.Asset(name, bytes, _) =>
+                val out = os.pwd / name
+                os.write.over(out, bytes)
+                System.err.println(s"Wrote $out (${bytes.length} bytes)")
+              case Segment.Code("javascript", glue) =>
+                val out = os.pwd / s"$stem.js"
+                os.write.over(out, glue)
+                System.err.println(s"Wrote $out")
+              case _ => ()
+          case CompileResult.Failed(diags) =>
+            diags.foreach(d => System.err.println(s"[error] $d"))
+            System.exit(1)
+          case other =>
+            System.err.println(s"emit-wasm: unexpected ${other.getClass.getSimpleName}")
+            System.exit(1)
+      catch case e: Exception =>
+        System.err.println(s"WASM generation error: ${e.getMessage}")
         System.exit(1)
 
 def emitSpaCommand(args: List[String]): Unit =

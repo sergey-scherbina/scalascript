@@ -5406,7 +5406,7 @@ Sorted by priority.  Run one agent per track simultaneously.
 | 5 | Library modularity | D | 3 days | Interpreter split |
 | 6 | `ssc debug` (DAP debugger) | C | 2 weeks | Interpreter split |
 | 7 | Numeric value specialization | E | 1 week | Interpreter split |
-| 8 | WASM backend | F | 3 weeks | — |
+| 8 | WASM backend | F | 3 weeks | — | ✅ skeleton landed (backend-wasm, emit-wasm CLI command, Scala.js --js-wasm) |
 | 9 | Package registry | G | 2 weeks | — |
 
 Track D is serial.  All other tracks can run in parallel.

@@ -168,6 +168,15 @@ lazy val backendScalajs = project
     Test    / scalacOptions ++= sharedScalacOptions
   )
 
+lazy val backendWasm = project
+  .in(file("backend-wasm"))
+  .dependsOn(backendSpi, core)
+  .settings(
+    name := "scalascript-backend-wasm",
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions
+  )
+
 // SourceLanguage plugin for `scala` fence blocks (docs/backend-spi.md §9 / Phase 9).
 // Stage 9 skeleton: SourceLanguage impl + ServiceLoader entry; the
 // existing in-core `scala`-block handling stays in place until the
@@ -233,7 +242,7 @@ val shrinkJar = taskKey[File]("Shrink the assembled ssc.jar with ProGuard 7.5 (1
 lazy val cli = project
   .in(file("cli"))
   .enablePlugins(SbtProguard)
-  .dependsOn(core, backendJvm, backendJs, backendScalajs, backendInterpreter, backendScalaSource, backendHtml, backendCss)
+  .dependsOn(core, backendJvm, backendJs, backendScalajs, backendWasm, backendInterpreter, backendScalaSource, backendHtml, backendCss)
   .settings(
     name := "scalascript-cli",
     libraryDependencies ++= Seq(
@@ -359,7 +368,7 @@ lazy val root = project
   .in(file("."))
   .aggregate(
     backendSpi, ir, core, runtimeServerCommon, runtimeServerJvm, mcpCommon,
-    backendJvm, backendJs, backendScalajs, backendInterpreter,
+    backendJvm, backendJs, backendScalajs, backendWasm, backendInterpreter,
     backendScalaSource, backendHtml, backendCss,
     cli
   )
