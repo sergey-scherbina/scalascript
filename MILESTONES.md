@@ -6515,10 +6515,10 @@ Spec in `docs/x402.md`.
 - [ ] Client: pre-authorize budget, track spend
 - [ ] Tests: unit counting, budget exhaustion → 402
 
-### Phase 8 — Test mode + examples
+### Phase 8 — Test mode + examples ✓ Landed
 
-- [ ] `X402.testConfig(payTo)` — auto BaseSepolia + testnet facilitator
-- [ ] `X402.isTestMode` from `X402_ENV` env var
-- [ ] `examples/x402-server.ssc` — payment-gated REST endpoint
-- [ ] `examples/x402-client.ssc` — client auto-handles 402
+- [x] `X402.testConfig(payTo)` — auto BaseSepolia + testnet facilitator
+- [x] `X402.isTestMode` from `X402_ENV` env var
+- [x] `examples/x402-server.ssc` — payment-gated REST endpoint
+- [x] `examples/x402-client.ssc` — client auto-handles 402
 - [ ] `examples/x402-cardano.ssc` — Cardano payment flow

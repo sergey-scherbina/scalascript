@@ -1,0 +1,69 @@
+---
+name: x402-client
+version: 1.0.0
+description: HTTP client that auto-handles 402 responses using x402 protocol.
+---
+
+# x402-client
+
+Demonstrates the x402 client interceptor: on a 402 response the client
+automatically signs an EIP-712 authorization and retries with the
+`X-Payment` header.
+
+Requires a private key in `WALLET_KEY` (hex, no `0x` prefix) or uses a
+demo key if unset.
+
+```scalascript
+import scalascript.x402.client.{X402Client, Wallets}
+import scalascript.x402.Network
+import scala.concurrent.Await
+import scala.concurrent.duration.*
+import scala.concurrent.ExecutionContext.Implicits.global
+
+val serverUrl = sys.env.getOrElse("X402_SERVER_URL", "http://localhost:8080")
+
+// Use env key or fall back to a demo key (never use in production)
+val demoKey  = "abcdef1234567890" * 4
+val wallet   = sys.env.get("WALLET_KEY") match
+  case Some(key) => Wallets.privateKey(key, Network.Base)
+  case None      => Wallets.privateKey(demoKey, Network.BaseSepolia)
+
+println(s"Wallet address: ${wallet.address}")
+
+// Backend: plain sttp HTTP (replace with your preferred HTTP client)
+import sttp.client4.*
+val http = DefaultSyncBackend()
+val backend = (method: String, url: String, headers: Map[String, String], body: String) =>
+  import scalascript.x402.client.HttpResponse
+  val req = basicRequest.headers(headers)
+  val resp = if method == "GET" then req.get(uri"$url").send(http)
+             else req.post(uri"$url").body(body).send(http)
+  Future.successful(HttpResponse(resp.code.code, Map.empty, resp.body.getOrElse("")))
+
+val client = X402Client(
+  wallet    = wallet,
+  maxAmount = BigInt(5_000_000),   // refuse to pay more than 5 USDC
+  backend   = backend,
+)
+
+// Health check (no payment needed)
+val health = Await.result(client.get(s"$serverUrl/health"), 10.seconds)
+println(s"Health: ${health.status} ${health.body}")
+
+// Premium endpoint — will auto-pay if a 402 is returned
+val premium = Await.result(client.get(s"$serverUrl/api/premium"), 15.seconds)
+println(s"Premium: ${premium.status} ${premium.body}")
+```
+
+## Usage
+
+```bash
+# Start the server first:
+ssc x402-server.ssc &
+
+# Then run the client:
+ssc x402-client.ssc
+
+# With a real wallet key:
+WALLET_KEY=<hex-private-key> ssc x402-client.ssc
+```

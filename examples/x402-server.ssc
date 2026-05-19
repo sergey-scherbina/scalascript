@@ -1,0 +1,65 @@
+---
+name: x402-server
+version: 1.0.0
+description: Payment-gated REST endpoint using x402 protocol (BaseSepolia testnet).
+---
+
+# x402-server
+
+A minimal API server that requires an x402 payment before returning data.
+
+Uses `X402.testConfig` with `Facilitators.testnet()` so no real chain
+interaction happens — useful for local development and CI.
+
+Set `WALLET_ADDRESS` to your receiver address, or leave it unset to use the
+demo placeholder.
+
+```scalascript
+import scalascript.x402.server.{withPayment, X402}
+import scalascript.x402.PaymentScheme
+
+val payTo = sys.env.getOrElse("WALLET_ADDRESS", "0x0000000000000000000000000000000000000001")
+
+val paymentConfig = X402.testConfig(
+  payTo  = payTo,
+  scheme = PaymentScheme.Exact(1_000_000L),   // 1 USDC (6 decimals)
+)
+
+serve {
+  // Un-gated health endpoint
+  get("/health") { req =>
+    Response.json(Map("status" -> "ok"))
+  }
+
+  // Payment-gated premium endpoint
+  withPayment(paymentConfig) {
+    get("/api/premium") { req =>
+      Response.json(Map(
+        "message" -> "Premium data",
+        "data"    -> List(1, 2, 3, 4, 5),
+      ))
+    }
+
+    get("/api/premium/quote/:symbol") { req =>
+      val symbol = req.params("symbol")
+      Response.json(Map(
+        "symbol" -> symbol,
+        "price"  -> 50000.0,
+        "note"   -> "Mock price — replace with a real data source",
+      ))
+    }
+  }
+}
+```
+
+## Usage
+
+```bash
+ssc x402-server.ssc
+
+# Without payment → 402
+curl http://localhost:8080/api/premium
+
+# With X402_ENV=test the testnet facilitator always approves
+# Use the x402-client.ssc example to auto-pay
+```
