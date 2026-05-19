@@ -496,6 +496,16 @@ private object Mcp:
         Value.UnitV
       case _ => throw InterpretError("srv.notifyResourceUpdate(uri)")
     })
+    // v1.17.x — list_changed notifications.  Servers call these after
+    // registering or un-registering a tool / resource / prompt at runtime
+    // to nudge clients to re-fetch the catalog.  Matching capability
+    // flags are advertised in initialize.
+    def notifyToolsLCFn = Value.NativeFnV("McpServer.notifyToolsListChanged",
+      Computation.pureFn { _ => builder.notifyToolsListChanged(); Value.UnitV })
+    def notifyResourcesLCFn = Value.NativeFnV("McpServer.notifyResourcesListChanged",
+      Computation.pureFn { _ => builder.notifyResourcesListChanged(); Value.UnitV })
+    def notifyPromptsLCFn = Value.NativeFnV("McpServer.notifyPromptsListChanged",
+      Computation.pureFn { _ => builder.notifyPromptsListChanged(); Value.UnitV })
     // v1.17.x — server-initiated notifications.  `srv.notify(method, params)`
     // broadcasts a JSON-RPC notification frame to every currently-active
     // subscriber (Stdio/Spawn: one writer; Ws: one per connected client;
@@ -531,10 +541,13 @@ private object Mcp:
       case _ => throw InterpretError("srv.request(method[, params[, timeoutMs]])")
     })
     Value.InstanceV("McpServer", Map(
-      "tool"                   -> toolFn,
-      "toolWithSchema"         -> toolWithSchemaFn,
-      "resource"               -> resourceFn,
-      "prompt"                 -> promptFn,
+      "tool"                          -> toolFn,
+      "toolWithSchema"                -> toolWithSchemaFn,
+      "resource"                      -> resourceFn,
+      "prompt"                        -> promptFn,
+      "notifyToolsListChanged"        -> notifyToolsLCFn,
+      "notifyResourcesListChanged"    -> notifyResourcesLCFn,
+      "notifyPromptsListChanged"      -> notifyPromptsLCFn,
       "onConnected"            -> onConnFn,
       "onDisconnected"         -> onDisconnFn,
       "onResourceSubscribe"    -> onResSubFn,

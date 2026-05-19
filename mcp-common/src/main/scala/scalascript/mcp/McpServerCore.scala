@@ -155,6 +155,16 @@ class McpServerBuilder:
     if subscribedResources.contains(uri) then
       notify(McpProtocol.Method.ResourcesUpdated, ujson.Obj("uri" -> uri))
 
+  /** Push `notifications/<category>/list_changed` — tells connected clients
+   *  the catalog has changed and they should re-fetch via `<category>/list`.
+   *  No payload per spec.  Servers call these after registering or
+   *  un-registering a tool / resource / prompt at runtime; the matching
+   *  `capabilities.<category>.listChanged: true` flag in initialize tells
+   *  clients to expect these. */
+  def notifyToolsListChanged():     Unit = notify(McpProtocol.Method.ToolsListChanged,     ujson.Obj())
+  def notifyResourcesListChanged(): Unit = notify(McpProtocol.Method.ResourcesListChanged, ujson.Obj())
+  def notifyPromptsListChanged():   Unit = notify(McpProtocol.Method.PromptsListChanged,   ujson.Obj())
+
 /** Result of a tool handler — list of content items + isError flag.
  *  `Map[String, Any]` flows through user code; we lift to `ujson.Value`
  *  at the boundary so this file stays free of interpreter types. */
