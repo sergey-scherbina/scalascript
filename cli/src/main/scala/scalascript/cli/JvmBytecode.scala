@@ -126,6 +126,53 @@ object JvmBytecode:
     finally
       scala.util.Try(os.remove.all(workDir))
 
+  /** Compile a shared runtime source — produced by `JvmGen.generateRuntime`
+   *  with a `package _ssc_runtime` wrapper — via scala-cli, then pack the
+   *  resulting `.class` + `.tasty` files as a base64-encoded ZIP suitable
+   *  for `ModuleJvmRuntimeArtifact.classBundle`.
+   *
+   *  The runtime source is written as a `.scala` file (NOT `.sc`) because
+   *  it carries a package declaration; scala-cli's `.sc` script wrapper
+   *  would conflict with the `package _ssc_runtime` block.
+   *
+   *  @return Right(base64-zip) on success; Left(diagnostic) on failure.
+   *
+   *  v2.0 Phase 2 — split-runtime shared classBundle. */
+  def compileRuntimeAndPack(
+      runtimeSource: String
+  ): Either[String, String] =
+    val workDir = os.temp.dir(prefix = "ssc-bytecode-runtime-")
+    try
+      val srcFile = workDir / "_ssc_runtime.scala"
+      os.write(srcFile, runtimeSource)
+
+      val outDir = workDir / "out"
+      os.makeDir.all(outDir)
+
+      val args: Seq[os.Shellable] = Seq(
+        "scala-cli",
+        "compile",
+        srcFile.toString,
+        "--compilation-output", outDir.toString,
+        "--server=false"
+      )
+      val res = os.proc(args).call(check = false, stderr = os.Pipe, stdout = os.Pipe)
+      if res.exitCode != 0 then
+        Left(
+          s"scala-cli compile of shared runtime failed (exit ${res.exitCode}):\n" +
+          s"stdout:\n${res.out.text()}\nstderr:\n${res.err.text()}"
+        )
+      else
+        val classFiles = collectClassFiles(outDir)
+        if classFiles.isEmpty then
+          Left(s"scala-cli compile produced no .class files in $outDir")
+        else
+          val allFiles = collectCompileOutputs(outDir)
+          val zipBytes = packAsZip(outDir, allFiles)
+          Right(Base64.getEncoder.encodeToString(zipBytes))
+    finally
+      scala.util.Try(os.remove.all(workDir))
+
   /** Walk `root` recursively for `.class` files.  Returned paths are
    *  absolute; callers compute their entry name as `relativeTo(root)`. */
   def collectClassFiles(root: os.Path): List[os.Path] =

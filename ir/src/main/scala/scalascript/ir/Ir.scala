@@ -333,7 +333,50 @@ case class ModuleJvmArtifact(
    *  Default `None` preserves backward compatibility with `.scjvm` artifacts
    *  emitted before this field existed; upickle's `derives ReadWriter` picks
    *  the default up automatically on read. */
-  classBundle:  Option[String] = None
+  classBundle:  Option[String] = None,
+  /** Capability set required by this module's emitted code.
+   *
+   *  Populated by `ssc compile-jvm --bytecode` from `JvmGen.detectCapabilities`.
+   *  The linker / runtime-staleness check unions every module's
+   *  `capabilities` into the runtime's capability set so the shared
+   *  `_runtime.scjvm-runtime` is regenerated whenever a module needs a new
+   *  capability that the existing runtime doesn't carry.
+   *
+   *  Encoded as the stable strings emitted by `JvmGen.Capability.encode`
+   *  (e.g. `"effects"`, `"serve"`, `"reactive"`, `"mcp"`, `"dataset"`).
+   *
+   *  Default `Nil` preserves backward compatibility with `.scjvm` artifacts
+   *  emitted before this field existed.  When a `.scjvm` carries an empty
+   *  capability list AND a non-empty `classBundle`, the linker treats it as
+   *  a pre-split-runtime artifact (the classBundle ships the full runtime
+   *  preamble) and skips runtime-bundle injection at link time. */
+  capabilities: List[String] = Nil
+) derives ReadWriter
+
+/** Shared JVM runtime artifact — written as `.scjvm-runtime` JSON.
+ *
+ *  Carries the once-per-session compiled runtime preamble (the
+ *  `package _ssc_runtime` block emitted by `JvmGen.generateRuntime`).
+ *  All modules in an artifact dir reference this single bundle at link
+ *  time so the ~180 KB preamble isn't duplicated into every `.scjvm`.
+ *
+ *  `capabilities` is the union of capabilities across all modules in
+ *  the dir at the time of generation (e.g. `Set("effects", "serve")`).
+ *  When the union changes (a new module adds a capability), the runtime
+ *  is regenerated; when only the union shrinks (a module is removed),
+ *  the existing runtime stays valid.
+ *
+ *  `sourceHash` is the SHA-256 of the emitted runtime Scala source —
+ *  used by `compile-jvm --bytecode` to short-circuit recompilation when
+ *  the capability set is unchanged.
+ *
+ *  v2.0 Phase 2 — split-runtime shared classBundle. */
+case class ModuleJvmRuntimeArtifact(
+  magic:        String,         // must equal ArtifactVersion.magic
+  abiVersion:   String,         // must equal ArtifactVersion.current
+  capabilities: List[String],   // sorted, encoded capability names
+  sourceHash:   String,         // SHA-256 hex of the runtime Scala source
+  classBundle:  String          // base64 ZIP of .class + .tasty files (always present)
 ) derives ReadWriter
 
 /** JS-backend cached artifact — written as `.scjs` JSON.
