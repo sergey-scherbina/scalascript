@@ -363,7 +363,26 @@ case class ModuleInterface(
    *  artifact with empty `sectionInterfaceHashes`, it treats every
    *  section as stale (safe fallback).  v2.0 Phase 5.
    */
-  sectionInterfaceHashes: Map[String, String] = Map.empty
+  sectionInterfaceHashes: Map[String, String] = Map.empty,
+  /** Natural dotted FQN → mangled JVM FQN, the table a Scala consumer
+   *  needs to bridge `_ssc_runtime`-mangled symbols back to their
+   *  source-form names.
+   *
+   *  Example: `"std.eq.Eq" -> "_ssc_runtime.std_eq_Eq"`.
+   *
+   *  Populated by `InterfaceExtractor`, mirrors what `Linker.mangle`
+   *  produces.  Includes nested members (depth-3 walk via
+   *  `ExportedSymbol.nested`).  Respects `exports:` front-matter —
+   *  private helpers don't appear.
+   *
+   *  Empty default = legacy artifact (no facade table); the interop
+   *  library falls back to computing the table on the fly from
+   *  `exports` + `Linker.mangle`.
+   *
+   *  Tier 1 of the Scala ↔ ScalaScript interop spec
+   *  (`docs/scala-interop.md`).  v2.0 — additive optional field, no
+   *  ABI version bump. */
+  scalaFacade: Map[String, String] = Map.empty
 ) derives ReadWriter
 
 /** Module IR artifact envelope — wraps a `NormalizedModule` as `.scir` JSON.

@@ -651,8 +651,42 @@ object InterfaceExtractor:
       dependencies  = deps,
       sectionHashes = computeSectionHashes(module),
       sectionOwnHashes = computeSectionOwnHashes(module),
-      sectionInterfaceHashes = computeSectionInterfaceHashes(module)
+      sectionInterfaceHashes = computeSectionInterfaceHashes(module),
+      scalaFacade   = buildScalaFacade(pkg, exports)
     )
+
+  /** Prefix every mangled FQN in the Scala-facade table with this object
+   *  name — the JVM-backend runtime wrapping introduced by JvmGen's
+   *  Phase-2 runtime/user split (`object _ssc_runtime: …`).
+   *
+   *  A Scala consumer types `import _ssc_runtime.std_eq_Eq` (or, via the
+   *  Tier-2 interop library, an `export` aliased to `std.eq.Eq`); this
+   *  prefix is what makes the mangled side line up with the bytecode
+   *  consumers actually see on the classpath. */
+  private val FacadeRuntimePrefix = "_ssc_runtime."
+
+  /** Build the natural-FQN → mangled-FQN map for a module's exports.
+   *
+   *  Top-level natural form: `pkg.segments.joined(".") + "." + name`.
+   *  Mangled form: `_ssc_runtime.` + `Linker.mangle(pkg, name)`.
+   *  Nested entries (depth ≤ `MaxNestedDepth` via `ExportedSymbol.nested`)
+   *  join `.` on the natural side and `_` on the mangled side, recursively.
+   *
+   *  Respects `exports:` front-matter implicitly — the caller passes the
+   *  already-filtered `exports` list, so private helpers stay out.
+   *
+   *  Tier 1 of the Scala ↔ ScalaScript interop spec (`docs/scala-interop.md`). */
+  private def buildScalaFacade(pkg: List[String], exports: List[ExportedSymbol]): Map[String, String] =
+    val table = scala.collection.mutable.LinkedHashMap.empty[String, String]
+    def emit(sym: ExportedSymbol, parentNatural: List[String], parentMangled: String): Unit =
+      val natural = (parentNatural :+ sym.name).mkString(".")
+      val mangled =
+        if parentMangled.isEmpty then FacadeRuntimePrefix + Linker.mangle(pkg, sym.name)
+        else parentMangled + "_" + sym.name
+      table(natural) = mangled
+      sym.nested.foreach(child => emit(child, parentNatural :+ sym.name, mangled))
+    exports.foreach(sym => emit(sym, pkg, ""))
+    table.toMap
 
   /** Detect well-known capability markers by structurally walking the
    *  parsed scalameta trees and matching call-site identifiers against

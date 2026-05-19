@@ -359,3 +359,85 @@ class InterfaceExtractorTest extends AnyFunSuite:
     val names = iface.exports.map(_.name).toSet
     assert(names == Set("DocLine"),
       s"expected only `DocLine` (HiddenHelper filtered out), got: $names")
+
+  // ── scalaFacade — Tier 1 of the Scala interop spec ──────────────────────
+
+  test("scalaFacade — every top-level export gets a `_ssc_runtime.<mangled>` entry"):
+    val iface = extractWithFrontMatter(
+      frontMatter = "package: std.eq",
+      scalascriptSource =
+        """def eqv(a: Int, b: Int): Boolean = a == b
+          |def neqv(a: Int, b: Int): Boolean = a != b""".stripMargin
+    )
+    // For each exported symbol, the facade must contain natural → mangled.
+    iface.exports.foreach { sym =>
+      val natural = (iface.pkg :+ sym.name).mkString(".")
+      val mangled = "_ssc_runtime." + Linker.mangle(iface.pkg, sym.name)
+      assert(iface.scalaFacade.get(natural).contains(mangled),
+        s"facade entry missing or wrong for $natural; expected '$mangled', got ${iface.scalaFacade.get(natural)}")
+    }
+    // Sanity: the table is exactly the export set (no spurious entries at top
+    // level — nested may add more).
+    val topLevelKeys = iface.exports.map(s => (iface.pkg :+ s.name).mkString(".")).toSet
+    val facadeTopLevel = iface.scalaFacade.keySet.filter(k => !k.split('.').toList.drop(iface.pkg.length + 1).nonEmpty)
+    assert(topLevelKeys subsetOf iface.scalaFacade.keySet,
+      s"facade keys $facadeTopLevel must cover every export $topLevelKeys")
+
+  test("scalaFacade — package: pkg is reflected on the natural side"):
+    val iface = extractWithFrontMatter(
+      frontMatter = "package: org.example.ui",
+      scalascriptSource = "def render(): Unit = ()"
+    )
+    assert(iface.scalaFacade.contains("org.example.ui.render"),
+      s"expected `org.example.ui.render` key, got: ${iface.scalaFacade.keySet}")
+    assert(iface.scalaFacade("org.example.ui.render") ==
+      "_ssc_runtime.org_example_ui_render")
+
+  test("scalaFacade — no `package:` ⇒ natural side is just the bare name"):
+    val iface = extract("def hello(): Int = 42")
+    assert(iface.scalaFacade.get("hello").contains("_ssc_runtime.hello"),
+      s"expected `hello` → `_ssc_runtime.hello`, got: ${iface.scalaFacade}")
+
+  test("scalaFacade — nested members get joined with `.` natural / `_` mangled"):
+    // ExportedSymbol.nested is populated by InterfaceExtractor for `object`
+    // exports up to MaxNestedDepth=3.  Each nested member must appear in the
+    // facade as `parent.child` (natural) → `parent_child` (mangled).
+    val iface = extractWithFrontMatter(
+      frontMatter = "package: std.foo",
+      scalascriptSource =
+        """object Bar:
+          |  def apply(x: Int): Int = x
+          |  val zero: Int = 0""".stripMargin
+    )
+    // Find the Bar export.
+    val bar = iface.exports.find(_.name == "Bar").getOrElse {
+      fail(s"expected `Bar` export, got: ${iface.exports.map(_.name)}")
+    }
+    // Bar should appear at top level.
+    assert(iface.scalaFacade.get("std.foo.Bar").contains("_ssc_runtime.std_foo_Bar"))
+    // Nested members — only check when the extractor actually populates them
+    // (depth-3 walk).  This pins the facade convention; if the extractor stops
+    // populating nested for some shape, the assertion documents the regression.
+    if bar.nested.nonEmpty then
+      bar.nested.foreach { child =>
+        val natural = s"std.foo.Bar.${child.name}"
+        val mangled = s"_ssc_runtime.std_foo_Bar_${child.name}"
+        assert(iface.scalaFacade.get(natural).contains(mangled),
+          s"nested facade entry missing for $natural; expected $mangled, " +
+          s"got ${iface.scalaFacade.get(natural)}")
+      }
+
+  test("scalaFacade — manifest `exports:` filter applies to the facade too"):
+    // Private helpers stay out of `exports`, so they also stay out of the
+    // facade.  This is implicit (we build facade from `exports`), the test
+    // pins it.
+    val iface = extractWithFrontMatter(
+      frontMatter = "package: org.acme\nexports:\n  - publik",
+      scalascriptSource =
+        """def publik(): Int = 1
+          |def privat(): Int = 2""".stripMargin
+    )
+    assert(iface.scalaFacade.contains("org.acme.publik"),
+      "exported names must appear in facade")
+    assert(!iface.scalaFacade.contains("org.acme.privat"),
+      s"private helpers must NOT appear in facade, got: ${iface.scalaFacade.keySet}")

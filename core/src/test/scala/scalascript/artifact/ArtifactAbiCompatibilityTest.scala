@@ -58,7 +58,13 @@ class ArtifactAbiCompatibilityTest extends AnyFunSuite:
         ExportedSymbol("serve", "org_example_ui_serve", "extern", "Int => Unit"),
         ExportedSymbol("nowMs", "org_example_ui_nowMs", "extern", "Long")
       ),
-      dependencies  = Map("std" -> "1.0.0", "http" -> "0.3.2")
+      dependencies  = Map("std" -> "1.0.0", "http" -> "0.3.2"),
+      scalaFacade   = Map(
+        "org.example.ui.Card"         -> "_ssc_runtime.org_example_ui_Card",
+        "org.example.ui.Button"       -> "_ssc_runtime.org_example_ui_Button",
+        "org.example.ui.Button.apply" -> "_ssc_runtime.org_example_ui_Button_apply",
+        "org.example.ui.render"       -> "_ssc_runtime.org_example_ui_render"
+      )
     )
 
   private def sampleIr: NormalizedModule =
@@ -806,5 +812,68 @@ class ArtifactAbiCompatibilityTest extends AnyFunSuite:
     val out = stripFieldFromJson(src, "v")
     assert(!out.contains("\"v\""), s"`v` should be removed everywhere: $out")
     ujson.read(out)
+
+  // =====================================================================
+  //  10. scalaFacade — Scala interop Tier 1 (docs/scala-interop.md).
+  //
+  //  The field is additive, optional, default Map.empty.  These four
+  //  tests pin the ABI contract for v0.x of the interop:
+  //   - byte-stable round-trip with non-empty entries
+  //   - legacy .scim without the field is absent-tolerant (default empty)
+  //   - keys are preserved case-sensitively (Scala FQNs are case-sensitive)
+  //   - empty-map default serialises canonically (no field skipping drift)
+  // =====================================================================
+
+  test(".scim scalaFacade round-trips byte-stably with non-empty entries"):
+    val iface = sampleInterface
+    assert(iface.scalaFacade.nonEmpty, "sample must include facade entries")
+    val json1 = ArtifactIO.writeInterface(iface)
+    val read  = ArtifactIO.readInterface(json1).toOption.get
+    assert(read.scalaFacade == iface.scalaFacade,
+      s"facade round-trip mismatch:\n  before=${iface.scalaFacade}\n  after =${read.scalaFacade}")
+    val json2 = ArtifactIO.writeInterface(read)
+    assertByteStableRoundtrip(".scim+facade", json1, json2)
+
+  test(".scim with stripped scalaFacade field still parses (default Map.empty)"):
+    val iface = sampleInterface
+    val json  = ArtifactIO.writeInterface(iface)
+    val without = stripFieldFromJson(json, "scalaFacade")
+    assert(without != json, "stripping should change the JSON")
+    ArtifactIO.readInterface(without) match
+      case Right(parsed) =>
+        assert(parsed.scalaFacade == Map.empty,
+          s".scim without scalaFacade should default to Map.empty, got: ${parsed.scalaFacade}")
+      case Left(err) => fail(s".scim should tolerate stripped scalaFacade: $err")
+
+  test(".scim scalaFacade keys preserve case sensitivity through round-trip"):
+    val iface = sampleInterface.copy(
+      scalaFacade = Map(
+        "org.acme.MyClass"   -> "_ssc_runtime.org_acme_MyClass",
+        "org.acme.myclass"   -> "_ssc_runtime.org_acme_myclass",  // distinct
+        "ORG.ACME.MyClass"   -> "_ssc_runtime.ORG_ACME_MyClass"   // distinct
+      )
+    )
+    val json = ArtifactIO.writeInterface(iface)
+    val read = ArtifactIO.readInterface(json).toOption.get
+    assert(read.scalaFacade.keySet ==
+      Set("org.acme.MyClass", "org.acme.myclass", "ORG.ACME.MyClass"),
+      s"case-distinct keys must round-trip distinctly, got: ${read.scalaFacade.keySet}")
+    assert(read.scalaFacade("org.acme.MyClass") == "_ssc_runtime.org_acme_MyClass")
+    assert(read.scalaFacade("org.acme.myclass") == "_ssc_runtime.org_acme_myclass")
+    assert(read.scalaFacade("ORG.ACME.MyClass") == "_ssc_runtime.ORG_ACME_MyClass")
+
+  test(".scim with empty scalaFacade round-trips byte-stably (canonical)"):
+    // upickle's `derives ReadWriter` omits a field when its value equals the
+    // schema default — so an empty `scalaFacade: Map.empty` is dropped from
+    // the JSON.  That is fine and even desirable: legacy readers, the
+    // absent-field path, and the empty-map path all converge on the same
+    // canonical form.  Pin the byte-stability so the writer can't quietly
+    // drift to a non-canonical encoding.
+    val iface = sampleInterface.copy(scalaFacade = Map.empty)
+    val json1 = ArtifactIO.writeInterface(iface)
+    val read  = ArtifactIO.readInterface(json1).toOption.get
+    assert(read.scalaFacade.isEmpty, "empty round-trips as empty")
+    val json2 = ArtifactIO.writeInterface(read)
+    assertByteStableRoundtrip(".scim+empty-facade", json1, json2)
 
 end ArtifactAbiCompatibilityTest
