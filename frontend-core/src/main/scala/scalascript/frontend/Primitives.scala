@@ -84,10 +84,11 @@ object View:
   final case class TextNode(value: () => String) extends View
 
   /** v1.18 / Phase A2b — text node whose value is bound to a
-   *  `ReactiveSignal[String]`.  Backends generate a subscription
-   *  so the DOM text updates whenever the signal is set.  Use
-   *  `TextNode` for static / snapshot-only text. */
-  final case class SignalText(signal: ReactiveSignal[String]) extends View
+   *  reactive signal.  Any `ReactiveSignal[?]` works — the
+   *  backend stringifies on read (JS `textContent =` coerces
+   *  numbers / booleans automatically).  Use `TextNode` for
+   *  static / snapshot-only text. */
+  final case class SignalText(signal: ReactiveSignal[?]) extends View
 
   /** Logical grouping with no DOM wrapper.  Like React `<>...</>`
    *  or Vue / Solid Fragment. */
@@ -142,6 +143,20 @@ object EventHandler:
    *  pass-through; the user code casts if it needs specific
    *  fields like `e.target.value`). */
   final case class WithEvent(action: Any => Unit) extends EventHandler
+
+  /** v1.18 / Phase A2c — set a reactive signal to a literal
+   *  value on the event.  Translatable to JS: emit generates an
+   *  `addEventListener` that calls `__setSignal(name, value)`.
+   *  The value's runtime type must match one of the backend's
+   *  supported JS-literal types (String / Int / Long / Double /
+   *  Boolean for the custom backend). */
+  final case class SetSignalLiteral(signal: ReactiveSignal[?], value: Any) extends EventHandler
+
+  /** v1.18 / Phase A2c — increment a numeric reactive signal by
+   *  `by` (default 1).  Canonical counter wiring.  Translatable
+   *  to JS: emit generates an `addEventListener` that reads the
+   *  current cell value, adds `by`, and calls `__setSignal`. */
+  final case class IncrementSignal(signal: ReactiveSignal[Int], by: Int = 1) extends EventHandler
 
 /** Composable UI unit — a function from props to a View that
  *  may close over signals + effects.  Backends interpret the

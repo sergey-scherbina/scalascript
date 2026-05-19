@@ -146,7 +146,7 @@ class CustomFrameworkBackendTest extends AnyFunSuite:
     assert(js.contains("document.createElement('li')"))
   }
 
-  test("emit — events emit a skipped-handler comment") {
+  test("emit — JVM-closure events emit a skipped marker comment") {
     val backend = new CustomFrameworkBackend
     val button = ComponentDef("App", Nil, _ => View.Element(
       "button",
@@ -155,9 +155,12 @@ class CustomFrameworkBackendTest extends AnyFunSuite:
       children = Seq(View.TextNode(() => "Click me"))
     ))
     val js = backend.emit(FrontendModule(List(button), "App", "/")).js
-    assert(js.contains("event handler(s) skipped"),
-      s"Expected A2 to leave a marker for the skipped handler:\n$js")
-    assert(js.contains("A2b"))
+    // A2c can translate SetSignalLiteral / IncrementSignal but not raw
+    // JVM closures — Simple / WithEvent still leave a marker.
+    assert(js.contains("JVM closure"),
+      s"Expected A2c to leave a marker for the untranslatable closure handler:\n$js")
+    assert(!js.contains("addEventListener"),
+      s"Closure handler must not emit an addEventListener call:\n$js")
   }
 
   test("emit — XSS-y attribute values are escaped, not raw") {
