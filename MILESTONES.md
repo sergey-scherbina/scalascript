@@ -439,18 +439,16 @@ unblocks downstream features as early as possible.
      User-defined macros (`quoted.Expr`) explicitly out of scope —
      deferred to v2.x.  Depends on v1.13 (`Mirror` resolution).
  21. **v1.17 — MCP support (client + server)** ✓ Landed (Phases 1–7);
-     v1.17.1 hardening ✓ Landed (2026-05-19);
-     v1.17.2 SSE transport on JS ✓ Landed (2026-05-19).
+     v1.17.1 hardening ✓ Landed; v1.17.2 SSE/JS ✓ Landed;
+     v1.17.3 prompts/JVM ✓ Landed (all 2026-05-19).
      Anthropic's Model Context Protocol via REST-shaped API
      in a separate namespace (`std/mcp/*`).  Intrinsic-first:
      wraps `@modelcontextprotocol/sdk` on Node and
      `io.modelcontextprotocol:sdk` on JVM; interpreter +
      scalajs-spa reject at typecheck via SPI feature flags.
-     Transport.Http (SSE) on JS landed in v1.17.2.
-     Full design in [`docs/mcp.md`](docs/mcp.md).  Optional
-     v1.17.3+ follow-ups: prompts on JVM, Http/Ws transports on JVM,
-     type-class layer (depends v1.14), own implementation for
-     INT (defer), streaming resources (depends v1.10).
+     Full design in [`docs/mcp.md`](docs/mcp.md).  Remaining
+     v1.17.x work: Http/Ws on JVM, INT own-impl, type-class layer,
+     streaming resources.
  22. **v1.18 — `package` keyword + std layout migration** ✓ Landed.
      Phases 1, 2, 4 landed (parser, codegen, conformance); Phase 3 (std migration) deferred.
  23. **v1.19 — URL / dep imports** ✓ Landed.
@@ -2875,21 +2873,34 @@ updated to document SSE mechanics.  Manual smoke: connect Claude
 Desktop (or `npx @modelcontextprotocol/inspector`) to
 `http://localhost:3000/mcp`.
 
+### v1.17.3 — Prompts on JVM ✓ Landed (2026-05-19)
+
+`buildSpec()` in `McpServerBuilder` previously accumulated prompt
+registrations in `_prompts` but never called `specBuilder.prompts(...)`,
+so all registered prompts were silently dropped.  Added a prompts spec
+block mirroring the tools/resources pattern:
+
+- `new Prompt(name, desc, List.of())` wraps the registration metadata.
+- `SyncPromptSpecification` handler converts `GetPromptRequest.arguments()`
+  to `Map[String, Any]`, calls the user handler, then maps the
+  `PromptResult` messages back to `PromptMessage(PromptMessageRole, TextContent)`.
+- `specBuilder.prompts(...)` called when `_prompts.nonEmpty`.
+- Role mapping: `"assistant"` → `PromptMessageRole.ASSISTANT`, all
+  others → `PromptMessageRole.USER`.
+
 ### Deferred follow-ups (v1.17.x backlog, ordered by priority)
 
-1. **Prompts on JVM** — currently silently dropped in `buildSpec()`
-   (no `specBuilder.prompts(...)` call); correctness bug, small fix.
-2. **Http/Ws transports on JVM** — both throw `McpError("not yet
+1. **Http/Ws transports on JVM** — both throw `McpError("not yet
    supported")`; needs Jetty / Vert.x event-loop integration.
-3. **Own implementation for INT / scalajs-spa** — ~1500 LOC
+2. **Own implementation for INT / scalajs-spa** — ~1500 LOC
    JSON-RPC 2.0 stack; blocked until INT becomes a priority target.
-4. **Type-class layer** (`given McpTool[A, R]`, `derives McpSchema`)
+3. **Type-class layer** (`given McpTool[A, R]`, `derives McpSchema`)
    — depends on v1.14 `derives`.
-5. **Streaming resources** — depends on v1.10 Generators.
-6. **Bidirectional sampling** — MCP advanced feature.
-7. **`using mcpConnect(...) { client => … }` RAII** — needs
+4. **Streaming resources** — depends on v1.10 Generators.
+5. **Bidirectional sampling** — MCP advanced feature.
+6. **`using mcpConnect(...) { client => … }` RAII** — needs
    `using`-resource language feature.
-8. **MCP protocol version negotiation** when v2 emerges.
+7. **MCP protocol version negotiation** when v2 emerges.
 
 ### Open questions
 

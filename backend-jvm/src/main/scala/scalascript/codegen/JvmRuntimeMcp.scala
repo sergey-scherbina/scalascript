@@ -121,6 +121,46 @@ val JvmRuntimeMcp: String =
      |      })
      |    }
      |    specBuilder.resources(resourceSpecs.toList.asJava)
+     |    // Prompts
+     |    val promptSpecs = _prompts.map { (name, desc, handler) =>
+     |      val prompt = new Prompt(name, desc.nonEmpty match { case true => desc; case _ => null }, java.util.List.of())
+     |      new McpSyncServerSpec.SyncPromptSpecification(prompt, (_, req) => {
+     |        val reqArgs: Map[String, Any] = req.arguments() match
+     |          case m: java.util.Map[?, ?] =>
+     |            m.asScala.map { case (k, v) => k.toString -> (v: Any) }.toMap
+     |          case _ => Map.empty
+     |        val result =
+     |          try handler(reqArgs)
+     |          catch case e: McpError => Map("_type" -> "PromptResult", "messages" -> List.empty[Any])
+     |        val messages: java.util.List[io.modelcontextprotocol.sdk.messages.PromptMessage] = result match
+     |          case r: scala.collection.immutable.Map[?, ?] =>
+     |            val rm = r.asInstanceOf[Map[String, Any]]
+     |            rm.getOrElse("messages", List.empty) match
+     |              case lst: List[?] => lst.map { m =>
+     |                val msg = m.asInstanceOf[Map[String, Any]]
+     |                val roleStr = msg.getOrElse("role", Map("_type" -> "User")) match
+     |                  case roleMap: scala.collection.immutable.Map[?, ?] =>
+     |                    roleMap.asInstanceOf[Map[String, Any]].getOrElse("_type", "User").toString
+     |                  case s: String => s
+     |                  case _ => "User"
+     |                val role = roleStr.toLowerCase match
+     |                  case "assistant" => io.modelcontextprotocol.sdk.messages.PromptMessageRole.ASSISTANT
+     |                  case _           => io.modelcontextprotocol.sdk.messages.PromptMessageRole.USER
+     |                val content = msg.getOrElse("content", Map("_type" -> "Text", "text" -> "")) match
+     |                  case c: scala.collection.immutable.Map[?, ?] =>
+     |                    new io.modelcontextprotocol.sdk.messages.TextContent(
+     |                      c.asInstanceOf[Map[String, Any]].getOrElse("text", "").toString
+     |                    )
+     |                  case other =>
+     |                    new io.modelcontextprotocol.sdk.messages.TextContent(other.toString)
+     |                new io.modelcontextprotocol.sdk.messages.PromptMessage(role, content)
+     |              }.asJava
+     |              case _ => java.util.List.of()
+     |          case _ => java.util.List.of()
+     |        new GetPromptResult(desc.nonEmpty match { case true => desc; case _ => null }, messages)
+     |      })
+     |    }
+     |    if _prompts.nonEmpty then specBuilder.prompts(promptSpecs.toList.asJava)
      |    specBuilder.build()
      |
      |// Global server builder state
