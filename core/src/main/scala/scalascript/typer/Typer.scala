@@ -9,9 +9,24 @@ import scala.meta.*
  *  Used by `ssc check --use-interface <dir>` to avoid re-parsing sources.
  *
  *  v2.0 / Stage 4.
+ *
+ *  @param importedInterfaces map of import alias -> ModuleInterface
+ *  @param strict             when true, references to names not in scope
+ *                            (neither in the consumer's own defs, nor in any
+ *                            imported `.scim` interface, nor in the builtin
+ *                            prelude) record a `TypeError`.  Default is
+ *                            `false` for backward compatibility with callers
+ *                            that rely on the historic permissive behaviour.
  */
-class Typer(importedInterfaces: Map[String, scalascript.ir.ModuleInterface] = Map.empty):
+class Typer(
+    importedInterfaces: Map[String, scalascript.ir.ModuleInterface] = Map.empty,
+    strict: Boolean = false
+):
   private val errors = ListBuffer[TypeError]()
+
+  /** Diagnostics accumulated so far.  Stable view into the running buffer —
+   *  callers should snapshot to a `List` when they need persistence. */
+  def diagnostics: List[TypeError] = errors.toList
 
   def typeCheck(module: Module): TypedModule =
     val prelude  = createPrelude()
@@ -33,20 +48,59 @@ class Typer(importedInterfaces: Map[String, scalascript.ir.ModuleInterface] = Ma
 
   private def createPrelude(): Scope =
     val s = Scope()
-    // Variadic builtins — represented with a single Any param (treated as variadic)
+    // I/O / assertions — variadic, single Any param sentinel
     s.define(Symbol("println", SType.Function(List(SType.Any), SType.Unit),  SymbolKind.Def))
     s.define(Symbol("print",   SType.Function(List(SType.Any), SType.Unit),  SymbolKind.Def))
     s.define(Symbol("assert",  SType.Function(List(SType.Any), SType.Unit),  SymbolKind.Def))
     s.define(Symbol("require", SType.Function(List(SType.Any), SType.Unit),  SymbolKind.Def))
+    // Option / collection constructors
     s.define(Symbol("Some",    SType.Function(List(SType.Any), SType.option(SType.Any)), SymbolKind.Def))
     s.define(Symbol("None",    SType.option(SType.Nothing), SymbolKind.Val))
-    // List / Map constructors are variadic — single Any param is the sentinel
     s.define(Symbol("List",    SType.Function(List(SType.Any), SType.list(SType.Any)), SymbolKind.Def))
+    s.define(Symbol("Vector",  SType.Function(List(SType.Any), SType.Named("Vector", List(SType.Any))), SymbolKind.Def))
+    s.define(Symbol("Set",     SType.Function(List(SType.Any), SType.Named("Set",    List(SType.Any))), SymbolKind.Def))
     s.define(Symbol("Map",     SType.Function(List(SType.Any), SType.map(SType.Any, SType.Any)), SymbolKind.Def))
+    s.define(Symbol("Seq",     SType.Function(List(SType.Any), SType.Named("Seq",    List(SType.Any))), SymbolKind.Def))
+    s.define(Symbol("Array",   SType.Function(List(SType.Any), SType.Named("Array",  List(SType.Any))), SymbolKind.Def))
+    s.define(Symbol("Right",   SType.Function(List(SType.Any), SType.Named("Either", List(SType.Any, SType.Any))), SymbolKind.Def))
+    s.define(Symbol("Left",    SType.Function(List(SType.Any), SType.Named("Either", List(SType.Any, SType.Any))), SymbolKind.Def))
+    // Standard objects / namespaces
     s.define(Symbol("math",    SType.Named("math", Nil), SymbolKind.Object))
+    s.define(Symbol("scala",   SType.Named("scala", Nil), SymbolKind.Object))
+    s.define(Symbol("java",    SType.Named("java", Nil), SymbolKind.Object))
+    s.define(Symbol("compiletime", SType.Named("compiletime", Nil), SymbolKind.Object))
+    // Doc / render / serve
     s.define(Symbol("doc",     SType.Function(List(SType.Any), SType.Any), SymbolKind.Def))
     s.define(Symbol("render",  SType.Function(List(SType.Any), SType.Unit), SymbolKind.Def))
     s.define(Symbol("serve",   SType.Function(List(SType.Any), SType.Unit), SymbolKind.Def))
+    // Effect / actor / runtime intrinsics — the interpreter recognises these
+    // by name (see backend-interpreter/Interpreter.scala).  Seeding them here
+    // prevents strict-mode false-positives for code that uses real ScalaScript
+    // effects without an explicit import.
+    val variadic = SType.Function(List(SType.Any), SType.Any)
+    val effectBuiltins = List(
+      "handle", "validate", "computed", "effect", "summon", "summonInline",
+      "constValue", "direct", "Focus", "Prism",
+      "runActors", "runAsync", "runAsyncParallel", "runAuthWith",
+      "runCache", "runCacheBypass",
+      "runClock", "runClockAt", "runEnv", "runEnvWith",
+      "runEphemeralStorage", "runHttp", "runHttpStub",
+      "runLogger", "runLoggerJson", "runLoggerToList",
+      "runRandom", "runRandomSeeded", "runRetry", "runRetryNoSleep",
+      "runState", "runStorage", "runTx",
+      "httpClient", "receive", "timeout",
+      // process / actor primitives
+      "spawn", "spawnLink", "spawnBounded", "self", "send", "exit",
+      "link", "monitor", "demonitor", "trapExit", "processInfo",
+      "startNode", "connectNode", "joinCluster",
+      "register", "whereis", "globalRegister", "globalWhereis",
+      "clusterMembers", "subscribeClusterEvents",
+      "sendAfter", "sendInterval", "cancelTimer",
+      "delay", "async", "await", "parallel", "recvFrom",
+      // tests / DSL helpers
+      "main", "test", "describe", "it", "expect", "check"
+    )
+    effectBuiltins.foreach(n => s.define(Symbol(n, variadic, SymbolKind.Def)))
     s
 
   private def typeCheckSection(section: Section, parent: Scope): TypedSection =
@@ -204,10 +258,27 @@ class Typer(importedInterfaces: Map[String, scalascript.ir.ModuleInterface] = Ma
     case Lit.Unit()     => SType.Unit
     case Lit.Null()     => SType.Null
 
-    case Term.Name(name) =>
+    case t @ Term.Name(name) =>
       scope.lookup(name) match
         case Some(sym) => sym.tpe
-        case None      => SType.Any  // unknown names — tolerated, no cascade errors
+        case None      =>
+          // Strict mode: record a diagnostic for references to identifiers
+          // that are not in any scope (the consumer's defs, any imported
+          // `.scim` interface, or the builtin prelude).  Permissive mode
+          // (the default) silently returns `SType.Any` to preserve
+          // historical behaviour for callers like `ssc compile`.
+          //
+          // Conservative scoping rules — to avoid false-positives we only
+          // flag a name that looks like a top-level term identifier:
+          //  * starts with a letter or underscore (not an operator),
+          //  * contains no `.` (selects go through `Term.Select`, not here),
+          //  * is not a single-underscore placeholder.
+          if strict && isFlaggableName(name) then
+            errors += TypeError(
+              s"Reference to undefined name: $name",
+              posToSpan(t.pos)
+            )
+          SType.Any
 
     case Term.Apply.After_4_6_0(fun, argClause) =>
       inferType(fun, scope) match
@@ -380,6 +451,22 @@ class Typer(importedInterfaces: Map[String, scalascript.ir.ModuleInterface] = Ma
     case Term.Select(qual, n) => s"${showTermPath(qual)}.${n.value}"
     case _                    => t.toString
 
+  /** Should an unresolved identifier be flagged in strict mode?
+   *
+   *  Operators, placeholders and dotted names are intentionally skipped
+   *  (the typer doesn't reliably know about them today).  The remaining
+   *  identifiers — bare letters/underscore-led terms — are exactly the
+   *  shape that should resolve via the prelude, the module's own defs,
+   *  or an imported `.scim` interface.
+   */
+  private def isFlaggableName(name: String): Boolean =
+    if name.isEmpty then false
+    else if name == "_" then false
+    else if name.contains('.') then false
+    else
+      val c = name.head
+      c.isLetter || c == '_'
+
   private def posToSpan(pos: scala.meta.Position): Option[Span] =
     if pos.isEmpty then None
     else Some(Span(
@@ -458,3 +545,25 @@ object Typer:
       module:     Module,
       interfaces: Map[String, scalascript.ir.ModuleInterface]
   ): TypedModule = Typer(interfaces).typeCheck(module)
+
+  /** Strict variant of `typeCheckWithInterfaces`.
+   *
+   *  When `strict = true`, references to identifiers that resolve to
+   *  nothing (not in the consumer's own defs, not in any imported `.scim`
+   *  interface, and not in the builtin prelude) emit a `TypeError` rather
+   *  than silently returning `SType.Any`.  Used by `ssc check-with-iface`.
+   *
+   *  v2.0 — typer strict mode (undefined-name diagnostics).
+   */
+  def typeCheckWithInterfaces(
+      module:     Module,
+      interfaces: Map[String, scalascript.ir.ModuleInterface],
+      strict:     Boolean
+  ): TypedModule = Typer(interfaces, strict).typeCheck(module)
+
+  /** Strict variant for callers that don't have any imported interfaces.
+   *
+   *  v2.0 — typer strict mode (undefined-name diagnostics).
+   */
+  def typeCheckStrict(module: Module): TypedModule =
+    Typer(Map.empty, strict = true).typeCheck(module)
