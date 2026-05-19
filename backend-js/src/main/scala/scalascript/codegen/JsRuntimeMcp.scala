@@ -85,6 +85,8 @@ function _mcpHandlerResult(handler, ...handlerArgs) {
   }
 }
 
+// Builds an stdio or WebSocket transport.  Http (SSE) is handled directly
+// in serveMcp — SSEServerTransport must be created per-connection.
 function _mcpTransport(transport) {
   if (!transport || typeof transport !== 'object') throw new Error('serveMcp: invalid transport');
   switch (transport._type) {
@@ -92,12 +94,7 @@ function _mcpTransport(transport) {
       const { StdioServerTransport } = require('@modelcontextprotocol/sdk/server/stdio.js');
       return new StdioServerTransport();
     }
-    case 'Http': {
-      const { SSEServerTransport } = require('@modelcontextprotocol/sdk/server/sse.js');
-      return new SSEServerTransport(transport.path || '/mcp', /* res stub */ null);
-    }
     case 'Ws': {
-      // WebSocket transport — use the SDK WebSocketServerTransport when available.
       try {
         const { WebSocketServerTransport } = require('@modelcontextprotocol/sdk/server/websocket.js');
         return new WebSocketServerTransport({ port: transport.port, path: transport.path || '/mcp' });
@@ -110,10 +107,7 @@ function _mcpTransport(transport) {
   }
 }
 
-function serveMcp(transport) {
-  const { McpServer } = require('@modelcontextprotocol/sdk/server/mcp.js');
-  const server = new McpServer({ name: 'scalascript-mcp', version: '1.0.0' });
-
+function _mcpRegister(server) {
   for (const t of _mcpTools) {
     server.tool(t.name, t.description, {}, async ({ arguments: args }) => {
       const result = _mcpHandlerResult(t.handler, _argsToMap(args));
@@ -124,7 +118,6 @@ function serveMcp(transport) {
       return { content: contents, isError: !!(result && result.isError) };
     });
   }
-
   for (const r of _mcpResources) {
     server.resource(r.uri, r.name || r.uri, async (uri) => {
       const result = _mcpHandlerResult(r.handler, uri);
@@ -140,7 +133,6 @@ function serveMcp(transport) {
       return { contents };
     });
   }
-
   for (const p of _mcpPrompts) {
     server.prompt(p.name, p.description, async ({ arguments: args }) => {
       const result = _mcpHandlerResult(p.handler, _argsToMap(args));
@@ -156,14 +148,74 @@ function serveMcp(transport) {
       return { messages };
     });
   }
+}
 
-  const t = _mcpTransport(transport);
-  server.connect(t).then(() => {
-    if (_mcpOnConnected) _mcpOnConnected();
-  }).catch(e => {
-    console.error('MCP server error:', e && e.message ? e.message : e);
-    process.exit(1);
-  });
+function serveMcp(transport) {
+  const { McpServer } = require('@modelcontextprotocol/sdk/server/mcp.js');
+  const server = new McpServer({ name: 'scalascript-mcp', version: '1.0.0' });
+  _mcpRegister(server);
+
+  if (!transport || typeof transport !== 'object') throw new Error('serveMcp: invalid transport');
+
+  if (transport._type === 'Http') {
+    // SSE over HTTP: spawn a Node http.Server, create one SSEServerTransport
+    // per incoming GET (SSE stream) and forward POSTs to the matching session.
+    const http = require('http');
+    const { SSEServerTransport } = require('@modelcontextprotocol/sdk/server/sse.js');
+    const port = transport.port || 3000;
+    const path = transport.path || '/mcp';
+    const _sessions = {};   // sessionId -> SSEServerTransport
+
+    const httpServer = http.createServer(async (req, res) => {
+      res.setHeader('Access-Control-Allow-Origin', '*');
+      res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+      if (req.method === 'OPTIONS') { res.writeHead(204); res.end(); return; }
+
+      const base   = 'http://localhost:' + port;
+      const reqUrl = new URL(req.url || '/', base);
+
+      try {
+        if (req.method === 'GET' && reqUrl.pathname === path) {
+          // New SSE client — create a fresh transport bound to this response.
+          const t = new SSEServerTransport(path, res);
+          _sessions[t.sessionId] = t;
+          res.on('close', () => {
+            delete _sessions[t.sessionId];
+            if (_mcpOnDisconnected) _mcpOnDisconnected();
+          });
+          await server.connect(t);
+          if (_mcpOnConnected) _mcpOnConnected();
+
+        } else if (req.method === 'POST') {
+          // Inbound JSON-RPC message — route to the matching session.
+          const sid = reqUrl.searchParams.get('sessionId');
+          const t   = sid && _sessions[sid];
+          if (t) {
+            await t.handlePostMessage(req, res);
+          } else {
+            res.writeHead(400, { 'Content-Type': 'text/plain' });
+            res.end('Unknown or expired session: ' + sid);
+          }
+        } else {
+          res.writeHead(404); res.end();
+        }
+      } catch (e) {
+        if (!res.headersSent) { res.writeHead(500); res.end(e && e.message || 'internal error'); }
+        console.error('MCP SSE handler error:', e);
+      }
+    });
+
+    httpServer.listen(port);
+
+  } else {
+    const t = _mcpTransport(transport);
+    server.connect(t).then(() => {
+      if (_mcpOnConnected) _mcpOnConnected();
+    }).catch(e => {
+      console.error('MCP server error:', e && e.message ? e.message : e);
+      process.exit(1);
+    });
+  }
 }
 
 // ── MCP client ─────────────────────────────────────────────────────────────

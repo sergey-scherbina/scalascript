@@ -439,14 +439,16 @@ unblocks downstream features as early as possible.
      User-defined macros (`quoted.Expr`) explicitly out of scope —
      deferred to v2.x.  Depends on v1.13 (`Mirror` resolution).
  21. **v1.17 — MCP support (client + server)** ✓ Landed (Phases 1–7);
-     v1.17.1 hardening ✓ Landed (2026-05-19).
+     v1.17.1 hardening ✓ Landed (2026-05-19);
+     v1.17.2 SSE transport on JS ✓ Landed (2026-05-19).
      Anthropic's Model Context Protocol via REST-shaped API
      in a separate namespace (`std/mcp/*`).  Intrinsic-first:
      wraps `@modelcontextprotocol/sdk` on Node and
      `io.modelcontextprotocol:sdk` on JVM; interpreter +
      scalajs-spa reject at typecheck via SPI feature flags.
+     Transport.Http (SSE) on JS landed in v1.17.2.
      Full design in [`docs/mcp.md`](docs/mcp.md).  Optional
-     v1.17.2+ follow-ups: SSE transport on JS, prompts on JVM,
+     v1.17.3+ follow-ups: prompts on JVM, Http/Ws transports on JVM,
      type-class layer (depends v1.14), own implementation for
      INT (defer), streaming resources (depends v1.10).
  22. **v1.18 — `package` keyword + std layout migration** ✓ Landed.
@@ -2860,24 +2862,34 @@ cannot produce deterministic expected output in the automated
 conformance runner.  The `requires:` gate now shows a clear SKIP
 reason; they are manually smoke-tested (see examples/mcp-*.ssc demos).
 
+### v1.17.2 — SSE transport on JS ✓ Landed (2026-05-19)
+
+`Transport.Http(port, path)` now works on the JS/Node backend:
+`serveMcp()` spawns a Node `http.Server` that creates a fresh
+`SSEServerTransport` per incoming GET (SSE stream) and forwards
+POST messages to the matching session via `transport.handlePostMessage`.
+CORS headers + OPTIONS pre-flight included.  `onConnected` /
+`onDisconnected` lifecycle hooks fire per-client-connection.
+`std/mcp/server.ssc` bumped to v0.2.0; `Transport.Http` comment
+updated to document SSE mechanics.  Manual smoke: connect Claude
+Desktop (or `npx @modelcontextprotocol/inspector`) to
+`http://localhost:3000/mcp`.
+
 ### Deferred follow-ups (v1.17.x backlog, ordered by priority)
 
-1. **SSE transport on JS** — `JsRuntimeMcp.scala:97` has a
-   `/* res stub */ null` placeholder; closest to working, highest
-   user impact after stdio.
-2. **Prompts on JVM** — currently silently dropped in `buildSpec()`
+1. **Prompts on JVM** — currently silently dropped in `buildSpec()`
    (no `specBuilder.prompts(...)` call); correctness bug, small fix.
-3. **Http/Ws transports on JVM** — both throw `McpError("not yet
+2. **Http/Ws transports on JVM** — both throw `McpError("not yet
    supported")`; needs Jetty / Vert.x event-loop integration.
-4. **Own implementation for INT / scalajs-spa** — ~1500 LOC
+3. **Own implementation for INT / scalajs-spa** — ~1500 LOC
    JSON-RPC 2.0 stack; blocked until INT becomes a priority target.
-5. **Type-class layer** (`given McpTool[A, R]`, `derives McpSchema`)
+4. **Type-class layer** (`given McpTool[A, R]`, `derives McpSchema`)
    — depends on v1.14 `derives`.
-6. **Streaming resources** — depends on v1.10 Generators.
-7. **Bidirectional sampling** — MCP advanced feature.
-8. **`using mcpConnect(...) { client => … }` RAII** — needs
+5. **Streaming resources** — depends on v1.10 Generators.
+6. **Bidirectional sampling** — MCP advanced feature.
+7. **`using mcpConnect(...) { client => … }` RAII** — needs
    `using`-resource language feature.
-9. **MCP protocol version negotiation** when v2 emerges.
+8. **MCP protocol version negotiation** when v2 emerges.
 
 ### Open questions
 

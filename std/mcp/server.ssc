@@ -1,7 +1,7 @@
 ---
 name: std-mcp-server
-version: 0.1.0
-description: MCP server primitives — mcpServer builder + serveMcp launcher. Wraps @modelcontextprotocol/sdk on JS and io.modelcontextprotocol:sdk on JVM. Not available on interpreter or scalajs-spa.
+version: 0.2.0
+description: MCP server primitives — mcpServer builder + serveMcp launcher. Wraps @modelcontextprotocol/sdk on JS and io.modelcontextprotocol:sdk on JVM. Not available on interpreter or scalajs-spa. Transport.Http (SSE) supported on JS since v0.2.0.
 package: std.mcp
 exports:
   - McpServer
@@ -51,7 +51,10 @@ extern class McpServer:
 // Returns Unit; server state is held by the runtime.
 extern def mcpServer(setup: McpServer => Unit): Unit
 
-// Start the MCP server on the given transport.  Blocks until the process exits
-// (stdio) or the server is stopped.
+// Start the MCP server on the given transport.
+// Transport.Stdio: blocks until stdin closes.
+// Transport.Http(port, path): listens on an HTTP+SSE server (JS only);
+//   one SSEServerTransport per client connection; onConnected fires per client.
+// Transport.Ws: deferred on all backends.
 extern def serveMcp(transport: Transport): Unit
 ```

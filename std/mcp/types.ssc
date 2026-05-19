@@ -57,6 +57,8 @@ case class Message(role: Role, content: Content)
 
 // ─── Transport ───────────────────────────────────────────────────────────────
 
+// Transport.Http uses HTTP+SSE on JS (one SSEServerTransport per client
+// connection) and is deferred on JVM.  Ws is deferred on both.
 enum Transport:
   case Stdio
   case Http(port: Int, path: String = "/mcp")
