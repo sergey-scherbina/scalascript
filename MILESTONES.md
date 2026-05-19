@@ -500,12 +500,15 @@ unblocks downstream features as early as possible.
      registry (no closure serialisation), coordinator-mediated
      shuffle, configurable failure handling.  Closure
      serialisation + worker-to-worker shuffle in v1.22.x.
- 27. **Cluster management** — partial landing in v1.23
-     (membership view + events + `std.cluster.Cluster.*` wrapper).
-     Remaining pieces (Phi-accrual cluster-wide failure detection,
-     leader election, configuration distribution, rolling restarts,
-     metrics aggregation) stay deferred.  Promote each when any of
-     the three trigger conditions fire (see
+ 27. **Cluster management** — partial landing in v1.23.
+     Shipped: membership view + events + per-link + cluster-wide
+     Phi-accrual failure detection + `std.cluster.Cluster.*` wrapper
+     + Bully leader election + auto-reconnect on outbound link drops
+     + periodic gossip re-discovery + cluster config distribution
+     (LWW per key).  Still deferred: leader-election alternatives
+     (Raft / external coordinator), rolling restarts, metrics
+     aggregation.  Promote each when any of the three trigger
+     conditions fire (see
      [`docs/cluster-management.md`](docs/cluster-management.md)
      §6).
  28. **6+/C — HostCallback dispatcher** (~1 week).
@@ -4009,16 +4012,21 @@ Full design space and explicit hard-no list in
 | Membership view (`clusterMembers()`) | ✓ v1.23 |
 | Membership events (`subscribeClusterEvents()` → `NodeJoined` / `NodeLeft`) | ✓ v1.23 |
 | Per-link failure detection (40 s heartbeat) | ✓ v1.6 Phase 3 |
+| Per-link Phi-accrual suspicion (`phiOf`, `isSuspect`) | ✓ v1.23 |
+| Cluster-wide FD aggregation (`broadcastHealth`, `clusterIsDown`) | ✓ v1.23 |
+| Local node identity + health snapshot (`selfNode`, `clusterHealth`) | ✓ v1.23 |
+| Bully leader election (`electLeader`, `currentLeader`, `subscribeLeaderEvents`) | ✓ v1.23 |
+| Auto-reconnect for outbound links (`setReconnectPolicy`) | ✓ v1.23 |
+| Periodic gossip re-discovery (`requestGossip`) | ✓ v1.23 |
+| Cluster config distribution (`clusterConfigSet/Get/Keys`, `ConfigChanged`) | ✓ v1.23 |
 | `std.cluster.Cluster.*` namespace wrapper | ✓ v1.23 |
 
 ### Still deferred (promote on demand)
 
-- Cluster-wide failure detection (Phi-accrual aggregation of
-  per-link suspicion across N peers) — design is in
-  `docs/cluster-management.md` §3.4; promote when an
-  application needs "node N is down according to ≥2/3 peers".
-- Leader election (Raft / Bully / external coordinator).
-- Configuration distribution.
+- Alternative leader-election protocols (Raft, external coordinator
+  via etcd/Consul/ZK adapters).  Bully is enough for v1.x trusted-
+  deployment use cases; promote a stronger protocol when an app needs
+  strong consistency or partition-tolerance guarantees Bully can't give.
 - Rolling restarts, metrics aggregation.
 
 Promote the remaining items when any of the trigger conditions fire:

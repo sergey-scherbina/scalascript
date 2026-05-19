@@ -1,11 +1,14 @@
 # Cluster management — peer-cluster orchestration
 
-Status: **partially landed in v1.23** (membership view + membership
-events + `std.cluster.Cluster.*` wrapper).  The remaining pieces —
-cluster-wide failure detection (Phi-accrual), leader election,
-configuration distribution, rolling restarts, metrics aggregation —
-stay in this document and promote individually when one of the
-trigger conditions in §6 fires for that specific piece.
+Status: **substantially landed in v1.23** — membership view +
+membership events + per-link + cluster-wide Phi-accrual failure
+detection + Bully leader election + auto-reconnect on outbound link
+drops + periodic gossip re-discovery + LWW cluster config
+distribution + `std.cluster.Cluster.*` wrapper.  The remaining
+pieces — alternative leader-election protocols (Raft, external
+coordinator), rolling restarts, metrics aggregation — stay in this
+document and promote individually when one of the trigger conditions
+in §6 fires for that specific piece.
 
 Companion to [`docs/coroutines.md`](coroutines.md) §3.4
 (v1.6 Phase 3 distributed actors — the foundation),
