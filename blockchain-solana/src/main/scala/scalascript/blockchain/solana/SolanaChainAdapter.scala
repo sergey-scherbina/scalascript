@@ -91,24 +91,130 @@ class SolanaChainAdapter(val chainId: ChainId)(using ec: ExecutionContext) exten
             .verify(Curve.Ed25519, pubBytes, digest, signature, HashAlgo.None)
       catch case _: Throwable => false
 
-  // ── transactions (deferred to a later slice) ──────────────────────────
+  // ── transactions ──────────────────────────────────────────────────────
+
+  /** System Program address (32 zero bytes, base58
+   *  "11111111111111111111111111111111"). */
+  private val SystemProgramKey: Array[Byte] = new Array[Byte](32)
 
   def buildTransaction(intent: TxIntent, sender: String, ctx: ChainContext): Future[Tx] =
-    Future.failed(new NotImplementedError(
-      "SolanaChainAdapter.buildTransaction lands in a later slice (NativeTransfer + SPL Token)",
-    ))
+    intent match
+      case TxIntent.NativeTransfer(to, lamports) =>
+        buildNativeTransfer(sender, to, lamports, ctx)
+      case TxIntent.TokenTransfer(_, _, _) =>
+        Future.failed(new NotImplementedError(
+          "SolanaChainAdapter SPL Token transfers land in a later slice (need ATA derivation)",
+        ))
+      case TxIntent.ContractCall(_, _, _) =>
+        Future.failed(new NotImplementedError(
+          "Solana program calls (TxIntent.InvokeProgram) land in a later slice",
+        ))
+      case other =>
+        Future.failed(new NotImplementedError(s"Solana buildTransaction does not yet support $other"))
 
+  /** Build a legacy SOL-transfer message via the System Program's
+   *  `transfer` instruction (instruction index = 2). The fee payer
+   *  is `sender`; the message becomes a signing payload for the
+   *  caller's RawSigner. */
+  private def buildNativeTransfer(sender: String, to: String, lamports: BigInt, ctx: ChainContext): Future[Tx] =
+    recentBlockhash(ctx).map { hash =>
+      val senderKey    = Base58.decode(sender)
+      val recipientKey = Base58.decode(to)
+      require(senderKey.length == 32 && recipientKey.length == 32, "Solana addresses must be 32 bytes")
+      // Account-keys order:
+      //   [0] signer-writable (fee payer + sender)
+      //   [1] non-signer-writable (recipient)
+      //   [2] non-signer-readonly (System Program)
+      val accountKeys = Seq(senderKey, recipientKey, SystemProgramKey)
+      val instruction = SolanaInstruction(
+        programIdIndex = 2,                               // SystemProgram at index 2
+        accountIndexes = Array[Byte](0, 1),               // [from=0, to=1]
+        data           = systemTransferData(lamports),
+      )
+      val message = SolanaMessage(
+        numRequiredSignatures        = 1,
+        numReadonlySignedAccounts    = 0,
+        numReadonlyUnsignedAccounts  = 1,
+        accountKeys                  = accountKeys,
+        recentBlockhash              = hash,
+        instructions                 = Seq(instruction),
+      )
+      SolanaTx(message)
+    }
+
+  /** Solana System Program `transfer` instruction body:
+   *      [u32 LE instruction = 2] || [u64 LE lamports]. */
+  private def systemTransferData(lamports: BigInt): Array[Byte] =
+    require(lamports.signum >= 0, s"lamports must be non-negative: $lamports")
+    require(lamports <= BigInt("18446744073709551615"), s"lamports overflows u64: $lamports")
+    val out = new Array[Byte](12)
+    out(0) = 2          // u32 LE instruction index
+    var v = lamports
+    var i = 4
+    while i < 12 do
+      out(i) = (v & BigInt(0xff)).toByte
+      v = v >> 8
+      i += 1
+    out
+
+  /** Fetch the most recent finalized blockhash from the network. */
+  private def recentBlockhash(ctx: ChainContext): Future[Array[Byte]] =
+    ctx.rpcCall("getLatestBlockhash").map { v =>
+      val hashStr = v.obj.get("value").map(_.obj("blockhash").str)
+        .getOrElse(v.obj("blockhash").str)
+      val bytes = Base58.decode(hashStr)
+      require(bytes.length == 32, s"recent blockhash must be 32 bytes, got ${bytes.length}")
+      bytes
+    }
+
+  /** Solana signs the message body directly — there's no separate
+   *  domain-separator or message prefix. The signer is ed25519
+   *  which hashes internally. */
   def prepareSigningPayload(tx: Tx, signer: PublicKey): SigningPayload =
-    throw new NotImplementedError("SolanaChainAdapter.prepareSigningPayload lands later")
+    SigningPayload(tx.message.serialize, scalascript.crypto.HashAlgo.None)
 
+  /** Assemble the wire form:
+   *      compact-array of signatures || serialized message.
+   *  For single-signature txs the prefix is `[1, sig(64)]`. */
   def assembleSignedTransaction(tx: Tx, signature: Array[Byte], signer: PublicKey): SignedTx =
-    throw new NotImplementedError("SolanaChainAdapter.assembleSignedTransaction lands later")
+    require(signature.length == 64, s"Solana signature must be 64 bytes, got ${signature.length}")
+    require(signer.curve == scalascript.crypto.Curve.Ed25519, s"Solana signer must be Ed25519")
+    val out = new java.io.ByteArrayOutputStream()
+    out.write(CompactU16.encode(1))
+    out.write(signature)
+    out.write(tx.message.serialize)
+    val raw = out.toByteArray
+    // Tx hash on Solana is the first signature, base58-encoded.
+    SolanaSignedTx(
+      rawBase64 = java.util.Base64.getEncoder.encodeToString(raw),
+      hash      = TxHash(Base58.encode(signature)),
+    )
 
   def broadcast(signed: SignedTx, ctx: ChainContext): Future[TxHash] =
-    Future.failed(new NotImplementedError("SolanaChainAdapter.broadcast lands later"))
+    ctx.rpcCall(
+      "sendTransaction",
+      ujson.Str(signed.rawBase64),
+      ujson.Obj("encoding" -> ujson.Str("base64")),
+    ).map { v =>
+      val sig = v match
+        case ujson.Str(s) => s
+        case obj          => obj.obj.get("result").map(_.str).getOrElse(signed.hash.value)
+      TxHash(sig)
+    }
 
   def describe(tx: Tx): TxDescription =
-    throw new NotImplementedError("SolanaChainAdapter.describe lands later")
+    val m  = tx.message
+    val to = if m.accountKeys.size >= 2 then Base58.encode(m.accountKeys(1)) else "(unknown)"
+    TxDescription(
+      summary = s"Solana legacy tx on $chainId — ${m.instructions.size} instruction(s), to $to",
+      fields  = Map(
+        "chainId"          -> chainId.caip2,
+        "numSignatures"    -> m.numRequiredSignatures.toString,
+        "numAccountKeys"   -> m.accountKeys.size.toString,
+        "numInstructions"  -> m.instructions.size.toString,
+        "recentBlockhash"  -> Base58.encode(m.recentBlockhash),
+      ),
+    )
 
   // ── queries ───────────────────────────────────────────────────────────
 
@@ -213,7 +319,12 @@ object SolanaChainAdapter:
   def devnet(using ExecutionContext):  SolanaChainAdapter = new SolanaChainAdapter(Devnet)
   def testnet(using ExecutionContext): SolanaChainAdapter = new SolanaChainAdapter(Testnet)
 
-/** Placeholder; filled in by later slices. */
-case class SolanaTx()
+/** A built but unsigned Solana transaction — wraps the message
+ *  body the caller's `RawSigner` will sign over. */
+case class SolanaTx(message: SolanaMessage)
 
+/** A signed Solana transaction ready for `sendTransaction`. The
+ *  raw bytes carry the full wire form (compact-array of
+ *  signatures || serialized message), base64-encoded for the
+ *  JSON-RPC envelope. */
 case class SolanaSignedTx(rawBase64: String, hash: TxHash)
