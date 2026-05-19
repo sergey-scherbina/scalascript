@@ -51,7 +51,6 @@ exports:
   - clusterMetricSum
   - clusterMetricNames
   - subscribeMetricEvents
-  - LeaderCoordinator
 ---
 
 # std.actors — Actor supervision
@@ -246,31 +245,22 @@ extern def setAutoReelect(enabled: Boolean): Unit
 extern def useRaftLeaderElection(): Unit
 
 // Switch this node onto an external-coordinator adapter (etcd / Consul /
-// ZooKeeper / custom).  The adapter must be a `LeaderCoordinator`
-// instance — see below + `docs/cluster-raft.md` §5.  `electLeader`
-// becomes a no-op (the coordinator drives elections); `currentLeader`
-// returns the lease holder; `subscribeLeaderEvents` fires on lease
-// changes.  Runtime dispatch lands in Phase 3b iter 2 — for now the
-// switch is observable via `leaderProtocol()` but the lease lifecycle
-// stays app-driven.
-extern def useExternalCoordinator(adapter: LeaderCoordinator): Unit
-
-// Coordinator adapter — record with the four lease-lifecycle hooks an
-// external coordinator (etcd / Consul / ZooKeeper) needs to participate
-// in `useExternalCoordinator(coord)`.  Apps wire each field to a
-// closure that talks to the coordinator's native protocol.
+// ZooKeeper / custom).  Pass four functions covering the lease lifecycle;
+// see `docs/cluster-raft.md` §5.  `electLeader` becomes a no-op (the
+// coordinator drives elections); `currentLeader` returns the lease
+// holder; `subscribeLeaderEvents` fires on lease changes.
 //
 //  - `acquireLease(nodeId, timeoutMs)`: blocking up to `timeoutMs`, returns
 //    `true` if we now hold the lease.
 //  - `renewLease(nodeId)`: refreshes the lease; `false` means lost it.
 //  - `releaseLease(nodeId)`: graceful step-down.
 //  - `currentHolder()`: lookup the current lease holder, `None` if unknown.
-case class LeaderCoordinator(
+extern def useExternalCoordinator(
   acquireLease:  (String, Long) => Boolean,
   renewLease:    String => Boolean,
   releaseLease:  String => Unit,
   currentHolder: () => Option[String]
-)
+): Unit
 
 // Snapshot of the active protocol: "bully" (default), "raft", or "coord".
 extern def leaderProtocol(): String

@@ -197,18 +197,22 @@ is the leader.
 
 ### 5.1 Adapter shape
 
-Landed as a **case class with four function fields**, not a trait —
-the runtime needs to call into the adapter from its generated
-`_runActors` body, and pulling fields out of a Product via
-`productElement` is structural-type-free and reflection-free
-(`case class` is a `Product` in Scala).  The fifth field
-(`onLeaderChanged`) from the original spec is deferred — apps poll
-`currentHolder()` from a timer for the same effect.  Real-coordinator
-implementations land in Phase 3b iter 2; iter 1 (this commit) only
-locks the surface and the `useExternalCoordinator` switch.
+Landed as **four function arguments to `useExternalCoordinator`**
+rather than a wrapping case class or trait.  Reasons:
+
+- The runtime calls back into adapter code from its generated
+  `_runActors` body.  Calling a record's method via `productElement`
+  works on JVM but the interpreter's import path doesn't yet expose
+  user-defined case classes to other modules (same limitation as
+  `ChildSpec` in `std.actors`).  Four-args avoids that limitation —
+  apps don't need an import to construct an adapter.
+- The fifth `onLeaderChanged` callback from the original spec is
+  deferred — apps poll `currentHolder()` from a timer for the same
+  effect; it can come back as a fifth function arg later if real
+  consumers need push.
 
 ```scala
-case class LeaderCoordinator(
+extern def useExternalCoordinator(
   // Try to acquire the leader lease.  Blocks up to `timeoutMs`.
   // Returns true if we became leader, false otherwise.
   acquireLease:  (String, Long) => Boolean,
@@ -223,8 +227,15 @@ case class LeaderCoordinator(
 
   // Look up the current lease holder, or None if no leader.
   currentHolder: () => Option[String]
-)
+): Unit
 ```
+
+The runtime synchronously calls `acquireLease(localNodeId, 5_000)`
+once at switch time so callers see leadership immediately without
+waiting a tick, then spawns a background tick (1 s on JVM/INT via
+virtual threads; `setInterval(...).unref()` on JS Node).  Lease
+renewal failure fires `LeaderLost` and steps the local node down;
+the tick then keeps retrying `acquireLease` on every iteration.
 
 ### 5.2 Concrete adapters
 
@@ -259,10 +270,16 @@ protocol via one of these init-time hooks:
 // Switch to Raft.  Must be called before any electLeader().
 useRaftLeaderElection()
 
-// Switch to an external coordinator.
-useExternalCoordinator(EtcdLeaderCoordinator(
-  endpoints = List("https://etcd-1:2379", "https://etcd-2:2379"),
-  leaseKey  = "/scalascript/cluster/leader"))
+// Switch to an external coordinator.  Apps wire each function to the
+// coordinator's native protocol (etcd lease + CAS, Consul session +
+// KV lock, ZooKeeper ephemeral znode, etc.).
+val etcd = EtcdSession.connect(List("https://etcd-1:2379"))
+useExternalCoordinator(
+  acquireLease  = (nid, ms) => etcd.acquireLease("/cluster/leader", nid, ms),
+  renewLease    = nid       => etcd.renewLease("/cluster/leader", nid),
+  releaseLease  = nid       => etcd.releaseLease("/cluster/leader", nid),
+  currentHolder = ()        => etcd.getLeaseHolder("/cluster/leader")
+)
 ```
 
 Both new hooks land as plain `extern def`s in `std.actors` and as

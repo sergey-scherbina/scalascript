@@ -2106,8 +2106,10 @@ class Interpreter(
       case _   => throw InterpretError("useRaftLeaderElection(): Unit")
     })
     globals("useExternalCoordinator") = Value.NativeFnV("useExternalCoordinator", {
-      case List(adapter) => Perform("Actor", "useExternalCoordinator", List(adapter))
-      case _ => throw InterpretError("useExternalCoordinator(adapter: Any): Unit")
+      case List(acq, ren, rel, hol) =>
+        Perform("Actor", "useExternalCoordinator", List(acq, ren, rel, hol))
+      case _ => throw InterpretError(
+        "useExternalCoordinator(acquireLease, renewLease, releaseLease, currentHolder)")
     })
     globals("leaderProtocol") = Value.NativeFnV("leaderProtocol", {
       case Nil => Perform("Actor", "leaderProtocol", Nil)
@@ -5802,32 +5804,28 @@ class Interpreter(
       Right(k(Value.UnitV))
 
     case "useExternalCoordinator" => args match
-      case List(adapter) =>
+      case List(acquire, renew, release, holder) =>
         leaderProtocolRef.set("coord")
-        leaderCoordinator = adapter
-        adapter match
-          case Value.InstanceV("LeaderCoordinator", fields) =>
-            coordAcquireFn = fields.getOrElse("acquireLease",  Value.UnitV)
-            coordRenewFn   = fields.getOrElse("renewLease",    Value.UnitV)
-            coordReleaseFn = fields.getOrElse("releaseLease",  Value.UnitV)
-            coordHolderFn  = fields.getOrElse("currentHolder", Value.UnitV)
-            coordAcquireFn match
-              case Value.NativeFnV(_, _) | _: Value.FunV =>
-                // Initial sync acquire so callers see the leader immediately.
-                callCoordFn(coordAcquireFn,
-                  List(Value.StringV(localNodeId), Value.IntV(CoordLeaseTimeoutMs))) match
-                  case Value.BoolV(true) =>
-                    coordIsLeader = true
-                    val prev = currentLeader.getAndSet(localNodeId)
-                    if prev != localNodeId then
-                      enqueueLeaderEvent("LeaderElected", localNodeId)
-                      recordLeaderHist(localNodeId)
-                  case _ => ()
-                ensureCoordTickThread()
+        coordAcquireFn = acquire
+        coordRenewFn   = renew
+        coordReleaseFn = release
+        coordHolderFn  = holder
+        acquire match
+          case Value.NativeFnV(_, _) | _: Value.FunV =>
+            callCoordFn(acquire,
+              List(Value.StringV(localNodeId), Value.IntV(CoordLeaseTimeoutMs))) match
+              case Value.BoolV(true) =>
+                coordIsLeader = true
+                val prev = currentLeader.getAndSet(localNodeId)
+                if prev != localNodeId then
+                  enqueueLeaderEvent("LeaderElected", localNodeId)
+                  recordLeaderHist(localNodeId)
               case _ => ()
+            ensureCoordTickThread()
           case _ => ()
         Right(k(Value.UnitV))
-      case _ => throw InterpretError("useExternalCoordinator(adapter: Any): Unit")
+      case _ => throw InterpretError(
+        "useExternalCoordinator(acquireLease, renewLease, releaseLease, currentHolder)")
 
     case "leaderProtocol" =>
       Right(k(Value.StringV(leaderProtocolRef.get())))

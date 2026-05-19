@@ -1,0 +1,30 @@
+#!/usr/bin/env ssc
+---
+name: actors-cluster-coordinator
+description: Actor v1.23 — useExternalCoordinator + sync acquire round-trip
+---
+
+# External coordinator — mock adapter, single node
+
+Wires four mock lease-lifecycle functions through
+`useExternalCoordinator(acquire, renew, release, holder)`.  The
+runtime calls `acquire` synchronously once; `true` promotes the
+local node to leader on the spot.  Multi-node, real-coordinator
+dispatch (etcd / Consul / ZooKeeper) lives in follow-up adapters
+that wire their wire protocols to the same four-function shape.
+
+```scalascript
+runActors {
+  var heldBy = ""
+  useExternalCoordinator(
+    acquireLease  = (nid, _) => { heldBy = nid; true },
+    renewLease    = nid => heldBy == nid,
+    releaseLease  = _ => { heldBy = "" },
+    currentHolder = () => if heldBy == "" then None else Some(heldBy)
+  )
+  println("proto=" + leaderProtocol())
+  println("leader='" + currentLeader() + "'")
+  println("hist=" + leaderHistory().length)
+  println("ok")
+}
+```

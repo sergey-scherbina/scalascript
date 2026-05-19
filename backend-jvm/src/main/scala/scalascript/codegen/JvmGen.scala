@@ -1835,8 +1835,9 @@ class JvmGen(
         if argClause.values.isEmpty =>
       "Actor.useRaftLeaderElection()"
     case Term.Apply.After_4_6_0(Term.Name("useExternalCoordinator"), argClause)
-        if argClause.values.size == 1 =>
-      s"Actor.useExternalCoordinator(${emitExpr(argClause.values.head.asInstanceOf[Term])})"
+        if argClause.values.size == 4 =>
+      val vs = argClause.values.map(v => emitExpr(v.asInstanceOf[Term]))
+      s"Actor.useExternalCoordinator(${vs(0)}, ${vs(1)}, ${vs(2)}, ${vs(3)})"
     case Term.Apply.After_4_6_0(Term.Name("leaderProtocol"), argClause)
         if argClause.values.isEmpty =>
       "Actor.leaderProtocol()"
@@ -2628,8 +2629,9 @@ class JvmGen(
         if argClause.values.isEmpty =>
       "Actor.useRaftLeaderElection()"
     case Term.Apply.After_4_6_0(Term.Name("useExternalCoordinator"), argClause)
-        if argClause.values.size == 1 =>
-      s"Actor.useExternalCoordinator(${emitExpr(argClause.values.head.asInstanceOf[Term])})"
+        if argClause.values.size == 4 =>
+      val vs = argClause.values.map(v => emitExpr(v.asInstanceOf[Term]))
+      s"Actor.useExternalCoordinator(${vs(0)}, ${vs(1)}, ${vs(2)}, ${vs(3)})"
     case Term.Apply.After_4_6_0(Term.Name("leaderProtocol"), argClause)
         if argClause.values.isEmpty =>
       "Actor.leaderProtocol()"
@@ -4161,7 +4163,9 @@ class JvmGen(
        |  // land in subsequent phases — for now these mark intent and let
        |  // `leaderProtocol()` observe it.
        |  def useRaftLeaderElection(): Any                      = _perform("Actor", "useRaftLeaderElection")
-       |  def useExternalCoordinator(adapter: Any): Any         = _perform("Actor", "useExternalCoordinator", adapter)
+       |  def useExternalCoordinator(acquireLease: Any, renewLease: Any,
+       |                              releaseLease: Any, currentHolder: Any): Any =
+       |    _perform("Actor", "useExternalCoordinator", acquireLease, renewLease, releaseLease, currentHolder)
        |  def leaderProtocol(): Any                             = _perform("Actor", "leaderProtocol")
        |  // v1.23 — bounded ring buffer of accepted leader claims this node has
        |  // observed.  Each entry is (term, leaderId, wallClockMs).
@@ -5336,24 +5340,21 @@ class JvmGen(
        |      Right(k(()))
        |    case "useExternalCoordinator" =>
        |      _leaderProtocol.set("coord")
-       |      _leaderCoordinator = args(0)
-       |      args(0) match
-       |        case p: Product if p.productArity == 4 =>
-       |          _coordAcquireFn = p.productElement(0).asInstanceOf[AnyRef]
-       |          _coordRenewFn   = p.productElement(1).asInstanceOf[AnyRef]
-       |          _coordReleaseFn = p.productElement(2).asInstanceOf[AnyRef]
-       |          _coordHolderFn  = p.productElement(3).asInstanceOf[AnyRef]
-       |          // Try once synchronously so callers don't wait a tick.
-       |          val got = try _coordAcquireFn.asInstanceOf[(String, Long) => Boolean](_localNodeId, _COORD_LEASE_TIMEOUT_MS)
-       |                    catch case _: Throwable => false
-       |          if got then
-       |            _coordIsLeader = true
-       |            val prev = _currentLeader.getAndSet(_localNodeId)
-       |            if prev != _localNodeId then
-       |              _fireLeaderEvent("LeaderElected", _localNodeId)
-       |              _recordLeaderHist(_localNodeId)
-       |          _ensureCoordTickThread()
-       |        case _ => ()
+       |      if args.length >= 4 then
+       |        _coordAcquireFn = args(0).asInstanceOf[AnyRef]
+       |        _coordRenewFn   = args(1).asInstanceOf[AnyRef]
+       |        _coordReleaseFn = args(2).asInstanceOf[AnyRef]
+       |        _coordHolderFn  = args(3).asInstanceOf[AnyRef]
+       |        // Try once synchronously so callers don't wait a tick.
+       |        val got = try _coordAcquireFn.asInstanceOf[(String, Long) => Boolean](_localNodeId, _COORD_LEASE_TIMEOUT_MS)
+       |                  catch case _: Throwable => false
+       |        if got then
+       |          _coordIsLeader = true
+       |          val prev = _currentLeader.getAndSet(_localNodeId)
+       |          if prev != _localNodeId then
+       |            _fireLeaderEvent("LeaderElected", _localNodeId)
+       |            _recordLeaderHist(_localNodeId)
+       |        _ensureCoordTickThread()
        |      Right(k(()))
        |    case "leaderProtocol" =>
        |      Right(k(_leaderProtocol.get()))

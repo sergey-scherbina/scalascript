@@ -3669,7 +3669,8 @@ const Actor = {
   setAutoReelect:        (b) => _perform('Actor', 'setAutoReelect', [b]),
   // v1.23 — protocol switch + history (cluster-raft.md §6)
   useRaftLeaderElection: ()  => _perform('Actor', 'useRaftLeaderElection', []),
-  useExternalCoordinator:(a) => _perform('Actor', 'useExternalCoordinator', [a]),
+  useExternalCoordinator:(acq, ren, rel, hol) =>
+                              _perform('Actor', 'useExternalCoordinator', [acq, ren, rel, hol]),
   leaderProtocol:        ()  => _perform('Actor', 'leaderProtocol', []),
   leaderHistory:         ()  => _perform('Actor', 'leaderHistory', []),
   // v1.23 — auto-reconnect policy
@@ -4835,18 +4836,12 @@ private val JsRuntimeAsyncB: String = """
       }
       case 'useExternalCoordinator': {
         _leaderProtocol = 'coord';
-        _leaderCoordinator = args[0];
-        // LeaderCoordinator emits as { _type: 'LeaderCoordinator',
-        //   acquireLease, renewLease, releaseLease, currentHolder } —
-        // pluck the four function fields out.
-        const c = args[0];
-        if (c && typeof c === 'object') {
-          _coordAcquireFn = typeof c.acquireLease  === 'function' ? c.acquireLease  : null;
-          _coordRenewFn   = typeof c.renewLease    === 'function' ? c.renewLease    : null;
-          _coordReleaseFn = typeof c.releaseLease  === 'function' ? c.releaseLease  : null;
-          _coordHolderFn  = typeof c.currentHolder === 'function' ? c.currentHolder : null;
+        if (args.length >= 4) {
+          _coordAcquireFn = typeof args[0] === 'function' ? args[0] : null;
+          _coordRenewFn   = typeof args[1] === 'function' ? args[1] : null;
+          _coordReleaseFn = typeof args[2] === 'function' ? args[2] : null;
+          _coordHolderFn  = typeof args[3] === 'function' ? args[3] : null;
           if (_coordAcquireFn) {
-            // Initial sync acquire so callers see the leader immediately.
             let got = false;
             try { got = !!_coordAcquireFn(_localNodeId, _COORD_LEASE_TIMEOUT_MS); } catch (_) {}
             if (got) {
@@ -7608,8 +7603,9 @@ class JsGen(
         if argClause.values.isEmpty =>
       "Actor.useRaftLeaderElection()"
     case Term.Apply.After_4_6_0(Term.Name("useExternalCoordinator"), argClause)
-        if argClause.values.size == 1 =>
-      s"Actor.useExternalCoordinator(${genExpr(argClause.values.head.asInstanceOf[Term])})"
+        if argClause.values.size == 4 =>
+      val vs = argClause.values.map(v => genExpr(v.asInstanceOf[Term]))
+      s"Actor.useExternalCoordinator(${vs(0)}, ${vs(1)}, ${vs(2)}, ${vs(3)})"
     case Term.Apply.After_4_6_0(Term.Name("leaderProtocol"), argClause)
         if argClause.values.isEmpty =>
       "Actor.leaderProtocol()"
@@ -8256,8 +8252,9 @@ class JsGen(
         if argClause.values.isEmpty =>
       "Actor.useRaftLeaderElection()"
     case Term.Apply.After_4_6_0(Term.Name("useExternalCoordinator"), argClause)
-        if argClause.values.size == 1 =>
-      s"Actor.useExternalCoordinator(${genExpr(argClause.values.head.asInstanceOf[Term])})"
+        if argClause.values.size == 4 =>
+      val vs = argClause.values.map(v => genExpr(v.asInstanceOf[Term]))
+      s"Actor.useExternalCoordinator(${vs(0)}, ${vs(1)}, ${vs(2)}, ${vs(3)})"
     case Term.Apply.After_4_6_0(Term.Name("leaderProtocol"), argClause)
         if argClause.values.isEmpty =>
       "Actor.leaderProtocol()"
