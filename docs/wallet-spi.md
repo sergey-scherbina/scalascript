@@ -154,6 +154,110 @@ case class AccountDescriptor(
 `curve` and how to sign bytes. `Vault.getSigner(curve, path)` is the
 sole factory; if the vault doesn't support a curve, it throws.
 
+### 5.1 Multi-chain hardware wallets (Ledger)
+
+Hardware wallets are a first-class `Vault` impl. Ledger devices in
+particular are intrinsically multi-chain: one device holds **one
+seed** and runs **per-chain firmware apps** (Bitcoin, Ethereum,
+Solana, Cardano, Polkadot, Tron, … — ~5500 supported coins). Each
+app implements the chain-native signing primitives, so the host
+software (us) speaks one APDU protocol and gets the right curve
+per chain "for free".
+
+This composes naturally with our two-axis architecture:
+
+```scala
+package scalascript.wallet.vault.ledger
+
+class LedgerVault(transport: LedgerTransport) extends Vault:
+  def kind = VaultKind.Hardware
+
+  def getSigner(curve: Curve, path: String): Future[RawSigner] =
+    ensureCorrectApp(curve, path).map { _ =>
+      new LedgerSigner(transport, curve, path)
+    }
+
+  /** Determine which on-device app is needed for (curve, path),
+   *  probe the device for the active app, and surface an
+   *  `AppSwitchRequired` to the host if a switch is needed. */
+  private def ensureCorrectApp(curve: Curve, path: String): Future[Unit] = …
+
+class LedgerSigner(t: LedgerTransport, val curve: Curve, val path: String)
+    extends RawSigner:
+  def sign(msg: Array[Byte], hash: HashAlgo) = t.signWithApp(curve, path, msg, hash)
+```
+
+Higher layers don't change at all:
+
+- `blockchain-evm.EvmChainAdapter` calls
+  `vault.getSigner(Secp256k1, "m/44'/60'/0'/0/0")` and gets a signer
+  routed to the device's Ethereum app.
+- `blockchain-solana.SolanaChainAdapter` calls
+  `vault.getSigner(Ed25519, "m/44'/501'/0'/0'")` and gets a signer
+  routed to the device's Solana app.
+- `EoaStrategy` wraps either signer interchangeably.
+
+#### Transport variants
+
+| Transport | Where | Library |
+|---|---|---|
+| WebHID | Scala.js / browser PWA | `@ledgerhq/hw-transport-webhid` facade |
+| HID | JVM (CLI / server) | `hid4java` |
+| Bluetooth | Scala.js (Nano X / Stax) | `@ledgerhq/hw-transport-web-ble` facade |
+
+Modules: `wallet-vault-ledger-js` (WebHID / WebBLE on Scala.js) and
+`wallet-vault-ledger-jvm` (HID via hid4java). A cross-compile
+`wallet-vault-ledger` module holds the shared types
+(`LedgerTransport` trait, APDU codecs, `AppSwitchRequired` error).
+
+#### App switching UX
+
+Only one Ledger app is active at a time. When the host requests a
+signer for a curve/path whose required app is not currently open,
+`ensureCorrectApp` does not silently fail — it raises a typed
+`AppSwitchRequired(neededApp: String)` future failure. The host is
+expected to surface this to the user ("open the Ethereum app on
+your Ledger") and retry.
+
+The active app is detected via the device's `getAppName` APDU
+(opcode `B0 01 00 00`). Mapping curve → required app:
+
+| Curve / chain                | Ledger app          |
+|------------------------------|---------------------|
+| secp256k1 + path `m/44'/60'` | Ethereum            |
+| secp256k1 + path `m/44'/0'`  | Bitcoin             |
+| ed25519 + path `m/44'/501'`  | Solana              |
+| ed25519 + path `m/1852'/...` | Cardano             |
+
+Custom EVM chains (Polygon, Arbitrum, Optimism, Base, …) all run
+through the Ethereum app — chain id is just a tx field; the curve
+and signing logic are identical. So **all six x402 EVM chains share
+one Ledger app**.
+
+#### Blind signing vs. clear signing
+
+Ledger refuses to sign opaque payloads by default ("blind signing"
+must be explicitly enabled per app). For our flows:
+
+- **EIP-712 / EIP-3009 (x402 payments)** — supported natively in
+  the Ethereum app with structured display; the user sees decoded
+  `TransferWithAuthorization` fields on-device. Clear-signing
+  metadata is provided by the host alongside the typed-data bytes.
+- **Arbitrary contract calls** — Ledger Clear Signing standard
+  (registry of known contracts with ABI descriptors) covers the
+  common ones; uncovered calls fall back to blind signing (user
+  approval required, security warning shown).
+- **Solana** — most common instructions decoded natively in the
+  Solana app; SPL token transfers shown with amount + recipient.
+
+#### Session and reconnection model
+
+The device unlocks on PIN entry (out-of-band) and stays unlocked
+until physical disconnect. Within a session, multiple signing
+operations require no further authentication — only on-device user
+confirmation per signature. The Vault does not cache device state;
+disconnect = `Vault.lock()` semantics implicitly.
+
 ## 6. AccountStrategy
 
 ```scala
@@ -358,10 +462,26 @@ EIP-712 digest + address derivation).
 - [ ] Passkey owner via WebAuthn (Scala.js); curve = p256
 - [ ] Counterfactual CREATE2 address derivation
 
-### Phase 7 — Hardware wallet Vault
+### Phase 7 — Hardware wallet Vault (Ledger multi-chain)
 
-- [ ] `wallet-vault-ledger` — WebHID (JS) / `hid4java` (JVM)
-- [ ] Optional `wallet-vault-trezor`
+See §5.1 for the architecture. The implementation lands one chain at
+a time so the device-protocol surface stays reviewable.
+
+- [ ] `wallet-vault-ledger` — shared types (cross-compile):
+      `LedgerTransport` trait, APDU codecs, `AppSwitchRequired`
+      error, `getAppName` probe, curve→app routing table
+- [ ] `wallet-vault-ledger-jvm` — `hid4java`-backed transport
+- [ ] `wallet-vault-ledger-js` — WebHID transport for Scala.js
+- [ ] Ethereum-app signer first: secp256k1 + EIP-712 / EIP-3009
+      (covers all 6 EVM x402 chains in one impl)
+- [ ] Solana-app signer: ed25519 + Solana sign-doc framing
+- [ ] Bitcoin-app signer: PSBT-aware (depends on
+      blockchain-spi Phase 5)
+- [ ] Cardano-app signer: CIP-8 framing (depends on blockchain-spi
+      Phase 6)
+- [ ] Optional `wallet-vault-ledger-bluetooth-js` for Nano X /
+      Stax via WebBLE
+- [ ] Optional `wallet-vault-trezor` follow-up
 
 ### Phase 8 — MPC Vault
 

@@ -6700,10 +6700,28 @@ Depends on blockchain-spi Phase 1.
 - [ ] Passkey owner via WebAuthn (Scala.js); curve = p256
 - [ ] Counterfactual CREATE2 address derivation
 
-### Phase 7 — Hardware wallet Vault
+### Phase 7 — Hardware wallet Vault (Ledger multi-chain)
 
-- [ ] `wallet-vault-ledger` — WebHID (JS) / `hid4java` (JVM)
-- [ ] Optional `wallet-vault-trezor`
+Architecture in [`docs/wallet-spi.md`](docs/wallet-spi.md) §5.1. One
+device, one seed, per-chain on-device apps; the Vault routes
+`getSigner(curve, path)` to the right active app and surfaces
+`AppSwitchRequired` to the host when the user must change apps.
+
+- [ ] `wallet-vault-ledger` — shared types (cross-compile):
+      `LedgerTransport` trait, APDU codecs, `AppSwitchRequired`
+      error, `getAppName` probe, curve→app routing table
+- [ ] `wallet-vault-ledger-jvm` — `hid4java` transport
+- [ ] `wallet-vault-ledger-js` — WebHID transport (Scala.js)
+- [ ] Ethereum-app signer: secp256k1 + EIP-712 / EIP-3009 (covers
+      all 6 EVM x402 chains via single app)
+- [ ] Solana-app signer: ed25519 + Solana sign-doc framing
+- [ ] Bitcoin-app signer: PSBT-aware (depends on blockchain-spi
+      Phase 5)
+- [ ] Cardano-app signer: CIP-8 framing (depends on blockchain-spi
+      Phase 6)
+- [ ] Optional `wallet-vault-ledger-bluetooth-js` — WebBLE for
+      Nano X / Stax
+- [ ] Optional `wallet-vault-trezor` follow-up
 
 ### Phase 8 — MPC Vault
 
