@@ -199,3 +199,146 @@ class IncrementalTypingTest extends AnyFunSuite:
       "Snapshot 1 should retain UserId alias")
     assert(snaps(1).typeAliases.contains("OrderId"),
       "Snapshot 1 should have OrderId alias")
+
+  // ─── Tests: error persistence across incremental re-runs ────────────────────
+  //
+  // Key invariant: type errors from unchanged sections must appear in
+  // TypedModule.errors after every incremental re-run.  Previously, changing
+  // a later section would silently drop errors from earlier unchanged sections
+  // because the errors buffer was cleared and only re-typed sections added back.
+
+  private def modWithTypeError(body2: String = "val y: Int = 1"): scalascript.ast.Module =
+    Parser.parse(
+      s"""# Section1
+         |
+         |```scalascript
+         |val x: String = 42
+         |```
+         |
+         |# Section2
+         |
+         |```scalascript
+         |$body2
+         |```
+         |""".stripMargin
+    )
+
+  test("snapshot stores per-section errors"):
+    val mod = modWithTypeError()
+    val (tm, snaps) = run(mod)
+    assert(tm.hasErrors, "Section1 has a type error")
+    assert(snaps(0).errors.nonEmpty, "snapshot(0) must store Section1's error")
+    assert(snaps(1).errors.isEmpty,  "snapshot(1) should have no errors (Section2 is clean)")
+
+  test("errors from unchanged section 1 persist when section 2 changes"):
+    val mod1 = modWithTypeError("val y: Int = 1")
+    val (tm1, snaps1) = run(mod1)
+    assert(tm1.hasErrors, "Run 1: Section1 has a type error")
+
+    // Mutate section 2 content — section 1 is unchanged.
+    val mod2 = modWithTypeError("val y: Int = 2")
+    val (tm2, _) = run(mod2, snaps1)
+    assert(tm2.hasErrors,
+      "Run 2: Section1's type error must still appear even though Section2 changed")
+    val msgs = tm2.errors.map(_.msg)
+    assert(msgs.exists(m => m.toLowerCase.contains("string") || m.toLowerCase.contains("int")),
+      s"Expected a String/Int mismatch error, got: $msgs")
+
+  test("error count is stable across unchanged incremental runs"):
+    val mod = modWithTypeError()
+    val (tm1, snaps1) = run(mod)
+    val errorCount1 = tm1.errors.length
+
+    // Three no-change re-runs — error count must stay the same.
+    val (tm2, snaps2) = run(mod, snaps1)
+    assert(tm2.errors.length == errorCount1, "Run 2: error count must be stable")
+    val (tm3, snaps3) = run(mod, snaps2)
+    assert(tm3.errors.length == errorCount1, "Run 3: error count must be stable")
+    val (tm4, _)      = run(mod, snaps3)
+    assert(tm4.errors.length == errorCount1, "Run 4: error count must be stable")
+
+  test("fixing an error in section 1 removes it even when section 2 is unchanged"):
+    val modWithError = Parser.parse(
+      """# Section1
+        |
+        |```scalascript
+        |val x: String = 42
+        |```
+        |
+        |# Section2
+        |
+        |```scalascript
+        |val y: Int = 99
+        |```
+        |""".stripMargin
+    )
+    val (tm1, snaps1) = run(modWithError)
+    assert(tm1.hasErrors, "Run 1: should have type error")
+
+    // Fix the error in section 1 — section 2 is identical.
+    val modFixed = Parser.parse(
+      """# Section1
+        |
+        |```scalascript
+        |val x: String = "hello"
+        |```
+        |
+        |# Section2
+        |
+        |```scalascript
+        |val y: Int = 99
+        |```
+        |""".stripMargin
+    )
+    val (tm2, _) = run(modFixed, snaps1)
+    assert(!tm2.hasErrors, s"Run 2: error should be gone after fix, got: ${tm2.errors}")
+
+  test("errors from both unchanged and re-typed sections accumulate correctly"):
+    val mod1 = Parser.parse(
+      """# A
+        |
+        |```scalascript
+        |val a: String = 1
+        |```
+        |
+        |# B
+        |
+        |```scalascript
+        |val b: Int = 2
+        |```
+        |
+        |# C
+        |
+        |```scalascript
+        |val c: Boolean = "wrong"
+        |```
+        |""".stripMargin
+    )
+    val (tm1, snaps1) = run(mod1)
+    // A has 1 error, B is clean, C has 1 error.
+    assert(tm1.errors.length == 2, s"Run 1: expected 2 errors, got: ${tm1.errors}")
+
+    // Change B only — A and C are unchanged.
+    val mod2 = Parser.parse(
+      """# A
+        |
+        |```scalascript
+        |val a: String = 1
+        |```
+        |
+        |# B
+        |
+        |```scalascript
+        |val b: Int = 99
+        |```
+        |
+        |# C
+        |
+        |```scalascript
+        |val c: Boolean = "wrong"
+        |```
+        |""".stripMargin
+    )
+    val (tm2, _) = run(mod2, snaps1)
+    assert(tm2.errors.length == 2,
+      s"Run 2: errors from unchanged A and C must both appear, got: ${tm2.errors}")

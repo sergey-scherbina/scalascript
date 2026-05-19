@@ -106,18 +106,29 @@ class Typer(
 
     errors.clear()
 
+    // Restore errors from unchanged sections.  Without this, a type error in
+    // section 1 would silently vanish whenever a later section is re-typed,
+    // because `errors` only accumulates from the re-typed sections below.
+    val unchangedErrors = prevSnapshots.take(firstChangedIdx).flatMap(_.errors)
+    errors ++= unchangedErrors
+
     // Carry forward unchanged TypedSection results.
     val unchangedTyped = prevSnapshots.take(firstChangedIdx).map(_.typedSection)
 
     // Re-type sections from firstChangedIdx onward, building new snapshots.
+    // Track where `errors` sits before each section so we can isolate that
+    // section's own errors and store them in its snapshot.
     val newSnapshots = ListBuffer[SectionSnapshot](prevSnapshots.take(firstChangedIdx)*)
     val reTyped = module.sections.zipWithIndex.drop(firstChangedIdx).map { (section, _) =>
+      val errorsBefore = errors.length
       val ts = typeCheckSection(section, baseScope)
+      val sectionErrors = errors.slice(errorsBefore, errors.length).toList
       newSnapshots += SectionSnapshot(
         sectionHash  = SectionSnapshot.hashSection(section),
         typedSection = ts,
         typeAliases  = typeAliases.toMap,
-        opaqueTypes  = opaqueTypes.toSet
+        opaqueTypes  = opaqueTypes.toSet,
+        errors       = sectionErrors
       )
       ts
     }
@@ -929,15 +940,21 @@ enum TypedDef:
  *                      Used to detect whether the section has changed between
  *                      two parse runs.
  *  @param typedSection the typed IR produced for this section on the previous run.
- * @param typeAliases  snapshot of `Typer.typeAliases` immediately after typing
+ *  @param typeAliases  snapshot of `Typer.typeAliases` immediately after typing
  *                      this section (i.e. accumulated up to and including it).
  *  @param opaqueTypes  snapshot of `Typer.opaqueTypes` after this section.
+ *  @param errors       type errors emitted while typing this section.  Restored
+ *                      into `TypedModule.errors` by [[Typer.typeCheckIncremental]]
+ *                      when the section is reused from a previous snapshot, so
+ *                      that error diagnostics from unchanged sections are not
+ *                      silently dropped.
  */
 case class SectionSnapshot(
     sectionHash:  String,
     typedSection: TypedSection,
     typeAliases:  Map[String, (List[String], SType)],
-    opaqueTypes:  Set[String]
+    opaqueTypes:  Set[String],
+    errors:       List[TypeError] = Nil
 )
 
 object SectionSnapshot:
