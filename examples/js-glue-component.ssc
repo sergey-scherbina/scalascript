@@ -1,0 +1,64 @@
+#!/usr/bin/env ssc
+---
+name: js-glue-component
+version: 1.0.0
+description: javascript fenced block — string value with ${expr} interpolation
+---
+
+# `javascript` string-block demo
+
+The `javascript` fence tag (alias `js`) is treated like `html` / `css`:
+the body is captured as a `String` with `${expr}` interpolated against
+the surrounding ScalaScript scope.  No JS parser or type checker is
+invoked.  Useful for browser-side glue, addEventListener wiring,
+inline third-party widget initialisation, or any case where the JS
+source should be authored as-is and reachable as a plain value from
+ScalaScript code.
+
+## Config
+
+```scalascript
+val initialCount: Int = 7
+val widgetName: String = "counter"
+```
+
+## Widget
+
+Each section's `html` / `javascript` / `css` block binds to a field
+on the section's identifier: `Widget.html`, `Widget.javascript`,
+`Widget.css`.
+
+```html
+<div id="${widgetName}">
+  <span class="count">0</span>
+  <button class="inc">+</button>
+</div>
+```
+
+```javascript
+(function() {
+  const start = ${initialCount};
+  const root  = document.getElementById('${widgetName}');
+  if (!root) return;
+  const span  = root.querySelector('.count');
+  const btn   = root.querySelector('.inc');
+  let n = start;
+  span.textContent = n;
+  btn.addEventListener('click', () => {
+    n += 1;
+    span.textContent = n;
+  });
+})();
+```
+
+## Demo
+
+```scalascript
+def main(): Unit =
+  println("--- Widget.html ---")
+  println(Widget.html)
+  println("--- Widget.javascript ---")
+  println(Widget.javascript)
+
+main()
+```

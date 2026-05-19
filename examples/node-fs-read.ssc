@@ -1,0 +1,61 @@
+#!/usr/bin/env ssc
+---
+name: node-fs-read
+version: 1.0.0
+description: Read a file via a Node.js glue block called from ScalaScript code
+---
+
+# Node.js FFI demo — reading a file
+
+This example shows how to call Node.js APIs (`require('fs')`) from
+ScalaScript code via the `node.js` fenced block contract introduced
+in v1.25.
+
+Compile and run with:
+
+```sh
+ssc --backend node examples/node-fs-read.ssc > out.cjs && node out.cjs
+```
+
+## Node.js glue — define the FFI surface on `globalThis`
+
+The body of this block is linked verbatim into the emitted bundle.
+No JS parser is involved on the compiler side.
+
+```node.js
+const fs   = require('fs');
+const path = require('path');
+
+globalThis.readUtf8 = (p) => fs.readFileSync(p, 'utf8');
+globalThis.exists   = (p) => fs.existsSync(p);
+globalThis.basename = (p) => path.basename(p);
+```
+
+## ScalaScript declarations — give the FFI a typed surface
+
+`extern def` tells the typer about the name and arity.  No body is
+emitted into the JS — at call sites JS resolves the free name
+against `globalThis`, which was just populated by the block above.
+
+```scalascript
+extern def readUtf8(path: String): String
+extern def exists(path:   String): Boolean
+extern def basename(path: String): String
+```
+
+## Use it
+
+```scalascript
+def describe(p: String): String =
+  if exists(p) then
+    val contents = readUtf8(p)
+    s"${basename(p)}: ${contents.length} bytes"
+  else
+    s"${basename(p)}: not found"
+
+def main(): Unit =
+  println(describe("/etc/hosts"))
+  println(describe("/no/such/file"))
+
+main()
+```

@@ -5464,7 +5464,7 @@ view so they shape near-term decisions.
 
 ## v1.25 — JavaScript / Node.js fenced code blocks
 
-**Status: Phases 1–4 landed; Phase 5 open. Branch `worktree-js-node-blocks`.**
+**Status: Phases 1–5 landed. Branch `worktree-js-node-blocks`.**
 
 Symmetry fix and new target.  Pre-v1.25, `html` and `css` were
 first-class string blocks (§ 3.3 of `SPEC.md`) but `javascript` was
@@ -5576,15 +5576,31 @@ No spec or `JsGen` code changes were required — the existing
 infrastructure was already shaped for this once Phase 3b put the
 glue blocks in front of the user code.
 
-### Phase 5 — examples + conformance — open
+### Phase 5 — examples + conformance ✓ Landed
 
-- [ ] `examples/node-fs-read.ssc` — ssc CLI that reads a file via a
-      `node.js` block calling `require('fs')`.
-- [ ] `examples/js-glue-component.ssc` — browser-target ssc with a
-      `javascript` block providing inline DOM glue.
-- [ ] `conformance/`: extend the suite with a Node-only category;
-      JVM/JS/Scala.js backends are expected to emit
-      `UnknownBlockLanguage` for `node.js` blocks.
+- [x] `examples/node-fs-read.ssc` — ssc CLI that reads a file via a
+      `node.js` block calling `require('fs')` and exposing
+      `globalThis.readUtf8` / `globalThis.exists` / `globalThis.basename`.
+      ssc side declares the FFI with `extern def`.  Compiles + runs
+      end-to-end under `node`.
+- [x] `examples/js-glue-component.ssc` — `javascript` string block
+      bound to a section identifier, demonstrating `${expr}`
+      interpolation against ScalaScript values (no JS parser
+      involved).  Pairs with `html` and produces both as String
+      fields on the section.
+- [x] Manual cross-backend smoke confirming every non-Node backend
+      (jvm / js / scalajs-spa / wasm / int) emits
+      `UnknownBlockLanguage(node.js)` for a `node.js` block thanks
+      to Phase 3a's `CapabilityCheck` walk.
+
+**Follow-up (separate milestone, not blocking v1.25 close):**
+
+- [ ] Dedicated conformance fixtures for the `node` target —
+      requires the conformance harness to gain a notion of
+      backend-specific golden outputs (today it runs every fixture
+      against every bundled backend with a single expected file).
+      Filed for whoever next extends the conformance suite to
+      support backend-specific gates.
 
 ### Open questions
 
