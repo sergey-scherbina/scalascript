@@ -3435,11 +3435,16 @@ class JvmGen(
        |    if s.startsWith(":") then _Seg.Cap(s.tail) else _Seg.Lit(s)
        |  }
        |
-       |private case class _Route(method: String, path: String, pattern: List[_Seg], handler: Request => Response)
+       |// Route handler returns Any (Response | _StreamResponse | primitive auto-wrapped) — the
+       |// runtime dispatcher in `_handle` pattern-matches on the actual type and writes the wire
+       |// bytes accordingly.  The wider Any return type is what lets MCP transports use
+       |// `route("GET", path) { req => sse(req) { … } }`: `sse()` returns `_StreamResponse`,
+       |// not `Response`.
+       |private case class _Route(method: String, path: String, pattern: List[_Seg], handler: Request => Any)
        |private val _routes      = scala.collection.mutable.ArrayBuffer.empty[_Route]
        |private val _middlewares = scala.collection.mutable.ArrayBuffer.empty[(Request, () => Any) => Any]
        |
-       |def route(method: String, path: String)(handler: Request => Response): Unit =
+       |def route(method: String, path: String)(handler: Request => Any): Unit =
        |  _routes += _Route(method.toUpperCase, path, _parsePath(path), handler)
        |
        |def use(fn: (Request, () => Any) => Any): Unit = _middlewares += fn
