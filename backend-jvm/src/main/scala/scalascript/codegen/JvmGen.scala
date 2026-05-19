@@ -2754,8 +2754,8 @@ class JvmGen(
       "SessionCookie", "SessionStore", "OAuth", "WebAuthn",
       "UploadedFile", "HttpHelpers", "Multipart", "TlsContextBuilder",
       "CorsHelpers", "HttpModel", "BasicAuth", "ResponseWriter",
-      "RequestBuilder", "StreamResponseWriter", "StaticAssetServer",
-      "WsHandshake", "WsReassembler", "WsRateLimiter"
+      "RequestBuilder", "StreamResponseWriter", "HttpDispatchLoop",
+      "StaticAssetServer", "WsHandshake", "WsReassembler", "WsRateLimiter"
     )
     val header =
       "\n// ── runtime-server-common (inlined from classpath resources) ──────────\n" +
@@ -3403,7 +3403,6 @@ class JvmGen(
        |// ── Body size limit ───────────────────────────────────────────────────
        |@volatile private var _maxBodySizeBytes: Long = Long.MaxValue
        |def maxBodySize(n: Int): Unit = _maxBodySizeBytes = n.toLong
-       |private class _BodyTooLarge extends Exception("Request Entity Too Large")
        |
        |// ── Upload spool-to-disk ──────────────────────────────────────────────
        |@volatile private var _spoolThreshold: Long = 1024L * 1024L
@@ -3482,53 +3481,31 @@ class JvmGen(
        |      .nextOption()
        |    matched match
        |      case Some((r, params)) =>
-       |        // Parse the JDK HttpExchange into the shared POJO `Request` via
-       |        // RequestBuilder (inlined from runtime-server-common).  Per-server
-       |        // config — body cap, opt-in session store, JWT verify — flows in
-       |        // through the Config record's callbacks.
-       |        val (req, rawCookieSession, _spooledTmps) =
-       |          try RequestBuilder.parse(ex, method, path, params, RequestBuilder.Config(
-       |            maxBodySize         = _maxBodySizeBytes,
-       |            spoolThreshold      = _spoolThreshold,
-       |            uploadDir           = _uploadDir,
-       |            sessionStoreEnabled = _sessionStoreEnabled,
-       |            sessionStoreGet     = _sessionStoreGet,
-       |            jwtVerify           = jwtVerify
-       |          ))
-       |          catch case _: RequestBuilder.BodyTooLargeError => throw _BodyTooLarge()
-       |        // Tier 5 #20 — validation primitives short-circuit by
-       |        // throwing RestValidationError; convert to 400.
-       |        // D′.2 — build middleware chain: first registered = outermost.
-       |        def _baseHandler(): Any =
-       |          try r.handler(req)
-       |          catch case ve: RestValidationError =>
-       |            Response(400, Map("Content-Type" -> "text/plain; charset=utf-8"), ve.getMessage)
-       |        var _chain: () => Any = () => _baseHandler()
-       |        _middlewares.reverseIterator.foreach { mw =>
-       |          val _inner = _chain
-       |          _chain = () => mw(req, _inner)
-       |        }
-       |        try
-       |          val _rawResult: Any = _chain()
-       |          _rawResult match
-       |            case sr: _StreamResponse =>
-       |              // Delegate to the shared StreamResponseWriter (CORS +
-       |              // headers + chunked write).  The user's `sr.writer` is
-       |              // invoked with the wire-write closure.
-       |              StreamResponseWriter.write(ex, sr.status, sr.headers,
-       |                ResponseWriter.Config(
-       |                  corsOrigins = _corsOrigins,
-       |                  corsMethods = _corsMethods,
-       |                  corsHeaders = _corsHeaders
-       |                ),
-       |                write => { sr.writer(write); () }
-       |              )
-       |            case resp: Response =>
-       |              _writeResponse(ex, resp, rawCookieSession)
-       |            case other =>
-       |              _writeResponse(ex, Response(200, Map("Content-Type" -> "text/plain; charset=utf-8"), String.valueOf(other)), rawCookieSession)
-       |        finally
-       |          _spooledTmps.foreach { f => try f.delete() catch case _: Throwable => () }
+       |        // Delegate the per-request envelope (parse + middleware
+       |        // chain + RestValidationError → 400 + StreamResponse /
+       |        // Response dispatch + tmpfile cleanup) to the shared
+       |        // `HttpDispatchLoop` (inlined from runtime-server-common).
+       |        HttpDispatchLoop.run(ex, method, path, params,
+       |          r.handler, _middlewares.toSeq,
+       |          HttpDispatchLoop.Config(
+       |            reqBuilder = RequestBuilder.Config(
+       |              maxBodySize         = _maxBodySizeBytes,
+       |              spoolThreshold      = _spoolThreshold,
+       |              uploadDir           = _uploadDir,
+       |              sessionStoreEnabled = _sessionStoreEnabled,
+       |              sessionStoreGet     = _sessionStoreGet,
+       |              jwtVerify           = jwtVerify),
+       |            respWriter = ResponseWriter.Config(
+       |              corsOrigins         = _corsOrigins,
+       |              corsMethods         = _corsMethods,
+       |              corsHeaders         = _corsHeaders,
+       |              gzipEnabled         = _gzipEnabled,
+       |              sessionStoreEnabled = _sessionStoreEnabled,
+       |              sessionStoreDelete  = _sessionStoreDelete,
+       |              sessionStorePut     = _sessionStorePut,
+       |              buildSetCookie      = _buildSetCookie),
+       |            fiveXxCounter = _Metrics.http5xx),
+       |          onError = e => System.err.println(s"route error: ${e.getMessage}"))
        |      case None =>
        |        // Fall through to a static file under the current directory
        |        // before 404'ing — mirrors the interpreter's WebServer.
@@ -3541,10 +3518,6 @@ class JvmGen(
        |            ex.getResponseBody.write(msg)
        |    }
        |  catch
-       |    case _: _BodyTooLarge =>
-       |      val _m = "Request Entity Too Large".getBytes("UTF-8")
-       |      ex.sendResponseHeaders(413, _m.length.toLong)
-       |      ex.getResponseBody.write(_m)
        |    case e: Exception =>
        |      System.err.println(s"route error: ${e.getMessage}")
        |      _Metrics.http5xx.incrementAndGet()
@@ -3562,22 +3535,6 @@ class JvmGen(
        |            "\tduration_ms="      + _durMs +
        |            "\tua=\""             + _uaSan + "\"")
        |    ex.close()
-       |
-       |private def _writeResponse(
-       |    ex:               com.sun.net.httpserver.HttpExchange,
-       |    r:                Response,
-       |    rawCookieSession: Map[String, String] = Map.empty
-       |): Unit =
-       |  ResponseWriter.write(ex, r, rawCookieSession, ResponseWriter.Config(
-       |    corsOrigins         = _corsOrigins,
-       |    corsMethods         = _corsMethods,
-       |    corsHeaders         = _corsHeaders,
-       |    gzipEnabled         = _gzipEnabled,
-       |    sessionStoreEnabled = _sessionStoreEnabled,
-       |    sessionStoreDelete  = _sessionStoreDelete,
-       |    sessionStorePut     = _sessionStorePut,
-       |    buildSetCookie      = _buildSetCookie
-       |  ))
        |
        |/** Try to serve a static asset under the cwd — delegates to the
        | *  shared `StaticAssetServer.tryServe` (resolve + traversal guard +
