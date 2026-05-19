@@ -1,8 +1,12 @@
 # v2.0 — Separate Compilation Plan
 
-Status: **Stages 1–6 landed; Stages 5.1–5.7 polish landed; Phase 2 (bytecode
-linker MVP) in progress**.  ~430 tests green (418 core + 14+ CLI subprocess).
-See "Progress log" at the bottom for full landing notes.
+Status: **Feature-complete — Stages 1–6, polish rounds 5.1–5.7, and Phases
+2 / 3 / 3+ / 4 / 5 all landed.**  v2.0 separate compilation is
+production-ready for the planned scope.  ~190 artifact unit tests +
+~110 CLI subprocess smoke tests + LSP tests + Typer/Normalize coverage,
+all green.  See "Progress log" at the bottom for full landing notes; the
+user-facing tutorial is [`docs/v2.0-getting-started.md`](v2.0-getting-started.md);
+the wire-format spec is [`docs/v2.0-artifact-format.md`](v2.0-artifact-format.md).
 
 ## Overview
 
@@ -245,55 +249,109 @@ After Phase 2's deep JvmGen split, Phase 3 addressed perf + safety:
   over stdio.  `initialize/didOpen/didChange/didClose/definition/
   hover/publishDiagnostics`.  Cross-module resolution via `.scim`.
 
-## Phase 4 — Honesty pass (in flight)
+## Phase 4 — Honesty pass (landed)
 
-The Phase 3+ "complete" line hides documented `TODO`s in code:
+The Phase 3+ "complete" line hid documented `TODO`s in code.  All five
+follow-ups landed:
 
 - **LSP positional accuracy** — `ExportedSymbol.definitionLine` +
-  `.definitionColumn` populated by `InterfaceExtractor`;
-  `Content.CodeBlock.lineOffset` populated by `Parser`; LSP
-  cross-module definition + multi-block hover work correctly.
+  `.definitionColumn` populated by `InterfaceExtractor` from scalameta
+  positions; `Content.CodeBlock.lineOffset` populated by `Parser` from
+  CommonMark line numbers.  LSP cross-module go-to-definition stops
+  returning `(0, 0)`; multi-block hover/definition no longer reports
+  block-local lines as if blocks start at 1.
 - **JVM source maps Option A** — JSR-45 SMAP injected via ASM into
-  `SourceDebugExtension` of each `.class`.  Adds `lineMap` field
-  to `ModuleJvmArtifact`.  Stack traces resolve to `.ssc` lines.
-- **Fix `Main method not found in class a_sc`** — 3 pre-existing
-  `JvmBytecodeLinkCliTest` failures multiple agents constatated.
+  `SourceDebugExtension` of every `.class`.  Adds `lineMap` field
+  (string-keyed for upickle reliability) on `ModuleJvmArtifact`; new
+  `cli/JvmSmap` + `cli/JvmSmapInjector` modules.  Stack traces
+  resolve to `.ssc` lines in JDI-aware tooling (IntelliJ / Metals /
+  `jdb`); raw `java -cp` still shows `.scala` lines (JVM-platform
+  limit — `Throwable.printStackTrace` doesn't consult SMAP).
+- **`Main method not found in class a_sc`** — fixed via main() stub
+  in the JVM bytecode wrapper object; previously 3 pre-existing
+  `JvmBytecodeLinkCliTest` failures.
 - **`ssc clean <dir>`** — garbage-collect artifacts whose source
-  `.ssc` no longer exists.  `--dry-run`, `--all` flags.
-- **Reproducibility tests** — pin byte-identical output across
-  two `compile-jvm` invocations.  Fix any non-deterministic source.
-
-After Phase 4, the remaining (deferred) directions are documented
-in `MILESTONES.md` under the v2.0 section: per-section Option B
-(interface-based), scale benchmark over real std/, cross-platform
-(Windows) smoke, external `.sscpkg` artifact-level distribution,
-and a user-facing getting-started tutorial.
+  `.ssc` no longer exists.  `--dry-run` and `--all` flags; safe for
+  CI use.  Covered by `CleanCliTest` (5 tests).
+- **Reproducibility tests** — pin byte-identical output across two
+  `compile-jvm` invocations.  ZIP entry timestamps fixed to epoch,
+  entries sorted alphabetically, scalac `-sourceroot` set.  Covered
+  by `ReproducibilityTest` (5 tests).
 
 ---
 
-## Open questions
+## Phase 5 — Production distribution (landed)
 
-1. **Interface granularity**: should typeclass instances be included in `.scim`?
-   Currently the typer annotates everything as `SType.Any`; richer types would
-   make interface-based checking more useful.  Defer: start with name-only
-   interfaces; extend when the typer is richer.
+After Phase 4 closed the in-tree honesty list, Phase 5 addressed
+external distribution + the last-known section-cache gap:
 
-2. **Incremental backend linkage**: once we have per-module `.scir` files,
-   can backends consume them directly (one `.js` per module, bundled by a
-   separate tool)?  That's a further step beyond the linker pass — defer to
-   a v2.1 sprint.
+- **Per-section interface-based caching** (Option B) — opt in via
+  `ssc build --incremental --section-cache=interface`.  Edits to a
+  section's body that don't change its exported signatures no longer
+  cascade to later sections.  The default cumulative-hash mode
+  (`--section-cache` alone or `--section-cache=cumulative`) is still
+  the conservative shared-scope-safe choice.  `ssc info --sections`
+  dumps the chain in either mode.
+- **External `.sscpkg` artifact-level distribution** — `ssc bundle
+  --with-artifacts` runs `build --incremental --backend jvm` +
+  `--backend js` on the inputs, then bundles the produced
+  `.scim` / `.scjvm` / `.scjs` files under a `.ssc-artifacts/`
+  prefix inside the `.sscpkg`.  Consumer-side: `compile-jvm` and
+  `compile-js` resolve each `dep:` import via `ImportResolver`,
+  call `findArtifactAlongside(sscPath, ext)` to discover
+  `<dir>/.ssc-artifacts/<basename>.<ext>` (auto-detect, no
+  manifest schema change), and stage the artifact into the local
+  artifact dir so the typer + linker pick it up directly.
+  Source-fallback when no artifacts ship; bad-magic artifacts
+  surface a clear error.  Covered by
+  `SscpkgArtifactDistributionTest` (5 tests).
+- **User-facing getting-started tutorial** —
+  [`docs/v2.0-getting-started.md`](v2.0-getting-started.md):
+  copy-pasteable walkthrough from "I have an `.ssc` file" to
+  "I have a JAR + source maps + LSP integration" in ~15 minutes.
 
-3. **Circular imports**: the existing `ImportResolver` has no cycle detection.
-   The `ModuleGraph` in Stage 6 will detect cycles and error clearly — but the
-   single-pass path still accepts them silently.  Track as a latent issue.
+### Remaining deferred directions
 
-4. **`package:` as module identity**: two files with the same `package:` value
-   are today accepted; separate compilation would treat them as the same module
-   and the second would overwrite the first.  Add a collision check in Stage 6.
+These are documented but not blocking the v2.0 feature-completeness
+declaration:
 
-5. **Subprocess backends**: `SubprocessBackend` forwards a `NormalizedModule`
-   over the wire protocol.  A pre-linked `.scir` is already in the right shape.
-   No change needed for Stage 5; confirm after the linker lands.
+- **Scale benchmark over real std/.**  Perf numbers in the
+  getting-started doc are measured on a trivial 2-module fixture.
+  A benchmark over the 30+ `std/` modules at full
+  `--bytecode --section-cache --source-map --strict` toggles is
+  owed.
+- **Cross-platform (Windows) smoke.**  All tests assume Unix paths;
+  Windows path separators, CRLF line endings (relevant for
+  `sourceHash`), and file-lock semantics are not covered.
+
+---
+
+## Open questions — resolutions
+
+1. **Interface granularity** — ~partially closed.  Stage 5.2 added real
+   top-level type inference for `Defn.Def/Val/Class` signatures; Stage
+   5.4 extended `parseSType` to union / intersection / higher-kinded
+   types; Phase 2 follow-up added refinement + match types.  Complex
+   bodies still fall back to `SType.Any` — interface usefulness scales
+   with typer richness, which is itself a separate axis of work.
+
+2. **Incremental backend linkage** — closed.  Per-module `.scjvm` and
+   `.scjs` artifacts (Stage 5.2 / 5.4) ship the backend-cached form;
+   `ssc link --backend {jvm|js}` consumes them directly.  Phase 2's
+   runtime split (`.scjvm-runtime` / `.scjs-runtime`) made per-module
+   payloads tiny (51× / 200× smaller).
+
+3. **Circular imports** — closed.  `ModuleGraph` (Stage 6) and
+   `AutoResolve` (Stage 5.5) both detect cycles, emit a `→`-joined
+   cycle trace, and exit non-zero before any codegen runs.
+
+4. **`package:` as module identity** — open.  Two files with the same
+   `package:` value are still accepted in the single-pass path; a
+   collision check at incremental-build entry is owed.
+
+5. **Subprocess backends** — closed.  `SubprocessBackend` forwards
+   `NormalizedModule` over the wire protocol; pre-linked `.scir` fits
+   without change.  Confirmed after the linker landed.
 
 ---
 
@@ -332,4 +390,5 @@ and a user-facing getting-started tutorial.
 | 2026-05-19 | Phase 2 | follow-up | Refinement/match types in `parseSType`; unified `build --incremental` stdout/stderr; JS runtime split (200× per-module `.scjs` reduction) |
 | 2026-05-19 | Phase 3 | – | TASTy-direct scalac driver (11.8× speedup); 64-test ABI compat suite; `docs/v2.0-artifact-format.md`; `ssc verify` |
 | 2026-05-19 | Phase 3+ | – | `--source-map` (JVM sidecar `.ssc.scala` + JS V3 maps); `--section-cache` (per-section cumulative hash); `ssc lsp` (819 LoC server, 25 tests) |
-| 2026-05-19 | Phase 4 | in flight | LSP positional accuracy; JVM SMAP via ASM (Option A); fix `Main not found` in JvmBytecodeLink; `ssc clean`; reproducibility tests |
+| 2026-05-19 | Phase 4 | landed | `ExportedSymbol.definitionLine`/`Column` + `CodeBlock.lineOffset` (accurate LSP positions); JVM SMAP via ASM (`SourceDebugExtension`, Option A); `Main not found` fix (main() stub in wrapper); `ssc clean` + tests; reproducibility tests (pinned ZIP timestamps + sorted entries) |
+| 2026-05-19 | Phase 5 | landed | `--section-cache=interface` (Option B, body edits don't cascade); `ssc bundle --with-artifacts` + consumer-side `findArtifactAlongside` resolution; user-facing `docs/v2.0-getting-started.md` |
