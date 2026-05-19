@@ -607,6 +607,31 @@ private object Mcp:
           case Right(json) => Mcp.jsonToValue(json)
       case _ => throw InterpretError("srv.request(method[, params[, timeoutMs]])")
     })
+    // v1.17.x — roots (workspace info from the client).  Server pulls the
+    // current root list on demand via `srv.listRoots()`; client pushes a
+    // `notifications/roots/list_changed` when it changes, which we route
+    // to the user's `srv.onRootsListChanged(...)` callback.  Returns a
+    // List of Map(uri -> ..., name -> ...) for ergonomic destructuring
+    // in user code.
+    def listRootsFn = Value.NativeFnV("McpServer.listRoots", Computation.pureFn {
+      case List(Value.IntV(timeoutMs)) =>
+        builder.listRoots(timeoutMs) match
+          case Left(e)      => throw InterpretError(s"srv.listRoots: ${e.message}")
+          case Right(roots) => Mcp.rootsToValue(roots)
+      case Nil =>
+        builder.listRoots() match
+          case Left(e)      => throw InterpretError(s"srv.listRoots: ${e.message}")
+          case Right(roots) => Mcp.rootsToValue(roots)
+      case _ => throw InterpretError("srv.listRoots([timeoutMs])")
+    })
+    def onRootsLCFn = Value.NativeFnV("McpServer.onRootsListChanged", Computation.pureFn {
+      case List(handler) =>
+        builder.setOnRootsListChanged(() => { ctx.invokeCallback(handler, Nil); () })
+        Value.UnitV
+      case _ => throw InterpretError("srv.onRootsListChanged(() => ...)")
+    })
+    def clientSupportsRootsFn = Value.NativeFnV("McpServer.clientSupportsRoots",
+      Computation.pureFn { _ => Value.BoolV(builder.clientSupportsRoots) })
     Value.InstanceV("McpServer", Map(
       "tool"                          -> toolFn,
       "toolWithSchema"                -> toolWithSchemaFn,
@@ -626,7 +651,10 @@ private object Mcp:
       "onResourceUnsubscribe"  -> onResUnsubFn,
       "notifyResourceUpdate"   -> notifyResUpdateFn,
       "notify"                 -> notifyFn,
-      "request"                -> requestFn
+      "request"                -> requestFn,
+      "listRoots"              -> listRootsFn,
+      "onRootsListChanged"     -> onRootsLCFn,
+      "clientSupportsRoots"    -> clientSupportsRootsFn
     ))
 
   private def registerTool(
@@ -1123,6 +1151,17 @@ private object Mcp:
       Value.InstanceV("Text", Map("text" -> Value.StringV("")))
     )
     Value.InstanceV("Message", Map("role" -> roleVal, "content" -> content))
+
+  /** v1.17.x — adapt a typed `Root` list into a `List[InstanceV]` so user
+   *  scripts can pattern-match on `root.uri` / `root.name`.  `name` is
+   *  modelled as `Option[String]` (None when the client didn't supply one). */
+  def rootsToValue(roots: List[McpProtocol.Root]): Value =
+    Value.ListV(roots.map { r =>
+      Value.InstanceV("Root", Map(
+        "uri"  -> Value.StringV(r.uri),
+        "name" -> Value.OptionV(r.name.map(s => Value.StringV(s)))
+      ))
+    })
 
   def jsonToValue(v: ujson.Value): Value = v match
     case ujson.Null    => Value.OptionV(None)
