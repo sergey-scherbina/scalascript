@@ -1900,6 +1900,47 @@ class Interpreter(
    *  so dashboards can long-poll without re-streaming everything.
    *  No-op if already registered. */
 
+  /** v1.23 — register `POST /_ssc-cluster/step-down`.  If this node
+   *  is the current leader, step down (clear `currentLeader`, broadcast
+   *  the change via `LeaderLost`, surrender any external coordinator
+   *  lease).  If it's not the leader, returns 409 Conflict so the
+   *  operator notices.  Apps with `setAutoReelect(true)` re-elect
+   *  automatically — that's the rolling-restart pattern. */
+  private def registerClusterStepDownRoute(): Unit =
+    val path = "/_ssc-cluster/step-down"
+    val already = scalascript.server.Routes.all.exists(e =>
+      e.method == "POST" && e.path == path)
+    if already then return
+    val handler = Value.NativeFnV("_clusterStepDown", Computation.pureFn { args =>
+      clusterAuthReject(args).getOrElse {
+        val wasLeader =
+          leaderProtocolRef.get() match
+            case "raft"  => raftStateName == "leader"
+            case "coord" => coordIsLeader
+            case _       => currentLeader.get() == localNodeId
+        if !wasLeader then
+          Value.InstanceV("Response", Map(
+            "status"  -> Value.IntV(409),
+            "headers" -> Value.MapV(Map(
+              Value.StringV("Content-Type") -> Value.StringV("application/json")
+            )),
+            "body"    -> Value.StringV(
+              s"""{"error":"not_leader","leader":${jsonStr(currentLeader.get())}}""")
+          ))
+        else
+          stepDownIfLeader()
+          Value.InstanceV("Response", Map(
+            "status"  -> Value.IntV(200),
+            "headers" -> Value.MapV(Map(
+              Value.StringV("Content-Type") -> Value.StringV("application/json")
+            )),
+            "body"    -> Value.StringV(
+              s"""{"steppedDown":true,"nodeId":${jsonStr(localNodeId)}}""")
+          ))
+      }
+    })
+    scalascript.server.Routes.register("POST", path, handler, this)
+
   /** v1.23 — register `GET /_ssc-cluster/metrics-prom`.  Returns the
    *  `clusterMetrics` gauges in Prometheus text exposition format —
    *  one `<sanitized-name>{nodeId="<id>"} <value>` line per
@@ -7223,6 +7264,10 @@ class Interpreter(
       // exposition format for `clusterMetrics` gauges so existing
       // scrape-based monitoring picks them up natively.
       registerClusterMetricsPromRoute()
+      // v1.23 — POST /_ssc-cluster/step-down — graceful leader
+      // step-down for rolling restarts; cluster auto-re-elects
+      // (assuming setAutoReelect(true) on survivors).
+      registerClusterStepDownRoute()
       Right(k(Value.UnitV))
 
     case "connectNode" => args match
