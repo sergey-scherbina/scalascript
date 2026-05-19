@@ -3540,6 +3540,10 @@ const Actor = {
   broadcastHealth: ()           => _perform('Actor', 'broadcastHealth', []),
   clusterIsDown:   (nid, thr)   => _perform('Actor', 'clusterIsDown',
                                             [nid, thr == null ? 8.0 : thr]),
+  // v1.23 — leader election (Bully)
+  electLeader:           ()  => _perform('Actor', 'electLeader',           []),
+  currentLeader:         ()  => _perform('Actor', 'currentLeader',         []),
+  subscribeLeaderEvents: ()  => _perform('Actor', 'subscribeLeaderEvents', []),
 };
 
 // `receive { case … }` lowers to a registered matcher function whose
@@ -3598,6 +3602,45 @@ function _runActors(bodyFn) {
   const _peerLastPong  = new Map();   // nodeId -> epoch ms of last pong (mirrors INT/JVM)
   // v1.23 — cluster-wide FD: peerNodeId -> Map<targetNodeId, phi>
   const _peerPhiViews  = new Map();
+  // v1.23 — leader election (Bully) state.
+  let   _currentLeader      = "";
+  let   _electionInProgress = false;
+  let   _electionStartedAt  = 0;
+  let   _gotAliveResponse   = false;
+  const _ELECTION_TIMEOUT_MS = 2000;
+  const _leaderEventSubs    = new Set();
+  const _leaderEventQueue   = [];
+  function _fireLeaderEvent(tag, leaderId) {
+    if (_leaderEventSubs.size === 0) return;
+    _leaderEventQueue.push({ tag, leaderId });
+  }
+  function _broadcastCoordinator() {
+    const payload = '{"t":"coordinator","from":' + JSON.stringify(_localNodeId) + '}';
+    for (const [, ch] of _peerChannels) { try { ch.send(payload); } catch (_) {} }
+  }
+  function _startElection() {
+    if (!_localNodeId) {
+      const prev = _currentLeader; _currentLeader = _localNodeId;
+      if (prev !== _localNodeId) _fireLeaderEvent("LeaderElected", _localNodeId);
+      return;
+    }
+    const higher = [];
+    for (const nid of _peerChannels.keys()) if (nid > _localNodeId) higher.push(nid);
+    if (higher.length === 0) {
+      const prev = _currentLeader; _currentLeader = _localNodeId;
+      _broadcastCoordinator();
+      if (prev !== _localNodeId) _fireLeaderEvent("LeaderElected", _localNodeId);
+    } else {
+      _electionInProgress = true;
+      _electionStartedAt  = Date.now();
+      _gotAliveResponse   = false;
+      const payload = '{"t":"election","from":' + JSON.stringify(_localNodeId) + '}';
+      for (const nid of higher) {
+        const ch = _peerChannels.get(nid);
+        if (ch) { try { ch.send(payload); } catch (_) {} }
+      }
+    }
+  }
   function _recordPongInterval(nid) {
     const now = Date.now();
     const last = _peerLastPong.get(nid);
@@ -3779,6 +3822,10 @@ function _runActors(bodyFn) {
           _peerLastPong.delete(env.nodeId);
           _peerPhiViews.delete(env.nodeId);
           _fireClusterEvent('NodeLeft', env.nodeId, 'disconnect');
+          if (_currentLeader === env.nodeId) {
+            _currentLeader = "";
+            _fireLeaderEvent("LeaderLost", env.nodeId);
+          }
         } else if (env.t === 'peers_req') {
           // Respond with our known peer URLs + self URL.
           const myPeers = [];
@@ -3812,6 +3859,23 @@ function _runActors(bodyFn) {
               }
             }
             _peerPhiViews.set(env.from, m);
+          }
+        } else if (env.t === 'election') {
+          // v1.23 — Bully: lower-id peer is calling an election.
+          if (env.from && env.from < _localNodeId) {
+            const reply = '{"t":"alive","from":' + JSON.stringify(_localNodeId) + '}';
+            const ch = _peerChannels.get(env.from);
+            if (ch) { try { ch.send(reply); } catch (_) {} }
+            if (!_electionInProgress) _startElection();
+          }
+        } else if (env.t === 'alive') {
+          _gotAliveResponse = true;
+        } else if (env.t === 'coordinator') {
+          if (env.from) {
+            const prev = _currentLeader;
+            _currentLeader = env.from;
+            _electionInProgress = false;
+            if (prev !== env.from) _fireLeaderEvent("LeaderElected", env.from);
           }
         }
       } catch (_e) {}
@@ -4174,6 +4238,10 @@ function _runActors(bodyFn) {
                 _peerLastPong.delete(peerNodeId);
                 _peerPhiViews.delete(peerNodeId);
                 _fireClusterEvent('NodeLeft', peerNodeId, 'disconnect');
+                if (_currentLeader === peerNodeId) {
+                  _currentLeader = "";
+                  _fireLeaderEvent("LeaderLost", peerNodeId);
+                }
               }
             });
           });
@@ -4288,6 +4356,18 @@ function _runActors(bodyFn) {
         const majority = Math.floor((total + 1) / 2);
         return { suspend: false, next: k(total > 0 && votes >= majority) };
       }
+      // v1.23 — leader election (Bully)
+      case 'electLeader': {
+        _startElection();
+        return { suspend: false, next: k(undefined) };
+      }
+      case 'currentLeader': {
+        return { suspend: false, next: k(_currentLeader) };
+      }
+      case 'subscribeLeaderEvents': {
+        _leaderEventSubs.add(id);
+        return { suspend: false, next: k(undefined) };
+      }
       // v1.6.x — scheduled sends
       case 'sendAfter': {
         const delayMs  = args[0];
@@ -4390,6 +4470,27 @@ function _runActors(bodyFn) {
         if (_st) { _st.mailbox.push(_msg); tryWakeBlocked(_sid); }
       }
     }
+    // v1.23 — Bully election timeout: claim self if no higher-id peer responded.
+    if (_electionInProgress && Date.now() - _electionStartedAt >= _ELECTION_TIMEOUT_MS) {
+      _electionInProgress = false;
+      if (!_gotAliveResponse) {
+        const _prev = _currentLeader;
+        _currentLeader = _localNodeId;
+        _broadcastCoordinator();
+        if (_prev !== _localNodeId) _fireLeaderEvent("LeaderElected", _localNodeId);
+      }
+    }
+    // v1.23 — deliver leader events to subscribers.
+    while (_leaderEventQueue.length > 0) {
+      const _lev = _leaderEventQueue.shift();
+      const _lmsg = _lev.tag === 'LeaderElected'
+        ? { _type: 'LeaderElected', nodeId: _lev.leaderId }
+        : { _type: 'LeaderLost',    nodeId: _lev.leaderId };
+      for (const _sid of _leaderEventSubs) {
+        const _st = actors.get(_sid);
+        if (_st) { _st.mailbox.push(_lmsg); tryWakeBlocked(_sid); }
+      }
+    }
     // Fire scheduled sends whose deadline has passed.
     if (_timers.size > 0) {
       const _nowMs = Date.now();
@@ -4429,7 +4530,8 @@ function _runActors(bodyFn) {
       const isDistributed = _peerChannels.size > 0;
       const hasBlockedActors = isDistributed && actors.size > 0 &&
         [...actors.values()].some(st => st && st.blocked !== null);
-      if (!earliest && _timers.size === 0 && !hasBlockedActors) break;
+      if (!earliest && _timers.size === 0 && !hasBlockedActors &&
+          !_electionInProgress && _leaderEventQueue.length === 0) break;
       const _sleepUntil = [earliest != null ? earliest.d : null, _timerMin].filter(v => v != null);
       const _minDeadline = _sleepUntil.length > 0 ? Math.min(..._sleepUntil) : null;
       const sleepFor = _minDeadline != null ? Math.min(_minDeadline - Date.now(), 10) : 10;
@@ -5513,6 +5615,7 @@ class JsGen(
       "Actor.phiOf", "Actor.isSuspect",
       "Actor.selfNode", "Actor.clusterHealth",
       "Actor.broadcastHealth", "Actor.clusterIsDown",
+      "Actor.electLeader", "Actor.currentLeader", "Actor.subscribeLeaderEvents",
       "Actor.sendAfter", "Actor.sendInterval", "Actor.cancelTimer",
       "Logger.info", "Logger.warn", "Logger.error", "Logger.debug",
       "Random.nextInt", "Random.nextDouble", "Random.uuid", "Random.pick",
@@ -6796,6 +6899,16 @@ class JsGen(
       val nid = genExpr(argClause.values(0).asInstanceOf[Term])
       val thr = if argClause.values.size >= 2 then genExpr(argClause.values(1).asInstanceOf[Term]) else "8.0"
       s"Actor.clusterIsDown($nid, $thr)"
+    // v1.23 — leader election (Bully)
+    case Term.Apply.After_4_6_0(Term.Name("electLeader"), argClause)
+        if argClause.values.isEmpty =>
+      "Actor.electLeader()"
+    case Term.Apply.After_4_6_0(Term.Name("currentLeader"), argClause)
+        if argClause.values.isEmpty =>
+      "Actor.currentLeader()"
+    case Term.Apply.After_4_6_0(Term.Name("subscribeLeaderEvents"), argClause)
+        if argClause.values.isEmpty =>
+      "Actor.subscribeLeaderEvents()"
     // v1.6.x — scheduled sends
     case Term.Apply.After_4_6_0(Term.Name("sendAfter"), argClause)
         if argClause.values.size == 3 =>
@@ -7331,6 +7444,16 @@ class JsGen(
       val nid = genExpr(argClause.values(0).asInstanceOf[Term])
       val thr = if argClause.values.size >= 2 then genExpr(argClause.values(1).asInstanceOf[Term]) else "8.0"
       s"Actor.clusterIsDown($nid, $thr)"
+    // v1.23 — leader election (Bully)
+    case Term.Apply.After_4_6_0(Term.Name("electLeader"), argClause)
+        if argClause.values.isEmpty =>
+      "Actor.electLeader()"
+    case Term.Apply.After_4_6_0(Term.Name("currentLeader"), argClause)
+        if argClause.values.isEmpty =>
+      "Actor.currentLeader()"
+    case Term.Apply.After_4_6_0(Term.Name("subscribeLeaderEvents"), argClause)
+        if argClause.values.isEmpty =>
+      "Actor.subscribeLeaderEvents()"
     // v1.6.x — scheduled sends (inside CPS body)
     case Term.Apply.After_4_6_0(Term.Name("sendAfter"), argClause)
         if argClause.values.size == 3 =>
