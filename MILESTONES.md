@@ -6378,6 +6378,26 @@ from JvmGen-emitted code.
       column.  Document the binding rule + driver story in
       `docs/markdown-as-syntax.md` if `sql` is not already covered.
 
+### Follow-ups discovered during work
+
+- **`client-postgres` reconciliation.**  A parallel agent shipped a
+  general-purpose `client-postgres` module (commit `d45a250`) at
+  `client-postgres/` with its own `RowDecoder` / `ColumnDecoder` and
+  HikariCP-backed `PgClient`.  It is JDBC-generic in spirit but
+  Postgres/Future-flavoured in shape, lives in package
+  `scalascript.db`, decodes columns *by position* (1-based) rather
+  than by name, has no `Row` class, and lacks bindings for time /
+  binary types.
+  v1.26 Phase 4 builds `backend-sql-runtime` standalone (proper `Row`
+  with name-based `.as[T]`, full type bindings, `DriverManager`-only
+  connection acquisition) — the two modules co-exist without code
+  sharing for now.  After Phase 6 is shipped, revisit the split:
+  options are (a) extract a shared `client-jdbc-common` module that
+  both depend on, (b) have `client-postgres` delegate execution to
+  `backend-sql-runtime` and add only the PG-specific pool/async
+  layer on top, or (c) keep the duplication if the surfaces diverge
+  enough.  Decide once both APIs are in real use.
+
 ### Out of scope (deferred, not committed)
 
 - Transactional API.  Phase 6 commits per statement (JDBC default).
