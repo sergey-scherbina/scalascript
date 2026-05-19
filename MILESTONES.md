@@ -5993,10 +5993,13 @@ Thin `backend-wasm-contract/` layer on top of `backend-wasm/` for Near or Polkad
 > Phase 1 landed (2026-05-19): `backend-spark/` sbt module + `SparkGen.scala` +
 > `ssc emit-spark` + `ssc run --backend spark` CLI wiring + `examples/word-count.ssc`.
 > v1.25 § 9.5 Phase A (SPI wrap), B.1 (`--spark-master` / `spark-master:`),
+> B.2 (`ssc submit` — fat JAR via `scala-cli --power package --assembly` +
+> shell-out to `spark-submit --master <url> --class runSparkJob <jar>` with
+> `--` pass-through for cluster-specific tuning),
 > C.1 (`sql` block → `spark.sql(text, args)`), C.2 (section-based `<sectionId>.sql`
 > alias), and C.3 slice 1 (`>10` binds → `java.util.Map.ofEntries`) all landed.
-> Phase 2 (`spark-submit` packaging) and the rest of C.3 (DataFrame ergonomics,
-> `std/parsing` → `StructType` bridge) remain speculative.
+> Remaining: rest of C.3 (DataFrame ergonomics, `std/parsing` → `StructType`
+> bridge) — speculative until use cases surface.
 >
 > Natural fit: ScalaScript's existing `Dataset[T]` API maps directly to Spark.
 
@@ -6070,11 +6073,20 @@ Same source, same semantics, different scale.
 7. ✓ 21 unit tests in `SparkGenTest.scala` (no Spark runtime needed — structural
    source checks only).
 
-**Phase 2 — Cluster submission (~1 week):**
+**Phase 2 — Cluster submission (~1 week): ✓ LANDED (2026-05-19)**
 
-5. `ssc submit file.ssc --spark-master spark://host:7077` packages the job
-   as a fat JAR and calls `spark-submit`.
-6. Support `--spark-master yarn` / `--spark-master k8s://...` for cloud clusters.
+5. ✓ `ssc submit file.ssc --spark-master spark://host:7077` packages the job
+   as a fat JAR via `scala-cli --power package --assembly` and calls
+   `spark-submit --master <url> --class runSparkJob <jar>`.
+6. ✓ Support `--spark-master yarn` / `--spark-master k8s://...` — argv pinned
+   in `SparkSubmit.submitCommand` tests across all four master URL shapes
+   (`local[*]`, `spark://`, `yarn`, `k8s://`).
+7. ✓ `--` separator after the file passes extra args through to `spark-submit`
+   verbatim — `--executor-memory`, `--num-executors`, `--deploy-mode cluster`,
+   etc.  Verified in `SubmitCommandTest`.
+8. ✓ `--dry-run` prints the argv that would be invoked without shelling out;
+   used by shell integration tests and useful for users inspecting what
+   `ssc submit` is about to do.
 
 **Phase 3 — Spark SQL and DataFrames (~1 week):**
 

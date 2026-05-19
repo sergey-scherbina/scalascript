@@ -1389,7 +1389,7 @@ Spark backend).  The user does not rewrite the pipeline to switch.
 |-------|------|-----|--------|
 | **A — SPI integration** | Wrap the existing `SparkGen` invocation in a proper `Backend extends Backend` with `META-INF/services` registration; remove the `runViaSparkBackend` special case in `Main.runCommand`. | Today Spark is the only bundled target reached through a side-path instead of the SPI; this blocks Capabilities-driven block-language gating (§ 9.4) and `--describe-backend spark`. | open (~½ day) |
 | **B.1 — Master URL parameterisation** | `--spark-master <url>` CLI flag + `spark-master:` front-matter key threaded through `BackendOptions.extra("sparkMaster")` into `SparkGen`.  Same source compiles to `local[*]` (default), `local[N]`, `spark://...`, `yarn`, `k8s://...`. | Unblocks running against an existing Spark cluster from the same source that runs locally. | landed |
-| **B.2 — `spark-submit` packaging** | `ssc submit file.ssc --spark-master spark://...` packages a fat JAR and shells out to `spark-submit`. | B.1 ships the driver via `scala-cli` which works for Spark Standalone but not for YARN/K8s production deployments. | open (~1 week) |
+| **B.2 — `spark-submit` packaging** | `ssc submit file.ssc [--spark-master <url>] [--spark-version <v>] [--dry-run] [-- <extra spark-submit args>]` builds a fat JAR via `scala-cli --power package --assembly` and shells out to `spark-submit --master <url> --class runSparkJob <jar>`.  Pure command builders live in `SparkSubmit.{packageCommand, submitCommand}` so the exact argv is unit-test pinnable; orchestration in `Main.submitCommand` adds file I/O and shell-out.  Args after a literal `--` flow through to `spark-submit` verbatim for cluster-specific tuning (`--executor-memory`, `--num-executors`, `--deploy-mode cluster`, …). | B.1 ships the driver via `scala-cli` which works for Spark Standalone but not for YARN/K8s production deployments. | landed |
 | **C.1 — `sql` block → `spark.sql(...)`** | `sql` declared in `SparkCapabilities.blockLanguages`; the shared `SqlBindRewriter` produces `:bind<N>` placeholders consumed by Spark SQL 3.4+'s parameterised `sql(text, args)`.  Each `sql` block binds to a sequential `val _sqlBlock_<n>: org.apache.spark.sql.DataFrame` in the `@main` scope, accessible from subsequent `scalascript` blocks. | Reuses the same `sql` surface as the JDBC target (§ 3.3.1) — same source, different runtime. | landed |
 | **C.2 — Section-based binding** | Each `sql` block whose enclosing section has a usable identifier (`# Users`, `# Active Users`, …) ALSO emits `object <sectionId>: lazy val sql: org.apache.spark.sql.DataFrame = _sqlBlock_<n>`.  Friendly access: `Users.sql.show()` instead of `_sqlBlock_0.show()`. | Mirrors the existing `html`/`css` → `<sectionId>.html/css` convention so authoring rules are uniform across opaque blocks. | landed |
 | **C.3 — DataFrame ergonomics + schema bridge** | Expose `DataFrame` as `Dataset[Row]` more thoroughly; map `std/parsing` schemas to Spark `StructType`; `>10` binds via `Map.ofEntries` (landed — JDK's `java.util.Map.of` caps at 10 pairs, so `SparkGen` switches to `java.util.Map.ofEntries[String, Object](Map.entry(...), …)` above `SparkGen.MapOfMaxPairs = 10`). | C.1+C.2 ship the binding/runtime contract; C.3 polishes the typed surface. | partially landed (`>10` binds) |
@@ -1502,6 +1502,46 @@ ssc-spark file.ssc                                # uses front-matter
 ssc-spark --spark-master local[*] file.ssc        # CLI wins
 ```
 
+#### Cluster submission (`ssc submit`, Phase B.2)
+
+`ssc run --backend spark` ships the driver via `scala-cli run` — fine
+for Spark Standalone with a thin classpath, but YARN, Kubernetes, and
+production clusters expect a pre-built fat JAR submitted through
+`spark-submit`.  `ssc submit` closes that gap:
+
+```bash
+# Local development against a cluster master (still uses scala-cli):
+ssc run --backend spark --spark-master spark://prod:7077 job.ssc
+
+# Production deployment (fat JAR + spark-submit):
+ssc submit job.ssc --spark-master yarn -- \
+    --executor-memory 4g --num-executors 8 --deploy-mode cluster
+
+# Dry-run — print the argv that would be invoked, but don't shell out:
+ssc submit job.ssc --spark-master k8s://cluster.local:6443 --dry-run
+```
+
+Pipeline:
+
+1. Parse the `.ssc`, resolve `sparkVersion` / `sparkMaster` per the
+   standard three-level priority above.
+2. Generate the same Scala 3 + Spark source `ssc run --backend spark`
+   would produce, write it to `/tmp/ssc-spark-<hash>.scala`.
+3. `scala-cli --power package <src> --assembly -o /tmp/ssc-spark-<hash>.jar
+   --dep org.apache.spark::spark-core:<v> --dep org.apache.spark::spark-sql:<v> --scala 3`.
+4. `spark-submit --master <url> --class runSparkJob <extras> <jar>`.
+
+Anything after a literal `--` on the command line flows through to
+`spark-submit` verbatim (e.g. `--executor-memory 4g`,
+`--num-executors 8`, `--deploy-mode cluster`).  ScalaScript does not
+re-model individual Spark tuning flags — they vary per cluster type
+and the existing `spark-submit` documentation already covers them.
+
+The fat JAR includes every transitive Spark and ScalaScript dependency,
+so YARN / K8s executors only need the same Spark version as the
+driver on their image — no ScalaScript or `scala-cli` install
+required on the cluster side.
+
 ## Appendix A: Reserved Words
 
 ```text
@@ -1546,6 +1586,9 @@ ssc emit-spa file.ssc           Emit SPA HTML bundle
 ssc emit-wasm file.ssc          Emit WebAssembly module via Scala.js
 ssc emit-wc file.ssc            Emit Web Components bundle
 ssc emit-spark file.ssc         Emit Scala 3 + Spark source
+ssc submit file.ssc             Build fat JAR + invoke spark-submit (§ 9.5 Phase B.2)
+                                 Flags: --spark-master <url>, --spark-version <v>,
+                                        --dry-run, -- <extra spark-submit args>
 ssc compile-jvm file.ssc        Compile to .scjvm artifact
 ssc compile-js file.ssc         Compile to .scjs artifact
 ssc emit-interface file.ssc     Emit .scim interface

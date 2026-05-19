@@ -18,6 +18,7 @@ import scalascript.backend.spi.{BackendOptions, CompileResult, Segment}
 import scalascript.artifact.{InterfaceExtractor, ArtifactIO, JvmArtifactIO, JsArtifactIO}
 import scalascript.codegen.JvmGen
 import scalascript.codegen.SparkGen
+import scalascript.codegen.SparkSubmit
 
 @main def ssc(rawArgs: String*): Unit =
   // Strip global plugin-management flags from anywhere in the
@@ -63,6 +64,7 @@ private def dispatchCommand(args: List[String]): Unit =
     case "emit-spa"            => emitSpaCommand(args.tail)
     case "emit-scala"          => emitScalaCommand(args.tail)
     case "emit-spark"          => emitSparkCommand(args.tail)
+    case "submit"              => submitCommand(args.tail)
     case "emit-wc"             => emitWcCommand(args.tail)
     // v2.0 separate-compilation commands
     case "emit-interface"      => emitInterfaceCommand(args.tail)
@@ -220,6 +222,9 @@ def printUsage(): Unit =
     |  package [flags] <f>    Package .ssc via scala-cli package (see flags below)
     |  emit-scala             Print generated Scala 3 script to stdout
     |  emit-spark             Print generated Scala 3 + Spark program to stdout (Phase 1: local)
+    |  submit                 Package .ssc as a Spark fat JAR and launch via spark-submit
+    |                         Flags: --spark-master <url>, --spark-version <v>, --dry-run
+    |                         Pass extra spark-submit args after `--` (e.g. --executor-memory 4g)
     |  emit-js                Transpile .ssc to JavaScript (Node server) and print to stdout
     |  emit-wasm              Compile .ssc scala blocks to WebAssembly via Scala.js (writes .wasm + .js)
     |  emit-spa               Wrap .ssc as a browser SPA (HTML + embedded JS) and print to stdout
@@ -1961,6 +1966,110 @@ def emitSparkCommand(args: List[String]): Unit =
       catch case e: Exception =>
         System.err.println(s"Spark generation error: ${e.getMessage}")
         System.exit(1)
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ssc submit  —  Apache Spark backend, cluster submission (v1.25 § 9.5 B.2)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** `ssc submit <file.ssc> [--spark-master <url>] [--spark-version <v>] [--dry-run] [-- <extra spark-submit args>]`
+ *
+ *  Closes the gap between `ssc run --backend spark` (Phase A/B.1 — ships the
+ *  driver via `scala-cli run`, only viable for thin-classpath Spark Standalone)
+ *  and a real cluster deployment.  `submit` packages the generated Spark
+ *  source into a fat assembly JAR via `scala-cli --power package --assembly`
+ *  and then launches it through `spark-submit`, which is the standard entry
+ *  point for YARN, Kubernetes, and production Spark Standalone.
+ *
+ *  Flow:
+ *  1. Parse the `.ssc` file (no Normalize — we need the manifest raw map
+ *     for `spark-version` / `spark-master` resolution, same as `runCommand`).
+ *  2. Resolve `sparkVersion` and `sparkMaster` with the standard three-level
+ *     priority: CLI flag > front-matter > [[SparkGen.Default…]].
+ *  3. Generate the Scala 3 + Spark source and write it to
+ *     `/tmp/ssc-spark-<hash>.scala`.
+ *  4. Run [[SparkSubmit.packageCommand]] — produces `/tmp/ssc-spark-<hash>.jar`.
+ *  5. Run [[SparkSubmit.submitCommand]] — launches it on the resolved master.
+ *
+ *  `--dry-run` skips steps 4–5 and prints the argv that would be run;
+ *  useful for shell integration testing and for the user to inspect /
+ *  copy-paste the spark-submit invocation.
+ *
+ *  Anything after a literal `--` separator on the command line flows
+ *  through to spark-submit verbatim (`extraSparkArgs` in
+ *  [[SparkSubmit.submitCommand]]) — that's how users pass
+ *  `--executor-memory 4g`, `--num-executors 8`, `--deploy-mode cluster`,
+ *  etc., without ScalaScript needing a per-flag model. */
+def submitCommand(args: List[String]): Unit =
+  var sparkVersionArg: Option[String] = None
+  var sparkMasterArg:  Option[String] = None
+  var dryRun:          Boolean        = false
+  val files          = scala.collection.mutable.ArrayBuffer.empty[String]
+  val extraSparkArgs = scala.collection.mutable.ArrayBuffer.empty[String]
+  var pastSeparator  = false
+  val it = args.iterator
+  while it.hasNext do
+    val a = it.next()
+    if pastSeparator then extraSparkArgs += a
+    else a match
+      case "--spark-version" if it.hasNext => sparkVersionArg = Some(it.next())
+      case "--spark-master"  if it.hasNext => sparkMasterArg  = Some(it.next())
+      case "--dry-run"                     => dryRun = true
+      case "--"                            => pastSeparator = true
+      case f                               => files += f
+  if files.isEmpty then
+    System.err.println("Usage: ssc submit <file.ssc> [--spark-master <url>] [--spark-version <v>] [--dry-run] [-- <extra spark-submit args>]")
+    System.exit(1)
+  if files.size > 1 then
+    System.err.println(s"Error: ssc submit accepts one .ssc file, got ${files.size}")
+    System.exit(1)
+  val file = files.head
+  val path = os.Path(file, os.pwd)
+  if !os.exists(path) then
+    System.err.println(s"Error: File not found: $file")
+    System.exit(1)
+  try
+    val module = Parser.parse(os.read(path))
+    val sparkVersion =
+      sparkVersionArg
+        .orElse(module.manifest.flatMap(_.raw.get("spark-version")).collect { case s: String => s })
+        .getOrElse(SparkGen.DefaultVersion)
+    val sparkMaster =
+      sparkMasterArg
+        .orElse(module.manifest.flatMap(_.raw.get("spark-master")).collect { case s: String => s })
+        .getOrElse(SparkGen.DefaultMaster)
+    val code = SparkGen.generate(
+      module,
+      baseDir      = Some(path / os.up),
+      sparkVersion = sparkVersion,
+      sparkMaster  = sparkMaster
+    )
+    val hash    = java.lang.Integer.toHexString(code.hashCode & 0x7fffffff)
+    val srcPath = os.Path(s"/tmp/ssc-spark-$hash.scala")
+    val jarPath = os.Path(s"/tmp/ssc-spark-$hash.jar")
+    os.write.over(srcPath, code)
+    val pkgCmd    = SparkSubmit.packageCommand(srcPath, jarPath, sparkVersion)
+    val submitCmd = SparkSubmit.submitCommand(
+      jar            = jarPath,
+      master         = sparkMaster,
+      extraSparkArgs = extraSparkArgs.toList
+    )
+    if dryRun then
+      println(s"# Spark $sparkVersion (master=$sparkMaster)")
+      println(s"# source: $srcPath")
+      println(pkgCmd.mkString(" "))
+      println(submitCmd.mkString(" "))
+    else
+      System.err.println(s"[spark] Spark $sparkVersion (master=$sparkMaster) — packaging: $srcPath → $jarPath")
+      val pkgExit = scala.sys.process.Process(pkgCmd).!
+      if pkgExit != 0 then
+        System.err.println(s"[spark] scala-cli package failed (exit $pkgExit)")
+        System.exit(pkgExit)
+      System.err.println(s"[spark] submitting → $sparkMaster")
+      val submitExit = scala.sys.process.Process(submitCmd).!
+      if submitExit != 0 then System.exit(submitExit)
+  catch case e: Exception =>
+    System.err.println(s"ssc submit error: ${e.getMessage}")
+    System.exit(1)
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ssc emit-interface  —  v2.0 separate compilation
