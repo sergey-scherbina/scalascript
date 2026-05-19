@@ -293,6 +293,12 @@ class Interpreter(
   @volatile private var reconnectInitialMs: Long = 0L
   @volatile private var reconnectMaxMs:     Long = 0L
   @volatile private var reconnectGiveUpMs:  Long = 0L
+  // v1.23 — per-link heartbeat cadence (ping interval) and detection
+  // threshold (max gap from last pong before we treat the link as dead).
+  // Defaults match the pre-v1.23 hardcoded values; `setHeartbeatTimeout`
+  // tunes them for low-latency clusters or tests where 40 s is too slow.
+  @volatile private var peerHeartbeatIntervalMs: Long = 30_000L
+  @volatile private var peerHeartbeatDeadAfterMs: Long = 40_000L
   // v1.23 — cluster configuration distribution.  LWW per key by (ts, origin).
   private val clusterConfig =
     new java.util.concurrent.ConcurrentHashMap[String, (String, Long, String)]()
@@ -1223,14 +1229,16 @@ class Interpreter(
               sendConfigSnapshot(text => sess.sendText(text))
               sendDrainState(text => sess.sendText(text))
               sendMetricSnapshot(text => sess.sendText(text))
-              // Heartbeat: ping every 30 s, abort if no pong for 40 s.
+              // Heartbeat: ping every `peerHeartbeatIntervalMs`, abort
+              // if no pong for `peerHeartbeatDeadAfterMs`.  Defaults
+              // 30 s / 40 s; tune via `setHeartbeatTimeout(...)`.
               val hbThread = Thread.ofVirtual().start { () =>
                 try
                   while peerChannels.containsKey(peerNodeId) do
-                    Thread.sleep(30_000L)
+                    Thread.sleep(peerHeartbeatIntervalMs)
                     if peerChannels.containsKey(peerNodeId) then
                       val age = System.currentTimeMillis() - peerLastPong.getOrDefault(peerNodeId, 0L)
-                      if age > 40_000L then
+                      if age > peerHeartbeatDeadAfterMs then
                         // v1.23 — full peer-loss cleanup, not just
                         // peerChannels.remove.  Without this the
                         // currentLeader / autoReelect / scheduleReconnect
@@ -2427,6 +2435,18 @@ class Interpreter(
     globals("leaderHistory") = Value.NativeFnV("leaderHistory", {
       case Nil => Perform("Actor", "leaderHistory", Nil)
       case _   => throw InterpretError("leaderHistory(): List[(Long, String, Long)]")
+    })
+    // v1.23 — per-link heartbeat tuning.  `intervalMs` is the ping
+    // cadence; `deadAfterMs` is the max gap from last pong before
+    // the link is treated as dead and peerLost fires.  Defaults
+    // (30 s / 40 s) suit human-scale clusters; tune lower for
+    // low-latency clusters and tests.
+    globals("setHeartbeatTimeout") = Value.NativeFnV("setHeartbeatTimeout", {
+      case List(Value.IntV(iv), Value.IntV(dead)) =>
+        Perform("Actor", "setHeartbeatTimeout",
+          List(Value.IntV(iv), Value.IntV(dead)))
+      case _ => throw InterpretError(
+        "setHeartbeatTimeout(intervalMs: Long, deadAfterMs: Long): Unit")
     })
     // v1.23 — auto-reconnect policy.  Two- or three-arg form: the
     // optional third arg is `giveUpAfterMs`, the wall-clock budget
@@ -6531,14 +6551,15 @@ class Interpreter(
           sendConfigSnapshot(wsSend)
           sendDrainState(wsSend)
           sendMetricSnapshot(wsSend)
-          // Heartbeat: ping every 30 s, drop if no pong for 40 s.
+          // Heartbeat: same configurable cadence as the outbound side
+          // (`setHeartbeatTimeout`).  Defaults 30 s / 40 s.
           val hbThread = Thread.ofVirtual().start { () =>
             try
               while peerChannels.containsKey(pnId) do
-                Thread.sleep(30_000L)
+                Thread.sleep(peerHeartbeatIntervalMs)
                 if peerChannels.containsKey(pnId) then
                   val age = System.currentTimeMillis() - peerLastPong.getOrDefault(pnId, 0L)
-                  if age > 40_000L then
+                  if age > peerHeartbeatDeadAfterMs then
                     // v1.23 — same rationale as the outbound side:
                     // run the full peer-loss cleanup so currentLeader
                     // / autoReelect fire even when the recv loop is
@@ -6782,6 +6803,15 @@ class Interpreter(
         buf += Value.ListV(t.toList)
       }
       Right(k(Value.ListV(buf.toList)))
+
+    // v1.23 — heartbeat cadence + deadline
+    case "setHeartbeatTimeout" => args match
+      case List(Value.IntV(iv), Value.IntV(dead)) =>
+        peerHeartbeatIntervalMs  = iv.max(1L)
+        peerHeartbeatDeadAfterMs = dead.max(peerHeartbeatIntervalMs)
+        Right(k(Value.UnitV))
+      case _ => throw InterpretError(
+        "setHeartbeatTimeout(intervalMs: Long, deadAfterMs: Long)")
 
     // v1.23 — auto-reconnect policy
     case "setReconnectPolicy" => args match
