@@ -264,6 +264,22 @@ class Interpreter(
   private val leaderEventQueue =
     new java.util.concurrent.ConcurrentLinkedQueue[Value]()
   @volatile private var autoReelect: Boolean = false
+  // v1.23 — protocol dispatch (cluster-raft.md §6).  "bully" today;
+  //   Phase 3a flips to "raft", Phase 3b flips to "coord".
+  private val leaderProtocolRef =
+    new java.util.concurrent.atomic.AtomicReference[String]("bully")
+  @scala.annotation.unused
+  @volatile private var leaderCoordinator: Value = Value.UnitV
+  // v1.23 — bounded leader-claim history.
+  private val LeaderHistMax = 100
+  private val leaderHistTermSeq =
+    new java.util.concurrent.atomic.AtomicLong(0L)
+  private val leaderHist =
+    new java.util.concurrent.ConcurrentLinkedDeque[(Long, String, Long)]()
+  private def recordLeaderHist(leaderId: String): Unit =
+    val term = leaderHistTermSeq.incrementAndGet()
+    leaderHist.offer((term, leaderId, System.currentTimeMillis()))
+    while leaderHist.size() > LeaderHistMax do leaderHist.pollFirst()
   // v1.23 — drain / rolling-restart state.
   private val isDrainingSelf =
     new java.util.concurrent.atomic.AtomicBoolean(false)
@@ -324,14 +340,18 @@ class Interpreter(
   private def startElection(): Unit =
     if localNodeId.isEmpty then
       val prev = currentLeader.getAndSet(localNodeId)
-      if prev != localNodeId then enqueueLeaderEvent("LeaderElected", localNodeId)
+      if prev != localNodeId then
+        enqueueLeaderEvent("LeaderElected", localNodeId)
+        recordLeaderHist(localNodeId)
     else
       val higher = scala.collection.mutable.ListBuffer.empty[String]
       peerChannels.keySet().forEach(nid => if nid > localNodeId then higher += nid)
       if higher.isEmpty then
         val prev = currentLeader.getAndSet(localNodeId)
         broadcastCoordinator()
-        if prev != localNodeId then enqueueLeaderEvent("LeaderElected", localNodeId)
+        if prev != localNodeId then
+        enqueueLeaderEvent("LeaderElected", localNodeId)
+        recordLeaderHist(localNodeId)
       else
         electionInProgress = true
         electionStartedAt  = System.currentTimeMillis()
@@ -1031,7 +1051,9 @@ class Interpreter(
             if from.nonEmpty then
               val prev = currentLeader.getAndSet(from)
               electionInProgress = false
-              if prev != from then enqueueLeaderEvent("LeaderElected", from)
+              if prev != from then
+                enqueueLeaderEvent("LeaderElected", from)
+                recordLeaderHist(from)
           case "config_set" =>
             val key   = m.get(Value.StringV("key")).collect { case Value.StringV(s) => s }.getOrElse("")
             val value = m.get(Value.StringV("value")).collect { case Value.StringV(s) => s }.getOrElse("")
@@ -1913,6 +1935,23 @@ class Interpreter(
     globals("setAutoReelect") = Value.NativeFnV("setAutoReelect", {
       case List(Value.BoolV(b)) => Perform("Actor", "setAutoReelect", List(Value.BoolV(b)))
       case _ => throw InterpretError("setAutoReelect(enabled: Boolean): Unit")
+    })
+    // v1.23 — protocol switch + history (cluster-raft.md §6)
+    globals("useRaftLeaderElection") = Value.NativeFnV("useRaftLeaderElection", {
+      case Nil => Perform("Actor", "useRaftLeaderElection", Nil)
+      case _   => throw InterpretError("useRaftLeaderElection(): Unit")
+    })
+    globals("useExternalCoordinator") = Value.NativeFnV("useExternalCoordinator", {
+      case List(adapter) => Perform("Actor", "useExternalCoordinator", List(adapter))
+      case _ => throw InterpretError("useExternalCoordinator(adapter: Any): Unit")
+    })
+    globals("leaderProtocol") = Value.NativeFnV("leaderProtocol", {
+      case Nil => Perform("Actor", "leaderProtocol", Nil)
+      case _   => throw InterpretError("leaderProtocol(): String")
+    })
+    globals("leaderHistory") = Value.NativeFnV("leaderHistory", {
+      case Nil => Perform("Actor", "leaderHistory", Nil)
+      case _   => throw InterpretError("leaderHistory(): List[(Long, String, Long)]")
     })
     // v1.23 — auto-reconnect policy
     globals("setReconnectPolicy") = Value.NativeFnV("setReconnectPolicy", {
@@ -4911,7 +4950,9 @@ class Interpreter(
           if !gotAliveResponse then
             val prev = currentLeader.getAndSet(localNodeId)
             broadcastCoordinator()
-            if prev != localNodeId then enqueueLeaderEvent("LeaderElected", localNodeId)
+            if prev != localNodeId then
+        enqueueLeaderEvent("LeaderElected", localNodeId)
+        recordLeaderHist(localNodeId)
         // v1.23 — deliver leader events (LeaderElected/LeaderLost) to subscribers.
         while !leaderEventQueue.isEmpty do
           val ev = leaderEventQueue.poll()
@@ -5531,6 +5572,33 @@ class Interpreter(
         autoReelect = b
         Right(k(Value.UnitV))
       case _ => throw InterpretError("setAutoReelect(enabled: Boolean): Unit")
+
+    // v1.23 — protocol switch + history (cluster-raft.md §6)
+    case "useRaftLeaderElection" =>
+      leaderProtocolRef.set("raft")
+      Right(k(Value.UnitV))
+
+    case "useExternalCoordinator" => args match
+      case List(adapter) =>
+        leaderProtocolRef.set("coord")
+        leaderCoordinator = adapter
+        Right(k(Value.UnitV))
+      case _ => throw InterpretError("useExternalCoordinator(adapter: Any): Unit")
+
+    case "leaderProtocol" =>
+      Right(k(Value.StringV(leaderProtocolRef.get())))
+
+    case "leaderHistory" =>
+      val buf = scala.collection.mutable.ListBuffer.empty[Value]
+      leaderHist.iterator().forEachRemaining { case (term, lid, ms) =>
+        // Tuple-as-list keeps the wire shape uniform with the JVM/JS halves.
+        val t = scala.collection.mutable.ListBuffer.empty[Value]
+        t += Value.IntV(term)
+        t += Value.StringV(lid)
+        t += Value.IntV(ms)
+        buf += Value.ListV(t.toList)
+      }
+      Right(k(Value.ListV(buf.toList)))
 
     // v1.23 — auto-reconnect policy
     case "setReconnectPolicy" => args match

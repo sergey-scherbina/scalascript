@@ -3555,6 +3555,11 @@ const Actor = {
   currentLeader:         ()  => _perform('Actor', 'currentLeader',         []),
   subscribeLeaderEvents: ()  => _perform('Actor', 'subscribeLeaderEvents', []),
   setAutoReelect:        (b) => _perform('Actor', 'setAutoReelect', [b]),
+  // v1.23 — protocol switch + history (cluster-raft.md §6)
+  useRaftLeaderElection: ()  => _perform('Actor', 'useRaftLeaderElection', []),
+  useExternalCoordinator:(a) => _perform('Actor', 'useExternalCoordinator', [a]),
+  leaderProtocol:        ()  => _perform('Actor', 'leaderProtocol', []),
+  leaderHistory:         ()  => _perform('Actor', 'leaderHistory', []),
   // v1.23 — auto-reconnect policy
   setReconnectPolicy: (ini, mx) => _perform('Actor', 'setReconnectPolicy', [ini, mx]),
   // v1.23 — periodic gossip re-discovery
@@ -3640,6 +3645,19 @@ function _runActors(bodyFn) {
   let   _gotAliveResponse   = false;
   let   _autoReelect         = false;
   const _ELECTION_TIMEOUT_MS = 2000;
+  // v1.23 — protocol dispatch (cluster-raft.md §6).  "bully" today;
+  //   Phase 3a flips to "raft", Phase 3b flips to "coord".
+  let   _leaderProtocol      = "bully";
+  let   _leaderCoordinator   = null;
+  // v1.23 — bounded leader-claim history.
+  const _LEADER_HIST_MAX     = 100;
+  let   _leaderHistTermSeq   = 0;
+  const _leaderHist          = []; // [[term, leaderId, ms], ...]
+  function _recordLeaderHist(leaderId) {
+    _leaderHistTermSeq += 1;
+    _leaderHist.push([_leaderHistTermSeq, leaderId, Date.now()]);
+    while (_leaderHist.length > _LEADER_HIST_MAX) _leaderHist.shift();
+  }
   const _leaderEventSubs    = new Set();
   const _leaderEventQueue   = [];
   function _fireLeaderEvent(tag, leaderId) {
@@ -3737,7 +3755,7 @@ function _runActors(bodyFn) {
   function _startElection() {
     if (!_localNodeId) {
       const prev = _currentLeader; _currentLeader = _localNodeId;
-      if (prev !== _localNodeId) _fireLeaderEvent("LeaderElected", _localNodeId);
+      if (prev !== _localNodeId) { _fireLeaderEvent("LeaderElected", _localNodeId); _recordLeaderHist(_localNodeId); }
       return;
     }
     const higher = [];
@@ -3745,7 +3763,7 @@ function _runActors(bodyFn) {
     if (higher.length === 0) {
       const prev = _currentLeader; _currentLeader = _localNodeId;
       _broadcastCoordinator();
-      if (prev !== _localNodeId) _fireLeaderEvent("LeaderElected", _localNodeId);
+      if (prev !== _localNodeId) { _fireLeaderEvent("LeaderElected", _localNodeId); _recordLeaderHist(_localNodeId); }
     } else {
       _electionInProgress = true;
       _electionStartedAt  = Date.now();
@@ -4000,7 +4018,7 @@ function _runActors(bodyFn) {
             const prev = _currentLeader;
             _currentLeader = env.from;
             _electionInProgress = false;
-            if (prev !== env.from) _fireLeaderEvent("LeaderElected", env.from);
+            if (prev !== env.from) { _fireLeaderEvent("LeaderElected", env.from); _recordLeaderHist(env.from); }
           }
         } else if (env.t === 'config_set') {
           const k = env.key != null ? String(env.key) : '';
@@ -4526,6 +4544,23 @@ private val JsRuntimeAsyncB: String = """
         _autoReelect = !!args[0];
         return { suspend: false, next: k(undefined) };
       }
+      // v1.23 — protocol switch + history (cluster-raft.md §6)
+      case 'useRaftLeaderElection': {
+        _leaderProtocol = 'raft';
+        return { suspend: false, next: k(undefined) };
+      }
+      case 'useExternalCoordinator': {
+        _leaderProtocol = 'coord';
+        _leaderCoordinator = args[0];
+        return { suspend: false, next: k(undefined) };
+      }
+      case 'leaderProtocol': {
+        return { suspend: false, next: k(_leaderProtocol) };
+      }
+      case 'leaderHistory': {
+        // Return a copy so callers can't mutate our buffer.
+        return { suspend: false, next: k(_leaderHist.map(e => [e[0], e[1], e[2]])) };
+      }
       // v1.23 — auto-reconnect policy
       case 'setReconnectPolicy': {
         const ini = Number(args[0]) | 0;
@@ -4723,7 +4758,7 @@ private val JsRuntimeAsyncB: String = """
         const _prev = _currentLeader;
         _currentLeader = _localNodeId;
         _broadcastCoordinator();
-        if (_prev !== _localNodeId) _fireLeaderEvent("LeaderElected", _localNodeId);
+        if (_prev !== _localNodeId) { _fireLeaderEvent("LeaderElected", _localNodeId); _recordLeaderHist(_localNodeId); }
       }
     }
     // v1.23 — deliver leader events to subscribers.
@@ -5892,6 +5927,8 @@ class JsGen(
       "Actor.broadcastHealth", "Actor.clusterIsDown",
       "Actor.electLeader", "Actor.currentLeader", "Actor.subscribeLeaderEvents",
       "Actor.setAutoReelect",
+      "Actor.useRaftLeaderElection", "Actor.useExternalCoordinator",
+      "Actor.leaderProtocol", "Actor.leaderHistory",
       "Actor.setReconnectPolicy", "Actor.requestGossip",
       "Actor.clusterConfigSet", "Actor.clusterConfigGet",
       "Actor.clusterConfigKeys", "Actor.subscribeConfigEvents",
@@ -7196,6 +7233,19 @@ class JsGen(
     case Term.Apply.After_4_6_0(Term.Name("setAutoReelect"), argClause)
         if argClause.values.size == 1 =>
       s"Actor.setAutoReelect(${genExpr(argClause.values.head.asInstanceOf[Term])})"
+    // v1.23 — protocol switch + history
+    case Term.Apply.After_4_6_0(Term.Name("useRaftLeaderElection"), argClause)
+        if argClause.values.isEmpty =>
+      "Actor.useRaftLeaderElection()"
+    case Term.Apply.After_4_6_0(Term.Name("useExternalCoordinator"), argClause)
+        if argClause.values.size == 1 =>
+      s"Actor.useExternalCoordinator(${genExpr(argClause.values.head.asInstanceOf[Term])})"
+    case Term.Apply.After_4_6_0(Term.Name("leaderProtocol"), argClause)
+        if argClause.values.isEmpty =>
+      "Actor.leaderProtocol()"
+    case Term.Apply.After_4_6_0(Term.Name("leaderHistory"), argClause)
+        if argClause.values.isEmpty =>
+      "Actor.leaderHistory()"
     // v1.23 — drain / rolling-restart
     case Term.Apply.After_4_6_0(Term.Name("setDraining"), argClause)
         if argClause.values.size == 1 =>
@@ -7831,6 +7881,19 @@ class JsGen(
     case Term.Apply.After_4_6_0(Term.Name("setAutoReelect"), argClause)
         if argClause.values.size == 1 =>
       s"Actor.setAutoReelect(${genExpr(argClause.values.head.asInstanceOf[Term])})"
+    // v1.23 — protocol switch + history
+    case Term.Apply.After_4_6_0(Term.Name("useRaftLeaderElection"), argClause)
+        if argClause.values.isEmpty =>
+      "Actor.useRaftLeaderElection()"
+    case Term.Apply.After_4_6_0(Term.Name("useExternalCoordinator"), argClause)
+        if argClause.values.size == 1 =>
+      s"Actor.useExternalCoordinator(${genExpr(argClause.values.head.asInstanceOf[Term])})"
+    case Term.Apply.After_4_6_0(Term.Name("leaderProtocol"), argClause)
+        if argClause.values.isEmpty =>
+      "Actor.leaderProtocol()"
+    case Term.Apply.After_4_6_0(Term.Name("leaderHistory"), argClause)
+        if argClause.values.isEmpty =>
+      "Actor.leaderHistory()"
     // v1.23 — drain / rolling-restart
     case Term.Apply.After_4_6_0(Term.Name("setDraining"), argClause)
         if argClause.values.size == 1 =>

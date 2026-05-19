@@ -1,0 +1,28 @@
+#!/usr/bin/env ssc
+---
+name: actors-leader-protocol
+description: Actor v1.23 — leader-protocol switch + leaderHistory ring buffer
+---
+
+# Leader protocol — single-node
+
+Pins three contracts across INT/JS/JVM:
+
+1. Default protocol is "bully".
+2. `useRaftLeaderElection()` flips the dispatch flag to "raft".
+   (Phase 3a will populate the actual Raft algorithm; for now the
+   switch is observable but inert.)
+3. `leaderHistory()` records every accepted leader claim — single-
+   node `electLeader()` claims self, so the buffer gains one entry.
+
+```scalascript
+runActors {
+  println("proto0=" + leaderProtocol())
+  electLeader()
+  // Single-node election claims self synchronously; history has 1 entry.
+  println("hist1=" + leaderHistory().length)
+  useRaftLeaderElection()
+  println("proto1=" + leaderProtocol())
+  println("ok")
+}
+```

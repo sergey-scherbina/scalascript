@@ -472,6 +472,8 @@ class JvmGen(
         "broadcastHealth", "clusterIsDown",
         "electLeader", "currentLeader", "subscribeLeaderEvents",
         "setAutoReelect",
+        "useRaftLeaderElection", "useExternalCoordinator", "leaderProtocol",
+        "leaderHistory",
         "setReconnectPolicy", "requestGossip",
         "clusterConfigSet", "clusterConfigGet", "clusterConfigKeys",
         "subscribeConfigEvents",
@@ -1480,6 +1482,19 @@ class JvmGen(
     case Term.Apply.After_4_6_0(Term.Name("setAutoReelect"), argClause)
         if argClause.values.size == 1 =>
       s"Actor.setAutoReelect(${emitExpr(argClause.values.head.asInstanceOf[Term])})"
+    // v1.23 — protocol switch + history
+    case Term.Apply.After_4_6_0(Term.Name("useRaftLeaderElection"), argClause)
+        if argClause.values.isEmpty =>
+      "Actor.useRaftLeaderElection()"
+    case Term.Apply.After_4_6_0(Term.Name("useExternalCoordinator"), argClause)
+        if argClause.values.size == 1 =>
+      s"Actor.useExternalCoordinator(${emitExpr(argClause.values.head.asInstanceOf[Term])})"
+    case Term.Apply.After_4_6_0(Term.Name("leaderProtocol"), argClause)
+        if argClause.values.isEmpty =>
+      "Actor.leaderProtocol()"
+    case Term.Apply.After_4_6_0(Term.Name("leaderHistory"), argClause)
+        if argClause.values.isEmpty =>
+      "Actor.leaderHistory()"
     // v1.23 — drain / rolling-restart
     case Term.Apply.After_4_6_0(Term.Name("setDraining"), argClause)
         if argClause.values.size == 1 =>
@@ -2260,6 +2275,19 @@ class JvmGen(
     case Term.Apply.After_4_6_0(Term.Name("setAutoReelect"), argClause)
         if argClause.values.size == 1 =>
       s"Actor.setAutoReelect(${emitExpr(argClause.values.head.asInstanceOf[Term])})"
+    // v1.23 — protocol switch + history
+    case Term.Apply.After_4_6_0(Term.Name("useRaftLeaderElection"), argClause)
+        if argClause.values.isEmpty =>
+      "Actor.useRaftLeaderElection()"
+    case Term.Apply.After_4_6_0(Term.Name("useExternalCoordinator"), argClause)
+        if argClause.values.size == 1 =>
+      s"Actor.useExternalCoordinator(${emitExpr(argClause.values.head.asInstanceOf[Term])})"
+    case Term.Apply.After_4_6_0(Term.Name("leaderProtocol"), argClause)
+        if argClause.values.isEmpty =>
+      "Actor.leaderProtocol()"
+    case Term.Apply.After_4_6_0(Term.Name("leaderHistory"), argClause)
+        if argClause.values.isEmpty =>
+      "Actor.leaderHistory()"
     // v1.23 — drain / rolling-restart
     case Term.Apply.After_4_6_0(Term.Name("setDraining"), argClause)
         if argClause.values.size == 1 =>
@@ -5398,6 +5426,17 @@ class JvmGen(
        |  def currentLeader(): Any                              = _perform("Actor", "currentLeader")
        |  def subscribeLeaderEvents(): Any                      = _perform("Actor", "subscribeLeaderEvents")
        |  def setAutoReelect(enabled: Any): Any                 = _perform("Actor", "setAutoReelect", enabled)
+       |  // v1.23 — leader-protocol switch (Raft / external coordinator stubs).
+       |  // See docs/cluster-raft.md for the spec.  Calling these promotes the
+       |  // node off Bully but the alternative protocols' actual algorithms
+       |  // land in subsequent phases — for now these mark intent and let
+       |  // `leaderProtocol()` observe it.
+       |  def useRaftLeaderElection(): Any                      = _perform("Actor", "useRaftLeaderElection")
+       |  def useExternalCoordinator(adapter: Any): Any         = _perform("Actor", "useExternalCoordinator", adapter)
+       |  def leaderProtocol(): Any                             = _perform("Actor", "leaderProtocol")
+       |  // v1.23 — bounded ring buffer of accepted leader claims this node has
+       |  // observed.  Each entry is (term, leaderId, wallClockMs).
+       |  def leaderHistory(): Any                              = _perform("Actor", "leaderHistory")
        |  // v1.23 — auto-reconnect policy (exponential backoff per peer)
        |  def setReconnectPolicy(initialMs: Any, maxMs: Any): Any = _perform("Actor", "setReconnectPolicy", initialMs, maxMs)
        |  // v1.23 — periodic gossip re-discovery (ask peers for their peer list)
@@ -5486,6 +5525,19 @@ class JvmGen(
        |  val _leaderEventSubs      = new java.util.concurrent.CopyOnWriteArrayList[java.lang.Long]()
        |  val _leaderEventQueue     = new java.util.concurrent.ConcurrentLinkedQueue[(String, String)]()
        |  @volatile var _autoReelect: Boolean = false
+       |  // v1.23 — protocol dispatch (cluster-raft.md §6).  "bully" today;
+       |  //   Phase 3a flips to "raft", Phase 3b flips to "coord".
+       |  val _leaderProtocol      = new java.util.concurrent.atomic.AtomicReference[String]("bully")
+       |  @volatile var _leaderCoordinator: Any = null
+       |  // v1.23 — bounded leader-claim history (cluster-raft.md §6).
+       |  val _LEADER_HIST_MAX     = 100
+       |  val _leaderHistTermSeq   = new java.util.concurrent.atomic.AtomicLong(0L)
+       |  val _leaderHist          = new java.util.concurrent.ConcurrentLinkedDeque[(Long, String, Long)]()
+       |  def _recordLeaderHist(leaderId: String): Unit =
+       |    // Caller still gates on prev != new, so every call is a real change.
+       |    val term = _leaderHistTermSeq.incrementAndGet()
+       |    _leaderHist.offer((term, leaderId, System.currentTimeMillis()))
+       |    while _leaderHist.size() > _LEADER_HIST_MAX do _leaderHist.pollFirst()
        |  // v1.23 — auto-reconnect: exponential-backoff retry per peer URL after a
        |  // disconnect.  Both fields 0 ⇒ disabled (default).  `setReconnectPolicy`
        |  // sets them at runtime.
@@ -5567,14 +5619,16 @@ class JvmGen(
        |  def _startElection(): Unit =
        |    if _localNodeId.isEmpty then
        |      val prev = _currentLeader.getAndSet(_localNodeId)
-       |      if prev != _localNodeId then _fireLeaderEvent("LeaderElected", _localNodeId)
+       |      if prev != _localNodeId then { _fireLeaderEvent("LeaderElected", _localNodeId); _recordLeaderHist(_localNodeId) }
        |    else
        |      val higher = scala.collection.mutable.ListBuffer.empty[String]
        |      _peerChannels.keySet().forEach(nid => if nid > _localNodeId then higher += nid)
        |      if higher.isEmpty then
        |        val prev = _currentLeader.getAndSet(_localNodeId)
        |        _broadcastCoordinator()
-       |        if prev != _localNodeId then _fireLeaderEvent("LeaderElected", _localNodeId)
+       |        if prev != _localNodeId then
+       |          _fireLeaderEvent("LeaderElected", _localNodeId)
+       |          _recordLeaderHist(_localNodeId)
        |      else
        |        _electionInProgress = true
        |        _electionStartedAt  = System.currentTimeMillis()
@@ -5826,7 +5880,9 @@ class JvmGen(
        |        if from.nonEmpty then
        |          val prev = _currentLeader.getAndSet(from)
        |          _electionInProgress = false
-       |          if prev != from then _fireLeaderEvent("LeaderElected", from)
+       |          if prev != from then
+       |            _fireLeaderEvent("LeaderElected", from)
+       |            _recordLeaderHist(from)
        |      case "config_set" =>
        |        // v1.23 — cluster config distribution.  LWW by (ts, originNodeId).
        |        val key   = _extractJsonStr(json, "\"key\"")
@@ -6382,6 +6438,20 @@ class JvmGen(
        |        case b: Boolean => b
        |        case _          => false
        |      Right(k(()))
+       |    // v1.23 — protocol switch + history (cluster-raft.md §6).
+       |    case "useRaftLeaderElection" =>
+       |      _leaderProtocol.set("raft")
+       |      Right(k(()))
+       |    case "useExternalCoordinator" =>
+       |      _leaderProtocol.set("coord")
+       |      _leaderCoordinator = args(0)
+       |      Right(k(()))
+       |    case "leaderProtocol" =>
+       |      Right(k(_leaderProtocol.get()))
+       |    case "leaderHistory" =>
+       |      val buf = scala.collection.mutable.ListBuffer.empty[(Long, String, Long)]
+       |      _leaderHist.iterator().forEachRemaining(e => buf += e)
+       |      Right(k(buf.toList))
        |    // v1.23 — auto-reconnect policy
        |    case "setReconnectPolicy" =>
        |      val ini = args(0) match
@@ -6612,7 +6682,9 @@ class JvmGen(
        |      if !_gotAliveResponse then
        |        val _prev = _currentLeader.getAndSet(_localNodeId)
        |        _broadcastCoordinator()
-       |        if _prev != _localNodeId then _fireLeaderEvent("LeaderElected", _localNodeId)
+       |        if _prev != _localNodeId then
+       |          _fireLeaderEvent("LeaderElected", _localNodeId)
+       |          _recordLeaderHist(_localNodeId)
        |    // v1.23 — deliver leader events to subscribers.
        |    while !_leaderEventQueue.isEmpty do
        |      val (_tag, _lid) = _leaderEventQueue.poll()

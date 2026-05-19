@@ -29,6 +29,10 @@ exports:
   - currentLeader
   - subscribeLeaderEvents
   - setAutoReelect
+  - useRaftLeaderElection
+  - useExternalCoordinator
+  - leaderProtocol
+  - leaderHistory
   - setReconnectPolicy
   - requestGossip
   - ConfigChanged
@@ -232,6 +236,29 @@ extern def subscribeLeaderEvents(): Unit
 // `false` (default) keeps the policy app-driven — apps subscribe to
 // `LeaderLost` and call `electLeader()` themselves.
 extern def setAutoReelect(enabled: Boolean): Unit
+
+// Switch this node's leader-election protocol off Bully onto Raft.
+// `electLeader` / `currentLeader` / `subscribeLeaderEvents` keep the
+// same shape; the underlying algorithm changes.  See
+// `docs/cluster-raft.md` §6 for the full spec.  Must be called once,
+// before any `electLeader()`.
+extern def useRaftLeaderElection(): Unit
+
+// Switch this node onto an external-coordinator adapter (etcd / Consul /
+// ZooKeeper / custom).  The adapter must implement the `LeaderCoordinator`
+// trait — see `docs/cluster-raft.md` §5.  `electLeader` becomes a no-op
+// (the coordinator drives elections); `currentLeader` returns the
+// lease holder; `subscribeLeaderEvents` fires on lease changes.
+extern def useExternalCoordinator(adapter: Any): Unit
+
+// Snapshot of the active protocol: "bully" (default), "raft", or "coord".
+extern def leaderProtocol(): String
+
+// Bounded ring buffer (last 100 entries) of accepted leader claims this
+// node has observed.  Each entry is `(term, leaderId, wallClockMs)`.
+// Under Bully `term` is the local node's monotonic counter (not globally
+// agreed); under Raft `term` is the Raft term.
+extern def leaderHistory(): List[(Long, String, Long)]
 
 // ─── Auto-reconnect policy (v1.23) ────────────────────────────────────────────
 

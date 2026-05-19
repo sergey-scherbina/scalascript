@@ -117,6 +117,13 @@ object Cluster:
   def autoReelect(enabled: Boolean): Unit =
     setAutoReelect(enabled)
 
+  // Leader-protocol switches (see `docs/cluster-raft.md`).  Default is
+  // Bully; call exactly one of these once, before `elect()`.
+  def useRaft(): Unit                       = useRaftLeaderElection()
+  def useCoordinator(adapter: Any): Unit    = useExternalCoordinator(adapter)
+  def protocol(): String                    = leaderProtocol()
+  def history(): List[(Long, String, Long)] = leaderHistory()
+
   // Enable auto-reconnect for outbound peer links (exponential backoff
   // from `initialMs` up to `maxMs`).  Pass 0/0 to disable.
   def autoReconnect(initialMs: Long, maxMs: Long): Unit =
