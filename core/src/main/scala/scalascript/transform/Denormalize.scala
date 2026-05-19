@@ -74,6 +74,12 @@ object Denormalize:
       ast.Content.CodeBlock(ast.Lang.ScalaScript, source, tree, sp.map(span))
     case ir.Content.EmbeddedBlock(language, source, sp) =>
       ast.Content.CodeBlock(language, source, None, sp.map(span))
+    case ir.Content.SqlBlock(source, _, _, sp) =>
+      // v1.26 — the original `${expr}` / `$$` markers live in
+      // `source`; the rewriter is reapplied on demand at execution
+      // time (Phase 6), so round-tripping is just "emit the source
+      // back unchanged" with the `sql` lang tag.
+      ast.Content.CodeBlock(ast.Lang.Sql, source, None, sp.map(span))
     case ir.Content.Import(path, bindings, sp) =>
       ast.Content.Import(path, bindings.map(importBinding), sp.map(span))
     case ir.Content.DataList(items, ordered, sp) =>

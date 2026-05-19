@@ -6187,22 +6187,42 @@ the existing `node.js` path.
       `core/.../parser/SqlBlockTest.scala` (lang preservation,
       Normalize → EmbeddedBlock, Normalize/Denormalize round-trip).
 
-### Phase 3 — Bind-parameter rewriter + dedicated IR node
+### Phase 3 — Dedicated IR node + `sql` → `SqlBlock` routing
 
-- [ ] New stage in `Normalize` (or a sibling pass): walks the `sql`
-      block source, splits on `${...}` occurrences using the existing
-      ScalaScript interpolation lexer (so brace-balanced exprs work
-      and embedded `}` inside string literals don't confuse it).
-- [ ] Output: `(sqlWithQ: String, binds: Seq[ast.Expr])`.  `$$`
-      escapes to a literal `$` in the SQL.  The rewriter is
-      lexer-level — it does not parse SQL, does not care about
-      string boundaries, does not distinguish "safe" from "unsafe"
-      positions.  Every `${...}` is a bind.
-- [ ] Diagnostics: unbalanced `${`, empty `${}`, `$` without `{` and
-      not doubled (`$x` is reserved for clarity — must be `${x}`).
-- [ ] Tests: simple, multiple binds, `$$` escape, `${}` inside SQL
-      string literals (still binds, that's the whole point), nested
-      braces inside the expr (`${m("k")}`), unicode in binds.
+The rewriter itself was landed earlier as cross-target infrastructure
+by v1.25 § 9.5 Phase C.1 (parallel work): a single
+`transform/SqlBindRewriter` with two placeholder modes —
+`rewriteJdbc` (`?`) consumed by v1.26 and `rewriteSparkSql`
+(`:bind<N>`) consumed by the Spark backend.  v1.26 Phase 3 is now the
+JVM consumer of that shared rewriter plus the dedicated IR shape.
+
+- [x] New IR case `ir.Content.SqlBlock(source, binds, dbName, span)`
+      added to the `Content` enum.  `source` is the original SQL
+      verbatim (round-trip surface for `Denormalize`); `binds` is
+      the ordered list of bind-expression source texts produced by
+      `SqlBindRewriter.rewriteJdbc`.  The `?`-form (JDBC template)
+      is recomputed at execution time by rerunning the rewriter on
+      `source` — keeps the IR small and avoids any literal-`?`
+      ambiguity in round-trip.  `dbName` is `None` until Phase 5
+      wires the `@db=name` block attribute.
+- [x] `Normalize` routes `sql` blocks through
+      `SqlBindRewriter.rewriteJdbc`; malformed sources
+      (`RewriteError`) fall back to `EmbeddedBlock` so a single bad
+      block doesn't crash the pipeline (capability check still
+      surfaces `UnknownBlockLanguage`, execution layer surfaces the
+      precise bind diagnostic).
+- [x] `Denormalize` emits the preserved `source` field, reproducing
+      `${expr}` / `$$` markers verbatim.
+- [x] `validate/CapabilityCheck` recognises `ir.Content.SqlBlock`
+      and produces `Diagnostic.UnknownBlockLanguage("sql")` on
+      backends that don't declare `sql` in `blockLanguages`.
+- [x] Tests: `SqlBlockTest` updated to assert the new IR shape
+      end-to-end (Normalize produces `SqlBlock` with the right
+      binds, Denormalize reproduces the source).
+      `CapabilityCheckTest` covers sql-gating both directions
+      (declared vs. not declared).  592 tests in `core/test` green
+      (includes the 14 pinning tests for the shared
+      `SqlBindRewriter` from v1.25 § 9.5 Phase C.1).
 
 ### Phase 4 — `backend-sql-runtime` module
 

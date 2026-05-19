@@ -5,21 +5,17 @@ import scalascript.ast
 import scalascript.ir
 import scalascript.transform.{Normalize, Denormalize}
 
-/** v1.26 Phase 2 — front-end recognition of `sql` fenced code blocks.
+/** v1.26 Phase 2 + Phase 3 — front-end recognition of `sql` fenced
+ *  code blocks and bind-parameter extraction.
  *
- *  Phase-2 contract: a `sql` block is *parameterised opaque exec*
- *  (`Lang.isOpaqueExec` and `Lang.isParameterizedExec` both true).  At
- *  this phase the source survives Parse → Normalize → Denormalize
- *  unchanged with no bind-parameter rewriting — Phase 3 introduces the
- *  `${expr}` → `?` lift.  The block is therefore still routed through
- *  `ir.Content.EmbeddedBlock`, identical to the Node.js path; what
- *  distinguishes `sql` here is only the lang-tag classification.
- *
- *  Capability-level rejection on non-JVM backends
- *  (`Diagnostic.UnknownBlockLanguage`) is already wired generically in
- *  `validate/CapabilityCheck` via `Lang.isOpaqueExec`; an end-to-end
- *  test sits in `CapabilityCheckTest` once the JVM target declares
- *  `sql` in its `blockLanguages`. */
+ *  Contract: a `sql` block is *parameterised opaque exec*
+ *  (`Lang.isOpaqueExec` and `Lang.isParameterizedExec` both true).
+ *  Parser preserves the source verbatim — including `${expr}` and
+ *  `$$` markers.  `Normalize` runs `SqlBindRewriter` and emits an
+ *  `ir.Content.SqlBlock(source, binds, …)` with the original source
+ *  intact and the bind expressions extracted in occurrence order.
+ *  `Denormalize` round-trips the block by reusing the preserved
+ *  source — the `${expr}` syntax reappears verbatim. */
 class SqlBlockTest extends AnyFunSuite:
 
   private def firstBlock(src: String): ast.Content.CodeBlock =
@@ -61,7 +57,7 @@ class SqlBlockTest extends AnyFunSuite:
     assert(!ast.Lang.isNode(cb.lang))
   }
 
-  test("sql block: survives Normalize as EmbeddedBlock with source intact") {
+  test("sql block: Normalize routes through SqlBlock with source intact") {
     val src =
       """|# Schema
          |
@@ -75,13 +71,37 @@ class SqlBlockTest extends AnyFunSuite:
          |""".stripMargin
     val module     = Parser.parse(src)
     val normalised = Normalize(module)
-    val embedded = normalised.sections
+    val sql = normalised.sections
       .flatMap(_.content)
-      .collectFirst { case eb: ir.Content.EmbeddedBlock => eb }
-      .getOrElse(fail("Normalize did not produce an EmbeddedBlock for sql"))
-    assert(embedded.language == "sql")
-    assert(embedded.source.contains("CREATE TABLE users"))
-    assert(embedded.source.contains("VARCHAR(255) UNIQUE"))
+      .collectFirst { case sb: ir.Content.SqlBlock => sb }
+      .getOrElse(fail("Normalize did not produce a SqlBlock"))
+    assert(sql.source.contains("CREATE TABLE users"))
+    assert(sql.source.contains("VARCHAR(255) UNIQUE"))
+    assert(sql.binds.isEmpty, "DDL has no bind parameters")
+    assert(sql.dbName.isEmpty, "Phase 3 — default connection until Phase 5 wires `@db=`")
+  }
+
+  test("sql block: Normalize extracts ${expr} into the bind list in order") {
+    val src =
+      """|# Queries
+         |
+         |```sql
+         |SELECT id, name, email FROM users
+         |WHERE tenant_id = ${tenantId} AND status = ${status}
+         |LIMIT ${pageSize}
+         |```
+         |""".stripMargin
+    val module     = Parser.parse(src)
+    val normalised = Normalize(module)
+    val sql = normalised.sections
+      .flatMap(_.content)
+      .collectFirst { case sb: ir.Content.SqlBlock => sb }
+      .getOrElse(fail("Normalize did not produce a SqlBlock"))
+    assert(sql.binds == List("tenantId", "status", "pageSize"))
+    // Source is preserved verbatim for round-trip.
+    assert(sql.source.contains("${tenantId}"))
+    assert(sql.source.contains("${status}"))
+    assert(sql.source.contains("${pageSize}"))
   }
 
   test("sql block: round-trips through Normalize → Denormalize unchanged") {
@@ -101,16 +121,15 @@ class SqlBlockTest extends AnyFunSuite:
       .collectFirst { case cb: ast.Content.CodeBlock => cb }
       .getOrElse(fail("Denormalize produced no CodeBlock"))
     assert(cb.lang == "sql")
-    // Phase 2 contract: ${expr} occurrences are preserved literally —
-    // Phase 3 introduces the bind-parameter rewriter that will lift
-    // them out of the source string.
+    // The original `${expr}` literals reappear verbatim — Denormalize
+    // emits the SqlBlock's `source` field, not its `sqlWithQ` form.
     assert(cb.source.contains("${tenantId}"))
     assert(cb.source.contains("${status}"))
     assert(cb.source.contains("${pageSize}"))
     assert(cb.tree.isEmpty, "Denormalize must not invoke a parser on SQL source")
   }
 
-  test("sql block with no parameters: survives untouched") {
+  test("sql block with no parameters: SqlBlock with empty bind list") {
     val src =
       """|# Reports
          |
@@ -118,12 +137,36 @@ class SqlBlockTest extends AnyFunSuite:
          |SELECT count(*) FROM events
          |```
          |""".stripMargin
-    val module         = Parser.parse(src)
-    val redenormalised = Denormalize(Normalize(module))
-    val cb = redenormalised.sections
+    val module     = Parser.parse(src)
+    val normalised = Normalize(module)
+    val sql = normalised.sections
       .flatMap(_.content)
-      .collectFirst { case cb: ast.Content.CodeBlock => cb }
-      .getOrElse(fail("Denormalize produced no CodeBlock"))
-    assert(cb.lang == "sql")
-    assert(cb.source.trim == "SELECT count(*) FROM events")
+      .collectFirst { case sb: ir.Content.SqlBlock => sb }
+      .getOrElse(fail("Normalize did not produce a SqlBlock"))
+    assert(sql.source.trim == "SELECT count(*) FROM events")
+    assert(sql.binds.isEmpty)
+  }
+
+  test("malformed sql falls back to EmbeddedBlock (front-end stays robust)") {
+    // Lone `$` is a static error in the rewriter, but Normalize catches
+    // it and falls back to EmbeddedBlock so the rest of the pipeline
+    // doesn't crash on a single bad block.  CapabilityCheck still
+    // surfaces UnknownBlockLanguage on non-JVM backends; the execution
+    // layer re-runs the rewriter for a precise diagnostic.
+    val src =
+      """|# Bad
+         |
+         |```sql
+         |SELECT * FROM t WHERE price = $5
+         |```
+         |""".stripMargin
+    val normalised = Normalize(Parser.parse(src))
+    val isEmbedded = normalised.sections
+      .flatMap(_.content)
+      .exists {
+        case _: ir.Content.SqlBlock      => false
+        case _: ir.Content.EmbeddedBlock => true
+        case _                           => false
+      }
+    assert(isEmbedded, "malformed sql must fall back to EmbeddedBlock, not crash")
   }

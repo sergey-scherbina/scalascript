@@ -81,6 +81,35 @@ object Normalize:
           ast.ScalaNode.fold(t)(AstToIr.toIrExpr)
         )
         ir.Content.CodeBlock(source = rewrittenSrc, body = bodyIr, span = sp.map(span))
+      else if ast.Lang.isSql(lang) then
+        // v1.26 Phase 3 — sql blocks go through the shared
+        // bind-parameter rewriter (introduced by v1.25 § 9.5 Phase
+        // C.1 as cross-target infrastructure consumed by both
+        // JVM/JDBC and Spark) to extract `${expr}` occurrences into
+        // an ordered bind list.  Only the binds are kept on the IR
+        // node — the `?`-form is recomputed by the execution layer
+        // (Phase 6) via `SqlBindRewriter.rewriteJdbc`, keeping the
+        // IR small and avoiding literal-`?` ambiguity on round-trip.
+        // The original `${expr}` / `$$` source is preserved as-is
+        // so `Denormalize` reproduces it verbatim.
+        //
+        // Malformed bind syntax (unterminated `${`, empty `${}`,
+        // bare `$`) raises `RewriteError`; we fall back to
+        // `EmbeddedBlock` so a single bad block doesn't crash the
+        // pipeline.  `CapabilityCheck` still produces
+        // `UnknownBlockLanguage` for non-JVM backends, and the
+        // execution layer re-runs the rewriter for a precise
+        // diagnostic at compile / run time.
+        try
+          val rewritten = SqlBindRewriter.rewriteJdbc(source)
+          ir.Content.SqlBlock(
+            source = source,
+            binds  = rewritten.binds,
+            dbName = None,
+            span   = sp.map(span)
+          )
+        catch case _: SqlBindRewriter.RewriteError =>
+          ir.Content.EmbeddedBlock(language = lang, source = source, span = sp.map(span))
       else
         // Stage 9+/A — ask the SourceLanguage registry first.  A
         // plugin claiming this fence tag produces the IR fragment

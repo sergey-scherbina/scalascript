@@ -168,6 +168,38 @@ class CapabilityCheckTest extends AnyFunSuite:
     assert(!diags.exists(_.isInstanceOf[Diagnostic.UnknownBlockLanguage]),
       s"inert tags must not be flagged, got: $diags")
 
+  // ── v1.26 — sql blocks gate on the `sql` block-language capability ──────
+
+  private val sqlModule: ir.NormalizedModule =
+    val src =
+      """|# Queries
+         |
+         |```sql
+         |SELECT id, name FROM users WHERE id = ${userId}
+         |```
+         |""".stripMargin
+    Normalize(Parser.parse(src))
+
+  test("validate — sql block against backend without blockLanguages → UnknownBlockLanguage"):
+    val noBlockLangs = cap(Set.empty)
+    val diags = CapabilityCheck.validate(sqlModule, noBlockLangs, "js-stub")
+    assert(diags.exists {
+      case Diagnostic.UnknownBlockLanguage("sql") => true
+      case _ => false
+    }, s"expected UnknownBlockLanguage(sql), got: $diags")
+
+  test("validate — sql block against backend that declares it → no diagnostic"):
+    val jvmCap = Capabilities(
+      features       = Set.empty,
+      outputs        = Set(OutputKind.ExecutionResult),
+      options        = Set.empty,
+      spiRange       = SpiVersionRange(SpiVersion.Current, SpiVersion.Current),
+      blockLanguages = Set("sql")
+    )
+    val diags = CapabilityCheck.validate(sqlModule, jvmCap, "jvm")
+    assert(!diags.exists(_.isInstanceOf[Diagnostic.UnknownBlockLanguage]),
+      s"expected no UnknownBlockLanguage when sql is declared, got: $diags")
+
   test("validate — duplicate node.js blocks deduplicate to one diagnostic"):
     val src =
       """|# Test

@@ -86,9 +86,9 @@ object CapabilityCheck:
 
   /** Walk the module collecting every opaque-executable fenced block
    *  whose lang tag is not declared in `cap.blockLanguages`.  Lang-tag
-   *  classes are matched via `Lang.isOpaqueExec` — today only
-   *  `node.js` / `node`; future opaque-exec languages (sql, …) plug in
-   *  by extending `Lang.isOpaqueExec`.  String blocks
+   *  classes are matched via `Lang.isOpaqueExec` — today `node.js` /
+   *  `node` (verbatim-linked) and `sql` (parameterised, carried as
+   *  `ir.Content.SqlBlock`).  String blocks
    *  (`html` / `css` / `javascript`) and unknown inert tags are
    *  ignored. */
   private def unknownBlockLanguages(
@@ -101,6 +101,8 @@ object CapabilityCheck:
       case ir.Content.EmbeddedBlock(language, _, _)
           if Lang.isOpaqueExec(language) && !cap.blockLanguages.contains(language) =>
         seen += language
+      case _: ir.Content.SqlBlock if !cap.blockLanguages.contains(Lang.Sql) =>
+        seen += Lang.Sql
       case _ => ()
 
     def scanSection(s: ir.Section): Unit =

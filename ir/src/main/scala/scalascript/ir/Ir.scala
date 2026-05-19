@@ -75,6 +75,23 @@ enum Content derives ReadWriter:
   /** A foreign-language fence (`html`, `css`, `scala`, future `wat`, …).
    *  Compiled by a SourceLanguage plugin (Stage 9). */
   case EmbeddedBlock(language: String, source: String, span: Option[Span] = None)
+  /** A `sql` fence with the bind-parameter rewriter already applied
+   *  (SPEC § 3.3.1, v1.26).  `source` is the original SQL with `${expr}`
+   *  / `$$` markers preserved verbatim — this is the round-trip surface
+   *  for `Denormalize`.  `binds` is the ordered list of bind-expression
+   *  source texts extracted by `SqlBindRewriter` (one entry per `${...}`
+   *  occurrence in `source`); the execution layer feeds them as JDBC
+   *  positional parameters to a PreparedStatement built from the same
+   *  source with each `${expr}` collapsed to a single `?`.
+   *  `dbName` selects a named connection from the module's front-matter
+   *  `databases:` map — Phase 5 wires the front-matter end; until then
+   *  the parser sets it to `None` (= "default" connection). */
+  case SqlBlock(
+    source: String,
+    binds:  List[String]    = Nil,
+    dbName: Option[String]  = None,
+    span:   Option[Span]    = None
+  )
   /** Markdown link that acts as a module import: `[Name, …](path)`. */
   case Import(path: String, bindings: List[ImportBinding], span: Option[Span] = None)
   /** Ordered or unordered list. */
