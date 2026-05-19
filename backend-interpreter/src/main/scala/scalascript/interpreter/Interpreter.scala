@@ -5621,6 +5621,9 @@ class Interpreter(
             callCoordFn(coordReleaseFn, List(Value.StringV(localNodeId)))
           case _ => ()
         coordIsLeader = false
+      // Interrupt tick threads so they don't leak across test runs.
+      val rtt = raftTickThread.getAndSet(null);   if rtt != null then rtt.interrupt()
+      val ctt = coordTickThread.getAndSet(null);  if ctt != null then ctt.interrupt()
       Pure(rootResult.getOrElse(rootId, Value.UnitV))
     finally
       actorRt = savedRt

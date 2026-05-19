@@ -5900,6 +5900,11 @@ class JvmGen(
        |      try rel.asInstanceOf[String => Unit](_localNodeId)
        |      catch case _: Throwable => ()
        |    _coordIsLeader = false
+       |  // Interrupt tick threads so they don't leak across reused JVMs
+       |  // (each `_runActors` call has its own closure-captured state, so
+       |  // an orphan thread would otherwise loop forever on stale refs).
+       |  val rtt = _raftTickThread.getAndSet(null);   if rtt != null then rtt.interrupt()
+       |  val ctt = _coordTickThread.getAndSet(null);  if ctt != null then ctt.interrupt()
        |  rootResult
        |""".stripMargin +
     """|

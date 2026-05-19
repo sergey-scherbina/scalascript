@@ -5229,6 +5229,9 @@ private val JsRuntimeAsyncB: String = """
     try { _coordReleaseFn(_localNodeId); } catch (_) {}
     _coordIsLeader = false;
   }
+  // Clear tick intervals so they don't leak across reused processes.
+  if (_raftTickHandle  != null) { clearInterval(_raftTickHandle);  _raftTickHandle  = null; }
+  if (_coordTickHandle != null) { clearInterval(_coordTickHandle); _coordTickHandle = null; }
   return rootResult;
 }
 
