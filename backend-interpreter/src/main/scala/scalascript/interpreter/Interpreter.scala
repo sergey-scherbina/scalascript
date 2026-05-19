@@ -346,6 +346,49 @@ class Interpreter(
         s""""ts":${tuple._2},"origin":${jsonStr(tuple._3)}}"""
       try targetSend(payload) catch case _: Throwable => ()
     }
+  // v1.23 — cluster-wide atomic counters.  Each entry is
+  // (currentValue, ts, origin) — same LWW shape as clusterConfig.
+  // ON THIS NODE every operation is atomic (AtomicLong primitives);
+  // ACROSS NODES it's eventually consistent — concurrent updates on
+  // different nodes resolve via (ts, origin) tie-break.  For strict
+  // cluster-wide CAS use an external coordinator (Etcd / Consul).
+  private val clusterAtomics =
+    new java.util.concurrent.ConcurrentHashMap[String,
+      (java.util.concurrent.atomic.AtomicLong, java.util.concurrent.atomic.AtomicLong, String)]()
+  /** LWW receiver — accept iff incoming `ts` is strictly newer than
+   *  what we have (or same ts with lex-greater origin).  When the
+   *  current value is already `value` the update is still applied
+   *  (it doesn't mutate but bumps the stored ts).  Returns true iff
+   *  the local value changed. */
+  private def applyAtomicUpdate(name: String, value: Long, ts: Long, origin: String): Boolean =
+    var changed = false
+    clusterAtomics.compute(name, (_, prev) =>
+      if prev == null then
+        changed = true
+        ( new java.util.concurrent.atomic.AtomicLong(value)
+        , new java.util.concurrent.atomic.AtomicLong(ts)
+        , origin
+        )
+      else
+        val (cur, prevTs, prevOrigin) = prev
+        val pTs = prevTs.get()
+        if ts > pTs || (ts == pTs && origin > prevOrigin) then
+          if cur.get() != value then changed = true
+          cur.set(value)
+          prevTs.set(ts)
+          (cur, prevTs, origin)
+        else
+          prev
+    )
+    changed
+  /** Snapshot every atomic to a single peer on handshake. */
+  private def sendAtomicSnapshot(targetSend: String => Unit): Unit =
+    clusterAtomics.forEach { (name, tuple) =>
+      val payload =
+        s"""{"t":"atom_set","name":${jsonStr(name)},"value":${tuple._1.get()},""" +
+        s""""ts":${tuple._2.get()},"origin":${jsonStr(tuple._3)}}"""
+      try targetSend(payload) catch case _: Throwable => ()
+    }
   private val leaderEventSubs =
     new java.util.concurrent.CopyOnWriteArrayList[java.lang.Long]()
   private val leaderEventQueue =
@@ -1313,6 +1356,7 @@ class Interpreter(
               sendConfigSnapshot(text => sess.sendText(text))
               sendDrainState(text => sess.sendText(text))
               sendMetricSnapshot(text => sess.sendText(text))
+              sendAtomicSnapshot(text => sess.sendText(text))
               // Heartbeat: ping every `peerHeartbeatIntervalMs`, abort
               // if no pong for `peerHeartbeatDeadAfterMs`.  Defaults
               // 30 s / 40 s; tune via `setHeartbeatTimeout(...)`.
@@ -1476,6 +1520,19 @@ class Interpreter(
               case Some(Value.DoubleV(d)) => d.toLong
               case _                      => 0L
             if key.nonEmpty then applyConfigUpdate(key, value, ts, orig)
+          case "atom_set" =>
+            // v1.23 — cluster-wide atomic counter LWW update.
+            val name  = m.get(Value.StringV("name")).collect { case Value.StringV(s) => s }.getOrElse("")
+            val value = m.get(Value.StringV("value")) match
+              case Some(Value.IntV(n))    => n
+              case Some(Value.DoubleV(d)) => d.toLong
+              case _                      => 0L
+            val orig  = m.get(Value.StringV("origin")).collect { case Value.StringV(s) => s }.getOrElse("")
+            val ts    = m.get(Value.StringV("ts")) match
+              case Some(Value.IntV(n))    => n
+              case Some(Value.DoubleV(d)) => d.toLong
+              case _                      => 0L
+            if name.nonEmpty then applyAtomicUpdate(name, value, ts, orig)
           case "drain" =>
             val from = m.get(Value.StringV("from")).collect { case Value.StringV(s) => s }.getOrElse("")
             if from.nonEmpty then
@@ -2774,6 +2831,33 @@ class Interpreter(
       case List(Value.StringV(t)) =>
         Perform("Actor", "setClusterAuthToken", List(Value.StringV(t)))
       case _ => throw InterpretError("setClusterAuthToken(token: String): Unit")
+    })
+    // v1.23 — cluster-wide atomic counters.  Local AtomicLong ops are
+    // strictly atomic on this node; cross-node updates resolve via
+    // LWW (ts, origin) — see Interpreter.applyAtomicUpdate for the
+    // tie-break.  For strict cluster-wide CAS use an external
+    // coordinator (Etcd / Consul).
+    globals("clusterAtomicGet") = Value.NativeFnV("clusterAtomicGet", {
+      case List(Value.StringV(name)) =>
+        Perform("Actor", "clusterAtomicGet", List(Value.StringV(name)))
+      case _ => throw InterpretError("clusterAtomicGet(name: String): Long")
+    })
+    globals("clusterAtomicSet") = Value.NativeFnV("clusterAtomicSet", {
+      case List(Value.StringV(name), Value.IntV(v)) =>
+        Perform("Actor", "clusterAtomicSet", List(Value.StringV(name), Value.IntV(v)))
+      case _ => throw InterpretError("clusterAtomicSet(name: String, value: Long): Long")
+    })
+    globals("clusterAtomicAdd") = Value.NativeFnV("clusterAtomicAdd", {
+      case List(Value.StringV(name), Value.IntV(d)) =>
+        Perform("Actor", "clusterAtomicAdd", List(Value.StringV(name), Value.IntV(d)))
+      case _ => throw InterpretError("clusterAtomicAdd(name: String, delta: Long): Long")
+    })
+    globals("clusterAtomicCompareAndSet") = Value.NativeFnV("clusterAtomicCompareAndSet", {
+      case List(Value.StringV(name), Value.IntV(expect), Value.IntV(update)) =>
+        Perform("Actor", "clusterAtomicCompareAndSet",
+          List(Value.StringV(name), Value.IntV(expect), Value.IntV(update)))
+      case _ => throw InterpretError(
+        "clusterAtomicCompareAndSet(name: String, expect: Long, update: Long): Boolean")
     })
     // v1.23 — cluster-wide pub/sub.  Subscribers are local; publish
     // broadcasts to peers + delivers locally.
@@ -7033,6 +7117,7 @@ class Interpreter(
           sendConfigSnapshot(wsSend)
           sendDrainState(wsSend)
           sendMetricSnapshot(wsSend)
+          sendAtomicSnapshot(wsSend)
           // Heartbeat: same configurable cadence as the outbound side
           // (`setHeartbeatTimeout`).  Defaults 30 s / 40 s.
           val hbThread = Thread.ofVirtual().start { () =>
@@ -7315,6 +7400,69 @@ class Interpreter(
         clusterAuthToken = t
         Right(k(Value.UnitV))
       case _ => throw InterpretError("setClusterAuthToken(token: String)")
+
+    // v1.23 — cluster-wide atomic counters (LWW gossip; locally atomic).
+    case "clusterAtomicGet" => args match
+      case List(Value.StringV(name)) =>
+        val entry = clusterAtomics.get(name)
+        val v = if entry == null then 0L else entry._1.get()
+        Right(k(Value.IntV(v)))
+      case _ => throw InterpretError("clusterAtomicGet(name)")
+
+    case "clusterAtomicSet" => args match
+      case List(Value.StringV(name), Value.IntV(v)) =>
+        val ts = System.currentTimeMillis()
+        applyAtomicUpdate(name, v, ts, localNodeId)
+        val payload =
+          s"""{"t":"atom_set","name":${jsonStr(name)},"value":$v,""" +
+          s""""ts":$ts,"origin":${jsonStr(localNodeId)}}"""
+        peerChannels.forEach { (_, send) =>
+          try send(payload) catch case _: Throwable => ()
+        }
+        Right(k(Value.IntV(v)))
+      case _ => throw InterpretError("clusterAtomicSet(name, value)")
+
+    case "clusterAtomicAdd" => args match
+      case List(Value.StringV(name), Value.IntV(delta)) =>
+        val entry = clusterAtomics.computeIfAbsent(name, _ =>
+          (new java.util.concurrent.atomic.AtomicLong(0L),
+           new java.util.concurrent.atomic.AtomicLong(0L),
+           localNodeId))
+        // Locally atomic — addAndGet is the AtomicLong primitive.
+        val newVal = entry._1.addAndGet(delta)
+        val ts = System.currentTimeMillis()
+        entry._2.set(ts)
+        // Same-tuple in-place update of origin: rebuild the entry so
+        // future LWW comparisons see this node as origin.
+        clusterAtomics.put(name, (entry._1, entry._2, localNodeId))
+        val payload =
+          s"""{"t":"atom_set","name":${jsonStr(name)},"value":$newVal,""" +
+          s""""ts":$ts,"origin":${jsonStr(localNodeId)}}"""
+        peerChannels.forEach { (_, send) =>
+          try send(payload) catch case _: Throwable => ()
+        }
+        Right(k(Value.IntV(newVal)))
+      case _ => throw InterpretError("clusterAtomicAdd(name, delta)")
+
+    case "clusterAtomicCompareAndSet" => args match
+      case List(Value.StringV(name), Value.IntV(expect), Value.IntV(update)) =>
+        val entry = clusterAtomics.computeIfAbsent(name, _ =>
+          (new java.util.concurrent.atomic.AtomicLong(0L),
+           new java.util.concurrent.atomic.AtomicLong(0L),
+           localNodeId))
+        val swapped = entry._1.compareAndSet(expect, update)
+        if swapped then
+          val ts = System.currentTimeMillis()
+          entry._2.set(ts)
+          clusterAtomics.put(name, (entry._1, entry._2, localNodeId))
+          val payload =
+            s"""{"t":"atom_set","name":${jsonStr(name)},"value":$update,""" +
+            s""""ts":$ts,"origin":${jsonStr(localNodeId)}}"""
+          peerChannels.forEach { (_, send) =>
+            try send(payload) catch case _: Throwable => ()
+          }
+        Right(k(Value.BoolV(swapped)))
+      case _ => throw InterpretError("clusterAtomicCompareAndSet(name, expect, update)")
 
     // v1.23 — cluster-wide pub/sub
     case "publish" => args match

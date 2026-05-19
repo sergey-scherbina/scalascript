@@ -40,6 +40,10 @@ exports:
   - publish
   - subscribePublish
   - unsubscribePublish
+  - clusterAtomicGet
+  - clusterAtomicSet
+  - clusterAtomicAdd
+  - clusterAtomicCompareAndSet
   - requestGossip
   - ConfigChanged
   - clusterConfigSet
@@ -332,6 +336,38 @@ extern def subscribePublish(topic: String): Unit
 // Remove the calling actor from `topic`'s subscriber set.  No-op if
 // not subscribed.
 extern def unsubscribePublish(topic: String): Unit
+
+// ─── Cluster-wide atomic counters (v1.23) ──────────────────────────────────
+
+// Local AtomicLong primitives broadcast their result to all peers via
+// the LWW (timestamp, origin) gossip protocol — so reads + ops are
+// strictly atomic ON THIS NODE, and cross-node concurrent updates
+// resolve via newest-timestamp wins (tie-break: lex-greatest nodeId).
+//
+// For strict cluster-wide CAS use an external coordinator (Etcd /
+// Consul) — these primitives are best-effort across partitions.
+
+// Read the locally-known value; 0 if never set.
+extern def clusterAtomicGet(name: String): Long
+
+// Set the counter, broadcast to peers; returns the new value.  LWW
+// on the receiver protects from racing concurrent set/add updates.
+extern def clusterAtomicSet(name: String, value: Long): Long
+
+// Atomically add `delta` to the counter and return the new value.
+// Local op is `AtomicLong.addAndGet`.  Concurrent adds on different
+// nodes may BOTH increment locally before gossip catches up — the
+// later broadcast wins (LWW), so the final cluster-wide value can
+// be lower than `sum-of-all-deltas`.  Use for monotonic counters
+// where lossy increments are acceptable (request counts, retries);
+// use an external coordinator for strict accounting.
+extern def clusterAtomicAdd(name: String, delta: Long): Long
+
+// Local CAS — only mutates on this node when the current local value
+// equals `expect`.  On success the new value is broadcast.
+// Concurrent CAS on different nodes may both observe `expect` and
+// both succeed locally before gossip; LWW resolves cluster-wide.
+extern def clusterAtomicCompareAndSet(name: String, expect: Long, update: Long): Boolean
 
 // ─── Periodic gossip re-discovery (v1.23) ────────────────────────────────────
 
