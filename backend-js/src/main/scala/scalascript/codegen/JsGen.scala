@@ -6117,6 +6117,10 @@ class JsGen(
   // Maps summon key "TC_A" → local param name "A$TC" for context-bound params
   // of the current Defn.Def being emitted. Cleared before each function.
   private val cbSummonMap = scala.collection.mutable.Map.empty[String, String]
+  // funcParamOrder: function name → ordered parameter names.
+  // Populated by collectFuncParamOrders before the main emit pass.
+  // Used at call sites with named args to reorder them to positional order.
+  private val funcParamOrder = scala.collection.mutable.Map.empty[String, List[String]]
 
   private def freshTmp(): String =
     tmpIdx += 1
@@ -6124,6 +6128,37 @@ class JsGen(
 
   private def line(s: String): Unit =
     sb.append("  " * indent).append(s).append("\n")
+
+  // ─── Named-arg param-order collection ────────────────────────────
+  //
+  // Pre-pass over all Defn.Def nodes in the module to record the ordered
+  // parameter list for each user-defined function.  At call sites that
+  // pass named args (Term.Assign), genApply consults funcParamOrder to
+  // reorder the arguments into the declared positional order before
+  // emitting a regular positional JS call.
+
+  private def collectFuncParamOrders(module: Module): Unit =
+    funcParamOrder.clear()
+    def collectDefs(stats: List[Stat]): Unit = stats.foreach {
+      case d: Defn.Def =>
+        val params = d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values).map(_.name.value).toList
+        if params.nonEmpty then funcParamOrder(d.name.value) = params
+      case _ => ()
+    }
+    def scanSection(section: Section): Unit =
+      section.content.foreach {
+        case cb: Content.CodeBlock if Lang.isScalaScript(cb.lang) =>
+          cb.tree.foreach { node =>
+            ScalaNode.fold(node) {
+              case Source(stats)     => collectDefs(stats)
+              case Term.Block(stats) => collectDefs(stats)
+              case _                 => ()
+            }
+          }
+        case _ => ()
+      }
+      section.subsections.foreach(scanSection)
+    module.sections.foreach(scanSection)
 
   // ─── Mutual recursion analysis ───────────────────────────────────
 
@@ -6222,6 +6257,7 @@ class JsGen(
   def genModule(module: Module): String =
     sb.clear()
     moduleDeps = module.manifest.map(_.dependencies).getOrElse(Map.empty)
+    collectFuncParamOrders(module)
     analyzeMutualRecursion(module)
     analyzeEffects(module)
     scanForRunAsyncParallel(module)
@@ -6426,6 +6462,7 @@ class JsGen(
   def genModuleSegmented(module: Module): List[JsGen.Segment] =
     sb.clear()
     moduleDeps = module.manifest.map(_.dependencies).getOrElse(Map.empty)
+    collectFuncParamOrders(module)
     analyzeMutualRecursion(module)
     analyzeEffects(module)
     scanForRunAsyncParallel(module)
@@ -7919,7 +7956,43 @@ class JsGen(
           case null              => "undefined")
       case _ => ()
 
-    val argVals = app.argClause.values.map(genExpr)
+    // Named-arg reordering: when any arg is Term.Assign (name = expr),
+    // look up the function's param order and reorder args to positional form.
+    // Falls back to the original (potentially wrong) order when the function
+    // is not in funcParamOrder (e.g. higher-order / imported functions).
+    val rawArgs = app.argClause.values
+    val hasNamedArgs = rawArgs.exists(_.isInstanceOf[Term.Assign])
+    val argVals: List[String] =
+      if !hasNamedArgs then rawArgs.map(genExpr)
+      else
+        // Extract the function name for param-order lookup.
+        val fnNameOpt: Option[String] = app.fun match
+          case Term.Name(n)             => Some(n)
+          case Term.Select(_, Term.Name(n)) => Some(n)
+          case _                        => None
+        fnNameOpt.flatMap(funcParamOrder.get) match
+          case Some(params) =>
+            // Reorder: fill slots by name, then fill remaining with positionals.
+            val slots = Array.fill[Option[String]](params.length)(None)
+            rawArgs.foreach {
+              case Term.Assign(Term.Name(n), rhs) =>
+                val idx = params.indexOf(n)
+                if idx >= 0 then slots(idx) = Some(genExpr(rhs))
+              case _ => ()
+            }
+            val positionals = rawArgs.collect { case t if !t.isInstanceOf[Term.Assign] => genExpr(t) }.iterator
+            for i <- slots.indices do
+              if slots(i).isEmpty && positionals.hasNext then slots(i) = Some(positionals.next())
+            // Emit up to the last filled slot; trailing Nones become undefined (JS default).
+            val lastFilled = slots.lastIndexWhere(_.isDefined)
+            if lastFilled < 0 then Nil
+            else slots.take(lastFilled + 1).map(_.getOrElse("undefined")).toList
+          case None =>
+            // Function not in table — fall back: positionals first, then named by RHS only.
+            rawArgs.map {
+              case Term.Assign(_, rhs) => genExpr(rhs)
+              case other               => genExpr(other)
+            }
     app.fun match
       // Map constructor - args are tuple pairs
       case Term.Name("Map") =>

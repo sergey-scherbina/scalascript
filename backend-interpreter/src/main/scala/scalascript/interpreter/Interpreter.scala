@@ -3535,18 +3535,33 @@ class Interpreter(
           // combined with regular arguments before `callFun` decides whether to
           // auto-resolve given instances.
           val (baseFun, allArgTerms) = collectApplyArgs(app)
+          val hasNamedArgs = allArgTerms.exists(_.isInstanceOf[Term.Assign])
           val funC     = eval(baseFun, env)
-          val argComps = allArgTerms.map {
-            case Term.Assign(_, rhs) => eval(rhs, env)
-            case other               => eval(other, env)
-          }
-          funC match
-            case Pure(fv) if argComps.forall(_.isInstanceOf[Pure]) =>
-              val argVs = argComps.map { case Pure(v) => v; case _ => Value.UnitV }
-              callValue(fv, argVs, env)
-            case _ =>
-              FlatMap(funC, fv =>
-                threadValues(argComps)(argVals => callValue(fv, argVals, env)))
+          // Collect (Option[argName], Computation) pairs to preserve name info
+          // when any named arg is present.  Pure positional calls take the fast path.
+          if hasNamedArgs then
+            val namedComps = allArgTerms.map {
+              case Term.Assign(Term.Name(n), rhs) => (Some(n), eval(rhs, env))
+              case other                          => (None,    eval(other, env))
+            }
+            val comps = namedComps.map(_._2)
+            funC match
+              case Pure(fv) if comps.forall(_.isInstanceOf[Pure]) =>
+                val namedVals = namedComps.map { case (k, Pure(v)) => (k, v); case (k, _) => (k, Value.UnitV) }
+                callValueNamed(fv, namedVals, env)
+              case _ =>
+                FlatMap(funC, fv =>
+                  threadValues(comps)(argVals =>
+                    callValueNamed(fv, namedComps.map(_._1).zip(argVals), env)))
+          else
+            val argComps = allArgTerms.map(eval(_, env))
+            funC match
+              case Pure(fv) if argComps.forall(_.isInstanceOf[Pure]) =>
+                val argVs = argComps.map { case Pure(v) => v; case _ => Value.UnitV }
+                callValue(fv, argVs, env)
+              case _ =>
+                FlatMap(funC, fv =>
+                  threadValues(argComps)(argVals => callValue(fv, argVals, env)))
 
     // Compound assignment: x += e, x -= e, x *= e, x /= e, x %= e
     // Desugar: read current value, apply base-op, write back to globals.
@@ -4698,6 +4713,72 @@ class Interpreter(
     // `xs(i)` and `m(k)` — apply-as-indexing on collections.
     case _: Value.ListV | _: Value.MapV => dispatch(fn, "apply", args, env)
     case _ => located(s"Not callable: ${Value.show(fn)}")
+
+  /** Named-arg aware call.  `namedArgs` is a list of (name?, value) pairs
+   *  where positional args have `name = None` and named args have `name = Some("argName")`.
+   *
+   *  For `FunV` the args are reordered to match the declared parameter order:
+   *  1. Named args are placed at the slot matching their name in `f.params`.
+   *  2. Positional args fill remaining slots left-to-right.
+   *  3. Unfilled slots with defaults are evaluated (including non-trailing ones).
+   *  4. An unknown name raises a runtime error.
+   *  5. An unfilled slot without a default raises a runtime error.
+   *
+   *  For non-FunV callables (NativeFnV, collections) the names are ignored and
+   *  args are passed positionally — these targets don't expose a named-arg API. */
+  private def callValueNamed(fn: Value, namedArgs: List[(Option[String], Value)], env: Env): Computation =
+    fn match
+      case f: Value.FunV =>
+        // Validate: every named arg must appear in f.params.
+        val paramSet = f.params.toSet
+        namedArgs.foreach {
+          case (Some(n), _) if !paramSet.contains(n) =>
+            located(s"Unknown argument name '$n' for function '${if f.name.nonEmpty then f.name else "<anon>"}' (parameters: ${f.params.mkString(", ")})")
+          case _ => ()
+        }
+        // Build the ordered arg list: start with a slot array sized to f.params,
+        // fill named slots first, then fill remaining slots with positionals.
+        val slots = Array.fill[Option[Value]](f.params.length)(None)
+        // Pass 1: place named args at their declared position.
+        namedArgs.foreach {
+          case (Some(n), v) =>
+            val idx = f.params.indexOf(n)
+            if idx >= 0 then slots(idx) = Some(v)
+          case _ => ()
+        }
+        // Pass 2: place positional args into the first empty slots (left-to-right).
+        val positionals = namedArgs.collect { case (None, v) => v }.iterator
+        for i <- slots.indices do
+          if slots(i).isEmpty && positionals.hasNext then
+            slots(i) = Some(positionals.next())
+        // Pass 3: fill any remaining empty slots with defaults.
+        // Walk left-to-right so earlier params are in scope for later defaults.
+        val selfEntry = if f.name.nonEmpty then Map(f.name -> f) else Map.empty
+        var baseEnv2  = f.closure ++ selfEntry
+        val orderedArr = Array.fill[Value](f.params.length)(Value.UnitV)
+        for i <- f.params.indices do
+          slots(i) match
+            case Some(v) =>
+              orderedArr(i) = v
+              baseEnv2 = baseEnv2 + (f.params(i) -> v)
+            case None =>
+              // Need default.
+              val defaultOpt = f.defaults.lift(i).flatten
+              defaultOpt match
+                case Some(defaultTerm) =>
+                  val v = Computation.run(eval(defaultTerm, baseEnv2))
+                  orderedArr(i) = v
+                  baseEnv2 = baseEnv2 + (f.params(i) -> v)
+                case None =>
+                  located(s"Missing argument for parameter '${f.params(i)}' in call to '${if f.name.nonEmpty then f.name else "<anon>"}' — parameter has no default")
+        callFun(f, orderedArr.toList)
+      case f: Value.NativeFnV => f.f(namedArgs.map(_._2))
+      case Value.InstanceV(_, fields) =>
+        fields.get("apply") match
+          case Some(f) => callValueNamed(f, namedArgs, env)
+          case None    => located(s"Instance is not callable")
+      case _: Value.ListV | _: Value.MapV => dispatch(fn, "apply", namedArgs.map(_._2), env)
+      case _ => located(s"Not callable: ${Value.show(fn)}")
 
   private def callFun(f: Value.FunV, args: List[Value]): Computation =
     // Auto-tuple: an N-parameter lambda passed where a 1-arg function on

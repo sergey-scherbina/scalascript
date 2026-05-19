@@ -5375,7 +5375,7 @@ JvmGen passes `extension` blocks through as-is to Scala 3.
     no-arg extensions, multi-method blocks, extensions with additional args,
     no-collision between same-named extensions on different case classes.
 
-### 6. Named argument call-site syntax (complete coverage)
+### 6. Named argument call-site syntax (complete coverage) ✓ LANDED
 
 **Effort: ~3 days.**
 
@@ -5385,10 +5385,10 @@ createUser(name = "Alice", age = 30, role = "admin")
 
 Named args exist partially.  Audit and complete:
 
-- [ ] All 3 backends accept named args in any order
-- [ ] Default argument interaction: skipping defaults by name
-- [ ] Error when unknown name is used
-- [ ] Tests covering out-of-order, partial defaults
+- [x] All 3 backends accept named args in any order (interpreter + JsGen fixed; JvmGen emits Scala syntax natively)
+- [x] Default argument interaction: skipping defaults by name (non-trailing defaults supported)
+- [x] Error when unknown name is used (runtime error with clear message)
+- [x] Tests covering out-of-order, partial defaults (NamedArgTest.scala — 15 tests)
 
 ### 7. `given` / `using` auto-resolution improvements
 
