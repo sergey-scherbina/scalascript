@@ -2,6 +2,7 @@ package scalascript.artifact
 
 import scalascript.ir.*
 import scalascript.ast
+import scalascript.transform.EffectAnalysis
 import scalascript.typer.{Typer, DefSummary, SymbolKind as TSymbolKind}
 import scala.meta.*
 import scala.collection.mutable.ListBuffer
@@ -59,9 +60,40 @@ object InterfaceExtractor:
     val instances  = ListBuffer.empty[InstanceDecl]
     val externDefs = ListBuffer.empty[ExportedSymbol]
 
+    // Collect every parsed scalameta tree across all code blocks — used by
+    // both the structural extern walk and the AST capability detector.
+    val scalaTrees = ListBuffer.empty[scala.meta.Tree]
+    def collectTrees(sec: ast.Section): Unit =
+      sec.content.foreach {
+        case cb: ast.Content.CodeBlock if ast.Lang.isParseable(cb.lang) =>
+          cb.tree.foreach { node =>
+            scalascript.ast.ScalaNode.fold(node)(scalaTrees += _)
+          }
+        case _ => ()
+      }
+      sec.subsections.foreach(collectTrees)
+    module.sections.foreach(collectTrees)
+
     def fqn(name: String): String =
       if pkg.isEmpty then name
       else (pkg :+ name).mkString("_")
+
+    /** Render a parameter `T` annotation (or `Any` when absent). */
+    def typeToString(t: Option[Type]): String =
+      t.map(_.toString).getOrElse("Any")
+
+    /** Render a `def`'s signature as `(p1: T1, p2: T2): R` so the
+     *  extern entry preserves more than the return type alone. */
+    def defSignature(d: Defn.Def): String =
+      val groups = d.paramClauseGroups.flatMap(_.paramClauses)
+      val paramText = groups.map { clause =>
+        val items = clause.values.map { p =>
+          s"${p.name.value}: ${typeToString(p.decltpe)}"
+        }
+        items.mkString("(", ", ", ")")
+      }.mkString
+      val ret = typeToString(d.decltpe)
+      if paramText.isEmpty then ret else s"$paramText: $ret"
 
     def scanStats(stats: List[Stat]): Unit =
       stats.foreach {
@@ -91,35 +123,30 @@ object InterfaceExtractor:
                 )
               case _ => ()
           }
-        // extern def: in ScalaScript these are `def foo(...): T = ???` or annotated
-        // We detect by looking for `extern` modifier or the `extern` keyword in source.
-        // In the current AST representation, check for the Mod.Opaque or just
-        // surface by name heuristic.  For now treat defs with body = `???` as extern.
-        case dd: Defn.Def if isExternBody(dd.body) =>
-          val tpeStr = dd.decltpe.map(_.toString).getOrElse("Any")
+        // extern def: `extern def foo(...): T` is rewritten by
+        // `Parser.preprocessExtern` to `def foo(...): T = __extern__`
+        // *before* parsing, so the AST body is literally the marker
+        // `Term.Name("__extern__")`.  `EffectAnalysis.isExternDef` is
+        // the authoritative recogniser — reuse it instead of guessing.
+        case dd: Defn.Def if EffectAnalysis.isExternDef(dd.body) =>
           externDefs += ExportedSymbol(
             name = dd.name.value,
             fqn  = fqn(dd.name.value),
             kind = "extern",
-            tpe  = tpeStr
+            tpe  = defSignature(dd)
           )
         case _ => ()
       }
 
-    def scanSection(sec: ast.Section): Unit =
-      sec.content.foreach {
-        case cb: ast.Content.CodeBlock if ast.Lang.isParseable(cb.lang) =>
-          cb.tree.foreach { node =>
-            scalascript.ast.ScalaNode.fold(node) {
-              case Source(stats)     => scanStats(stats)
-              case Term.Block(stats) => scanStats(stats)
-              case _                 => ()
-            }
-          }
-        case _ => ()
+    scalaTrees.foreach {
+      case Source(stats)     => scanStats(stats)
+      case Term.Block(stats) => scanStats(stats)
+      case other             => other.children.foreach {
+        case s: Source     => scanStats(s.stats)
+        case b: Term.Block => scanStats(b.stats)
+        case _             => ()
       }
-      sec.subsections.foreach(scanSection)
-    module.sections.foreach(scanSection)
+    }
 
     // Build exports from DefSummary list (excluding prelude builtins and params).
     val preludeNames = Set(
@@ -138,8 +165,10 @@ object InterfaceExtractor:
       }
       .toList
 
-    // Detect capabilities from the module source (text-scan heuristic).
-    val capabilities = detectCapabilities(module)
+    // Detect capabilities by walking the parsed scalameta trees.  This
+    // is the v2.0 AST-based replacement for the prior string-grep heuristic
+    // (which fired inside string literals, comments, and renames).
+    val capabilities = detectCapabilities(scalaTrees.toList)
 
     ModuleInterface(
       magic         = ArtifactVersion.magic,
@@ -155,31 +184,89 @@ object InterfaceExtractor:
       dependencies  = deps
     )
 
-  /** Detect well-known capability markers by scanning code-block sources.
-   *  Heuristic: if any code block calls `serve(`, `fetch(`, `connect(` etc.
-   *  we record the corresponding capability.  This will be superseded by
-   *  the real `CapabilityCheck` in Stage 4. */
-  private def detectCapabilities(module: ast.Module): List[CapabilityDecl] =
-    val caps = scala.collection.mutable.Set.empty[String]
-    def scan(src: String): Unit =
-      if src.contains("serve(")   then caps += "Http"
-      if src.contains("fetch(")   then caps += "Http"
-      if src.contains("connect(") then caps += "WebSocket"
-      if src.contains("readFile") || src.contains("writeFile") then caps += "FileSystem"
-    def scanSec(sec: ast.Section): Unit =
-      sec.content.foreach {
-        case cb: ast.Content.CodeBlock => scan(cb.source)
-        case _ => ()
+  /** Detect well-known capability markers by structurally walking the
+   *  parsed scalameta trees and matching call-site identifiers against
+   *  the canonical intrinsic table in [[CapabilityRegistry]].
+   *
+   *  This replaces the v1 raw-text heuristic, which:
+   *    1. fired inside string literals (`val msg = "serve(...)"` falsely
+   *       reported `Http`),
+   *    2. fired inside `// serve(...)` comments,
+   *    3. silently broke if an intrinsic was renamed without updating
+   *       the grep list.
+   *
+   *  Best-effort shadowing avoidance: if a name is also defined as a
+   *  top-level `Defn.Def` / `Defn.Val` in the module, calls to that name
+   *  are assumed to refer to the user's definition and are NOT counted
+   *  as capability uses.  Qualified calls (`Response.html`,
+   *  `Dataset.of`) are always counted — qualified names cannot be
+   *  shadowed by a bare local def.
+   *
+   *  Known limitations:
+   *    - Local lexical scoping is not tracked: a `def serve` inside one
+   *      block masks ALL uses of `serve` in the module, even from
+   *      sibling blocks.  Refinement awaits Stage 5 IR-level analysis.
+   *    - Imports renaming an intrinsic (`import std.http.serve as srv`)
+   *      are not followed.
+   */
+  private def detectCapabilities(trees: List[scala.meta.Tree]): List[CapabilityDecl] =
+    // Collect user-declared top-level names so we can skip calls that
+    // resolve to a user def of the same simple name.
+    val declared = scala.collection.mutable.Set.empty[String]
+    def collectDecls(stats: List[Stat]): Unit = stats.foreach {
+      // `extern def foo` is a declaration of an intrinsic, NOT a user
+      // implementation that should shadow it.  Skip externs so calls to
+      // `foo` are still recognised as capability uses.
+      case d: Defn.Def if !EffectAnalysis.isExternDef(d.body) =>
+        declared += d.name.value
+      case d: Defn.Val    => d.pats.foreach { case Pat.Var(n) => declared += n.value; case _ => () }
+      case d: Defn.Var    => d.pats.foreach { case Pat.Var(n) => declared += n.value; case _ => () }
+      case d: Defn.Object => declared += d.name.value
+      case d: Defn.Class  => declared += d.name.value
+      case d: Defn.Trait  => declared += d.name.value
+      case _              => ()
+    }
+    trees.foreach {
+      case Source(stats)     => collectDecls(stats)
+      case Term.Block(stats) => collectDecls(stats)
+      case other             => other.children.foreach {
+        case s: Source     => collectDecls(s.stats)
+        case b: Term.Block => collectDecls(b.stats)
+        case _             => ()
       }
-      sec.subsections.foreach(scanSec)
-    module.sections.foreach(scanSec)
-    caps.toList.sorted.map(CapabilityDecl(_))
+    }
 
-  /** True when a `def` body is the `???` placeholder, indicating an extern. */
-  private def isExternBody(body: Term): Boolean = body match
-    case Term.Name("???") | Term.Select(_, Term.Name("???")) => true
-    case Term.Throw(_)                                        => false
-    case _                                                    => false
+    val caps = scala.collection.mutable.Set.empty[String]
+
+    /** Record a bare-name call if it isn't shadowed by a user decl. */
+    def hitBare(name: String): Unit =
+      if !declared.contains(name) then
+        CapabilityRegistry.capabilityFor(name).foreach(caps += _)
+
+    /** Record a qualified call `Qual.method`.  Qualified names aren't
+     *  shadowable by a top-level bare def, so always count. */
+    def hitQualified(qual: String, method: String): Unit =
+      val full = s"$qual.$method"
+      CapabilityRegistry.capabilityFor(full).foreach(caps += _)
+      // Pure qualifier surface (e.g. `crypto.*`) maps wholesale to a capability.
+      CapabilityRegistry.capabilityForQualifier(qual).foreach(caps += _)
+
+    def walk(tree: scala.meta.Tree): Unit =
+      tree match
+        // f(args) where f is a bare name
+        case Term.Apply.After_4_6_0(Term.Name(n), _) =>
+          hitBare(n)
+        // qual.method(args)
+        case Term.Apply.After_4_6_0(Term.Select(Term.Name(qual), Term.Name(method)), _) =>
+          hitQualified(qual, method)
+        // bare `qual.method` reference (no parens) — e.g. used as a value.
+        case Term.Select(Term.Name(qual), Term.Name(method)) =>
+          hitQualified(qual, method)
+        case _ => ()
+      tree.children.foreach(walk)
+
+    trees.foreach(walk)
+    caps.toList.sorted.map(CapabilityDecl(_))
 
   private def kindString(k: TSymbolKind): String = k match
     case TSymbolKind.Val     => "val"
