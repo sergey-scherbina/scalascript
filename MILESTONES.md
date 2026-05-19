@@ -6290,14 +6290,17 @@ Thin `backend-wasm-contract/` layer on top of `backend-wasm/` for Near or Polkad
 > alias), C.3 slice 1 (`>10` binds → `java.util.Map.ofEntries`), C.3 slice 2
 > (widen `sparkImports` with `Row`, `DataFrame`, `types._`), C.3 slice 3
 > (`spark-config:` front-matter map → sorted `.config(k, v)` on
-> `SparkSession.builder()`), and C.3 slice 4 (`spark-app-name:` front-matter
+> `SparkSession.builder()`), C.3 slice 4 (`spark-app-name:` front-matter
 > overrides `.appName(...)` so the Spark UI / history server / driver+executor
-> logs show a human-readable per-job name) all landed.  CLI side:
+> logs show a human-readable per-job name), and C.3 slice 5 (typed reader
+> convenience shims `Dataset.{fromParquet,fromJson,fromCsv}(path): DataFrame`
+> for one-shot reads — format-specific options still require dropping to
+> `spark.read.option(...).X(...)` directly) all landed.  CLI side:
 > `--describe-backend` also grew `capabilities.options` +
 > `capabilities.blockLanguages` lines so the Spark surface is fully
 > discoverable from the command line.
-> Remaining: codegen-level DataFrame/Dataset[Row] ergonomics, `std/parsing` →
-> `StructType` bridge — speculative until use cases surface.
+> Remaining: `std/parsing` → `StructType` schema bridge — speculative until
+> use cases surface.
 >
 > Natural fit: ScalaScript's existing `Dataset[T]` API maps directly to Spark.
 

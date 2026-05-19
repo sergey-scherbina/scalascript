@@ -390,6 +390,25 @@ private class SparkGen(
        |    def fromPath[T : Encoder](glob: String)(implicit ev: String => T): Dataset[T] =
        |      spark.read.textFile(glob).map(ev)
        |
+       |    // Reader convenience shims (v1.25 § 9.5 Phase C.3 slice 5).
+       |    // Each delegates to Spark's typed reader for a well-known
+       |    // serialization format.  Return type is `DataFrame` (= `Dataset[Row]`)
+       |    // because Spark's readers infer schema at load time rather than
+       |    // requiring a static `T` parameter; users who want a typed view can
+       |    // chain `.as[CaseClass]` themselves once they've inspected `.schema`.
+       |    //
+       |    // For format-specific options (`header=true`, `inferSchema=true`,
+       |    // partition pruning, …) users drop to `spark.read.option(...).X(path)`
+       |    // directly — this shim covers the 80%-case one-shot read.
+       |    def fromParquet(path: String): DataFrame =
+       |      spark.read.parquet(path)
+       |
+       |    def fromJson(path: String): DataFrame =
+       |      spark.read.json(path)
+       |
+       |    def fromCsv(path: String): DataFrame =
+       |      spark.read.csv(path)
+       |
        |  // Extension methods that bridge ScalaScript Dataset idioms to Spark
        |  // Dataset ops.  Defined here so they're in scope throughout the @main
        |  // body without requiring any import by the user.

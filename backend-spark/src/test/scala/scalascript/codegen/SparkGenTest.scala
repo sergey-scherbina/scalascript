@@ -580,6 +580,45 @@ class SparkGenTest extends AnyFunSuite:
     assert(code.contains("spark.read.textFile"), "expected spark.read.textFile in fromFile impl")
   }
 
+  // ── Phase C.3 slice 5: typed reader convenience shims ────────────────────
+
+  test("Dataset.fromParquet shim delegates to spark.read.parquet and returns DataFrame") {
+    val code = gen("# Test\n```scalascript\nval df = Dataset.fromParquet(\"/data\")\n```\n")
+    // Shim signature is present in the @main scope (no `import` line — the
+    // shim is emitted inline INSIDE @main so users never need to import it).
+    assert(code.contains("def fromParquet(path: String): DataFrame ="),
+      s"missing fromParquet signature in shim, got:\n$code")
+    assert(code.contains("spark.read.parquet(path)"),
+      s"fromParquet must delegate to spark.read.parquet, got:\n$code")
+  }
+
+  test("Dataset.fromJson shim delegates to spark.read.json") {
+    val code = gen("# Test\n```scalascript\nval df = Dataset.fromJson(\"/data\")\n```\n")
+    assert(code.contains("def fromJson(path: String): DataFrame ="))
+    assert(code.contains("spark.read.json(path)"))
+  }
+
+  test("Dataset.fromCsv shim delegates to spark.read.csv") {
+    val code = gen("# Test\n```scalascript\nval df = Dataset.fromCsv(\"/data\")\n```\n")
+    assert(code.contains("def fromCsv(path: String): DataFrame ="))
+    assert(code.contains("spark.read.csv(path)"))
+  }
+
+  test("All three reader shims coexist (single emit, multiple users)") {
+    val code = gen(
+      """|# Multi-format
+         |```scalascript
+         |val p = Dataset.fromParquet("/p")
+         |val j = Dataset.fromJson("/j")
+         |val c = Dataset.fromCsv("/c")
+         |```
+         |""".stripMargin
+    )
+    assert(code.contains("def fromParquet"))
+    assert(code.contains("def fromJson"))
+    assert(code.contains("def fromCsv"))
+  }
+
   test("filter and distinct pass through as Spark ops") {
     val code = gen(
       """|# Filter distinct
