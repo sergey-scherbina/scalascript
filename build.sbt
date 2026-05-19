@@ -803,6 +803,16 @@ lazy val blockchainEvm = project
     Test    / scalacOptions ++= sharedScalacOptions,
   )
 
+lazy val blockchainEvmAbi = project
+  .in(file("blockchain-evm-abi"))
+  .dependsOn(cryptoSpi, cryptoBouncycastle % Test)
+  .settings(
+    name := "scalascript-blockchain-evm-abi",
+    libraryDependencies ++= Seq(scalatestTest),
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions,
+  )
+
 // Micropayment platform SPI (docs/micropayment-spi.md)
 // ---------------------------------------------------------------------------
 
@@ -868,7 +878,7 @@ lazy val root = project
     x402Core, x402Server, x402Client,
     x402FacilitatorCoinbase, x402FacilitatorEvm, x402FacilitatorCardano,
     x402QueueKafka, x402QueuePostgres, x402NoncePostgres, x402NonceRedis,
-    cryptoSpi, cryptoBouncycastle, blockchainSpi, blockchainEvm, walletSpi, walletStrategyEoa,
+    cryptoSpi, cryptoBouncycastle, blockchainSpi, blockchainEvm, blockchainEvmAbi, walletSpi, walletStrategyEoa,
     micropaymentSpi, micropaymentThreshold, micropaymentServer, micropaymentClient,
   )
   .settings(
