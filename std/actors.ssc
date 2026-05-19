@@ -1,7 +1,7 @@
 ---
 name: std-actors
-version: 1.6.0
-description: "Erlang-style actor supervision + bounded mailboxes + process introspection + cluster registry + cluster visibility + phi-accrual failure detector + self / health snapshot — v1.6 Phase 2 + v1.6.x + v1.23"
+version: 1.7.0
+description: "Erlang-style actor supervision + bounded mailboxes + process introspection + cluster registry + cluster visibility + per-link + cluster-wide phi-accrual failure detection + self / health snapshot — v1.6 Phase 2 + v1.6.x + v1.23"
 package: std.actors
 exports:
   - ChildSpec
@@ -21,6 +21,8 @@ exports:
   - isSuspect
   - selfNode
   - clusterHealth
+  - broadcastHealth
+  - clusterIsDown
 ---
 
 # std.actors — Actor supervision
@@ -153,6 +155,22 @@ extern def selfNode(): String
 // for ops dashboards and admission-control logic.  Empty in single-node
 // mode.  Equivalent to `clusterMembers().map(n => n -> phiOf(n)).toMap`.
 extern def clusterHealth(): Map[String, Double]
+
+// ─── Cluster-wide failure detector (v1.23) ────────────────────────────────────
+
+// Broadcast this node's `clusterHealth()` snapshot to every connected peer
+// as a `phi_vector` envelope.  Peers store the most-recent vector from
+// each source and use it in `clusterIsDown`.  Cheap (one JSON envelope
+// per peer); call from your own timer / scheduled action.
+extern def broadcastHealth(): Unit
+
+// Majority vote: `true` when at least ⌈N/2⌉ of the N peers (including
+// this node's own view of the target, excluding the target itself)
+// report `phi ≥ threshold` for `nodeId`.  Default threshold 8.0
+// matches the per-link `isSuspect` cut-off.  Returns `false` when there
+// is no data (no peers have reported), so apps must run periodic
+// `broadcastHealth()` to populate the views.
+extern def clusterIsDown(nodeId: String, threshold: Double = 8.0): Boolean
 
 // ─── Supervision tree ─────────────────────────────────────────────────────────
 

@@ -446,6 +446,7 @@ class JvmGen(
                     "globalRegister", "globalWhereis",
                     "clusterMembers", "subscribeClusterEvents",
                     "phiOf", "isSuspect", "selfNode", "clusterHealth",
+                    "broadcastHealth", "clusterIsDown",
                     "sendAfter", "sendInterval", "cancelTimer", "processInfo")
     blocks.exists { b =>
       var found = false
@@ -1393,6 +1394,15 @@ class JvmGen(
     case Term.Apply.After_4_6_0(Term.Name("clusterHealth"), argClause)
         if argClause.values.isEmpty =>
       "Actor.clusterHealth()"
+    // v1.23 — cluster-wide failure detector
+    case Term.Apply.After_4_6_0(Term.Name("broadcastHealth"), argClause)
+        if argClause.values.isEmpty =>
+      "Actor.broadcastHealth()"
+    case Term.Apply.After_4_6_0(Term.Name("clusterIsDown"), argClause)
+        if argClause.values.size >= 1 =>
+      val nid = emitExpr(argClause.values(0).asInstanceOf[Term])
+      val thr = if argClause.values.size >= 2 then emitExpr(argClause.values(1).asInstanceOf[Term]) else "8.0"
+      s"Actor.clusterIsDown($nid, $thr)"
 
     // Focus[T](_.a.b) / Focus(_.a.b) — lower to a Lens(get, set) literal.
     // The lambda body's field-access chain becomes nested get + nested copy.
@@ -2094,6 +2104,15 @@ class JvmGen(
     case Term.Apply.After_4_6_0(Term.Name("clusterHealth"), argClause)
         if argClause.values.isEmpty =>
       "Actor.clusterHealth()"
+    // v1.23 — cluster-wide failure detector
+    case Term.Apply.After_4_6_0(Term.Name("broadcastHealth"), argClause)
+        if argClause.values.isEmpty =>
+      "Actor.broadcastHealth()"
+    case Term.Apply.After_4_6_0(Term.Name("clusterIsDown"), argClause)
+        if argClause.values.size >= 1 =>
+      val nid = emitExpr(argClause.values(0).asInstanceOf[Term])
+      val thr = if argClause.values.size >= 2 then emitExpr(argClause.values(1).asInstanceOf[Term]) else "8.0"
+      s"Actor.clusterIsDown($nid, $thr)"
 
     case app: Term.Apply => emitCpsApply(app)
 
@@ -5315,6 +5334,9 @@ class JvmGen(
        |  // v1.23 — local node identity + phi vector
        |  def selfNode(): Any      = _perform("Actor", "selfNode")
        |  def clusterHealth(): Any = _perform("Actor", "clusterHealth")
+       |  // v1.23 — cluster-wide failure detector
+       |  def broadcastHealth(): Any                            = _perform("Actor", "broadcastHealth")
+       |  def clusterIsDown(nid: Any, thr: Any = 8.0): Any      = _perform("Actor", "clusterIsDown", nid, thr)
        |
        |class _ActorState:
        |  val mailbox = new java.util.concurrent.LinkedBlockingQueue[Any]()
@@ -5363,6 +5385,9 @@ class JvmGen(
        |  val _PHI_HIST_MAX  = 100
        |  val _peerPongHist  = new java.util.concurrent.ConcurrentHashMap[String,
        |    java.util.concurrent.ConcurrentLinkedDeque[java.lang.Long]]()
+       |  // v1.23 — cluster-wide FD: peerNodeId -> view of (targetNodeId -> phi).
+       |  val _peerPhiViews  = new java.util.concurrent.ConcurrentHashMap[String,
+       |    java.util.concurrent.ConcurrentHashMap[String, java.lang.Double]]()
        |  def _recordPongInterval(nid: String): Unit =
        |    val now  = System.currentTimeMillis()
        |    val last = _peerLastPong.getOrDefault(nid, 0L)
@@ -5494,6 +5519,7 @@ class JvmGen(
        |            _peerLastPong.remove(pnId)
        |            _peerUrls.remove(pnId)
        |            _peerPongHist.remove(pnId)
+       |            _peerPhiViews.remove(pnId)
        |            _nodeDownQueue.offer(pnId)
        |            _fireClusterEvent("NodeLeft", pnId, "disconnect")
        |      catch case e: Throwable => System.err.println("connectNode error [" + url + "]: " + e.getMessage)
@@ -5548,6 +5574,15 @@ class JvmGen(
        |        val grLocalId = _extractJsonStr(json, "\"localId\"").toLongOption.getOrElse(0L)
        |        if grName.nonEmpty && grNodeId.nonEmpty then
        |          _globalRegistry.put(grName, _Pid(grNodeId, grLocalId))
+       |      case "phi_vector" =>
+       |        // v1.23 — peer's phi vector.  Parse out `from` and the `view`
+       |        // pair list, replace our recorded view of that peer.
+       |        val from = _extractJsonStr(json, "\"from\"")
+       |        if from.nonEmpty then
+       |          val pairs = _extractPhiView(json)
+       |          val m = new java.util.concurrent.ConcurrentHashMap[String, java.lang.Double]()
+       |          pairs.foreach { case (nid, p) => m.put(nid, java.lang.Double.valueOf(p)) }
+       |          _peerPhiViews.put(from, m)
        |      case _      => ()
        |
        |  def _extractJsonStr(json: String, key: String, fromIdx: Int = 0): String =
@@ -5580,6 +5615,38 @@ class JvmGen(
        |        val url = _extractJsonStr(obj, "\"url\"")
        |        if nid.nonEmpty && url.nonEmpty then buf += ((nid, url))
        |        pos = oe
+       |    buf.toList
+       |
+       |  // v1.23 — parse a `view` field of shape [["nodeA",0.5],["nodeB",2.3], ...]
+       |  // from a phi_vector envelope.  Returns the inner pairs.
+       |  def _extractPhiView(json: String): List[(String, Double)] =
+       |    val key = "\"view\""; val ki = json.indexOf(key); if ki < 0 then return Nil
+       |    val outer = json.indexOf('[', ki + key.length); if outer < 0 then return Nil
+       |    var oe = outer + 1; var od = 1
+       |    while oe < json.length && od > 0 do
+       |      if json(oe) == '[' then od += 1
+       |      else if json(oe) == ']' then od -= 1
+       |      oe += 1
+       |    val arr = json.substring(outer + 1, oe - 1)
+       |    val buf = scala.collection.mutable.ListBuffer.empty[(String, Double)]
+       |    var pos = 0
+       |    while pos < arr.length do
+       |      val ib = arr.indexOf('[', pos); if ib < 0 then pos = arr.length
+       |      else
+       |        var ie = ib + 1; var d2 = 1
+       |        while ie < arr.length && d2 > 0 do
+       |          if arr(ie) == '[' then d2 += 1
+       |          else if arr(ie) == ']' then d2 -= 1
+       |          ie += 1
+       |        val inner = arr.substring(ib + 1, ie - 1).trim
+       |        val nameEnd = inner.indexOf('"', 1)
+       |        if inner.startsWith("\"") && nameEnd > 0 then
+       |          val nm = inner.substring(1, nameEnd)
+       |          val tail = inner.substring(nameEnd + 1).dropWhile(c => c == ',' || c == ' ').trim
+       |          tail.toDoubleOption match
+       |            case Some(d) => buf += ((nm, d))
+       |            case None    => ()
+       |        pos = ie
        |    buf.toList
        |
        |  def _extractToLocalId(json: String): Long =
@@ -5907,6 +5974,7 @@ class JvmGen(
        |            _peerLastPong.remove(pnId)
        |            _peerUrls.remove(pnId)
        |            _peerPongHist.remove(pnId)
+       |            _peerPhiViews.remove(pnId)
        |            _nodeDownQueue.offer(pnId)
        |            _fireClusterEvent("NodeLeft", pnId, "disconnect")
        |      }
@@ -5976,6 +6044,44 @@ class JvmGen(
        |      val m = scala.collection.mutable.Map.empty[String, Double]
        |      _peerChannels.keySet().forEach(k0 => m(k0) = _computePhi(k0))
        |      Right(k(m.toMap))
+       |    // v1.23 — cluster-wide FD: broadcast phi vector to peers.
+       |    case "broadcastHealth" =>
+       |      val sb = new StringBuilder("{\"t\":\"phi_vector\",\"from\":")
+       |      sb.append(_jstr(_localNodeId)).append(",\"view\":[")
+       |      var first = true
+       |      _peerChannels.keySet().forEach { nid =>
+       |        val phi = _computePhi(nid)
+       |        if !phi.isInfinite && !phi.isNaN then
+       |          if !first then sb.append(',')
+       |          sb.append("[").append(_jstr(nid)).append(',').append(phi).append(']')
+       |          first = false
+       |      }
+       |      sb.append("]}")
+       |      val payload = sb.toString
+       |      _peerChannels.forEach { (_, send) => try send(payload) catch case _: Throwable => () }
+       |      Right(k(()))
+       |    // v1.23 — cluster-wide FD: majority vote across peer views.
+       |    case "clusterIsDown" =>
+       |      val target = args(0).toString
+       |      val thr    = args(1) match
+       |        case d: Double => d
+       |        case l: Long   => l.toDouble
+       |        case i: Int    => i.toDouble
+       |        case _         => 8.0
+       |      var votes = 0
+       |      var total = 0
+       |      if _peerChannels.containsKey(target) then
+       |        total += 1
+       |        if _computePhi(target) >= thr then votes += 1
+       |      _peerPhiViews.forEach { (peerNid, peerView) =>
+       |        if peerNid != target then
+       |          val p = peerView.get(target)
+       |          if p != null then
+       |            total += 1
+       |            if p.doubleValue() >= thr then votes += 1
+       |      }
+       |      val majority = (total + 1) / 2
+       |      Right(k(total > 0 && votes >= majority))
        |    // v1.6.x — scheduled sends
        |    case "sendAfter" =>
        |      val delayMs  = args(0).asInstanceOf[Long]
@@ -6130,7 +6236,8 @@ class JvmGen(
        |      }
        |
        |  rootResult
-       |
+       |""".stripMargin +
+    """|
        |// ── v1.4 Logger effect ─────────────────────────────────────────────────────
        |//
        |// Logger.{info,warn,error,debug}  → _perform("Logger", op, msg)
