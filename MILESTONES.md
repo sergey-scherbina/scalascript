@@ -4333,6 +4333,7 @@ external-coordinator algorithms and API in
 | Local node identity + health snapshot (`selfNode`, `clusterHealth`) | ✓ v1.23 |
 | Bully leader election (`electLeader`, `currentLeader`, `subscribeLeaderEvents`) | ✓ v1.23 (default) |
 | Raft leader election (`useRaftLeaderElection`) | ✓ v1.23 (opt-in) |
+| Raft on-disk persistence (`.ssc-raft-state-<key>.json`) of `(currentTerm, votedFor)` | ✓ v1.23 |
 | External-coordinator hook (4-arg `useExternalCoordinator`) | ✓ v1.23 (opt-in) |
 | Bounded `leaderHistory()` ring buffer | ✓ v1.23 |
 | Auto re-elect on leader-link loss (`setAutoReelect`) | ✓ v1.23 |
@@ -4348,10 +4349,6 @@ external-coordinator algorithms and API in
 
 ### Still deferred (promote on demand)
 
-- Raft on-disk persistence of `(currentTerm, votedFor)`.  In-memory
-  only today, which means a crashed node could in theory double-vote
-  in the same term after restart.  Real consequence depends on
-  failure-rate assumptions; promote when a deployment hits it.
 - ZooKeeper coordinator adapter (`ZkLeaderCoordinator`).  The
   client-side wire protocol is binary-only (no HTTP gateway), so the
   pure-`std.http` strategy used for `Etcd.use` / `Consul.use` doesn't
