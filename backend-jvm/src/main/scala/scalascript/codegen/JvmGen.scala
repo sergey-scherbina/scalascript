@@ -254,16 +254,83 @@ class JvmGen(
    *  triple-quoted strings and `/* */` comments are rare enough at the
    *  outer indent level that we don't track them. */
   private def mergeDuplicatePackageObjects(src: String): String =
-    case class Block(name: String, start: Int, end: Int, headerEnd: Int, bodyEnd: Int)
+    // First merge top-level (column-0) duplicates; then recursively
+    // merge inside each merged outer object's body so a collapsed
+    // `object std { object mapreduce { … } object mapreduce { … } }`
+    // becomes `object std { object mapreduce { merged-body } }`.
+    val merged = mergeDuplicatePackageObjectsOnce(src)
+    if merged == src then src
+    else mergeInsideObjects(merged)
+
+  /** After a top-level merge, walk each `object X { … }` block at
+   *  column 0 and recursively re-run the merger inside its body, with
+   *  the body's leading 2-space indent stripped and re-applied. This
+   *  lets nested duplicates (`  object mapreduce { … }` siblings) get
+   *  detected by the same column-0 anchor logic. */
+  private def mergeInsideObjects(src: String): String =
+    val n = src.length
+    val out = new StringBuilder(n)
+    var i = 0
+    while i < n do
+      val atCol0 = i == 0 || src.charAt(i - 1) == '\n'
+      if atCol0 && src.startsWith("object ", i) then
+        var j = i + "object ".length
+        while j < n && (src.charAt(j).isLetterOrDigit || src.charAt(j) == '_') do j += 1
+        while j < n && src.charAt(j) == ' ' do j += 1
+        if j < n && src.charAt(j) == '{' then
+          var depth = 1
+          var k     = j + 1
+          var inStr = false; var inLnCmt = false
+          while k < n && depth > 0 do
+            val c = src.charAt(k)
+            if inLnCmt then { if c == '\n' then inLnCmt = false }
+            else if inStr then { if c == '\\' && k + 1 < n then k += 1 else if c == '"' then inStr = false }
+            else c match
+              case '"' => inStr = true
+              case '/' if k + 1 < n && src.charAt(k + 1) == '/' => inLnCmt = true; k += 1
+              case '{' => depth += 1
+              case '}' => depth -= 1
+              case _   => ()
+            k += 1
+          // Emit header + brace
+          out.append(src.substring(i, j + 1))
+          // Recursively merge inside body. Strip leading 2-space indent
+          // so nested object decls appear at column 0 for the merger.
+          val bodyRaw    = src.substring(j + 1, k - 1)
+          val unindented = bodyRaw.linesWithSeparators.map { l =>
+            if l.startsWith("  ") then l.drop(2) else l
+          }.mkString
+          val mergedBody = mergeDuplicatePackageObjects(unindented)
+          // Re-indent.
+          val reIndented = mergedBody.linesWithSeparators.map { l =>
+            if l.trim.isEmpty then l else "  " + l
+          }.mkString
+          out.append(reIndented)
+          out.append('}')
+          i = k
+        else
+          out.append(src.charAt(i)); i += 1
+      else
+        out.append(src.charAt(i)); i += 1
+    out.toString
+
+  private def mergeDuplicatePackageObjectsOnce(src: String): String =
+    case class Block(name: String, indent: Int, start: Int, end: Int, headerEnd: Int, bodyEnd: Int)
     val blocks = scala.collection.mutable.ListBuffer.empty[Block]
     val n = src.length
     var i = 0
     while i < n do
-      // Only consider object decls anchored at column 0.
-      val atCol0 = i == 0 || src.charAt(i - 1) == '\n'
-      if atCol0 && src.startsWith("object ", i) then
+      // `object` is recognised at the start of a line (column 0 or any
+      // indent). Capture the leading indent so we group merges by depth.
+      val atLineStart = i == 0 || src.charAt(i - 1) == '\n'
+      // Skip past indent whitespace to find the `object` keyword.
+      var skipped = 0
+      while atLineStart && i + skipped < n && (src.charAt(i + skipped) == ' ' || src.charAt(i + skipped) == '\t') do
+        skipped += 1
+      val objStart = i + skipped
+      if atLineStart && objStart < n && src.startsWith("object ", objStart) then
         // Parse "object <Name> {"
-        var j = i + "object ".length
+        var j = objStart + "object ".length
         val nameStart = j
         while j < n && (src.charAt(j).isLetterOrDigit || src.charAt(j) == '_') do j += 1
         val name = src.substring(nameStart, j)
@@ -289,16 +356,14 @@ class JvmGen(
                 case '}' => depth -= 1
                 case _   => ()
             k += 1
-          blocks += Block(name, i, k, j + 1, k - 1)  // [start, end), body = (headerEnd, bodyEnd]
+          blocks += Block(name, skipped, i, k, j + 1, k - 1)  // [start, end), body = (headerEnd, bodyEnd]
           i = k
         else i = j
       else i += 1
 
-    // Group by name; only top-level objects (ones we discovered above) are
-    // candidates for merge. First occurrence keeps its position; later
-    // occurrences have their bodies appended to the first and are dropped
-    // from the output entirely.
-    val grouped = blocks.groupBy(_.name).filter(_._2.size > 1)
+    // Group by (indent, name) so we only merge SIBLING duplicates — a
+    // nested object only collides with another at the same indent.
+    val grouped = blocks.groupBy(b => (b.indent, b.name)).filter(_._2.size > 1)
     if grouped.isEmpty then return src
 
     val toDrop  = scala.collection.mutable.Set.empty[Int]
@@ -624,7 +689,77 @@ class JvmGen(
       importedPkgs(key) = pkg
       val nested = new JvmGen(Some(resolved / os.up), lockPath = lockPath)
       nested.importedFiles ++= importedFiles
-      (nested.collectBlocks(importedModule.sections), pkg)
+      // Apply the bare-actor-name rewrite to dep blocks before they enter
+      // the main emit pipeline. Without this, code like `def healthCheck =
+      // { val me = self(); pid ! msg }` lands verbatim inside the eventual
+      // `object std { object mapreduce { … } }` wrapper, and `self()` /
+      // `!` are unresolved (the JvmGen emit-time qualification only fires
+      // for user-code blocks via the effect-detection path). The transform
+      // is purely textual: bare actor names become `Actor.<n>`, the `!`
+      // infix becomes `Actor.send(…)`. Other identifiers are untouched
+      // so non-actor code in deps still emits as-is.
+      val rewrittenBlocks = nested.collectBlocks(importedModule.sections)
+        .map(b => qualifyBareActorCallsInBlock(b))
+      (rewrittenBlocks, pkg)
+
+  private def qualifyBareActorCallsInBlock(block: JvmGen.Block): JvmGen.Block =
+    val rewrittenSrc = qualifyBareActorCallsInSource(block.src)
+    if rewrittenSrc == block.src then block
+    else
+      // Re-parse so the downstream emitBlock sees the new shape.
+      import scala.meta.{dialects, *}
+      dialects.Scala3(Input.VirtualFile("<dep-rewrite>", rewrittenSrc))
+        .parse[Source].toOption match
+        case Some(reparsed) => JvmGen.Block(scalascript.ast.ScalaNode(reparsed), rewrittenSrc)
+        case None           => block  // re-parse failed — fall back to original
+
+  /** Pre-emit string rewrite for dep blocks. Targets the narrow set of
+   *  call shapes the runtime exposes only as `Actor.<n>` (not as bare
+   *  top-level names) — so wrapping the dep in `object std { object pkg
+   *  { … } }` doesn't lose access. Conservative: word-boundary anchored
+   *  so substrings inside identifiers / comments / strings aren't
+   *  touched.
+   *
+   *  Why string-level and not scala.meta transformer: scalameta 4.13
+   *  doesn't ship a public `Tree.transform` (the transversers package
+   *  is empty), and writing a manual recursive copy-based transformer
+   *  for every container type would be ~200 lines of plumbing. The
+   *  regex set below is intentionally tiny so the matching is
+   *  predictable. */
+  private def qualifyBareActorCallsInSource(src: String): String =
+    var out = src
+    // Bare actor calls: `self()`, `connectNode(addr)`, `link(pid)`, …
+    // Match `<name>(` at a word boundary so `Actor.self(` (already
+    // qualified) and arbitrary identifiers containing the substring
+    // aren't double-qualified.
+    val bareNames = actorBareNames - "receive" - "runActors" - "spawn" - "spawn_link" - "spawnBounded"
+    bareNames.foreach { n =>
+      // Replace `n(` with `Actor.n(` but only when the preceding
+      // char isn't a letter/digit/underscore/dot (so `Actor.n(` and
+      // `someObj.n(` are left alone).
+      val pattern = ("""(?<![.\w])""" + java.util.regex.Pattern.quote(n) + """\(""").r
+      out = pattern.replaceAllIn(out, java.util.regex.Matcher.quoteReplacement(s"Actor.$n("))
+    }
+    // `<id> ! <expr>` → `Actor.send(<id>, <expr>)` — only when the !
+    // appears between a simple identifier on the left and something
+    // that doesn't start with `=` on the right. Conservative form:
+    // require a literal space before and after the `!`, which matches
+    // the dep style consistently and excludes `!=` / `!ident`.
+    //
+    // We use a small balanced-paren reader to capture the right-hand
+    // expression up to the end of the line, since dep code's `!` calls
+    // are line-terminated.
+    val bangLines = """(?m)^(\s*)(\w+)\s+!\s+(.+)$""".r
+    out = bangLines.replaceAllIn(out, m =>
+      val indent = m.group(1)
+      val recv   = m.group(2)
+      val arg    = m.group(3)
+      // Skip if arg looks like a comment continuation or starts with `=` /
+      // some other operator that would change meaning. Plain heuristic.
+      if arg.startsWith("=") then m.matched
+      else java.util.regex.Matcher.quoteReplacement(s"${indent}Actor.send($recv, $arg)")
+    )
+    out
 
   // ─── Effect analysis ──────────────────────────────────────────────
 
@@ -1684,12 +1819,13 @@ class JvmGen(
       s"_runActors(() => ${emitCpsExpr(bodyArgClause.values.head.asInstanceOf[Term])})"
 
     case Term.Apply.After_4_6_0(
-            Term.Apply.After_4_6_0(Term.Name("receive"), timeoutArgClause),
+            Term.Apply.After_4_6_0(Term.Name("receive" | "receiveWithTimeout"), timeoutArgClause),
             pfArgClause)
         if pfArgClause.values.size == 1 && timeoutArgClause.values.size == 1 =>
       val timeoutTerm = timeoutArgClause.values.head match
-        case Term.Assign(Term.Name("timeout"), v) => v
-        case other: Term                          => other
+        case Term.Assign(Term.Name("timeout"), v)   => v
+        case Term.Assign(Term.Name("timeoutMs"), v) => v
+        case other: Term                            => other
       pfArgClause.values.head match
         case pf: Term.PartialFunction =>
           val matcher = emitReceiveMatcher(pf.cases)
@@ -2478,12 +2614,13 @@ class JvmGen(
       s"_runActors(() => ${emitCpsExpr(bodyArgClause.values.head.asInstanceOf[Term])})"
 
     case Term.Apply.After_4_6_0(
-            Term.Apply.After_4_6_0(Term.Name("receive"), timeoutArgClause),
+            Term.Apply.After_4_6_0(Term.Name("receive" | "receiveWithTimeout"), timeoutArgClause),
             pfArgClause)
         if pfArgClause.values.size == 1 && timeoutArgClause.values.size == 1 =>
       val timeoutTerm = timeoutArgClause.values.head match
-        case Term.Assign(Term.Name("timeout"), v) => v
-        case other: Term                          => other
+        case Term.Assign(Term.Name("timeout"), v)   => v
+        case Term.Assign(Term.Name("timeoutMs"), v) => v
+        case other: Term                            => other
       pfArgClause.values.head match
         case pf: Term.PartialFunction =>
           val matcher = emitReceiveMatcher(pf.cases)
