@@ -55,7 +55,12 @@ trait ChainAdapter:
 
   // ── transactions ──────────────────────────────────────────────────────
 
-  def buildTransaction(intent: TxIntent, ctx: ChainContext): Future[Tx]
+  /** Build an unsigned transaction from a chain-agnostic intent. The
+   *  `sender` is the address that will pay gas (and that the nonce is
+   *  fetched for); the signing step happens later via
+   *  `prepareSigningPayload` / `assembleSignedTransaction`. For EVM
+   *  this also lets `eth_estimateGas` see a realistic `from`. */
+  def buildTransaction(intent: TxIntent, sender: String, ctx: ChainContext): Future[Tx]
 
   def prepareSigningPayload(tx: Tx, signer: PublicKey): SigningPayload
 

@@ -74,22 +74,85 @@ class EvmChainAdapter(val chainId: ChainId)(using ec: ExecutionContext) extends 
       catch
         case _: Exception => None
 
-  // ── transactions (Phase 2) ────────────────────────────────────────────
+  // ── transactions ──────────────────────────────────────────────────────
 
-  def buildTransaction(intent: TxIntent, ctx: ChainContext): Future[Tx] =
-    Future.failed(new NotImplementedError("EvmChainAdapter.buildTransaction lands in Phase 2"))
+  def buildTransaction(intent: TxIntent, sender: String, ctx: ChainContext): Future[Tx] =
+    val (toOpt, value, data) = intent match
+      case TxIntent.NativeTransfer(to, amount) =>
+        (Some(to), amount, Array.emptyByteArray)
+      case TxIntent.TokenTransfer(asset, to, amount) =>
+        require(asset.chain == chainId, s"asset.chain ${asset.chain} ≠ adapter $chainId")
+        (Some(asset.address), BigInt(0), AbiHelpers.erc20TransferCalldata(to, amount))
+      case TxIntent.ContractCall(target, calldata, v) =>
+        (Some(target), v, calldata)
+      case TxIntent.TokenTransferAuthorized(asset, from, to, amount, va, vb, nonce, sig) =>
+        require(asset.chain == chainId, s"asset.chain ${asset.chain} ≠ adapter $chainId")
+        val calldata = AbiHelpers.erc3009TransferWithAuthorizationCalldata(
+          from, to, amount, va, vb, nonce, sig,
+        )
+        (Some(asset.address), BigInt(0), calldata)
+      case TxIntent.Deploy(bytecode, args, salt) =>
+        if salt.isDefined then
+          return Future.failed(new NotImplementedError(
+            "CREATE2 (salt-based deploy) needs a deployer factory contract; deferred"))
+        (None, BigInt(0), bytecode ++ args)
+
+    val toCallParam = ujson.Obj(
+      "from" -> ujson.Str(sender),
+      "data" -> ujson.Str("0x" + Hex.encode(data, withPrefix = false)),
+      "value" -> ujson.Str("0x" + value.toString(16)),
+    )
+    toOpt.foreach(t => toCallParam("to") = ujson.Str(t))
+
+    val nonceF    = nonceOf(sender, ctx)
+    val gasLimitF = estimateGas(toCallParam, ctx)
+    val feeF      = currentFeeMarket(ctx)
+    for
+      nonce             <- nonceF
+      gasLimit          <- gasLimitF
+      (maxFee, prio)    <- feeF
+    yield EvmTx(
+      chainId              = BigInt(chainIdInt),
+      nonce                = nonce,
+      maxPriorityFeePerGas = prio,
+      maxFeePerGas         = maxFee,
+      gasLimit             = gasLimit,
+      to                   = toOpt,
+      value                = value,
+      data                 = data,
+    )
 
   def prepareSigningPayload(tx: Tx, signer: PublicKey): SigningPayload =
-    throw new NotImplementedError("EvmChainAdapter.prepareSigningPayload lands in Phase 2")
+    SigningPayload(tx.sighash, HashAlgo.None)
 
   def assembleSignedTransaction(tx: Tx, signature: Array[Byte], signer: PublicKey): SignedTx =
-    throw new NotImplementedError("EvmChainAdapter.assembleSignedTransaction lands in Phase 2")
+    require(signature.length == 65, s"signature must be 65 bytes, got ${signature.length}")
+    val r       = java.util.Arrays.copyOfRange(signature, 0,  32)
+    val s       = java.util.Arrays.copyOfRange(signature, 32, 64)
+    // crypto-bouncycastle returns recId in {0,1}; some callers normalise
+    // to v ∈ {27,28} (Ethereum convention). Accept both.
+    val rawV    = signature(64).toInt & 0xff
+    val yParity = if rawV >= 27 && rawV <= 30 then rawV - 27 else rawV
+    EvmSignedTx(tx, yParity, r, s)
 
   def broadcast(signed: SignedTx, ctx: ChainContext): Future[TxHash] =
-    Future.failed(new NotImplementedError("EvmChainAdapter.broadcast lands in Phase 2"))
+    ctx.rpcCall("eth_sendRawTransaction", ujson.Str(signed.rawHex)).map { v =>
+      TxHash(v.str)
+    }
 
   def describe(tx: Tx): TxDescription =
-    throw new NotImplementedError("EvmChainAdapter.describe lands in Phase 2")
+    TxDescription(
+      summary = s"EIP-1559 tx to ${tx.to.getOrElse("(contract creation)")} on $chainId",
+      fields  = Map(
+        "chainId"              -> tx.chainId.toString,
+        "nonce"                -> tx.nonce.toString,
+        "maxFeePerGas"         -> tx.maxFeePerGas.toString,
+        "maxPriorityFeePerGas" -> tx.maxPriorityFeePerGas.toString,
+        "gasLimit"             -> tx.gasLimit.toString,
+        "value"                -> tx.value.toString,
+        "dataBytes"            -> tx.data.length.toString,
+      ),
+    )
 
   // ── queries ───────────────────────────────────────────────────────────
 
@@ -122,7 +185,21 @@ class EvmChainAdapter(val chainId: ChainId)(using ec: ExecutionContext) extends 
     }
 
   def waitForReceipt(hash: TxHash, ctx: ChainContext, timeoutMs: Long): Future[TxReceipt] =
-    Future.failed(new NotImplementedError("EvmChainAdapter.waitForReceipt lands in Phase 2"))
+    val deadline = System.currentTimeMillis() + timeoutMs
+    def loop(): Future[TxReceipt] =
+      getReceipt(hash, ctx).flatMap {
+        case Some(r) => Future.successful(r)
+        case None    =>
+          if System.currentTimeMillis() >= deadline then
+            Future.failed(new RuntimeException(s"Receipt for $hash not found within ${timeoutMs}ms"))
+          else
+            // Poll roughly every block (~2s on Base / Ethereum). Block until
+            // the next attempt without spawning timers; for higher throughput
+            // / faster chains the caller can pass smaller timeoutMs.
+            Thread.sleep(2000)
+            loop()
+      }
+    Future(loop()).flatten
 
   // ── contract reads ────────────────────────────────────────────────────
 
@@ -136,7 +213,59 @@ class EvmChainAdapter(val chainId: ChainId)(using ec: ExecutionContext) extends 
     }
 
   def predictDeployAddress(deploy: TxIntent.Deploy, deployer: String, ctx: ChainContext): Future[String] =
-    Future.failed(new NotImplementedError("EvmChainAdapter.predictDeployAddress lands in Phase 2"))
+    if deploy.salt.isDefined then
+      Future.failed(new NotImplementedError(
+        "CREATE2 address prediction needs a deployer factory contract; deferred",
+      ))
+    else
+      nonceOf(deployer, ctx).map { nonce =>
+        // EVM CREATE address = keccak256(rlp([sender, nonce]))[12..32]
+        val encoded = Rlp.encode(Rlp.list(
+          Rlp.bytes(Hex.decode(deployer)),
+          Rlp.uint(nonce),
+        ))
+        val hash = CryptoBackend.get().hash(HashAlgo.Keccak256, encoded)
+        val addr = java.util.Arrays.copyOfRange(hash, 12, 32)
+        Eip55.checksum(Hex.encode(addr, withPrefix = false))
+      }
+
+  // ── fee market + gas estimation helpers ──────────────────────────────
+
+  private val chainIdInt: Int =
+    chainId.reference.toInt   // safe: we enforce eip155:* in the require above
+
+  /** Estimate gas via `eth_estimateGas`. Adds a small safety margin
+   *  (10%) since estimateGas returns the exact minimum on Anvil but
+   *  real chains sometimes need a bit more (storage refunds etc.). */
+  private def estimateGas(callParams: ujson.Value, ctx: ChainContext): Future[BigInt] =
+    ctx.rpcCall("eth_estimateGas", callParams).map { v =>
+      val raw = BigInt(v.str.stripPrefix("0x"), 16)
+      raw + (raw / 10)
+    }
+
+  /** Returns (maxFeePerGas, maxPriorityFeePerGas). Strategy:
+   *  - priority: try `eth_maxPriorityFeePerGas` (Geth/Base/Optimism);
+   *    fall back to `eth_gasPrice` / 10 if unavailable.
+   *  - maxFee: 2 * latest baseFeePerGas + priority (covers 1-2 base-fee
+   *    bumps before re-estimation). */
+  private def currentFeeMarket(ctx: ChainContext): Future[(BigInt, BigInt)] =
+    val prioF = ctx.rpcCall("eth_maxPriorityFeePerGas")
+      .map(v => BigInt(v.str.stripPrefix("0x"), 16))
+      .recoverWith { case _ =>
+        ctx.rpcCall("eth_gasPrice").map(v =>
+          BigInt(v.str.stripPrefix("0x"), 16) / 10)
+      }
+    val baseFeeF = ctx.rpcCall("eth_getBlockByNumber", ujson.Str("latest"), ujson.False)
+      .map { block =>
+        block.obj.get("baseFeePerGas").map(b => BigInt(b.str.stripPrefix("0x"), 16))
+          .getOrElse(BigInt(0))
+      }
+    for
+      prio    <- prioF
+      baseFee <- baseFeeF
+    yield
+      val maxFee = baseFee * 2 + prio
+      (maxFee, prio)
 
 object EvmChainAdapter:
   def base(using ExecutionContext):        EvmChainAdapter = new EvmChainAdapter(ChainId.Base)
@@ -145,9 +274,3 @@ object EvmChainAdapter:
   def polygon(using ExecutionContext):     EvmChainAdapter = new EvmChainAdapter(ChainId.Polygon)
   def arbitrum(using ExecutionContext):    EvmChainAdapter = new EvmChainAdapter(ChainId.Arbitrum)
   def optimism(using ExecutionContext):    EvmChainAdapter = new EvmChainAdapter(ChainId.Optimism)
-
-/** Phase-1 placeholder; full shape (RLP fields, EIP-1559 access list,
- *  …) lands in Phase 2. */
-case class EvmTx()
-
-case class EvmSignedTx(rawHex: String, hash: TxHash)
