@@ -85,9 +85,31 @@ object Parser:
     if end < 0 then return (None, src)
     (Some(rest.substring(0, end)), rest.substring(end + 4).dropWhile(_ == '\n'))
 
+  /** SnakeYAML's "mapping values are not allowed here" surfaces with the
+   *  line/column of the offending construct but with no hint about which
+   *  key/value caused it.  Wrap the exception to add a one-line hint
+   *  pointing at the most common cause (unquoted colons in string values
+   *  like `description: foo: bar`). */
   private def parseManifest(yaml: String): Manifest =
-    val raw = Option(snakeYaml.load[java.util.Map[String, Any]](yaml))
-      .map(_.asScala.toMap).getOrElse(Map.empty)
+    val raw =
+      try Option(snakeYaml.load[java.util.Map[String, Any]](yaml))
+            .map(_.asScala.toMap).getOrElse(Map.empty)
+      catch case e: org.yaml.snakeyaml.scanner.ScannerException =>
+        val lines = yaml.linesIterator.toIndexedSeq
+        val mark  = Option(e.getProblemMark)
+        val hint  = mark.map { m =>
+          val lineNo = m.getLine + 1
+          val col    = m.getColumn + 1
+          val ctx    = lines.lift(m.getLine).getOrElse("")
+          val pointer = " " * (col - 1) + "^"
+          val likely =
+            if ctx.contains(": ") && !ctx.trim.startsWith("#") then
+              "  hint: this looks like an unquoted colon inside a string value;\n" +
+              "        quote the value, e.g.  description: \"foo: bar\""
+            else ""
+          s"\n  at line $lineNo, column $col:\n    $ctx\n    $pointer\n$likely"
+        }.getOrElse("")
+        throw new RuntimeException(s"YAML front-matter: ${e.getProblem}$hint")
     Manifest(
       name         = raw.get("name").collect { case s: String => s },
       version      = raw.get("version").collect { case s: String => s },

@@ -1,7 +1,7 @@
 ---
 name: std-parsing-recovery
 version: 1.0.0
-description: v1.20.1 std/parsing — parser error recovery: skip-to-sync-token, error nodes in AST, multi-error accumulation
+description: "v1.20.1 std/parsing — parser error recovery: skip-to-sync-token, error nodes in AST, multi-error accumulation"
 package: std.parsing
 exports:
   - PRecoverUntil
