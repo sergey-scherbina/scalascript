@@ -450,9 +450,11 @@ unblocks downstream features as early as possible.
      + TlsProxy migration, 29 inlined files) + Phase 3 (Option A:
      serveRuntime out of string templates — 4 real .scala files in
      a new runtime-server-jvm module, ~1750 LOC migrated from the
-     """|..."""  template) ✓ Landed; v1.17.4 full (real
-     `McpServerSession` dispatch + SDK import fixes) ✓ Landed (all
-     2026-05-19).
+     """|..."""  template) + Option B (interpreter WS to per-VT
+     thread model — Selector loop replaced with blocking accept +
+     Thread.ofVirtual() per connection, mirroring the codegen;
+     −211 LOC) ✓ Landed; v1.17.4 full (real `McpServerSession`
+     dispatch + SDK import fixes) ✓ Landed (all 2026-05-19).
      Anthropic's Model Context Protocol via REST-shaped API
      in a separate namespace (`std/mcp/*`).  Intrinsic-first:
      wraps `@modelcontextprotocol/sdk` on Node and
@@ -3337,6 +3339,59 @@ the codegen output.
   4 unit-test files in `runtime-server-jvm/src/test/`, 28 tests
   covering the public API surface (Json, validate, WsRoom, Response
   factories).
+
+- **Option B — interpreter WS to per-VT thread model** ✓ Landed
+  (2026-05-19).  Unifies the WS thread model with the codegen: both
+  sides now use blocking-IO with one virtual thread per connection.
+  See [`docs/runtime-server-strategic-plan.md`](docs/runtime-server-strategic-plan.md)
+  Option B for the full design.
+
+  **Before**: interpreter ran a single `Selector.open()` loop with
+  per-channel state attached to `SelectionKey`s.  `WsProxy.scala`
+  (460 LOC) demuxed HTTP/WS bytes on the selector thread;
+  `WsConnection.scala` (498 LOC) was selector-fed via `onBytes(buf)`
+  and drained outbox into the channel from selector's `onWrite` hook.
+
+  **After** (mirrors `runtime-server-jvm`'s `ProxyRuntime` +
+  `WebSocketRuntime`): blocking `ServerSocket` + `Thread.ofVirtual()`
+  per accepted client.  `WsProxy.scala` (305 LOC) reads HTTP head,
+  sniffs Upgrade, and either drives the full WS upgrade + runs the
+  connection's blocking read loop on that VT, or forwards bytes to
+  the internal `HttpServer` via two pump VTs.  `WsConnection.scala`
+  (442 LOC) wraps `java.net.Socket` directly; writer VT drains a
+  bounded `LinkedBlockingQueue[Array[Byte]]` to `getOutputStream`;
+  new `runReadLoop()` method blocks on `getInputStream`.
+
+  **Threading**: per-VT for read-loop and writer-loop.  User
+  callbacks (`onMessage`, `onClose`, `onPong`, handler body) still
+  dispatch through the single-thread `wsExecutor` — interpreter's
+  `Value` / `Computation` aren't thread-safe, so user handlers stay
+  serial.  Per-VT read loop is independent; only the executor is
+  shared.  No new `Interpreter.lock` needed — the existing executor
+  serialisation suffices.
+
+  Public APIs preserved unchanged: `WsProxy(port, internalAddr,
+  wsExecutor, log, ...)` / `start()` / `stop()`, `WsConnection.asValue`
+  (the `Value.InstanceV("WebSocket", ...)` builder user code touches),
+  `WsConnection.tryReserveSlot` / `releaseSlot` / `setMaxConnections`,
+  `WsRoutes.*` lookups.
+
+  **Net delta**: −211 LOC across the two files (958 → 747).
+
+  **Verification**: all 18 WS conformance tests pass on the rewritten
+  per-VT code (`WsBinaryTest`, `WsCookiesTest`, `WsPingPongTest`,
+  `WsRoomTest`, `WsSlowClientTest`, `WsMetricsTest`, `WsOriginTest`,
+  `WsEchoTest`, `WsAuthHookTest`, `WsFragmentTest`, `WsSubprotocolTest`,
+  `WsMaxConnectionsTest`, `WsHeartbeatTest`, `WsSubprotocolFieldTest`,
+  `WsRequestTest`, `WsRouteCapTest`, `WsRateLimitTest`, `WsIdTest`).
+
+  **Follow-up not done by B**: actual *code-level* sharing of the
+  `WebSocket` class between interpreter and codegen.  Both sides now
+  have structurally identical per-VT classes (interpreter's
+  `WsConnection.scala`, codegen's `runtime-server-jvm/WebSocketRuntime.scala`);
+  merging them into one shared class is a future pass (would need
+  ctor injection of executor + scheduler so both backends pass their
+  own).  Option B's goal — unify the *thread model* — is done.
 
 ### Deferred follow-ups (v1.17.x backlog, ordered by priority)
 
