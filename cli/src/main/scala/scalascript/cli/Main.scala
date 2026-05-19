@@ -2796,22 +2796,28 @@ def linkCommand(args: List[String]): Unit =
   import scalascript.artifact.Linker
   var outputArg:   Option[String] = None
   var backendArg:  Option[String] = None
+  var bytecode:    Boolean        = false
   val artifactDirs = scala.collection.mutable.ArrayBuffer.empty[String]
   val it = args.iterator
   while it.hasNext do
     it.next() match
       case "-o" | "--output" if it.hasNext  => outputArg  = Some(it.next())
       case "--backend"       if it.hasNext  => backendArg = Some(it.next())
+      case "--bytecode"                     => bytecode = true
       case d                                => artifactDirs += d
 
   if artifactDirs.isEmpty then
-    System.err.println("Usage: ssc link <artifact-dir> [-o <output>] [--backend <id>]")
+    System.err.println("Usage: ssc link <artifact-dir> [-o <output>] [--backend <id>] [--bytecode]")
     System.exit(1)
 
   // ── JVM cached-source mode ───────────────────────────────────────────────
   // If --backend jvm and the artifact dir(s) contain .scjvm files, take the
   // textual-concat path.  This bypasses the IR linker and the JvmGen
   // re-emission, splicing the per-module Scala 3 source strings directly.
+  //
+  // When --bytecode is ALSO set, take the bytecode-level path instead:
+  // require every .scjvm to carry a classBundle and pack them into a JAR
+  // directly (no scala-cli at link time).
   val bid = backendArg.orElse(ActiveFlags.current.backend).getOrElse("int")
   if bid == "jvm" then
     val scjvmFiles = artifactDirs.toList.flatMap { dir =>
@@ -2820,7 +2826,10 @@ def linkCommand(args: List[String]): Unit =
       else os.list(p).filter(_.ext == "scjvm").toList.sorted
     }
     if scjvmFiles.nonEmpty then
-      linkJvmFromScjvm(scjvmFiles, outputArg)
+      if bytecode then
+        linkJvmFromBytecode(scjvmFiles, outputArg)
+      else
+        linkJvmFromScjvm(scjvmFiles, outputArg)
       return
   // Fall through to standard IR-link mode if no .scjvm files were found.
 
@@ -2934,6 +2943,76 @@ def linkCommand(args: List[String]): Unit =
  *  symbol mangling — Phase 2.
  *
  *  v2.0 — JVM incremental codegen cache. */
+/** Link a set of `.scjvm` artifacts in **bytecode mode** — every artifact
+ *  must carry a non-empty `classBundle`; unpack them and pack the union of
+ *  their `.class` entries into a single JAR.
+ *
+ *  This is the v2.0 Phase 2 path: no scala-cli at link time, no source
+ *  concat, no per-link re-compilation.  Real `.class` bytes go straight
+ *  from each `.scjvm`'s `classBundle` into the JAR.
+ *
+ *  Output modes:
+ *  - `-o <foo.jar>`  : write a JAR at the given path (the only supported
+ *                      output in MVP — bytecode-mode linking has no use
+ *                      for `-o -` source dumping).
+ *  - (no -o)         : write to `out.jar` in the current working directory.
+ *
+ *  Duplicate FQN handling: when two `.scjvm` artifacts ship the same
+ *  class entry (typically the shared runtime preamble's helpers — the
+ *  per-module emitter inlines them into every module's emitted source so
+ *  scala-cli compiles them once per module), the FIRST occurrence in the
+ *  alphabetically-sorted artifact list wins.  Discarded duplicates are
+ *  reported as a brief summary on stderr.
+ *
+ *  v2.0 — Phase 2 bytecode-level JVM linker. */
+private def linkJvmFromBytecode(
+    scjvmFiles: List[os.Path],
+    outputArg:  Option[String]
+): Unit =
+  // 1. Read every artifact, validate classBundle presence, accumulate
+  //    (moduleId, base64) pairs in the order the user supplied.
+  val artifacts = scala.collection.mutable.ArrayBuffer.empty[scalascript.ir.ModuleJvmArtifact]
+  var hasError  = false
+  for p <- scjvmFiles do
+    JvmArtifactIO.readJvmFile(p) match
+      case Right(a) => artifacts += a
+      case Left(e)  =>
+        System.err.println(s"link --backend jvm --bytecode: failed to read ${p.last}: $e")
+        hasError = true
+  if hasError then System.exit(1)
+  if artifacts.isEmpty then
+    System.err.println("link --backend jvm --bytecode: no .scjvm artifacts found")
+    System.exit(1)
+
+  val missingBundles = artifacts.toList.filter(_.classBundle.forall(_.isEmpty))
+  if missingBundles.nonEmpty then
+    System.err.println(s"link --backend jvm --bytecode: " +
+      s"${missingBundles.length} module(s) have no classBundle:")
+    missingBundles.foreach { a =>
+      System.err.println(s"  - ${a.moduleId}: recompile with `ssc compile-jvm --bytecode`")
+    }
+    System.exit(1)
+
+  // 2. Resolve output path.  Default to ./out.jar when no -o is given so
+  //    the command always produces a tangible artifact.
+  val outPath: os.Path = outputArg match
+    case Some(out) if out.endsWith(".jar") => os.Path(out, os.pwd)
+    case Some(out) =>
+      System.err.println(s"link --backend jvm --bytecode: -o output must end with .jar, got: $out")
+      System.exit(1)
+      os.pwd / "out.jar" // unreachable; satisfies type checker
+    case None =>
+      os.pwd / "out.jar"
+
+  // 3. Pack.
+  val bundles = artifacts.toList.map(a => a.moduleId -> a.classBundle.get)
+  val (uniqueClasses, duplicates) = JvmBytecode.packBundlesAsJar(bundles, outPath)
+
+  println(s"Linked ${artifacts.size} .scjvm artifact(s) → $outPath " +
+    s"($uniqueClasses unique class(es); JAR size ${os.size(outPath)} bytes)")
+  if duplicates.nonEmpty then
+    println(s"  (deduplicated ${duplicates.size} duplicate class entries; first-write-wins)")
+
 private def linkJvmFromScjvm(
     scjvmFiles: List[os.Path],
     outputArg:  Option[String]
