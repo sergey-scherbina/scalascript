@@ -3125,44 +3125,59 @@ class JvmGen(
    *  `ssc` / `ssc compile`.  `serve(port)` blocks the calling thread; the
    *  default executor is single-threaded so handler bodies see no concurrency
    *  unless the user supplies their own synchronisation. */
-  /** Read a .scala source file from the `runtime-server-common` classpath
-   *  resource bundle and return its body with the leading
-   *  `package scalascript.server` line stripped.  The result is suitable
-   *  for direct inlining into a top-level scala-cli script (which has no
-   *  package declaration).  Imports inside the file are preserved.
+  /** Read a `.scala` source file from one of our runtime resource
+   *  bundles and return its body with the leading `package …` line
+   *  stripped.  The result is suitable for direct inlining into a
+   *  top-level scala-cli script (which has no package declaration).
+   *  Imports inside the file are preserved.
    *
-   *  Phase 1b: the .scala sources of pure protocol primitives (WsFraming,
-   *  Password, Jwt, JwtRsa, Totp, RateLimit, SessionCookie, SessionStore,
-   *  Metrics, RestValidationError, DerCodec) used to be duplicated as
-   *  fragments of `serveRuntime`.  They now live as real Scala classes in
-   *  `runtime-server-common/src/main/scala/scalascript/server/` and are
-   *  emitted into the generated script via this loader, so the interpreter
-   *  and the codegen output share the single source of truth.
+   *  Two bundles exist:
+   *    - `runtime-server-common-sources/scalascript/server/`
+   *      (Phase 1b — pure protocol primitives + POJO HTTP model +
+   *      shared dispatch loops; shared with the interpreter)
+   *    - `runtime-server-jvm-sources/scalascript/server/jvm/`
+   *      (Phase 3 — JVM-specific server lifecycle, route / WS
+   *      registration, proxy, outbound clients; what used to be
+   *      `serveRuntime`'s `"""|..."""` string template)
    *
-   *  See `runtimeServerCommon` settings in `build.sbt` for how these
-   *  resources get packaged. */
-  private def loadCommonSource(name: String): String =
-    val path = s"/runtime-server-common-sources/scalascript/server/$name.scala"
+   *  See the `runtimeServerCommon` / `runtimeServerJvm` settings in
+   *  `build.sbt` for how the resources get packaged. */
+  private def loadRuntimeSource(bundle: String, subPath: String, name: String): String =
+    val path = s"/$bundle/$subPath/$name.scala"
     val stream = getClass.getResourceAsStream(path)
     if stream == null then
-      throw new RuntimeException(s"runtime-server-common resource missing: $path " +
-        "— is `runtimeServerCommon/copyResources` up to date?")
+      throw new RuntimeException(s"runtime resource missing: $path " +
+        s"— is `$bundle / copyResources` up to date?")
     val raw = try
       new String(stream.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8)
     finally stream.close()
-    // Drop the leading `package scalascript.server` declaration.  The
-    // generated scala-cli script is top-level; mixing a package decl with
-    // top-level statements would be invalid.  Leading blank line(s) after
-    // the package line are also dropped for readability.  Also rewrite
-    // `private[server]` / `protected[server]` access modifiers (which
-    // refer to the no-longer-present package) to bare `private` /
-    // `protected` — at top level the qualified form has no referent and
-    // file-local visibility is sufficient since all inlined sources end
-    // up in the same compilation unit.
+    // Drop the leading `package …` declaration.  The generated scala-cli
+    // script is top-level; mixing a package decl with top-level statements
+    // would be invalid.  Leading blank line(s) after the package line are
+    // also dropped for readability.  Also rewrite `private[server]` /
+    // `protected[server]` (and the `[jvm]` variants used in the JVM bundle)
+    // access modifiers to bare `private` / `protected` — at top level the
+    // qualified form has no referent and file-local visibility is
+    // sufficient since all inlined sources end up in the same compilation
+    // unit.
     raw.linesIterator
       .dropWhile(l => l.trim.startsWith("package ") || l.trim.isEmpty)
-      .map(_.replace("private[server]", "private").replace("protected[server]", "protected"))
+      .map(_.replace("private[server]",    "private")
+            .replace("protected[server]",  "protected")
+            .replace("private[jvm]",       "private")
+            .replace("protected[jvm]",     "protected"))
       .mkString("\n", "\n", "\n")
+
+  /** Phase 1b loader — pulls files from `runtime-server-common`. */
+  private def loadCommonSource(name: String): String =
+    loadRuntimeSource("runtime-server-common-sources", "scalascript/server", name)
+
+  /** Phase 3 loader — pulls files from `runtime-server-jvm`.  Will
+   *  be used by Phase 3b–3e as the migration of `serveRuntime` content
+   *  proceeds; suppress the "unused" warning until then. */
+  @scala.annotation.unused
+  private def loadJvmRuntimeSource(name: String): String =
+    loadRuntimeSource("runtime-server-jvm-sources", "scalascript/server/jvm", name)
 
   /** Concatenate the pure-primitive sources from runtime-server-common in
    *  a deterministic order.  Emitted as a `commonRuntime` block at the

@@ -109,9 +109,41 @@ lazy val mcpCommon = project
     Test    / scalacOptions ++= sharedScalacOptions
   )
 
+// Phase 3 (Option A from docs/runtime-server-strategic-plan.md) —
+// JVM-specific server runtime that used to live inside the
+// `serveRuntime` triple-quoted string in JvmGen.scala.  Same
+// resource-bundle pattern as `runtimeServerCommon`: real .scala
+// sources here are copied into the classpath under
+// `runtime-server-jvm-sources/...` so JvmGen.scala can read them
+// at codegen time and inline them into generated scala-cli scripts.
+//
+// Depends on `runtimeServerCommon` so the JVM-specific code can
+// import the POJO HTTP model + RequestBuilder / ResponseWriter /
+// HttpDispatchLoop / WsFraming / WsFrameDispatch / … helpers that
+// already live there.
+lazy val runtimeServerJvm = project
+  .in(file("runtime-server-jvm"))
+  .dependsOn(runtimeServerCommon)
+  .settings(
+    name := "scalascript-runtime-server-jvm",
+    libraryDependencies ++= Seq(scalatestTest),
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions,
+    Compile / resourceGenerators += Def.task {
+      val srcDir  = (Compile / scalaSource).value / "scalascript" / "server" / "jvm"
+      val outBase = (Compile / resourceManaged).value / "runtime-server-jvm-sources" / "scalascript" / "server" / "jvm"
+      IO.createDirectory(outBase)
+      (srcDir ** "*.scala").get.map { f =>
+        val target = outBase / f.getName
+        IO.copyFile(f, target)
+        target
+      }
+    }.taskValue
+  )
+
 lazy val backendJvm = project
   .in(file("backend-jvm"))
-  .dependsOn(backendSpi, core, runtimeServerCommon)
+  .dependsOn(backendSpi, core, runtimeServerCommon, runtimeServerJvm)
   .settings(
     name := "scalascript-backend-jvm",
     Compile / scalacOptions ++= sharedScalacOptionsStrict,
@@ -318,7 +350,7 @@ lazy val cli = project
 lazy val root = project
   .in(file("."))
   .aggregate(
-    backendSpi, ir, core, runtimeServerCommon, mcpCommon,
+    backendSpi, ir, core, runtimeServerCommon, runtimeServerJvm, mcpCommon,
     backendJvm, backendJs, backendScalajs, backendInterpreter,
     backendScalaSource, backendHtml, backendCss,
     cli
