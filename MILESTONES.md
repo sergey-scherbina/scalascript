@@ -6941,3 +6941,7 @@ Sequenced after x402 Phase 7 (`PaymentScheme.Stream`).
 - [ ] Streaming-cost MCP tools (token-by-token, second-by-second)
 - [ ] `_meta.x402.streamCharge` interim charges
 - [ ] Client middleware budget tracking
+
+## Micropayment Platform — channel-based fee amortisation for microtransactions
+
+Spec in [`docs/micropayment-spi.md`](docs/micropayment-spi.md). Sits above `blockchain-spi` and `wallet-spi`; peer of x402. Five strategies: ThresholdBatching (x402 Facilitator backend), EVM StateChannel, Cardano HydraHead, Probabilistic lottery, and L2Native pass-through.
