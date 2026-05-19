@@ -349,21 +349,14 @@ class V2RealStdModulesTest extends AnyFunSuite:
       assert(src.contains("def builder"),   "linked source missing 'def builder' (from dsl/builders)")
     finally os.remove.all(sandbox)
 
-  // ── 9. KNOWN BUG: build of std/parsing/ fails on recovery.ssc YAML ──────
+  // ── 9. build of std/parsing/ produces artifacts for all 5 modules ──────
 
-  // TODO(v2.0): `std/parsing/recovery.ssc` cannot be parsed because its
-  // YAML front-matter has an unquoted colon mid-description:
-  //
-  //     description: v1.20.1 std/parsing — parser error recovery: skip-…
-  //                                                              ^ unquoted ':'
-  //
-  // The YAML 1.1 lib rejects this with "mapping values are not allowed here".
-  // Fix options:  (a) quote the description in the source (one-line change
-  // in std/parsing/recovery.ssc), or  (b) make the front-matter parser
-  // tolerant and treat the value-after-colon as scalar text.  Until then,
-  // any `build --incremental` over `std/parsing/` exits with code 1 and
-  // emits the rest of the modules anyway.
-  test("build --incremental std/parsing/ — fails on recovery.ssc YAML, other 4 still emit"):
+  // Previously: recovery.ssc had an unquoted colon in `description:` that
+  // SnakeYAML rejected with "mapping values are not allowed here", which
+  // broke the whole 5-module build.  Stage 5.7 quoted the description in
+  // the source AND added a better YAML diagnostic with a hint, so the
+  // build now succeeds for all 5 modules.
+  test("build --incremental std/parsing/ — all 5 modules emit .scjvm"):
     val sandbox = os.temp.dir(prefix = "ssc-real-std-")
     try
       val srcDir = sandbox / "parsing"
@@ -372,30 +365,17 @@ class V2RealStdModulesTest extends AnyFunSuite:
       for f <- all do copyStd(s"parsing/$f", srcDir)
 
       val res = runSsc(sandbox, "build", "--incremental", "--backend", "jvm", "parsing")
-      // Document current behaviour:
-      assert(res.exitCode == 1,
-        s"expected exit=1 due to recovery.ssc YAML failure; got ${res.exitCode}\n" +
-        s"stdout=${res.out.text()}\nstderr=${res.err.text()}")
       val out = res.out.text()
       val err = res.err.text()
-      assert(out.contains("recovery.ssc ... FAIL"),
-        s"expected 'recovery.ssc ... FAIL' line; got:\n$out")
-      // The YAML diagnostic itself is emitted on stderr (the "FAIL" line
-      // is on stdout but the detail flows to stderr).
-      assert(err.contains("mapping values are not allowed here"),
-        s"expected YAML diagnostic on stderr; got:\nstdout=$out\nstderr=$err")
-      assert(out.contains("4 compiled") || out.contains("4 up-to-date"),
-        s"expected the other 4 modules to still emit; got:\n$out")
-
-      // Confirm artifacts for the surviving modules ended up on disk.
+      assert(res.exitCode == 0,
+        s"expected exit=0 after recovery.ssc YAML fix; got ${res.exitCode}\n" +
+        s"stdout=$out\nstderr=$err")
+      // Confirm artifacts for ALL 5 modules ended up on disk.
       val artDir = srcDir / ".ssc-artifacts"
-      for base <- List("core", "combinators", "helpers", "layout") do
+      for base <- List("core", "combinators", "helpers", "layout", "recovery") do
         assert(os.exists(artDir / s"$base.scjvm"),
-          s"expected $base.scjvm even though recovery.ssc failed; got dir:\n" +
+          s"expected $base.scjvm on disk; got dir:\n" +
           (if os.exists(artDir) then os.list(artDir).map(_.last).mkString(", ") else "(missing)"))
-      // recovery.ssc was rejected at front-matter parse → no artifact.
-      assert(!os.exists(artDir / "recovery.scjvm"),
-        "recovery.scjvm should NOT exist after YAML failure")
     finally os.remove.all(sandbox)
 
   // ── 10. std/actors.ssc parse failure now surfaces a structured diagnostic

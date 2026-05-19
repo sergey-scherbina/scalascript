@@ -3931,7 +3931,7 @@ link → build --incremental`); the JVM backend produces per-module `.scjvm`
 artifacts that the linker combines incrementally.  Tracking doc:
 `docs/separate-compilation-plan.md`.
 
-Test coverage: 401 core tests + 45 CLI subprocess smoke tests, all green.
+Test coverage: 418 core tests + 48 CLI subprocess smoke tests, all green.
 
 Stage 5.4 / final round (landed 2026-05-19):
 - `parseSType` and `SType.show` round-trip now handle union types
@@ -4007,28 +4007,33 @@ Stage 5.6 / battle-test + JvmGen fixes (landed 2026-05-19):
   permissive.  Package-shell walks also produce correctly-populated
   `nested` for sub-namespaces inside the shell.
 
+Stage 5.7 / production blockers fixed (landed 2026-05-19):
+- **Anonymous given witness identity**: `given Eq[Int] with { ... }` now
+  synthesizes `witnessName = "given_Eq_Int"` and `fqn = "pkg_given_Eq_Int"`
+  (or just `given_Eq_Int` when `pkg` is empty).  Pure structural identity
+  — no hashes, deterministic across builds.  Type-arg type variables are
+  dropped from the head name for cross-build stability (so `given Eq[List[A]]`
+  → `given_Eq_List`).  Affects every typeclass instance in `std/`.
+- **Structured parse diagnostics**: `Content.CodeBlock` carries an optional
+  `parseError: Option[CodeBlockParseError]` with `(message, line, column,
+  snippet)`.  All 8 CLI surfaces (`compile-jvm`/`-js`, `emit-interface`,
+  `emit-ir`, `check-with-iface`, `build --incremental`, and auto-resolve
+  dep helpers) print a 3-line snippet with `^` caret on parse failure
+  instead of "Failed to parse scalascript code block".
+- **YAML front-matter diagnostic**: wraps SnakeYAML's
+  `ScannerException` to add the offending source line + `^` pointer + a
+  targeted hint when the line contains `': '` (the most common cause:
+  unquoted colons in string values).  Also quoted the `description:` in
+  `std/parsing/recovery.ssc` so the parsing module set builds clean.
+- **`ssc deps <file.ssc> [--graph]`**: prints the resolved import
+  closure in topo order with `from → to` edges.
+
 **Known gaps (post-Stage-5 follow-up):**
 1. JVM/JS linker still textual concat + dedup.  Phase 2 = real
    bytecode-level mangling.
 2. Refinement types `A { def foo: Int }` and match types still degrade to
    `SType.Any` in `parseSType` (intentional — out of v2.0 scope).
-3. Anonymous given instances (`given Eq[Int] with { ... }`) currently
-   write empty `witnessName` and a truncated `fqn` (`std_eq_`) in `.scim`
-   — typer + extractor fix needed to surface a stable witness identity
-   for every typeclass instance in std/.
-4. Code-block parse-failure diagnostics are opaque ("Failed to parse
-   scalascript code block") — no line/column/snippet.  Bisecting a real
-   parse error in a 100-line block is painful.
-5. YAML front-matter loader rejects unquoted colons inside `description:`
-   values; SnakeYAML's "mapping values are not allowed here" is correct
-   but unhelpful for non-YAML-experts.  Fix: quote-tolerant loader or
-   better error message pinpointing the offending key.
-6. ~~`InterfaceExtractor.ExportedSymbol.nested` is always `Nil` — deep
-   Select chains through `.scim` artifacts fall to permissive until the
-   extractor descends into nested `object` namespaces.~~ Landed in the
-   2026-05-19 follow-up (see "Extractor populates `ExportedSymbol.nested`"
-   above).  Depth cap is `MaxNestedDepth = 3`; lift if needed.
-7. `build --incremental` splits compile-failure summary (stdout) and root
+3. `build --incremental` splits compile-failure summary (stdout) and root
    cause (stderr); consumers capturing only stdout get failure markers
    without context.
 
