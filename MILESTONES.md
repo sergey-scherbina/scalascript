@@ -6838,27 +6838,45 @@ Fixes four concrete bugs in current x402:
 - [x] `AGENTS.md` — spec-driven development workflow
 - [x] `MILESTONES.md` — this entry
 
-### Phase 1 — SPI + crypto + blockchain-evm minimum + x402 facilitator verify fix
+### Phase 1 — SPI + crypto + blockchain-evm minimum + x402 facilitator verify fix ✓ Landed (2026-05-19)
 
-- [ ] `crypto-spi` — `CryptoBackend` trait + registry (cross-compile)
-- [ ] `crypto-bouncycastle` — JVM default impl (secp256k1, ed25519,
-      p256, keccak256, sha2, hmac, hkdf, pbkdf2, argon2id, AES-GCM,
-      BIP-32 / SLIP-0010)
-- [ ] `blockchain-spi` — `ChainAdapter` / `ChainId` / `Asset` /
-      `TypedData` / `TxIntent` / `Blockchain.register/lookup`
-      (cross-compile)
-- [ ] `blockchain-evm` — `addressFromPublicKey` (keccak + last 20 +
-      EIP-55), `typedDataDigest` (EIP-712 full), `recoverAddress`
-      (ecrecover), `tokenBalance` (ERC-20 via `balanceOf`); **no**
-      `buildTransaction` / `broadcast` yet
-- [ ] x402 verify fix (covers **all** EVM chains at once — Base,
-      BaseSepolia, Ethereum, Polygon, Arbitrum, Optimism):
-  - [ ] `EvmFacilitator.verify` calls `blockchain-evm.recoverAddress`
-        and rejects mismatched signatures
-  - [ ] `EvmFacilitator.tokenBalance` replaces hand-coded selector
-  - [ ] `EvmFacilitatorTest` gains "mismatched signature → Fail" case
-- [ ] Test vectors: RFC-6979 ECDSA, EIP-712 example vectors, BIP-32
-      appendix C, EIP-55 checksum, EIP-3009 reference vectors
+- [x] `crypto-spi` — `CryptoBackend` trait + registry (JVM
+      ServiceLoader + explicit register for future Scala.js)
+- [x] `crypto-bouncycastle` — JVM default impl (secp256k1 incl.
+      ecrecover, ed25519, p256, keccak256, sha2, ripemd160, hmac,
+      hkdf, pbkdf2, argon2id, AES-GCM, BIP-32 / SLIP-0010)
+- [x] `blockchain-spi` — `ChainAdapter` / `ChainId` (CAIP-2) /
+      `AccountId` (CAIP-10) / `Asset` / `TypedData` / `TxIntent`
+      (incl. `Deploy`) / `Blockchain.register/lookup`
+- [x] `blockchain-evm` read-side — `addressFromPublicKey` (keccak +
+      last 20 + EIP-55), `typedDataDigest` (full EIP-712 with nested
+      structs), `recoverAddress` (handles v ∈ {0,1,27,28}),
+      `tokenBalance` (ERC-20 via `balanceOf`), generic `call` for
+      `eth_call`. `buildTransaction` / `broadcast` deferred to
+      Phase 2. `Eip3009.usdcTransferWithAuthorization` helper for
+      x402's typed-data shape.
+- [x] x402 verify fix (covers Base / BaseSepolia / Ethereum /
+      Polygon / Arbitrum / Optimism — one adapter, six chain ids):
+  - [x] `EvmFacilitator.verify` calls
+        `blockchain-evm.recoverAddress` and rejects mismatched
+        signatures with descriptive Fail messages
+  - [x] `EvmFacilitatorTest` gains "tampered signature → Fail" and
+        "signature signed by a different key → Fail" cases (the
+        bug-fix this slice closes)
+  - [ ] `EvmFacilitator.tokenBalance` to use blockchain-evm typed
+        proxy — deferred to Phase 2 (depends on full ABI codec)
+- [x] x402-client shim: `PrivateKeyWallet` now wires
+      `RawPrivateKeyVault` + `EoaStrategy` + `EvmChainAdapter` +
+      `Eip3009` helper; public API (`Wallet`, `Wallets.privateKey`,
+      `Wallets.envKey`) stable; existing 17 tests stay green with
+      fixture addresses updated to valid 20-byte hex.
+- [x] `wallet-spi` + `wallet-strategy-eoa`: `RawSigner` / `Vault` /
+      `AccountStrategy` / `DappConnector` / `AccountManager` traits;
+      `EoaStrategy` impl; `RawPrivateKeyVault` test helper.
+- [x] Vector tests: RFC-6979 ECDSA + Ed25519 RFC 8032 #1 + EIP-712
+      Mail reference + BIP-32 appendix C #1 + SLIP-0010 #1 +
+      EIP-55 checksum + RFC 6070 PBKDF2 + AES-GCM tamper detection.
+      67 tests across the five new modules.
 
 ### Phase 2 — blockchain-evm full ChainAdapter + real x402 settle
 
@@ -6938,18 +6956,23 @@ blockchain-spi. Two extension axes: key management (`Vault` /
 Replaces the SHA-256 stub in `x402-client.PrivateKeyWallet` with real
 secp256k1 ECDSA via an adapter shim — x402's public API is unchanged.
 
-### Phase 1 — Skeleton SPI + EOA strategy + x402-client shim
+### Phase 1 — Skeleton SPI + EOA strategy + x402-client shim ✓ Landed (2026-05-19)
 
-Depends on blockchain-spi Phase 1.
+Landed in tandem with blockchain-spi Phase 1.
 
-- [ ] `wallet-spi` — `RawSigner` / `Vault` / `AccountStrategy` /
-      `DappConnector` / `AccountManager` (cross-compile)
-- [ ] `wallet-strategy-eoa` — `EoaStrategy` impl (cross-compile)
-- [ ] In-memory `RawPrivateKeyVault` (test helper)
-- [ ] x402-client refactor: `PrivateKeyWallet` becomes adapter shim
-      over `EoaStrategy` + `blockchain-evm.EvmChainAdapter`;
+- [x] `wallet-spi` — `RawSigner` / `Vault` / `AccountStrategy` /
+      `DappConnector` / `AccountManager` (JVM only this phase;
+      Scala.js cross-compile follows in Phase 3 of blockchain-spi)
+- [x] `wallet-strategy-eoa` — `EoaStrategy` impl
+- [x] In-memory `RawPrivateKeyVault` test helper (lives in
+      `wallet-strategy-eoa` rather than `wallet-spi` since it needs
+      `CryptoBackend.get()` to derive public keys)
+- [x] x402-client refactor: `PrivateKeyWallet` is now a thin shim
+      that wires `RawPrivateKeyVault` + `EoaStrategy` +
+      `EvmChainAdapter` + `Eip3009` helper. Public API stable;
       existing `X402ClientTest` stays green with real signatures
-      (fixture bytes updated)
+      (fake addresses like `"0xpayTo"` replaced with valid 20-byte
+      hex since real ABI encoding rejects malformed input).
 
 ### Phase 2 — Encrypted Vault
 
