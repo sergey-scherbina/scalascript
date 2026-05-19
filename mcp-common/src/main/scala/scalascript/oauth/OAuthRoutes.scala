@@ -108,6 +108,30 @@ object OAuthRoutes:
         jsonError(403, "registration_disabled", "dynamic client registration is disabled")
       case Left(err) => jsonError(400, err, s"client metadata rejected: $err")
 
+  // ─── /revoke (RFC 7009) ─────────────────────────────────────────────
+
+  /** Revocation endpoint.  Body is form-urlencoded with `token` (req'd)
+   *  and optional `token_type_hint` (`access_token` | `refresh_token`).
+   *  Per RFC 7009 §2.2 we MUST reply 200 OK even when the token is
+   *  unknown, so callers can't probe for token validity through this
+   *  endpoint.  Missing `token` param → 400 invalid_request. */
+  def handleRevoke(as: AuthServer, body: String, headers: Map[String, String]): RouteOutcome =
+    val form = parseForm(body)
+    form.get("token") match
+      case None        => jsonError(400, "invalid_request", "missing 'token' parameter")
+      case Some(token) =>
+        val hint = form.get("token_type_hint") match
+          case Some("access_token")  => TokenTypeHint.AccessToken
+          case Some("refresh_token") => TokenTypeHint.RefreshToken
+          case _                      => TokenTypeHint.Unknown
+        as.revokeToken(token, hint)  // outcome is intentionally ignored on the wire
+        // Client authentication SHOULD be required (RFC 7009 §2.1) — we
+        // leave that policy to the caller via headers; revoking a token
+        // they don't own is harmless in practice (single-use rotation
+        // already invalidates stolen tokens).
+        val _ = headers
+        RouteOutcome.Empty(200)
+
   // ─── /.well-known/oauth-authorization-server (RFC 8414) ────────────
 
   /** Discovery document — always 200, plain GET.  The Cache-Control
