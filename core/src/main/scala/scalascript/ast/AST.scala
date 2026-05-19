@@ -55,8 +55,20 @@ case class Heading(level: Int, text: String, span: Option[Span] = None)
 enum Content:
   /** Raw prose text extracted from a Markdown paragraph. */
   case Prose(text: String, span: Option[Span] = None)
-  /** Fenced code block; `tree` is Some when scalameta parsed it successfully. */
-  case CodeBlock(lang: String, source: String, tree: Option[ScalaNode], span: Option[Span] = None)
+  /** Fenced code block; `tree` is Some when scalameta parsed it successfully.
+   *
+   *  When parsing fails (`tree = None` for a parseable lang), `parseError`
+   *  carries scalameta's positional diagnostic (line/column inside `source`
+   *  plus a short snippet) so the CLI can surface a structured failure.
+   *  `parseError = None` is the historical behaviour (no info available
+   *  beyond "tree is empty"). */
+  case CodeBlock(
+    lang: String,
+    source: String,
+    tree: Option[ScalaNode],
+    span: Option[Span] = None,
+    parseError: Option[CodeBlockParseError] = None
+  )
   /** Markdown link that acts as a module import: `[Name, …](path)`. */
   case Import(path: String, bindings: List[ImportBinding], span: Option[Span] = None)
   /** Ordered or unordered list. */
@@ -64,3 +76,21 @@ enum Content:
 
 case class ImportBinding(name: String, alias: Option[String], span: Option[Span] = None)
 case class ListItem(content: String, nested: List[ListItem], span: Option[Span] = None)
+
+/** Structured diagnostic for a failed scalameta parse of a `Content.CodeBlock`.
+ *
+ *  `line` and `column` are 1-indexed within the block body (`Content.CodeBlock.source`)
+ *  — not within the enclosing `.ssc` file, since the block source is the only
+ *  thing scalameta sees.  Callers that know the block's offset within the file
+ *  can adjust by adding `span.start.line - 1`.
+ *
+ *  `snippet` is a multi-line excerpt showing the failing line plus one line of
+ *  context before and after (fewer at boundaries) with a `^` caret marker on the
+ *  column of the failing token.  It's pre-formatted so callers can `println` it
+ *  verbatim. */
+case class CodeBlockParseError(
+  message: String,
+  line: Int,
+  column: Int,
+  snippet: String
+)

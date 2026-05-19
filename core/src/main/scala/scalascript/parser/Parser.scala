@@ -59,7 +59,11 @@ object Parser:
           dialects.Scala3(Input.VirtualFile(s"<package-wrap>", nested))
             .parse[Source].toOption.map(scalascript.ast.ScalaNode(_))
         }.toOption.flatten
-        Content.CodeBlock(cb.lang, nested, tree, cb.span)
+        // Preserve the original parseError (when present) so the CLI still sees
+        // a positional diagnostic for blocks that even the package-wrap retry
+        // failed to rescue.
+        val pe = if tree.isEmpty then cb.parseError else None
+        Content.CodeBlock(cb.lang, nested, tree, cb.span, pe)
       case other => other
     }
     section.copy(
@@ -210,8 +214,10 @@ object Parser:
     case f: CmFenced =>
       val lang = Option(f.getInfo).map(_.trim.takeWhile(!_.isWhitespace)).getOrElse("").toLowerCase
       val src  = Option(f.getLiteral).getOrElse("")
-      val tree = if Lang.isParseable(lang) then parseScala(src) else None
-      Some(Content.CodeBlock(lang, src, tree))
+      val (tree, parseError) =
+        if Lang.isParseable(lang) then parseScalaWithDiagnostic(src)
+        else (None, None)
+      Some(Content.CodeBlock(lang, src, tree, None, parseError))
 
     case p: CmParagraph =>
       asImport(p).orElse {
@@ -309,25 +315,95 @@ object Parser:
           i += 1
     result.toString
 
-  private def parseScala(code: String): Option[ScalaNode] = parseScalaSource(code)
-
   /** Re-parse a scalascript code-block body to a scalameta `ScalaNode`.
    *
    *  Public so `transform.Denormalize` can rebuild the AST trees that
    *  `Normalize` strips when serialising to IR — backends still consume
    *  the parsed tree until they migrate to IR-native traversal. */
   def parseScalaSource(code: String): Option[ScalaNode] =
+    parseScalaWithDiagnostic(code)._1
+
+  /** Same as `parseScalaSource` but also returns a structured
+   *  `CodeBlockParseError` (populated when both the source-mode parse AND the
+   *  block-wrapped term-mode parse fail).  The error's `line` / `column` come
+   *  from scalameta's `Parsed.Error.pos` and refer to positions inside the
+   *  ORIGINAL `code` argument (we map the wrapped-`{ }` position back when the
+   *  fallback parse produced the diagnostic by subtracting the synthetic line).
+   *
+   *  Returned tuple: `(tree, parseError)`.  `tree` is `Some` and `parseError`
+   *  is `None` on success; on failure `tree` is `None` and `parseError` is
+   *  `Some` carrying the diagnostic. */
+  def parseScalaWithDiagnostic(code: String): (Option[ScalaNode], Option[CodeBlockParseError]) =
     import scala.meta.*
     given Dialect = dialects.Scala3
     val processed = preprocessExtern(preprocessEffects(code))
     processed.parse[Source] match
-      case Parsed.Success(tree) => Some(ScalaNode(tree))
-      case _: Parsed.Error      =>
+      case Parsed.Success(tree) => (Some(ScalaNode(tree)), None)
+      case sourceErr: Parsed.Error =>
         // Script mode: code may contain top-level expressions.
         // Wrap in a block so scalameta accepts arbitrary statement sequences.
+        // Note: the wrap prepends a synthetic `{\n` line so positions in the
+        // wrapped parse are offset by +1 line.  We undo that mapping below.
         s"{\n$processed\n}".parse[Term] match
-          case Parsed.Success(tree) => Some(ScalaNode(tree))
-          case _: Parsed.Error      => None
+          case Parsed.Success(tree) => (Some(ScalaNode(tree)), None)
+          case _: Parsed.Error      =>
+            // Both attempts failed.  We prefer the source-mode error since
+            // its positions map 1:1 to the user's block body (no wrap-line
+            // shift); the term-mode error tends to be misleading anyway
+            // (it complains about an unexpected `{` introduction).
+            (None, Some(buildParseError(code, sourceErr)))
+
+  /** Build a `CodeBlockParseError` from scalameta's `Parsed.Error` against the
+   *  ORIGINAL block source `code`.  Scalameta's `pos.startLine` / `startColumn`
+   *  are 0-indexed; we expose 1-indexed numbers to match human convention. */
+  private def buildParseError(code: String, err: scala.meta.parsers.Parsed.Error): CodeBlockParseError =
+    val pos      = err.pos
+    // 0-indexed → 1-indexed.  `code` here is the block body before
+    // `preprocessExtern`/`preprocessEffects`; in the common case those
+    // preprocessors are no-ops, so positions in `processed` align with `code`.
+    // When they do rewrite, positions may be slightly off — still useful as
+    // a coarse pointer, and far better than the previous no-position output.
+    val line0    = math.max(0, pos.startLine)
+    val col0     = math.max(0, pos.startColumn)
+    val line     = line0 + 1
+    val column   = col0 + 1
+    val lines    = code.linesIterator.toArray
+    // Defensive: clamp the line if the preprocessor shifted things.
+    val safeLine = if line0 < lines.length then line0 else math.max(0, lines.length - 1)
+    val snippet  = buildSnippet(lines, safeLine, col0)
+    CodeBlockParseError(
+      message = err.message,
+      line    = line,
+      column  = column,
+      snippet = snippet
+    )
+
+  /** Render a 3-line context window (1 before + failing + 1 after) with a
+   *  `^` caret line under the failing column.  Boundaries are handled by
+   *  emitting fewer context lines when the failing line is at the start /
+   *  end of `lines`.  Each line is rendered with a 2-space indent so the
+   *  CLI can emit the snippet verbatim under its diagnostic header. */
+  private def buildSnippet(lines: Array[String], lineIdx0: Int, colIdx0: Int): String =
+    if lines.isEmpty then return ""
+    val safeIdx = math.max(0, math.min(lineIdx0, lines.length - 1))
+    val from    = math.max(0, safeIdx - 1)
+    val to      = math.min(lines.length - 1, safeIdx + 1)
+    val buf     = new StringBuilder()
+    var i       = from
+    while i <= to do
+      buf.append("  ").append(lines(i)).append('\n')
+      if i == safeIdx then
+        // Caret line: 2-space prefix (matches the snippet indent above) +
+        // colIdx0 spaces + `^`.
+        buf.append("  ")
+        val safeCol = math.max(0, colIdx0)
+        var j = 0
+        while j < safeCol do { buf.append(' '); j += 1 }
+        buf.append('^').append('\n')
+      i += 1
+    // Trim trailing newline so callers can println without a blank line.
+    if buf.nonEmpty && buf.charAt(buf.length - 1) == '\n' then buf.setLength(buf.length - 1)
+    buf.toString
 
   // ─── Text extraction from CommonMark nodes ────────────────────────
 

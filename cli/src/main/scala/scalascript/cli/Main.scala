@@ -334,6 +334,52 @@ private def extractResponseBody(v: scalascript.interpreter.Value): String =
     case Value.UnitV      => ""
     case other            => Value.show(other)
 
+// ─── Structured parse-error reporting ───────────────────────────────────────
+//
+// When `Parser.parse` produces a `Content.CodeBlock` whose `tree` is empty AND
+// `parseError` is populated, the CLI emits a structured diagnostic with a
+// line/column reference and a 3-line snippet (instead of the historical opaque
+// "Failed to parse scalascript code block").  `reportCodeBlockParseErrors`
+// walks every section of a parsed `Module`, prints one diagnostic per failing
+// block to stderr, and returns `true` if any were emitted.  Callers use the
+// return value to short-circuit before running expensive codegen passes that
+// would otherwise produce a confusing downstream failure.
+
+/** Walk `module.sections` (and subsections) and print one structured parse
+ *  diagnostic for each `Content.CodeBlock` whose `tree` is empty and that
+ *  carries a `parseError`.  Returns `true` iff at least one diagnostic was
+ *  emitted; the caller is then expected to bail out with a non-zero exit code. */
+private def reportCodeBlockParseErrors(module: Module, file: String): Boolean =
+  var any = false
+  def walk(s: Section): Unit =
+    s.content.foreach {
+      case cb: Content.CodeBlock if cb.tree.isEmpty && cb.parseError.isDefined =>
+        printCodeBlockParseError(file, cb.parseError.get)
+        any = true
+      case _ => ()
+    }
+    s.subsections.foreach(walk)
+  module.sections.foreach(walk)
+  any
+
+/** Print one structured parse-error diagnostic to stderr.  Format matches the
+ *  spec in the v2.0 parse-error-positions task:
+ *
+ *      error: failed to parse scalascript block in <file>:<line>:<col>
+ *      <message>
+ *
+ *        <prev line>
+ *        <failing line>
+ *        <space-padded ^>
+ *        <next line>
+ */
+private def printCodeBlockParseError(file: String, err: CodeBlockParseError): Unit =
+  System.err.println(s"error: failed to parse scalascript block in $file:${err.line}:${err.column}")
+  System.err.println(err.message)
+  if err.snippet.nonEmpty then
+    System.err.println()
+    System.err.println(err.snippet)
+
 // ─────────────────────────────────────────────────────────────────────────────
 // ssc build --incremental  —  v2.0 separate compilation build orchestrator
 // ─────────────────────────────────────────────────────────────────────────────
@@ -434,6 +480,12 @@ def incrementalBuildCommand(args: List[String]): Unit =
         val sourceBytes = os.read.bytes(node.path)
         val src         = new String(sourceBytes, "UTF-8")
         val module      = Parser.parse(src)
+        // Structured parse-error diagnostic: bail BEFORE Normalize / Typer
+        // emit their own opaque secondary messages.  Returning a recognisable
+        // exception keeps the `[compile] ... FAIL` line + the structured
+        // diagnostic that `reportCodeBlockParseErrors` already wrote.
+        if reportCodeBlockParseErrors(module, relPath) then
+          throw new RuntimeException("parse error (see diagnostic above)")
         val ir          = Normalize(module)
         val iface       = InterfaceExtractor.extract(module, sourceBytes)
         val sourceHash  = iface.sourceHash
@@ -1401,6 +1453,8 @@ def emitInterfaceCommand(args: List[String]): Unit =
     try
       val sourceBytes = os.read.bytes(path)
       val module      = Parser.parse(new String(sourceBytes, "UTF-8"))
+      if reportCodeBlockParseErrors(module, file) then
+        System.exit(1)
       val iface       = InterfaceExtractor.extract(module, sourceBytes)
       val json        = ArtifactIO.writeInterface(iface)
       outputArg match
@@ -1453,6 +1507,8 @@ def emitIrCommand(args: List[String]): Unit =
     try
       val sourceBytes = os.read.bytes(path)
       val module      = Parser.parse(new String(sourceBytes, "UTF-8"))
+      if reportCodeBlockParseErrors(module, file) then
+        System.exit(1)
       val ir          = Normalize(module)
       val pkg         = module.manifest.flatMap(_.pkg).getOrElse(Nil)
       val moduleName  = module.manifest.flatMap(_.name)
@@ -1587,6 +1643,12 @@ def compileJvmCommand(args: List[String]): Unit =
       val src         = new String(sourceBytes, "UTF-8")
       val module      = Parser.parse(src)
 
+      // Bail out early with a structured diagnostic if any scalascript block
+      // failed to parse.  Without this, the typer would emit the opaque
+      // "Failed to parse scalascript code block" — useless for bisecting.
+      if reportCodeBlockParseErrors(module, file) then
+        System.exit(1)
+
       // Type-check (optionally against pre-compiled interfaces).  Errors are
       // surfaced as a non-zero exit code so the build orchestrator can stop
       // before producing a stale `.scjvm`.
@@ -1650,6 +1712,10 @@ private def compileJvmDepInto(
     scjvmPath:   os.Path
 ): Unit =
   val module     = dep.module
+  // Surface a structured parse-error diagnostic for any failing block in
+  // the dep BEFORE we try to type-check / codegen it, then fail hard.
+  if reportCodeBlockParseErrors(module, dep.path.toString) then
+    throw new RuntimeException(s"parse error in dep ${dep.path.last} (see diagnostic above)")
   // Build the interfaces map from `.scim` files already in the artifact
   // dir.  Deeper deps will have been compiled first (topo order) so
   // their interfaces are available when type-checking this one.
@@ -1791,6 +1857,11 @@ def compileJsCommand(args: List[String]): Unit =
       val src         = new String(sourceBytes, "UTF-8")
       val module      = Parser.parse(src)
 
+      // Bail out early with a structured diagnostic if any scalascript block
+      // failed to parse — same rationale as compile-jvm.
+      if reportCodeBlockParseErrors(module, file) then
+        System.exit(1)
+
       // Type-check (optionally against pre-compiled interfaces).  Errors are
       // surfaced as a non-zero exit code so the build orchestrator can stop
       // before producing a stale `.scjs`.
@@ -1850,6 +1921,8 @@ private def compileJsDepInto(
     scjsPath:    os.Path
 ): Unit =
   val module = dep.module
+  if reportCodeBlockParseErrors(module, dep.path.toString) then
+    throw new RuntimeException(s"parse error in dep ${dep.path.last} (see diagnostic above)")
   val interfaces: Map[String, scalascript.ir.ModuleInterface] =
     if os.exists(artifactDir) && os.isDir(artifactDir) then
       os.list(artifactDir).filter(_.ext == "scim").flatMap { p =>
@@ -3284,21 +3357,24 @@ def checkWithInterfaceCommand(args: List[String]): Unit =
       println(s"=== Type checking (with interfaces): $file ===")
       try
         val module = Parser.parse(os.read(path))
-        // `check-with-iface` runs the typer in strict mode so that
-        // references to undefined names — names that resolve to neither
-        // the consumer's own defs, any imported `.scim`, nor the builtin
-        // prelude — surface as type errors with a non-zero exit code.
-        // Other entry points (`compile`, `emit-interface`, `emit-ir`)
-        // remain permissive for backward compatibility.
-        val typed =
-          if interfaces.isEmpty then Typer.typeCheckStrict(module)
-          else Typer.typeCheckWithInterfaces(module, interfaces, strict = true)
-        if typed.hasErrors then
+        if reportCodeBlockParseErrors(module, file) then
           hasErrors = true
-          typed.errors.foreach(e => System.err.println(s"  Error: ${e.show}"))
         else
-          println("OK")
-          println(typed.show)
+          // `check-with-iface` runs the typer in strict mode so that
+          // references to undefined names — names that resolve to neither
+          // the consumer's own defs, any imported `.scim`, nor the builtin
+          // prelude — surface as type errors with a non-zero exit code.
+          // Other entry points (`compile`, `emit-interface`, `emit-ir`)
+          // remain permissive for backward compatibility.
+          val typed =
+            if interfaces.isEmpty then Typer.typeCheckStrict(module)
+            else Typer.typeCheckWithInterfaces(module, interfaces, strict = true)
+          if typed.hasErrors then
+            hasErrors = true
+            typed.errors.foreach(e => System.err.println(s"  Error: ${e.show}"))
+          else
+            println("OK")
+            println(typed.show)
       catch case e: Exception =>
         hasErrors = true
         System.err.println(s"Error: ${e.getMessage}")
@@ -3318,7 +3394,7 @@ def printSection(s: Section, indent: Int): Unit =
   val prefix = "  " * indent
   println(s"$prefix${"#" * s.heading.level} ${s.heading.text}")
   s.content.foreach {
-    case Content.CodeBlock(lang, src, tree, _) =>
+    case Content.CodeBlock(lang, src, tree, _, _) =>
       val lines  = src.linesIterator.length
       val status = tree.map(_ => "parsed").getOrElse(
         if Lang.isParseable(lang) then "PARSE ERROR" else "untyped"
