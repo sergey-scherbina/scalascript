@@ -5651,3 +5651,142 @@ No new language features needed — reuse existing type system + JVM backend.
 ### Suggested second step — WASM chain (when WASM backend ships)
 
 Thin `backend-wasm-contract/` layer on top of `backend-wasm/` for Near or Polkadot.
+
+---
+
+## Speculative — Apache Spark backend
+
+> Not scheduled. No concrete timeline. Revisit after v1.24 language features land.
+> Natural fit: ScalaScript's existing `Dataset[T]` API maps directly to Spark.
+
+### Why it fits
+
+ScalaScript already has a local `Dataset[T]` implementation (v1.21) and
+distributed MapReduce (v1.22).  Apache Spark is the industry-standard
+distributed data processing framework — Scala-native, JVM-based.
+
+The mapping is almost 1-to-1:
+
+| ScalaScript | Spark |
+|-------------|-------|
+| `Dataset[T]` | `Dataset[T]` / `RDD[T]` |
+| `.map(f)` | `.map(f)` |
+| `.filter(p)` | `.filter(p)` |
+| `.flatMap(f)` | `.flatMap(f)` |
+| `.groupBy(key, value)` | `.groupByKey(key).mapValues(value)` |
+| `.reduce(f)` | `.reduce(f)` |
+| `.top(n)` | `.orderBy(...).limit(n)` |
+| `.countByValue` | `.groupBy(...).count()` |
+| `.join(other, on)` | `.join(other, on)` |
+| `MapReduce.run(input, map, reduce)` | `rdd.flatMap(map).reduceByKey(reduce)` |
+
+ScalaScript's type-checked, functional Dataset API becomes a high-level
+typed DSL on top of Spark — with the same source running locally (interpreter
+backend) or at scale (Spark backend).
+
+### What it unlocks
+
+```scalascript
+---
+name: word-count
+backend: spark
+---
+
+# Word Count
+
+```scalascript
+val lines = Dataset.fromPath[String]("/data/books/*.txt")
+
+val counts = lines
+  .flatMap(line => line.split("\\s+").toList)
+  .map(word => (word.toLowerCase, 1))
+  .groupBy(_._1, _._2)
+  .reduce(_ + _)
+  .top(100)
+
+counts.foreach { case (word, n) => println(s"$word: $n") }
+```
+
+This runs locally with `ssc run word-count.ssc` (interpreter, in-process)
+and at scale with `ssc run --backend spark word-count.ssc` (Spark cluster).
+Same source, same semantics, different scale.
+
+### Implementation path
+
+**Phase 1 — Local Spark session (~1 week):**
+
+1. New `backend-spark/` sbt module, depends on `spark-core` + `spark-sql`.
+2. `SparkGen.scala` — walks the Dataset IR and emits `SparkSession` + Dataset
+   operations.  The JVM backend already emits Scala 3; Spark backend emits
+   Scala 3 + Spark imports.
+3. `ssc run --backend spark file.ssc` starts a local `SparkSession` in-process
+   (no cluster needed for development).
+4. `Dataset.fromPath[String](glob)` maps to `spark.read.textFile(glob)`.
+
+**Phase 2 — Cluster submission (~1 week):**
+
+5. `ssc submit file.ssc --spark-master spark://host:7077` packages the job
+   as a fat JAR and calls `spark-submit`.
+6. Support `--spark-master yarn` / `--spark-master k8s://...` for cloud clusters.
+
+**Phase 3 — Spark SQL and DataFrames (~1 week):**
+
+7. Expose `DataFrame` as `Dataset[Row]` with a typed schema.
+8. ScalaScript's DSL primitives (`std/parsing`) map table schemas to Spark
+   `StructType` automatically.
+9. `sql"SELECT word, count(*) FROM words GROUP BY word"` — inline SQL via
+   existing string interpolation.
+
+### Key design decisions
+
+**1. Same `Dataset[T]` API, different backend**
+
+The user writes `Dataset[T]` code — the Spark backend compiles it to Spark,
+the interpreter backend runs it in-process.  No user-visible difference.
+Switching: change `backend: interpreter` to `backend: spark` in front-matter.
+
+**2. Lazy evaluation**
+
+Spark is lazy (transformations build a DAG, actions trigger execution).
+ScalaScript's `Dataset` is also lazy by design — the existing implementation
+already defers work until a terminal action (`.forEach`, `.reduce`, `.top`).
+No semantic mismatch.
+
+**3. Serialization**
+
+Spark needs user types to be serializable (Kryo or Java serialization).
+ScalaScript case classes compile to Scala 3 case classes — Spark can serialize
+them automatically via `Encoder` derivation.  The backend emits implicit
+`Encoder[T]` derivations for all `@state` types used in Dataset pipelines.
+
+**4. Type safety**
+
+ScalaScript's typer already type-checks `Dataset` operations.  The Spark
+backend adds one more check: all types used in a distributed `Dataset` must
+be serializable (no closures capturing non-serializable state).
+
+**5. Local simulation for development**
+
+`ssc run file.ssc` (no `--backend spark`) always uses the interpreter backend
+with the local in-process `Dataset` implementation.  No Spark, no cluster, instant
+feedback.  The Spark backend is only needed for production runs.
+
+### Comparison
+
+| | ScalaScript + Spark | Raw Spark (Scala) | PySpark | Flink |
+|-|--------------------|--------------------|---------|-------|
+| Type safety | ✓ (full) | ✓ (full) | ✗ (runtime) | ✓ |
+| Local dev without cluster | ✓ | ✓ (local mode) | ✓ | ✓ |
+| Same source local + cluster | ✓ | ✓ | ✓ | ✗ |
+| Markdown-structured pipelines | ✓ | ✗ | ✗ | ✗ |
+| Effect safety | ✓ | ✗ | ✗ | ✗ |
+| Multi-backend (JS, JVM, Spark) | ✓ | ✗ | ✗ | ✗ |
+
+### Prerequisites
+
+- v1.24 language features (for cleaner DSL)
+- Existing `Dataset[T]` + MapReduce API (already landed in v1.21–v1.22)
+- JVM backend (already exists — Spark backend reuses its Scala 3 emission)
+
+No new language features needed.  The Spark backend is a pure code-generation
+addition on top of existing IR.
