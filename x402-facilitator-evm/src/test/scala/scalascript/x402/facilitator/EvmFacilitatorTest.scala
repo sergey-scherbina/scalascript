@@ -253,6 +253,55 @@ class EvmFacilitatorTest extends AnyFunSuite:
       case _                         => fail("expected Fail")
   }
 
+  // ── Real on-chain settle (relayer-backed) ────────────────────────────
+  //
+  // Uses a mock EvmClient that responds to the JSON-RPC methods
+  // EvmChainAdapter.buildTransaction + broadcast hits. The relayer
+  // private key signs the settlement tx; we verify the broadcast call
+  // happens with a properly serialised EIP-1559 envelope and that
+  // SettleResult.Ok carries the chain-supplied hash.
+
+  test("settle (relayer): builds + signs + broadcasts transferWithAuthorization") {
+    val relayerKey = "0x" + "33" * 32
+    var capturedRaw: Option[String] = None
+    val mockBroadcastEvm = new EvmClient:
+      def blockNumber(): Future[BigInt]                                     = ???
+      def getBalance(address: String): Future[BigInt]                       = ???
+      def getCode(address: String): Future[String]                          = ???
+      def erc20Balance(token: String, address: String): Future[BigInt]      = Future.successful(BigInt(2_000_000))
+      def erc20Allowance(t: String, o: String, s: String): Future[BigInt]   = ???
+      def erc20Decimals(token: String): Future[Int]                         = ???
+      def erc20Symbol(token: String): Future[String]                        = ???
+      def getTransaction(hash: String): Future[Option[EvmTransaction]]      = ???
+      def getReceipt(hash: String): Future[Option[EvmReceipt]]              = ???
+      def waitForReceipt(hash: String, timeout: Duration): Future[EvmReceipt] = ???
+      def call(to: String, data: String): Future[String]                    = ???
+      def rpc(method: String, params: ujson.Value*): Future[ujson.Value]    = method match
+        case "eth_getTransactionCount"   => Future.successful(ujson.Str("0x0"))
+        case "eth_estimateGas"           => Future.successful(ujson.Str("0x12345"))   // 74565 gas
+        case "eth_maxPriorityFeePerGas"  => Future.successful(ujson.Str("0x77359400"))
+        case "eth_getBlockByNumber"      =>
+          Future.successful(ujson.Obj("baseFeePerGas" -> ujson.Str("0x77359400")))
+        case "eth_sendRawTransaction"    =>
+          capturedRaw = Some(params.head.str)
+          Future.successful(ujson.Str("0xc0ffee1234567890abcdef"))
+        case other                       =>
+          Future.failed(new RuntimeException(s"unexpected RPC: $other"))
+
+    val fac    = EvmFacilitator.withRelayer(mockBroadcastEvm, relayerKey)
+    val result = Await.result(fac.settle(makeSignedPayload(), testReq), 5.seconds)
+    result match
+      case SettleResult.Ok(hash) => assert(hash == "0xc0ffee1234567890abcdef")
+      case _                     => fail(s"expected Ok, got $result")
+    assert(capturedRaw.isDefined, "eth_sendRawTransaction was not called")
+    val raw = capturedRaw.get.stripPrefix("0x")
+    // EIP-1559 envelope type byte
+    assert(raw.startsWith("02"), s"expected EIP-1559 tx (0x02 prefix), got: $raw")
+    // calldata for transferWithAuthorization starts with selector 0xe3ee160e —
+    // it appears somewhere inside the RLP-encoded body (data field).
+    assert(raw.contains("e3ee160e"), "missing transferWithAuthorization selector in raw tx")
+  }
+
   // ── util ──────────────────────────────────────────────────────────────
 
   private def decodeHex(s: String): Array[Byte] =

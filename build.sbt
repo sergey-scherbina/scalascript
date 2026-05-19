@@ -640,7 +640,7 @@ lazy val x402FacilitatorCoinbase = project
 
 lazy val x402FacilitatorEvm = project
   .in(file("x402-facilitator-evm"))
-  .dependsOn(x402Core, clientEvm, blockchainEvm, cryptoBouncycastle)
+  .dependsOn(x402Core, clientEvm, blockchainEvm, walletStrategyEoa, cryptoBouncycastle)
   .settings(
     name := "scalascript-x402-facilitator-evm",
     libraryDependencies ++= Seq(
