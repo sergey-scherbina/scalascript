@@ -27,6 +27,17 @@ class McpServerBuilder:
   // Lifecycle hooks — fired after the `initialize` handshake / on EOF.
   private[mcp] var onConnected:    () => Unit = () => ()
   private[mcp] var onDisconnected: () => Unit = () => ()
+  // v1.17.x — resource subscription hooks.  Fired when a client sends
+  // `resources/subscribe` or `resources/unsubscribe`.  Default no-ops:
+  // the server still accepts the request and replies success; the user
+  // wires watchers (file system, DB triggers, …) inside the hook and
+  // pushes `notifications/resources/updated` via `notifyResourceUpdate`
+  // when content changes.  Tracks subscribed URIs server-side so
+  // `notifyResourceUpdate(uri)` can no-op when nobody subscribed.
+  private[mcp] var onResourceSubscribe:   String => Unit = _ => ()
+  private[mcp] var onResourceUnsubscribe: String => Unit = _ => ()
+  private[mcp] val subscribedResources =
+    java.util.concurrent.ConcurrentHashMap.newKeySet[String]()
 
   /** Active server→client subscribers — one per persistent connection.
    *  Stdio/Spawn keep exactly one (the writer captured by `serve()`); Ws
@@ -129,6 +140,20 @@ class McpServerBuilder:
 
   def setOnConnected(f: () => Unit):    Unit = onConnected    = f
   def setOnDisconnected(f: () => Unit): Unit = onDisconnected = f
+
+  /** Register a hook fired for every inbound `resources/subscribe`.  Typical
+   *  use: start a file watcher / DB trigger for the given uri here, then
+   *  call `notifyResourceUpdate(uri)` from the watcher's callback. */
+  def setOnResourceSubscribe(f:   String => Unit): Unit = onResourceSubscribe   = f
+  def setOnResourceUnsubscribe(f: String => Unit): Unit = onResourceUnsubscribe = f
+
+  /** Push a `notifications/resources/updated` for `uri` to every active
+   *  subscriber connection.  No-op if no client has subscribed to this
+   *  uri — saves traffic for resources nobody is watching.  Bypass the
+   *  filter via `notify(...)` directly if you want unconditional broadcast. */
+  def notifyResourceUpdate(uri: String): Unit =
+    if subscribedResources.contains(uri) then
+      notify(McpProtocol.Method.ResourcesUpdated, ujson.Obj("uri" -> uri))
 
 /** Result of a tool handler — list of content items + isError flag.
  *  `Map[String, Any]` flows through user code; we lift to `ujson.Value`
@@ -271,6 +296,12 @@ object McpServerCore:
       case McpProtocol.Method.ResourcesRead =>
         readResource(builder, params, id)
 
+      case McpProtocol.Method.ResourcesSubscribe =>
+        subscribeResource(builder, params, id)
+
+      case McpProtocol.Method.ResourcesUnsubscribe =>
+        unsubscribeResource(builder, params, id)
+
       case McpProtocol.Method.PromptsList =>
         val entries = builder.prompts.values.toList.map { r =>
           McpProtocol.PromptEntry(r.name, r.description, r.arguments)
@@ -324,6 +355,22 @@ object McpServerCore:
               catch case e: Throwable =>
                 JsonRpc.encodeError(id, JsonRpc.ErrorCode.InternalError,
                   Option(e.getMessage).getOrElse(e.getClass.getSimpleName))
+
+  private def subscribeResource(builder: McpServerBuilder, params: ujson.Value, id: ujson.Value): String =
+    params.objOpt.flatMap(_.get("uri").flatMap(_.strOpt)) match
+      case None      => invalidParams(id, "resources/subscribe: missing 'uri'")
+      case Some(uri) =>
+        builder.subscribedResources.add(uri)
+        try builder.onResourceSubscribe(uri) catch case _: Throwable => ()
+        JsonRpc.encodeResult(id, ujson.Obj())
+
+  private def unsubscribeResource(builder: McpServerBuilder, params: ujson.Value, id: ujson.Value): String =
+    params.objOpt.flatMap(_.get("uri").flatMap(_.strOpt)) match
+      case None      => invalidParams(id, "resources/unsubscribe: missing 'uri'")
+      case Some(uri) =>
+        builder.subscribedResources.remove(uri)
+        try builder.onResourceUnsubscribe(uri) catch case _: Throwable => ()
+        JsonRpc.encodeResult(id, ujson.Obj())
 
   private def getPrompt(builder: McpServerBuilder, params: ujson.Value, id: ujson.Value): String =
     params.objOpt match

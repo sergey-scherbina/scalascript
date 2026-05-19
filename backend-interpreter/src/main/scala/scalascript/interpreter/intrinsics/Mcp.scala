@@ -470,6 +470,32 @@ private object Mcp:
         Value.UnitV
       case _ => throw InterpretError("srv.onDisconnected(() => ...)")
     })
+    // v1.17.x — resource subscriptions.  Hooks fire when the client
+    // sends `resources/subscribe` / `resources/unsubscribe`; typical
+    // wiring: spin up a file/DB watcher in the subscribe handler and
+    // call `srv.notifyResourceUpdate(uri)` from its callback.
+    def onResSubFn = Value.NativeFnV("McpServer.onResourceSubscribe", Computation.pureFn {
+      case List(handler) =>
+        builder.setOnResourceSubscribe { uri =>
+          ctx.invokeCallback(handler, List(Value.StringV(uri))); ()
+        }
+        Value.UnitV
+      case _ => throw InterpretError("srv.onResourceSubscribe(uri => ...)")
+    })
+    def onResUnsubFn = Value.NativeFnV("McpServer.onResourceUnsubscribe", Computation.pureFn {
+      case List(handler) =>
+        builder.setOnResourceUnsubscribe { uri =>
+          ctx.invokeCallback(handler, List(Value.StringV(uri))); ()
+        }
+        Value.UnitV
+      case _ => throw InterpretError("srv.onResourceUnsubscribe(uri => ...)")
+    })
+    def notifyResUpdateFn = Value.NativeFnV("McpServer.notifyResourceUpdate", Computation.pureFn {
+      case List(Value.StringV(uri)) =>
+        builder.notifyResourceUpdate(uri)
+        Value.UnitV
+      case _ => throw InterpretError("srv.notifyResourceUpdate(uri)")
+    })
     // v1.17.x — server-initiated notifications.  `srv.notify(method, params)`
     // broadcasts a JSON-RPC notification frame to every currently-active
     // subscriber (Stdio/Spawn: one writer; Ws: one per connected client;
@@ -505,14 +531,17 @@ private object Mcp:
       case _ => throw InterpretError("srv.request(method[, params[, timeoutMs]])")
     })
     Value.InstanceV("McpServer", Map(
-      "tool"           -> toolFn,
-      "toolWithSchema" -> toolWithSchemaFn,
-      "resource"       -> resourceFn,
-      "prompt"         -> promptFn,
-      "onConnected"    -> onConnFn,
-      "onDisconnected" -> onDisconnFn,
-      "notify"         -> notifyFn,
-      "request"        -> requestFn
+      "tool"                   -> toolFn,
+      "toolWithSchema"         -> toolWithSchemaFn,
+      "resource"               -> resourceFn,
+      "prompt"                 -> promptFn,
+      "onConnected"            -> onConnFn,
+      "onDisconnected"         -> onDisconnFn,
+      "onResourceSubscribe"    -> onResSubFn,
+      "onResourceUnsubscribe"  -> onResUnsubFn,
+      "notifyResourceUpdate"   -> notifyResUpdateFn,
+      "notify"                 -> notifyFn,
+      "request"                -> requestFn
     ))
 
   private def registerTool(

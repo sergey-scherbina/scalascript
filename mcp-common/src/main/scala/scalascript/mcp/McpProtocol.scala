@@ -18,29 +18,33 @@ object McpProtocol:
   /** Spec-locked method names — string-keyed because JSON-RPC dispatches by
    *  exact method name. */
   object Method:
-    val Initialize    = "initialize"
-    val Initialized   = "notifications/initialized"
-    val Ping          = "ping"
-    val ToolsList     = "tools/list"
-    val ToolsCall     = "tools/call"
-    val ResourcesList = "resources/list"
-    val ResourcesRead = "resources/read"
-    val PromptsList   = "prompts/list"
-    val PromptsGet    = "prompts/get"
+    val Initialize           = "initialize"
+    val Initialized          = "notifications/initialized"
+    val Ping                 = "ping"
+    val ToolsList            = "tools/list"
+    val ToolsCall            = "tools/call"
+    val ResourcesList        = "resources/list"
+    val ResourcesRead        = "resources/read"
+    val ResourcesSubscribe   = "resources/subscribe"
+    val ResourcesUnsubscribe = "resources/unsubscribe"
+    val ResourcesUpdated     = "notifications/resources/updated"
+    val PromptsList          = "prompts/list"
+    val PromptsGet           = "prompts/get"
 
   /** Protocol version we advertise.  MCP spec uses a date-stamped version
    *  string; bump when we add notification/sampling/etc. support. */
   val ProtocolVersion = "2024-11-05"
 
   /** `initialize` result — what the server tells the client about itself
-   *  and which capabilities it offers.  Phase 1 advertises tools / resources /
-   *  prompts as supported but without listChanged subscriptions. */
+   *  and which capabilities it offers.  Resources capability now advertises
+   *  `subscribe: true` since we implement subscribe/unsubscribe + the
+   *  matching notifications/resources/updated push. */
   def initializeResult(serverName: String, serverVersion: String): ujson.Value =
     ujson.Obj(
       "protocolVersion" -> ProtocolVersion,
       "capabilities" -> ujson.Obj(
         "tools"     -> ujson.Obj(),
-        "resources" -> ujson.Obj(),
+        "resources" -> ujson.Obj("subscribe" -> true),
         "prompts"   -> ujson.Obj()
       ),
       "serverInfo" -> ujson.Obj(

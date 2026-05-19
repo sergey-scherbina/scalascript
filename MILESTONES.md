@@ -3465,23 +3465,36 @@ the codegen output.
      `scala.util.Using.resource` semantics without the typeclass
      dance.  Idiomatic for `Using.resource(mcpConnect(transport)) {
      client => client.callTool(...) }`.
+   - **Resource subscriptions** — MCP `resources/subscribe` /
+     `resources/unsubscribe` + `notifications/resources/updated`.
+     Dispatch handles both subscribe methods (returns empty success);
+     `McpServerBuilder` tracks subscribed URIs in a thread-safe set;
+     `onResourceSubscribe(handler)` / `onResourceUnsubscribe(handler)`
+     fire on each request — typical wiring spins up a file/DB watcher
+     in the subscribe hook.  `srv.notifyResourceUpdate(uri)` pushes a
+     `notifications/resources/updated` frame to all subscribers iff
+     `uri` is subscribed (saves traffic for unwatched resources).
+     `initialize` capabilities now advertise `resources.subscribe: true`
+     so MCP clients know the server honours the subscription protocol.
 
-   70 tests across thirteen suites all pass (added
-   McpDerivesRaiiTest 5: `Using.resource` happy-path + throws +
-   no-close resource; `derives McpSchema` schema generation;
-   `srv.toolWithSchema` registration).
+   76 tests across fourteen suites all pass (added
+   McpDerivesRaiiTest 5 + McpResourceSubscriptionTest 6).
 
    v1.17.x is now feature-complete on all 5 transport surfaces
    (Stdio / Spawn / Http / Ws / Browser-XHR + Browser-fetch) with
    full bidirectional capability (server↔client requests +
    notifications + streaming responses), typed-schema tool
-   registration, and RAII resource scoping.
+   registration, RAII resource scoping, and live-updating resource
+   subscriptions.
 
 2. ~~**Type-class layer** (`derives McpSchema`)~~ — landed 2026-05-19
    (above).
-3. **Streaming resources** — would let `srv.resource(uri)` return a
-   Generator yielding chunks for huge resources.  Niche; MCP
-   `resources/read` returns a single envelope.  Deferred.
+3. ~~**Streaming resources**~~ — landed 2026-05-19 as resource
+   subscriptions (`resources/subscribe` + `notifications/resources/updated`,
+   above).  Generator-based chunked-content for huge single resources
+   stays deferred (MCP wire returns one ResourceResult envelope, so
+   protocol-level chunked transfer isn't a thing — the in-memory
+   payload itself is the only optimisation).
 4. ~~**Bidirectional sampling**~~ — landed 2026-05-19 (above).
 5. ~~**`using mcpConnect(...) { client => … }` RAII**~~ — landed
    2026-05-19 as `Using.resource(...)` (above).
