@@ -127,10 +127,124 @@ processed by each backend.
 | `scalascript` | ScalaScript | Full ScalaScript dialect: effects, handlers, tail-call optimisation, content helpers, module imports. |
 | `ssc` | ScalaScript | Legacy alias for `scalascript`. |
 | `scala` | Standard Scala 3 | No ScalaScript-specific extensions. JS backend compiles via Scala.js. |
+| `sql` | SQL / JDBC | Parameterised SQL executed via JDBC.  Every `${expr}` becomes a single positional `?` bind parameter; string substitution is never performed.  Block evaluates to `Seq[Row]` (SELECT) or `Int` update count (DDL/DML).  JVM-only target; other backends emit `UnknownBlockLanguage`. |
 
 A `.ssc` document may freely mix `scala` and `scalascript` blocks.
 Definitions are visible across blocks within the same file.
 Other tags (`json`, `yaml`, `text`, etc.) are treated as inert prose.
+
+### 3.3.1 SQL / JDBC blocks
+
+A `sql` block is *parameterised executable*: opaque to the front-end
+parser (no SQL grammar is part of the toolchain), but with one
+mandatory front-end pass — **bind-parameter rewriting**.
+
+**Binding rule (the entire safety contract).**  Inside a `sql` block,
+every `${expr}` is rewritten to a single positional `?` placeholder,
+and `expr` is appended to an ordered bind list.  The rewriter runs
+before any backend sees the source.  String substitution into SQL is
+**not available** — there is no `$!{...}` escape, no `raw"..."`
+variant, no opt-out.  The contract: a `sql` block can never produce a
+SQL injection, no matter what the surrounding ScalaScript code does.
+
+This rules out dynamic identifiers (table names, column names, `ORDER
+BY` columns).  Build those with separate `scalascript` blocks that
+emit a fully-formed `sql` block via composition — never by string
+concatenation inside the SQL.
+
+```sql
+SELECT id, name, email
+FROM users
+WHERE tenant_id = ${tenantId}
+  AND status   = ${status}
+LIMIT ${pageSize}
+```
+↓ rewritten by the front-end to:
+```
+PreparedStatement(
+  "SELECT id, name, email FROM users WHERE tenant_id = ? AND status = ? LIMIT ?",
+  bind = [tenantId, status, pageSize])
+```
+
+`${...}` inside SQL string literals (`'...'`, `"..."`) still binds —
+the rewriter is lexer-level, not string-aware.  This is intentional:
+binding inside a literal is what the user wants 100% of the time
+(`WHERE name = '${name}'` is the natural way to write it but is
+trivially injectable; rewriting to `WHERE name = ?` makes it safe).
+A literal `$` that should not bind is escaped as `$$`.
+
+**Result type.**  A `sql` block is an expression.  Its value depends
+on the first statement keyword:
+
+| Leading keyword | Result type |
+|-----------------|-------------|
+| `SELECT`, `WITH`, `VALUES`, `SHOW`, `EXPLAIN` | `Seq[Row]` |
+| `INSERT`, `UPDATE`, `DELETE`, `MERGE` | `Int` (affected rows) |
+| `CREATE`, `DROP`, `ALTER`, `TRUNCATE`, `GRANT`, `REVOKE` | `Int` (typically `0`) |
+
+`Row` is a positional + named tuple: `row(0)`, `row("name")`,
+`row.as[User]`.  `.as[T]` projects into a case class by field name;
+mismatched columns or types raise at runtime with a clear diagnostic.
+
+```scalascript
+case class User(id: Long, name: String, email: String)
+
+val users: Seq[User] = (```sql
+  SELECT id, name, email FROM users WHERE active = ${true}
+```).as[User]
+```
+
+A `sql` block contains exactly one statement.  Multi-statement scripts
+go in several blocks, or use the `runScript` helper from the runtime
+which takes a `String` (no `${}`-binding).
+
+**Connection resolution.**  In priority order:
+
+1. If a `given Connection` (or `given DataSource`) is in scope at the
+   block site, it is used.  This is the override path — typically for
+   tests with in-memory H2.
+2. Otherwise, the module's front-matter `databases:` entry named by
+   the block's `@db=name` attribute (default: `default`).  Connections
+   declared in front-matter are opened lazily and cached for the
+   module's lifetime.
+
+```yaml
+---
+databases:
+  default:
+    url: jdbc:postgresql://localhost:5432/app
+    user: ${env:DB_USER}
+    password: ${env:DB_PASSWORD}
+  reports:
+    url: jdbc:postgresql://reports.internal:5432/warehouse
+    user: ${env:RPT_USER}
+    password: ${env:RPT_PASSWORD}
+---
+```
+
+```sql @db=reports
+SELECT count(*) FROM events WHERE day = ${today}
+```
+
+`${env:NAME}` references in front-matter resolve from process
+environment at module load.  Missing env vars are an immediate fatal
+diagnostic — no silent fallback to empty string.
+
+**Drivers.**  The `backend-sql-runtime` module bundles H2 and SQLite
+(both embedded, no network) so that `jdbc:h2:mem:test` and
+`jdbc:sqlite:./data.db` work with zero configuration.  Any other
+driver — PostgreSQL, MySQL, Oracle, MSSQL — is brought in via a
+standard `dep:` link from the front-matter:
+
+```markdown
+[postgres](dep:org.postgresql/postgresql:42.7.4)
+```
+
+**Target support.**  `sql` is JVM-only: the interpreter and JVM
+backend execute the block via JDBC; the JS, Node, and WASM backends
+emit `UnknownBlockLanguage` (the source is preserved in the IR so
+future browser-side or Wasm-side SQL engines can pick it up without a
+spec change).
 
 ### 3.4 Inline Interpolation
 

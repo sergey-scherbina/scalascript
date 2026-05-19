@@ -5926,3 +5926,156 @@ feedback.  The Spark backend is only needed for production runs.
 
 No new language features needed.  The Spark backend is a pure code-generation
 addition on top of existing IR.
+
+## v1.26 — `sql` fenced code blocks (JDBC)
+
+**Status: open. Branch `worktree-v1.26-sql-jdbc`.**
+
+Adds the `sql` block tag (§ 3.3 / § 3.3.1 of `SPEC.md`): parameterised
+SQL executed via JDBC.  The hard design rule and entire safety story
+in one sentence: **every `${expr}` becomes a single `?` bind parameter
+— string substitution into SQL is not part of the language, period**.
+A `sql` block can never produce a SQL injection regardless of what
+the surrounding ScalaScript code does, because there is no syntax to
+splice a `String` into SQL in the first place.
+
+Decisions (resolved on the way in):
+- Binding: `${expr}` → `?`, safe-by-default, no unsafe-splice escape.
+- Connection source: YAML front-matter `databases:` by default;
+  `given Connection` in scope overrides for tests / one-offs.
+- Result type: `Seq[Row]` for SELECT-family, `Int` for DML/DDL.
+  `row.as[CaseClass]` projects by field name at runtime.
+- Drivers bundled in core: H2 + SQLite (both embedded, no network).
+  Everything else (Postgres, MySQL, …) via `dep:` import.
+- Target: JVM-only.  JS / Node / Wasm emit `UnknownBlockLanguage`;
+  the source survives verbatim in the IR for future backends.
+
+Parallel-safety note: v1.25 (`worktree-js-node-blocks`) edits the
+same `core/.../ast/Lang.scala` and the same § 3.3 of `SPEC.md`.
+Whichever lands second rebases on the first — the additions are
+co-located but non-overlapping.
+
+### Phase 1 — SPEC + milestone (this iteration)
+
+- [x] `SPEC.md` § 3.3 table row + new § 3.3.1 (binding rule, result
+      type, connection resolution, drivers, target support).
+- [x] `MILESTONES.md` v1.26 entry (this section).
+
+### Phase 2 — Front-end recognition
+
+- [ ] `core/.../ast/Lang.scala`: add `Sql = "sql"`, `isSql`,
+      `isParameterizedExec` predicate.  Block is neither parseable
+      nor a String value — its IR carries `(sqlWithQ, binds)` after
+      Phase 3 rewriting.
+- [ ] `Normalize` routes `sql` blocks through a new IR node
+      `Content.SqlBlock(sqlWithQ, binds, dbName)` rather than the
+      generic `EmbeddedBlock`.  At this phase `binds = Seq.empty`
+      and `sqlWithQ` equals the raw source — the rewriter lands in
+      Phase 3.
+- [ ] `Denormalize` reconstructs the original `${expr}` form for
+      round-trips (re-stitch source from `sqlWithQ` + bind exprs).
+- [ ] Tests: `core/.../parser/SqlBlockTest.scala`, mirroring
+      `NodeJsBlockTest`: lang preservation, IR routing,
+      Normalize/Denormalize round-trip.
+
+### Phase 3 — Bind-parameter rewriter
+
+- [ ] New stage in `Normalize` (or a sibling pass): walks the `sql`
+      block source, splits on `${...}` occurrences using the existing
+      ScalaScript interpolation lexer (so brace-balanced exprs work
+      and embedded `}` inside string literals don't confuse it).
+- [ ] Output: `(sqlWithQ: String, binds: Seq[ast.Expr])`.  `$$`
+      escapes to a literal `$` in the SQL.  The rewriter is
+      lexer-level — it does not parse SQL, does not care about
+      string boundaries, does not distinguish "safe" from "unsafe"
+      positions.  Every `${...}` is a bind.
+- [ ] Diagnostics: unbalanced `${`, empty `${}`, `$` without `{` and
+      not doubled (`$x` is reserved for clarity — must be `${x}`).
+- [ ] Tests: simple, multiple binds, `$$` escape, `${}` inside SQL
+      string literals (still binds, that's the whole point), nested
+      braces inside the expr (`${m("k")}`), unicode in binds.
+
+### Phase 4 — `backend-sql-runtime` module
+
+New sbt module `backend-sql-runtime/` with no dependency on any
+backend SPI — pure runtime library, callable from interpreter and
+from JvmGen-emitted code.
+
+- [ ] `SqlRuntime.execute(conn, sqlWithQ, binds): SqlResult`.
+      `SqlResult = Rows(Seq[Row]) | UpdateCount(Int)`.
+      Statement-type detection by leading keyword (§ 3.3.1 table).
+- [ ] `Row` type: backed by `Array[Any]` + a `Map[String, Int]`
+      column index.  `row(i)`, `row(name)`, `row.toMap`,
+      `row.as[T]` (case class projection via Scala 3 Mirror, by
+      field name — error if a non-Option field is missing or null).
+- [ ] Bundled deps: `com.h2database % h2`, `org.xerial % sqlite-jdbc`.
+- [ ] JDBC binding: `setObject(i, v)` for primitives + boxed types;
+      `setNull` for `null` / `None`; `setBigDecimal`, `setBytes` for
+      `BigDecimal` / `Array[Byte]`; `Instant`/`LocalDate` via
+      `setObject` with `JDBCType` hint.
+- [ ] Tests against in-memory H2 covering each statement family,
+      `null` binds, `Option[T]` binds, `.as[CaseClass]` happy + error
+      paths, parallel-connection isolation.
+
+### Phase 5 — Connection plumbing
+
+- [ ] `schemas/frontmatter.yaml`: add `databases:` property — map of
+      `name → { url, user?, password?, driver? }` with `${env:VAR}`
+      references in value strings.
+- [ ] `ConnectionRegistry`: resolves env refs at module load, opens
+      JDBC connections lazily, caches per-module, closes on module
+      teardown.  Missing env var → fatal diagnostic at load time.
+- [ ] Block-level `@db=name` attribute on the `sql` fence selects a
+      named connection; absent → `default`.
+- [ ] `given Connection` (or `given DataSource`) in lexical scope at
+      the block site overrides the registry — registry isn't even
+      consulted.
+- [ ] Tests: YAML config path, given-override path, missing-env
+      diagnostic, two distinct `@db=` blocks share or don't share
+      caches as expected.
+
+### Phase 6 — Interpreter + JvmGen integration
+
+- [ ] Interpreter: `SqlBlock` IR node evaluates via
+      `SqlRuntime.execute` against the resolved `Connection`.  The
+      block's value is `Seq[Row]` or `Int` as per § 3.3.1.
+- [ ] `JvmGen`: emit Scala code that calls `SqlRuntime.execute(...)`
+      with the same `(sqlWithQ, binds, conn)` triple.  Bind exprs
+      are spliced as Scala expressions; the SQL string is a string
+      literal — no runtime rewriting on the JVM hot path.
+- [ ] `JsGen`, `NodeBackend`, `WasmBackend`: emit a
+      `Diagnostic.UnknownBlockLanguage("sql")` referencing the block
+      position; do not fail other blocks in the module.
+- [ ] End-to-end test (`backend-interpreter/.../InterpreterTest.scala`
+      + a JvmGen test): same `.ssc` source — `CREATE`, `INSERT` with
+      binds, `SELECT` with binds, `.as[CaseClass]` — runs identically
+      under interpreter and under JvmGen-compiled code.
+
+### Phase 7 — Examples + conformance
+
+- [ ] `examples/sql-h2-quickstart.ssc`: zero-config H2 in-memory,
+      CREATE/INSERT/SELECT with bind params, `.as[User]`.  Doubles
+      as the smoke test for the bundled-driver story.
+- [ ] `examples/sql-sqlite-file.ssc`: file-backed SQLite, illustrates
+      `@db=` and frontmatter config.
+- [ ] `conformance/`: add a `sql` category.  JVM + interpreter expected
+      to match bit-for-bit on a deterministic schema; JS / Node / Wasm
+      expected to emit `UnknownBlockLanguage` for every `sql` block.
+- [ ] `docs/targets.md`: extend the capability matrix with a `sql`
+      column.  Document the binding rule + driver story in
+      `docs/markdown-as-syntax.md` if `sql` is not already covered.
+
+### Out of scope (deferred, not committed)
+
+- Transactional API.  Phase 6 commits per statement (JDBC default).
+  A `transaction { ... }` block-level helper is a follow-up — design
+  it once the first real consumer surfaces.
+- Static SQL type-checking (column types vs. case class fields at
+  compile time).  Possible later via JDBC metadata at parse time,
+  but adds a database round-trip to compilation — kept off until
+  someone asks.
+- Streaming results / cursor mode.  Phase 6 returns full `Seq[Row]`.
+  Adding a `.stream` variant is mechanical; defer until a real
+  large-result use case.
+- Browser-side SQL (sql.js / DuckDB-Wasm).  IR preserves the source
+  so this can be added without a spec change.
