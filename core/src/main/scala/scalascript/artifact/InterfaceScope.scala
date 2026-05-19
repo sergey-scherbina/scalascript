@@ -1,7 +1,7 @@
 package scalascript.artifact
 
 import scalascript.ir.ModuleInterface
-import scalascript.typer.{Symbol, Scope, SType, SymbolKind as TSymbolKind}
+import scalascript.typer.{Symbol, Scope, SType, SymbolKind as TSymbolKind, RefMember, MatchCase}
 
 /** A `Scope` populated from a pre-compiled `ModuleInterface`.
  *
@@ -99,9 +99,10 @@ object InterfaceScope:
    *  type information for the affected symbol.
    *
    *  v2.0 — round-trips with `SType.show` for `Named`, `Function`,
-   *  `Tuple`, `Union`, `Intersection`, and `HigherKinded`.  Refinement
-   *  types (`A { def foo: Int }`) and match types remain out of scope
-   *  and fall back to `SType.Any`.
+   *  `Tuple`, `Union`, `Intersection`, `HigherKinded`, `Refinement`
+   *  (`A { def foo: Int }`) and `Match` (`T match { case Int => String }`).
+   *  A refinement / match type binds to the immediately-preceding primary
+   *  (so `A => B { def foo: Int }` parses as `A => (B { def foo: Int })`).
    */
   private[artifact] def parseSType(tpeStr: String): SType =
     val parser = TypeParser(tpeStr)
@@ -262,15 +263,168 @@ object InterfaceScope:
 
     /** Primary — either a real `SType` (`Single`) or a paren-shaped
      *  prefix (`Group` / `Empty`) whose meaning depends on whether
-     *  `=>` follows. */
+     *  `=>` follows.
+     *
+     *  After the base primary is parsed, we look for refinement / match
+     *  suffixes (`{ ... }` and `match { ... }`) and wrap the primary if
+     *  found.  These bind tighter than `&` / `|` / `=>`, so they attach
+     *  to the closest preceding primary — `A => B { def foo: Int }`
+     *  becomes `A => (B { def foo: Int })`.
+     */
     private def parsePrimary(): Option[Primary] =
       skipWs()
       if pos >= len then None
       else
-        val c = s.charAt(pos)
-        if c == '(' then parseParen()
-        else if isIdentStart(c) then parseNamedOrApp()
-        else None
+        val base =
+          val c = s.charAt(pos)
+          if c == '(' then parseParen()
+          else if isIdentStart(c) then parseNamedOrApp()
+          else None
+        base.flatMap(parseTypeSuffix)
+
+    /** Apply zero or more postfix `{ ... }` (refinement) or
+     *  `match { ... }` clauses to a primary.  Each suffix consumes the
+     *  current primary and wraps it. */
+    private def parseTypeSuffix(p: Primary): Option[Primary] =
+      skipWs()
+      if peek == '{' then
+        parseRefinementBody().flatMap { members =>
+          val base = primaryToSType(p)
+          parseTypeSuffix(Primary.Single(SType.Refinement(base, members)))
+        }
+      else if peekKeyword("match") then
+        parseMatchBody().flatMap { cases =>
+          val scrut = primaryToSType(p)
+          parseTypeSuffix(Primary.Single(SType.Match(scrut, cases)))
+        }
+      else Some(p)
+
+    /** True if the upcoming non-ws token is exactly the keyword `kw`
+     *  (not a longer identifier that starts with `kw`). */
+    private def peekKeyword(kw: String): Boolean =
+      val save = pos
+      skipWs()
+      val ok =
+        pos + kw.length <= len &&
+        s.substring(pos, pos + kw.length) == kw &&
+        (pos + kw.length >= len || !isIdentPart(s.charAt(pos + kw.length)))
+      pos = save
+      ok
+
+    /** Consume the literal keyword `kw` (with optional leading ws).
+     *  Caller must have already verified with `peekKeyword`. */
+    private def consumeKeyword(kw: String): Boolean =
+      skipWs()
+      if pos + kw.length <= len &&
+         s.substring(pos, pos + kw.length) == kw &&
+         (pos + kw.length >= len || !isIdentPart(s.charAt(pos + kw.length)))
+      then { pos += kw.length; true }
+      else false
+
+    /** Parse a `{ <member>; <member>; ... }` refinement body where each
+     *  member is `<kind> <name>: <Type>` and `<kind>` ∈ {def, val, type}. */
+    private def parseRefinementBody(): Option[List[RefMember]] =
+      if !consume('{') then return None
+      val members = scala.collection.mutable.ListBuffer.empty[RefMember]
+      skipWs()
+      // Empty `{ }` is valid — yields a refinement with no members.
+      if pos < len && s.charAt(pos) == '}' then
+        pos += 1
+        return Some(Nil)
+      var ok = true
+      var first = true
+      while ok && first || ok && consume(';') do
+        first = false
+        parseRefMember() match
+          case Some(m) => members += m
+          case None    => ok = false
+        skipWs()
+        if ok && pos < len && s.charAt(pos) == '}' then
+          pos += 1
+          return Some(members.toList)
+      None
+
+    /** Parse a single refinement member.
+     *
+     *  Accepted shapes (only `:` is emitted by `SType.show`; `=` is
+     *  tolerated for type aliases on the input side so source-style
+     *  `type T = Int` parses without an extra normalisation step):
+     *
+     *  - `def <ident>: <Type>`
+     *  - `val <ident>: <Type>`
+     *  - `type <ident>: <Type>`
+     *  - `type <ident> = <Type>`
+     */
+    private def parseRefMember(): Option[RefMember] =
+      skipWs()
+      val kindStart = pos
+      val kind =
+        if consumeKeyword("def") then "def"
+        else if consumeKeyword("val") then "val"
+        else if consumeKeyword("type") then "type"
+        else { pos = kindStart; return None }
+      skipWs()
+      val nameStart = pos
+      if !isIdentStart(peek) then return None
+      while pos < len && isIdentPart(s.charAt(pos)) do pos += 1
+      val name = s.substring(nameStart, pos)
+      skipWs()
+      // For `type` members, accept either `:` or `=` as the separator.
+      val sep =
+        if consume(':') then true
+        else if kind == "type" && consumeSingleEquals() then true
+        else false
+      if !sep then return None
+      parseType().map(t => RefMember(kind, name, t))
+
+    /** Consume a single `=` (but not `=>`) preceded by optional ws. */
+    private def consumeSingleEquals(): Boolean =
+      skipWs()
+      if pos < len && s.charAt(pos) == '=' &&
+         (pos + 1 >= len || s.charAt(pos + 1) != '>')
+      then { pos += 1; true }
+      else false
+
+    /** Parse a `{ case <pat> => <rhs>; case <pat> => <rhs>; ... }` body
+     *  of a match-type. */
+    private def parseMatchBody(): Option[List[MatchCase]] =
+      if !consumeKeyword("match") then return None
+      skipWs()
+      if !consume('{') then return None
+      val cases = scala.collection.mutable.ListBuffer.empty[MatchCase]
+      var ok = true
+      var first = true
+      while ok && first || ok && consume(';') do
+        first = false
+        parseMatchCase() match
+          case Some(c) => cases += c
+          case None    => ok = false
+        skipWs()
+        if ok && pos < len && s.charAt(pos) == '}' then
+          pos += 1
+          return Some(cases.toList)
+      None
+
+    /** Parse a single match-case: `case <pattern> => <rhs>`.
+     *  A bare `_` pattern is recorded as `SType.Named("_", Nil)`.
+     *
+     *  The pattern parser intentionally stops at the case arrow — we
+     *  parse only at the `Union` precedence level (no `=>`) so that
+     *  `case Int => String` keeps `Int` as the pattern, not
+     *  `Int => String`.  A function-typed pattern can still be written
+     *  with explicit parens: `case (Int => String) => Any`. */
+    private def parseMatchCase(): Option[MatchCase] =
+      if !consumeKeyword("case") then return None
+      skipWs()
+      val pattern =
+        if pos < len && s.charAt(pos) == '_' &&
+           (pos + 1 >= len || !isIdentPart(s.charAt(pos + 1)))
+        then { pos += 1; Some(SType.Named("_", Nil)) }
+        else parseUnion().map(primaryToSType)
+      pattern.flatMap { pat =>
+        if !consumeArrow() then None
+        else parseType().map(rhs => MatchCase(pat, rhs))
+      }
 
     private def parseParen(): Option[Primary] =
       // Caller has verified that we sit on '('.

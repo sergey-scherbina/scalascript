@@ -1,7 +1,7 @@
 package scalascript.artifact
 
 import org.scalatest.funsuite.AnyFunSuite
-import scalascript.typer.SType
+import scalascript.typer.{SType, RefMember, MatchCase}
 
 /** Round-trip + shape coverage for [[InterfaceScope.parseSType]].
  *
@@ -258,6 +258,118 @@ class ParseSTypeTest extends AnyFunSuite:
       val parsed   = parse(rendered)
       assert(parsed == t,
         s"round-trip failed: ${t} -> ${rendered} -> ${parsed}")
+    }
+  }
+
+  // ── Refinement types ───────────────────────────────────────────────────
+
+  test("refinement with one def member: A { def foo: Int }") {
+    assert(parse("A { def foo: Int }") ==
+      SType.Refinement(
+        SType.Named("A", Nil),
+        List(RefMember("def", "foo", SType.Int))))
+  }
+
+  test("refinement with multiple members: A { def foo: Int; val bar: String }") {
+    assert(parse("A { def foo: Int; val bar: String }") ==
+      SType.Refinement(
+        SType.Named("A", Nil),
+        List(
+          RefMember("def", "foo", SType.Int),
+          RefMember("val", "bar", SType.String))))
+  }
+
+  test("refinement with type member: A { type T = Int }") {
+    // We don't capture `= Int` semantics — only the declaration shape:
+    // kind=type, name=T, sig=Int.  The parser tolerates both the
+    // source-level `=` separator and the canonical `:` separator that
+    // `SType.show` emits, so the structural payload is preserved.
+    val expected = SType.Refinement(
+      SType.Named("A", Nil),
+      List(RefMember("type", "T", SType.Int)))
+    assert(parse("A { type T = Int }") == expected)
+    assert(parse("A { type T: Int }")  == expected)
+  }
+
+  test("refinement of generic base: List[Int] { def head: Int }") {
+    assert(parse("List[Int] { def head: Int }") ==
+      SType.Refinement(
+        SType.Named("List", List(SType.Int)),
+        List(RefMember("def", "head", SType.Int))))
+  }
+
+  test("refinement with function-typed member: A { def f: Int => String }") {
+    assert(parse("A { def f: Int => String }") ==
+      SType.Refinement(
+        SType.Named("A", Nil),
+        List(RefMember("def", "f",
+          SType.Function(List(SType.Int), SType.String)))))
+  }
+
+  test("empty refinement: A { } parses to empty member list") {
+    assert(parse("A { }") ==
+      SType.Refinement(SType.Named("A", Nil), Nil))
+  }
+
+  // ── Match types ────────────────────────────────────────────────────────
+
+  test("match type: T match { case Int => String; case _ => Any }") {
+    assert(parse("T match { case Int => String; case _ => Any }") ==
+      SType.Match(
+        SType.Named("T", Nil),
+        List(
+          MatchCase(SType.Int, SType.String),
+          MatchCase(SType.Named("_", Nil), SType.Any))))
+  }
+
+  test("match type with single case: T match { case Int => String }") {
+    assert(parse("T match { case Int => String }") ==
+      SType.Match(
+        SType.Named("T", Nil),
+        List(MatchCase(SType.Int, SType.String))))
+  }
+
+  test("match type with generic scrutinee: F[A] match { case Int => String }") {
+    assert(parse("F[A] match { case Int => String }") ==
+      SType.Match(
+        SType.Named("F", List(SType.Named("A", Nil))),
+        List(MatchCase(SType.Int, SType.String))))
+  }
+
+  // ── Round-trip refinement / match through show + parse ────────────────
+
+  test("structural round-trip for Refinement and Match SType values") {
+    val samples = List(
+      SType.Refinement(
+        SType.Named("A", Nil),
+        List(RefMember("def", "foo", SType.Int))),
+      SType.Refinement(
+        SType.Named("A", Nil),
+        List(
+          RefMember("def", "foo", SType.Int),
+          RefMember("val", "bar", SType.String),
+          RefMember("type", "T",   SType.Int))),
+      SType.Refinement(
+        SType.Named("List", List(SType.Int)),
+        List(RefMember("def", "head", SType.Int))),
+      SType.Refinement(
+        SType.Named("A", Nil),
+        List(RefMember("def", "f",
+          SType.Function(List(SType.Int), SType.String)))),
+      SType.Match(
+        SType.Named("T", Nil),
+        List(
+          MatchCase(SType.Int, SType.String),
+          MatchCase(SType.Named("_", Nil), SType.Any))),
+      SType.Match(
+        SType.Named("F", List(SType.Named("A", Nil))),
+        List(MatchCase(SType.Int, SType.String)))
+    )
+    samples.foreach { t =>
+      val rendered = t.show
+      val parsed   = parse(rendered)
+      assert(parsed == t,
+        s"round-trip failed: $t -> $rendered -> $parsed")
     }
   }
 
