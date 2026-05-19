@@ -941,3 +941,86 @@ def main(): Unit =
     captured("val xs: List[Int] = (Nil: List[Int]); println(xs)") shouldBe "List()"
   }
 
+  // ── html block: findClosingBrace string-awareness ────────────────────────
+
+  /** Run a full .ssc document and return trimmed stdout. */
+  private def capturedDoc(src: String): String =
+    val buf = java.io.ByteArrayOutputStream()
+    val ps  = java.io.PrintStream(buf, true)
+    Interpreter(ps).run(Parser.parse(src))
+    ps.flush()
+    buf.toString.trim
+
+  test("html block: } inside string literal does not prematurely close ${}") {
+    // The expression ${ "hello" + "}" } contains a } inside a double-quoted string.
+    // Before the fix, findClosingBrace would stop at that } and the parse would
+    // fail or produce garbled output.
+    val src =
+      """|# Card
+         |
+         |```html
+         |<div>${ "hello" + "}" }</div>
+         |```
+         |
+         |# Test
+         |
+         |```scala
+         |println(Card.html)
+         |```
+         |""".stripMargin
+    capturedDoc(src) shouldBe "<div>hello}</div>"
+  }
+
+  test("html block: conditional with } in string does not prematurely close ${}") {
+    val src =
+      """|# Card
+         |
+         |```html
+         |<span>${ if true then "}" else "}x" }</span>
+         |```
+         |
+         |# Test
+         |
+         |```scala
+         |println(Card.html)
+         |```
+         |""".stripMargin
+    capturedDoc(src) shouldBe "<span>}</span>"
+  }
+
+  test("html block: balanced braces still work after string-aware fix") {
+    // A simple expression with no string literals — depth tracking still correct.
+    val src =
+      """|# Card
+         |
+         |```html
+         |<p>${ 1 + 2 }</p>
+         |```
+         |
+         |# Test
+         |
+         |```scala
+         |println(Card.html)
+         |```
+         |""".stripMargin
+    capturedDoc(src) shouldBe "<p>3</p>"
+  }
+
+  test("html block: nested block expression braces still work") {
+    // Expression contains nested { } via a block expression — depth must still track correctly.
+    val src =
+      """|# Card
+         |
+         |```html
+         |<b>${ { val x = 5; x * 2 } }</b>
+         |```
+         |
+         |# Test
+         |
+         |```scala
+         |println(Card.html)
+         |```
+         |""".stripMargin
+    capturedDoc(src) shouldBe "<b>10</b>"
+  }
+

@@ -2539,17 +2539,59 @@ class Interpreter(
         sb.append(src.charAt(i)); i += 1
     sb.toString
 
-  /** Scan for the matching `}` from `from`, respecting balanced `{`/`}` so
-   *  expressions like `${ if x then "{" else "}" }` parse correctly. */
+  /** Scan for the matching `}` from `from`, respecting balanced `{`/`}` and
+   *  skipping over string literals so a `}` inside `"..."`, `'...'`, or
+   *  `"""..."""` does not fool the depth counter.
+   *
+   *  Handles:
+   *  - double-quoted strings `"..."` with `\"` escapes
+   *  - triple-quoted strings `"""..."""` (no escape processing needed)
+   *  - single-quoted char literals `'x'` and `'\n'` with `\'` escapes
+   */
   private def findClosingBrace(src: String, from: Int): Int =
+    val len = src.length
     var depth = 1
     var i = from
-    while i < src.length && depth > 0 do
+    while i < len && depth > 0 do
       src.charAt(i) match
-        case '{' => depth += 1
-        case '}' => depth -= 1; if depth == 0 then return i
-        case _   => ()
-      i += 1
+        case '{' =>
+          depth += 1
+          i += 1
+        case '}' =>
+          depth -= 1
+          if depth == 0 then return i
+          i += 1
+        case '"' =>
+          // Check for triple-quoted string first
+          if i + 2 < len && src.charAt(i + 1) == '"' && src.charAt(i + 2) == '"' then
+            i += 3  // skip opening """
+            // scan until closing """
+            var closed = false
+            while i < len && !closed do
+              if i + 2 < len && src.charAt(i) == '"' && src.charAt(i + 1) == '"' && src.charAt(i + 2) == '"' then
+                i += 3
+                closed = true
+              else
+                i += 1
+          else
+            i += 1  // skip opening "
+            // scan until closing " handling backslash escapes
+            var closed = false
+            while i < len && !closed do
+              src.charAt(i) match
+                case '\\' => i += 2          // skip escape sequence
+                case '"'  => i += 1; closed = true
+                case _    => i += 1
+        case '\'' =>
+          i += 1  // skip opening '
+          // skip the character content (may be an escape sequence)
+          if i < len then
+            if src.charAt(i) == '\\' then i += 1  // skip backslash
+            if i < len then i += 1                 // skip the escaped/literal char
+          // skip closing ' if present
+          if i < len && src.charAt(i) == '\'' then i += 1
+        case _ =>
+          i += 1
     -1
 
   private def runImport(imp: Content.Import): Unit =
