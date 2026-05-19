@@ -280,6 +280,11 @@ extern def leaderHistory(): List[(Long, String, Long)]
 // outbound links (the side that called `connectNode` / `joinCluster`);
 // inbound links are the other peer's responsibility to re-establish.
 extern def setReconnectPolicy(initialMs: Long, maxMs: Long): Unit
+// Three-arg form: `giveUpAfterMs` caps the total wall-clock retry budget
+// per URL.  When exceeded, the retry loop bails and frees its virtual
+// thread — guards against a permanently-dead peer accumulating sockets
+// (and FDs) forever.  0 = no cap (legacy behaviour from the 2-arg form).
+extern def setReconnectPolicy(initialMs: Long, maxMs: Long, giveUpAfterMs: Long): Unit
 
 // ─── Periodic gossip re-discovery (v1.23) ────────────────────────────────────
 
