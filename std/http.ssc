@@ -53,6 +53,11 @@ extern def serve(port: Int, tlsCtx: TlsContext): Unit
 // clusters where the same process must bind a WS server AND keep an
 // actor scheduler running (Bully election needs both alive).
 extern def serveAsync(port: Int): Unit
+// TLS variant — peers dial `wss://host:port/_ssc-actors`.  The TLS
+// handshake is handled by the JDK WS client on the dialing side; the
+// server uses `TlsContextBuilder` (same machinery as the blocking
+// `serve(port, tls(...))` form).
+extern def serveAsync(port: Int, tlsCtx: TlsContext): Unit
 extern def stop(): Unit
 
 // Route registration — curried: route(method, path) { handler }
