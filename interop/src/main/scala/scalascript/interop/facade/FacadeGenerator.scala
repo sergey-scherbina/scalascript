@@ -130,6 +130,22 @@ object FacadeGenerator:
     iface.exports.foreach(sym => emit(sym, iface.pkg, ""))
     table.toMap
 
+  /** Alias under which we import `_ssc_runtime` at the top of each
+   *  facade file.  Why an alias and not `_root_._ssc_runtime` directly?
+   *
+   *  `object _ssc_runtime` is emitted by JvmGen at the *empty* package
+   *  level (no `package` clause).  Scala 3 forbids referencing
+   *  empty-package members from any named package — including via
+   *  `_root_.` — so `package std.eq: export _root_._ssc_runtime.x` fails
+   *  with `value _ssc_runtime is not a member of <root>`.
+   *
+   *  The escape hatch: an `import` at the *top of the file* (empty-pkg
+   *  scope) CAN see empty-package members.  Renaming the import to
+   *  `Ssc` exposes it as a regular value that nested `package X:`
+   *  blocks can then `export Ssc.member as alias`.  Pure compile-time
+   *  alias — zero runtime cost. */
+  private val RuntimeImportAlias = "Ssc"
+
   /** Render one package's facade file. */
   private def renderPackage(pkg: List[String], members: Map[String, String], sourceModules: List[String]): String =
     val sb = new StringBuilder
@@ -141,12 +157,21 @@ object FacadeGenerator:
     sb.append("// Each `export` aliases a v2.0-mangled JVM symbol back to its\n")
     sb.append("// natural ScalaScript FQN.  Zero runtime overhead — pure compile-\n")
     sb.append("// time alias.  See docs/scala-interop.md.\n\n")
+    // File-level import — empty-package scope so the empty-package
+    // `_ssc_runtime` object is visible.  The alias becomes accessible
+    // inside the nested `package X.Y:` block below.
+    sb.append(s"import _ssc_runtime as $RuntimeImportAlias\n\n")
     if pkg.isEmpty then
-      // Root package — emit at top level without a `package` clause.
+      // Module had no `package:` front-matter; emit `export`s at the
+      // empty-package level alongside the import.
       for (leaf, mangled) <- members.toList.sortBy(_._1) do
-        sb.append(s"export $mangled as $leaf\n")
+        val member = mangled.stripPrefix(RuntimeObjectPrefix)
+        if member == leaf then sb.append(s"export $RuntimeImportAlias.$member\n")
+        else                   sb.append(s"export $RuntimeImportAlias.$member as $leaf\n")
     else
       sb.append(s"package ${pkg.mkString(".")}:\n\n")
       for (leaf, mangled) <- members.toList.sortBy(_._1) do
-        sb.append(s"  export $mangled as $leaf\n")
+        val member = mangled.stripPrefix(RuntimeObjectPrefix)
+        if member == leaf then sb.append(s"  export $RuntimeImportAlias.$member\n")
+        else                   sb.append(s"  export $RuntimeImportAlias.$member as $leaf\n")
     sb.toString

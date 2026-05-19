@@ -1,12 +1,25 @@
 # Scala ↔ ScalaScript Interop — Specification
 
-Status: **Tiers 1 and 2 landed.**  Tier 1 = compiler-emitted
-`scalaFacade` field on `ModuleInterface`.  Tier 2 = the
-`scalascript-interop` library (`interop/` subproject) — `FacadeGenerator`,
-`ScalascriptLoader`, `Effects`, `Actors`; 34 tests green.
-Tier 3 (sbt plugin) and Tier 4 (`--emit-scala-facade` compiler flag) are
-still open.  Tracking: see "Scala ↔ ScalaScript interop" milestone in
-`MILESTONES.md`.
+Status:
+- **Tier 1** ✓ landed — compiler-emitted `scalaFacade` field on
+  `ModuleInterface`.
+- **Tier 2** ✓ landed — `scalascript-interop` library
+  (`interop/` subproject): `FacadeGenerator`, `ScalascriptLoader`,
+  `Effects`, `Actors`.
+- **Tier 4 v0.1** ✓ landed (partial) — `ssc link --backend jvm
+  --bytecode --emit-scala-facade` flag, plumbing, and META-INF/.scim
+  embedding work.  The reflective `ScalascriptLoader.fromJar` path is
+  fully operational against produced JARs.  The compile-time `.class`
+  facade emission is graceful-degradation only, pending a v2.0 JvmGen
+  refactor (Tier 5 below) to emit real Scala `package` clauses
+  instead of `object pkg: object subpkg:` wrappers.
+- **Tier 3** deferred — sbt/Mill/scala-cli plugin.  No external demand
+  yet; Tier 4 covers the self-contained-JAR use case.
+- **Tier 5** open — JvmGen `package`-clause emission.  Unblocks
+  Tier 4's `.class` facade emit; lets Scala consumers `import a.b.f`
+  directly without facade scaffolding.  See `MILESTONES.md`.
+
+Tracking: see "Scala ↔ ScalaScript interop" milestone in `MILESTONES.md`.
 
 This document specifies how a regular Scala 3 project (sbt, Mill, Maven,
 plain `scala-cli`) consumes code that was authored and compiled in

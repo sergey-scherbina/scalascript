@@ -43,7 +43,7 @@ class FacadeGeneratorTest extends AnyFunSuite:
     val src = sources("std/eq.scala")
     assert(src.contains("package std.eq:"),
       s"missing package declaration:\n$src")
-    assert(src.contains("export _ssc_runtime.std_eq_eqv as eqv"),
+    assert(src.contains("export Ssc.std_eq_eqv as eqv"),
       s"missing export line:\n$src")
 
   test("multiple exports same package → all collected in one file"):
@@ -59,9 +59,9 @@ class FacadeGeneratorTest extends AnyFunSuite:
     )
     val sources = FacadeGenerator.generateFromInterfaces(List(m))
     val src = sources("std/eq.scala")
-    assert(src.contains("export _ssc_runtime.std_eq_Eq as Eq"))
-    assert(src.contains("export _ssc_runtime.std_eq_eqv as eqv"))
-    assert(src.contains("export _ssc_runtime.std_eq_neqv as neqv"))
+    assert(src.contains("export Ssc.std_eq_Eq as Eq"))
+    assert(src.contains("export Ssc.std_eq_eqv as eqv"))
+    assert(src.contains("export Ssc.std_eq_neqv as neqv"))
 
   test("exports sorted alphabetically inside the package file"):
     // Stable output across runs and across artifact-dir reorderings.
@@ -102,8 +102,8 @@ class FacadeGeneratorTest extends AnyFunSuite:
     assert(sources.keySet == Set("std/cluster.scala"),
       s"expected one merged file, got: ${sources.keySet}")
     val src = sources("std/cluster.scala")
-    assert(src.contains("export _ssc_runtime.std_cluster_NodeId as NodeId"))
-    assert(src.contains("export _ssc_runtime.std_cluster_join as join"))
+    assert(src.contains("export Ssc.std_cluster_NodeId as NodeId"))
+    assert(src.contains("export Ssc.std_cluster_join as join"))
     // Header lists both source modules.
     assert(src.contains("Source modules:"))
     assert(src.contains("types") && src.contains("membership"))
@@ -125,7 +125,7 @@ class FacadeGeneratorTest extends AnyFunSuite:
     )
     val sources = FacadeGenerator.generateFromInterfaces(List(m))
     val src = sources("std/foo.scala")
-    assert(src.contains("export _ssc_runtime.std_foo_Bar as Bar"),
+    assert(src.contains("export Ssc.std_foo_Bar as Bar"),
       s"top-level Bar must be exported:\n$src")
     assert(!src.contains("as apply"),
       s"nested .apply must NOT be exported in v0.1:\n$src")
@@ -142,8 +142,15 @@ class FacadeGeneratorTest extends AnyFunSuite:
     val sources = FacadeGenerator.generateFromInterfaces(List(m))
     assert(sources.keySet == Set("_root_.scala"))
     val src = sources("_root_.scala")
-    assert(!src.contains("package"), s"no `package` clause expected:\n$src")
-    assert(src.contains("export _ssc_runtime.greet as greet"))
+    // No nested `package X:` block — the empty-pkg case puts exports at
+    // top level alongside the runtime alias import.
+    assert(!src.linesIterator.exists(_.startsWith("package ")),
+      s"no `package` clause expected:\n$src")
+    // When the leaf name equals the runtime member name, the export is
+    // emitted in simplified form (`export Ssc.greet` rather than
+    // `export Ssc.greet as greet`).
+    assert(src.contains("export Ssc.greet"),
+      s"expected simplified export:\n$src")
 
   // ── Legacy fallback (no scalaFacade field) ─────────────────────────────
 
@@ -162,8 +169,24 @@ class FacadeGeneratorTest extends AnyFunSuite:
     assert(sources.contains("std/legacy.scala"),
       s"legacy should fall back via Linker.mangle; got: ${sources.keySet}")
     val src = sources("std/legacy.scala")
-    assert(src.contains("export _ssc_runtime.std_legacy_hello as hello"),
+    assert(src.contains("export Ssc.std_legacy_hello as hello"),
       s"fallback should mangle through Linker; got:\n$src")
+
+  // ── Generated source carries the runtime import alias ─────────────────
+
+  test("every emitted file starts with `import _ssc_runtime as Ssc`"):
+    // Required so nested `package X.Y: export Ssc.*` resolves — the
+    // alias is the only way to reference the empty-package runtime
+    // object from inside a named package.
+    val m = iface(
+      pkg = List("p"),
+      moduleName = "p",
+      exports = List("x" -> "def"),
+      facade = Map("p.x" -> "_ssc_runtime.p_x")
+    )
+    val src = FacadeGenerator.generateFromInterfaces(List(m))("p.scala")
+    assert(src.contains("import _ssc_runtime as Ssc"),
+      s"facade must alias the runtime; got:\n$src")
 
   // ── Generated source compiles standalone (header markers) ──────────────
 

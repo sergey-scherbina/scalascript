@@ -578,3 +578,119 @@ object JvmBytecode:
       (winners.size, duplicates.toList)
     finally
       scala.util.Try(os.remove.all(workDir))
+
+  // ─── Tier 4 — `--emit-scala-facade` helpers ──────────────────────────────
+
+  /** Compile Scala source files emitted by `FacadeGenerator` into `.class`
+   *  files, with the just-built user code + runtime bundles on the
+   *  classpath so `export _ssc_runtime.<mangled>` resolves.
+   *
+   *  Sources are written into a temp dir as `.scala` files (one per entry
+   *  in `facadeSources`, keyed on relative path); the compile runs
+   *  in-process via [[Scala3Driver]].  The returned out-dir holds the
+   *  resulting `.class` files; the caller is responsible for clean-up.
+   *
+   *  v2.0 / interop Tier 4 — see docs/scala-interop.md. */
+  def compileFacade(
+      facadeSources: Map[String, String],
+      classpathDirs: List[os.Path]
+  ): Either[String, os.Path] =
+    if facadeSources.isEmpty then
+      return Left("compileFacade: no facade sources supplied")
+    val srcDir = os.temp.dir(prefix = "ssc-facade-src-")
+    val outDir = os.temp.dir(prefix = "ssc-facade-out-")
+    try
+      val srcFiles = facadeSources.toList.zipWithIndex.map { case ((relPath, source), idx) =>
+        // Flatten directory structure to filenames — the `package` clause
+        // inside the source body lands the compiled classes correctly.
+        val safeName =
+          relPath.replace('/', '_')
+            .stripSuffix(".scala")
+            .replaceAll("[^A-Za-z0-9_.-]", "_") match
+              case ""  => s"Facade$idx"
+              case s   => if s.head.isDigit then s"F_$s" else s
+        val srcFile = srcDir / s"$safeName.scala"
+        os.write(srcFile, source)
+        srcFile
+      }
+      Scala3Driver.compile(srcFiles, outDir, classpath = classpathDirs) match
+        case Right(()) => Right(outDir)
+        case Left(err) => Left(err)
+    catch case e: Throwable => Left(s"compileFacade: ${e.getMessage}")
+    finally
+      // Source dir is OK to remove; outDir is the caller's responsibility.
+      scala.util.Try(os.remove.all(srcDir))
+
+  /** Variant of [[packBundlesAsJar]] / [[packBundlesAsJarWithSmap]] that
+   *  also packs:
+   *    - `.class` files from an additional `facadeClassDir` (the result
+   *      of [[compileFacade]]) as ordinary JAR entries under their
+   *      FQN-shaped paths;
+   *    - extra arbitrary resource entries (typically `.scim` files at
+   *      `META-INF/scalascript/<name>.scim` so the interop loader can
+   *      discover the facade table without a separate file).
+   *
+   *  SMAP injection still applies to the per-module bundles via
+   *  `smapByModule`.  Facade classes are not SMAP-injected (they're
+   *  generated from `.scim`, not from `.ssc` lines).
+   *
+   *  v2.0 / interop Tier 4 — see docs/scala-interop.md. */
+  def packBundlesAsJarWithFacade(
+      bundles:        List[(String, String)],
+      smapByModule:   Map[String, String],
+      facadeClassDir: Option[os.Path],
+      scimResources:  List[(String, Array[Byte])],
+      outJar:         os.Path
+  ): (Int, List[(String, String)]) =
+    os.makeDir.all(outJar / os.up)
+
+    val workDir = os.temp.dir(prefix = "ssc-jar-build-")
+    val duplicates = scala.collection.mutable.ListBuffer.empty[(String, String)]
+    try
+      val winners = scala.collection.mutable.LinkedHashMap.empty[String, (String, os.Path)]
+
+      for (moduleId, base64Zip) <- bundles do
+        val safeId = moduleId.replaceAll("[^A-Za-z0-9_.-]", "_")
+        val modDir = workDir / safeId
+        extractBundleTo(base64Zip, modDir)
+        smapByModule.get(moduleId).filter(_.nonEmpty).foreach { smap =>
+          JvmSmapInjector.injectAll(modDir, smap)
+        }
+        for classFile <- collectClassFiles(modDir) do
+          val entryName = classFile.relativeTo(modDir).toString.replace('\\', '/')
+          if winners.contains(entryName) then
+            duplicates += (entryName -> moduleId)
+          else
+            winners(entryName) = (moduleId, classFile)
+
+      // Facade classes — added after user bundles so a duplicate FQN
+      // (shouldn't happen, but defensive) loses to the real module class.
+      facadeClassDir.foreach { fdir =>
+        for classFile <- collectClassFiles(fdir) do
+          val entryName = classFile.relativeTo(fdir).toString.replace('\\', '/')
+          if winners.contains(entryName) then
+            duplicates += (entryName -> "<facade>")
+          else
+            winners(entryName) = ("<facade>", classFile)
+      }
+
+      val manifest = new JarManifest()
+      manifest.getMainAttributes.put(Attributes.Name.MANIFEST_VERSION, "1.0")
+      val fos = java.nio.file.Files.newOutputStream(outJar.toNIO)
+      val jos = new JarOutputStream(fos, manifest)
+      try
+        for (entryName, (_, sourcePath)) <- winners do
+          val entry = new JarEntry(entryName)
+          jos.putNextEntry(entry)
+          jos.write(os.read.bytes(sourcePath))
+          jos.closeEntry()
+        for (entryName, bytes) <- scimResources do
+          val entry = new JarEntry(entryName)
+          jos.putNextEntry(entry)
+          jos.write(bytes)
+          jos.closeEntry()
+      finally jos.close()
+
+      (winners.size, duplicates.toList)
+    finally
+      scala.util.Try(os.remove.all(workDir))

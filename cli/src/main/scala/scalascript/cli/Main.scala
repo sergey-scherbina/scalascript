@@ -4870,10 +4870,11 @@ def checkCommand(args: List[String]): Unit =
  */
 def linkCommand(args: List[String]): Unit =
   import scalascript.artifact.Linker
-  var outputArg:   Option[String] = None
-  var backendArg:  Option[String] = None
-  var bytecode:    Boolean        = false
-  var sourceMap:   Boolean        = false
+  var outputArg:        Option[String] = None
+  var backendArg:       Option[String] = None
+  var bytecode:         Boolean        = false
+  var sourceMap:        Boolean        = false
+  var emitScalaFacade:  Boolean        = false
   val artifactDirs = scala.collection.mutable.ArrayBuffer.empty[String]
   val it = args.iterator
   while it.hasNext do
@@ -4882,10 +4883,18 @@ def linkCommand(args: List[String]): Unit =
       case "--backend"       if it.hasNext  => backendArg = Some(it.next())
       case "--bytecode"                     => bytecode = true
       case "--source-map" | "--source-maps" => sourceMap = true
+      case "--emit-scala-facade"            => emitScalaFacade = true
       case d                                => artifactDirs += d
 
   if artifactDirs.isEmpty then
-    System.err.println("Usage: ssc link <artifact-dir> [-o <output>] [--backend <id>] [--bytecode] [--source-map]")
+    System.err.println("Usage: ssc link <artifact-dir> [-o <output>] [--backend <id>] [--bytecode] [--source-map] [--emit-scala-facade]")
+    System.exit(1)
+
+  // `--emit-scala-facade` only makes sense paired with `--bytecode` on the
+  // JVM backend — the facade `.class` files need a host JAR.  Fail fast
+  // with a clear message instead of silently producing nothing.
+  if emitScalaFacade && (!bytecode || backendArg.exists(_ != "jvm")) then
+    System.err.println("link: --emit-scala-facade requires `--backend jvm --bytecode`")
     System.exit(1)
 
   // ── JVM cached-source mode ───────────────────────────────────────────────
@@ -4905,7 +4914,7 @@ def linkCommand(args: List[String]): Unit =
     }
     if scjvmFiles.nonEmpty then
       if bytecode then
-        linkJvmFromBytecode(scjvmFiles, outputArg, sourceMap)
+        linkJvmFromBytecode(scjvmFiles, outputArg, sourceMap, emitScalaFacade)
       else
         linkJvmFromScjvm(scjvmFiles, outputArg)
       return
@@ -5052,9 +5061,10 @@ def linkCommand(args: List[String]): Unit =
  *
  *  v2.0 — Phase 2 bytecode-level JVM linker. */
 private def linkJvmFromBytecode(
-    scjvmFiles: List[os.Path],
-    outputArg:  Option[String],
-    sourceMap:  Boolean = false
+    scjvmFiles:       List[os.Path],
+    outputArg:        Option[String],
+    sourceMap:        Boolean = false,
+    emitScalaFacade:  Boolean = false
 ): Unit =
   // 1. Read every artifact, validate classBundle presence, accumulate
   //    (moduleId, base64) pairs in the order the user supplied.
@@ -5162,13 +5172,114 @@ private def linkJvmFromBytecode(
           builder(a.moduleId) = smap
       builder.toMap
 
+  // v2.0 interop Tier 4 — `--emit-scala-facade`.
+  //
+  // When set, we additionally:
+  //   1. extract every bundle (user + runtime) to a temp classpath dir
+  //      so the facade compile can resolve `_ssc_runtime.<mangled>`;
+  //   2. read `.scim` files from each artifact dir (one per module);
+  //   3. run FacadeGenerator → Map[relPath, ScalaSource];
+  //   4. compile the result via Scala3Driver;
+  //   5. pack everything (user bundles, runtime bundles, facade .class
+  //      files, .scim resources under META-INF/scalascript/) into the
+  //      final JAR.
+  //
+  // Failure mid-flight surfaces a clear error and exits non-zero so the
+  // user knows the facade build failed independently of the user-code
+  // pack (which has already validated up to this point).
+  var facadeClassDir: Option[os.Path] = None
+  var facadeClasspathDir: Option[os.Path] = None
+  var scimResources:  List[(String, Array[Byte])] = Nil
+  var facadeEntries:  Int = 0
+  if emitScalaFacade then
+    // Only extract RUNTIME bundles to the facade-compile classpath.
+    // User-code bundles get wrapped by JvmGen in `object pkg: object subpkg:
+    // <defs>` (Phase-2 split-runtime emit), so their bytecode declares e.g.
+    // `object demo` at the empty package.  If the facade's
+    // `package demo.a: export Ssc.demo_a_add as add` block compiled with
+    // those user classes on cp, scalac would reject the file with
+    // "It cannot be used at the same time as the name of a package."
+    // The runtime alone is enough to resolve `Ssc.x` references.
+    val cpDir = os.temp.dir(prefix = "ssc-facade-cp-")
+    facadeClasspathDir = Some(cpDir)
+    val runtimeOnly = bundles.filter((moduleId, _) => moduleId.startsWith("_ssc_runtime"))
+    for (moduleId, base64Zip) <- runtimeOnly do
+      val safeId = moduleId.replaceAll("[^A-Za-z0-9_.-]", "_")
+      JvmBytecode.extractBundleTo(base64Zip, cpDir / safeId)
+
+    val scimFiles = artifactDirs.flatMap { d =>
+      if !os.isDir(d) then Nil
+      else os.list(d).filter(_.ext == "scim").toList.sorted
+    }
+    val ifaces = scimFiles.flatMap { p =>
+      ArtifactIO.readInterfaceFile(p).toOption
+    }
+    if ifaces.nonEmpty then
+      val facadeSources = scalascript.interop.facade.FacadeGenerator
+        .generateFromInterfaces(ifaces)
+      if facadeSources.isEmpty then
+        System.err.println("link --emit-scala-facade: warning — no facade entries " +
+          "produced from .scim files (all exports may be too deeply nested for v0.1)")
+      else
+        val cpDirs: List[os.Path] = (cpDir :: os.list(cpDir).filter(os.isDir).toList).distinct
+        JvmBytecode.compileFacade(facadeSources, cpDirs) match
+          case Right(out) =>
+            facadeClassDir = Some(out)
+            facadeEntries  = facadeSources.size
+          case Left(err) =>
+            // Best-effort: failing the facade compile is NOT fatal.  The
+            // META-INF/.scim resources still ship below so
+            // `ScalascriptLoader.fromJar` keeps working; the consumer
+            // just falls back to reflective dispatch instead of
+            // compile-time `export`-aliased imports.
+            //
+            // The most common cause today is that JvmGen wraps user code
+            // in `object pkg: object subpkg:` at the empty package level
+            // (Phase-2 split-runtime emit), and the facade's
+            // `package pkg.subpkg: export ...` block can't reference
+            // names there — Scala 3 disallows object/package name
+            // clashes AND empty-package-to-named-package references.
+            // Fixing this is a JvmGen refactor (emit `package pkg.subpkg:`
+            // for `package:`-decorated modules) tracked separately.
+            System.err.println(s"link --emit-scala-facade: facade compile failed " +
+              s"(continuing with META-INF/.scim only):\n$err")
+            facadeClassDir = None
+    else
+      System.err.println("link --emit-scala-facade: warning — no .scim files " +
+        "found in artifact dir(s); facade table will be absent from the JAR")
+
+    // Embed every .scim as META-INF/scalascript/<basename>.scim so that
+    // scalascript.interop.loader.ScalascriptLoader.fromJar(...) can pick
+    // the facade table up at runtime.
+    scimResources = scimFiles.map { p =>
+      val entryName = s"META-INF/scalascript/${p.last}"
+      entryName -> os.read.bytes(p)
+    }
+
   val (uniqueClasses, duplicates) =
-    if smapByModule.isEmpty then JvmBytecode.packBundlesAsJar(bundles, outPath)
-    else JvmBytecode.packBundlesAsJarWithSmap(bundles, smapByModule, outPath)
+    if !emitScalaFacade && smapByModule.isEmpty then
+      JvmBytecode.packBundlesAsJar(bundles, outPath)
+    else if !emitScalaFacade then
+      JvmBytecode.packBundlesAsJarWithSmap(bundles, smapByModule, outPath)
+    else
+      JvmBytecode.packBundlesAsJarWithFacade(
+        bundles        = bundles,
+        smapByModule   = smapByModule,
+        facadeClassDir = facadeClassDir,
+        scimResources  = scimResources,
+        outJar         = outPath
+      )
+
+  // Clean up facade temp dirs after pack — packer has copied what it needed.
+  facadeClassDir.foreach(d => scala.util.Try(os.remove.all(d)))
+  facadeClasspathDir.foreach(d => scala.util.Try(os.remove.all(d)))
 
   val rtNote = if runtimeBundles.isEmpty then ""
                else s" (incl. ${runtimeBundles.length} shared runtime bundle(s))"
-  println(s"Linked ${artifacts.size} .scjvm artifact(s) → $outPath$rtNote " +
+  val facadeNote =
+    if !emitScalaFacade then ""
+    else s"; facade: $facadeEntries package(s), ${scimResources.size} META-INF/.scim resource(s)"
+  println(s"Linked ${artifacts.size} .scjvm artifact(s) → $outPath$rtNote$facadeNote " +
     s"($uniqueClasses unique class(es); JAR size ${os.size(outPath)} bytes)")
   if duplicates.nonEmpty then
     println(s"  (deduplicated ${duplicates.size} duplicate class entries; first-write-wins)")

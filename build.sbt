@@ -378,7 +378,7 @@ val shrinkJar = taskKey[File]("Shrink the assembled ssc.jar with ProGuard 7.5 (1
 lazy val cli = project
   .in(file("cli"))
   .enablePlugins(SbtProguard)
-  .dependsOn(core, backendJvm, backendJs, backendNode, backendScalajs, backendWasm, backendInterpreter, backendScalaSource, backendHtml, backendCss, backendSpark)
+  .dependsOn(core, interop, backendJvm, backendJs, backendNode, backendScalajs, backendWasm, backendInterpreter, backendScalaSource, backendHtml, backendCss, backendSpark)
   .settings(
     name := "scalascript-cli",
     libraryDependencies ++= Seq(

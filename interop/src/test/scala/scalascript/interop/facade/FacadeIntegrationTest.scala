@@ -47,8 +47,8 @@ class FacadeIntegrationTest extends AnyFunSuite:
     assert(sources.keySet == Set("std/eq.scala"))
     val src = sources("std/eq.scala")
     assert(src.contains("package std.eq:"))
-    assert(src.contains("export _ssc_runtime.std_eq_eqv as eqv"))
-    assert(src.contains("export _ssc_runtime.std_eq_neqv as neqv"))
+    assert(src.contains("export Ssc.std_eq_eqv as eqv"))
+    assert(src.contains("export Ssc.std_eq_neqv as neqv"))
 
   test("end-to-end: empty package: ⇒ root facade file"):
     val ssc =
@@ -67,7 +67,9 @@ class FacadeIntegrationTest extends AnyFunSuite:
     assert(sources.contains("_root_.scala"),
       s"expected root-level file, got: ${sources.keySet}")
     val src = sources("_root_.scala")
-    assert(src.contains("export _ssc_runtime.hello as hello"))
+    // Simplified-export form (leaf == runtime member name).
+    assert(src.contains("export Ssc.hello"),
+      s"expected `export Ssc.hello`; got:\n$src")
 
   test("end-to-end: exports: front-matter filter applies to facade"):
     val ssc =
@@ -112,5 +114,5 @@ class FacadeIntegrationTest extends AnyFunSuite:
       // the SBT plugin / `ssc link --emit-scala-facade` would use).
       val sources = FacadeGenerator.generate(tmp)
       assert(sources.contains("std/x.scala"))
-      assert(sources("std/x.scala").contains("export _ssc_runtime.std_x_f as f"))
+      assert(sources("std/x.scala").contains("export Ssc.std_x_f as f"))
     finally os.remove.all(tmp)

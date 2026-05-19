@@ -5767,9 +5767,13 @@ downstream consumers don't pull in JvmGen / scalameta etc.).
 - [x] 34 tests: 10 FacadeGenerator + 4 integration + 6 Effects +
       4 Actors + 10 ScalascriptLoader.  All green.
 
-### Tier 3 — `sbt-scalascript-interop` plugin (~1 week)
+### Tier 3 — `sbt-scalascript-interop` plugin — DEFERRED (no demand yet)
 
 Build-tool integration so consumers don't have to hand-wire Tier 2.
+Deliberately deferred: Tier 4 (`ssc link --emit-scala-facade`) gives
+consumers a self-contained JAR that doesn't need a plugin at all, and
+no external consumer has asked for sbt-side ergonomics yet.  When
+demand materialises:
 
 - [ ] sbt plugin: `addSbtPlugin("org.scalascript" %% "sbt-scalascript-interop" % …)`.
   Adds `Compile / sourceGenerators` task that runs `FacadeGenerator`
@@ -5780,22 +5784,80 @@ Build-tool integration so consumers don't have to hand-wire Tier 2.
       artifactDir ".ssc-artifacts"`).
 - [ ] ~15 fixture-project tests.
 
-Lives in `scalascript-sbt-plugin` repo (separate, easier publish
-cadence).
+When picked up, lives in `scalascript-sbt-plugin` repo (separate
+repository — easier publish cadence than the monorepo).
 
-### Tier 4 — compiler `--emit-scala-facade` flag (~2 days)
+### Tier 4 — compiler `--emit-scala-facade` flag — partial (v0.1)
 
-Self-contained JAR mode for consumers who don't want a build-tool
-plugin.  Only attempt after Tier 2 ships.
+**Status:** flag + plumbing + META-INF metadata embedding ✓ landed.
+Facade `.class` emit ✗ blocked on a JvmGen refactor (see below).
 
-- [ ] `ssc link --backend jvm --bytecode --emit-scala-facade` runs
-      `FacadeGenerator` over the artifact dir, compiles the result via
-      the existing `Scala3Driver` (in-process, ~120 ms), packs the
-      facade `.class` files into the linked JAR.
-- [ ] Embed `.scim` files as JAR resources at
-      `META-INF/scalascript/<module>.scim` so `ScalascriptLoader` can
-      find them without a separate file.
-- [ ] 5 CLI subprocess tests.
+What landed:
+- [x] `ssc link --backend jvm --bytecode --emit-scala-facade` flag wired
+      through `linkCommand` and `linkJvmFromBytecode`.  Flag validation
+      enforces the `--bytecode` + JVM-backend combination.
+- [x] `JvmBytecode.compileFacade(facadeSources, classpathDirs)` —
+      writes generator output to a temp dir, runs `Scala3Driver` in
+      process, returns the output dir for downstream packing.
+- [x] `JvmBytecode.packBundlesAsJarWithFacade(bundles, smapByModule,
+      facadeClassDir, scimResources, outJar)` — extends the existing
+      pack path to also emit facade classes + arbitrary resource
+      entries (used for `META-INF/scalascript/<name>.scim`).
+- [x] Embed every `.scim` as `META-INF/scalascript/<name>.scim` in the
+      linked JAR so `ScalascriptLoader.fromJar` works without a sidecar.
+- [x] Graceful degradation: facade compile failure is non-fatal — the
+      JAR still ships with META-INF resources and the reflective
+      `ScalascriptLoader` path keeps working.
+- [x] 6 CLI subprocess tests in `EmitScalaFacadeCliTest` (flag
+      validation, META-INF byte-identity, multi-module, summary).
+
+What's BLOCKED on a separate JvmGen refactor:
+- Facade `.class` emission for `package:`-decorated modules.  v2.0
+  JvmGen wraps user code in `object pkg: object subpkg: <defs>` at the
+  empty package level, so the facade's `package pkg.subpkg: export
+  Ssc.x as alias` block can't compile (Scala 3 rejects an
+  object-name/package-name clash, and empty-package members are
+  unreachable from named packages anyway).
+- Facade `.class` emission for no-`package:` modules.  User code lands
+  in `<scriptName>_sc$package$` (Scala 3's top-level-def wrapper),
+  not under `_ssc_runtime` — so the Tier-1 facade table's
+  `_ssc_runtime.<name>` mangling doesn't match the JVM symbol either.
+
+### Tier 5 — JvmGen `package`-clause emission (NEW, BLOCKS Tier 4 compile)
+
+Currently `JvmGen.generateUserOnly` for `package: a.b` emits:
+
+```scala
+import _ssc_runtime.{given, *}
+object a:
+  object b:
+    def f(...) = ...
+```
+
+To make user code naturally importable from regular Scala consumers
+(and to unblock the Tier-4 facade `.class` emit), this must become:
+
+```scala
+package a.b
+
+import _ssc_runtime.{given, *}
+
+def f(...) = ...
+```
+
+- [ ] Refactor `JvmGen.generateUserOnly` to emit a proper `package`
+      clause instead of nested objects.
+- [ ] Update `Linker.mergeScalaSources` dedup logic (currently keys on
+      top-level `def`/`val`/`class`/`object` names; with the new
+      package-clause shape, dedup must group by package + name).
+- [ ] Re-emit the Tier-1 `scalaFacade` table to map to natural FQN
+      (`a.b.f` → `a.b.f`) — identity in the common case; facade
+      `export` becomes a one-liner.
+- [ ] Re-run the v2.0 scale benchmark to confirm no regression in
+      std/ pass rate (currently 47/49 = 96 %).
+- [ ] Once Tier 5 lands, `ssc link --emit-scala-facade` produces a JAR
+      with working `.class` facades AND META-INF resources — a Scala
+      consumer can `import a.b.f` directly without any plugin.
 
 ### Implementation order
 
@@ -5828,8 +5890,9 @@ Sorted by priority.  Run one agent per track simultaneously.
 | 9 | Package registry | G | 2 weeks | — |
 | 10 | ~~Scala ↔ ScalaScript interop (Tier 1)~~ ✓ landed | H | ½ day | — |
 | 11 | ~~Scala ↔ ScalaScript interop (Tier 2)~~ ✓ landed | H | 1 week | Tier 1 ✓ |
-| 12 | Scala ↔ ScalaScript interop (Tier 3 sbt plugin) | H | 1 week | Tier 2 ✓ |
-| 13 | Scala ↔ ScalaScript interop (Tier 4 compiler flag) | H | 2 days | Tier 2 ✓ |
+| 12 | ~~Scala interop (Tier 3 sbt plugin)~~ — deferred, no demand | H | 1 week | Tier 2 ✓ |
+| 13 | ~~Scala interop (Tier 4 metadata + flag)~~ ✓ landed | H | 2 days | Tier 2 ✓ |
+| 14 | Scala interop Tier 5 — JvmGen package-clause emit | H | 2-3 days | — |
 
 Track D is serial.  All other tracks can run in parallel.
 
