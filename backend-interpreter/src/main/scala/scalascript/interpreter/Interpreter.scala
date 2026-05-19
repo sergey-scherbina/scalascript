@@ -586,8 +586,8 @@ class Interpreter(
         val prev = currentLeader.getAndSet(localNodeId)
         broadcastCoordinator()
         if prev != localNodeId then
-        enqueueLeaderEvent("LeaderElected", localNodeId)
-        recordLeaderHist(localNodeId)
+          enqueueLeaderEvent("LeaderElected", localNodeId)
+          recordLeaderHist(localNodeId)
       else
         electionInProgress = true
         electionStartedAt  = System.currentTimeMillis()
@@ -6083,8 +6083,8 @@ class Interpreter(
             val prev = currentLeader.getAndSet(localNodeId)
             broadcastCoordinator()
             if prev != localNodeId then
-        enqueueLeaderEvent("LeaderElected", localNodeId)
-        recordLeaderHist(localNodeId)
+              enqueueLeaderEvent("LeaderElected", localNodeId)
+              recordLeaderHist(localNodeId)
         // v1.23 — deliver leader events (LeaderElected/LeaderLost) to subscribers.
         while !leaderEventQueue.isEmpty do
           val ev = leaderEventQueue.poll()
