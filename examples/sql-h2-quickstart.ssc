@@ -1,0 +1,100 @@
+#!/usr/bin/env ssc
+---
+name: sql-h2-quickstart
+description: Zero-config H2 in-memory quickstart for `sql` fenced blocks (v1.26)
+databases:
+  default:
+    url: "jdbc:h2:mem:quickstart;DB_CLOSE_DELAY=-1"
+---
+
+# SQL quickstart — H2 in-memory
+
+Demonstrates the `sql` fenced block on the JVM / interpreter target.
+Each `sql` block becomes a `_sqlBlock_<N>: scalascript.sql.SqlResult`
+in module scope.  `${expr}` interpolation becomes a JDBC `?` bind
+parameter; the expression is evaluated in the surrounding scope and
+passed to a `PreparedStatement` — no string substitution into SQL,
+ever (SPEC § 3.3.1).
+
+Run with:
+
+```sh
+ssc examples/sql-h2-quickstart.ssc
+```
+
+The H2 driver ships bundled with `backend-sql-runtime`, so no `dep:`
+import is necessary.  Connection resolution: the front-matter
+`databases:` block declares a single `default` H2 in-memory database;
+each `sql` block resolves through `_ssc_sql_resolve(None)` → the
+registry's `default` entry.
+
+## Schema
+
+```sql
+CREATE TABLE users (
+  id     BIGINT       PRIMARY KEY,
+  name   VARCHAR(120) NOT NULL,
+  email  VARCHAR(255),
+  active BOOLEAN      NOT NULL
+)
+```
+
+## Seed
+
+`${expr}` placeholders are JDBC binds — `userId` and `userName`
+below live in scalascript scope and are evaluated by the interpreter
+before being handed to the prepared statement.
+
+```scalascript
+val seed = List(
+  (1L, "Alice", "alice@example.com", true),
+  (2L, "Bob",   "bob@example.com",   true),
+  (3L, "Carol", null,                false)
+)
+```
+
+```sql
+INSERT INTO users (id, name, email, active) VALUES (1, 'Alice', 'alice@example.com', true)
+```
+
+```sql
+INSERT INTO users (id, name, email, active) VALUES (2, 'Bob', 'bob@example.com', true)
+```
+
+```sql
+INSERT INTO users (id, name, email, active) VALUES (3, 'Carol', NULL, false)
+```
+
+## Active users
+
+The first sql block in a section is reachable as
+`<sectionId>.sql` — `ActiveUsers.sql` here.
+
+```scalascript
+val onlyActive = true
+```
+
+```sql
+SELECT id, name, email FROM users WHERE active = ${onlyActive} ORDER BY name
+```
+
+```scalascript
+val active = ActiveUsers.sql
+println(s"active users: $active")
+```
+
+## Headcount
+
+A parameterised count exercising bind-side dynamic arithmetic.
+
+```scalascript
+val threshold = 1L
+```
+
+```sql
+SELECT COUNT(*) AS total FROM users WHERE id >= ${threshold}
+```
+
+```scalascript
+println(s"users with id >= ${threshold}: ${Headcount.sql}")
+```

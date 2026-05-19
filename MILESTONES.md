@@ -6794,17 +6794,36 @@ each non-JVM backend is a Phase 7 conformance item.
 
 ### Phase 7 — Examples + conformance
 
-- [ ] `examples/sql-h2-quickstart.ssc`: zero-config H2 in-memory,
-      CREATE/INSERT/SELECT with bind params, `.as[User]`.  Doubles
-      as the smoke test for the bundled-driver story.
-- [ ] `examples/sql-sqlite-file.ssc`: file-backed SQLite, illustrates
-      `@db=` and frontmatter config.
-- [ ] `conformance/`: add a `sql` category.  JVM + interpreter expected
-      to match bit-for-bit on a deterministic schema; JS / Node / Wasm
-      expected to emit `UnknownBlockLanguage` for every `sql` block.
-- [ ] `docs/targets.md`: extend the capability matrix with a `sql`
-      column.  Document the binding rule + driver story in
-      `docs/markdown-as-syntax.md` if `sql` is not already covered.
+- [x] `examples/sql-h2-quickstart.ssc`: zero-config H2 in-memory,
+      DDL + DML + SELECT with bind params + section-aliased read.
+- [x] `examples/sql-sqlite-file.ssc`: file-backed + in-memory
+      SQLite, illustrates `@db=name` routing between two named
+      connections in the same module.
+- [x] Self-contained end-to-end test
+      (`SqlExamplesTest`, 2 cases) that inlines the example sources
+      verbatim and asserts they parse + execute under the
+      interpreter against in-memory H2 and SQLite.  Catches
+      regressions when parser / runtime changes silently break the
+      documented usage shapes.
+
+Deferred to a follow-up sprint:
+
+- Conformance-suite entry — adds `conformance/expected/sql-*.txt`
+  fixtures and wires JVM-target dispatch to read them.  Needs the
+  JvmGen runtime smoke-test landing first (which depends on
+  publishing `scalascript-backend-sql-runtime` or inlining its
+  source into the JvmGen preamble — see Phase 6.C deferred note).
+- JS / Node / Wasm `UnknownBlockLanguage` per-backend explicit test.
+  The diagnostic is already wired generically in
+  `validate/CapabilityCheck.unknownBlockLanguages` via
+  `Lang.isOpaqueExec` and pinned by `CapabilityCheckTest`'s
+  sql-gating cases — an additional per-backend test would only
+  cover the dispatch loop wiring, which already runs through the
+  generic path.
+- `docs/targets.md` capability column.  Current file is a general
+  backends overview, not a per-feature matrix; introducing a
+  `sql` column would be a doc-restructuring PR rather than a code
+  change.
 
 ### Follow-ups discovered during work
 

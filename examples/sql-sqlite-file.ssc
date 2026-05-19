@@ -1,0 +1,79 @@
+#!/usr/bin/env ssc
+---
+name: sql-sqlite-file
+description: File-backed SQLite with the `@db=name` fence-attribute selector (v1.26)
+databases:
+  main:
+    url: "jdbc:sqlite:/tmp/ssc-sqlite-demo.db"
+  ephemeral:
+    url: "jdbc:sqlite::memory:"
+---
+
+# SQL — SQLite, two named connections
+
+Demonstrates SQL blocks routing to different connections via the
+`@db=name` fence attribute.  Two databases are declared in
+front-matter: a file-backed `main` (persists to `/tmp/...`) and an
+in-memory `ephemeral` (gone the moment the script exits).
+
+The SQLite driver ships bundled with `backend-sql-runtime` — no
+`dep:` import required.
+
+Run with:
+
+```sh
+ssc examples/sql-sqlite-file.ssc
+```
+
+## Setup the persistent table
+
+`@db=main` routes this block to the file-backed connection.
+
+```sql @db=main
+CREATE TABLE IF NOT EXISTS events (
+  id     INTEGER PRIMARY KEY AUTOINCREMENT,
+  source TEXT    NOT NULL,
+  ts     INTEGER NOT NULL
+)
+```
+
+```sql @db=main
+INSERT INTO events (source, ts) VALUES ('boot', 1700000000)
+```
+
+## Scratch space — ephemeral database
+
+`@db=ephemeral` routes through the in-memory connection.  When the
+script exits, this table is gone; the `main` `events` table on disk
+persists.
+
+```sql @db=ephemeral
+CREATE TABLE scratch (k TEXT PRIMARY KEY, v TEXT)
+```
+
+```sql @db=ephemeral
+INSERT INTO scratch VALUES ('hello', 'world')
+```
+
+## Read back
+
+The first sql block per section binds to `<sectionId>.sql`.
+
+```sql @db=ephemeral
+SELECT k, v FROM scratch
+```
+
+```scalascript
+println(s"scratch rows: ${ReadBack.sql}")
+```
+
+```sql @db=main
+SELECT count(*) AS total FROM events
+```
+
+```scalascript
+// The second sql block in the same section is reachable only as
+// `_sqlBlock_<N>` (no duplicate `lazy val sql` alias); SectionId.sql
+// already refers to the FIRST sql block above.
+println(s"event total: $_sqlBlock_5")
+```
