@@ -30,11 +30,11 @@ class SparkBackendTest extends AnyFunSuite:
     assert(backend.capabilities.options.contains("sparkMaster"))
   }
 
-  test("capabilities: blockLanguages is empty until Phase C") {
-    // Phase C wires the existing `sql` fenced block to Spark SQL on
-    // backend=spark.  Until then, Spark declares no opaque-exec block
-    // languages.
-    assert(backend.capabilities.blockLanguages.isEmpty)
+  test("capabilities: blockLanguages = {sql} (Phase C — wires sql block to spark.sql)") {
+    // Phase C: `sql` fenced blocks compile to `spark.sql(text, namedParams)`
+    // on backend=spark.  `node.js` is intentionally NOT in the set —
+    // Spark consumes scalascript / scala / sql only.
+    assert(backend.capabilities.blockLanguages == Set("sql"))
   }
 
   test("acceptedSources is empty — Spark consumes scalascript / scala only") {
@@ -75,4 +75,46 @@ class SparkBackendTest extends AnyFunSuite:
     val ids = BackendRegistry.all.map(_.id).toSet
     assert(ids.contains("spark"),
       s"SparkBackend must be discoverable in BackendRegistry, got: $ids")
+  }
+
+  test("CapabilityCheck: sql blocks on Spark backend produce no diagnostic (Phase C)") {
+    val src =
+      """|---
+         |name: sql-demo
+         |backend: spark
+         |---
+         |
+         |# Demo
+         |
+         |```sql
+         |SELECT id, name FROM users WHERE id = ${userId}
+         |```
+         |""".stripMargin
+    val ir    = Normalize(Parser.parse(src))
+    val diags = scalascript.validate.CapabilityCheck.validate(ir, backend.capabilities, backend.id)
+    assert(diags.isEmpty,
+      s"sql block on Spark backend must not trigger UnknownBlockLanguage, got: $diags")
+  }
+
+  test("CapabilityCheck: sql blocks on a backend that doesn't declare them — rejected") {
+    val src =
+      """|# Test
+         |
+         |```sql
+         |SELECT 1
+         |```
+         |""".stripMargin
+    val ir = Normalize(Parser.parse(src))
+    val capsWithoutSql = Capabilities(
+      features       = Set.empty,
+      outputs        = Set(OutputKind.ExecutionResult),
+      options        = Set.empty,
+      spiRange       = SpiVersionRange(SpiVersion.Current, SpiVersion.Current),
+      blockLanguages = Set.empty
+    )
+    val diags = scalascript.validate.CapabilityCheck.validate(ir, capsWithoutSql, "other")
+    assert(diags.exists {
+      case Diagnostic.UnknownBlockLanguage("sql") => true
+      case _ => false
+    }, s"expected UnknownBlockLanguage(sql), got: $diags")
   }

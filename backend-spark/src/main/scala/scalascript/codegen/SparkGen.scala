@@ -140,17 +140,64 @@ private class SparkGen(
 
   // ── Helpers ───────────────────────────────────────────────────────────────
 
+  /** Sequential counter for sql blocks — drives the emitted value
+   *  name `_sqlBlock_<N>` so multiple sql blocks in one module each
+   *  bind to a distinct DataFrame in the @main scope. */
+  private var sqlBlockCounter: Int = 0
+
   private def collectBlocks(sections: List[Section]): List[SparkGen.Block] =
     sections.flatMap { s =>
       val own = s.content.flatMap {
         case cb: Content.CodeBlock if Lang.isParseable(cb.lang) =>
           List(SparkGen.Block(cb.source))
+        // Phase C: `sql` block → val _sqlBlock_<N> = spark.sql(...).  The
+        // rewriter walks the source once and produces a (sqlText, binds)
+        // pair; the emitted Scala captures the DataFrame so subsequent
+        // scalascript blocks in the @main body can reference it.
+        case cb: Content.CodeBlock if Lang.isSql(cb.lang) =>
+          val n = sqlBlockCounter
+          sqlBlockCounter += 1
+          List(SparkGen.Block(sqlBlockToScala(cb.source, n)))
         case imp: Content.Import =>
           inlineImport(imp.path)._1
         case _ => Nil
       }
       own ++ collectBlocks(s.subsections)
     }
+
+  /** Translate an `sql` fenced block to its Scala equivalent.  Runs the
+   *  shared `SqlBindRewriter` to produce a `:bind<i>` placeholdered SQL
+   *  string and an ordered list of expression sources, then emits:
+   *
+   *    val _sqlBlock_<n>: org.apache.spark.sql.DataFrame =
+   *      spark.sql("<sqlText>", java.util.Map.of(
+   *        "bind0", <expr0>,
+   *        "bind1", <expr1>
+   *      ))
+   *
+   *  When the block has no binds, the `Map.of(...)` argument is omitted
+   *  and the single-argument `spark.sql(query)` overload is used.
+   *
+   *  The triple-quoted Scala string literal contains the rewritten SQL
+   *  verbatim; embedded `"""` triggers a runtime error during compile
+   *  (rare in practice — Spark SQL doesn't use triple quotes). */
+  private def sqlBlockToScala(source: String, n: Int): String =
+    import scalascript.transform.SqlBindRewriter
+    val r       = SqlBindRewriter.rewriteSparkSql(source)
+    val valName = s"_sqlBlock_$n"
+    val sqlLit  = "\"\"\"" + r.sql + "\"\"\""
+    if r.binds.isEmpty then
+      s"val $valName: org.apache.spark.sql.DataFrame = spark.sql($sqlLit)"
+    else
+      val pairs = r.binds.zipWithIndex.map { (expr, idx) =>
+        s"""  "bind$idx", $expr"""
+      }.mkString(",\n")
+      s"""|val $valName: org.apache.spark.sql.DataFrame = spark.sql(
+          |  $sqlLit,
+          |  java.util.Map.of(
+          |$pairs
+          |  )
+          |)""".stripMargin
 
   private def inlineImport(path: String): (List[SparkGen.Block], List[String]) =
     import scalascript.parser.Parser

@@ -1,0 +1,67 @@
+#!/usr/bin/env ssc
+---
+name: spark-sql-demo
+backend: spark
+spark-version: 4.0.0
+description: Spark SQL via `sql` fenced blocks (v1.25 § 9.5 Phase C.1)
+---
+
+# Spark SQL demo
+
+Demonstrates the `sql` fenced block on the Spark target.  Each `sql`
+block becomes a `val _sqlBlock_<N>: org.apache.spark.sql.DataFrame`
+in the generated `@main def runSparkJob` scope.  `${expr}` interpolation
+becomes a named Spark SQL bind parameter (`:bind<N>`); the expression
+itself is evaluated as Scala in the surrounding scope and passed
+through `spark.sql(sqlText, java.util.Map.of("bind0", expr0, ...))`.
+
+Run with:
+
+```sh
+ssc-spark examples/spark-sql-demo.ssc
+```
+
+## Seed data
+
+Set up a small DataFrame in the @main scope.  Using Dataset.fromList
+which the SparkGen shim routes to `spark.createDataset(...)`.
+
+```scalascript
+case class User(id: Int, name: String, active: Boolean)
+
+val users = Dataset.fromList(List(
+  User(1, "Alice", true),
+  User(2, "Bob",   false),
+  User(3, "Carol", true),
+  User(4, "Dave",  true)
+))
+users.toDF().createOrReplaceTempView("users")
+```
+
+## Query active users via Spark SQL
+
+```sql
+SELECT id, name FROM users WHERE active = ${true} ORDER BY name
+```
+
+## Use the DataFrame from ScalaScript
+
+```scalascript
+println("active users:")
+_sqlBlock_0.show()
+```
+
+## A parameterised lookup
+
+```scalascript
+val cutoff = 2
+```
+
+```sql
+SELECT COUNT(*) AS n FROM users WHERE id > ${cutoff}
+```
+
+```scalascript
+println(s"users with id > $cutoff:")
+_sqlBlock_1.show()
+```
