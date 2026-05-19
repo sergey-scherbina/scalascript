@@ -115,6 +115,21 @@ class McpServerBuilder:
    *  auth layer at all). */
   def setTokenValidator(v: Option[McpAuth.TokenValidator]): Unit = tokenValidator = v
 
+  /** v1.17.x — convenience: wire an `oauth.AuthServer` instance as the
+   *  bearer-token validator.  The MCP server now becomes a Resource
+   *  Server that trusts tokens issued by the supplied AS (validating
+   *  signatures locally via the shared secret).  Also auto-populates
+   *  the protected-resource metadata document by pointing
+   *  `authorization_servers` at the AS issuer URL. */
+  def useAuthServer(as: scalascript.oauth.AuthServer): Unit =
+    setTokenValidator(Some(as.tokenValidator))
+    if protectedResourceMetadata.isEmpty then
+      protectedResourceMetadata = Some(McpAuth.ProtectedResourceMetadata(
+        resource              = as.config.issuer,
+        authorizationServers  = List(as.config.issuer),
+        scopesSupported       = as.config.supportedScopes.toList.sorted
+      ))
+
   /** Realm advertised in the `WWW-Authenticate` header on 401 responses. */
   def setAuthRealm(realm: String): Unit = authRealm = realm
 
