@@ -195,28 +195,35 @@ ZooKeeper) plug into it instead of running Raft inside ScalaScript.
 The runtime acquires a coordinator-managed lease; the lease holder
 is the leader.
 
-### 5.1 Adapter trait
+### 5.1 Adapter shape
+
+Landed as a **case class with four function fields**, not a trait —
+the runtime needs to call into the adapter from its generated
+`_runActors` body, and pulling fields out of a Product via
+`productElement` is structural-type-free and reflection-free
+(`case class` is a `Product` in Scala).  The fifth field
+(`onLeaderChanged`) from the original spec is deferred — apps poll
+`currentHolder()` from a timer for the same effect.  Real-coordinator
+implementations land in Phase 3b iter 2; iter 1 (this commit) only
+locks the surface and the `useExternalCoordinator` switch.
 
 ```scala
-trait LeaderCoordinator:
+case class LeaderCoordinator(
   // Try to acquire the leader lease.  Blocks up to `timeoutMs`.
   // Returns true if we became leader, false otherwise.
-  def acquireLease(nodeId: String, timeoutMs: Long): Boolean
+  acquireLease:  (String, Long) => Boolean,
 
   // Renew the lease.  Must be called more often than the lease TTL.
   // Returns false if the lease was lost (network partition / coordinator
   // revoked it); the runtime then fires LeaderLost and steps down.
-  def renewLease(nodeId: String): Boolean
+  renewLease:    String => Boolean,
 
   // Release the lease (graceful step-down).
-  def releaseLease(nodeId: String): Unit
+  releaseLease:  String => Unit,
 
   // Look up the current lease holder, or None if no leader.
-  def currentHolder(): Option[String]
-
-  // Subscribe to lease-change events.  Coordinator pushes when a different
-  // node becomes the leader (handy for follower nodes).
-  def onLeaderChanged(cb: String => Unit): Unit
+  currentHolder: () => Option[String]
+)
 ```
 
 ### 5.2 Concrete adapters
@@ -323,7 +330,10 @@ links via the existing `_peerChannels.remove` hook).
 **Phase 3b — External coordinator (1 week).**  Implement
 `EtcdLeaderCoordinator` first (most common in production).
 Consul and ZooKeeper variants ship in subsequent point releases
-once the trait shape is proved.
+once the trait shape is proved.  *Iter 1 (locked surface): the
+`LeaderCoordinator` case class lands in `std.actors` and
+`useExternalCoordinator(coord)` accepts it; runtime lease lifecycle
+is not yet driven from it (TODO iter 2).*
 
 **Phase 4 — `leaderHistory` (1 day).**  Bounded ring buffer per
 node; populated by every `LeaderElected` firing regardless of
