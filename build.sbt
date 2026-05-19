@@ -247,6 +247,76 @@ lazy val runtimeServerJvmNetty = project
     Test    / scalacOptions ++= sharedScalacOptions
   )
 
+// v1.18 / Phase A1 (Frontend framework SPI — docs/frontend-framework-spi-plan.md
+// + docs/frontend-abstract-model.md).  Framework-agnostic primitive
+// trait definitions: Signal[T], Computed[T], Effect, View, Component[P],
+// Capability enum, FrontendFrameworkSpi + FrontendFrameworks registry.
+// Four impl modules downstream consume this (frontendCustom /
+// frontendReact / frontendVue / frontendSolid).  Pure Scala 3, JVM-side
+// — the codegen lowering pass reads the IR and the chosen backend's
+// emit() produces framework-specific JS source.
+lazy val frontendCore = project
+  .in(file("frontend-core"))
+  .settings(
+    name := "scalascript-frontend-core",
+    libraryDependencies ++= Seq(scalatestTest),
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions
+  )
+
+// v1.18 / Phase A2 stub — Custom backend (default, zero npm deps).
+// Will interpret primitives via a tiny Scala-compiled-JS runtime
+// (signals + Set-of-subscribers + direct DOM ops; ~3-5 KB bundle).
+// Today: stub.
+lazy val frontendCustom = project
+  .in(file("frontend-custom"))
+  .dependsOn(frontendCore)
+  .settings(
+    name := "scalascript-frontend-custom",
+    libraryDependencies ++= Seq(scalatestTest),
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions
+  )
+
+// v1.18 / Phase A3 stub — React backend.  Signal lowers to useState,
+// Component to function components, View to React.createElement.
+// Today: stub.
+lazy val frontendReact = project
+  .in(file("frontend-react"))
+  .dependsOn(frontendCore)
+  .settings(
+    name := "scalascript-frontend-react",
+    libraryDependencies ++= Seq(scalatestTest),
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions
+  )
+
+// v1.18 / Phase A4 stub — Solid backend.  Signal lowers to
+// createSignal; fine-grained subscriptions; component runs once.
+// Today: stub.
+lazy val frontendSolid = project
+  .in(file("frontend-solid"))
+  .dependsOn(frontendCore)
+  .settings(
+    name := "scalascript-frontend-solid",
+    libraryDependencies ++= Seq(scalatestTest),
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions
+  )
+
+// v1.18 / Phase A5 stub — Vue backend.  Signal lowers to ref,
+// setup-function components, render-function emission.
+// Today: stub.
+lazy val frontendVue = project
+  .in(file("frontend-vue"))
+  .dependsOn(frontendCore)
+  .settings(
+    name := "scalascript-frontend-vue",
+    libraryDependencies ++= Seq(scalatestTest),
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions
+  )
+
 lazy val backendJvm = project
   .in(file("backend-jvm"))
   .dependsOn(backendSpi, core, runtimeServerCommon, runtimeServerSpi, runtimeServerJvm, backendSqlRuntime)
@@ -965,6 +1035,7 @@ lazy val root = project
     x402QueueKafka, x402QueuePostgres, x402NoncePostgres, x402NonceRedis,
     cryptoSpi, cryptoBouncycastle, blockchainSpi, blockchainEvm, blockchainEvmAbi, walletSpi, walletStrategyEoa, walletConnectorEip1193, walletConnect, mcpWallet, mcpX402,
     micropaymentSpi, micropaymentThreshold, micropaymentServer, micropaymentClient, micropaymentProbabilistic,
+    frontendCore, frontendCustom, frontendReact, frontendSolid, frontendVue,
   )
   .settings(
     publish / skip := true

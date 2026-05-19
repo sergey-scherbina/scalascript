@@ -3685,6 +3685,55 @@ the codegen output.
     so the `//> using dep` directives the CLI injects actually
     resolve from Maven Central — today requires `sbt publishLocal`.
 
+- **v1.18 — Frontend framework SPI (abstract model + four backends)**
+  In progress 2026-05-19.  See
+  [`docs/frontend-framework-spi-plan.md`](docs/frontend-framework-spi-plan.md)
+  (SPI mechanics) +
+  [`docs/frontend-abstract-model.md`](docs/frontend-abstract-model.md)
+  (framework-agnostic programming model).
+
+  The scalajs-spa backend gets a pluggable frontend-framework layer.
+  Same `.ssc` user code compiles to React, Vue, Solid, or a custom
+  in-house runtime — pick at build time via
+  `setFrontendFramework("solid")` intrinsic or
+  `ssc compile --frontend solid app.ssc`.  Designed around five
+  universal primitives (`Signal[T]`, `Computed[T]`, `Effect`, `View`,
+  `Component[P]`) that every backend can implement.  Eleven-primitive
+  extended set (+ `domRef` / `context` / `suspense` / `portal` /
+  `untrack`) covers ~90% of real UI work across frameworks.
+
+  Sub-phases (each independently shippable):
+
+  - **Phase A1** — `frontend-core` sbt module + primitive trait
+    definitions + `FrontendFrameworkSpi` trait + `Capability` enum
+    + `FrontendFrameworks` selection registry.  ~3 days.
+  - **Phase A2** — `frontend-custom` backend.  Direct interpretation
+    of the primitives via a minimal Scala-compiled-JS runtime
+    (signals + Set-of-subscribers + direct DOM ops; ~3-5 KB bundle).
+    Default for `ssc compile` without `--frontend`.  ~2 weeks.
+  - **Phase A3** — `frontend-react` backend.  Lowers Signal to
+    `useState`, Component to function components, View to
+    `React.createElement`.  This is the SPI-shape-validation phase
+    (same lesson as HTTP/WS SPI's S2).  ~2 weeks.
+  - **Phase A4** — `frontend-solid` backend.  Signals fit naturally;
+    fine-grained subs.  ~1 week.
+  - **Phase A5** — `frontend-vue` backend.  ~1 week.
+  - **Phase A6** — refs / context / suspense / portal rounded out
+    per backend.  ~1 week.
+  - **Phase A7** — `ssc compile --frontend <name>` CLI flag +
+    interpreter intrinsic (mirrors v1.17.6 `--server-backend`).
+    ~3 days.
+  - **Phase A8** — Docs + 4 reference apps (one per backend).
+    ~3 days.
+
+  Total: ~7-8 weeks for the full core; SSR + Svelte + animations as
+  later follow-ups.
+
+  **Why this isn't just "pick React and standardise":** see the
+  spec's `## Why this is worth doing` section.  TL;DR: ecosystem
+  leverage, framework churn over 5-year horizons, cross-paradigm
+  experiments only abstract models enable.
+
 ### Deferred follow-ups (v1.17.x backlog, ordered by priority)
 
 1. ~~**Own implementation for INT / scalajs-spa**~~ — Phase 1 + 2 + 3
