@@ -70,7 +70,7 @@ Steps 0-3 landed on `main`; Steps 4-7 in flight on `feature/dep-cps`.
 | 1 — `containsEffectPrimitive` whitelist predicate + 43 unit tests | ✅ landed | 71cefd0 |
 | 2 — cross-dep fixpoint (`analyzeDepEffectfulness`) + 14 unit tests | ✅ landed | ac93940 |
 | 3 — dep-mode CPS emit (`Defn.Object` recursion, `isEffectfulFun` ext, infix tuple-arg fix) | ✅ landed | 3b3ca95 |
-| 4 — `distributed-map.ssc` integration | 🔧 chunk 1 landed, more chunks pending | 9c62b01 |
+| 4 — `distributed-map.ssc` integration | 🔧 chunks 1–2 landed, more chunks pending | 9c62b01, + chunk 2 |
 | 5 — full regression sweep | ⏳ pending | — |
 | 6 — strip `pending:` from other v1.22 distributed-* tests | ⏳ pending | — |
 | 7 — retire `cpsBody` parameter / textual band-aids | ⏳ pending | — |
@@ -94,33 +94,83 @@ already defined" cascade in `distributed-map.ssc`:
    healthCheck = self() }` needs `self()` → `Actor.self()` but doesn't
    want the receive/send rewrite that interferes with Step 3.
 
-**Step 4 chunks 2-N — pending:**
+**Step 4 chunk 2 — landed (2026-05-19):**
 
-Remaining ~54 errors in `distributed-map.ssc` are categorically
-different from the original blocker — they're all consequences of
-Step 3's `Any` widening cascading through the dep:
+Three coordinated changes to `JvmGen.emitStat` / `emitCpsExpr` /
+`bindArgsCps` that close the two largest error families from chunk
+1's residual ~54:
 
-- Case-class methods reaching `receive { case … }` /
-  `receiveWithTimeout(t) { case … }` aren't reached by Step 3's
-  `Defn.Def`/`Defn.Object` recursion (only top-level dep defs and
-  their enclosing objects). Need either (a) recursion into
-  `Defn.Class` bodies, or (b) per-method effect detection inside
-  case classes with selective CPS emit.
+1. **Preserve declared param types in the dep-mode CPS `Defn.Def`
+   emit arm** (instead of widening every param to `Any`). Field
+   accesses on dep-fun params (`cluster.nodes`, `cluster.pids`,
+   `node.address`) now typecheck because the param keeps its real
+   type. Callers from inside CPS continuations still typecheck
+   because erasure makes reference-typed params == `Any` at the
+   JVM level; the runtime's `_bind` returns `Any` regardless.
+   Fallback to `Any` when `decltpe` is absent (matches the old
+   behaviour for un-annotated params).
 
-- Type-mismatch cascade: dep params typed `Any` mean `ns.toList`,
-  `node.address`, `cluster.nodes` etc. don't compile because the
-  receiver type is unknown. Need either (a) keep original param
-  types instead of widening, with `.asInstanceOf[T]` injection at
-  each access, or (b) `_dispatch`-route every member access (heavy,
-  loses static typing).
+2. **Route `Term.Select(qual, name)` through `_dispatch` when
+   `qual` is *complex*** (i.e. produced via a `_bind` so the
+   lambda param is statically `Any`). Field access in CPS chains
+   like `_bind(expr, (_t16: Any) => _t16.length)` would otherwise
+   fail with `value length is not a member of Any`. When `qual`
+   is a simple name/literal the direct `.field` syntax stays so
+   the typed-name path keeps its zero-cost access (no regression
+   in `actors-process-info.ssc`, where `info: ProcessInfo` from a
+   pattern-match emits `info.links` direct).
 
-- Constructor type-mismatch: `Cluster(nodeList, pids)` requires
-  `List[Node]` but `nodeList: Any`. Same root cause as above.
+3. **Wrap `Term.PartialFunction` args inside `bindArgsCps`** as
+   `((_x: Any) => _x match { … })` instead of emitting the bare
+   `{ case … }` syntax. Scala 3 can't infer the auto-expanded
+   `x$1`'s type when the expected type is `Any` (the common shape
+   inside `_dispatch(qual, "map", List({case …}))`), so we give
+   it the explicit `Any` parameter and let the runtime destructure
+   against the actual tuple. Restores the entire cascade of
+   `case (wPid, node) =>` / `Not found: wPid` errors that
+   followed every `xs.map { case … }` HOF call in
+   `distributed.ssc`.
 
-Each is a tactical fix to `emitCpsExpr` and the CPS bind plumbing.
-None blocks the architectural correctness of Steps 0-3 — they're
-the long tail of integrating CPS-emitted deps with the rest of the
-emit machinery. Estimated 1-2 more focused chunks to clear.
+Numbers after chunk 2:
+- `distributed-map.ssc`: 54 → 26 errors (–52%).
+- `actors-process-info.ssc`: 6 → 4 errors (no regression; small
+  improvement from the same Select rewrite).
+- `dep-cps-basic.ssc`: still passes end-to-end.
+- 65 unit tests + 588 core + 958 interpreter + the wider
+  conformance suite (JVM 26/89 fails, INT 0/89 fails, JS 0/89)
+  — zero regressions; one new INT pass (`async-parallel`).
+
+**Step 4 chunks 3-N — pending:**
+
+Remaining 26 errors in `distributed-map.ssc` fall into three
+clusters left for the next chunks:
+
+- **Case-class methods** (`pid ! msg`, `receiveWithTimeout`
+  inside `case class Cluster`). Step 3's recursion only walks
+  `Defn.Object` bodies; class methods land in the verbatim path,
+  and the `qualifyBareActorCallsRegexOnlyInBlock` band-aid
+  doesn't rewrite `!` or `receiveWithTimeout`. Fix: mirror the
+  `Defn.Object` arm onto `Defn.Class` / `Defn.Trait` for dep
+  blocks that transitively contain an effectful dep def.
+
+- **Constructor / call-site cast injection** at `Cluster(nodeList,
+  pids)`, `partitionData(data, numNodes)`, `PartitionResult(jobId,
+  partId, result)`. Each receives `Any`-typed values from
+  surrounding `_bind` continuations but its declared constructor /
+  param types are concrete. Fix: at `Term.Apply(Term.Name(n), args)`
+  in CPS, look up `n` in a `depDefs` / `depClasses` registry; for
+  each arg in a `_tN`-temp position, cast to the declared type.
+
+- **Tuple-arg `!` reconstruction in class-method paths** —
+  `pid ! ("__healthCheck__", me)` parses as 2-arg infix, not as a
+  tuple send; the existing `rewriteActorAstCallsInSource` handles
+  it for top-level dep code but is intentionally skipped for
+  effectful dep blocks (chunk 1 split). Re-enable it selectively
+  for class-method bodies once chunk 3 introduces a tighter
+  predicate.
+
+Each is a small focused chunk on top of chunk 2's foundation.
+None blocks the architectural correctness of Steps 0-3.
 
 **Validation as of Step 3 landing:**
 - `conformance/dep-cps-basic.ssc` runs end-to-end on JVM, prints `ok/ok`.

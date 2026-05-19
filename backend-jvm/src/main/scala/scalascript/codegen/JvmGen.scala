@@ -1856,14 +1856,26 @@ class JvmGen(
 
     // Effectful function: emit CPS body
     case d: Defn.Def if isEffectfulFun(d.name.value) =>
-      // Widen all params to `Any` — inside CPS the body operates on Any
-      // (Pure value | Free node) anyway, and Any-typed params let callers
-      // inside an enclosing CPS context (where they hand us Any-bound
-      // locals) typecheck without per-arg casts.
+      // Preserve the user's declared param types when available.  Inside
+      // the CPS-emitted body, field accesses like `cluster.nodes` and
+      // `cluster.pids` are emitted verbatim (the Term.Select arm in
+      // emitCpsExpr uses the qual's syntax directly when it's a simple
+      // name) — so if we widen `cluster` to `Any` those accesses fail
+      // with `value nodes is not a member of Any`.  Keeping the declared
+      // type works because callers from user code already pass typed
+      // values; callers from inside CPS continuations (where vars are
+      // Any) typecheck through the runtime's Any/Any glue (`_bind`
+      // returns Any, the call's Any args go to a `: T` param via
+      // implicit widening at the JVM level since erasure makes T == Any
+      // for reference types — and primitives are boxed through
+      // `_perform` chains anyway).  Fallback to Any when `decltpe` is
+      // absent, matching the previous behaviour for un-annotated params.
       val params = d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values).map { p =>
-        s"${p.name.value}: Any"
+        p.decltpe.map(t => s"${p.name.value}: ${t.syntax}")
+          .getOrElse(s"${p.name.value}: Any")
       }.mkString(", ")
-      // Return type set to Any (could be a Free value).
+      // Return type set to Any (could be a Free value the caller's
+      // `_bind` will unwrap).
       s"def ${d.name.value}($params): Any = ${emitCpsExpr(d.body)}"
 
     // val/var with effect-using rhs: transform rhs via emitExpr, which routes
@@ -2885,10 +2897,22 @@ class JvmGen(
 
   /** Bind a list of CPS sub-expressions; pass their values into `k`. */
   private def bindArgsCps(args: List[Term])(k: List[String] => String): String =
+    def emitSimple(t: Term): String = t match
+      // A bare `{ case … }` lands in Any-typed positions (e.g. inside
+      // `_dispatch(qual, "map", List({case …}))`).  Scala 3 can't infer
+      // `x$1`'s type for the auto-expanded `x$1 => x$1 match { … }`
+      // when the expected type is `Any`, so wrap it ourselves with an
+      // explicit `Any` parameter.  The destructuring inside still works
+      // (`case (a, b) => …` binds against the runtime tuple).
+      case pf: Term.PartialFunction =>
+        val tmp   = freshTmp()
+        val cases = pf.cases.map(_.syntax).mkString(" ")
+        s"((${tmp}: Any) => ${tmp} match { $cases })"
+      case _ => t.syntax
     def loop(remaining: List[Term], acc: List[String]): String = remaining match
       case Nil       => k(acc.reverse)
       case t :: rest =>
-        if isSimpleCps(t) then loop(rest, t.syntax :: acc)
+        if isSimpleCps(t) then loop(rest, emitSimple(t) :: acc)
         else
           val v = freshTmp()
           s"_bind(${emitCpsExpr(t)}, ($v: Any) => ${loop(rest, v :: acc)})"
@@ -3235,7 +3259,18 @@ class JvmGen(
       }
 
     case Term.Select(qual, name) =>
-      bindArgsCps(List(qual)) { case List(q) => s"$q.${name.value}"; case _ => "/* select */" }
+      // When `qual` is a simple name/literal it stays statically typed
+      // (`cluster.nodes` on `cluster: Cluster` works directly).  When it
+      // requires a `_bind` (`expr.field` where `expr` itself is a CPS
+      // computation), the lambda param is `Any` and `.field` fails to
+      // typecheck — route through `_dispatch` which uses the same
+      // reflection fallback that handles `.method(args)` in the Apply
+      // arm above.
+      if isSimpleCps(qual) then
+        s"${qual.syntax}.${name.value}"
+      else
+        val v = freshTmp()
+        s"""_bind(${emitCpsExpr(qual)}, ($v: Any) => _dispatch($v, "${name.value}", Nil))"""
 
     case t: Term.Match =>
       bindArgsCps(List(t.expr)) { case List(sv) =>
