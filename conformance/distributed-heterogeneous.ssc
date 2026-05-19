@@ -15,6 +15,12 @@ the named-handler protocol is backend-agnostic.
 
 The handler `"stringify"` converts integers to strings.
 
+[Node, Cluster](../std/mapreduce/cluster.ssc)
+
+[NamedHandler, HandlerRegistry, named](../std/mapreduce/handlers.ssc)
+
+[MapOp, FilterOp, Stage, WorkerProtocol, runDistributed, DistributedResult](../std/mapreduce/distributed.ssc)
+
 ```scalascript
 runActors {
   // All backends register the same named handler (shared codebase)
@@ -45,7 +51,7 @@ runActors {
 
   val result = runDistributed(data, stage, cluster, retries = 0, allowPartial = false)
 
-  val sorted = result.results.asInstanceOf[List[String]].sorted
+  val sorted = result.asInstanceOf[DistributedResult[Any]].results.asInstanceOf[List[String]].sorted
   sorted.foreach(s => println(s))
   println("backends: jvm, jvm, int")
   cluster.close()

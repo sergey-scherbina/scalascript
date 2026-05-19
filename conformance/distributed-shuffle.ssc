@@ -45,7 +45,7 @@ runActors {
   val result = runDistributedShuffle(words, shuffleStage, cluster, retries = 0, allowPartial = false)
 
   // Print sorted groups for deterministic output
-  val groups = result.results.asInstanceOf[List[(String, List[String])]]
+  val groups = result.asInstanceOf[DistributedResult[Any]].results.asInstanceOf[List[(String, List[String])]]
   val sorted = groups.sortBy(_._1)
   sorted.foreach { case (k, vs) =>
     println(k + ": " + vs.sorted.mkString(","))

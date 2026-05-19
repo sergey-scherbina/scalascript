@@ -12,6 +12,12 @@ Tests a `map` with a named handler dispatched across a 3-node in-process
 cluster.  The handler doubles integers.  Result is collected and sorted
 for deterministic output.
 
+[Node, Cluster](../std/mapreduce/cluster.ssc)
+
+[NamedHandler, HandlerRegistry, named](../std/mapreduce/handlers.ssc)
+
+[MapOp, Stage, WorkerProtocol, runDistributed, DistributedResult](../std/mapreduce/distributed.ssc)
+
 ```scalascript
 runActors {
   // Register the named handler on every worker (same codebase deployment)
@@ -36,7 +42,7 @@ runActors {
 
   val result = runDistributed(data, stage, cluster, retries = 0, allowPartial = false)
 
-  val sorted = result.results.asInstanceOf[List[Int]].sortBy(x => x)
+  val sorted = result.asInstanceOf[DistributedResult[Any]].results.asInstanceOf[List[Int]].sortBy(x => x)
   sorted.foreach(x => println(x))
   cluster.close()
 }

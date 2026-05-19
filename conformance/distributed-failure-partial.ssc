@@ -12,6 +12,12 @@ One worker crashes and `allowPartial = true` is set.  The coordinator
 collects results from healthy workers and surfaces a `DistributedError`
 summary alongside, without throwing.
 
+[Node, Cluster](../std/mapreduce/cluster.ssc)
+
+[NamedHandler, HandlerRegistry](../std/mapreduce/handlers.ssc)
+
+[MapOp, Stage, WorkerProtocol, runDistributed, DistributedResult, DistributedError](../std/mapreduce/distributed.ssc)
+
 ```scalascript
 runActors {
   HandlerRegistry.register(NamedHandler("triple", (x: Int) => x * 3))
@@ -43,11 +49,11 @@ runActors {
   // allowPartial — do not throw on failure; return what we have
   val result = runDistributed(data, stage, cluster, retries = 0, allowPartial = true)
 
-  println("failures: " + result.failures.length)
-  result.failures.foreach { err =>
+  println("failures: " + result.asInstanceOf[DistributedResult[Any]].failures.length)
+  result.asInstanceOf[DistributedResult[Any]].failures.foreach { err =>
     println("failed node: " + err.node.name + ", reason: " + err.reason)
   }
-  val sorted = result.results.asInstanceOf[List[Int]].sortBy(x => x)
+  val sorted = result.asInstanceOf[DistributedResult[Any]].results.asInstanceOf[List[Int]].sortBy(x => x)
   println("partial results: " + sorted.length)
   cluster.close()
 }
