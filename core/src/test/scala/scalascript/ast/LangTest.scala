@@ -58,6 +58,20 @@ class LangTest extends AnyFunSuite:
     assert(!Lang.isJavaScript("node"))
   }
 
+  test("sql is parameterised opaque exec (v1.26 Phase 2)") {
+    assert(Lang.isSql("sql"))
+    assert(Lang.isOpaqueExec("sql"))
+    assert(Lang.isParameterizedExec("sql"))
+    assert(!Lang.isStringBlock("sql"))
+    assert(!Lang.isParseable("sql"))
+    assert(!Lang.isJavaScript("sql"))
+    assert(!Lang.isNode("sql"))
+    // The other opaque-exec lang must not be confused with the parameterised
+    // class — node.js is verbatim-linked, sql is bind-rewritten.
+    assert(!Lang.isParameterizedExec("node.js"))
+    assert(!Lang.isParameterizedExec("scalascript"))
+  }
+
   test("labels are human-readable") {
     assert(Lang.label("scalascript") == "ScalaScript")
     assert(Lang.label("ssc")         == "ScalaScript")
@@ -68,5 +82,6 @@ class LangTest extends AnyFunSuite:
     assert(Lang.label("js")          == "JavaScript")
     assert(Lang.label("node.js")     == "Node.js")
     assert(Lang.label("node")        == "Node.js")
+    assert(Lang.label("sql")         == "SQL")
     assert(Lang.label("python")      == "python") // unknown tags echo verbatim
   }

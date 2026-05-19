@@ -6154,24 +6154,22 @@ co-located but non-overlapping.
       type, connection resolution, drivers, target support).
 - [x] `MILESTONES.md` v1.26 entry (this section).
 
-### Phase 2 — Front-end recognition
+### Phase 2 — Front-end lang-tag recognition
 
-- [ ] `core/.../ast/Lang.scala`: add `Sql = "sql"`, `isSql`,
-      `isParameterizedExec` predicate.  Block is neither parseable
-      nor a String value — its IR carries `(sqlWithQ, binds)` after
-      Phase 3 rewriting.
-- [ ] `Normalize` routes `sql` blocks through a new IR node
-      `Content.SqlBlock(sqlWithQ, binds, dbName)` rather than the
-      generic `EmbeddedBlock`.  At this phase `binds = Seq.empty`
-      and `sqlWithQ` equals the raw source — the rewriter lands in
-      Phase 3.
-- [ ] `Denormalize` reconstructs the original `${expr}` form for
-      round-trips (re-stitch source from `sqlWithQ` + bind exprs).
-- [ ] Tests: `core/.../parser/SqlBlockTest.scala`, mirroring
-      `NodeJsBlockTest`: lang preservation, IR routing,
-      Normalize/Denormalize round-trip.
+Narrow to classification only — the dedicated IR node moves into
+Phase 3 where it gains real content (the bind list).  Until then
+`sql` blocks route through `ir.Content.EmbeddedBlock` identical to
+the existing `node.js` path.
 
-### Phase 3 — Bind-parameter rewriter
+- [x] `core/.../ast/Lang.scala`: add `Sql = "sql"`, `isSql`,
+      `isParameterizedExec`; extend `isOpaqueExec` to cover sql so
+      capability gating in `validate/CapabilityCheck` works
+      generically (no new code in CapabilityCheck needed).
+- [x] Tests: `core/.../ast/LangTest.scala` (predicate pinning) +
+      `core/.../parser/SqlBlockTest.scala` (lang preservation,
+      Normalize → EmbeddedBlock, Normalize/Denormalize round-trip).
+
+### Phase 3 — Bind-parameter rewriter + dedicated IR node
 
 - [ ] New stage in `Normalize` (or a sibling pass): walks the `sql`
       block source, splits on `${...}` occurrences using the existing

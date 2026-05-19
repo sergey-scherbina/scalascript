@@ -22,6 +22,15 @@ package scalascript.ast
  *  these blocks with the JsGen output of the module to form one `.mjs`
  *  bundle.  Other backends reject the block via `UnknownBlockLanguage`.
  *  See `isOpaqueExec`.
+ *
+ *  `sql` — parameterised SQL executed via JDBC on the JVM target.  Every
+ *  `${expr}` inside the block becomes a positional `?` bind parameter
+ *  (string substitution into SQL is *not* part of the language, with no
+ *  unsafe-splice escape — see SPEC.md § 3.3.1).  Front-end recognition
+ *  routes the block as opaque-exec; the bind-parameter rewriter (Phase 3
+ *  of the v1.26 milestone) lifts `(sqlWithQ, binds)` into the IR.  Other
+ *  backends (JS / Node / Wasm) reject via `UnknownBlockLanguage`.
+ *  See `isOpaqueExec` and `isParameterizedExec`.
  */
 object Lang:
   val Scala       = "scala"
@@ -33,6 +42,7 @@ object Lang:
   val JsShort     = "js"           // alias for javascript
   val Node        = "node.js"
   val NodeShort   = "node"         // alias for node.js
+  val Sql         = "sql"
 
   def isScalaScript(lang: String): Boolean =
     lang == ScalaScript || lang == Ssc
@@ -46,6 +56,9 @@ object Lang:
   def isNode(lang: String): Boolean =
     lang == Node || lang == NodeShort
 
+  def isSql(lang: String): Boolean =
+    lang == Sql
+
   /** True for blocks whose body is a `String` value with `${expr}`
    *  interpolation (html, css, javascript). Not parsed by scalameta. */
   def isStringBlock(lang: String): Boolean =
@@ -55,12 +68,24 @@ object Lang:
   def isParseable(lang: String): Boolean =
     isScalaScript(lang) || isStandardScala(lang)
 
-  /** True for blocks that are opaque executable code, linked verbatim into
-   *  a target-specific bundle.  Neither parsed nor a String value at the
-   *  AST level.  Only the matching backend recognises these; all others
-   *  emit `UnknownBlockLanguage`. */
+  /** True for blocks that are opaque executable code passed verbatim
+   *  to a target-specific runtime.  Neither parsed nor a String value
+   *  at the AST level.  Only backends that declare the lang tag in
+   *  `Capabilities.blockLanguages` recognise these; all others emit
+   *  `Diagnostic.UnknownBlockLanguage`.
+   *
+   *  Today: `node.js` (consumed by the Node backend) and `sql`
+   *  (consumed by the JVM target via `backend-sql-runtime`). */
   def isOpaqueExec(lang: String): Boolean =
-    isNode(lang)
+    isNode(lang) || isSql(lang)
+
+  /** True for opaque-exec blocks whose source is rewritten by the
+   *  front-end into a `(template, binds)` pair before the backend
+   *  sees it — currently just `sql`, where every `${expr}` becomes
+   *  a positional `?` placeholder with the expression captured in
+   *  an ordered bind list.  See SPEC.md § 3.3.1. */
+  def isParameterizedExec(lang: String): Boolean =
+    isSql(lang)
 
   /** Human-readable label for a lang tag. */
   def label(lang: String): String = lang match
@@ -71,4 +96,5 @@ object Lang:
     case Css                       => "CSS"
     case Js | JsShort              => "JavaScript"
     case Node | NodeShort          => "Node.js"
+    case Sql                       => "SQL"
     case other                     => other
