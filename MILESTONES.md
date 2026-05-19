@@ -5392,14 +5392,17 @@ Named args exist partially.  Audit and complete:
 
 ### 7. `given` / `using` auto-resolution improvements
 
-**Effort: ~1 week.**
+**Effort: ~1 week. Status: ✓ Landed (v1.24)**
 
 Gaps: nested givens, ambiguity resolution, `using` in anonymous functions.
 
-- [ ] Nested `given` chains resolve transitively
-- [ ] Ambiguity error with clear "found N candidates" message
-- [ ] `using` in lambda position: `xs.map(using myOrd)`
-- [ ] Tests
+- [x] Nested `given` chains resolve transitively (up to 3+ levels via `ParametricGiven` factory registry)
+- [x] Ambiguity error with clear "found N candidates" message (via `givenCandidateCount` tracking)
+- [x] Explicit `using factoryName` at call site instantiates the factory with correct type args
+- [x] `using` in lambda position: `xs.foldLeft(m.empty)(m.combine)` and friends work via auto-resolve
+- [x] `runtimeValueType` added for proper `A = List[Int]` inference (vs `runtimeElemType` for `A = Int`)
+- [x] Most-specific factory wins via `specificity` scoring (avoids `wrapList[List[A]]` trumping `wrapListList[A]`)
+- [x] Tests in `backend-interpreter/src/test/scala/scalascript/GivenUsingTest.scala` (11 tests, all green)
 
 ---
 
