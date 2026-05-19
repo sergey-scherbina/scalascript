@@ -486,10 +486,13 @@ enum TokenRequest:
 
 case class TokenResponse(
   accessToken:  String,
-  tokenType:    String        = "Bearer",
+  tokenType:    String         = "Bearer",
   expiresIn:    Long,
   refreshToken: Option[String] = None,
-  scope:        Set[String]    = Set.empty
+  scope:        Set[String]    = Set.empty,
+  /** v1.17.x — OIDC id_token, emitted when the `openid` scope is
+   *  granted.  None for plain OAuth flows. */
+  idToken:      Option[String] = None
 ):
   def toJson: ujson.Value =
     val obj = ujson.Obj(
@@ -498,6 +501,7 @@ case class TokenResponse(
       "expires_in"   -> ujson.Num(expiresIn.toDouble)
     )
     refreshToken.foreach(r => obj("refresh_token") = r)
+    idToken.foreach     (i => obj("id_token")      = i)
     if scope.nonEmpty then
       obj("scope") = scope.toList.sorted.mkString(" ")
     obj
