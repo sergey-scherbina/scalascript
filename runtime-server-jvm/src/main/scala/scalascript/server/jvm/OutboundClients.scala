@@ -98,8 +98,27 @@ def httpPostStream(url: String, body: String, headers: Map[String, String] = Map
   _httpDoRequestStream("POST", url, body, headers, handler)
 
 // ── Outbound WebSocket client ─────────────────────────────────────────
+//
+// Shared outbound (client-side) WebSocket session.  Both the interpreter
+// (via `scalascript.server.WsClientSession`, a thin bridge) and the JVM
+// codegen runtime (via the `wsConnect(url)` user-facing function below)
+// use this single class — exactly the inbound-side pattern landed in
+// Phase 3b/3c, where `scalascript.server.jvm.WebSocket` is the shared
+// per-connection state and `scalascript.server.WsConnection` is the
+// interpreter-side bridge that wraps it into `Value.InstanceV(...)`.
+//
+// The class wraps `java.net.http.HttpClient.newWebSocketBuilder()`,
+// which handles the RFC 6455 handshake, masking, TLS (wss://) and
+// ping/pong frames automatically.  Internal callbacks are plain
+// `String => Unit` / `() => Unit` functions; both backends wrap their
+// own callback types (Value.Closure for the interpreter, raw lambdas
+// for the codegen `wsMap`) into that shape at the boundary.
 
-private class _WsClientConn(url: String, extraHdrs: Map[String, String], protocols: List[String]):
+class WsClient(
+    url:       String,
+    extraHdrs: Map[String, String],
+    protocols: List[String],
+    _log:      java.io.PrintStream = System.err):
   import java.net.URI
   import java.net.http.{HttpClient => _JHttpClient, WebSocket => _JWs}
   import java.nio.ByteBuffer
@@ -108,26 +127,26 @@ private class _WsClientConn(url: String, extraHdrs: Map[String, String], protoco
 
   val id: String = java.util.UUID.randomUUID().toString
   @volatile private var _ws: _JWs | Null = null
-  @volatile private var closingSent = false
-  @volatile private var closedFired = false
+  @volatile private var closingSent  = false
+  @volatile private var closedFired  = false
   @volatile private var _subprotocol = ""
-  private val onCloseCbRef  = new AtomicReference[Any | Null](null)
-  @volatile private var onMessageCb: Option[Any] = None
-  @volatile private var onPongCb:    Option[Any] = None
-  private val recvQueue = new LinkedBlockingQueue[String | Null]()
+  private val onCloseCbRef = new AtomicReference[() => Unit](null)
+  @volatile private var onMessageCb: String => Unit = null
+  @volatile private var onPongCb:    String => Unit = null
+  private val recvQueue  = new LinkedBlockingQueue[String | Null]()
   private val closeLatch = new CountDownLatch(1)
-  private val textBuf = new StringBuilder()
+  private val textBuf    = new StringBuilder()
 
   private def dispatch(f: () => Unit): Unit =
     try f()
-    catch case e: Throwable => System.err.println(s"wsConnect callback error: ${e.getMessage}")
+    catch case e: Throwable => _log.println(s"wsConnect callback error: ${e.getMessage}")
 
   private def doClose(): Unit =
     if !closedFired then
       closedFired = true
       recvQueue.offer(null)
       val cb = onCloseCbRef.getAndSet(null)
-      if cb != null then dispatch { () => cb.asInstanceOf[() => Any]() }
+      if cb != null then dispatch { () => cb() }
       closeLatch.countDown()
 
   private val _listener: _JWs.Listener = new _JWs.Listener:
@@ -135,32 +154,32 @@ private class _WsClientConn(url: String, extraHdrs: Map[String, String], protoco
       textBuf.append(data)
       if last then
         val msg = textBuf.toString(); textBuf.setLength(0)
+        Metrics.wsMessagesIn.incrementAndGet()
         recvQueue.offer(msg)
-        onMessageCb.foreach { cb =>
-          dispatch { () => cb.asInstanceOf[String => Any](msg) }
-        }
+        val cb = onMessageCb
+        if cb != null then dispatch { () => cb(msg) }
       ws.request(1)
       CompletableFuture.completedFuture(null)
     override def onBinary(ws: _JWs, data: ByteBuffer, last: Boolean): CompletableFuture[?] =
       if last then
         val bytes = new Array[Byte](data.remaining()); data.get(bytes)
         val msg = new String(bytes, "ISO-8859-1")
+        Metrics.wsMessagesIn.incrementAndGet()
         recvQueue.offer(msg)
-        onMessageCb.foreach { cb =>
-          dispatch { () => cb.asInstanceOf[String => Any](msg) }
-        }
+        val cb = onMessageCb
+        if cb != null then dispatch { () => cb(msg) }
       ws.request(1)
       CompletableFuture.completedFuture(null)
     override def onClose(ws: _JWs, statusCode: Int, reason: String): CompletableFuture[?] =
       doClose(); CompletableFuture.completedFuture(null)
     override def onPong(ws: _JWs, message: ByteBuffer): CompletableFuture[?] =
-      onPongCb.foreach { cb =>
+      val cb = onPongCb
+      if cb != null then
         val payload = new String(message.array(), "ISO-8859-1")
-        dispatch { () => cb.asInstanceOf[String => Any](payload) }
-      }
+        dispatch { () => cb(payload) }
       CompletableFuture.completedFuture(null)
     override def onError(ws: _JWs | Null, error: Throwable): Unit =
-      System.err.println(s"wsConnect error [$url]: ${error.getMessage}")
+      _log.println(s"wsConnect error [$url]: ${error.getMessage}")
       doClose()
 
   def connect(): Unit =
@@ -174,51 +193,87 @@ private class _WsClientConn(url: String, extraHdrs: Map[String, String], protoco
   def awaitClose(): Unit = closeLatch.await()
   def subprotocol: String = _subprotocol
 
+  def send(s: String): Unit =
+    if !closingSent then _ws match
+      case ws if ws != null =>
+        Metrics.wsMessagesOut.incrementAndGet()
+        ws.sendText(s, true)
+      case _ => ()
+
+  def sendBytes(s: String): Unit =
+    if !closingSent then _ws match
+      case ws if ws != null =>
+        Metrics.wsMessagesOut.incrementAndGet()
+        ws.sendBinary(ByteBuffer.wrap(s.getBytes("ISO-8859-1")), true)
+      case _ => ()
+
+  def close(code: Int = 1000, reason: String = ""): Unit =
+    if !closingSent then
+      closingSent = true
+      _ws match
+        case ws if ws != null => ws.sendClose(code, reason)
+        case _                => doClose()
+
+  def ping(): Unit = ping("")
+  def ping(payload: String): Unit =
+    _ws match
+      case ws if ws != null =>
+        val bytes =
+          if payload.isEmpty then ByteBuffer.allocate(0)
+          else ByteBuffer.wrap(payload.getBytes("ISO-8859-1"))
+        ws.sendPing(bytes)
+      case _ => ()
+
+  def onMessage(cb: String => Unit): Unit = onMessageCb   = cb
+  def onClose(cb: () => Unit):       Unit = onCloseCbRef.set(cb)
+  def onPong(cb: String => Unit):    Unit = onPongCb      = cb
+
+  def recv(): Option[String] =
+    val v = recvQueue.take()
+    if v == null then None else Some(v)
+
+  def isClosed: Boolean = closingSent
+
+  /** Hard-close the underlying WebSocket (e.g. heartbeat timeout).
+   *  Skips the close-frame handshake; falls back to `doClose()` if the
+   *  socket was never connected or already torn down. */
+  def abort(): Unit =
+    try _ws match
+      case ws if ws != null => ws.abort()
+      case _                => doClose()
+    catch case _: Throwable => doClose()
+
+  /** User-facing Map shape returned to scripts by `wsConnect(url)(h)`.
+   *  Key names and value shapes are part of the codegen ABI — emitted
+   *  scripts pattern-match on these names directly, so they must not
+   *  change.  The Map wraps the typed methods above with the lossy
+   *  `Any` shape the codegen Map calling convention uses. */
   def wsMap: Map[String, Any] = Map(
     "id"          -> id,
     "subprotocol" -> _subprotocol,
-    "send"        -> ((s: Any) => {
-                       if !closingSent then _ws match
-                         case ws if ws != null => ws.sendText(s.toString, true)
-                         case _ => ()
-                       () }),
-    "sendBytes"   -> ((s: Any) => {
-                       if !closingSent then _ws match
-                         case ws if ws != null =>
-                           ws.sendBinary(ByteBuffer.wrap(s.toString.getBytes("ISO-8859-1")), true)
-                         case _ => ()
-                       () }),
+    "send"        -> ((s: Any) => { send(s.toString); () }),
+    "sendBytes"   -> ((s: Any) => { sendBytes(s.toString); () }),
     "close"       -> ((args: Any) => {
-                       if !closingSent then
-                         closingSent = true
-                         _ws match
-                           case ws if ws != null =>
-                             args match
-                               case ()             => ws.sendClose(1000, "")
-                               case code: Int      => ws.sendClose(code, "")
-                               case (code: Int, r: String) => ws.sendClose(code, r)
-                               case _              => ws.sendClose(1000, "")
-                           case _ => doClose()
+                       args match
+                         case ()                     => close(1000, "")
+                         case code: Int              => close(code, "")
+                         case (code: Int, r: String) => close(code, r)
+                         case _                      => close(1000, "")
                        () }),
-    "onMessage"   -> ((cb: Any) => { onMessageCb = Some(cb); () }),
-    "onClose"     -> ((cb: Any) => { onCloseCbRef.set(cb); () }),
+    "onMessage"   -> ((cb: Any) => { onMessage(cb.asInstanceOf[String => Any].andThen(_ => ())); () }),
+    "onClose"     -> ((cb: Any) => { onClose(() => { cb.asInstanceOf[() => Any](); () }); () }),
     "ping"        -> ((payload: Any) => {
-                       _ws match
-                         case ws if ws != null =>
-                           payload match
-                             case s: String => ws.sendPing(ByteBuffer.wrap(s.getBytes("ISO-8859-1")))
-                             case _         => ws.sendPing(ByteBuffer.allocate(0))
-                         case _ => ()
+                       payload match
+                         case s: String => ping(s)
+                         case _         => ping()
                        () }),
-    "onPong"      -> ((cb: Any) => { onPongCb = Some(cb); () }),
-    "recv"        -> (() => {
-                       val v = recvQueue.take()
-                       if v == null then None else Some(v) }),
-    "isClosed"    -> (() => closingSent)
+    "onPong"      -> ((cb: Any) => { onPong(cb.asInstanceOf[String => Any].andThen(_ => ())); () }),
+    "recv"        -> (() => recv()),
+    "isClosed"    -> (() => isClosed)
   )
 
 def wsConnect(url: String, headers: Map[String, String] = Map.empty, protocols: List[String] = Nil)(handler: Map[String, Any] => Any): Any =
-  val sess = _WsClientConn(url, headers, protocols)
+  val sess = WsClient(url, headers, protocols)
   sess.connect()
   handler(sess.wsMap)
   sess.awaitClose()
