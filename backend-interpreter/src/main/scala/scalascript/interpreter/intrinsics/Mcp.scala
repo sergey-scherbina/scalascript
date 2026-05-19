@@ -670,6 +670,16 @@ private object Mcp:
           Value.UnitV
         case _ => throw InterpretError("srv.completionForPrompt(promptName, argName, handler)")
       })
+    // v1.17.x — pagination.  `srv.setPageSize(N)` caps every list
+    // endpoint at N items per page; nextCursor opaque-encodes the offset
+    // for the next page.  N <= 0 disables pagination (default).
+    def setPageSizeFn = Value.NativeFnV("McpServer.setPageSize",
+      Computation.pureFn {
+        case List(Value.IntV(n)) => builder.setPageSize(n.toInt); Value.UnitV
+        case _ => throw InterpretError("srv.setPageSize(n)")
+      })
+    def currentPageSizeFn = Value.NativeFnV("McpServer.currentPageSize",
+      Computation.pureFn { _ => Value.IntV(builder.currentPageSize) })
     def completionForResourceFn = Value.NativeFnV("McpServer.completionForResource",
       Computation.pureFn {
         case List(Value.StringV(uriTemplate), Value.StringV(argName), handler) =>
@@ -707,7 +717,9 @@ private object Mcp:
       "elicit"                     -> elicitFn,
       "clientSupportsElicitation"  -> clientSupportsElicitationFn,
       "completionForPrompt"        -> completionForPromptFn,
-      "completionForResource"      -> completionForResourceFn
+      "completionForResource"      -> completionForResourceFn,
+      "setPageSize"                -> setPageSizeFn,
+      "currentPageSize"            -> currentPageSizeFn
     ))
 
   private def registerTool(

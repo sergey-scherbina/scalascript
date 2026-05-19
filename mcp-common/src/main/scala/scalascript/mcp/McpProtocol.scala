@@ -91,16 +91,19 @@ object McpProtocol:
 
   // ─── Envelope builders for result payloads ──────────────────────────
 
-  /** `tools/list` result: `{tools: [{name, description, inputSchema}, ...]}` */
-  def toolsListResult(tools: List[ToolEntry]): ujson.Value =
-    ujson.Obj(
+  /** `tools/list` result: `{tools: [{name, description, inputSchema}, ...]}`.
+   *  Pass `nextCursor = Some(...)` to indicate there are more pages. */
+  def toolsListResult(tools: List[ToolEntry], nextCursor: Option[String] = None): ujson.Value =
+    val obj = ujson.Obj(
       "tools" -> ujson.Arr.from(tools.map { t =>
-        val obj = ujson.Obj("name" -> t.name)
-        t.description.foreach(d => obj("description") = d)
-        obj("inputSchema") = t.inputSchema
-        obj
+        val o = ujson.Obj("name" -> t.name)
+        t.description.foreach(d => o("description") = d)
+        o("inputSchema") = t.inputSchema
+        o
       })
     )
+    nextCursor.foreach(c => obj("nextCursor") = c)
+    obj
 
   /** `tools/call` result: `{content: [...], isError: bool}` — content is
    *  a list of `Content` records (text / image / resource refs). */
@@ -110,47 +113,53 @@ object McpProtocol:
       "isError" -> isError
     )
 
-  def resourcesListResult(resources: List[ResourceEntry]): ujson.Value =
-    ujson.Obj(
+  def resourcesListResult(resources: List[ResourceEntry], nextCursor: Option[String] = None): ujson.Value =
+    val obj = ujson.Obj(
       "resources" -> ujson.Arr.from(resources.map { r =>
-        val obj = ujson.Obj("uri" -> r.uri)
-        r.name.foreach(n     => obj("name")     = n)
-        r.mimeType.foreach(m => obj("mimeType") = m)
-        obj
+        val o = ujson.Obj("uri" -> r.uri)
+        r.name.foreach(n     => o("name")     = n)
+        r.mimeType.foreach(m => o("mimeType") = m)
+        o
       })
     )
+    nextCursor.foreach(c => obj("nextCursor") = c)
+    obj
 
-  def resourcesTemplatesListResult(templates: List[ResourceTemplateEntry]): ujson.Value =
-    ujson.Obj(
+  def resourcesTemplatesListResult(templates: List[ResourceTemplateEntry], nextCursor: Option[String] = None): ujson.Value =
+    val obj = ujson.Obj(
       "resourceTemplates" -> ujson.Arr.from(templates.map { t =>
-        val obj = ujson.Obj("uriTemplate" -> t.uriTemplate)
-        t.name.foreach(n        => obj("name")        = n)
-        t.description.foreach(d => obj("description") = d)
-        t.mimeType.foreach(m    => obj("mimeType")    = m)
-        obj
+        val o = ujson.Obj("uriTemplate" -> t.uriTemplate)
+        t.name.foreach(n        => o("name")        = n)
+        t.description.foreach(d => o("description") = d)
+        t.mimeType.foreach(m    => o("mimeType")    = m)
+        o
       })
     )
+    nextCursor.foreach(c => obj("nextCursor") = c)
+    obj
 
   /** `resources/read` result: `{contents: [{uri, mimeType?, text? | blob?}, ...]}` */
   def resourcesReadResult(contents: List[ujson.Value]): ujson.Value =
     ujson.Obj("contents" -> ujson.Arr.from(contents))
 
-  def promptsListResult(prompts: List[PromptEntry]): ujson.Value =
-    ujson.Obj(
+  def promptsListResult(prompts: List[PromptEntry], nextCursor: Option[String] = None): ujson.Value =
+    val obj = ujson.Obj(
       "prompts" -> ujson.Arr.from(prompts.map { p =>
-        val obj = ujson.Obj("name" -> p.name)
-        p.description.foreach(d => obj("description") = d)
+        val o = ujson.Obj("name" -> p.name)
+        p.description.foreach(d => o("description") = d)
         if p.arguments.nonEmpty then
-          obj("arguments") = ujson.Arr.from(p.arguments.map { a =>
+          o("arguments") = ujson.Arr.from(p.arguments.map { a =>
             ujson.Obj(
               "name"        -> a.name,
               "description" -> a.description,
               "required"    -> a.required
             )
           })
-        obj
+        o
       })
     )
+    nextCursor.foreach(c => obj("nextCursor") = c)
+    obj
 
   /** `prompts/get` result: `{description?, messages: [{role, content}, ...]}` */
   def promptsGetResult(description: Option[String], messages: List[ujson.Value]): ujson.Value =
@@ -218,6 +227,36 @@ object McpProtocol:
   /** Build the params for an outgoing `elicitation/create` request. */
   def elicitationCreateParams(message: String, requestedSchema: ujson.Value): ujson.Value =
     ujson.Obj("message" -> message, "requestedSchema" -> requestedSchema)
+
+  // ─── Pagination ─────────────────────────────────────────────────────
+
+  /** v1.17.x — opaque cursor wire format.  Spec says cursor is an
+   *  arbitrary string; we use the literal byte representation of the
+   *  next offset to keep the implementation transparent for tests
+   *  ("0", "10", "20", …).  Clients MUST treat cursors as opaque per
+   *  spec, so any encoding is valid. */
+  def encodeCursor(offset: Int): String = offset.toString
+
+  /** Defensive decode: bad / non-numeric cursor strings map to offset 0
+   *  (start of list) rather than crashing.  Per spec, an invalid cursor
+   *  is an error — InvalidParams is the canonical reply — but the
+   *  caller decides; this helper just parses. */
+  def decodeCursor(cursor: String): Option[Int] =
+    try Some(cursor.toInt) catch case _: Throwable => None
+
+  /** Slice `items` for one page starting at the offset encoded by
+   *  `cursor` (None → start at 0).  Returns the page slice plus
+   *  `Some(nextCursor)` when more items remain past this page,
+   *  `None` when this is the last page.  `pageSize <= 0` returns
+   *  everything in one page (pagination disabled). */
+  def paginate[A](items: List[A], cursor: Option[String], pageSize: Int): (List[A], Option[String]) =
+    if pageSize <= 0 then (items, None)
+    else
+      val start = cursor.flatMap(decodeCursor).getOrElse(0).max(0)
+      val end   = start + pageSize
+      val slice = items.slice(start, end)
+      val next  = if end < items.length then Some(encodeCursor(end)) else None
+      (slice, next)
 
   // ─── Completion ─────────────────────────────────────────────────────
 

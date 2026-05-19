@@ -85,6 +85,20 @@ class McpServerBuilder:
   @volatile private[mcp] var clientCapabilities: ujson.Value = ujson.Obj()
   private[mcp] var onRootsListChanged: () => Unit = () => ()
 
+  // v1.17.x — pagination.  All four list endpoints (tools / resources /
+  // resourceTemplates / prompts) apply the same page-size cap when set.
+  // Default 0 means pagination disabled: every list returns its full
+  // contents in one page, matching pre-v1.17 behaviour.  Set via
+  // `srv.pageSize = N` (interpreter-side: `srv.setPageSize(N)`).
+  @volatile private[mcp] var pageSize: Int = 0
+
+  /** Set the per-page item count for all list endpoints.  `<= 0`
+   *  disables pagination (one page contains every item). */
+  def setPageSize(n: Int): Unit = pageSize = n
+
+  /** Current page size — `<= 0` means pagination is disabled. */
+  def currentPageSize: Int = pageSize
+
   // v1.17.x — completion handlers keyed by (prompt name, argument name)
   // and (resource uriTemplate, argument name).  Dispatching `completion/
   // complete` looks up the handler by the ref + argument name and
@@ -493,25 +507,28 @@ object McpServerCore:
         JsonRpc.encodeResult(id, ujson.Obj())
 
       case McpProtocol.Method.ToolsList =>
-        val entries = builder.tools.values.toList.map { r =>
+        val all = builder.tools.values.toList.map { r =>
           McpProtocol.ToolEntry(r.name, r.description, r.inputSchema)
         }
-        JsonRpc.encodeResult(id, McpProtocol.toolsListResult(entries))
+        val (page, next) = McpProtocol.paginate(all, cursorOf(params), builder.currentPageSize)
+        JsonRpc.encodeResult(id, McpProtocol.toolsListResult(page, next))
 
       case McpProtocol.Method.ToolsCall =>
         callTool(builder, params, id)
 
       case McpProtocol.Method.ResourcesList =>
-        val entries = builder.resources.values.toList.map { r =>
+        val all = builder.resources.values.toList.map { r =>
           McpProtocol.ResourceEntry(r.uri, r.name, r.mimeType)
         }
-        JsonRpc.encodeResult(id, McpProtocol.resourcesListResult(entries))
+        val (page, next) = McpProtocol.paginate(all, cursorOf(params), builder.currentPageSize)
+        JsonRpc.encodeResult(id, McpProtocol.resourcesListResult(page, next))
 
       case McpProtocol.Method.ResourcesTemplatesList =>
-        val entries = builder.resourceTemplates.values.toList.map { t =>
+        val all = builder.resourceTemplates.values.toList.map { t =>
           McpProtocol.ResourceTemplateEntry(t.uriTemplate, t.name, t.description, t.mimeType)
         }
-        JsonRpc.encodeResult(id, McpProtocol.resourcesTemplatesListResult(entries))
+        val (page, next) = McpProtocol.paginate(all, cursorOf(params), builder.currentPageSize)
+        JsonRpc.encodeResult(id, McpProtocol.resourcesTemplatesListResult(page, next))
 
       case McpProtocol.Method.ResourcesRead =>
         readResource(builder, params, id)
@@ -533,10 +550,11 @@ object McpServerCore:
               JsonRpc.encodeResult(id, ujson.Obj())
 
       case McpProtocol.Method.PromptsList =>
-        val entries = builder.prompts.values.toList.map { r =>
+        val all = builder.prompts.values.toList.map { r =>
           McpProtocol.PromptEntry(r.name, r.description, r.arguments)
         }
-        JsonRpc.encodeResult(id, McpProtocol.promptsListResult(entries))
+        val (page, next) = McpProtocol.paginate(all, cursorOf(params), builder.currentPageSize)
+        JsonRpc.encodeResult(id, McpProtocol.promptsListResult(page, next))
 
       case McpProtocol.Method.PromptsGet =>
         getPrompt(builder, params, id)
@@ -721,6 +739,13 @@ object McpServerCore:
 
   private def invalidParams(id: ujson.Value, msg: String): String =
     JsonRpc.encodeError(id, JsonRpc.ErrorCode.InvalidParams, msg)
+
+  /** Read the optional `cursor` field off a list request's params.  No
+   *  validation here — bad cursors fall through to `paginate` which
+   *  defaults to offset 0. */
+  private def cursorOf(params: ujson.Value): Option[String] =
+    try params.objOpt.flatMap(_.get("cursor").flatMap(_.strOpt))
+    catch case _: Throwable => None
 
   /** Convert a `ujson.Value` payload into a plain-Scala tree (`Map[String, Any]`
    *  / `List[Any]` / primitives) so handlers don't need ujson knowledge.
