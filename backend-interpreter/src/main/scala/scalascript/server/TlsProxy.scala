@@ -29,23 +29,11 @@ object TlsProxy:
       val head = HttpHelpers.readHttpHead(cin)
       if head.isEmpty then { client.close(); return }
 
-      val headText = new String(head, java.nio.charset.StandardCharsets.ISO_8859_1)
-      val lines    = headText.split("\r\n").toList
-      val request  = lines.headOption.getOrElse("")
-      val headers: Map[String, String] = lines.drop(1).flatMap { l =>
-        val i = l.indexOf(':')
-        if i < 0 then None
-        else Some(l.substring(0, i).trim.toLowerCase -> l.substring(i + 1).trim)
-      }.toMap
-
-      val pathWithQuery = request.split(' ').lift(1).getOrElse("/")
-      val path          = pathWithQuery.split('?').head
-      val rawQuery      = if pathWithQuery.contains('?') then pathWithQuery.split('?').lift(1).getOrElse("") else ""
-      val isWs = headers.get("upgrade").exists(_.equalsIgnoreCase("websocket")) &&
-                 headers.get("connection").exists(_.toLowerCase.contains("upgrade"))
-
-      if isWs then handleWsUpgrade(client, cin, cout, path, rawQuery, headers, wsExecutor, log)
-      else forwardHttp(client, cin, cout, head, internalPort)
+      val parsed = HttpHelpers.parseHttpHead(head)
+      if parsed.isUpgradeWebSocket then
+        handleWsUpgrade(client, cin, cout, parsed.path, parsed.rawQuery, parsed.headers, wsExecutor, log)
+      else
+        forwardHttp(client, cin, cout, head, internalPort)
     catch case _: Throwable => try client.close() catch case _: Throwable => ()
 
   // ── WebSocket upgrade ──────────────────────────────────────────────
