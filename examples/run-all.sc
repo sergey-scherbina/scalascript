@@ -1,5 +1,5 @@
 #!/usr/bin/env scala-cli
-//> using toolkit latest
+//> using toolkit 0.9.2
 
 // Runs all ScalaScript examples through the interpreter (INT), JS backend
 // (JS), and JVM/Scala 3 codegen (JVM). Prints the interpreter's output for

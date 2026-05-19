@@ -1,7 +1,7 @@
 #!/usr/bin/env -S scala-cli shebang
 
 //> using scala 3.3
-//> using toolkit latest
+//> using toolkit 0.9.2
 //> using dep org.yaml:snakeyaml:2.2
 
 import org.yaml.snakeyaml.Yaml

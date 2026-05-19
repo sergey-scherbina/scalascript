@@ -1,5 +1,5 @@
 #!/usr/bin/env scala-cli
-//> using toolkit latest
+//> using toolkit 0.9.2
 
 // Conformance test runner for ScalaScript.
 // For each .ssc file in conformance/ it:

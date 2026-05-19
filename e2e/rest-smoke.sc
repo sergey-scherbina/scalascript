@@ -1,5 +1,5 @@
 #!/usr/bin/env scala-cli
-//> using toolkit latest
+//> using toolkit 0.9.2
 
 // Cross-backend REST smoke harness.
 //
