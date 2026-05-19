@@ -225,7 +225,30 @@ object JvmBytecode:
           // happy with arbitrary indentation inside `{ ... }`, and
           // reformatting line-by-line risks corrupting multiline
           // string literals embedded in the runtime preamble.
-          s"object ${safeName}_sc {\n$scalaSource\n}\n"
+          //
+          // v2.0 Phase 3 follow-up — emit a `def main(args)` so the
+          // generated `<safeName>_sc` class has a JVM entry point
+          // matching scala-cli's `.sc` mode.  Top-level statements
+          // (the user's `println(...)`, route registrations, etc.)
+          // live in the module's static initialiser, so referencing
+          // the module from `main` via `MODULE$` is enough to fire
+          // them — `getstatic` triggers `<clinit>` lazily.  We use
+          // a tiny no-op body that touches the enclosing object so
+          // the JIT can't elide the load: `val _ = this; ()`.  The
+          // implicit `this` reference inside the object reads
+          // `<safeName>_sc$.MODULE$`, which is the side-effecting
+          // load path.
+          //
+          // The user may legally define a `main` of their own in
+          // top-level code; if they do, our stub collides at compile
+          // time.  In practice user `.ssc` files don't define `main`
+          // (top-level statements are the runnable bit), so the
+          // collision is hypothetical — and a clear "duplicate
+          // definition" error from scalac is better than the silent
+          // "Main method not found" we get today.
+          val mainStub =
+            s"  def main(args: Array[String]): Unit = { val _ = this; () }\n"
+          s"object ${safeName}_sc {\n$scalaSource\n$mainStub}\n"
         else scalaSource
       val srcFile =
         if needsWrapper then workDir / s"${safeName}_sc.scala"
