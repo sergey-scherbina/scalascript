@@ -7,7 +7,6 @@ import scalascript.micropayment.spi.*
 import scalascript.blockchain.spi.*
 import scalascript.wallet.spi.AccountStrategy
 import scalascript.crypto.{Curve, PublicKey}
-import scalascript.x402.{Facilitators, NonceStore}
 import java.time.Instant
 
 class ThresholdIntegrationTest extends AnyFunSuite:
@@ -29,8 +28,6 @@ class ThresholdIntegrationTest extends AnyFunSuite:
 
   private def makeChannel(policy: SettlementPolicy = SettlementPolicy.onClose): (ThresholdChannel, ThresholdChannel) =
     val receiptStore = ReceiptStore.inMemory()
-    val nonceStore   = NonceStore.inMemory()
-    val facilitator  = Facilitators.testnet()
     val expiry       = Instant.now().toEpochMilli / 1000 + 3600L
 
     def mkCh(id: String) = new ThresholdChannel(
@@ -42,8 +39,7 @@ class ThresholdIntegrationTest extends AnyFunSuite:
       expiry           = expiry,
       chain            = StubChain,
       strategy         = StubStrategy,
-      facilitator      = facilitator,
-      nonceStore       = nonceStore,
+      ctx              = StubContext,
       receiptStore     = receiptStore,
       settlementPolicy = policy,
     )
@@ -137,7 +133,7 @@ class ThresholdIntegrationTest extends AnyFunSuite:
 
   test("ThresholdBatchingProvider.open() uses strategy address") {
     val store    = ReceiptStore.inMemory()
-    val provider = ThresholdBatchingProvider(StubChain, StubStrategy, Facilitators.testnet(),
+    val provider = ThresholdBatchingProvider(StubChain, StubStrategy, StubContext,
                                               receiptStore = store)
     val channel  = Await.result(provider.open(makeConfig()), 5.seconds)
     val tc       = channel.asInstanceOf[ThresholdChannel]
@@ -145,7 +141,7 @@ class ThresholdIntegrationTest extends AnyFunSuite:
     assert(tc.payeeAddress == PayeeAddress)
   }
 
-  // ── Stub chain + strategy ────────────────────────────────────────────────
+  // ── Stub chain + strategy + context ──────────────────────────────────────
 
   private object StubChain extends ChainAdapter:
     type Tx       = Unit
@@ -161,17 +157,16 @@ class ThresholdIntegrationTest extends AnyFunSuite:
       Array.empty[Byte]
 
     def recoverAddress(digest: Array[Byte], sig: Array[Byte]): Option[String] =
-      // sig = "STUB_SIG:<address>" encoded in UTF-8
       val s = new String(sig, "UTF-8")
       if s.startsWith("STUB_SIG:") then Some(s.drop(9)) else None
 
-    def buildTransaction(i: TxIntent, ctx: ChainContext)                     = Future.successful(())
+    def buildTransaction(i: TxIntent, sender: String, ctx: ChainContext)     = Future.successful(())
     def prepareSigningPayload(tx: Unit, pk: PublicKey)                       = SigningPayload(Array.empty, scalascript.crypto.HashAlgo.Keccak256)
     def assembleSignedTransaction(tx: Unit, sig: Array[Byte], pk: PublicKey) = ()
-    def broadcast(tx: Unit, ctx: ChainContext)                               = Future.successful(TxHash("0x0"))
+    def broadcast(tx: Unit, ctx: ChainContext)                               = Future.successful(TxHash("0xSETTLED"))
     def describe(tx: Unit)                                                   = TxDescription("stub", Map.empty)
     def nativeBalance(a: String, c: ChainContext)                            = Future.successful(BigInt(0))
-    def tokenBalance(a: Asset, h: String, c: ChainContext)                   = Future.successful(BigInt(0))
+    def tokenBalance(a: Asset, h: String, c: ChainContext)                   = Future.successful(BigInt(10_000_000))
     def nonceOf(a: String, c: ChainContext)                                  = Future.successful(BigInt(0))
     def getReceipt(h: TxHash, c: ChainContext)                               = Future.successful(None)
     def waitForReceipt(h: TxHash, c: ChainContext, t: Long)                  = Future.failed(NotImplementedError())
@@ -179,14 +174,19 @@ class ThresholdIntegrationTest extends AnyFunSuite:
     def predictDeployAddress(d: TxIntent.Deploy, dep: String, c: ChainContext) = Future.successful("0x0")
 
   private object StubStrategy extends AccountStrategy:
-    def kind                                          = "stub"
+    def kind                                             = "stub"
     def getAddress(chain: ChainAdapter): Future[String] = Future.successful(PayerAddress)
 
     def signTransaction(chain: ChainAdapter)(tx: chain.Tx): Future[chain.SignedTx] =
-      Future.failed(NotImplementedError())
+      Future.successful(tx.asInstanceOf[chain.SignedTx])
 
     def signMessage(chain: ChainAdapter, msg: Array[Byte]): Future[Array[Byte]] =
       Future.successful(msg)
 
     def signTypedData(chain: ChainAdapter, typed: TypedData): Future[Array[Byte]] =
       Future.successful(s"STUB_SIG:$PayerAddress".getBytes("UTF-8"))
+
+  private object StubContext extends ChainContext:
+    def rpcCall(method: String, params: ujson.Value*): Future[ujson.Value] =
+      Future.successful(ujson.Null)
+    def nowSeconds: Long = System.currentTimeMillis() / 1000

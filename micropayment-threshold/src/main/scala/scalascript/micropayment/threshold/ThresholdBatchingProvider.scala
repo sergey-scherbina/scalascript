@@ -1,9 +1,8 @@
 package scalascript.micropayment.threshold
 
 import scalascript.micropayment.spi.*
-import scalascript.blockchain.spi.ChainAdapter
+import scalascript.blockchain.spi.{ChainAdapter, ChainContext}
 import scalascript.wallet.spi.AccountStrategy
-import scalascript.x402.{Facilitator, NonceStore}
 import scala.concurrent.{ExecutionContext, Future}
 import java.time.Instant
 import java.util.UUID
@@ -11,8 +10,7 @@ import java.util.UUID
 class ThresholdBatchingProvider(
   chain:        ChainAdapter,
   strategy:     AccountStrategy,
-  facilitator:  Facilitator,
-  nonceStore:   NonceStore,
+  ctx:          ChainContext,
   receiptStore: ReceiptStore,
 ) extends ChannelProvider:
 
@@ -24,7 +22,7 @@ class ThresholdBatchingProvider(
     }
 
   def restore(channelId: ChannelId)(using ec: ExecutionContext): Future[Option[MicropaymentChannel]] =
-    Future.successful(None)  // Phase 2: no persistent state across restarts
+    Future.successful(None)
 
   def listOpen()(using ec: ExecutionContext): Future[Seq[ChannelState]] =
     Future.successful(Seq.empty)
@@ -47,8 +45,7 @@ class ThresholdBatchingProvider(
       expiry           = expiry,
       chain            = chain,
       strategy         = strategy,
-      facilitator      = facilitator,
-      nonceStore       = nonceStore,
+      ctx              = ctx,
       receiptStore     = receiptStore,
       settlementPolicy = config.settlementPolicy,
     )
@@ -57,8 +54,7 @@ object ThresholdBatchingProvider:
   def apply(
     chain:        ChainAdapter,
     strategy:     AccountStrategy,
-    facilitator:  Facilitator,
-    nonceStore:   NonceStore    = NonceStore.inMemory(),
-    receiptStore: ReceiptStore  = ReceiptStore.inMemory(),
+    ctx:          ChainContext,
+    receiptStore: ReceiptStore = ReceiptStore.inMemory(),
   ): ThresholdBatchingProvider =
-    new ThresholdBatchingProvider(chain, strategy, facilitator, nonceStore, receiptStore)
+    new ThresholdBatchingProvider(chain, strategy, ctx, receiptStore)

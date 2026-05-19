@@ -1,11 +1,8 @@
 package scalascript.micropayment.threshold
 
 import scalascript.micropayment.spi.*
-import scalascript.blockchain.spi.{ChainAdapter, Asset, ChainId, TypedData}
+import scalascript.blockchain.spi.{ChainAdapter, Asset, ChainId, TypedData, TxIntent, ChainContext}
 import scalascript.wallet.spi.AccountStrategy
-import scalascript.x402.{Facilitator, NonceStore, Network, PaymentPayload, PaymentRequirements,
-                          PaymentScheme, TransferAuthorization}
-import scalascript.x402.{Asset => X402Asset}
 import scala.concurrent.{ExecutionContext, Future}
 import java.security.MessageDigest
 import java.time.Instant
@@ -21,8 +18,7 @@ class ThresholdChannel(
   val expiry:       Long,           // unix seconds
   chain:            ChainAdapter,
   strategy:         AccountStrategy,
-  facilitator:      Facilitator,
-  nonceStore:       NonceStore,
+  ctx:              ChainContext,
   receiptStore:     ReceiptStore,
   settlementPolicy: SettlementPolicy,
 )(using ec: ExecutionContext) extends MicropaymentChannel:
@@ -36,7 +32,7 @@ class ThresholdChannel(
     ChannelState(channelId, _seq, _offChain, _onChain, openedAt, _lastActivity)
 
   def availableBalance: Future[BigInt] =
-    Future.successful(_onChain - _offChain - _onChain)
+    chain.tokenBalance(assetInfo, payerAddress, ctx)
 
   // ── Payer side ──────────────────────────────────────────────────────────────
 
@@ -80,22 +76,27 @@ class ThresholdChannel(
     receiptStore.latest(channelId).flatMap {
       case None => Future.successful(SettlementResult.Fail("No receipt to settle"))
       case Some(r) =>
-        val nonce   = receiptNonce(r.channelId, r.sequence)
-        val payload = toPaymentPayload(r, nonce)
-        val req     = toPaymentRequirements()
-        nonceStore.claim(nonce, BigInt(expiry)).flatMap {
-          case false => Future.successful(SettlementResult.Fail("Nonce already claimed"))
-          case true  =>
-            facilitator.settle(payload, req).map {
-              case scalascript.x402.SettleResult.Ok(tx) =>
-                val settled = _offChain
-                _onChain   += settled
-                _offChain   = BigInt(0)
-                SettlementResult.Ok(tx, settled)
-              case scalascript.x402.SettleResult.Fail(msg) =>
-                SettlementResult.Fail(msg)
+        val nonceBytes = receiptNonceBytes(r.channelId, r.sequence)
+        val intent = TxIntent.TokenTransferAuthorized(
+          asset       = assetInfo,
+          from        = payerAddress,
+          to          = payeeAddress,
+          amount      = r.cumulative,
+          validAfter  = BigInt(0),
+          validBefore = BigInt(expiry),
+          nonce       = nonceBytes,
+          signature   = r.payerSig,
+        )
+        val settled = _offChain
+        chain.buildTransaction(intent, payeeAddress, ctx).flatMap { tx =>
+          strategy.signTransaction(chain)(tx).flatMap { signed =>
+            chain.broadcast(signed, ctx).map { hash =>
+              _onChain  += settled
+              _offChain  = BigInt(0)
+              SettlementResult.Ok(hash.value, settled)
             }
-        }
+          }
+        }.recover { case ex => SettlementResult.Fail(ex.getMessage) }
     }
 
   def close(): Future[SettlementResult] =
@@ -142,47 +143,18 @@ class ThresholdChannel(
       primaryType = "TransferWithAuthorization",
     )
 
-  private def toPaymentPayload(r: PaymentReceipt, nonce: String): PaymentPayload =
-    PaymentPayload(
-      scheme        = PaymentScheme.Exact(r.cumulative),
-      network       = chainIdToNetwork(assetInfo.chain),
-      authorization = TransferAuthorization(
-        from        = payerAddress,
-        to          = payeeAddress,
-        value       = r.cumulative,
-        validAfter  = BigInt(0),
-        validBefore = BigInt(expiry),
-        nonce       = nonce,
-      ),
-      signature = "0x" + r.payerSig.map(b => f"${b & 0xff}%02x").mkString,
-    )
-
-  private def toPaymentRequirements(): PaymentRequirements =
-    PaymentRequirements(
-      scheme      = PaymentScheme.Exact(_offChain),
-      network     = chainIdToNetwork(assetInfo.chain),
-      asset       = X402Asset(assetInfo.address, assetInfo.symbol, assetInfo.decimals, chainIdToNetwork(assetInfo.chain)),
-      payTo       = payeeAddress,
-      resource    = s"channel:$channelId",
-      description = "ThresholdBatching settlement",
-    )
-
 private[threshold] def receiptNonce(channelId: ChannelId, seq: Long): String =
   val md    = MessageDigest.getInstance("SHA-256")
   val input = s"$channelId:$seq".getBytes("UTF-8")
   val hash  = md.digest(input)
   "0x" + hash.map(b => f"${b & 0xff}%02x").mkString
 
+private[threshold] def receiptNonceBytes(channelId: ChannelId, seq: Long): Array[Byte] =
+  val md    = MessageDigest.getInstance("SHA-256")
+  val input = s"$channelId:$seq".getBytes("UTF-8")
+  md.digest(input)
+
 private[threshold] def chainIdToInt(id: ChainId): Long =
   id.reference.toLongOption.getOrElse(
     throw RuntimeException(s"Cannot convert ChainId to int: $id")
   )
-
-private[threshold] def chainIdToNetwork(id: ChainId): Network = id match
-  case ChainId("eip155:8453")   => Network.Base
-  case ChainId("eip155:84532")  => Network.BaseSepolia
-  case ChainId("eip155:1")      => Network.EthereumMainnet
-  case ChainId("eip155:137")    => Network.Polygon
-  case ChainId("eip155:42161")  => Network.Arbitrum
-  case ChainId("eip155:10")     => Network.Optimism
-  case other                    => throw RuntimeException(s"Unsupported chain for x402: $other")

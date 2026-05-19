@@ -828,11 +828,10 @@ lazy val micropaymentSpi = project
 
 lazy val micropaymentThreshold = project
   .in(file("micropayment-threshold"))
-  .dependsOn(micropaymentSpi, x402Core, walletSpi, blockchainSpi)
+  .dependsOn(micropaymentSpi, walletSpi, blockchainSpi)
   .settings(
     name := "scalascript-micropayment-threshold",
     libraryDependencies ++= Seq(
-      "com.lihaoyi" %% "upickle" % "4.4.2",
       scalatestTest,
     ),
     Compile / scalacOptions ++= sharedScalacOptionsStrict,
@@ -845,7 +844,7 @@ lazy val micropaymentServer = project
   .settings(
     name := "scalascript-micropayment-server",
     libraryDependencies ++= Seq(
-      "com.lihaoyi" %% "upickle" % "4.4.2",
+      "com.lihaoyi" %% "upickle" % "3.3.1",
       scalatestTest,
     ),
     Compile / scalacOptions ++= sharedScalacOptionsStrict,
@@ -858,7 +857,7 @@ lazy val micropaymentClient = project
   .settings(
     name := "scalascript-micropayment-client",
     libraryDependencies ++= Seq(
-      "com.lihaoyi" %% "upickle" % "4.4.2",
+      "com.lihaoyi" %% "upickle" % "3.3.1",
       scalatestTest,
     ),
     Compile / scalacOptions ++= sharedScalacOptionsStrict,
