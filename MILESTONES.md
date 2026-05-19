@@ -2143,7 +2143,7 @@ Parser-level: `[F[_]: M1: M2]` → appended `(using M1[F], M2[F])`
 parameter list.  Standard Scala 3 semantics.  Trivial once Phase
 1 lands.
 
-### Phase 4 — Cross-file trait inheritance with HKT (~3-4 days)
+### Phase 4 — Cross-file trait inheritance with HKT ✓ Landed
 
 Today `trait Traversable[T[_]] extends Functor[T], Foldable[T]`
 breaks at the JVM compile when `Functor` lives in a separate
@@ -2151,7 +2151,7 @@ file.  v1.1 step 3 worked around it.  Fix the typer's import-
 resolution pass to carry trait *definitions* (not just instances
 and extensions) into the consumer's scope.
 
-### Phase 5 — Sealed-trait extension dispatch in INT (~2 days)
+### Phase 5 — Sealed-trait extension dispatch in INT ✓ Landed
 
 Build a sealed-parent registry at trait/class definition time.
 `extensionDispatch` walks the parent chain when the exact-name
@@ -2159,15 +2159,21 @@ lookup misses.  Closes the carryover item from v1.1 that forced
 helper functions for `Either` in steps 5 / 6.  JS already
 handles this via `_typeOf`; JVM relies on Scala's own dispatch.
 
-### Phase 6 — Conformance + std polishing (~2 days)
+### Phase 6 — Conformance + std polishing ✓ Landed
 
-- Six conformance tests covering the four typer dependencies
-  (see `docs/final-tagless.md` §9).
-- Rewrite `std/semigroup-monoid.ssc` helpers from explicit-pass
-  to context-bound form.  Same observable behaviour, less
-  call-site boilerplate.
-- Re-enable extension-method form of `bimap` / `handleError` for
-  `Either` (currently shipped as helpers per v1.1 carryover).
+- Six conformance tests (all with expected output files):
+  `tagless-resolution.ssc` (§3.1 using auto-resolution),
+  `tagless-context-bounds.ssc` (§3.2 context-bound desugaring),
+  `tagless-multi-file.ssc` (§3.3 cross-file HKT extends),
+  `tagless-sealed-dispatch.ssc` (§3.4 sealed-parent dispatch),
+  `tagless-program.ssc` (§4 Console[F] with two interpreters),
+  `tagless-direct-syntax.ssc` (§5 direct[F] synergy).
+- `std/semigroup-monoid.ssc`: `combineAll` rewritten with
+  `[A: Monoid]` context-bound; `combineAllOption` with `[A: Semigroup]`.
+- `std/bifunctor.ssc`: `eitherBifunctor` given with `bimap`/`leftMap`/
+  `rightMap` extensions — sealed-parent dispatch covers `Right`/`Left`.
+- `std/monaderror.ssc`: `handleError` standalone extension on
+  `Either[String, A]` — dispatches from `Right`/`Left` via parent-chain walk.
 
 ### Hard-no list (locked by design — `docs/final-tagless.md` §7)
 
