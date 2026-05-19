@@ -395,7 +395,14 @@ object JvmBytecode:
     }.toList
 
   /** Pack a list of `.class` file paths (under `root`) into an in-memory ZIP
-   *  whose entries are `pkg/sub/Name.class` keyed on `path.relativeTo(root)`. */
+   *  whose entries are `pkg/sub/Name.class` keyed on `path.relativeTo(root)`.
+   *
+   *  Deterministic output: entries are sorted by path string, and every
+   *  entry's modification time is pinned to a fixed epoch (1980-01-01,
+   *  the ZIP format's `dosTime = 0` value).  Without the pinned time
+   *  the JDK stamps each entry with the wall clock at write time, which
+   *  breaks byte-for-byte reproducibility across runs (see
+   *  ReproducibilityTest). */
   def packAsZip(root: os.Path, files: List[os.Path]): Array[Byte] =
     val baos = new ByteArrayOutputStream()
     val zos  = new ZipOutputStream(baos)
@@ -405,11 +412,22 @@ object JvmBytecode:
       for f <- files.sortBy(_.toString) do
         val entryName = f.relativeTo(root).toString.replace('\\', '/')
         val entry     = new ZipEntry(entryName)
+        // Pin entry times so two runs produce byte-identical ZIPs.
+        // The chosen instant is 1980-01-01T00:00:00Z (315532800000 ms);
+        // ZIP's DOS-time encoding can't represent dates before 1980.
+        entry.setTime(FixedZipEntryTimeMillis)
         zos.putNextEntry(entry)
         zos.write(os.read.bytes(f))
         zos.closeEntry()
     finally zos.close()
     baos.toByteArray
+
+  /** Fixed mtime for every ZIP entry produced by [[packAsZip]].  The
+   *  value (1980-01-01T00:00:00Z, 315532800000 ms since epoch) is the
+   *  earliest instant ZIP's DOS-time encoding supports — using anything
+   *  earlier results in negative DOS years that the unzip-side reads
+   *  as garbage. */
+  private val FixedZipEntryTimeMillis: Long = 315_532_800_000L
 
   // ─── Extract base64 ZIP → directory of .class files ──────────────────────
 

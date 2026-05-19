@@ -103,9 +103,32 @@ object Scala3Driver:
       .map(_.toString)
       .mkString(File.pathSeparator)
 
+    // Compute a workspace root for `-sourceroot`.  The compiler embeds
+    // the source file's path (relative to `-sourceroot`) in the SourceFile
+    // class attribute and in TASTY metadata; without a `-sourceroot` the
+    // path is absolute, which is sensitive to the random `os.temp.dir`
+    // suffix chosen by `compileAndPackDirect` — two runs of the same
+    // source produce different absolute paths, and TASTY/`.class` bytes
+    // differ on byte length alone.  Pinning `-sourceroot` to the
+    // common parent of `srcFiles` collapses the absolute path to just
+    // the file's basename ("a_sc.scala") which is stable across runs.
+    //
+    // v2.0 Phase 3 follow-up — reproducibility fix.
+    val sourceRoot: os.Path =
+      if srcFiles.size == 1 then srcFiles.head / os.up
+      else
+        // Multi-file case: pick the longest common path prefix.
+        val segs = srcFiles.map(_.segments.toList)
+        val common = segs.reduce((a, b) =>
+          a.zip(b).takeWhile { case (x, y) => x == y }.map(_._1)
+        )
+        if common.isEmpty then os.root
+        else os.Path("/" + common.mkString("/"))
+
     val args: Array[String] = Array(
       "-d", outDir.toString,
       "-classpath", cpString,
+      "-sourceroot", sourceRoot.toString,
       // Match `scala-cli`'s defaults: emit `.tasty` alongside `.class`,
       // no progress bar, no banner.  `-color:never` keeps reporter
       // output ANSI-free, which makes the captured buffer pleasant to
