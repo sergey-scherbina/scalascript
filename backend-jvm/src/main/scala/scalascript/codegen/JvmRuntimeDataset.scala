@@ -10,21 +10,21 @@ val JvmRuntimeDataset: String =
   """|
      |// ── v1.21 Dataset[T] — lazy map-reduce pipeline ──────────────────────────
      |
-     |class _Dataset[+T](
+     |class _Dataset[T](
      |  private val _sourceFn:  () => List[Any],
      |  private val _pipeline:  List[Any] => List[Any],
      |  private val _parallel:  Boolean = false
      |):
      |  // ── Lazy transformations ──────────────────────────────────────────────
      |
-     |  def map[U](f: Any => U): _Dataset[U] =
-     |    new _Dataset(() => _sourceFn(), xs => _pipeline(xs).map(f), _parallel)
+     |  def map[U](f: T => U): _Dataset[U] =
+     |    new _Dataset(() => _sourceFn(), xs => _pipeline(xs).map(x => f(x.asInstanceOf[T])), _parallel)
      |
-     |  def filter(p: Any => Boolean): _Dataset[T] =
-     |    new _Dataset(() => _sourceFn(), xs => _pipeline(xs).filter(p), _parallel)
+     |  def filter(p: T => Boolean): _Dataset[T] =
+     |    new _Dataset(() => _sourceFn(), xs => _pipeline(xs).filter(x => p(x.asInstanceOf[T])), _parallel)
      |
-     |  def flatMap[U](f: Any => List[U]): _Dataset[U] =
-     |    new _Dataset(() => _sourceFn(), xs => _pipeline(xs).flatMap(x => f(x).asInstanceOf[List[Any]]), _parallel)
+     |  def flatMap[U](f: T => List[U]): _Dataset[U] =
+     |    new _Dataset(() => _sourceFn(), xs => _pipeline(xs).flatMap(x => f(x.asInstanceOf[T]).asInstanceOf[List[Any]]), _parallel)
      |
      |  def take(n: Int): _Dataset[T] =
      |    new _Dataset(() => _sourceFn(), xs => _pipeline(xs).take(n), _parallel)
@@ -35,27 +35,27 @@ val JvmRuntimeDataset: String =
      |  def distinct: _Dataset[T] =
      |    new _Dataset(() => _sourceFn(), xs => _pipeline(xs).distinct, _parallel)
      |
-     |  def groupBy[K](key: Any => K): _Dataset[(K, List[Any])] =
+     |  def groupBy[K](key: T => K): _Dataset[(K, List[T])] =
      |    new _Dataset(() => _sourceFn(), xs =>
      |      _pipeline(xs)
-     |        .groupBy(key)
+     |        .groupBy(x => key(x.asInstanceOf[T]))
      |        .toList
-     |        .map { case (k, vs) => (k, vs) }
+     |        .map { case (k, vs) => (k, vs.asInstanceOf[List[T]]) }
      |        .asInstanceOf[List[Any]],
      |      _parallel)
      |
-     |  def reduceByKey[K](key: Any => K)(combine: (Any, Any) => Any): _Dataset[(K, Any)] =
+     |  def reduceByKey[K](key: T => K)(combine: (T, T) => T): _Dataset[(K, T)] =
      |    new _Dataset(() => _sourceFn(), xs =>
      |      _pipeline(xs)
-     |        .groupBy(key)
+     |        .groupBy(x => key(x.asInstanceOf[T]))
      |        .toList
-     |        .map { case (k, vs) => (k, vs.reduce(combine)) }
+     |        .map { case (k, vs) => (k, vs.asInstanceOf[List[T]].reduce(combine)) }
      |        .asInstanceOf[List[Any]],
      |      _parallel)
      |
-     |  def sortBy[K](key: Any => K)(using ord: Ordering[K]): _Dataset[T] =
+     |  def sortBy[K](key: T => K)(using ord: Ordering[K]): _Dataset[T] =
      |    new _Dataset(() => _sourceFn(), xs =>
-     |      _pipeline(xs).sortBy(key.asInstanceOf[Any => K]),
+     |      _pipeline(xs).sortBy(x => key(x.asInstanceOf[T])),
      |      _parallel)
      |
      |  // ── Execution mode ────────────────────────────────────────────────────

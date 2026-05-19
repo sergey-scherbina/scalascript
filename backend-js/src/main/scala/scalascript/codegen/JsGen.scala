@@ -6679,9 +6679,10 @@ class JsGen(
     case Term.Apply.After_4_6_0(Term.Name("processInfo"), argClause)
         if argClause.values.size == 1 =>
       s"Actor.processInfo(${genExpr(argClause.values.head.asInstanceOf[Term])})"
-    // v1.10 Generator — generator { () => body } / suspend(v)
-    case Term.Apply.After_4_6_0(Term.Name("generator"), argClause)
-        if argClause.values.size == 1 =>
+    // v1.10 Generator — generator { () => body } / generator[T] { () => body } / suspend(v)
+    case Term.Apply.After_4_6_0(
+        Term.ApplyType.After_4_6_0(Term.Name("generator"), _) | Term.Name("generator"),
+        argClause) if argClause.values.size == 1 =>
       s"_makeGenerator(${extractGenBody(argClause.values.head.asInstanceOf[Term])})"
     case Term.Apply.After_4_6_0(Term.Name("suspend"), argClause)
         if argClause.values.size == 1 =>
@@ -7197,9 +7198,10 @@ class JsGen(
     case Term.Apply.After_4_6_0(Term.Name("processInfo"), argClause)
         if argClause.values.size == 1 =>
       s"Actor.processInfo(${genExpr(argClause.values.head.asInstanceOf[Term])})"
-    // v1.10 Generator inside CPS body
-    case Term.Apply.After_4_6_0(Term.Name("generator"), argClause)
-        if argClause.values.size == 1 =>
+    // v1.10 Generator inside CPS body — generator { } / generator[T] { }
+    case Term.Apply.After_4_6_0(
+        Term.ApplyType.After_4_6_0(Term.Name("generator"), _) | Term.Name("generator"),
+        argClause) if argClause.values.size == 1 =>
       val bodyJs = argClause.values.head match
         case Term.Function.After_4_6_0(_, body) =>
           genGeneratorBody(body.asInstanceOf[Term])
