@@ -491,14 +491,14 @@ def incrementalBuildCommand(args: List[String]): Unit =
     System.exit(1)
 
   if graph.pkgCollisions.nonEmpty then
-    System.err.println(s"build --incremental: ${graph.pkgCollisions.length} package collision(s) detected:")
+    System.err.println(s"build --incremental: warning — ${graph.pkgCollisions.length} package(s) shared across files:")
     graph.pkgCollisions.foreach { c =>
       System.err.println(s"  package '${c.pkg.mkString(".")}' claimed by:")
       c.paths.foreach(p => System.err.println(s"    - ${p.relativeTo(srcDir)}"))
     }
-    System.err.println("  Each `package:` value must be unique within the source tree;")
-    System.err.println("  artifacts share a name space, so collisions would overwrite each other.")
-    System.exit(1)
+    System.err.println("  Sharing a `package:` across files is allowed (it groups a namespace),")
+    System.err.println("  but if two files export the same symbol the linker dedup pass will")
+    System.err.println("  drop the second occurrence.  Use `ssc link` to surface real collisions.")
 
   val nodes = graph.orderedNodes
   println(s"Discovered ${nodes.length} module(s) in ${srcDir.relativeTo(os.pwd)}" +
@@ -716,12 +716,11 @@ private def buildArtifactsInto(
     }
     return (0, 0, 1)
   if graph.pkgCollisions.nonEmpty then
-    out.println(s"build (artifacts): ${graph.pkgCollisions.length} package collision(s) detected:")
+    out.println(s"build (artifacts): warning — ${graph.pkgCollisions.length} shared `package:` value(s):")
     graph.pkgCollisions.foreach { c =>
       out.println(s"  package '${c.pkg.mkString(".")}' claimed by:")
       c.paths.foreach(p => out.println(s"    - ${p.relativeTo(srcDir)}"))
     }
-    return (0, 0, 1)
 
   val nodes = graph.orderedNodes
   var compiled = 0

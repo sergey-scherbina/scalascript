@@ -367,34 +367,51 @@ class V2ArtifactCliTest extends AnyFunSuite:
         s"b.scir should NOT have been rebuilt (b's source unchanged)")
     finally os.remove.all(sandbox)
 
-  // ── 6. build --incremental — package collision detection ────────────────
+  // ── 6. build --incremental — shared `package:` warning ──────────────────
 
-  test("build --incremental rejects two files claiming the same `package:`"):
+  test("build --incremental warns when two files share the same `package:`"):
+    // Sharing a package across files is legal (Scala-style namespace
+    // grouping; std/cluster/, std/dsl/ etc. do this on purpose).  But
+    // the build surfaces a warning so users notice — if their files
+    // also happen to export the same symbol, the linker dedup pass
+    // would silently drop the second occurrence.
     val sandbox = os.temp.dir(prefix = "ssc-v2-cli-")
     try
       val srcDir = sandbox / "src"
       os.makeDir.all(srcDir)
 
-      val both =
+      val sharedPkgX =
         """---
-          |package: acme.dup
+          |package: acme.shared
           |---
           |
-          |# Dup
+          |# X
           |
           |```scalascript
-          |def v(): Int = 1
+          |def aaa(): Int = 1
           |```
           |""".stripMargin
-      os.write(srcDir / "x.ssc", both)
-      os.write(srcDir / "y.ssc", both)
+      val sharedPkgY =
+        """---
+          |package: acme.shared
+          |---
+          |
+          |# Y
+          |
+          |```scalascript
+          |def bbb(): Int = 2
+          |```
+          |""".stripMargin
+      os.write(srcDir / "x.ssc", sharedPkgX)
+      os.write(srcDir / "y.ssc", sharedPkgY)
 
       val r = runSsc(sandbox, "build", "--incremental", "src")
-      assert(r.exitCode != 0,
-        s"build should fail on package collision; stdout=${r.out.text()} stderr=${r.err.text()}")
+      // Build still succeeds — disjoint symbols are safe.
+      assert(r.exitCode == 0,
+        s"build should succeed (warning, not fatal); stdout=${r.out.text()} stderr=${r.err.text()}")
       val combined = r.err.text() + r.out.text()
-      assert(combined.contains("acme.dup"),
-        s"diagnostic should mention the colliding package; got: $combined")
+      assert(combined.contains("acme.shared"),
+        s"warning should mention the shared package; got: $combined")
       assert(combined.contains("x.ssc") && combined.contains("y.ssc"),
-        s"diagnostic should name both colliding files; got: $combined")
+        s"warning should name both files; got: $combined")
     finally os.remove.all(sandbox)

@@ -315,11 +315,15 @@ external distribution + the last-known section-cache gap:
 These are documented but not blocking the v2.0 feature-completeness
 declaration:
 
-- **Scale benchmark over real std/.**  Perf numbers in the
-  getting-started doc are measured on a trivial 2-module fixture.
-  A benchmark over the 30+ `std/` modules at full
-  `--bytecode --section-cache --source-map --strict` toggles is
-  owed.
+- **Scale benchmark over real std/.**  ✓ Landed.  Bench runner at
+  `scripts/v2-scale-bench.sh`; results written up in
+  [`docs/v2.0-scale-benchmark.md`](v2.0-scale-benchmark.md).
+  39/49 std/ modules compile under `build --incremental`; the
+  10 failures are JvmGen-level gaps (`@targetName ""` clashes, shared
+  `package:` self-reference issues, missing intrinsic surfaces),
+  not v2.0 pipeline regressions.  Section caching adds 5-25 % overhead
+  at the small-file scale and is a wash; per-module SHA-256 staleness
+  is the right default.
 - **Cross-platform (Windows) smoke.**  All tests assume Unix paths;
   Windows path separators, CRLF line endings (relevant for
   `sourceHash`), and file-lock semantics are not covered.
