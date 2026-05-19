@@ -335,39 +335,66 @@ Estimate: ~4 days.  Java SDK is heavier than the JS one
 (more setup, schema validation), but the wrapping pattern is
 straightforward.
 
-### 6.3 Interpreter backend — own-implementation (v1.17.x Phase 1 landed)
+### 6.3 Interpreter backend — own-implementation (v1.17.x Phase 1 + Phase 2 landed)
 
 The interpreter ships with a pure-Scala JSON-RPC 2.0 + MCP runtime
-under `backend-interpreter/.../mcp/` — no SDK dependency.
+in the dedicated sbt module `mcp-common` — no SDK dependency.
 
 **Phase 1 (landed 2026-05-19)** — `Transport.Stdio` server +
-`Transport.Spawn` client.  Both `Feature.McpServer` and
-`Feature.McpClient` are declared on `InterpreterCapabilities`; the
-typer no longer rejects `std/mcp/*` imports on the interpreter.
+`Transport.Spawn` client.
+
+**Phase 2 (landed 2026-05-19)** — `Transport.Http(port, path)` server
+on top of the existing WebServer (POST handler routing through
+`McpServerCore.handleHttpRequest`); `mcpConnect(Transport.Http(url))`
+client wrapping `java.net.http.HttpClient` (synchronous Streamable-HTTP).
+
+Both `Feature.McpServer` and `Feature.McpClient` are declared on
+`InterpreterCapabilities`; the typer no longer rejects `std/mcp/*`
+imports on the interpreter.
 
 | Module | Role |
 |---|---|
-| `JsonRpc.scala` | JSON-RPC 2.0 framing (request / notification / response, line-delimited) |
-| `McpProtocol.scala` | MCP method names + result envelope builders |
-| `McpServerCore.scala` | Tool / resource / prompt registry + transport-agnostic dispatch loop |
-| `McpClientCore.scala` | Pending-request map keyed by id; per-id BlockingQueue routing |
-| `intrinsics/Mcp.scala` | `mcpServer` / `serveMcp` / `mcpConnect` native intrinsics |
+| `mcp-common/JsonRpc.scala` | JSON-RPC 2.0 framing (line-delimited) |
+| `mcp-common/McpProtocol.scala` | MCP method names + result envelopes |
+| `mcp-common/McpServerCore.scala` | Tool/resource/prompt registry + dispatch (`serve` for stdio loop, `handleHttpRequest` for one-shot HTTP) |
+| `mcp-common/McpClientCore.scala` | Async (stdio/spawn) client — pending-request map + per-id BlockingQueue |
+| `mcp-common/McpHttpClient.scala` | Sync HTTP client — `java.net.http.HttpClient` wrapper |
+| `backend-interpreter/.../intrinsics/Mcp.scala` | `mcpServer` / `serveMcp` / `mcpConnect` native intrinsics for both stdio+spawn and HTTP |
 
-**Phase 2 (deferred)** — `Transport.Http(port, path)` with HTTP+SSE.
-Calling `serveMcp(Transport.Http(...))` today raises an actionable
-"deferred to Phase 2/3" `InterpretError`.
+**SSE-streamed server→client notifications** (`text/event-stream` GET
+endpoint with `EventSource` consumer) is out of scope for Phase 2 v1 —
+would need a persistent GET stream + reader thread.  Synchronous
+request/response covers MCP's typical workload; additive later.
 
-**Phase 3 (deferred)** — `Transport.Ws(port, path)`.  Same actionable
-error today; would reuse the existing WS server infrastructure.
+**`Transport.Ws(port, path)` (deferred)** — would reuse the existing
+WebSocket server infrastructure; raises an actionable
+"deferred to a future phase" `InterpretError` today.
 
-### 6.4 Browser-SPA (scalajs) backend
+### 6.4 Browser-SPA (scalajs) backend — Phase 3 still pending
 
 Server-side stays unsupported (a browser can't be an MCP server).
-**Client side (`std/mcp/client`) is deferred to v1.17.x Phase 3** —
-the pure-Scala `JsonRpc` / `McpProtocol` / `McpClientCore` modules
-are cross-buildable; the remaining work is a browser-side transport
-(fetch + EventSource) and a `Feature.McpClient` flag on
-`ScalaJsCapabilities`.
+**Client side (`std/mcp/client`) is deferred to v1.17.x Phase 3**.
+
+Open implementation questions for Phase 3:
+
+- **How to bridge the user's `scalascript`/`scala` blocks to a browser MCP
+  client**: `mcp-common` is JVM-only (uses `java.net.http.HttpClient` +
+  `java.util.concurrent`); the browser needs `fetch` / `EventSource`.
+  Options:
+  1. Write a browser-compatible variant of `JsRuntimeMcp` (raw JavaScript
+     preamble) and select it when target is the browser.  Cleanest for
+     `scalascript` blocks (they go through `JsGen`).
+  2. Write a Scala-source preamble (using `org.scalajs.dom` facades) for
+     `scala` blocks compiled via `scala-cli --js`.  Requires filtering
+     the `extern def __extern__` stubs from inlined `std/mcp/client.ssc`
+     so the preamble's real impl doesn't collide.  `JvmGen` has
+     `blockContainsExternDef` for this; `ScalaJsBackend` currently
+     doesn't.
+
+- **`Feature.McpClient` not yet on `ScalaJsCapabilities`** — adding it
+  without a real impl would leave `mcpConnect` calls as runtime
+  `__extern__` errors; keep the typecheck rejection until Phase 3 lands
+  the impl.
 
 ## 7. Backend feature flags (per SPI §8)
 

@@ -60,18 +60,18 @@ class McpInterpreterIntegrationTest extends AnyFunSuite with Matchers:
     val ex = intercept[InterpretError] { run(src) }
     ex.getMessage should include ("Spawn")
 
-  test("serveMcp with Http transport raises a Phase-2 deferred error"):
+  test("serveMcp with Ws transport raises a deferred error"):
     val src =
       """# Test
         |
         |```scalascript
         |enum Transport:
         |  case Stdio
-        |  case Http(port: Int, path: String)
+        |  case Ws(port: Int, path: String)
         |
         |mcpServer { srv => () }
-        |serveMcp(Transport.Http(8080, "/mcp"))
+        |serveMcp(Transport.Ws(8080, "/mcp"))
         |```
         |""".stripMargin
     val ex = intercept[InterpretError] { run(src) }
-    ex.getMessage should include ("Phase 2")
+    ex.getMessage should include ("Ws transport")

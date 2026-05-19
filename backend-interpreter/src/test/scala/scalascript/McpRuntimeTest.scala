@@ -2,7 +2,7 @@ package scalascript
 
 import org.scalatest.funsuite.AnyFunSuite
 import org.scalatest.matchers.should.Matchers
-import scalascript.interpreter.mcp.*
+import scalascript.mcp.*
 
 /** Unit tests for the transport-agnostic MCP runtime: JSON-RPC framing,
  *  server-side dispatch, client-side request/response routing.  No

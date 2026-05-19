@@ -1,4 +1,4 @@
-package scalascript.interpreter.mcp
+package scalascript.mcp
 
 /** MCP method names + result envelope shapes.  Built on top of
  *  `JsonRpc` — these are the *protocol* concerns above the framing.

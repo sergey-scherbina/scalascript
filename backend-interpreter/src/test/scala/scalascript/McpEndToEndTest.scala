@@ -2,7 +2,7 @@ package scalascript
 
 import org.scalatest.funsuite.AnyFunSuite
 import org.scalatest.matchers.should.Matchers
-import scalascript.interpreter.mcp.*
+import scalascript.mcp.*
 import java.util.concurrent.LinkedBlockingQueue
 
 /** End-to-end test: a single `McpServerCore.serve` loop running in one

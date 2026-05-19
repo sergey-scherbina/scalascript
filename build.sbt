@@ -90,6 +90,25 @@ lazy val runtimeServerCommon = project
     }.taskValue
   )
 
+// v1.17 — MCP own-implementation shared runtime.  Pure Scala 3, depends
+// only on `upickle` / `ujson`.  Houses JsonRpc framing, the MCP protocol
+// shapes, the transport-agnostic server dispatch loop, and the client
+// pending-request map.  Phase 1 (interpreter stdio + spawn) and Phase 2
+// (interpreter HTTP+SSE) consume it directly; the scalajs-spa Phase 3
+// client lives in `backend-scalajs` as a JS preamble (uses Scala.js DOM
+// APIs that can't cross-build with the JVM types here).
+lazy val mcpCommon = project
+  .in(file("mcp-common"))
+  .settings(
+    name := "scalascript-mcp-common",
+    libraryDependencies ++= Seq(
+      "com.lihaoyi" %% "upickle" % "4.4.2",
+      scalatestTest
+    ),
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions
+  )
+
 lazy val backendJvm = project
   .in(file("backend-jvm"))
   .dependsOn(backendSpi, core, runtimeServerCommon)
@@ -166,7 +185,7 @@ lazy val backendCss = project
 // backends no longer reference each other.
 lazy val backendInterpreter = project
   .in(file("backend-interpreter"))
-  .dependsOn(backendSpi, core, runtimeServerCommon, backendJs, backendJvm % Test)
+  .dependsOn(backendSpi, core, runtimeServerCommon, mcpCommon, backendJs, backendJvm % Test)
   .settings(
     name := "scalascript-backend-interpreter",
     libraryDependencies ++= Seq(scalatestTest),
@@ -299,7 +318,7 @@ lazy val cli = project
 lazy val root = project
   .in(file("."))
   .aggregate(
-    backendSpi, ir, core,
+    backendSpi, ir, core, runtimeServerCommon, mcpCommon,
     backendJvm, backendJs, backendScalajs, backendInterpreter,
     backendScalaSource, backendHtml, backendCss,
     cli

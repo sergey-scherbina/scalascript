@@ -1,4 +1,4 @@
-package scalascript.interpreter.mcp
+package scalascript.mcp
 
 import scala.collection.mutable
 
@@ -114,6 +114,35 @@ object McpServerCore:
             case Right(JsonRpc.Message.Request(method, params, id)) =>
               write(dispatch(builder, method, params, id, serverName, serverVersion))
     try builder.onDisconnected() catch case _: Throwable => ()
+
+  /** One POST body containing one JSON-RPC frame → one response body
+   *  (or empty string when the frame was a notification that needs no
+   *  reply).  Used by Phase 2's `Transport.Http` server: each POST /mcp
+   *  request feeds its body to this helper and writes the result back
+   *  as the HTTP response body.
+   *
+   *  Bypasses the long-running `serve()` loop — `Transport.Http` is
+   *  request/response oriented; the WebServer's existing thread pool
+   *  handles concurrency, no per-server-loop state needed. */
+  def handleHttpRequest(
+    builder:       McpServerBuilder,
+    body:          String,
+    serverName:    String = "ssc-mcp-server",
+    serverVersion: String = "1.0.0"
+  ): String =
+    JsonRpc.parse(body) match
+      case Left(err) =>
+        // Per JSON-RPC: parse errors return a response with id=null.
+        JsonRpc.encodeError(ujson.Null, JsonRpc.ErrorCode.ParseError, err)
+      case Right(JsonRpc.Message.Notification(method, _)) =>
+        // Spec-mandated initialized notification fires the connected hook
+        // once per "session"; for HTTP, "session" = first notif we see.
+        if method == McpProtocol.Method.Initialized then
+          try builder.onConnected() catch case _: Throwable => ()
+        ""
+      case Right(JsonRpc.Message.Response(_, _, _)) => ""
+      case Right(JsonRpc.Message.Request(method, params, id)) =>
+        dispatch(builder, method, params, id, serverName, serverVersion)
 
   /** One request → one wire-ready response frame (with trailing `\n`).
    *  Exposed for tests so they can drive dispatch without spinning a
