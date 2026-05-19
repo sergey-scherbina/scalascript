@@ -378,7 +378,54 @@ Total: ~2 weeks.
 | **Auto-transitive URL imports** | Hoist into your lock file; one-bad-upstream-breaks-ecosystem prevention |
 | **Git-protocol imports** | HTTPS-hosted `.sscpkg` instead |
 
-## 12. Open questions
+## 12. Technical debt — JvmGen `inlineImport` bare-name leakage
+
+When the JVM backend inlines a `[name](./dep.ssc)` import, it parses
+the dep, wraps its code in the dep's `package:` objects, and emits an
+`import std.pkg.{name, …}` line so the caller can use the bound names
+unqualified. Two problems sit inside this otherwise-working flow:
+
+1. **Duplicate `object pkg { object sub { … } }` wrappers** when
+   several imports share a package prefix (e.g. three files all
+   declaring `package: std.mapreduce`). Each import emits its own
+   wrapper, Scala 3 refuses to compile duplicate top-level objects.
+   **Mitigated** 2026-05-19 by `JvmGen.mergeDuplicatePackageObjects`
+   (brace-balanced string scanner that merges same-name top-level
+   `object` blocks). scala.meta was tried first but parse fails on the
+   300 KB+ emitted preamble, so the merger uses string-level scanning
+   with proper string/`//` comment escaping.
+
+2. **Bare-name top-level helpers don't resolve from inside the
+   `object pkg { object sub { … } }` wrappers**. A dep that uses
+   ScalaScript-level intrinsics like `self()`, `receiveWithTimeout`,
+   `connectNode`, `spawn`, etc. relies on them being available
+   unqualified — they're injected by JvmGen's runtime preamble at the
+   true top level (e.g. `Actor.self()`) AND `genModule` rewrites bare
+   calls to qualified ones for user-code blocks. But `inlineImport`
+   bypasses that rewrite stage: dep blocks are pulled in via
+   `collectBlocks` directly, so bare names stay bare and Scala can't
+   resolve `self()` from inside `object std { object mapreduce { … } }`
+   (there is no `self()` in that scope; the qualified `Actor.self()`
+   exists but is not imported into the wrapper).
+
+   Surface symptom: `Not found: self`, `Not found: connectNode`,
+   `value ! is not a member of Any` (the actor send sugar) when
+   compiling a test that uses `import std/mapreduce`.
+
+   The proper fix involves either (a) routing `inlineImport` blocks
+   through the same bare-name → qualified-name rewriting pipeline
+   that `genModule` applies to user code (medium scope, touches the
+   rewriter's `emitBlock` path), or (b) auto-emitting helper imports
+   inside each wrapped package block (smaller, but needs JvmGen to
+   know which helpers exist — currently that knowledge is implicit in
+   the preamble template).
+
+   Tracked in `MILESTONES.md` "Known issues / latent flakes". The six
+   v1.22 distributed-* conformance tests carry `pending: needs std/
+   mapreduce/* auto-resolution in \`ssc compile\`` until this lands;
+   they document the intended API but don't run in the suite.
+
+## 13. Open questions
 
 - **`ssc.lock` format** — minimal JSON-with-SHAs, or YAML
   with structured groups by source?  Lock when v1.19

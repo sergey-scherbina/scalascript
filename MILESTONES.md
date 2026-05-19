@@ -4583,26 +4583,43 @@ Things noticed in passing while landing other work — not blocking, but
 worth a separate fix when somebody has cycles.
 
 - **v1.22 distributed-* conformance tests fail on JVM** — root cause:
-  `ssc compile` (used by the conformance runner) doesn't AutoResolve
-  std/* imports the way `ssc compile-jvm` does. The six v1.22 phase-6
-  tests (`distributed-{map,shuffle,failure-retry,failure-partial,
-  heterogeneous}` plus `cluster-connect`) use bare names
-  (`Node`, `Cluster`, `HandlerRegistry`, `runDistributed`, …) that
-  resolve to ScalaScript modules in `std/mapreduce/*`. The `ssc compile`
-  pipeline parses → normalises → backend, with no import resolution
-  in between; on JVM that surfaces as `Not found: Node` / `value results
-  is not a member of Any` (the latter because no `result` symbol exists
-  to give it a type). The MILESTONES "PASS [JVM]" claim from v1.22
-  Phase 6 was likely never verified end-to-end.
+  even with explicit `[name](./path.ssc)` markdown-link imports,
+  `JvmGen.inlineImport` wraps each dep in its `package:` object but
+  doesn't route the dep's bare-name calls (`self()`, `connectNode`,
+  `receiveWithTimeout`, `pid ! msg`, …) through the same
+  bare-name → qualified-name rewriting pipeline that `genModule`
+  applies to user code blocks. So a dep's `def healthCheck(...) =
+  pid ! ("__healthCheck__", self())` stays as-is when emitted inside
+  `object std { object mapreduce { … } }` and the JVM compiler
+  errors with `Not found: self`, `value ! is not a member of Any`,
+  etc. The six v1.22 phase-6 tests (`distributed-{map,shuffle,
+  failure-retry,failure-partial,heterogeneous}` plus
+  `cluster-connect`) all hit this. The MILESTONES "PASS [JVM]" claim
+  from v1.22 Phase 6 was likely never verified end-to-end.
 
-  Mitigation landed 2026-05-19: marked `pending:` in frontmatter so the
-  conformance suite reports `PENDING` (separate from FAIL) and the
-  intended API surface stays as documentation. Real fix needs either
-  (a) `compile` to use `AutoResolve` + per-dep codegen (mirroring
-  `compile-jvm` + `link --backend jvm`), or (b) std/mapreduce/* lowered
-  to a `JvmRuntimeMapReduce` preamble injected when the IR references
-  those types (analogous to `JvmRuntimeDataset`). Substantial separate
-  iteration.
+  Partial mitigations landed 2026-05-19:
+  - `pending:` frontmatter marker — the six tests document the
+    intended v1.22 API but report `PENDING` instead of `FAIL`. See
+    `conformance/run.sc` `parsePending`.
+  - `cli/compile` now calls `AutoResolve.resolve` before compiling so
+    import cycles surface with `compile: N cycle(s) detected:` rather
+    than scala-cli's confusing duplicate-definition spam.
+  - `JvmGen.mergeDuplicatePackageObjects` — brace-balanced string
+    scanner that merges multiple top-level `object pkg { object sub
+    { … } }` declarations into one. Triggered when several inlined
+    imports share a `package:` prefix (e.g. several files from
+    `std/mapreduce/*`). Eliminates the "duplicate top-level object
+    std" Scala 3 error class. scala.meta-level merging was tried
+    first but parse fails on the 300 KB+ emitted preamble; the
+    string scanner respects double-quoted strings and `//` comments
+    so brace counting stays correct.
+
+  Real fix still needed: either (a) `inlineImport` routes dep blocks
+  through the rewriting path `genModule` uses for user code, or
+  (b) std/mapreduce/* gets lowered to a `JvmRuntimeMapReduce`
+  preamble injected when the IR references those types (analogous to
+  `JvmRuntimeDataset`). See `docs/modularity.md` §12 for design
+  discussion.
 
 - **WS test cross-suite isolation goes through a process-global
   `WsRoutes` table + `WsTestLock` monitor.**  Works, but the lock

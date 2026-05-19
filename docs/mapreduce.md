@@ -277,6 +277,29 @@ JS as a coordinator works too.
 
 Browser-SPA can use `Dataset.runLocal` / `runParallel` only.
 
+### 4.6 Known issue — distributed conformance tests are `pending:`
+
+The six v1.22 phase-6 conformance tests
+(`conformance/distributed-{map,shuffle,failure-retry,failure-partial,
+heterogeneous}.ssc` plus `cluster-connect.ssc`) currently fail to
+compile on JVM because `JvmGen.inlineImport` doesn't rewrite the
+dep code's bare-name calls (`self()`, `connectNode`,
+`receiveWithTimeout`, `pid ! msg`, …) the same way `genModule`
+rewrites user code. When `std/mapreduce/cluster.ssc`'s
+`Cluster.healthCheck` body lands inside the emitted
+`object std { object mapreduce { … } }` wrapper, those bare names
+can't be resolved.
+
+The tests are marked `pending: needs std/mapreduce/* auto-resolution
+in 'ssc compile'` in their frontmatter so the conformance suite
+reports `PENDING` (separate from `FAIL`). The intended API is
+preserved as documentation. Partial fixes landed 2026-05-19 —
+`AutoResolve` cycle detection + a brace-balanced duplicate-`object`
+merger — but the bare-name rewriting in dep blocks is a separate
+JvmGen change. Full design in
+[`docs/modularity.md` §12](modularity.md#12-technical-debt--jvmgen-inlineimport-bare-name-leakage)
+and the open item in `MILESTONES.md` "Known issues / latent flakes".
+
 ## 5. Worked examples
 
 ### 5.1 Local — word count
