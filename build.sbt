@@ -816,6 +816,36 @@ lazy val walletConnect = project
     Test    / scalacOptions ++= sharedScalacOptions,
   )
 
+lazy val mcpWallet = project
+  .in(file("mcp-wallet"))
+  .dependsOn(
+    mcpCommon,
+    walletSpi,
+    blockchainSpi,
+    walletStrategyEoa  % Test,
+    blockchainEvm      % Test,
+    cryptoBouncycastle % Test,
+  )
+  .settings(
+    name := "scalascript-mcp-wallet",
+    libraryDependencies ++= Seq(
+      "com.lihaoyi" %% "upickle" % "4.4.2",
+      scalatestTest,
+    ),
+    // mcp-common pins upickle 4.4.2 while wallet-spi / blockchain-spi
+    // are on 3.3.1 (matching client-evm's pin). The two ujson APIs we
+    // touch are compatible; allow the conflict to resolve to the
+    // higher version.
+    libraryDependencySchemes ++= Seq(
+      "com.lihaoyi" %% "upickle"    % "always",
+      "com.lihaoyi" %% "ujson"      % "always",
+      "com.lihaoyi" %% "upickle-implicits" % "always",
+      "com.lihaoyi" %% "upickle-core"      % "always",
+    ),
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions,
+  )
+
 lazy val blockchainEvmAbi = project
   .in(file("blockchain-evm-abi"))
   .dependsOn(cryptoSpi, cryptoBouncycastle % Test)
@@ -903,7 +933,7 @@ lazy val root = project
     x402Core, x402Server, x402Client,
     x402FacilitatorCoinbase, x402FacilitatorEvm, x402FacilitatorCardano,
     x402QueueKafka, x402QueuePostgres, x402NoncePostgres, x402NonceRedis,
-    cryptoSpi, cryptoBouncycastle, blockchainSpi, blockchainEvm, blockchainEvmAbi, walletSpi, walletStrategyEoa, walletConnectorEip1193, walletConnect,
+    cryptoSpi, cryptoBouncycastle, blockchainSpi, blockchainEvm, blockchainEvmAbi, walletSpi, walletStrategyEoa, walletConnectorEip1193, walletConnect, mcpWallet,
     micropaymentSpi, micropaymentThreshold, micropaymentServer, micropaymentClient,
   )
   .settings(
