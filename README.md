@@ -29,6 +29,20 @@ println(greet("World"))
 Hello, World!
 ```
 
+After [installing](#installing-as-a-binary), every `.ssc` file is a first-class executable:
+
+```bash
+$ ssc hello.ssc
+Hello, World!
+
+# The shebang line (#!/usr/bin/env ssc) lets you run files directly:
+$ chmod +x hello.ssc && ./hello.ssc
+Hello, World!
+
+# Watch mode — re-runs on every save:
+$ ssc watch hello.ssc
+```
+
 ## Quick Start
 
 **Requirements:** [scala-cli](https://scala-cli.virtuslab.org) · [Node.js](https://nodejs.org) (for JS backend) · [sbt](https://www.scala-sbt.org) (optional, for library use)
@@ -70,6 +84,8 @@ All three backends support `scalascript` blocks.  `scala` blocks (standard
 Scala 3) are supported by the interpreter and JVM backend; the JS backend
 compiles them via Scala.js.
 
+### Core language
+
 | Feature | Syntax |
 |---------|--------|
 | Values and variables | `val x = 42`, `var n = 0` |
@@ -90,13 +106,24 @@ compiles them via Scala.js.
 | Extension methods | `extension (n: Int) def squared: Int = n * n` |
 | Typeclasses | `trait Show[A]`, `given`, `summon[Show[Int]]`, context bounds |
 | Higher-kinded types (HKT) | `trait Functor[F[_]]`, sealed dispatch, auto-resolution |
+| Standard typeclasses | Functor, Applicative, Monad, Foldable, Traversable, Either, Eq, Show, Hash, Order, Semigroup, Monoid, Bifunctor, MonadError, Selective |
 | Recursion | factorial, Fibonacci, tree traversal |
 | Tail-call optimisation | self-TCO and mutual TCO — no `@tailrec` required |
 | Case-class `.copy` | `p.copy(field = newValue, ...)` |
+
+### Optics
+
+| Feature | Syntax |
+|---------|--------|
 | Lenses | `Focus[T](_.a.b)` → `Lens` with `get` / `set` / `modify` / `andThen` |
 | Prisms | `Prism[Sum, Variant]` → `getOption` / `set` / `modify` / `reverseGet` |
 | Optionals | `Focus[T](_.maybe.some.field)` → `Optional` for paths through `Option` fields |
 | Traversals | `Focus[T](_.items.each.field)` → `Traversal` — multi-foci `getAll` / `modify` / `set` |
+
+### Effects and concurrency
+
+| Feature | Syntax |
+|---------|--------|
 | Algebraic effects | `effect E:`, `handle(body) { case E.op(arg, resume) => ... }`, multi-shot |
 | Standard effects — Logger | `Logger.info(msg)`, `runConsoleLogger`, `runTestLogger` |
 | Standard effects — Random | `Random.nextInt(n)`, `runSeededRandom(seed)` |
@@ -117,12 +144,18 @@ compiles them via Scala.js.
 | Generators | `generator[T] { yield(v) }`, `fromGenerator`, streaming interop |
 | Reactive signals | `Signal(0)`, `s.get` / `s.set(v)`, `computed { … }`, `effect { … }` with diamond-dedup flush |
 | Free monad | `Free[F,A]`, `liftF`, `foldMap`, `runM` — in `std/free.ssc` |
-| Standard typeclasses | Functor, Applicative, Monad, Foldable, Traversable, Either, Eq, Show, Hash, Order, Semigroup, Monoid, Bifunctor, MonadError, Selective |
-| Metaprogramming | `inline def/val/if/match`, `compiletime.constValue/summonInline/error` |
-| Derives | `derives Eq/Show/Hash/Order/Foldable/Traversable/Functor` |
-| Checked errors | `throws[A, E] = Either[E, A]`, `throwsRaw[A, E] = A \| E`, `attemptCatch`, `HasStackTrace` |
-| Actors | `spawn`, `self()`, `pid ! msg`, `receive { case ... }`, `link`, `exit`, supervision |
+
+### Actors
+
+| Feature | Syntax |
+|---------|--------|
+| Local actors | `spawn`, `self()`, `pid ! msg`, `receive { case ... }`, `link`, `exit`, supervision |
 | Distributed actors | actor cluster over WS, bully leader election, Phi-accrual FD, gossip, membership events |
+
+### Web and HTTP
+
+| Feature | Syntax |
+|---------|--------|
 | HTTP server | `route(method, path)(handler)`, `serve(port)`, `Request`/`Response` |
 | HTTP streaming | `streamResponse`, SSE via `sse(req)` |
 | HTTP middleware | CORS, gzip, cache headers, `/_health` / `/_ready` |
@@ -131,28 +164,62 @@ compiles them via Scala.js.
 | HTTP client | `httpGet/httpPost`, `httpClient { }`, `httpGetStream` for SSE/LLM streaming |
 | WebSocket client | `wsConnect(url) { ws => }`, `wss://` |
 | REST ergonomics | `jsonParse/jsonStringify/jsonRead`, `req.json`, `JsonValue`, `validate { }`, middleware |
+
+### Auth and security
+
+| Feature | Syntax |
+|---------|--------|
 | Sessions + CSRF | `req.session`, `withSession(Map(...))`, `csrfToken()` / `csrfValid(req)` |
 | JWT bearer tokens | `jwtSign(Map(...))`, `jwtVerify(token)`, RS256 and HS256 |
 | Password hashing | `hashPassword`/`verifyPassword` (PBKDF2) |
 | TOTP 2FA | `totpGenerateSecret`, `totpVerify(secret, code)` |
 | WebAuthn / passkeys | `webAuthnRegisterChallenge`, `webAuthnVerify` |
 | OAuth2 | `oauthAuthorizeUrl(...)`, `oauthExchangeCode(...)`, `oauthUserinfo(...)`, Google + GitHub presets |
+
+### MCP (Model Context Protocol)
+
+| Feature | Syntax |
+|---------|--------|
 | MCP server | `mcpServer { srv => srv.tool(...) }`, `serveMcp(Transport.stdio/Http/Ws)` |
 | MCP client | `mcpConnect(url) { client => client.callTool(...) }` |
-| Dataset / MapReduce | `Dataset[T]` with map/filter/flatMap/groupBy/reduceByKey/top/countByValue + `runLocal/runParallel/runDistributed` |
-| DSL / Parser combinators | `std/parsing/*` — Parser ADT, `~/~>/~<`, rep, opt, sep, error recovery, indentation-aware |
+
+### Data processing
+
+| Feature | Syntax |
+|---------|--------|
+| Dataset / MapReduce | `Dataset[T]` with map/filter/flatMap/groupBy/reduceByKey/top/countByValue |
+| Execution modes | `runLocal`, `runParallel`, `runDistributed` |
+
+### DSL authoring and metaprogramming
+
+| Feature | Syntax |
+|---------|--------|
+| Parser combinators | `std/parsing/*` — Parser ADT, `~/~>/~<`, rep, opt, sep, error recovery, indentation-aware |
 | Multi-pass pipelines | `std/dsl/*` — `Pass[A,B]`, `andThen/parallel/recover`, `Visitor`, `cata`, `ana` |
+| Metaprogramming | `inline def/val/if/match`, `compiletime.constValue/summonInline/error` |
+| Derives | `derives Eq/Show/Hash/Order/Foldable/Traversable/Functor` |
+| Checked errors | `throws[A, E] = Either[E, A]`, `throwsRaw[A, E] = A \| E`, `attemptCatch`, `HasStackTrace` |
+
+### Module system and tooling
+
+| Feature | Syntax |
+|---------|--------|
 | Package system | `package: org.example.ui` in frontmatter, namespaced exports, collision-safe imports |
 | Module imports | `[name](./lib.ssc)` markdown links bring definitions into scope |
 | URL imports | `[X](https://...)` URL fetch, cached at `~/.cache/ssc/` |
 | Dependency imports | `[X](dep:org/lib:1.2)` resolver, `ssc.lock` |
 | Plugin system | `.sscpkg` format, `ssc plugin install/list/uninstall/check/pack`, `~/.scalascript/registry.yaml` |
 | Separate compilation | `ssc emit-interface`, `ssc compile-jvm/compile-js`, `ssc link`, `ssc build --incremental`, `.scim/.scir/.scjvm/.scjs` |
-| i18n | `translations:` frontmatter, `t(key)`, `setLocale(code)` |
-| SSR + hydration | `wc(tag, component, args*)` declarative shadow DOM |
-| Web Components | `ssc emit-wc`, `customElements.define` |
-| Component library | `std/ui/*` — Button, Input, Select, Modal, Card, Spinner, Alert, DatePicker, Combobox, and more |
+
+### Browser and UI
+
+| Feature | Syntax |
+|---------|--------|
 | Browser SPA target | `ssc emit-spa file.ssc` — same `route()` source runs as a single-page app |
+| Web Components | `ssc emit-wc`, `customElements.define` |
+| SSR + hydration | `wc(tag, component, args*)` declarative shadow DOM |
+| Component library | `std/ui/*` — Button, Input, Select, Modal, Card, Spinner, Alert, DatePicker, Combobox, and more |
+| i18n | `translations:` frontmatter, `t(key)`, `setLocale(code)` |
 | Env access | `getenv(key)` / `getenv(key, default)` |
 | Content helpers | `doc(...)` / `render(...)` structured output |
 | HTML / CSS interpolators | `html"..."` (auto-escaping) and `css"..."` with `${expr}` |
