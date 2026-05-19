@@ -82,6 +82,7 @@ class JvmGen(
       sb.append(s"""//> using dep "$JvmMcpDep"\n""")
 
     sb.append(preamble)
+    sb.append(commonRuntime)
     sb.append(generatorRuntime)
     sb.append(htmlDslTagBindings(collectUserTopNames(blocks)))
     if effectOps.nonEmpty                                  then sb.append(effectsRuntime)
@@ -2510,140 +2511,23 @@ class JvmGen(
        |  val v = java.lang.System.getenv(key)
        |  if v == null || v.isEmpty then defaultVal else v
        |
-       |// ── Rate limiting ─────────────────────────────────────────────
-       |// Fixed-window counter, process-local.  Returns true if allowed
-       |// (and bumps the counter), false if `limit` requests already
-       |// happened within `windowSeconds`.
-       |private case class _RateBucket(count: java.util.concurrent.atomic.AtomicLong, windowStartMs: Long)
-       |private val _rateLimitBuckets = new java.util.concurrent.ConcurrentHashMap[String, _RateBucket]()
+       |// ── Rate limiting / TOTP / Password — adapter shims ───────────
+       |// The implementations live in runtime-server-common (inlined as
+       |// classpath resources by JvmGen.commonRuntime); these top-level
+       |// defs preserve the user-facing API.
        |def rateLimit(key: String, limit: Long, windowSeconds: Long): Boolean =
-       |  val now      = java.lang.System.currentTimeMillis()
-       |  val windowMs = windowSeconds * 1000L
-       |  val current  = _rateLimitBuckets.get(key)
-       |  if current == null || now - current.windowStartMs >= windowMs then
-       |    _rateLimitBuckets.put(key, _RateBucket(java.util.concurrent.atomic.AtomicLong(1L), now))
-       |    1L <= limit
-       |  else current.count.incrementAndGet() <= limit
-       |def rateLimitReset(key: String): Unit =
-       |  _rateLimitBuckets.remove(key)
-       |
-       |// ── TOTP / 2FA (RFC 6238) ─────────────────────────────────────
-       |// HMAC-SHA1, 30-second step, 6-digit code, base32 secret —
-       |// compatible with Google Authenticator etc.
-       |private val _totpAlphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567"
-       |private val _totpDecodeTable: Array[Int] =
-       |  val t = Array.fill(128)(-1)
-       |  _totpAlphabet.zipWithIndex.foreach((c, i) => t(c.toInt) = i)
-       |  t
-       |private def _base32Encode(bytes: Array[Byte]): String =
-       |  val sb = StringBuilder()
-       |  var buf = 0L
-       |  var bits = 0
-       |  for b <- bytes do
-       |    buf = (buf << 8) | (b & 0xffL)
-       |    bits += 8
-       |    while bits >= 5 do
-       |      bits -= 5
-       |      sb.append(_totpAlphabet.charAt(((buf >> bits) & 0x1f).toInt))
-       |  if bits > 0 then sb.append(_totpAlphabet.charAt(((buf << (5 - bits)) & 0x1f).toInt))
-       |  sb.toString
-       |private def _base32Decode(s: String): Array[Byte] =
-       |  val clean = s.toUpperCase.filter(c => c != '=' && c != ' ')
-       |  val out   = scala.collection.mutable.ArrayBuffer.empty[Byte]
-       |  var buf   = 0L
-       |  var bits  = 0
-       |  for c <- clean do
-       |    val v = if c.toInt < 128 then _totpDecodeTable(c.toInt) else -1
-       |    if v >= 0 then
-       |      buf = (buf << 5) | v.toLong
-       |      bits += 5
-       |      if bits >= 8 then
-       |        bits -= 8
-       |        out += ((buf >> bits) & 0xff).toByte
-       |  out.toArray
-       |def totpSecret(): String =
-       |  val bytes = new Array[Byte](20)
-       |  java.security.SecureRandom().nextBytes(bytes)
-       |  _base32Encode(bytes)
+       |  RateLimit.tryAcquire(key, limit, windowSeconds)
+       |def rateLimitReset(key: String): Unit = RateLimit.reset(key)
+       |def totpSecret(): String = Totp.secret()
        |def totpUri(secret: String, account: String, issuer: String = ""): String =
-       |  val labelIssuer = if issuer.isEmpty then "" else issuer + ":"
-       |  val label = java.net.URLEncoder.encode(labelIssuer + account, "UTF-8").replace("+", "%20")
-       |  val params = scala.collection.mutable.LinkedHashMap[String, String]()
-       |  params("secret")    = secret
-       |  params("algorithm") = "SHA1"
-       |  params("digits")    = "6"
-       |  params("period")    = "30"
-       |  if issuer.nonEmpty then params("issuer") = issuer
-       |  val qs = params.iterator.map((k, v) =>
-       |    java.net.URLEncoder.encode(k, "UTF-8") + "=" + java.net.URLEncoder.encode(v, "UTF-8")
-       |  ).mkString("&")
-       |  s"otpauth://totp/$label?$qs"
-       |private def _totpCodeAt(secret: String, counter: Long): String =
-       |  val key = _base32Decode(secret)
-       |  val buf = new Array[Byte](8)
-       |  var c = counter
-       |  var i = 7
-       |  while i >= 0 do
-       |    buf(i) = (c & 0xff).toByte
-       |    c >>>= 8
-       |    i -= 1
-       |  val mac = javax.crypto.Mac.getInstance("HmacSHA1")
-       |  mac.init(javax.crypto.spec.SecretKeySpec(key, "HmacSHA1"))
-       |  val h = mac.doFinal(buf)
-       |  val off = h(h.length - 1) & 0x0f
-       |  val bin = ((h(off)     & 0x7f) << 24) |
-       |            ((h(off + 1) & 0xff) << 16) |
-       |            ((h(off + 2) & 0xff) <<  8) |
-       |             (h(off + 3) & 0xff)
-       |  f"${bin % 1000000}%06d"
-       |def totpCode(secret: String): String =
-       |  _totpCodeAt(secret, java.lang.System.currentTimeMillis() / 1000L / 30L)
+       |  Totp.uri(secret, account, issuer)
+       |def totpCode(secret: String): String = Totp.code(secret)
        |def totpValid(secret: String, code: String, skew: Int = 1): Boolean =
-       |  if code == null || code.length != 6 || !code.forall(_.isDigit) then false
-       |  else
-       |    val now = java.lang.System.currentTimeMillis() / 1000L / 30L
-       |    var i = -skew
-       |    var ok = false
-       |    while i <= skew do
-       |      val expected = _totpCodeAt(secret, now + i)
-       |      if expected.length == code.length then
-       |        var diff = 0
-       |        var j = 0
-       |        while j < expected.length do
-       |          diff |= expected.charAt(j) ^ code.charAt(j)
-       |          j += 1
-       |        if diff == 0 then ok = true
-       |      i += 1
-       |    ok
-       |
-       |// ── Password hashing (PBKDF2-HMAC-SHA256) ──────────────────────
-       |// Same algorithm + encoded format as scalascript.server.Password
-       |// so a hash minted on one backend verifies on another.  Lives in
-       |// the base runtime (not gated on route usage) so non-server code
-       |// can still hash passwords (e.g. seeding a user table).
+       |  Totp.valid(secret, code, skew)
        |def hashPassword(password: String, iter: Int = 200000): String =
-       |  val salt = new Array[Byte](16)
-       |  java.security.SecureRandom().nextBytes(salt)
-       |  val key = _pbkdf2(password, salt, iter, 256)
-       |  val b64 = java.util.Base64.getEncoder.withoutPadding
-       |  s"pbkdf2$$iter=$iter$$${b64.encodeToString(salt)}$$${b64.encodeToString(key)}"
+       |  Password.hash(password, iter)
        |def verifyPassword(password: String, encoded: String): Boolean =
-       |  try
-       |    val parts = encoded.split('$')
-       |    if parts.length != 4 || parts(0) != "pbkdf2" then false
-       |    else
-       |      val iter     = parts(1).stripPrefix("iter=").toInt
-       |      val b64      = java.util.Base64.getDecoder
-       |      val salt     = b64.decode(parts(2))
-       |      val expected = b64.decode(parts(3))
-       |      val actual   = _pbkdf2(password, salt, iter, expected.length * 8)
-       |      java.security.MessageDigest.isEqual(expected, actual)
-       |  catch case _: Throwable => false
-       |private def _pbkdf2(password: String, salt: Array[Byte], iter: Int, bits: Int): Array[Byte] =
-       |  val spec    = javax.crypto.spec.PBEKeySpec(password.toCharArray, salt, iter, bits)
-       |  val factory = javax.crypto.SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256")
-       |  try factory.generateSecret(spec).getEncoded
-       |  finally spec.clearPassword()
+       |  Password.verify(password, encoded)
        |
        |""".stripMargin
 
@@ -2669,6 +2553,55 @@ class JvmGen(
    *  `ssc` / `ssc compile`.  `serve(port)` blocks the calling thread; the
    *  default executor is single-threaded so handler bodies see no concurrency
    *  unless the user supplies their own synchronisation. */
+  /** Read a .scala source file from the `runtime-server-common` classpath
+   *  resource bundle and return its body with the leading
+   *  `package scalascript.server` line stripped.  The result is suitable
+   *  for direct inlining into a top-level scala-cli script (which has no
+   *  package declaration).  Imports inside the file are preserved.
+   *
+   *  Phase 1b: the .scala sources of pure protocol primitives (WsFraming,
+   *  Password, Jwt, JwtRsa, Totp, RateLimit, SessionCookie, SessionStore,
+   *  Metrics, RestValidationError, DerCodec) used to be duplicated as
+   *  fragments of `serveRuntime`.  They now live as real Scala classes in
+   *  `runtime-server-common/src/main/scala/scalascript/server/` and are
+   *  emitted into the generated script via this loader, so the interpreter
+   *  and the codegen output share the single source of truth.
+   *
+   *  See `runtimeServerCommon` settings in `build.sbt` for how these
+   *  resources get packaged. */
+  private def loadCommonSource(name: String): String =
+    val path = s"/runtime-server-common-sources/scalascript/server/$name.scala"
+    val stream = getClass.getResourceAsStream(path)
+    if stream == null then
+      throw new RuntimeException(s"runtime-server-common resource missing: $path " +
+        "— is `runtimeServerCommon/copyResources` up to date?")
+    val raw = try
+      new String(stream.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8)
+    finally stream.close()
+    // Drop the leading `package scalascript.server` declaration.  The
+    // generated scala-cli script is top-level; mixing a package decl with
+    // top-level statements would be invalid.  Leading blank line(s) after
+    // the package line are also dropped for readability.
+    raw.linesIterator
+      .dropWhile(l => l.trim.startsWith("package ") || l.trim.isEmpty)
+      .mkString("\n", "\n", "\n")
+
+  /** Concatenate the pure-primitive sources from runtime-server-common in
+   *  a deterministic order.  Emitted as a `commonRuntime` block at the
+   *  top of the generated script (before `serveRuntime`) so the inlined
+   *  objects (WsFraming, Password, Jwt, …) are in scope for adapter
+   *  shims inside `serveRuntime` and for user code. */
+  private lazy val commonRuntime: String =
+    val files = List(
+      "RestValidationError", "DerCodec", "WsFraming", "Metrics",
+      "RateLimit", "Password", "Totp", "Jwt", "JwtRsa",
+      "SessionCookie", "SessionStore"
+    )
+    val header =
+      "\n// ── runtime-server-common (inlined from classpath resources) ──────────\n" +
+      "// Source of truth: runtime-server-common/src/main/scala/scalascript/server/*.scala\n"
+    header + files.map(loadCommonSource).mkString("\n")
+
   /** Server-side runtime (routes, sessions, JWT, OAuth, WS, …).  Split
    *  into two `String` halves because the combined source exceeds the
    *  JVM's 64 KB string-literal limit — the natural seam is right

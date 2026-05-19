@@ -64,12 +64,27 @@ lazy val runtimeServerCommon = project
   .settings(
     name := "scalascript-runtime-server-common",
     libraryDependencies ++= Seq(scalatestTest),
-    scalacOptions ++= sharedScalacOptions
+    scalacOptions ++= sharedScalacOptions,
+    // Phase 1b: copy our own .scala sources into the classpath under
+    // `runtime-server-common-sources/scalascript/server/*.scala` so the JVM
+    // codegen backend can read them at codegen time and inline them into
+    // generated scala-cli scripts (replacing the duplicated copies that
+    // previously lived inside JvmGen.serveRuntime as a string template).
+    Compile / resourceGenerators += Def.task {
+      val srcDir  = (Compile / scalaSource).value / "scalascript" / "server"
+      val outBase = (Compile / resourceManaged).value / "runtime-server-common-sources" / "scalascript" / "server"
+      IO.createDirectory(outBase)
+      (srcDir ** "*.scala").get.map { f =>
+        val target = outBase / f.getName
+        IO.copyFile(f, target)
+        target
+      }
+    }.taskValue
   )
 
 lazy val backendJvm = project
   .in(file("backend-jvm"))
-  .dependsOn(backendSpi, core)
+  .dependsOn(backendSpi, core, runtimeServerCommon)
   .settings(
     name := "scalascript-backend-jvm",
     scalacOptions ++= sharedScalacOptions
