@@ -112,6 +112,30 @@ class McpServerBuilder:
       case Left(e)   => Left(e)
       case Right(js) => Right(McpProtocol.parseRootsListResult(js))
 
+  /** True iff the connected client advertised `elicitation` in its
+   *  initialize capabilities.  Calling `elicit(...)` on a client that
+   *  didn't advertise typically yields MethodNotFound. */
+  def clientSupportsElicitation: Boolean =
+    try clientCapabilities.obj.contains("elicitation")
+    catch case _: Throwable => false
+
+  /** Send `elicitation/create` to the connected client and decode the
+   *  three-way response.  Convenience wrapper over `request(...)` that
+   *  hides JSON-shape parsing.  Returns `Left(error)` on timeout /
+   *  protocol error; `Right(result)` on a well-formed reply (including
+   *  `decline` / `cancel` — those are NOT errors, they are valid user
+   *  outcomes). */
+  def elicit(
+    message:         String,
+    requestedSchema: ujson.Value,
+    timeoutMs:       Long = 60_000L
+  ): Either[JsonRpc.Error, McpProtocol.ElicitationResult] =
+    request(McpProtocol.Method.ElicitationCreate,
+            McpProtocol.elicitationCreateParams(message, requestedSchema),
+            timeoutMs) match
+      case Left(e)   => Left(e)
+      case Right(js) => Right(McpProtocol.parseElicitationResult(js))
+
   /** Returns true iff the currently-executing handler's request has been
    *  cancelled via `notifications/cancelled`.  Read this at safe points
    *  inside long-running tool handlers and return early when set. */
