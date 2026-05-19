@@ -49,3 +49,4 @@ that land in `std.actors`.
 | etcd leader-coordinator adapter (`Etcd.use`) | ✓ v1.23 (opt-in module) |
 | Cluster-wide singleton actor (`Singleton.use` / `Singleton.send`) | ✓ v1.23 (opt-in module) |
 | Sharded actor topology (`Shard.owner` / `Shard.spawnIfOwner` / `Shard.send`) | ✓ v1.23 (opt-in module) |
+| Cluster-wide pub/sub (`publish` / `subscribePublish` / `unsubscribePublish`) | ✓ v1.23 |

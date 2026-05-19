@@ -37,6 +37,9 @@ exports:
   - setHeartbeatTimeout
   - setQuorumSize
   - setClusterAuthToken
+  - publish
+  - subscribePublish
+  - unsubscribePublish
   - requestGossip
   - ConfigChanged
   - clusterConfigSet
@@ -310,6 +313,25 @@ extern def setQuorumSize(n: Long): Unit
 // `Authorization: Bearer <token>` on every request; mismatched or
 // missing token returns 401.
 extern def setClusterAuthToken(token: String): Unit
+
+// ─── Cluster-wide pub/sub (v1.23) ─────────────────────────────────────────
+
+// Publish `msg` on `topic`.  Delivers to every actor on every node that
+// has called `subscribePublish(topic)` — subscribers are local per-node,
+// the runtime broadcasts a `{"t":"pub","topic":...,"body":...}` envelope
+// to every peer, and each peer dispatches to its own local subscribers.
+// Fire-and-forget: no delivery acknowledgement, no per-subscriber
+// ordering guarantee across nodes.
+extern def publish(topic: String, msg: Any): Unit
+
+// Register the calling actor as a subscriber of `topic`.  Subsequent
+// `publish(topic, …)` from any node lands the message in this actor's
+// mailbox.  Idempotent — re-subscribing the same actor is a no-op.
+extern def subscribePublish(topic: String): Unit
+
+// Remove the calling actor from `topic`'s subscriber set.  No-op if
+// not subscribed.
+extern def unsubscribePublish(topic: String): Unit
 
 // ─── Periodic gossip re-discovery (v1.23) ────────────────────────────────────
 
