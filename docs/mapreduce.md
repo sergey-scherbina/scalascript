@@ -1,9 +1,8 @@
 # Map-reduce — `Dataset[T]`, local and distributed
 
-Status: **design / planning**.  Implementation tracked as
-**v1.21 — Local map-reduce** (parallel execution) and
-**v1.22 — Distributed map-reduce** (on v1.6 Phase 3 actors)
-in MILESTONES.md.  Companion to
+Status: **v1.21 ✓ Landed** (local sequential + parallel).
+**v1.22 ✓ Landed** (distributed via v1.6 Phase 3 actors).
+Implementation tracked in MILESTONES.md.  Companion to
 [`docs/coroutines.md`](coroutines.md) (v1.10 generators for
 streaming), `MILESTONES.md` v1.6 Phase 3 (distributed actors
 — required for v1.22), and `MILESTONES.md` v1.3 (real-thread

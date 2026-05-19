@@ -485,8 +485,7 @@ unblocks downstream features as early as possible.
      fallback on JS pending v1.3 Node parallel).  Streaming
      via v1.10 generators.  Full design in
      [`docs/mapreduce.md`](docs/mapreduce.md).
- 26. **v1.22 — Distributed map-reduce** (~3 weeks, hard-blocked
-     on v1.6 Phase 3).
+ 26. **v1.22 — Distributed map-reduce** ✓ Landed.
      Same `Dataset[T]` API, distributed via v1.6 distributed
      actors.  Coordinator-dispatched partitions, named-handler
      registry (no closure serialisation), coordinator-mediated
@@ -3395,7 +3394,7 @@ parallel deferred); cooperative on INT.  Streaming interop via
 
 Full design: [`docs/mapreduce.md`](docs/mapreduce.md) §3.
 
-## v1.22 — Distributed map-reduce
+## v1.22 — Distributed map-reduce ✓ Landed (Phases 1–6)
 
 Same `Dataset[T]` API, distributed execution backend.
 Workers are actors on remote nodes (v1.6 Phase 3);
@@ -3404,6 +3403,37 @@ failure.  Named handlers (registered on every node)
 instead of closure serialisation.
 
 Full design in [`docs/mapreduce.md`](docs/mapreduce.md) §4.
+
+What landed (Phases 1–6):
+
+- **Phase 1 — `std/mapreduce/cluster.ssc`**: `Node`, `Cluster.connect/connectList`,
+  `cluster.healthCheck(timeoutMs)`, `cluster.close()`.  Thin wrapper over
+  v1.6 `connectNode`.  Explicit node list only; no auto-discovery.
+- **Phase 2 — `std/mapreduce/handlers.ssc`**: `NamedHandler[A,B]`, process-global
+  `HandlerRegistry` (register/lookup/apply/applyPredicate/applyKey/
+  applyCombine/clear/registeredNames), `named("fn")` DSL helper producing
+  `NamedRef`.  No closure serialisation per hard-no list.
+- **Phase 3 — `std/mapreduce/distributed.ssc`**: `StageOp` ADT
+  (MapOp/FilterOp/FlatMapOp), `Stage`, request-reply wire protocol
+  (ProcessPartition/PartitionResult/PartitionFailed), `WorkerProtocol`
+  actor loop, `runDistributed` coordinator (partitions data, spawns
+  remote workers via `spawnOn`, collects results via `trapExit` +
+  `link`), `DistributedError`, `DistributedResult[T]`.
+- **Phase 4 — `std/mapreduce/shuffle.ssc`**: `GroupByOp`/`ReduceByKeyOp`
+  stage ops, `ShufflePartial`/`ProcessKeyPartition`/`KeyResult` wire
+  protocol, `ShuffleProtocol` worker loop (phase-A bucket building,
+  phase-B reduce/group via HandlerRegistry), `runDistributedShuffle`
+  coordinator (two-phase all-to-all via coordinator hub).
+- **Phase 5 — `std/mapreduce/failure.ssc`**: `FailurePolicy` descriptor
+  with named presets (failWhole/retryOnce/retryThrice/partial/retryPartial),
+  `DistributedJobError`, `RetryState` per-partition bookkeeping,
+  `withFailurePolicy` coordinator helper routing retry/partial/fail-whole.
+- **Phase 6 — 6 conformance tests**: `cluster-connect.ssc`,
+  `distributed-map.ssc`, `distributed-shuffle.ssc`,
+  `distributed-failure-retry.ssc`, `distributed-failure-partial.ssc`,
+  `distributed-heterogeneous.ssc` (2 JVM + 1 INT cross-backend).
+
+Deferred to v1.22.x: closure serialisation, worker-to-worker direct shuffle.
 
 ```scala
 val cluster = Cluster.connect(

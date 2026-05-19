@@ -1,0 +1,109 @@
+---
+name: distributed-join
+description: Distributed simple join — orders joined with customers by customerId (v1.22)
+---
+
+# Distributed join (`v1.22`)
+
+Simple inner join of two datasets by a shared key (`customerId`), distributed
+across a 3-node cluster.  Demonstrates coordinator-mediated shuffle for
+join semantics: both sides are shuffled by key, then co-located per worker
+for the local join.
+
+Named handler registration (called on every node at startup):
+
+```scalascript
+// Orders: "orderId,customerId,amount"
+HandlerRegistry.register(NamedHandler("parseOrder",
+  (line: String) =>
+    val cols = line.split(",")
+    ("order", cols(0), cols(1), cols(2))   // (tag, orderId, customerId, amount)
+))
+
+// Customers: "customerId,name"
+HandlerRegistry.register(NamedHandler("parseCustomer",
+  (line: String) =>
+    val cols = line.split(",")
+    ("customer", cols(0), cols(1))         // (tag, customerId, name)
+))
+
+HandlerRegistry.register(NamedHandler("orderCustomerKey",
+  (row: Any) =>
+    row match
+      case ("order", _, customerId: String, _) => customerId
+      case ("customer", customerId: String, _) => customerId
+      case _ => "unknown"
+))
+
+// Skip header lines
+HandlerRegistry.register(NamedHandler("notHeader",
+  (line: String) => !line.startsWith("orderId") && !line.startsWith("customerId")
+))
+
+// Format joined row: (customerId, name, orderId, amount)
+HandlerRegistry.register(NamedHandler("parseTagged",
+  (line: String) =>
+    if line.contains("order,") then
+      val cols = line.split(",")
+      ("order", cols(1), cols(2), cols(3))
+    else
+      val cols = line.split(",")
+      ("customer", cols(1), cols(2), "")
+))
+```
+
+Main program:
+
+```scalascript
+val cluster = Cluster.connect(
+  Node("worker-1@10.0.0.10:9100"),
+  Node("worker-2@10.0.0.11:9100"),
+  Node("worker-3@10.0.0.12:9100")
+)
+
+val ordersPath    = if args.length > 0 then args(0) else "./data/orders.csv"
+val customersPath = if args.length > 1 then args(1) else "./data/customers.csv"
+
+// Load both datasets locally (small reference table pattern)
+val orderLines    = Dataset.fromFile(ordersPath).collect()
+    .filter(!_.startsWith("orderId"))
+val customerLines = Dataset.fromFile(customersPath).collect()
+    .filter(!_.startsWith("customerId"))
+
+// Tag rows before merging into one dataset for co-shuffle
+val taggedOrders    = orderLines.map(l => "order," + l)
+val taggedCustomers = customerLines.map(l => "customer," + l)
+val combined = taggedOrders ++ taggedCustomers
+
+// Shuffle all rows by customerId key
+val shuffleStage = ShuffleStage(
+  preShuffle         = Stage(List(MapOp("parseTagged"))),
+  keyHandlerName     = "orderCustomerKey",
+  combineHandlerName = "",
+  isGroupBy          = true
+)
+val grouped = runDistributedShuffle(
+  combined, shuffleStage, cluster, retries = 1, allowPartial = false
+)
+
+// Local join per customerId group: match orders with their customer
+val joined = grouped.results.asInstanceOf[List[(String, List[Any])]].flatMap {
+  case (customerId, rows) =>
+    val customers = rows.filter(r => r.asInstanceOf[(String, Any, Any, Any)]._1 == "customer")
+    val orders    = rows.filter(r => r.asInstanceOf[(String, Any, Any, Any)]._1 == "order")
+    customers.flatMap { cust =>
+      val (_, _, customerName, _) = cust.asInstanceOf[(String, String, String, String)]
+      orders.map { ord =>
+        val (_, orderId, _, amount) = ord.asInstanceOf[(String, String, String, String)]
+        (customerId, customerName, orderId, amount)
+      }
+    }
+}
+
+val sorted = joined.sortBy(_._3)   // sort by orderId
+sorted.foreach { case (cid, name, oid, amount) =>
+  println(s"$oid | $cid | $name | $amount")
+}
+
+cluster.close()
+```

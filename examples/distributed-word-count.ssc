@@ -1,0 +1,75 @@
+---
+name: distributed-word-count
+description: Distributed word count — named handlers, 3-node cluster, groupBy shuffle (v1.22)
+---
+
+# Distributed word count (`v1.22`)
+
+Classic MapReduce word count running across a 3-node cluster.
+
+Named handlers are registered on every node at startup (no closure
+serialisation).  The `groupBy` shuffle redistributes word-count pairs
+by key across the cluster.
+
+```scalascript
+// ── Named handler registration (called on every worker node at startup) ──
+
+HandlerRegistry.register(NamedHandler("splitWords",
+  (line: String) => line.split("\\s+").toList.filter(_.nonEmpty)
+    .map(_.toLowerCase.replaceAll("[^a-z]", "")).filter(_.nonEmpty)
+))
+
+HandlerRegistry.register(NamedHandler("toPair", (w: String) => (w, 1)))
+
+HandlerRegistry.register(NamedHandler("wordKey", (pair: (String, Int)) => pair._1))
+
+HandlerRegistry.register(NamedHandler("sumCounts",
+  (pair: (String, Int), b: (String, Int)) => (pair._1, pair._2 + b._2)
+))
+
+HandlerRegistry.register(NamedHandler("nonEmptyPair",
+  (pair: (String, Int)) => pair._1.nonEmpty
+))
+
+// ── Cluster setup ──────────────────────────────────────────────────────
+val cluster = Cluster.connect(
+  Node("worker-1@10.0.0.10:9100"),
+  Node("worker-2@10.0.0.11:9100"),
+  Node("worker-3@10.0.0.12:9100")
+)
+
+// ── Input ──────────────────────────────────────────────────────────────
+val path = if args.length > 0 then args(0) else "./examples/distributed-word-count.ssc"
+val lines = Dataset.fromFile(path).collect()
+
+// ── Distributed pipeline ───────────────────────────────────────────────
+// Phase 1: split + pair on workers
+val mapStage = Stage(List(
+  FlatMapOp("splitWords"),
+  MapOp("toPair"),
+  FilterOp("nonEmptyPair")
+))
+val mapped = runDistributed(lines, mapStage, cluster, retries = 1, allowPartial = false)
+
+// Phase 2: reduceByKey shuffle for word count
+val shuffleStage = ShuffleStage(
+  preShuffle         = Stage(Nil),
+  keyHandlerName     = "wordKey",
+  combineHandlerName = "sumCounts",
+  isGroupBy          = false
+)
+val counted = runDistributedShuffle(
+  mapped.results, shuffleStage, cluster, retries = 1, allowPartial = false
+)
+
+// ── Collect and display top 10 ─────────────────────────────────────────
+val top10 = counted.results
+  .asInstanceOf[List[(String, Int)]]
+  .sortBy(_._2)
+  .reverse
+  .take(10)
+
+top10.foreach { case (w, c) => println(s"$w: $c") }
+
+cluster.close()
+```

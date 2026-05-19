@@ -1,0 +1,80 @@
+---
+name: distributed-log-aggregation
+description: Distributed log aggregation — ERROR counts per service across cluster (v1.22)
+---
+
+# Distributed log aggregation (`v1.22`)
+
+Aggregates ERROR-level log lines by service name across a 3-node cluster.
+Each node processes a partition of the log stream; results are merged via
+coordinator-mediated shuffle.
+
+Named handler registration (called on every node at startup):
+
+```scalascript
+// Log line format: "LEVEL service message"
+// e.g. "ERROR payments timeout after 30s"
+
+HandlerRegistry.register(NamedHandler("isError", (line: String) => line.startsWith("ERROR")))
+
+HandlerRegistry.register(NamedHandler("toServicePair",
+  (line: String) =>
+    val parts = line.split(" ")
+    val service = if parts.length > 1 then parts(1) else "unknown"
+    (service, 1L)
+))
+
+HandlerRegistry.register(NamedHandler("serviceKey",
+  (pair: (String, Long)) => pair._1
+))
+
+HandlerRegistry.register(NamedHandler("sumLongs",
+  (a: (String, Long), b: (String, Long)) => (a._1, a._2 + b._2)
+))
+```
+
+Main program:
+
+```scalascript
+val cluster = Cluster.connect(
+  Node("worker-1@10.0.0.10:9100"),
+  Node("worker-2@10.0.0.11:9100"),
+  Node("worker-3@10.0.0.12:9100")
+)
+
+// Read log lines from each node's local storage (path is per-node)
+val logPath = if args.length > 0 then args(0) else "/var/log/app.log"
+val lines = Dataset.fromFile(logPath).collect()
+
+// Map stage: filter ERROR, extract (service, 1L) pairs
+val mapStage = Stage(List(
+  FilterOp("isError"),
+  MapOp("toServicePair")
+))
+val mapped = runDistributed(lines, mapStage, cluster, retries = 2, allowPartial = false)
+
+// Shuffle stage: reduceByKey to sum counts per service
+val shuffleStage = ShuffleStage(
+  preShuffle         = Stage(Nil),
+  keyHandlerName     = "serviceKey",
+  combineHandlerName = "sumLongs",
+  isGroupBy          = false
+)
+val aggregated = runDistributedShuffle(
+  mapped.results, shuffleStage, cluster, retries = 2, allowPartial = true
+)
+
+if aggregated.failures.nonEmpty then
+  println("Warning: partial result — " + aggregated.failures.length + " node(s) failed")
+
+val sorted = aggregated.results
+  .asInstanceOf[List[(String, Long)]]
+  .sortBy(_._2)
+  .reverse
+
+sorted.foreach { case (svc, count) =>
+  println(svc + ": " + count + " errors")
+}
+
+cluster.close()
+```
