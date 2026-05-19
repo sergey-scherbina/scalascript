@@ -6045,13 +6045,63 @@ def clusterCommand(args: List[String]): Unit =
   args match
     case "status" :: rest => clusterStatusCommand(rest)
     case "drain"  :: rest => clusterDrainCommand(rest)
+    case "events" :: rest => clusterEventsCommand(rest)
     case ("help" | "--help" | "-h") :: _ =>
       println("Usage: ssc cluster <subcommand>")
-      println("  status <url> [--json]   show a JSON snapshot from a running node")
-      println("  drain  <url> [--off]    enable (or disable) drain mode on a node")
+      println("  status <url> [--json]            show a JSON snapshot from a running node")
+      println("  drain  <url> [--off]             enable (or disable) drain mode on a node")
+      println("  events <url> [--since=<ms>]      dump the recent-events ring buffer")
     case _ =>
-      System.err.println("Usage: ssc cluster {status|drain} <url> [opts]")
+      System.err.println("Usage: ssc cluster {status|drain|events} <url> [opts]")
       System.exit(2)
+
+private def clusterEventsCommand(args: List[String]): Unit =
+  val (flags, urlOpt) = args.partition(_.startsWith("--"))
+  val sinceMs: Option[Long] = flags
+    .find(_.startsWith("--since="))
+    .map(_.stripPrefix("--since="))
+    .flatMap(_.toLongOption)
+  if urlOpt.isEmpty then
+    System.err.println("Usage: ssc cluster events <url> [--since=<epoch-ms>]")
+    System.exit(2)
+  else
+    val url = urlOpt.head
+    val base =
+      if url.endsWith("/_ssc-cluster/events") then url
+      else url.stripSuffix("/") + "/_ssc-cluster/events"
+    val full = sinceMs match
+      case Some(t) => base + "?since=" + t
+      case None    => base
+    val client = java.net.http.HttpClient.newBuilder()
+      .connectTimeout(java.time.Duration.ofSeconds(5)).build()
+    val req = java.net.http.HttpRequest.newBuilder()
+      .uri(java.net.URI.create(full))
+      .timeout(java.time.Duration.ofSeconds(10))
+      .GET().build()
+    val respOpt: Option[java.net.http.HttpResponse[String]] =
+      try Some(client.send(req, java.net.http.HttpResponse.BodyHandlers.ofString()))
+      catch case e: Throwable =>
+        System.err.println(s"failed to GET $full: ${e.getMessage}")
+        System.exit(1)
+        None
+    respOpt.foreach { resp =>
+      if resp.statusCode() != 200 then
+        System.err.println(s"unexpected status ${resp.statusCode()} from $full")
+        System.err.println(resp.body())
+        System.exit(1)
+      else
+        // Body is a flat JSON array — split on `},{` and print one
+        // event per line.  Avoid pulling in a JSON parser.
+        val body = resp.body().trim
+        if body == "[]" then println("(no events)")
+        else
+          val inner = body.stripPrefix("[").stripSuffix("]")
+          val parts = inner.split("\\},\\{").toIndexedSeq.map { s =>
+            val withOpen  = if s.startsWith("{") then s else "{" + s
+            if withOpen.endsWith("}") then withOpen else withOpen + "}"
+          }
+          parts.foreach(println)
+    }
 
 private def clusterDrainCommand(args: List[String]): Unit =
   val (flags, urlOpt) = args.partition(_.startsWith("--"))

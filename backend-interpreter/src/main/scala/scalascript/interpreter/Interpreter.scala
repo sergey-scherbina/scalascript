@@ -314,6 +314,8 @@ class Interpreter(
   private val configEventQueue =
     new java.util.concurrent.ConcurrentLinkedQueue[Value]()
   private def enqueueConfigEvent(key: String, value: String): Unit =
+    val ts = System.currentTimeMillis()
+    recordEventLog(s"""{"ts":$ts,"type":"ConfigChanged","key":${jsonStr(key)},"value":${jsonStr(value)}}""")
     if !configEventSubs.isEmpty then
       val ev = Value.InstanceV("ConfigChanged",
         Map("key" -> Value.StringV(key), "value" -> Value.StringV(value)))
@@ -535,6 +537,8 @@ class Interpreter(
   private val drainEventQueue =
     new java.util.concurrent.ConcurrentLinkedQueue[Value]()
   private def enqueueDrainEvent(nodeId: String, draining: Boolean): Unit =
+    val ts = System.currentTimeMillis()
+    recordEventLog(s"""{"ts":$ts,"type":"DrainStateChanged","nodeId":${jsonStr(nodeId)},"draining":$draining}""")
     if !drainEventSubs.isEmpty then
       val ev = Value.InstanceV("DrainStateChanged",
         Map("nodeId" -> Value.StringV(nodeId), "draining" -> Value.BoolV(draining)))
@@ -553,6 +557,8 @@ class Interpreter(
   private val metricEventQueue =
     new java.util.concurrent.ConcurrentLinkedQueue[Value]()
   private def enqueueMetricEvent(name: String, nodeId: String, value: Double): Unit =
+    val ts = System.currentTimeMillis()
+    recordEventLog(s"""{"ts":$ts,"type":"MetricChanged","name":${jsonStr(name)},"nodeId":${jsonStr(nodeId)},"value":$value}""")
     if !metricEventSubs.isEmpty then
       val ev = Value.InstanceV("MetricChanged", Map(
         "name"   -> Value.StringV(name),
@@ -575,6 +581,8 @@ class Interpreter(
         try target(payload) catch case _: Throwable => ()
     }
   private def enqueueLeaderEvent(tag: String, leaderId: String): Unit =
+    val ts = System.currentTimeMillis()
+    recordEventLog(s"""{"ts":$ts,"type":${jsonStr(tag)},"nodeId":${jsonStr(leaderId)}}""")
     if !leaderEventSubs.isEmpty then
       val ev = Value.InstanceV(tag, Map("nodeId" -> Value.StringV(leaderId)))
       leaderEventQueue.offer(ev)
@@ -711,8 +719,30 @@ class Interpreter(
       if tail <= 0.0 then Double.PositiveInfinity
       else -math.log10(tail.min(1.0))
 
+  /** v1.23 — bounded ring buffer of every cluster event as JSON lines.
+   *  Independent of the in-process subscription system: events land
+   *  here whether or not any actor has called subscribe*Events, so the
+   *  `GET /_ssc-cluster/events` endpoint always has data for ops
+   *  tooling.  Cap 200 entries — older lines drop oldest-first. */
+  private val ClusterEventLogMax = 200
+  private val clusterEventLog =
+    new java.util.concurrent.ConcurrentLinkedDeque[String]()
+
+  private def recordEventLog(jsonObj: String): Unit =
+    clusterEventLog.offer(jsonObj)
+    while clusterEventLog.size() > ClusterEventLogMax do
+      clusterEventLog.pollFirst()
+
   /** v1.23 — enqueue NodeJoined/NodeLeft event; scheduler drains and delivers. */
   private def enqueueClusterEvent(tag: String, nodeId: String, reason: String = ""): Unit =
+    // Mirror into the ops event log regardless of in-process subscribers.
+    val ts = System.currentTimeMillis()
+    val logEntry =
+      if tag == "NodeJoined" then
+        s"""{"ts":$ts,"type":"NodeJoined","nodeId":${jsonStr(nodeId)}}"""
+      else
+        s"""{"ts":$ts,"type":"NodeLeft","nodeId":${jsonStr(nodeId)},"reason":${jsonStr(reason)}}"""
+    recordEventLog(logEntry)
     if !clusterEventSubs.isEmpty then
       val ev =
         if tag == "NodeJoined" then
@@ -1728,6 +1758,61 @@ class Interpreter(
       ))
     })
     scalascript.server.Routes.register("POST", path, handler, this)
+
+  /** v1.23 — register `GET /_ssc-cluster/events` returning the recent
+   *  events ring buffer as a JSON array.  Optional `?since=<ts>`
+   *  query filters to entries strictly newer than the given epoch-ms,
+   *  so dashboards can long-poll without re-streaming everything.
+   *  No-op if already registered. */
+  private def registerClusterEventsRoute(): Unit =
+    val path = "/_ssc-cluster/events"
+    val already = scalascript.server.Routes.all.exists(e =>
+      e.method == "GET" && e.path == path)
+    if already then return
+    val handler = Value.NativeFnV("_clusterEvents", Computation.pureFn { args =>
+      // Pull `since` from Request.query["since"] if present.
+      val sinceMs: Long = args.headOption.flatMap {
+        case Value.InstanceV("Request", fs) =>
+          fs.get("query") match
+            case Some(Value.MapV(m)) =>
+              m.collectFirst {
+                case (Value.StringV("since"), Value.StringV(v)) => v
+              }.flatMap(_.toLongOption)
+            case _ => None
+        case _ => None
+      }.getOrElse(0L)
+      val sb = new StringBuilder("[")
+      var first = true
+      val it = clusterEventLog.iterator()
+      while it.hasNext do
+        val line = it.next()
+        // Each line is a `{"ts":<n>,...}` literal; cheap filter on
+        // the leading prefix avoids parsing JSON.
+        val tsMatch =
+          if sinceMs <= 0L then true
+          else
+            val tsPrefix = "{\"ts\":"
+            if line.startsWith(tsPrefix) then
+              val end = line.indexOf(',', tsPrefix.length)
+              if end > 0 then
+                line.substring(tsPrefix.length, end).toLongOption
+                  .exists(_ > sinceMs)
+              else false
+            else false
+        if tsMatch then
+          if !first then sb.append(',')
+          sb.append(line)
+          first = false
+      sb.append(']')
+      Value.InstanceV("Response", Map(
+        "status"  -> Value.IntV(200),
+        "headers" -> Value.MapV(Map(
+          Value.StringV("Content-Type") -> Value.StringV("application/json")
+        )),
+        "body"    -> Value.StringV(sb.toString)
+      ))
+    })
+    scalascript.server.Routes.register("GET", path, handler, this)
 
   private def registerClusterStatusRoute(): Unit =
     val path = "/_ssc-cluster/status"
@@ -6862,6 +6947,9 @@ class Interpreter(
       // v1.23 — POST /_ssc-cluster/drain to toggle local drain state
       // remotely (via `ssc cluster drain <url>` or any HTTP client).
       registerClusterDrainRoute()
+      // v1.23 — GET /_ssc-cluster/events returns the bounded ring
+      // buffer of recent cluster events as a JSON array.
+      registerClusterEventsRoute()
       Right(k(Value.UnitV))
 
     case "connectNode" => args match
