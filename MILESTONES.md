@@ -802,6 +802,28 @@ unblocks downstream features as early as possible.
          both form-encoded and JSON contexts.  Safe for null /
          empty input.
 
+     **Iter QQ — End-to-end integration test** ✓ — proves the
+     22+ iterations actually compose: embedded JDK HttpServer
+     hosts both the OAuth AS endpoints and an OAuth-protected MCP
+     server in one process; drives the full stack through the
+     public client APIs.
+
+       1. `OAuthClient.discoverAs(baseUrl)` — RFC 8414 metadata fetch
+       2. `OAuthClient.clientCredentials(tokenEndpoint, id, secret,
+          scopes)` → real bearer token
+       3. `McpHttpClient.setBearerToken(...)` + initialize handshake
+       4. `tools/list` over /mcp with bearer → expected catalogue
+       5. `tools/call` over /mcp → real tool invocation result
+       6. `as.revokeToken(t)` → subsequent /mcp call gets 401
+       7. RSA-signed AS metadata exposes `jwks_uri` that's actually
+          reachable + serves the matching public key
+
+     Five scenarios cover happy path, missing-bearer 401, garbage-
+     bearer 401-invalid_token, post-revocation 401, RSA + JWKS
+     discovery.  Boot helper takes `buildAs(baseUrl)` so the AS
+     issuer claim ends up equal to the actually-bound port — the
+     metadata document advertises real reachable URLs.
+
      **Truly post-v1.17 (deferred)**: DPoP (RFC 9449
      sender-constrained tokens); PAR (RFC 9126 Pushed
      Authorization Requests); MTLS client auth (RFC 8705 —
