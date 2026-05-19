@@ -980,6 +980,19 @@ lazy val blockchainEvm = project
     Test    / scalacOptions ++= sharedScalacOptions,
   )
 
+lazy val blockchainSolana = project
+  .in(file("blockchain-solana"))
+  .dependsOn(blockchainSpi, cryptoSpi, cryptoBouncycastle % Test)
+  .settings(
+    name := "scalascript-blockchain-solana",
+    libraryDependencies ++= Seq(
+      "com.lihaoyi" %% "upickle" % "3.3.1",
+      scalatestTest,
+    ),
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions,
+  )
+
 // Micropayment platform SPI (docs/micropayment-spi.md)
 // ---------------------------------------------------------------------------
 
@@ -1074,7 +1087,7 @@ lazy val root = project
     x402Core, x402Server, x402Client,
     x402FacilitatorCoinbase, x402FacilitatorEvm, x402FacilitatorCardano,
     x402QueueKafka, x402QueuePostgres, x402NoncePostgres, x402NonceRedis,
-    cryptoSpi, cryptoBouncycastle, blockchainSpi, blockchainEvm, blockchainEvmAbi, walletSpi, walletStrategyEoa, walletConnectorEip1193, walletConnect, mcpWallet, mcpX402,
+    cryptoSpi, cryptoBouncycastle, blockchainSpi, blockchainEvm, blockchainEvmAbi, blockchainSolana, walletSpi, walletStrategyEoa, walletConnectorEip1193, walletConnect, mcpWallet, mcpX402,
     micropaymentSpi, micropaymentThreshold, micropaymentServer, micropaymentClient, micropaymentProbabilistic, micropaymentChannelEvm, micropaymentHydra,
     frontendCore, frontendCustom, frontendReact, frontendSolid, frontendVue,
   )
