@@ -4764,6 +4764,40 @@ worth a separate fix when somebody has cycles.
   `actorBareNames` / intrinsic shapes, not the whole effectful
   surface) or a separate dep-mode emit path. Pending careful design.
 
+  Three-step narrower attempt landed 2026-05-19 — **doesn't fully
+  unblock the tests, but the unblocked layers are reusable**:
+  1. `JvmGen.qualifyBareActorCallsInSource` — string-level rewriter
+     applied per-dep-block by `inlineImport` before the dep enters
+     the main emit pipeline. Rewrites `self()`, `connectNode(addr)`,
+     `link(pid)`, `register(name, pid)`, `trapExit(b)`, etc. to
+     `Actor.<n>(…)`; rewrites `pid ! msg` to `Actor.send(pid, msg)`.
+     Word-boundary anchored so `Actor.self(`, `someObj.connectNode(`,
+     and substrings inside identifiers/strings are untouched.
+     Skips `receive`, `runActors`, `spawn` — they need richer
+     emit-time handling.
+  2. `receiveWithTimeout(t) { case … }` emit alias — added to the
+     existing `receive(t) { case … }` Apply-Apply pattern in JvmGen
+     so cluster.ssc's `receiveWithTimeout(timeoutMs) { … }` resolves
+     when reached through emitExpr.
+  3. `mergeDuplicatePackageObjects` recursion — was top-level only;
+     now walks each merged outer object's body and re-applies the
+     merger with strip/re-indent so nested
+     `object std { object mapreduce { … } object mapreduce { … } }`
+     fully collapses. Group key is `(indent, name)` so siblings at
+     different depths don't accidentally merge.
+
+  Still pending for the v1.22 distributed-* tests:
+  - dep-block `receive { case … }` rewriting (the matcher-builder
+    in `emitExpr` doesn't fire on verbatim dep source — same root
+    cause as the bare actor names but harder because the rewrite
+    target is a runtime helper call, not a simple `Actor.<n>(…)`).
+  - dep-block `receiveWithTimeout(t) { case … }` (same — needs to
+    reach emitExpr).
+  - user-code `result.results.asInstanceOf[List[Int]]` failing on
+    `Any`-typed `val result = runDistributed(…)`. The JVM backend
+    emits `result: Any` for the val even though
+    `runDistributed: DistributedResult[Any]` is declared in the dep.
+
 - **WS test cross-suite isolation goes through a process-global
   `WsRoutes` table + `WsTestLock` monitor.**  Works, but the lock
   serialises ScalaTest's default parallel suite execution for every
