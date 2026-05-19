@@ -80,7 +80,7 @@ class SscPreviewVariantsTest extends AnyFunSuite with Matchers:
 
   test("spinner.ssc front-matter round-trip preserves three variants") {
     // Resolve spinner.ssc relative to the project root regardless of cwd.
-    val root   = os.pwd / os.up  // backend-interpreter -> project root
+    val root   = TestPaths.repoRoot
     val spinner = root / "examples" / "std-ui" / "spinner.ssc"
     assume(os.exists(spinner), s"spinner.ssc not found at $spinner")
     val src    = os.read(spinner)

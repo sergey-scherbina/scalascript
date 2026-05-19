@@ -8,7 +8,7 @@ import scalascript.parser.Parser
 /** Conformance tests for v1.14 — `inline` + `derives` metaprogramming MVP. */
 class InlineDerivesTest extends AnyFunSuite with Matchers:
 
-  private val repoRoot = os.pwd / os.up
+  private val repoRoot = TestPaths.repoRoot
 
   private def captured(code: String): String =
     val buf = java.io.ByteArrayOutputStream()

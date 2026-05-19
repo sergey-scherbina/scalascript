@@ -12,7 +12,7 @@ import scalascript.parser.Parser
 class CoordinatorConformanceTest extends AnyFunSuite with Matchers:
 
   test("Coordinator initial sync acquire claims leadership"):
-    val repoRoot = os.pwd / os.up
+    val repoRoot = TestPaths.repoRoot
     val src = os.read(repoRoot / "conformance" / "actors-cluster-coordinator.ssc")
     val buf = java.io.ByteArrayOutputStream()
     Interpreter(java.io.PrintStream(buf), baseDir = Some(repoRoot)).run(Parser.parse(src))

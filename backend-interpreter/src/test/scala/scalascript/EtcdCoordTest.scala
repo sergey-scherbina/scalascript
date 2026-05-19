@@ -13,7 +13,7 @@ import scalascript.parser.Parser
 class EtcdCoordTest extends AnyFunSuite with Matchers:
 
   test("Etcd.use survives no-etcd-running"):
-    val repoRoot = os.pwd / os.up
+    val repoRoot = TestPaths.repoRoot
     val src = """# T
 
 [Etcd](std/cluster/coord-etcd.ssc)

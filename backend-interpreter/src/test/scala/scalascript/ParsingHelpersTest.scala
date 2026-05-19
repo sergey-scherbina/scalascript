@@ -8,7 +8,7 @@ import scalascript.parser.Parser
 /** v1.20 Phase 4 — std/parsing/helpers.ssc: tokenization helpers + JSON parser acceptance. */
 class ParsingHelpersTest extends AnyFunSuite with Matchers:
 
-  private val repoRoot = os.pwd / os.up
+  private val repoRoot = TestPaths.repoRoot
 
   private def captured(code: String): String =
     val buf = java.io.ByteArrayOutputStream()

@@ -12,7 +12,7 @@ import scalascript.parser.Parser
 class RaftConformanceTest extends AnyFunSuite with Matchers:
 
   test("Raft single-node election claims self"):
-    val src = os.read(os.pwd / os.up / "conformance" / "actors-cluster-raft.ssc")
+    val src = os.read(TestPaths.repoRoot / "conformance" / "actors-cluster-raft.ssc")
     val buf = java.io.ByteArrayOutputStream()
     Interpreter(java.io.PrintStream(buf)).run(Parser.parse(src))
     val out = buf.toString.linesIterator.toList

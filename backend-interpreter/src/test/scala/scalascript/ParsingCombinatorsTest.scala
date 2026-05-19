@@ -8,7 +8,7 @@ import scalascript.parser.Parser
 /** v1.20 Phase 3 — std/parsing/combinators.ssc: combinator ADT nodes + recursive-descent parse. */
 class ParsingCombinatorsTest extends AnyFunSuite with Matchers:
 
-  private val repoRoot = os.pwd / os.up
+  private val repoRoot = TestPaths.repoRoot
 
   private def captured(code: String): String =
     val buf = java.io.ByteArrayOutputStream()

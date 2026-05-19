@@ -11,7 +11,7 @@ import scalascript.parser.Parser
 class SupervisorTest extends AnyFunSuite with Matchers:
 
   // Repo root is one level above the sbt project directory (backend-interpreter/).
-  private val repoRoot = os.pwd / os.up
+  private val repoRoot = TestPaths.repoRoot
 
   private def captured(code: String): String =
     val buf = java.io.ByteArrayOutputStream()

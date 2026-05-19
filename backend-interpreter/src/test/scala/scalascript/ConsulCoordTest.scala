@@ -14,7 +14,7 @@ import scalascript.parser.Parser
 class ConsulCoordTest extends AnyFunSuite with Matchers:
 
   test("useConsulCoordinator survives no-Consul-running"):
-    val repoRoot = os.pwd / os.up
+    val repoRoot = TestPaths.repoRoot
     val src = """# T
 
 [Consul](std/cluster/coord-consul.ssc)

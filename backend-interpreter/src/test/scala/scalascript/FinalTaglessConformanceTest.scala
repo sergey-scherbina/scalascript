@@ -17,7 +17,7 @@ import scalascript.parser.Parser
  */
 class FinalTaglessConformanceTest extends AnyFunSuite with Matchers:
 
-  private val repoRoot = os.pwd / os.up
+  private val repoRoot = TestPaths.repoRoot
 
   private def run(code: String): String =
     val buf = java.io.ByteArrayOutputStream()

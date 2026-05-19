@@ -9,7 +9,7 @@ import scalascript.parser.Parser
 class FreeMonadTest extends AnyFunSuite with Matchers:
 
   // Repo root is one level above backend-interpreter/.
-  private val repoRoot = os.pwd / os.up
+  private val repoRoot = TestPaths.repoRoot
 
   private def captured(code: String): String =
     val buf = java.io.ByteArrayOutputStream()

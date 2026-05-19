@@ -8,7 +8,7 @@ import scalascript.parser.Parser
 /** v1.20 Phase 5 — std/dsl/ast.ssc, pretty.ssc, builders.ssc + Calc round-trip. */
 class DslTest extends AnyFunSuite with Matchers:
 
-  private val repoRoot = os.pwd / os.up
+  private val repoRoot = TestPaths.repoRoot
 
   private def captured(imports: String)(code: String): String =
     val buf = java.io.ByteArrayOutputStream()
