@@ -70,7 +70,7 @@ Steps 0-3 landed on `main`; Steps 4-7 in flight on `feature/dep-cps`.
 | 1 — `containsEffectPrimitive` whitelist predicate + 43 unit tests | ✅ landed | 71cefd0 |
 | 2 — cross-dep fixpoint (`analyzeDepEffectfulness`) + 14 unit tests | ✅ landed | ac93940 |
 | 3 — dep-mode CPS emit (`Defn.Object` recursion, `isEffectfulFun` ext, infix tuple-arg fix) | ✅ landed | 3b3ca95 |
-| 4 — `distributed-map.ssc` integration | 🔧 chunks 1–5 landed, more chunks pending | 9c62b01, + chunks 2–5 |
+| 4 — `distributed-map.ssc` integration | ✅ chunks 1–6 landed — **0 compile errors** | 9c62b01, + chunks 2–6 |
 | 5 — full regression sweep | ⏳ pending | — |
 | 6 — strip `pending:` from other v1.22 distributed-* tests | ⏳ pending | — |
 | 7 — retire `cpsBody` parameter / textual band-aids | ⏳ pending | — |
@@ -255,27 +255,73 @@ Numbers after chunk 5:
   between INT and JS PASS independently of dep-cps changes) — not
   a real regression.
 
-**Step 4 chunks 6-N — pending:**
+**Step 4 chunk 6 — landed (2026-05-19):**
 
-Remaining 9 errors in `distributed-map.ssc` are concentrated in
-three shapes:
+Five coordinated changes that close the remaining 9 compile errors
+and bring `distributed-map.ssc` to **0 compile errors** (–100%
+from baseline 54), with the `actors-process-info.ssc` canary held
+at 4 throughout.  Runtime now reaches an orthogonal `Unhandled
+effect inside actor: Random.uuid` — a separate concern about
+effect-handler registration in the actor runtime, not dep-cps.
 
-- **`Term.Function { pid => pid ! "__shutdown__" }`** in
-  `Cluster.close` — Term.Function is `isSimpleCps` so it's
-  emitted verbatim.  Need a similar CPS-emit-of-body treatment as
-  PF in chunk 4, scoped narrowly to avoid the user-code lambda
-  regression.
+1. **Term.Function body CPS emit** in `bindArgsCps`'s wrap
+   (mirroring chunk 4's PF treatment).  Widens un-annotated params
+   to `Any` and routes the body through `emitCpsExpr`, so
+   `pid => pid ! "__shutdown__"` becomes
+   `(pid: Any) => Actor.send(pid, "__shutdown__")` via the
+   existing `Term.ApplyInfix("!")` arm.
 
-- **`Term.AnonymousFunction(_._1)`** placeholder shorthand in
-  `assignments.map(_._1).toSet` — emits raw and Scala can't infer
-  the `_$N` parameter type when surrounded by `Any`.
+2. **`anyBoundNames` scope tracking** for Term.Function widened
+   params.  Mutable set + `withAnyBoundNames(names)(body)` helper
+   that snapshot/restores on exit (robust to shadowing).
+   Registered both in the new `bindArgsCps` wrap and the existing
+   `emitCpsExpr` Term.Function arm.
 
-- **`node.address` inside `(node: Any) => …`** — Term.Function
-  param is `Any`, `.address` fails.  Same root cause as the
-  Term.Function body issue; the lambda's param type isn't widened
-  to declared in the verbatim emit.
+3. **Term.Select consults `anyBoundNames`** — when `qual` is a
+   simple Term.Name that we widened to `Any`, route the access
+   through `_dispatch` instead of direct `.member`.  Fixes
+   `(node: Any) => node.address` and similar; doesn't affect
+   typed-name access (`info: ProcessInfo` from a pattern bind
+   stays direct, preserving the canary).
 
-Each is a focused micro-fix.
+4. **Term.AnonymousFunction expansion** (`_._1`, `_._2 == x`, `_ + 1`).
+   String-substitute the bare `_` for a fresh name, re-parse the
+   body, then emit through the registered-Any path so
+   `_dispatch(_t, "_1", Nil)` handles the tuple accessor at
+   runtime via reflection.  Falls back to raw syntax if re-parse
+   fails.
+
+5. **Term.Assign RHS CPS emit + Term.Throw arm.**  Named-arg
+   RHS (`pending = assignments.map(_._1).toSet`) now routes
+   through `emitCpsExpr` so chained calls on Any-typed values
+   get `_dispatch`/`_bind`.  New Term.Throw arm in `emitCpsExpr`
+   routes the throwable construction (`throw DistributedError(
+   failedNode, reason)`) through chunk-3's call-site cast
+   injection so `failedNode.asInstanceOf[Node]` fires.
+
+Numbers after chunk 6:
+- `distributed-map.ssc`: 9 → **0 compile errors** (–100%; 54 →
+  0 cumulative across chunks 2–6).
+- `dep-cps-basic.ssc`: still passes end-to-end.
+- `actors-process-info.ssc`: 4 → 4 (canary held).
+- 65 dep-cps unit + 629 core unit + full conformance: zero
+  regressions (`async-parallel` flake oscillates as expected).
+
+**Steps 5–7 — pending:**
+
+The architectural compile path is complete.  Remaining work:
+- **Runtime effect-handler integration** — the
+  `Unhandled effect inside actor: Random.uuid` runtime fail in
+  distributed-map needs a `Random` effect handler registered in
+  the actor runtime (or routing through `_perform` differently).
+  Orthogonal to dep-cps; track as a separate v1.22 runtime
+  followup.
+- **Step 5** — full v1.22 regression sweep across all six
+  distributed-* conformance tests.
+- **Step 6** — strip `pending:` markers from the conformance
+  files once each runs end-to-end green.
+- **Step 7** — retire `cpsBody` parameter / textual band-aids
+  obsoleted by the Steps 0–4 architecture.
 
 **Validation as of Step 3 landing:**
 - `conformance/dep-cps-basic.ssc` runs end-to-end on JVM, prints `ok/ok`.

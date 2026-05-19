@@ -2963,6 +2963,52 @@ class JvmGen(
           s"case ${c.pat.syntax}${guard} => ${emitCpsExpr(c.body)}"
         }.mkString(" ")
         s"((${tmp}: Any) => ${tmp} match { $cases })"
+      // Chunk 6 — Term.Function mirroring the PF treatment above.  A
+      // bare `pid => pid ! msg` lands in an Any-typed position (e.g.
+      // `_dispatch(pids, "foreach", List(pid => …))`) and Scala 3
+      // can't infer `pid`'s type from the expected `Any`.  Widen
+      // each param to its declared type (or `Any` when un-annotated)
+      // and CPS-emit the body so an effectful expression inside the
+      // body (`pid ! msg`) reaches the existing `Term.ApplyInfix("!")`
+      // arm and becomes `Actor.send(pid, msg)`.  Pure bodies re-emit
+      // unchanged because emitCpsApply's `case fun` arm produces
+      // `f(${vs})` when there's nothing to bind — same as the PF
+      // case-body argument above.
+      case Term.Function.After_4_6_0(paramClause, body) =>
+        val params = paramClause.values.map { p =>
+          p.decltpe.map(t => s"${p.name.value}: ${t.syntax}")
+            .getOrElse(s"${p.name.value}: Any")
+        }.mkString(", ")
+        // Widened (no-decltpe) params land as `Any` — register so the
+        // Term.Select arm can _dispatch their `.member` accesses.
+        val anyParams = paramClause.values.filter(_.decltpe.isEmpty).map(_.name.value).toSet
+        s"(($params) => ${withAnyBoundNames(anyParams)(emitCpsExpr(body))})"
+      // `_._1`, `_._2 == deadPid`, `_ + 1` — Scala can't infer the
+      // expanded `x$N` parameter type when the placeholder shorthand
+      // lands in an `Any`-typed slot.  Rewrite by string-substituting
+      // the bare `_` for a fresh name, re-parsing, and CPS-emitting
+      // through the registered-Any path so accesses like `_._1`
+      // become `_dispatch(_t, "_1", Nil)` at runtime.
+      case af: Term.AnonymousFunction =>
+        import scala.meta.{dialects, *}
+        val tmp      = freshTmp()
+        val bodySrc  = af.body.syntax
+        // Word-boundary regex: replace standalone `_` only, leaving
+        // `_x`, `xs._1`, `xs: _*`, etc. alone.
+        val rewritten = bodySrc.replaceAll("""(?<![A-Za-z0-9_])_(?![A-Za-z0-9_])""", tmp)
+        dialects.Scala3(Input.String(rewritten)).parse[Term] match
+          case Parsed.Success(parsedBody) =>
+            s"(($tmp: Any) => ${withAnyBoundNames(Set(tmp))(emitCpsExpr(parsedBody))})"
+          case _ =>
+            // Re-parse failed: fall back to raw syntax (preserves the
+            // original failure mode rather than introducing a new one).
+            af.syntax
+      // Named-arg RHS in CPS context — emit through the CPS pipeline so
+      // chained calls on Any-typed values get `_dispatch`/`_bind`.
+      // Otherwise `pending = assignments.map(_._1).toSet` would land
+      // raw and the `.map` on Any-typed assignments would fail.
+      case Term.Assign(lhs, rhs) =>
+        s"${lhs.syntax} = ${emitCpsExpr(rhs)}"
       case _ => t.syntax
     def loop(remaining: List[Term], acc: List[String]): String = remaining match
       case Nil       => k(acc.reverse)
@@ -2975,6 +3021,26 @@ class JvmGen(
 
   private var tmpIdx = 0
   private def freshTmp(): String = { tmpIdx += 1; s"_t$tmpIdx" }
+
+  // Chunk 6 — names statically bound to `Any` in the enclosing
+  // Term.Function lambda(s) of the current emitCpsExpr context.
+  // The Term.Select arm consults this so `node.address` becomes
+  // `_dispatch(node, "address", Nil)` when `node` came from an
+  // `(node: Any) =>` widened param (otherwise `.address` on `Any`
+  // wouldn't typecheck).  Push at function entry, restore at exit
+  // — robust to shadowing because we snapshot the previous set.
+  private val anyBoundNames = scala.collection.mutable.Set.empty[String]
+  /** Run `body` with `names` added to `anyBoundNames`; restore on
+   *  exit (snapshot/restore pattern handles shadowed re-binds). */
+  private def withAnyBoundNames[A](names: Set[String])(body: => A): A =
+    if names.isEmpty then body
+    else
+      val prev = anyBoundNames.toSet
+      anyBoundNames ++= names
+      try body
+      finally
+        anyBoundNames.clear()
+        anyBoundNames ++= prev
 
   /** Emit a Scala expression in CPS form. */
   private def emitCpsExpr(term: Term): String = term match
@@ -3028,7 +3094,8 @@ class JvmGen(
       // (`n: Any => body`) would be parsed as `n` of type `Any => body`,
       // not as a one-parameter lambda.  Parens disambiguate.
       val wrap = s"(${params.mkString(", ")})"
-      s"$wrap => ${emitCpsExpr(body)}"
+      val anyParams = paramClause.values.filter(_.decltpe.isEmpty).map(_.name.value).toSet
+      s"$wrap => ${withAnyBoundNames(anyParams)(emitCpsExpr(body))}"
 
     // Nested handle inside CPS body
     case Term.Apply.After_4_6_0(
@@ -3286,6 +3353,17 @@ class JvmGen(
 
     case app: Term.Apply => emitCpsApply(app)
 
+    // Chunk 6 — `throw expr` routes the inner through CPS so the
+    // throwable construction (e.g. `throw DistributedError(failedNode,
+    // reason)`) gets call-site cast injection from chunk 3.  When the
+    // inner expression is complex we _bind first; simple inners get
+    // a direct throw.
+    case t: Term.Throw =>
+      if isSimpleCps(t.expr) then s"throw ${t.expr.syntax}"
+      else
+        val v = freshTmp()
+        s"_bind(${emitCpsExpr(t.expr)}, ($v: Any) => throw $v.asInstanceOf[Throwable])"
+
     // Chunk 5 — `expr.asInstanceOf[T]` wraps the inner emit so the
     // receive/match shapes that live inside the cast (e.g.
     // `receiveWithTimeout(t) { case … }.asInstanceOf[Boolean]` in
@@ -3335,12 +3413,17 @@ class JvmGen(
       // computation), the lambda param is `Any` and `.field` fails to
       // typecheck — route through `_dispatch` which uses the same
       // reflection fallback that handles `.method(args)` in the Apply
-      // arm above.
-      if isSimpleCps(qual) then
-        s"${qual.syntax}.${name.value}"
-      else
-        val v = freshTmp()
-        s"""_bind(${emitCpsExpr(qual)}, ($v: Any) => _dispatch($v, "${name.value}", Nil))"""
+      // arm above.  Chunk 6 — also dispatch when `qual` is a simple
+      // Term.Name that we widened to `Any` in the surrounding
+      // Term.Function lambda (`(node: Any) => node.address`).
+      qual match
+        case Term.Name(n) if anyBoundNames(n) =>
+          s"""_dispatch(${qual.syntax}, "${name.value}", Nil)"""
+        case _ if isSimpleCps(qual) =>
+          s"${qual.syntax}.${name.value}"
+        case _ =>
+          val v = freshTmp()
+          s"""_bind(${emitCpsExpr(qual)}, ($v: Any) => _dispatch($v, "${name.value}", Nil))"""
 
     case t: Term.Match =>
       bindArgsCps(List(t.expr)) { case List(sv) =>
