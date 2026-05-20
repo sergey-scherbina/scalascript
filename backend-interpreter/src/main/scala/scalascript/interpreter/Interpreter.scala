@@ -69,11 +69,11 @@ class Interpreter(
   // variables are resolved at the call site.
   // Each entry: (name, typeParams, usingDeps[(paramName, typeKeyTemplate)],
   //              returnTypeTemplate, givenNode, capturedEnv)
-  private val givenFactories = mutable.ArrayBuffer.empty[ParametricGiven]
+  private[interpreter] val givenFactories = mutable.ArrayBuffer.empty[ParametricGiven]
   // Track how many `given` definitions are stored under each typeKey — used for
   // ambiguity detection.  Incremented both by concrete givens (in globals) and
   // by parametric factory registrations.
-  private val givenCandidateCount = mutable.Map.empty[String, Int]
+  private[interpreter] val givenCandidateCount = mutable.Map.empty[String, Int]
   private var mainCalled   = false
   // ThreadLocal so concurrent generator virtual threads each get their own counter.
   private val _phIdxTL: ThreadLocal[Int] = ThreadLocal.withInitial(() => 0)
@@ -1437,7 +1437,7 @@ class Interpreter(
 
   /** Prefix `msg` with position info and throw InterpretError with source
    *  context appended underneath. */
-  private def located(msg: String): Nothing =
+  private[interpreter] def located(msg: String): Nothing =
     throw InterpretError(s"$posPrefix$msg$sourceContext")
 
   /** Update currentSpan from a scalameta tree's position (no-op if position is empty). */
@@ -2853,7 +2853,7 @@ class Interpreter(
 
   // ─── Statement execution ─────────────────────────────────────────
 
-  private def execStat(stat: Stat, env: mutable.Map[String, Value], printResult: Boolean = false): Unit =
+  private[interpreter] def execStat(stat: Stat, env: mutable.Map[String, Value], printResult: Boolean = false): Unit =
     trackPos(stat)
     stat match
     case Defn.Val(_, pats, _, rhs) =>
@@ -3806,7 +3806,7 @@ class Interpreter(
             // 2. For generic keys like "Show[A]" try:
             //    a) resolveGiven (infers concrete type from regular args if any)
             //    b) scan env for a synthetic context-bound param "A$TC"
-            resolveGiven(key, Nil, env).orElse {
+            GivenRuntime.resolveGiven(key, Nil, env, this).orElse {
               // key shape: "TC[A]" — look for env entry "A$TC"
               val tcEnd = key.indexOf('[')
               if tcEnd > 0 then
@@ -3833,7 +3833,7 @@ class Interpreter(
         // compiletime.summonInline[TC[T]] — look up a given instance
         case (Term.Select(Term.Name("compiletime"), Term.Name("summonInline")), List(typeArg)) =>
           val key = typeToString(typeArg.asInstanceOf[scala.meta.Type])
-          val found = env.get(key).orElse(globals.get(key)).orElse(resolveGiven(key, Nil, env))
+          val found = env.get(key).orElse(globals.get(key)).orElse(GivenRuntime.resolveGiven(key, Nil, env, this))
           Pure(found.getOrElse(located(s"No given instance for '$key' (summonInline)")))
 
         case _ => eval(t.fun, env)  // other type applications — erase type args
@@ -4375,7 +4375,7 @@ class Interpreter(
                 val usingIdx = i - regularCount
                 val typeKey  = f.usingParams.lift(usingIdx).map(_._2).getOrElse("")
                 if typeKey.nonEmpty then
-                  resolveGiven(typeKey, regularVals, f.closure).getOrElse(v)
+                  GivenRuntime.resolveGiven(typeKey, regularVals, f.closure, this).getOrElse(v)
                 else v
               case _ => v
           else v
@@ -4391,7 +4391,7 @@ class Interpreter(
             // Caller supplied all regular args — resolve each using param
             val regularArgVals = tupledArgs.take(regularCount)
             val resolved = f.usingParams.map { (pname, typeKey) =>
-              resolveGiven(typeKey, regularArgVals, f.closure)
+              GivenRuntime.resolveGiven(typeKey, regularArgVals, f.closure, this)
                 .getOrElse(located(s"No given instance found for '$typeKey' (using parameter '$pname')"))
             }
             tupledArgs ++ resolved
@@ -4472,320 +4472,7 @@ class Interpreter(
     case ti: scala.meta.Type.ApplyInfix => ti.op.value == "throws"
     case _                              => false
 
-/** Infer the runtime "element type" of a value — the concrete type name
-   *  that a single-letter type variable (like `A` in `Monoid[A]`) would
-   *  be bound to given this argument value. For `ListV` we recurse into the
-   *  head element so `List(1,2,3)` → `"Int"`. */
-  private def runtimeElemType(v: Value): String = v match
-    case Value.IntV(_)                => "Int"
-    case Value.DoubleV(_)             => "Double"
-    case Value.StringV(_)             => "String"
-    case Value.BoolV(_)               => "Boolean"
-    case Value.CharV(_)               => "Char"
-    case Value.ListV(h :: _)          => runtimeElemType(h)
-    case Value.InstanceV(t, _)        => t
-    case _                            => "_"
-
-  /** Infer the runtime type of a value itself — `List[Int]` for a `ListV`,
-   *  `Int` for an `IntV`, etc.  Used when a type variable `A` is bound
-   *  directly (not as `List[A]`) to an argument. */
-  private def runtimeValueType(v: Value): String = v match
-    case Value.IntV(_)                => "Int"
-    case Value.DoubleV(_)             => "Double"
-    case Value.StringV(_)             => "String"
-    case Value.BoolV(_)               => "Boolean"
-    case Value.CharV(_)               => "Char"
-    case Value.ListV(h :: _)          => s"List[${runtimeValueType(h)}]"
-    case Value.ListV(Nil)             => "List[_]"
-    case Value.OptionV(Some(h))       => s"Option[${runtimeValueType(h)}]"
-    case Value.OptionV(None)          => "Option[_]"
-    case Value.InstanceV(t, _)        => t
-    case _                            => "_"
-
-  /** Resolve a given/implicit instance for `typeKey` (e.g. `"Monoid[A]"`)
-   *  using the regular-argument values to infer any free type variables.
-   *
-   *  Strategy:
-   *  1. Direct lookup in `callEnv` then `globals`.
-   *  2. If `typeKey` contains a single-letter uppercase free type variable
-   *     (e.g. `A` in `Monoid[A]`), infer its concrete type from the first
-   *     regular argument's runtime type and retry the lookup.
-   *  3. Try each registered parametric `given` factory — match its return-type
-   *     template against `typeKey`, bind type variables, then recursively resolve
-   *     all `using` dependencies and instantiate.
-   *  4. Ambiguity: if more than one candidate is found, report a clear error.
-   *  5. Cycle detection: if already resolving `typeKey` (transitive), return None
-   *     to avoid infinite recursion.
-   */
-  private def resolveGiven(typeKey: String, regularArgValues: List[Value], callEnv: Env): Option[Value] =
-    resolveGivenInternal(typeKey, regularArgValues, callEnv, Set.empty)
-
-  private def resolveGivenInternal(
-    typeKey:          String,
-    regularArgValues: List[Value],
-    callEnv:          Env,
-    resolving:        Set[String]   // cycle guard
-  ): Option[Value] =
-    if resolving.contains(typeKey) then return None   // cycle
-
-    // ── Step 1: build candidate concrete keys ────────────────────────────
-    // When typeKey has a free single-letter type variable (e.g. `A` in `Ord[A]`),
-    // infer candidate concrete keys from runtime argument values.
-    // We try two strategies:
-    //   (a) runtimeValueType — for direct `A`-typed params: arg=List(1,2) → A=List[Int]
-    //   (b) runtimeElemType  — for `List[A]`-typed params: arg=List(1,2) → A=Int
-    //   Strategy: try (a) first (both direct lookup and factory); if no hit, try (b).
-    val hasFreeVar: Boolean =
-      val tcEnd = typeKey.indexOf('[')
-      if tcEnd < 0 then false
-      else
-        val typeArg = typeKey.substring(tcEnd + 1, typeKey.length - 1).trim
-        typeArg.nonEmpty &&
-        typeArg.forall(c => c.isLetterOrDigit || c == '_') &&
-        typeArg.headOption.exists(_.isUpper) &&
-        typeArg.length <= 2
-
-    val tc: String = if hasFreeVar then typeKey.substring(0, typeKey.indexOf('[')) else ""
-
-    // Helper: try a specific concrete key for both direct lookup and factory resolution.
-    // Returns all candidates (may be > 1 for ambiguity detection).
-    def candidateFor(ck: String, newRes: Set[String]): List[Value] =
-      // Check ambiguity: if multiple concrete givens were registered for this key,
-      // synthesize multiple marker values so the ambiguity check fires.
-      val count = givenCandidateCount.getOrElse(ck, 0)
-      val direct = (callEnv.get(ck).toList ++ globals.get(ck).toList).distinct
-        .filter { case Value.InstanceV(_, fs) => !fs.contains("__factory__"); case _ => true }
-      val directWithAmbiguity =
-        if count > 1 && direct.nonEmpty then
-          // Return `count` copies to trigger ambiguity detection
-          List.fill(count)(direct.head)
-        else direct
-      if directWithAmbiguity.nonEmpty then directWithAmbiguity
-      else
-        // Factory resolution: try all factories and pick the most specific match.
-        // Specificity = count of concrete (non-type-var) characters in the return type template.
-        // More specific = longer fixed structure = preferred.
-        val hits = givenFactories.toList.flatMap { factory =>
-          tryInstantiateFactory(factory, ck, regularArgValues, callEnv, newRes)
-            .map(v => (specificity(factory.returnTypeTemplate, factory.typeParams), v))
-        }
-        hits.sortBy(-_._1).headOption.map(_._2).toList
-
-    val newResolving = resolving + typeKey
-
-    val allCandidates: List[Value] =
-      if !hasFreeVar then
-        candidateFor(typeKey, newResolving + typeKey)
-      else
-        val valueKey = regularArgValues.iterator
-          .map(runtimeValueType)
-          .find(t => t != "_" && !t.endsWith("[_]"))
-          .map(t => s"$tc[$t]")
-        val elemKey = regularArgValues.iterator
-          .map(runtimeElemType)
-          .find(_ != "_")
-          .map(t => s"$tc[$t]")
-        val valueCandidates = valueKey.toList.flatMap(ck => candidateFor(ck, newResolving + ck))
-        // If the value-type given resolves only because it leaked into callEnv via the
-        // function's closure (concrete in callEnv, absent from globals), while the
-        // elem-type given IS present in globals, prefer the elem-type candidate.
-        // Covers combineAll[A: Monoid](xs: List[A]) called with List(1,2,3): listConcat
-        // leaks as Monoid[List[Int]] from the std closure, but intSum is properly
-        // imported as Monoid[Int] in globals.  Factory-based givens live in
-        // givenFactories, not callEnv/globals directly, so they are unaffected.
-        val shouldPreferElem =
-          valueCandidates.nonEmpty &&
-          valueKey.flatMap(callEnv.get).isDefined &&
-          valueKey.flatMap(globals.get).isEmpty &&
-          elemKey.flatMap(globals.get).isDefined
-        if shouldPreferElem then
-          elemKey.toList.flatMap(k => globals.get(k).toList.filter {
-            case Value.InstanceV(_, fs) => !fs.contains("__factory__")
-            case _                      => true
-          })
-        else if valueCandidates.nonEmpty then valueCandidates
-        else
-          val elemCandidates = elemKey.toList.flatMap(ck => candidateFor(ck, newResolving + ck))
-          if elemCandidates.nonEmpty then elemCandidates
-          else candidateFor(typeKey, newResolving + typeKey)
-
-    // ── Step 4: ambiguity check ───────────────────────────────────────────
-    // `allCandidates` may contain duplicates (same value multiple times) when
-    // `givenCandidateCount > 1` — that signals multiple registered givens for the type.
-    allCandidates match
-      case Nil         => None
-      case List(v)     => Some(v)
-      case many        =>
-        // If the candidate list has duplicates it means multiple givens were registered
-        // (givenCandidateCount > 1) — that is ambiguous regardless of identity.
-        if many.length > many.distinct.length then
-          located(s"ambiguous implicits: found ${many.length} candidates for '$typeKey'")
-        else
-          // All distinct — check if they're truly different types (shouldn't happen normally)
-          Some(many.head)
-
-  /** Attempt to instantiate a parametric given factory for the requested `typeKey`.
-   *  Returns `Some(instance)` if the factory's return type template matches and all
-   *  `using` dependencies can be recursively resolved; `None` otherwise. */
-  private def tryInstantiateFactory(
-    factory:          ParametricGiven,
-    typeKey:          String,
-    regularArgValues: List[Value],
-    callEnv:          Env,
-    resolving:        Set[String]
-  ): Option[Value] =
-    // ── Match return type template against the requested typeKey ──────────
-    // e.g. template = "Ordering[List[A]]", requested = "Ordering[List[Int]]"
-    val tvBindings = matchTypeTemplate(factory.returnTypeTemplate, typeKey, factory.typeParams)
-    tvBindings.flatMap { bindings =>
-      // ── Substitute bindings into each using dependency ─────────────────
-      val resolvedDeps: Option[List[(String, Value)]] =
-        factory.usingDeps.foldLeft(Option(List.empty[(String, Value)])) { (accOpt, dep) =>
-          val (pname, depTemplate) = dep
-          accOpt.flatMap { acc =>
-            val depKey = applyTypeBindings(depTemplate, bindings)
-            val depEnv = callEnv ++ factory.capturedEnv
-            resolveGivenInternal(depKey, regularArgValues, depEnv, resolving).map { depVal =>
-              acc :+ (pname -> depVal)
-            }
-          }
-        }
-
-      resolvedDeps.map { deps =>
-        // ── Evaluate the given body with type vars + using deps in scope ──
-        val bodyEnv = mutable.Map.from(globals)
-        // Bind captured env
-        factory.capturedEnv.foreach { kv => bodyEnv(kv._1) = kv._2 }
-        // Bind resolved using dependencies by parameter name
-        deps.foreach { dep => bodyEnv(dep._1) = dep._2 }
-        // Also bind by type key so summon[Ordering[A]] works inside the body
-        deps.foreach { dep =>
-          dep._2 match
-            case Value.InstanceV(t, _) => bodyEnv(t) = dep._2
-            case _ =>
-        }
-        factory.givenNode.templ.body.stats.foreach(s => execStat(s, bodyEnv))
-        val implNames = factory.givenNode.templ.body.stats
-          .collect { case dd: Defn.Def => dd.name.value }.toSet
-        Value.InstanceV(typeKey, bodyEnv.view.filterKeys(implNames.contains).toMap)
-      }
-    }
-
-  /** Match a type template (possibly containing type variable names) against a
-   *  concrete type key.  Returns a binding map `typeVar -> concreteType` if the
-   *  template matches, or `None` if it doesn't.
-   *
-   *  Examples:
-   *    matchTypeTemplate("Ordering[A]",           "Ordering[Int]",       ["A"]) → Some(A→Int)
-   *    matchTypeTemplate("Ordering[List[A]]",     "Ordering[List[Int]]", ["A"]) → Some(A→Int)
-   *    matchTypeTemplate("Ordering[Int]",         "Ordering[String]",    [])    → None
-   */
-  private def matchTypeTemplate(
-    template:   String,
-    concrete:   String,
-    typeParams: List[String]
-  ): Option[Map[String, String]] =
-    val tvSet = typeParams.toSet
-    matchTypeParts(template.trim, concrete.trim, tvSet, Map.empty)
-
-  private def matchTypeParts(
-    tmpl:     String,
-    conc:     String,
-    tvSet:    Set[String],
-    bindings: Map[String, String]
-  ): Option[Map[String, String]] =
-    // Both are type-var names
-    if tvSet.contains(tmpl) then
-      // Check consistency
-      bindings.get(tmpl) match
-        case Some(existing) => if existing == conc then Some(bindings) else None
-        case None           => Some(bindings + (tmpl -> conc))
-    else
-      // Both should have the same structure
-      val ti = tmpl.indexOf('[')
-      val ci = conc.indexOf('[')
-      if ti < 0 && ci < 0 then
-        // Both are simple names
-        if tmpl == conc then Some(bindings) else None
-      else if ti >= 0 && ci >= 0 then
-        // Both have type arguments — match head type constructors and arg lists
-        val tHead = tmpl.substring(0, ti).trim
-        val cHead = conc.substring(0, ci).trim
-        if tHead != cHead then None
-        else
-          // Extract contents inside outer [ ]
-          val tInner = tmpl.substring(ti + 1, tmpl.length - 1).trim
-          val cInner = conc.substring(ci + 1, conc.length - 1).trim
-          // Split on top-level commas
-          val tArgs = splitTopLevel(tInner)
-          val cArgs = splitTopLevel(cInner)
-          if tArgs.length != cArgs.length then None
-          else
-            tArgs.zip(cArgs).foldLeft(Option(bindings)) { (accOpt, pair) =>
-              accOpt.flatMap(b => matchTypeParts(pair._1.trim, pair._2.trim, tvSet, b))
-            }
-      else None
-
-  /** Split a comma-separated type argument string at the top level (ignoring
-   *  commas inside nested `[...]` brackets).
-   *  e.g. `"A, Map[B, C]"` → `List("A", "Map[B, C]")` */
-  private def splitTopLevel(s: String): List[String] =
-    val parts = mutable.ArrayBuffer.empty[String]
-    var depth = 0
-    val sb    = new StringBuilder
-    for c <- s do
-      c match
-        case '[' => depth += 1; sb += c
-        case ']' => depth -= 1; sb += c
-        case ',' if depth == 0 =>
-          parts += sb.toString.trim
-          sb.clear()
-        case _   => sb += c
-    parts += sb.toString.trim
-    parts.toList
-
-  /** Compute the specificity of a return-type template: the number of characters
-   *  in the template that are NOT part of a free type variable token.  Higher
-   *  specificity = more concrete structure = preferred for resolution.
-   *
-   *  e.g. specificity("Wrap[List[List[A]]]", ["A"]) > specificity("Wrap[List[A]]", ["A"])
-   */
-  private def specificity(template: String, typeParams: List[String]): Int =
-    val tvSet = typeParams.toSet
-    // Count characters that belong to non-typevar tokens
-    var i = 0
-    var score = 0
-    while i < template.length do
-      if template(i).isLetter || template(i) == '_' then
-        var j = i
-        while j < template.length && (template(j).isLetterOrDigit || template(j) == '_') do j += 1
-        val token = template.substring(i, j)
-        if !tvSet.contains(token) then score += token.length
-        i = j
-      else
-        score += 1
-        i += 1
-    score
-
-  /** Substitute type-variable bindings into a type-key template string.
-   *  e.g. applyTypeBindings("Ordering[A]", Map("A" -> "Int")) → "Ordering[Int]" */
-  private def applyTypeBindings(template: String, bindings: Map[String, String]): String =
-    if bindings.isEmpty then template
-    else
-      // Simple token-by-token replacement of free type vars
-      val sb = new StringBuilder
-      var i  = 0
-      while i < template.length do
-        if template(i).isLetter || template(i) == '_' then
-          var j = i
-          while j < template.length && (template(j).isLetterOrDigit || template(j) == '_') do j += 1
-          val token = template.substring(i, j)
-          sb ++= bindings.getOrElse(token, token)
-          i = j
-        else
-          sb += template(i)
-          i += 1
-      sb.toString
+  // ─── Given / typeclass resolution — see GivenRuntime.scala ──────────────
 
   /** Extend `args` with default values for any missing trailing parameters.
    *  Each default is evaluated in `baseEnv` augmented with the bindings of all
