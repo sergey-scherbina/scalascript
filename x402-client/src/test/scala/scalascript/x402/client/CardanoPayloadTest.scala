@@ -104,6 +104,45 @@ class CardanoPayloadTest extends AnyFunSuite:
     assert(json("scheme")("type").str == "cardanoExact")
   }
 
+  // ── CIP-19 derivation ────────────────────────────────────────────────────────
+
+  test("Wallets.cardano(hex, network): derives addr_test1 on Preprod") {
+    val w = Wallets.cardano(testPrivKeyHex, Network.CardanoPreprod)
+    assert(w.address.startsWith("addr_test1"),
+      s"Preprod address should start with addr_test1, got ${w.address}")
+    // Re-derivation is deterministic
+    val w2 = Wallets.cardano(testPrivKeyHex, Network.CardanoPreprod)
+    assert(w.address == w2.address)
+  }
+
+  test("Wallets.cardano(hex, network): derives addr1 on Mainnet") {
+    val w = Wallets.cardano(testPrivKeyHex, Network.CardanoMainnet)
+    assert(w.address.startsWith("addr1"),
+      s"Mainnet address should start with addr1, got ${w.address}")
+  }
+
+  test("Wallets.cardano(hex, network): Preview network → addr_test1 (testnet header)") {
+    val w = Wallets.cardano(testPrivKeyHex, Network.CardanoPreview)
+    assert(w.address.startsWith("addr_test1"))
+  }
+
+  test("Wallets.cardano(hex, network) matches blockchain-cardano.CardanoAddress.fromPublicKey") {
+    import scalascript.blockchain.cardano.CardanoAddress
+    import scalascript.wallet.strategy.eoa.RawPrivateKeyVault
+    import scalascript.crypto.Curve
+    val w = Wallets.cardano(testPrivKeyHex, Network.CardanoMainnet)
+    val vault  = RawPrivateKeyVault.fromHex("vec", testPrivKeyHex, Curve.Ed25519)
+    val signer = Await.result(vault.getSigner(Curve.Ed25519, "raw"), 5.seconds)
+    val ref    = CardanoAddress.fromPublicKey(signer.publicKey, testnet = false)
+    assert(w.address == ref)
+  }
+
+  test("Wallets.cardano(hex, address, network) preserves explicit override") {
+    val custom = "addr_test1custom"
+    val w      = Wallets.cardano(testPrivKeyHex, custom, Network.CardanoPreprod)
+    assert(w.address == custom)
+  }
+
   test("EVM wallet rejects CIP-8 signing; Cardano wallet rejects EIP-712 signing") {
     val evm     = Wallets.privateKey("0x" + "ab" * 32, Network.Base)
     val cardano = Wallets.cardano(testPrivKeyHex, testAddress, Network.CardanoPreprod)

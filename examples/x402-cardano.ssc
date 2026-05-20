@@ -13,14 +13,14 @@ End-to-end Cardano payment flow over HTTP 402:
   `CardanoFacilitator` with a Blockfrost backend — it CIP-8-verifies the
   client's COSE_Sign1 and checks the payer's ADA balance.
 - **Client**: `Wallets.cardano(...)` is a thin Ed25519 wallet that signs
-  the request description per CIP-8. On a 402, the `X402Client`
-  interceptor signs, adds `X-Payment`, and retries.
+  the request description per CIP-8. The enterprise bech32 address is
+  derived from the key via CIP-19 (`header || Blake2b-224(pubkey)`); pass
+  an explicit address only when you need a base/stake-augmented form.
+  On a 402, the `X402Client` interceptor signs, adds `X-Payment`, and
+  retries.
 
-Cardano addresses (CIP-19, bech32) are supplied as parameters — derivation
-from a key is left to existing tooling (cardano-cli, browser dApp
-connectors). For local testing on Preprod, generate a key + address
-externally and export them via `CARDANO_KEY`, `CARDANO_ADDR`, and
-`CARDANO_PAY_TO`.
+For local testing on Preprod, generate a key externally and export it via
+`CARDANO_KEY`. The receiver address is set via `CARDANO_PAY_TO`.
 
 ## Server
 
@@ -85,10 +85,11 @@ import scala.concurrent.ExecutionContext.Implicits.global
 val serverUrl  = sys.env.getOrElse("X402_SERVER_URL", "http://localhost:8080")
 val keyHex     = sys.env.getOrElse("CARDANO_KEY",
   throw RuntimeException("Set CARDANO_KEY (32-byte Ed25519 hex)"))
-val payerAddr  = sys.env.getOrElse("CARDANO_ADDR",
-  throw RuntimeException("Set CARDANO_ADDR (your bech32 payer address)"))
 
-val wallet = Wallets.cardano(keyHex, payerAddr, Network.CardanoPreprod)
+// Address derived from the key (CIP-19 enterprise form). Pass an explicit
+// address as a 3rd arg if you need a base/stake-augmented form.
+val wallet = Wallets.cardano(keyHex, Network.CardanoPreprod)
+println(s"Cardano address: ${wallet.address}")
 
 import sttp.client4.*
 val http    = DefaultSyncBackend()
@@ -116,10 +117,10 @@ println(s"Body:   ${premium.body}")
 # 1. Get a Preprod Blockfrost project ID: https://blockfrost.io
 export BLOCKFROST_KEY=preprodXXXXXXXXXXXXXXXXXXXXXX
 
-# 2. Generate a Cardano Preprod key + address (e.g. via cardano-cli)
-export CARDANO_KEY=$(cardano-cli address key-gen ... | xxd -p)
-export CARDANO_ADDR=$(cardano-cli address build ... )
-export CARDANO_PAY_TO=$CARDANO_ADDR   # or any receiver
+# 2. Generate a Cardano Preprod Ed25519 key (32 bytes hex). The enterprise
+#    bech32 address is derived automatically from the key.
+export CARDANO_KEY=$(openssl rand -hex 32)
+export CARDANO_PAY_TO=addr_test1...   # your receiver bech32 address
 
 # 3. Fund the payer via the Preprod faucet:
 # https://docs.cardano.org/cardano-testnet/tools/faucet
@@ -131,7 +132,9 @@ ssc x402-cardano.ssc             # the same script, client side
 
 ## What's left as future work
 
-- **Address derivation from key** — currently the caller supplies the
-  bech32 payer address; a real wallet derives it via CIP-19.
+- **Base addresses with staking** — the wallet derives enterprise
+  addresses (CIP-19 type 6/7). Stake-aware base addresses require a
+  separate stake key and aren't auto-derived; pass them explicitly via
+  `Wallets.cardano(hex, address, network)`.
 - **Scalus settlement** — `CardanoProvider.Scalus` is stubbed pending
   server-side Tx building (see `MILESTONES.md` x402 Phase 6).

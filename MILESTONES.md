@@ -7703,7 +7703,12 @@ declares `signCip8`; EVM and Cardano wallets reject the wrong shape.
       BouncyCastle Ed25519; signer / payload shape / dual-wallet reject
 - [x] `CardanoFacilitatorTest` mocks updated for `getUtxos`/`submitTx`
       (pre-existing breakage from blockchain-cardano Phase 6)
-- [ ] CIP-19 address derivation from key (deferred — wallet-spi work)
+- [x] CIP-19 enterprise address derivation from key (2026-05-20) —
+      `Wallets.cardano(hex, network)` now derives `addr1` / `addr_test1`
+      via `blockchain-cardano.CardanoAddress.fromPublicKey`; the
+      `(hex, address, network)` form remains for stake-aware base
+      addresses; example dropped its `CARDANO_ADDR` env var
+- [ ] Base addresses with staking (deferred — caller-supplied only)
 - [ ] `CardanoProvider.Scalus` settlement (deferred — Phase 6 stub)
 
 ---

@@ -9,6 +9,7 @@ import ujson.*
 
 import scalascript.blockchain.spi.{ChainId, TypedData}
 import scalascript.blockchain.evm.EvmChainAdapter
+import scalascript.blockchain.cardano.CardanoAddress
 import scalascript.crypto.{Curve, HashAlgo}
 import scalascript.wallet.spi.RawSigner
 import scalascript.wallet.strategy.eoa.{EoaStrategy, RawPrivateKeyVault}
@@ -123,9 +124,10 @@ private object PrivateKeyWallet:
 // ── Cardano private-key wallet (CIP-8 / Ed25519) ──────────────────────────────
 //
 // Signs CIP-8 (COSE_Sign1) authorizations for x402 Cardano payments. The
-// caller supplies the bech32 payment address — CIP-19 address derivation
-// from a key is out of scope for this thin client shim; real wallets
-// (cardano-cli, browser dApp connectors) derive it themselves.
+// payer address is either derived from the key via CIP-19 (enterprise
+// address) by `Wallets.cardano(hex, network)`, or supplied explicitly
+// via `Wallets.cardano(hex, address, network)` when callers need a
+// base/stake-augmented address instead of the bare enterprise form.
 
 private class CardanoPrivateKeyWallet(
   privateKeyHex: String,
@@ -170,15 +172,35 @@ object Wallets:
     new PrivateKeyWallet(hex, network)
 
   /** Cardano CIP-8 wallet backed by a raw Ed25519 private key.
-   *  The bech32 payment address must be supplied by the caller (CIP-19
-   *  derivation lives outside this module). */
+   *  The bech32 payment address is derived from the key via CIP-19
+   *  (enterprise address: `header || Blake2b-224(pubkey)`). */
+  def cardano(hex: String, network: Network)(using ExecutionContext): Wallet =
+    new CardanoPrivateKeyWallet(hex, deriveCardanoAddress(hex, network), network)
+
+  /** Cardano CIP-8 wallet with an explicit address (use when supplying a
+   *  base / stake-augmented address that's not just the enterprise form). */
   def cardano(hex: String, address: String, network: Network)(using ExecutionContext): Wallet =
     new CardanoPrivateKeyWallet(hex, address, network)
 
-  /** Env-var convenience: reads the hex private key from `envVar`. */
+  /** Env-var convenience: reads the hex private key from `envVar` and
+   *  derives the enterprise bech32 address from it. */
+  def cardanoEnvKey(envVar: String, network: Network)(using ExecutionContext): Wallet =
+    val hex = sys.env.getOrElse(envVar, throw RuntimeException(s"Env var $envVar not set"))
+    new CardanoPrivateKeyWallet(hex, deriveCardanoAddress(hex, network), network)
+
+  /** Env-var convenience with an explicit address override. */
   def cardanoEnvKey(envVar: String, address: String, network: Network)(using ExecutionContext): Wallet =
     val hex = sys.env.getOrElse(envVar, throw RuntimeException(s"Env var $envVar not set"))
     new CardanoPrivateKeyWallet(hex, address, network)
+
+  /** Derive a CIP-19 enterprise bech32 address from a raw Ed25519 private
+   *  key. Network selects mainnet (`addr1...`) vs testnet (`addr_test1...`). */
+  private def deriveCardanoAddress(hex: String, network: Network)(using ExecutionContext): String =
+    require(network.isCardano, s"deriveCardanoAddress requires a Cardano network, got $network")
+    val vault   = RawPrivateKeyVault.fromHex("x402-cardano-addr-derive", hex, Curve.Ed25519)
+    val signer  = Await.result(vault.getSigner(Curve.Ed25519, "raw"), Duration.Inf)
+    val testnet = network != Network.CardanoMainnet
+    CardanoAddress.fromPublicKey(signer.publicKey, testnet = testnet)
 
 // ── Payment payload builder ───────────────────────────────────────────────────
 

@@ -696,7 +696,7 @@ lazy val x402Server = project
 
 lazy val x402Client = project
   .in(file("x402-client"))
-  .dependsOn(x402Core, walletStrategyEoa, blockchainEvm, cryptoBouncycastle)
+  .dependsOn(x402Core, walletStrategyEoa, blockchainEvm, blockchainCardano, cryptoBouncycastle)
   .settings(
     name := "scalascript-x402-client",
     libraryDependencies ++= Seq(
