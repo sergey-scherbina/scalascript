@@ -619,6 +619,30 @@ lazy val backendSqlRuntime = project
     Test    / scalacOptions ++= sharedScalacOptions,
   )
 
+// v1.27 — browser-side sql runtime.  Spec: docs/browser-sql.md.
+//
+// Companion to `backendSqlRuntime` for the JS-family backends.
+// Mostly a packaging vehicle for the hand-written `sql-runtime.mjs`
+// (lives in `src/main/resources`), plus a thin Scala layer:
+//   * `ProviderId.fromUrl` — URL prefix → provider id, used by
+//     backend-js/node/wasm to decide which npm deps to emit
+//   * `SqlRuntimeJsEmit` — codegen helper that exposes the bundled
+//     `.mjs` source as a String for JsGen to prepend to its output
+//
+// No backend SPI / ir dependency — same standalone shape as
+// `backendSqlRuntime` so backend-js, backend-node, backend-wasm can
+// all dependsOn without dragging the compiler frontend.
+lazy val backendSqlRuntimeJs = project
+  .in(file("backend-sql-runtime-js"))
+  .settings(
+    name := "scalascript-backend-sql-runtime-js",
+    libraryDependencies ++= Seq(
+      scalatestTest,
+    ),
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions,
+  )
+
 lazy val clientRedis = project
   .in(file("client-redis"))
   .settings(
@@ -1206,7 +1230,7 @@ lazy val root = project
     runtimeServerJvmJetty, runtimeServerJvmNetty, mcpCommon,
     backendJvm, backendJs, backendNode, backendScalajs, backendWasm, backendInterpreter,
     backendScalaSource, backendHtml, backendCss, backendSpark,
-    cli, clientPostgres, clientRedis, clientEvm, clientKafka, clientCoinbase, backendSqlRuntime,
+    cli, clientPostgres, clientRedis, clientEvm, clientKafka, clientCoinbase, backendSqlRuntime, backendSqlRuntimeJs,
     clientBlockfrost,
     x402Core, x402Server, x402Client,
     x402FacilitatorCoinbase, x402FacilitatorEvm, x402FacilitatorCardano,

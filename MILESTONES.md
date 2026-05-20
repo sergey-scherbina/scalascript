@@ -7509,17 +7509,38 @@ today).
       questions.
 - [x] `MILESTONES.md` v1.27 entry (this section).
 
-### Phase 2 — `backend-sql-runtime-js` module
+### Phase 2 — `backend-sql-runtime-js` module ✓ Landed
 
-- [ ] New sbt module `backendSqlRuntimeJs`; `sql-runtime.mjs` shared
+- [x] New sbt module `backendSqlRuntimeJs`; `sql-runtime.mjs` shared
       facade (Connection / Row / Registry / execute), provider
       dispatch (`Providers.fromUrl`).
-- [ ] `SqlJsProvider` (sql.js wiring) + `DuckDbWasmProvider`
-      (worker-based duckdb-wasm wiring).
-- [ ] `SqlRuntimeJsEmit` — codegen helper for the bundle preamble
-      JsGen/NodeBackend/WasmBackend share.
-- [ ] Tests via `node --test`: 10 sql.js cases + 6 DuckDB cases + 2
-      dispatch cases.
+- [x] `SqlJsProvider` (sql.js wiring) + `DuckDbWasmProvider`
+      (DuckDB-Wasm wiring).  Node uses `web-worker` (declared in
+      the emitted `package.json`) over `node:worker_threads`; browser
+      uses the JsDelivr default bundle.
+- [x] `SqlRuntimeJsEmit` — codegen helper that loads the bundled
+      `.mjs` source from the classpath and emits the bundle preamble
+      (`ConnectionRegistry` init + `_ssc_sql_resolve(dbName)`
+      override-or-registry dispatcher).  Shared across JsGen,
+      NodeBackend, WasmBackend.
+- [x] `ProviderId.fromUrl` — Scala-side mirror of the JS dispatch
+      table; used by future Phase 4/5 backends to decide which npm
+      deps to emit.
+- [x] Tests:
+      * 12 dispatch + enum-surface cases (`ProviderIdTest`).
+      * 13 emit cases (`SqlRuntimeJsEmitTest`): resource load,
+        registry-init JS shape for empty / single / full / multi
+        entries, `${env:NAME}` preservation, jsString escapes, full
+        preamble composition.
+      * 16 Node `--test` cases under one Scala wrapper
+        (`SqlRuntimeJsNodeTest`): sql.js (10 — CRUD, multi-row
+        order, null binds, BLOB, boolean, Date, UPDATE count, PRAGMA,
+        Row API, registry cache+reopen) + DuckDB-Wasm (6 — CRUD,
+        GROUP BY, CTE/window, null binds, Row toMap, registry).
+        Materialises into `target/sql-js-node-test/`, runs
+        `npm install` once (mtime-stamped), then
+        `node --test --test-force-exit *.test.mjs`.  Gracefully
+        skips when `node` / `npm` aren't on PATH.
 
 ### Phase 3 — JsGen codegen for sql blocks
 

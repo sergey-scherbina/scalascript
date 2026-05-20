@@ -1,0 +1,11 @@
+{
+  "name": "scalascript-backend-sql-runtime-js-test",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "sql.js": "^1.10.3",
+    "@duckdb/duckdb-wasm": "^1.28.0",
+    "web-worker": "^1.5.0"
+  }
+}
