@@ -8689,14 +8689,98 @@ strategy module needs it (Stage 3 or 4).
       `blockchain-evm` itself crosses (Fetch RPC + RLP / EIP-1559
       codec on JS).
 
-### Stage 5 — `wallet-vault-encrypted` cross-compile
+### Stage 5 — `wallet-vault-encrypted` cross-compile ✓ Landed (2026-05-20)
 
-- [ ] Shared encrypted-payload types in `shared/`.
-- [ ] JS side: SubtleCrypto adapter (`crypto.subtle` for AES-GCM +
-      PBKDF2; Argon2id via `@noble/hashes` Argon2 wrapper or
-      argon2-browser).
-- [ ] JVM side unchanged (`wallet-vault-encrypted-jvm` keeps
-      using JCE).
+Stage 5a — light up the deferred KDF + AEAD primitives in
+`crypto-noble-js`:
+
+- [x] `pbkdf2` via `@noble/hashes/pbkdf2.pbkdf2(hashFn, password,
+      salt, { c, dkLen })` — synchronous, SHA-256 / SHA-512.
+      Bit-identical to BouncyCastle `PBKDF2WithHmacSHA{256,512}`.
+- [x] `argon2id` via `@noble/hashes/argon2.argon2id(password, salt,
+      { t, m, p, dkLen })` — synchronous, RFC 9106 v0x13.
+      Bit-identical to BouncyCastle `Argon2BytesGenerator`.
+- [x] `aesGcmEncrypt` / `aesGcmDecrypt` via
+      `@noble/ciphers/aes.gcm(key, iv, aad?).encrypt / decrypt` —
+      synchronous, byte-identical to BouncyCastle GCM.  Chosen over
+      WebCrypto SubtleCrypto because the `CryptoBackend` SPI is sync
+      and `crypto.subtle.encrypt` returns a Promise (see
+      docs/wallet-spi-scalajs.md §5 Stage 5a for the rationale).
+- [x] npm deps: pinned `@noble/ciphers ^1.2.1` next to the existing
+      `@noble/curves` + `@noble/hashes` in `crypto-noble-js/package.json`.
+- [x] Cross-platform fixtures — 9 new shared hex assertions mirrored
+      across `crypto-bouncycastle/.../CrossPlatformFixturesTest`
+      (16 total, was 7) and `crypto-noble-js/.../NobleCryptoBackendTest`
+      (25 total, was 16).  Vectors cover Argon2id at two work factors,
+      PBKDF2-SHA256 / SHA-512 at multiple iteration counts, AES-GCM
+      encrypt with empty + non-empty AAD, 16 KiB plaintext round-trip,
+      and tamper rejection.
+
+Stage 5b — cross-compile `wallet-vault-encrypted`:
+
+- [x] `shared/src/main/scala/scalascript/wallet/vault/encrypted/`:
+  - `Bip39.scala` + `Bip39Wordlist.scala` (embedded 2048-word
+    English wordlist as a Scala const; old `bip39-english.txt`
+    resource removed — Scala.js has no classpath).
+  - `VaultFile.scala` — data + JSON codec (`toJson` / `fromJson`).
+  - `EncryptedLocalVault.scala` — vault core parameterised over a
+    `save: VaultFile => Unit` sink.  All crypto goes through
+    `CryptoBackend.get()`.
+- [x] `jvm/src/main/scala/.../VaultFileIo.scala` — JVM-only
+      `java.nio.file.Path` read / write.
+- [x] `jvm/src/main/scala/.../EncryptedLocalVaultFs.scala` —
+      JVM-only `Path`-based `create` / `load` / `generate` that
+      wraps the shared core with file I/O.  Preserves the
+      pre-Stage-5 JVM API surface — every downstream caller that
+      `dependsOn(walletVaultEncrypted)` keeps compiling unchanged
+      (mcp-wallet, x402-client, wallet-vault-ledger-*, etc.).
+- [x] `java.util.UUID.randomUUID()` replaced with a Scala.js-
+      compatible 16-byte secure-random + RFC 4122 v4 bit-twiddling
+      helper (the JVM `UUID.randomUUID` reaches into
+      `java.security.SecureRandom`, not shimmed on Scala.js).
+- [x] Build: `walletVaultEncryptedCross = crossProject(...)` with
+      `.jvmConfigure(_.withId("walletVaultEncrypted"))` preserving
+      the pre-Stage-5 project id; `walletVaultEncryptedJs` is the
+      JS-side artefact.  JS test scope depends on `cryptoNobleJs`
+      for the noble backend; module kind = CommonJS so the noble
+      `require()` exports link.
+
+Stage 5c — cross-platform parity tests:
+
+- [x] `shared/src/test/scala/.../Bip39TestBase.scala` — 14 specs
+      (wordlist sanity + entropy↔mnemonic + checksum + Trezor seed
+      vector).  JVM concrete class uses `ServiceLoader`-registered
+      BouncyCastle; JS concrete class registers noble in `beforeAll`.
+- [x] `shared/src/test/scala/.../VaultCrossPlatformTestBase.scala`
+      — synchronous 2-test fixture: Trezor BIP-39 seed vector +
+      fixed Argon2id+AES-GCM ciphertext that asserts byte-identical
+      output across JVM + JS.  Async sibling (1 test) does the
+      full create → JSON round-trip → reopen → unlock flow.
+- [x] `jvm/src/test/scala/.../EncryptedLocalVaultTest.scala` — 13
+      file-I/O-driven tests against `EncryptedLocalVaultFs`;
+      same coverage as pre-Stage-5.
+
+Test count parity:
+
+- [x] `walletVaultEncrypted` (JVM): pre 26 (13 + 13) → post 30 — the
+      original 26 preserved bit-for-bit; +1 wordlist sanity, +2
+      cross-platform vector, +1 async vault round-trip.
+- [x] `walletVaultEncryptedJs`: 17 tests (14 Bip39 + 2 vector + 1
+      async).
+- [x] `cryptoNobleJs`: pre 16 → post 25 (9 new KDF + AEAD vectors).
+- [x] `cryptoBouncycastle`: pre 7 fixture tests → post 16 (9 new,
+      mirroring the JS side byte-for-byte).
+- [x] `sbt compile` at root: green; no downstream module breakage.
+
+Deferred / follow-ups:
+
+- [ ] **JS-side persistence layer** — `EncryptedLocalVault` takes a
+      pluggable `save: VaultFile => Unit` sink; on JVM it's wired to
+      `java.nio.file` by `EncryptedLocalVaultFs`.  A future
+      `wallet-vault-encrypted-js` helper will wire it to
+      `window.indexedDB` (or `localStorage` for small vaults).  The
+      shared core lights up unchanged; this slice doesn't need it
+      because every Stage 5 test exercises in-memory serialisation.
 
 ### Stage 6 — `wallet-connect` cross-compile
 
@@ -8734,15 +8818,21 @@ Landed in tandem with blockchain-spi Phase 1.
       (fake addresses like `"0xpayTo"` replaced with valid 20-byte
       hex since real ABI encoding rejects malformed input).
 
-### Phase 2 — Encrypted Vault ✓ Landed JVM (2026-05-20)
+### Phase 2 — Encrypted Vault ✓ Landed JVM + Scala.js core (2026-05-20)
 
-- [x] `wallet-vault-encrypted` — interface (JVM; cross-compile follows
-      blockchain-spi JS phase)
+- [x] `wallet-vault-encrypted` — cross-compiled (JVM + Scala.js) as
+      of 2026-05-20; see "Wallet SPI — Scala.js cross-compile / Stage 5"
+      further up.
 - [x] BIP-39 mnemonic generation / restore (24-word default)
 - [x] Argon2id → AES-GCM(seed) password unlock
-- [x] `wallet-vault-encrypted-jvm` — filesystem (`VaultFile`)
-- [ ] `wallet-vault-encrypted-js` — IndexedDB (deferred until Scala.js
-      cross-compile of `wallet-spi` lands)
+- [x] `wallet-vault-encrypted-jvm` — filesystem (`VaultFile` /
+      `EncryptedLocalVaultFs`) — `java.nio.file.Path`-based read /
+      write.
+- [ ] `wallet-vault-encrypted-js` — IndexedDB persistence helper
+      (the shared `EncryptedLocalVault.create` takes a pluggable
+      `save: VaultFile => Unit` sink — the JS-side
+      `window.indexedDB` wrapper is the only deferred sub-item of
+      Stage 5).
 
 ### Phase 3 — DappConnector EIP-1193 ✓ Scaffold landed (2026-05-20)
 

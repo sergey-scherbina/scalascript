@@ -513,11 +513,119 @@ resolve).
 
 ### Stage 5 — `wallet-vault-encrypted` cross-compile
 
-- Move shared encrypted-payload types into `shared/`.
-- JS side: SubtleCrypto adapter (`crypto.subtle.encrypt` /
-  `decrypt` with AES-GCM, `crypto.subtle.deriveKey` with PBKDF2,
-  noble argon2id for the password-stretching step).
-- Existing `wallet-vault-encrypted-jvm` continues to work.
+Status: **landed 2026-05-20** (except IndexedDB persistence, deferred).
+
+Stage 5 does two things in one slice: it lights up the deferred KDF
++ AEAD primitives in the Stage-2 noble backend, and cross-compiles the
+encrypted vault on top of them.  The result is a shared, platform-
+neutral `EncryptedLocalVault` that runs identically on JVM + JS, plus
+a JVM-only `EncryptedLocalVaultFs` wrapper that keeps the original
+`Path`-based API used by every downstream JVM caller.
+
+#### Stage 5a — light up `NobleCryptoBackend`
+
+- **PBKDF2** — `@noble/hashes/pbkdf2.pbkdf2(hashFn, password, salt,
+  { c, dkLen })`.  Synchronous; SHA-256 and SHA-512 hash functions
+  supported.  Bit-identical to BouncyCastle's
+  `PBKDF2WithHmacSHA{256,512}` on the same input.
+- **Argon2id** — `@noble/hashes/argon2.argon2id(password, salt,
+  { t, m, p, dkLen })`.  Synchronous; RFC 9106 version 0x13.
+  Bit-identical to BouncyCastle's `Argon2BytesGenerator`.  Pinned via
+  `@noble/hashes ^1.8.0`.
+- **AES-GCM** — `@noble/ciphers/aes.gcm(key, iv, aad?).encrypt /
+  .decrypt`.  Synchronous.  Pinned via `@noble/ciphers ^1.2.1`.
+  **Chosen over WebCrypto SubtleCrypto on purpose**: the `CryptoBackend`
+  SPI exposes synchronous `aesGcmEncrypt` / `aesGcmDecrypt`; SubtleCrypto's
+  `crypto.subtle.encrypt` returns a Promise, which can't be awaited
+  inside the sync SPI on either browser or Node.  Routing through
+  noble keeps the API contract while still matching JVM ciphertext
+  bit-for-bit (verified by the Stage 5 cross-platform fixtures —
+  9 shared hex assertions across
+  `crypto-bouncycastle/.../CrossPlatformFixturesTest` and
+  `crypto-noble-js/.../NobleCryptoBackendTest`).
+
+#### Stage 5b — cross-compile the vault
+
+- Sources moved from `wallet-vault-encrypted/src/main/scala/` to
+  `wallet-vault-encrypted/shared/src/main/scala/` for the platform-
+  neutral pieces:
+  - `Bip39.scala` — wordlist + entropy↔mnemonic + checksum +
+    `Mnemonic.toSeed` (PBKDF2-HMAC-SHA512 via `CryptoBackend`).
+  - `Bip39Wordlist.scala` — **embedded** 2048-word English BIP-39
+    wordlist as a Scala const.  The original
+    `src/main/resources/bip39-english.txt` is removed; the embedded
+    list is asserted equal in the shared test
+    (`wordlist embedded const has 2048 entries, first 'abandon', last 'zoo'`).
+    This kills the only classpath-resource lookup in the module —
+    Scala.js has no classpath, so the resource lookup would have
+    crashed.
+  - `VaultFile.scala` — pure data + JSON codec (`toJson` / `fromJson`).
+  - `EncryptedLocalVault.scala` — the vault core, parameterised over
+    a pluggable `save: VaultFile => Unit` sink.  All crypto routes
+    through `CryptoBackend.get()`, so the same code path encrypts /
+    decrypts the seed on JVM (BouncyCastle) and JS (noble) with
+    byte-identical output.
+- JVM-only pieces moved to `wallet-vault-encrypted/jvm/src/main/scala/`:
+  - `VaultFileIo.{read,write}` — `java.nio.file.Path`-based file I/O.
+  - `EncryptedLocalVaultFs.{create,load,generate}` — thin wrapper that
+    handles `Files.createDirectories(...)` and passes a `Path`-saving
+    `save` callback through to the shared `EncryptedLocalVault.create`.
+    Preserves the pre-Stage-5 JVM-side API surface; downstream callers
+    that `dependsOn(walletVaultEncrypted)` keep compiling unchanged.
+- Tests:
+  - `shared/src/test/scala/.../Bip39TestBase.scala` — 14 tests
+    (wordlist sanity + entropy↔mnemonic + checksum + PBKDF2-HMAC-SHA512
+    + Trezor seed vector).  Per-platform subclass
+    (`jvm/src/test/.../Bip39Test.scala` / `js/src/test/.../Bip39Test.scala`)
+    registers BouncyCastle (auto via `ServiceLoader`) / noble
+    (explicit `CryptoBackend.register(...)` in `beforeAll`).
+  - `shared/src/test/scala/.../VaultCrossPlatformTestBase.scala` —
+    synchronous `AnyFunSuite` with 2 cross-platform vectors (Trezor
+    BIP-39 seed + fixed Argon2id+AES-GCM ciphertext, byte-identical
+    across JVM + JS).  Async sibling `VaultCrossPlatformAsyncTestBase`
+    (1 test) exercises the full create → JSON round-trip → reopen →
+    unlock flow.
+  - `jvm/src/test/scala/.../EncryptedLocalVaultTest.scala` — 13
+    file-I/O-driven tests against `EncryptedLocalVaultFs`.  Same
+    coverage as pre-Stage 5; only difference is the entry point name
+    (`EncryptedLocalVault.create(path, ...)` → `EncryptedLocalVaultFs.create(path, ...)`).
+- Build wiring: `walletVaultEncryptedCross = crossProject(...)` with
+  `.jvmConfigure(_.withId("walletVaultEncrypted"))` keeping the
+  pre-Stage-5 sbt project id so downstream `dependsOn(walletVaultEncrypted)`
+  keeps resolving to the JVM artefact; `walletVaultEncryptedJs` is the
+  Scala.js side.  JS test scope pulls in `cryptoNobleJs % Test` for
+  the noble backend; module kind is CommonJS so noble's `require()`-
+  style exports link.
+
+#### Stage 5 — JVM test count parity
+
+- Pre-Stage-5 JVM tests in `walletVaultEncrypted`: **26**
+  (`Bip39Test` 13 + `EncryptedLocalVaultTest` 13).
+- Post-Stage-5: **30** — the 13 + 13 are preserved bit-for-bit
+  (renamed-API-only changes in `EncryptedLocalVaultTest`); the four
+  new tests are: 1 wordlist sanity (in the shared `Bip39TestBase`),
+  2 cross-platform vectors (`VaultCrossPlatformTest`), 1 async vault
+  round-trip (`VaultCrossPlatformAsyncTest`).
+- JS-side: **17** tests in `walletVaultEncryptedJs` (14 mirrored
+  `Bip39Test`, 2 mirrored vector, 1 mirrored async round-trip).
+- `crypto-noble-js`: pre-Stage-5 **16** tests; post-Stage-5 **25**
+  (added 9 new KDF + AEAD parity assertions, mirrored byte-for-byte
+  in `cryptoBouncycastle`'s `CrossPlatformFixturesTest`).
+
+#### Stage 5 — deferred / follow-ups
+
+- **JS-side persistence layer**.  The shared vault code takes a
+  `save: VaultFile => Unit` callback; on JVM that callback writes
+  JSON to a `Path` via `EncryptedLocalVaultFs`.  On Scala.js the
+  callback is currently caller-supplied (the test suite uses an
+  in-memory `var saved: Option[VaultFile]`).  A future
+  `wallet-vault-encrypted-js` persistence helper will wire it to
+  `window.indexedDB` (or `localStorage` for small vaults).  The
+  shared core lights up unchanged once that lands; this slice
+  doesn't need it because every Stage 5 test exercises in-memory
+  serialisation only.
+
+### Stage 6 — `wallet-connect` cross-compile
 
 ### Stage 6 — `wallet-connect` cross-compile
 
@@ -602,10 +710,18 @@ require it because Stage 1 doesn't introduce a JS impl yet.
    sbt-crossproject docs; verify with a worked Stage 2 / Stage 3
    example.
 
-5. **WebCrypto Argon2id fallback.** WebCrypto exposes PBKDF2 but
+5. **WebCrypto Argon2id fallback.** ~~WebCrypto exposes PBKDF2 but
    not Argon2id. For Stage 5 we either ship a JS Argon2id impl
    (~30 KB via `@noble/hashes` Argon2 wrapper, or `argon2-browser`)
-   or fall back to PBKDF2 on JS only. Decide before Stage 5 starts.
+   or fall back to PBKDF2 on JS only.~~  **Resolved (Stage 5,
+   2026-05-20)** — picked `@noble/hashes/argon2.argon2id`
+   (synchronous, RFC 9106 v0x13, bit-identical to BouncyCastle's
+   `Argon2BytesGenerator`).  Bundle cost is the
+   `@noble/hashes/argon2` module only; the rest of `@noble/hashes`
+   is already pulled in by Stage 2.  AES-GCM also went through
+   `@noble/ciphers/aes.gcm` instead of SubtleCrypto, because the
+   `CryptoBackend` SPI is synchronous and SubtleCrypto returns a
+   Promise — see Stage 5a.
 
 ## 8. References
 

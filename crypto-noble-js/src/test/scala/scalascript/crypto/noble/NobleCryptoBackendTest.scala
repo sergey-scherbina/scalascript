@@ -153,6 +153,66 @@ class NobleCryptoBackendTest extends AnyFunSuite:
     assert(sig.length == 65)
     assert(backend.verify(Curve.P256, pub, msg, sig, HashAlgo.Sha256))
 
+  // ── Stage 5 — KDF + AEAD parity with JVM ────────────────────────────────
+  //
+  // These hex assertions MUST match the JVM-side
+  // crypto-bouncycastle/CrossPlatformFixturesTest byte-for-byte.
+
+  test("Argon2id RFC 9106 — password='password' salt='somesaltsomesalt' m=256 t=1 p=1 dk=32"):
+    val pw = "password".getBytes("UTF-8")
+    val sa = "somesaltsomesalt".getBytes("UTF-8")
+    assert(hex(backend.argon2id(pw, sa, 256, 1, 1, 32)) ==
+      "867efe4b384b1563792f6bf0e6da1d8834fcd2b0059d5998c25236e8f49fee93")
+
+  test("Argon2id — m=4096 t=2 p=1 dk=32"):
+    val pw = "password".getBytes("UTF-8")
+    val sa = "somesaltsomesalt".getBytes("UTF-8")
+    assert(hex(backend.argon2id(pw, sa, 4096, 2, 1, 32)) ==
+      "1f99999fc42c145c27b4f92d75b8c636da81f830c9fa78b1abde2e240668a889")
+
+  test("PBKDF2-SHA256 — password='password' salt='salt' c=1 dk=20"):
+    assert(hex(backend.pbkdf2("password".getBytes("UTF-8"), "salt".getBytes("UTF-8"), 1, 20, HashAlgo.Sha256)) ==
+      "120fb6cffcf8b32c43e7225256c4f837a86548c9")
+
+  test("PBKDF2-SHA256 — c=4096 dk=32"):
+    assert(hex(backend.pbkdf2("password".getBytes("UTF-8"), "salt".getBytes("UTF-8"), 4096, 32, HashAlgo.Sha256)) ==
+      "c5e478d59288c841aa530db6845c4c8d962893a001ce4e11a4963873aa98134a")
+
+  test("PBKDF2-SHA512 — c=2048 dk=64"):
+    assert(hex(backend.pbkdf2("password".getBytes("UTF-8"), "salt".getBytes("UTF-8"), 2048, 64, HashAlgo.Sha512)) ==
+      "91be23564f09fc855c82ce84a223ebe7d63d8b49d69372593a0d9ed39e143c83e1ab2f722a5ddb969feefc88403f7e2afe1afb8b2f0e6b20add0fb7b28368807")
+
+  test("AES-GCM encrypt — key=0..1f iv=0..0b plaintext='hello' aad=''"):
+    val key = (0 until 32).map(_.toByte).toArray
+    val iv  = (0 until 12).map(_.toByte).toArray
+    assert(hex(backend.aesGcmEncrypt(key, iv, "hello".getBytes("UTF-8"), Array.empty[Byte])) ==
+      "2f67ba77aa2797ff353b8a046d28236dcd9d057bbb")
+
+  test("AES-GCM encrypt — empty plaintext, aad='aad' produces 16-byte tag only"):
+    val key = (0 until 32).map(_.toByte).toArray
+    val iv  = (0 until 12).map(_.toByte).toArray
+    assert(hex(backend.aesGcmEncrypt(key, iv, Array.empty[Byte], "aad".getBytes("UTF-8"))) ==
+      "0a858bc1de4afc6369cd2cc4aef92349")
+
+  test("AES-GCM round-trip — large 16 KiB plaintext encrypts + decrypts"):
+    val key = (0 until 32).map(_.toByte).toArray
+    val iv  = (0 until 12).map(_.toByte).toArray
+    val big = new Array[Byte](16 * 1024)
+    var i = 0
+    while i < big.length do { big(i) = (i & 0xff).toByte; i += 1 }
+    val ct = backend.aesGcmEncrypt(key, iv, big, Array.empty[Byte])
+    assert(ct.length == 16 * 1024 + 16)
+    val pt = backend.aesGcmDecrypt(key, iv, ct, Array.empty[Byte])
+    assert(java.util.Arrays.equals(pt, big))
+
+  test("AES-GCM decrypt rejects ciphertext tampered in the auth tag"):
+    val key = (0 until 32).map(_.toByte).toArray
+    val iv  = (0 until 12).map(_.toByte).toArray
+    val ct  = backend.aesGcmEncrypt(key, iv, "hello".getBytes("UTF-8"), Array.empty[Byte])
+    ct(ct.length - 1) = (ct(ct.length - 1) ^ 0xff).toByte
+    val ex = intercept[Exception](backend.aesGcmDecrypt(key, iv, ct, Array.empty[Byte]))
+    assert(ex != null)
+
   // ── registry ────────────────────────────────────────────────────────────
 
   test("Register.install puts NobleCryptoBackend into the shared registry"):

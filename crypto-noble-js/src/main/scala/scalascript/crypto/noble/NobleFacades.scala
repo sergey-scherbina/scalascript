@@ -102,3 +102,69 @@ private[noble] object NobleFacades:
     info: Uint8Array,
     length: Int,
   ): Uint8Array = js.native
+
+  // ── PBKDF2 (@noble/hashes/pbkdf2) ───────────────────────────────────────
+
+  /** PBKDF2 options object — `c` is iteration count, `dkLen` is the
+   *  derived-key length in bytes.  See @noble/hashes/pbkdf2.d.ts. */
+  trait Pbkdf2Opts extends js.Object:
+    val c: Int
+    val dkLen: Int
+
+  object Pbkdf2Opts:
+    def apply(c: Int, dkLen: Int): Pbkdf2Opts =
+      js.Dynamic.literal(c = c, dkLen = dkLen).asInstanceOf[Pbkdf2Opts]
+
+  @JSImport("@noble/hashes/pbkdf2", "pbkdf2")
+  @js.native
+  def pbkdf2(
+    hash: CHash,
+    password: Uint8Array,
+    salt: Uint8Array,
+    opts: Pbkdf2Opts,
+  ): Uint8Array = js.native
+
+  // ── Argon2id (@noble/hashes/argon2 ≥ 1.8) ───────────────────────────────
+
+  /** Argon2 options.  `t` = iterations, `m` = memory cost in KiB,
+   *  `p` = parallelism lanes, `dkLen` = output bytes.  See
+   *  @noble/hashes/argon2.d.ts (RFC 9106). */
+  trait ArgonOpts extends js.Object:
+    val t: Int
+    val m: Int
+    val p: Int
+    val dkLen: Int
+
+  object ArgonOpts:
+    def apply(t: Int, m: Int, p: Int, dkLen: Int): ArgonOpts =
+      js.Dynamic.literal(t = t, m = m, p = p, dkLen = dkLen).asInstanceOf[ArgonOpts]
+
+  @JSImport("@noble/hashes/argon2", "argon2id")
+  @js.native
+  def argon2id(
+    password: Uint8Array,
+    salt: Uint8Array,
+    opts: ArgonOpts,
+  ): Uint8Array = js.native
+
+  // ── AES-GCM (@noble/ciphers/aes ≥ 1.x) ─────────────────────────────────
+
+  /** Synchronous AEAD cipher exposed by `@noble/ciphers/aes`.  Both
+   *  `encrypt` (plaintext → ciphertext||tag) and `decrypt`
+   *  (ciphertext||tag → plaintext) are sync; they throw on
+   *  authentication failure during decrypt. */
+  @js.native
+  trait NobleCipher extends js.Object:
+    def encrypt(plaintext: Uint8Array): Uint8Array  = js.native
+    def decrypt(ciphertext: Uint8Array): Uint8Array = js.native
+
+  /** AES-GCM constructor: `gcm(key, nonce, aad?) → Cipher`.  Returns a
+   *  fresh instance per call (do not reuse across encrypts).  Pinned
+   *  via `@noble/ciphers ^1.x` — see crypto-noble-js/package.json. */
+  @JSImport("@noble/ciphers/aes", "gcm")
+  @js.native
+  def gcm(
+    key: Uint8Array,
+    nonce: Uint8Array,
+    aad: js.UndefOr[Uint8Array],
+  ): NobleCipher = js.native

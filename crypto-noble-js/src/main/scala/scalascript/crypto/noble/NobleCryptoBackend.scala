@@ -1,5 +1,6 @@
 package scalascript.crypto.noble
 
+import scala.scalajs.js
 import scala.scalajs.js.typedarray.Uint8Array
 
 import scalascript.crypto.*
@@ -22,13 +23,19 @@ import scalascript.crypto.*
  *  - **`recoverPublic`** — secp256k1 only, returns 64-byte uncompressed
  *    public key (no `0x04` prefix). p256 raises (not implemented).
  *
+ *  Stage 5 (this slice) adds:
+ *
+ *  - **PBKDF2** via `@noble/hashes/pbkdf2` (sha256 / sha512).
+ *  - **Argon2id** via `@noble/hashes/argon2` (RFC 9106 v0x13).
+ *  - **AES-GCM encrypt / decrypt** via `@noble/ciphers/aes` (sync;
+ *    SubtleCrypto is async and would force the SPI to fork — see
+ *    `aesGcmEncrypt` comment + docs/wallet-spi-scalajs.md §5).
+ *
  *  Not yet implemented on JS (raise `UnsupportedOperationException`):
  *
  *  - **HD key derivation** (`deriveMaster` / `deriveChild`) — BIP-32 /
  *    SLIP-0010. Deferred to a later stage once the strategy modules
  *    that need it cross-compile.
- *  - **PBKDF2 / Argon2id** — Stage 5 (`wallet-vault-encrypted`).
- *  - **AES-GCM** — Stage 5 (will route through WebCrypto SubtleCrypto).
  *  - **Sr25519 / BLS12-381** — `supports` returns `false`.
  *
  *  Register the backend at app init: call
@@ -131,14 +138,25 @@ final class NobleCryptoBackend extends CryptoBackend:
   // ── KDF ─────────────────────────────────────────────────────────────────
 
   def pbkdf2(password: Array[Byte], salt: Array[Byte], iter: Int, len: Int, hash: HashAlgo): Array[Byte] =
-    throw new UnsupportedOperationException(
-      s"$id: PBKDF2 not yet implemented on Scala.js (Stage 5: wallet-vault-encrypted)."
-    )
+    // Synchronous PBKDF2 via @noble/hashes/pbkdf2 (v1.8+).  noble's
+    // pbkdf2(hashFn, password, salt, { c, dkLen }) signature matches
+    // RFC 2898 exactly; output bytes are bit-identical to BouncyCastle's
+    // PBKDF2WithHmacSHA{256,512} for the same (password, salt, c, dkLen).
+    val fn: NobleFacades.CHash = hash match
+      case HashAlgo.Sha256 => NobleFacades.sha256
+      case HashAlgo.Sha512 => NobleFacades.sha512
+      case other           => throw new IllegalArgumentException(s"PBKDF2 not supported with $other")
+    val opts = NobleFacades.Pbkdf2Opts(c = iter, dkLen = len)
+    u8ToBytes(NobleFacades.pbkdf2(fn, bytesToU8(password), bytesToU8(salt), opts))
 
   def argon2id(password: Array[Byte], salt: Array[Byte], memKiB: Int, iter: Int, parallelism: Int, len: Int): Array[Byte] =
-    throw new UnsupportedOperationException(
-      s"$id: Argon2id not yet implemented on Scala.js (Stage 5)."
-    )
+    // Synchronous Argon2id via @noble/hashes/argon2 (v1.8+, RFC 9106
+    // version 0x13).  noble defaults to v0x13 internally; opts map is
+    // { t: iterations, m: memory in KiB, p: parallelism, dkLen: output
+    // bytes }.  Output is byte-identical to BouncyCastle's
+    // Argon2BytesGenerator with the same params.
+    val opts = NobleFacades.ArgonOpts(t = iter, m = memKiB, p = parallelism, dkLen = len)
+    u8ToBytes(NobleFacades.argon2id(bytesToU8(password), bytesToU8(salt), opts))
 
   def hkdf(ikm: Array[Byte], salt: Array[Byte], info: Array[Byte], len: Int, hash: HashAlgo): Array[Byte] =
     val fn: NobleFacades.CHash = hash match
@@ -147,17 +165,33 @@ final class NobleCryptoBackend extends CryptoBackend:
       case other           => throw new IllegalArgumentException(s"HKDF not supported with $other")
     u8ToBytes(NobleFacades.hkdf(fn, bytesToU8(ikm), bytesToU8(salt), bytesToU8(info), len))
 
-  // ── AEAD (deferred) ─────────────────────────────────────────────────────
+  // ── AEAD ────────────────────────────────────────────────────────────────
+
+  // AES-GCM goes through @noble/ciphers (synchronous, pure-JS) rather
+  // than WebCrypto SubtleCrypto.  The CryptoBackend SPI exposes
+  // synchronous `aesGcmEncrypt` / `aesGcmDecrypt` (matching the JVM
+  // BouncyCastle backend's blocking AES-GCM); SubtleCrypto's
+  // `crypto.subtle.encrypt` is Promise-based and can't be awaited
+  // inside the sync SPI on either browser or Node.  Routing through
+  // noble keeps the API contract while still matching JVM ciphertext
+  // bit-for-bit (verified by the Stage 5 cross-platform fixtures).
+  // See docs/wallet-spi-scalajs.md §5 Stage 5 for the rationale.
 
   def aesGcmEncrypt(key: Array[Byte], iv: Array[Byte], plaintext: Array[Byte], aad: Array[Byte]): Array[Byte] =
-    throw new UnsupportedOperationException(
-      s"$id: AES-GCM not yet implemented on Scala.js (Stage 5: SubtleCrypto)."
+    val cipher = NobleFacades.gcm(
+      bytesToU8(key),
+      bytesToU8(iv),
+      if aad == null || aad.length == 0 then js.undefined else js.defined(bytesToU8(aad)),
     )
+    u8ToBytes(cipher.encrypt(bytesToU8(plaintext)))
 
   def aesGcmDecrypt(key: Array[Byte], iv: Array[Byte], ciphertext: Array[Byte], aad: Array[Byte]): Array[Byte] =
-    throw new UnsupportedOperationException(
-      s"$id: AES-GCM not yet implemented on Scala.js (Stage 5: SubtleCrypto)."
+    val cipher = NobleFacades.gcm(
+      bytesToU8(key),
+      bytesToU8(iv),
+      if aad == null || aad.length == 0 then js.undefined else js.defined(bytesToU8(aad)),
     )
+    u8ToBytes(cipher.decrypt(bytesToU8(ciphertext)))
 
   // ── RNG ─────────────────────────────────────────────────────────────────
 

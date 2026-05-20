@@ -4,6 +4,7 @@
   "description": "npm dependencies for the crypto-noble-js Scala.js module. The Scala.js test runner spawns Node.js from this module's target dir; Node walks up to here to find node_modules.",
   "version": "0.0.0",
   "dependencies": {
+    "@noble/ciphers": "^1.2.1",
     "@noble/curves": "^1.9.0",
     "@noble/hashes": "^1.8.0"
   }
