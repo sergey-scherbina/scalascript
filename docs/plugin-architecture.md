@@ -181,7 +181,7 @@ A `.ssc` script declares its plugin deps inline using a `pkg:` import:
 The import resolver:
 
 1. Looks the `<org>/<name>:<version>` triple up in the local registry
-   (`~/.scalascript/plugins/`) and the dep-cache
+   (`~/.scalascript/compiler/plugins/`) and the dep-cache
    (`~/.cache/scalascript/deps/`).
 2. If absent, downloads from configured endpoints (same
    `dep-sources` chain already used by `dep:` imports,

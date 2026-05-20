@@ -67,15 +67,14 @@ val InterpreterIntrinsics: Map[QualifiedName, IntrinsicImpl] =
     )
   ) ++ HttpIntrinsics      // Stage 5+/B — HTTP:     intrinsics/Http.scala
     ++ WsIntrinsics       // Stage 5+/D — WS:       intrinsics/Ws.scala
-    ++ AuthIntrinsics     // Stage 5+/D — Auth:     intrinsics/Auth.scala
+    // Auth / OAuth AS / OAuth Client now ship as std/auth-plugin + std/oauth-plugin
+    // (loaded via ServiceLoader from the test classpath or installed .sscpkg).
     ++ CoreIntrinsics     // Stage 5+/E — Core:     intrinsics/Core.scala
-    // JSON / Request / Frontend now ship as plugins under examples/plugins/
+    // JSON / Request / Frontend now ship as plugins under std/
     // (loaded via ServiceLoader from the test classpath or installed .sscpkg).
     ++ McpIntrinsics      // v1.17     — MCP:          intrinsics/Mcp.scala
-    ++ OAuthIntrinsics    // v1.17     — OAuth AS:     intrinsics/OAuth.scala
-    ++ OAuthClientIntrinsics // v1.17  — OAuth Client: intrinsics/OAuthClientIntrinsics.scala
-    ++ JdbcIntrinsics     // v1.26     — JDBC:         intrinsics/Jdbc.scala
-    ++ UiPrimitivesIntrinsics // v1.29 7a  — std/ui prims: intrinsics/UiPrimitives.scala
+    ++ JdbcIntrinsics     // v1.26     — JDBC:         intrinsics/Jdbc.scala (blocked on runSqlBlock refactor)
+    ++ UiPrimitivesIntrinsics // v1.29 7a  — std/ui prims: intrinsics/UiPrimitives.scala (blocked on interpreter-server extraction)
 
 /** Same shape as `Value.show` but works on the `Any` payload an
  *  intrinsic sees post-unwrap.  Critical: doubles render without the

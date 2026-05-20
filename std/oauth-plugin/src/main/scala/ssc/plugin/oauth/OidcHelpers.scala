@@ -1,16 +1,12 @@
-package scalascript.interpreter
+package ssc.plugin.oauth
 
 import scalascript.backend.spi.NativeContext
-import scalascript.interpreter.intrinsics.OidcHttp
+import scalascript.interpreter.{Value, InterpretError, Computation}
 import scalascript.oauth.*
 import scalascript.oidc.*
 import java.util.concurrent.ConcurrentHashMap
 import scala.collection.mutable
 
-/** v1.17.x — script-side helpers for the OIDC Identity Provider.
- *  Builds the `InstanceV("OidcServer", ...)` handle returned by
- *  `oidc.server(authServer)`, plus helpers to bridge handle ↔ JVM
- *  reference (same stable-id pattern as the OAuth registry). */
 object OidcIntrinsicHelpers:
 
   private val registry = ConcurrentHashMap[String, OidcServer]()
@@ -28,10 +24,6 @@ object OidcIntrinsicHelpers:
     fields("_id") = Value.StringV(id)
     fields("issuer") = Value.StringV(idp.as.config.issuer)
 
-    // idp.addUser(claims: Map) — populates the in-memory UserInfoStore.
-    // Accepts the same fields names as `UserClaims`:
-    //   subject (required), name, email, emailVerified, picture, locale,
-    //   preferredUsername, plus arbitrary `extra` claims.
     fields("addUser") = Value.NativeFnV("OidcServer.addUser", Computation.pureFn {
       case List(claimsV: Value) =>
         idp.userInfo.put(decodeUserClaims(claimsV))
@@ -39,7 +31,6 @@ object OidcIntrinsicHelpers:
       case _ => throw InterpretError("idp.addUser(claims)")
     })
 
-    // idp.userInfo(token: String) — server-side /userinfo lookup
     fields("userInfo") = Value.NativeFnV("OidcServer.userInfo", Computation.pureFn {
       case List(Value.StringV(token)) => idp.userInfoFor(token) match
         case UserInfoOutcome.Found(c)    =>
@@ -48,21 +39,18 @@ object OidcIntrinsicHelpers:
       case _ => throw InterpretError("idp.userInfo(token)")
     })
 
-    // idp.mintIdToken(subject, clientId, scopes): String — manual test helper
     fields("mintIdToken") = Value.NativeFnV("OidcServer.mintIdToken", Computation.pureFn {
       case List(Value.StringV(sub), Value.StringV(cid), scopesV) =>
         Value.StringV(idp.mintIdToken(sub, cid, OAuthIntrinsicHelpers.toStringSet(scopesV)))
       case _ => throw InterpretError("idp.mintIdToken(subject, clientId, scopes)")
     })
 
-    // idp.discovery(): Map (RFC OIDC discovery doc)
     fields("discovery") = Value.NativeFnV("OidcServer.discovery", Computation.pureFn {
       _ => OAuthIntrinsicHelpers.ujsonToValue(idp.discoveryJson())
     })
 
     Value.InstanceV("OidcServer", fields.toMap)
 
-  /** Install the full OIDC route set on the embedded WebServer. */
   def serveOidc(idpValue: Any, basePath: String, ctx: NativeContext): Unit =
     val idp = idpValue match
       case v: Value => resolveOidcServer(v).getOrElse(
@@ -70,7 +58,6 @@ object OidcIntrinsicHelpers:
       case _ => throw InterpretError("oidc.serve(idp[, basePath])")
     OidcHttp.installRoutes(idp, ctx, basePath)
 
-  /** Decode a `UserClaims` from a script-side Map/InstanceV. */
   private def decodeUserClaims(v: Value): UserClaims =
     val fields = v match
       case Value.MapV(m)         => m.iterator.collect { case (Value.StringV(k), vv) => k -> vv }.toMap

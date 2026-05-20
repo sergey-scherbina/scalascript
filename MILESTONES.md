@@ -45,7 +45,7 @@ What landed (Stages 1–9.1):
   stdio-json wire protocol with full spec at
   [`docs/backend-spi-protocol.md`](docs/backend-spi-protocol.md).
   `plugin.yaml` discovery from `$SCALASCRIPT_PLUGIN_PATH` and
-  `~/.scalascript/plugins/`.  Lazy spawn on first lookup; caches the
+  `~/.scalascript/compiler/plugins/`.  Lazy spawn on first lookup; caches the
   handle.
 - **CLI flags**:  `--list-backends`, `--list-source-languages`,
   `--describe-backend <id>`, `--plugin <jar>`,
@@ -303,7 +303,7 @@ Remaining UX/distribution work (not blocking the SPI mechanism):
 
   - **Package format** (`.sscpkg` archive with manifest + sources +
     optional pre-compiled IR) — mentioned in v0.7 as future.
-  - **Plugin resolver** — `--plugin <jar>` / `~/.scalascript/plugins/`
+  - **Plugin resolver** — `--plugin <jar>` / `~/.scalascript/compiler/plugins/`
     discovery already in §12.1 design; verify end-to-end.
   - **Registry** — `registry.scalascript.io` with semver + lock
     file (v0.7 future, deferred).

@@ -1,24 +1,10 @@
-package scalascript.interpreter.intrinsics
+package ssc.plugin.oauth
 
 import scalascript.backend.spi.NativeContext
 import scalascript.interpreter.{Computation, Value}
 import scalascript.oauth.*
 import scalascript.oidc.*
 
-/** v1.17.x — wire OIDC (OpenID Connect) routes into the interpreter's
- *  embedded WebServer.  Superset of `OAuthHttp.installRoutes`:
- *
- *    POST <base>/token                         — id_token-aware (OIDC)
- *    GET  <base>/userinfo                      — OIDC
- *    GET  <base>/.well-known/openid-configuration — OIDC
- *    POST <base>/introspect                    — OAuth (unchanged)
- *    POST <base>/revoke                        — OAuth (unchanged)
- *    POST <base>/register                      — OAuth (unchanged)
- *    GET  <base>/authorize                     — OAuth (unchanged)
- *    GET  <base>/.well-known/oauth-authorization-server — OAuth (unchanged)
- *
- *  Both discovery docs are served so OAuth-only clients can still find
- *  the AS via the RFC 8414 path while OIDC clients hit the OIDC path. */
 object OidcHttp:
 
   def installRoutes(
@@ -32,22 +18,17 @@ object OidcHttp:
     val as     = idp.as
     val prefix = basePath.stripSuffix("/")
 
-    // ─── OIDC-specific routes ────────────────────────────────────────
-    // /token: same path as OAuth but routes through OidcRoutes for id_token
     register(ctx, "POST", prefix + "/token", "oidc.http.token") { (body, headers, _) =>
       OidcRoutes.handleToken(idp, body, headers)
     }
     register(ctx, "GET", prefix + "/userinfo", "oidc.http.userinfo") { (body, headers, query) =>
       OidcRoutes.handleUserInfo(idp, body, headers, query)
     }
-    // OIDC also tolerates POST on /userinfo (spec §5.3)
     register(ctx, "POST", prefix + "/userinfo", "oidc.http.userinfo.post") { (body, headers, query) =>
       OidcRoutes.handleUserInfo(idp, body, headers, query)
     }
     register(ctx, "GET", prefix + "/.well-known/openid-configuration",
              "oidc.http.discovery") { (_, _, _) => OidcRoutes.handleDiscovery(idp) }
-
-    // ─── OAuth-side endpoints (delegated to OAuthRoutes) ─────────────
     register(ctx, "POST", prefix + "/introspect", "oauth.http.introspect") { (body, headers, _) =>
       OAuthRoutes.handleIntrospect(as, body, headers)
     }
@@ -66,8 +47,6 @@ object OidcHttp:
              "oauth.http.jwks") { (_, _, _) => OAuthRoutes.handleJwks(as) }
     register(ctx, "GET", prefix + "/passkey/challenge",
              "oauth.http.passkey-challenge") { (_, _, _) => OAuthRoutes.handlePasskeyChallenge(as) }
-
-  // ─── helpers ────────────────────────────────────────────────────────
 
   private def register(
     ctx:    NativeContext,

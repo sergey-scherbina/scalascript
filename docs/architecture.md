@@ -199,7 +199,7 @@ out-of-process wire protocol: [`docs/backend-spi-protocol.md`](backend-spi-proto
      the four bundled backends register, and how `--plugin <jar>`
      attaches a third-party JAR via `URLClassLoader`.
   2. **plugin.yaml** under `$SCALASCRIPT_PLUGIN_PATH` /
-     `~/.scalascript/plugins/` (or `--plugin-dir <dir>`) declares
+     `~/.scalascript/compiler/plugins/` (or `--plugin-dir <dir>`) declares
      subprocess plugins.  `SubprocessBackend` wraps each as a stdio
      speaker.
 
@@ -296,7 +296,7 @@ Two distribution shapes:
     place it on the bundled classpath).  Worked example:
     `examples/plugins/hello-backend/`.
   - **Subprocess.**  Any language that can read newline-delimited
-    JSON.  Drop a `plugin.yaml` under `~/.scalascript/plugins/`;
+    JSON.  Drop a `plugin.yaml` under `~/.scalascript/compiler/plugins/`;
     `SubprocessBackend` wraps the process and routes
     `Backend.compile` over stdio.  Worked example:
     `examples/plugins/canned-backend/`.

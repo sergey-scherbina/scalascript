@@ -4,7 +4,7 @@ import org.scalatest.funsuite.AnyFunSuite
 import org.scalatest.matchers.should.Matchers
 import scalascript.oauth.*
 import scalascript.interpreter.{Computation, Value}
-import scalascript.interpreter.intrinsics.OAuthHttp
+import ssc.plugin.oauth.OAuthHttp
 import scalascript.backend.spi.NativeContext
 
 /** v1.17.x — backend-interpreter adapter that wires `OAuthRoutes` pure

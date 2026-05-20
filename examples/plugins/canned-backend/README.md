@@ -23,8 +23,8 @@ scala-cli run plugin.scala
 
 ```bash
 # Drop a symlink (or copy) into the discovery path:
-mkdir -p ~/.scalascript/plugins
-ln -s "$(pwd)" ~/.scalascript/plugins/canned
+mkdir -p ~/.scalascript/compiler/plugins
+ln -s "$(pwd)" ~/.scalascript/compiler/plugins/canned
 
 # Then:
 ssc --list-backends
@@ -37,6 +37,6 @@ ssc --list-backends
 - The three core methods every plugin must implement (`describe`,
   `compile`, `shutdown`).
 - Canonical Response envelope (`id` + `result` or `error`).
-- A plugin.yaml manifest discoverable by `~/.scalascript/plugins/`.
+- A plugin.yaml manifest discoverable by `~/.scalascript/compiler/plugins/`.
 
 The wire shape is documented in `docs/backend-spi-protocol.md`.

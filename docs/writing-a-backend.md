@@ -171,5 +171,5 @@ If you want to write your backend in Rust, Go, Python — anything
 that can read newline-delimited JSON — implement the wire protocol
 from [`backend-spi-protocol.md`](backend-spi-protocol.md) and ship
 a `plugin.yaml`.  Discovery picks it up from
-`$SCALASCRIPT_PLUGIN_PATH` or `~/.scalascript/plugins/`.
+`$SCALASCRIPT_PLUGIN_PATH` or `~/.scalascript/compiler/plugins/`.
 `examples/plugins/canned-backend/` is a 50-line bash worked example.

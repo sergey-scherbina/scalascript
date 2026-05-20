@@ -105,7 +105,7 @@ object PluginManifest:
    *
    *    - `$ssc.lib.path/lib/plugins/` — install-local plugins (sibling of std/)
    *    - `$SCALASCRIPT_PLUGIN_PATH`   — colon-separated override list
-   *    - `~/.scalascript/plugins/`   — user-global plugins */
+   *    - `~/.scalascript/compiler/plugins/`   — user-global plugins */
   def defaultSearchPaths: List[os.Path] =
     val libPlugins = scalascript.imports.ImportResolver.libPath
       .map(_ / "lib" / "plugins")
@@ -113,7 +113,7 @@ object PluginManifest:
       .toList
     val envPath = sys.env.get("SCALASCRIPT_PLUGIN_PATH").getOrElse("")
     val envDirs = envPath.split(":").filter(_.nonEmpty).map(p => os.Path(p, os.pwd)).toList
-    val homePath = os.home / ".scalascript" / "plugins"
+    val homePath = os.home / ".scalascript" / "compiler" / "plugins"
     val homeDirs = if os.exists(homePath) then List(homePath) else Nil
     libPlugins ++ envDirs ++ homeDirs
 

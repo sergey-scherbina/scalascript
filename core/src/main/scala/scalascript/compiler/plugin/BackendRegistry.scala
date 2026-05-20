@@ -14,7 +14,7 @@ import scala.jdk.CollectionConverters.*
  *       register.
  *
  *    2. **Out-of-process / plugin.yaml (§12.2)** — every `plugin.yaml`
- *       found under `$SCALASCRIPT_PLUGIN_PATH` or `~/.scalascript/plugins/`.
+ *       found under `$SCALASCRIPT_PLUGIN_PATH` or `~/.scalascript/compiler/plugins/`.
  *       Each manifest spawns a subprocess via `SubprocessBackend`.
  *
  *  Out-of-process plugins are lazy: the subprocess is only spawned
@@ -115,7 +115,7 @@ object BackendRegistry:
   def preambleFor(backendId: String): String =
     extraPreambles.get(backendId).map(_.toString.stripLeading()).getOrElse("")
 
-  /** Add a plugin-discovery directory (peer of `~/.scalascript/plugins/`). */
+  /** Add a plugin-discovery directory (peer of `~/.scalascript/compiler/plugins/`). */
   def addPluginDir(dir: os.Path): Unit =
     extraPluginDirs += dir
     manifestCache = null

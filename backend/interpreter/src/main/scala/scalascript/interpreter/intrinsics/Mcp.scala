@@ -785,11 +785,17 @@ private object Mcp:
     // v1.17.x — bridge to the standalone OAuth Authorization Server.
     // Takes the InstanceV produced by `oauth.authServer(...)` and wires
     // its token validator + protected-resource metadata into this MCP
-    // server.  Resolves the JVM-side AS via the OAuth intrinsics registry.
+    // server.  Resolves via OAuthBridge (shared with the oauth-plugin).
     def useAuthServerFn = Value.NativeFnV("McpServer.useAuthServer",
       Computation.pureFn {
         case List(asValue) =>
-          OAuthIntrinsicHelpers.resolveAuthServer(asValue) match
+          (asValue match
+            case Value.InstanceV("AuthServer", fields) =>
+              fields.get("_id").collect { case Value.StringV(id) => id }
+                .flatMap(id => Option(OAuthBridge.authServers.get(id))
+                  .collect { case as: scalascript.oauth.AuthServer => as })
+            case _ => None
+          ) match
             case Some(as) => builder.useAuthServer(as); Value.UnitV
             case None     => throw InterpretError(
               "srv.useAuthServer: argument is not an AuthServer instance (use oauth.authServer(...))")

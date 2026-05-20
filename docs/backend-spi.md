@@ -1057,7 +1057,7 @@ entries for misses.
 - Standard `ServiceLoader` discovery for each.
 - Default discovery paths:
   - The bundled CLI classpath (the four standard plugins).
-  - `~/.scalascript/plugins/*.jar`
+  - `~/.scalascript/compiler/plugins/*.jar`
   - `$SCALASCRIPT_PLUGIN_PATH` (colon-separated dirs).
   - CLI flags: `--plugin <jar>`, `--plugin-dir <dir>`.
 - Each plugin JAR is loaded in its own `URLClassLoader` whose parent is

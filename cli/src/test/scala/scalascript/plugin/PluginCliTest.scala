@@ -7,7 +7,7 @@ import java.util.zip.{ZipOutputStream, ZipEntry}
 
 /** Tests for `ssc plugin` subcommands (install / list / uninstall / check / pack).
  *  Each test uses its own temp directory as the plugin home, isolated from
- *  `~/.scalascript/plugins/`. */
+ *  `~/.scalascript/compiler/plugins/`. */
 class PluginCliTest extends AnyFunSuite with Matchers with BeforeAndAfterEach:
 
   private var tmpHome: os.Path  = os.temp.dir()
@@ -40,7 +40,7 @@ class PluginCliTest extends AnyFunSuite with Matchers with BeforeAndAfterEach:
 
   test("install copies .sscpkg to plugins dir"):
     val pkg     = makePackage("org.example.hello", "2.0.0")
-    val destDir = tmpHome / "plugins"
+    val destDir = tmpHome / "compiler" / "plugins"
     os.makeDir.all(destDir)
     val bytes = os.read.bytes(pkg)
     // simulate what pluginInstall does, but into our tmpHome
@@ -53,7 +53,7 @@ class PluginCliTest extends AnyFunSuite with Matchers with BeforeAndAfterEach:
   // ── list ─────────────────────────────────────────────────────────────
 
   test("list shows installed plugin details"):
-    val destDir = tmpHome / "plugins"
+    val destDir = tmpHome / "compiler" / "plugins"
     os.makeDir.all(destDir)
     val pkg = makePackage("org.example.kafka", "1.2.3")
     os.copy(pkg, destDir / "org.example.kafka-1.2.3.sscpkg")
@@ -63,7 +63,7 @@ class PluginCliTest extends AnyFunSuite with Matchers with BeforeAndAfterEach:
     m.version shouldBe "1.2.3"
 
   test("listing an empty plugins dir returns no entries"):
-    val destDir = tmpHome / "plugins"
+    val destDir = tmpHome / "compiler" / "plugins"
     os.makeDir.all(destDir)
     val pkgs = os.list(destDir).filter(_.ext == "sscpkg").sorted
     pkgs shouldBe empty
@@ -71,7 +71,7 @@ class PluginCliTest extends AnyFunSuite with Matchers with BeforeAndAfterEach:
   // ── uninstall ────────────────────────────────────────────────────────
 
   test("uninstall removes the correct .sscpkg file"):
-    val destDir = tmpHome / "plugins"
+    val destDir = tmpHome / "compiler" / "plugins"
     os.makeDir.all(destDir)
     val pkg1 = makePackage("org.example.alpha", "1.0.0")
     val pkg2 = makePackage("org.example.beta",  "2.0.0")

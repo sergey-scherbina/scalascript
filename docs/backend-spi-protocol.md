@@ -197,7 +197,7 @@ either enum is a minor SPI version change.
 
 Plugin manifests live one-level deep under any directory listed in
 `$SCALASCRIPT_PLUGIN_PATH` (colon-separated) or in
-`~/.scalascript/plugins/`.  A manifest is a directory containing a
+`~/.scalascript/compiler/plugins/`.  A manifest is a directory containing a
 `plugin.yaml`:
 
 ```yaml
@@ -223,5 +223,5 @@ Relative `executable` paths resolve against the manifest's directory.
 
 See `examples/plugins/canned-backend/` for a 50-line scala-cli
 plugin implementing exactly the three core methods.  Drop it under
-`~/.scalascript/plugins/canned` and `ssc --list-backends` shows it
+`~/.scalascript/compiler/plugins/canned` and `ssc --list-backends` shows it
 alongside the bundled in-process backends.

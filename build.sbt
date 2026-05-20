@@ -465,7 +465,7 @@ lazy val backendCss = project
 // backends no longer reference each other.
 lazy val backendInterpreter = project
   .in(file("backend/interpreter"))
-  .dependsOn(backendSpi, core, runtimeServerCommon, runtimeServerJvm, mcpCommon, backendJs, backendSqlRuntime, frontendCore, backendJvm % Test, frontendCustom % Test, frontendReact % Test, frontendSolid % Test, frontendVue % Test, jsonPlugin % Test, frontendPlugin, requestPlugin % Test)
+  .dependsOn(backendSpi, core, runtimeServerCommon, runtimeServerJvm, mcpCommon, backendJs, backendSqlRuntime, frontendCore, backendJvm % Test, frontendCustom % Test, frontendReact % Test, frontendSolid % Test, frontendVue % Test, jsonPlugin % Test, frontendPlugin, requestPlugin % Test, authPlugin % Test, oauthPlugin % Test)
   .settings(
     name := "scalascript-backend-interpreter",
     libraryDependencies ++= Seq(scalatestTest),
@@ -1667,6 +1667,24 @@ lazy val requestPlugin = project
     Test    / scalacOptions ++= sharedScalacOptions,
   )
 
+lazy val authPlugin = project
+  .in(file("std/auth-plugin"))
+  .dependsOn(backendSpi, ir, core, runtimeServerCommon)
+  .settings(
+    name := "scalascript-auth-plugin",
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions,
+  )
+
+lazy val oauthPlugin = project
+  .in(file("std/oauth-plugin"))
+  .dependsOn(backendSpi, ir, core, mcpCommon, runtimeServerCommon)
+  .settings(
+    name := "scalascript-oauth-plugin",
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions,
+  )
+
 lazy val root = project
   .in(file("."))
   .aggregate(
@@ -1686,6 +1704,7 @@ lazy val root = project
     // frontendToolkit retired — replaced by std/ui/*.ssc (Phase 7a-7d)
     frontendExamples,
     jsonPlugin, frontendPlugin, requestPlugin,
+    authPlugin, oauthPlugin,
   )
   .settings(
     publish / skip := true

@@ -1,33 +1,11 @@
-package scalascript.interpreter.intrinsics
+package ssc.plugin.oauth
 
 import scalascript.backend.spi.NativeContext
 import scalascript.interpreter.{Computation, Value}
 import scalascript.oauth.*
 
-/** v1.17.x — wire `OAuthRoutes` (pure handlers) into the interpreter's
- *  WebServer via `NativeContext.registerRoute`.  One call installs the
- *  full standard endpoint set:
- *
- *    POST  <base>/token
- *    POST  <base>/introspect
- *    POST  <base>/revoke
- *    POST  <base>/register
- *    GET   <base>/authorize
- *    GET   <base>/.well-known/oauth-authorization-server
- *
- *  Scripts use this through the `oauth.serveAuthServer(...)` intrinsic;
- *  Scala callers can use `OAuthHttp.installRoutes(...)` directly.
- *
- *  The /authorize endpoint needs to know who the current user is —
- *  that's the `subjectFor: Map[String, String] => Option[String]`
- *  hook (typically reads a session cookie / Auth header).  Optionally
- *  the caller also supplies a `loginUrl` builder so unauthenticated
- *  requests bounce to the login page. */
 object OAuthHttp:
 
-  /** Install all OAuth endpoints under `basePath` on the running
-   *  WebServer.  Endpoint paths follow RFC 8414 conventions; pass a
-   *  prefix like "/oauth" to mount the AS under a sub-path. */
   def installRoutes(
     as:         AuthServer,
     ctx:        NativeContext,
@@ -38,56 +16,38 @@ object OAuthHttp:
   ): Unit =
     val prefix = basePath.stripSuffix("/")
 
-    // ─── POST /token ─────────────────────────────────────────────────
     register(ctx, "POST", prefix + "/token", "oauth.http.token") { fields =>
       val body    = stringField(fields, "body").getOrElse("")
       val headers = extractHeaderMap(fields)
       OAuthRoutes.handleToken(as, body, headers)
     }
-
-    // ─── POST /introspect ────────────────────────────────────────────
     register(ctx, "POST", prefix + "/introspect", "oauth.http.introspect") { fields =>
       val body    = stringField(fields, "body").getOrElse("")
       val headers = extractHeaderMap(fields)
       OAuthRoutes.handleIntrospect(as, body, headers)
     }
-
-    // ─── POST /revoke ────────────────────────────────────────────────
     register(ctx, "POST", prefix + "/revoke", "oauth.http.revoke") { fields =>
       val body    = stringField(fields, "body").getOrElse("")
       val headers = extractHeaderMap(fields)
       OAuthRoutes.handleRevoke(as, body, headers)
     }
-
-    // ─── POST /register ──────────────────────────────────────────────
     register(ctx, "POST", prefix + "/register", "oauth.http.register") { fields =>
       val body    = stringField(fields, "body").getOrElse("")
       val headers = extractHeaderMap(fields)
       OAuthRoutes.handleRegister(as, body, headers)
     }
-
-    // ─── GET /authorize ──────────────────────────────────────────────
     register(ctx, "GET", prefix + "/authorize", "oauth.http.authorize") { fields =>
       val query   = extractQueryMap(fields)
       val headers = extractHeaderMap(fields)
       OAuthRoutes.handleAuthorize(as, query, headers, subjectFor, loginUrl, selfUrl)
     }
-
-    // ─── GET /.well-known/oauth-authorization-server ─────────────────
     register(ctx, "GET", prefix + "/.well-known/oauth-authorization-server",
              "oauth.http.metadata") { _ => OAuthRoutes.handleMetadata(as) }
-
-    // ─── GET /.well-known/jwks.json — JWKS for asymmetric signers ────
     register(ctx, "GET", prefix + "/.well-known/jwks.json",
              "oauth.http.jwks") { _ => OAuthRoutes.handleJwks(as) }
-
-    // ─── GET /passkey/challenge — single-use nonce for assertion flow ─
     register(ctx, "GET", prefix + "/passkey/challenge",
              "oauth.http.passkey-challenge") { _ => OAuthRoutes.handlePasskeyChallenge(as) }
 
-  // ─── helpers ────────────────────────────────────────────────────────
-
-  /** Register one route that maps a Request → RouteOutcome. */
   private def register(
     ctx:    NativeContext,
     method: String,
@@ -105,8 +65,6 @@ object OAuthHttp:
     })
     ctx.registerRoute(method, path, handler)
 
-  /** Adapt a typed `RouteOutcome` to the `Response` InstanceV that the
-   *  WebServer's response writer understands. */
   def routeOutcomeToValue(o: OAuthRoutes.RouteOutcome): Value = o match
     case OAuthRoutes.RouteOutcome.Json(status, body, extra) =>
       val hdrs = ujsonHeaders("Content-Type" -> "application/json") ++ extra.iterator.map {
@@ -151,7 +109,5 @@ object OAuthHttp:
         case (Value.StringV(k), Value.StringV(v)) => k -> v
       }.toMap
     }.orElse(
-      // Fallback: parse from rawQuery string if the WebServer didn't
-      // pre-decode it.  Matches `OAuthRoutes.parseForm` semantics.
       stringField(fields, "rawQuery").map(OAuthRoutes.parseForm)
     ).getOrElse(Map.empty)

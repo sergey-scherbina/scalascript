@@ -1324,7 +1324,7 @@ def bundleCommand(args: List[String]): Unit =
 // ─────────────────────────────────────────────────────────────────────────────
 
 /** Default directory where installed `.sscpkg` files live. */
-private def pluginsDir: os.Path = os.home / ".scalascript" / "plugins"
+private def pluginsDir: os.Path = os.home / ".scalascript" / "compiler" / "plugins"
 
 def pluginCommand(args: List[String]): Unit =
   args match
@@ -1343,7 +1343,7 @@ def pluginCommand(args: List[String]): Unit =
       System.exit(1)
 
 /** `ssc plugin install <path-or-url-or-name>` — copy/download a
- *  `.sscpkg` to `~/.scalascript/plugins/` and print a confirmation.
+ *  `.sscpkg` to `~/.scalascript/compiler/plugins/` and print a confirmation.
  *  Short names (e.g. "redis") are resolved via the local registry
  *  (`~/.scalascript/registry.yaml`). */
 def pluginInstall(args: List[String]): Unit =
@@ -1388,7 +1388,7 @@ def pluginInstall(args: List[String]): Unit =
   os.write.over(dest, bytes)
   println(s"Installed ${manifest.id} ${manifest.version} → $dest")
 
-/** `ssc plugin list` — print every `.sscpkg` in `~/.scalascript/plugins/`. */
+/** `ssc plugin list` — print every `.sscpkg` in `~/.scalascript/compiler/plugins/`. */
 def pluginList(): Unit =
   if !os.isDir(pluginsDir) then
     println("(no plugins installed)"); return
