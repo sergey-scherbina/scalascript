@@ -38,7 +38,10 @@ echo "Layout:"
 echo "  bin/lib/ssc.jar           — thin entry-point JAR"
 echo "  bin/lib/jars/             — $(ls "$LIB/jars" | wc -l | tr -d ' ') runtime JARs"
 echo "  bin/lib/compiler/jars/    — $(ls "$LIB/compiler/jars" | wc -l | tr -d ' ') compile-only JARs (lazy-loaded)"
-echo "  bin/lib/compiler/plugins/ — drop .sscpkg files here for auto-loading"
+echo "  bin/lib/compiler/plugins/ — auto-loaded .sscpkg plugins:"
+for f in "$LIB/compiler/plugins"/*.sscpkg; do
+    echo "    $(basename "$f")"
+done
 echo ""
 echo "Add to PATH for this session:"
 echo "  export PATH=\"\$PATH:$BIN\""
