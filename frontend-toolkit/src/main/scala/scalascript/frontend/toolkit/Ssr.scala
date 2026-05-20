@@ -157,6 +157,9 @@ object Ssr:
         case AttrValue.Dynamic(read) =>
           val snap = safeRead(() => read().toString, "")
           sb.append(' ').append(key).append("=\"").append(escapeAttr(snap)).append('"')
+        case AttrValue.Reactive(signal) =>
+          val snap = safeRead(() => signal().toString, "")
+          sb.append(' ').append(key).append("=\"").append(escapeAttr(snap)).append('"')
         case AttrValue.Absent =>
           ()
         case AttrValue.RefBinding(_) =>

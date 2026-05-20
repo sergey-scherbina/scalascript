@@ -314,7 +314,7 @@ private[solid] object SolidEmitter:
 
     private def compileEventHandler(targetVar: String, eventName: String, handler: EventHandler): Unit =
       handler match
-        case EventHandler.Simple(_) | EventHandler.WithEvent(_) =>
+        case EventHandler.Simple(_) | EventHandler.WithEvent(_) | EventHandler.InputChange(_) =>
           statements +=
             s"// $targetVar: '$eventName' handler is a JVM closure — A4 can't translate;" +
             " richer IR coming later."
@@ -363,9 +363,10 @@ private[solid] object SolidEmitter:
       case AttrValue.Str(value)     => Some(jsString(value))
       case AttrValue.Bool(value)    => Some(jsString(value.toString))
       case AttrValue.Num(value)     => Some(formatNumber(value))
-      case AttrValue.Dynamic(read)  => Some(jsString(String.valueOf(read())))
-      case AttrValue.Absent         => None
-      case AttrValue.RefBinding(_)  => None  // ref binding is wired imperatively in the Element case; no setAttribute
+      case AttrValue.Dynamic(read)    => Some(jsString(String.valueOf(read())))
+      case AttrValue.Reactive(signal) => Some(jsString(String.valueOf(signal()))) // snapshot
+      case AttrValue.Absent           => None
+      case AttrValue.RefBinding(_)    => None  // ref binding is wired imperatively in the Element case; no setAttribute
 
   private def setterName(varName: String): String =
     "set" + varName.headOption.fold("")(_.toUpper.toString) + varName.drop(1)

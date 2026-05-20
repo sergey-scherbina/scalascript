@@ -262,6 +262,12 @@ object AttrValue:
    *  underlying node to multiple refs (each gets the assignment). */
   final case class RefBinding(ref: DomRef)             extends AttrValue
 
+  /** Reactive attribute — emits the signal's JS variable name so
+   *  React/Vue re-evaluates the prop on every state change.  Use for
+   *  `checked`/`value` bindings that must round-trip with signal state.
+   *  Non-reactive backends fall back to snapshotting the initial value. */
+  final case class Reactive(signal: ReactiveSignal[?])  extends AttrValue
+
 /** An event handler — `() => Unit` for the simple case, with
  *  optional `Event` argument for keyboard / mouse / form events
  *  that need the raw `Event`. */
@@ -313,6 +319,12 @@ object EventHandler:
    *  `addEventListener` that does nothing — graceful no-op rather
    *  than an emit-time crash. */
   final case class RemoveSelfFromList[T](list: ReactiveSignalList[T]) extends EventHandler
+
+  /** Text-input change handler — keeps a `ReactiveSignal[String]` in sync
+   *  with a text input on every keystroke.
+   *  React emitter: `'onChange': (e) => setter(e.target.value)`.
+   *  Non-React backends treat it as an untranslatable JVM closure. */
+  final case class InputChange(signal: ReactiveSignal[String]) extends EventHandler
 
 /** Composable UI unit — a function from props to a View that
  *  may close over signals + effects.  Backends interpret the

@@ -413,6 +413,7 @@ private[custom] object StaticJsEmitter:
       case AttrValue.Bool(value)       => Some(jsString(value.toString))
       case AttrValue.Num(value)        => Some(formatNumber(value))
       case AttrValue.Dynamic(read)     => Some(jsString(String.valueOf(read()))) // snapshot
+      case AttrValue.Reactive(signal)  => Some(jsString(String.valueOf(signal()))) // snapshot initial
       case AttrValue.Absent            => None
       case AttrValue.RefBinding(_)     => None  // ref binding is wired imperatively in the Element case; no setAttribute
 
@@ -426,7 +427,7 @@ private[custom] object StaticJsEmitter:
      *  IncrementSignal are A2c additions that lower cleanly. */
     private def compileEventHandler(targetVar: String, eventName: String, handler: EventHandler): Unit =
       handler match
-        case EventHandler.Simple(_) | EventHandler.WithEvent(_) =>
+        case EventHandler.Simple(_) | EventHandler.WithEvent(_) | EventHandler.InputChange(_) =>
           statements +=
             s"// $targetVar: '$eventName' handler is a JVM closure — A2c can't translate;" +
             " richer IR coming later."

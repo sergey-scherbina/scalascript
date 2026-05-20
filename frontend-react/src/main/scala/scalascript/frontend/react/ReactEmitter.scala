@@ -80,12 +80,17 @@ private[react] object ReactEmitter:
     def walk(v: View): Unit = v match
       case View.SignalText(signal) =>
         register(signal)
-      case View.Element(_, _, events, children) =>
+      case View.Element(_, attrs, events, children) =>
+        attrs.values.foreach {
+          case AttrValue.Reactive(signal) => register(signal)
+          case _ => ()
+        }
         events.foreach { (_, handler) =>
           handler match
             case EventHandler.SetSignalLiteral(signal, _) => register(signal)
             case EventHandler.IncrementSignal(signal, _)  => register(signal)
             case EventHandler.ToggleSignal(signal)        => register(signal)
+            case EventHandler.InputChange(signal)         => register(signal)
             case _ => ()
         }
         children.foreach(walk)
@@ -360,12 +365,13 @@ private[react] object ReactEmitter:
     if all.isEmpty then "null" else s"{ ${all.mkString(", ")} }"
 
   private def attrValueJs(av: AttrValue): Option[String] = av match
-    case AttrValue.Str(value)     => Some(jsString(value))
-    case AttrValue.Bool(value)    => Some(value.toString)
-    case AttrValue.Num(value)     => Some(formatNumber(value))
-    case AttrValue.Dynamic(read)  => Some(jsLiteral(read()))
-    case AttrValue.Absent         => None
-    case AttrValue.RefBinding(_)  => None  // handled inline in renderProps as the React `ref` prop
+    case AttrValue.Str(value)        => Some(jsString(value))
+    case AttrValue.Bool(value)       => Some(value.toString)
+    case AttrValue.Num(value)        => Some(formatNumber(value))
+    case AttrValue.Dynamic(read)     => Some(jsLiteral(read()))
+    case AttrValue.Reactive(signal)  => Some(signal.jsName)
+    case AttrValue.Absent            => None
+    case AttrValue.RefBinding(_)     => None  // handled inline in renderProps as the React `ref` prop
 
   /** Translate an event handler.  Returns `Some((onClick, body))`
    *  pair as a single JS field source, or `None` for unsupported
@@ -409,6 +415,9 @@ private[react] object ReactEmitter:
           Some(s"${jsString(onKey)}: () => $setter(prev => prev.filter((_, i) => i !== index))")
         else
           Some(s"/* '$eventName' is RemoveSelfFromList used outside an item template — no-op */")
+      case EventHandler.InputChange(signal) =>
+        val setter = setterName(signal.jsName)
+        Some(s"'onChange': (e) => $setter(e.target.value)")
       case EventHandler.Simple(_) | EventHandler.WithEvent(_) =>
         // JVM closure — emit a comment-prop that doesn't bind anything.
         // The presence of the marker tells dev "you wrote Simple/WithEvent

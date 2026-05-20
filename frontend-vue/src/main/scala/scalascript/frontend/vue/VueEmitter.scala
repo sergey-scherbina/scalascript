@@ -327,9 +327,10 @@ private[vue] object VueEmitter:
     case AttrValue.Str(value)     => Some(jsString(value))
     case AttrValue.Bool(value)    => Some(value.toString)
     case AttrValue.Num(value)     => Some(formatNumber(value))
-    case AttrValue.Dynamic(read)  => Some(jsLiteral(read()))
-    case AttrValue.Absent         => None
-    case AttrValue.RefBinding(_)  => None  // handled inline in renderProps as the Vue `ref` prop
+    case AttrValue.Dynamic(read)    => Some(jsLiteral(read()))
+    case AttrValue.Reactive(signal) => Some(jsLiteral(signal())) // snapshot; Vue reactive support coming later
+    case AttrValue.Absent           => None
+    case AttrValue.RefBinding(_)    => None  // handled inline in renderProps as the Vue `ref` prop
 
   private def eventHandlerJs(
       eventName: String,
@@ -361,7 +362,7 @@ private[vue] object VueEmitter:
           Some(s"${jsString(onKey)}: () => { this.${list.jsName} = this.${list.jsName}.filter((_, i) => i !== index); }")
         else
           Some(s"/* '$eventName' is RemoveSelfFromList used outside an item template — no-op */")
-      case EventHandler.Simple(_) | EventHandler.WithEvent(_) =>
+      case EventHandler.Simple(_) | EventHandler.WithEvent(_) | EventHandler.InputChange(_) =>
         Some(s"/* '$eventName' is a JVM closure — A5 can't translate (richer IR coming later) */")
 
   /** Vue uses camelCase event props: 'click' → 'onClick'. */

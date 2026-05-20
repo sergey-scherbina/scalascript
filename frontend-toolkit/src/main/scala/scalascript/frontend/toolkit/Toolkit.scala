@@ -1,6 +1,6 @@
 package scalascript.frontend.toolkit
 
-import scalascript.frontend.{View, AttrValue, EventHandler, Signal}
+import scalascript.frontend.{View, AttrValue, EventHandler, Signal, ReactiveSignal}
 
 /** v1.18 / Phase B — high-level declarative UI toolkit.  Sits on
  *  top of `scalascript.frontend.View` (the low-level SPI primitives)
@@ -321,11 +321,18 @@ object TextFieldNode:
       s"background: ${theme.colors.background}; color: ${theme.colors.text}; " +
       s"width: 100%; box-sizing: border-box;"
 
+    val valueAttr = n.value match
+      case rs: ReactiveSignal[?] => AttrValue.Reactive(rs)
+      case _                     => AttrValue.Dynamic(() => n.value())
+    val inputChangeHandler = n.value match
+      case rs: ReactiveSignal[?] => EventHandler.InputChange(rs.asInstanceOf[ReactiveSignal[String]])
+      case _                     => EventHandler.WithEvent { e => e match { case s: String => n.value.set(s); case _ => () } }
+
     val inputAttrs = scala.collection.mutable.Map[String, AttrValue](
       "id"    -> AttrValue.Str(id),
       "type"  -> AttrValue.Str(n.inputType),
       "style" -> AttrValue.Str(inputStyle),
-      "value" -> AttrValue.Dynamic(() => n.value())
+      "value" -> valueAttr
     )
     n.placeholder.foreach(p => inputAttrs("placeholder") = AttrValue.Str(p))
     if n.required then inputAttrs("required")      = AttrValue.Bool(true)
@@ -333,18 +340,9 @@ object TextFieldNode:
     if errMsg.isDefined then inputAttrs("aria-invalid") = AttrValue.Bool(true)
 
     val input = View.Element(
-      tag    = "input",
-      attrs  = inputAttrs.toMap,
-      events = Map("input" -> EventHandler.WithEvent { e =>
-        // Use reflection-y `Any` access; backends pass the framework's
-        // native event whose `.target.value` is the new input string.
-        // The SPI's `EventHandler.WithEvent` semantics are
-        // backend-defined — backends know to extract `.target.value`
-        // before invoking user-supplied lambdas in this toolkit layer.
-        e match
-          case s: String => n.value.set(s)
-          case _         => () // backend's `WithEvent` adapter handles extraction
-      }),
+      tag      = "input",
+      attrs    = inputAttrs.toMap,
+      events   = if n.disabled then Map.empty else Map("input" -> inputChangeHandler),
       children = Nil
     )
 
@@ -384,18 +382,21 @@ final case class CheckboxNode(
 object CheckboxNode:
   def lower(n: CheckboxNode, theme: Theme): View =
     val id = s"cb-${System.identityHashCode(n.checked).toHexString}"
+    val checkedAttr = n.checked match
+      case rs: ReactiveSignal[?] => AttrValue.Reactive(rs)
+      case _                     => AttrValue.Dynamic(() => n.checked())
+    val changeHandler = n.checked match
+      case rs: ReactiveSignal[?] => EventHandler.ToggleSignal(rs.asInstanceOf[ReactiveSignal[Boolean]])
+      case _                     => EventHandler.WithEvent { case b: Boolean => n.checked.set(b); case _ => () }
     val input = View.Element("input",
       attrs = Map(
-        "id"      -> AttrValue.Str(id),
-        "type"    -> AttrValue.Str("checkbox"),
-        "checked" -> AttrValue.Dynamic(() => n.checked()),
+        "id"       -> AttrValue.Str(id),
+        "type"     -> AttrValue.Str("checkbox"),
+        "checked"  -> checkedAttr,
         "disabled" -> (if n.disabled then AttrValue.Bool(true) else AttrValue.Absent),
-        "style"   -> AttrValue.Str(s"margin-right: ${theme.spacing.sm}px;")
+        "style"    -> AttrValue.Str(s"margin-right: ${theme.spacing.sm}px;")
       ),
-      events = Map("change" -> EventHandler.WithEvent {
-        case b: Boolean => n.checked.set(b)
-        case _          => ()
-      }),
+      events   = if n.disabled then Map.empty else Map("change" -> changeHandler),
       children = Nil)
     val labelStyle = s"display: flex; align-items: center; cursor: pointer; " +
       s"font-family: ${theme.typography.body.fontFamily}; color: ${theme.colors.text};"

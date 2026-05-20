@@ -4,68 +4,134 @@ import scalascript.frontend.*
 import scalascript.frontend.toolkit.*
 import scalascript.frontend.toolkit.Tk
 
-/** v1.18 Phase C — Cross-backend toolkit demo.
+/** v1.28 Phase C — Cross-backend toolkit demo.
  *
- *  A small but real application written **entirely** through the
- *  high-level toolkit (`Tk` facade) — no raw `View` construction
- *  in user code.  The same tree compiles through React, Vue, Solid,
- *  and the Custom backend via the standard `FrontendModule` →
- *  emitter pipeline.
+ *  Interactive sign-up form:
+ *    - Submit button disabled until the checkbox is accepted.
+ *    - On submit: alert shows "You have accepted the toolkit terms, <name>".
+ *    - After submit: form fields become read-only; button stays pressable.
  *
- *  What the demo exercises:
- *    - Layout: vstack / hstack / box / divider / card
- *    - Inputs: textField + checkbox bound to signals
- *    - Display: heading + text + badge + alert + spinner
- *    - Containers: card with header + body + footer
- *    - Theming: theme tokens reach the rendered output
- *
- *  This proves the toolkit's "backend-agnostic" claim isn't just at
- *  the View AST level — the lowered View actually flows through
- *  every backend's emitter without further toolkit-specific logic.
- *
- *  Output lives under `target/frontend-examples/toolkit-demo/{custom,
- *  react,vue,solid}/` after running the demo's emit smoke tests. */
+ *  The React backend supports full interactivity via `AttrValue.Reactive`,
+ *  `EventHandler.ToggleSignal`, `EventHandler.InputChange`, and
+ *  `EventHandler.SetSignalLiteral`.  Other backends render a static snapshot. */
 object ToolkitDemo:
 
-  /** Demo name; matches the directory convention of the existing
-   *  CounterDemo / ShowHideDemo / TodoListDemo demos. */
   val Name: String = "toolkit-demo"
 
-  /** Build a fresh module per invocation — caller can run the same
-   *  demo through several backends in sequence without state leaking
-   *  between them. */
   def buildModule(theme: Theme = Theme.default): FrontendModule =
-    val name    = new ReactiveSignal[String]("name",    "Alice")
-    val accept  = new ReactiveSignal[Boolean]("accept", false)
+    val name      = new ReactiveSignal[String]("name",      "Alice")
+    val accept    = new ReactiveSignal[Boolean]("accept",   false)
+    val submitted = new ReactiveSignal[Boolean]("submitted", false)
 
+    // ── Form body ────────────────────────────────────────────────────
+    // Two pre-lowered versions; ShowSignal swaps them when submitted.
+    val enabledForm = Toolkit.lower(
+      Tk.vstack(gap = 12)(
+        Tk.textField(value = name, label = Some("Display name"), required = true),
+        Tk.checkbox(checked = accept, label = "I accept the toolkit terms.")
+      ), theme)
+
+    val disabledForm = Toolkit.lower(
+      Tk.vstack(gap = 12)(
+        Tk.textField(value = name, label = Some("Display name"), required = true, disabled = true),
+        Tk.checkbox(checked = accept, label = "I accept the toolkit terms.", disabled = true)
+      ), theme)
+
+    val formBody = View.ShowSignal(submitted, disabledForm, enabledForm)
+
+    // ── Submit button ────────────────────────────────────────────────
+    // Built at View level so we can use SetSignalLiteral (translatable).
+    // ShowSignal(accept, …) enables it only when the checkbox is ticked.
+    val (px, py, fs) = (theme.spacing.md, theme.spacing.sm, theme.typography.body.fontSize)
+    val baseBtnStyle =
+      s"background: ${theme.colors.primary}; color: ${theme.colors.onPrimary}; border: none; " +
+      s"padding: ${py}px ${px}px; font-size: ${fs}px; " +
+      s"border-radius: ${theme.radii.md}px; font-weight: 500; " +
+      s"font-family: ${theme.typography.body.fontFamily};"
+
+    val enabledButton = View.Element("button",
+      attrs    = Map(
+        "style"         -> AttrValue.Str(baseBtnStyle + " cursor: pointer; opacity: 1;"),
+        "type"          -> AttrValue.Str("button"),
+        "role"          -> AttrValue.Str("button"),
+        "aria-disabled" -> AttrValue.Bool(false)
+      ),
+      events   = Map("click" -> EventHandler.SetSignalLiteral(submitted, true)),
+      children = Seq(View.TextNode(() => "Submit"))
+    )
+
+    val disabledButton = View.Element("button",
+      attrs    = Map(
+        "style"         -> AttrValue.Str(baseBtnStyle + " cursor: not-allowed; opacity: 0.5;"),
+        "type"          -> AttrValue.Str("button"),
+        "role"          -> AttrValue.Str("button"),
+        "aria-disabled" -> AttrValue.Bool(true)
+      ),
+      events   = Map.empty,
+      children = Seq(View.TextNode(() => "Submit"))
+    )
+
+    val reactiveButton = View.ShowSignal(accept, enabledButton, disabledButton)
+
+    // ── Card footer ──────────────────────────────────────────────────
+    val spacerView = Toolkit.lower(Tk.spacer(grow = true), theme)
+    val badgeView  = Toolkit.lower(Tk.badge("v1", BadgeVariant.Notification), theme)
+    val footerView = View.Element("div",
+      attrs    = Map("style" -> AttrValue.Str(
+        s"display: flex; flex-direction: row; gap: 8px; align-items: stretch")),
+      events   = Map.empty,
+      children = Seq(reactiveButton, spacerView, badgeView)
+    )
+
+    // ── Card ─────────────────────────────────────────────────────────
+    val cardStyle =
+      s"background: ${theme.colors.surface}; border: 1px solid ${theme.colors.border}; " +
+      s"border-radius: ${theme.radii.md}px; box-shadow: ${theme.shadows.sm}; overflow: hidden;"
+    val sectionStyle = s"padding: ${theme.spacing.md}px;"
+    val divider = View.Element("hr",
+      attrs    = Map("style" -> AttrValue.Str(
+        s"border: 0; border-top: 1px solid ${theme.colors.border}; margin: 0;")),
+      events   = Map.empty,
+      children = Nil
+    )
+    val cardView = View.Element("div",
+      attrs    = Map("style" -> AttrValue.Str(cardStyle)),
+      events   = Map.empty,
+      children = Seq(
+        View.Element("div", Map("style" -> AttrValue.Str(sectionStyle)), Map.empty,
+          Seq(Toolkit.lower(Tk.heading(3, "Sign-up"), theme))),
+        divider,
+        View.Element("div", Map("style" -> AttrValue.Str(sectionStyle)), Map.empty,
+          Seq(formBody)),
+        divider,
+        View.Element("div", Map("style" -> AttrValue.Str(sectionStyle)), Map.empty,
+          Seq(footerView))
+      )
+    )
+
+    // ── Submission alert ─────────────────────────────────────────────
+    // Shown when submitted=true.  Contains static prefix + reactive name.
+    val alertStyle =
+      s"background: #dcfce7; color: ${theme.colors.text}; padding: ${theme.spacing.md}px; " +
+      s"border: 1px solid #86efac; border-radius: ${theme.radii.md}px;"
+    val alertView = View.Element("div",
+      attrs    = Map("role" -> AttrValue.Str("status"), "style" -> AttrValue.Str(alertStyle)),
+      events   = Map.empty,
+      children = Seq(View.Fragment(Seq(
+        View.TextNode(() => "You have accepted the toolkit terms, "),
+        View.SignalText(name)
+      )))
+    )
+    val reactiveAlert = View.ShowSignal(submitted, alertView, View.Fragment(Nil))
+
+    // ── Outer layout ─────────────────────────────────────────────────
     val tree: ToolkitNode = Tk.vstack(gap = 16)(
       Tk.heading(1, "Toolkit demo"),
       Tk.text("Backend-agnostic UI built through the Tk facade.",
               variant = TextVariant.Body),
-
       Tk.divider(),
-
-      // A small "card" with a form-ish layout: name + agreement
-      // checkbox + a primary button + a status badge.
-      Tk.card(
-        header = Some(Tk.heading(3, "Sign-up")),
-        footer = Some(Tk.hstack(gap = 8)(
-          Tk.button("Submit", onClick = () => (), kind = ButtonKind.Primary),
-          Tk.spacer(grow = true),
-          Tk.badge("v1", BadgeVariant.Notification)
-        ))
-      )(
-        Tk.vstack(gap = 12)(
-          Tk.textField(value = name, label = Some("Display name"), required = true),
-          Tk.checkbox (checked = accept, label = "I accept the toolkit terms.")
-        )
-      ),
-
-      // A second card showing display widgets.
-      Tk.notice(severity = AlertSeverity.Success, title = Some("Status")) {
-        Tk.text("All systems nominal.")
-      },
-
+      RawViewNode(cardView),
+      RawViewNode(reactiveAlert),
       Tk.hstack(gap = 12, align = Alignment.Center)(
         Tk.spinner(WidgetSize.Sm),
         Tk.text("Loading data...", variant = TextVariant.BodySmall),
@@ -74,13 +140,9 @@ object ToolkitDemo:
       )
     )
 
-    // Lower once at module-build time — every backend consumes the
-    // resulting View identically.
     val rendered: View = Toolkit.lower(tree, theme)
 
     val app = ComponentDef("App", Nil, _ =>
-      // Wrap in a stable root <div id="toolkit-demo"> so backends'
-      // selectors can locate the mount point in tests.
       View.Element(
         tag      = "div",
         attrs    = Map("id" -> AttrValue.Str("toolkit-demo")),
