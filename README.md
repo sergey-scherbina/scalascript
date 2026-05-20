@@ -72,6 +72,9 @@ bin/jssc examples/hello.ssc
 # Compile to JVM bytecode and run via Scala 3 / scala-cli
 bin/sscc examples/hello.ssc
 
+# Run on Apache Spark (Spark 4.0.0 / Scala 3.7.1, local[*] by default)
+bin/ssc-spark examples/spark-encoder-demo.ssc
+
 # Run all examples
 ./examples/run-all.sc
 
@@ -85,8 +88,9 @@ bin/http.ssc
 
 | | |
 |---|---|
-| [User Guide](docs/user-guide.md) | Installation, CLI commands, language basics, HTTP, effects, actors — practical day-to-day reference |
-| [Tutorial](docs/tutorial.md) | Build a todo API step by step — data model → REST → auth → WebSocket → TLS → MCP |
+| [User Guide](docs/user-guide.md) | Installation, CLI commands, language basics, HTTP, effects, actors, Apache Spark, WebAssembly, frontend frameworks, cluster, x402 — practical day-to-day reference |
+| [Tutorial 1 — Todo API](docs/tutorial.md#tutorial-1-collaborative-todo-api) | Build a todo API step by step — data model → REST → auth → WebSocket → TLS → MCP |
+| [Tutorial 2 — Spark ETL](docs/tutorial.md#tutorial-2-etl-pipeline-with-apache-spark) | End-to-end Spark pipeline — `Dataset[T]` → `@SqlFn` UDF → `@TempView` → Delta Lake |
 
 **Language reference**
 
@@ -107,6 +111,13 @@ bin/http.ssc
 | [Target Backends](docs/targets.md) | Interpreter · JS transpiler · JVM — capabilities and tradeoffs |
 | [Actors & Distributed](docs/actors-dist.md) | Spawn, supervise, cluster over WebSocket |
 | [Dataset / MapReduce](docs/mapreduce.md) | `Dataset[T]` — local, parallel, distributed |
+| [Apache Spark backend](docs/spark-streaming.md) | Spark 4 + Scala 3.7.1: `Dataset[T]`, `sql` blocks, `@SqlFn` UDFs, Structured Streaming, Delta Lake, Hive catalog, MLlib — see §13 of the User Guide |
+| [Frontend Framework SPI](docs/frontend-framework-spi-plan.md) | One `.ssc` UI source → React / Vue / Solid / custom; shared reactive primitives |
+| [Frontend Toolkit](docs/frontend-toolkit-spec.md) | High-level declarative widgets: Forms, Routing, Widgets v2, Table |
+| [Cluster Management](docs/cluster-management.md) | Bully election, phi-accrual failure detector, federation, Raft, ZooKeeper client |
+| [x402 micropayments](docs/x402.md) | HTTP 402 protocol, Ethereum + Cardano flows, MCP × x402 paid tools |
+| [Blockchain SPI](docs/blockchain-spi.md) | Pluggable backends — EVM, Bitcoin, Solana, Cardano |
+| [Browser SQL](docs/browser-sql.md) | Cross-backend `sql` fenced blocks (JS / Node / Wasm / JVM) |
 | [MCP Support](docs/mcp.md) | MCP server tools + resources, MCP client |
 | [Markdown as Syntax](docs/markdown-as-syntax.md) | How Markdown constructs map to AST nodes |
 
@@ -221,6 +232,7 @@ compiles them via Scala.js.
 |---------|--------|
 | Dataset / MapReduce | `Dataset[T]` with map/filter/flatMap/groupBy/reduceByKey/top/countByValue |
 | Execution modes | `runLocal`, `runParallel`, `runDistributed` |
+| Apache Spark | Same `Dataset[T]` source → `sql` fenced blocks · `@SqlFn` UDFs · Scala 3 native encoder derivation · Structured Streaming · Delta Lake · Hive metastore · MLlib pipelines |
 
 ### DSL authoring and metaprogramming
 
@@ -251,10 +263,39 @@ compiles them via Scala.js.
 | Web Components | `ssc emit-wc`, `customElements.define` |
 | SSR + hydration | `wc(tag, component, args*)` declarative shadow DOM |
 | Component library | `std/ui/*` — Button, Input, Select, Modal, Card, Spinner, Alert, DatePicker, Combobox, and more |
+| Frontend Framework SPI | One `.ssc` source compiled to **React**, **Vue 3**, **Solid**, or a **custom** runtime via `frontend-{react,vue,solid,custom}` backends |
+| Reactive primitives | `Signal[T]`, `ShowSignal` (conditional render), `ToggleSignal`, `ForSignal[T]` (list render) — uniform semantics across all 4 frontend backends |
+| Frontend Toolkit (v1.18 B+) | High-level declarative UI: `Form { … }`, `Routing { route("/path"){ … } }`, **Widgets v2** (Card, Modal, Tabs, Dropdown, …), **Table** with sort/filter/pagination |
+| WebAssembly target | `ssc emit-wasm file.ssc` — `scalascript` blocks lowered to Wasm; cross-backend `sql` fenced blocks supported |
 | i18n | `translations:` frontmatter, `t(key)`, `setLocale(code)` |
 | Env access | `getenv(key)` / `getenv(key, default)` |
 | Content helpers | `doc(...)` / `render(...)` structured output |
 | HTML / CSS interpolators | `html"..."` (auto-escaping) and `css"..."` with `${expr}` |
+
+### Blockchain, wallets, and micropayments
+
+| Feature | Syntax |
+|---------|--------|
+| x402 micropayments | HTTP 402 → typed payment challenge / settlement via `Payment[T]`, `x402Server { … }`, `x402Client(...)` — Ethereum + Cardano payment families |
+| Blockchain SPI | `BlockchainBackend` trait — EVM (mainnet, L2s), Bitcoin, Solana, Cardano via pluggable backends. See [`docs/blockchain-spi.md`](docs/blockchain-spi.md) |
+| Wallet Connect (WC v2) | Relay-transport cryptographic primitives — pairing, session, JSON-RPC, X25519 / HKDF / ChaCha20-Poly1305 |
+| Solana Wallet Standard | `solana-wallet-std` translator — Wallet Standard ↔ unified Wallet SPI |
+| ERC-4337 account abstraction | `EntryPoint v0.7 PackedUserOperation` — bundlerless and bundler-driven flows |
+| Cardano CIP-8 wallet | Ed25519 key-derived enterprise bech32 address, CIP-8 message signing, Scalus-source escrow validator |
+| Cross-backend crypto | JVM: native `Ed25519`, secp256k1, BLS12-381; JS: `@noble/curves` Scala.js backend — uniform `CryptoBackend` SPI |
+| MCP × x402 | `mcpServer { srv => srv.tool(...).requirePayment(...) }` — paid LLM tools |
+
+### Cluster, leader election, federation
+
+| Feature | Syntax |
+|---------|--------|
+| Bully leader election | `cluster.leader()` returns the current bully-elected leader; reactive on membership change |
+| Phi-accrual failure detector | Heartbeat-driven liveness; tunable phi threshold per cluster |
+| Self-health | `cluster.self.health` — driver-side health metric stream |
+| Federation | Multi-cluster gossip + cross-cluster routing — see [`docs/cluster-federation.md`](docs/cluster-federation.md) |
+| Raft consensus | Strongly-consistent state machine — see [`docs/cluster-raft.md`](docs/cluster-raft.md) |
+| ZooKeeper client | `zkClient { … }` for legacy coordinator integration — see [`docs/client-zookeeper.md`](docs/client-zookeeper.md) |
+| Operational HTTP routes | `/_ssc-cluster/status`, `/_ssc-cluster/members`, `/_ssc-cluster/leader` — built-in across all 4 frontend / Node backends |
 
 ## Examples
 
@@ -294,6 +335,17 @@ compiles them via Scala.js.
 | [oauth-demo.ssc](examples/oauth-demo.ssc) | Full OAuth2 sign-in (GitHub or Google) — state, exchange, userinfo |
 | [tls-demo.ssc](examples/tls-demo.ssc) | HTTPS + WSS server with `tls(cert, key)` |
 | [wc-demo.ssc](examples/wc-demo.ssc) | Web Components via `ssc emit-wc`, SSR + hydration |
+| [wasm-fibonacci.ssc](examples/wasm-fibonacci.ssc) | `scalascript` → WebAssembly module via `ssc emit-wasm` |
+| [wasm-sorting.ssc](examples/wasm-sorting.ssc) · [wasm-matrix.ssc](examples/wasm-matrix.ssc) · [wasm-primes.ssc](examples/wasm-primes.ssc) · [wasm-collections.ssc](examples/wasm-collections.ssc) | Wasm benchmark suite |
+| [examples/frontend/counter/](examples/frontend/) · [show-hide/](examples/frontend/show-hide/) · [todo/](examples/frontend/todo/) | One `.ssc` source compiled to React / Vue / Solid / custom via the Frontend Framework SPI |
+| [x402-server.ssc](examples/x402-server.ssc) · [x402-client.ssc](examples/x402-client.ssc) | HTTP 402 micropayment server + client (Ethereum settlement) |
+| [x402-cardano.ssc](examples/x402-cardano.ssc) | x402 on Cardano — CIP-8 wallet, Scalus escrow validator, end-to-end client + server |
+| [spark-sql-demo.ssc](examples/spark-sql-demo.ssc) | Spark SQL via `sql` fenced blocks + `${expr}` bind parameters + section aliases |
+| [spark-encoder-demo.ssc](examples/spark-encoder-demo.ssc) | Scala 3 native `Encoder[T]` derivation — `Dataset[CaseClass]` end-to-end on Spark 4 |
+| [spark-streaming-rate-console.ssc](examples/spark-streaming-rate-console.ssc) | Structured Streaming — rate source → console sink with auto-`awaitTermination` |
+| [spark-delta-demo.ssc](examples/spark-delta-demo.ssc) | Delta Lake — auto-emit `delta-spark` dep + extension/catalog configs |
+| [spark-hive-demo.ssc](examples/spark-hive-demo.ssc) | Hive metastore via `spark-hive-metastore:` + `@TempView("...")` + `Dataset.fromTable[T]` |
+| [spark-mllib-pipeline.ssc](examples/spark-mllib-pipeline.ssc) | MLlib — Tokenizer + HashingTF + LogisticRegression pipeline end-to-end |
 
 Run them all at once:
 
@@ -376,7 +428,7 @@ scala-cli conformance/run.sc
 
 ## Backends
 
-ScalaScript supports four bundled backends, all loaded through the
+ScalaScript supports the following bundled backends, all loaded through the
 **Backend SPI** plugin architecture
 ([`docs/backend-spi.md`](docs/backend-spi.md)):
 
@@ -386,6 +438,10 @@ ScalaScript supports four bundled backends, all loaded through the
 | `bin/jssc file.ssc`        | `js`          | `scalascript` blocks → custom JS transpiler; `scala` blocks → **Scala.js** via scala-cli |
 | `bin/sscc file.ssc`        | `jvm`         | Generates a `.sc` script and compiles via scala-cli |
 | `ssc emit-spa file.ssc`    | `scalajs-spa` | Self-contained SPA HTML + JS bundle |
+| `bin/ssc-spark file.ssc`   | `spark`       | Apache Spark 4 — generates a Scala 3.7.1 `.sc` script with `//> using dep` directives, runs via `scala-cli`. Auto-detects `sql` blocks, `@SqlFn` UDFs, `readStream`/`writeStream`, `.format("delta")`, `@TempView`, MLlib imports. See [§13 of the User Guide](docs/user-guide.md#13-apache-spark). |
+| `ssc emit-wasm file.ssc` / `examples/run-wasm.sh` | `wasm`        | WebAssembly module — `scalascript` blocks lowered to Wasm IR. Cross-backend `sql` fenced blocks supported (v1.27 Phase 5). |
+| (sub-backend) | `node`        | Node.js runtime variant of `js` — emits server-side JS with `fs`/`path` shims and a cross-backend SQL runtime (v1.27 Phase 4). |
+| (sub-backends) | `frontend-{react,vue,solid,custom}` | Frontend Framework SPI (v1.18 Phase A): same `.ssc` UI source compiled to React (`useState`/`useEffect`), Vue 3 (`ref`/render), Solid (`createSignal`/`createEffect`), or a minimal custom runtime — `ShowSignal`/`ToggleSignal`/`ForSignal` reactive primitives shared across all four. See [`docs/frontend-framework-spi-plan.md`](docs/frontend-framework-spi-plan.md). |
 
 The `Backend` trait + `ServiceLoader` discovery let third parties
 add their own backend without touching `core` — drop a JAR and
@@ -435,6 +491,10 @@ ssc plugin install/list/uninstall/check/pack/registry
 ssc --list-backends / --describe-backend <id>
 jssc file.ssc                 # JS transpiler runner
 sscc file.ssc                 # JVM runner
+ssc-spark file.ssc            # Apache Spark runner (Spark 4 + Scala 3.7.1)
+ssc submit file.ssc           # spark-submit fat JAR (cluster deploy)
+ssc --spark-master <url>      # override Spark master (local[*] / spark:// / yarn / k8s://)
+ssc --spark-version <v>       # override Spark version (default 4.0.0)
 ```
 
 ## Project Layout

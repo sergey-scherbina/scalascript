@@ -1096,6 +1096,360 @@ being formatted.
 
 ---
 
+## 13. Apache Spark
+
+The `spark` backend (`bin/ssc-spark` or `ssc run --backend spark`) compiles a `.ssc`
+program to a Scala 3.7.1 `.sc` script with `//> using` directives and runs it
+via `scala-cli` against Apache Spark 4.0.0. Spark JARs are resolved on demand
+by Coursier — no `sbt`/`maven` setup needed.
+
+### 13.1 Quick start
+
+```ssc
+---
+name: spark-quick
+backend: spark
+spark-master: local[*]
+---
+
+# Spark quick start
+
+```scalascript
+case class User(id: Int, name: String, active: Boolean)
+
+val users = Dataset.fromList(List(
+  User(1, "Alice", true),
+  User(2, "Bob",   false),
+  User(3, "Carol", true)
+))
+
+users.filter(_.active).show()
+println(s"active: ${users.filter(_.active).count()}")
+```
+```
+
+Run:
+
+```bash
+bin/ssc-spark spark-quick.ssc
+```
+
+The first run downloads Spark 4 + transitive deps (~200 MB) through Coursier;
+subsequent runs are instant.
+
+### 13.2 Front-matter keys
+
+| Key | Type | Purpose |
+|-----|------|---------|
+| `backend: spark` | string | Select the Spark backend |
+| `spark-version` | string | Spark release (default `4.0.0`) |
+| `spark-master` | string | `local[*]` / `local[N]` / `spark://...` / `yarn` / `k8s://...` |
+| `spark-app-name` | string | Visible in Spark UI / history server / driver logs |
+| `spark-config` | map | Ad-hoc `key: value` entries — each emits one `.config(k, v)` line |
+| `spark-hive-metastore` | string | Thrift URI; triggers `.enableHiveSupport()` + `spark-hive_2.13` dep |
+| `spark-warehouse` | string | Warehouse path; triggers `.enableHiveSupport()` + `spark-hive_2.13` dep |
+
+CLI overrides take precedence over front-matter:
+
+```bash
+ssc-spark file.ssc --spark-master spark://prod:7077 --spark-version 4.0.0
+```
+
+### 13.3 SQL fenced blocks
+
+A `sql` fenced block becomes a `val _sqlBlock_<N>: DataFrame` in the generated
+`@main` scope. The enclosing section's identifier also produces a friendly
+alias.
+
+````markdown
+## Active Users
+
+```sql
+SELECT id, name FROM users WHERE active = ${true} ORDER BY name
+```
+
+```scalascript
+ActiveUsers.sql.show()        // section alias
+_sqlBlock_0.show()            // C.1 internal name still works
+```
+````
+
+`${expr}` interpolation lifts to `:bind<N>` parameters — the value is evaluated
+as Scala in the surrounding scope and passed via Spark SQL's
+parameterised `sql(text, args)`.
+
+### 13.4 Case-class encoders (Phase E)
+
+`Dataset[CaseClass]` works natively on Scala 3 + Spark `_2.13` thanks to a
+mirror-based encoder shim emitted at the top of every Spark source. Supports:
+
+- Primitive fields (`String`, `Int`, `Long`, `Double`, `Boolean`, …)
+- `Option[T]`
+- Nested case classes
+- Collections — `Seq[T]`, `List[T]`, `Vector[T]`, `Set[T]`, `Array[T]`, `Map[K, V]`
+- Tuples (`Tuple2`, `Tuple3`, …)
+- `o.a.s.ml.linalg.Vector` (when MLlib is present — see §13.9)
+
+```scalascript
+case class Address(city: String, zip: String)
+case class Person(id: Int, name: String, address: Option[Address], tags: Seq[String])
+
+val people: Dataset[Person] = Dataset.fromList(...)
+people.printSchema()    // case-class structure preserved
+```
+
+### 13.5 `@SqlFn` UDFs
+
+A `def` annotated with `@SqlFn` inside a `scalascript` block becomes a Spark
+UDF registered on the session catalog, callable from subsequent `sql` blocks.
+
+```scalascript
+@SqlFn
+def upper(s: String): String = s.toUpperCase
+```
+
+```sql
+SELECT upper(name) FROM users
+```
+
+The codegen strips the annotation and emits a Java `UDFN` wrapper with the
+return DataType resolved from `SparkGen.SqlFnDataType` — TypeTag-free, so it
+runs cleanly on Scala 3 + Spark `_2.13`.
+
+### 13.6 Structured Streaming (Phase F)
+
+Detection of `spark.readStream` / `.writeStream` auto-emits the streaming
+imports and appends `spark.streams.active.headOption.foreach(_.awaitTermination())`
+before `spark.stop()` when the user code doesn't already call `awaitTermination`.
+`.format("kafka")` auto-emits the `spark-sql-kafka-0-10_2.13` dep.
+
+```scalascript
+val stream = spark.readStream.format("rate").option("rowsPerSecond", 1).load()
+stream.writeStream.format("console").start()
+// awaitTermination shim auto-emitted
+```
+
+Examples: `spark-streaming-rate-console.ssc`, `spark-streaming-file-parquet.ssc`,
+`spark-streaming-kafka.ssc`. Full spec: [`docs/spark-streaming.md`](spark-streaming.md).
+
+### 13.7 Delta Lake (Lakehouse L.2)
+
+`.format("delta")` in user code triggers auto-emit of
+`io.delta:delta-spark_2.13:3.2.0` plus the required Spark SQL extensions and
+catalog configs.
+
+```scalascript
+df.write.format("delta").save("/tmp/users-delta")
+val back = spark.read.format("delta").load("/tmp/users-delta")
+```
+
+Iceberg / Hudi are deferred until upstream publishes Spark 4 + `_2.13`
+artifacts. Full spec: [`docs/spark-lakehouse.md`](spark-lakehouse.md).
+
+### 13.8 Hive metastore + `@TempView` (Phase G)
+
+Set `spark-hive-metastore:` and/or `spark-warehouse:` in front-matter to
+enable Hive support — `.enableHiveSupport()` is added to the builder and the
+`spark-hive_2.13` dep auto-emitted.
+
+`@TempView("name")` on a `val` registers the Dataset as a temp view for
+subsequent `sql` blocks:
+
+```scalascript
+@TempView("users")
+val users = Dataset.fromParquetAs[User]("/data/users.parquet")
+```
+
+`Dataset.fromTable[T]("name")` is a typed reader over `spark.table(name).as[T]`
+that composes with both temp views and Hive tables.
+
+Full spec: [`docs/spark-catalog.md`](spark-catalog.md).
+
+### 13.9 MLlib (Phase M)
+
+Any `import org.apache.spark.ml.*` triggers auto-emit of
+`spark-mllib_2.13:<sparkVersion>` and the `Vector` encoder shim
+(`o.a.s.ml.linalg.Vector` via the public `SQLDataTypes.VectorType` singleton).
+
+```scalascript
+import org.apache.spark.ml.classification.LogisticRegression
+import org.apache.spark.ml.feature.{HashingTF, Tokenizer}
+import org.apache.spark.ml.Pipeline
+
+val pipeline = new Pipeline().setStages(Array(
+  new Tokenizer().setInputCol("text").setOutputCol("words"),
+  new HashingTF().setInputCol("words").setOutputCol("features"),
+  new LogisticRegression()
+))
+val model = pipeline.fit(training)
+model.save("/tmp/model")
+val loaded = PipelineModel.load("/tmp/model")
+```
+
+Full spec: [`docs/spark-mllib.md`](spark-mllib.md).
+
+### 13.10 Cluster submission (`ssc submit`)
+
+For non-local clusters use `ssc submit` (fat JAR via `scala-cli package` +
+`spark-submit`):
+
+```bash
+ssc submit file.ssc                                  # local
+ssc submit file.ssc --spark-master spark://prod:7077 # standalone
+ssc submit file.ssc --spark-master yarn -- --num-executors 8 --executor-memory 4g
+ssc submit file.ssc --spark-master k8s://https://...  # Kubernetes
+ssc submit file.ssc --dry-run                         # print the spark-submit invocation
+```
+
+### 13.11 Caveats
+
+- **Scala 3.7.1 pin** — Scala 3.8.x has a TASTy-bridge regression that breaks
+  Spark `_2.13` runtime reflection in `ExpressionEncoder`. The shim pins
+  `//> using scala 3.7.1` automatically; if you override it, things break.
+- **JDK 17+ `--add-opens`** — Spark needs reflective access to `sun.nio.ch`,
+  `java.lang.reflect`, etc. The shim emits these as `//> using javaOpt`
+  directives — `scala-cli run` works without extra args.
+- **No TypeTag path** — `import spark.implicits._` is dropped from emit (its
+  TypeTag-bound `newProductEncoder` poisons implicit search). Use
+  `import SscSparkEncoders.given` instead — already injected.
+- **Iceberg / Hudi blocked upstream** — see § 13.7. Watch tasks for
+  `iceberg-spark-runtime-4.0_2.13` and `hudi-spark4.0-bundle_2.13`.
+
+---
+
+## 14. WebAssembly backend
+
+`ssc emit-wasm file.ssc` lowers `scalascript` blocks to a WebAssembly module
+(no Node.js / JVM at runtime). `sql` fenced blocks are supported via the
+cross-backend SQL runtime (v1.27 Phase 5). Cross-backend semantics: identical
+output to the interpreter and the JS / JVM backends for the same source.
+
+```bash
+ssc emit-wasm examples/wasm-fibonacci.ssc -o out.wasm
+examples/run-wasm.sh out.wasm
+```
+
+Examples: `wasm-fibonacci.ssc`, `wasm-sorting.ssc`, `wasm-matrix.ssc`,
+`wasm-primes.ssc`, `wasm-collections.ssc`.
+
+---
+
+## 15. Frontend Framework SPI (v1.18 A)
+
+Same `.ssc` UI source, four targets. Pick the backend per build; the source
+stays identical.
+
+| Backend id | Emits | Reactive primitive |
+|-----------|-------|-------------------|
+| `frontend-react` | React JSX + hooks | `useState` / `useEffect` |
+| `frontend-vue` | Vue 3 SFC-equivalent | `ref` + render fn |
+| `frontend-solid` | Solid components | `createSignal` / `createEffect` |
+| `frontend-custom` | Minimal hand-written runtime | Built-in `Signal[T]` |
+
+Shared reactive abstractions emit cleanly on all four:
+
+- `Signal[T]` — observable value
+- `ShowSignal(cond) { … }` — conditional render
+- `ToggleSignal` — boolean toggle binding
+- `ForSignal(items) { item => … }` — list render with keyed diff
+
+```scalascript
+val count = Signal(0)
+button(onClick = () => count.set(count.get + 1)) { text("inc") }
+ShowSignal(count.get > 5) { text("big") }
+ForSignal(items) { item => li { text(item.title) } }
+```
+
+See [`docs/frontend-framework-spi-plan.md`](frontend-framework-spi-plan.md) and
+[`docs/frontend-abstract-model.md`](frontend-abstract-model.md). Examples
+under `examples/frontend/`.
+
+---
+
+## 16. Frontend Toolkit (v1.18 B+)
+
+Higher-level declarative UI on top of the framework SPI:
+
+- **Form** — schema-driven inputs with validation, error display, submit handlers
+- **Routing** — `Routing { route("/path") { … } }`, params, nested routes, guards
+- **Widgets v2** — Card, Modal, Tabs, Dropdown, DatePicker, Combobox, Toast
+- **Table** — sortable / filterable / paginated rows with typed column defs
+
+```scalascript
+Form[Login]("/login") {
+  field("email").email.required
+  field("password").password.minLength(8)
+  submit { user => login(user) }
+}
+
+Routing {
+  route("/") { home() }
+  route("/users/:id") { id => userProfile(id) }
+}
+
+Table(users)
+  .col("Name")(_.name)
+  .col("Email", sortable = true)(_.email)
+  .col("Active") { u => Toggle(u.active) }
+```
+
+Spec: [`docs/frontend-toolkit-spec.md`](frontend-toolkit-spec.md).
+
+---
+
+## 17. Cluster management
+
+Distributed actors + cluster primitives baked in across all server backends:
+
+| Primitive | Notes |
+|-----------|-------|
+| Bully leader election | `cluster.leader()` returns the current bully-elected leader (Signal) |
+| Phi-accrual failure detector | Tunable phi threshold per cluster; heartbeat-driven liveness |
+| Self-health | `cluster.self.health` — driver-side health metric stream |
+| Federation | Multi-cluster gossip + cross-cluster routing |
+| Raft consensus | Strongly-consistent state machine — `RaftStateMachine[S]` |
+| ZooKeeper client | `zkClient { … }` for legacy coordinator integration |
+| Operational routes | `GET /_ssc-cluster/status`, `/members`, `/leader` — built-in across server backends |
+
+Specs: [`docs/cluster-management.md`](cluster-management.md),
+[`docs/cluster-raft.md`](cluster-raft.md),
+[`docs/cluster-federation.md`](cluster-federation.md),
+[`docs/client-zookeeper.md`](client-zookeeper.md).
+
+---
+
+## 18. x402 micropayments
+
+HTTP 402 → typed payment challenge / settlement. Same `.ssc` source describes
+both client and server; the protocol layer wires the payment family
+(Ethereum / Cardano) automatically.
+
+```scalascript
+x402Server {
+  route("/quote") { req => requirePayment(Payment.usdc(0.10)) { _ =>
+    Response.json(getQuote(req.params("symbol")))
+  }}
+}
+```
+
+```scalascript
+x402Client(wallet) {
+  val quote = httpGet("https://api/quote?symbol=AAPL").settle()
+  println(quote)
+}
+```
+
+Specs:
+- [`docs/x402.md`](x402.md) — protocol + flows
+- [`docs/blockchain-spi.md`](blockchain-spi.md) — pluggable backends (EVM, Bitcoin, Solana, Cardano)
+- [`docs/micropayment-spi.md`](micropayment-spi.md) — payment family abstraction
+- [`docs/mcp-x402-wallet.md`](mcp-x402-wallet.md) — MCP × x402 paid LLM tools
+
+Examples: `x402-server.ssc`, `x402-client.ssc`, `x402-cardano.ssc` (end-to-end
+Cardano flow with CIP-8 wallet + Scalus escrow validator).
+
+---
+
 ## Quick Reference
 
 ### CLI
@@ -1129,7 +1483,10 @@ ssc plugin install X      # install plugin
 - Coroutines + generators: [docs/coroutines.md](coroutines.md)
 - DSL authoring: [docs/dsl.md](dsl.md)
 - Dataset / MapReduce: [docs/mapreduce.md](mapreduce.md)
-- Actors + cluster: [docs/actors-dist.md](actors-dist.md)
+- Apache Spark: §13 above, [docs/spark-streaming.md](spark-streaming.md), [docs/spark-lakehouse.md](spark-lakehouse.md), [docs/spark-catalog.md](spark-catalog.md), [docs/spark-mllib.md](spark-mllib.md)
+- Actors + cluster: [docs/actors-dist.md](actors-dist.md), [docs/cluster-management.md](cluster-management.md)
+- Frontend toolkit + framework SPI: [docs/frontend-toolkit-spec.md](frontend-toolkit-spec.md), [docs/frontend-framework-spi-plan.md](frontend-framework-spi-plan.md)
+- x402 micropayments + wallet SPI: [docs/x402.md](x402.md), [docs/blockchain-spi.md](blockchain-spi.md), [docs/micropayment-spi.md](micropayment-spi.md)
 - MCP: [docs/mcp.md](mcp.md)
 - Metaprogramming: [docs/metaprogramming.md](metaprogramming.md)
 - Error handling: [docs/error-handling.md](error-handling.md)

@@ -1,4 +1,4 @@
-# Tutorial: Collaborative Todo API
+# Tutorial 1: Collaborative Todo API
 
 Build a real-time collaborative todo list API in ScalaScript — step by step.
 
@@ -764,5 +764,188 @@ else
 - Use `Dataset.fromFile` + `runParallel` for bulk import of existing todos
 - Write a DSL parser for a natural-language todo syntax ("every day at 9am remind me to...")
 - Deploy with `ssc build` to generate a static dashboard alongside the API
+
+---
+
+# Tutorial 2: ETL pipeline with Apache Spark
+
+Build an end-to-end ETL pipeline on the Spark backend — case-class
+`Dataset[T]`, `sql` blocks, `@SqlFn` UDFs, Delta Lake output, and a
+`@TempView` bridge. The finished pipeline:
+
+- Reads JSON input as a typed `Dataset[RawEvent]`
+- Cleans + enriches via a `@SqlFn` UDF
+- Aggregates with a `sql` block
+- Writes the result as Delta and reads it back
+
+All code runs with `bin/ssc-spark events.ssc` — Spark 4 JARs are resolved
+by Coursier on first launch.
+
+---
+
+## Step 1: Project setup
+
+Create `events.ssc`:
+
+````ssc
+---
+name: events-etl
+backend: spark
+spark-version: 4.0.0
+spark-master: local[*]
+spark-app-name: events-etl
+---
+
+# Events ETL
+
+```scalascript
+println("Spark backend up.")
+spark.sparkContext.setLogLevel("WARN")
+```
+````
+
+Run it:
+
+```bash
+bin/ssc-spark events.ssc
+```
+
+The first launch downloads Spark 4. Look for the heading line, the
+`Spark backend up.` print, and a clean exit.
+
+---
+
+## Step 2: Typed input — `Dataset[RawEvent]`
+
+Replace the body with a small inline dataset (in production this would
+come from `Dataset.fromJsonAs[RawEvent](...)` or `fromParquetAs`).
+
+````ssc
+# Input
+
+```scalascript
+case class RawEvent(userId: Int, kind: String, ts: Long, payload: Option[String])
+
+val raw = Dataset.fromList(List(
+  RawEvent(1, "login",  1700000000L, None),
+  RawEvent(1, "view",   1700000060L, Some("page=/home")),
+  RawEvent(2, "login",  1700000120L, None),
+  RawEvent(2, "buy",    1700000200L, Some("sku=A-42;qty=3")),
+  RawEvent(1, "logout", 1700000300L, None)
+))
+
+raw.printSchema()
+raw.show(false)
+```
+````
+
+The Phase E encoder shim derives the schema directly from the case class
+(no `import spark.implicits._`, no `TypeTag`).
+
+---
+
+## Step 3: A `@SqlFn` UDF
+
+Extract `qty=N` from the free-form `payload` and expose it as a Spark
+UDF callable from SQL.
+
+````ssc
+# UDF
+
+```scalascript
+@SqlFn
+def extractQty(payload: String): Int =
+  if payload == null then 0
+  else
+    val parts = payload.split(";").toList
+    parts.find(_.startsWith("qty=")).map(_.drop(4).toInt).getOrElse(0)
+```
+````
+
+`extractQty` is registered on the session catalog before the first
+`sql` block runs.
+
+---
+
+## Step 4: `@TempView` + aggregation
+
+Register `raw` as a temp view so SQL can reference it, then aggregate
+purchase quantities per user.
+
+````ssc
+# Aggregate
+
+```scalascript
+@TempView("events")
+val events = raw    // same Dataset, now also visible to SQL as `events`
+```
+
+## Per-user purchases
+
+```sql
+SELECT
+  userId,
+  SUM(extractQty(payload)) AS total_qty
+FROM events
+WHERE kind = 'buy'
+GROUP BY userId
+ORDER BY userId
+```
+
+```scalascript
+PerUserPurchases.sql.show()
+```
+````
+
+The section heading `## Per-user purchases` produces a `PerUserPurchases.sql`
+alias (a `DataFrame` lazy val) — friendlier than the always-emitted
+`_sqlBlock_0`.
+
+---
+
+## Step 5: Delta Lake output
+
+Write the aggregate to a Delta table and read it back. The codegen
+detects `.format("delta")` and auto-emits the Delta dep + extension /
+catalog configs.
+
+````ssc
+# Persist
+
+```scalascript
+PerUserPurchases.sql
+  .write
+  .format("delta")
+  .mode("overwrite")
+  .save("/tmp/events-delta")
+
+val back = spark.read.format("delta").load("/tmp/events-delta")
+back.show()
+
+println(s"rows persisted: ${back.count()}")
+```
+````
+
+Run again:
+
+```bash
+bin/ssc-spark events.ssc
+```
+
+You should see the schema, the inline events, the per-user aggregate,
+and the round-tripped Delta read. The pipeline is now Coursier-resolved,
+Scala-3-native, encoder-derived, UDF-bridged, SQL-aggregated, and
+Delta-persisted — all from a single `.ssc` file.
+
+---
+
+## What's Next
+
+- Replace `Dataset.fromList` with `Dataset.fromJsonAs[RawEvent]("s3://...")` for real input.
+- Switch from `mode("overwrite")` to `mode("append")` + a Delta `MERGE INTO` for incremental loads.
+- Set `spark-hive-metastore:` in front-matter to register the output as a managed table — see User Guide §13.8.
+- Move to Structured Streaming with `spark.readStream.format("kafka")` — see [`docs/spark-streaming.md`](spark-streaming.md).
+- Fit a classification pipeline on the aggregated features — see [`docs/spark-mllib.md`](spark-mllib.md).
+- For non-local clusters, swap `bin/ssc-spark` for `ssc submit ... --spark-master spark://...` (fat JAR via `spark-submit`).
 
 See the [User Guide](user-guide.md) and [SPEC.md](../SPEC.md) for full API reference.
