@@ -13,7 +13,7 @@ Pure function, no DOM, no async — safe for SSR.
 Import this + a Theme, build your tree with widget constructors,
 then call `serve(lower(tree, defaultTheme), 8080)`.
 
-[TkNode, VStackNode, HStackNode, DividerNode, SpacerNode, HeadingNode, TextNode_, ShowWhenNode, SignalTextNode, FragmentNode, RawTextNode, TextFieldNode, CheckboxNode, SignalButtonNode, ActionButtonNode, BadgeNode, SpinnerNode, CardNode, ModalNode, TableColumn, TableNode, RouteEntry, RouterNode, LinkNode](nodes.ssc)
+[TkNode, VStackNode, HStackNode, DividerNode, SpacerNode, HeadingNode, TextNode_, ShowWhenNode, SignalTextNode, FragmentNode, RawTextNode, TextFieldNode, CheckboxNode, SignalButtonNode, ActionButtonNode, BadgeNode, SpinnerNode, SignalPreNode, CardNode, ModalNode, TableColumn, TableNode, RouteEntry, RouterNode, LinkNode](nodes.ssc)
 
 [Theme](theme.ssc)
 
@@ -154,6 +154,12 @@ def lower(n: TkNode, theme: Theme): View = n match
         Map("style" -> base, "type" -> "button"),
         Map("click" -> handler),
         List(textNode(label)))
+
+  case SignalPreNode(sig) =>
+    element("pre",
+      Map("style" -> "white-space: pre; font-family: monospace; background: #f5f5f5; padding: 8px; border-radius: 4px; overflow-x: auto"),
+      Map(),
+      List(signalText(sig)))
 
   // ── Display ──────────────────────────────────────────────────────────
   case BadgeNode(content, variant) =>

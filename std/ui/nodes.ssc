@@ -21,6 +21,7 @@ exports:
   - ActionButtonNode
   - BadgeNode
   - SpinnerNode
+  - SignalPreNode
   - CardNode
   - ModalNode
   - TableColumn
@@ -75,6 +76,8 @@ case class ActionButtonNode(handler: Any,
 // ── Display ───────────────────────────────────────────────────────────────
 case class BadgeNode(content: String, variant: String)  extends TkNode
 case class SpinnerNode()                                 extends TkNode
+// SignalPreNode — shows a Signal[String] in a <pre> block (preserves newlines).
+case class SignalPreNode(signal: Any)                    extends TkNode
 
 // ── Containers ────────────────────────────────────────────────────────────
 // Card: optional header/footer; pass header/footer as TkNode or null/None.

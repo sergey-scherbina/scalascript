@@ -49,7 +49,7 @@ route("POST", "/api/todos/delete") { req =>
 
 ## Imports and signals
 
-[signal, serve, fetchUrlSignal, fetchAction, incSignal, element, fragment](std/ui/primitives.ssc)
+[signal, serve, fetchUrlSignal, fetchAction, incSignal](std/ui/primitives.ssc)
 
 [lower](std/ui/lower.ssc)
 
@@ -63,7 +63,7 @@ route("POST", "/api/todos/delete") { req =>
 
 [showWhen, signalText_, fragment_, rawText](std/ui/reactive.ssc)
 
-[badge, spinner](std/ui/display.ssc)
+[badge, spinner, signalPre](std/ui/display.ssc)
 
 ```scalascript
 val name      = signal("name",      "Alice")
@@ -143,7 +143,7 @@ val tree = vstack(gap = 16)(
   actionButton(fetchAction("POST", "/api/todos", newItem, refreshTick), "Add"),
   textField(value = deleteId, label = "ID to delete"),
   actionButton(fetchAction("POST", "/api/todos/delete", deleteId, refreshTick), "Delete"),
-  element("pre", Map(), Map(), List(signalText_(todosText)))
+  signalPre(todosText)
 )
 ```
 
