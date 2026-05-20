@@ -824,6 +824,34 @@ unblocks downstream features as early as possible.
      issuer claim ends up equal to the actually-bound port — the
      metadata document advertises real reachable URLs.
 
+     **Iter RR — Persistent stores + full-stack example** ✓ —
+     closes the last production blocker: AS state survives process
+     restart.  Adds a single-file `.ssc` that exercises the entire
+     stack end-to-end.
+
+       - `scalascript.oauth.PersistentStores.JsonLineClientStore(path)`
+         — append-only JSON-line file of `client.register` events;
+         replay-on-construction reconstructs the in-memory map.
+         Corrupt lines are skipped (resilient to partial writes).
+       - `JsonLineTokenStore(path, graveyardCap = 10_000)` — same
+         pattern across 8 event kinds:
+           * `code.save` / `code.consume` (auth codes; one-shot
+             consumption persists across restart)
+           * `refresh.save` / `refresh.revoke` (rotation history;
+             revoked tokens auto-populate the graveyard on replay
+             so reuse detection still trips post-restart)
+           * `access.revoke` / `family.revoke` (deny lists for the
+             RFC 7009 + reuse-detection paths)
+       - End-to-end test: register a client + mint a token via one
+         AS instance, drop the AS, recreate from the same files,
+         confirm the client + bear authentication still work.
+       - `examples/oauth-mcp-full-stack.ssc` — single runnable demo
+         combining `oauth.authServer` + `oauth.serveAuthServer` +
+         `mcpServer { srv => srv.useAuthServer(as); ... }` +
+         `serveMcp(Transport.Http(...))`.  Includes curl recipes
+         for discovery / mint / protected-call / revoke and a
+         Scala snippet showing the persistent-stores swap-in.
+
      **Truly post-v1.17 (deferred)**: DPoP (RFC 9449
      sender-constrained tokens); PAR (RFC 9126 Pushed
      Authorization Requests); MTLS client auth (RFC 8705 —
