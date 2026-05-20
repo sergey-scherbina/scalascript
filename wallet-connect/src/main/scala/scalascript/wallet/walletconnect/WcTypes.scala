@@ -94,11 +94,19 @@ object WcInbound:
   case class SessionUpdate(topic: String, namespaces: Map[String, WcNamespace]) extends WcInbound
   case class Ping(topic: String)                                  extends WcInbound
 
-/** Outbound messages the wallet emits to the relay. */
-sealed trait WcOutbound
+/** Outbound messages the wallet emits to the relay.
+ *
+ *  Every variant carries the relay topic the transport publishes
+ *  on. For `ApproveSession`/`RejectSession` this is the pairing
+ *  topic the proposal came in on; for `RequestResult` it's the
+ *  active session topic the inbound request was received on. */
+sealed trait WcOutbound:
+  /** The relay topic this message will be published on. */
+  def topic: String
+
 object WcOutbound:
-  case class ApproveSession(response: WcSessionResponse)           extends WcOutbound
-  case class RejectSession(response: WcSessionResponse)            extends WcOutbound
-  case class RequestResult(result: WcSessionResult)                extends WcOutbound
+  case class ApproveSession(topic: String, response: WcSessionResponse)           extends WcOutbound
+  case class RejectSession(topic: String, response: WcSessionResponse)            extends WcOutbound
+  case class RequestResult(topic: String, result: WcSessionResult)                extends WcOutbound
   case class EmitEvent(topic: String, name: String, data: ujson.Value, chain: ChainId) extends WcOutbound
   case class Disconnect(topic: String, reason: String)             extends WcOutbound

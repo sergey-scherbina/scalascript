@@ -78,9 +78,12 @@ class WalletConnectConnector(
   private def handleProposal(p: WcSessionProposal): Unit =
     evaluateProposal(p) match
       case Left(reason) =>
-        transport.send(WcOutbound.RejectSession(WcSessionResponse(
-          proposalId = p.id, approved = false, reason = reason,
-        )))
+        transport.send(WcOutbound.RejectSession(
+          topic    = p.pairingTopic,
+          response = WcSessionResponse(
+            proposalId = p.id, approved = false, reason = reason,
+          ),
+        ))
       case Right(approvedNs) =>
         val topic = newSessionTopic(p)
         val session = WcSession(
@@ -92,27 +95,34 @@ class WalletConnectConnector(
         )
         sessions(topic) = session
         transport.subscribe(topic)
-        transport.send(WcOutbound.ApproveSession(WcSessionResponse(
-          proposalId   = p.id,
-          approved     = true,
-          namespaces   = approvedNs,
-          sessionTopic = Some(topic),
-        )))
+        transport.send(WcOutbound.ApproveSession(
+          topic    = p.pairingTopic,
+          response = WcSessionResponse(
+            proposalId   = p.id,
+            approved     = true,
+            namespaces   = approvedNs,
+            sessionTopic = Some(topic),
+          ),
+        ))
 
   private def handleRequest(r: WcSessionRequest): Unit =
     sessions.get(r.topic) match
       case None =>
-        transport.send(WcOutbound.RequestResult(WcSessionResult.Error(
-          r.id, -32601, s"Unknown session topic ${r.topic}",
-        )))
+        transport.send(WcOutbound.RequestResult(
+          topic  = r.topic,
+          result = WcSessionResult.Error(r.id, -32601, s"Unknown session topic ${r.topic}"),
+        ))
       case Some(_) =>
         requestHandler(r.chainId, r.method, r.params).onComplete {
           case scala.util.Success(value) =>
-            transport.send(WcOutbound.RequestResult(WcSessionResult.Ok(r.id, value)))
+            transport.send(WcOutbound.RequestResult(
+              topic = r.topic, result = WcSessionResult.Ok(r.id, value),
+            ))
           case scala.util.Failure(ex) =>
-            transport.send(WcOutbound.RequestResult(WcSessionResult.Error(
-              r.id, -32603, ex.getMessage,
-            )))
+            transport.send(WcOutbound.RequestResult(
+              topic  = r.topic,
+              result = WcSessionResult.Error(r.id, -32603, ex.getMessage),
+            ))
         }
 
   // ── helpers ────────────────────────────────────────────────────────────

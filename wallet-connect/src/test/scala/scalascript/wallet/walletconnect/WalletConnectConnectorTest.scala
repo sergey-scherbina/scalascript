@@ -101,7 +101,8 @@ class WalletConnectConnectorTest extends AnyFunSuite:
     tx.simulateInbound(WcInbound.Proposal(proposal))
     assert(tx.sent.size == 1)
     tx.sent.head match
-      case WcOutbound.ApproveSession(resp) =>
+      case WcOutbound.ApproveSession(topic, resp) =>
+        assert(topic == "pairing-abcd1234")
         assert(resp.proposalId == 1L)
         assert(resp.approved)
         assert(resp.namespaces.contains("eip155"))
@@ -127,7 +128,8 @@ class WalletConnectConnectorTest extends AnyFunSuite:
     tx.simulateInbound(WcInbound.Proposal(proposal))
     assert(tx.sent.size == 1)
     tx.sent.head match
-      case WcOutbound.RejectSession(resp) =>
+      case WcOutbound.RejectSession(topic, resp) =>
+        assert(topic == "pairing-x")
         assert(!resp.approved)
         assert(resp.reason.contains("unsupported chains"))
         assert(resp.reason.contains("eip155:1"))
@@ -160,7 +162,8 @@ class WalletConnectConnectorTest extends AnyFunSuite:
     // The handler is invoked synchronously by the mock; give it a tick.
     awaitTrue(tx.sent.nonEmpty, 2.seconds)
     tx.sent.last match
-      case WcOutbound.RequestResult(WcSessionResult.Ok(99, value)) =>
+      case WcOutbound.RequestResult(topic, WcSessionResult.Ok(99, value)) =>
+        assert(topic == sessionTopic)
         assert(value.str == "0xok")
         assert(capturedMethod.contains("personal_sign"))
         assert(capturedChain.contains(baseId))
@@ -175,7 +178,8 @@ class WalletConnectConnectorTest extends AnyFunSuite:
     )))
     assert(tx.sent.size == 1)
     tx.sent.head match
-      case WcOutbound.RequestResult(WcSessionResult.Error(42, -32601, msg)) =>
+      case WcOutbound.RequestResult(topic, WcSessionResult.Error(42, -32601, msg)) =>
+        assert(topic == "no-such-topic")
         assert(msg.contains("Unknown session topic"))
       case other => fail(s"expected -32601 error, got $other")
   }

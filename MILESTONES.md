@@ -7981,11 +7981,34 @@ Landed in tandem with blockchain-spi Phase 1.
   - [x] `WcKeyAgreement` — X25519 keypair / ECDH / HKDF-SHA256 →
         session symKey / topic = sha256(symKey); `wc:` pairing-URI
         parser (validates topic = sha256(symKey)).
-- [ ] JVM transport composition — `JvmRelayTransport` wiring the
+- [x] JVM transport composition — `JvmRelayTransport` wiring the
       primitives above to JDK `java.net.http.WebSocket` and the
-      `irn_publish` / `irn_subscribe` JSON-RPC frames (next slice).
-- [ ] JS: facade over `@walletconnect/sign-client`
-- [ ] Resolves WC project-ID open question
+      `irn_publish` / `irn_subscribe` / `irn_subscription`
+      JSON-RPC frames (2026-05-20):
+  - [x] `WcSessionStore` — thread-safe in-memory `topic → (symKey,
+        peerPub)` map used by the transport to look up sealing keys
+        per topic.
+  - [x] `WsChannel` trait + `JdkWsChannel` impl over
+        `java.net.http.WebSocket` (partial-frame accumulator).
+  - [x] `RelayJsonRpc` — `irn_publish` / `irn_subscribe` / `irn_unsubscribe`
+        builders, `irn_subscription` parser, monotonic id allocator.
+  - [x] `JvmRelayTransport` — composes the primitives + channel +
+        store; ApproveSession sealed as Type-1 (ships responder's
+        X25519 pubkey, derives session symKey, registers session
+        topic = sha256(symKey)); other outbound variants seal Type-0.
+        Inbound demux: `irn_subscription` → envelope decrypt →
+        inner JSON-RPC method dispatch
+        (`wc_sessionPropose` / `Request` / `Delete` / `Update` /
+        `Ping`); unknown topics + unhandled methods are dropped.
+  - [x] `WcOutbound` ADT carries an explicit `topic` field on every
+        variant — the connector knows which topic each outbound
+        belongs to.
+- [ ] JS: facade over `@walletconnect/sign-client` (still open;
+      blocked on Scala.js cross-compile of `wallet-spi`).
+- [ ] WC project-ID open question — still pending; the JVM
+      transport accepts a `projectId` argument but CI does not yet
+      provision one. To resolve once the JS facade lands or before
+      first production deployment.
 
 ### Phase 5 — Solana DappConnector ✓ Landed JVM translator (2026-05-20)
 
