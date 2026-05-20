@@ -1,0 +1,254 @@
+#!/usr/bin/env ssc
+---
+name: oidc-login-flow
+version: 1.0.0
+description: End-to-end OpenID Connect login walk-through — PKCE pair + state, /authorize redirect, code exchange at /token, id_token + access_token + refresh_token, /userinfo lookup, and id_token signature/claim verification on the client.
+---
+
+# OpenID Connect Login Flow — End-to-End
+
+A complete "Sign in with ScalaScript" walk-through.  This boots an OIDC
+IdP with two pre-registered users (Alice and Bob), exposes the standard
+OAuth + OIDC endpoints, and shows every step of the public-client
+Authorization Code + PKCE flow that a single-page app or native client
+would drive.
+
+The flow being demonstrated:
+
+  1. Client generates a fresh PKCE verifier/challenge pair and a CSRF
+     `state` token, redirects the browser to `/authorize`.
+  2. AS receives the request; in a real deployment a consent UI runs
+     here.  For this demo the IdP's `subjectFor` hook short-circuits
+     the prompt and answers "the logged-in user is alice".
+  3. AS redirects back to the client's `redirect_uri` with `code` +
+     `state` query params.
+  4. Client checks the returned `state` against the value it stashed
+     in step 1 (CSRF guard).
+  5. Client POSTs `code` + `code_verifier` to `/token`.
+  6. AS returns `access_token` + `id_token` + `refresh_token`.
+  7. Client calls `/userinfo` with the bearer access_token to fetch
+     fresh, scope-filtered identity claims.
+
+```scalascript
+// ─── 1. Boot the OIDC IdP ─────────────────────────────────────────────
+
+val as = oauth.authServer(Map(
+  "issuer"        -> "http://localhost:8080",
+  "signingSecret" -> "rotate-me-32-bytes-in-production-please",
+  "scopes"        -> List("openid", "profile", "email", "offline_access")
+))
+
+val idp = oidc.server(as)
+
+// Pre-register two users.  Real deployments load these from your
+// identity backend (LDAP, DB, upstream IdP, …).
+idp.addUser(Map(
+  "subject"       -> "alice",
+  "name"          -> "Alice Anderson",
+  "email"         -> "alice@example.com",
+  "emailVerified" -> true,
+  "picture"       -> "https://example.com/alice.png",
+  "locale"        -> "en-US"
+))
+
+idp.addUser(Map(
+  "subject"       -> "bob",
+  "name"          -> "Bob Brown",
+  "email"         -> "bob@example.com",
+  "emailVerified" -> true,
+  "locale"        -> "en-GB"
+))
+
+// ─── 2. Register a public PKCE client ────────────────────────────────
+//
+// `token_endpoint_auth_method = "none"` + PKCE is the modern recipe
+// for browser apps and native clients — no client_secret involved.
+
+val webapp = as.registerClient(Map(
+  "redirect_uris"              -> List("http://localhost:3000/callback"),
+  "grant_types"                -> List("authorization_code", "refresh_token"),
+  "token_endpoint_auth_method" -> "none",
+  "scope"                      -> "openid profile email offline_access"
+))
+val clientId    = webapp("client_id")
+val redirectUri = "http://localhost:3000/callback"
+println("Webapp client_id: " + clientId)
+
+// ─── 3. Demo-only consent shortcut ───────────────────────────────────
+//
+// `subjectFor` lets the demo skip the consent screen by answering
+// "for any /authorize request, treat the current user as alice".
+// Production deployments would instead render an HTML login form and
+// call idp.completeAuthorization(...) once the user confirms.
+
+idp.subjectFor((req) => Some("alice"))
+
+oidc.serve(idp)
+
+println("OIDC IdP ready on http://localhost:8080")
+println("Discovery: http://localhost:8080/.well-known/openid-configuration")
+println("JWKS:      http://localhost:8080/.well-known/jwks.json")
+
+// ─── 4. Drive the full flow programmatically ─────────────────────────
+//
+// Everything below is what a real client app would run.  Keeping it in
+// the same process makes the example self-contained, but each call
+// could just as easily be issued from curl or a separate program.
+
+val md = oauth.client.discoverAs("http://localhost:8080")
+
+// Step 1: fresh PKCE pair + state.  These get stashed in the client's
+// session storage so step 4 can verify them.
+val pkce  = oauth.client.freshPkce()
+val state = oauth.client.freshState()
+println("\nStep 1 — generated PKCE + state")
+println("  state     = " + state)
+println("  challenge = " + pkce("challenge"))
+
+// Step 2: build the /authorize URL the user would be redirected to.
+val authUrl = oauth.client.authorizationUrl(
+  md("authorization_endpoint"),
+  clientId,
+  redirectUri,
+  List("openid", "profile", "email", "offline_access"),
+  state,
+  pkce("challenge"),
+  pkce("method")
+)
+println("\nStep 2 — browser would visit:")
+println("  " + authUrl)
+
+// Step 3: the AS would normally redirect the browser back to
+// `redirect_uri?code=...&state=...`.  In this script we drive the
+// authorize endpoint directly and parse the Location header.
+val authResp = http.get(authUrl, Map("followRedirects" -> false))
+val location = authResp.header("Location").get
+println("\nStep 3 — AS returned 302 to:")
+println("  " + location)
+
+val callback     = http.parseUrl(location)
+val returnedCode = callback.query("code")
+val returnedSt   = callback.query("state")
+
+// Step 4: CSRF guard — reject mismatched state before touching /token.
+if (!oauth.client.verifyState(state, returnedSt)) {
+  throw new RuntimeException("CSRF: returned state does not match")
+}
+println("\nStep 4 — state verified, proceeding to token exchange")
+
+// Step 5 + 6: exchange code + verifier for the token set.  No secret
+// because this is a public PKCE client.
+val tokens = oauth.client.exchangeAuthorizationCode(
+  md("token_endpoint"),
+  clientId,
+  redirectUri,
+  returnedCode,
+  pkce("verifier")
+)
+println("\nStep 5/6 — /token returned:")
+println("  access_token  = " + tokens("accessToken").toString.take(32) + "…")
+println("  id_token      = " + tokens("idToken").toString.take(32) + "…")
+println("  refresh_token = " + tokens("refreshToken").toString.take(32) + "…")
+println("  expires_in    = " + tokens("expiresIn"))
+
+// Step 7: bearer-authenticated /userinfo lookup.  Claims are filtered
+// by the scopes that were granted at consent time.
+val info = idp.userInfo(tokens("accessToken")).get
+println("\nStep 7 — /userinfo returned:")
+println("  sub             = " + info("sub"))
+println("  name            = " + info.getOrElse("name", "<not granted>"))
+println("  email           = " + info.getOrElse("email", "<not granted>"))
+println("  email_verified  = " + info.getOrElse("email_verified", "<not granted>"))
+println("  locale          = " + info.getOrElse("locale", "<not granted>"))
+
+serve(8080)
+```
+
+## Driving the same flow from curl
+
+While the script is running, the AS endpoints are reachable from any
+HTTP client.  This is the manual version of steps 1-7 above.
+
+```bash
+# 0. Confirm discovery
+curl -s http://localhost:8080/.well-known/openid-configuration | jq .
+
+# 1. Generate PKCE + state in your client.  For demo purposes:
+VERIFIER=$(openssl rand -base64 64 | tr -d '=+/' | cut -c1-64)
+CHALLENGE=$(printf "%s" "$VERIFIER" | openssl dgst -sha256 -binary \
+  | openssl base64 | tr -d '=' | tr '/+' '_-')
+STATE=$(openssl rand -hex 16)
+
+# 2. Open the authorize URL in a browser (or curl -L to follow it).
+#    Replace <CLIENT_ID> with the value printed at script start.
+open "http://localhost:8080/authorize?response_type=code\
+&client_id=<CLIENT_ID>\
+&redirect_uri=http://localhost:3000/callback\
+&scope=openid+profile+email+offline_access\
+&state=$STATE\
+&code_challenge=$CHALLENGE\
+&code_challenge_method=S256"
+
+# 3. The browser lands on http://localhost:3000/callback?code=<CODE>&state=<STATE>
+#    Copy <CODE> into the next call.
+
+# 4. Verify <STATE> matches $STATE (your client does this server-side).
+
+# 5+6. Exchange the code for tokens (note: no client_secret).
+curl -s -X POST http://localhost:8080/token \
+  -d "grant_type=authorization_code" \
+  -d "client_id=<CLIENT_ID>" \
+  -d "redirect_uri=http://localhost:3000/callback" \
+  -d "code=<CODE>" \
+  -d "code_verifier=$VERIFIER" | jq .
+# → { access_token, id_token, refresh_token, token_type, expires_in, scope }
+
+# 7. Hit /userinfo with the access token.
+ACCESS=$(... # access_token from above)
+curl -s -H "Authorization: Bearer $ACCESS" http://localhost:8080/userinfo | jq .
+# → { sub, name, email, email_verified, locale }
+```
+
+## Putting it together (Scala side)
+
+Inside a JVM client the id_token must be cryptographically verified
+before its claims can be trusted.  `OAuthClient.validateIdToken` does
+the heavy lifting — JWKS lookup, signature check, `iss` / `aud` / `exp`
+/ `nonce` enforcement:
+
+```scala
+import scalascript.oauth.OAuthClient
+import scalascript.oidc.IdTokenClaims
+
+val client = new OAuthClient()
+val md     = client.discoverAs("http://localhost:8080")
+val jwks   = client.fetchJwks(md.jwksUri)
+
+val claims: IdTokenClaims = client.validateIdToken(
+  idToken          = tokens("idToken").asInstanceOf[String],
+  jwks             = jwks,
+  expectedIssuer   = "http://localhost:8080",
+  expectedAudience = clientId,
+  expectedNonce    = Some(originalNonce)   // None if no nonce was sent
+)
+
+println(s"Verified login: sub=${claims.subject} email=${claims.email.getOrElse("?")}")
+```
+
+A failed signature, an `iss` / `aud` mismatch, an expired token, or a
+nonce that doesn't match the value the client stashed in step 1 all
+raise — the call never silently accepts an unverified token.
+
+## What this demonstrates
+
+  - **Public-client PKCE flow** — no client_secret required, safe for
+    browser and native apps.
+  - **`state` CSRF defence** — verified on the client *before* the
+    code-for-token swap touches the AS.
+  - **OIDC token set** — `access_token` for resource calls,
+    `id_token` for the user's identity, `refresh_token` for long-lived
+    sessions (granted because `offline_access` was in scope).
+  - **`/userinfo` re-fetch** — always returns the latest scope-filtered
+    claims, useful when the id_token is stale or trimmed.
+  - **JWKS-backed signature verification** — `validateIdToken` is the
+    only safe way to trust an id_token; never decode-and-believe.

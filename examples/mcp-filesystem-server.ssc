@@ -1,0 +1,60 @@
+#!/usr/bin/env ssc
+---
+name: mcp-filesystem-server
+version: 1.0.0
+description: MCP server exposing filesystem read/write/list/delete as tools over stdio transport.
+---
+
+# MCP Server — Filesystem Tools
+
+A small MCP server that exposes the local filesystem through four tools.
+Connect with `npx @modelcontextprotocol/inspector` or any MCP client.
+
+> **Security note**: this example operates on raw paths for clarity. In
+> production, restrict every operation to a sandbox directory (e.g.
+> `Paths.get(root).resolve(path).normalize.startsWith(root)`) before
+> touching the filesystem. Never expose unfiltered FS access to an LLM.
+
+```scalascript
+[mcpServer, serveMcp, Tool, requireString, Transport](../std/mcp/server.ssc)
+
+import scala.io.Source
+import java.nio.file.{Files, Paths}
+import scala.jdk.CollectionConverters._
+
+mcpServer { srv =>
+
+  srv.tool("read_file", "Read text content of a file", readOnlyHint = true) { args =>
+    val path = requireString(args, "path")
+    val src = Source.fromFile(path)
+    try Tool.text(src.mkString) finally src.close()
+  }
+
+  srv.tool("write_file", "Write text content to a file (overwrites)", destructiveHint = true) { args =>
+    val path = requireString(args, "path")
+    val content = requireString(args, "content")
+    Files.write(Paths.get(path), content.getBytes("UTF-8"))
+    Tool.text(s"Wrote ${content.length} chars to $path")
+  }
+
+  srv.tool("list_directory", "List entries in a directory", readOnlyHint = true) { args =>
+    val path = requireString(args, "path")
+    val stream = Files.list(Paths.get(path))
+    try {
+      val entries = stream.iterator().asScala.map(_.getFileName.toString).toList.sorted
+      Tool.text(entries.mkString("\n"))
+    } finally stream.close()
+  }
+
+  srv.tool("delete_file", "Delete a file from disk", destructiveHint = true) { args =>
+    val path = requireString(args, "path")
+    val deleted = Files.deleteIfExists(Paths.get(path))
+    Tool.text(if (deleted) s"Deleted $path" else s"No such file: $path")
+  }
+
+  srv.onConnected(() => println("Filesystem MCP client connected"))
+}
+
+println("MCP filesystem server ready on stdio")
+serveMcp(Transport.Stdio)
+```

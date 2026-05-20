@@ -86,6 +86,7 @@ private def dispatchCommand(args: List[String]): Unit =
     case "fmt"                 => fmtCommand(args.tail)
     case "profile"             => profileCommand(args.tail)
     case "lsp"                 => lspCommand(args.tail)
+    case "oauth"               => OAuthCli.run(args.tail)
     case "help" | "--help" | "-h" => printUsage()
     case "--list-backends"     => println(BackendRegistry.describe)
     case _                     => runCommand(args)

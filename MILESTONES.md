@@ -852,6 +852,47 @@ unblocks downstream features as early as possible.
          for discovery / mint / protected-call / revoke and a
          Scala snippet showing the persistent-stores swap-in.
 
+     **Iter SS — Production observability + CLI + extra examples** ✓ —
+     four parallel work-streams (#1, #2, #3, #6) landed together:
+
+       **(#1) `scalascript.oauth.Observability`** — three building
+       blocks for AS deployments:
+         - `Health.liveness` / `Health.readiness(check)` — RouteOutcome-
+           shaped health probes (200 / 503 with `{status: ...}` body)
+         - `class Metrics` — Prometheus exposition-format registry
+           with labelled counters + gauges; `routeOutcome()` returns
+           a 200 with `text/plain; version=0.0.4`
+         - `MetricsBinding.attachDefault(as, m)` — wires the
+           AuthEvent stream to 7 standard counters
+           (`oauth_tokens_issued_total` / `_refused_total`,
+           `oauth_clients_registered_total`, `oauth_codes_issued_total`,
+           `oauth_family_burned_total`,
+           `oauth_passkey_accepted_total` / `_rejected_total`)
+         - `class JsonLineAudit(path)` — file-backed audit log
+           consuming AuthEvent → one JSON line per event
+           (ts + event + structured fields)
+
+       **(#2) `examples/oidc-login-flow.ssc`** — complete OIDC
+       login walk-through: PKCE + state CSRF + /authorize redirect +
+       /token exchange + /userinfo bearer call + id_token signature
+       + claim verification.  Two pre-registered users; manual curl
+       recipe; JVM-side `validateIdToken` snippet.
+
+       **(#3) Three MCP server templates** —
+       `mcp-filesystem-server.ssc` (read/write/list/delete with
+       hint annotations + sandbox caveat), `mcp-keyvalue-server.ssc`
+       (in-memory mutable.Map closed over the builder block),
+       `mcp-search-server.ssc` (Files.walk-based substring search,
+       top-10 ranked).  All default to Transport.Stdio.
+
+       **(#6) `ssc oauth` CLI subcommand** —
+       `discover <issuer>` / `jwks <issuer>` /
+       `dcr-register <issuer> <redirect-uri>…` (RFC 7591) /
+       `mint <secret> <subject> [scopes…]` /
+       `introspect <secret> <token>`.  `mint` warns on short HMAC
+       secrets per RFC 7518 §3.2.  `introspect` decodes locally —
+       no network round-trip for test fixtures.
+
      **Truly post-v1.17 (deferred)**: DPoP (RFC 9449
      sender-constrained tokens); PAR (RFC 9126 Pushed
      Authorization Requests); MTLS client auth (RFC 8705 —
