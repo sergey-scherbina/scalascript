@@ -539,6 +539,125 @@ App(theme = Theme.default) {
 }
 ```
 
+## Target architecture: pure ScalaScript library
+
+The current implementation lives in a Scala sbt module
+(`frontend-toolkit`) wired to the interpreter via
+`ToolkitDsl.scala` intrinsics.  This is an expedient bootstrap,
+not the final design.
+
+### The goal
+
+The toolkit should be a plain `.ssc` file — importable and
+redistributable exactly like any other user-written library.
+No sbt changes, no intrinsics additions, no compiler knowledge
+of widget names.
+
+### What truly needs intrinsics
+
+Only two operations cross the JVM/JS boundary and are
+legitimately `extern def`:
+
+```scalascript
+// std/ui/primitives.ssc
+extern def signal[T](name: String, default: T): Signal[T]
+extern def element(
+  tag:      String,
+  attrs:    Map[String, Any],
+  events:   Map[String, Any],
+  children: List[View]
+): View
+```
+
+Everything else — widget ADTs, `lower`, theme tokens, accessor
+helpers — is pure data and pure functions and belongs in `.ssc`.
+
+### What moves to `.ssc`
+
+The widget ADT and lowering logic are pure transformations:
+`ToolkitNode → View`.  That is exactly what the `.ssc` type
+system handles.  Compare the current Scala:
+
+```scala
+// current Scala (frontend-toolkit/src/.../Toolkit.scala)
+case class StackNode(direction: StackDirection, gap: Int,
+                     align: Alignment,
+                     children: Seq[ToolkitNode]) extends ToolkitNode
+
+def lower(n: ToolkitNode, theme: Theme): View = n match
+  case StackNode(dir, gap, align, kids) =>
+    element("div", Map("style" -> stackCss(dir, gap, align, theme)),
+             Map.empty, kids.map(lower(_, theme)))
+```
+
+with the equivalent `.ssc`:
+
+```scalascript
+// std/ui/toolkit.ssc
+sealed trait ToolkitNode
+
+case class StackNode(
+  direction: String,
+  gap:       Int,
+  children:  List[ToolkitNode]
+) extends ToolkitNode
+
+def lower(n: ToolkitNode, theme: Theme): View = n match
+  case StackNode(dir, gap, kids) =>
+    element("div", Map("style" -> stackCss(dir, gap, theme)),
+             Map.empty, kids.map(lower(_, theme)))
+  case ButtonNode(label, onClick, kind) =>
+    element("button",
+      Map("style" -> buttonCss(kind, theme), "type" -> "button"),
+      Map("click" -> onClick),
+      List(rawText(label)))
+```
+
+The user-visible DSL stays the same; only the implementation
+layer moves from Scala to `.ssc`.
+
+### Analogy: `std/http.ssc`
+
+The pattern is the same as how the HTTP module works today:
+
+```
+extern def httpGet(url: String): Response   ← one primitive
+// + pure .ssc helpers built on top
+def getJson[T](url: String): T = httpGet(url).parseJson[T]
+```
+
+The toolkit follows the same shape:
+
+```
+extern def element(tag, attrs, events, children): View   ← primitive
+extern def signal[T](name, default): Signal[T]           ← primitive
+// + pure .ssc widget library built on top
+def vstack(gap: Int)(children: ToolkitNode*): ToolkitNode = StackNode(...)
+def button(label: String, onClick: () => Unit): ToolkitNode = ButtonNode(...)
+```
+
+### Future file layout
+
+```
+std/ui/
+  primitives.ssc    — the two extern defs
+  theme.ssc         — Theme case class + default token sets
+  lower.ssc         — lower(ToolkitNode, Theme): View
+  layout.ssc        — vstack, hstack, box, grid, spacer, ...
+  typography.ssc    — heading, text, paragraph, ...
+  input.ssc         — button, textField, checkbox, ...
+  display.ssc       — badge, spinner, alert, ...
+  containers.ssc    — card, modal, tabs, ...
+  reactive.ssc      — showWhen, signalText, for_, ...
+```
+
+User code imports the files it needs:
+
+```scalascript
+[Ui](std/ui/layout.ssc)
+[Theme](std/ui/theme.ssc)
+```
+
 ## Migration path
 
   1. **Phase 1 ✓ Spec freeze** (this doc).  Landed.
@@ -560,6 +679,10 @@ App(theme = Theme.default) {
   7. **Phase 7 (next)** — Reference example app (full SPA exercising
      forms + routing + table + widgets); deeper SSR support; the
      remaining deferred widgets (ColorPicker, TimePicker, combobox).
+  8. **Phase 8 (planned)** — Rewrite toolkit as pure `.ssc` library
+     under `std/ui/`; expose only `signal[T]` and `element` as
+     `extern def`; retire `ToolkitDsl.scala` intrinsics bridge and
+     the `frontend-toolkit` sbt module.
 
 ## Design decisions (formerly open questions)
 
@@ -681,4 +804,7 @@ code keeps working.
 
   - Spec: this doc.  Open questions resolved.
   - Phase 2: shipped (frontend-toolkit module + 25 tests, v1.18 Phase B).
-  - Phases 3 / 4 / 5: landing in parallel sub-iterations.
+  - Phases 3–6: shipped (Forms, Widgets v2, Routing, Data display).
+  - Phase 7: next (reference app + remaining deferred widgets).
+  - Phase 8: planned (pure `.ssc` rewrite — see "Target architecture"
+    section above).
