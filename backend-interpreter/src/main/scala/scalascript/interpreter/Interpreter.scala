@@ -102,7 +102,7 @@ class Interpreter(
   private inline def placeholderIdx: Int          = _phIdxTL.get()
   private inline def placeholderIdx_=(v: Int): Unit = _phIdxTL.set(v)
   // Tracks the last known source position for error messages (0-based line, 0-based column).
-  private var currentSpan: Option[(Int, Int)] = None
+  private[interpreter] var currentSpan: Option[(Int, Int)] = None
   // Source of the code block currently being executed — used to print the
   // offending line under the error message with a caret.
   private[interpreter] var currentSource: String = ""
@@ -1379,10 +1379,10 @@ class Interpreter(
   /** Cache of `closure.updated(name, f)` per FunV — the self-ref binding
    *  is identical on every invocation of the same closure, so we save
    *  one HashMap.updated allocation per call. */
-  private val closureWithSelfCache: java.util.IdentityHashMap[Value.FunV, Env] =
+  private[interpreter] val closureWithSelfCache: java.util.IdentityHashMap[Value.FunV, Env] =
     java.util.IdentityHashMap()
 
-  private def closureWithSelfFor(f: Value.FunV): Env =
+  private[interpreter] def closureWithSelfFor(f: Value.FunV): Env =
     if f.name.isEmpty then f.closure
     else
       val cached = closureWithSelfCache.get(f)
@@ -2374,11 +2374,11 @@ class Interpreter(
             funC match
               case Pure(fv) if comps.forall(_.isInstanceOf[Pure]) =>
                 val namedVals = namedComps.map { case (k, Pure(v)) => (k, v); case (k, _) => (k, Value.UnitV) }
-                callValueNamed(fv, namedVals, env)
+                CallRuntime.callValueNamed(fv, namedVals, env, this)
               case _ =>
                 FlatMap(funC, fv =>
                   threadValues(comps)(argVals =>
-                    callValueNamed(fv, namedComps.map(_._1).zip(argVals), env)))
+                    CallRuntime.callValueNamed(fv, namedComps.map(_._1).zip(argVals), env, this)))
           else
             val argComps = allArgTerms.map(eval(_, env))
             funC match
@@ -2652,7 +2652,7 @@ class Interpreter(
 
         // compiletime.constValue[T] — return the compile-time constant value of type T
         case (Term.Select(Term.Name("compiletime"), Term.Name("constValue")), List(typeArg)) =>
-          Pure(constValueOfType(typeArg.asInstanceOf[scala.meta.Type]))
+          Pure(CallRuntime.constValueOfType(typeArg.asInstanceOf[scala.meta.Type]))
 
         // compiletime.summonInline[TC[T]] — look up a given instance
         case (Term.Select(Term.Name("compiletime"), Term.Name("summonInline")), List(typeArg)) =>
@@ -2774,238 +2774,31 @@ class Interpreter(
 
   // ─── Call helpers ─────────────────────────────────────────────────
 
-  private[interpreter] def callValue(fn: Value, args: List[Value], env: Env): Computation = fn match
-    case f: Value.FunV      => callFun(f, args)
-    case f: Value.NativeFnV => f.f(args)
-    case Value.InstanceV(_, fields) =>
-      fields.get("apply") match
-        case Some(f) => callValue(f, args, env)
-        case None    => located(s"Instance is not callable")
-    // `xs(i)` and `m(k)` — apply-as-indexing on collections.
-    case _: Value.ListV | _: Value.MapV => DispatchRuntime.dispatch(fn, "apply", args, env, this)
-    case _ => located(s"Not callable: ${Value.show(fn)}")
+  private[interpreter] def callValue(fn: Value, args: List[Value], env: Env): Computation =
+    CallRuntime.callValue(fn, args, env, this)
 
-  /** Named-arg aware call.  `namedArgs` is a list of (name?, value) pairs
-   *  where positional args have `name = None` and named args have `name = Some("argName")`.
-   *
-   *  For `FunV` the args are reordered to match the declared parameter order:
-   *  1. Named args are placed at the slot matching their name in `f.params`.
-   *  2. Positional args fill remaining slots left-to-right.
-   *  3. Unfilled slots with defaults are evaluated (including non-trailing ones).
-   *  4. An unknown name raises a runtime error.
-   *  5. An unfilled slot without a default raises a runtime error.
-   *
-   *  For non-FunV callables (NativeFnV, collections) the names are ignored and
-   *  args are passed positionally — these targets don't expose a named-arg API. */
-  private def callValueNamed(fn: Value, namedArgs: List[(Option[String], Value)], env: Env): Computation =
-    fn match
-      case f: Value.FunV =>
-        // Validate: every named arg must appear in f.params.
-        val paramSet = f.params.toSet
-        namedArgs.foreach {
-          case (Some(n), _) if !paramSet.contains(n) =>
-            located(s"Unknown argument name '$n' for function '${if f.name.nonEmpty then f.name else "<anon>"}' (parameters: ${f.params.mkString(", ")})")
-          case _ => ()
-        }
-        // Build the ordered arg list: start with a slot array sized to f.params,
-        // fill named slots first, then fill remaining slots with positionals.
-        val slots = Array.fill[Option[Value]](f.params.length)(None)
-        // Pass 1: place named args at their declared position.
-        namedArgs.foreach {
-          case (Some(n), v) =>
-            val idx = f.params.indexOf(n)
-            if idx >= 0 then slots(idx) = Some(v)
-          case _ => ()
-        }
-        // Pass 2: place positional args into the first empty slots (left-to-right).
-        val positionals = namedArgs.collect { case (None, v) => v }.iterator
-        for i <- slots.indices do
-          if slots(i).isEmpty && positionals.hasNext then
-            slots(i) = Some(positionals.next())
-        // Pass 3: fill any remaining empty slots with defaults.
-        // Walk left-to-right so earlier params are in scope for later defaults.
-        val selfEntry = if f.name.nonEmpty then Map(f.name -> f) else Map.empty
-        var baseEnv2  = f.closure ++ selfEntry
-        val orderedArr = Array.fill[Value](f.params.length)(Value.UnitV)
-        for i <- f.params.indices do
-          slots(i) match
-            case Some(v) =>
-              orderedArr(i) = v
-              baseEnv2 = baseEnv2 + (f.params(i) -> v)
-            case None =>
-              // Need default.
-              val defaultOpt = f.defaults.lift(i).flatten
-              defaultOpt match
-                case Some(defaultTerm) =>
-                  val v = Computation.run(eval(defaultTerm, baseEnv2))
-                  orderedArr(i) = v
-                  baseEnv2 = baseEnv2 + (f.params(i) -> v)
-                case None =>
-                  located(s"Missing argument for parameter '${f.params(i)}' in call to '${if f.name.nonEmpty then f.name else "<anon>"}' — parameter has no default")
-        callFun(f, orderedArr.toList)
-      case f: Value.NativeFnV => f.f(namedArgs.map(_._2))
-      case Value.InstanceV(_, fields) =>
-        fields.get("apply") match
-          case Some(f) => callValueNamed(f, namedArgs, env)
-          case None    => located(s"Instance is not callable")
-      case _: Value.ListV | _: Value.MapV => DispatchRuntime.dispatch(fn, "apply", namedArgs.map(_._2), env, this)
-      case _ => located(s"Not callable: ${Value.show(fn)}")
+  // ─── Call helpers — see CallRuntime.scala ────────────────────────────────
 
   private[interpreter] def callFun(f: Value.FunV, args: List[Value]): Computation =
-    // Auto-tuple: an N-parameter lambda passed where a 1-arg function on
-    // an N-tuple is expected (e.g. `pairs.foreach((n, s) => ...)`) gets
-    // its single tuple argument destructured into the N parameters.
-    val tupledArgs = args match
-      case List(Value.TupleV(elems))
-        if f.params.length > 1 && elems.length == f.params.length =>
-        elems
-      case _ => args
-    // Only allocate the defaults-pass base env when defaults are actually
-    // needed — most calls pass enough args and skip the allocation.
-    // `eval` for Term.Name already falls back through `globals`, so locals
-    // (closure + self ref + params) are all the env we need.
-    val selfEntry = if f.name.nonEmpty then Map(f.name -> f) else Map.empty
-    // Resolve factory stubs: if a caller explicitly passed `using factoryName` and the
-    // value is a __factory__ marker stub, replace it with a properly instantiated value
-    // derived from the factory registry and the regular args.
-    def resolveFactoryStubs(args: List[Value]): List[Value] =
-      if f.usingParams.isEmpty || givenFactories.isEmpty then args
-      else
-        val regularCount = f.params.length - f.usingParams.length
-        val regularVals  = args.take(regularCount)
-        args.zipWithIndex.map { case (v, i) =>
-          if i >= regularCount then
-            v match
-              case Value.InstanceV(_, fs) if fs.contains("__factory__") =>
-                // This is a factory stub — resolve the actual instance
-                val usingIdx = i - regularCount
-                val typeKey  = f.usingParams.lift(usingIdx).map(_._2).getOrElse("")
-                if typeKey.nonEmpty then
-                  GivenRuntime.resolveGiven(typeKey, regularVals, f.closure, this).getOrElse(v)
-                else v
-              case _ => v
-          else v
-        }
-    val effArgs =
-      if tupledArgs.length >= f.params.length then resolveFactoryStubs(tupledArgs)
-      else if f.usingParams.nonEmpty then
-        // Phase 1: auto-resolve `using` / context-bound params that were not
-        // supplied by the call site.
-        val regularCount = f.params.length - f.usingParams.length
-        val withUsing =
-          if tupledArgs.length >= regularCount then
-            // Caller supplied all regular args — resolve each using param
-            val regularArgVals = tupledArgs.take(regularCount)
-            val resolved = f.usingParams.map { (pname, typeKey) =>
-              GivenRuntime.resolveGiven(typeKey, regularArgVals, f.closure, this)
-                .getOrElse(located(s"No given instance found for '$typeKey' (using parameter '$pname')"))
-            }
-            tupledArgs ++ resolved
-          else
-            tupledArgs  // Still need defaults — fall through
-        if withUsing.length >= f.params.length then withUsing
-        else applyDefaults(f.params, f.defaults, withUsing, f.closure ++ selfEntry)
-      else
-        applyDefaults(f.params, f.defaults, tupledArgs, f.closure ++ selfEntry)
-    val info      = TcoRuntime.tcoInfoFor(f, this)
-    val hasMutualTail = info.tailTargets.nonEmpty && info.tailTargets.exists { n =>
-      (globals.get(n) orElse f.closure.get(n)).exists(_.isInstanceOf[Value.FunV])
-    }
-    if info.noNonTailSelf && (info.isSelfTailRec || hasMutualTail) then
-      // Profile the initial TCO call; tcoTrampoline will record each
-      // subsequent tail-call iteration individually.
-      if Profiler.enabled && f.name.nonEmpty then
-        Profiler.record(f.name, 0L)
-      TcoRuntime.tcoTrampoline(f, effArgs, null, this)
-    else
-      // Build callEnv as a `FrameMap` — parallel arrays of param names /
-      // values on top of the (cached) closure-with-self map. Cheaper than
-      // a HashMap.updated chain for the typical 1-2 param case and
-      // turns lookup into a linear scan over `slots` (tiny), falling
-      // through to the closure map only for non-locals.
-      val withSelf = closureWithSelfFor(f)
-      val callEnv: Env = f.params match
-        case Nil               => withSelf
-        case p :: Nil          => FrameMap.one(p, effArgs.head, withSelf)
-        case p1 :: p2 :: Nil   => FrameMap.two(p1, effArgs.head, p2, effArgs(1), withSelf)
-        case ps                =>
-          val names = ps.toArray
-          val arr   = effArgs.iterator.take(names.length).toArray
-          FrameMap.of(names, arr, withSelf)
-      val frameName = if f.name.nonEmpty then f.name else "<anon>"
-      val lineNum   = currentSpan.map(_._1 + 1).getOrElse(0)
-      callStack += ((frameName, lineNum))
-      val t0 = if Profiler.enabled && f.name.nonEmpty then System.nanoTime() else 0L
-      val result =
-        try TcoRuntime.runUntilSuspension(eval(f.body, callEnv))
-        catch case r: ReturnSignal => Pure(r.value)
-      if Profiler.enabled && f.name.nonEmpty then
-        Profiler.record(f.name, System.nanoTime() - t0)
-      if callStack.nonEmpty then callStack.remove(callStack.length - 1)
-      if f.returnsThrows then result.map(throwsAutoWrap)
-      else result
+    CallRuntime.callFun(f, args, this)
 
-  private def throwsAutoWrap(v: Value): Value = v match
-    case Value.InstanceV("Left",  _) => v
-    case Value.InstanceV("Right", _) => v
-    case other => Value.InstanceV("Right", Map("value" -> other))
+  // ─── Given / using helpers — see CallRuntime.scala ───────────────────────
 
-  // ─── Given / using helpers ────────────────────────────────────────
+  private[interpreter] def typeToString(t: scala.meta.Type): String =
+    CallRuntime.typeToString(t)
 
-  /** Convert a scalameta `Type` node to the canonical key string used to
-   *  store `given` instances (e.g. `"Monoid[Int]"`, `"Monad[List]"`). */
-  private[interpreter] def typeToString(t: scala.meta.Type): String = t match
-    case scala.meta.Type.Name(n)         => n
-    case ta: scala.meta.Type.Apply       => s"${typeToString(ta.tpe)}[${ta.argClause.values.map(typeToString).mkString(", ")}]"
-    case scala.meta.Type.Function.After_4_6_0(params, r) => s"(${params.values.map(typeToString).mkString(", ")}) => ${typeToString(r)}"
-    case scala.meta.Type.Tuple(ts)       => ts.map(typeToString).mkString("(", ", ", ")")
-    case ti: scala.meta.Type.ApplyInfix  => s"${typeToString(ti.lhs)} ${ti.op.value} ${typeToString(ti.rhs)}"
-    case _                               => "_"
-
-  /** Extract the compile-time constant value of a type-level literal.
-   *  Used by `compiletime.constValue[T]`. */
-  private def constValueOfType(tp: scala.meta.Type): Value = tp match
-    case scala.meta.Lit.Int(n)      => Value.IntV(n.toLong)
-    case scala.meta.Lit.String(s)   => Value.StringV(s)
-    case scala.meta.Lit.Boolean(b)  => Value.BoolV(b)
-    case scala.meta.Lit.Double(d)   => Value.DoubleV(d.toDouble)
-    case scala.meta.Lit.Long(l)     => Value.IntV(l)
-    case scala.meta.Type.Name(n)    => Value.StringV(n)
-    case _                          => Value.StringV(tp.syntax)
-
-  /** True if a scalameta Type is `A throws E` (infix `throws`). */
-  private[interpreter] def isThrowsType(t: scala.meta.Type): Boolean = t match
-    case ti: scala.meta.Type.ApplyInfix => ti.op.value == "throws"
-    case _                              => false
+  private[interpreter] def isThrowsType(t: scala.meta.Type): Boolean =
+    CallRuntime.isThrowsType(t)
 
   // ─── Given / typeclass resolution — see GivenRuntime.scala ──────────────
 
-  /** Extend `args` with default values for any missing trailing parameters.
-   *  Each default is evaluated in `baseEnv` augmented with the bindings of all
-   *  parameters to its left (provided ones plus already-filled defaults), so
-   *  defaults like `def f(x: Int, y: Int = x + 1)` see `x` correctly. */
   private[interpreter] def applyDefaults(
     params:   List[String],
     defaults: List[Option[Term]],
     args:     List[Value],
     baseEnv:  Env
   ): List[Value] =
-    if args.length >= params.length then args
-    else
-      val provided = args
-      var env = baseEnv ++ params.zip(provided).toMap
-      val filled = (provided.length until params.length).map { i =>
-        val pname      = params(i)
-        val defaultOpt = defaults.lift(i).flatten
-        defaultOpt match
-          case Some(defaultTerm) =>
-            val v = Computation.run(eval(defaultTerm, env))
-            env = env + (pname -> v)
-            v
-          case None =>
-            located(s"missing argument for parameter '$pname'")
-      }.toList
-      provided ++ filled
+    CallRuntime.applyDefaults(params, defaults, args, baseEnv, this)
 
   // ─── TCO trampoline — see TcoRuntime.scala ──────────────────────
 
