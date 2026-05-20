@@ -1,11 +1,11 @@
-package scalascript.compiler.plugin.uifetch
+package scalascript.compiler.plugin.fetch
 
 import scalascript.backend.spi.*
 import scalascript.ir.QualifiedName
 import scalascript.interpreter.{InterpretError, Value}
 import scalascript.frontend.{ReactiveSignal, FetchUrlSignal, EventHandler}
 
-object UiFetchIntrinsics:
+object FetchIntrinsics:
 
   val table: Map[QualifiedName, IntrinsicImpl] = Map(
 

@@ -465,7 +465,7 @@ lazy val backendCss = project
 // backends no longer reference each other.
 lazy val backendInterpreter = project
   .in(file("backend/interpreter"))
-  .dependsOn(backendSpi, core, runtimeServerCommon, runtimeServerJvm, mcpCommon, backendJs, backendSqlRuntime, frontendCore, backendJvm % Test, frontendCustom % Test, frontendReact % Test, frontendSolid % Test, frontendVue % Test, jsonPlugin % Test, frontendPlugin, requestPlugin % Test, authPlugin % Test, oauthPlugin % Test, uiFetchPlugin % Test, sqlPlugin % Test, httpPlugin % Test, wsPlugin % Test, mcpPlugin % Test)
+  .dependsOn(backendSpi, core, runtimeServerCommon, runtimeServerJvm, mcpCommon, backendJs, backendSqlRuntime, frontendCore, backendJvm % Test, frontendCustom % Test, frontendReact % Test, frontendSolid % Test, frontendVue % Test, jsonPlugin % Test, frontendPlugin, requestPlugin % Test, authPlugin % Test, oauthPlugin % Test, fetchPlugin % Test, sqlPlugin % Test, httpPlugin % Test, wsPlugin % Test, mcpPlugin % Test)
   .settings(
     name := "scalascript-backend-interpreter",
     libraryDependencies ++= Seq(scalatestTest),
@@ -703,7 +703,7 @@ lazy val cli = project
       val compilerAbsPaths = (compilerJars :+ driverJar).map(_.getAbsolutePath).toSet
       val pluginJarPrefixes = Set("scalascript-json-plugin", "scalascript-frontend-plugin",
                                   "scalascript-request-plugin", "scalascript-auth-plugin",
-                                  "scalascript-oauth-plugin", "scalascript-ui-fetch-plugin",
+                                  "scalascript-oauth-plugin", "scalascript-fetch-plugin",
                                   "scalascript-sql-plugin",
                                   "scalascript-http-plugin", "scalascript-ws-plugin", "scalascript-mcp-plugin")
       val isPluginJar = (f: java.io.File) => pluginJarPrefixes.exists(f.getName.startsWith)
@@ -723,7 +723,7 @@ lazy val cli = project
         (requestPlugin  / packagePlugin).value,
         (authPlugin     / packagePlugin).value,
         (oauthPlugin    / packagePlugin).value,
-        (uiFetchPlugin  / packagePlugin).value,
+        (fetchPlugin    / packagePlugin).value,
         (sqlPlugin      / packagePlugin).value,
         (httpPlugin     / packagePlugin).value,
         (wsPlugin       / packagePlugin).value,
@@ -1771,15 +1771,15 @@ lazy val oauthPlugin = project
   )
   .settings(sscpkgSettings("scalascript.std.oauth"))
 
-lazy val uiFetchPlugin = project
-  .in(file("std/ui-fetch-plugin"))
+lazy val fetchPlugin = project
+  .in(file("std/fetch-plugin"))
   .dependsOn(backendSpi, ir, core, frontendCore)
   .settings(
-    name := "scalascript-ui-fetch-plugin",
+    name := "scalascript-fetch-plugin",
     Compile / scalacOptions ++= sharedScalacOptionsStrict,
     Test    / scalacOptions ++= sharedScalacOptions,
   )
-  .settings(sscpkgSettings("scalascript.std.uifetch"))
+  .settings(sscpkgSettings("scalascript.std.fetch"))
 
 lazy val sqlPlugin = project
   .in(file("std/sql-plugin"))
@@ -1840,7 +1840,7 @@ lazy val root = project
     // frontendToolkit retired — replaced by std/ui/*.ssc (Phase 7a-7d)
     frontendExamples,
     jsonPlugin, frontendPlugin, requestPlugin,
-    authPlugin, oauthPlugin, uiFetchPlugin, sqlPlugin,
+    authPlugin, oauthPlugin, fetchPlugin, sqlPlugin,
     httpPlugin, wsPlugin, mcpPlugin,
   )
   .settings(
