@@ -175,32 +175,66 @@ object Wallets:
    *  The bech32 payment address is derived from the key via CIP-19
    *  (enterprise address: `header || Blake2b-224(pubkey)`). */
   def cardano(hex: String, network: Network)(using ExecutionContext): Wallet =
-    new CardanoPrivateKeyWallet(hex, deriveCardanoAddress(hex, network), network)
+    new CardanoPrivateKeyWallet(hex, deriveCardanoEnterpriseAddress(hex, network), network)
 
   /** Cardano CIP-8 wallet with an explicit address (use when supplying a
-   *  base / stake-augmented address that's not just the enterprise form). */
+   *  pointer-, script-, or otherwise hand-crafted bech32 address). */
   def cardano(hex: String, address: String, network: Network)(using ExecutionContext): Wallet =
     new CardanoPrivateKeyWallet(hex, address, network)
+
+  /** Cardano CIP-8 wallet with a stake-aware **base** address derived
+   *  from both keys (CIP-19 type 0/1): `header || Blake2b-224(payment) ||
+   *  Blake2b-224(stake)`. Signing uses only the payment key — the stake
+   *  key participates in the address but never signs payments. */
+  def cardanoBase(paymentHex: String, stakeHex: String, network: Network)(using ExecutionContext): Wallet =
+    new CardanoPrivateKeyWallet(
+      paymentHex,
+      deriveCardanoBaseAddress(paymentHex, stakeHex, network),
+      network,
+    )
 
   /** Env-var convenience: reads the hex private key from `envVar` and
    *  derives the enterprise bech32 address from it. */
   def cardanoEnvKey(envVar: String, network: Network)(using ExecutionContext): Wallet =
     val hex = sys.env.getOrElse(envVar, throw RuntimeException(s"Env var $envVar not set"))
-    new CardanoPrivateKeyWallet(hex, deriveCardanoAddress(hex, network), network)
+    new CardanoPrivateKeyWallet(hex, deriveCardanoEnterpriseAddress(hex, network), network)
 
   /** Env-var convenience with an explicit address override. */
   def cardanoEnvKey(envVar: String, address: String, network: Network)(using ExecutionContext): Wallet =
     val hex = sys.env.getOrElse(envVar, throw RuntimeException(s"Env var $envVar not set"))
     new CardanoPrivateKeyWallet(hex, address, network)
 
+  /** Env-var convenience for stake-aware base addresses. Reads both keys
+   *  from env vars and derives the CIP-19 type-0 base bech32 address. */
+  def cardanoBaseEnvKey(paymentEnvVar: String, stakeEnvVar: String, network: Network)(using ExecutionContext): Wallet =
+    val payment = sys.env.getOrElse(paymentEnvVar, throw RuntimeException(s"Env var $paymentEnvVar not set"))
+    val stake   = sys.env.getOrElse(stakeEnvVar,   throw RuntimeException(s"Env var $stakeEnvVar not set"))
+    new CardanoPrivateKeyWallet(
+      payment,
+      deriveCardanoBaseAddress(payment, stake, network),
+      network,
+    )
+
   /** Derive a CIP-19 enterprise bech32 address from a raw Ed25519 private
    *  key. Network selects mainnet (`addr1...`) vs testnet (`addr_test1...`). */
-  private def deriveCardanoAddress(hex: String, network: Network)(using ExecutionContext): String =
-    require(network.isCardano, s"deriveCardanoAddress requires a Cardano network, got $network")
-    val vault   = RawPrivateKeyVault.fromHex("x402-cardano-addr-derive", hex, Curve.Ed25519)
-    val signer  = Await.result(vault.getSigner(Curve.Ed25519, "raw"), Duration.Inf)
+  private def deriveCardanoEnterpriseAddress(hex: String, network: Network)(using ExecutionContext): String =
+    require(network.isCardano, s"deriveCardanoEnterpriseAddress requires a Cardano network, got $network")
+    val signer  = cardanoSigner(hex, label = "x402-cardano-addr-derive")
     val testnet = network != Network.CardanoMainnet
     CardanoAddress.fromPublicKey(signer.publicKey, testnet = testnet)
+
+  /** Derive a CIP-19 type-0 base bech32 address from raw Ed25519
+   *  payment + stake private keys. */
+  private def deriveCardanoBaseAddress(paymentHex: String, stakeHex: String, network: Network)(using ExecutionContext): String =
+    require(network.isCardano, s"deriveCardanoBaseAddress requires a Cardano network, got $network")
+    val payment = cardanoSigner(paymentHex, label = "x402-cardano-base-payment")
+    val stake   = cardanoSigner(stakeHex,   label = "x402-cardano-base-stake")
+    val testnet = network != Network.CardanoMainnet
+    CardanoAddress.fromPublicKeys(payment.publicKey, stake.publicKey, testnet = testnet)
+
+  private def cardanoSigner(hex: String, label: String)(using ExecutionContext): RawSigner =
+    val vault = RawPrivateKeyVault.fromHex(label, hex, Curve.Ed25519)
+    Await.result(vault.getSigner(Curve.Ed25519, "raw"), Duration.Inf)
 
 // ── Payment payload builder ───────────────────────────────────────────────────
 

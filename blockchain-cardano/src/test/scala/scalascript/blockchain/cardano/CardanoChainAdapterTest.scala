@@ -75,6 +75,45 @@ class CardanoChainAdapterTest extends AnyFunSuite with Matchers:
     testnetAdapter.addressFromPublicKey(pk) should startWith("addr_test1")
   }
 
+  // ── base addresses (CIP-19 type 0/1) ─────────────────────────────────────
+
+  test("CardanoAddress.fromPublicKeys: mainnet base address starts with addr1") {
+    val (_, payment) = derivePath(Array.fill[Byte](64)(0x42.toByte), "m/1852'/1815'/0'/0'/0'")
+    val (_, stake)   = derivePath(Array.fill[Byte](64)(0x42.toByte), "m/1852'/1815'/0'/2'/0'")
+    val addr         = CardanoAddress.fromPublicKeys(payment, stake, testnet = false)
+    addr should startWith("addr1")
+    val bytes        = Bech32.decode(addr).getOrElse(fail("must decode"))
+    bytes.length shouldBe 57   // header + 28 payment + 28 stake
+    (bytes(0) & 0xFF) shouldBe 0x00
+  }
+
+  test("CardanoAddress.fromPublicKeys: testnet base address starts with addr_test1") {
+    val (_, payment) = derivePath(Array.fill[Byte](64)(0x33.toByte), "m/1852'/1815'/0'/0'/0'")
+    val (_, stake)   = derivePath(Array.fill[Byte](64)(0x33.toByte), "m/1852'/1815'/0'/2'/0'")
+    val addr         = CardanoAddress.fromPublicKeys(payment, stake, testnet = true)
+    addr should startWith("addr_test1")
+    val bytes        = Bech32.decode(addr).getOrElse(fail("must decode"))
+    (bytes(0) & 0xFF) shouldBe 0x10
+  }
+
+  test("CardanoAddress.fromPublicKeys: payment+stake hash prefix matches enterprise payment hash") {
+    val (_, payment) = derivePath(Array.fill[Byte](64)(0x55.toByte), "m/1852'/1815'/0'/0'/0'")
+    val (_, stake)   = derivePath(Array.fill[Byte](64)(0x55.toByte), "m/1852'/1815'/0'/2'/0'")
+    val baseAddr = CardanoAddress.fromPublicKeys(payment, stake, testnet = false)
+    val entAddr  = CardanoAddress.fromPublicKey(payment, testnet = false)
+    val baseBytes = Bech32.decode(baseAddr).getOrElse(fail("base must decode"))
+    val entBytes  = Bech32.decode(entAddr).getOrElse(fail("enterprise must decode"))
+    // header byte differs (0x00 vs 0x60); the next 28 bytes (payment hash) must match
+    baseBytes.slice(1, 29).toSeq shouldBe entBytes.slice(1, 29).toSeq
+  }
+
+  test("CardanoAddress.kindOf: distinguishes enterprise from base") {
+    val (_, payment) = derivePath(Array.fill[Byte](64)(0x77.toByte), "m/1852'/1815'/0'/0'/0'")
+    val (_, stake)   = derivePath(Array.fill[Byte](64)(0x77.toByte), "m/1852'/1815'/0'/2'/0'")
+    CardanoAddress.kindOf(CardanoAddress.fromPublicKey(payment))             shouldBe CardanoAddress.Kind.Enterprise
+    CardanoAddress.kindOf(CardanoAddress.fromPublicKeys(payment, stake))     shouldBe CardanoAddress.Kind.Base
+  }
+
   // ── balances ─────────────────────────────────────────────────────────────
 
   test("nativeBalance returns lovelace from stub") {

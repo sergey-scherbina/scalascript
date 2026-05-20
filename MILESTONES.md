@@ -7857,7 +7857,14 @@ declares `signCip8`; EVM and Cardano wallets reject the wrong shape.
       via `blockchain-cardano.CardanoAddress.fromPublicKey`; the
       `(hex, address, network)` form remains for stake-aware base
       addresses; example dropped its `CARDANO_ADDR` env var
-- [ ] Base addresses with staking (deferred — caller-supplied only)
+- [x] Base addresses with staking (2026-05-20) —
+      `CardanoAddress.fromPublicKeys(payment, stake, testnet)` builds
+      CIP-19 type-0 base addresses (`header || Blake2b-224(payment) ||
+      Blake2b-224(stake)`); `Wallets.cardanoBase(paymentHex, stakeHex,
+      network)` + `cardanoBaseEnvKey` factories. Signing still uses
+      only the payment key — stake key participates in the address but
+      never signs payments. `CardanoAddress.Kind` exposed for caller
+      sanity checks (Base / Enterprise / Reward / Pointer / Script).
 - [→] `CardanoProvider.Scalus` settlement → see Phase 10 below
 
 ### Phase 10 — Scalus / Plutus-escrow settlement

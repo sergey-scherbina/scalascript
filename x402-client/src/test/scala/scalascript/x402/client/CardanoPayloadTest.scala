@@ -143,6 +143,52 @@ class CardanoPayloadTest extends AnyFunSuite:
     assert(w.address == custom)
   }
 
+  // ── Base addresses (CIP-19 type 0/1) ─────────────────────────────────────────
+
+  private val testStakeKeyHex = "4ccd089b28ff96da9db6c346ec114e0f5b8a319391b5d4e5dca0c4d8f0e8e2c9"
+
+  test("Wallets.cardanoBase: addr_test1 on Preprod with stake key") {
+    val w = Wallets.cardanoBase(testPrivKeyHex, testStakeKeyHex, Network.CardanoPreprod)
+    assert(w.address.startsWith("addr_test1"))
+    // Base addresses are longer than enterprise (57 vs 29 bytes payload)
+    val ent = Wallets.cardano(testPrivKeyHex, Network.CardanoPreprod).address
+    assert(w.address.length > ent.length, s"base ${w.address.length} should be longer than enterprise ${ent.length}")
+  }
+
+  test("Wallets.cardanoBase: addr1 on Mainnet decodes to 57-byte payload") {
+    import scalascript.blockchain.cardano.{Bech32, CardanoAddress}
+    val w = Wallets.cardanoBase(testPrivKeyHex, testStakeKeyHex, Network.CardanoMainnet)
+    assert(w.address.startsWith("addr1"))
+    val bytes = Bech32.decode(w.address).getOrElse(fail("address must decode"))
+    assert(bytes.length == 57, s"base address payload must be 57 bytes, got ${bytes.length}")
+    assert((bytes(0) & 0xF0) == 0x00, s"mainnet base header high-nibble must be 0x00, got ${bytes(0).toInt & 0xFF}")
+    assert(CardanoAddress.kindOf(w.address) == CardanoAddress.Kind.Base)
+  }
+
+  test("Wallets.cardanoBase: signing still uses payment key only") {
+    val w = Wallets.cardanoBase(testPrivKeyHex, testStakeKeyHex, Network.CardanoPreprod)
+    val proof = Await.result(w.signCip8("hello".getBytes("UTF-8")), 5.seconds)
+    // Re-derive the payment-only enterprise wallet — its CIP-8 proof's COSE_Key
+    // must carry the same Ed25519 pubkey, since stake key shouldn't sign.
+    val ent = Wallets.cardano(testPrivKeyHex, Network.CardanoPreprod)
+    val entProof = Await.result(ent.signCip8("hello".getBytes("UTF-8")), 5.seconds)
+    assert(proof.key == entProof.key, "CIP-8 verification key must match the payment key, not the stake key")
+  }
+
+  test("Wallets.cardanoBase: differs from enterprise even with same payment key") {
+    val base       = Wallets.cardanoBase(testPrivKeyHex, testStakeKeyHex, Network.CardanoPreprod).address
+    val enterprise = Wallets.cardano(testPrivKeyHex, Network.CardanoPreprod).address
+    assert(base != enterprise)
+  }
+
+  test("CardanoAddress.kindOf: enterprise vs base") {
+    import scalascript.blockchain.cardano.CardanoAddress
+    val ent  = Wallets.cardano(testPrivKeyHex, Network.CardanoPreprod).address
+    val base = Wallets.cardanoBase(testPrivKeyHex, testStakeKeyHex, Network.CardanoPreprod).address
+    assert(CardanoAddress.kindOf(ent)  == CardanoAddress.Kind.Enterprise)
+    assert(CardanoAddress.kindOf(base) == CardanoAddress.Kind.Base)
+  }
+
   test("EVM wallet rejects CIP-8 signing; Cardano wallet rejects EIP-712 signing") {
     val evm     = Wallets.privateKey("0x" + "ab" * 32, Network.Base)
     val cardano = Wallets.cardano(testPrivKeyHex, testAddress, Network.CardanoPreprod)
