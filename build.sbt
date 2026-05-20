@@ -1613,7 +1613,7 @@ lazy val micropaymentHydra = project
 // as plugins rather than hardcoded intrinsics.
 
 lazy val jsonPlugin = project
-  .in(file("examples/plugins/json-plugin"))
+  .in(file("std/json-plugin"))
   .dependsOn(backendSpi, ir, core)
   .settings(
     name := "scalascript-json-plugin",
@@ -1622,7 +1622,7 @@ lazy val jsonPlugin = project
   )
 
 lazy val frontendPlugin = project
-  .in(file("examples/plugins/frontend-plugin"))
+  .in(file("std/frontend-plugin"))
   .dependsOn(backendSpi, ir, core, frontendCore, frontendCustom % Test, frontendReact % Test, frontendSolid % Test, frontendVue % Test)
   .settings(
     name := "scalascript-frontend-plugin",
@@ -1632,7 +1632,7 @@ lazy val frontendPlugin = project
   )
 
 lazy val requestPlugin = project
-  .in(file("examples/plugins/request-plugin"))
+  .in(file("std/request-plugin"))
   .dependsOn(backendSpi, ir, core)
   .settings(
     name := "scalascript-request-plugin",
