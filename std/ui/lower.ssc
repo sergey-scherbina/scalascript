@@ -102,20 +102,17 @@ def lower(n: TkNode, theme: Theme): View = n match
 
   case CheckboxNode(checked, label, disabled) =>
     val sp    = theme.spacing
+    val t     = theme.typography.body
     val cbEl  = element("input",
       Map("type"     -> "checkbox",
           "disabled" -> disabled,
           "checked"  -> checked),
       if disabled then Map() else Map("change" -> toggleSignal(checked)),
       List())
-    val lblEl = element("label",
-      Map("style" -> s"font-size:${theme.typography.body.fontSize}px; font-family:${theme.typography.body.fontFamily}; color:${theme.colors.onSurface}; cursor:pointer"),
+    element("label",
+      Map("style" -> s"display:flex; flex-direction:row; align-items:center; gap:${sp.sm}px; cursor:pointer; font-size:${t.fontSize}px; font-family:${t.fontFamily}; color:${theme.colors.onSurface}"),
       Map(),
-      List(textNode(label)))
-    element("div",
-      Map("style" -> s"display:flex; flex-direction:row; align-items:center; gap:${sp.sm}px"),
-      Map(),
-      List(cbEl, lblEl))
+      List(cbEl, textNode(label)))
 
   case SignalButtonNode(sig, value, label, disabled) =>
     val sp   = theme.spacing
