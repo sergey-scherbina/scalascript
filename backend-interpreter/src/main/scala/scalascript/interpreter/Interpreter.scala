@@ -2846,7 +2846,7 @@ class Interpreter(
       pats match
         case List(Pat.Var(n)) => env(n.value) = rhsVal
         case List(pat) =>
-          matchPat(pat, rhsVal, env.toMap) match
+          PatternRuntime.matchPat(pat, rhsVal, env.toMap, this) match
             case Some(patEnv) => patEnv.foreach { (k, v) => env(k) = v }
             case None         => located(s"Val pattern match failed")
         case _ => ()
@@ -3700,7 +3700,7 @@ class Interpreter(
           case vs      => Value.TupleV(vs)
         cases.iterator
           .flatMap { c =>
-            matchPat(c.pat, arg, env).flatMap { patEnv =>
+            PatternRuntime.matchPat(c.pat, arg, env, this).flatMap { patEnv =>
               val guardOk = c.cond.forall(g => Computation.run(eval(g, patEnv)) match
                 case Value.BoolV(b) => b
                 case _              => false)
@@ -3716,7 +3716,7 @@ class Interpreter(
       eval(t.expr, env).flatMap { scrutV =>
         t.casesBlock.cases.iterator
           .flatMap { c =>
-            matchPat(c.pat, scrutV, env).flatMap { patEnv =>
+            PatternRuntime.matchPat(c.pat, scrutV, env, this).flatMap { patEnv =>
               val guardOk = c.cond.forall(g => Computation.run(eval(g, patEnv)) match
                 case Value.BoolV(b) => b
                 case _              => false)
@@ -3745,11 +3745,11 @@ class Interpreter(
 
     // for x <- xs yield f(x)
     case t: Term.ForYield =>
-      evalForYield(t.enumsBlock.enums, t.body, env)
+      PatternRuntime.evalForYield(t.enumsBlock.enums, t.body, env, this)
 
     // for x <- xs do f(x)
     case t: Term.For =>
-      evalForDo(t.enumsBlock.enums, t.body, env, Map.empty).map(_ => Value.UnitV)
+      PatternRuntime.evalForDo(t.enumsBlock.enums, t.body, env, Map.empty, this).map(_ => Value.UnitV)
 
     // while cond do body  — refresh env from globals each iteration so mutations are visible.
     // Snapshot globals at loop entry: only update a key on subsequent iterations if its
@@ -3865,7 +3865,7 @@ class Interpreter(
       @annotation.nowarn("msg=deprecated")
       def tryCatch(thrownVal: Value, cause: Throwable): Value =
         t.catchp.iterator.flatMap { c =>
-          matchPat(c.pat, thrownVal, Map.empty).map(bound => (c, bound))
+          PatternRuntime.matchPat(c.pat, thrownVal, Map.empty, this).map(bound => (c, bound))
         }.nextOption() match
           case Some((matchedCase, bound)) => Computation.run(eval(matchedCase.body, env ++ bound))
           case None                       => throw cause
@@ -4035,7 +4035,7 @@ class Interpreter(
                   local(n.value) = rhsVal
                   localOverrides += n.value
                 case List(pat) =>
-                  matchPat(pat, rhsVal, local.toMap) match
+                  PatternRuntime.matchPat(pat, rhsVal, local.toMap, this) match
                     case Some(patEnv) =>
                       patEnv.foreach { (k, v) => local(k) = v; localOverrides += k }
                     case None         => located("Val pattern match failed")
@@ -4196,7 +4196,7 @@ class Interpreter(
           pats match
             case List(Pat.Var(n)) => step(rest, cur + (n.value -> v))
             case List(pat) =>
-              matchPat(pat, v, cur) match
+              PatternRuntime.matchPat(pat, v, cur, this) match
                 case Some(patEnv) => step(rest, cur ++ patEnv)
                 case None         => located("direct block: val pattern match failed")
             case _ => step(rest, cur)
@@ -4527,7 +4527,7 @@ class Interpreter(
             val argPats   = patArgs.dropRight(1).map(_.asInstanceOf[Pat])
             val resumePat = patArgs.lastOption
             argPats.zip(args).foldLeft(Option(env): Option[Env]) {
-              case (Some(e), (pat, v)) => matchPat(pat, v, e)
+              case (Some(e), (pat, v)) => PatternRuntime.matchPat(pat, v, e, this)
               case (None, _)           => None
             }.flatMap { argEnv =>
               val finalEnv = resumePat match
@@ -4690,7 +4690,7 @@ class Interpreter(
     def handleErr(errVal: Value): Computation =
       val handlerResultOpt: Option[Value] =
         cases.iterator.flatMap { c =>
-          matchPat(c.pat, errVal, env).map(bound => (c, bound))
+          PatternRuntime.matchPat(c.pat, errVal, env, this).map(bound => (c, bound))
         }.nextOption().map { case (matchedCase, bound) =>
           Computation.run(eval(matchedCase.body, env ++ bound))
         }
@@ -5832,7 +5832,7 @@ class Interpreter(
       val it = cases.iterator
       while matched.isEmpty && it.hasNext do
         val c = it.next()
-        matchPat(c.pat, msg, env) match
+        PatternRuntime.matchPat(c.pat, msg, env, this) match
           case Some(extEnv) =>
             val guardOk = c.cond.forall { g =>
               Computation.run(eval(g, extEnv)) match
@@ -6007,178 +6007,7 @@ class Interpreter(
 
   // ─── Structural helpers for `derives` — see DerivesRuntime.scala ────────
 
-  // ─── Pattern matching ────────────────────────────────────────────
-
-  private def matchPat(pat: Pat, scrutinee: Value, env: Env): Option[Env] = pat match
-    case Pat.Wildcard()  => Some(env)
-    case Pat.Var(name)   => Some(env + (name.value -> scrutinee))
-    case lit: Lit =>
-      val litV: Value = lit match
-        case Lit.Int(v)     => Value.IntV(v.toLong)
-        case Lit.Long(v)    => Value.IntV(v)
-        case Lit.String(v)  => Value.StringV(v)
-        case Lit.Boolean(v) => Value.BoolV(v)
-        case Lit.Double(v)  => Value.DoubleV(v.toString.toDouble)
-        case Lit.Null()     => Value.NullV
-        case _              => Value.NullV
-      Option.when(litV == scrutinee)(env)
-    case Pat.Tuple(pats) =>
-      scrutinee match
-        case Value.TupleV(elems) if elems.length == pats.length =>
-          pats.zip(elems).foldLeft(Option(env)) { (acc, pe) =>
-            acc.flatMap(e => matchPat(pe._1, pe._2, e))
-          }
-        case _ => None
-    case Pat.Extract.After_4_6_0(fn, argClause) =>
-      val typeNameOpt = fn match
-        case Term.Name(n)                 => Some(n)
-        case Term.Select(_, Term.Name(n)) => Some(n)
-        case _                            => None
-      typeNameOpt.flatMap { typeName =>
-        val args = argClause.values
-        scrutinee match
-          case Value.InstanceV(t, fields) if t == typeName =>
-            val order     = typeFieldOrder.getOrElse(t, fields.keys.toList)
-            val fieldVals = order.flatMap(fields.get)
-            if args.length != fieldVals.length then None
-            else args.zip(fieldVals).foldLeft(Option(env)) { (acc, pe) =>
-              acc.flatMap(e => matchPat(pe._1, pe._2, e))
-            }
-          case Value.OptionV(Some(v)) if typeName == "Some" && args.length == 1 =>
-            matchPat(args.head, v, env)
-          case Value.OptionV(None) if typeName == "None" && args.isEmpty =>
-            Some(env)
-          case _ => None
-      }
-    // List cons pattern: `head :: tail` matches a non-empty ListV.
-    case Pat.ExtractInfix.After_4_6_0(headPat, Term.Name("::"), tailClause) =>
-      scrutinee match
-        case Value.ListV(h :: t) if tailClause.values.length == 1 =>
-          matchPat(headPat, h, env).flatMap(e =>
-            matchPat(tailClause.values.head, Value.ListV(t), e))
-        case _ => None
-    case Pat.Typed(inner, tpe) =>
-      val typeName = tpe match
-        case Type.Name(n)   => n
-        case ta: Type.Apply => ta.tpe match { case Type.Name(n) => n; case _ => "" }
-        case _              => ""
-      if typeName.isEmpty then matchPat(inner, scrutinee, env)
-      else
-        val matches = scrutinee match
-          case Value.InstanceV(t, _) =>
-            t == typeName || {
-              var p = parentTypes.get(t); var ok = false
-              while p.isDefined && !ok do { ok = p.get == typeName; p = parentTypes.get(p.get) }
-              ok
-            }
-          // IntV represents both Int and Long (stored as JVM Long internally).
-          case _: Value.IntV    => typeName == "Int" || typeName == "Long"
-          case _: Value.DoubleV => typeName == "Double" || typeName == "Float" || typeName == "Number"
-          case _: Value.StringV => typeName == "String"
-          case _: Value.BoolV   => typeName == "Boolean"
-          case _: Value.CharV   => typeName == "Char"
-          case _: Value.ListV   => typeName == "List"
-          case _: Value.OptionV => typeName == "Option"
-          case _: Value.MapV    => typeName == "Map"
-          case _                => false
-        if matches then matchPat(inner, scrutinee, env) else None
-    case Pat.Alternative(lhs, rhs) =>
-      List(lhs, rhs).iterator.flatMap(p => matchPat(p, scrutinee, env)).nextOption()
-    // @ binder: `xs @ pattern` — bind `xs` to the whole scrutinee, then match `pattern`
-    case Pat.Bind(lhs: Pat.Var, rhs) =>
-      matchPat(rhs, scrutinee, env).map(e => e + (lhs.name.value -> scrutinee))
-    case t: Term.Name =>
-      env.get(t.value).orElse(globals.get(t.value))
-        .flatMap(v => Option.when(v == scrutinee)(env))
-    case Term.Select(_, Term.Name(n)) =>
-      env.get(n).orElse(globals.get(n))
-        .flatMap(v => Option.when(v == scrutinee)(env))
-    case _ => None
-
-  // ─── For comprehension helpers ────────────────────────────────────
-
-  private def evalCollection(v: Value): List[Value] = v match
-    case Value.ListV(ls)        => ls
-    case Value.OptionV(Some(v)) => List(v)
-    case Value.OptionV(None)    => Nil
-    case _ => located(s"Cannot iterate over ${Value.show(v)}")
-
-  private def patVarNames(pat: Pat): Set[String] = pat match
-    case Pat.Var(n)           => Set(n.value)
-    case Pat.Wildcard()       => Set.empty
-    case Pat.Tuple(pats)      => pats.flatMap(patVarNames).toSet
-    case Pat.Extract.After_4_6_0(_, argClause) => argClause.values.flatMap(patVarNames).toSet
-    case Pat.Typed(inner, _)  => patVarNames(inner)
-    case Pat.Bind(lhs: Pat.Var, rhs) => patVarNames(rhs) + lhs.name.value
-    case _                    => Set.empty
-
-  private def evalForYield(enums: List[Enumerator], body: Term, env: Env): Computation =
-    enums match
-      case Nil => eval(body, env)
-      case Enumerator.Generator(pat, rhs) :: rest =>
-        eval(rhs, env).flatMap { rhsV =>
-          val items = evalCollection(rhsV)
-          val isLast = rest.isEmpty
-          // Evaluate each branch; matches that fail are skipped.
-          val branches = items.flatMap { item =>
-            matchPat(pat, item, env).map(patEnv => evalForYield(rest, body, patEnv))
-          }
-          Computation.sequence(branches).map {
-            case Value.ListV(results) if isLast =>
-              Value.ListV(results)
-            case Value.ListV(results) =>
-              Value.ListV(results.flatMap {
-                case Value.ListV(ls) => ls
-                case v               => List(v)
-              })
-            case other => other
-          }
-        }
-      case Enumerator.Guard(cond) :: rest =>
-        eval(cond, env).flatMap {
-          case Value.BoolV(true) => evalForYield(rest, body, env)
-          case _                 => Pure(Value.ListV(Nil))
-        }
-      case Enumerator.Val(pat, rhs) :: rest =>
-        eval(rhs, env).flatMap { v =>
-          matchPat(pat, v, env) match
-            case Some(patEnv) => evalForYield(rest, body, patEnv)
-            case None         => Pure(Value.ListV(Nil))
-        }
-      case _ :: rest => evalForYield(rest, body, env)
-
-  // evalForDo keeps loop vars separate from globals so assignments to outer vars are visible.
-  private def evalForDo(enums: List[Enumerator], body: Term, outerEnv: Env, loopVars: Env): Computation =
-    val env = outerEnv ++ globals.toMap ++ loopVars
-    enums match
-      case Nil => eval(body, env).map(_ => Value.UnitV)
-      case Enumerator.Generator(pat, rhs) :: rest =>
-        eval(rhs, env).flatMap { rhsV =>
-          val items = evalCollection(rhsV)
-          def loop(remaining: List[Value]): Computation = remaining match
-            case Nil => Pure(Value.UnitV)
-            case item :: tail =>
-              matchPat(pat, item, env) match
-                case Some(patEnv) =>
-                  val newVars = patVarNames(pat).map(k => k -> patEnv(k)).toMap
-                  evalForDo(rest, body, outerEnv, loopVars ++ newVars).flatMap(_ => loop(tail))
-                case None => loop(tail)
-          loop(items)
-        }
-      case Enumerator.Guard(cond) :: rest =>
-        eval(cond, env).flatMap {
-          case Value.BoolV(true) => evalForDo(rest, body, outerEnv, loopVars)
-          case _                 => Pure(Value.UnitV)
-        }
-      case Enumerator.Val(pat, rhs) :: rest =>
-        eval(rhs, env).flatMap { v =>
-          matchPat(pat, v, env) match
-            case Some(patEnv) =>
-              val newVars = patVarNames(pat).map(k => k -> patEnv(k)).toMap
-              evalForDo(rest, body, outerEnv, loopVars ++ newVars)
-            case None => Pure(Value.UnitV)
-        }
-      case _ :: rest => evalForDo(rest, body, outerEnv, loopVars)
+  // ─── Pattern matching + for-comprehensions — see PatternRuntime.scala ───
 
   private def autoOutput(v: Value): Unit = v match
     case Value.UnitV => ()
