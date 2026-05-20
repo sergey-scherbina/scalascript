@@ -48,10 +48,9 @@ private[react] object ReactEmitter:
       sb ++= s"    const $name = useRef(null);\n"
       sb ++= s"    if (typeof window !== 'undefined') window[${jsString(name)}] = $name;\n"
     }
-    val sscCss = "@keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}.ssc-spin{animation:spin 0.8s linear infinite}"
-    sb ++= s"    return h(Fragment, null, h('style', null, ${jsString(sscCss)}), "
+    sb ++= "    return "
     sb ++= renderView(root)
-    sb ++= ");\n"
+    sb ++= ";\n"
     sb ++= "  }\n"
     sb ++= "  const root = ReactDOM.createRoot(document.getElementById('app'));\n"
     sb ++= "  root.render(h(App));\n"

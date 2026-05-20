@@ -70,7 +70,10 @@ final class ReactFrameworkBackend extends FrontendFrameworkSpi:
        |  <title>ScalaScript SPA (React)</title>
        |  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
        |  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-       |  <style>@keyframes spin { to { transform: rotate(360deg); } }</style>
+       |  <style>
+    @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+    .ssc-spin { animation: spin 0.8s linear infinite; }
+  </style>
        |</head>
        |<body>
        |  <div id="app"></div>
