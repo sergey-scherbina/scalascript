@@ -113,7 +113,7 @@ private[react] object ReactEmitter:
             case EventHandler.IncrementSignal(signal, _)       => register(signal)
             case EventHandler.ToggleSignal(signal)             => register(signal)
             case EventHandler.InputChange(signal)              => register(signal)
-            case EventHandler.FetchAction(_, _, body, tick)    => register(body); register(tick)
+            case EventHandler.FetchAction(_, _, body, tick, _) => register(body); register(tick)
             case _ => ()
         }
         children.foreach(walk)
@@ -252,7 +252,7 @@ private[react] object ReactEmitter:
         attrs.values.foreach { case AttrValue.Reactive(sig) => checkSig(sig); case _ => () }
         events.foreach { (_, handler) =>
           handler match
-            case EventHandler.FetchAction(_, _, body, tick) => checkSig(body); checkSig(tick)
+            case EventHandler.FetchAction(_, _, body, tick, _) => checkSig(body); checkSig(tick)
             case EventHandler.SetSignalLiteral(sig, _)      => checkSig(sig)
             case EventHandler.IncrementSignal(sig, _)       => checkSig(sig)
             case EventHandler.ToggleSignal(sig)             => checkSig(sig)
@@ -517,12 +517,14 @@ private[react] object ReactEmitter:
       case EventHandler.InputChange(signal) =>
         val setter = setterName(signal.jsName)
         Some(s"'onChange': (e) => $setter(e.target.value)")
-      case EventHandler.FetchAction(method, url, body, tick) =>
+      case EventHandler.FetchAction(method, url, body, tick, clearBody) =>
         val getBody  = body.jsName
         val setTick  = setterName(tick.jsName)
+        val setBody  = setterName(body.jsName)
         val urlJs    = jsString(url)
         val methodJs = jsString(method)
-        Some(s"${jsString(onKey)}: () => fetch($urlJs, {method: $methodJs, body: $getBody}).then(r => r.text()).then(_ => $setTick(t => t + 1))")
+        val clearJs  = if clearBody then s"; $setBody('')" else ""
+        Some(s"${jsString(onKey)}: () => fetch($urlJs, {method: $methodJs, body: $getBody}).then(r => r.text()).then(_ => { $setTick(t => t + 1)$clearJs })")
       case EventHandler.Simple(_) | EventHandler.WithEvent(_) =>
         // JVM closure — emit a comment-prop that doesn't bind anything.
         // The presence of the marker tells dev "you wrote Simple/WithEvent

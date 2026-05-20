@@ -463,7 +463,7 @@ private[custom] object StaticJsEmitter:
           val nameJs = jsString(list.jsName)
           statements += s"$targetVar.addEventListener(${jsString(eventName)}, () => " +
                         s"__setSignalList($nameJs, []));"
-        case EventHandler.FetchAction(method, url, body, tick) =>
+        case EventHandler.FetchAction(method, url, body, tick, _) =>
           registerSignal(body)
           registerSignal(tick)
           val bodyJs   = jsString(body.jsName)

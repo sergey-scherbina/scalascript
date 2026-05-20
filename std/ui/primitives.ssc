@@ -23,6 +23,7 @@ exports:
   - fetchUrlSignal
   - fetchAction
   - incSignal
+  - fetchActionClear
   - fetchTableView
 ---
 
@@ -90,6 +91,9 @@ extern def fetchAction(method: String, url: String, body: Signal[String], onSucc
 
 // incSignal — on click: increment an Int signal by 1.
 extern def incSignal(s: Signal[Int]): EventHandler
+
+// fetchActionClear — like fetchAction but resets the body signal to "" on success.
+extern def fetchActionClear(method: String, url: String, body: Signal[String], onSuccessTick: Signal[Int]): EventHandler
 
 // fetchTableView — reactive table driven by a JSON array endpoint.
 // React emitter: fetches fetchUrl on mount + on tick, renders rows with per-row Delete buttons.

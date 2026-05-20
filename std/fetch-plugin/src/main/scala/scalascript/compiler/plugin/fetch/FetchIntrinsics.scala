@@ -35,6 +35,21 @@ object FetchIntrinsics:
         case _ => throw InterpretError("fetchAction(method, url, body, onSuccessTick)")
     ),
 
+    // fetchActionClear(method, url, body, onSuccessTick): EventHandler
+    // Like fetchAction but also clears the body signal to "" on success.
+    QualifiedName("fetchActionClear") -> NativeImpl((_, args) =>
+      args match
+        case List(method: String, url: String,
+                  Value.Foreign("ReactiveSignal", body: ReactiveSignal[?]),
+                  Value.Foreign("ReactiveSignal", tick: ReactiveSignal[?])) =>
+          Value.Foreign("EventHandler",
+            EventHandler.FetchAction(method, url,
+              body.asInstanceOf[ReactiveSignal[String]],
+              tick.asInstanceOf[ReactiveSignal[Int]],
+              clearBody = true))
+        case _ => throw InterpretError("fetchActionClear(method, url, body, onSuccessTick)")
+    ),
+
     // incSignal(s): EventHandler — increment an Int signal by 1 on click.
     QualifiedName("incSignal") -> NativeImpl((_, args) =>
       args match

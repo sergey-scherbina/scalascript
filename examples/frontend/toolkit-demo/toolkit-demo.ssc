@@ -49,7 +49,7 @@ route("POST", "/api/todos/delete") { req =>
 
 ## Imports and signals
 
-[signal, serve, fetchUrlSignal, fetchAction, incSignal](std/ui/primitives.ssc)
+[signal, serve, fetchUrlSignal, fetchAction, fetchActionClear, incSignal](std/ui/primitives.ssc)
 
 [lower](std/ui/lower.ssc)
 
@@ -129,7 +129,7 @@ val todoPanel = vstack(gap = 12)(
   heading(3, "Todo list (REST + SQLite)"),
   todosTable,
   textField(value = newItem, label = "New item"),
-  actionButton(fetchAction("POST", "/api/todos", newItem, refreshTick), "Add")
+  actionButton(fetchActionClear("POST", "/api/todos", newItem, refreshTick), "Add")
 )
 
 val tree = vstack(gap = 16)(

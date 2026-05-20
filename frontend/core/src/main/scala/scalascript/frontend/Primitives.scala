@@ -340,12 +340,14 @@ object EventHandler:
   final case class InputChange(signal: ReactiveSignal[String]) extends EventHandler
 
   /** REST fetch on click: POST/PUT/DELETE `url` with `body` signal value as request body,
-   *  then increment `onSuccessTick` to trigger dependent `FetchUrlSignal` re-fetches. */
+   *  then increment `onSuccessTick` to trigger dependent `FetchUrlSignal` re-fetches.
+   *  When `clearBody = true`, the body signal is reset to "" after a successful response. */
   final case class FetchAction(
     method:        String,
     url:           String,
     body:          ReactiveSignal[String],
-    onSuccessTick: ReactiveSignal[Int]
+    onSuccessTick: ReactiveSignal[Int],
+    clearBody:     Boolean = false
   ) extends EventHandler
 
 /** Signal backed by a REST GET fetch.  React emitter issues `fetch(fetchUrl)` on mount
