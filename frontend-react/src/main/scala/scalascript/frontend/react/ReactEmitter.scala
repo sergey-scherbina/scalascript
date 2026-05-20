@@ -355,10 +355,17 @@ private[react] object ReactEmitter:
     // untranslatable JVM closure), use defaultValue so the field is
     // uncontrolled and the user can still type in the browser.
     val hasOnChange = eventFields.exists(_.startsWith("'onChange'"))
+    // Only downgrade value/checked to their uncontrolled default* variants when
+    // the value is a static literal (starts with quote/digit/true/false).
+    // A value that starts with a letter is a JS variable (Reactive signal) and
+    // must stay controlled so React re-evaluates it on every render.
+    def isLiteral(field: String): Boolean =
+      val v = field.dropWhile(_ != ':').drop(1).trim
+      v.headOption.exists(c => c == '\'' || c == '"' || c.isDigit || v.startsWith("true") || v.startsWith("false") || v.startsWith("null"))
     val finalAttrFields = if hasOnChange then attrFields
       else attrFields.map { f =>
-        if f.startsWith("'value'")   then "'defaultValue'"  + f.drop("'value'".length)
-        else if f.startsWith("'checked'") then "'defaultChecked'" + f.drop("'checked'".length)
+        if f.startsWith("'value'")    && isLiteral(f) then "'defaultValue'"  + f.drop("'value'".length)
+        else if f.startsWith("'checked'") && isLiteral(f) then "'defaultChecked'" + f.drop("'checked'".length)
         else f
       }
     val all = keyField ++ finalAttrFields ++ eventFields

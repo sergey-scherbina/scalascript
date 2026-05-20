@@ -71,7 +71,11 @@ object ToolkitDemo:
       children = Seq(View.TextNode(() => "Submit"))
     )
 
-    val reactiveButton = View.ShowSignal(accept, enabledButton, disabledButton)
+    // Enabled only when accept=true AND submitted=false.
+    val reactiveButton = View.ShowSignal(submitted,
+      disabledButton,
+      View.ShowSignal(accept, enabledButton, disabledButton)
+    )
 
     // ── Card footer ──────────────────────────────────────────────────
     val spacerView = Toolkit.lower(Tk.spacer(grow = true), theme)
@@ -124,6 +128,19 @@ object ToolkitDemo:
     )
     val reactiveAlert = View.ShowSignal(submitted, alertView, View.Fragment(Nil))
 
+    // ── Spinner: spins only after submit ─────────────────────────────
+    val spinnerOn  = Toolkit.lower(Tk.spinner(WidgetSize.Sm), theme)
+    val spinnerOff = spinnerOn match
+      case View.Element(tag, attrs, events, children) =>
+        // Replace animation with none so it's static before submit.
+        val quietStyle = attrs.get("style") match
+          case Some(AttrValue.Str(css)) =>
+            AttrValue.Str(css.replace("animation: spin 1s linear infinite;", "animation: none;"))
+          case other => other.getOrElse(AttrValue.Absent)
+        View.Element(tag, attrs + ("style" -> quietStyle), events, children)
+      case other => other
+    val reactiveSpinner = View.ShowSignal(submitted, spinnerOn, spinnerOff)
+
     // ── Outer layout ─────────────────────────────────────────────────
     val tree: ToolkitNode = Tk.vstack(gap = 16)(
       Tk.heading(1, "Toolkit demo"),
@@ -133,7 +150,7 @@ object ToolkitDemo:
       RawViewNode(cardView),
       RawViewNode(reactiveAlert),
       Tk.hstack(gap = 12, align = Alignment.Center)(
-        Tk.spinner(WidgetSize.Sm),
+        RawViewNode(reactiveSpinner),
         Tk.text("Loading data...", variant = TextVariant.BodySmall),
         Tk.spacer(grow = true),
         Tk.badge("3 new", BadgeVariant.Success)
