@@ -193,6 +193,45 @@ final class NobleCryptoBackend extends CryptoBackend:
     )
     u8ToBytes(cipher.decrypt(bytesToU8(ciphertext)))
 
+  override def chacha20Poly1305Encrypt(key: Array[Byte], nonce: Array[Byte], plaintext: Array[Byte], aad: Array[Byte]): Array[Byte] =
+    val cipher = NobleFacades.chacha20poly1305(
+      bytesToU8(key),
+      bytesToU8(nonce),
+      if aad == null || aad.length == 0 then js.undefined else js.defined(bytesToU8(aad)),
+    )
+    u8ToBytes(cipher.encrypt(bytesToU8(plaintext)))
+
+  override def chacha20Poly1305Decrypt(key: Array[Byte], nonce: Array[Byte], ciphertext: Array[Byte], aad: Array[Byte]): Array[Byte] =
+    val cipher = NobleFacades.chacha20poly1305(
+      bytesToU8(key),
+      bytesToU8(nonce),
+      if aad == null || aad.length == 0 then js.undefined else js.defined(bytesToU8(aad)),
+    )
+    try u8ToBytes(cipher.decrypt(bytesToU8(ciphertext)))
+    catch
+      case e: js.JavaScriptException =>
+        // noble throws `Error("invalid tag")` (or similar) on Poly1305
+        // mismatch — wrap so callers can pattern-match cross-platform.
+        throw new CryptoIntegrityException(s"ChaCha20-Poly1305 tag mismatch: ${e.getMessage}", e)
+      case e: RuntimeException =>
+        throw new CryptoIntegrityException(s"ChaCha20-Poly1305 tag mismatch: ${e.getMessage}", e)
+
+  // ── X25519 ─────────────────────────────────────────────────────────────
+
+  override def x25519GenerateKeypair(): (Array[Byte], Array[Byte]) =
+    val priv = NobleFacades.x25519.utils.randomSecretKey()
+    val pub  = NobleFacades.x25519.getPublicKey(priv)
+    (u8ToBytes(priv), u8ToBytes(pub))
+
+  override def x25519PublicKeyFromPrivate(priv32: Array[Byte]): Array[Byte] =
+    require(priv32.length == 32, s"X25519 private key must be 32 B, got ${priv32.length}")
+    u8ToBytes(NobleFacades.x25519.getPublicKey(bytesToU8(priv32)))
+
+  override def x25519DeriveSharedSecret(selfPriv32: Array[Byte], peerPub32: Array[Byte]): Array[Byte] =
+    require(selfPriv32.length == 32, s"X25519 priv must be 32 B, got ${selfPriv32.length}")
+    require(peerPub32.length  == 32, s"X25519 pub must be 32 B, got ${peerPub32.length}")
+    u8ToBytes(NobleFacades.x25519.getSharedSecret(bytesToU8(selfPriv32), bytesToU8(peerPub32)))
+
   // ── RNG ─────────────────────────────────────────────────────────────────
 
   /** Cryptographically-secure RNG: prefers WebCrypto's

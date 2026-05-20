@@ -1,0 +1,11 @@
+{
+  "name": "scalascript-wallet-connect-js",
+  "private": true,
+  "description": "Test-time npm dependencies for the wallet-connect Scala.js module. The Scala.js Node test runner walks up from `js/target/scala-*/.../main.js` to find `node_modules`; these mirror crypto-noble-js so the noble CryptoBackend (ChaCha20-Poly1305 + X25519 + HKDF + ed25519 + sha256) can resolve when WC tests register it.",
+  "version": "0.0.0",
+  "dependencies": {
+    "@noble/ciphers": "^1.2.1",
+    "@noble/curves": "^1.9.0",
+    "@noble/hashes": "^1.8.0"
+  }
+}

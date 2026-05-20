@@ -76,6 +76,51 @@ trait CryptoBackend:
 
   def aesGcmDecrypt(key: Array[Byte], iv: Array[Byte], ciphertext: Array[Byte], aad: Array[Byte]): Array[Byte]
 
+  /** ChaCha20-Poly1305 AEAD encrypt. Returns ciphertext concatenated with
+   *  the 16-byte Poly1305 tag (`ciphertext || tag` — same layout the JCE
+   *  `ChaCha20-Poly1305` provider and `@noble/ciphers/chacha.chacha20poly1305`
+   *  emit).  `key` is 32 bytes, `nonce` is 12 bytes.  Used by
+   *  `wallet-connect` for WC v2 envelopes (Type 0 / Type 1). */
+  def chacha20Poly1305Encrypt(
+    key: Array[Byte],
+    nonce: Array[Byte],
+    plaintext: Array[Byte],
+    aad: Array[Byte] = Array.emptyByteArray,
+  ): Array[Byte] =
+    throw new UnsupportedOperationException(s"$id: chacha20Poly1305Encrypt not implemented")
+
+  /** ChaCha20-Poly1305 AEAD decrypt.  Returns the plaintext on success;
+   *  throws [[CryptoIntegrityException]] when the Poly1305 tag fails to
+   *  verify (the SPI-level wrapper exception that both backends raise so
+   *  cross-platform callers can pattern-match without depending on
+   *  `javax.crypto.AEADBadTagException`). */
+  def chacha20Poly1305Decrypt(
+    key: Array[Byte],
+    nonce: Array[Byte],
+    ciphertext: Array[Byte],
+    aad: Array[Byte] = Array.emptyByteArray,
+  ): Array[Byte] =
+    throw new UnsupportedOperationException(s"$id: chacha20Poly1305Decrypt not implemented")
+
+  // ── X25519 (ECDH) ───────────────────────────────────────────────────────
+
+  /** Generate a fresh X25519 keypair via this backend's CSPRNG.  Returns
+   *  `(priv32, pub32)`.  Used by `wallet-connect` for the WC v2
+   *  session-key handshake. */
+  def x25519GenerateKeypair(): (Array[Byte], Array[Byte]) =
+    throw new UnsupportedOperationException(s"$id: x25519GenerateKeypair not implemented")
+
+  /** Reconstruct the public half of an X25519 keypair from its 32-byte
+   *  private bytes — needed when callers persist only the private key. */
+  def x25519PublicKeyFromPrivate(priv32: Array[Byte]): Array[Byte] =
+    throw new UnsupportedOperationException(s"$id: x25519PublicKeyFromPrivate not implemented")
+
+  /** Compute the 32-byte raw X25519 shared secret.  Feed to HKDF to
+   *  derive a symmetric key — do not use the raw output as key material
+   *  directly. */
+  def x25519DeriveSharedSecret(selfPriv32: Array[Byte], peerPub32: Array[Byte]): Array[Byte] =
+    throw new UnsupportedOperationException(s"$id: x25519DeriveSharedSecret not implemented")
+
   // ── Secure RNG ─────────────────────────────────────────────────────────
 
   def randomBytes(len: Int): Array[Byte]

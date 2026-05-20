@@ -8533,7 +8533,7 @@ regression test green.
 
 ---
 
-## Wallet SPI — Scala.js cross-compile
+## Wallet SPI — Scala.js cross-compile ✓ Sprint complete (2026-05-20)
 
 Spec in [`docs/wallet-spi-scalajs.md`](docs/wallet-spi-scalajs.md).
 Six-stage migration that takes the wallet-spi track from JVM-only to
@@ -8794,11 +8794,110 @@ Deferred / follow-ups:
       shared core lights up unchanged; this slice doesn't need it
       because every Stage 5 test exercises in-memory serialisation.
 
-### Stage 6 — `wallet-connect` cross-compile
+### Stage 6 — `wallet-connect` cross-compile ✓ Landed (2026-05-20)
 
-- [ ] Shared WC v2 protocol types in `shared/`.
-- [ ] JS side: native `WebSocket` adapter + WebCrypto AEAD.
-- [ ] JVM side unchanged (`java.net.http.WebSocket` + BouncyCastle).
+Stage 6a — extend `CryptoBackend` SPI with the primitives WC needs
+(additive only — no existing-method breakage):
+
+- [x] `chacha20Poly1305Encrypt(key32, nonce12, plaintext, aad)` /
+      `chacha20Poly1305Decrypt(...)` — `ciphertext || 16B tag`
+      layout.  Decrypt throws the new shared
+      `CryptoIntegrityException` on Poly1305 tag mismatch so callers
+      pattern-match without depending on `javax.crypto.AEADBadTagException`.
+- [x] `x25519GenerateKeypair()` / `x25519PublicKeyFromPrivate(priv32)`
+      / `x25519DeriveSharedSecret(selfPriv, peerPub)` — 32-byte raw
+      priv / pub both sides, raw ECDH output that the existing
+      `hkdf` primitive consumes.
+- [x] Default trait methods throw `UnsupportedOperationException` so
+      third-party backends keep compiling; both
+      `BouncyCastleBackend` (JCE `ChaCha20-Poly1305` provider + BC
+      `X25519Agreement`) and `NobleCryptoBackend`
+      (`@noble/ciphers/chacha.chacha20poly1305` +
+      `@noble/curves/ed25519.x25519`) implement them.
+- [x] 8 new cross-platform parity vectors per side
+      (`CrossPlatformFixturesTest` + `NobleCryptoBackendTest`) —
+      hex bytes stay byte-identical between JVM and JS:
+      `cryptoBouncycastle/test` 24 → 24 (CrossPlatform 16→24);
+      `cryptoNobleJs/test` 25 → 33.
+
+Stage 6b — refactor `wallet-connect` to route through the SPI:
+
+- [x] `RelayJwt`: `Ed25519Signer` → `CryptoBackend.get().sign(Curve.Ed25519, ...)`.
+- [x] `WcEnvelope`: JCE `Cipher.getInstance("ChaCha20-Poly1305")` →
+      `CryptoBackend.get().chacha20Poly1305Encrypt/Decrypt`.  Re-exports
+      `CryptoIntegrityException` as `WcEnvelope.AeadBadTagException`.
+- [x] `WcKeyAgreement`: BC `X25519Agreement` + `HKDFBytesGenerator` →
+      `CryptoBackend.get().x25519DeriveSharedSecret` +
+      `CryptoBackend.get().hkdf(... HashAlgo.Sha256)` + the existing
+      `hash(HashAlgo.Sha256, symKey)` for topic derivation.
+- [x] Post-refactor the three files have **zero** `java.*` /
+      `javax.*` / `org.bouncycastle.*` direct references.
+
+Stage 6c — `CrossType.Full` source split:
+
+- [x] `shared/src/main/scala/scalascript/wallet/walletconnect/`:
+      `WcTypes`, `WcRelayTransport` (trait), `WcSessionStore` (now
+      `mutable.HashMap` + `synchronized` — TrieMap isn't on Scala.js),
+      `RelayJsonRpc`, `WsChannel` (trait), `RelayJwt`, `WcEnvelope`,
+      `WcKeyAgreement`, `WalletConnectConnector`, plus the new
+      `RelayTransportBase` (Option A: the demux + JSON-RPC core lives
+      in shared, both platform transports are thin subclasses).
+- [x] `jvm/src/main/scala/.../`: `JdkWsChannel`
+      (`java.net.http.WebSocket`) + `JvmRelayTransport` (5-line
+      `extends RelayTransportBase` — legacy entry point preserved
+      for downstream JVM callers).
+- [x] `js/src/main/scala/.../`: `BrowserWsChannel` wraps the browser's
+      native `WebSocket` global via an injectable `wsConstructor`
+      parameter (tests stub the constructor — no `globalThis.WebSocket`
+      surgery needed) + `JsRelayTransport` mirrors `JvmRelayTransport`.
+
+Stage 6d — tests:
+
+- [x] JVM `walletConnect/test`: **49 tests across 7 suites**, same
+      count as pre-Stage 6.  JVM-only suites become thin sub-classes
+      of `*TestBase` specs in `shared/src/test/`.
+- [x] JS `walletConnectJs/test`: **54 tests across 8 suites** — same
+      49 shared specs + 5 new `BrowserWsChannelTest` specs against a
+      mock `BrowserWebSocket` (connect → onopen, onText round-trip,
+      send-before-connect failure, send-after-connect forwarding,
+      idempotent close).
+- [x] `RelayTransportTestBase` parameterised on a `mkTransport`
+      factory so both `JvmRelayTransportTest` and
+      `JsRelayTransportTest` run the same 7 protocol-level
+      assertions against their respective platform transport.
+
+Stage 6e — build wiring:
+
+- [x] `walletConnectCross = crossProject(JVMPlatform, JSPlatform)
+      .crossType(Full).in(file("wallet-connect"))` with
+      `walletSpiCross`, `blockchainSpiCross`, `cryptoSpiCross`
+      dependencies; JVM extra `cryptoBouncycastle % Test`; JS extra
+      `cryptoNobleJs % Test`.
+- [x] Legacy `walletConnect` alias = `walletConnectCross.jvm` — every
+      downstream JVM consumer keeps compiling unchanged.
+- [x] `walletConnectJs` added to the root aggregator.
+- [x] `jsSettings(Test / fork := false,
+      scalaJSLinkerConfig ~= _.withModuleKind(CommonJSModule))` to
+      match `crypto-noble-js`.
+- [x] `wallet-connect/package.json` mirrors
+      `crypto-noble-js/package.json` so the Node test runner walks
+      up to find `@noble/ciphers` / `@noble/curves` / `@noble/hashes`.
+
+Stage 6 — deferred / follow-ups:
+
+- [ ] **Real browser-WebSocket integration testing** — JS tests
+      currently mock `BrowserWebSocket` (Node has no native
+      `WebSocket` in the test runtime).  Live integration against
+      `wss://relay.walletconnect.com` lands in the future PWA-wallet
+      sprint that surfaces WC v2 in an actual browser.
+
+Sprint closure: every wallet-spi-track module that has a JS-relevant
+surface now cross-compiles JVM + Scala.js.  All future
+`CryptoBackend` implementations are mandated to implement
+ChaCha20-Poly1305, X25519, and the Stage 5 AEAD / KDF set in
+addition to the original signing / hash / KDF surface — see
+[`docs/wallet-spi-scalajs.md`](docs/wallet-spi-scalajs.md) §6 for
+the full SPI checklist a new backend has to cover.
 
 ---
 
@@ -8890,12 +8989,17 @@ Landed in tandem with blockchain-spi Phase 1.
   - [x] `WcOutbound` ADT carries an explicit `topic` field on every
         variant — the connector knows which topic each outbound
         belongs to.
-- [ ] JS: facade over `@walletconnect/sign-client` (still open;
-      blocked on Scala.js cross-compile of `wallet-spi`).
-- [ ] WC project-ID open question — still pending; the JVM
-      transport accepts a `projectId` argument but CI does not yet
-      provision one. To resolve once the JS facade lands or before
-      first production deployment.
+- [x] JS-side relay transport — `wallet-connect` now cross-compiles
+      (2026-05-20).  `BrowserWsChannel` wraps the browser's native
+      `WebSocket` global and `JsRelayTransport` reuses the same
+      `RelayTransportBase` the JVM-side `JvmRelayTransport` builds on,
+      so the JS variant is a real Scala-side WC v2 transport rather
+      than a `@walletconnect/sign-client` facade.  See "Wallet SPI —
+      Scala.js cross-compile / Stage 6" further up.
+- [ ] WC project-ID open question — still pending; the transport
+      accepts a `projectId` argument on both platforms but CI does
+      not yet provision one. To resolve before first production
+      deployment.
 
 ### Phase 5 — Solana DappConnector ✓ Landed JVM translator (2026-05-20)
 

@@ -625,14 +625,137 @@ a JVM-only `EncryptedLocalVaultFs` wrapper that keeps the original
   doesn't need it because every Stage 5 test exercises in-memory
   serialisation only.
 
-### Stage 6 — `wallet-connect` cross-compile
+### Stage 6 — `wallet-connect` cross-compile ✓ Landed (2026-05-20)
 
-### Stage 6 — `wallet-connect` cross-compile
+Stage 6 cross-compiles `wallet-connect` and ships the matching
+browser-side WebSocket adapter + noble-backed ChaCha20-Poly1305 /
+X25519 crypto.  Closes the wallet-spi Scala.js cross-compile sprint.
 
-- Shared WC v2 protocol types in `shared/`.
-- JS side: native `WebSocket` adapter + WebCrypto AEAD.
-- JVM side: existing `java.net.http.WebSocket` + BouncyCastle
-  unchanged.
+**Stage 6a — SPI additions (additive only — no existing-method
+breakage)**:
+
+- `CryptoBackend.chacha20Poly1305Encrypt(key, nonce, plaintext, aad)`
+  / `chacha20Poly1305Decrypt(...)` — `ciphertext || 16B tag` layout,
+  byte-identical to JCE's `ChaCha20-Poly1305` provider and
+  `@noble/ciphers/chacha.chacha20poly1305`.  Decrypt rethrows tag
+  mismatches as the new shared `CryptoIntegrityException` so callers
+  can pattern-match without depending on `javax.crypto.AEADBadTagException`.
+- `CryptoBackend.x25519GenerateKeypair()` /
+  `x25519PublicKeyFromPrivate(priv32)` /
+  `x25519DeriveSharedSecret(selfPriv, peerPub)` — 32-byte raw priv /
+  pub bytes both sides, raw ECDH output that feeds straight into the
+  existing `hkdf` primitive.
+- Cross-platform parity fixtures land in
+  `crypto-bouncycastle/.../CrossPlatformFixturesTest` +
+  `crypto-noble-js/.../NobleCryptoBackendTest` (8 new vectors each,
+  same hex bytes on both sides).
+- Default trait methods `throw UnsupportedOperationException` so
+  third-party backends that don't implement the new primitives still
+  compile — both ours implement them.
+
+**Stage 6b — wallet-connect refactored to the SPI**:
+
+- `RelayJwt` switches `Ed25519Signer` for
+  `CryptoBackend.get().sign(Curve.Ed25519, ...)` / `verify(...)`.
+- `WcEnvelope` switches JCE `Cipher.getInstance("ChaCha20-Poly1305")`
+  for `CryptoBackend.get().chacha20Poly1305Encrypt/Decrypt`.  Throws
+  `CryptoIntegrityException` (now re-exported as the WC-local type
+  alias `WcEnvelope.AeadBadTagException`).
+- `WcKeyAgreement` switches BC's `X25519Agreement` / `HKDFBytesGenerator`
+  for the new SPI methods + the existing `hkdf` + `hash(Sha256, ...)`.
+- After the refactor the three files have **zero** `java.*` /
+  `javax.*` / `org.bouncycastle.*` direct references — they move to
+  `shared/src/main/scala/`.
+
+**Stage 6c — cross-project layout** (`CrossType.Full`):
+
+- `shared/src/main/scala/scalascript/wallet/walletconnect/`:
+  `WcTypes`, `WcRelayTransport` (trait), `WcSessionStore` (now backed
+  by a synchronized `mutable.HashMap` — TrieMap isn't on Scala.js),
+  `RelayJsonRpc`, `WsChannel` (trait), `RelayJwt`, `WcEnvelope`,
+  `WcKeyAgreement`, `WalletConnectConnector`, and the new
+  `RelayTransportBase` that owns the demux + JSON-RPC core.
+- `jvm/src/main/scala/.../`: `JdkWsChannel` (`java.net.http.WebSocket`),
+  `JvmRelayTransport` — now a thin `extends RelayTransportBase(...)`
+  shim preserved as the legacy entry point.
+- `js/src/main/scala/.../`: `BrowserWsChannel` (wraps the browser's
+  native `WebSocket` global via an injectable `wsConstructor`
+  parameter — tests stub the constructor, no `globalThis.WebSocket`
+  surgery), `JsRelayTransport` — the JS twin of `JvmRelayTransport`.
+
+**Option A composition**: `RelayTransportBase` in `shared/` owns the
+full demux + JSON-RPC pipeline.  `JvmRelayTransport` and
+`JsRelayTransport` are 5-line subclasses that only differ in which
+`WsChannel` they wire.  The shared
+[`RelayTransportTestBase`](../wallet-connect/shared/src/test/scala/scalascript/wallet/walletconnect/RelayTransportTestBase.scala)
+spec runs against both — green on JVM ≡ green on JS for every
+protocol assertion.
+
+**Stage 6d — tests**:
+
+- JVM `walletConnect/test` — 49 tests across 7 suites; same count as
+  pre-Stage 6.  Previously-JVM-only suites
+  (`JvmRelayTransportTest`, `WcEnvelopeTest`, `WcKeyAgreementTest`,
+  `RelayJwtTest`, `WalletConnectConnectorTest`, `WcSessionStoreTest`,
+  `RelayJsonRpcTest`) become thin JVM concrete sub-classes of
+  `*TestBase` specs in `shared/src/test/`.
+- JS `walletConnectJs/test` — 54 tests across 8 suites (same 49 shared
+  specs + 5 new `BrowserWsChannelTest` tests against a mock
+  `BrowserWebSocket`).
+- Cross-platform crypto parity: 8 new ChaCha20-Poly1305 + X25519
+  fixtures in `CrossPlatformFixturesTest` (BouncyCastle) and
+  `NobleCryptoBackendTest` (noble), hex strings stay byte-identical
+  between the two files.
+
+**Stage 6e — build wiring**: `walletConnectCross =
+crossProject(JVMPlatform, JSPlatform).crossType(Full)`; legacy
+`walletConnect` alias preserved as `walletConnectCross.jvm` so every
+existing JVM downstream `dependsOn(walletConnect)` keeps compiling.
+JS side has `cryptoNobleJs % Test` to resolve `CryptoBackend.get()`;
+`scalaJSLinkerConfig ~= _.withModuleKind(CommonJSModule)` matches
+crypto-noble-js.  `walletConnectJs` added to the root aggregator.
+`wallet-connect/package.json` mirrors `crypto-noble-js/package.json`
+so the Node test runner walks up to find `@noble/ciphers` +
+`@noble/curves` + `@noble/hashes`.
+
+**Stage 6 — deferred / follow-ups**:
+
+- Real browser WebSocket integration — the JS tests mock
+  `BrowserWebSocket` (Node test runner has no native `WebSocket`).
+  Live `wss://relay.walletconnect.com` integration lands in the
+  future PWA-wallet sprint that surfaces WC v2 in the actual browser.
+
+### CryptoBackend SPI surface — what every future backend must provide
+
+With Stage 6 closed, the full set of [[CryptoBackend]] primitives any
+new backend (e.g. WebCrypto-only, hardware-backed TPM) must
+implement to be a drop-in replacement is:
+
+1. **Signing** — `sign` / `verify` / `derivePublic` / `recoverPublic`
+   for secp256k1 + ed25519 + p256 (curve `supports(...)` gates which
+   are required).
+2. **Hash + MAC** — `hash` for sha256 / sha512 / keccak256 /
+   ripemd160; `hmac` for sha256 / sha512.
+3. **HD derivation** — `deriveMaster` / `deriveChild` for secp256k1
+   (BIP-32) + ed25519 (SLIP-0010).  *Optional* on Scala.js for now —
+   `crypto-noble-js` still throws `UnsupportedOperationException`;
+   Stage TBD lands BIP-32 on noble.
+4. **KDF** — `pbkdf2` (sha256 + sha512), `argon2id` (RFC 9106 v0x13),
+   `hkdf` (sha256 + sha512).
+5. **AEAD** — `aesGcmEncrypt` / `aesGcmDecrypt` (12-byte IV, 16-byte
+   tag) **and** `chacha20Poly1305Encrypt` /
+   `chacha20Poly1305Decrypt` (12-byte nonce, 16-byte tag, throws
+   `CryptoIntegrityException` on tag mismatch).
+6. **X25519** — `x25519GenerateKeypair` /
+   `x25519PublicKeyFromPrivate` / `x25519DeriveSharedSecret`
+   (32-byte raw bytes both sides).
+7. **RNG** — `randomBytes(len)` from a cryptographically-secure source.
+
+`CryptoBackend.{aesGcm,chacha20Poly1305,x25519}*` all have default
+implementations on the trait that throw
+`UnsupportedOperationException` so partial backends continue to link;
+both `BouncyCastleBackend` and `NobleCryptoBackend` implement every
+primitive listed above.
 
 ## 6. Testing strategy
 

@@ -1268,19 +1268,56 @@ lazy val walletConnectorEip1193Jvm = walletConnectorEip1193Cross.jvm
 lazy val walletConnectorEip1193Js  = walletConnectorEip1193Cross.js
 lazy val walletConnectorEip1193    = walletConnectorEip1193Jvm
 
-lazy val walletConnect = project
-  .in(file("wallet-connect"))
-  .dependsOn(walletSpi, blockchainSpi, cryptoBouncycastle % Test)
-  .settings(
-    name := "scalascript-wallet-connect",
-    libraryDependencies ++= Seq(
-      "com.lihaoyi" %% "upickle" % "4.4.2",
-      "org.bouncycastle" % "bcprov-jdk18on" % "1.78.1",
-      scalatestTest,
-    ),
-    Compile / scalacOptions ++= sharedScalacOptionsStrict,
-    Test    / scalacOptions ++= sharedScalacOptions,
-  )
+// Cross-compiled (JVM + Scala.js) — docs/wallet-spi-scalajs.md § Stage 6.
+//
+// `shared/` holds the WC v2 protocol guts: `WcTypes`, `WcRelayTransport`
+// (trait), `WsChannel` (trait), `RelayJsonRpc`, `WcSessionStore`,
+// `RelayJwt`, `WcEnvelope`, `WcKeyAgreement` (all CryptoBackend-driven
+// — zero `java.*` / `javax.*` / `org.bouncycastle.*` after the Stage 6
+// refactor), `RelayTransportBase` (the demux + JSON-RPC core shared by
+// both platform transports), and `WalletConnectConnector`.
+//
+// `jvm/` adds the JVM-only platform glue: `JdkWsChannel` (over
+// `java.net.http.WebSocket`) and `JvmRelayTransport` (the legacy entry
+// point — now a thin sub-class of `RelayTransportBase`).
+//
+// `js/` adds the browser-side glue: `BrowserWsChannel` (over native
+// `WebSocket`) and `JsRelayTransport`.  Tests inject a mock
+// `WsChannel` exactly like JVM.
+//
+// JVM test crypto is BouncyCastle (auto-registered via ServiceLoader);
+// JS test crypto is `crypto-noble-js` (registered explicitly in the
+// per-suite `beforeAll`).  Module kind is CommonJS to match
+// crypto-noble-js.
+lazy val walletConnectCross =
+  crossProject(JVMPlatform, JSPlatform)
+    .crossType(CrossType.Full)
+    .in(file("wallet-connect"))
+    .dependsOn(walletSpiCross, blockchainSpiCross, cryptoSpiCross)
+    .settings(
+      name := "scalascript-wallet-connect",
+      libraryDependencies += "com.lihaoyi"   %%% "upickle"   % "4.4.2",
+      libraryDependencies += "org.scalatest" %%% "scalatest" % "3.2.18" % Test,
+      Compile / scalacOptions ++= sharedScalacOptionsStrict,
+      Test    / scalacOptions ++= sharedScalacOptions,
+    )
+    .jvmConfigure(_.withId("walletConnect"))
+    .jvmConfigure(_.dependsOn(cryptoBouncycastle % Test))
+    .jsConfigure(_.withId("walletConnectJs"))
+    .jsConfigure(_.dependsOn(cryptoNobleJs % Test))
+    .jsSettings(
+      Test / fork := false,
+      // crypto-noble-js compiles as CommonJSModule (so @noble/*
+      // `require()` exports resolve); downstream modules that depend
+      // on it in tests must use the same module kind.
+      scalaJSLinkerConfig ~= { _.withModuleKind(org.scalajs.linker.interface.ModuleKind.CommonJSModule) },
+    )
+
+lazy val walletConnectJvm = walletConnectCross.jvm
+lazy val walletConnectJs  = walletConnectCross.js
+// JVM alias — every downstream module that `.dependsOn(walletConnect)`
+// stays JVM-only and continues to use this name.
+lazy val walletConnect    = walletConnectJvm
 
 // Phase 7 (docs/wallet-spi.md §5.1) — Ledger hardware-wallet vault.
 // Three modules: shared types here (cross-compile-ready, JVM-only for
@@ -1582,7 +1619,7 @@ lazy val root = project
     x402Core, x402Server, x402Client,
     x402FacilitatorCoinbase, x402FacilitatorEvm, x402FacilitatorCardano,
     x402QueueKafka, x402QueuePostgres, x402NoncePostgres, x402NonceRedis,
-    cryptoSpi, cryptoSpiJs, cryptoBouncycastle, cryptoNobleJs, blockchainSpi, blockchainSpiJs, blockchainEvm, blockchainEvmAbi, blockchainEvmAbiJs, blockchainSolana, blockchainCardano, walletSpi, walletSpiJs, walletVaultEncrypted, walletVaultEncryptedJs, walletVaultMpc, walletVaultLedger, walletVaultLedgerJvm, walletVaultLedgerEthereum, walletStrategyEoa, walletStrategyEoaJs, walletStrategyErc4337, walletStrategyErc4337Js, walletConnectorEip1193, walletConnectorEip1193Js, walletConnect, walletConnectorWalletStd, walletConnectorWalletStdJs, mcpWallet, mcpX402,
+    cryptoSpi, cryptoSpiJs, cryptoBouncycastle, cryptoNobleJs, blockchainSpi, blockchainSpiJs, blockchainEvm, blockchainEvmAbi, blockchainEvmAbiJs, blockchainSolana, blockchainCardano, walletSpi, walletSpiJs, walletVaultEncrypted, walletVaultEncryptedJs, walletVaultMpc, walletVaultLedger, walletVaultLedgerJvm, walletVaultLedgerEthereum, walletStrategyEoa, walletStrategyEoaJs, walletStrategyErc4337, walletStrategyErc4337Js, walletConnectorEip1193, walletConnectorEip1193Js, walletConnect, walletConnectJs, walletConnectorWalletStd, walletConnectorWalletStdJs, mcpWallet, mcpX402,
     micropaymentSpi, micropaymentThreshold, micropaymentServer, micropaymentClient, micropaymentProbabilistic, micropaymentChannelEvm, micropaymentHydra,
     frontendCore, frontendCustom, frontendReact, frontendSolid, frontendVue,
     frontendToolkit, frontendExamples,

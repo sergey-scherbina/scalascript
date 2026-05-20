@@ -131,3 +131,69 @@ class CrossPlatformFixturesTest extends AnyFunSuite:
     ct(ct.length - 1) = (ct(ct.length - 1) ^ 0xff).toByte
     val ex = intercept[Exception](backend.aesGcmDecrypt(key, iv, ct, Array.empty[Byte]))
     assert(ex != null)
+
+  // ── Stage 6 fixtures — ChaCha20-Poly1305 + X25519 parity ─────────────────
+  //
+  // Same contract as the Stage 5 fixtures above: hex strings MUST stay
+  // bit-for-bit in sync between this file and the noble-side
+  // NobleCryptoBackendTest.  Generated once from BouncyCastle / JCE and
+  // reproduced on the @noble/ciphers + @noble/curves side.
+
+  test("ChaCha20-Poly1305 encrypt — key=0..1f nonce=0..0b plaintext='hello chacha' aad='wc-aad'"):
+    val key   = (0 until 32).map(_.toByte).toArray
+    val nonce = (0 until 12).map(_.toByte).toArray
+    val aad   = "wc-aad".getBytes("UTF-8")
+    val pt    = "hello chacha".getBytes("UTF-8")
+    assert(hex(backend.chacha20Poly1305Encrypt(key, nonce, pt, aad)) ==
+      "e19e646c4637c628d6e057926818605785ee61561639f152b034af31")
+
+  test("ChaCha20-Poly1305 encrypt — no AAD differs from with-AAD"):
+    val key   = (0 until 32).map(_.toByte).toArray
+    val nonce = (0 until 12).map(_.toByte).toArray
+    val pt    = "hello chacha".getBytes("UTF-8")
+    assert(hex(backend.chacha20Poly1305Encrypt(key, nonce, pt, Array.emptyByteArray)) ==
+      "e19e646c4637c628d6e05792005b3af4cb630f13c58863e558ab4b80")
+
+  test("ChaCha20-Poly1305 encrypt — empty plaintext with aad='wc-aad' yields 16-byte tag"):
+    val key   = (0 until 32).map(_.toByte).toArray
+    val nonce = (0 until 12).map(_.toByte).toArray
+    val aad   = "wc-aad".getBytes("UTF-8")
+    assert(hex(backend.chacha20Poly1305Encrypt(key, nonce, Array.emptyByteArray, aad)) ==
+      "ca698b7e1cb89fb733cb230b5bcc3b54")
+
+  test("ChaCha20-Poly1305 round-trip — encrypt then decrypt recovers plaintext"):
+    val key   = (0 until 32).map(_.toByte).toArray
+    val nonce = (0 until 12).map(_.toByte).toArray
+    val aad   = "wc-aad".getBytes("UTF-8")
+    val pt    = "hello chacha".getBytes("UTF-8")
+    val ct    = backend.chacha20Poly1305Encrypt(key, nonce, pt, aad)
+    val back  = backend.chacha20Poly1305Decrypt(key, nonce, ct, aad)
+    assert(back.toSeq == pt.toSeq)
+
+  test("ChaCha20-Poly1305 decrypt rejects tag-tampered ciphertext with CryptoIntegrityException"):
+    val key   = (0 until 32).map(_.toByte).toArray
+    val nonce = (0 until 12).map(_.toByte).toArray
+    val ct    = backend.chacha20Poly1305Encrypt(key, nonce, "hello".getBytes("UTF-8"), Array.emptyByteArray)
+    ct(ct.length - 1) = (ct(ct.length - 1) ^ 0xff).toByte
+    intercept[scalascript.crypto.CryptoIntegrityException](
+      backend.chacha20Poly1305Decrypt(key, nonce, ct, Array.emptyByteArray)
+    )
+
+  test("X25519 publicKeyFromPrivate — fixed priv 0x77…11 → known pub"):
+    val priv = fromHex("7700000000000000000000000000000000000000000000000000000000000011")
+    val pub  = backend.x25519PublicKeyFromPrivate(priv)
+    assert(hex(pub) == "e17edabbd5a6c59dc0be8c65fbf82fa5af7e3f713f8b8bb5d75a15a9f598124a")
+
+  test("X25519 ECDH — fixed (priv 0x77…11) × (pub 0x6e05…34) = known shared secret"):
+    val priv  = fromHex("7700000000000000000000000000000000000000000000000000000000000011")
+    val peer  = fromHex("6e05dab301f42ee8e5692585e42eb6096ff1d6f4a9be4580e9341978d6a47234")
+    val sec   = backend.x25519DeriveSharedSecret(priv, peer)
+    assert(hex(sec) == "214ee1354d46a9aca229764106794327fe5ec847deba3aac523bbeee0a42db66")
+
+  test("X25519 ECDH symmetry — dh(a.priv, b.pub) == dh(b.priv, a.pub)"):
+    val (aPriv, aPub) = backend.x25519GenerateKeypair()
+    val (bPriv, bPub) = backend.x25519GenerateKeypair()
+    val ab = backend.x25519DeriveSharedSecret(aPriv, bPub)
+    val ba = backend.x25519DeriveSharedSecret(bPriv, aPub)
+    assert(ab.toSeq == ba.toSeq)
+    assert(ab.length == 32)

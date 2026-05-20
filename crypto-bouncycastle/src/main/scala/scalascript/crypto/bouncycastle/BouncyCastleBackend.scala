@@ -83,6 +83,23 @@ final class BouncyCastleBackend extends CryptoBackend:
   def aesGcmDecrypt(key: Array[Byte], iv: Array[Byte], ciphertext: Array[Byte], aad: Array[Byte]): Array[Byte] =
     AesGcm.decrypt(key, iv, ciphertext, aad)
 
+  override def chacha20Poly1305Encrypt(key: Array[Byte], nonce: Array[Byte], plaintext: Array[Byte], aad: Array[Byte]): Array[Byte] =
+    ChaCha20Poly1305.encrypt(key, nonce, plaintext, aad)
+
+  override def chacha20Poly1305Decrypt(key: Array[Byte], nonce: Array[Byte], ciphertext: Array[Byte], aad: Array[Byte]): Array[Byte] =
+    ChaCha20Poly1305.decrypt(key, nonce, ciphertext, aad)
+
+  // ── X25519 ───────────────────────────────────────────────────────────
+
+  override def x25519GenerateKeypair(): (Array[Byte], Array[Byte]) =
+    X25519.generateKeypair(rng)
+
+  override def x25519PublicKeyFromPrivate(priv32: Array[Byte]): Array[Byte] =
+    X25519.publicKeyFromPrivate(priv32)
+
+  override def x25519DeriveSharedSecret(selfPriv32: Array[Byte], peerPub32: Array[Byte]): Array[Byte] =
+    X25519.deriveSharedSecret(selfPriv32, peerPub32)
+
   // ── RNG ──────────────────────────────────────────────────────────────
 
   private val rng = new java.security.SecureRandom()

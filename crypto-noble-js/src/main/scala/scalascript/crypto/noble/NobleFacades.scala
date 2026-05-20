@@ -168,3 +168,39 @@ private[noble] object NobleFacades:
     nonce: Uint8Array,
     aad: js.UndefOr[Uint8Array],
   ): NobleCipher = js.native
+
+  // ── ChaCha20-Poly1305 (@noble/ciphers/chacha) ──────────────────────────
+
+  /** RFC 8439 ChaCha20-Poly1305 constructor.  Same shape as
+   *  `gcm(key, nonce, aad?)` — returns a fresh
+   *  [[NobleCipher]] per call, output is `ciphertext || 16B tag`. */
+  @JSImport("@noble/ciphers/chacha", "chacha20poly1305")
+  @js.native
+  def chacha20poly1305(
+    key: Uint8Array,
+    nonce: Uint8Array,
+    aad: js.UndefOr[Uint8Array],
+  ): NobleCipher = js.native
+
+  // ── X25519 (@noble/curves/ed25519) ─────────────────────────────────────
+
+  /** noble's `x25519.utils` exposes `randomSecretKey()` (alias
+   *  `randomPrivateKey()` on older versions). */
+  @js.native
+  trait X25519Utils extends js.Object:
+    def randomSecretKey(): Uint8Array = js.native
+
+  /** The X25519 ECDH curve exposed from `@noble/curves/ed25519`.  We
+   *  only need three operations — keypair generation
+   *  (`utils.randomSecretKey() + getPublicKey`), public-key derivation
+   *  from a private key, and the raw 32-byte ECDH output
+   *  (`getSharedSecret`). */
+  @js.native
+  trait NobleX25519 extends js.Object:
+    def getPublicKey(secretKey: Uint8Array): Uint8Array                            = js.native
+    def getSharedSecret(secretKeyA: Uint8Array, publicKeyB: Uint8Array): Uint8Array = js.native
+    val utils: X25519Utils                                                          = js.native
+
+  @js.native
+  @JSImport("@noble/curves/ed25519", "x25519")
+  object x25519 extends NobleX25519
