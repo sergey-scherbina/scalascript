@@ -1196,14 +1196,30 @@ private class SparkGen(
            |  // type so the wire-level column shape matches what every MLlib
            |  // operator expects.  See `docs/spark-mllib.md` § Architecture.
            |  //
+           |  // Visibility note: `VectorUDT` is `private[spark]` in Spark 4.0.0,
+           |  // so user code can't `new VectorUDT()` directly.  We go through
+           |  // the public `SQLDataTypes.VectorType` singleton (typed as
+           |  // `DataType` but always a `VectorUDT` instance at runtime) and
+           |  // recover the concrete `UserDefinedType[Vector]` via cast.  Same
+           |  // trick supplies the class-token UDTEncoder's second parameter
+           |  // expects.  See `docs/spark-mllib.md` open question on UDT
+           |  // visibility.
+           |  //
            |  // Aliased to `MLVector` so it doesn't clash with
            |  // `scala.collection.immutable.Vector` (which the `aenc_Vector[E]`
            |  // given above already handles).
-           |  import org.apache.spark.ml.linalg.{Vector => MLVector, VectorUDT}
+           |  import org.apache.spark.ml.linalg.{Vector => MLVector, SQLDataTypes => MLSQLDataTypes}
+           |  import org.apache.spark.sql.types.UserDefinedType
            |  import org.apache.spark.sql.catalyst.encoders.AgnosticEncoders.UDTEncoder
            |
+           |  private val _mlVectorUDT: UserDefinedType[MLVector] =
+           |    MLSQLDataTypes.VectorType.asInstanceOf[UserDefinedType[MLVector]]
+           |
            |  given aenc_MLVector: AgnosticEncoder[MLVector] =
-           |    UDTEncoder[MLVector](new VectorUDT(), classOf[VectorUDT])
+           |    UDTEncoder[MLVector](
+           |      _mlVectorUDT,
+           |      _mlVectorUDT.getClass.asInstanceOf[Class[_ <: UserDefinedType[_]]]
+           |    )
            |""".stripMargin
     phaseEShimHead + mllibBlock + phaseEShimTail
 

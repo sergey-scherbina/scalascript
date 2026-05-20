@@ -1,0 +1,86 @@
+---
+name: spark-mllib-pipeline
+backend: spark
+spark-app-name: Phase M.4 MLlib Pipeline Demo
+description: Tokenizer + HashingTF + LogisticRegression pipeline on a tiny inline dataset (v1.25 § 9.5 Phase M)
+---
+
+# Phase M.4 — Spark MLlib Pipeline (end-to-end)
+
+Demonstrates that a full MLlib `Pipeline` — feature extraction +
+classification — runs end-to-end under Scala 3 + Spark `_2.13` via
+the same `.ssc → SparkGen → scala-cli run` path that handles the
+batch, SQL, streaming, and lakehouse examples.
+
+What's wired by Phase M:
+
+- **M.2 — Auto-dep.**  The `import org.apache.spark.ml.*` lines
+  below trigger `SparkGen.containsMllib`, which emits
+  `//> using dep "org.apache.spark:spark-mllib_2.13:4.0.0"` in the
+  generated header.  No manual front-matter dep declaration needed.
+- **M.3 — Vector encoder.**  The `SscSparkEncoders` shim picks up
+  the same MLlib import and surfaces an explicit `aenc_MLVector`
+  AgnosticEncoder via `UDTEncoder(VectorUDT)`.  Case classes with a
+  `features: Vector` field (not present here but exercised in
+  M.3's smoke test) derive cleanly through the same Mirror walk
+  that handles primitives, Option, collections, and nested case
+  classes.
+- **Phase E.**  The inline `LabeledDoc(label: Double, text: String)`
+  case class lifts into a `Dataset[LabeledDoc]` via the existing
+  Phase E `aenc_Product` derivation — Vector lives in the intermediate
+  output column `features` after `HashingTF.transform`, not in the
+  Dataset's row type at construction time.
+
+Run with:
+
+```
+ssc run --backend spark examples/spark-mllib-pipeline.ssc
+```
+
+## Pipeline
+
+```scalascript
+import org.apache.spark.ml.Pipeline
+import org.apache.spark.ml.feature.{Tokenizer, HashingTF}
+import org.apache.spark.ml.classification.LogisticRegression
+
+case class LabeledDoc(label: Double, text: String)
+
+// Tiny training set — four documents, two classes.  Real pipelines
+// pull from a Dataset.fromCsvAs[LabeledDoc](path) or a Hive table;
+// inline data keeps the smoke test self-contained.
+val training = spark.createDataset(List(
+  LabeledDoc(1.0, "spark hadoop scala sql"),
+  LabeledDoc(0.0, "apple orange banana grape"),
+  LabeledDoc(1.0, "spark sql streaming dataset"),
+  LabeledDoc(0.0, "kitten puppy bird hamster")
+))
+
+// Three stages — Tokenizer splits on whitespace, HashingTF maps
+// terms to a fixed-size feature vector, LogisticRegression trains
+// the classifier.  HashingTF's output column is the `features:
+// Vector` consumed by LogisticRegression as its default features
+// column.  Number of features kept small for the smoke test;
+// production code uses 2^18 (the HashingTF default) or higher.
+val tokenizer = Tokenizer().setInputCol("text").setOutputCol("words")
+val hashingTF = HashingTF()
+  .setInputCol(tokenizer.getOutputCol)
+  .setOutputCol("features")
+  .setNumFeatures(64)
+val lr = LogisticRegression()
+  .setMaxIter(10)
+  .setRegParam(0.001)
+
+// Pipeline composes stages declaratively; `.fit(...)` runs the chain.
+val pipeline = Pipeline().setStages(Array(tokenizer, hashingTF, lr))
+val model    = pipeline.fit(training)
+
+println("MLLIB_PIPELINE_TRAINED")
+
+// Score the training set — for a smoke test we just want a working
+// transform path, not separated train/test data.
+val predictions = model.transform(training)
+predictions.select("label", "text", "prediction").show(false)
+
+println(s"MLLIB_PIPELINE_PREDICTION_COUNT=${predictions.count()}")
+```

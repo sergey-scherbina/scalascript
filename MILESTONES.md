@@ -7210,10 +7210,24 @@ Thin `backend-wasm-contract/` layer on top of `backend-wasm/` for Near or Polkad
 >   Vector, and source-ordering (`aenc_MLVector` slots between
 >   collection encoders and `aenc_Product` so the Mirror walk picks
 >   it up via `summonInline`).
-> - **M.4 — Pipeline example end-to-end (open).**
+> - **M.4 — Pipeline example end-to-end (landed 2026-05-20).**
 >   `examples/spark-mllib-pipeline.ssc` — Tokenizer + HashingTF +
->   LogisticRegression on a tiny inline dataset.  Smoke test gated
->   by `RUN_SPARK_INTEGRATION=1` AND `RUN_SPARK_MLLIB=1`.
+>   LogisticRegression on a tiny inline dataset (4 labelled docs,
+>   binary classification).  Codegen test in `SparkGenTest` verifies
+>   the dep + Vector encoder shim land for this example without
+>   requiring the integration gate; smoke test in
+>   `SparkRuntimeSmokeTest` invokes `scala-cli compile` against the
+>   real `spark-mllib_2.13:4.0.0` JAR under
+>   `RUN_SPARK_INTEGRATION=1 RUN_SPARK_MLLIB=1`.  Verified locally
+>   under Scala 3.7.1 + Spark 4.0.0 + JDK 21 — generated source
+>   resolves all deps via Coursier and type-checks cleanly.  During
+>   M.4 development we discovered `VectorUDT` is `private[spark]` in
+>   Spark 4.0.0; M.3's shim was updated to route through the public
+>   `org.apache.spark.ml.linalg.SQLDataTypes.VectorType` singleton
+>   (a `DataType`-typed instance that is actually a `VectorUDT` at
+>   runtime) and recover the concrete `UserDefinedType[Vector]` via
+>   cast.  Same wire-level interop with downstream MLlib operators
+>   as a direct `new VectorUDT()` construction.
 > - **M.5 — Model save/load (open).**
 >   `examples/spark-mllib-model-save-load.ssc` — `model.write.overwrite().save(path)`
 >   + `PipelineModel.load(path)` round-trip.  Smoke test gated the

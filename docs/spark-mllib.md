@@ -226,14 +226,28 @@ compile and run but a `Dataset[Sample]` produced via Kryo can't be
 fed into an MLlib transformer without a manual re-serialize step
 that defeats the purpose of having the encoder.
 
-The shim addition (concrete code lands in M.3):
+The shim addition (concrete code, as landed in M.3 — revised under
+M.4 once the `private[spark]` visibility of `VectorUDT` surfaced
+during the first integration smoke run):
 
 ```scala
-import org.apache.spark.ml.linalg.{Vector => MLVector, VectorUDT}
+import org.apache.spark.ml.linalg.{Vector => MLVector, SQLDataTypes => MLSQLDataTypes}
+import org.apache.spark.sql.types.UserDefinedType
 import org.apache.spark.sql.catalyst.encoders.AgnosticEncoders.UDTEncoder
 
-given aenc_Vector: AgnosticEncoder[MLVector] =
-  UDTEncoder[MLVector](new VectorUDT(), classOf[VectorUDT])
+// `VectorUDT` is `private[spark]` in Spark 4.0.0 — user code can't
+// `new VectorUDT()` directly.  Go through the public
+// `SQLDataTypes.VectorType` singleton (typed as `DataType` but always
+// a `VectorUDT` instance at runtime) and recover the concrete
+// `UserDefinedType[Vector]` via cast.
+private val _mlVectorUDT: UserDefinedType[MLVector] =
+  MLSQLDataTypes.VectorType.asInstanceOf[UserDefinedType[MLVector]]
+
+given aenc_MLVector: AgnosticEncoder[MLVector] =
+  UDTEncoder[MLVector](
+    _mlVectorUDT,
+    _mlVectorUDT.getClass.asInstanceOf[Class[_ <: UserDefinedType[_]]]
+  )
 ```
 
 Sits in `SscSparkEncoders` alongside the existing `aenc_Option` /
@@ -456,17 +470,18 @@ Independently shippable.  Closes M.
   artifact ID (`spark-ml_2.13`?), the constant gets bumped in
   `SparkGen`.
 
-- **`UDTEncoder` visibility under Scala 3 + Spark 4.**
-  `org.apache.spark.sql.catalyst.encoders.AgnosticEncoders.UDTEncoder`
-  is technically a public case class in Spark 4.0.0 — verified
-  empirically against the OSS Spark source — but Catalyst's encoder
-  internals occasionally lose `private[catalyst]` visibility modifiers
-  between minor versions.  If the M.3 smoke test fails with an
-  "access denied" error against the production Spark JAR, the fallback
-  is `Encoders.kryo[Vector]` with a documented wire-level interop
-  caveat (Vector columns serialized via Kryo can't be consumed by
-  downstream MLlib operators).  Track resolution in M.3's commit
-  message if the fallback path lands.
+- **`UDTEncoder` / `VectorUDT` visibility under Scala 3 + Spark 4
+  (resolved during M.4).**  `UDTEncoder` is a public case class in
+  Spark 4.0.0 — verified empirically against the OSS Spark source —
+  but `VectorUDT` itself is `private[spark]`, so user code can't
+  `new VectorUDT()`.  The shim therefore goes through the public
+  `org.apache.spark.ml.linalg.SQLDataTypes.VectorType` singleton
+  (typed as `DataType` but always a `VectorUDT` instance at runtime)
+  and recovers the concrete `UserDefinedType[Vector]` via cast.  Same
+  wire-level interop with downstream MLlib operators as a direct
+  `new VectorUDT()` construction.  Discovered when the first M.4
+  integration smoke run failed with `Not found: type VectorUDT`;
+  fix landed alongside M.4.
 
 - **`Matrix` encoder.**  Deferred to a hypothetical M.6.  Most user
   programs never put a Matrix in a Dataset row, so the encoder for

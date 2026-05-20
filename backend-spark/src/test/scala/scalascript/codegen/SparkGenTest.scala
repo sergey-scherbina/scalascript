@@ -1935,10 +1935,15 @@ class SparkGenTest extends AnyFunSuite:
     )
     assert(code.contains("given aenc_MLVector: AgnosticEncoder[MLVector]"),
       s"aenc_MLVector given must be present when MLlib is imported, got:\n$code")
-    assert(code.contains("UDTEncoder[MLVector](new VectorUDT(), classOf[VectorUDT])"),
-      s"aenc_MLVector must wire through UDTEncoder + VectorUDT, got:\n$code")
-    assert(code.contains("import org.apache.spark.ml.linalg.{Vector => MLVector, VectorUDT}"),
-      s"Vector / VectorUDT imports (aliased) must be in scope, got:\n$code")
+    // VectorUDT is `private[spark]` in Spark 4.0.0, so we route through
+    // the public `SQLDataTypes.VectorType` singleton.  Pin both the
+    // UDTEncoder wiring and the cast path.
+    assert(code.contains("UDTEncoder[MLVector]"),
+      s"aenc_MLVector must wire through UDTEncoder, got:\n$code")
+    assert(code.contains("MLSQLDataTypes.VectorType.asInstanceOf[UserDefinedType[MLVector]]"),
+      s"aenc_MLVector must obtain the UDT via SQLDataTypes.VectorType (private[spark] visibility workaround), got:\n$code")
+    assert(code.contains("import org.apache.spark.ml.linalg.{Vector => MLVector, SQLDataTypes => MLSQLDataTypes}"),
+      s"Vector / SQLDataTypes imports (aliased) must be in scope, got:\n$code")
   }
 
   test("mllib encoder — no MLlib usage means no aenc_MLVector given") {
@@ -1956,8 +1961,8 @@ class SparkGenTest extends AnyFunSuite:
     )
     assert(!code.contains("aenc_MLVector"),
       s"aenc_MLVector must NOT be emitted without MLlib usage, got:\n$code")
-    assert(!code.contains("VectorUDT"),
-      s"VectorUDT reference must NOT appear without MLlib usage, got:\n$code")
+    assert(!code.contains("MLSQLDataTypes"),
+      s"MLSQLDataTypes alias must NOT appear without MLlib usage, got:\n$code")
     assert(!code.contains("UDTEncoder"),
       s"UDTEncoder reference must NOT appear without MLlib usage, got:\n$code")
     // The shim's existing givens (primitives + collection encoders +
@@ -2017,6 +2022,38 @@ class SparkGenTest extends AnyFunSuite:
       s"aenc_MLVector must appear AFTER the collection encoders; got idxMap=$idxMap idxMLVec=$idxMLVec")
     assert(idxMLVec < idxProduct,
       s"aenc_MLVector must appear BEFORE aenc_Product; got idxMLVec=$idxMLVec idxProduct=$idxProduct")
+  }
+
+  // ── Phase M.4 — Pipeline example end-to-end ──────────────────────────────
+  //
+  // Codegen-level guard: parse the canonical `spark-mllib-pipeline.ssc`
+  // example and verify the generated source emits the MLlib dep + the
+  // M.3 Vector encoder shim.  Catches structural regressions in the
+  // example without requiring `RUN_SPARK_INTEGRATION=1`.
+
+  test("spark-mllib-pipeline.ssc — generated source emits MLlib dep + Vector encoder shim") {
+    // Walk up from cwd looking for the repo root — mirrors
+    // SparkRuntimeSmokeTest.locateRepoRoot.  Handles both running in
+    // the main checkout and inside a worktree where examples/ lives
+    // above the sbt working dir.
+    def hasExamples(p: os.Path): Boolean =
+      os.exists(p / "examples" / "spark-mllib-pipeline.ssc")
+    val repoRoot = LazyList
+      .iterate(os.pwd)(_ / os.up)
+      .takeWhile(p => p.toString != "/")
+      .find(hasExamples)
+      .getOrElse(cancel(s"could not locate repo root with examples/spark-mllib-pipeline.ssc from ${os.pwd}"))
+    val src  = os.read(repoRoot / "examples" / "spark-mllib-pipeline.ssc")
+    val code = gen(src)
+    assert(code.contains("spark-mllib_2.13"),
+      s"MLlib dep must appear for the pipeline example, got:\n$code")
+    assert(code.contains("given aenc_MLVector"),
+      s"MLlib Vector encoder must appear for the pipeline example, got:\n$code")
+    // Spot-check that the user-provided import is preserved verbatim
+    // (`extractSqlFns` only strips `@SqlFn` lines, so MLlib imports
+    // survive).
+    assert(code.contains("import org.apache.spark.ml.Pipeline"),
+      s"user MLlib import must be preserved in generated source, got:\n$code")
   }
 
   test("containsMllib helper — direct test cases") {

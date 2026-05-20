@@ -214,3 +214,28 @@ class SparkRuntimeSmokeTest extends AnyFunSuite:
     requireKafka()
     compileExample("spark-streaming-kafka.ssc")
   }
+
+  // ── Phase M: MLlib smoke tests ───────────────────────────────────────────
+  //
+  // MLlib resolves a sizeable artifact set (~50MB cold) — the
+  // `spark-mllib_2.13` JAR plus its transitive deps (Breeze, netlib-java,
+  // ...).  Separate `RUN_SPARK_MLLIB=1` gate on top of the base
+  // `RUN_SPARK_INTEGRATION` flag so a teammate without an MLlib-warmed
+  // Coursier cache isn't blocked on unrelated smoke tests.
+
+  private def requireMllib(): Unit =
+    requireIntegration()
+    if !sys.env.get("RUN_SPARK_MLLIB").contains("1") then
+      cancel("RUN_SPARK_MLLIB=1 not set — opt in to resolve the spark-mllib runtime JAR")
+
+  test("spark-mllib-pipeline.ssc compiles under Phase M.4") {
+    // End-to-end MLlib pipeline: Tokenizer + HashingTF +
+    // LogisticRegression on an inline labelled dataset.  Exercises
+    // the auto-emitted `spark-mllib_2.13` dep (M.2), the Phase E
+    // case-class encoder for `LabeledDoc(label: Double, text: String)`,
+    // and the unmodified passthrough of `org.apache.spark.ml.*`
+    // imports.  If this compiles, the auto-dep wiring resolves and
+    // the generated source type-checks against the MLlib API surface.
+    requireMllib()
+    compileExample("spark-mllib-pipeline.ssc")
+  }
