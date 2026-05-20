@@ -7101,6 +7101,55 @@ Thin `backend-wasm-contract/` layer on top of `backend-wasm/` for Near or Polkad
 >   `Dataset.listTables()` / `Dataset.describeTable(name)` wraps.
 >   Skip if any conflict surfaces; phase considered closed after G.4.
 
+#### MLlib track — machine learning pipelines
+
+> Goal: when a `.ssc` program imports `org.apache.spark.ml.*` (feature
+> extractors, algorithms, `Pipeline`, model persistence), `SparkGen`
+> auto-emits the `spark-mllib_2.13` runtime dep and the Phase E
+> Scala 3 encoder shim gains support for the `org.apache.spark.ml.linalg.Vector`
+> type (sealed trait, NOT a Product — Mirror-based derivation can't
+> handle it).  Result: case classes with `features: Vector` fields,
+> stock MLlib Pipelines, and `model.save()` / `PipelineModel.load()`
+> all work end-to-end without any front-matter or CLI override.
+> Detection is regex-driven on import-header substrings, same shape
+> as the Streaming / Lakehouse tracks — purely additive over Phase E
+> + F + Lakehouse L.2.
+>
+> Full plan: [`docs/spark-mllib.md`](docs/spark-mllib.md).
+>
+> Phases (each independently shippable per AGENTS.md rule 3):
+>
+> - **M.1 — Spec doc (landed 2026-05-20).**  `docs/spark-mllib.md`
+>   covering goals / non-goals / detection mechanism / encoder bridge
+>   design / coord table / phases M.2–M.5 / testing strategy / open
+>   questions.  No code changes; gives the parallel Spark tracks a
+>   stable contract to compose against.
+> - **M.2 — Auto-emit `spark-mllib_2.13` dep (open).**
+>   `containsMllib(source: String): Boolean` regex on
+>   `import org.apache.spark.ml.` / `o.a.s.ml.` substrings.  When
+>   true, emit `//> using dep "org.apache.spark:spark-mllib_2.13:<sparkVersion>"`
+>   alongside the existing `spark-core` / `spark-sql` lines.  Tests:
+>   6–8 new `SparkGenTest` cases covering positive / negative
+>   detection, the abbreviated `o.a.s.ml.` alias, and linalg-only
+>   imports (still pulls the dep — `linalg` lives in `spark-mllib`).
+> - **M.3 — Vector encoder (open).**  Extend `SscSparkEncoders` with
+>   an explicit `aenc_Vector: AgnosticEncoder[org.apache.spark.ml.linalg.Vector]`
+>   given that wraps `UDTEncoder(new VectorUDT(), classOf[VectorUDT])`.
+>   Required because `Vector` is a sealed trait (not a Product), so
+>   the existing `aenc_Product[T <: Product]` Mirror walk skips over
+>   it.  The given is gated on `usesMllib` — emitted only when the
+>   module actually imports MLlib, so non-MLlib programs don't pull
+>   the `VectorUDT` class reference (which would fail to resolve
+>   when `spark-mllib` isn't on the classpath).
+> - **M.4 — Pipeline example end-to-end (open).**
+>   `examples/spark-mllib-pipeline.ssc` — Tokenizer + HashingTF +
+>   LogisticRegression on a tiny inline dataset.  Smoke test gated
+>   by `RUN_SPARK_INTEGRATION=1` AND `RUN_SPARK_MLLIB=1`.
+> - **M.5 — Model save/load (open).**
+>   `examples/spark-mllib-model-save-load.ssc` — `model.write.overwrite().save(path)`
+>   + `PipelineModel.load(path)` round-trip.  Smoke test gated the
+>   same way as M.4.
+
 ### Why it fits
 
 ScalaScript already has a local `Dataset[T]` implementation (v1.21) and
