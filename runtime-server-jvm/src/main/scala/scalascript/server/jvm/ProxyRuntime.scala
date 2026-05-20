@@ -239,6 +239,49 @@ def serve(port: Int, tlsCfg: _TlsConfig = null.asInstanceOf[_TlsConfig]): Unit =
   backend.start(port, tlsOpt, handler)
   _stopLatch.await()
 
+// Non-blocking variant of `serve` — launches the HTTP/WS accept loop on
+// a JDK 21+ virtual thread and returns immediately.  Required for
+// multi-node clusters where a node must both bind its WS port AND drive
+// its actor scheduler in the same process (see `docs/cluster-raft.md`
+// §9 — `serve(port)` blocks the caller and stalls the scheduler).
+//
+// Wire-equivalent to the interpreter's `serveAsync` intrinsic in
+// `backend-interpreter/src/main/scala/scalascript/interpreter/intrinsics/Http.scala`:
+// same SPI-backed accept loop as `serve`, just dispatched on a virtual
+// thread so control returns to the caller (an actor body, typically)
+// after the bind completes.  Caller is responsible for keeping the
+// process alive — `_stopLatch.await()` is NOT called here.
+//
+// The 2-arg `serveAsync(port, tls(cert, key))` form binds HTTPS / wss://;
+// peers dialing the node use `wss://host:port/_ssc-actors` and the
+// existing `java.net.http`-backed outbound WS client handles the TLS
+// handshake transparently.
+def serveAsync(port: Int, tlsCfg: _TlsConfig = null.asInstanceOf[_TlsConfig]): Unit =
+  _registerHealthDefaults()
+  // Same backend bootstrap as `serve` — register the inlined JDK impl
+  // programmatically since the codegen pipeline doesn't carry
+  // `META-INF/services` entries.
+  HttpServerBackends.register(new JdkServerBackend)
+  val handler  = _CodegenHttpHandler
+  val tlsOpt: Option[TlsConfig] =
+    if tlsCfg == null then None
+    else Some(TlsConfig(tlsCfg.cert, tlsCfg.key))
+  val backend = HttpServerBackends.current()
+  _spiBackend = backend
+  val scheme = if tlsCfg != null then "https" else "http"
+  println(s"Listening on $scheme://localhost:$port/  (backend=${backend.name}, async)")
+  // Launch the (blocking) backend start on a virtual thread so the
+  // caller's thread is freed immediately.  The SPI's `start` typically
+  // returns after binding (the read loops run on their own threads),
+  // so this is belt-and-suspenders — if a future SPI impl blocks until
+  // shutdown, the virtual thread absorbs that.
+  Thread.ofVirtual().name(s"ssc-serve-async-$port").start { () =>
+    try backend.start(port, tlsOpt, handler)
+    catch case e: Throwable =>
+      System.err.println(s"serveAsync($port) failed: ${e.getMessage}")
+  }
+  ()
+
 // ── Codegen HttpHandler — drives the SPI on behalf of the user's
 //    top-level route registry (`_routes` / `_wsRoutes` / `_middlewares`).
 //    Same shape as `InterpreterHttpHandler` in backend-interpreter, but

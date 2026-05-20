@@ -1468,6 +1468,11 @@ class JvmGen(
           // the runtime: Tier 5 #21 auto-registers `/_health` /_ready` at
           // serve() time so a bare `serve(8080)` is a valid program.
           case Term.Apply.After_4_6_0(Term.Name("serve"),        _) => found = true
+          // `serveAsync(port[, tls])` is the non-blocking sibling of
+          // `serve` (virtual-thread launch).  Same runtime dependency
+          // — must pull `serveRuntime` in so the inlined ProxyRuntime
+          // `def serveAsync` is in scope.
+          case Term.Apply.After_4_6_0(Term.Name("serveAsync"),   _) => found = true
         }
       }
       found

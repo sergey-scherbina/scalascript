@@ -72,6 +72,34 @@ class JvmGenEffectsRuntimeTest extends AnyFunSuite with Matchers:
     serveDefs shouldBe 1
     code should include ("tlsCfg: _TlsConfig = null.asInstanceOf[_TlsConfig]")
 
+  test("JvmGen: `serveAsync(port)` pulls in the serve runtime"):
+    // A bare `serveAsync(8080)` must trigger `blocksUseRoutes` so the
+    // inlined ProxyRuntime (which defines `def serveAsync`) is in
+    // scope — otherwise the generated script would call an unresolved
+    // `serveAsync` symbol.
+    val code = jvmCode("""serveAsync(8080)""")
+    code should include ("def serveAsync(")
+    // Caller-thread is freed via a virtual thread (Loom).  The
+    // implementation in runtime-server-jvm/ProxyRuntime.scala names
+    // the thread for ops visibility — assert on the actual launch
+    // primitive so a future refactor that drops virtual threads is
+    // caught.
+    code should include ("Thread.ofVirtual()")
+    // Plain `serve` def stays single-occurrence (linker-dedup-safe).
+    val serveDefs      = "(?m)^def serve\\(".r.findAllMatchIn(code).length
+    val serveAsyncDefs = "(?m)^def serveAsync\\(".r.findAllMatchIn(code).length
+    serveDefs      shouldBe 1
+    serveAsyncDefs shouldBe 1
+    // `serveAsync` survives the codegen pass verbatim (no rewrite to
+    // `Actor.serveAsync` — it's a runtime call, not an actor intrinsic).
+    code should include ("serveAsync(8080)")
+
+  test("JvmGen: `serveAsync(port, tls(cert, key))` reuses the same TLS arg shape as serve"):
+    val code = jvmCode("""serveAsync(8443, tls("cert.pem", "key.pem"))""")
+    code should include ("def serveAsync(")
+    code should include ("tlsCfg: _TlsConfig = null.asInstanceOf[_TlsConfig]")
+    code should include ("""serveAsync(8443, tls("cert.pem", "key.pem"))""")
+
   test("JvmGen: `onWebSocket` is a single def with default args (linker-dedup-safe)"):
     val code = jvmCode("""
       onWebSocket("/echo") { ws => () }
@@ -126,3 +154,16 @@ class JvmGenEffectsRuntimeTest extends AnyFunSuite with Matchers:
   test("JvmGen: scala-cli compiles a bare `serve(8080)` module"):
     assume(hasScalaCli, "scala-cli not available")
     compileWithScalaCli("""serve(8080)""") shouldBe 0
+
+  test("JvmGen: scala-cli compiles a bare `serveAsync(8080)` module"):
+    // The whole point of `serveAsync` (cluster-raft.md §9): a codegen-
+    // built node binds a WS port AND keeps running the actor scheduler
+    // on the caller thread.  Verify the emitted Scala compiles —
+    // signature mismatches in `ProxyRuntime.serveAsync` would surface
+    // here as a scala-cli compile failure.
+    assume(hasScalaCli, "scala-cli not available")
+    compileWithScalaCli("""serveAsync(8080)""") shouldBe 0
+
+  test("JvmGen: scala-cli compiles a `serveAsync(port, tls(...))` module"):
+    assume(hasScalaCli, "scala-cli not available")
+    compileWithScalaCli("""serveAsync(8443, tls("cert.pem", "key.pem"))""") shouldBe 0
