@@ -8129,21 +8129,41 @@ device, one seed, per-chain on-device apps; the Vault routes
 `getSigner(curve, path)` to the right active app and surfaces
 `AppSwitchRequired` to the host when the user must change apps.
 
-- [ ] `wallet-vault-ledger` — shared types (cross-compile):
-      `LedgerTransport` trait, APDU codecs, `AppSwitchRequired`
-      error, `getAppName` probe, curve→app routing table
-- [ ] `wallet-vault-ledger-jvm` — `hid4java` transport
-- [ ] `wallet-vault-ledger-js` — WebHID transport (Scala.js)
-- [ ] Ethereum-app signer: secp256k1 + EIP-712 / EIP-3009 (covers
-      all 6 EVM x402 chains via single app)
-- [ ] Solana-app signer: ed25519 + Solana sign-doc framing
+- [x] `wallet-vault-ledger` — shared types (JVM, cross-compile-ready
+      sources): `LedgerTransport` trait, `Apdu` codec + chunked send,
+      `AppSwitchRequired` error, `Dashboard.getAppName` probe,
+      `Bip32Path` encoder, `CurveAppRouting` curve→app table.
+      27 tests across `ApduTest` / `Bip32PathTest` /
+      `CurveAppRoutingTest` / `DashboardTest`.
+- [x] `wallet-vault-ledger-jvm` — `hid4java` transport with the
+      Ledger HID framing (5-byte header + 64-byte frames + first-
+      frame length prefix + CID 0x0101). 10 framing round-trip
+      tests; the actual `Hid4JavaTransport` device class is wired
+      but exercised manually in dev (no device in CI).
+- [x] Ethereum-app signer: `wallet-vault-ledger-ethereum`
+      (CLA=0xE0). `EthereumApp` wraps GET_PUBLIC_KEY (INS=0x02),
+      SIGN_TRANSACTION (0x04 chunked), SIGN_PERSONAL_MESSAGE
+      (0x08 chunked), SIGN_EIP712_HASHED (0x0C).
+      `LedgerEthereumVault` implements `Vault`; probes `getAppName`
+      before signing → `AppSwitchRequired` on mismatch.
+      `LedgerEthereumSigner` extends `RawSigner`, routes
+      `hash=Keccak256` to SIGN_TRANSACTION and `hash=None` (64-B
+      `[domain||msgHash]`) to SIGN_EIP712. Covers all 6 EVM x402
+      chains via the single Ethereum app. 13 tests.
+- [ ] `wallet-vault-ledger-js` — WebHID transport (Scala.js).
+      Deferred — Scala.js cross-compile of the shared types comes
+      with the broader wallet-spi Scala.js sweep.
+- [ ] Solana-app signer: ed25519 + Solana sign-doc framing.
+      Deferred to follow-up slice (mirror of `EthereumApp` for
+      `app-solana`; CLA=0xE0, INS=0x05 SIGN_OFFCHAIN_MESSAGE /
+      INS=0x04 SIGN; default path `m/44'/501'/0'/0'`).
 - [ ] Bitcoin-app signer: PSBT-aware (depends on blockchain-spi
-      Phase 5)
+      Phase 5). Deferred.
 - [ ] Cardano-app signer: CIP-8 framing (depends on blockchain-spi
-      Phase 6)
+      Phase 6). Deferred.
 - [ ] Optional `wallet-vault-ledger-bluetooth-js` — WebBLE for
-      Nano X / Stax
-- [ ] Optional `wallet-vault-trezor` follow-up
+      Nano X / Stax. Deferred.
+- [ ] Optional `wallet-vault-trezor` follow-up. Deferred.
 
 ### Phase 8 — MPC Vault
 

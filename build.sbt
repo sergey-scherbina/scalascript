@@ -959,6 +959,44 @@ lazy val walletConnect = project
     Test    / scalacOptions ++= sharedScalacOptions,
   )
 
+// Phase 7 (docs/wallet-spi.md §5.1) — Ledger hardware-wallet vault.
+// Three modules: shared types here (cross-compile-ready, JVM-only for
+// now), `wallet-vault-ledger-jvm` providing the hid4java transport,
+// and `wallet-vault-ledger-ethereum` providing the Ethereum-app signer.
+lazy val walletVaultLedger = project
+  .in(file("wallet-vault-ledger"))
+  .dependsOn(walletSpi, cryptoSpi, blockchainSpi)
+  .settings(
+    name := "scalascript-wallet-vault-ledger",
+    libraryDependencies ++= Seq(scalatestTest),
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions,
+  )
+
+lazy val walletVaultLedgerJvm = project
+  .in(file("wallet-vault-ledger-jvm"))
+  .dependsOn(walletVaultLedger)
+  .settings(
+    name := "scalascript-wallet-vault-ledger-jvm",
+    libraryDependencies ++= Seq(
+      // Cross-platform USB HID for the JVM. Pulls in JNA transitively.
+      "org.hid4java" % "hid4java" % "0.7.0",
+      scalatestTest,
+    ),
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions,
+  )
+
+lazy val walletVaultLedgerEthereum = project
+  .in(file("wallet-vault-ledger-ethereum"))
+  .dependsOn(walletVaultLedger, walletVaultLedger % "test->test", walletSpi, cryptoSpi, blockchainEvm, cryptoBouncycastle % Test)
+  .settings(
+    name := "scalascript-wallet-vault-ledger-ethereum",
+    libraryDependencies ++= Seq(scalatestTest),
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions,
+  )
+
 lazy val walletConnectorWalletStd = project
   .in(file("wallet-connector-wallet-std"))
   .dependsOn(walletSpi, blockchainSpi, blockchainSolana, walletStrategyEoa % Test, cryptoBouncycastle % Test)
@@ -1173,7 +1211,7 @@ lazy val root = project
     x402Core, x402Server, x402Client,
     x402FacilitatorCoinbase, x402FacilitatorEvm, x402FacilitatorCardano,
     x402QueueKafka, x402QueuePostgres, x402NoncePostgres, x402NonceRedis,
-    cryptoSpi, cryptoBouncycastle, blockchainSpi, blockchainEvm, blockchainEvmAbi, blockchainSolana, blockchainCardano, walletSpi, walletVaultEncrypted, walletVaultMpc, walletStrategyEoa, walletStrategyErc4337, walletConnectorEip1193, walletConnect, walletConnectorWalletStd, mcpWallet, mcpX402,
+    cryptoSpi, cryptoBouncycastle, blockchainSpi, blockchainEvm, blockchainEvmAbi, blockchainSolana, blockchainCardano, walletSpi, walletVaultEncrypted, walletVaultMpc, walletVaultLedger, walletVaultLedgerJvm, walletVaultLedgerEthereum, walletStrategyEoa, walletStrategyErc4337, walletConnectorEip1193, walletConnect, walletConnectorWalletStd, mcpWallet, mcpX402,
     micropaymentSpi, micropaymentThreshold, micropaymentServer, micropaymentClient, micropaymentProbabilistic, micropaymentChannelEvm, micropaymentHydra,
     frontendCore, frontendCustom, frontendReact, frontendSolid, frontendVue,
   )
