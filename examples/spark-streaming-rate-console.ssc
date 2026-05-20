@@ -1,0 +1,76 @@
+---
+name: spark-streaming-rate-console
+backend: spark
+spark-app-name: Phase F Streaming Demo (rate -> console)
+description: Spark Structured Streaming smoke test — rate source to console sink
+---
+
+# Phase F — Structured Streaming (rate -> console)
+
+Smallest possible end-to-end Structured Streaming pipeline.  Reads from
+the built-in `rate` source (one row per second of `(timestamp, value)`),
+projects `value` modulo 7 into a column, and writes to the `console`
+sink with a 1-second processing-time trigger.
+
+No external dependencies — `rate` and `console` are built into Spark
+core and need no extra `//> using dep`.  Phase F.2's auto-emitted
+`awaitTermination()` shim keeps the driver alive while the streaming
+engine processes data, so users don't need to remember the boilerplate.
+
+Run with:
+
+```
+ssc run --backend spark examples/spark-streaming-rate-console.ssc
+```
+
+Sample output (truncated; ^C to stop):
+
+```
+-------------------------------------------
+Batch: 0
+-------------------------------------------
++-----------+
+|valueMod7  |
++-----------+
++-----------+
+
+-------------------------------------------
+Batch: 1
+-------------------------------------------
++-----------+
+|valueMod7  |
++-----------+
+|0          |
++-----------+
+```
+
+## Pipeline
+
+```scalascript
+// Rate source: built-in, one row per second.  Each row is
+// (timestamp: Timestamp, value: Long) starting at 0 and counting up.
+val stream = spark.readStream
+  .format("rate")
+  .option("rowsPerSecond", "1")
+  .load()
+
+// A trivial transformation so the example exercises a non-identity
+// streaming plan.  `value % 7` projected into its own column.
+val transformed = stream.selectExpr("value % 7 AS valueMod7")
+
+// Console sink: pretty-prints each micro-batch.  The processing-time
+// trigger keeps the cadence at one batch per second so output is
+// readable in a terminal; the default trigger fires as fast as the
+// engine can churn micro-batches.
+val query = transformed.writeStream
+  .format("console")
+  .outputMode("append")
+  .trigger(Trigger.ProcessingTime("1 second"))
+  .start()
+
+// `awaitTermination()` is NOT called here — Phase F.2's auto-emitted
+// shim pins `spark.streams.active.head` and awaits termination before
+// `spark.stop()`.  Users who want a timeout or multi-query control
+// call `query.awaitTermination()` themselves and the shim is skipped.
+println("STREAMING_STARTED")
+```

@@ -6856,23 +6856,34 @@ Thin `backend-wasm-contract/` layer on top of `backend-wasm/` for Near or Polkad
 >       phases F.2–F.4, testing strategy (codegen tests always +
 >       smoke tests gated by `RUN_SPARK_INTEGRATION`, Kafka smoke
 >       gated by `RUN_SPARK_KAFKA`), open questions.
-> - [ ] F.2 — Core streaming codegen: detect `spark.readStream`
->       / `.writeStream` markers; emit `Trigger` / `StreamingQuery` /
->       `OutputMode` imports; auto-append
+> - [x] F.2 — Core streaming codegen (2026-05-20): added
+>       `Trigger`/`StreamingQuery`/`OutputMode` imports to
+>       `sparkImports`; new `SparkGen.containsStreaming` /
+>       `containsAwaitTermination` / `containsKafkaFormat`
+>       detection helpers; refactored `genModule` to run
+>       `extractSqlFns` once per block (shared between detection
+>       and emission) and auto-append
 >       `spark.streams.active.headOption.foreach(_.awaitTermination())`
->       when the user code doesn't already call `awaitTermination`.
->       Example `examples/spark-streaming-rate-console.ssc` (rate →
->       console with `Trigger.ProcessingTime("1 second")`, no
->       external deps, smoke-test friendly).
+>       right before `spark.stop()` when streaming markers are
+>       present but the user hasn't called `awaitTermination`
+>       themselves; new `examples/spark-streaming-rate-console.ssc`
+>       (rate → console with `Trigger.ProcessingTime("1 second")`,
+>       no external deps).  9 new SparkGenTest cases pin the
+>       detection semantics + shim emission; smoke test added to
+>       SparkRuntimeSmokeTest (gated by `RUN_SPARK_INTEGRATION`).
+>       Existing 115 SparkGenTest cases unchanged.  Phase F.4's
+>       Kafka dep emission also landed in the same slice because
+>       the detection plumbing was shared (small enough that
+>       splitting would have been mechanical).
 > - [ ] F.3 — File source/sink + checkpointing: detect file-based
 >       stream patterns, emit `// note:` comment about
 >       `checkpointLocation`.  Example
 >       `examples/spark-streaming-file-parquet.ssc`.
-> - [ ] F.4 — Kafka source/sink: detect `.format("kafka")` →
->       auto-emit `//> using dep
->       "org.apache.spark:spark-sql-kafka-0-10_2.13:<v>"`.  Example
->       `examples/spark-streaming-kafka.ssc` (smoke test gated by
->       `RUN_SPARK_KAFKA=1`).
+> - [~] F.4 — Kafka source/sink: dep auto-emit landed with F.2
+>       (`.format("kafka")` detection → `//> using dep
+>       "org.apache.spark:spark-sql-kafka-0-10_2.13:<v>"`); example
+>       `examples/spark-streaming-kafka.ssc` and the
+>       `RUN_SPARK_KAFKA=1`-gated smoke test still to land.
 >
 > Natural fit: ScalaScript's existing `Dataset[T]` API maps directly to Spark.
 

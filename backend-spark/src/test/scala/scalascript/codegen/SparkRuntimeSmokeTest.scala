@@ -167,3 +167,15 @@ class SparkRuntimeSmokeTest extends AnyFunSuite:
     requireDelta()
     compileExample("spark-delta-demo.ssc")
   }
+
+  // ── Phase F: Structured Streaming smoke tests ────────────────────────────
+
+  test("spark-streaming-rate-console.ssc compiles under Phase F.2") {
+    // Smallest end-to-end streaming example: rate source -> console
+    // sink with a 1-second processing-time trigger.  Exercises the
+    // auto-emitted `awaitTermination()` shim, the streaming imports
+    // (Trigger, OutputMode), and the unmodified passthrough of
+    // `spark.readStream` / `.writeStream` from user code.  No
+    // external deps beyond spark-core / spark-sql.
+    compileExample("spark-streaming-rate-console.ssc")
+  }

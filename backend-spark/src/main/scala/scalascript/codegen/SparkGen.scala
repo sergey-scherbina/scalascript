@@ -205,6 +205,41 @@ object SparkGen:
     )
     (cleaned, sigs.toList)
 
+  // ── Phase F — Structured Streaming detection helpers ─────────────────────
+  //
+  // Single regex pass over the post-`extractSqlFns` user-block source
+  // identifies streaming markers and triggers downstream emission
+  // changes:
+  //
+  //   - `spark.readStream` / `.writeStream` literal substring →
+  //     module is streaming → enables `awaitTermination()` shim.
+  //   - `.format("kafka")` literal substring → auto-emit
+  //     `//> using dep "org.apache.spark:spark-sql-kafka-0-10_2.13:<v>"`
+  //     in the file header (Phase F.4).
+  //
+  // Detection is syntactic — no Scala parser involved.  False positives
+  // (e.g. the literal `"spark.readStream"` inside a string) are
+  // possible but vanishingly rare in practice; users hitting them can
+  // disable the shim by writing `awaitTermination()` themselves and
+  // (for the Kafka case) by editing the YAML `dependencies:` map.
+
+  /** Does the joined module source contain a streaming entry point? */
+  def containsStreaming(source: String): Boolean =
+    source.contains("spark.readStream") || source.contains(".writeStream")
+
+  /** Does the joined module source already call `awaitTermination` on
+   *  a query?  When true the auto-emit shim is suppressed so user
+   *  control wins. */
+  def containsAwaitTermination(source: String): Boolean =
+    source.contains("awaitTermination")
+
+  /** Does the joined module source use Kafka as a source or sink?
+   *  Matches the literal `.format("kafka")` to keep the detection
+   *  trivial.  Case-insensitive match isn't worth the complexity —
+   *  Spark itself accepts only the lowercase form. */
+  def containsKafkaFormat(source: String): Boolean =
+    source.contains(""".format("kafka")""")
+
   /** Result of `detectLakehouseFormats`: which lakehouse format names
    *  appear as the literal argument of `.format("…")` anywhere in the
    *  collected block sources.
@@ -365,6 +400,24 @@ private class SparkGen(
     // false-negative trade-off.
     val lakehouse = SparkGen.detectLakehouseFormats(blocks)
 
+    // Phase F — Structured Streaming detection.  Walk every block once
+    // through `extractSqlFns` (cheap regex; same call we'd make later
+    // when composing the @main body) and join the cleaned sources so
+    // header- and footer-level decisions (kafka dep, awaitTermination
+    // shim) see the entire module text in one pass.  The composed
+    // `(cleaned, sigs)` pairs are reused when emitting the body, so
+    // the second pass below doesn't re-run the regex.
+    val processed: List[(String, List[SparkGen.SqlFnSig])] =
+      blocks.map(b => SparkGen.extractSqlFns(b.src))
+    val joinedUserSrc: String =
+      processed.iterator.map(_._1).mkString("\n")
+    val isStreaming: Boolean =
+      SparkGen.containsStreaming(joinedUserSrc)
+    val needsAwaitShim: Boolean =
+      isStreaming && !SparkGen.containsAwaitTermination(joinedUserSrc)
+    val needsKafkaDep: Boolean =
+      SparkGen.containsKafkaFormat(joinedUserSrc)
+
     val sb = StringBuilder()
 
     // Generated file header — documents the Spark version and run instructions.
@@ -383,6 +436,12 @@ private class SparkGen(
     // artifact exists.  Scala 3 reads them via the TASTy bridge.
     sb.append(s"""//> using dep "org.apache.spark:spark-core_2.13:$sparkVersion"\n""")
     sb.append(s"""//> using dep "org.apache.spark:spark-sql_2.13:$sparkVersion"\n""")
+    // Phase F.4 — Kafka source/sink auto-dep.  Emitted only when
+    // `.format("kafka")` appears in user code.  Pinned to the same
+    // Spark version as `spark-core` / `spark-sql` to match Spark's
+    // own cross-build compatibility requirements.
+    if needsKafkaDep then
+      sb.append(s"""//> using dep "org.apache.spark:spark-sql-kafka-0-10_2.13:$sparkVersion"\n""")
     SparkGen.DefaultJavaOpts.foreach { opt =>
       sb.append(s"""//> using javaOpt $opt\n""")
     }
@@ -488,11 +547,13 @@ private class SparkGen(
 
     // User blocks — indented two spaces to sit inside `@main def`.
     //
-    // Per-block, run `extractSqlFns` to find `@SqlFn`-marked defs
-    // (v1.25 § 9.5 Phase D — UDF bridge); the helper returns the
-    // source with the annotation stripped plus a list of
+    // The `(cleaned, udfSigs)` pairs were pre-computed at the top of
+    // `genModule` so the streaming-detection scan and this emission
+    // pass share a single `extractSqlFns` invocation per block.  The
+    // helper returns the source with `@SqlFn` annotations stripped
+    // (v1.25 § 9.5 Phase D — UDF bridge) plus a list of
     // `SqlFnSig(name, paramTypes, returnType)`.  For each signature
-    // emit a Java-`UDFN`-shaped `spark.udf.register` call right
+    // we emit a Java-`UDFN`-shaped `spark.udf.register` call right
     // after the cleaned source — Phase E revival sidesteps Spark's
     // TypeTag-bound typed `register[RT : TypeTag, ...]` overload
     // (which Scala 3 cannot satisfy) by using the Java functional-
@@ -500,8 +561,7 @@ private class SparkGen(
     //
     // Translated sql blocks contain no `@SqlFn` markers, so
     // `extractSqlFns` is a no-op on them.
-    blocks.foreach { block =>
-      val (cleaned, udfSigs) = SparkGen.extractSqlFns(block.src)
+    processed.foreach { case (cleaned, udfSigs) =>
       val composed =
         if udfSigs.isEmpty then cleaned
         else
@@ -517,6 +577,25 @@ private class SparkGen(
       .flatMap(_.raw.get("main"))
       .collect { case s: String => s }
     mainEntry.foreach { name => sb.append(s"  $name()\n") }
+
+    // Phase F.2 — Structured Streaming guard.  When the module starts
+    // a streaming query (`spark.readStream` / `.writeStream`) but
+    // doesn't call `awaitTermination` itself, pin the first active
+    // query and block until it finishes.  Without this the driver
+    // returns the moment `start()` schedules the query and the
+    // streaming engine never gets to process any data.  Users who
+    // want a timeout, `awaitAnyTermination`, or multi-query
+    // orchestration write the call themselves and this shim is
+    // suppressed (the textual presence of `awaitTermination` is
+    // enough to opt out).
+    if needsAwaitShim then
+      sb.append(
+        """|
+           |  // Phase F — auto-emitted streaming guard.  Without this the driver
+           |  // returns before the streaming engine has processed any data.
+           |  spark.streams.active.headOption.foreach(_.awaitTermination())
+           |""".stripMargin
+      )
 
     sb.append("\n  spark.stop()\n")
 
@@ -731,6 +810,7 @@ private class SparkGen(
        |import org.apache.spark.sql.Encoders
        |import org.apache.spark.sql.functions._
        |import org.apache.spark.sql.types._
+       |import org.apache.spark.sql.streaming.{Trigger, StreamingQuery, OutputMode}
        |""".stripMargin
 
   /** Phase E — Scala 3 native Spark `Encoder` derivation.

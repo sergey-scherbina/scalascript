@@ -1508,3 +1508,177 @@ class SparkGenTest extends AnyFunSuite:
     assert(pairs(1)._1 == "spark.sql.extensions")
     assert(pairs(1)._2 == "io.delta.sql.DeltaSparkSessionExtension")
   }
+
+  // ── Phase F.2: Structured Streaming codegen ──────────────────────────────
+
+  test("streaming imports are always emitted (Phase F.2)") {
+    // The Trigger / StreamingQuery / OutputMode imports cost nothing in
+    // batch programs (Scala 3 doesn't warn on unused imports in this
+    // style) and surface the streaming surface area for any module
+    // that flips a single block to streaming.  Keeping them
+    // unconditional avoids a second emit-time scan and saves the
+    // user from a confusing "type not found" if they paste in a
+    // Trigger expression as a quick test.
+    val code = gen("# Test\n```scalascript\nval x = 1\n```\n")
+    assert(code.contains("import org.apache.spark.sql.streaming.{Trigger, StreamingQuery, OutputMode}"),
+      s"expected streaming imports to be present, got:\n$code")
+  }
+
+  test("non-streaming module does NOT emit awaitTermination shim (Phase F.2)") {
+    // Detection key: presence of `spark.readStream` or `.writeStream`
+    // in user code.  A pure batch module misses both, so no shim
+    // lands; the @main body ends with the unchanged `spark.stop()`
+    // line directly.
+    val code = gen(
+      """|# Batch only
+         |```scalascript
+         |val ds = Dataset.of(1, 2, 3)
+         |ds.collect().foreach(println)
+         |```
+         |""".stripMargin
+    )
+    assert(!code.contains("spark.streams.active.headOption"),
+      s"batch module must NOT emit awaitTermination shim, got:\n$code")
+    assert(!code.contains("awaitTermination"),
+      s"batch module must NOT emit awaitTermination shim, got:\n$code")
+  }
+
+  test("streaming module emits awaitTermination shim (Phase F.2)") {
+    // `spark.readStream` is the canonical streaming entry point and
+    // is detected verbatim.  The auto-emitted shim pins the first
+    // active query and waits — without this the driver returns
+    // before any micro-batch runs.
+    val code = gen(
+      """|# Streaming
+         |```scalascript
+         |val stream = spark.readStream.format("rate").load()
+         |val query = stream.writeStream.format("console").start()
+         |```
+         |""".stripMargin
+    )
+    assert(code.contains("spark.streams.active.headOption.foreach(_.awaitTermination())"),
+      s"streaming module must emit awaitTermination shim, got:\n$code")
+    // Shim arrives before `spark.stop()` so the engine has a chance
+    // to process data; if the order flipped, stop would race the
+    // await and the program would exit immediately.
+    val idxShim = code.indexOf("spark.streams.active.headOption")
+    val idxStop = code.indexOf("spark.stop()")
+    assert(idxShim > 0 && idxStop > idxShim,
+      s"shim must precede spark.stop(); got shim=$idxShim stop=$idxStop:\n$code")
+  }
+
+  test("streaming module with user-supplied awaitTermination skips shim (Phase F.2)") {
+    // Opt-out is purely textual: if the user code already mentions
+    // `awaitTermination` (any form — `query.awaitTermination()`,
+    // `spark.streams.awaitAnyTermination()`, even a timed variant
+    // `awaitTermination(60000L)`) the shim is suppressed and user
+    // intent wins.
+    val code = gen(
+      """|# Streaming user-controlled
+         |```scalascript
+         |val stream = spark.readStream.format("rate").load()
+         |val query = stream.writeStream.format("console").start()
+         |query.awaitTermination(60000L)
+         |```
+         |""".stripMargin
+    )
+    assert(!code.contains("spark.streams.active.headOption.foreach(_.awaitTermination())"),
+      s"user-supplied awaitTermination should suppress the shim, got:\n$code")
+    // User's own call still arrives in the output (verifies the
+    // suppression isn't accidentally stripping the user's line).
+    assert(code.contains("query.awaitTermination(60000L)"),
+      s"user's awaitTermination call must remain in emit, got:\n$code")
+  }
+
+  test("writeStream alone (no readStream) still triggers the shim (Phase F.2)") {
+    // Some pipelines build their streaming DataFrame via a Kafka
+    // table or a temporary view and call `.writeStream` on a regular
+    // DataFrame.  The substring detection picks both up so the shim
+    // emits in either direction of stream construction.
+    val code = gen(
+      """|# Streaming writer
+         |```scalascript
+         |val df = spark.table("source_view")
+         |df.writeStream.format("console").start()
+         |```
+         |""".stripMargin
+    )
+    assert(code.contains("spark.streams.active.headOption.foreach(_.awaitTermination())"),
+      s".writeStream alone should trigger the shim, got:\n$code")
+  }
+
+  test("non-Kafka streaming module does NOT emit kafka dep (Phase F.4)") {
+    // Detection key for the Kafka dep is the literal `.format("kafka")`.
+    // A rate/console pipeline lacks it, so the optional dep line
+    // stays absent and the header retains only the core+sql deps.
+    val code = gen(
+      """|# Rate/console
+         |```scalascript
+         |spark.readStream.format("rate").load()
+         |  .writeStream.format("console").start()
+         |```
+         |""".stripMargin
+    )
+    assert(!code.contains("spark-sql-kafka-0-10"),
+      s"non-Kafka module must not emit kafka dep, got:\n$code")
+  }
+
+  test("kafka format triggers spark-sql-kafka dep (Phase F.4)") {
+    // `.format("kafka")` anywhere in user code adds the kafka
+    // dep right after `spark-sql`.  Version pin matches the core
+    // Spark version (`SparkGen.DefaultVersion`).
+    val code = gen(
+      """|# Kafka streaming
+         |```scalascript
+         |val ks = spark.readStream
+         |  .format("kafka")
+         |  .option("kafka.bootstrap.servers", "localhost:9092")
+         |  .option("subscribe", "topic-in")
+         |  .load()
+         |ks.writeStream.format("console").start()
+         |```
+         |""".stripMargin
+    )
+    val expectedCoord =
+      s"""//> using dep "org.apache.spark:spark-sql-kafka-0-10_2.13:${SparkGen.DefaultVersion}""""
+    assert(code.contains(expectedCoord),
+      s"expected kafka dep line; got:\n$code")
+    // Sanity: the awaitTermination shim also lands because Kafka
+    // streaming pipelines always involve readStream/writeStream.
+    assert(code.contains("spark.streams.active.headOption.foreach(_.awaitTermination())"),
+      s"kafka streaming module should also get the awaitTermination shim, got:\n$code")
+  }
+
+  test("kafka dep version follows sparkVersion override (Phase F.4)") {
+    // Same propagation as the core/sql JARs — a user pinning a
+    // non-default Spark version sees the kafka coord track it.
+    val code = gen(
+      """|# Kafka old Spark
+         |```scalascript
+         |spark.readStream.format("kafka").load()
+         |```
+         |""".stripMargin,
+      sparkVersion = "3.5.1"
+    )
+    assert(code.contains("""//> using dep "org.apache.spark:spark-sql-kafka-0-10_2.13:3.5.1""""),
+      s"kafka dep version must match sparkVersion arg, got:\n$code")
+  }
+
+  test("containsStreaming / containsAwaitTermination / containsKafkaFormat helpers (Phase F.2/F.4)") {
+    // Pin the detection semantics directly — the helpers are part
+    // of `SparkGen`'s public API surface (used inside genModule
+    // here, but plausibly useful to tooling later).
+    assert(SparkGen.containsStreaming("val s = spark.readStream.format(\"rate\").load()"))
+    assert(SparkGen.containsStreaming("df.writeStream.start()"))
+    assert(!SparkGen.containsStreaming("val ds = Dataset.of(1, 2, 3)"))
+
+    assert(SparkGen.containsAwaitTermination("query.awaitTermination()"))
+    assert(SparkGen.containsAwaitTermination("query.awaitTermination(60000L)"))
+    assert(!SparkGen.containsAwaitTermination("val x = 1"))
+
+    assert(SparkGen.containsKafkaFormat(""".format("kafka")"""))
+    assert(!SparkGen.containsKafkaFormat(""".format("rate")"""))
+    // Case sensitivity: Spark itself only accepts lowercase 'kafka',
+    // so we don't bother matching `Kafka` / `KAFKA`.
+    assert(!SparkGen.containsKafkaFormat(""".format("Kafka")"""))
+  }
