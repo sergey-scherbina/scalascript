@@ -7122,11 +7122,25 @@ Thin `backend-wasm-contract/` layer on top of `backend-wasm/` for Near or Polkad
 >   detection, dep emit, config ordering, escape semantics, and the
 >   textual `.enableHiveSupport()` short-circuit.  Existing 141
 >   `SparkGenTest` cases unchanged.
-> - **G.3 — `@TempView("name")` annotation.**  Regex pass strips
->   the annotation line and emits
+> - **G.3 — `@TempView("name")` annotation (landed 2026-05-20).**
+>   Regex pass strips the annotation line and emits
 >   `<varName>.createOrReplaceTempView("<viewName>")` after the
->   declaration.  Same shape as `@SqlFn` (Phase D).  Composable
->   with `@SqlFn` in the same block.
+>   declaration.  Same shape as `@SqlFn` (Phase D) — both
+>   annotations are sibling parsers anchored on a line-start
+>   `@Marker`.  The per-block processing pipeline runs
+>   `extractSqlFns` then `extractTempViews` on the cleaned source,
+>   so a single block can carry both annotations side by side; the
+>   emitted body appends UDF registrations first, then temp-view
+>   registrations.  `TempViewSig(viewName, varName)` decouples the
+>   SQL-side view name from the Scala-side var name.  Type
+>   ascription (`val n: T = ...`) is supported via an optional
+>   non-capturing regex group.  9 new SparkGenTest cases pin
+>   detection, type-ascription form, composition with @SqlFn,
+>   hyphen / underscore view names, order contract (registration
+>   after val), decoupled name capture, helper round-trip, and the
+>   no-@TempView regression guard.  Regex-tuning note: pulled `\s*`
+>   out of the optional ascription group so Java's non-backtracking
+>   regex engine doesn't eat the trailing space before `=`.
 > - **G.4 — `Dataset.fromTable[T]("name")` typed reader.**  One-line
 >   shim on the `Dataset` companion:
 >   `spark.table(name).as[T]` using the Phase E encoder.  Symmetric

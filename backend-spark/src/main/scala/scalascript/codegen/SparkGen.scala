@@ -165,6 +165,81 @@ object SparkGen:
     "Double"  -> "org.apache.spark.sql.types.DoubleType"
   )
 
+  /** A `@TempView`-marked `val` declaration captured from source.
+   *
+   *  Phase G.3 (v1.25 § 9.5) — see `docs/spark-catalog.md`.  The
+   *  caller emits `<varName>.createOrReplaceTempView("<viewName>")`
+   *  after the cleaned `val` so subsequent `sql` blocks can
+   *  `SELECT * FROM <viewName>` without manual catalog wiring.
+   *
+   *  See `extractTempViews` for the regex contract that populates this. */
+  case class TempViewSig(
+      viewName: String,
+      varName:  String
+  )
+
+  /** Scan a `scalascript` block source for `@TempView("name")`-marked
+   *  `val` declarations and extract their signatures.  Returns the
+   *  source with the annotation lines stripped, plus a list of
+   *  `TempViewSig(viewName, varName)` in document order.
+   *
+   *  Caller (`genModule`) emits a
+   *  `<varName>.createOrReplaceTempView("<viewName>")` line per
+   *  signature so the bound Dataset becomes queryable from any
+   *  subsequent `sql` block in the same module.
+   *
+   *  Pattern: `@TempView("name")` on its own line (any indent),
+   *  then a `val NAME = expr` or `val NAME: Type = expr` declaration
+   *  on the next non-blank line.  The optional type ascription is
+   *  preserved verbatim — the regex captures-and-discards it
+   *  through the optional `(?::\s*[^=]+)?` group.
+   *
+   *  Limitations:
+   *    - Single-line `val name = expr` declarations only.  Multi-line
+   *      RHS expressions are fine (no inspection past `=`), but the
+   *      `val` keyword and the `=` token must sit on the same source
+   *      line.  Same limitation shape as `@SqlFn`.
+   *    - `def`, `lazy val`, `var` not supported — temp views are
+   *      registered eagerly on a concrete Dataset value.  Users
+   *      wanting a re-registerable shape write the explicit
+   *      `xs.createOrReplaceTempView("xs")` themselves.
+   *    - The view name must be a literal string in the annotation.
+   *      `@TempView(viewName)` where `viewName` is a Scala val is
+   *      not recognised (the annotation parser is text-only).
+   *
+   *  False-positive risk: `@TempView("…")` appearing inside a string
+   *  literal followed by a `val` would still match.  Accepted —
+   *  collisions with user prose are vanishingly unlikely. */
+  def extractTempViews(source: String): (String, List[TempViewSig]) =
+    // Capture: 1=outer indent, 2=view name, 3=val indent, 4=var name.
+    // Optional `: TypeAscription` between `name` and `=` is matched
+    // but not captured — the whole `val` line is preserved verbatim
+    // by the replacement (only the @TempView line is dropped).
+    // Pull `\s*` out of the optional ascription group so it always
+    // consumes the space before `=` regardless of whether the
+    // `: TypeAscription` part matches.  Otherwise the greedy `[^=]+`
+    // inside the optional group eats the trailing space and the
+    // outer `=` anchor fails (Java regex doesn't backtrack into a
+    // non-matching optional group).
+    val pat = """(?m)^(\s*)@TempView\(\s*"([^"]+)"\s*\)\s*\r?\n(\s*)val\s+(\w+)\s*(?::\s*[^=]+)?=""".r
+    val sigs = scala.collection.mutable.ListBuffer.empty[TempViewSig]
+    val cleaned = pat.replaceAllIn(source, m =>
+      val viewName = m.group(2)
+      val varName  = m.group(4)
+      sigs += TempViewSig(viewName, varName)
+      // Drop the `@TempView(...)` annotation line; keep the val
+      // declaration line verbatim.  We rebuild the val line from
+      // the captured indent + var name + (optionally) type
+      // ascription + `=`.  Anything after `=` (the RHS expression)
+      // belongs to the rest of the line/block and is OUTSIDE the
+      // regex match, so it stays untouched in the output.
+      val tail = m.matched.substring(
+        m.matched.indexOf("val ")
+      )
+      java.util.regex.Matcher.quoteReplacement(tail)
+    )
+    (cleaned, sigs.toList)
+
   /** Scan a `scalascript` block source for `@SqlFn`-marked `def`
    *  declarations and extract their signatures.  Returns the source
    *  with the annotation lines stripped, plus a list of
@@ -526,8 +601,20 @@ private class SparkGen(
     // shim) see the entire module text in one pass.  The composed
     // `(cleaned, sigs)` pairs are reused when emitting the body, so
     // the second pass below doesn't re-run the regex.
-    val processed: List[(String, List[SparkGen.SqlFnSig])] =
-      blocks.map(b => SparkGen.extractSqlFns(b.src))
+    // Phase G.3 — extend the per-block processing pass to also run
+    // `extractTempViews` after `extractSqlFns`.  The two annotations
+    // are sibling — both anchor on a line-start `@Marker` and strip
+    // the annotation line — so chaining them through the cleaned
+    // source is the natural composition.  Result per block:
+    //   (cleaned-source-after-both-passes, sqlFnSigs, tempViewSigs).
+    // Block bodies emit UDF registrations first, then temp-view
+    // registrations, both right after the cleaned user code.
+    val processed: List[(String, List[SparkGen.SqlFnSig], List[SparkGen.TempViewSig])] =
+      blocks.map { b =>
+        val (afterSql, sqlSigs)   = SparkGen.extractSqlFns(b.src)
+        val (afterView, viewSigs) = SparkGen.extractTempViews(afterSql)
+        (afterView, sqlSigs, viewSigs)
+      }
     val joinedUserSrc: String =
       processed.iterator.map(_._1).mkString("\n")
     val isStreaming: Boolean =
@@ -779,12 +866,23 @@ private class SparkGen(
     //
     // Translated sql blocks contain no `@SqlFn` markers, so
     // `extractSqlFns` is a no-op on them.
-    processed.foreach { case (cleaned, udfSigs) =>
+    processed.foreach { case (cleaned, udfSigs, viewSigs) =>
+      // Compose the emitted block source: cleaned user code, then
+      // UDF registrations (Phase D), then temp-view registrations
+      // (Phase G.3).  Order matters — UDFs need to land on the
+      // session catalog BEFORE any temp view that references them
+      // in its body would be queried.  In practice the two are
+      // emitted in document order per block, so the ordering is
+      // automatic.
+      val udfRegistrations =
+        if udfSigs.isEmpty then ""
+        else "\n" + udfSigs.map(emitUdfRegistration).mkString("\n\n")
+      val viewRegistrations =
+        if viewSigs.isEmpty then ""
+        else "\n" + viewSigs.map(emitTempViewRegistration).mkString("\n")
       val composed =
-        if udfSigs.isEmpty then cleaned
-        else
-          val registrations = udfSigs.map(emitUdfRegistration).mkString("\n\n")
-          cleaned.stripTrailing + "\n" + registrations
+        if udfRegistrations.isEmpty && viewRegistrations.isEmpty then cleaned
+        else cleaned.stripTrailing + udfRegistrations + viewRegistrations
       val indented = indentBlock(composed)
       sb.append(indented.stripTrailing())
       sb.append("\n\n")
@@ -1007,6 +1105,20 @@ private class SparkGen(
        |  },
        |  $rtFqn
        |)""".stripMargin
+
+  /** Emit `<varName>.createOrReplaceTempView("<viewName>")` for a
+   *  single `@TempView`-marked declaration (Phase G.3).
+   *
+   *  Lands right after the cleaned `val` declaration so the bound
+   *  Dataset becomes queryable from any subsequent `sql` block in
+   *  the same module (and from any `Dataset.fromTable[T](viewName)`
+   *  read once G.4 lands).  No collision detection — two
+   *  `@TempView("orders")` annotations in the same module emit
+   *  two registration lines; the second one overrides the first
+   *  at runtime (it's `createOrReplaceTempView`, not
+   *  `createTempView`).  Documented limitation in the spec. */
+  private def emitTempViewRegistration(sig: SparkGen.TempViewSig): String =
+    s"""${sig.varName}.createOrReplaceTempView("${sig.viewName}")"""
 
   // ── Emitted Scala 3 + Spark source fragments ──────────────────────────────
 

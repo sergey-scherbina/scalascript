@@ -2268,3 +2268,207 @@ class SparkGenTest extends AnyFunSuite:
     assert(!SparkGen.containsEnableHiveSupport("val x = 1"))
     assert(!SparkGen.containsEnableHiveSupport(".master(\"local[*]\")"))
   }
+
+  // ── Phase G.3 — @TempView annotation ─────────────────────────────────────
+
+  test("Phase G.3 — @TempView strips annotation and emits createOrReplaceTempView") {
+    // The annotation marks a `val` declaration; the codegen strips
+    // the `@TempView("name")` line and appends
+    // `<varName>.createOrReplaceTempView("<viewName>")` so the
+    // bound Dataset becomes queryable from any subsequent sql
+    // block as `SELECT * FROM <viewName>`.
+    val code = gen(
+      """|# TempView basic
+         |```scalascript
+         |@TempView("users")
+         |val users = Dataset.of(1, 2, 3)
+         |```
+         |""".stripMargin
+    )
+    // Annotation line is stripped (no `@TempView(` literal in emit).
+    assert(!code.contains("@TempView("),
+      s"@TempView annotation line must be stripped, got:\n$code")
+    // Registration line appears with the bound var name + view name.
+    assert(code.contains("""users.createOrReplaceTempView("users")"""),
+      s"expected createOrReplaceTempView registration, got:\n$code")
+    // The original `val` declaration survives verbatim.
+    assert(code.contains("val users = Dataset.of(1, 2, 3)"),
+      s"original val declaration must survive, got:\n$code")
+  }
+
+  test("Phase G.3 — @TempView with type ascription is recognised") {
+    // The optional `: TypeAscription` between the var name and `=`
+    // must not break detection.  The annotation parser captures-and-
+    // discards it; the val declaration line lands in the output
+    // with the type ascription preserved.
+    val code = gen(
+      """|# TempView typed
+         |```scalascript
+         |@TempView("orders")
+         |val orders: Dataset[Order] = Dataset.of(1, 2, 3)
+         |```
+         |""".stripMargin
+    )
+    assert(!code.contains("@TempView("),
+      s"@TempView annotation line must be stripped (typed val), got:\n$code")
+    assert(code.contains("""orders.createOrReplaceTempView("orders")"""),
+      s"typed val must still produce createOrReplaceTempView, got:\n$code")
+    // Type ascription survives in emit.
+    assert(code.contains("val orders: Dataset[Order] = Dataset.of(1, 2, 3)"),
+      s"type ascription must survive, got:\n$code")
+  }
+
+  test("Phase G.3 — multiple @TempView annotations in one block emit multiple registrations") {
+    // The regex passes over the whole block source and matches every
+    // annotation independently.  Document-order preserved.  Each
+    // annotation emits one registration line in the cleaned source's
+    // tail.
+    val code = gen(
+      """|# Multiple temp views
+         |```scalascript
+         |@TempView("users")
+         |val users = Dataset.of(1, 2, 3)
+         |
+         |@TempView("orders")
+         |val orders = Dataset.of(10, 20, 30)
+         |```
+         |""".stripMargin
+    )
+    assert(code.contains("""users.createOrReplaceTempView("users")"""),
+      s"first @TempView registration missing, got:\n$code")
+    assert(code.contains("""orders.createOrReplaceTempView("orders")"""),
+      s"second @TempView registration missing, got:\n$code")
+    // Both annotation lines are stripped — emit must NOT contain
+    // either `@TempView("...")` literal.
+    assert(!code.contains("""@TempView("users")"""),
+      s"first @TempView annotation must be stripped, got:\n$code")
+    assert(!code.contains("""@TempView("orders")"""),
+      s"second @TempView annotation must be stripped, got:\n$code")
+  }
+
+  test("Phase G.3 — @TempView composes with @SqlFn in the same block") {
+    // The processing pipeline runs `extractSqlFns` first then
+    // `extractTempViews` on the cleaned source.  Both annotations
+    // strip in the right order; both registrations land after the
+    // user code.  Verifies the chained-pass shape.
+    val code = gen(
+      """|# Combined
+         |```scalascript
+         |@SqlFn
+         |def upper(s: String): String = s.toUpperCase
+         |
+         |@TempView("rows")
+         |val rows = Dataset.of("a", "b", "c")
+         |```
+         |""".stripMargin
+    )
+    // @SqlFn → spark.udf.register
+    assert(code.contains("""spark.udf.register("upper""""),
+      s"@SqlFn UDF registration missing, got:\n$code")
+    // @TempView → createOrReplaceTempView
+    assert(code.contains("""rows.createOrReplaceTempView("rows")"""),
+      s"@TempView registration missing, got:\n$code")
+    // Both annotation lines stripped.
+    assert(!code.contains("@SqlFn"),
+      s"@SqlFn annotation must be stripped, got:\n$code")
+    assert(!code.contains("@TempView("),
+      s"@TempView annotation must be stripped, got:\n$code")
+  }
+
+  test("Phase G.3 — view name with hyphens / underscores survives literal quoting") {
+    // The view name lands verbatim inside the emitted string literal
+    // (no rewriting / escaping beyond the existing string-quote
+    // semantics).  Hyphens, underscores, and digits are all legal
+    // Spark view-name characters.
+    val code = gen(
+      """|# Special chars in view name
+         |```scalascript
+         |@TempView("my-table_v2")
+         |val mt = Dataset.of(1, 2, 3)
+         |```
+         |""".stripMargin
+    )
+    assert(code.contains("""mt.createOrReplaceTempView("my-table_v2")"""),
+      s"view name with hyphens / underscores must survive, got:\n$code")
+  }
+
+  test("Phase G.3 — module without @TempView produces byte-identical emit (regression guard)") {
+    // The 141+ existing SparkGenTest cases all lack `@TempView`
+    // annotations.  Their assertions must remain unchanged — the
+    // regex on a substring-miss is O(n) and writes no output.
+    val code = gen(
+      """|# Plain
+         |```scalascript
+         |val users = Dataset.of(1, 2, 3)
+         |```
+         |""".stripMargin
+    )
+    assert(!code.contains("createOrReplaceTempView"),
+      s"no @TempView module must NOT emit createOrReplaceTempView, got:\n$code")
+    assert(!code.contains("@TempView"),
+      s"no @TempView module must NOT mention @TempView, got:\n$code")
+  }
+
+  test("Phase G.3 — extractTempViews helper round-trip + signature list") {
+    // Pin the helper directly — same shape as the
+    // `containsEnableHiveSupport` / `extractSqlFns` helpers.
+    val src =
+      """|@TempView("users")
+         |val users = Dataset.of(1, 2, 3)
+         |
+         |@TempView("orders")
+         |val orders: Dataset[Order] = Dataset.of(10, 20, 30)
+         |
+         |val notAView = 42
+         |""".stripMargin
+    val (cleaned, sigs) = SparkGen.extractTempViews(src)
+    // Two signatures captured in document order.
+    assert(sigs == List(
+      SparkGen.TempViewSig("users", "users"),
+      SparkGen.TempViewSig("orders", "orders")
+    ), s"expected two signatures in document order, got: $sigs")
+    // Cleaned source: annotation lines gone, val lines preserved.
+    assert(!cleaned.contains("@TempView"),
+      s"cleaned source must drop annotation lines, got:\n$cleaned")
+    assert(cleaned.contains("val users = Dataset.of(1, 2, 3)"),
+      s"cleaned source must preserve users val, got:\n$cleaned")
+    assert(cleaned.contains("val orders: Dataset[Order] = Dataset.of(10, 20, 30)"),
+      s"cleaned source must preserve typed orders val, got:\n$cleaned")
+    assert(cleaned.contains("val notAView = 42"),
+      s"non-annotated val must remain untouched, got:\n$cleaned")
+  }
+
+  test("Phase G.3 — registration line lands after the val declaration (order check)") {
+    // Order contract: cleaned val first, registration line after.
+    // Reversed order would fail at runtime — the registration
+    // references the var name, which must already be in scope.
+    val code = gen(
+      """|# Order check
+         |```scalascript
+         |@TempView("xs")
+         |val xs = Dataset.of(1, 2, 3)
+         |```
+         |""".stripMargin
+    )
+    val idxVal = code.indexOf("val xs = Dataset.of(1, 2, 3)")
+    val idxReg = code.indexOf("""xs.createOrReplaceTempView("xs")""")
+    assert(idxVal > 0 && idxReg > idxVal,
+      s"createOrReplaceTempView must come AFTER val declaration; val=$idxVal reg=$idxReg")
+  }
+
+  test("Phase G.3 — @TempView declaration with different var name than view name") {
+    // Common pattern: the Scala-side var name is camelCase but the
+    // SQL-side view name is snake_case or kebab-case.  Verifies the
+    // captures are independent — view name comes from the
+    // annotation string, var name from the val.
+    val code = gen(
+      """|# Decoupled names
+         |```scalascript
+         |@TempView("active_users")
+         |val activeUsers = Dataset.of(1, 2, 3)
+         |```
+         |""".stripMargin
+    )
+    assert(code.contains("""activeUsers.createOrReplaceTempView("active_users")"""),
+      s"var name and view name must be captured independently, got:\n$code")
+  }
