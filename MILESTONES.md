@@ -7907,9 +7907,25 @@ bloxbean `cardano-client-lib`.
 
 #### Phase 2 — On-chain validator (Scalus)
 
-- [ ] Add Scalus dependency to `x402-facilitator-cardano-scalus`
-- [ ] `X402EscrowScript` — Plutus V3 validator (Scalus DSL) with
-      `Claim(coseSign1, coseKey)` + `Refund` redeemers
+**Spike landed (2026-05-20)**: package rename + spec update with
+blocker analysis. Validator code itself NOT yet landed — six concrete
+issues documented in [`docs/x402-cardano-scalus.md`](docs/x402-cardano-scalus.md)
+§5 (Phase 2 → Spike findings). Retry order:
+
+- [x] Package rename `scalascript.x402.facilitator.scalus` →
+      `scalascript.x402.facilitator.plutus` to avoid shadowing the
+      Scalus library's top-level `scalus` package
+- [x] Spec §5 expanded with: package collision, upickle 3↔4 eviction
+      conflict, Scala 3.3.7→3.8.3 version drift, `Validator` trait's
+      five deferred-inline purposes (need `ParameterizedValidator`),
+      top-level vs nested derivation, doc-vs-jar import drift
+- [ ] **Prerequisite**: project-wide upickle 3.3.1 → 4.4.2 bump
+      across ~21 modules so Scalus can be added without eviction
+      override
+- [ ] Re-add `org.scalus:scalus:0.15.1` dependency
+- [ ] `X402EscrowScript` — Plutus V3 validator via
+      `ParameterizedValidator` (not bare `Validator`) with all five
+      script purposes explicitly stubbed; `Claim` + `Refund` redeemers
 - [ ] On-chain CIP-8 verification: COSE_Sign1 decode + Ed25519 verify
       against datum.payerKeyHash; payload-hash equality check
 - [ ] Output-shape check: exact lovelace to datum.receiver

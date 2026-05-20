@@ -210,6 +210,65 @@ description. Out of scope for Phase 1.
 - Unit tests with Scalus's test framework: Claim happy path,
   Refund happy path, all rejection branches.
 
+#### Spike findings (2026-05-20) — what to address before retry
+
+A first implementation attempt against Scalus 0.15.1 surfaced the
+following blockers; the validator code was not committed. Capture
+these so the next attempt starts informed:
+
+1. **Package-name collision.** The library's top-level package is
+   `scalus`. Our original module package `scalascript.x402.facilitator.scalus`
+   shadowed it under any nested import resolution, breaking
+   `import scalus.*`. **Fixed in this commit**: module package
+   renamed to `scalascript.x402.facilitator.plutus`. Keep using
+   `plutus` for any future Scalus-using code.
+
+2. **upickle eviction.** Scalus 0.15.1 transitively requires
+   `com.lihaoyi:upickle_3:4.4.2`; the x402 / client-blockfrost stack
+   is pinned to `3.3.1` in ~21 places in `build.sbt`. sbt's
+   semver-spec eviction treats the 3↔4 drift as a fatal error. A
+   per-module `evictionErrorLevel := Level.Warn` is a tactical
+   workaround but lets a 4.x JAR be selected at runtime under code
+   compiled against 3.x — fragile.
+   **Real fix**: project-wide upickle 3.3.1 → 4.4.2 bump before
+   re-introducing the Scalus dep. Out of scope for the Phase 2 PR;
+   a separate cleanup commit should land first.
+
+3. **Scala-version drift.** Scalus 0.15.1 was built against Scala 3.3.7;
+   we target 3.8.3. The `@Compile` macro and `derives FromData, ToData`
+   resolution both work at compile time, but the `Validator` trait
+   exposes deferred-inline methods for every Plutus V3 script purpose
+   (`mint`, `spend`, `withdraw`, `propose`, `vote`) — overriding only
+   `spend` triggers a "Deferred inline method mint cannot be invoked"
+   error at the `PlutusV3.compile` site. The Phase 2 retry must
+   either:
+   - override all 5 purposes with explicit `fail` bodies, or
+   - locate a Scalus base type that targets a single purpose, or
+   - parameterize via `ParameterizedValidator` (jar inspection
+     shows `scalus.cardano.onchain.plutus.v3.{ParameterizedValidator,
+     DataParameterizedValidator}` exist — likely the right path).
+
+4. **FromData derivation gotcha.** Custom datum / redeemer types
+   compile cleanly with `derives FromData, ToData` **only when
+   declared at top level**, not nested inside the `@Compile object`.
+   The validator object can still reference them; just don't nest
+   the definitions.
+
+5. **`tx.signatories.contains(...)`** requires a `PubKeyHash` argument,
+   not a raw `ByteString`. Use `PubKeyHash(byteString)` from
+   `scalus.cardano.onchain.plutus.v1.PubKeyHash` (re-exported from v3).
+
+6. **Documentation drift.** The Scalus 0.15.1 jar contents diverge
+   from `scalus.org` docs in important paths:
+   - `scalus.builtin.{ByteString, Data, FromData, ToData}` (docs) →
+     `scalus.uplc.builtin.{ByteString, Data, FromData, ToData}` (actual)
+   - No `scalus.builtin.FromDataInstances` / `ToDataInstances` —
+     instances are auto-derivable on case classes / enums.
+
+Retry path (Phase 2.1): land the upickle bump first as its own
+commit, then re-add the Scalus dep with `ParameterizedValidator` as
+the base, with all 5 purposes overridden defensively.
+
 ### Phase 3 — escrow address + reference script deployment helpers
 
 - `EscrowScript.address(network)` — derives the script address from

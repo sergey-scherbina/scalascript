@@ -1,4 +1,4 @@
-package scalascript.x402.facilitator.scalus
+package scalascript.x402.facilitator.plutus
 
 import scalascript.x402.{PaymentPayload, PaymentRequirements, SettleResult}
 import scala.concurrent.Future
