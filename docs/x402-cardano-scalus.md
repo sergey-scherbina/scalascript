@@ -298,18 +298,32 @@ validator to UPLC:
    `PlutusV3.compile` throws a marker `RuntimeException` at first
    invocation.
 
-   Available paths (all out of scope for Phase 2):
-   - Wait for a Scalus release that targets Scala 3.8.x
-   - Build the Plutus contracts in a separate sub-build pinned to
-     Scala 3.3.7; emit CBOR hex as a resource consumed by the main
-     build
-   - Downgrade the entire ScalaScript project to Scala 3.3.x (large
-     blast radius)
+   Available paths considered:
+   - **Chosen** (2026-05-20): build the Plutus contract in a separate
+     sub-project (`x402-escrow-plutus`) pinned to `scalaVersion :=
+     "3.3.7"`. sbt's per-project `scalaVersion` override lets it
+     co-exist with the rest of the build at 3.8.3. The plugin works
+     under 3.3.7; the sub-project's `emitEscrowHex` sbt task writes
+     the compiled CBOR hex to
+     `x402-facilitator-cardano-scalus/src/main/resources/x402-escrow.plutus.hex`,
+     which the main 3.8.3 module reads via the classloader. The
+     sub-project deliberately depends on NO other repo modules — TASTy
+     is not cross-Scala-version-compatible, so any cross-version edge
+     would require duplicating types.
+   - Rejected: wait for Scalus targeting Scala 3.8.x.
+   - Rejected: downgrade the whole project (huge blast radius).
 
-   The chosen Phase 2 deliverable is: ship the validator source as
-   the canonical statement of the on-chain rules, with a test that
-   pins the missing-plugin runtime exception so the day a working
-   plugin lands we'll see this test flip naturally.
+   Workflow after the validator source changes:
+   ```bash
+   sbt x402EscrowPlutus/emitEscrowHex          # regenerate hex
+   sbt x402FacilitatorCardanoScalus/test       # verify
+   git add x402-facilitator-cardano-scalus/src/main/resources/x402-escrow.plutus.hex
+   ```
+
+   `EscrowDatum` / `EscrowRedeemer` deliberately live ONLY in the
+   3.3.7 sub-project right now. Phase 4 (off-chain claim Tx) will need
+   matching off-chain types in the 3.8.3 module — they'll be
+   hand-redeclared there since cross-version sharing is impossible.
 
 ### Phase 3 — escrow address + reference script deployment helpers
 

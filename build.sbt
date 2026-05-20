@@ -886,21 +886,73 @@ lazy val x402FacilitatorCardanoScalus = project
   .settings(
     name := "scalascript-x402-facilitator-cardano-scalus",
     libraryDependencies ++= Seq(
-      // Scalus library jar provides @Compile, Validator, ScriptContext,
-      // datum/redeemer derivation. The companion compiler plugin
-      // (scalus-plugin) is what actually lowers `@Compile` objects to
-      // Plutus Core — and it depends on internal dotty APIs that diverge
-      // between Scala 3.3.7 (Scalus's build target) and 3.8.3 (ours).
-      // See `docs/x402-cardano-scalus.md` §5 spike findings #3 + the
-      // Phase 2 retry note. The plugin is intentionally NOT added here.
-      "org.scalus" %% "scalus" % "0.15.1",
       scalatestTest,
     ),
-    // Scalus's `@Compile`-annotated case classes generate synthetic
-    // vals that trip `-Wunused:all`. Keep warning flags but drop
-    // `-Werror` for this module only.
-    Compile / scalacOptions ++= sharedScalacOptions,
+    // The compiled Plutus V3 script ships as a checked-in resource
+    // (`src/main/resources/x402-escrow.plutus.hex`) emitted by the
+    // `x402EscrowPlutus` 3.3.7 sub-build below. The main 3.8.3 module
+    // reads the hex at runtime via `getResourceAsStream` — no Scalus
+    // dependency on this side. See `docs/x402-cardano-scalus.md` §5
+    // "Phase 2 retry — Scala-version split build".
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
     Test    / scalacOptions ++= sharedScalacOptions,
+  )
+
+// Plutus V3 escrow validator — Scala 3.3.7 sub-project so the Scalus
+// compiler plugin (built against dotty 3.3.x) can actually run.
+// Output is a single resource file (CBOR hex) committed under
+// `x402-facilitator-cardano-scalus/src/main/resources/` and consumed
+// by the main 3.8.3 module. See `docs/x402-cardano-scalus.md` §5.
+//
+// This sub-project deliberately depends on NO other modules in this
+// repo — every other module is built for Scala 3.8.3, and TASTy isn't
+// cross-version-compatible.
+lazy val emitEscrowHex = taskKey[File](
+  "Re-emit the compiled Plutus escrow CBOR hex into the main module's resources",
+)
+
+lazy val x402EscrowPlutus = project
+  .in(file("x402-escrow-plutus"))
+  .settings(
+    name := "scalascript-x402-escrow-plutus",
+    scalaVersion := "3.3.7",
+    libraryDependencies ++= Seq(
+      "org.scalus" %% "scalus" % "0.15.1",
+    ),
+    // Required so `PlutusV3.compile(...)` actually lowers @Compile
+    // objects to Plutus Core. Fails to load against Scala 3.8.x —
+    // works against 3.3.7 (this module's scalaVersion override above).
+    addCompilerPlugin("org.scalus" %% "scalus-plugin" % "0.15.1"),
+    // Append the lighter warning flags (no `-Werror`, no `-Wunused:all`)
+    // so Scalus's @Compile-generated synthetic vals + the unused-import
+    // warnings from the on-chain DSL don't fail the build. We use `++=`
+    // (not `:=`) so the `-Xplugin:...` directive `addCompilerPlugin`
+    // injected above survives.
+    Compile / scalacOptions ++= Seq("-deprecation", "-feature"),
+    // Explicit refresh task. Re-run after editing the validator
+    // source: `sbt x402EscrowPlutus/emitEscrowHex`. Result is committed
+    // as a static resource of `x402-facilitator-cardano-scalus`.
+    emitEscrowHex := {
+      val log    = streams.value.log
+      val _      = (Compile / compile).value
+      val cp     = (Compile / fullClasspath).value.files
+      val target = ((ThisBuild / baseDirectory).value /
+        "x402-facilitator-cardano-scalus/src/main/resources/x402-escrow.plutus.hex")
+      IO.createDirectory(target.getParentFile)
+      val classpath = cp.map(_.getAbsolutePath).mkString(java.io.File.pathSeparator)
+      val pb = new java.lang.ProcessBuilder(
+        "java", "-cp", classpath,
+        "scalascript.x402.escrow.plutus.EmitEscrowCbor",
+        target.getAbsolutePath,
+      )
+      pb.redirectErrorStream(true)
+      val proc   = pb.start()
+      val output = scala.io.Source.fromInputStream(proc.getInputStream).mkString
+      val rc     = proc.waitFor()
+      if (rc != 0) sys.error(s"EmitEscrowCbor failed (exit $rc):\n$output")
+      log.info(s"Plutus escrow hex → ${target.getAbsolutePath} (${target.length} bytes)")
+      target
+    },
   )
 
 // ---------------------------------------------------------------------------

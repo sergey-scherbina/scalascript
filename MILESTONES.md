@@ -8226,38 +8226,37 @@ issues documented in [`docs/x402-cardano-scalus.md`](docs/x402-cardano-scalus.md
 - [x] **Prerequisite**: project-wide upickle 3.3.1 → 4.4.2 bump
       across ~21 modules + sttp.client4 4.0.0-M17 → 4.0.23 (commit
       `b736c5a6`). All ~120 affected tests stay green.
-- [x] Re-add `org.scalus:scalus:0.15.1` dependency
-- [x] `X402EscrowScript` — single-purpose Plutus V3 validator drafted
-      as a plain `@Compile object … inline def validate(scData: Data)`
-      (avoids the six deferred-inline purposes of bare `Validator`).
-      Dispatches on `ScriptInfo.SpendingScript`, fails other purposes.
+- [x] **Scala-version split build (2026-05-20)** — Phase 2 now ships
+      real Plutus Core CBOR. New sbt sub-project `x402-escrow-plutus`
+      pinned to `scalaVersion := "3.3.7"` (per-project override of
+      the build's 3.8.3) carries the validator source + Scalus 0.15.1
+      library + scalus-plugin 0.15.1. The plugin lowers `@Compile`
+      validators correctly under 3.3.7. The sbt task
+      `x402EscrowPlutus/emitEscrowHex` writes the compiled CBOR hex
+      (~1208 hex chars / 604 bytes) into
+      `x402-facilitator-cardano-scalus/src/main/resources/x402-escrow.plutus.hex`.
+      The main 3.8.3 module reads it via classloader at runtime —
+      Scalus library dropped from the 3.8.3 module's deps.
+- [x] `X402EscrowScript` — single-purpose Plutus V3 validator
+      (`@Compile object … inline def validate(scData: Data)`, dispatch
+      on `ScriptInfo.SpendingScript`, other purposes fail)
 - [x] `EscrowDatum` + `EscrowRedeemer` (Claim/Refund) at top level
-      with `derives FromData, ToData` — Scalus 0.15.1 only derives on
-      top-level types, not nested
+      with `derives FromData, ToData`
 - [x] Structural checks (signatory presence for Claim / Refund)
-      enforced; full CIP-8 inline verification deferred to Phase 2.5
-- [→] **Blocked on Scalus Scala-3.8 support.** `PlutusV3.compile(...)`
-      requires the `scalus-plugin` compiler plugin (latest 0.16.0),
-      which was built against Scala 3.3.7 and references
-      `dotty.tools.dotc.core.Names$Designator` — removed in Scala
-      3.8.x. Plugin load fails with `NoClassDefFoundError`. Without
-      the plugin enabled, `PlutusV3.compile` throws at runtime.
-      See spec §5 "Phase 2 retry" for the three options
-      (wait for Scalus 3.8 / separate sub-build / project Scala
-      downgrade); all three are out of Phase 2 scope.
-- [x] 4-test sanity suite for `X402EscrowScriptTest`: datum
-      construction, redeemer shapes, **and a pinned test that
-      asserts the missing-plugin RuntimeException** — flips the day
-      a compatible plugin lands
+      enforced on-chain; full CIP-8 inline verification deferred to
+      Phase 2.5
+- [x] 4 tests in `X402EscrowCompiledTest`: resource present, hex
+      well-formed, decoded length matches, deterministic across reads,
+      >100 bytes (proves non-trivial program)
 - [ ] On-chain CIP-8 verification: COSE_Sign1 decode + Ed25519 verify
       against datum.payerKeyHash; payload-hash equality check
-      (Phase 2.5, after plugin)
+      (Phase 2.5)
 - [ ] Output-shape check: exact lovelace to datum.receiver
-      (Phase 2.5, after plugin)
+      (Phase 2.5)
 - [ ] Validity-range check vs `datum.validBefore` / `datum.refundAfter`
-      (Phase 2.5, after plugin)
-- [ ] Unit tests via Scalus's script-context simulator
-      (Phase 2.5, after plugin)
+      (Phase 2.5)
+- [ ] Unit tests via Scalus's script-context simulator under
+      x402-escrow-plutus (Phase 2.5)
 
 #### Phase 3 — Escrow address + reference script
 
