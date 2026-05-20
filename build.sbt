@@ -702,9 +702,9 @@ lazy val clientEvm = project
   .settings(
     name := "scalascript-client-evm",
     libraryDependencies ++= Seq(
-      "com.softwaremill.sttp.client4" %% "core"  % "4.0.0-M17",
-      "com.softwaremill.sttp.client4" %% "upickle" % "4.0.0-M17",
-      "com.lihaoyi"                   %% "upickle" % "3.3.1",
+      "com.softwaremill.sttp.client4" %% "core"  % "4.0.23",
+      "com.softwaremill.sttp.client4" %% "upickle" % "4.0.23",
+      "com.lihaoyi"                   %% "upickle" % "4.4.2",
       scalatestTest,
     ),
     Compile / scalacOptions ++= sharedScalacOptionsStrict,
@@ -728,8 +728,8 @@ lazy val clientCoinbase = project
   .settings(
     name := "scalascript-client-coinbase",
     libraryDependencies ++= Seq(
-      "com.softwaremill.sttp.client4" %% "core"  % "4.0.0-M17",
-      "com.lihaoyi"                   %% "upickle" % "3.3.1",
+      "com.softwaremill.sttp.client4" %% "core"  % "4.0.23",
+      "com.lihaoyi"                   %% "upickle" % "4.4.2",
       scalatestTest,
     ),
     Compile / scalacOptions ++= sharedScalacOptionsStrict,
@@ -753,7 +753,7 @@ lazy val x402Server = project
   .settings(
     name := "scalascript-x402-server",
     libraryDependencies ++= Seq(
-      "com.lihaoyi" %% "upickle" % "3.3.1",
+      "com.lihaoyi" %% "upickle" % "4.4.2",
       scalatestTest,
     ),
     Compile / scalacOptions ++= sharedScalacOptionsStrict,
@@ -766,7 +766,7 @@ lazy val x402Client = project
   .settings(
     name := "scalascript-x402-client",
     libraryDependencies ++= Seq(
-      "com.lihaoyi" %% "upickle" % "3.3.1",
+      "com.lihaoyi" %% "upickle" % "4.4.2",
       scalatestTest,
     ),
     Compile / scalacOptions ++= sharedScalacOptionsStrict,
@@ -779,7 +779,7 @@ lazy val x402FacilitatorCoinbase = project
   .settings(
     name := "scalascript-x402-facilitator-coinbase",
     libraryDependencies ++= Seq(
-      "com.lihaoyi" %% "upickle" % "3.3.1",
+      "com.lihaoyi" %% "upickle" % "4.4.2",
       scalatestTest,
     ),
     Compile / scalacOptions ++= sharedScalacOptionsStrict,
@@ -804,7 +804,7 @@ lazy val x402QueueKafka = project
   .settings(
     name := "scalascript-x402-queue-kafka",
     libraryDependencies ++= Seq(
-      "com.lihaoyi" %% "upickle" % "3.3.1",
+      "com.lihaoyi" %% "upickle" % "4.4.2",
       scalatestTest,
     ),
     Compile / scalacOptions ++= sharedScalacOptionsStrict,
@@ -817,7 +817,7 @@ lazy val x402QueuePostgres = project
   .settings(
     name := "scalascript-x402-queue-postgres",
     libraryDependencies ++= Seq(
-      "com.lihaoyi" %% "upickle" % "3.3.1",
+      "com.lihaoyi" %% "upickle" % "4.4.2",
       scalatestTest,
     ),
     Compile / scalacOptions ++= sharedScalacOptionsStrict,
@@ -853,8 +853,8 @@ lazy val clientBlockfrost = project
   .settings(
     name := "scalascript-client-blockfrost",
     libraryDependencies ++= Seq(
-      "com.softwaremill.sttp.client4" %% "core"    % "4.0.0-M17",
-      "com.lihaoyi"                   %% "upickle" % "3.3.1",
+      "com.softwaremill.sttp.client4" %% "core"    % "4.0.23",
+      "com.lihaoyi"                   %% "upickle" % "4.4.2",
       scalatestTest,
     ),
     Compile / scalacOptions ++= sharedScalacOptionsStrict,
@@ -940,7 +940,7 @@ lazy val cryptoBouncycastle = project
 // Stage 1: SPI traits in `shared/`; `object Blockchain` ServiceLoader
 // registry (JVM) and explicit-registration variant (JS) live in their
 // platform source dirs.  upickle's `%%%` resolves to the right artefact
-// per platform (Scala.js 1.x build of upickle 3.3.1 ships natively).
+// per platform (Scala.js 1.x build of upickle 4.4.2 ships natively).
 lazy val blockchainSpiCross =
   crossProject(JVMPlatform, JSPlatform)
     .crossType(CrossType.Full)
@@ -948,7 +948,7 @@ lazy val blockchainSpiCross =
     .dependsOn(cryptoSpiCross)
     .settings(
       name := "scalascript-blockchain-spi",
-      libraryDependencies += "com.lihaoyi" %%% "upickle" % "3.3.1",
+      libraryDependencies += "com.lihaoyi" %%% "upickle" % "4.4.2",
       Compile / scalacOptions ++= sharedScalacOptionsStrict,
       Test    / scalacOptions ++= sharedScalacOptions,
     )
@@ -977,7 +977,7 @@ lazy val walletSpiCross =
     .settings(
       name := "scalascript-wallet-spi",
       libraryDependencies ++= Seq(
-        "com.lihaoyi"   %%% "upickle"   % "3.3.1",
+        "com.lihaoyi"   %%% "upickle"   % "4.4.2",
         "org.scalatest" %%% "scalatest" % "3.2.18" % Test,
       ),
       Compile / scalacOptions ++= sharedScalacOptionsStrict,
@@ -1002,7 +1002,7 @@ lazy val walletVaultEncrypted = project
   .settings(
     name := "scalascript-wallet-vault-encrypted",
     libraryDependencies ++= Seq(
-      "com.lihaoyi" %% "upickle" % "3.3.1",
+      "com.lihaoyi" %% "upickle" % "4.4.2",
       scalatestTest,
     ),
     Compile / scalacOptions ++= sharedScalacOptionsStrict,
@@ -1031,7 +1031,7 @@ lazy val walletVaultMpc = project
   .settings(
     name := "scalascript-wallet-vault-mpc",
     libraryDependencies ++= Seq(
-      "com.lihaoyi" %% "upickle" % "3.3.1",
+      "com.lihaoyi" %% "upickle" % "4.4.2",
       scalatestTest,
     ),
     Compile / scalacOptions ++= sharedScalacOptionsStrict,
@@ -1044,7 +1044,7 @@ lazy val walletStrategyErc4337 = project
   .settings(
     name := "scalascript-wallet-strategy-erc4337",
     libraryDependencies ++= Seq(
-      "com.lihaoyi" %% "upickle" % "3.3.1",
+      "com.lihaoyi" %% "upickle" % "4.4.2",
       scalatestTest,
     ),
     Compile / scalacOptions ++= sharedScalacOptionsStrict,
@@ -1057,7 +1057,7 @@ lazy val walletConnectorEip1193 = project
   .settings(
     name := "scalascript-wallet-connector-eip1193",
     libraryDependencies ++= Seq(
-      "com.lihaoyi" %% "upickle" % "3.3.1",
+      "com.lihaoyi" %% "upickle" % "4.4.2",
       scalatestTest,
     ),
     Compile / scalacOptions ++= sharedScalacOptionsStrict,
@@ -1070,7 +1070,7 @@ lazy val walletConnect = project
   .settings(
     name := "scalascript-wallet-connect",
     libraryDependencies ++= Seq(
-      "com.lihaoyi" %% "upickle" % "3.3.1",
+      "com.lihaoyi" %% "upickle" % "4.4.2",
       "org.bouncycastle" % "bcprov-jdk18on" % "1.78.1",
       scalatestTest,
     ),
@@ -1122,7 +1122,7 @@ lazy val walletConnectorWalletStd = project
   .settings(
     name := "scalascript-wallet-connector-wallet-std",
     libraryDependencies ++= Seq(
-      "com.lihaoyi" %% "upickle" % "3.3.1",
+      "com.lihaoyi" %% "upickle" % "4.4.2",
       scalatestTest,
     ),
     Compile / scalacOptions ++= sharedScalacOptionsStrict,
@@ -1204,7 +1204,7 @@ lazy val blockchainEvm = project
   .settings(
     name := "scalascript-blockchain-evm",
     libraryDependencies ++= Seq(
-      "com.lihaoyi" %% "upickle" % "3.3.1",
+      "com.lihaoyi" %% "upickle" % "4.4.2",
       scalatestTest,
     ),
     Compile / scalacOptions ++= sharedScalacOptionsStrict,
@@ -1217,7 +1217,7 @@ lazy val blockchainSolana = project
   .settings(
     name := "scalascript-blockchain-solana",
     libraryDependencies ++= Seq(
-      "com.lihaoyi" %% "upickle" % "3.3.1",
+      "com.lihaoyi" %% "upickle" % "4.4.2",
       scalatestTest,
     ),
     Compile / scalacOptions ++= sharedScalacOptionsStrict,
@@ -1267,7 +1267,7 @@ lazy val micropaymentServer = project
   .settings(
     name := "scalascript-micropayment-server",
     libraryDependencies ++= Seq(
-      "com.lihaoyi" %% "upickle" % "3.3.1",
+      "com.lihaoyi" %% "upickle" % "4.4.2",
       scalatestTest,
     ),
     Compile / scalacOptions ++= sharedScalacOptionsStrict,
@@ -1280,7 +1280,7 @@ lazy val micropaymentClient = project
   .settings(
     name := "scalascript-micropayment-client",
     libraryDependencies ++= Seq(
-      "com.lihaoyi" %% "upickle" % "3.3.1",
+      "com.lihaoyi" %% "upickle" % "4.4.2",
       scalatestTest,
     ),
     Compile / scalacOptions ++= sharedScalacOptionsStrict,
@@ -1312,7 +1312,7 @@ lazy val micropaymentHydra = project
   .dependsOn(micropaymentSpi, blockchainSpi)
   .settings(
     name := "scalascript-micropayment-hydra",
-    libraryDependencies ++= Seq("com.lihaoyi" %% "upickle" % "3.3.1", scalatestTest),
+    libraryDependencies ++= Seq("com.lihaoyi" %% "upickle" % "4.4.2", scalatestTest),
     Compile / scalacOptions ++= sharedScalacOptionsStrict,
     Test    / scalacOptions ++= sharedScalacOptions,
   )
