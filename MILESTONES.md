@@ -7647,26 +7647,34 @@ Landed in tandem with blockchain-spi Phase 1.
       (fake addresses like `"0xpayTo"` replaced with valid 20-byte
       hex since real ABI encoding rejects malformed input).
 
-### Phase 2 — Encrypted Vault
+### Phase 2 — Encrypted Vault ✓ Landed JVM (2026-05-20)
 
-- [ ] `wallet-vault-encrypted` — interface (cross-compile)
-- [ ] BIP-39 mnemonic generation / restore (24-word default)
-- [ ] Argon2id → AES-GCM(seed) password unlock
-- [ ] `wallet-vault-encrypted-jvm` — filesystem
-- [ ] `wallet-vault-encrypted-js` — IndexedDB
+- [x] `wallet-vault-encrypted` — interface (JVM; cross-compile follows
+      blockchain-spi JS phase)
+- [x] BIP-39 mnemonic generation / restore (24-word default)
+- [x] Argon2id → AES-GCM(seed) password unlock
+- [x] `wallet-vault-encrypted-jvm` — filesystem (`VaultFile`)
+- [ ] `wallet-vault-encrypted-js` — IndexedDB (deferred until Scala.js
+      cross-compile of `wallet-spi` lands)
 
-### Phase 3 — DappConnector EIP-1193 (Scala.js)
+### Phase 3 — DappConnector EIP-1193 ✓ Scaffold landed (2026-05-20)
 
-- [ ] `wallet-connector-eip1193-js` — `window.ethereum` injection
-- [ ] EIP-6963 multi-injected-provider discovery
-- [ ] Translates `eth_*` JSON-RPC → `AccountManager.request`
+- [x] `wallet-connector-eip1193` — `Eip1193Provider` translator (JVM;
+      JS `window.ethereum` injection wired in next iteration once the
+      Scala.js cross-compile is on)
+- [x] EIP-6963 multi-injected-provider discovery types
+- [x] Translates `eth_*` JSON-RPC → `AccountManager.request`
 
-### Phase 4 — DappConnector WalletConnect v2
+### Phase 4 — DappConnector WalletConnect v2 (scaffold landed 2026-05-20)
 
-- [ ] `wallet-connect` — cross-compile (JVM + JS)
-- [ ] JVM: ws via JDK `java.net.http.WebSocket`
+- [x] `wallet-connect` — protocol shape + scaffolded
+      `WalletConnectConnector` (JVM)
+- [x] Multi-chain via CAIP-2 namespaces (`WcNamespace`)
+- [ ] JVM production transport — JDK `java.net.http.WebSocket` +
+      ed25519/JWT relay auth + chacha20-poly1305 envelope encryption
+      (current `WcRelayTransport` is a trait + mock; production impl
+      is the next finalisation slice)
 - [ ] JS: facade over `@walletconnect/sign-client`
-- [ ] Multi-chain via CAIP-2 namespaces
 - [ ] Resolves WC project-ID open question
 
 ### Phase 5 — Solana DappConnector
@@ -7674,14 +7682,17 @@ Landed in tandem with blockchain-spi Phase 1.
 - [ ] `wallet-connector-wallet-std` — Solana / Sui Wallet Standard
 - [ ] Depends on blockchain-spi Phase 3
 
-### Phase 6 — ERC-4337 SmartAccountStrategy
+### Phase 6 — ERC-4337 SmartAccountStrategy ✓ Landed (2026-05-20)
 
-- [ ] `wallet-strategy-erc4337` — `SmartAccount.wrap(...)`
+- [x] `wallet-strategy-erc4337` — `SmartAccount.wrap(...)`
       convenience pairing
-- [ ] UserOp construction + signing over `userOpHash`
-- [ ] Bundler client
+- [x] UserOp construction + signing over `userOpHash` (EntryPoint v0.6)
+- [x] Bundler client (`BundlerClient` — send / estimate / receipt /
+      supportedEntryPoints; both flat and `receipt:{}`-envelope reply
+      shapes accepted)
+- [x] Counterfactual CREATE2 address derivation (`SimpleAccountFactory`)
+- [ ] EntryPoint v0.7 PackedUserOperation (follow-up slice)
 - [ ] Passkey owner via WebAuthn (Scala.js); curve = p256
-- [ ] Counterfactual CREATE2 address derivation
 
 ### Phase 7 — Hardware wallet Vault (Ledger multi-chain)
 
