@@ -22,6 +22,13 @@ case class CardanoFacilitatorConfig(
   network:         CardanoNetwork,
   provider:        CardanoProvider,
   receiverAddress: String,
+  /** Pluggable settler for `CardanoProvider.Scalus`. The Plutus-escrow
+   *  claim-Tx construction lives in `x402-facilitator-cardano-scalus`
+   *  and is injected here as a function so the base module has no
+   *  hard dependency on bloxbean / Scalus.
+   *
+   *  See [`docs/x402-cardano-scalus.md`](../../../../../../../../docs/x402-cardano-scalus.md). */
+  scalusSettle: Option[(PaymentPayload, PaymentRequirements) => Future[SettleResult]] = None,
 )
 
 // ── CIP-8 COSE_Sign1 verifier ─────────────────────────────────────────────────
@@ -111,7 +118,12 @@ private class CardanoFacilitatorImpl(
         // Client-submitted model: balance was verified in verify(); return optimistic Ok
         Future.successful(SettleResult.Ok("0x" + "0" * 64))
       case CardanoProvider.Scalus(_, _, _, _) =>
-        Future.successful(SettleResult.Fail("Scalus settlement not yet implemented"))
+        config.scalusSettle match
+          case Some(settler) => settler(payload, req)
+          case None          => Future.successful(SettleResult.Fail(
+            "Scalus settlement not yet implemented — wire " +
+              "CardanoFacilitatorConfig.scalusSettle (see x402-facilitator-cardano-scalus)"
+          ))
 
   private def checkBalance(
     address: String,

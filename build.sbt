@@ -808,6 +808,21 @@ lazy val x402FacilitatorCardano = project
     Test    / scalacOptions ++= sharedScalacOptions,
   )
 
+// Plutus-escrow settlement for x402 on Cardano. Phase 1 is scaffolding —
+// trait + stub. Phase 2+ adds Scalus (validator) and bloxbean (off-chain
+// Tx building) dependencies. See docs/x402-cardano-scalus.md.
+lazy val x402FacilitatorCardanoScalus = project
+  .in(file("x402-facilitator-cardano-scalus"))
+  .dependsOn(x402Core, x402FacilitatorCardano)
+  .settings(
+    name := "scalascript-x402-facilitator-cardano-scalus",
+    libraryDependencies ++= Seq(
+      scalatestTest,
+    ),
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions,
+  )
+
 // ---------------------------------------------------------------------------
 // Wallet / blockchain SPI tracks (docs/blockchain-spi.md + docs/wallet-spi.md)
 //

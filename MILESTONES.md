@@ -7753,7 +7753,73 @@ declares `signCip8`; EVM and Cardano wallets reject the wrong shape.
       `(hex, address, network)` form remains for stake-aware base
       addresses; example dropped its `CARDANO_ADDR` env var
 - [ ] Base addresses with staking (deferred — caller-supplied only)
-- [ ] `CardanoProvider.Scalus` settlement (deferred — Phase 6 stub)
+- [→] `CardanoProvider.Scalus` settlement → see Phase 10 below
+
+### Phase 10 — Scalus / Plutus-escrow settlement
+
+Spec in [`docs/x402-cardano-scalus.md`](docs/x402-cardano-scalus.md).
+Replaces the optimistic `CardanoProvider.Blockfrost` `Ok` with on-chain
+Plutus-enforced escrow: payer locks lovelace at a script address, the
+facilitator's relayer claims via a Tx whose redeemer carries the CIP-8
+proof. Validator written in Scalus DSL; off-chain Tx building via
+bloxbean `cardano-client-lib`.
+
+#### Phase 1 — Spec + module scaffolding ✓ Landed (2026-05-20)
+
+- [x] `docs/x402-cardano-scalus.md` — goals, escrow datum/redeemer
+      shape, off-chain flow, 6-phase plan
+- [x] New module `x402-facilitator-cardano-scalus` (build.sbt entry,
+      depends on `x402Core` + `x402FacilitatorCardano`)
+- [x] `ScalusSettler` trait + `ScalusSettler.unimplemented` stub +
+      `asConfigHook` function adapter
+- [x] `CardanoFacilitatorConfig.scalusSettle: Option[(payload, req)
+      => Future[SettleResult]]` — pluggable hook on the existing
+      facilitator. Default behavior unchanged (Scalus path still
+      returns `Fail` with hint pointing at the new wiring).
+- [x] 5 tests: stub Fail, hook delegation, Blockfrost-path
+      regression, end-to-end settle delegation
+- [x] All 17 existing Cardano facilitator tests still green
+
+#### Phase 2 — On-chain validator (Scalus)
+
+- [ ] Add Scalus dependency to `x402-facilitator-cardano-scalus`
+- [ ] `X402EscrowScript` — Plutus V3 validator (Scalus DSL) with
+      `Claim(coseSign1, coseKey)` + `Refund` redeemers
+- [ ] On-chain CIP-8 verification: COSE_Sign1 decode + Ed25519 verify
+      against datum.payerKeyHash; payload-hash equality check
+- [ ] Output-shape check: exact lovelace to datum.receiver
+- [ ] Validity-range check vs `datum.validBefore` / `datum.refundAfter`
+- [ ] Unit tests via Scalus's script-context simulator
+
+#### Phase 3 — Escrow address + reference script
+
+- [ ] `EscrowScript.address(network)` — compiled-validator address
+- [ ] Reference-script deploy helper (one-time op)
+- [ ] Golden-bech32 test for stable script address per network
+
+#### Phase 4 — Off-chain claim Tx via bloxbean
+
+- [ ] Add `com.bloxbean.cardano:cardano-client-lib` dependency
+- [ ] `ScalusSettler.preprod(cfg)` / `.mainnet(cfg)` factories
+- [ ] Tx building: input = escrow UTxO ref, output = receiver +
+      amount, redeemer = CIP-8 proof bytes, witness = relayer key
+- [ ] Submission via Blockfrost `submitTx` (Ogmios as Phase-5+ option)
+- [ ] Integration tests against Preprod (CI-gated by env vars)
+
+#### Phase 5 — Client-side Scalus-mode wallet
+
+- [ ] `Wallets.cardano(hex, network, scalusMode = true)`
+- [ ] Structured `ScalusClaimMessage` (domain-separated:
+      receiver|amount|validBefore) replaces the description-bytes
+      payload for Scalus payments
+- [ ] `escrowRef` propagated through the payload `nonce` slot
+- [ ] Round-trip test covering client → validator → claim Tx
+
+#### Phase 6 — Deposit ergonomics + example
+
+- [ ] `EscrowDeposit.build(payerWallet, req)` helper
+- [ ] `examples/x402-cardano-scalus.ssc` — full Preprod walkthrough
+- [ ] Update Phase 9 follow-up to point here for production flows
 
 ---
 

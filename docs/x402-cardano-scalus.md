@@ -1,0 +1,288 @@
+# x402 — Scalus settlement for Cardano
+
+Status: **draft / planning**. Source of truth for the Plutus-escrow
+implementation of `CardanoProvider.Scalus` in `x402-facilitator-cardano`.
+Until each phase below is checked off in
+[`MILESTONES.md`](../MILESTONES.md), the code does not match this design.
+
+## 1. Goals
+
+- **On-chain-enforced atomic settlement** for x402 Cardano payments.
+  The current `CardanoProvider.Blockfrost` is **optimistic**: it
+  CIP-8-verifies the payer's proof and balance-checks the address, then
+  returns `Ok` without forcing a settlement Tx. That works for
+  low-stakes flows but is replayable against the same UTxO and is not
+  a real escrow.
+- **Pluggable settler interface.** A new `ScalusSettler` SPI lives in
+  a separate module `x402-facilitator-cardano-scalus`. The optimistic
+  Blockfrost path stays where it is; the Plutus path is a peer.
+- **Reuse Scalus** for the on-chain validator (Plutus V3 compiled
+  from Scala-flavored DSL) and **bloxbean cardano-client-lib** for
+  off-chain Tx construction, witness signing, and submission.
+- **Hold the existing x402 wire format constant.** Cardano payment
+  payloads already carry `CardanoPaymentProof` (CIP-8 COSE_Sign1 +
+  COSE_Key). The escrow extension reuses these fields by interpreting
+  the `message` bytes as a claim authorization payload, not just the
+  request description.
+
+## 2. Non-goals
+
+- **Replacing the Blockfrost provider.** It stays for use cases where
+  the receiver controls double-spend risk out-of-band (e.g. one-shot
+  research APIs). Operators pick per deployment.
+- **A general-purpose Plutus contract framework.** Plutus authorship
+  lives in Scalus; we consume it for one specific escrow script.
+- **A Cardano-node embedding.** The facilitator talks to Ogmios for
+  submission and Kupo or Blockfrost for UTxO indexing — it never
+  embeds a node.
+- **Stake-aware base addresses for the relayer.** The facilitator's
+  relayer uses an enterprise address (CIP-19 type 6/7); stake delegation
+  is the operator's concern, not ours.
+- **Refunds.** A canceled or expired escrow UTxO is recoverable by the
+  original payer via the `Refund` redeemer (§3); the facilitator
+  does not initiate refunds.
+
+## 3. Architecture
+
+### 3.1 Two-step payment flow
+
+```
+         ┌───────────┐                ┌─────────────┐                ┌────────────┐
+         │  Payer    │                │ Facilitator │                │ Cardano    │
+         │  (client) │                │  + relayer  │                │ chain      │
+         └─────┬─────┘                └──────┬──────┘                └─────┬──────┘
+               │                             │                             │
+   1. Deposit  │── build escrow tx ──────────┼─────────────────────────────┤
+      (payer)  │   inputs: payer UTxOs       │                             │
+               │   output: escrow_script + datum                           │
+               │── sign + submit ────────────┼────────────────────────────►│
+               │                             │                             │
+   2. Pay      │── X-Payment (CIP-8 proof + escrow_ref) ─►│                │
+      (HTTP)   │                             │── verify(proof, req) ──►   │
+               │                             │   • CIP-8 sig over message  │
+               │                             │   • escrow UTxO exists      │
+               │                             │   • datum matches request   │
+               │                             │── settle(proof, req) ───►   │
+               │                             │   build claim tx:           │
+               │                             │     input:  escrow_ref      │
+               │                             │     output: receiver addr   │
+               │                             │     redeemer: proof bytes   │
+               │                             │     witness: relayer key    │
+               │                             │── sign + submit ───────────►│
+               │◄─ 200 + data ──────────────-│                             │
+```
+
+The facilitator never holds the payer's funds outright — the escrow UTxO
+sits at a script address, and Plutus enforces the claim conditions.
+
+### 3.2 Plutus validator (`x402-escrow.plutus`)
+
+Datum:
+
+```scala
+case class EscrowDatum(
+  payerKeyHash:    ByteString,     // 28-byte Blake2b-224 of payer's Ed25519 vk
+  claimMessageHash: ByteString,    // Blake2b-256 of the CIP-8 message bytes
+  receiver:        Address,        // exact recipient (no fuzz)
+  amount:          Lovelace,       // exact amount payable
+  validBefore:     POSIXTime,      // claim window upper bound
+  refundAfter:     POSIXTime,      // payer can sweep after this slot
+)
+```
+
+Two redeemers:
+
+- `Claim(coseSign1Bytes, coseKeyBytes)` — facilitator path. The
+  validator:
+  1. Decodes the COSE_Key, extracts the Ed25519 verification key, and
+     checks that `Blake2b224(vk) == datum.payerKeyHash`.
+  2. Decodes the COSE_Sign1, reconstructs the Sig_Structure, and
+     verifies the Ed25519 signature against the vk.
+  3. Checks that the COSE_Sign1 payload bytes hash to
+     `datum.claimMessageHash`.
+  4. Checks the Tx outputs include exactly `datum.amount` lovelace at
+     `datum.receiver`.
+  5. Checks the Tx validity range upper bound `<= datum.validBefore`.
+
+- `Refund` — payer path. The validator checks:
+  1. The Tx is signed by `datum.payerKeyHash` (standard PubKeyHash
+     witness, not CIP-8).
+  2. The Tx validity range lower bound `>= datum.refundAfter`.
+
+The validator does **not** depend on the redeemer's CIP-8 message
+*content* — it only checks the hash. The semantic agreement (what the
+message contains) is enforced by the facilitator at `verify` time
+before settling.
+
+### 3.3 Off-chain (`x402-facilitator-cardano-scalus`)
+
+```
+┌────────────────────────────────────────────────────────────────┐
+│  CardanoFacilitator (existing)                                  │
+│    provider match                                               │
+│      Blockfrost(...) → optimistic Ok                            │
+│      Scalus(...)     → settler.submit(payload, req)             │
+└────────────────────────────────────────────────────────────────┘
+                            │
+                            ▼
+┌────────────────────────────────────────────────────────────────┐
+│  ScalusSettler trait (new — this module)                        │
+│    def submit(p: PaymentPayload, r: PaymentRequirements)        │
+│        : Future[SettleResult]                                   │
+└────────────────────────────────────────────────────────────────┘
+        │
+        ├─ ScalusSettler.unimplemented   ← Phase 1 stub
+        ├─ ScalusSettler.preprod(cfg)    ← Phase 4 — bloxbean impl
+        └─ ScalusSettler.mainnet(cfg)    ← Phase 4 — bloxbean impl
+```
+
+Module: `x402-facilitator-cardano-scalus`.
+
+Dependencies (added incrementally):
+
+- Phase 1: only `x402-facilitator-cardano`, no SDK pulls.
+- Phase 2: `org.scalus:scalus:*` for the Plutus compiler.
+- Phase 4: `com.bloxbean.cardano:cardano-client-lib:*` for off-chain
+  Tx construction; transitively pulls JNA + secp256k1 (already in our
+  classpath via BouncyCastle).
+- Phase 5: optional Ogmios WebSocket client — JDK `java.net.http`
+  is enough for the v1 path.
+
+### 3.4 Wire-format extension
+
+The payload's `CardanoPaymentProof` stays binary-compatible. Two new
+fields are *interpreted* (not added) when the provider is Scalus:
+
+- The CIP-8 `message` bytes now contain a structured claim authorization
+  rather than the raw `req.description`:
+
+  ```
+  ScalusClaimMessage := concat(
+    "x402-scalus/v1",   // domain separation
+    receiver_addr_bytes,
+    amount_lovelace_be8,
+    valid_before_posix_be8,
+  )
+  ```
+
+- The payload carries an `escrowRef` field via the `nonce` slot
+  (currently empty for Cardano) encoded as `txhash#index`.
+
+These are backwards-compatible at the `CardanoPaymentProof` schema level
+but require the client wallet (`Wallets.cardano`) to gain a
+"Scalus mode" that signs the structured message rather than the
+description. Out of scope for Phase 1.
+
+## 4. Migration
+
+- Existing `CardanoProvider.Blockfrost` flows: **no change**. The
+  optimistic path remains operational.
+- Existing `CardanoProvider.Scalus` enum case: **shape preserved**;
+  its `signingKey`, `nodeSocket`, `ogmiosUrl`, `kupoUrl` fields are
+  the inputs the Phase 4 `bloxbean` settler will consume.
+- `CardanoFacilitator.settle` currently has a hardcoded
+  `Fail("Scalus settlement not yet implemented")` for the Scalus
+  provider; Phase 1 replaces that with a delegation to a
+  pluggable `ScalusSettler` (default: `unimplemented` stub that
+  returns the same `Fail`). No behavior change for current callers.
+- After Phase 4 lands, operators opt into Plutus settlement by
+  constructing the facilitator with
+  `CardanoFacilitator.scalus(config, ScalusSettler.preprod(cfg))`.
+
+## 5. Phases
+
+### Phase 1 — spec + module scaffolding
+
+- This document.
+- New module `x402-facilitator-cardano-scalus` with build.sbt entry.
+- `ScalusSettler` trait + `ScalusSettler.unimplemented` stub.
+- `CardanoFacilitator` accepts an optional `ScalusSettler` in its
+  config; without one, Scalus provider still fails as today.
+- Tests: stub returns `Fail` with the new message; existing
+  Blockfrost tests stay green.
+
+### Phase 2 — on-chain validator
+
+- Plutus V3 validator in Scalus DSL: `src/main/scala/.../X402EscrowScript.scala`.
+- Datum / redeemer types per §3.2.
+- Compiled-script artifact committed to repo (or regenerated at
+  test time, depending on Scalus stability).
+- Unit tests with Scalus's test framework: Claim happy path,
+  Refund happy path, all rejection branches.
+
+### Phase 3 — escrow address + reference script deployment helpers
+
+- `EscrowScript.address(network)` — derives the script address from
+  the compiled validator + network header.
+- Operator helper to deploy a reference script (one-time, manual).
+- Tests assert script-address stability against committed golden
+  bech32 strings.
+
+### Phase 4 — off-chain claim Tx via bloxbean
+
+- `ScalusSettler.preprod(cfg)` / `.mainnet(cfg)` constructors.
+- Tx building: input = escrow_ref, output = receiver + amount,
+  collateral from relayer wallet, redeemer = CIP-8 proof bytes.
+- Witnessing: relayer Ed25519 signature on the Tx body hash.
+- Submission via Blockfrost `submitTx` (already in our client) —
+  Ogmios variant added later if needed.
+- Integration tests against preprod with a funded relayer + a
+  pre-deposited escrow UTxO; CI-skipped when env vars unset.
+
+### Phase 5 — client-side Scalus-mode wallet
+
+- `Wallets.cardano(hex, network, scalusMode = true)` — signs the
+  structured claim message instead of the request description.
+- `PayloadBuilder` emits `escrowRef` via the `nonce` slot when the
+  payload references an escrow UTxO.
+- Tests: round-trip a Scalus-mode payment through the validator's
+  off-chain claim flow (using Phase 4 settler).
+
+### Phase 6 — deposit-side ergonomics
+
+- `EscrowDeposit.build(payerWallet, req)` helper — payer-side Tx
+  that locks lovelace at the escrow script address.
+- Example `examples/x402-cardano-scalus.ssc` showing the full
+  deposit → 402 → claim → 200 flow on preprod.
+
+## 6. Testing strategy
+
+- **Phase 1**: unit tests for the trait stub + facilitator
+  delegation. No real chain interaction.
+- **Phase 2**: Scalus's evaluator running the compiled validator
+  against constructed datums / redeemers / script contexts.
+- **Phase 3**: golden-string tests for script address per network.
+- **Phase 4**: integration tests skipped by default (`assume(env
+  set)`), executed in CI under a `cardano-preprod-it` profile with
+  a funded relayer secret.
+- **Phase 5+**: round-trip tests crossing the client → facilitator
+  → on-chain validator boundary.
+
+## 7. Open questions
+
+- **Plutus version**: V3 (current) or V2 (more widely supported on
+  cold mainnet wallets)? Phase 2 picks one and we live with it.
+- **Reference script vs inline script**: reference scripts make
+  every claim Tx ~7KB smaller, but require a one-time deploy + a
+  stable on-chain anchor. Default to reference scripts for
+  Preprod / Mainnet, inline for ephemeral test environments.
+- **Datum size**: 28+32+57+8+8+8 ≈ 141 bytes minimum, plus
+  CBOR overhead. Within limits but worth measuring.
+- **Time source**: validity ranges depend on slot ↔ POSIX-time
+  conversion. Phase 4 must agree with Kupo / Blockfrost on the
+  conversion strategy (era genesis params).
+- **Multi-asset payments**: the validator outputs lovelace only in
+  Phase 2; native-asset escrows (USDA, DJED) require an extra
+  datum slot and validator branch. Punt to a Phase 7 follow-up.
+- **Refund timing**: should `refundAfter` be relative to `validBefore`
+  (e.g., +24h) or independent? Set it independently to allow
+  long-tail recovery without forcing claims to be immediate.
+
+## 8. References
+
+- CIP-8: <https://cips.cardano.org/cips/cip8/>
+- CIP-19 (addresses): <https://cips.cardano.org/cips/cip19/>
+- Scalus: <https://scalus.org>
+- bloxbean cardano-client-lib: <https://github.com/bloxbean/cardano-client-lib>
+- Existing optimistic facilitator: `x402-facilitator-cardano/.../CardanoFacilitator.scala`
+- x402 protocol: [`docs/x402.md`](x402.md)
