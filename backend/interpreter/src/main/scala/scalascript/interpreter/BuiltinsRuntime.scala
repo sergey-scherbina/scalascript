@@ -20,7 +20,7 @@ private[interpreter] object BuiltinsRuntime:
     // cannot accidentally shadow a bundled NativeImpl.
     import scalascript.backend.spi.NativeImpl
     val pluginNativeImpls: Map[scalascript.ir.QualifiedName, scalascript.backend.spi.IntrinsicImpl] =
-      scalascript.plugin.BackendRegistry.inProcess
+      scalascript.compiler.plugin.BackendRegistry.inProcess
         .iterator.flatMap(_.intrinsics)
         .collect { case entry @ (_, _: NativeImpl) => entry }
         .toMap

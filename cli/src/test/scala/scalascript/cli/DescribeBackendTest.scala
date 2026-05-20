@@ -1,7 +1,7 @@
 package scalascript.cli
 
 import org.scalatest.funsuite.AnyFunSuite
-import scalascript.plugin.BackendRegistry
+import scalascript.compiler.plugin.BackendRegistry
 
 /** Pin the output of `ssc --describe-backend <id>`.  The body is
  *  produced by the pure [[describeBackend]] function so we can assert

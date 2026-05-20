@@ -307,7 +307,7 @@ src/…/
   CryptoInterpreterPlugin.scala ← Backend impl (id "crypto-intrinsics-interpreter")
   CryptoIntrinsics.scala      ← IntrinsicImpl table (RuntimeCall + NativeImpl)
 META-INF/services/
-  scalascript.backend.spi.Backend   ← "ssc.plugin.crypto.CryptoBackendPlugin\nssc.plugin.crypto.CryptoInterpreterPlugin"
+  scalascript.backend.spi.Backend   ← "scalascript.compiler.plugin.crypto.CryptoBackendPlugin\nscalascript.compiler.plugin.crypto.CryptoInterpreterPlugin"
 ```
 
 `manifest.yaml` declares:

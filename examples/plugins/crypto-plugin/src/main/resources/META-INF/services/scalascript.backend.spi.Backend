@@ -1,2 +1,2 @@
-ssc.plugin.crypto.CryptoBackendPlugin
-ssc.plugin.crypto.CryptoInterpreterPlugin
+scalascript.compiler.plugin.crypto.CryptoBackendPlugin
+scalascript.compiler.plugin.crypto.CryptoInterpreterPlugin

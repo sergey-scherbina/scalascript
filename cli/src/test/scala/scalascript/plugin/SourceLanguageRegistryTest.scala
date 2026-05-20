@@ -1,4 +1,4 @@
-package scalascript.plugin
+package scalascript.compiler.plugin
 
 import org.scalatest.funsuite.AnyFunSuite
 

@@ -139,7 +139,7 @@ class SparkBackendTest extends AnyFunSuite:
   }
 
   test("registered via ServiceLoader — discoverable through BackendRegistry") {
-    import scalascript.plugin.BackendRegistry
+    import scalascript.compiler.plugin.BackendRegistry
     val ids = BackendRegistry.all.map(_.id).toSet
     assert(ids.contains("spark"),
       s"SparkBackend must be discoverable in BackendRegistry, got: $ids")

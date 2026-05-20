@@ -3,7 +3,7 @@ package scalascript.transform
 import scalascript.ast
 import scalascript.ir
 import scalascript.backend.spi.{BackendOptions, ScopeContext, SymbolKind}
-import scalascript.plugin.SourceLanguageRegistry
+import scalascript.compiler.plugin.SourceLanguageRegistry
 
 /** AST → IR conversion.
  *

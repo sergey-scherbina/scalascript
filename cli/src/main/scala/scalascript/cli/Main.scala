@@ -12,7 +12,7 @@ import scalascript.codegen.{JsGen, JsRuntimeBrowserPatch, JsRuntimeMcpBrowser, S
 import scalascript.ast.*
 import scalascript.transform.Normalize
 import scalascript.validate.CapabilityCheck
-import scalascript.plugin.{BackendRegistry, SourceLanguageRegistry}
+import scalascript.compiler.plugin.{BackendRegistry, SourceLanguageRegistry}
 import scalascript.backend.spi.{BackendOptions, CompileResult, Segment}
 // v2.0 separate-compilation artifact commands
 import scalascript.artifact.{InterfaceExtractor, ArtifactIO, JvmArtifactIO, JsArtifactIO}
@@ -1354,7 +1354,7 @@ def pluginInstall(args: List[String]): Unit =
   val src =
     if rawSrc.startsWith("http://") || rawSrc.startsWith("https://") || os.exists(os.Path(rawSrc, os.pwd)) then rawSrc
     else
-      scalascript.plugin.LocalRegistry.resolve(rawSrc) match
+      scalascript.compiler.plugin.LocalRegistry.resolve(rawSrc) match
         case Some(entry) =>
           println(s"Resolved '$rawSrc' → ${entry.url}  (${entry.description})")
           entry.url
@@ -1380,7 +1380,7 @@ def pluginInstall(args: List[String]): Unit =
   // Parse manifest from the archive bytes to get id + version for the filename.
   val tmp = os.temp(bytes, suffix = ".sscpkg")
   val manifest =
-    try scalascript.plugin.SscpkgLoader.load(tmp).manifest
+    try scalascript.compiler.plugin.SscpkgLoader.load(tmp).manifest
     finally os.remove(tmp)
 
   os.makeDir.all(pluginsDir)
@@ -1396,7 +1396,7 @@ def pluginList(): Unit =
   if pkgs.isEmpty then println("(no plugins installed)")
   else
     pkgs.foreach { p =>
-      val m = scala.util.Try(scalascript.plugin.SscpkgLoader.load(p).manifest)
+      val m = scala.util.Try(scalascript.compiler.plugin.SscpkgLoader.load(p).manifest)
       m match
         case scala.util.Success(manifest) =>
           val kinds   = manifest.kind.mkString(", ")
@@ -1432,7 +1432,7 @@ def pluginCheck(args: List[String]): Unit =
   if pkgs.isEmpty then
     System.err.println(s"plugin check: '$id' not installed"); System.exit(1)
   pkgs.foreach { p =>
-    val m = scalascript.plugin.SscpkgLoader.load(p).manifest
+    val m = scalascript.compiler.plugin.SscpkgLoader.load(p).manifest
     val supported = "0.1.0"
     if m.spiVersion == supported then
       println(s"${m.id} ${m.version}: OK  (spiVersion=${m.spiVersion})")
@@ -1465,7 +1465,7 @@ def pluginPack(args: List[String]): Unit =
   if !os.exists(manifestPath) then
     System.err.println(s"plugin pack: missing manifest.yaml in $dir"); System.exit(1)
 
-  val manifest = scalascript.plugin.SscpkgManifest.parseString(os.read(manifestPath)).get
+  val manifest = scalascript.compiler.plugin.SscpkgManifest.parseString(os.read(manifestPath)).get
   val outName  = output.getOrElse(s"${manifest.id}-${manifest.version}.sscpkg")
   val outPath  = os.Path(outName, os.pwd)
 
@@ -1492,7 +1492,7 @@ def pluginPack(args: List[String]): Unit =
  *    search <query>        — search entries by id or description substring
  */
 def pluginRegistryCommand(args: List[String]): Unit =
-  import scalascript.plugin.LocalRegistry
+  import scalascript.compiler.plugin.LocalRegistry
   val regPath = os.home / ".scalascript" / "registry.yaml"
   args match
     case "list" :: _ =>

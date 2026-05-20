@@ -1,1 +1,1 @@
-ssc.plugin.request.RequestInterpreterPlugin
+scalascript.compiler.plugin.request.RequestInterpreterPlugin
