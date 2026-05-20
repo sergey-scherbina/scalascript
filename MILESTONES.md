@@ -8014,7 +8014,24 @@ Landed in tandem with blockchain-spi Phase 1.
       factory / factoryData + paymaster split in JSON. The on-chain
       hash composition (`keccak(packed)`, then
       `keccak(encode(., ep, cid))`) is shared with v0.6.
-- [ ] Passkey owner via WebAuthn (Scala.js); curve = p256
+- [x] **JVM Passkey owner via WebAuthn (P-256).** ✅ **LANDED** (2026-05-20).
+      `PasskeyAssertion` (clientDataJSON challenge extraction +
+      WebAuthn `sha256(authData || sha256(cdJson))` digest), `PasskeySigner`
+      (`RawSigner` curve = P256; delegates the actual `navigator.credentials.get`
+      assertion to a host callback so JVM tests inject a deterministic
+      signer and JS will wire `navigator.credentials.get` later), DER →
+      raw + low-s normalisation, ABI-encoded signature blob matching
+      Coinbase Smart Wallet `WebAuthn.sol` / ERC-7836
+      `(bytes authenticatorData, bytes clientDataJSON, bytes32 r,
+       bytes32 s, uint256 challengeIndex, uint256 typeIndex)`.
+      `SimplePasskeyAccountFactory` mirrors `SimpleAccountFactory`
+      shape with `createAccount(uint256 x, uint256 y, uint256 salt)`
+      init-code. 16 new tests, 43 total in `walletStrategyErc4337`.
+- [ ] **JS-side WebAuthn facade** (Scala.js): thin wrapper around
+      `navigator.credentials.get(...)` that fits the
+      `assertChallenge: Array[Byte] => Future[WebAuthnAssertion]`
+      callback shape. Blocked on `wallet-spi` Scala.js cross-compile
+      (same gating as Phase 3 EIP-1193 / Phase 4 WC / Phase 5 wallet-std).
 
 ### Phase 7 — Hardware wallet Vault (Ledger multi-chain)
 
