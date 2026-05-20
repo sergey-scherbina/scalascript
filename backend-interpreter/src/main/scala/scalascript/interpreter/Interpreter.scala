@@ -1336,6 +1336,9 @@ class Interpreter(
           }
         )
     }
+    module.manifest.foreach { m =>
+      m.frontendFramework.foreach(scalascript.frontend.FrontendFrameworks.setBackend)
+    }
     registerFrontmatterRoutes(module)
     module.sections.foreach(SectionRuntime.runSection(_, this))
     if !mainCalled then

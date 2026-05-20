@@ -39,6 +39,10 @@ case class Manifest(
    *  Default `Nil` so existing `Manifest` construction sites in tests
    *  / older artifacts continue to compile without an explicit value. */
   databases: List[DatabaseDecl] = Nil,
+  /** Frontend framework selected via `frontend-framework:` front-matter key.
+   *  The interpreter calls `FrontendFrameworks.setBackend(name)` before
+   *  running the module, equivalent to an inline `setFrontendFramework(name)`. */
+  frontendFramework: Option[String] = None,
   raw: Map[String, Any],
   span: Option[Span] = None
 )

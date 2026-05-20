@@ -195,6 +195,7 @@ object Parser:
           }.toMap
       }.getOrElse(Map.empty),
       databases = parseDatabases(raw),
+      frontendFramework = raw.get("frontend-framework").collect { case s: String => s },
       raw = raw
     )
 
