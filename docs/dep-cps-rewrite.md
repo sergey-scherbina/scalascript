@@ -1,10 +1,10 @@
 # Dep-block CPS rewriting on the JVM backend
 
-Status: **implementation in progress** — Steps 0-3 landed
-(2026-05-19), minimal fixture green end-to-end, full `distributed-*`
-suite (Steps 4-7) still in flight on `feature/dep-cps`. Spec
-captured the design; the design proved correct; remaining work is
-the long tail of integration with the existing user-code emit path.
+Status: **COMPLETE** (2026-05-20) — Steps 0–7 landed; all 6
+`distributed-*` + `cluster-connect` tests PASS on JVM. Residual
+`actors-process-info.ssc` JVM canary failure was a separate `Term.Match`
+pattern-bind bug in `emitCpsExpr` (not in dep-cps scope) — fixed
+2026-05-20; see `MILESTONES.md` "Known issues" for details.
 
 Cross-refs:
 - `docs/coroutines.md` — CPS / Free-monad infrastructure on JVM

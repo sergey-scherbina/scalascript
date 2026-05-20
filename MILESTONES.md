@@ -2018,7 +2018,8 @@ PR that doesn't gate the core landing.
    `links`, and `status` ("running" | "blocked") for any live actor.
    Returns `None` for dead / unknown PIDs.  All three backends.
    Conformance test `actors-process-info.ssc`.  `std/actors.ssc`
-   bumped to v1.2.0.
+   bumped to v1.2.0.  *(JVM compile-clean after Term.Match pattern-bind
+   fix landed 2026-05-20; see "Known issues" above.)*
 
 3. **Cluster discovery.**  ✓ **Landed (v1.6.x).**
    `joinCluster(seeds: List[String], token: String = "")` connects to each
@@ -5649,129 +5650,9 @@ that uses them lands.
 Things noticed in passing while landing other work — not blocking, but
 worth a separate fix when somebody has cycles.
 
-- **v1.22 distributed-* conformance tests fail on JVM** — root cause:
-  even with explicit `[name](./path.ssc)` markdown-link imports,
-  `JvmGen.inlineImport` wraps each dep in its `package:` object but
-  doesn't route the dep's bare-name calls (`self()`, `connectNode`,
-  `receiveWithTimeout`, `pid ! msg`, …) through the same
-  bare-name → qualified-name rewriting pipeline that `genModule`
-  applies to user code blocks. So a dep's `def healthCheck(...) =
-  pid ! ("__healthCheck__", self())` stays as-is when emitted inside
-  `object std { object mapreduce { … } }` and the JVM compiler
-  errors with `Not found: self`, `value ! is not a member of Any`,
-  etc. The six v1.22 phase-6 tests (`distributed-{map,shuffle,
-  failure-retry,failure-partial,heterogeneous}` plus
-  `cluster-connect`) all hit this. The MILESTONES "PASS [JVM]" claim
-  from v1.22 Phase 6 was likely never verified end-to-end.
+- ~~**v1.22 distributed-* conformance tests fail on JVM**~~  ✓ **Landed (2026-05-20)** — dep-block CPS rewriting (Steps 0–7) landed on `feature/dep-cps`; all six tests (`distributed-{map,shuffle,failure-retry,failure-partial,heterogeneous}` + `cluster-connect`) now PASS [JVM]. Root cause was dep-block effect primitives bypassing the CPS rewriter; fixed via `analyzeDepEffectfulness` fixpoint + `cpsBody` parameter threading through the emit path. Full design history in `docs/dep-cps-rewrite.md`.
 
-  Partial mitigations landed 2026-05-19:
-  - `pending:` frontmatter marker — the six tests document the
-    intended v1.22 API but report `PENDING` instead of `FAIL`. See
-    `conformance/run.sc` `parsePending`.
-  - `cli/compile` now calls `AutoResolve.resolve` before compiling so
-    import cycles surface with `compile: N cycle(s) detected:` rather
-    than scala-cli's confusing duplicate-definition spam.
-  - `JvmGen.mergeDuplicatePackageObjects` — brace-balanced string
-    scanner that merges multiple top-level `object pkg { object sub
-    { … } }` declarations into one. Triggered when several inlined
-    imports share a `package:` prefix (e.g. several files from
-    `std/mapreduce/*`). Eliminates the "duplicate top-level object
-    std" Scala 3 error class. scala.meta-level merging was tried
-    first but parse fails on the 300 KB+ emitted preamble; the
-    string scanner respects double-quoted strings and `//` comments
-    so brace counting stays correct.
-
-  Real fix still needed: either (a) `inlineImport` routes dep blocks
-  through the rewriting path `genModule` uses for user code, or
-  (b) std/mapreduce/* gets lowered to a `JvmRuntimeMapReduce`
-  preamble injected when the IR references those types (analogous to
-  `JvmRuntimeDataset`). See `docs/modularity.md` §12 for design
-  discussion.
-
-  Attempted (a) end-to-end 2026-05-19, **reverted**: the structural
-  recursion (`statsUseEffects` → `Defn.Object/Class/Trait` body walk,
-  matching `emitObjectLike` / `emitClassLike` /
-  `emitDefWithRewrittenBody` arms in `emitStat`) is mechanically
-  straightforward but the rewriting predicate `termNeedsCustomEmit`
-  is too broad in dep contexts. Once dep-class method bodies start
-  flowing through `emitExpr`, `actors-process-info.ssc` regresses:
-  `info.links` inside a `case Some(info) => info.links.length` becomes
-  `_bind(info.links, …)` because the CPS-wrap path doesn't see static
-  `info: Some` typing and wraps everything as `Any`. A real fix
-  needs either a tighter dep-mode predicate (only rewrite the
-  `actorBareNames` / intrinsic shapes, not the whole effectful
-  surface) or a separate dep-mode emit path. Pending careful design.
-
-  Three-step narrower attempt landed 2026-05-19 — **doesn't fully
-  unblock the tests, but the unblocked layers are reusable**:
-  1. `JvmGen.qualifyBareActorCallsInSource` — string-level rewriter
-     applied per-dep-block by `inlineImport` before the dep enters
-     the main emit pipeline. Rewrites `self()`, `connectNode(addr)`,
-     `link(pid)`, `register(name, pid)`, `trapExit(b)`, etc. to
-     `Actor.<n>(…)`; rewrites `pid ! msg` to `Actor.send(pid, msg)`.
-     Word-boundary anchored so `Actor.self(`, `someObj.connectNode(`,
-     and substrings inside identifiers/strings are untouched.
-     Skips `receive`, `runActors`, `spawn` — they need richer
-     emit-time handling.
-  2. `receiveWithTimeout(t) { case … }` emit alias — added to the
-     existing `receive(t) { case … }` Apply-Apply pattern in JvmGen
-     so cluster.ssc's `receiveWithTimeout(timeoutMs) { … }` resolves
-     when reached through emitExpr.
-  3. `mergeDuplicatePackageObjects` recursion — was top-level only;
-     now walks each merged outer object's body and re-applies the
-     merger with strip/re-indent so nested
-     `object std { object mapreduce { … } object mapreduce { … } }`
-     fully collapses. Group key is `(indent, name)` so siblings at
-     different depths don't accidentally merge.
-
-  Further attempts 2026-05-19 (compile-clean, but runtime still blocked):
-  - `rewriteActorAstCallsInSource` — scalameta-based AST walk inside
-    dep blocks for shapes the string-regex can't handle: `pid ! msg`
-    (`Term.ApplyInfix.After_4_6_0`), `receive { case … }` and
-    `receiveWithTimeout(t) { case … }`. Splices computed
-    right-to-left from `pos.start/end` so offsets stay valid. Source
-    parses tried first, then Term-fallback so block-shaped case
-    bodies also walk. Tuple-arg `pid ! (a, b)` is reconstructed
-    syntactically because Scala parses it as 2-arg infix, not as a
-    tuple send.
-  - `emitReceiveMatcherOpt(cases, cpsBody)` — the dep path passes
-    `cpsBody = false` and recursively rewrites each case body via
-    `qualifyBareActorCallsInSource`, otherwise the outer receive's
-    splice clobbers inner `Actor.send(…)` rewrites.
-  - `emitCpsBindWithType` — widens typed lambda to `Any => Any` so
-    `_bind(rhs, (x: T) => …)` accepts user-side typed vals. Without
-    this the user-code workaround `val result: DistributedResult[…]
-    = runDistributed(…)` won't compile.
-
-  With those three plus the earlier layers, `distributed-map.ssc`
-  compiles cleanly (was 27 errors → 0). But it now fails at runtime
-  with `ClassCastException: _Perform cannot be cast to String` at
-  `val jobId: String = Random.uuid().asInstanceOf[String]` in the
-  dep. Root cause is **architectural**: dep code is emitted as
-  regular Scala, but all actor/effect primitives (`Random.uuid()`,
-  `Actor.self()`, `Actor.link()`, `pid ! msg`, `receive { … }`)
-  produce `_Perform` Free-monad nodes that only mean anything inside
-  a CPS chain. User code goes through the CPS rewriter that wraps
-  these in `_bind`; dep code does not. So the dep gets `_Perform`
-  values back and uses them as raw values → CCE the first time one
-  is read, dropped silently the rest of the time.
-
-  Fixing this properly requires CPS-rewriting dep function bodies
-  that call effect primitives — essentially porting the user-code
-  rewriter onto dep blocks. Earlier attempt at that (see "reverted"
-  paragraph above) was too broad and regressed `info.links`. A
-  tighter dep-mode predicate is needed (only wrap calls whose
-  callee is in the effect-primitive set), plus deciding how dep
-  functions advertise their async-ness to callers (return type
-  becomes `_Perform`, callers' user-code `_bind` already handles
-  the wait). Estimated 2–3 days of careful work — not a one-pass
-  fix. Track in v2.x or a dedicated `feature/dep-cps` branch.
-
-  **Detailed design spec**: see `docs/dep-cps-rewrite.md` for the
-  full architectural analysis, design space (4 strategies),
-  recommended 7-step implementation plan, and open questions.
-  Pick that up before starting the rewrite — captures everything
-  needed to resume cold.
+- ~~**`actors-process-info.ssc` JVM compile failures (Term.Match pattern-bind)**~~  ✓ **Landed (2026-05-20)** — `emitCpsExpr` `Term.Match` arm was not registering `Pat.Var` names in `anyBoundNames`, so `case Some(info) => info.links.length` emitted `info.links` directly on an `Any`-typed scrutinee binding, causing Scala compile errors. Fix: collect `Pat.Var` names per case arm and wrap with `withAnyBoundNames(...)` (mirrors the identical treatment in the `Term.PartialFunction` arm). Also fixed: `import actors.ProcessInfo` dropped via `sscDepModulePrefixes`; `_dispatch` Map key-access fallback for `processInfo`'s `Map[String,Any]` return; `object Overflow` added to runtime preamble; `_FlatMap((), senderK)` deferred resume in `_resumeBlockedSender` so `Block`-overflow sender continuation runs in its own scheduler turn (fixes `actors-bounded-mailbox.ssc` output ordering).
 
 - **WS test cross-suite isolation goes through a process-global
   `WsRoutes` table + `WsTestLock` monitor.**  Works, but the lock
