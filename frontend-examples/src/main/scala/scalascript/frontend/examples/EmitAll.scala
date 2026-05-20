@@ -27,7 +27,8 @@ object EmitAll:
   val demos: List[(String, () => FrontendModule)] = List(
     CounterDemo.Name  -> (() => CounterDemo.buildModule()),
     ShowHideDemo.Name -> (() => ShowHideDemo.buildModule()),
-    TodoListDemo.Name -> (() => TodoListDemo.buildModule())
+    TodoListDemo.Name -> (() => TodoListDemo.buildModule()),
+    ToolkitDemo.Name  -> (() => ToolkitDemo.buildModule())
   )
 
   /** Fresh instances per call — backends carry no state but it's

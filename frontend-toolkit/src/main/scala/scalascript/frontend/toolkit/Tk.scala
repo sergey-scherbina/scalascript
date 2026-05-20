@@ -102,7 +102,22 @@ object Tk:
 
   // ─── Display ───────────────────────────────────────────────────
 
+  /** Status / error banner.
+   *
+   *  Note: `alert` shadows `org.scalatest.Alerting.alert` when both
+   *  are in scope (e.g. a ScalaTest suite that does `import Tk.*`).
+   *  Inside a test class, write `Tk.alert(...)` explicitly, or use
+   *  the [[notice]] alias below. */
   def alert(
+    severity: AlertSeverity,
+    title:    Option[String] = None
+  )(child: ToolkitNode): ToolkitNode =
+    AlertNode(severity, title, child)
+
+  /** Alias for [[alert]] — present so user code can avoid the
+   *  ScalaTest `alert` collision without writing `Tk.alert` every
+   *  time. */
+  def notice(
     severity: AlertSeverity,
     title:    Option[String] = None
   )(child: ToolkitNode): ToolkitNode =
@@ -124,6 +139,15 @@ object Tk:
    *  button).  See `Form.scala` for the full API. */
   def form(onSubmit: FormContext => Unit)(build: FormContext => ToolkitNode): ToolkitNode =
     FormNode(onSubmit, build)
+
+  /** Overload that uses a caller-supplied `FormContext` instead of
+   *  the fresh one allocated inside lowering.  Useful when outer
+   *  code (tests, parent components, navigation controllers) needs
+   *  to observe field values or drive submit / reset from outside
+   *  the form's render scope. */
+  def formWithContext(ctx: FormContext, onSubmit: FormContext => Unit)(
+    build: FormContext => ToolkitNode
+  ): ToolkitNode = FormNode(onSubmit, build, Some(ctx))
 
   // ─── Routing ───────────────────────────────────────────────────
 

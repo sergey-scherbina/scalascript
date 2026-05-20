@@ -132,12 +132,17 @@ final class FormContext:
  *  should contain (typically a `Stack` of inputs + a submit button). */
 final case class FormNode(
   onSubmit: FormContext => Unit,
-  build:    FormContext => ToolkitNode
+  build:    FormContext => ToolkitNode,
+  /** Optional pre-constructed `FormContext`.  Defaults to a fresh
+   *  one per lowering.  Passing in your own lets test or driver code
+   *  observe the registered fields + drive submit / reset from
+   *  outside the rendered tree. */
+  ctx:      Option[FormContext] = None
 ) extends ToolkitNode
 
 object FormNode:
   def lower(n: FormNode, theme: Theme): View =
-    val ctx  = new FormContext
+    val ctx  = n.ctx.getOrElse(new FormContext)
     val body = Toolkit.lower(n.build(ctx), theme)
 
     // The submit listener: cancel default browser submit, set the
