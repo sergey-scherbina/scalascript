@@ -2,6 +2,15 @@ ThisBuild / scalaVersion := "3.8.3"
 ThisBuild / organization := "io.scalascript"
 ThisBuild / version      := "0.1.0-SNAPSHOT"
 
+// Scala.js cross-compile plumbing (docs/wallet-spi-scalajs.md).
+// `crossProject(JVMPlatform, JSPlatform).in(file("..."))` lays out
+// `shared/` + `jvm/` + `js/`; `.jvm` / `.js` give us the per-platform
+// sbt sub-projects.  Each cross-compiled SPI below keeps a JVM-only
+// `xxx` alias (= `xxxCross.jvm`) so the rest of the build — which
+// remains JVM-only for now — continues to `.dependsOn(walletSpi)` /
+// `.dependsOn(cryptoSpi)` / `.dependsOn(blockchainSpi)` unchanged.
+import sbtcrossproject.CrossPlugin.autoImport.{CrossType, crossProject}
+
 // Forked test JVMs default to ~512 KB stack which trips
 // `mutual-TCO` / `stack-safe bind chains` / Async tests under
 // parallel suite execution.  4 MB held the flake down most of the
@@ -871,13 +880,30 @@ lazy val x402FacilitatorCardanoScalus = project
 // Phase 3 (crypto-noble-js) per the spec.
 // ---------------------------------------------------------------------------
 
-lazy val cryptoSpi = project
-  .in(file("crypto-spi"))
-  .settings(
-    name := "scalascript-crypto-spi",
-    Compile / scalacOptions ++= sharedScalacOptionsStrict,
-    Test    / scalacOptions ++= sharedScalacOptions,
-  )
+// Cross-compiled (JVM + Scala.js) — docs/wallet-spi-scalajs.md §3.2.
+// Stage 1: traits + value classes in `shared/`; ServiceLoader-backed
+// `object CryptoBackend` (JVM) and explicit-registration variant (JS)
+// live in their platform source dirs.
+lazy val cryptoSpiCross =
+  crossProject(JVMPlatform, JSPlatform)
+    .crossType(CrossType.Full)
+    .in(file("crypto-spi"))
+    .settings(
+      name := "scalascript-crypto-spi",
+      Compile / scalacOptions ++= sharedScalacOptionsStrict,
+      Test    / scalacOptions ++= sharedScalacOptions,
+    )
+    // Rename auto-generated project IDs ("cryptoSpiCrossJVM" /
+    // "cryptoSpiCrossJS") to the shorter "cryptoSpi" / "cryptoSpiJs"
+    // so `sbt cryptoSpi/test` keeps working for downstream agents.
+    .jvmConfigure(_.withId("cryptoSpi"))
+    .jsConfigure(_.withId("cryptoSpiJs"))
+
+lazy val cryptoSpiJvm = cryptoSpiCross.jvm
+lazy val cryptoSpiJs  = cryptoSpiCross.js
+// JVM alias — the rest of the build is still JVM-only and depends on
+// `cryptoSpi` by this name in dozens of places.
+lazy val cryptoSpi    = cryptoSpiJvm
 
 lazy val cryptoBouncycastle = project
   .in(file("crypto-bouncycastle"))
@@ -892,29 +918,65 @@ lazy val cryptoBouncycastle = project
     Test    / scalacOptions ++= sharedScalacOptions,
   )
 
-lazy val blockchainSpi = project
-  .in(file("blockchain-spi"))
-  .dependsOn(cryptoSpi)
-  .settings(
-    name := "scalascript-blockchain-spi",
-    libraryDependencies ++= Seq(
-      "com.lihaoyi" %% "upickle" % "3.3.1",
-    ),
-    Compile / scalacOptions ++= sharedScalacOptionsStrict,
-    Test    / scalacOptions ++= sharedScalacOptions,
-  )
+// Cross-compiled (JVM + Scala.js) — docs/wallet-spi-scalajs.md §3.2.
+// Stage 1: SPI traits in `shared/`; `object Blockchain` ServiceLoader
+// registry (JVM) and explicit-registration variant (JS) live in their
+// platform source dirs.  upickle's `%%%` resolves to the right artefact
+// per platform (Scala.js 1.x build of upickle 3.3.1 ships natively).
+lazy val blockchainSpiCross =
+  crossProject(JVMPlatform, JSPlatform)
+    .crossType(CrossType.Full)
+    .in(file("blockchain-spi"))
+    .dependsOn(cryptoSpiCross)
+    .settings(
+      name := "scalascript-blockchain-spi",
+      libraryDependencies += "com.lihaoyi" %%% "upickle" % "3.3.1",
+      Compile / scalacOptions ++= sharedScalacOptionsStrict,
+      Test    / scalacOptions ++= sharedScalacOptions,
+    )
+    .jvmConfigure(_.withId("blockchainSpi"))
+    .jsConfigure(_.withId("blockchainSpiJs"))
 
-lazy val walletSpi = project
-  .in(file("wallet-spi"))
-  .dependsOn(blockchainSpi, cryptoSpi)
-  .settings(
-    name := "scalascript-wallet-spi",
-    libraryDependencies ++= Seq(
-      "com.lihaoyi" %% "upickle" % "3.3.1",
-    ),
-    Compile / scalacOptions ++= sharedScalacOptionsStrict,
-    Test    / scalacOptions ++= sharedScalacOptions,
-  )
+lazy val blockchainSpiJvm = blockchainSpiCross.jvm
+lazy val blockchainSpiJs  = blockchainSpiCross.js
+lazy val blockchainSpi    = blockchainSpiJvm
+
+// Cross-compiled (JVM + Scala.js) — docs/wallet-spi-scalajs.md.
+// Stage 1: pure SPI traits + value classes live in `shared/`; `jvm/`
+// and `js/` source dirs are empty for now (platform-specific helpers
+// like Scala.js connector glue land in later stages).  Smoke test in
+// `shared/src/test/` runs on both platforms.
+//
+// CI hint: `sbt walletSpiJs/test` runs the Scala.js test suite on
+// Node.js (default sbt-scalajs runner); requires `node >= 18` on the
+// PATH.  No CI wiring in this slice; first JS-side CI hookup follows
+// the broader cross-compile sweep (Stage 3+).
+lazy val walletSpiCross =
+  crossProject(JVMPlatform, JSPlatform)
+    .crossType(CrossType.Full)
+    .in(file("wallet-spi"))
+    .dependsOn(blockchainSpiCross, cryptoSpiCross)
+    .settings(
+      name := "scalascript-wallet-spi",
+      libraryDependencies ++= Seq(
+        "com.lihaoyi"   %%% "upickle"   % "3.3.1",
+        "org.scalatest" %%% "scalatest" % "3.2.18" % Test,
+      ),
+      Compile / scalacOptions ++= sharedScalacOptionsStrict,
+      Test    / scalacOptions ++= sharedScalacOptions,
+    )
+    .jvmConfigure(_.withId("walletSpi"))
+    .jsConfigure(_.withId("walletSpiJs"))
+    // Scala.js tests run inside the same JVM as sbt (the Node.js
+    // subprocess is spawned by the test runner itself, not by `fork`).
+    // The ThisBuild-level `Test / fork := true` would break that.
+    .jsSettings(Test / fork := false)
+
+lazy val walletSpiJvm = walletSpiCross.jvm
+lazy val walletSpiJs  = walletSpiCross.js
+// JVM alias — every downstream module that `.dependsOn(walletSpi)`
+// stays JVM-only for now and continues to use this name.
+lazy val walletSpi    = walletSpiJvm
 
 lazy val walletVaultEncrypted = project
   .in(file("wallet-vault-encrypted"))
@@ -1250,7 +1312,7 @@ lazy val root = project
     x402Core, x402Server, x402Client,
     x402FacilitatorCoinbase, x402FacilitatorEvm, x402FacilitatorCardano,
     x402QueueKafka, x402QueuePostgres, x402NoncePostgres, x402NonceRedis,
-    cryptoSpi, cryptoBouncycastle, blockchainSpi, blockchainEvm, blockchainEvmAbi, blockchainSolana, blockchainCardano, walletSpi, walletVaultEncrypted, walletVaultMpc, walletVaultLedger, walletVaultLedgerJvm, walletVaultLedgerEthereum, walletStrategyEoa, walletStrategyErc4337, walletConnectorEip1193, walletConnect, walletConnectorWalletStd, mcpWallet, mcpX402,
+    cryptoSpi, cryptoSpiJs, cryptoBouncycastle, blockchainSpi, blockchainSpiJs, blockchainEvm, blockchainEvmAbi, blockchainSolana, blockchainCardano, walletSpi, walletSpiJs, walletVaultEncrypted, walletVaultMpc, walletVaultLedger, walletVaultLedgerJvm, walletVaultLedgerEthereum, walletStrategyEoa, walletStrategyErc4337, walletConnectorEip1193, walletConnect, walletConnectorWalletStd, mcpWallet, mcpX402,
     micropaymentSpi, micropaymentThreshold, micropaymentServer, micropaymentClient, micropaymentProbabilistic, micropaymentChannelEvm, micropaymentHydra,
     frontendCore, frontendCustom, frontendReact, frontendSolid, frontendVue,
   )

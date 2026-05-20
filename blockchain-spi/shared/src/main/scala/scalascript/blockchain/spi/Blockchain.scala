@@ -1,36 +1,42 @@
 package scalascript.blockchain.spi
 
-import java.util.ServiceLoader
-import scala.jdk.CollectionConverters.*
-
-/** Registry of `ChainAdapter` implementations. JVM discovers via
- *  `META-INF/services/scalascript.blockchain.spi.ChainAdapter`;
- *  Scala.js impls call `Blockchain.register(...)` from an init block.
+/** Cross-platform registry of `ChainAdapter` implementations.
  *
- *  Adapters are looked up by `ChainId` (CAIP-2). One adapter may
+ *  Two layers of registration:
+ *
+ *  1. **Explicit** — `Blockchain.register(adapter)` adds an adapter to
+ *     the in-memory map. Used directly by Scala.js impl-module
+ *     initialisers and by JVM tests that need to inject doubles.
+ *  2. **Platform discovery** — on JVM, `BlockchainDiscovery.discover()`
+ *     loads `META-INF/services/scalascript.blockchain.spi.ChainAdapter`
+ *     via `ServiceLoader`. On Scala.js, `discover()` returns `Nil`.
+ *
+ *  Adapters are looked up by `ChainId` (CAIP-2). One adapter class may
  *  register itself for multiple `ChainId`s if it covers a family —
  *  e.g. an `EvmChainAdapter` instance configured for `eip155:8453`
  *  is distinct from one for `eip155:1`, but both are produced by the
- *  same class. */
+ *  same class.
+ *
+ *  See docs/wallet-spi-scalajs.md §3.4 for the cross-platform pattern. */
 object Blockchain:
 
   private val explicit = scala.collection.mutable.LinkedHashMap.empty[ChainId, ChainAdapter]
-  @volatile private var discovered: Option[Map[ChainId, ChainAdapter]] = None
+  @volatile private var cached: Option[Map[ChainId, ChainAdapter]] = None
 
   def register(adapter: ChainAdapter): Unit = synchronized:
     explicit(adapter.chainId) = adapter
-    discovered = None
+    cached = None
 
   def all: Seq[ChainAdapter] = synchronized:
-    discovered match
+    cached match
       case Some(m) => m.values.toSeq
       case None =>
         val byId = scala.collection.mutable.LinkedHashMap.empty[ChainId, ChainAdapter]
-        // ServiceLoader first (factories with default config), then
-        // explicit registrations override.
-        ServiceLoader.load(classOf[ChainAdapter]).asScala.foreach(a => byId(a.chainId) = a)
+        // Platform discovery first (ServiceLoader on JVM, no-op on JS),
+        // then explicit overrides.
+        BlockchainDiscovery.discover().foreach(a => byId(a.chainId) = a)
         explicit.foreach { case (id, a) => byId(id) = a }
-        discovered = Some(byId.toMap)
+        cached = Some(byId.toMap)
         byId.values.toSeq
 
   def lookup(id: ChainId): Option[ChainAdapter] =
@@ -43,4 +49,4 @@ object Blockchain:
 
   private[spi] def resetForTests(): Unit = synchronized:
     explicit.clear()
-    discovered = None
+    cached = None

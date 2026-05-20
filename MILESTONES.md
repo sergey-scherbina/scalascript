@@ -8099,6 +8099,89 @@ regression test green.
 
 ---
 
+## Wallet SPI — Scala.js cross-compile
+
+Spec in [`docs/wallet-spi-scalajs.md`](docs/wallet-spi-scalajs.md).
+Six-stage migration that takes the wallet-spi track from JVM-only to
+JVM + Scala.js so the same SPI artefacts power browser PWA wallets,
+in-page dApp connectors (EIP-1193 / WalletConnect / Solana Wallet
+Standard), and the x402 client in a browser context. Builds on the
+existing wallet-spi (§ "Wallet SPI — key management + dApp
+connectivity") which lands the JVM side first.
+
+### Stage 1 — Plugin setup + cross-compile wallet-spi ✓ Landed (2026-05-20)
+
+- [x] `project/plugins.sbt` — `sbt-scalajs` 1.20.2,
+      `sbt-crossproject` 1.3.2, `sbt-scalajs-crossproject` 1.3.2.
+- [x] `crypto-spi` cross-compile (`CrossType.Full`) — shared traits
+      / value classes; JVM-only `CryptoBackendDiscovery`
+      (ServiceLoader); JS-side `CryptoBackendDiscovery` no-op
+      (explicit registration only). Companion `object CryptoBackend`
+      lives in shared; cross-platform `register` / `all` / `get`
+      surface preserved.
+- [x] `blockchain-spi` cross-compile — same pattern: shared traits
+      and `object Blockchain`, platform-specific
+      `BlockchainDiscovery`.
+- [x] `wallet-spi` cross-compile — pure SPI traits in `shared/`;
+      `jvm/` and `js/` source dirs empty placeholders. All four
+      source files (`RawSigner` / `Vault` / `AccountStrategy` /
+      `DappConnector`) physically moved from `src/main/scala/` to
+      `shared/src/main/scala/`.
+- [x] `CrossCompileSmokeTest` in `wallet-spi/shared/src/test/` —
+      8 specs exercising `Curve` / `HashAlgo` / `PublicKey` /
+      `ChainId` / `VaultKind` / `UnlockCredential` /
+      `AccountDescriptor` round-trips. Runs on JVM and Node.js.
+- [x] Build: `sbt walletSpi/test walletSpiJs/test sbt compile`
+      all green. No regressions to downstream JVM modules
+      (`x402-client`, `walletStrategyEoa`, `mcpWallet`,
+      `walletVaultEncrypted`, `walletVaultLedger*`,
+      `walletConnect`, `walletConnectorEip1193`, etc. all stay
+      compiling and passing tests).
+
+### Stage 2 — Scala.js CryptoBackend + Blockchain registry impl
+
+Resolves the `Scala.js registry pattern` open question
+([`docs/wallet-spi.md`](docs/wallet-spi.md) §11.1).
+
+- [ ] `crypto-noble-js` — Scala.js `CryptoBackend` impl backed by
+      `@noble/curves` + `@noble/hashes` (secp256k1, ed25519, p256
+      sign / verify / hash / HD).
+- [ ] Register via `CryptoBackend.register(NobleJsBackend)` at
+      module init.
+- [ ] First Scala.js conformance test — produce identical
+      RFC-6979 deterministic signatures on JVM (BouncyCastle) and
+      JS (Noble) for a shared fixture.
+
+### Stage 3 — Strategy + connector cross-compile
+
+- [ ] `wallet-strategy-eoa` → cross-compile.
+- [ ] `wallet-connector-eip1193` → cross-compile + `js/` source dir
+      for the `window.ethereum` injection layer.
+- [ ] `wallet-connector-wallet-std` → cross-compile + `js/` source
+      dir for the `@wallet-standard/core` facade.
+
+### Stage 4 — `wallet-strategy-erc4337` cross-compile
+
+- [ ] Replace any `java.math.BigInteger` usage with `BigInt`.
+- [ ] Cross-compile; passkey owner support waits on Stage 5.
+
+### Stage 5 — `wallet-vault-encrypted` cross-compile
+
+- [ ] Shared encrypted-payload types in `shared/`.
+- [ ] JS side: SubtleCrypto adapter (`crypto.subtle` for AES-GCM +
+      PBKDF2; Argon2id via `@noble/hashes` Argon2 wrapper or
+      argon2-browser).
+- [ ] JVM side unchanged (`wallet-vault-encrypted-jvm` keeps
+      using JCE).
+
+### Stage 6 — `wallet-connect` cross-compile
+
+- [ ] Shared WC v2 protocol types in `shared/`.
+- [ ] JS side: native `WebSocket` adapter + WebCrypto AEAD.
+- [ ] JVM side unchanged (`java.net.http.WebSocket` + BouncyCastle).
+
+---
+
 ## Wallet SPI — key management + dApp connectivity
 
 Spec in [`docs/wallet-spi.md`](docs/wallet-spi.md). Sits above

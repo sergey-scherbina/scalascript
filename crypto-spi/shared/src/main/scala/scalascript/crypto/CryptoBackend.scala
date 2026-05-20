@@ -1,8 +1,5 @@
 package scalascript.crypto
 
-import java.util.ServiceLoader
-import scala.jdk.CollectionConverters.*
-
 /** Pluggable cryptography backend. One JVM impl
  *  (`scalascript.crypto.bouncycastle.BouncyCastleBackend`) and one
  *  Scala.js impl (`crypto-noble-js`, planned) implement this trait;
@@ -11,6 +8,12 @@ import scala.jdk.CollectionConverters.*
  *  Synchronous API: BouncyCastle is sync; @noble/curves on Scala.js is
  *  sync too. WebAuthn / passkey signing is async but does NOT go through
  *  this trait — it implements `RawSigner` directly.
+ *
+ *  Registry lives in this companion object's `register` / `all` / `get`
+ *  surface. Platform-specific discovery (ServiceLoader on JVM, no-op on
+ *  Scala.js) is delegated to a per-platform `CryptoBackendDiscovery`
+ *  helper that lives in `crypto-spi/jvm/` and `crypto-spi/js/` source
+ *  trees respectively.
  *
  *  See docs/blockchain-spi.md §4 for the full design rationale. */
 trait CryptoBackend:
@@ -77,43 +80,50 @@ trait CryptoBackend:
 
   def randomBytes(len: Int): Array[Byte]
 
-/** Registry + discovery for `CryptoBackend` implementations.
+/** Cross-platform registry for `CryptoBackend` implementations.
  *
- *  JVM: backends register via `META-INF/services/scalascript.crypto.CryptoBackend`
- *  (standard `ServiceLoader`).
+ *  Two layers of registration:
  *
- *  Scala.js: backend impls call `CryptoBackend.register(...)` from a
- *  top-level initializer. */
+ *  1. **Explicit** — `CryptoBackend.register(impl)` adds an impl to the
+ *     in-memory map. Used directly by Scala.js impl-module initialisers
+ *     and by JVM tests that need to inject doubles.
+ *  2. **Platform discovery** — on JVM, `CryptoBackendDiscovery.discover()`
+ *     loads `META-INF/services/scalascript.crypto.CryptoBackend` via
+ *     `ServiceLoader`. On Scala.js, `discover()` returns `Nil` (no
+ *     ServiceLoader on JS — impls must call `register(...)` from a
+ *     module-init block).
+ *
+ *  See docs/wallet-spi-scalajs.md §3.4 for the cross-platform pattern. */
 object CryptoBackend:
 
   private val explicit = scala.collection.mutable.LinkedHashMap.empty[String, CryptoBackend]
-  @volatile private var discovered: Option[Seq[CryptoBackend]] = None
+  @volatile private var cached: Option[Seq[CryptoBackend]] = None
 
   /** Register a backend explicitly. Called by Scala.js init blocks; also
    *  usable for test-driven double-injection. Last registration wins on
    *  duplicate `id`. */
   def register(backend: CryptoBackend): Unit = synchronized:
     explicit(backend.id) = backend
-    discovered = None  // invalidate cache so the new backend shows up
+    cached = None  // invalidate cache so the new backend shows up
 
   def all: Seq[CryptoBackend] = synchronized:
-    discovered match
+    cached match
       case Some(xs) => xs
       case None =>
-        val fromLoader = ServiceLoader.load(classOf[CryptoBackend]).asScala.toSeq
-        val byId       = scala.collection.mutable.LinkedHashMap.empty[String, CryptoBackend]
-        // ServiceLoader first, then explicit overrides
-        fromLoader.foreach(b => byId(b.id) = b)
+        val byId = scala.collection.mutable.LinkedHashMap.empty[String, CryptoBackend]
+        // Platform discovery first (ServiceLoader on JVM, no-op on JS),
+        // then explicit overrides win on duplicate id.
+        CryptoBackendDiscovery.discover().foreach(b => byId(b.id) = b)
         explicit.foreach { case (id, b) => byId(id) = b }
         val xs = byId.values.toSeq
-        discovered = Some(xs)
+        cached = Some(xs)
         xs
 
   /** First registered backend, or throw if none are available. */
   def get(): CryptoBackend =
     all.headOption.getOrElse(
       throw new IllegalStateException(
-        "No CryptoBackend registered. Add scalascript-crypto-bouncycastle to your classpath."
+        "No CryptoBackend registered. Add scalascript-crypto-bouncycastle to your classpath (JVM) or call CryptoBackend.register(...) at startup (Scala.js)."
       )
     )
 
@@ -127,4 +137,4 @@ object CryptoBackend:
    *  for test setup / teardown. Not for runtime use. */
   def resetForTests(): Unit = synchronized:
     explicit.clear()
-    discovered = None
+    cached = None
