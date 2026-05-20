@@ -36,6 +36,20 @@ class Typer(
    *  access as outside the defining scope (no two-zone rule yet). */
   private val opaqueTypes = collection.mutable.Set.empty[String]
 
+  /** Field tables for user-defined classes / case classes / enums:
+   *  className → ordered (fieldName, fieldType) list.  Populated by
+   *  `checkStat` when it encounters a `class`/`case class` declaration
+   *  with a constructor parameter clause.  Consulted by [[inferType]]
+   *  on `Term.Select(qual, Name(field))` when `qual`'s type is
+   *  `Named(className, _)`, so `someFoo.x` returns the declared type
+   *  of `x` instead of collapsing to `Any`.
+   *
+   *  Tier-5 .scim granularity push (Open question #1) — the .scim
+   *  artifact records callsite types accurately for the common
+   *  "case-class accessor" pattern without paying the cost of full
+   *  type-parameter substitution (deferred). */
+  private val classFields = collection.mutable.Map.empty[String, List[(String, SType)]]
+
   /** Diagnostics accumulated so far.  Stable view into the running buffer —
    *  callers should snapshot to a `List` when they need persistence. */
   def diagnostics: List[TypeError] = errors.toList
@@ -314,12 +328,21 @@ class Typer(
 
     // class Name(params...)
     case d: Defn.Class =>
-      val paramSTypes = d.ctor.paramClauses.flatMap(_.values).map { p =>
+      val params = d.ctor.paramClauses.flatMap(_.values)
+      val paramSTypes = params.map { p =>
         p.decltpe.map(typeAnnotToSType).getOrElse(SType.Any)
       }.toList
       val classType = SType.Named(d.name.value, Nil)
       val ctorType  = SType.Function(paramSTypes, classType)
       scope.define(Symbol(d.name.value, ctorType, SymbolKind.Class))
+      // Index constructor params by name → type so [[inferType]] on
+      // `Term.Select(qual, field)` can resolve a field access on a
+      // value of this class type.  case classes expose every ctor
+      // param as a public field; plain classes only when declared
+      // `val` / `var` — both shapes carry decltpe at the same param
+      // index in scalameta, so the table is built the same way.
+      val fieldEntries = params.zip(paramSTypes).map { (p, t) => p.name.value -> t }.toList
+      classFields(d.name.value) = fieldEntries
       // DefSummary records the *constructor* signature so consumers of the
       // `.scim` interface see `(Int, String) => Foo` for `case class Foo(x, y)`,
       // not just `Foo`.  This matches what the typer stores in the scope.
@@ -489,9 +512,15 @@ class Typer(
     //     fall back to permissive).
     case t @ Term.Select(_, Term.Name(_)) if strict =>
       checkSelectStrict(t, scope)
+      // Strict mode keeps the previous "always Any" return so the
+      // qualifier doesn't get walked twice (once by `checkSelectStrict`
+      // via `resolveQualifier`, once by [[inferSelectType]] via
+      // `inferType`) and double-record the same diagnostic.  Field
+      // inference is purely for `.scim` granularity, which runs in
+      // permissive mode.
       SType.Any
 
-    case Term.Select(_, _)        => SType.Any
+    case t: Term.Select           => inferSelectType(t, scope)
 
     // `new Foo(...)` / `new Foo[T](...)` — infer the named-type result
     // from the `Init`'s type annotation.  Without this, every constructor
@@ -525,7 +554,45 @@ class Typer(
 
     case _: Term.PartialFunction  => SType.Any
     case _: Term.AnonymousFunction => SType.Any
+
+    // `scrutinee match { case … => body }` — LUB across arms.  Same
+    // policy as if/else (line ~458): when every arm body infers to
+    // the same type, propagate it; any divergence collapses to Any.
+    // Pattern-introduced bindings (e.g. `case Some(x) => x + 1`) are
+    // NOT bound in the arm-body scope yet — we walk with the outer
+    // scope, so references to pattern vars surface as `Any` and we
+    // stay sound by not pretending we know more.
+    case t: Term.Match =>
+      val armTypes = t.casesBlock.cases.map(c => inferType(c.body, scope))
+      armTypes.headOption match
+        case None      => SType.Any
+        case Some(t0)  => if armTypes.forall(_ == t0) then t0 else SType.Any
+
     case _                        => SType.Any
+
+  /** Best-effort field-access inference for `qual.field`:
+   *
+   *  - When `qual` infers to `SType.Named(className, _)` AND `className`
+   *    has a recorded constructor-field table (populated by the
+   *    Defn.Class arm of [[checkStat]]), return the field's declared
+   *    type.  Picks up `someFoo.x` for `case class Foo(x: Int)` (and
+   *    plain classes with `val`/`var` params; scalameta carries
+   *    `decltpe` on all of them).
+   *  - Otherwise return `SType.Any`.  We don't speculate on stdlib
+   *    method shapes (`.length` on `String`, `.map` on `List`, etc.)
+   *    — those would need a full method table the typer doesn't yet
+   *    own.  Reserved for a later push.
+   *
+   *  Tier-5 .scim granularity push (Open question #1). */
+  private def inferSelectType(t: Term.Select, scope: Scope): SType =
+    val qualType = inferType(t.qual, scope)
+    val fieldName = t.name.value
+    qualType match
+      case SType.Named(className, _) =>
+        classFields.get(className).flatMap(_.collectFirst {
+          case (n, fty) if n == fieldName => fty
+        }).getOrElse(SType.Any)
+      case _ => SType.Any
 
   /** Check that `actual` is assignable to `expected`, emitting an error if not. */
   private def checkAssignable(actual: SType, expected: SType, pos: scala.meta.Position): Unit =

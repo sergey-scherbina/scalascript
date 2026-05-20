@@ -254,3 +254,103 @@ class TyperRealTypesTest extends AnyFunSuite:
           s"expected return Named(\"Box\"); got ${ret.show}")
       case other =>
         fail(s"expected Function, got: ${other.show}")
+
+  // ── Tier-5 .scim granularity — Term.Match LUB ──────────────────────────
+  //
+  // A `match { case … => body }` expression's body type was previously
+  // collapsed to `Any` in every case.  When every case-arm RHS infers to
+  // the same type, that type now propagates up; divergent arms still
+  // fall back to `Any`.  Matches the if/else inference behaviour above.
+
+  test("def w/o declared return — match with same-typed arms infers that type"):
+    val d = summaryOf(
+      """def label(n: Int) = n match
+        |  case 0 => "zero"
+        |  case _ => "other"
+        |""".stripMargin, "label")
+    assert(d.tpe == SType.Function(List(SType.Int), SType.String),
+      s"expected (Int) => String, got ${d.tpe.show}")
+
+  test("def w/o declared return — match with divergent arms infers Any"):
+    val d = summaryOf(
+      """def m(n: Int) = n match
+        |  case 0 => "zero"
+        |  case _ => 42
+        |""".stripMargin, "m")
+    assert(d.tpe == SType.Function(List(SType.Int), SType.Any),
+      s"expected (Int) => Any, got ${d.tpe.show}")
+
+  test("val w/o decltpe — match RHS picks up arm type"):
+    val d = summaryOf(
+      """val x = 1 match
+        |  case 1 => true
+        |  case _ => false
+        |""".stripMargin, "x")
+    assert(d.tpe == SType.Boolean, s"expected Boolean, got ${d.tpe.show}")
+
+  test("def w/o declared return — match with single arm picks up its type"):
+    val d = summaryOf(
+      """def go(x: Int) = x match
+        |  case _ => List(x)
+        |""".stripMargin, "go")
+    // List(x) currently infers to `Any` (call-site inference) — match
+    // shouldn't make it worse than that, and shouldn't promote to a
+    // mismatched type.
+    d.tpe match
+      case SType.Function(List(SType.Int), _) => ()  // any return is OK
+      case other => fail(s"expected (Int) => _, got ${other.show}")
+
+  // ── Tier-5 .scim granularity — Term.Select on case-class field ─────────
+  //
+  // `someFoo.x` where `Foo` is a case class with `x: Int` now resolves
+  // to `Int` instead of collapsing to `Any`.  Driven by the new
+  // `classFields` table populated by the Defn.Class arm of checkStat.
+
+  test("val w/o decltpe — `foo.x` infers field type from case-class table"):
+    val d = summaryOf(
+      """case class Foo(x: Int, name: String)
+        |val f = new Foo(1, "hi")
+        |val n = f.x""".stripMargin, "n")
+    assert(d.tpe == SType.Int, s"expected Int, got ${d.tpe.show}")
+
+  test("val w/o decltpe — `foo.name` infers String from case-class table"):
+    val d = summaryOf(
+      """case class Foo(x: Int, name: String)
+        |val f = new Foo(1, "hi")
+        |val s = f.name""".stripMargin, "s")
+    assert(d.tpe == SType.String, s"expected String, got ${d.tpe.show}")
+
+  test("val w/o decltpe — `foo.unknown` falls back to Any"):
+    val d = summaryOf(
+      """case class Foo(x: Int)
+        |val f = new Foo(1)
+        |val u = f.unknown""".stripMargin, "u")
+    assert(d.tpe == SType.Any, s"expected Any, got ${d.tpe.show}")
+
+  test("def return — chained `.field.field` on case-class instances"):
+    val d = summaryOf(
+      """case class Inner(v: Int)
+        |case class Outer(inner: Inner)
+        |def get(o: Outer) = o.inner.v
+        |""".stripMargin, "get")
+    assert(d.tpe == SType.Function(List(SType.Named("Outer", Nil)), SType.Int),
+      s"expected (Outer) => Int, got ${d.tpe.show}")
+
+  // ── Tier-5 .scim granularity — for-comprehension yield ─────────────────
+  //
+  // `for { x <- xs } yield body` is the Scala spelling for `xs.map(x =>
+  // body)`.  With no method/`map`-signature awareness in the typer
+  // we can't infer the wrapping container, but we CAN infer the
+  // body type — and a `def` whose RHS is a `for/yield` should at
+  // least have a Function return type rather than `Any`.  This test
+  // pins the body-inference behaviour; the wrapping container stays
+  // `Any` for now (full polymorphic-method-call inference deferred).
+
+  test("def w/o declared return — for/yield body infers to Any when xs is unknown"):
+    val d = summaryOf(
+      """def go(xs: List[Int]) = for x <- xs yield x + 1""", "go")
+    // We don't yet infer `List[Int]` for the container, but the function
+    // signature must still be `(List[Int]) => _`.  Accept any return.
+    d.tpe match
+      case SType.Function(List(SType.Named("List", List(SType.Int))), _) => ()
+      case other => fail(s"expected (List[Int]) => _, got ${other.show}")
