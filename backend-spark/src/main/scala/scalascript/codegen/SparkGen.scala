@@ -274,6 +274,48 @@ object SparkGen:
   def containsCheckpointLocation(source: String): Boolean =
     source.contains("checkpointLocation")
 
+  // ── Phase M — MLlib detection ────────────────────────────────────────────
+  //
+  // Auto-emit the `spark-mllib_2.13` runtime dep when the user imports
+  // any `org.apache.spark.ml.*` class.  Detection mirrors the Streaming
+  // and Lakehouse paths — a single regex pass over the joined post-
+  // `extractSqlFns` source.  False positives (the import substring
+  // appearing inside a string literal or a commented-out line) are
+  // accepted: a redundant Coursier resolve is cheap, while properly
+  // parsing user Scala fragments would require a Scala 3 parser —
+  // out of scope.  See `docs/spark-mllib.md` § Architecture for the
+  // false-negative trade-off (dynamic / re-exported imports).
+  //
+  // The regex matches two surface forms:
+  //   1. `import org.apache.spark.ml.<...>` — canonical FQN.
+  //   2. `import o.a.s.ml.<...>` — three-segment alias users write in
+  //                                tight import groups.
+  //
+  // Both `import` forms can appear at the top of a `scalascript` block
+  // OR as a grouped multi-import line (`import o.a.s.ml.feature.*`);
+  // the simple substring after `import` covers all of them.  The
+  // regex anchors on a word boundary before `import` so the literal
+  // `// import ...` form (commented-out) still matches — documented
+  // limitation.
+
+  /** Pre-compiled patterns for detecting MLlib imports.  Two
+   *  alternatives so a single `findFirstIn` covers both the canonical
+   *  `org.apache.spark.ml.` package prefix and the three-segment
+   *  `o.a.s.ml.` alias (used in compact import groups).  No `(?i)`
+   *  flag — Scala package names are case-sensitive, and Spark itself
+   *  rejects a mistyped `Org.Apache.Spark.Ml.*` at compile time. */
+  private val MllibImportPattern =
+    """\bimport\s+(?:org\.apache\.spark\.ml\.|o\.a\.s\.ml\.)""".r
+
+  /** Does the joined module source import any class from
+   *  `org.apache.spark.ml.*` (canonical or three-segment alias)?
+   *  When true, `genModule` emits
+   *  `//> using dep "org.apache.spark:spark-mllib_2.13:<v>"` in the
+   *  header so scala-cli resolves the MLlib JAR via Coursier.
+   *  Phase M.2 — see `docs/spark-mllib.md`. */
+  def containsMllib(source: String): Boolean =
+    MllibImportPattern.findFirstIn(source).isDefined
+
   /** Result of `detectLakehouseFormats`: which lakehouse format names
    *  appear as the literal argument of `.format("…")` anywhere in the
    *  collected block sources.
@@ -451,6 +493,14 @@ private class SparkGen(
       isStreaming && !SparkGen.containsAwaitTermination(joinedUserSrc)
     val needsKafkaDep: Boolean =
       SparkGen.containsKafkaFormat(joinedUserSrc)
+    // Phase M.2 — MLlib detection.  When the user imports any
+    // `org.apache.spark.ml.*` class (or the abbreviated `o.a.s.ml.`
+    // alias), auto-emit `//> using dep "org.apache.spark:spark-mllib_2.13:<v>"`
+    // in the header so scala-cli resolves the MLlib JAR via Coursier.
+    // See `docs/spark-mllib.md` for the design and the M.3 / M.4 / M.5
+    // follow-ons.
+    val needsMllibDep: Boolean =
+      SparkGen.containsMllib(joinedUserSrc)
     // Phase F.3 — file source/sink checkpoint guidance.  Streaming
     // queries that write to a file sink (parquet/csv/json/orc/text)
     // refuse to start without `option("checkpointLocation", …)`; emit
@@ -496,6 +546,14 @@ private class SparkGen(
     // own cross-build compatibility requirements.
     if needsKafkaDep then
       sb.append(s"""//> using dep "org.apache.spark:spark-sql-kafka-0-10_2.13:$sparkVersion"\n""")
+    // Phase M.2 — MLlib auto-dep.  Emitted only when the user imports
+    // any `org.apache.spark.ml.*` class.  Same `_2.13` cross-build and
+    // version pin as `spark-core` / `spark-sql` — Spark publishes only
+    // a single `spark-mllib_2.13` artifact per release.  Sits with the
+    // other Spark deps so the header layout stays in source order:
+    // core → sql → kafka (if streaming Kafka) → mllib (if ML).
+    if needsMllibDep then
+      sb.append(s"""//> using dep "org.apache.spark:spark-mllib_2.13:$sparkVersion"\n""")
     SparkGen.DefaultJavaOpts.foreach { opt =>
       sb.append(s"""//> using javaOpt $opt\n""")
     }

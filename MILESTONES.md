@@ -7155,14 +7155,18 @@ Thin `backend-wasm-contract/` layer on top of `backend-wasm/` for Near or Polkad
 >   design / coord table / phases M.2–M.5 / testing strategy / open
 >   questions.  No code changes; gives the parallel Spark tracks a
 >   stable contract to compose against.
-> - **M.2 — Auto-emit `spark-mllib_2.13` dep (open).**
+> - **M.2 — Auto-emit `spark-mllib_2.13` dep (landed 2026-05-20).**
 >   `containsMllib(source: String): Boolean` regex on
->   `import org.apache.spark.ml.` / `o.a.s.ml.` substrings.  When
->   true, emit `//> using dep "org.apache.spark:spark-mllib_2.13:<sparkVersion>"`
->   alongside the existing `spark-core` / `spark-sql` lines.  Tests:
->   6–8 new `SparkGenTest` cases covering positive / negative
->   detection, the abbreviated `o.a.s.ml.` alias, and linalg-only
->   imports (still pulls the dep — `linalg` lives in `spark-mllib`).
+>   `\bimport\s+(?:org\.apache\.spark\.ml\.|o\.a\.s\.ml\.)`.  When
+>   true, emits `//> using dep "org.apache.spark:spark-mllib_2.13:<sparkVersion>"`
+>   right after the Kafka dep emit (with the existing `spark-core` /
+>   `spark-sql` lines).  Verified `spark-mllib_2.13:4.0.0` exists on
+>   Maven Central before merge.  Tests: 9 new `SparkGenTest` cases
+>   covering positive detection (feature / classification / Pipeline /
+>   linalg-only / `o.a.s.ml.` alias / grouped + wildcard imports),
+>   negative detection (no MLlib import / `mllibConfig` variable name
+>   doesn't match), the documented commented-out-import limitation,
+>   and direct `containsMllib` helper assertions.
 > - **M.3 — Vector encoder (open).**  Extend `SscSparkEncoders` with
 >   an explicit `aenc_Vector: AgnosticEncoder[org.apache.spark.ml.linalg.Vector]`
 >   given that wraps `UDTEncoder(new VectorUDT(), classOf[VectorUDT])`.

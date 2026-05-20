@@ -1775,3 +1775,163 @@ class SparkGenTest extends AnyFunSuite:
     assert(SparkGen.containsCheckpointLocation("""option("checkpointLocation", "/ckpt")"""))
     assert(!SparkGen.containsCheckpointLocation("val x = 1"))
   }
+
+  // ── Phase M.2 — MLlib auto-dep detection ─────────────────────────────────
+  //
+  // See `docs/spark-mllib.md` for the design.  Detection runs over the
+  // joined post-`extractSqlFns` user-block source and triggers a single
+  // `//> using dep "org.apache.spark:spark-mllib_2.13:<v>"` header line.
+  // No `SparkSession.builder()` configs are needed — MLlib's
+  // `VectorUDT` self-registers at class-load time.  Detection is purely
+  // additive: modules that never import `org.apache.spark.ml.*` emit
+  // byte-identical headers to the pre-M.2 baseline.
+
+  test("mllib detection — import org.apache.spark.ml.feature triggers dep emit") {
+    val code = gen(
+      """|# MLlib feature extractor
+         |```scalascript
+         |import org.apache.spark.ml.feature.Tokenizer
+         |val tok = Tokenizer().setInputCol("text").setOutputCol("words")
+         |```
+         |""".stripMargin
+    )
+    assert(code.contains(s"""//> using dep "org.apache.spark:spark-mllib_2.13:${SparkGen.DefaultVersion}""""),
+      s"MLlib dep must appear when org.apache.spark.ml.feature is imported, got:\n$code")
+  }
+
+  test("mllib detection — import org.apache.spark.ml.classification triggers dep emit") {
+    val code = gen(
+      """|# Logistic Regression
+         |```scalascript
+         |import org.apache.spark.ml.classification.LogisticRegression
+         |val lr = LogisticRegression().setMaxIter(10)
+         |```
+         |""".stripMargin
+    )
+    assert(code.contains("spark-mllib_2.13"),
+      s"MLlib dep must appear for classification imports, got:\n$code")
+  }
+
+  test("mllib detection — import org.apache.spark.ml.Pipeline triggers dep emit") {
+    // The top-level Pipeline class lives directly in `org.apache.spark.ml`
+    // (not in a sub-package).  The regex still matches because the
+    // package prefix is `org.apache.spark.ml.` — Pipeline is
+    // `org.apache.spark.ml.Pipeline`.
+    val code = gen(
+      """|# Pipeline
+         |```scalascript
+         |import org.apache.spark.ml.Pipeline
+         |val pipeline = Pipeline().setStages(Array.empty)
+         |```
+         |""".stripMargin
+    )
+    assert(code.contains("spark-mllib_2.13"),
+      s"MLlib dep must appear for Pipeline imports, got:\n$code")
+  }
+
+  test("mllib detection — linalg-only import still triggers dep emit") {
+    // `org.apache.spark.ml.linalg.{Vector, DenseVector, SparseVector}`
+    // live in the `spark-mllib` JAR — there is no separate `spark-mllib-linalg`
+    // sub-artifact.  A user who imports only the linalg types still
+    // needs the MLlib dep, so detection must fire.
+    val code = gen(
+      """|# Linalg only
+         |```scalascript
+         |import org.apache.spark.ml.linalg.Vector
+         |def featuresOf(v: Vector): Double = v.toArray.sum
+         |```
+         |""".stripMargin
+    )
+    assert(code.contains("spark-mllib_2.13"),
+      s"MLlib dep must appear for linalg-only imports, got:\n$code")
+  }
+
+  test("mllib detection — three-segment o.a.s.ml.* alias triggers dep emit") {
+    // Compact alias seen in tight import groups.  Regex carries this
+    // form as an explicit alternative.
+    val code = gen(
+      """|# Alias import
+         |```scalascript
+         |import o.a.s.ml.classification.RandomForestClassifier
+         |val rf = RandomForestClassifier()
+         |```
+         |""".stripMargin
+    )
+    assert(code.contains("spark-mllib_2.13"),
+      s"MLlib dep must appear for o.a.s.ml.* alias imports, got:\n$code")
+  }
+
+  test("mllib detection — module without MLlib import emits NO MLlib dep") {
+    // Pure batch / SQL module never imports `org.apache.spark.ml.*` —
+    // the regex misses, no dep emit, no header bloat.
+    val code = gen(
+      """|# No MLlib
+         |```scalascript
+         |val x = Dataset.of(1, 2, 3)
+         |x.foreach(println)
+         |```
+         |""".stripMargin
+    )
+    assert(!code.contains("spark-mllib_2.13"),
+      s"MLlib dep must NOT appear when MLlib is not imported, got:\n$code")
+  }
+
+  test("mllib detection — commented-out import still triggers dep emit (documented)") {
+    // Documented limitation in `docs/spark-mllib.md` § Architecture:
+    // detection is a substring match, not a Scala parser, so a
+    // commented-out `import org.apache.spark.ml.*` still matches.
+    // The trade-off: regex stays trivial, and a redundant Coursier
+    // resolve is cheap.  Users who genuinely don't want MLlib loaded
+    // delete the line entirely rather than commenting it out.
+    val code = gen(
+      """|# Commented-out
+         |```scalascript
+         |// import org.apache.spark.ml.feature.Tokenizer
+         |val x = 1
+         |```
+         |""".stripMargin
+    )
+    assert(code.contains("spark-mllib_2.13"),
+      s"commented-out MLlib import still matches the substring regex (documented), got:\n$code")
+  }
+
+  test("mllib detection — substring `mllib` in a variable name does NOT trigger emit") {
+    // The regex anchors on the `import` keyword + the package prefix,
+    // not on a bare `mllib` substring.  A user variable named `mllibConfig`
+    // (or similar) must NOT pull the MLlib dep.
+    val code = gen(
+      """|# Unrelated name
+         |```scalascript
+         |val mllibConfig = Map("a" -> "b")
+         |println(mllibConfig)
+         |```
+         |""".stripMargin
+    )
+    assert(!code.contains("spark-mllib_2.13"),
+      s"`mllibConfig` variable name must NOT pull MLlib dep, got:\n$code")
+  }
+
+  test("containsMllib helper — direct test cases") {
+    // Pin the detection helper used by the M.2 logic.  Same shape as
+    // the Phase F.3 `containsFileStreamSink` / `containsCheckpointLocation`
+    // unit tests above.
+    assert(SparkGen.containsMllib("import org.apache.spark.ml.feature.Tokenizer"))
+    assert(SparkGen.containsMllib("import org.apache.spark.ml.classification.LogisticRegression"))
+    assert(SparkGen.containsMllib("import org.apache.spark.ml.Pipeline"))
+    assert(SparkGen.containsMllib("import org.apache.spark.ml.linalg.Vector"))
+    assert(SparkGen.containsMllib("import o.a.s.ml.feature.HashingTF"))
+    assert(SparkGen.containsMllib("import o.a.s.ml.linalg.SparseVector"))
+    // Grouped import (`{A, B}`) — same `import org.apache.spark.ml.<...>`
+    // prefix, the regex matches.
+    assert(SparkGen.containsMllib("import org.apache.spark.ml.feature.{Tokenizer, HashingTF}"))
+    // Wildcard import — same prefix.
+    assert(SparkGen.containsMllib("import org.apache.spark.ml.feature.*"))
+
+    // Negative cases — must not match.
+    assert(!SparkGen.containsMllib("val x = 1"))
+    assert(!SparkGen.containsMllib("import org.apache.spark.sql.SparkSession"))
+    assert(!SparkGen.containsMllib("import org.apache.spark.streaming.Trigger"))
+    // A variable named `mllibStuff` is not an import; the `\bimport\s+`
+    // anchor saves us.
+    assert(!SparkGen.containsMllib("val mllibStuff = 42"))
+  }
