@@ -4,7 +4,7 @@ name: std-ui-smoke-test
 version: 1.0.0
 description: Interpreter smoke test for std/ui/*.ssc — exercises every widget family, emits to a temp dir, prints smoke:ok.
 backends: [int]
-frontend-framework: react
+frontend: react
 ---
 
 # std/ui smoke test

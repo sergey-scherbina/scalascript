@@ -3,7 +3,7 @@
 name: toolkit-demo
 version: 2.0.0
 description: Interactive sign-up form — toolkit demo written in pure ScalaScript using std/ui
-frontend-framework: react
+frontend: react
 ---
 
 # Toolkit Demo
