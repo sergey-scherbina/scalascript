@@ -101,16 +101,21 @@ object PluginManifest:
     )
   }
 
-  /** Default search paths for plugin.yaml discovery.  Per spec §12.2:
+  /** Default search paths for plugin.yaml and .sscpkg discovery.
    *
-   *    - `$SCALASCRIPT_PLUGIN_PATH` — colon-separated directory list
-   *    - `~/.scalascript/plugins/` */
+   *    - `$ssc.lib.path/lib/plugins/` — install-local plugins (sibling of std/)
+   *    - `$SCALASCRIPT_PLUGIN_PATH`   — colon-separated override list
+   *    - `~/.scalascript/plugins/`   — user-global plugins */
   def defaultSearchPaths: List[os.Path] =
+    val libPlugins = scalascript.imports.ImportResolver.libPath
+      .map(_ / "lib" / "plugins")
+      .filter(os.exists)
+      .toList
     val envPath = sys.env.get("SCALASCRIPT_PLUGIN_PATH").getOrElse("")
     val envDirs = envPath.split(":").filter(_.nonEmpty).map(p => os.Path(p, os.pwd)).toList
     val homePath = os.home / ".scalascript" / "plugins"
     val homeDirs = if os.exists(homePath) then List(homePath) else Nil
-    envDirs ++ homeDirs
+    libPlugins ++ envDirs ++ homeDirs
 
   /** Walk every search path for one-level-deep `plugin.yaml` files. */
   def discover(searchPaths: List[os.Path] = defaultSearchPaths): List[PluginManifest] =

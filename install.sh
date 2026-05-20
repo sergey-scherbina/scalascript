@@ -4,26 +4,26 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-JAR_PATH="$ROOT/cli/target/scala-3.8.3/ssc.jar"
+LIB="$ROOT/lib"
 BIN="$ROOT/bin"
 
-echo "Building ssc fat jar via sbt-assembly..."
-(cd "$ROOT" && sbt -no-colors cli/assembly)
-[ -f "$JAR_PATH" ] || { echo "Assembly did not produce $JAR_PATH" >&2; exit 1; }
+echo "Staging ssc (thin jar + deps) via sbt cli/stage..."
+(cd "$ROOT" && sbt -no-colors cli/stage)
+[ -f "$LIB/ssc.jar" ]  || { echo "Stage did not produce $LIB/ssc.jar" >&2; exit 1; }
+[ -d "$LIB/jars" ]     || { echo "Stage did not produce $LIB/jars/" >&2; exit 1; }
 
 mkdir -p "$BIN"
 
+# Launcher: classpath-based, no fat jar needed.
+# lib/jars/* holds all transitive JARs; lib/ssc.jar is the thin entry-point.
 cat > "$BIN/ssc" <<'LAUNCHER'
 #!/usr/bin/env bash
 # Detect install root (parent of this bin/ directory) so that bare imports
 # like `[actors](std/actors.ssc)` resolve without a relative path prefix.
 _SSC_BIN="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 _SSC_ROOT="$(dirname "$_SSC_BIN")"
+exec java -Dssc.lib.path="$_SSC_ROOT" -cp "$_SSC_ROOT/lib/jars/*:$_SSC_ROOT/lib/ssc.jar" scalascript.cli.ssc "$@"
 LAUNCHER
-# Embed the absolute jar path at install time (stays stable after install).
-cat >> "$BIN/ssc" <<EOF
-exec java -Dssc.lib.path="\$_SSC_ROOT" -jar "$JAR_PATH" "\$@"
-EOF
 chmod +x "$BIN/ssc"
 
 for launcher in "$ROOT"/scripts/launchers/*; do
@@ -35,6 +35,11 @@ echo "Staged bin/ launchers:"
 for f in "$BIN"/*; do
     echo "  bin/$(basename "$f")"
 done
+echo ""
+echo "Layout:"
+echo "  lib/ssc.jar        — thin entry-point JAR"
+echo "  lib/jars/          — $(ls "$LIB/jars" | wc -l | tr -d ' ') JARs"
+echo "  lib/plugins/       — drop .sscpkg files here for auto-loading"
 echo ""
 echo "Add to PATH for this session:"
 echo "  export PATH=\"\$PATH:$BIN\""

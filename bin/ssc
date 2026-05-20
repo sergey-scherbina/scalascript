@@ -3,4 +3,4 @@
 # like `[actors](std/actors.ssc)` resolve without a relative path prefix.
 _SSC_BIN="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 _SSC_ROOT="$(dirname "$_SSC_BIN")"
-exec java -Dssc.lib.path="$_SSC_ROOT" -jar "/Users/sergiy/work/my/scalascript/cli/target/scala-3.8.3/ssc.jar" "$@"
+exec java -Dssc.lib.path="$_SSC_ROOT" -cp "$_SSC_ROOT/lib/jars/*:$_SSC_ROOT/lib/ssc.jar" scalascript.cli.ssc "$@"

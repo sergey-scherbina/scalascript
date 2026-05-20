@@ -22,6 +22,17 @@ import scalascript.codegen.SparkSubmit
 import scalascript.codegen.SparkBackend
 
 @main def ssc(rawArgs: String*): Unit =
+  // Auto-load .sscpkg files from lib/plugins/ next to the install root
+  // (the same root that std/ is resolved from).  This runs before CLI
+  // flags so --plugin can still override or supplement.
+  scalascript.imports.ImportResolver.libPath
+    .map(_ / "lib" / "plugins")
+    .filter(os.exists)
+    .foreach { dir =>
+      os.list(dir)
+        .filter(_.ext == "sscpkg")
+        .foreach(BackendRegistry.loadSscpkg)
+    }
   // Strip global plugin-management flags from anywhere in the
   // argument list before dispatching to a command.  --plugin and
   // --plugin-dir mutate BackendRegistry; --target / --backend are

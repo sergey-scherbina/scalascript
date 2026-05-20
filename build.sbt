@@ -19,6 +19,9 @@ import sbtcrossproject.CrossPlugin.autoImport.{CrossType, crossProject}
 // consumes carrier stack).  Cost is negligible.
 ThisBuild / Test / javaOptions += "-Xss8m"
 ThisBuild / Test / fork         := true
+// Export sub-module classes as JARs so cli/stage sees actual JAR files
+// (not class directories) when collecting the classpath for lib/jars/.
+ThisBuild / exportJars          := true
 
 // Production code is held to fatal-warnings; test code stays warning-tolerant
 // because scalatest macros, mocks, and intentional unused vals are common
@@ -500,6 +503,7 @@ lazy val backendSpark = project
 // sbt-proguard is used ONLY for config generation + ProGuard JAR resolution;
 // we bypass its runner (hardcoded -Xmx256M) and fork java with -Xmx1G.
 val shrinkJar = taskKey[File]("Shrink the assembled ssc.jar with ProGuard 7.5 (1 G heap)")
+val stage     = taskKey[Unit]("Stage lib/ssc.jar + lib/jars/ + lib/plugins/ for classpath-based launch")
 
 lazy val cli = project
   .in(file("cli"))
@@ -623,6 +627,29 @@ lazy val cli = project
       val saved = (inJar.length - outJar.length) / (1024 * 1024)
       log.info(s"Shrunk to ${outJar.length / (1024*1024)} MB  (saved ~${saved} MB)")
       outJar
+    },
+    // ── stage: thin JAR + exploded deps, no fat jar needed ───────────────
+    // Produces:
+    //   $ROOT/lib/ssc.jar        ← cli module classes only
+    //   $ROOT/lib/jars/*.jar     ← all transitive deps (sub-modules + external)
+    //   $ROOT/lib/plugins/       ← empty dir, ready for .sscpkg installation
+    // Launcher: java -cp "$ROOT/lib/jars/*:$ROOT/lib/ssc.jar" scalascript.cli.ssc
+    stage := {
+      val log      = streams.value.log
+      val root     = (ThisBuild / baseDirectory).value
+      val libDir   = root / "lib"
+      val depsDir  = libDir / "jars"
+      val plugDir  = libDir / "plugins"
+      IO.createDirectory(depsDir)
+      IO.createDirectory(plugDir)
+      val appJar   = (Compile / packageBin).value
+      IO.copyFile(appJar, libDir / "ssc.jar")
+      log.info(s"lib/ssc.jar  (${appJar.length / 1024} KB)")
+      val cp       = (Compile / fullClasspath).value.files
+      val depJars  = cp.filter(f => f.isFile && f.getName.endsWith(".jar") && f.getAbsolutePath != appJar.getAbsolutePath)
+      depJars.foreach(j => IO.copyFile(j, depsDir / j.getName))
+      log.info(s"lib/jars/    (${depJars.size} JARs)")
+      log.info(s"lib/plugins/ ready")
     }
   )
 
