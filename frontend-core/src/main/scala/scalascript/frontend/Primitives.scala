@@ -47,6 +47,19 @@ final class ReactiveSignal[T](val jsName: String, initial: T) extends Signal[T]:
   override def apply(): T            = _value
   override def set(value: T): Unit   = _value = value
 
+/** v1.18 / Phase A2e — reactive **list** signal.  Backs
+ *  `View.ForSignal` and the list-mutation event handlers
+ *  (`PushSignalLiteral`, `ClearSignalList`).  Same naming
+ *  contract as `ReactiveSignal`: `jsName` becomes the JS-side
+ *  identifier the emitter uses for the list cell + its
+ *  subscriber set.
+ *
+ *  Scope for A2e.1: `T` is restricted to a primitive JSON
+ *  literal (`String | Int | Long | Double | Boolean`) so the
+ *  initial list can be embedded into JS without a portable
+ *  serialiser.  Later phases may widen. */
+final class ReactiveSignalList[T](val jsName: String, val initial: Seq[T])
+
 /** Memoised derived value.  Re-derived only when one of the
  *  signals it reads from changes.  Maps to React `useMemo`,
  *  Vue `computed`, Solid `createMemo`, Svelte `$:`. */
@@ -141,6 +154,33 @@ object View:
       render: T => View
   ) extends View
 
+  /** v1.18 / Phase A2e — reactive **repeated** sub-trees backed
+   *  by a `ReactiveSignalList[T]`.  Backends subscribe to the
+   *  list signal and re-render children when it changes.
+   *
+   *  Scope: each item is rendered as
+   *  `<tag attrs>${String(item)}</tag>` — enough for the canonical
+   *  todo-list demo.  Richer per-item templates (nested elements,
+   *  per-item events) need either compile-time inlining of a
+   *  `T => View` JS template or a runtime view DSL, both of which
+   *  are deferred to a follow-up phase.
+   *
+   *  Lowerings per backend:
+   *    - Custom: wrapper span + subscription that wipes-and-rebuilds
+   *      children on each list change (no keyed reconciliation yet)
+   *    - React : `array.map(item => createElement(tag, { key }, item))`
+   *      inside `render()`; React's diff handles reuse
+   *    - Solid : `createEffect` that wipes-and-rebuilds (no native
+   *      `<For>` because solid-js/h is broken in this project; same
+   *      story as `SignalText`)
+   *    - Vue   : `this.<jsName>.map(item => h(tag, { key }, item))`
+   *      inside `render()` arrow */
+  final case class ForSignal[T](
+      items: ReactiveSignalList[T],
+      tag:   String                  = "li",
+      attrs: Map[String, AttrValue]  = Map.empty
+  ) extends View
+
 /** Attribute value on a DOM element.  String / Boolean / Int for
  *  literals; `() => …` thunks for dynamic interpolation that
  *  participates in the reactivity system. */
@@ -183,6 +223,16 @@ object EventHandler:
   /** v1.18 / Phase A2d — flip a Boolean reactive signal.  Pairs
    *  with `ShowSignal` for click-to-toggle / show-hide UIs. */
   final case class ToggleSignal(signal: ReactiveSignal[Boolean]) extends EventHandler
+
+  /** v1.18 / Phase A2e — append a literal value to the end of a
+   *  reactive list signal.  Canonical "add todo" wiring.  Value's
+   *  runtime type must match one of the JS-literal types
+   *  (String / Int / Long / Double / Boolean). */
+  final case class PushSignalLiteral[T](list: ReactiveSignalList[T], value: T) extends EventHandler
+
+  /** v1.18 / Phase A2e — replace a reactive list signal's value
+   *  with the empty list.  Canonical "clear all" wiring. */
+  final case class ClearSignalList[T](list: ReactiveSignalList[T]) extends EventHandler
 
 /** Composable UI unit — a function from props to a View that
  *  may close over signals + effects.  Backends interpret the

@@ -44,6 +44,13 @@ private[solid] object SolidEmitter:
       val setter = setterName(name)
       sb ++= s"  const [$name, $setter] = createSignal($initial);\n"
     }
+    // A2e — list signals lower the same way scalar signals do: each
+    // gets a createSignal pair.  Reads go through `name()` so
+    // createEffect tracks them; writes go through `setName(next)`.
+    ctx.lists.foreach { (name, initial) =>
+      val setter = setterName(name)
+      sb ++= s"  const [$name, $setter] = createSignal($initial);\n"
+    }
     ctx.statements.foreach { stmt =>
       sb ++= "  "
       sb ++= stmt
@@ -58,6 +65,8 @@ private[solid] object SolidEmitter:
   private final class Ctx:
     private var counter: Int = 0
     val signals: scala.collection.mutable.LinkedHashMap[String, String] =
+      scala.collection.mutable.LinkedHashMap.empty
+    val lists: scala.collection.mutable.LinkedHashMap[String, String] =
       scala.collection.mutable.LinkedHashMap.empty
     val statements: scala.collection.mutable.ArrayBuffer[String] =
       scala.collection.mutable.ArrayBuffer.empty
@@ -81,6 +90,21 @@ private[solid] object SolidEmitter:
             s"initial values ($existing vs $initJs)."
           )
         case _ => signals.update(name, initJs)
+
+    private def registerList(list: ReactiveSignalList[?]): Unit =
+      val name = list.jsName
+      if !name.matches("[A-Za-z_][A-Za-z0-9_]*") then
+        throw new IllegalArgumentException(
+          s"ReactiveSignalList jsName '$name' must match [A-Za-z_][A-Za-z0-9_]*."
+        )
+      val initJs = jsArrayLiteral(list.initial)
+      lists.get(name) match
+        case Some(existing) if existing != initJs =>
+          throw new IllegalArgumentException(
+            s"ReactiveSignalList jsName '$name' registered twice with different " +
+            s"initial values ($existing vs $initJs)."
+          )
+        case _ => lists.update(name, initJs)
 
     def compile(view: View): String | Null = view match
       case View.Element(tag, attrs, events, children) =>
@@ -167,6 +191,32 @@ private[solid] object SolidEmitter:
           }
           v
 
+      case View.ForSignal(list, tag, attrs) =>
+        // A2e — wrapper span + createEffect that rebuilds children on
+        // every list change.  Same wipe-and-rebuild shape as Custom;
+        // Solid's idiomatic <For> needs JSX which we don't transpile.
+        // The createEffect tracks `name()` so any setName(...) re-runs
+        // it.  Keyed reconciliation can come later as an optimisation.
+        registerList(list)
+        val wrap   = freshVar()
+        val tagJs  = jsString(tag)
+        statements += s"const $wrap = document.createElement('span');"
+        val attrSetters = attrs.toSeq.flatMap { (k, av) =>
+          attrValueJs(av).map(value => s"el.setAttribute(${jsString(k)}, $value);")
+        }
+        val renderFn = s"__render_item_${list.jsName}"
+        statements += s"function $renderFn(item) {"
+        statements += s"  const el = document.createElement($tagJs);"
+        attrSetters.foreach(s => statements += s"  $s")
+        statements += s"  el.textContent = String(item);"
+        statements += s"  return el;"
+        statements += s"}"
+        statements += s"createEffect(() => {"
+        statements += s"  while ($wrap.firstChild) $wrap.removeChild($wrap.firstChild);"
+        statements += s"  for (const __item of ${list.jsName}()) $wrap.appendChild($renderFn(__item));"
+        statements += s"});"
+        wrap
+
     private def compileEventHandler(targetVar: String, eventName: String, handler: EventHandler): Unit =
       handler match
         case EventHandler.Simple(_) | EventHandler.WithEvent(_) =>
@@ -186,6 +236,15 @@ private[solid] object SolidEmitter:
           registerSignal(signal)
           val setter = setterName(signal.jsName)
           statements += s"$targetVar.addEventListener(${jsString(eventName)}, () => $setter(c => !c));"
+        case EventHandler.PushSignalLiteral(list, value) =>
+          registerList(list)
+          val setter = setterName(list.jsName)
+          val v      = jsLiteral(value)
+          statements += s"$targetVar.addEventListener(${jsString(eventName)}, () => $setter(prev => prev.concat([$v])));"
+        case EventHandler.ClearSignalList(list) =>
+          registerList(list)
+          val setter = setterName(list.jsName)
+          statements += s"$targetVar.addEventListener(${jsString(eventName)}, () => $setter([]));"
 
     /** Empty-branch placeholder for ShowSignal — empty text node. */
     private def placeholderNode(): String =
@@ -215,6 +274,9 @@ private[solid] object SolidEmitter:
       s"jsLiteral: unsupported value type ${other.getClass.getName} ($other).  " +
       "Supported: String / Int / Long / Double / Float / Boolean / null."
     )
+
+  private def jsArrayLiteral(items: Seq[Any]): String =
+    items.map(jsLiteral).mkString("[", ", ", "]")
 
   private def formatNumber(d: Double): String =
     if d == d.toLong.toDouble then d.toLong.toString else d.toString

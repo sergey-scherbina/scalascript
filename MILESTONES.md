@@ -3970,6 +3970,19 @@ the codegen output.
   - **Phase A4** — `frontend-solid` backend.  Signals fit naturally;
     fine-grained subs.  ~1 week.
   - **Phase A5** — `frontend-vue` backend.  ~1 week.
+  - **Phase A2e** ✓ Landed 2026-05-20 — reactive `ForSignal` (dynamic
+    lists).  `ReactiveSignalList[T]` (primitive `T`) +
+    `View.ForSignal(items, tag, attrs)` + two list-mutation events
+    (`PushSignalLiteral`, `ClearSignalList`).  Per-backend lowerings:
+    Custom uses an `__ssc_lists` registry + wipe-and-rebuild
+    subscriber; React uses `useState([...])` + `array.map` with
+    string keys; Solid uses `createSignal` + `createEffect` that
+    wipes-and-rebuilds (real `<For>` needs JSX); Vue uses
+    `ref([...])` + `this.<name>.map` in the render arrow.  Each item
+    renders as `<tag attrs>String(item)</tag>` — rich per-item
+    templates need a richer IR and are deferred.  Tests: 5 unit + 1
+    e2e per backend (4 backends → 23 new tests; 120 total in
+    frontend-* suites).
   - **Phase A6** — refs / context / suspense / portal rounded out
     per backend.  ~1 week.
   - **Phase A7** ✓ Landed 2026-05-20 — `setFrontendFramework(name)`
