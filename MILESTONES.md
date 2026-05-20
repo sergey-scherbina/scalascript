@@ -4000,8 +4000,29 @@ the codegen output.
     grows to consume the SPI in A8.  Tests: 6 unit + 1 e2e in
     `FrontendIntrinsicTest`, 5 in CLI `FrontendBackendSelectionTest`,
     plus a smoke run through `emit-spa --frontend react`.
-  - **Phase A8** — Docs + 4 reference apps (one per backend).
-    ~3 days.
+  - **Phase A8** ✓ Landed 2026-05-20 — Docs + three canonical
+    reference apps lowered through all four backends.  New sbt
+    module `frontend-examples` (option (c) in the A8 plan: a test-
+    driven module that also exposes a runnable `EmitAll` main
+    writing per-backend HTML + JS files to `target/frontend-examples/`).
+    Three demos: `counter` (`ReactiveSignal[Int]` + `IncrementSignal`
+    + `SetSignalLiteral` + `SignalText`), `show-hide`
+    (`ReactiveSignal[Boolean]` + `ToggleSignal` + `ShowSignal`),
+    `todo` (`ReactiveSignalList[String]` + `PushSignalLiteral` +
+    `ClearSignalList` + `ForSignal`).  Each demo emits identically
+    through all four backends — 12 (3 demos × 4 backends) HTML + JS
+    pairs ship.  New user-facing doc `docs/frontend-usage.md` covers
+    backend selection (`setFrontendFramework` intrinsic +
+    `ssc emit-spa --frontend <name>` CLI flag from A7), every
+    primitive's per-backend lowering, the deliberate
+    "no JVM closures in event handlers" restriction, and the v1.18
+    limitations (primitive-only signal values, single-tag `ForSignal`
+    template, no refs/context/suspense/portals/router yet).  Top-
+    level `examples/frontend/README.md` plus per-demo READMEs
+    explain the `.ssc`-level intent and the four flavours of emitted
+    JS for each.  Tests: 17 new shape + smoke tests in
+    `ReferenceAppsTest`; all 6 frontend suites green (136 tests:
+    6 + 39 + 25 + 24 + 25 + 17).
 
   Total: ~7-8 weeks for the full core; SSR + Svelte + animations as
   later follow-ups.

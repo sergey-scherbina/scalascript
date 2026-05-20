@@ -341,6 +341,24 @@ lazy val frontendVue = project
     Test    / scalacOptions ++= sharedScalacOptions
   )
 
+// v1.18 / Phase A8 — reference apps exercising the frontend SPI across
+// all four backends.  Three canonical demos (counter, show-hide,
+// todo-list) each rendered by Custom + React + Solid + Vue.  Ships
+// both a runnable `main` that writes per-backend HTML + JS files to
+// `target/frontend-examples/` and a small test suite that asserts the
+// emitted JS shape per backend — usable as a smoke-test + a worked
+// example of how to drive the SPI from Scala.
+lazy val frontendExamples = project
+  .in(file("frontend-examples"))
+  .dependsOn(frontendCore, frontendCustom, frontendReact, frontendSolid, frontendVue)
+  .settings(
+    name := "scalascript-frontend-examples",
+    publish / skip := true,
+    libraryDependencies ++= Seq(scalatestTest),
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions
+  )
+
 lazy val backendJvm = project
   .in(file("backend-jvm"))
   .dependsOn(backendSpi, core, runtimeServerCommon, runtimeServerSpi, runtimeServerJvm, backendSqlRuntime)
@@ -1315,6 +1333,7 @@ lazy val root = project
     cryptoSpi, cryptoSpiJs, cryptoBouncycastle, blockchainSpi, blockchainSpiJs, blockchainEvm, blockchainEvmAbi, blockchainSolana, blockchainCardano, walletSpi, walletSpiJs, walletVaultEncrypted, walletVaultMpc, walletVaultLedger, walletVaultLedgerJvm, walletVaultLedgerEthereum, walletStrategyEoa, walletStrategyErc4337, walletConnectorEip1193, walletConnect, walletConnectorWalletStd, mcpWallet, mcpX402,
     micropaymentSpi, micropaymentThreshold, micropaymentServer, micropaymentClient, micropaymentProbabilistic, micropaymentChannelEvm, micropaymentHydra,
     frontendCore, frontendCustom, frontendReact, frontendSolid, frontendVue,
+    frontendExamples,
   )
   .settings(
     publish / skip := true
