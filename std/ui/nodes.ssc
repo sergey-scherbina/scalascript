@@ -18,6 +18,8 @@ exports:
   - TextFieldNode
   - CheckboxNode
   - SignalButtonNode
+  - BadgeNode
+  - SpinnerNode
 ---
 
 # `std.ui.nodes` — widget ADT
@@ -57,4 +59,8 @@ case class SignalButtonNode(signal: Any,
                             value: Any,
                             label: String,
                             disabled: Boolean)          extends TkNode
+
+// ── Display ───────────────────────────────────────────────────────────────
+case class BadgeNode(content: String, variant: String)  extends TkNode
+case class SpinnerNode()                                 extends TkNode
 ```

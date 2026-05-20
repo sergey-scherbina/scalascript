@@ -1,0 +1,101 @@
+#!/usr/bin/env ssc
+---
+name: toolkit-demo
+version: 2.0.0
+description: Interactive sign-up form — toolkit demo written in pure ScalaScript using std/ui
+---
+
+# Toolkit Demo
+
+An interactive sign-up form demonstrating the pure `.ssc` frontend toolkit.
+Widgets are built from `std/ui/*.ssc` imports; no Scala intrinsics bridge needed.
+
+## Backend
+
+```scalascript
+setFrontendFramework("react")
+```
+
+## Imports and signals
+
+```scalascript
+[signal, serve](std/ui/primitives.ssc)
+[lower](std/ui/lower.ssc)
+[defaultTheme](std/ui/theme.ssc)
+[vstack, hstack, divider, spacer](std/ui/layout.ssc)
+[heading, text](std/ui/typography.ssc)
+[textField, checkbox, signalButton](std/ui/input.ssc)
+[showWhen, signalText_, fragment_, rawText](std/ui/reactive.ssc)
+[badge, spinner](std/ui/display.ssc)
+
+val name      = signal("name",      "Alice")
+val accept    = signal("accept",    false)
+val submitted = signal("submitted", false)
+```
+
+## Form fields
+
+Enabled and disabled variants built from the same constructors.
+
+```scalascript
+val enabledForm = vstack(gap = 12)(
+  textField(value = name,   label = "Display name"),
+  checkbox(checked = accept, label = "I accept the toolkit terms.")
+)
+
+val disabledForm = vstack(gap = 12)(
+  textField(value = name,   label = "Display name",           disabled = true),
+  checkbox(checked = accept, label = "I accept the toolkit terms.", disabled = true)
+)
+```
+
+## Submit button
+
+Reactive: disabled until `accept` is true, locked after `submitted` is true.
+
+```scalascript
+val enabledBtn  = signalButton(submitted, true, "Submit")
+val disabledBtn = signalButton(submitted, true, "Submit", disabled = true)
+
+val reactiveBtn = showWhen(submitted,
+  disabledBtn,
+  showWhen(accept, enabledBtn, disabledBtn)
+)
+```
+
+## Post-submit alert
+
+```scalascript
+val alert = showWhen(submitted,
+  hstack(gap = 4)(
+    rawText("You have accepted the terms, "),
+    signalText_(name)
+  ),
+  fragment_()
+)
+```
+
+## Full tree
+
+```scalascript
+val tree = vstack(gap = 16)(
+  heading(1, "Toolkit demo"),
+  text("Pure .ssc UI — no Scala intrinsics bridge."),
+  divider(),
+  showWhen(submitted, disabledForm, enabledForm),
+  reactiveBtn,
+  alert,
+  hstack(gap = 12)(
+    showWhen(submitted, spinner(), fragment_()),
+    text("Loading..."),
+    spacer(grow = true),
+    badge("3 new", "success")
+  )
+)
+```
+
+## Serve
+
+```scalascript
+serve(lower(tree, defaultTheme), 8080)
+```

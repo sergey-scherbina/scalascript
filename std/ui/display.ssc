@@ -1,0 +1,20 @@
+---
+name: ui-display
+version: 1.0.0
+description: Display widget constructors — badge, spinner. Return TkNode; lower with lower.ssc.
+package: std.ui.display
+exports:
+  - badge
+  - spinner
+---
+
+# `std.ui.display` — display constructors
+
+```scalascript
+[TkNode, BadgeNode, SpinnerNode](std/ui/nodes.ssc)
+
+def badge(content: String, variant: String = "default"): TkNode =
+  BadgeNode(content, variant)
+
+def spinner(): TkNode = SpinnerNode()
+```
