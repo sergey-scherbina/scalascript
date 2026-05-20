@@ -536,32 +536,124 @@ App(theme = Theme.default) {
   5. **Phase 5 — Theme + reference theme + dark variant**.
   6. **Phase 6 — Documentation + a non-trivial example app**.
 
-## Open questions
+## Design decisions (formerly open questions)
 
-  1. **DSL vs function syntax**?  ScalaScript supports block-scope
-     `Stack(...) { ... }` — clean.  But should `Stack` accept
-     children as a varargs `Seq[ToolkitNode]` (more familiar) or
-     as a `=> Seq[ToolkitNode]` thunk (lets the toolkit defer
-     evaluation for fine-grained subscriptions on Solid)?  Lean
-     thunk for power; revisit after Phase 2.
-  2. **Slot semantics**.  `Card(header, footer)` — are these
-     `Option[ToolkitNode]` or `Slot` markers in a content block?
-     Lean toward named-parameter style; revisit.
-  3. **Style escape hatch** — when widgets need a custom CSS class
-     or inline override, should the toolkit accept a raw `style:
-     String` prop or insist on token-only?  Lean raw-string-allowed
-     but emit a lint warning; pure-tokens stays the default.
-  4. **Server-side rendering** — out of v1 scope, but the lowering
-     must stay pure so SSR can call `lower(...)` on the JVM.  No
-     hidden DOM access in the toolkit core.
-  5. **i18n placement** — does `Text("Welcome")` accept a
-     `translation key` or stay raw?  Lean raw + recommend wrapping
-     in `t(...)` calls; revisit when frontend i18n lands.
+After Phase B's first-cut implementation landed, the five open
+questions resolve as follows.  Decisions backed by concrete tradeoffs
+the implementation surfaced — not just preferences.
+
+### 1. Children: varargs `Seq[ToolkitNode]` (decided)
+
+**Decision**: every widget that takes children accepts a plain
+`Seq[ToolkitNode]` (or curried `(ToolkitNode*)` in the `Tk` facade).
+
+**Rationale**: the thunk variant `=> Seq[ToolkitNode]` would defer
+evaluation, but the toolkit lowers to `View` eagerly anyway — the
+deferral happens at the SPI layer where `View.For[T]` and
+`View.Show` already accept thunks.  Adding another layer of
+laziness in the toolkit would be pure ceremony.  Backend-specific
+fine-grained subscriptions (Solid) get the deferral they need
+through `View.For` and `View.ShowSignal` — both already part of
+the SPI.
+
+**User code**:
+```scala
+vstack(gap = 16)(
+  heading(1, "App"),
+  textField(name, label = Some("Name")),
+  button("Save", onClick = save))    // children are *direct*, no thunk
+```
+
+For dynamic / reactive list children, use the SPI's `View.For` via
+`Toolkit.lift(...)` (planned helper) or wrap in `RawViewNode(View.For(...))`
+directly until the toolkit ships its own `for_(items)(render)`
+widget in v2.
+
+### 2. Slots: named parameters (decided)
+
+**Decision**: optional regions (Card header / footer, Tabs panels,
+Form actions, etc.) are exposed as named `Option[ToolkitNode]`
+parameters — not as a separate `Slot(...)` marker.
+
+**Rationale**: ScalaScript's parameter syntax IS the slot syntax.
+A `Card(header = ..., footer = ..., body = ...)` reads cleanly,
+sorts well in IDEs, and round-trips through `case class .copy`
+naturally.  `Slot` markers add a layer of indirection for zero
+gain over named params.
+
+**Counterexample**: when a slot would need named children with
+distinct types (e.g. `Tabs(tab1 = ..., tab2 = ...)` doesn't
+generalise) we use a `Seq[Entry]` parameter with a typed `Entry`
+case class — see `TabsNode(active, tabs: Seq[TabEntry])`.
+
+### 3. Style escape hatch: raw `style: String` allowed (decided)
+
+**Decision**: widgets accept an optional raw `style: String` that
+gets appended to the toolkit's generated CSS.  Defaults to None.
+No lint warning in v1 — design teams enforce token discipline
+through review, not the compiler.
+
+**Rationale**: every real app eventually needs to drop down to
+CSS for one off-spec thing.  Forcing it through a sanctioned
+escape hatch keeps the code grep-able and discoverable; banning
+it pushes people to wrap widgets in raw `View.Element` which is
+strictly worse.
+
+**Phase 2** may add `Theme.lintStrict = true` that warns on `style:
+String` usage in `Box`, `Stack`, etc.  Deferred.
+
+### 4. Server-side rendering: pure lowering, guaranteed (decided)
+
+**Decision**: `Toolkit.lower(node, theme)` is a pure function over
+`(ToolkitNode, Theme) → View`.  No DOM access, no async work, no
+implicit framework calls.  SSR on the JVM calls `lower` and feeds
+the resulting `View` to a JVM-side renderer (planned, v2).
+
+**Implementation invariant** (enforced by code review, not type
+system): no widget's `lower` method may reference
+`scalajs.dom.*`, `org.scalajs.dom.*`, or any framework runtime.
+Test suite includes a "lowering output contains no framework
+names" smoke check.
+
+### 5. i18n: raw strings + caller-side `t(...)` (decided)
+
+**Decision**: every text-bearing widget (`Text`, `Heading`, `Button`
+label, `TextField` label / placeholder, `Alert` title, etc.)
+accepts a plain `String`.  Translation is the caller's job —
+wrap your literal in `t("welcome_heading")` from the i18n module
+of your choice.
+
+**Rationale**: the toolkit shouldn't bake in an i18n API choice
+(message keys, ICU MessageFormat, gettext-style, etc.) — there's
+no consensus.  Raw strings + wrap-where-needed is the most
+flexible composition.
+
+**When frontend i18n lands** (v1.19+, separate module), the toolkit
+gains an OPTIONAL `import scalascript.frontend.toolkit.i18n.given`
+import that adds an implicit `String → I18nString` conversion +
+a `Signal[Locale]`-aware text node.  Strictly additive — existing
+code keeps working.
+
+## Migration path
+
+  1. **Phase 1 — Spec freeze** ✓ (this doc).
+  2. **Phase 2 — Skeleton + core widgets** ✓ (Stack / Box / Text /
+     Heading / Button / TextField / Checkbox / Alert / Card,
+     `Theme.default` + `Theme.dark`, 25 tests).
+  3. **Phase 3 — Forms + validation** — `Form` container with
+     field registration + built-in validators (required,
+     minLength, maxLength, pattern, email) + per-field error
+     surfacing.
+  4. **Phase 4 — v2 widgets** — Slider, Tabs, Modal, Drawer,
+     Tooltip, Badge, Avatar, Icon, Spinner, Progress.
+  5. **Phase 5 — Routing** — Router + Route + Link + path-param
+     matching + nested routes.
+  6. **Phase 6 — Data display** — Table (sortable, filterable,
+     paginated), List with virtualisation hooks, Tree.
+  7. **Phase 7 — Examples** — non-trivial reference apps.
 
 ## Status
 
-  - Spec: this doc, ready for review.
-  - Implementation: starts after the SPI lands the **A4** milestone
-    (event handlers + 2-way binding stable on all four backends).
-    Until then, toolkit work risks rebuilding against a moving
-    target.
+  - Spec: this doc.  Open questions resolved.
+  - Phase 2: shipped (frontend-toolkit module + 25 tests, v1.18 Phase B).
+  - Phases 3 / 4 / 5: landing in parallel sub-iterations.
