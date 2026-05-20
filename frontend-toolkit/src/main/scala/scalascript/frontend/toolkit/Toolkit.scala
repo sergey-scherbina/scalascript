@@ -47,6 +47,13 @@ object Toolkit:
     case n: IconNode       => IconNode.lower(n, theme)
     case n: SpinnerNode    => SpinnerNode.lower(n, theme)
     case n: ProgressNode   => ProgressNode.lower(n, theme)
+    // FormInputs pack — Select, RadioGroup, Textarea, DatePicker,
+    // NumberInput.  See FormInputs.scala.
+    case n: SelectNode[?]     => SelectNode.lower(n, theme)
+    case n: RadioGroupNode[?] => RadioGroupNode.lower(n, theme)
+    case n: TextareaNode      => TextareaNode.lower(n, theme)
+    case n: DatePickerNode    => DatePickerNode.lower(n, theme)
+    case n: NumberInputNode   => NumberInputNode.lower(n, theme)
     case n: RawViewNode    => n.view  // escape hatch — direct embed
 
 /** Escape hatch — wrap a low-level `View` so it composes alongside

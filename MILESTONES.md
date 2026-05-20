@@ -3990,6 +3990,40 @@ the codegen output.
   - **Phase A8** — Docs + 4 reference apps (one per backend).
     ~3 days.
 
+  - **Phase B ✓ Landed 2026-05-20** — Frontend toolkit (high-level
+    declarative widget vocabulary on top of the SPI).  New sbt module
+    `frontend-toolkit` dependsOn `frontend-core`; spec at
+    [`docs/frontend-toolkit-spec.md`](docs/frontend-toolkit-spec.md).
+
+    Layers shipped: layout primitives (Stack / Box / Spacer / Divider),
+    typography (Text / Heading / Code), inputs (Button / TextField /
+    Checkbox), display (Alert), containers (Card), plus full Theme
+    (default + dark variant) and Tk fluent facade.  25 ToolkitTest
+    cases.  See commit `b5eeee4f`.
+
+  - **Phase B+ ✓ Landed 2026-05-20** — Forms + Routing + Widgets v2
+    pack + Table.
+
+    Forms: `Form`, `FormField[T]`, `FormContext`, validators
+    (required / minLength / maxLength / pattern / email / and).
+    Routing: `Router`, `Route`, `Link` with `:name` params + SPA
+    navigation.  Widgets v2: `Slider`, `Tabs`, `Modal`, `Drawer`,
+    `Tooltip`, `Badge`, `Avatar`, `Icon`, `Spinner`, `Progress`.
+    Table: typed `Table[T]` with click-to-sort + ARIA + caption +
+    emptyState.  111 new tests (Form 26 + Router 19 + Widgets2 42 +
+    Table 24).  See commit `aee5e380`.
+
+  - **Phase B++ ✓ Landed 2026-05-20** — FormInputs pack rounding
+    out form-input coverage: `Select[T]`, `RadioGroup[T]`, `Textarea`,
+    `DatePicker`, `NumberInput`.  All typed via signal +
+    `(value, label)` option pairs + `toKey` for stable round-tripping.
+    27 new tests.
+
+  - **Phase C — Reference SPA + SSR + remaining widgets** (next).
+    Build one non-trivial reference app exercising the full toolkit
+    + SSR rendering path + the deferred widgets (ColorPicker,
+    TimePicker, combobox, file upload, Toast queue, animations).
+
   Total: ~7-8 weeks for the full core; SSR + Svelte + animations as
   later follow-ups.
 
