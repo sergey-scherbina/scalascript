@@ -88,8 +88,7 @@ val tree = vstack(gap = 16)(
   reactiveBtn,
   alert,
   hstack(gap = 12)(
-    showWhen(submitted, spinner(), fragment_()),
-    text("Loading..."),
+    showWhen(submitted, fragment_(spinner(), text("Loading...")), fragment_()),
     spacer(grow = true),
     badge("3 new", "success")
   )

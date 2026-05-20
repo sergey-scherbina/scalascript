@@ -34,7 +34,7 @@ private[react] object ReactEmitter:
     sb ++= "(function() {\n"
     sb ++= "  if (!document.getElementById('ssc-keyframes')) {\n"
     sb ++= "    const s = document.createElement('style'); s.id = 'ssc-keyframes';\n"
-    sb ++= "    s.textContent = '@keyframes spin { to { transform: rotate(360deg); } }';\n"
+    sb ++= "    s.textContent = '@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } } .ssc-spin { animation: spin 0.8s linear infinite; }';\n"
     sb ++= "    document.head.appendChild(s);\n"
     sb ++= "  }\n"
     sb ++= "  const { useState, useRef, createElement: h, Fragment } = React;\n"
