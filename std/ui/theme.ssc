@@ -1,0 +1,92 @@
+---
+name: ui-theme
+version: 1.0.0
+description: Theme design tokens — ColorPalette, SpacingScale, TypographyScale, RadiusScale, Theme. Includes Theme.default (neutral light) and Theme.dark.
+package: std.ui.theme
+exports:
+  - ColorPalette
+  - SpacingScale
+  - TypographyItem
+  - TypographyScale
+  - RadiusScale
+  - Theme
+  - defaultTheme
+  - darkTheme
+---
+
+# `std.ui.theme` — design tokens
+
+Pure data.  No extern defs, no imports.  Import `Theme` and `defaultTheme`
+into `lower.ssc` and any widget constructor that needs layout constants.
+
+```scalascript
+case class ColorPalette(
+  primary:    String,
+  onPrimary:  String,
+  secondary:  String,
+  surface:    String,
+  onSurface:  String,
+  background: String,
+  muted:      String,
+  danger:     String,
+  success:    String,
+  warning:    String
+)
+
+case class SpacingScale(xs: Int, sm: Int, md: Int, lg: Int, xl: Int, xxl: Int)
+
+case class TypographyItem(fontSize: Int, fontFamily: String)
+
+case class TypographyScale(body: TypographyItem, heading: TypographyItem)
+
+case class RadiusScale(sm: Int, md: Int, lg: Int, full: Int)
+
+case class Theme(
+  colors:     ColorPalette,
+  spacing:    SpacingScale,
+  typography: TypographyScale,
+  radii:      RadiusScale
+)
+
+val defaultTheme = Theme(
+  ColorPalette(
+    primary    = "#2563eb",
+    onPrimary  = "#ffffff",
+    secondary  = "#7c3aed",
+    surface    = "#f9fafb",
+    onSurface  = "#111827",
+    background = "#ffffff",
+    muted      = "#6b7280",
+    danger     = "#dc2626",
+    success    = "#16a34a",
+    warning    = "#d97706"
+  ),
+  SpacingScale(xs = 4, sm = 8, md = 16, lg = 24, xl = 32, xxl = 48),
+  TypographyScale(
+    TypographyItem(fontSize = 16, fontFamily = "system-ui, sans-serif"),
+    TypographyItem(fontSize = 24, fontFamily = "system-ui, sans-serif")
+  ),
+  RadiusScale(sm = 4, md = 8, lg = 12, full = 9999)
+)
+
+val darkTheme = Theme(
+  ColorPalette(
+    primary    = "#3b82f6",
+    onPrimary  = "#ffffff",
+    secondary  = "#8b5cf6",
+    surface    = "#1f2937",
+    onSurface  = "#f9fafb",
+    background = "#111827",
+    muted      = "#9ca3af",
+    danger     = "#ef4444",
+    success    = "#22c55e",
+    warning    = "#f59e0b"
+  ),
+  SpacingScale(xs = 4, sm = 8, md = 16, lg = 24, xl = 32, xxl = 48),
+  TypographyScale(
+    TypographyItem(fontSize = 16, fontFamily = "system-ui, sans-serif"),
+    TypographyItem(fontSize = 24, fontFamily = "system-ui, sans-serif")
+  ),
+  RadiusScale(sm = 4, md = 8, lg = 12, full = 9999)
+)
+```

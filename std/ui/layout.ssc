@@ -1,0 +1,27 @@
+---
+name: ui-layout
+version: 1.0.0
+description: Layout widget constructors — vstack, hstack, divider, spacer. Return TkNode; lower with lower.ssc.
+package: std.ui.layout
+exports:
+  - vstack
+  - hstack
+  - divider
+  - spacer
+---
+
+# `std.ui.layout` — layout constructors
+
+```scalascript
+[TkNode, VStackNode, HStackNode, DividerNode, SpacerNode](std/ui/nodes.ssc)
+
+def vstack(gap: Int = 0)(children: TkNode*): TkNode =
+  VStackNode(gap, children.toList)
+
+def hstack(gap: Int = 0)(children: TkNode*): TkNode =
+  HStackNode(gap, children.toList)
+
+def divider(): TkNode = DividerNode()
+
+def spacer(grow: Boolean = false): TkNode = SpacerNode(grow)
+```

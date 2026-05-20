@@ -1,0 +1,19 @@
+---
+name: ui-typography
+version: 1.0.0
+description: Typography widget constructors — heading, text. Return TkNode; lower with lower.ssc.
+package: std.ui.typography
+exports:
+  - heading
+  - text
+---
+
+# `std.ui.typography` — typography constructors
+
+```scalascript
+[TkNode, HeadingNode, TextNode_](std/ui/nodes.ssc)
+
+def heading(level: Int, content: String): TkNode = HeadingNode(level, content)
+
+def text(content: String): TkNode = TextNode_(content)
+```

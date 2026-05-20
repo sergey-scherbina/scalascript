@@ -1,0 +1,59 @@
+---
+name: ui-primitives
+version: 1.0.0
+description: Low-level View/Signal/EventHandler primitives for std/ui. All widget libraries build on top of these nine extern defs.
+package: std.ui.primitives
+exports:
+  - Signal
+  - View
+  - EventHandler
+  - signal
+  - element
+  - textNode
+  - signalText
+  - showSignal
+  - fragment
+  - setSignal
+  - emit
+  - serve
+---
+
+# `std.ui.primitives` — UI primitive extern defs
+
+The nine boundary functions between `.ssc` widget code and the JVM/JS runtime.
+All other `std/ui/*.ssc` files import from here; user code rarely imports
+this file directly.
+
+```scalascript
+opaque type Signal[T]    = Any
+opaque type View         = Any
+opaque type EventHandler = Any
+
+// ── Reactive ─────────────────────────────────────────────────────────────
+// Generic T resolved at runtime by the default value's shape.
+extern def signal[T](name: String, default: T): Signal[T]
+
+// ── DOM construction ──────────────────────────────────────────────────────
+// attrs/events values decoded by shape — see spec §"Encoding Map[String,Any]".
+extern def element(
+  tag:      String,
+  attrs:    Map[String, Any],
+  events:   Map[String, Any],
+  children: List[View]
+): View
+
+// ── Non-element View shapes ───────────────────────────────────────────────
+extern def textNode(s: String): View
+extern def signalText[T](s: Signal[T]): View
+extern def showSignal(cond: Signal[Boolean], whenTrue: View, whenFalse: View): View
+extern def fragment(children: List[View]): View
+
+// ── Event handler constructors ────────────────────────────────────────────
+// SetSignalLiteral — JS-translatable; use instead of a raw closure for
+// buttons and inputs whose click/change must emit to the browser.
+extern def setSignal[T](s: Signal[T], v: T): EventHandler
+
+// ── Output ────────────────────────────────────────────────────────────────
+extern def emit(tree: View, outDir: String): Unit
+extern def serve(tree: View, port: Int): Unit
+```

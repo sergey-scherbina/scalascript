@@ -75,7 +75,8 @@ val InterpreterIntrinsics: Map[QualifiedName, IntrinsicImpl] =
     ++ OAuthIntrinsics    // v1.17     — OAuth AS:     intrinsics/OAuth.scala
     ++ OAuthClientIntrinsics // v1.17  — OAuth Client: intrinsics/OAuthClientIntrinsics.scala
     ++ JdbcIntrinsics     // v1.26     — JDBC:         intrinsics/Jdbc.scala
-    ++ FrontendIntrinsics // v1.18 A7  — Frontend SPI: intrinsics/Frontend.scala
+    ++ FrontendIntrinsics     // v1.18 A7  — Frontend SPI: intrinsics/Frontend.scala
+    ++ UiPrimitivesIntrinsics // v1.29 7a  — std/ui prims: intrinsics/UiPrimitives.scala
 
 /** Same shape as `Value.show` but works on the `Any` payload an
  *  intrinsic sees post-unwrap.  Critical: doubles render without the

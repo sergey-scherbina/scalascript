@@ -1,0 +1,60 @@
+---
+name: ui-nodes
+version: 1.0.0
+description: TkNode sealed ADT — all widget case classes. No imports needed; no extern defs. Import from here when defining new widget constructors or extending lower.ssc.
+package: std.ui.nodes
+exports:
+  - TkNode
+  - VStackNode
+  - HStackNode
+  - DividerNode
+  - SpacerNode
+  - HeadingNode
+  - TextNode_
+  - ShowWhenNode
+  - SignalTextNode
+  - FragmentNode
+  - RawTextNode
+  - TextFieldNode
+  - CheckboxNode
+  - SignalButtonNode
+---
+
+# `std.ui.nodes` — widget ADT
+
+Sealed trait + case classes.  No `.ssc` imports, no `extern def`.
+`lower.ssc` pattern-matches on these; widget constructors in
+`layout.ssc`, `typography.ssc`, etc. produce them.
+
+```scalascript
+sealed trait TkNode
+
+// ── Layout ───────────────────────────────────────────────────────────────
+case class VStackNode(gap: Int, children: List[TkNode]) extends TkNode
+case class HStackNode(gap: Int, children: List[TkNode]) extends TkNode
+case class DividerNode()                                extends TkNode
+case class SpacerNode(grow: Boolean)                    extends TkNode
+
+// ── Typography ────────────────────────────────────────────────────────────
+case class HeadingNode(level: Int, text: String)        extends TkNode
+case class TextNode_(text: String)                      extends TkNode
+
+// ── Reactive helpers ─────────────────────────────────────────────────────
+case class ShowWhenNode(signal: Any, whenTrue: TkNode, whenFalse: TkNode) extends TkNode
+case class SignalTextNode(signal: Any)                  extends TkNode
+case class FragmentNode(children: List[TkNode])         extends TkNode
+case class RawTextNode(text: String)                    extends TkNode
+
+// ── Input ─────────────────────────────────────────────────────────────────
+case class TextFieldNode(value: Any,
+                         label: String,
+                         disabled: Boolean,
+                         required: Boolean)             extends TkNode
+case class CheckboxNode(checked: Any,
+                        label: String,
+                        disabled: Boolean)              extends TkNode
+case class SignalButtonNode(signal: Any,
+                            value: Any,
+                            label: String,
+                            disabled: Boolean)          extends TkNode
+```

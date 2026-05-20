@@ -1,0 +1,26 @@
+---
+name: ui-reactive
+version: 1.0.0
+description: Reactive widget constructors — showWhen, signalText, fragment, rawText. Return TkNode; lower with lower.ssc.
+package: std.ui.reactive
+exports:
+  - showWhen
+  - signalText_
+  - fragment_
+  - rawText
+---
+
+# `std.ui.reactive` — reactive constructors
+
+```scalascript
+[TkNode, ShowWhenNode, SignalTextNode, FragmentNode, RawTextNode](std/ui/nodes.ssc)
+
+def showWhen(signal: Any, whenTrue: TkNode, whenFalse: TkNode): TkNode =
+  ShowWhenNode(signal, whenTrue, whenFalse)
+
+def signalText_(signal: Any): TkNode = SignalTextNode(signal)
+
+def fragment_(children: TkNode*): TkNode = FragmentNode(children.toList)
+
+def rawText(text: String): TkNode = RawTextNode(text)
+```
