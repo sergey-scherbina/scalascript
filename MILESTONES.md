@@ -8530,13 +8530,53 @@ AES-GCM. PBKDF2 / Argon2id / AES-GCM land in Stage 5 (encrypted vault
 + SubtleCrypto adapter). HD derivation lands when the first JS-side
 strategy module needs it (Stage 3 or 4).
 
-### Stage 3 — Strategy + connector cross-compile
+### Stage 3 — Strategy + connector cross-compile ✓ Landed (2026-05-20)
 
-- [ ] `wallet-strategy-eoa` → cross-compile.
-- [ ] `wallet-connector-eip1193` → cross-compile + `js/` source dir
-      for the `window.ethereum` injection layer.
-- [ ] `wallet-connector-wallet-std` → cross-compile + `js/` source
-      dir for the `@wallet-standard/core` facade.
+- [x] `wallet-strategy-eoa` → cross-compile (`CrossType.Full`).  Pure
+      SPI usage, no platform-specific glue.  `EoaStrategy` /
+      `RawPrivateKeyVault` now live in `wallet-strategy-eoa/shared/`;
+      JVM + JS both resolve `CryptoBackend.get()` from the cross-
+      compiled registry.  Existing 5 JVM tests preserved; 5 mirrored
+      tests run on Scala.js (`AsyncFunSuite` so `Future` round-trips
+      work without `Await.result`, which is JVM-only).
+- [x] `wallet-connector-eip1193` → cross-compile + `js/` source dir.
+      Shared `shared/` holds `Eip1193Provider` / `Eip1193Errors` /
+      `Eip6963`; JVM-only test (depends on `blockchain-evm` +
+      `cryptoBouncycastle`) stays under `jvm/src/test/`; new
+      `js/src/main/.../WindowEthereumProvider.scala` wires the
+      provider to the browser via `scalajs-dom` 2.8.0 — `request({
+      method, params })` exposed as a JS Promise, EIP-6963
+      `announceProvider` / `requestProvider` event flow, and
+      `window.ethereum` last-writer-wins binding.  5 Node-side tests
+      under `walletConnectorEip1193Js/test` exercise the event flow
+      with stubbed `window` / `CustomEvent` globals.
+- [x] `wallet-connector-wallet-std` → cross-compile + `js/` source dir.
+      `shared/` holds a `WalletStandardConnectorBase` plus a small
+      inlined subset of the Solana legacy-message wire protocol
+      (`SolanaMessage` / `SolanaInstruction` / `Base58` / `CompactU16`)
+      so the same decode / encode code links on both platforms;
+      JVM-side concrete `WalletStandardConnector` bridges to the
+      existing `scalascript.blockchain.solana.SolanaTx` /
+      `SolanaSignedTx` for runtime cast compatibility with
+      `SolanaChainAdapter`.  `js/src/main/.../WalletStandardRegister.scala`
+      builds the `@wallet-standard/core` `Wallet` JS object and
+      registers via both `wallet-standard:register-wallet` DOM
+      events and the legacy `window.standard.wallets.registerWallet`
+      slot.  Existing 9 JVM tests preserved; 4 new Node-side tests
+      under `walletConnectorWalletStdJs/test`.
+- [x] Build wiring — three new `*Cross` crossProjects in
+      `build.sbt`; legacy `walletStrategyEoa` / `walletConnectorEip1193`
+      / `walletConnectorWalletStd` retained as JVM aliases so
+      downstream `dependsOn(...)` calls (mcp-wallet, x402-client,
+      wallet-strategy-erc4337, …) keep working unchanged.  JS
+      targets aggregated at the root.  Scala.js linker test fork
+      disabled per module via `jsSettings(Test / fork := false)`.
+- [x] Spec update — [`docs/wallet-spi-scalajs.md`](docs/wallet-spi-scalajs.md)
+      § Stage 3 marked landed, with the JVM-side
+      blockchain-solana bridge documented as the trade-off chosen
+      for the Wallet Standard cross-compile (alternative was to fork
+      the SolanaChainAdapter types on JS, which would have rippled
+      across blockchain-solana consumers).
 
 ### Stage 4 — `wallet-strategy-erc4337` cross-compile
 

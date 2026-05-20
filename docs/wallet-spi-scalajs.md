@@ -332,13 +332,79 @@ the sbt test step.
 
 ### Stage 3 — Strategy + connector cross-compile
 
-- `wallet-strategy-eoa` → cross-compile. Its `RawPrivateKeyVault`
+Status: **landed 2026-05-20**.
+
+- `wallet-strategy-eoa` cross-compiled (`CrossType.Full`).  Pure SPI
+  usage; sources moved to `wallet-strategy-eoa/shared/src/main/scala/`.
+  Tests rewritten as `AsyncFunSuite` (Scala.js cannot block on
+  `Await.result`); 5 specs run on both platforms.  `RawPrivateKeyVault`
   uses `CryptoBackend.get()`, which on JS now resolves to the
-  Noble.js backend.
-- `wallet-connector-eip1193` → cross-compile + `js/` source dir for
-  `window.ethereum` injection (Scala.js DOM facade).
-- `wallet-connector-wallet-std` → cross-compile + `js/` for the
-  `@wallet-standard/core` facade.
+  Noble.js backend (Stage 2).
+- `wallet-connector-eip1193` cross-compiled + `js/` source dir.
+  Shared `shared/` holds the protocol translator + EIP-6963 value
+  types; JVM-only test (real `EvmChainAdapter` + BouncyCastle signer)
+  lives under `jvm/src/test/`.  `js/src/main/scala/.../WindowEthereumProvider.scala`
+  wraps the cross-compiled `Eip1193Provider` in a JS façade that:
+  - Exposes `request({method, params})` returning `js.Promise[js.Any]`
+    matching the dApp-facing EIP-1193 contract.
+  - Emits `eip6963:announceProvider` events on the global window and
+    listens for `eip6963:requestProvider` to re-announce.
+  - Last-writer-wins binds `window.ethereum` to the provider for
+    legacy dApps that don't speak EIP-6963.
+  - Top-level `@JSExportTopLevel("registerScalaScriptEip1193")` lets
+    host JS install a wallet from the bootstrap script.
+  - sbt dep: `org.scala-js %%% "scalajs-dom" % "2.8.0"` (added via
+    `jsSettings`).  No npm `package.json` — DOM facades are part of
+    scalajs-dom and require no JS-side install.
+- `wallet-connector-wallet-std` cross-compiled + `js/` source dir.
+  Approach A (extract the small subset) chosen: the connector's
+  `shared/SolanaWireProtocol.scala` inlines `SolanaMessage`,
+  `SolanaInstruction`, `Base58`, and `CompactU16` so the shared
+  decoder / encoder code links on both platforms.  The JVM-only
+  bridge `wallet-connector-wallet-std/jvm/.../WalletStandardConnectorJvm.scala`
+  translates the shared `SolanaMessage` into the
+  `scalascript.blockchain.solana.SolanaTx` / `SolanaSignedTx` types the
+  existing `SolanaChainAdapter` consumes (preserves the
+  `tx.asInstanceOf[adapter.Tx]` cast at runtime).  The
+  user-facing `WalletStandardConnector` class is a thin concrete
+  subclass of `WalletStandardConnectorBase` on each platform —
+  JVM-side bridges to `blockchain-solana`; JS-side stubs the
+  bridge methods with `UnsupportedOperationException` until a
+  Scala.js Solana `ChainAdapter` ships (out of scope for Stage 3 —
+  `solana:signMessage` still works on JS because it doesn't need the
+  bridge).  `js/src/main/scala/.../WalletStandardRegister.scala`
+  builds the `@wallet-standard/core` `Wallet` JS object and
+  registers via both routes:
+  - **Pull-style** (current spec) — dispatches a
+    `wallet-standard:register-wallet` `CustomEvent` carrying a
+    callback that the dApp invokes with the wallet handle.
+  - **Push-style** (legacy compatibility) — invokes
+    `window.standard.wallets.registerWallet(wallet)` if available.
+  - Top-level `@JSExportTopLevel("registerScalaScriptWallet")` for
+    host JS bootstrap.
+
+### 5.1 Stage 3 testing notes
+
+- JVM test counts preserved bit-for-bit: 5 (eoa) + 13 (eip1193) +
+  9 (wallet-std) = 27, same as pre-Stage 3.
+- JS tests added: 5 (eoa, mirrored from JVM) + 5 (eip1193 facade) +
+  4 (wallet-std register) = 14.
+- DOM globals (`window`, `CustomEvent`) are stubbed via a
+  `@JSGlobal("globalThis")` typed binding so the test can mutate them
+  without tripping the "loading the global scope as a value" rule.
+  Listeners are invoked synchronously on dispatch.
+- Node v18+ on `PATH` is the only host dep; no extra npm packages
+  needed for these three modules.
+
+### 5.2 Stage 3 deferred / follow-ups
+
+- A real Scala.js Solana `ChainAdapter` (would unstub
+  `WalletStandardConnector.buildSolanaTx` on JS) — separate slice;
+  not on the wallet-spi-scalajs critical path.
+- EIP-6963 event-emission end-to-end coverage in a real browser
+  remains a manual smoke test — the Stage 3 Node tests cover the
+  Scala-side event dispatch + listener flow but not full
+  cross-frame `dispatchEvent` semantics.
 
 ### Stage 4 — `wallet-strategy-erc4337` cross-compile
 

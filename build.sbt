@@ -1053,15 +1053,31 @@ lazy val walletVaultEncrypted = project
     Test    / scalacOptions ++= sharedScalacOptions,
   )
 
-lazy val walletStrategyEoa = project
-  .in(file("wallet-strategy-eoa"))
-  .dependsOn(walletSpi, blockchainSpi, cryptoSpi)
-  .settings(
-    name := "scalascript-wallet-strategy-eoa",
-    libraryDependencies ++= Seq(scalatestTest),
-    Compile / scalacOptions ++= sharedScalacOptionsStrict,
-    Test    / scalacOptions ++= sharedScalacOptions,
-  )
+// Cross-compiled (JVM + Scala.js) — docs/wallet-spi-scalajs.md § Stage 3.
+// Pure SPI usage; no JVM-only deps in `shared/`.  The Stage 1 / Stage 2
+// CryptoBackend registry resolves correctly on both platforms, so the
+// same `RawPrivateKeyVault` + `EoaStrategy` link unchanged on JS.
+lazy val walletStrategyEoaCross =
+  crossProject(JVMPlatform, JSPlatform)
+    .crossType(CrossType.Full)
+    .in(file("wallet-strategy-eoa"))
+    .dependsOn(walletSpiCross, blockchainSpiCross, cryptoSpiCross)
+    .settings(
+      name := "scalascript-wallet-strategy-eoa",
+      libraryDependencies += "org.scalatest" %%% "scalatest" % "3.2.18" % Test,
+      Compile / scalacOptions ++= sharedScalacOptionsStrict,
+      Test    / scalacOptions ++= sharedScalacOptions,
+    )
+    // Preserve the legacy `walletStrategyEoa/test` invocation.
+    .jvmConfigure(_.withId("walletStrategyEoa"))
+    .jsConfigure(_.withId("walletStrategyEoaJs"))
+    .jsSettings(Test / fork := false)
+
+lazy val walletStrategyEoaJvm = walletStrategyEoaCross.jvm
+lazy val walletStrategyEoaJs  = walletStrategyEoaCross.js
+// JVM alias — every downstream module that `.dependsOn(walletStrategyEoa)`
+// stays JVM-only for now and continues to use this name.
+lazy val walletStrategyEoa    = walletStrategyEoaJvm
 
 // wallet-spi Phase 8 — MPC Vault (docs/wallet-spi.md §10).
 // HTTP client to an external multi-party-computation signing provider.
@@ -1095,18 +1111,36 @@ lazy val walletStrategyErc4337 = project
     Test    / scalacOptions ++= sharedScalacOptions,
   )
 
-lazy val walletConnectorEip1193 = project
-  .in(file("wallet-connector-eip1193"))
-  .dependsOn(walletSpi, blockchainSpi, walletStrategyEoa % Test, blockchainEvm % Test, cryptoBouncycastle % Test)
-  .settings(
-    name := "scalascript-wallet-connector-eip1193",
-    libraryDependencies ++= Seq(
-      "com.lihaoyi" %% "upickle" % "4.4.2",
-      scalatestTest,
-    ),
-    Compile / scalacOptions ++= sharedScalacOptionsStrict,
-    Test    / scalacOptions ++= sharedScalacOptions,
-  )
+// Cross-compiled (JVM + Scala.js) — docs/wallet-spi-scalajs.md § Stage 3.
+// `shared/` holds the protocol translator + EIP-6963 value types (no
+// java.* deps); `js/` adds the Scala.js browser glue that wires the
+// translator to `window.ethereum` and the EIP-6963 announce / request
+// event flow via scalajs-dom.  JVM-only tests (real EVM signer +
+// adapter) live in `jvm/src/test/scala/`.
+lazy val walletConnectorEip1193Cross =
+  crossProject(JVMPlatform, JSPlatform)
+    .crossType(CrossType.Full)
+    .in(file("wallet-connector-eip1193"))
+    .dependsOn(walletSpiCross, blockchainSpiCross)
+    .settings(
+      name := "scalascript-wallet-connector-eip1193",
+      libraryDependencies += "com.lihaoyi"   %%% "upickle"   % "4.4.2",
+      libraryDependencies += "org.scalatest" %%% "scalatest" % "3.2.18" % Test,
+      Compile / scalacOptions ++= sharedScalacOptionsStrict,
+      Test    / scalacOptions ++= sharedScalacOptions,
+    )
+    .jvmConfigure(_.withId("walletConnectorEip1193"))
+    .jvmConfigure(_.dependsOn(walletStrategyEoa % Test, blockchainEvm % Test, cryptoBouncycastle % Test))
+    .jsConfigure(_.withId("walletConnectorEip1193Js"))
+    .jsSettings(
+      Test / fork := false,
+      // scalajs-dom 2.8+ — DOM facades (window, CustomEvent, Event).
+      libraryDependencies += "org.scala-js" %%% "scalajs-dom" % "2.8.0",
+    )
+
+lazy val walletConnectorEip1193Jvm = walletConnectorEip1193Cross.jvm
+lazy val walletConnectorEip1193Js  = walletConnectorEip1193Cross.js
+lazy val walletConnectorEip1193    = walletConnectorEip1193Jvm
 
 lazy val walletConnect = project
   .in(file("wallet-connect"))
@@ -1160,18 +1194,40 @@ lazy val walletVaultLedgerEthereum = project
     Test    / scalacOptions ++= sharedScalacOptions,
   )
 
-lazy val walletConnectorWalletStd = project
-  .in(file("wallet-connector-wallet-std"))
-  .dependsOn(walletSpi, blockchainSpi, blockchainSolana, walletStrategyEoa % Test, cryptoBouncycastle % Test)
-  .settings(
-    name := "scalascript-wallet-connector-wallet-std",
-    libraryDependencies ++= Seq(
-      "com.lihaoyi" %% "upickle" % "4.4.2",
-      scalatestTest,
-    ),
-    Compile / scalacOptions ++= sharedScalacOptionsStrict,
-    Test    / scalacOptions ++= sharedScalacOptions,
-  )
+// Cross-compiled (JVM + Scala.js) — docs/wallet-spi-scalajs.md § Stage 3.
+// `shared/` holds a `WalletStandardConnectorBase` + a small inlined
+// subset of the Solana legacy-message wire protocol (`SolanaMessage`,
+// `SolanaInstruction`, `Base58`, `CompactU16`) — both platforms parse
+// / serialise message bytes from the same code.  The JVM-side concrete
+// `WalletStandardConnector` bridges to the existing
+// `blockchain-solana` `SolanaTx` / `SolanaSignedTx` types so legacy
+// JVM consumers (mcp-wallet, gRPC bridge tests) keep working; the
+// Scala.js variant exposes `window.standard.wallets.registerWallet`
+// + `wallet-standard:register-wallet` DOM-event registration via
+// scalajs-dom.
+lazy val walletConnectorWalletStdCross =
+  crossProject(JVMPlatform, JSPlatform)
+    .crossType(CrossType.Full)
+    .in(file("wallet-connector-wallet-std"))
+    .dependsOn(walletSpiCross, blockchainSpiCross)
+    .settings(
+      name := "scalascript-wallet-connector-wallet-std",
+      libraryDependencies += "com.lihaoyi"   %%% "upickle"   % "4.4.2",
+      libraryDependencies += "org.scalatest" %%% "scalatest" % "3.2.18" % Test,
+      Compile / scalacOptions ++= sharedScalacOptionsStrict,
+      Test    / scalacOptions ++= sharedScalacOptions,
+    )
+    .jvmConfigure(_.withId("walletConnectorWalletStd"))
+    .jvmConfigure(_.dependsOn(blockchainSolana, walletStrategyEoa % Test, cryptoBouncycastle % Test))
+    .jsConfigure(_.withId("walletConnectorWalletStdJs"))
+    .jsSettings(
+      Test / fork := false,
+      libraryDependencies += "org.scala-js" %%% "scalajs-dom" % "2.8.0",
+    )
+
+lazy val walletConnectorWalletStdJvm = walletConnectorWalletStdCross.jvm
+lazy val walletConnectorWalletStdJs  = walletConnectorWalletStdCross.js
+lazy val walletConnectorWalletStd    = walletConnectorWalletStdJvm
 
 lazy val mcpWallet = project
   .in(file("mcp-wallet"))
@@ -1374,7 +1430,7 @@ lazy val root = project
     x402Core, x402Server, x402Client,
     x402FacilitatorCoinbase, x402FacilitatorEvm, x402FacilitatorCardano,
     x402QueueKafka, x402QueuePostgres, x402NoncePostgres, x402NonceRedis,
-    cryptoSpi, cryptoSpiJs, cryptoBouncycastle, cryptoNobleJs, blockchainSpi, blockchainSpiJs, blockchainEvm, blockchainEvmAbi, blockchainSolana, blockchainCardano, walletSpi, walletSpiJs, walletVaultEncrypted, walletVaultMpc, walletVaultLedger, walletVaultLedgerJvm, walletVaultLedgerEthereum, walletStrategyEoa, walletStrategyErc4337, walletConnectorEip1193, walletConnect, walletConnectorWalletStd, mcpWallet, mcpX402,
+    cryptoSpi, cryptoSpiJs, cryptoBouncycastle, cryptoNobleJs, blockchainSpi, blockchainSpiJs, blockchainEvm, blockchainEvmAbi, blockchainSolana, blockchainCardano, walletSpi, walletSpiJs, walletVaultEncrypted, walletVaultMpc, walletVaultLedger, walletVaultLedgerJvm, walletVaultLedgerEthereum, walletStrategyEoa, walletStrategyEoaJs, walletStrategyErc4337, walletConnectorEip1193, walletConnectorEip1193Js, walletConnect, walletConnectorWalletStd, walletConnectorWalletStdJs, mcpWallet, mcpX402,
     micropaymentSpi, micropaymentThreshold, micropaymentServer, micropaymentClient, micropaymentProbabilistic, micropaymentChannelEvm, micropaymentHydra,
     frontendCore, frontendCustom, frontendReact, frontendSolid, frontendVue,
     frontendExamples,
