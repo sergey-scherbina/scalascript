@@ -8037,32 +8037,44 @@ deferred — no subprocess plugin currently emits this diagnostic;
 the wire encoder will gain a `unsupported-jdbc-url` kind the first
 time a plugin needs to surface it.
 
-### Phase 7 — Examples + conformance ✓ Landed
+### Phase 7 — Examples + conformance ✓ Landed (2026-05-20)
 
 - [x] `examples/sql-browser-sqlite.ssc` — zero-config sqlite::memory:
-      example with section-aliased read, `${expr}` bind, tagged
+      with `${expr}` binds, `<SectionId>.sql.rows` access, tagged
       `backends: [js, node, wasm]`.
-- [x] `examples/sql-browser-duckdb.ssc` — `@db=name` routing between
-      two named connections (sqlite + duckdb) in the same module,
-      analytical GROUP BY on duckdb.
+- [x] `examples/sql-browser-duckdb.ssc` — two named connections
+      (sqlite default + duckdb analytics) in the same module,
+      `@db=analytics` routing for the analytical GROUP BY.
 - [x] `SqlBrowserExamplesTest` (2 cases) — self-contained, inlines
       example sources verbatim, compiles via NodeBackend, runs under
       `node main.cjs` against real `sql.js` / `@duckdb/duckdb-wasm` /
-      `web-worker`.  Cached `npm install` per provider set.
-- [x] `conformance/sql-browser-basic.ssc` + matching
-      `conformance/expected/sql-browser-basic.txt` —
-      `backends: [js, node, wasm]` declaration; exercises CREATE +
-      INSERT (with `String` bind) + SELECT + UPDATE-style row count.
+      `web-worker`.  Stable cache dir per provider set ⇒ one
+      `npm install` per `package.json` shape.  Skipped gracefully
+      when `node` / `npm` aren't on PATH.
+- [x] `conformance/sql-browser-basic.ssc` +
+      `conformance/expected/sql-browser-basic.txt` — pins the v1.27
+      browser-side sql contract (CREATE + INSERT with `${expr}` bind
+      + SELECT + UPDATE-style row count via `.sql.count`) under the
+      JS-family targets.  Tagged `backends: [js, node, wasm]`; carries
+      `pending: needs npm install in conformance/run.sc JS lane` so
+      the cross-backend harness skips it (the JS lane pipes emitted
+      code to `node` without `npm install`, so `import 'sql.js'`
+      fails with `MODULE_NOT_FOUND`).  The in-process
+      `SqlBrowserConformanceCaptureTest` is the real regression net.
 - [x] `SqlBrowserConformanceCaptureTest` — reads the on-disk
-      conformance file (drift between contract surface and test is
-      surfaced loudly), compiles through NodeBackend, runs under Node,
-      asserts stdout matches `conformance/expected/...` byte-for-byte.
+      conformance file (so drift between contract surface and test is
+      surfaced loudly), compiles via NodeBackend, runs through the
+      same `npm install` + `node main.cjs` harness as
+      `SqlBrowserExamplesTest`, asserts stdout matches
+      `conformance/expected/...` byte-for-byte.  Mirrors
+      `SqlConformanceCaptureTest` (interpreter lane).
 - [x] `docs/targets.md` — block-language matrix flipped ✅ for `sql`
-      on JS / Node / Wasm with the v1.27 note.  New `v1.27 — sql on
-      JS-family targets` subsection covers the URL-prefix dispatch
-      table, async-by-construction shape, `<sectionId>.sql` result
-      contract, NodeBackend `package.json` artifact, and the
-      `Diagnostic.UnsupportedJdbcUrl` gating.
+      on JS / Node / Wasm (per-target parenthetical notes the
+      runtime — sql.js / DuckDB-Wasm — plus the v1.27 marker).  New
+      v1.27 subsection documents the URL-prefix dispatch table, the
+      jdbc-only-on-JVM rule, and the per-target emit-time artifacts
+      (Node ships `package.json`; Wasm ships `sql-runtime.mjs` +
+      `sql-registry.mjs` + `package.json` as `Segment.Asset`s).
 
 ### Out of scope (deferred to v1.28+ or beyond)
 

@@ -261,7 +261,7 @@ per-backend support for every block language currently in `Lang.scala`.
 | `css`             | ✅ (`<id>.css` String binding)  | ✅ | ✅ | ✅ | ✅ | ✅ |
 | `javascript` / `js` | ✅ (String value) | ✅ | ✅ (spliced into output) | ✅ | ✅ | ✅ |
 | `node.js` / `node` | ❌ (`UnknownBlockLanguage`) | ❌ | ❌ | ✅ (linked into bundle) | ❌ | ❌ |
-| `sql`             | ✅ (JDBC via `backend-sql-runtime`) | ✅ (emits `SqlRuntime.execute`) | ✅ (sql.js / DuckDB-Wasm — v1.27) | ✅ (sql.js / DuckDB-Wasm — v1.27) | ✅ (sql.js / DuckDB-Wasm — v1.27) | ✅ (Spark SQL) |
+| `sql`             | ✅ (JDBC via `backend-sql-runtime`) | ✅ (emits `SqlRuntime.execute`) | ✅ (sql.js / DuckDB-Wasm — v1.27) | ✅ (sql.js / DuckDB-Wasm + `package.json` — v1.27) | ✅ (JS shim via `SqlRuntimeJsEmit` — v1.27) | ✅ (Spark SQL) |
 
 When a backend doesn't claim a block language, `CapabilityCheck`
 emits a `Diagnostic.UnknownBlockLanguage(<lang>)` so the user gets a
@@ -335,7 +335,15 @@ Differences from the JVM/Interpreter path:
     unaffected.
 
 Examples in [`examples/sql-browser-sqlite.ssc`](../examples/sql-browser-sqlite.ssc)
-and [`examples/sql-browser-duckdb.ssc`](../examples/sql-browser-duckdb.ssc).
+and [`examples/sql-browser-duckdb.ssc`](../examples/sql-browser-duckdb.ssc);
+end-to-end pinning in `SqlBrowserExamplesTest` and
+`SqlBrowserConformanceCaptureTest`.
+
+The Wasm target ships the JS runtime + per-module registry as
+`Segment.Asset`s alongside the `.wasm` blob (`sql-runtime.mjs`,
+`sql-registry.mjs`, `package.json`); the Node target ships
+`package.json` next to `main.cjs`.  Full v1.27 spec:
+[`docs/browser-sql.md`](browser-sql.md).
 
 ## Adding New Backends
 

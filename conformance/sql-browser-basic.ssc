@@ -3,6 +3,7 @@
 name: sql-browser-basic
 description: v1.27 — `sql` fenced blocks via sql.js / DuckDB-Wasm on JS-family targets
 backends: [js, node, wasm]
+pending: needs npm install in conformance/run.sc JS lane — pinned by SqlBrowserConformanceCaptureTest
 databases:
   default:
     url: "sqlite::memory:"
