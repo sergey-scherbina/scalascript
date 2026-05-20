@@ -38,6 +38,7 @@ final class CustomFrameworkBackend extends FrontendFrameworkSpi:
     Capability.EffectLifecycle,
     Capability.DomRefs,
     Capability.Context,
+    Capability.Portals,   // v1.18 / A6 — querySelector + appendChild lowering
     Capability.Untrack
   )
 

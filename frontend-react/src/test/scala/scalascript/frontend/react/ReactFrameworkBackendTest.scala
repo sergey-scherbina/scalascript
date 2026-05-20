@@ -45,8 +45,13 @@ class ReactFrameworkBackendTest extends AnyFunSuite:
     assert(emitted.html.contains("react-dom.production.min.js"))
     assert(emitted.html.contains("""<div id="app"></div>"""))
 
-    // JS uses h() alias for React.createElement.
-    assert(emitted.js.contains("const { useState, createElement: h, Fragment } = React;"))
+    // JS uses h() alias for React.createElement.  A6 added useRef to
+    // the destructure list; just check that the relevant pieces are
+    // all there (order is stable but matching the full line is brittle).
+    assert(emitted.js.contains("const { useState"))
+    assert(emitted.js.contains("useRef"))
+    assert(emitted.js.contains("createElement: h"))
+    assert(emitted.js.contains("Fragment } = React;"))
     assert(emitted.js.contains("function App()"))
     assert(emitted.js.contains("h('div'"))
     // class → className mapping.

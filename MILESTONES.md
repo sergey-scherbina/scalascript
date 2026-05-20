@@ -3983,8 +3983,39 @@ the codegen output.
     templates need a richer IR and are deferred.  Tests: 5 unit + 1
     e2e per backend (4 backends → 23 new tests; 120 total in
     frontend-* suites).
-  - **Phase A6** — refs / context / suspense / portal rounded out
-    per backend.  ~1 week.
+  - **Phase A6** (refs + portals) ✓ Landed 2026-05-20 — DOM refs and
+    portals across all four frontend backends.  IR additions:
+    `final class DomRef(jsName: String)` + a new
+    `AttrValue.RefBinding(ref: DomRef)` (composes through the existing
+    `Element.attrs` map with the reserved-by-convention key `"ref"`),
+    plus `View.Portal(target: String, children: Seq[View])` for
+    rendering subtrees into a foreign DOM location.  Per-backend
+    lowerings:
+      * Custom: `let <jsName> = null;` at module scope + `<jsName> =
+        element;` after `createElement`; portal uses
+        `document.querySelector(target).appendChild(...)` with a loud
+        runtime error if the target is missing.
+      * React: `useRef(null)` hoisted at the top of `App()` + `ref:
+        <jsName>` prop on the createElement call; portal uses
+        `ReactDOM.createPortal(child, document.querySelector(target))`
+        (multi-child children wrapped in `React.Fragment` so the call
+        receives one node).
+      * Solid: same imperative shape as Custom (matches Solid's
+        hand-written-imperative pattern; `solid-js/web`'s `<Portal>`
+        needs JSX which we don't transpile).
+      * Vue: `ref(null)` in `setup()` + Vue's reserved `ref` prop on
+        `h(...)`; portal uses `h(Teleport, { to: target }, [...])` with
+        the `Teleport` import added conditionally so portal-less
+        bundles stay clean.
+    Refs and the Custom-backend Portals capability now live on the
+    `Capability` set (React / Solid / Vue already declared Portals).
+    DomRef `jsName` validates against `[A-Za-z_][A-Za-z0-9_]*` (same
+    contract as `ReactiveSignal`).  Tests: 5 emit + 1 jsdom-or-parse-
+    only E2E per backend (24 new tests; 137 total in frontend-* suites).
+    **Deliberately deferred to A6.2:** context (React.createContext /
+    Vue provide-inject / Solid createContext) and Suspense — both
+    require richer IR (provider scopes, async boundaries) and weren't
+    in scope for this slice.
   - **Phase A7** ✓ Landed 2026-05-20 — `setFrontendFramework(name)`
     interpreter intrinsic + `ssc emit-spa --frontend <custom|react|
     solid|vue>` CLI flag.  Mirrors v1.17.6 `setHttpServerBackend` /

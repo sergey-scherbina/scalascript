@@ -181,6 +181,52 @@ object View:
       attrs: Map[String, AttrValue]  = Map.empty
   ) extends View
 
+  /** v1.18 / Phase A6 — render a subtree into a different DOM
+   *  location instead of the current parent.  Canonical use is
+   *  modal layers, tooltips, toasts — UI that visually belongs
+   *  outside its logical parent's DOM tree.
+   *
+   *  `target` is a DOM selector (`#modal-root`, `body`, ...) — the
+   *  emitter does NOT validate it at compile time; the runtime
+   *  fails loudly if the element is missing.
+   *
+   *  Per-backend lowerings:
+   *    - Custom: `document.querySelector(target).appendChild(...)`
+   *      instead of appending to the local parent (imperative DOM,
+   *      matches Custom's existing style)
+   *    - React : wraps the rendered children in
+   *      `ReactDOM.createPortal(child, document.querySelector(target))`
+   *    - Solid : imperative `document.querySelector(target).appendChild(...)`
+   *      (matches Solid's hand-written-imperative pattern; we don't
+   *      wire `solid-js/web`'s `<Portal>` because it requires JSX)
+   *    - Vue   : `h(Teleport, { to: target }, [...children])` */
+  final case class Portal(target: String, children: Seq[View]) extends View
+
+/** v1.18 / Phase A6 — a handle on a DOM element that user JS
+ *  code can read after mount.  Each backend wires the ref so that
+ *  after the element is mounted, the JS-side variable named
+ *  `jsName` holds the underlying DOM node.
+ *
+ *  Naming contract: `jsName` must match `[A-Za-z_][A-Za-z0-9_]*`
+ *  and is the exact identifier used in the emitted JS — pick a
+ *  name you'll reference from your imperative JS (focus, measure,
+ *  third-party-lib integration, ...).
+ *
+ *  Per-backend lowerings:
+ *    - Custom: emits `let <jsName>;` at top of `mount()` and
+ *      assigns `<jsName> = element;` right after `createElement`
+ *    - React : emits `const <jsName> = React.useRef(null);`
+ *      hoisted at the top of `App()` and passes `ref: <jsName>`
+ *      in the element's `createElement` props.  Access the node
+ *      via `<jsName>.current` (idiomatic React).
+ *    - Solid : same imperative-DOM style as Custom (`let <jsName>;`
+ *      + `<jsName> = el;` after createElement) — matches Solid's
+ *      hand-written JSX-free output
+ *    - Vue   : emits `const <jsName> = ref(null);` in setup() and
+ *      passes `ref: <jsName>` in the `h()` props; access via
+ *      `<jsName>.value` */
+final class DomRef(val jsName: String)
+
 /** Attribute value on a DOM element.  String / Boolean / Int for
  *  literals; `() => …` thunks for dynamic interpolation that
  *  participates in the reactivity system. */
@@ -191,6 +237,13 @@ object AttrValue:
   final case class Num(value: Double)                  extends AttrValue
   final case class Dynamic[T](read: () => T)           extends AttrValue
   case object Absent                                   extends AttrValue
+
+  /** v1.18 / Phase A6 — bind a `DomRef` to this element.  The
+   *  attribute key is conventionally `"ref"` but the emitter
+   *  doesn't enforce that; only the `RefBinding` shape matters.
+   *  Multiple `RefBinding`s on the same element bind the same
+   *  underlying node to multiple refs (each gets the assignment). */
+  final case class RefBinding(ref: DomRef)             extends AttrValue
 
 /** An event handler — `() => Unit` for the simple case, with
  *  optional `Event` argument for keyboard / mouse / form events
