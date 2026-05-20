@@ -7866,15 +7866,37 @@ Mirrors JvmGen Phase 6.C, adapted for async.
 - [ ] Swap `NodeBackendTest`'s `UnknownBlockLanguage("sql")` case
       with no-diagnostic + new `UnsupportedJdbcUrl` case.
 
-### Phase 5 — WasmBackend wiring
+### Phase 5 — WasmBackend wiring ✓ Landed (2026-05-20)
 
-- [ ] `WasmCapabilities.blockLanguages += Lang.Sql`.
-- [ ] `WasmBackend.emitJsShim` mirrors NodeBackend's emit when sql
-      blocks are present.  Wasm body itself unaffected.
-- [ ] Tests: `WasmBackendSqlTest` (2 cases — sqlite + duckdb in-mem
-      through the JS shim under Node).
-- [ ] Swap `WasmBackendTest`'s `UnknownBlockLanguage("sql")` case
-      analogously.
+- [x] `WasmCapabilities.blockLanguages = Set(Lang.Sql)`.
+- [x] `WasmBackend.emitJsShim` — when sql blocks are present, the
+      `Segmented` result gains three assets mirroring NodeBackend's
+      package-json emit:
+      * `Segment.Asset("sql-runtime.mjs", …)` — bundled JS runtime via
+        `SqlRuntimeJsEmit.runtimeSource`.
+      * `Segment.Asset("sql-registry.mjs", …)` — per-module registry
+        init derived from `manifest.databases`.
+      * `Segment.Asset("package.json", …)` — npm deps (`sql.js`,
+        `@duckdb/duckdb-wasm`, `web-worker`) gated on referenced
+        providers; ESM (`"type": "module"`) since the Wasm shim is
+        itself an ES module.
+      Wasm body itself unaffected; sql-only modules (no scala blocks)
+      still emit the three sql assets.
+- [x] `backend-wasm/build.sbt` — `dependsOn(backendSqlRuntimeJs)` to
+      pull in `SqlRuntimeJsEmit` + `ProviderId`.
+- [x] Tests: `WasmBackendSqlTest` (8 cases — no-sql passthrough, sqlite-
+      only deps, duckdb-only deps, both, no-databases fallback, runtime
+      verbatim, registry shape with named connections, empty-registry
+      shape).
+- [x] Swap `WasmBackendTest`'s `UnknownBlockLanguage("sql")` case to
+      assert **no** diagnostic (matches NodeBackendTest's Phase-4 case).
+
+Deferred to Phase 7: end-to-end runtime execution of sql blocks under
+the Wasm shim (`SqlBrowserExamplesTest` / `SqlBrowserConformanceCaptureTest`).
+The current Wasm bytecode doesn't have extern bindings to invoke
+`SqlRuntimeJs.execute` from compiled Scala.js wasm; the asset bundle
+ships ready to install, but wiring user-code sql blocks to those
+assets needs additional Wasm-side codegen beyond Phase 5's scope.
 
 ### Phase 6 — `UnsupportedJdbcUrl` diagnostic
 

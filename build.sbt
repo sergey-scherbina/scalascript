@@ -402,7 +402,10 @@ lazy val backendScalajs = project
 
 lazy val backendWasm = project
   .in(file("backend-wasm"))
-  .dependsOn(backendSpi, core)
+  // v1.27 Phase 5 — backendSqlRuntimeJs for ProviderId / SqlRuntimeJsEmit
+  // shared with backend-js + backend-node.  sql blocks routed through the
+  // JS shim that already accompanies the .wasm blob.
+  .dependsOn(backendSpi, core, backendSqlRuntimeJs)
   .settings(
     name := "scalascript-backend-wasm",
     libraryDependencies ++= Seq(scalatestTest),

@@ -93,12 +93,14 @@ class WasmBackendTest extends AnyFunSuite with Matchers:
       case other =>
         fail(s"unexpected: $other")
 
-  test("CapabilityCheck: wasm backend rejects sql blocks → UnknownBlockLanguage('sql')"):
-    // v1.26 — sql blocks are JVM-only.  Wasm doesn't declare `sql`
-    // in its blockLanguages, so validate must surface a
-    // `UnknownBlockLanguage("sql")` diagnostic on any sql fence.
-    // Wired generically via `Lang.isOpaqueExec` matching on
-    // `ir.Content.SqlBlock` in `CapabilityCheck.unknownBlockLanguages`.
+  test("CapabilityCheck: wasm backend accepts sql blocks (v1.27 Phase 5 — no diagnostic)"):
+    // v1.27 Phase 5 — Wasm declares `sql` in `blockLanguages` so the
+    // generic `UnknownBlockLanguage` diagnostic no longer fires.  sql
+    // blocks are routed through the JS shim that already accompanies
+    // the .wasm blob; the Wasm body itself is unaffected.  Phase 6 will
+    // add a build-time `UnsupportedJdbcUrl` diagnostic for `jdbc:` URLs
+    // on non-JVM targets; until then jdbc: URLs surface a runtime error
+    // from `sql-runtime.mjs`'s `UnsupportedJdbcUrl` class.
     import scalascript.validate.CapabilityCheck
     val src =
       """|# Query
@@ -112,4 +114,4 @@ class WasmBackendTest extends AnyFunSuite with Matchers:
     diags.exists {
       case Diagnostic.UnknownBlockLanguage("sql") => true
       case _                                      => false
-    } shouldBe true
+    } shouldBe false
