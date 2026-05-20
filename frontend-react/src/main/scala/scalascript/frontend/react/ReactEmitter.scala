@@ -350,9 +350,12 @@ private[react] object ReactEmitter:
     // untranslatable JVM closure), use defaultValue so the field is
     // uncontrolled and the user can still type in the browser.
     val hasOnChange = eventFields.exists(_.startsWith("'onChange'"))
-    val finalAttrFields = if !hasOnChange && attrFields.exists(_.startsWith("'value'"))
-      then attrFields.map(f => if f.startsWith("'value'") then "'defaultValue'" + f.drop("'value'".length) else f)
-      else attrFields
+    val finalAttrFields = if hasOnChange then attrFields
+      else attrFields.map { f =>
+        if f.startsWith("'value'")   then "'defaultValue'"  + f.drop("'value'".length)
+        else if f.startsWith("'checked'") then "'defaultChecked'" + f.drop("'checked'".length)
+        else f
+      }
     val all = keyField ++ finalAttrFields ++ eventFields
     if all.isEmpty then "null" else s"{ ${all.mkString(", ")} }"
 
