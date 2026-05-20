@@ -13,11 +13,11 @@ Pure function, no DOM, no async — safe for SSR.
 Import this + a Theme, build your tree with widget constructors,
 then call `serve(lower(tree, defaultTheme), 8080)`.
 
-[TkNode, VStackNode, HStackNode, DividerNode, SpacerNode, HeadingNode, TextNode_, ShowWhenNode, SignalTextNode, FragmentNode, RawTextNode, TextFieldNode, CheckboxNode, SignalButtonNode, ActionButtonNode, BadgeNode, SpinnerNode, SignalPreNode, CardNode, ModalNode, TableColumn, TableNode, RouteEntry, RouterNode, LinkNode](nodes.ssc)
+[TkNode, VStackNode, HStackNode, DividerNode, SpacerNode, HeadingNode, TextNode_, ShowWhenNode, SignalTextNode, FragmentNode, RawTextNode, TextFieldNode, CheckboxNode, SignalButtonNode, ActionButtonNode, BadgeNode, SpinnerNode, SignalPreNode, CardNode, ModalNode, TableColumn, TableNode, RouteEntry, RouterNode, LinkNode, FetchTableNode](nodes.ssc)
 
 [Theme](theme.ssc)
 
-[element, textNode, signalText, showSignal, fragment, setSignal, inputChange, toggleSignal, eqSignal](primitives.ssc)
+[element, textNode, signalText, showSignal, fragment, setSignal, inputChange, toggleSignal, eqSignal, fetchTableView](primitives.ssc)
 
 ```scalascript
 def lower(n: TkNode, theme: Theme): View = n match
@@ -280,5 +280,8 @@ def lower(n: TkNode, theme: Theme): View = n match
       Map("href" -> to, "style" -> style),
       Map("click" -> setSignal(currentAny, to)),
       List(textNode(label)))
+
+  case FetchTableNode(fetchUrl, deleteUrl, tick) =>
+    fetchTableView(fetchUrl, deleteUrl, tick)
 
 ```

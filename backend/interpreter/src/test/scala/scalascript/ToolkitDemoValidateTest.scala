@@ -15,9 +15,11 @@ class ToolkitDemoValidateTest extends AnyFunSuite:
     // serve() emits to a temp dir THEN starts the server.  In test environments
     // port 8080 may already be occupied; we catch BindException so the JS check
     // still runs on the already-written temp dir.
+    // baseDir = repoRoot so that `std/ui/*.ssc` imports resolve without needing
+    // ssc.lib.path, since the demo uses bare `std/` paths not `../../std/`.
     try
       Interpreter(out = ps, headless = false,
-                  baseDir = Some(TestPaths.repoRoot / "examples" / "frontend" / "toolkit-demo")).run(Parser.parse(src))
+                  baseDir = Some(TestPaths.repoRoot)).run(Parser.parse(src))
     catch case _: java.net.BindException => ()
     // serve writes to /tmp/ssc-ui* (macOS: /private/tmp/ssc-ui*)
     val tmpBase = Paths.get(System.getProperty("java.io.tmpdir"))

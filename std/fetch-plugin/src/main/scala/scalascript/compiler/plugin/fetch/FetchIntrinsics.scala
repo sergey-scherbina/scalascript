@@ -3,7 +3,7 @@ package scalascript.compiler.plugin.fetch
 import scalascript.backend.spi.*
 import scalascript.ir.QualifiedName
 import scalascript.interpreter.{InterpretError, Value}
-import scalascript.frontend.{ReactiveSignal, FetchUrlSignal, EventHandler}
+import scalascript.frontend.{ReactiveSignal, FetchUrlSignal, EventHandler, View}
 
 object FetchIntrinsics:
 
@@ -42,5 +42,18 @@ object FetchIntrinsics:
           Value.Foreign("EventHandler",
             EventHandler.IncrementSignal(rs.asInstanceOf[ReactiveSignal[Int]], 1))
         case _ => throw InterpretError("incSignal(signal)")
+    ),
+
+    // fetchTableView(fetchUrl, deleteUrl, tick): View
+    // Returns a View.FetchTable that the React emitter lowers to a reactive table
+    // with per-row Delete buttons.  The tableJsName is derived from fetchUrl.
+    QualifiedName("fetchTableView") -> NativeImpl((_, args) =>
+      args match
+        case List(fetchUrl: String, deleteUrl: String,
+                  Value.Foreign("ReactiveSignal", tick: ReactiveSignal[?])) =>
+          val tableJsName = "sscRows_" + fetchUrl.replaceAll("[^A-Za-z0-9]", "_")
+          Value.Foreign("View",
+            View.FetchTable(tableJsName, fetchUrl, deleteUrl, tick.asInstanceOf[ReactiveSignal[Int]]))
+        case _ => throw InterpretError("fetchTableView(fetchUrl, deleteUrl, tick)")
     ),
   )

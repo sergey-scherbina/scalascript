@@ -219,6 +219,19 @@ object View:
    *    - Vue   : `h(Teleport, { to: target }, [...children])` */
   final case class Portal(target: String, children: Seq[View]) extends View
 
+  /** Reactive table driven by a JSON array endpoint.  React emitter fetches
+   *  `fetchUrl` on mount and on every increment of `tick`, parses the response
+   *  as a JSON array of `{id, text}` objects, and renders a table with a
+   *  per-row Delete button that POSTs `{id}` to `deleteUrl` then re-fetches.
+   *  The rows array is stored in a `useState([])` under `tableJsName`.
+   *  Other backends (Vue, Solid, Custom) render a placeholder. */
+  final case class FetchTable(
+    tableJsName: String,
+    fetchUrl:    String,
+    deleteUrl:   String,
+    tick:        ReactiveSignal[Int]
+  ) extends View
+
 /** v1.18 / Phase A6 — a handle on a DOM element that user JS
  *  code can read after mount.  Each backend wires the ref so that
  *  after the element is mounted, the JS-side variable named

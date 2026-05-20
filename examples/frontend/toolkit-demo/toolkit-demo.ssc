@@ -28,7 +28,7 @@ CREATE TABLE IF NOT EXISTS todos (
 ```scalascript
 route("GET", "/api/todos") { req =>
   val rows = Db.query("default", "SELECT id, text FROM todos ORDER BY id", List())
-  val body = rows.map(r => s"${r("id")}: ${r("text")}").mkString("\n")
+  val body = "[" + rows.map(r => s"""{"id":${r("id")},"text":"${r("text")}"}""").mkString(",") + "]"
   Response.text(body)
 }
 
@@ -63,7 +63,7 @@ route("POST", "/api/todos/delete") { req =>
 
 [showWhen, signalText_, fragment_, rawText](std/ui/reactive.ssc)
 
-[badge, spinner, signalPre](std/ui/display.ssc)
+[badge, spinner, signalPre, fetchTable](std/ui/display.ssc)
 
 ```scalascript
 val name      = signal("name",      "Alice")
@@ -92,8 +92,8 @@ val disabledForm = vstack(gap = 12)(
 Reactive: disabled until `accept` is true, locked after `submitted` is true.
 
 ```scalascript
-val enabledBtn  = signalButton(submitted, true, "Submit")
-val disabledBtn = signalButton(submitted, true, "Submit", disabled = true)
+val enabledBtn  = signalButton(submitted, true, "Accept")
+val disabledBtn = signalButton(submitted, true, "Accept", disabled = true)
 
 val reactiveBtn = showWhen(submitted,
   disabledBtn,
@@ -117,14 +117,21 @@ val alert = showWhen(submitted,
 
 ```scalascript
 val refreshTick = signal[Int]("refreshTick", 0)
-val todosText   = fetchUrlSignal("todosText", "/api/todos", refreshTick)
 val newItem     = signal[String]("newItem",   "")
-val deleteId    = signal[String]("deleteId",  "")
+val todosTable  = fetchTable("/api/todos", "/api/todos/delete", refreshTick)
 ```
 
 ## Full tree
 
 ```scalascript
+val todoPanel = vstack(gap = 12)(
+  divider(),
+  heading(3, "Todo list (REST + SQLite)"),
+  todosTable,
+  textField(value = newItem, label = "New item"),
+  actionButton(fetchAction("POST", "/api/todos", newItem, refreshTick), "Add")
+)
+
 val tree = vstack(gap = 16)(
   heading(1, "Toolkit demo"),
   text("Pure .ssc UI — no Scala intrinsics bridge."),
@@ -137,13 +144,7 @@ val tree = vstack(gap = 16)(
     spacer(grow = true),
     badge("3 new", "success")
   ),
-  divider(),
-  heading(3, "Todo list (REST + SQLite)"),
-  textField(value = newItem,  label = "New item"),
-  actionButton(fetchAction("POST", "/api/todos", newItem, refreshTick), "Add"),
-  textField(value = deleteId, label = "ID to delete"),
-  actionButton(fetchAction("POST", "/api/todos/delete", deleteId, refreshTick), "Delete"),
-  signalPre(todosText)
+  showWhen(submitted, todoPanel, fragment_())
 )
 ```
 

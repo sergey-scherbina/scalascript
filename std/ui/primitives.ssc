@@ -23,6 +23,7 @@ exports:
   - fetchUrlSignal
   - fetchAction
   - incSignal
+  - fetchTableView
 ---
 
 # `std.ui.primitives` — UI primitive extern defs
@@ -89,4 +90,8 @@ extern def fetchAction(method: String, url: String, body: Signal[String], onSucc
 
 // incSignal — on click: increment an Int signal by 1.
 extern def incSignal(s: Signal[Int]): EventHandler
+
+// fetchTableView — reactive table driven by a JSON array endpoint.
+// React emitter: fetches fetchUrl on mount + on tick, renders rows with per-row Delete buttons.
+extern def fetchTableView(fetchUrl: String, deleteUrl: String, tick: Signal[Int]): View
 ```

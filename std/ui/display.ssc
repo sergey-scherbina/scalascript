@@ -7,11 +7,12 @@ exports:
   - badge
   - spinner
   - signalPre
+  - fetchTable
 ---
 
 # `std.ui.display` — display constructors
 
-[TkNode, BadgeNode, SpinnerNode, SignalPreNode](nodes.ssc)
+[TkNode, BadgeNode, SpinnerNode, SignalPreNode, FetchTableNode](nodes.ssc)
 
 ```scalascript
 def badge(content: String, variant: String = "default"): TkNode =
@@ -20,4 +21,7 @@ def badge(content: String, variant: String = "default"): TkNode =
 def spinner(): TkNode = SpinnerNode()
 
 def signalPre(signal: Any): TkNode = SignalPreNode(signal)
+
+def fetchTable(fetchUrl: String, deleteUrl: String, tick: Any): TkNode =
+  FetchTableNode(fetchUrl, deleteUrl, tick)
 ```

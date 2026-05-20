@@ -312,6 +312,11 @@ private[solid] object SolidEmitter:
         }
         null
 
+      case _: View.FetchTable =>
+        val v = freshVar()
+        statements += s"const $v = document.createTextNode('[FetchTable: React only]');"
+        v
+
     private def compileEventHandler(targetVar: String, eventName: String, handler: EventHandler): Unit =
       handler match
         case EventHandler.Simple(_) | EventHandler.WithEvent(_) | EventHandler.InputChange(_) =>

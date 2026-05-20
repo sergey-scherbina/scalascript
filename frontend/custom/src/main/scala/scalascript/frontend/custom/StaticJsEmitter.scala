@@ -400,6 +400,11 @@ private[custom] object StaticJsEmitter:
         }
         null
 
+      case _: View.FetchTable =>
+        val v = freshVar()
+        statements += s"const $v = document.createTextNode('[FetchTable: React only]');"
+        v
+
     /** Empty-branch placeholder for ShowSignal — an empty text
      *  node so `replaceChild` always has a real Node to swap.
      *  Phase A2d: a hidden no-op. */

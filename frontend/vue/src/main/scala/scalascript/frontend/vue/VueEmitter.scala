@@ -115,7 +115,7 @@ private[vue] object VueEmitter:
         items().foreach(item => walk(render(item)))
       case View.ForSignal(_, _, _, itemTemplate) => itemTemplate.foreach(walk)
       case View.Portal(_, children) => children.foreach(walk)
-      case _: View.TextNode | View.ItemText => ()
+      case _: View.TextNode | View.ItemText | _: View.FetchTable => ()
     walk(view)
     acc
 
@@ -158,7 +158,7 @@ private[vue] object VueEmitter:
       case View.For(items, render) =>
         items().foreach(item => walk(render(item)))
       case View.Portal(_, children) => children.foreach(walk)
-      case _: View.SignalText | _: View.TextNode | View.ItemText => ()
+      case _: View.SignalText | _: View.TextNode | View.ItemText | _: View.FetchTable => ()
     walk(view)
     acc
 
@@ -191,7 +191,7 @@ private[vue] object VueEmitter:
         items().foreach(item => walk(render(item)))
       case View.Portal(_, children) => children.foreach(walk)
       case View.ForSignal(_, _, _, itemTemplate) => itemTemplate.foreach(walk)
-      case _: View.SignalText | _: View.TextNode | View.ItemText => ()
+      case _: View.SignalText | _: View.TextNode | View.ItemText | _: View.FetchTable => ()
     walk(view)
     acc
 
@@ -213,7 +213,7 @@ private[vue] object VueEmitter:
       items().exists(item => containsPortal(render(item)))
     case View.ForSignal(_, _, _, itemTemplate) =>
       itemTemplate.exists(containsPortal)
-    case _: View.SignalText | _: View.TextNode | View.ItemText => false
+    case _: View.SignalText | _: View.TextNode | View.ItemText | _: View.FetchTable => false
 
   private def renderView(view: View, itemCtx: Option[ReactiveSignalList[?]] = None): String = view match
     case View.Element(tag, attrs, events, children) =>
@@ -295,6 +295,9 @@ private[vue] object VueEmitter:
         if children.isEmpty then ""
         else ", [" + children.map(c => renderView(c, itemCtx)).mkString(", ") + "]"
       s"h(Teleport, { 'to': $targetJs }$childrenJs)"
+
+    case _: View.FetchTable =>
+      "h('span', null, '[FetchTable: React only]')"
 
   private def renderProps(
       attrs:     Map[String, AttrValue],
