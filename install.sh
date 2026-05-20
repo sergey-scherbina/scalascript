@@ -13,9 +13,16 @@ echo "Building ssc fat jar via sbt-assembly..."
 
 mkdir -p "$BIN"
 
-cat > "$BIN/ssc" <<EOF
+cat > "$BIN/ssc" <<'LAUNCHER'
 #!/usr/bin/env bash
-exec java -jar "$JAR_PATH" "\$@"
+# Detect install root (parent of this bin/ directory) so that bare imports
+# like `[actors](std/actors.ssc)` resolve without a relative path prefix.
+_SSC_BIN="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+_SSC_ROOT="$(dirname "$_SSC_BIN")"
+LAUNCHER
+# Embed the absolute jar path at install time (stays stable after install).
+cat >> "$BIN/ssc" <<EOF
+exec java -Dssc.lib.path="\$_SSC_ROOT" -jar "$JAR_PATH" "\$@"
 EOF
 chmod +x "$BIN/ssc"
 

@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# Detect install root (parent of this bin/ directory) so that bare imports
+# like `[actors](std/actors.ssc)` resolve without a relative path prefix.
+_SSC_BIN="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+_SSC_ROOT="$(dirname "$_SSC_BIN")"
+exec java -Dssc.lib.path="$_SSC_ROOT" -jar "/Users/sergiy/work/my/scalascript/cli/target/scala-3.8.3/ssc.jar" "$@"

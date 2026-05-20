@@ -23,6 +23,17 @@ object ImportResolver:
   private val depCacheRoot: os.Path = os.home / ".cache" / "scalascript" / "deps"
   private val depSourcesPath: os.Path = os.home / ".config" / "scalascript" / "dep-sources"
 
+  /** Root for library (non-relative) imports — the parent of `std/`.
+   *  Set by the launcher as `-Dssc.lib.path=<dir>` (e.g. the project root).
+   *  Falls back to `SSC_LIB_PATH` env var.  When absent, only relative and
+   *  URL imports resolve; bare paths like `std/actors.ssc` fall through to
+   *  the usual "file not found" error. */
+  val libPath: Option[os.Path] =
+    sys.props.get("ssc.lib.path")
+      .orElse(sys.env.get("SSC_LIB_PATH"))
+      .map(s => os.Path(s, os.pwd))
+      .filter(os.exists)
+
   def resolve(rawPath: String, baseDir: os.Path): os.Path =
     resolve(rawPath, baseDir, Map.empty, lockPath = None)
 
@@ -45,7 +56,14 @@ object ImportResolver:
       else
         val local = baseDir / os.RelPath(pathThroughDep)
         if os.exists(local) then local
-        else cacheBackedRelative(pathThroughDep, baseDir, lockPath).getOrElse(local)
+        else
+          // Library fallback: bare paths like `std/actors.ssc` that don't
+          // exist relative to the importing file are re-resolved against
+          // ssc.lib.path (the project/install root, parent of std/).
+          val fromLib = libPath.map(_ / os.RelPath(pathThroughDep)).filter(os.exists)
+          fromLib.getOrElse(
+            cacheBackedRelative(pathThroughDep, baseDir, lockPath).getOrElse(local)
+          )
     // v0.9.1 — directory-as-index: `[Name](./pack)` and the path points to
     // a directory ⇒ look for `<dir>/index.ssc` inside.
     if os.exists(resolved) && os.isDir(resolved) then

@@ -82,13 +82,29 @@ object AutoResolve:
                 val idx = resolved / "index.ssc"
                 if os.exists(idx) then idx else resolved
               else resolved
-            if !os.exists(actual) then
-              throw new RuntimeException(
-                s"auto-resolve: cannot resolve import '$raw' from ${p.last} " +
-                s"(looked at $actual)"
-              )
-            resolvedDeps += actual
-            if !visited.contains(actual) then stack.push(actual)
+            val realActual =
+              if os.exists(actual) then actual
+              else
+                // Library fallback: `std/actors.ssc` and similar bare paths
+                // that miss relative to the importing file are looked up under
+                // ssc.lib.path (project/install root, set by the launcher).
+                val fromLib = scalascript.imports.ImportResolver.libPath
+                  .map(_ / os.RelPath(raw))
+                  .map { p =>
+                    if os.exists(p) && os.isDir(p) then
+                      val idx = p / "index.ssc"
+                      if os.exists(idx) then idx else p
+                    else p
+                  }
+                  .filter(os.exists)
+                fromLib.getOrElse(
+                  throw new RuntimeException(
+                    s"auto-resolve: cannot resolve import '$raw' from ${p.last} " +
+                    s"(looked at $actual)"
+                  )
+                )
+            resolvedDeps += realActual
+            if !visited.contains(realActual) then stack.push(realActual)
         visited(p) = Node(p, module, bytes, resolvedDeps.result().distinct)
 
     // Topological sort via Kahn's algorithm; cycle detection by finding
