@@ -3824,7 +3824,7 @@ class Interpreter(
           val variantName = variantType match
             case n: Type.Name => n.value
             case _            => located("Prism[Outer, Variant]: Variant must be a simple type name")
-          Pure(buildPrism(variantName))
+          Pure(OpticsRuntime.buildPrism(variantName, this))
 
         // compiletime.constValue[T] — return the compile-time constant value of type T
         case (Term.Select(Term.Name("compiletime"), Term.Name("constValue")), List(typeArg)) =>
@@ -3903,35 +3903,12 @@ class Interpreter(
 
     case other => located(s"Cannot eval: ${other.productPrefix}")
 
-  // ─── Lenses / Focus / .copy ──────────────────────────────────────
-
-  /** A single step in an optic path. `FieldStep` is a case-class field
-   *  selection; `SomeStep` traverses into an Option's value (turning the
-   *  surrounding optic into an Optional); `EachStep` traverses into every
-   *  element of a List (turning the surrounding optic into a Traversal). */
-  private enum PathStep:
-    case FieldStep(name: String)
-    case SomeStep
-    case EachStep
-    /** v0.9 — pointwise access into a `List[A]`.  Returns `None` on
-     *  out-of-bounds reads; sets are no-ops out of bounds. */
-    case IndexStep(i: Int)
-    /** v0.9 — pointwise access into a `Map[K, V]`.  Returns `None`
-     *  for absent keys; sets insert / overwrite. */
-    case AtKey(key: Value)
+  // ─── Lenses / Focus / .copy — see OpticsRuntime.scala for optic builders ────
 
   /** `recv.copy(field = value, ...)` — produce a new InstanceV with the
-   *  named fields overridden. Mixing named and positional args is allowed:
-   *  positionals fill the parameter list left-to-right, then named overrides
-   *  apply on top. Field order comes from `typeFieldOrder`, populated when
-   *  the case class / enum case was registered. */
+   *  named fields overridden. */
   private def evalCopy(qual: Term, args: List[Term], env: Env): Computation =
     val qualC = eval(qual, env)
-    // Walk args once, preserving order. Positional Computations are kept
-    // in order; named ones are tagged with their field name. RHS is
-    // evaluated BEFORE eval would see Term.Assign (which is also the
-    // var-assignment node), so the name doesn't leak into globals.
-    // Scala 3 disallows positional after named — mirror that here.
     val firstNamed = args.indexWhere {
       case Term.Assign(_: Term.Name, _) => true
       case _                            => false
@@ -3970,20 +3947,16 @@ class Interpreter(
     case Term.Name("Focus") => true
     case _                  => false
 
-  /** `Focus[T](_.a.b)` or `Focus(x => x.a.b)` — synthesise a Lens or
-   *  Optional by walking the lambda body. A `.some` step in the path
-   *  (e.g. `_.maybe.some.field`) makes the result an Optional whose
-   *  `set` is a no-op when the Option is empty. */
   private def evalFocus(args: List[Term]): Computation =
     args match
       case List(lambda) =>
-        val stepsOpt: Option[List[PathStep]] = lambda match
+        val stepsOpt: Option[List[OpticsRuntime.PathStep]] = lambda match
           case Term.AnonymousFunction(body) =>
-            extractPathSteps(body, isBase = _.isInstanceOf[Term.Placeholder])
+            OpticsRuntime.extractPathSteps(body, isBase = _.isInstanceOf[Term.Placeholder])
           case Term.Function.After_4_6_0(paramClause, body) =>
             paramClause.values.headOption.map(_.name.value) match
               case Some(p) =>
-                extractPathSteps(body, isBase = {
+                OpticsRuntime.extractPathSteps(body, isBase = {
                   case Term.Name(n) => n == p
                   case _            => false
                 })
@@ -3992,433 +3965,23 @@ class Interpreter(
         stepsOpt match
           case Some(steps) if steps.nonEmpty =>
             val hasIndexOrAt = steps.exists {
-              case _: PathStep.IndexStep | _: PathStep.AtKey => true
-              case _                                         => false
+              case _: OpticsRuntime.PathStep.IndexStep | _: OpticsRuntime.PathStep.AtKey => true
+              case _                                                                      => false
             }
-            if steps.contains(PathStep.EachStep)                 then Pure(buildPathTraversal(steps))
-            else if steps.contains(PathStep.SomeStep) || hasIndexOrAt then Pure(buildPathOptional(steps))
-            else Pure(buildPathLens(steps.collect { case PathStep.FieldStep(n) => n }))
+            if steps.contains(OpticsRuntime.PathStep.EachStep) then
+              Pure(OpticsRuntime.buildPathTraversal(steps, this))
+            else if steps.contains(OpticsRuntime.PathStep.SomeStep) || hasIndexOrAt then
+              Pure(OpticsRuntime.buildPathOptional(steps, this))
+            else
+              Pure(OpticsRuntime.buildPathLens(steps.collect {
+                case OpticsRuntime.PathStep.FieldStep(n) => n
+              }, this))
           case _ => located("Focus: expected a field-access lambda like _.field.subfield")
       case _ => located("Focus expects exactly one lambda argument")
 
-  /** Walk a Term.Select chain to extract the field-access path. `.some`
-   *  selects translate to `SomeStep`, `.each` to `EachStep`; all other
-   *  names become `FieldStep`. */
-  private def extractPathSteps(body: Term, isBase: Term => Boolean): Option[List[PathStep]] =
-    def litToValue(lit: Lit): Option[Value] = lit match
-      case Lit.Int(v)     => Some(Value.IntV(v.toLong))
-      case Lit.Long(v)    => Some(Value.IntV(v))
-      case Lit.String(v)  => Some(Value.StringV(v))
-      case Lit.Boolean(v) => Some(Value.BoolV(v))
-      case Lit.Double(v)  => Some(Value.DoubleV(v.toDouble))
-      case _              => None
-    def loop(t: Term, acc: List[PathStep]): Option[List[PathStep]] = t match
-      case Term.Select(qual, Term.Name("some")) =>
-        loop(qual, PathStep.SomeStep :: acc)
-      case Term.Select(qual, Term.Name("each")) =>
-        loop(qual, PathStep.EachStep :: acc)
-      // v0.9 pointwise — `_.users.index(3)` / `_.byId.at("u-42")`.
-      case Term.Apply.After_4_6_0(Term.Select(qual, Term.Name("index")), argClause)
-          if argClause.values.size == 1 =>
-        argClause.values.head match
-          case Lit.Int(i)  => loop(qual, PathStep.IndexStep(i) :: acc)
-          case Lit.Long(i) => loop(qual, PathStep.IndexStep(i.toInt) :: acc)
-          case _           => None
-      case Term.Apply.After_4_6_0(Term.Select(qual, Term.Name("at")), argClause)
-          if argClause.values.size == 1 =>
-        argClause.values.head match
-          case lit: Lit => litToValue(lit).flatMap(v => loop(qual, PathStep.AtKey(v) :: acc))
-          case _        => None
-      case Term.Select(qual, name) =>
-        loop(qual, PathStep.FieldStep(name.value) :: acc)
-      case other if isBase(other) => Some(acc)
-      case _                      => None
-    loop(body, Nil)
+  // ─── Lenses / Optics — see OpticsRuntime.scala ─────────────────────
 
-  /** Walk a path into a nested InstanceV, returning the final value. */
-  private def lensGet(target: Value, path: List[String]): Value = path match
-    case Nil          => target
-    case head :: rest => target match
-      case Value.InstanceV(_, fields) =>
-        fields.get(head) match
-          case Some(v) => lensGet(v, rest)
-          case None    => throw InterpretError(s"Lens.get: no field '$head' on ${Value.show(target)}")
-      case _ => throw InterpretError(s"Lens.get: not an instance at '$head'")
-
-  /** Functional update of a nested field path. */
-  private def lensSet(target: Value, path: List[String], newVal: Value): Value = path match
-    case Nil          => newVal
-    case head :: rest => target match
-      case Value.InstanceV(typeName, fields) =>
-        val child = fields.getOrElse(head, throw InterpretError(s"Lens.set: no field '$head'"))
-        Value.InstanceV(typeName, fields.updated(head, lensSet(child, rest, newVal)))
-      case _ => throw InterpretError(s"Lens.set: not an instance at '$head'")
-
-  /** Build a Lens for a static field path. Exposed as an InstanceV so
-   *  `.get` / `.set` / `.modify` / `.andThen` dispatch via the usual
-   *  field-access machinery. */
-  private def buildPathLens(path: List[String]): Value.InstanceV =
-    val getFn = Value.NativeFnV("Lens.get", {
-      case List(s) => Pure(lensGet(s, path))
-      case _       => throw InterpretError("Lens.get(s)")
-    })
-    val setFn = Value.NativeFnV("Lens.set", {
-      case List(s, v) => Pure(lensSet(s, path, v))
-      case _          => throw InterpretError("Lens.set(s, v)")
-    })
-    val modifyFn = Value.NativeFnV("Lens.modify", {
-      case List(s, f) =>
-        val old = lensGet(s, path)
-        callValue(f, List(old), Map.empty).map(newV => lensSet(s, path, newV))
-      case _ => throw InterpretError("Lens.modify(s, f)")
-    })
-    val andThenFn = Value.NativeFnV("Lens.andThen", {
-      case List(Value.InstanceV("Lens", other)) =>
-        // If `other` is also a path-lens we can compose paths directly so
-        // the result keeps the simple representation. Otherwise fall back
-        // to functional composition (always works, costs a couple of
-        // extra calls per get/set).
-        other.get("_path") match
-          case Some(Value.ListV(items)) =>
-            val otherPath = items.collect { case Value.StringV(s) => s }
-            Pure(buildPathLens(path ++ otherPath))
-          case _ =>
-            Pure(composedLens(buildPathLens(path), Value.InstanceV("Lens", other)))
-      case List(Value.InstanceV("Optional", other)) =>
-        // Lens.andThen(Optional) → Optional. Lift the field path to steps
-        // and concatenate.
-        stepsFromFields(other) match
-          case Some(innerSteps) =>
-            val outerSteps = path.map(PathStep.FieldStep(_))
-            Pure(buildPathOptional(outerSteps ++ innerSteps))
-          case None => throw InterpretError("Lens.andThen(Optional): malformed Optional")
-      case List(Value.InstanceV("Traversal", other)) =>
-        // Lens.andThen(Traversal) → Traversal.
-        stepsFromFields(other) match
-          case Some(innerSteps) =>
-            val outerSteps = path.map(PathStep.FieldStep(_))
-            Pure(buildPathTraversal(outerSteps ++ innerSteps))
-          case None => throw InterpretError("Lens.andThen(Traversal): malformed Traversal")
-      case List(other) =>
-        throw InterpretError(s"Lens.andThen expects a Lens / Optional / Traversal, got ${Value.show(other)}")
-      case _ => throw InterpretError("Lens.andThen(other)")
-    })
-    Value.InstanceV("Lens", Map(
-      "get"     -> getFn,
-      "set"     -> setFn,
-      "modify"  -> modifyFn,
-      "andThen" -> andThenFn,
-      "_path"   -> Value.ListV(path.map(Value.StringV.apply))
-    ))
-
-  /** `Prism[Outer, Variant]` — sum-type optic. `getOption` returns `Some(s)` if
-   *  the value is the named variant, else `None`. `set` / `modify` are no-ops
-   *  when the variant doesn't match. */
-  private def buildPrism(variantName: String): Value.InstanceV =
-    val getOptionFn = Value.NativeFnV("Prism.getOption", {
-      case List(s) => s match
-        case Value.InstanceV(t, _) if t == variantName => Pure(Value.OptionV(Some(s)))
-        case _                                          => Pure(Value.OptionV(None))
-      case _ => throw InterpretError("Prism.getOption(s)")
-    })
-    val reverseGetFn = Value.NativeFnV("Prism.reverseGet", {
-      case List(v) => Pure(v)
-      case _       => throw InterpretError("Prism.reverseGet(v)")
-    })
-    val setFn = Value.NativeFnV("Prism.set", {
-      case List(s, v) => s match
-        case Value.InstanceV(t, _) if t == variantName => Pure(v)
-        case _                                          => Pure(s)
-      case _ => throw InterpretError("Prism.set(s, v)")
-    })
-    val modifyFn = Value.NativeFnV("Prism.modify", {
-      case List(s, f) => s match
-        case Value.InstanceV(t, _) if t == variantName => callValue(f, List(s), Map.empty)
-        case _                                          => Pure(s)
-      case _ => throw InterpretError("Prism.modify(s, f)")
-    })
-    val andThenFn = Value.NativeFnV("Prism.andThen", {
-      case List(other: Value.InstanceV) if other.typeName == "Prism" =>
-        other.fields.get("_variant") match
-          case Some(Value.StringV(inner)) => Pure(buildPrismChain(variantName, inner))
-          case _ => throw InterpretError("Prism.andThen: malformed Prism")
-      case List(_) =>
-        throw InterpretError("Prism.andThen(other): only Prism-Prism composition supported in this stage")
-      case _ => throw InterpretError("Prism.andThen(other)")
-    })
-    Value.InstanceV("Prism", Map(
-      "getOption"  -> getOptionFn,
-      "reverseGet" -> reverseGetFn,
-      "set"        -> setFn,
-      "modify"     -> modifyFn,
-      "andThen"    -> andThenFn,
-      "_variant"   -> Value.StringV(variantName)
-    ))
-
-  /** Compose two prisms: `Prism[A, B].andThen(Prism[B, C]): Prism[A, C]`.
-   *  Match succeeds only when the value is the *inner* variant (a B that is
-   *  also a C in our dynamic type model means typeName == innerVariant). */
-  private def buildPrismChain(outerVariant: String, innerVariant: String): Value.InstanceV =
-    // For our flat enum model, both checks collapse to "is the innermost variant".
-    // We keep `outerVariant` only to preserve the documented shape.
-    val _ = outerVariant
-    buildPrism(innerVariant)
-
-  /** Compose two arbitrary lenses by chaining their get / set / modify. */
-  private def composedLens(a: Value.InstanceV, b: Value.InstanceV): Value.InstanceV =
-    val aGet = a.fields("get");    val bGet = b.fields("get")
-    val aSet = a.fields("set");    val bSet = b.fields("set")
-    val aMod = a.fields("modify"); val bMod = b.fields("modify")
-    val getFn = Value.NativeFnV("Lens.get", {
-      case List(s) =>
-        callValue(aGet, List(s), Map.empty).flatMap(x => callValue(bGet, List(x), Map.empty))
-      case _ => throw InterpretError("Lens.get(s)")
-    })
-    val setFn = Value.NativeFnV("Lens.set", {
-      case List(s, v) =>
-        callValue(aGet, List(s), Map.empty).flatMap { x =>
-          callValue(bSet, List(x, v), Map.empty).flatMap { x2 =>
-            callValue(aSet, List(s, x2), Map.empty)
-          }
-        }
-      case _ => throw InterpretError("Lens.set(s, v)")
-    })
-    val modifyFn = Value.NativeFnV("Lens.modify", {
-      case List(s, f) =>
-        val inner = Value.NativeFnV("inner", {
-          case List(x) => callValue(bMod, List(x, f), Map.empty)
-          case _       => throw InterpretError("modify inner")
-        })
-        callValue(aMod, List(s, inner), Map.empty)
-      case _ => throw InterpretError("Lens.modify(s, f)")
-    })
-    val andThenFn = Value.NativeFnV("Lens.andThen", {
-      case List(other: Value.InstanceV) if other.typeName == "Lens" =>
-        Pure(composedLens(Value.InstanceV("Lens", Map(
-          "get" -> getFn, "set" -> setFn, "modify" -> modifyFn,
-          "andThen" -> Value.NativeFnV("Lens.andThen.recur", _ => throw InterpretError("recur")))
-        ), other))
-      case _ => throw InterpretError("Lens.andThen(other)")
-    })
-    Value.InstanceV("Lens", Map(
-      "get" -> getFn, "set" -> setFn, "modify" -> modifyFn,
-      "andThen" -> andThenFn
-    ))
-
-  // ─── Optional (partial optic) ────────────────────────────────────
-
-  /** Walk `steps` into `target`. Returns `None` as soon as a `SomeStep`
-   *  hits a `None`, or a `FieldStep` hits a non-instance. */
-  private def opticGetOption(target: Value, steps: List[PathStep]): Option[Value] = steps match
-    case Nil => Some(target)
-    case PathStep.FieldStep(n) :: rest => target match
-      case Value.InstanceV(_, fields) => fields.get(n).flatMap(v => opticGetOption(v, rest))
-      case _                          => None
-    case PathStep.SomeStep :: rest => target match
-      case Value.OptionV(Some(inner)) => opticGetOption(inner, rest)
-      case _                          => None
-    case PathStep.IndexStep(i) :: rest => target match
-      case Value.ListV(items) if i >= 0 && i < items.length =>
-        opticGetOption(items(i), rest)
-      case _ => None
-    case PathStep.AtKey(k) :: rest => target match
-      case Value.MapV(m) => m.get(k).flatMap(v => opticGetOption(v, rest))
-      case _             => None
-    case PathStep.EachStep :: _ =>
-      None  // Traversal steps are handled by opticGetAll, not here.
-
-  /** Functional set along `steps`. Returns the rebuilt value, or the
-   *  original `target` unchanged when the path doesn't fully resolve
-   *  (mirrors Optional.set semantics: no-op on miss). */
-  private def opticSet(target: Value, steps: List[PathStep], newVal: Value): Value = steps match
-    case Nil => newVal
-    case PathStep.FieldStep(n) :: rest => target match
-      case Value.InstanceV(typeName, fields) =>
-        fields.get(n) match
-          case Some(child) =>
-            Value.InstanceV(typeName, fields.updated(n, opticSet(child, rest, newVal)))
-          case None => target
-      case _ => target
-    case PathStep.SomeStep :: rest => target match
-      case Value.OptionV(Some(inner)) =>
-        Value.OptionV(Some(opticSet(inner, rest, newVal)))
-      case other => other
-    case PathStep.IndexStep(i) :: rest => target match
-      case Value.ListV(items) if i >= 0 && i < items.length =>
-        Value.ListV(items.updated(i, opticSet(items(i), rest, newVal)))
-      case other => other
-    case PathStep.AtKey(k) :: rest => target match
-      case Value.MapV(m) =>
-        m.get(k) match
-          case Some(child) => Value.MapV(m.updated(k, opticSet(child, rest, newVal)))
-          // Absent key + remaining steps: no parent to write into.
-          case None if rest.isEmpty => Value.MapV(m.updated(k, newVal))
-          case None                  => target
-      case other => other
-    case PathStep.EachStep :: _ =>
-      target  // Traversal steps are handled by opticModifyAll, not here.
-
-  /** Build an Optional for a path that contains at least one `SomeStep`.
-   *  `getOption` returns `None` if any Option in the chain is empty;
-   *  `set` / `modify` are no-ops in that case. */
-  private def buildPathOptional(steps: List[PathStep]): Value.InstanceV =
-    val getOptionFn = Value.NativeFnV("Optional.getOption", {
-      case List(s) => Pure(Value.OptionV(opticGetOption(s, steps)))
-      case _       => throw InterpretError("Optional.getOption(s)")
-    })
-    val setFn = Value.NativeFnV("Optional.set", {
-      case List(s, v) => Pure(opticSet(s, steps, v))
-      case _          => throw InterpretError("Optional.set(s, v)")
-    })
-    val modifyFn = Value.NativeFnV("Optional.modify", {
-      case List(s, f) => opticGetOption(s, steps) match
-        case Some(old) =>
-          callValue(f, List(old), Map.empty).map(newV => opticSet(s, steps, newV))
-        case None => Pure(s)
-      case _ => throw InterpretError("Optional.modify(s, f)")
-    })
-    // Optional.andThen accepts another path-optic and chains by
-    // concatenating steps. Composition with a Traversal yields a
-    // Traversal (multi-foci dominates).
-    val andThenFn = Value.NativeFnV("Optional.andThen", {
-      case List(Value.InstanceV("Traversal", other)) =>
-        stepsFromFields(other) match
-          case Some(rest) => Pure(buildPathTraversal(steps ++ rest))
-          case None       => throw InterpretError("Optional.andThen(Traversal): malformed")
-      case List(Value.InstanceV(t, other)) if t == "Optional" || t == "Lens" =>
-        stepsFromFields(other) match
-          case Some(rest) => Pure(buildPathOptional(steps ++ rest))
-          case None       => throw InterpretError("Optional.andThen: cannot compose with non-path optic")
-      case _ => throw InterpretError("Optional.andThen(other): only path optic supported")
-    })
-    val stepsValue = stepsAsListV(steps)
-    Value.InstanceV("Optional", Map(
-      "getOption" -> getOptionFn,
-      "set"       -> setFn,
-      "modify"    -> modifyFn,
-      "andThen"   -> andThenFn,
-      "_steps"    -> stepsValue
-    ))
-
-  // ─── Traversal (multi-foci optic, `.each` paths) ─────────────────
-
-  /** Collect every reachable value along `steps`. SomeStep with None and
-   *  FieldStep with a missing field contribute zero values; EachStep
-   *  flat-maps over List elements. */
-  private def opticGetAll(target: Value, steps: List[PathStep]): List[Value] = steps match
-    case Nil => List(target)
-    case PathStep.FieldStep(n) :: rest => target match
-      case Value.InstanceV(_, fields) =>
-        fields.get(n).map(v => opticGetAll(v, rest)).getOrElse(Nil)
-      case _ => Nil
-    case PathStep.SomeStep :: rest => target match
-      case Value.OptionV(Some(inner)) => opticGetAll(inner, rest)
-      case _                          => Nil
-    case PathStep.EachStep :: rest => target match
-      case Value.ListV(items) => items.flatMap(item => opticGetAll(item, rest))
-      case _                  => Nil
-    case PathStep.IndexStep(i) :: rest => target match
-      case Value.ListV(items) if i >= 0 && i < items.length =>
-        opticGetAll(items(i), rest)
-      case _ => Nil
-    case PathStep.AtKey(k) :: rest => target match
-      case Value.MapV(m) => m.get(k).map(v => opticGetAll(v, rest)).getOrElse(Nil)
-      case _             => Nil
-
-  /** Walk `steps` and apply `f` to every focus. Missing layers
-   *  (None / not-an-instance) leave the corresponding subtree
-   *  unchanged. Returns a Computation because `f` may be a user
-   *  function whose body performs effects. */
-  private def opticModifyAll(target: Value, steps: List[PathStep], f: Value): Computation = steps match
-    case Nil => callValue(f, List(target), Map.empty)
-    case PathStep.FieldStep(n) :: rest => target match
-      case Value.InstanceV(typeName, fields) =>
-        fields.get(n) match
-          case Some(child) =>
-            opticModifyAll(child, rest, f).map(updated =>
-              Value.InstanceV(typeName, fields.updated(n, updated)))
-          case None => Pure(target)
-      case _ => Pure(target)
-    case PathStep.SomeStep :: rest => target match
-      case Value.OptionV(Some(inner)) =>
-        opticModifyAll(inner, rest, f).map(updated => Value.OptionV(Some(updated)))
-      case _ => Pure(target)
-    case PathStep.EachStep :: rest => target match
-      case Value.ListV(items) =>
-        Computation.sequence(items.map(item => opticModifyAll(item, rest, f))).map {
-          case Value.ListV(updated) => Value.ListV(updated)
-          case _                    => target
-        }
-      case _ => Pure(target)
-    case PathStep.IndexStep(i) :: rest => target match
-      case Value.ListV(items) if i >= 0 && i < items.length =>
-        opticModifyAll(items(i), rest, f).map(updated => Value.ListV(items.updated(i, updated)))
-      case _ => Pure(target)
-    case PathStep.AtKey(k) :: rest => target match
-      case Value.MapV(m) => m.get(k) match
-        case Some(child) =>
-          opticModifyAll(child, rest, f).map(updated => Value.MapV(m.updated(k, updated)))
-        case None => Pure(target)
-      case _ => Pure(target)
-
-  private def stepsAsListV(steps: List[PathStep]): Value.ListV =
-    Value.ListV(steps.map {
-      case PathStep.FieldStep(n) => Value.StringV(n)
-      case PathStep.SomeStep     => Value.StringV("__some__")
-      case PathStep.EachStep     => Value.StringV("__each__")
-      case PathStep.IndexStep(i) => Value.TupleV(List(Value.StringV("__index__"), Value.IntV(i.toLong)))
-      case PathStep.AtKey(k)     => Value.TupleV(List(Value.StringV("__at__"), k))
-    })
-
-  private def stepsFromFields(fields: Map[String, Value]): Option[List[PathStep]] =
-    fields.get("_steps").orElse(fields.get("_path")) match
-      case Some(Value.ListV(items)) => Some(items.collect {
-        case Value.StringV("__some__") => PathStep.SomeStep
-        case Value.StringV("__each__") => PathStep.EachStep
-        case Value.TupleV(List(Value.StringV("__index__"), Value.IntV(i))) =>
-          PathStep.IndexStep(i.toInt)
-        case Value.TupleV(List(Value.StringV("__at__"), k)) =>
-          PathStep.AtKey(k)
-        case Value.StringV(n)          => PathStep.FieldStep(n)
-      })
-      case _ => None
-
-  /** Build a Traversal for a path containing at least one `EachStep`.
-   *  `getAll` collects every focused value into a `List`; `modify`
-   *  applies a function to each focus and rebuilds the structure;
-   *  `set` replaces every focus with the same value. */
-  private def buildPathTraversal(steps: List[PathStep]): Value.InstanceV =
-    val getAllFn = Value.NativeFnV("Traversal.getAll", {
-      case List(s) => Pure(Value.ListV(opticGetAll(s, steps)))
-      case _       => throw InterpretError("Traversal.getAll(s)")
-    })
-    val modifyFn = Value.NativeFnV("Traversal.modify", {
-      case List(s, f) => opticModifyAll(s, steps, f)
-      case _          => throw InterpretError("Traversal.modify(s, f)")
-    })
-    val setFn = Value.NativeFnV("Traversal.set", {
-      case List(s, v) =>
-        val constFn = Value.NativeFnV("const", _ => Pure(v))
-        opticModifyAll(s, steps, constFn)
-      case _ => throw InterpretError("Traversal.set(s, v)")
-    })
-    val andThenFn = Value.NativeFnV("Traversal.andThen", {
-      case List(Value.InstanceV(t, other))
-          if t == "Traversal" || t == "Optional" || t == "Lens" =>
-        stepsFromFields(other) match
-          case Some(rest) => Pure(buildPathTraversal(steps ++ rest))
-          case None       => throw InterpretError("Traversal.andThen: cannot compose")
-      case _ => throw InterpretError("Traversal.andThen(other): only path optic supported")
-    })
-    Value.InstanceV("Traversal", Map(
-      "getAll"  -> getAllFn,
-      "modify"  -> modifyFn,
-      "set"     -> setFn,
-      "andThen" -> andThenFn,
-      "_steps"  -> stepsAsListV(steps)
-    ))
-
-  /** Evaluate a list of argument terms eagerly to a list of Computations, then
+    /** Evaluate a list of argument terms eagerly to a list of Computations, then
    *  thread their values into `k` via FlatMap chain.
    *
    *  Eager evaluation matters because `eval` mutates `placeholderIdx`; deferring
