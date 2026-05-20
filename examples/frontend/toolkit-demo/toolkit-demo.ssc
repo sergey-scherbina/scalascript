@@ -75,7 +75,7 @@ val submitted = signal("submitted", false)
 
 ```scalascript
 def form(disabled: Boolean) = vstack(gap = 12)(
-  textField(value = name,   label = "Display name",               disabled = disabled),
+  textField(value = name,   label = "Name",                        disabled = disabled),
   checkbox(checked = accept, label = "I accept the toolkit terms.", disabled = disabled)
 )
 ```
