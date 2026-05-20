@@ -282,28 +282,51 @@ reference.
 Independently shippable.  Highest priority of the three lakehouse
 formats since Delta is the most-used and Databricks-backed.
 
-### L.3 — Iceberg
+### L.3 — Iceberg (deferred)
 
 Same shape as L.2 with the Iceberg coord and config block.  Iceberg
 requires choosing a catalog at session-creation time; the bootstrap
-default is a local Hadoop catalog at `/tmp/ssc-iceberg-warehouse`
-which lets the example smoke test stand on its own without
-external dependencies (no Hive Metastore, no Glue, no Nessie).
+default would be a local Hadoop catalog at
+`/tmp/ssc-iceberg-warehouse` so the example smoke test could stand
+on its own without external dependencies.
 
-Open: confirm `iceberg-spark-runtime-3.5_2.13:1.6.0` against Spark
-4.0.0 at implementation time.  Iceberg's Spark adapter is named
-after the *Spark* version (`-3.5_2.13`), which lags Spark releases —
-if no Spark 4 build exists, push to L.3' once it does and skip
-this phase.
+**Status at L.2 merge: deferred.**  Iceberg's Spark runtime artifact
+is named after the *Spark* major.minor (`iceberg-spark-runtime-3.5_2.13`).
+The 3.5-line is the latest published and does NOT link cleanly
+against Spark 4.0.0's changed Catalyst symbol surface.  No
+`iceberg-spark-runtime-4.0_2.13` artifact is published.  L.3 stays
+parked until Iceberg ships a Spark 4 build.
 
-### L.4 — Hudi
+When L.3 re-opens, the implementation slots in via the existing
+helpers:
+
+- Add `SparkGen.DefaultIcebergVersion` companion constant.
+- Extend `detectLakehouseFormats` to set `usesIceberg` on the
+  existing regex.
+- Extend `lakehouseConfigs` to append the Iceberg pairs
+  (`spark.sql.extensions=org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions`,
+  `spark.sql.catalog.local=org.apache.iceberg.spark.SparkCatalog`,
+  `spark.sql.catalog.local.type=hadoop`,
+  `spark.sql.catalog.local.warehouse=/tmp/ssc-iceberg-warehouse`).
+  Multi-format collisions on `spark.sql.extensions` are already
+  joined comma-separated by `lakehouseConfigs`.
+- Add example `examples/spark-iceberg-demo.ssc` and the
+  `RUN_SPARK_ICEBERG=1`-gated smoke test.
+
+`genModule` itself doesn't need to change.
+
+### L.4 — Hudi (deferred)
 
 Same shape as L.2 with the Hudi coord and config block.  Hudi
 requires Kryo serializer (`spark.serializer=org.apache.spark.serializer.KryoSerializer`)
-plus an extension and a catalog override; same emit pattern.
+plus the `HoodieSparkSessionExtension` and `HoodieCatalog`
+overrides on `spark_catalog`.
 
-Open: confirm `hudi-spark3.5-bundle_2.13:0.15.0` against Spark
-4.0.0 at implementation time.  Same lag concern as L.3.
+**Status at L.2 merge: deferred.**  Same Spark-major naming issue
+as L.3: `hudi-spark3.5-bundle_2.13` is the latest released and is
+built against Spark 3.5.  No `hudi-spark4.0-bundle_2.13` artifact
+is published.  L.4 stays parked until that lands; the slot-in
+pattern at L.3 applies symmetrically here.
 
 ## Testing strategy
 
@@ -332,15 +355,29 @@ Open: confirm `hudi-spark3.5-bundle_2.13:0.15.0` against Spark
 ## Open questions
 
 - **Spark 4 + `_2.13` artifact availability per format.**  As of
-  May 2026:
+  the L.2 merge (2026-05-20):
   - Delta — `io.delta:delta-spark_2.13:3.2.0` is released and Spark
-    4 compatible.  Verified.
-  - Iceberg — `org.apache.iceberg:iceberg-spark-runtime-3.5_2.13:1.6.0`
-    is released but its Spark 4 support is unverified at spec time.
-    L.3 implementation **must** re-check before emitting; if Spark
-    4 build is missing, skip L.3.
-  - Hudi — `org.apache.hudi:hudi-spark3.5-bundle_2.13:0.15.0` likewise
-    unverified.  Same check + skip rule applies.
+    4 compatible.  Verified by `SparkRuntimeSmokeTest` once
+    `RUN_SPARK_DELTA=1`.
+  - **Iceberg — L.3 DEFERRED.**  The Iceberg Spark runtime artifact
+    is named after the *Spark* major.minor it targets
+    (`iceberg-spark-runtime-3.5_2.13`, `iceberg-spark-runtime-4.0_2.13`,
+    …).  The 3.5 line is the latest published Iceberg adapter at
+    L.2 merge time, and it does NOT link cleanly against Spark
+    4.0.0 — Catalyst symbols changed in Spark 4 in ways that break
+    the 3.5-bundled implementation classes.  Emitting
+    `iceberg-spark-runtime-3.5_2.13:1.6.0` would resolve via
+    Coursier but crash at session creation with a
+    `NoSuchMethodError` or `AbstractMethodError`.  No
+    `iceberg-spark-runtime-4.0_2.13` artifact exists at the time
+    of writing.  L.3 will re-open once that coordinate ships.
+  - **Hudi — L.4 DEFERRED.**  Same Spark-major naming issue:
+    `hudi-spark3.5-bundle_2.13` is the latest released bundle and
+    is built against Spark 3.5's binary API.  Hudi's own roadmap
+    tracks Spark 4 support under HUDI-7706 (community issue); when
+    `hudi-spark4.0-bundle_2.13` lands on Maven Central, L.4
+    re-opens.  Emitting the 3.5 bundle today would link-fail at
+    runtime the same way Iceberg does.
 
 - **Version-pin overrides.**  L.2 emits the Delta coord at
   `SparkGen.DefaultDeltaVersion`.  A future phase will let users

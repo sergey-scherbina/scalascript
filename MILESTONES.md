@@ -6914,15 +6914,22 @@ Thin `backend-wasm-contract/` layer on top of `backend-wasm/` for Near or Polkad
 >   Example `examples/spark-delta-demo.ssc` (case-class Dataset
 >   round-trip via `.format("delta")` write + read).  Smoke test
 >   gated by `RUN_SPARK_INTEGRATION=1` AND `RUN_SPARK_DELTA=1`.
-> - **L.3 — Iceberg (open).**  Detect `.format("iceberg")` → emit
->   `org.apache.iceberg:iceberg-spark-runtime-3.5_2.13:<v>` +
->   IcebergSparkSessionExtensions + a local Hadoop catalog at
->   `/tmp/ssc-iceberg-warehouse`.  Conditional on Iceberg shipping a
->   Spark 4 `_2.13` build at implementation time.
-> - **L.4 — Hudi (open).**  Detect `.format("hudi")` → emit
->   `org.apache.hudi:hudi-spark3.5-bundle_2.13:<v>` + Kryo serializer
->   + HoodieSparkSessionExtension + HoodieCatalog.  Same Spark 4
->   `_2.13` availability check as L.3 — if missing, skip and re-track.
+> - **L.3 — Iceberg (DEFERRED, 2026-05-20).**  Iceberg's Spark
+>   runtime artifact is named after the Spark major.minor it targets
+>   (`iceberg-spark-runtime-3.5_2.13`).  The 3.5 line is the latest
+>   published and does NOT link cleanly against Spark 4.0.0
+>   (Catalyst symbol changes in Spark 4 break the 3.5-bundled
+>   implementation classes).  No `iceberg-spark-runtime-4.0_2.13`
+>   artifact is published.  Re-opens once Iceberg ships a Spark 4
+>   build.  Slot-in pattern in `docs/spark-lakehouse.md` § L.3:
+>   `DefaultIcebergVersion` constant + extend `detectLakehouseFormats`
+>   and `lakehouseConfigs` — `genModule` itself doesn't change.
+> - **L.4 — Hudi (DEFERRED, 2026-05-20).**  Same Spark-major naming
+>   issue as L.3: `hudi-spark3.5-bundle_2.13` is the latest released
+>   and is built against Spark 3.5.  No `hudi-spark4.0-bundle_2.13`
+>   artifact is published.  Hudi community tracks Spark 4 support
+>   under HUDI-7706; L.4 re-opens once the artifact ships.  Slot-in
+>   pattern symmetric to L.3.
 
 ### Why it fits
 
