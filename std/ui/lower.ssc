@@ -17,7 +17,7 @@ then call `serve(lower(tree, defaultTheme), 8080)`.
 
 [Theme](theme.ssc)
 
-[element, textNode, signalText, showSignal, fragment, setSignal, eqSignal](primitives.ssc)
+[element, textNode, signalText, showSignal, fragment, setSignal, inputChange, toggleSignal, eqSignal](primitives.ssc)
 
 ```scalascript
 def lower(n: TkNode, theme: Theme): View = n match
@@ -89,7 +89,8 @@ def lower(n: TkNode, theme: Theme): View = n match
           "disabled"    -> disabled,
           "required"    -> required,
           "value"       -> value),
-      Map(), List())
+      if disabled then Map() else Map("change" -> inputChange(value)),
+      List())
     val labelEl = element("label",
       Map("style" -> s"font-size:${theme.typography.body.fontSize}px; font-family:${theme.typography.body.fontFamily}; color:${theme.colors.onSurface}"),
       Map(),
@@ -105,7 +106,8 @@ def lower(n: TkNode, theme: Theme): View = n match
       Map("type"     -> "checkbox",
           "disabled" -> disabled,
           "checked"  -> checked),
-      Map(), List())
+      if disabled then Map() else Map("change" -> toggleSignal(checked)),
+      List())
     val lblEl = element("label",
       Map("style" -> s"font-size:${theme.typography.body.fontSize}px; font-family:${theme.typography.body.fontFamily}; color:${theme.colors.onSurface}; cursor:pointer"),
       Map(),

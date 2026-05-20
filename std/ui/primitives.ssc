@@ -14,6 +14,8 @@ exports:
   - showSignal
   - fragment
   - setSignal
+  - inputChange
+  - toggleSignal
   - eqSignal
   - hashSignal
   - emit
@@ -52,8 +54,14 @@ extern def fragment(children: List[View]): View
 
 // ── Event handler constructors ────────────────────────────────────────────
 // SetSignalLiteral — JS-translatable; use instead of a raw closure for
-// buttons and inputs whose click/change must emit to the browser.
+// buttons and links whose click must set a signal to a literal value.
 extern def setSignal[T](s: Signal[T], v: T): EventHandler
+
+// inputChange — wires a text input's onChange to update a String signal.
+extern def inputChange(s: Signal[String]): EventHandler
+
+// toggleSignal — wires a checkbox's onChange to flip a Boolean signal.
+extern def toggleSignal(s: Signal[Boolean]): EventHandler
 
 // ── Derived signals ───────────────────────────────────────────────────────
 // eqSignal: equality guard — used by router to show/hide routes.

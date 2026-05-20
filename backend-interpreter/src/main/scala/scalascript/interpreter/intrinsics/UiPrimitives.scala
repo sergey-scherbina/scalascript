@@ -118,6 +118,24 @@ val UiPrimitivesIntrinsics: Map[QualifiedName, IntrinsicImpl] = Map(
         uiEmitToDir(view, dir, ctx.out)
       case _ => throw InterpretError("emit(tree, outDir)")
   ),
+
+  // ── inputChange(s: Signal[String]): EventHandler ─────────────────────────
+  // Wires a text input's onChange to update the signal with e.target.value.
+  QualifiedName("inputChange") -> NativeImpl((_, args) =>
+    args match
+      case List(Value.Foreign("ReactiveSignal", rs: ReactiveSignal[?])) =>
+        Value.Foreign("EventHandler", EventHandler.InputChange(rs.asInstanceOf[ReactiveSignal[String]]))
+      case _ => throw InterpretError("inputChange(signal)")
+  ),
+
+  // ── toggleSignal(s: Signal[Boolean]): EventHandler ───────────────────────
+  // Wires a checkbox's onChange to flip the boolean signal.
+  QualifiedName("toggleSignal") -> NativeImpl((_, args) =>
+    args match
+      case List(Value.Foreign("ReactiveSignal", rs: ReactiveSignal[?])) =>
+        Value.Foreign("EventHandler", EventHandler.ToggleSignal(rs.asInstanceOf[ReactiveSignal[Boolean]]))
+      case _ => throw InterpretError("toggleSignal(signal)")
+  ),
 )
 
 // ── Attr / event / view decoders ──────────────────────────────────────────
