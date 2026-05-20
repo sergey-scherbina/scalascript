@@ -91,6 +91,7 @@ bin/http.ssc
 | [User Guide](docs/user-guide.md) | Installation, CLI commands, language basics, HTTP, effects, actors, Apache Spark, WebAssembly, frontend frameworks, cluster, x402 — practical day-to-day reference |
 | [Tutorial 1 — Todo API](docs/tutorial.md#tutorial-1-collaborative-todo-api) | Build a todo API step by step — data model → REST → auth → WebSocket → TLS → MCP |
 | [Tutorial 2 — Spark ETL](docs/tutorial.md#tutorial-2-etl-pipeline-with-apache-spark) | End-to-end Spark pipeline — `Dataset[T]` → `@SqlFn` UDF → `@TempView` → Delta Lake |
+| [Tutorial 3 — Frontend Toolkit demo](docs/tutorial.md#tutorial-3-frontend-toolkit-demo) | Compile + emit + serve a toolkit SPA through React / Vue / Solid / Custom + SSR via `ssc serve` |
 
 **Language reference**
 
@@ -265,7 +266,7 @@ compiles them via Scala.js.
 | Component library | `std/ui/*` — Button, Input, Select, Modal, Card, Spinner, Alert, DatePicker, Combobox, and more |
 | Frontend Framework SPI | One `.ssc` source compiled to **React**, **Vue 3**, **Solid**, or a **custom** runtime via `frontend-{react,vue,solid,custom}` backends |
 | Reactive primitives | `Signal[T]`, `ShowSignal` (conditional render), `ToggleSignal`, `ForSignal[T]` (list render) — uniform semantics across all 4 frontend backends |
-| Frontend Toolkit (v1.18 B+) | High-level declarative UI: `Form { … }`, `Routing { route("/path"){ … } }`, **Widgets v2** (Card, Modal, Tabs, Dropdown, …), **Table** with sort/filter/pagination |
+| Frontend Toolkit (v1.18 B+ / B++ / C) | High-level declarative UI via `Tk` facade — `vstack/hstack`, `card`, `textField`, `form` with validators, `router`, `modal/drawer/tabs`, `table`, `select/radioGroup/textarea/datePicker/numberInput`.  Backend-agnostic: lowers to React / Vue / Solid / Custom or to static HTML via `Ssr.renderToHtml`. |
 | WebAssembly target | `ssc emit-wasm file.ssc` — `scalascript` blocks lowered to Wasm; cross-backend `sql` fenced blocks supported |
 | i18n | `translations:` frontmatter, `t(key)`, `setLocale(code)` |
 | Env access | `getenv(key)` / `getenv(key, default)` |
@@ -337,7 +338,7 @@ compiles them via Scala.js.
 | [wc-demo.ssc](examples/wc-demo.ssc) | Web Components via `ssc emit-wc`, SSR + hydration |
 | [wasm-fibonacci.ssc](examples/wasm-fibonacci.ssc) | `scalascript` → WebAssembly module via `ssc emit-wasm` |
 | [wasm-sorting.ssc](examples/wasm-sorting.ssc) · [wasm-matrix.ssc](examples/wasm-matrix.ssc) · [wasm-primes.ssc](examples/wasm-primes.ssc) · [wasm-collections.ssc](examples/wasm-collections.ssc) | Wasm benchmark suite |
-| [examples/frontend/counter/](examples/frontend/) · [show-hide/](examples/frontend/show-hide/) · [todo/](examples/frontend/todo/) | One `.ssc` source compiled to React / Vue / Solid / custom via the Frontend Framework SPI |
+| [examples/frontend/counter/](examples/frontend/) · [show-hide/](examples/frontend/show-hide/) · [todo/](examples/frontend/todo/) · `toolkit-demo` | One source compiled to React / Vue / Solid / Custom — first three via Frontend Framework SPI, **toolkit-demo** via high-level Toolkit (`Tk` facade) |
 | [x402-server.ssc](examples/x402-server.ssc) · [x402-client.ssc](examples/x402-client.ssc) | HTTP 402 micropayment server + client (Ethereum settlement) |
 | [x402-cardano.ssc](examples/x402-cardano.ssc) | x402 on Cardano — CIP-8 wallet, Scalus escrow validator, end-to-end client + server |
 | [spark-sql-demo.ssc](examples/spark-sql-demo.ssc) | Spark SQL via `sql` fenced blocks + `${expr}` bind parameters + section aliases |
@@ -352,6 +353,30 @@ Run them all at once:
 ```bash
 ./examples/run-all.sc
 ```
+
+### Frontend Toolkit demo
+
+A reference SPA built entirely through the high-level `Tk` facade
+(layout + form-like fields + display widgets + theming).  Compiles
+to all four frontend backends + static HTML via SSR.
+
+```bash
+# 1. Compile + test (frontend-toolkit 217 tests, frontend-examples 41)
+sbt frontendToolkit/test frontendExamples/test
+
+# 2. Generate 16 (4 demos x 4 backends) HTML+JS bundles
+sbt "frontendExamples/runMain scalascript.frontend.examples.EmitAll"
+#   → target/frontend-examples/toolkit-demo/{custom,react,solid,vue}/
+
+# 3. Serve via the bundled ssc static-file server (no Python/Node)
+ssc serve 8000 target/frontend-examples/toolkit-demo/react
+# open http://localhost:8000/
+```
+
+Details: [`examples/frontend/README.md`](examples/frontend/README.md)
+and [`docs/user-guide.md#16-frontend-toolkit`](docs/user-guide.md).
+For SSR (`Ssr.renderToHtml`) and the full widget catalog see
+[`docs/frontend-toolkit-spec.md`](docs/frontend-toolkit-spec.md).
 
 ## Benchmarks
 
