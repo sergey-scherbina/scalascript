@@ -2435,7 +2435,11 @@ def runJvmCommand(args: List[String]): Unit =
   if !JvmBytecode.scalaCliAvailable then
     System.err.println(s"run-jvm: ${JvmBytecode.scalaCliMissingMessage}")
     System.exit(1)
-  val source = expectText(compileViaBackend("jvm", path), s"run-jvm $file")
+  val raw    = expectText(compileViaBackend("jvm", path), s"run-jvm $file")
+  val jarsDir = scalascript.imports.ImportResolver.libPath.map(_ / "bin" / "lib" / "jars")
+  val source = jarsDir match
+    case Some(jars) => patchLocalSscDeps(raw, jars)
+    case None       => raw
   val tmp = os.temp(source, suffix = ".sc", deleteOnExit = true)
   try
     val res = os.proc("scala-cli", "run", tmp, "--server=false")
@@ -2444,6 +2448,22 @@ def runJvmCommand(args: List[String]): Unit =
   catch case e: Exception =>
     System.err.println(s"run-jvm: scala-cli invocation failed: ${e.getMessage}")
     System.exit(1)
+
+/** Replace `//> using (lib|dep) "io.scalascript::artifact:version"` lines
+ *  with `//> using jar <jarsDir>/artifact_3-version.jar` so that run-jvm
+ *  uses local staged JARs instead of trying to resolve SNAPSHOTs from Maven. */
+private def patchLocalSscDeps(source: String, jarsDir: os.Path): String =
+  val pat = raw"""//> using (?:lib|dep) "io\.scalascript::([^:]+):([^"]+)"""".r
+  source.linesWithSeparators.map { line =>
+    pat.findFirstMatchIn(line.stripLineEnd) match
+      case Some(m) =>
+        val artifact = m.group(1)
+        val version  = m.group(2)
+        val jar      = jarsDir / s"${artifact}_3-${version}.jar"
+        if os.exists(jar) then s"""//> using jar "${jar}"\n"""
+        else line
+      case None => line
+  }.mkString
 
 /** `ssc run-js <file.ssc>`
  *
