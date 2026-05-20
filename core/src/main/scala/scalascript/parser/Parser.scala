@@ -652,7 +652,9 @@ object Parser:
           out.appendAll(in, i, end - i); i = end
         case '[' =>
           // Walk back past whitespace to find the previous non-whitespace char.
-          val j = { var k = out.length - 1; while k >= 0 && out.charAt(k).isWhitespace do k -= 1; k }
+          val lastIdx = out.length - 1
+          val j = { var k = lastIdx; while k >= 0 && out.charAt(k).isWhitespace do k -= 1; k }
+          val hadSpaceBefore = j < lastIdx   // whitespace existed between prev token and `[`
           val isTypeParam = j >= 0 && {
             val c = out.charAt(j)
             if c == ')' || c == ']' then true
@@ -663,13 +665,14 @@ object Parser:
               val word = out.substring(ws, j + 1)
               !preprocessListLiterals.scalaKeywords(word)
             else if preprocessListLiterals.isOpChar(c) then
-              // Operator char: extract the full preceding operator token.
-              // Operators like `~`, `|`, `~>`, `<~`, `->` are method names → type param.
-              // Operators like `=>`, `=>>`, `=`, `<-`, `:` introduce expressions → expand.
-              var os = j
-              while os > 0 && preprocessListLiterals.isOpChar(out.charAt(os - 1)) do os -= 1
-              val op = out.substring(os, j + 1)
-              !preprocessListLiterals.exprOperators(op)
+              // Operator char: type params attach without space (`list.++[A]`);
+              // a space before `[` means the `[` starts a list literal (`xs ++ [item]`).
+              if hadSpaceBefore then false
+              else
+                var os = j
+                while os > 0 && preprocessListLiterals.isOpChar(out.charAt(os - 1)) do os -= 1
+                val op = out.substring(os, j + 1)
+                !preprocessListLiterals.exprOperators(op)
             else false
           }
           if isTypeParam then { out.append('['); i += 1 }
