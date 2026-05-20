@@ -555,22 +555,74 @@ of widget names.
 
 ### What truly needs intrinsics
 
-Only two operations cross the JVM/JS boundary and are
-legitimately `extern def`:
+Nine operations cross the JVM/JS boundary and are legitimately
+`extern def`.  Every other function belongs in `.ssc`.
 
 ```scalascript
 // std/ui/primitives.ssc
+
+// Opaque types — values are Value.Foreign("ReactiveSignal" | "View" | "EventHandler", ...)
+// at runtime; the typer treats them as distinct nominal types.
+opaque type Signal[T]    = Any
+opaque type View         = Any
+opaque type EventHandler = Any
+
+// ── Reactive primitives ───────────────────────────────────────────────
+// Generic T resolved at runtime by inspecting the default Value shape.
 extern def signal[T](name: String, default: T): Signal[T]
+
+// ── DOM element construction ──────────────────────────────────────────
+// attrs/events values are decoded by the native impl via shape-dispatch
+// (see "Encoding" section below).
 extern def element(
   tag:      String,
   attrs:    Map[String, Any],
   events:   Map[String, Any],
   children: List[View]
 ): View
+
+// ── Non-element View shapes ───────────────────────────────────────────
+// These produce View.TextNode, View.SignalText, View.ShowSignal,
+// View.Fragment respectively — cannot be expressed via element().
+extern def textNode(s: String): View
+extern def signalText[T](s: Signal[T]): View
+extern def showSignal[T](cond: Signal[T], whenTrue: View, whenFalse: View): View
+extern def fragment(children: List[View]): View
+
+// ── Event handler constructors ────────────────────────────────────────
+// Produces EventHandler.SetSignalLiteral — needed for JS-translatable
+// submit buttons and radio groups.
+extern def setSignal[T](s: Signal[T], v: T): EventHandler
+
+// ── Output ────────────────────────────────────────────────────────────
+extern def emit(tree: View, outDir: String): Unit
+extern def serve(tree: View, port: Int): Unit
 ```
 
 Everything else — widget ADTs, `lower`, theme tokens, accessor
 helpers — is pure data and pure functions and belongs in `.ssc`.
+
+### Encoding `Map[String, Any]` in `element()`
+
+The `element()` native decodes `attrs` and `events` values using
+**shape-based dispatch**.  No special syntax required in `.ssc` for
+the common cases; `setSignal(...)` handles the one case that needs an
+explicit constructor.
+
+| Value at runtime | attrs interpretation | events interpretation |
+|---|---|---|
+| `Foreign("EventHandler", h)` | — | `h` verbatim |
+| `Foreign("AttrValue", a)` | `a` verbatim | — |
+| `Foreign("ReactiveSignal", s)` | `AttrValue.Reactive(s)` | `"input"`/`"change"` on string signal → `InputChange(s)`; `"click"` on bool signal → `ToggleSignal(s)` |
+| `StringV(s)` | `AttrValue.Str(s)` | — |
+| `BoolV(b)` | `AttrValue.Bool(b)` | — |
+| `IntV(n)` / `DoubleV(d)` | `AttrValue.Num(_)` | — |
+| `FunV(...)` | — | `EventHandler.Simple(…)` — **JVM-only**, not translatable to JS |
+
+Closures in events produce `EventHandler.Simple`, which works at
+runtime but cannot be emitted to JavaScript.  Any button whose click
+must work in the browser must use `setSignal(...)` (or a future
+`toggleSignal`/`inputChange` extern if shape dispatch is insufficient).
 
 ### What moves to `.ssc`
 
@@ -593,28 +645,58 @@ def lower(n: ToolkitNode, theme: Theme): View = n match
 with the equivalent `.ssc`:
 
 ```scalascript
-// std/ui/toolkit.ssc
-sealed trait ToolkitNode
+// std/ui/layout.ssc — imports from std/ui/primitives.ssc
+[element, textNode, fragment](std/ui/primitives.ssc)
+[Theme](std/ui/theme.ssc)
 
-case class StackNode(
-  direction: String,
-  gap:       Int,
-  children:  List[ToolkitNode]
-) extends ToolkitNode
+sealed trait StackNode
+case class VStackNode(gap: Int, children: List[View]) extends StackNode
+case class HStackNode(gap: Int, children: List[View]) extends StackNode
 
-def lower(n: ToolkitNode, theme: Theme): View = n match
-  case StackNode(dir, gap, kids) =>
-    element("div", Map("style" -> stackCss(dir, gap, theme)),
-             Map.empty, kids.map(lower(_, theme)))
-  case ButtonNode(label, onClick, kind) =>
+def vstack(gap: Int = 0)(children: View*): View =
+  element("div",
+    Map("style" -> s"display:flex; flex-direction:column; gap:${gap}px"),
+    Map.empty,
+    children.toList)
+
+def hstack(gap: Int = 0)(children: View*): View =
+  element("div",
+    Map("style" -> s"display:flex; flex-direction:row; gap:${gap}px"),
+    Map.empty,
+    children.toList)
+
+def divider(): View =
+  element("hr", Map("style" -> "border:none; border-top:1px solid #e5e7eb"), Map.empty, Nil)
+
+def spacer(grow: Boolean = false): View =
+  val style = if grow then "flex:1" else "display:inline-block"
+  element("div", Map("style" -> style), Map.empty, Nil)
+```
+
+```scalascript
+// std/ui/input.ssc — JS-translatable submit button using setSignal
+[element, setSignal](std/ui/primitives.ssc)
+
+def signalButton[T](sig: Signal[T], value: T, label: String,
+                    disabled: Boolean = false): View =
+  val handler = setSignal(sig, value)   // EventHandler.SetSignalLiteral
+  if disabled then
     element("button",
-      Map("style" -> buttonCss(kind, theme), "type" -> "button"),
-      Map("click" -> onClick),
-      List(rawText(label)))
+      Map("style" -> "…; cursor:not-allowed; opacity:0.5",
+          "aria-disabled" -> true),
+      Map.empty,
+      List(textNode(label)))
+  else
+    element("button",
+      Map("style" -> "…; cursor:pointer"),
+      Map("click" -> handler),
+      List(textNode(label)))
 ```
 
 The user-visible DSL stays the same; only the implementation
-layer moves from Scala to `.ssc`.
+layer moves from Scala to `.ssc`.  Note: `onClick: () => Unit` would
+produce `EventHandler.Simple` (JVM-only); widget functions that must
+emit to JS pass a `Signal`-derived handler instead.
 
 ### Analogy: `std/http.ssc`
 
@@ -631,32 +713,77 @@ The toolkit follows the same shape:
 ```
 extern def element(tag, attrs, events, children): View   ← primitive
 extern def signal[T](name, default): Signal[T]           ← primitive
+extern def setSignal[T](sig, value): EventHandler        ← primitive
 // + pure .ssc widget library built on top
-def vstack(gap: Int)(children: ToolkitNode*): ToolkitNode = StackNode(...)
-def button(label: String, onClick: () => Unit): ToolkitNode = ButtonNode(...)
+def vstack(gap: Int)(children: View*): View = element("div", …, Nil, children.toList)
+def signalButton[T](sig: Signal[T], v: T, label: String): View =
+  element("button", …, Map("click" -> setSignal(sig, v)), List(textNode(label)))
 ```
 
-### Future file layout
+### Target file layout
 
 ```
 std/ui/
-  primitives.ssc    — the two extern defs
-  theme.ssc         — Theme case class + default token sets
-  lower.ssc         — lower(ToolkitNode, Theme): View
-  layout.ssc        — vstack, hstack, box, grid, spacer, ...
-  typography.ssc    — heading, text, paragraph, ...
-  input.ssc         — button, textField, checkbox, ...
-  display.ssc       — badge, spinner, alert, ...
-  containers.ssc    — card, modal, tabs, ...
-  reactive.ssc      — showWhen, signalText, for_, ...
+  primitives.ssc    — 9 extern defs + opaque Signal/View/EventHandler types
+  theme.ssc         — Theme case class (Colors/Spacing/Typography/Radii/Shadows)
+                      + Theme.default + Theme.dark
+  layout.ssc        — vstack, hstack, box, spacer, divider
+  typography.ssc    — heading, text
+  input.ssc         — button, signalButton, textField, checkbox, textarea,
+                      select, radioGroup, datePickerField, numberInput,
+                      sliderField, form (with validator support)
+  display.ssc       — alert, badge, avatar, icon, spinner, progress, tooltip
+  containers.ssc    — card, modal, drawer, tabs
+  data.ssc          — table (with click-to-sort via sort-column signal)
+  routing.ssc       — router, route, link
+  reactive.ssc      — showWhen, signalText, fragment, rawText, for_
 ```
 
-User code imports the files it needs:
+User code imports the files it needs directly — there is no `index.ssc`
+umbrella (re-export is not supported by the import mechanism):
 
 ```scalascript
-[Ui](std/ui/layout.ssc)
-[Theme](std/ui/theme.ssc)
+[signal, setSignal, serve](std/ui/primitives.ssc)
+[vstack, hstack, divider, spacer](std/ui/layout.ssc)
+[heading, text](std/ui/typography.ssc)
+[textField, checkbox, signalButton](std/ui/input.ssc)
+[badge, spinner](std/ui/display.ssc)
+[showWhen, signalText, fragment](std/ui/reactive.ssc)
 ```
+
+### Known risks and open questions (Phase 7)
+
+1. **Opaque type syntax** — `opaque type Signal[T] = Any` may or may
+   not be parsed by the current ScalaScript parser.  Fallback: declare
+   them as ordinary `type` aliases or just leave the names unbound
+   (callers see `Any`); the runtime Foreign wrapper ensures correct
+   dispatch regardless.
+
+2. **Form validators in the browser** — the Scala `Form` widget
+   accepts a `Signal[Option[String]]` per field for validation errors
+   and a validator `T => Option[String]` function.  Scala closures in
+   `events` become `EventHandler.Simple` (JVM-only), not emittable to
+   JS.  Resolution: define a small validator-constraint DSL in
+   `input.ssc` (`required`, `minLength`, `pattern`, etc.) so the
+   native `element()` can lower them to JS-side event logic.  Decide
+   the exact shape when Phase 7c begins.
+
+3. **Router / location hash** — `Router` needs a signal bound to
+   `window.location.hash`.  Options: (a) `signal("__location__", "")`
+   with a magic name the React backend hard-wires to `hashchange`, or
+   (b) add a `hashSignal()` extern def.  Decide at Phase 7e.
+
+4. **CSS string parity** — `.ssc` widget impls produce CSS strings via
+   string interpolation; the Scala `Toolkit.lower` produces the same
+   strings.  Emit both through the React backend and diff before
+   deleting the Scala layer; fix any divergence first.
+
+5. **`ToolkitDsl.scala` clean-up** — an earlier session added 20+
+   intrinsics to `ToolkitDsl.scala` as a prototype.  That file must be
+   deleted and its registrations removed from
+   `InterpreterCapabilities.scala` and `BuiltinsRuntime.scala` during
+   Phase 7a.  Keep: `NativeFnV.paramNames`, `DispatchRuntime`
+   ReactiveSignal dispatch cases.
 
 ## Migration path
 
@@ -676,13 +803,27 @@ User code imports the files it needs:
   6. **Phase 6 ✓ Routing + data widgets**.  Phase B+ added `Router`,
      `Route`, `Link`, `Table` with click-to-sort.  Phase B++ added
      `Select`, `RadioGroup`, `Textarea`, `DatePicker`, `NumberInput`.
-  7. **Phase 7 (next)** — Reference example app (full SPA exercising
-     forms + routing + table + widgets); deeper SSR support; the
-     remaining deferred widgets (ColorPicker, TimePicker, combobox).
-  8. **Phase 8 (planned)** — Rewrite toolkit as pure `.ssc` library
-     under `std/ui/`; expose only `signal[T]` and `element` as
-     `extern def`; retire `ToolkitDsl.scala` intrinsics bridge and
-     the `frontend-toolkit` sbt module.
+  7. **Phase 7 (in progress)** — Rewrite toolkit as a pure `.ssc`
+     library under `std/ui/`.  Nine `extern def` primitives replace
+     the previous `ToolkitDsl.scala` intrinsics bridge.  Full parity
+     with the Scala `frontend-toolkit` module (all ~25 widgets); the
+     Scala module is retired at the end of this phase.  Reference
+     example app (`examples/frontend/toolkit-demo/`) is rewritten to
+     use the `.ssc` imports.
+
+     Sub-phases:
+     - **7a** Spec update + nine `UiPrimitives` intrinsics.
+     - **7b** `std/ui/primitives.ssc`, `theme.ssc`, `layout.ssc`,
+       `typography.ssc`, `reactive.ssc`.  Mid-cycle demo smoke.
+     - **7c** `std/ui/input.ssc` (all form controls + Form).
+     - **7d** `std/ui/display.ssc`, `containers.ssc`.
+     - **7e** `std/ui/data.ssc` (Table), `routing.ssc`.
+     - **7f** Retire `frontend-toolkit` sbt module; port
+       `ToolkitTest` / `FormTest` to `.ssc` tests.
+
+  8. **Phase 8 (planned)** — Remaining deferred widgets
+     (ColorPicker, TimePicker, combobox), deeper SSR support, full
+     SPA reference app exercising routing + table.
 
 ## Design decisions (formerly open questions)
 
