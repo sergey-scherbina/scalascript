@@ -10,7 +10,9 @@ type Bytes32 = String   // hex-encoded 32-byte value
 
 enum Network:
   case BaseSepolia, Base, EthereumMainnet, Polygon, Arbitrum, Optimism
+  case CardanoMainnet, CardanoPreprod, CardanoPreview
 
+  /** EVM EIP-155 chain ID. Throws for non-EVM networks. */
   def chainId: Int = this match
     case BaseSepolia     => 84532
     case Base            => 8453
@@ -18,6 +20,12 @@ enum Network:
     case Polygon         => 137
     case Arbitrum        => 42161
     case Optimism        => 10
+    case CardanoMainnet | CardanoPreprod | CardanoPreview =>
+      throw UnsupportedOperationException(s"$this is not an EVM network and has no chainId")
+
+  def isCardano: Boolean = this match
+    case CardanoMainnet | CardanoPreprod | CardanoPreview => true
+    case _                                                => false
 
 // ── Assets ────────────────────────────────────────────────────────────────────
 
@@ -38,6 +46,8 @@ object Assets:
     case Network.Polygon         => USDC_POLYGON
     case Network.Arbitrum        => USDC_ARBITRUM
     case Network.Optimism        => USDC_OPTIMISM
+    case Network.CardanoMainnet | Network.CardanoPreprod | Network.CardanoPreview =>
+      throw UnsupportedOperationException(s"USDC ERC-20 not deployed on $network; use CardanoAssets.USDA for Cardano")
 
 // ── Cardano native assets ─────────────────────────────────────────────────────
 

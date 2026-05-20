@@ -7574,7 +7574,33 @@ Spec in `docs/x402.md`.
 - [x] `X402.isTestMode` from `X402_ENV` env var
 - [x] `examples/x402-server.ssc` — payment-gated REST endpoint
 - [x] `examples/x402-client.ssc` — client auto-handles 402
-- [ ] `examples/x402-cardano.ssc` — Cardano payment flow
+- [x] `examples/x402-cardano.ssc` — Cardano payment flow (2026-05-20)
+
+### Phase 9 — Cardano client-side wallet ✓ Landed (2026-05-20)
+
+Closes the asymmetry between the Cardano facilitator (verifies CIP-8)
+and the x402 client (previously EVM-only). `Wallets.cardano(hex,
+address, network)` produces a CIP-8 / COSE_Sign1 proof via an Ed25519
+`RawSigner`; `PayloadBuilder.build` branches on `CardanoExact` and
+emits `cardanoProof` in the encoded payload. `MiniCbor` moved from
+`x402-facilitator-cardano` to `x402-core` so the signer can share it
+with the verifier. `Network` enum gained `CardanoMainnet` /
+`CardanoPreprod` / `CardanoPreview`. The `Wallet` trait now also
+declares `signCip8`; EVM and Cardano wallets reject the wrong shape.
+
+- [x] `x402-core/MiniCbor` — moved from facilitator, now shared
+- [x] `Network.CardanoMainnet/Preprod/Preview`; `Network.isCardano`
+- [x] `x402-client/Cip8Signer` — COSE_Sign1 + COSE_Key assembly
+- [x] `CardanoPrivateKeyWallet` via `RawPrivateKeyVault(Ed25519)`
+- [x] `Wallets.cardano` / `Wallets.cardanoEnvKey` factories
+- [x] `PayloadBuilder.buildCardano` + `encode` cardanoProof field
+- [x] Server `parsePayload` parses Cardano network names
+- [x] `CardanoPayloadTest` — 5 tests round-trip-verify the proof with
+      BouncyCastle Ed25519; signer / payload shape / dual-wallet reject
+- [x] `CardanoFacilitatorTest` mocks updated for `getUtxos`/`submitTx`
+      (pre-existing breakage from blockchain-cardano Phase 6)
+- [ ] CIP-19 address derivation from key (deferred — wallet-spi work)
+- [ ] `CardanoProvider.Scalus` settlement (deferred — Phase 6 stub)
 
 ---
 

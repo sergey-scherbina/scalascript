@@ -1,8 +1,8 @@
-package scalascript.x402.facilitator
+package scalascript.x402
 
 // Minimal CBOR codec covering only the subset needed for CIP-8 / COSE_Sign1.
 // Handles major types 0-6; indefinite-length items are not supported.
-private[facilitator] object MiniCbor:
+object MiniCbor:
 
   sealed trait Value
   case class UInt(n: Long)                              extends Value

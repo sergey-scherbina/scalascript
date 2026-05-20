@@ -1,13 +1,22 @@
 package scalascript.x402.facilitator
 
 import scalascript.x402.*
-import scalascript.blockfrost.{BlockfrostConfig, AddressInfo, BlockfrostClient}
+import scalascript.blockfrost.{BlockfrostConfig, AddressInfo, BlockfrostClient, BlockfrostUtxo}
 import org.scalatest.funsuite.AnyFunSuite
 import scala.concurrent.{Await, ExecutionContext, Future}
 import scala.concurrent.duration.*
 import ExecutionContext.Implicits.global
 
 // ── Test helpers ──────────────────────────────────────────────────────────────
+
+// Mocks only need to override the BlockfrostClient methods this suite
+// actually exercises (`getAddressInfo` + `isTxConfirmed`); UTxO/submit are
+// stubbed here so each test stays focused.
+private trait MockBlockfrostBase extends BlockfrostClient:
+  def getUtxos(address: String): Future[Seq[BlockfrostUtxo]] =
+    Future.failed(NotImplementedError("getUtxos not used in this test"))
+  def submitTx(cbor: Array[Byte]): Future[String] =
+    Future.failed(NotImplementedError("submitTx not used in this test"))
 
 class CardanoFacilitatorTest extends AnyFunSuite:
 
@@ -148,7 +157,7 @@ class CardanoFacilitatorTest extends AnyFunSuite:
   // ── CardanoFacilitator: missing proof ─────────────────────────────────────────
 
   test("verify: missing cardanoProof → Fail") {
-    val mockClient = new BlockfrostClient:
+    val mockClient = new MockBlockfrostBase:
       def getAddressInfo(a: String)   = Future.failed(RuntimeException("should not be called"))
       def isTxConfirmed(h: String)    = Future.failed(RuntimeException("should not be called"))
 
@@ -172,7 +181,7 @@ class CardanoFacilitatorTest extends AnyFunSuite:
   // ── CardanoFacilitator: wrong scheme ──────────────────────────────────────────
 
   test("verify: non-Cardano scheme → Fail") {
-    val mockClient = new BlockfrostClient:
+    val mockClient = new MockBlockfrostBase:
       def getAddressInfo(a: String)   = Future.failed(RuntimeException("should not be called"))
       def isTxConfirmed(h: String)    = Future.failed(RuntimeException("should not be called"))
 
@@ -201,7 +210,7 @@ class CardanoFacilitatorTest extends AnyFunSuite:
     val message = "Cardano test payment".getBytes("UTF-8")
     val proof   = makeCip8Proof(message)
 
-    val mockClient = new BlockfrostClient:
+    val mockClient = new MockBlockfrostBase:
       def getAddressInfo(a: String) = Future.successful(
         AddressInfo(a, BigInt(5_000_000), Map.empty))
       def isTxConfirmed(h: String)  = Future.successful(true)
@@ -227,7 +236,7 @@ class CardanoFacilitatorTest extends AnyFunSuite:
     val message = "Cardano test payment".getBytes("UTF-8")
     val proof   = makeCip8Proof(message)
 
-    val mockClient = new BlockfrostClient:
+    val mockClient = new MockBlockfrostBase:
       def getAddressInfo(a: String) = Future.successful(
         AddressInfo(a, BigInt(1_000_000), Map.empty))  // only 1 ADA, need 2
       def isTxConfirmed(h: String)  = Future.successful(false)
@@ -254,7 +263,7 @@ class CardanoFacilitatorTest extends AnyFunSuite:
   // ── settle ────────────────────────────────────────────────────────────────────
 
   test("settle: Blockfrost provider → Ok (optimistic)") {
-    val mockClient = new BlockfrostClient:
+    val mockClient = new MockBlockfrostBase:
       def getAddressInfo(a: String) = Future.successful(AddressInfo(a, BigInt(0), Map.empty))
       def isTxConfirmed(h: String)  = Future.successful(true)
 
@@ -277,7 +286,7 @@ class CardanoFacilitatorTest extends AnyFunSuite:
   }
 
   test("settle: Scalus provider → Fail (not implemented)") {
-    val mockClient = new BlockfrostClient:
+    val mockClient = new MockBlockfrostBase:
       def getAddressInfo(a: String) = Future.successful(AddressInfo(a, BigInt(0), Map.empty))
       def isTxConfirmed(h: String)  = Future.successful(false)
 
@@ -307,7 +316,7 @@ class CardanoFacilitatorTest extends AnyFunSuite:
     val message = req.description.getBytes("UTF-8")
     val proof   = makeCip8Proof(message)
 
-    val mockClient = new BlockfrostClient:
+    val mockClient = new MockBlockfrostBase:
       def getAddressInfo(a: String) = Future.successful(
         AddressInfo(a, BigInt(2_000_000), Map("policy123assetABC" -> BigInt(500))))
       def isTxConfirmed(h: String)  = Future.successful(true)

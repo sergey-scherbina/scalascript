@@ -73,6 +73,9 @@ private object Json:
       case "Polygon"         => Network.Polygon
       case "Arbitrum"        => Network.Arbitrum
       case "Optimism"        => Network.Optimism
+      case "CardanoMainnet"  => Network.CardanoMainnet
+      case "CardanoPreprod"  => Network.CardanoPreprod
+      case "CardanoPreview"  => Network.CardanoPreview
       case other             => throw RuntimeException(s"Unknown network: $other")
     PaymentPayload(
       x402Version   = j.obj.get("x402Version").map(_.num.toInt).getOrElse(1),
