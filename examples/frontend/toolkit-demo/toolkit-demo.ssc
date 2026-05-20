@@ -27,7 +27,7 @@ CREATE TABLE IF NOT EXISTS todos (
 
 ```scalascript
 route("GET", "/api/todos") { req =>
-  val rows = Db.query("default", "SELECT id, text FROM todos ORDER BY id", List())
+  val rows = Db.query("default", "SELECT id, text FROM todos ORDER BY id", [])
   val body = "[" + rows.map(r => s"""{"id":${r("id")},"text":"${r("text")}"}""").mkString(",") + "]"
   Response.text(body)
 }
@@ -36,13 +36,13 @@ route("POST", "/api/todos") { req =>
   val text = req.body.trim
   if text.isEmpty then Response.status(400, "empty body")
   else
-    Db.execute("default", "INSERT INTO todos(text) VALUES (?)", List(text))
+    Db.execute("default", "INSERT INTO todos(text) VALUES (?)", [text])
     Response.status(201, "created")
 }
 
 route("POST", "/api/todos/delete") { req =>
   val id = req.body.trim
-  Db.execute("default", "DELETE FROM todos WHERE id = ?", List(id.toInt))
+  Db.execute("default", "DELETE FROM todos WHERE id = ?", [id.toInt])
   Response.status(204)
 }
 ```

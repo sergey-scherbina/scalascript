@@ -37,30 +37,30 @@ def lower(n: TkNode, theme: Theme): View = n match
 
   case DividerNode() =>
     element("hr",
-      Map("style" -> s"border:none; border-top:1px solid ${theme.colors.muted}; margin:${theme.spacing.sm}px 0"),
-      Map(), List())
+      ["style" -> s"border:none; border-top:1px solid ${theme.colors.muted}; margin:${theme.spacing.sm}px 0"],
+      Map(), [])
 
   case SpacerNode(grow) =>
     val style = if grow then "flex:1 1 auto" else "display:inline-block; width:8px"
-    element("div", Map("style" -> style), Map(), List())
+    element("div", ["style" -> style], Map(), [])
 
   // ── Typography ───────────────────────────────────────────────────────
   case HeadingNode(level, text) =>
-    val sizes = List(32, 24, 20, 18, 16, 14)
+    val sizes = [32, 24, 20, 18, 16, 14]
     val sz    = if level >= 1 && level <= 6 then sizes(level - 1) else 20
     val ff    = theme.typography.heading.fontFamily
     element(s"h${level}",
-      Map("style" -> s"font-size:${sz}px; font-weight:bold; font-family:${ff}; margin:0; color:${theme.colors.onSurface}"),
+      ["style" -> s"font-size:${sz}px; font-weight:bold; font-family:${ff}; margin:0; color:${theme.colors.onSurface}"],
       Map(),
-      List(textNode(text)))
+      [textNode(text)])
 
   case TextNode_(text) =>
     val fs = theme.typography.body.fontSize
     val ff = theme.typography.body.fontFamily
     element("p",
-      Map("style" -> s"font-size:${fs}px; font-family:${ff}; margin:0; color:${theme.colors.onSurface}"),
+      ["style" -> s"font-size:${fs}px; font-family:${ff}; margin:0; color:${theme.colors.onSurface}"],
       Map(),
-      List(textNode(text)))
+      [textNode(text)])
 
   // ── Reactive ─────────────────────────────────────────────────────────
   case ShowWhenNode(sig, whenTrue, whenFalse) =>
@@ -83,36 +83,36 @@ def lower(n: TkNode, theme: Theme): View = n match
                 s"border-radius:${theme.radii.sm}px; width:100%; box-sizing:border-box"
     val style = if disabled then base + "; background:#f3f4f6; color:#9ca3af; cursor:not-allowed" else base
     val inputEl = element("input",
-      Map("style"       -> style,
-          "type"        -> "text",
-          "placeholder" -> label,
-          "disabled"    -> disabled,
-          "required"    -> required,
-          "value"       -> value),
-      if disabled then Map() else Map("change" -> inputChange(value)),
-      List())
+      ["style"       -> style,
+       "type"        -> "text",
+       "placeholder" -> label,
+       "disabled"    -> disabled,
+       "required"    -> required,
+       "value"       -> value],
+      if disabled then Map() else ["change" -> inputChange(value)],
+      [])
     val labelEl = element("label",
-      Map("style" -> s"font-size:${theme.typography.body.fontSize}px; font-family:${theme.typography.body.fontFamily}; color:${theme.colors.onSurface}"),
+      ["style" -> s"font-size:${theme.typography.body.fontSize}px; font-family:${theme.typography.body.fontFamily}; color:${theme.colors.onSurface}"],
       Map(),
-      List(textNode(label)))
+      [textNode(label)])
     element("div",
-      Map("style" -> s"display:flex; flex-direction:column; gap:${sp.xs}px"),
+      ["style" -> s"display:flex; flex-direction:column; gap:${sp.xs}px"],
       Map(),
-      List(labelEl, inputEl))
+      [labelEl, inputEl])
 
   case CheckboxNode(checked, label, disabled) =>
     val sp    = theme.spacing
     val t     = theme.typography.body
     val cbEl  = element("input",
-      Map("type"     -> "checkbox",
-          "disabled" -> disabled,
-          "checked"  -> checked),
-      if disabled then Map() else Map("change" -> toggleSignal(checked)),
-      List())
+      ["type"     -> "checkbox",
+       "disabled" -> disabled,
+       "checked"  -> checked],
+      if disabled then Map() else ["change" -> toggleSignal(checked)],
+      [])
     element("label",
-      Map("style" -> s"display:flex; flex-direction:row; align-items:center; gap:${sp.sm}px; cursor:pointer; font-size:${t.fontSize}px; font-family:${t.fontFamily}; color:${theme.colors.onSurface}"),
+      ["style" -> s"display:flex; flex-direction:row; align-items:center; gap:${sp.sm}px; cursor:pointer; font-size:${t.fontSize}px; font-family:${t.fontFamily}; color:${theme.colors.onSurface}"],
       Map(),
-      List(cbEl, textNode(label)))
+      [cbEl, textNode(label)])
 
   case SignalButtonNode(sig, value, label, disabled) =>
     val sp   = theme.spacing
@@ -122,16 +122,16 @@ def lower(n: TkNode, theme: Theme): View = n match
                s"border-radius:${theme.radii.md}px; font-weight:500; cursor:pointer"
     if disabled then
       element("button",
-        Map("style"         -> (base + "; opacity:0.5; cursor:not-allowed"),
-            "type"          -> "button",
-            "aria-disabled" -> true),
+        ["style"         -> (base + "; opacity:0.5; cursor:not-allowed"),
+         "type"          -> "button",
+         "aria-disabled" -> true],
         Map(),
-        List(textNode(label)))
+        [textNode(label)])
     else
       element("button",
-        Map("style" -> base, "type" -> "button"),
-        Map("click" -> setSignal(sig, value)),
-        List(textNode(label)))
+        ["style" -> base, "type" -> "button"],
+        ["click" -> setSignal(sig, value)],
+        [textNode(label)])
 
   case ActionButtonNode(handler, label, disabled) =>
     val sp   = theme.spacing
@@ -141,22 +141,22 @@ def lower(n: TkNode, theme: Theme): View = n match
                s"border-radius:${theme.radii.md}px; font-weight:500; cursor:pointer"
     if disabled then
       element("button",
-        Map("style"         -> (base + "; opacity:0.5; cursor:not-allowed"),
-            "type"          -> "button",
-            "aria-disabled" -> true),
+        ["style"         -> (base + "; opacity:0.5; cursor:not-allowed"),
+         "type"          -> "button",
+         "aria-disabled" -> true],
         Map(),
-        List(textNode(label)))
+        [textNode(label)])
     else
       element("button",
-        Map("style" -> base, "type" -> "button"),
-        Map("click" -> handler),
-        List(textNode(label)))
+        ["style" -> base, "type" -> "button"],
+        ["click" -> handler],
+        [textNode(label)])
 
   case SignalPreNode(sig) =>
     element("pre",
-      Map("style" -> "white-space: pre; font-family: monospace; background: #f5f5f5; padding: 8px; border-radius: 4px; overflow-x: auto"),
+      ["style" -> "white-space: pre; font-family: monospace; background: #f5f5f5; padding: 8px; border-radius: 4px; overflow-x: auto"],
       Map(),
-      List(signalText(sig)))
+      [signalText(sig)])
 
   // ── Display ──────────────────────────────────────────────────────────
   case BadgeNode(content, variant) =>
@@ -169,15 +169,15 @@ def lower(n: TkNode, theme: Theme): View = n match
     val sp = theme.spacing
     val badgeStyle = s"background:${bg}; color:#ffffff; font-size:12px; font-weight:600; padding:2px ${sp.xs}px; border-radius:${theme.radii.full}px; white-space:nowrap"
     element("span",
-      Map("style" -> badgeStyle),
+      ["style" -> badgeStyle],
       Map(),
-      List(textNode(content)))
+      [textNode(content)])
 
   case SpinnerNode() =>
     val spinnerStyle = s"display:inline-block; width:16px; height:16px; border:2px solid #e5e7eb; border-top-color:${theme.colors.primary}; border-radius:50%"
     element("span",
-      Map("style" -> spinnerStyle, "class" -> "ssc-spin"),
-      Map(), List())
+      ["style" -> spinnerStyle, "class" -> "ssc-spin"],
+      Map(), [])
 
   // ── Containers ───────────────────────────────────────────────────────
   case CardNode(headerAny, body, footerAny) =>
@@ -185,22 +185,22 @@ def lower(n: TkNode, theme: Theme): View = n match
     val cardStyle = s"background:${theme.colors.surface}; border:1px solid ${theme.colors.muted}; " +
                     s"border-radius:${theme.radii.md}px; overflow:hidden"
     val bodyEl  = element("div",
-      Map("style" -> s"padding:${sp.md}px"),
+      ["style" -> s"padding:${sp.md}px"],
       Map(), body.map(lower(_, theme)))
     val headerParts = headerAny match
       case h: TkNode =>
-        List(element("div",
-          Map("style" -> s"padding:${sp.sm}px ${sp.md}px; border-bottom:1px solid ${theme.colors.muted}; font-weight:600"),
-          Map(), List(lower(h, theme))))
-      case _ => List()
+        [element("div",
+          ["style" -> s"padding:${sp.sm}px ${sp.md}px; border-bottom:1px solid ${theme.colors.muted}; font-weight:600"],
+          Map(), [lower(h, theme)])]
+      case _ => []
     val footerParts = footerAny match
       case f: TkNode =>
-        List(element("div",
-          Map("style" -> s"padding:${sp.sm}px ${sp.md}px; border-top:1px solid ${theme.colors.muted}"),
-          Map(), List(lower(f, theme))))
-      case _ => List()
-    element("div", Map("style" -> cardStyle), Map(),
-      headerParts ++ List(bodyEl) ++ footerParts)
+        [element("div",
+          ["style" -> s"padding:${sp.sm}px ${sp.md}px; border-top:1px solid ${theme.colors.muted}"],
+          Map(), [lower(f, theme)])]
+      case _ => []
+    element("div", ["style" -> cardStyle], Map(),
+      headerParts ++ [bodyEl] ++ footerParts)
 
   case ModalNode(open, title, body) =>
     val sp          = theme.spacing
@@ -211,14 +211,14 @@ def lower(n: TkNode, theme: Theme): View = n match
                        s"box-shadow:0 20px 60px rgba(0,0,0,0.3)"
     val titleStyle = s"font-size:18px; font-weight:600; font-family:${theme.typography.heading.fontFamily}; margin-bottom:${sp.md}px; color:${theme.colors.onSurface}"
     val titleEl  = element("div",
-      Map("style" -> titleStyle),
-      Map(), List(textNode(title)))
+      ["style" -> titleStyle],
+      Map(), [textNode(title)])
     val bodyEl   = element("div", Map(), Map(), body.map(lower(_, theme)))
-    val dialogEl = element("div", Map("style" -> dialogStyle, "role" -> "dialog",
-                                       "aria-modal" -> true, "aria-label" -> title),
-      Map(), List(titleEl, bodyEl))
-    val overlay  = element("div", Map("style" -> overlayStyle), Map(), List(dialogEl))
-    showSignal(open, overlay, element("span", Map("style" -> "display:none"), Map(), List()))
+    val dialogEl = element("div", ["style" -> dialogStyle, "role" -> "dialog",
+                                    "aria-modal" -> true, "aria-label" -> title],
+      Map(), [titleEl, bodyEl])
+    val overlay  = element("div", ["style" -> overlayStyle], Map(), [dialogEl])
+    showSignal(open, overlay, element("span", ["style" -> "display:none"], Map(), []))
 
   // ── Data ─────────────────────────────────────────────────────────────
   case TableNode(cols, rows, sortColAny) =>
@@ -231,33 +231,33 @@ def lower(n: TkNode, theme: Theme): View = n match
                     s"color:${theme.colors.onSurface}; cursor:pointer; user-select:none"
       if sortColAny != null then
         element("th",
-          Map("role" -> "columnheader", "style" -> thStyle),
-          Map("click" -> setSignal(sortColAny, col.key)),
-          List(textNode(col.label)))
+          ["role" -> "columnheader", "style" -> thStyle],
+          ["click" -> setSignal(sortColAny, col.key)],
+          [textNode(col.label)])
       else
         element("th",
-          Map("role" -> "columnheader", "style" -> thStyle),
+          ["role" -> "columnheader", "style" -> thStyle],
           Map(),
-          List(textNode(col.label)))
+          [textNode(col.label)])
     }
-    val headerRow = element("tr", Map("role" -> "row"), Map(), headerCells)
+    val headerRow = element("tr", ["role" -> "row"], Map(), headerCells)
     val thead = element("thead",
-      Map("style" -> s"background:${theme.colors.surface}; border-bottom:2px solid ${theme.colors.muted}"),
-      Map(), List(headerRow))
+      ["style" -> s"background:${theme.colors.surface}; border-bottom:2px solid ${theme.colors.muted}"],
+      Map(), [headerRow])
     val tbodyRows = rows.map { row =>
       val cells = row.map { cell =>
         val tdStyle = s"padding:${sp.sm}px ${sp.md}px; border-bottom:1px solid ${theme.colors.muted}; " +
                       s"color:${theme.colors.onSurface}"
         element("td",
-          Map("role" -> "cell", "style" -> tdStyle),
-          Map(), List(lower(cell, theme)))
+          ["role" -> "cell", "style" -> tdStyle],
+          Map(), [lower(cell, theme)])
       }
-      element("tr", Map("role" -> "row"), Map(), cells)
+      element("tr", ["role" -> "row"], Map(), cells)
     }
     val tbody = element("tbody", Map(), Map(), tbodyRows)
     element("table",
-      Map("role" -> "table", "style" -> tableStyle),
-      Map(), List(thead, tbody))
+      ["role" -> "table", "style" -> tableStyle],
+      Map(), [thead, tbody])
 
   // ── Routing ──────────────────────────────────────────────────────────
   // Each route is guarded by eqSignal(current, path); exactly one shows.
@@ -265,7 +265,7 @@ def lower(n: TkNode, theme: Theme): View = n match
     val routeViews = routes.map { r =>
       val cond = eqSignal(currentAny, r.path)
       val body = fragment(r.body.map(lower(_, theme)))
-      showSignal(cond, body, fragment(List()))
+      showSignal(cond, body, fragment([]))
     }
     fragment(routeViews)
 
@@ -274,9 +274,9 @@ def lower(n: TkNode, theme: Theme): View = n match
     val style = s"color:${theme.colors.primary}; text-decoration:none; cursor:pointer; " +
                 s"font-size:${t.fontSize}px; font-family:${t.fontFamily}"
     element("a",
-      Map("href" -> to, "style" -> style),
-      Map("click" -> setSignal(currentAny, to)),
-      List(textNode(label)))
+      ["href" -> to, "style" -> style],
+      ["click" -> setSignal(currentAny, to)],
+      [textNode(label)])
 
   case FetchTableNode(fetchUrl, deleteUrl, tick) =>
     fetchTableView(fetchUrl, deleteUrl, tick)

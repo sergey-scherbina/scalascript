@@ -83,7 +83,7 @@ object Parser:
         // that scalameta sees and the whole block silently fails to parse
         // (cb.tree = None → imports from this file see no symbols).
         val preprocessed =
-          preprocessExtern(preprocessEffects(preprocessInlineImports(preprocessSlashImports(cb.source))))
+          preprocessExtern(preprocessEffects(preprocessInlineImports(preprocessSlashImports(preprocessListLiterals(cb.source)))))
         val nested = pkg.foldRight(preprocessed) { (seg, body) =>
           val indented = body.linesIterator.map("  " + _).mkString("\n")
           s"object $seg:\n$indented"
@@ -542,12 +542,31 @@ object Parser:
    *  needed because `import` outside a top-level position is rare enough
    *  to be hand-fixed; this preprocessor solves the import-statement
    *  case which is what std/ relies on. */
+  /** Scala keywords that can appear directly before `[` but cannot take type parameters.
+   *  Used by `preprocessListLiterals` to distinguish `else [a, b]` (list literal) from
+   *  `List[Int]` (type application). */
+  private object preprocessListLiterals:
+    /** Scala keywords that can appear directly before `[` but cannot take type parameters. */
+    val scalaKeywords: Set[String] = Set(
+      "else", "then", "yield", "return", "throw", "if", "do", "while", "for",
+      "match", "case", "new", "true", "false", "null", "this", "super",
+      "val", "var", "def", "type", "with", "extends", "derives",
+      "catch", "finally", "try", "to", "by", "in", "import", "export",
+      "given", "using", "sealed", "abstract", "final", "override",
+      "private", "protected", "implicit", "lazy", "inline", "opaque"
+    )
+    /** Operator tokens that introduce expressions (not type parameters). */
+    val exprOperators: Set[String] = Set("=>", "=>>", "=", "<-", ":")
+    /** True for ASCII characters that can appear in Scala operator method names. */
+    def isOpChar(c: Char): Boolean =
+      "~!@#%^&*-+=<>?/\\|:".indexOf(c) >= 0
+
   /** Rewrite `[a, b, c]` → `List(a, b, c)` and `[k -> v, ...]` → `Map(k -> v, ...)`
    *  in SSC code blocks, before Scalameta parses them.
    *
-   *  Disambiguation rule: `[` is treated as a list/map literal only when it is NOT
-   *  immediately preceded by an identifier character, `)`, or `]` (all of which
-   *  signal a type-parameter application or subscript in Scala 3).
+   *  Disambiguation rule: `[` is treated as a list/map literal when NOT preceded by
+   *  a non-keyword identifier, `)`, or `]`. Scala keywords (else, then, yield, …)
+   *  can precede list literals and are excluded from the "type-parameter" path.
    *  Map vs List: if the content contains `->` at bracket-depth 0 → Map; else → List.
    *  Handles strings (single/double/triple-quoted), line `//` and block `/* */` comments. */
   private def preprocessListLiterals(code: String): String =
@@ -632,8 +651,27 @@ object Parser:
           val end = skipStringFrom(i, q)
           out.appendAll(in, i, end - i); i = end
         case '[' =>
-          val prev = { var k = out.length - 1; while k >= 0 && out.charAt(k).isWhitespace do k -= 1; if k >= 0 then Some(out.charAt(k)) else None }
-          val isTypeParam = prev.exists(c => c.isLetterOrDigit || c == '_' || c == ')' || c == ']')
+          // Walk back past whitespace to find the previous non-whitespace char.
+          val j = { var k = out.length - 1; while k >= 0 && out.charAt(k).isWhitespace do k -= 1; k }
+          val isTypeParam = j >= 0 && {
+            val c = out.charAt(j)
+            if c == ')' || c == ']' then true
+            else if c.isLetterOrDigit || c == '_' then
+              // Extract the full preceding word; reject if it is a Scala keyword.
+              var ws = j
+              while ws > 0 && (out.charAt(ws - 1).isLetterOrDigit || out.charAt(ws - 1) == '_') do ws -= 1
+              val word = out.substring(ws, j + 1)
+              !preprocessListLiterals.scalaKeywords(word)
+            else if preprocessListLiterals.isOpChar(c) then
+              // Operator char: extract the full preceding operator token.
+              // Operators like `~`, `|`, `~>`, `<~`, `->` are method names → type param.
+              // Operators like `=>`, `=>>`, `=`, `<-`, `:` introduce expressions → expand.
+              var os = j
+              while os > 0 && preprocessListLiterals.isOpChar(out.charAt(os - 1)) do os -= 1
+              val op = out.substring(os, j + 1)
+              !preprocessListLiterals.exprOperators(op)
+            else false
+          }
           if isTypeParam then { out.append('['); i += 1 }
           else
             val closeIdx = findClose(i + 1)
