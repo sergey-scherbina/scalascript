@@ -80,6 +80,26 @@ val UiPrimitivesIntrinsics: Map[QualifiedName, IntrinsicImpl] = Map(
       case _ => throw InterpretError("setSignal(signal, value)")
   ),
 
+  // ── eqSignal[T](s: Signal[T], value: T): Signal[Boolean] ─────────────────
+  // Produces a derived boolean signal for routing guards.
+  // jsName pattern "<base>__eq__<value>" is picked up by the React emitter.
+  QualifiedName("eqSignal") -> NativeImpl((_, args) =>
+    args match
+      case List(Value.Foreign("ReactiveSignal", rs: ReactiveSignal[?]), raw) =>
+        val initial = rs.apply().asInstanceOf[Any] == raw
+        Value.Foreign("ReactiveSignal",
+          new ReactiveSignal[Boolean](s"${rs.jsName}__eq__${raw}", initial))
+      case _ => throw InterpretError("eqSignal(signal, value)")
+  ),
+
+  // ── hashSignal(): Signal[String] ────────────────────────────────────────
+  // JVM: always returns ""; React emitter wires "__hash__" to hashchange.
+  QualifiedName("hashSignal") -> NativeImpl((_, args) =>
+    args match
+      case List() => Value.Foreign("ReactiveSignal", new ReactiveSignal[String]("__hash__", ""))
+      case _      => throw InterpretError("hashSignal()")
+  ),
+
   // ── serve(tree: View, port: Int): Unit ───────────────────────────────────
   QualifiedName("serve") -> NativeImpl((ctx, args) =>
     args match

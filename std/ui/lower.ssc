@@ -18,9 +18,11 @@ then call `serve(lower(tree, defaultTheme), 8080)`.
  HeadingNode, TextNode_, ShowWhenNode, SignalTextNode,
  FragmentNode, RawTextNode, TextFieldNode, CheckboxNode,
  SignalButtonNode, BadgeNode, SpinnerNode,
- CardNode, ModalNode](std/ui/nodes.ssc)
+ CardNode, ModalNode,
+ TableColumn, TableNode,
+ RouteEntry, RouterNode, LinkNode](std/ui/nodes.ssc)
 [Theme](std/ui/theme.ssc)
-[element, textNode, signalText, showSignal, fragment, setSignal](std/ui/primitives.ssc)
+[element, textNode, signalText, showSignal, fragment, setSignal, eqSignal](std/ui/primitives.ssc)
 
 def lower(n: TkNode, theme: Theme): View = n match
 
@@ -198,5 +200,63 @@ def lower(n: TkNode, theme: Theme): View = n match
       Map(), List(titleEl, bodyEl))
     val overlay  = element("div", Map("style" -> overlayStyle), Map(), List(dialogEl))
     showSignal(open, overlay, element("span", Map("style" -> "display:none"), Map(), List()))
+
+  // ── Data ─────────────────────────────────────────────────────────────
+  case TableNode(cols, rows, sortColAny) =>
+    val sp = theme.spacing
+    val t  = theme.typography.body
+    val tableStyle = s"border-collapse:collapse; width:100%; font-family:${t.fontFamily}; font-size:${t.fontSize}px"
+    val headerCells = cols.map { col =>
+      val thStyle = s"text-align:left; padding:${sp.sm}px ${sp.md}px; " +
+                    s"border-bottom:2px solid ${theme.colors.muted}; font-weight:600; " +
+                    s"color:${theme.colors.onSurface}; cursor:pointer; user-select:none"
+      if sortColAny != null then
+        element("th",
+          Map("role" -> "columnheader", "style" -> thStyle),
+          Map("click" -> setSignal(sortColAny, col.key)),
+          List(textNode(col.label)))
+      else
+        element("th",
+          Map("role" -> "columnheader", "style" -> thStyle),
+          Map(),
+          List(textNode(col.label)))
+    }
+    val headerRow = element("tr", Map("role" -> "row"), Map(), headerCells)
+    val thead = element("thead",
+      Map("style" -> s"background:${theme.colors.surface}; border-bottom:2px solid ${theme.colors.muted}"),
+      Map(), List(headerRow))
+    val tbodyRows = rows.map { row =>
+      val cells = row.map { cell =>
+        val tdStyle = s"padding:${sp.sm}px ${sp.md}px; border-bottom:1px solid ${theme.colors.muted}; " +
+                      s"color:${theme.colors.onSurface}"
+        element("td",
+          Map("role" -> "cell", "style" -> tdStyle),
+          Map(), List(lower(cell, theme)))
+      }
+      element("tr", Map("role" -> "row"), Map(), cells)
+    }
+    val tbody = element("tbody", Map(), Map(), tbodyRows)
+    element("table",
+      Map("role" -> "table", "style" -> tableStyle),
+      Map(), List(thead, tbody))
+
+  // ── Routing ──────────────────────────────────────────────────────────
+  // Each route is guarded by eqSignal(current, path); exactly one shows.
+  case RouterNode(routes, currentAny) =>
+    val routeViews = routes.map { r =>
+      val cond = eqSignal(currentAny, r.path)
+      val body = fragment(r.body.map(lower(_, theme)))
+      showSignal(cond, body, fragment(List()))
+    }
+    fragment(routeViews)
+
+  case LinkNode(to, label, currentAny) =>
+    val t     = theme.typography.body
+    val style = s"color:${theme.colors.primary}; text-decoration:none; cursor:pointer; " +
+                s"font-size:${t.fontSize}px; font-family:${t.fontFamily}"
+    element("a",
+      Map("href" -> to, "style" -> style),
+      Map("click" -> setSignal(currentAny, to)),
+      List(textNode(label)))
 
 ```

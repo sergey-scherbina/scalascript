@@ -22,6 +22,11 @@ exports:
   - SpinnerNode
   - CardNode
   - ModalNode
+  - TableColumn
+  - TableNode
+  - RouteEntry
+  - RouterNode
+  - LinkNode
 ---
 
 # `std.ui.nodes` — widget ADT
@@ -76,4 +81,26 @@ case class CardNode(header: Any,
 case class ModalNode(open: Any,
                      title: String,
                      body: List[TkNode])                 extends TkNode
+
+// ── Data ──────────────────────────────────────────────────────────────────
+// TableColumn: header label + sort key (used by setSignal on header click).
+case class TableColumn(label: String, key: String)
+
+// TableNode: sortCol is Signal[String] or null (null disables click-to-sort).
+case class TableNode(columns: List[TableColumn],
+                     rows: List[List[TkNode]],
+                     sortCol: Any)                       extends TkNode
+
+// ── Routing ───────────────────────────────────────────────────────────────
+// RouteEntry: exact path + pre-built body (no path-param extraction in v1).
+case class RouteEntry(path: String, body: List[TkNode])
+
+// RouterNode: current is Signal[String]; each route shown via eqSignal guard.
+case class RouterNode(routes: List[RouteEntry],
+                      current: Any)                      extends TkNode
+
+// LinkNode: click sets current Signal to `to`; renders as <a href=to>.
+case class LinkNode(to: String,
+                    label: String,
+                    current: Any)                        extends TkNode
 ```

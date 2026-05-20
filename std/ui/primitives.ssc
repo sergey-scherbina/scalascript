@@ -1,7 +1,7 @@
 ---
 name: ui-primitives
 version: 1.0.0
-description: Low-level View/Signal/EventHandler primitives for std/ui. All widget libraries build on top of these nine extern defs.
+description: Low-level View/Signal/EventHandler primitives for std/ui. All widget libraries build on top of these extern defs.
 package: std.ui.primitives
 exports:
   - Signal
@@ -14,6 +14,8 @@ exports:
   - showSignal
   - fragment
   - setSignal
+  - eqSignal
+  - hashSignal
   - emit
   - serve
 ---
@@ -52,6 +54,15 @@ extern def fragment(children: List[View]): View
 // SetSignalLiteral — JS-translatable; use instead of a raw closure for
 // buttons and inputs whose click/change must emit to the browser.
 extern def setSignal[T](s: Signal[T], v: T): EventHandler
+
+// ── Derived signals ───────────────────────────────────────────────────────
+// eqSignal: equality guard — used by router to show/hide routes.
+// JS emitter maps jsName "__eq__" pattern to a computed boolean ref.
+extern def eqSignal[T](s: Signal[T], value: T): Signal[Boolean]
+
+// hashSignal: tracks window.location.hash (empty string on JVM).
+// React emitter wires "__hash__" to a hashchange listener.
+extern def hashSignal(): Signal[String]
 
 // ── Output ────────────────────────────────────────────────────────────────
 extern def emit(tree: View, outDir: String): Unit

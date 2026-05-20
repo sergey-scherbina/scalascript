@@ -1,0 +1,38 @@
+---
+name: ui-routing
+version: 1.0.0
+description: Client-side routing constructors — router, route, link. Exact-path matching via eqSignal guards. Returns TkNode; lower with lower.ssc.
+package: std.ui.routing
+exports:
+  - route
+  - router
+  - link
+  - hashRouter
+---
+
+# `std.ui.routing` — routing constructors
+
+`route` defines one path → body mapping.
+`router` groups routes under a shared `Signal[String]` that tracks the
+current path; exactly one route shows at a time via `eqSignal` guards.
+`link` renders an `<a>` that sets the path signal on click (SPA nav).
+`hashRouter` is a convenience wrapper that creates its own `hashSignal()`
+bound to `window.location.hash` (empty on the JVM; wired by the React emitter).
+
+```scalascript
+[TkNode, RouteEntry, RouterNode, LinkNode](std/ui/nodes.ssc)
+[hashSignal](std/ui/primitives.ssc)
+
+def route(path: String)(body: TkNode*): RouteEntry = RouteEntry(path, body.toList)
+
+// router: explicit current-path signal.
+def router(current: Any)(routes: RouteEntry*): TkNode = RouterNode(routes.toList, current)
+
+// link: <a href=to> that sets `current` signal on click.
+def link(to: String, label: String, current: Any): TkNode = LinkNode(to, label, current)
+
+// hashRouter: hash-based SPA router — manages its own hashSignal.
+def hashRouter(routes: RouteEntry*): TkNode =
+  val loc = hashSignal()
+  RouterNode(routes.toList, loc)
+```

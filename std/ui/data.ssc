@@ -1,0 +1,36 @@
+---
+name: ui-data
+version: 1.0.0
+description: Data widget constructors — table with optional click-to-sort. Returns TkNode; lower with lower.ssc.
+package: std.ui.data
+exports:
+  - tableCol
+  - tableRow
+  - table
+  - sortableTable
+---
+
+# `std.ui.data` — data widget constructors
+
+`tableCol` defines a column (label + sort key).
+`tableRow` packs pre-rendered cell nodes into a row.
+`table` renders a plain table; `sortableTable` adds click-to-sort headers
+that set the provided `Signal[String]` to the clicked column's key — the
+caller is responsible for re-building the rows in sorted order.
+
+```scalascript
+[TkNode, TableColumn, TableNode](std/ui/nodes.ssc)
+
+def tableCol(label: String, key: String): TableColumn = TableColumn(label, key)
+
+def tableRow(cells: TkNode*): List[TkNode] = cells.toList
+
+// Plain table — no sort interaction on headers.
+def table(cols: TableColumn*)(rows: List[List[TkNode]]): TkNode =
+  TableNode(cols.toList, rows, null)
+
+// Sortable table — clicking a column header sets sortCol to that column's key.
+// Caller re-builds rows based on sortCol's current value.
+def sortableTable(sortCol: Any)(cols: TableColumn*)(rows: List[List[TkNode]]): TkNode =
+  TableNode(cols.toList, rows, sortCol)
+```
