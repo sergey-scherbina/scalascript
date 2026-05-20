@@ -4098,6 +4098,21 @@ the codegen output.
     `(value, label)` option pairs + `toKey` for stable round-tripping.
     27 new tests.
 
+  - **Phase 7a–7d ✓ Landed (2026-05-20)** — Pure `.ssc` rewrite of
+    the toolkit under `std/ui/`.  Replaces `ToolkitDsl.scala`
+    intrinsics with 11 `extern def` primitives (`signal`, `element`,
+    `textNode`, `signalText`, `showSignal`, `fragment`, `setSignal`,
+    `eqSignal`, `hashSignal`, `emit`, `serve`) backed by
+    `UiPrimitivesIntrinsics`.  All widget ADTs (`nodes.ssc`) and
+    theme-aware lowering (`lower.ssc`) live in pure `.ssc`.
+    Delivered: `primitives.ssc`, `theme.ssc`, `layout.ssc`,
+    `typography.ssc`, `reactive.ssc`, `input.ssc`, `display.ssc`,
+    `containers.ssc`, `data.ssc`, `routing.ssc`.
+    Demo (`toolkit-demo.ssc`) rewritten to use `std/ui` imports.
+
+  - **Phase 7e** — Retire `frontend-toolkit` sbt module; port
+    `ToolkitTest` / `FormTest` to `.ssc` tests.
+
   - **Phase C — Reference SPA + SSR + remaining widgets** (next).
     Build one non-trivial reference app exercising the full toolkit
     + SSR rendering path + the deferred widgets (ColorPicker,

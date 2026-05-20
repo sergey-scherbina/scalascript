@@ -877,13 +877,18 @@ serve(lower(tree, Theme.default), 8080)
      use the `.ssc` imports.
 
      Sub-phases:
-     - **7a** Spec update + nine `UiPrimitives` intrinsics.
-     - **7b** `std/ui/primitives.ssc`, `theme.ssc`, `layout.ssc`,
-       `typography.ssc`, `reactive.ssc`.  Mid-cycle demo smoke.
-     - **7c** `std/ui/input.ssc` (all form controls + Form).
-     - **7d** `std/ui/display.ssc`, `containers.ssc`.
-     - **7e** `std/ui/data.ssc` (Table), `routing.ssc`.
-     - **7f** Retire `frontend-toolkit` sbt module; port
+     - **7a ✓ Landed** — Spec update + `UiPrimitives` intrinsics
+       (`signal`, `element`, `textNode`, `signalText`, `showSignal`,
+       `fragment`, `setSignal`, `emit`, `serve`).
+     - **7b ✓ Landed** — `std/ui/primitives.ssc`, `theme.ssc`,
+       `layout.ssc`, `typography.ssc`, `reactive.ssc`, `input.ssc`,
+       `display.ssc`.  Demo (`toolkit-demo.ssc`) rewritten.
+     - **7c ✓ Landed** — `std/ui/containers.ssc` (`card`, `modal`);
+       `CardNode`/`ModalNode` added to ADT + lower.
+     - **7d ✓ Landed** — `std/ui/data.ssc` (sortable Table) +
+       `routing.ssc` (Router/Link/hashRouter); `eqSignal`/`hashSignal`
+       extern defs added.
+     - **7e** Retire `frontend-toolkit` sbt module; port
        `ToolkitTest` / `FormTest` to `.ssc` tests.
 
   8. **Phase 8 (planned)** — Remaining deferred widgets
