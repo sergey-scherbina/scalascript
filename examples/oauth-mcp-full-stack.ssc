@@ -1,0 +1,183 @@
+#!/usr/bin/env ssc
+---
+name: oauth-mcp-full-stack
+version: 1.0.0
+description: Complete OAuth-protected MCP server demo — single .ssc combining the OAuth 2.1 AS, an MCP server that uses it for authentication, a programmatic OAuth client that mints tokens via client_credentials, and an MCP client that calls a tool through the protected transport with auto-refresh on 401.
+---
+
+# OAuth-Protected MCP Stack — Single-File Demo
+
+Brings together everything v1.17.x ships in one runnable script:
+
+  - **AS** (`oauth.authServer`) — issues bearer tokens, exposes
+    discovery + JWKS + introspection + revocation endpoints.
+  - **MCP server** with `srv.useAuthServer(as)` — bearer-gated.
+  - **OAuth client SDK** (`oauth.client.*`) — mints tokens.
+  - **MCP client** (`mcpConnect`) — drives tools/list + tools/call
+    through the OAuth-protected `/mcp`; on 401 auto-refreshes via
+    a `TokenHolder` wired into `setOn401Handler`.
+
+In a real deployment the AS would run as its own process (and the
+MCP server as another), each calling the same OAuth library; this
+example collapses both into one process so the entire flow is
+inspectable from a single file.
+
+```scalascript
+[mcpServer, serveMcp, Tool, requireString, Transport](../std/mcp/server.ssc)
+[mcpConnect](../std/mcp/client.ssc)
+
+// ─── 1. Authorization Server ─────────────────────────────────────────
+
+val as = oauth.authServer(Map(
+  "issuer"          -> "http://localhost:8080",
+  "signingSecret"   -> "a-real-deployment-must-rotate-this-32-byte-key",
+  "scopes"          -> List("mcp:read", "mcp:invoke")
+))
+
+// Pre-register one machine-to-machine client (DCR also works at runtime).
+val client = as.registerClient(Map(
+  "redirect_uris"             -> List("http://localhost/cb"),
+  "grant_types"               -> List("client_credentials"),
+  "token_endpoint_auth_method" -> "client_secret_basic",
+  "scope"                     -> "mcp:read mcp:invoke"
+))
+val clientId     = client("client_id")
+val clientSecret = client("client_secret")
+println("Pre-registered MCP client: " + clientId)
+
+oauth.serveAuthServer(as)
+println("OAuth AS endpoints mounted under http://localhost:8080")
+
+// ─── 2. MCP server (bearer-gated by the AS above) ───────────────────
+
+mcpServer { srv =>
+  srv.useAuthServer(as)  // every /mcp request now requires a valid bearer
+
+  // One real tool — exposed only to authenticated callers.
+  srv.tool("greet", "Greet a name") { args =>
+    val name = requireString(args, "name")
+    val sub  = srv.currentAuth.map(_.subject).getOrElse("anonymous")
+    Tool.text(s"Hello, $name — request authenticated as $sub")
+  }
+
+  srv.onConnected(() =>
+    println("MCP client connected — auth enabled: " + srv.authEnabled))
+}
+
+println("MCP server mounted at http://localhost:8080/mcp (bearer required)")
+
+// ─── 3. Server is now live; the snippet below shows the client
+//       wiring that any external caller (Python, Node, another .ssc)
+//       would use against this AS + MCP combination.
+//
+//   ┌────────────────────────────────────────────────────────────────┐
+//   │ # discover the AS                                              │
+//   │ md = oauth.client.discoverAs("http://localhost:8080")          │
+//   │                                                                │
+//   │ # mint a token via client_credentials                          │
+//   │ tok = oauth.client.clientCredentials(                          │
+//   │   md("token_endpoint"), clientId, clientSecret,                │
+//   │   List("mcp:read", "mcp:invoke"))                              │
+//   │                                                                │
+//   │ # connect MCP with the bearer attached                         │
+//   │ mcp = mcpConnect(Transport.Http(8080, "/mcp"),                 │
+//   │                  30000L, tok("accessToken"))                   │
+//   │                                                                │
+//   │ # call the protected tool                                      │
+//   │ res = mcp.callTool("greet", Map("name" -> "Alice"))            │
+//   │ println(res.content(0).text)                                   │
+//   │   →  "Hello, Alice — request authenticated as <clientId>"      │
+//   └────────────────────────────────────────────────────────────────┘
+//
+// The OAuth client SDK also exposes a TokenHolder for long-lived
+// sessions that need auto-refresh on token expiry:
+//
+//   holder = oauth.client.tokenHolder(
+//     md("token_endpoint"), clientId, 60L, clientSecret)
+//   holder.seed(tok)
+//   # later, when the cached token is within 60s of expiry, holder
+//   # .current() will block on a refresh against the AS and return
+//   # the new access token transparently.
+
+serveMcp(Transport.Http(8080, "/mcp"))
+```
+
+## Trying it from curl
+
+While the script is running, the AS endpoints are open to any HTTP
+client.  Smoke test:
+
+```bash
+# 1. Inspect the OAuth discovery document
+curl -s http://localhost:8080/.well-known/oauth-authorization-server | jq .
+
+# 2. Mint a token
+TOKEN=$(curl -s -X POST http://localhost:8080/token \
+  -d "grant_type=client_credentials&client_id=<id>&client_secret=<sec>&scope=mcp:read+mcp:invoke" \
+  | jq -r .access_token)
+
+# 3. Without bearer: 401
+curl -i -X POST http://localhost:8080/mcp \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","method":"tools/list","id":1}'
+# →  HTTP/1.1 401 Unauthorized
+# →  WWW-Authenticate: Bearer realm="mcp", error="invalid_request"
+
+# 4. With bearer: 200 + tools/list result
+curl -s -X POST http://localhost:8080/mcp \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $TOKEN" \
+  -d '{"jsonrpc":"2.0","method":"tools/list","id":1}' | jq .
+
+# 5. Call the protected tool
+curl -s -X POST http://localhost:8080/mcp \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $TOKEN" \
+  -d '{
+    "jsonrpc":"2.0",
+    "method":"tools/call",
+    "id":2,
+    "params":{"name":"greet","arguments":{"name":"World"}}
+  }' | jq .
+
+# 6. Revoke and observe rejection on next call
+curl -s -X POST http://localhost:8080/revoke \
+  -d "token=$TOKEN"
+# →  HTTP/1.1 200 (empty body — per RFC 7009 §2.2)
+
+curl -i -X POST http://localhost:8080/mcp \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","method":"tools/list","id":3}'
+# →  HTTP/1.1 401 Unauthorized  (token revoked)
+```
+
+## What this demonstrates
+
+  - **End-to-end OAuth flow** — discovery, client registration (DCR),
+    token issuance, bearer attachment, protected tool invocation,
+    revocation.
+  - **MCP+OAuth integration** via `srv.useAuthServer(as)` — one line
+    converts an MCP server from open to bearer-gated; the existing
+    `currentAuth` accessor surfaces the validated claims to handlers.
+  - **Single-process composition** — AS + MCP on the same port via
+    `oauth.serveAuthServer(as)` and `serveMcp(...)`.
+  - **The discovery doc** at `/.well-known/oauth-authorization-server`
+    + the protected-resource document at
+    `/.well-known/oauth-protected-resource` give clients everything
+    they need to bootstrap a session without out-of-band config.
+
+For persistent state (refresh tokens, DCR clients) that survives a
+restart, swap the InMemory stores for the file-backed variants by
+constructing the `AuthServer` from Scala:
+
+```scala
+import scalascript.oauth.*
+import scalascript.oauth.PersistentStores.*
+
+val as = new AuthServer(
+  AuthServerConfig(issuer = "...", signingSecret = "..."),
+  clients = new JsonLineClientStore(java.nio.file.Paths.get("/var/lib/as/clients.log")),
+  tokens  = new JsonLineTokenStore(java.nio.file.Paths.get("/var/lib/as/tokens.log"))
+)
+```
