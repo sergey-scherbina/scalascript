@@ -8,8 +8,11 @@ import scalascript.frontend.{View, AttrValue, EventHandler, Signal}
  *  `Button`, `TextField`, …) instead of raw HTML elements.  All
  *  widgets lower to View through `Toolkit.lower(node, theme)`.
  *
- *  See `docs/frontend-toolkit-spec.md` for the design intent. */
-sealed trait ToolkitNode
+ *  Not `sealed` — the toolkit's vocabulary is open-ended.  Widget
+ *  packs (Form, Router, Widgets2, …) live in their own files and
+ *  extend this trait directly; `Toolkit.lower` adds a `case` per
+ *  pack.  See `docs/frontend-toolkit-spec.md` for the design intent. */
+trait ToolkitNode
 
 /** Lowering — toolkit → View.  Pure function: same toolkit tree +
  *  same theme = same View.  No DOM access; backends consume the
@@ -27,6 +30,23 @@ object Toolkit:
     case n: CheckboxNode   => CheckboxNode.lower(n, theme)
     case n: AlertNode      => AlertNode.lower(n, theme)
     case n: CardNode       => CardNode.lower(n, theme)
+    case n: FormNode       => FormNode.lower(n, theme)
+    case n: RouterNode     => RouterNode.lower(n, theme)
+    case n: LinkNode       => LinkNode.lower(n, theme)
+    case n: TableNode[?]   => TableNode.lower(n, theme)
+    // v1.17 / Widgets v2 pack — Slider, Tabs, Modal, Drawer, Tooltip,
+    // Badge, Avatar, Icon, Spinner, Progress.  Each lives in
+    // Widgets2.scala with its own `*.lower` companion.
+    case n: SliderNode     => SliderNode.lower(n, theme)
+    case n: TabsNode       => TabsNode.lower(n, theme)
+    case n: ModalNode      => ModalNode.lower(n, theme)
+    case n: DrawerNode     => DrawerNode.lower(n, theme)
+    case n: TooltipNode    => TooltipNode.lower(n, theme)
+    case n: BadgeNode      => BadgeNode.lower(n, theme)
+    case n: AvatarNode     => AvatarNode.lower(n, theme)
+    case n: IconNode       => IconNode.lower(n, theme)
+    case n: SpinnerNode    => SpinnerNode.lower(n, theme)
+    case n: ProgressNode   => ProgressNode.lower(n, theme)
     case n: RawViewNode    => n.view  // escape hatch — direct embed
 
 /** Escape hatch — wrap a low-level `View` so it composes alongside
