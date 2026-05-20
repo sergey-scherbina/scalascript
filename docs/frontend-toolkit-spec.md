@@ -627,8 +627,15 @@ must work in the browser must use `setSignal(...)` (or a future
 ### What moves to `.ssc`
 
 The widget ADT and lowering logic are pure transformations:
-`ToolkitNode → View`.  That is exactly what the `.ssc` type
-system handles.  Compare the current Scala:
+`TkNode → View`.  That is exactly what the `.ssc` type system
+handles.
+
+**Design rule**: every widget constructor returns `TkNode`.
+`lower(node, theme): View` is the single place that reads theme
+tokens and produces `View`.  Theme is threaded once — at call
+site — not through every constructor.
+
+Compare the current Scala:
 
 ```scala
 // current Scala (frontend-toolkit/src/.../Toolkit.scala)
@@ -642,61 +649,112 @@ def lower(n: ToolkitNode, theme: Theme): View = n match
              Map.empty, kids.map(lower(_, theme)))
 ```
 
-with the equivalent `.ssc`:
+with the equivalent `.ssc` split across three files:
 
 ```scalascript
-// std/ui/layout.ssc — imports from std/ui/primitives.ssc
-[element, textNode, fragment](std/ui/primitives.ssc)
+// std/ui/nodes.ssc — widget ADT, no imports needed
+sealed trait TkNode
+
+case class VStackNode(gap: Int, children: List[TkNode]) extends TkNode
+case class HStackNode(gap: Int, children: List[TkNode]) extends TkNode
+case class DividerNode()                                 extends TkNode
+case class SpacerNode(grow: Boolean)                     extends TkNode
+
+case class HeadingNode(level: Int, text: String)         extends TkNode
+case class TextNode_(text: String)                       extends TkNode
+
+case class TextFieldNode(value: Signal[String],
+                         label: Option[String],
+                         disabled: Boolean,
+                         required: Boolean)              extends TkNode
+case class CheckboxNode(checked: Signal[Boolean],
+                        label: String,
+                        disabled: Boolean)               extends TkNode
+case class SignalButtonNode(signal: Signal[Any],
+                            value: Any,
+                            label: String,
+                            disabled: Boolean)           extends TkNode
+```
+
+```scalascript
+// std/ui/layout.ssc — smart constructors (return TkNode, no theme)
+[TkNode, VStackNode, HStackNode, DividerNode, SpacerNode](std/ui/nodes.ssc)
+
+def vstack(gap: Int = 0)(children: TkNode*): TkNode = VStackNode(gap, children.toList)
+def hstack(gap: Int = 0)(children: TkNode*): TkNode = HStackNode(gap, children.toList)
+def divider(): TkNode = DividerNode()
+def spacer(grow: Boolean = false): TkNode = SpacerNode(grow)
+```
+
+```scalascript
+// std/ui/lower.ssc — theme-aware lowering, TkNode → View
+[TkNode, VStackNode, HStackNode, DividerNode, SpacerNode,
+ HeadingNode, TextNode_, TextFieldNode, CheckboxNode,
+ SignalButtonNode](std/ui/nodes.ssc)
+[Theme](std/ui/theme.ssc)
+[element, textNode, setSignal](std/ui/primitives.ssc)
+
+def lower(n: TkNode, theme: Theme): View = n match
+  case VStackNode(gap, kids) =>
+    element("div",
+      Map("style" -> s"display:flex; flex-direction:column; gap:${gap}px"),
+      Map.empty,
+      kids.map(lower(_, theme)))
+  case HStackNode(gap, kids) =>
+    element("div",
+      Map("style" -> s"display:flex; flex-direction:row; gap:${gap}px"),
+      Map.empty,
+      kids.map(lower(_, theme)))
+  case HeadingNode(level, text) =>
+    val sz = List(32, 24, 20, 18, 16, 14)(level - 1)
+    element(s"h$level",
+      Map("style" -> s"font-size:${sz}px; font-weight:bold; font-family:${theme.typography.body.fontFamily}"),
+      Map.empty, List(textNode(text)))
+  case SignalButtonNode(sig, value, label, disabled) =>
+    val base = s"background:${theme.colors.primary}; color:${theme.colors.onPrimary}; " +
+               s"padding:${theme.spacing.sm}px ${theme.spacing.md}px; border:none; " +
+               s"border-radius:${theme.radii.md}px; font-size:${theme.typography.body.fontSize}px"
+    if disabled then
+      element("button",
+        Map("style" -> (base + "; opacity:0.5; cursor:not-allowed"),
+            "aria-disabled" -> true),
+        Map.empty, List(textNode(label)))
+    else
+      element("button",
+        Map("style" -> (base + "; cursor:pointer")),
+        Map("click" -> setSignal(sig, value)),
+        List(textNode(label)))
+  // … remaining nodes follow the same pattern
+```
+
+User code constructs a tree, then lowers it once:
+
+```scalascript
+[signal, serve](std/ui/primitives.ssc)
+[vstack](std/ui/layout.ssc)
+[heading](std/ui/typography.ssc)
+[textField, checkbox, signalButton](std/ui/input.ssc)
+[lower](std/ui/lower.ssc)
 [Theme](std/ui/theme.ssc)
 
-sealed trait StackNode
-case class VStackNode(gap: Int, children: List[View]) extends StackNode
-case class HStackNode(gap: Int, children: List[View]) extends StackNode
+val name   = signal("name",   "")
+val accept = signal("accept", false)
 
-def vstack(gap: Int = 0)(children: View*): View =
-  element("div",
-    Map("style" -> s"display:flex; flex-direction:column; gap:${gap}px"),
-    Map.empty,
-    children.toList)
+val tree = vstack(gap = 16)(
+  heading(1, "Sign-up"),
+  textField(value = name, label = "Name"),
+  checkbox(checked = accept, label = "I accept"),
+  signalButton(accept, true, "Submit")
+)
 
-def hstack(gap: Int = 0)(children: View*): View =
-  element("div",
-    Map("style" -> s"display:flex; flex-direction:row; gap:${gap}px"),
-    Map.empty,
-    children.toList)
-
-def divider(): View =
-  element("hr", Map("style" -> "border:none; border-top:1px solid #e5e7eb"), Map.empty, Nil)
-
-def spacer(grow: Boolean = false): View =
-  val style = if grow then "flex:1" else "display:inline-block"
-  element("div", Map("style" -> style), Map.empty, Nil)
+serve(lower(tree, Theme.default), 8080)
 ```
 
-```scalascript
-// std/ui/input.ssc — JS-translatable submit button using setSignal
-[element, setSignal](std/ui/primitives.ssc)
-
-def signalButton[T](sig: Signal[T], value: T, label: String,
-                    disabled: Boolean = false): View =
-  val handler = setSignal(sig, value)   // EventHandler.SetSignalLiteral
-  if disabled then
-    element("button",
-      Map("style" -> "…; cursor:not-allowed; opacity:0.5",
-          "aria-disabled" -> true),
-      Map.empty,
-      List(textNode(label)))
-  else
-    element("button",
-      Map("style" -> "…; cursor:pointer"),
-      Map("click" -> handler),
-      List(textNode(label)))
-```
-
-The user-visible DSL stays the same; only the implementation
-layer moves from Scala to `.ssc`.  Note: `onClick: () => Unit` would
-produce `EventHandler.Simple` (JVM-only); widget functions that must
-emit to JS pass a `Signal`-derived handler instead.
+`lower` is a pure function — no DOM, no async.  SSR on the JVM
+calls `lower(tree, theme)` and feeds the resulting `View` to a
+server-side renderer.  Note: `onClick: () => Unit` in events would
+produce `EventHandler.Simple` (JVM-only); widget functions that
+must emit to JS use `setSignal(...)` instead.
 
 ### Analogy: `std/http.ssc`
 
@@ -714,10 +772,14 @@ The toolkit follows the same shape:
 extern def element(tag, attrs, events, children): View   ← primitive
 extern def signal[T](name, default): Signal[T]           ← primitive
 extern def setSignal[T](sig, value): EventHandler        ← primitive
-// + pure .ssc widget library built on top
-def vstack(gap: Int)(children: View*): View = element("div", …, Nil, children.toList)
-def signalButton[T](sig: Signal[T], v: T, label: String): View =
-  element("button", …, Map("click" -> setSignal(sig, v)), List(textNode(label)))
+// + pure .ssc ADT + lowering built on top
+case class VStackNode(gap, children) extends TkNode
+def vstack(gap: Int)(children: TkNode*): TkNode = VStackNode(gap, children.toList)
+def lower(n: TkNode, theme: Theme): View = n match
+  case VStackNode(gap, kids) => element("div", …, Nil, kids.map(lower(_, theme)))
+  case SignalButtonNode(sig, v, label, _) =>
+    element("button", Map("style" -> buttonCss(theme), …),
+            Map("click" -> setSignal(sig, v)), List(textNode(label)))
 ```
 
 ### Target file layout
@@ -727,28 +789,37 @@ std/ui/
   primitives.ssc    — 9 extern defs + opaque Signal/View/EventHandler types
   theme.ssc         — Theme case class (Colors/Spacing/Typography/Radii/Shadows)
                       + Theme.default + Theme.dark
-  layout.ssc        — vstack, hstack, box, spacer, divider
-  typography.ssc    — heading, text
-  input.ssc         — button, signalButton, textField, checkbox, textarea,
-                      select, radioGroup, datePickerField, numberInput,
-                      sliderField, form (with validator support)
-  display.ssc       — alert, badge, avatar, icon, spinner, progress, tooltip
-  containers.ssc    — card, modal, drawer, tabs
+  nodes.ssc         — sealed trait TkNode + all case class variants (no imports)
+  lower.ssc         — lower(TkNode, Theme): View  (imports primitives + nodes + theme)
+  layout.ssc        — vstack, hstack, box, spacer, divider  → TkNode constructors
+  typography.ssc    — heading, text                         → TkNode constructors
+  input.ssc         — button, signalButton, textField,      → TkNode constructors
+                      checkbox, textarea, select, radioGroup,
+                      datePickerField, numberInput, sliderField,
+                      form (with validator support)
+  display.ssc       — alert, badge, avatar, icon,           → TkNode constructors
+                      spinner, progress, tooltip
+  containers.ssc    — card, modal, drawer, tabs             → TkNode constructors
   data.ssc          — table (with click-to-sort via sort-column signal)
   routing.ssc       — router, route, link
   reactive.ssc      — showWhen, signalText, fragment, rawText, for_
 ```
 
-User code imports the files it needs directly — there is no `index.ssc`
-umbrella (re-export is not supported by the import mechanism):
+User code imports constructors + `lower` + `serve`; theme is applied
+once at the call site:
 
 ```scalascript
 [signal, setSignal, serve](std/ui/primitives.ssc)
+[lower](std/ui/lower.ssc)
+[Theme](std/ui/theme.ssc)
 [vstack, hstack, divider, spacer](std/ui/layout.ssc)
 [heading, text](std/ui/typography.ssc)
 [textField, checkbox, signalButton](std/ui/input.ssc)
 [badge, spinner](std/ui/display.ssc)
 [showWhen, signalText, fragment](std/ui/reactive.ssc)
+
+val tree = vstack(gap = 16)(…)
+serve(lower(tree, Theme.default), 8080)
 ```
 
 ### Known risks and open questions (Phase 7)
