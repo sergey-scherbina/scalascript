@@ -346,7 +346,14 @@ private[react] object ReactEmitter:
       eventHandlerJs(eventName, handler, itemCtx)
     }
     val keyField = if injectKey then List("'key': String(item)") else Nil
-    val all = keyField ++ attrFields ++ eventFields
+    // If `value` is set but no onChange was emitted (input handler is an
+    // untranslatable JVM closure), use defaultValue so the field is
+    // uncontrolled and the user can still type in the browser.
+    val hasOnChange = eventFields.exists(_.startsWith("'onChange'"))
+    val finalAttrFields = if !hasOnChange && attrFields.exists(_.startsWith("'value'"))
+      then attrFields.map(f => if f.startsWith("'value'") then "'defaultValue'" + f.drop("'value'".length) else f)
+      else attrFields
+    val all = keyField ++ finalAttrFields ++ eventFields
     if all.isEmpty then "null" else s"{ ${all.mkString(", ")} }"
 
   private def attrValueJs(av: AttrValue): Option[String] = av match
