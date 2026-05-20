@@ -7228,10 +7228,27 @@ Thin `backend-wasm-contract/` layer on top of `backend-wasm/` for Near or Polkad
 >   runtime) and recover the concrete `UserDefinedType[Vector]` via
 >   cast.  Same wire-level interop with downstream MLlib operators
 >   as a direct `new VectorUDT()` construction.
-> - **M.5 — Model save/load (open).**
->   `examples/spark-mllib-model-save-load.ssc` — `model.write.overwrite().save(path)`
->   + `PipelineModel.load(path)` round-trip.  Smoke test gated the
->   same way as M.4.
+> - **M.5 — Model save/load (landed 2026-05-20).**
+>   `examples/spark-mllib-model-save-load.ssc` — same pipeline shape
+>   as M.4, plus `model.write.overwrite().save(path)` →
+>   `PipelineModel.load(path)` round-trip with a prediction
+>   equivalence check on the same training data.  Exercises Spark
+>   ML's `MLWritable` / `MLReadable` traits (implemented by every
+>   stock MLlib estimator/transformer) without any new SparkGen
+>   surface — the save/load calls flow through unchanged because
+>   PipelineModel + path Strings need no codegen support.  Codegen
+>   test in `SparkGenTest` pins the API-surface preservation;
+>   smoke test in `SparkRuntimeSmokeTest` invokes `scala-cli compile`
+>   against the real `spark-mllib_2.13:4.0.0` JAR under
+>   `RUN_SPARK_INTEGRATION=1 RUN_SPARK_MLLIB=1`.  Verified locally
+>   under Scala 3.7.1 + Spark 4.0.0 + JDK 21 — generated source
+>   resolves, type-checks, and preserves the `model.write.overwrite().save`
+>   + `PipelineModel.load` calls bit-identically.  Documented
+>   caveats in the example: save() writes a directory tree (not a
+>   single file), cross-Spark-major load is MLlib's own concern,
+>   custom non-stock components must implement `MLWritable` /
+>   `MLReadable` themselves to participate.  M closes here for
+>   stock-component scope.
 
 ### Why it fits
 

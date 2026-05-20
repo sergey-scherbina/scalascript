@@ -1,0 +1,101 @@
+---
+name: spark-mllib-model-save-load
+backend: spark
+spark-app-name: Phase M.5 MLlib Model Save/Load Demo
+description: PipelineModel.save / PipelineModel.load round-trip via Spark ML's MLWritable / MLReadable (v1.25 § 9.5 Phase M.5)
+---
+
+# Phase M.5 — Spark MLlib model persistence
+
+Demonstrates that an MLlib `PipelineModel` can be persisted to disk
+via Spark's own `MLWritable` / `MLReadable` traits and reloaded into
+a fresh `PipelineModel` that produces bit-identical predictions on
+the same input.  The persistence path is MLlib's built-in directory
+format — versioned metadata + per-stage artefacts on the configured
+file system — so it works with any Hadoop-compatible URI
+(`file://`, `hdfs://`, `s3a://`, ...).
+
+What this exercises on top of M.4:
+
+- `model.write.overwrite().save("/tmp/...")` — `MLWritable` trait
+  surface that every stock MLlib estimator/transformer implements
+  out of the box.
+- `PipelineModel.load("/tmp/...")` — `MLReadable` companion object
+  factory that re-hydrates the whole pipeline (all stages, all
+  fitted parameters, in source order) from disk.
+- Same prediction values before and after the round-trip — the
+  built-in serialiser preserves model state losslessly for stock
+  components.
+
+Caveats documented for users hitting them in production:
+
+- `model.save(path)` writes a **directory tree**, not a single file.
+  The path must NOT already exist unless `.overwrite()` is set on
+  the writer.  The example uses `/tmp/...` so we can run idempotently.
+- Cross-Spark-version load is MLlib's own concern.  A model saved
+  on Spark 3.x usually but not always loads on Spark 4.x — when the
+  underlying stage's parameter schema changed across the boundary,
+  `MLReadable.load` throws.  Stay on a single Spark major within a
+  model's lifecycle.
+- Custom (non-stock) Estimators / Transformers must implement
+  `MLWritable` / `MLReadable` themselves to participate in
+  persistence.  Stock MLlib components all implement these by
+  default; Phase M's scope is stock components only.
+
+Run with:
+
+```
+ssc run --backend spark examples/spark-mllib-model-save-load.ssc
+```
+
+## Pipeline + save + load
+
+```scalascript
+import org.apache.spark.ml.{Pipeline, PipelineModel}
+import org.apache.spark.ml.feature.{Tokenizer, HashingTF}
+import org.apache.spark.ml.classification.LogisticRegression
+
+case class LabeledDoc(label: Double, text: String)
+
+val training = spark.createDataset(List(
+  LabeledDoc(1.0, "spark hadoop scala sql"),
+  LabeledDoc(0.0, "apple orange banana grape"),
+  LabeledDoc(1.0, "spark sql streaming dataset"),
+  LabeledDoc(0.0, "kitten puppy bird hamster")
+))
+
+val tokenizer = Tokenizer().setInputCol("text").setOutputCol("words")
+val hashingTF = HashingTF()
+  .setInputCol(tokenizer.getOutputCol)
+  .setOutputCol("features")
+  .setNumFeatures(64)
+val lr = LogisticRegression().setMaxIter(10).setRegParam(0.001)
+
+val pipeline = Pipeline().setStages(Array(tokenizer, hashingTF, lr))
+val model    = pipeline.fit(training)
+
+// Persist.  `.write.overwrite()` replaces an existing directory at
+// the target path; without it, an existing path causes save() to
+// throw.  Path is a fresh /tmp directory keyed to this demo so the
+// example can re-run without manual cleanup.
+val modelPath = "/tmp/ssc-mllib-pipeline-model"
+model.write.overwrite().save(modelPath)
+println(s"MLLIB_MODEL_SAVED path=$modelPath")
+
+// Load back into a brand-new PipelineModel object.  Same type as
+// `model` above — the static reference returned by
+// `PipelineModel.load` is the canonical re-hydration API surface.
+val loaded: PipelineModel = PipelineModel.load(modelPath)
+println("MLLIB_MODEL_LOADED")
+
+// Round-trip equivalence check.  The two predictions should agree
+// on every row — same pipeline shape, same fitted parameters,
+// deterministic transform.
+val originalPredictions = model.transform(training).select("prediction").collect().map(_.getDouble(0)).toList
+val reloadedPredictions = loaded.transform(training).select("prediction").collect().map(_.getDouble(0)).toList
+
+if originalPredictions == reloadedPredictions then
+  println(s"MLLIB_MODEL_ROUNDTRIP_OK count=${originalPredictions.size}")
+else
+  println(s"MLLIB_MODEL_ROUNDTRIP_MISMATCH original=$originalPredictions reloaded=$reloadedPredictions")
+```

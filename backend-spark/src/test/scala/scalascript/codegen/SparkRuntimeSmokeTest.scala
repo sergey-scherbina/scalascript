@@ -239,3 +239,16 @@ class SparkRuntimeSmokeTest extends AnyFunSuite:
     requireMllib()
     compileExample("spark-mllib-pipeline.ssc")
   }
+
+  test("spark-mllib-model-save-load.ssc compiles under Phase M.5") {
+    // Model persistence round-trip: `model.write.overwrite().save(path)`
+    // + `PipelineModel.load(path)`.  Exercises the MLWritable /
+    // MLReadable surface that every stock MLlib component implements
+    // out of the box.  scala-cli compile alone doesn't execute the
+    // round-trip — for that the user runs the example directly via
+    // `ssc run --backend spark ...`.  The smoke test here just
+    // confirms the generated source resolves and type-checks against
+    // the persistence API.
+    requireMllib()
+    compileExample("spark-mllib-model-save-load.ssc")
+  }

@@ -2056,6 +2056,38 @@ class SparkGenTest extends AnyFunSuite:
       s"user MLlib import must be preserved in generated source, got:\n$code")
   }
 
+  // ── Phase M.5 — Model save/load round-trip ───────────────────────────────
+  //
+  // Codegen-level guard for the M.5 example.  Verifies that the
+  // generated source preserves the `model.write.overwrite().save(...)`
+  // + `PipelineModel.load(...)` API surface — no SparkGen pre-pass
+  // should rewrite or strip those calls.
+
+  test("spark-mllib-model-save-load.ssc — generated source preserves save/load API surface") {
+    def hasExamples(p: os.Path): Boolean =
+      os.exists(p / "examples" / "spark-mllib-model-save-load.ssc")
+    val repoRoot = LazyList
+      .iterate(os.pwd)(_ / os.up)
+      .takeWhile(p => p.toString != "/")
+      .find(hasExamples)
+      .getOrElse(cancel(s"example fixture missing from ${os.pwd}"))
+    val src  = os.read(repoRoot / "examples" / "spark-mllib-model-save-load.ssc")
+    val code = gen(src)
+    // M.2 — dep emit must fire (PipelineModel import triggers MLlib).
+    assert(code.contains("spark-mllib_2.13"),
+      s"MLlib dep must appear for the save/load example, got:\n$code")
+    // M.3 — Vector encoder shim emitted.
+    assert(code.contains("given aenc_MLVector"),
+      s"MLlib Vector encoder must appear for the save/load example, got:\n$code")
+    // M.5 — save/load API surface preserved verbatim.
+    assert(code.contains("""model.write.overwrite().save(modelPath)"""),
+      s"model.write.overwrite().save must survive codegen, got:\n$code")
+    assert(code.contains("""PipelineModel.load(modelPath)"""),
+      s"PipelineModel.load must survive codegen, got:\n$code")
+    assert(code.contains("import org.apache.spark.ml.{Pipeline, PipelineModel}"),
+      s"PipelineModel import must be preserved, got:\n$code")
+  }
+
   test("containsMllib helper — direct test cases") {
     // Pin the detection helper used by the M.2 logic.  Same shape as
     // the Phase F.3 `containsFileStreamSink` / `containsCheckpointLocation`
