@@ -261,7 +261,7 @@ per-backend support for every block language currently in `Lang.scala`.
 | `css`             | ✅ (`<id>.css` String binding)  | ✅ | ✅ | ✅ | ✅ | ✅ |
 | `javascript` / `js` | ✅ (String value) | ✅ | ✅ (spliced into output) | ✅ | ✅ | ✅ |
 | `node.js` / `node` | ❌ (`UnknownBlockLanguage`) | ❌ | ❌ | ✅ (linked into bundle) | ❌ | ❌ |
-| `sql`             | ✅ (JDBC via `backend-sql-runtime`) | ✅ (emits `SqlRuntime.execute`) | ❌ | ❌ | ❌ | ✅ (Spark SQL) |
+| `sql`             | ✅ (JDBC via `backend-sql-runtime`) | ✅ (emits `SqlRuntime.execute`) | ✅ (sql.js / DuckDB-Wasm — v1.27) | ✅ (sql.js / DuckDB-Wasm — v1.27) | ✅ (sql.js / DuckDB-Wasm — v1.27) | ✅ (Spark SQL) |
 
 When a backend doesn't claim a block language, `CapabilityCheck`
 emits a `Diagnostic.UnknownBlockLanguage(<lang>)` so the user gets a
@@ -291,6 +291,51 @@ Connection resolution on the JVM/Interpreter path: front-matter
 overrides the registry.  See `docs/postgres.md` for the
 `client-postgres` library that complements this with a Future-based
 async API for end-user scalascript code.
+
+### v1.27 — `sql` on JS-family targets (JS / Node / WASM)
+
+The v1.27 follow-up brings the same `sql` block to the JS / Node /
+WASM backends.  Source semantics are unchanged: the
+`SqlBindRewriter.rewriteJdbc` output (?-templated SQL + ordered
+bind list) is consumed by `backend-sql-runtime-js`'s JS facade,
+which dispatches to one of two embedded engines based on URL prefix.
+Full spec: [`docs/browser-sql.md`](browser-sql.md).
+
+| URL prefix             | Provider        | Notes                                                                  |
+| ---------------------- | --------------- | ---------------------------------------------------------------------- |
+| `sqlite::memory:`      | sql.js          | Fresh in-memory SQLite per `connect`.                                  |
+| `sqlite:<path>`        | sql.js          | File-backed (Node only — browser raises `MissingFs`).                  |
+| `duckdb:`              | DuckDB-Wasm     | In-memory; worker-based.                                               |
+| `duckdb:<path>`        | DuckDB-Wasm     | File-backed (Node only).                                               |
+| `jdbc:…`               | (JVM only)      | Build-time `Diagnostic.UnsupportedJdbcUrl` on JS-family targets.       |
+
+Differences from the JVM/Interpreter path:
+
+  - **Async-by-construction.**  Browser SQL engines load asynchronously
+    (WASM init + worker spin-up).  Every `sql` block compiles to
+    `await SqlRuntimeJs.execute(...)`; the bundle's user body is
+    wrapped in an async IIFE so the await is legal in classic-script
+    and ESM contexts alike.
+  - **`<sectionId>.sql` shape.**  Same alias convention as
+    JvmGen — the first `sql` block per section binds the result to
+    `<sectionId>.sql`.  Result shape:
+    `{ kind: 'rows', rows: Row[] }` for SELECTs,
+    `{ kind: 'update', count: number }` for DML/DDL.  Rows are
+    callable: `row("col")` (case-insensitive name), `row(0)`
+    (position), `row.toMap()`.
+  - **NodeBackend `package.json` artifact.**  When a module has any
+    sql block, NodeBackend ships a companion `package.json` alongside
+    `main.cjs`.  Deps are gated on actually-referenced providers
+    (`sql.js`, `@duckdb/duckdb-wasm`, `web-worker`); modules that
+    use only one provider don't carry the other's npm dep.
+  - **`jdbc:` URL gating.**  `Diagnostic.UnsupportedJdbcUrl(db, url,
+    backend)` fires at validate time for JS-family targets carrying a
+    `jdbc:` URL — the diagnostic message points the user at the JVM
+    target or at a different URL scheme.  JVM-family targets are
+    unaffected.
+
+Examples in [`examples/sql-browser-sqlite.ssc`](../examples/sql-browser-sqlite.ssc)
+and [`examples/sql-browser-duckdb.ssc`](../examples/sql-browser-duckdb.ssc).
 
 ## Adding New Backends
 

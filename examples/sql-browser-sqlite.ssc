@@ -1,0 +1,68 @@
+#!/usr/bin/env ssc
+---
+name: sql-browser-sqlite
+description: Browser-side sql via sql.js (SQLite-WASM) on JS / Node / Wasm targets (v1.27)
+backends: [js, node, wasm]
+databases:
+  default:
+    url: "sqlite::memory:"
+---
+
+# SQL on JS / Node / Wasm — sql.js (SQLite-WASM)
+
+Demonstrates the v1.27 browser-side `sql` fenced block.  Same source
+as the v1.26 JVM quickstart; only the URL prefix and target backends
+differ.  The front-matter `sqlite:` URL routes to `sql.js`
+(SQLite-WASM); `${expr}` interpolation still becomes a `?` bind
+parameter — no string substitution into SQL.
+
+Run with any JS-family target:
+
+```sh
+ssc emit-js   examples/sql-browser-sqlite.ssc   # bundle for browser host
+ssc emit-node examples/sql-browser-sqlite.ssc   # main.cjs + package.json
+ssc emit-wasm examples/sql-browser-sqlite.ssc   # .wasm + JS shim
+```
+
+Each emit produces a runnable artifact: `npm install` against the
+emitted `package.json` pulls `sql.js`; then the bundle's async user
+body invokes `await SqlRuntimeJs.execute(...)` for each sql block.
+
+## Schema
+
+```sql
+CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT NOT NULL, active INTEGER NOT NULL)
+```
+
+## Seed
+
+```scalascript
+val newId   = 1
+val newName = "Alice"
+```
+
+```sql
+INSERT INTO users(id, name, active) VALUES (${newId}, ${newName}, 1)
+```
+
+```sql
+INSERT INTO users(id, name, active) VALUES (2, "Bob", 0)
+```
+
+## Active
+
+The first sql block per section binds as `<sectionId>.sql` — here
+`Active.sql` is the result of the SELECT.
+
+```sql
+SELECT id, name FROM users WHERE active = 1 ORDER BY id
+```
+
+## Output
+
+```scalascript
+val rows = Active.sql.rows
+println("active count=" + rows.length)
+println("first id="   + rows(0)("id"))
+println("first name=" + rows(0)("name"))
+```

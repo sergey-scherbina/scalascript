@@ -8023,19 +8023,32 @@ deferred — no subprocess plugin currently emits this diagnostic;
 the wire encoder will gain a `unsupported-jdbc-url` kind the first
 time a plugin needs to surface it.
 
-### Phase 7 — Examples + conformance
+### Phase 7 — Examples + conformance ✓ Landed
 
-- [ ] `examples/sql-browser-sqlite.ssc` + `examples/sql-browser-duckdb.ssc`
-      tagged `backends: [js, node, wasm]`.
-- [ ] `SqlBrowserExamplesTest` (self-contained, inlines example
-      sources, asserts parse + run + expected output under Node).
-- [ ] `conformance/sql-browser-basic.ssc` +
-      `conformance/expected/sql-browser-basic.txt` +
-      `SqlBrowserConformanceCaptureTest` gated to `backends: [js,
-      node, wasm]`.
-- [ ] `docs/targets.md` — block-language matrix ✅ for `sql` on JS /
-      Node / Wasm; new v1.27 subsection documents URL-prefix
-      dispatch + the jdbc-only-on-JVM rule.
+- [x] `examples/sql-browser-sqlite.ssc` — zero-config sqlite::memory:
+      example with section-aliased read, `${expr}` bind, tagged
+      `backends: [js, node, wasm]`.
+- [x] `examples/sql-browser-duckdb.ssc` — `@db=name` routing between
+      two named connections (sqlite + duckdb) in the same module,
+      analytical GROUP BY on duckdb.
+- [x] `SqlBrowserExamplesTest` (2 cases) — self-contained, inlines
+      example sources verbatim, compiles via NodeBackend, runs under
+      `node main.cjs` against real `sql.js` / `@duckdb/duckdb-wasm` /
+      `web-worker`.  Cached `npm install` per provider set.
+- [x] `conformance/sql-browser-basic.ssc` + matching
+      `conformance/expected/sql-browser-basic.txt` —
+      `backends: [js, node, wasm]` declaration; exercises CREATE +
+      INSERT (with `String` bind) + SELECT + UPDATE-style row count.
+- [x] `SqlBrowserConformanceCaptureTest` — reads the on-disk
+      conformance file (drift between contract surface and test is
+      surfaced loudly), compiles through NodeBackend, runs under Node,
+      asserts stdout matches `conformance/expected/...` byte-for-byte.
+- [x] `docs/targets.md` — block-language matrix flipped ✅ for `sql`
+      on JS / Node / Wasm with the v1.27 note.  New `v1.27 — sql on
+      JS-family targets` subsection covers the URL-prefix dispatch
+      table, async-by-construction shape, `<sectionId>.sql` result
+      contract, NodeBackend `package.json` artifact, and the
+      `Diagnostic.UnsupportedJdbcUrl` gating.
 
 ### Out of scope (deferred to v1.28+ or beyond)
 

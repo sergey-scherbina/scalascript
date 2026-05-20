@@ -1,0 +1,61 @@
+#!/usr/bin/env ssc
+---
+name: sql-browser-duckdb
+description: Browser-side sql via DuckDB-Wasm with @db=name routing across named connections (v1.27)
+backends: [js, node, wasm]
+databases:
+  default:
+    url: "sqlite::memory:"
+  analytics:
+    url: "duckdb:"
+---
+
+# SQL on JS / Node / Wasm — DuckDB-Wasm + `@db=name` routing
+
+Two named connections in the same module: a SQLite-WASM `default` and
+a DuckDB-Wasm `analytics`.  Each `sql` block can pick its connection
+via the `@db=` fence attribute; absent attribute routes to `default`.
+
+Use this shape when you want a fast transactional store (sqlite) and
+a columnar analytical engine (duckdb) in the same script.
+
+## Schema — transactional (sqlite)
+
+```sql
+CREATE TABLE orders (id INTEGER PRIMARY KEY, sku TEXT NOT NULL, qty INTEGER NOT NULL)
+```
+
+```sql
+INSERT INTO orders(id, sku, qty) VALUES
+  (1, "apple", 10),
+  (2, "apple", 5),
+  (3, "banana", 7),
+  (4, "banana", 2),
+  (5, "cherry", 3)
+```
+
+## Schema — analytical (duckdb)
+
+```sql @db=analytics
+CREATE TABLE events (sku VARCHAR, units INTEGER)
+```
+
+```sql @db=analytics
+INSERT INTO events VALUES ('apple', 15), ('banana', 9), ('cherry', 3)
+```
+
+## Totals per sku — duckdb GROUP BY
+
+```sql @db=analytics
+SELECT sku, SUM(units) AS total FROM events GROUP BY sku ORDER BY sku
+```
+
+## Output
+
+```scalascript
+val rows = Totals.sql.rows
+println("rows=" + rows.length)
+println(rows(0)("sku") + "=" + rows(0)("total"))
+println(rows(1)("sku") + "=" + rows(1)("total"))
+println(rows(2)("sku") + "=" + rows(2)("total"))
+```

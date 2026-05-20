@@ -1,0 +1,75 @@
+#!/usr/bin/env ssc
+---
+name: sql-browser-basic
+description: v1.27 — `sql` fenced blocks via sql.js / DuckDB-Wasm on JS-family targets
+backends: [js, node, wasm]
+databases:
+  default:
+    url: "sqlite::memory:"
+---
+
+# SQL conformance — basic CRUD on browser-side sql.js
+
+Pins the v1.27 browser-side `sql` contract on the JS-family
+targets: zero-config sqlite::memory: through `sql.js`, CREATE +
+INSERT (with `${expr}` binds, including a `String`) + SELECT +
+UPDATE-style row count.
+
+The browser runtime exposes results as plain JS objects:
+
+  - SELECT  → `{ kind: 'rows',    rows: Row[] }`
+  - DML/DDL → `{ kind: 'update',  count: number }`
+
+`<sectionId>.sql` aliases the first sql block in each section
+(matches the JvmGen / Interpreter convention).  Rows are callable —
+`row("col")` reads by case-insensitive column name; `row(0)` by
+position; `row.toMap()` materialises the whole row.
+
+`backends: [js, node, wasm]` — the conformance harness runs the
+emitted bundle through Node (the natural JS host outside a browser).
+JVM target gating moved to the dedicated v1.26 `sql-basic.ssc`.
+
+## Schema
+
+```sql
+CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT NOT NULL, active INTEGER NOT NULL)
+```
+
+## Seed
+
+```scalascript
+val newId   = 1
+val newName = "Alice"
+```
+
+```sql
+INSERT INTO users(id, name, active) VALUES (${newId}, ${newName}, 1)
+```
+
+```sql
+INSERT INTO users(id, name, active) VALUES (2, "Bob", 0)
+```
+
+## Read
+
+```sql
+SELECT id, name FROM users WHERE active = 1 ORDER BY id
+```
+
+```scalascript
+val rows = Read.sql.rows
+println("count=" + rows.length)
+val first = rows(0)
+println("id=" + first("id"))
+println("name=" + first("name"))
+```
+
+## Update
+
+```sql
+UPDATE users SET active = 0 WHERE id = ${newId}
+```
+
+```scalascript
+println("updated=" + Update.sql.count)
+```
