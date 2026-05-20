@@ -58,8 +58,9 @@ case class Manifest(
   targets:      List[String],
   routes:       List[RouteDecl],
   pkg:          Option[List[String]],
-  databases:    List[DatabaseDecl] = Nil,
-  span:         Option[Span] = None
+  databases:         List[DatabaseDecl] = Nil,
+  frontendFramework: Option[String] = None,
+  span:              Option[Span] = None
 ) derives ReadWriter
 
 // ─── Top-level module structure ────────────────────────────────────────────
