@@ -330,3 +330,73 @@ migration (the new instance starts from zero — pair with cluster
 config for durable state).  Validated by `SingletonFailoverTest`:
 3-node cluster, kill the leader, survivor receives ticks on a fresh
 counter.
+
+## 11. Deferred work tiers (post-v1.23)
+
+Beyond the promotion criteria in §6, two larger chunks of
+cluster-management work stay explicitly deferred even after v1.23.
+Tier 1 (Bully + membership + per-link FD + drain + metrics rollup)
+and Tier 2 (Raft + etcd coordinator, iter-1 surface) are the
+already-landed v1.23 layer.  Tier 3 and Tier 4 are captured here so
+future planning can pick them up without rediscovering scope under
+deadline pressure.
+
+### Tier 3 — ZK adapter, federation, saga
+
+Three loosely-related extensions.  Each unlocks a different
+deployment shape; each carries a "needs serious upstream design
+before the first line of code" risk, which is why they group
+together rather than feeding into Tier 2.
+
+- **ZooKeeper `LeaderCoordinator` adapter** — third concrete
+  adapter after etcd and Consul (see
+  [`cluster-raft.md`](cluster-raft.md) §5.2).  Blocked on a
+  prerequisite: ZooKeeper speaks its own binary protocol (Jute) and
+  there is no ZK client among the `client-*` modules.  Ship a
+  minimal `client-zookeeper` first (connect, session keepalive,
+  ephemeral-sequential znode, watch); the coordinator adapter is
+  then a thin wrapper over `acquireLease` / `renewLease` /
+  `releaseLease` / `currentHolder`.
+- **Sub-cluster federation** — the open question from §8.
+  Multiple cooperating clusters with their own leader / membership
+  views but a shared addressing scheme.  Natural backbone is a
+  coordinator service (etcd / Consul / ZK), which is why this
+  groups with ZK adapter work even though the two are formally
+  independent.  Federation needs its own `docs/cluster-federation.md`
+  spec before implementation (per `AGENTS.md` spec-driven
+  development rule).
+- **Saga / distributed transactions** — coordinated multi-actor
+  state changes across a cluster with compensation on partial
+  failure.  Not currently described in any spec document; needs a
+  `docs/saga.md` before any code lands.  Logically belongs alongside
+  cluster-management because saga coordination is a leader-elected
+  actor pattern that reuses `Singleton` plus durable cluster config.
+
+### Tier 4 — scale tests and codegen multi-node tests
+
+Today's conformance suite covers single-node behaviour and
+three-backend agreement on the same source.  Two gaps:
+
+- **Scale tests** — 20+ node clusters under simulated load, with
+  Phi-accrual aggregation, leader churn, drain rollouts, and
+  metrics rollup measured for latency / CPU regressions.
+  `cluster-raft.md:400` pins a 5-node integration test as the
+  current bar; everything above 5 is out of scope today.  Wait for
+  the real-WS multi-process harness (cluster-raft.md §9) to mature
+  first — single-process simulation does not exercise the v1.6
+  Phase 3 distributed actor stack honestly.
+- **Codegen multi-node tests** — clusters that mix backends
+  (JVM ↔ JS Node ↔ INT) running the same `.ssc` source compiled
+  through each backend's `ssc link` path, joined into one cluster
+  via WS.  Validates that `_runActors` peer envelopes are
+  byte-for-byte compatible across backends and that the cluster
+  intrinsics (`startNode`, `serveAsync`, `electLeader`,
+  `subscribeLeaderEvents`, `clusterConfigSet`, `clusterMetricSet`,
+  `setDraining`, `leaderHistory`) behave identically on each.
+  Prerequisite: per-backend implementation gap-check — every
+  intrinsic listed above must be implemented in all three
+  backends before the matrix test makes sense.
+
+Tier 4 is gating but not blocking — none of it changes API surface.
+Its job is to catch regressions before users hit them in production
+clusters.
