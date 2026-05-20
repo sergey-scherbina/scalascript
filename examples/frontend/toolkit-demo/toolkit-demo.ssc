@@ -127,7 +127,6 @@ val todoPanel = vstack(gap = 12)(
 
 val tree = vstack(gap = 16)(
   heading(1, "Toolkit demo"),
-  text("Pure .ssc UI — no Scala intrinsics bridge."),
   divider(),
   showWhen(submitted, form(true), form(false)),
   reactiveBtn,
