@@ -7320,8 +7320,131 @@ Central.
 - Streaming results / cursor mode.  Phase 6 returns full `Seq[Row]`.
   Adding a `.stream` variant is mechanical; defer until a real
   large-result use case.
-- Browser-side SQL (sql.js / DuckDB-Wasm).  IR preserves the source
-  so this can be added without a spec change.
+- Browser-side SQL (sql.js / DuckDB-Wasm).  Picked up in
+  v1.27 — see [`docs/browser-sql.md`](docs/browser-sql.md).  As
+  predicted, no IR / spec change needed; v1.27 is an additive
+  capability declaration + a JS-side runtime module.
+
+---
+
+## v1.27 — browser-side SQL (sql.js / DuckDB-Wasm)
+
+**Status: open. Spec [`docs/browser-sql.md`](docs/browser-sql.md). Branch `worktree-v1.27-browser-sql`.**
+
+Extends the v1.26 `sql` fenced-block feature from JVM-only to the JS,
+Node, and Wasm backends.  Same source, same `${expr} → ?` bind rule,
+same `SqlBindRewriter.rewriteJdbc` output — only the runtime changes.
+Two embedded engines, picked by URL prefix in the front-matter
+`databases:` entry:
+
+- `sqlite::memory:` / `sqlite:<path>` → sql.js (SQLite-WASM).
+- `duckdb:` / `duckdb:<path>` → DuckDB-Wasm.
+- `jdbc:*` URLs surface a build-time `UnsupportedJdbcUrl` diagnostic
+  on JS / Node / Wasm targets (JVM target unaffected).
+
+File-backed URLs work on Node; browser raises `MissingFs` at runtime
+(parser cannot tell the two apart from front-matter alone — same
+backend id for both).  Browser-side execution is always async by
+construction; the emitted contract per block is `Promise[SqlResult]`
+gated by a top-level `await` (or IIFE wrapper on legacy targets).
+
+Parallel-safety note: no overlap with active worktrees.  Adds a new
+`backend-sql-runtime-js` module + edits to the three JS-family
+backend capabilities files (none of which other worktrees touch
+today).
+
+### Phase 1 — Spec + milestone (this iteration)
+
+- [x] `docs/browser-sql.md` — goals, non-goals, architecture (module
+      layout, URL→provider dispatch, runtime contract, override
+      path), migration, 7 phases, testing strategy, 4 open
+      questions.
+- [x] `MILESTONES.md` v1.27 entry (this section).
+
+### Phase 2 — `backend-sql-runtime-js` module
+
+- [ ] New sbt module `backendSqlRuntimeJs`; `sql-runtime.mjs` shared
+      facade (Connection / Row / Registry / execute), provider
+      dispatch (`Providers.fromUrl`).
+- [ ] `SqlJsProvider` (sql.js wiring) + `DuckDbWasmProvider`
+      (worker-based duckdb-wasm wiring).
+- [ ] `SqlRuntimeJsEmit` — codegen helper for the bundle preamble
+      JsGen/NodeBackend/WasmBackend share.
+- [ ] Tests via `node --test`: 10 sql.js cases + 6 DuckDB cases + 2
+      dispatch cases.
+
+### Phase 3 — JsGen codegen for sql blocks
+
+Mirrors JvmGen Phase 6.C, adapted for async.
+
+- [ ] `JsCapabilities.blockLanguages += Lang.Sql`.
+- [ ] `JsGen.collectBlocks` recognises `Lang.isSql`, emits
+      `_sqlBlock_<N>` initialised by `await SqlRuntimeJs.execute(...)`,
+      first per-section block emits `const <sectionId> = { sql:
+      _sqlBlock_<N> }` alias.
+- [ ] `_ssc_sql_registry` materialised from `manifest.databases`;
+      `_ssc_sql_resolve(dbName)` consults the
+      `@sscBrowserSqlConnection` annotation override path first,
+      registry as fallback.
+- [ ] Bundle preamble — `sql-runtime.mjs` source inlined, body
+      wrapped in `(async () => { ... })()` (top-level `await`
+      when emitting `.mjs`).
+- [ ] Tests: `JsGenSqlBlockTest` (~12 cases).
+
+### Phase 4 — NodeBackend wiring
+
+- [ ] `NodeCapabilities.blockLanguages += Lang.Sql`.
+- [ ] `NodeBackend` conditionally emits `package.json` deps for the
+      providers actually referenced (`sql.js`, `@duckdb/duckdb-wasm`).
+- [ ] Tests: `NodeBackendSqlTest` (4 cases — sqlite in-mem, sqlite
+      file, duckdb in-mem, jdbc URL → diagnostic).
+- [ ] Swap `NodeBackendTest`'s `UnknownBlockLanguage("sql")` case
+      with no-diagnostic + new `UnsupportedJdbcUrl` case.
+
+### Phase 5 — WasmBackend wiring
+
+- [ ] `WasmCapabilities.blockLanguages += Lang.Sql`.
+- [ ] `WasmBackend.emitJsShim` mirrors NodeBackend's emit when sql
+      blocks are present.  Wasm body itself unaffected.
+- [ ] Tests: `WasmBackendSqlTest` (2 cases — sqlite + duckdb in-mem
+      through the JS shim under Node).
+- [ ] Swap `WasmBackendTest`'s `UnknownBlockLanguage("sql")` case
+      analogously.
+
+### Phase 6 — `UnsupportedJdbcUrl` diagnostic
+
+- [ ] `validate/CapabilityCheck` raises
+      `Diagnostic.UnsupportedJdbcUrl(dbName, url, targetId)` when a
+      target declares `Lang.Sql` in `blockLanguages` and a
+      `manifest.databases` entry uses a `jdbc:` URL.
+- [ ] Tests: `CapabilityCheckTest` — 2 cases.
+
+### Phase 7 — Examples + conformance
+
+- [ ] `examples/sql-browser-sqlite.ssc` + `examples/sql-browser-duckdb.ssc`
+      tagged `backends: [js, node, wasm]`.
+- [ ] `SqlBrowserExamplesTest` (self-contained, inlines example
+      sources, asserts parse + run + expected output under Node).
+- [ ] `conformance/sql-browser-basic.ssc` +
+      `conformance/expected/sql-browser-basic.txt` +
+      `SqlBrowserConformanceCaptureTest` gated to `backends: [js,
+      node, wasm]`.
+- [ ] `docs/targets.md` — block-language matrix ✅ for `sql` on JS /
+      Node / Wasm; new v1.27 subsection documents URL-prefix
+      dispatch + the jdbc-only-on-JVM rule.
+
+### Out of scope (deferred to v1.28+ or beyond)
+
+- Sync SQL — every browser engine is async; no `deasync` shims.
+- Network DBs from browser — use `client-postgres` from a server
+  backend, expose via HTTP.
+- Cross-runtime data sharing — JVM-process in-memory data is not
+  visible to JS-process runs of the same module.
+- Static SQL type-checking — inherits v1.26's deferral.
+- `transaction { ... }` block-level helper — inherits v1.26's
+  deferral; when it lands, it lands once in
+  `backend-sql-runtime` + `backend-sql-runtime-js` so both runtimes
+  pick it up together.
 
 ---
 
