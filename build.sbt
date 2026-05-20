@@ -526,11 +526,12 @@ val packagePlugin = taskKey[File]("Package this plugin as a .sscpkg ZIP archive 
 def sscpkgSettings(pluginId: String): Seq[Def.Setting[?]] = Seq(
   packagePlugin := {
     val jar       = (Compile / packageBin).value
-    val outFile   = target.value / s"${name.value}.sscpkg"
+    val pkgName   = name.value.stripPrefix("scalascript-")
+    val outFile   = target.value / s"$pkgName.sscpkg"
     val manifest  = s"id: $pluginId\nversion: ${version.value}\nkind:\n  - plugin\n"
     val manifestF = target.value / "sscpkg-manifest.yaml"
     IO.write(manifestF, manifest)
-    IO.zip(Seq(manifestF -> "manifest.yaml", jar -> s"intrinsics/${name.value}.jar"), outFile, None)
+    IO.zip(Seq(manifestF -> "manifest.yaml", jar -> s"intrinsics/$pkgName.jar"), outFile, None)
     outFile
   }
 )
