@@ -16,7 +16,7 @@ Connect with `npx @modelcontextprotocol/inspector` or any MCP client.
 > touching the filesystem. Never expose unfiltered FS access to an LLM.
 
 ```scalascript
-[mcpServer, serveMcp, Tool, requireString, Transport](../std/mcp/server.ssc)
+[mcpServer, serveMcp, Tool, requireString, Transport](std/mcp/server.ssc)
 
 import scala.io.Source
 import java.nio.file.{Files, Paths}

@@ -11,8 +11,8 @@ A minimal MCP server that exposes three tools over `stdio` transport.
 Connect with any MCP-compatible client (e.g. `npx @modelcontextprotocol/inspector`).
 
 ```scalascript
-[mcpServer, serveMcp, Tool, requireString, requireInt, Transport](../std/mcp/server.ssc)
-[requireDouble](../std/mcp/types.ssc)
+[mcpServer, serveMcp, Tool, requireString, requireInt, Transport](std/mcp/server.ssc)
+[requireDouble](std/mcp/types.ssc)
 
 mcpServer { srv =>
 

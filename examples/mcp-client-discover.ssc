@@ -11,7 +11,7 @@ Spawns the `mcp-server-tools` example as a subprocess and lists all
 tools, resources, and prompts it advertises.
 
 ```scalascript
-[mcpConnect, Transport](../std/mcp/client.ssc)
+[mcpConnect, Transport](std/mcp/client.ssc)
 
 val client = mcpConnect(Transport.Spawn("node", List("examples/mcp-server-tools.js")))
 

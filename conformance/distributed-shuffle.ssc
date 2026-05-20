@@ -10,13 +10,13 @@ backends: [jvm]
 Word-count via distributed `groupBy` with coordinator-mediated all-to-all
 shuffle.  The key extractor groups words by first letter.
 
-[Node, Cluster](../std/mapreduce/cluster.ssc)
+[Node, Cluster](std/mapreduce/cluster.ssc)
 
-[NamedHandler, HandlerRegistry](../std/mapreduce/handlers.ssc)
+[NamedHandler, HandlerRegistry](std/mapreduce/handlers.ssc)
 
-[Stage, DistributedResult](../std/mapreduce/distributed.ssc)
+[Stage, DistributedResult](std/mapreduce/distributed.ssc)
 
-[ShuffleStage, ShuffleProtocol, runDistributedShuffle](../std/mapreduce/shuffle.ssc)
+[ShuffleStage, ShuffleProtocol, runDistributedShuffle](std/mapreduce/shuffle.ssc)
 
 ```scalascript
 runActors {

@@ -9,7 +9,7 @@ Registers a resource handler and verifies URI-based dispatch.
 Skipped on backends without `Feature.McpServer`.
 
 ```scalascript
-[mcpServer, serveMcp, Resource, Transport](../std/mcp/server.ssc)
+[mcpServer, serveMcp, Resource, Transport](std/mcp/server.ssc)
 
 mcpServer { srv =>
   srv.resource("file:///readme.md", "README", "text/markdown") { uri =>

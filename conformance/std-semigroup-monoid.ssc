@@ -9,7 +9,7 @@ Exercises the v1.1 std library's first two typeclasses: `Semigroup`,
 `Monoid`, the canonical instances, and the `combineAll` /
 `combineAllOption` helpers (context-bound form, landed v1.13).
 
-[intSum, stringConcat, listConcat, combineAll, combineAllOption](../std/semigroup-monoid.ssc)
+[intSum, stringConcat, listConcat, combineAll, combineAllOption](std/semigroup-monoid.ssc)
 
 ```scalascript
 println(combineAll(List(1, 2, 3, 4, 5)))

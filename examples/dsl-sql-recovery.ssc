@@ -24,16 +24,16 @@ condition ::= ident '=' quoted-string
 ## Imports
 
 [Position, Span, ParseError, ParseOk, ParseErr, Parser,
- PChar, PString, PRegex, PSatisfy, PSucceed, PFail](../std/parsing/core.ssc)
+ PChar, PString, PRegex, PSatisfy, PSucceed, PFail](std/parsing/core.ssc)
 
 [PSequence, PChoice, PMany, POpt, PMapped, PFlatMapped, PNamed,
- runParser](../std/parsing/combinators.ssc)
+ runParser](std/parsing/combinators.ssc)
 
 [whitespace, whitespace1, identifier, integer, number, stringLit,
- skip, keyword, token](../std/parsing/helpers.ssc)
+ skip, keyword, token](std/parsing/helpers.ssc)
 
 [PRecoverUntil, PErrorNode, PParseAll, ErrorNode, ParseErrors,
- runParserAll, advanceToSync](../std/parsing/recovery.ssc)
+ runParserAll, advanceToSync](std/parsing/recovery.ssc)
 
 ## SQL AST
 

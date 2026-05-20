@@ -12,8 +12,8 @@ exposes a `translate` tool that internally calls a downstream MCP server
 (here, the echo tool from `mcp-server-tools`).
 
 ```scalascript
-[mcpServer, serveMcp, Tool, requireString, Transport](../std/mcp/server.ssc)
-[mcpConnect](../std/mcp/client.ssc)
+[mcpServer, serveMcp, Tool, requireString, Transport](std/mcp/server.ssc)
+[mcpConnect](std/mcp/client.ssc)
 
 mcpServer { srv =>
 

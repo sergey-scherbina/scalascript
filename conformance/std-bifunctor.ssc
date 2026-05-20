@@ -8,9 +8,9 @@ version: 1.0.0
 Exercises `Bifunctor[Tuple2]` via extension dispatch and
 `Either`-shaped helpers.
 
-[Left, Right](../std/either.ssc)
+[Left, Right](std/either.ssc)
 
-[tupleBifunctor, eitherBifunctor, bimapTuple, leftMapTuple, rightMapTuple, bimapEither, leftMapEither, rightMapEither](../std/bifunctor.ssc)
+[tupleBifunctor, eitherBifunctor, bimapTuple, leftMapTuple, rightMapTuple, bimapEither, leftMapEither, rightMapEither](std/bifunctor.ssc)
 
 ## Tuple2 — extension dispatch
 

@@ -10,7 +10,7 @@ extends a typeclass (`Monad`) imported from `std/functor-applicative-monad.ssc`.
 The `extends` clause across file boundaries must resolve correctly and
 inherited methods must be callable on the concrete instance.
 
-[listMonad, optionMonad](../std/functor-applicative-monad.ssc)
+[listMonad, optionMonad](std/functor-applicative-monad.ssc)
 
 ## Algebra extending an imported typeclass
 

@@ -10,11 +10,11 @@ advances to the next occurrence of the sync token and continues parsing.
 
 ```scalascript
 [Position, ParseError, ParseOk, ParseErr, Parser,
- PChar, PString, PRegex, PSatisfy, PSucceed, PFail](../std/parsing/core.ssc)
+ PChar, PString, PRegex, PSatisfy, PSucceed, PFail](std/parsing/core.ssc)
 [PSequence, PChoice, PMany, POpt, PMapped, PFlatMapped, PNamed,
- runParser](../std/parsing/combinators.ssc)
+ runParser](std/parsing/combinators.ssc)
 [PRecoverUntil, PErrorNode, PParseAll, ErrorNode, ParseErrors,
- runParserAll, advanceToSync](../std/parsing/recovery.ssc)
+ runParserAll, advanceToSync](std/parsing/recovery.ssc)
 
 // A parser that expects the keyword "val".
 val pVal: Parser[String] = Parser.string("val")

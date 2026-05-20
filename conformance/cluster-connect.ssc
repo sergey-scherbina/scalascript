@@ -11,7 +11,7 @@ Tests `Cluster.connect`, `cluster.healthCheck`, and `cluster.close`
 on a simulated 3-node cluster within a single `runActors` block.
 Uses in-process `startNode` to set up node identities.
 
-[Node, Cluster](../std/mapreduce/cluster.ssc)
+[Node, Cluster](std/mapreduce/cluster.ssc)
 
 ```scalascript
 runActors {

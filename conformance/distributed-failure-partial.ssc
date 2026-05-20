@@ -11,11 +11,11 @@ One worker crashes and `allowPartial = true` is set.  The coordinator
 collects results from healthy workers and surfaces a `DistributedError`
 summary alongside, without throwing.
 
-[Node, Cluster](../std/mapreduce/cluster.ssc)
+[Node, Cluster](std/mapreduce/cluster.ssc)
 
-[NamedHandler, HandlerRegistry](../std/mapreduce/handlers.ssc)
+[NamedHandler, HandlerRegistry](std/mapreduce/handlers.ssc)
 
-[MapOp, Stage, WorkerProtocol, runDistributed, DistributedResult, DistributedError, ProcessPartition, PartitionFailed](../std/mapreduce/distributed.ssc)
+[MapOp, Stage, WorkerProtocol, runDistributed, DistributedResult, DistributedError, ProcessPartition, PartitionFailed](std/mapreduce/distributed.ssc)
 
 ```scalascript
 runActors {

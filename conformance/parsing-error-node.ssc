@@ -11,11 +11,11 @@ continues from the original position.
 
 ```scalascript
 [Position, Span, ParseError, ParseOk, ParseErr, Parser,
- PChar, PString, PRegex, PSatisfy, PSucceed, PFail](../std/parsing/core.ssc)
+ PChar, PString, PRegex, PSatisfy, PSucceed, PFail](std/parsing/core.ssc)
 [PSequence, PChoice, PMany, POpt, PMapped, PFlatMapped, PNamed,
- runParser](../std/parsing/combinators.ssc)
+ runParser](std/parsing/combinators.ssc)
 [PRecoverUntil, PErrorNode, PParseAll, ErrorNode, ParseErrors,
- runParserAll, advanceToSync](../std/parsing/recovery.ssc)
+ runParserAll, advanceToSync](std/parsing/recovery.ssc)
 
 // Parser that expects an integer literal (one or more digits).
 val pInt: Parser[String] = Parser.regex("[0-9]+")

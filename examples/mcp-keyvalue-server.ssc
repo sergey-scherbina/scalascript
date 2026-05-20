@@ -16,7 +16,7 @@ State is per-process: restart the server and the store is empty. For
 persistence, swap the map for a file or database.
 
 ```scalascript
-[mcpServer, serveMcp, Tool, requireString, Transport](../std/mcp/server.ssc)
+[mcpServer, serveMcp, Tool, requireString, Transport](std/mcp/server.ssc)
 
 import scala.collection.mutable
 

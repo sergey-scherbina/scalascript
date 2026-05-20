@@ -12,7 +12,7 @@ Skipped on backends without `Feature.McpClient`.
 Note: requires `@modelcontextprotocol/sdk` and the server script compiled.
 
 ```scalascript
-[mcpConnect, Transport](../std/mcp/client.ssc)
+[mcpConnect, Transport](std/mcp/client.ssc)
 
 val client = mcpConnect(Transport.Spawn("node", List("examples/mcp-server-tools.js")))
 

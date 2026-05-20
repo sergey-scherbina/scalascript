@@ -41,7 +41,7 @@ extern def coroutineCancel(co: Any): Unit
 Each `coroutineResume` sends a value IN and gets a value OUT.
 
 ```scalascript
-[Step, coroutineCreate, coroutineResume, suspend](../std/coroutine.ssc)
+[Step, coroutineCreate, coroutineResume, suspend](std/coroutine.ssc)
 
 val pingpong = coroutineCreate[String, String, Unit] { () =>
   val b = suspend("ping")
@@ -60,7 +60,7 @@ println(coroutineResume(pingpong, "C"))    // Returned(())
 `Y = Int`, `R = Unit` — one-directional yield, ignore resume input.
 
 ```scalascript
-[Step, coroutineCreate, coroutineResume, suspend](../std/coroutine.ssc)
+[Step, coroutineCreate, coroutineResume, suspend](std/coroutine.ssc)
 
 val counter = coroutineCreate[Int, Unit, Unit] { () =>
   var n = 0
@@ -79,7 +79,7 @@ println(coroutineResume(counter, ()))   // Yielded(2)
 When the coroutine body throws, `coroutineResume` returns `Errored(message)`.
 
 ```scalascript
-[Step, coroutineCreate, coroutineResume, suspend](../std/coroutine.ssc)
+[Step, coroutineCreate, coroutineResume, suspend](std/coroutine.ssc)
 
 val boom = coroutineCreate[Unit, Unit, Unit] { () =>
   suspend(())

@@ -9,7 +9,7 @@ Exercises the v1.1 container lane: `Foldable[F]` extension methods,
 `Traversable[T]` inheriting Functor + Foldable, and the
 per-combination helpers (`traverseListOption`, etc.).
 
-[listFoldable, optionFoldable, listTraversable, optionTraversable, foldLeftList, foldLeftOption, foldRightList, foldRightOption, traverseListOption, traverseOptionList](../std/foldable-traversable.ssc)
+[listFoldable, optionFoldable, listTraversable, optionTraversable, foldLeftList, foldLeftOption, foldRightList, foldRightOption, traverseListOption, traverseOptionList](std/foldable-traversable.ssc)
 
 ## Foldable — `foldLeft` / `foldRight` / `toList`
 

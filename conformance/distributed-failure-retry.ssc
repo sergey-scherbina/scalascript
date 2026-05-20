@@ -11,11 +11,11 @@ A worker crashes after receiving its partition.  The coordinator detects
 the `Exit` signal, retries the partition on a healthy worker (`retries = 1`),
 and the job completes with the correct result.
 
-[Node, Cluster](../std/mapreduce/cluster.ssc)
+[Node, Cluster](std/mapreduce/cluster.ssc)
 
-[NamedHandler, HandlerRegistry](../std/mapreduce/handlers.ssc)
+[NamedHandler, HandlerRegistry](std/mapreduce/handlers.ssc)
 
-[MapOp, Stage, WorkerProtocol, runDistributed, DistributedResult, ProcessPartition, PartitionFailed](../std/mapreduce/distributed.ssc)
+[MapOp, Stage, WorkerProtocol, runDistributed, DistributedResult, ProcessPartition, PartitionFailed](std/mapreduce/distributed.ssc)
 
 ```scalascript
 runActors {

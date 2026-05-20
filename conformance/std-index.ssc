@@ -9,7 +9,7 @@ Exercises `std/index.ssc` — pulls every typeclass / instance / helper
 from the v1.1 std library through one import.  Verifies that
 transitive imports propagate across all three backends.
 
-[intSum, combineAll, pureList, map2Option, listFoldable, traverseListOption, Left, Right, listSelective, branchOption, optionUnitError, handleEither, tupleBifunctor, bimapTuple](../std/index.ssc)
+[intSum, combineAll, pureList, map2Option, listFoldable, traverseListOption, Left, Right, listSelective, branchOption, optionUnitError, handleEither, tupleBifunctor, bimapTuple](std/index.ssc)
 
 ```scalascript
 println(combineAll(List(1, 2, 3, 4, 5), intSum))

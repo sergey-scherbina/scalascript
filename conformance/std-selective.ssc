@@ -8,9 +8,9 @@ version: 1.0.0
 Exercises `Either`, the `Selective` typeclass on `List` / `Option`,
 and the branching helpers.
 
-[Left, Right, mapRight, flatMapRight, foldEither, isLeft, isRight](../std/either.ssc)
+[Left, Right, mapRight, flatMapRight, foldEither, isLeft, isRight](std/either.ssc)
 
-[listSelective, optionSelective, selectList, selectOption, branchList, branchOption](../std/selective.ssc)
+[listSelective, optionSelective, selectList, selectOption, branchList, branchOption](std/selective.ssc)
 
 ## Either basics
 

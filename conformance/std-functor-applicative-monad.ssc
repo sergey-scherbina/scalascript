@@ -9,7 +9,7 @@ Exercises the v1.1 functor / effect lane: trait hierarchy with HKT,
 extension-method dispatch via `given ... with`, and the per-instance
 helpers (`pureList`, `map2Option`, `sequenceList`, ...).
 
-[listMonad, optionMonad, pureList, pureOption, map2List, map2Option, sequenceList, sequenceOption](../std/functor-applicative-monad.ssc)
+[listMonad, optionMonad, pureList, pureOption, map2List, map2Option, sequenceList, sequenceOption](std/functor-applicative-monad.ssc)
 
 ## Functor — `map`
 

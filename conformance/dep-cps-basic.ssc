@@ -19,7 +19,7 @@ Exercises:
 - val-binding of an effectful result — `val first = ping(p1)`
 - pure tail in a CPS chain — `first + "/" + second`
 
-[ping, pingPair](../std/dep-cps-ping.ssc)
+[ping, pingPair](std/dep-cps-ping.ssc)
 
 ```scalascript
 runActors {

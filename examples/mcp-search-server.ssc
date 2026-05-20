@@ -17,7 +17,7 @@ files ranked by match count.
 > search-engine engineering.
 
 ```scalascript
-[mcpServer, serveMcp, Tool, requireString, Transport](../std/mcp/server.ssc)
+[mcpServer, serveMcp, Tool, requireString, Transport](std/mcp/server.ssc)
 
 import scala.io.Source
 import java.nio.file.{Files, Path, Paths}

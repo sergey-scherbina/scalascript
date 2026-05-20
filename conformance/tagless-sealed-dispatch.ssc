@@ -9,11 +9,11 @@ Exercises Phase 5 of v1.13: extension methods registered on a sealed
 trait (`Either`) are reachable from a subtype value (`Right`, `Left`).
 The interpreter walks the parent chain on miss.
 
-[Left, Right, mapRight, flatMapRight](../std/either.ssc)
+[Left, Right, mapRight, flatMapRight](std/either.ssc)
 
-[tupleBifunctor, eitherBifunctor](../std/bifunctor.ssc)
+[tupleBifunctor, eitherBifunctor](std/bifunctor.ssc)
 
-[optionUnitError, handleEither](../std/monaderror.ssc)
+[optionUnitError, handleEither](std/monaderror.ssc)
 
 ## `bimap` extension on Either — dispatched from Right and Left values
 

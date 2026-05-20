@@ -9,7 +9,7 @@ Exercises Phase 3 of v1.13: `[A: TC]` desugars to `(using TC[A])`.
 Single-bound and chained-bound cases.  Uses `combineAll` (landed
 v1.13 in `std/semigroup-monoid.ssc`) as the canonical example.
 
-[intSum, stringConcat, combineAll](../std/semigroup-monoid.ssc)
+[intSum, stringConcat, combineAll](std/semigroup-monoid.ssc)
 
 ## Single context bound via std `Monoid`
 

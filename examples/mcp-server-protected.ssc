@@ -22,7 +22,7 @@ header pointing the client at the AS via the
 `/.well-known/oauth-protected-resource` metadata document.
 
 ```scalascript
-[mcpServer, serveMcp, Tool, requireString, Transport](../std/mcp/server.ssc)
+[mcpServer, serveMcp, Tool, requireString, Transport](std/mcp/server.ssc)
 
 // ─── OAuth Authorization Server ──────────────────────────────────────
 val as = oauth.authServer(Map(

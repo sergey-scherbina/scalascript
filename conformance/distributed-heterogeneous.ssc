@@ -14,11 +14,11 @@ the named-handler protocol is backend-agnostic.
 
 The handler `"stringify"` converts integers to strings.
 
-[Node, Cluster](../std/mapreduce/cluster.ssc)
+[Node, Cluster](std/mapreduce/cluster.ssc)
 
-[NamedHandler, HandlerRegistry, named](../std/mapreduce/handlers.ssc)
+[NamedHandler, HandlerRegistry, named](std/mapreduce/handlers.ssc)
 
-[MapOp, FilterOp, Stage, WorkerProtocol, runDistributed, DistributedResult](../std/mapreduce/distributed.ssc)
+[MapOp, FilterOp, Stage, WorkerProtocol, runDistributed, DistributedResult](std/mapreduce/distributed.ssc)
 
 ```scalascript
 runActors {

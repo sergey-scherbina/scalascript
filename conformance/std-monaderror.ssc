@@ -8,9 +8,9 @@ version: 1.0.0
 Exercises the `MonadError[Option, Unit]` extension dispatch and the
 helper-only `Either[String, *]` surface.
 
-[Left, Right](../std/either.ssc)
+[Left, Right](std/either.ssc)
 
-[optionUnitError, raiseOption, handleOption, attemptOption, raiseEither, handleEither, attemptEither](../std/monaderror.ssc)
+[optionUnitError, raiseOption, handleOption, attemptOption, raiseEither, handleEither, attemptEither](std/monaderror.ssc)
 
 ## Option — extension dispatch
 

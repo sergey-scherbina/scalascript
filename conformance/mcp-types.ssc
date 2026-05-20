@@ -10,7 +10,7 @@ are all usable without starting a server.  Runs on all backends.
 
 ```scalascript
 [ToolResult, ResourceResult, PromptResult, Content, Message, Role, Transport, McpError,
- Tool, Resource, Prompt, requireString, requireInt, requireDouble, requireBool](../std/mcp/types.ssc)
+ Tool, Resource, Prompt, requireString, requireInt, requireDouble, requireBool](std/mcp/types.ssc)
 
 // Tool convenience constructors
 val t1 = Tool.text("hello")

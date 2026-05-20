@@ -12,7 +12,7 @@ installed and an MCP client to drive the round-trip.
 Skipped on backends without `Feature.McpServer` (interpreter, scalajs-spa).
 
 ```scalascript
-[mcpServer, serveMcp, Tool, requireString, requireInt, Transport](../std/mcp/server.ssc)
+[mcpServer, serveMcp, Tool, requireString, requireInt, Transport](std/mcp/server.ssc)
 
 var toolCallCount = 0
 

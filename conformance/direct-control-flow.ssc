@@ -8,9 +8,9 @@ version: 1.0.0
 Exercises v1.8 Phase 4: `whileM_`, `untilM_`, `forM_`, `replicateM_`
 from `std/monad-control.ssc`.
 
-[whileMOption, whileMList, untilMOption, untilMList, forMOption, forMList, replicateMOption, replicateMList, untilMResultOption, untilMResultEither, iterateWhileMOption, iterateWhileMEither](../std/monad-control.ssc)
+[whileMOption, whileMList, untilMOption, untilMList, forMOption, forMList, replicateMOption, replicateMList, untilMResultOption, untilMResultEither, iterateWhileMOption, iterateWhileMEither](std/monad-control.ssc)
 
-[Left, Right](../std/either.ssc)
+[Left, Right](std/either.ssc)
 
 ## whileMOption — count to 3
 

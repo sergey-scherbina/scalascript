@@ -12,7 +12,7 @@ chain without `for`/`yield` or explicit callbacks.  Bind forms
 (`x = expr`) extract values from `M`-wrapped computations; plain `val`
 bindings stay pure.
 
-[whileMOption, forMOption, replicateMOption](../std/monad-control.ssc)
+[whileMOption, forMOption, replicateMOption](std/monad-control.ssc)
 
 ## Validated record lookup
 

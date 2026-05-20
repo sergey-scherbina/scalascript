@@ -23,8 +23,8 @@ example collapses both into one process so the entire flow is
 inspectable from a single file.
 
 ```scalascript
-[mcpServer, serveMcp, Tool, requireString, Transport](../std/mcp/server.ssc)
-[mcpConnect](../std/mcp/client.ssc)
+[mcpServer, serveMcp, Tool, requireString, Transport](std/mcp/server.ssc)
+[mcpConnect](std/mcp/client.ssc)
 
 // ─── 1. Authorization Server ─────────────────────────────────────────
 
