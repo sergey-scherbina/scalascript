@@ -3972,9 +3972,21 @@ the codegen output.
   - **Phase A5** — `frontend-vue` backend.  ~1 week.
   - **Phase A6** — refs / context / suspense / portal rounded out
     per backend.  ~1 week.
-  - **Phase A7** — `ssc compile --frontend <name>` CLI flag +
-    interpreter intrinsic (mirrors v1.17.6 `--server-backend`).
-    ~3 days.
+  - **Phase A7** ✓ Landed 2026-05-20 — `setFrontendFramework(name)`
+    interpreter intrinsic + `ssc emit-spa --frontend <custom|react|
+    solid|vue>` CLI flag.  Mirrors v1.17.6 `setHttpServerBackend` /
+    `--server-backend`.  The intrinsic flips the
+    `FrontendFrameworks.setBackend(name)` registry choice at .ssc
+    runtime (throws if no impl with that name is on the classpath —
+    loud failure over silent fallback); the CLI flag does the same
+    at JVM-codegen time for `emit-spa`.  CLI now bundles all four
+    `frontend-*` impl modules so every name resolves out of the box.
+    Validation lives in `validFrontendNames`; the helper
+    `applyFrontendBackend(name)` is the single CLI-side selection
+    point future commands can route through as the SPA emit path
+    grows to consume the SPI in A8.  Tests: 6 unit + 1 e2e in
+    `FrontendIntrinsicTest`, 5 in CLI `FrontendBackendSelectionTest`,
+    plus a smoke run through `emit-spa --frontend react`.
   - **Phase A8** — Docs + 4 reference apps (one per backend).
     ~3 days.
 

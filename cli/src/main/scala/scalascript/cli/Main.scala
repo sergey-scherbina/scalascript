@@ -269,6 +269,25 @@ private[cli] def injectServerBackend(script: String, backend: String): String =
       // Caller already validates; this is defense.
       throw new IllegalArgumentException(s"unknown server backend '$other'")
 
+/** Valid `--frontend` names — fixed list matches the
+ *  `frontend-{custom,react,solid,vue}` sbt modules bundled with the CLI.
+ *  Adding a new frontend backend means adding it here and to the
+ *  `dependsOn(...)` chain in `build.sbt`'s `cli` definition. */
+private[cli] val validFrontendNames: Set[String] =
+  Set("custom", "react", "solid", "vue")
+
+/** v1.18 / Phase A7 — apply the `--frontend <name>` selection on the
+ *  JVM side before any frontend codegen runs.  Mirrors
+ *  `injectServerBackend` but for the FrontendFrameworkSpi registry
+ *  instead of HttpServerBackends.
+ *
+ *  Today this only flips the `FrontendFrameworks` choice so downstream
+ *  emit code (emit-spa etc.) can route through the right impl.  The
+ *  SPA emit path doesn't consume the registry yet (that's A8 work);
+ *  wiring it up early keeps the flag stable as A8 lands. */
+private[cli] def applyFrontendBackend(name: String): Unit =
+  scalascript.frontend.FrontendFrameworks.setBackend(name)
+
 def printUsage(): Unit =
   println("""
     |ScalaScript (ssc)
@@ -315,6 +334,9 @@ def printUsage(): Unit =
     |  emit-js                Transpile .ssc to JavaScript (Node server) and print to stdout
     |  emit-wasm              Compile .ssc scala blocks to WebAssembly via Scala.js (writes .wasm + .js)
     |  emit-spa               Wrap .ssc as a browser SPA (HTML + embedded JS) and print to stdout
+    |                         Flags: --frontend <custom|react|solid|vue>
+    |                                (picks the FrontendFrameworkSpi impl — defaults to first-found;
+    |                                 controls which framework SPI downstream codegen targets)
     |  emit-wc                Emit each component object as a W3C Custom Element bundle
     |  emit-interface         Extract module interface to .scim artifact (v2.0)
     |  emit-ir                Emit normalised module IR to .scir artifact (v2.0)
@@ -1834,8 +1856,27 @@ def emitWasmCommand(args: List[String]): Unit =
         System.exit(1)
 
 def emitSpaCommand(args: List[String]): Unit =
-  if args.isEmpty then { println("Error: No files specified"); System.exit(1) }
-  for file <- args do
+  // v1.18 / Phase A7 — optional --frontend <custom|react|solid|vue>
+  // picks which FrontendFrameworkSpi impl downstream SPA codegen routes
+  // through.  Today the SPA path doesn't yet consume the registry (that
+  // lands in A8), but validating + selecting here keeps the flag stable.
+  var frontendBackend: Option[String] = None
+  val files = scala.collection.mutable.ArrayBuffer.empty[String]
+  val it    = args.iterator
+  while it.hasNext do
+    it.next() match
+      case "--frontend" if it.hasNext =>
+        val name = it.next()
+        if !validFrontendNames.contains(name) then
+          System.err.println(
+            s"emit-spa: unknown --frontend '$name' " +
+            s"(valid: ${validFrontendNames.toList.sorted.mkString(" / ")})")
+          System.exit(1)
+        frontendBackend = Some(name)
+      case f => files += f
+  if files.isEmpty then { println("Error: No files specified"); System.exit(1) }
+  frontendBackend.foreach(applyFrontendBackend)
+  for file <- files.toList do
     val path    = os.Path(file, os.pwd)
     val baseDir = Some(path / os.up)
     if !os.exists(path) then { println(s"Error: File not found: $file"); System.exit(1) }

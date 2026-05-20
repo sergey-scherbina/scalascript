@@ -395,8 +395,13 @@ Same pattern as HTTP/WS SPI — define SPI + ship two impls together.
 - **Phase Fr4** — `SolidFrameworkBackend` impl.  Signals + JSX.
   ~1 week.  By this point the SPI shape should be stable.
 - **Phase Fr5** — `VueFrameworkBackend` impl.  ~1 week.
-- **Phase Fr6** — `ssc compile --frontend <name>` CLI flag.
-  Mirrors `--server-backend` from v1.17.6.  ~1 day.
+- **Phase Fr6** ✓ Landed 2026-05-20 (as MILESTONES Phase A7) —
+  `setFrontendFramework(name)` interpreter intrinsic +
+  `ssc emit-spa --frontend <custom|react|solid|vue>` CLI flag.
+  Both call `FrontendFrameworks.setBackend(name)` so downstream
+  codegen routes through the chosen impl; loud failure if no impl
+  with that name is on the classpath.  CLI bundles all four impl
+  modules.  ~1 day.
 - **Phase Fr7** — Docs + examples (3 reference apps, one per
   backend).  ~3 days.
 - **Phase Fr8** — SSR per backend (later; not in initial spec).
