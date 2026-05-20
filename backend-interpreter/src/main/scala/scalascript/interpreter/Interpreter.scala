@@ -1,7 +1,7 @@
 package scalascript.interpreter
 
 import scalascript.ast.*
-import scalascript.transform.{DirectAnorm, DirectTypeUtils}
+import scalascript.transform.DirectTypeUtils
 import scala.collection.mutable
 import scala.meta.*
 import Computation.{Pure, Perform, FlatMap}
@@ -19,6 +19,14 @@ import Computation.{Pure, Perform, FlatMap}
  *  @param givenNode         the original `Defn.Given` AST node (for body evaluation)
  *  @param capturedEnv       environment captured at definition time
  */
+/** Monad tag for `direct[M] { ... }` do-notation blocks. */
+private[interpreter] enum DirectMonadTag:
+  case OptionM // direct[Option]
+  case EitherM // direct[Either[E, *]]
+  case AsyncM  // direct[Async]  — supports OptionT / EitherT lift
+  case ListM   // direct[List]
+  case OtherM  // direct[SomeUserMonad] — duck-typed only
+
 private[interpreter] case class TcoInfo(
   tailTargets:   Set[String],
   isSelfTailRec: Boolean,
@@ -110,17 +118,10 @@ class Interpreter(
   private val noTraceTypes = mutable.HashSet.empty[String]
   // Phase 3.2: flag indicating we are inside a direct[Either[...]] block so
   // throw expressions lower to Left(...) instead of raising a ScriptException.
-  private val _insideDirectBlock = new java.lang.ThreadLocal[Boolean] {
+  private[interpreter] val _insideDirectBlock = new java.lang.ThreadLocal[Boolean] {
     override def initialValue() = false
   }
-
-  // ─── direct[M] monad tag — resolved from the type argument ───────────
-  private enum DirectMonadTag:
-    case OptionM // direct[Option]
-    case EitherM // direct[Either[E, *]]
-    case AsyncM  // direct[Async]  — supports OptionT / EitherT lift
-    case ListM   // direct[List]
-    case OtherM  // direct[SomeUserMonad] — duck-typed only
+  // DirectMonadTag defined at package level (see top of file / BlockRuntime.scala)
 
   // ─── Reactive signals (fine-grained reactivity) ──────────────────────
   //
@@ -3466,9 +3467,9 @@ class Interpreter(
         case Term.ApplyType.After_4_6_0(Term.Name("direct"), typeArgClause) =>
           val typeArg = typeArgClause.values.headOption.getOrElse(Type.Name("?"))
           DirectTypeUtils.validateDirectTypeArg(typeArg)
-          val tag = extractDirectMonadTag(typeArgClause.values)
+          val tag = BlockRuntime.extractDirectMonadTag(typeArgClause.values)
           app.argClause.values match
-            case List(block: Term.Block) => evalDirectBlock(block.stats, env, tag)
+            case List(block: Term.Block) => BlockRuntime.evalDirectBlock(block.stats, env, tag, this)
             case List(single: Term)      => eval(single, env)
             case _                       => located("direct[M] expects a single block argument")
         case Term.Select(qual, Term.Name(method)) =>
@@ -3583,7 +3584,7 @@ class Interpreter(
 
     // Block { stmts; expr }
     case Term.Block(stats) =>
-      evalBlock(stats, env)
+      BlockRuntime.evalBlock(stats, env, this)
 
     // if/then/else
     case t: Term.If =>
@@ -3992,255 +3993,13 @@ class Interpreter(
 
   /** Thread a list of already-built Computations: bind each in order and feed
    *  the resulting values to `k`. */
-  private def threadValues(comps: List[Computation])(k: List[Value] => Computation): Computation =
+  private[interpreter] def threadValues(comps: List[Computation])(k: List[Value] => Computation): Computation =
     def chain(remaining: List[Computation], acc: List[Value]): Computation = remaining match
       case Nil       => k(acc.reverse)
       case c :: rest => FlatMap(c, v => chain(rest, v :: acc))
     chain(comps, Nil)
 
-  /** Evaluate a block of statements; effects propagate through statements via flatMap.
-   *  val/var declarations are threaded as Computation so effects in their rhs work. */
-  private def evalBlock(stats: List[Stat], env: Env): Computation =
-    val local = mutable.Map.from(env)
-    // Keys whose value in `env` differs from the current `globals` snapshot —
-    // these are local overrides (lambda params, outer-block locals) that the
-    // refresh-from-globals loop below must NOT clobber.  Without this guard a
-    // lambda param like `p` (which also exists in globals as the `<p>` HTML
-    // tag) would be overwritten by the global between statements.
-    val localOverrides: scala.collection.mutable.Set[String] =
-      scala.collection.mutable.Set.from(local.iterator.collect {
-        case (k, v) if !globals.get(k).contains(v) => k
-      })
-    def step(remaining: List[Stat], lastVal: Value): Computation = remaining match
-      case Nil => Pure(lastVal)
-      case s :: rest =>
-        // Re-read globals into local so mutations from prior statements are visible
-        local.keys.foreach { k =>
-          if !localOverrides.contains(k) then globals.get(k).foreach(local(k) = _)
-        }
-        s match
-          case Defn.Val(_, pats, _, rhs) =>
-            eval(rhs, local.toMap).flatMap { rhsVal =>
-              pats match
-                case List(Pat.Var(n)) =>
-                  local(n.value) = rhsVal
-                  localOverrides += n.value
-                case List(pat) =>
-                  PatternRuntime.matchPat(pat, rhsVal, local.toMap, this) match
-                    case Some(patEnv) =>
-                      patEnv.foreach { (k, v) => local(k) = v; localOverrides += k }
-                    case None         => located("Val pattern match failed")
-                case _ => ()
-              step(rest, Value.UnitV)
-            }
-          case Defn.Var.After_4_7_2(_, List(Pat.Var(n)), _, rhs) =>
-            eval(rhs, local.toMap).flatMap { v =>
-              local(n.value) = v
-              localOverrides += n.value
-              step(rest, Value.UnitV)
-            }
-          // Local var mutation: write to local AND globals so that both the
-          // current evalBlock and any enclosing while loop (via freshEnv) see it.
-          case Term.Assign(Term.Name(x), rhs) if localOverrides.contains(x) =>
-            eval(rhs, local.toMap).flatMap { v =>
-              local(x)   = v
-              globals(x) = v
-              step(rest, Value.UnitV)
-            }
-          // Compound assignment inside a block where the var is declared locally.
-          // Write to both local and globals so subsequent reads in this block
-          // and the enclosing while loop both see the updated value.
-          case Term.ApplyInfix.After_4_6_0(lhs: Term.Name, op, _, argClause)
-              if op.value.lengthIs > 1 && op.value.last == '=' &&
-                 !Set(">=", "<=", "!=", "==").contains(op.value) && localOverrides.contains(lhs.value) =>
-            val baseOp = op.value.init
-            eval(lhs, local.toMap).flatMap { lhsV =>
-              val argComps = argClause.values.map(eval(_, local.toMap))
-              threadValues(argComps) { argVs =>
-                infix(lhsV, baseOp, argVs, local.toMap).flatMap { newV =>
-                  local(lhs.value)   = newV
-                  globals(lhs.value) = newV
-                  step(rest, Value.UnitV)
-                }
-              }
-            }
-          case t: Term =>
-            eval(t, local.toMap).flatMap(v => step(rest, v))
-          case stat =>
-            execStat(stat, local)
-            step(rest, Value.UnitV)
-    step(stats, Value.UnitV)
-
-  // ─── direct[M] { ... } — v1.8 do-notation ───────────────────────────
-
-  private def extractDirectMonadTag(typeArgs: List[scala.meta.Type]): DirectMonadTag =
-    import DirectMonadTag.*
-    val name = typeArgs.headOption.flatMap(DirectTypeUtils.extractPrimaryMonad).getOrElse("?")
-    name match
-      case "Option" => OptionM
-      case "List"   => ListM
-      case "Either" => EitherM
-      case "Async"  => AsyncM
-      case _        => OtherM
-
-  /** Intercept monadic bind to auto-lift foreign monad values.
-   *
-   *  When `direct[Async]` (tag = AsyncM) and the bound value is an `Option`
-   *  or `Either`, the block uses OptionT/EitherT semantics automatically:
-   *  `Some(a)` / `Right(a)` → continue with `a`; `None` / `Left(e)` →
-   *  short-circuit the entire block. */
-  private def liftBindValue(
-    monadValue: Value,
-    tag:        DirectMonadTag,
-    cont:       Value => Computation,
-    cur:        Env
-  ): Computation =
-    import DirectMonadTag.*
-    (tag, monadValue) match
-      case (AsyncM,  Value.OptionV(Some(inner)))                  => cont(inner)
-      case (AsyncM,  Value.OptionV(None))                         => Pure(Value.OptionV(None))
-      case (AsyncM,  Value.InstanceV("Right", f)) if f.contains("value") => cont(f("value"))
-      case (AsyncM,  Value.InstanceV("Left", _))                  => Pure(monadValue)
-      case (EitherM, Value.OptionV(Some(inner)))                  => cont(inner)
-      case (EitherM, Value.OptionV(None))                         =>
-        Pure(Value.InstanceV("Left", Map("value" -> Value.UnitV)))
-      case (OptionM, Value.InstanceV("Right", f)) if f.contains("value") => cont(f("value"))
-      case (OptionM, Value.InstanceV("Left", _))                  => Pure(Value.OptionV(None))
-      // ListM, OtherM, and unhandled monad/value combos — standard duck-typed flatMap
-      case (ListM | OtherM, _) | _ =>
-        val contFn = Value.NativeFnV("direct-lift-cont", args => cont(args.head))
-        DispatchRuntime.dispatch(monadValue, "flatMap", List(contFn), cur, this)
-
-  /** Evaluate a `direct[M] { stmts }` block by desugaring bind-forms
-   *  (`x = expr`) into `monadValue.flatMap { x => rest }` calls.
-   *
-   *  Rules (DS-1 … DS-7 from docs/direct-syntax.md):
-   *  - `x = expr`       — monadic bind unless `x` was declared `var` in
-   *                       this same direct block (then: mutation).
-   *  - `val x = expr`   — pure local binding.
-   *  - `var x = expr`   — mutable var (never monadic).
-   *  - `_ = expr`       — explicit bind-and-discard.
-   *  - bare expression  — evaluated for side effects; result discarded.
-   *  - last expression  — the tail / yield clause. */
-  private def checkDirectBlockStatics(stats: List[Stat]): Unit =
-    def isNestedDirect(t: Tree): Boolean = t match
-      case app: Term.Apply =>
-        app.fun match
-          case Term.ApplyType.After_4_6_0(Term.Name("direct"), _) => true
-          case _ => false
-      case _ => false
-    def go(t: Tree): Unit = t match
-      case _: Term.Return =>
-        located("'return' inside a direct block escapes the flatMap chain — for early failure use the monad's zero (None, Nil, Left(err), …) instead")
-      case _ if isNestedDirect(t) => ()
-      case _: Defn.Def | _: Term.Function => ()
-      case other => other.children.foreach(go)
-    stats.foreach(go)
-
-  private def evalDirectBlock(
-    stats: List[Stat],
-    env:   Env,
-    tag:   DirectMonadTag
-  ): Computation =
-    checkDirectBlockStatics(stats)
-    val expanded = DirectAnorm.expand(stats)
-    val varNames: Set[String] = expanded.collect {
-      case Defn.Var.After_4_7_2(_, List(Pat.Var(n)), _, _) => n.value
-    }.toSet
-    val prevInsideDirect = _insideDirectBlock.get()
-    _insideDirectBlock.set(true)
-
-    // Thread env as an immutable snapshot so each branch of a List flatMap
-    // gets its own independent variable bindings (avoids shared-state bugs
-    // when the monad's flatMap calls the continuation multiple times eagerly).
-    def step(remaining: List[Stat], cur: Env): Computation = remaining match
-      case Nil => Pure(Value.UnitV)
-
-      // throw as last (or only) statement — lower to Left(...)
-      case (t: Term.Throw) :: Nil =>
-        eval(t.expr, cur).flatMap { v =>
-          Pure(Value.InstanceV("Left", Map("value" -> v)))
-        }
-
-      case (last: Term) :: Nil =>
-        eval(last, cur)
-
-      // var mutation (pure — not a monadic bind)
-      case Term.Assign(Term.Name(x), rhs) :: rest if varNames.contains(x) =>
-        eval(rhs, cur).flatMap { v => step(rest, cur + (x -> v)) }
-
-      // x = expr — monadic bind (with optional auto-lift for transformer semantics)
-      case Term.Assign(Term.Name(x), rhs) :: rest =>
-        FlatMap(eval(rhs, cur), { monadValue =>
-          liftBindValue(monadValue, tag, innerVal => step(rest, cur + (x -> innerVal)), cur)
-        })
-
-      // val _ = expr — monadic bind-and-discard (with optional auto-lift)
-      case Defn.Val(_, List(_: Pat.Wildcard), _, rhs) :: rest =>
-        FlatMap(eval(rhs, cur), { monadValue =>
-          liftBindValue(monadValue, tag, _ => step(rest, cur), cur)
-        })
-
-      // val x = expr — pure binding
-      case Defn.Val(_, pats, _, rhs) :: rest =>
-        eval(rhs, cur).flatMap { v =>
-          pats match
-            case List(Pat.Var(n)) => step(rest, cur + (n.value -> v))
-            case List(pat) =>
-              PatternRuntime.matchPat(pat, v, cur, this) match
-                case Some(patEnv) => step(rest, cur ++ patEnv)
-                case None         => located("direct block: val pattern match failed")
-            case _ => step(rest, cur)
-        }
-
-      // var x = expr — mutable local var declaration
-      case Defn.Var.After_4_7_2(_, List(Pat.Var(n)), _, rhs) :: rest =>
-        eval(rhs, cur).flatMap { v => step(rest, cur + (n.value -> v)) }
-
-      // throw inside direct block — lower to Left(...) instead of raising
-      case (t: Term.Throw) :: _ =>
-        eval(t.expr, cur).flatMap { v =>
-          Pure(Value.InstanceV("Left", Map("value" -> v)))
-        }
-
-      // bare expression for side effect
-      case (t: Term) :: rest =>
-        eval(t, cur).flatMap(_ => step(rest, cur))
-
-      // def inside direct block — register as pure closure, not a monadic bind
-      case (d: Defn.Def) :: rest =>
-        val allClauses2      = d.paramClauseGroups.flatMap(_.paramClauses)
-        val regularClauses2  = allClauses2.filter(_.mod.isEmpty)
-        val usingClauses2    = allClauses2.filter(_.mod.nonEmpty)
-        val regularParamVals2 = regularClauses2.flatMap(_.values).toList
-        val usingParamVals2   = usingClauses2.flatMap(_.values).toList
-        @annotation.nowarn("msg=deprecated")
-        val cbUsingParams2: List[(String, String)] =
-          d.paramClauseGroups.flatMap(_.tparamClause.values).flatMap { tp =>
-            tp.cbounds.map { cb =>
-              val tvName = tp.name.value
-              val tcStr  = typeToString(cb.asInstanceOf[scala.meta.Type])
-              s"${tvName}$$${tcStr.takeWhile(_ != '[')}" -> s"$tcStr[$tvName]"
-            }
-          }
-        val allRegularVals2 = regularParamVals2 ++ usingParamVals2
-        val params2   = allRegularVals2.map(_.name.value) ++ cbUsingParams2.map(_._1)
-        val defaults2 = allRegularVals2.map(_.default)    ++ cbUsingParams2.map(_ => None)
-        val paramTypes2 = regularParamVals2.map(p => p.decltpe.fold("Any")(typeToString))
-        val usingInfo2: List[(String, String)] =
-          usingParamVals2.map(p => p.name.value -> p.decltpe.fold("Any")(typeToString)) ++ cbUsingParams2
-        val capturedEnv = cur.iterator.collect {
-          case (k, v) if !globals.get(k).contains(v) => k -> v
-        }.toMap
-        val rThrows2 = d.decltpe.exists(isThrowsType)
-        val fn = Value.FunV(params2, d.body, capturedEnv, d.name.value, defaults2, paramTypes2, usingInfo2, rThrows2)
-        step(rest, cur + (d.name.value -> fn))
-
-      case _ :: rest =>
-        step(rest, cur)
-
-    try step(expanded, env)
-    finally _insideDirectBlock.set(prevInsideDirect)
+  // ─── Block eval + direct[M] — see BlockRuntime.scala ─────────────────
 
   // ─── Call helpers ─────────────────────────────────────────────────
 
@@ -4424,7 +4183,7 @@ class Interpreter(
 
   /** Convert a scalameta `Type` node to the canonical key string used to
    *  store `given` instances (e.g. `"Monoid[Int]"`, `"Monad[List]"`). */
-  private def typeToString(t: scala.meta.Type): String = t match
+  private[interpreter] def typeToString(t: scala.meta.Type): String = t match
     case scala.meta.Type.Name(n)         => n
     case ta: scala.meta.Type.Apply       => s"${typeToString(ta.tpe)}[${ta.argClause.values.map(typeToString).mkString(", ")}]"
     case scala.meta.Type.Function.After_4_6_0(params, r) => s"(${params.values.map(typeToString).mkString(", ")}) => ${typeToString(r)}"
@@ -4444,7 +4203,7 @@ class Interpreter(
     case _                          => Value.StringV(tp.syntax)
 
   /** True if a scalameta Type is `A throws E` (infix `throws`). */
-  private def isThrowsType(t: scala.meta.Type): Boolean = t match
+  private[interpreter] def isThrowsType(t: scala.meta.Type): Boolean = t match
     case ti: scala.meta.Type.ApplyInfix => ti.op.value == "throws"
     case _                              => false
 
