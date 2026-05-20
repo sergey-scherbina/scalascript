@@ -824,13 +824,7 @@ serve(lower(tree, Theme.default), 8080)
 
 ### Known risks and open questions (Phase 7)
 
-1. **Opaque type syntax** — `opaque type Signal[T] = Any` may or may
-   not be parsed by the current ScalaScript parser.  Fallback: declare
-   them as ordinary `type` aliases or just leave the names unbound
-   (callers see `Any`); the runtime Foreign wrapper ensures correct
-   dispatch regardless.
-
-2. **Form validators in the browser** — the Scala `Form` widget
+1. **Form validators in the browser** — the Scala `Form` widget
    accepts a `Signal[Option[String]]` per field for validation errors
    and a validator `T => Option[String]` function.  Scala closures in
    `events` become `EventHandler.Simple` (JVM-only), not emittable to
