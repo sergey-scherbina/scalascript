@@ -332,6 +332,9 @@ private[react] object ReactEmitter:
           // regardless of the attribute key the user picked.  The ref
           // variable is the useRef object hoisted at the top of App().
           Some(s"'ref': ${ref.jsName}")
+        case AttrValue.Str(css) if k == "style" =>
+          // React requires style as a JS object, not a CSS string.
+          Some(s"'style': ${cssStringToReactObject(css)}")
         case _ =>
           attrValueJs(v).map { value =>
             // React uses className not class; map at IR level.
@@ -452,3 +455,22 @@ private[react] object ReactEmitter:
     }
     sb += '\''
     sb.toString
+
+  /** Convert a CSS declaration string (e.g. "display: flex; gap: 8px;")
+   *  to a React style object literal (e.g. { display: 'flex', gap: '8px' }).
+   *  CSS property names are camelCased; values stay as JS strings. */
+  private def cssStringToReactObject(css: String): String =
+    val fields = css.split(";").toSeq
+      .map(_.trim).filter(_.nonEmpty)
+      .flatMap { decl =>
+        val idx = decl.indexOf(':')
+        if idx < 0 then None
+        else
+          val prop  = decl.substring(0, idx).trim
+          val value = decl.substring(idx + 1).trim
+          val camel = prop.split('-').toSeq match
+            case head +: tail => head + tail.map(p => p.head.toUpper.toString + p.tail).mkString
+            case _            => prop
+          Some(s"$camel: ${jsString(value)}")
+      }
+    if fields.isEmpty then "{}" else s"{ ${fields.mkString(", ")} }"

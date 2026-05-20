@@ -15,15 +15,14 @@ object StaticAssetServer:
    *  the file exists, is a regular file, lives inside `root`, and isn't
    *  a `.ssc` source.  Pure — no IO beyond `File.getCanonicalFile`. */
   def resolve(root: String, urlPath: String): Option[java.io.File] =
-    val cleaned = urlPath.stripPrefix("/")
-    if cleaned.isEmpty then None
-    else
-      val rootDir = new java.io.File(root).getCanonicalFile
-      val target  = new java.io.File(rootDir, cleaned).getCanonicalFile
-      if !target.exists() || !target.isFile() then None
-      else if !target.getPath.startsWith(rootDir.getPath) then None
-      else if target.getName.endsWith(".ssc") then None
-      else Some(target)
+    val cleaned   = urlPath.stripPrefix("/")
+    val effective = if cleaned.isEmpty then "index.html" else cleaned
+    val rootDir   = new java.io.File(root).getCanonicalFile
+    val target    = new java.io.File(rootDir, effective).getCanonicalFile
+    if !target.exists() || !target.isFile() then None
+    else if !target.getPath.startsWith(rootDir.getPath) then None
+    else if target.getName.endsWith(".ssc") then None
+    else Some(target)
 
   /** Write `file` to the exchange with `Content-Type` from `HttpHelpers.contentTypeFor`. */
   def serve(file: java.io.File, ex: HttpExchange): Unit =
