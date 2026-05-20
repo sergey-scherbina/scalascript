@@ -101,14 +101,29 @@ val UiPrimitivesIntrinsics: Map[QualifiedName, IntrinsicImpl] = Map(
       case _      => throw InterpretError("hashSignal()")
   ),
 
-  // ── serve(tree: View, port: Int): Unit ───────────────────────────────────
+  // ── serve — frontend and REST variants ───────────────────────────────────
+  // serve(tree, port)              — emit frontend, serve from temp dir
+  // serve(port)                    — serve cwd as static/REST
+  // serve(port, dir)               — serve dir as static/REST
+  // serve(port, tls(cert, key))    — serve cwd with TLS
   QualifiedName("serve") -> NativeImpl((ctx, args) =>
     args match
       case List(Value.Foreign("View", view: View), port) =>
         val p      = port match { case n: Long => n.toInt; case _ => 8080 }
         val outDir = uiEmitToTempDir(view)
         if !ctx.headless then scalascript.server.WebServer.start(p, outDir, ctx.out)
-      case _ => throw InterpretError("serve(tree, port)")
+      case List(port: Long) =>
+        ctx.registerHealthDefaults()
+        ctx.startServer(port.toInt, ".")
+      case List(port: Long, dir: String) =>
+        ctx.registerHealthDefaults()
+        ctx.startServer(port.toInt, dir)
+      case List(port: Long, Value.InstanceV("TlsContext", tlsFields)) =>
+        ctx.registerHealthDefaults()
+        val cert = tlsFields.get("cert").collect { case Value.StringV(s) => s }.getOrElse("")
+        val key  = tlsFields.get("key").collect  { case Value.StringV(s) => s }.getOrElse("")
+        ctx.startTlsServer(port.toInt, ".", cert, key)
+      case _ => throw InterpretError("serve(tree, port), serve(port), serve(port, dir), or serve(port, tls(cert, key))")
   ),
 
   // ── emit(tree: View, outDir: String): Unit ───────────────────────────────

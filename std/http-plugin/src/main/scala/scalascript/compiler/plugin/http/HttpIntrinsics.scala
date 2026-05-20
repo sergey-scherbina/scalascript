@@ -65,24 +65,7 @@ object HttpIntrinsics:
         case _ => throw InterpretError("serveAsync(port) or serveAsync(port, tls(cert, key))")
     ),
 
-    QualifiedName("serve") -> NativeImpl((ctx, args) =>
-      args match
-        case List(port: Long) =>
-          ctx.registerHealthDefaults()
-          ctx.startServer(port.toInt, ".")
-          ()
-        case List(port: Long, dir: String) =>
-          ctx.registerHealthDefaults()
-          ctx.startServer(port.toInt, dir)
-          ()
-        case List(port: Long, Value.InstanceV("TlsContext", tlsFields)) =>
-          ctx.registerHealthDefaults()
-          val cert = tlsFields.get("cert").collect { case Value.StringV(s) => s }.getOrElse("")
-          val key  = tlsFields.get("key").collect  { case Value.StringV(s) => s }.getOrElse("")
-          ctx.startTlsServer(port.toInt, ".", cert, key)
-          ()
-        case _ => throw InterpretError("serve(port), serve(port, dir), or serve(port, tls(cert, key))")
-    ),
+    // serve is handled by UiPrimitives (covers both frontend + REST variants)
 
     QualifiedName("stop") -> NativeImpl((ctx, _) =>
       ctx.stopServer()
