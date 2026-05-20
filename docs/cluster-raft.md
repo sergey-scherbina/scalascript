@@ -374,25 +374,27 @@ Unit-level (single-process simulation):
 - **Heartbeat resets election timer.**  Followers do not start an
   election while heartbeats arrive.
 
-### Multi-process integration test — current state
+### Multi-process integration test — landed
 
-Real multi-node testing (two `ssc.jar` subprocesses on distinct
-loopback ports, joined via the v1.6 actor WS, verifying they
-converge on a single Bully leader) currently hits a runtime
-limitation: `serve(port)` blocks the caller thread, and the actor
-scheduler runs in that same thread, so `runActors { ... serve(p) }`
-deadlocks before the actor scheduler can drain inbound peer
-envelopes.  Concrete fix needs one of:
+The non-blocking `serveAsync(port)` intrinsic landed (interpreter
+0e57fa37, JVM codegen ea02fe06, JS Node codegen 7df3aa83), and the
+`/_ssc-cluster/status` operational route auto-registers on every
+backend that emits `_runActors` (JVM 0b97e2df, JS Node c82c1203,
+INT existing).  Two real-WS multi-process Bully tests now exist:
 
-1. A non-blocking `serveAsync(port)` intrinsic that returns
-   immediately and runs the WS server on a virtual thread.
-2. An option for `runActors` to release the calling thread to a
-   background scheduler so user code can call `serve` after it.
-
-Until then the conformance tests cover single-node behaviour and
-the e2e ping-pong tests cover three-backend agreement.  Real-WS
-multi-node integration testing is deferred to a follow-up release
-that ships the non-blocking-serve intrinsic.
+- [`cli/test/MultiNodeClusterTest`](../cli/src/test/scala/scalascript/cli/MultiNodeClusterTest.scala) —
+  spawns two `ssc.jar` subprocesses on distinct loopback ports,
+  each runs `startNode` + `serveAsync` + `joinCluster` + `electLeader`,
+  then prints `LEADER:` on stdout and exits.  The harness asserts
+  both nodes printed the same leader (lex-greatest nodeId) and
+  also covers 5-node convergence and 3-node `kill -9` failover.
+- [`cli/test/ClusterBullyStatusConvergenceTest`](../cli/src/test/scala/scalascript/cli/ClusterBullyStatusConvergenceTest.scala) —
+  same two-node Bully shape but the convergence assertion polls
+  `GET /_ssc-cluster/status` on each node every 200 ms and waits
+  for both nodes' JSON snapshots to agree on a non-empty `leader`
+  field, `protocol == "bully"`, and `members` listing the peer.
+  Both nodes stay alive throughout, so the test exercises the
+  operational HTTP surface a real ops dashboard would use.
 
 Integration (real WS, multiple processes, killed at the kernel
 level so we exercise the real Phase 3 distributed actor stack):
