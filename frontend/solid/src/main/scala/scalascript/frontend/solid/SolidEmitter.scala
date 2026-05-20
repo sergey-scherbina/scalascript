@@ -340,6 +340,15 @@ private[solid] object SolidEmitter:
           registerList(list)
           val setter = setterName(list.jsName)
           statements += s"$targetVar.addEventListener(${jsString(eventName)}, () => $setter([]));"
+        case EventHandler.FetchAction(method, url, body, tick) =>
+          registerSignal(body)
+          registerSignal(tick)
+          val setTick  = setterName(tick.jsName)
+          val urlJs    = jsString(url)
+          val methodJs = jsString(method)
+          statements += s"$targetVar.addEventListener(${jsString(eventName)}, () => " +
+            s"fetch($urlJs, {method: $methodJs, body: ${body.jsName}()})" +
+            s".then(r => r.text()).then(_ => $setTick(t => t + 1)));"
         case EventHandler.RemoveSelfFromList(list) =>
           // A2e.2 — only meaningful inside an item template.  Capture
           // __idx in an IIFE so each emitted listener remembers its

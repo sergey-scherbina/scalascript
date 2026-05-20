@@ -458,6 +458,16 @@ private[custom] object StaticJsEmitter:
           val nameJs = jsString(list.jsName)
           statements += s"$targetVar.addEventListener(${jsString(eventName)}, () => " +
                         s"__setSignalList($nameJs, []));"
+        case EventHandler.FetchAction(method, url, body, tick) =>
+          registerSignal(body)
+          registerSignal(tick)
+          val bodyJs   = jsString(body.jsName)
+          val tickJs   = jsString(tick.jsName)
+          val urlJs    = jsString(url)
+          val methodJs = jsString(method)
+          statements += s"$targetVar.addEventListener(${jsString(eventName)}, () => " +
+            s"fetch($urlJs, {method: $methodJs, body: __ssc_signals[$bodyJs].value})" +
+            s".then(r => r.text()).then(_ => __setSignal($tickJs, __ssc_signals[$tickJs].value + 1)));"
         case EventHandler.RemoveSelfFromList(list) =>
           // A2e.2 — only meaningful inside an item template; outside,
           // emit an inert listener (graceful no-op).

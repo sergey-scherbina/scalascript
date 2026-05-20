@@ -362,6 +362,11 @@ private[vue] object VueEmitter:
           Some(s"${jsString(onKey)}: () => { this.${list.jsName} = this.${list.jsName}.filter((_, i) => i !== index); }")
         else
           Some(s"/* '$eventName' is RemoveSelfFromList used outside an item template — no-op */")
+      case EventHandler.FetchAction(method, url, body, tick) =>
+        val urlJs    = jsString(url)
+        val methodJs = jsString(method)
+        Some(s"${jsString(onKey)}: () => { fetch($urlJs, {method: $methodJs, body: this.${body.jsName}})" +
+          s".then(r => r.text()).then(_ => { this.${tick.jsName}++; }); }")
       case EventHandler.Simple(_) | EventHandler.WithEvent(_) | EventHandler.InputChange(_) =>
         Some(s"/* '$eventName' is a JVM closure — A5 can't translate (richer IR coming later) */")
 
