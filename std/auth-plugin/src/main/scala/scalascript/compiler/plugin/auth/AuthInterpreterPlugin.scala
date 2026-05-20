@@ -1,4 +1,4 @@
-package ssc.plugin.auth
+package scalascript.compiler.plugin.auth
 
 import scalascript.backend.spi.*
 import scalascript.ir.{QualifiedName, NormalizedModule}

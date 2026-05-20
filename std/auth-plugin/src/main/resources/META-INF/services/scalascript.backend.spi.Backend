@@ -1,1 +1,1 @@
-ssc.plugin.auth.AuthInterpreterPlugin
+scalascript.compiler.plugin.auth.AuthInterpreterPlugin

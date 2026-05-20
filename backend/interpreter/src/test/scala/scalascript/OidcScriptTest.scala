@@ -4,7 +4,7 @@ import org.scalatest.funsuite.AnyFunSuite
 import org.scalatest.matchers.should.Matchers
 import scalascript.interpreter.Interpreter
 import scalascript.parser.Parser
-import ssc.plugin.oauth.OidcHttp
+import scalascript.compiler.plugin.oauth.OidcHttp
 import scalascript.backend.spi.NativeContext
 import scalascript.interpreter.{Computation, Value}
 import scalascript.oauth.*
