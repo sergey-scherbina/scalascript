@@ -278,6 +278,21 @@ lazy val frontendCustom = project
     Test    / scalacOptions ++= sharedScalacOptions
   )
 
+// v1.18 / Phase B (Frontend toolkit — docs/frontend-toolkit-spec.md).
+// High-level declarative widget library (Stack, Box, Text, Button,
+// TextField, Card, Alert, ...) that lowers to View primitives.
+// Backend-agnostic: same toolkit code emits to React / Vue / Solid /
+// Custom via the existing FrontendFrameworkSpi.
+lazy val frontendToolkit = project
+  .in(file("frontend-toolkit"))
+  .dependsOn(frontendCore)
+  .settings(
+    name := "scalascript-frontend-toolkit",
+    libraryDependencies ++= Seq(scalatestTest),
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions
+  )
+
 // v1.18 / Phase A3 stub — React backend.  Signal lowers to useState,
 // Component to function components, View to React.createElement.
 // Today: stub.
