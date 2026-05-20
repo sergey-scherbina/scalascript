@@ -6875,10 +6875,19 @@ Thin `backend-wasm-contract/` layer on top of `backend-wasm/` for Near or Polkad
 >       Kafka dep emission also landed in the same slice because
 >       the detection plumbing was shared (small enough that
 >       splitting would have been mechanical).
-> - [ ] F.3 — File source/sink + checkpointing: detect file-based
->       stream patterns, emit `// note:` comment about
->       `checkpointLocation`.  Example
->       `examples/spark-streaming-file-parquet.ssc`.
+> - [x] F.3 — File source/sink + checkpointing (2026-05-20): new
+>       `SparkGen.containsFileStreamSink` (case-insensitive regex on
+>       `.format("parquet"|"csv"|"json"|"orc"|"text")`) and
+>       `containsCheckpointLocation` detection helpers; when the
+>       module is streaming AND uses a file format AND the user
+>       hasn't already set `checkpointLocation`, the generated
+>       source header gains a `// NOTE Phase F.3` reminder block
+>       (Spark refuses to `start()` file-sink streams without
+>       `checkpointLocation`).  Example
+>       `examples/spark-streaming-file-parquet.ssc` watches a
+>       parquet input dir, transforms, writes parquet output with
+>       a checkpoint dir; smoke-test verified.  5 new SparkGenTest
+>       cases pin the emission/suppression semantics.
 > - [~] F.4 — Kafka source/sink: dep auto-emit landed with F.2
 >       (`.format("kafka")` detection → `//> using dep
 >       "org.apache.spark:spark-sql-kafka-0-10_2.13:<v>"`); example

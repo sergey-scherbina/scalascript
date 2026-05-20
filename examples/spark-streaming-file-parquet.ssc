@@ -1,0 +1,68 @@
+---
+name: spark-streaming-file-parquet
+backend: spark
+spark-app-name: Phase F Streaming Demo (file -> parquet)
+description: Spark Structured Streaming — read parquet files from a directory, write transformed parquet with a checkpoint
+---
+
+# Phase F — Structured Streaming (file source -> parquet sink)
+
+Watches a directory for new parquet files (anything dropped into
+`/tmp/ssc-spark-in/`), projects a couple of columns through a trivial
+transformation, and writes the result back out to another directory
+(`/tmp/ssc-spark-out/`) as parquet, with a checkpoint dir under
+`/tmp/ssc-spark-ckpt/`.
+
+Phase F.3's checkpoint-location reminder lives in the generated source
+header — Spark's file sinks refuse to `start()` without a
+`checkpointLocation`, and the auto-emitted `// NOTE` flags the
+requirement up front.
+
+Phase F.2's `awaitTermination()` shim keeps the driver alive while
+the streaming engine processes incoming files.
+
+Run with:
+
+```
+mkdir -p /tmp/ssc-spark-in /tmp/ssc-spark-out /tmp/ssc-spark-ckpt
+ssc run --backend spark examples/spark-streaming-file-parquet.ssc &
+# In another terminal, drop a parquet file into /tmp/ssc-spark-in/.
+```
+
+## Pipeline
+
+```scalascript
+// File source: Structured Streaming watches the directory for newly-
+// arriving parquet files.  An explicit schema is required for any
+// streaming reader — Spark won't infer schema from a directory that
+// might be empty at start.
+val schema = new StructType()
+  .add("id",   IntegerType)
+  .add("name", StringType)
+  .add("value", DoubleType)
+
+val stream = spark.readStream
+  .schema(schema)
+  .parquet("/tmp/ssc-spark-in")
+
+// Trivial transformation — double the value column and keep id/name.
+val transformed = stream.selectExpr(
+  "id",
+  "name",
+  "value * 2.0 AS doubled"
+)
+
+// File sink: write transformed records as parquet.  Spark requires
+// `option("checkpointLocation", …)` for file sinks; without it
+// `start()` throws.  See Phase F.3 note in the generated source
+// header for the reminder this codegen path auto-emits.
+val query = transformed.writeStream
+  .format("parquet")
+  .option("path",               "/tmp/ssc-spark-out")
+  .option("checkpointLocation", "/tmp/ssc-spark-ckpt")
+  .outputMode("append")
+  .trigger(Trigger.ProcessingTime("5 seconds"))
+  .start()
+
+println("STREAMING_STARTED file -> parquet")
+```

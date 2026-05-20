@@ -1682,3 +1682,96 @@ class SparkGenTest extends AnyFunSuite:
     // so we don't bother matching `Kafka` / `KAFKA`.
     assert(!SparkGen.containsKafkaFormat(""".format("Kafka")"""))
   }
+
+  // ── Phase F.3: file source/sink + checkpointing ──────────────────────────
+
+  test("streaming + file format triggers checkpoint hint (Phase F.3)") {
+    // File-sink streaming queries require `option("checkpointLocation",
+    // …)`; missing it makes Spark refuse to `start()` at runtime.  The
+    // codegen emits a `// NOTE Phase F.3` comment near the file header
+    // when streaming + a file format is detected and the user code
+    // hasn't already set the option.
+    val code = gen(
+      """|# Streaming file sink
+         |```scalascript
+         |val s = spark.readStream.schema(schema).parquet("/in")
+         |s.writeStream.format("parquet").option("path", "/out").start()
+         |```
+         |""".stripMargin
+    )
+    assert(code.contains("NOTE Phase F.3"),
+      s"streaming + file format must emit checkpoint hint, got:\n$code")
+    assert(code.contains("checkpointLocation"),
+      s"hint must mention checkpointLocation, got:\n$code")
+  }
+
+  test("streaming + user-supplied checkpointLocation suppresses hint (Phase F.3)") {
+    // Same shape but the user has already set the option — the hint
+    // is redundant and is suppressed.  Suppression key is the
+    // literal string `checkpointLocation` anywhere in user code.
+    val code = gen(
+      """|# Streaming file sink with ckpt
+         |```scalascript
+         |val s = spark.readStream.schema(schema).parquet("/in")
+         |s.writeStream.format("parquet")
+         |  .option("path", "/out")
+         |  .option("checkpointLocation", "/ckpt")
+         |  .start()
+         |```
+         |""".stripMargin
+    )
+    assert(!code.contains("NOTE Phase F.3"),
+      s"user-supplied checkpointLocation should suppress the hint, got:\n$code")
+    // Sanity: the awaitTermination shim still lands.
+    assert(code.contains("spark.streams.active.headOption.foreach(_.awaitTermination())"),
+      s"awaitTermination shim must still emit, got:\n$code")
+  }
+
+  test("batch (non-streaming) file format does NOT emit checkpoint hint (Phase F.3)") {
+    // The hint is gated on `containsStreaming` — pure batch
+    // `.write.format("parquet")` doesn't need a checkpoint dir and
+    // doesn't get the comment.
+    val code = gen(
+      """|# Batch parquet write
+         |```scalascript
+         |val ds = Dataset.of((1, "a"), (2, "b"))
+         |ds.write.format("parquet").save("/out")
+         |```
+         |""".stripMargin
+    )
+    assert(!code.contains("NOTE Phase F.3"),
+      s"batch module must NOT emit Phase F.3 hint, got:\n$code")
+  }
+
+  test("streaming console sink (non-file) does NOT emit checkpoint hint (Phase F.3)") {
+    // `.format("console")` is not a file sink; the hint applies only
+    // when a file format (parquet/csv/json/orc/text) is paired with
+    // streaming.  This test pins that distinction.
+    val code = gen(
+      """|# Rate -> console
+         |```scalascript
+         |spark.readStream.format("rate").load()
+         |  .writeStream.format("console").start()
+         |```
+         |""".stripMargin
+    )
+    assert(!code.contains("NOTE Phase F.3"),
+      s"console-sink streaming must NOT emit checkpoint hint, got:\n$code")
+  }
+
+  test("containsFileStreamSink / containsCheckpointLocation helpers (Phase F.3)") {
+    // Pin the detection helpers used by the F.3 logic.
+    assert(SparkGen.containsFileStreamSink(""".format("parquet")"""))
+    assert(SparkGen.containsFileStreamSink(""".format("CSV")"""))   // case-insensitive
+    assert(SparkGen.containsFileStreamSink(""".format("json")"""))
+    assert(SparkGen.containsFileStreamSink(""".format("orc")"""))
+    assert(SparkGen.containsFileStreamSink(""".format("text")"""))
+    // Non-file formats should not match — rate, console, kafka,
+    // memory are streaming sinks/sources but not file-based.
+    assert(!SparkGen.containsFileStreamSink(""".format("rate")"""))
+    assert(!SparkGen.containsFileStreamSink(""".format("console")"""))
+    assert(!SparkGen.containsFileStreamSink(""".format("kafka")"""))
+
+    assert(SparkGen.containsCheckpointLocation("""option("checkpointLocation", "/ckpt")"""))
+    assert(!SparkGen.containsCheckpointLocation("val x = 1"))
+  }

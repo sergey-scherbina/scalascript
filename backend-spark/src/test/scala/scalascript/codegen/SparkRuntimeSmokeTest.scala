@@ -179,3 +179,14 @@ class SparkRuntimeSmokeTest extends AnyFunSuite:
     // external deps beyond spark-core / spark-sql.
     compileExample("spark-streaming-rate-console.ssc")
   }
+
+  test("spark-streaming-file-parquet.ssc compiles under Phase F.3") {
+    // Streaming with a file sink — exercises the
+    // checkpointLocation guidance comment emission AND the
+    // suppression-when-already-present path (the example does
+    // set `checkpointLocation` so the hint stays out of the
+    // generated source).  The user code uses StructType / IntegerType
+    // / StringType etc., which the existing `sparkImports` already
+    // brings in via `types._`.
+    compileExample("spark-streaming-file-parquet.ssc")
+  }
