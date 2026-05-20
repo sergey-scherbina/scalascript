@@ -1774,6 +1774,13 @@ class JvmGen(
         "clusterMetricNames", "subscribeMetricEvents",
         "sendAfter", "sendInterval", "cancelTimer", "processInfo")
 
+  /** First-segment names of SSC dep modules whose types are accessed via
+   *  `_dispatch` at runtime rather than as real Scala classes.  An `import`
+   *  statement in a user code block that starts with one of these names is
+   *  dropped by `emitStat` (the `actors` module is the canonical example:
+   *  `import actors.ProcessInfo` / `import actors.Overflow`). */
+  private val sscDepModulePrefixes: Set[String] = Set("actors")
+
   /** Case-class names defined inside `effectsRuntime` whose presence in
    *  patterns or expressions should also pull in the runtime.  Without
    *  this, a module that does e.g.
@@ -2520,6 +2527,17 @@ class JvmGen(
       emitClassWithRewrittenBody(d)
 
     case t: Term => emitExpr(t)
+
+    // SSC dep-module imports (`import actors.ProcessInfo`, `import actors.Overflow`)
+    // reference SSC namespaces that don't exist as top-level Scala packages in the
+    // generated code — dep types are accessed via `_dispatch` at runtime.  Drop them
+    // (mirrors how JsGen ignores all `Import` nodes for JS output).  Real Scala/Java
+    // imports (`import scala.*`, `import java.*`, `import org.*`, etc.) fall through
+    // to the verbatim printer.
+    case imp: Import =>
+      imp.importers.headOption.map(_.ref.syntax.split('.').headOption.getOrElse(""))
+        .filter(sscDepModulePrefixes.contains).map(_ => "")
+        .getOrElse(imp.syntax)
 
     // Everything else: emit as-is via scalameta's printer.
     case other => other.syntax
@@ -4039,7 +4057,14 @@ class JvmGen(
       bindArgsCps(List(t.expr)) { case List(sv) =>
         val arms = t.casesBlock.cases.map { c =>
           val guard = c.cond.map(g => s" if ${g.syntax}").getOrElse("")
-          s"  case ${c.pat.syntax}${guard} => ${emitCpsExpr(c.body)}"
+          // Pattern-bound names come from destructuring a scrutinee that
+          // is Any-typed (it's a _bind lambda param).  Register them so
+          // field accesses like `info.links` route via _dispatch instead
+          // of failing with "value links is not a member of Any".
+          // Mirrors the identical treatment in bindArgsCps's PF branch.
+          val boundNames = c.pat.collect { case scala.meta.Pat.Var(n) => n.value }.toSet
+          val body = withAnyBoundNames(boundNames)(emitCpsExpr(c.body))
+          s"  case ${c.pat.syntax}${guard} => $body"
         }.mkString("\n")
         s"($sv match {\n$arms\n})"
         case _ => "/* match */"
@@ -5426,6 +5451,10 @@ class JvmGen(
        |      m.asInstanceOf[Map[Any, Any]].keys
        |    case (m: Map[_, _], "values",    Nil)        =>
        |      m.asInstanceOf[Map[Any, Any]].values
+       |    // Map key access for runtime record types (e.g. `info.mailboxSize` on
+       |    // a ProcessInfo map).  Must come after the explicit method cases above.
+       |    case (m: Map[_, _], key, Nil)               =>
+       |      m.asInstanceOf[Map[Any, Any]].getOrElse(key, null)
        |    // Set ops
        |    case (s: Set[_], "contains",  List(x)) => s.asInstanceOf[Set[Any]].contains(x)
        |    case (s: Set[_], "size",      Nil)     => s.size
@@ -5792,6 +5821,15 @@ class JvmGen(
        |  def clusterMetricSum(name: Any): Any             = _perform("Actor", "clusterMetricSum", name)
        |  def clusterMetricNames(): Any                    = _perform("Actor", "clusterMetricNames")
        |  def subscribeMetricEvents(): Any                 = _perform("Actor", "subscribeMetricEvents")
+       |
+       |// v1.6.x — bounded mailbox overflow strategies.  Plain string values so
+       |// `spawnBounded(cap, Overflow.DropOldest, thunk)` compiles and passes the
+       |// right string to the actor scheduler.
+       |object Overflow:
+       |  val DropOldest: Any = "DropOldest"
+       |  val DropNewest: Any = "DropNewest"
+       |  val Block: Any = "Block"
+       |  val Fail: Any = "Fail"
        |
        |class _ActorState:
        |  val mailbox = new java.util.concurrent.LinkedBlockingQueue[Any]()
@@ -6872,7 +6910,10 @@ class JvmGen(
        |      actors.get(senderId) match
        |        case Some(ss) if ss != null =>
        |          state.mailbox.offer(msg)
-       |          ss.pending = senderK(())
+       |          // Defer senderK(()) via _FlatMap so the continuation's side
+       |          // effects run in the sender's own stepActor turn, not in the
+       |          // current actor's turn (ordering fix: Block overflow).
+       |          ss.pending = _FlatMap((), senderK)
        |          ready.append(senderId)
        |          return
        |        case _ => ()  // dead sender — skip
@@ -6914,7 +6955,7 @@ class JvmGen(
        |    if _dyingSt.blockedSends.nonEmpty then
        |      _dyingSt.blockedSends.foreach { (senderId, _, senderK) =>
        |        actors.get(senderId).foreach { ss =>
-       |          ss.pending = senderK(())
+       |          ss.pending = _FlatMap((), senderK)
        |          ready.append(senderId)
        |        }
        |      }
@@ -6959,6 +7000,7 @@ class JvmGen(
        |        case n: Long => n.toInt
        |        case _       => 0
        |      val ov = args(1) match
+       |        case s: String => s
        |        case m: scala.collection.immutable.Map[?, ?] =>
        |          m.asInstanceOf[Map[String, Any]].getOrElse("_type", "DropNewest").toString
        |        case _ => "DropNewest"
