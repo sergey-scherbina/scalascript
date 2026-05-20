@@ -133,6 +133,97 @@ The shared `main` checkout is only ever for two things:
    followed immediately by `git push origin main` (Rule 3).  No
    stops, no edits in between.
 
+#### The absolute-path trap (and how not to lose work to it)
+
+The single most common way agents accidentally edit shared `main` is
+the **absolute-path trap**: you're running in a worktree at
+`/Users/sergiy/work/my/scalascript/.claude/worktrees/agent-XXX/`, but
+you call `Write(file_path="/Users/sergiy/work/my/scalascript/docs/foo.md", ...)`
+out of habit — the project lives at that root, and the path looks
+right.  The Write tool happily writes to shared `main` instead of
+your worktree.  You don't notice because `sbt` still passes (it runs
+out of shared `main`, which now silently has your edits), but
+`git status` inside your worktree is clean — your "commit" never
+makes it into your feature branch.
+
+Every subagent we've launched has hit this at least once.  Prevention,
+self-cleanup, and what NOT to do follow.
+
+**Prevention — make the trap impossible:**
+
+- Run `pwd` as the first command in your worktree session, and
+  prefer **relative paths** for every Write / Edit / Read of project
+  files.  `Write(file_path="docs/foo.md")` resolves against the
+  worktree CWD; `Write(file_path="/Users/sergiy/.../docs/foo.md")`
+  doesn't.  Relative wins by construction.
+- If you must use an absolute path (some tools / scripts require it),
+  build it from `$(pwd)` first — never hand-type the full project
+  root in a `Write` / `Edit` call.  Hardcoded
+  `/Users/sergiy/work/my/scalascript/...` strings in tool arguments
+  are the smell.
+- After each edit, glance at `git status` *inside your worktree*.
+  Clean status after you just edited something means you wrote to
+  the wrong place.
+
+**Self-cleanup if it already happened (don't panic — files are not
+lost yet):**
+
+1. From shared `main`, list exactly what leaked: `git status -s`.
+   Anything you recognise as **your** work (created or modified for
+   the task you're on) is what you'll move; everything else belongs
+   to a sibling agent and is **off-limits**.
+2. For each of your files, `mv` (plain shell `mv`, not `git mv`) the
+   file from the shared-main path to the matching worktree path.
+   `git mv` would touch shared main's index — you want only working
+   tree to move.
+3. In shared `main`, unstage and restore only your files:
+   `git restore --staged <file>` then `git restore <file>` (for a
+   modification) or `rm <file>` (for a brand-new file you've already
+   moved).  Touch only paths you own.
+4. In your worktree, `git status` should now show your changes; stage
+   and commit per Rule 3.
+5. In shared `main`, `git status` should now show only the sibling
+   agents' in-flight state — exactly as it was before you arrived.
+
+**What NOT to do — these destroy other agents' work:**
+
+- `git reset --hard` on shared `main` — wipes every sibling agent's
+  staged refactor in one shot.  Never.
+- `git stash` on shared `main` — stashes everyone's work together
+  into a single opaque blob that is painful to untangle by author.
+- `git checkout -- .` / `git restore .` / `git clean -fd` without
+  a path argument — same problem, blanket destruction.
+- Deleting whole directories you don't recognise (`rm -rf <dir>`) —
+  sibling agents create new directories (cross-build subdirs,
+  generated test fixtures, etc.) as part of legitimate work.
+
+The rule of thumb: in shared `main`, you may only touch paths that
+appear in your own worktree's diff against `origin/main`.  If
+shared `main` shows extra files you didn't put there, those belong
+to a sibling — leave them alone.
+
+**If you can't safely clean up — report up, don't fix down:**
+
+If the leak is intertwined with a sibling agent's work in a way you
+can't separate confidently in <5 minutes, stop trying.  Two safe
+exits:
+
+1. **Push from your worktree directly:**
+   `git push origin <your-feature-branch>:main` from inside the
+   worktree skips the shared `main` checkout entirely.  Works as long
+   as your branch is a fast-forward over `origin/main` (rebase first
+   if not).  This lets your change land while shared `main` still has
+   the sibling's uncommitted state, untouched.
+2. **Report the leak in your task result.**  Tell the parent agent
+   exactly which files in shared `main` look unfamiliar so it knows
+   not to attribute them to you and can decide when (and by whom)
+   they should be cleaned up.  The sibling agent will usually
+   self-recover once it finishes its own work.
+
+The point of all this: every sibling agent has work in flight that
+you can't see.  Treat shared `main` as a hot kitchen — touch only
+your own pots, leave the rest to their cooks.
+
 ### 2. Before starting — sync + check (≤ 5 seconds)
 
 ```bash
