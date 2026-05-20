@@ -163,7 +163,32 @@ declared fully unblocked:
   exists on JS Node; term-level bare-name lowering still missing on
   both JS and JVM, and JVM lacks even the facade.  Same shape gap
   exists for `setQuorumSize` on JS.
+- **JS-codegen `_runActors` scheduler blocks the Node event loop.**
+  Uncovered while writing the Tier 4 multi-backend matrix test
+  (`cli/src/test/scala/scalascript/cli/ClusterMultiBackendMatrixTest.scala`,
+  currently `ignore(...)`).  The JS scheduler is a synchronous
+  `while (true)` loop that calls `_asyncSleep(ms)` → `Atomics.wait`
+  on the main thread to wait for the next deadline.  In Node ≥ 16
+  `Atomics.wait` on the main thread is allowed, but it blocks the
+  event loop entirely — incoming HTTP requests queued by libuv accept
+  never get dispatched while any actor is blocked on a long-armed
+  `receive`.  Every real cluster node has such an actor (at minimum
+  to keep the node alive past the election window), so JS-codegen
+  cluster nodes' `/_ssc-cluster/*` HTTP endpoints are permanently
+  unreachable in the runActors-driven shape the matrix test needs.
+  Bare `runActors { startNode(...) }` followed by `serveAsync(port)`
+  OUTSIDE `runActors` works (see [`NodeBackendTest`](../backend-node/src/test/scala/scalascript/codegen/NodeBackendTest.scala)
+  "integration: emitted bundle binds /_ssc-cluster/status"), but
+  that pattern can't drive cluster convergence — the scheduler exits
+  as soon as the body returns and no peer connection survives.
+  Fix belongs in a separate PR: replace the synchronous scheduler
+  loop with a `setImmediate`-driven tick (or wrap `_asyncSleep` in a
+  Promise that resolves via `setTimeout`) so Node's event loop gets
+  to drain its I/O queue between scheduler ticks.  Tier 4 multi-
+  backend deliverable remains blocked until that lands.
 
 The harness work (real-WS multi-process integration test, see
-`cluster-raft.md` §9) is now the active workstream — all its
-prerequisites on the codegen side are in place.
+`cluster-raft.md` §9) is now the active workstream.  The codegen-
+side intrinsics are in place; the JS-codegen scheduler block above
+is the remaining hard prerequisite before the Tier 4 matrix test
+can be enabled.

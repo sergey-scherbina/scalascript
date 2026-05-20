@@ -1,0 +1,447 @@
+package scalascript.cli
+
+import org.scalatest.funsuite.AnyFunSuite
+
+import java.net.URI
+import java.net.http.{HttpClient, HttpRequest, HttpResponse}
+import java.time.Duration
+
+/** Tier 4 multi-backend cluster matrix test: a cluster of ONE
+ *  JVM-codegen-compiled node and ONE JS-Node-codegen-compiled node, both
+ *  emitted from the same `.ssc` source, joined over real WS, converging on
+ *  a single Bully leader.  Convergence is asserted by polling
+ *  `GET /_ssc-cluster/status` on both ports until the `leader` field on
+ *  both nodes is non-empty and equal.
+ *
+ *  This is the headline Tier 4 deliverable from
+ *  [`docs/cluster-codegen-gap.md`](../../../../../../../docs/cluster-codegen-gap.md):
+ *  if this passes, multi-backend deployment is real — the peer envelopes
+ *  that JVM-codegen and JS-codegen nodes emit on the `_ssc-actors` WS link
+ *  are byte-compatible.
+ *
+ *  Sister tests in this directory:
+ *
+ *   - [[ClusterBullyStatusConvergenceTest]] — 2 nodes, both running through
+ *     `java -jar ssc.jar` (i.e. the interpreter).  Same shape; same status
+ *     polling; just no codegen.  This test is its codegen-only counterpart.
+ *   - [[MultiNodeClusterTest]] — multi-node print-based convergence
+ *     (`println("LEADER:")` line-matched), all through the interpreter.
+ *
+ *  Build chain for each side:
+ *
+ *   - **JVM-codegen side:** `ssc compile-jvm --bytecode node.ssc` produces
+ *     a `.scjvm` with a base64 classBundle; `ssc link --backend jvm
+ *     --bytecode artifacts -o out.jar` packs the bundle + shared runtime
+ *     classBundle into one runnable JAR; `java -cp out.jar:scala-stdlib
+ *     <moduleId>_sc` runs it.  This is the exact code path
+ *     [[JvmBytecodeLinkCliTest]] exercises for run-tests.
+ *   - **JS-codegen side:** `ssc compile-js node.ssc` produces a `.scjs`
+ *     (text JS, no bytecode); `ssc link --backend js artifacts -o out.js`
+ *     concatenates the runtime preamble + module source; `node out.js`
+ *     runs it.  This is the exact code path
+ *     [[JsRuntimeSeparationTest]] exercises for run-tests.
+ *
+ *  ## Disabled — JS-codegen scheduler blocks the Node event loop
+ *
+ *  This test is currently `ignore(...)` because of a JS-codegen runtime
+ *  bug uncovered while writing it.  The JS `_runActors(bodyFn)` scheduler
+ *  runs in a synchronous `while (true)` loop and uses `Atomics.wait` /
+ *  `_asyncSleep` to wait on the next deadline (see the inlined
+ *  `_asyncSleep` and the scheduler loop in the v2.0 JS runtime preamble).
+ *  In Node ≥ 16 `Atomics.wait` on the main thread is permitted, but it
+ *  blocks the event loop entirely — incoming HTTP requests queued by
+ *  libuv accept never get dispatched, because the main thread is always
+ *  either executing JS or sitting in `Atomics.wait`.  The result: a
+ *  JS-codegen node whose `runActors { ... }` body keeps any actor blocked
+ *  on a long-armed `receive` (which every real cluster node does — at
+ *  minimum a long-armed `stop` deadline to stay alive past the election
+ *  window) has its `/_ssc-cluster/{star}` HTTP endpoints permanently
+ *  unreachable.  A trivial `runActors { startNode(...) }` followed by
+ *  `serveAsync(port)` outside `runActors` does work (covered by
+ *  [[NodeBackendTest]] "integration: emitted bundle binds
+ *  /_ssc-cluster/status"), but that pattern can't drive a cluster: the
+ *  scheduler exits as soon as the body returns, so no peers are kept
+ *  alive long enough to converge.
+ *
+ *  Both nodes were exercised manually in isolation:
+ *
+ *   - **JVM-codegen node alone:** `compile-jvm --bytecode` + `link
+ *     --backend jvm --bytecode` + `java -cp out.jar:scala3-library:scala-library
+ *     <moduleId>_sc` ⇒ HTTP `/_ssc-cluster/status` returns the expected
+ *     JSON snapshot.  Confirms the JVM-codegen half of this test works
+ *     end-to-end.
+ *   - **JS-codegen node alone (with `runActors { startNode }` + outside
+ *     `serveAsync`):** ⇒ HTTP `/_ssc-cluster/status` returns the expected
+ *     JSON snapshot.  Confirms `_installClusterRoutes()` does fire on the
+ *     JS side and the JSON shape matches.
+ *   - **JS-codegen node alone (with `runActors { startNode + serveAsync +
+ *     spawn { receive {} } }`):** ⇒ HTTP `/_ssc-cluster/status` HANGS
+ *     forever (`curl` times out with "connection completely sent off …
+ *     0 bytes received").  Confirms the event-loop block above.
+ *
+ *  This is a JS-codegen runtime issue, not a peer-envelope mismatch.  The
+ *  fix belongs in a separate PR — replace the synchronous scheduler
+ *  while-loop with a `setImmediate`-driven tick, or wrap `_runActors` in
+ *  a `setInterval` chunk so the Node event loop gets to drain its
+ *  I/O queue between scheduler ticks.  Either changes JS semantics; both
+ *  need their own design + test scaffolding.
+ *
+ *  Once the JS scheduler is unblocked, re-enable this test by switching
+ *  `ignore(...)` back to `test(...)` — the test body below already builds
+ *  the right harness; nothing else needs to change in here. */
+class ClusterMultiBackendMatrixTest extends AnyFunSuite:
+
+  // ── ssc.jar discovery (mirrors other cluster tests) ──────────────────
+
+  private val sscJar: Option[os.Path] =
+    val cwd = os.pwd
+    def jarUnder(root: os.Path): os.Path =
+      root / "cli" / "target" / "scala-3.8.3" / "ssc.jar"
+    def findCanonicalRepo(p: os.Path): Option[os.Path] =
+      val parts = p.segments.toList
+      val idx   = parts.lastIndexOf(".claude")
+      if idx >= 0 && idx + 1 < parts.length && parts(idx + 1) == "worktrees" then
+        Some(os.Path("/" + parts.take(idx).mkString("/")))
+      else None
+    val candidates =
+      List(jarUnder(cwd), jarUnder(cwd / os.up)) ++
+      findCanonicalRepo(cwd).map(jarUnder).toList
+    candidates.find(os.exists)
+
+  private def requireJar(): os.Path = sscJar.getOrElse:
+    cancel("ssc.jar not found — run `sbt cli/assembly` first")
+
+  private def requireScalaCli(): Unit =
+    val res = scala.util.Try {
+      os.proc("scala-cli", "--version").call(
+        check = false, stderr = os.Pipe, stdout = os.Pipe)
+    }
+    if res.isFailure || !res.toOption.exists(_.exitCode == 0) then
+      cancel("`scala-cli` not on PATH — needed for compile-jvm --bytecode")
+
+  private def requireNode(): Unit =
+    val res = scala.util.Try {
+      os.proc("node", "--version").call(
+        check = false, stderr = os.Pipe, stdout = os.Pipe)
+    }
+    if res.isFailure || !res.toOption.exists(_.exitCode == 0) then
+      cancel("`node` not on PATH — needed for the JS-codegen side")
+
+  /** Look up the Scala 3 + Scala 2.13 stdlib JARs in Coursier's cache
+   *  (mirrors `JvmBytecodeLinkCliTest`).  Returns `cp1:cp2` when both
+   *  are found; `None` triggers a `cancel(...)` higher up. */
+  private def scalaStdlibClasspath(): Option[String] =
+    val home = sys.env.getOrElse("HOME", "")
+    if home.isEmpty then None
+    else
+      val coursierRoot = os.Path(home) / "Library" / "Caches" / "Coursier" /
+        "v1" / "https" / "repo1.maven.org" / "maven2" / "org" / "scala-lang"
+      val s3Root = coursierRoot / "scala3-library_3"
+      val s2Root = coursierRoot / "scala-library"
+      if !os.exists(s3Root) || !os.exists(s2Root) then None
+      else
+        // Pick the most-recent version directory with a non-placeholder
+        // JAR (>10 KB).  Coursier sometimes leaves a 318-byte stub when
+        // a newer version's resolution hasn't completed — those would
+        // crash `java -cp` with `NoClassDefFoundError`.
+        def newestRealJar(root: os.Path, pattern: String): Option[os.Path] =
+          if !os.isDir(root) then None
+          else
+            val dirs = os.list(root).filter(p =>
+              os.isDir(p) && p.last.matches("\\d+\\.\\d+\\.\\d+"))
+            dirs.flatMap { d =>
+              os.list(d).filter { p =>
+                p.last.matches(pattern) &&
+                !p.last.contains("sources") &&
+                os.size(p) > 10_000
+              }
+            }.sortBy(_.toString).reverse.headOption
+        val s3 = newestRealJar(s3Root, "scala3-library_3-\\d.*\\.jar")
+        val s2 = newestRealJar(s2Root, "scala-library-\\d.*\\.jar")
+        (s3, s2) match
+          case (Some(j3), Some(j2)) => Some(s"$j3:$j2")
+          case _                    => None
+
+  private def requireScalaStdlib(): String = scalaStdlibClasspath().getOrElse:
+    cancel("Scala 3 stdlib JARs not found in Coursier cache — needed to " +
+           "run the JVM-codegen JAR")
+
+  private def freePort(): Int =
+    val s = new java.net.ServerSocket(0)
+    try s.getLocalPort finally s.close()
+
+  /** Long-running cluster-node source — identical across JVM and JS
+   *  codegen.  Calls `serveAsync(port)` so the WS + HTTP server can run
+   *  alongside the actor scheduler, joins the given peer seed, waits a
+   *  beat for handshake completion, fires `electLeader()` and then sits
+   *  in a long-armed `receive` keeping the scheduler alive.
+   *
+   *  The same `.ssc` body is emitted to each backend so any
+   *  byte-compatibility issue between JVM and JS peer envelopes — JSON
+   *  shape, framing, handshake order — surfaces as a convergence failure
+   *  rather than as a source-level difference. */
+  private def nodeSrc(nodeId: String, port: Int, peerUrl: String): String =
+    s"""---
+       |name: $nodeId
+       |---
+       |
+       |# Bully convergence node $nodeId
+       |
+       |```scalascript
+       |runActors {
+       |  startNode("$nodeId", "ws://127.0.0.1:$port/_ssc-actors")
+       |  serveAsync($port)
+       |  spawn { () =>
+       |    val s = self()
+       |    setReconnectPolicy(300L, 1500L)
+       |    sendAfter(500L, s, "join")
+       |    receive { case "join" =>
+       |      joinCluster(List("$peerUrl"))
+       |      sendAfter(1500L, s, "elect")
+       |      receive { case "elect" =>
+       |        electLeader()
+       |        sendAfter(30000L, s, "stop")
+       |        receive { case "stop" => stop() }
+       |      }
+       |    }
+       |  }
+       |}
+       |```
+       |""".stripMargin
+
+  /** Compile + link the JVM-codegen side: `compile-jvm --bytecode` then
+   *  `link --backend jvm --bytecode` against the same artifact dir, then
+   *  return the path to a runnable JAR. */
+  private def compileJvmSide(
+      sandbox: os.Path, jar: os.Path, src: String, nodeId: String): os.Path =
+    val sscFile = sandbox / s"$nodeId.ssc"
+    os.write(sscFile, src)
+    val artifactDir = sandbox / "artifacts-jvm"
+    os.makeDir.all(artifactDir)
+    val cmpRes = os.proc(
+      "java", "-jar", jar.toString,
+      "compile-jvm", "--bytecode", sscFile.toString,
+      "-o", (artifactDir / s"$nodeId.scjvm").toString
+    ).call(cwd = sandbox, check = false, stderr = os.Pipe, stdout = os.Pipe)
+    if cmpRes.exitCode != 0 then
+      cancel(s"compile-jvm --bytecode failed for $nodeId:\n" +
+             s"stdout=${cmpRes.out.text()}\nstderr=${cmpRes.err.text()}")
+    val outJar = sandbox / s"$nodeId.jar"
+    val linkRes = os.proc(
+      "java", "-jar", jar.toString,
+      "link", "--backend", "jvm", "--bytecode",
+      artifactDir.toString, "-o", outJar.toString
+    ).call(cwd = sandbox, check = false, stderr = os.Pipe, stdout = os.Pipe)
+    if linkRes.exitCode != 0 then
+      cancel(s"link --backend jvm --bytecode failed for $nodeId:\n" +
+             s"stdout=${linkRes.out.text()}\nstderr=${linkRes.err.text()}")
+    outJar
+
+  /** Compile + link the JS-codegen side: `compile-js` then
+   *  `link --backend js` against the same artifact dir, then return the
+   *  path to a runnable `out.js` bundle. */
+  private def compileJsSide(
+      sandbox: os.Path, jar: os.Path, src: String, nodeId: String): os.Path =
+    val sscFile = sandbox / s"$nodeId.ssc"
+    os.write(sscFile, src)
+    val artifactDir = sandbox / "artifacts-js"
+    os.makeDir.all(artifactDir)
+    val cmpRes = os.proc(
+      "java", "-jar", jar.toString,
+      "compile-js", sscFile.toString,
+      "-o", (artifactDir / s"$nodeId.scjs").toString
+    ).call(cwd = sandbox, check = false, stderr = os.Pipe, stdout = os.Pipe)
+    if cmpRes.exitCode != 0 then
+      cancel(s"compile-js failed for $nodeId:\n" +
+             s"stdout=${cmpRes.out.text()}\nstderr=${cmpRes.err.text()}")
+    val outJs = sandbox / s"$nodeId.js"
+    val linkRes = os.proc(
+      "java", "-jar", jar.toString,
+      "link", "--backend", "js",
+      artifactDir.toString, "-o", outJs.toString
+    ).call(cwd = sandbox, check = false, stderr = os.Pipe, stdout = os.Pipe)
+    if linkRes.exitCode != 0 then
+      cancel(s"link --backend js failed for $nodeId:\n" +
+             s"stdout=${linkRes.out.text()}\nstderr=${linkRes.err.text()}")
+    outJs
+
+  /** Spawn the JVM-codegen JAR as `java -cp out.jar:scala-stdlib <main>`. */
+  private def spawnJvmNode(
+      jar:      os.Path,
+      stdlibCp: String,
+      nodeId:   String,
+      logFile:  java.io.File): Process =
+    val mainCls = s"${nodeId.replace('-', '_')}_sc"
+    val pb = new ProcessBuilder(
+        "java", "-cp", s"$jar:$stdlibCp", mainCls)
+      .redirectErrorStream(true)
+      .redirectOutput(logFile)
+    pb.start()
+
+  /** Spawn the JS-codegen bundle as `node out.js`. */
+  private def spawnJsNode(jsFile: os.Path, logFile: java.io.File): Process =
+    val pb = new ProcessBuilder("node", jsFile.toString)
+      .redirectErrorStream(true)
+      .redirectOutput(logFile)
+    pb.start()
+
+  // ── HTTP polling helpers (same shape as `ClusterBullyStatusConvergenceTest`)
+
+  private def jsonStringField(body: String, key: String): String =
+    val needle = "\"" + key + "\":\""
+    val i = body.indexOf(needle)
+    if i < 0 then ""
+    else
+      val start = i + needle.length
+      val end   = body.indexOf("\"", start)
+      if end < 0 then "" else body.substring(start, end)
+
+  private def jsonStringArray(body: String, key: String): List[String] =
+    val needle = "\"" + key + "\":["
+    val i = body.indexOf(needle)
+    if i < 0 then Nil
+    else
+      val start = i + needle.length
+      val end   = body.indexOf("]", start)
+      if end < 0 then Nil
+      else
+        val inner = body.substring(start, end).trim
+        if inner.isEmpty then Nil
+        else inner.split(",").toList
+          .map(_.trim.stripPrefix("\"").stripSuffix("\""))
+
+  private val http = HttpClient.newBuilder()
+    .connectTimeout(Duration.ofSeconds(2))
+    .build()
+
+  private def fetchStatus(port: Int): Option[String] =
+    val req = HttpRequest.newBuilder()
+      .uri(URI.create(s"http://127.0.0.1:$port/_ssc-cluster/status"))
+      .timeout(Duration.ofSeconds(2))
+      .GET()
+      .build()
+    try
+      val resp = http.send(req, HttpResponse.BodyHandlers.ofString())
+      if resp.statusCode() == 200 then Some(resp.body()) else None
+    catch case _: Throwable => None
+
+  // ── The test ─────────────────────────────────────────────────────────
+  //
+  // `ignore(...)` instead of `test(...)` — see top-of-file doc comment.
+  // The body is fully written so a future PR that unblocks the JS
+  // scheduler (replaces the synchronous Atomics.wait loop with a
+  // `setImmediate`-driven tick or equivalent) can flip the keyword and
+  // ship.  Keep the body in sync with `ClusterBullyStatusConvergenceTest`
+  // — same assertion shape, same polling budget; only the two spawners
+  // differ.
+  ignore("JVM-codegen + JS-codegen nodes converge on a Bully leader (DISABLED — JS scheduler blocks Node event loop)"):
+    val jar       = requireJar()
+    requireScalaCli()
+    requireNode()
+    val stdlibCp  = requireScalaStdlib()
+    val sandbox   = os.temp.dir(prefix = "ssc-mb-matrix-")
+    var procJvm: Option[Process]      = None
+    var procJs:  Option[Process]      = None
+    try
+      val portJvm = freePort()
+      val portJs  = freePort()
+      val urlJvm  = s"ws://127.0.0.1:$portJvm/_ssc-actors"
+      val urlJs   = s"ws://127.0.0.1:$portJs/_ssc-actors"
+
+      // node-aaa (JVM-codegen) and node-bbb (JS-codegen).  Bully picks
+      // the lex-greatest nodeId → both nodes should agree on "node-bbb"
+      // as the leader.
+      val jvmSrc = nodeSrc("node-aaa", portJvm, peerUrl = urlJs)
+      val jsSrc  = nodeSrc("node-bbb", portJs,  peerUrl = urlJvm)
+
+      val jvmJarPath = compileJvmSide(sandbox, jar, jvmSrc, "node-aaa")
+      val jsJsPath   = compileJsSide (sandbox, jar, jsSrc,  "node-bbb")
+
+      val jvmLog = (sandbox / "node-aaa.out").toIO
+      val jsLog  = (sandbox / "node-bbb.out").toIO
+
+      // Spawn JVM first; stagger so its port is bound before JS dials.
+      procJvm = Some(spawnJvmNode(jvmJarPath, stdlibCp, "node-aaa", jvmLog))
+      Thread.sleep(500)
+      procJs  = Some(spawnJsNode(jsJsPath, jsLog))
+
+      // Wait for both HTTP ports to bind.  10 s cap.
+      def httpReady(port: Int): Boolean =
+        try { val s = new java.net.Socket("127.0.0.1", port); s.close(); true }
+        catch case _: Throwable => false
+      val bindDeadline = System.currentTimeMillis() + 10_000L
+      while (!httpReady(portJvm) || !httpReady(portJs)) &&
+            System.currentTimeMillis() < bindDeadline do
+        Thread.sleep(200)
+      assert(httpReady(portJvm),
+        s"JVM-codegen node never bound HTTP port $portJvm — log:\n" +
+        s"${scala.io.Source.fromFile(jvmLog).mkString}")
+      assert(httpReady(portJs),
+        s"JS-codegen node never bound HTTP port $portJs — log:\n" +
+        s"${scala.io.Source.fromFile(jsLog).mkString}")
+
+      // Poll /_ssc-cluster/status on each node until both agree on a
+      // non-empty leader.  Budget mirrors ClusterBullyStatusConvergenceTest
+      // — first electLeader() fires ~2 s into node lifetime; Bully
+      // envelopes converge within tens of ms once both peers are
+      // connected.  12 s gives slack for slow CI.
+      val convergeDeadline = System.currentTimeMillis() + 12_000L
+      var lastJvm: String = ""
+      var lastJs:  String = ""
+      var leaderJvm:   String = ""
+      var leaderJs:    String = ""
+      var membersJvm:  List[String] = Nil
+      var membersJs:   List[String] = Nil
+      var protocolJvm: String = ""
+      var protocolJs:  String = ""
+      var converged = false
+
+      while !converged && System.currentTimeMillis() < convergeDeadline do
+        Thread.sleep(200)
+        val rJvm = fetchStatus(portJvm)
+        val rJs  = fetchStatus(portJs)
+        rJvm.foreach(lastJvm = _)
+        rJs.foreach(lastJs = _)
+        if rJvm.isDefined && rJs.isDefined then
+          leaderJvm   = jsonStringField(lastJvm, "leader")
+          leaderJs    = jsonStringField(lastJs,  "leader")
+          membersJvm  = jsonStringArray(lastJvm, "members")
+          membersJs   = jsonStringArray(lastJs,  "members")
+          protocolJvm = jsonStringField(lastJvm, "protocol")
+          protocolJs  = jsonStringField(lastJs,  "protocol")
+          if leaderJvm.nonEmpty && leaderJvm == leaderJs then converged = true
+
+      info(s"JVM-codegen (node-aaa) status: $lastJvm")
+      info(s"JS-codegen  (node-bbb) status: $lastJs")
+      if !converged then
+        info(s"JVM-codegen (node-aaa) stdout:\n" +
+             scala.io.Source.fromFile(jvmLog).mkString)
+        info(s"JS-codegen  (node-bbb) stdout:\n" +
+             scala.io.Source.fromFile(jsLog).mkString)
+
+      assert(converged,
+        s"nodes never converged on a single non-empty leader within 12 s; " +
+        s"jvm=$leaderJvm, js=$leaderJs")
+
+      // Bully tie-breaker: lex-greatest wins ⇒ "node-bbb" (JS side).
+      assert(leaderJvm == "node-bbb",
+        s"expected node-bbb to win Bully (lex-greatest), got '$leaderJvm'")
+      assert(protocolJvm == "bully",
+        s"protocol on JVM-codegen side: '$protocolJvm'")
+      assert(protocolJs == "bully",
+        s"protocol on JS-codegen side: '$protocolJs'")
+
+      // Membership: each node's `members` list contains the cross-backend
+      // peer's id (not its own).
+      assert(membersJvm.contains("node-bbb"),
+        s"node-aaa (JVM) members should include node-bbb (JS), " +
+        s"got: $membersJvm")
+      assert(membersJs.contains("node-aaa"),
+        s"node-bbb (JS) members should include node-aaa (JVM), " +
+        s"got: $membersJs")
+    finally
+      procJvm.foreach(_.destroyForcibly())
+      procJs .foreach(_.destroyForcibly())
+      procJvm.foreach(_.waitFor(5, java.util.concurrent.TimeUnit.SECONDS))
+      procJs .foreach(_.waitFor(5, java.util.concurrent.TimeUnit.SECONDS))
+      os.remove.all(sandbox)
