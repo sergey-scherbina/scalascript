@@ -8244,13 +8244,19 @@ regression test green.
       versioned transactions (v0 + legacy), PDA derivation, SPL token support
 - [x] 43 tests — address derivation, tx building, SPL TransferChecked, PDA, balances
 
-### Phase 4 — Scala.js CryptoBackend
+### Phase 4 — Scala.js CryptoBackend ✓ Landed (2026-05-20)
 
-- [ ] `crypto-noble-js` — facade over `@noble/curves` +
-      `@noble/hashes` + `@noble/ciphers`
-- [ ] Cross-backend conformance: bit-identical outputs on JVM vs JS
-      for deterministic algorithms
-- [ ] Resolves Scala.js registry-pattern open question (both SPIs)
+- [x] `crypto-noble-js` — facade over `@noble/curves` +
+      `@noble/hashes` (`@noble/ciphers` deferred to Stage 5 along with
+      the encrypted-vault SubtleCrypto adapter)
+- [x] Cross-backend conformance: bit-identical outputs on JVM vs JS
+      for deterministic algorithms — see `CrossPlatformFixturesTest`
+      in `crypto-bouncycastle/src/test/` vs `NobleCryptoBackendTest`
+      in `crypto-noble-js/src/test/`
+- [x] Resolves Scala.js registry-pattern open question (both SPIs).
+      Full per-stage breakdown lives in
+      `## Wallet SPI — Scala.js cross-compile / Stage 2` further down
+      this file.
 
 ### Phase 5 — blockchain-bitcoin
 
@@ -8318,19 +8324,53 @@ connectivity") which lands the JVM side first.
       `walletConnect`, `walletConnectorEip1193`, etc. all stay
       compiling and passing tests).
 
-### Stage 2 — Scala.js CryptoBackend + Blockchain registry impl
+### Stage 2 — Scala.js CryptoBackend (crypto-noble-js) ✓ Landed (2026-05-20)
 
 Resolves the `Scala.js registry pattern` open question
-([`docs/wallet-spi.md`](docs/wallet-spi.md) §11.1).
+([`docs/wallet-spi.md`](docs/wallet-spi.md) §11.1) — first impl module
+that registers itself through the Stage 1 cross-platform
+`object CryptoBackend.register(...)`.
 
-- [ ] `crypto-noble-js` — Scala.js `CryptoBackend` impl backed by
-      `@noble/curves` + `@noble/hashes` (secp256k1, ed25519, p256
-      sign / verify / hash / HD).
-- [ ] Register via `CryptoBackend.register(NobleJsBackend)` at
-      module init.
-- [ ] First Scala.js conformance test — produce identical
-      RFC-6979 deterministic signatures on JVM (BouncyCastle) and
-      JS (Noble) for a shared fixture.
+- [x] `crypto-noble-js` — Scala.js-only sbt project
+      (`enablePlugins(ScalaJSPlugin)`, `.dependsOn(cryptoSpiJs)`).
+      `ModuleKind.CommonJSModule` so noble v1.x's CJS exports
+      resolve at link time.
+- [x] `NobleFacades.scala` — `@JSImport` bindings for
+      `@noble/curves/{secp256k1, ed25519, p256}` (sign / verify /
+      getPublicKey / Signature.fromCompact + recoverPublicKey) and
+      `@noble/hashes/{sha256, sha512, sha3.keccak_256, ripemd160,
+      hmac, hkdf}`.
+- [x] `NobleCryptoBackend` — implements `CryptoBackend` for
+      secp256k1 / ed25519 / p256 (sign / verify / derivePublic /
+      hash / hmac / hkdf / recoverPublic for secp256k1). Output
+      bytes match JVM BouncyCastle bit-for-bit.
+- [x] Registration — `Register.install()` for Scala-side init,
+      plus `@JSExportTopLevel("registerNobleCryptoBackend")` for
+      JS-host init.
+- [x] `NobleCryptoBackendTest` (Node.js) — 16 specs:
+      empty-string sha256/keccak256/sha512, HMAC-SHA256 RFC 4231 #1,
+      HKDF-SHA256 RFC 5869 #1, ed25519 RFC 8032 vector 1 (derive +
+      sign empty msg), secp256k1 derive + sign-verify + recover +
+      EVM-address round-trip (privkey 0x4646… → 0x9d8a62f656…) +
+      tamper rejection, p256 derive + sign-verify, registry
+      round-trip via `Register.install`.
+- [x] `CrossPlatformFixturesTest` (`crypto-bouncycastle/src/test/`)
+      — 7 specs that assert the **same hex strings** the JS test
+      asserts; running both sides green proves byte-identical
+      cross-platform output.
+- [x] npm-deps strategy: no sbt-scalajs-bundler. A
+      `crypto-noble-js/package.json` pins `@noble/curves ^1.9.0` +
+      `@noble/hashes ^1.8.0`; `npm install --prefix crypto-noble-js`
+      is the only setup step before `sbt cryptoNobleJs/test`.
+- [x] Build sanity sweep — `cryptoSpi(Js)/test cryptoNobleJs/test
+      cryptoBouncycastle/test walletSpi(Js)/test` all green; full
+      `sbt compile` clean.
+
+**Not yet implemented on JS** (raise `UnsupportedOperationException`):
+HD derivation (`deriveMaster` / `deriveChild`), PBKDF2, Argon2id,
+AES-GCM. PBKDF2 / Argon2id / AES-GCM land in Stage 5 (encrypted vault
++ SubtleCrypto adapter). HD derivation lands when the first JS-side
+strategy module needs it (Stage 3 or 4).
 
 ### Stage 3 — Strategy + connector cross-compile
 

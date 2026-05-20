@@ -281,14 +281,54 @@ install.
 7. Add `CrossCompileSmokeTest` in `wallet-spi/shared/src/test/scala/`.
 8. Verify `sbt walletSpi/test walletSpiJs/test compile`.
 
-### Stage 2 — Scala.js CryptoBackend + Blockchain registry
+### Stage 2 — Scala.js CryptoBackend (crypto-noble-js)
 
-- `object CryptoBackend` on JS gets `register(...)` + `all` + `get(id)`
-  (no ServiceLoader; explicit init).
-- Same for `object Blockchain`.
-- `crypto-noble-js` Scala.js module added, registers itself on init.
-- Resolves the long-standing "Scala.js registry pattern" open
-  question (docs/wallet-spi.md §11.1).
+Status: **landed 2026-05-20**. The Stage 1 `object CryptoBackend`
+already exposes the cross-platform `register(...)` / `all` / `get(id)`
+surface (see [CryptoBackend.scala](../crypto-spi/shared/src/main/scala/scalascript/crypto/CryptoBackend.scala)
+§ companion). Stage 2 lands the first JS impl that registers through
+it:
+
+- `crypto-noble-js` (`crypto-noble-js/`) — Scala.js-only sbt project
+  (`enablePlugins(ScalaJSPlugin)`), depends on `cryptoSpiJs`. Module
+  kind set to `CommonJSModule` so noble v1.x's `require()`-style
+  exports resolve at link time.
+- `NobleFacades.scala` — `@JSImport` facades over
+  `@noble/curves/{secp256k1, ed25519, p256}` and `@noble/hashes/{sha256,
+  sha512, sha3, ripemd160, hmac, hkdf}`. Only the call surface needed
+  by `NobleCryptoBackend` is bound.
+- `NobleCryptoBackend.scala` — `CryptoBackend` impl for secp256k1 /
+  ed25519 / p256 (the three the JVM `BouncyCastleBackend` supports).
+  Output bytes match JVM bit-for-bit (verified by the
+  `CrossPlatformFixturesTest` in `crypto-bouncycastle/src/test/`, which
+  asserts the same hex strings the JS test asserts).
+- `Register.scala` — `Register.install()` for Scala-side init, plus
+  `@JSExportTopLevel("registerNobleCryptoBackend")` for host JS init.
+- `NobleCryptoBackendTest.scala` — 16 scalatest specs under Node:
+  empty-string sha256 / keccak256 / sha512, HMAC-SHA256 RFC 4231 #1,
+  HKDF-SHA256 RFC 5869 #1, RFC 8032 ed25519 vector 1 (derivePublic +
+  sign empty msg), secp256k1 derive / sign-verify / recover-pubkey /
+  EVM-address (privkey 0x4646… → 0x9d8a62f6…) / tamper rejection,
+  p256 derive + sign-verify, and registry round-trip via `Register.install`.
+
+Deferred to later stages (raise `UnsupportedOperationException` on
+JS for now):
+
+- HD derivation (`deriveMaster` / `deriveChild`) — Stage 4 (ERC-4337)
+  or Stage 3 (strategy-eoa) will need this; deferred so Stage 2 stays
+  small.
+- PBKDF2 / Argon2id / AES-GCM — Stage 5 (`wallet-vault-encrypted`,
+  which will wire SubtleCrypto + a noble Argon2 wrapper).
+- Sr25519 / BLS12-381 — `supports(...)` returns `false`; not on the
+  Stage 2 critical path.
+
+**npm dependency strategy**: no sbt-scalajs-bundler. The
+`crypto-noble-js/package.json` declares the two noble deps; running
+`npm install` from `crypto-noble-js/` before `sbt cryptoNobleJs/test`
+populates `crypto-noble-js/node_modules/`, and the Scala.js
+Node-launched test runner walks up from `target/.../*-fastopt/` to
+find them. CI just adds `npm install --prefix crypto-noble-js` before
+the sbt test step.
 
 ### Stage 3 — Strategy + connector cross-compile
 

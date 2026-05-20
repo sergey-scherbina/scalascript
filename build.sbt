@@ -916,6 +916,9 @@ lazy val cryptoSpiCross =
     // so `sbt cryptoSpi/test` keeps working for downstream agents.
     .jvmConfigure(_.withId("cryptoSpi"))
     .jsConfigure(_.withId("cryptoSpiJs"))
+    // Scala.js spawns its own Node subprocess for tests; the
+    // ThisBuild-level `Test / fork := true` would break that pipe.
+    .jsSettings(Test / fork := false)
 
 lazy val cryptoSpiJvm = cryptoSpiCross.jvm
 lazy val cryptoSpiJs  = cryptoSpiCross.js
@@ -936,6 +939,32 @@ lazy val cryptoBouncycastle = project
     Test    / scalacOptions ++= sharedScalacOptions,
   )
 
+// Scala.js-only `CryptoBackend` impl — docs/wallet-spi-scalajs.md §5
+// Stage 2.  Backed by `@noble/curves` + `@noble/hashes` (npm pkgs at
+// `crypto-noble-js/package.json`; install with `npm install` from that
+// directory before running `sbt cryptoNobleJs/test`).  Output bytes
+// match the JVM BouncyCastle backend bit-for-bit so the same SPI call
+// is platform-agnostic — see the cross-verification fixtures in
+// `crypto-noble-js/src/test/scala/.../NobleCryptoBackendTest.scala`.
+//
+// CommonJS module kind is set so noble's `require()`-style exports
+// resolve at link time; the default `NoModule` would refuse `@JSImport`.
+// Node ≥ 18 on PATH is required for `sbt cryptoNobleJs/test`.
+lazy val cryptoNobleJs = project
+  .in(file("crypto-noble-js"))
+  .enablePlugins(ScalaJSPlugin)
+  .dependsOn(cryptoSpiJs)
+  .settings(
+    name                := "scalascript-crypto-noble-js",
+    scalaJSLinkerConfig ~= { _.withModuleKind(org.scalajs.linker.interface.ModuleKind.CommonJSModule) },
+    libraryDependencies += "org.scalatest" %%% "scalatest" % "3.2.18" % Test,
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions,
+    // Scala.js spawns its own Node.js subprocess for the test runner;
+    // ThisBuild's `Test / fork := true` would break that pipe.
+    Test / fork         := false,
+  )
+
 // Cross-compiled (JVM + Scala.js) — docs/wallet-spi-scalajs.md §3.2.
 // Stage 1: SPI traits in `shared/`; `object Blockchain` ServiceLoader
 // registry (JVM) and explicit-registration variant (JS) live in their
@@ -954,6 +983,7 @@ lazy val blockchainSpiCross =
     )
     .jvmConfigure(_.withId("blockchainSpi"))
     .jsConfigure(_.withId("blockchainSpiJs"))
+    .jsSettings(Test / fork := false)
 
 lazy val blockchainSpiJvm = blockchainSpiCross.jvm
 lazy val blockchainSpiJs  = blockchainSpiCross.js
@@ -1330,7 +1360,7 @@ lazy val root = project
     x402Core, x402Server, x402Client,
     x402FacilitatorCoinbase, x402FacilitatorEvm, x402FacilitatorCardano,
     x402QueueKafka, x402QueuePostgres, x402NoncePostgres, x402NonceRedis,
-    cryptoSpi, cryptoSpiJs, cryptoBouncycastle, blockchainSpi, blockchainSpiJs, blockchainEvm, blockchainEvmAbi, blockchainSolana, blockchainCardano, walletSpi, walletSpiJs, walletVaultEncrypted, walletVaultMpc, walletVaultLedger, walletVaultLedgerJvm, walletVaultLedgerEthereum, walletStrategyEoa, walletStrategyErc4337, walletConnectorEip1193, walletConnect, walletConnectorWalletStd, mcpWallet, mcpX402,
+    cryptoSpi, cryptoSpiJs, cryptoBouncycastle, cryptoNobleJs, blockchainSpi, blockchainSpiJs, blockchainEvm, blockchainEvmAbi, blockchainSolana, blockchainCardano, walletSpi, walletSpiJs, walletVaultEncrypted, walletVaultMpc, walletVaultLedger, walletVaultLedgerJvm, walletVaultLedgerEthereum, walletStrategyEoa, walletStrategyErc4337, walletConnectorEip1193, walletConnect, walletConnectorWalletStd, mcpWallet, mcpX402,
     micropaymentSpi, micropaymentThreshold, micropaymentServer, micropaymentClient, micropaymentProbabilistic, micropaymentChannelEvm, micropaymentHydra,
     frontendCore, frontendCustom, frontendReact, frontendSolid, frontendVue,
     frontendExamples,
