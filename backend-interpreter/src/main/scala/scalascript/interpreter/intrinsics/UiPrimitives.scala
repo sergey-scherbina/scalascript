@@ -87,8 +87,9 @@ val UiPrimitivesIntrinsics: Map[QualifiedName, IntrinsicImpl] = Map(
     args match
       case List(Value.Foreign("ReactiveSignal", rs: ReactiveSignal[?]), raw) =>
         val initial = rs.apply().asInstanceOf[Any] == raw
+        val safeSuffix = raw.toString.replaceAll("[^A-Za-z0-9]", "_")
         Value.Foreign("ReactiveSignal",
-          new ReactiveSignal[Boolean](s"${rs.jsName}__eq__${raw}", initial))
+          new ReactiveSignal[Boolean](s"${rs.jsName}__eq__${safeSuffix}", initial))
       case _ => throw InterpretError("eqSignal(signal, value)")
   ),
 

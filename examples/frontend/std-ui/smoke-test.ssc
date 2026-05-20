@@ -1,0 +1,161 @@
+#!/usr/bin/env ssc
+---
+name: std-ui-smoke-test
+version: 1.0.0
+description: Interpreter smoke test for std/ui/*.ssc — exercises every widget family, emits to a temp dir, prints smoke:ok.
+backends: [int]
+---
+
+# std/ui smoke test
+
+Exercises all ten `std/ui` widget modules in a single tree.
+Run headless via the interpreter; asserts that `emit` completes without
+throwing and that `println("smoke:ok")` is reached.
+
+## Setup
+
+[signal, setSignal, emit](std/ui/primitives.ssc)
+
+[lower](std/ui/lower.ssc)
+
+[defaultTheme](std/ui/theme.ssc)
+
+[vstack, hstack, divider, spacer](std/ui/layout.ssc)
+
+[heading, text](std/ui/typography.ssc)
+
+[textField, checkbox, signalButton](std/ui/input.ssc)
+
+[showWhen, signalText_, fragment_](std/ui/reactive.ssc)
+
+[badge, spinner](std/ui/display.ssc)
+
+[card, cardWithHeader, modal](std/ui/containers.ssc)
+
+[tableCol, tableRow, table, sortableTable](std/ui/data.ssc)
+
+[route, router, link](std/ui/routing.ssc)
+
+```scalascript
+setFrontendFramework("react")
+```
+
+## Signals
+
+```scalascript
+val counter     = signal("counter",   0)
+val showModal   = signal("showModal", false)
+val sortCol     = signal("sortCol",   "name")
+val currentPath = signal("path",      "/home")
+val name        = signal("name",      "Alice")
+```
+
+## Layout and Typography
+
+```scalascript
+val layoutSection = vstack(gap = 8)(
+  heading(1, "std/ui smoke test"),
+  heading(2, "Layout"),
+  hstack(gap = 8)(
+    text("left"),
+    spacer(grow = true),
+    text("right")
+  ),
+  divider()
+)
+```
+
+## Input
+
+```scalascript
+val inputSection = vstack(gap = 8)(
+  heading(2, "Input"),
+  textField(value = name, label = "Name"),
+  checkbox(checked = signal("agree", false), label = "Agree"),
+  signalButton(counter, 1, "Click me"),
+  signalButton(counter, 0, "Reset", disabled = true)
+)
+```
+
+## Reactive
+
+```scalascript
+val reactiveSection = vstack(gap = 8)(
+  heading(2, "Reactive"),
+  showWhen(signal("flag", true), text("visible"), text("hidden")),
+  signalText_(counter)
+)
+```
+
+## Display
+
+```scalascript
+val displaySection = vstack(gap = 8)(
+  heading(2, "Display"),
+  badge("success", "success"),
+  badge("3", "notification"),
+  spinner()
+)
+```
+
+## Containers
+
+```scalascript
+val containersSection = vstack(gap = 8)(
+  heading(2, "Containers"),
+  card(text("plain card")),
+  cardWithHeader(heading(3, "Header"))(text("body")),
+  modal(showModal, "Test Modal")(
+    text("Modal body"),
+    signalButton(showModal, false, "Close")
+  )
+)
+```
+
+## Data
+
+```scalascript
+val rows = List(
+  tableRow(text("Alice"), text("30")),
+  tableRow(text("Bob"),   text("25"))
+)
+val dataSection = vstack(gap = 8)(
+  heading(2, "Data"),
+  table(List(tableCol("Name", "name"), tableCol("Age", "age")), rows),
+  sortableTable(sortCol, List(tableCol("Name", "name"), tableCol("Score", "score")),
+    List(tableRow(text("Alice"), text("99")), tableRow(text("Bob"), text("88"))))
+)
+```
+
+## Routing
+
+```scalascript
+val routingSection = vstack(gap = 8)(
+  heading(2, "Routing"),
+  hstack(gap = 8)(
+    link("/home",  "Home",  currentPath),
+    link("/about", "About", currentPath)
+  ),
+  router(currentPath, List(
+    route("/home",  List(text("Home page"))),
+    route("/about", List(text("About page")))
+  ))
+)
+```
+
+## Emit
+
+```scalascript
+val tree = vstack(gap = 24)(
+  layoutSection,
+  inputSection,
+  reactiveSection,
+  displaySection,
+  containersSection,
+  dataSection,
+  routingSection
+)
+
+emit(lower(tree, defaultTheme), "/tmp/ssc-ui-smoke-test")
+println("smoke:ok")
+```

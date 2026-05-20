@@ -10,9 +10,9 @@ exports:
 
 # `std.ui.display` — display constructors
 
-```scalascript
-[TkNode, BadgeNode, SpinnerNode](std/ui/nodes.ssc)
+[TkNode, BadgeNode, SpinnerNode](nodes.ssc)
 
+```scalascript
 def badge(content: String, variant: String = "default"): TkNode =
   BadgeNode(content, variant)
 

@@ -23,12 +23,12 @@ import scalascript.frontend.vue.VueFrameworkBackend
  *  process cwd — typically the repo root when launched from sbt). */
 object EmitAll:
 
-  /** All shipped demos in canonical order. */
+  /** All shipped demos in canonical order.
+   *  ToolkitDemo removed — the Scala toolkit is retired (Phase 7e); use std/ui .ssc instead. */
   val demos: List[(String, () => FrontendModule)] = List(
     CounterDemo.Name  -> (() => CounterDemo.buildModule()),
     ShowHideDemo.Name -> (() => ShowHideDemo.buildModule()),
-    TodoListDemo.Name -> (() => TodoListDemo.buildModule()),
-    ToolkitDemo.Name  -> (() => ToolkitDemo.buildModule())
+    TodoListDemo.Name -> (() => TodoListDemo.buildModule())
   )
 
   /** Fresh instances per call — backends carry no state but it's

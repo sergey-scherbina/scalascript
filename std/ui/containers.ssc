@@ -5,6 +5,7 @@ description: Container widget constructors — card, modal. Return TkNode; lower
 package: std.ui.containers
 exports:
   - card
+  - cardWithHeader
   - modal
 ---
 
@@ -15,10 +16,9 @@ exports:
 
 Tabs are deferred to a later iteration (requires derived signals).
 
-```scalascript
-[TkNode, CardNode, ModalNode](std/ui/nodes.ssc)
+[TkNode, CardNode, ModalNode](nodes.ssc)
 
-// header and footer are optional — pass null to omit.
+```scalascript
 def card(body: TkNode*): TkNode =
   CardNode(null, body.toList, null)
 
@@ -31,7 +31,6 @@ def cardWithFooter(footer: TkNode)(body: TkNode*): TkNode =
 def cardFull(header: TkNode, footer: TkNode)(body: TkNode*): TkNode =
   CardNode(header, body.toList, footer)
 
-// open: Signal[Boolean] — show the modal when true.
 def modal(open: Any, title: String)(body: TkNode*): TkNode =
   ModalNode(open, title, body.toList)
 ```

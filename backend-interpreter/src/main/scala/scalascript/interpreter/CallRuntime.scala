@@ -35,13 +35,25 @@ private[interpreter] object CallRuntime:
             if idx >= 0 then slots(idx) = Some(v)
           case _ => ()
         }
-        val positionals = namedArgs.collect { case (None, v) => v }.iterator
+        val positionals = namedArgs.collect { case (None, v) => v }
+        val posIter = positionals.iterator
+        // Index of the last regular (non-using) param; that's where vararg would live.
+        val lastRegularIdx = f.params.length - 1 - f.usingParams.length
+        val lastRegularIsVararg =
+          lastRegularIdx >= 0 &&
+          f.paramTypes.lift(lastRegularIdx).exists(_.endsWith("*"))
         for i <- slots.indices do
-          if slots(i).isEmpty && positionals.hasNext then
-            slots(i) = Some(positionals.next())
+          if slots(i).isEmpty && posIter.hasNext then
+            if lastRegularIsVararg && i == lastRegularIdx then
+              // Collect all remaining positionals into a ListV for the vararg param.
+              val varargVals = (Iterator.single(posIter.next()) ++ posIter).toList
+              slots(i) = Some(Value.ListV(varargVals))
+            else
+              slots(i) = Some(posIter.next())
         val selfEntry = if f.name.nonEmpty then Map(f.name -> f) else Map.empty
         var baseEnv2  = f.closure ++ selfEntry
         val orderedArr = Array.fill[Value](f.params.length)(Value.UnitV)
+        var partialFrom = -1  // first index with no value and no default
         for i <- f.params.indices do
           slots(i) match
             case Some(v) =>
@@ -55,8 +67,23 @@ private[interpreter] object CallRuntime:
                   orderedArr(i) = v
                   baseEnv2 = baseEnv2 + (f.params(i) -> v)
                 case None =>
-                  interp.located(s"Missing argument for parameter '${f.params(i)}' in call to '${if f.name.nonEmpty then f.name else "<anon>"}' — parameter has no default")
-        callFun(f, orderedArr.toList, interp)
+                  if partialFrom < 0 then partialFrom = i
+        if partialFrom >= 0 && namedArgs.nonEmpty then
+          // Some required params are unsatisfied — return a partial closure so that
+          // curried call sites like `f(a)(b, c)` work when `f` is stored flattened.
+          val partialEnv = f.closure ++ f.params.take(partialFrom).zip(orderedArr.take(partialFrom)).toMap
+          Pure(Value.FunV(
+            f.params.drop(partialFrom),
+            f.body,
+            partialEnv,
+            f.name,
+            f.defaults.drop(partialFrom),
+            f.paramTypes.drop(partialFrom),
+            f.usingParams,
+            f.returnsThrows
+          ))
+        else
+          callFun(f, orderedArr.toList, interp)
       case f: Value.NativeFnV => f.f(namedArgs.map(_._2))
       case Value.InstanceV(_, fields) =>
         fields.get("apply") match
@@ -72,6 +99,15 @@ private[interpreter] object CallRuntime:
         elems
       case _ => args
     val selfEntry = if f.name.nonEmpty then Map(f.name -> f) else Map.empty
+    // True when the last regular parameter is varargs (type ends with "*").
+    val lastIsVararg = f.params.nonEmpty &&
+      f.paramTypes.lift(f.params.length - 1 - f.usingParams.length).exists(_.endsWith("*"))
+    def packVarargs(rawArgs: List[Value]): List[Value] =
+      if !lastIsVararg || rawArgs.length <= f.params.length - 1 then rawArgs
+      else
+        // Pack surplus args (including the one at the vararg slot) into a ListV.
+        val regularCount = f.params.length - 1
+        rawArgs.take(regularCount) :+ Value.ListV(rawArgs.drop(regularCount))
     def resolveFactoryStubs(args: List[Value]): List[Value] =
       if f.usingParams.isEmpty || interp.givenFactories.isEmpty then args
       else
@@ -89,8 +125,36 @@ private[interpreter] object CallRuntime:
               case _ => v
           else v
         }
+    // If the call provides fewer positional args than the function has params, and some of the
+    // missing params are required (no default), return a partial closure so that curried calls
+    // like `f(a)(b, c)` work when the def is stored with all param lists flattened.
+    if tupledArgs.nonEmpty && tupledArgs.length < f.params.length && f.usingParams.isEmpty then
+      // Fill as many defaults as we can; stop at the first required (no-default) param.
+      var env2 = f.closure ++ selfEntry ++ f.params.take(tupledArgs.length).zip(tupledArgs).toMap
+      var partialStart = -1
+      val filled = scala.collection.mutable.ListBuffer.empty[Value]
+      for i <- (tupledArgs.length until f.params.length) do
+        if partialStart < 0 then
+          f.defaults.lift(i).flatten match
+            case Some(defaultTerm) =>
+              val v = Computation.run(interp.eval(defaultTerm, env2))
+              filled += v
+              env2 = env2 + (f.params(i) -> v)
+            case None =>
+              partialStart = i
+      if partialStart >= 0 then
+        return Pure(Value.FunV(
+          f.params.drop(partialStart),
+          f.body,
+          env2,
+          f.name,
+          f.defaults.drop(partialStart),
+          f.paramTypes.drop(partialStart),
+          f.usingParams,
+          f.returnsThrows
+        ))
     val effArgs =
-      if tupledArgs.length >= f.params.length then resolveFactoryStubs(tupledArgs)
+      if tupledArgs.length >= f.params.length then resolveFactoryStubs(packVarargs(tupledArgs))
       else if f.usingParams.nonEmpty then
         val regularCount = f.params.length - f.usingParams.length
         val withUsing =
@@ -149,6 +213,7 @@ private[interpreter] object CallRuntime:
     case scala.meta.Type.Function.After_4_6_0(params, r) => s"(${params.values.map(typeToString).mkString(", ")}) => ${typeToString(r)}"
     case scala.meta.Type.Tuple(ts)       => ts.map(typeToString).mkString("(", ", ", ")")
     case ti: scala.meta.Type.ApplyInfix  => s"${typeToString(ti.lhs)} ${ti.op.value} ${typeToString(ti.rhs)}"
+    case tr: scala.meta.Type.Repeated    => s"${typeToString(tr.tpe)}*"
     case _                               => "_"
 
   def constValueOfType(tp: scala.meta.Type): Value = tp match

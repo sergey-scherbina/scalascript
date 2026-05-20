@@ -12,9 +12,9 @@ exports:
 
 # `std.ui.layout` — layout constructors
 
-```scalascript
-[TkNode, VStackNode, HStackNode, DividerNode, SpacerNode](std/ui/nodes.ssc)
+[TkNode, VStackNode, HStackNode, DividerNode, SpacerNode](nodes.ssc)
 
+```scalascript
 def vstack(gap: Int = 0)(children: TkNode*): TkNode =
   VStackNode(gap, children.toList)
 

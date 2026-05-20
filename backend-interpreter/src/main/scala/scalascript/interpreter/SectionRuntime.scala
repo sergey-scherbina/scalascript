@@ -188,15 +188,19 @@ private[interpreter] object SectionRuntime:
     val childDir = resolvedPath / os.up
     val child    = Interpreter(interp.out, Some(childDir), lockPath = interp.lockPath)
     child.run(Parser.parse(os.read(resolvedPath)))
-    val exported   = child.exportedGlobals
-    val childPkg   = child.exportedPkg
+    val exported    = child.exportedGlobals
+    val childPkg    = child.exportedPkg
+    // Snapshot all child globals so exported FunVs can reference sibling imports
+    // (e.g. VStackNode, element) when called from a parent interpreter that lacks them.
+    val childCtx: Map[String, Value] = exported
     for binding <- imp.bindings do
       val sourceName = binding.name
       val targetName = binding.alias.getOrElse(binding.name)
       lookupExport(exported, childPkg, sourceName) match
         case Some(v) =>
-          interp.globals(targetName) = v
-          v match
+          val enriched = enrichFnClosures(v, childCtx)
+          interp.globals(targetName) = enriched
+          enriched match
             case inst: Value.InstanceV if inst.typeName.contains('[') =>
               if !interp.globals.contains(inst.typeName) then interp.globals(inst.typeName) = inst
             case _ => ()
@@ -204,6 +208,17 @@ private[interpreter] object SectionRuntime:
     interp.extensions     ++= child.exportedExtensions
     interp.parentTypes    ++= child.exportedParentTypes
     interp.typeFieldOrder ++= child.exportedTypeFieldOrder
+
+  /** Enrich `FunV` closures with `ctx` so that exported functions can reference
+   *  sibling-module bindings (case-class constructors, helpers) when called
+   *  from a parent interpreter that doesn't have those names in its globals. */
+  private def enrichFnClosures(v: Value, ctx: Map[String, Value]): Value = v match
+    case fn: Value.FunV =>
+      fn.copy(closure = ctx ++ fn.closure)
+    case inst: Value.InstanceV =>
+      val enrichedFields = inst.fields.view.mapValues(enrichFnClosures(_, ctx)).toMap
+      inst.copy(fields = enrichedFields)
+    case _ => v
 
   def lookupExport(exported: Map[String, Value], pkg: List[String], name: String): Option[Value] =
     if pkg.isEmpty then exported.get(name)

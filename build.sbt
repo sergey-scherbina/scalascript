@@ -350,7 +350,7 @@ lazy val frontendVue = project
 // example of how to drive the SPI from Scala.
 lazy val frontendExamples = project
   .in(file("frontend-examples"))
-  .dependsOn(frontendCore, frontendCustom, frontendReact, frontendSolid, frontendVue, frontendToolkit)
+  .dependsOn(frontendCore, frontendCustom, frontendReact, frontendSolid, frontendVue)
   .settings(
     name := "scalascript-frontend-examples",
     publish / skip := true,
@@ -1656,7 +1656,8 @@ lazy val root = project
     cryptoSpi, cryptoSpiJs, cryptoBouncycastle, cryptoNobleJs, blockchainSpi, blockchainSpiJs, blockchainEvm, blockchainEvmAbi, blockchainEvmAbiJs, blockchainSolana, blockchainCardano, walletSpi, walletSpiJs, walletVaultEncrypted, walletVaultEncryptedJs, walletVaultMpc, walletVaultLedger, walletVaultLedgerJvm, walletVaultLedgerEthereum, walletStrategyEoa, walletStrategyEoaJs, walletStrategyErc4337, walletStrategyErc4337Js, walletConnectorEip1193, walletConnectorEip1193Js, walletConnect, walletConnectJs, walletConnectorWalletStd, walletConnectorWalletStdJs, mcpWallet, mcpX402,
     micropaymentSpi, micropaymentThreshold, micropaymentServer, micropaymentClient, micropaymentProbabilistic, micropaymentChannelEvm, micropaymentHydra,
     frontendCore, frontendCustom, frontendReact, frontendSolid, frontendVue,
-    frontendToolkit, frontendExamples,
+    // frontendToolkit retired — replaced by std/ui/*.ssc (Phase 7a-7d)
+    frontendExamples,
     jsonPlugin, frontendPlugin, requestPlugin,
   )
   .settings(

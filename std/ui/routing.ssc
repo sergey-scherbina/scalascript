@@ -19,20 +19,18 @@ current path; exactly one route shows at a time via `eqSignal` guards.
 `hashRouter` is a convenience wrapper that creates its own `hashSignal()`
 bound to `window.location.hash` (empty on the JVM; wired by the React emitter).
 
+[TkNode, RouteEntry, RouterNode, LinkNode](nodes.ssc)
+
+[hashSignal](primitives.ssc)
+
 ```scalascript
-[TkNode, RouteEntry, RouterNode, LinkNode](std/ui/nodes.ssc)
-[hashSignal](std/ui/primitives.ssc)
+def route(path: String, body: List[TkNode]): RouteEntry = RouteEntry(path, body)
 
-def route(path: String)(body: TkNode*): RouteEntry = RouteEntry(path, body.toList)
+def router(current: Any, routes: List[RouteEntry]): TkNode = RouterNode(routes, current)
 
-// router: explicit current-path signal.
-def router(current: Any)(routes: RouteEntry*): TkNode = RouterNode(routes.toList, current)
-
-// link: <a href=to> that sets `current` signal on click.
 def link(to: String, label: String, current: Any): TkNode = LinkNode(to, label, current)
 
-// hashRouter: hash-based SPA router — manages its own hashSignal.
-def hashRouter(routes: RouteEntry*): TkNode =
+def hashRouter(routes: List[RouteEntry]): TkNode =
   val loc = hashSignal()
-  RouterNode(routes.toList, loc)
+  RouterNode(routes, loc)
 ```

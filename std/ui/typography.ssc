@@ -10,9 +10,9 @@ exports:
 
 # `std.ui.typography` — typography constructors
 
-```scalascript
-[TkNode, HeadingNode, TextNode_](std/ui/nodes.ssc)
+[TkNode, HeadingNode, TextNode_](nodes.ssc)
 
+```scalascript
 def heading(level: Int, content: String): TkNode = HeadingNode(level, content)
 
 def text(content: String): TkNode = TextNode_(content)

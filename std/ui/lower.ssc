@@ -1,7 +1,7 @@
 ---
 name: ui-lower
 version: 1.0.0
-description: lower(TkNode, Theme): View — the single theme-aware lowering function. Converts the TkNode ADT tree to a View IR tree ready for any FrontendFrameworkSpi backend.
+description: "lower(TkNode, Theme): View — the single theme-aware lowering function. Converts the TkNode ADT tree to a View IR tree ready for any FrontendFrameworkSpi backend."
 package: std.ui.lower
 exports:
   - lower
@@ -13,17 +13,13 @@ Pure function, no DOM, no async — safe for SSR.
 Import this + a Theme, build your tree with widget constructors,
 then call `serve(lower(tree, defaultTheme), 8080)`.
 
-```scalascript
-[TkNode, VStackNode, HStackNode, DividerNode, SpacerNode,
- HeadingNode, TextNode_, ShowWhenNode, SignalTextNode,
- FragmentNode, RawTextNode, TextFieldNode, CheckboxNode,
- SignalButtonNode, BadgeNode, SpinnerNode,
- CardNode, ModalNode,
- TableColumn, TableNode,
- RouteEntry, RouterNode, LinkNode](std/ui/nodes.ssc)
-[Theme](std/ui/theme.ssc)
-[element, textNode, signalText, showSignal, fragment, setSignal, eqSignal](std/ui/primitives.ssc)
+[TkNode, VStackNode, HStackNode, DividerNode, SpacerNode, HeadingNode, TextNode_, ShowWhenNode, SignalTextNode, FragmentNode, RawTextNode, TextFieldNode, CheckboxNode, SignalButtonNode, BadgeNode, SpinnerNode, CardNode, ModalNode, TableColumn, TableNode, RouteEntry, RouterNode, LinkNode](nodes.ssc)
 
+[Theme](theme.ssc)
+
+[element, textNode, signalText, showSignal, fragment, setSignal, eqSignal](primitives.ssc)
+
+```scalascript
 def lower(n: TkNode, theme: Theme): View = n match
 
   // ── Layout ───────────────────────────────────────────────────────────
@@ -147,17 +143,16 @@ def lower(n: TkNode, theme: Theme): View = n match
       case "notification" => theme.colors.danger
       case _              => theme.colors.secondary
     val sp = theme.spacing
+    val badgeStyle = s"background:${bg}; color:#ffffff; font-size:12px; font-weight:600; padding:2px ${sp.xs}px; border-radius:${theme.radii.full}px; white-space:nowrap"
     element("span",
-      Map("style" -> s"background:${bg}; color:#ffffff; font-size:12px; font-weight:600; " +
-                     s"padding:2px ${sp.xs}px; border-radius:${theme.radii.full}px; white-space:nowrap"),
+      Map("style" -> badgeStyle),
       Map(),
       List(textNode(content)))
 
   case SpinnerNode() =>
+    val spinnerStyle = s"display:inline-block; width:16px; height:16px; border:2px solid ${theme.colors.muted}; border-top-color:${theme.colors.primary}; border-radius:50%; animation:ssc-spin 0.8s linear infinite"
     element("span",
-      Map("style" -> s"display:inline-block; width:16px; height:16px; border:2px solid ${theme.colors.muted}; " +
-                     s"border-top-color:${theme.colors.primary}; border-radius:50%; " +
-                     s"animation:ssc-spin 0.8s linear infinite"),
+      Map("style" -> spinnerStyle),
       Map(), List())
 
   // ── Containers ───────────────────────────────────────────────────────
@@ -190,9 +185,9 @@ def lower(n: TkNode, theme: Theme): View = n match
     val dialogStyle  = s"background:${theme.colors.background}; border-radius:${theme.radii.lg}px; " +
                        s"padding:${sp.lg}px; min-width:320px; max-width:90vw; " +
                        s"box-shadow:0 20px 60px rgba(0,0,0,0.3)"
+    val titleStyle = s"font-size:18px; font-weight:600; font-family:${theme.typography.heading.fontFamily}; margin-bottom:${sp.md}px; color:${theme.colors.onSurface}"
     val titleEl  = element("div",
-      Map("style" -> s"font-size:18px; font-weight:600; font-family:${theme.typography.heading.fontFamily}; " +
-                     s"margin-bottom:${sp.md}px; color:${theme.colors.onSurface}"),
+      Map("style" -> titleStyle),
       Map(), List(textNode(title)))
     val bodyEl   = element("div", Map(), Map(), body.map(lower(_, theme)))
     val dialogEl = element("div", Map("style" -> dialogStyle, "role" -> "dialog",

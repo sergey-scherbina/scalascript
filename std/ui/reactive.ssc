@@ -12,9 +12,9 @@ exports:
 
 # `std.ui.reactive` — reactive constructors
 
-```scalascript
-[TkNode, ShowWhenNode, SignalTextNode, FragmentNode, RawTextNode](std/ui/nodes.ssc)
+[TkNode, ShowWhenNode, SignalTextNode, FragmentNode, RawTextNode](nodes.ssc)
 
+```scalascript
 def showWhen(signal: Any, whenTrue: TkNode, whenFalse: TkNode): TkNode =
   ShowWhenNode(signal, whenTrue, whenFalse)
 

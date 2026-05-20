@@ -11,9 +11,9 @@ exports:
 
 # `std.ui.input` — input constructors
 
-```scalascript
-[TkNode, TextFieldNode, CheckboxNode, SignalButtonNode](std/ui/nodes.ssc)
+[TkNode, TextFieldNode, CheckboxNode, SignalButtonNode](nodes.ssc)
 
+```scalascript
 def textField(value: Any,
               label: String = "",
               disabled: Boolean = false,
