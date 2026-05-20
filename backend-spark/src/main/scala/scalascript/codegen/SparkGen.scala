@@ -56,6 +56,18 @@ object SparkGen:
    *  or the front-matter `spark-master:` key. */
   val DefaultMaster: String = "local[*]"
 
+  /** Default Delta Lake version emitted as the `delta-spark_2.13` dep
+   *  coordinate when `.format("delta")` is detected anywhere in the
+   *  module source.  Lakehouse track L.2 (see
+   *  `docs/spark-lakehouse.md`).
+   *
+   *  Pinned to **3.2.0** — the first Delta release with confirmed
+   *  Spark 4.x support against the `_2.13` cross-build.  Earlier
+   *  Delta lines target Spark 3.4/3.5 and fail at session creation
+   *  under Spark 4 (binary-incompatible Catalyst symbols).  Verify
+   *  on Maven Central before bumping. */
+  val DefaultDeltaVersion: String = "3.2.0"
+
   /** Maximum number of `${expr}` binds in a single `sql` block that the
    *  emitter routes through `java.util.Map.of(...)`.  Above this threshold
    *  (Phase C.3, v1.25 § 9.5) it switches to `java.util.Map.ofEntries(...)`
@@ -193,6 +205,99 @@ object SparkGen:
     )
     (cleaned, sigs.toList)
 
+  /** Result of `detectLakehouseFormats`: which lakehouse format names
+   *  appear as the literal argument of `.format("…")` anywhere in the
+   *  collected block sources.
+   *
+   *  Track L.2 / L.3 / L.4 in `docs/spark-lakehouse.md`.  Each flag
+   *  triggers two independent emission decisions in `genModule`:
+   *
+   *    1. A `//> using dep "<group>:<artifact>_2.13:<version>"` header
+   *       line so `scala-cli` resolves the runtime JAR via Coursier.
+   *    2. A set of `.config(k, v)` lines on `SparkSession.builder()`
+   *       to register the format's SQL extension and (where required)
+   *       override the default catalog.
+   *
+   *  Detection is intentionally a substring match on the format
+   *  string literal — same shape as `extractSqlFns`'s regex pass.
+   *  False positives (the literal `.format("delta")` inside a string
+   *  or a comment) are accepted: a redundant Coursier resolve is
+   *  cheap; properly parsing user Scala expressions would require a
+   *  full fragment parser.  False negatives (dynamic format strings,
+   *  e.g. `val fmt = if cond then "delta" else "parquet"; ds.write.format(fmt)`)
+   *  are documented: the user declares the dep manually via
+   *  front-matter `dependencies:` in that case. */
+  case class LakehouseFlags(
+      usesDelta:   Boolean = false,
+      usesIceberg: Boolean = false,
+      usesHudi:    Boolean = false
+  ):
+    def any: Boolean = usesDelta || usesIceberg || usesHudi
+
+  object LakehouseFlags:
+    val Empty: LakehouseFlags = LakehouseFlags()
+
+  /** Pre-compiled `\.format("<name>")` patterns — one per supported
+   *  format.  Case-insensitive flag (`(?i)`) because Spark's data-source
+   *  registry is itself case-insensitive — users may legitimately
+   *  type `.format("Delta")` or `.format("DELTA")` and the runtime
+   *  accepts all variants.  Capturing the literal `.format(` prefix
+   *  (and not just the name) avoids matching `.format("delta-stage")`
+   *  or other arbitrary string occurrences. */
+  private val DeltaFormatPattern   = """(?i)\.format\(\s*"delta"\s*\)""".r
+  private val IcebergFormatPattern = """(?i)\.format\(\s*"iceberg"\s*\)""".r
+  private val HudiFormatPattern    = """(?i)\.format\(\s*"hudi"\s*\)""".r
+
+  /** Scan all collected block sources for `.format("delta" | "iceberg"
+   *  | "hudi")` literals and return the union of detected formats.
+   *  Blocks are scanned by simple regex find — O(n) per block, no
+   *  parsing or AST traversal, so the cost is negligible against
+   *  the rest of code generation. */
+  def detectLakehouseFormats(blocks: List[Block]): LakehouseFlags =
+    blocks.foldLeft(LakehouseFlags.Empty) { (acc, b) =>
+      LakehouseFlags(
+        usesDelta   = acc.usesDelta   || DeltaFormatPattern.findFirstIn(b.src).isDefined,
+        usesIceberg = acc.usesIceberg || IcebergFormatPattern.findFirstIn(b.src).isDefined,
+        usesHudi    = acc.usesHudi    || HudiFormatPattern.findFirstIn(b.src).isDefined
+      )
+    }
+
+  /** Configuration pairs the lakehouse formats need installed on
+   *  `SparkSession.builder()` at session-creation time.  Returned in
+   *  the same order they're emitted in the builder chain, which
+   *  matters because:
+   *
+   *    1. Lakehouse defaults sit BETWEEN the adaptive `local*`
+   *       defaults and the user `spark-config:` map.  Order in this
+   *       list controls within-block order; the cross-block order
+   *       is fixed by `genModule`.
+   *    2. A user `spark-config:` entry for the same key OVERRIDES
+   *       the lakehouse default (Spark's builder takes last-write
+   *       wins).
+   *
+   *  When multiple lakehouse formats are detected (e.g. both Delta
+   *  and Iceberg in the same module), their config blocks coexist.
+   *  Where two formats want to set the same key
+   *  (`spark.sql.extensions` is the obvious one — both Delta and
+   *  Iceberg register SQL extensions there), Spark accepts a
+   *  comma-separated list, so we concatenate the values for that
+   *  key rather than letting the second write clobber the first. */
+  def lakehouseConfigs(flags: LakehouseFlags): List[(String, String)] =
+    if !flags.any then Nil
+    else
+      val raw = scala.collection.mutable.ListBuffer.empty[(String, String)]
+      if flags.usesDelta then
+        raw += "spark.sql.extensions" -> "io.delta.sql.DeltaSparkSessionExtension"
+        raw += "spark.sql.catalog.spark_catalog" -> "org.apache.spark.sql.delta.catalog.DeltaCatalog"
+      // L.3 / L.4 will append their pairs here.
+      // Merge entries sharing a key by joining values with ',' so
+      // multi-format extensions register together.
+      raw.toList
+        .groupBy(_._1)
+        .toList
+        .map { case (k, vs) => k -> vs.map(_._2).distinct.mkString(",") }
+        .sortBy(_._1)
+
   /** Parse a Scala parameter list (the raw text between `(` and `)`)
    *  into a list of type names, in declaration order.  Each entry
    *  is the bare type identifier from a `name: Type` pair.
@@ -251,6 +356,15 @@ private class SparkGen(
     moduleDeps = module.manifest.map(_.dependencies).getOrElse(Map.empty)
     val blocks = collectBlocks(module.sections)
 
+    // Lakehouse track L.2 — scan blocks for `.format("delta"/"iceberg"/
+    // "hudi")` literals.  Each detected format triggers (a) a
+    // `//> using dep` line for its runtime JAR and (b) the
+    // `SparkSession.builder()` configs the format needs at session
+    // creation time.  Detection is purely on source-text substring;
+    // see `LakehouseFlags` Scaladoc for the false-positive /
+    // false-negative trade-off.
+    val lakehouse = SparkGen.detectLakehouseFormats(blocks)
+
     val sb = StringBuilder()
 
     // Generated file header — documents the Spark version and run instructions.
@@ -272,6 +386,17 @@ private class SparkGen(
     SparkGen.DefaultJavaOpts.foreach { opt =>
       sb.append(s"""//> using javaOpt $opt\n""")
     }
+
+    // Lakehouse track L.2 — auto-emitted runtime deps for detected
+    // formats (see `docs/spark-lakehouse.md`).  Sits BEFORE the
+    // front-matter `dependencies:` pass-through so a user-declared
+    // override in front-matter wins on scala-cli's last-write
+    // semantics for duplicate coord keys.  Each line is gated on
+    // the corresponding `usesX` flag; modules that don't touch
+    // lakehouse formats emit byte-identical headers to today's
+    // baseline.
+    if lakehouse.usesDelta then
+      sb.append(s"""//> using dep "io.delta:delta-spark_2.13:${SparkGen.DefaultDeltaVersion}"\n""")
 
     // scala-cli `//> using dep` directives from front-matter (same pattern
     // as JvmGen).  Spark deps are added separately at call site via
@@ -315,6 +440,24 @@ private class SparkGen(
     if sparkMaster.startsWith("local") then
       sb.append("    .config(\"spark.ui.enabled\", \"false\")\n")
       sb.append("    .config(\"spark.sql.shuffle.partitions\", \"4\")\n")
+    // Lakehouse track L.2 — format-specific `.config(k, v)` lines for
+    // each detected format.  Emitted AFTER the adaptive `local*`
+    // defaults and BEFORE the user `spark-config:` map so:
+    //
+    //   1. The lakehouse defaults override the adaptive defaults
+    //      where there's overlap (none today, but the layering is
+    //      the right shape for future format-specific shuffle /
+    //      memory tweaks).
+    //   2. A user `spark-config:` entry for the same key overrides
+    //      the lakehouse default (Spark builder is last-write-wins).
+    //      Documented for cases like multi-catalog setups where the
+    //      Delta-default `spark_catalog` override is wrong.
+    //
+    // Sorted by key for deterministic emit; multi-format key
+    // collisions are joined comma-separated by `lakehouseConfigs`.
+    SparkGen.lakehouseConfigs(lakehouse).foreach { (k, v) =>
+      sb.append(s"""    .config("${escape(k)}", "${escape(v)}")\n""")
+    }
     // User-supplied `spark-config:` front-matter map (v1.25 § 9.5 Phase C.3
     // slice 3) — emit one `.config(k, v)` per entry, sorted by key for
     // deterministic source.  Values are passed through verbatim and

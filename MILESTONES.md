@@ -6897,15 +6897,23 @@ Thin `backend-wasm-contract/` layer on top of `backend-wasm/` for Near or Polkad
 >   questions.  No code changes; gives the parallel Streaming track
 >   (`feature/spark-phase-f-streaming`) a stable contract to compose
 >   against.
-> - **L.2 — Delta Lake (open).**  Detect `.format("delta")` → emit
->   `//> using dep "io.delta:delta-spark_2.13:3.2.0"` (verify version
->   on Maven Central at impl time) + `.config("spark.sql.extensions",
->   "io.delta.sql.DeltaSparkSessionExtension")` + `.config("spark.sql.catalog.spark_catalog",
->   "org.apache.spark.sql.delta.catalog.DeltaCatalog")` on the
->   `SparkSession.builder()` chain.  Example
->   `examples/spark-delta-demo.ssc` (write + read a small Dataset
->   round-trip).  Smoke test gated by `RUN_SPARK_INTEGRATION=1` and
->   `RUN_SPARK_DELTA=1`.
+> - **L.2 — Delta Lake (landed 2026-05-20).**  `.format("delta")`
+>   detection (case-insensitive regex on all collected block sources)
+>   triggers `//> using dep "io.delta:delta-spark_2.13:3.2.0"` in the
+>   header plus `.config("spark.sql.extensions", "io.delta.sql.DeltaSparkSessionExtension")`
+>   and `.config("spark.sql.catalog.spark_catalog", "org.apache.spark.sql.delta.catalog.DeltaCatalog")`
+>   on `SparkSession.builder()`.  Layered between adaptive `local*`
+>   defaults and user `spark-config:` so user overrides win
+>   (Spark builder is last-write).  `SparkGen.DefaultDeltaVersion`
+>   constant pins 3.2.0 (first Delta release with confirmed
+>   Spark 4 `_2.13` support).  Tests: 12 new `SparkGenTest` cases
+>   covering positive/negative detection, read+write symmetry,
+>   case-insensitive matching, the substring trap (`"delta-stage"`
+>   must not match), config ordering, and the helper functions
+>   (`detectLakehouseFormats`, `lakehouseConfigs`) directly.
+>   Example `examples/spark-delta-demo.ssc` (case-class Dataset
+>   round-trip via `.format("delta")` write + read).  Smoke test
+>   gated by `RUN_SPARK_INTEGRATION=1` AND `RUN_SPARK_DELTA=1`.
 > - **L.3 — Iceberg (open).**  Detect `.format("iceberg")` → emit
 >   `org.apache.iceberg:iceberg-spark-runtime-3.5_2.13:<v>` +
 >   IcebergSparkSessionExtensions + a local Hadoop catalog at

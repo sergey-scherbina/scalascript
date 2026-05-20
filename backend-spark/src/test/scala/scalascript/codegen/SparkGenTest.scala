@@ -1340,3 +1340,171 @@ class SparkGenTest extends AnyFunSuite:
     assert(code.contains(".foreach"), "expected foreach")
     assert(code.contains("spark.stop()"), "expected spark.stop()")
   }
+
+  // ── L.2 — Lakehouse formats: Delta Lake ──────────────────────────────────
+  //
+  // See `docs/spark-lakehouse.md` for the design.  Detection runs over the
+  // raw block sources (substring regex, case-insensitive) and toggles:
+  //   (a) a `//> using dep "io.delta:delta-spark_2.13:<v>"` header line
+  //   (b) two `.config(k, v)` lines on `SparkSession.builder()` — the
+  //       Delta SQL extension + the spark_catalog override.
+  // Both decisions are additive — modules that never mention Delta
+  // produce identical headers / builder chains to today's baseline.
+
+  test("delta detection — .format(\"delta\") in source triggers dep emit") {
+    val code = gen(
+      """|# Delta write
+         |```scalascript
+         |ds.write.format("delta").mode("overwrite").save("/tmp/out")
+         |```
+         |""".stripMargin
+    )
+    assert(code.contains(s"""//> using dep "io.delta:delta-spark_2.13:${SparkGen.DefaultDeltaVersion}""""),
+      s"Delta dep must appear when .format(\"delta\") is present, got:\n$code")
+  }
+
+  test("delta detection — read path .format(\"delta\") also triggers dep emit") {
+    val code = gen(
+      """|# Delta read
+         |```scalascript
+         |val df = spark.read.format("delta").load("/tmp/out")
+         |df.show()
+         |```
+         |""".stripMargin
+    )
+    // Read-side and write-side are symmetric — same regex, same emit.
+    assert(code.contains(s"""//> using dep "io.delta:delta-spark_2.13:${SparkGen.DefaultDeltaVersion}""""),
+      s"Delta dep must appear on read path too, got:\n$code")
+  }
+
+  test("delta detection — uppercase .format(\"DELTA\") still triggers dep emit") {
+    // Spark's data-source registry is case-insensitive at the lookup
+    // layer; our regex carries (?i) for the same reason.  A user typing
+    // .format("Delta") / .format("DELTA") must still produce a working
+    // emit, not a missing-dep failure at runtime.
+    val code = gen(
+      """|# Uppercase
+         |```scalascript
+         |ds.write.format("DELTA").save("/tmp/out")
+         |```
+         |""".stripMargin
+    )
+    assert(code.contains("delta-spark_2.13"),
+      s"Delta dep must match case-insensitively, got:\n$code")
+  }
+
+  test("delta detection — module without .format(\"delta\") emits NO Delta dep") {
+    val code = gen(
+      """|# No Delta
+         |```scalascript
+         |val x = Dataset.of(1, 2, 3)
+         |x.foreach(println)
+         |```
+         |""".stripMargin
+    )
+    assert(!code.contains("delta-spark_2.13"),
+      s"Delta dep must NOT appear when format is absent, got:\n$code")
+    // Negative also covers the config lines — neither should appear.
+    assert(!code.contains("io.delta.sql.DeltaSparkSessionExtension"),
+      s"Delta extension must NOT appear when format is absent, got:\n$code")
+    assert(!code.contains("org.apache.spark.sql.delta.catalog.DeltaCatalog"),
+      s"Delta catalog must NOT appear when format is absent, got:\n$code")
+  }
+
+  test("delta config — both extension + catalog lines present when detected") {
+    val code = gen(
+      """|# Delta config
+         |```scalascript
+         |ds.write.format("delta").save("/tmp/out")
+         |```
+         |""".stripMargin
+    )
+    assert(code.contains(""".config("spark.sql.extensions", "io.delta.sql.DeltaSparkSessionExtension")"""),
+      s"Delta SQL extension config missing, got:\n$code")
+    assert(code.contains(""".config("spark.sql.catalog.spark_catalog", "org.apache.spark.sql.delta.catalog.DeltaCatalog")"""),
+      s"Delta catalog override config missing, got:\n$code")
+  }
+
+  test("delta config — sits between adaptive defaults and extraConfig (sort order)") {
+    // The ordering rule (see `docs/spark-lakehouse.md` § Architecture):
+    //   1. Adaptive `local*` defaults (spark.ui.enabled, spark.sql.shuffle.partitions)
+    //   2. Lakehouse format configs
+    //   3. User `spark-config:` map
+    // Spark's builder is last-write-wins, so this layering means a user
+    // override in `spark-config:` always wins over the lakehouse default.
+    val module = Parser.parse(
+      """|# Delta + spark-config
+         |```scalascript
+         |ds.write.format("delta").save("/tmp/out")
+         |```
+         |""".stripMargin
+    )
+    val code = SparkGen.generate(
+      module,
+      extraConfig = Map("spark.sql.catalog.spark_catalog" -> "com.example.MyCatalog")
+    )
+    val idxUi       = code.indexOf("spark.ui.enabled")
+    val idxLakeExt  = code.indexOf("io.delta.sql.DeltaSparkSessionExtension")
+    val idxLakeCat  = code.indexOf("org.apache.spark.sql.delta.catalog.DeltaCatalog")
+    val idxOverride = code.indexOf("com.example.MyCatalog")
+    assert(idxUi >= 0,       s"adaptive default missing in:\n$code")
+    assert(idxLakeExt >= 0,  s"Delta extension missing in:\n$code")
+    assert(idxLakeCat >= 0,  s"Delta catalog missing in:\n$code")
+    assert(idxOverride >= 0, s"user override missing in:\n$code")
+    assert(idxUi < idxLakeExt, s"adaptive defaults must precede lakehouse configs")
+    assert(idxLakeCat < idxOverride,
+      s"lakehouse defaults must precede user override (last-write-wins); got lakeCat=$idxLakeCat override=$idxOverride in:\n$code")
+  }
+
+  test("delta detection — .format(\"delta-stage\") substring does NOT match") {
+    // The regex captures the whole `"delta"` quoted literal, not a
+    // bare `delta` substring.  An adjacent name like `"delta-stage"`
+    // is a different format string and must not trigger Delta dep
+    // emission.
+    val code = gen(
+      """|# Other format
+         |```scalascript
+         |ds.write.format("delta-stage").save("/tmp/out")
+         |```
+         |""".stripMargin
+    )
+    assert(!code.contains("delta-spark_2.13"),
+      s"`delta-stage` is a different format — must not pull Delta dep, got:\n$code")
+  }
+
+  test("delta default version constant pins 3.2.0") {
+    // The version constant is the single source of truth for the emit
+    // and the spec doc; lock it down with an explicit assertion so a
+    // bump is a deliberate, reviewable change.
+    assert(SparkGen.DefaultDeltaVersion == "3.2.0",
+      s"DefaultDeltaVersion drift — update spec doc + bump intentionally, got ${SparkGen.DefaultDeltaVersion}")
+  }
+
+  test("detectLakehouseFormats — empty input returns empty flags") {
+    val flags = SparkGen.detectLakehouseFormats(Nil)
+    assert(!flags.usesDelta && !flags.usesIceberg && !flags.usesHudi)
+    assert(!flags.any)
+  }
+
+  test("detectLakehouseFormats — Delta-only block sets only usesDelta") {
+    val blocks = List(SparkGen.Block("""ds.write.format("delta").save("/p")"""))
+    val flags = SparkGen.detectLakehouseFormats(blocks)
+    assert(flags.usesDelta,    "usesDelta must be true")
+    assert(!flags.usesIceberg, "usesIceberg must remain false")
+    assert(!flags.usesHudi,    "usesHudi must remain false")
+    assert(flags.any)
+  }
+
+  test("lakehouseConfigs — empty flags yield empty list") {
+    assert(SparkGen.lakehouseConfigs(SparkGen.LakehouseFlags.Empty).isEmpty)
+  }
+
+  test("lakehouseConfigs — Delta-only yields two sorted pairs") {
+    val pairs = SparkGen.lakehouseConfigs(SparkGen.LakehouseFlags(usesDelta = true))
+    assert(pairs.size == 2, s"Delta should yield 2 config pairs, got: $pairs")
+    // Sorted-by-key: `spark.sql.catalog.spark_catalog` < `spark.sql.extensions`.
+    assert(pairs.head._1 == "spark.sql.catalog.spark_catalog")
+    assert(pairs.head._2 == "org.apache.spark.sql.delta.catalog.DeltaCatalog")
+    assert(pairs(1)._1 == "spark.sql.extensions")
+    assert(pairs(1)._2 == "io.delta.sql.DeltaSparkSessionExtension")
+  }

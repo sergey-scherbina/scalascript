@@ -1,0 +1,58 @@
+#!/usr/bin/env ssc
+---
+name: spark-delta-demo
+backend: spark
+spark-version: 4.0.0
+description: Delta Lake batch round-trip on the Spark backend (Lakehouse track L.2)
+---
+
+# Spark Delta Lake demo
+
+Demonstrates the L.2 Delta Lake auto-detection in `SparkGen`.  The
+program writes a small `Dataset[Order]` as a Delta table to a temp
+directory, reads it back via Spark's standard
+`spark.read.format("delta").load(...)` path, prints its schema, and
+counts the rows.
+
+The `.format("delta")` literal in the user code is what triggers the
+auto-emit of:
+
+- `//> using dep "io.delta:delta-spark_2.13:<version>"` in the
+  generated source header — `scala-cli` resolves the runtime JAR
+  via Coursier.
+- `.config("spark.sql.extensions", "io.delta.sql.DeltaSparkSessionExtension")`
+  on `SparkSession.builder()` so Delta's SQL extensions register.
+- `.config("spark.sql.catalog.spark_catalog", "org.apache.spark.sql.delta.catalog.DeltaCatalog")`
+  so Delta becomes the default catalog and tables created here
+  participate in Delta's ACID semantics.
+
+No `dependencies:` entry needed in the front-matter; no
+`spark-config:` map needed for the catalog wiring.  The format
+string in the source IS the contract.
+
+Run with:
+
+```sh
+ssc run --backend spark examples/spark-delta-demo.ssc
+```
+
+## Round trip
+
+```scalascript
+case class Order(id: Int, sku: String, qty: Int)
+
+val orders = Dataset.of(
+  Order(1, "widget", 10),
+  Order(2, "gadget", 5),
+  Order(3, "widget", 20)
+)
+
+val outDir = s"/tmp/ssc-delta-demo-${System.currentTimeMillis()}"
+orders.write.format("delta").mode("overwrite").save(outDir)
+
+val back = spark.read.format("delta").load(outDir)
+println("schema:")
+back.printSchema()
+println(s"count = ${back.count()}")
+back.show()
+```

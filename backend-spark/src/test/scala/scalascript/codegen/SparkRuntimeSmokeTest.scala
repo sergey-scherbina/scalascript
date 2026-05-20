@@ -142,3 +142,28 @@ class SparkRuntimeSmokeTest extends AnyFunSuite:
     // example back to `@SqlFn` and tighten this test.
     compileExample("spark-udf-demo.ssc")
   }
+
+  // ── Lakehouse formats — gated separately per format ──────────────────────
+  //
+  // Each lakehouse format (Delta / Iceberg / Hudi) ships its own runtime
+  // JARs through `//> using dep`; resolving them adds 50-150MB to a cold
+  // Coursier cache.  Many CI environments pre-cache only the base Spark
+  // dep set, so each format gets a separate opt-in gate
+  // (`RUN_SPARK_DELTA=1`, `RUN_SPARK_ICEBERG=1`, `RUN_SPARK_HUDI=1`) on
+  // top of the base `RUN_SPARK_INTEGRATION=1` gate.  A missing format
+  // JAR never breaks unrelated smoke tests.
+
+  private def requireDelta(): Unit =
+    requireIntegration()
+    if !sys.env.get("RUN_SPARK_DELTA").contains("1") then
+      cancel("RUN_SPARK_DELTA=1 not set — opt in to resolve the Delta Lake runtime JAR")
+
+  test("spark-delta-demo.ssc compiles under scala-cli + Spark _2.13") {
+    // Lakehouse track L.2 — exercises the auto-emitted Delta dep
+    // (`io.delta:delta-spark_2.13:<v>`) and the SparkSession.builder()
+    // config wiring (`spark.sql.extensions` + `spark.sql.catalog.spark_catalog`).
+    // If this test passes, the .format("delta") path in user `.ssc` source
+    // compiles end-to-end without any front-matter or CLI override.
+    requireDelta()
+    compileExample("spark-delta-demo.ssc")
+  }
