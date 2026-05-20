@@ -885,6 +885,25 @@ lazy val walletStrategyEoa = project
     Test    / scalacOptions ++= sharedScalacOptions,
   )
 
+// wallet-spi Phase 8 — MPC Vault (docs/wallet-spi.md §10).
+// HTTP client to an external multi-party-computation signing provider.
+// No private keys local; every signature is a round-trip to a TSS /
+// FROST / GG18 quorum. The trait abstracts over actual MPC vendors;
+// `HttpRemoteSigningClient` is a reference "Fireblocks-shaped" REST
+// integration with sync + async-polling support.
+lazy val walletVaultMpc = project
+  .in(file("wallet-vault-mpc"))
+  .dependsOn(walletSpi, cryptoSpi)
+  .settings(
+    name := "scalascript-wallet-vault-mpc",
+    libraryDependencies ++= Seq(
+      "com.lihaoyi" %% "upickle" % "3.3.1",
+      scalatestTest,
+    ),
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions,
+  )
+
 lazy val walletStrategyErc4337 = project
   .in(file("wallet-strategy-erc4337"))
   .dependsOn(walletSpi, blockchainSpi, cryptoSpi, blockchainEvm, blockchainEvmAbi, cryptoBouncycastle % Test, walletStrategyEoa % Test)
@@ -1139,7 +1158,7 @@ lazy val root = project
     x402Core, x402Server, x402Client,
     x402FacilitatorCoinbase, x402FacilitatorEvm, x402FacilitatorCardano,
     x402QueueKafka, x402QueuePostgres, x402NoncePostgres, x402NonceRedis,
-    cryptoSpi, cryptoBouncycastle, blockchainSpi, blockchainEvm, blockchainEvmAbi, blockchainSolana, blockchainCardano, walletSpi, walletVaultEncrypted, walletStrategyEoa, walletStrategyErc4337, walletConnectorEip1193, walletConnect, walletConnectorWalletStd, mcpWallet, mcpX402,
+    cryptoSpi, cryptoBouncycastle, blockchainSpi, blockchainEvm, blockchainEvmAbi, blockchainSolana, blockchainCardano, walletSpi, walletVaultEncrypted, walletVaultMpc, walletStrategyEoa, walletStrategyErc4337, walletConnectorEip1193, walletConnect, walletConnectorWalletStd, mcpWallet, mcpX402,
     micropaymentSpi, micropaymentThreshold, micropaymentServer, micropaymentClient, micropaymentProbabilistic, micropaymentChannelEvm, micropaymentHydra,
     frontendCore, frontendCustom, frontendReact, frontendSolid, frontendVue,
   )

@@ -8081,8 +8081,34 @@ device, one seed, per-chain on-device apps; the Vault routes
 
 ### Phase 8 — MPC Vault
 
-- [ ] `wallet-vault-mpc` — HTTP client to external MPC provider
-- [ ] Curve-specific (one backend per curve)
+- [x] `wallet-vault-mpc` — HTTP client to external MPC provider
+  - [x] `RemoteSigningClient` trait — `listAccounts` / `sign` /
+        `health`, vendor-agnostic abstraction over the provider-side
+        signing surface
+  - [x] `McpVault` — SPI-conforming `Vault`; delegates to a
+        `RemoteSigningClient`; lock = forget cached token, unlock =
+        `health()` probe
+  - [x] `McpRemoteSigner` — `RawSigner` impl that round-trips every
+        signature through `RemoteSigningClient.sign`
+  - [x] `HttpRemoteSigningClient` — reference JSON-over-HTTPS impl
+        modelled on a Fireblocks-shaped REST surface; supports both
+        synchronous (200 + completed signature) and asynchronous
+        (202 + `operationId` → poll `/v1/operations/{id}`) flavours;
+        bearer-token auth, configurable poll interval / max-attempts /
+        request timeout; subclass hook (`decorateRequest`) for
+        provider-specific auth decoration
+  - [x] `MpcSerialization` — base64 codec + curve/hash naming + JSON
+        marshalling for sign request, account list, operation status
+- [ ] Curve-specific MPC protocol modules — **deferred**. Each MPC
+      vendor (Fireblocks GG18/CMP for secp256k1; Coinbase MPC for
+      ECDSA; ZenGo/Web3Auth/Lit Protocol; the FROST-Ed25519 family)
+      ships its own SDK semantics. Plan is one provider-specific
+      adapter module per vendor (e.g. `wallet-vault-mpc-fireblocks`,
+      `wallet-vault-mpc-coinbase`) that subclasses
+      `HttpRemoteSigningClient` and bundles vendor-mandated request
+      decoration (HMAC signing, idempotency keys, polling cadence) —
+      kept out of `wallet-vault-mpc` so the trait surface stays
+      vendor-neutral.
 
 ---
 
