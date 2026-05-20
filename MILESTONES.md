@@ -4110,8 +4110,14 @@ the codegen output.
     `containers.ssc`, `data.ssc`, `routing.ssc`.
     Demo (`toolkit-demo.ssc`) rewritten to use `std/ui` imports.
 
-  - **Phase 7e** — Retire `frontend-toolkit` sbt module; port
-    `ToolkitTest` / `FormTest` to `.ssc` tests.
+  - **Phase 7e ✓ Landed (2026-05-20)** — Retire `frontend-toolkit` sbt
+    module; add `StdUiSmokeTest` (interpreter smoke test running
+    `smoke-test.ssc` covering all 10 widget modules); fix interpreter
+    for cross-module closure enrichment, vararg packing, partial
+    application, and `eqSignal` jsName sanitization; fix all
+    `std/ui/*.ssc` imports to use Markdown-level paragraphs with
+    relative paths; simplify `data.ssc` and `routing.ssc` APIs to flat
+    `List[T]` params. 1240 tests pass.
 
   - **Phase C — Reference SPA + SSR + remaining widgets** (next).
     Build one non-trivial reference app exercising the full toolkit
