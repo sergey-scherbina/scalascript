@@ -519,8 +519,21 @@ lazy val compilerDriver = project
 // ── ProGuard shrink task (run: sbt cli/shrinkJar) ──────────────────────────
 // sbt-proguard is used ONLY for config generation + ProGuard JAR resolution;
 // we bypass its runner (hardcoded -Xmx256M) and fork java with -Xmx1G.
-val shrinkJar = taskKey[File]("Shrink the assembled ssc.jar with ProGuard 7.5 (1 G heap)")
-val stage     = taskKey[Unit]("Stage lib/ssc.jar + lib/jars/ + lib/compiler/ for classpath-based launch")
+val shrinkJar     = taskKey[File]("Shrink the assembled ssc.jar with ProGuard 7.5 (1 G heap)")
+val stage         = taskKey[Unit]("Stage lib/ssc.jar + lib/jars/ + lib/compiler/ for classpath-based launch")
+val packagePlugin = taskKey[File]("Package this plugin as a .sscpkg ZIP archive (manifest.yaml + intrinsics/<name>.jar)")
+
+def sscpkgSettings(pluginId: String): Seq[Def.Setting[?]] = Seq(
+  packagePlugin := {
+    val jar       = (Compile / packageBin).value
+    val outFile   = target.value / s"${name.value}.sscpkg"
+    val manifest  = s"id: $pluginId\nversion: ${version.value}\nkind:\n  - plugin\n"
+    val manifestF = target.value / "sscpkg-manifest.yaml"
+    IO.write(manifestF, manifest)
+    IO.zip(Seq(manifestF -> "manifest.yaml", jar -> s"intrinsics/${name.value}.jar"), outFile, None)
+    outFile
+  }
+)
 
 lazy val cli = project
   .in(file("cli"))
@@ -662,7 +675,7 @@ lazy val cli = project
       val plugDir      = libDir / "compiler" / "plugins"
       IO.delete(runtimeDir);  IO.createDirectory(runtimeDir)
       IO.delete(compilerDir); IO.createDirectory(compilerDir)
-      IO.createDirectory(plugDir)
+      IO.delete(plugDir);     IO.createDirectory(plugDir)
       // Thin cli entry-point JAR (no scala3-compiler dep).
       val appJar = (Compile / packageBin).value
       IO.copyFile(appJar, libDir / "ssc.jar")
@@ -683,18 +696,33 @@ lazy val cli = project
       val compilerJars = compilerCp.filter(isCompilerJar)
       compilerJars.foreach(j => IO.copyFile(j, compilerDir / j.getName))
       log.info(s"bin/lib/compiler/jars/  (${compilerJars.size + 1} JARs incl. compiler-driver)")
-      // Runtime JARs: cli fullClasspath minus compiler JARs and app JAR.
+      // Runtime JARs: cli fullClasspath minus compiler JARs, app JAR, and plugin JARs.
+      // Plugin JARs are loaded at runtime via .sscpkg archives, not the startup CP.
       val runtimeCp = (Compile / fullClasspath).value.files
       val compilerAbsPaths = (compilerJars :+ driverJar).map(_.getAbsolutePath).toSet
+      val pluginJarPrefixes = Set("scalascript-json-plugin", "scalascript-frontend-plugin",
+                                  "scalascript-request-plugin", "scalascript-auth-plugin",
+                                  "scalascript-oauth-plugin")
+      val isPluginJar = (f: java.io.File) => pluginJarPrefixes.exists(f.getName.startsWith)
       val runtimeJars = runtimeCp.filter { f =>
         f.isFile && f.getName.endsWith(".jar") &&
         f.getAbsolutePath != appJar.getAbsolutePath &&
         !compilerAbsPaths.contains(f.getAbsolutePath) &&
-        !isCompilerJar(f)
+        !isCompilerJar(f) &&
+        !isPluginJar(f)
       }
       runtimeJars.foreach(j => IO.copyFile(j, runtimeDir / j.getName))
       log.info(s"bin/lib/jars/           (${runtimeJars.size} JARs)")
-      log.info(s"bin/lib/compiler/plugins/ ready")
+      // Package and install standard-library plugins as .sscpkg archives.
+      val pluginPkgs = Seq(
+        (jsonPlugin     / packagePlugin).value,
+        (frontendPlugin / packagePlugin).value,
+        (requestPlugin  / packagePlugin).value,
+        (authPlugin     / packagePlugin).value,
+        (oauthPlugin    / packagePlugin).value,
+      )
+      pluginPkgs.foreach(pkg => IO.copyFile(pkg, plugDir / pkg.getName))
+      log.info(s"bin/lib/compiler/plugins/  (${pluginPkgs.size} .sscpkg files)")
     }
   )
 
@@ -1692,6 +1720,7 @@ lazy val jsonPlugin = project
     Compile / scalacOptions ++= sharedScalacOptionsStrict,
     Test    / scalacOptions ++= sharedScalacOptions,
   )
+  .settings(sscpkgSettings("scalascript.std.json"))
 
 lazy val frontendPlugin = project
   .in(file("std/frontend-plugin"))
@@ -1702,6 +1731,7 @@ lazy val frontendPlugin = project
     Compile / scalacOptions ++= sharedScalacOptionsStrict,
     Test    / scalacOptions ++= sharedScalacOptions,
   )
+  .settings(sscpkgSettings("scalascript.std.frontend"))
 
 lazy val requestPlugin = project
   .in(file("std/request-plugin"))
@@ -1711,6 +1741,7 @@ lazy val requestPlugin = project
     Compile / scalacOptions ++= sharedScalacOptionsStrict,
     Test    / scalacOptions ++= sharedScalacOptions,
   )
+  .settings(sscpkgSettings("scalascript.std.request"))
 
 lazy val authPlugin = project
   .in(file("std/auth-plugin"))
@@ -1720,6 +1751,7 @@ lazy val authPlugin = project
     Compile / scalacOptions ++= sharedScalacOptionsStrict,
     Test    / scalacOptions ++= sharedScalacOptions,
   )
+  .settings(sscpkgSettings("scalascript.std.auth"))
 
 lazy val oauthPlugin = project
   .in(file("std/oauth-plugin"))
@@ -1729,6 +1761,7 @@ lazy val oauthPlugin = project
     Compile / scalacOptions ++= sharedScalacOptionsStrict,
     Test    / scalacOptions ++= sharedScalacOptions,
   )
+  .settings(sscpkgSettings("scalascript.std.oauth"))
 
 lazy val root = project
   .in(file("."))
