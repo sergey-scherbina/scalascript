@@ -65,14 +65,14 @@ private case class ParametricGiven(
  */
 class Interpreter(
     val out:  java.io.PrintStream = System.out,
-    baseDir:  Option[os.Path]     = None,
+    private[interpreter] val baseDir:  Option[os.Path]     = None,
     /** When true, `serve(port)` is a no-op: routes still register, but
      *  the HTTP server doesn't bind a port or block on `Thread.join`.
      *  Used by `ssc render` for static-site generation — the route
      *  table is filled in, then handlers are invoked off-band with
      *  synthetic requests. */
     headless: Boolean              = false,
-    lockPath: Option[os.Path]      = None):
+    private[interpreter] val lockPath: Option[os.Path]      = None):
   private[interpreter] val globals      = mutable.Map.empty[String, Value]
   private[interpreter] val extensions   = mutable.Map.empty[(String, String), Value.FunV]
   // Concrete type → declared parent type (from `extends` clause).  Used by
@@ -105,11 +105,11 @@ class Interpreter(
   private var currentSpan: Option[(Int, Int)] = None
   // Source of the code block currently being executed — used to print the
   // offending line under the error message with a caret.
-  private var currentSource: String = ""
+  private[interpreter] var currentSource: String = ""
   // When the parser falls back to wrapping the block in `{ ... }` to accept
   // top-level expressions, every scalameta position is shifted down by one
   // line. `lineOffset` compensates so error messages report the user's line.
-  private var lineOffset: Int = 0
+  private[interpreter] var lineOffset: Int = 0
   // Phase 6: interpreter call stack for currentStackTrace().
   private val callStack = scala.collection.mutable.ArrayBuffer.empty[(String, Int)]
   // When true, currentStackTrace() includes anonymous (<anon>) and _-prefixed frames.
@@ -1427,8 +1427,8 @@ class Interpreter(
   /** Module-level `dependencies:` from the front-matter, captured at the
    *  top of `run` so any `[Card](dep://card.ssc)` import in this module
    *  can rewrite its scheme through `ImportResolver`. */
-  private var moduleDeps: Map[String, String] = Map.empty
-  private var modulePkg: List[String] = Nil
+  private[interpreter] var moduleDeps: Map[String, String] = Map.empty
+  private[interpreter] var modulePkg: List[String] = Nil
   private var i18nTranslations: Map[String, Map[String, String]] = Map.empty
   private var i18nLocale: String = "en"
 
@@ -1438,9 +1438,9 @@ class Interpreter(
    *  (a `Value.Foreign("Connection", _)` bound to the `Connection`
    *  global) is in scope.  Empty by default — modules without any
    *  `databases:` section pay no JDBC cost. */
-  private var sqlRegistry: scalascript.sql.ConnectionRegistry =
+  private[interpreter] var sqlRegistry: scalascript.sql.ConnectionRegistry =
     scalascript.sql.ConnectionRegistry.empty
-  private var sqlBlockCounter: Int = 0
+  private[interpreter] var sqlBlockCounter: Int = 0
 
   def run(module: Module): Unit =
     initBuiltins()
@@ -1456,7 +1456,7 @@ class Interpreter(
         )
     }
     registerFrontmatterRoutes(module)
-    module.sections.foreach(runSection)
+    module.sections.foreach(SectionRuntime.runSection(_, this))
     if !mainCalled then
       globals.get("main").foreach {
         case f: Value.FunV if f.params.isEmpty => Computation.run(callFun(f, Nil)); mainCalled = true
@@ -2489,7 +2489,7 @@ class Interpreter(
 
   /** Escape `rendered` unless the underlying value is a `raw(...)` marker,
    *  in which case the marker's body is already trusted HTML. */
-  private def htmlEscapeUnlessRaw(v: Value, rendered: String): String = v match
+  private[interpreter] def htmlEscapeUnlessRaw(v: Value, rendered: String): String = v match
     case Value.InstanceV("_Raw", _) => rendered
     case _                          => htmlEscape(rendered)
 
@@ -2524,309 +2524,7 @@ class Interpreter(
     }
     Value.InstanceV(base.typeName, merged)
 
-  // ─── Section / block execution ───────────────────────────────────
-
-  private def runSection(section: Section): Unit =
-    section.content.foreach {
-      case cb: Content.CodeBlock if Lang.isParseable(cb.lang) =>
-        currentSource = cb.source
-        // The parser falls back to wrapping the block in `{\n...\n}` when
-        // scalameta's Source parser rejects the script (e.g. top-level
-        // expressions). Detect that by tree shape and offset position lines
-        // so error messages quote the user's line numbers, not the wrapper's.
-        lineOffset = cb.tree match
-          case Some(t) => ScalaNode.fold(t) {
-            case _: Term.Block => 1
-            case _             => 0
-          }
-          case None => 0
-        cb.tree.foreach(execBlock)
-      case cb: Content.CodeBlock if Lang.isStringBlock(cb.lang) =>
-        runStringBlock(cb, section)
-      case cb: Content.CodeBlock if Lang.isSql(cb.lang) =>
-        runSqlBlock(cb, section)
-      case imp: Content.Import =>
-        runImport(imp)
-      case _ => ()
-    }
-    section.subsections.foreach(runSection)
-
-  /** v1.26 — execute a `sql` fenced block.
-   *
-   *  Pipeline:
-   *    1. Re-apply `SqlBindRewriter.rewriteJdbc` to lift `${expr}`
-   *       interpolations from the preserved `cb.source` into a
-   *       JDBC `?`-templated SQL string + an ordered list of bind
-   *       expression source strings.
-   *    2. Parse + evaluate each bind expression in the current globals
-   *       scope, unwrapping the resulting `Value` to a JDBC-bindable
-   *       `Any`.
-   *    3. Resolve the `java.sql.Connection`:
-   *       - First, an override: a `Value.Foreign("Connection", _)`
-   *         bound to the global named `Connection` (typical when the
-   *         user wrote `val Connection = DriverManager.getConnection(...)`
-   *         earlier in the module).
-   *       - Otherwise, the `ConnectionRegistry` built from front-matter
-   *         `databases:`, keyed by the fence's `@db=name` attr (or
-   *         `"default"` when absent).
-   *    4. Invoke `SqlRuntime.execute` and wrap the result back to
-   *       `Value`: `Rows(seq)` → `ListV(MapV-per-row)`,
-   *       `UpdateCount(n)` → `IntV(n)`.
-   *    5. Bind the result as a global at `<sectionId>.sql` (the
-   *       section-based naming convention shared with the Spark
-   *       backend) and at `_sqlBlock_<N>` for ordinal access. */
-  private def runSqlBlock(cb: Content.CodeBlock, section: Section): Unit =
-    val rewritten = scalascript.transform.SqlBindRewriter.rewriteJdbc(cb.source)
-    val binds: List[Any] = rewritten.binds.map { exprSrc =>
-      val expr = scala.meta.dialects.Scala3(scala.meta.Input.VirtualFile(
-        "<sql-bind>", exprSrc
-      )).parse[scala.meta.Term].get
-      val v = Computation.run(eval(expr, globals.toMap))
-      unwrapForJdbc(v)
-    }
-    val conn: java.sql.Connection = resolveSqlConnection(cb)
-    val sqlResult = scalascript.sql.SqlRuntime.execute(conn, rewritten.sql, binds)
-    val resultValue: Value = sqlResult match
-      case scalascript.sql.SqlResult.Rows(rows) =>
-        Value.ListV(rows.map(rowToValue).toList)
-      case scalascript.sql.SqlResult.UpdateCount(n) =>
-        Value.IntV(n.toLong)
-    val ordinal = sqlBlockCounter
-    sqlBlockCounter += 1
-    globals(s"_sqlBlock_$ordinal") = resultValue
-    sectionIdent(section.heading.text).foreach { id =>
-      val existing = globals.get(id) match
-        case Some(Value.InstanceV(_, fields)) => fields
-        case _                                => Map.empty[String, Value]
-      globals(id) = Value.InstanceV(id, existing + ("sql" -> resultValue))
-    }
-
-  /** Resolve a `java.sql.Connection` for `cb`.  Override path: a
-   *  `Foreign("Connection", _)` bound to the global `Connection`
-   *  (typical after `val Connection = DriverManager.getConnection(...)`).
-   *  Registry path: lookup by `cb.attrs.getOrElse("db", "default")` in
-   *  the per-module `sqlRegistry`. */
-  private def resolveSqlConnection(cb: Content.CodeBlock): java.sql.Connection =
-    globals.get("Connection") match
-      case Some(Value.Foreign("Connection", c: java.sql.Connection)) => c
-      case Some(Value.Foreign("DataSource", ds: javax.sql.DataSource)) => ds.getConnection
-      case _ =>
-        val dbName = cb.attrs.getOrElse("db", "default")
-        sqlRegistry.connect(dbName)
-
-  /** Wrap a single JDBC row into a `Value.MapV` keyed by column label.
-   *  Each cell value is normalised to the interpreter's `Value`
-   *  alphabet — primitives map to their direct cases, `null` to
-   *  `NullV`, JDK time / numeric / opaque types pass through as
-   *  `Foreign(<short-class-name>, v)`. */
-  private def rowToValue(row: scalascript.sql.Row): Value =
-    val pairs = row.columns.zip(row.values).map { case (col, v) =>
-      Value.StringV(col) -> wrapJdbcValue(v)
-    }
-    Value.MapV(pairs.toMap)
-
-  private def wrapJdbcValue(v: Any): Value = v match
-    case null            => Value.NullV
-    case s: String       => Value.StringV(s)
-    case b: Boolean      => Value.BoolV(b)
-    case n: Int          => Value.IntV(n.toLong)
-    case n: Long         => Value.IntV(n)
-    case n: Short        => Value.IntV(n.toLong)
-    case n: Byte         => Value.IntV(n.toLong)
-    case d: Double       => Value.DoubleV(d)
-    case f: Float        => Value.DoubleV(f.toDouble)
-    case bi: java.math.BigInteger => Value.IntV(bi.longValueExact)
-    case bd: java.math.BigDecimal => Value.DoubleV(bd.doubleValue)
-    case other           =>
-      Value.Foreign(Option(other).map(_.getClass.getSimpleName).getOrElse("?"), other)
-
-  /** Reverse of `wrapJdbcValue` for the bind-side: convert a `Value`
-   *  produced by `eval` into a JDBC-friendly `Any` that
-   *  `SqlRuntime.bindOne` can handle.  Foreign handles pass through
-   *  unwrapped — useful for `${myUuid}` style binds where the value
-   *  is already a JDK object. */
-  private def unwrapForJdbc(v: Value): Any = v match
-    case Value.IntV(n)            => n
-    case Value.DoubleV(d)         => d
-    case Value.StringV(s)         => s
-    case Value.BoolV(b)           => b
-    case Value.CharV(c)           => c
-    case Value.UnitV              => null
-    case Value.NullV              => null
-    case Value.OptionV(None)      => null
-    case Value.OptionV(Some(inner)) => unwrapForJdbc(inner)
-    case Value.Foreign(_, h)      => h
-    case other                    => Value.show(other)
-
-  /** Evaluate an `html` or `css` block: ${expr} interpolations are resolved
-   *  in the current globals scope, html-escaped where appropriate, and the
-   *  resulting String is bound to `<sectionId>.<lang>` so the section's
-   *  scalascript blocks can reach it as a normal value.  When a section name
-   *  doesn't form a usable identifier, the binding is skipped — the block
-   *  still exists for its side effect of being parsed for errors. */
-  private def runStringBlock(cb: Content.CodeBlock, section: Section): Unit =
-    val rendered = renderStringBlock(cb.source, cb.lang == Lang.Html)
-    sectionIdent(section.heading.text).foreach { id =>
-      val existing = globals.get(id) match
-        case Some(Value.InstanceV(_, fields)) => fields
-        case _                                => Map.empty[String, Value]
-      val updated = existing + (cb.lang -> Value.StringV(rendered))
-      globals(id) = Value.InstanceV(id, updated)
-    }
-
-  /** Turn a markdown heading into a Scala identifier.  Words (alphanumeric
-   *  runs) become camelCase; the first word preserves its original casing
-   *  so headings like `Page` bind to `Page` (object-style) and `my page`
-   *  to `myPage` (val-style).  Returns None when there are no alphanumeric
-   *  characters at all. */
-  private def sectionIdent(text: String): Option[String] =
-    val parts = text.split("[^A-Za-z0-9]+").filter(_.nonEmpty)
-    if parts.isEmpty then None
-    else
-      val head = parts.head
-      val tail = parts.tail.map(p => s"${p.head.toUpper}${p.tail}")
-      val raw  = head + tail.mkString
-      Some(if raw.head.isDigit then "_" + raw else raw)
-
-  /** Substitute `${expr}` segments in `src` with the evaluated value's
-   *  `Value.show`.  When `escape` is true (html blocks) and the expression
-   *  result isn't a `raw(...)` marker, the substituted value is HTML-escaped. */
-  private def renderStringBlock(src: String, escape: Boolean): String =
-    val sb  = StringBuilder()
-    var i   = 0
-    val len = src.length
-    while i < len do
-      if i + 1 < len && src.charAt(i) == '$' && src.charAt(i + 1) == '{' then
-        val end = findClosingBrace(src, i + 2)
-        if end < 0 then
-          sb.append(src.substring(i)); i = len
-        else
-          val exprSrc = src.substring(i + 2, end)
-          val parsed  = scala.meta.dialects.Scala3(exprSrc).parse[scala.meta.Term].get
-          val v       = Computation.run(eval(parsed, globals.toMap))
-          val shown   = Value.show(v)
-          sb.append(if escape then htmlEscapeUnlessRaw(v, shown) else shown)
-          i = end + 1
-      else
-        sb.append(src.charAt(i)); i += 1
-    sb.toString
-
-  /** Scan for the matching `}` from `from`, respecting balanced `{`/`}` and
-   *  skipping over string literals so a `}` inside `"..."`, `'...'`, or
-   *  `"""..."""` does not fool the depth counter.
-   *
-   *  Handles:
-   *  - double-quoted strings `"..."` with `\"` escapes
-   *  - triple-quoted strings `"""..."""` (no escape processing needed)
-   *  - single-quoted char literals `'x'` and `'\n'` with `\'` escapes
-   */
-  private def findClosingBrace(src: String, from: Int): Int =
-    val len = src.length
-    var depth = 1
-    var i = from
-    while i < len && depth > 0 do
-      src.charAt(i) match
-        case '{' =>
-          depth += 1
-          i += 1
-        case '}' =>
-          depth -= 1
-          if depth == 0 then return i
-          i += 1
-        case '"' =>
-          // Check for triple-quoted string first
-          if i + 2 < len && src.charAt(i + 1) == '"' && src.charAt(i + 2) == '"' then
-            i += 3  // skip opening """
-            // scan until closing """
-            var closed = false
-            while i < len && !closed do
-              if i + 2 < len && src.charAt(i) == '"' && src.charAt(i + 1) == '"' && src.charAt(i + 2) == '"' then
-                i += 3
-                closed = true
-              else
-                i += 1
-          else
-            i += 1  // skip opening "
-            // scan until closing " handling backslash escapes
-            var closed = false
-            while i < len && !closed do
-              src.charAt(i) match
-                case '\\' => i += 2          // skip escape sequence
-                case '"'  => i += 1; closed = true
-                case _    => i += 1
-        case '\'' =>
-          i += 1  // skip opening '
-          // skip the character content (may be an escape sequence)
-          if i < len then
-            if src.charAt(i) == '\\' then i += 1  // skip backslash
-            if i < len then i += 1                 // skip the escaped/literal char
-          // skip closing ' if present
-          if i < len && src.charAt(i) == '\'' then i += 1
-        case _ =>
-          i += 1
-    -1
-
-  private def runImport(imp: Content.Import): Unit =
-    import scalascript.parser.Parser
-    val base = baseDir.getOrElse(os.pwd)
-    val resolvedPath =
-      try scalascript.imports.ImportResolver.resolve(imp.path, base, moduleDeps, lockPath)
-      catch case e: Throwable => throw InterpretError(s"Import ${imp.path}: ${e.getMessage}")
-    if !os.exists(resolvedPath) then
-      throw InterpretError(s"Import not found: ${imp.path}")
-    val childDir = resolvedPath / os.up
-    val child    = Interpreter(out, Some(childDir), lockPath = lockPath)
-    child.run(Parser.parse(os.read(resolvedPath)))
-    val exported   = child.exportedGlobals
-    val childPkg   = child.exportedPkg
-    for binding <- imp.bindings do
-      val sourceName = binding.name
-      val targetName = binding.alias.getOrElse(binding.name)
-      lookupExport(exported, childPkg, sourceName) match
-        case Some(v) =>
-          globals(targetName) = v
-          v match
-            case inst: Value.InstanceV if inst.typeName.contains('[') =>
-              if !globals.contains(inst.typeName) then globals(inst.typeName) = inst
-            case _ => ()
-        case None    => throw InterpretError(s"'$sourceName' not found in ${imp.path}")
-    // Extensions registered by the imported module become available in
-    // the importer's scope.  Without this, an `extension` declared
-    // inside an imported `given ... with` would never dispatch — the
-    // child interpreter's `extensions` map is private to that child.
-    extensions      ++= child.exportedExtensions
-    parentTypes     ++= child.exportedParentTypes
-    typeFieldOrder  ++= child.exportedTypeFieldOrder
-
-  /** Navigate nested InstanceV objects to find `name` under the package path.
-   *  For `pkg = ["org", "example", "ui"]` and `name = "Card"` this resolves
-   *  `exported("org").fields("example").fields("ui").fields("Card")`.
-   *  Falls back to a flat `exported.get(name)` when `pkg` is empty. */
-  private def lookupExport(exported: Map[String, Value], pkg: List[String], name: String): Option[Value] =
-    if pkg.isEmpty then exported.get(name)
-    else
-      val root = exported.get(pkg.head)
-      val pkgObj = pkg.tail.foldLeft(root) {
-        case (Some(Value.InstanceV(_, fields)), seg) => fields.get(seg)
-        case (acc, _)                                => acc
-      }
-      pkgObj.collect {
-        case Value.InstanceV(_, fields) => fields.get(name)
-      }.flatten
-      .orElse(exported.get(name))
-
-  private def execBlockStats(stats: List[Stat]): Unit =
-    stats.zipWithIndex.foreach { (s, i) =>
-      execStat(s, globals, printResult = i == stats.length - 1)
-    }
-
-  private def execBlock(node: ScalaNode): Unit =
-    ScalaNode.fold(node) {
-      case Source(stats)     => execBlockStats(stats)
-      case Term.Block(stats) => execBlockStats(stats)
-      case t: Term           => Computation.run(eval(t, globals.toMap)); ()
-      case other             => located(s"Expected Source/Block, got ${other.productPrefix}")
-    }
+  // ─── Section / block execution — see SectionRuntime.scala ─────────────
 
   // ─── Statement execution ─────────────────────────────────────────
 
@@ -5469,7 +5167,7 @@ class Interpreter(
     import scalascript.parser.Parser
     val src    = s"# Snippet\n\n```scala\n$code\n```\n"
     val module = Parser.parse(src)
-    module.sections.foreach(runSection)
+    module.sections.foreach(SectionRuntime.runSection(_, this))
 
   // ── v1.4 effect handlers — see EffectHandlers.scala ────────────────────
   //
