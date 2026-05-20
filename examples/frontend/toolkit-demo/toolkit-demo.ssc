@@ -2,18 +2,54 @@
 ---
 name: toolkit-demo
 version: 2.0.0
-description: Interactive sign-up form — toolkit demo written in pure ScalaScript using std/ui
+description: Interactive sign-up form + REST todo list (SQLite, persists across restarts)
 frontend: react
+databases:
+  default:
+    url: "jdbc:sqlite:./todos.db"
 ---
 
 # Toolkit Demo
 
-An interactive sign-up form demonstrating the pure `.ssc` frontend toolkit.
-Widgets are built from `std/ui/*.ssc` imports; no Scala intrinsics bridge needed.
+An interactive sign-up form plus a REST-backed todo list.
+Widgets from `std/ui/*.ssc`; todos persist to SQLite on disk.
+
+## Database setup
+
+```sql
+CREATE TABLE IF NOT EXISTS todos (
+  id   INTEGER PRIMARY KEY AUTOINCREMENT,
+  text TEXT    NOT NULL
+)
+```
+
+## REST API
+
+```scalascript
+route("GET", "/api/todos") { req =>
+  val rows = Db.query("default", "SELECT id, text FROM todos ORDER BY id", List())
+  val body = rows.map(r => s"${r("id")}: ${r("text")}").mkString("\n")
+  Response.text(body)
+}
+
+route("POST", "/api/todos") { req =>
+  val text = req.body.trim
+  if text.isEmpty then Response.status(400, "empty body")
+  else
+    Db.execute("default", "INSERT INTO todos(text) VALUES (?)", List(text))
+    Response.status(201, "created")
+}
+
+route("POST", "/api/todos/delete") { req =>
+  val id = req.body.trim
+  Db.execute("default", "DELETE FROM todos WHERE id = ?", List(id.toInt))
+  Response.status(204)
+}
+```
 
 ## Imports and signals
 
-[signal, serve](std/ui/primitives.ssc)
+[signal, serve, fetchUrlSignal, fetchAction, incSignal, element, fragment](std/ui/primitives.ssc)
 
 [lower](std/ui/lower.ssc)
 
@@ -77,6 +113,15 @@ val alert = showWhen(submitted,
 )
 ```
 
+## Todo list
+
+```scalascript
+val refreshTick = signal[Int]("refreshTick", 0)
+val todosText   = fetchUrlSignal("todosText", "/api/todos", refreshTick)
+val newItem     = signal[String]("newItem",   "")
+val deleteId    = signal[String]("deleteId",  "")
+```
+
 ## Full tree
 
 ```scalascript
@@ -91,7 +136,14 @@ val tree = vstack(gap = 16)(
     showWhen(submitted, fragment_(spinner(), text("Loading...")), fragment_()),
     spacer(grow = true),
     badge("3 new", "success")
-  )
+  ),
+  divider(),
+  heading(3, "Todo list (REST + SQLite)"),
+  textField(value = newItem,  label = "New item"),
+  signalButton(fetchAction("POST", "/api/todos", newItem, refreshTick), true, "Add"),
+  textField(value = deleteId, label = "ID to delete"),
+  signalButton(fetchAction("POST", "/api/todos/delete", deleteId, refreshTick), true, "Delete"),
+  element("pre", Map(), Map(), List(signalText_(todosText)))
 )
 ```
 

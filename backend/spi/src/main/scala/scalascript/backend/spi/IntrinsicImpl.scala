@@ -86,3 +86,9 @@ trait NativeContext:
   // Request validation — inside validate{} records error+default; outside throws.
   def validationRecord(name: String, msg: String, default: Any): Any =
     throw new RuntimeException(s"Validation error: $msg")
+  // Dynamic SQL for route handlers — delegates to the interpreter's sqlRegistry.
+  // Default throws; the interpreter overrides this in installNativeIntrinsics.
+  def dbConnect(dbName: String): java.sql.Connection =
+    throw new UnsupportedOperationException(
+      s"No database registry for '$dbName' — add a databases: section to front-matter"
+    )

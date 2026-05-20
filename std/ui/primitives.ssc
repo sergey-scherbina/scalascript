@@ -20,6 +20,9 @@ exports:
   - hashSignal
   - emit
   - serve
+  - fetchUrlSignal
+  - fetchAction
+  - incSignal
 ---
 
 # `std.ui.primitives` — UI primitive extern defs
@@ -75,4 +78,15 @@ extern def hashSignal(): Signal[String]
 // ── Output ────────────────────────────────────────────────────────────────
 extern def emit(tree: View, outDir: String): Unit
 extern def serve(tree: View, port: Int): Unit
+
+// ── Fetch primitives (std/ui-fetch-plugin) ───────────────────────────────
+// fetchUrlSignal — GET url on mount + whenever refreshTick increments.
+extern def fetchUrlSignal(name: String, url: String, refreshTick: Signal[Int]): Signal[String]
+
+// fetchAction — on click: POST/PUT/DELETE url with body signal value,
+// then increment onSuccessTick so fetchUrlSignal consumers re-fetch.
+extern def fetchAction(method: String, url: String, body: Signal[String], onSuccessTick: Signal[Int]): EventHandler
+
+// incSignal — on click: increment an Int signal by 1.
+extern def incSignal(s: Signal[Int]): EventHandler
 ```

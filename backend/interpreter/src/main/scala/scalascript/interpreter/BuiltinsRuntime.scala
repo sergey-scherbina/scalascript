@@ -49,6 +49,17 @@ private[interpreter] object BuiltinsRuntime:
       ))
     }
 
+    // Db companion object — dynamic SQL from route handlers.
+    // `Db.query(dbName, sql, params)` and `Db.execute(dbName, sql, params)`
+    // are registered via JdbcIntrinsics; the companion routes name lookup.
+    (interp.globals.get("Db.query"), interp.globals.get("Db.execute")) match
+      case (Some(queryFn), Some(executeFn)) =>
+        interp.globals("Db") = Value.InstanceV("Db", Map(
+          "query"   -> queryFn,
+          "execute" -> executeFn,
+        ))
+      case _ => ()
+
     // assert / require / nanoTime / getenv / doc / render / Some / List now
     // live in CoreIntrinsics (Stage 5+/E); installNativeIntrinsics routes them.
     // httpClient(baseUrl) { block } — handled as a special form in eval

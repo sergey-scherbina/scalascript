@@ -1476,6 +1476,8 @@ class Interpreter(
         validationStack.headOption match
           case Some(buf) => buf.put(name, msg); default
           case None      => throw new scalascript.server.RestValidationError(msg)
+      override def dbConnect(dbName: String): java.sql.Connection =
+        Interpreter.this.sqlRegistry.connect(dbName)
     intrinsics.foreach {
       case (qn, scalascript.backend.spi.NativeImpl(eval)) =>
         registerNative(qn.value, args =>

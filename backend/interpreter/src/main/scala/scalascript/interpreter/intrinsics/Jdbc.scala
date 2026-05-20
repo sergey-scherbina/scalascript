@@ -45,4 +45,35 @@ val JdbcIntrinsics: Map[QualifiedName, IntrinsicImpl] = Map(
             s"got: ${other.map(_.getClass.getSimpleName).mkString(", ")}"
         )
   ),
+
+  // Db.query("default", sql, List(param1, param2, ...)): List[Map[String, Any]]
+  // Runs a SELECT against the named database from front-matter databases:.
+  QualifiedName("Db.query") -> NativeImpl((ctx, args) =>
+    args match
+      case List(dbName: String, sql: String, params: Value) =>
+        val bindList = params match
+          case Value.ListV(items) => items.map(SectionRuntime.unwrapForJdbc)
+          case _                  => Nil
+        val conn = ctx.dbConnect(dbName)
+        scalascript.sql.SqlRuntime.execute(conn, sql, bindList) match
+          case scalascript.sql.SqlResult.Rows(rows) =>
+            Value.ListV(rows.map(SectionRuntime.rowToValue).toList)
+          case _ => Value.ListV(Nil)
+      case _ => throw InterpretError("Db.query(dbName: String, sql: String, params: List[Any])")
+  ),
+
+  // Db.execute("default", sql, List(param1, param2, ...)): Int
+  // Runs an INSERT / UPDATE / DELETE against the named database.
+  QualifiedName("Db.execute") -> NativeImpl((ctx, args) =>
+    args match
+      case List(dbName: String, sql: String, params: Value) =>
+        val bindList = params match
+          case Value.ListV(items) => items.map(SectionRuntime.unwrapForJdbc)
+          case _                  => Nil
+        val conn = ctx.dbConnect(dbName)
+        scalascript.sql.SqlRuntime.execute(conn, sql, bindList) match
+          case scalascript.sql.SqlResult.UpdateCount(n) => n.toLong
+          case _                                        => 0L
+      case _ => throw InterpretError("Db.execute(dbName: String, sql: String, params: List[Any])")
+  ),
 )

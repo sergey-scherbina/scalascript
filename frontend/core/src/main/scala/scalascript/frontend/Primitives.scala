@@ -42,7 +42,7 @@ trait Signal[T]:
  *  (`String | Int | Long | Double | Boolean`) so the initial value
  *  can be embedded into JS without an `upickle`-style serialiser.
  *  Phase A3+ will broaden once we have a portable encoder. */
-final class ReactiveSignal[T](val jsName: String, initial: T) extends Signal[T]:
+class ReactiveSignal[T](val jsName: String, initial: T) extends Signal[T]:
   private var _value: T = initial
   override def apply(): T            = _value
   override def set(value: T): Unit   = _value = value
@@ -325,6 +325,23 @@ object EventHandler:
    *  React emitter: `'onChange': (e) => setter(e.target.value)`.
    *  Non-React backends treat it as an untranslatable JVM closure. */
   final case class InputChange(signal: ReactiveSignal[String]) extends EventHandler
+
+  /** REST fetch on click: POST/PUT/DELETE `url` with `body` signal value as request body,
+   *  then increment `onSuccessTick` to trigger dependent `FetchUrlSignal` re-fetches. */
+  final case class FetchAction(
+    method:        String,
+    url:           String,
+    body:          ReactiveSignal[String],
+    onSuccessTick: ReactiveSignal[Int]
+  ) extends EventHandler
+
+/** Signal backed by a REST GET fetch.  React emitter issues `fetch(fetchUrl)` on mount
+ *  and re-fetches whenever the `tickJsName` signal increments. */
+final class FetchUrlSignal(
+    jsName:         String,
+    val fetchUrl:   String,
+    val tickJsName: String
+) extends ReactiveSignal[String](jsName, "")
 
 /** Composable UI unit — a function from props to a View that
  *  may close over signals + effects.  Backends interpret the
