@@ -252,3 +252,29 @@ class SparkRuntimeSmokeTest extends AnyFunSuite:
     requireMllib()
     compileExample("spark-mllib-model-save-load.ssc")
   }
+
+  // ── Phase G: Catalog / Hive metastore DSL ────────────────────────────────
+
+  /** Hive-specific gate.  Hive support in Spark 4 pulls in
+   *  `spark-hive_2.13` (large) plus its transitive Hive shim JARs;
+   *  developers without that path cached locally should opt in
+   *  explicitly.  Separate gate on top of `RUN_SPARK_INTEGRATION`
+   *  so a teammate without Hive isn't blocked. */
+  private def requireHive(): Unit =
+    requireIntegration()
+    if !sys.env.get("RUN_SPARK_HIVE").contains("1") then
+      cancel("RUN_SPARK_HIVE=1 not set — opt in to resolve the Spark Hive support JAR")
+
+  test("spark-hive-demo.ssc compiles under scala-cli + Spark _2.13") {
+    // Phase G end-to-end smoke: exercises the @TempView annotation
+    // strip + auto-registration (G.3), the spark-warehouse: front-matter
+    // → enableHiveSupport + warehouse dir config + spark-hive dep
+    // wiring (G.2), and the Dataset.fromTable[T] shim (G.4).  The
+    // example uses the embedded derby metastore at the warehouse
+    // path so no external Hive service is required — `scala-cli
+    // compile` against the generated source resolves the
+    // `spark-hive_2.13` JAR via Coursier and type-checks the full
+    // module.
+    requireHive()
+    compileExample("spark-hive-demo.ssc")
+  }

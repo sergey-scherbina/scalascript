@@ -1,0 +1,80 @@
+#!/usr/bin/env ssc
+---
+name: spark-hive-demo
+backend: spark
+spark-version: 4.0.0
+spark-warehouse: /tmp/ssc-hive-warehouse-demo
+description: Spark Catalog DSL — @TempView + Hive warehouse + Dataset.fromTable[T] (v1.25 § 9.5 Phase G)
+---
+
+# Spark Hive / Catalog demo
+
+Demonstrates the v1.25 § 9.5 Phase G surface in one end-to-end run:
+
+- **G.2 — front-matter Hive wiring**: the `spark-warehouse:` key
+  above turns on `.enableHiveSupport()` + the `spark.sql.warehouse.dir`
+  config + the `spark-hive_2.13` runtime dep.  No external Hive
+  metastore needed — Spark falls back to its embedded derby
+  metastore at the warehouse path.
+- **G.3 — `@TempView` annotation**: marks a `Dataset[Order]` val so
+  it becomes queryable as a temp view named `orders` from any
+  subsequent SQL block.
+- **G.4 — `Dataset.fromTable[T]` shim**: reads the registered view
+  back as a typed `Dataset[Order]` via `spark.table(name).as[T]`
+  using the Phase E encoder derivation.
+
+Run with:
+
+```sh
+ssc run --backend spark examples/spark-hive-demo.ssc
+```
+
+## Seed data + temp view registration
+
+The `@TempView("orders")` annotation strips the marker line and
+emits `orders.createOrReplaceTempView("orders")` immediately after
+the val declaration, so the next sql block can `SELECT * FROM orders`.
+
+```scalascript
+case class Order(id: Int, sku: String, qty: Int)
+
+@TempView("orders")
+val orders = Dataset.of(
+  Order(1, "widget", 10),
+  Order(2, "gadget", 5),
+  Order(3, "widget", 20),
+  Order(4, "sprocket", 7)
+)
+```
+
+## SQL query against the registered view
+
+The `sql` block resolves `orders` through Spark's session catalog —
+the same lookup that any `spark.sql("SELECT ...")` performs.
+
+```sql
+SELECT sku, SUM(qty) AS total
+FROM orders
+GROUP BY sku
+ORDER BY total DESC
+```
+
+```scalascript
+println("totals by sku:")
+_sqlBlock_0.show()
+```
+
+## Typed read back via Dataset.fromTable
+
+`Dataset.fromTable[Order]("orders")` resolves the same view but
+gives back a typed `Dataset[Order]` — useful when downstream code
+wants the case-class fields without `Row.getAs` boilerplate.
+
+```scalascript
+val back = Dataset.fromTable[Order]("orders")
+println(s"row count via fromTable[Order]: ${back.count()}")
+println("first three rows:")
+back.collect().take(3).foreach { o =>
+  println(s"  id=${o.id} sku=${o.sku} qty=${o.qty}")
+}
+```

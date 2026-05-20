@@ -1429,6 +1429,18 @@ private class SparkGen(
        |    def fromParquetAs[T : Encoder](path: String, options: (String, String)*): Dataset[T] =
        |      spark.read.schema(schemaOf[T]).options(options.toMap).parquet(path).as[T]
        |
+       |    // Catalog read (v1.25 § 9.5 Phase G.4).  Resolves through
+       |    // the Spark session catalog: temp views (registered via
+       |    // `@TempView` or explicit `.createOrReplaceTempView`),
+       |    // global temp views, and managed Hive tables (when the
+       |    // `spark-hive-metastore:` or `spark-warehouse:` front-matter
+       |    // is set — Phase G.2).  `.as[T]` uses the Phase E encoder
+       |    // derivation that's already in scope, so primitives + case
+       |    // classes + Option + nested + collections all work without
+       |    // further plumbing.
+       |    def fromTable[T : Encoder](name: String): Dataset[T] =
+       |      spark.table(name).as[T]
+       |
        |    def fromJsonAs[T : Encoder](path: String, options: (String, String)*): Dataset[T] =
        |      spark.read.schema(schemaOf[T]).options(options.toMap).json(path).as[T]
        |

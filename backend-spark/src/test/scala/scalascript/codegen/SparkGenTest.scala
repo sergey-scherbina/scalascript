@@ -2465,6 +2465,11 @@ class SparkGenTest extends AnyFunSuite:
     // The 141+ existing SparkGenTest cases all lack `@TempView`
     // annotations.  Their assertions must remain unchanged — the
     // regex on a substring-miss is O(n) and writes no output.
+    // Note: the Dataset shim's `fromTable` (G.4) carries a comment
+    // mentioning `createOrReplaceTempView` for cross-reference; we
+    // assert against the actual *call shape* (`.createOrReplaceTempView("`
+    // — opening paren-quote, what user-code emits via @TempView)
+    // rather than the bare substring.
     val code = gen(
       """|# Plain
          |```scalascript
@@ -2472,10 +2477,10 @@ class SparkGenTest extends AnyFunSuite:
          |```
          |""".stripMargin
     )
-    assert(!code.contains("createOrReplaceTempView"),
-      s"no @TempView module must NOT emit createOrReplaceTempView, got:\n$code")
-    assert(!code.contains("@TempView"),
-      s"no @TempView module must NOT mention @TempView, got:\n$code")
+    assert(!code.contains(""".createOrReplaceTempView(""""),
+      s"no @TempView module must NOT emit .createOrReplaceTempView() call, got:\n$code")
+    assert(!code.contains("@TempView("),
+      s"no @TempView module must NOT mention @TempView annotation, got:\n$code")
   }
 
   test("Phase G.3 — extractTempViews helper round-trip + signature list") {
@@ -2540,4 +2545,69 @@ class SparkGenTest extends AnyFunSuite:
     )
     assert(code.contains("""activeUsers.createOrReplaceTempView("active_users")"""),
       s"var name and view name must be captured independently, got:\n$code")
+  }
+
+  // ── Phase G.4 — Dataset.fromTable[T] typed reader ────────────────────────
+
+  test("Phase G.4 — Dataset.fromTable[T] shim is emitted in every Spark source") {
+    // The shim sits on the `Dataset` companion in `datasetShim`,
+    // emitted unconditionally inside `@main def runSparkJob` so user
+    // code can resolve `Dataset.fromTable[T](name)` without any
+    // import / front-matter setup beyond a defined Encoder[T].
+    val code = gen("# Test\n```scalascript\nval x = 1\n```\n")
+    assert(code.contains("def fromTable[T : Encoder](name: String): Dataset[T] ="),
+      s"fromTable shim signature must be in emit, got:\n$code")
+    assert(code.contains("spark.table(name).as[T]"),
+      s"fromTable body must delegate to spark.table(name).as[T], got:\n$code")
+  }
+
+  test("Phase G.4 — fromTable usage in user code lands in emitted source") {
+    // Sanity: user code calling `Dataset.fromTable[User]("users")`
+    // makes it into the emitted body verbatim.  Compile correctness
+    // is verified by the opt-in `spark-hive-demo` smoke test under
+    // RUN_SPARK_INTEGRATION + RUN_SPARK_HIVE.
+    val code = gen(
+      """|# fromTable usage
+         |```scalascript
+         |case class User(id: Int, name: String)
+         |val users = Dataset.fromTable[User]("users")
+         |println(users.count())
+         |```
+         |""".stripMargin
+    )
+    assert(code.contains("""Dataset.fromTable[User]("users")"""),
+      s"user fromTable call must land in emit, got:\n$code")
+  }
+
+  test("Phase G.4 — fromTable composes with @TempView in the same module") {
+    // End-to-end composition test: a @TempView annotation registers
+    // a Dataset, then user code reads it back via fromTable[T].  The
+    // emitted source contains both the createOrReplaceTempView call
+    // (from G.3) AND the user's `Dataset.fromTable[T]` call.  The
+    // runtime smoke test (spark-hive-demo) verifies the actual
+    // round-trip works against a real SparkSession.
+    val code = gen(
+      """|# Combined G.3 + G.4
+         |```scalascript
+         |case class Order(id: Int, sku: String, qty: Int)
+         |
+         |@TempView("orders")
+         |val orders = Dataset.of(
+         |  Order(1, "widget", 10),
+         |  Order(2, "gadget", 5)
+         |)
+         |
+         |val back = Dataset.fromTable[Order]("orders")
+         |println(back.count())
+         |```
+         |""".stripMargin
+    )
+    // G.3: @TempView strip + registration
+    assert(code.contains("""orders.createOrReplaceTempView("orders")"""),
+      s"@TempView registration must land, got:\n$code")
+    assert(!code.contains("@TempView("),
+      s"@TempView annotation must be stripped, got:\n$code")
+    // G.4: fromTable read
+    assert(code.contains("""Dataset.fromTable[Order]("orders")"""),
+      s"fromTable call must land in emit, got:\n$code")
   }

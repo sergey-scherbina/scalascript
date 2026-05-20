@@ -7141,15 +7141,27 @@ Thin `backend-wasm-contract/` layer on top of `backend-wasm/` for Near or Polkad
 >   no-@TempView regression guard.  Regex-tuning note: pulled `\s*`
 >   out of the optional ascription group so Java's non-backtracking
 >   regex engine doesn't eat the trailing space before `=`.
-> - **G.4 — `Dataset.fromTable[T]("name")` typed reader.**  One-line
->   shim on the `Dataset` companion:
->   `spark.table(name).as[T]` using the Phase E encoder.  Symmetric
->   for Hive-managed tables (G.2) and temp views (G.3).  Lands with
->   `examples/spark-hive-demo.ssc` and an opt-in smoke test gated
->   by `RUN_SPARK_INTEGRATION=1 && RUN_SPARK_HIVE=1`.
-> - **G.5 (optional) — Catalog introspection helpers.**
+> - **G.4 — `Dataset.fromTable[T]("name")` typed reader (landed 2026-05-20).**
+>   One-line shim on the `Dataset` companion:
+>   `spark.table(name).as[T]` using the Phase E encoder derivation.
+>   Symmetric for Hive-managed tables (G.2) and temp views (G.3) —
+>   the caller doesn't care whether the table sits in the metastore
+>   or was registered five lines earlier as a temp view.  Lands with
+>   `examples/spark-hive-demo.ssc` (combines G.2 warehouse front-matter
+>   + G.3 @TempView annotation + G.4 fromTable read in one end-to-end
+>   round trip via Spark's embedded derby metastore — no external Hive
+>   service required) and an opt-in smoke test gated by
+>   `RUN_SPARK_INTEGRATION=1 && RUN_SPARK_HIVE=1`.  3 new SparkGenTest
+>   cases pin the shim signature, user-side fromTable lands in emit,
+>   and the G.3 + G.4 composition case.  Phase G is now closed
+>   end-to-end with G.5 (catalog introspection helpers) intentionally
+>   punted — the existing `spark.catalog.*` calls are already reachable
+>   from scalascript blocks today.
+> - **G.5 (optional, deferred) — Catalog introspection helpers.**
 >   `Dataset.listTables()` / `Dataset.describeTable(name)` wraps.
->   Skip if any conflict surfaces; phase considered closed after G.4.
+>   Skipped per the spec; users reach `spark.catalog.listTables()`
+>   and `spark.sql("DESCRIBE TABLE x")` directly when needed.  Re-opens
+>   only on concrete user demand.
 
 #### MLlib track — machine learning pipelines
 
