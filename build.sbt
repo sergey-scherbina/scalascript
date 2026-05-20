@@ -45,7 +45,7 @@ lazy val ir = project
   )
 
 lazy val backendSpi = project
-  .in(file("backend-spi"))
+  .in(file("backend/spi"))
   .dependsOn(ir)
   .settings(
     name := "scalascript-backend-spi",
@@ -101,7 +101,7 @@ lazy val interop = project
 // JvmGen.serveRuntime.  No interpreter coupling — all definitions are
 // self-contained Scala classes / objects.
 lazy val runtimeServerCommon = project
-  .in(file("runtime-server-common"))
+  .in(file("runtime-server/common"))
   .settings(
     name := "scalascript-runtime-server-common",
     libraryDependencies ++= Seq(scalatestTest),
@@ -132,7 +132,7 @@ lazy val runtimeServerCommon = project
 // client lives in `backend-scalajs` as a JS preamble (uses Scala.js DOM
 // APIs that can't cross-build with the JVM types here).
 lazy val mcpCommon = project
-  .in(file("mcp-common"))
+  .in(file("mcp/common"))
   .settings(
     name := "scalascript-mcp-common",
     libraryDependencies ++= Seq(
@@ -152,7 +152,7 @@ lazy val mcpCommon = project
 // Depends on runtimeServerCommon for the POJO HTTP model
 // (Request / Response / StreamResponse) the traits reference.
 lazy val runtimeServerSpi = project
-  .in(file("runtime-server-spi"))
+  .in(file("runtime-server/spi"))
   .dependsOn(runtimeServerCommon)
   .settings(
     name := "scalascript-runtime-server-spi",
@@ -192,7 +192,7 @@ lazy val runtimeServerSpi = project
 // already live there.  Now also dependsOn(runtimeServerSpi) so the
 // JdkServerBackend can implement HttpServerSpi.
 lazy val runtimeServerJvm = project
-  .in(file("runtime-server-jvm"))
+  .in(file("runtime-server/jvm"))
   .dependsOn(runtimeServerCommon, runtimeServerSpi)
   .settings(
     name := "scalascript-runtime-server-jvm",
@@ -219,7 +219,7 @@ lazy val runtimeServerJvm = project
 // registration in place so the SPI is discoverable.  S2 fills in
 // the actual Jetty integration.
 lazy val runtimeServerJvmJetty = project
-  .in(file("runtime-server-jvm-jetty"))
+  .in(file("runtime-server/jvm-jetty"))
   .dependsOn(runtimeServerSpi, runtimeServerCommon)
   .settings(
     name := "scalascript-runtime-server-jvm-jetty",
@@ -242,7 +242,7 @@ lazy val runtimeServerJvmJetty = project
 // stub — module declaration + dep + ServiceLoader registration in
 // place.  S3 fills in the actual Netty integration.
 lazy val runtimeServerJvmNetty = project
-  .in(file("runtime-server-jvm-netty"))
+  .in(file("runtime-server/jvm-netty"))
   .dependsOn(runtimeServerSpi, runtimeServerCommon)
   .settings(
     name := "scalascript-runtime-server-jvm-netty",
@@ -265,7 +265,7 @@ lazy val runtimeServerJvmNetty = project
 // — the codegen lowering pass reads the IR and the chosen backend's
 // emit() produces framework-specific JS source.
 lazy val frontendCore = project
-  .in(file("frontend-core"))
+  .in(file("frontend/core"))
   .settings(
     name := "scalascript-frontend-core",
     libraryDependencies ++= Seq(scalatestTest),
@@ -278,7 +278,7 @@ lazy val frontendCore = project
 // (signals + Set-of-subscribers + direct DOM ops; ~3-5 KB bundle).
 // Today: stub.
 lazy val frontendCustom = project
-  .in(file("frontend-custom"))
+  .in(file("frontend/custom"))
   .dependsOn(frontendCore)
   .settings(
     name := "scalascript-frontend-custom",
@@ -293,7 +293,7 @@ lazy val frontendCustom = project
 // Backend-agnostic: same toolkit code emits to React / Vue / Solid /
 // Custom via the existing FrontendFrameworkSpi.
 lazy val frontendToolkit = project
-  .in(file("frontend-toolkit"))
+  .in(file("frontend/toolkit"))
   .dependsOn(frontendCore)
   .settings(
     name := "scalascript-frontend-toolkit",
@@ -306,7 +306,7 @@ lazy val frontendToolkit = project
 // Component to function components, View to React.createElement.
 // Today: stub.
 lazy val frontendReact = project
-  .in(file("frontend-react"))
+  .in(file("frontend/react"))
   .dependsOn(frontendCore)
   .settings(
     name := "scalascript-frontend-react",
@@ -319,7 +319,7 @@ lazy val frontendReact = project
 // createSignal; fine-grained subscriptions; component runs once.
 // Today: stub.
 lazy val frontendSolid = project
-  .in(file("frontend-solid"))
+  .in(file("frontend/solid"))
   .dependsOn(frontendCore)
   .settings(
     name := "scalascript-frontend-solid",
@@ -332,7 +332,7 @@ lazy val frontendSolid = project
 // setup-function components, render-function emission.
 // Today: stub.
 lazy val frontendVue = project
-  .in(file("frontend-vue"))
+  .in(file("frontend/vue"))
   .dependsOn(frontendCore)
   .settings(
     name := "scalascript-frontend-vue",
@@ -349,7 +349,7 @@ lazy val frontendVue = project
 // emitted JS shape per backend — usable as a smoke-test + a worked
 // example of how to drive the SPI from Scala.
 lazy val frontendExamples = project
-  .in(file("frontend-examples"))
+  .in(file("frontend/examples"))
   .dependsOn(frontendCore, frontendCustom, frontendReact, frontendSolid, frontendVue)
   .settings(
     name := "scalascript-frontend-examples",
@@ -360,7 +360,7 @@ lazy val frontendExamples = project
   )
 
 lazy val backendJvm = project
-  .in(file("backend-jvm"))
+  .in(file("backend/jvm"))
   .dependsOn(backendSpi, core, runtimeServerCommon, runtimeServerSpi, runtimeServerJvm, backendSqlRuntime)
   .settings(
     name := "scalascript-backend-jvm",
@@ -369,7 +369,7 @@ lazy val backendJvm = project
   )
 
 lazy val backendJs = project
-  .in(file("backend-js"))
+  .in(file("backend/js"))
   .dependsOn(backendSpi, core, backendSqlRuntimeJs)
   .settings(
     name := "scalascript-backend-js",
@@ -382,7 +382,7 @@ lazy val backendJs = project
 // blocks verbatim as a glue prefix.  Depends on backendJs to share
 // JsGen + JsCapabilities helpers and intrinsic tables.
 lazy val backendNode = project
-  .in(file("backend-node"))
+  .in(file("backend/node"))
   .dependsOn(backendSpi, core, backendJs)
   .settings(
     name := "scalascript-backend-node",
@@ -392,7 +392,7 @@ lazy val backendNode = project
   )
 
 lazy val backendScalajs = project
-  .in(file("backend-scalajs"))
+  .in(file("backend/scalajs"))
   .dependsOn(backendSpi, core)
   .settings(
     name := "scalascript-backend-scalajs",
@@ -401,7 +401,7 @@ lazy val backendScalajs = project
   )
 
 lazy val backendWasm = project
-  .in(file("backend-wasm"))
+  .in(file("backend/wasm"))
   // v1.27 Phase 5 — backendSqlRuntimeJs for ProviderId / SqlRuntimeJsEmit
   // shared with backend-js + backend-node.  sql blocks routed through the
   // JS shim that already accompanies the .wasm blob.
@@ -418,7 +418,7 @@ lazy val backendWasm = project
 // existing in-core `scala`-block handling stays in place until the
 // follow-up actually routes through here.
 lazy val backendScalaSource = project
-  .in(file("backend-scala-source"))
+  .in(file("backend/scala-source"))
   .dependsOn(backendSpi, core)
   .settings(
     name := "scalascript-backend-scala-source",
@@ -435,7 +435,7 @@ lazy val backendScalaSource = project
 // real DSL / interpolator / containerTagNames logic out of the
 // codegens.
 lazy val backendHtml = project
-  .in(file("backend-html"))
+  .in(file("backend/html"))
   .dependsOn(backendSpi, core)
   .settings(
     name := "scalascript-backend-html",
@@ -447,7 +447,7 @@ lazy val backendHtml = project
 // `css"…"` interpolator and `Css` type via prelude.  Stage 9+/C.1
 // skeleton — same shape as backend-html.
 lazy val backendCss = project
-  .in(file("backend-css"))
+  .in(file("backend/css"))
   .dependsOn(backendSpi, core)
   .settings(
     name := "scalascript-backend-css",
@@ -461,7 +461,7 @@ lazy val backendCss = project
 // HTTP/WS intrinsics) extracts this so the server lives behind the SPI and
 // backends no longer reference each other.
 lazy val backendInterpreter = project
-  .in(file("backend-interpreter"))
+  .in(file("backend/interpreter"))
   .dependsOn(backendSpi, core, runtimeServerCommon, runtimeServerJvm, mcpCommon, backendJs, backendSqlRuntime, frontendCore, backendJvm % Test, frontendCustom % Test, frontendReact % Test, frontendSolid % Test, frontendVue % Test, jsonPlugin % Test, frontendPlugin, requestPlugin % Test)
   .settings(
     name := "scalascript-backend-interpreter",
@@ -487,7 +487,7 @@ lazy val backendInterpreter = project
 // needed on the sbt compile classpath; they are resolved at runtime via
 // `scala-cli --dep` flags when the generated program is executed.
 lazy val backendSpark = project
-  .in(file("backend-spark"))
+  .in(file("backend/spark"))
   .dependsOn(backendSpi, core)
   .settings(
     name := "scalascript-backend-spark",
@@ -632,7 +632,7 @@ lazy val cli = project
 // stresses the interpreter's WS runtime.
 
 lazy val clientPostgres = project
-  .in(file("client-postgres"))
+  .in(file("client/postgres"))
   .dependsOn(backendSqlRuntime)
   .settings(
     name := "scalascript-client-postgres",
@@ -652,7 +652,7 @@ lazy val clientPostgres = project
 // bind list, returns a `Row`-based result.  Bundles H2 + SQLite so
 // the standard examples / quickstarts work with zero configuration.
 lazy val backendSqlRuntime = project
-  .in(file("backend-sql-runtime"))
+  .in(file("backend/sql-runtime"))
   .settings(
     name := "scalascript-backend-sql-runtime",
     libraryDependencies ++= Seq(
@@ -678,7 +678,7 @@ lazy val backendSqlRuntime = project
 // `backendSqlRuntime` so backend-js, backend-node, backend-wasm can
 // all dependsOn without dragging the compiler frontend.
 lazy val backendSqlRuntimeJs = project
-  .in(file("backend-sql-runtime-js"))
+  .in(file("backend/sql-runtime-js"))
   .settings(
     name := "scalascript-backend-sql-runtime-js",
     libraryDependencies ++= Seq(
@@ -689,7 +689,7 @@ lazy val backendSqlRuntimeJs = project
   )
 
 lazy val clientRedis = project
-  .in(file("client-redis"))
+  .in(file("client/redis"))
   .settings(
     name := "scalascript-client-redis",
     libraryDependencies ++= Seq(
@@ -701,7 +701,7 @@ lazy val clientRedis = project
   )
 
 lazy val clientEvm = project
-  .in(file("client-evm"))
+  .in(file("client/evm"))
   .settings(
     name := "scalascript-client-evm",
     libraryDependencies ++= Seq(
@@ -715,7 +715,7 @@ lazy val clientEvm = project
   )
 
 lazy val clientKafka = project
-  .in(file("client-kafka"))
+  .in(file("client/kafka"))
   .settings(
     name := "scalascript-client-kafka",
     libraryDependencies ++= Seq(
@@ -727,7 +727,7 @@ lazy val clientKafka = project
   )
 
 lazy val clientCoinbase = project
-  .in(file("client-coinbase"))
+  .in(file("client/coinbase"))
   .settings(
     name := "scalascript-client-coinbase",
     libraryDependencies ++= Seq(
@@ -740,7 +740,7 @@ lazy val clientCoinbase = project
   )
 
 lazy val x402Core = project
-  .in(file("x402-core"))
+  .in(file("x402/core"))
   .settings(
     name := "scalascript-x402-core",
     libraryDependencies ++= Seq(
@@ -751,7 +751,7 @@ lazy val x402Core = project
   )
 
 lazy val x402Server = project
-  .in(file("x402-server"))
+  .in(file("x402/server"))
   .dependsOn(x402Core, runtimeServerCommon)
   .settings(
     name := "scalascript-x402-server",
@@ -764,7 +764,7 @@ lazy val x402Server = project
   )
 
 lazy val x402Client = project
-  .in(file("x402-client"))
+  .in(file("x402/client"))
   .dependsOn(x402Core, walletStrategyEoa, blockchainEvm, blockchainCardano, cryptoBouncycastle)
   .settings(
     name := "scalascript-x402-client",
@@ -777,7 +777,7 @@ lazy val x402Client = project
   )
 
 lazy val x402FacilitatorCoinbase = project
-  .in(file("x402-facilitator-coinbase"))
+  .in(file("x402/facilitator-coinbase"))
   .dependsOn(x402Core, clientCoinbase)
   .settings(
     name := "scalascript-x402-facilitator-coinbase",
@@ -790,7 +790,7 @@ lazy val x402FacilitatorCoinbase = project
   )
 
 lazy val x402FacilitatorEvm = project
-  .in(file("x402-facilitator-evm"))
+  .in(file("x402/facilitator-evm"))
   .dependsOn(x402Core, clientEvm, blockchainEvm, walletStrategyEoa, cryptoBouncycastle)
   .settings(
     name := "scalascript-x402-facilitator-evm",
@@ -802,7 +802,7 @@ lazy val x402FacilitatorEvm = project
   )
 
 lazy val x402QueueKafka = project
-  .in(file("x402-queue-kafka"))
+  .in(file("x402/queue-kafka"))
   .dependsOn(x402Core, clientKafka)
   .settings(
     name := "scalascript-x402-queue-kafka",
@@ -815,7 +815,7 @@ lazy val x402QueueKafka = project
   )
 
 lazy val x402QueuePostgres = project
-  .in(file("x402-queue-postgres"))
+  .in(file("x402/queue-postgres"))
   .dependsOn(x402Core, clientPostgres)
   .settings(
     name := "scalascript-x402-queue-postgres",
@@ -828,7 +828,7 @@ lazy val x402QueuePostgres = project
   )
 
 lazy val x402NoncePostgres = project
-  .in(file("x402-nonce-postgres"))
+  .in(file("x402/nonce-postgres"))
   .dependsOn(x402Core, clientPostgres)
   .settings(
     name := "scalascript-x402-nonce-postgres",
@@ -840,7 +840,7 @@ lazy val x402NoncePostgres = project
   )
 
 lazy val x402NonceRedis = project
-  .in(file("x402-nonce-redis"))
+  .in(file("x402/nonce-redis"))
   .dependsOn(x402Core, clientRedis)
   .settings(
     name := "scalascript-x402-nonce-redis",
@@ -852,7 +852,7 @@ lazy val x402NonceRedis = project
   )
 
 lazy val clientBlockfrost = project
-  .in(file("client-blockfrost"))
+  .in(file("client/blockfrost"))
   .settings(
     name := "scalascript-client-blockfrost",
     libraryDependencies ++= Seq(
@@ -865,7 +865,7 @@ lazy val clientBlockfrost = project
   )
 
 lazy val x402FacilitatorCardano = project
-  .in(file("x402-facilitator-cardano"))
+  .in(file("x402/facilitator-cardano"))
   .dependsOn(x402Core, clientBlockfrost)
   .settings(
     name := "scalascript-x402-facilitator-cardano",
@@ -881,7 +881,7 @@ lazy val x402FacilitatorCardano = project
 // trait + stub. Phase 2+ adds Scalus (validator) and bloxbean (off-chain
 // Tx building) dependencies. See docs/x402-cardano-scalus.md.
 lazy val x402FacilitatorCardanoScalus = project
-  .in(file("x402-facilitator-cardano-scalus"))
+  .in(file("x402/facilitator-cardano-scalus"))
   .dependsOn(x402Core, x402FacilitatorCardano)
   .settings(
     name := "scalascript-x402-facilitator-cardano-scalus",
@@ -912,7 +912,7 @@ lazy val emitEscrowHex = taskKey[File](
 )
 
 lazy val x402EscrowPlutus = project
-  .in(file("x402-escrow-plutus"))
+  .in(file("x402/escrow-plutus"))
   .settings(
     name := "scalascript-x402-escrow-plutus",
     scalaVersion := "3.3.7",
@@ -937,7 +937,7 @@ lazy val x402EscrowPlutus = project
       val _      = (Compile / compile).value
       val cp     = (Compile / fullClasspath).value.files
       val target = ((ThisBuild / baseDirectory).value /
-        "x402-facilitator-cardano-scalus/src/main/resources/x402-escrow.plutus.hex")
+        "x402/facilitator-cardano-scalus/src/main/resources/x402-escrow.plutus.hex")
       IO.createDirectory(target.getParentFile)
       val classpath = cp.map(_.getAbsolutePath).mkString(java.io.File.pathSeparator)
       val pb = new java.lang.ProcessBuilder(
@@ -971,7 +971,7 @@ lazy val x402EscrowPlutus = project
 lazy val cryptoSpiCross =
   crossProject(JVMPlatform, JSPlatform)
     .crossType(CrossType.Full)
-    .in(file("crypto-spi"))
+    .in(file("crypto/spi"))
     .settings(
       name := "scalascript-crypto-spi",
       Compile / scalacOptions ++= sharedScalacOptionsStrict,
@@ -993,7 +993,7 @@ lazy val cryptoSpiJs  = cryptoSpiCross.js
 lazy val cryptoSpi    = cryptoSpiJvm
 
 lazy val cryptoBouncycastle = project
-  .in(file("crypto-bouncycastle"))
+  .in(file("crypto/bouncycastle"))
   .dependsOn(cryptoSpi)
   .settings(
     name := "scalascript-crypto-bouncycastle",
@@ -1017,7 +1017,7 @@ lazy val cryptoBouncycastle = project
 // resolve at link time; the default `NoModule` would refuse `@JSImport`.
 // Node ≥ 18 on PATH is required for `sbt cryptoNobleJs/test`.
 lazy val cryptoNobleJs = project
-  .in(file("crypto-noble-js"))
+  .in(file("crypto/noble-js"))
   .enablePlugins(ScalaJSPlugin)
   .dependsOn(cryptoSpiJs)
   .settings(
@@ -1039,7 +1039,7 @@ lazy val cryptoNobleJs = project
 lazy val blockchainSpiCross =
   crossProject(JVMPlatform, JSPlatform)
     .crossType(CrossType.Full)
-    .in(file("blockchain-spi"))
+    .in(file("blockchain/spi"))
     .dependsOn(cryptoSpiCross)
     .settings(
       name := "scalascript-blockchain-spi",
@@ -1068,7 +1068,7 @@ lazy val blockchainSpi    = blockchainSpiJvm
 lazy val walletSpiCross =
   crossProject(JVMPlatform, JSPlatform)
     .crossType(CrossType.Full)
-    .in(file("wallet-spi"))
+    .in(file("wallet/spi"))
     .dependsOn(blockchainSpiCross, cryptoSpiCross)
     .settings(
       name := "scalascript-wallet-spi",
@@ -1114,7 +1114,7 @@ lazy val walletSpi    = walletSpiJvm
 lazy val walletVaultEncryptedCross =
   crossProject(JVMPlatform, JSPlatform)
     .crossType(CrossType.Full)
-    .in(file("wallet-vault-encrypted"))
+    .in(file("wallet/vault-encrypted"))
     .dependsOn(walletSpiCross, cryptoSpiCross)
     .settings(
       name := "scalascript-wallet-vault-encrypted",
@@ -1149,7 +1149,7 @@ lazy val walletVaultEncrypted    = walletVaultEncryptedJvm
 lazy val walletStrategyEoaCross =
   crossProject(JVMPlatform, JSPlatform)
     .crossType(CrossType.Full)
-    .in(file("wallet-strategy-eoa"))
+    .in(file("wallet/strategy-eoa"))
     .dependsOn(walletSpiCross, blockchainSpiCross, cryptoSpiCross)
     .settings(
       name := "scalascript-wallet-strategy-eoa",
@@ -1175,7 +1175,7 @@ lazy val walletStrategyEoa    = walletStrategyEoaJvm
 // `HttpRemoteSigningClient` is a reference "Fireblocks-shaped" REST
 // integration with sync + async-polling support.
 lazy val walletVaultMpc = project
-  .in(file("wallet-vault-mpc"))
+  .in(file("wallet/vault-mpc"))
   .dependsOn(walletSpi, cryptoSpi)
   .settings(
     name := "scalascript-wallet-vault-mpc",
@@ -1207,7 +1207,7 @@ lazy val walletVaultMpc = project
 lazy val walletStrategyErc4337Cross =
   crossProject(JVMPlatform, JSPlatform)
     .crossType(CrossType.Full)
-    .in(file("wallet-strategy-erc4337"))
+    .in(file("wallet/strategy-erc4337"))
     .dependsOn(walletSpiCross, blockchainSpiCross, cryptoSpiCross, blockchainEvmAbiCross)
     .settings(
       name := "scalascript-wallet-strategy-erc4337",
@@ -1246,7 +1246,7 @@ lazy val walletStrategyErc4337    = walletStrategyErc4337Jvm
 lazy val walletConnectorEip1193Cross =
   crossProject(JVMPlatform, JSPlatform)
     .crossType(CrossType.Full)
-    .in(file("wallet-connector-eip1193"))
+    .in(file("wallet/connector-eip1193"))
     .dependsOn(walletSpiCross, blockchainSpiCross)
     .settings(
       name := "scalascript-wallet-connector-eip1193",
@@ -1292,7 +1292,7 @@ lazy val walletConnectorEip1193    = walletConnectorEip1193Jvm
 lazy val walletConnectCross =
   crossProject(JVMPlatform, JSPlatform)
     .crossType(CrossType.Full)
-    .in(file("wallet-connect"))
+    .in(file("wallet/connect"))
     .dependsOn(walletSpiCross, blockchainSpiCross, cryptoSpiCross)
     .settings(
       name := "scalascript-wallet-connect",
@@ -1324,7 +1324,7 @@ lazy val walletConnect    = walletConnectJvm
 // now), `wallet-vault-ledger-jvm` providing the hid4java transport,
 // and `wallet-vault-ledger-ethereum` providing the Ethereum-app signer.
 lazy val walletVaultLedger = project
-  .in(file("wallet-vault-ledger"))
+  .in(file("wallet/vault-ledger"))
   .dependsOn(walletSpi, cryptoSpi, blockchainSpi)
   .settings(
     name := "scalascript-wallet-vault-ledger",
@@ -1334,7 +1334,7 @@ lazy val walletVaultLedger = project
   )
 
 lazy val walletVaultLedgerJvm = project
-  .in(file("wallet-vault-ledger-jvm"))
+  .in(file("wallet/vault-ledger-jvm"))
   .dependsOn(walletVaultLedger)
   .settings(
     name := "scalascript-wallet-vault-ledger-jvm",
@@ -1348,7 +1348,7 @@ lazy val walletVaultLedgerJvm = project
   )
 
 lazy val walletVaultLedgerEthereum = project
-  .in(file("wallet-vault-ledger-ethereum"))
+  .in(file("wallet/vault-ledger-ethereum"))
   .dependsOn(walletVaultLedger, walletVaultLedger % "test->test", walletSpi, cryptoSpi, blockchainEvm, cryptoBouncycastle % Test)
   .settings(
     name := "scalascript-wallet-vault-ledger-ethereum",
@@ -1371,7 +1371,7 @@ lazy val walletVaultLedgerEthereum = project
 lazy val walletConnectorWalletStdCross =
   crossProject(JVMPlatform, JSPlatform)
     .crossType(CrossType.Full)
-    .in(file("wallet-connector-wallet-std"))
+    .in(file("wallet/connector-wallet-std"))
     .dependsOn(walletSpiCross, blockchainSpiCross)
     .settings(
       name := "scalascript-wallet-connector-wallet-std",
@@ -1393,7 +1393,7 @@ lazy val walletConnectorWalletStdJs  = walletConnectorWalletStdCross.js
 lazy val walletConnectorWalletStd    = walletConnectorWalletStdJvm
 
 lazy val mcpWallet = project
-  .in(file("mcp-wallet"))
+  .in(file("mcp/wallet"))
   .dependsOn(
     mcpCommon,
     walletSpi,
@@ -1423,7 +1423,7 @@ lazy val mcpWallet = project
   )
 
 lazy val mcpX402 = project
-  .in(file("mcp-x402"))
+  .in(file("mcp/x402"))
   .dependsOn(
     mcpCommon, x402Core,
     // Test-scope: the composition demo wires mcp-wallet + blockchain-evm
@@ -1461,7 +1461,7 @@ lazy val mcpX402 = project
 lazy val blockchainEvmAbiCross =
   crossProject(JVMPlatform, JSPlatform)
     .crossType(CrossType.Full)
-    .in(file("blockchain-evm-abi"))
+    .in(file("blockchain/evm-abi"))
     .dependsOn(cryptoSpiCross)
     .settings(
       name := "scalascript-blockchain-evm-abi",
@@ -1488,7 +1488,7 @@ lazy val blockchainEvmAbiJs  = blockchainEvmAbiCross.js
 lazy val blockchainEvmAbi    = blockchainEvmAbiJvm
 
 lazy val blockchainEvm = project
-  .in(file("blockchain-evm"))
+  .in(file("blockchain/evm"))
   .dependsOn(blockchainSpi, cryptoSpi, blockchainEvmAbi, cryptoBouncycastle % Test)
   .settings(
     name := "scalascript-blockchain-evm",
@@ -1501,7 +1501,7 @@ lazy val blockchainEvm = project
   )
 
 lazy val blockchainSolana = project
-  .in(file("blockchain-solana"))
+  .in(file("blockchain/solana"))
   .dependsOn(blockchainSpi, cryptoSpi, cryptoBouncycastle % Test)
   .settings(
     name := "scalascript-blockchain-solana",
@@ -1514,7 +1514,7 @@ lazy val blockchainSolana = project
   )
 
 lazy val blockchainCardano = project
-  .in(file("blockchain-cardano"))
+  .in(file("blockchain/cardano"))
   .dependsOn(blockchainSpi, cryptoSpi, cryptoBouncycastle, clientBlockfrost)
   .settings(
     name := "scalascript-blockchain-cardano",
@@ -1529,7 +1529,7 @@ lazy val blockchainCardano = project
 // ---------------------------------------------------------------------------
 
 lazy val micropaymentSpi = project
-  .in(file("micropayment-spi"))
+  .in(file("micropayment/spi"))
   .dependsOn(blockchainSpi, walletSpi)
   .settings(
     name := "scalascript-micropayment-spi",
@@ -1539,7 +1539,7 @@ lazy val micropaymentSpi = project
   )
 
 lazy val micropaymentThreshold = project
-  .in(file("micropayment-threshold"))
+  .in(file("micropayment/threshold"))
   .dependsOn(micropaymentSpi, walletSpi, blockchainSpi)
   .settings(
     name := "scalascript-micropayment-threshold",
@@ -1551,7 +1551,7 @@ lazy val micropaymentThreshold = project
   )
 
 lazy val micropaymentServer = project
-  .in(file("micropayment-server"))
+  .in(file("micropayment/server"))
   .dependsOn(micropaymentSpi, runtimeServerCommon)
   .settings(
     name := "scalascript-micropayment-server",
@@ -1564,7 +1564,7 @@ lazy val micropaymentServer = project
   )
 
 lazy val micropaymentClient = project
-  .in(file("micropayment-client"))
+  .in(file("micropayment/client"))
   .dependsOn(micropaymentSpi)
   .settings(
     name := "scalascript-micropayment-client",
@@ -1577,7 +1577,7 @@ lazy val micropaymentClient = project
   )
 
 lazy val micropaymentProbabilistic = project
-  .in(file("micropayment-probabilistic"))
+  .in(file("micropayment/probabilistic"))
   .dependsOn(micropaymentSpi, blockchainSpi)
   .settings(
     name := "scalascript-micropayment-probabilistic",
@@ -1587,7 +1587,7 @@ lazy val micropaymentProbabilistic = project
   )
 
 lazy val micropaymentChannelEvm = project
-  .in(file("micropayment-channel-evm"))
+  .in(file("micropayment/channel-evm"))
   .dependsOn(micropaymentSpi, blockchainSpi, blockchainEvm, walletSpi, cryptoBouncycastle % Test)
   .settings(
     name := "scalascript-micropayment-channel-evm",
@@ -1597,7 +1597,7 @@ lazy val micropaymentChannelEvm = project
   )
 
 lazy val micropaymentHydra = project
-  .in(file("micropayment-hydra"))
+  .in(file("micropayment/hydra"))
   .dependsOn(micropaymentSpi, blockchainSpi)
   .settings(
     name := "scalascript-micropayment-hydra",
