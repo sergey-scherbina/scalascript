@@ -85,12 +85,11 @@ def form(disabled: Boolean) = vstack(gap = 12)(
 Reactive: disabled until `accept` is true, locked after `submitted` is true.
 
 ```scalascript
-val enabledBtn  = signalButton(submitted, true, "Accept")
-val disabledBtn = signalButton(submitted, true, "Accept", disabled = true)
+def acceptBtn(disabled: Boolean) = signalButton(submitted, true, "Accept", disabled = disabled)
 
 val reactiveBtn = showWhen(submitted,
-  disabledBtn,
-  showWhen(accept, enabledBtn, disabledBtn)
+  acceptBtn(true),
+  showWhen(accept, acceptBtn(false), acceptBtn(true))
 )
 ```
 
