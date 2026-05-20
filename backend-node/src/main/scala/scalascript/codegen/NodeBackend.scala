@@ -136,13 +136,18 @@ class NodeBackend extends Backend:
   private val NodePrintlnWriteThrough: String =
     """|// v1.27 — write-through println for the Node target.  Replaces
        |// JsRuntime's buffered _println so async/IIFE-wrapped user code
-       |// reaches stdout promptly.
+       |// reaches stdout promptly.  Rebinds `Console.println` too —
+       |// the runtime captures `_println` by reference at init time so
+       |// reassigning `_println` alone leaves CPS-emitted dispatches
+       |// (`_dispatch(Console, 'println', …)` from actor bodies)
+       |// pointing at the buffered original.
        |_println = function(s) {
        |  _output.push(s);
        |  if (typeof process !== 'undefined' && process.stdout) {
        |    process.stdout.write(s + '\n');
        |  }
        |};
+       |if (typeof Console !== 'undefined') Console.println = _println;
        |""".stripMargin
 
   /** Walk the module's IR in document order and concatenate the

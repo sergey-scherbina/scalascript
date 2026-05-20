@@ -278,9 +278,28 @@ class ClusterMultiBackendMatrixTest extends AnyFunSuite:
       .redirectOutput(logFile)
     pb.start()
 
-  /** Spawn the JS-codegen bundle as `node out.js`. */
+  /** Ensure the JS-codegen sandbox can `require('ws')` from inside the
+   *  worker thread `connectNode` spawns.  The emitted bundle doesn't
+   *  ship a `package.json` (cluster is not "sql"), so we install the
+   *  package on the spot.  Idempotent — re-uses an existing
+   *  `node_modules/ws` if present. */
+  private def requireWsModule(sandbox: os.Path): Unit =
+    val nm = sandbox / "node_modules" / "ws"
+    if os.exists(nm) then return
+    val pkgJson = sandbox / "package.json"
+    if !os.exists(pkgJson) then
+      os.write(pkgJson, """{"name":"ssc-matrix","private":true,"dependencies":{"ws":"^8.0.0"}}""")
+    val inst = os.proc("npm", "install", "--no-audit", "--no-fund", "--silent").call(
+      cwd = sandbox, check = false, stderr = os.Pipe, stdout = os.Pipe)
+    if inst.exitCode != 0 then
+      cancel(s"npm install ws failed:\nstdout=${inst.out.text()}\nstderr=${inst.err.text()}")
+
+  /** Spawn the JS-codegen bundle as `node out.js`.  Runs with the
+   *  sandbox as the working directory so Node's CJS resolver finds
+   *  `node_modules/ws` installed by `requireWsModule`. */
   private def spawnJsNode(jsFile: os.Path, logFile: java.io.File): Process =
     val pb = new ProcessBuilder("node", jsFile.toString)
+      .directory(jsFile.toIO.getParentFile)
       .redirectErrorStream(true)
       .redirectOutput(logFile)
     pb.start()
@@ -327,14 +346,46 @@ class ClusterMultiBackendMatrixTest extends AnyFunSuite:
 
   // ── The test ─────────────────────────────────────────────────────────
   //
-  // `ignore(...)` instead of `test(...)` — see top-of-file doc comment.
-  // The body is fully written so a future PR that unblocks the JS
-  // scheduler (replaces the synchronous Atomics.wait loop with a
-  // `setImmediate`-driven tick or equivalent) can flip the keyword and
-  // ship.  Keep the body in sync with `ClusterBullyStatusConvergenceTest`
-  // — same assertion shape, same polling budget; only the two spawners
-  // differ.
-  ignore("JVM-codegen + JS-codegen nodes converge on a Bully leader (DISABLED — JS scheduler blocks Node event loop)"):
+  // `ignore(...)` instead of `test(...)`.
+  //
+  // ### History — JS-scheduler block (FIXED in this commit's parent change)
+  //
+  // The scheduler bug described in the doc comment above (synchronous
+  // `_runActors` with `_asyncSleep` → `Atomics.wait` blocking Node's
+  // event loop) has been fixed: `_runActors` is now `async`, sleeps via
+  // `await new Promise(r => setTimeout(r, ms))`, and yields to the
+  // event loop via `setImmediate` between peer-busy ticks.  With this
+  // single-node tests pass and `/_ssc-cluster/*` HTTP routes remain
+  // reachable while actors stay blocked on long-armed `receive`s — the
+  // condition for entering this test in the first place.
+  //
+  // ### Why still `ignore(...)`
+  //
+  // Re-enabling the test surfaces TWO additional issues that are
+  // outside the scope of the scheduler fix:
+  //
+  //   1. **`require('ws')` in JS-codegen's outbound `connectNode`
+  //      worker.**  The emitted bundle doesn't ship a `package.json`
+  //      (cluster modules aren't sql), so a plain `node out.js` in a
+  //      sandbox dir without `node_modules/ws` fails with
+  //      `Error: connectNode requires the ws npm package`.  Workaround
+  //      verified in this commit: `requireWsModule(sandbox)` below
+  //      `npm install`s `ws` into the sandbox before spawning.
+  //   2. **JVM↔JS peer-envelope mismatch on the `ssc-actors-v1`
+  //      subprotocol.**  After (1) is worked around, JS-codegen
+  //      `connectNode` dials with `['ssc-actors-v1']`; JVM-codegen's
+  //      WS upgrade reply does not echo a matching subprotocol, and
+  //      the `ws` client errors with "Server sent no subprotocol",
+  //      closing the connection.  Bully envelopes can't flow until
+  //      the handshake completes, so convergence times out.  Cross-
+  //      backend envelope reconciliation is a separate Tier 4 task
+  //      (`docs/cluster-codegen-gap.md` §"open issues" mentions it).
+  //
+  // Once (2) is resolved (and assuming `npm` remains a reasonable
+  // test dependency, or the JS bundle ships its own `package.json`
+  // for cluster modules), flip this back to `test(...)`.  The
+  // scaffolding (npm install, sandbox cwd) is already in place.
+  ignore("JVM-codegen + JS-codegen nodes converge on a Bully leader (DISABLED — JVM↔JS subprotocol handshake mismatch, see history above)"):
     val jar       = requireJar()
     requireScalaCli()
     requireNode()
@@ -356,6 +407,12 @@ class ClusterMultiBackendMatrixTest extends AnyFunSuite:
 
       val jvmJarPath = compileJvmSide(sandbox, jar, jvmSrc, "node-aaa")
       val jsJsPath   = compileJsSide (sandbox, jar, jsSrc,  "node-bbb")
+      // JS-codegen's `connectNode` worker dials peers via `require('ws')`.
+      // Install the package alongside the bundle so the cluster handshake
+      // succeeds.  Cancels the test on `npm install` failure (offline, no
+      // npm on PATH, etc.) rather than failing — matches the
+      // requireScalaCli/requireNode pattern above.
+      requireWsModule(sandbox)
 
       val jvmLog = (sandbox / "node-aaa.out").toIO
       val jsLog  = (sandbox / "node-bbb.out").toIO

@@ -3728,9 +3728,17 @@ function _registerReceive(matcher) {
   return id;
 }
 
-function _runActors(bodyFn) {
+async function _runActors(bodyFn) {
   // id -> { mailbox: [], pending: _Computation | null,
   //         blocked: { matcher, k, deadline, wrapSome } | null }
+  // (async) The scheduler is an async function so it can `await
+  // setImmediate`/`setTimeout` between ticks — that's what lets Node's
+  // event loop dispatch the HTTP/WS requests libuv `accept`ed on the
+  // server bound by a `serveAsync(...)` call from inside the actor body.
+  // Previously the scheduler was a synchronous `while (true)` loop with
+  // `Atomics.wait(...)` waits — fast but it monopolised the main thread,
+  // so any actor blocking on a long-armed `receive` left every HTTP
+  // route permanently unreachable until the next mailbox delivery.
   const actors     = new Map();
   // Phase 2 supervision state (per _runActors invocation)
   const links      = new Map();   // id -> Set<id>
@@ -4365,6 +4373,12 @@ function _runActors(bodyFn) {
   // Drain all peer ring buffers into _remoteRawInbox.
   function _drainPeerBuffers() {
     for (const [, peer] of _peerChannels) {
+      // Inbound (server-side) peers route messages through the WS
+      // `onMessage` callback which pushes straight into
+      // `_remoteRawInbox`; they have no SharedArrayBuffer ring (`sab:
+      // null`).  Skipping them here avoids `new Int32Array(null, ...)`
+      // which throws "Invalid atomic access index" under Node ≥ 16.
+      if (!peer.sab) continue;
       const hdr = new Int32Array(peer.sab, 0, 2);
       for (;;) {
         const wc = Atomics.load(hdr, 0);
@@ -5412,6 +5426,16 @@ private val JsRuntimeAsyncB: String = """
     }
   }
 
+  // Lightweight yield to Node's event loop.  `setImmediate` runs after
+  // pending I/O callbacks (HTTP request handlers, WS frames, accept'ed
+  // connections) drain — exactly what we need so a `serveAsync(...)`
+  // bound from inside the actor body becomes reachable while the
+  // scheduler keeps spinning.  Falls back to a resolved Promise when
+  // `setImmediate` is missing (non-Node hosts), which still yields one
+  // microtask between iterations.
+  const _yieldToIO = () => (typeof setImmediate === 'function')
+    ? new Promise(r => setImmediate(r))
+    : Promise.resolve();
   while (true) {
     // Drain peer ring buffers then node-down queue before each scheduler tick.
     if (_peerChannels.size > 0) {
@@ -5501,6 +5525,14 @@ private val JsRuntimeAsyncB: String = """
       const id = ready.shift();
       const state = actors.get(id);
       if (state && state.pending !== null) stepActor(id);
+      // When distributed, give Node's event loop a tick between every
+      // actor step — peer-channel I/O, accept'ed HTTP connections, and
+      // remote-inbox writes from worker threads all flow through the
+      // libuv queue, and a tight `ready.shift() → stepActor` loop would
+      // otherwise starve them.  Pure-actor (non-distributed) workloads
+      // skip this — the scheduler runs straight through and matches the
+      // pre-async tick performance to within a few %.
+      if (_peerChannels.size > 0) await _yieldToIO();
     } else {
       // Quiescence — but timeout-armed receives, timers, remote messages, or node-downs may fire.
       if (_nodeDownQueue.length > 0) continue;
@@ -5527,7 +5559,17 @@ private val JsRuntimeAsyncB: String = """
       const _sleepUntil = [earliest != null ? earliest.d : null, _timerMin].filter(v => v != null);
       const _minDeadline = _sleepUntil.length > 0 ? Math.min(..._sleepUntil) : null;
       const sleepFor = _minDeadline != null ? Math.min(_minDeadline - Date.now(), 10) : 10;
-      if (sleepFor > 0) _asyncSleep(sleepFor); // worker threads write to ring buffers during sleep
+      // Promise-based sleep — `setTimeout(r, ms)` registers a libuv
+      // timer and `await`-ing the Promise releases the main thread, so
+      // Node's event loop can dispatch HTTP/WS callbacks, ring-buffer
+      // writes from peer workers, and any other libuv-driven I/O.
+      // Previously this was `_asyncSleep` (Atomics.wait on the main
+      // thread), which Node ≥ 16 permits but blocks the event loop
+      // entirely — every HTTP request `accept`ed by libuv queued and
+      // never dispatched, making `/_ssc-cluster/*` endpoints
+      // unreachable for the duration of the sleep.
+      if (sleepFor > 0) await new Promise(r => setTimeout(r, sleepFor));
+      else              await _yieldToIO();
       if (earliest != null) {
         const now = Date.now();
         const s = actors.get(earliest.id);
@@ -6420,6 +6462,15 @@ class JsGen(
   // Set when the module uses runAsyncParallel; causes the user code sections to
   // be wrapped in a top-level async IIFE so `await _runAsyncParallel(...)` works.
   private var usesRunAsyncParallel: Boolean = false
+  // Set when the module uses runActors; same async-IIFE wrap so
+  // `await _runActors(...)` works.  The async-aware `_runActors`
+  // yields to Node's event loop between scheduler ticks (see the
+  // runtime emission of `_runActors` in `JsRuntimeAsync`) so that
+  // libuv-accepted HTTP requests still drain while actors are
+  // long-blocked on a `receive` deadline.  Detected by
+  // `scanForRunActors` and combined into the `needsAsync` decision
+  // alongside `usesRunAsyncParallel` and `needSqlPreamble`.
+  private var usesRunActors: Boolean = false
   // Stack of placeholder counters: each AnonymousFunction pushes 0, Placeholder increments top
   private var phCounters: List[Int] = Nil
   // Names of variables known to hold integer values (for integer division detection)
@@ -6585,6 +6636,7 @@ class JsGen(
     analyzeMutualRecursion(module)
     analyzeEffects(module)
     scanForRunAsyncParallel(module)
+    scanForRunActors(module)
     // v1.27 Phase 3 — sql state.  Reset every module to keep `genModule`
     // re-entrant; emit preamble once when at least one sql block is
     // present (URL-prefix providers + ConnectionRegistry init + resolver).
@@ -6603,10 +6655,43 @@ class JsGen(
     // ESM with top-level-await support.  An async IIFE is the
     // universally-portable wrapper that also keeps the legacy
     // classic-script target working.  Same wrapper as the existing
-    // `runAsyncParallel` path; the two flags collapse into one
-    // `needsAsync` decision.
-    val needsAsync = usesRunAsyncParallel || needSqlPreamble
-    if needsAsync then line("(async () => {")
+    // `runAsyncParallel` path; the three flags collapse into one
+    // `needsAsync` decision.  `runActors` joins this set because its
+    // scheduler is `async` — it `await`s `setImmediate`/`setTimeout`
+    // between ticks so Node's event loop drains its I/O queue while
+    // any actor is blocked on a long-armed `receive` (otherwise an
+    // HTTP server bound via `serveAsync(...)` from inside the same
+    // `runActors { ... }` body would be unreachable).
+    val needsAsync = usesRunAsyncParallel || usesRunActors || needSqlPreamble
+    if needsAsync then
+      line("(async () => {")
+      // Write-through `_println` for code that runs *inside* the
+      // async IIFE.  Without this, every `_println` call after the
+      // first `await` pushes to `_output` but the outer
+      // `process.stdout.write(_output...)` (appended by
+      // `Main.scala`'s emit-js / link pipeline) ran synchronously
+      // *before* the IIFE's microtasks fire — so async-scheduled
+      // prints (actor body output, post-await SQL prints, etc.) were
+      // silently dropped.  Override `Console.println` / `Console.print`
+      // too — Normalize rewrites bare `println(...)` to
+      // `Console.println(...)`, and the runtime's `Console` object
+      // captures `_println` by reference at init time, so
+      // reassigning `_println` alone leaves `Console.println`
+      // pointing at the *buffered* original.  The overrides do NOT
+      // push to `_output` (the buffer is only useful for the browser
+      // SPA overlay, which doesn't share the Node code path), so the
+      // outer segment-end flush has nothing to re-emit and we avoid
+      // the duplicate-print failure mode.  `NodeBackend` re-overrides
+      // these with an equivalent body — the duplicate-assign is
+      // intentional and harmless.
+      line("if (typeof process !== 'undefined' && process.stdout && typeof _output !== 'undefined') {")
+      line("  _println = function(s) { process.stdout.write(String(s) + '\\n'); };")
+      line("  _print   = function(s) { process.stdout.write(String(s));        };")
+      line("  if (typeof Console !== 'undefined') {")
+      line("    Console.println = _println;")
+      line("    Console.print   = _print;")
+      line("  }")
+      line("}")
     module.sections.foreach(genSection)
     // Auto-call main() if defined and not already called
     if hasMain && !mainCalled then
@@ -6827,6 +6912,24 @@ class JsGen(
       }.nonEmpty
     }
 
+  /** Walk the module AST and set `usesRunActors` if any `runActors` call is
+   *  present.  Mirrors `scanForRunAsyncParallel` — sister flag that also feeds
+   *  the async-IIFE wrap decision in `genModule` and toggles the `await`
+   *  prefix on `_runActors(...)` callsites.  The async-aware scheduler yields
+   *  to Node's event loop between ticks (see runtime emission), which is
+   *  what unblocks `serveAsync(...)` bound from inside `runActors { ... }`. */
+  private def scanForRunActors(module: Module): Unit =
+    def collectTrees(s: Section): List[scala.meta.Tree] =
+      s.content.collect {
+        case cb: Content.CodeBlock if Lang.isScalaScript(cb.lang) =>
+          cb.tree.map(ScalaNode.fold(_)(identity))
+      }.flatten ++ s.subsections.flatMap(collectTrees)
+    usesRunActors = module.sections.flatMap(collectTrees).exists { tree =>
+      tree.collect {
+        case scala.meta.Term.Apply.After_4_6_0(scala.meta.Term.Name("runActors"), _) => ()
+      }.nonEmpty
+    }
+
   /** True if `Eff.op` is a declared effect operation. */
   private def isEffectOpRef(eff: String, op: String): Boolean =
     effectOps.contains(s"$eff.$op")
@@ -6846,6 +6949,7 @@ class JsGen(
     analyzeMutualRecursion(module)
     analyzeEffects(module)
     scanForRunAsyncParallel(module)
+    scanForRunActors(module)
     // Emit `route(...)` registrations from front-matter before user blocks,
     // so a typical user-side `serve(port)` (last statement of the script)
     // sees them already registered.  JS function declarations are hoisted,
@@ -6884,12 +6988,28 @@ class JsGen(
       }
       s.subsections.foreach(walkSection)
 
-    if usesRunAsyncParallel then sb.append("(async () => {\n")
+    val needsAsyncSeg = usesRunAsyncParallel || usesRunActors
+    if needsAsyncSeg then
+      sb.append("(async () => {\n")
+      // See `genModule` for the rationale — install a write-through
+      // `_println` (and rebind `Console.println` which captures the
+      // original `_println` by reference) inside the IIFE so prints
+      // from after the first `await` reach stdout instead of being
+      // buffered into a `_output` array the outer segment-end flush
+      // no longer sees.
+      sb.append("if (typeof process !== 'undefined' && process.stdout && typeof _output !== 'undefined') {\n")
+      sb.append("  _println = function(s) { process.stdout.write(String(s) + '\\n'); };\n")
+      sb.append("  _print   = function(s) { process.stdout.write(String(s));        };\n")
+      sb.append("  if (typeof Console !== 'undefined') {\n")
+      sb.append("    Console.println = _println;\n")
+      sb.append("    Console.print   = _print;\n")
+      sb.append("  }\n")
+      sb.append("}\n")
     module.sections.foreach(walkSection)
     flushScala()
     if hasMain && !mainCalled then
       sb.append("if (typeof main === 'function') { main(); }\n")
-    if usesRunAsyncParallel then
+    if needsAsyncSeg then
       sb.append("})().catch(e => { if (typeof process !== 'undefined') { process.stderr.write(String(e) + '\\n'); process.exit(1); } });\n")
     val finalCode = sb.substring(ssStart)
     if finalCode.trim.nonEmpty then result += JsGen.Segment.ScalaScriptJs(finalCode)
@@ -8025,10 +8145,17 @@ class JsGen(
 
     // ── v1.6 Actors Phase 1 ─────────────────────────────────────────
     // `runActors { body }` — body is CPS-emitted so Actor.* ops build
-    // a Free tree the scheduler walks.
+    // a Free tree the scheduler walks.  When the module uses `runActors`
+    // anywhere, the whole top level runs inside an async IIFE (see
+    // `genModule`'s `needsAsync`), and `_runActors` is async so it yields
+    // to Node's event loop between scheduler ticks; the `await` here
+    // makes the caller observe the body's last expression value (instead
+    // of a Promise) and lets surrounding statements see the actor body's
+    // side effects finish before they run.
     case Term.Apply.After_4_6_0(Term.Name("runActors"), bodyArgClause)
         if bodyArgClause.values.size == 1 =>
-      s"_runActors(() => ${genCpsExpr(bodyArgClause.values.head.asInstanceOf[Term])})"
+      val awaitPrefix = if usesRunActors then "await " else ""
+      s"${awaitPrefix}_runActors(() => ${genCpsExpr(bodyArgClause.values.head.asInstanceOf[Term])})"
 
     // `receive(timeout = N) { case … }` — same machinery as `receive`
     // but the matcher is registered with `wrapSome=true` and the
@@ -8729,7 +8856,8 @@ class JsGen(
     // ── v1.6 Actors Phase 1 (inside CPS body) ──────────────────────────
     case Term.Apply.After_4_6_0(Term.Name("runActors"), bodyArgClause)
         if bodyArgClause.values.size == 1 =>
-      s"_runActors(() => ${genCpsExpr(bodyArgClause.values.head.asInstanceOf[Term])})"
+      val awaitPrefix = if usesRunActors then "await " else ""
+      s"${awaitPrefix}_runActors(() => ${genCpsExpr(bodyArgClause.values.head.asInstanceOf[Term])})"
 
     case Term.Apply.After_4_6_0(
             Term.Apply.After_4_6_0(Term.Name("receive"), timeoutArgClause),
