@@ -2043,3 +2043,228 @@ class SparkGenTest extends AnyFunSuite:
     // anchor saves us.
     assert(!SparkGen.containsMllib("val mllibStuff = 42"))
   }
+
+  // ── Phase G.2 — Hive metastore / warehouse front-matter ──────────────────
+
+  private def genHive(
+      ssc:           String,
+      hiveMetastore: Option[String]      = None,
+      warehouse:     Option[String]      = None,
+      sparkVersion:  String              = SparkGen.DefaultVersion,
+      extraConfig:   Map[String, String] = Map.empty
+  ): String =
+    val module = Parser.parse(ssc)
+    SparkGen.generate(
+      module,
+      sparkVersion  = sparkVersion,
+      hiveMetastore = hiveMetastore,
+      warehouse     = warehouse,
+      extraConfig   = extraConfig
+    )
+
+  test("Phase G.2 — non-hive module emits no spark-hive dep or hive configs") {
+    // Regression guard: every existing example (~141 SparkGenTest +
+    // smoke examples) lacks the hive front-matter and never calls
+    // `.enableHiveSupport()`.  The emit must be byte-identical to
+    // today's baseline — no dep line, no catalogImplementation
+    // config, no metastore URI, no warehouse dir, no
+    // enableHiveSupport() chain.
+    val code = genHive("# Test\n```scalascript\nval x = 1\n```\n")
+    assert(!code.contains("spark-hive_2.13"),
+      s"non-hive module must NOT emit spark-hive dep, got:\n$code")
+    assert(!code.contains("spark.sql.catalogImplementation"),
+      s"non-hive module must NOT emit catalogImplementation config, got:\n$code")
+    assert(!code.contains("spark.hadoop.hive.metastore.uris"),
+      s"non-hive module must NOT emit metastore URI config, got:\n$code")
+    assert(!code.contains("spark.sql.warehouse.dir"),
+      s"non-hive module must NOT emit warehouse dir config, got:\n$code")
+    assert(!code.contains(".enableHiveSupport()"),
+      s"non-hive module must NOT emit .enableHiveSupport(), got:\n$code")
+  }
+
+  test("Phase G.2 — spark-hive-metastore front-matter triggers spark-hive dep + hive wiring") {
+    // Front-matter sets the Thrift URI; emitter wires the full chain:
+    //   1. //> using dep "org.apache.spark:spark-hive_2.13:<v>"
+    //   2. .config("spark.sql.catalogImplementation", "hive")
+    //   3. .config("spark.hadoop.hive.metastore.uris", "<uri>")
+    //   4. .enableHiveSupport() before .getOrCreate()
+    val uri = "thrift://metastore.example.com:9083"
+    val code = genHive(
+      "# Test\n```scalascript\nval x = 1\n```\n",
+      hiveMetastore = Some(uri)
+    )
+    val expectedDep =
+      s"""//> using dep "org.apache.spark:spark-hive_2.13:${SparkGen.DefaultVersion}""""
+    assert(code.contains(expectedDep),
+      s"expected spark-hive dep:\n$expectedDep\n in:\n$code")
+    assert(code.contains(""".config("spark.sql.catalogImplementation", "hive")"""),
+      s"expected catalogImplementation=hive config, got:\n$code")
+    assert(code.contains(s""".config("spark.hadoop.hive.metastore.uris", "$uri")"""),
+      s"expected metastore URI config, got:\n$code")
+    assert(code.contains(".enableHiveSupport()"),
+      s"expected .enableHiveSupport() chain, got:\n$code")
+    // Warehouse dir line should NOT appear when only the metastore
+    // key is set — Spark falls back to its built-in default in that
+    // case.
+    assert(!code.contains("spark.sql.warehouse.dir"),
+      s"metastore-only setup must NOT emit warehouse dir, got:\n$code")
+  }
+
+  test("Phase G.2 — spark-warehouse front-matter triggers spark-hive dep + warehouse wiring") {
+    // Symmetric to the metastore case: a warehouse-only setup uses
+    // Spark's embedded derby metastore at the warehouse path.  Same
+    // dep + catalogImplementation switch, with the warehouse dir
+    // config replacing the metastore URI line.
+    val path = "/lake/warehouse"
+    val code = genHive(
+      "# Test\n```scalascript\nval x = 1\n```\n",
+      warehouse = Some(path)
+    )
+    val expectedDep =
+      s"""//> using dep "org.apache.spark:spark-hive_2.13:${SparkGen.DefaultVersion}""""
+    assert(code.contains(expectedDep),
+      s"expected spark-hive dep on warehouse-only setup, got:\n$code")
+    assert(code.contains(""".config("spark.sql.catalogImplementation", "hive")"""),
+      s"expected catalogImplementation=hive, got:\n$code")
+    assert(code.contains(s""".config("spark.sql.warehouse.dir", "$path")"""),
+      s"expected warehouse dir config, got:\n$code")
+    assert(code.contains(".enableHiveSupport()"),
+      s"expected .enableHiveSupport() chain on warehouse-only setup, got:\n$code")
+    assert(!code.contains("spark.hadoop.hive.metastore.uris"),
+      s"warehouse-only setup must NOT emit metastore URI config, got:\n$code")
+  }
+
+  test("Phase G.2 — both front-matter keys emit both .config lines + single dep + single enableHiveSupport") {
+    // Real-world setup: a Thrift metastore service plus an explicit
+    // warehouse directory pointing at the same shared lake.  Both
+    // lines arrive; the dep + catalogImplementation switch + Hive
+    // support chain are emitted exactly once.
+    val uri  = "thrift://metastore.example.com:9083"
+    val path = "/lake/warehouse"
+    val code = genHive(
+      "# Test\n```scalascript\nval x = 1\n```\n",
+      hiveMetastore = Some(uri),
+      warehouse     = Some(path)
+    )
+    assert(code.contains(s""".config("spark.hadoop.hive.metastore.uris", "$uri")"""),
+      s"both-keys setup must emit metastore URI, got:\n$code")
+    assert(code.contains(s""".config("spark.sql.warehouse.dir", "$path")"""),
+      s"both-keys setup must emit warehouse dir, got:\n$code")
+    // No double-emit on the dep / catalogImplementation / Hive
+    // support chain.  Detection in `genModule` ORs the three
+    // triggers so multiple flags fire one emission each.
+    val depCount = "spark-hive_2.13".r.findAllIn(code).length
+    assert(depCount == 1,
+      s"spark-hive dep must appear exactly once, got $depCount times in:\n$code")
+    val implCount = "spark.sql.catalogImplementation".r.findAllIn(code).length
+    assert(implCount == 1,
+      s"catalogImplementation config must appear exactly once, got $implCount times")
+    val ehsCount = """\.enableHiveSupport\(\)""".r.findAllIn(code).length
+    assert(ehsCount == 1,
+      s".enableHiveSupport() must appear exactly once, got $ehsCount times")
+  }
+
+  test("Phase G.2 — user .enableHiveSupport() call in scalascript triggers spark-hive dep") {
+    // Detection key is the textual `.enableHiveSupport()` literal
+    // anywhere in user code.  No front-matter needed — the user has
+    // already opted in by writing the call.  The generated builder
+    // still emits the `spark-hive_2.13` dep + catalogImplementation
+    // config so the JAR is on the classpath, but the
+    // `.enableHiveSupport()` chain on the builder is suppressed (the
+    // user's own call wins) to avoid a redundant emit.
+    val code = genHive(
+      """|# Test
+         |```scalascript
+         |val spark2 = SparkSession.builder().enableHiveSupport().getOrCreate()
+         |```
+         |""".stripMargin
+    )
+    assert(code.contains("spark-hive_2.13"),
+      s"user .enableHiveSupport() must trigger spark-hive dep, got:\n$code")
+    assert(code.contains(""".config("spark.sql.catalogImplementation", "hive")"""),
+      s"user .enableHiveSupport() must trigger catalogImplementation=hive, got:\n$code")
+    // The generated builder's own `.enableHiveSupport()` line is
+    // suppressed when the user has already written their own.  The
+    // user's call remains visible (we only suppress on the emitter
+    // side, never strip user lines).
+    val ehsCount = """\.enableHiveSupport\(\)""".r.findAllIn(code).length
+    assert(ehsCount == 1,
+      s".enableHiveSupport() must appear exactly once (user's own), got $ehsCount in:\n$code")
+  }
+
+  test("Phase G.2 — hive configs land after lakehouse configs and before user spark-config") {
+    // Ordering contract:
+    //   adaptive local defaults
+    //   → lakehouse configs
+    //   → Hive configs (catalogImplementation + URIs + warehouse)
+    //   → user `spark-config:` map
+    //   → .enableHiveSupport()
+    //   → .getOrCreate()
+    // The user override path is well-tested for `spark-config:` vs
+    // lakehouse already (last-write-wins); this assertion pins that
+    // Hive sits in the right slot between the two.
+    val code = genHive(
+      """|# Test
+         |```scalascript
+         |val df = spark.read.format("delta").load("/tmp/x")
+         |```
+         |""".stripMargin,
+      hiveMetastore = Some("thrift://metastore.example.com:9083"),
+      extraConfig   = Map("spark.foo.bar" -> "baz")
+    )
+    // Delta extension (lakehouse) must appear BEFORE catalogImplementation (Hive).
+    val idxDelta = code.indexOf(""".config("spark.sql.extensions", "io.delta""")
+    val idxHive  = code.indexOf(""".config("spark.sql.catalogImplementation", "hive")""")
+    val idxUser  = code.indexOf(""".config("spark.foo.bar", "baz")""")
+    val idxEhs   = code.indexOf(".enableHiveSupport()")
+    val idxGet   = code.indexOf(".getOrCreate()")
+    assert(idxDelta > 0 && idxHive > idxDelta,
+      s"Hive catalogImplementation must come AFTER lakehouse extension; delta=$idxDelta hive=$idxHive")
+    assert(idxHive > 0 && idxUser > idxHive,
+      s"user spark-config must come AFTER Hive configs; hive=$idxHive user=$idxUser")
+    assert(idxUser > 0 && idxEhs > idxUser,
+      s".enableHiveSupport() must come AFTER user spark-config; user=$idxUser ehs=$idxEhs")
+    assert(idxEhs > 0 && idxGet > idxEhs,
+      s".enableHiveSupport() must come BEFORE .getOrCreate(); ehs=$idxEhs get=$idxGet")
+  }
+
+  test("Phase G.2 — spark-hive dep version tracks sparkVersion override") {
+    // Same propagation as the kafka dep (F.4) and the core/sql JARs:
+    // a user pinning a non-default Spark version sees the hive coord
+    // track it.
+    val code = genHive(
+      "# Test\n```scalascript\nval x = 1\n```\n",
+      hiveMetastore = Some("thrift://metastore.example.com:9083"),
+      sparkVersion  = "3.5.1"
+    )
+    assert(code.contains("""//> using dep "org.apache.spark:spark-hive_2.13:3.5.1""""),
+      s"spark-hive dep version must match sparkVersion arg, got:\n$code")
+  }
+
+  test("Phase G.2 — special characters in metastore URI / warehouse path are escaped") {
+    // Values land in Scala double-quoted string literals; backslash
+    // and quote must escape.  The `escape` helper covers \, ", \n,
+    // \r, \t — same as the existing spark-config emitter.
+    val code = genHive(
+      "# Test\n```scalascript\nval x = 1\n```\n",
+      hiveMetastore = Some("thrift://host:9083?key=\"value\""),
+      warehouse     = Some("""C:\spark\warehouse""")
+    )
+    // The metastore URI's embedded quotes must be \"-escaped.
+    assert(code.contains("""\"value\""""),
+      s"embedded quotes in metastore URI must be escaped, got:\n$code")
+    // Backslash in the warehouse path must be \\-escaped.
+    assert(code.contains("""C:\\spark\\warehouse"""),
+      s"backslashes in warehouse path must be escaped, got:\n$code")
+  }
+
+  test("Phase G.2 — containsEnableHiveSupport helper pins the detection contract") {
+    // Pin the detection helper directly — used inside genModule and
+    // potentially useful to tooling.
+    assert(SparkGen.containsEnableHiveSupport(".enableHiveSupport()"))
+    assert(SparkGen.containsEnableHiveSupport(
+      "val spark = SparkSession.builder().enableHiveSupport().getOrCreate()"
+    ))
+    assert(!SparkGen.containsEnableHiveSupport("val x = 1"))
+    assert(!SparkGen.containsEnableHiveSupport(".master(\"local[*]\")"))
+  }

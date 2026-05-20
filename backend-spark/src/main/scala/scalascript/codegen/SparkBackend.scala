@@ -68,8 +68,16 @@ import scalascript.transform.Denormalize
  *  values with `=` in them (rare but legal). */
 object SparkBackend:
 
-  val SparkConfigOption:  String = "sparkConfig"
-  val SparkAppNameOption: String = "sparkAppName"
+  val SparkConfigOption:        String = "sparkConfig"
+  val SparkAppNameOption:       String = "sparkAppName"
+  // Phase G.2 — Hive metastore + warehouse front-matter keys threaded
+  // through `BackendOptions.extra`.  Resolution order at the CLI layer:
+  // front-matter `spark-hive-metastore:` / `spark-warehouse:` →
+  // SparkGen `hiveMetastore` / `warehouse` constructor params → emit
+  // the corresponding `.config(...)` lines + `.enableHiveSupport()` +
+  // `spark-hive_2.13` dep.
+  val SparkHiveMetastoreOption: String = "sparkHiveMetastore"
+  val SparkWarehouseOption:     String = "sparkWarehouse"
 
   def encodeSparkConfig(m: Map[String, String]): String =
     m.toList.sortBy(_._1).map { case (k, v) => s"$k=$v" }.mkString("\n")
@@ -114,14 +122,24 @@ class SparkBackend extends Backend:
       .map(SparkBackend.decodeSparkConfig)
       .getOrElse(Map.empty)
     val appName      = opts.extra.getOrElse(SparkBackend.SparkAppNameOption, SparkGen.DefaultAppName)
+    // Phase G.2 — Hive front-matter keys travel through `extra` as
+    // single optional strings.  `Option`-valued so a downstream `None`
+    // unambiguously means "no key set in front-matter"; an empty
+    // string would be ambiguous (could mean "intentional empty
+    // metastore URI", which Spark would later interpret as no URI
+    // anyway, but the Option shape keeps codegen layered cleanly).
+    val hiveMetastore = opts.extra.get(SparkBackend.SparkHiveMetastoreOption)
+    val warehouse     = opts.extra.get(SparkBackend.SparkWarehouseOption)
     val baseDir      = opts.baseDir.map(p => os.Path(p.toAbsolutePath.toString))
     val code         = SparkGen.generate(
       astModule,
-      baseDir      = baseDir,
-      sparkVersion = sparkVersion,
-      sparkMaster  = sparkMaster,
-      extraConfig  = extraConfig,
-      appName      = appName
+      baseDir       = baseDir,
+      sparkVersion  = sparkVersion,
+      sparkMaster   = sparkMaster,
+      extraConfig   = extraConfig,
+      appName       = appName,
+      hiveMetastore = hiveMetastore,
+      warehouse     = warehouse
     )
     val hash         = java.lang.Integer.toHexString(code.hashCode & 0x7fffffff)
     val tmpFile      = os.Path(s"/tmp/ssc-spark-$hash.scala")

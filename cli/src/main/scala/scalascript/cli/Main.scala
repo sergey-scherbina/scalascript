@@ -1629,12 +1629,27 @@ def runCommand(args: List[String]): Unit =
             val appName = module.manifest
               .flatMap(_.raw.get("spark-app-name"))
               .collect { case s: String => s }
+            // Phase G.2 — `spark-hive-metastore:` (Thrift URI) and
+            // `spark-warehouse:` (path) keys.  Both read here from
+            // the raw YAML map before Normalize strips it; both
+            // threaded through BackendOptions.extra as single
+            // strings.  Either key alone is enough to trigger the
+            // Hive wiring on the SparkSession (catalogImplementation
+            // = hive + enableHiveSupport + spark-hive_2.13 dep).
+            val hiveMetastore = module.manifest
+              .flatMap(_.raw.get("spark-hive-metastore"))
+              .collect { case s: String => s }
+            val warehouse = module.manifest
+              .flatMap(_.raw.get("spark-warehouse"))
+              .collect { case s: String => s }
             val base = Map("sparkVersion" -> version, "sparkMaster" -> master)
             val withConfig =
               if configMap.isEmpty then base
               else base + (SparkBackend.SparkConfigOption ->
                            SparkBackend.encodeSparkConfig(configMap))
-            appName.fold(withConfig)(n => withConfig + (SparkBackend.SparkAppNameOption -> n))
+            val withAppName = appName.fold(withConfig)(n => withConfig + (SparkBackend.SparkAppNameOption -> n))
+            val withHive    = hiveMetastore.fold(withAppName)(uri => withAppName + (SparkBackend.SparkHiveMetastoreOption -> uri))
+            warehouse.fold(withHive)(p => withHive + (SparkBackend.SparkWarehouseOption -> p))
           else Map.empty
         compileViaBackend(effectiveBackend, path, extras) match
           case CompileResult.Executed(stdout, stderr, exit) =>

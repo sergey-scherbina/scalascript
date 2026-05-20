@@ -7107,8 +7107,8 @@ Thin `backend-wasm-contract/` layer on top of `backend-wasm/` for Near or Polkad
 >   semantics / `Dataset.fromTable[T]` / composition with C.1-C.3,
 >   D, E, F, L.2 / testing strategy / open questions.  No code
 >   changes; gives implementers G.2–G.4 a stable contract.
-> - **G.2 — Front-matter for metastore + warehouse.**  New
->   `spark-hive-metastore:` (Thrift URI) and `spark-warehouse:`
+> - **G.2 — Front-matter for metastore + warehouse (landed 2026-05-20).**
+>   New `spark-hive-metastore:` (Thrift URI) and `spark-warehouse:`
 >   (path) keys threaded through `BackendOptions.extra` into
 >   `SparkGen`.  Emits `.config("spark.sql.catalogImplementation",
 >   "hive")` + `.config("spark.hadoop.hive.metastore.uris", "<uri>")`
@@ -7116,7 +7116,12 @@ Thin `backend-wasm-contract/` layer on top of `backend-wasm/` for Near or Polkad
 >   `.enableHiveSupport()` on the builder when either key is set
 >   (or when `enableHiveSupport()` appears in user code).
 >   Auto-adds `org.apache.spark:spark-hive_2.13:<sparkVersion>` as
->   a `//> using dep`.
+>   a `//> using dep`.  Hive configs sit between lakehouse configs
+>   and the user `spark-config:` map so user overrides still win
+>   (Spark builder is last-write).  9 new `SparkGenTest` cases pin
+>   detection, dep emit, config ordering, escape semantics, and the
+>   textual `.enableHiveSupport()` short-circuit.  Existing 141
+>   `SparkGenTest` cases unchanged.
 > - **G.3 — `@TempView("name")` annotation.**  Regex pass strips
 >   the annotation line and emits
 >   `<varName>.createOrReplaceTempView("<viewName>")` after the

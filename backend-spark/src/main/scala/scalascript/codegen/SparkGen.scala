@@ -115,15 +115,20 @@ object SparkGen:
   )
 
   def generate(
-      module:       Module,
-      baseDir:      Option[os.Path]     = None,
-      sparkVersion: String              = DefaultVersion,
-      sparkMaster:  String              = DefaultMaster,
-      extraConfig:  Map[String, String] = Map.empty,
-      appName:      String              = DefaultAppName,
-      scalaVersion: String              = DefaultScalaVersion
+      module:        Module,
+      baseDir:       Option[os.Path]     = None,
+      sparkVersion:  String              = DefaultVersion,
+      sparkMaster:   String              = DefaultMaster,
+      extraConfig:   Map[String, String] = Map.empty,
+      appName:       String              = DefaultAppName,
+      scalaVersion:  String              = DefaultScalaVersion,
+      hiveMetastore: Option[String]      = None,
+      warehouse:     Option[String]      = None
   ): String =
-    SparkGen(baseDir, sparkVersion, sparkMaster, extraConfig, appName, scalaVersion).genModule(module)
+    SparkGen(
+      baseDir, sparkVersion, sparkMaster, extraConfig, appName, scalaVersion,
+      hiveMetastore, warehouse
+    ).genModule(module)
 
   /** A collected ScalaScript code block ready for emission. */
   private[codegen] case class Block(src: String)
@@ -316,6 +321,42 @@ object SparkGen:
   def containsMllib(source: String): Boolean =
     MllibImportPattern.findFirstIn(source).isDefined
 
+  // ── Phase G.2 — Hive metastore / catalog detection helpers ──────────────
+  //
+  // Two triggers, ORed together, decide whether the generated source
+  // wires Hive support on the SparkSession:
+  //
+  //   1. Front-matter `spark-hive-metastore:` or `spark-warehouse:`
+  //      set in the module manifest (threaded into SparkGen via the
+  //      `hiveMetastore` / `warehouse` constructor params).
+  //   2. The user's scalascript code literally calls
+  //      `.enableHiveSupport()` on `SparkSession.builder()`.  Detected
+  //      by substring match on the joined post-`extractSqlFns` source.
+  //
+  // When either trigger fires, `genModule` emits:
+  //   - `//> using dep "org.apache.spark:spark-hive_2.13:<sparkVersion>"`
+  //     in the file header (sits after the lakehouse deps, before
+  //     front-matter pass-through — see docs/spark-catalog.md).
+  //   - `.config("spark.sql.catalogImplementation", "hive")` on the
+  //     builder, BEFORE the user `spark-config:` map so a user
+  //     override still wins.
+  //   - `.config("spark.hadoop.hive.metastore.uris", "<uri>")` when
+  //     the front-matter `spark-hive-metastore:` is set.
+  //   - `.config("spark.sql.warehouse.dir", "<path>")` when the
+  //     front-matter `spark-warehouse:` is set.
+  //   - `.enableHiveSupport()` immediately before `.getOrCreate()`.
+  //
+  // Detection is purely substring — false positives (e.g. a literal
+  // `"enableHiveSupport"` inside a string) are rare in practice and
+  // would just add a redundant dep + flag.
+
+  /** Does the joined module source explicitly call
+   *  `enableHiveSupport()` on the builder?  Used to trigger the Hive
+   *  dep + builder wiring even when no front-matter key is set.  Same
+   *  textual detection shape as `containsAwaitTermination`. */
+  def containsEnableHiveSupport(source: String): Boolean =
+    source.contains("enableHiveSupport")
+
   /** Result of `detectLakehouseFormats`: which lakehouse format names
    *  appear as the literal argument of `.format("…")` anywhere in the
    *  collected block sources.
@@ -430,12 +471,14 @@ object SparkGen:
       }
 
 private class SparkGen(
-    baseDir:      Option[os.Path]     = None,
-    sparkVersion: String              = SparkGen.DefaultVersion,
-    sparkMaster:  String              = SparkGen.DefaultMaster,
-    extraConfig:  Map[String, String] = Map.empty,
-    appName:      String              = SparkGen.DefaultAppName,
-    scalaVersion: String              = SparkGen.DefaultScalaVersion
+    baseDir:       Option[os.Path]     = None,
+    sparkVersion:  String              = SparkGen.DefaultVersion,
+    sparkMaster:   String              = SparkGen.DefaultMaster,
+    extraConfig:   Map[String, String] = Map.empty,
+    appName:       String              = SparkGen.DefaultAppName,
+    scalaVersion:  String              = SparkGen.DefaultScalaVersion,
+    hiveMetastore: Option[String]      = None,
+    warehouse:     Option[String]      = None
 ):
 
   // Resolved paths already inlined via Content.Import (diamond-safe).
@@ -512,6 +555,17 @@ private class SparkGen(
       SparkGen.containsFileStreamSink(joinedUserSrc) &&
       !SparkGen.containsCheckpointLocation(joinedUserSrc)
 
+    // Phase G.2 — Hive metastore / catalog detection.  Triggered
+    // by either front-matter (`spark-hive-metastore:` or
+    // `spark-warehouse:`) OR a textual `.enableHiveSupport()` in
+    // user code.  When fired, the emitter adds the `spark-hive_2.13`
+    // runtime dep, the `spark.sql.catalogImplementation=hive` config
+    // line, the per-key configs (metastore URI, warehouse dir), and
+    // `.enableHiveSupport()` immediately before `.getOrCreate()`.
+    val needsHive: Boolean =
+      hiveMetastore.isDefined || warehouse.isDefined ||
+      SparkGen.containsEnableHiveSupport(joinedUserSrc)
+
     val sb = StringBuilder()
 
     // Generated file header — documents the Spark version and run instructions.
@@ -568,6 +622,18 @@ private class SparkGen(
     // baseline.
     if lakehouse.usesDelta then
       sb.append(s"""//> using dep "io.delta:delta-spark_2.13:${SparkGen.DefaultDeltaVersion}"\n""")
+
+    // Phase G.2 — Hive metastore / warehouse runtime dep.  Emitted
+    // when the front-matter `spark-hive-metastore:` or
+    // `spark-warehouse:` is set, OR when user code textually invokes
+    // `.enableHiveSupport()`.  Pinned to the same Spark version as
+    // `spark-core` / `spark-sql` because Spark publishes the hive
+    // shim alongside its own JARs (the major.minor matches Spark's
+    // own).  Sits between the lakehouse deps and the front-matter
+    // pass-through so a user-declared override in `dependencies:`
+    // wins on scala-cli's last-write semantics.
+    if needsHive then
+      sb.append(s"""//> using dep "org.apache.spark:spark-hive_2.13:$sparkVersion"\n""")
 
     // scala-cli `//> using dep` directives from front-matter (same pattern
     // as JvmGen).  Spark deps are added separately at call site via
@@ -638,6 +704,27 @@ private class SparkGen(
     SparkGen.lakehouseConfigs(lakehouse).foreach { (k, v) =>
       sb.append(s"""    .config("${escape(k)}", "${escape(v)}")\n""")
     }
+    // Phase G.2 — Hive metastore + warehouse configs.  Emitted AFTER
+    // the lakehouse defaults (Delta's `spark_catalog` override sits
+    // alongside the Hive catalogImplementation switch; Spark merges
+    // them at runtime) and BEFORE the user `spark-config:` map so
+    // overrides still win.  Each line is independently gated:
+    //
+    //   - `spark.sql.catalogImplementation=hive` fires whenever
+    //     `needsHive` is true (front-matter set OR user code calls
+    //     enableHiveSupport).
+    //   - The metastore URI line fires only when
+    //     `hiveMetastore.isDefined` — a warehouse-only setup uses
+    //     Spark's embedded derby metastore at the warehouse path.
+    //   - The warehouse dir line fires only when `warehouse.isDefined`.
+    if needsHive then
+      sb.append("""    .config("spark.sql.catalogImplementation", "hive")""" + "\n")
+    hiveMetastore.foreach { uri =>
+      sb.append(s"""    .config("spark.hadoop.hive.metastore.uris", "${escape(uri)}")\n""")
+    }
+    warehouse.foreach { path =>
+      sb.append(s"""    .config("spark.sql.warehouse.dir", "${escape(path)}")\n""")
+    }
     // User-supplied `spark-config:` front-matter map (v1.25 § 9.5 Phase C.3
     // slice 3) — emit one `.config(k, v)` per entry, sorted by key for
     // deterministic source.  Values are passed through verbatim and
@@ -647,6 +734,16 @@ private class SparkGen(
     extraConfig.toList.sortBy(_._1).foreach { (k, v) =>
       sb.append(s"""    .config("${escape(k)}", "${escape(v)}")\n""")
     }
+    // Phase G.2 — `.enableHiveSupport()` chained immediately before
+    // `.getOrCreate()` when Hive support is needed.  Spark's builder
+    // accepts this at any point in the chain but the convention is
+    // to call it just before resolution.  Suppressed when the user's
+    // own scalascript code already includes the call — the textual
+    // detection in `needsHive` is via OR, but emitting two
+    // `enableHiveSupport()` calls is harmless (Spark accepts the
+    // duplicate); we suppress for cleanliness.
+    if needsHive && !SparkGen.containsEnableHiveSupport(joinedUserSrc) then
+      sb.append("    .enableHiveSupport()\n")
     sb.append("    .getOrCreate()\n")
     // Bring Phase E encoder givens (primitive + case-class derivation) into
     // scope.  Replaces `import spark.implicits._` which triggers TypeTag-
