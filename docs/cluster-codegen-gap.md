@@ -1,7 +1,9 @@
 # Cluster intrinsics — per-backend gap matrix (Tier 4 prerequisite)
 
-Status: audit snapshot taken 2026-05-20.  Re-run before scoping codegen
-multi-node tests.
+Status: audit snapshot taken 2026-05-20; refreshed 2026-05-20 after
+`serveAsync` and `/_ssc-cluster/*` route auto-registration landed on
+both codegen backends.  Re-run before scoping codegen multi-node
+tests.
 
 Companion to [`docs/cluster-management.md`](cluster-management.md) §11
 (Tier 4) and [`docs/cluster-raft.md`](cluster-raft.md) §6.
@@ -29,8 +31,8 @@ include browser nodes per `cluster-management.md` §7 hard-no list).
 | `startNode(nodeId, url)`                      | ✓   | ✓       | ✓    | |
 | `connectNode(url, token?)`                    | ✓   | ✓       | ✓    | foundational dial primitive |
 | `joinCluster(seeds, token?)`                  | ✓   | ✓       | ✓    | |
-| `serveAsync(port)`                            | ✗   | ✗       | ✓    | |
-| `serveAsync(port, tls(certPath, keyPath))`    | ✗   | ✗       | ✓    | |
+| `serveAsync(port)`                            | ✓   | ✓       | ✓    | landed `ea02fe06` (JVM), `7df3aa83` (JS) |
+| `serveAsync(port, tls(certPath, keyPath))`    | ✓   | ✓       | ✓    | TLS overload same commits |
 | `tls(certPath, keyPath)`                      | ✓   | ✓       | ✓    | helper for `serve(Async)?` |
 | `electLeader()`                               | ✓   | ✓       | ✓    | Bully + Raft + coord branches |
 | `currentLeader()`                             | ✓   | ✓       | ✓    | protocol-aware accessor |
@@ -66,31 +68,35 @@ include browser nodes per `cluster-management.md` §7 hard-no list).
 | `publish(topic, msg)`                         | ✗   | ✗       | ✓    | cluster-wide pub/sub |
 | `subscribePublish(topic)` / `unsubscribePublish(topic)` | ✗ | ✗ | ✓ | |
 | `clusterAtomicGet/Set/Add/CompareAndSet`      | ✗   | ✗       | ✓    | cluster-wide atomic counters |
-| `setClusterAuthToken(token)`                  | ✗   | ✗       | ✓    | bearer-token guard for `/_ssc-cluster/*` |
-| `GET /_ssc-cluster/status` route auto-register| ✗   | ✗       | ✓    | ops HTTP endpoint |
-| `POST /_ssc-cluster/drain` route auto-register| ✗   | ✗       | ✓    | |
-| `GET /_ssc-cluster/events` route auto-register| ✗   | ✗       | ✓    | |
-| `POST /_ssc-cluster/step-down` route auto-register | ✗ | ✗   | ✓    | |
-| `GET /_ssc-cluster/metrics-prom` route auto-register | ✗ | ✗ | ✓    | |
+| `setClusterAuthToken(token)`                  | ✗   | ✓ (Actor facade) | ✓ | JS: `Actor.setClusterAuthToken` landed `c82c1203`; term-level lowering for bare `setClusterAuthToken(...)` calls still missing |
+| `GET /_ssc-cluster/status` route auto-register| ✓   | ✓       | ✓    | landed `0b97e2df` (JVM), `c82c1203` (JS) |
+| `POST /_ssc-cluster/drain` route auto-register| ✓   | ✓       | ✓    | same commits |
+| `GET /_ssc-cluster/events` route auto-register| ✓   | ✓       | ✓    | same commits — `_clusterEventLog` ring (cap 200) added in both |
+| `POST /_ssc-cluster/step-down` route auto-register | ✓ | ✓   | ✓    | same commits |
+| `GET /_ssc-cluster/metrics-prom` route auto-register | ✓ | ✓ | ✓    | same commits |
 
 ## Notes
 
-- `serveAsync` (JVM): no codegen mapping in `backend-jvm`.  `JvmGen`
-  recognises `serve` (case `Term.Name("serve")`) and pulls in
-  `serveRuntime`, but `serveAsync` falls through with no `Actor.*`
-  alias and no symbol in the emitted runtime preamble — generated
-  Scala fails to type-check.  Only `serve(port)` (blocking) and
-  `serve(port, tls)` (blocking) exist in `runtime-server-jvm`.
-- `serveAsync` (JS Node): same shape — no `Term.Name("serveAsync")`
-  case in `JsGen` and no `serveAsync` entry in `JsHttpIntrinsics`.
-  Bare `serveAsync(port)` would emit verbatim and `ReferenceError`
-  at runtime.
+- `serveAsync` (JVM, landed): `runtime-server-jvm/ProxyRuntime.scala`
+  exposes `serveAsync(port, tlsCfg = null)` that performs the same
+  SPI bootstrap as `serve` but launches `backend.start(...)` on a
+  JDK 21+ `Thread.ofVirtual()` and returns immediately.  `JvmGen`
+  registers `serveAsync` in `JvmHttpIntrinsics` and adds a
+  `Term.Name("serveAsync")` case to `blocksUseRoutes` so a bare
+  `serveAsync(8080)` module pulls in `serveRuntime`.  Validated by
+  scala-cli e2e in `JvmGenEffectsRuntimeTest`.
+- `serveAsync` (JS Node, landed): `JsGen` emits a `serveAsync(port,
+  _tlsCfg)` JS runtime function that delegates to the existing
+  `serve` (Node's `server.listen` is already non-blocking; the event
+  loop holds the process alive).  Validated by 3 tests in
+  `NodeBackendTest` including an integration test that runs the
+  emitted bundle under `node`, schedules an external TCP probe,
+  confirms the listener bound, and verifies clean shutdown.
 - `serveAsync` (INT): implemented at
   `backend-interpreter/src/main/scala/scalascript/interpreter/intrinsics/Http.scala:46`,
   both 1-arg and 2-arg-with-TLS forms.  Runs the WS server on a
-  virtual thread so the actor scheduler keeps draining envelopes —
-  this is the unblock for multi-node clustering and is exercised by
-  `cli/src/test/scala/scalascript/cli/MultiNodeClusterTest.scala`
+  virtual thread so the actor scheduler keeps draining envelopes.
+  Exercised by `cli/src/test/scala/scalascript/cli/MultiNodeClusterTest.scala`
   (which runs through the interpreter via `ssc.jar`).
 - `publish` / `subscribePublish` / `unsubscribePublish` (JVM, JS):
   not yet ported to codegen — only `Interpreter.scala` dispatches
@@ -99,19 +105,27 @@ include browser nodes per `cluster-management.md` §7 hard-no list).
 - `clusterAtomic*` (JVM, JS): same story as pub/sub — only the
   interpreter implements the LWW-gossip + handshake-snapshot atomic
   counter intrinsics from commit `b2121759`.
-- `setClusterAuthToken` (JVM, JS): the shared-secret Bearer-token
-  guard for `/_ssc-cluster/*` endpoints (commit `3e5fa64e`) is only
-  recognised by the interpreter.  Codegen targets that try to call
-  it will not compile.
-- `/_ssc-cluster/*` route auto-registration (JVM, JS): the
+- `setClusterAuthToken` (JS Node, partially landed): `Actor.setClusterAuthToken`
+  facade lives in the JS runtime (commit `c82c1203`) and dispatches
+  via `_perform`.  Token defaults to `process.env.SSC_CLUSTER_TOKEN`
+  at construction.  Missing: a `Term.Apply(Term.Name("setClusterAuthToken"),
+  ...)` lowering in JsGen's surface codegen, so users calling
+  unqualified `setClusterAuthToken("...")` from `.ssc` source still
+  do not compile.  Same status as `setQuorumSize` (also `Actor` facade
+  only).
+- `setClusterAuthToken` (JVM): not yet ported.  The JVM cluster-routes
+  emission picks up the token from `SSC_CLUSTER_TOKEN` env var at
+  startup but exposes no runtime setter.  Follow-up: small wiring
+  task — `_runActors` already has the field; need `Actor.setClusterAuthToken`
+  facade + `_perform` dispatch + term-level lowering.
+- `/_ssc-cluster/*` route auto-registration (JVM, JS — landed): the
   `status` / `drain` / `events` / `step-down` / `metrics-prom`
-  endpoints are auto-installed by the interpreter as part of
-  `_runActors` setup; codegen backends do not emit equivalent route
-  registrations.  Apps compiled with `ssc compile-jvm` or the JS
-  backend lose the entire ops surface even though the underlying
-  intrinsic state (`currentLeader`, `_clusterEventQueue`, drain
-  flags) is all present in the emitted runtime — the wiring to HTTP
-  is just missing.
+  endpoints are now auto-installed inside the emitted `_runActors`
+  setup on both codegen backends.  Bearer-token gate, idempotency
+  check, and a `_clusterEventLog` ring buffer (cap 200, byte-compatible
+  with `Interpreter.clusterEventLog`) are emitted alongside.  JVM
+  validated by 5 scala-cli e2e tests in `JvmGenEffectsRuntimeTest`;
+  JS Node validated by e2e under `node` in `NodeBackendTest`.
 - Bully + Raft + external-coordinator algorithms are implemented in
   full on all three backends — `JvmGen` emits the algorithm as Scala
   in the `_runActors` body (search `_raftCurrentTerm`,
@@ -124,37 +138,32 @@ include browser nodes per `cluster-management.md` §7 hard-no list).
 
 A codegen multi-backend cluster test only makes sense once every row
 in the "core cluster intrinsics" portion of the matrix is ✓ or n/a on
-every backend.  Today the gating gaps are:
+every backend.  As of the 2026-05-20 refresh, the three original
+gating gaps are closed:
 
-1. **`serveAsync(port)` on JVM and JS Node.**  Without a non-blocking
-   serve, codegen-compiled cluster nodes cannot bind a WS endpoint
-   AND drive their actor scheduler in the same process — `serve()`
-   blocks the calling thread and the scheduler stalls.  This is the
-   identical limitation `cluster-raft.md` §9 calls out as already
-   resolved on the interpreter but not yet on codegen.  Without this,
-   the multi-backend matrix test cannot even spin up a JVM-compiled
-   node and a JS-compiled node next to an INT node.
+1. **`serveAsync(port)` — closed.**  Landed on JVM (`ea02fe06`) and
+   JS Node (`7df3aa83`).  The interpreter limitation that
+   `cluster-raft.md` §9 called out is now fixed on codegen too.
+2. **`serveAsync(port, tls(...))` — closed.**  TLS overload shipped
+   in the same commits as the plaintext form.
+3. **`/_ssc-cluster/*` operational route auto-registration — closed.**
+   All five routes auto-install inside `_runActors` on JVM
+   (`0b97e2df`) and JS Node (`c82c1203`), with a Bearer-token gate
+   and a `_clusterEventLog` ring buffer.
 
-2. **`serveAsync(port, tls(...))` on JVM and JS Node.**  Same root
-   cause as (1); the TLS overload is also INT-only today.  Less
-   urgent than the plaintext form — a Tier 4 test can start without
-   `wss://`, but production-shape parity demands it land before
-   declaring Tier 4 done.
+Remaining gaps before the codegen multi-backend matrix test can be
+declared fully unblocked:
 
-3. **`/_ssc-cluster/*` operational route auto-registration on JVM
-   and JS Node.**  Not strictly required to validate
-   `_runActors` peer-envelope parity (the matrix test can probe state
-   via in-process actor sends), but without these the codegen-built
-   binaries can't be polled by `ssc cluster status` / `drain` /
-   `events` from a test harness — the existing CLI integration tests
-   would all have to be rewritten or skipped for codegen targets.
+- **Secondary intrinsics** (`publish` / `subscribePublish` /
+  `unsubscribePublish`, `clusterAtomic*`) — interpreter-only.  Not
+  required for Bully / Raft / coordinator parity but block any
+  `.ssc` app that uses cluster-wide pub/sub or atomic counters
+  from cross-compiling to JVM or JS.
+- **`setClusterAuthToken` term-level lowering** — `Actor` facade
+  exists on JS Node; term-level bare-name lowering still missing on
+  both JS and JVM, and JVM lacks even the facade.  Same shape gap
+  exists for `setQuorumSize` on JS.
 
-The interpreter-only extras (`publish`, `clusterAtomic*`,
-`setClusterAuthToken`) are not strictly required for the Tier 4 core
-matrix — they're orthogonal cluster features built on top of the
-underlying intrinsics — but they should land in codegen before any
-*.ssc app that uses them can be cross-compiled to JVM or JS.
-
-Once the gating gaps above land, the harness work (real-WS
-multi-process integration test, see `cluster-raft.md` §9) is the
-next blocker — separate workstream.
+The harness work (real-WS multi-process integration test, see
+`cluster-raft.md` §9) is now the active workstream — all its
+prerequisites on the codegen side are in place.
