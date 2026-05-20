@@ -59,7 +59,7 @@ route("POST", "/api/todos/delete") { req =>
 
 [heading, text](std/ui/typography.ssc)
 
-[textField, checkbox, signalButton](std/ui/input.ssc)
+[textField, checkbox, signalButton, actionButton](std/ui/input.ssc)
 
 [showWhen, signalText_, fragment_, rawText](std/ui/reactive.ssc)
 
@@ -140,9 +140,9 @@ val tree = vstack(gap = 16)(
   divider(),
   heading(3, "Todo list (REST + SQLite)"),
   textField(value = newItem,  label = "New item"),
-  signalButton(fetchAction("POST", "/api/todos", newItem, refreshTick), true, "Add"),
+  actionButton(fetchAction("POST", "/api/todos", newItem, refreshTick), "Add"),
   textField(value = deleteId, label = "ID to delete"),
-  signalButton(fetchAction("POST", "/api/todos/delete", deleteId, refreshTick), true, "Delete"),
+  actionButton(fetchAction("POST", "/api/todos/delete", deleteId, refreshTick), "Delete"),
   element("pre", Map(), Map(), List(signalText_(todosText)))
 )
 ```

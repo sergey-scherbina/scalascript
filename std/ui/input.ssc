@@ -1,17 +1,18 @@
 ---
 name: ui-input
 version: 1.0.0
-description: Input widget constructors — textField, checkbox, signalButton. Return TkNode; lower with lower.ssc.
+description: Input widget constructors — textField, checkbox, signalButton, actionButton. Return TkNode; lower with lower.ssc.
 package: std.ui.input
 exports:
   - textField
   - checkbox
   - signalButton
+  - actionButton
 ---
 
 # `std.ui.input` — input constructors
 
-[TkNode, TextFieldNode, CheckboxNode, SignalButtonNode](nodes.ssc)
+[TkNode, TextFieldNode, CheckboxNode, SignalButtonNode, ActionButtonNode](nodes.ssc)
 
 ```scalascript
 def textField(value: Any,
@@ -30,4 +31,9 @@ def signalButton(signal: Any,
                  label: String = "Submit",
                  disabled: Boolean = false): TkNode =
   SignalButtonNode(signal, value, label, disabled)
+
+def actionButton(handler: Any,
+                 label: String = "Submit",
+                 disabled: Boolean = false): TkNode =
+  ActionButtonNode(handler, label, disabled)
 ```

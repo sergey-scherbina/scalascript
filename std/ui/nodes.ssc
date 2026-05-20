@@ -18,6 +18,7 @@ exports:
   - TextFieldNode
   - CheckboxNode
   - SignalButtonNode
+  - ActionButtonNode
   - BadgeNode
   - SpinnerNode
   - CardNode
@@ -66,6 +67,10 @@ case class SignalButtonNode(signal: Any,
                             value: Any,
                             label: String,
                             disabled: Boolean)          extends TkNode
+// ActionButtonNode — button wired to an EventHandler directly (e.g. fetchAction).
+case class ActionButtonNode(handler: Any,
+                             label: String,
+                             disabled: Boolean)         extends TkNode
 
 // ── Display ───────────────────────────────────────────────────────────────
 case class BadgeNode(content: String, variant: String)  extends TkNode

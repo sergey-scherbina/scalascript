@@ -71,6 +71,36 @@ ScalaScript is a meta-programming / specification language with extension `.ssc`
 4. **No AI at runtime or compile time.** The language stands on its own.
 5. **Each problem keeps its own dialect.** ScalaScript's value is not replacing every language but providing a common spec/translation layer between them.
 
+## Codebase architecture rules (binding)
+
+### New intrinsics always go to `std/` plugins, never to core
+
+When implementing a new `extern def` (intrinsic), **always** create or extend a
+plugin in `std/<feature>-plugin/`, not the interpreter core.
+
+**Wrong** — adding `NativeImpl` to any of:
+- `backend/interpreter/src/.../intrinsics/*.scala`  (e.g. `Jdbc.scala`, `UiPrimitives.scala`)
+- `core/` directly
+
+**Right** — creating a new plugin:
+1. `std/<feature>-plugin/src/main/scala/scalascript/compiler/plugin/<feature>/<Feature>Plugin.scala`
+2. `std/<feature>-plugin/src/main/scala/scalascript/compiler/plugin/<feature>/<Feature>Intrinsics.scala`
+3. `std/<feature>-plugin/src/main/resources/META-INF/services/scalascript.backend.spi.Backend`
+4. Register in `build.sbt`: new `lazy val`, add `% Test` to `backendInterpreter`, add to root aggregate and CLI plugin list.
+
+The plugin may import `scalascript.interpreter.{Value, InterpretError}` and
+`scalascript.frontend.*` — those live in `core` / `frontendCore` which all
+plugins already depend on.
+
+Bridge hooks that the interpreter exposes *to* plugins (e.g. `NativeContext.dbConnect`,
+`NativeContext.registerRoute`) are the only intrinsic-related code that belongs in
+`backend/spi` or the interpreter — they are the SPI contract, not the intrinsics themselves.
+
+**Examples of correct plugin layout:** `std/json-plugin`, `std/auth-plugin`,
+`std/oauth-plugin`, `std/sql-plugin`, `std/ui-fetch-plugin`.
+
+---
+
 ## Spec-driven development
 
 All non-trivial new features start with a **spec document** in

@@ -1504,6 +1504,11 @@ class Interpreter(
     case b: Boolean => Value.BoolV(b)
     case ()         => Value.UnitV
     case v: Value   => v
+    // Allow plugins to return native Scala List/Map without importing Value.
+    case lst: scala.collection.immutable.List[?] =>
+      Value.ListV(lst.map(wrapAnyAsValue))
+    case map: scala.collection.immutable.Map[?, ?] =>
+      Value.MapV(map.map { case (k, v) => wrapAnyAsValue(k) -> wrapAnyAsValue(v) })
     case other      => Value.StringV(other.toString)
 
   /** HTML-escape a string for safe interpolation in an html block. */

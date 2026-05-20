@@ -13,7 +13,7 @@ Pure function, no DOM, no async — safe for SSR.
 Import this + a Theme, build your tree with widget constructors,
 then call `serve(lower(tree, defaultTheme), 8080)`.
 
-[TkNode, VStackNode, HStackNode, DividerNode, SpacerNode, HeadingNode, TextNode_, ShowWhenNode, SignalTextNode, FragmentNode, RawTextNode, TextFieldNode, CheckboxNode, SignalButtonNode, BadgeNode, SpinnerNode, CardNode, ModalNode, TableColumn, TableNode, RouteEntry, RouterNode, LinkNode](nodes.ssc)
+[TkNode, VStackNode, HStackNode, DividerNode, SpacerNode, HeadingNode, TextNode_, ShowWhenNode, SignalTextNode, FragmentNode, RawTextNode, TextFieldNode, CheckboxNode, SignalButtonNode, ActionButtonNode, BadgeNode, SpinnerNode, CardNode, ModalNode, TableColumn, TableNode, RouteEntry, RouterNode, LinkNode](nodes.ssc)
 
 [Theme](theme.ssc)
 
@@ -134,6 +134,25 @@ def lower(n: TkNode, theme: Theme): View = n match
       element("button",
         Map("style" -> base, "type" -> "button"),
         Map("click" -> setSignal(sig, value)),
+        List(textNode(label)))
+
+  case ActionButtonNode(handler, label, disabled) =>
+    val sp   = theme.spacing
+    val t    = theme.typography.body
+    val base = s"background:${theme.colors.primary}; color:${theme.colors.onPrimary}; border:none; " +
+               s"padding:${sp.sm}px ${sp.md}px; font-size:${t.fontSize}px; font-family:${t.fontFamily}; " +
+               s"border-radius:${theme.radii.md}px; font-weight:500; cursor:pointer"
+    if disabled then
+      element("button",
+        Map("style"         -> (base + "; opacity:0.5; cursor:not-allowed"),
+            "type"          -> "button",
+            "aria-disabled" -> true),
+        Map(),
+        List(textNode(label)))
+    else
+      element("button",
+        Map("style" -> base, "type" -> "button"),
+        Map("click" -> handler),
         List(textNode(label)))
 
   // ── Display ──────────────────────────────────────────────────────────

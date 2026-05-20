@@ -465,7 +465,7 @@ lazy val backendCss = project
 // backends no longer reference each other.
 lazy val backendInterpreter = project
   .in(file("backend/interpreter"))
-  .dependsOn(backendSpi, core, runtimeServerCommon, runtimeServerJvm, mcpCommon, backendJs, backendSqlRuntime, frontendCore, backendJvm % Test, frontendCustom % Test, frontendReact % Test, frontendSolid % Test, frontendVue % Test, jsonPlugin % Test, frontendPlugin, requestPlugin % Test, authPlugin % Test, oauthPlugin % Test, uiFetchPlugin % Test)
+  .dependsOn(backendSpi, core, runtimeServerCommon, runtimeServerJvm, mcpCommon, backendJs, backendSqlRuntime, frontendCore, backendJvm % Test, frontendCustom % Test, frontendReact % Test, frontendSolid % Test, frontendVue % Test, jsonPlugin % Test, frontendPlugin, requestPlugin % Test, authPlugin % Test, oauthPlugin % Test, uiFetchPlugin % Test, sqlPlugin % Test)
   .settings(
     name := "scalascript-backend-interpreter",
     libraryDependencies ++= Seq(scalatestTest),
@@ -703,7 +703,8 @@ lazy val cli = project
       val compilerAbsPaths = (compilerJars :+ driverJar).map(_.getAbsolutePath).toSet
       val pluginJarPrefixes = Set("scalascript-json-plugin", "scalascript-frontend-plugin",
                                   "scalascript-request-plugin", "scalascript-auth-plugin",
-                                  "scalascript-oauth-plugin", "scalascript-ui-fetch-plugin")
+                                  "scalascript-oauth-plugin", "scalascript-ui-fetch-plugin",
+                                  "scalascript-sql-plugin")
       val isPluginJar = (f: java.io.File) => pluginJarPrefixes.exists(f.getName.startsWith)
       val runtimeJars = runtimeCp.filter { f =>
         f.isFile && f.getName.endsWith(".jar") &&
@@ -722,6 +723,7 @@ lazy val cli = project
         (authPlugin     / packagePlugin).value,
         (oauthPlugin    / packagePlugin).value,
         (uiFetchPlugin  / packagePlugin).value,
+        (sqlPlugin      / packagePlugin).value,
       )
       pluginPkgs.foreach(pkg => IO.copyFile(pkg, plugDir / pkg.getName))
       log.info(s"bin/lib/compiler/plugins/  (${pluginPkgs.size} .sscpkg files)")
@@ -1775,6 +1777,16 @@ lazy val uiFetchPlugin = project
   )
   .settings(sscpkgSettings("scalascript.std.uifetch"))
 
+lazy val sqlPlugin = project
+  .in(file("std/sql-plugin"))
+  .dependsOn(backendSpi, ir, core, backendSqlRuntime)
+  .settings(
+    name := "scalascript-sql-plugin",
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions,
+  )
+  .settings(sscpkgSettings("scalascript.std.sql"))
+
 lazy val root = project
   .in(file("."))
   .aggregate(
@@ -1794,7 +1806,7 @@ lazy val root = project
     // frontendToolkit retired — replaced by std/ui/*.ssc (Phase 7a-7d)
     frontendExamples,
     jsonPlugin, frontendPlugin, requestPlugin,
-    authPlugin, oauthPlugin, uiFetchPlugin,
+    authPlugin, oauthPlugin, uiFetchPlugin, sqlPlugin,
   )
   .settings(
     publish / skip := true
