@@ -7963,13 +7963,31 @@ The current Wasm bytecode doesn't have extern bindings to invoke
 ships ready to install, but wiring user-code sql blocks to those
 assets needs additional Wasm-side codegen beyond Phase 5's scope.
 
-### Phase 6 — `UnsupportedJdbcUrl` diagnostic
+### Phase 6 — `UnsupportedJdbcUrl` diagnostic ✓ Landed
 
-- [ ] `validate/CapabilityCheck` raises
-      `Diagnostic.UnsupportedJdbcUrl(dbName, url, targetId)` when a
-      target declares `Lang.Sql` in `blockLanguages` and a
-      `manifest.databases` entry uses a `jdbc:` URL.
-- [ ] Tests: `CapabilityCheckTest` — 2 cases.
+- [x] New `Diagnostic.UnsupportedJdbcUrl(db, url, backend)` case in
+      the backend-spi enum.
+- [x] `validate/CapabilityCheck.unsupportedJdbcUrls` raises the
+      diagnostic when the target declares `Lang.Sql` in
+      `blockLanguages` AND outputs include `JavaScriptSource` or
+      `WasmBytecode` AND a `manifest.databases` entry's URL starts
+      with `jdbc:`.  Heuristic chosen over hardcoded target id
+      whitelist — adding a new JS-family backend in the future
+      automatically picks up the same gating.
+- [x] JVM-family targets (interpreter, JvmBytecode) unaffected: they
+      accept `jdbc:` URLs natively via `backend-sql-runtime`.
+- [x] Tests: `CapabilityCheckTest` extended with 7 cases — jdbc on
+      JS-family → diagnostic, sqlite/duckdb on JS-family → no
+      diagnostic, jdbc on JVM → no diagnostic, multiple jdbc entries
+      → one diagnostic each, Wasm output kind triggers gating,
+      target without sql in blockLanguages → orthogonal (no jdbc
+      diag, but UnknownBlockLanguage still fires for the sql fence).
+      All 23 cases green.
+
+Wire-format follow-up (`SubprocessBackend.diagnosticFromWire`)
+deferred — no subprocess plugin currently emits this diagnostic;
+the wire encoder will gain a `unsupported-jdbc-url` kind the first
+time a plugin needs to surface it.
 
 ### Phase 7 — Examples + conformance
 

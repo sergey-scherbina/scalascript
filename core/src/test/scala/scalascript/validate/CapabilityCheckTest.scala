@@ -217,3 +217,102 @@ class CapabilityCheckTest extends AnyFunSuite:
     val unknownBlocks = diags.collect { case d: Diagnostic.UnknownBlockLanguage => d }
     assert(unknownBlocks.size == 1,
       s"expected exactly one UnknownBlockLanguage per lang tag, got: $unknownBlocks")
+
+  // ── v1.27 Phase 6 — UnsupportedJdbcUrl on JS-family targets ───────
+
+  /** A JS-family target that declares sql but emits JavaScript / Wasm
+   *  output — matches the JsCapabilities / NodeCapabilities /
+   *  WasmCapabilities shape `unsupportedJdbcUrls` checks for. */
+  private val jsFamilyCap = Capabilities(
+    features       = Set.empty,
+    outputs        = Set(OutputKind.JavaScriptSource),
+    options        = Set.empty,
+    spiRange       = SpiVersionRange(SpiVersion.Current, SpiVersion.Current),
+    blockLanguages = Set("sql"),
+  )
+
+  /** A JVM-family target.  Also declares sql, but accepts jdbc:
+   *  URLs natively — no UnsupportedJdbcUrl ever fires. */
+  private val jvmFamilyCap = Capabilities(
+    features       = Set.empty,
+    outputs        = Set(OutputKind.JvmBytecode, OutputKind.ExecutionResult),
+    options        = Set.empty,
+    spiRange       = SpiVersionRange(SpiVersion.Current, SpiVersion.Current),
+    blockLanguages = Set("sql"),
+  )
+
+  private def sqlModuleWithDatabase(url: String, dbName: String = "default"): ir.NormalizedModule =
+    val src =
+      s"""|---
+          |databases:
+          |  $dbName: { url: "$url" }
+          |---
+          |# Q
+          |
+          |```sql
+          |SELECT 1
+          |```
+          |""".stripMargin
+    Normalize(Parser.parse(src))
+
+  test("validate — jdbc: URL on JS-family target → UnsupportedJdbcUrl diagnostic"):
+    val m     = sqlModuleWithDatabase("jdbc:postgresql://localhost:5432/x")
+    val diags = CapabilityCheck.validate(m, jsFamilyCap, "node")
+    val jdbc  = diags.collect { case d: Diagnostic.UnsupportedJdbcUrl => d }
+    assert(jdbc.size == 1, s"expected one UnsupportedJdbcUrl, got: $diags")
+    assert(jdbc.head.db      == "default")
+    assert(jdbc.head.url     == "jdbc:postgresql://localhost:5432/x")
+    assert(jdbc.head.backend == "node")
+
+  test("validate — sqlite: URL on JS-family target → no UnsupportedJdbcUrl"):
+    val m     = sqlModuleWithDatabase("sqlite::memory:")
+    val diags = CapabilityCheck.validate(m, jsFamilyCap, "node")
+    assert(!diags.exists(_.isInstanceOf[Diagnostic.UnsupportedJdbcUrl]),
+      s"expected no UnsupportedJdbcUrl, got: $diags")
+
+  test("validate — duckdb: URL on JS-family target → no UnsupportedJdbcUrl"):
+    val m     = sqlModuleWithDatabase("duckdb:")
+    val diags = CapabilityCheck.validate(m, jsFamilyCap, "wasm")
+    assert(!diags.exists(_.isInstanceOf[Diagnostic.UnsupportedJdbcUrl]),
+      s"expected no UnsupportedJdbcUrl, got: $diags")
+
+  test("validate — jdbc: URL on JVM target → no UnsupportedJdbcUrl (JVM accepts JDBC natively)"):
+    val m     = sqlModuleWithDatabase("jdbc:h2:mem:x")
+    val diags = CapabilityCheck.validate(m, jvmFamilyCap, "jvm")
+    assert(!diags.exists(_.isInstanceOf[Diagnostic.UnsupportedJdbcUrl]),
+      s"expected no UnsupportedJdbcUrl on JVM target, got: $diags")
+
+  test("validate — multiple jdbc: entries → one diagnostic per offending db"):
+    val src =
+      """|---
+         |databases:
+         |  primary:   { url: "jdbc:postgresql://primary/x" }
+         |  secondary: { url: "jdbc:mysql://secondary/y" }
+         |  cache:     { url: "sqlite::memory:" }
+         |---
+         |# Q
+         |
+         |```sql
+         |SELECT 1
+         |```
+         |""".stripMargin
+    val m     = Normalize(Parser.parse(src))
+    val diags = CapabilityCheck.validate(m, jsFamilyCap, "js")
+    val jdbc  = diags.collect { case d: Diagnostic.UnsupportedJdbcUrl => d }
+    assert(jdbc.map(_.db).toSet == Set("primary", "secondary"),
+      s"expected diagnostics for primary + secondary only, got: $jdbc")
+
+  test("validate — Wasm target (WasmBytecode output) treated as JS-family for JDBC gating"):
+    val wasmCap = jsFamilyCap.copy(outputs = Set(OutputKind.WasmBytecode))
+    val m       = sqlModuleWithDatabase("jdbc:h2:mem:x")
+    val diags   = CapabilityCheck.validate(m, wasmCap, "wasm")
+    assert(diags.exists(_.isInstanceOf[Diagnostic.UnsupportedJdbcUrl]),
+      s"Wasm output kind should trigger jdbc: gating, got: $diags")
+
+  test("validate — target without sql in blockLanguages → no UnsupportedJdbcUrl (orthogonal)"):
+    // A backend that doesn't declare sql at all — UnknownBlockLanguage
+    // fires for the sql fence; UnsupportedJdbcUrl is irrelevant.
+    val m     = sqlModuleWithDatabase("jdbc:h2:mem:x")
+    val diags = CapabilityCheck.validate(m, jsFamilyCap.copy(blockLanguages = Set.empty), "js")
+    assert(!diags.exists(_.isInstanceOf[Diagnostic.UnsupportedJdbcUrl]),
+      s"target without sql shouldn't emit jdbc-url diag, got: $diags")

@@ -2,7 +2,7 @@ package scalascript.validate
 
 import scalascript.ir
 import scalascript.ast.Lang
-import scalascript.backend.spi.{Capabilities, Feature, Diagnostic}
+import scalascript.backend.spi.{Capabilities, Feature, Diagnostic, OutputKind}
 
 /** Validate a normalised module against a backend's declared capabilities.
  *
@@ -125,7 +125,33 @@ object CapabilityCheck:
     val unsupported = missing.toList.sortBy(_.toString).map { f =>
       Diagnostic.Unsupported(f, backendId)
     }
-    unsupported ++ unknownBlockLanguages(module, cap)
+    unsupported ++ unknownBlockLanguages(module, cap) ++ unsupportedJdbcUrls(module, cap, backendId)
+
+  /** v1.27 Phase 6 — JS-family targets (`js` / `node` / `wasm`)
+   *  declare `Lang.Sql` in `blockLanguages` but route sql blocks
+   *  through `backend-sql-runtime-js`, which only accepts
+   *  `sqlite:` / `duckdb:` URLs.  A `jdbc:*` URL in such a module is
+   *  a build-time error — the offending entry's name + url + backend
+   *  id land in `Diagnostic.UnsupportedJdbcUrl` so the renderer can
+   *  point the user at the JVM target or at a different URL scheme.
+   *
+   *  Heuristic for "JS-family target": at least one of the declared
+   *  outputs is `JavaScriptSource` or `WasmBytecode`.  JVM /
+   *  interpreter targets declare `JvmBytecode` / `ExecutionResult`
+   *  and accept jdbc: URLs natively, so this check never fires for
+   *  them — even though they too declare `Lang.Sql`. */
+  private def unsupportedJdbcUrls(
+    module:    ir.NormalizedModule,
+    cap:       Capabilities,
+    backendId: String
+  ): List[Diagnostic] =
+    if !cap.blockLanguages.contains(Lang.Sql) then return Nil
+    val isJsFamily = cap.outputs.contains(OutputKind.JavaScriptSource) ||
+                     cap.outputs.contains(OutputKind.WasmBytecode)
+    if !isJsFamily then return Nil
+    module.manifest.toList.flatMap(_.databases)
+      .filter(_.url.startsWith("jdbc:"))
+      .map(d => Diagnostic.UnsupportedJdbcUrl(d.name, d.url, backendId))
 
   // ─── Internal: tiny tokenisation that ignores comments ──────────────────
 
