@@ -20,45 +20,57 @@ final case class DatabaseSpec(
   driver:   Option[String]  = None
 )
 
-/** Resolves `${env:NAME}` and `${file:PATH}` references in
- *  connection-config strings.
+/** Resolves `${scheme:ref}` secret references in connection-config strings.
  *
+ *  Built-in schemes:
  *  - `${env:NAME}`  — value of environment variable NAME.
- *    Raises `MissingEnv` when the variable is not set.
+ *  - `${file:PATH}` — contents of PATH, whitespace-trimmed (Docker /
+ *    Kubernetes secret volume mounts).
  *
- *  - `${file:PATH}` — contents of the file at PATH, trimmed of
- *    leading/trailing whitespace.  Intended for Docker secrets
- *    (`/run/secrets/…`), Kubernetes secret volume mounts, and
- *    any on-disk credential files.  Raises `MissingFile` when
- *    the file does not exist or cannot be read.
+ *  Additional schemes are provided by [[SecretResolver]] plugins
+ *  discovered via `java.util.ServiceLoader` at runtime (e.g. Vault,
+ *  AWS Secrets Manager).  An unknown scheme raises `UnknownScheme`.
  *
- *  Multiple references of either kind in one string are supported.
- *  Plain `$` and unrelated `${…}` patterns are left untouched.
- *  Resolution is deferred to the moment the connection opens. */
+ *  Multiple references in one string are supported.  Plain `$` and
+ *  unrelated `${…}` patterns are left untouched.  Resolution is
+ *  deferred to the moment the connection opens. */
 object EnvResolver:
+  import scala.jdk.CollectionConverters.*
 
-  private val EnvPattern  = """\$\{env:([A-Za-z_][A-Za-z0-9_]*)\}""".r
-  private val FilePattern = """\$\{file:([^}]+)\}""".r
+  // Unified pattern: ${scheme:ref}
+  private val RefPattern =
+    """\$\{([A-Za-z][A-Za-z0-9_-]*):([^}]+)\}""".r
 
-  /** Expand every `${env:NAME}` and `${file:PATH}` in `template`.
-   *  `envLookup` defaults to the process environment. */
+  // SecretResolver plugins, loaded once on first use.
+  private lazy val plugins: Map[String, SecretResolver] =
+    java.util.ServiceLoader.load(classOf[SecretResolver])
+      .iterator.asScala
+      .map(r => r.scheme -> r)
+      .toMap
+
+  /** Expand every `${scheme:ref}` in `template`.
+   *  `envLookup` defaults to the process environment and is
+   *  injected by tests. */
   def resolve(
     template:  String,
     configKey: String,
     dbName:    String,
     envLookup: String => Option[String] = name => sys.env.get(name)
   ): String =
-    val afterEnv = EnvPattern.replaceAllIn(template, m =>
-      val name = m.group(1)
-      envLookup(name) match
-        case Some(v) => java.util.regex.Matcher.quoteReplacement(v)
-        case None    => throw MissingEnv(name, configKey, dbName)
-    )
-    FilePattern.replaceAllIn(afterEnv, m =>
-      val path = m.group(1)
-      val f    = java.io.File(path)
-      if !f.exists() || !f.canRead then throw MissingFile(path, configKey, dbName)
-      val value = scala.io.Source.fromFile(f).mkString.strip()
+    RefPattern.replaceAllIn(template, m =>
+      val scheme = m.group(1)
+      val ref    = m.group(2)
+      val value  = scheme match
+        case "env"  =>
+          envLookup(ref).getOrElse(throw MissingEnv(ref, configKey, dbName))
+        case "file" =>
+          val f = java.io.File(ref)
+          if !f.exists() || !f.canRead then throw MissingFile(ref, configKey, dbName)
+          scala.io.Source.fromFile(f).mkString.strip()
+        case s =>
+          plugins.get(s) match
+            case Some(r) => r.resolve(ref)
+            case None    => throw UnknownScheme(s, configKey, dbName)
       java.util.regex.Matcher.quoteReplacement(value)
     )
 
@@ -74,6 +86,15 @@ final class MissingEnv(val variable: String, val configKey: String, val dbName: 
 final class MissingFile(val path: String, val configKey: String, val dbName: String)
     extends RuntimeException(
       s"secret file `$path` referenced from databases.$dbName.$configKey does not exist or is not readable"
+    )
+
+/** Raised when a `${scheme:ref}` reference uses a scheme that has no
+ *  built-in handler and no registered [[SecretResolver]] plugin. */
+final class UnknownScheme(val scheme: String, val configKey: String, val dbName: String)
+    extends RuntimeException(
+      s"no SecretResolver registered for scheme `$scheme` " +
+      s"(referenced from databases.$dbName.$configKey); " +
+      s"built-in schemes: `env`, `file`"
     )
 
 /** Raised when an `sql` block resolves to a database name that has
