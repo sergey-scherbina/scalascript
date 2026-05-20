@@ -1,0 +1,55 @@
+#!/usr/bin/env ssc
+---
+name: mcp-keyvalue-server
+version: 1.0.0
+description: In-memory key-value store exposed as an MCP server over stdio transport.
+---
+
+# MCP Server — In-Memory Key-Value Store
+
+A tiny MCP server that holds a `mutable.Map[String, String]` in process
+memory. Because the `mcpServer { ... }` block closes over `store`, the
+map survives across every tool call within the same MCP session — clients
+can `kv_set` once, then `kv_get` the value on later requests.
+
+State is per-process: restart the server and the store is empty. For
+persistence, swap the map for a file or database.
+
+```scalascript
+[mcpServer, serveMcp, Tool, requireString, Transport](../std/mcp/server.ssc)
+
+import scala.collection.mutable
+
+val store = mutable.Map.empty[String, String]
+
+mcpServer { srv =>
+
+  srv.tool("kv_set", "Store a value under a key") { args =>
+    val key = requireString(args, "key")
+    val value = requireString(args, "value")
+    store(key) = value
+    Tool.text(s"Set $key")
+  }
+
+  srv.tool("kv_get", "Retrieve a value by key", readOnlyHint = true) { args =>
+    val key = requireString(args, "key")
+    Tool.text(store.getOrElse(key, s"not found: $key"))
+  }
+
+  srv.tool("kv_delete", "Remove a key from the store", destructiveHint = true) { args =>
+    val key = requireString(args, "key")
+    val removed = store.remove(key).isDefined
+    Tool.text(if (removed) s"Deleted $key" else s"not found: $key")
+  }
+
+  srv.tool("kv_list", "List all keys currently in the store", readOnlyHint = true) { _ =>
+    val keys = store.keys.toList.sorted
+    Tool.text(if (keys.isEmpty) "(empty)" else keys.mkString("\n"))
+  }
+
+  srv.onConnected(() => println(s"KV MCP client connected — ${store.size} keys in store"))
+}
+
+println("MCP key-value server ready on stdio")
+serveMcp(Transport.Stdio)
+```

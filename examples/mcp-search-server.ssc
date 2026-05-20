@@ -1,0 +1,70 @@
+#!/usr/bin/env ssc
+---
+name: mcp-search-server
+version: 1.0.0
+description: MCP server providing naive substring search across files in a directory.
+---
+
+# MCP Server — File Search
+
+Exposes a single `search` tool that walks a directory, counts substring
+matches of the query in each file's content, and returns the top-10
+files ranked by match count.
+
+> **Performance note**: this is a naive O(N·M) scan — every call reads
+> every file. For large corpora use a real index (Lucene, Tantivy) or
+> shell out to `ripgrep`. This example exists to show MCP wiring, not
+> search-engine engineering.
+
+```scalascript
+[mcpServer, serveMcp, Tool, requireString, Transport](../std/mcp/server.ssc)
+
+import scala.io.Source
+import java.nio.file.{Files, Path, Paths}
+import scala.jdk.CollectionConverters._
+
+def countMatches(path: Path, needle: String): Int = {
+  val src = Source.fromFile(path.toFile)
+  try {
+    val haystack = src.mkString
+    var count = 0
+    var i = haystack.indexOf(needle)
+    while (i >= 0) { count += 1; i = haystack.indexOf(needle, i + 1) }
+    count
+  } catch { case _: Throwable => 0 }
+  finally src.close()
+}
+
+mcpServer { srv =>
+
+  srv.tool(
+    "search",
+    "Substring-search files under a directory; returns top-10 by match count",
+    readOnlyHint = true,
+    idempotentHint = true
+  ) { args =>
+    val query = requireString(args, "query")
+    val directory = requireString(args, "directory")
+
+    val walker = Files.walk(Paths.get(directory))
+    val hits = try {
+      walker.iterator().asScala
+        .filter(Files.isRegularFile(_))
+        .map(p => (p.toString, countMatches(p, query)))
+        .filter(_._2 > 0)
+        .toList
+    } finally walker.close()
+
+    val top = hits.sortBy(-_._2).take(10)
+    val body =
+      if (top.isEmpty) s"No matches for '$query' under $directory"
+      else top.map { case (p, n) => s"$n\t$p" }.mkString("\n")
+    Tool.text(body)
+  }
+
+  srv.onConnected(() => println("Search MCP client connected"))
+}
+
+println("MCP search server ready on stdio")
+serveMcp(Transport.Stdio)
+```
