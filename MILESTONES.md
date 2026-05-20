@@ -7595,23 +7595,54 @@ today).
         `node --test --test-force-exit *.test.mjs`.  Gracefully
         skips when `node` / `npm` aren't on PATH.
 
-### Phase 3 — JsGen codegen for sql blocks
+### Phase 3 — JsGen codegen for sql blocks ✓ Landed
 
 Mirrors JvmGen Phase 6.C, adapted for async.
 
-- [ ] `JsCapabilities.blockLanguages += Lang.Sql`.
-- [ ] `JsGen.collectBlocks` recognises `Lang.isSql`, emits
-      `_sqlBlock_<N>` initialised by `await SqlRuntimeJs.execute(...)`,
-      first per-section block emits `const <sectionId> = { sql:
-      _sqlBlock_<N> }` alias.
-- [ ] `_ssc_sql_registry` materialised from `manifest.databases`;
-      `_ssc_sql_resolve(dbName)` consults the
-      `@sscBrowserSqlConnection` annotation override path first,
-      registry as fallback.
-- [ ] Bundle preamble — `sql-runtime.mjs` source inlined, body
-      wrapped in `(async () => { ... })()` (top-level `await`
-      when emitting `.mjs`).
-- [ ] Tests: `JsGenSqlBlockTest` (~12 cases).
+- [x] `JsCapabilities.blockLanguages += Lang.Sql`.  Generic
+      `UnknownBlockLanguage("sql")` diagnostic no longer fires on the
+      JS target.  NodeBackend / WasmBackend keep their old behaviour
+      until Phase 4 / 5.
+- [x] `JsGen.genSection` recognises `Lang.isSql`, emits
+      `const _sqlBlock_<N> = await SqlRuntimeJs.execute(await
+      _ssc_sql_resolve(<dbName>), <?-templated SQL>, [<binds>])`.
+      First sql block per section also emits
+      `if (typeof <sectionId> === 'undefined') var <sectionId> = {}; <sectionId>.sql = _sqlBlock_<N>`
+      (matches the existing `genStringBlock` shape for `<sectionId>.html`
+      / `.css`).
+- [x] `_ssc_sql_registry` materialised from `manifest.databases`
+      (shared `SqlRuntimeJsEmit.emitRegistryInit` from
+      backend-sql-runtime-js); empty registry when the module has no
+      front-matter `databases:`.  `${env:NAME}` markers in URL / user /
+      password preserved verbatim — resolved at runtime by
+      `sql-runtime.mjs`'s `resolveEnvRefs`.
+- [x] `_ssc_sql_resolve(dbName)` checks `_ssc_sql_connections`
+      (annotation override path, populated by future-Phase 6 codegen)
+      first; falls back to `_ssc_sql_registry.connect(dbName ?? "default")`.
+- [x] Bundle preamble — `sql-runtime.mjs` source inlined verbatim
+      (with `export ` stripped so names land at script-level scope),
+      followed by `const SqlRuntimeJs = { execute, ConnectionRegistry,
+      ... }` namespace alias.  User body wrapped in
+      `(async () => { ... })().catch(...)` — required for the per-
+      block `await`s.  When the module also uses `runAsyncParallel`,
+      the two flags collapse into one `needsAsync` decision so the
+      IIFE wraps once.
+- [x] `JsGen.bindExprToJs(exprSrc)` — parses each bind text back to
+      `scala.meta.Term` and emits JS via the existing `genExpr`,
+      so a bind like `${user.id + 1}` becomes the JS expression
+      that evaluates in the surrounding scope.  Defensive fallback
+      to verbatim source on parse failure.
+- [x] `backend-js/build.sbt` now `dependsOn(backendSqlRuntimeJs)` —
+      pulls in `SqlRuntimeJsEmit` for codegen + the bundled .mjs
+      classpath resource.
+- [x] Tests: `JsGenSqlBlockTest` (12 cases) — no-sql passthrough,
+      preamble emission, `export ` stripping, async IIFE wrap,
+      empty/populated registry, `${env:NAME}` preservation,
+      per-block `_sqlBlock_<N>` emission with / without binds,
+      sequential numbering, section alias (first-only, second
+      doesn't redefine), `@db=name` threading, default fallback.
+      All 12 green; full backend-interpreter suite (1228 tests)
+      stays green.
 
 ### Phase 4 — NodeBackend wiring
 

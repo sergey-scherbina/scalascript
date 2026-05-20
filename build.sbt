@@ -343,7 +343,7 @@ lazy val backendJvm = project
 
 lazy val backendJs = project
   .in(file("backend-js"))
-  .dependsOn(backendSpi, core)
+  .dependsOn(backendSpi, core, backendSqlRuntimeJs)
   .settings(
     name := "scalascript-backend-js",
     Compile / scalacOptions ++= sharedScalacOptionsStrict,

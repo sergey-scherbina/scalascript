@@ -6193,6 +6193,13 @@ class JsGen(
   // Populated by collectFuncParamOrders before the main emit pass.
   // Used at call sites with named args to reorder them to positional order.
   private val funcParamOrder = scala.collection.mutable.Map.empty[String, List[String]]
+  // v1.27 Phase 3 — sql block emission state.  Mirrors JvmGen's
+  // `sqlBlockCounter` / `sqlPerSection`: sequential `_sqlBlock_<n>`
+  // names, and per-section "first-only" tracking so only the first
+  // `sql` block in each section gets the friendly `<sectionId>.sql`
+  // alias.  Cleared at the start of every `genModule` call.
+  private var sqlBlockCounter: Int = 0
+  private val sqlPerSection = scala.collection.mutable.Map.empty[String, Int]
 
   private def freshTmp(): String =
     tmpIdx += 1
@@ -6333,22 +6340,71 @@ class JsGen(
     analyzeMutualRecursion(module)
     analyzeEffects(module)
     scanForRunAsyncParallel(module)
+    // v1.27 Phase 3 — sql state.  Reset every module to keep `genModule`
+    // re-entrant; emit preamble once when at least one sql block is
+    // present (URL-prefix providers + ConnectionRegistry init + resolver).
+    sqlBlockCounter = 0
+    sqlPerSection.clear()
+    val needSqlPreamble = hasSqlBlocks(module)
+    if needSqlPreamble then emitSqlPreamble(module)
     // Front-matter route declarations are emitted BEFORE the user blocks so
     // a typical user-side `serve(port)` (last statement of the script) sees
     // them already registered.  JS function declarations are hoisted, so
     // forward references to the handler defs resolve at call time.
     emitFrontmatterRoutes(module)
     emitI18nTable(module)
-    // When `runAsyncParallel` is used, wrap the entire user-code body in a
-    // top-level async IIFE so `await _runAsyncParallel(...)` is legal.
-    if usesRunAsyncParallel then line("(async () => {")
+    // Async wrap rationale (v1.27): sql blocks compile to `await
+    // SqlRuntimeJs.execute(...)`, which is only legal at top level in
+    // ESM with top-level-await support.  An async IIFE is the
+    // universally-portable wrapper that also keeps the legacy
+    // classic-script target working.  Same wrapper as the existing
+    // `runAsyncParallel` path; the two flags collapse into one
+    // `needsAsync` decision.
+    val needsAsync = usesRunAsyncParallel || needSqlPreamble
+    if needsAsync then line("(async () => {")
     module.sections.foreach(genSection)
     // Auto-call main() if defined and not already called
     if hasMain && !mainCalled then
       line("if (typeof main === 'function') { main(); }")
-    if usesRunAsyncParallel then
+    if needsAsync then
       line("})().catch(e => { if (typeof process !== 'undefined') { process.stderr.write(String(e) + '\\n'); process.exit(1); } });")
     sb.toString
+
+  /** Emit the v1.27 sql-block preamble: hand-written `sql-runtime.mjs`
+   *  source from `backend-sql-runtime-js`, plus the per-module
+   *  `_ssc_sql_registry` + `_ssc_sql_resolve(dbName)` dispatcher.
+   *
+   *  The runtime source is read once (lazy val) from the classpath
+   *  resource shipped by `backend-sql-runtime-js`.  Calls into
+   *  `ConnectionRegistry`, `execute`, etc. resolve inside that source —
+   *  no `import` statements are required in user-emitted code.
+   *
+   *  Note on async: the runtime is itself ES module syntax (`export
+   *  class …`) when run via `node --test`-style import, but JsGen
+   *  embeds it textually into a classic script context.  Strip the
+   *  `export` keyword so the names land at the function/class top of
+   *  the IIFE scope. */
+  private def emitSqlPreamble(module: Module): Unit =
+    val databases = module.manifest.toList.flatMap(_.databases)
+    val entries   = databases.map { d =>
+      scalascript.sql.js.SqlRuntimeJsEmit.DatabaseEntry(
+        name     = d.name,
+        url      = d.url,
+        user     = d.user,
+        password = d.password,
+        driver   = d.driver,
+      )
+    }
+    val runtimeSrc = scalascript.sql.js.SqlRuntimeJsEmit.runtimeSource
+    // Strip ESM `export` keywords so the names land at script-level
+    // scope (works for both ESM and classic-script consumers).  The
+    // SqlRuntimeJs namespace below re-exports the public surface for
+    // `genSqlBlock`-emitted call sites.
+    val stripped   = runtimeSrc.replace("export ", "")
+    sb.append(stripped)
+    sb.append("\nconst SqlRuntimeJs = { execute, ConnectionRegistry, makeRow, isResultSetProducer, Providers, SqlJsProvider, DuckDbWasmProvider };\n")
+    sb.append(scalascript.sql.js.SqlRuntimeJsEmit.emitRegistryInit(entries))
+    sb.append("\n")
 
   // ─── v2.0 Phase 2 — capability detection ─────────────────────────────
   //
@@ -6595,11 +6651,97 @@ class JsGen(
         line(s"/* scala: standard Scala 3 block — compile via Scala.js for JS execution */")
       case cb: Content.CodeBlock if Lang.isStringBlock(cb.lang) =>
         genStringBlock(cb, section)
+      case cb: Content.CodeBlock if Lang.isSql(cb.lang) =>
+        genSqlBlock(cb, section)
       case imp: Content.Import =>
         genImport(imp)
       case _ => ()
     }
     section.subsections.foreach(genSection)
+
+  /** v1.27 Phase 3 — emit a `sql` fenced block as a `_sqlBlock_<n>`
+   *  `const` initialised by `await SqlRuntimeJs.execute(...)`.
+   *
+   *  Mirrors `JvmGen.sqlBlockToScala` but emits JS:
+   *    - `${expr}` interpolations have already been lifted to a `?`-
+   *      template + ordered bind list by `SqlBindRewriter.rewriteJdbc`.
+   *      Each bind text is parsed back as a Scala term and emitted as
+   *      JS via the existing `genExpr` machinery, so the bind value
+   *      evaluates in the surrounding scope at runtime.
+   *    - Connection resolution funnels through the module-scope
+   *      `_ssc_sql_resolve(dbName)` helper emitted once by
+   *      `emitSqlPreamble`.
+   *    - First sql block in each section also lands as
+   *      `const <sectionId> = { ..., sql: _sqlBlock_<n> }` — the
+   *      friendly `<sectionId>.sql` alias matches JvmGen's Phase
+   *      6.C / Spark Phase C.2 convention.  Subsequent sql blocks in
+   *      the same section skip the alias (the first-only book-keeping
+   *      in `sqlPerSection` enforces this). */
+  private def genSqlBlock(cb: Content.CodeBlock, section: Section): Unit =
+    val n = sqlBlockCounter
+    sqlBlockCounter += 1
+    val rewrite = scalascript.transform.SqlBindRewriter.rewriteJdbc(cb.source)
+    val sqlLit  = jsStringLit(rewrite.sql)
+    val bindsJs = rewrite.binds.map(bindExprToJs).mkString(", ")
+    val dbArg   = cb.attrs.get("db") match
+      case Some(name) => jsStringLit(name)
+      case None       => "undefined"
+    val valName = s"_sqlBlock_$n"
+    line(s"const $valName = await SqlRuntimeJs.execute(await _ssc_sql_resolve($dbArg), $sqlLit, [$bindsJs]);")
+    sectionIdent(section.heading.text).foreach { id =>
+      val prior = sqlPerSection.getOrElse(id, 0)
+      sqlPerSection(id) = prior + 1
+      if prior == 0 then
+        line(s"if (typeof $id === 'undefined') var $id = {};")
+        line(s"$id.sql = $valName;")
+    }
+
+  /** Parse a single bind-expression text (Scala source from inside
+   *  `${...}`) back to a `Term` and emit it as JS.  Falls back to
+   *  splicing the raw source verbatim when scala.meta can't parse it
+   *  (defensive — the parser already rejected malformed source upstream,
+   *  but never trust the boundary). */
+  private def bindExprToJs(exprSrc: String): String =
+    val trimmed = exprSrc.trim
+    val parsed  =
+      try
+        Some(scala.meta.dialects.Scala3(scala.meta.Input.String(trimmed)).parse[scala.meta.Term].toOption).flatten
+      catch case _: Throwable => None
+    parsed match
+      case Some(t) => genExpr(t)
+      case None    => trimmed   // last-resort fallback
+
+  /** Escape a string for a double-quoted JS literal. */
+  private def jsStringLit(s: String): String =
+    val sb = StringBuilder()
+    sb.append('"')
+    var i = 0
+    while i < s.length do
+      val c = s.charAt(i)
+      (c: @scala.annotation.switch) match
+        case '\\' => sb.append("\\\\")
+        case '"'  => sb.append("\\\"")
+        case '\n' => sb.append("\\n")
+        case '\r' => sb.append("\\r")
+        case '\t' => sb.append("\\t")
+        case '\b' => sb.append("\\b")
+        case '\f' => sb.append("\\f")
+        case _    =>
+          if c < 0x20 || c == 0x7f then sb.append("\\u%04x".format(c.toInt))
+          else                          sb.append(c)
+      i += 1
+    sb.append('"')
+    sb.toString
+
+  /** Detect whether the module has any sql blocks — drives preamble
+   *  emission + async wrap.  Walks sections recursively. */
+  private def hasSqlBlocks(module: Module): Boolean =
+    def go(s: Section): Boolean =
+      s.content.exists {
+        case cb: Content.CodeBlock => Lang.isSql(cb.lang)
+        case _                     => false
+      } || s.subsections.exists(go)
+    module.sections.exists(go)
 
   /** Emit a heading-bound html / css block: render the source as a JS
    *  template literal (using `_html_interp` for html), assign to

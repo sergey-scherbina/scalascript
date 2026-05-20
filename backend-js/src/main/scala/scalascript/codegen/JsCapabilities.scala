@@ -35,9 +35,13 @@ val JsCapabilities: Capabilities = Capabilities(
     Feature.McpClient,
     Feature.Dataset
   ),
-  outputs  = Set(OutputKind.JavaScriptSource),
-  options  = Set("optimizationLevel", "emitAssertions", "target"),
-  spiRange = SpiVersionRange(SpiVersion.Current, SpiVersion.Current)
+  outputs        = Set(OutputKind.JavaScriptSource),
+  options        = Set("optimizationLevel", "emitAssertions", "target"),
+  spiRange       = SpiVersionRange(SpiVersion.Current, SpiVersion.Current),
+  // v1.27 Phase 3 — sql blocks compile via `backend-sql-runtime-js`
+  // (sql.js + DuckDB-Wasm).  Declaring the lang here disables the
+  // generic `UnknownBlockLanguage("sql")` diagnostic on the JS target.
+  blockLanguages = Set(scalascript.ast.Lang.Sql)
 )
 
 /** Stage 5+/A.3 — `RuntimeCall` intrinsics surfaced as JS `const`
