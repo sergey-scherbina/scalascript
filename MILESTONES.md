@@ -8596,10 +8596,38 @@ strategy module needs it (Stage 3 or 4).
       the SolanaChainAdapter types on JS, which would have rippled
       across blockchain-solana consumers).
 
-### Stage 4 — `wallet-strategy-erc4337` cross-compile
+### Stage 4 — `wallet-strategy-erc4337` cross-compile ✓ Landed (2026-05-20)
 
-- [ ] Replace any `java.math.BigInteger` usage with `BigInt`.
-- [ ] Cross-compile; passkey owner support waits on Stage 5.
+- [x] `blockchain-evm-abi` cross-compiled (`CrossType.Full`).  Zero
+      `java.*` deps outside the Scala.js stdlib (`java.util.Arrays`,
+      `java.io.ByteArrayOutputStream`, `java.lang.StringBuilder`).
+      `AbiCodecTest` split into `AbiCodecTestBase` (shared) + per-platform
+      concrete classes; JS-side registers `crypto-noble-js`.  19 tests
+      run on both platforms.
+- [x] `wallet-strategy-erc4337` cross-compiled (`CrossType.Full`):
+  - `shared/`: `UserOperation`, `UserOpHash{,V07}`, `EntryPoint`,
+    `SmartAccountFactory` (+ `SimpleAccountFactory`),
+    `PasskeyAssertion`, `PasskeySigner`, `SimplePasskeyAccountFactory`,
+    plus a small inlined `Hex.scala` so shared sources don't reach
+    into JVM-only `blockchain-evm`.
+  - `jvm/`: `BundlerClient`, `SmartAccountAdapter`, `SmartAccount`
+    stay JVM-only — they depend on `EvmChainAdapter` / the HTTP RPC
+    in `blockchain-evm`.
+  - `js/`: `WebAuthnFacade` + `PasskeySignerJs` — see Phase 6 below.
+- [x] `java.math.BigInteger` audit: kept as-is in `PasskeySigner` (P-256
+      group-order arithmetic; Scala.js shims `java.math.BigInteger`
+      faithfully).  One `salt.bigInteger.toByteArray` replaced with
+      `salt.toByteArray` in `SimpleAccountFactory.saltAsBytes`.
+- [x] JVM test counts preserved bit-for-bit: 19 (`blockchainEvmAbi`)
+      + 43 (`walletStrategyErc4337`) = 62, same as pre-Stage 4.
+- [x] JS-side tests added: 19 (`blockchainEvmAbiJs`) + 33
+      (`walletStrategyErc4337Js`, of which 6 are the new
+      `WebAuthnFacadeTest`).
+- [x] Spec update — [`docs/wallet-spi-scalajs.md`](docs/wallet-spi-scalajs.md)
+      § Stage 4 marked landed; defers SmartAccountAdapter /
+      BundlerClient / SmartAccount cross-compile until
+      `blockchain-evm` itself crosses (Fetch RPC + RLP / EIP-1559
+      codec on JS).
 
 ### Stage 5 — `wallet-vault-encrypted` cross-compile
 
@@ -8747,11 +8775,21 @@ Landed in tandem with blockchain-spi Phase 1.
       `SimplePasskeyAccountFactory` mirrors `SimpleAccountFactory`
       shape with `createAccount(uint256 x, uint256 y, uint256 salt)`
       init-code. 16 new tests, 43 total in `walletStrategyErc4337`.
-- [ ] **JS-side WebAuthn facade** (Scala.js): thin wrapper around
-      `navigator.credentials.get(...)` that fits the
+- [x] **JS-side WebAuthn facade** (Scala.js): ✅ **LANDED**
+      (2026-05-20) alongside the wallet-spi-scalajs § Stage 4
+      cross-compile of `wallet-strategy-erc4337`.
+      `wallet-strategy-erc4337/js/WebAuthnFacade.scala` wraps
+      `navigator.credentials.get(...)` and fits the
       `assertChallenge: Array[Byte] => Future[WebAuthnAssertion]`
-      callback shape. Blocked on `wallet-spi` Scala.js cross-compile
-      (same gating as Phase 3 EIP-1193 / Phase 4 WC / Phase 5 wallet-std).
+      callback shape; `PasskeySignerJs.fromBrowserPasskey(...)` is the
+      browser-side convenience constructor that wires it into the
+      cross-compiled `PasskeySigner`.  6 Node-side tests stub
+      `navigator.credentials.get` (via `Object.defineProperty` —
+      Node 20+ marks `navigator` as a read-only getter) and verify
+      challenge byte-identity, the options dict shape (`rpId`,
+      `userVerification:"required"`, `allowCredentials` transform),
+      and ArrayBuffer→`Array[Byte]` round-trips for
+      `authenticatorData` / `clientDataJSON` / `signature`.
 
 ### Phase 7 — Hardware wallet Vault (Ledger multi-chain)
 

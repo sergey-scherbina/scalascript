@@ -408,8 +408,108 @@ Status: **landed 2026-05-20**.
 
 ### Stage 4 — `wallet-strategy-erc4337` cross-compile
 
-- Audit / replace any `java.math.BigInteger` use with `BigInt`.
-- Cross-compile; passkey owner (curve = p256) wired through Stage 5.
+Status: **landed 2026-05-20**.
+
+Stage 4 cross-compiles two modules and adds the browser WebAuthn
+facade that makes the `PasskeySigner` actually usable from a Scala.js
+PWA wallet:
+
+- **`blockchain-evm-abi`** cross-compiled (`CrossType.Full`).  The
+  ABI codec had zero `java.*` deps outside the Scala.js-shimmed
+  surface (`java.util.Arrays.copyOfRange`, `java.io.ByteArrayOutputStream`,
+  `java.lang.StringBuilder`), so the move is purely a layout change.
+  `AbiCodecTest` is split into a `AbiCodecTestBase` (in `shared/`)
+  with platform-specific concrete classes — the JS one mixes in
+  `BeforeAndAfterAll` and explicitly registers `crypto-noble-js`
+  (no `ServiceLoader` on JS), the JVM one is a plain subclass that
+  relies on the auto-registered `crypto-bouncycastle`.  Same 19
+  tests run on both platforms.
+- **`wallet-strategy-erc4337`** cross-compiled (`CrossType.Full`):
+  - `shared/`: `UserOperation`, `UserOpHash{,V07}`, `EntryPoint`,
+    `SmartAccountFactory` (+ `SimpleAccountFactory`),
+    `PasskeyAssertion`, `PasskeySigner`,
+    `SimplePasskeyAccountFactory`, plus a small inlined `Hex.scala`
+    (~50 LoC) so shared sources don't reach into JVM-only
+    `blockchain-evm`.  Tests: `UserOpHash{,V07}Test`,
+    `WebAuthnAssertionTest`, `PasskeyFactoryTest` — all run as
+    `*TestBase` abstract classes with `*Test` concrete subclasses
+    per platform (same noble/bouncycastle bootstrap as
+    `blockchain-evm-abi`).
+  - `jvm/`: `BundlerClient` (uses `Hex` from `blockchain-evm`),
+    `SmartAccountAdapter` (uses `EvmChainAdapter` from
+    `blockchain-evm`), and `SmartAccount` (the `wrap(...)` helper).
+    These stay JVM-only because they depend on `blockchain-evm`,
+    which itself stays JVM-only in this slice (it carries
+    `java.net.http.HttpClient` and the EVM RLP / EIP-712 codec).
+    Tests: `BundlerClientV07Test`, `SmartAccountAdapterTest`,
+    `PasskeySignerTest`.
+  - `js/`: the WebAuthn facade — see below.
+
+`java.*` audit in this slice:
+
+- `java.math.BigInteger` is used heavily in `PasskeySigner` (for the
+  P-256 group order arithmetic during low-s normalisation).  Scala.js
+  shims `java.math.BigInteger` faithfully, so we kept it as-is rather
+  than reaching for `BigInt` (the BigInteger API is closer to the
+  EC math the file does).
+- `java.util.Base64` (`PasskeyAssertion`, tests) — Scala.js shims
+  it; kept as-is.
+- `java.util.Arrays.copyOfRange`, `java.lang.StringBuilder`,
+  `java.io.ByteArrayOutputStream` — Scala.js stdlib, kept as-is.
+- One JVM-only `salt.bigInteger.toByteArray` in
+  `SimpleAccountFactory.saltAsBytes` replaced with `salt.toByteArray`
+  (`BigInt.toByteArray` directly).
+
+#### Stage 4 — WebAuthn JS facade
+
+`wallet-strategy-erc4337/js/` adds:
+
+- `WebAuthnFacade.scala` — Scala.js facade over
+  `navigator.credentials.get(...)`.  Builds the
+  `PublicKeyCredentialRequestOptions` dict (challenge as
+  `Uint8Array`, rpId, optional `allowCredentials`,
+  `userVerification:"required"`), converts the resulting JS
+  `Promise[PublicKeyCredential]` to a Scala `Future`, and unwraps
+  `authenticatorData` / `clientDataJSON` / `signature` ArrayBuffers
+  into `Array[Byte]`.  Returns a `WebAuthnAssertion` ready for the
+  cross-compiled `PasskeySigner`.
+- `PasskeySignerJs.scala` — convenience constructor
+  `fromBrowserPasskey(publicKey, rpId, allowCredentials)` that wires
+  `assertChallenge` to `WebAuthnFacade.assertChallenge`.
+- `WebAuthnFacadeTest` (6 tests) — stubs `navigator.credentials.get`
+  on `globalThis` (via `Object.defineProperty` — Node 20+ marks
+  `navigator` as a getter, so plain assignment throws), and asserts:
+  challenge byte-identity, rpId / userVerification options,
+  `allowCredentials` encoding, the three ArrayBuffer → byte-array
+  round-trips, and signed-byte fidelity of the `toUint8Array` helper.
+
+The `scalajs-dom 2.8.0` dep is declared in `jsSettings(...)`.
+`scalaJSLinkerConfig` is set to `CommonJSModule` for the JS side
+because the test config depends on `crypto-noble-js`, which itself
+links as a CommonJS module (so `@noble/*` `require()` calls
+resolve).
+
+#### Stage 4 — deferred / follow-ups
+
+- **`SmartAccountAdapter` / `BundlerClient` / `SmartAccount` remain
+  JVM-only.**  All three depend on `EvmChainAdapter` / the JVM HTTP
+  RPC client in `blockchain-evm`.  Cross-compiling those onto
+  Scala.js needs (a) a Fetch-based RPC `ChainContext` impl,
+  (b) cross-compiling the EIP-1559 transaction codec + RLP +
+  keccak from `blockchain-evm` itself.  That's the natural Stage 4½
+  / Stage 5-companion follow-up; with the SPI substrate already
+  cross-compiled in Stages 1-3, it's a self-contained slice.
+- **No real browser-integration test for the WebAuthn facade.**  The
+  Node-side stub asserts the options-dict shape + the ArrayBuffer
+  round-trip; an end-to-end test against a real authenticator
+  (virtual authenticator via Playwright, or a yubikey) is out of
+  scope for this slice.
+- **HD derivation on Scala.js still throws
+  `UnsupportedOperationException`** (Stage 2's `NobleCryptoBackend`
+  deferred it).  The cross-compiled `PasskeySigner` doesn't need HD
+  — passkeys don't derive — but a future `wallet-vault-encrypted-js`
+  (Stage 5) will, and Stage 5 will be the trigger to land HD in
+  `NobleCryptoBackend`.
 
 ### Stage 5 — `wallet-vault-encrypted` cross-compile
 

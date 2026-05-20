@@ -1,0 +1,10 @@
+{
+  "name": "scalascript-blockchain-evm-abi-js",
+  "private": true,
+  "description": "Test-time npm dependencies for the blockchain-evm-abi Scala.js module. The Scala.js Node test runner walks up from `js/target/scala-*/.../main.js` to find `node_modules`; these mirror crypto-noble-js so the noble CryptoBackend can resolve in tests.",
+  "version": "0.0.0",
+  "dependencies": {
+    "@noble/curves": "^1.9.0",
+    "@noble/hashes": "^1.8.0"
+  }
+}
