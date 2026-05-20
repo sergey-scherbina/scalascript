@@ -152,7 +152,7 @@ def lower(n: TkNode, theme: Theme): View = n match
       List(textNode(content)))
 
   case SpinnerNode() =>
-    val spinnerStyle = s"display:inline-block; width:16px; height:16px; border:2px solid ${theme.colors.muted}; border-top-color:${theme.colors.primary}; border-radius:50%"
+    val spinnerStyle = s"display:inline-block; width:16px; height:16px; border:2px solid #e5e7eb; border-top-color:${theme.colors.primary}; border-radius:50%"
     element("span",
       Map("style" -> spinnerStyle, "class" -> "ssc-spin"),
       Map(), List())
