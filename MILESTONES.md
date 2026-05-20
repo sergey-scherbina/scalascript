@@ -7034,6 +7034,52 @@ Thin `backend-wasm-contract/` layer on top of `backend-wasm/` for Near or Polkad
 >   under HUDI-7706; L.4 re-opens once the artifact ships.  Slot-in
 >   pattern symmetric to L.3.
 
+#### Phase G — Catalog / Hive metastore DSL
+
+> Goal: first-class DSL for the Spark Catalog — auto-registering
+> Datasets as temp views, wiring the Hive metastore + warehouse via
+> front-matter, and typed table reads via `Dataset.fromTable[T]`.
+> Layered on Phases A–F (Spark backend) + Lakehouse L.1–L.2.  All
+> detection is regex-driven on the raw block source, same shape as
+> the existing `extractSqlFns` (Phase D) and `detectLakehouseFormats`
+> (L.2) helpers.  Purely additive over the existing surface — no
+> break to the 141+ existing `SparkGenTest` cases or the working
+> smoke-test set.
+>
+> Full plan: [`docs/spark-catalog.md`](docs/spark-catalog.md).
+>
+> Phases (each independently shippable per AGENTS.md rule 3):
+>
+> - **G.1 — Spec doc (landed 2026-05-20).**  `docs/spark-catalog.md`
+>   covering goals / non-goals / front-matter keys / annotation
+>   semantics / `Dataset.fromTable[T]` / composition with C.1-C.3,
+>   D, E, F, L.2 / testing strategy / open questions.  No code
+>   changes; gives implementers G.2–G.4 a stable contract.
+> - **G.2 — Front-matter for metastore + warehouse.**  New
+>   `spark-hive-metastore:` (Thrift URI) and `spark-warehouse:`
+>   (path) keys threaded through `BackendOptions.extra` into
+>   `SparkGen`.  Emits `.config("spark.sql.catalogImplementation",
+>   "hive")` + `.config("spark.hadoop.hive.metastore.uris", "<uri>")`
+>   + `.config("spark.sql.warehouse.dir", "<path>")` +
+>   `.enableHiveSupport()` on the builder when either key is set
+>   (or when `enableHiveSupport()` appears in user code).
+>   Auto-adds `org.apache.spark:spark-hive_2.13:<sparkVersion>` as
+>   a `//> using dep`.
+> - **G.3 — `@TempView("name")` annotation.**  Regex pass strips
+>   the annotation line and emits
+>   `<varName>.createOrReplaceTempView("<viewName>")` after the
+>   declaration.  Same shape as `@SqlFn` (Phase D).  Composable
+>   with `@SqlFn` in the same block.
+> - **G.4 — `Dataset.fromTable[T]("name")` typed reader.**  One-line
+>   shim on the `Dataset` companion:
+>   `spark.table(name).as[T]` using the Phase E encoder.  Symmetric
+>   for Hive-managed tables (G.2) and temp views (G.3).  Lands with
+>   `examples/spark-hive-demo.ssc` and an opt-in smoke test gated
+>   by `RUN_SPARK_INTEGRATION=1 && RUN_SPARK_HIVE=1`.
+> - **G.5 (optional) — Catalog introspection helpers.**
+>   `Dataset.listTables()` / `Dataset.describeTable(name)` wraps.
+>   Skip if any conflict surfaces; phase considered closed after G.4.
+
 ### Why it fits
 
 ScalaScript already has a local `Dataset[T]` implementation (v1.21) and
