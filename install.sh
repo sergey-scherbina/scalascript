@@ -4,8 +4,8 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-LIB="$ROOT/lib"
 BIN="$ROOT/bin"
+LIB="$BIN/lib"
 
 echo "Staging ssc (thin jar + deps) via sbt cli/stage..."
 (cd "$ROOT" && sbt -no-colors cli/stage)
@@ -15,14 +15,12 @@ echo "Staging ssc (thin jar + deps) via sbt cli/stage..."
 mkdir -p "$BIN"
 
 # Launcher: classpath-based, no fat jar needed.
-# lib/jars/* holds all transitive JARs; lib/ssc.jar is the thin entry-point.
+# bin/lib/jars/* holds runtime JARs; bin/lib/ssc.jar is the thin entry-point.
 cat > "$BIN/ssc" <<'LAUNCHER'
 #!/usr/bin/env bash
-# Detect install root (parent of this bin/ directory) so that bare imports
-# like `[actors](std/actors.ssc)` resolve without a relative path prefix.
 _SSC_BIN="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 _SSC_ROOT="$(dirname "$_SSC_BIN")"
-exec java -Dssc.lib.path="$_SSC_ROOT" -cp "$_SSC_ROOT/lib/jars/*:$_SSC_ROOT/lib/ssc.jar" scalascript.cli.ssc "$@"
+exec java -Dssc.lib.path="$_SSC_ROOT" -cp "$_SSC_BIN/lib/jars/*:$_SSC_BIN/lib/ssc.jar" scalascript.cli.ssc "$@"
 LAUNCHER
 chmod +x "$BIN/ssc"
 
@@ -37,9 +35,10 @@ for f in "$BIN"/*; do
 done
 echo ""
 echo "Layout:"
-echo "  lib/ssc.jar        — thin entry-point JAR"
-echo "  lib/jars/          — $(ls "$LIB/jars" | wc -l | tr -d ' ') JARs"
-echo "  lib/plugins/       — drop .sscpkg files here for auto-loading"
+echo "  bin/lib/ssc.jar           — thin entry-point JAR"
+echo "  bin/lib/jars/             — $(ls "$LIB/jars" | wc -l | tr -d ' ') runtime JARs"
+echo "  bin/lib/compiler/jars/    — $(ls "$LIB/compiler/jars" | wc -l | tr -d ' ') compile-only JARs (lazy-loaded)"
+echo "  bin/lib/compiler/plugins/ — drop .sscpkg files here for auto-loading"
 echo ""
 echo "Add to PATH for this session:"
 echo "  export PATH=\"\$PATH:$BIN\""

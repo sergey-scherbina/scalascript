@@ -19,7 +19,7 @@ object CompilerLoader:
         "Run ssc via the installed bin/ssc launcher or set -Dssc.lib.path=<root>."
       )
     )
-    val jarDir = libPath / "lib" / "compiler" / "jars"
+    val jarDir = libPath / "bin" / "lib" / "compiler" / "jars"
     if !os.exists(jarDir) then
       throw RuntimeException(
         s"CompilerLoader: $jarDir does not exist.\n" +

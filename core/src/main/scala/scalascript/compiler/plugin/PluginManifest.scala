@@ -108,7 +108,7 @@ object PluginManifest:
    *    - `~/.scalascript/compiler/plugins/`   — user-global plugins */
   def defaultSearchPaths: List[os.Path] =
     val libPlugins = scalascript.imports.ImportResolver.libPath
-      .map(_ / "lib" / "compiler" / "plugins")
+      .map(_ / "bin" / "lib" / "compiler" / "plugins")
       .filter(os.exists)
       .toList
     val envPath = sys.env.get("SCALASCRIPT_PLUGIN_PATH").getOrElse("")

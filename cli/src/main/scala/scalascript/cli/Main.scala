@@ -25,7 +25,7 @@ import scalascript.codegen.SparkBackend
   // Auto-load .sscpkg files from lib/compiler/plugins/ next to the install root.
   // Runs before CLI flags so --plugin can still override or supplement.
   scalascript.imports.ImportResolver.libPath
-    .map(_ / "lib" / "compiler" / "plugins")
+    .map(_ / "bin" / "lib" / "compiler" / "plugins")
     .filter(os.exists)
     .foreach { dir =>
       os.list(dir)

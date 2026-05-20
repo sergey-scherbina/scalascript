@@ -656,7 +656,7 @@ lazy val cli = project
     stage := {
       val log          = streams.value.log
       val root         = (ThisBuild / baseDirectory).value
-      val libDir       = root / "lib"
+      val libDir       = root / "bin" / "lib"
       val runtimeDir   = libDir / "jars"
       val compilerDir  = libDir / "compiler" / "jars"
       val plugDir      = libDir / "compiler" / "plugins"
@@ -666,7 +666,7 @@ lazy val cli = project
       // Thin cli entry-point JAR (no scala3-compiler dep).
       val appJar = (Compile / packageBin).value
       IO.copyFile(appJar, libDir / "ssc.jar")
-      log.info(s"lib/ssc.jar  (${appJar.length / 1024} KB)")
+      log.info(s"bin/lib/ssc.jar  (${appJar.length / 1024} KB)")
       // compiler-driver JAR → lib/compiler/jars/
       val driverJar = (compilerDriver / Compile / packageBin).value
       IO.copyFile(driverJar, compilerDir / driverJar.getName)
@@ -682,7 +682,7 @@ lazy val cli = project
         f.getAbsolutePath != driverJar.getAbsolutePath
       val compilerJars = compilerCp.filter(isCompilerJar)
       compilerJars.foreach(j => IO.copyFile(j, compilerDir / j.getName))
-      log.info(s"lib/compiler/jars/  (${compilerJars.size + 1} JARs incl. compiler-driver)")
+      log.info(s"bin/lib/compiler/jars/  (${compilerJars.size + 1} JARs incl. compiler-driver)")
       // Runtime JARs: cli fullClasspath minus compiler JARs and app JAR.
       val runtimeCp = (Compile / fullClasspath).value.files
       val compilerAbsPaths = (compilerJars :+ driverJar).map(_.getAbsolutePath).toSet
@@ -693,8 +693,8 @@ lazy val cli = project
         !isCompilerJar(f)
       }
       runtimeJars.foreach(j => IO.copyFile(j, runtimeDir / j.getName))
-      log.info(s"lib/jars/           (${runtimeJars.size} JARs)")
-      log.info(s"lib/compiler/plugins/ ready")
+      log.info(s"bin/lib/jars/           (${runtimeJars.size} JARs)")
+      log.info(s"bin/lib/compiler/plugins/ ready")
     }
   )
 
