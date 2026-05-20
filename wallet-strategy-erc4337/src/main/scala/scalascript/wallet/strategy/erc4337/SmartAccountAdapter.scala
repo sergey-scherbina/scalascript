@@ -134,7 +134,7 @@ class SmartAccountAdapter(
 
   def prepareSigningPayload(tx: Tx, signer: PublicKey): SigningPayload =
     val cidBig = BigInt(chainId.reference)
-    SigningPayload(UserOpHash.compute(tx, bundler.entryPoint, cidBig), HashAlgo.None)
+    SigningPayload(bundler.userOpHash(tx, cidBig), HashAlgo.None)
 
   def assembleSignedTransaction(tx: Tx, signature: Array[Byte], signer: PublicKey): SignedTx =
     require(signature.length == 65, s"ERC-4337 signature must be 65 bytes (r||s||v), got ${signature.length}")

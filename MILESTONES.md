@@ -7691,7 +7691,12 @@ Landed in tandem with blockchain-spi Phase 1.
       supportedEntryPoints; both flat and `receipt:{}`-envelope reply
       shapes accepted)
 - [x] Counterfactual CREATE2 address derivation (`SimpleAccountFactory`)
-- [ ] EntryPoint v0.7 PackedUserOperation (follow-up slice)
+- [x] EntryPoint v0.7 PackedUserOperation — `UserOpHashV07`
+      (compressed accountGasLimits / gasFees), version-aware
+      `BundlerClient` (`BundlerClient.v07(...)`), wire-side
+      factory / factoryData + paymaster split in JSON. The on-chain
+      hash composition (`keccak(packed)`, then
+      `keccak(encode(., ep, cid))`) is shared with v0.6.
 - [ ] Passkey owner via WebAuthn (Scala.js); curve = p256
 
 ### Phase 7 — Hardware wallet Vault (Ledger multi-chain)
