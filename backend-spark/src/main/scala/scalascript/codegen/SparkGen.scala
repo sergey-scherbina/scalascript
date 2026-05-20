@@ -587,7 +587,16 @@ private class SparkGen(
     // Emitted at top level so its `inline given derived[T <: Product]`
     // and primitive `given Encoder[X]` instances are in scope inside
     // `@main def runSparkJob` once the user `import SscSparkEncoders.given`s.
-    sb.append(phaseEShim)
+    //
+    // Phase M.3 — when the user imports MLlib, the shim also surfaces
+    // an explicit `aenc_Vector` AgnosticEncoder for
+    // `org.apache.spark.ml.linalg.Vector` so case classes with a
+    // `features: Vector` field derive cleanly via the same Mirror walk
+    // that handles primitives, Option, collections, and nested case
+    // classes.  Gated on `needsMllibDep` so non-MLlib modules don't
+    // reference the `VectorUDT` class (which lives in the MLlib JAR
+    // and would fail to resolve otherwise).
+    sb.append(phaseEShim(needsMllibDep))
 
     // @main wrapper opens here.
     sb.append("\n@main def runSparkJob(): Unit =\n")
@@ -946,12 +955,56 @@ private class SparkGen(
    *     today; nested case classes and `Option[T]` are explicit
    *     next-step work.
    *
+   *  Phase M.3 — when `usesMllib` is true, the shim also surfaces an
+   *  explicit `aenc_MLVector: AgnosticEncoder[org.apache.spark.ml.linalg.Vector]`
+   *  given that wraps `UDTEncoder(new VectorUDT(), classOf[VectorUDT])`.
+   *  Spark ML's `Vector` is a sealed trait (not a `Product`), so the
+   *  Mirror-based `aenc_Product[T <: Product]` derivation can't reach
+   *  it; the explicit given routes via Spark's own UserDefinedType
+   *  registry so the wire-level representation matches what every
+   *  MLlib operator expects (a `VectorUDT.sqlType` struct, NOT a Kryo
+   *  blob).  Gated on `usesMllib` so non-MLlib modules don't reference
+   *  the `VectorUDT` class (which lives in the MLlib JAR and would
+   *  fail to resolve otherwise).
+   *
    *  The shim assumes the runtime is **Scala 3.7.1 + Spark 4.x +
    *  JDK 17/21 with the standard Spark add-opens** — Scala 3.8.x has
    *  a regression in its TASTy bridge to Spark `_2.13` reflection
    *  that breaks every `ExpressionEncoder` (see SPEC § 9.5 "Scala 3
    *  / Spark 2.13 interop"). */
-  private val phaseEShim: String =
+  private def phaseEShim(usesMllib: Boolean): String =
+    val mllibBlock =
+      if !usesMllib then ""
+      else
+        """|
+           |  // ── Phase M.3 — MLlib Vector encoder ─────────────────────────────────
+           |  //
+           |  // Spark ML's `org.apache.spark.ml.linalg.Vector` is a sealed
+           |  // trait (NOT a Product), with `DenseVector` and `SparseVector`
+           |  // case-class impls.  The Mirror-based `aenc_Product[T <: Product]`
+           |  // derivation can't synthesise an encoder for it; the explicit
+           |  // given below routes via Spark's own `VectorUDT` user-defined
+           |  // type so the wire-level column shape matches what every MLlib
+           |  // operator expects.  See `docs/spark-mllib.md` § Architecture.
+           |  //
+           |  // Aliased to `MLVector` so it doesn't clash with
+           |  // `scala.collection.immutable.Vector` (which the `aenc_Vector[E]`
+           |  // given above already handles).
+           |  import org.apache.spark.ml.linalg.{Vector => MLVector, VectorUDT}
+           |  import org.apache.spark.sql.catalyst.encoders.AgnosticEncoders.UDTEncoder
+           |
+           |  given aenc_MLVector: AgnosticEncoder[MLVector] =
+           |    UDTEncoder[MLVector](new VectorUDT(), classOf[VectorUDT])
+           |""".stripMargin
+    phaseEShimHead + mllibBlock + phaseEShimTail
+
+  /** Phase E shim head — everything up to and including the collection
+   *  encoders, but before the `aenc_Product[T]` Mirror walk.  When
+   *  Phase M.3 is active the MLlib `aenc_MLVector` given slots in
+   *  between this head and the `phaseEShimTail` below, so Mirror.derive
+   *  sees the explicit `AgnosticEncoder[MLVector]` via `summonInline`
+   *  before falling back to the generic Product path. */
+  private val phaseEShimHead: String =
     """|
        |// ── Phase E — Scala 3 native Spark Encoder derivation ──────────────────
        |//
@@ -1034,7 +1087,15 @@ private class SparkGen(
        |
        |  given aenc_Map[K, V](using k: AgnosticEncoder[K], v: AgnosticEncoder[V]): AgnosticEncoder[Map[K, V]] =
        |    MapEncoder(classTag[Map[K, V]], k, v, valueContainsNull = v.nullable)
-       |
+       |""".stripMargin
+
+  /** Phase E shim tail — the `aenc_Product[T <: Product]` Mirror walk
+   *  plus the top-level `derived[T]` Encoder given.  Spliced after the
+   *  optional Phase M.3 `aenc_MLVector` block so the Mirror walk sees
+   *  it via `summonInline[AgnosticEncoder[t]]` for any `features: Vector`
+   *  field. */
+  private val phaseEShimTail: String =
+    """|
        |  /** Nested case-class encoder.  The field walk recursively
        |   *  `summonInline[AgnosticEncoder[t]]` for each element type —
        |   *  primitives resolve from the givens above, `Option` from

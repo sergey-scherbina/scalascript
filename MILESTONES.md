@@ -7167,15 +7167,30 @@ Thin `backend-wasm-contract/` layer on top of `backend-wasm/` for Near or Polkad
 >   negative detection (no MLlib import / `mllibConfig` variable name
 >   doesn't match), the documented commented-out-import limitation,
 >   and direct `containsMllib` helper assertions.
-> - **M.3 — Vector encoder (open).**  Extend `SscSparkEncoders` with
->   an explicit `aenc_Vector: AgnosticEncoder[org.apache.spark.ml.linalg.Vector]`
->   given that wraps `UDTEncoder(new VectorUDT(), classOf[VectorUDT])`.
->   Required because `Vector` is a sealed trait (not a Product), so
->   the existing `aenc_Product[T <: Product]` Mirror walk skips over
->   it.  The given is gated on `usesMllib` — emitted only when the
->   module actually imports MLlib, so non-MLlib programs don't pull
->   the `VectorUDT` class reference (which would fail to resolve
->   when `spark-mllib` isn't on the classpath).
+> - **M.3 — Vector encoder (landed 2026-05-20).**  Extends
+>   `SscSparkEncoders` with an explicit
+>   `aenc_MLVector: AgnosticEncoder[org.apache.spark.ml.linalg.Vector]`
+>   given that wraps `UDTEncoder[MLVector](new VectorUDT(), classOf[VectorUDT])`.
+>   Spark ML's `Vector` is a sealed trait (not a `Product`), so the
+>   Mirror-based `aenc_Product[T <: Product]` derivation can't reach
+>   it; the explicit given routes via Spark's own `VectorUDT`
+>   user-defined type so the wire-level column shape matches what
+>   every MLlib operator expects (a `VectorUDT.sqlType` struct, not
+>   a Kryo blob).  Aliased to `MLVector` on import to avoid clashing
+>   with the existing `aenc_Vector[E]` given for the Scala collection
+>   `scala.collection.immutable.Vector`.  Gated on `usesMllib`: the
+>   shim text is emitted only when MLlib is imported, so non-MLlib
+>   programs don't reference the `VectorUDT` class (which lives in
+>   the MLlib JAR and would fail to resolve otherwise).  Implementation
+>   refactors `phaseEShim` from a `val` to `def(usesMllib: Boolean)`
+>   splicing a `phaseEShimHead` + optional Vector block +
+>   `phaseEShimTail` (containing the `aenc_Product` Mirror walk +
+>   `derived[T]` Encoder given).  Tests: 4 new `SparkGenTest` cases
+>   covering emit-when-imported, no-emit-without-import (gating
+>   correctness), aliased-import coexistence with Scala collection
+>   Vector, and source-ordering (`aenc_MLVector` slots between
+>   collection encoders and `aenc_Product` so the Mirror walk picks
+>   it up via `summonInline`).
 > - **M.4 — Pipeline example end-to-end (open).**
 >   `examples/spark-mllib-pipeline.ssc` — Tokenizer + HashingTF +
 >   LogisticRegression on a tiny inline dataset.  Smoke test gated

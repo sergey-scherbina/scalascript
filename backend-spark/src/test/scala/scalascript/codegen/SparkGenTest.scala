@@ -1911,6 +1911,114 @@ class SparkGenTest extends AnyFunSuite:
       s"`mllibConfig` variable name must NOT pull MLlib dep, got:\n$code")
   }
 
+  // ── Phase M.3 — Vector encoder shim ──────────────────────────────────────
+  //
+  // When `usesMllib` is true the Phase E `SscSparkEncoders` shim gains
+  // an explicit `aenc_MLVector` AgnosticEncoder for
+  // `org.apache.spark.ml.linalg.Vector`.  Spark ML's `Vector` is a
+  // sealed trait (not a Product), so the Mirror-based `aenc_Product`
+  // derivation can't reach it; the explicit given routes via Spark's
+  // `VectorUDT` user-defined type so the wire-level column shape
+  // matches what every MLlib operator expects.  Gated on `usesMllib`
+  // so non-MLlib modules don't reference the `VectorUDT` class.
+
+  test("mllib encoder — usesMllib emits aenc_MLVector given") {
+    val code = gen(
+      """|# MLlib Vector encoder
+         |```scalascript
+         |import org.apache.spark.ml.linalg.Vector
+         |case class Sample(label: Double, features: Vector)
+         |val ds = spark.createDataset(List(Sample(1.0, null)))
+         |ds.show()
+         |```
+         |""".stripMargin
+    )
+    assert(code.contains("given aenc_MLVector: AgnosticEncoder[MLVector]"),
+      s"aenc_MLVector given must be present when MLlib is imported, got:\n$code")
+    assert(code.contains("UDTEncoder[MLVector](new VectorUDT(), classOf[VectorUDT])"),
+      s"aenc_MLVector must wire through UDTEncoder + VectorUDT, got:\n$code")
+    assert(code.contains("import org.apache.spark.ml.linalg.{Vector => MLVector, VectorUDT}"),
+      s"Vector / VectorUDT imports (aliased) must be in scope, got:\n$code")
+  }
+
+  test("mllib encoder — no MLlib usage means no aenc_MLVector given") {
+    // Gating is critical: if the shim referenced `VectorUDT` in a
+    // non-MLlib module, scala-cli compile would fail because the
+    // class lives in the `spark-mllib` JAR (not pulled when MLlib
+    // isn't imported).
+    val code = gen(
+      """|# Plain batch
+         |```scalascript
+         |val ds = Dataset.of(1, 2, 3)
+         |ds.foreach(println)
+         |```
+         |""".stripMargin
+    )
+    assert(!code.contains("aenc_MLVector"),
+      s"aenc_MLVector must NOT be emitted without MLlib usage, got:\n$code")
+    assert(!code.contains("VectorUDT"),
+      s"VectorUDT reference must NOT appear without MLlib usage, got:\n$code")
+    assert(!code.contains("UDTEncoder"),
+      s"UDTEncoder reference must NOT appear without MLlib usage, got:\n$code")
+    // The shim's existing givens (primitives + collection encoders +
+    // aenc_Product) must still be present — only the Vector block is gated.
+    assert(code.contains("object SscSparkEncoders"),
+      s"Phase E shim object must still be emitted, got:\n$code")
+    assert(code.contains("inline given aenc_Product"),
+      s"aenc_Product Mirror walk must still be emitted, got:\n$code")
+  }
+
+  test("mllib encoder — aliased MLVector type avoids clash with Scala collection Vector") {
+    // The Phase E shim already has `aenc_Vector[E]` for the Scala
+    // collection `scala.collection.immutable.Vector`.  The MLlib
+    // Vector lives in `org.apache.spark.ml.linalg.Vector` and is
+    // a sealed trait, not a parameterised collection.  We alias
+    // the MLlib type to `MLVector` on import so both givens
+    // coexist without ambiguity.
+    val code = gen(
+      """|# Both Vectors
+         |```scalascript
+         |import org.apache.spark.ml.linalg.Vector
+         |case class Box(scores: Vector[Double])
+         |```
+         |""".stripMargin
+    )
+    // Scala collection Vector encoder still present.
+    assert(code.contains("given aenc_Vector[E]"),
+      s"Scala collection Vector encoder must remain, got:\n$code")
+    // MLlib Vector encoder also emitted (because the import triggers
+    // M.2 detection — the regex doesn't care that the user's case
+    // class is actually using Scala collection Vector parameterised
+    // on Double; the import statement is what flips the flag).
+    assert(code.contains("given aenc_MLVector"),
+      s"MLlib Vector encoder must also be emitted when ml.linalg.Vector is imported, got:\n$code")
+  }
+
+  test("mllib encoder — aenc_MLVector slots between collection encoders and aenc_Product") {
+    // Source-ordering matters: the explicit `aenc_MLVector` must
+    // appear BEFORE `aenc_Product`'s Mirror walk, so when a case
+    // class has a `features: Vector` field, `summonInline[AgnosticEncoder[Vector]]`
+    // resolves to the explicit given (and not to some structural
+    // fallback that would fail).
+    val code = gen(
+      """|# Order check
+         |```scalascript
+         |import org.apache.spark.ml.linalg.Vector
+         |```
+         |""".stripMargin
+    )
+    val idxMap     = code.indexOf("given aenc_Map[K, V]")
+    val idxMLVec   = code.indexOf("given aenc_MLVector")
+    val idxProduct = code.indexOf("inline given aenc_Product")
+    assert(idxMap >= 0,     s"aenc_Map missing in:\n$code")
+    assert(idxMLVec >= 0,   s"aenc_MLVector missing in:\n$code")
+    assert(idxProduct >= 0, s"aenc_Product missing in:\n$code")
+    assert(idxMap < idxMLVec,
+      s"aenc_MLVector must appear AFTER the collection encoders; got idxMap=$idxMap idxMLVec=$idxMLVec")
+    assert(idxMLVec < idxProduct,
+      s"aenc_MLVector must appear BEFORE aenc_Product; got idxMLVec=$idxMLVec idxProduct=$idxProduct")
+  }
+
   test("containsMllib helper — direct test cases") {
     // Pin the detection helper used by the M.2 logic.  Same shape as
     // the Phase F.3 `containsFileStreamSink` / `containsCheckpointLocation`
