@@ -47,10 +47,11 @@ object Denormalize:
       targets      = m.targets,
       routes       = m.routes.map(routeDecl),
       pkg          = m.pkg,
-      translations = Map.empty,
-      databases    = m.databases.map(databaseDecl),
-      raw          = Map.empty,
-      span         = m.span.map(span)
+      translations      = Map.empty,
+      databases         = m.databases.map(databaseDecl),
+      raw               = Map.empty,
+      frontendFramework = m.frontendFramework,
+      span              = m.span.map(span)
     )
 
   private def routeDecl(r: ir.RouteDecl): ast.RouteDecl =

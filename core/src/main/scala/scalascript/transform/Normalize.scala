@@ -49,8 +49,9 @@ object Normalize:
       targets      = m.targets,
       routes       = m.routes.map(routeDecl),
       pkg          = m.pkg,
-      databases    = m.databases.map(databaseDecl),
-      span         = m.span.map(span)
+      databases         = m.databases.map(databaseDecl),
+      frontendFramework = m.frontendFramework,
+      span              = m.span.map(span)
     )
 
   private def routeDecl(r: ast.RouteDecl): ir.RouteDecl =
