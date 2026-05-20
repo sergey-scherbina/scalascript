@@ -467,16 +467,32 @@ Core widgets enough for a real CRUD form:
   - State: `Show`, `For`, `Async`, `Empty`
   - Theme: one reference + dark variant + token API
 
-### v2 (deferred)
+### v2 — landed in Phase B+ / Phase B++
 
-  - `Slider`, `NumberField`, `DatePicker`, `ColorPicker`
-  - `Table` with sort/filter/paginate
-  - `Tree`, `Accordion`, `Drawer`, `Sheet`, `Tooltip`, `Popover`
-  - `Router` + nested routes + lazy loading
-  - `Toast` / `Notification` (queueable)
-  - Animations + transitions
-  - i18n integration (RTL + locale-aware formatters)
-  - DnD primitives
+  - **Forms + validation** — `Form`, `FormField[T]`, `FormContext`,
+    `Validators` (required, minLength, maxLength, pattern, email, and).
+  - **Routing** — `Router`, `Route`, `Link` with `:name` params, query
+    + trailing-slash normalisation, SPA + plain-anchor link modes.
+  - **v2 widget pack** — `Slider`, `Tabs`, `Modal`, `Drawer`,
+    `Tooltip`, `Badge`, `Avatar`, `Icon`, `Spinner`, `Progress`.
+  - **Table** — typed `Table[T]` with click-to-sort, ARIA, caption,
+    empty-state slot.  (Filtering + pagination still caller-side via
+    pre-sliced `Signal[Seq[T]]`; virtualisation deferred.)
+  - **FormInputs pack** — `Select[T]`, `RadioGroup[T]`, `Textarea`,
+    `DatePicker`, `NumberInput`.
+
+### Still deferred to a later iteration
+
+  - `ColorPicker`, `TimePicker`, multi-select, combobox/autocomplete,
+    file upload.
+  - `Table` v2: filtering UI, pagination control, virtualisation,
+    column resize/reorder.
+  - `Tree`, `Accordion`, `Sheet`, `Popover`.
+  - Nested-route lazy loading.
+  - `Toast` / `Notification` queue.
+  - Animations + transitions (CSS-only is OK in user code today).
+  - i18n integration (RTL + locale-aware formatters — see decision §5).
+  - DnD primitives.
 
 ## Spec compliance — what the SPI promises the toolkit
 
@@ -525,16 +541,25 @@ App(theme = Theme.default) {
 
 ## Migration path
 
-  1. **Phase 1 — Spec freeze** (this doc).  Reviewable + open to
-     pushback before code lands.
-  2. **Phase 2 — Skeleton + Stack/Text/Button** (~1k LOC).  Proves
-     the lowering shape; sets the testing pattern.
-  3. **Phase 3 — Inputs + Form** (~1.5k LOC).  Hardest part; locks
-     in the Signal binding pattern.
-  4. **Phase 4 — Containers + state widgets**.  Card, Modal, Tabs,
-     Show/For/Async.
-  5. **Phase 5 — Theme + reference theme + dark variant**.
-  6. **Phase 6 — Documentation + a non-trivial example app**.
+  1. **Phase 1 ✓ Spec freeze** (this doc).  Landed.
+  2. **Phase 2 ✓ Skeleton + Stack/Text/Button**.  Phase B — the
+     primitive layer landed with 25 tests in `ToolkitTest`.
+  3. **Phase 3 ✓ Inputs + Form** (~26 tests).  Form widget with
+     validators, 26 FormTest cases.  Locked in the Signal binding
+     pattern: each input takes a `Signal[T]` + optional
+     `Signal[Option[String]]` for errors.
+  4. **Phase 4 ✓ Containers + state widgets**.  Card landed in
+     Phase B; Modal/Drawer/Tabs/Tooltip/Badge/Avatar/Icon/Spinner/
+     Progress landed in Phase B+ via the Widgets v2 pack.
+  5. **Phase 5 ✓ Theme + reference theme + dark variant**.  `Theme.default`
+     + `Theme.dark` ship; every widget reads colour / spacing /
+     typography / radius / shadow tokens through `Theme`.
+  6. **Phase 6 ✓ Routing + data widgets**.  Phase B+ added `Router`,
+     `Route`, `Link`, `Table` with click-to-sort.  Phase B++ added
+     `Select`, `RadioGroup`, `Textarea`, `DatePicker`, `NumberInput`.
+  7. **Phase 7 (next)** — Reference example app (full SPA exercising
+     forms + routing + table + widgets); deeper SSR support; the
+     remaining deferred widgets (ColorPicker, TimePicker, combobox).
 
 ## Design decisions (formerly open questions)
 

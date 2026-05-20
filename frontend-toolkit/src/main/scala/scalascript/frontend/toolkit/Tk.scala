@@ -233,3 +233,75 @@ object Tk:
   /** Determinate `<progress>` indicator. */
   def progress(value: Signal[Double], max: Double, label: Option[String] = None): ToolkitNode =
     ProgressNode(value, max, label)
+
+  // ─── FormInputs pack ───────────────────────────────────────────
+
+  /** Typed dropdown.  `options` are `(value, label)` pairs.  `toKey`
+   *  defaults to `_.toString` — override for non-trivial value
+   *  types where `toString` isn't stable. */
+  def select[T](
+    value:       Signal[T],
+    options:     Seq[(T, String)],
+    label:       Option[String]    = None,
+    placeholder: Option[String]    = None,
+    required:    Boolean           = false,
+    disabled:    Boolean           = false,
+    size:        WidgetSize        = WidgetSize.Md,
+    toKey:       T => String       = (t: T) => t.toString,
+    error:       Option[Signal[Option[String]]] = None
+  ): ToolkitNode = SelectNode(value, options, toKey, label, placeholder,
+    required, disabled, size, error)
+
+  /** Typed radio-button group. */
+  def radioGroup[T](
+    value:       Signal[T],
+    options:     Seq[(T, String)],
+    label:       Option[String]      = None,
+    orientation: RadioOrientation    = RadioOrientation.Vertical,
+    required:    Boolean             = false,
+    disabled:    Boolean             = false,
+    toKey:       T => String         = (t: T) => t.toString,
+    error:       Option[Signal[Option[String]]] = None
+  ): ToolkitNode = RadioGroupNode(value, options, toKey, label, required,
+    disabled, orientation, error)
+
+  /** Multi-line text input. */
+  def textarea(
+    value:       Signal[String],
+    label:       Option[String]  = None,
+    placeholder: Option[String]  = None,
+    rows:        Int             = 4,
+    required:    Boolean         = false,
+    disabled:    Boolean         = false,
+    size:        WidgetSize      = WidgetSize.Md,
+    maxLength:   Option[Int]     = None,
+    error:       Option[Signal[Option[String]]] = None
+  ): ToolkitNode = TextareaNode(value, label, placeholder, rows, required,
+    disabled, size, maxLength, error)
+
+  /** ISO-8601 (`YYYY-MM-DD`) date input. */
+  def datePicker(
+    value:    Signal[String],
+    label:    Option[String]  = None,
+    required: Boolean         = false,
+    disabled: Boolean         = false,
+    size:     WidgetSize      = WidgetSize.Md,
+    min:      Option[String]  = None,
+    max:      Option[String]  = None,
+    error:    Option[Signal[Option[String]]] = None
+  ): ToolkitNode = DatePickerNode(value, label, required, disabled, size,
+    min, max, error)
+
+  /** Numeric input bound to a `Signal[Double]`. */
+  def numberInput(
+    value:    Signal[Double],
+    label:    Option[String]  = None,
+    required: Boolean         = false,
+    disabled: Boolean         = false,
+    size:     WidgetSize      = WidgetSize.Md,
+    min:      Option[Double]  = None,
+    max:      Option[Double]  = None,
+    step:     Double          = 1.0,
+    error:    Option[Signal[Option[String]]] = None
+  ): ToolkitNode = NumberInputNode(value, label, required, disabled, size,
+    min, max, step, error)
