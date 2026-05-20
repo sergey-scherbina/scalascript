@@ -73,6 +73,8 @@ private def dispatchCommand(args: List[String]): Unit =
     // v2.0 separate-compilation commands
     case "emit-interface"      => emitInterfaceCommand(args.tail)
     case "emit-ir"             => emitIrCommand(args.tail)
+    case "run-jvm"             => runJvmCommand(args.tail)
+    case "run-js"              => runJsCommand(args.tail)
     case "compile-jvm"         => compileJvmCommand(args.tail)
     case "compile-js"          => compileJsCommand(args.tail)
     case "compile-runtime"     => compileRuntimeCommand(args.tail)
@@ -350,6 +352,8 @@ def printUsage(): Unit =
     |  emit-wc                Emit each component object as a W3C Custom Element bundle
     |  emit-interface         Extract module interface to .scim artifact (v2.0)
     |  emit-ir                Emit normalised module IR to .scir artifact (v2.0)
+    |  run-jvm                Compile .ssc via JvmGen and run immediately via scala-cli
+    |  run-js                 Compile .ssc via JsGen and run immediately via node
     |  compile-jvm            Emit JVM-backend cached Scala source to .scjvm artifact (v2.0)
     |  compile-js             Emit JS-backend cached JS source to .scjs artifact (v2.0)
     |  check-with-iface       Type-check .ssc consuming pre-compiled .scim interfaces (v2.0)
@@ -2413,6 +2417,62 @@ def emitIrCommand(args: List[String]): Unit =
 // ─────────────────────────────────────────────────────────────────────────────
 // ssc compile-jvm  —  v2.0 JVM-backend incremental codegen cache
 // ─────────────────────────────────────────────────────────────────────────────
+
+/** `ssc run-jvm <file.ssc> [-- args...]`
+ *
+ *  One-shot: compile `.ssc` via JvmGen, write to a temp `.sc` file, and
+ *  run it immediately with `scala-cli run --server=false`.  Equivalent to
+ *  `compile-jvm` + `link --backend jvm` but without leaving any artifacts
+ *  on disk.  Requires `scala-cli` on PATH. */
+def runJvmCommand(args: List[String]): Unit =
+  if args.isEmpty then
+    System.err.println("Usage: ssc run-jvm <file.ssc>")
+    System.exit(1)
+  val file = args.head
+  val path = os.Path(file, os.pwd)
+  if !os.exists(path) then
+    System.err.println(s"Error: File not found: $file"); System.exit(1)
+  if !JvmBytecode.scalaCliAvailable then
+    System.err.println(s"run-jvm: ${JvmBytecode.scalaCliMissingMessage}")
+    System.exit(1)
+  val source = expectText(compileViaBackend("jvm", path), s"run-jvm $file")
+  val tmp = os.temp(source, suffix = ".sc", deleteOnExit = true)
+  try
+    val res = os.proc("scala-cli", "run", tmp, "--server=false")
+      .call(stdout = os.Inherit, stderr = os.Inherit, check = false)
+    if res.exitCode != 0 then System.exit(res.exitCode)
+  catch case e: Exception =>
+    System.err.println(s"run-jvm: scala-cli invocation failed: ${e.getMessage}")
+    System.exit(1)
+
+/** `ssc run-js <file.ssc>`
+ *
+ *  One-shot: compile `.ssc` via JsGen, write to a temp `.js` file, and
+ *  run it immediately with `node`.  Equivalent to `compile-js` + `link
+ *  --backend js` but without leaving any artifacts on disk.  Requires
+ *  `node` on PATH. */
+def runJsCommand(args: List[String]): Unit =
+  if args.isEmpty then
+    System.err.println("Usage: ssc run-js <file.ssc>")
+    System.exit(1)
+  val file = args.head
+  val path = os.Path(file, os.pwd)
+  if !os.exists(path) then
+    System.err.println(s"Error: File not found: $file"); System.exit(1)
+  val nodeAvailable = scala.util.Try {
+    os.proc("node", "--version").call(check = false, stdout = os.Pipe, stderr = os.Pipe).exitCode == 0
+  }.getOrElse(false)
+  if !nodeAvailable then
+    System.err.println("run-js: node not found on PATH"); System.exit(1)
+  val source = expectText(compileViaBackend("js", path), s"run-js $file")
+  val tmp = os.temp(source, suffix = ".js", deleteOnExit = true)
+  try
+    val res = os.proc("node", tmp.toString)
+      .call(stdout = os.Inherit, stderr = os.Inherit, check = false)
+    if res.exitCode != 0 then System.exit(res.exitCode)
+  catch case e: Exception =>
+    System.err.println(s"run-js: node invocation failed: ${e.getMessage}")
+    System.exit(1)
 
 /** `ssc compile-jvm <file.ssc> [-o <file.scjvm>] [--iface-dir <dir>]`
  *
