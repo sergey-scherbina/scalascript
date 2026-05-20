@@ -14,7 +14,17 @@ private[interpreter] object BuiltinsRuntime:
 
     // println / print / route / serve / stop now live in InterpreterIntrinsics
     // (Stage 5+/B); installNativeIntrinsics routes them through Backend.intrinsics.
-    interp.installNativeIntrinsics(InterpreterIntrinsics)
+    // Plugin intrinsics (loaded via ServiceLoader) are merged in at the right side.
+    // Only NativeImpl entries are relevant for the interpreter; RuntimeCall/InlineCode
+    // entries from code-generating backends on the classpath are ignored so they
+    // cannot accidentally shadow a bundled NativeImpl.
+    import scalascript.backend.spi.NativeImpl
+    val pluginNativeImpls: Map[scalascript.ir.QualifiedName, scalascript.backend.spi.IntrinsicImpl] =
+      scalascript.plugin.BackendRegistry.inProcess
+        .iterator.flatMap(_.intrinsics)
+        .collect { case entry @ (_, _: NativeImpl) => entry }
+        .toMap
+    interp.installNativeIntrinsics(InterpreterIntrinsics ++ pluginNativeImpls)
 
     // Stage 5+/B.3 — Console companion object mirrors math / Response companions.
     // Normalize rewrites bare `println` → `Console.println`; the companion lets

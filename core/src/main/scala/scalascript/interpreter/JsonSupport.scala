@@ -1,59 +1,11 @@
 package scalascript.interpreter
 
-import scalascript.backend.spi.*
-import scalascript.ir.QualifiedName
-
-/** JSON intrinsics for the tree-walking interpreter (Stage 5+/E).
- *
- *  Migrated from hardcoded `nativeP` calls in `Interpreter.initBuiltins`. */
-val JsonIntrinsics: Map[QualifiedName, IntrinsicImpl] = Map(
-
-  QualifiedName("jsonStringify") -> NativeImpl((_, args) =>
-    args match
-      case List(v) => jsonToJson(jsonAnyToValue(v))
-      case _       => throw InterpretError("jsonStringify(v)")
-  ),
-
-  QualifiedName("jsonParse") -> NativeImpl((_, args) =>
-    args match
-      case List(s: String) =>
-        try JsonParser.parse(s)
-        catch case e: JsonParser.ParseError => throw InterpretError(e.getMessage)
-      case _ => throw InterpretError("jsonParse(s: String)")
-  ),
-
-  QualifiedName("jsonRead") -> NativeImpl((_, args) =>
-    args match
-      case List(s: String) =>
-        try wrapJson(JsonParser.parse(s))
-        catch case e: JsonParser.ParseError => throw InterpretError(e.getMessage)
-      case List(v) => wrapJson(jsonAnyToValue(v))
-      case _       => throw InterpretError("jsonRead(s: String) or jsonRead(parsedAny)")
-  ),
-
-  QualifiedName("lookup") -> NativeImpl((_, args) =>
-    args match
-      case List(v, k) =>
-        val vv = jsonAnyToValue(v)
-        val kk = jsonAnyToValue(k)
-        lookupKey(vv, kk) match
-          case Some(x) => x
-          case None    => throw InterpretError(s"lookup: key ${Value.show(kk)} not found in ${Value.show(vv)}")
-      case _ => throw InterpretError("lookup(v, key)")
-  ),
-
-  QualifiedName("lookupOpt") -> NativeImpl((_, args) =>
-    args match
-      case List(v, k) => Value.OptionV(lookupKey(jsonAnyToValue(v), jsonAnyToValue(k)))
-      case _          => throw InterpretError("lookupOpt(v, key)")
-  ),
-
-)
+/** JSON encoding helpers shared between the bundled Http intrinsics and the
+ *  json-plugin.  Lives in `core` so both callers can reach it without a
+ *  circular dependency. */
 
 // ── JSON encoder ─────────────────────────────────────────────────────────────
 
-/** JSON-encode a Value.  Package-accessible so Http.scala's Response.json
- *  intrinsic can call it without duplicating the encoder. */
 def jsonToJson(v: Value): String =
   def quote(s: String): String =
     val sb = StringBuilder().append('"')
@@ -94,7 +46,7 @@ def jsonToJson(v: Value): String =
 
 // ── JsonValue wrapper ─────────────────────────────────────────────────────────
 
-private def wrapJson(inner: Value): Value =
+def wrapJson(inner: Value): Value =
   def typedFail(what: String, got: Value): Nothing =
     throw InterpretError(s"JsonValue.$what: expected ${what.stripPrefix("as").toLowerCase} but got ${Value.show(got)}")
   val applyFn = Value.NativeFnV("JsonValue.apply", Computation.pureFn {
@@ -169,7 +121,7 @@ private def wrapJson(inner: Value): Value =
     "size"     -> sizeFn,
   ))
 
-private def lookupKey(v: Value, k: Value): Option[Value] = v match
+def lookupKey(v: Value, k: Value): Option[Value] = v match
   case Value.MapV(m)      => m.get(k)
   case Value.ListV(items) => k match
     case Value.IntV(i) if i >= 0 && i < items.length => Some(items(i.toInt))
@@ -183,7 +135,7 @@ private def lookupKey(v: Value, k: Value): Option[Value] = v match
     case _ => None
   case _ => None
 
-private def jsonAnyToValue(a: Any): Value = a match
+def jsonAnyToValue(a: Any): Value = a match
   case n: Long    => Value.IntV(n)
   case i: Int     => Value.IntV(i.toLong)
   case d: Double  => Value.DoubleV(d)

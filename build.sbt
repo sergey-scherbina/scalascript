@@ -462,7 +462,7 @@ lazy val backendCss = project
 // backends no longer reference each other.
 lazy val backendInterpreter = project
   .in(file("backend-interpreter"))
-  .dependsOn(backendSpi, core, runtimeServerCommon, runtimeServerJvm, mcpCommon, backendJs, backendSqlRuntime, frontendCore, backendJvm % Test, frontendCustom % Test, frontendReact % Test, frontendSolid % Test, frontendVue % Test)
+  .dependsOn(backendSpi, core, runtimeServerCommon, runtimeServerJvm, mcpCommon, backendJs, backendSqlRuntime, frontendCore, backendJvm % Test, frontendCustom % Test, frontendReact % Test, frontendSolid % Test, frontendVue % Test, jsonPlugin % Test, frontendPlugin % Test, requestPlugin % Test)
   .settings(
     name := "scalascript-backend-interpreter",
     libraryDependencies ++= Seq(scalatestTest),
@@ -1606,6 +1606,40 @@ lazy val micropaymentHydra = project
     Test    / scalacOptions ++= sharedScalacOptions,
   )
 
+// ── Phase 1 intrinsic plugins (§ intrinsics-migration.md) ────────────────────
+// json, frontend, and request families extracted from the bundled interpreter
+// into ServiceLoader plugins.  Registered as `% Test` on backendInterpreter so
+// the existing end-to-end test suite continues to pass with the families loaded
+// as plugins rather than hardcoded intrinsics.
+
+lazy val jsonPlugin = project
+  .in(file("examples/plugins/json-plugin"))
+  .dependsOn(backendSpi, ir, core)
+  .settings(
+    name := "scalascript-json-plugin",
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions,
+  )
+
+lazy val frontendPlugin = project
+  .in(file("examples/plugins/frontend-plugin"))
+  .dependsOn(backendSpi, ir, core, frontendCore, frontendCustom % Test, frontendReact % Test, frontendSolid % Test, frontendVue % Test)
+  .settings(
+    name := "scalascript-frontend-plugin",
+    libraryDependencies ++= Seq(scalatestTest),
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions,
+  )
+
+lazy val requestPlugin = project
+  .in(file("examples/plugins/request-plugin"))
+  .dependsOn(backendSpi, ir, core)
+  .settings(
+    name := "scalascript-request-plugin",
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions,
+  )
+
 lazy val root = project
   .in(file("."))
   .aggregate(
@@ -1623,6 +1657,7 @@ lazy val root = project
     micropaymentSpi, micropaymentThreshold, micropaymentServer, micropaymentClient, micropaymentProbabilistic, micropaymentChannelEvm, micropaymentHydra,
     frontendCore, frontendCustom, frontendReact, frontendSolid, frontendVue,
     frontendToolkit, frontendExamples,
+    jsonPlugin, frontendPlugin, requestPlugin,
   )
   .settings(
     publish / skip := true
