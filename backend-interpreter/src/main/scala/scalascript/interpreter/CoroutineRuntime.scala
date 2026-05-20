@@ -1,8 +1,131 @@
 package scalascript.interpreter
 
+import scala.collection.mutable.ListBuffer
 import Computation.Pure
 
 private[interpreter] object CoroutineRuntime:
+
+  private type Queue = java.util.concurrent.SynchronousQueue[Option[Value]]
+
+  def makeGeneratorV(queue: Queue, interp: Interpreter): Value =
+    def startChained(bodyFn: Queue => Unit): Value =
+      val q2 = new Queue()
+      Thread.ofVirtual().start { () =>
+        interp._genQueueTL.set(q2)
+        try bodyFn(q2)
+        catch case _: Throwable => ()
+        finally try q2.put(None) catch case _ => ()
+      }
+      makeGeneratorV(q2, interp)
+
+    Value.InstanceV("Generator", Map(
+      "next" -> Value.NativeFnV("Generator.next", Computation.pureFn { _ =>
+        Value.OptionV(queue.take())
+      }),
+      "foreach" -> Value.NativeFnV("Generator.foreach", Computation.pureFn {
+        case List(f) =>
+          var item = queue.take()
+          while item.isDefined do
+            Computation.run(interp.callValue(f, List(item.get), Map.empty))
+            item = queue.take()
+          Value.UnitV
+        case _ => throw InterpretError("Generator.foreach(f)")
+      }),
+      "toList" -> Value.NativeFnV("Generator.toList", Computation.pureFn { _ =>
+        val buf = ListBuffer[Value]()
+        var item = queue.take()
+        while item.isDefined do
+          buf += item.get
+          item = queue.take()
+        Value.ListV(buf.toList)
+      }),
+      "map" -> Value.NativeFnV("Generator.map", Computation.pureFn {
+        case List(f) => startChained { ownQ =>
+          var item = queue.take()
+          while item.isDefined do
+            val mapped = Computation.run(interp.callValue(f, List(item.get), Map.empty))
+            ownQ.put(Some(mapped))
+            item = queue.take()
+        }
+        case _ => throw InterpretError("Generator.map(f)")
+      }),
+      "filter" -> Value.NativeFnV("Generator.filter", Computation.pureFn {
+        case List(pred) => startChained { ownQ =>
+          var item = queue.take()
+          while item.isDefined do
+            if Computation.run(interp.callValue(pred, List(item.get), Map.empty)) == Value.BoolV(true) then
+              ownQ.put(Some(item.get))
+            item = queue.take()
+        }
+        case _ => throw InterpretError("Generator.filter(pred)")
+      }),
+      "take" -> Value.NativeFnV("Generator.take", Computation.pureFn {
+        case List(Value.IntV(n)) => startChained { ownQ =>
+          var remaining = n
+          var item = queue.take()
+          while item.isDefined && remaining > 0 do
+            ownQ.put(Some(item.get))
+            remaining -= 1
+            item = if remaining > 0 then queue.take() else None
+        }
+        case _ => throw InterpretError("Generator.take(n: Int)")
+      }),
+      "drop" -> Value.NativeFnV("Generator.drop", Computation.pureFn {
+        case List(Value.IntV(n)) => startChained { ownQ =>
+          var toDrop = n.toInt
+          var item = queue.take()
+          while item.isDefined && toDrop > 0 do
+            toDrop -= 1
+            item = queue.take()
+          while item.isDefined do
+            ownQ.put(Some(item.get))
+            item = queue.take()
+        }
+        case _ => throw InterpretError("Generator.drop(n: Int)")
+      }),
+      "flatMap" -> Value.NativeFnV("Generator.flatMap", Computation.pureFn {
+        case List(f) => startChained { ownQ =>
+          var item = queue.take()
+          while item.isDefined do
+            val inner = Computation.run(interp.callValue(f, List(item.get), Map.empty))
+            inner match
+              case Value.InstanceV("Generator", fields) =>
+                val innerNext = fields("next")
+                var sub = Computation.run(interp.callValue(innerNext, Nil, Map.empty))
+                while sub != Value.OptionV(None) do
+                  sub match
+                    case Value.OptionV(Some(v)) => ownQ.put(Some(v))
+                    case _ =>
+                  sub = Computation.run(interp.callValue(innerNext, Nil, Map.empty))
+              case _ => throw InterpretError("Generator.flatMap: body must return a Generator")
+            item = queue.take()
+        }
+        case _ => throw InterpretError("Generator.flatMap(f)")
+      }),
+      "zip" -> Value.NativeFnV("Generator.zip", Computation.pureFn {
+        case List(other: Value.InstanceV) => startChained { ownQ =>
+          val otherNext = other.fields("next")
+          var a = queue.take()
+          var b = Computation.run(interp.callValue(otherNext, Nil, Map.empty))
+          while a.isDefined && b != Value.OptionV(None) do
+            val bVal = b match { case Value.OptionV(Some(v)) => v; case _ => Value.UnitV }
+            ownQ.put(Some(Value.TupleV(List(a.get, bVal))))
+            a = queue.take()
+            b = if a.isDefined then Computation.run(interp.callValue(otherNext, Nil, Map.empty)) else Value.OptionV(None)
+        }
+        case _ => throw InterpretError("Generator.zip(other: Generator)")
+      }),
+      "zipWithIndex" -> Value.NativeFnV("Generator.zipWithIndex", Computation.pureFn { _ =>
+        startChained { ownQ =>
+          var idx = 0
+          var item = queue.take()
+          while item.isDefined do
+            ownQ.put(Some(Value.TupleV(List(item.get, Value.IntV(idx)))))
+            idx += 1
+            item = queue.take()
+        }
+      }),
+    ))
 
   def install(interp: Interpreter): Unit =
     // ── v1.10 Generator — generator { body } / suspend(v) ──────────────
@@ -15,7 +138,7 @@ private[interpreter] object CoroutineRuntime:
           catch case _: Throwable => ()
           finally try queue.put(None) catch case _ => ()
         }
-        Pure(interp.makeGeneratorV(queue))
+        Pure(makeGeneratorV(queue, interp))
       case _ => throw InterpretError("generator(body: => Unit)")
     })
     // suspend handles both generator (R=Unit) and coroutine contexts.
