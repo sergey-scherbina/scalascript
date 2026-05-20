@@ -6848,6 +6848,46 @@ Thin `backend-wasm-contract/` layer on top of `backend-wasm/` for Near or Polkad
 >
 > Natural fit: ScalaScript's existing `Dataset[T]` API maps directly to Spark.
 
+#### Lakehouse formats track — Delta / Iceberg / Hudi
+
+> Goal: when a `.ssc` program uses `.format("delta")` /
+> `.format("iceberg")` / `.format("hudi")` (read or write), `SparkGen`
+> auto-emits the right `//> using dep` plus the `SparkSession.builder()`
+> configs (SQL extension + catalog override) needed for the runtime to
+> initialise.  Detection is regex-driven on the raw source, same shape
+> as the existing `@SqlFn` parser — purely additive over Phase E
+> (no break to the 115 existing `SparkGenTest` cases or the working
+> smoke-test set).
+>
+> Full plan: [`docs/spark-lakehouse.md`](docs/spark-lakehouse.md).
+>
+> Phases (each independently shippable per AGENTS.md rule 3):
+>
+> - **L.1 — Spec doc (landed 2026-05-20).**  `docs/spark-lakehouse.md`
+>   covering goals / non-goals / detection mechanism / format →
+>   coord+config table / phases L.2–L.4 / testing strategy / open
+>   questions.  No code changes; gives the parallel Streaming track
+>   (`feature/spark-phase-f-streaming`) a stable contract to compose
+>   against.
+> - **L.2 — Delta Lake (open).**  Detect `.format("delta")` → emit
+>   `//> using dep "io.delta:delta-spark_2.13:3.2.0"` (verify version
+>   on Maven Central at impl time) + `.config("spark.sql.extensions",
+>   "io.delta.sql.DeltaSparkSessionExtension")` + `.config("spark.sql.catalog.spark_catalog",
+>   "org.apache.spark.sql.delta.catalog.DeltaCatalog")` on the
+>   `SparkSession.builder()` chain.  Example
+>   `examples/spark-delta-demo.ssc` (write + read a small Dataset
+>   round-trip).  Smoke test gated by `RUN_SPARK_INTEGRATION=1` and
+>   `RUN_SPARK_DELTA=1`.
+> - **L.3 — Iceberg (open).**  Detect `.format("iceberg")` → emit
+>   `org.apache.iceberg:iceberg-spark-runtime-3.5_2.13:<v>` +
+>   IcebergSparkSessionExtensions + a local Hadoop catalog at
+>   `/tmp/ssc-iceberg-warehouse`.  Conditional on Iceberg shipping a
+>   Spark 4 `_2.13` build at implementation time.
+> - **L.4 — Hudi (open).**  Detect `.format("hudi")` → emit
+>   `org.apache.hudi:hudi-spark3.5-bundle_2.13:<v>` + Kryo serializer
+>   + HoodieSparkSessionExtension + HoodieCatalog.  Same Spark 4
+>   `_2.13` availability check as L.3 — if missing, skip and re-track.
+
 ### Why it fits
 
 ScalaScript already has a local `Dataset[T]` implementation (v1.21) and
