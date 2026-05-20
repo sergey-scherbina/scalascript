@@ -6818,6 +6818,34 @@ Thin `backend-wasm-contract/` layer on top of `backend-wasm/` for Near or Polkad
 > milestone (v1.25 § 9.5) closed end-to-end for case classes with
 > primitive, `Option`, nested, collection, tuple, and UDF features.
 >
+> **Phase F — Structured Streaming (in progress, 2026-05-20).**
+>
+> - [x] F.1 — Spec doc `docs/spark-streaming.md`: goals / non-goals,
+>       source-sink detection table (rate, file csv/json/parquet, kafka,
+>       socket, console, foreach), `awaitTermination()` shim rule, Kafka
+>       dep auto-emit rule, trigger/watermark/window passthrough,
+>       migration (purely additive — existing batch examples unchanged),
+>       phases F.2–F.4, testing strategy (codegen tests always +
+>       smoke tests gated by `RUN_SPARK_INTEGRATION`, Kafka smoke
+>       gated by `RUN_SPARK_KAFKA`), open questions.
+> - [ ] F.2 — Core streaming codegen: detect `spark.readStream`
+>       / `.writeStream` markers; emit `Trigger` / `StreamingQuery` /
+>       `OutputMode` imports; auto-append
+>       `spark.streams.active.headOption.foreach(_.awaitTermination())`
+>       when the user code doesn't already call `awaitTermination`.
+>       Example `examples/spark-streaming-rate-console.ssc` (rate →
+>       console with `Trigger.ProcessingTime("1 second")`, no
+>       external deps, smoke-test friendly).
+> - [ ] F.3 — File source/sink + checkpointing: detect file-based
+>       stream patterns, emit `// note:` comment about
+>       `checkpointLocation`.  Example
+>       `examples/spark-streaming-file-parquet.ssc`.
+> - [ ] F.4 — Kafka source/sink: detect `.format("kafka")` →
+>       auto-emit `//> using dep
+>       "org.apache.spark:spark-sql-kafka-0-10_2.13:<v>"`.  Example
+>       `examples/spark-streaming-kafka.ssc` (smoke test gated by
+>       `RUN_SPARK_KAFKA=1`).
+>
 > Natural fit: ScalaScript's existing `Dataset[T]` API maps directly to Spark.
 
 ### Why it fits
