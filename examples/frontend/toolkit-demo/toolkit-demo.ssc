@@ -73,17 +73,10 @@ val submitted = signal("submitted", false)
 
 ## Form fields
 
-Enabled and disabled variants built from the same constructors.
-
 ```scalascript
-val enabledForm = vstack(gap = 12)(
-  textField(value = name,   label = "Display name"),
-  checkbox(checked = accept, label = "I accept the toolkit terms.")
-)
-
-val disabledForm = vstack(gap = 12)(
-  textField(value = name,   label = "Display name",           disabled = true),
-  checkbox(checked = accept, label = "I accept the toolkit terms.", disabled = true)
+def form(disabled: Boolean) = vstack(gap = 12)(
+  textField(value = name,   label = "Display name",               disabled = disabled),
+  checkbox(checked = accept, label = "I accept the toolkit terms.", disabled = disabled)
 )
 ```
 
@@ -136,7 +129,7 @@ val tree = vstack(gap = 16)(
   heading(1, "Toolkit demo"),
   text("Pure .ssc UI — no Scala intrinsics bridge."),
   divider(),
-  showWhen(submitted, disabledForm, enabledForm),
+  showWhen(submitted, form(true), form(false)),
   reactiveBtn,
   alert,
   hstack(gap = 12)(
