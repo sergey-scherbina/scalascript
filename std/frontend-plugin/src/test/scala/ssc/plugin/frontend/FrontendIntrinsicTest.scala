@@ -1,4 +1,4 @@
-package sscplugin.frontend
+package ssc.plugin.frontend
 
 import org.scalatest.funsuite.AnyFunSuite
 import scalascript.ir.QualifiedName

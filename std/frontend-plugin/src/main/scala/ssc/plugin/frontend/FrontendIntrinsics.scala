@@ -1,4 +1,4 @@
-package sscplugin.frontend
+package ssc.plugin.frontend
 
 import scalascript.backend.spi.*
 import scalascript.ir.QualifiedName

@@ -1,2 +1,2 @@
-sscplugin.crypto.CryptoBackendPlugin
-sscplugin.crypto.CryptoInterpreterPlugin
+ssc.plugin.crypto.CryptoBackendPlugin
+ssc.plugin.crypto.CryptoInterpreterPlugin

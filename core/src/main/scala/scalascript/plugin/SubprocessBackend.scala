@@ -66,7 +66,7 @@ class SubprocessBackend private (
         System.err.println(s"[plugin/${descriptor.id}] $line")
         line = r.readLine())
     t.setDaemon(true)
-    t.setName(s"sscplugin-stderr-pump")
+    t.setName(s"ssc.plugin-stderr-pump")
     t.start()
 
   // ─── Backend SPI surface (driven by `descriptor`) ──────────────────────

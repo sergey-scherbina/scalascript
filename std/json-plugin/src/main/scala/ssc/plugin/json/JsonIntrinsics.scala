@@ -1,4 +1,4 @@
-package sscplugin.json
+package ssc.plugin.json
 
 import scalascript.backend.spi.*
 import scalascript.ir.QualifiedName

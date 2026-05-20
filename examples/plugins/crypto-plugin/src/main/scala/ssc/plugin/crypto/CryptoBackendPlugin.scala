@@ -1,4 +1,4 @@
-package sscplugin.crypto
+package ssc.plugin.crypto
 
 import scalascript.backend.spi.*
 import scalascript.ir.{QualifiedName, NormalizedModule}

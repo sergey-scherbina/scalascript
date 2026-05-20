@@ -1,13 +1,13 @@
-package sscplugin.frontend
+package ssc.plugin.request
 
 import scalascript.backend.spi.*
 import scalascript.ir.{QualifiedName, NormalizedModule}
 
-/** Interpreter-only plugin that wires frontend-framework intrinsics via NativeImpl.
+/** Interpreter-only plugin that wires request-validation intrinsics via NativeImpl.
  *  Registration: META-INF/services/scalascript.backend.spi.Backend */
-class FrontendInterpreterPlugin extends Backend:
-  def id:          String = "scalascript-frontend-interpreter"
-  def displayName: String = "Frontend Intrinsics (Interpreter)"
+class RequestInterpreterPlugin extends Backend:
+  def id:          String = "scalascript-request-interpreter"
+  def displayName: String = "Request Validation Intrinsics (Interpreter)"
   def spiVersion:  String = SpiVersion.Current
 
   def capabilities: Capabilities = Capabilities(
@@ -17,8 +17,8 @@ class FrontendInterpreterPlugin extends Backend:
     spiRange = SpiVersionRange(SpiVersion.Current, SpiVersion.Current),
   )
 
-  def intrinsics:      Map[QualifiedName, IntrinsicImpl] = FrontendIntrinsics.table
+  def intrinsics:      Map[QualifiedName, IntrinsicImpl] = RequestIntrinsics.table
   def acceptedSources: Set[String]                       = Set.empty
 
   def compile(module: NormalizedModule, opts: BackendOptions): CompileResult =
-    CompileResult.Failed(List(Diagnostic.Generic("FrontendInterpreterPlugin does not compile — intrinsic provider only")))
+    CompileResult.Failed(List(Diagnostic.Generic("RequestInterpreterPlugin does not compile — intrinsic provider only")))
