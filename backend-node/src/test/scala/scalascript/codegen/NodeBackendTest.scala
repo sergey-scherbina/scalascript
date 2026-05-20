@@ -304,6 +304,223 @@ class NodeBackendTest extends AnyFunSuite:
       s"runtime must use https when _tlsCfg is set, got:\n$code")
   }
 
+  // ── /_ssc-cluster/* ops route auto-registration (Tier 4 gap #3) ────────
+  //
+  // Mirrors `Interpreter.registerCluster*Route`: five ops endpoints get
+  // installed inside the runtime when `startNode(...)` runs, so codegen-
+  // built Node bundles answer `ssc cluster status / drain / events /
+  // step-down / metrics-prom` byte-for-byte the same as INT-run nodes.
+
+  test("codegen: runtime emits all five _ssc-cluster route registrars + auth gate + event ring buffer") {
+    val src =
+      """|# Server
+         |
+         |```scalascript
+         |runActors {
+         |  startNode("nA", "ws://127.0.0.1:9001/_ssc-actors")
+         |}
+         |serveAsync(9001)
+         |```
+         |""".stripMargin
+    val code = compile(src)
+    // The five register functions are all defined.
+    assert(code.contains("function _registerClusterStatusRoute()"),
+      "expected _registerClusterStatusRoute in emitted runtime")
+    assert(code.contains("function _registerClusterDrainRoute()"),
+      "expected _registerClusterDrainRoute in emitted runtime")
+    assert(code.contains("function _registerClusterEventsRoute()"),
+      "expected _registerClusterEventsRoute in emitted runtime")
+    assert(code.contains("function _registerClusterStepDownRoute()"),
+      "expected _registerClusterStepDownRoute in emitted runtime")
+    assert(code.contains("function _registerClusterMetricsPromRoute()"),
+      "expected _registerClusterMetricsPromRoute in emitted runtime")
+    // The installer (idempotent) is defined and called from startNode.
+    assert(code.contains("function _installClusterRoutes()"),
+      "expected _installClusterRoutes installer in emitted runtime")
+    assert(code.contains("_clusterRoutesInstalled"),
+      "expected idempotency flag _clusterRoutesInstalled in emitted runtime")
+    // startNode invokes the installer.
+    val startNodeIdx = code.indexOf("case 'startNode'")
+    assert(startNodeIdx >= 0, "startNode case must exist in emitted runtime")
+    val startNodeWindow = code.substring(startNodeIdx, math.min(code.length, startNodeIdx + 800))
+    assert(startNodeWindow.contains("_installClusterRoutes()"),
+      s"startNode must call _installClusterRoutes(), window:\n$startNodeWindow")
+    // All five paths are present as string literals.
+    assert(code.contains("'/_ssc-cluster/status'"),  "status path literal missing")
+    assert(code.contains("'/_ssc-cluster/drain'"),   "drain path literal missing")
+    assert(code.contains("'/_ssc-cluster/events'"),  "events path literal missing")
+    assert(code.contains("'/_ssc-cluster/step-down'"),"step-down path literal missing")
+    assert(code.contains("'/_ssc-cluster/metrics-prom'"), "metrics-prom path literal missing")
+    // Bearer-token auth gate + ring buffer exist alongside.
+    assert(code.contains("function _clusterAuthReject(req)"),
+      "_clusterAuthReject helper missing")
+    assert(code.contains("_clusterEventLog"),
+      "_clusterEventLog ring buffer missing")
+    assert(code.contains("_CLUSTER_EVENT_LOG_MAX = 200"),
+      "ring buffer cap of 200 must mirror interpreter")
+  }
+
+  test("integration: emitted bundle binds /_ssc-cluster/status and returns JSON snapshot") {
+    assume(hasNode, "node not on PATH — skipping integration test")
+    // Spawn the bundle, schedule a TCP probe + raw HTTP request against
+    // /_ssc-cluster/status, assert the JSON shape that `ssc cluster status`
+    // parses (nodeId, leader, protocol, members, drainingSelf, etc.).
+    // Mirrors the existing `serveAsync` integration test's external-probe
+    // pattern: `httpGet` from inside the same single-threaded Node process
+    // would deadlock the event loop (synchronous worker-thread waiting),
+    // so the probe goes through extern-def + node.js `http.request`.
+    val port = {
+      val s = new java.net.ServerSocket(0)
+      val p = s.getLocalPort
+      s.close()
+      p
+    }
+    val src =
+      s"""|# Server
+          |
+          |```node.js
+          |globalThis.scheduleClusterProbe = (port) => {
+          |  setTimeout(() => {
+          |    const http = require('http');
+          |    const req = http.request({
+          |      method: 'GET', host: '127.0.0.1', port,
+          |      path: '/_ssc-cluster/status'
+          |    }, (res) => {
+          |      let b = '';
+          |      res.on('data', c => { b += c; });
+          |      res.on('end', () => {
+          |        console.log('status-code:' + res.statusCode);
+          |        console.log('status-body:' + b);
+          |        stop();
+          |      });
+          |    });
+          |    req.on('error', e => { console.log('probe-error:' + e.code); stop(); });
+          |    req.end();
+          |  }, 200);
+          |};
+          |```
+          |
+          |```scalascript
+          |extern def scheduleClusterProbe(port: Int): Unit
+          |
+          |runActors {
+          |  startNode("nA", "")
+          |}
+          |serveAsync($port)
+          |println("after-serve")
+          |scheduleClusterProbe($port)
+          |```
+          |""".stripMargin
+    val code = compile(src)
+    val out  = runUnderNode(code)
+    val lines = out.split("\n").map(_.trim).filter(_.nonEmpty).toList
+    assert(lines.contains("after-serve"),
+      s"caller did not continue past serveAsync — output:\n$out")
+    assert(lines.exists(_ == "status-code:200"),
+      s"GET /_ssc-cluster/status must return 200 — output:\n$out")
+    val bodyLine = lines.find(_.startsWith("status-body:")).getOrElse("")
+    val body     = bodyLine.stripPrefix("status-body:")
+    // The CLI's status parser expects every one of these keys verbatim.
+    assert(body.contains("\"nodeId\":\"nA\""),
+      s"status body must report nodeId — got:\n$body")
+    assert(body.contains("\"protocol\":"),
+      s"status body must report protocol — got:\n$body")
+    assert(body.contains("\"members\":"),
+      s"status body must report members — got:\n$body")
+    assert(body.contains("\"drainingSelf\":false"),
+      s"status body must report drainingSelf — got:\n$body")
+    assert(body.contains("\"drainingPeers\":"),
+      s"status body must report drainingPeers — got:\n$body")
+    assert(body.contains("\"raftTerm\":"),
+      s"status body must report raftTerm — got:\n$body")
+    assert(body.contains("\"raftState\":"),
+      s"status body must report raftState — got:\n$body")
+  }
+
+  test("integration: emitted bundle answers /_ssc-cluster/drain, /events, /step-down, /metrics-prom") {
+    assume(hasNode, "node not on PATH — skipping integration test")
+    // One bundle, four sequential probes, assert each route's behaviour:
+    //   1. POST /_ssc-cluster/drain (empty body)   → 200, {"drainingSelf":true}
+    //   2. GET  /_ssc-cluster/events               → 200, JSON array
+    //   3. POST /_ssc-cluster/step-down            → 200 if leader, else 409
+    //   4. GET  /_ssc-cluster/metrics-prom         → 200, text/plain Prometheus
+    val port = {
+      val s = new java.net.ServerSocket(0)
+      val p = s.getLocalPort
+      s.close()
+      p
+    }
+    val src =
+      s"""|# Server
+          |
+          |```node.js
+          |globalThis.scheduleProbes = (port) => {
+          |  const http = require('http');
+          |  function call(method, path, body, cb) {
+          |    const req = http.request({ method, host: '127.0.0.1', port, path }, (res) => {
+          |      let b = '';
+          |      res.on('data', c => { b += c; });
+          |      res.on('end', () => {
+          |        console.log(method + ' ' + path + ' code:' + res.statusCode);
+          |        console.log(method + ' ' + path + ' body:' + b);
+          |        cb();
+          |      });
+          |    });
+          |    req.on('error', e => { console.log('err:' + e.code); cb(); });
+          |    if (body != null) req.write(body);
+          |    req.end();
+          |  }
+          |  setTimeout(() => {
+          |    call('POST', '/_ssc-cluster/drain', '', () => {
+          |      call('GET', '/_ssc-cluster/events', null, () => {
+          |        call('POST', '/_ssc-cluster/step-down', null, () => {
+          |          call('GET', '/_ssc-cluster/metrics-prom', null, () => {
+          |            stop();
+          |          });
+          |        });
+          |      });
+          |    });
+          |  }, 200);
+          |};
+          |```
+          |
+          |```scalascript
+          |extern def scheduleProbes(port: Int): Unit
+          |
+          |runActors {
+          |  startNode("nB", "")
+          |}
+          |serveAsync($port)
+          |scheduleProbes($port)
+          |```
+          |""".stripMargin
+    val code = compile(src)
+    val out  = runUnderNode(code)
+    val lines = out.split("\n").map(_.trim).filter(_.nonEmpty).toList
+    // drain
+    assert(lines.contains("POST /_ssc-cluster/drain code:200"),
+      s"drain must return 200 — output:\n$out")
+    assert(lines.exists(l => l.startsWith("POST /_ssc-cluster/drain body:") &&
+      l.contains("\"drainingSelf\":true")),
+      s"drain body must report drainingSelf:true — output:\n$out")
+    // events
+    assert(lines.contains("GET /_ssc-cluster/events code:200"),
+      s"events must return 200 — output:\n$out")
+    assert(lines.exists(l => l.startsWith("GET /_ssc-cluster/events body:") &&
+      l.contains("body:[")),
+      s"events body must be a JSON array — output:\n$out")
+    // events ring buffer must have at least the drain event recorded.
+    assert(lines.exists(l => l.startsWith("GET /_ssc-cluster/events body:") &&
+      l.contains("DrainStateChanged")),
+      s"events log should contain DrainStateChanged — output:\n$out")
+    // step-down — single-node bully, no peers, no election ⇒ not leader ⇒ 409
+    assert(lines.contains("POST /_ssc-cluster/step-down code:409"),
+      s"step-down must return 409 when not leader — output:\n$out")
+    // metrics-prom — no metrics set, 200 with empty body still valid
+    assert(lines.contains("GET /_ssc-cluster/metrics-prom code:200"),
+      s"metrics-prom must return 200 — output:\n$out")
+  }
+
   test("integration: serveAsync(port) returns immediately; server binds in background; stop() exits cleanly") {
     assume(hasNode, "node not on PATH — skipping integration test")
     // Pick a random ephemeral port; bind, schedule stop() after a beat,

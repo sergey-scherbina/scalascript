@@ -3694,6 +3694,8 @@ const Actor = {
   setHeartbeatTimeout: (iv, dead) => _perform('Actor', 'setHeartbeatTimeout', [iv, dead]),
   // v1.23 — quorum-aware Bully threshold (split-brain guard)
   setQuorumSize: (n) => _perform('Actor', 'setQuorumSize', [n]),
+  // v1.23 — shared-secret Bearer token for /_ssc-cluster/* endpoints.
+  setClusterAuthToken: (t) => _perform('Actor', 'setClusterAuthToken', [t]),
   // v1.23 — periodic gossip re-discovery
   requestGossip: () => _perform('Actor', 'requestGossip', []),
   // v1.23 — cluster configuration distribution
@@ -3760,9 +3762,48 @@ function _runActors(bodyFn) {
   // v1.23 — cluster visibility
   const _clusterEventSubs  = new Set();   // actor ids subscribed to NodeJoined/NodeLeft
   const _clusterEventQueue = [];          // {tag, nodeId, reason} pending delivery
+  // v1.23 — bounded ring buffer of every cluster event as JSON lines.
+  // Independent of the in-process subscription system: events land here
+  // whether or not any actor has called subscribe*Events, so the
+  // `GET /_ssc-cluster/events` endpoint always has data for ops tooling.
+  // Mirrors `Interpreter.clusterEventLog` (cap 200, oldest-first drop).
+  const _CLUSTER_EVENT_LOG_MAX = 200;
+  const _clusterEventLog       = []; // JSON-string entries
+  function _recordEventLog(jsonObj) {
+    _clusterEventLog.push(jsonObj);
+    while (_clusterEventLog.length > _CLUSTER_EVENT_LOG_MAX) _clusterEventLog.shift();
+  }
   function _fireClusterEvent(tag, nodeId, reason) {
+    // Mirror into the ops event log regardless of in-process subscribers.
+    const ts = Date.now();
+    const logEntry = (tag === 'NodeJoined')
+      ? '{"ts":' + ts + ',"type":"NodeJoined","nodeId":' + JSON.stringify(nodeId) + '}'
+      : '{"ts":' + ts + ',"type":"NodeLeft","nodeId":' + JSON.stringify(nodeId) +
+        ',"reason":' + JSON.stringify(reason || '') + '}';
+    _recordEventLog(logEntry);
     if (_clusterEventSubs.size === 0) return;
     _clusterEventQueue.push({ tag, nodeId, reason: reason || '' });
+  }
+  // v1.23 — shared-secret Bearer token for /_ssc-cluster/* endpoints.
+  // Default reads SSC_CLUSTER_TOKEN env at runtime; runtime override via
+  // the setClusterAuthToken intrinsic.  Empty string ⇒ endpoints are open
+  // (backwards compatible).  Mirrors `Interpreter.clusterAuthToken`.
+  let _clusterAuthToken = (typeof process !== 'undefined' && process.env && process.env.SSC_CLUSTER_TOKEN) || '';
+  function _clusterAuthReject(req) {
+    if (!_clusterAuthToken) return null;
+    let hdr = '';
+    try {
+      if (req && req.headers && typeof req.headers.get === 'function') {
+        hdr = req.headers.get('authorization') || req.headers.get('Authorization') || '';
+      }
+    } catch (_) {}
+    const expected = 'Bearer ' + _clusterAuthToken;
+    if (hdr === expected) return null;
+    return {
+      _type: 'Response', status: 401,
+      headers: new Map([['Content-Type', 'application/json']]),
+      body: '{"error":"unauthorized","hint":"set Authorization: Bearer <token>"}'
+    };
   }
   // v1.23 — phi-accrual failure detector
   const _PHI_HIST_MAX  = 100;
@@ -3954,6 +3995,10 @@ function _runActors(bodyFn) {
   const _leaderEventSubs    = new Set();
   const _leaderEventQueue   = [];
   function _fireLeaderEvent(tag, leaderId) {
+    // Mirror into ops event log regardless of subscribers (parity with INT).
+    const ts = Date.now();
+    _recordEventLog('{"ts":' + ts + ',"type":' + JSON.stringify(tag) +
+      ',"nodeId":' + JSON.stringify(leaderId) + '}');
     if (_leaderEventSubs.size === 0) return;
     _leaderEventQueue.push({ tag, leaderId });
   }
@@ -4007,6 +4052,9 @@ function _runActors(bodyFn) {
   const _drainEventSubs  = new Set();
   const _drainEventQueue = [];
   function _fireDrainEvent(nodeId, draining) {
+    const ts = Date.now();
+    _recordEventLog('{"ts":' + ts + ',"type":"DrainStateChanged","nodeId":' +
+      JSON.stringify(nodeId) + ',"draining":' + (draining ? 'true' : 'false') + '}');
     if (_drainEventSubs.size === 0) return;
     _drainEventQueue.push({ nodeId, draining });
   }
@@ -4020,6 +4068,10 @@ function _runActors(bodyFn) {
   const _metricEventSubs   = new Set();
   const _metricEventQueue  = [];
   function _fireMetricEvent(name, nodeId, value) {
+    const ts = Date.now();
+    _recordEventLog('{"ts":' + ts + ',"type":"MetricChanged","name":' +
+      JSON.stringify(name) + ',"nodeId":' + JSON.stringify(nodeId) +
+      ',"value":' + value + '}');
     if (_metricEventSubs.size === 0) return;
     _metricEventQueue.push({ name, nodeId, value });
   }
@@ -4038,6 +4090,190 @@ function _runActors(bodyFn) {
         try { sendFn(payload); } catch (_) {}
       }
     }
+  }
+  // ── v1.23 — operational /_ssc-cluster/* HTTP routes ────────────────
+  // Mirrors `Interpreter.registerCluster*Route` (status / drain / events /
+  // step-down / metrics-prom).  Installed by `startNode` so codegen-built
+  // Node bundles expose the same ops surface as interpreter-run nodes —
+  // see docs/cluster-codegen-gap.md (Tier 4 gating gap #3).  Idempotent
+  // via a module-level flag; double `startNode` calls are no-ops.
+  let _clusterRoutesInstalled = false;
+  function _hasRoute(method, path) {
+    return _routes.some(r => r.method === method && r.path === path);
+  }
+  function _registerClusterStatusRoute() {
+    const path = '/_ssc-cluster/status';
+    if (_hasRoute('GET', path)) return;
+    const handler = (req) => {
+      const rej = _clusterAuthReject(req);
+      if (rej) return rej;
+      const members = [];
+      for (const nid of _peerChannels.keys()) members.push(nid);
+      const drainPeers = [];
+      for (const [nid, dr] of _drainingPeers) if (dr) drainPeers.push(nid);
+      const leaderNow = (_leaderProtocol === 'raft') ? _raftLeaderId : _currentLeader;
+      const body = '{' +
+        '"nodeId":'        + JSON.stringify(_localNodeId) +
+        ',"leader":'       + JSON.stringify(leaderNow) +
+        ',"protocol":'     + JSON.stringify(_leaderProtocol) +
+        ',"members":'      + JSON.stringify(members) +
+        ',"drainingSelf":' + (_isDrainingSelf ? 'true' : 'false') +
+        ',"drainingPeers":'+ JSON.stringify(drainPeers) +
+        ',"raftTerm":'     + String(_raftCurrentTerm) +
+        ',"raftState":'    + JSON.stringify(_raftStateName) +
+        '}';
+      return {
+        _type: 'Response', status: 200,
+        headers: new Map([['Content-Type', 'application/json']]),
+        body
+      };
+    };
+    _routes.push({ method: 'GET', path, pattern: _parsePath(path), handler });
+  }
+  function _registerClusterDrainRoute() {
+    const path = '/_ssc-cluster/drain';
+    if (_hasRoute('POST', path)) return;
+    const handler = (req) => {
+      const rej = _clusterAuthReject(req);
+      if (rej) return rej;
+      const body = (req && typeof req.body === 'string') ? req.body : '';
+      let enabled;
+      if (body.trim().length === 0) {
+        enabled = true;
+      } else {
+        const needle = '"enabled":';
+        const i = body.indexOf(needle);
+        if (i < 0) enabled = true;
+        else {
+          const rest = body.substring(i + needle.length).trim();
+          enabled = !rest.startsWith('false');
+        }
+      }
+      const prev = _isDrainingSelf;
+      _isDrainingSelf = enabled;
+      if (prev !== enabled) {
+        const payload = '{"t":"drain","from":' + JSON.stringify(_localNodeId) +
+          ',"draining":' + (enabled ? 'true' : 'false') + '}';
+        for (const [, ch] of _peerChannels) { try { ch.send(payload); } catch (_) {} }
+        _fireDrainEvent(_localNodeId, enabled);
+        if (enabled) _stepDownIfLeader();
+      }
+      return {
+        _type: 'Response', status: 200,
+        headers: new Map([['Content-Type', 'application/json']]),
+        body: '{"drainingSelf":' + (enabled ? 'true' : 'false') + '}'
+      };
+    };
+    _routes.push({ method: 'POST', path, pattern: _parsePath(path), handler });
+  }
+  function _registerClusterEventsRoute() {
+    const path = '/_ssc-cluster/events';
+    if (_hasRoute('GET', path)) return;
+    const handler = (req) => {
+      const rej = _clusterAuthReject(req);
+      if (rej) return rej;
+      let sinceMs = 0;
+      try {
+        if (req && req.query && typeof req.query.get === 'function') {
+          const s = req.query.get('since');
+          if (s) { const n = Number(s); if (Number.isFinite(n)) sinceMs = n; }
+        }
+      } catch (_) {}
+      const parts = [];
+      const tsPrefix = '{"ts":';
+      for (const line of _clusterEventLog) {
+        let pass = true;
+        if (sinceMs > 0) {
+          pass = false;
+          if (line.startsWith(tsPrefix)) {
+            const end = line.indexOf(',', tsPrefix.length);
+            if (end > 0) {
+              const v = Number(line.substring(tsPrefix.length, end));
+              if (Number.isFinite(v) && v > sinceMs) pass = true;
+            }
+          }
+        }
+        if (pass) parts.push(line);
+      }
+      return {
+        _type: 'Response', status: 200,
+        headers: new Map([['Content-Type', 'application/json']]),
+        body: '[' + parts.join(',') + ']'
+      };
+    };
+    _routes.push({ method: 'GET', path, pattern: _parsePath(path), handler });
+  }
+  function _registerClusterStepDownRoute() {
+    const path = '/_ssc-cluster/step-down';
+    if (_hasRoute('POST', path)) return;
+    const handler = (req) => {
+      const rej = _clusterAuthReject(req);
+      if (rej) return rej;
+      let wasLeader = false;
+      if (_leaderProtocol === 'raft')       wasLeader = (_raftStateName === 'leader');
+      else if (_leaderProtocol === 'coord') wasLeader = !!_coordIsLeader;
+      else                                  wasLeader = (_currentLeader === _localNodeId);
+      if (!wasLeader) {
+        return {
+          _type: 'Response', status: 409,
+          headers: new Map([['Content-Type', 'application/json']]),
+          body: '{"error":"not_leader","leader":' + JSON.stringify(_currentLeader) + '}'
+        };
+      }
+      _stepDownIfLeader();
+      return {
+        _type: 'Response', status: 200,
+        headers: new Map([['Content-Type', 'application/json']]),
+        body: '{"steppedDown":true,"nodeId":' + JSON.stringify(_localNodeId) + '}'
+      };
+    };
+    _routes.push({ method: 'POST', path, pattern: _parsePath(path), handler });
+  }
+  function _registerClusterMetricsPromRoute() {
+    const path = '/_ssc-cluster/metrics-prom';
+    if (_hasRoute('GET', path)) return;
+    const sanitize = (s) => {
+      let out = '';
+      for (let i = 0; i < s.length; i++) {
+        const c = s.charCodeAt(i);
+        const ok =
+          (c >= 97 && c <= 122) /* a-z */ ||
+          (c >= 65 && c <= 90)  /* A-Z */ ||
+          (c >= 48 && c <= 57)  /* 0-9 */ ||
+          c === 95 /* _ */ || c === 58 /* : */;
+        out += ok ? s.charAt(i) : '_';
+      }
+      if (out.length > 0 && out.charCodeAt(0) >= 48 && out.charCodeAt(0) <= 57) out = '_' + out;
+      return out;
+    };
+    const escLabel = (s) => s.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\n');
+    const handler = (req) => {
+      const rej = _clusterAuthReject(req);
+      if (rej) return rej;
+      let out = '';
+      for (const [name, inner] of _clusterMetrics) {
+        const pName = sanitize(name);
+        out += '# TYPE ' + pName + ' gauge\n';
+        for (const [nodeId, value] of inner) {
+          out += pName + '{nodeId="' + escLabel(nodeId) + '"} ' + Number(value) + '\n';
+        }
+      }
+      return {
+        _type: 'Response', status: 200,
+        headers: new Map([['Content-Type', 'text/plain; version=0.0.4; charset=utf-8']]),
+        body: out
+      };
+    };
+    _routes.push({ method: 'GET', path, pattern: _parsePath(path), handler });
+  }
+  function _installClusterRoutes() {
+    if (_clusterRoutesInstalled) return;
+    _clusterRoutesInstalled = true;
+    _registerClusterStatusRoute();
+    _registerClusterDrainRoute();
+    _registerClusterEventsRoute();
+    _registerClusterStepDownRoute();
+    _registerClusterMetricsPromRoute();
   }
   // v1.23 — URL-keyed dedupe so concurrent peer-loss + dial-failure
   // events for the same URL don't each spin up an independent
@@ -4738,6 +4974,10 @@ private val JsRuntimeAsyncB: String = """
       case 'startNode': {
         _localNodeId = String(args[0]);
         if (args[1] != null) _selfUrl = String(args[1]);
+        // v1.23 — auto-register operational /_ssc-cluster/* HTTP routes
+        // so `ssc cluster status / drain / events / step-down /
+        // metrics-prom` work against codegen-built Node nodes.  Idempotent.
+        _installClusterRoutes();
         // Register /_ssc-actors WS handler for inbound peer connections.
         // Peers connect, exchange nodeId handshake, then send actor messages.
         if (typeof onWebSocket === 'function') {
@@ -5000,6 +5240,11 @@ private val JsRuntimeAsyncB: String = """
       case 'setQuorumSize': {
         const n = Number(args[0]) | 0;
         _quorumSize = Math.max(0, n);
+        return { suspend: false, next: k(undefined) };
+      }
+      // v1.23 — shared-secret Bearer token for /_ssc-cluster/* endpoints.
+      case 'setClusterAuthToken': {
+        _clusterAuthToken = args[0] != null ? String(args[0]) : '';
         return { suspend: false, next: k(undefined) };
       }
       // v1.23 — periodic gossip re-discovery
@@ -6454,7 +6699,14 @@ class JsGen(
                    allText.contains("handle(") || allText.contains("spawn {") ||
                    allText.contains("spawn{") || allText.contains("receive {") ||
                    allText.contains("receive{") || allText.contains("receive(") ||
-                   allText.contains("_perform") || allText.contains("perform ")
+                   allText.contains("_perform") || allText.contains("perform ") ||
+                   // v1.23 cluster intrinsics that lower to Actor.* in JsGen —
+                   // bare-name calls in user source still need the actor
+                   // runtime emitted (without it `Actor` is undefined at run
+                   // time).  Listed explicitly so capability detection picks
+                   // them up before the Term-level lowering runs.
+                   allText.contains("startNode") || allText.contains("connectNode") ||
+                   allText.contains("joinCluster")
     if hasAsync then caps += Async
     // v1.4 effects: Logger / Random / Clock / Env / Auth — `JsRuntimeV14Effects`.
     val hasV14 = allText.contains("Logger.") || allText.contains("Random.") ||
