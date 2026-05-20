@@ -113,9 +113,9 @@ private[vue] object VueEmitter:
         walk(whenFalse)
       case View.For(items, render) =>
         items().foreach(item => walk(render(item)))
-      case _: View.ForSignal[?] => ()
+      case View.ForSignal(_, _, _, itemTemplate) => itemTemplate.foreach(walk)
       case View.Portal(_, children) => children.foreach(walk)
-      case _: View.TextNode => ()
+      case _: View.TextNode | View.ItemText => ()
     walk(view)
     acc
 
@@ -136,12 +136,15 @@ private[vue] object VueEmitter:
           )
         case _ => acc.update(name, initJs)
     def walk(v: View): Unit = v match
-      case View.ForSignal(list, _, _) => register(list)
+      case View.ForSignal(list, _, _, itemTemplate) =>
+        register(list)
+        itemTemplate.foreach(walk)
       case View.Element(_, _, events, children) =>
         events.foreach { (_, handler) =>
           handler match
             case EventHandler.PushSignalLiteral(list, _) => register(list)
             case EventHandler.ClearSignalList(list)      => register(list)
+            case EventHandler.RemoveSelfFromList(list)   => register(list)
             case _ => ()
         }
         children.foreach(walk)
@@ -155,7 +158,7 @@ private[vue] object VueEmitter:
       case View.For(items, render) =>
         items().foreach(item => walk(render(item)))
       case View.Portal(_, children) => children.foreach(walk)
-      case _: View.SignalText | _: View.TextNode => ()
+      case _: View.SignalText | _: View.TextNode | View.ItemText => ()
     walk(view)
     acc
 
@@ -187,7 +190,8 @@ private[vue] object VueEmitter:
       case View.For(items, render) =>
         items().foreach(item => walk(render(item)))
       case View.Portal(_, children) => children.foreach(walk)
-      case _: View.ForSignal[?] | _: View.SignalText | _: View.TextNode => ()
+      case View.ForSignal(_, _, _, itemTemplate) => itemTemplate.foreach(walk)
+      case _: View.SignalText | _: View.TextNode | View.ItemText => ()
     walk(view)
     acc
 
@@ -207,14 +211,16 @@ private[vue] object VueEmitter:
       containsPortal(whenTrue) || containsPortal(whenFalse)
     case View.For(items, render) =>
       items().exists(item => containsPortal(render(item)))
-    case _: View.ForSignal[?] | _: View.SignalText | _: View.TextNode => false
+    case View.ForSignal(_, _, _, itemTemplate) =>
+      itemTemplate.exists(containsPortal)
+    case _: View.SignalText | _: View.TextNode | View.ItemText => false
 
-  private def renderView(view: View): String = view match
+  private def renderView(view: View, itemCtx: Option[ReactiveSignalList[?]] = None): String = view match
     case View.Element(tag, attrs, events, children) =>
-      val propsJs = renderProps(attrs, events)
+      val propsJs = renderProps(attrs, events, itemCtx)
       val childrenJs =
         if children.isEmpty then ""
-        else ", [" + children.map(renderView).mkString(", ") + "]"
+        else ", [" + children.map(c => renderView(c, itemCtx)).mkString(", ") + "]"
       s"h(${jsString(tag)}, $propsJs$childrenJs)"
 
     case View.TextNode(thunk) =>
@@ -224,40 +230,61 @@ private[vue] object VueEmitter:
       // `this.x` — Vue's component proxy auto-unwraps the ref.
       "this." + signal.jsName
 
+    case View.ItemText =>
+      // A2e.2 — `String(item)` when inside a render-arrow's
+      // map callback; literal '' outside (graceful no-op).
+      if itemCtx.isDefined then "String(item)" else "''"
+
     case View.Fragment(children) =>
       if children.isEmpty then "null"
-      else s"h(Fragment, null, [${children.map(renderView).mkString(", ")}])"
+      else s"h(Fragment, null, [${children.map(c => renderView(c, itemCtx)).mkString(", ")}])"
 
     case View.ComponentInstance(component, props) =>
-      renderView(component.render(props.asInstanceOf[Nothing]))
+      renderView(component.render(props.asInstanceOf[Nothing]), itemCtx)
 
     case View.Show(cond, whenTrue, whenFalse) =>
       val branch = if cond() then whenTrue() else whenFalse()
-      renderView(branch)
+      renderView(branch, itemCtx)
 
     case View.ShowSignal(cond, whenTrue, whenFalse) =>
       // Ternary inside render — Vue re-runs render when the ref
       // (read via proxy) changes; the ternary re-evaluates.
-      s"(this.${cond.jsName} ? ${renderView(whenTrue)} : ${renderView(whenFalse)})"
+      s"(this.${cond.jsName} ? ${renderView(whenTrue, itemCtx)} : ${renderView(whenFalse, itemCtx)})"
 
     case View.For(items, render) =>
       val realised = items().toList
       if realised.isEmpty then "null"
       else
-        val parts = realised.map(item => renderView(render(item)))
+        val parts = realised.map(item => renderView(render(item), itemCtx))
         s"[${parts.mkString(", ")}]"
 
-    case View.ForSignal(list, tag, attrs) =>
-      // A2e — `this.<jsName>.map(item => h(tag, propsWithKey, String(item)))`.
-      // Vue's reactivity triggers render when the ref changes; this.
-      // proxy auto-unwraps so `this.<jsName>` IS the underlying array.
-      val tagJs = jsString(tag)
-      val attrFields = attrs.flatMap { (k, av) =>
-        attrValueJs(av).map(value => s"${jsString(k)}: $value")
-      }
-      val propsParts = "'key': String(item)" :: attrFields.toList
-      val propsJs    = s"{ ${propsParts.mkString(", ")} }"
-      s"this.${list.jsName}.map(item => h($tagJs, $propsJs, String(item)))"
+    case View.ForSignal(list, tag, attrs, itemTemplate) =>
+      // A2e / A2e.2 — map over `this.<jsName>`.  Two flavours:
+      //
+      //  - simple form: `h(tag, propsWithKey, String(item))`.
+      //  - rich form: emit the template recursively with
+      //    `itemCtx = Some(list)`; inject `key: String(item)` on
+      //    the template's Element root.
+      itemTemplate match
+        case None =>
+          val tagJs = jsString(tag)
+          val attrFields = attrs.flatMap { (k, av) =>
+            attrValueJs(av).map(value => s"${jsString(k)}: $value")
+          }
+          val propsParts = "'key': String(item)" :: attrFields.toList
+          val propsJs    = s"{ ${propsParts.mkString(", ")} }"
+          s"this.${list.jsName}.map((item, index) => h($tagJs, $propsJs, String(item)))"
+        case Some(template) =>
+          val body = template match
+            case View.Element(tag, attrs, events, children) =>
+              val propsJs    = renderProps(attrs, events, Some(list), injectKey = true)
+              val childrenJs =
+                if children.isEmpty then ""
+                else ", [" + children.map(c => renderView(c, Some(list))).mkString(", ") + "]"
+              s"h(${jsString(tag)}, $propsJs$childrenJs)"
+            case other =>
+              renderView(other, Some(list))
+          s"this.${list.jsName}.map((item, index) => $body)"
 
     case View.Portal(target, children) =>
       // A6 — Vue's Teleport renders its slot content into the DOM
@@ -266,10 +293,15 @@ private[vue] object VueEmitter:
       val targetJs = jsString(target)
       val childrenJs =
         if children.isEmpty then ""
-        else ", [" + children.map(renderView).mkString(", ") + "]"
+        else ", [" + children.map(c => renderView(c, itemCtx)).mkString(", ") + "]"
       s"h(Teleport, { 'to': $targetJs }$childrenJs)"
 
-  private def renderProps(attrs: Map[String, AttrValue], events: Map[String, EventHandler]): String =
+  private def renderProps(
+      attrs:     Map[String, AttrValue],
+      events:    Map[String, EventHandler],
+      itemCtx:   Option[ReactiveSignalList[?]],
+      injectKey: Boolean = false
+  ): String =
     val attrFields = attrs.flatMap { (k, v) =>
       v match
         case AttrValue.RefBinding(ref) =>
@@ -285,9 +317,10 @@ private[vue] object VueEmitter:
           }
     }
     val eventFields = events.flatMap { (eventName, handler) =>
-      eventHandlerJs(eventName, handler)
+      eventHandlerJs(eventName, handler, itemCtx)
     }
-    val all = attrFields ++ eventFields
+    val keyField = if injectKey then List("'key': String(item)") else Nil
+    val all = keyField ++ attrFields ++ eventFields
     if all.isEmpty then "null" else s"{ ${all.mkString(", ")} }"
 
   private def attrValueJs(av: AttrValue): Option[String] = av match
@@ -298,7 +331,11 @@ private[vue] object VueEmitter:
     case AttrValue.Absent         => None
     case AttrValue.RefBinding(_)  => None  // handled inline in renderProps as the Vue `ref` prop
 
-  private def eventHandlerJs(eventName: String, handler: EventHandler): Option[String] =
+  private def eventHandlerJs(
+      eventName: String,
+      handler:   EventHandler,
+      itemCtx:   Option[ReactiveSignalList[?]]
+  ): Option[String] =
     val onKey = onProp(eventName)
     // Arrow functions defined INSIDE render() lexically capture
     // render()'s `this` — which IS the Vue component proxy.  A
@@ -317,6 +354,13 @@ private[vue] object VueEmitter:
         Some(s"${jsString(onKey)}: () => { this.${list.jsName} = this.${list.jsName}.concat([$v]); }")
       case EventHandler.ClearSignalList(list) =>
         Some(s"${jsString(onKey)}: () => { this.${list.jsName} = []; }")
+      case EventHandler.RemoveSelfFromList(list) =>
+        // A2e.2 — inside an item template, capture the map-callback
+        // `index` so the listener filters its own slot out.
+        if itemCtx.exists(_.jsName == list.jsName) then
+          Some(s"${jsString(onKey)}: () => { this.${list.jsName} = this.${list.jsName}.filter((_, i) => i !== index); }")
+        else
+          Some(s"/* '$eventName' is RemoveSelfFromList used outside an item template — no-op */")
       case EventHandler.Simple(_) | EventHandler.WithEvent(_) =>
         Some(s"/* '$eventName' is a JVM closure — A5 can't translate (richer IR coming later) */")
 

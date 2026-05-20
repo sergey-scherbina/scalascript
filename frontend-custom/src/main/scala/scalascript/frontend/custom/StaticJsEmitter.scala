@@ -102,7 +102,7 @@ private[custom] object StaticJsEmitter:
    *  the top of the bundle. */
   private final class Ctx:
     private var counter: Int = 0
-    val statements: scala.collection.mutable.ArrayBuffer[String] =
+    private val _outerStatements: scala.collection.mutable.ArrayBuffer[String] =
       scala.collection.mutable.ArrayBuffer.empty
     val reactiveSignals: scala.collection.mutable.LinkedHashMap[String, String] =
       scala.collection.mutable.LinkedHashMap.empty
@@ -115,6 +115,32 @@ private[custom] object StaticJsEmitter:
     // order for deterministic output.
     val domRefs: scala.collection.mutable.LinkedHashSet[String] =
       scala.collection.mutable.LinkedHashSet.empty
+
+    // A2e.2 — while emitting an `itemTemplate`, statements go into a
+    // separate buffer so we can wrap them in `function __render_item_x(__item, __idx)`.
+    // `inItemTemplate` lets `View.ItemText` and `EventHandler.RemoveSelfFromList`
+    // detect they're inside the template and emit iteration-aware code.
+    private var inItemTemplate: Boolean                          = false
+    private var currentItemList: Option[ReactiveSignalList[?]]   = None
+    private val statementStack: scala.collection.mutable.Stack[scala.collection.mutable.ArrayBuffer[String]] =
+      scala.collection.mutable.Stack.empty
+
+    /** Statements buffer the current `compile` recursion writes to.
+     *  Defaults to the module-level outer buffer; `captureStatements`
+     *  pushes a temporary one for sub-scopes (e.g. an item-template
+     *  body that becomes a JS function literal). */
+    def statements: scala.collection.mutable.ArrayBuffer[String] =
+      if statementStack.isEmpty then _outerStatements
+      else statementStack.top
+
+    /** Run `body` with statements going to a fresh buffer; return the
+     *  buffer when done.  Used to capture the body of a render-item
+     *  function so we can wrap it as a JS `function (item, idx) { ... }`. */
+    private def captureStatements[T](body: => T): (T, Seq[String]) =
+      val buf = scala.collection.mutable.ArrayBuffer.empty[String]
+      statementStack.push(buf)
+      try (body, buf.toSeq)
+      finally statementStack.pop()
 
     private def freshVar(): String =
       val v = s"n$counter"
@@ -287,39 +313,78 @@ private[custom] object StaticJsEmitter:
           }
           v
 
-      case View.ForSignal(list, tag, attrs) =>
-        // A2e — reactive list.  Build a wrapper element, populate it
-        // from the initial list value, subscribe to subsequent list
-        // changes by wiping-and-rebuilding children.  No keyed
-        // reconciliation yet (children are recreated on every mutation);
-        // that's a follow-up optimisation, not a correctness issue.
+      case View.ForSignal(list, tag, attrs, itemTemplate) =>
+        // A2e + A2e.2 — reactive list.  Build a wrapper element,
+        // populate from the initial list, subscribe so list changes
+        // wipe-and-rebuild children.  Two flavours:
+        //
+        //  - `itemTemplate = None` (A2e): each item is rendered as
+        //    `<tag attrs>String(item)</tag>` — simple per-item element.
+        //  - `itemTemplate = Some(template)` (A2e.2): walk the template
+        //    inside a captured sub-scope so `View.ItemText` and
+        //    `EventHandler.RemoveSelfFromList` see `inItemTemplate=true`
+        //    and emit code that reads the iteration variable + index.
         registerList(list)
-        val wrap   = freshVar()
-        val nameJs = jsString(list.jsName)
-        val tagJs  = jsString(tag)
-        statements += s"const $wrap = document.createElement('span');"
-        // Per-list attr fragments — emitted once and stitched into
-        // every per-item element by the renderer below.
-        val attrSetters = attrs.toSeq.flatMap { (k, av) =>
-          attrValueJs(av).map(value => s"el.setAttribute(${jsString(k)}, $value);")
-        }
-        val attrSettersJs = if attrSetters.isEmpty then "" else attrSetters.mkString(" ")
-        // The render closure is the SAME JS function used for the
-        // initial population AND each re-render; defining it once
-        // keeps the emitted bundle compact and ensures parity.
+        val wrap     = freshVar()
+        val nameJs   = jsString(list.jsName)
         val renderFn = s"__render_item_${list.jsName}"
-        statements += s"function $renderFn(item) {"
-        statements += s"  const el = document.createElement($tagJs);"
-        if attrSettersJs.nonEmpty then statements += s"  $attrSettersJs"
-        statements += s"  el.textContent = String(item);"
-        statements += s"  return el;"
-        statements += s"}"
-        statements += s"for (const __item of __ssc_lists[$nameJs].value) $wrap.appendChild($renderFn(__item));"
+        statements += s"const $wrap = document.createElement('span');"
+
+        itemTemplate match
+          case None =>
+            // Simple form — emit the same shape A2e shipped.
+            val tagJs = jsString(tag)
+            val attrSetters = attrs.toSeq.flatMap { (k, av) =>
+              attrValueJs(av).map(value => s"el.setAttribute(${jsString(k)}, $value);")
+            }
+            val attrSettersJs = if attrSetters.isEmpty then "" else attrSetters.mkString(" ")
+            statements += s"function $renderFn(__item, __idx) {"
+            statements += s"  const el = document.createElement($tagJs);"
+            if attrSettersJs.nonEmpty then statements += s"  $attrSettersJs"
+            statements += s"  el.textContent = String(__item);"
+            statements += s"  return el;"
+            statements += s"}"
+
+          case Some(template) =>
+            // Rich form — compile the template inside a captured
+            // sub-scope so the buffered statements become the render-
+            // item function body.  `inItemTemplate`/`currentItemList`
+            // route ItemText + RemoveSelfFromList to the iteration vars.
+            val prevFlag = inItemTemplate
+            val prevList = currentItemList
+            inItemTemplate  = true
+            currentItemList = Some(list)
+            val (rootVar, body) =
+              try captureStatements(compile(template))
+              finally
+                inItemTemplate  = prevFlag
+                currentItemList = prevList
+            statements += s"function $renderFn(__item, __idx) {"
+            body.foreach(stmt => statements += s"  $stmt")
+            if rootVar == null then
+              // Template compiled to nothing — fall back to a placeholder
+              // so iteration still produces a Node.
+              statements += s"  return document.createTextNode('');"
+            else
+              statements += s"  return $rootVar;"
+            statements += s"}"
+
+        statements += s"{ let __idx = 0; for (const __item of __ssc_lists[$nameJs].value) { $wrap.appendChild($renderFn(__item, __idx)); __idx++; } }"
         statements += s"__ssc_lists[$nameJs].subs.add((list) => {"
         statements += s"  while ($wrap.firstChild) $wrap.removeChild($wrap.firstChild);"
-        statements += s"  for (const __item of list) $wrap.appendChild($renderFn(__item));"
+        statements += s"  let __idx = 0; for (const __item of list) { $wrap.appendChild($renderFn(__item, __idx)); __idx++; }"
         statements += s"});"
         wrap
+
+      case View.ItemText =>
+        // A2e.2 — placeholder for `String(__item)`.  Outside an item
+        // template, emit an inert empty text node (graceful no-op).
+        val v = freshVar()
+        if inItemTemplate then
+          statements += s"const $v = document.createTextNode(String(__item));"
+        else
+          statements += s"const $v = document.createTextNode('');"
+        v
 
       case View.Portal(target, children) =>
         // A6 — render children into a foreign DOM location.  Compile each
@@ -392,6 +457,19 @@ private[custom] object StaticJsEmitter:
           val nameJs = jsString(list.jsName)
           statements += s"$targetVar.addEventListener(${jsString(eventName)}, () => " +
                         s"__setSignalList($nameJs, []));"
+        case EventHandler.RemoveSelfFromList(list) =>
+          // A2e.2 — only meaningful inside an item template; outside,
+          // emit an inert listener (graceful no-op).
+          if inItemTemplate && currentItemList.exists(_.jsName == list.jsName) then
+            registerList(list)
+            val nameJs = jsString(list.jsName)
+            // Capture __idx in the per-item closure so each instance
+            // knows its own position; on click we filter that index out.
+            statements += s"$targetVar.addEventListener(${jsString(eventName)}, ((__capturedIdx) => () => " +
+                          s"__setSignalList($nameJs, __ssc_lists[$nameJs].value.filter((_, i) => i !== __capturedIdx)))(__idx));"
+          else
+            statements +=
+              s"// $targetVar: '$eventName' is RemoveSelfFromList used outside an item template — no-op."
 
   /** A2e — JS array literal for a `ReactiveSignalList`'s initial
    *  value.  Each element goes through `jsLiteral` (same primitive

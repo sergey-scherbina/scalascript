@@ -109,16 +109,17 @@ private[react] object ReactEmitter:
         // signals declared inside won't get useState hoisting.  Caller
         // can work around by referencing the signal somewhere else.
         items().foreach(item => walk(render(item)))
-      case _: View.ForSignal[?] =>
-        // List items are JS-literal primitives stringified at render
-        // time; no scalar ReactiveSignals nested inside (A2e scope).
-        ()
+      case View.ForSignal(_, _, _, itemTemplate) =>
+        // A2e.2 — walk the item template so signals it references
+        // still get useState hoisted in the parent component scope.
+        // (Simple form has no nested signals; itemTemplate may.)
+        itemTemplate.foreach(walk)
       case View.Portal(_, children) =>
         // A6 — portals lift children into a foreign DOM node but the
         // signals they reference still live in the parent component's
         // state.  Walk into them for useState hoisting.
         children.foreach(walk)
-      case _: View.TextNode => ()
+      case _: View.TextNode | View.ItemText => ()
     walk(view)
     acc
 
@@ -144,13 +145,17 @@ private[react] object ReactEmitter:
           )
         case _ => acc.update(name, initJs)
     def walk(v: View): Unit = v match
-      case View.ForSignal(list, _, _) =>
+      case View.ForSignal(list, _, _, itemTemplate) =>
         register(list)
+        // Walk the template so RemoveSelfFromList → useState is set up
+        // and any nested ForSignal inside has its list collected too.
+        itemTemplate.foreach(walk)
       case View.Element(_, _, events, children) =>
         events.foreach { (_, handler) =>
           handler match
             case EventHandler.PushSignalLiteral(list, _) => register(list)
             case EventHandler.ClearSignalList(list)      => register(list)
+            case EventHandler.RemoveSelfFromList(list)   => register(list)
             case _ => ()
         }
         children.foreach(walk)
@@ -165,7 +170,7 @@ private[react] object ReactEmitter:
         items().foreach(item => walk(render(item)))
       case View.Portal(_, children) =>
         children.foreach(walk)
-      case _: View.SignalText | _: View.TextNode => ()
+      case _: View.SignalText | _: View.TextNode | View.ItemText => ()
     walk(view)
     acc
 
@@ -200,16 +205,23 @@ private[react] object ReactEmitter:
         items().foreach(item => walk(render(item)))
       case View.Portal(_, children) =>
         children.foreach(walk)
-      case _: View.ForSignal[?] | _: View.SignalText | _: View.TextNode => ()
+      case View.ForSignal(_, _, _, itemTemplate) => itemTemplate.foreach(walk)
+      case _: View.SignalText | _: View.TextNode | View.ItemText => ()
     walk(view)
     acc
 
   /** Second pass — emit a React.createElement expression tree.  No
-   *  side-effects; pure expression. */
-  private def renderView(view: View): String = view match
+   *  side-effects; pure expression.
+   *
+   *  `itemCtx` is `Some(list)` while rendering the body of a
+   *  `ForSignal.itemTemplate` so `View.ItemText` and
+   *  `EventHandler.RemoveSelfFromList` know they're inside an
+   *  iteration and can emit code that references the `item` /
+   *  `index` map-callback parameters. */
+  private def renderView(view: View, itemCtx: Option[ReactiveSignalList[?]] = None): String = view match
     case View.Element(tag, attrs, events, children) =>
-      val propsJs    = renderProps(attrs, events)
-      val childrenJs = children.map(renderView).mkString(", ")
+      val propsJs    = renderProps(attrs, events, itemCtx)
+      val childrenJs = children.map(c => renderView(c, itemCtx)).mkString(", ")
       val tail       = if children.isEmpty then "" else ", " + childrenJs
       s"h(${jsString(tag)}, $propsJs$tail)"
 
@@ -220,50 +232,76 @@ private[react] object ReactEmitter:
       // Direct interpolation — React stringifies numbers / booleans.
       signal.jsName
 
+    case View.ItemText =>
+      // A2e.2 — inside an item template, reference the map-callback
+      // `item` argument; outside, emit empty string (graceful no-op).
+      if itemCtx.isDefined then "String(item)" else "''"
+
     case View.Fragment(children) =>
       if children.isEmpty then "null"
       else
-        val childrenJs = children.map(renderView).mkString(", ")
+        val childrenJs = children.map(c => renderView(c, itemCtx)).mkString(", ")
         s"h(Fragment, null, $childrenJs)"
 
     case View.ComponentInstance(component, props) =>
-      renderView(component.render(props.asInstanceOf[Nothing]))
+      renderView(component.render(props.asInstanceOf[Nothing]), itemCtx)
 
     case View.Show(cond, whenTrue, whenFalse) =>
       // Snapshot the condition AT EMIT TIME — `Show` is the
       // non-reactive variant.  Use `ShowSignal` for live swap.
       val branch = if cond() then whenTrue() else whenFalse()
-      renderView(branch)
+      renderView(branch, itemCtx)
 
     case View.ShowSignal(cond, whenTrue, whenFalse) =>
       // Ternary inside render — React re-runs render on useState
       // change, the ternary re-evaluates, reconciliation handles
       // the DOM swap.  Idiomatic React conditional rendering.
-      s"(${cond.jsName} ? ${renderView(whenTrue)} : ${renderView(whenFalse)})"
+      s"(${cond.jsName} ? ${renderView(whenTrue, itemCtx)} : ${renderView(whenFalse, itemCtx)})"
 
     case View.For(items, render) =>
       // Emit a literal array; React handles list rendering.
       val realised = items().toList
       if realised.isEmpty then "null"
       else
-        val parts = realised.map(item => renderView(render(item)))
+        val parts = realised.map(item => renderView(render(item), itemCtx))
         s"[${parts.mkString(", ")}]"
 
-    case View.ForSignal(list, tag, attrs) =>
-      // A2e — lower to `<jsName>.map(item => h(tag, propsWithKey, String(item)))`.
+    case View.ForSignal(list, tag, attrs, itemTemplate) =>
+      // A2e / A2e.2 — lower to `<jsName>.map((item, index) => ...)`.
       // React's keyed reconciliation handles add / remove / reorder
-      // when the list state changes.  Key is the stringified item;
-      // duplicates are the user's problem (same trade-off as plain JS).
-      val tagJs = jsString(tag)
-      val attrFields = attrs.flatMap { (k, av) =>
-        attrValueJs(av).map { value =>
-          val key = if k == "class" then "className" else k
-          s"${jsString(key)}: $value"
-        }
-      }
-      val propsParts = "'key': String(item)" :: attrFields.toList
-      val propsJs    = s"{ ${propsParts.mkString(", ")} }"
-      s"${list.jsName}.map(item => h($tagJs, $propsJs, String(item)))"
+      // when the list state changes.  Two flavours:
+      //
+      //  - `itemTemplate = None`: simple `<tag>String(item)</tag>` per item.
+      //  - `itemTemplate = Some(t)`: emit `t` recursively with
+      //    `itemCtx = Some(list)` so item-hole leaves resolve to the
+      //    iteration variables.
+      itemTemplate match
+        case None =>
+          val tagJs = jsString(tag)
+          val attrFields = attrs.flatMap { (k, av) =>
+            attrValueJs(av).map { value =>
+              val key = if k == "class" then "className" else k
+              s"${jsString(key)}: $value"
+            }
+          }
+          val propsParts = "'key': String(item)" :: attrFields.toList
+          val propsJs    = s"{ ${propsParts.mkString(", ")} }"
+          s"${list.jsName}.map((item, index) => h($tagJs, $propsJs, String(item)))"
+        case Some(template) =>
+          // Inject a `key: String(item)` on the template's root
+          // element so React's keyed reconciliation can reuse DOM
+          // nodes across re-renders.  Non-Element roots (Fragment,
+          // bare TextNode) skip the key injection — same behaviour
+          // as if the user wrote the map callback by hand.
+          val body = template match
+            case View.Element(tag, attrs, events, children) =>
+              val propsJs    = renderProps(attrs, events, Some(list), injectKey = true)
+              val childrenJs = children.map(c => renderView(c, Some(list))).mkString(", ")
+              val tail       = if children.isEmpty then "" else ", " + childrenJs
+              s"h(${jsString(tag)}, $propsJs$tail)"
+            case other =>
+              renderView(other, Some(list))
+          s"${list.jsName}.map((item, index) => $body)"
 
     case View.Portal(target, children) =>
       // A6 — ReactDOM.createPortal(child, document.querySelector(target)).
@@ -272,13 +310,21 @@ private[react] object ReactEmitter:
       val targetJs = jsString(target)
       val childJs  =
         if children.isEmpty then "null"
-        else if children.size == 1 then renderView(children.head)
-        else s"h(Fragment, null, ${children.map(renderView).mkString(", ")})"
+        else if children.size == 1 then renderView(children.head, itemCtx)
+        else s"h(Fragment, null, ${children.map(c => renderView(c, itemCtx)).mkString(", ")})"
       s"ReactDOM.createPortal($childJs, document.querySelector($targetJs))"
 
   /** Props object — combines attributes + event handlers into the
-   *  single second argument of `React.createElement`. */
-  private def renderProps(attrs: Map[String, AttrValue], events: Map[String, EventHandler]): String =
+   *  single second argument of `React.createElement`.  When
+   *  `itemCtx.isDefined`, this element is the ROOT of a
+   *  ForSignal.itemTemplate and gets a synthetic `key: String(item)`
+   *  injected (React requires keys on map'd children). */
+  private def renderProps(
+      attrs:     Map[String, AttrValue],
+      events:    Map[String, EventHandler],
+      itemCtx:   Option[ReactiveSignalList[?]],
+      injectKey: Boolean = false
+  ): String =
     val attrFields = attrs.flatMap { (k, v) =>
       v match
         case AttrValue.RefBinding(ref) =>
@@ -294,9 +340,10 @@ private[react] object ReactEmitter:
           }
     }
     val eventFields = events.flatMap { (eventName, handler) =>
-      eventHandlerJs(eventName, handler)
+      eventHandlerJs(eventName, handler, itemCtx)
     }
-    val all = attrFields ++ eventFields
+    val keyField = if injectKey then List("'key': String(item)") else Nil
+    val all = keyField ++ attrFields ++ eventFields
     if all.isEmpty then "null" else s"{ ${all.mkString(", ")} }"
 
   private def attrValueJs(av: AttrValue): Option[String] = av match
@@ -310,8 +357,14 @@ private[react] object ReactEmitter:
   /** Translate an event handler.  Returns `Some((onClick, body))`
    *  pair as a single JS field source, or `None` for unsupported
    *  handlers (the marker is emitted as a separate `/* */` comment
-   *  in the props object). */
-  private def eventHandlerJs(eventName: String, handler: EventHandler): Option[String] =
+   *  in the props object).  `itemCtx` is set when this handler is
+   *  rendered inside a `ForSignal.itemTemplate` — used by
+   *  `RemoveSelfFromList` to reference the iteration `index`. */
+  private def eventHandlerJs(
+      eventName: String,
+      handler:   EventHandler,
+      itemCtx:   Option[ReactiveSignalList[?]]
+  ): Option[String] =
     val onKey = onProp(eventName)
     handler match
       case EventHandler.SetSignalLiteral(signal, value) =>
@@ -334,6 +387,15 @@ private[react] object ReactEmitter:
       case EventHandler.ClearSignalList(list) =>
         val setter = setterName(list.jsName)
         Some(s"${jsString(onKey)}: () => $setter([])")
+      case EventHandler.RemoveSelfFromList(list) =>
+        // A2e.2 — only meaningful inside an itemTemplate.  Capture
+        // the map-callback `index` in the arrow so each item's
+        // handler removes its own slot.
+        if itemCtx.exists(_.jsName == list.jsName) then
+          val setter = setterName(list.jsName)
+          Some(s"${jsString(onKey)}: () => $setter(prev => prev.filter((_, i) => i !== index))")
+        else
+          Some(s"/* '$eventName' is RemoveSelfFromList used outside an item template — no-op */")
       case EventHandler.Simple(_) | EventHandler.WithEvent(_) =>
         // JVM closure — emit a comment-prop that doesn't bind anything.
         // The presence of the marker tells dev "you wrote Simple/WithEvent

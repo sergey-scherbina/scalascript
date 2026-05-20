@@ -15,7 +15,7 @@ class ForSignalEmitTest extends AnyFunSuite:
 
     assert(js.contains("const [todos, setTodos] = useState(['a', 'b']);"),
       s"list state must be hoisted as useState:\n$js")
-    assert(js.contains("todos.map(item => h('li', { 'key': String(item) }, String(item)))"),
+    assert(js.contains("todos.map((item, index) => h('li', { 'key': String(item) }, String(item)))"),
       s"ForSignal must lower to map() with key:\n$js")
   }
 
@@ -29,7 +29,7 @@ class ForSignalEmitTest extends AnyFunSuite:
     val js = backend.emit(FrontendModule(List(app), "App", "/")).js
     assert(js.contains("'className': 'row'"),
       s"class attr must be rewritten to className:\n$js")
-    assert(js.contains("rows.map(item => h('tr'"),
+    assert(js.contains("rows.map((item, index) => h('tr'"),
       s"tag must thread through:\n$js")
   }
 

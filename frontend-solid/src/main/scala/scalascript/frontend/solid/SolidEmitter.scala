@@ -85,8 +85,25 @@ private[solid] object SolidEmitter:
     // assigned the live element node after createElement.
     val domRefs: scala.collection.mutable.LinkedHashSet[String] =
       scala.collection.mutable.LinkedHashSet.empty
-    val statements: scala.collection.mutable.ArrayBuffer[String] =
+
+    // A2e.2 — sub-scope state for capturing a render-item body.
+    private var inItemTemplate: Boolean                          = false
+    private var currentItemList: Option[ReactiveSignalList[?]]   = None
+    private val statementStack: scala.collection.mutable.Stack[scala.collection.mutable.ArrayBuffer[String]] =
+      scala.collection.mutable.Stack.empty
+
+    private val _outerStatements: scala.collection.mutable.ArrayBuffer[String] =
       scala.collection.mutable.ArrayBuffer.empty
+
+    def statements: scala.collection.mutable.ArrayBuffer[String] =
+      if statementStack.isEmpty then _outerStatements
+      else statementStack.top
+
+    private def captureStatements[T](body: => T): (T, Seq[String]) =
+      val buf = scala.collection.mutable.ArrayBuffer.empty[String]
+      statementStack.push(buf)
+      try (body, buf.toSeq)
+      finally statementStack.pop()
 
     private def freshVar(): String =
       val v = s"n$counter"
@@ -226,31 +243,60 @@ private[solid] object SolidEmitter:
           }
           v
 
-      case View.ForSignal(list, tag, attrs) =>
-        // A2e — wrapper span + createEffect that rebuilds children on
-        // every list change.  Same wipe-and-rebuild shape as Custom;
-        // Solid's idiomatic <For> needs JSX which we don't transpile.
-        // The createEffect tracks `name()` so any setName(...) re-runs
-        // it.  Keyed reconciliation can come later as an optimisation.
+      case View.ForSignal(list, tag, attrs, itemTemplate) =>
+        // A2e + A2e.2 — wrapper span + createEffect that rebuilds
+        // children on every list change.  Simple form: render each
+        // item as `<tag attrs>String(item)</tag>`.  Rich form: walk
+        // the template inside a captured sub-scope so the buffered
+        // statements form the body of the render-item function.
         registerList(list)
-        val wrap   = freshVar()
-        val tagJs  = jsString(tag)
-        statements += s"const $wrap = document.createElement('span');"
-        val attrSetters = attrs.toSeq.flatMap { (k, av) =>
-          attrValueJs(av).map(value => s"el.setAttribute(${jsString(k)}, $value);")
-        }
+        val wrap     = freshVar()
         val renderFn = s"__render_item_${list.jsName}"
-        statements += s"function $renderFn(item) {"
-        statements += s"  const el = document.createElement($tagJs);"
-        attrSetters.foreach(s => statements += s"  $s")
-        statements += s"  el.textContent = String(item);"
-        statements += s"  return el;"
-        statements += s"}"
+        statements += s"const $wrap = document.createElement('span');"
+
+        itemTemplate match
+          case None =>
+            val tagJs = jsString(tag)
+            val attrSetters = attrs.toSeq.flatMap { (k, av) =>
+              attrValueJs(av).map(value => s"el.setAttribute(${jsString(k)}, $value);")
+            }
+            statements += s"function $renderFn(__item, __idx) {"
+            statements += s"  const el = document.createElement($tagJs);"
+            attrSetters.foreach(s => statements += s"  $s")
+            statements += s"  el.textContent = String(__item);"
+            statements += s"  return el;"
+            statements += s"}"
+          case Some(template) =>
+            val prevFlag = inItemTemplate
+            val prevList = currentItemList
+            inItemTemplate  = true
+            currentItemList = Some(list)
+            val (rootVar, body) =
+              try captureStatements(compile(template))
+              finally
+                inItemTemplate  = prevFlag
+                currentItemList = prevList
+            statements += s"function $renderFn(__item, __idx) {"
+            body.foreach(stmt => statements += s"  $stmt")
+            if rootVar == null then
+              statements += s"  return document.createTextNode('');"
+            else
+              statements += s"  return $rootVar;"
+            statements += s"}"
+
         statements += s"createEffect(() => {"
         statements += s"  while ($wrap.firstChild) $wrap.removeChild($wrap.firstChild);"
-        statements += s"  for (const __item of ${list.jsName}()) $wrap.appendChild($renderFn(__item));"
+        statements += s"  let __idx = 0; for (const __item of ${list.jsName}()) { $wrap.appendChild($renderFn(__item, __idx)); __idx++; }"
         statements += s"});"
         wrap
+
+      case View.ItemText =>
+        val v = freshVar()
+        if inItemTemplate then
+          statements += s"const $v = document.createTextNode(String(__item));"
+        else
+          statements += s"const $v = document.createTextNode('');"
+        v
 
       case View.Portal(target, children) =>
         // A6 — imperative portal: compile each child as usual, then
@@ -294,6 +340,18 @@ private[solid] object SolidEmitter:
           registerList(list)
           val setter = setterName(list.jsName)
           statements += s"$targetVar.addEventListener(${jsString(eventName)}, () => $setter([]));"
+        case EventHandler.RemoveSelfFromList(list) =>
+          // A2e.2 — only meaningful inside an item template.  Capture
+          // __idx in an IIFE so each emitted listener remembers its
+          // own slot for the .filter() call.
+          if inItemTemplate && currentItemList.exists(_.jsName == list.jsName) then
+            registerList(list)
+            val setter = setterName(list.jsName)
+            statements += s"$targetVar.addEventListener(${jsString(eventName)}, ((__capturedIdx) => () => " +
+                          s"$setter(prev => prev.filter((_, i) => i !== __capturedIdx)))(__idx));"
+          else
+            statements +=
+              s"// $targetVar: '$eventName' is RemoveSelfFromList used outside an item template — no-op."
 
     /** Empty-branch placeholder for ShowSignal — empty text node. */
     private def placeholderNode(): String =

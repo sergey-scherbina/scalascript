@@ -3983,6 +3983,20 @@ the codegen output.
     templates need a richer IR and are deferred.  Tests: 5 unit + 1
     e2e per backend (4 backends → 23 new tests; 120 total in
     frontend-* suites).
+  - **Phase A2e.2** ✓ Landed 2026-05-20 — rich per-item templates
+    for `ForSignal`.  IR additions: `View.ForSignal` grows an
+    optional `itemTemplate: Option[View]`; `View.ItemText` is the
+    `String(item)` placeholder; `EventHandler.RemoveSelfFromList`
+    is the "delete the iteration's own entry" hook.  Per-backend
+    lowerings emit the iteration callback as `(item, index)` (React
+    / Vue) or capture `__idx` via an IIFE inside the render-item
+    function (Custom / Solid); RemoveSelfFromList then filters that
+    captured slot from the list signal.  Simple-form ForSignal
+    (`itemTemplate = None`) still produces the A2e shape — backward
+    compatible.  Unblocks todo apps with per-item delete buttons,
+    nested per-item elements, dynamic per-item attrs.  Tests: 4
+    unit + 1 e2e per backend driving real per-item delete clicks
+    through jsdom (+21 new; 181 total in frontend-* suites).
   - **Phase A6** (refs + portals) ✓ Landed 2026-05-20 — DOM refs and
     portals across all four frontend backends.  IR additions:
     `final class DomRef(jsName: String)` + a new

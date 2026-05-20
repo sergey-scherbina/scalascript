@@ -22,6 +22,9 @@ class ForSignalEmitTest extends AnyFunSuite:
       s"subscription must use createEffect:\n$js")
     assert(js.contains("for (const __item of todos())"),
       s"effect body must iterate the current list signal:\n$js")
+    // A2e.2 — render-item function now takes (__item, __idx).
+    assert(js.contains("function __render_item_todos(__item, __idx)"),
+      s"render-item function must take (item, idx):\n$js")
     assert(js.contains("removeChild"))
   }
 

@@ -17,7 +17,7 @@ class ForSignalEmitTest extends AnyFunSuite:
       s"list must lower to ref(initial):\n$js")
     assert(js.contains("return { todos };"),
       s"setup() must return the ref so the proxy auto-unwraps it:\n$js")
-    assert(js.contains("this.todos.map(item => h('li', { 'key': String(item) }, String(item)))"),
+    assert(js.contains("this.todos.map((item, index) => h('li', { 'key': String(item) }, String(item)))"),
       s"ForSignal must lower to this.x.map in render arrow:\n$js")
   }
 
@@ -31,7 +31,7 @@ class ForSignalEmitTest extends AnyFunSuite:
     val js = backend.emit(FrontendModule(List(app), "App", "/")).js
     assert(js.contains("'class': 'row'"),
       s"Vue keeps `class` natively:\n$js")
-    assert(js.contains("this.rows.map(item => h('tr'"),
+    assert(js.contains("this.rows.map((item, index) => h('tr'"),
       s"tag must thread through:\n$js")
   }
 

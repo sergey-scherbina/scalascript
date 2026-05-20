@@ -178,8 +178,25 @@ object View:
   final case class ForSignal[T](
       items: ReactiveSignalList[T],
       tag:   String                  = "li",
-      attrs: Map[String, AttrValue]  = Map.empty
+      attrs: Map[String, AttrValue]  = Map.empty,
+      // v1.18 / Phase A2e.2 — optional richer per-item template.
+      // When `None`, the simple `<tag attrs>String(item)</tag>` shape
+      // (A2e) is emitted; when `Some(template)`, the backend walks
+      // the template and replaces every `View.ItemText` /
+      // `EventHandler.RemoveSelfFromList` hole with code that reads
+      // the iteration value / index in the emitted JS.  `tag` + `attrs`
+      // are IGNORED when `itemTemplate` is set — the template's root
+      // element fully determines per-item shape.
+      itemTemplate: Option[View]     = None
   ) extends View
+
+  /** v1.18 / Phase A2e.2 — placeholder for the iteration value
+   *  inside a `ForSignal.itemTemplate`.  Each backend replaces it
+   *  with `String(<iteration-variable>)` when it walks the template
+   *  at emit time.  Outside a `ForSignal` template, this is a static
+   *  empty string (backends emit a literal "" — no runtime error,
+   *  just a no-op so misuse is graceful instead of crashing). */
+  case object ItemText extends View
 
   /** v1.18 / Phase A6 — render a subtree into a different DOM
    *  location instead of the current parent.  Canonical use is
@@ -286,6 +303,16 @@ object EventHandler:
   /** v1.18 / Phase A2e — replace a reactive list signal's value
    *  with the empty list.  Canonical "clear all" wiring. */
   final case class ClearSignalList[T](list: ReactiveSignalList[T]) extends EventHandler
+
+  /** v1.18 / Phase A2e.2 — remove the current iteration's entry
+   *  from a reactive list.  Only meaningful inside a
+   *  `ForSignal.itemTemplate`; backends use the iteration index
+   *  they're tracking anyway (React `array.map(item, index)`,
+   *  Custom + Solid `let i = 0; for (...) { i++ }`, Vue same).
+   *  Outside an item template the handler emits an inert
+   *  `addEventListener` that does nothing — graceful no-op rather
+   *  than an emit-time crash. */
+  final case class RemoveSelfFromList[T](list: ReactiveSignalList[T]) extends EventHandler
 
 /** Composable UI unit — a function from props to a View that
  *  may close over signals + effects.  Backends interpret the
