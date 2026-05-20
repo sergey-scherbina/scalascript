@@ -25,13 +25,13 @@ def lower(n: TkNode, theme: Theme): View = n match
   // ── Layout ───────────────────────────────────────────────────────────
   case VStackNode(gap, kids) =>
     element("div",
-      Map("style" -> s"display:flex; flex-direction:column; gap:${gap}px; box-sizing:border-box"),
+      ["style" -> s"display:flex; flex-direction:column; gap:${gap}px; box-sizing:border-box"],
       Map(),
       kids.map(lower(_, theme)))
 
   case HStackNode(gap, kids) =>
     element("div",
-      Map("style" -> s"display:flex; flex-direction:row; align-items:center; gap:${gap}px; box-sizing:border-box"),
+      ["style" -> s"display:flex; flex-direction:row; align-items:center; gap:${gap}px; box-sizing:border-box"],
       Map(),
       kids.map(lower(_, theme)))
 

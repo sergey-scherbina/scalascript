@@ -542,6 +542,112 @@ object Parser:
    *  needed because `import` outside a top-level position is rare enough
    *  to be hand-fixed; this preprocessor solves the import-statement
    *  case which is what std/ relies on. */
+  /** Rewrite `[a, b, c]` → `List(a, b, c)` and `[k -> v, ...]` → `Map(k -> v, ...)`
+   *  in SSC code blocks, before Scalameta parses them.
+   *
+   *  Disambiguation rule: `[` is treated as a list/map literal only when it is NOT
+   *  immediately preceded by an identifier character, `)`, or `]` (all of which
+   *  signal a type-parameter application or subscript in Scala 3).
+   *  Map vs List: if the content contains `->` at bracket-depth 0 → Map; else → List.
+   *  Handles strings (single/double/triple-quoted), line `//` and block `/* */` comments. */
+  private def preprocessListLiterals(code: String): String =
+    if !code.contains('[') then return code
+    val in  = code.toCharArray
+    val n   = in.length
+    val out = new StringBuilder(n + 32)
+    var i   = 0
+    var changed = false
+
+    def skipStringFrom(start: Int, q: Char): Int =
+      var j = start + 1
+      var esc = false
+      while j < n && (esc || in(j) != q) do
+        esc = !esc && in(j) == '\\'
+        j += 1
+      if j < n then j + 1 else j // position after closing quote
+
+    def skipTripleFrom(start: Int): Int =
+      var j = start + 3
+      while j + 2 < n && !(in(j) == '"' && in(j+1) == '"' && in(j+2) == '"') do j += 1
+      if j + 2 < n then j + 3 else j
+
+    // Find the closing `]` that matches the `[` whose opening was consumed before `from`.
+    // Returns index of `]`, or -1 if not found. Handles nesting and strings/comments.
+    def findClose(from: Int): Int =
+      var depth = 1
+      var j = from
+      while j < n && depth > 0 do
+        in(j) match
+          case '/' if j + 1 < n && in(j+1) == '/' =>
+            while j < n && in(j) != '\n' do j += 1
+          case '/' if j + 1 < n && in(j+1) == '*' =>
+            j += 2
+            while j + 1 < n && !(in(j) == '*' && in(j+1) == '/') do j += 1
+            if j + 1 < n then j += 2
+          case '"' if j + 2 < n && in(j+1) == '"' && in(j+2) == '"' =>
+            j = skipTripleFrom(j) - 1; j += 1
+          case q @ ('"' | '\'') =>
+            j = skipStringFrom(j, q)
+          case '(' | '{' | '[' => depth += 1; j += 1
+          case ']' =>
+            depth -= 1
+            if depth > 0 then j += 1
+            // depth==0: leave j pointing at `]`, loop exits
+          case ')' | '}' => depth -= 1; if depth > 0 then j += 1
+          case _ => j += 1
+      if depth == 0 then j else -1
+
+    // True when content contains `->` not inside any brackets/strings (depth-0 check).
+    def hasArrow(content: String): Boolean =
+      val cs = content.toCharArray
+      val m  = cs.length
+      var d  = 0; var k = 0; var found = false
+      while k < m && !found do
+        cs(k) match
+          case '"' if k + 2 < m && cs(k+1) == '"' && cs(k+2) == '"' =>
+            k += 3; while k + 2 < m && !(cs(k)=='"'&&cs(k+1)=='"'&&cs(k+2)=='"') do k+=1
+            if k + 2 < m then k += 3
+          case q @ ('"'|'\'') =>
+            k += 1; var e = false
+            while k < m && (e || cs(k) != q) do { e = !e && cs(k) == '\\'; k += 1 }
+            if k < m then k += 1
+          case '('|'{'|'[' => d += 1; k += 1
+          case ')'|'}'|']' => if d > 0 then d -= 1; k += 1
+          case '-' if d == 0 && k + 1 < m && cs(k+1) == '>' => found = true
+          case _ => k += 1
+      found
+
+    while i < n do
+      in(i) match
+        case '/' if i + 1 < n && in(i+1) == '/' =>  // line comment
+          while i < n && in(i) != '\n' do { out.append(in(i)); i += 1 }
+        case '/' if i + 1 < n && in(i+1) == '*' =>  // block comment
+          out.append(in(i)); out.append(in(i+1)); i += 2
+          while i + 1 < n && !(in(i) == '*' && in(i+1) == '/') do { out.append(in(i)); i += 1 }
+          if i + 1 < n then { out.append(in(i)); out.append(in(i+1)); i += 2 }
+        case '"' if i + 2 < n && in(i+1) == '"' && in(i+2) == '"' =>  // triple-quoted
+          val end = skipTripleFrom(i)
+          out.appendAll(in, i, end - i); i = end
+        case q @ ('"' | '\'') =>  // string/char literal
+          val end = skipStringFrom(i, q)
+          out.appendAll(in, i, end - i); i = end
+        case '[' =>
+          val prev = { var k = out.length - 1; while k >= 0 && out.charAt(k).isWhitespace do k -= 1; if k >= 0 then Some(out.charAt(k)) else None }
+          val isTypeParam = prev.exists(c => c.isLetterOrDigit || c == '_' || c == ')' || c == ']')
+          if isTypeParam then { out.append('['); i += 1 }
+          else
+            val closeIdx = findClose(i + 1)
+            if closeIdx < 0 then { out.append('['); i += 1 }  // unmatched — pass through
+            else
+              val inner = new String(in, i + 1, closeIdx - i - 1)
+              val innerPP = preprocessListLiterals(inner)
+              val kw = if hasArrow(inner) then "Map" else "List"
+              out.append(kw).append('(').append(innerPP).append(')')
+              changed = true; i = closeIdx + 1
+        case c => out.append(c); i += 1
+
+    if changed then out.toString else code
+
   private def preprocessSlashImports(code: String): String =
     val importPat = """^(\s*import\s+)([A-Za-z_][\w]*(?:/[A-Za-z_][\w]*)+)(\.\{.*|\..*|\s*$)""".r
     val lines = code.linesIterator.toArray
@@ -671,7 +777,7 @@ object Parser:
   def parseScalaWithDiagnostic(code: String): (Option[ScalaNode], Option[CodeBlockParseError]) =
     import scala.meta.*
     given Dialect = dialects.Scala3
-    val processed = preprocessExtern(preprocessEffects(preprocessInlineImports(preprocessSlashImports(code))))
+    val processed = preprocessExtern(preprocessEffects(preprocessInlineImports(preprocessSlashImports(preprocessListLiterals(code)))))
     processed.parse[Source] match
       case Parsed.Success(tree) => (Some(ScalaNode(tree)), None)
       case sourceErr: Parsed.Error =>
