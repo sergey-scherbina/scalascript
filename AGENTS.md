@@ -224,6 +224,25 @@ The point of all this: every sibling agent has work in flight that
 you can't see.  Treat shared `main` as a hot kitchen — touch only
 your own pots, leave the rest to their cooks.
 
+**When launching sub-agents — brief them on this up front.**  A parent
+that spawns parallel sub-agents owns the parallel-safety contract on
+their behalf.  In every sub-agent prompt, surface the two non-obvious
+rules that catch every first-time sub-agent:
+
+- "Always use **relative paths** for Write / Edit / Read of project
+  files; verify `pwd` once at the start and don't hand-type
+  `/Users/sergiy/work/my/scalascript/...` into tool arguments.  The
+  absolute-path trap (described in AGENTS.md §1) hits shared `main`
+  silently."
+- "If a leak into shared `main` is confusing to clean up, prefer
+  `git push origin <your-branch>:main` from inside the worktree — it
+  lands your work without touching the shared checkout.  Do **not**
+  `git reset --hard` / `git stash` / `git checkout -- .` on shared
+  `main` to 'tidy up' — that destroys sibling agents' in-flight work."
+
+These two lines in a sub-agent's prompt prevent the most common
+parallel-coordination failure mode we've seen.
+
 ### 2. Before starting — sync + check (≤ 5 seconds)
 
 ```bash
