@@ -117,6 +117,17 @@ val UiPrimitivesIntrinsics: Map[QualifiedName, IntrinsicImpl] = Map(
       case List(Value.Foreign("View", view: View), dir: String) =>
         uiEmitToDir(view, dir, ctx.out)
       case _ => throw InterpretError("emit(tree, outDir)")
+  ),
+
+  // ── setFrontendFramework(name: String): Unit ─────────────────────────────
+  // Mirrors the frontend-plugin intrinsic so .ssc files can declare their
+  // target framework inline without loading an external plugin.
+  QualifiedName("setFrontendFramework") -> NativeImpl((_, args) =>
+    args match
+      case List(name: String) =>
+        scalascript.frontend.FrontendFrameworks.setBackend(name)
+        Value.UnitV
+      case _ => throw InterpretError("setFrontendFramework(name)")
   )
 )
 

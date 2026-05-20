@@ -83,7 +83,13 @@ private[interpreter] object CallRuntime:
             f.returnsThrows
           ))
         else
-          callFun(f, orderedArr.toList, interp)
+          // If the vararg slot was never filled, truncate the args so callFun sees
+          // only the filled positions and appends an empty ListV for the vararg.
+          val filledCount =
+            if lastRegularIsVararg && slots(lastRegularIdx).isEmpty
+            then lastRegularIdx
+            else f.params.length
+          callFun(f, orderedArr.take(filledCount).toList, interp)
       case f: Value.NativeFnV => f.f(namedArgs.map(_._2))
       case Value.InstanceV(_, fields) =>
         fields.get("apply") match
@@ -103,9 +109,9 @@ private[interpreter] object CallRuntime:
     val lastIsVararg = f.params.nonEmpty &&
       f.paramTypes.lift(f.params.length - 1 - f.usingParams.length).exists(_.endsWith("*"))
     def packVarargs(rawArgs: List[Value]): List[Value] =
-      if !lastIsVararg || rawArgs.length <= f.params.length - 1 then rawArgs
+      if !lastIsVararg || rawArgs.length < f.params.length - 1 then rawArgs
       else
-        // Pack surplus args (including the one at the vararg slot) into a ListV.
+        // Pack surplus args into a ListV for the vararg slot (empty list when zero extras).
         val regularCount = f.params.length - 1
         rawArgs.take(regularCount) :+ Value.ListV(rawArgs.drop(regularCount))
     def resolveFactoryStubs(args: List[Value]): List[Value] =
@@ -154,7 +160,9 @@ private[interpreter] object CallRuntime:
           f.returnsThrows
         ))
     val effArgs =
-      if tupledArgs.length >= f.params.length then resolveFactoryStubs(packVarargs(tupledArgs))
+      if lastIsVararg && tupledArgs.length == f.params.length - 1 then
+        resolveFactoryStubs(packVarargs(tupledArgs))
+      else if tupledArgs.length >= f.params.length then resolveFactoryStubs(packVarargs(tupledArgs))
       else if f.usingParams.nonEmpty then
         val regularCount = f.params.length - f.usingParams.length
         val withUsing =

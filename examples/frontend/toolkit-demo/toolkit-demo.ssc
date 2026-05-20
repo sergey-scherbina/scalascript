@@ -18,16 +18,23 @@ setFrontendFramework("react")
 
 ## Imports and signals
 
-```scalascript
-[signal, serve](std/ui/primitives.ssc)
-[lower](std/ui/lower.ssc)
-[defaultTheme](std/ui/theme.ssc)
-[vstack, hstack, divider, spacer](std/ui/layout.ssc)
-[heading, text](std/ui/typography.ssc)
-[textField, checkbox, signalButton](std/ui/input.ssc)
-[showWhen, signalText_, fragment_, rawText](std/ui/reactive.ssc)
-[badge, spinner](std/ui/display.ssc)
+[signal, serve](../../../std/ui/primitives.ssc)
 
+[lower](../../../std/ui/lower.ssc)
+
+[defaultTheme](../../../std/ui/theme.ssc)
+
+[vstack, hstack, divider, spacer](../../../std/ui/layout.ssc)
+
+[heading, text](../../../std/ui/typography.ssc)
+
+[textField, checkbox, signalButton](../../../std/ui/input.ssc)
+
+[showWhen, signalText_, fragment_, rawText](../../../std/ui/reactive.ssc)
+
+[badge, spinner](../../../std/ui/display.ssc)
+
+```scalascript
 val name      = signal("name",      "Alice")
 val accept    = signal("accept",    false)
 val submitted = signal("submitted", false)
