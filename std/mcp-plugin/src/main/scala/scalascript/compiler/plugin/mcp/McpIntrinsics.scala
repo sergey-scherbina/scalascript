@@ -1,7 +1,8 @@
-package scalascript.interpreter
+package scalascript.compiler.plugin.mcp
 
 import scalascript.backend.spi.*
 import scalascript.ir.QualifiedName
+import scalascript.interpreter.{Value, InterpretError, Computation, OAuthBridge}
 import scalascript.mcp.*
 import java.io.{BufferedReader, BufferedWriter, InputStreamReader, OutputStreamWriter}
 import scala.collection.mutable
@@ -27,95 +28,95 @@ import scala.collection.mutable
  *  `ctx.invokeCallback(fn, args)` — the result Value flows back through
  *  `valueToHandlerResult` which decodes the case-class shape into
  *  `ToolHandlerResult` / `ResourceHandlerResult` / `PromptHandlerResult`. */
-val McpIntrinsics: Map[QualifiedName, IntrinsicImpl] = Map(
+object McpIntrinsics:
 
-  // ─── mcpServer { srv => ... } ───────────────────────────────────────
+  val table: Map[QualifiedName, IntrinsicImpl] = Map(
 
-  QualifiedName("mcpServer") -> NativeImpl((ctx, args) =>
-    args match
-      case List(setup) =>
-        val builder = new McpServerBuilder
-        Mcp.builderTL.set(builder)
-        val srvInstance = Mcp.makeServerInstance(builder, ctx)
-        ctx.invokeCallback(setup, List(srvInstance))
-        ()
-      case _ => throw InterpretError("mcpServer { srv => ... }")
-  ),
+    // ─── mcpServer { srv => ... } ───────────────────────────────────────
 
-  // ─── serveMcp(transport) ────────────────────────────────────────────
+    QualifiedName("mcpServer") -> NativeImpl((ctx, args) =>
+      args match
+        case List(setup) =>
+          val builder = new McpServerBuilder
+          Mcp.builderTL.set(builder)
+          val srvInstance = Mcp.makeServerInstance(builder, ctx)
+          ctx.invokeCallback(setup, List(srvInstance))
+          ()
+        case _ => throw InterpretError("mcpServer { srv => ... }")
+    ),
 
-  QualifiedName("serveMcp") -> NativeImpl((ctx, args) =>
-    args match
-      case List(transport) =>
-        val builder = Option(Mcp.builderTL.get).getOrElse(
-          throw InterpretError("serveMcp(...): no mcpServer { ... } configured first")
-        )
-        Mcp.transportTag(transport) match
-          case "Stdio" =>
-            // Block on stdin until EOF; write to stdout.  Uses System.in/out
-            // directly — the dispatch loop is synchronous and single-threaded.
-            val reader = BufferedReader(InputStreamReader(java.lang.System.in, "UTF-8"))
-            val writer = BufferedWriter(OutputStreamWriter(java.lang.System.out, "UTF-8"))
-            def read(): Option[String] =
-              val ln = reader.readLine(); if ln == null then None else Some(ln)
-            def write(s: String): Unit =
-              writer.write(s); writer.flush()
-            McpServerCore.serve(builder, read, write, "ssc-mcp-int", "1.0.0")
-          case "Http" =>
-            // Phase 2: register a POST route on the existing WebServer.
-            // The handler decodes req.body, calls handleHttpRequest, returns
-            // the JSON-RPC reply as the HTTP response body.  Then start the
-            // WebServer on the requested port.
-            val (port, path) = Mcp.httpArgs(transport)
-            Mcp.installHttpRoute(builder, path, ctx)
-            if !ctx.headless then
-              scalascript.server.WebServer.start(port, ".", ctx.out)
-          case "Ws" =>
-            // WebSocket transport: register a WS route that pipes every
-            // incoming text frame through McpServerCore.handleHttpRequest
-            // and pushes the reply back via ws.send.  Reuses the existing
-            // WS server infrastructure via ctx.registerWsRoute.
-            val (port, path) = Mcp.httpArgs(transport)
-            Mcp.installWsRoute(builder, path, ctx)
-            if !ctx.headless then
-              scalascript.server.WebServer.start(port, ".", ctx.out)
-          case other =>
-            throw InterpretError(s"serveMcp: unsupported transport '$other'")
-      case _ => throw InterpretError("serveMcp(transport)")
-  ),
+    // ─── serveMcp(transport) ────────────────────────────────────────────
 
-  // ─── mcpConnect(transport[, timeoutMs]) ────────────────────────────
+    QualifiedName("serveMcp") -> NativeImpl((ctx, args) =>
+      args match
+        case List(transport) =>
+          val builder = Option(Mcp.builderTL.get).getOrElse(
+            throw InterpretError("serveMcp(...): no mcpServer { ... } configured first")
+          )
+          Mcp.transportTag(transport) match
+            case "Stdio" =>
+              // Block on stdin until EOF; write to stdout.  Uses System.in/out
+              // directly — the dispatch loop is synchronous and single-threaded.
+              val reader = BufferedReader(InputStreamReader(java.lang.System.in, "UTF-8"))
+              val writer = BufferedWriter(OutputStreamWriter(java.lang.System.out, "UTF-8"))
+              def read(): Option[String] =
+                val ln = reader.readLine(); if ln == null then None else Some(ln)
+              def write(s: String): Unit =
+                writer.write(s); writer.flush()
+              McpServerCore.serve(builder, read, write, "ssc-mcp-int", "1.0.0")
+            case "Http" =>
+              // Phase 2: register a POST route on the existing WebServer.
+              // The handler decodes req.body, calls handleHttpRequest, returns
+              // the JSON-RPC reply as the HTTP response body.  Then start the
+              // WebServer on the requested port.
+              val (port, path) = Mcp.httpArgs(transport)
+              Mcp.installHttpRoute(builder, path, ctx)
+              ctx.startServerAsync(port, ".")
+            case "Ws" =>
+              // WebSocket transport: register a WS route that pipes every
+              // incoming text frame through McpServerCore.handleHttpRequest
+              // and pushes the reply back via ws.send.  Reuses the existing
+              // WS server infrastructure via ctx.registerWsRoute.
+              val (port, path) = Mcp.httpArgs(transport)
+              Mcp.installWsRoute(builder, path, ctx)
+              ctx.startServerAsync(port, ".")
+            case other =>
+              throw InterpretError(s"serveMcp: unsupported transport '$other'")
+        case _ => throw InterpretError("serveMcp(transport)")
+    ),
 
-  QualifiedName("mcpConnect") -> NativeImpl((ctx, args) =>
-    // v1.17.x — final optional argument is the bearer token (String).
-    // Position-based: `mcpConnect(transport)`,
-    //                 `mcpConnect(transport, timeoutMs)`,
-    //                 `mcpConnect(transport, bearerToken)` or
-    //                 `mcpConnect(transport, timeoutMs, bearerToken)`.
-    val (transport, timeoutMs, bearer) = args match
-      case List(t)                              => (t, 30000L, None)
-      case List(t, ms: Long)                    => (t, ms, None)
-      case List(t, ms: Int)                     => (t, ms.toLong, None)
-      case List(t, bt: String)                  => (t, 30000L, Some(bt))
-      case List(t, ms: Long,   bt: String)      => (t, ms, Some(bt))
-      case List(t, ms: Int,    bt: String)      => (t, ms.toLong, Some(bt))
-      case _ => throw InterpretError("mcpConnect(transport[, timeoutMs][, bearerToken])")
-    Mcp.transportTag(transport) match
-      case "Spawn" =>
-        val (cmd, cmdArgs) = Mcp.spawnArgs(transport)
-        Mcp.makeSpawnClient(cmd, cmdArgs, timeoutMs, ctx)
-      case "Http" =>
-        val url = Mcp.httpClientUrl(transport)
-        Mcp.makeHttpClient(url, timeoutMs, ctx, bearer)
-      case "Ws" =>
-        val url = Mcp.wsClientUrl(transport)
-        Mcp.makeWsClient(url, timeoutMs, ctx, bearer)
-      case "Stdio" =>
-        throw InterpretError("mcpConnect: Transport.Stdio makes sense for servers, not clients — use Transport.Spawn")
-      case other =>
-        throw InterpretError(s"mcpConnect: unsupported transport '$other'")
+    // ─── mcpConnect(transport[, timeoutMs]) ────────────────────────────
+
+    QualifiedName("mcpConnect") -> NativeImpl((ctx, args) =>
+      // v1.17.x — final optional argument is the bearer token (String).
+      // Position-based: `mcpConnect(transport)`,
+      //                 `mcpConnect(transport, timeoutMs)`,
+      //                 `mcpConnect(transport, bearerToken)` or
+      //                 `mcpConnect(transport, timeoutMs, bearerToken)`.
+      val (transport, timeoutMs, bearer) = args match
+        case List(t)                              => (t, 30000L, None)
+        case List(t, ms: Long)                    => (t, ms, None)
+        case List(t, ms: Int)                     => (t, ms.toLong, None)
+        case List(t, bt: String)                  => (t, 30000L, Some(bt))
+        case List(t, ms: Long,   bt: String)      => (t, ms, Some(bt))
+        case List(t, ms: Int,    bt: String)      => (t, ms.toLong, Some(bt))
+        case _ => throw InterpretError("mcpConnect(transport[, timeoutMs][, bearerToken])")
+      Mcp.transportTag(transport) match
+        case "Spawn" =>
+          val (cmd, cmdArgs) = Mcp.spawnArgs(transport)
+          Mcp.makeSpawnClient(cmd, cmdArgs, timeoutMs, ctx)
+        case "Http" =>
+          val url = Mcp.httpClientUrl(transport)
+          Mcp.makeHttpClient(url, timeoutMs, ctx, bearer)
+        case "Ws" =>
+          val url = Mcp.wsClientUrl(transport)
+          Mcp.makeWsClient(url, timeoutMs, ctx, bearer)
+        case "Stdio" =>
+          throw InterpretError("mcpConnect: Transport.Stdio makes sense for servers, not clients — use Transport.Spawn")
+        case other =>
+          throw InterpretError(s"mcpConnect: unsupported transport '$other'")
+    )
   )
-)
 
 /** Private helpers — kept inside an object so the public intrinsic map
  *  stays a single `val`.  Thread-local stash for the builder so

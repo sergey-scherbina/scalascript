@@ -1450,6 +1450,19 @@ class Interpreter(
       override def startTlsServer(port: Int, dir: String, cert: String, key: String): Unit =
         if !Interpreter.this.headless then
           scalascript.server.WebServer.start(port, dir, Interpreter.this.out, cert, key)
+      override def startServer(port: Int, dir: String): Unit =
+        if !Interpreter.this.headless then
+          scalascript.server.WebServer.start(port, dir, Interpreter.this.out)
+      override def startServerAsync(port: Int, dir: String): Unit =
+        if !Interpreter.this.headless then
+          Thread.ofVirtual().start { () =>
+            try scalascript.server.WebServer.start(port, dir, Interpreter.this.out)
+            catch case _: Throwable => ()
+          }
+      override def stopServer(): Unit =
+        if !Interpreter.this.headless then scalascript.server.WebServer.stop()
+      override def setMaxWsConnections(n: Int): Unit =
+        _root_.scalascript.server.jvm._wsMaxActive.set(n)
       override def registerWsRoute(path: String, origins: List[String], protocols: List[String],
                                     maxConn: Int, maxRate: Int, handler: Any): Unit =
         scalascript.server.WsRoutes.register(

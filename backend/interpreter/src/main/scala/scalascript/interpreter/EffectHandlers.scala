@@ -402,3 +402,53 @@ private[interpreter] object EffectHandlers:
     run(initial).flatMap { result =>
       Pure(Value.TupleV(List(state, result)))
     }
+
+  // ── HTTP request helper (used by httpRun above) ─────────────────────
+  // Duplicated from HttpIntrinsics (std/http-plugin) which we can't import
+  // here without a circular dependency.  httpRun pre-dates the plugin
+  // split and needs the low-level client directly.
+
+  private[interpreter] def doHttpRequest(
+      method:  String,
+      rawUrl:  String,
+      body:    String,
+      headers: Map[String, String],
+      ctx:     scalascript.backend.spi.NativeContext
+  ): Value =
+    import java.net.http.{HttpClient as JHttpClient, HttpRequest, HttpResponse}
+    import scala.jdk.CollectionConverters.*
+    val base    = ctx.httpBaseUrl
+    val url     = if base.nonEmpty && !rawUrl.startsWith("http") then base + rawUrl else rawUrl
+    val timeout = java.time.Duration.ofMillis(ctx.httpTimeoutMs)
+    val client  = JHttpClient.newBuilder().connectTimeout(timeout).build()
+    val builder = HttpRequest.newBuilder().uri(java.net.URI.create(url)).timeout(timeout)
+    headers.foreach((k, v) => builder.header(k, v))
+    val req = method match
+      case "GET"    => builder.GET().build()
+      case "POST"   => builder.POST(HttpRequest.BodyPublishers.ofString(body)).build()
+      case "PUT"    => builder.PUT(HttpRequest.BodyPublishers.ofString(body)).build()
+      case "DELETE" => builder.DELETE().build()
+      case m        => builder.method(m, HttpRequest.BodyPublishers.ofString(body)).build()
+    val maxTries = ctx.httpMaxRetries + 1
+    val delayMs  = ctx.httpRetryDelayMs
+    var attempt  = 0
+    var lastResp: HttpResponse[String] | Null = null
+    var lastErr:  Throwable | Null = null
+    while attempt < maxTries do
+      try { lastResp = client.send(req, HttpResponse.BodyHandlers.ofString()); lastErr = null }
+      catch case e: Throwable => lastErr = e
+      val shouldRetry = lastErr != null || (lastResp != null && lastResp.statusCode() >= 500)
+      attempt += 1
+      if shouldRetry && attempt < maxTries then Thread.sleep(delayMs)
+      else attempt = maxTries
+    if lastErr != null then throw lastErr
+    val resp = lastResp.nn
+    val hdrs: Map[Value, Value] = resp.headers().map().entrySet().iterator().asScala.flatMap { e =>
+      if e.getValue.isEmpty then None
+      else Some((Value.StringV(e.getKey): Value) -> (Value.StringV(e.getValue.get(0)): Value))
+    }.toMap
+    Value.InstanceV("Response", Map(
+      "status"  -> Value.IntV(resp.statusCode().toLong),
+      "body"    -> Value.StringV(resp.body()),
+      "headers" -> Value.MapV(hdrs)
+    ))

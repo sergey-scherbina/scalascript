@@ -65,14 +65,8 @@ val InterpreterIntrinsics: Map[QualifiedName, IntrinsicImpl] =
     QualifiedName("Console.print") -> NativeImpl((ctx, args) =>
       ctx.out.print(args.map(formatArg).mkString(" "))
     )
-  ) ++ HttpIntrinsics      // Stage 5+/B — HTTP:     intrinsics/Http.scala
-    ++ WsIntrinsics       // Stage 5+/D — WS:       intrinsics/Ws.scala
-    // Auth / OAuth AS / OAuth Client now ship as std/auth-plugin + std/oauth-plugin
-    // (loaded via ServiceLoader from the test classpath or installed .sscpkg).
-    ++ CoreIntrinsics     // Stage 5+/E — Core:     intrinsics/Core.scala
-    // JSON / Request / Frontend now ship as plugins under std/
-    // (loaded via ServiceLoader from the test classpath or installed .sscpkg).
-    ++ McpIntrinsics      // v1.17     — MCP:          intrinsics/Mcp.scala
+  ) ++ CoreIntrinsics     // Stage 5+/E — Core:     intrinsics/Core.scala
+    // HTTP / WS / MCP / JSON / Request / Frontend / Auth / OAuth now ship as plugins.
     ++ JdbcIntrinsics     // v1.26     — JDBC:         intrinsics/Jdbc.scala (blocked on runSqlBlock refactor)
     ++ UiPrimitivesIntrinsics // v1.29 7a  — std/ui prims: intrinsics/UiPrimitives.scala (blocked on interpreter-server extraction)
 

@@ -465,7 +465,7 @@ lazy val backendCss = project
 // backends no longer reference each other.
 lazy val backendInterpreter = project
   .in(file("backend/interpreter"))
-  .dependsOn(backendSpi, core, runtimeServerCommon, runtimeServerJvm, mcpCommon, backendJs, backendSqlRuntime, frontendCore, backendJvm % Test, frontendCustom % Test, frontendReact % Test, frontendSolid % Test, frontendVue % Test, jsonPlugin % Test, frontendPlugin, requestPlugin % Test, authPlugin % Test, oauthPlugin % Test, uiFetchPlugin % Test, sqlPlugin % Test)
+  .dependsOn(backendSpi, core, runtimeServerCommon, runtimeServerJvm, mcpCommon, backendJs, backendSqlRuntime, frontendCore, backendJvm % Test, frontendCustom % Test, frontendReact % Test, frontendSolid % Test, frontendVue % Test, jsonPlugin % Test, frontendPlugin, requestPlugin % Test, authPlugin % Test, oauthPlugin % Test, uiFetchPlugin % Test, sqlPlugin % Test, httpPlugin % Test, wsPlugin % Test, mcpPlugin % Test)
   .settings(
     name := "scalascript-backend-interpreter",
     libraryDependencies ++= Seq(scalatestTest),
@@ -704,7 +704,8 @@ lazy val cli = project
       val pluginJarPrefixes = Set("scalascript-json-plugin", "scalascript-frontend-plugin",
                                   "scalascript-request-plugin", "scalascript-auth-plugin",
                                   "scalascript-oauth-plugin", "scalascript-ui-fetch-plugin",
-                                  "scalascript-sql-plugin")
+                                  "scalascript-sql-plugin",
+                                  "scalascript-http-plugin", "scalascript-ws-plugin", "scalascript-mcp-plugin")
       val isPluginJar = (f: java.io.File) => pluginJarPrefixes.exists(f.getName.startsWith)
       val runtimeJars = runtimeCp.filter { f =>
         f.isFile && f.getName.endsWith(".jar") &&
@@ -724,6 +725,9 @@ lazy val cli = project
         (oauthPlugin    / packagePlugin).value,
         (uiFetchPlugin  / packagePlugin).value,
         (sqlPlugin      / packagePlugin).value,
+        (httpPlugin     / packagePlugin).value,
+        (wsPlugin       / packagePlugin).value,
+        (mcpPlugin      / packagePlugin).value,
       )
       pluginPkgs.foreach(pkg => IO.copyFile(pkg, plugDir / pkg.getName))
       log.info(s"bin/lib/compiler/plugins/  (${pluginPkgs.size} .sscpkg files)")
@@ -1787,6 +1791,36 @@ lazy val sqlPlugin = project
   )
   .settings(sscpkgSettings("scalascript.std.sql"))
 
+lazy val httpPlugin = project
+  .in(file("std/http-plugin"))
+  .dependsOn(backendSpi, ir, core)
+  .settings(
+    name := "scalascript-http-plugin",
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions,
+  )
+  .settings(sscpkgSettings("scalascript.std.http"))
+
+lazy val wsPlugin = project
+  .in(file("std/ws-plugin"))
+  .dependsOn(backendSpi, ir, core, runtimeServerCommon, runtimeServerSpi)
+  .settings(
+    name := "scalascript-ws-plugin",
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions,
+  )
+  .settings(sscpkgSettings("scalascript.std.ws"))
+
+lazy val mcpPlugin = project
+  .in(file("std/mcp-plugin"))
+  .dependsOn(backendSpi, ir, core, mcpCommon, runtimeServerCommon)
+  .settings(
+    name := "scalascript-mcp-plugin",
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions,
+  )
+  .settings(sscpkgSettings("scalascript.std.mcp"))
+
 lazy val root = project
   .in(file("."))
   .aggregate(
@@ -1807,6 +1841,7 @@ lazy val root = project
     frontendExamples,
     jsonPlugin, frontendPlugin, requestPlugin,
     authPlugin, oauthPlugin, uiFetchPlugin, sqlPlugin,
+    httpPlugin, wsPlugin, mcpPlugin,
   )
   .settings(
     publish / skip := true

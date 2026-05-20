@@ -67,6 +67,12 @@ trait NativeContext:
   def setHttpRetry(maxAttempts: Int, delayMs: Long): Unit = ()
   // TLS server startup.
   def startTlsServer(port: Int, dir: String, cert: String, key: String): Unit = ()
+  // Plain HTTP server startup (no TLS).
+  def startServer(port: Int, dir: String): Unit = ()
+  def startServerAsync(port: Int, dir: String): Unit = ()
+  def stopServer(): Unit = ()
+  // WebSocket connection cap.
+  def setMaxWsConnections(n: Int): Unit = ()
   // WebSocket server route registration.
   def registerWsRoute(path: String, origins: List[String], protocols: List[String],
                       maxConn: Int, maxRate: Int, handler: Any): Unit = ()
