@@ -479,9 +479,19 @@ object Parser:
                         .append(" = __extern__\n")
                   i += 1
                 case bodylessValPat(indent, name, tpe) =>
+                  // Strip a trailing `// ...` line comment from the
+                  // captured type so the `asInstanceOf[T]` we splice in
+                  // doesn't end up as `asInstanceOf[String  // foo]`.
+                  // Doc comments tied to vals in `extern class` blocks
+                  // are common; preserve them by re-appending after the
+                  // synthesised stub.
+                  val cmtIdx   = tpe.indexOf("//")
+                  val cleanTpe = (if cmtIdx >= 0 then tpe.substring(0, cmtIdx) else tpe).strip
+                  val trailing = if cmtIdx >= 0 then "  " + tpe.substring(cmtIdx) else ""
                   result.append(indent).append("val ").append(name.strip)
-                        .append(": ").append(tpe.strip)
-                        .append(" = __extern__.asInstanceOf[").append(tpe.strip).append("]\n")
+                        .append(": ").append(cleanTpe)
+                        .append(" = __extern__.asInstanceOf[").append(cleanTpe).append("]")
+                        .append(trailing).append("\n")
                   i += 1
                 case _ =>
                   result.append(line).append("\n")

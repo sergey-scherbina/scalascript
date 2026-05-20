@@ -604,8 +604,9 @@ class JvmGen(
   private def unwrapPackageObjects(src: String, pkg: List[String]): String =
     if pkg.isEmpty then return src
     val maxChainDepth = pkg.size
-    val lines = src.linesIterator.toIndexedSeq
-    if !lines.exists(_.startsWith("object ")) then return src
+    val normalized = normalizeBracedObjectWraps(src)
+    val lines = normalized.linesIterator.toIndexedSeq
+    if !lines.exists(_.startsWith("object ")) then return normalized
 
     // First pass: collect per-package body fragments.  Multiple
     // sections (and inlined deps) may target the same package; Scala 3
@@ -748,6 +749,15 @@ class JvmGen(
         if isWrapBody(lines, idx, expectedIndent) then
           val bodyEnd = findBodyEnd(lines, idx, expectedIndent)
           Some((segments.toList, segments.length, bodyEnd))
+        // Full-depth chain with NO body (e.g. an .ssc whose code
+        // blocks are all `extern def` declarations that emitStat
+        // stripped) — recognise the chain anyway so [[hasRealDefinitions]]
+        // can omit the empty `package X:` block downstream.  Scala 3
+        // rejects `object std: object fs:` with no body, so leaving
+        // the wrap intact would produce an "indented definitions
+        // expected" error.
+        else if segments.length == maxDepth then
+          Some((segments.toList, segments.length, idx))
         else None
       case _ => None
 
@@ -769,6 +779,96 @@ class JvmGen(
       else if l.startsWith(" " * bodyIndent) then idx += 1
       else return idx
     idx
+
+  /** Convert any `object NAME { ... }` blocks at column 0 — emitted by
+   *  the `Defn.Object` braced-syntax arm in `emitStat` and by scalameta's
+   *  `.syntax` fallback when no specialised arm matched — into Scala 3
+   *  colon-indent form `object NAME:\n  ...` so [[detectWrapChain]] can
+   *  recognise the wrap.  Recursively descends INTO each converted
+   *  block so chains like `object std { object actors { … } }` get
+   *  flattened to colon-indent throughout.
+   *
+   *  Inner braces that don't form a wrap (`enum Overflow { case A }`,
+   *  `def foo() { … }`, etc.) are left untouched — we only convert
+   *  `object NAME {` openers and their matching closers, not arbitrary
+   *  brace blocks.  Two cues distinguish the wrap shape: the opener
+   *  line must START at column 0 (or at +2 inside an already-converted
+   *  outer wrap, handled by recursive descent into the inner body) and
+   *  must look like `object IDENT { ` with no other content on the
+   *  line.  Scalameta's `.syntax` for `Defn.Object` follows this exact
+   *  layout, so the rule is reliable in practice. */
+  private def normalizeBracedObjectWraps(src: String): String =
+    val n = src.length
+    val out = new StringBuilder(n)
+    var i = 0
+    while i < n do
+      val atCol0 = i == 0 || src.charAt(i - 1) == '\n'
+      if atCol0 && src.startsWith("object ", i) then
+        // Parse `object NAME ` then optional space; need `{` at end of line.
+        var j = i + "object ".length
+        while j < n && (src.charAt(j).isLetterOrDigit || src.charAt(j) == '_') do j += 1
+        var k = j
+        while k < n && src.charAt(k) == ' ' do k += 1
+        if k < n && src.charAt(k) == '{' then
+          // Confirm `{` is at end of line (only whitespace between it and `\n`).
+          var afterBrace = k + 1
+          while afterBrace < n && (src.charAt(afterBrace) == ' ' || src.charAt(afterBrace) == '\t') do
+            afterBrace += 1
+          if afterBrace >= n || src.charAt(afterBrace) == '\n' then
+            // Wrap-shape match.  Find matching `}` via brace count.
+            var depth = 1
+            var p     = k + 1
+            var inStr = false; var inLnCmt = false
+            while p < n && depth > 0 do
+              val c = src.charAt(p)
+              if inLnCmt then { if c == '\n' then inLnCmt = false }
+              else if inStr then { if c == '\\' && p + 1 < n then p += 1 else if c == '"' then inStr = false }
+              else c match
+                case '"' => inStr = true
+                case '/' if p + 1 < n && src.charAt(p + 1) == '/' => inLnCmt = true; p += 1
+                case '{' => depth += 1
+                case '}' => depth -= 1
+                case _   => ()
+              p += 1
+            // p now points just past the matching `}`.
+            val closeIdx = p - 1
+            // Body lies between `{` and the matching `}`.  Drop the
+            // leading newline immediately after `{` so the dedent step
+            // sees content starting at column 2 (the natural indent of
+            // a brace body in scalameta's output) — then we can strip
+            // one level of indentation, recursively normalise, and
+            // re-indent.  The trailing newline before `}` is dropped
+            // too so we don't accumulate blank lines.
+            val bodyStart = k + 1
+            val bodyEnd   = closeIdx
+            var bs = bodyStart
+            if bs < bodyEnd && src.charAt(bs) == '\n' then bs += 1
+            val rawBody = src.substring(bs, bodyEnd)
+            val bodyStripped =
+              if rawBody.endsWith("\n") then rawBody.dropRight(1) else rawBody
+            // Dedent by 2 so nested `object NAME {` lands at column 0
+            // for the recursive scanner.  Blank lines stay blank.
+            val dedented = bodyStripped.linesWithSeparators.map { l =>
+              if l.startsWith("  ") then l.drop(2) else l
+            }.mkString
+            val recursedFlat = normalizeBracedObjectWraps(dedented)
+            // Re-indent back to 2 so the colon-indent wrap is well-formed.
+            val recursedIndented = recursedFlat.linesWithSeparators.map { l =>
+              if l.trim.isEmpty then l else "  " + l
+            }.mkString
+            out.append(src.substring(i, j))   // `object NAME`
+            out.append(":\n")
+            out.append(recursedIndented)
+            // Ensure a trailing newline so the next top-level item starts cleanly.
+            if !recursedIndented.endsWith("\n") then out.append('\n')
+            i = p
+          else
+            out.append(src.charAt(i)); i += 1
+        else
+          out.append(src.charAt(i)); i += 1
+      else
+        out.append(src.charAt(i)); i += 1
+    out.toString
 
   /** Emit user code plus a generated-line → original-`.ssc`-line map.
    *  See [[JvmGen.generateUserOnlyWithLineMap]] for semantics. */
@@ -855,8 +955,26 @@ class JvmGen(
     mainEntry.foreach { name => sb.append(s"$name()\n") }
 
     val rawSrc     = sb.toString.stripTrailing() + "\n"
-    val modulePkg  = module.manifest.flatMap(_.pkg).getOrElse(Nil)
-    val src        = unwrapPackageObjects(rawSrc, modulePkg)
+    // Bare-name actor intrinsics inside verbatim-emitted objects/classes
+    // (e.g. `object Cluster: def join(...) = joinCluster(...)`) — these
+    // never went through `emitExpr`, so the runtime-only `Actor.<n>`
+    // form was never spliced.  Use the AST-only pass — the regex pass
+    // would also rewrite `def NAME(...)` declarations, breaking files
+    // that legitimately re-export an intrinsic name as a wrapper.
+    val qualifiedSrc = rewriteActorAstCallsInSource(rawSrc)
+    // `extern def` stubs at top-level (or inside an effectful object) are
+    // stripped by the `case d: Defn.Def if isExternDef(d.body)` arm in
+    // emitStat — but stubs nested inside plain classes / non-recursing
+    // objects pass through scalameta's `.syntax` verbatim with the
+    // `__extern__` body marker intact, and the Scala 3 compiler then
+    // fails with "Not found: __extern__".  Replace any remaining
+    // marker with the standard `???` placeholder so the type sig stays
+    // intact and calls into the unfiltered stub raise `NotImplementedError`.
+    // The runtime intrinsic table is consulted at call sites for the
+    // real implementation (see `dispatchIntrinsic`).
+    val externPatched = qualifiedSrc.replace("__extern__", "???")
+    val modulePkg     = module.manifest.flatMap(_.pkg).getOrElse(Nil)
+    val src           = unwrapPackageObjects(externPatched, modulePkg)
     (src, lineMap.toMap)
 
   /** Count the number of newlines emitted into `sb` so far.  Used to
@@ -1223,6 +1341,223 @@ class JvmGen(
       out = pattern.replaceAllIn(out, java.util.regex.Matcher.quoteReplacement(s"Actor.$n("))
     }
     out
+
+  /** Names from [[actorBareNames]] that participate in the AST-level
+   *  bare-call rewrite in [[rewriteActorAstCallsInSource]].  Excludes
+   *  only `receive` / `receiveWithTimeout` — those have dedicated
+   *  AST cases above this one because they need PartialFunction →
+   *  matcher translation, and a naïve splice (`Actor.receive(...)`)
+   *  would land a verbatim `case … =>` block straight into runtime
+   *  args.  `spawn` / `spawn_link` / `spawnBounded` / `runActors` ARE
+   *  included: the runtime accepts the same `() => Any` thunk shape
+   *  the user wrote, and inner intrinsic calls inside the thunk get
+   *  rewritten by the recursive walk (`argClause.values.foreach(walk)`)
+   *  before the outer splice replaces the bare function name. */
+  private def isBareActorIntrinsic(n: String): Boolean =
+    actorBareNames(n) && n != "receive"
+
+  /** Recognise the declared return types that don't benefit from an
+   *  `.asInstanceOf[T]` cast in the wrapper-emit path: `Any` and `Unit`
+   *  alone (any of the typical surface forms — `Unit` named directly,
+   *  the unit tuple `()`, the Type.Name lowering scalameta emits).
+   *  A `: Any` return is the runtime's own signature, no cast needed.
+   *  A `: Unit` return discards the result anyway, so wrapping in a
+   *  cast is pointless and risks `()` mismatches inside the body. */
+  private def isAnyOrUnitType(t: scala.meta.Type): Boolean = t match
+    case scala.meta.Type.Name(name) => name == "Any" || name == "Unit"
+    case _                          => false
+
+  /** Walk every Apply / Pat tree in `src` (via scalameta parse) and
+   *  splice in the AST-level rewrites the regex-based
+   *  [[qualifyBareActorCallsInSource]] can't safely make:
+   *
+   *  - Bare actor intrinsic call at a typed `def` body — re-emit as
+   *    `Actor.<n>(...).asInstanceOf[T]` so the wrapper preserves the
+   *    user's declared return type.
+   *  - Bare actor intrinsic call anywhere else — splice the function
+   *    name to `Actor.<n>` while leaving the args (and their parens)
+   *    alone so nested intrinsic calls get rewritten in their own
+   *    recursion.
+   *  - `Pat.Extract(None | Nil, ())` — scalameta's printer would emit
+   *    `case None()` after a `.syntax` round-trip; Scala 3 rejects
+   *    that because `None` is a case object.  Collapse back to the
+   *    singleton form.
+   *
+   *  Receive / `!` AST handling is NOT here — origin/main relies on
+   *  the regex pass + CPS emit for those, and re-introducing the AST
+   *  band-aid would route bodies through the CPS pipeline at sites
+   *  where they shouldn't be (see commit log on
+   *  `emitReceiveMatcherOpt`).
+   *
+   *  Replacements are applied right-to-left so earlier offsets stay
+   *  valid.  Used as a post-processing pass over user-only emit output
+   *  (see [[genUserOnlyWithLineMap]]). */
+  private def rewriteActorAstCallsInSource(src: String): String =
+    import scala.meta.{dialects, *}
+    // Try parsing as Source first (top-level decls), then fall back to
+    // Term (so block-shaped bodies — passed in by the wrapper-arg
+    // recursion — also get walked).
+    val input = Input.VirtualFile("<user-ast>", src)
+    val parsed: Option[Tree] =
+      scala.util.Try(dialects.Scala3(input).parse[Source]).toOption
+        .flatMap(_.toOption).map(t => t: Tree)
+      .orElse(
+        scala.util.Try(dialects.Scala3(input).parse[Term]).toOption
+          .flatMap(_.toOption).map(t => t: Tree)
+      )
+    parsed match
+      case None => src
+      case Some(tree) =>
+        case class Splice(start: Int, end: Int, replacement: String)
+        val splices = scala.collection.mutable.ListBuffer.empty[Splice]
+        def walk(t: Tree): Unit =
+          t match
+            // receiveWithTimeout(t) { case … }  /  receive(t) { case … }.
+            // Body emitted verbatim AFTER a recursive `rewriteActorAstCallsInSource`
+            // pass — the enclosing `def` may not be CPS-rewritten in the
+            // user-only path, so dropping into `emitCpsExpr` here would mix
+            // `_bind`/`_dispatch` calls with the surrounding non-CPS scope.
+            // But bodies like `case Exit(from, _) => exit(from, "reason")`
+            // do still need their inner intrinsics qualified — the outer
+            // splice replaces the whole receive expression, swallowing the
+            // case bodies past where the walker would otherwise visit them.
+            case app @ Term.Apply.After_4_6_0(
+                  Term.Apply.After_4_6_0(Term.Name("receive" | "receiveWithTimeout"), timeoutArgs),
+                  pfArgs)
+                if pfArgs.values.size == 1 && timeoutArgs.values.size == 1 =>
+              val timeoutSrc = timeoutArgs.values.head match
+                case Term.Assign(Term.Name("timeout"), v)   => v.syntax
+                case Term.Assign(Term.Name("timeoutMs"), v) => v.syntax
+                case other: Term                            => other.syntax
+              pfArgs.values.head match
+                case pf: Term.PartialFunction =>
+                  val matcher = buildReceiveMatcherWithRewrittenBodies(pf.cases)
+                  splices += Splice(
+                    app.pos.start, app.pos.end,
+                    s"Actor.receive_t(_registerReceive($matcher), $timeoutSrc)"
+                  )
+                case _ => ()
+              timeoutArgs.values.foreach(walk)
+            // receive { case … }
+            case app @ Term.Apply.After_4_6_0(Term.Name("receive"), pfArgs)
+                if pfArgs.values.size == 1 =>
+              pfArgs.values.head match
+                case pf: Term.PartialFunction =>
+                  val matcher = buildReceiveMatcherWithRewrittenBodies(pf.cases)
+                  splices += Splice(
+                    app.pos.start, app.pos.end,
+                    s"Actor.receive_(_registerReceive($matcher))"
+                  )
+                case _ => ()
+            // pid ! msg → Actor.send(pid, msg).  Walk children first so
+            // nested ! / receive inside lhs or msg are processed too.
+            // Scala parses `pid ! (a, b)` as a 2-arg infix call
+            // (`pid.!(a, b)`) rather than a 1-arg-with-tuple call —
+            // reconstruct the tuple syntactically so the emitted code
+            // is `Actor.send(pid, (a, b))`.
+            case infix @ Term.ApplyInfix.After_4_6_0(lhs, op, _, argClause)
+                if op.value == "!" && argClause.values.nonEmpty =>
+              walk(lhs)
+              argClause.values.foreach(walk)
+              val msgSrc = argClause.values match
+                case List(single) => single.syntax
+                case many         => many.map(_.syntax).mkString("(", ", ", ")")
+              splices += Splice(
+                infix.pos.start, infix.pos.end,
+                s"Actor.send(${lhs.syntax}, $msgSrc)"
+              )
+            // Bare-name actor intrinsic at a `def` body position with
+            // a non-Any declared return type:
+            //
+            //   def members(): List[String] = clusterMembers()
+            //
+            // The runtime `Actor.clusterMembers()` returns `Any`, so the
+            // user's `: List[String]` needs an explicit cast.  Splice
+            // the whole body as `Actor.<n>(...).asInstanceOf[T]`,
+            // recursively rewriting each arg so nested intrinsic calls
+            // inside the args get qualified too.  Skipped when the
+            // return type is `Any` / `Unit`: the cast would be a no-op
+            // and a wholesale body splice could clobber further-down
+            // walks (e.g. `spawn { thunk }` whose thunk contains
+            // `trapExit(true)` — we want the generic walk to splice
+            // the bare names inside the thunk individually).
+            //
+            // Match BEFORE the generic body walk so the catch-all
+            // doesn't double-splice the function name.
+            case d: Defn.Def =>
+              d.decltpe match
+                case Some(retType) if !isAnyOrUnitType(retType) =>
+                  d.body match
+                    case body: Term.Apply =>
+                      body.fun match
+                        case Term.Name(n) if isBareActorIntrinsic(n) =>
+                          val argsSrc = body.argClause.values
+                            .map(arg => rewriteActorAstCallsInSource(arg.syntax))
+                            .mkString(", ")
+                          splices += Splice(
+                            body.pos.start, body.pos.end,
+                            s"Actor.$n($argsSrc).asInstanceOf[${retType.syntax}]"
+                          )
+                        case _ => d.children.foreach(walk)
+                    case _ => d.children.foreach(walk)
+                case _ => d.children.foreach(walk)
+            // Bare-name actor intrinsic call: `joinCluster(seeds, token)` →
+            // `Actor.joinCluster(seeds, token)`.  We rewrite only the
+            // function-name position, leaving the args + parens alone so
+            // nested intrinsic calls inside the args get rewritten in
+            // their own recursion.  `receive` / `spawn` / `runActors`
+            // have dedicated cases above (or specialised CPS emission)
+            // and must NOT route through the bare splice.
+            //
+            // Walks the args before splicing so right-to-left ordering
+            // (`splices.sortBy(-_.start)`) still applies cleanly when an
+            // arg contains another bare intrinsic call.
+            case Term.Apply.After_4_6_0(fun @ Term.Name(n), argClause)
+                if isBareActorIntrinsic(n) =>
+              argClause.values.foreach(walk)
+              splices += Splice(fun.pos.start, fun.pos.end, s"Actor.$n")
+            // `case None =>` / `case Nil =>` get re-parsed by scalameta
+            // as `Pat.Extract(None, ())` and the pretty-printer emits
+            // `case None()` — which Scala 3 rejects because `None` is a
+            // case object (no `unapply`).  Splice the empty-args parens
+            // away so the constructor-style pattern collapses back to
+            // the singleton form.  Scoped to the two stdlib singletons
+            // that surface this; other empty-arg extracts are left
+            // intact (`X()` with an actual `unapply` is still valid).
+            case pe @ Pat.Extract.After_4_6_0(Term.Name(n), argClause)
+                if argClause.values.isEmpty && (n == "None" || n == "Nil") =>
+              splices += Splice(pe.pos.start, pe.pos.end, n)
+            case other =>
+              other.children.foreach(walk)
+        walk(tree)
+        if splices.isEmpty then src
+        else
+          // Apply right-to-left so earlier offsets remain valid.
+          val ordered = splices.sortBy(-_.start).toList
+          val sb = new StringBuilder(src)
+          ordered.foreach { sp =>
+            sb.replace(sp.start, sp.end, sp.replacement)
+          }
+          sb.toString
+
+  /** Build the `_pfToFun { case … => Some(body); case _ => None }`
+   *  string used by the receive-splice in [[rewriteActorAstCallsInSource]]
+   *  with each case body recursively passed through the same rewriter
+   *  so bare intrinsic calls inside the body (`exit(...)`, `self()`)
+   *  get qualified before they land in the spliced source. */
+  private def buildReceiveMatcherWithRewrittenBodies(cases: List[scala.meta.Case]): String =
+    val sb = StringBuilder()
+    sb.append("_pfToFun { ")
+    cases.foreach { c =>
+      sb.append("case ")
+      sb.append(c.pat.syntax)
+      c.cond.foreach { g => sb.append(" if "); sb.append(g.syntax) }
+      sb.append(" => Some(")
+      sb.append(rewriteActorAstCallsInSource(c.body.syntax))
+      sb.append("); ")
+    }
+    sb.append("case _ => None }")
+    sb.toString
 
   // ─── Effect analysis ──────────────────────────────────────────────
 
@@ -2157,6 +2492,21 @@ class JvmGen(
       // come from the verbatim emit path for pure dep code).
       s"object ${d.name.value} {\n$indented\n}"
 
+    // v2.0 / --bytecode — Defn.Object whose body TRANSITIVELY contains
+    // an `extern def foo(...): T = __extern__` stub.  scalameta's
+    // `.syntax` would print the stub verbatim and scala-cli would
+    // reject it with "Not found: __extern__".  Recurse so the
+    // `case d: Defn.Def if EffectAnalysis.isExternDef(d.body)` arm
+    // above fires per stub.  Emits brace syntax to stay consistent
+    // with the sibling `globalEffectfulDeps` arm; the user-only emit
+    // pipeline normalises braces back to colon-indent before
+    // [[unwrapPackageObjects]] lifts the wrap to a `package X.Y:` block.
+    case d: Defn.Object if
+        d.collect { case dd: Defn.Def if EffectAnalysis.isExternDef(dd.body) => () }.nonEmpty =>
+      val inner = d.templ.body.stats.map(emitStat).filter(_.nonEmpty).mkString("\n")
+      val indented = inner.linesIterator.map("  " + _).mkString("\n")
+      s"object ${d.name.value} {\n$indented\n}"
+
     // Chunk 4 — same recursion for Defn.Class so a `case class Cluster`
     // body containing `def healthCheck = … pid ! msg …` reaches the
     // `Defn.Def if isEffectfulFun` CPS arm.  Conservative trigger: only
@@ -3050,6 +3400,20 @@ class JvmGen(
    *  `_pfToFun` accepts `PartialFunction[Any, Option[Any]]` and
    *  returns a total `Any => Option[Any]`. */
   private def emitReceiveMatcher(cases: List[Case]): String =
+    emitReceiveMatcherOpt(cases, cpsBody = true)
+
+  /** Variant of [[emitReceiveMatcher]] that emits the case body either
+   *  in CPS form (`cpsBody = true`, for dep-mode emit where the body
+   *  lives inside an `emitCpsExpr` continuation) or verbatim
+   *  (`cpsBody = false`, used by the user-only-emit AST post-pass in
+   *  [[rewriteActorAstCallsInSource]] — bodies there execute in the
+   *  surrounding non-CPS scope, so a CPS-shaped body would mix
+   *  `_bind`/`_dispatch` with plain calls and trip the typer).
+   *
+   *  Mirror of the `cpsBody` parameter retired in c7523e14 — re-added
+   *  for the user-only emit path, kept private so the dep-mode caller
+   *  doesn't have to know about it. */
+  private def emitReceiveMatcherOpt(cases: List[Case], cpsBody: Boolean): String =
     val sb = StringBuilder()
     sb.append("_pfToFun { ")
     cases.foreach { c =>
@@ -3057,7 +3421,7 @@ class JvmGen(
       sb.append(c.pat.syntax)
       c.cond.foreach { g => sb.append(" if "); sb.append(g.syntax) }
       sb.append(" => Some(")
-      sb.append(emitCpsExpr(c.body))
+      sb.append(if cpsBody then emitCpsExpr(c.body) else c.body.syntax)
       sb.append("); ")
     }
     sb.append("case _ => None }")
