@@ -19,6 +19,12 @@ import Computation.{Pure, Perform, FlatMap}
  *  @param givenNode         the original `Defn.Given` AST node (for body evaluation)
  *  @param capturedEnv       environment captured at definition time
  */
+private[interpreter] case class TcoInfo(
+  tailTargets:   Set[String],
+  isSelfTailRec: Boolean,
+  noNonTailSelf: Boolean
+)
+
 private case class ParametricGiven(
   name:               String,
   typeParams:         List[String],
@@ -172,16 +178,9 @@ class Interpreter(
   private class RestartableRethrow(val value: Value)
     extends RuntimeException(null, null, true, false)
 
-  /** Per-FunV cache of the TCO classification — three full body walks
-   *  (`tailCallTargets`, `callsInTailPos`, `hasNonTailSelfCall`) used to
-   *  cost a tail-recursive call up-front on every invocation. The body is
-   *  immutable per FunV, so the result is too. Keyed by FunV identity. */
-  private case class TcoInfo(
-    tailTargets:   Set[String],
-    isSelfTailRec: Boolean,
-    noNonTailSelf: Boolean
-  )
-  private val tcoCache: java.util.IdentityHashMap[Value.FunV, TcoInfo] =
+  /** Per-FunV cache of the TCO classification — see TcoRuntime.tcoInfoFor.
+   *  Keyed by FunV identity. */
+  private[interpreter] val tcoCache: java.util.IdentityHashMap[Value.FunV, TcoInfo] =
     java.util.IdentityHashMap()
 
   /** Intern table from `Lit` AST nodes to the `Computation` they evaluate
@@ -1400,20 +1399,6 @@ class Interpreter(
         val w = f.closure.updated(f.name, f)
         closureWithSelfCache.put(f, w)
         w
-
-  private def tcoInfoFor(f: Value.FunV): TcoInfo =
-    val cached = tcoCache.get(f)
-    if cached != null then cached
-    else
-      val info =
-        if f.name.isEmpty then TcoInfo(Set.empty, false, false)
-        else
-          val targets = tailCallTargets(f.body, f.name, tailPos = true)
-          val selfTR  = callsInTailPos(f.body, f.name)
-          val noNTS   = !hasNonTailSelfCall(f.body, f.name, tailPos = true)
-          TcoInfo(targets, selfTR, noNTS)
-      tcoCache.put(f, info)
-      info
 
   /** Format a position prefix like "[line 5, col 3] " or "" if unknown. */
   private def posPrefix: String = currentSpan match
@@ -3139,7 +3124,7 @@ class Interpreter(
 
   // ─── Expression evaluation ───────────────────────────────────────
 
-  private def eval(term: Term, env: Env): Computation =
+  private[interpreter] def eval(term: Term, env: Env): Computation =
     trackPos(term)
     term match
     // Literals — interned by Lit identity so a hot loop reuses the same
@@ -4401,7 +4386,7 @@ class Interpreter(
         else applyDefaults(f.params, f.defaults, withUsing, f.closure ++ selfEntry)
       else
         applyDefaults(f.params, f.defaults, tupledArgs, f.closure ++ selfEntry)
-    val info      = tcoInfoFor(f)
+    val info      = TcoRuntime.tcoInfoFor(f, this)
     val hasMutualTail = info.tailTargets.nonEmpty && info.tailTargets.exists { n =>
       (globals.get(n) orElse f.closure.get(n)).exists(_.isInstanceOf[Value.FunV])
     }
@@ -4410,7 +4395,7 @@ class Interpreter(
       // subsequent tail-call iteration individually.
       if Profiler.enabled && f.name.nonEmpty then
         Profiler.record(f.name, 0L)
-      tcoTrampoline(f, effArgs, null)
+      TcoRuntime.tcoTrampoline(f, effArgs, null, this)
     else
       // Build callEnv as a `FrameMap` — parallel arrays of param names /
       // values on top of the (cached) closure-with-self map. Cheaper than
@@ -4431,7 +4416,7 @@ class Interpreter(
       callStack += ((frameName, lineNum))
       val t0 = if Profiler.enabled && f.name.nonEmpty then System.nanoTime() else 0L
       val result =
-        try runUntilSuspension(eval(f.body, callEnv))
+        try TcoRuntime.runUntilSuspension(eval(f.body, callEnv))
         catch case r: ReturnSignal => Pure(r.value)
       if Profiler.enabled && f.name.nonEmpty then
         Profiler.record(f.name, System.nanoTime() - t0)
@@ -4501,188 +4486,7 @@ class Interpreter(
       }.toList
       provided ++ filled
 
-  /** TCO trampoline that survives effect suspensions.
-   *
-   *  Body code is evaluated under an env that maps the function name (and any
-   *  mutually-recursive friends) to native fns that throw `TailCall` /
-   *  `MutualTailCall`. The outer while-loop catches those and re-runs the body
-   *  with the new arg vector — same trick as the classic trampoline, but here
-   *  the inner step uses `runUntilSuspension` so Performs propagate.
-   *
-   *  When the body suspends at `FlatMap(Perform, k)`, the trampoline returns
-   *  the Perform to its caller (the enclosing handler) but wraps `k` so that
-   *  when resume invokes it, control re-enters `tcoTrampoline` with `k(v)` as
-   *  the initial Computation. This way TailCalls thrown by the post-suspension
-   *  code are caught by the trampoline, not by an already-exited frame.
-   *
-   *  Each `resume` invocation pays one Scala stack frame for re-entering the
-   *  trampoline; subsequent tail iterations and bind-chain stepping use the
-   *  while-loops and stay O(1). */
-  private def tcoTrampoline(
-    initialFun:  Value.FunV,
-    initialArgs: List[Value],
-    initialComp: Computation
-  ): Computation =
-    var curFun: Value.FunV   = initialFun
-    var curArgs: List[Value] = initialArgs
-    var current: Computation = initialComp
-    // Stable, per-curFun part of the call env: closure + self-tco stub +
-    // mutual-tail-call stubs. The only thing that varies across tail
-    // iterations is the param binding, so build this once per `curFun`
-    // and refresh it only when a mutual jump changes `curFun`.
-    var envStable: Map[String, Value] = null
-    var envStableFor: Value.FunV      = null
-    while true do
-      try
-        if current == null then
-          if (envStable eq null) || (envStableFor ne curFun) then
-            val targets = tcoInfoFor(curFun).tailTargets
-            val mutualEntries: Map[String, Value] = targets.flatMap { name =>
-              (globals.get(name) orElse curFun.closure.get(name)).collect {
-                case fn: Value.FunV =>
-                  name -> (Value.NativeFnV(name, a => throw new MutualTailCall(fn, a)): Value)
-              }
-            }.toMap
-            val selfTco = Value.NativeFnV(curFun.name, a => throw new TailCall(a))
-            envStable     = curFun.closure.updated(curFun.name, selfTco) ++ mutualEntries
-            envStableFor  = curFun
-          val callEnv = curFun.params match
-            case Nil               => envStable
-            case p :: Nil          => envStable.updated(p, curArgs.head)
-            case p1 :: p2 :: Nil   => envStable.updated(p1, curArgs.head).updated(p2, curArgs(1))
-            case _                 => envStable ++ curFun.params.iterator.zip(curArgs.iterator).toMap
-          current = eval(curFun.body, callEnv)
-        // Inner step loop — re-associate FlatMaps and step Pure short-circuits.
-        // Exits via `return` inside the match; the condition stays `true`.
-        while true do
-          current match
-            case Pure(_)              => return current
-            case Perform(_, _, _)     => return current
-            case FlatMap(sub, k) => sub match
-              case Pure(v)               => current = k(v)
-              case Perform(eff, op, a)   =>
-                val funSnapshot  = curFun
-                val argsSnapshot = curArgs
-                // Compute `k(v)` lazily inside a try so a TailCall thrown by
-                // a tail-recursive self-call in `k`'s body re-enters the
-                // trampoline rather than escaping. Without this the resume
-                // continuation evaluates `k(v)` eagerly as a strict argument
-                // to tcoTrampoline and any TailCall it throws falls through
-                // both the outer trampoline's try (already exited) and the
-                // re-entry's try (not yet armed).
-                return FlatMap(Perform(eff, op, a), v =>
-                  try tcoTrampoline(funSnapshot, argsSnapshot, k(v))
-                  catch
-                    case tc: TailCall       => tcoTrampoline(funSnapshot, tc.args, null)
-                    case mc: MutualTailCall =>
-                      val next = mc.f
-                      if next.name.nonEmpty && tcoInfoFor(next).noNonTailSelf then
-                        tcoTrampoline(next, mc.args, null)
-                      else callFun(next, mc.args))
-              case FlatMap(sub2, g)      =>
-                current = FlatMap(sub2, x => FlatMap(g(x), k))
-      catch
-        case r: ReturnSignal    => return Pure(r.value)
-        case tc: TailCall       =>
-          // Each TailCall is one additional recursive invocation.
-          if Profiler.enabled && curFun.name.nonEmpty then
-            Profiler.record(curFun.name, 0L)
-          curArgs = tc.args
-          current = null
-        case mc: MutualTailCall =>
-          val next = mc.f
-          if next.name.nonEmpty && tcoInfoFor(next).noNonTailSelf then
-            // Mutual tail call counts as one call to `next`.
-            if Profiler.enabled && next.name.nonEmpty then
-              Profiler.record(next.name, 0L)
-            curFun  = next
-            curArgs = mc.args
-            current = null
-          else
-            return callFun(next, mc.args)
-    throw InterpretError("unreachable")
-
-  /** Run a Computation through Pure short-circuits and FlatMap re-associations
-   *  until it either resolves to Pure, or hits a Perform that needs to escape
-   *  to an outer handler. The while-loop with right-association makes this
-   *  stack-safe regardless of how deep the bind chain is (Bjarnason 2012).
-   *
-   *  ReturnSignal / TailCall / MutualTailCall propagate to the caller. */
-  private def runUntilSuspension(c: Computation): Computation =
-    var current: Computation = c
-    while true do
-      current match
-        case Pure(_)             => return current
-        case Perform(_, _, _)    => return current
-        case FlatMap(sub, f) => sub match
-          case Pure(v)              => current = f(v)
-          case Perform(eff, op, args) =>
-            return FlatMap(Perform(eff, op, args), f)
-          case FlatMap(sub2, g)     =>
-            current = FlatMap(sub2, x => FlatMap(g(x), f))
-    throw InterpretError("unreachable")
-
-  /** True if `fname` appears in a tail position of `tree`. */
-  private def callsInTailPos(tree: scala.meta.Tree, fname: String): Boolean = tree match
-    case Term.Apply.After_4_6_0(Term.Name(`fname`), _) => true
-    case t: Term.If =>
-      callsInTailPos(t.thenp, fname) || callsInTailPos(t.elsep, fname)
-    case Term.Block(stats) =>
-      stats.lastOption.exists { case t: Term => callsInTailPos(t, fname); case _ => false }
-    case t: Term.Match =>
-      t.casesBlock.cases.exists(c => callsInTailPos(c.body, fname))
-    case _ => false
-
-  // Returns names of functions called in tail position in term (excluding selfName).
-  private def tailCallTargets(tree: scala.meta.Tree, selfName: String, tailPos: Boolean): Set[String] =
-    tree match
-      case Term.Apply.After_4_6_0(Term.Name(n), argClause) =>
-        if tailPos && n != selfName then Set(n)
-        else argClause.values.flatMap(a => tailCallTargets(a, selfName, false)).toSet
-      case t: Term.If =>
-        tailCallTargets(t.cond,  selfName, false) ++
-        tailCallTargets(t.thenp, selfName, tailPos) ++
-        tailCallTargets(t.elsep, selfName, tailPos)
-      case Term.Block(stats) =>
-        stats.dropRight(1).flatMap(s => tailCallTargets(s, selfName, false)).toSet ++
-        stats.lastOption.map(s => tailCallTargets(s, selfName, tailPos)).getOrElse(Set.empty)
-      case t: Term.Match =>
-        tailCallTargets(t.expr, selfName, false) ++
-        t.casesBlock.cases.flatMap(c => tailCallTargets(c.body, selfName, tailPos)).toSet
-      case other =>
-        other.children.flatMap(c => tailCallTargets(c, selfName, false)).toSet
-
-  // Returns true if term has a self-call to fname NOT in tail position.
-  private def hasNonTailSelfCall(term: Term, fname: String, tailPos: Boolean): Boolean =
-    import scala.meta.*
-    term match
-      case Term.Apply.After_4_6_0(Term.Name(`fname`), argClause) =>
-        if tailPos then argClause.values.collect { case t: Term => t }
-                                        .exists(hasNonTailSelfCall(_, fname, tailPos = false))
-        else true
-      case t: Term.If =>
-        hasNonTailSelfCall(t.cond,  fname, tailPos = false) ||
-        hasNonTailSelfCall(t.thenp, fname, tailPos = tailPos) ||
-        hasNonTailSelfCall(t.elsep, fname, tailPos = tailPos)
-      case Term.Block(stats) =>
-        stats.dropRight(1).exists {
-          case t: Term => hasNonTailSelfCall(t, fname, tailPos = false)
-          case _       => false
-        } || stats.lastOption.exists {
-          case t: Term => hasNonTailSelfCall(t, fname, tailPos = tailPos)
-          case _       => false
-        }
-      case t: Term.Match =>
-        hasNonTailSelfCall(t.expr, fname, tailPos = false) ||
-        t.casesBlock.cases.exists(c => hasNonTailSelfCall(c.body, fname, tailPos = tailPos))
-      case other =>
-        anywhereContainsSelfCall(other, fname)
-
-  private def anywhereContainsSelfCall(tree: scala.meta.Tree, fname: String): Boolean =
-    import scala.meta.*
-    tree match
-      case Term.Apply.After_4_6_0(Term.Name(`fname`), _) => true
-      case t => t.children.exists(anywhereContainsSelfCall(_, fname))
+  // ─── TCO trampoline — see TcoRuntime.scala ──────────────────────
 
   // ─── Algebraic effects (Free Monad interpreter) ──────────────────
 
