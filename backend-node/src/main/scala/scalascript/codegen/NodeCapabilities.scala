@@ -36,5 +36,12 @@ val NodeCapabilities: Capabilities = Capabilities(
   outputs        = Set(OutputKind.JavaScriptSource),
   options        = Set("optimizationLevel", "emitAssertions"),
   spiRange       = SpiVersionRange(SpiVersion.Current, SpiVersion.Current),
-  blockLanguages = Set(scalascript.ast.Lang.Node, scalascript.ast.Lang.NodeShort)
+  // v1.27 Phase 4 — sql blocks compile via backend-sql-runtime-js
+  // (sql.js + DuckDB-Wasm).  The emitted `.mjs` plus the companion
+  // `package.json` (in the CompileResult's `sources` list) form a
+  // ready-to-`npm install` artifact.
+  blockLanguages = Set(
+    scalascript.ast.Lang.Node, scalascript.ast.Lang.NodeShort,
+    scalascript.ast.Lang.Sql,
+  )
 )

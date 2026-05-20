@@ -7885,15 +7885,51 @@ Mirrors JvmGen Phase 6.C, adapted for async.
       All 12 green; full backend-interpreter suite (1228 tests)
       stays green.
 
-### Phase 4 — NodeBackend wiring
+### Phase 4 — NodeBackend wiring ✓ Landed
 
-- [ ] `NodeCapabilities.blockLanguages += Lang.Sql`.
-- [ ] `NodeBackend` conditionally emits `package.json` deps for the
-      providers actually referenced (`sql.js`, `@duckdb/duckdb-wasm`).
-- [ ] Tests: `NodeBackendSqlTest` (4 cases — sqlite in-mem, sqlite
-      file, duckdb in-mem, jdbc URL → diagnostic).
-- [ ] Swap `NodeBackendTest`'s `UnknownBlockLanguage("sql")` case
-      with no-diagnostic + new `UnsupportedJdbcUrl` case.
+- [x] `NodeCapabilities.blockLanguages += Lang.Sql`.  Generic
+      `UnknownBlockLanguage("sql")` diagnostic no longer fires on the
+      Node target.
+- [x] `NodeBackend.compile` emits a companion `package.json`
+      `SourceArtifact` when sql blocks are present.  Deps are gated on
+      actual provider references in `manifest.databases`: a module that
+      only uses sqlite gets only `sql.js`; only-duckdb gets
+      `@duckdb/duckdb-wasm` + `web-worker` (the Node Worker shim
+      sql-runtime.mjs imports); both-or-neither (no `databases:`
+      declared at all → annotation fallback) gets all three.
+- [x] Output bundle is `.cjs` (CJS) — JsRuntime uses `require('fs')`
+      etc; switching to ESM would require rewriting the entire
+      runtime.  `await import('sql.js')` inside sql-runtime.mjs works
+      fine in CJS context, so sql blocks compose with the CJS runtime.
+- [x] `sql-runtime.mjs` rewrote `createRequire(import.meta.url)` to
+      a dual-mode resolver (`globalThis.require` in CJS context;
+      `createRequire("file://${cwd}/.")` in ESM).  `import.meta.url`
+      is a syntax error in CJS, so any reference would break the
+      NodeBackend embed even on an unreachable code path.
+- [x] `NodePrintlnWriteThrough` — replaces JsRuntime's buffered
+      `_println` with a write-through that pushes both to `_output`
+      AND to `process.stdout`.  Necessary because JsGen wraps the
+      sql-block body in an async IIFE; the original post-bundle flush
+      ran synchronously before the IIFE's async work completed, so
+      `println` calls inside it were silently dropped.
+- [x] Swapped `NodeBackendTest`'s `UnknownBlockLanguage("sql")` case
+      with `accepts sql blocks (no diagnostic)`; updated the
+      `blockLanguages` set assertion to include `sql`.  Dedicated
+      `UnsupportedJdbcUrl` validate-time diagnostic deferred to
+      Phase 6 — until then, `jdbc:` URLs surface a runtime
+      `UnsupportedJdbcUrl` from `sql-runtime.mjs`.
+- [x] `NodeBackendSqlTest` (8 cases):
+      * 5 unit cases — no-sql passthrough; sqlite-only deps; duckdb-
+        only deps (+ web-worker); both providers; no-databases-declared
+        fallback (lists everything).
+      * 3 end-to-end cases — sqlite in-memory CRUD, DuckDB
+        aggregation, `${expr}` binds evaluate in surrounding scope.
+        Real `npm install` + `node main.cjs`.  Shared cache dir
+        keyed by `package.json` ⇒ one install across the suite.
+        Skips when node / npm not on PATH.
+- [x] Full `backendNode/test` (22 tests) green; `backendSqlRuntimeJs/test`
+      (27 tests) green; `backendInterpreter/testOnly JsGenSqlBlockTest`
+      (12 tests) green.
 
 ### Phase 5 — WasmBackend wiring ✓ Landed (2026-05-20)
 

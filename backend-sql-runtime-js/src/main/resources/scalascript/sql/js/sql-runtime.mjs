@@ -235,8 +235,19 @@ async function loadDuckDb() {
   let bundle
   if (isNode) {
     const path = await import('node:path')
-    const createRequire = (await import('node:module')).createRequire
-    const require = createRequire(import.meta.url)
+    // Dual-mode require resolution:
+    //   - CJS: `globalThis.require` is in scope, use it directly.
+    //   - ESM: build a `require` rooted at the current working
+    //          directory.  We deliberately avoid `import.meta.url`
+    //          here — it's a syntax error when this source is embedded
+    //          into the CJS bundle that NodeBackend emits (Phase 4).
+    let require
+    if (typeof globalThis.require !== 'undefined') {
+      require = globalThis.require
+    } else {
+      const moduleNs = await import('node:module')
+      require = moduleNs.createRequire(`file://${process.cwd()}/.`)
+    }
     const DUCKDB_DIST = path.dirname(require.resolve('@duckdb/duckdb-wasm'))
     // duckdb-wasm's own `createWorker` is browser-only (uses fetch +
     // URL.createObjectURL).  In Node we use the `web-worker` package,

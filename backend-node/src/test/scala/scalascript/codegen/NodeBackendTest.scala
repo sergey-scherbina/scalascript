@@ -22,8 +22,8 @@ class NodeBackendTest extends AnyFunSuite:
     assert(backend.capabilities.outputs.contains(OutputKind.JavaScriptSource))
   }
 
-  test("capabilities declare node.js and node block langs (and only those)") {
-    assert(backend.capabilities.blockLanguages == Set("node.js", "node"))
+  test("capabilities declare node.js, node, and sql block langs (v1.27 Phase 4)") {
+    assert(backend.capabilities.blockLanguages == Set("node.js", "node", "sql"))
   }
 
   test("scalascript-only module — bundle is JsGen output, no glue prefix") {
@@ -120,12 +120,13 @@ class NodeBackendTest extends AnyFunSuite:
       s"node backend must accept node.js blocks, got: $diags")
   }
 
-  test("CapabilityCheck: node backend rejects sql blocks → UnknownBlockLanguage('sql')") {
-    // v1.26 — sql blocks are JVM-only.  The node backend doesn't
-    // declare `sql` in its `blockLanguages`, so `validate` must
-    // surface a `UnknownBlockLanguage("sql")` diagnostic on any
-    // module containing a sql fence.  Wired generically via
-    // `Lang.isOpaqueExec` matching on `ir.Content.SqlBlock`.
+  test("CapabilityCheck: node backend accepts sql blocks (v1.27 Phase 4 — no diagnostic)") {
+    // v1.27 Phase 4 — Node declares `sql` in `blockLanguages` so the
+    // generic `UnknownBlockLanguage` diagnostic no longer fires.
+    // The build-time `UnsupportedJdbcUrl` diagnostic (Phase 6 follow-up)
+    // covers the JDBC-on-Node case; until then a jdbc: URL compiles
+    // and surfaces a runtime error from `sql-runtime.mjs`'s
+    // `UnsupportedJdbcUrl` class.
     import scalascript.validate.CapabilityCheck
     val src =
       """|# Query
@@ -136,10 +137,10 @@ class NodeBackendTest extends AnyFunSuite:
          |""".stripMargin
     val module = Normalize(Parser.parse(src))
     val diags  = CapabilityCheck.validate(module, backend.capabilities, backend.id)
-    assert(diags.exists {
+    assert(!diags.exists {
       case Diagnostic.UnknownBlockLanguage("sql") => true
       case _                                      => false
-    }, s"node backend must reject sql blocks, got: $diags")
+    }, s"node backend must accept sql blocks, got: $diags")
   }
 
   // ── Integration: actually run the emitted bundle under `node` ────────────
