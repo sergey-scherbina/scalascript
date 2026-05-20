@@ -9,9 +9,9 @@ import java.sql.{Connection, DriverManager}
  *  records to this shape before handing them to
  *  `ConnectionRegistry`.
  *
- *  String values may carry `${env:NAME}` references that are resolved
- *  at the moment the connection actually opens — not at construction
- *  time.  See `EnvResolver`. */
+ *  String values may carry `${env:NAME}` or `${file:PATH}` references
+ *  that are resolved at the moment the connection opens — not at
+ *  construction time.  See `EnvResolver`. */
 final case class DatabaseSpec(
   name:     String,
   url:      String,
@@ -20,50 +20,60 @@ final case class DatabaseSpec(
   driver:   Option[String]  = None
 )
 
-/** Resolves `${env:NAME}` references in connection-config strings
- *  against the process environment.  Two distinct error types so
- *  call sites can surface the right context:
+/** Resolves `${env:NAME}` and `${file:PATH}` references in
+ *  connection-config strings.
  *
- *    - `MissingEnv(varName, configKey, dbName)` — env var not set;
- *      the user needs to add it to their shell / `.env`.
- *    - `MalformedEnvRef` — never thrown today (unbalanced `${env:`
- *      is currently passed through unchanged); placeholder for
- *      future stricter resolution.
+ *  - `${env:NAME}`  — value of environment variable NAME.
+ *    Raises `MissingEnv` when the variable is not set.
  *
- *  Resolution is repeated for every reference in the string — multiple
- *  `${env:NAME}` substitutions per URL are supported.  Plain `$` and
- *  unrelated `${...}` patterns are left untouched. */
+ *  - `${file:PATH}` — contents of the file at PATH, trimmed of
+ *    leading/trailing whitespace.  Intended for Docker secrets
+ *    (`/run/secrets/…`), Kubernetes secret volume mounts, and
+ *    any on-disk credential files.  Raises `MissingFile` when
+ *    the file does not exist or cannot be read.
+ *
+ *  Multiple references of either kind in one string are supported.
+ *  Plain `$` and unrelated `${…}` patterns are left untouched.
+ *  Resolution is deferred to the moment the connection opens. */
 object EnvResolver:
 
-  private val Pattern = """\$\{env:([A-Za-z_][A-Za-z0-9_]*)\}""".r
+  private val EnvPattern  = """\$\{env:([A-Za-z_][A-Za-z0-9_]*)\}""".r
+  private val FilePattern = """\$\{file:([^}]+)\}""".r
 
-  /** Expand every `${env:NAME}` in `template` using the supplied
-   *  lookup (defaults to the process environment).  Missing vars
-   *  raise `MissingEnv` with `configKey` / `dbName` context. */
+  /** Expand every `${env:NAME}` and `${file:PATH}` in `template`.
+   *  `envLookup` defaults to the process environment. */
   def resolve(
-    template: String,
+    template:  String,
     configKey: String,
-    dbName:   String,
-    lookup:   String => Option[String] = name => sys.env.get(name)
+    dbName:    String,
+    envLookup: String => Option[String] = name => sys.env.get(name)
   ): String =
-    Pattern.replaceAllIn(template, m =>
+    val afterEnv = EnvPattern.replaceAllIn(template, m =>
       val name = m.group(1)
-      lookup(name) match
-        case Some(v) =>
-          // Backslashes inside an env value would otherwise be
-          // interpreted as regex backreferences by `replaceAllIn`.
-          java.util.regex.Matcher.quoteReplacement(v)
-        case None =>
-          throw MissingEnv(name, configKey, dbName)
+      envLookup(name) match
+        case Some(v) => java.util.regex.Matcher.quoteReplacement(v)
+        case None    => throw MissingEnv(name, configKey, dbName)
+    )
+    FilePattern.replaceAllIn(afterEnv, m =>
+      val path = m.group(1)
+      val f    = java.io.File(path)
+      if !f.exists() || !f.canRead then throw MissingFile(path, configKey, dbName)
+      val value = scala.io.Source.fromFile(f).mkString.strip()
+      java.util.regex.Matcher.quoteReplacement(value)
     )
 
 /** Raised when a `${env:NAME}` reference in a connection-config string
- *  does not resolve.  Names the variable, the field within the
- *  database entry, and the database alias so users can fix the
- *  problem without grepping. */
+ *  does not resolve. */
 final class MissingEnv(val variable: String, val configKey: String, val dbName: String)
     extends RuntimeException(
       s"environment variable `$variable` referenced from databases.$dbName.$configKey is not set"
+    )
+
+/** Raised when a `${file:PATH}` reference in a connection-config string
+ *  cannot be read (file missing or permission denied). */
+final class MissingFile(val path: String, val configKey: String, val dbName: String)
+    extends RuntimeException(
+      s"secret file `$path` referenced from databases.$dbName.$configKey does not exist or is not readable"
     )
 
 /** Raised when an `sql` block resolves to a database name that has
