@@ -111,6 +111,61 @@ class JvmGenEffectsRuntimeTest extends AnyFunSuite with Matchers:
     code should include ("origins:           List[String] = Nil")
     code should include ("maxConnections:    Int          = 0")
 
+  // ── /_ssc-cluster/* operational routes ─────────────────────────────
+  // The interpreter auto-registers five Bearer-gated HTTP endpoints on
+  // `startNode`; the JVM codegen path must do the same so the CLI ops
+  // commands (`ssc cluster status / drain / events / step-down /
+  // metrics-prom`) reach codegen-built nodes.  See
+  // docs/cluster-codegen-gap.md gap #3.
+  test("JvmGen: startNode emits the five /_ssc-cluster/* route registrations"):
+    val code = jvmCode("""
+      runActors {
+        startNode("n1", "ws://127.0.0.1:0/_ssc-actors")
+      }
+    """)
+    // All five register-helpers are defined in the runtime…
+    code should include ("def _registerClusterStatusRoute()")
+    code should include ("def _registerClusterDrainRoute()")
+    code should include ("def _registerClusterEventsRoute()")
+    code should include ("def _registerClusterStepDownRoute()")
+    code should include ("def _registerClusterMetricsPromRoute()")
+    // …and all five are invoked inside the startNode handler.
+    code should include ("_registerClusterStatusRoute()")
+    code should include ("_registerClusterDrainRoute()")
+    code should include ("_registerClusterEventsRoute()")
+    code should include ("_registerClusterStepDownRoute()")
+    code should include ("_registerClusterMetricsPromRoute()")
+    // Each helper installs the right HTTP method + path via `route()`.
+    code should include ("route(\"GET\", path)")
+    code should include ("route(\"POST\", path)")
+    code should include ("\"/_ssc-cluster/status\"")
+    code should include ("\"/_ssc-cluster/drain\"")
+    code should include ("\"/_ssc-cluster/events\"")
+    code should include ("\"/_ssc-cluster/step-down\"")
+    code should include ("\"/_ssc-cluster/metrics-prom\"")
+    // Bearer-token gate is shared across all five.
+    code should include ("def _clusterAuthReject(req: Request)")
+    code should include ("SSC_CLUSTER_TOKEN")
+    // Idempotency guard: subsequent `startNode` calls must be no-ops.
+    code should include ("_routes.exists(r => r.method ==")
+    // Event ring buffer prerequisite for /_ssc-cluster/events.
+    code should include ("_clusterEventLog")
+    code should include ("_recordEventLog")
+
+  test("JvmGen: scala-cli compiles a startNode+serveAsync module with cluster routes"):
+    // End-to-end: the emitted Scala compiles with scala-cli.  Mirrors
+    // the existing `serveAsync(8080)` e2e — failures here surface as
+    // type errors in the embedded route handlers, escape-sequence
+    // mismatches, or unresolved references between the emitted
+    // _registerCluster* helpers and the inlined REST runtime.
+    assume(hasScalaCli, "scala-cli not available")
+    compileWithScalaCli("""
+      runActors {
+        startNode("n1", "ws://127.0.0.1:0/_ssc-actors")
+        serveAsync(0)
+      }
+    """) shouldBe 0
+
   // ── Run-via-scala-cli tests ────────────────────────────────────────
 
   private lazy val hasScalaCli: Boolean =
@@ -167,3 +222,177 @@ class JvmGenEffectsRuntimeTest extends AnyFunSuite with Matchers:
   test("JvmGen: scala-cli compiles a `serveAsync(port, tls(...))` module"):
     assume(hasScalaCli, "scala-cli not available")
     compileWithScalaCli("""serveAsync(8443, tls("cert.pem", "key.pem"))""") shouldBe 0
+
+  // ── /_ssc-cluster/* — end-to-end e2e ───────────────────────────────
+  // Build a codegen-emitted node with scala-cli, spawn it, curl each
+  // of the five routes, and assert the wire shape matches what the
+  // CLI ops commands parse.  If this drifts, `ssc cluster status` /
+  // `drain` / `events` / `step-down` / `metrics-prom` break against
+  // codegen-built nodes silently.
+  private def pickFreePort(): Int =
+    val s = new java.net.ServerSocket(0)
+    val p = s.getLocalPort
+    s.close()
+    p
+
+  private def httpGet(url: String, headers: Map[String, String] = Map.empty): (Int, String) =
+    val client = java.net.http.HttpClient.newHttpClient()
+    val rb = java.net.http.HttpRequest.newBuilder(java.net.URI.create(url))
+    headers.foreach((k, v) => rb.header(k, v))
+    val resp = client.send(rb.GET().build(),
+      java.net.http.HttpResponse.BodyHandlers.ofString())
+    (resp.statusCode(), resp.body())
+
+  private def httpPost(url: String, body: String, headers: Map[String, String] = Map.empty): (Int, String) =
+    val client = java.net.http.HttpClient.newHttpClient()
+    val rb = java.net.http.HttpRequest.newBuilder(java.net.URI.create(url))
+    headers.foreach((k, v) => rb.header(k, v))
+    val resp = client.send(
+      rb.POST(java.net.http.HttpRequest.BodyPublishers.ofString(body)).build(),
+      java.net.http.HttpResponse.BodyHandlers.ofString())
+    (resp.statusCode(), resp.body())
+
+  /** Pick a free port, write & run the codegen bundle, poll until the
+   *  HTTP listener is up, run the `body` against it, then kill the
+   *  child.  Returns the body's result.  Skips the test if `scala-cli`
+   *  isn't available. */
+  private def withRunningNode[A](
+      scriptBody: Int => String)(body: Int => A): A =
+    assume(hasScalaCli, "scala-cli not available")
+    val port = pickFreePort()
+    val sc   = jvmCode(scriptBody(port))
+    val tmp  = java.io.File.createTempFile("ssc-jvmgen-cluster-e2e-", ".sc")
+    tmp.deleteOnExit()
+    java.nio.file.Files.write(tmp.toPath, sc.getBytes(StandardCharsets.UTF_8))
+    val proc = ProcessBuilder("scala-cli", "run", tmp.getAbsolutePath)
+      .redirectError(ProcessBuilder.Redirect.DISCARD)
+      .redirectOutput(ProcessBuilder.Redirect.DISCARD)
+      .start()
+    try
+      // Poll for the listener — `serveAsync` returns immediately but
+      // the bind happens on a virtual thread, so we wait up to ~30 s.
+      val deadline = System.currentTimeMillis() + 30_000L
+      var up = false
+      while !up && System.currentTimeMillis() < deadline do
+        try
+          val s = new java.net.Socket()
+          s.connect(new java.net.InetSocketAddress("127.0.0.1", port), 250)
+          s.close()
+          up = true
+        catch case _: Throwable => Thread.sleep(250)
+      if !up then fail(s"node didn't bind 127.0.0.1:$port within 30 s")
+      body(port)
+    finally
+      proc.destroyForcibly()
+      proc.waitFor(10, java.util.concurrent.TimeUnit.SECONDS): @scala.annotation.unused
+
+  /** `.ssc` snippet that keeps the JVM-codegen actor scheduler alive
+   *  long enough to receive HTTP requests.  Uses a periodic timer
+   *  (`sendInterval`) so `_timers.nonEmpty` stays true and the
+   *  scheduler loop doesn't exit — the captured-once `_isDistributed`
+   *  flag in the emitted runtime is `false` at scheduler-loop entry
+   *  (set lazily inside `Actor.startNode` after the val is bound),
+   *  so we can't rely on the distributed clause to hold the loop.
+   *  See MILESTONES.md — this is a known follow-up. */
+  private def aliveBody(setup: String): String = s"""
+    runActors {
+      $setup
+      spawn { () =>
+        val s = self()
+        sendInterval(500L, s, "tick")
+        receive { case "tick" => () }
+        receive { case "tick" => () }  // never reached if test kills us first
+      }
+    }
+  """
+
+  test("JvmGen e2e: GET /_ssc-cluster/status returns the documented JSON shape"):
+    withRunningNode { port =>
+      aliveBody(s"""
+        startNode("e2e-status", "ws://127.0.0.1:$port/_ssc-actors")
+        electLeader()
+        serveAsync($port)
+      """)
+    } { port =>
+      val (status, body) = httpGet(s"http://127.0.0.1:$port/_ssc-cluster/status")
+      status shouldBe 200
+      body should include ("\"nodeId\":\"e2e-status\"")
+      body should include ("\"leader\":\"e2e-status\"")
+      body should include ("\"protocol\":\"bully\"")
+      body should include ("\"members\":[]")
+      body should include ("\"drainingSelf\":false")
+      body should include ("\"drainingPeers\":[]")
+      body should include ("\"raftTerm\":0")
+      body should include ("\"raftState\":\"follower\"")
+    }
+
+  test("JvmGen e2e: POST /_ssc-cluster/drain toggles drainingSelf"):
+    withRunningNode { port =>
+      aliveBody(s"""
+        startNode("e2e-drain", "ws://127.0.0.1:$port/_ssc-actors")
+        serveAsync($port)
+      """)
+    } { port =>
+      val (s1, b1) = httpPost(s"http://127.0.0.1:$port/_ssc-cluster/drain", "")
+      s1 shouldBe 200
+      b1 should include ("\"drainingSelf\":true")
+
+      val (sStat, bStat) = httpGet(s"http://127.0.0.1:$port/_ssc-cluster/status")
+      sStat shouldBe 200
+      bStat should include ("\"drainingSelf\":true")
+
+      val (s2, b2) = httpPost(s"http://127.0.0.1:$port/_ssc-cluster/drain",
+        "{\"enabled\":false}")
+      s2 shouldBe 200
+      b2 should include ("\"drainingSelf\":false")
+    }
+
+  test("JvmGen e2e: GET /_ssc-cluster/events returns a JSON array"):
+    withRunningNode { port =>
+      aliveBody(s"""
+        startNode("e2e-events", "ws://127.0.0.1:$port/_ssc-actors")
+        electLeader()      // emit a LeaderElected event
+        serveAsync($port)
+      """)
+    } { port =>
+      val (status, body) = httpGet(s"http://127.0.0.1:$port/_ssc-cluster/events")
+      status shouldBe 200
+      body.startsWith("[") shouldBe true
+      body.endsWith("]")   shouldBe true
+      // electLeader on a single node fires a LeaderElected event.
+      body should include ("\"type\":\"LeaderElected\"")
+      body should include ("\"nodeId\":\"e2e-events\"")
+    }
+
+  test("JvmGen e2e: POST /_ssc-cluster/step-down works on leader, 409 on follower"):
+    withRunningNode { port =>
+      aliveBody(s"""
+        startNode("e2e-stepdown", "ws://127.0.0.1:$port/_ssc-actors")
+        electLeader()
+        serveAsync($port)
+      """)
+    } { port =>
+      val (s1, b1) = httpPost(s"http://127.0.0.1:$port/_ssc-cluster/step-down", "")
+      s1 shouldBe 200
+      b1 should include ("\"steppedDown\":true")
+      b1 should include ("\"nodeId\":\"e2e-stepdown\"")
+
+      // Now we're a follower — second call should 409.
+      val (s2, b2) = httpPost(s"http://127.0.0.1:$port/_ssc-cluster/step-down", "")
+      s2 shouldBe 409
+      b2 should include ("\"error\":\"not_leader\"")
+    }
+
+  test("JvmGen e2e: GET /_ssc-cluster/metrics-prom returns Prometheus exposition format"):
+    withRunningNode { port =>
+      aliveBody(s"""
+        startNode("e2e-metrics", "ws://127.0.0.1:$port/_ssc-actors")
+        clusterMetricSet("requests_total", 42.0)
+        serveAsync($port)
+      """)
+    } { port =>
+      val (status, body) = httpGet(s"http://127.0.0.1:$port/_ssc-cluster/metrics-prom")
+      status shouldBe 200
+      body should include ("# TYPE requests_total gauge")
+      body should include ("requests_total{nodeId=\"e2e-metrics\"} 42.0")
+    }

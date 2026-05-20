@@ -5470,8 +5470,6 @@ class JvmGen(
        |  // v1.23 — cluster visibility
        |  val _clusterEventSubs  = new java.util.concurrent.CopyOnWriteArrayList[java.lang.Long]()
        |  val _clusterEventQueue = new java.util.concurrent.ConcurrentLinkedQueue[(String, String, String)]()
-       |  def _fireClusterEvent(tag: String, nodeId: String, reason: String = ""): Unit =
-       |    if !_clusterEventSubs.isEmpty then _clusterEventQueue.offer((tag, nodeId, reason))
        |  // JSON string-escape helper — hoisted above all subsequent vals so
        |  // nested defs can forward-reference it without Scala 3 flagging the
        |  // ref as "extending over" a val initialiser.
@@ -5480,6 +5478,29 @@ class JvmGen(
        |    s.foreach { case '"' => sb.append("\\\""); case '\\' => sb.append("\\\\")
        |                case '\n' => sb.append("\\n"); case c => sb.append(c) }
        |    sb.append('"').toString
+       |  // v1.23 — bounded ring buffer of cluster events as JSON lines.  Feeds
+       |  // `GET /_ssc-cluster/events`.  Independent of in-process subscribers
+       |  // — events land here whether or not any actor has called
+       |  // `subscribe*Events`, so ops tooling always has data.  Cap 200.
+       |  val _CLUSTER_EVENT_LOG_MAX = 200
+       |  val _clusterEventLog       = new java.util.concurrent.ConcurrentLinkedDeque[String]()
+       |  def _recordEventLog(json: String): Unit =
+       |    _clusterEventLog.offer(json)
+       |    while _clusterEventLog.size() > _CLUSTER_EVENT_LOG_MAX do _clusterEventLog.pollFirst()
+       |  // v1.23 — shared-secret Bearer token for /_ssc-cluster/* endpoints.
+       |  // Reads `SSC_CLUSTER_TOKEN` env at startup.  Empty ⇒ endpoints open.
+       |  @volatile var _clusterAuthToken: String =
+       |    Option(System.getenv("SSC_CLUSTER_TOKEN")).getOrElse("")
+       |  def _fireClusterEvent(tag: String, nodeId: String, reason: String = ""): Unit =
+       |    val ts = System.currentTimeMillis()
+       |    val logEntry =
+       |      if tag == "NodeJoined" then
+       |        "{\"ts\":" + ts.toString + ",\"type\":\"NodeJoined\",\"nodeId\":" + _jstr(nodeId) + "}"
+       |      else
+       |        "{\"ts\":" + ts.toString + ",\"type\":\"NodeLeft\",\"nodeId\":" + _jstr(nodeId) +
+       |        ",\"reason\":" + _jstr(reason) + "}"
+       |    _recordEventLog(logEntry)
+       |    if !_clusterEventSubs.isEmpty then _clusterEventQueue.offer((tag, nodeId, reason))
        |  // v1.23 — phi-accrual failure detector: sliding window of inter-pong intervals.
        |  val _PHI_HIST_MAX  = 100
        |  val _peerPongHist  = new java.util.concurrent.ConcurrentHashMap[String,
@@ -5496,6 +5517,9 @@ class JvmGen(
        |  val _leaderEventSubs      = new java.util.concurrent.CopyOnWriteArrayList[java.lang.Long]()
        |  val _leaderEventQueue     = new java.util.concurrent.ConcurrentLinkedQueue[(String, String)]()
        |  def _fireLeaderEvent(tag: String, leaderId: String): Unit =
+       |    val ts = System.currentTimeMillis()
+       |    _recordEventLog("{\"ts\":" + ts.toString + ",\"type\":" + _jstr(tag) +
+       |                    ",\"nodeId\":" + _jstr(leaderId) + "}")
        |    if !_leaderEventSubs.isEmpty then _leaderEventQueue.offer((tag, leaderId))
        |  @volatile var _autoReelect: Boolean = false
        |  // v1.23 — protocol dispatch (cluster-raft.md §6).  "bully" today;
@@ -5698,6 +5722,9 @@ class JvmGen(
        |  val _configEventSubs  = new java.util.concurrent.CopyOnWriteArrayList[java.lang.Long]()
        |  val _configEventQueue = new java.util.concurrent.ConcurrentLinkedQueue[(String, String)]()
        |  def _fireConfigEvent(key: String, value: String): Unit =
+       |    val ts = System.currentTimeMillis()
+       |    _recordEventLog("{\"ts\":" + ts.toString + ",\"type\":\"ConfigChanged\",\"key\":" +
+       |                    _jstr(key) + ",\"value\":" + _jstr(value) + "}")
        |    if !_configEventSubs.isEmpty then _configEventQueue.offer((key, value))
        |  // Returns true if (ts, origin) wins over the stored (ts, origin) for key.
        |  def _applyConfigUpdate(key: String, value: String, ts: Long, origin: String): Boolean =
@@ -5727,6 +5754,9 @@ class JvmGen(
        |  val _drainEventSubs  = new java.util.concurrent.CopyOnWriteArrayList[java.lang.Long]()
        |  val _drainEventQueue = new java.util.concurrent.ConcurrentLinkedQueue[(String, Boolean)]()
        |  def _fireDrainEvent(nodeId: String, draining: Boolean): Unit =
+       |    val ts = System.currentTimeMillis()
+       |    _recordEventLog("{\"ts\":" + ts.toString + ",\"type\":\"DrainStateChanged\",\"nodeId\":" +
+       |                    _jstr(nodeId) + ",\"draining\":" + draining.toString + "}")
        |    if !_drainEventSubs.isEmpty then _drainEventQueue.offer((nodeId, draining))
        |  // Tell a freshly-handshaken peer our current drain state.  No-op when we
        |  // are not draining (peers default-assume `false`).
@@ -5741,6 +5771,10 @@ class JvmGen(
        |  val _metricEventSubs   = new java.util.concurrent.CopyOnWriteArrayList[java.lang.Long]()
        |  val _metricEventQueue  = new java.util.concurrent.ConcurrentLinkedQueue[(String, String, Double)]()
        |  def _fireMetricEvent(name: String, nodeId: String, value: Double): Unit =
+       |    val ts = System.currentTimeMillis()
+       |    _recordEventLog("{\"ts\":" + ts.toString + ",\"type\":\"MetricChanged\",\"name\":" +
+       |                    _jstr(name) + ",\"nodeId\":" + _jstr(nodeId) +
+       |                    ",\"value\":" + value.toString + "}")
        |    if !_metricEventSubs.isEmpty then _metricEventQueue.offer((name, nodeId, value))
        |  def _applyMetricUpdate(name: String, nodeId: String, value: Double): Unit =
        |    val inner = _clusterMetrics.computeIfAbsent(name, _ =>
@@ -5760,7 +5794,206 @@ class JvmGen(
        |                      ",\"value\":" + localVal.doubleValue().toString + "}"
        |        try targetSend(payload) catch case _: Throwable => ()
        |    }
-       |  def _broadcastCoordinator(): Unit =
+       |""".stripMargin +
+    """|  // v1.23 — Bearer-token gate shared by every /_ssc-cluster/* HTTP
+       |  // route.  Returns Some(401-response) when the token is set and the
+       |  // request's Authorization header doesn't carry `Bearer <token>`;
+       |  // None when the token is empty (endpoints open) or matches.  Mirrors
+       |  // `Interpreter.clusterAuthReject`.
+       |  def _clusterAuthReject(req: Request): Option[Response] =
+       |    val tok = _clusterAuthToken
+       |    if tok.isEmpty then None
+       |    else
+       |      val hdr = req.headers.getOrElse("authorization", "")
+       |      if hdr == ("Bearer " + tok) then None
+       |      else Some(Response(
+       |        401,
+       |        Map("Content-Type" -> "application/json"),
+       |        "{\"error\":\"unauthorized\",\"hint\":\"set Authorization: Bearer <token>\"}"))
+       |  // v1.23 — `GET /_ssc-cluster/status` JSON snapshot of cluster state.
+       |  // Idempotent: subsequent `startNode` calls are no-ops for the route
+       |  // table.  Mirrors `Interpreter.registerClusterStatusRoute`.
+       |  def _registerClusterStatusRoute(): Unit =
+       |    val path = "/_ssc-cluster/status"
+       |    if _routes.exists(r => r.method == "GET" && r.path == path) then return
+       |    route("GET", path) { req =>
+       |      _clusterAuthReject(req) match
+       |        case Some(r) => r
+       |        case None =>
+       |          val sb = new StringBuilder("{")
+       |          def kv(k: String, jsonVal: String, first: Boolean = false): Unit =
+       |            if !first then sb.append(',')
+       |            sb.append('"').append(k).append("\":").append(jsonVal)
+       |          def jsonStrArr(xs: Iterable[String]): String =
+       |            xs.map(_jstr).mkString("[", ",", "]")
+       |          val members = scala.collection.mutable.ListBuffer.empty[String]
+       |          _peerChannels.keySet().forEach(p => members += p)
+       |          val drainPeers = scala.collection.mutable.ListBuffer.empty[String]
+       |          _drainingPeers.forEach { (nid, dr) =>
+       |            if dr != null && dr.booleanValue() then drainPeers += nid
+       |          }
+       |          val leaderNow =
+       |            _leaderProtocol.get() match
+       |              case "raft" => _raftLeaderId
+       |              case _      => _currentLeader.get()
+       |          kv("nodeId",        _jstr(_localNodeId), first = true)
+       |          kv("leader",        _jstr(leaderNow))
+       |          kv("protocol",      _jstr(_leaderProtocol.get()))
+       |          kv("members",       jsonStrArr(members.toList))
+       |          kv("drainingSelf",  if _isDrainingSelf.get() then "true" else "false")
+       |          kv("drainingPeers", jsonStrArr(drainPeers.toList))
+       |          kv("raftTerm",      _raftCurrentTerm.toString)
+       |          kv("raftState",     _jstr(_raftState))
+       |          sb.append('}')
+       |          Response(200, Map("Content-Type" -> "application/json"), sb.toString)
+       |    }
+       |  // v1.23 — `POST /_ssc-cluster/drain` toggles local drain state.
+       |  // Body is JSON `{"enabled":true|false}` (empty body = enable).
+       |  // Mirrors the in-process `setDraining` effect: flips
+       |  // `_isDrainingSelf`, broadcasts DrainStateChanged to peers, steps
+       |  // down if we were leader.  Used by `ssc cluster drain <url> [--off]`.
+       |  def _registerClusterDrainRoute(): Unit =
+       |    val path = "/_ssc-cluster/drain"
+       |    if _routes.exists(r => r.method == "POST" && r.path == path) then return
+       |    route("POST", path) { req =>
+       |      _clusterAuthReject(req) match
+       |        case Some(r) => r
+       |        case None =>
+       |          val body = req.body
+       |          val enabled: Boolean =
+       |            if body.trim.isEmpty then true
+       |            else
+       |              val needle = "\"enabled\":"
+       |              val i = body.indexOf(needle)
+       |              if i < 0 then true
+       |              else
+       |                val rest = body.substring(i + needle.length).trim
+       |                !rest.startsWith("false")
+       |          val prev = _isDrainingSelf.getAndSet(enabled)
+       |          if prev != enabled then
+       |            val payload = "{\"t\":\"drain\",\"from\":" + _jstr(_localNodeId) +
+       |                          ",\"draining\":" + enabled.toString + "}"
+       |            _peerChannels.forEach { (_, send) =>
+       |              try send(payload) catch case _: Throwable => ()
+       |            }
+       |            _fireDrainEvent(_localNodeId, enabled)
+       |            if enabled then _stepDownIfLeader()
+       |          Response(
+       |            200,
+       |            Map("Content-Type" -> "application/json"),
+       |            "{\"drainingSelf\":" + (if enabled then "true" else "false") + "}")
+       |    }
+       |  // v1.23 — `GET /_ssc-cluster/events[?since=<ts>]` returns the bounded
+       |  // ring buffer of recent cluster events as a JSON array.  Optional
+       |  // `since` query filters to entries strictly newer than the given
+       |  // epoch-ms.  Idempotent registration.
+       |  def _registerClusterEventsRoute(): Unit =
+       |    val path = "/_ssc-cluster/events"
+       |    if _routes.exists(r => r.method == "GET" && r.path == path) then return
+       |    route("GET", path) { req =>
+       |      _clusterAuthReject(req) match
+       |        case Some(r) => r
+       |        case None =>
+       |          val sinceMs: Long =
+       |            req.query.get("since").flatMap(_.toLongOption).getOrElse(0L)
+       |          val sb = new StringBuilder("[")
+       |          var first = true
+       |          val it = _clusterEventLog.iterator()
+       |          while it.hasNext do
+       |            val line = it.next()
+       |            val tsMatch =
+       |              if sinceMs <= 0L then true
+       |              else
+       |                val tsPrefix = "{\"ts\":"
+       |                if line.startsWith(tsPrefix) then
+       |                  val end = line.indexOf(',', tsPrefix.length)
+       |                  if end > 0 then
+       |                    line.substring(tsPrefix.length, end).toLongOption
+       |                      .exists(_ > sinceMs)
+       |                  else false
+       |                else false
+       |            if tsMatch then
+       |              if !first then sb.append(',')
+       |              sb.append(line)
+       |              first = false
+       |          sb.append(']')
+       |          Response(200, Map("Content-Type" -> "application/json"), sb.toString)
+       |    }
+       |  // v1.23 — `POST /_ssc-cluster/step-down`.  If this node is the current
+       |  // leader, step down (clear `_currentLeader`, broadcast `LeaderLost`,
+       |  // surrender any external coordinator lease).  If it's not the leader,
+       |  // returns 409 Conflict so the operator notices.  Apps with
+       |  // `setAutoReelect(true)` re-elect automatically — that's the rolling-
+       |  // restart pattern.
+       |  def _registerClusterStepDownRoute(): Unit =
+       |    val path = "/_ssc-cluster/step-down"
+       |    if _routes.exists(r => r.method == "POST" && r.path == path) then return
+       |    route("POST", path) { req =>
+       |      _clusterAuthReject(req) match
+       |        case Some(r) => r
+       |        case None =>
+       |          val wasLeader =
+       |            _leaderProtocol.get() match
+       |              case "raft"  => _raftState == "leader"
+       |              case "coord" => _coordIsLeader
+       |              case _       => _currentLeader.get() == _localNodeId
+       |          if !wasLeader then
+       |            Response(
+       |              409,
+       |              Map("Content-Type" -> "application/json"),
+       |              "{\"error\":\"not_leader\",\"leader\":" + _jstr(_currentLeader.get()) + "}")
+       |          else
+       |            _stepDownIfLeader()
+       |            Response(
+       |              200,
+       |              Map("Content-Type" -> "application/json"),
+       |              "{\"steppedDown\":true,\"nodeId\":" + _jstr(_localNodeId) + "}")
+       |    }
+       |  // v1.23 — `GET /_ssc-cluster/metrics-prom` returns `_clusterMetrics`
+       |  // gauges in Prometheus text exposition format.  One
+       |  // `<sanitized-name>{nodeId="<id>"} <value>` line per (metric, peer)
+       |  // pair, plus `# TYPE … gauge` declarations.  Same Bearer-token gate.
+       |  def _registerClusterMetricsPromRoute(): Unit =
+       |    val path = "/_ssc-cluster/metrics-prom"
+       |    if _routes.exists(r => r.method == "GET" && r.path == path) then return
+       |    route("GET", path) { req =>
+       |      _clusterAuthReject(req) match
+       |        case Some(r) => r
+       |        case None =>
+       |          // Prometheus metric names must match `[a-zA-Z_:][a-zA-Z0-9_:]*`.
+       |          def sanitize(s: String): String =
+       |            val sb = new StringBuilder(s.length)
+       |            var i = 0
+       |            while i < s.length do
+       |              val c = s.charAt(i)
+       |              val ok =
+       |                (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+       |                (c >= '0' && c <= '9') || c == '_' || c == ':'
+       |              sb.append(if ok then c else '_')
+       |              i += 1
+       |            val out = sb.toString
+       |            if out.nonEmpty && out.charAt(0) >= '0' && out.charAt(0) <= '9'
+       |            then "_" + out else out
+       |          def escLabel(s: String): String =
+       |            s.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n")
+       |          val sb = new StringBuilder()
+       |          _clusterMetrics.forEach { (name, inner) =>
+       |            val pName = sanitize(name)
+       |            sb.append("# TYPE ").append(pName).append(" gauge\n")
+       |            inner.forEach { (nodeId, value) =>
+       |              sb.append(pName)
+       |                .append("{nodeId=\"").append(escLabel(nodeId)).append("\"} ")
+       |                .append(value.doubleValue())
+       |                .append('\n')
+       |            }
+       |          }
+       |          Response(
+       |            200,
+       |            Map("Content-Type" -> "text/plain; version=0.0.4; charset=utf-8"),
+       |            sb.toString)
+       |    }
+       |""".stripMargin +
+    """|  def _broadcastCoordinator(): Unit =
        |    val payload = "{\"t\":\"coordinator\",\"from\":" + _jstr(_localNodeId) + "}"
        |    _peerChannels.forEach { (_, send) => try send(payload) catch case _: Throwable => () }
        |  def _startElection(): Unit =
@@ -6552,6 +6785,16 @@ class JvmGen(
        |                if _autoReelect then _startElection()
        |        }
        |      }
+       |      // v1.23 — operational HTTP endpoints under /_ssc-cluster/* so
+       |      // ops tooling (`ssc cluster status / drain / events / step-down
+       |      // / metrics-prom`) can talk to codegen-built nodes just like
+       |      // interpreter nodes.  Idempotent — repeated startNode calls
+       |      // are no-ops for the route table.
+       |      _registerClusterStatusRoute()
+       |      _registerClusterDrainRoute()
+       |      _registerClusterEventsRoute()
+       |      _registerClusterStepDownRoute()
+       |      _registerClusterMetricsPromRoute()
        |      Right(k(()))
        |    case "connectNode" =>
        |      val url = args(0).toString
