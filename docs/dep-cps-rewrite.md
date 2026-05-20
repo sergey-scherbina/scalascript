@@ -76,7 +76,7 @@ Steps 0-3 landed on `main`; Steps 4-7 in flight on `feature/dep-cps`.
 | 7 — failure dedup + shuffle dispatch | ✅ landed — **all 6 distributed-* tests PASS** | + chunk 9 |
 | 5 — full regression sweep | ⏳ pending | — |
 | 6 — strip `pending:` from other v1.22 distributed-* tests | ⏳ pending | — |
-| 7 — retire `cpsBody` parameter / textual band-aids | ⏳ pending | — |
+| 7 — retire `cpsBody` parameter / textual band-aids | ✅ landed (2026-05-20) | this file |
 
 **Step 4 chunk 1 — landed (2026-05-19, commit 9c62b01):**
 
@@ -450,9 +450,49 @@ Codegen extensions (`JvmGen`):
   `xs.flatMap(_ => Option[_])` works.
 
 **Step 4 — COMPLETE.** Steps 5 (full regression sweep — done),
-6 (strip `pending:` — done for all 6 distributed-*), 7 (retire
-`cpsBody` parameter / textual band-aids) — all closed apart from
-Step 7 cleanup which is a low-priority refactor.
+6 (strip `pending:` — done for all 6 distributed-*).
+
+**Step 7 — landed (2026-05-20): textual band-aids retired.**
+
+Two cleanups in `JvmGen.scala`, both gated on Step 6 staying green:
+
+1. **`rewriteActorAstCallsInSource` removed.**  The AST band-aid
+   that rewrote `pid ! msg` → `Actor.send(pid, msg)` and `receive
+   { case … }` → `Actor.receive_(…)` at the source-text level is
+   gone.  Every dep block with those shapes is, by definition,
+   effectful (per `containsEffectPrimitive` — `!` infix and
+   `receive` are both in the whitelist), and Strategy D's
+   dep-mode CPS emit (Step 3) handles them natively via
+   `emitCpsExpr` / `emitReceiveMatcher`.  Non-effectful dep
+   blocks have no `!` or `receive` to rewrite, so the band-aid
+   was a no-op in practice.
+
+2. **`cpsBody` parameter dropped from `emitReceiveMatcherOpt`.**
+   Sole caller (`rewriteActorAstCallsInSource`) is gone, leaving
+   the `cpsBody = true` path as the only branch.  Inlined into
+   the now-single-arity `emitReceiveMatcher`; the recursive
+   `qualifyBareActorCallsInSource` re-application on case bodies
+   went with it.
+
+What stayed: `qualifyBareActorCallsInSource` (the bare-name
+regex rename: `self()` → `Actor.self()`, etc.) is still applied
+to every dep block.  Case-class / nested-method paths that don't
+trip `containsEffectPrimitive` still need the bare-name fixup,
+and the regex is too narrow (word-boundary anchored, ~30 names)
+to cause CPS-emit interference.  The split between
+"regex-only" and "regex + AST" paths collapsed since both paths
+now do exactly the same work.
+
+Numbers after Step 7:
+- 39 passed / 57 failed conformance — identical to pre-Step-7
+  baseline.  Zero diff in `conformance/run.sc` output.
+- All 6 distributed-* tests + `cluster-connect` still PASS [JVM].
+- Canary `actors-process-info.ssc` still FAIL [JVM] at the same
+  4 errors (unchanged from chunks 1-9).
+- 65 dep-cps unit tests + full interpreter test suite all green.
+- LOC reduction: ~140 lines removed from `JvmGen.scala`
+  (`rewriteActorAstCallsInSource` body + the `cpsBody = false`
+  arm + helper plumbing).
 
 **Validation as of Step 3 landing:**
 - `conformance/dep-cps-basic.ssc` runs end-to-end on JVM, prints `ok/ok`.

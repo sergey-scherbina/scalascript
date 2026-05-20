@@ -1153,33 +1153,16 @@ class JvmGen(
       // Apply the bare-actor-name rewrite to dep blocks before they enter
       // the main emit pipeline. Without this, code like `def healthCheck =
       // { val me = self(); pid ! msg }` lands verbatim inside the eventual
-      // `object std { object mapreduce { … } }` wrapper, and `self()` /
-      // `!` are unresolved (the JvmGen emit-time qualification only fires
-      // for user-code blocks via the effect-detection path). The transform
-      // is purely textual: bare actor names become `Actor.<n>`, the `!`
-      // infix becomes `Actor.send(…)`. Other identifiers are untouched
-      // so non-actor code in deps still emits as-is.
-      // Strategy D — for dep blocks that contain effect primitives, skip
-      // the textual band-aid (qualifyBareActorCallsInBlock).  Step 3's
-      // CPS emit handles `self()`, `pid ! msg`, `receive { case … }`
-      // natively via the existing emitCpsExpr / emitReceiveMatcher
-      // infrastructure.  Running the textual rewrite first produces
-      // shapes (`Actor.receive_(_registerReceive(_pfToFun{…}))`) that
-      // the CPS emit then wraps in nonsensical _bind chains over
-      // runtime helpers.  Only fall back to the band-aid for dep blocks
-      // with no effect primitives (the rare case where a dep's pure
-      // helper happens to mention an actor name).
+      // `object std { object mapreduce { … } }` wrapper, and `self()` is
+      // unresolved (the JvmGen emit-time qualification only fires for
+      // user-code blocks via the effect-detection path). The transform is
+      // purely textual: bare actor names (`self`, `link`, `trapExit`, …)
+      // become `Actor.<n>`. Effect-primitive call shapes that need real
+      // CPS plumbing (`pid ! msg`, `receive { case … }`) are handled by
+      // Strategy D's dep-mode CPS emit (Step 3) via the existing
+      // `emitCpsExpr` / `emitReceiveMatcher` infrastructure.
       val rawBlocks = nested.collectBlocks(importedModule.sections)
-      val rewrittenBlocks = rawBlocks.map { b =>
-        val hasEffect = ScalaNode.fold(b.node)(tree => containsEffectPrimitive(tree))
-        if hasEffect then
-          // Effectful dep block: apply ONLY the bare-name regex
-          // rename (so case-class methods can resolve `self()` etc.)
-          // and skip the receive/send AST rewrite (which would produce
-          // shapes the Step 3 CPS emit can't handle).
-          qualifyBareActorCallsRegexOnlyInBlock(b)
-        else qualifyBareActorCallsInBlock(b)
-      }
+      val rewrittenBlocks = rawBlocks.map(qualifyBareActorCallsInBlock)
       // Strategy D, Step 2 — index every Defn.Def in this dep (top-level
       // or nested in object/class) so the fixpoint can analyse its body.
       // Also index every Defn.Class so chunk 3's call-site cast injection
@@ -1202,6 +1185,25 @@ class JvmGen(
       }
       (rewrittenBlocks, pkg)
 
+  /** Pre-emit string rewrite for dep blocks. Targets the narrow set of
+   *  bare actor names the runtime exposes only as `Actor.<n>` (not as
+   *  top-level names), so wrapping the dep in `object std { object pkg
+   *  { … } }` doesn't lose access. Conservative: word-boundary anchored
+   *  so substrings inside identifiers / comments / strings aren't
+   *  touched.
+   *
+   *  Effect-primitive call shapes (`pid ! msg`, `receive { case … }`)
+   *  are NOT handled here — Strategy D's dep-mode CPS emit (Step 3)
+   *  rewrites them via `emitCpsExpr` / `emitReceiveMatcher`. Only the
+   *  bare-name fixup is needed for case-class / nested-method paths
+   *  where CPS emit doesn't fire.
+   *
+   *  Why string-level and not a scala.meta transformer: scalameta 4.13
+   *  doesn't ship a public `Tree.transform` (the transversers package
+   *  is empty), and writing a manual recursive copy-based transformer
+   *  for every container type would be ~200 lines of plumbing. The
+   *  regex set below is intentionally tiny so the matching is
+   *  predictable. */
   private def qualifyBareActorCallsInBlock(block: JvmGen.Block): JvmGen.Block =
     val rewrittenSrc = qualifyBareActorCallsInSource(block.src)
     if rewrittenSrc == block.src then block
@@ -1213,56 +1215,7 @@ class JvmGen(
         case Some(reparsed) => JvmGen.Block(scalascript.ast.ScalaNode(reparsed), rewrittenSrc)
         case None           => block  // re-parse failed — fall back to original
 
-  /** Strategy D variant: bare-name rewrite only, no AST receive/send
-   *  rewrite.  Used for dep blocks with effect primitives where Step 3
-   *  handles receive/send via CPS emit. */
-  private def qualifyBareActorCallsRegexOnlyInBlock(block: JvmGen.Block): JvmGen.Block =
-    val rewrittenSrc = qualifyBareActorCallsRegexOnly(block.src)
-    if rewrittenSrc == block.src then block
-    else
-      import scala.meta.{dialects, *}
-      dialects.Scala3(Input.VirtualFile("<dep-rewrite>", rewrittenSrc))
-        .parse[Source].toOption match
-        case Some(reparsed) => JvmGen.Block(scalascript.ast.ScalaNode(reparsed), rewrittenSrc)
-        case None           => block
-
-  /** Pre-emit string rewrite for dep blocks. Targets the narrow set of
-   *  call shapes the runtime exposes only as `Actor.<n>` (not as bare
-   *  top-level names) — so wrapping the dep in `object std { object pkg
-   *  { … } }` doesn't lose access. Conservative: word-boundary anchored
-   *  so substrings inside identifiers / comments / strings aren't
-   *  touched.
-   *
-   *  Why string-level and not scala.meta transformer: scalameta 4.13
-   *  doesn't ship a public `Tree.transform` (the transversers package
-   *  is empty), and writing a manual recursive copy-based transformer
-   *  for every container type would be ~200 lines of plumbing. The
-   *  regex set below is intentionally tiny so the matching is
-   *  predictable. */
   private def qualifyBareActorCallsInSource(src: String): String =
-    val withBareQualified = qualifyBareActorCallsRegexOnly(src)
-    // After bare-name qualification, do AST-based rewrites for the
-    // shapes that don't have safe regex equivalents:
-    //   - `pid ! msg`            → `Actor.send(pid, msg)` (regex
-    //     misses `pids.foreach(pid => pid ! msg)` because the line
-    //     doesn't start with the identifier)
-    //   - `receive { case … }`   → `Actor.receive_(_registerReceive(…))`
-    //   - `receive(t) { case … }`/`receiveWithTimeout(t) { case … }`
-    //     → `Actor.receive_t(_registerReceive(…), t)`
-    rewriteActorAstCallsInSource(withBareQualified)
-
-  /** Bare-name part of the band-aid only — safe textual rename of
-   *  `self()` → `Actor.self()` etc.  Used by Strategy D for dep blocks
-   *  that contain effect primitives: we still need the bare-name
-   *  qualification (so case-class methods can call `self()` from inside
-   *  the wrapped object), but we skip the AST rewrite for
-   *  receive/send because it produces shapes the CPS emit can't
-   *  handle (`Actor.receive_(_registerReceive(_pfToFun{…}))` then gets
-   *  wrapped in nonsensical _bind chains over runtime helpers).  Top-
-   *  level `Defn.Def` bodies in the dep go through Step 3's CPS emit
-   *  which handles `receive` / `!` natively; only the case-class /
-   *  nested-method paths need the bare-name fixup. */
-  private def qualifyBareActorCallsRegexOnly(src: String): String =
     var out = src
     val bareNames = actorBareNames - "receive" - "runActors" - "spawn" - "spawn_link" - "spawnBounded"
     bareNames.foreach { n =>
@@ -1270,91 +1223,6 @@ class JvmGen(
       out = pattern.replaceAllIn(out, java.util.regex.Matcher.quoteReplacement(s"Actor.$n("))
     }
     out
-
-  /** Walk every Apply tree in `src` (via scalameta parse) and splice
-   *  in qualified forms for the actor call shapes that can't be safely
-   *  expressed as a regex: `pid ! msg` and `receive { case … }`
-   *  variants. Positions come from scalameta so brace balancing and
-   *  string-literal escaping are handled correctly. Replacements are
-   *  applied right-to-left so earlier offsets remain valid. */
-  private def rewriteActorAstCallsInSource(src: String): String =
-    import scala.meta.{dialects, *}
-    // Try parsing as Source first (top-level decls), then fall back to
-    // Term (so block-shaped bodies like `{ val …; replyTo ! … }` —
-    // passed in by the receive-case-body recursion — also get walked).
-    val input = Input.VirtualFile("<dep-ast>", src)
-    val parsed: Option[Tree] =
-      scala.util.Try(dialects.Scala3(input).parse[Source]).toOption
-        .flatMap(_.toOption).map(t => t: Tree)
-      .orElse(
-        scala.util.Try(dialects.Scala3(input).parse[Term]).toOption
-          .flatMap(_.toOption).map(t => t: Tree)
-      )
-    parsed match
-      case None => src
-      case Some(tree) =>
-        case class Splice(start: Int, end: Int, replacement: String)
-        val splices = scala.collection.mutable.ListBuffer.empty[Splice]
-        def walk(t: Tree): Unit =
-          t match
-            // receiveWithTimeout(t) { case … }  /  receive(t) { case … }
-            case app @ Term.Apply.After_4_6_0(
-                  Term.Apply.After_4_6_0(Term.Name("receive" | "receiveWithTimeout"), timeoutArgs),
-                  pfArgs)
-                if pfArgs.values.size == 1 && timeoutArgs.values.size == 1 =>
-              val timeoutSrc = timeoutArgs.values.head match
-                case Term.Assign(Term.Name("timeout"), v)   => v.syntax
-                case Term.Assign(Term.Name("timeoutMs"), v) => v.syntax
-                case other: Term                            => other.syntax
-              pfArgs.values.head match
-                case pf: Term.PartialFunction =>
-                  val matcher = emitReceiveMatcherOpt(pf.cases, cpsBody = false)
-                  splices += Splice(
-                    app.pos.start, app.pos.end,
-                    s"Actor.receive_t(_registerReceive($matcher), $timeoutSrc)"
-                  )
-                case _ => ()
-              timeoutArgs.values.foreach(walk)
-            // receive { case … }
-            case app @ Term.Apply.After_4_6_0(Term.Name("receive"), pfArgs)
-                if pfArgs.values.size == 1 =>
-              pfArgs.values.head match
-                case pf: Term.PartialFunction =>
-                  val matcher = emitReceiveMatcherOpt(pf.cases, cpsBody = false)
-                  splices += Splice(
-                    app.pos.start, app.pos.end,
-                    s"Actor.receive_(_registerReceive($matcher))"
-                  )
-                case _ => ()
-            // pid ! msg → Actor.send(pid, msg). Walk children first so
-            // nested ! / receive inside lhs or msg are processed too.
-            // Scala parses `pid ! (a, b)` as a 2-arg infix call
-            // (`pid.!(a, b)`) rather than a 1-arg-with-tuple call —
-            // reconstruct the tuple syntactically in that case so the
-            // emitted code is `Actor.send(pid, (a, b))`.
-            case infix @ Term.ApplyInfix.After_4_6_0(lhs, op, _, argClause)
-                if op.value == "!" && argClause.values.nonEmpty =>
-              walk(lhs)
-              argClause.values.foreach(walk)
-              val msgSrc = argClause.values match
-                case List(single) => single.syntax
-                case many         => many.map(_.syntax).mkString("(", ", ", ")")
-              splices += Splice(
-                infix.pos.start, infix.pos.end,
-                s"Actor.send(${lhs.syntax}, $msgSrc)"
-              )
-            case other =>
-              other.children.foreach(walk)
-        walk(tree)
-        if splices.isEmpty then src
-        else
-          // Apply right-to-left so earlier offsets remain valid.
-          val ordered = splices.sortBy(-_.start).toList
-          val sb = new StringBuilder(src)
-          ordered.foreach { sp =>
-            sb.replace(sp.start, sp.end, sp.replacement)
-          }
-          sb.toString
 
   // ─── Effect analysis ──────────────────────────────────────────────
 
@@ -3177,24 +3045,11 @@ class JvmGen(
    *  Type: `(msg: Any) => Option[Any]` — `Some(bodyComputation)` on
    *  match, `None` on miss.  Case bodies are CPS-emitted so any nested
    *  Actor / Async / handle effects compose into the actor's pending
-   *  Computation. */
-  private def emitReceiveMatcher(cases: List[Case]): String =
-    emitReceiveMatcherOpt(cases, cpsBody = true)
-
-  /** When `cpsBody = true`, case bodies are emitted via `emitCpsExpr`
-   *  (correct for user code inside `runActors { … }`). When false,
-   *  bodies are emitted verbatim AFTER recursively running the same
-   *  actor-AST rewriter on each body — used by the dep-rewrite path
-   *  because dep code lives inside actor *helper* functions called
-   *  from a spawned thunk; its bodies are regular Scala and CPS-
-   *  wrapping their effectful subterms picks up `Any` types where the
-   *  dep declared statically-typed parameters. The recursive call is
-   *  needed because the outer receive splice would otherwise overwrite
-   *  any bang/receive splices inside the case body.
+   *  Computation.
    *  Emits as `_pfToFun({ case pat => Some(...); case _ => None })`.
    *  `_pfToFun` accepts `PartialFunction[Any, Option[Any]]` and
    *  returns a total `Any => Option[Any]`. */
-  private def emitReceiveMatcherOpt(cases: List[Case], cpsBody: Boolean): String =
+  private def emitReceiveMatcher(cases: List[Case]): String =
     val sb = StringBuilder()
     sb.append("_pfToFun { ")
     cases.foreach { c =>
@@ -3202,10 +3057,7 @@ class JvmGen(
       sb.append(c.pat.syntax)
       c.cond.foreach { g => sb.append(" if "); sb.append(g.syntax) }
       sb.append(" => Some(")
-      val bodySrc =
-        if cpsBody then emitCpsExpr(c.body)
-        else qualifyBareActorCallsInSource(c.body.syntax)
-      sb.append(bodySrc)
+      sb.append(emitCpsExpr(c.body))
       sb.append("); ")
     }
     sb.append("case _ => None }")
