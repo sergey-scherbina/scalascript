@@ -3453,16 +3453,16 @@ class Interpreter(
         // to intercept BEFORE the generic eval path, otherwise Term.Assign
         // would fall into the var-assignment case and mutate globals.
         case Term.Select(qual, Term.Name("copy")) =>
-          evalCopy(qual, app.argClause.values, env)
+          OpticsRuntime.evalCopy(qual, app.argClause.values, env, this)
         // ── Focus[T](_.a.b) / Focus(_.a.b) — Monocle-style lens ──────
         // Inspect the lambda body at AST level to extract a field-access
         // chain, then synthesise a Lens value with get / set / modify /
         // andThen. Done at AST level because the placeholder lambda is
         // otherwise erased to an opaque NativeFnV.
-        case ta: Term.ApplyType if isFocusName(ta.fun) =>
-          evalFocus(app.argClause.values)
+        case ta: Term.ApplyType if OpticsRuntime.isFocusName(ta.fun) =>
+          OpticsRuntime.evalFocus(app.argClause.values, this)
         case Term.Name("Focus") =>
-          evalFocus(app.argClause.values)
+          OpticsRuntime.evalFocus(app.argClause.values, this)
         // ── direct[M] { stmts } — v1.8 do-notation sugar ─────────────
         case Term.ApplyType.After_4_6_0(Term.Name("direct"), typeArgClause) =>
           val typeArg = typeArgClause.values.headOption.getOrElse(Type.Name("?"))
@@ -3879,82 +3879,6 @@ class Interpreter(
       eval(t.expr, env)
 
     case other => located(s"Cannot eval: ${other.productPrefix}")
-
-  // ─── Lenses / Focus / .copy — see OpticsRuntime.scala for optic builders ────
-
-  /** `recv.copy(field = value, ...)` — produce a new InstanceV with the
-   *  named fields overridden. */
-  private def evalCopy(qual: Term, args: List[Term], env: Env): Computation =
-    val qualC = eval(qual, env)
-    val firstNamed = args.indexWhere {
-      case Term.Assign(_: Term.Name, _) => true
-      case _                            => false
-    }
-    if firstNamed >= 0 && args.drop(firstNamed).exists {
-      case Term.Assign(_: Term.Name, _) => false
-      case _                            => true
-    } then located(".copy: positional argument after named argument is not allowed")
-    val tagged: List[(Option[String], Computation)] = args.map {
-      case Term.Assign(Term.Name(field), rhs) => (Some(field), eval(rhs, env))
-      case other                              => (None,        eval(other, env))
-    }
-    val (tags, comps) = tagged.unzip
-    FlatMap(qualC, qualV =>
-      threadValues(comps) { newVals =>
-        qualV match
-          case Value.InstanceV(typeName, fields) =>
-            val order = typeFieldOrder.getOrElse(typeName, fields.keys.toList)
-            val named = tags.zip(newVals).collect { case (Some(n), v) => n -> v }.toMap
-            val positionals = tags.zip(newVals).collect { case (None, v) => v }
-            val firstFreeFields = order.filterNot(named.contains).take(positionals.length)
-            if positionals.length > firstFreeFields.length then
-              located(s".copy: $typeName takes ${order.length} fields, got ${tags.length}")
-            else
-              val unknownNamed = named.keySet -- fields.keySet
-              if unknownNamed.nonEmpty then
-                located(s".copy: unknown field(s) on $typeName: ${unknownNamed.mkString(", ")}")
-              else
-                val fromPositions = firstFreeFields.zip(positionals).toMap
-                Pure(Value.InstanceV(typeName, fields ++ fromPositions ++ named))
-          case other =>
-            located(s".copy: not a case-class instance: ${Value.show(other)}")
-      })
-
-  private def isFocusName(t: Term): Boolean = t match
-    case Term.Name("Focus") => true
-    case _                  => false
-
-  private def evalFocus(args: List[Term]): Computation =
-    args match
-      case List(lambda) =>
-        val stepsOpt: Option[List[OpticsRuntime.PathStep]] = lambda match
-          case Term.AnonymousFunction(body) =>
-            OpticsRuntime.extractPathSteps(body, isBase = _.isInstanceOf[Term.Placeholder])
-          case Term.Function.After_4_6_0(paramClause, body) =>
-            paramClause.values.headOption.map(_.name.value) match
-              case Some(p) =>
-                OpticsRuntime.extractPathSteps(body, isBase = {
-                  case Term.Name(n) => n == p
-                  case _            => false
-                })
-              case None => None
-          case _ => None
-        stepsOpt match
-          case Some(steps) if steps.nonEmpty =>
-            val hasIndexOrAt = steps.exists {
-              case _: OpticsRuntime.PathStep.IndexStep | _: OpticsRuntime.PathStep.AtKey => true
-              case _                                                                      => false
-            }
-            if steps.contains(OpticsRuntime.PathStep.EachStep) then
-              Pure(OpticsRuntime.buildPathTraversal(steps, this))
-            else if steps.contains(OpticsRuntime.PathStep.SomeStep) || hasIndexOrAt then
-              Pure(OpticsRuntime.buildPathOptional(steps, this))
-            else
-              Pure(OpticsRuntime.buildPathLens(steps.collect {
-                case OpticsRuntime.PathStep.FieldStep(n) => n
-              }, this))
-          case _ => located("Focus: expected a field-access lambda like _.field.subfield")
-      case _ => located("Focus expects exactly one lambda argument")
 
   // ─── Lenses / Optics — see OpticsRuntime.scala ─────────────────────
 

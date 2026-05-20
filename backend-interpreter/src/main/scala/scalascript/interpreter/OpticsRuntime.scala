@@ -1,7 +1,7 @@
 package scalascript.interpreter
 
 import scala.meta.*
-import Computation.Pure
+import Computation.{Pure, FlatMap}
 
 /** Optic builders and traversers for Lens / Optional / Traversal / Prism.
  *
@@ -398,3 +398,77 @@ private[interpreter] object OpticsRuntime:
         case Value.StringV(n) => PathStep.FieldStep(n)
       })
       case _ => None
+
+  /** `recv.copy(field = value, ...)` — produce a new InstanceV with the
+   *  named fields overridden. */
+  def evalCopy(qual: Term, args: List[Term], env: Env, interp: Interpreter): Computation =
+    val qualC = interp.eval(qual, env)
+    val firstNamed = args.indexWhere {
+      case Term.Assign(_: Term.Name, _) => true
+      case _                            => false
+    }
+    if firstNamed >= 0 && args.drop(firstNamed).exists {
+      case Term.Assign(_: Term.Name, _) => false
+      case _                            => true
+    } then interp.located(".copy: positional argument after named argument is not allowed")
+    val tagged: List[(Option[String], Computation)] = args.map {
+      case Term.Assign(Term.Name(field), rhs) => (Some(field), interp.eval(rhs, env))
+      case other                              => (None,        interp.eval(other, env))
+    }
+    val (tags, comps) = tagged.unzip
+    FlatMap(qualC, qualV =>
+      interp.threadValues(comps) { newVals =>
+        qualV match
+          case Value.InstanceV(typeName, fields) =>
+            val order = interp.typeFieldOrder.getOrElse(typeName, fields.keys.toList)
+            val named = tags.zip(newVals).collect { case (Some(n), v) => n -> v }.toMap
+            val positionals = tags.zip(newVals).collect { case (None, v) => v }
+            val firstFreeFields = order.filterNot(named.contains).take(positionals.length)
+            if positionals.length > firstFreeFields.length then
+              interp.located(s".copy: $typeName takes ${order.length} fields, got ${tags.length}")
+            else
+              val unknownNamed = named.keySet -- fields.keySet
+              if unknownNamed.nonEmpty then
+                interp.located(s".copy: unknown field(s) on $typeName: ${unknownNamed.mkString(", ")}")
+              else
+                val fromPositions = firstFreeFields.zip(positionals).toMap
+                Pure(Value.InstanceV(typeName, fields ++ fromPositions ++ named))
+          case other =>
+            interp.located(s".copy: not a case-class instance: ${Value.show(other)}")
+      })
+
+  def isFocusName(t: Term): Boolean = t match
+    case Term.Name("Focus") => true
+    case _                  => false
+
+  def evalFocus(args: List[Term], interp: Interpreter): Computation =
+    args match
+      case List(lambda) =>
+        val stepsOpt: Option[List[PathStep]] = lambda match
+          case Term.AnonymousFunction(body) =>
+            extractPathSteps(body, isBase = _.isInstanceOf[Term.Placeholder])
+          case Term.Function.After_4_6_0(paramClause, body) =>
+            paramClause.values.headOption.map(_.name.value) match
+              case Some(p) =>
+                extractPathSteps(body, isBase = {
+                  case Term.Name(n) => n == p
+                  case _            => false
+                })
+              case None => None
+          case _ => None
+        stepsOpt match
+          case Some(steps) if steps.nonEmpty =>
+            val hasIndexOrAt = steps.exists {
+              case _: PathStep.IndexStep | _: PathStep.AtKey => true
+              case _                                         => false
+            }
+            if steps.contains(PathStep.EachStep) then
+              Pure(buildPathTraversal(steps, interp))
+            else if steps.contains(PathStep.SomeStep) || hasIndexOrAt then
+              Pure(buildPathOptional(steps, interp))
+            else
+              Pure(buildPathLens(steps.collect {
+                case PathStep.FieldStep(n) => n
+              }, interp))
+          case _ => interp.located("Focus: expected a field-access lambda like _.field.subfield")
+      case _ => interp.located("Focus expects exactly one lambda argument")
