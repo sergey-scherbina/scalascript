@@ -1,6 +1,6 @@
 # ScalaScript User Guide
 
-A practical reference for ScalaScript v1.23+.
+A practical reference for ScalaScript v1.27+.
 
 ---
 
@@ -261,6 +261,35 @@ extension (n: Int)
 4.squared      // 16
 3.times { println("hello") }
 ```
+
+### List and Map Literals
+
+In `.ssc` code blocks `[…]` is compact syntax sugar — no import needed:
+
+```scalascript
+val nums   = [1, 2, 3]             // List(1, 2, 3)
+val empty  = []                     // List()
+val words  = ["hello", "world"]
+
+val scores = ["Alice" -> 95, "Bob" -> 87]   // Map("Alice" -> 95, "Bob" -> 87)
+val cfg    = ["host" -> "db", "port" -> 5432]
+```
+
+The rule is simple: `[k -> v, ...]` (arrow present) expands to `Map(...)`,
+anything else to `List(...)`.  Works everywhere an expression is expected —
+method arguments, `val` initializers, nested literals:
+
+```scalascript
+val matrix  = [[1, 0], [0, 1]]              // List(List(1,0), List(0,1))
+val headers = ["Content-Type" -> "application/json", "X-Token" -> token]
+
+route("POST", "/api/todos") { req =>
+  Db.execute("default", "INSERT INTO todos(text) VALUES (?)", [req.body.trim])
+  Response.status(201, "created")
+}
+```
+
+Type-parameter brackets are never affected — `def f[A](x: A)` is unchanged.
 
 ### Optics
 
@@ -569,7 +598,194 @@ TCP port stays bound so in-flight requests are not dropped.
 
 ---
 
-## 6. WebSocket
+## 6. SQL Databases
+
+### Declaring connections
+
+Add a `databases:` map to front-matter.  Each entry is a named JDBC connection:
+
+````ssc
+---
+name: myapp
+databases:
+  default:
+    url: "jdbc:sqlite:./app.db"
+  analytics:
+    url:      "jdbc:postgresql://db:5432/analytics"
+    user:     "${env:DB_USER}"
+    password: "${env:DB_PASSWORD}"
+    driver:   "org.postgresql.Driver"   # optional — auto-detected for bundled drivers
+---
+````
+
+Bundled drivers: **SQLite** (`jdbc:sqlite:`) and **H2** (`jdbc:h2:`).  Any other driver can be added as a `dep:` import or placed on the classpath.
+
+Connection strings support `${scheme:ref}` secret references (see §6.2).
+
+### `sql` fenced blocks
+
+A ` ```sql ``` ` fenced block executes against the `default` database (or the one named in `@database` front-matter of the block).  Return value is the row count for DML, void for DDL:
+
+````ssc
+```sql
+CREATE TABLE IF NOT EXISTS todos (
+  id   INTEGER PRIMARY KEY AUTOINCREMENT,
+  text TEXT    NOT NULL
+)
+```
+````
+
+Bind parameters use `?`:
+
+````ssc
+```sql
+INSERT INTO users(name, email) VALUES (?, ?)
+```
+````
+
+Parameters are passed from the surrounding `scalascript` block via `Db.execute`.
+
+### Programmatic access
+
+`Db.query` and `Db.execute` are available in `scalascript` blocks:
+
+```scalascript
+// Returns List[Map[String, Any]] — one map per row, keyed by column name
+val rows = Db.query("default", "SELECT id, text FROM todos ORDER BY id", [])
+
+// Returns update count (Int)
+Db.execute("default", "INSERT INTO todos(text) VALUES (?)", ["Buy milk"])
+Db.execute("default", "DELETE FROM todos WHERE id = ?", [id.toInt])
+```
+
+The first argument is the connection name from `databases:`.  Bind parameters are passed as a list — use `[]` for no parameters.
+
+### REST API + SQLite example
+
+A complete todo list with SQLite persistence and a JSON REST API:
+
+````ssc
+---
+name: todo-api
+databases:
+  default:
+    url: "jdbc:sqlite:./todos.db"
+---
+
+# Todo API
+
+```sql
+CREATE TABLE IF NOT EXISTS todos (
+  id   INTEGER PRIMARY KEY AUTOINCREMENT,
+  text TEXT    NOT NULL
+)
+```
+
+```scalascript
+route("GET", "/api/todos") { req =>
+  val rows = Db.query("default", "SELECT id, text FROM todos ORDER BY id", [])
+  val body = "[" + rows.map(r => s"""{"id":${r("id")},"text":"${r("text")}"}""").mkString(",") + "]"
+  Response.text(body)
+}
+
+route("POST", "/api/todos") { req =>
+  val text = req.body.trim
+  if text.isEmpty then Response.status(400, "empty body")
+  else
+    Db.execute("default", "INSERT INTO todos(text) VALUES (?)", [text])
+    Response.status(201, "created")
+}
+
+route("POST", "/api/todos/delete") { req =>
+  Db.execute("default", "DELETE FROM todos WHERE id = ?", [req.body.trim.toInt])
+  Response.status(204)
+}
+
+serve(8080)
+```
+````
+
+The database file `todos.db` is created on first run and survives restarts.
+
+---
+
+## 6.2. Secret Management
+
+### Built-in `${scheme:ref}` resolution
+
+Secret references in `databases:` connection fields are expanded at connection-open time — never stored in plaintext:
+
+| Scheme | Reference | Resolved from |
+|--------|-----------|--------------|
+| `${env:NAME}` | `${env:DB_PASSWORD}` | process environment variable |
+| `${file:PATH}` | `${file:/run/secrets/db_pw}` | file contents, whitespace-trimmed (Docker / K8s secret volumes) |
+| `${sops:key.path}` | `${sops:db.prod.password}` | YAML piped to stdin via `sops -d` |
+
+Multiple references in one string are all expanded:
+
+```yaml
+url: "jdbc:postgresql://${env:DB_HOST}:${env:DB_PORT}/myapp"
+```
+
+### Piping secrets via sops
+
+```bash
+sops -d secrets.enc.yaml | ssc myapp.ssc
+```
+
+`ssc` detects a piped stdin at startup, parses the decrypted YAML, and flattens nested keys to dot-separated paths:
+
+```yaml
+# secrets.enc.yaml (decrypted output)
+db:
+  prod:
+    password: "s3cr3t"
+TOP_SECRET: "value"
+```
+
+Accessible as `${sops:db.prod.password}` and `${sops:TOP_SECRET}` in any `databases:` field.  List elements are keyed by index (`hosts.0`, `hosts.1`, …).
+
+```yaml
+databases:
+  prod:
+    url:      "jdbc:postgresql://db:5432/myapp"
+    user:     "${sops:db.prod.user}"
+    password: "${sops:db.prod.password}"
+```
+
+### Docker / Kubernetes secret files
+
+```yaml
+databases:
+  prod:
+    password: "${file:/run/secrets/db_password}"
+```
+
+The file is read and whitespace-stripped at connection time.  The path is typically a tmpfs mount injected by Docker Compose `secrets:` or a K8s volume.
+
+### `SecretResolver` SPI
+
+Custom backends (HashiCorp Vault, AWS Secrets Manager, GCP Secret Manager, Doppler, …) are implemented as `SecretResolver` plugins loaded via `java.util.ServiceLoader`:
+
+```scala
+// In a plugin JAR:
+class VaultResolver extends scalascript.sql.SecretResolver:
+  val scheme = "vault"
+  def resolve(ref: String): String =
+    val (path, field) = ref.span(_ != '#')
+    VaultClient.read(path).data(field.drop(1))
+
+// META-INF/services/scalascript.sql.SecretResolver:
+// com.example.VaultResolver
+```
+
+Usage in front-matter: `${vault:secret/myapp/db#password}`
+
+See [`secret-resolvers.md`](../secret-resolvers.md) for the full spec — Vault, AWS SM, GCP SM, Azure KV, Doppler, 1Password, pass.
+
+---
+
+## 7. WebSocket
 
 ### Server
 
@@ -642,7 +858,7 @@ runAsync {
 
 ---
 
-## 7. Actors
+## 8. Actors
 
 ### Basic Actors
 
@@ -718,7 +934,7 @@ cluster.members.foreach(m => println(m.id))
 
 ---
 
-## 8. Data Processing
+## 9. Data Processing
 
 ### Dataset API
 
@@ -789,7 +1005,7 @@ ds.toMap(_.split(",").head, _.split(",").last)
 
 ---
 
-## 9. DSL Authoring
+## 10. DSL Authoring
 
 ### Parser Combinators
 
@@ -893,7 +1109,7 @@ object Printer extends Visitor[Ast]:
 
 ---
 
-## 10. Module System
+## 11. Module System
 
 ### Basic Imports
 
@@ -970,7 +1186,7 @@ ssc info lib.scjvm                    # inspect artifact
 
 ---
 
-## 11. Testing
+## 12. Testing
 
 ### Writing Tests
 
@@ -1040,7 +1256,7 @@ Each test runs on all three backends and compares output. Add new tests under `c
 
 ---
 
-## 12. Formatting (`ssc fmt`)
+## 13. Formatting (`ssc fmt`)
 
 `ssc fmt` is the canonical formatter for `.ssc` files. It normalises
 front-matter key order, heading style, blank lines around code blocks,
@@ -1096,7 +1312,7 @@ being formatted.
 
 ---
 
-## 13. Apache Spark
+## 14. Apache Spark
 
 The `spark` backend (`bin/ssc-spark` or `ssc run --backend spark`) compiles a `.ssc`
 program to a Scala 3.7.1 `.sc` script with `//> using` directives and runs it
@@ -1317,7 +1533,7 @@ ssc submit file.ssc --dry-run                         # print the spark-submit i
 
 ---
 
-## 14. WebAssembly backend
+## 15. WebAssembly backend
 
 `ssc emit-wasm file.ssc` lowers `scalascript` blocks to a WebAssembly module
 (no Node.js / JVM at runtime). `sql` fenced blocks are supported via the
@@ -1334,7 +1550,7 @@ Examples: `wasm-fibonacci.ssc`, `wasm-sorting.ssc`, `wasm-matrix.ssc`,
 
 ---
 
-## 15. Frontend Framework SPI (v1.18 A)
+## 16. Frontend Framework SPI (v1.18 A)
 
 Same `.ssc` UI source, four targets. Pick the backend per build; the source
 stays identical.
@@ -1366,7 +1582,7 @@ under `examples/frontend/`.
 
 ---
 
-## 16. Frontend Toolkit (v1.18 B / B+ / B++ / C)
+## 17. Frontend Toolkit (v1.18 B / B+ / B++ / C)
 
 Higher-level declarative UI on top of the framework SPI.  Lives in
 the `frontend-toolkit` sbt module; user code reaches for the `Tk`
@@ -1480,7 +1696,7 @@ Cross-backend integration: [`docs/frontend-usage.md`](frontend-usage.md).
 
 ---
 
-## 17. Cluster management
+## 18. Cluster management
 
 Distributed actors + cluster primitives baked in across all server backends:
 
@@ -1501,7 +1717,7 @@ Specs: [`docs/cluster-management.md`](cluster-management.md),
 
 ---
 
-## 18. x402 micropayments
+## 19. x402 micropayments
 
 HTTP 402 → typed payment challenge / settlement. Same `.ssc` source describes
 both client and server; the protocol layer wires the payment family
@@ -1566,7 +1782,8 @@ ssc plugin install X      # install plugin
 - Coroutines + generators: [docs/coroutines.md](coroutines.md)
 - DSL authoring: [docs/dsl.md](dsl.md)
 - Dataset / MapReduce: [docs/mapreduce.md](mapreduce.md)
-- Apache Spark: §13 above, [docs/spark-streaming.md](spark-streaming.md), [docs/spark-lakehouse.md](spark-lakehouse.md), [docs/spark-catalog.md](spark-catalog.md), [docs/spark-mllib.md](spark-mllib.md)
+- **SQL databases + secret management: §6, §6.2, [secret-resolvers.md](../secret-resolvers.md)**
+- Apache Spark: §14 above, [docs/spark-streaming.md](spark-streaming.md), [docs/spark-lakehouse.md](spark-lakehouse.md), [docs/spark-catalog.md](spark-catalog.md), [docs/spark-mllib.md](spark-mllib.md)
 - Actors + cluster: [docs/actors-dist.md](actors-dist.md), [docs/cluster-management.md](cluster-management.md)
 - Frontend toolkit + framework SPI: [docs/frontend-toolkit-spec.md](frontend-toolkit-spec.md), [docs/frontend-framework-spi-plan.md](frontend-framework-spi-plan.md)
 - x402 micropayments + wallet SPI: [docs/x402.md](x402.md), [docs/blockchain-spi.md](blockchain-spi.md), [docs/micropayment-spi.md](micropayment-spi.md)

@@ -1113,3 +1113,295 @@ ready to drop into a static-site pipeline.
   and `Tk.sortableColumn`.
 - Browse the full widget catalog in
   [`docs/frontend-toolkit-spec.md`](frontend-toolkit-spec.md).
+
+---
+
+# Tutorial 4: Full-stack .ssc — SQLite todo app with reactive UI
+
+Build a self-contained full-stack app in a single `.ssc` file: SQLite database,
+REST API, and a reactive browser UI — all wired together without leaving
+ScalaScript.
+
+The finished app:
+- Persists todos to a SQLite file (survives restarts)
+- Exposes a JSON REST API (`GET / POST / DELETE /api/todos`)
+- Renders a reactive SPA using `std/ui` widgets
+- Runs with a single `ssc serve` command
+
+---
+
+## Step 1: Front-matter and database
+
+Create `todos.ssc`:
+
+````ssc
+#!/usr/bin/env ssc
+---
+name: todos
+version: 1.0.0
+frontend: react
+databases:
+  default:
+    url: "jdbc:sqlite:./todos.db"
+---
+
+# Todos
+````
+
+The `databases:` block declares a named SQLite connection.  The file
+`todos.db` is created on first run.  `frontend: react` tells `ssc` to
+emit the UI as a React bundle.
+
+---
+
+## Step 2: Create the table
+
+A `sql` fenced block runs DDL against the `default` connection at startup:
+
+````ssc
+## Database setup
+
+```sql
+CREATE TABLE IF NOT EXISTS todos (
+  id   INTEGER PRIMARY KEY AUTOINCREMENT,
+  text TEXT    NOT NULL
+)
+```
+````
+
+Running `ssc todos.ssc` after this step creates the table (no error if it
+already exists).
+
+---
+
+## Step 3: REST API
+
+```scalascript
+route("GET", "/api/todos") { req =>
+  val rows = Db.query("default", "SELECT id, text FROM todos ORDER BY id", [])
+  val body = "[" + rows.map(r => s"""{"id":${r("id")},"text":"${r("text")}"}""").mkString(",") + "]"
+  Response.text(body)
+}
+
+route("POST", "/api/todos") { req =>
+  val text = req.body.trim
+  if text.isEmpty then Response.status(400, "empty body")
+  else
+    Db.execute("default", "INSERT INTO todos(text) VALUES (?)", [text])
+    Response.status(201, "created")
+}
+
+route("POST", "/api/todos/delete") { req =>
+  Db.execute("default", "DELETE FROM todos WHERE id = ?", [req.body.trim.toInt])
+  Response.status(204)
+}
+```
+
+Test the API directly:
+
+```bash
+ssc todos.ssc &
+
+curl http://localhost:8080/api/todos          # []
+curl -X POST http://localhost:8080/api/todos --data 'Buy milk'
+curl http://localhost:8080/api/todos          # [{"id":1,"text":"Buy milk"}]
+```
+
+---
+
+## Step 4: Reactive UI via `std/ui`
+
+Import the widget library and create reactive signals:
+
+````ssc
+## Imports and signals
+
+[signal, serve, fetchUrlSignal, fetchAction, fetchActionClear, incSignal](std/ui/primitives.ssc)
+[lower](std/ui/lower.ssc)
+[defaultTheme](std/ui/theme.ssc)
+[vstack, hstack, divider, spacer](std/ui/layout.ssc)
+[heading, text](std/ui/typography.ssc)
+[textField, actionButton](std/ui/input.ssc)
+[showWhen, fragment_](std/ui/reactive.ssc)
+[badge, fetchTable](std/ui/display.ssc)
+
+```scalascript
+val refreshTick = signal[Int]("refreshTick", 0)
+val newItem     = signal[String]("newItem",   "")
+```
+````
+
+`fetchTable` renders the todo list, fetching from `/api/todos` and
+re-fetching whenever `refreshTick` increments.  `fetchActionClear` posts
+to `/api/todos`, then clears `newItem` and bumps `refreshTick`:
+
+````ssc
+## Todo panel
+
+```scalascript
+val todosTable = fetchTable("/api/todos", "/api/todos/delete", refreshTick)
+
+val todoPanel = vstack(gap = 12)(
+  heading(2, "Todos"),
+  todosTable,
+  textField(value = newItem, label = "New item"),
+  actionButton(fetchActionClear("POST", "/api/todos", newItem, refreshTick), "Add")
+)
+```
+````
+
+---
+
+## Step 5: Serve the UI
+
+`lower` converts the widget tree to the React View IR; `serve` starts the
+HTTP server and also serves the compiled React bundle at `/`:
+
+````ssc
+## Serve
+
+```scalascript
+serve(lower(todoPanel, defaultTheme), 8080)
+```
+````
+
+```bash
+ssc serve todos.ssc   # hot-reloads the route table on every save
+# open http://localhost:8080/
+```
+
+Type a todo, click **Add** — the item appears instantly.  Stop and restart
+`ssc`; the items are still there (SQLite file persisted on disk).
+
+---
+
+## Step 6: Secure the database password
+
+If you switch to PostgreSQL, keep the password out of the file:
+
+```yaml
+databases:
+  default:
+    url:      "jdbc:postgresql://db:5432/todos"
+    user:     "${env:DB_USER}"
+    password: "${env:DB_PASSWORD}"
+```
+
+Or use sops for encrypted secrets:
+
+```yaml
+    password: "${sops:databases.todos.password}"
+```
+
+```bash
+sops -d secrets.enc.yaml | ssc serve todos.ssc
+```
+
+The decrypted YAML is read from stdin, flattened to dotted keys, and
+resolved when the connection opens.  See [User Guide §6.2](user-guide.md#62-secret-management)
+and [`secret-resolvers.md`](../secret-resolvers.md) for more secret
+backends (Vault, AWS SM, Doppler, 1Password).
+
+---
+
+## Complete file
+
+````ssc
+#!/usr/bin/env ssc
+---
+name: todos
+version: 1.0.0
+frontend: react
+databases:
+  default:
+    url: "jdbc:sqlite:./todos.db"
+---
+
+# Todos
+
+## Database setup
+
+```sql
+CREATE TABLE IF NOT EXISTS todos (
+  id   INTEGER PRIMARY KEY AUTOINCREMENT,
+  text TEXT    NOT NULL
+)
+```
+
+## REST API
+
+```scalascript
+route("GET", "/api/todos") { req =>
+  val rows = Db.query("default", "SELECT id, text FROM todos ORDER BY id", [])
+  val body = "[" + rows.map(r => s"""{"id":${r("id")},"text":"${r("text")}"}""").mkString(",") + "]"
+  Response.text(body)
+}
+
+route("POST", "/api/todos") { req =>
+  val text = req.body.trim
+  if text.isEmpty then Response.status(400, "empty body")
+  else
+    Db.execute("default", "INSERT INTO todos(text) VALUES (?)", [text])
+    Response.status(201, "created")
+}
+
+route("POST", "/api/todos/delete") { req =>
+  Db.execute("default", "DELETE FROM todos WHERE id = ?", [req.body.trim.toInt])
+  Response.status(204)
+}
+```
+
+## Imports and signals
+
+[signal, serve, fetchUrlSignal, fetchAction, fetchActionClear, incSignal](std/ui/primitives.ssc)
+
+[lower](std/ui/lower.ssc)
+
+[defaultTheme](std/ui/theme.ssc)
+
+[vstack, hstack, divider](std/ui/layout.ssc)
+
+[heading](std/ui/typography.ssc)
+
+[textField, actionButton](std/ui/input.ssc)
+
+[fetchTable](std/ui/display.ssc)
+
+```scalascript
+val refreshTick = signal[Int]("refreshTick", 0)
+val newItem     = signal[String]("newItem",   "")
+```
+
+## UI
+
+```scalascript
+val todosTable = fetchTable("/api/todos", "/api/todos/delete", refreshTick)
+
+val tree = vstack(gap = 16)(
+  heading(1, "Todos"),
+  divider(),
+  todosTable,
+  textField(value = newItem, label = "New item"),
+  actionButton(fetchActionClear("POST", "/api/todos", newItem, refreshTick), "Add")
+)
+```
+
+## Serve
+
+```scalascript
+serve(lower(tree, defaultTheme), 8080)
+```
+````
+
+---
+
+## What's Next
+
+- Add authentication — a `route("POST", "/login")` route that sets a session
+  cookie, then guard the REST routes with `req.session.get("user")`.
+- Switch from `Response.text(body)` to `Response.json(rows)` and use
+  `fetchTable` with typed columns.
+- Add PostgreSQL + sops-encrypted credentials for a production deploy.
+- Replace the hand-crafted JSON string with `jsonStringify` from `std/json`.
+- Add a search box: `signal[String]("filter", "")`, pass it to
+  `fetchUrlSignal("/api/todos?q=...", refreshTick)`, and filter server-side.

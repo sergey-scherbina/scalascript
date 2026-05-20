@@ -57,6 +57,9 @@ cd scalascript
 # and gitignored — sources live in scripts/launchers/.
 ./install.sh
 
+# Pipe sops-decrypted secrets into a script (${sops:key} references in databases:)
+sops -d secrets.enc.yaml | ssc myapp.ssc
+
 # Interpreter (tree-walking, no compilation step)
 bin/ssc examples/hello.ssc
 
@@ -92,6 +95,7 @@ bin/http.ssc
 | [Tutorial 1 — Todo API](docs/tutorial.md#tutorial-1-collaborative-todo-api) | Build a todo API step by step — data model → REST → auth → WebSocket → TLS → MCP |
 | [Tutorial 2 — Spark ETL](docs/tutorial.md#tutorial-2-etl-pipeline-with-apache-spark) | End-to-end Spark pipeline — `Dataset[T]` → `@SqlFn` UDF → `@TempView` → Delta Lake |
 | [Tutorial 3 — Frontend Toolkit demo](docs/tutorial.md#tutorial-3-frontend-toolkit-demo) | Compile + emit + serve a toolkit SPA through React / Vue / Solid / Custom + SSR via `ssc serve` |
+| [Tutorial 4 — Full-stack .ssc](docs/tutorial.md#tutorial-4-full-stack-ssc--sqlite-todo-app-with-reactive-ui) | SQLite + REST API + reactive `std/ui` frontend in one `.ssc` file — `databases:`, `sql` blocks, `serve(lower(tree, theme), port)` |
 
 **Language reference**
 
@@ -119,6 +123,7 @@ bin/http.ssc
 | [x402 micropayments](docs/x402.md) | HTTP 402 protocol, Ethereum + Cardano flows, MCP × x402 paid tools |
 | [Blockchain SPI](docs/blockchain-spi.md) | Pluggable backends — EVM, Bitcoin, Solana, Cardano |
 | [Browser SQL](docs/browser-sql.md) | Cross-backend `sql` fenced blocks (JS / Node / Wasm / JVM) |
+| [Secret Resolvers](secret-resolvers.md) | `${env:}` · `${file:}` · `${sops:}` · `SecretResolver` SPI for Vault / AWS SM / GCP / Doppler / 1Password |
 | [MCP Support](docs/mcp.md) | MCP server tools + resources, MCP client |
 | [Markdown as Syntax](docs/markdown-as-syntax.md) | How Markdown constructs map to AST nodes |
 
@@ -154,6 +159,7 @@ compiles them via Scala.js.
 | Recursion | factorial, Fibonacci, tree traversal |
 | Tail-call optimisation | self-TCO and mutual TCO — no `@tailrec` required |
 | Case-class `.copy` | `p.copy(field = newValue, ...)` |
+| List / map literals | `[1, 2, 3]` → `List(…)`, `["k" -> v, ...]` → `Map(…)`, `[]` → `List()` — compact sugar in `.ssc` code blocks |
 
 ### Optics
 
@@ -208,6 +214,8 @@ compiles them via Scala.js.
 | HTTP client | `httpGet/httpPost`, `httpClient { }`, `httpGetStream` for SSE/LLM streaming |
 | WebSocket client | `wsConnect(url) { ws => }`, `wss://` |
 | REST ergonomics | `jsonParse/jsonStringify/jsonRead`, `req.json`, `JsonValue`, `validate { }`, middleware |
+| SQL databases | `databases:` front-matter declares named JDBC connections; ` ```sql ``` ` fenced blocks execute DDL/DML; `Db.query/execute` for programmatic access; SQLite, H2, PostgreSQL out of the box |
+| Secret resolution | `${env:VAR}`, `${file:/run/secrets/pw}`, `${sops:key.path}` in database URLs/credentials; `SecretResolver` SPI for Vault, AWS SM, GCP SM, Doppler, 1Password and more |
 
 ### Auth and security
 
@@ -331,6 +339,7 @@ compiles them via Scala.js.
 | [lang-split.ssc](examples/lang-split.ssc) | `scala` vs `scalascript` block annotations side by side |
 | [scala-js-demo.ssc](examples/scala-js-demo.ssc) | Pure `scala` 3 document — runs on all three backends with byte-identical output |
 | [rest-api.ssc](examples/rest-api.ssc) | Tiny in-memory REST API — `route()`, `html"..."`, `serve()` |
+| [sql-sqlite-file.ssc](examples/sql-sqlite-file.ssc) | SQLite file database — `databases:` front-matter, `sql` DDL/DML blocks, `Db.query/execute` |
 | [spa-demo.ssc](examples/spa-demo.ssc) | Same `route()` / `serve()` source, browser SPA via `ssc emit-spa` |
 | [auth-demo.ssc](examples/auth-demo.ssc) | Login / logout with signed cookie sessions + CSRF tokens |
 | [oauth-demo.ssc](examples/oauth-demo.ssc) | Full OAuth2 sign-in (GitHub or Google) — state, exchange, userinfo |
