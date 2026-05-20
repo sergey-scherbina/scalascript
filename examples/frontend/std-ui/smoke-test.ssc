@@ -4,6 +4,7 @@ name: std-ui-smoke-test
 version: 1.0.0
 description: Interpreter smoke test for std/ui/*.ssc — exercises every widget family, emits to a temp dir, prints smoke:ok.
 backends: [int]
+frontend-framework: react
 ---
 
 # std/ui smoke test
@@ -35,10 +36,6 @@ throwing and that `println("smoke:ok")` is reached.
 [tableCol, tableRow, table, sortableTable](std/ui/data.ssc)
 
 [route, router, link](std/ui/routing.ssc)
-
-```scalascript
-setFrontendFramework("react")
-```
 
 ## Signals
 

@@ -3,18 +3,13 @@
 name: toolkit-demo
 version: 2.0.0
 description: Interactive sign-up form — toolkit demo written in pure ScalaScript using std/ui
+frontend-framework: react
 ---
 
 # Toolkit Demo
 
 An interactive sign-up form demonstrating the pure `.ssc` frontend toolkit.
 Widgets are built from `std/ui/*.ssc` imports; no Scala intrinsics bridge needed.
-
-## Backend
-
-```scalascript
-setFrontendFramework("react")
-```
 
 ## Imports and signals
 
