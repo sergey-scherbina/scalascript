@@ -499,11 +499,28 @@ lazy val backendSpark = project
     Test    / scalacOptions ++= sharedScalacOptions
   )
 
+// ── compiler/driver — scala3-compiler isolated from startup classpath ────────
+// Does NOT appear in cli's .dependsOn so dotty is never on the startup CP.
+// cli/stage copies this module's JAR to lib/compiler/jars/ and CompilerLoader
+// picks it up via URLClassLoader + ServiceLoader on first compile command.
+lazy val compilerDriver = project
+  .in(file("compiler/driver"))
+  .dependsOn(core)
+  .settings(
+    name := "scalascript-compiler-driver",
+    libraryDependencies ++= Seq(
+      "org.scala-lang" %% "scala3-compiler" % scalaVersion.value,
+      scalatestTest
+    ),
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions
+  )
+
 // ── ProGuard shrink task (run: sbt cli/shrinkJar) ──────────────────────────
 // sbt-proguard is used ONLY for config generation + ProGuard JAR resolution;
 // we bypass its runner (hardcoded -Xmx256M) and fork java with -Xmx1G.
 val shrinkJar = taskKey[File]("Shrink the assembled ssc.jar with ProGuard 7.5 (1 G heap)")
-val stage     = taskKey[Unit]("Stage lib/ssc.jar + lib/jars/ + lib/plugins/ for classpath-based launch")
+val stage     = taskKey[Unit]("Stage lib/ssc.jar + lib/jars/ + lib/compiler/ for classpath-based launch")
 
 lazy val cli = project
   .in(file("cli"))
@@ -628,28 +645,56 @@ lazy val cli = project
       log.info(s"Shrunk to ${outJar.length / (1024*1024)} MB  (saved ~${saved} MB)")
       outJar
     },
-    // ── stage: thin JAR + exploded deps, no fat jar needed ───────────────
+    // ── stage: thin JAR + split runtime/compiler deps ────────────────────
     // Produces:
-    //   $ROOT/lib/ssc.jar        ← cli module classes only
-    //   $ROOT/lib/jars/*.jar     ← all transitive deps (sub-modules + external)
-    //   $ROOT/lib/plugins/       ← empty dir, ready for .sscpkg installation
+    //   $ROOT/lib/ssc.jar              ← cli entry-point (no dotty)
+    //   $ROOT/lib/jars/*.jar           ← runtime deps (os-lib, scalameta, …)
+    //   $ROOT/lib/compiler/jars/*.jar  ← scala3-compiler, asm, compiler-driver
+    //   $ROOT/lib/compiler/plugins/    ← .sscpkg files (auto-loaded at startup)
     // Launcher: java -cp "$ROOT/lib/jars/*:$ROOT/lib/ssc.jar" scalascript.cli.ssc
+    // (lib/compiler/jars/ is NOT on startup CP — loaded lazily by CompilerLoader)
     stage := {
-      val log      = streams.value.log
-      val root     = (ThisBuild / baseDirectory).value
-      val libDir   = root / "lib"
-      val depsDir  = libDir / "jars"
-      val plugDir  = libDir / "plugins"
-      IO.createDirectory(depsDir)
+      val log          = streams.value.log
+      val root         = (ThisBuild / baseDirectory).value
+      val libDir       = root / "lib"
+      val runtimeDir   = libDir / "jars"
+      val compilerDir  = libDir / "compiler" / "jars"
+      val plugDir      = libDir / "compiler" / "plugins"
+      IO.delete(runtimeDir);  IO.createDirectory(runtimeDir)
+      IO.delete(compilerDir); IO.createDirectory(compilerDir)
       IO.createDirectory(plugDir)
-      val appJar   = (Compile / packageBin).value
+      // Thin cli entry-point JAR (no scala3-compiler dep).
+      val appJar = (Compile / packageBin).value
       IO.copyFile(appJar, libDir / "ssc.jar")
       log.info(s"lib/ssc.jar  (${appJar.length / 1024} KB)")
-      val cp       = (Compile / fullClasspath).value.files
-      val depJars  = cp.filter(f => f.isFile && f.getName.endsWith(".jar") && f.getAbsolutePath != appJar.getAbsolutePath)
-      depJars.foreach(j => IO.copyFile(j, depsDir / j.getName))
-      log.info(s"lib/jars/    (${depJars.size} JARs)")
-      log.info(s"lib/plugins/ ready")
+      // compiler-driver JAR → lib/compiler/jars/
+      val driverJar = (compilerDriver / Compile / packageBin).value
+      IO.copyFile(driverJar, compilerDir / driverJar.getName)
+      // Compiler-only JARs: the dotty compiler itself and compile-only tooling.
+      // scala3-library and scala-library are runtime deps too — keep in lib/jars/.
+      val compilerCp = (compilerDriver / Compile / fullClasspath).value.files
+      val compilerOnlyPrefixes = Set("scala3-compiler", "scala3-interfaces", "tasty-core",
+                                     "scala-asm", "compiler-interface", "zinc-")
+      val isCompilerJar = (f: java.io.File) =>
+        f.isFile && f.getName.endsWith(".jar") &&
+        compilerOnlyPrefixes.exists(n => f.getName.startsWith(n)) &&
+        f.getAbsolutePath != appJar.getAbsolutePath &&
+        f.getAbsolutePath != driverJar.getAbsolutePath
+      val compilerJars = compilerCp.filter(isCompilerJar)
+      compilerJars.foreach(j => IO.copyFile(j, compilerDir / j.getName))
+      log.info(s"lib/compiler/jars/  (${compilerJars.size + 1} JARs incl. compiler-driver)")
+      // Runtime JARs: cli fullClasspath minus compiler JARs and app JAR.
+      val runtimeCp = (Compile / fullClasspath).value.files
+      val compilerAbsPaths = (compilerJars :+ driverJar).map(_.getAbsolutePath).toSet
+      val runtimeJars = runtimeCp.filter { f =>
+        f.isFile && f.getName.endsWith(".jar") &&
+        f.getAbsolutePath != appJar.getAbsolutePath &&
+        !compilerAbsPaths.contains(f.getAbsolutePath) &&
+        !isCompilerJar(f)
+      }
+      runtimeJars.foreach(j => IO.copyFile(j, runtimeDir / j.getName))
+      log.info(s"lib/jars/           (${runtimeJars.size} JARs)")
+      log.info(s"lib/compiler/plugins/ ready")
     }
   )
 

@@ -18,6 +18,9 @@ build/
 /bin/
 /lib/ssc.jar
 /lib/jars/
+/lib/compiler/jars/
+# Compiled JVM artifacts produced by compile-jvm / package
+*.scjvm
 
 # Scala CLI
 .scala-build/

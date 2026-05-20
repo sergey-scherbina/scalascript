@@ -261,8 +261,8 @@ object JvmBytecode:
       // `classpathDirs` are directories of `.class` files from previously-
       // compiled dep bundles (extracted by `extractDepBundlesForCompile`
       // in Main.scala).  Pass through unchanged.
-      Scala3Driver.compile(
-        srcFiles  = List(srcFile),
+      CompilerLoader.compile(
+        sources   = List(srcFile),
         outDir    = outDir,
         classpath = classpathDirs
       ) match
@@ -356,8 +356,8 @@ object JvmBytecode:
       val outDir = workDir / "out"
       os.makeDir.all(outDir)
 
-      Scala3Driver.compile(
-        srcFiles  = List(srcFile),
+      CompilerLoader.compile(
+        sources   = List(srcFile),
         outDir    = outDir,
         classpath = Nil
       ) match
@@ -606,7 +606,7 @@ object JvmBytecode:
     val srcDir = os.temp.dir(prefix = "ssc-facade-src-")
     val outDir = os.temp.dir(prefix = "ssc-facade-out-")
     try
-      val srcFiles = facadeSources.toList.zipWithIndex.map { case ((relPath, source), idx) =>
+      val sources = facadeSources.toList.zipWithIndex.map { case ((relPath, source), idx) =>
         // Flatten directory structure to filenames — the `package` clause
         // inside the source body lands the compiled classes correctly.
         val safeName =
@@ -619,7 +619,7 @@ object JvmBytecode:
         os.write(srcFile, source)
         srcFile
       }
-      Scala3Driver.compile(srcFiles, outDir, classpath = classpathDirs) match
+      CompilerLoader.compile(sources, outDir, classpath = classpathDirs) match
         case Right(()) => Right(outDir)
         case Left(err) => Left(err)
     catch case e: Throwable => Left(s"compileFacade: ${e.getMessage}")
