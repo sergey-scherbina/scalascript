@@ -1366,34 +1366,117 @@ under `examples/frontend/`.
 
 ---
 
-## 16. Frontend Toolkit (v1.18 B+)
+## 16. Frontend Toolkit (v1.18 B / B+ / B++ / C)
 
-Higher-level declarative UI on top of the framework SPI:
+Higher-level declarative UI on top of the framework SPI.  Lives in
+the `frontend-toolkit` sbt module; user code reaches for the `Tk`
+facade.  Every widget lowers to the backend-agnostic `View` AST
+through `Toolkit.lower(node, theme)`, so the same widget tree
+compiles through React / Vue / Solid / Custom.
 
-- **Form** — schema-driven inputs with validation, error display, submit handlers
-- **Routing** — `Routing { route("/path") { … } }`, params, nested routes, guards
-- **Widgets v2** — Card, Modal, Tabs, Dropdown, DatePicker, Combobox, Toast
-- **Table** — sortable / filterable / paginated rows with typed column defs
+**Widget catalog (as of Phase B++)**
 
-```scalascript
-Form[Login]("/login") {
-  field("email").email.required
-  field("password").password.minLength(8)
-  submit { user => login(user) }
+- *Layout*: Stack (`vstack`/`hstack`), Box, Spacer, Divider, Card
+- *Typography*: Heading, Text, Code
+- *Inputs*: Button, TextField, Checkbox, Slider, Select, RadioGroup,
+  Textarea, DatePicker, NumberInput
+- *Display*: Alert (a.k.a. `notice`), Badge, Avatar, Icon, Spinner,
+  Progress, Tooltip
+- *Containers*: Modal, Drawer
+- *Navigation*: Tabs, Router + Link
+- *Data*: Table with click-to-sort + ARIA
+- *Form*: validation pipeline + `FormContext`
+
+```scala
+import scalascript.frontend.*
+import scalascript.frontend.toolkit.*
+import scalascript.frontend.toolkit.Tk
+
+val name   = new ReactiveSignal[String]("name", "")
+val agree  = new ReactiveSignal[Boolean]("agree", false)
+
+val tree: ToolkitNode = Tk.vstack(gap = 16)(
+  Tk.heading(1, "Sign up"),
+  Tk.card()(
+    Tk.vstack(gap = 12)(
+      Tk.textField(name, label = Some("Display name"), required = true),
+      Tk.checkbox (agree, label = "I accept the terms.")
+    )
+  ),
+  Tk.button("Submit", onClick = () => submit(name(), agree()),
+            kind = ButtonKind.Primary),
+  Tk.notice(AlertSeverity.Success, title = Some("OK")) {
+    Tk.text("Submitted.")
+  }
+)
+
+// Lower once; every backend consumes the resulting View identically.
+val view: View = Toolkit.lower(tree, Theme.default)
+```
+
+**Forms with validation**
+
+```scala
+Tk.form(onSubmit = ctx => api.createUser(ctx.values())) { ctx =>
+  val email = ctx.field[String]("email", "",
+    Validators.and(Validators.required, Validators.email))
+  val pwd   = ctx.field[String]("password", "",
+    Validators.and(Validators.required, Validators.minLength(8)))
+  Tk.vstack(gap = 8)(
+    Tk.textField(email.value, label = Some("Email"), error = Some(email.error)),
+    Tk.textField(pwd.value,   label = Some("Password"),
+                 inputType = "password", error = Some(pwd.error)),
+    Tk.button("Create", onClick = () => (), formSubmit = true)
+  )
 }
+```
 
-Routing {
-  route("/") { home() }
-  route("/users/:id") { id => userProfile(id) }
-}
+**Routing**
 
-Table(users)
-  .col("Name")(_.name)
-  .col("Email", sortable = true)(_.email)
-  .col("Active") { u => Toggle(u.active) }
+```scala
+val currentPath = new ReactiveSignal[String]("path", "/")
+Tk.router(currentPath, notFound = Tk.text("404"))(
+  Tk.route("/")          (_ => homePage()),
+  Tk.route("/users/:id") (params => userProfile(params("id")))
+)
+```
+
+**Run the toolkit demo**
+
+A complete reference SPA ships with the project under
+[`frontend-examples`](../frontend-examples/src/main/scala/scalascript/frontend/examples/ToolkitDemo.scala):
+
+```bash
+# 1. Compile + test (217 toolkit + 41 demo = 258 tests)
+sbt frontendToolkit/test frontendExamples/test
+
+# 2. Emit 16 static bundles (4 demos x 4 backends)
+sbt "frontendExamples/runMain scalascript.frontend.examples.EmitAll"
+# → target/frontend-examples/toolkit-demo/{custom,react,solid,vue}/
+
+# 3. Serve via the bundled scalascript HTTP server (no Python/Node)
+ssc serve 8000 target/frontend-examples/toolkit-demo/react
+# open http://localhost:8000/
+```
+
+The Custom backend currently renders the toolkit demo as static
+HTML (signal-binding through JVM lambdas is Phase D work); React /
+Vue / Solid run fully reactive.
+
+**SSR**
+
+`Ssr.renderToHtml(viewOrNode, theme)` snapshots the toolkit tree to
+a static HTML string with no JS subscriptions — useful for SEO,
+static-site generation, email templates, or snapshot tests:
+
+```scala
+import scalascript.frontend.toolkit.{Ssr, Theme}
+val html = Ssr.renderToHtml(tree, Theme.default)
+val doc  = Ssr.renderDocument(tree, title = "Demo", theme = Theme.dark)
 ```
 
 Spec: [`docs/frontend-toolkit-spec.md`](frontend-toolkit-spec.md).
+Cross-backend integration: [`docs/frontend-usage.md`](frontend-usage.md).
 
 ---
 

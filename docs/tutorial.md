@@ -949,3 +949,167 @@ Delta-persisted — all from a single `.ssc` file.
 - For non-local clusters, swap `bin/ssc-spark` for `ssc submit ... --spark-master spark://...` (fat JAR via `spark-submit`).
 
 See the [User Guide](user-guide.md) and [SPEC.md](../SPEC.md) for full API reference.
+
+---
+
+# Tutorial 3: Frontend Toolkit demo
+
+Build a small but real SPA through the high-level Frontend Toolkit
+(`Tk` facade), compile it to React / Vue / Solid / Custom, and serve
+it via the bundled scalascript HTTP server.  No JS, no Python, no
+Node.  Everything end-to-end in ScalaScript / Scala 3.
+
+The finished demo has:
+- A heading + paragraph
+- A signup card with a name field + an accept-terms checkbox + a submit button + a status badge
+- A "Status" alert
+- A loading indicator strip (spinner + badge)
+- Reactive signals on every input
+- Static-HTML SSR rendering for SEO / snapshot tests
+
+You'll see the same toolkit tree compile to four different
+framework-idiomatic JS bundles, plus a static HTML version.
+
+---
+
+## Step 1: Already shipped
+
+The demo lives in the `frontend-examples` sbt module — no new
+sources needed for this walkthrough:
+
+- IR: [`frontend-examples/src/main/scala/scalascript/frontend/examples/ToolkitDemo.scala`](../frontend-examples/src/main/scala/scalascript/frontend/examples/ToolkitDemo.scala)
+- Cross-backend test: [`frontend-examples/src/test/scala/scalascript/frontend/examples/ToolkitCrossBackendTest.scala`](../frontend-examples/src/test/scala/scalascript/frontend/examples/ToolkitCrossBackendTest.scala)
+
+Browse `ToolkitDemo.scala` to see how the entire UI is built through
+`Tk.vstack`, `Tk.card`, `Tk.textField`, etc. — there is no raw `View`
+construction in user code.
+
+## Step 2: Compile
+
+```bash
+sbt frontendToolkit/compile
+sbt frontendExamples/compile
+```
+
+You can also run the test suites to verify everything is wired up:
+
+```bash
+sbt frontendToolkit/test     # 217 tests across 8 suites
+sbt frontendExamples/test    # 41 tests including the cross-backend
+                             # ToolkitCrossBackendTest (10 cases)
+```
+
+## Step 3: Generate static bundles
+
+The `EmitAll` runner lowers every (demo × backend) pair to an
+HTML + JS bundle:
+
+```bash
+sbt "frontendExamples/runMain scalascript.frontend.examples.EmitAll"
+```
+
+After it finishes, you should see:
+
+```
+target/frontend-examples/
+  counter/      custom/ react/ solid/ vue/
+  show-hide/    custom/ react/ solid/ vue/
+  todo/         custom/ react/ solid/ vue/
+  toolkit-demo/ custom/ react/ solid/ vue/      # ← the new demo
+```
+
+Each leaf directory has an `index.html` + `app.js` pair ready to
+serve.  Total: 16 demo × backend pairs.
+
+Pick an explicit out-dir if you want:
+
+```bash
+sbt "frontendExamples/runMain scalascript.frontend.examples.EmitAll /tmp/ssc-spa"
+```
+
+## Step 4: Serve via `ssc serve`
+
+The Vue / Solid / Custom backends emit ES modules, so they can't be
+opened via `file://` — modules require an HTTP origin.  The
+scalascript CLI ships its own static file server:
+
+```bash
+# Serve the React build
+ssc serve 8000 target/frontend-examples/toolkit-demo/react
+
+# Then open http://localhost:8000/ in any browser.
+```
+
+Same pattern for the other three backends:
+
+```bash
+ssc serve 8000 target/frontend-examples/toolkit-demo/vue
+ssc serve 8000 target/frontend-examples/toolkit-demo/solid
+ssc serve 8000 target/frontend-examples/toolkit-demo/custom
+```
+
+`ssc serve [port] [dir]` is built-in — no Python, no Node, no extra
+install.  Defaults: port `8080`, dir `.`.
+
+## Step 5: Try every backend
+
+Pick three browser tabs at:
+- `http://localhost:8000/` against `…/toolkit-demo/react`
+- `http://localhost:8000/` against `…/toolkit-demo/solid`
+- `http://localhost:8000/` against `…/toolkit-demo/vue`
+
+You should see identical UIs — same heading, same card, same
+buttons.  Type into the name field and tick the checkbox: under
+React / Solid / Vue the inputs are fully reactive (the underlying
+signal is wired to `useState` / `createSignal` / `ref(...)`).
+
+The **Custom** backend currently renders the toolkit demo as
+**static** HTML (it shows the layout, but typing into the input
+doesn't update the signal yet — the Custom emitter's "lambda → JS"
+translation is Phase D follow-up work; the framework backends route
+JVM closures through native JS render paths and don't have this
+limitation).
+
+## Step 6: Render to static HTML via SSR
+
+For SEO, static-site generation, email templates, or snapshot
+tests, the toolkit ships a pure `View → HTML` stringifier with no
+JS runtime:
+
+```scala
+import scalascript.frontend.toolkit.{Tk, Ssr, Theme}
+
+val tree = Tk.vstack(gap = 16)(
+  Tk.heading(1, "Static page"),
+  Tk.text("Rendered without any JS runtime.")
+)
+
+// Just the body:
+val html = Ssr.renderToHtml(tree, Theme.default)
+
+// Or a full HTML5 document with theme-coloured body:
+val doc = Ssr.renderDocument(tree, title = "Demo", theme = Theme.default)
+```
+
+`Ssr.renderDocument` produces a `<!DOCTYPE html>` shell complete
+with a viewport meta, a theme-coloured body, and a `<title>` —
+ready to drop into a static-site pipeline.
+
+---
+
+## What's Next
+
+- Build your own widget on top of `ToolkitNode` + your own
+  `Toolkit.lower` `case` — the toolkit's `trait ToolkitNode` is
+  open precisely so widget packs can live in separate modules.
+- Wire a form with validators — see
+  [`frontend-toolkit/src/main/scala/scalascript/frontend/toolkit/Form.scala`](../frontend-toolkit/src/main/scala/scalascript/frontend/toolkit/Form.scala)
+  and `Tk.form { ctx => ... }` + `Validators.email` /
+  `Validators.minLength(8)` / `Validators.and(...)`.
+- Add routing with `Tk.router(currentPath, notFound)(routes*)` and
+  `Tk.route("/users/:id") { params => ... }`.
+- Use the `Table[T]` widget for sortable typed data — see
+  [`Table.scala`](../frontend-toolkit/src/main/scala/scalascript/frontend/toolkit/Table.scala)
+  and `Tk.sortableColumn`.
+- Browse the full widget catalog in
+  [`docs/frontend-toolkit-spec.md`](frontend-toolkit-spec.md).

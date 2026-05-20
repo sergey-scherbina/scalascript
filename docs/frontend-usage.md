@@ -250,9 +250,9 @@ const onClickReset = () => setCount(0);
 const onClickAdd   = () => setTodos(arr => [...arr, "new item"]);
 ```
 
-## Three reference apps
+## Four reference apps
 
-Three small demos live under [`examples/frontend/`](../examples/frontend)
+Four small demos live under [`examples/frontend/`](../examples/frontend)
 and are built from
 [`frontend-examples/src/main/scala/scalascript/frontend/examples/`](../frontend-examples/src/main/scala/scalascript/frontend/examples):
 
@@ -262,24 +262,59 @@ and are built from
    `ShowSignal`.
 3. **todo** — `ReactiveSignalList[String]` + `PushSignalLiteral` +
    `ClearSignalList` + `ForSignal`.
+4. **toolkit-demo** — Frontend Toolkit through the `Tk` facade —
+   Stack, Heading, Card, TextField, Checkbox, Button, Badge, Alert,
+   Spinner, theme tokens.  Proves the high-level toolkit lowers
+   through every backend's emit pipeline.
 
-Run them:
+Compile, generate, run:
 
 ```bash
-# Emit 12 (3 demos x 4 backends) HTML + JS bundles to target/frontend-examples/
+# 1. Compile the demo sources + run the cross-backend test suite
+sbt frontendExamples/compile
+sbt frontendExamples/test                    # 41 tests across 2 suites
+
+# 2. Generate static bundles — 16 (4 demos x 4 backends) HTML+JS pairs
 sbt "frontendExamples/runMain scalascript.frontend.examples.EmitAll"
+# → target/frontend-examples/<demo>/<backend>/{index.html,app.js}
+#
+# Optional explicit out-dir:
+sbt "frontendExamples/runMain scalascript.frontend.examples.EmitAll /tmp/ssc-spa"
 
-# Then open, e.g.:
-#   target/frontend-examples/counter/react/index.html
-#   target/frontend-examples/show-hide/solid/index.html
-#   target/frontend-examples/todo/vue/index.html
-
-# Or run the shape-assertion tests:
-sbt frontendExamples/test
+# 3. Serve in a browser via the bundled ssc static server
+#    (Vue/Solid/Custom emit ES modules — file:// won't work for them.)
+ssc serve 8000 target/frontend-examples/toolkit-demo/react
+# Then open http://localhost:8000/
+#
+# Same pattern for the other demos / backends:
+ssc serve 8000 target/frontend-examples/toolkit-demo/vue
+ssc serve 8000 target/frontend-examples/counter/solid
+ssc serve 8000 target/frontend-examples/todo/custom
 ```
+
+`ssc serve [port] [dir]` is the built-in static-file server in the
+CLI — no Python or Node needed.  Defaults: port `8080`, dir `.`.
 
 The per-demo READMEs explain each demo's `.ssc`-level intent and how
 the four backends emit it.
+
+### SSR — render the toolkit tree to plain HTML
+
+For SEO, static-site generation, email templates, or snapshot tests
+the toolkit ships a pure View → HTML stringifier (no DOM, no signal
+subscriptions):
+
+```scala
+import scalascript.frontend.toolkit.{Tk, Ssr, Theme}
+
+val tree = Tk.vstack(gap = 16)(
+  Tk.heading(1, "Static page"),
+  Tk.text("Rendered without any JS runtime.")
+)
+
+val html = Ssr.renderToHtml(tree)                  // just the body
+val doc  = Ssr.renderDocument(tree, title = "Demo")  // full HTML5 shell
+```
 
 ## Limitations (as of v1.18 A8)
 
