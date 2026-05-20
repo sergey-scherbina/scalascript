@@ -883,9 +883,20 @@ lazy val x402FacilitatorCardanoScalus = project
   .settings(
     name := "scalascript-x402-facilitator-cardano-scalus",
     libraryDependencies ++= Seq(
+      // Scalus library jar provides @Compile, Validator, ScriptContext,
+      // datum/redeemer derivation. The companion compiler plugin
+      // (scalus-plugin) is what actually lowers `@Compile` objects to
+      // Plutus Core — and it depends on internal dotty APIs that diverge
+      // between Scala 3.3.7 (Scalus's build target) and 3.8.3 (ours).
+      // See `docs/x402-cardano-scalus.md` §5 spike findings #3 + the
+      // Phase 2 retry note. The plugin is intentionally NOT added here.
+      "org.scalus" %% "scalus" % "0.15.1",
       scalatestTest,
     ),
-    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    // Scalus's `@Compile`-annotated case classes generate synthetic
+    // vals that trip `-Wunused:all`. Keep warning flags but drop
+    // `-Werror` for this module only.
+    Compile / scalacOptions ++= sharedScalacOptions,
     Test    / scalacOptions ++= sharedScalacOptions,
   )
 

@@ -8090,18 +8090,41 @@ issues documented in [`docs/x402-cardano-scalus.md`](docs/x402-cardano-scalus.md
       conflict, Scala 3.3.7→3.8.3 version drift, `Validator` trait's
       five deferred-inline purposes (need `ParameterizedValidator`),
       top-level vs nested derivation, doc-vs-jar import drift
-- [ ] **Prerequisite**: project-wide upickle 3.3.1 → 4.4.2 bump
-      across ~21 modules so Scalus can be added without eviction
-      override
-- [ ] Re-add `org.scalus:scalus:0.15.1` dependency
-- [ ] `X402EscrowScript` — Plutus V3 validator via
-      `ParameterizedValidator` (not bare `Validator`) with all five
-      script purposes explicitly stubbed; `Claim` + `Refund` redeemers
+- [x] **Prerequisite**: project-wide upickle 3.3.1 → 4.4.2 bump
+      across ~21 modules + sttp.client4 4.0.0-M17 → 4.0.23 (commit
+      `b736c5a6`). All ~120 affected tests stay green.
+- [x] Re-add `org.scalus:scalus:0.15.1` dependency
+- [x] `X402EscrowScript` — single-purpose Plutus V3 validator drafted
+      as a plain `@Compile object … inline def validate(scData: Data)`
+      (avoids the six deferred-inline purposes of bare `Validator`).
+      Dispatches on `ScriptInfo.SpendingScript`, fails other purposes.
+- [x] `EscrowDatum` + `EscrowRedeemer` (Claim/Refund) at top level
+      with `derives FromData, ToData` — Scalus 0.15.1 only derives on
+      top-level types, not nested
+- [x] Structural checks (signatory presence for Claim / Refund)
+      enforced; full CIP-8 inline verification deferred to Phase 2.5
+- [→] **Blocked on Scalus Scala-3.8 support.** `PlutusV3.compile(...)`
+      requires the `scalus-plugin` compiler plugin (latest 0.16.0),
+      which was built against Scala 3.3.7 and references
+      `dotty.tools.dotc.core.Names$Designator` — removed in Scala
+      3.8.x. Plugin load fails with `NoClassDefFoundError`. Without
+      the plugin enabled, `PlutusV3.compile` throws at runtime.
+      See spec §5 "Phase 2 retry" for the three options
+      (wait for Scalus 3.8 / separate sub-build / project Scala
+      downgrade); all three are out of Phase 2 scope.
+- [x] 4-test sanity suite for `X402EscrowScriptTest`: datum
+      construction, redeemer shapes, **and a pinned test that
+      asserts the missing-plugin RuntimeException** — flips the day
+      a compatible plugin lands
 - [ ] On-chain CIP-8 verification: COSE_Sign1 decode + Ed25519 verify
       against datum.payerKeyHash; payload-hash equality check
+      (Phase 2.5, after plugin)
 - [ ] Output-shape check: exact lovelace to datum.receiver
+      (Phase 2.5, after plugin)
 - [ ] Validity-range check vs `datum.validBefore` / `datum.refundAfter`
+      (Phase 2.5, after plugin)
 - [ ] Unit tests via Scalus's script-context simulator
+      (Phase 2.5, after plugin)
 
 #### Phase 3 — Escrow address + reference script
 

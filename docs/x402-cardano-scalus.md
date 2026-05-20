@@ -269,6 +269,48 @@ Retry path (Phase 2.1): land the upickle bump first as its own
 commit, then re-add the Scalus dep with `ParameterizedValidator` as
 the base, with all 5 purposes overridden defensively.
 
+#### Phase 2 retry (2026-05-20) — what landed and what's still blocked
+
+The upickle 3.3.1 → 4.4.2 bump (commit `b736c5a6`) unblocked the
+Scalus library dependency, and the validator source (`X402EscrowScript`
++ `EscrowDatum` + `EscrowRedeemer`) now type-checks against Scalus 0.15.1
+in our build. Design lessons applied:
+
+- Single-purpose validator written as plain
+  `@Compile object X402EscrowScript { inline def validate(scData: Data): Unit }`
+  rather than extending `Validator` (avoids needing to override all six
+  deferred-inline Plutus V3 purpose methods).
+- Datum + Redeemer at top level with `derives FromData, ToData`.
+- `PubKeyHash` from `scalus.cardano.onchain.plutus.v1` used for keyhash
+  slots; `scalus.cardano.onchain.plutus.v3.ScriptContext` + `ScriptInfo`
+  used to dispatch on `SpendingScript`.
+
+But a **harder blocker** surfaced when trying to actually compile the
+validator to UPLC:
+
+7. **Scalus compiler plugin requires Scala 3.3.7 internal dotty APIs.**
+   `PlutusV3.compile(...)` is not a library method — it's intercepted
+   by the `scalus-plugin` compiler plugin. The plugin (latest 0.16.0)
+   was built against Scala 3.3.7 and references
+   `dotty.tools.dotc.core.Names$Designator`, which does not exist in
+   Scala 3.8.3's compiler. Enabling the plugin in this build fails at
+   load time with `NoClassDefFoundError`. Without the plugin,
+   `PlutusV3.compile` throws a marker `RuntimeException` at first
+   invocation.
+
+   Available paths (all out of scope for Phase 2):
+   - Wait for a Scalus release that targets Scala 3.8.x
+   - Build the Plutus contracts in a separate sub-build pinned to
+     Scala 3.3.7; emit CBOR hex as a resource consumed by the main
+     build
+   - Downgrade the entire ScalaScript project to Scala 3.3.x (large
+     blast radius)
+
+   The chosen Phase 2 deliverable is: ship the validator source as
+   the canonical statement of the on-chain rules, with a test that
+   pins the missing-plugin runtime exception so the day a working
+   plugin lands we'll see this test flip naturally.
+
 ### Phase 3 — escrow address + reference script deployment helpers
 
 - `EscrowScript.address(network)` — derives the script address from
